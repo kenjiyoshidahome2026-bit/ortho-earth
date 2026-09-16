@@ -143,7 +143,10 @@ function parseLogical(v) {   // LogicalType union → 名前（＋詳細）
 	return names[id] ?? null;
 }
 
-export async function readParquet(u8) {
+// ファイルを開いてメタデータと列定義を返す（値は読まない）。readRowGroup(g) で row group 1 つ分の列配列を復号する＝
+// 全 row group を一度に持たない（1GB 級の轍・2026-09-16）。戻り: { numRows, keyValue, created, columns, rowGroups: [{ numRows }], readRowGroup }
+//   readRowGroup(g) → Map(列名 → Array(rgRows) | null)。読めない列は columns[i].unsupported に理由を立てて null（旧 readParquet と同じ扱い）
+export async function openParquet(u8) {
 	const n = u8.length;
 	if (n < 12 || String.fromCharCode(u8[n - 4], u8[n - 3], u8[n - 2], u8[n - 1]) !== "PAR1") throw new Error("parquet: PAR1 の末尾署名が無い");
 	const metaLen = new DataView(u8.buffer, u8.byteOffset).getUint32(n - 8, true);
@@ -153,7 +156,7 @@ export async function readParquet(u8) {
 		5: (r) => r.list((r) => r.struct({ 1: str, 2: str })),
 		6: str,
 	});
-	const schema = meta[2], numRows = meta[3] ?? 0, rowGroups = meta[4] ?? [], created = meta[6] ?? "";
+	const schema = meta[2], numRows = meta[3] ?? 0, rgs = meta[4] ?? [], created = meta[6] ?? "";
 	const keyValue = {}; for (const kv of meta[5] ?? []) keyValue[kv[1]] = kv[2] ?? null;
 	// スキーマ木を辿って葉の path・最大 definition level・repeated の有無を得る
 	const leaves = [];
@@ -166,22 +169,23 @@ export async function readParquet(u8) {
 		else leaves.push({ path: p, name: p.join("."), type: el[1], typeLength: el[2] ?? 0, converted: el[6], logical: parseLogical(el[10]), maxDef: md, repeated: rp });
 	};
 	while (i < schema.length) walk([], 0, false);
-	// 列ごとに全行グループを読む
-	const columns = leaves.map(l => ({ path: l.path, name: l.name, type: l.type, logical: l.logical ?? (l.converted === 0 ? "STRING" : l.converted === 19 ? "JSON" : null), values: l.repeated ? null : new Array(numRows), unsupported: l.repeated ? "repeated" : null }));
-	const dv = new DataView(u8.buffer, u8.byteOffset);
-	let row0 = 0;
-	for (const rg of rowGroups) {
-		const chunks = rg[1] ?? [], rgRows = rg[3] ?? 0;
-		for (const ch of chunks) {
+	const columns = leaves.map(l => ({ path: l.path, name: l.name, type: l.type, logical: l.logical ?? (l.converted === 0 ? "STRING" : l.converted === 19 ? "JSON" : null), unsupported: l.repeated ? "repeated" : null }));
+	const rowGroups = rgs.map(rg => ({ numRows: rg[3] ?? 0, chunks: rg[1] ?? [] }));
+
+	async function readRowGroup(g) {
+		const rg = rowGroups[g]; if (!rg) throw new Error(`parquet: row group ${g} が無い（${rowGroups.length} 個）`);
+		const out = new Map();
+		for (const ch of rg.chunks) {
 			const cm = ch[3]; if (!cm) continue;
 			const pathKey = (cm[3] ?? []).join("."), ci = columns.findIndex(c => c.name === pathKey);
 			if (ci < 0) continue;
 			const col = columns[ci], leaf = leaves[ci];
-			if (col.unsupported) continue;
+			if (col.unsupported) { out.set(col.name, null); continue; }
+			const values = new Array(rg.numRows);
 			const codec = cm[4] ?? 0, numValues = cm[5] ?? 0;
 			let pos = cm[11] !== undefined ? Math.min(cm[11], cm[9]) : cm[9];
 			const conv = converter(leaf), defW = leaf.maxDef ? Math.ceil(Math.log2(leaf.maxDef + 1)) : 0;
-			let dict = null, got = 0, r = row0;
+			let dict = null, got = 0, r = 0;
 			try {
 				while (got < numValues && pos < n) {
 					const tr = new TReader(u8, pos);
@@ -199,7 +203,7 @@ export async function readParquet(u8) {
 						const h = ph[5]; numV = h[1]; enc = h[2];
 						body = await decompress(u8.subarray(bodyStart, pos), codec, uncSize);
 						let p = 0;
-						if (leaf.maxDef) { const len = dv.getUint32 ? new DataView(body.buffer, body.byteOffset).getUint32(0, true) : 0; levels = decodeHybrid(body, 4, 4 + len, defW, numV); p = 4 + len; }
+						if (leaf.maxDef) { const len = new DataView(body.buffer, body.byteOffset).getUint32(0, true); levels = decodeHybrid(body, 4, 4 + len, defW, numV); p = 4 + len; }
 						body = body.subarray(p);
 					} else {
 						const h = ph[8]; numV = h[1]; enc = h[4]; const defLen = h[5] ?? 0, repLen = h[6] ?? 0, compressed = h[7] !== false;
@@ -215,14 +219,29 @@ export async function readParquet(u8) {
 					else throw new Error("unsupported encoding " + enc);
 					let vi = 0;
 					for (let k = 0; k < numV; k++) {
-						if (levels && levels[k] !== leaf.maxDef) { col.values[r++] = null; continue; }
-						const v = vals[vi++]; col.values[r++] = conv ? conv(v) : v;
+						if (levels && levels[k] !== leaf.maxDef) { values[r++] = null; continue; }
+						const v = vals[vi++]; values[r++] = conv ? conv(v) : v;
 					}
 					got += numV;
 				}
-			} catch (e) { col.unsupported = String(e.message || e); col.values = null; }
+			} catch (e) { col.unsupported = String(e.message || e); out.set(col.name, null); continue; }
+			out.set(col.name, values);
 		}
-		row0 += rgRows;
+		return out;
 	}
-	return { numRows, keyValue, created, columns };
+	return { numRows, keyValue, created, columns, rowGroups: rowGroups.map(r => ({ numRows: r.numRows })), readRowGroup };
+}
+
+// 互換：全 row group を列ごとに連結して返す（values: Array(numRows)）。逐次で良い呼び手は openParquet + readRowGroup を使う
+export async function readParquet(u8) {
+	const pq = await openParquet(u8);
+	const columns = pq.columns.map(c => ({ path: c.path, name: c.name, type: c.type, logical: c.logical, values: c.unsupported ? null : new Array(pq.numRows), unsupported: c.unsupported }));
+	let row0 = 0;
+	for (let g = 0; g < pq.rowGroups.length; g++) {
+		const m = await pq.readRowGroup(g), rows = pq.rowGroups[g].numRows;
+		for (const c of columns) { const v = m.get(c.name); if (!v || !c.values) continue; for (let i = 0; i < rows; i++) c.values[row0 + i] = v[i]; }
+		row0 += rows;
+	}
+	columns.forEach((c, i) => { if (pq.columns[i].unsupported) { c.unsupported = pq.columns[i].unsupported; c.values = null; } });
+	return { numRows: pq.numRows, keyValue: pq.keyValue, created: pq.created, columns };
 }

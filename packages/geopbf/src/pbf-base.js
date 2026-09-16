@@ -187,6 +187,26 @@ class GeoPBF {
 		const func = (obj instanceof Function) ? obj : () => obj.features.forEach(t => this.setFeature(t))
 		return this.setMessage(TAGS.FARRAY, func);
 	}
+	// FARRAY を非同期に書く＝行の取り出しに await が要る変換器（FileGDB の窓読み・Parquet の row group 単位）用。
+	// 長さ後置は Pbf.writeRawMessage と同じ手（1 バイト予約→書いてから足りない分だけ後ろへずらす）。fn の中で setFeature を同期に呼ぶ。
+	// setBody（同期）と同じく 1 回だけ呼ぶ（FARRAY メッセージは 1 個）。2026-09-16。
+	async setBodyAsync(fn) {
+		const pbf = this.pbf;
+		pbf.writeTag(TAGS.FARRAY, 2);   // BYTES
+		pbf.pos++;
+		const startPos = pbf.pos;
+		await fn();
+		const len = pbf.pos - startPos;
+		if (len >= 0x80) {
+			let extra = 0; for (let n = len; n > 0x7f; n = Math.floor(n / 128)) extra++;
+			pbf.realloc(extra);
+			pbf.buf.copyWithin(startPos + extra, startPos, pbf.pos);
+		}
+		pbf.pos = startPos - 1;
+		pbf.writeVarint(len);
+		pbf.pos += len;
+		return this;
+	}
 	setFeature(q) {
 		// 幾何なし（null / 型不明）の地物はワイヤに載せられない＝書かずに数える（旧＝GTYPE 抜けの壊れたレコードを書き、読み側が TypeError で飛ばしていた）
 		if (!q.geometry || geometryMap[q.geometry.type] == null) { if (!this.dropped++) console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`); return this; }
