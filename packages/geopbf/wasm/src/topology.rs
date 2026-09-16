@@ -701,6 +701,174 @@ impl GintBufOut {
     pub fn len(&self) -> u32 { self.data.len() as u32 }
 }
 
+// =========================================================================
+// purifier（JS topology.js の purifier をそのまま移植・2026-09-16）
+// ライン同士／自身の交差点・T 字接触（端点が相手の辺から 11cm 以内）・共線重なりの端点を両方の線へ頂点として挿入し、
+// A-B-A のスパイクを落とす＝後段の cutPolyline が交差点を接合点として arc を切れるようにする。
+// 80k セグメント超は素通し（Census/OSM 級は位相整合済み・JS 版と同じ閾値）。
+// 整数演算＝JS の BigInt と同じ真値（i128・除算は 0 方向切り捨て＝BigInt と同一）。
+// JS 版との差＝無し（点集合は順序非依存・挿入順は Map の初出順を Vec で再現・距離ソートは stable）。
+// =========================================================================
+struct PSeg { line: usize, sidx: usize, x1: i64, y1: i64, x2: i64, y2: i64, bx1: i64, bx2: i64, by1: i64, by2: i64, p1: u64, p2: u64, hits: Vec<(i64, i64, u64)> }
+
+fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
+    if ranges.is_empty() { return; }
+    let total_segs: usize = ranges.iter().map(|&(_, len)| len.saturating_sub(1)).sum();
+    if total_segs == 0 || total_segs > 80_000 { return; }
+    const GRID_SHIFT: u32 = 16;
+    const SNAP: i128 = 125;   // 11 cm
+    const UNIT: i128 = 10;    // 10 cm grid
+
+    // セグメント展開（連続重複点の辺は作らない＝JS と同じ）
+    let mut segs: Vec<PSeg> = Vec::with_capacity(total_segs);
+    let mut seg_of: Vec<Vec<i32>> = Vec::with_capacity(ranges.len());   // line → sidx → seg index（-1＝無し）
+    let mut cells: Vec<Vec<u32>> = Vec::new();                          // 格子セル（初出順）
+    let mut cell_of: FxHashMap<u64, u32> = FxHashMap::default();
+    for (li, &(off, len)) in ranges.iter().enumerate() {
+        let mut so = vec![-1i32; len.saturating_sub(1)];
+        for i in 0..len.saturating_sub(1) {
+            let (a, b) = (coords[off + i], coords[off + i + 1]);
+            if a == b { continue; }
+            let (ax, ay) = crate::unpack_to_int(a); let (bx, by) = crate::unpack_to_int(b);
+            let (x1, y1, x2, y2) = (ax as i64, ay as i64, bx as i64, by as i64);
+            let sid = segs.len() as u32;
+            let sg = PSeg { line: li, sidx: i, x1, y1, x2, y2, bx1: x1.min(x2), bx2: x1.max(x2), by1: y1.min(y2), by2: y1.max(y2), p1: a, p2: b, hits: Vec::new() };
+            for gx in (sg.bx1 as u64 >> GRID_SHIFT)..=(sg.bx2 as u64 >> GRID_SHIFT) {
+                for gy in (sg.by1 as u64 >> GRID_SHIFT)..=(sg.by2 as u64 >> GRID_SHIFT) {
+                    let key = (gx << 16) | gy;
+                    let ci = *cell_of.entry(key).or_insert_with(|| { cells.push(Vec::new()); (cells.len() - 1) as u32 });
+                    cells[ci as usize].push(sid);
+                }
+            }
+            segs.push(sg);
+            so[i] = sid as i32;
+        }
+        seg_of.push(so);
+    }
+    if segs.len() < 2 { return; }
+
+    // 端点スナップ／格子スナップ（JS getPt）
+    let get_pt = |ix: i128, iy: i128, eps: &[(i64, i64, u64); 4]| -> (i64, i64, u64) {
+        for &(ex, ey, ep) in eps {
+            let (dx, dy) = (ix - ex as i128, iy - ey as i128);
+            if dx * dx + dy * dy <= SNAP { return (ex, ey, ep); }
+        }
+        let sx = ((ix + UNIT / 2) / UNIT * UNIT) as i64;
+        let sy = ((iy + UNIT / 2) / UNIT * UNIT) as i64;
+        (sx, sy, pure_morton_from_int(sx as u32, sy as u32) | TERMINAL_BIT)
+    };
+    // JS solver：交点・共線重なりの端点・端点の相手辺への射影（11cm 以内）
+    let solve = |s1: &PSeg, s2: &PSeg, out: &mut Vec<(i64, i64, u64)>| {
+        let (dx1, dy1) = ((s1.x2 - s1.x1) as i128, (s1.y2 - s1.y1) as i128);
+        let (dx2, dy2) = ((s2.x2 - s2.x1) as i128, (s2.y2 - s2.y1) as i128);
+        let det = dx1 * dy2 - dy1 * dx2;
+        let eps = [(s1.x1, s1.y1, s1.p1), (s1.x2, s1.y2, s1.p2), (s2.x1, s2.y1, s2.p1), (s2.x2, s2.y2, s2.p2)];
+        if det == 0 {
+            let cross = (s2.x1 - s1.x1) as i128 * dy1 - (s2.y1 - s1.y1) as i128 * dx1;
+            if cross == 0 {
+                let on = |px: i64, py: i64, lx1: i64, ly1: i64, lx2: i64, ly2: i64| -> bool {
+                    let (ldx, ldy) = ((lx2 - lx1) as i128, (ly2 - ly1) as i128);
+                    let dot = (px - lx1) as i128 * ldx + (py - ly1) as i128 * ldy;
+                    dot > 0 && dot < ldx * ldx + ldy * ldy
+                };
+                for &(ex, ey, ep) in &eps {
+                    if on(ex, ey, s1.x1, s1.y1, s1.x2, s1.y2) || on(ex, ey, s2.x1, s2.y1, s2.x2, s2.y2) { out.push((ex, ey, ep)); }
+                }
+            }
+        } else {
+            let nt = (s2.x1 - s1.x1) as i128 * dy2 - (s2.y1 - s1.y1) as i128 * dx2;
+            let nu = (s2.x1 - s1.x1) as i128 * dy1 - (s2.y1 - s1.y1) as i128 * dx1;
+            let is_in = |n: i128, d: i128| if d > 0 { n >= 0 && n <= d } else { n <= 0 && n >= d };
+            if is_in(nt, det) && is_in(nu, det) {
+                out.push(get_pt(s1.x1 as i128 + (nt * dx1) / det, s1.y1 as i128 + (nt * dy1) / det, &eps));
+            }
+        }
+        let proj = |px: i64, py: i64, lx1: i64, ly1: i64, lx2: i64, ly2: i64, out: &mut Vec<(i64, i64, u64)>| {
+            let (ldx, ldy) = ((lx2 - lx1) as i128, (ly2 - ly1) as i128);
+            let d2 = ldx * ldx + ldy * ldy;
+            if d2 == 0 { return; }
+            let t = (px - lx1) as i128 * ldx + (py - ly1) as i128 * ldy;
+            if t <= 0 || t >= d2 { return; }
+            let crs = (px - lx1) as i128 * ldy - (py - ly1) as i128 * ldx;
+            // JS: (crs*crs)/d2 <= snap（BigInt 切り捨て）⇔ crs² < (snap+1)·d2。crs² は i128 の縁に届き得るので u128 で比べる
+            let c2 = (crs.unsigned_abs() as u128) * (crs.unsigned_abs() as u128);
+            if c2 < ((SNAP + 1) as u128) * (d2 as u128) {
+                out.push(get_pt(lx1 as i128 + (t * ldx) / d2, ly1 as i128 + (t * ldy) / d2, &eps));
+            }
+        };
+        proj(s2.x1, s2.y1, s1.x1, s1.y1, s1.x2, s1.y2, out);
+        proj(s2.x2, s2.y2, s1.x1, s1.y1, s1.x2, s1.y2, out);
+        proj(s1.x1, s1.y1, s2.x1, s2.y1, s2.x2, s2.y2, out);
+        proj(s1.x2, s1.y2, s2.x1, s2.y1, s2.x2, s2.y2, out);
+    };
+
+    // 格子セル内の総当たり（JS と同じ：2 本未満・1500 本超のセルは飛ばす）
+    let seg_count = segs.len();
+    let mut checked: rustc_hash::FxHashSet<u64> = rustc_hash::FxHashSet::default();
+    let mut pts: Vec<(i64, i64, u64)> = Vec::new();
+    let add_hit = |s: &mut PSeg, p: (i64, i64, u64)| { if !s.hits.iter().any(|h| h.0 == p.0 && h.1 == p.1) { s.hits.push(p); } };   // JS Map.set＝同キーは初出位置を保つ
+    for cell in &cells {
+        if cell.len() < 2 || cell.len() > 1500 { continue; }
+        for i in 0..cell.len() {
+            for j in (i + 1)..cell.len() {
+                let (a, b) = (cell[i] as usize, cell[j] as usize);
+                {
+                    let (s1, s2) = (&segs[a], &segs[b]);
+                    if s1.line == s2.line && (s1.sidx as i64 - s2.sidx as i64).abs() <= 1 { continue; }
+                    if !checked.insert((a.min(b) * seg_count + a.max(b)) as u64) { continue; }
+                    if s1.bx2 < s2.bx1 || s1.bx1 > s2.bx2 || s1.by2 < s2.by1 || s1.by1 > s2.by2 { continue; }
+                    pts.clear();
+                    solve(s1, s2, &mut pts);
+                }
+                if pts.is_empty() { continue; }
+                let (lo, hi) = (a.min(b), a.max(b));
+                let (left, right) = segs.split_at_mut(hi);
+                let (sa, sb) = (&mut left[lo], &mut right[0]);
+                for &p in &pts { add_hit(sa, p); add_hit(sb, p); }
+            }
+        }
+    }
+
+    // 再構築（JS pushClean＝連続重複を捨て・A-B-A スパイクは戻す）
+    let mut new_coords: Vec<u64> = Vec::with_capacity(coords.len());
+    let mut new_ranges: Vec<(usize, usize)> = Vec::with_capacity(ranges.len());
+    let mut final_: Vec<u64> = Vec::new();
+    for (li, &(off, len)) in ranges.iter().enumerate() {
+        final_.clear();
+        let mut push_clean = |p: u64, f: &mut Vec<u64>| {
+            let n = f.len();
+            if n > 0 && f[n - 1] == p { return; }
+            if n > 1 && f[n - 2] == p { f.pop(); return; }
+            f.push(p);
+        };
+        if len > 0 {
+            for i in 0..len - 1 {
+                push_clean(coords[off + i], &mut final_);
+                let sid = seg_of[li][i];
+                if sid >= 0 {
+                    let s = &mut segs[sid as usize];
+                    if !s.hits.is_empty() {
+                        let (x1, y1) = (s.x1 as f64, s.y1 as f64);
+                        s.hits.sort_by(|a, b| {
+                            let da = (a.0 as f64 - x1).powi(2) + (a.1 as f64 - y1).powi(2);
+                            let db = (b.0 as f64 - x1).powi(2) + (b.1 as f64 - y1).powi(2);
+                            da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+                        });
+                        for h in &s.hits { push_clean(h.2, &mut final_); }
+                    }
+                }
+            }
+            push_clean(coords[off + len - 1], &mut final_);
+        }
+        let start = new_coords.len();
+        if final_.len() >= 2 { new_coords.extend_from_slice(&final_); }
+        else { new_coords.extend_from_slice(&coords[off..off + len]); }   // JS: final が 2 点未満なら原線のまま
+        new_ranges.push((start, new_coords.len() - start));
+    }
+    *coords = new_coords;
+    *ranges = new_ranges;
+}
+
 // buf : GeoPBF の生バイト列（geomPos は絶対オフセット）
 // dir : feature 台帳 [fid, type(0..5), geomPos]×n（GeometryCollection は JS 側で展開済み）
 // e   : ソース精度（10^precision）
@@ -824,6 +992,7 @@ pub fn topology_full_wasm(buf: &[u8], dir: &[u32], e: f64, format_version: u32) 
 
     // 位相構築（ポリゴン→ライン→ポイント）
     let pt = polygons_core(&poly_xy, &poly_rings, &poly_comps);
+    purify_lines(&mut line_coords, &mut line_ranges);   // 自己交差修復（JS buildPolylines の purifier 相当・80k セグ以下）
     let lt = polylines_core(&line_coords, &line_ranges, &line_fids, pt.count, pt.arc_buffer.len() as u32);
     // JS buildPoints の sort は比較器が 0 を返さない（equal→-1）＝V8 TimSort では同値が逆順になる
     //（挿入は「同値なら前へ」・マージは「同値なら右ランを先に」）。座標昇順・同値は元 index 降順で再現。
