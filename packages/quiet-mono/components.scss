@@ -1,7 +1,13 @@
 /* Quiet Mono — UI部品の佇まい（家具規格）。id は共通契約：#map の舞台に #chips / #pos / #scale / #attr、
    左上の #gadgets スタックにオプトインの #search / #hint / #reset / #plateau-btn（搭載順に縦積み・非表示は上詰め）、
    実行時後置の #search-list / #net-toast / #elev-toast / #plateau-toast / #ident / #fatal。
-   z-index は使わない＝重なりは DOM 順（静的UIは記述順・動的要素は起きた順に #map へ後置）。 */
+   z-index は使わない＝重なりは DOM 順（静的UIは記述順・動的要素は起きた順に #map へ後置）。
+
+   ★掟（2026-09-16・RTL 対応）：端に寄せる指定は**論理プロパティ**で書く。
+     left/right → inset-inline-start/end ・ margin/padding/border-left/right → *-inline-start/end ・ text-align: right → end。
+     #map に dir="rtl"（アラビア/ヘブライ/ペルシア/ウルドゥー）が付くと、これだけで家具一式が鏡像になる。
+     例外＝中央寄せ（left: 50% + translateX(-50%)）と左右対称の飾り（縮尺バーの両端）は方向に依らない＝物理のままでよい。
+     検定は ortho-japan の tests/t-rtl.html（LTR は座標が動かないこと・RTL は入れ替わること）。 */
 
 /* --- 舞台 --- */
 /* ★この意匠キットは #map の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
@@ -54,7 +60,7 @@
 		b { color: var(--qm-ink); font-weight: 600; }
 	}
 	.mi { width: 17px; height: 22px; flex: none; }
-	.mi.gap { margin-left: 8px; }   /* 1行に2組（移動／ズーム）並べる時の組間の空き */
+	.mi.gap { margin-inline-start: 8px; }   /* 1行に2組（移動／ズーム）並べる時の組間の空き */
 	.key { border: 1px solid #b7bcc6; border-bottom-width: 2px; border-radius: 4px; padding: 1px 5px;
 		font-size: 11px; background: #fff; color: var(--qm-text); }
 	.hint-plus { color: var(--qm-text-faint); margin: 0 -3px; }
@@ -63,7 +69,7 @@
 	}
 }
 #hint-close {
-	position: absolute; top: 3px; right: 3px; width: 20px; height: 20px; border: none; background: none;
+	position: absolute; top: 3px; inset-inline-end: 3px; width: 20px; height: 20px; border: none; background: none;
 	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 5px;
 	&:hover { background: #eef0f3; color: var(--qm-text); }
 }
@@ -76,7 +82,7 @@
        左上から「搭載した順」に縦積み。display:none のガジェットは flex の流れから抜ける＝下のガジェットが
        上へ詰まる（上詰め）。個々のガジェットは座標を持たない＝並びはスタックが裁く --- */
 #gadgets {
-	position: absolute; top: 10px; left: 10px;
+	position: absolute; top: 10px; inset-inline-start: 10px;
 	display: flex; flex-direction: column; align-items: flex-start; gap: 10px;
 	pointer-events: none;           /* 隙間・余白は地図へ素通し */
 	> * { pointer-events: auto; }   /* ガジェット本体は普通に触れる */
@@ -88,7 +94,7 @@
 	pointer-events: none;   /* 透明な帯（閉時の残り202px）がパンを食わない＝実体（虫めがね・入力）だけ受ける */
 	#search-btn {
 		pointer-events: auto;
-		position: absolute; top: 0; left: 0; width: 34px; height: 34px; border-radius: 5px;
+		position: absolute; top: 0; inset-inline-start: 0; width: 34px; height: 34px; border-radius: 5px;
 		border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 		display: flex; align-items: center; justify-content: center;
 		-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur));
@@ -115,7 +121,7 @@
 		padding: 8px 12px; font-size: 13px; color: #444; cursor: pointer;
 		&:hover, &.sel { background: #eef2f7; }
 	}
-	.search-note { color: var(--qm-text-faint); font-size: 11px; margin-left: 7px; }   /* 同名候補の添え書き（表示専用） */
+	.search-note { color: var(--qm-text-faint); font-size: 11px; margin-inline-start: 7px; }   /* 同名候補の添え書き（表示専用） */
 	.search-empty { padding: 8px 12px; font-size: 12px; color: #999; }
 }
 
@@ -132,7 +138,7 @@
        column-reverse＝最初の搭載者が縁（最下段）・display:none は流れから抜けて詰まる（#gadgets と同じ掟）。
        個々の bottom オフセット手打ち（旧 56px/86px…＝#pos の背丈前提）を廃し、重なりを構造で排除（2026-09-03 被り総括） --- */
 #dock {
-	position: absolute; bottom: calc(6px + var(--qm-safe-b)); left: 10px;
+	position: absolute; bottom: calc(6px + var(--qm-safe-b)); inset-inline-start: 10px;
 	display: flex; flex-direction: column-reverse; align-items: flex-start; gap: 6px;
 	pointer-events: none;           /* 隙間は地図へ素通し */
 	> * { pointer-events: auto; }   /* 実体は普通に触れる（#pos は自身の none が後勝ちで読み取り専用のまま） */
@@ -161,7 +167,7 @@
 
 /* --- 出典（右下・最も静か）：計器(#pos)と同じ薄硝子＝下辺の家具で材質を揃える --- */
 #attr {
-	position: absolute; bottom: calc(6px + var(--qm-safe-b)); right: 8px; font-size: 11px; line-height: 1.5; text-align: right;
+	position: absolute; bottom: calc(6px + var(--qm-safe-b)); inset-inline-end: 8px; font-size: 11px; line-height: 1.5; text-align: end;
 	text-wrap: balance;   /* 狭画面（iPhone等）で長い行が折れた時に行長を均す＝<br>区切りの各セグメント内だけ効く。広い画面は折れない＝不変。非対応ブラウザは無視＝無害 */
 	color: var(--qm-text-dim);   /* 本文もリンクと同じ濃さ＝二段調をやめ一色に（旧faintは硝子地では薄すぎた） */
 	background-color: rgba(213,226,242,.28); background-image: var(--qm-glass-sheen-dim);
@@ -177,7 +183,7 @@
        中身と開閉は gadgets/hud.js＝既定は display:none、計測器ボタン(#hud-btn)で開く。位置は bottom を JS が出典(#attr)の
        実高さぶんへ寄せる。★どんな下地（黒い宇宙/夜地形も）でも読めるよう常時ソリッド暗色＝ぼかし無し・テーマ非依存。 --- */
 #hud {
-	position: absolute; right: 8px; bottom: calc(6px + var(--qm-safe-b)); display: none; max-width: 82vw;
+	position: absolute; inset-inline-end: 8px; bottom: calc(6px + var(--qm-safe-b)); display: none; max-width: 82vw;
 	background: rgba(13, 17, 25, .88); border: 1px solid rgba(255, 255, 255, .15);
 	box-shadow: 0 2px 12px rgba(0, 0, 0, .45);
 	padding: 5px 9px 6px; border-radius: var(--qm-r-m); pointer-events: none;
@@ -283,7 +289,7 @@
 			background-image: none;   /* 共通規格の硝子照りも消す＝明パネルを濁らせない */
 			svg path { stroke: #3f4757; } }
 	}
-	#layers-panel { position: absolute; left: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
+	#layers-panel { position: absolute; inset-inline-start: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
 	#layers-panel[hidden] { display: none; }
 	#layers-panel .chip { text-align: center; }
 	/* テーマ列＝紙色スウォッチ＋名前の小ボタン（本命のライブ見本は palette ガジェットの領分＝ここは即決の入口） */
@@ -379,7 +385,7 @@
 		&:hover { text-decoration: underline dotted; text-underline-offset: 3px; }
 		&.in { animation: demo-title-in .45s ease; }   /* シーン毎の淡入（クラス付け直しで再点火） */
 	}
-	#demo-step { font: 11px/1 var(--qm-font-gauge); color: var(--qm-text); opacity: .55; padding-right: 2px; cursor: pointer; }
+	#demo-step { font: 11px/1 var(--qm-font-gauge); color: var(--qm-text); opacity: .55; padding-inline-end: 2px; cursor: pointer; }
 	/* シーン一覧（目次）：バーの真上にポップ。クリックでジャンプ・現在シーンは点灯 */
 	#demo-list {
 		position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%);
@@ -503,14 +509,14 @@
 #map [data-tip]:hover::after, #map [data-tip]:focus-visible::after { opacity: 1; }
 @media (pointer: coarse) { #map [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
 /* 置き場所：左上スタック・右上チップ＝ボタンの右／右上の×＝ボタンの左（chips は左スタック＝#gadgets 規則（右へ）が効く） */
-#gadgets [data-tip]::after, #chips [data-tip]::after { top: 50%; transform: translateY(-50%); left: calc(100% + 8px); }
-#close-btn[data-tip]::after { top: 50%; transform: translateY(-50%); right: calc(100% + 8px); }
+#gadgets [data-tip]::after, #chips [data-tip]::after { top: 50%; transform: translateY(-50%); inset-inline-start: calc(100% + 8px); }
+#close-btn[data-tip]::after { top: 50%; transform: translateY(-50%); inset-inline-end: calc(100% + 8px); }
 
 /* --- 汎用プロバイダ（tip=カーソル追従／explain=上辺／legend=左下／pop=地点紐づけ）。
        いずれも内容を持つ時だけ現れる読み物の枠＝意匠は quiet-mono のパネル語彙で統一。 --- */
 /* パネル共通の×（explain/legend/pop で共有） */
 .panel-close {
-	position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border: none; background: none;
+	position: absolute; top: 4px; inset-inline-end: 4px; width: 20px; height: 20px; border: none; background: none;
 	color: var(--qm-text-faint); font-size: 15px; line-height: 1; cursor: pointer; border-radius: 5px; padding: 0;
 	&:hover { background: #eef0f3; color: var(--qm-text); }
 }
@@ -561,10 +567,10 @@
 	&:hover .panel-close, &:hover .pop-pin { opacity: 1; }                                 /* ホバーで現れる */
 	.panel-close:hover { background: rgba(255, 255, 255, .15); color: #fff; }              /* 黒地用に上書き（既定の淡色hoverを打ち消す） */
 	.pop-pin {
-		position: absolute; top: 3px; right: 22px; width: 20px; height: 20px; border: none; background: none;
+		position: absolute; top: 3px; inset-inline-end: 22px; width: 20px; height: 20px; border: none; background: none;
 		cursor: pointer; border-radius: 5px; padding: 3px;   /* 中身は SVG（白抜きは color:#fff→currentColor） */
 		&:hover { background: rgba(255, 255, 255, .15); }
-		&.on { opacity: 1; right: 4px; }   /* 固定中＝ホバー外でも見える（刺さっている印）＋×が消えた右端の席へ */
+		&.on { opacity: 1; inset-inline-end: 4px; }   /* 固定中＝ホバー外でも見える（刺さっている印）＋×が消えた右端の席へ */
 		svg { display: block; width: 100%; height: 100%; }
 	}
 	img { max-width: 240px; max-height: 180px; display: block; border-radius: 3px; }   /* @pop は HTML/画像可 */
@@ -604,10 +610,10 @@
 	&.open { display: block; }
 	.pf-head {
 		display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-		padding-right: 22px; margin-bottom: 4px;   /* 右端＝.panel-close の席 */
+		padding-inline-end: 22px; margin-bottom: 4px;   /* 右端＝.panel-close の席 */
 		.pf-title { font-weight: 600; color: var(--qm-ink); }
 		.pf-stats { color: var(--qm-text-dim); }
-		.pf-base { margin-left: auto; display: inline-flex; gap: 8px;
+		.pf-base { margin-inline-start: auto; display: inline-flex; gap: 8px;
 			label { display: inline-flex; align-items: center; gap: 3px; color: var(--qm-text-dim); cursor: pointer;
 				input { margin: 0; accent-color: var(--qm-ink); } } }
 		.pf-act {
@@ -637,7 +643,7 @@
 
 /* --- 閉じる×（埋め込み用）：右上の額縁の金具＝スタック不参加（骨格は34px規格） --- */
 #close-btn {
-	position: absolute; top: 10px; right: 10px;
+	position: absolute; top: 10px; inset-inline-end: 10px;
 }
 /* 旧・×併存時のチップ退避（top:54）は廃止＝chips は左上スタックへ移設（2026-09-02）＝右上の×と干渉しない */
 
@@ -652,10 +658,10 @@
 		background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 8px;
 		box-shadow: var(--qm-shadow-pop); font: 13px var(--qm-font); color: var(--qm-text);
 	}
-	.print-head { font-weight: 600; font-size: 13px; color: var(--qm-ink); margin-bottom: 10px; padding-right: 24px; }
+	.print-head { font-weight: 600; font-size: 13px; color: var(--qm-ink); margin-bottom: 10px; padding-inline-end: 24px; }
 	.print-row {
 		display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 8px;
-		label { font-size: 12px; color: var(--qm-text-dim); margin-left: 4px; }
+		label { font-size: 12px; color: var(--qm-text-dim); margin-inline-start: 4px; }
 		select { font: 13px var(--qm-font); padding: 4px 6px; border: 1px solid var(--qm-border); border-radius: 5px; background: #fff; color: #333; }
 		input[type="text"] {
 			flex: 1; min-width: 120px; font: 13px var(--qm-font); padding: 4px 8px; color: #333;
@@ -717,7 +723,7 @@
 	.pl-why { font-size: 10px; opacity: .8; margin: -2px 0 3px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 }
 #ident {   /* identify＝クリックした地物の答え */
-	position: absolute; top: 44px; left: 10px; max-width: 340px; font-size: 12px; color: #334;
+	position: absolute; top: 44px; inset-inline-start: 10px; max-width: 340px; font-size: 12px; color: #334;
 	background: var(--qm-panel-2); padding: 6px 10px; border-radius: var(--qm-r-s);
 	-webkit-backdrop-filter: blur(var(--qm-blur)); backdrop-filter: blur(var(--qm-blur)); white-space: pre-wrap; display: none;
 }
@@ -786,12 +792,12 @@
 #sky-clock {
 	position: absolute; opacity: 0; pointer-events: none; transition: opacity .6s ease;
 	text-shadow: 0 0 4px rgba(0, 0, 0, .8);
-	top: calc(12px + env(safe-area-inset-top, 0px)); right: 14px;   /* 右上＝夜空の時計（下辺は出典に譲る） */
+	top: calc(12px + env(safe-area-inset-top, 0px)); inset-inline-end: 14px;   /* 右上＝夜空の時計（下辺は出典に譲る） */
 	font: 19px var(--qm-font-mono); font-variant-numeric: tabular-nums;   /* 等幅数字＝秒針で幅が揺れない */
 	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
 #map.world #sky-clock { opacity: 1; }
 /* 狭画面（スマホ縦）：時計は一回り小さく */
 @media (max-width: 480px) {
-	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); right: 10px; }
+	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); inset-inline-end: 10px; }
 }
