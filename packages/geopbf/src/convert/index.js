@@ -11,6 +11,7 @@ export { openFileGDB, fromFileGDB, gdbSourceFromFiles, gdbSourceFromMap, parseSh
 export { crsFromWKT, tmInverse, tmForward, parseWKTTree } from "./proj.js";
 export { loadMeshGrid, parseMeshGrid, bakeMeshGrid, resolveDatum, datumStats, tokyoToJGD, jgd2000To2011, tokyoHelmert } from "./datum.js";
 export { fromTable, parseCSV, readXLSX, parseWKT, decodeText } from "./table.js";
+export { fromNdjson, linesOf, featuresOf } from "./ndjson.js";
 export { parseWkb } from "./wkb.js";
 export { getDevice, findGPU, setGPU } from "./gpu.js";
 export { createEngine, cpuEngine } from "./engine.js";

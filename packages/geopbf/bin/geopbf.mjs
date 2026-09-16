@@ -14,7 +14,8 @@ globalThis.ImageData ??= class ImageData {
 
 const USAGE = `geopbf <command>
 
-  enc  <in.geojson> <out.geopbf>   GeoJSON を GeoPBF へ（書き出しは gzip が既定＝配布形の通例）
+  enc  <in.geojson|ndjson> <out.geopbf>   GeoJSON / NDJSON を GeoPBF へ（書き出しは gzip が既定＝配布形の通例）
+       .ndjson / .geojsonl / .jsonl（1 行 1 地物・GeoJSON Text Sequence の RS 区切りも可）は行ごとに読む（[--name name]）
        [--precision N]             座標に残す小数桁（1-9・既定 6 ≒ 0.1m）
        [--no-gzip]                 gzip せず生の GeoPBF を書く
   dec  <in.geopbf>  <out.geojson>  GeoPBF を GeoJSON へ
@@ -117,17 +118,25 @@ const parseArgs = (argv, valued = []) => {
 // ── enc ───────────────────────────────────────────────────────────────────────
 
 async function enc(argv) {
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision"]);
-	if (!inPath || !outPath) throw new Error("enc <in.geojson> <out.geopbf>");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name"]);
+	if (!inPath || !outPath) throw new Error("enc <in.geojson|in.ndjson> <out.geopbf>");
 
 	const precision = opts.precision === undefined ? undefined : Number(opts.precision);
 	if (precision !== undefined && !(Number.isInteger(precision) && precision >= 1 && precision <= 9))
 		throw new Error("--precision は 1 から 9 の整数");   // 0 は pbf-base の `precision || 6` が黙って 6 に落とすので範囲外
 
 	const src = await readMaybeGzip(inPath);
-	const gj = JSON.parse(Buffer.from(src).toString("utf8"));
 	const t = Date.now();
-	const pbf = await new GeoPBF({ name: gj.name || "layer", precision }).set(gj);
+	let pbf;
+	if (/\.(ndjson|geojsonl|geojsons|jsonl)(\.gz)?$/i.test(inPath)) {   // 1 行 1 地物 / GeoJSON Text Sequence（convert/ndjson.js）
+		const { fromNdjson } = await import("../src/convert/ndjson.js");
+		const r = await fromNdjson(src, { name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+?(\.gz)?$/i, ""), precision });
+		pbf = r.pbf;
+		if (r.stats.badLines) console.log(`  ⚠ 読めない行 ${num(r.stats.badLines)}（飛ばした）`);
+	} else {
+		const gj = JSON.parse(Buffer.from(src).toString("utf8"));
+		pbf = await new GeoPBF({ name: gj.name || "layer", precision }).set(gj);
+	}
 	const gzip = !opts["no-gzip"];   // GDAL ドライバの COMPRESS=GZIP 既定・配布形に合わせる
 	let out = Buffer.from(pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
