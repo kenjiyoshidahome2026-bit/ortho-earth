@@ -181,6 +181,12 @@ export async function mountTellus(map, side) {
 		$("#tl-n").textContent = items.length ? `${sel + 1} / ${items.length} ${t("件")}` : "";
 		$("#tl-fit").disabled = sel < 0;
 	};
+	// 選択＝class の付け替えだけ（⚠一覧を作り直さない＝描き終わったサムネイルの canvas を捨てない・進行中の描画が外れた canvas に向かない）
+	const select = (i) => {
+		sel = i;
+		[...$("#tl-list").children].forEach((row, k) => row.classList.toggle("on", k === i));
+		nav();
+	};
 	const bboxOf = (g) => {
 		const ring = foot.ringOf(g); if (!ring) return null;
 		let w = 1e9, s = 1e9, e = -1e9, n = -1e9;
@@ -190,12 +196,14 @@ export async function mountTellus(map, side) {
 
 	// クイックルック＝最粗 overview を経緯度グリッドへ（幅 56px・高さは緯度で補正）。失敗しても行は残す（灰のまま）。
 	// 描けたら IDB へ（鍵＝ds/scene/見せ方）＝再訪・タブ往復・偽色⇄グレーの二度目は署名 URL の発行すら要らない
-	const paint = (cv, w, h, rgba) => { cv.width = w; cv.height = h; cv.getContext("2d").putImageData(new ImageData(rgba, w, h), 0, 0); };
-	const quickLook = async (it, cv, sig) => {
+	// 描けた絵は item（_thumb）にも持つ＝一覧を作り直す時（検索し直し以外では起きない）も即再描画。描く先は「今の」canvas（it._cv）
+	const paint = (cv, { w, h, rgba }) => { if (!cv) return; cv.width = w; cv.height = h; cv.getContext("2d").putImageData(new ImageData(rgba, w, h), 0, 0); };
+	const quickLook = async (it, sig) => {
 		const key = `${src.key}/${it.id}/${drawSig()}`;
 		try {
+			if (it._thumb?.key === key) { paint(it._cv, it._thumb); return; }
 			const hit = await quickDb.get(key);
-			if (hit?.rgba) { if (!sig?.aborted) paint(cv, hit.w, hit.h, hit.rgba); return; }
+			if (hit?.rgba) { if (!sig?.aborted) { it._thumb = { key, ...hit }; paint(it._cv, it._thumb); } return; }
 			const url = await freshUrl(it);
 			const cog = await openCog(url, { signal: sig, ...drawOpts() });
 			const [w, s, e, n] = cog.bboxLL, cy = (s + n) / 2;
@@ -203,7 +211,8 @@ export async function mountTellus(map, side) {
 			const rgba = await cog.render(lonlatTarget([w, s, e, n], W, H), { signal: sig });
 			cog.close?.();
 			if (!rgba || sig?.aborted) return;
-			paint(cv, W, H, rgba);
+			it._thumb = { key, w: W, h: H, rgba };
+			paint(it._cv, it._thumb);
 			quickDb.set(key, { w: W, h: H, rgba });
 		} catch (e) { if (e?.name !== "AbortError") console.warn("[tellus] quicklook", it.id, e.message); }
 	};
@@ -220,6 +229,7 @@ export async function mountTellus(map, side) {
 			row.addEventListener("click", () => load(i, { fit: false }));
 			list.append(row);
 			it._cv = row.querySelector("canvas");
+			if (it._thumb) paint(it._cv, it._thumb);
 		});
 		nav();
 	};
@@ -228,7 +238,7 @@ export async function mountTellus(map, side) {
 	const thumbs = async () => {
 		thumbAc?.abort(); thumbAc = new AbortController();
 		const sig = thumbAc.signal, queue = items.slice();
-		await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length && !sig.aborted) { const it = queue.shift(); await quickLook(it, it._cv, sig); } }));
+		await Promise.all(Array.from({ length: 3 }, async () => { while (queue.length && !sig.aborted) { const it = queue.shift(); await quickLook(it, sig); } }));
 	};
 
 	const search = async (ll, { autoLoad = true, fit = false } = {}) => {
@@ -246,7 +256,7 @@ export async function mountTellus(map, side) {
 
 	const load = async (i, { fit = false } = {}) => {
 		if (!items[i]) return;
-		sel = i; render(); status(t("読込中…"));
+		select(i); status(t("読込中…"));
 		const it = items[i];
 		try {
 			const url = await freshUrl(it);
@@ -291,7 +301,7 @@ export async function mountTellus(map, side) {
 		const z = map.fitZoomForBbox([bb[0] - (bb[2] - bb[0]) * .15, bb[1] - (bb[3] - bb[1]) * .15, bb[2] + (bb[2] - bb[0]) * .15, bb[3] + (bb[3] - bb[1]) * .15]);
 		map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.max(1.2, Math.min(17, z)), 0, 0);
 	});
-	$("#tl-clear").addEventListener("click", () => { cogCtl?.clear(); sel = -1; render(); });
+	$("#tl-clear").addEventListener("click", () => { cogCtl?.clear(); select(-1); });
 	$("#tl-opac").addEventListener("input", e => map.setOpacity?.({ base: (+e.target.value) / 100 }));
 	map.setOpacity?.({ base: 0.55 });   // 衛星画像を主役に＝基図の線は少し引く（スライダーで戻せる）
 	$("#tl-share").addEventListener("click", async () => {
