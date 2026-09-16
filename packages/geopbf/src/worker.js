@@ -17,6 +17,7 @@ const MODULES = {
 	"decoder:gdb":     () => import("./decoder/gdb.js"),
 	"decoder:parquet": () => import("./decoder/parquet.js"),
 	"decoder:csv":     () => import("./decoder/csv.js"),
+	"decoder:dxf":     () => import("./decoder/dxf.js"),
 	"decoder:gpx":     () => import("./decoder/gpx.js"),
 	"decoder:json":    () => import("./decoder/json.js"),
 	"decoder:ndjson":  () => import("./decoder/ndjson.js"),

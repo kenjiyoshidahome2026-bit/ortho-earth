@@ -63,6 +63,10 @@ const USAGE = `geopbf <command>
        [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（scripts/bake-datum-grid.mjs の出力）。無ければ Helmert ±10 m
        [--patchjgd <file|url>]      JGD2000→JGD2011 の PatchJGD 格子（2011 年東北地方太平洋沖地震・対象域外は無変換）
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
+  dxf2pbf <in.dxf> [out.geopbf]   DXF（ASCII）を GeoPBF へ。out を省くとヘッダ・レイヤ・エンティティ種別の一覧
+       [--crs 6677|WKT]             座標系（DXF は持たない）＝EPSG 番号（経緯度・3857・平面直角 I〜XIX・UTM）か WKT。省略＝座標が経緯度の範囲なら経緯度とみなす
+       [--unit 0.001]               図面単位→m の倍率（既定＝$INSUNITS から自動）  [--encoding sjis]  [--closed-lines] 閉じた折線を面にしない
+       [--precision N] [--name name] [--ignore-crs] [--no-gzip] [--tky2jgd <file|url>] [--patchjgd <file|url>]
   csv2pbf <in.csv|tsv|xlsx> <out.geopbf>   表を GeoPBF へ（経緯度の 2 列＝点、または WKT の 1 列＝点/線/面）。列名は自動検出
        [--lon col] [--lat col] [--wkt col]  列の名指し（自動検出より優先）
        [--sheet name] [--encoding sjis] [--delimiter ,]   xlsx のシート・CSV の文字コード（既定＝UTF-8 で読めなければ Shift_JIS）・区切り
@@ -428,6 +432,31 @@ async function spatialite2pbf(argv) {
 	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
 }
 
+async function dxf2pbf(argv) {
+	const { fromDxf, readDxf } = await import("../src/convert/dxf.js");
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "crs", "unit", "encoding", "tky2jgd", "patchjgd"]);
+	if (!inPath) throw new Error("dxf2pbf <in.dxf> [out.geopbf] [--crs 6677]");
+	const u8 = new Uint8Array(await readFile(inPath));
+	if (!outPath) {
+		const d = readDxf(u8, { encoding: opts.encoding });
+		console.log(`${inPath}  ${d.header.acadver ?? "?"}  INSUNITS ${d.header.insunits ?? "?"}  範囲 ${d.header.extmin ? `${d.header.extmin.join(",")} 〜 ${d.header.extmax.join(",")}` : "?"}  エンティティ ${num(d.entities)}  ブロック ${d.blocks.length}`);
+		console.log(`  種別: ${Object.entries(d.counts).map(([k, v]) => `${k}×${v}`).join(" ")}`);
+		console.log(`  レイヤ: ${d.layers.map(l => l.name).join(", ") || "（表なし）"}`);
+		return;
+	}
+	const r = await fromDxf(u8, { crs: opts.crs, ignoreCrs: !!opts["ignore-crs"], unitScale: opts.unit !== undefined ? +opts.unit : undefined, encoding: opts.encoding, closedAsPolygon: !opts["closed-lines"],
+		precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd) });
+	const gzip = !opts["no-gzip"];
+	let out = Buffer.from(r.pbf.arrayBuffer);
+	if (gzip) out = gzipSync(out, { level: 9 });
+	await writeFile(outPath, out);
+	const s = r.stats;
+	console.log(`${inPath}  エンティティ ${num(s.entities)}（INSERT 展開 ${num(s.inserts)}）  features ${num(s.features)}  頂点 ${num(s.vertices)}  CRS ${s.crs}${s.reprojected ? `  単位 ×${s.unitScale}` : ""}`);
+	const sk = Object.entries(s.skipped); if (sk.length) console.log(`  対象外: ${sk.map(([k, v]) => `${k}×${v}`).join(" ")}`);
+	if (s.datumApprox) console.log("  ⚠ 日本測地系を Helmert 近似で変換（±10 m 級）。--tky2jgd <格子> で 0.2 m 級になる");
+	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+}
+
 async function csv2pbf(argv) {
 	const { fromTable } = await import("../src/convert/table.js");
 	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "delimiter", "include", "exclude"]);
@@ -482,7 +511,7 @@ async function gdb2pbf(argv) {
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
-const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, csv2pbf, gdb2pbf };
+const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, dxf2pbf, csv2pbf, gdb2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
 if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
 try {
