@@ -1,0 +1,40 @@
+<!doctype html>
+<!-- 実ロードの検分：PLATEAU（建物 3D）が z16 チルトの東京駅前で**実際に立つ**か。表示判定→ロード→ack→活性化の一本道が
+     plateau/manager.js へ移った後も同じ道を通ることを見る門（2026-09-17）。判定はページ内・結果は<title>。
+     t-bld（plateau:false＝基図の押し出し建物）とは別物＝こちらは登録簿（plateau-sets.json）と R2 焼き（api.ortho-earth.com）を実際に読む。
+     ⚠ verify:webgpu（実時間）側に載せる：worker のロードと ack は虚時間では回らない（t-bld と同じ理由）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-plateau</title></head>
+<body>
+<script>
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
+const mark = s => { document.title = "… " + s; };   // 途中で止まっても最後に着いた段が title に残る
+try {
+	mark("boot");
+	const ev = { catalog: 0, start: [], done: [], failed: [], cancelled: [] };
+	let fin = null, settled = false; const finP = new Promise(r => { fin = r; });
+	// 東京駅前・z16・チルト 55°＝自動ロード圏（AUTO_Z=15・pitch≥0.02）。plateau は既定 ON。
+	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", chips: false });
+	map.on("plateau", e => {
+		if (settled) return;   // 判定後の後続イベント（隣区の done 等）が title の PASS/FAIL を上書きしないように
+		if (e.phase === "catalog") ev.catalog = e.count;
+		else if (ev[e.phase]) { ev[e.phase].push(e.name); if (e.phase === "done") fin(); }
+		mark(`${e.phase}:${e.name ?? e.count} @${(performance.now() / 1000) | 0}s`);   // 時刻つき＝90 秒の枠で何処まで来たかが title に残る
+	});
+	mark("booted");
+	await Promise.race([finP, new Promise(r => setTimeout(r, 55000))]);   // 最初の 1 区が立つまで（R2 焼き＝健全なら十数秒。verify-webgpu の枠 90 秒より内側で必ず判定へ）
+	await new Promise(r => setTimeout(r, 1500));   // ack → 活性化（plateauActive）の反映
+	settled = true;
+	const st = window.__farState?.();
+	ok("catalog", ev.catalog > 300, `count=${ev.catalog}`);
+	ok("start", ev.start.length > 0, ev.start.join("+"));
+	ok("done", ev.done.length > 0, ev.done.join("+"));
+	ok("active", !!st && st.active.length > 0, st ? st.active.join("+") : "no __farState");
+	ok("noFail", ev.failed.length === 0, ev.failed.join("+"));
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+</script>
+</body></html>

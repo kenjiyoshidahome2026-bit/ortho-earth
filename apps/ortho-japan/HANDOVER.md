@@ -51,6 +51,13 @@ app.js は宣言を**合成するだけ**。入口の裁きは 3 通り。
 
 ### A. 建物のロード順・予算の API 化 ＝ 最後の山
 
+**（オフィス 2026-09-17）第一歩＝「動作を変えない移動」は完了。** 690 行は `plateau/manager.js`（`createPlateauManager(env)`）へ。
+app.js に残るのは配線 15 行＝app の状態（cam・moving・flying・printHold・elevBusy・登録簿・除外マップ）を getter で覗かせ、
+生成後に定義される関数（unprojectXY／playingNow／flyTo）はラップして渡し、戻り値を移設前と同じ名前に分割代入（以降の参照は無改造）。
+`flying` の宣言だけ app.js に残した（flyTo の onFlying が代入する app の状態）。
+機械置換の diff 検分で 1 件捕まえた＝`\bcam\b` が worker への `type: "cam"` 文字列にも掛かっていた（直済み・文字列の守りを生成器に追加）。
+**次＝契約の導入（別コミット）**：env の getter 束と 20 個の分割代入を、意味のある API の形に整える。永続化の鍵は引き続き触らない。
+
 `app.js` の連続 690 行（表示判定・ヒステリシス・ロード順・取り消し・降格・常駐予算・追い出し・遠景の星座・
 先読み）が一塊のまま。切り出し三領域のうち、ここだけ手つかず。
 
@@ -128,11 +135,13 @@ app.js は宣言を**合成するだけ**。入口の裁きは 3 通り。
 | `npm run verify:i18n [-- --strict]` | キー存在・ja 必須・`$1` 整合・文脈標識の混入・未訳件数（26 言語） |
 | `npm run verify:ui` | 22 頁（`t-rtl` と `t-rtl?lang=ar` を追加） |
 | `npm run verify:webgpu` | `t-bld?gl2=1` を追加＝**建物が実際に立つ絵**（東京駅前 z16 チルト 55°・bld=42,523 px） |
+| `npm run verify:webgpu` | `t-plateau?gl2=1&loadmax=1` を追加（オフィス 9/17）＝**PLATEAU が実際に立つ**（東京駅前 z16 チルト 55°・登録簿→start→done→活性化を map.on("plateau") で見届ける・R2 焼きで約 11 秒） |
 | `npm run verify:prod` / `deploy` | 従来どおり。deploy は verify:editor → verify:prod → wrangler → verify-live |
 
 ---
 
 ## 再開の一行
 
-**「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」** から始める。永続化の鍵には触らない。
-先に `verify:webgpu t-bld` と `verify:prod` が緑であることを確かめてから着手すると、壊した時にすぐ分かる。
+~~「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」~~ ＝ 済（オフィス 9/17）。
+**次は「`plateau/manager.js` の env と戻り値を契約の形に整える」**（別コミット）。永続化の鍵には触らない。
+着手前に `verify:webgpu t-bld t-plateau` と `verify:prod` が緑であることを確かめると、壊した時にすぐ分かる。
