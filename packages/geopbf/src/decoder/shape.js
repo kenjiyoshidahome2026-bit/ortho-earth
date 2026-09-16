@@ -2,12 +2,9 @@ import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 import { decodeZIP } from "../modules/decodeZIP.js";
 
+import { mercToLonLat as fromMercator } from "../modules/mercator.js";   // 旧＝atan(sinh(y·π/R)) の自前式（数学的に同値・末位 ulp 差は precision 丸めで消える）
+import { pointInRing } from "../modules/geom.js";
 const view = a => new DataView(a.buffer, a.byteOffset, a.byteLength);
-const R = 20037508.342789244;
-const fromMercator = ([x, y]) => [
-    x / R * 180,
-    Math.atan(Math.sinh(y * Math.PI / R)) * 180 / Math.PI
-];
 function detectCRS(wkt) {
     if (!wkt) return null;
     const s = wkt.trim();
@@ -41,14 +38,7 @@ const getbbox = r => {
 	return [xmin, ymin, xmax, ymax];
 };
 const includes = (b, pt) => !(b[0] > pt[0] || b[2] < pt[0] || b[1] > pt[1] || b[3] < pt[1]);
-const contains = (ring, pt) => {
-	let [x, y] = pt, inside = false;
-	for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-		let xi = ring[i][0], yi = ring[i][1], xj = ring[j][0], yj = ring[j][1];
-		if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
-	}
-	return inside;
-};
+const contains = (ring, pt) => pointInRing(pt[0], pt[1], ring);
 const DBF_PARSE = {
 	B: v => +v.trim(), F: v => +v.trim(), N: v => +v.trim(),
 	L: v => /^[yt]$/i.test(v), D: v => new Date(v.replace(/(....)(..)(..)/, "$1-$2-$3")),

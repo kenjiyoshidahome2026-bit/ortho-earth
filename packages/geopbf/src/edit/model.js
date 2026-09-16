@@ -15,6 +15,7 @@
 // メモリ注：スナップ索引は頂点1個=1エントリobject（{x,y,arcId,idx}）＝100万頂点で数十MB。
 // v0はこれで進め、M8の実測で苦しければ TypedArray 化（arc毎の並行配列）に置換する。
 
+import { pointInRing as pointInRingCore } from "../modules/geom.js";
 import { buildTopology, createExtractor, quantize, quantizeLine } from "./topo-extract.js";
 import { rotateLL } from "./sphere.js";
 import { createSnapIndex, buildBase, normLon } from "./snap.js";
@@ -357,12 +358,7 @@ export function createModel(topo) {
 	const pointInRing = (x, y, coords) => {   // 開リング・偶奇則
 		coords = unwrapLons(coords);
 		if (coords.length) { const d = x - coords[0][0]; x = coords[0][0] + d - Math.round(d / 360) * 360; }   // 点もリング基準の連続表現へ
-		let inside = false;
-		for (let i = 0, n = coords.length, j = n - 1; i < n; j = i++) {
-			const [xi, yi] = coords[i], [xj, yj] = coords[j];
-			if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
-		}
-		return inside;
+		return pointInRingCore(x, y, coords);
 	};
 	function addHole(eid, ring) {
 		const f = m.feats.get(eid);

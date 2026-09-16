@@ -1,4 +1,5 @@
 import { antimeridianCut } from "./antimeridianCut.js";
+import { pointInRing as pointInRingCore } from "./geom.js";
 
 // toClockwise 警告のスパム抑制：空リング多発データ（NE海岸線等）で数十万件出て console を潰すのを数件に絞る。
 let _tcWarnCount = 0;
@@ -52,15 +53,7 @@ export function antimeridianFeature(feature, opts = null) {
         for (let i = 0; i < n; i++) { x += ring[i][0]; y += ring[i][1]; }
         return [x / n, y / n];
     }
-    function pointInRing([px, py], ring) {
-        let inside = false;
-        const n = ring.length - 1;
-        for (let i = 0, j = n - 1; i < n; j = i++) {
-            const [xi, yi] = ring[i], [xj, yj] = ring[j];
-            if ((yi > py) !== (yj > py) && px < (xj - xi) * (py - yi) / (yj - yi) + xi) inside = !inside;
-        }
-        return inside;
-    }
+    function pointInRing([px, py], ring) { return pointInRingCore(px, py, ring, ring.length - 1); }   // 閉環＝末尾の複製点を除く
     function toClockwise(f) {
         const fix = r => {
             let s = 0;
