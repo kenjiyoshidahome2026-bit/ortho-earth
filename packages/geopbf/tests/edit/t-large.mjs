@@ -6,7 +6,7 @@ import { GeoPBF } from "geopbf/pbf-base";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint as _g } from "geopbf/gint";
 // Node で gint WASM を初期化（web ターゲット init は fetch 前提＝バイト列を直接渡す。init はメモ化済み＝
-// gint.initialize() の再呼びは素通り）。JS位相フォールバックは共有点/角を落とすバグがあり検定に使えない（8/26実測）。
+// gint.initialize() の再呼びは素通り）。JS 位相経路は 2026-09-16 に撤去（未初期化なら topology() が投げる）。
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 {
