@@ -35,7 +35,7 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 	files.set("/a.tif", { body: buildCog({ width: 64, height: 48, tileW: 16, tileH: 16, epsg: 32654, origin: [300000, 4000000], scale: [10, 10], compression: "deflate", predictor: true, overviews: [2, 4], pixel: px }) });
 	const cog = await openCog(`${base}/a.tif`);
 	ok(reqCount("/a.tif") === 1, `open はヘッダ一発読み＝1リクエスト（実測 ${reqCount("/a.tif")}）`);
-	ok(log[0].range === "bytes=0-16383", `初回 range が bytes=0-16383（実測 ${log[0].range}）`);
+	ok(log[0].range === "bytes=0-65535", `初回 range が bytes=0-65535（実測 ${log[0].range}）`);
 	ok(cog.width === 64 && cog.height === 48 && cog.epsg === 32654, "寸法と EPSG");
 	ok(cog.overviews.length === 3, `overview 3段（実測 ${cog.overviews.length}）`);
 	ok(Math.abs(cog.bbox[0] - 300000) < 1e-9 && Math.abs(cog.bbox[3] - 4000000) < 1e-9, "bbox 北西角＝tiepoint");

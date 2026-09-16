@@ -115,7 +115,29 @@ Always enforced, even for trusted callers:
 
 Do not list user-content hosts (`raw.githubusercontent.com`, generic S3 domains) — that turns the proxy into an arbitrary-file laundering path. Reach those through gate 2 instead.
 
-Run `npm run test:proxy` to verify the gate (29 cases, no deploy needed).
+Run `npm run test:proxy` to verify the gate (33 cases, no deploy needed).
+
+---
+
+### 🛰 `/tellus` — Tellus Traveler API relay
+
+[Tellus](https://www.tellusxdp.com/) (JAXA satellite data: PALSAR-2, AVNIR-2, …) needs a per-user Bearer token, sends no
+CORS headers, and pins the CORS origin of its signed download URLs to `tellusxdp.com` — so a browser cannot talk to it
+directly. `/tellus/*` relays a **read-only allow-list** of the Traveler API with the token from the `TELLUS_TOKEN` secret;
+the signed URL it returns (S3-style, 1 hour) is then read through `/proxy?url=` with HTTP Range. Trusted callers only
+(same rule as gate 2 above). Purchases (`order`) and anything outside the list are refused.
+
+| | |
+| :-- | :-- |
+| `GET /tellus/datasets/` | dataset list |
+| `POST /tellus/data-search/` · `POST /tellus/datasets/{id}/data-search/` | scene search (body relayed as-is, 64 KB max) |
+| `GET /tellus/datasets/{id}/data/{id}/files/` · `POST …/files/{n}/download-url/` | file list / signed URL |
+| `GET /tellus/webcog?dataset={id}&data={id}` | one call: picks the scene's `*_webcog.tif` (Tellus display COG, EPSG:4326) and returns `{download_url, name, size_bytes, expires_in}` |
+
+```bash
+npx wrangler secret put TELLUS_TOKEN     # issue the token at Tellus: account menu → API token
+npm run test:tellus                      # 15 cases, no deploy needed
+```
 
 ---
 
