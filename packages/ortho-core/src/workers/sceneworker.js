@@ -222,7 +222,7 @@ self.onmessage = (e) => {
 			const d = ev.data;
 			if (d.type === "mode") {
 				md = d.md ? createMD(d.maxDraws || 128) : null;
-				console.log(`[scene] multi_draw ${md ? `有効（タイルGPU常駐・最大${md.maxDraws}draw/call）` : "なし（CPU mergeフォールバック）"}`);
+				console.log(`[scene] multi_draw ${md ? `enabled (tiles resident on GPU, max ${md.maxDraws} draw/call)` : "none (CPU merge fallback)"}`);
 			}
 		};
 		return;
@@ -241,7 +241,7 @@ self.onmessage = (e) => {
 		// バイト換算＝renderer 側の unit→byte（fillV×12/fillI×4/bldV×24/line=2texel×16B=32B）。cap=高水位（縮まない）。
 		const U2B = { fillV: 12, fillI: 4, bldV: 24, line: 32 };
 		const ps = md ? Object.fromEntries(Object.values(md.pools).map(p => [p.name, { capMB: (p.cap * (U2B[p.name] || 1) / 1048576).toFixed(1), usedMB: (p.used * (U2B[p.name] || 1) / 1048576).toFixed(1), frag: p.free.length }])) : null;
-		console.log(`[scene] geom ${geom.size}枚 / md ${md ? `常駐${md.res.size}枚 保留${md.pendingFree.length}` : "off"} ${ps ? JSON.stringify(ps) : ""}`);
+		console.log(`[scene] geom ${geom.size} tiles / md ${md ? `resident ${md.res.size} pending ${md.pendingFree.length}` : "off"} ${ps ? JSON.stringify(ps) : ""}`);
 		return;
 	}
 	if (m.type === "merge") {
@@ -252,7 +252,7 @@ self.onmessage = (e) => {
 			// 診断：main が ready と言うタイルの geometry が無い＝そのタイルは黙って穴になる（evict同期後は出ないはず）。
 			// md モードでは常駐後に CPU 側を解放している＝「geom または res に居る」が正常。
 			const missing = m.order.filter(o => !geom.has(o.key) && !(md && md.res.has(o.key)));
-			if (missing.length) console.warn(`[scene] merge ${m.slot}: geometry欠落 ${missing.length}/${m.order.length} 例:`, missing.slice(0, 6).map(o => o.key).join(" "), `(保持${geom.size})`);
+			if (missing.length) console.warn(`[scene] merge ${m.slot}: geometry missing ${missing.length}/${m.order.length} e.g.:`, missing.slice(0, 6).map(o => o.key).join(" "), `(held ${geom.size})`);
 			if (md) {
 				// multi_draw：draw list を組むだけ（新規タイルのみ up が先行）。up/dl は同一ポートの FIFO＝追い越しなし。
 				// ack はここで返さない：dl はアップロード渋滞の数フレーム後に適用され得るので、「ackされた＝画面に
@@ -269,7 +269,7 @@ self.onmessage = (e) => {
 				self.postMessage({ type: "merged", slot: m.slot, sig: m.sig });   // ack＝main が sig を確定（fallback＝適用は次フレーム）
 			}
 		} catch (err) {
-			console.error(`[scene] merge ${m.slot} 失敗（ackなし→mainが再要求）:`, err && (err.message || err));
+			console.error(`[scene] merge ${m.slot} failed (no ack -> main will re-request):`, err && (err.message || err));
 		}
 	}
 };

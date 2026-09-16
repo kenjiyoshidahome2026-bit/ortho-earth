@@ -119,7 +119,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	} : null;
 	// timestampWrites を受け付けない環境（WebKit の版差等）＝初回の失敗で TQ を丸ごと畳む（以後 undefined＝無計測で本業続行）
 	function tqOff(err) {
-		console.warn("[gpu] timestamp-query を無効化（この環境では使えない）:", err && (err.message || err));
+		console.warn("[gpu] timestamp-query disabled (unavailable in this environment):", err && (err.message || err));
 		try { tq && tq.qs.destroy && tq.qs.destroy(); } catch {}
 		tq = null;
 	}
@@ -619,7 +619,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			climTexView = tex.createView(); bm.close();
 			rebuildBG0();   // globeBG/climBG が気候テクスチャを掴み直す
 			rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
-		}).catch(e => console.warn("[hypso] climate texture load failed (緯度近似で継続)", e));
+		}).catch(e => console.warn("[hypso] climate texture load failed (continuing with latitude approximation)", e));
 	}
 	// ユーザ COG アトラス（rgba8unorm・gadgets/cog.js が等経緯度 RGBA を渡す）。globe binding(6-7)/terrain group(2) binding(3-4)
 	const cogBuf = device.createBuffer({ size: 32, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // CogP: bbox(vec4f)+p(vec4f)
@@ -1347,7 +1347,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws = [];
 			for (const p of plateaux.values()) {
-				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] PLATEAU 可視バッチ ${MAX_PL_BATCH} 超過＝打ち切り`); break; }
+				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] PLATEAU visible batches exceed ${MAX_PL_BATCH} = truncated`); break; }
 				if (plateauHidden.has(p.ward)) continue;
 				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				let count = p.count;
@@ -1508,7 +1508,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			case "celequator":  celeq = setStarBuf(celeq, data, 3); break;         // 天の赤道の大円
 			case "cogTex":      setCogTex(data); break;                             // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			default:
-				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") は未搭載＝無視（WebGPU移植の次フェーズ）`); } }
+				if (IGNORE.has(cmd)) { if (!ignored.has(cmd)) { ignored.add(cmd); console.log(`[gpu] set("${cmd}") not implemented = ignored (next phase of WebGPU port)`); } }
 				else console.warn("[gpu] renderer.set: unknown cmd", cmd);
 		}
 	}

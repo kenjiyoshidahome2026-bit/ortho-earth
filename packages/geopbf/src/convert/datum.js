@@ -141,8 +141,8 @@ export async function resolveDatum(opts = {}) {
 		if (!src) return null;
 		let g;
 		if (typeof src === "object" && typeof src.shift === "function") g = src;
-		else { try { g = await loadMeshGrid(src); } catch (e) { console.warn(`[datum] ${want} の格子を読めない＝近似で続行: ${e.message}`); return null; } }
-		if (g.transform && g.transform !== want) { console.warn(`[datum] ${want} に ${g.transform} の格子が渡された＝使わない`); return null; }
+		else { try { g = await loadMeshGrid(src); } catch (e) { console.warn(`[datum] cannot read grid for ${want} = continuing with approximation: ${e.message}`); return null; } }
+		if (g.transform && g.transform !== want) { console.warn(`[datum] grid for ${g.transform} passed to ${want} = not used`); return null; }
 		return g;
 	};
 	const [tokyo, patch] = await Promise.all([one(opts.tky2jgd, "tky2jgd"), one(opts.patchjgd, "patchjgd")]);

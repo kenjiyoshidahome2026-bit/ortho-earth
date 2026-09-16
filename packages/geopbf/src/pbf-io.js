@@ -81,7 +81,7 @@ class PBFIO {
                 this.revalidate(name, val.ETag, opts).catch(() => {});
                 return cached;
             }
-            console.warn(`[geopbf] ${name}: キャッシュの GintBUF が読めない（旧フォーマット）→ 再焼き`);
+            console.warn(`[geopbf] ${name}: cached GintBUF unreadable (old format) -> rebaking`);
         }
         try {
             // 取得も HTTP キャッシュの古い実体を掴まない：版を ?meta=1（キャッシュバスト）で照会し、
@@ -124,7 +124,7 @@ class PBFIO {
         pbf._etag = ETag;
         await pbf.gint({ gint: opts.gint });
         await this.put(pbf);
-        console.log(`[geopbf] ${name}: 新版を検出 → IDB 更新（次回起動から反映）`);
+        console.log(`[geopbf] ${name}: new version detected -> updating IDB (takes effect from next launch)`);
     }
     async save(pbf) {
         const name = pbf.name(); if (!name) return null;

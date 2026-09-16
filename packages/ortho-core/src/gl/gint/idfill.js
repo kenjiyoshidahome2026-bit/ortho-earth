@@ -124,7 +124,7 @@ function idCaps(gl) {
 	else if (gl.getExtension('EXT_color_buffer_half_float'))
 	                caps = { internal: gl.RGBA16F, fmt: gl.RGBA, type: gl.HALF_FLOAT, maxFid: 2047,    name: 'RGBA16F' };
 	gS._idCaps = caps;
-	console.info('[gint] idFill caps: %s (float_blend=%s)', caps?.name ?? 'なし（stencil単色へ）', !!fb);
+	console.info('[gint] idFill caps: %s (float_blend=%s)', caps?.name ?? 'none (falling back to stencil flat color)', !!fb);
 	return caps;
 }
 
@@ -212,7 +212,7 @@ function ensureIdFBO(gl, caps) {
 	if (!ok) {   // 実機で float 添付が不完全＝能力なし扱いに降格（以後 stencil 単色）
 		gl.deleteFramebuffer(fbo); gl.deleteTexture(tex);
 		gS._idCaps = null;
-		console.warn('[gint] idFill FBO incomplete → stencil 単色へ降格');
+		console.warn('[gint] idFill FBO incomplete -> degraded to stencil flat color');
 		return false;
 	}
 	gS._idFBO = fbo; gS._idTex = tex; gS._idW = gS.width; gS._idH = gS.height;

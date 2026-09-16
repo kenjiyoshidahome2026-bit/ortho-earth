@@ -136,9 +136,9 @@ async function zip(entries, name) {
 /* ---------- 本体 ---------- */
 export async function encodeXLSX(src, name = null, { sheetName = 'Sheet1' } = {}) {
 	let rows = typeof src === 'string' ? csvToRows(src) : (src || []);
-	if (rows.length > MAX_ROWS) { console.warn(`[encodeXLSX] ${rows.length} 行 → Excel 上限 ${MAX_ROWS} 行で打ち切り`); rows = rows.slice(0, MAX_ROWS); }
+	if (rows.length > MAX_ROWS) { console.warn(`[encodeXLSX] ${rows.length} rows -> truncated at Excel limit of ${MAX_ROWS} rows`); rows = rows.slice(0, MAX_ROWS); }
 	let nCols = rows.reduce((m, r) => Math.max(m, r.length), 0);
-	if (nCols > MAX_COLS) { console.warn(`[encodeXLSX] ${nCols} 列 → Excel 上限 ${MAX_COLS} 列で打ち切り`); rows = rows.map(r => r.slice(0, MAX_COLS)); nCols = MAX_COLS; }
+	if (nCols > MAX_COLS) { console.warn(`[encodeXLSX] ${nCols} columns -> truncated at Excel limit of ${MAX_COLS} columns`); rows = rows.map(r => r.slice(0, MAX_COLS)); nCols = MAX_COLS; }
 	// シート名の禁則: : \ / ? * [ ] と 31 文字上限
 	const sn = esc((String(sheetName).replace(/[:\\\/?*\[\]]/g, '_') || 'Sheet1').slice(0, 31));
 	return zip([

@@ -53,7 +53,7 @@ function snapshot(data) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
 		postMessage({ action: "snapshot", id: data.id, base: base.buffer, w, h }, [base.buffer]);
-	} catch (e) { console.error("[gint] snapshot例外", e?.message); }
+	} catch (e) { console.error("[gint] snapshot exception", e?.message); }
 }
 
 // main が持つ描画スタイル(styleTable/lineWidth 等=gintDrawOpts)を保持。従属描画(onSync)で使う。

@@ -120,7 +120,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	//   ?gl2=1 で EXT_float_blend の RG32F 経路へ逃げられる）。GL 経路の RG32F/RG16F 選択と同じ判断。
 	const canIdF32 = !!device.features?.has?.("float32-blendable");
 	const ID_MAX_FID = canIdF32 ? (1 << 20) : 2047, ID_FMT = canIdF32 ? "rgba32float" : "rgba16float";   // α＝前向き扇の最大 fid+1（MAX blend）＝重複画素の後勝ち（2026-09-15）
-	if (!canIdF32) console.warn("[gint] float32-blendable 無し＝idfill は rg16float（大fid市区町村コロプレスで塗り穴の恐れ）");
+	if (!canIdF32) console.warn("[gint] no float32-blendable = idfill uses rg16float (fill holes possible in large-fid municipality choropleth)");
 	const mkIdAccum = (mod, lay) => device.createRenderPipeline({
 		layout: lay, vertex: { module: mod, entryPoint: "vsId" },
 		fragment: { module: mod, entryPoint: "fsId", targets: [{ format: ID_FMT, blend: { color: { srcFactor: "one", dstFactor: "one", operation: "add" }, alpha: { srcFactor: "one", dstFactor: "one", operation: "max" } } }] },

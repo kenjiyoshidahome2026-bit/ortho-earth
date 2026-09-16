@@ -54,7 +54,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 			gl.activeTexture(gl.TEXTURE0);
 			bm.close(); rOpts.requestDraw?.();   // 到着フレームを一枚要求（静止中でも気候色へ差し替わる）
-		}).catch(e => { console.warn("[hypso] climate texture load failed (緯度近似で継続)", e); });
+		}).catch(e => { console.warn("[hypso] climate texture load failed (continuing with latitude approximation)", e); });
 	}
 	// ユーザ COG アトラス（gadgets/cog.js が geopbf/cog の renderTo で等経緯度 RGBA に warp 済みを渡す）。
 	// unit9＝空き（1=elev・2-5=PLATEAUマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
