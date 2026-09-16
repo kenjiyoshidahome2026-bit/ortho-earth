@@ -9,7 +9,8 @@
 // シーン切替は fit:false＝カメラ据え置き（同じ場所の別日・別センサを見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
 import { tr } from "../i18n.js";
-import { gcInterpolate } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（経緯度線形の内挿は禁止・9/15 の canvas2D 総点検）
+import { DATASETS, defaultRange, searchScenes, cogUrl, renewingFetch, orbitLabel } from "./tellus-api.js";   // Tellus の読み口（tellus.html と共用）
+import { createFootprint } from "./footprint.js";   // フットプリント描画（tellus.html と共用・辺は大円）
 const t = tr({
 	"衛星画像を探す": "Find satellite imagery",
 	"この地点で検索": "Search at this spot",
@@ -24,16 +25,12 @@ const t = tr({
 });
 
 const API = "https://earth-search.aws.element84.com/v1/search";   // 公開 STAC API（Sentinel-2 L2A COGs on AWS）
-// native-bucket Worker（/tellus 代理口と /proxy）。?tellusapi=http://localhost:8787 で wrangler dev の手元 Worker に向ける（開発用）
-const API_BASE = (typeof location !== "undefined" && new URLSearchParams(location.search).get("tellusapi")) || "https://api.ortho-earth.com";
-// ソース台帳。ds＝Tellus の dataset_id（【Tellus公式】…・allow_network_type=global＝Tellus 外利用可のものだけ）。
-// cloud＝雲量が properties にある（光学）＝雲量昇順で並べる／無い（SAR）＝新しい順。
-// days＝既定の期間（今日から遡る日数）／period＝固定の期間（運用終了センサ）。ソース切替で日付欄をこれに合わせる
+// ソース台帳＝Sentinel-2（直読み）＋ Tellus の 2 つ（tellus-api.js の DATASETS）。days/period＝ソース別の既定期間
 //（Sentinel-2 の「直近 90 日」のままだと、再訪間隔の長い PALSAR-2 や 2011 年で終わった AVNIR-2 は 0 件になる）。
 const SOURCES = [
 	{ key: "s2", label: "Sentinel-2", credit: "Sentinel-2 © Copernicus / Earth Search", cloud: true, days: 90 },
-	{ key: "palsar2", label: "PALSAR-2 (Tellus)", credit: "PALSAR-2 © JAXA / Tellus", ds: "45ff087d-be02-4788-bc4c-28cd947a1167", cloud: false, days: 3 * 365 },
-	{ key: "avnir2", label: "AVNIR-2 (Tellus)", credit: "AVNIR-2 © JAXA / Tellus", ds: "ea71ef6e-9569-49fc-be16-ba98d876fb73", cloud: true, period: ["2006-01-01", "2011-04-30"] },
+	{ ...DATASETS.palsar2, label: "PALSAR-2 (Tellus)" },
+	{ ...DATASETS.avnir2, label: "AVNIR-2 (Tellus)" },
 ];
 const CSS = `
 #stac-panel { position: absolute; top: 8px; left: 52px; width: min(300px, calc(100vw - 64px)); max-height: min(70%, 560px);
@@ -79,55 +76,13 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 	const $ = (id) => panel.querySelector(id);
 	const status = (s) => { $("#stac-status").textContent = s; };
 	const source = () => SOURCES.find(s => s.key === $("#stac-src").value) || SOURCES[0];
-	const applyRange = (src) => {   // ソースの既定期間を日付欄へ（利用者はそのあと自由に動かせる）
-		const [a, b] = src.period || [d(new Date(Date.now() - src.days * 864e5)), d(new Date())];
-		$("#stac-from").value = a; $("#stac-to").value = b;
-	};
+	const applyRange = (src) => { const [a, b] = defaultRange(src); $("#stac-from").value = a; $("#stac-to").value = b; };   // ソースの既定期間を日付欄へ（利用者はそのあと自由に動かせる）
 
-	// シーンの居場所＝フットプリントを自前 canvas で描く（measure/anno と同じ作法＝map の公開面のみ）。
-	// 行ホバーの間だけ太枠＝標高込みで投影（makeProjectorH + getHeight＝地形ドレープ済みの画像と視差ゼロ）。
-	// 選択枠は置かない＝載った画像自身が範囲を示す（枠を残すと僅かなズレだけが目立つ・本人裁定 9/6）。
-	const cv = document.createElement("canvas");
-	cv.style.cssText = "position:absolute;inset:0;pointer-events:none;";
-	mapEl.append(cv);
-	let hoverPts = null, hoverH = null, hoverSeq = 0, unsub = null;
-	const ringOf = (g) => g?.type === "Polygon" ? g.coordinates[0] : g?.type === "MultiPolygon" ? g.coordinates[0][0] : null;
-	const drawFoot = () => {
-		const dpr = devicePixelRatio || 1, W = mapEl.clientWidth, H = mapEl.clientHeight;
-		if (cv.width !== W * dpr || cv.height !== H * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
-		const ctx = cv.getContext("2d");
-		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-		ctx.clearRect(0, 0, W, H);
-		if (!hoverPts) return;
-		const prH = map.makeProjectorH?.(), pr = map.makeProjector();
-		ctx.beginPath();
-		let started = false;
-		for (let i = 0; i < hoverPts.length; i++) {
-			const q = hoverPts[i];
-			const p = (prH && hoverH) ? prH(q[0], q[1], hoverH[i]) : pr(q[0], q[1]);   // 標高キャッシュ到着後は地形の高さで投影＝画像と視差ゼロ
-			if (!p || p[2] < 0) { started = false; continue; }
-			started ? ctx.lineTo(p[0], p[1]) : ctx.moveTo(p[0], p[1]); started = true;
-		}
-		ctx.lineWidth = 4.5; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();   // 白フチ＝衛星画像の上でも読める
-		ctx.lineWidth = 2; ctx.strokeStyle = "#3f4757"; ctx.stroke();
-	};
-	// ホバー開始＝辺を16分割した標本点列（大円＝slerp。経緯度線形だと広いシーンで辺が緯線寄りに曲がる）を作り、
-	// 標高（map.getHeight＝非同期）を一括プリフェッチ→到着で差し替え再描画。未着の間は海抜0で即描き＝反応の速さを落とさない。
-	const setHover = (ring) => {
-		if (!ring) { hoverPts = null; hoverH = null; footOff(); drawFoot(); return; }
-		const pts = [];
-		for (let i = 0; i < ring.length; i++) {
-			const a = ring[i], b = ring[(i + 1) % ring.length];
-			for (let k = 0; k < 16; k++) pts.push(gcInterpolate(a, b, k / 16));
-		}
-		hoverPts = pts; hoverH = null; footOn();
-		const seq = ++hoverSeq;
-		Promise.all(pts.map(q => map.getHeight?.(q[0], q[1]) ?? 0))
-			.then(hs => { if (seq === hoverSeq && hoverPts === pts) { hoverH = hs; drawFoot(); } })
-			.catch(() => {});
-	};
-	const footOn = () => { unsub ??= map.onFrame(drawFoot); drawFoot(); map.requestDraw?.(); };
-	const footOff = () => { if (!hoverPts) { unsub?.(); unsub = null; drawFoot(); } };
+	// シーンの居場所＝フットプリント（gadgets/footprint.js）。行ホバーの間だけ太枠。選択枠は置かない＝載った画像自身が範囲を示す
+	//（枠を残すと僅かなズレだけが目立つ・本人裁定 9/6）。
+	const foot = createFootprint(map, mapEl);
+	const setHover = (g) => foot.set(g);
+	const ringOf = foot.ringOf;
 
 	// 現在ビューの bbox（画面四隅+中心の unproject ∩ ズーム由来の視野幅キャップ）。
 	// ⚠チルト時は画面上部が地平線近くまで届き、素の四隅 bbox が北へ大きく膨張＝「この範囲」の体感とズレる
@@ -145,10 +100,8 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		for (const [lo, la] of pts) { w = Math.min(w, lo); e = Math.max(e, lo); s = Math.min(s, la); n = Math.max(n, la); }
 		return [Math.max(w, c[0] - capW), Math.max(s, c[1] - capH, -85), Math.min(e, c[0] + capW), Math.min(n, c[1] + capH, 85)];
 	};
-	const bboxPoly = ([w, s, e, n]) => ({ type: "Polygon", coordinates: [[[w, s], [e, s], [e, n], [w, n], [w, s]]] });
-
-	// ---- ソース別アダプタ：検索 → 行の正規形 {id, date, sub, cloud, geometry, thumb, resolve()→COG の URL, fetch?} ----
-	const fromTo = () => [`${$("#stac-from").value}T00:00:00Z`, `${$("#stac-to").value}T23:59:59Z`];
+	// ---- ソース別アダプタ：検索 → 行の正規形 {id, date, sub, cloud, geometry, thumb, resolve()→COG の URL, renew?} ----
+	const fromTo = () => [$("#stac-from").value, $("#stac-to").value];
 	const searchS2 = async (c, bbox, sig) => {
 		const [from, to] = fromTo();
 		const r = await fetch(API, {
@@ -156,7 +109,7 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 			body: JSON.stringify({
 				collections: ["sentinel-2-l2a"],
 				...(c ? { intersects: { type: "Point", coordinates: [c[0], c[1]] } } : { bbox }),
-				datetime: `${from}/${to}`,
+				datetime: `${from}T00:00:00Z/${to}T23:59:59Z`,
 				limit: 40, sortby: [{ field: "properties.eo:cloud_cover", direction: "asc" }],
 			}),
 		});
@@ -170,48 +123,12 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 	};
 	const searchTellus = async (src, c, bbox, sig) => {
 		const [from, to] = fromTo();
-		const eps = 5e-4;   // Tellus の intersects は Polygon 限定＝中心点を極小四角で（「中心が写っているシーン」の意味論は同じ）
-		const poly = c ? bboxPoly([c[0] - eps, c[1] - eps, c[0] + eps, c[1] + eps]) : bboxPoly(bbox);
-		const r = await fetch(`${API_BASE}/tellus/datasets/${src.ds}/data-search/`, {
-			method: "POST", headers: { "content-type": "application/json" }, signal: sig, credentials: "omit",
-			body: JSON.stringify({
-				intersects: poly,
-				query: { start_datetime: { gte: from, lte: to } },
-				sortby: [src.cloud ? { field: "properties.eo:cloud_cover", direction: "asc" } : { field: "properties.start_datetime", direction: "desc" }],
-				paginate: { size: 40, cursor: null },   // size は 10 以上・cursor は null でも必須（422）
-			}),
-		});
-		if (!r.ok) throw new Error(`HTTP ${r.status}`);
-		return ((await r.json()).features || []).map(it => {
-			const p = it.properties || {};
-			const sub = src.cloud ? (p["tellus:name"] || "") : [p["sar:polarizations"], p["sat:orbit_state"] && t(p["sat:orbit_state"] === "ascending" ? "上昇" : "下降"), p["palsar2:beam"]].filter(Boolean).join(" ");
-			// webcog の署名 URL（1 時間）を /proxy 経由の URL に。失効したら fetch 包みが再発行して読み直す
-			const resolve = async () => {
-				const rr = await fetch(`${API_BASE}/tellus/webcog?dataset=${src.ds}&data=${it.id}`, { credentials: "omit" });
-				if (!rr.ok) throw new Error(`HTTP ${rr.status}`);
-				const { download_url } = await rr.json();
-				return `${API_BASE}/proxy?url=${encodeURIComponent(download_url)}`;
-			};
-			return {
-				id: it.id, date: (p.start_datetime || "").slice(0, 10), sub, cloud: p["eo:cloud_cover"] ?? -1,
-				geometry: it.geometry, thumb: null, resolve, renew: true,
-			};
-		});
+		return (await searchScenes(src, { c, bbox, from, to, signal: sig })).map(it => ({
+			...it, sub: src.cloud ? it.sub : [it.sub, orbitLabel(it.props, t)].filter(Boolean).join(" "), thumb: null, renew: true,
+			resolve: async () => (await cogUrl(src, it.id)).url,   // webcog の署名 URL（1 時間）→ /proxy 経由。失効は fetch 包みが再発行
+		}));
 	};
-	// 署名 URL 失効（403）で一度だけ再発行して読み直す fetch 包み。読み口（geopbf/cog/source）は常に同じ src を撃つので
-	// 引数 URL は無視して現在の URL へ＝差し替えが読み口に見えない。
-	const renewing = (resolve, first) => {
-		let cur = first, inflight = null;
-		return async (_u, init) => {
-			let r = await fetch(cur, init);
-			if (r.status === 403) {
-				inflight ??= resolve().then(n => { cur = n; }).finally(() => { inflight = null; });
-				await inflight;
-				r = await fetch(cur, init);
-			}
-			return r;
-		};
-	};
+	const renewing = (resolve, first) => renewingFetch(first, resolve);
 
 	let ac = null, activeHref = null;
 	const search = async () => {
