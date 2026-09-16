@@ -41,6 +41,7 @@
 		"deploy": "npm run build && npx wrangler deploy",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"test:proxy": "node tests/t-proxy.mjs",
+		"test:tellus": "node tests/t-tellus.mjs",
 		"mirror": "node scripts/mirror.mjs"
 	}
 }
