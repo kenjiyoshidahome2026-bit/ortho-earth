@@ -24,6 +24,7 @@ const MODULES = {
 	"decoder:moj":     () => import("./decoder/moj.js"),
 	"decoder:pbf":     () => import("./decoder/pbf.js"),
 	"decoder:shape":   () => import("./decoder/shape.js"),
+	"decoder:spatialite": () => import("./decoder/spatialite.js"),
 	"encoder:fgb":      () => import("./encoder/fgb.js"),
 	"encoder:geojson":  () => import("./encoder/geojson.js"),
 	"encoder:geopbf":   () => import("./encoder/geopbf.js"),

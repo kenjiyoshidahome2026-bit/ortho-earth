@@ -19,6 +19,7 @@ const decoderWorkers = {
     moj:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:moj' }),
     pbf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' }),
     shape:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:shape' }),
+    spatialite: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:spatialite' }),
 };
 const encoderWorkers = {
     fgb:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:fgb' }),
@@ -165,6 +166,7 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
                 if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
+                if (name.match(/\.(sqlite|sqlite3|spatialite|db)$/i)) return _geopbf(await decoder("spatialite", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）   // SpatiaLite（2026-09-16）
                 if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
                 if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter }));   // 表＝経緯度列か WKT 列

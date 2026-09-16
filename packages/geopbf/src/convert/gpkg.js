@@ -125,7 +125,7 @@ export function classifyCrs(srs, datum) {
 }
 
 const SAFE = Number.MAX_SAFE_INTEGER;
-function valueConverter(type) {
+export function valueConverter(type) {   // spatialite.js と共用（2026-09-16）
 	const t = (type || "").toUpperCase();
 	if (/^BOOL/.test(t)) return v => typeof v === "number" ? v !== 0 : v;
 	if (/^(DATE|DATETIME|TIMESTAMP)\b/.test(t)) return v => { if (typeof v !== "string") return v; const d = new Date(/^\d{4}-\d{2}-\d{2}$/.test(v) ? v + "T00:00:00Z" : v); return isNaN(+d) ? v : d; };
