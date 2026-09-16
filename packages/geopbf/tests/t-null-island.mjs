@@ -66,7 +66,7 @@ async function suite(label) {
 	}
 }
 
-await suite("JS");
+// JS 位相経路は 2026-09-16 に撤去（wasm 未初期化の topology() は投げる）＝wasm 側だけ検定
 {
 	const wasmJs = fileURLToPath(new URL("../wasm/pkg/gint_wasm.js", import.meta.url));
 	const mod = await import(wasmJs);

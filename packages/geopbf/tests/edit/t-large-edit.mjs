@@ -1,4 +1,4 @@
-// t-large-edit: 大規模モード Phase2＝GintBUF 背骨のジオメトリ編集検定（Node・WASM無し＝JSフォールバックで実GintBUFを焼く）。
+// t-large-edit: 大規模モード Phase2＝GintBUF 背骨のジオメトリ編集検定（Node・wasm を初期化して実GintBUFを焼く）。
 //   ①共有arcのlift（隣接ポリが同一arcを参照・refs） ②moveVertex＝arcBuffer in-place＋鏡像＋隣も動く
 //   ③端点weld（同座標の全arc端が一括で動く・環の閉性維持） ④L2頂点＝weight保存（8単位丸め）
 //   ⑤refreshDirty＝arcMeta/fid別bboxの部分再計算＋identifyAtの正気 ⑥toPbf＝変更fidだけ再エンコード・無変更はバイト複写
@@ -9,7 +9,7 @@ import { gint } from "geopbf/gint";
 import { topology, unPackGintBuffer } from "geopbf/topology";
 import { gint as _g } from "geopbf/gint";
 // Node で gint WASM を初期化（web ターゲット init は fetch 前提＝バイト列を直接渡す。init はメモ化済み＝
-// gint.initialize() の再呼びは素通り）。JS位相フォールバックは共有点/角を落とすバグがあり検定に使えない（8/26実測）。
+// gint.initialize() の再呼びは素通り）。JS 位相経路は 2026-09-16 に撤去（未初期化なら topology() が投げる）。
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 {
@@ -44,9 +44,9 @@ const fc = {
 };
 
 const pbf = await new GeoPBF({ name: "t-edit", precision: 6 }).set(structuredClone(fc));
-const GINT = topology(pbf);                    // JS経路（WASM無し）＝VW/L2込みの実GintBUF
+const GINT = topology(pbf);                    // wasm 経路＝VW/L2込みの実GintBUF
 pbf.unPackGint = unPackGintBuffer(GINT);
-ok(!!pbf.unPackGint?.arcBuffer, "GintBUF焼き（JS経路）");
+ok(!!pbf.unPackGint?.arcBuffer, "GintBUF焼き（wasm 経路）");
 
 const model = createLargeModel(pbf);
 const u = pbf.unPackGint;

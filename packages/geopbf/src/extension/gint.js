@@ -1,4 +1,4 @@
-import init, { L1toL2_wasm, XYtoL1_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, build_polygons_wasm, build_polylines_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
+import init, { L1toL2_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
 let sharedWasmPtr = 0;
@@ -274,54 +274,6 @@ export class gint {
 		return arcSet;
 	}
 
-	// XY(Int32ペア)連結バッファ → L1 Morton化＋VW簡略化 を wasm 1往復2パスで一括実行。
-	// int32ペアとu64は同サイズ＝XYtoL1はin-place変換なので、アップロード1回→XYtoL1一括→
-	// arcごとL1toL2（wasmメモリ内・memcpyなし）→ダウンロード1回で完結する。
-	// xy: Uint32Array [x,y,...]（座標は符号なし32bit・Int32だとx>2^31の日本全域が負値化） / ranges: Uint32Array [offset,len,...]（頂点単位）
-	static XYtoGintBatch(xy, ranges) {
-		const count = xy.length >>> 1;
-		const rc = ranges.length >>> 1;
-		if (!wasmReady || typeof XYtoL1_wasm !== 'function' || sharedWasmPtr === 0) {
-			const out = new BigUint64Array(count);
-			for (let i = 0; i < count; i++) out[i] = this.packFromInt(xy[i*2], xy[i*2+1]);
-			for (let i = 0; i < rc; i++) this.L1toL2(out.subarray(ranges[i*2], ranges[i*2] + ranges[i*2+1]));
-			return out;
-		}
-		const byteLength = count * 8;
-		const out = new BigUint64Array(count);
-		if (byteLength === 0) return out;
-		const ptr = this._ensureBufferSize(byteLength);
-		new Uint8Array(wasmMemoryBuffer.buffer).set(new Uint8Array(xy.buffer, xy.byteOffset, byteLength), ptr);
-		XYtoL1_wasm(ptr, count);
-		for (let i = 0; i < rc; i++) {
-			const len = ranges[i*2+1];
-			if (len >= 3) L1toL2_wasm(ptr + ranges[i*2] * 8, len);
-		}
-		new Uint8Array(out.buffer).set(new Uint8Array(wasmMemoryBuffer.buffer).subarray(ptr, ptr + byteLength));
-		return out;
-	}
-
-	// 全arc一括のVW簡略化: wasmへのアップロード/ダウンロードを各1回に（arc単位のmemcpy往復＝数万回を排除）
-	// buffer: 連結済み BigUint64Array / ranges: Uint32Array [offset, len, offset, len, ...]（要素単位）
-	static L1toL2Batch(buffer, ranges) {
-		const count = ranges.length >>> 1;
-		if (!wasmReady || typeof L1toL2_wasm !== 'function' || sharedWasmPtr === 0) {
-			for (let i = 0; i < count; i++) this.L1toL2(buffer.subarray(ranges[i*2], ranges[i*2] + ranges[i*2+1]));
-			return;
-		}
-		const byteLength = buffer.length * 8;
-		if (byteLength === 0) return;
-		const ptr = this._ensureBufferSize(byteLength);
-		new Uint8Array(wasmMemoryBuffer.buffer).set(new Uint8Array(buffer.buffer, buffer.byteOffset, byteLength), ptr);
-		for (let i = 0; i < count; i++) {
-			const len = ranges[i*2+1];
-			if (len >= 3) L1toL2_wasm(ptr + ranges[i*2] * 8, len);
-		}
-		// wasmメモリが処理中に成長した場合に備えビューは取り直す（linear memoryは伸長のみ・ptrは不変）
-		new Uint8Array(buffer.buffer, buffer.byteOffset, byteLength)
-			.set(new Uint8Array(wasmMemoryBuffer.buffer).subarray(ptr, ptr + byteLength));
-	}
-
 	static detectIntersections(arcBuffer, arcMeta, arcCount, snapDistSq, gridUnit) {
 		if (!wasmReady || !arcBuffer || !arcMeta || arcCount === 0) return null;
 		const arcBufBytes  = arcBuffer.byteLength;
@@ -374,73 +326,4 @@ export class gint {
 		return out.buffer;
 	}
 
-	// topology.js ポリゴン経路（cutPolygon→meta→buildArcs→stream組立）の wasm 一括版。
-	// XY連結バッファ＋リング台帳を1回渡し、GintBUF 素材（arc/meta/polyStream/neighborStream）を
-	// 1往復で受け取る＝JS中盤の Map/文字列キー/GC を丸ごと排除。wasm 不在なら null（JS経路へ）。
-	static buildPolygonsWasm(topo) {
-		if (!wasmReady || typeof build_polygons_wasm !== 'function' || !topo.length) return null;
-		let totalV = 0, ringCount = 0;
-		for (const q of topo) { ringCount += q.coords.length; for (const r of q.coords) totalV += r.length >> 1; }
-		const xy = new Uint32Array(totalV * 2), rings = new Uint32Array(ringCount * 2), comps = new Uint32Array(topo.length * 2);
-		let vo = 0, ri = 0;
-		topo.forEach((q, ci) => {
-			comps[ci * 2] = q.id; comps[ci * 2 + 1] = q.coords.length;
-			for (const r of q.coords) { const n = r.length >> 1; rings[ri * 2] = vo; rings[ri * 2 + 1] = n; xy.set(r, vo * 2); vo += n; ri++; }
-		});
-		const res = build_polygons_wasm(xy, rings, comps);
-		// ビューは読む直前に都度取る（処理中に wasm メモリが成長すると旧 buffer は detach するため）
-		const count = res.count();
-		const buffer         = new BigUint64Array(wasmMemoryBuffer.buffer, res.arc_buffer_ptr(), res.arc_buffer_len()).slice();
-		const meta           = new Uint32Array(wasmMemoryBuffer.buffer, res.arc_meta_ptr(), res.arc_meta_len()).slice();
-		const polyStream     = new Int32Array(wasmMemoryBuffer.buffer, res.poly_stream_ptr(), res.poly_stream_len()).slice();
-		const neighborStream = new Int32Array(wasmMemoryBuffer.buffer, res.neighbor_stream_ptr(), res.neighbor_stream_len()).slice();
-		res.free();
-		return { count, buffer, meta, mlen: 8, polyStream, neighborStream };
-	}
-
-	// topology.js ライン経路（cutPolyline→meta→VW→lineStream）の wasm 一括版。
-	// purifier は呼び出し側(buildPolylines)が JS で適用済み。coords は L1 Morton(u64) のまま渡す。
-	static buildPolylinesWasm(topo, n_poly = 0, vertexOffset = 0) {
-		if (!wasmReady || typeof build_polylines_wasm !== 'function' || !topo.length) return null;
-		let total = 0;
-		for (const q of topo) total += q.coords.length;
-		const coords = new BigUint64Array(total), lines = new Uint32Array(topo.length * 2), fids = new Uint32Array(topo.length);
-		let off = 0;
-		topo.forEach((q, i) => { coords.set(q.coords, off); lines[i * 2] = off; lines[i * 2 + 1] = q.coords.length; fids[i] = q.id; off += q.coords.length; });
-		const res = build_polylines_wasm(coords, lines, fids, n_poly, vertexOffset);
-		const count = res.count();
-		const buffer     = new BigUint64Array(wasmMemoryBuffer.buffer, res.arc_buffer_ptr(), res.arc_buffer_len()).slice();
-		const meta       = new Uint32Array(wasmMemoryBuffer.buffer, res.arc_meta_ptr(), res.arc_meta_len()).slice();
-		const lineStream = new Int32Array(wasmMemoryBuffer.buffer, res.line_stream_ptr(), res.line_stream_len()).slice();
-		res.free();
-		return { count, buffer, meta, mlen: 8, lineStream };
-	}
-
-	static XY2L1(estimatedPoints = 4096) {
-		if (!wasmReady) {
-			const coords = [];
-			return {
-				push(x, y) { coords.push(gint.packFromInt(x, y)); },
-				close() { return new BigUint64Array(coords); }
-			};
-		}
-		let count = 0, i32Idx = 0, bufSize = estimatedPoints * 2;
-		let ptr = this._ensureBufferSize(bufSize * 4);
-		let view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
-		return {
-			push(x, y) {
-				if (i32Idx + 2 >= view.length) { bufSize *= 2;
-					ptr = gint._ensureBufferSize(bufSize * 4, i32Idx * 4);   // 既存の頂点を新領域へ写す
-					view = new Int32Array(wasmMemoryBuffer.buffer, ptr, bufSize);
-				}
-				view[i32Idx++] = x; view[i32Idx++] = y; count++;
-			},
-			close() {
-				if (count === 0) return new BigUint64Array(0);
-				XYtoL1_wasm(ptr, count);
-				const u64View = new BigUint64Array(wasmMemoryBuffer.buffer, ptr, count);
-				return u64View.slice();
-			}
-		};
-	}
 }
