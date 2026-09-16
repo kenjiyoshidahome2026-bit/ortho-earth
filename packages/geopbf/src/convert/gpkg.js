@@ -11,6 +11,7 @@
 //      それ以外は ignoreCrs が無い限り投げる（GeoPBF は経緯度のみ＝再投影は GDAL 等で先に）。
 // 属性: SQLite の型そのまま（INTEGER/REAL/TEXT）。宣言型 BOOLEAN → bool、DATE/DATETIME/TIMESTAMP → Date、BLOB 列は読まない（stats.skipped）。
 //       安全整数を超える INTEGER は文字列にする（精度を黙って落とさない）。rowid 別名（fid）は属性として残す。
+import { mercToLonLat } from "../modules/mercator.js";
 import { GeoPBF } from "../pbf-base.js";
 import { openSqlite } from "./sqlite.js";
 import { parseWkb } from "./wkb.js";
@@ -19,7 +20,6 @@ import { crsFromWKT } from "./proj.js";
 import { resolveDatum, datumStats } from "./datum.js";
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
-const R = 6378137, D = 180 / Math.PI;
 
 /** GeoPackage を開いて層の一覧を返す（変換はしない）。 */
 export function readGeoPackage(u8, opts = {}) {
@@ -104,7 +104,6 @@ function finish(g, xf) {
 	return g;
 }
 const mapDeep = (c, f) => typeof c[0] === "number" ? f(c) : c.map(x => mapDeep(x, f));
-function mercToLonLat([x, y]) { return [x / R * D, (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * D]; }
 
 /** srs → { kind: "lonlat" | "mercator" | "projected" | "datum" | "other", label, toLonLat? }。id/org で分からなければ definition の WKT を convert/proj.js で判定。 */
 export function classifyCrs(srs, datum) {

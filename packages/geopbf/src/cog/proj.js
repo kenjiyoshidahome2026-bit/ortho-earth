@@ -3,6 +3,7 @@
 // の α/β 展開・標準ゾーン内で nm 級）。共形緯度→測地緯度は打ち切り級数でなく Newton 反復＝機械精度で往復が閉じる。
 // 依存ゼロ・DOM 無し（Node でそのまま動く＝CLI/テスト共用）。
 
+import { mercToLonLat } from "../modules/mercator.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // WGS84
@@ -84,7 +85,7 @@ export function projFor(epsg) {
 	};
 	if (epsg === 3857 || epsg === 3785 || epsg === 900913) return {
 		forward: ([lon, lat]) => [lon * D2R * RM, Math.log(Math.tan(Math.PI / 4 + lat * D2R / 2)) * RM],
-		inverse: ([x, y]) => [x / RM * R2D, (2 * Math.atan(Math.exp(y / RM)) - Math.PI / 2) * R2D],
+		inverse: mercToLonLat,
 	};
 	const utm = /^32([67])(\d\d)$/.exec(String(epsg));
 	if (utm) {
