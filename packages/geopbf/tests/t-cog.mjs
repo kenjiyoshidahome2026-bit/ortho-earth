@@ -197,6 +197,54 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 	ok(/unsupported CRS.*6677/.test(msg), `非対応 CRS は明示エラー（${msg}）`);
 }
 
+// ---- 14) auto stretch はタイル余白（ゼロ詰め）を標本化しない（GCOM-C SST f32 で [0,0] に化けた轍）------
+{
+	// 20×12 の f32 単バンドを 16×16 タイルで＝最粗段 1 タイルの大半が余白。値域 [10,30]・nodata −9999
+	files.set("/pad.tif", { body: buildCog({ width: 20, height: 12, bands: 1, dtype: "f32", compression: "deflate", nodata: -9999, overviews: [2], pixel: (x, y) => x === 0 ? -9999 : 10 + (x + y) % 21 }) });
+	const cog = await openCog(`${base}/pad.tif`);
+	const st = await cog.ensureStretch();
+	ok(st[0] >= 10 && st[1] <= 30 && st[1] > st[0], `auto stretch が実領域の値域内（実測 [${st.map(v => v.toFixed(1))}]）`);
+	cog.close();
+}
+
+// ---- 15) dualpol 偽色合成（2 バンド u8＝R:b0・G:b1・B:b0−b1・3 本ぶん auto stretch）------------------
+{
+	files.set("/dp.tif", { body: buildCog({ width: 32, height: 32, bands: 2, nodata: 0, compression: "deflate", pixel: (x, y) => x === 0 ? [0, 0] : [100 + x * 3, 20 + y] }) });
+	const gray = await openCog(`${base}/dp.tif`);
+	const tg = await gray.getTile(0, 0, 0);
+	ok(tg[(5 * 16 + 5) * 4] === tg[(5 * 16 + 5) * 4 + 1] && tg[(5 * 16 + 5) * 4 + 1] === tg[(5 * 16 + 5) * 4 + 2], "既定は先頭バンドのグレー");
+	gray.close();
+	const cog = await openCog(`${base}/dp.tif`, { composite: "dualpol" });
+	const st = await cog.ensureStretch();
+	ok(Array.isArray(st) && st.length === 3 && Array.isArray(st[0]), `dualpol の stretch は 3 本（実測 ${JSON.stringify(st)}）`);
+	ok(st[2][0] >= 100 - 51 && st[2][1] <= 193 - 20, `3 本目は b0−b1 の値域（実測 [${st[2]}]）`);
+	const t = await cog.getTile(0, 0, 0);
+	const px = (i, j) => [0, 1, 2, 3].map(k => t[(j * 16 + i) * 4 + k]);
+	const a = px(4, 2), b = px(12, 2);   // 同じ行で x が増える＝b0（R）増・b1（G）不変
+	ok(a[3] === 255 && b[0] > a[0] && b[1] === a[1], `R は b0 に単調（${a[0]}→${b[0]}）・G は b1 のまま（${a[1]}=${b[1]}）`);
+	const c = px(4, 10);
+	ok(c[1] > a[1] && c[2] < a[2], `y が増えると G（b1）増・B（b0−b1）減（G ${a[1]}→${c[1]}・B ${a[2]}→${c[2]}）`);
+	ok(px(0, 3)[3] === 0, "nodata（先頭バンド）は透明");
+	cog.close();
+}
+
+// ---- 16) colormap（単バンド LUT・名前と Uint8Array）---------------------------------------------
+{
+	files.set("/cm.tif", { body: buildCog({ width: 16, height: 16, bands: 1, dtype: "u16", compression: "deflate", pixel: (x, y) => x * 1000 }) });
+	const cog = await openCog(`${base}/cm.tif`, { colormap: "thermal", stretch: [0, 15000] });
+	const t = await cog.getTile(0, 0, 0);
+	const px = (i) => [t[i * 4], t[i * 4 + 1], t[i * 4 + 2]];
+	ok(px(0)[2] > px(0)[0] && px(15)[0] > px(15)[2], `thermal: 低温は青寄り ${px(0)}・高温は赤寄り ${px(15)}`);
+	cog.close();
+	const lut = new Uint8Array(768); for (let i = 0; i < 256; i++) { lut[i * 3] = 7; lut[i * 3 + 1] = i; lut[i * 3 + 2] = 255 - i; }
+	const cog2 = await openCog(`${base}/cm.tif`, { colormap: lut, stretch: [0, 15000] });
+	const t2 = await cog2.getTile(0, 0, 0);
+	ok(t2[0] === 7 && t2[15 * 4] === 7 && t2[15 * 4 + 1] === 255 && t2[15 * 4 + 2] === 0, "Uint8Array LUT がそのまま引かれる");
+	let threw = false; try { await openCog(`${base}/cm.tif`, { colormap: "nope" }); } catch (e) { threw = /colormap/.test(e.message); }
+	ok(threw, "未知の colormap 名は明示エラー");
+	cog2.close();
+}
+
 server.close();
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

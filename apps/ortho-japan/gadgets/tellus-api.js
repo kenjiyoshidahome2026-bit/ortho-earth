@@ -8,13 +8,21 @@
 const API_BASE = (typeof location !== "undefined" && new URLSearchParams(location.search).get("tellusapi")) || "https://api.ortho-earth.com";
 export const apiBase = () => API_BASE;
 
-// データセット台帳（【Tellus公式】…・allow_network_type=global＝Tellus 外利用可のものだけ）。
-// cloud＝雲量が properties にある（光学）＝雲量昇順／無い（SAR）＝新しい順。
+// データセット台帳（【Tellus公式】…・allow_network_type=global＝Tellus 外利用可のものだけ。一覧は GET /tellus/datasets/ で 45 件・2026-09-16）。
+// cloud＝雲量が properties にある（光学）＝雲量昇順／無い（SAR・海面水温）＝新しい順。
 // days＝既定の期間（今日から遡る日数）／period＝固定の期間（運用終了センサ）。
+// pol＝2 偏波（HH/HV）を持つ＝偽色合成（cogOpts）を選べる。cog＝そのデータの見せ方（geopbf/cog の openCog オプション）。
+// global＝全球 1 枚（GCOM-C L3）＝どこをクリックしても当たる＝「同じ場所の別日」が時間の前後だけになる。
 export const DATASETS = {
-	palsar2: { key: "palsar2", label: "PALSAR-2", credit: "PALSAR-2 © JAXA / Tellus", ds: "45ff087d-be02-4788-bc4c-28cd947a1167", cloud: false, days: 3 * 365, level: "L2.2" },
+	palsar2: { key: "palsar2", label: "PALSAR-2", credit: "PALSAR-2 © JAXA / Tellus", ds: "45ff087d-be02-4788-bc4c-28cd947a1167", cloud: false, days: 3 * 365, level: "L2.2", pol: true },
+	palsar: { key: "palsar", label: "PALSAR", credit: "PALSAR © JAXA/METI / Tellus", ds: "654421f9-695b-4a81-9659-735445adee88", cloud: false, period: ["2006-05-16", "2011-04-22"], level: "L2.2" },
 	avnir2: { key: "avnir2", label: "AVNIR-2", credit: "AVNIR-2 © JAXA / Tellus", ds: "ea71ef6e-9569-49fc-be16-ba98d876fb73", cloud: true, period: ["2006-01-01", "2011-04-30"], level: "1B1" },
+	// GCOM-C/SGLI 海面水温 8 日平均（L3・全球 8640×4320 f32 ℃・nodata −9999・上昇/下降 1 枚ずつ）。webcog は無く唯一の TIFF（COG 構造）を Worker が拾う
+	sst: { key: "sst", label: "GCOM-C SST", credit: "GCOM-C/SGLI SST © JAXA / Tellus", ds: "000eb404-1f69-4735-a966-2f3115269ee3", cloud: false, days: 400, level: "L3", global: true, sub: "8日平均", cog: { stretch: [0, 32], colormap: "thermal" } },
 };
+
+// データの見せ方（openCog オプション）。pol="gray" で PALSAR-2 も先頭バンド（HH）のグレー。
+export const cogOpts = (src, { pol = "color" } = {}) => ({ ...(src.cog || {}), ...(src.pol && pol !== "gray" ? { composite: "dualpol" } : {}) });
 
 const ymd = (x) => x.toISOString().slice(0, 10);
 // ソースの既定期間 [from, to]（YYYY-MM-DD）
@@ -51,7 +59,7 @@ export async function getScene(src, id, { signal } = {}) {
 export const orbitLabel = (p, t = (s) => s) => p["sat:orbit_state"] === "ascending" ? t("上昇") : p["sat:orbit_state"] === "descending" ? t("下降") : "";
 function normalize(src, it) {
 	const p = it.properties || {};
-	const sub = src.cloud ? (p["tellus:name"] || "") : [p["sar:polarizations"], p["palsar2:beam"]].filter(Boolean).join(" ");
+	const sub = src.cloud ? (p["tellus:name"] || "") : src.sub ? "" : [p["sar:polarizations"], p["palsar2:beam"] || p["palsar:beam"]].filter(Boolean).join(" ");
 	return { id: it.id, date: (p.start_datetime || "").slice(0, 10), sub, cloud: p["eo:cloud_cover"] ?? -1, geometry: it.geometry, props: p };
 }
 

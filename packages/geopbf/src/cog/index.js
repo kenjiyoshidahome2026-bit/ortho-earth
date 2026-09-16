@@ -18,7 +18,9 @@ const imageDecoder = async (bytes, mime, w, h) => {   // main 側の JPEG/WebP �
 export async function openCog(src, opts = {}) {
 	const cog = await openCore(src, { imageDecoder, ...opts });
 	const pool = opts.worker === false || typeof Worker === "undefined" ? null : makePool(opts);
-	const cacheKey = opts.cacheKey || cog.etag || String(src);
+	// worker 側 LRU（デコード済み RGBA）の鍵＝ファイルの同一性＋見せ方（偽色/カラーマップ/明示 stretch で RGBA は別物）
+	const drawSig = [cog.drawOpts.composite, opts.colormap && (typeof opts.colormap === "string" ? opts.colormap : "lut"), opts.stretch && JSON.stringify(opts.stretch)].filter(Boolean).join("|");
+	const cacheKey = (opts.cacheKey || cog.etag || String(src)) + (drawSig ? "#" + drawSig : "");
 	const inflight = new Map();
 	const wstat = { tilesDecoded: 0, decodeMs: 0 };   // worker 側のデコード集計
 
@@ -41,7 +43,7 @@ export async function openCog(src, opts = {}) {
 		const msgRaw = pl.list.map(([tx, ty], i) => ({ tx, ty, buf: raw[i] ? raw[i].slice().buffer : null }));
 		const r = await pool.submit({
 			raw: msgRaw, ifd: leanIfd(pl.level), le: cog.littleEndian, geoL: pl.geoL, epsg: cog.epsg,
-			stretch, nodata: cog.nodata, tgt: tgtDesc, nearest: o.nearest, cacheKey, level: pl.level,
+			stretch, nodata: cog.nodata, ...cog.drawOpts, tgt: tgtDesc, nearest: o.nearest, cacheKey, level: pl.level,
 		}, msgRaw.map(t => t.buf).filter(Boolean));
 		wstat.tilesDecoded += r.decoded || 0; wstat.decodeMs += r.decodeMs || 0;
 		return { rgba: new Uint8ClampedArray(r.rgba), w: r.w, h: r.h };

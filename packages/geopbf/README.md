@@ -576,8 +576,17 @@ npx geopbf cog png  https://…/TCI.tif out.png   # quick-look render
 | :-- | :-- |
 | Layout | tiled and stripped TIFF, BigTIFF |
 | Compression | none · deflate · LZW · JPEG · WebP *(JPEG/WebP decode in browser only)* · predictor 2 |
-| Samples | uint8 RGB(A) · RGB+NIR *(4th band drawn as alpha only when `ExtraSamples` says so)* · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* · 2-band gray+extra *(first band drawn; e.g. Tellus PALSAR-2 HH/HV)* |
+| Samples | uint8 RGB(A) · RGB+NIR *(4th band drawn as alpha only when `ExtraSamples` says so)* · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* · 2-band gray+extra *(first band drawn by default; e.g. Tellus PALSAR-2 HH/HV)* |
 | CRS | EPSG:4326 · EPSG:3857 · UTM 326xx–327xx *(Krüger n-series, nm-accurate)* |
+
+Single- and two-band rasters take rendering options (the same object for browser and Node):
+
+```js
+openCog(url, { stretch: [0, 32] });                 // fixed value range instead of the auto 2–98 percentile
+openCog(url, { colormap: "thermal" });              // single band → colour LUT ("thermal" built in, or a Uint8Array(256×3))
+openCog(url, { composite: "dualpol" });             // 2-band SAR → R=b0, G=b1, B=b0−b1 false colour (forest green, built-up magenta, water black)
+openCog(url, { cache, cacheKey: "scene-id" });      // second-level cache for compressed tile bytes ({get,set}); keyed by cacheKey or ETag
+```
 
 For anything beyond that, `gdal_translate -of COG` first. Sources without CORS: inject a proxy via
 `openCog(url, { fetch })`. Node reads the same core via `geopbf/cog/core` (DOM-free).

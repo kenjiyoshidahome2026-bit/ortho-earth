@@ -9,7 +9,7 @@
 // シーン切替は fit:false＝カメラ据え置き（同じ場所の別日・別センサを見比べる道具）。
 // 四戒: 独立（注入 loadCog/clearCog のみ）／遅延（stac-stub が初回クリックで import）／抽象アクセス／UI はこのパネルのみ。
 import { tr } from "../i18n.js";
-import { DATASETS, defaultRange, searchScenes, cogUrl, renewingFetch, orbitLabel } from "./tellus-api.js";   // Tellus の読み口（tellus.html と共用）
+import { DATASETS, defaultRange, searchScenes, cogUrl, cogOpts, renewingFetch, orbitLabel } from "./tellus-api.js";   // Tellus の読み口（tellus.html と共用）
 import { createFootprint } from "./footprint.js";   // フットプリント描画（tellus.html と共用・辺は大円）
 const t = tr({
 	"衛星画像を探す": "Find satellite imagery",
@@ -29,8 +29,7 @@ const API = "https://earth-search.aws.element84.com/v1/search";   // 公開 STAC
 //（Sentinel-2 の「直近 90 日」のままだと、再訪間隔の長い PALSAR-2 や 2011 年で終わった AVNIR-2 は 0 件になる）。
 const SOURCES = [
 	{ key: "s2", label: "Sentinel-2", credit: "Sentinel-2 © Copernicus / Earth Search", cloud: true, days: 90 },
-	{ ...DATASETS.palsar2, label: "PALSAR-2 (Tellus)" },
-	{ ...DATASETS.avnir2, label: "AVNIR-2 (Tellus)" },
+	...Object.values(DATASETS).map(d => ({ ...d, label: `${d.label} (Tellus)` })),   // PALSAR-2 / PALSAR / AVNIR-2 / GCOM-C SST＝台帳の順
 ];
 const CSS = `
 #stac-panel { position: absolute; top: 8px; left: 52px; width: min(300px, calc(100vw - 64px)); max-height: min(70%, 560px);
@@ -126,6 +125,7 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 		return (await searchScenes(src, { c, bbox, from, to, signal: sig })).map(it => ({
 			...it, sub: src.cloud ? it.sub : [it.sub, orbitLabel(it.props, t)].filter(Boolean).join(" "), thumb: null, renew: true,
 			resolve: async () => (await cogUrl(src, it.id)).url,   // webcog の署名 URL（1 時間）→ /proxy 経由。失効は fetch 包みが再発行
+			cog: { ...cogOpts(src), cacheKey: `${src.key}/${it.id}` },   // 見せ方（PALSAR-2 は偽色・SST はカラーマップ）＋生タイルキャッシュの鍵
 		}));
 	};
 	const renewing = (resolve, first) => renewingFetch(first, resolve);
@@ -159,7 +159,7 @@ export function stac({ btn, loadCog, clearCog, signal } = {}) {
 					setHover(null);   // 枠は消す＝範囲は載った画像自身が示す
 					try {
 						const href = await it.resolve();
-						await loadCog(href, { fit: activeHref === null, ...(it.renew ? { fetch: renewing(it.resolve, href) } : {}) });   // 初回だけシーンへ寄る＝以降は据え置きで日付比較
+						await loadCog(href, { fit: activeHref === null, ...(it.cog || {}), ...(it.renew ? { fetch: renewing(it.resolve, href) } : {}) });   // 初回だけシーンへ寄る＝以降は据え置きで日付比較
 						activeHref = href; status("");
 					} catch (e) { status(t("検索に失敗しました") + ": " + e.message); }
 				}, { signal });

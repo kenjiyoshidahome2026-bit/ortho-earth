@@ -9,9 +9,9 @@ import { makeLRU } from "./cache.js";
 
 const lru = makeLRU(32 << 20);
 
-const decodeOne = async (buf, ifd, le, stretch, nodata) => {
+const decodeOne = async (buf, ifd, le, stretch, nodata, composite, lut) => {
 	const dec = await decodeTile(buf, ifd, le);
-	if (dec.kind === "raster") return toRGBA8(dec.data, ifd, { stretch, nodata });
+	if (dec.kind === "raster") return toRGBA8(dec.data, ifd, { stretch, nodata, composite, lut });
 	// JPEG/WebP → ブラウザネイティブ（worker 内 createImageBitmap＝ハードウェアデコード）
 	const bm = await createImageBitmap(new Blob([dec.bytes], { type: dec.mime }));
 	const cv = new OffscreenCanvas(ifd.tileW, ifd.tileH);
@@ -23,7 +23,7 @@ const decodeOne = async (buf, ifd, le, stretch, nodata) => {
 
 onmessage = async ({ data: m }) => {
 	try {
-		const { id, raw, ifd, le, geoL, epsg, stretch, nodata, tgt, nearest, cacheKey, level } = m;
+		const { id, raw, ifd, le, geoL, epsg, stretch, nodata, composite, lut, tgt, nearest, cacheKey, level } = m;
 		const proj = projFor(epsg);
 		const tiles = new Map();
 		let decoded = 0, decodeMs = 0;   // main の metrics へ返す（worker 分も「数字で語る」）
@@ -33,7 +33,7 @@ onmessage = async ({ data: m }) => {
 			let rgba = lru.get(k);
 			if (!rgba) {
 				const d0 = performance.now();
-				rgba = await decodeOne(new Uint8Array(r.buf), ifd, le, stretch, nodata);
+				rgba = await decodeOne(new Uint8Array(r.buf), ifd, le, stretch, nodata, composite, lut);
 				decodeMs += performance.now() - d0; decoded++;
 				lru.set(k, rgba, rgba.byteLength);
 			}
