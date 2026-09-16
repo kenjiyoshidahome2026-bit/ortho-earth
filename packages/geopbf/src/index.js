@@ -12,6 +12,7 @@ const decoderWorkers = {
     gdb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gdb' }),
     parquet: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:parquet' }),
     csv:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:csv' }),
+    dxf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:dxf' }),
     gpx:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpx' }),
     json:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:json' }),
     ndjson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:ndjson' }),
@@ -169,6 +170,7 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.(sqlite|sqlite3|spatialite|db)$/i)) return _geopbf(await decoder("spatialite", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）   // SpatiaLite（2026-09-16）
                 if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
+                if (name.match(/\.dxf$/i)) return _geopbf(await decoder("dxf", q, { crs: opts.crs, ignoreCrs: opts.ignoreCrs, unitScale: opts.unitScale, closedAsPolygon: opts.closedAsPolygon, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // DXF（2026-09-16）
                 if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter }));   // 表＝経緯度列か WKT 列
                 if (name.match(/\.zip$/i)) {
                     // zip の中身で振り分け: *.gdbtable があれば FileGDB（.gdb をそのまま zip したもの）。一覧だけ読む（展開しない）

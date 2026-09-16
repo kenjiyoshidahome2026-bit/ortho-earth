@@ -90,7 +90,7 @@ pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 
 | | |
 | :-- | :-- |
-| **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · SpatiaLite · KML/KMZ · GPX · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`) |
+| **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · SpatiaLite · DXF · KML/KMZ · GPX · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`) |
 | **Topology** (`{ gint: true }`) | typed-array buffer of arcs, features and neighbour topology, baked in WASM; usable from a GPU vertex shader or from plain JS |
 | **Feature ops** | `centroid`, `area`, `lineLength`, `getBbox`, `classify`, `map`/`filter` clones, CSV/property tables |
 | **Export** | PMTiles (MVT), GeoParquet, GeoJSON, TopoJSON, FlatGeobuf, KMZ, GPX, GML, Shapefile |
@@ -195,6 +195,7 @@ npx geopbf parquet2pbf in.parquet out.geopbf                       # ← GeoParq
 npx geopbf gpkg2pbf roads.gpkg                                     # list the layers of a GeoPackage
 npx geopbf gpkg2pbf roads.gpkg roads.geopbf --layer roads          # ← GeoPackage, one layer (own SQLite reader, no GDAL)
 npx geopbf spatialite2pbf city.sqlite parcels.geopbf --layer parcels # ← SpatiaLite, one layer (compressed / TinyPoint geometries too)
+npx geopbf dxf2pbf plan.dxf plan.geopbf --crs 6677                    # ← DXF (no CRS inside) with EPSG code: JPR IX, UTM, lon/lat, WKT
 npx geopbf gdb2pbf city.gdb                                        # list the feature classes of a File Geodatabase
 npx geopbf gdb2pbf city.gdb.zip parcels.geopbf --layer 筆界         # ← FileGDB (directory or zip), 平面直角座標系/UTM → lon/lat
 npx geopbf gdb2pbf old.gdb out.geopbf --tky2jgd tky2jgd.bin.gz --patchjgd patchjgd.bin.gz   # 日本測地系 → JGD2011

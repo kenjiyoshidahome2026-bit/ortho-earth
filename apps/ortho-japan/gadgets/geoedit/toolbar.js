@@ -106,7 +106,7 @@ export function initToolbar(el, api, signal) {
 	btn("imp", t("GISファイルを取り込む（ドロップも可）"), () => file.click());
 	const file = document.createElement("input");
 	file.type = "file";
-	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.gz";
+	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.dxf,.gz";
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);
