@@ -33,6 +33,20 @@ const isInternalHost = host =>
 const deny = (msg, status = 403) =>
 	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json", "X-Proxy-Deny": "1" } });
 
+// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
+// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
+// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
+// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
+// /proxy の門②と /tellus（tellus.js）が共用。
+export const isTrusted = (req, env = {}) => {
+	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
+	const origin = req.headers.get("Origin") || "";
+	let originHost = "", originHostPort = "";
+	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
+	return (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
+		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
+};
+
 export async function proxy(req, env = {}) {
 	const url = new URL(req.url);
 	const target = url.searchParams.get('url');
@@ -40,16 +54,8 @@ export async function proxy(req, env = {}) {
 	if (!target) return new Response('URL required', { status: 400 });
 
 	const allowedHosts = (env.PROXY_ALLOWED_HOSTS || "").split(",").filter(Boolean);
-	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
 	const origin = req.headers.get("Origin") || "";
-	// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
-	// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
-	// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
-	// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
-	let originHost = "", originHostPort = "";
-	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
-	const trusted = (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
-		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
+	const trusted = isTrusted(req, env);
 
 	// 転送先の検問（リダイレクト先にも同じものを掛ける）
 	const gate = (raw) => {
@@ -93,11 +99,14 @@ export async function proxy(req, env = {}) {
 			//  ・UA 無しの素朴なリクエストを WAF が 403 で落とす先がある（geospatial.jp 実測 2026-08-29）
 			const r = await followed(first.url.toString(), {
 				method: 'GET',
-				headers: { 'User-Agent': 'nativeBucket-Proxy/1.2', 'Range': 'bytes=0-0' }
+				// 呼び出し元の Origin を添えて探る＝S3 系は Origin が無いと ACAO を返さない（無いと「CORS 不可」の偽陰性）
+				headers: { 'User-Agent': 'nativeBucket-Proxy/1.2', 'Range': 'bytes=0-0', ...(origin ? { 'Origin': origin } : {}) }
 			});
 			if (r.headers.get('X-Proxy-Deny')) return r;   // 検問で止めた応答はそのまま返す（上流 403 は下の JSON に包む）
 			try { await r.body?.cancel(); } catch { /* 既読み・切断は無視 */ }
-			const hasCors = r.headers.has('access-control-allow-origin');
+			// ACAO は値まで見る＝有無だけだと Tellus storage（ACAO=https://www.tellusxdp.com 固定）を「CORS 可」と誤判定（2026-09-16 実測）
+			const acao = r.headers.get('access-control-allow-origin');
+			const hasCors = acao === '*' || (!!origin && acao === origin);
 			// Range を無視する鯖は 200 で全長を返す。206 なら Content-Range "bytes 0-0/全長" から長さを拾う。
 			const total = r.status === 206
 				? (r.headers.get('content-range') || '').split('/')[1] || null

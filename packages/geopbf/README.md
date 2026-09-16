@@ -541,7 +541,7 @@ bilinear interpolation of the 3rd-mesh corners, exactly as GSI's own tools do.
 ## 6. COG — Cloud Optimized GeoTIFF
 
 Rasters, the same way: a COG is a static file read by HTTP Range requests — no tile server, no preprocessing. The
-reader is hand-written pure JS (zero new dependencies): one 16 KB range request fetches the whole header, tile
+reader is hand-written pure JS (zero new dependencies): one 64 KB range request fetches the whole header, tile
 requests are sorted and coalesced (adjacent ranges merge into one request), decode and reprojection run in a worker
 pool, and decoded tiles sit in a byte-budgeted LRU. JPEG/WebP tiles go through the browser's native (hardware)
 decoder.
@@ -576,7 +576,7 @@ npx geopbf cog png  https://…/TCI.tif out.png   # quick-look render
 | :-- | :-- |
 | Layout | tiled and stripped TIFF, BigTIFF |
 | Compression | none · deflate · LZW · JPEG · WebP *(JPEG/WebP decode in browser only)* · predictor 2 |
-| Samples | uint8 RGB(A) · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* |
+| Samples | uint8 RGB(A) · RGB+NIR *(4th band drawn as alpha only when `ExtraSamples` says so)* · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* · 2-band gray+extra *(first band drawn; e.g. Tellus PALSAR-2 HH/HV)* |
 | CRS | EPSG:4326 · EPSG:3857 · UTM 326xx–327xx *(Krüger n-series, nm-accurate)* |
 
 For anything beyond that, `gdal_translate -of COG` first. Sources without CORS: inject a proxy via

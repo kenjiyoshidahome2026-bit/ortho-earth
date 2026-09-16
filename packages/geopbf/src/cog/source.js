@@ -9,7 +9,9 @@
 //     1 リクエストへ合体（HTTP/1 host とリクエスト単価の高い CDN で効く）。1本の上限 maxReq。
 // fetch は注入可（CORS 無し配信を proxy 越しに読む口・maplibre.js の options.fetch と同じ流儀）。
 
-const DEF = { headerBytes: 16384, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
+// headerBytes 64 KB：16 KB だと IFD 連鎖が先頭に収まらない COG（Tellus AVNIR-2 webcog＝4 バンド×8 段）で
+// ヘッダ読みが 32 リクエスト/1.6 s に化けた（64 KB なら 1 本/0.1 s・2026-09-16 実測）。+48 KB は 1 タイル未満
+const DEF = { headerBytes: 65536, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
 
 export async function openSource(src, opts = {}) {
 	const { headerBytes, gapBytes, maxReq, concurrency } = { ...DEF, ...opts };
