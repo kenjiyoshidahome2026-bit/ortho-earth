@@ -71,6 +71,50 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	}
 }
 
+// ---- gpx：trkpt/rtept の ele・time が属性配列で残り、往復で戻る（旧＝trk の ele/time を全て捨てていた・2026-09-17）----
+{
+	const gpxText = `<?xml version="1.0"?>
+<gpx version="1.1" creator="test" xmlns="http://www.topografix.com/GPX/1/1">
+<wpt lat="35.5" lon="139.5"><ele>12.5</ele><time>2026-09-17T01:00:00Z</time><name>A&amp;B</name><type>peak</type></wpt>
+<trk><name>Run &quot;1&quot;</name><type>running</type>
+  <trkseg>
+    <trkpt lat="35.1" lon="139.1"><ele>10</ele><time>2026-09-17T02:00:00Z</time></trkpt>
+    <trkpt lon="139.2"
+           lat="35.2"><ele>11</ele><time>2026-09-17T02:00:10Z</time></trkpt>
+    <trkpt lat="35.3" lon="139.3" />
+  </trkseg>
+  <trkseg>
+    <trkpt lat="35.4" lon="139.4"><ele>13</ele><time>2026-09-17T02:01:00Z</time></trkpt>
+    <trkpt lat="35.5" lon="139.5"><ele>14</ele><time>2026-09-17T02:01:10Z</time></trkpt>
+  </trkseg>
+</trk>
+<rte><name>Plan</name><rtept lat="36" lon="140"><ele>100</ele></rtept><rtept lat="36.1" lon="140.1"><ele>101</ele></rtept></rte>
+</gpx>`;
+	const back = await dec("gpx", new File([gpxText], "trip.gpx", { type: "application/gpx+xml" }));
+	ok(back && back.type === "gpxdec" && back.data instanceof ArrayBuffer, "gpx decoder が読む");
+	const pbf = await new GeoPBF().set(back.data);
+	ok(pbf.length === 3, `gpx: wpt + trk + rte で 3 地物（${pbf.length}）`);
+	const [w, t, r] = [0, 1, 2].map(i => pbf.getFeature(i));
+	ok(w.properties.name === "A&B" && w.properties.ele === 12.5 && w.properties.time === "2026-09-17T01:00:00Z", `gpx: wpt の name を unescape・ele/time 保持（${JSON.stringify(w.properties)}）`);
+	ok(t.geometry.type === "MultiLineString" && t.geometry.coordinates[0].length === 3 && t.properties.name === 'Run "1"', `gpx: trk が 2 trkseg の MultiLineString・lat/lon 逆順の点も拾う（${t.geometry.type} ${t.geometry.coordinates.map(s => s.length)}）`);
+	ok(JSON.stringify(t.properties.ele) === "[[10,11,null],[13,14]]", `gpx: trk の ele が trkseg ごとの入れ子配列（${JSON.stringify(t.properties.ele)}）`);
+	ok(JSON.stringify(t.properties.time) === JSON.stringify([["2026-09-17T02:00:00Z", "2026-09-17T02:00:10Z", null], ["2026-09-17T02:01:00Z", "2026-09-17T02:01:10Z"]]), `gpx: trk の time が入れ子配列（${JSON.stringify(t.properties.time)}）`);
+	ok(r.geometry.type === "LineString" && r.properties.route === true && JSON.stringify(r.properties.ele) === "[100,101]" && r.properties.time == null, `gpx: rte が route:true の LineString・ele 平配列・time 無しは省く（${JSON.stringify(r.properties)}）`);
+
+	// 書き戻し → 再読み込みで同じになる
+	const f = await runWorker(new URL("../src/encoder/gpx.js", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
+	ok(f instanceof File && f.size > 0, `gpx encoder: File（${f && f.size} B）`);
+	const xml = await f.text();
+	ok(/<trkpt lat="35.2" lon="139.2"><ele>11<\/ele><time>2026-09-17T02:00:10Z<\/time><\/trkpt>/.test(xml), "gpx encoder: trkpt に ele/time を書く");
+	ok(/<trkpt lat="35.3" lon="139.3" \/>/.test(xml), "gpx encoder: ele/time の無い点は自己閉じ");
+	ok(/<rte>[\s\S]*<rtept lat="36" lon="140"><ele>100<\/ele><\/rtept>/.test(xml) && !/<rte>[\s\S]*<trkseg>[\s\S]*<\/rte>/.test(xml), "gpx encoder: route:true は <rte>/<rtept>");
+	ok(/<name>A&amp;B<\/name>/.test(xml) && /<name>Run &quot;1&quot;<\/name>/.test(xml), "gpx encoder: name を escape");
+	const back2 = await dec("gpx", f);
+	const pbf2 = await new GeoPBF().set(back2.data);
+	const same = [0, 1, 2].every(i => JSON.stringify(pbf.getFeature(i)) === JSON.stringify(pbf2.getFeature(i)));
+	ok(pbf2.length === 3 && same, "gpx: 往復（decode → encode → decode）で幾何・属性が一致");
+}
+
 // ---- 残りの encoder も「必ず settle・File を返す」----
 for (const [name, ext] of [["geojson", "two.geojson"], ["topojson", "two.topojson"], ["gpx", "two.gpx"], ["gml", "two.gml"], ["kmz", "two.kmz"], ["geopbf", "two.geopbf"]]) {
 	const gintbuf = name === "topojson" ? topology(src) : undefined;   // topojson は gint 前提＝WASM で焼いて渡す
