@@ -1,20 +1,21 @@
-import { index_alos, encodeName, decodeName, bakedJapan, setApiUrl } from "./altpbf.js";
+import { index_alos, encodeName, decodeName, inBbox, setApiUrl } from "./altpbf.js";
 import { Cache } from "native-bucket";
 
-// 日本域 R01 の旧 DSM(ALOS) キャッシュは失効扱い＝DTM(GSI DEM10B・bucket) へ焼き直したため。
-// bucket 側は source="GSI DEM10B" で返る＝一度差し替われば以後この判定は素通り。
-// 判定は「GSI 銘のあるタイルだけ信用」の向き：source フィールド導入前に焼かれた旧 ALOS タイルは
+// 焼き直し前の古い表層(DSM)キャッシュを失効させる判定。**どの域のどの段を裸地(DTM)へ焼き直したかは
+// 呼び出し側の申告（opts.dtm）**＝このパッケージは地域を知らない（2026-09-17 に日本の bbox を撤去）。
+//   dtm = { bbox:[西,南,東,北], range, brand } ／ 未申告(null)＝失効させない＝素の全球データのまま。
+// 判定は「brand 銘のあるタイルだけ信用」の向き：source フィールド導入前に焼かれた旧タイルは
 // source=undefined＝旧判定（"ALOS"で始まる時だけ失効）をすり抜けて DSM が永久に生き残っていた
-//（東新橋の屋上斜面＝PLATEAU 接地リフトが旧 DSM を食った実測。札幌は初取得が bucket=DEM10B で無症状）。
-const staleDSM = (name, obj) => {
-	if (!obj) return false;
-	if (String(obj.source || "").startsWith("GSI")) return false;   // 焼き直し済み＝信用
+//（東新橋の屋上斜面＝PLATEAU 接地リフトが旧 DSM を食った実測。札幌は初取得が bucket 側で無症状）。
+export const staleDSM = (name, obj, dtm) => {
+	if (!obj || !dtm) return false;
+	if (String(obj.source || "").startsWith(dtm.brand)) return false;   // 焼き直し済み＝信用
 	const [lng, lat, range] = decodeName(name);
-	if (range !== 1 || !bakedJapan(lng, lat)) return false;
-	// noBake（bucket未収録の印）は bakedJapan の「外」概念だが、bbox 内の外国陸地（韓国・台湾等）にも付く。
-	// bbox 内では noBake を信用しない＝毎セッション bucket を確認（load_gepco の decode 事故で日本セルに
-	// noBake が毒入りした実害の自己修復。本当に未収録の外国陸地は JAXA 再取得のコスト＝レアケースとして許容）。
-	return true;   // GSI 銘なし（ALOS 明記・無記名・noBake とも）＝失効 → bucket(DEM10B) を再確認
+	if (range !== dtm.range || !inBbox(dtm.bbox, lng, lat)) return false;
+	// noBake（bucket未収録の印）は申告域の「外」概念だが、域内の収録外の土地（韓国・台湾等）にも付く。
+	// 域内では noBake を信用しない＝毎セッション bucket を確認（load_gepco の decode 事故で日本セルに
+	// noBake が毒入りした実害の自己修復。本当に未収録の外国陸地は再取得のコスト＝レアケースとして許容）。
+	return true;   // brand 銘なし（旧 DSM 明記・無記名・noBake とも）＝失効 → bucket を再確認
 };
 
 // AW3D30 一覧（index_alos）の取得＝JAXA が落ちていても標高系を止めない。IDB 命中はそれを使い、取れなければ空の一覧で続行
@@ -41,6 +42,7 @@ async function loadAlosIndex(cache, onUpdate) {
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
 export async function createTileLoader(opts = {}) {
+	const dtm = opts.dtm || null;   // 地域の申告（jp/dtm.js 等）。未指定＝失効判定なし
 	if (opts.apiUrl) setApiUrl(opts.apiUrl);   // メイン側の bucket/JAXA fetch（index_alos 等）に必要
 	// IDB 不可（プライベートブラウズ/破損）は「キャッシュ無しで続行」へ縮退＝標高システムを一発死させない
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。
@@ -97,7 +99,7 @@ export async function createTileLoader(opts = {}) {
 		// 二者が非awaitで書く＝別コネクションでコミット順不定＝Blobが最後に勝ったセルが生まれ得る。それを素通しすると
 		// downsampleFlipped が blob.data=undefined を踏み描画ループごと毎フレーム例外（Mac実機実測・マシン/セル依存の地雷）。
 		// data/width を持つ「デコード済みタイル」だけ信用＝Blob なら worker 経路へ（worker はキャッシュBlobをデコードして返す＝自己修復）。
-		const cached = await cache(name); if (cached && cached.data && cached.width && !staleDSM(name, cached)) return cached;
+		const cached = await cache(name); if (cached && cached.data && cached.width && !staleDSM(name, cached, dtm)) return cached;
 		if (inflight.has(name)) return inflight.get(name);
 		const p = loadName(name).then(t => { inflight.delete(name); return t; });
 		inflight.set(name, p); return p;
@@ -106,6 +108,7 @@ export async function createTileLoader(opts = {}) {
 
 export async function createGetHeight(opts = {}) {
 	const dire = `GIS/alt`;
+	const dtm = opts.dtm || null;   // 地域の申告（createTileLoader と同じ物を渡すこと）
 	// createTileLoader と同じ縮退（IDB無し環境で標高取得ごと死なない）
 	const cache = await Cache(dire).catch(() => null);
 	let index = await loadAlosIndex(cache, i => { index = i; });
@@ -129,7 +132,7 @@ export async function createGetHeight(opts = {}) {
 	async function load(lng, lat, range, wait = false) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
-		const obj = await cache(name); if (obj && obj.data && obj.width && !staleDSM(name, obj)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
+		const obj = await cache(name); if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
 		if (isLoading) return wait && inflight ? inflight.then(() => load(lng, lat, range, wait)) : null;   // 描画側＝落とす（到着まで0）／wait＝待って再試行
 		return inflight = new Promise(res=>{
 			isLoading = performance.now();

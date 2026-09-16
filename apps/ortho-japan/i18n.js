@@ -14,7 +14,7 @@
 // 言語一覧は world と 1 本（packages/world/i18n/langs.json の写し＝i18n/langs.json）。コードは共有しない（裁定 2026-09-16）。
 //
 // 語順の掟：文単位でキー化する（単語を連結しない）。"Source: " + name のような足し算は言語によって語順が壊れる。
-import LANGS from "./i18n/langs.json";
+import LANGS from "./i18n/langs.js";
 
 const CTX_SEP = " ##";
 const CODES = new Set(LANGS.map(l => l.code));
