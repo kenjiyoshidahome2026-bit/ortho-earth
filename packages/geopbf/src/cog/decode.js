@@ -127,24 +127,29 @@ export function toRGBA8(data, ifd, { stretch = null, nodata = null } = {}) {
 		}
 		return out;
 	}
+	// alpha は TIFF ExtraSamples が 1（associated）/2（unassociated）の末尾バンドだけ。0＝「未指定」は実データ
+	//（Tellus の AVNIR-2 webcog は RGB+NIR の 4 バンドで ExtraSamples=[0]＝NIR を alpha に使うと海が透ける・2026-09-16 実測）
+	const alphaIdx = samples >= 2 && (extraSamples[0] === 1 || extraSamples[0] === 2) ? samples - 1 : -1;
 	if (samples >= 3) {                          // RGB / RGBA（u8 前提＝Sentinel TCI 等）
-		const hasA = samples >= 4 && extraSamples.length;
 		for (let i = 0; i < n; i++) {
 			const s = i * samples;
 			out[i * 4] = data[s]; out[i * 4 + 1] = data[s + 1]; out[i * 4 + 2] = data[s + 2];
-			out[i * 4 + 3] = hasA ? data[s + 3] :
+			out[i * 4 + 3] = alphaIdx >= 0 ? data[s + alphaIdx] :
 				(nodata !== null && data[s] === nodata && data[s + 1] === nodata && data[s + 2] === nodata) ? 0 : 255;
 		}
 		return out;
 	}
-	// 単バンド → グレー（stretch は f32 のまま計算＝バンディング回避）
+	// 単バンド → グレー（stretch は f32 のまま計算＝バンディング回避）。
+	// samples=2 は「グレー＋追加バンド」＝先頭バンドを描く（Tellus の PALSAR-2 webcog は HH/HV 2 バンド u8＝
+	// 画素インターリーブなので stride を跨がないと横縞になる・2026-09-16 実測）
 	const [lo, hi] = stretch || [0, 255];
 	const k = 255 / Math.max(hi - lo, 1e-9);
+	const S = samples || 1;
 	for (let i = 0; i < n; i++) {
-		const v = data[i];
+		const v = data[i * S];
 		if (nodata !== null && v === nodata) { out[i * 4 + 3] = 0; continue; }
 		const g = (v - lo) * k;
-		out[i * 4] = g; out[i * 4 + 1] = g; out[i * 4 + 2] = g; out[i * 4 + 3] = 255;
+		out[i * 4] = g; out[i * 4 + 1] = g; out[i * 4 + 2] = g; out[i * 4 + 3] = alphaIdx >= 0 ? data[i * S + alphaIdx] : 255;
 	}
 	return out;
 }

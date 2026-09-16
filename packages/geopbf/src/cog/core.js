@@ -59,7 +59,8 @@ export async function openCog(src, opts = {}) {
 		let vals = new Float64Array(1 << 15), cnt = 0;   // 型付き配列＋ネイティブ数値 sort（旧＝JS 配列＋比較関数 sort）
 		for (const r of raster.values()) {
 			if (!r) continue;
-			const stride = Math.max(1, (r.data.length / 20000) | 0);
+			const S = lv.samples || 1;   // 画素インターリーブ＝先頭バンドだけを標本化（samples=2 の PALSAR-2 で HV を混ぜない）
+			const stride = Math.max(1, ((r.data.length / S) / 20000) | 0) * S;
 			for (let i = 0; i < r.data.length; i += stride) {
 				const v = r.data[i];
 				if (t.nodata !== null && v === t.nodata) continue;
