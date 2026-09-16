@@ -230,16 +230,25 @@ function classify(gf, datum) {
 	}
 	return crsFromWKT(wkt, { datum });
 }
-async function* iterRows(source, t) {
-	const tx = parseTablx(await source.read(`${t.base}.gdbtablx`));
-	const body = await source.read(`${t.base}.gdbtable`);
-	const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+const DEFAULT_WINDOW = 16 << 20;   // .gdbtable の窓読み幅（16 MiB）＝表を丸ごと読まない（1GB 級の轍・2026-09-16）。opts.readWindow で変更可
+async function* iterRows(source, t, { window = DEFAULT_WINDOW } = {}) {
+	const tx = parseTablx(await source.read(`${t.base}.gdbtablx`));   // 索引は行あたり数バイト＝丸ごとで良い
+	const name = `${t.base}.gdbtable`;
 	const nNullable = t.fields.reduce((n, f) => n + (f.nullable ? 1 : 0), 0);
+	let win = null;   // { start, u8, dv }＝今持っている窓。行が窓の外なら、その行の先頭から次の窓を読む（順不同の行でも正しい・順序どおりなら連続読み）
+	const ensure = async (row, from, to) => {
+		if (win && from >= win.start && to <= win.start + win.u8.length) return;
+		const u8 = await source.read(name, from, Math.max(window, to - from));
+		win = { start: from, u8, dv: new DataView(u8.buffer, u8.byteOffset, u8.byteLength) };
+		if (u8.length < to - from) throw new Error(`gdb: 行 ${row} のオフセット ${from} がファイルの外`);
+	};
 	for (let row = 1; row <= tx.nRows; row++) {
 		const off = tx.offsetOf(row); if (!off) continue;
-		if (off + 4 > body.length) throw new Error(`gdb: 行 ${row} のオフセット ${off} がファイルの外`);
-		const len = dv.getInt32(off, true);
-		yield { id: row, values: readRecord(body.subarray(off + 4, off + 4 + len), t.fields, nNullable) };
+		await ensure(row, off, off + 4);
+		const len = win.dv.getInt32(off - win.start, true);
+		await ensure(row, off, off + 4 + len);
+		const s = off - win.start + 4;
+		yield { id: row, values: readRecord(win.u8.subarray(s, s + len), t.fields, nNullable) };
 	}
 }
 async function readRows(source, t) { const out = []; for await (const r of iterRows(source, t)) out.push(r); return out; }
@@ -262,17 +271,25 @@ export async function fromFileGDB(source, opts = {}) {
 	const props = t.fields.map((f, i) => ({ i, f })).filter(({ f }) => f.code !== 7 && f.code !== 8 && f.code !== 9 && (!keep || keep(f.name)));
 	const skipped = t.fields.filter(f => f.code === 8).map(f => ({ name: f.name, reason: "binary" }));
 	const ctx = { vertices: 0, empty: 0, multipatch: 0, curves: 0, nulls: 0 };
-	const features = [];
-	for await (const { id, values } of iterRows(source, t)) {
-		const raw = values[t.fields.indexOf(gf)];
-		const geometry = raw ? parseShape(raw, gf, ctx, xf) : null;
-		if (!geometry) { ctx.nulls++; continue; }
-		const q = {};
-		for (const { i, f } of props) { const v = f.code === 6 ? id : values[i]; if (v !== null && v !== undefined) q[f.name] = v; }
-		features.push({ type: "Feature", properties: q, geometry });
-	}
+	// 逐次エンコード：行 → setFeature を直接（旧＝全行を GeoJSON 配列に積んでから set()＝頂点あたり数十バイトの JS オブジェクトが支配項）。
+	// keys はスキーマの属性列（旧の makeKeys＝「値のあった列」と違い、全行 null の列も KEYS に載る＝properties には現れない）
+	const keys = props.map(({ f }) => f.name).sort();
+	const pbf = new GeoPBF({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution });
+	pbf.setHead(keys, []);
+	let count = 0;
+	await pbf.setBodyAsync(async () => {
+		for await (const { id, values } of iterRows(source, t, { window: opts.readWindow })) {
+			const raw = values[t.fields.indexOf(gf)];
+			const geometry = raw ? parseShape(raw, gf, ctx, xf) : null;
+			if (!geometry) { ctx.nulls++; continue; }
+			const q = {};
+			for (const { i, f } of props) { const v = f.code === 6 ? id : values[i]; if (v !== null && v !== undefined) q[f.name] = v; }
+			pbf.setFeature({ type: "Feature", properties: q, geometry }); count++;
+		}
+	});
 	const t1 = now();
-	const pbf = await new GeoPBF({ name: opts.name ?? layer.name, precision: opts.precision ?? 6, description: opts.description, license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
-	return { pbf, stats: { layer: layer.name, layers: gdb.layers.map(l => l.name), tables: gdb.tables.filter(t => !t.geometryType).map(t => t.name), features: features.length, rows: layer.rows, vertices: ctx.vertices, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, multipatch: ctx.multipatch, curves: ctx.curves,
+	pbf.close();
+	await pbf.getPosition();
+	return { pbf, stats: { layer: layer.name, layers: gdb.layers.map(l => l.name), tables: gdb.tables.filter(t => !t.geometryType).map(t => t.name), features: count, rows: layer.rows, vertices: ctx.vertices, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, multipatch: ctx.multipatch, curves: ctx.curves,
 		columns: props.map(p => p.f.name), skipped, crs: crs.label, crsUnknown: !!crs.unknown, reprojected: !!xf, datumApprox: !!crs.approx, datum: datumStats(datum), geometryType: layer.geometryType, z: layer.hasZ, m: layer.hasM, precision: opts.precision ?? 6, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
 }

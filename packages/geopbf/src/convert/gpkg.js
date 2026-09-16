@@ -66,18 +66,25 @@ export async function fromGeoPackage(u8, opts = {}) {
 	const skipped = layer.columns.filter(c => c.name !== gcol && /^BLOB$/i.test(c.type)).map(c => ({ name: c.name, reason: "BLOB" }));
 	const conv = props.map(c => ({ name: c.name, fn: valueConverter(c.type) }));
 	const ctx = { vertices: 0, empty: 0, extended: 0, bigint: 0, nulls: 0 };
-	const features = [];
-	for (const row of g.db.rows(layer.table)) {
-		const b = gcol ? row[gcol] : null;
-		const geometry = b ? parseGpkgGeometry(b, ctx, xf) : null;
-		if (!geometry) { ctx.nulls++; continue; }   // GeoPBF のワイヤは幾何なしの地物を持てない（fgb/kmz デコーダと同じく落として数える）
-		const q = {};
-		for (const { name, fn } of conv) { const v = row[name]; if (v !== null && v !== undefined) { const c = fn(v, ctx); if (c !== undefined) q[name] = c; } }
-		features.push({ type: "Feature", properties: q, geometry });
-	}
+	// 逐次エンコード：行 → setFeature を直接（旧＝全行を GeoJSON 配列に積んでから set()）。keys はスキーマの属性列（全行 null の列も KEYS に載る）
+	const keys = props.map(c => c.name).sort();
+	const pbf = new GeoPBF({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution });
+	pbf.setHead(keys, []);
+	let count = 0;
+	pbf.setBody(() => {
+		for (const row of g.db.rows(layer.table)) {
+			const b = gcol ? row[gcol] : null;
+			const geometry = b ? parseGpkgGeometry(b, ctx, xf) : null;
+			if (!geometry) { ctx.nulls++; continue; }   // GeoPBF のワイヤは幾何なしの地物を持てない（fgb/kmz デコーダと同じく落として数える）
+			const q = {};
+			for (const { name, fn } of conv) { const v = row[name]; if (v !== null && v !== undefined) { const c = fn(v, ctx); if (c !== undefined) q[name] = c; } }
+			pbf.setFeature({ type: "Feature", properties: q, geometry }); count++;
+		}
+	});
 	const t1 = now();
-	const pbf = await new GeoPBF({ name: opts.name ?? layer.identifier ?? layer.table, precision: opts.precision ?? 6, description: opts.description ?? (layer.description || undefined), license: opts.license, attribution: opts.attribution }).set({ type: "FeatureCollection", features });
-	const stats = { layer: layer.table, layers: g.layers.map(l => l.table), features: features.length, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs: layer.crs.label,
+	pbf.close();
+	await pbf.getPosition();
+	const stats = { layer: layer.table, layers: g.layers.map(l => l.table), features: count, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs: layer.crs.label,
 		reprojected: !!xf, datumApprox: !!layer.crs.approx, datum: datumStats(datum), precision: opts.precision ?? 6, droppedGeometries: ctx.nulls, emptyGeometries: ctx.empty, extendedGeometries: ctx.extended, bigints: ctx.bigint, z: !!layer.z, m: !!layer.m, encoding: g.encoding, warnings: g.warnings,
 		ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } };
 	return { pbf, stats };

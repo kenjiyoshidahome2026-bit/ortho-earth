@@ -3,7 +3,7 @@
 export { toPMTiles, lodThreshold, propsToTags } from "./tiler.js";
 export { attrFilter } from "./attrs.js";
 export { toGeoParquet, fromGeoParquet } from "./geoparquet.js";
-export { readParquet } from "./parquet-read.js";
+export { readParquet, openParquet } from "./parquet-read.js";
 export { fromGeoPackage, readGeoPackage, openGpkgTiles } from "./gpkg.js";
 export { openSqlite } from "./sqlite.js";
 export { openMBTiles } from "./mbtiles.js";

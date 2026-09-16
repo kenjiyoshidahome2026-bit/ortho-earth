@@ -11,7 +11,7 @@ import { writeParquet, PT, REP } from "./parquet.js";
 import { zxyToTileId } from "./pmtiles.js";
 import { attrFilter } from "./attrs.js";
 import { hasZstd } from "./gzip.js";
-import { readParquet } from "./parquet-read.js";
+import { openParquet } from "./parquet-read.js";
 import { parseWkb } from "./wkb.js";
 
 const { TAGS } = GeoPBF;
@@ -260,7 +260,7 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
 // 戻り: { pbf: GeoPBF, stats: { features（載せた数）, rows（行数）, droppedGeometries（幾何なしで落とした行）, vertices, columns: string[], skipped: [{name, reason}], crs, ms } }
 export async function fromGeoParquet(u8, opts = {}) {
 	const t0 = now();
-	const pq = await readParquet(u8);
+	const pq = await openParquet(u8);   // 値は row group 単位で読む（全列を一度に持たない）
 	let geo = null; try { geo = pq.keyValue.geo ? JSON.parse(pq.keyValue.geo) : null; } catch {}
 	const gname = opts.geometryColumn ?? geo?.primary_column ?? "geometry";
 	const gcol = pq.columns.find(c => c.name === gname);
@@ -278,18 +278,32 @@ export async function fromGeoParquet(u8, opts = {}) {
 	const props = pq.columns.filter(c => c !== gcol && !c.unsupported && !covering.has(c.name) && !(geo?.columns?.[c.name]) && (!keep || keep(c.name)));
 	const skipped = pq.columns.filter(c => c.unsupported && !covering.has(c.name)).map(c => ({ name: c.name, reason: c.unsupported }));
 	const ctx = { vertices: 0 };
-	const features = [];
-	let dropped = 0;
-	for (let i = 0; i < pq.numRows; i++) {
-		const w = gcol.values[i];
-		const geometry = w ? parseWkb(w, ctx) : null;
-		if (!geometry) { dropped++; continue; }   // 幾何なしの行は GeoPBF に載せられない＝落として数える（gpkg / fgb / kmz と同じ）
-		const q = {};
-		for (const c of props) { const v = c.values[i]; if (v !== null && v !== undefined) q[c.name] = v; }
-		features.push({ type: "Feature", properties: q, geometry });
-	}
-	const t1 = now();
+	// 逐次エンコード：row group ごとに列配列を復号 → 行を setFeature（旧＝全 row group を復号し全行を GeoJSON 配列に積んでから set()）。
+	// keys はスキーマの属性列（旧の makeKeys＝「値のあった列」と違い、全行 null の列も KEYS に載る＝properties には現れない）
+	const keys = props.map(c => c.name).sort();
 	const kv = pq.keyValue;
-	const pbf = await new GeoPBF({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"], license: kv["geopbf:license"], attribution: kv["geopbf:attribution"] }).set({ type: "FeatureCollection", features });
-	return { pbf, stats: { features: features.length, rows: pq.numRows, droppedGeometries: dropped, vertices: ctx.vertices, columns: props.map(c => c.name), skipped, crs, precision, created: pq.created, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
+	const pbf = new GeoPBF({ name: opts.name ?? kv["geopbf:name"] ?? "layer", precision, description: kv["geopbf:description"], license: kv["geopbf:license"], attribution: kv["geopbf:attribution"] });
+	pbf.setHead(keys, []);
+	let count = 0, dropped = 0;
+	await pbf.setBodyAsync(async () => {
+		for (let g = 0; g < pq.rowGroups.length; g++) {
+			const m = await pq.readRowGroup(g), rows = pq.rowGroups[g].numRows;
+			const gv = m.get(gcol.name);
+			if (gcol.unsupported) throw new Error(`fromGeoParquet: 幾何列を読めない（${gcol.unsupported}）`);
+			const cols = props.map(c => [c.name, m.get(c.name)]).filter(([, v]) => v);   // 読めなかった列（unsupported）はこの row group から省く
+			for (let i = 0; i < rows; i++) {
+				const w = gv ? gv[i] : null;
+				const geometry = w ? parseWkb(w, ctx) : null;
+				if (!geometry) { dropped++; continue; }   // 幾何なしの行は GeoPBF に載せられない＝落として数える（gpkg / fgb / kmz と同じ）
+				const q = {};
+				for (const [name, v] of cols) { const x = v[i]; if (x !== null && x !== undefined) q[name] = x; }
+				pbf.setFeature({ type: "Feature", properties: q, geometry }); count++;
+			}
+		}
+	});
+	const t1 = now();
+	pbf.close();
+	await pbf.getPosition();
+	const skippedLate = pq.columns.filter(c => c.unsupported && !covering.has(c.name) && props.includes(c)).map(c => ({ name: c.name, reason: c.unsupported }));   // 復号中に読めなくなった列
+	return { pbf, stats: { features: count, rows: pq.numRows, rowGroups: pq.rowGroups.length, droppedGeometries: dropped, vertices: ctx.vertices, columns: props.map(c => c.name), skipped: skipped.concat(skippedLate), crs, precision, created: pq.created, ms: { read: t1 - t0, encode: now() - t1, total: now() - t0 } } };
 }
