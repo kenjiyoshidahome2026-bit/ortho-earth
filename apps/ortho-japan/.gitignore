@@ -9,3 +9,6 @@ plateau-bake-out/
 # 使うのは app.js の __sapporo/__arakawaFit と edit.html（任意座標系ツール）だけ＝利用者には配らない（deploy でも除外済み）。
 # 必要な機体では bucket から取り直す（scripts/bake-arbitrary.mjs が生成元）。
 public/moj-local/
+
+# i18n の作業場（正本は i18n/ui.json・実行時の表は i18n/lang/ ＝どちらも追跡する）
+out/

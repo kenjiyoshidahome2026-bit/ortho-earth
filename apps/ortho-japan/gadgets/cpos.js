@@ -6,12 +6,12 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
-const t = tr({ "現在地（GPS）へ移動（@）": "Go to current location (GPS) (@)", "現在地（GPS）へ移動": "Go to current location (GPS)" });
+const t = tr();
 export function cpos({ projectLL, signal } = {}) {
 	const mapEl = this.mapEl, cam = this.cam, flyTo = this.flyTo;
 	if (mapEl.querySelector("#cpos-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const btn = document.createElement("button");
-	btn.id = "cpos-btn"; btn.dataset.tip = t("現在地（GPS）へ移動（@）"); btn.setAttribute("aria-label", t("現在地（GPS）へ移動"));
+	btn.id = "cpos-btn"; btn.dataset.tip = t("Go to current location (GPS) (@)"); btn.setAttribute("aria-label", t("Go to current location (GPS)"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="2" aria-hidden="true">
 			<circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="1.6" fill="#3f4757" stroke="none"/>

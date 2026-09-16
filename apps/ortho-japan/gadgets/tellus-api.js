@@ -18,7 +18,7 @@ export const DATASETS = {
 	palsar: { key: "palsar", label: "PALSAR", credit: "PALSAR © JAXA/METI / Tellus", ds: "654421f9-695b-4a81-9659-735445adee88", cloud: false, period: ["2006-05-16", "2011-04-22"], level: "L2.2" },
 	avnir2: { key: "avnir2", label: "AVNIR-2", credit: "AVNIR-2 © JAXA / Tellus", ds: "ea71ef6e-9569-49fc-be16-ba98d876fb73", cloud: true, period: ["2006-01-01", "2011-04-30"], level: "1B1" },
 	// GCOM-C/SGLI 海面水温 8 日平均（L3・全球 8640×4320 f32 ℃・nodata −9999・上昇/下降 1 枚ずつ）。webcog は無く唯一の TIFF（COG 構造）を Worker が拾う
-	sst: { key: "sst", label: "GCOM-C SST", credit: "GCOM-C/SGLI SST © JAXA / Tellus", ds: "000eb404-1f69-4735-a966-2f3115269ee3", cloud: false, days: 400, level: "L3", global: true, sub: "8日平均", cog: { stretch: [0, 32], colormap: "thermal" } },
+	sst: { key: "sst", label: "GCOM-C SST", credit: "GCOM-C/SGLI SST © JAXA / Tellus", ds: "000eb404-1f69-4735-a966-2f3115269ee3", cloud: false, days: 400, level: "L3", global: true, sub: "8-day mean", cog: { stretch: [0, 32], colormap: "thermal" } },
 };
 
 // データの見せ方（openCog オプション）。pol="gray" で PALSAR-2 も先頭バンド（HH）のグレー。
@@ -56,7 +56,7 @@ export async function getScene(src, id, { signal } = {}) {
 	return normalize(src, await r.json());
 }
 
-export const orbitLabel = (p, t = (s) => s) => p["sat:orbit_state"] === "ascending" ? t("上昇") : p["sat:orbit_state"] === "descending" ? t("下降") : "";
+export const orbitLabel = (p, t = (s) => s) => p["sat:orbit_state"] === "ascending" ? t("asc") : p["sat:orbit_state"] === "descending" ? t("desc") : "";
 function normalize(src, it) {
 	const p = it.properties || {};
 	const sub = src.cloud ? (p["tellus:name"] || "") : src.sub ? "" : [p["sar:polarizations"], p["palsar2:beam"] || p["palsar:beam"]].filter(Boolean).join(" ");

@@ -4,10 +4,7 @@
 // アイドル前に押されても boot は冪等（real ||=）＝そのクリックが本体を呼び、開く。搭載APIは従来どおり map.gadget.palette()。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
-const t = tr({
-	"配色テーマ": "Color themes",
-	"配色テーマを選ぶ": "Choose a color theme",
-});
+const t = tr();
 
 // パレット（3円の重なり）グリフ（本体 palette.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" aria-hidden="true">
@@ -19,7 +16,7 @@ export function palette(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#palette-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
-	btn.id = "palette-btn"; btn.dataset.tip = t("配色テーマ"); btn.setAttribute("aria-label", t("配色テーマを選ぶ"));
+	btn.id = "palette-btn"; btn.dataset.tip = t("Color themes"); btn.setAttribute("aria-label", t("Choose a color theme"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

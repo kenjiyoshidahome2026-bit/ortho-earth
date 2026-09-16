@@ -5,7 +5,7 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
-const t = tr({ "距離・面積を測る（M）": "Measure distance and area (M)", "距離・面積を測る": "Measure distance and area" });
+const t = tr();
 
 // 巻尺グリフ（本体 measure.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `
@@ -17,7 +17,7 @@ export function measure(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#measure-btn")) return () => {};   // 二重搭載は無害（作法の対称＝no-op を返す）
 	const btn = document.createElement("button");
-	btn.id = "measure-btn"; btn.dataset.tip = t("距離・面積を測る（M）"); btn.setAttribute("aria-label", t("距離・面積を測る"));
+	btn.id = "measure-btn"; btn.dataset.tip = t("Measure distance and area (M)"); btn.setAttribute("aria-label", t("Measure distance and area"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

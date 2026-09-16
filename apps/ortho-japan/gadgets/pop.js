@@ -5,7 +5,7 @@
 // projectLL＝経緯度→画面CSS座標[x,y,front]（実装は engine の project／注入は登録側）。
 // マーカー追随は本体 render のフック＝返す pop 関数の _update を登録側が frameHooks へ入れて毎フレ呼ぶ。
 import { tr } from "../i18n.js";
-const t = tr({ "閉じる": "Close", "固定": "Pin" });
+const t = tr();
 // 📌 は絵文字でなく SVG（白抜きを環境非依存に・currentColor で色を CSS へ委譲）。
 // 固定中は「刺さったピンを真上から見た頭」＝○に切替（＝ここに刺さっている、の意）。
 const PIN_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16 9V4h1a1 1 0 0 0 0-2H7a1 1 0 0 0 0 2h1v5a3 3 0 0 1-3 3v2h5.97v7l1 1 1-1v-7H19v-2a3 3 0 0 1-3-3z"/></svg>';
@@ -30,14 +30,14 @@ export function pop({ projectLL, signal } = {}) {
 		const body = document.createElement("div");   // 文言だけの器＝×/📌を消さずに差し替えできる（編集器の @pop 追随用）
 		body.className = "pop-body"; body.innerHTML = toHTML(content);
 		const close = document.createElement("button");
-		close.className = "panel-close"; close.textContent = "×"; close.title = t("閉じる"); close.setAttribute("aria-label", t("閉じる"));
+		close.className = "panel-close"; close.textContent = "×"; close.title = t("Close"); close.setAttribute("aria-label", t("Close"));
 		close.addEventListener("click", e => {
 			e.stopPropagation();
 			if (at.onClose) return at.onClose();   // 始末を呼び出し側が持つ場合（編集器＝@popを消す）＝箱の除去は _remove 経由に一本化
 			pops = pops.filter(p => p !== rec); div.remove(); draw();
 		});
 		const pin = document.createElement("button");
-		pin.className = "pop-pin"; pin.innerHTML = PIN_SVG; pin.title = t("固定"); pin.setAttribute("aria-label", t("固定"));
+		pin.className = "pop-pin"; pin.innerHTML = PIN_SVG; pin.title = t("Pin"); pin.setAttribute("aria-label", t("Pin"));
 		pin.addEventListener("click", e => {
 			e.stopPropagation(); rec.locked = pin.classList.toggle("on");
 			pin.innerHTML = rec.locked ? PINNED_SVG : PIN_SVG;   // 固定中＝刺さったピンの頭（○）＝右端へ（×が消えた席）

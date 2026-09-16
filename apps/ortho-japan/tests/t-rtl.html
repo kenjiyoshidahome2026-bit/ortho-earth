@@ -1,0 +1,49 @@
+<!doctype html>
+<!-- UI回帰：書字方向（RTL）。?lang= で言語を切り替え、家具の座標が鏡像になるかを見る。判定は<title>のPASS/FAIL。
+     LTR（既定=ja）で回すと座標表を body に吐く＝論理プロパティへの置換で「LTR の見た目が動いていない」門にも使う。 -->
+<html><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-rtl</title></head>
+<body>
+<script>
+window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16);
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
+const lang = new URLSearchParams(location.search).get("lang") || "ja";
+const RTL = ["ar", "fa", "ur", "he"].includes(lang);
+try {
+	const map = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+	map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.search(); map.gadget.hint();
+	await new Promise(r => setTimeout(r, 400));
+
+	const mapEl = document.getElementById("map");
+	const box = mapEl.getBoundingClientRect();
+	const rect = id => { const el = document.getElementById(id); if (!el) return null; const r = el.getBoundingClientRect(); return r.width ? r : null; };
+	// 左右は「容れ物の内側でどちら寄りか」で見る（絶対座標でなく比率＝窓幅に依らない）
+	const side = id => { const r = rect(id); return r ? (r.left + r.width / 2 - box.left) / box.width : null; };
+
+	ok("lang", mapEl.lang === lang);
+	ok("dir", mapEl.dir === (RTL ? "rtl" : "ltr"));
+
+	// ガジェット列（#gadgets）と出典（#attr）は互いに逆の端に居る。RTL では入れ替わる。
+	const dock = side("gadgets"), attr = side("attr");
+	ok("gadgets", dock !== null && (RTL ? dock > 0.5 : dock < 0.5));
+	ok("attr", attr !== null && (RTL ? attr < 0.5 : attr > 0.5));
+
+	// 横溢れなし（鏡像化で家具が画面外へ出ていない）
+	const over = [...mapEl.querySelectorAll("#dock, #attr, #gadgets, #chips, #search")]
+		.map(el => el.getBoundingClientRect()).filter(r => r.width && (r.left < box.left - 1 || r.right > box.right + 1));
+	ok("inside", over.length === 0);
+
+	// 座標表＝LTR の回帰比較用（置換の前後で同じ数字になること）
+	const ids = ["dock", "attr", "gadgets", "chips", "search", "zoom", "cpos-btn", "scale", "pos"];
+	const rows = ids.map(id => { const r = rect(id); return `${id}=${r ? [r.left - box.left, r.top - box.top, r.width, r.height].map(v => Math.round(v)).join(",") : "-"}`; });
+	document.body.insertAdjacentHTML("beforeend", `<pre id="rects">${rows.join("\n")}</pre>`);
+
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) {
+	document.title = "FAIL " + (e && e.message || e);
+}
+</script>
+</body></html>

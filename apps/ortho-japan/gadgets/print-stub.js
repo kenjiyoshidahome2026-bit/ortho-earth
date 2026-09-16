@@ -5,10 +5,7 @@
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
-const t = tr({
-	"平面図を印刷 ({0})": "Print plan map ({0})",
-	"平面図を印刷": "Print plan map",
-});
+const t = tr();
 
 export function print(opts = {}) {
 	const map = this, mapEl = this.mapEl;
@@ -16,7 +13,7 @@ export function print(opts = {}) {
 	if (mapEl.querySelector("#print-btn")) return;   // 二重搭載は無害
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "print-btn"; btn.dataset.tip = t("平面図を印刷 ({0})", mac ? "⌘P" : "Ctrl+P"); btn.setAttribute("aria-label", t("平面図を印刷"));
+	btn.id = "print-btn"; btn.dataset.tip = t("Print plan map ($1)", mac ? "⌘P" : "Ctrl+P"); btn.setAttribute("aria-label", t("Print plan map"));
 	btn.innerHTML = `
 		<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round" aria-hidden="true">
 			<path d="M6.5 9V3.5h11V9"/>

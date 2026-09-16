@@ -10,21 +10,7 @@
 import { gadgetStack } from "./stack.js";
 import { geodesicDistance } from "ortho-core";
 import { tr } from "../i18n.js";
-const t = tr({
-	"断面図（クリックで経路指定）": "Elevation profile (click a route)",
-	"断面図": "Elevation profile",
-	"クリックで経路の指定を開始": "Click to start a route",
-	"クリックで頂点・ダブルクリックで確定": "Click to add a vertex, double-click to finish",
-	"クリックで新しい経路・Escで閉じる": "Click for a new route, Esc to close",
-	"最低標高": "Lowest",
-	"グラフを保存": "Save graph",
-	"経路を保存": "Save route",
-	"閉じる": "Close",
-	"標高取得中… {0}/{1}": "Sampling elevation… {0}/{1}",
-	"総距離 {0}": "Length {0}",
-	"最低 {0}m・最高 {1}m": "Min {0}m / Max {1}m",
-	"縦横比 約{0}:1": "V-exag. ≈{0}:1",
-});
+const t = tr();
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#c9691e", DOT = "#fff", W = 2, R_VERT = 4;   // 経路＝橙（計測の暗赤と区別・グラフの塗りと同族）
@@ -38,7 +24,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 
 	if (!btn) {   // 直搭載（profile-stub 非経由＝単体でも動く＝独立）＝自前でボタン生成。stub 経由は btn 持参で再利用
 		btn = document.createElement("button");
-		btn.id = "profile-btn"; btn.dataset.tip = t("断面図（クリックで経路指定）"); btn.setAttribute("aria-label", t("断面図"));
+		btn.id = "profile-btn"; btn.dataset.tip = t("Elevation profile (click a route)"); btn.setAttribute("aria-label", t("Elevation profile"));
 		btn.innerHTML = ICON;
 		gadgetStack(mapEl).append(btn);
 	}
@@ -54,15 +40,15 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	panel.id = "profile-panel";
 	panel.innerHTML = `
 		<div class="pf-head">
-			<span class="pf-title">${t("断面図")}</span>
+			<span class="pf-title">${t("Elevation profile")}</span>
 			<span class="pf-stats"></span>
 			<span class="pf-base">
-				<label><input type="radio" name="pf-base" value="min" checked>${t("最低標高")}</label>
+				<label><input type="radio" name="pf-base" value="min" checked>${t("Lowest")}</label>
 				<label><input type="radio" name="pf-base" value="zero">0m</label>
 			</span>
-			<button class="pf-act pf-save">${t("グラフを保存")}</button>
-			<button class="pf-act pf-route">${t("経路を保存")}</button>
-			<button class="panel-close" aria-label="${t("閉じる")}">✕</button>
+			<button class="pf-act pf-save">${t("Save graph")}</button>
+			<button class="pf-act pf-route">${t("Save route")}</button>
+			<button class="panel-close" aria-label="${t("Close")}">✕</button>
 		</div>
 		<canvas class="pf-chart"></canvas>`;
 	mapEl.append(panel);
@@ -217,10 +203,10 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		readout(hint(pp));
 	}
 	function hint(pp) {
-		if (!verts.length) return `<span class="mr-hint">${t("クリックで経路の指定を開始")}</span>`;
-		if (finished) return `<span class="mr-hint">${t("クリックで新しい経路・Escで閉じる")}</span>`;
+		if (!verts.length) return `<span class="mr-hint">${t("Click to start a route")}</span>`;
+		if (finished) return `<span class="mr-hint">${t("Click for a new route, Esc to close")}</span>`;
 		let L = 0; for (let i = 0; pp && i + 1 < pp.length; i++) L += geodesicDistance(pp[i], pp[i + 1]);
-		return `<b>${fmtDist(L)}</b><span class="mr-sep">･</span><span class="mr-hint">${t("クリックで頂点・ダブルクリックで確定")}</span>`;
+		return `<b>${fmtDist(L)}</b><span class="mr-sep">･</span><span class="mr-hint">${t("Click to add a vertex, double-click to finish")}</span>`;
 	}
 	function readout(html) { out.innerHTML = html; out.style.display = html ? "block" : "none"; }
 
@@ -240,7 +226,7 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		cctx.fillStyle = bg; cctx.fillRect(0, 0, cssW, cssH);   // PNG保存で透過にならないよう地色を敷く
 		const got = samples.filter(Boolean);
 		plot.w = cssW - plot.l - plot.r; plot.h = cssH - plot.t - plot.b;
-		if (got.length < 2) { statsEl.textContent = t("標高取得中… {0}/{1}", sampled, samples.length); return; }
+		if (got.length < 2) { statsEl.textContent = t("Sampling elevation… $1/$2", sampled, samples.length); return; }
 
 		// 縦レンジ：基準＝最低標高（既定）or 0m。高低差10m未満（海上等）は10mに広げる＝平線が枠に貼り付かない
 		const zero = panel.querySelector('.pf-base input[value="zero"]').checked;
@@ -290,8 +276,8 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 
 		// 頭書き：総距離・最低/最高・縦横比（縦の誇張率）。取得中は進捗を添える
 		const exag = Math.max(1, Math.round((total / plot.w) / ((yHi - yLo) / plot.h)));
-		const prog = sampled < samples.length ? `　${t("標高取得中… {0}/{1}", sampled, samples.length)}` : "";
-		statsEl.textContent = `${t("総距離 {0}", fmtDist(total))}　${t("最低 {0}m・最高 {1}m", fmtNum(Math.round(minH)), fmtNum(Math.round(maxH)))}　${t("縦横比 約{0}:1", exag)}${prog}`;
+		const prog = sampled < samples.length ? `　${t("Sampling elevation… $1/$2", sampled, samples.length)}` : "";
+		statsEl.textContent = `${t("Length $1", fmtDist(total))}　${t("Min $1m / Max $2m", fmtNum(Math.round(minH)), fmtNum(Math.round(maxH)))}　${t("V-exag. ≈$1:1", exag)}${prog}`;
 	}
 }
 

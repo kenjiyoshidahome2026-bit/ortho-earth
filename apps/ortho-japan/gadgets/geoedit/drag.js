@@ -1,9 +1,6 @@
-import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
+import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
 import { toVec, quatBetween, quatAngle, quatFromAxisAngle, quatMul, rotateLL, gcCentroid } from "geopbf/edit/sphere";   // 移動＝球の中心まわりの回転（本人裁定 9/14「球体上の図形として角度で移動」）・ホイール＝重心軸まわりの回転
-const t = tr({
-	"大規模モードでは頂点の追加/削除はできません（移動のみ）": "Large mode cannot add/delete vertices (move only)",
-	"この頂点は消せません（端点/最小構成）": "This vertex cannot be deleted (endpoint / minimum shape)",
-});
+const t = tr();
 // ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ回転移動（f＝掴んだ点→今の点の球面回転を全頂点へ）。
 // capture-phase pointerdown で命中時だけエンジンから奪う（パンは発火しない）。Alt+クリック＝頂点削除もここ。
 // ドラッグ中はモデルを直接動かし（履歴なし）、終端で1コマンドを push＝「適用済み・pushのみ」の規約。
@@ -136,8 +133,8 @@ export function installDrag(ed) {
 		if (!h) return;
 		e.stopPropagation(); e.preventDefault();
 		if (e.altKey && h.kind === "v") {   // Alt+クリック＝頂点削除（doCmd 経由＝隠し/世代/pop の規約を他の構造操作と揃える）
-			if (st.model.large) return toast(t("大規模モードでは頂点の追加/削除はできません（移動のみ）"));
-			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx) }) === false) toast(t("この頂点は消せません（端点/最小構成）"));
+			if (st.model.large) return toast(t("Large mode cannot add/delete vertices (move only)"));
+			if (ed.doCmd({ op: "delete", addr: st.model.addrOf(h.arcId, h.idx) }) === false) toast(t("This vertex cannot be deleted (endpoint / minimum shape)"));
 			return;
 		}
 		if (h.kind === "m") {   // 中点＝挿入してそのまま掴む

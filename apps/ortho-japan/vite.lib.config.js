@@ -40,7 +40,7 @@ const wasmAsFile = {
 // 出荷物（dist/lib/）：
 //   ortho-japan.js   … ESM 本体（npm名=@ortho-earth/japan）。worker チャンクは同ディレクトリへ分割出力
 //   ortho-japan.css  … 意匠（quiet-mono トークン＋部品＋app 固有）。maplibre-gl と同じ作法で利用者が明示 import する
-//   assets/…         … worker と動的 import（measure/print/qr/shot/demo/ai 等）のチャンク
+//   assets/…         … worker と動的 import（measure/print/qr/shot/demo 等）のチャンク
 //
 // 掟：
 //  - CSS は #map の外へ書かない（2026-08-19 移設済）＝ホストページのレイアウトを壊さない

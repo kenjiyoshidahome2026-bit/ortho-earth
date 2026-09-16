@@ -37,7 +37,7 @@ execFileSync("tar", ["xzf", tarball, "-C", WORK]);
 const PKG = path.join(WORK, "package");
 
 for (const f of ["dist/lib/ortho-japan.js", "dist/lib/ortho-japan.css", "dist/lib/ortho-japan.d.ts",
-	"assets/plateau-sets.json", "assets/ai/citycodes.json", "sdk/example.html", "sdk/skill/ortho-earth-sdk/SKILL.md",
+	"assets/plateau-sets.json", "sdk/example.html", "sdk/skill/ortho-earth-sdk/SKILL.md",
 	"README.md", "LICENSE", "package.json"]) {
 	if (!existsSync(path.join(PKG, f))) fail(`tarball に ${f} が無い`);
 }

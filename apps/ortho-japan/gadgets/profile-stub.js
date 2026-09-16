@@ -4,7 +4,7 @@
 // ★frame hook（毎フレ再投影で球に追従）は core 側の frameHooks に触れる＝抽象アクセス opts.onBody(本体) 経由で本体到着後に配線。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
-const t = tr({ "断面図（クリックで経路指定）": "Elevation profile (click a route)", "断面図": "Elevation profile" });
+const t = tr();
 
 // 軸＋山なみグリフ（本体 profile.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `
@@ -16,7 +16,7 @@ export function profile(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#profile-btn")) return () => {};   // 二重搭載は無害（作法の対称＝no-op を返す）
 	const btn = document.createElement("button");
-	btn.id = "profile-btn"; btn.dataset.tip = t("断面図（クリックで経路指定）"); btn.setAttribute("aria-label", t("断面図"));
+	btn.id = "profile-btn"; btn.dataset.tip = t("Elevation profile (click a route)"); btn.setAttribute("aria-label", t("Elevation profile"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

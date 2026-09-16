@@ -42,20 +42,7 @@ import { gadgetStack } from "./stack.js";
 import { isTypingTarget } from "./keys.js";
 import { compileVias } from "../demo/scene-adapter.js";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
 import { tr } from "../i18n.js";
-const t = tr({   // UIの衣だけ＝台本コンテンツの言語解決は T()（scene[lang]）が別系統で担う
-	"デモを上演": "Play demo",
-	"デモを終了": "End demo",
-	"デモを終了 (Esc)": "End demo (Esc)",
-	"上映を停止": "Stop playback",
-	"前のシーンへ": "Previous scene",
-	"前へ (BS/←)": "Previous (BS/←)",
-	"次のシーンへ": "Next scene",
-	"次へ (Space/→)": "Next (Space/→)",
-	"自動上演": "Auto-play",
-	"シーン一覧": "Scene list",
-	"（スライド）": "(slide)",
-	"（無題）": "(untitled)",
-});
+const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
@@ -103,7 +90,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	let btn = null;
 	if (hasBuiltin) {   // ▶＝組み込み台本の入り口（player 搭載では出さない＝押しても流す物が無い）
 		btn = document.createElement("button");
-		btn.id = "demo-btn"; btn.dataset.tip = t("デモを上演"); btn.setAttribute("aria-label", t("デモを上演"));
+		btn.id = "demo-btn"; btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo"));
 		btn.setAttribute("aria-pressed", "false");   // 上演中＝点灯（星空劇場の家具退場からも除外される＝いつでも止められる）
 		btn.innerHTML = ICON;
 		gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
@@ -119,12 +106,12 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// 終了ボタンは置かない＝点灯した▶の再押下か Esc（星空劇場でも▶は残す＝止める口は常にある）。
 	bar.innerHTML = `
 		<span class="db-main">
-			<button id="demo-prev" aria-label="${t("前のシーンへ")}" title="${t("前へ (BS/←)")}">‹</button>
+			<button id="demo-prev" aria-label="${t("Previous scene")}" title="${t("Previous (BS/←)")}">‹</button>
 			<span id="demo-title" aria-live="polite"></span><span id="demo-step"></span>
-			<button id="demo-next" aria-label="${t("次のシーンへ")}" title="${t("次へ (Space/→)")}">›</button>
+			<button id="demo-next" aria-label="${t("Next scene")}" title="${t("Next (Space/→)")}">›</button>
 		</span>
 		<span class="db-aux">
-			<button id="demo-play" aria-label="${t("自動上演")}" aria-pressed="false" title="${t("自動上演")}">▷</button>
+			<button id="demo-play" aria-label="${t("Auto-play")}" aria-pressed="false" title="${t("Auto-play")}">▷</button>
 		</span>`;
 	// 字幕（自動上演専用）＝静止中だけ画面上部に caption（無ければ title）。触れない（pointer-events無し）＝地図の邪魔をしない
 	const cap = document.createElement("div");
@@ -139,10 +126,10 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	list.id = "demo-list";
 	// 言語解決：scene[lang]（jp:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
 	const T = s => s?.[lang] ?? s?.title ?? "";
-	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("（スライド）") : (s.view ?? s.glide ?? s.fade ?? t("（無題）")));
+	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("(slide)") : (s.view ?? s.glide ?? s.fade ?? t("(untitled)")));
 	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 	bar.append(list);
-	titleEl.title = t("シーン一覧"); titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
+	titleEl.title = t("Scene list"); titleEl.setAttribute("role", "button"); titleEl.setAttribute("aria-haspopup", "listbox");
 	const listOpen = () => list.classList.contains("open");
 	const syncList = () => {
 		list.querySelectorAll("button[data-i]").forEach(b => b.setAttribute("aria-current", String(+b.dataset.i === idx)));
@@ -287,7 +274,7 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 		if (!scenes.length) { console.warn("[demo] no script; start aborted (player mounts must pass opts.scenes)"); return; }   // 空のまま start＝無害に断る
 		bareLive = !!opts.bare;
 		bar.classList.add("on"); mapEl.classList.add("demo-live"); show(i, fly);
-		if (!bareLive && btn) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = t("デモを終了 (Esc)"); btn.setAttribute("aria-label", t("デモを終了")); }   // 素モードは▶を触らない（バー/ボタンを出さない）
+		if (!bareLive && btn) { btn.setAttribute("aria-pressed", "true"); btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }   // 素モードは▶を触らない（バー/ボタンを出さない）
 		if (!prefetched) { prefetched = true; prefetchViews?.(scenes.flatMap(s => s.path ? s.path.map(p => p.view) : [s.view ?? s.glide ?? s.fade]).filter(Boolean), preload); }   // ▶/ドロップとも裏で台本の街をIDBへ（1回だけ・path は通過点込み）
 		if (bareLive || narrow()) play();   // 素モード＝自動再生（映画）／狭画面も自動（play は再入無害）
 	};
@@ -295,20 +282,20 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	const pause = () => {
 		playing = false; clearTimeout(timer); caption(false); bar.classList.remove("playing");
 		playBtn.textContent = "▷"; playBtn.setAttribute("aria-pressed", "false");
-		if (on() && btn) { btn.dataset.tip = t("デモを終了 (Esc)"); btn.setAttribute("aria-label", t("デモを終了")); }
+		if (on() && btn) { btn.dataset.tip = t("End demo (Esc)"); btn.setAttribute("aria-label", t("End demo")); }
 	};
 	const play = () => {
 		if (playing) return;   // 再入（狭画面 start→play が重なる等）＝スケジューラを重ねない
 		playing = true; bar.classList.add("playing");
 		playBtn.textContent = "❚❚"; playBtn.setAttribute("aria-pressed", "true");
-		if (btn) { btn.dataset.tip = t("上映を停止"); btn.setAttribute("aria-label", t("上映を停止")); }
+		if (btn) { btn.dataset.tip = t("Stop playback"); btn.setAttribute("aria-label", t("Stop playback")); }
 		schedule();
 	};
 	const exit = (reason = "stopped") => {   // reason："finished"=走破（next が渡す）／"stopped"=Esc・▶・exit() 直叩き（API/テスト）
 		const wasOn = on();   // 実際に上映が立っていた時だけ終演イベント＝多重 exit は無音
 		pause(); clearTimeout(preTimer); bar.classList.remove("on"); mapEl.classList.remove("demo-live"); curtain(false); img.removeAttribute("src"); idx = -1;
 		list.classList.remove("open");
-		if (btn) { btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = t("デモを上演"); btn.setAttribute("aria-label", t("デモを上演")); }
+		if (btn) { btn.setAttribute("aria-pressed", "false"); btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo")); }
 		bareLive = false;   // 素モード解除（次の入り口が改めて設定）
 		if (wasOn) activeOnEnd?.(reason);   // 観測面：どの終わり方でも1発（finale より先＝呼び出し側の手仕舞い一本化の鍵）
 	};

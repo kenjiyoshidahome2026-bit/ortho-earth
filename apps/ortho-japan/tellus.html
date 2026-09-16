@@ -65,7 +65,7 @@
 				window.__map = map;   // console 検証用（デバッグの手すり）
 				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();
 				window.__tellus = await mountTellus(map, document.getElementById("side"));   // console 検証用（search/load/items）
-			} catch (e) { console.error("[tellus] エンジン起動失敗", e); dismissBoot(); }
+			} catch (e) { console.error("[tellus] engine startup failed", e); dismissBoot(); }
 		})();
 	</script>
 </body>

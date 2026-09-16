@@ -31,9 +31,9 @@
 	background: rgba(20,26,40,.35); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 	#pdb-panel { width: 360px; max-height: 72vh; display: flex; flex-direction: column; background: #fff; border-radius: 12px;
 		box-shadow: 0 12px 40px rgba(20,30,50,.28); padding: 14px 16px; font-size: 13px; color: #333; }
-	#pdb-head { font-weight: 600; font-size: 14px; color: var(--qm-ink); position: relative; padding-right: 24px; }
+	#pdb-head { font-weight: 600; font-size: 14px; color: var(--qm-ink); position: relative; padding-inline-end: 24px; }
 	#pdb-close {
-		position: absolute; top: -2px; right: -4px; width: 24px; height: 24px; border: none; background: none;
+		position: absolute; top: -2px; inset-inline-end: -4px; width: 24px; height: 24px; border: none; background: none;
 		color: var(--qm-text-faint); font-size: 17px; line-height: 1; cursor: pointer; border-radius: 50%;
 		&:hover { background: #eef0f3; color: var(--qm-text); }
 	}
@@ -64,10 +64,10 @@
    佇まいは #pdb と同じトークン参照＝白パネル・quiet-mono の家具規格 */
 #ai {
 	flex: 0 0 340px; display: flex; flex-direction: column; height: 100%; box-sizing: border-box;
-	background: #fff; border-left: 1px solid var(--qm-border); font-size: 13px; color: #333;
+	background: #fff; border-inline-start: 1px solid var(--qm-border); font-size: 13px; color: #333;
 	#ai-head { font-weight: 600; font-size: 14px; color: var(--qm-ink); padding: 12px 14px 8px; position: relative; }
 	#ai-close {
-		position: absolute; top: 10px; right: 10px; width: 24px; height: 24px; border: none; background: none;
+		position: absolute; top: 10px; inset-inline-end: 10px; width: 24px; height: 24px; border: none; background: none;
 		color: var(--qm-text-faint); font-size: 17px; line-height: 1; cursor: pointer; border-radius: 50%;
 		&:hover { background: #eef0f3; color: var(--qm-text); }
 	}

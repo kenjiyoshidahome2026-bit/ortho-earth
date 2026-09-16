@@ -4,7 +4,7 @@
 // ★ガジェット規約：独立モジュール＋（重ければ）小さな常駐スタブ＋本体は import()＝print/demo/ai と同じ型。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
-const t = tr({ "この視点をQRで共有": "Share this view via QR", "現在の視点をQRコードで共有": "Share the current view as a QR code" });
+const t = tr();
 
 // QRらしいグリフ（本体 qr.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝quiet-mono の夜節が自動反転。
 const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="#3f4757" aria-hidden="true">
@@ -15,7 +15,7 @@ export function qr(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#qr-btn")) return;   // 二重搭載は無害
 	const btn = document.createElement("button");
-	btn.id = "qr-btn"; btn.dataset.tip = t("この視点をQRで共有"); btn.setAttribute("aria-label", t("現在の視点をQRコードで共有"));
+	btn.id = "qr-btn"; btn.dataset.tip = t("Share this view via QR"); btn.setAttribute("aria-label", t("Share the current view as a QR code"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 

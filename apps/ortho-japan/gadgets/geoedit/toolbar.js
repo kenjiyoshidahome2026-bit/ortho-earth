@@ -2,33 +2,8 @@
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
 import { styleForm } from "./styleform.js";
-import { tr } from "../../i18n.js";   // UI二言語化（ja正典・en辞書引き＝エンジン i18n.js の流儀。辞書は各モジュール持参）
-const t = tr({
-	"元に戻す (⌘Z)": "Undo (⌘Z)",
-	"やり直す (⇧⌘Z)": "Redo (⇧⌘Z)",
-	"選択・頂点編集 (V)": "Select / edit vertices (V)",
-	"点を置く（アイコン/図形） (A)": "Place a point (icon / shape) (A)",
-	"テキストを置く (T)": "Place text (T)",
-	"線を描く (L)": "Draw a line (L)",
-	"面を描く (P)": "Draw a polygon (P)",
-	"フリーハンドで描く（ドラッグ＝線・始点に戻して離すと面） (F)": "Draw freehand (drag = line; release near the start to close a polygon) (F)",
-	"矩形を描く（2クリック） (R)": "Draw a rectangle (2 clicks) (R)",
-	"円を描く（中心→半径の2クリック） (C)": "Draw a circle (center → radius, 2 clicks) (C)",
-	"穴を開ける（ポリゴンの内側に描いてEnter） (H)": "Cut a hole (draw inside a polygon, then Enter) (H)",
-	"要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)": "Move a feature (click to select → drag; wheel while holding = rotate about its centroid, ⌥/Alt+wheel = rotate without grabbing, Shift = 15° steps) (M)",
-	"スナップ格子（度）": "Snap grid (degrees)",
-	"GISファイルを取り込む（ドロップも可）": "Import a GIS file (or drop it)",
-	"書き出し（8形式）": "Export (8 formats)",
-	"クラウドに保存 / 読み込み（要ログイン）": "Cloud save / open (login required)",
-	"全消去（新規セッション）": "Clear all (new session)",
-	"点のスタイル（次に置く点）": "Point style (next point)",
-	"テキスト（次に置く文字）": "Text (next label)",
-	"線のスタイル（次に描く線）": "Line style (next line)",
-	"面のスタイル（次に描く面）": "Polygon style (next polygon)",
-	"面のスタイル（矩形）": "Polygon style (rectangle)",
-	"面のスタイル（円）": "Polygon style (circle)",
-	"線のスタイル（フリーハンド）": "Line style (freehand)",
-});
+import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+const t = tr();
 
 // モノクロ線画アイコン（currentColor）＝Kenji旧ツールバーの流儀（8/20 参考画像）。絵文字混在をやめて統一
 const S = d => `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
@@ -65,34 +40,34 @@ export function initToolbar(el, api, signal) {
 	const sep = () => { const s = document.createElement("span"); s.className = "ge-sep"; el.append(s); };
 
 	// ---- undo/redo（旧ツールバー準拠＝左端）----
-	const undoB = btn("undo", t("元に戻す (⌘Z)"), () => api.undo());
-	const redoB = btn("redo", t("やり直す (⇧⌘Z)"), () => api.redo());
+	const undoB = btn("undo", t("Undo (⌘Z)"), () => api.undo());
+	const redoB = btn("redo", t("Redo (⇧⌘Z)"), () => api.redo());
 	const syncHist = (canU, canR) => { undoB.disabled = !canU; redoB.disabled = !canR; };
 	sep();
 
 	// ---- ツール ----
 	// 並び＝選択・点・文字・線・自由曲線・矩形・円・多角形・くり抜き・移動（本人裁定 9/15）。グループ化/解除はツールバーに置かず右クリックメニュー（複数選択＝⌘/Ctrl+クリック）
 	const tools = {
-		select: btn("select", t("選択・頂点編集 (V)"), () => api.setTool("select")),
-		point: btn("point", t("点を置く（アイコン/図形） (A)"), () => api.setTool("point")),
-		text: btn("text", t("テキストを置く (T)"), () => api.setTool("text")),
-		line: btn("line", t("線を描く (L)"), () => api.setTool("line")),
-		free: btn("free", t("フリーハンドで描く（ドラッグ＝線・始点に戻して離すと面） (F)"), () => api.setTool("free")),
-		rect: btn("rect", t("矩形を描く（2クリック） (R)"), () => api.setTool("rect")),
-		circle: btn("circle", t("円を描く（中心→半径の2クリック） (C)"), () => api.setTool("circle")),
-		polygon: btn("polygon", t("面を描く (P)"), () => api.setTool("polygon")),
-		hole: btn("hole", t("穴を開ける（ポリゴンの内側に描いてEnter） (H)"), () => api.setTool("hole")),
+		select: btn("select", t("Select / edit vertices (V)"), () => api.setTool("select")),
+		point: btn("point", t("Place a point (icon / shape) (A)"), () => api.setTool("point")),
+		text: btn("text", t("Place text (T)"), () => api.setTool("text")),
+		line: btn("line", t("Draw a line (L)"), () => api.setTool("line")),
+		free: btn("free", t("Draw freehand (drag = line; release near the start to close a polygon) (F)"), () => api.setTool("free")),
+		rect: btn("rect", t("Draw a rectangle (2 clicks) (R)"), () => api.setTool("rect")),
+		circle: btn("circle", t("Draw a circle (center → radius, 2 clicks) (C)"), () => api.setTool("circle")),
+		polygon: btn("polygon", t("Draw a polygon (P)"), () => api.setTool("polygon")),
+		hole: btn("hole", t("Cut a hole (draw inside a polygon, then Enter) (H)"), () => api.setTool("hole")),
 	};
-	tools.move = btn("move", t("要素を移動（クリックで選択→ドラッグ・掴んだままホイール＝重心まわりに回転・⌥/Alt+ホイール＝掴まずに回転・Shift＝15°刻み） (M)"), () => api.setTool("move"));
+	tools.move = btn("move", t("Move a feature (click to select → drag; wheel while holding = rotate about its centroid, ⌥/Alt+wheel = rotate without grabbing, Shift = 15° steps) (M)"), () => api.setTool("move"));
 	const syncTool = t => { for (const [k, b] of Object.entries(tools)) b.classList.toggle("on", k === t); symPanel(t); };
 
 	sep();
 	// ---- スナップ格子 ----
 	// <select> は ::after を描けない＝包みの span に data-tip を持たせて吹き出しを出す（他ボタンと同じ流儀・OS title は使わない）
 	const snapWrap = document.createElement("span");
-	snapWrap.className = "ge-snapwrap"; snapWrap.dataset.tip = t("スナップ格子（度）");
+	snapWrap.className = "ge-snapwrap"; snapWrap.dataset.tip = t("Snap grid (degrees)");
 	const snap = document.createElement("select");
-	snap.className = "ge-snap"; snap.setAttribute("aria-label", t("スナップ格子（度）"));
+	snap.className = "ge-snap"; snap.setAttribute("aria-label", t("Snap grid (degrees)"));
 	for (const e of [3, 4, 5, 6, 7]) {
 		const o = document.createElement("option");
 		o.value = e; o.textContent = `1e-${e}`;
@@ -103,21 +78,21 @@ export function initToolbar(el, api, signal) {
 	snapWrap.append(snap); el.append(snapWrap);
 
 	sep();
-	btn("imp", t("GISファイルを取り込む（ドロップも可）"), () => file.click());
+	btn("imp", t("Import a GIS file (or drop it)"), () => file.click());
 	const file = document.createElement("input");
 	file.type = "file";
 	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.dxf,.gz";
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);
-	btn("exp", t("書き出し（8形式）"), () => api.exportOpen());
-	btn("cloud", t("クラウドに保存 / 読み込み（要ログイン）"), () => api.cloudOpen());
-	btn("trash", t("全消去（新規セッション）"), () => api.clearAll());
+	btn("exp", t("Export (8 formats)"), () => api.exportOpen());
+	btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen());
+	btn("trash", t("Clear all (new session)"), () => api.clearAll());
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
 	let panel = null;
 	const GEOM = { point: "Point", text: "Point", line: "LineString", polygon: "Polygon", free: "LineString", rect: "Polygon", circle: "Polygon" };
-	const TITLE = { point: t("点のスタイル（次に置く点）"), text: t("テキスト（次に置く文字）"), line: t("線のスタイル（次に描く線）"), polygon: t("面のスタイル（次に描く面）"), free: t("線のスタイル（フリーハンド）"), rect: t("面のスタイル（矩形）"), circle: t("面のスタイル（円）") };
+	const TITLE = { point: t("Point style (next point)"), text: t("Text (next label)"), line: t("Line style (next line)"), polygon: t("Polygon style (next polygon)"), free: t("Line style (freehand)"), rect: t("Polygon style (rectangle)"), circle: t("Polygon style (circle)") };
 	const symPanel = t => {
 		panel?.remove(); panel = null;
 		if (!GEOM[t]) return;
