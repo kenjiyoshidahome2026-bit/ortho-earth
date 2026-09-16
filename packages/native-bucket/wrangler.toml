@@ -3,7 +3,10 @@ main = "workers/index.js"
 compatibility_date = "2024-01-01"
 
 [assets]
-directory = "dist/client"
+# build（vite.demo.config.js → dist/demo・vite.config.js → dist/native-bucket.iife.js）の出力先に合わせる。
+# 旧 "dist/client" は 81cb306（2026-08 の整備）で outDir を dist に変えた時に置き去りになった設定ズレ＝手元に残骸の
+# dist/client がある間だけ deploy が通っていた（2026-09-16 に別マシン/クリーン状態で「directory does not exist」で発覚）
+directory = "dist"
 # このバインディング名を追加することで、WorkerとAssetsを統合します
 binding = "ASSETS"
 
