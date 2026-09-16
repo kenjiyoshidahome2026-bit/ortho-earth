@@ -4,6 +4,12 @@
 // 直書きされていた。style の申告へ移した後も、①日本の style では以前と同じ値が使われ、
 // ②申告を持たないソース（?pm= の任意アーカイブ）では従来どおり建物も分類も出ない、を固定する。
 //
+// ⚠ 訂正（2026-09-17）：この変更のコミット a0f968d の本文に「東京 z16 の実描画が変更前後で 1 画素も
+// 違わない」と書いたが、**あれは誤り**。撮れていたのは起動待ち/WebGL2 起動失敗のカードで、地図は写って
+// いなかった（虚時間＋--screenshot では worker の rAF が回らない・CDP 実時間でも /japan/ 本体は
+// swiftshader で WebGL2 が立たず fatal カードになる）。よってこの変更を支えるのは下の 18 件と、
+// verify:ui 22 頁・verify:prod の緑であって、画素比較ではない。z≥14 の建物が実際に立つ絵での確認は未了。
+//
 // 使い方: node tests/t-vocab.mjs
 import { neededSourceLayers } from "ortho-core/decode";
 import { buildBuildings } from "ortho-core";
