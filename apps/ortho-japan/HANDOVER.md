@@ -7,12 +7,12 @@
 
 ## ① いまどこにいるか
 
-**本番は両方とも今日の版が出ている。作業ツリーは空（全部 push 済み・main = 971fba1＋この文書）。**
+**本番は両方とも今日の版が出ている。作業ツリーは空（全部 push 済み・main = 4e2dfec＋この文書）。**
 
 | 面 | 版 | 状態 |
 |---|---|---|
-| www.ortho-earth.com/japan/ | 2e48128d | 26 言語・RTL・地域宣言（第一段＋第二段）＋建物 3D の plateau/manager.js（契約つき）が稼働 |
-| www.ortho-earth.com/nl/ | 0c283533 | 独立の地域として稼働（台帳 3 件・出典 3DBAG のみ・app.js 直束ね＝japan と同版） |
+| www.ortho-earth.com/japan/ | 77eee6fd | 26 言語・RTL・地域宣言（第一段＋第二段）＋建物 3D の plateau/manager.js（契約つき）が稼働 |
+| www.ortho-earth.com/nl/ | 704467fa | 独立の地域として稼働（台帳 3 件・出典 3DBAG のみ・app.js 直束ね＝japan と同版） |
 
 今日やったのは大きく三つ。
 
