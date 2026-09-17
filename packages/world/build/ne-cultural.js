@@ -28,7 +28,7 @@ export const groupDesc = g => `Natural Earth 10m ${NE_TAG} split by ortho-earth 
 // 全属性は ne-cultural.geopbf（single）に残る＝ここで捨てても失わない
 const KEEP = {
 	admin_1: ["key", "layer", "name", "name_en", "name_ja", "iso_3166_2", "adm1_code", "type_en", "admin"],
-	populated_places: ["key", "layer", "name", "name_en", "name_ja", "nameascii", "featurecla", "scalerank", "min_zoom", "pop_max", "adm0cap", "adm1cap", "worldcity", "megacity", "wikidataid"],
+	populated_places: ["key", "layer", "ne_clip", "NAME", "NAME_EN", "NAME_JA", "NAMEASCII", "FEATURECLA", "SCALERANK", "MIN_ZOOM", "POP_MAX", "ADM0CAP", "ADM1CAP", "WORLDCITY", "MEGACITY", "WIKIDATAID"],   // NE の populated_places は属性が大文字（admin_1 は小文字）
 };
 const slim = f => { const keep = KEEP[f.properties.layer]; if (!keep) return f; const p = {}; for (const k of keep) if (f.properties[k] != null) p[k] = f.properties[k]; return { ...f, properties: p }; };
 export const splitGroups = all => Object.fromEntries(Object.entries(NE_GROUPS).map(([g, layers]) => { const set = new Set(layers); const feats = all.filter(f => set.has(f.properties.layer)); return [g, g === "base" ? feats.map(slim) : feats]; }));
