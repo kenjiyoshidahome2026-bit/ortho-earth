@@ -209,7 +209,7 @@ export async function toGeoParquet(pbf, opts = {}) {
 	const withBbox = opts.bboxColumn === "auto" ? !(types.size && [...types].every(t => t === "Point" || t === "MultiPoint")) : opts.bboxColumn === undefined ? true : !!opts.bboxColumn;
 	// ── 行の空間整列
 	const order = opts.order ?? "str";
-	if (!["str", "hilbert", "morton", "none"].includes(order)) throw new Error(`order は str|hilbert|morton|none（${order}）`);
+	if (!["str", "hilbert", "morton", "none"].includes(order)) throw new Error(`order must be str|hilbert|morton|none (got ${order})`);
 	const rowGroupSize = opts.rowGroupSize ?? 65536;
 	const perm = spatialOrder(order, bb, (i) => !!wkb[i], pbf.length, rowGroupSize);
 	const props = inferColumns(pbf, attrFilter(opts));
@@ -264,13 +264,13 @@ export async function fromGeoParquet(u8, opts = {}) {
 	let geo = null; try { geo = pq.keyValue.geo ? JSON.parse(pq.keyValue.geo) : null; } catch {}
 	const gname = opts.geometryColumn ?? geo?.primary_column ?? "geometry";
 	const gcol = pq.columns.find(c => c.name === gname);
-	if (!gcol) throw new Error(`fromGeoParquet: 幾何列 "${gname}" が無い（列: ${pq.columns.map(c => c.name).join(", ")}）`);
-	if (gcol.unsupported) throw new Error(`fromGeoParquet: 幾何列を読めない（${gcol.unsupported}）`);
+	if (!gcol) throw new Error(`fromGeoParquet: geometry column "${gname}" not found (columns: ${pq.columns.map(c => c.name).join(", ")})`);
+	if (gcol.unsupported) throw new Error(`fromGeoParquet: cannot read the geometry column (${gcol.unsupported})`);
 	const gmeta = geo?.columns?.[gname];
-	if (gmeta && gmeta.encoding && gmeta.encoding !== "WKB") throw new Error(`fromGeoParquet: 幾何の符号化 ${gmeta.encoding} は未対応（WKB のみ）`);
+	if (gmeta && gmeta.encoding && gmeta.encoding !== "WKB") throw new Error(`fromGeoParquet: geometry encoding ${gmeta.encoding} not supported (WKB only)`);
 	const crs = gmeta?.crs === undefined ? "CRS84(default)" : gmeta.crs === null ? "CRS84" : (gmeta.crs.id ? `${gmeta.crs.id.authority}:${gmeta.crs.id.code}` : gmeta.crs.name || JSON.stringify(gmeta.crs).slice(0, 60));
 	const lonlat = /CRS84|4326/.test(crs);
-	if (!lonlat && !opts.ignoreCrs) throw new Error(`fromGeoParquet: CRS が経緯度でない（${crs}）。GeoPBF は経緯度のみ＝再投影してから、または ignoreCrs`);
+	if (!lonlat && !opts.ignoreCrs) throw new Error(`fromGeoParquet: CRS is not lon/lat (${crs}); GeoPBF is lon/lat only, reproject first or pass ignoreCrs`);
 	const precision = opts.precision ?? (pq.keyValue["geopbf:precision"] ? +pq.keyValue["geopbf:precision"] : 6);
 	const keep = attrFilter(opts);
 	// 属性列：入れ子の group の葉は "a.b" の平坦キー（GeoPBF の流儀）。bbox 覆域列は幾何から再生できるので黙って省く。list/map は読めない
@@ -289,7 +289,7 @@ export async function fromGeoParquet(u8, opts = {}) {
 		for (let g = 0; g < pq.rowGroups.length; g++) {
 			const m = await pq.readRowGroup(g), rows = pq.rowGroups[g].numRows;
 			const gv = m.get(gcol.name);
-			if (gcol.unsupported) throw new Error(`fromGeoParquet: 幾何列を読めない（${gcol.unsupported}）`);
+			if (gcol.unsupported) throw new Error(`fromGeoParquet: cannot read the geometry column (${gcol.unsupported})`);
 			const cols = props.map(c => [c.name, m.get(c.name)]).filter(([, v]) => v);   // 読めなかった列（unsupported）はこの row group から省く
 			for (let i = 0; i < rows; i++) {
 				const w = gv ? gv[i] : null;

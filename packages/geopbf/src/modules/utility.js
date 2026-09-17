@@ -17,7 +17,7 @@ export const isFile = _ => (isBlob(_) && ("name" in _));
 export const isURL = _ => (isString(_) && (_.match(/^https?\:\/\//)));
 export const isBbox = _ => _ && _.length == 4 && _.every(isNumber)
 	&& (-180 <= _[0] && _[0] <= _[2] && _[2] <= 180) && (-90 <= _[1] && _[1] <= _[3] && _[3] <= 90);
-export const comma = _ => { if (typeof _ === 'number') return _.toLocaleString();
+export const comma = _ => { if (typeof _ === 'number') return _.toLocaleString('en-US');
 	let s = String(_ ?? "").replace(/,/g, ""); const parts = s.split(".");
 	parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 	return parts.join(".");

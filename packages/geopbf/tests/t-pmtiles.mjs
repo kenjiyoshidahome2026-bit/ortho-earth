@@ -164,15 +164,15 @@ ok(pm2.header.tc === 1 && pm2.header.minZoom === 2 && decodeTile(await pm2.getTi
 
 // ---- CLI ---------------------------------------------------------------------------------
 const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname, dir = mkdtempSync(join(tmpdir(), "geopbf-pmt-"));
-const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 const inPath = join(dir, "fix.geopbf"); writeFileSync(inPath, gzipSync(Buffer.from(pbf.arrayBuffer)));
 const out = run("pmtiles", inPath, join(dir, "fix.pmtiles"), "--maxzoom", "5", "--no-gpu", "--drop-rate", "1");
-ok(/タイル [\d,]+/.test(out) && /CPU/.test(out), "CLI pmtiles: 実行報告（タイル数・エンジン）");
+ok(/tiles [\d,]+/.test(out) && /CPU/.test(out), "CLI pmtiles: 実行報告（タイル数・エンジン）");
 const cliPm = await readPMTiles(new Uint8Array(readFileSync(join(dir, "fix.pmtiles"))));
 ok(cliPm.header.maxZoom === 5 && decodeTile(await cliPm.getTile(0, 0, 0))[0].features.length === 8, "CLI pmtiles: 出力が読める（gzip GeoPBF 入力・gint はその場で焼く）");
 writeFileSync(join(dir, "fix.gint"), Buffer.from(gint));
 const out2 = run("pmtiles", inPath, join(dir, "fix2.pmtiles"), "--maxzoom", "3", "--gint", join(dir, "fix.gint"), "--layer", "cli");
-ok(/gint 読込/.test(out2) && decodeTile(await (await readPMTiles(new Uint8Array(readFileSync(join(dir, "fix2.pmtiles"))))).getTile(0, 0, 0))[0].name === "cli", "CLI pmtiles: --gint と --layer");
+ok(/gint loaded/.test(out2) && decodeTile(await (await readPMTiles(new Uint8Array(readFileSync(join(dir, "fix2.pmtiles"))))).getTile(0, 0, 0))[0].name === "cli", "CLI pmtiles: --gint と --layer");
 run("pmtiles", inPath, join(dir, "fix3.pmtiles"), "--maxzoom", "0", "--no-gpu", "--tiny-polygon", "0", "--exclude", "v,b", "--drop-rate", "1");
 const l3 = decodeTile(await (await readPMTiles(new Uint8Array(readFileSync(join(dir, "fix3.pmtiles"))))).getTile(0, 0, 0))[0];
 ok(l3.features.length === 7 && !("v" in l3.features.find(f => f.id === 1).props) && "n" in l3.features.find(f => f.id === 1).props, "CLI pmtiles: --tiny-polygon 0 と --exclude");

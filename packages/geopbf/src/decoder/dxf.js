@@ -8,10 +8,10 @@ onmessage = async (e) => {
 		const { pbf, stats } = await fromDxf(u8, { name, precision, description, license, attribution, crs, ignoreCrs, unitScale, encoding, closedAsPolygon, tky2jgd, patchjgd });
 		const res = pbf.arrayBuffer;
 		const notes = [];
-		if (stats.assumedLonLat) notes.push("DXF に座標系が無いので経緯度とみなした");
-		const sk = Object.entries(stats.skipped); if (sk.length) notes.push(`対象外: ${sk.map(([k, v]) => `${k}×${v}`).join(" ")}`);
-		if (stats.datumApprox) notes.push("日本測地系を Helmert 近似で変換（±10 m 級）");
-		postMessage({ type: "dxfdec", data: res, warning: notes.length ? `DXF: ${notes.join("・")}` : undefined, stats }, [res]);
+		if (stats.assumedLonLat) notes.push("no CRS in the DXF; assumed lon/lat");
+		const sk = Object.entries(stats.skipped); if (sk.length) notes.push(`skipped: ${sk.map(([k, v]) => `${k}×${v}`).join(" ")}`);
+		if (stats.datumApprox) notes.push("Tokyo Datum converted with the Helmert approximation (±10 m)");
+		postMessage({ type: "dxfdec", data: res, warning: notes.length ? `DXF: ${notes.join("; ")}` : undefined, stats }, [res]);
 	} catch (err) {
 		console.error("[dxf decoder]", err);
 		postMessage(null);

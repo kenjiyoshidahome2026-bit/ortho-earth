@@ -57,8 +57,8 @@ const tkyBake = bakeMeshGrid(par("tky2jgd-tokyo.par")), patchBake = bakeMeshGrid
 	const jumped = parseMeshGrid(jump.bytes);
 	ok(near(jumped.cell(4280, 11170)[0], 0, 1e-3) && near(jumped.cell(4280, 11171)[0], 6.6, 1e-3), "粗い目盛りでも元の値に 1e-3″ 以内で戻る");
 	ok(tkyBake.maxResidualArcsec < 0.05 && patchBake.maxResidualArcsec < 0.02, `量子化の丸め: 最大残差 ${tkyBake.maxResidualArcsec}" / ${patchBake.maxResidualArcsec}"`);
-	let threw = ""; try { bakeMeshGrid("説明だけで数値が無い\n"); } catch (e) { threw = e.message; } ok(/データ行が無い/.test(threw), "データ行の無い .par は拒否");
-	threw = ""; try { parseMeshGrid(new Uint8Array(64)); } catch (e) { threw = e.message; } ok(/形式が違う/.test(threw), "形式違いは拒否");
+	let threw = ""; try { bakeMeshGrid("説明だけで数値が無い\n"); } catch (e) { threw = e.message; } ok(/no data rows/.test(threw), "データ行の無い .par は拒否");
+	threw = ""; try { parseMeshGrid(new Uint8Array(64)); } catch (e) { threw = e.message; } ok(/wrong format/.test(threw), "形式違いは拒否");
 }
 
 // ── 日本測地系 → JGD2000 ──────────────────────────────────────────────────────

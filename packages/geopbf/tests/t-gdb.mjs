@@ -68,9 +68,9 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 	ok(sev.stats.features === 9 && sev.pbf.geojson.features.every(f => /Polygon/.test(f.geometry.type)), "several_polygons: 不明 SRS でも範囲が経緯度なら読む");
 	const d = await fromFileGDB(src);
 	ok(d.stats.layer === "point" && d.stats.layers.length === 33 && d.stats.tables.includes("big_layer"), "layer 省略＝最初のフィーチャクラス・表の一覧");
-	let threw = ""; try { await fromFileGDB(src, { layer: "big_layer" }); } catch (e) { threw = e.message; } ok(/幾何の無い表/.test(threw), "幾何の無い表は拒否");
-	threw = ""; try { await fromFileGDB(src, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/層 "nope" が無い/.test(threw), "無い層は拒否");
-	threw = ""; try { await openFileGDB(gdbSourceFromMap({ "x.txt": new Uint8Array(4) })); } catch (e) { threw = e.message; } ok(/File Geodatabase でない/.test(threw), "カタログが無ければ拒否");
+	let threw = ""; try { await fromFileGDB(src, { layer: "big_layer" }); } catch (e) { threw = e.message; } ok(/table without geometry/.test(threw), "幾何の無い表は拒否");
+	threw = ""; try { await fromFileGDB(src, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/layer "nope" not found/.test(threw), "無い層は拒否");
+	threw = ""; try { await openFileGDB(gdbSourceFromMap({ "x.txt": new Uint8Array(4) })); } catch (e) { threw = e.message; } ok(/not a File Geodatabase/.test(threw), "カタログが無ければ拒否");
 	const n = await fromFileGDB(src, { layer: "Point", name: "p", precision: 7, exclude: ["xml", "guid"] });
 	ok(n.stats.layer === "point" && n.pbf.name() === "p" && n.pbf.precision() === 7 && !n.stats.columns.includes("xml"), "層名は大小無視・name/precision/exclude");
 	// Map ソース（Node 用）でも同じ
@@ -93,9 +93,9 @@ ok(gdb.tables.find(t => t.name === "big_layer").geometryType === null && gdb.tab
 {
 	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-gdb-"));
-	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const list = run("gdb2pbf", zipPath.pathname);
-	ok(/フィーチャクラス 33・表 4/.test(list) && /multipolygon  polygon  GCS_WGS_1984  5 行/.test(list) && /big_layer  \(table\)/.test(list), "CLI gdb2pbf <zip> ＝一覧");
+	ok(/feature classes 33  tables 4/.test(list) && /multipolygon  polygon  GCS_WGS_1984  5 rows/.test(list) && /big_layer  \(table\)/.test(list), "CLI gdb2pbf <zip> ＝一覧");
 	const out = join(dir, "mp.geopbf");
 	const log = run("gdb2pbf", zipPath.pathname, out, "--layer", "multipolygon");
 	ok(/features 5/.test(log) && /CRS GCS_WGS_1984/.test(log), "CLI gdb2pbf zip → GeoPBF");

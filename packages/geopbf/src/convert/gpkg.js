@@ -24,7 +24,7 @@ const now = () => (typeof performance !== "undefined" ? performance.now() : Date
 /** GeoPackage を開いて層の一覧を返す（変換はしない）。 */
 export function readGeoPackage(u8, opts = {}) {
 	const db = openSqlite(u8);
-	if (!db.tables.has("gpkg_contents")) throw new Error("gpkg: GeoPackage でない（gpkg_contents が無い・ただの SQLite）");
+	if (!db.tables.has("gpkg_contents")) throw new Error("gpkg: not a GeoPackage (no gpkg_contents table; plain SQLite)");
 	const srsById = new Map();
 	if (db.tables.has("gpkg_spatial_ref_sys")) for (const r of db.rows("gpkg_spatial_ref_sys")) srsById.set(r.srs_id, { id: r.srs_id, name: r.srs_name, org: r.organization, code: r.organization_coordsys_id, definition: r.definition });
 	const geomCols = new Map();
@@ -54,11 +54,11 @@ export async function fromGeoPackage(u8, opts = {}) {
 	const t0 = now();
 	const datum = await resolveDatum(opts);
 	const g = readGeoPackage(u8, { datum });
-	if (!g.layers.length) throw new Error(`gpkg: 地物層（data_type='features'）が無い（他: ${g.others.map(o => `${o.table}(${o.dataType})`).join(", ") || "なし"}）`);
+	if (!g.layers.length) throw new Error(`gpkg: no feature layers (data_type='features') (others: ${g.others.map(o => `${o.table}(${o.dataType})`).join(", ") || "none"})`);
 	const layer = opts.layer ? g.layers.find(l => l.table === opts.layer || l.identifier === opts.layer) : g.layers[0];
-	if (!layer) throw new Error(`gpkg: 層 "${opts.layer}" が無い（層: ${g.layers.map(l => l.table).join(", ")}）`);
+	if (!layer) throw new Error(`gpkg: layer "${opts.layer}" not found (layers: ${g.layers.map(l => l.table).join(", ")})`);
 	const kind = layer.crs.kind;
-	if (kind === "other" && !opts.ignoreCrs) throw new Error(`gpkg: 層 "${layer.table}" の CRS が経緯度でない（${layer.crs.label}）。GeoPBF は経緯度のみ＝再投影してから、または ignoreCrs`);
+	if (kind === "other" && !opts.ignoreCrs) throw new Error(`gpkg: CRS of layer "${layer.table}" is not lon/lat (${layer.crs.label}); GeoPBF is lon/lat only, reproject first or pass ignoreCrs`);
 	const xf = kind === "mercator" ? mercToLonLat : layer.crs.toLonLat ?? null;
 	const keep = attrFilter(opts);
 	const gcol = layer.geometryColumn;
@@ -93,12 +93,12 @@ export async function fromGeoPackage(u8, opts = {}) {
 /** GeoPackageBinary → GeoJSON geometry（null＝空/NULL/拡張型）。 */
 export function parseGpkgGeometry(b, ctx, xf) {
 	if (!(b instanceof Uint8Array)) b = new Uint8Array(b);
-	if (b.length < 8 || b[0] !== 0x47 || b[1] !== 0x50) throw new Error("gpkg: 幾何 BLOB が GeoPackageBinary でない（先頭 GP が無い）");
+	if (b.length < 8 || b[0] !== 0x47 || b[1] !== 0x50) throw new Error("gpkg: geometry BLOB is not GeoPackageBinary (missing GP magic)");
 	const flags = b[3];
 	if (flags & 0x10) { ctx.empty++; return null; }          // 空フラグ
 	if (flags & 0x20) { ctx.extended++; return null; }       // 拡張型（GPKG 拡張の独自幾何）＝読めない
 	const envLen = [0, 32, 48, 48, 64, 0, 0, 0][(flags >> 1) & 7];
-	if (envLen === 0 && ((flags >> 1) & 7) > 4) throw new Error("gpkg: envelope indicator が不正 " + ((flags >> 1) & 7));
+	if (envLen === 0 && ((flags >> 1) & 7) > 4) throw new Error("gpkg: invalid envelope indicator " + ((flags >> 1) & 7));
 	const geom = parseWkb(b, ctx, { offset: 8 + envLen });
 	return finish(geom, xf);
 }
@@ -148,7 +148,7 @@ const WORLD = 20037508.342789244;
 export function openGpkgTiles(u8, table) {
 	const g = readGeoPackage(u8);
 	const info = table ? g.tiles.find(t => t.table === table || t.identifier === table) : g.tiles[0];
-	if (!info) throw new Error(table ? `gpkg: タイル表 "${table}" が無い（タイル表: ${g.tiles.map(t => t.table).join(", ") || "なし"}）` : "gpkg: タイル表（data_type='tiles'）が無い");
+	if (!info) throw new Error(table ? `gpkg: tile table "${table}" not found (tile tables: ${g.tiles.map(t => t.table).join(", ") || "none"})` : "gpkg: no tile tables (data_type='tiles')");
 	const db = g.db, name = info.table;
 	const ms = db.tables.has("gpkg_tile_matrix_set") ? [...db.rows("gpkg_tile_matrix_set")].find(r => r.table_name === name) : null;
 	const matrixSet = ms ? { minX: ms.min_x, minY: ms.min_y, maxX: ms.max_x, maxY: ms.max_y } : null;
@@ -161,7 +161,7 @@ export function openGpkgTiles(u8, table) {
 		&& zooms.every(z => { const m = matrices.get(z); return m.width === 2 ** z && m.height === 2 ** z && m.tileWidth === 256 && m.tileHeight === 256; });
 	// 索引: z/x/y → rowid
 	const t = db.table(name), ci = Object.fromEntries(t.columns.map((c, i) => [c.name, i]));
-	for (const k of ["zoom_level", "tile_column", "tile_row", "tile_data"]) if (ci[k] === undefined) throw new Error(`gpkg: タイル表 "${name}" に列 ${k} が無い`);
+	for (const k of ["zoom_level", "tile_column", "tile_row", "tile_data"]) if (ci[k] === undefined) throw new Error(`gpkg: tile table "${name}" has no column ${k}`);
 	const limit = Math.max(ci.zoom_level, ci.tile_column, ci.tile_row) + 1;
 	const index = new Map();
 	for (const { rowid, values } of db.rowsProjected(name, limit)) index.set(key(values[ci.zoom_level], values[ci.tile_column], values[ci.tile_row]), rowid);

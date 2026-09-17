@@ -8,11 +8,11 @@ onmessage = async (e) => {
 		const { pbf, stats } = await fromSpatiaLite(u8, { name, precision, description, license, attribution, layer, ignoreCrs, tky2jgd, patchjgd, include, exclude, excludeAll });
 		const res = pbf.arrayBuffer;
 		const notes = [];
-		if (stats.layers.length > 1) notes.push(`層 ${stats.layer} を読んだ（他: ${stats.layers.filter(l => l !== stats.layer).join(", ")}）`);
-		if (stats.droppedGeometries) notes.push(`幾何なし ${stats.droppedGeometries} 行を落とした`);
-		if (stats.badGeometries) notes.push(`読めない幾何 ${stats.badGeometries} 行`);
-		if (stats.datumApprox) notes.push("日本測地系を Helmert 近似で変換（±10 m 級）");
-		postMessage({ type: "spatialitedec", data: res, warning: notes.length ? `SpatiaLite: ${notes.join("・")}` : undefined, stats }, [res]);
+		if (stats.layers.length > 1) notes.push(`read layer ${stats.layer} (others: ${stats.layers.filter(l => l !== stats.layer).join(", ")}); choose another with opts.layer`);
+		if (stats.droppedGeometries) notes.push(`${stats.droppedGeometries} rows without geometry dropped`);
+		if (stats.badGeometries) notes.push(`${stats.badGeometries} rows with unreadable geometry`);
+		if (stats.datumApprox) notes.push("Tokyo Datum converted with the Helmert approximation (±10 m)");
+		postMessage({ type: "spatialitedec", data: res, warning: notes.length ? `SpatiaLite: ${notes.join("; ")}` : undefined, stats }, [res]);
 	} catch (err) {
 		console.error("[spatialite decoder]", err);
 		postMessage(null);

@@ -40,9 +40,9 @@ const mixed = fx("mixed.gpkg"), utf16 = fx("utf16.gpkg");
 	ok(rows[1199].big === 1199 * 2 ** 33, "48 bit 整数の最後の行");
 	ok([...db.rows("gpkg_contents")].map(r => r.table_name).join() === "places,shapes,merc,attrs_only", "gpkg_contents の行");
 	ok(db.views.has("v_places") && db.tables.has("rtree_places_geom_node"), "view と rtree の影表を認識（読み飛ばせる）");
-	let threw = ""; try { db.rows("rtree_places_geom").next(); } catch (e) { threw = e.message; } ok(/仮想表/.test(threw), "仮想表は明示して拒否");
-	threw = ""; try { db.table("nope"); } catch (e) { threw = e.message; } ok(/表 "nope" が無い/.test(threw), "無い表は候補付きで拒否");
-	threw = ""; try { openSqlite(new Uint8Array(200)); } catch (e) { threw = e.message; } ok(/SQLite3 ファイルでない/.test(threw), "署名違いは拒否");
+	let threw = ""; try { db.rows("rtree_places_geom").next(); } catch (e) { threw = e.message; } ok(/virtual table/.test(threw), "仮想表は明示して拒否");
+	threw = ""; try { db.table("nope"); } catch (e) { threw = e.message; } ok(/table "nope" not found/.test(threw), "無い表は候補付きで拒否");
+	threw = ""; try { openSqlite(new Uint8Array(200)); } catch (e) { threw = e.message; } ok(/not an SQLite3 file/.test(threw), "署名違いは拒否");
 }
 {
 	const db = openSqlite(utf16);
@@ -110,8 +110,8 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 	ok(d.stats.layer === "places" && d.stats.layers.join() === "places,shapes,merc", "layer 省略＝最初の地物層・stats.layers に全部");
 	const n = await fromGeoPackage(mixed, { layer: "Places", name: "x", precision: 7, exclude: ["note", "nothing"] });
 	ok(n.stats.layer === "places" && n.pbf.name() === "x" && n.pbf.precision() === 7 && !n.stats.columns.includes("note"), "identifier で層指定・name/precision/exclude");
-	let threw = ""; try { await fromGeoPackage(mixed, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/層 "nope" が無い（層: places, shapes, merc）/.test(threw), "無い層は候補付きで拒否");
-	threw = ""; try { await fromGeoPackage(new Uint8Array(4096)); } catch (e) { threw = e.message; } ok(/SQLite3 ファイルでない/.test(threw), "GeoPackage でないものは拒否");
+	let threw = ""; try { await fromGeoPackage(mixed, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/layer "nope" not found \(layers: places, shapes, merc\)/.test(threw), "無い層は候補付きで拒否");
+	threw = ""; try { await fromGeoPackage(new Uint8Array(4096)); } catch (e) { threw = e.message; } ok(/not an SQLite3 file/.test(threw), "GeoPackage でないものは拒否");
 	// 往復: GeoPBF のバイト列を読み直しても同じ
 	const back = await new GeoPBF().set(places.pbf.arrayBuffer);
 	ok(back.geojson.features.length === 1200 && back.geojson.features[0].properties.name === "東京駅", "GeoPBF バイト列の読み直し");
@@ -134,8 +134,8 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 	const geo = openGpkgTiles(tiny, "geo");
 	ok(!geo.xyz && geo.matrices.get(0).width === 2 && geo.crs.kind === "lonlat" && geo.bboxLonLat.join() === "-180,-90,180,90", "4326 世界格子（2×1）は xyz でない");
 	const d = openGpkgTiles(tiny); ok(d.table === "tiny", "table 省略＝最初のタイル表");
-	let threw = ""; try { openGpkgTiles(tiny, "nope"); } catch (e) { threw = e.message; } ok(/タイル表 "nope" が無い（タイル表: tiny, geo）/.test(threw), "無いタイル表は候補付きで拒否");
-	threw = ""; try { openGpkgTiles(mixed); } catch (e) { threw = e.message; } ok(/タイル表（data_type='tiles'）が無い/.test(threw), "タイル表の無い gpkg は拒否");
+	let threw = ""; try { openGpkgTiles(tiny, "nope"); } catch (e) { threw = e.message; } ok(/tile table "nope" not found \(tile tables: tiny, geo\)/.test(threw), "無いタイル表は候補付きで拒否");
+	threw = ""; try { openGpkgTiles(mixed); } catch (e) { threw = e.message; } ok(/no tile tables \(data_type='tiles'\)/.test(threw), "タイル表の無い gpkg は拒否");
 	ok(mimeOf(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0, 0, 0, 0, 0])) === "image/jpeg" && mimeOf(new TextEncoder().encode("RIFF....WEBPVP8 ")) === "image/webp", "mimeOf: JPEG / WebP");
 	// 地理院タイルの実物（tests/fixtures/gpkg/make-raster.py で生成・git 非追跡・あれば検定）
 	const gsiPath = new URL("./fixtures/gpkg/gsi-tokyo.gpkg", import.meta.url);
@@ -159,13 +159,13 @@ const places = await fromGeoPackage(mixed, { layer: "places" });
 {
 	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-gpkg-"));
-	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const src = new URL("./fixtures/gpkg/mixed.gpkg", import.meta.url).pathname;
 	const list = run("gpkg2pbf", src);
-	ok(/地物層 3/.test(list) && /places \(Places\)  POINT  EPSG:4326  1,200 件/.test(list) && /attrs_only  \(attributes\)/.test(list), "CLI gpkg2pbf <in> ＝層の一覧");
+	ok(/feature layers 3/.test(list) && /places \(Places\)  POINT  EPSG:4326  1,200 rows/.test(list) && /attrs_only  \(attributes\)/.test(list), "CLI gpkg2pbf <in> ＝層の一覧");
 	const out = join(dir, "shapes.geopbf");
 	const log = run("gpkg2pbf", src, out, "--layer", "shapes");
-	ok(/features 8/.test(log) && /落とした地物 2/.test(log), "CLI gpkg2pbf 変換のログ");
+	ok(/features 8/.test(log) && /dropped 2 features/.test(log), "CLI gpkg2pbf 変換のログ");
 	const raw = readFileSync(out);
 	const pbf = await new GeoPBF().set(new Uint8Array(gunzipSync(raw)));
 	ok(raw[0] === 0x1f && pbf.geojson.features.length === 8 && pbf.name() === "shapes", "CLI 出力＝gzip GeoPBF・8 件・name=表名");

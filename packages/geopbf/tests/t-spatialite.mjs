@@ -78,8 +78,8 @@ ok(L("places").columns.map(c => c.name).join() === "id,name,pop,ratio,flag,d,dt,
 {
 	const d = await fromSpatiaLite(fx);
 	ok(d.stats.layer === "places" && d.stats.layers.length === 8, "layer 省略＝最初の層");
-	let threw = ""; try { await fromSpatiaLite(fx, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/層 "nope" が無い（層: /.test(threw), "無い層は候補付きで拒否");
-	threw = ""; try { readSpatiaLite(gpkg); } catch (e) { threw = e.message; } ok(/SpatiaLite でない/.test(threw), "GeoPackage / 素の SQLite は SpatiaLite でないと言う");
+	let threw = ""; try { await fromSpatiaLite(fx, { layer: "nope" }); } catch (e) { threw = e.message; } ok(/layer "nope" not found \(layers: /.test(threw), "無い層は候補付きで拒否");
+	threw = ""; try { readSpatiaLite(gpkg); } catch (e) { threw = e.message; } ok(/not a SpatiaLite/.test(threw), "GeoPackage / 素の SQLite は SpatiaLite でないと言う");
 	const n = await fromSpatiaLite(fx, { layer: "Places", name: "x", precision: 7, exclude: ["note", "photo"] });
 	ok(n.pbf.name() === "x" && n.pbf.precision() === 7 && !n.pbf.keys.includes("note"), "層名は大文字小文字を無視・name/precision/exclude");
 }
@@ -90,13 +90,13 @@ ok(L("places").columns.map(c => c.name).join() === "id,name,pop,ratio,flag,d,dt,
 	await import("../src/decoder/spatialite.js?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([fx], "mixed.sqlite"), name: "mixed", precision: 6, layer: "multi" } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
-	ok(r && r !== "TIMEOUT" && r.type === "spatialitedec" && r.data instanceof ArrayBuffer && /層 multi/.test(r.warning) && /幾何なし 1/.test(r.warning), `decoder worker: ${r?.warning}`);
+	ok(r && r !== "TIMEOUT" && r.type === "spatialitedec" && r.data instanceof ArrayBuffer && /layer multi/.test(r.warning) && /1 rows without geometry/.test(r.warning), `decoder worker: ${r?.warning}`);
 	if (r?.data) { const p = await new GeoPBF().set(r.data); ok(p.length === 4, `worker 経由 4 地物（${p.length}）`); }
 }
 // ── CLI ──
 {
-	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname], { encoding: "utf8" });
-	ok(/地物層 8/.test(out) && /places/.test(out) && /jpr/.test(out), "CLI spatialite2pbf の一覧");
+	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "spatialite2pbf", new URL("./fixtures/spatialite/mixed.sqlite", import.meta.url).pathname], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	ok(/feature layers 8/.test(out) && /places/.test(out) && /jpr/.test(out), "CLI spatialite2pbf の一覧");
 }
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

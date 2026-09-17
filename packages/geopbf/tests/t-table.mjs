@@ -28,15 +28,40 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	const semi = parseCSV("lon;lat\n1,5;2,5\n", { delimiter: ";" }); ok(semi.header.join() === "lon,lat" && semi.rows[0][0] === "1,5", "parseCSV: 区切りの明示");
 	const named = await fromTable("id,X座標,Y座標,経度\n1,10,20,30\n", { lon: "経度", lat: "Y座標" });
 	ok(named.pbf.geojson.features[0].geometry.coordinates.join() === "30,20" && named.stats.columns.join() === "id,X座標", "列の名指し（opts.lon/lat）が自動検出より優先");
-	let threw = ""; try { await fromTable("a,b\n1,2\n"); } catch (e) { threw = e.message; } ok(/経緯度の列.*も WKT の列も見つからない/.test(threw), "経緯度も WKT も無ければ列名付きで拒否");
-	threw = ""; try { await fromTable("a,b\n1,2\n", { lon: "nope" }); } catch (e) { threw = e.message; } ok(/列 "nope" が無い/.test(threw), "名指しの列が無ければ拒否");
+	let threw = ""; try { await fromTable("a,b\n1,2\n"); } catch (e) { threw = e.message; } ok(/no lon\/lat columns.*no WKT column/.test(threw), "経緯度も WKT も無ければ列名付きで拒否");
+	threw = ""; try { await fromTable("a,b\n1,2\n", { lon: "nope" }); } catch (e) { threw = e.message; } ok(/column "nope" not found/.test(threw), "名指しの列が無ければ拒否");
 	const sjis = fx("table/sjis.csv");
 	ok(decodeText(sjis).startsWith("名前,経度,緯度,備考"), "decodeText: UTF-8 で読めなければ Shift_JIS");
 	const r = await fromTable(sjis);
 	ok(r.stats.features === 2 && r.pbf.geojson.features[1].properties.名前 === "大阪駅" && r.pbf.geojson.features[1].properties.備考 === "梅田,北区", "Shift_JIS CSV（CRLF・引用内カンマ）");
 	const forced = await fromTable(sjis, { encoding: "sjis" }); ok(forced.stats.features === 2, "encoding: sjis の明示");
+	const w1252 = new Uint8Array([...Buffer.from("name,lon,lat\n"), 0x63, 0x61, 0x66, 0xE9, ...Buffer.from(",1,2\n")]);   // "café" を windows-1252 で（0xE9 単独は UTF-8 として不正）
+	ok(decodeText(w1252, undefined, "windows-1252").includes("café"), "decodeText: fallback を windows-1252 に差し替え");
+	ok((await fromTable(w1252, { fallbackEncoding: "windows-1252" })).pbf.geojson.features[0].properties.name === "café", "fromTable: fallbackEncoding");
+	ok(decodeText(w1252).includes("caf"), "fallback 未指定は従来どおり Shift_JIS で落ちない");
 	const utf16 = new Uint8Array([0xFF, 0xFE, ...Buffer.from("lon,lat\n1,2\n", "utf16le")]);
 	ok((await fromTable(utf16)).stats.features === 1, "UTF-16LE BOM 付き CSV");
+}
+// ── decodeZIP: エントリ名の文字コード（UTF-8 フラグ > encoding 引数 > shift-jis） ────────
+{
+	const { decodeZIP } = await import("../src/modules/decodeZIP.js");
+	const crcT = [...Array(256)].map((_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+	const crc32 = (u8) => { let c = ~0; for (const b of u8) c = crcT[(c ^ b) & 255] ^ (c >>> 8); return (~c) >>> 0; };
+	const storedZip = (nameBytes, flags, data = new Uint8Array([0x78])) => {   // 1 エントリ・無圧縮
+		const le16 = (v) => [v & 255, (v >> 8) & 255], le32 = (v) => [...le16(v & 0xFFFF), ...le16((v >>> 16) & 0xFFFF)];
+		const crc = crc32(data);
+		const local = [...le32(0x04034b50), ...le16(20), ...le16(flags), ...le16(0), ...le16(0), ...le16(0), ...le32(crc), ...le32(data.length), ...le32(data.length), ...le16(nameBytes.length), ...le16(0), ...nameBytes, ...data];
+		const cd = [...le32(0x02014b50), ...le16(20), ...le16(20), ...le16(flags), ...le16(0), ...le16(0), ...le16(0), ...le32(crc), ...le32(data.length), ...le32(data.length), ...le16(nameBytes.length), ...le16(0), ...le16(0), ...le16(0), ...le16(0), ...le32(0), ...le32(0), ...nameBytes];
+		const eocd = [...le32(0x06054b50), ...le16(0), ...le16(0), ...le16(1), ...le16(1), ...le32(cd.length), ...le32(local.length), ...le16(0)];
+		return new Blob([new Uint8Array([...local, ...cd, ...eocd])]);
+	};
+	const sjisName = [0x89, 0x77, 0x2e, 0x74, 0x78, 0x74];   // "駅.txt" を Shift_JIS で
+	const utf8Name = [...Buffer.from("駅.txt", "utf8")];
+	const names = async (blob, enc) => (await decodeZIP(blob, null, enc)).map(e => e.name);
+	ok((await names(storedZip(sjisName, 0)))[0] === "駅.txt", "decodeZIP: フラグ無し・encoding 無し＝Shift_JIS");
+	ok((await names(storedZip(sjisName, 0), "shift-jis"))[0] === "駅.txt", "decodeZIP: encoding: shift-jis の明示が効く（旧: 常に utf-8 に化けていた）");
+	ok((await names(storedZip(sjisName, 0), "utf-8"))[0] !== "駅.txt", "decodeZIP: encoding: utf-8 を明示すれば Shift_JIS 名は化ける（指定が届いている証拠）");
+	ok((await names(storedZip(utf8Name, 0x0800), "shift-jis"))[0] === "駅.txt", "decodeZIP: UTF-8 フラグ（bit 11）は encoding 指定より優先");
 }
 // ── WKT ──────────────────────────────────────────────────────────────────────
 {
@@ -61,7 +86,7 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	ok(s.kind === "xlsx" && s.features === 2 && s.droppedGeometries === 2 && pbf.name() === "地点" && pbf.geojson.features[0].properties.flag === true && pbf.geojson.features[0].properties.memo === "inline & text", "XLSX → GeoPBF: 2 点・座標なし 2 行を落とす・name はシート名");
 	const l = await fromTable(book, { sheet: "Lines" });
 	ok(l.stats.features === 1 && l.pbf.geojson.features[0].geometry.type === "LineString" && l.pbf.geojson.features[0].properties.n === 7, "XLSX: 名指しシートの WKT 列");
-	let threw = ""; try { await fromTable(book, { sheet: "nope" }); } catch (e) { threw = e.message; } ok(/シート "nope" が無い（シート: 地点, Lines）/.test(threw), "無いシートは候補付きで拒否");
+	let threw = ""; try { await fromTable(book, { sheet: "nope" }); } catch (e) { threw = e.message; } ok(/sheet "nope" not found \(sheets: 地点, Lines\)/.test(threw), "無いシートは候補付きで拒否");
 	// 自前 encodeXLSX の出力（inlineStr のみ）も読める＝往復
 	const mine = await encodeXLSX([["名前", "lon", "lat", "b", "s"], ["A", 1.5, 2.5, true, "x"], ["B", -1, -2, false, ""]], null, { sheetName: "S" });
 	const r2 = await fromTable(new Uint8Array(await mine.arrayBuffer()));
@@ -76,22 +101,22 @@ const fx = (n) => new Uint8Array(readFileSync(new URL(`./fixtures/${n}`, import.
 	ok(v.format === "pbf" && v.count === 3 && v.zooms.join() === "2,3" && JSON.parse(v.metadata.json).vector_layers[0].id === "roads", "MBTiles(map/images ビュー): 索引は map→images・tile_id 不在は除外");
 	const b = v.get(2, 3, 1);
 	ok(v.mimeOf(b) === "application/gzip" && Buffer.from(gunzipSync(b)).toString() === "MVT-A" && Buffer.from(gunzipSync(v.get(2, 3, 2))).toString() === "MVT-A" && Buffer.from(gunzipSync(v.get(3, 7, 3))).toString() === "MVT-B", "MBTiles: 同じ tile_id を共有する 2 枚・gzip 包み");
-	let threw = ""; try { openMBTiles(fx("gpkg/mixed.gpkg")); } catch (e) { threw = e.message; } ok(/tiles 表も map\/images 表も無い/.test(threw), "MBTiles でない SQLite は拒否");
+	let threw = ""; try { openMBTiles(fx("gpkg/mixed.gpkg")); } catch (e) { threw = e.message; } ok(/neither tiles nor map\/images tables/.test(threw), "MBTiles でない SQLite は拒否");
 }
 // ── CLI ───────────────────────────────────────────────────────────────────────
 {
 	const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 	const dir = mkdtempSync(join(tmpdir(), "geopbf-table-"));
-	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+	const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	const csvPath = join(dir, "a.csv"); writeFileSync(csvPath, "name,lon,lat\nA,139.7,35.6\nB,,\n");
 	const out = join(dir, "a.geopbf");
 	const log = run("csv2pbf", csvPath, out);
-	ok(/features 1/.test(log) && /座標なし 1/.test(log), "CLI csv2pbf: ログ");
+	ok(/features 1/.test(log) && /dropped 1 without coordinates/.test(log), "CLI csv2pbf: ログ");
 	const pbf = await new GeoPBF().set(new Uint8Array(gunzipSync(readFileSync(out))));
 	ok(pbf.geojson.features.length === 1 && pbf.geojson.features[0].properties.name === "A", "CLI csv2pbf: 出力を読み戻す");
 	const xo = join(dir, "x.geopbf");
 	const xlog = run("csv2pbf", new URL("./fixtures/table/book.xlsx", import.meta.url).pathname, xo, "--sheet", "Lines", "--no-gzip");
-	ok(/features 1/.test(xlog) && /シート Lines/.test(xlog) && (await new GeoPBF().set(new Uint8Array(readFileSync(xo)))).geojson.features[0].geometry.type === "LineString", "CLI csv2pbf: xlsx と --sheet");
+	ok(/features 1/.test(xlog) && /sheet Lines/.test(xlog) && (await new GeoPBF().set(new Uint8Array(readFileSync(xo)))).geojson.features[0].geometry.type === "LineString", "CLI csv2pbf: xlsx と --sheet");
 }
 
 console.log(fails ? `\n✗ ${fails} 件失敗` : "\n全件通過");

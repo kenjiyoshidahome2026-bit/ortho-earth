@@ -238,15 +238,15 @@ export async function fromDxf(src, opts = {}) {
 		const ext = r.header.extmin && r.header.extmax ? [...r.header.extmin, ...r.header.extmax] : null;
 		let inRange = ext ? Math.abs(ext[0]) <= 180 && Math.abs(ext[2]) <= 180 && Math.abs(ext[1]) <= 90 && Math.abs(ext[3]) <= 90 : null;
 		if (inRange === null) { let ok = true, seen = false; for (const e of d.entities) for (const [x, y] of pts2(e)) { seen = true; if (Math.abs(x) > 180 || Math.abs(y) > 90) { ok = false; break; } } inRange = seen ? ok : true; }
-		if (!inRange && !opts.ignoreCrs) throw new Error(`dxf: 座標系が分からない（DXF は CRS を持たない・座標は経緯度の範囲外${r.header.extmin ? `＝範囲 ${r.header.extmin.join(",")}〜${r.header.extmax.join(",")}` : ""}）。crs に EPSG 番号（平面直角 IX＝6677 など）か WKT を渡す`);
+		if (!inRange && !opts.ignoreCrs) throw new Error(`dxf: unknown CRS (a DXF carries no CRS and the coordinates are outside the lon/lat range${r.header.extmin ? `; extent ${r.header.extmin.join(",")} – ${r.header.extmax.join(",")}` : ""}); pass crs as an EPSG code (e.g. 6677 = JPR IX) or WKT`);
 		crs = { kind: "lonlat", label: inRange ? "assumed lon/lat (no CRS in DXF)" : "ignoreCrs" };
 	} else if (typeof opts.crs === "number" || /^(EPSG:)?\d+$/i.test(String(opts.crs))) {
 		const code = +String(opts.crs).replace(/^EPSG:/i, "");
-		const wkt = epsgToWKT(code); if (!wkt) throw new Error(`dxf: EPSG:${code} は表に無い（経緯度・3857・平面直角 I〜XIX・UTM のみ）。WKT 文字列で渡す`);
+		const wkt = epsgToWKT(code); if (!wkt) throw new Error(`dxf: EPSG:${code} is not in the built-in table (lon/lat, 3857, JPR I–XIX, UTM only); pass a WKT string`);
 		crs = code === 3857 || code === 3785 || code === 900913 ? { kind: "mercator", label: `EPSG:${code}` } : crsFromWKT(wkt, { datum });
 	} else crs = crsFromWKT(String(opts.crs), { datum });
 	label = crs.label;
-	if (crs.kind === "other") throw new Error(`dxf: 座標系 ${label} を経緯度へ戻せない`);
+	if (crs.kind === "other") throw new Error(`dxf: CRS ${label} cannot be converted to lon/lat`);
 	toLonLat = crs.kind === "mercator" ? mercToLonLat : crs.toLonLat ?? null;
 	// 単位（投影座標のときだけ）
 	const unit = opts.unitScale ?? (toLonLat && r.header.insunits !== null ? (UNIT_M[r.header.insunits] ?? 1) : 1);

@@ -10,7 +10,7 @@ export function topology(self) {
 	// JS 位相経路（parse→cutPolygon/cutPolyline→meta→buildArcs→stream 組立・部分 wasm 版込み）は 2026-09-16 に撤去。
 	// 全呼び手（index.js gint()・encoder/gint Worker・convert/node-gint）は先に gint.initialize() を await している＝ここへ来るのは
 	// initialize 抜きで topology() を直接呼んだ時だけ。黙って壊れた JS 経路（共有点を落とすバグ・t-large 参照）で焼くより明示的に投げる。
-	if (!full) throw new Error("geopbf/topology: gint wasm が未初期化＝topology() の前に await gint.initialize() が要る（JS 位相経路は撤去済み）");
+	if (!full) throw new Error("geopbf/topology: gint wasm not initialized; await gint.initialize() before topology() (the JS topology path was removed)");
 	return anchorFullGintBuf(full);   // 全wasm直行便にも度アンカー（JS後処理＝Rust改修なし）
 }
 
@@ -82,7 +82,7 @@ export function unPackGintBuffer(GintBUF) {
 		if (header[0] !== 1953392967) throw new Error("Invalid Gint buffer");
 		// 版検札：旧レイアウトの GintBUF（IDBキャッシュ由来）を現行リーダで読むとオフセットがずれ、
 		// 例外にすらならず「空の絵」になり得る。ここで確実に弾く＝呼び出し側(pbf-io)が再焼きで自己修復。
-		if (header[1] !== topology.FORMAT_VERSION) throw new Error(`Gint buffer format v${header[1]} (expected v${topology.FORMAT_VERSION}) — 旧キャッシュ`);
+		if (header[1] !== topology.FORMAT_VERSION) throw new Error(`Gint buffer format v${header[1]} (expected v${topology.FORMAT_VERSION}); stale cache`);
 		const polygonCount = header[2], polylineCount = header[3], pointCount = header[4], nodeCount = header[5];
 		const arcLength = header[6], arcCount = header[7], bbox = [...header.slice(8, 12)];
 		bbox[0] = (bbox[0] - 180 * SCALE) / SCALE; bbox[1] = (bbox[1] - 90 * SCALE) / SCALE;

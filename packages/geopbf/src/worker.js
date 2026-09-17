@@ -47,7 +47,7 @@ self.onmessage = enqueue;
 (async () => {
 	const load = MODULES[self.name];
 	try {
-		if (!load) throw new Error(`unknown worker name "${self.name}"（decoder:<format> / encoder:<format>）`);
+		if (!load) throw new Error(`unknown worker name "${self.name}" (expected decoder:<format> / encoder:<format>)`);
 		await load();                                   // 脚本が自分の onmessage を張る
 		if (self.onmessage === enqueue) throw new Error(`${self.name}: the script did not install onmessage`);
 	} catch (err) {

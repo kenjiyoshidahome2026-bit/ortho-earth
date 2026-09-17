@@ -51,7 +51,7 @@ ok(e.stats.features === 3000 && e.stats.badLines === 0 && H(e.pbf.arrayBuffer) =
 	await import("../src/decoder/ndjson.js?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([u8], "t.ndjson"), name: "t", precision: 6 } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
-	ok(r && r !== "TIMEOUT" && r.type === "ndjsondec" && r.data instanceof ArrayBuffer && /1 行/.test(r.warning), `decoder worker: 返る・warning に壊れた行数（${r?.warning}）`);
+	ok(r && r !== "TIMEOUT" && r.type === "ndjsondec" && r.data instanceof ArrayBuffer && /1 unreadable line/.test(r.warning), `decoder worker: 返る・warning に壊れた行数（${r?.warning}）`);
 	if (r?.data) { const p = await new GeoPBF().set(r.data); ok(p.length === 6, `worker 経由 6 地物（${p.length}）`); }
 }
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");

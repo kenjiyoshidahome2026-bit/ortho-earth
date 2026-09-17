@@ -79,7 +79,7 @@ async function decompress(u8, codec, uncompressedSize) {
 	if (codec === 1) return snappy(u8);
 	if (codec === 2) return inflate(u8, "gzip");
 	if (codec === 6) return inflate(u8, "zstd");
-	throw new Error("parquet: unsupported codec " + (CODEC_NAME[codec] ?? codec) + "（none/snappy/gzip/zstd）");
+	throw new Error("parquet: unsupported codec " + (CODEC_NAME[codec] ?? codec) + " (none/snappy/gzip/zstd)");
 }
 
 // RLE/bit-packed hybrid → Int32Array(n)（bit 幅 w）
@@ -148,7 +148,7 @@ function parseLogical(v) {   // LogicalType union → 名前（＋詳細）
 //   readRowGroup(g) → Map(列名 → Array(rgRows) | null)。読めない列は columns[i].unsupported に理由を立てて null（旧 readParquet と同じ扱い）
 export async function openParquet(u8) {
 	const n = u8.length;
-	if (n < 12 || String.fromCharCode(u8[n - 4], u8[n - 3], u8[n - 2], u8[n - 1]) !== "PAR1") throw new Error("parquet: PAR1 の末尾署名が無い");
+	if (n < 12 || String.fromCharCode(u8[n - 4], u8[n - 3], u8[n - 2], u8[n - 1]) !== "PAR1") throw new Error("parquet: missing PAR1 trailer magic");
 	const metaLen = new DataView(u8.buffer, u8.byteOffset).getUint32(n - 8, true);
 	const meta = new TReader(u8, n - 8 - metaLen).struct({
 		2: (r) => r.list((r) => r.struct({ 4: str })),
@@ -173,7 +173,7 @@ export async function openParquet(u8) {
 	const rowGroups = rgs.map(rg => ({ numRows: rg[3] ?? 0, chunks: rg[1] ?? [] }));
 
 	async function readRowGroup(g) {
-		const rg = rowGroups[g]; if (!rg) throw new Error(`parquet: row group ${g} が無い（${rowGroups.length} 個）`);
+		const rg = rowGroups[g]; if (!rg) throw new Error(`parquet: row group ${g} not found (${rowGroups.length} groups)`);
 		const out = new Map();
 		for (const ch of rg.chunks) {
 			const cm = ch[3]; if (!cm) continue;
@@ -215,7 +215,7 @@ export async function openParquet(u8) {
 					const nonNull = levels ? levels.reduce((s, v) => s + (v === leaf.maxDef ? 1 : 0), 0) : numV;
 					let vals;
 					if (enc === 0) vals = decodePlain(body, 0, leaf.type, nonNull, leaf.typeLength).out;
-					else if (enc === 2 || enc === 8) { if (!dict) throw new Error("辞書ページが無い"); const w = body[0]; const idx = decodeHybrid(body, 1, body.length, w, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = dict[idx[k]]; }
+					else if (enc === 2 || enc === 8) { if (!dict) throw new Error("parquet: dictionary page missing"); const w = body[0]; const idx = decodeHybrid(body, 1, body.length, w, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = dict[idx[k]]; }
 					else throw new Error("unsupported encoding " + enc);
 					let vi = 0;
 					for (let k = 0; k < numV; k++) {

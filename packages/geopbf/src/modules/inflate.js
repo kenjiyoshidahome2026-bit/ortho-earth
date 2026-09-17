@@ -25,14 +25,14 @@ const Z = { gzip: ["gzipSync", "gunzipSync"], deflate: ["deflateSync", "inflateS
 export async function hasZstd() { await probe(); return !!(zlib && typeof zlib.zstdCompressSync === "function"); }
 export async function inflate(u8, format = "deflate") {
 	await probe();
-	if (format === "zstd") { if (!zlib?.zstdDecompressSync) throw new Error("zstd はこの環境では使えない（Node 22.15+ の node:zlib のみ）"); return new Uint8Array(zlib.zstdDecompressSync(u8)); }
+	if (format === "zstd") { if (!zlib?.zstdDecompressSync) throw new Error("zstd is not available in this environment (node:zlib on Node 22.15+ only)"); return new Uint8Array(zlib.zstdDecompressSync(u8)); }
 	if (zlib) return new Uint8Array(zlib[Z[format][1]](u8));
 	return pipe(u8, new DecompressionStream(format));
 }
 // level: zstd の圧縮レベル（既定 9＝gzip と同程度の時間で半分以下）。gzip/deflate は zlib 既定
 export async function deflate(u8, format = "gzip", level) {
 	await probe();
-	if (format === "zstd") { if (!zlib?.zstdCompressSync) throw new Error("zstd はこの環境では使えない（Node 22.15+ の node:zlib のみ）"); return new Uint8Array(zlib.zstdCompressSync(u8, { params: { [zlib.constants.ZSTD_c_compressionLevel]: level ?? 9 } })); }
+	if (format === "zstd") { if (!zlib?.zstdCompressSync) throw new Error("zstd is not available in this environment (node:zlib on Node 22.15+ only)"); return new Uint8Array(zlib.zstdCompressSync(u8, { params: { [zlib.constants.ZSTD_c_compressionLevel]: level ?? 9 } })); }
 	if (zlib) return new Uint8Array(zlib[Z[format][0]](u8));
 	return pipe(u8, new CompressionStream(format));
 }

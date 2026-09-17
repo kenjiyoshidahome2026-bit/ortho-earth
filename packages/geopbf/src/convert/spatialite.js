@@ -19,7 +19,7 @@ const TYPES = { 1: "Point", 2: "LineString", 3: "Polygon", 4: "MultiPoint", 5: "
 /** 幾何 BLOB → GeoJSON geometry（2D・Z/M は読み飛ばす）。ctx.vertices に頂点数を積む。null（NULL 幾何）はそのまま null */
 export function parseSpatiaLiteBlob(u8, ctx) {
 	if (!u8 || u8.length < 8) return null;
-	if (u8[0] !== 0x00) throw new Error("spatialite: 幾何 BLOB の先頭が 0x00 でない");
+	if (u8[0] !== 0x00) throw new Error("spatialite: geometry BLOB does not start with 0x00");
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	const marker = u8[1];
 	if (marker & 0x80) {   // TinyPoint
@@ -28,7 +28,7 @@ export function parseSpatiaLiteBlob(u8, ctx) {
 		return { type: "Point", coordinates: [dv.getFloat64(7, le), dv.getFloat64(15, le)] };
 	}
 	const le = marker === 1;
-	if (u8[38] !== 0x7c) throw new Error("spatialite: MBR 終端 0x7C が無い");
+	if (u8[38] !== 0x7c) throw new Error("spatialite: MBR end marker 0x7C missing");
 	let p = 39;
 	const entity = () => {
 		let t = dv.getUint32(p, le); p += 4;
@@ -55,7 +55,7 @@ export function parseSpatiaLiteBlob(u8, ctx) {
 		if (t === 3) { const n = dv.getUint32(p, le); p += 4; const rings = new Array(n); for (let i = 0; i < n; i++) rings[i] = seq(); return { type, coordinates: rings }; }
 		const n = dv.getUint32(p, le); p += 4;
 		const parts = new Array(n);
-		for (let i = 0; i < n; i++) { if (u8[p] !== 0x69) throw new Error("spatialite: ENTITY 印 0x69 が無い"); p++; parts[i] = entity(); }
+		for (let i = 0; i < n; i++) { if (u8[p] !== 0x69) throw new Error("spatialite: ENTITY marker 0x69 missing"); p++; parts[i] = entity(); }
 		if (t === 7) return { type, geometries: parts };
 		return { type, coordinates: parts.map(g => g.coordinates) };
 	};
@@ -67,7 +67,7 @@ const isEmpty = g => !g ? true : g.type === "Point" ? !Number.isFinite(g.coordin
 /** SpatiaLite を開いて層の一覧を返す（変換はしない）。 */
 export function readSpatiaLite(u8, opts = {}) {
 	const db = openSqlite(u8);
-	if (!db.tables.has("geometry_columns")) throw new Error("spatialite: SpatiaLite でない（geometry_columns が無い・ただの SQLite か GeoPackage）");
+	if (!db.tables.has("geometry_columns")) throw new Error("spatialite: not a SpatiaLite database (no geometry_columns table; plain SQLite or GeoPackage)");
 	const srsById = new Map();
 	if (db.tables.has("spatial_ref_sys")) for (const r of db.rows("spatial_ref_sys")) srsById.set(r.srid, { id: r.srid, name: r.ref_sys_name, org: r.auth_name, code: r.auth_srid, definition: r.srtext && r.srtext !== "Undefined" ? r.srtext : "" });
 	const byLower = new Map([...db.tables.values()].map(t => [t.name.toLowerCase(), t]));
@@ -93,11 +93,11 @@ export async function fromSpatiaLite(u8, opts = {}) {
 	const t0 = now();
 	const datum = await resolveDatum(opts);
 	const g = readSpatiaLite(u8, { datum });
-	if (!g.layers.length) throw new Error(`spatialite: 幾何列を持つ表が無い（geometry_columns が空${g.missing.length ? `・表が無い: ${g.missing.join(", ")}` : ""}）`);
+	if (!g.layers.length) throw new Error(`spatialite: no tables with a geometry column (geometry_columns is empty${g.missing.length ? `; tables missing: ${g.missing.join(", ")}` : ""})`);
 	const layer = opts.layer ? g.layers.find(l => l.table === opts.layer || l.table.toLowerCase() === String(opts.layer).toLowerCase()) : g.layers[0];
-	if (!layer) throw new Error(`spatialite: 層 "${opts.layer}" が無い（層: ${g.layers.map(l => l.table).join(", ")}）`);
+	if (!layer) throw new Error(`spatialite: layer "${opts.layer}" not found (layers: ${g.layers.map(l => l.table).join(", ")})`);
 	const kind = layer.crs.kind;
-	if (kind === "other" && !opts.ignoreCrs) throw new Error(`spatialite: 層 "${layer.table}" の CRS が経緯度でない（${layer.crs.label}）。GeoPBF は経緯度のみ＝再投影してから、または ignoreCrs`);
+	if (kind === "other" && !opts.ignoreCrs) throw new Error(`spatialite: CRS of layer "${layer.table}" is not lon/lat (${layer.crs.label}); GeoPBF is lon/lat only, reproject first or pass ignoreCrs`);
 	const xf = kind === "mercator" ? mercToLonLat : layer.crs.toLonLat ?? null;
 	const keep = attrFilter(opts);
 	const gcol = layer.geometryColumn;

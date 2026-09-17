@@ -207,7 +207,7 @@ onmessage = async (e) => {
 	});
 	console.log(`preparing deflation...`);
 	const file = await encodeZIP(zipFiles, name+".zip");
-	console.log(" => Done : ", file.name, "size: " + file.size.toLocaleString() + " bytes");
+	console.log(" => Done : ", file.name, "size: " + file.size.toLocaleString("en-US") + " bytes");
 	postMessage(file);
 	} catch (err) {
 		console.error("Shape encode Worker Error:", err);   // 失敗は必ず null で返す＝呼び手の Promise を hang させない

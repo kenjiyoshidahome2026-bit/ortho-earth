@@ -90,16 +90,16 @@ export function componentAreas(ps, arcMeta, xy) {
 export async function toPMTiles(pbf, opts = {}) {
 	const t0 = now();
 	const gintBuf = opts.gint ?? pbf._gintBuffer;
-	if (!gintBuf) throw new Error("toPMTiles: GintBUF が無い（await pbf.gint() か opts.gint）");
+	if (!gintBuf) throw new Error("toPMTiles: GintBUF missing (await pbf.gint() or pass opts.gint)");
 	const d = unPackGintBuffer(gintBuf);
-	if (!d) throw new Error("toPMTiles: GintBUF を読めない");
+	if (!d) throw new Error("toPMTiles: cannot read GintBUF");
 	const extent = opts.extent ?? 4096, extentShift = Math.log2(extent);
-	if (!Number.isInteger(extentShift) || extent < 256 || extent > 65536) throw new Error("extent は 256〜65536 の 2 の冪");
+	if (!Number.isInteger(extentShift) || extent < 256 || extent > 65536) throw new Error("extent must be a power of two between 256 and 65536");
 	const minZoom = opts.minZoom ?? 0, maxZoom = opts.maxZoom ?? 14;
-	if (!(minZoom >= 0 && maxZoom >= minZoom && maxZoom <= 32 - extentShift && maxZoom - minZoom < 32)) throw new Error(`zoom 範囲が不正（0 ≤ min ≤ max ≤ ${32 - extentShift}）`);
+	if (!(minZoom >= 0 && maxZoom >= minZoom && maxZoom <= 32 - extentShift && maxZoom - minZoom < 32)) throw new Error(`invalid zoom range (0 ≤ min ≤ max ≤ ${32 - extentShift})`);
 	const buffer = opts.buffer ?? 80, lodBias = opts.lodBias ?? 0;
 	const tinyPolygon = opts.tinyPolygon ?? 2, tinyLine = opts.tinyLine ?? 0;
-	if (!(tinyPolygon >= 0) || !(tinyLine >= 0)) throw new Error("tinyPolygon / tinyLine は 0 以上");
+	if (!(tinyPolygon >= 0) || !(tinyLine >= 0)) throw new Error("tinyPolygon / tinyLine must be >= 0");
 	const layerName = opts.layer ?? pbf.name?.() ?? "layer";
 	const tileGzip = (opts.tileCompression ?? "gzip") === "gzip";
 	const stats = { engine: "cpu", vertices: 0, arcs: 0, kept: 0, tiles: 0, bytes: 0, workers: 0, ms: {} };
@@ -128,7 +128,7 @@ export async function toPMTiles(pbf, opts = {}) {
 	const readProj = async () => projCPU ??= (proj.xy instanceof Uint32Array ? { xy: proj.xy, rk: proj.rk } : await proj.read());
 	let arcThresholds;
 	if (simplification !== false && d.arcCount) {
-		if (!(simplification > 0)) throw new Error("simplification は正の数か false");
+		if (!(simplification > 0)) throw new Error("simplification must be a positive number or false");
 		const tc = now(), { xy, rk } = await readProj();
 		const cal = calibrateArcThresholds({ xy, rk, arcs, arcCount: d.arcCount, totalArcs: A, extentShift, minZoom, maxZoom, tolerance: simplification, lodBias });
 		arcThresholds = cal.arcThresholds; stats.calibration = cal.stats; stats.ms.calibrate = now() - tc;
@@ -151,7 +151,7 @@ export async function toPMTiles(pbf, opts = {}) {
 	const tagTable = buildTagTable(pbf, keep, fields);
 	stats.ms.tags = now() - tt;
 	const dropRate = opts.dropRate ?? 2.5;
-	if (!(dropRate >= 1)) throw new Error("dropRate は 1 以上（1＝点を間引かない）");
+	if (!(dropRate >= 1)) throw new Error("dropRate must be >= 1 (1 = keep every point)");
 	const S = { arcCount: d.arcCount, nPts, point: d.point ? d.point.slice() : null, polyStream: d.polyStream ? d.polyStream.slice() : null, lineStream: d.lineStream ? d.lineStream.slice() : null, extent, buffer, layerName, tagTable, featureCount: pbf.length, maxZoom, dropRate, tinyPolygon, tinyLine, compArea, extentShift };
 
 	// ── worker プール（失敗したらインライン）

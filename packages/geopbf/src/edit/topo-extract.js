@@ -146,7 +146,7 @@ export function createExtractor(gridExp) {
 
 	function add(g, props = {}) {
 		const id = eid++;
-		if (!g || !Array.isArray(g.coordinates)) { warnings.push(`feature ${id}: geometry無し/不正＝skip`); return id; }   // moj実データに壊れfeatureあり（fid整列メモの族）
+		if (!g || !Array.isArray(g.coordinates)) { warnings.push(`feature ${id}: missing or invalid geometry, skipped`); return id; }   // moj実データに壊れfeatureあり（fid整列メモの族）
 		const t = g.type;
 		if (t === "Point" || t === "MultiPoint") {
 			const cs = (t === "Point" ? [g.coordinates] : g.coordinates).map(c => [quantize(c[0], e), quantize(c[1], e)]);
@@ -155,7 +155,7 @@ export function createExtractor(gridExp) {
 		}
 		if (t === "LineString" || t === "MultiLineString") {
 			const lines = (t === "LineString" ? [g.coordinates] : g.coordinates).map(l => quantizeLine(l, e, false)).filter(Boolean);
-			if (!lines.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); return id; }
+			if (!lines.length) { warnings.push(`feature ${id}: degenerate after quantization, skipped`); return id; }
 			for (const line of lines) items.push({ line, ring: false });
 			preps.push([id, t, lines, props]);
 			return id;
@@ -163,12 +163,12 @@ export function createExtractor(gridExp) {
 		if (t === "Polygon" || t === "MultiPolygon") {
 			const polys = (t === "Polygon" ? [g.coordinates] : g.coordinates)
 				.map(rings => rings.map(r => quantizeLine(r, e, true)).filter(Boolean)).filter(pl => pl.length);
-			if (!polys.length) { warnings.push(`feature ${id}: 量子化で退化＝skip`); return id; }
+			if (!polys.length) { warnings.push(`feature ${id}: degenerate after quantization, skipped`); return id; }
 			for (const pl of polys) for (const r of pl) items.push({ line: r, ring: true });
 			preps.push([id, t, polys, props]);
 			return id;
 		}
-		warnings.push(`feature ${id}: ${t} は v1 非対応＝skip`);
+		warnings.push(`feature ${id}: ${t} not supported in v1, skipped`);
 		return id;
 	}
 

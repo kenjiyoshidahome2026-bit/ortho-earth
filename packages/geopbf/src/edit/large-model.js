@@ -43,7 +43,7 @@ export function createLargeModel(pbf) {
 	let topo = null;
 	const g = () => {
 		const u = pbf.unPackGint;
-		if (!u) throw new Error("large-model: gint未ベイク（loadLarge は pbf.gint() 後に呼ぶ）");
+		if (!u) throw new Error("large-model: gint not baked (call loadLarge after pbf.gint())");
 		return u;
 	};
 	const ensureTopo = () => {
@@ -109,7 +109,7 @@ export function createLargeModel(pbf) {
 	for (let i = 0; i < n; i++) {
 		const type = pbf.getType(i);
 		let properties = {};
-		try { properties = pbf.getProperties(i) ?? {}; } catch { warnings.push(`feature[${i}]: 属性が読めませんでした`); }
+		try { properties = pbf.getProperties(i) ?? {}; } catch { warnings.push(`feature[${i}]: properties could not be read`); }
 		const f = { fid: i, type, properties };
 		if (type === "Point" || type === "MultiPoint")
 			Object.defineProperty(f, "coords", { configurable: true, get() { const v = liftPoint(i); Object.defineProperty(f, "coords", { value: v, configurable: true }); return v; } });

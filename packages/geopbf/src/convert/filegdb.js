@@ -25,12 +25,12 @@ const GEOM = { 0: null, 1: "point", 2: "multipoint", 3: "polyline", 4: "polygon"
 export function gdbSourceFromFiles(files) {
 	const map = new Map();
 	for (const f of files) { const n = (f.name || "").split("/").pop().toLowerCase(); if (n) map.set(n, f); }
-	return { names: [...map.keys()], read: async (name, offset = 0, length) => { const f = map.get(name.toLowerCase()); if (!f) throw new Error(`gdb: ${name} が無い`); const b = length === undefined ? f.slice(offset) : f.slice(offset, offset + length); return new Uint8Array(await b.arrayBuffer()); } };
+	return { names: [...map.keys()], read: async (name, offset = 0, length) => { const f = map.get(name.toLowerCase()); if (!f) throw new Error(`gdb: ${name} not found`); const b = length === undefined ? f.slice(offset) : f.slice(offset, offset + length); return new Uint8Array(await b.arrayBuffer()); } };
 }
 /** { name: Uint8Array } の辞書 → source（Node・検定用）。 */
 export function gdbSourceFromMap(map) {
 	const m = new Map(); for (const [k, v] of (map instanceof Map ? map : Object.entries(map))) m.set(k.split("/").pop().toLowerCase(), v);
-	return { names: [...m.keys()], read: async (name, offset = 0, length) => { const u = m.get(name.toLowerCase()); if (!u) throw new Error(`gdb: ${name} が無い`); return length === undefined ? u.subarray(offset) : u.subarray(offset, offset + length); } };
+	return { names: [...m.keys()], read: async (name, offset = 0, length) => { const u = m.get(name.toLowerCase()); if (!u) throw new Error(`gdb: ${name} not found`); return length === undefined ? u.subarray(offset) : u.subarray(offset, offset + length); } };
 }
 
 // ───────────────────────────── 低レベル: varint ─────────────────────────────
@@ -42,7 +42,7 @@ function vs(b, s) { let c = b[s.p++]; const neg = c & 0x40; let v = c & 0x3f, m 
 export function parseTableHeader(head, fdesc) {
 	const dv = new DataView(head.buffer, head.byteOffset, head.byteLength);
 	const version = dv.getInt32(0, true), validRows = dv.getInt32(4, true), fdescOffset = Number(dv.getBigInt64(32, true));
-	if (version !== 3 && version !== 4) throw new Error(`gdb: .gdbtable の版 ${version} は未対応（3/4＝ArcGIS 9.x/10.x のみ）`);
+	if (version !== 3 && version !== 4) throw new Error(`gdb: .gdbtable version ${version} not supported (3/4 = ArcGIS 9.x/10.x only)`);
 	const fd = new DataView(fdesc.buffer, fdesc.byteOffset, fdesc.byteLength);
 	let p = 0;
 	const sectionLen = fd.getInt32(p, true); p += 4; /* version */ p += 4;
@@ -70,12 +70,12 @@ export function parseTableHeader(head, fdesc) {
 				// 経験則（GDAL と同じ）: この後に zmin/zmax・mmin/mmax が 0〜2 組あるかは版で揺れる＝「0x00 + int32 格子数(1..3)」が現れる位置を探す
 				let found = false;
 				for (const skip of [0, 16, 32]) { const q = p + skip; if (q + 5 <= fdesc.length && fdesc[q] === 0) { const ng = fd.getInt32(q + 1, true); if (ng >= 1 && ng <= 3) { p = q + 5 + 8 * ng; found = true; break; } } }
-				if (!found) throw new Error(`gdb: 幾何フィールド ${name} の定義を読み切れない`);
+				if (!found) throw new Error(`gdb: cannot parse the definition of geometry field ${name}`);
 				break;
 			}
 			case 8: case 10: case 11: case 12: { const fl = fdesc[p + 1]; p += 2; f.nullable = !!(fl & 1); break; }
-			case 9: throw new Error(`gdb: ラスタ列 ${name} を持つ表は未対応`);
-			default: throw new Error(`gdb: 未知のフィールド型 ${t}（${name}）`);
+			case 9: throw new Error(`gdb: tables with a raster column (${name}) are not supported`);
+			default: throw new Error(`gdb: unknown field type ${t} (${name})`);
 		}
 		fields.push(f);
 	}
@@ -86,7 +86,7 @@ export function parseTableHeader(head, fdesc) {
 export function parseTablx(u8) {
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	const nBlocks = dv.getInt32(4, true), nRows = dv.getInt32(8, true), size = dv.getInt32(12, true);
-	if (size < 4 || size > 6) throw new Error(`gdb: .gdbtablx のオフセット幅 ${size} が不正`);
+	if (size < 4 || size > 6) throw new Error(`gdb: invalid .gdbtablx offset size ${size}`);
 	const trailer = 16 + nBlocks * 1024 * size;
 	let present = null;   // ブロック i が存在するか（ビットマップが無ければ全部）
 	if (trailer + 16 <= u8.length) {
@@ -128,7 +128,7 @@ function readRecord(b, fields, nNullable) {
 			case 13: { const v = dv.getBigInt64(s.p, true); out[i] = v >= -(2n ** 53n) && v <= 2n ** 53n ? Number(v) : v.toString(); s.p += 8; break; }
 			case 14: case 15: out[i] = dv.getFloat64(s.p, true); s.p += 8; break;   // date / time（数値のまま）
 			case 16: out[i] = dv.getFloat64(s.p, true); s.p += 10; break;
-			default: throw new Error(`gdb: 行の型 ${f.type} を読めない`);
+			default: throw new Error(`gdb: cannot read field type ${f.type} in a row`);
 		}
 	}
 	return out;
@@ -157,7 +157,7 @@ export function parseShape(b, gf, ctx, xf) {
 	const isMulti = base === 8 || base === 18 || base === 20 || base === 28 || base === 53;
 	const isLine = base === 3 || base === 10 || base === 13 || base === 23 || base === 50;
 	const isPoly = base === 5 || base === 15 || base === 19 || base === 25 || base === 51;
-	if (!isMulti && !isLine && !isPoly) throw new Error(`gdb: 幾何型 ${base} は未対応`);
+	if (!isMulti && !isLine && !isPoly) throw new Error(`gdb: geometry type ${base} not supported`);
 	const n = vu(b, s);
 	if (n === 0) { ctx.empty++; return null; }
 	const nParts = isMulti ? 1 : vu(b, s);
@@ -203,9 +203,9 @@ async function openTable(source, base) {
 }
 /** カタログを読み、ユーザー表の一覧（ヘッダのみ・行は読まない）を返す。 */
 export async function openFileGDB(source, opts = {}) {
-	if (!source || !Array.isArray(source.names)) throw new Error("gdb: source は { names, read } が要る");
+	if (!source || !Array.isArray(source.names)) throw new Error("gdb: source must be { names, read }");
 	const cat = await openTable(source, "a00000001");
-	if (!cat) throw new Error("gdb: a00000001.gdbtable（GDB_SystemCatalog）が無い＝File Geodatabase でない");
+	if (!cat) throw new Error("gdb: a00000001.gdbtable (GDB_SystemCatalog) not found; not a File Geodatabase");
 	const catRows = await readRows(source, cat);
 	const iName = cat.fields.findIndex(f => f.name.toLowerCase() === "name");
 	const tables = [];
@@ -240,7 +240,7 @@ async function* iterRows(source, t, { window = DEFAULT_WINDOW } = {}) {
 		if (win && from >= win.start && to <= win.start + win.u8.length) return;
 		const u8 = await source.read(name, from, Math.max(window, to - from));
 		win = { start: from, u8, dv: new DataView(u8.buffer, u8.byteOffset, u8.byteLength) };
-		if (u8.length < to - from) throw new Error(`gdb: 行 ${row} のオフセット ${from} がファイルの外`);
+		if (u8.length < to - from) throw new Error(`gdb: row ${row} offset ${from} is outside the file`);
 	};
 	for (let row = 1; row <= tx.nRows; row++) {
 		const off = tx.offsetOf(row); if (!off) continue;
@@ -258,13 +258,13 @@ export async function fromFileGDB(source, opts = {}) {
 	const t0 = now();
 	const datum = await resolveDatum(opts);
 	const gdb = await openFileGDB(source, { datum });
-	if (!gdb.layers.length) throw new Error(`gdb: フィーチャクラスが無い（表: ${gdb.tables.map(t => `${t.name}${t.geometryType ? `(${t.geometryType})` : ""}`).join(", ") || "なし"}）`);
+	if (!gdb.layers.length) throw new Error(`gdb: no feature classes (tables: ${gdb.tables.map(t => `${t.name}${t.geometryType ? `(${t.geometryType})` : ""}`).join(", ") || "none"})`);
 	const layer = opts.layer ? gdb.tables.find(t => t.name === opts.layer || t.name.toLowerCase() === String(opts.layer).toLowerCase()) : gdb.layers[0];
-	if (!layer) throw new Error(`gdb: 層 "${opts.layer}" が無い（層: ${gdb.layers.map(l => l.name).join(", ")}）`);
-	if (layer.error) throw new Error(`gdb: 層 "${layer.name}" を読めない: ${layer.error}`);
-	if (!layer.geometryType) throw new Error(`gdb: "${layer.name}" は幾何の無い表`);
+	if (!layer) throw new Error(`gdb: layer "${opts.layer}" not found (layers: ${gdb.layers.map(l => l.name).join(", ")})`);
+	if (layer.error) throw new Error(`gdb: cannot read layer "${layer.name}": ${layer.error}`);
+	if (!layer.geometryType) throw new Error(`gdb: "${layer.name}" is a table without geometry`);
 	const crs = layer.crs;
-	if (crs.kind === "other" && !opts.ignoreCrs) throw new Error(`gdb: 層 "${layer.name}" の CRS を経緯度へ戻せない（${crs.label}）。再投影してから、または ignoreCrs`);
+	if (crs.kind === "other" && !opts.ignoreCrs) throw new Error(`gdb: CRS of layer "${layer.name}" cannot be converted to lon/lat (${crs.label}); reproject first, or pass ignoreCrs`);
 	const xf = crs.toLonLat ?? null;
 	const t = layer._t, gf = t.fields.find(f => f.code === 7);
 	const keep = attrFilter(opts);

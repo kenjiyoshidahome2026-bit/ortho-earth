@@ -7,74 +7,11 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
+import { t } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
 
 globalThis.ImageData ??= class ImageData {
 	constructor(data, width, height) { this.data = data; this.width = width; this.height = height; }
 };
-
-const USAGE = `geopbf <command>
-
-  enc  <in.geojson|ndjson> <out.geopbf>   GeoJSON / NDJSON を GeoPBF へ（書き出しは gzip が既定＝配布形の通例）
-       .ndjson / .geojsonl / .jsonl（1 行 1 地物・GeoJSON Text Sequence の RS 区切りも可）は行ごとに読む（[--name name]）
-       [--precision N]             座標に残す小数桁（1-9・既定 6 ≒ 0.1m）
-       [--no-gzip]                 gzip せず生の GeoPBF を書く
-  dec  <in.geopbf>  <out.geojson>  GeoPBF を GeoJSON へ
-  info <in.geopbf>                 中身の要約（地物数・頂点数・精度・大きさ）
-  lod  <in.geopbf>                 gint のランクを付け、ズーム別に描かれる頂点数を出す
-  cog  info <url|file.tif>         COG の構造（寸法・タイル格子・overview・圧縮・CRS・bbox）
-       [--bench]                   ヘッダ読み/レンダの実測数字（range 本数・coalesce・デコード時間）
-  cog  png  <url|file.tif> <out.png>  COG を PNG に描き出す（Range 直読み・低解像度全景が既定）
-       [--level N] [--width N]     overview 段（既定=最粗）と出力幅（既定 768）
-  pmtiles <in.geopbf> <out.pmtiles>  GeoPBF を PMTiles（MVT・gzip）へ＝gint の arc/rank でズーム別に間引く
-       [--minzoom N] [--maxzoom N]  ズーム範囲（既定 0-14）
-       [--extent N] [--buffer N]    タイル格子（既定 4096）とはみ出し幅（既定 80）
-       [--layer name]               レイヤ名（既定＝ヘッダの name）
-       [--gint <in.gint>]           焼き済み GintBUF を使う（無ければ wasm でその場で焼く）
-       [--gpu | --no-gpu]           WebGPU（Node は npm の webgpu＝Dawn が要る）。既定＝あれば使う
-       [--workers N]                組立/クリップ/MVT/gzip の worker 数（既定＝コア数・0＝単一スレッド）
-       [--drop-rate R]              点の低ズーム間引き率（tippecanoe -r 相当・既定 2.5・1＝全点保持）
-       [--tiny-polygon A]           タイル座標で面積 A 未満の面成分を落とす（tippecanoe -s 相当・既定 2・0＝無効）
-       [--tiny-line L]              外接が L 未満の線を落とす（既定 0＝無効）
-       [--simplification N|off]     DP 許容差（タイル単位・既定 1＝tippecanoe -S 1 相当・arc 毎にランク閾値を較正・off で固定則）
-       [--lod-bias N]               較正後の閾値をずらす（正で粗く・+3 で 1 ズーム段＝約 2 倍粗い）
-       [--include a,b] [--exclude a,b] [--exclude-all]  属性の選別（tippecanoe -y / -x / -X 相当）
-  parquet <in.geopbf> <out.parquet>  GeoPBF を GeoParquet（WKB・bbox 列・gzip）へ
-       [--compression zstd|gzip|none] [--row-group N] [--gpu | --no-gpu]   （既定 zstd＝Node 22.15+・gzip の半分以下）
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-  parquet2pbf <in.parquet> <out.geopbf>  GeoParquet（WKB・経緯度）を GeoPBF へ＝逆変換。geopandas / DuckDB / pyarrow の出力も可
-       [--precision N]              座標の小数桁（既定＝geopbf:precision か 6）
-       [--name name] [--geometry col] [--ignore-crs] [--no-gzip]
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-       [--order str|hilbert|morton|none]  行の空間整列（既定 str＝行グループ bbox が重ならない・none＝入力順）
-       [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
-  gpkg2pbf <in.gpkg> [out.geopbf]   GeoPackage の 1 層を GeoPBF へ（自前 SQLite リーダ・GDAL 不要・読み専用）。out を省くと層（地物/タイル）の一覧
-       [--layer name]               層（表名か identifier・既定＝最初の地物層）
-       [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（無ければ Helmert ±10 m）
-       [--patchjgd <file|url>]      JGD2000→JGD2011 の PatchJGD 格子
-       [--precision N] [--name name] [--ignore-crs] [--no-gzip]
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-
-  spatialite2pbf <in.sqlite> [out.geopbf]   SpatiaLite の 1 層を GeoPBF へ（自前 SQLite リーダ・幾何 BLOB は圧縮/TinyPoint 込み・GDAL 不要）。out を省くと層の一覧
-       [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
-       [--tky2jgd <file|url>] [--patchjgd <file|url>]   日本測地系の層の格子変換（gpkg2pbf と同じ）
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-  gdb2pbf <in.gdb|in.zip> [out.geopbf]   File Geodatabase の 1 フィーチャクラスを GeoPBF へ（ディレクトリか、それを zip したもの）。out を省くと一覧
-       [--layer name] [--precision N] [--name name] [--ignore-crs] [--no-gzip]
-       [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（scripts/bake-datum-grid.mjs の出力）。無ければ Helmert ±10 m
-       [--patchjgd <file|url>]      JGD2000→JGD2011 の PatchJGD 格子（2011 年東北地方太平洋沖地震・対象域外は無変換）
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-  dxf2pbf <in.dxf> [out.geopbf]   DXF（ASCII）を GeoPBF へ。out を省くとヘッダ・レイヤ・エンティティ種別の一覧
-       [--crs 6677|WKT]             座標系（DXF は持たない）＝EPSG 番号（経緯度・3857・平面直角 I〜XIX・UTM）か WKT。省略＝座標が経緯度の範囲なら経緯度とみなす
-       [--unit 0.001]               図面単位→m の倍率（既定＝$INSUNITS から自動）  [--encoding sjis]  [--closed-lines] 閉じた折線を面にしない
-       [--precision N] [--name name] [--ignore-crs] [--no-gzip] [--tky2jgd <file|url>] [--patchjgd <file|url>]
-  csv2pbf <in.csv|tsv|xlsx> <out.geopbf>   表を GeoPBF へ（経緯度の 2 列＝点、または WKT の 1 列＝点/線/面）。列名は自動検出
-       [--lon col] [--lat col] [--wkt col]  列の名指し（自動検出より優先）
-       [--sheet name] [--encoding sjis] [--delimiter ,]   xlsx のシート・CSV の文字コード（既定＝UTF-8 で読めなければ Shift_JIS）・区切り
-       [--precision N] [--name name] [--no-gzip]
-       [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-
-  入力の gzip は拡張子によらず署名（1f 8b）で判別して透過的に展開する。
-`;
 
 // ── 共通ヘルパ ────────────────────────────────────────────────────────────────
 
@@ -110,6 +47,10 @@ const countVertices = (features) => {
 
 const mb = (n) => `${(n / 1e6).toFixed(1)} MB`;
 const num = (n) => n.toLocaleString("en-US");
+// 変換系コマンドの共通行（書き出し報告・読まなかった列・他の層）
+const pbfOut = (outPath, out, gzip, s) => t("pbfOut", { out: outPath, size: mb(out.length), gzip: gzip ? " (gzip)" : "", precision: s.precision, read: s.ms.read.toFixed(0), encode: s.ms.encode.toFixed(0) });
+const skippedList = (skipped) => skipped.map(k => `${k.name}(${k.reason})`).join(" ");
+const othersNote = (s) => s.layers.length > 1 ? t("others", { list: s.layers.filter(l => l !== s.layer).join(", ") }) : "";
 
 // 引数を「位置引数」と「オプション」に一度で分ける（--name value 形式・--name 単独は真）
 const parseArgs = (argv, valued = []) => {
@@ -131,16 +72,16 @@ async function enc(argv) {
 
 	const precision = opts.precision === undefined ? undefined : Number(opts.precision);
 	if (precision !== undefined && !(Number.isInteger(precision) && precision >= 1 && precision <= 9))
-		throw new Error("--precision は 1 から 9 の整数");   // 0 は pbf-base の `precision || 6` が黙って 6 に落とすので範囲外
+		throw new Error(t("precisionRange"));   // 0 は pbf-base の `precision || 6` が黙って 6 に落とすので範囲外
 
 	const src = await readMaybeGzip(inPath);
-	const t = Date.now();
+	const t0 = Date.now();
 	let pbf;
 	if (/\.(ndjson|geojsonl|geojsons|jsonl)(\.gz)?$/i.test(inPath)) {   // 1 行 1 地物 / GeoJSON Text Sequence（convert/ndjson.js）
 		const { fromNdjson } = await import("../src/convert/ndjson.js");
 		const r = await fromNdjson(src, { name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+?(\.gz)?$/i, ""), precision });
 		pbf = r.pbf;
-		if (r.stats.badLines) console.log(`  ⚠ 読めない行 ${num(r.stats.badLines)}（飛ばした）`);
+		if (r.stats.badLines) console.log(t("ndjsonBadLines", { n: num(r.stats.badLines) }));
 	} else {
 		const gj = JSON.parse(Buffer.from(src).toString("utf8"));
 		pbf = await new GeoPBF({ name: gj.name || "layer", precision }).set(gj);
@@ -151,7 +92,7 @@ async function enc(argv) {
 	await writeFile(outPath, out);
 
 	console.log(`${inPath}  ${mb(src.length)}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  ${(src.length / out.length).toFixed(1)} 分の 1  ${Date.now() - t} ms`);
+	console.log(t("encDone", { out: outPath, size: mb(out.length), gzip: gzip ? " (gzip)" : "", ratio: (src.length / out.length).toFixed(1), ms: Date.now() - t0 }));
 }
 
 // ── dec ───────────────────────────────────────────────────────────────────────
@@ -161,7 +102,7 @@ async function dec(argv) {
 	if (!inPath || !outPath) throw new Error("dec <in.geopbf> <out.geojson>");
 	const gj = (await openPbf(inPath)).geojson;
 	await writeFile(outPath, JSON.stringify(gj));
-	console.log(`${outPath}  features ${num(gj.features.length)}  頂点 ${num(countVertices(gj.features))}`);
+	console.log(t("decDone", { out: outPath, features: num(gj.features.length), vertices: num(countVertices(gj.features)) }));
 }
 
 // ── info ──────────────────────────────────────────────────────────────────────
@@ -179,9 +120,9 @@ async function info(argv) {
 
 	console.log(`size        ${mb(raw.length)}${gzipped ? " (gzip)" : ""}`);
 	console.log(`features    ${num(gj.features.length)}`);
-	console.log(`頂点        ${num(countVertices(gj.features))}`);
+	console.log(t("infoVertices", { n: num(countVertices(gj.features)) }));
 	console.log(`geometry    ${[...types].map(([t, n]) => `${t} ${num(n)}`).join("  ")}`);
-	console.log(`precision   ${pbf.precision()}  （${(1 / Math.pow(10, pbf.precision()) * 111320).toFixed(2)} m 相当）`);
+	console.log(t("infoPrecision", { p: pbf.precision(), m: (1 / Math.pow(10, pbf.precision()) * 111320).toFixed(2) }));
 	for (const [label, v] of [["name", pbf.name()], ["description", pbf.description()],
 		["license", pbf.license()], ["attribution", pbf.attribution()],
 		["minZoom", pbf.minZoom()], ["maxZoom", pbf.maxZoom()]])
@@ -203,7 +144,7 @@ async function lod(argv) {
 	const gj = (await openPbf(inPath)).geojson;
 	const hist = new Array(64).fill(0);
 	let total = 0, l1 = 0;
-	const t = Date.now();
+	const t0 = Date.now();
 	for (const f of gj.features) eachRing(f.geometry, (ring) => {
 		total += ring.length;
 		const arc = new BigUint64Array(ring.length);
@@ -214,10 +155,10 @@ async function lod(argv) {
 			else hist[Number(arc[i] & gint.WEIGHT_MASK)]++;
 		}
 	});
-	if (!total) { console.log("頂点がない"); return; }
+	if (!total) { console.log(t("lodEmpty")); return; }
 
-	console.log(`頂点 ${num(total)}（うち L1 ${num(l1)}）  ランク付け ${Date.now() - t} ms  gint ${mb(total * 8)}（8 byte/頂点）\n`);
-	console.log("  z  threshold      描画頂点   残存率");
+	console.log(t("lodHead", { total: num(total), l1: num(l1), ms: Date.now() - t0, size: mb(total * 8) }));
+	console.log(t("lodTable"));
 	for (const z of [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 14, 16, 18, 21]) {
 		const th = Math.max(0, (21 - z) * 3);
 		let keep = l1;
@@ -225,7 +166,7 @@ async function lod(argv) {
 		const pct = keep / total * 100;
 		console.log(`  ${String(z).padStart(2)}  ${String(th).padStart(3)}  ${num(keep).padStart(12)}   ${pct.toFixed(1).padStart(5)}%  ${"#".repeat(Math.round(pct / 2.5))}`);
 	}
-	console.log("\n位相解析なし＝L1 はリングの端点のみ。共有境界の頂点は L1 に立たない。");
+	console.log(t("lodNote"));
 }
 
 // ── cog ───────────────────────────────────────────────────────────────────────
@@ -257,9 +198,8 @@ async function cog(argv) {
 			const dt = Date.now();
 			await c.render(lonlatTarget([w, s, e, n], W, H), { level: c.overviews.length - 1 });
 			const m = c.metrics();
-			console.log(`--bench     TTFH ${m.ttfhMs.toFixed(0)} ms・全景${W}px ${Date.now() - dt} ms・` +
-				`range ${m.rangeRequests} 本/要求 ${m.coalescedFrom}（coalesce ${(m.coalescedFrom / Math.max(m.rangeRequests, 1)).toFixed(1)}x）・` +
-				`受信 ${mb(m.bytesFetched)}・デコード ${m.tilesDecoded} タイル ${m.decodeMs.toFixed(0)} ms`);
+			console.log(t("cogBench", { ttfh: m.ttfhMs.toFixed(0), w: W, ms: Date.now() - dt, requests: m.rangeRequests, coalesced: m.coalescedFrom,
+				ratio: (m.coalescedFrom / Math.max(m.rangeRequests, 1)).toFixed(1), bytes: mb(m.bytesFetched), tiles: m.tilesDecoded, decode: m.decodeMs.toFixed(0) }));
 		}
 		return;
 	}
@@ -269,12 +209,12 @@ async function cog(argv) {
 		const [w, s, e, n] = c.bboxLL;
 		const W = opts.width ? +opts.width : 768, H = Math.max(16, Math.round(W * (n - s) / (e - w)));
 		const rgba = await c.render(lonlatTarget([w, s, e, n], W, H), { level });
-		if (!rgba) throw new Error("cog png: 範囲外（レンダ結果が空）");
+		if (!rgba) throw new Error(t("cogEmpty"));
 		await writeFile(outPath, encodePNG(rgba, W, H));
 		console.log(`${outPath}  ${W} x ${H}  level ${level}/${c.overviews.length - 1}  ${Date.now() - t0} ms`);
 		return;
 	}
-	throw new Error(`cog: 知らないサブコマンド "${sub}"`);
+	throw new Error(t("cogUnknownSub", { sub }));
 }
 
 // 最小 PNG エンコーダ（8bit RGBA・filter 0・node:zlib）＝依存ゼロ維持
@@ -335,7 +275,7 @@ async function pmtiles(argv) {
 	else { const { bakeGint } = await import("../src/convert/node-gint.js"); gint = await bakeGint(pbf); }
 	const t1 = Date.now();
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error(t("gpuMissing")); }
 	const r = await toPMTiles(pbf, { gint, gpu: wantGpu,
 		minZoom: opts.minzoom !== undefined ? +opts.minzoom : 0, maxZoom: opts.maxzoom !== undefined ? +opts.maxzoom : 14,
 		extent: opts.extent ? +opts.extent : undefined, buffer: opts.buffer !== undefined ? +opts.buffer : undefined,
@@ -344,9 +284,9 @@ async function pmtiles(argv) {
 		tinyPolygon: opts["tiny-polygon"] !== undefined ? +opts["tiny-polygon"] : undefined, tinyLine: opts["tiny-line"] !== undefined ? +opts["tiny-line"] : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
-	console.log(`${inPath}  features ${num(pbf.length)}  gint ${opts.gint ? "読込" : "焼き"} ${t1 - t0} ms（arc ${num(s.arcs)}・頂点 ${num(s.vertices)}）`);
-	console.log(`${outPath}  ${mb(s.bytes)}  タイル ${num(s.tiles)}（内容 ${num(s.contents)} 種）  z${r.metadata.minzoom}-${r.metadata.maxzoom}  ${engineNote(s)}・worker ${s.workers}`);
-	console.log(`  投影+LOD ${s.ms.project_lod.toFixed(0)} ms・較正 ${(s.ms.calibrate ?? 0).toFixed(0)} ms・書き出し ${s.ms.lod_write.toFixed(0)} ms・組立/クリップ/MVT ${s.ms.assemble.toFixed(0)} ms・PMTiles ${s.ms.pmtiles.toFixed(0)} ms・合計 ${s.ms.total.toFixed(0)} ms  （残存頂点 ${num(s.kept)}＝全ズーム合計）`);
+	console.log(t("pmIn", { in: inPath, features: num(pbf.length), how: t(opts.gint ? "gintLoaded" : "gintBaked"), ms: t1 - t0, arcs: num(s.arcs), vertices: num(s.vertices) }));
+	console.log(t("pmOut", { out: outPath, size: mb(s.bytes), tiles: num(s.tiles), contents: num(s.contents), min: r.metadata.minzoom, max: r.metadata.maxzoom, engine: engineNote(s), workers: s.workers }));
+	console.log(t("pmTimes", { project: s.ms.project_lod.toFixed(0), calibrate: (s.ms.calibrate ?? 0).toFixed(0), write: s.ms.lod_write.toFixed(0), assemble: s.ms.assemble.toFixed(0), pmtiles: s.ms.pmtiles.toFixed(0), total: s.ms.total.toFixed(0), kept: num(s.kept) }));
 }
 
 async function parquet(argv) {
@@ -355,13 +295,13 @@ async function parquet(argv) {
 	if (!inPath || !outPath) throw new Error("parquet <in.geopbf> <out.parquet>");
 	const pbf = await openPbf(inPath);
 	const wantGpu = gpuOpt(opts);
-	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error("--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行"); }
+	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error(t("gpuMissing")); }
 	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize: opts["row-group"] ? +opts["row-group"] : undefined, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
-	console.log(`${inPath}  features ${num(s.features)}  頂点 ${num(s.vertices)}`);
+	console.log(t("pqIn", { in: inPath, features: num(s.features), vertices: num(s.vertices) }));
 	console.log(`${outPath}  ${mb(s.bytes)}  ${r.geo.columns.geometry.geometry_types.join("/")}  order ${s.order}  ${s.codec}  ${engineNote(s)}`);
-	console.log(`  復号 ${s.ms.decode.toFixed(0)} ms・double/bbox ${s.ms.kernels.toFixed(0)} ms・WKB ${s.ms.wkb.toFixed(0)} ms・Parquet ${s.ms.parquet.toFixed(0)} ms・合計 ${s.ms.total.toFixed(0)} ms`);
+	console.log(t("pqTimes", { decode: s.ms.decode.toFixed(0), kernels: s.ms.kernels.toFixed(0), wkb: s.ms.wkb.toFixed(0), parquet: s.ms.parquet.toFixed(0), total: s.ms.total.toFixed(0) }));
 }
 
 async function parquet2pbf(argv) {
@@ -374,9 +314,9 @@ async function parquet2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  features ${num(s.features)}${s.droppedGeometries ? `（幾何なしで落とした行 ${num(s.droppedGeometries)}）` : ""}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}  writer ${s.created || "?"}`);
-	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	console.log(t("pq2In", { in: inPath, features: num(s.features), dropped: s.droppedGeometries ? t("droppedRowsNoGeom", { n: num(s.droppedGeometries) }) : "", vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, writer: s.created || "?" }));
+	if (s.skipped.length) console.log(t("skippedColumns", { list: skippedList(s.skipped) }));
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 async function gpkg2pbf(argv) {
@@ -386,10 +326,10 @@ async function gpkg2pbf(argv) {
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const g = readGeoPackage(u8);
-		console.log(`${inPath}  ${g.encoding}  page ${g.pageSize}  地物層 ${g.layers.length}`);
-		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? " ⚠経緯度でない" : ""}  ${num(l.count)} 件  列 ${l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",")}`);
-		for (const t of g.tiles) console.log(`  ${t.table}${t.identifier && t.identifier !== t.table ? ` (${t.identifier})` : ""}  tiles  ${t.crs.label}  z${t.zooms[0]}–${t.zooms[t.zooms.length - 1]}  ${num(t.count)} 枚${t.description ? `  ${t.description}` : ""}`);
-		for (const o of g.others) console.log(`  ${o.table}  (${o.dataType}${o.missing ? "・表が無い" : ""})`);
+		console.log(t("gpkgList", { in: inPath, encoding: g.encoding, page: g.pageSize, n: g.layers.length }));
+		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
+		for (const x of g.tiles) console.log(`  ${x.table}${x.identifier && x.identifier !== x.table ? ` (${x.identifier})` : ""}  tiles  ${x.crs.label}  z${x.zooms[0]}–${x.zooms[x.zooms.length - 1]}  ${t("tilesCount", { n: num(x.count) })}${x.description ? `  ${x.description}` : ""}`);
+		for (const o of g.others) console.log(`  ${o.table}  (${o.dataType}${o.missing ? t("tableMissing") : ""})`);
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
 	}
@@ -399,11 +339,11 @@ async function gpkg2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
-	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
-	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(`  幾何なしで落とした地物 ${s.droppedGeometries}（NULL/空 ${s.droppedGeometries - s.extendedGeometries}・拡張型 ${s.extendedGeometries}）${s.z || s.m ? "・Z/M は落とした" : ""}${s.bigints ? `・巨大整数→文字列 ${s.bigints}` : ""}`);
+	console.log(t("layerLine", { in: inPath, layer: s.layer, others: othersNote(s), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
+	if (s.skipped.length) console.log(t("skippedColumns", { list: skippedList(s.skipped) }));
+	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(t("gpkgDropped", { n: s.droppedGeometries, plain: s.droppedGeometries - s.extendedGeometries, extended: s.extendedGeometries, zm: s.z || s.m ? t("zmDropped") : "", bigints: s.bigints ? t("bigintToString", { n: s.bigints }) : "" }));
 	for (const w of s.warnings) console.log(`  ⚠ ${w}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 async function spatialite2pbf(argv) {
@@ -413,9 +353,9 @@ async function spatialite2pbf(argv) {
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const g = readSpatiaLite(u8);
-		console.log(`${inPath}  ${g.encoding}  page ${g.pageSize}  地物層 ${g.layers.length}`);
-		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? " ⚠経緯度でない" : ""}  ${num(l.count)} 件  列 ${l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",")}`);
-		for (const m of g.missing) console.log(`  ${m}  ⚠ geometry_columns にあるが表が無い`);
+		console.log(t("gpkgList", { in: inPath, encoding: g.encoding, page: g.pageSize, n: g.layers.length }));
+		for (const l of g.layers) console.log(`  ${l.table}${l.identifier && l.identifier !== l.table ? ` (${l.identifier})` : ""}  ${l.geometryType}${l.z ? "Z" : ""}${l.m ? "M" : ""}  ${l.crs.label}${l.crs.kind === "other" ? t("notLonLat") : ""}  ${t("rows", { n: num(l.count) })}  ${t("columns", { list: l.columns.filter(c => c.name !== l.geometryColumn).map(c => c.name).join(",") })}`);
+		for (const m of g.missing) console.log(t("missingTable", { table: m }));
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
 	}
@@ -425,11 +365,11 @@ async function spatialite2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
-	if (s.skipped.length) console.log(`  読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
-	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(`  幾何なしで落とした地物 ${s.droppedGeometries}（NULL/空 ${s.droppedGeometries - s.extendedGeometries}・拡張型 ${s.extendedGeometries}）${s.z || s.m ? "・Z/M は落とした" : ""}${s.bigints ? `・巨大整数→文字列 ${s.bigints}` : ""}`);
+	console.log(t("layerLine", { in: inPath, layer: s.layer, others: othersNote(s), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
+	if (s.skipped.length) console.log(t("skippedColumns", { list: skippedList(s.skipped) }));
+	if (s.droppedGeometries || s.z || s.m || s.bigints) console.log(t("gpkgDropped", { n: s.droppedGeometries, plain: s.droppedGeometries - s.extendedGeometries, extended: s.extendedGeometries, zm: s.z || s.m ? t("zmDropped") : "", bigints: s.bigints ? t("bigintToString", { n: s.bigints }) : "" }));
 	for (const w of s.warnings) console.log(`  ⚠ ${w}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 async function dxf2pbf(argv) {
@@ -439,9 +379,9 @@ async function dxf2pbf(argv) {
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const d = readDxf(u8, { encoding: opts.encoding });
-		console.log(`${inPath}  ${d.header.acadver ?? "?"}  INSUNITS ${d.header.insunits ?? "?"}  範囲 ${d.header.extmin ? `${d.header.extmin.join(",")} 〜 ${d.header.extmax.join(",")}` : "?"}  エンティティ ${num(d.entities)}  ブロック ${d.blocks.length}`);
-		console.log(`  種別: ${Object.entries(d.counts).map(([k, v]) => `${k}×${v}`).join(" ")}`);
-		console.log(`  レイヤ: ${d.layers.map(l => l.name).join(", ") || "（表なし）"}`);
+		console.log(t("dxfList", { in: inPath, ver: d.header.acadver ?? "?", units: d.header.insunits ?? "?", range: d.header.extmin ? `${d.header.extmin.join(",")} – ${d.header.extmax.join(",")}` : "?", entities: num(d.entities), blocks: d.blocks.length }));
+		console.log(t("dxfKinds", { list: Object.entries(d.counts).map(([k, v]) => `${k}×${v}`).join(" ") }));
+		console.log(t("dxfLayers", { list: d.layers.map(l => l.name).join(", ") || t("dxfNoLayerTable") }));
 		return;
 	}
 	const r = await fromDxf(u8, { crs: opts.crs, ignoreCrs: !!opts["ignore-crs"], unitScale: opts.unit !== undefined ? +opts.unit : undefined, encoding: opts.encoding, closedAsPolygon: !opts["closed-lines"],
@@ -451,25 +391,25 @@ async function dxf2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  エンティティ ${num(s.entities)}（INSERT 展開 ${num(s.inserts)}）  features ${num(s.features)}  頂点 ${num(s.vertices)}  CRS ${s.crs}${s.reprojected ? `  単位 ×${s.unitScale}` : ""}`);
-	const sk = Object.entries(s.skipped); if (sk.length) console.log(`  対象外: ${sk.map(([k, v]) => `${k}×${v}`).join(" ")}`);
-	if (s.datumApprox) console.log("  ⚠ 日本測地系を Helmert 近似で変換（±10 m 級）。--tky2jgd <格子> で 0.2 m 級になる");
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	console.log(t("dxfIn", { in: inPath, entities: num(s.entities), inserts: num(s.inserts), features: num(s.features), vertices: num(s.vertices), crs: s.crs, unit: s.reprojected ? t("dxfUnit", { scale: s.unitScale }) : "" }));
+	const sk = Object.entries(s.skipped); if (sk.length) console.log(t("dxfSkipped", { list: sk.map(([k, v]) => `${k}×${v}`).join(" ") }));
+	if (s.datumApprox) console.log(t("datumApprox"));
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 async function csv2pbf(argv) {
 	const { fromTable } = await import("../src/convert/table.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "delimiter", "include", "exclude"]);
+	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "fallback-encoding", "delimiter", "include", "exclude"]);
 	if (!inPath || !outPath) throw new Error("csv2pbf <in.csv|tsv|xlsx> <out.geopbf>");
-	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, delimiter: opts.delimiter, ...attrOpts(opts) });
+	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, fallbackEncoding: opts["fallback-encoding"], delimiter: opts.delimiter, ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	const geom = s.geometry.wkt ? `WKT 列 ${s.geometry.wkt}` : `経度 ${s.geometry.lon}・緯度 ${s.geometry.lat}`;
-	console.log(`${inPath}  ${s.kind}${s.sheet ? `  シート ${s.sheet}${s.sheets?.length > 1 ? `（他 ${s.sheets.filter(x => x !== s.sheet).join(", ")}）` : ""}` : ""}  行 ${num(s.rows)}  features ${num(s.features)}${s.droppedGeometries ? `（座標なし ${num(s.droppedGeometries)} を落とした）` : ""}  頂点 ${num(s.vertices)}  ${geom}  列 ${s.columns.length}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	const geom = s.geometry.wkt ? t("wktColumn", { col: s.geometry.wkt }) : t("lonLatColumns", { lon: s.geometry.lon, lat: s.geometry.lat });
+	console.log(t("csvIn", { in: inPath, kind: s.kind, sheet: s.sheet ? t("sheet", { name: s.sheet, others: s.sheets?.length > 1 ? t("others", { list: s.sheets.filter(x => x !== s.sheet).join(", ") }) : "" }) : "", rows: num(s.rows), features: num(s.features), dropped: s.droppedGeometries ? t("droppedNoCoords", { n: num(s.droppedGeometries) }) : "", vertices: num(s.vertices), geom, columns: s.columns.length }));
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 async function gdb2pbf(argv) {
@@ -485,13 +425,13 @@ async function gdb2pbf(argv) {
 	} else {
 		const { decodeZIP } = await import("../src/modules/decodeZIP.js");
 		const entries = await decodeZIP(new Blob([await readFile(inPath)]));
-		if (!entries) throw new Error("zip を開けない");
+		if (!entries) throw new Error(t("zipOpenFailed"));
 		source = gdbSourceFromFiles(entries);
 	}
 	if (!outPath) {
 		const g = await openFileGDB(source);
-		console.log(`${inPath}  フィーチャクラス ${g.layers.length}・表 ${g.tables.length - g.layers.length}`);
-		for (const t of g.tables) console.log(`  ${t.name}  ${t.error ? `⚠ ${t.error}` : t.geometryType ? `${t.geometryType}${t.hasZ ? "Z" : ""}${t.hasM ? "M" : ""}  ${t.crs.label}${t.crs.kind === "other" ? " ⚠経緯度へ戻せない" : ""}` : "(table)"}  ${num(t.rows)} 行  列 ${t.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",")}`);
+		console.log(t("gdbList", { in: inPath, classes: g.layers.length, tables: g.tables.length - g.layers.length }));
+		for (const x of g.tables) console.log(`  ${x.name}  ${x.error ? `⚠ ${x.error}` : x.geometryType ? `${x.geometryType}${x.hasZ ? "Z" : ""}${x.hasM ? "M" : ""}  ${x.crs.label}${x.crs.kind === "other" ? t("cannotToLonLat") : ""}` : "(table)"}  ${t("rows", { n: num(x.rows) })}  ${t("columns", { list: x.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",") })}`);
 		return;
 	}
 	const r = await fromFileGDB(source, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
@@ -500,20 +440,20 @@ async function gdb2pbf(argv) {
 	if (gzip) out = gzipSync(out, { level: 9 });
 	await writeFile(outPath, out);
 	const s = r.stats;
-	console.log(`${inPath}  層 ${s.layer}${s.layers.length > 1 ? `（他 ${s.layers.filter(l => l !== s.layer).join(", ")}）` : ""}  ${s.geometryType}  行 ${num(s.rows)}  features ${num(s.features)}  頂点 ${num(s.vertices)}  列 ${s.columns.length}  CRS ${s.crs}${s.reprojected ? "→経緯度" : ""}`);
-	if (s.datumApprox) console.log("  ⚠ 日本測地系を Helmert 近似で変換（±10 m 級）。--tky2jgd <格子> で 0.2 m 級になる");
-	if (s.datum?.tky2jgd) console.log(`  TKY2JGD: 格子 ${num(s.datum.tky2jgd.grid)} 点・格子外は Helmert ${num(s.datum.tky2jgd.helmert)} 点`);
-	if (s.datum?.patchjgd) console.log(`  PatchJGD: 格子 ${num(s.datum.patchjgd.grid)} 点・対象域外 ${num(s.datum.patchjgd.outside)} 点`);
-	if (s.droppedGeometries || s.curves || s.z || s.m || s.skipped.length) console.log(`  落とした地物 ${s.droppedGeometries}（空 ${s.emptyGeometries}・多パッチ ${s.multipatch}）${s.curves ? `・曲線→直線 ${s.curves}` : ""}${s.z || s.m ? "・Z/M は落とした" : ""}${s.skipped.length ? `・読まなかった列: ${s.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}` : ""}`);
-	console.log(`${outPath}  ${mb(out.length)}${gzip ? " (gzip)" : ""}  precision ${s.precision}  読込 ${s.ms.read.toFixed(0)} ms・GeoPBF ${s.ms.encode.toFixed(0)} ms`);
+	console.log(t("gdbLayerLine", { in: inPath, layer: s.layer, others: othersNote(s), type: s.geometryType, rows: num(s.rows), features: num(s.features), vertices: num(s.vertices), columns: s.columns.length, crs: s.crs, reprojected: s.reprojected ? t("toLonLat") : "" }));
+	if (s.datumApprox) console.log(t("datumApprox"));
+	if (s.datum?.tky2jgd) console.log(t("tky2jgd", { grid: num(s.datum.tky2jgd.grid), helmert: num(s.datum.tky2jgd.helmert) }));
+	if (s.datum?.patchjgd) console.log(t("patchjgd", { grid: num(s.datum.patchjgd.grid), outside: num(s.datum.patchjgd.outside) }));
+	if (s.droppedGeometries || s.curves || s.z || s.m || s.skipped.length) console.log(t("gdbDropped", { n: s.droppedGeometries, empty: s.emptyGeometries, multipatch: s.multipatch, curves: s.curves ? t("curvesLinearized", { n: s.curves }) : "", zm: s.z || s.m ? t("zmDropped") : "", skipped: s.skipped.length ? t("skippedColumns", { list: skippedList(s.skipped) }) : "" }));
+	console.log(pbfOut(outPath, out, gzip, s));
 }
 
 // ── entry ─────────────────────────────────────────────────────────────────────
 
 const [cmd, ...argv] = process.argv.slice(2);
 const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, dxf2pbf, csv2pbf, gdb2pbf };
-if (!cmd || cmd === "--help" || cmd === "-h") { console.log(USAGE); process.exit(0); }
-if (!commands[cmd]) { console.error(`geopbf: 知らないコマンド "${cmd}"\n`); console.error(USAGE); process.exit(1); }
+if (!cmd || cmd === "--help" || cmd === "-h") { console.log(t("usage")); process.exit(0); }
+if (!commands[cmd]) { console.error(t("unknownCommand", { cmd })); console.error(t("usage")); process.exit(1); }
 try {
 	await commands[cmd](argv);
 } catch (e) {
