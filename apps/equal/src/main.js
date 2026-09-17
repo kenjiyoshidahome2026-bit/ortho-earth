@@ -9,7 +9,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { parseViewHash, buildViewHash } from "ortho-core/viewurl";
 import { WORLD_PAL_DEFAULT } from "ortho-core/worldpal";
-import { unproject, anchorView, clampView, minZoomFor } from "./equalearth.js";
+import { unproject, anchorView, clampView, minZoomFor, pxPerUnit } from "./equalearth.js";
 import { bakeLayer, bakeGraticule } from "./bake.js";
 import { createRenderer } from "./renderer.js";
 import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
@@ -18,6 +18,8 @@ import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
 import { loadNations, colorGraph, PRESETS, LANGS, pickLang, loadI18n } from "./nations.js";
 import { createLabels, countryLabels, cityLabels, F } from "./labels.js";
+import { createAnno } from "../../ortho-japan/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
+import { kOfLat, yOfLat } from "./equalearth.js";
 
 const API = "https://api.ortho-earth.com";
 const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom は 8 程度」）
@@ -171,11 +173,11 @@ function gpuTier(L, thr) {
 	if (b.kind === "point") return (L.pointsVAO ??= R.instanceVAO(b.points, 3));
 	L.gpu ??= new Map();
 	let t = L.gpu.get(thr);
-	if (!t) {
-		const cpu = b.tier(thr);
-		t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
-		L.gpu.set(thr, t);
-	}
+	if (t) { L.gpu.delete(thr); L.gpu.set(thr, t); return t; }   // ヒット＝末尾へ（LRU）
+	const cpu = b.tier(thr);
+	t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
+	L.gpu.set(thr, t);
+	while (L.gpu.size > 4) { const [k0, old] = L.gpu.entries().next().value; L.gpu.delete(k0); R.freeVAO(old.lines); R.freeVAO(old.fills); }   // 層あたり 4 段まで常駐（GPU メモリ）
 	return t;
 }
 
@@ -209,8 +211,9 @@ function draw() {
 	ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
 	{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
+	for (const fn of frameSubs) fn();   // 注釈（anno）＝ラベルの上
 	if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
-	updatePos();
+	updatePos(); updateScale();
 	scheduleHash();
 }
 // ホバー識別＝国 ID バッファ（最後の描画のもの＝視点が同じ間は有効）の 1px 直読み。
@@ -317,7 +320,7 @@ const legend = el("div", { id: "legend" }); legend.style.display = "none";
 dock.append(pos, toast, legend);
 function updateToast() { toast.style.display = busy.size ? "block" : "none"; toast.textContent = busy.size ? `Loading ${[...busy].join(", ")} …` : ""; }
 function renderLegend() {
-	if (!legendData) { legend.style.display = "none"; return; }
+	if (!legendData) { legend.style.display = "none"; updateAttr(); return; }
 	const { preset, legend: rows } = legendData;
 	const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
 	legend.innerHTML = `<div class="eq-title">${esc(preset.label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}</div>` + (rows.length
@@ -327,6 +330,7 @@ function renderLegend() {
 			? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${csv.ds.matched}/${csv.ds.rows.length} rows matched by “${esc(csv.ds.header[csv.ds.keyCol])}”${csv.ds.unmatched.length ? ` · unmatched: ${esc(csv.ds.unmatched.slice(0, 3).join(", "))}${csv.ds.unmatched.length > 3 ? "…" : ""}` : ""}</div>`
 			: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · World DB ${esc(world?.updated || "")}</div>`);
 	legend.style.display = "block";
+	updateAttr();
 }
 const fmtLL = v => v.toFixed(5);
 function updatePos() {
@@ -341,6 +345,26 @@ function updatePos() {
 const attr = el("div", { id: "attr" },
 	`Sources: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`);
 mapEl.append(attr);
+// 出典＝表示中の主題で変わる（コロプレス中は World DB の出所を足す）
+const attrBase = attr.innerHTML;
+function updateAttr() {
+	const P = legendData?.preset;
+	attr.innerHTML = attrBase + (P && !P.csv ? `・<a href="https://www.ortho-earth.com/world/" target="_blank" rel="noopener">World DB</a> (${esc(P.ref || "Wikidata")})` : "");
+}
+// 縮尺（下辺中央・japan の #scale と同じ意匠）。正積図＝縮尺は方向で変わる＝画面中心の緯線に沿った東西の距離を出す
+const scale = el("div", { id: "scale" }, `<span id="scale-txt"></span><div id="scale-bar"></div>`);
+mapEl.append(scale);
+const scaleTxt = scale.querySelector("#scale-txt"), scaleBar = scale.querySelector("#scale-bar");
+function updateScale() {
+	const R_M = 6371008.8, lat = view.lat * Math.PI / 180;
+	const mPerPx = R_M * Math.cos(lat) / (pxPerUnit(view.zoom) * kOfLat(view.lat));   // 緯線方向：x=dλ·k(φ)・地上は R·cosφ·dλ
+	const d256 = mPerPx * 256, r = Math.pow(10, Math.floor(Math.log10(d256)));
+	const val = ((d256 / r) > 5 ? 5 : (d256 / r) > 2 ? 2 : 1) * r;
+	const [px, v, unit] = val >= 1000 ? [val / mPerPx, val / 1000, "km"] : [val / mPerPx, val, "m"];
+	scaleBar.style.width = px.toFixed(1) + "px";
+	scaleTxt.textContent = `${v.toLocaleString("en", { maximumFractionDigits: v < 10 && unit === "km" ? 1 : 0 })}${unit}`;
+	scale.style.display = "block";
+}
 
 // ホバーの吹き出し（#tip＝japan gadgets/tip.js と同じ置き方：カーソルの右 15px・縦中央・右端で反転）
 const tip = el("div", { id: "tip" }); tip.style.display = "none"; mapEl.append(tip);
@@ -349,6 +373,9 @@ function setTip(html) {
 	if (tip.innerHTML !== html) tip.innerHTML = html;
 	tip.style.display = "block";
 	const r = tip.getBoundingClientRect(), W = mapEl.clientWidth, H = mapEl.clientHeight;
+	if (coarseTip) {   // タッチ＝指の上（japan tip.js の coarse 分岐と同じ）
+		tip.style.left = Math.max(0, Math.min(W - r.width, pointer.cx - r.width / 2)) + "px"; tip.style.top = Math.max(0, pointer.cy - r.height - 30) + "px"; return;
+	}
 	const left = pointer.cx + 15 + r.width > W ? pointer.cx - r.width - 15 : pointer.cx + 15;
 	tip.style.left = left + "px"; tip.style.top = Math.max(0, Math.min(H - r.height, pointer.cy - r.height / 2)) + "px";
 }
@@ -378,7 +405,7 @@ async function openCSV(file) {
 	try {
 		countryIndex ??= buildNationIndex(world);
 		const ds = joinCSV(file.name, decodeText(await file.arrayBuffer()), countryIndex);
-		csv = { ds, col: ds.defaultCol, preset: csvPreset(ds, ds.defaultCol) };
+		csv = { ds, col: ds.defaultCol, preset: csvPreset(ds, ds.defaultCol) }; csvSpec = null;
 		colSelect.innerHTML = ds.columns.map(c => `<option value="${c.i}"${c.i === ds.defaultCol ? " selected" : ""}>${esc(c.name)}</option>`).join("");
 		colRow.hidden = ds.columns.length < 2;
 		csvBtn.querySelector(".eq-csv-name").textContent = ds.name;
@@ -390,7 +417,57 @@ async function openCSV(file) {
 		flash(`${file.name}: ${e.message}`);
 	}
 }
-const dropHint = el("div", { id: "eq-drop" }, `<div>Drop a CSV to color countries<small>joined by ISO code or country name</small></div>`);
+// ── 注釈（geoedit の geopbf / GeoJSON）＝japan の anno ガジェットを 2D 投影のアダプタで動かす ──
+// map の契約：mapEl / makeProjector（lon,lat→[x,y,front]）/ unprojectXY / getZoom / requestDraw / onFrame / gadget.tip・pop
+const frameSubs = new Set();
+const annoMap = {
+	mapEl, getZoom: () => view.zoom, requestDraw,
+	makeProjector: () => { const [W, H] = size(), s = pxPerUnit(view.zoom), yc = yOfLat(view.lat), lon0 = view.lon; return (lon, lat) => { let d = lon - lon0; d = ((d + 180) % 360 + 360) % 360 - 180; return [W / 2 + d * Math.PI / 180 * kOfLat(lat) * s, H / 2 - (yOfLat(lat) - yc) * s, Math.abs(d) > 179.5 ? -1 : 1]; }; },   // 裏経線の際は「見えない」扱い＝縫い目を跨ぐ線がそこで切れる
+	unprojectXY: (x, y) => { const [W, H] = size(); return unproject(view, x - W / 2, y - H / 2); },
+	onFrame: fn => { frameSubs.add(fn); return () => frameSubs.delete(fn); },
+	gadget: { tip: () => annoTip, pop: () => popGadget },
+};
+let annoTipOn = false;
+function annoTip(html) {   // 注釈の @tip＝あれば出す・無ければ国のホバー（identify）へ戻す（anno は毎 move に null を送る＝そのまま通すと国の吹き出しが消える）
+	if (html) { annoTipOn = true; setTip(html); }
+	else if (annoTipOn) { annoTipOn = false; identify(); }
+}
+function popGadget(html, { x, y, onClose } = {}) {   // 最小の吹き出し（japan の pop ガジェットは i18n を抱える＝ここは静かな箱だけ）
+	const div = el("div", { class: "eq-pop" }, `<button class="panel-close" aria-label="close">×</button><div class="eq-pop-body">${html}</div>`);
+	Object.assign(div.style, { left: Math.max(4, x + 12) + "px", top: Math.max(4, y - 12) + "px" });
+	div.querySelector(".panel-close").addEventListener("click", () => { div.remove(); onClose?.(); });
+	div._remove = () => div.remove();
+	mapEl.append(div); return div;
+}
+const anno = createAnno(annoMap);
+let annoName = null;
+async function openGeo(file) {
+	busy.add(file.name); updateToast();
+	try {
+		const pbf = await geopbf(file, { gint: false, nocache: true });
+		if (!pbf?.length) throw new Error("no features");
+		anno.set(pbf); annoName = file.name;
+		attr.dataset.user = file.name;
+		console.log(`[equal] annotation ${file.name}: ${pbf.length} features`);
+		flash(`${file.name}: ${pbf.length} features`, 2500);
+	} catch (e) { console.warn("[equal] geo failed", e); flash(`${file.name}: ${e.message}`); }
+	busy.delete(file.name); updateToast(); requestDraw();
+}
+// 外部 URL の門（japan の ?g= と同じ規則）：gh:user/repo[@ref]/path → GitHub raw・https 限定（開発時は localhost の http 可）
+function remoteUrl(spec) {
+	const gh = /^gh:([\w.-]+)\/([\w.-]+)(?:@([\w.-]+))?\/(.+)$/.exec(spec);
+	if (gh && [gh[1], gh[2], gh[3] || "", ...gh[4].split("/")].some(x => x === "." || x === "..")) return null;
+	let u; try { u = new URL(gh ? `https://raw.githubusercontent.com/${gh[1]}/${gh[2]}/${gh[3] || "HEAD"}/${gh[4]}` : spec, location.href); } catch { return null; }
+	const isLocal = u.hostname === "localhost" || u.hostname === "127.0.0.1";
+	return u.protocol === "https:" || (u.protocol === "http:" && isLocal) ? u : null;
+}
+async function fetchAsFile(spec, kind) {
+	const u = remoteUrl(spec); if (!u) { flash(`${kind}: https URL or gh:user/repo/path only`); return null; }
+	try { const r = await fetch(u.href); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new File([await r.blob()], decodeURIComponent(u.pathname.split("/").pop() || kind)); }
+	catch (e) { flash(`${kind}: ${e.message}`); return null; }
+}
+const isGeoFile = f => /\.(geopbf|pbf|geojson|json|topojson|kml|kmz|gpx|zip|fgb|gpkg)$/i.test(f.name);
+const dropHint = el("div", { id: "eq-drop" }, `<div>Drop a CSV to color countries<small>joined by ISO code or country name — or a geopbf / GeoJSON to draw it</small></div>`);
 dropHint.hidden = true; mapEl.append(dropHint);
 let dragDepth = 0;
 const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
@@ -400,8 +477,14 @@ mapEl.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--dragD
 mapEl.addEventListener("drop", e => {
 	if (!hasFiles(e)) return;
 	e.preventDefault(); dragDepth = 0; dropHint.hidden = true;
-	const f = e.dataTransfer.files[0]; if (f) openCSV(f);
+	const f = e.dataTransfer.files[0]; if (f) (isGeoFile(f) ? openGeo(f) : openCSV(f));
 });
+// ?csv=<URL>（世界銀行の CSV や GitHub の CSV をそのまま）・?g=<URL>（geoedit の geopbf・GeoJSON）＝gh:user/repo/path 短縮形可
+(async () => {
+	if (q.get("g")) { const f = await fetchAsFile(q.get("g"), "g"); if (f) openGeo(f); }
+	if (q.get("csv")) { await getWorld(); const f = await fetchAsFile(q.get("csv"), "csv"); if (f) { await openCSV(f); csvSpec = q.get("csv"); scheduleHash(); } }
+})();
+let csvSpec = null;
 
 // ── URL（#zoom/lat/lon/l=…）──
 let hashTimer = 0;
@@ -410,7 +493,8 @@ function scheduleHash() {
 	hashTimer = setTimeout(() => {
 		const l = "l=" + layers.filter(L => !L.def.fixed && L.on).map(L => L.def.id).join(".");
 		const qs = new URLSearchParams(location.search);
-		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");   // CSV は手元のファイル＝URL で再現できない
+		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");
+		settings.choro === "csv" && csvSpec ? qs.set("csv", csvSpec) : qs.delete("csv");   // URL 由来の CSV だけ URL に残る（手元のファイルは再現できない）
 		settings.labels ? qs.delete("labels") : qs.set("labels", "0");
 		const search = qs.toString() ? "?" + qs : "";
 		history.replaceState(null, "", location.pathname + search + buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]));
@@ -441,7 +525,7 @@ function regrab() {
 	} else grab = null;
 	dragging = ps.length > 0;
 }
-canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); });
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); tapStart = [e.clientX, e.clientY, performance.now()]; coarseTip = false; });
 canvas.addEventListener("pointermove", e => {
 	pointer = local(e); pos.style.display = "block";
 	if (!pointers.has(e.pointerId)) { if (raf) hoverDirty = true; else identify(); return; }   // 描画待ちなら描いた後に・そうでなければ今の ID バッファで
@@ -455,7 +539,13 @@ canvas.addEventListener("pointermove", e => {
 		setView(anchorView(grab.ll[0], grab.ll[1], mx, my, Math.min(MAX_ZOOM, grab.zoom + Math.log2(Math.max(1, d) / Math.max(1, grab.dist)))));
 	}
 });
-const release = e => { pointers.delete(e.pointerId); regrab(); if (raf) hoverDirty = true; else identify(); };
+const release = e => {
+	const tap = e.pointerType === "touch" && pointers.size === 1 && tapStart && Math.hypot(e.clientX - tapStart[0], e.clientY - tapStart[1]) < 8 && performance.now() - tapStart[2] < 400;
+	pointers.delete(e.pointerId); regrab();
+	if (tap) { pointer = local(e); coarseTip = true; }   // タップ＝指の下の国を識別して吹き出し（ホバーの代わり・指の上に出す）
+	if (raf) hoverDirty = true; else identify();
+};
+let tapStart = null, coarseTip = false;
 canvas.addEventListener("pointerup", release);
 canvas.addEventListener("pointercancel", release);
 canvas.addEventListener("pointerleave", () => { pointer = null; hoverFid = -1; setTip(null); requestDraw(); });
@@ -489,6 +579,7 @@ globalThis.equal = {
 	hypso(opacity) { settings.hypso = Math.max(0, Math.min(1, +opacity || 0)); requestDraw(); },
 	choropleth(id, opacity) { if (opacity != null) settings.choroAlpha = +opacity; selectTheme(presetOf(id) ? id : null); },
 	openCSV,   // File/Blob（name 付き）を渡す＝ドロップと同じ
+	openGeo, anno,
 	labels: labelsLayer,
 	get world() { return world; },
 	get busy() { return [...busy]; },

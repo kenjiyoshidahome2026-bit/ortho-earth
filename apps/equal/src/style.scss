@@ -33,3 +33,8 @@
 	small { font-size: 11px; opacity: .75; }
 }
 #eq-drop[hidden] { display: none; }
+
+/* 注釈の吹き出し（@pop）＝静かな紙の箱 */
+.eq-pop { position: absolute; max-width: 280px; font: 12px/1.5 var(--qm-font); color: var(--qm-text); background: var(--qm-panel-solid);
+	border: 1px solid var(--qm-border-soft); border-radius: 5px; padding: 8px 26px 8px 10px; box-shadow: var(--qm-shadow-pop); }
+.eq-pop img { max-width: 100%; }

@@ -62,7 +62,7 @@ export function buildChoropleth(items, opts) {
 	if (!nums.length) return { rgba, legend, values };
 	const sorted = nums.map(([v]) => v).sort((a, b) => a - b);
 	const distinct = new Set(sorted).size;   // 値の種類より多い分類は作らない（少数行の CSV で「2.7k – 2.7k」が並ぶのを防ぐ）
-	let k = Math.max(1, Math.min(9, opts.classes || 7, distinct));
+	let k = Math.max(1, Math.min(9, opts.classes || 7, distinct <= (opts.classes || 7) ? Math.max(1, distinct - 1) : distinct));   // 値の種類が段数以下なら 1 段減らす＝末尾の「50 – 50」を作らない
 	let breaks;   // k-1 個の上限
 	if (opts.type === "equal") {
 		const lo = sorted[0], hi = sorted[sorted.length - 1];

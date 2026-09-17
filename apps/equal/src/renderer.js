@@ -350,6 +350,8 @@ export function createRenderer(canvas) {
 		return { vao, buf, count: u32.length / comps };
 	}
 
+	function freeVAO(v) { if (v) { gl.deleteVertexArray(v.vao); gl.deleteBuffer(v.buf); } }
+
 	// ── 国 ID バッファ（R32F・MSAA なし・canvas と同寸）──
 	let idTex = null, idFbo = null, idW = 0, idH = 0;
 	function ensureIdTarget(W, H) {
@@ -518,5 +520,5 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
 }
