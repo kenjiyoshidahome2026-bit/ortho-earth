@@ -83,7 +83,7 @@ export function joinCSV(name, text, index) {
 		let n = 0; for (const r of rows) if (index.has(keyOf(r[c]))) n++;
 		if (n > best) { best = n; keyCol = c; }
 	}
-	if (keyCol < 0 || best < 3) throw new Error("No column matches country codes or names");
+	if (keyCol < 0 || best < 2) throw new Error("No column matches country codes or names");   // 2 行当たれば結合列と見なす（小さな検定用 CSV も通す）
 	const fidOfRow = rows.map(r => index.has(keyOf(r[keyCol])) ? index.get(keyOf(r[keyCol])) : -1);
 	const unmatched = rows.filter((_, i) => fidOfRow[i] < 0).map(r => String(r[keyCol] ?? "").trim()).filter(Boolean);
 

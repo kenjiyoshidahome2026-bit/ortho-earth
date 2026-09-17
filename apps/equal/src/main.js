@@ -178,15 +178,18 @@ function draw() {
 	}
 	ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
-	if (hoverDirty) {   // ホバー識別＝国 ID バッファの 1px 直読み（描いた直後のフレームで）
-		hoverDirty = false;
-		let fid = pointer && !dragging && unproject(view, pointer.sx, pointer.sy) ? R.readFid(pointer.cx, pointer.cy) : -1;   // 外形の外は ID バッファに扇の余りが残る＝読まない
-		if (fid >= NONE) fid = -1;   // world に無い陸＝識別しない
-		if (fid !== hoverFid) { hoverFid = fid; requestDraw(); }
-		setTip(fid >= 0 ? tipText(fid) : null);
-	}
+	if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
 	updatePos();
 	scheduleHash();
+}
+// ホバー識別＝国 ID バッファ（最後の描画のもの＝視点が同じ間は有効）の 1px 直読み。
+// 国が変わった時だけ再描画する（旧＝pointermove ごとに全層を描き直していた＝マウスを動かすだけで GPU が全開）
+function identify() {
+	let fid = pointer && !dragging && unproject(view, pointer.sx, pointer.sy) ? R.readFid(pointer.cx, pointer.cy) : -1;   // 外形の外は ID バッファに扇の余りが残る＝読まない
+	if (fid >= NONE) fid = -1;   // world に無い陸＝識別しない
+	if (fid !== hoverFid) { hoverFid = fid; requestDraw(); }
+	setTip(fid >= 0 ? tipText(fid) : null);
+	updatePos();
 }
 
 // ── UI（japan の部品と同じ id/class）──
@@ -400,7 +403,7 @@ function regrab() {
 canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); });
 canvas.addEventListener("pointermove", e => {
 	pointer = local(e); pos.style.display = "block";
-	if (!pointers.has(e.pointerId)) { hoverDirty = true; requestDraw(); return; }
+	if (!pointers.has(e.pointerId)) { if (raf) hoverDirty = true; else identify(); return; }   // 描画待ちなら描いた後に・そうでなければ今の ID バッファで
 	pointers.set(e.pointerId, pointer);
 	const ps = [...pointers.values()];
 	if (!grab?.ll) { regrab(); return; }
@@ -411,7 +414,7 @@ canvas.addEventListener("pointermove", e => {
 		setView(anchorView(grab.ll[0], grab.ll[1], mx, my, Math.min(MAX_ZOOM, grab.zoom + Math.log2(Math.max(1, d) / Math.max(1, grab.dist)))));
 	}
 });
-const release = e => { pointers.delete(e.pointerId); regrab(); hoverDirty = true; requestDraw(); };
+const release = e => { pointers.delete(e.pointerId); regrab(); if (raf) hoverDirty = true; else identify(); };
 canvas.addEventListener("pointerup", release);
 canvas.addEventListener("pointercancel", release);
 canvas.addEventListener("pointerleave", () => { pointer = null; hoverFid = -1; setTip(null); requestDraw(); });

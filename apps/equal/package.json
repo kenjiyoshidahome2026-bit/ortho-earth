@@ -8,7 +8,8 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy"
+		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy",
+		"test": "node tests/t-equalearth.mjs && node tests/t-csvjoin.mjs && node tests/t-choropleth.mjs && node tests/t-bake.mjs"
 	},
 	"dependencies": {
 		"altpbf": "*",

@@ -60,7 +60,7 @@ export function loadClimate(url) {
 // ── 近景 R10（10° セル・約 460m 格子）＝視野を覆うセルだけの窓アトラス ──
 // ortho-core terrain.js の二層（近 R10 窓＋遠 R90 床）と同じ考え方。窓の外・読込前は R90 が受け持つ（シェーダで縁フェード）。
 // 生タイル（2400²×int16≈11MB/枚）は窓へ再標本化したら捨てる＝常駐はセル単位の Float32（解像度つき）の LRU だけ。
-export const NEAR_MIN_ZOOM = 5;   // これ未満は R90 だけ（japan の R90/R10 境界 5.5 より半段手前＝寄る途中で細部が間に合う）
+export const NEAR_MIN_ZOOM = 5.5;   // これ未満は R90 だけ（japan の R90/R10 境界と同じ。5 だと 1280px 幅で 6×4 セル×11MB≈260MB を初回に落とす＝重すぎる・2026-09-18）
 const CAP = 10;                   // 窓の最大セル数（片辺）
 export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }) {
 	const cellCache = new Map();   // "cx,cy,res" → Float32Array(res²)（行0=南）
