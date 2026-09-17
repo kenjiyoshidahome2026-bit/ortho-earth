@@ -12,6 +12,7 @@ const decoderWorkers = {
     gdb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gdb' }),
     parquet: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:parquet' }),
     csv:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:csv' }),
+    czml:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:czml' }),
     dxf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:dxf' }),
     gpx:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpx' }),
     json:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:json' }),
@@ -23,6 +24,7 @@ const decoderWorkers = {
     spatialite: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:spatialite' }),
 };
 const encoderWorkers = {
+    czml:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:czml' }),
     fgb:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:fgb' }),
     geojson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geojson' }),
     geopbf:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geopbf' }),
@@ -180,8 +182,9 @@ export function createGeopbf(apiBase, options = {}) {
                 }
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
+                if (name.match(/\.czml$/i)) return _geopbf(await decoder("czml", q));   // Cesium CZML（.json に入った CZML は json デコーダが嗅ぎ分ける・2026-09-17）
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-                throw new Error(`geopbf: unsupported file "${name}" (supported: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .gml .xml .gz)`);   // 旧＝warn して空 pbf（無言の 0 件）
+                throw new Error(`geopbf: unsupported file "${name}" (supported: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .czml .gml .xml .gz)`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
             if (isObject(q)) {
                 q = toFeatureCollection(q);
@@ -285,6 +288,7 @@ const methods = {
     async shapeFile(opts = {}) { return encoder(this, "shape", opts); },
     async kmzFile(opts = {}) { return encoder(this, "kmz", opts); },
     async gpxFile(opts = {}) { return encoder(this, "gpx", opts); },
+    async czmlFile(opts = {}) { return encoder(this, "czml", opts); },
     async gmlFile(opts = {}) { return encoder(this, "gml", opts); },
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
     async gint(opts = {}) { if (opts.gint === false) return this;

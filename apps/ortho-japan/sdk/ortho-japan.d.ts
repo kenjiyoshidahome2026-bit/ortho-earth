@@ -273,7 +273,8 @@ export interface GeoPBF {
 	getBbox(i: number): Bbox;
 	getBbox(): Bbox[];
 	/** 書き出し（File 名＝opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る）。忠実度：geopbf/geojson＝完全、
-	 *  kmz＝件数維持・属性は全て文字列化、gpx＝点と線のみ（面は落ちる）・属性は name だけ */
+	 *  kmz＝件数維持・属性は全て文字列化、gpx＝点と線のみ（面は落ちる）・属性は name/desc/type と各点の ele/time 配列、
+	 *  czml＝静的パケットは等価（幾何にした部分以外は czml 属性に温存）・時刻付きの線は sampled position */
 	geopbfFile(opts?: object): Promise<File>;
 	geojsonFile(opts?: object): Promise<File>;
 	topojsonFile(opts?: object): Promise<File>;
@@ -282,6 +283,7 @@ export interface GeoPBF {
 	kmzFile(opts?: object): Promise<File>;
 	gmlFile(opts?: object): Promise<File>;
 	gpxFile(opts?: object): Promise<File>;
+	czmlFile(opts?: object): Promise<File>;
 	[k: string]: unknown;
 }
 /**

@@ -2,6 +2,7 @@ import { GeoPBF } from "../pbf-base.js";
 import { dissolve } from "../extension/dissolve.js";
 import { geojson } from "../modules/geojson.js";
 import { isObject } from "../modules/utility.js";
+import { isCzml, czmlToFeatures } from "../modules/czml.js";
 
 // Upper bound for a single JSON.parse (V8 native) pass.
 // The bottleneck is memory, not parse speed: a 100 MB JSON file → ~300–500 MB heap.
@@ -18,7 +19,14 @@ onmessage = async (e) => {
 	try {
 	if (file.size < SMALL) {
 		// Small–medium: JSON.parse is fastest (single native C++ call).
-		await pbf.set(JSON.parse(await file.text()));
+		const obj = JSON.parse(await file.text());
+		if (isCzml(obj)) {   // .json に入った CZML（Cesium のパケット配列）＝decoder/czml.js と同じ写し方（2026-09-17）
+			const { features, document, dropped } = czmlToFeatures(obj);
+			if (dropped) console.warn(`[czml] ${dropped} packet(s) without geometry dropped`);
+			if (document?.name) pbf.name(document.name);
+			if (document?.description) pbf.description(String(document.description));
+			await pbf.set({ type: "FeatureCollection", features });
+		} else await pbf.set(obj);
 
 	} else if (file.size < LARGE) {
 		// Medium–large: streaming single pass accumulates features while reading the file only once.
