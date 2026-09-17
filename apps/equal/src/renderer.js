@@ -118,11 +118,45 @@ const ID_FS = `#version 300 es
 precision highp float; flat in float v_id; out vec4 o;
 void main() { o = vec4(gl_FrontFacing ? v_id : -v_id, 0.0, 0.0, 0.0); }`;
 
+// 外形（Equal Earth の輪郭）までの符号付き距離（device px・内側が負）。縮小下限で外形の外が画面に出る＝
+// 塗り（被せ・国の合成・海）はこれで切り抜く。扇の遠点 F/T が作る余分な偶奇/巻き数は外形の外にしか出ない＝ここで消える
+const OUTLINE = `
+uniform vec2 u_vp; uniform float u_ppu, u_yc;
+const float OA1=${A1}, OA2=${A2}, OA3=${A3}, OA4=${A4}, OM=${M}, OY_MAX=1.3173627591574, OPI=3.141592653589793;
+float outlineDist(vec2 fc) {
+	vec2 u = (fc - u_vp * 0.5) / u_ppu; u.y += u_yc;
+	float y = clamp(u.y, -OY_MAX, OY_MAX), l = y / OA1;
+	for (int i = 0; i < 6; i++) {
+		float l2 = l * l, l6 = l2 * l2 * l2;
+		l -= (l * (OA1 + OA2 * l2 + l6 * (OA3 + OA4 * l2)) - y) / (OA1 + 3.0 * OA2 * l2 + l6 * (7.0 * OA3 + 9.0 * OA4 * l2));
+	}
+	float l2 = l * l, l6 = l2 * l2 * l2;
+	float xe = OPI * cos(l) / (OM * (OA1 + 3.0 * OA2 * l2 + l6 * (7.0 * OA3 + 9.0 * OA4 * l2)));   // 高さ y での経線 ±180° の x
+	return max((abs(u.x) - xe) * u_ppu, (abs(u.y) - OY_MAX) * u_ppu);
+}
+float insideK(vec2 fc) { return 1.0 - smoothstep(-0.5, 0.5, outlineDist(fc)); }
+`;
+// 海＋外形の外＋輪郭線（全画面の三角形1枚・各層より先）
+const SEA_FS = `#version 300 es
+precision highp float;
+${OUTLINE}
+uniform vec3 u_sea, u_bg; uniform vec4 u_edge;
+out vec4 o;
+void main() {
+	float d = outlineDist(gl_FragCoord.xy);
+	vec3 c = mix(u_bg, u_sea, 1.0 - smoothstep(-0.5, 0.5, d));
+	c = mix(c, u_edge.rgb, u_edge.a * (1.0 - smoothstep(0.4, 1.2, abs(d))));
+	o = vec4(c, 1.0);
+}`;
+
 // 被せ（ステンシル奇数の画素だけ色）＝全画面の三角形1枚
 const COVER_VS = `#version 300 es
 void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0); gl_Position = vec4(p, 0.0, 1.0); }`;
 const COVER_FS = `#version 300 es
-precision highp float; uniform vec4 u_col; out vec4 o; void main() { o = vec4(u_col.rgb * u_col.a, u_col.a); }`;
+precision highp float;
+${OUTLINE}
+uniform vec4 u_col; out vec4 o;
+void main() { float a = u_col.a * insideK(gl_FragCoord.xy); if (a <= 0.0) discard; o = vec4(u_col.rgb * a, a); }`;
 
 // 全球ハイプソ：ortho-core gl/glsl.js WORLD_HYPSO と同式（標高×気候の cross-blend＋5段ランプ＋氷床＋脱彩度）。
 // 色は ortho-core/worldpal の正準既定＝japan と同じ顔。
@@ -162,7 +196,8 @@ vec3 worldHypso(float e, vec2 ll) {
 const COMPOSITE_FS = `#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D u_id; uniform float u_hasId;       // 0＝ID 無し（float blend 非対応機）＝ステンシルで陸だけ
-uniform vec2 u_vp; uniform float u_ppu, u_yc, u_lon0;
+uniform float u_lon0;
+${OUTLINE}
 uniform vec3 u_land;
 uniform float u_hypsoA; uniform sampler2D u_elevTex; uniform float u_hasElev;
 uniform sampler2D u_nearTex; uniform float u_hasNear; uniform vec4 u_nearB;   // 近景 R10 窓（x0,y0,spanLon,spanLat・行0=南）
@@ -198,6 +233,7 @@ float elevAt(vec2 ll) {
 out vec4 o;
 void main() {
 	float id = 0.0;
+	float cov = insideK(gl_FragCoord.xy); if (cov <= 0.0) discard;
 	if (u_hasId > 0.5) { id = floor(abs(texelFetch(u_id, ivec2(gl_FragCoord.xy), 0).r) + 0.5); if (id < 0.5) discard; }
 	vec3 c = u_land;
 	if (u_hypsoA > 0.001 && u_hasElev > 0.5) {
@@ -223,7 +259,7 @@ void main() {
 		}
 		if (abs(float(fid) - u_hover) < 0.5) c = mix(c, vec3(0.10, 0.14, 0.20), 0.14);
 	}
-	o = vec4(c, 1.0);
+	o = vec4(c * cov, cov);
 }`;
 
 // 点：(ix,iy) を直接インスタンス属性で＝テクスチャ不要。円＋縁取り
@@ -280,6 +316,7 @@ export function createRenderer(canvas) {
 		fill: compile(gl, FILL_VS, FILL_FS),
 		id: compile(gl, FILL_VS, ID_FS),
 		cover: compile(gl, COVER_VS, COVER_FS),
+		sea: compile(gl, COVER_VS, SEA_FS),
 		composite: compile(gl, COVER_VS, COMPOSITE_FS),
 		point: compile(gl, POINT_VS, POINT_FS),
 	};
@@ -413,10 +450,17 @@ export function createRenderer(canvas) {
 		gl.colorMask(true, true, true, true);
 		gl.stencilFunc(gl.EQUAL, 1, 1); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 	}
+	// 外形の三つ組（被せ系のプログラム共通）
+	function setOutline(pr) { const u = pr.u, f = frame; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); }
+	function drawSea(sea, bg, edge) {
+		const pr = prog.sea; gl.useProgram(pr.p); setOutline(pr);
+		gl.uniform3f(pr.u.u_sea, sea[0], sea[1], sea[2]); gl.uniform3f(pr.u.u_bg, bg[0], bg[1], bg[2]); gl.uniform4fv(pr.u.u_edge, edge);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+	}
 	function drawFill(vtx, vao, color) {
 		if (!vao?.count) return;
 		stencilFan(vtx, vao);
-		gl.useProgram(prog.cover.p); gl.uniform4fv(prog.cover.u.u_col, color);
+		gl.useProgram(prog.cover.p); setOutline(prog.cover); gl.uniform4fv(prog.cover.u.u_col, color);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.disable(gl.STENCIL_TEST);
 	}
@@ -436,7 +480,7 @@ export function createRenderer(canvas) {
 		const pr = prog.composite, u = pr.u, f = frame;
 		gl.useProgram(pr.p);
 		gl.uniform1f(u.u_hasId, hasFloatId ? 1 : 0);
-		gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); gl.uniform1f(u.u_lon0, f.lon0);
+		setOutline(pr); gl.uniform1f(u.u_lon0, f.lon0);
 		gl.uniform3f(u.u_land, o.land[0], o.land[1], o.land[2]);
 		gl.uniform1f(u.u_hypsoA, o.hypso || 0); gl.uniform1f(u.u_hasElev, elevTex ? 1 : 0); gl.uniform1f(u.u_hasClim, climTex ? 1 : 0);
 		const P = o.pal;
@@ -474,5 +518,5 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, beginFrame, drawLines, drawFill, drawCountries, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	return { gl, hasFloatId, uploadVertices, instanceVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
 }
