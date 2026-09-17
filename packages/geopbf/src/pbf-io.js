@@ -90,8 +90,13 @@ class PBFIO {
             const meta = await fetch(`${this.bucket.url}${name}?meta=1&v=${Date.now()}`).then(r => r.ok ? r.json() : null).catch(() => null);
             const cur = normETag(meta?.data?.ETag);
             let ab, etag;
-            if (val?.PBF && cur && cur === normETag(val.ETag)) {   // 版一致＝本体は IDB の PBF を使い、GINT（派生物）だけ焼き直す（旧＝一致でも全量 fetch）
-                ab = val.PBF; etag = val.ETag;
+            // ⚠ 上の fromCache が走っていたら val.PBF は set() が worker へ transfer 済み＝detached（byteLength 0）。
+            // そのまま postMessage すると DataCloneError で落ち、旧版 GINT の自己修復が永久に失敗する
+            //（版検札で弾く→再焼きへ落ちる→ここで detach 死、の無限ループ・2026-09-17 実測 gint v5 昇格時）。
+            // detach していたら IDB から読み直す＝クローンが起き直る。通るのは稀（版上げ直後）だけなので copy は安い。
+            const cachedPBF = val?.PBF?.byteLength === 0 ? (await this.cache(name).catch(() => null))?.PBF : val?.PBF;
+            if (cachedPBF?.byteLength && cur && cur === normETag(val.ETag)) {   // 版一致＝本体は IDB の PBF を使い、GINT（派生物）だけ焼き直す（旧＝一致でも全量 fetch）
+                ab = cachedPBF; etag = val.ETag;
             } else {
                 const res = await fetch(`${this.bucket.url}${name}${cur ? `?v=${encodeURIComponent(cur)}` : ""}`, { cache: 'default' });
                 if (!res.ok) throw new Error(`Failed to fetch: ${name} (HTTP ${res.status})`);
