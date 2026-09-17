@@ -26,8 +26,10 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline, pmtilesInfo } from "ortho-core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createPlateauManager } from "./plateau/manager.js";
-import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（app からは配線だけ）   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
+import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
+import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
+import { createN02Overlay } from "./rail/n02.js";   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（同）
 import { mountGadgets } from "./gadgets/mount.js";
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { search as searchGadget } from "./gadgets/searchbox.js";
@@ -964,7 +966,7 @@ function onMove() {
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
 	gint.updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
-	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
+	sky.ensureStars();                                                                // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
 	plateau.update();                                                                 // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
@@ -1088,8 +1090,8 @@ const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ cen
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
 const viewHash = () => {
 	const on = FREE_LAYER_KEYS.filter(k => layerState[k]);
-	if (constelVisible) on.push(SKY_LAYER);   // 星座ON＝l= に sky を追加（既定OFF＝差分ありで l= を必ず書き出す）
-	const changed = constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
+	if (sky.constelVisible) on.push(SKY_LAYER);   // 星座ON＝l= に sky を追加（既定OFF＝差分ありで l= を必ず書き出す）
+	const changed = sky.constelVisible || FREE_LAYER_KEYS.some(k => layerState[k] !== defaultLayerState[k]);
 	const extras = changed ? ["l=" + on.join(".")] : [];
 	// 配色テーマ＝c=<name>（既定 mono は書かない＝素の視点はURLも素。固定(opts.theme)も書かない＝埋め込み構成を持ち出さない）
 	if (!themeFixed && themeName !== "mono" && MAP_THEMES[themeName]) extras.push("c=" + themeName);
@@ -1124,7 +1126,7 @@ function switchTheme(name) {
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	gint.admin0Layer?.style(gint.admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し（色の居座り根治）
-	if (layerState.rail && n02Loaded) { n02Loaded = false; loadN02(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
+	if (layerState.rail && n02.loaded) { n02.loaded = false; n02.load(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
@@ -1198,257 +1200,10 @@ async function loadLakes() {
 }
 dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
 
-// --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
-// stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
-// 向きは恒星時(GMST)＝engine が毎描画で回す（実時刻の空）。クリックで星座線（constellation_lines）をトグル。
-const bvColor = v => v < -0.3 ? "#b2c8ff" : v < 0.0 ? "#d9e2ff" : v < 0.3 ? "#f8faff" : v < 0.6 ? "#fff8f0" :
-	v < 0.8 ? "#fff2c8" : v < 1.1 ? "#ffe0b5" : v < 1.4 ? "#ffcc99" : "#ffab91";   // v1 border.js と同表
-const celVec = (raDeg, decDeg) => {
-	const ra = raDeg * D2R, dec = decDeg * D2R, cd = Math.cos(dec);
-	return [cd * Math.cos(ra), Math.sin(dec), cd * Math.sin(ra)];
-};
-// 星空モジュール（planets/skynames＝z<4専用・計~12K）は初期バンドルに載せず、初めて星空パスに入る時に一度だけ動的読込。
-// 読込後に下の holder へ注入＝以降の updatePlanets/toggleConstellations は従来どおり同期的に使える（memo化＝多重読込なし）。
-let planetPositions, moonPosition, sunPosition, constellationJa;
-let _skyLoad = null;
-const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("./planets.js"), import("./skynames.js")]).then(([p, s]) => {
-	({ planetPositions, moonPosition, sunPosition } = p); ({ constellationJa } = s);
-}));
-let starsArmed = true;
-function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
-// 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
-// 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
-let planetTimer = null, planetLabels = [];
-let solarSky = null, solarSkyLoad = null, inSolarPrev = false;   // 太陽系圏（z<1）＝solarsky.js の状態
-function updatePlanets() {
-	const now = new Date();
-	// 太陽系圏＝ドーム表現（天球方向のみ・距離なし）は世界表現（solarsky＝実位置3D）と矛盾する＝引っ込めて交代
-	if (!solarOff && cam.zoom < 1) {
-		renderer.set("planets", new Float32Array(0));
-		renderer.set("skyMoon", null);
-		planetLabels = [];
-		if (skyLabels) { skyLabels.planets = []; if (constelVisible) renderer.set("skyLabels", skyLabels); }
-		needsDraw = true;
-		return;
-	}
-	const ps = planetPositions(now), moon = moonPosition(now), sun = sunPosition(now);
-	const buf = new Float32Array(ps.length * 8);
-	ps.forEach((p, i) => {
-		const [x, y, z] = celVec(p.ra, p.dec);
-		buf.set([x, y, z, p.color[0], p.color[1], p.color[2],
-			Math.max(0, 1 - p.mag / 15), Math.max(2, (9 - p.mag) * 0.4 * dpr)], i * 8);
-	});
-	renderer.set("planets", buf);
-	// 月＝満ち欠けの円盤（ラベルcanvas・欠け側は赤黒）。輝面比 k=(1-cosψ)/2（ψ=太陽との離角。月距離≪太陽距離の近似）
-	const mCel = celVec(moon.ra, moon.dec), sCel = celVec(sun.ra, sun.dec);
-	const k = (1 - (mCel[0] * sCel[0] + mCel[1] * sCel[1] + mCel[2] * sCel[2])) / 2;
-	renderer.set("skyMoon", { cel: mCel, sunCel: sCel, k });
-	planetLabels = [...ps, moon].map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
-	if (skyLabels) {
-		skyLabels.planets = planetLabels;
-		if (constelVisible) renderer.set("skyLabels", skyLabels);
-	}
-	needsDraw = true;
-}
-// 星空劇場の家具（quiet-monoの逆相家具＝#map.worldでだけ点灯）：左下=日時計（1秒針）、右下=空データの出典。
-// 「実時刻の空」を名乗る劇場の証書＝今この瞬間を刻む時計と、データの出どころ。
-const skyClockEl = document.createElement("div");
-skyClockEl.id = "sky-clock";
-mapEl.appendChild(skyClockEl);
-// （旧 #sky-attr＝星空専用の出典別要素は廃止 2026-09-03「attr表示を各ズームで綺麗に統合」＝
-//   #attr 一枚が圏で差し替わる。星空圏の文面は render() の attrZone="sky" 節）
-const SKY_WD = getLang() === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const skyClockTimer = setInterval(() => {
-	if (cam.zoom >= STARSKY_Z) return;   // 見えていない間はDOMに触れない（星空圏の外）
-	const d = new Date(), L2 = n => String(n).padStart(2, "0");
-	skyClockEl.textContent = `${d.getFullYear()}/${L2(d.getMonth() + 1)}/${L2(d.getDate())} (${SKY_WD[d.getDay()]}) ${L2(d.getHours())}:${L2(d.getMinutes())}:${L2(d.getSeconds())}`;
-}, 1000);
-
-function startPlanets() {
-	if (planetTimer) return;
-	updatePlanets();
-	planetTimer = setInterval(updatePlanets, 600000);   // 最速の月でも0.09°/10分＝表示上は連続
-	// 黄道（黄緯0の大円・J2000）＝淡い黄：太陽・月・惑星の通り道。天の赤道（赤緯0）＝淡い青灰：
-	// 地球の赤道の空への投影＝GMSTで空が回る軸の「胴回り」。二本の交点が春分点・秋分点、開き23.4°が地軸の傾き
-	// ＝季節の仕組みがそのまま絵になる。どちらも注記トグル(showConst)と同時に出る。
-	const es = [], qs = [], eps = 23.43928 * D2R;
-	for (let l = 0; l < 360; l += 2) for (const g of [l, l + 2]) {
-		const s = Math.sin(g * D2R), c = Math.cos(g * D2R);
-		es.push(c, s * Math.sin(eps), s * Math.cos(eps));
-		qs.push(c, 0, s);
-	}
-	renderer.set("ecliptic", Float32Array.from(es));
-	renderer.set("celequator", Float32Array.from(qs));
-}
-async function loadStars() {
-	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] load failed", e); return null; });
-	const g = pbf && pbf.geojson;
-	if (!g) { starsArmed = true; return; }   // 一過性失敗は次の機会に再試行
-	const fs = g.features;
-	const buf = new Float32Array(fs.length * 8);
-	for (let i = 0; i < fs.length; i++) {
-		const { mag, bv } = fs[i].properties, [ra, dec] = fs[i].geometry.coordinates;
-		const hex = bvColor(bv);
-		const [x, y, z] = celVec(ra, dec);
-		buf.set([x, y, z,
-			parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255,
-			Math.max(0, 1 - mag / 15),                    // 等級→明るさ（v1と同式）
-			Math.max(1.5, (9 - mag) * 0.4 * dpr)], i * 8);   // 等級→点径（v1の半径0.2css相当をdevice pxへ）
-	}
-	renderer.set("stars", buf);
-	needsDraw = true;
-	console.log(`[stars] ${fs.length} stars loaded (drawn at z<4; click for constellation lines)`);
-}
-// 星座線＋星座名＋メシエ天体：クリックでトグル（v1と同じ所作＝三点一組）。初回クリックでロード→表示、以降は表示反転のみ。
-// 線は GL（render worker）、名前と記号はラベルcanvas（skyLabels）＝どちらも同じ変換・同じタイミングで出入りする。
-let constelState = 0, constelVisible = false, skyLabels = null;   // 0=未読込 1=読込中 2=読込済
-// 表示の実務（点灯希望×圏の裁き→engine）。トグル・URL同期・太陽系圏の出入りの三者が共用＝経路一本。
-// 旧・太陽系圏(z<1)は休演だったが、点灯（l=sky）していれば太陽系圏でも出す（本人裁定 2026-09-02
-// 「z<1以下でも、l=sky があれば星座線を出していい」）＝星座は無限遠の天球＝実位置3Dの惑星と矛盾しない。
-// 惑星ドーム（updatePlanets）だけは従来どおり z<1 で引っ込める（距離を持つ天体は solarsky の実位置3Dと二重になる）。
-function constelApply() {
-	const show = constelState === 2 && constelVisible;
-	// skySolar＝太陽系圏(z<1)の空モード（本人裁定 2026-09-02）：星座線だけ薄く残し、黄道/天の赤道は消灯
-	//（レンダラ側が裁く・両バックエンド）、星座名・メシエ等のテキスト注記も全消し（ラベル投影が太陽系圏の
-	// カメラと合わず表示が乱れる＝線のみが正）。呼び出しは圏の出入りで必ず来る（休演/再点灯の一本化と同じ口）。
-	const solar = !solarOff && cam.zoom < 1;
-	renderer.set("view", { showConst: show, skySolar: solar });
-	renderer.set("skyLabels", show && !solar ? skyLabels : null);
-	const sc = document.getElementById("chip-sky");   // 表示パネルの星空チップ＝点火の一本道でだけ見た目同期
-	if (sc) { sc.classList.toggle("on", constelVisible); sc.setAttribute("aria-pressed", String(constelVisible)); }
-	needsDraw = true;
-}
-async function toggleConstellations() {
-	if (constelState === 1) return;
-	if (constelState === 2) {
-		constelVisible = !constelVisible;
-		constelApply();
-		return;
-	}
-	constelState = 1;
-	await ensureSkyMod();   // 星座名の日本語化(skynames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
-	const [cl, ms] = await Promise.all([
-		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[constellation] load failed", e); return null; }),
-		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
-	]);
-	const g = cl && cl.geojson;
-	if (!g) { constelState = 0; return; }
-	const seg = [], consts = [];
-	for (const f of g.features) {
-		const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
-		for (const line of lines) for (let i = 0; i < line.length - 1; i++)
-			seg.push(...celVec(line[i][0], line[i][1]), ...celVec(line[i + 1][0], line[i + 1][1]));
-		// 星座名の置き場＝全頂点の天球ベクトル平均を正規化（v1のra/dec単純平均はRA 0/360跨ぎの星座で狂う。ベクトル平均は跨ぎ無縁）
-		// 名前は日本語化（skynames.js＝IAU略号/ラテン名の両対応。v2=japanの流儀＝惑星名と揃える）
-		const name = constellationJa(f.properties?.name ?? f.properties?.id ?? f.id);
-		if (name) {
-			let vx = 0, vy = 0, vz = 0;
-			for (const line of lines) for (const p of line) { const v = celVec(p[0], p[1]); vx += v[0]; vy += v[1]; vz += v[2]; }
-			const l = Math.hypot(vx, vy, vz) || 1;
-			consts.push({ cel: [vx / l, vy / l, vz / l], name });
-		}
-	}
-	const messier = [];
-	if (ms && ms.geojson) for (const f of ms.geojson.features) {
-		const c = f.geometry.coordinates;
-		messier.push({ cel: celVec(c[0], c[1]), name: f.properties?.name || "", type: f.properties?.type || "" });
-	}
-	skyLabels = { constellations: consts, messier, planets: planetLabels };   // 惑星名も注記の一員（位置は updatePlanets が更新）
-	renderer.set("constellations", Float32Array.from(seg));
-	constelState = 2; constelVisible = true;
-	constelApply();
-	console.log(`[constellation] ${consts.length} constellations + ${messier.length} Messier objects loaded (click to toggle)`);
-	if (!printHold) saveView();   // 初回ロード(2秒級)中に settle の saveView が sky 抜きで先行する＝完了後に l=sky を書き戻す（レース根治・モバイル実測）
-}
-// URL(l=sky)⇄星座表示の冪等同期：望む状態と違う時だけ toggle を叩く（未読込なら読込→表示、読込済なら反転）。
-// z によらず状態を確定させる＝共有URLの往復で消えない（z<4に降りた時に実際に描かれる。worldFade が可視ゲート）。
-function applyConstellations(want) { if (!!want !== constelVisible) toggleConstellations(); }
-
-// N02（国土数値情報 鉄道）から新幹線だけ抽出して常駐オーバーレイに（gishub-jp と同じ geopbf 経路）。
-// 新幹線＝N02_002(事業者種別)=1「JRの新幹線」。全国一括・疎＝軽い。鉄道チップONで表示、初回だけ fetch。※駅/空港/道の駅は次段。
-// ソースは coast と同じ事前変換 GeoPBF（bucket GIS/pbf/N02-25_RailroadSection・路線名/事業者の属性付き＝
-// 将来の全線ホバー名表示にそのまま使える）。bucket に無い間だけ生 zip へフォールバック。
-// 同じ棚に N02-25_Station（駅名）/ N06-24_HighwaySection（高速道路名）/ N06-24_Joint（IC/JCT名）も配置済み＝次段の弾。
-const N02_ZIP = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
-const N02_ORIGIN = [138, 37];   // 全国オーバーレイの原点（delta符号化用・度スケール＝精度問題なし）
-let n02Loaded = false;
-async function loadN02() {
-	if (n02Loaded) return;
-	n02Loaded = true;
-	console.log("[N02] loading rail geojson (extracting shinkansen)…");
-	let rail = await geopbf("N02-25_RailroadSection").catch(e => { console.warn("[N02] bucket load failed", e); return null; });
-	if (!rail?.geojson?.features?.length) {
-		console.warn("[N02] no geopbf in bucket -> falling back to raw zip");
-		rail = await geopbf(`${N02_ZIP}#N02-25_RailroadSection.geojson`).catch(e => { console.warn("[N02] rail failed", e); return null; });
-	}
-	const fc = rail?.geojson;   // GeoPBF の境界は FeatureCollection。.geojson getter＝{type:"FeatureCollection",features,name}
-	const feats = fc?.features;
-	if (!feats?.length) { console.warn("[N02] rail load failed", rail && Object.keys(rail)); n02Loaded = false; return; }
-	// フル新幹線＝N02_002(事業者種別)=1。ミニ新幹線（秋田・山形）は法規上在来線＝N02には田沢湖線・奥羽線として
-	// 収録されているので、該当区間を緯度帯クリップで切り出して仲間に入れる（奥羽線は福島→青森へ緯度ほぼ単調）。
-	const sn = feats.filter(f => { const p = f.properties || {}; return p.N02_002 == 1 || /新幹線/.test(String(p.N02_003)); });
-	const latClip = (f, lo, hi) => {   // 緯度帯 [lo,hi] に入る線分だけ残す（区間抽出）
-		const g = f.geometry; if (!g) return null;
-		const lines = g.type === "LineString" ? [g.coordinates] : g.type === "MultiLineString" ? g.coordinates : [];
-		const out = [];
-		for (const line of lines) {
-			let cur = [];
-			for (const pt of line) {
-				if (pt[1] >= lo && pt[1] <= hi) cur.push(pt);
-				else { if (cur.length > 1) out.push(cur); cur = []; }
-			}
-			if (cur.length > 1) out.push(cur);
-		}
-		return out.length ? { geometry: { type: "MultiLineString", coordinates: out } } : null;
-	};
-	let miniN = 0;
-	for (const f of feats) {
-		const n = String(f.properties?.N02_003 || "");
-		if (/^田沢湖線$/.test(n)) { sn.push(f); miniN++; }                       // 秋田新幹線 盛岡—大曲（全線が共用）
-		else if (/^奥羽(本)?線$/.test(n)) {
-			const ya = latClip(f, 37.74, 38.77), ak = latClip(f, 39.44, 39.73);   // 山形新幹線 福島—新庄／秋田新幹線 大曲—秋田
-			if (ya) { sn.push(ya); miniN++; }
-			if (ak) { sn.push(ak); miniN++; }
-		}
-	}
-	console.log("[N02] rail", feats.length, "-> shinkansen", sn.length, `(mini ${miniN})`, "| lines:", [...new Set(sn.map(f => f.properties?.N02_003 || "(mini section)"))].join("、"));
-	// 濃緑の実線（鉄道点火#4b9e6aより暗く、高速の青#2f6cadと衝突しない）。半幅0.9＝計1.8px＝高速(低ズーム)と同太
-	const SN_GREEN = [0.04, 0.42, 0.25, 0.95];
-	const scenes = sn.length ? [buildGeoJSONOverlay(sn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 0.9 })] : [];
-	// 路線ラインも基図と同じ z≥BASEMAP_MINZOOM でだけ描く：全球(z<4)は基図オフの「地球ぐるぐる」＝
-	// 路線だけが宙に浮くバグになる（minZoom 未設定だと renderer の s.minZoom||0=0 で全ズーム描画）。
-	if (scenes.length) scenes[0].minZoom = BASEMAP_MINZOOM;
-	// 駅（Station.geojson＝線路沿いの短いポリライン）：新幹線駅だけをビーズ○で。濃緑の玉に紙色の芯を重ねる＝
-	// 線シェーダは capsule（丸端）なので、極小セグメント×太い半幅がそのまま駅の玉になる。ミニ新幹線の停車駅は
-	// 在来線駅として収録＝路線×駅名の許可リストで拾う（フル新幹線駅は N02_002=1 で正確に取れる）。
-	const stn = await geopbf(`${N02_ZIP}#N02-25_Station.geojson`).catch(e => { console.warn("[N02] station failed", e); return null; });
-	const stFeats = stn?.geojson?.features || [];
-	const MINI_STOPS = new Set(["米沢", "高畠", "赤湯", "かみのやま温泉", "山形", "天童", "さくらんぼ東根", "村山", "大石田", "新庄",   // 山形新幹線
-		"雫石", "田沢湖", "角館", "大曲", "秋田"]);                                                                                  // 秋田新幹線
-	const stSn = stFeats.filter(f => {
-		const p = f.properties || {};
-		return p.N02_002 == 1 || (/^(田沢湖線|奥羽(本)?線)$/.test(String(p.N02_003)) && MINI_STOPS.has(String(p.N02_005)));
-	});
-	console.log("[N02] stations", stFeats.length, "-> shinkansen stations", stSn.length, "/ regular stations", stFeats.length - stSn.length);
-	// 通常駅（新幹線駅以外の全駅）：駅名注記(422)が出るズームから点灯（minZoom）。鉄道点火と同じ緑の小ぶりビーズ。
-	const snStnSet = new Set(stSn);
-	const stReg = stFeats.filter(f => !snStnSet.has(f));
-	if (stReg.length) {
-		const rOuter = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [0.294, 0.62, 0.416, 1], lineWidth: 1.8 });      // 玉＝鉄道点火#4b9e6a
-		const rCore = buildGeoJSONOverlay(stReg, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 0.9 });      // 芯（紙色＝style由来＝夜も自動追従）
-		rOuter.minZoom = rCore.minZoom = 11.5;   // 駅名の出るタイル(z11)が選ばれ始める頃から
-		scenes.push(rOuter, rCore);
-	}
-	if (stSn.length) {   // 新幹線駅は通常駅の後＝重なったら新幹線ビーズが勝つ
-		const sOuter = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: SN_GREEN, lineWidth: 2.4 });                      // 玉（外径）
-		const sCore = buildGeoJSONOverlay(stSn, N02_ORIGIN, { lineColor: [land[0], land[1], land[2], 1], lineWidth: 1.2 });       // 芯（紙色＝style由来）＝○に見える
-		sOuter.minZoom = sCore.minZoom = 7.5;   // 全国ビュー(z〜6)ではビーズ不要＝広域(z7.5+)から。路線の線は z≥5（基図と同ゲート）
-		scenes.push(sOuter, sCore);
-	}
-	renderer.set("n02", scenes);
-	needsDraw = true;
-	console.log("[N02] shinkansen drawn");
-}
+// --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
+const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+// --- N02 新幹線＝rail/n02.js（路線＋駅のビーズ・鉄道チップで点灯）。land＝紙色はテーマで差し替わる＝getter。
+const n02 = createN02Overlay({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
@@ -1641,7 +1396,7 @@ dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 const layerState = { ...defaultLayerState };   // UIトグル状態は main が保持・変更（チップで反転）
 // 共有URLのレイヤ集合は「客が触れるキー」だけ上書き（旧romajiトークンは normLayerKey で読み替え）。
 if (bootView?.layers) { const urlSet = new Set(bootView.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
-if (bootView?.layers?.includes(SKY_LAYER)) applyConstellations(true);   // l=sky＝星座線ONで起動（z<4で実描画）
+if (bootView?.layers?.includes(SKY_LAYER)) sky.applyConstellations(true);   // l=sky＝星座線ONで起動（z<4で実描画）
 if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
@@ -1865,7 +1620,7 @@ function setLayer(k, on) {
 	layerState[k] = !!on;
 	const b = document.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
-	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
 	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
@@ -1876,7 +1631,7 @@ document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () =
 	setLayer(k, !layerState[k]);
 }));
 // 星空チップ（表示パネル内）＝旧・全球ビューの画面クリックから移設。見た目同期は constelApply 側（点火の一本道）
-document.getElementById("chip-sky")?.addEventListener("click", () => toggleConstellations().then(saveView));
+document.getElementById("chip-sky")?.addEventListener("click", () => sky.toggleConstellations().then(saveView));
 // 基図の濃さスライダー（表示パネル）＝fill/line の α を両バックエンド一括で（COG/オーバーレイを主役にする時に引く）
 document.getElementById("base-alpha")?.addEventListener("input", e => { const a = (+e.target.value) / 100; renderer.set("view", { baseAlpha: a, globeAlpha: a }); needsDraw = true; });   // 2026-09-13 本人裁定＝球体（globe/terrain）まで一緒に引く（地中の震源等を透かす）
 // テーマ列（表示パネル内）＝palette ガジェットの即決版（ライブ見本はガジェットの領分・こちらは名前+紙色スウォッチ）。
@@ -1899,7 +1654,7 @@ document.getElementById("base-alpha")?.addEventListener("input", e => { const a 
 }
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
-if (layerState.rail) { renderer.set("view", { showN02: true }); loadN02(); }
+if (layerState.rail) { renderer.set("view", { showN02: true }); n02.load(); }
 if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
 
@@ -1919,11 +1674,11 @@ window.addEventListener("hashchange", () => {
 function applyViewLayers(v) {
 	if (!v.layers && !v.contour) return;
 	if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
-	if (v.layers) applyConstellations(v.layers.includes(SKY_LAYER));   // 星座ON/OFFも反映
+	if (v.layers) sky.applyConstellations(v.layers.includes(SKY_LAYER));   // 星座ON/OFFも反映
 	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
-	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) loadN02();
+	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02.load();
 	if (layerState.facility) loadLandmarks();
 	applyTerrain();
 }
@@ -2053,16 +1808,7 @@ function render() {
 			}
 		}
 	}
-	// 太陽系圏（z<1）：Canvas2D の薄いオーバーレイ（solarsky.js＝遅延ロード）が太陽・惑星・軌道線を実位置で重ねる。
-	// カメラは engine と同じ cameraState を共有＝星空・地球と厳密に整合。圏の出入りでドーム惑星（方向のみ表現）と交代。
-	const inSolar = !solarOff && cam.zoom < 1;
-	if (inSolar && !solarSkyLoad) solarSkyLoad = import("./solarsky.js").then(m => { solarSky = m.createSolarSky({ mapEl }); needsDraw = true; }).catch(e => console.warn("[solar] zone load failed", e));
-	solarSky?.frame(cam, size.w, size.h, inSolar);
-	if (inSolar !== inSolarPrev) {
-		inSolarPrev = inSolar;
-		if (planetTimer) updatePlanets();   // ドーム惑星/月の点灯切替を即時反映
-		if (constelState === 2) constelApply();   // 星座注記の休演/再点灯（裁きは constelApply に一本化）
-	}
+	sky.solarFrame(size.w, size.h);   // 太陽系圏（z<1）＝solarsky.js の遅延ロード・実位置の惑星・ドーム惑星/星座注記との交代（sky/theater.js）
 	if (cam.zoom < TILE_MINZOOM) {   // 基図の門の下＝タイルなし（全球ハイプソ＋gint線＋湖スロットの領分。世界タイル撤去 2026-09-03。?pm= のときだけ 0 まで開く）
 		if (!basemapHidden) {
 			const o = [cam.center[0], cam.center[1]];
@@ -2181,7 +1927,7 @@ function destroy() {
 	flightCtl.cancel();
 	ac.abort();                                  // window/document のリスナー一括解除（offline/online/hashchange/検索の外側クリック）
 	ro.disconnect();
-	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); clearInterval(planetTimer); clearInterval(skyClockTimer);   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
+	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); sky.terminate();   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
 	plateau.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
@@ -2206,7 +1952,7 @@ window.addEventListener("pagehide", e => { if (!e.persisted) destroy(); }, { sig
 
 // 世界海岸線：初期視点が z<9 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
 gint.updateGintSlot();
-ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最初から
+sky.ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最初から
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
@@ -2225,7 +1971,7 @@ const map = { cam, flyTo, renderer, mapEl, destroy,
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。
-	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(constelVisible ? [SKY_LAYER] : []), sky: constelVisible, hash: viewHash(), eye: eyePose() }; },
+	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(sky.constelVisible ? [SKY_LAYER] : []), sky: sky.constelVisible, hash: viewHash(), eye: eyePose() }; },
 	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
 	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
 	playScenes: (obj, opts) => playScenes(obj, opts), stopScenes: () => stopScenes(),
