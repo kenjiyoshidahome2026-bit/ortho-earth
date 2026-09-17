@@ -73,5 +73,6 @@ export const tr = () => t;      // japan と同じ口（const t = tr();）
 // 原文が HTML に残る＝キーと表示が同じ行に並ぶ（solar が data-ja 併記で得ていた読みやすさを英語キーのまま引き継ぐ）。
 export function applyDom(root = document) {
 	for (const el of root.querySelectorAll("[data-t]")) el.textContent = t(el.dataset.t || el.textContent.trim());
-	for (const el of root.querySelectorAll("[data-t-title]")) el.title = t(el.dataset.tTitle || el.title);
+	// title は aria-label にも張る＝◀◀ ❚❚ ▶▶ のような記号だけのボタンに、読み上げ用の名前が 26 言語ぶん付く
+	for (const el of root.querySelectorAll("[data-t-title]")) { el.title = t(el.dataset.tTitle || el.title); el.setAttribute("aria-label", el.title); }
 }
