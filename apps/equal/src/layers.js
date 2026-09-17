@@ -38,6 +38,14 @@ export const LAYERS = [
 		order: { fill: 10, lines: 60 },
 	},
 	{
+		// 係争地の重ね（world の admin_0＝admin_1 に形の無い主体：北キプロス・SADR・ソマリランド・アブハジア…10 件）＝主の分割と重複＝薄い塗りで重ねる
+		id: "disputed", label: "Disputed", on: true, source: "world", group: "base", kind: "poly", loadZoom: -Infinity,
+		spec: { include: p => p.layer === "admin_0", fill: () => 0, outline: () => ({ cls: 0, minZoom: 0 }) },
+		fillColor: rgb("#9a6e90", 0.28),
+		lineStyles: [{ color: rgb("#8a5f80", 0.9), width: 0.8 }],
+		order: { fill: 11, lines: 61 },
+	},
+	{
 		// 道路・鉄道・市街地＝world の ne-cultural（国境で切って key ごとに 1 地物・属性なし）＝world とデータを共有（本人 2026-09-18）。
 		// 属性（min_zoom）が無い＝地物ごとの出し分けはせず、一定以上の z でまとめて出す
 		id: "urban", label: "Urban areas", on: true, source: "world", group: "detail", kind: "poly", loadZoom: 4.5,

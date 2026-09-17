@@ -112,9 +112,14 @@ export function csvPreset(ds, colIndex) {
 		const v = col.type === "number" ? toNum(r[col.i], ds.euro) : (String(r[col.i] ?? "").trim() || null);
 		if (v != null) byFid.set(fid, v);
 	});
+	// 数値の分類は値の形で選ぶ：正負をまたぐ→発散（0 が中央）・正で桁が 3 つ以上広い→対数の等間隔・それ以外→分位
+	let type = "categorical", scale;
+	if (col.type === "number") {
+		const vs = [...byFid.values()], lo = Math.min(...vs), hi = Math.max(...vs);
+		if (lo < 0 && hi > 0) type = "diverging"; else if (lo > 0 && hi / lo >= 1000) { type = "equal"; scale = "log"; } else type = "quantile";
+	}
 	return {
-		label: col.name, csv: true, column: col.i,
-		type: col.type === "number" ? "quantile" : "categorical", ramp: "purple",
+		label: col.name, csv: true, column: col.i, type, scale, ramp: "purple",
 		value: (_n, i) => byFid.has(i) ? byFid.get(i) : null,
 	};
 }

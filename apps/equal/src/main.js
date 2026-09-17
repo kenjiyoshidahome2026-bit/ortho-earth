@@ -43,6 +43,7 @@ const settings = {
 	hypso: num01(q.get("hypso"), 1),          // 自然の層＝ハイプソと川・湖の不透明度（1 本のスライダで同時・0＝紙の白地図＝陸/海/境界だけ）
 	choro: PRESETS[q.get("choro")] ? q.get("choro") : null,   // "csv"＝ドロップした CSV（URL には残らない）
 	choroAlpha: num01(q.get("choroA"), 0.85),
+	year: Number.isFinite(+q.get("year")) && q.get("year") ? +q.get("year") : null,   // DB 統計の年（null＝各国の最新年）
 };
 
 // 層：{ def, on, status: "idle"|"loading"|"ready"|"error", baked, vtx, gpu }
@@ -151,10 +152,14 @@ const presetOf = id => id === "csv" ? csv?.preset : PRESETS[id];
 function applyChoropleth() {
 	const preset = settings.choro && presetOf(settings.choro);
 	if (!preset || !world || !political) { legendData = null; renderLegend(); requestDraw(); return; }
-	const opts = preset.type === "political" ? { ...preset, value: (_n, i) => political[i] || null } : preset;
+	const years = preset.years?.(world.items) || null;
+	if (years && settings.year != null) settings.year = Math.max(years[0], Math.min(years[1], settings.year));
+	const opts = preset.type === "political" ? { ...preset, value: (_n, i) => political[i] || null } : { ...preset, year: years ? settings.year : null };
 	const r = buildChoropleth(world.items, opts);
 	R.setPaint(r.rgba, NONE + 1);   // 末尾＝NONE（a=0＝塗らない）
-	legendData = { preset, legend: r.legend, values: r.values };
+	legendData = { preset, legend: r.legend, values: r.values, nodata: r.nodata, years };
+	yearRow.hidden = !years;
+	if (years) { yearInput.min = years[0]; yearInput.max = years[1]; yearInput.value = settings.year ?? years[1]; yearLabel.textContent = settings.year ?? "latest"; }
 	renderLegend(); requestDraw();
 }
 
@@ -299,6 +304,12 @@ const colSelect = el("select", { class: "eq-select" });
 colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSelect.value; csv.preset = csvPreset(csv.ds, csv.col); selectTheme("csv"); });
 colRow.append(colSelect); panel.append(colRow);
 panel.append(rangeRow("Choropleth", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));
+// 年（DB の統計だけ・各国の最新年＝右端）
+const yearRow = el("div", { class: "eq-row" }, `<span>Year <b class="eq-year"></b></span>`); yearRow.hidden = true;
+const yearInput = el("input", { type: "range", min: "2000", max: "2025", step: "1", value: "2025" }), yearLabel = yearRow.querySelector(".eq-year");
+yearInput.addEventListener("input", () => { settings.year = +yearInput.value; yearLabel.textContent = yearInput.value; applyChoropleth(); scheduleHash(); });
+yearInput.addEventListener("dblclick", () => { settings.year = null; applyChoropleth(); scheduleHash(); });   // ダブルクリック＝最新年へ戻す
+yearRow.append(yearInput); panel.append(yearRow);
 
 // ズーム（#zoom）
 const zoomBox = el("div", { id: "zoom" },
@@ -321,11 +332,13 @@ dock.append(pos, toast, legend);
 function updateToast() { toast.style.display = busy.size ? "block" : "none"; toast.textContent = busy.size ? `Loading ${[...busy].join(", ")} …` : ""; }
 function renderLegend() {
 	if (!legendData) { legend.style.display = "none"; updateAttr(); return; }
-	const { preset, legend: rows } = legendData;
+	const { preset, legend: rows, nodata, years } = legendData;
 	const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
-	legend.innerHTML = `<div class="eq-title">${esc(preset.label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}</div>` + (rows.length
+	const yr = years ? (settings.year != null ? String(settings.year) : "latest year") : "";
+	legend.innerHTML = `<div class="eq-title">${esc(preset.label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}${yr ? ` <span style="font-weight:400;color:#89a">${esc(yr)}</span>` : ""}</div>` + (rows.length
 		? rows.map(r => `<div class="eq-li"><span class="eq-sw" style="background:${rgb(r.color)}"></span>${esc(r.label)}</div>`).join("")
 		: `<div class="eq-li">Neighbors never share a color</div>`)
+		+ (nodata && preset.type !== "political" ? `<div class="eq-li"><span class="eq-sw" style="background:#f6f6f4;border:1px solid #cfd4da"></span>No data (${nodata})</div>` : "")
 		+ (preset.csv
 			? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${csv.ds.matched}/${csv.ds.rows.length} rows matched by “${esc(csv.ds.header[csv.ds.keyCol])}”${csv.ds.unmatched.length ? ` · unmatched: ${esc(csv.ds.unmatched.slice(0, 3).join(", "))}${csv.ds.unmatched.length > 3 ? "…" : ""}` : ""}</div>`
 			: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · World DB ${esc(world?.updated || "")}</div>`);
@@ -387,7 +400,7 @@ function tipText(i) {
 		const v = legendData.values[i], P = legendData.preset;
 		if (v != null) {
 			const txt = typeof v === "number" ? v.toLocaleString("en", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 3 }) : String(v);
-			const yr = P.year?.(n);
+			const yr = P.year?.(n, legendData.years ? settings.year : null);
 			s += `<div style="opacity:.8">${esc(P.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${yr})` : ""}</div>`;
 		}
 	}
@@ -496,6 +509,7 @@ function scheduleHash() {
 		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");
 		settings.choro === "csv" && csvSpec ? qs.set("csv", csvSpec) : qs.delete("csv");   // URL 由来の CSV だけ URL に残る（手元のファイルは再現できない）
 		settings.labels ? qs.delete("labels") : qs.set("labels", "0");
+		legendData?.years && settings.year != null ? qs.set("year", String(settings.year)) : qs.delete("year");
 		const search = qs.toString() ? "?" + qs : "";
 		history.replaceState(null, "", location.pathname + search + buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]));
 	}, 250);
