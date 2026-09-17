@@ -7,7 +7,8 @@
 //  - 対数深度バッファ：惑星表面(1e-7AU)〜海王星軌道(60AU)を1パスで
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
-import { BODIES, byId, bodyPos, orientation, orbitPoints, moonOrbitPoints, jcT, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
+import { BODIES, byId, bodyPos, orientation, orbitPoints, moonOrbitPoints, jcT, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
+	SATELLITES, satById, satPos, satOrbitPoints } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
 
 // ---- 言語：英語が原本＝キー（ortho-japan と同じ作法・2026-09-18） ----
@@ -32,8 +33,15 @@ const nfmt = (n, d) => n.toLocaleString(LANG, d === undefined ? undefined : { mi
 const MYRIAD = new Set(["ja", "zh", "ko"]);   // 億で読む言語＝大きな距離は 1e8 刻み（他は百万 km）＝読み癖に合わせる
 // 天体名も UI 文言＝ephem の英語名がそのままキー（"Earth" は出口ボタンと同じ 1 行）。
 // この台帳は検定（verify:i18n）に「使っている」と見せるための並び＝ephem と食い違えば起動時に気づく
-const BODY_KEYS = ["Sun", "Mercury", "Venus", "Earth", "Moon", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Dwarf planet"];
-for (const b of BODIES) if (!BODY_KEYS.includes(b.name)) console.warn("[solar] body name missing from the i18n ledger:", b.name);
+const BODY_KEYS = ["Sun", "Mercury", "Venus", "Earth", "Moon", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Dwarf planet",
+	"Io", "Europa", "Ganymede", "Callisto"];
+// 天体の棚：BODIES＝太陽・惑星・月・冥王星（下段チップの顔ぶれ）／SATELLITES＝ガリレオ衛星（木星に寄ると現れる＝チップには並べない）。
+// ALL＝描画・ラベル・タップ・影の総なめ用。any＝id 引き。posOf＝日心位置の一本口。parentOf＝「親の点に埋まる間は描かない」の親
+const ALL = [...BODIES, ...SATELLITES];
+const any = { ...byId, ...satById };
+const posOf = (id, date) => satById[id] ? satPos(id, date) : bodyPos(id, date);
+const parentOf = b => b.parent || (b.id === "moon" ? "earth" : null);
+for (const b of ALL) if (!BODY_KEYS.includes(b.name)) console.warn("[solar] body name missing from the i18n ledger:", b.name);
 const bName = b => t(b.name);
 
 // ---- 時刻機械：simTime(ms) と速度（実1秒あたりのシミュレート秒）。JPL 要素の有効期間でクランプ ----
@@ -58,7 +66,8 @@ let camPos = [0, 0, 26], viewR = null;   // 毎フレーム更新（f64）
 let flight = null;   // {t0,dur, fromFocus,toFocus, fromD,toD} 焦点間フライト（800ms・log補間）
 
 const v3 = { sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len: a => Math.hypot(a[0], a[1], a[2]) };
-function focusPos(id, date) { return bodyPos(id, date); }
+const P = {};   // id → 日心位置（AU・f64）。frame() の頭で一度だけ引く＝カメラ・描画・影・情報パネルが同じ値を見る
+function focusPos(id, date) { return P[id] || posOf(id, date); }
 function updateCamera(date) {
 	let F = focusPos(cam.focus, date), d = cam.dist;
 	if (flight) {   // フライト中＝焦点位置と距離を同時補間（位置は生きた天体位置で毎フレーム評価）
@@ -78,7 +87,8 @@ function updateCamera(date) {
 	viewR = [r, u, [-f[0], -f[1], -f[2]]];
 }
 function flyTo(id) {
-	const b = byId[id];
+	const b = any[id];
+	requestTex(b);   // 着くまでの 0.9 秒で絵を取りに行く（遅延テクスチャ）
 	// 近景＝半径の9倍＝天体の直径が画面高の約27%。旧5.5倍は45%＝寄りすぎで、土星は環（半径2.33R）の
 	// 半角25°が視野半角22.5°を越えて上下が切れていた（9倍なら15°＝環まで余白ごと収まる）。
 	// 手でのドリー下限（focusMinDist＝半径1.1倍）はそのまま＝寄りたければ地表まで寄れる
@@ -90,11 +100,14 @@ function flyTo(id) {
 	flight = { t0: performance.now(), dur: 900, fromFocus: cam.focus, toFocus: id, fromD: flight ? flight.toD : cam.dist, toD };
 	cam.focus = id; cam.dist = toD;
 	if (id !== "sun") {   // 昼面側に着地（真っ黒な夜面とにらめっこしない）：太陽方向+30°の斜光＝陰影が立つ
-		const p = bodyPos(id, simDate());
+		const p = posOf(id, simDate());
 		cam.yaw = Math.atan2(-p[1], -p[0]) + 30 * D2R;
 		cam.pitch = Math.max(8 * D2R, Math.min(35 * D2R, cam.pitch));
 	}
-	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === id));
+	// 衛星はチップを持たない＝訪問中は親（木星）を灯す
+	const chipId = satById[id] ? satById[id].parent : id;
+	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
+	uiDirty = true;
 	writeHash();
 }
 
@@ -126,14 +139,47 @@ const sphereP = prog(`
 		${LOGZ}
 		gl_Position = P;
 	}`, `
-	uniform sampler2D u_tex; uniform sampler2D u_night;
+	uniform sampler2D u_tex; uniform sampler2D u_night; uniform sampler2D u_ringTex;
 	uniform vec3 u_sun; uniform float u_emiss; uniform float u_cloud; uniform float u_hasNight;
+	// 影：単位は全て「この天体の半径」・向きは世界（黄道）＝地表の点 p は正規化した法線そのもの。
+	// u_occ[i]＝遮る球（xyz＝この天体の中心から見た中心・w＝半径）。u_sunAng＝ここから見た太陽の視半径(rad)。
+	// u_umbra＝本影に残る色（月食の赤銅＝地球大気が屈折させた夕焼けの光。他は 0＝真っ暗）。
+	// 環の影＝u_ringN（環の法線）と u_ringR（内縁・外縁）。u_hasRing=0 なら何もしない
+	uniform vec4 u_occ[4]; uniform int u_nOcc; uniform float u_sunAng; uniform vec3 u_umbra;
+	uniform float u_hasRing; uniform vec3 u_ringN; uniform vec2 u_ringR;
 	in vec2 v_uv; in vec3 v_n; out vec4 o;
 	void main() {
 		vec4 t = texture(u_tex, v_uv);
-		float dl = dot(normalize(v_n), u_sun);
-		float l = mix(clamp(dl * 1.1, 0.0, 1.0) * 0.94 + 0.05, 1.0, u_emiss);
-		vec3 c = t.rgb * l;
+		vec3 p = normalize(v_n);
+		float dl = dot(p, u_sun);
+		// 食：地表の点から見て、太陽の円盤が遮る球の円盤にどれだけ隠れるか（小角近似）。
+		// 離角 sep が |ro−rs| 以下＝すっぽり（本影 or 金環）・ro+rs 以上＝掛からない・その間＝半影をなめらかに。
+		// 隠せる上限は面積比 (ro/rs)²＝小さい衛星の影は真っ黒にならない（イオの影は濃く、遠いカリストは淡い）
+		float shade = 0.0;
+		for (int i = 0; i < 4; i++) {
+			if (i >= u_nOcc) break;
+			vec3 q = u_occ[i].xyz - p;
+			float along = dot(q, u_sun);
+			if (along <= 0.0) continue;                              // 遮る球が太陽と反対側＝影は落ちない
+			float sep = length(q - along * u_sun) / along, ro = u_occ[i].w / along;
+			float f = (1.0 - smoothstep(abs(ro - u_sunAng), ro + u_sunAng, sep)) * min(1.0, (ro * ro) / (u_sunAng * u_sunAng));
+			shade = max(shade, f);
+		}
+		// 環の影：地表の点から太陽へ向かう線が環の平面を貫く所が、環の帯の中なら、環の濃さ（α）ぶん暗い
+		if (u_hasRing > 0.5) {
+			float dn = dot(u_sun, u_ringN);
+			if (abs(dn) > 1e-4) {
+				float k = -dot(p, u_ringN) / dn;
+				if (k > 0.0) {
+					float r = length(p + k * u_sun);
+					if (r > u_ringR.x && r < u_ringR.y)
+						shade = max(shade, 0.85 * textureLod(u_ringTex, vec2((r - u_ringR.x) / (u_ringR.y - u_ringR.x), 0.5), 0.0).a);
+				}
+			}
+		}
+		float direct = clamp(dl * 1.1, 0.0, 1.0) * 0.94;
+		float l = mix(direct * (1.0 - shade) + 0.05, 1.0, u_emiss);
+		vec3 c = t.rgb * l + t.rgb * u_umbra * (direct * shade);
 		// 夜面の街明かり（地球のみ u_hasNight=1）：昼夜境界 dl=0 の外側で立ち上げて加算＝影に入った側に灯が点る。
 		// 加算なのは街明かり自体が光源だから（反射光の l を掛けない）。境界の幅 0.08→-0.10 は薄明の帯の見立て
 		c += texture(u_night, v_uv).rgb * (smoothstep(0.08, -0.10, dl) * u_hasNight);
@@ -145,23 +191,28 @@ const sphereP = prog(`
 // 土星の環（平板アニュラス・radial UV・両面）。透明部は discard＝深度も正しく抜く
 const ringP = prog(`
 	in vec2 a_pos; in float a_u;
-	uniform mat3 u_model; uniform vec3 u_trans; uniform mat4 u_view, u_proj; uniform float u_logC;
-	out float v_u;
+	uniform mat3 u_model; uniform vec3 u_trans; uniform mat4 u_view, u_proj; uniform float u_logC; uniform float u_R;
+	out float v_u; out vec3 v_q;
 	void main() {
 		vec3 w = u_model * vec3(a_pos, 0.0) + u_trans;
-		v_u = a_u;
+		v_u = a_u; v_q = (u_model * vec3(a_pos, 0.0)) / u_R;   // 環の上の点（惑星中心から・惑星半径単位・世界向き）
 		vec4 P = u_proj * (u_view * vec4(w, 1.0));
 		${LOGZ}
 		gl_Position = P;
 	}`, `
-	uniform sampler2D u_tex; uniform float u_light;
-	in float v_u; out vec4 o;
+	uniform sampler2D u_tex; uniform float u_light; uniform vec3 u_sun;
+	in float v_u; in vec3 v_q; out vec4 o;
 	void main() {
 		vec4 c = texture(u_tex, vec2(v_u, 0.5));
 		if (c.a < 0.05) discard;
-		o = vec4(c.rgb * u_light, c.a);
+		// 本体の影：この点から太陽へ向かう線が惑星（半径 1 の球）に当たるか＝線と中心の最短距離 < 1 かつ 惑星が太陽側。
+		// 土星の扁平（極が 10% 短い）は無視＝影の縁が緯度方向に少し甘いだけ
+		float along = dot(v_q, u_sun);
+		float sh = along < 0.0 ? 1.0 - smoothstep(0.97, 1.03, length(v_q - along * u_sun)) : 0.0;
+		o = vec4(c.rgb * u_light * (1.0 - 0.93 * sh), c.a);
 	}`);
-// 軌道線（絶対AU頂点→シェーダ内でカメラ相対化）
+// 軌道線（頂点＝基準点からの相対 AU→シェーダ内でカメラ相対化）。惑星の軌道＝基準は太陽（原点）。
+// 月・衛星の軌道＝基準は親天体＝u_camPos に「カメラ−親」を f64 で引いてから渡す（親と一緒に動く）
 const lineP = prog(`
 	in vec3 a_pos;
 	uniform vec3 u_camPos; uniform mat4 u_view, u_proj; uniform float u_logC;
@@ -270,65 +321,82 @@ function ensureOrbit(id, date) {
 	o.T = T;
 	return o;
 }
+// 月の軌道線：形は 6 時間キャッシュ。頂点は「焼いた時刻の地球」からの相対＝描く時は今の地球に付いて動く。
+// （旧：絶対座標のまま 6 時間持っていた＝地球は 6 時間で 65 万 km 進む＝早回しで軌道の輪が地球から外れ、6 時間ごとに戻った）
 let moonOrbit = null, moonOrbitT = -1;
 function ensureMoonOrbit(date) {
-	if (moonOrbit && Math.abs(date.getTime() - moonOrbitT) < 216e5) return moonOrbit;   // 6時間キャッシュ
-	const pts = moonOrbitPoints(date);
+	if (moonOrbit && Math.abs(date.getTime() - moonOrbitT) < 216e5) return moonOrbit;
+	const pts = moonOrbitPoints(date), e = bodyPos("earth", date);
+	for (let i = 0; i < pts.length; i += 3) { pts[i] -= e[0]; pts[i + 1] -= e[1]; pts[i + 2] -= e[2]; }
 	if (!moonOrbit) moonOrbit = lineVao(pts);
 	else { gl.bindBuffer(gl.ARRAY_BUFFER, moonOrbit.b); gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW); }
 	moonOrbitT = date.getTime();
 	return moonOrbit;
 }
+// 衛星の軌道線（円）：親からの相対。起点＝衛星の今の位置（衛星は常に折れ線の頂点）＝描くたびに焼く（192 点×4＝木星の傍でだけ）
+const satOrbit = {};
+function ensureSatOrbit(b, date) {
+	const pts = satOrbitPoints(b.id, date), c = P[b.parent];
+	for (let i = 0; i < pts.length; i += 3) { pts[i] -= c[0]; pts[i + 1] -= c[1]; pts[i + 2] -= c[2]; }
+	let o = satOrbit[b.id];
+	if (!o) o = satOrbit[b.id] = lineVao(pts);
+	else { gl.bindBuffer(gl.ARRAY_BUFFER, o.b); gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW); }
+	return o;
+}
 
-// ---- テクスチャ（遅延ロード：まず1pxの天体色→画像が来たら差し替え） ----
+// ---- テクスチャ：まず 1px の天体色。絵は「見える大きさになった時」か「訪ねると決めた時」に取りに行く ----
+// 全景では惑星はどれも 2.6px の点＝絵は 1 画素も見えていない。旧版は起動時に 14 枚 5.8MB を全部取っていた
+// （実測 2026-09-18）＝さりげなく読む（autoPlateau と同じ型）。環の α だけは起動時（12KB・クランプ中も環は描く）。
+// 衛星は絵を持たない＝天体色の球のまま（tex なし）
 function makeTex(color) {
 	const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
 	gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
 		new Uint8Array([color[0] * 255, color[1] * 255, color[2] * 255, 255]));
 	return t;
 }
-const textures = {};
-for (const b of BODIES) {
-	textures[b.id] = makeTex(b.color);
+function loadInto(tex, src, clampS) {
 	const img = new Image();
 	img.onload = () => {
-		gl.bindTexture(gl.TEXTURE_2D, textures[b.id]);
+		if (gl.isContextLost()) return;
+		gl.bindTexture(gl.TEXTURE_2D, tex);
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
 		gl.generateMipmap(gl.TEXTURE_2D);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+		if (clampS) gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 		needsDraw = true;
 	};
-	img.src = "tex/" + b.tex;
-	if (b.ring) {
-		b.ringTex = makeTex([0.8, 0.75, 0.65]);
-		b.ringMesh = ringMesh(b.ring.inner, b.ring.outer);
-		const ri = new Image();
-		ri.onload = () => {
-			gl.bindTexture(gl.TEXTURE_2D, b.ringTex);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, ri);
-			gl.generateMipmap(gl.TEXTURE_2D);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-			needsDraw = true;
-		};
-		ri.src = "tex/" + b.ring.tex;
-	}
+	img.src = "tex/" + src;
+}
+const textures = {}, texAsked = new Set();
+const TEX_PX = 3;   // 見かけの半径がこの px を超えたら絵を取りに行く（クランプの点 2.6px より上＝点の間は取らない）
+function requestTex(b) {
+	if (!b.tex || texAsked.has(b.id)) return;
+	texAsked.add(b.id);
+	loadInto(textures[b.id], b.tex);
 	// 地球の追加2枚（雲殻・夜の街明かり）。届くまで殻は描かず・街明かりは消灯＝読み込み途中でも嘘にならない
 	for (const [key, slot] of [["clouds", "cloudTex"], ["night", "nightTex"]]) {
 		if (!b[key]) continue;
-		const im = new Image();
-		im.onload = () => {
-			b[slot] = gl.createTexture();
-			gl.bindTexture(gl.TEXTURE_2D, b[slot]);
-			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, im);
+		const tex = gl.createTexture(), img = new Image();
+		img.onload = () => {
+			if (gl.isContextLost()) return;
+			gl.bindTexture(gl.TEXTURE_2D, tex);
+			gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
 			gl.generateMipmap(gl.TEXTURE_2D);
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
-			needsDraw = true;
+			b[slot] = tex; needsDraw = true;
 		};
-		im.src = "tex/" + b[key];
+		img.src = "tex/" + b[key];
 	}
 }
-const blackTex = makeTex([0, 0, 0]);   // ユニット1の既定＝街明かりを持たない天体でも未バインドを踏まない
+for (const b of ALL) {
+	textures[b.id] = makeTex(b.color);
+	if (b.ring) {
+		b.ringTex = makeTex([0.8, 0.75, 0.65]);
+		b.ringMesh = ringMesh(b.ring.inner, b.ring.outer);
+		loadInto(b.ringTex, b.ring.tex, true);
+	}
+}
+const blackTex = makeTex([0, 0, 0]);   // ユニット1（街明かり）・ユニット2（環の影）の既定＝持たない天体でも未バインドを踏まない
 
 // ---- 恒星：bucket の stars.6（RA/Dec・等級・B-V）→黄道系単位ベクトル＋色＋点径（ortho-japan と同式） ----
 let starVao = null, starN = 0;
@@ -371,11 +439,13 @@ function resize() {
 	needsDraw = true;
 }
 new ResizeObserver(resize).observe(canvas);
-const viewMat4 = () => new Float32Array([
-	viewR[0][0], viewR[1][0], viewR[2][0], 0,
-	viewR[0][1], viewR[1][1], viewR[2][1], 0,
-	viewR[0][2], viewR[1][2], viewR[2][2], 0,
-	0, 0, 0, 1]);
+// 行列は使い回す（旧：毎フレーム天体の数だけ new Float32Array＝60fps で GC の種）
+const VIEW = new Float32Array(16), M3 = new Float32Array(9);
+const viewMat4 = () => {
+	VIEW.set([viewR[0][0], viewR[1][0], viewR[2][0], 0, viewR[0][1], viewR[1][1], viewR[2][1], 0, viewR[0][2], viewR[1][2], viewR[2][2], 0, 0, 0, 0, 1]);
+	return VIEW;
+};
+const model3 = (M, k) => { M3.set([M[0][0] * k, M[1][0] * k, M[2][0] * k, M[0][1] * k, M[1][1] * k, M[2][1] * k, M[0][2] * k, M[1][2] * k, M[2][2] * k]); return M3; };
 // 世界→スクリーン（px）。視野外/背後は null
 function project(pw) {
 	const r = v3.sub(pw, camPos);
@@ -399,12 +469,13 @@ for (const b of BODIES) {
 }
 const labels = {};
 const labelsEl = document.getElementById("labels");
-for (const b of BODIES) {
-	const el = document.createElement("div");
-	el.className = "bl"; el.textContent = bName(b);
+for (const b of ALL) {
+	const el = document.createElement("button");   // button＝Tab で辿れて Enter で訪ねられる（旧 div は指とマウス専用だった）
+	el.className = "bl"; el.textContent = bName(b); el.title = t("Visit $1", bName(b));
 	el.style.color = `rgb(${b.color.map(c => Math.round(160 + c * 95)).join(",")})`;
 	el.onclick = () => flyTo(b.id);
 	labelsEl.appendChild(el); labels[b.id] = el;
+	el._w = el.offsetWidth;   // 団子よけの幅＝実測（旧 64px 決め打ち＝"ดาวพฤหัสบดี" や "Sao Thiên Vương" で重なりを見落とした）
 }
 const dtEl = document.getElementById("dt"), speedEl = document.getElementById("speed");
 const fmtLocal = t => {   // datetime-local 用（ローカル時刻・分まで）
@@ -441,33 +512,45 @@ const bottomEl = document.getElementById("bottom");
 const syncBottomH = () => document.documentElement.style.setProperty("--bottomH", bottomEl.offsetHeight + "px");
 new ResizeObserver(syncBottomH).observe(bottomEl);
 syncBottomH();
+let infoShown = "";
 function updateInfo(date) {
-	const b = byId[cam.focus];
+	const b = any[cam.focus];
+	let html;
 	if (b.id === "sun") {
-		infoEl.innerHTML = `<b>${bName(b)}</b>`
-			+ [t("Radius $1 km", nfmt(695700)), t("Spectral type G2V"), t("Rotation ≈ 25 days (equator)")]
-				.map(r => `<span>${r}</span>`).join("");
-		return;
+		html = `<b>${bName(b)}</b>` + [t("Radius $1 km", nfmt(695700)), t("Spectral type G2V"), t("Rotation ≈ 25 days (equator)")]
+			.map(r => `<span>${r}</span>`).join("");
+	} else {
+		const p = P[b.id] || posOf(b.id, date), rSun = v3.len(p);
+		const e = P.earth || bodyPos("earth", date), rE = v3.len(v3.sub(p, e));
+		const lm = rE * LIGHT_MIN_PER_AU;
+		// 数と単位はキーの中で繋ぐ（"Radius " + n + " km" の足し算は言語で語順が壊れる＝語順の掟）。
+		// 距離の副表記だけ刻みを言語で替える：百万km／億km（億で読む言語＝MYRIAD）＝それぞれの読み癖に合わせる
+		const light = lm < 1.5 ? t("$1 s", nfmt(lm * 60, 0)) : t("$1 min", nfmt(lm, 1));
+		const rot = b.rotHours < 48 ? t("$1 h", nfmt(b.rotHours, 1)) : t("$1 days", nfmt(b.rotHours / 24, 1));
+		const orb = b.periodDays < 1000 ? t("$1 days", nfmt(b.periodDays, b.periodDays < 30 ? 2 : 1)) : t("$1 years", nfmt(b.periodDays / 365.25, 1));
+		const far = MYRIAD.has(LANG) ? t("$1 hundred million km", nfmt(rSun * AU_KM / 1e8, 2))
+			: t("$1 million km", nfmt(Math.round(rSun * AU_KM / 1e6)));
+		html = `<b>${bName(b)}</b>` + [
+			b.note ? t(b.note) : "",
+			b.parent ? t("Moon of $1", bName(any[b.parent])) : "",
+			t("Radius $1 km", nfmt(b.radiusKm)),
+			b.parent ? t("From $1: $2 km", bName(any[b.parent]), nfmt(Math.round(b.aKm))) : "",
+			t("From Sun $1 AU ($2)", nfmt(rSun, 3), far),
+			b.id !== "earth" ? t("From Earth $1 AU · light $2", nfmt(rE, 3), light) : "",
+			b.rot.Wd < 0 ? t("Rotation $1 (retrograde)", rot) : t("Rotation $1", rot),
+			b.periodDays ? t("Orbit $1", orb) : "",
+		].filter(Boolean).map(r => `<span>${r}</span>`).join("");
 	}
-	const p = bodyPos(b.id, date), rSun = v3.len(p);
-	const e = bodyPos("earth", date), rE = v3.len(v3.sub(p, e));
-	const lm = rE * LIGHT_MIN_PER_AU;
-	// 数と単位はキーの中で繋ぐ（"Radius " + n + " km" の足し算は言語で語順が壊れる＝語順の掟）。
-	// 距離の副表記だけ刻みを言語で替える：百万km／億km（億で読む言語＝MYRIAD）＝それぞれの読み癖に合わせる
-	const light = lm < 1.5 ? t("$1 s", nfmt(lm * 60, 0)) : t("$1 min", nfmt(lm, 1));
-	const rot = b.rotHours < 48 ? t("$1 h", nfmt(b.rotHours, 1)) : t("$1 days", nfmt(b.rotHours / 24, 1));
-	const orb = b.periodDays < 1000 ? t("$1 days", nfmt(b.periodDays, 1)) : t("$1 years", nfmt(b.periodDays / 365.25, 1));
-	const far = MYRIAD.has(LANG) ? t("$1 hundred million km", nfmt(rSun * AU_KM / 1e8, 2))
-		: t("$1 million km", nfmt(Math.round(rSun * AU_KM / 1e6)));
-	const rows = [
-		b.note ? t(b.note) : "",
-		t("Radius $1 km", nfmt(b.radiusKm)),
-		t("From Sun $1 AU ($2)", nfmt(rSun, 3), far),
-		b.id !== "earth" ? t("From Earth $1 AU · light $2", nfmt(rE, 3), light) : "",
-		b.rot.Wd < 0 ? t("Rotation $1 (retrograde)", rot) : t("Rotation $1", rot),
-		b.periodDays ? t("Orbit $1", orb) : "",
-	].filter(Boolean);
-	infoEl.innerHTML = `<b>${bName(b)}</b>` + rows.map(r => `<span>${r}</span>`).join("");
+	if (html !== infoShown) infoEl.innerHTML = infoShown = html;   // 旧：毎フレーム innerHTML（実測 60 回/秒）
+}
+// 時刻欄と情報パネル＝描画とは別の拍（最大 4 回/秒・中身が変わった時だけ DOM に触る）
+let lastUi = 0, uiDirty = true, dtShown = "";
+function uiTick(now, date) {
+	if (!uiDirty && now - lastUi < 250) return;
+	lastUi = now; uiDirty = false;
+	const v = fmtLocal(simTime);
+	if (!dtEditing && v !== dtShown) dtEl.value = dtShown = v;
+	updateInfo(date);
 }
 
 // ---- URL ⇄ 状態（applyView 一本の流儀：読み＝起動時1回・書き＝操作後debounce） ----
@@ -483,12 +566,13 @@ function writeHash() {
 (function readHash() {
 	const p = new URLSearchParams(location.hash.slice(1));
 	if (p.get("t")) { const t = new Date(p.get("t")).getTime(); if (Number.isFinite(t)) simTime = Math.min(T_MAX, Math.max(T_MIN, t)); }
-	if (p.get("f") && byId[p.get("f")]) cam.focus = p.get("f");
+	if (p.get("f") && any[p.get("f")]) cam.focus = p.get("f");
 	if (p.get("d")) cam.dist = Math.max(1e-6, +p.get("d") || OVERVIEW_DIST);
 	if (p.get("yaw")) cam.yaw = +p.get("yaw") * D2R;
 	if (p.get("pit")) cam.pitch = Math.max(-88, Math.min(88, +p.get("pit"))) * D2R;
 	if (p.get("s") !== null && p.get("s") !== "") setSpeed(+p.get("s"));
-	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === cam.focus));
+	const chipId = satById[cam.focus] ? satById[cam.focus].parent : cam.focus;
+	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
 })();
 
 // ---- 入力：1本指/マウス=周回・ホイール=対数ドリー・2本指=ピンチ（重心で周回＋間隔でドリー）・タップ=天体訪問 ----
@@ -505,7 +589,7 @@ let tap = null;                // 単指タップ候補（2本目が触れた/6p
 // tanθ=t の見かけ半角に対し d = R·√(1+t²)/t（球の接線から）。焦点天体ごと・画面比ごとに毎回引き直す
 const focusMinDist = () => {
 	const t = 0.95 * Math.tan(cam.fovy / 2) * Math.min(1, canvas.clientWidth / canvas.clientHeight);
-	return byId[cam.focus].radiusAU * Math.sqrt(1 + t * t) / t + 1e-8;
+	return any[cam.focus].radiusAU * Math.sqrt(1 + t * t) / t + 1e-8;
 };
 const setDist = d => { cam.dist = Math.max(focusMinDist(), Math.min(120, d)); if (flight) flight.toD = cam.dist; needsDraw = true; };
 const orbitBy = (dx, dy) => {
@@ -544,8 +628,9 @@ const liftPointer = e => {
 	if (pts.size) { tap = null; return; }         // まだ指が残っている＝タップではない
 	if (tap) {   // タップ／クリック＝一番近い天体ヒットで訪問
 		let best = null, bestD = 18;
-		for (const b of BODIES) {
-			const s = project(bodyPos(b.id, simDate())); if (!s) continue;
+		for (const b of ALL) {
+			if (b.hidden) continue;                                  // 親の点に埋まっている月・衛星は当てない
+			const s = project(P[b.id] || posOf(b.id, simDate())); if (!s) continue;
 			const rPx = b.radiusAU / s.dist * pxPerRad / (Math.min(2, devicePixelRatio || 1));
 			const d = Math.hypot(s.x - tap.x, s.y - tap.y) - Math.max(0, rPx);
 			if (d < bestD) { bestD = d; best = b.id; }
@@ -563,32 +648,83 @@ canvas.addEventListener("wheel", e => {
 	writeHash();
 }, { passive: false });
 
+// ---- キーボード：矢印＝周回・+/−＝寄る/引く・Space＝再生/停止・, .＝遅く/速く・Home＝太陽系の全景 ----
+// 入力欄（日時）に居る時は奪わない。ボタンにフォーカスがある時の Space/Enter はそのボタンのもの
+window.addEventListener("keydown", e => {
+	if (e.ctrlKey || e.metaKey || e.altKey) return;
+	const tag = document.activeElement?.tagName;
+	if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+	const step = e.shiftKey ? 80 : 24;
+	const act = {
+		ArrowLeft: () => orbitBy(step, 0), ArrowRight: () => orbitBy(-step, 0), ArrowUp: () => orbitBy(0, step), ArrowDown: () => orbitBy(0, -step),
+		"+": () => setDist(cam.dist * 0.85), "=": () => setDist(cam.dist * 0.85), "-": () => setDist(cam.dist / 0.85),
+		",": () => setSpeed(speedL - 1), ".": () => setSpeed(speedL + 1), Home: () => flyTo("sun"),
+		" ": tag === "BUTTON" ? null : () => setSpeed(speedL === 0 ? lastPlayL : 0),
+	}[e.key];
+	if (!act) return;
+	e.preventDefault(); act(); writeHash();
+});
+
+// ---- GL コンテキスト消失：iOS でタブを裏へ回して戻ると起きる。握りつぶさずに受け、戻ったら読み直す ----
+// 視点・時刻・速度は URL（writeHash）に居る＝読み直しで同じ場面へ帰る。資源を全部作り直す道より短く確実
+let glLost = false;
+canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); glLost = true; });
+canvas.addEventListener("webglcontextrestored", () => location.reload());
+
 // ---- 描画 ----
 let needsDraw = true, lastFrame = performance.now();
 const MIN_PX = 2.6;   // 最小ピクセル半径クランプ（実スケールのまま可視性の下駄）
+const SAT_NEAR_AU = 0.12;   // 衛星が現れる距離（カメラ〜親）。カリスト軌道半径 0.0126AU の約 10 倍＝木星系が画面に収まり始める頃
 gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-function setCommon(P, view) {
-	gl.uniformMatrix4fv(P.u.u_view, false, view); gl.uniformMatrix4fv(P.u.u_proj, false, proj);
-	gl.uniform1f(P.u.u_logC, logC);
+function setCommon(P_, view) {
+	gl.uniformMatrix4fv(P_.u.u_view, false, view); gl.uniformMatrix4fv(P_.u.u_proj, false, proj);
+	gl.uniform1f(P_.u.u_logC, logC);
 }
-function frame() {
+// 影を落とし合う組：[受ける側] → 遮る側。月食の本影だけ赤銅色が残る（地球の大気が曲げた夕焼けの光）
+const OCCLUDERS = { earth: ["moon"], moon: ["earth"], jupiter: SATELLITES.map(b => b.id), ...Object.fromEntries(SATELLITES.map(b => [b.id, [b.parent]])) };
+const UMBRA = { moon: [0.30, 0.09, 0.04] };
+const OCC = new Float32Array(16);
+
+// 「時が進んだだけ」の時に描くかどうか：最後に描いた絵から、画面の上で何かが MOVE_PX 以上動いたか。
+// 旧版は速度が 0 でない限り毎フレーム全部描いていた（実時間の放置で 60 回/秒・実測 2026-09-18）。実時間では
+// 惑星は 1 秒に 1px も動かない＝見た目は何も変わらないまま電池だけ減っていた。動きの出所は二つ：
+//   天体の画面上の移動（公転・カメラが焦点天体を追う分も含む）／自転による表面の流れ（角度差×見かけの半径）
+// 入力・飛行・絵の到着は needsDraw が別に立てる＝この判定を通らない。
+const MOVE_PX = 0.3;
+const drawn = {};   // id → { x, y, t }＝最後に描いた時の画面位置（見えていなければ x=null）と時刻
+function movedSinceDraw() {
+	const dpr = Math.min(2, devicePixelRatio || 1), half = Math.hypot(canvas.clientWidth, canvas.clientHeight) / 2;
+	for (const b of ALL) {
+		const k = drawn[b.id], s = project(P[b.id]);
+		if (!k) return true;
+		if (!s !== (k.x === null)) return true;                    // 視野への出入り
+		if (!s) continue;
+		if (Math.hypot(s.x - k.x, s.y - k.y) >= MOVE_PX) return true;
+		const rPx = Math.min(half, b.radiusAU / s.dist * pxPerRad / dpr);
+		if (rPx > 1 && Math.abs(b.rot.Wd * D2R * (simTime - k.t) / 864e5) * rPx >= MOVE_PX) return true;
+	}
+	return false;
+}
+
+function frame(now) {
 	requestAnimationFrame(frame);
-	const now = performance.now(), dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+	const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
+	if (glLost) return;
 	const sp = Math.sign(speedL) * SPEEDS[Math.abs(speedL)].v;
 	if (sp) {
 		simTime += sp * dt * 1000;
 		if (simTime <= T_MIN || simTime >= T_MAX) { simTime = Math.min(T_MAX, Math.max(T_MIN, simTime)); setSpeed(0); }
-		needsDraw = true;
 	}
-	if (flight) needsDraw = true;
-	if (!needsDraw || !proj) return;
-	needsDraw = false;
+	if (!sp && !needsDraw && !flight) return;                      // 停止中で何も起きていない＝位置すら引かない
+	if (!proj) return;
 	const date = simDate();
+	for (const b of ALL) P[b.id] = posOf(b.id, date);              // 位置はここで一度だけ（f64）
 	updateCamera(date);
+	uiTick(now, date);
+	if (!needsDraw && !flight && !movedSinceDraw()) return;
+	needsDraw = false;
 	const view = viewMat4();
-	if (!dtEditing) dtEl.value = fmtLocal(simTime);
-	updateInfo(date);
 	gl.clearColor(0.012, 0.016, 0.038, 1);
 	gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
@@ -603,43 +739,71 @@ function frame() {
 	// 2) 天体球（+土星の環）。位置はCPUでカメラ相対化（RTE）・遠い天体は最小px径に半径を持ち上げ
 	const dpr = Math.min(2, devicePixelRatio || 1);
 	const screens = {};
+	for (const b of ALL) { screens[b.id] = project(P[b.id]); drawn[b.id] = { x: screens[b.id] ? screens[b.id].x : null, y: screens[b.id] ? screens[b.id].y : 0, t: simTime }; }
 	gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
 	gl.useProgram(sphereP.p); setCommon(sphereP, view);
-	// ユニット0＝地表テクスチャ（天体ごとに差し替え）、ユニット1＝夜の街明かり（地球の1枚を1フレーム1回だけ結ぶ）
-	gl.uniform1i(sphereP.u.u_tex, 0); gl.uniform1i(sphereP.u.u_night, 1);
+	// ユニット0＝地表テクスチャ（天体ごとに差し替え）、ユニット1＝夜の街明かり（地球の1枚）、ユニット2＝環の α（環の影用・土星の時だけ差し替え）
+	gl.uniform1i(sphereP.u.u_tex, 0); gl.uniform1i(sphereP.u.u_night, 1); gl.uniform1i(sphereP.u.u_ringTex, 2);
 	gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, byId.earth.nightTex || blackTex);
+	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, blackTex);
 	gl.activeTexture(gl.TEXTURE0);
-	for (const b of BODIES) {
-		const p = bodyPos(b.id, date);
-		screens[b.id] = project(p);
+	for (const b of ALL) {
+		const p = P[b.id];
 		const rel = v3.sub(p, camPos), dist = v3.len(rel);
 		const minR = (b.id === "sun" ? 4 : MIN_PX) * dist / pxPerRad * dpr;
 		const drawR = Math.max(b.radiusAU, minR);
 		b.clamped = drawR > b.radiusAU * 1.001;
-		// 月：クランプ表示で地球の点に埋まる間（画面上8px未満）は描かない＝二重点のちらつき回避
-		if (b.id === "moon" && b.clamped && screens.earth && screens.moon &&
-			Math.hypot(screens.earth.x - screens.moon.x, screens.earth.y - screens.moon.y) < 8) { b.hidden = true; continue; }
+		// 月・衛星：クランプ表示で親の点に埋まる間（画面上8px未満）は描かない＝二重点のちらつき回避。
+		// 衛星はさらに、カメラが親の傍（SAT_NEAR_AU）に来るまで出さない＝全景は惑星だけ（引き算）
+		const par = parentOf(b);
 		b.hidden = false;
-		const M = orientation(b.id, date), s = drawR;
-		gl.uniformMatrix3fv(sphereP.u.u_model, false, new Float32Array([
-			M[0][0] * s, M[1][0] * s, M[2][0] * s, M[0][1] * s, M[1][1] * s, M[2][1] * s, M[0][2] * s, M[1][2] * s, M[2][2] * s]));
+		if (par) {
+			const sp_ = screens[par], sb = screens[b.id];
+			if (b.parent && v3.len(v3.sub(P[par], camPos)) > SAT_NEAR_AU) b.hidden = true;
+			else if (b.clamped && sp_ && sb && Math.hypot(sp_.x - sb.x, sp_.y - sb.y) < 8) b.hidden = true;
+		}
+		if (b.hidden) continue;
+		// 見える大きさになった＝絵を取りに行く。太陽は 8px から＝地球の距離で 5px あるが、グローに埋もれて絵は見えない（822KB を無駄に取らない）
+		if (b.radiusAU / dist * pxPerRad / dpr > (b.emissive ? 8 : TEX_PX)) requestTex(b);
+		const M = orientation(b.id, date);
+		gl.uniformMatrix3fv(sphereP.u.u_model, false, model3(M, drawR));
 		gl.uniform3f(sphereP.u.u_trans, rel[0], rel[1], rel[2]);
-		const sd = b.id === "sun" ? [0, 0, 1] : [-p[0] / v3.len(p), -p[1] / v3.len(p), -p[2] / v3.len(p)];
+		const pl = v3.len(p);
+		const sd = b.id === "sun" ? [0, 0, 1] : [-p[0] / pl, -p[1] / pl, -p[2] / pl];
 		gl.uniform3f(sphereP.u.u_sun, sd[0], sd[1], sd[2]);
 		gl.uniform1f(sphereP.u.u_emiss, b.emissive ? 1 : 0);
 		gl.uniform1f(sphereP.u.u_hasNight, b.nightTex ? 1 : 0);   // 街明かりを持つのは地球だけ
+		// 影（食・環）：実寸で描いている時だけ（クランプ中の点は寸法が嘘＝影を載せない）。単位＝この天体の半径
+		const occ = !b.clamped && !b.emissive && OCCLUDERS[b.id] || [];
+		let nOcc = 0;
+		for (const oid of occ) {
+			const q = P[oid];
+			OCC.set([(q[0] - p[0]) / b.radiusAU, (q[1] - p[1]) / b.radiusAU, (q[2] - p[2]) / b.radiusAU, any[oid].radiusAU / b.radiusAU], nOcc * 4);
+			nOcc++;
+		}
+		gl.uniform1i(sphereP.u.u_nOcc, nOcc);
+		if (nOcc) {
+			gl.uniform4fv(sphereP.u.u_occ, OCC);
+			gl.uniform1f(sphereP.u.u_sunAng, byId.sun.radiusAU / pl);
+			const um = UMBRA[b.id] || [0, 0, 0]; gl.uniform3f(sphereP.u.u_umbra, um[0], um[1], um[2]);
+		}
+		const ringShadow = b.ring && !b.clamped;
+		gl.uniform1f(sphereP.u.u_hasRing, ringShadow ? 1 : 0);
+		if (ringShadow) {
+			gl.uniform3f(sphereP.u.u_ringN, M[0][2], M[1][2], M[2][2]);
+			gl.uniform2f(sphereP.u.u_ringR, b.ring.inner, b.ring.outer);
+			gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, b.ringTex); gl.activeTexture(gl.TEXTURE0);
+		}
 		gl.bindTexture(gl.TEXTURE_2D, textures[b.id]);
 		gl.bindVertexArray(sphere.vao); gl.drawElements(gl.TRIANGLES, sphere.n, gl.UNSIGNED_SHORT, 0);
 		// 雲殻（地球のみ）＝地表の直後に、深度テストを切って重ねる。
 		// 深度で競わせない理由：対数深度は far=200AU に合わせて刻まれており、地球に寄った時(w≈2.5e-4 AU)の
 		// 1目盛(1.19e-7 NDC)に対し、殻の浮き 0.25%(16km) が生む差は 4e-8＝1/3目盛しかない＝z-fightingで
-        // ちらつく。殻を3%(190km)浮かせれば勝てるが、それは見た目が嘘になる。背面カリング済み＝見えている
+		// ちらつく。殻を3%(190km)浮かせれば勝てるが、それは見た目が嘘になる。背面カリング済み＝見えている
 		// 殻の面は必ず地表より手前だと幾何学的に確定しているので、順序だけで正しい（深度も書かない）。
-		// 月が地球の手前に来る場合も BODIES 順で月が後＝月が雲の上に正しく描かれる。
+		// 月が地球の手前に来る場合も BODIES 順で月が後＝月が雲の上に正しく描かれる。月影は殻にも同じ式で落ちる
 		if (b.cloudTex && !b.clamped) {
-			const cs = drawR * 1.0025;   // ≒16km上（実際の雲の高さ。見た目のためだけの浮きではない）
-			gl.uniformMatrix3fv(sphereP.u.u_model, false, new Float32Array([
-				M[0][0] * cs, M[1][0] * cs, M[2][0] * cs, M[0][1] * cs, M[1][1] * cs, M[2][1] * cs, M[0][2] * cs, M[1][2] * cs, M[2][2] * cs]));
+			gl.uniformMatrix3fv(sphereP.u.u_model, false, model3(M, drawR * 1.0025));   // ≒16km上（実際の雲の高さ。見た目のためだけの浮きではない）
 			gl.uniform1f(sphereP.u.u_hasNight, 0);   // 街明かりは地表の一枚だけ＝殻には乗せない（雲は明かりを遮る側）
 			gl.uniform1f(sphereP.u.u_cloud, 1);
 			gl.bindTexture(gl.TEXTURE_2D, b.cloudTex);
@@ -648,17 +812,18 @@ function frame() {
 			gl.enable(gl.DEPTH_TEST);
 			gl.uniform1f(sphereP.u.u_cloud, 0);
 		}
-		b._rel = rel; b._drawR = drawR; b._sun = sd;
+		b._rel = rel; b._drawR = drawR; b._sun = sd; b._M = M;
 	}
 	// 環は球の後（半透明・両面）。クランプ中も環ごと拡大＝土星の見た目を保つ
 	gl.disable(gl.CULL_FACE);
 	for (const b of BODIES) {
 		if (!b.ring || b.hidden) continue;
 		gl.useProgram(ringP.p); setCommon(ringP, view);
-		const M = orientation(b.id, date), s = b._drawR;
-		gl.uniformMatrix3fv(ringP.u.u_model, false, new Float32Array([
-			M[0][0] * s, M[1][0] * s, M[2][0] * s, M[0][1] * s, M[1][1] * s, M[2][1] * s, M[0][2] * s, M[1][2] * s, M[2][2] * s]));
+		const M = b._M, s = b._drawR;
+		gl.uniformMatrix3fv(ringP.u.u_model, false, model3(M, s));
+		gl.uniform1f(ringP.u.u_R, s);
 		gl.uniform3f(ringP.u.u_trans, b._rel[0], b._rel[1], b._rel[2]);
+		gl.uniform3f(ringP.u.u_sun, b._sun[0], b._sun[1], b._sun[2]);
 		const n = [M[0][2], M[1][2], M[2][2]];
 		gl.uniform1f(ringP.u.u_light, 0.35 + 0.65 * Math.abs(n[0] * b._sun[0] + n[1] * b._sun[1] + n[2] * b._sun[2]));
 		gl.uniform1i(ringP.u.u_tex, 0); gl.bindTexture(gl.TEXTURE_2D, b.ringTex);
@@ -667,7 +832,7 @@ function frame() {
 
 	// 3) 軌道線（深度テストのみ＝手前の球に隠れる）。惑星に寄ったら空を横切る他軌道は退場
 	//    （飛行中の重い層抑制と同じ引き算＝主役の惑星と星空だけ残す）。焦点天体の半径比で判定
-	const lineFade = Math.min(1, Math.max(0, (cam.dist / byId[cam.focus].radiusAU - 12) / 48));
+	const lineFade = Math.min(1, Math.max(0, (cam.dist / any[cam.focus].radiusAU - 12) / 48));
 	if (lineFade > 0.01) {
 		gl.depthMask(false);
 		gl.useProgram(lineP.p); setCommon(lineP, view);
@@ -678,12 +843,15 @@ function frame() {
 			gl.uniform4f(lineP.u.u_color, b.color[0], b.color[1], b.color[2], 0.32 * lineFade);
 			gl.bindVertexArray(o.vao); gl.drawArrays(gl.LINE_LOOP, 0, o.n);
 		}
-		const eDist = v3.len(v3.sub(bodyPos("earth", date), camPos));
-		if (eDist < 0.25) {   // 月軌道は地球に寄った時だけ（全景ではただの汚れ）
-			const o = ensureMoonOrbit(date);
-			gl.uniform4f(lineP.u.u_color, 0.78, 0.78, 0.78, 0.3 * lineFade);
+		// 月・衛星の軌道＝親に寄った時だけ（全景ではただの汚れ）。頂点は親からの相対＝カメラ−親を f64 で引いて渡す
+		const relLine = (o, parentId, col, a) => {
+			const c = P[parentId];
+			gl.uniform3f(lineP.u.u_camPos, camPos[0] - c[0], camPos[1] - c[1], camPos[2] - c[2]);
+			gl.uniform4f(lineP.u.u_color, col[0], col[1], col[2], a * lineFade);
 			gl.bindVertexArray(o.vao); gl.drawArrays(gl.LINE_LOOP, 0, o.n);
-		}
+		};
+		if (v3.len(v3.sub(P.earth, camPos)) < 0.25) relLine(ensureMoonOrbit(date), "earth", [0.78, 0.78, 0.78], 0.3);
+		for (const b of SATELLITES) if (v3.len(v3.sub(P[b.parent], camPos)) < SAT_NEAR_AU) relLine(ensureSatOrbit(b, date), b.parent, b.color, 0.3);
 		gl.depthMask(true);
 	}
 
@@ -700,17 +868,19 @@ function frame() {
 	}
 
 	// 5) HTML ラベル（クリック＝訪問）。寄っている天体（画面の1/4超）は引っ込める。
-	//    全景の中心では内惑星のラベルが団子になる＝縦に押し下げて整列（BODIES順＝太陽から優先）
+	//    全景の中心では内惑星のラベルが団子になる＝縦に押し下げて整列（BODIES順＝太陽から優先）。幅は実測（el._w）
 	const placed = [];
-	for (const b of BODIES) {
+	for (const b of ALL) {
 		const el = labels[b.id], s = screens[b.id];
-		if (!s || b.hidden || s.x < -40 || s.x > canvas.clientWidth + 40 || s.y < 0 || s.y > canvas.clientHeight) { el.style.display = "none"; continue; }
+		if (!s || b.hidden || s.x < -40 || s.x > canvas.clientWidth + 40 || s.y < 0 || s.y > canvas.clientHeight) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
 		const rPx = b.radiusAU / s.dist * pxPerRad / dpr;
-		if (rPx > canvas.clientHeight * 0.22) { el.style.display = "none"; continue; }
-		let x = s.x + Math.max(6, rPx * 0.8) + 4, y = s.y - 9;
-		for (let guard = 0; guard < 12 && placed.some(p => Math.abs(p.x - x) < 64 && Math.abs(p.y - y) < 13); guard++) y += 13;
-		placed.push({ x, y });
-		el.style.display = "block";
+		if (rPx > canvas.clientHeight * 0.22) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
+		const w = el._w || 64, off = Math.max(6, rPx * 0.8) + 4;
+		let x = s.x + off, y = s.y - 9;
+		if (x + w > canvas.clientWidth - 4 && s.x - off - w > 4) x = s.x - off - w;   // 右端で切れるなら天体の左へ回す（縦画面の衛星名）
+		for (let guard = 0; guard < 12 && placed.some(q => x < q.x + q.w + 6 && q.x < x + w + 6 && Math.abs(q.y - y) < 13); guard++) y += 13;
+		placed.push({ x, y, w });
+		if (el._on !== true) { el.style.display = "block"; el._on = true; if (!el._w) el._w = el.offsetWidth; }
 		el.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
 	}
 }

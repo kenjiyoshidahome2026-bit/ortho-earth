@@ -9,6 +9,18 @@
 	<meta name="apple-mobile-web-app-title" content="ortho-solar">
 	<title>ortho-solar — the Solar System, heliocentric</title>
 	<meta name="description" content="A real-scale 3D solar system. Planets, the Moon and Pluto on their true orbits — scrub time by year, day and hour, visit each world and spin it. No libraries, no server.">
+	<!-- OGP：SNS 共有カード（japan と同じ型）。og:url / og:image は絶対 URL 必須。画像は public/ogp.jpg（1200×630）＝
+	     実描画から撮る：npm run og（scripts/og-shot.mjs・2032-06 の土星＝環の影と本体の影が両方写る場面） -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="ortho-solar — the Solar System, heliocentric">
+	<meta property="og:description" content="A real-scale 3D solar system in real time. True orbits, eclipse shadows, Saturn's ring shadows, Jupiter's moons. 26 languages. No libraries, no server.">
+	<meta property="og:url" content="https://www.ortho-earth.com/solar/">
+	<meta property="og:image" content="https://www.ortho-earth.com/solar/ogp.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<link rel="canonical" href="https://www.ortho-earth.com/solar/">
 	<style>
 		/* 文言の原本は英語＝キー（訳は i18n/）。見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字 */
 		* { margin: 0; box-sizing: border-box; }
@@ -28,9 +40,12 @@
 		#info b { font-size: 14px; }
 		#info span { font-size: 11px; opacity: .82; }
 		#labels { position: fixed; inset: 0; pointer-events: none; }
-		.bl { position: absolute; top: 0; left: 0; font-size: 11px; letter-spacing: .05em; cursor: pointer;
+		/* 天体ラベル＝button（Tab で辿れる）。見た目は文字だけ＝下の button 一般則（板・枠・余白）を打ち消す */
+		.bl { position: absolute; top: 0; left: 0; font: 11px/1.5 system-ui, "Helvetica Neue", sans-serif; letter-spacing: .05em; cursor: pointer;
+			background: none; border: 0; padding: 0; border-radius: 3px; white-space: nowrap;
 			pointer-events: auto; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.8); will-change: transform; }
-		.bl:hover { text-decoration: underline; }
+		.bl.bl:hover { text-decoration: underline; background: none; }
+		:focus-visible { outline: 2px solid rgba(150,180,255,.9); outline-offset: 2px; }
 		#bottom { position: fixed; left: 0; right: 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
 			display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
 		#chips, #timebar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center;

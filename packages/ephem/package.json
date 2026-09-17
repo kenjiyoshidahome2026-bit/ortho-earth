@@ -8,5 +8,8 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js"
+	},
+	"scripts": {
+		"test": "node tests/t-ephem.mjs"
 	}
 }

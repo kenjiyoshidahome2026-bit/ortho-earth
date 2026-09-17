@@ -105,8 +105,7 @@ function helio(id, T) {
 }
 
 // 月の地心黄道XYZ（AU）：Schlyter 低精度月理論（主要摂動12+5項・誤差<0.3°＝月の視直径以下）。
-// planets.js の moonPosition と同じ級数＝RA/Dec化の手前で止めて XYZ を返す。黄道は「日付の黄道」だが
-// J2000黄道との差（歳差~0.4°/世紀）は可視化には効かない。
+// planets.js の moonPosition と同じ級数＝RA/Dec化の手前で止めて XYZ を返す。黄経は末尾で J2000 黄道へ戻す（歳差 1.397°/世紀）。
 export function moonGeo(date) {
 	const d = jd(date) - 2451543.5;   // Schlyter epoch (2000-01-00.0 TDT)
 	const rev = x => ((x % 360) + 360) % 360;
@@ -132,6 +131,10 @@ export function moonGeo(date) {
 	lat += -0.173 * S(F - 2 * D) - 0.055 * S(M - F - 2 * D) - 0.046 * S(M + F - 2 * D)
 		+ 0.033 * S(F + 2 * D) + 0.017 * S(2 * M + F);
 	r += -0.58 * C(M - 2 * D) - 0.46 * C(2 * D);
+	// 日付の黄道 → J2000 黄道：一般歳差 1.397°/世紀（Schlyter の epoch 補正 3.82394e-5°/日）を黄経から引く。
+	// 惑星は J2000 系＝ここを揃えないと月だけが年 0.014° ずつ流れる（2026 年で 0.37°＝月の視半径超＝
+	// 日食の月影が地表で約 2,500km ずれる。JPL Horizons との照合で発見 2026-09-18・1850 年では 2.1° だった）。
+	lon -= 3.82394e-5 * (jd(date) - 2451545.0);
 	const cl = Math.cos(lat * D2R), s = r * E_RADII_AU;
 	return [cl * Math.cos(lon * D2R) * s, cl * Math.sin(lon * D2R) * s, Math.sin(lat * D2R) * s];
 }
@@ -186,8 +189,7 @@ export function moonOrbitPoints(date, n = 128) {
 	return out;
 }
 
-// ---- IAU 自転：体固定→世界（黄道J2000）の 3×3 回転 ----
-// v_eq = Rz(90°+α)·Rx(90°−δ)·Rz(W)·v_body（WGCCRE 標準）→ 黄道へ Rx(−ε)。体座標系＝z:北極, +x:本初子午線
+// ---- 3×3 の道具（衛星と自転で共用） ----
 const mul3 = (A, B) => {   // 3×3 行列積（行優先 [r][c]）
 	const C = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
 	for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) C[i][j] = A[i][0] * B[0][j] + A[i][1] * B[1][j] + A[i][2] * B[2][j];
@@ -195,8 +197,53 @@ const mul3 = (A, B) => {   // 3×3 行列積（行優先 [r][c]）
 };
 const Rx = t => { const c = Math.cos(t), s = Math.sin(t); return [[1, 0, 0], [0, c, -s], [0, s, c]]; };
 const Rz = t => { const c = Math.cos(t), s = Math.sin(t); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; };
+
+// ---- 衛星（ガリレオ衛星）：BODIES とは別の棚＝japan の太陽系圏（BODIES を総なめする）を 1 行も変えない ----
+// 軌道＝木星赤道面の円軌道・平均黄経 λ = λ0 + n·d（d＝J2000 からの日数）。λ0 と n は JPL Horizons（jup365）の
+// 木星心ベクトル 60 標本（1800–2050）への最小二乗＝一次資料からの実測（n は JPL の平均運動表と 1e-7°/日で一致）。
+// 円軌道で捨てたもの＝離心率（カリスト e=0.0074→±0.85°）とラプラス共鳴の秤動。1800–2050 の実測残差は
+// 最大 イオ 0.50°・エウロパ 1.22°・ガニメデ 0.29°・カリスト 0.98°、面外は 0.55° 以内＝影の通過時刻で数分の粗さ。
+// λ の原点＝木星赤道の ICRF 赤道に対する昇交点＝IAU 自転系の x 軸（orientation と同じ Rz(α+90°)·Rx(90°−δ)）。
+// rot＝IAU WGCCRE（同期自転＝Wd が平均運動と一致・本初子午線が木星を向く＝tests で照合）。
+export const SATELLITES = [
+	{ id: "io", name: "Io", parent: "jupiter", radiusKm: 1821.6, aKm: 421745, lambda0: 19.9484, n: 203.4889578, color: [0.93, 0.85, 0.45],
+		rot: { ra: 268.05, dec: 64.50, W0: 200.39, Wd: 203.4889538 } },
+	{ id: "europa", name: "Europa", parent: "jupiter", radiusKm: 1560.8, aKm: 670965, lambda0: 214.5108, n: 101.3747263, color: [0.86, 0.80, 0.70],
+		rot: { ra: 268.08, dec: 64.51, W0: 36.022, Wd: 101.3747235 } },
+	{ id: "ganymede", name: "Ganymede", parent: "jupiter", radiusKm: 2631.2, aKm: 1070480, lambda0: 221.7728, n: 50.3176070, color: [0.66, 0.61, 0.55],
+		rot: { ra: 268.20, dec: 64.57, W0: 44.064, Wd: 50.3176081 } },
+	{ id: "callisto", name: "Callisto", parent: "jupiter", radiusKm: 2410.3, aKm: 1882567, lambda0: 80.9859, n: 21.5710713, color: [0.45, 0.41, 0.37],
+		rot: { ra: 268.72, dec: 64.83, W0: 259.51, Wd: 21.5710715 } },
+];
+export const satById = Object.fromEntries(SATELLITES.map(b => [b.id, b]));
+for (const b of SATELLITES) { b.radiusAU = b.radiusKm / AU_KM; b.periodDays = 360 / b.n; b.rotHours = Math.abs(360 / b.rot.Wd) * 24; }
+// 親惑星の赤道系（x＝昇交点・z＝極）→ 黄道 J2000。極は親の rot から＝衛星の軌道面＝親の赤道面
+function parentFrame(parentId) {
+	const { rot } = byId[parentId];
+	return mul3(Rx(-EPS), mul3(Rz(rot.ra * D2R + Math.PI / 2), Rx(Math.PI / 2 - rot.dec * D2R)));
+}
+const satLocal = (b, lam, F) => { const r = b.aKm / AU_KM, c = Math.cos(lam) * r, s = Math.sin(lam) * r; return [F[0][0] * c + F[0][1] * s, F[1][0] * c + F[1][1] * s, F[2][0] * c + F[2][1] * s]; };
+// 衛星の親心位置（AU・黄道 J2000）と日心位置
+export function satRel(id, date) {
+	const b = satById[id];
+	return satLocal(b, (b.lambda0 + b.n * (jd(date) - 2451545.0)) * D2R, parentFrame(b.parent));
+}
+export function satPos(id, date) {
+	const p = bodyPos(satById[id].parent, date), r = satRel(id, date);
+	return [p[0] + r[0], p[1] + r[1], p[2] + r[2]];
+}
+// 衛星の軌道線（円）＝中心は渡された時刻の親。起点＝衛星の今の位置＝衛星は常に折れ線の頂点（orbitPointsThrough と同じ理屈）
+export function satOrbitPoints(id, date, n = 192) {
+	const b = satById[id], F = parentFrame(b.parent), c = bodyPos(b.parent, date), out = new Float32Array(n * 3);
+	const lam0 = (b.lambda0 + b.n * (jd(date) - 2451545.0)) * D2R;
+	for (let i = 0; i < n; i++) { const p = satLocal(b, lam0 + i / n * 2 * Math.PI, F); out[i * 3] = c[0] + p[0]; out[i * 3 + 1] = c[1] + p[1]; out[i * 3 + 2] = c[2] + p[2]; }
+	return out;
+}
+
+// ---- IAU 自転：体固定→世界（黄道J2000）の 3×3 回転 ----
+// v_eq = Rz(90°+α)·Rx(90°−δ)·Rz(W)·v_body（WGCCRE 標準）→ 黄道へ Rx(−ε)。体座標系＝z:北極, +x:本初子午線
 export function orientation(id, date) {
-	const { rot } = byId[id];
+	const { rot } = byId[id] ?? satById[id];
 	const T = jcT(date), d = jd(date) - 2451545.0;
 	const ra = (rot.ra + (rot.raT || 0) * T) * D2R, dec = (rot.dec + (rot.decT || 0) * T) * D2R;
 	const W = (rot.W0 + rot.Wd * d) * D2R;
