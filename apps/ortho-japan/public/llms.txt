@@ -75,10 +75,10 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
 バンドラも import map も不要＝同梱の worker チャンクがそのまま動く。npm の geopbf（単体・MIT）は地球儀の外で使う物＝
 同一ページで混ぜない（別インスタンス・二重同梱）。@ortho-earth/japan 1.0.2 以前は未 export＝更新する。
 - geopbf(File|URL|ArrayBuffer|GeoJSONオブジェクト, opts) → pbf。読める形式:
-  geopbf/.pbf/geojson/ndjson・geojsonl（1 行 1 地物）/topojson/fgb/shape(zip)/kml/kmz/gpx/gml/moj(zip)/gpkg/sqlite（SpatiaLite）/dxf（crs: EPSG 番号か WKT・省略時は経緯度の範囲なら経緯度）/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
+  geopbf/.pbf/geojson/ndjson・geojsonl（1 行 1 地物）/topojson/fgb/shape(zip)/kml/kmz/gpx/czml（Cesium・.json に入った CZML も嗅ぎ分け）/gml/moj(zip)/gpkg/sqlite（SpatiaLite）/dxf（crs: EPSG 番号か WKT・省略時は経緯度の範囲なら経緯度）/gz（生 .kml は 1.0.5〜。File の未知拡張子/デコード失敗は 1.0.5〜例外＝
   1.0.4 以前は console.warn "illegal file" だけで 0 件の pbf）。KML の <name> は feature.id と properties.name（1.0.5〜）
-- 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile() → File
-  忠実度＝geopbf/geojson：完全（型も）／kmz：件数維持・属性は全て文字列化／gpx：点と線のみ（面は落ちる）・属性は name だけ。
+- 書き出し: pbf.geopbfFile()/geojsonFile()/topojsonFile()/fgbFile()/shapeFile()/kmzFile()/gmlFile()/gpxFile()/czmlFile() → File
+  忠実度＝geopbf/geojson：完全（型も）／kmz：件数維持・属性は全て文字列化／gpx：点と線のみ（面は落ちる）・属性は name/desc/type、trk/rte の各点の ele/time は点数と同じ長さの配列属性（trkseg ごとに入れ子・rte は route:true）／czml：静的パケットは等価（position→Point・sampled position→LineString + time 配列・polyline/polygon/rectangle・他は czml 属性に温存）・document の clock は残らない。
   File 名は opts.name 由来＝"myapp/data" のような階層名はダウンロード名にスラッシュが入る（表示用の name は階層なしで）
 - pbf.identifyAt(lng,lat,{point:m,polyline:m})→fid（描画レス識別・点→線→面優先・面はsmallest-wins）
 - geopbf() は入力形式を問わず既定で gint を焼く（opts.gint=false で抑止）。`await pbf.gint()` の明示呼びは焼き済みなら no-op＝害なし
@@ -135,7 +135,7 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
 11. **geopbf(URL) は api.ortho-earth.com の proxy で check する**（許可ホスト制）。1.0.4〜＝proxy が断れば直 fetch へ自動フォールバック
     （相手ホストの CORS 許可が要る）。**1.0.3 以前は許可ホスト外を 0 件の pbf として黙って返す**＝`fetch(url)`→`new File([blob], "x.topojson")`
     （拡張子で形式判定）を geopbf() に渡す。**相対パス（"/data/x.gpx"）は 1.0.3 以前は bucket 名と誤認**（api/bucket/GIS/pbf//data/… の 404）＝
-    1.0.4〜は location 基準の URL として読む。1.0.4〜読めなければ例外（0 件を黙って返さない）。GPX＝track→LineString（trkpt の ele/time は残らない＝自前パース）
+    1.0.4〜は location 基準の URL として読む。1.0.4〜読めなければ例外（0 件を黙って返さない）。GPX＝track→LineString/MultiLineString（trkpt の ele/time は配列属性 ele/time に残る・2026-09-17〜）
 12. pbf.getBbox() は引数なしだとフィーチャ別 bbox の**配列**。全体は `pbf.bbox`（fitZoomForBbox に渡すのはこちら）
 13. **チルト時のホバー/クリック識別は海面基準**（GPU pick）＝drapeFill で地形に乗った線とは視差があり当たりにくい。確実なのは
     setEditClick((x,y)) ＋ makeProjectorH() で頂点を投影して最近傍、または pbf.identifyAt(lng,lat,{polyline:m})

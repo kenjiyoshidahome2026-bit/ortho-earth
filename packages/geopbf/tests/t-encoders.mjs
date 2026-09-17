@@ -115,8 +115,85 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	ok(pbf2.length === 3 && same, "gpx: 往復（decode → encode → decode）で幾何・属性が一致");
 }
 
+// ---- czml：Cesium CZML の往復（静的パケットは等価・sampled position は LineString + time 配列・ECEF は経緯度へ）2026-09-17 ----
+{
+	const { ecefToLLH, featureToPackets } = await import("../src/modules/czml.js");
+	const A = 6378137, E2 = (1 / 298.257223563) * (2 - 1 / 298.257223563), rad = Math.PI / 180;
+	const ecef = (lon, lat, h) => { const s = Math.sin(lat * rad), N = A / Math.sqrt(1 - E2 * s * s); return [(N + h) * Math.cos(lat * rad) * Math.cos(lon * rad), (N + h) * Math.cos(lat * rad) * Math.sin(lon * rad), (N * (1 - E2) + h) * s]; };
+	{
+		const [lon, lat, h] = ecefToLLH(...ecef(139.7, 35.7, 1234.5));
+		ok(Math.abs(lon - 139.7) < 1e-9 && Math.abs(lat - 35.7) < 1e-9 && Math.abs(h - 1234.5) < 1e-3, `czml: ECEF → WGS84 経緯度・高さ（${lon.toFixed(9)} ${lat.toFixed(9)} ${h.toFixed(4)}）`);
+	}
+	const czml = [
+		{ id: "document", name: "Trip", version: "1.0", description: "a scene", clock: { interval: "2026-09-17T00:00:00Z/2026-09-17T01:00:00Z" } },
+		{ id: "pt", name: "Tokyo", availability: "2026-09-17T00:00:00Z/2026-09-17T01:00:00Z", position: { cartographicDegrees: [139.7, 35.7, 40] }, billboard: { image: "x.png", scale: 1.5 }, properties: { kind: "city", pop: 14000000, score: { number: [0, 1, 3600, 2] } } },
+		{ id: "sat", position: { epoch: "2026-09-17T00:00:00Z", interpolationAlgorithm: "LAGRANGE", interpolationDegree: 5, cartographicDegrees: [0, 139, 35, 500000, 60, 140, 36, 500000, 120, 141, 37, 500000] }, path: { width: 2 } },
+		{ id: "ln", polyline: { positions: { cartesian: [...ecef(139, 35, 0), ...ecef(140, 36, 100)] }, width: 3, material: { solidColor: { color: { rgba: [255, 0, 0, 255] } } } } },
+		{ id: "pg", polygon: { positions: { cartographicDegrees: [139, 35, 0, 140, 35, 0, 140, 36, 0, 139, 36, 0] }, holes: { cartographicDegrees: [[139.4, 35.4, 0, 139.6, 35.4, 0, 139.6, 35.6, 0, 139.4, 35.6, 0]] }, material: { solidColor: { color: { rgba: [0, 255, 0, 128] } } } } },
+		{ id: "rc", rectangle: { coordinates: { wsenDegrees: [130, 30, 131, 31] }, fill: true } },
+		{ id: "ref", position: { reference: "pt#position" }, point: { pixelSize: 5 } },   // 参照＝幾何を持たない＝落ちる
+	];
+	const back = await dec("czml", new File([JSON.stringify(czml)], "trip.czml", { type: "application/json" }));
+	ok(back && back.type === "czmldec" && back.data instanceof ArrayBuffer, "czml decoder が読む");
+	const pbf = await new GeoPBF().set(back.data);
+	ok(pbf.length === 5 && pbf.name() === "Trip" && pbf.description() === "a scene", `czml: 参照だけのパケットを落として 5 地物・document の name/description がヘッダ（${pbf.length} ${pbf.name()} ${pbf.description()}）`);
+	const byId = {}; for (let i = 0; i < pbf.length; i++) { const f = pbf.getFeature(i); byId[f.properties.id] = f; }
+	const near = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
+	{
+		const { geometry: g, properties: p } = byId.pt;
+		ok(g.type === "Point" && near(g.coordinates[0], 139.7) && p.ele === 40 && p.name === "Tokyo" && p.kind === "city" && p.pop === 14000000 && p.availability === czml[1].availability, `czml: 静的 position → Point・ele・availability・スカラー properties（${JSON.stringify(p)}）`);
+		ok(p.czml.billboard.scale === 1.5 && p.czml.properties.score.number.length === 4, "czml: billboard と時系列 properties は czml 属性に温存");
+	}
+	{
+		const { geometry: g, properties: p } = byId.sat;
+		ok(g.type === "LineString" && g.coordinates.length === 3 && JSON.stringify(p.time) === JSON.stringify(["2026-09-17T00:00:00.000Z", "2026-09-17T00:01:00.000Z", "2026-09-17T00:02:00.000Z"]), `czml: sampled position → LineString + time 配列（epoch + 秒を ISO へ）（${JSON.stringify(p.time)}）`);
+		ok(JSON.stringify(p.ele) === "[500000,500000,500000]" && p.czml.position.interpolationAlgorithm === "LAGRANGE" && p.czml.path.width === 2, "czml: 高さ配列・補間指定・path を温存");
+	}
+	{
+		const { geometry: g, properties: p } = byId.ln;
+		ok(g.type === "LineString" && near(g.coordinates[0][0], 139) && near(g.coordinates[1][1], 36) && near(p.ele[0], 0, 1e-3) && near(p.ele[1], 100, 1e-3) && p.czml.polyline.width === 3, `czml: cartesian（ECEF）の polyline → 経緯度 LineString・ele（${JSON.stringify(g.coordinates)} ${JSON.stringify(p.ele)}）`);
+	}
+	{
+		const { geometry: g, properties: p } = byId.pg;
+		ok(g.type === "Polygon" && g.coordinates.length === 2 && g.coordinates[0].length === 5 && g.coordinates[1].length === 5 && p.ele == null && p.czml.polygon.material, `czml: polygon + holes → 2 環の閉じた Polygon・全点 0 なら ele 無し（${g.coordinates.map(r => r.length)}）`);
+	}
+	{
+		const { geometry: g, properties: p } = byId.rc;
+		ok(g.type === "Polygon" && g.coordinates[0].length === 5 && p.czml.rectangle.fill === true, "czml: rectangle → 4 隅の Polygon・czml.rectangle を温存");
+	}
+
+	// 書き戻し
+	const f = await runWorker(new URL("../src/encoder/czml.js", import.meta.url).href, { buf: back.data.slice(0), name: "trip", opts: {} });
+	ok(f instanceof File && f.size > 0 && f.name === "trip.czml", `czml encoder: File（${f && f.name} ${f && f.size} B）`);
+	const out = JSON.parse(await f.text());
+	const pk = Object.fromEntries(out.map(q => [q.id, q]));
+	ok(out[0].id === "document" && out[0].name === "Trip" && out[0].description === "a scene" && out[0].version === "1.0", "czml encoder: 先頭が document パケット");
+	ok(JSON.stringify(pk.pt.position.cartographicDegrees) === "[139.7,35.7,40]" && pk.pt.billboard.scale === 1.5 && pk.pt.properties.kind === "city" && pk.pt.properties.score.number.length === 4 && pk.pt.availability === czml[1].availability && pk.pt.point === undefined, "czml encoder: Point → position + billboard + properties（visual があれば既定の point は足さない）");
+	ok(pk.sat.position.epoch === "2026-09-17T00:00:00.000Z" && JSON.stringify(pk.sat.position.cartographicDegrees) === JSON.stringify(czml[2].position.cartographicDegrees) && pk.sat.position.interpolationAlgorithm === "LAGRANGE" && pk.sat.path.width === 2 && pk.sat.point?.pixelSize === 8, `czml encoder: time 配列の線 → sampled position（epoch + 秒）・visual 無しなら既定の point（${JSON.stringify(pk.sat.position)}）`);
+	ok(pk.ln.polyline.positions.cartographicDegrees.length === 6 && pk.ln.polyline.width === 3 && near(pk.ln.polyline.positions.cartographicDegrees[5], 100, 1e-3), "czml encoder: LineString → polyline（cartographicDegrees・高さ付き）");
+	ok(pk.pg.polygon.positions.cartographicDegrees.length === 12 && pk.pg.polygon.holes.cartographicDegrees[0].length === 12 && pk.pg.polygon.material, "czml encoder: Polygon → polygon（環を開く）+ holes");
+	ok(JSON.stringify(pk.rc.rectangle.coordinates.wsenDegrees) === "[130,30,131,31]" && pk.rc.rectangle.fill === true && pk.rc.polygon === undefined, "czml encoder: czml.rectangle が残っていれば rectangle に戻す");
+
+	// 再読み込みで一致（sat は既定の point が足された分だけ増える）
+	const back2 = await dec("czml", f);
+	const pbf2 = await new GeoPBF().set(back2.data);
+	const byId2 = {}; for (let i = 0; i < pbf2.length; i++) { const q = pbf2.getFeature(i); byId2[q.properties.id] = q; }
+	ok(byId2.sat?.properties.czml.point?.pixelSize === 8, "czml: 2 周目の sat に既定の point");
+	delete byId2.sat.properties.czml.point;
+	const same = ["pt", "sat", "ln", "pg", "rc"].filter(id => JSON.stringify(byId[id]) !== JSON.stringify(byId2[id]));
+	ok(pbf2.length === 5 && same.length === 0, `czml: 往復（decode → encode → decode）で幾何・属性が一致${same.length ? "（不一致: " + same.join(",") + "）" : ""}`);
+
+	// GPX の trk（MultiLineString + 入れ子の time/ele）→ 1 本の sampled position
+	const trk = { type: "Feature", geometry: { type: "MultiLineString", coordinates: [[[139.1, 35.1], [139.2, 35.2]], [[139.4, 35.4]]] },
+		properties: { name: "Run", ele: [[10, null], [13]], time: [["2026-09-17T02:00:00Z", "2026-09-17T02:00:10Z"], ["2026-09-17T02:01:00Z"]], type: "running" } };
+	const [tp] = featureToPackets(trk, 7);
+	ok(tp.id === "feature-7" && tp.name === "Run" && tp.position.epoch === "2026-09-17T02:00:00.000Z" && JSON.stringify(tp.position.cartographicDegrees) === "[0,139.1,35.1,10,10,139.2,35.2,0,60,139.4,35.4,13]" && tp.properties.type === "running", `czml: GPX trk（MultiLineString + time）→ sampled position 1 本（${JSON.stringify(tp.position.cartographicDegrees)}）`);
+	const [a, b] = featureToPackets({ type: "Feature", geometry: { type: "MultiLineString", coordinates: [[[0, 0], [1, 1]], [[2, 2], [3, 3]]] }, properties: { name: "X" } }, 0);
+	ok(a.id === "feature-0:0" && b.id === "feature-0:1" && a.polyline.positions.cartographicDegrees.length === 6, "czml: time 無しの MultiLineString → 部品ごとの polyline パケット（id に :n）");
+}
+
 // ---- 残りの encoder も「必ず settle・File を返す」----
-for (const [name, ext] of [["geojson", "two.geojson"], ["topojson", "two.topojson"], ["gpx", "two.gpx"], ["gml", "two.gml"], ["kmz", "two.kmz"], ["geopbf", "two.geopbf"]]) {
+for (const [name, ext] of [["geojson", "two.geojson"], ["topojson", "two.topojson"], ["gpx", "two.gpx"], ["czml", "two.czml"], ["gml", "two.gml"], ["kmz", "two.kmz"], ["geopbf", "two.geopbf"]]) {
 	const gintbuf = name === "topojson" ? topology(src) : undefined;   // topojson は gint 前提＝WASM で焼いて渡す
 	const f = await runWorker(new URL(`../src/encoder/${name}.js`, import.meta.url).href, { buf: src.arrayBuffer.slice(0), name: "two", opts: {}, gintbuf });
 	ok(f !== "TIMEOUT" && f instanceof File && f.size > 0 && f.name === ext, `${name} encoder: settle＋File（${f && f.name} ${f && f.size} B）`);

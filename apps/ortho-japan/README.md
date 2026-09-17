@@ -112,7 +112,7 @@ map.applyGintData(pbf, "mydata", true, { interactive: true });
 map.onGintClick((fid, props) => console.log(props));
 ```
 
-`geopbf()` reads GeoJSON, TopoJSON, FlatGeobuf, Shapefile (zip), KML/KMZ, GPX, GML, MOJ (zip) and GeoPBF itself (gzip OK) and writes them back out (`pbf.geojsonFile()`, `pbf.shapeFile()`, …). The workers it uses are the lazy chunks already in `dist/lib/`, so this works from a plain static HTML page. Do not call `createGeopbf` — the SDK has already initialised the instance (it is not exported). Types: `GeoPBF` in `ortho-japan.d.ts`.
+`geopbf()` reads GeoJSON, TopoJSON, FlatGeobuf, Shapefile (zip), KML/KMZ, GPX, CZML, GML, MOJ (zip) and GeoPBF itself (gzip OK) and writes them back out (`pbf.geojsonFile()`, `pbf.shapeFile()`, …). The workers it uses are the lazy chunks already in `dist/lib/`, so this works from a plain static HTML page. Do not call `createGeopbf` — the SDK has already initialised the instance (it is not exported). Types: `GeoPBF` in `ortho-japan.d.ts`.
 
 The library is also published standalone on npm ([`geopbf`](https://www.npmjs.com/package/geopbf), MIT) for use outside the globe. Do not mix the two on one page: the npm copy is a separate instance and you would ship the library twice. `@ortho-earth/japan` 1.0.2 and earlier did not export `geopbf` — upgrade.
 

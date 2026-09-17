@@ -90,10 +90,10 @@ pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 
 | | |
 | :-- | :-- |
-| **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · SpatiaLite · DXF · KML/KMZ · GPX · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`). GPX keeps per-point `<ele>`/`<time>` of tracks and routes as same-length array properties (`ele`, `time`; nested per `<trkseg>` for MultiLineString) and marks `<rte>` with `route: true`, so a track round-trips with its timestamps |
+| **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · SpatiaLite · DXF · KML/KMZ · GPX · CZML (Cesium) · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `czmlFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`). GPX keeps per-point `<ele>`/`<time>` of tracks and routes as same-length array properties (`ele`, `time`; nested per `<trkseg>` for MultiLineString) and marks `<rte>` with `route: true`, so a track round-trips with its timestamps. CZML uses the same convention: static `position` → Point (`ele` = height), a time-sampled `position` → LineString + `time` array, `polyline` / `polygon` (+ `holes`) / `rectangle` → line / polygon, ECEF `cartesian` → WGS84 lon/lat; everything else in the packet (billboard, label, model, path, styles, time-varying `properties`) is kept verbatim in a `czml` property and unfolded on export, so a static CZML round-trips and a GPX track exports as a sampled position. The document `clock` is not kept (Cesium derives one from availability) |
 | **Topology** (`{ gint: true }`) | typed-array buffer of arcs, features and neighbour topology, baked in WASM; usable from a GPU vertex shader or from plain JS |
 | **Feature ops** | `centroid`, `area`, `lineLength`, `getBbox`, `classify`, `map`/`filter` clones, CSV/property tables |
-| **Export** | PMTiles (MVT), GeoParquet, GeoJSON, TopoJSON, FlatGeobuf, KMZ, GPX, GML, Shapefile |
+| **Export** | PMTiles (MVT), GeoParquet, GeoJSON, TopoJSON, FlatGeobuf, KMZ, GPX, CZML, GML, Shapefile |
 
 ---
 

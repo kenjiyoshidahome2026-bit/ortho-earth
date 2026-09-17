@@ -1,7 +1,7 @@
 // ガジェット：GISファイルのドラッグ＆ドロップ取り込み（dropFile）。標準装備でなくオプトイン＝
 // orthoJapan() の戻り値から map.gadget.dropFile() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // #map にGISファイルを落とすと geopbf がFileを拡張子で振り分けデコード→GeoPBF化→gint（GeoPBF-native
-// GPUレンダラ）の単一スロットへ載せる。対応＝GeoJSON/TopoJSON/Shapefile(zip)/FlatGeobuf/KML(kmz)/GPX/GML/
+// GPUレンダラ）の単一スロットへ載せる。対応＝GeoJSON/TopoJSON/Shapefile(zip)/FlatGeobuf/KML(kmz)/GPX/CZML/GML/
 // GeoPBF＋自動gunzip（geopbf が食える全形式＝拡張子判定は geopbf 側）。
 // 描画・ホバー/クリック識別・データへのカメラ寄せは applyGintData が担い、それを束ねた手綱 loadFile(file)＝
 // geopbf(file,{gint:true})→applyGintData を登録側が注入する（グローバルに手を伸ばさない掟）。

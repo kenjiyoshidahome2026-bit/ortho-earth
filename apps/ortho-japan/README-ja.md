@@ -25,7 +25,7 @@ map.applyGintData(pbf, "mydata", true, { interactive: true });
 map.onGintClick((fid, props) => console.log(props));
 ```
 
-`geopbf()` は GeoJSON・TopoJSON・FlatGeobuf・Shapefile(zip)・KML/KMZ・GPX・GML・MOJ(zip)・GeoPBF 自身（gzip 可）を読み、書き戻しもできる（`pbf.geojsonFile()`・`pbf.shapeFile()` …）。使う worker は `dist/lib/` に既にある遅延チャンクなので、静的 HTML 1枚から動く。`createGeopbf` は呼ばない（SDK が初期化済み・export していない）。型は `ortho-japan.d.ts` の `GeoPBF`。
+`geopbf()` は GeoJSON・TopoJSON・FlatGeobuf・Shapefile(zip)・KML/KMZ・GPX・CZML・GML・MOJ(zip)・GeoPBF 自身（gzip 可）を読み、書き戻しもできる（`pbf.geojsonFile()`・`pbf.shapeFile()` …）。使う worker は `dist/lib/` に既にある遅延チャンクなので、静的 HTML 1枚から動く。`createGeopbf` は呼ばない（SDK が初期化済み・export していない）。型は `ortho-japan.d.ts` の `GeoPBF`。
 
 ライブラリ単体は npm でも公開している（[`geopbf`](https://www.npmjs.com/package/geopbf)・MIT）＝地球儀の外で使う物。同じページで両方を混ぜない（npm 側は別インスタンス・二重同梱になる）。`@ortho-earth/japan` 1.0.2 以前は `geopbf` を export していない＝更新する。
 
