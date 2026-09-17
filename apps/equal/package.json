@@ -9,7 +9,7 @@
 		"build": "vite build",
 		"preview": "vite preview",
 		"deploy": "vite build && find dist/site -name .DS_Store -delete && wrangler deploy",
-		"test": "node tests/t-equalearth.mjs && node tests/t-csvjoin.mjs && node tests/t-choropleth.mjs && node tests/t-bake.mjs"
+		"test": "node tests/t-equalearth.mjs && node tests/t-csvjoin.mjs && node tests/t-choropleth.mjs && node tests/t-bake.mjs && node tests/t-labels.mjs"
 	},
 	"dependencies": {
 		"altpbf": "*",

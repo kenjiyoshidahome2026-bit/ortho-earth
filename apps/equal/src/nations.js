@@ -5,6 +5,15 @@
 // 項目のラベル・単位・出所は apps/world の SORTS と同じ。
 
 const BASE = "https://api.ortho-earth.com/bucket/GIS/world/";
+// 言語＝packages/world/i18n/ui.json の langs と同じ 26（英語が基軸＝DB の名前・他は i18n/<lang>.json の翻訳）
+export const LANGS = [["ja", "日本語"], ["en", "English"], ["zh", "中文"], ["ko", "한국어"], ["fr", "Français"], ["de", "Deutsch"], ["es", "Español"], ["pt", "Português"], ["it", "Italiano"], ["nl", "Nederlands"], ["pl", "Polski"], ["ru", "Русский"], ["uk", "Українська"], ["hu", "Magyar"], ["sv", "Svenska"], ["tr", "Türkçe"], ["el", "Ελληνικά"], ["id", "Bahasa Indonesia"], ["vi", "Tiếng Việt"], ["th", "ไทย"], ["bn", "বাংলা"], ["hi", "हिन्दी"], ["ar", "العربية"], ["fa", "فارسی"], ["ur", "اردو"], ["he", "עברית"]];
+export const pickLang = want => { const w = String(want || "").toLowerCase().slice(0, 2); return LANGS.some(([c]) => c === w) ? w : "en"; };
+// 言語別の名前テーブル（英語は不要＝null）。nations[key].name / cities[qid].name
+export async function loadI18n(lang) {
+	if (lang === "en") return null;
+	const r = await fetch(`${BASE}i18n/${lang}.json`); if (!r.ok) throw new Error(`i18n/${lang}: HTTP ${r.status}`);
+	return r.json();
+}
 
 // apps/world model.js REGIONS と同じ番号→名前
 export const REGION_NAMES = { 1: "Europe", 2: "Africa", 3: "Asia", 4: "North America", 5: "South America", 6: "Oceania/Antarctica" };
