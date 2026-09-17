@@ -30,7 +30,7 @@ export function latOfY(y) {
 }
 
 export const Y_MAX = yOfLat(90);                       // ≈1.3174
-export const X_MAX = Math.PI * kOfLat(0);              // ≈2.7207（赤道の半幅）
+export const X_MAX = Math.PI * kOfLat(0);              // ≈2.7066（赤道の半幅）
 // 外形の半幅（高さ y の位置で経線 ±180° が来る x）。|y| に対して単調減少＝外形は凸
 export const halfWidthAtY = y => Math.PI * kOfLat(latOfY(Math.max(-Y_MAX, Math.min(Y_MAX, y))));
 
@@ -52,18 +52,32 @@ export function unproject(view, sx, sy) {
 	return [wrapLon(view.lon + dlon), lat];
 }
 
-// 「余白を出さない」縮小下限：画面矩形（中心 x=0）が外形の内側に収まる最小 z。
+// 縮小下限＝赤道の幅がちょうど画面の横幅になる z（本人 2026-09-18「横方向が画面いっぱいとなるところまで」）。
+// これより下では外形の外（極の上下・四隅）が画面に出る＝レンダラが外形で切り抜く
+export function minZoomFor(W) {
+	return Math.log2(W * 2 * Math.PI / (256 * 2 * X_MAX));
+}
+
+// 「余白を出さない」ズーム：画面矩形（中心 x=0）が外形の内側に収まる最小 z。
 // 条件 h/2 ≤ Y_MAX かつ w/2 ≤ halfWidthAtY(h/2)（外形は凸・中心 yc=0 が最も余裕がある）＝z について単調＝二分法
-export function minZoomFor(W, H) {
+export function fullZoomFor(W, H) {
 	const fits = z => { const s = pxPerUnit(z), hu = H / (2 * s), wu = W / (2 * s); return hu <= Y_MAX && wu <= halfWidthAtY(hu); };
 	let lo = -4, hi = 12;
 	for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (fits(mid)) hi = mid; else lo = mid; }
 	return hi;
 }
 
-// 中心緯度の可動域：|yc| + h/2 ≤ yLim（yLim＝外形の半幅が w/2 になる高さ）
+// 中心緯度の可動域：
+//   z ≥ 余白なしズーム … |yc| + h/2 ≤ yLim（yLim＝外形の半幅が w/2 になる高さ）＝画面に外形の外を出さない
+//   それ未満 … 極線が画面の上下端に来るまで（|yc| ≤ Y_MAX − h/2）を、余白なしズームで 0 から連続に開く（境目で中心が跳ねない）
 function clampCenterY(yc, W, H, zoom) {
 	const s = pxPerUnit(zoom), hu = H / (2 * s), wu = W / (2 * s);
+	const zFull = fullZoomFor(W, H);
+	if (zoom < zFull) {
+		const zMin = minZoomFor(W), t = zFull > zMin ? Math.min(1, (zFull - zoom) / (zFull - zMin)) : 1;
+		const lim = Math.max(0, Y_MAX - hu) * t;
+		return Math.max(-lim, Math.min(lim, yc));
+	}
 	let lo = 0, hi = Y_MAX;   // halfWidthAtY(yLim) = wu を解く（単調減少）
 	if (halfWidthAtY(Y_MAX) >= wu) lo = Y_MAX;
 	else for (let i = 0; i < 40; i++) { const mid = (lo + hi) / 2; if (halfWidthAtY(mid) >= wu) lo = mid; else hi = mid; }
@@ -72,7 +86,7 @@ function clampCenterY(yc, W, H, zoom) {
 }
 
 export function clampView(view, W, H, maxZoom) {
-	const zoom = Math.max(minZoomFor(W, H), Math.min(maxZoom, view.zoom));
+	const zoom = Math.max(minZoomFor(W), Math.min(maxZoom, view.zoom));
 	const yc = clampCenterY(yOfLat(Math.max(-90, Math.min(90, view.lat))), W, H, zoom);
 	return { lon: wrapLon(view.lon), lat: latOfY(yc), zoom };
 }

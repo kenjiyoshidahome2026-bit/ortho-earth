@@ -159,7 +159,8 @@ function draw() {
 	if (settings.hypso > 0 && hypsoState === 0) loadHypso();
 	if (near && settings.hypso > 0) { const [W, H] = size(), k = `${view.lon},${view.lat},${view.zoom},${W},${H}`; if (k !== nearViewKey) { nearViewKey = k; near.ensure(view, W, H, (sx, sy) => unproject(view, sx, sy)); } }
 
-	R.beginFrame(view, PALETTE.sea);
+	R.beginFrame(view, PALETTE.bg);
+	R.drawSea(PALETTE.sea, PALETTE.bg, PALETTE.edge);
 	const thr = lodThreshold(view.zoom);
 	const ops = [];
 	for (const L of layers) {
@@ -176,7 +177,7 @@ function draw() {
 
 	if (hoverDirty) {   // ホバー識別＝国 ID バッファの 1px 直読み（描いた直後のフレームで）
 		hoverDirty = false;
-		let fid = pointer && !dragging ? R.readFid(pointer.cx, pointer.cy) : -1;
+		let fid = pointer && !dragging && unproject(view, pointer.sx, pointer.sy) ? R.readFid(pointer.cx, pointer.cy) : -1;   // 外形の外は ID バッファに扇の余りが残る＝読まない
 		if (fid >= NONE) fid = -1;   // world に無い陸＝識別しない
 		if (fid !== hoverFid) { hoverFid = fid; requestDraw(); }
 		setTip(fid >= 0 ? tipText(fid) : null);
@@ -260,7 +261,7 @@ function animateZoom(sx, sy, to) {
 	requestAnimationFrame(step);
 }
 zoomBox.querySelector("#zoom-in").addEventListener("click", () => animateZoom(0, 0, Math.min(MAX_ZOOM, Math.floor(view.zoom + 1))));
-zoomBox.querySelector("#zoom-out").addEventListener("click", () => animateZoom(0, 0, Math.max(minZoomFor(...size()), Math.ceil(view.zoom - 1))));
+zoomBox.querySelector("#zoom-out").addEventListener("click", () => animateZoom(0, 0, Math.max(minZoomFor(size()[0]), Math.ceil(view.zoom - 1))));
 
 // 左下ドック：座標計器（#pos）・凡例（#legend）・読込トースト（#elev-toast）
 const pos = el("div", { id: "pos" }, `<table><thead><tr><th>Lon</th><th>Lat</th><th>z</th><th>Meridian</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>`);

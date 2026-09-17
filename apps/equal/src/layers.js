@@ -15,7 +15,9 @@ const f = (p, k) => { if (k in p) return p[k]; const lo = k.toLowerCase(); for (
 export const PALETTE = {
 	sea: rgb("#c1d8e3"),
 	land: rgb("#f6f6f4"),
-	urban: rgb("#e6ddd0", 0.6),   // 半透明＝コロプレス・ハイプソを殺さない
+	urban: rgb("#9a5a52", 0.5),   // くすんだ赤（ハイプソの緑〜砂色と被らない・本人 2026-09-18）・半透明＝コロプレスを殺さない
+	bg: rgb("#e4e8ec"),           // 外形の外（縮小下限付近で極の上下・四隅に出る）
+	edge: rgb("#9aa6b2", 0.8),    // 外形の輪郭線
 	coast: rgb("#9aa6b2"),
 	border: rgb("#a99cb2"),
 	lakeShore: rgb("#9fb4c2"),
