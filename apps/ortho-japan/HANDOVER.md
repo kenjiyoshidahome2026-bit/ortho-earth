@@ -7,12 +7,12 @@
 
 ## ① いまどこにいるか
 
-**本番は両方とも今日の版が出ている。作業ツリーは空（全部 push 済み・main = 5a49d88）。**
+**本番は両方とも今日の版が出ている。作業ツリーは空（全部 push 済み・main = 971fba1＋この文書）。**
 
 | 面 | 版 | 状態 |
 |---|---|---|
-| www.ortho-earth.com/japan/ | a49a1801 | 26 言語・RTL・地域宣言（第一段＋第二段）が稼働 |
-| www.ortho-earth.com/nl/ | 23b8ec09 | 独立の地域として稼働（台帳 3 件・出典 3DBAG のみ） |
+| www.ortho-earth.com/japan/ | 2e48128d | 26 言語・RTL・地域宣言（第一段＋第二段）＋建物 3D の plateau/manager.js（契約つき）が稼働 |
+| www.ortho-earth.com/nl/ | 0c283533 | 独立の地域として稼働（台帳 3 件・出典 3DBAG のみ・app.js 直束ね＝japan と同版） |
 
 今日やったのは大きく三つ。
 
@@ -151,5 +151,5 @@ isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マ�
 ## 再開の一行
 
 ~~「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」~~ ＝ 済。~~「env と戻り値を契約の形に整える」~~ ＝ 済（どちらもオフィス 9/17）。
-**A は完了＝切り出し三領域は全部片付いた。** 残りは push と本番 deploy（本人の手）、そしてロードマップ #8 の本文修正。
+**A は完了＝切り出し三領域は全部片付いた。push・本番 deploy（japan 2e48128d／nl 0c283533・verify-live 134 本 200）も済。** 残りはロードマップ #8 の本文修正だけ。
 以後 PLATEAU 周りを触る時は `verify:webgpu t-bld t-plateau` と `verify:prod` を先に緑にしてから。
