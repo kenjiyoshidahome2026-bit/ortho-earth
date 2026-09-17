@@ -1,0 +1,35 @@
+/* ortho-equal 固有のスタイル。外観の本体は quiet-mono（main.js が tokens → components → 本ファイルの順で import）。
+   ここに残すのは equal だけの道具（パネル内の不透明度行・主題行の見本・凡例の行）。japan の作法（ui-dark・ガラス・ドック）に揃える。 */
+#map { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
+
+/* 不透明度の行＝ui-dark の計器（#pos/#attr）と同じ下地＝地図の上でも読める */
+#layers-panel .eq-row {
+	display: flex; gap: 8px; align-items: center; margin-top: 6px; padding: 6px 9px; font-size: 11px;
+	color: rgba(225, 232, 242, .92); background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim);
+	backdrop-filter: var(--qm-glass-frost); border: 1px solid rgba(255, 255, 255, .22); border-radius: 5px;
+	span { white-space: nowrap; min-width: 6.5em; }
+	input[type=range] { flex: 1; min-width: 0; accent-color: #cdd6e6; }
+}
+#layers-panel { max-height: calc(100vh - 20px); overflow-y: auto; }
+#theme-row .lp-theme .sw.eq-none { background: repeating-linear-gradient(135deg, #fff 0 3px, #d9dde3 3px 6px); }
+
+#legend .eq-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+#legend .eq-li { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.7; }
+#legend .eq-sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+
+#pos td:nth-child(4) { min-width: 8ch; }
+
+#theme-row .lp-theme .sw.eq-csv { background: linear-gradient(180deg, #f5f2f8 0 33%, #a38bc3 33% 66%, #4a2e70 66%); }
+#theme-row .lp-theme .eq-csv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
+#layers-panel .eq-select { flex: 1; min-width: 0; font: 11px var(--qm-font); color: #2b3b57; background: rgba(255, 255, 255, .9); border: 1px solid var(--qm-border); border-radius: 4px; padding: 2px 4px; }
+
+/* ドロップの受け皿＝地図全面の薄い幕＋中央のガラス札（japan の計器と同じ ui-dark の下地） */
+#eq-drop {
+	position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; pointer-events: none;
+	background: rgba(15, 20, 30, .18); outline: 2px solid rgba(255, 255, 255, .55); outline-offset: -12px;
+	> div { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 22px; font-size: 15px; color: rgba(225, 232, 242, .95);
+		background-color: rgba(10, 14, 22, .6); background-image: var(--qm-glass-sheen-dim); backdrop-filter: var(--qm-glass-frost);
+		border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--qm-r-l); }
+	small { font-size: 11px; opacity: .75; }
+}
+#eq-drop[hidden] { display: none; }

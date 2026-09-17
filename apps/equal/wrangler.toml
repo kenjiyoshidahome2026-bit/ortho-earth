@@ -1,0 +1,14 @@
+# ortho-equal 本番配信：Cloudflare Workers 静的アセット（www.ortho-earth.com/equal/）。
+# solar と同じ型（route + dist/site・Worker スクリプトなし）。SAB 不使用＝COOP/COEP 不要。
+# japan と同一オリジン＝IndexedDB（GIS/pbf＝NE の GeoPBF/GintBUF・GIS/alt＝R90/R10 標高）を ortho と共有する＝片方で読めばもう片方は通信ゼロ。
+# デプロイ手順は package.json の "deploy"（vite build → wrangler deploy）。
+name = "ortho-equal"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/equal*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
