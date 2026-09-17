@@ -16,7 +16,8 @@ import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
 import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
-import { loadNations, colorGraph, PRESETS } from "./nations.js";
+import { loadNations, colorGraph, PRESETS, LANGS, pickLang, loadI18n } from "./nations.js";
+import { createLabels, countryLabels, cityLabels, F } from "./labels.js";
 
 const API = "https://api.ortho-earth.com";
 const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom は 8 程度」）
@@ -34,7 +35,9 @@ if (!R) { mapEl.insertAdjacentHTML("beforeend", `<div id="net-toast" style="disp
 const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];
 const fromHash = parseViewHash(location.hash);
 let view = clampView(fromHash ? { lon: fromHash.lon, lat: fromHash.lat, zoom: fromHash.zoom } : { lon: 0, lat: 0, zoom: -Infinity }, ...size(), MAX_ZOOM);
+const lang = pickLang(q.get("lang") || navigator.language);   // 地名の言語（world の 26 言語・UI は英語＝globe と同じ基軸）
 const settings = {
+	labels: q.get("labels") !== "0",
 	hypso: num01(q.get("hypso"), 1),          // 自然の層＝ハイプソと川・湖の不透明度（1 本のスライダで同時・0＝紙の白地図＝陸/海/境界だけ）
 	choro: PRESETS[q.get("choro")] ? q.get("choro") : null,   // "csv"＝ドロップした CSV（URL には残らない）
 	choroAlpha: num01(q.get("choroA"), 0.85),
@@ -46,10 +49,23 @@ layers.push({ def: GRATICULE, on: GRATICULE.on !== false, status: "ready", baked
 if (fromHash?.layers) for (const L of layers) if (!L.def.fixed) L.on = fromHash.layers.includes(L.def.id);
 const countries = layers.find(L => L.def.id === "countries");
 // 国＝world（NationDB）。ID バッファの値＝国番号（items の添字）・NONE＝world に無い陸（北西ハワイ諸島など＝塗らない）
-let world = null, NONE = 0, political = null, worldP = null;
+let world = null, NONE = 0, political = null, worldP = null, i18n = null, cityFeatures = [], shortEn = new Map();   // shortEn＝NE admin_1 の admin（"Afghanistan"＝DB の正式寄りの英語名より短い）
+const labelsLayer = createLabels(document.getElementById("labels"));
+const LABEL_PAL = { country: "#3a3f4a", city: "#2b3b57", halo: "rgba(255,255,255,.88)" };
+const countryName = n => i18n?.nations?.[n.key]?.name || shortEn.get(n.key) || n.name?.en || n.key;
+const cityName = p => lang === "ja" ? (F(p, "name_ja") || F(p, "name_en") || F(p, "name")) : lang === "en" ? (F(p, "name_en") || F(p, "name")) : (i18n?.cities?.[F(p, "wikidataid")]?.name || F(p, "name_en") || F(p, "name"));
+function rebuildLabels() {
+	if (!world) return;
+	labelsLayer.setLabels(settings.labels ? [...countryLabels(world, countryName, LABEL_PAL), ...cityLabels(cityFeatures, cityName, LABEL_PAL)] : []);
+	requestDraw();
+}
 const getWorld = () => worldP ??= (async () => {   // 初回要求時に起動（UI の準備より前に走らせない）
 	busy.add("World DB"); updateToast();
-	try { world = await loadNations(); NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations`); }
+	try {
+		[world, i18n] = await Promise.all([loadNations(), loadI18n(lang).catch(e => { console.warn("[equal] i18n", e); return null; })]);
+		NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations (lang ${lang})`);
+		rebuildLabels();
+	}
 	catch (e) { console.error("[equal] World DB failed", e); }
 	busy.delete("World DB"); updateToast(); requestDraw();
 	return world;
@@ -87,7 +103,19 @@ async function loadLayer(L) {
 		const t0 = performance.now();
 		L.baked = bakeLayer(pbf, { kind: def.kind, ...(L === countries ? countrySpec() : def.spec) });
 		console.log(`[equal] ${def.id}: ${pbf.length} features (source ${def.source || def.bucket}), bake ${Math.round(performance.now() - t0)}ms`);
-		if (L === countries) { political = colorGraph(NONE, L.baked.neighbors || []); applyChoropleth(); }
+		if (L === countries) {
+			political = colorGraph(NONE, L.baked.neighbors || []); applyChoropleth();
+			cityFeatures = []; shortEn = new Map();
+			for (let i = 0; i < pbf.length; i++) {
+				const p = pbf.getProperties(i); if (!p) continue;
+				if (p.layer === "populated_places") cityFeatures.push({ properties: p, geometry: pbf.getGeometry(i) });
+				else if (p.layer === "admin_1" && p.admin && !shortEn.has(p.key)) shortEn.set(p.key, p.admin);
+			}
+			// NE の admin は主権国名＝属領（SJ→"Norway"・PR→"United States of America"）に化ける。同じ名前が複数 key に付くものは捨てる
+			{ const cnt = new Map(); for (const v of shortEn.values()) cnt.set(v, (cnt.get(v) || 0) + 1); for (const [k, v] of shortEn) if (cnt.get(v) > 1) shortEn.delete(k); }
+			shortEn.set("US", "United States");   // DB "United States of America" は地図では長い
+			rebuildLabels();
+		}
 		L.status = "ready";
 	} catch (e) {
 		console.error(`[equal] ${def.id} failed`, e);
@@ -180,6 +208,7 @@ function draw() {
 	}
 	ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
+	{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
 	if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
 	updatePos();
 	scheduleHash();
@@ -222,6 +251,15 @@ const rangeRow = (label, value, onInput) => {
 	input.addEventListener("input", () => onInput(input.value / 100));
 	row.append(input); return row;
 };
+{	// ラベル（国名・都市）のチップと地名の言語
+	const b = el("button", { class: "chip" + (settings.labels ? " on" : ""), "data-k": "place", "aria-pressed": String(settings.labels) }, "Labels");
+	b.addEventListener("click", () => { settings.labels = !settings.labels; b.classList.toggle("on", settings.labels); b.setAttribute("aria-pressed", String(settings.labels)); rebuildLabels(); scheduleHash(); });
+	panel.append(b);
+	const row = el("div", { class: "eq-row" }, `<span>Names</span>`);
+	const sel = el("select", { class: "eq-select" }, LANGS.map(([c, nm]) => `<option value="${c}"${c === lang ? " selected" : ""}>${nm}</option>`).join(""));
+	sel.addEventListener("change", () => { const u = new URL(location.href); u.searchParams.set("lang", sel.value); location.href = u.href; });   // 言語＝読み直し（i18n 表と都市名の引き直し）
+	row.append(sel); panel.append(row);
+}
 panel.append(rangeRow("Hypso · water", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
 const themeRow = el("div", { id: "theme-row" });
 const swatchOf = id => {
@@ -373,6 +411,7 @@ function scheduleHash() {
 		const l = "l=" + layers.filter(L => !L.def.fixed && L.on).map(L => L.def.id).join(".");
 		const qs = new URLSearchParams(location.search);
 		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");   // CSV は手元のファイル＝URL で再現できない
+		settings.labels ? qs.delete("labels") : qs.set("labels", "0");
 		const search = qs.toString() ? "?" + qs : "";
 		history.replaceState(null, "", location.pathname + search + buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]));
 	}, 250);
@@ -450,6 +489,7 @@ globalThis.equal = {
 	hypso(opacity) { settings.hypso = Math.max(0, Math.min(1, +opacity || 0)); requestDraw(); },
 	choropleth(id, opacity) { if (opacity != null) settings.choroAlpha = +opacity; selectTheme(presetOf(id) ? id : null); },
 	openCSV,   // File/Blob（name 付き）を渡す＝ドロップと同じ
+	labels: labelsLayer,
 	get world() { return world; },
 	get busy() { return [...busy]; },
 	fidAt: (cx, cy) => R.readFid(cx, cy),
