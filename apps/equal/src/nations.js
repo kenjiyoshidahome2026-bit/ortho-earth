@@ -5,9 +5,11 @@
 // 項目のラベル・単位・出所は apps/world の SORTS と同じ。
 
 const BASE = "https://api.ortho-earth.com/bucket/GIS/world/";
-// 言語＝packages/world/i18n/ui.json の langs と同じ 26（英語が基軸＝DB の名前・他は i18n/<lang>.json の翻訳）
-export const LANGS = [["ja", "日本語"], ["en", "English"], ["zh", "中文"], ["ko", "한국어"], ["fr", "Français"], ["de", "Deutsch"], ["es", "Español"], ["pt", "Português"], ["it", "Italiano"], ["nl", "Nederlands"], ["pl", "Polski"], ["ru", "Русский"], ["uk", "Українська"], ["hu", "Magyar"], ["sv", "Svenska"], ["tr", "Türkçe"], ["el", "Ελληνικά"], ["id", "Bahasa Indonesia"], ["vi", "Tiếng Việt"], ["th", "ไทย"], ["bn", "বাংলা"], ["hi", "हिन्दी"], ["ar", "العربية"], ["fa", "فارسی"], ["ur", "اردو"], ["he", "עברית"]];
-export const pickLang = want => { const w = String(want || "").toLowerCase().slice(0, 2); return LANGS.some(([c]) => c === w) ? w : "en"; };
+// 言語一覧は src/i18n.js（japan の i18n/langs.js＝world が正本）＝ここには置かない
+// 地図の中身の語（統計名・地域名・単位）を world の ui 表で引く（無い語は英語のまま＝world のビューアと同じ縮退）。
+// 操作系の UI 文言は英語のまま＝globe と同じ基軸（本人裁定「globe は英語ベース」）
+export const tr = (i18n, s) => (s != null && i18n?.ui?.[s]) || s;
+
 // 言語別の名前テーブル（英語は不要＝null）。nations[key].name / cities[qid].name
 export async function loadI18n(lang) {
 	if (lang === "en") return null;
@@ -55,9 +57,9 @@ export const PRESETS = {
 	political: { label: "Political", type: "political", ref: "Neighbors from World DB regions" },
 	region: { label: "Region", type: "categorical", ref: "World DB", value: n => REGION_NAMES[n.region] || null },
 	population: stat("population", "Population", "blue", "", "United Nations Population Division"),
-	density: { label: "Population density", unit: "/km²", ref: "Population ÷ Area", type: "quantile", ramp: "blue", years: items => yearsOf(items, "population"),
+	density: { label: "Population", unit: "/km²", ref: "Population ÷ Area", type: "quantile", ramp: "blue", years: items => yearsOf(items, "population"),   // ラベルは ui 表にある語＝単位で density を表す（「人口 (/km²)」）
 		value: (n, _i, year) => { const p = year != null ? at(n.population, year) : latest(n.population)?.value; return p != null && n.area > 0 ? p / n.area : null; }, year: (n, year) => year ?? latest(n.population)?.year },
-	gdp: stat("gdp", "GDP", "green", "US$", "World Bank / IMF", 1e6),
+	gdp: stat("gdp", "Nominal GDP", "green", "US$", "World Bank / IMF", 1e6),
 	gdppc: stat("gdppc", "GDP per Capita", "orange", "US$", "World Bank / IMF"),
 	ppppc: stat("ppppc", "GDP (PPP) per Capita", "orange", "US$", "World Bank / IMF"),
 	gnipc: stat("gnipc", "GNI per Capita", "orange", "US$", "World Bank"),

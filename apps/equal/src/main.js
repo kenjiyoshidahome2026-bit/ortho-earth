@@ -16,7 +16,8 @@ import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
 import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
-import { loadNations, colorGraph, PRESETS, LANGS, pickLang, loadI18n } from "./nations.js";
+import { loadNations, colorGraph, PRESETS, loadI18n, tr } from "./nations.js";
+import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言＝英語キー・26 言語（japan の辞書に相乗り＋equal 固有）
 import { createLabels, countryLabels, cityLabels, F } from "./labels.js";
 import { createAnno } from "../../ortho-japan/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import { kOfLat, yOfLat } from "./equalearth.js";
@@ -28,16 +29,18 @@ const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? M
 
 createGeopbf(API, { bucket: nativeBucket });
 
+let lang = norm(q.get("lang")) || norm(navigator.language) || "en";   // UI と地名の言語（26 言語・本人裁定 2026-09-18「操作系の UI も i18n」）
+await setLang(lang);   // UI を組む前に訳を揃える（japan と同じ掟＝モジュール評価時に t() を呼ばない）
 const mapEl = document.getElementById("map");
+mapEl.dir = isRTL() ? "rtl" : "ltr";   // RTL（アラビア・ヘブライ・ペルシア・ウルドゥー）＝quiet-mono の論理プロパティで家具が鏡像になる
 const canvas = document.getElementById("c");
 const R = createRenderer(canvas);
-if (!R) { mapEl.insertAdjacentHTML("beforeend", `<div id="net-toast" style="display:block">WebGL2 is required.</div>`); throw new Error("WebGL2 unavailable"); }
+if (!R) { mapEl.insertAdjacentHTML("beforeend", `<div id="net-toast" style="display:block">${esc(t("WebGL2 is required."))}</div>`); throw new Error("WebGL2 unavailable"); }
 
 // ── 状態 ──
 const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];
 const fromHash = parseViewHash(location.hash);
 let view = clampView(fromHash ? { lon: fromHash.lon, lat: fromHash.lat, zoom: fromHash.zoom } : { lon: 0, lat: 0, zoom: -Infinity }, ...size(), MAX_ZOOM);
-const lang = pickLang(q.get("lang") || navigator.language);   // 地名の言語（world の 26 言語・UI は英語＝globe と同じ基軸）
 const settings = {
 	labels: q.get("labels") !== "0",
 	hypso: num01(q.get("hypso"), 1),          // 自然の層＝ハイプソと川・湖の不透明度（1 本のスライダで同時・0＝紙の白地図＝陸/海/境界だけ）
@@ -67,7 +70,7 @@ const getWorld = () => worldP ??= (async () => {   // 初回要求時に起動�
 	try {
 		[world, i18n] = await Promise.all([loadNations(), loadI18n(lang).catch(e => { console.warn("[equal] i18n", e); return null; })]);
 		NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations (lang ${lang})`);
-		rebuildLabels();
+		relabelThemes(); rebuildLabels();
 	}
 	catch (e) { console.error("[equal] World DB failed", e); }
 	busy.delete("World DB"); updateToast(); requestDraw();
@@ -154,10 +157,13 @@ function applyChoropleth() {
 	if (!preset || !world || !political) { legendData = null; renderLegend(); requestDraw(); return; }
 	const years = preset.years?.(world.items) || null;
 	if (years && settings.year != null) settings.year = Math.max(years[0], Math.min(years[1], settings.year));
-	const opts = preset.type === "political" ? { ...preset, value: (_n, i) => political[i] || null } : { ...preset, year: years ? settings.year : null };
+	const T = s => tr(i18n, s);
+	const opts = preset.type === "political" ? { ...preset, value: (_n, i) => political[i] || null }
+		: preset.type === "categorical" ? { ...preset, value: (n, i, y) => { const v = preset.value(n, i, y); return v == null ? null : T(String(v)); } }   // 地域などの値も翻訳＝凡例と吹き出しが揃う
+		: { ...preset, year: years ? settings.year : null };
 	const r = buildChoropleth(world.items, opts);
 	R.setPaint(r.rgba, NONE + 1);   // 末尾＝NONE（a=0＝塗らない）
-	legendData = { preset, legend: r.legend, values: r.values, nodata: r.nodata, years };
+	legendData = { preset, label: T(preset.label), legend: r.legend, values: r.values, nodata: r.nodata, years };
 	yearRow.hidden = !years;
 	if (years) { yearInput.min = years[0]; yearInput.max = years[1]; yearInput.value = settings.year ?? years[1]; yearLabel.textContent = settings.year ?? "latest"; }
 	renderLegend(); requestDraw();
@@ -232,13 +238,14 @@ function identify() {
 }
 
 // ── UI（japan の部品と同じ id/class）──
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (html) e.innerHTML = html; return e; };
 const gadgets = el("div", { id: "gadgets" }), dock = el("div", { id: "dock" });
 mapEl.append(gadgets, dock);
 
 // 層＋主題パネル（#chips/#layers-btn/#layers-panel/.chip/.lp-theme）
 const chips = el("div", { id: "chips" });
-const layersBtn = el("button", { id: "layers-btn", "aria-expanded": "false", "data-tip": "Layers & themes" },
+const layersBtn = el("button", { id: "layers-btn", "aria-expanded": "false", "data-tt": "Layers & themes", "data-tip": t("Layers & themes") },
 	`<svg viewBox="0 0 20 20" width="18" height="18"><path d="M10 2 L18 6.5 10 11 2 6.5 Z" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 10.5 L10 15 18 10.5" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 14 L10 18.5 18 14" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/></svg>`);
 const panel = el("div", { id: "layers-panel" }); panel.hidden = true;
 chips.append(layersBtn, panel);
@@ -249,23 +256,23 @@ addEventListener("keydown", e => { if (e.key === "Escape") setOpen(false); });
 
 for (const L of layers) {
 	if (L.def.fixed) continue;
-	const b = el("button", { class: "chip" + (L.on ? " on" : ""), "data-k": L.def.accent || L.def.id, "aria-pressed": String(L.on) }, L.def.label);
+	const b = el("button", { class: "chip" + (L.on ? " on" : ""), "data-k": L.def.accent || L.def.id, "aria-pressed": String(L.on), "data-t": L.def.label }, esc(t(L.def.label)));
 	b.addEventListener("click", () => { L.on = !L.on; b.classList.toggle("on", L.on); b.setAttribute("aria-pressed", String(L.on)); requestDraw(); });
 	panel.append(b);
 }
 const rangeRow = (label, value, onInput) => {
-	const row = el("div", { class: "eq-row" }, `<span>${label}</span>`);
+	const row = el("div", { class: "eq-row" }, `<span data-t="${esc(label)}">${esc(t(label))}</span>`);
 	const input = el("input", { type: "range", min: "0", max: "100", value: String(Math.round(value * 100)) });
 	input.addEventListener("input", () => onInput(input.value / 100));
 	row.append(input); return row;
 };
 {	// ラベル（国名・都市）のチップと地名の言語
-	const b = el("button", { class: "chip" + (settings.labels ? " on" : ""), "data-k": "place", "aria-pressed": String(settings.labels) }, "Labels");
+	const b = el("button", { class: "chip" + (settings.labels ? " on" : ""), "data-k": "place", "aria-pressed": String(settings.labels), "data-t": "Labels" }, esc(t("Labels")));
 	b.addEventListener("click", () => { settings.labels = !settings.labels; b.classList.toggle("on", settings.labels); b.setAttribute("aria-pressed", String(settings.labels)); rebuildLabels(); scheduleHash(); });
 	panel.append(b);
-	const row = el("div", { class: "eq-row" }, `<span>Names</span>`);
-	const sel = el("select", { class: "eq-select" }, LANGS.map(([c, nm]) => `<option value="${c}"${c === lang ? " selected" : ""}>${nm}</option>`).join(""));
-	sel.addEventListener("change", () => { const u = new URL(location.href); u.searchParams.set("lang", sel.value); location.href = u.href; });   // 言語＝読み直し（i18n 表と都市名の引き直し）
+	const row = el("div", { class: "eq-row" }, `<span data-t="Names">${esc(t("Names"))}</span>`);
+	const sel = el("select", { class: "eq-select" }, LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join(""));
+	sel.addEventListener("change", () => switchLang(sel.value));   // その場で切り替える（リロードしない＝データを取り直さない）
 	row.append(sel); panel.append(row);
 }
 panel.append(rangeRow("Hypso · water", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
@@ -285,12 +292,12 @@ function selectTheme(id) {
 	applyChoropleth(); scheduleHash();
 }
 for (const id of [null, ...Object.keys(PRESETS)]) {
-	const b = el("button", { class: "lp-theme" + (settings.choro === id ? " on" : ""), "data-theme": id || "none" }, `${swatchOf(id)}${id ? PRESETS[id].label : "None"}`);
+	const b = el("button", { class: "lp-theme" + (settings.choro === id ? " on" : ""), "data-theme": id || "none" }, `${swatchOf(id)}<span class="eq-theme-name"></span>`);
 	b.addEventListener("click", () => selectTheme(id));
 	themeBtns.push(b); themeRow.append(b);
 }
 // CSV：行＝「Open CSV…」（ドロップと同じ入口）→ 読めたらファイル名に変わり、この行で CSV の主題を選び直せる
-const csvBtn = el("button", { class: "lp-theme", "data-theme": "csv" }, `<span class="sw eq-csv"></span><span class="eq-csv-name">Open CSV…</span>`);
+const csvBtn = el("button", { class: "lp-theme", "data-theme": "csv" }, `<span class="sw eq-csv"></span><span class="eq-csv-name" data-t="Open CSV…">${esc(t("Open CSV…"))}</span>`);
 const fileInput = el("input", { type: "file", accept: ".csv,.tsv,.txt,text/csv,text/tab-separated-values", hidden: "" });
 csvBtn.addEventListener("click", () => {
 	if (csv && settings.choro !== "csv") { selectTheme("csv"); return; }
@@ -298,6 +305,17 @@ csvBtn.addEventListener("click", () => {
 });
 fileInput.addEventListener("change", () => { if (fileInput.files[0]) openCSV(fileInput.files[0]); fileInput.value = ""; });
 themeBtns.push(csvBtn); themeRow.append(csvBtn, fileInput);
+// 主題の名前＝地図の中身の語＝翻訳（i18n は後から届く＝貼り替える）
+function relabelThemes() {
+	for (const b of themeBtns) {
+		const id = b.dataset.theme, span = b.querySelector(".eq-theme-name"); if (!span) continue;
+		if (id === "none") { span.textContent = t("None"); continue; }
+		if (id === "csv") continue;   // ファイル名（csvBtn が自分で持つ）
+		const P = PRESETS[id]; if (!P) continue;
+		span.innerHTML = `${esc(tr(i18n, t(P.label)))}${P.unit ? ` <span style="opacity:.6">(${esc(P.unit)})</span>` : ""}`;
+	}
+}
+relabelThemes();
 panel.append(themeRow);
 const colRow = el("div", { class: "eq-row" }, `<span>Column</span>`); colRow.hidden = true;
 const colSelect = el("select", { class: "eq-select" });
@@ -305,7 +323,7 @@ colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSel
 colRow.append(colSelect); panel.append(colRow);
 panel.append(rangeRow("Choropleth", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));
 // 年（DB の統計だけ・各国の最新年＝右端）
-const yearRow = el("div", { class: "eq-row" }, `<span>Year <b class="eq-year"></b></span>`); yearRow.hidden = true;
+const yearRow = el("div", { class: "eq-row" }, `<span><span data-t="Year">${esc(t("Year"))}</span> <b class="eq-year"></b></span>`); yearRow.hidden = true;
 const yearInput = el("input", { type: "range", min: "2000", max: "2025", step: "1", value: "2025" }), yearLabel = yearRow.querySelector(".eq-year");
 yearInput.addEventListener("input", () => { settings.year = +yearInput.value; yearLabel.textContent = yearInput.value; applyChoropleth(); scheduleHash(); });
 yearInput.addEventListener("dblclick", () => { settings.year = null; applyChoropleth(); scheduleHash(); });   // ダブルクリック＝最新年へ戻す
@@ -313,7 +331,7 @@ yearRow.append(yearInput); panel.append(yearRow);
 
 // ズーム（#zoom）
 const zoomBox = el("div", { id: "zoom" },
-	`<button id="zoom-in" data-tip="Zoom in" aria-label="Zoom in">＋</button><button id="zoom-out" data-tip="Zoom out" aria-label="Zoom out">−</button>`);
+	`<button id="zoom-in" data-tt="Zoom in" data-tip="${esc(t("Zoom in"))}" aria-label="${esc(t("Zoom in"))}">＋</button><button id="zoom-out" data-tt="Zoom out" data-tip="${esc(t("Zoom out"))}" aria-label="${esc(t("Zoom out"))}">−</button>`);
 gadgets.append(zoomBox);
 function animateZoom(sx, sy, to) {
 	const from = view.zoom, t0 = performance.now(), dur = 260;
@@ -324,24 +342,24 @@ zoomBox.querySelector("#zoom-in").addEventListener("click", () => animateZoom(0,
 zoomBox.querySelector("#zoom-out").addEventListener("click", () => animateZoom(0, 0, Math.max(minZoomFor(size()[0]), Math.ceil(view.zoom - 1))));
 
 // 左下ドック：座標計器（#pos）・凡例（#legend）・読込トースト（#elev-toast）
-const pos = el("div", { id: "pos" }, `<table><thead><tr><th>Lon</th><th>Lat</th><th>z</th><th>Meridian</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>`);
+const pos = el("div", { id: "pos" }, `<table><thead><tr>${["Lon", "Lat", "z ##zoom", "Meridian"].map(k => `<th data-t="${esc(k)}">${esc(t(k))}</th>`).join("")}</tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>`);
 const posTd = pos.querySelectorAll("td");
 const toast = el("div", { id: "elev-toast" });
 const legend = el("div", { id: "legend" }); legend.style.display = "none";
 dock.append(pos, toast, legend);
-function updateToast() { toast.style.display = busy.size ? "block" : "none"; toast.textContent = busy.size ? `Loading ${[...busy].join(", ")} …` : ""; }
+function updateToast() { toast.style.display = busy.size ? "block" : "none"; toast.textContent = busy.size ? t("Loading $1 …", [...busy].map(s => t(s)).join(", ")) : ""; }
 function renderLegend() {
 	if (!legendData) { legend.style.display = "none"; updateAttr(); return; }
-	const { preset, legend: rows, nodata, years } = legendData;
+	const { preset, label, legend: rows, nodata, years } = legendData;
 	const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
-	const yr = years ? (settings.year != null ? String(settings.year) : "latest year") : "";
-	legend.innerHTML = `<div class="eq-title">${esc(preset.label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}${yr ? ` <span style="font-weight:400;color:#89a">${esc(yr)}</span>` : ""}</div>` + (rows.length
+	const yr = years ? (settings.year != null ? String(settings.year) : t("latest year")) : "";
+	legend.innerHTML = `<div class="eq-title">${esc(label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}${yr ? ` <span style="font-weight:400;color:#89a">${esc(yr)}</span>` : ""}</div>` + (rows.length
 		? rows.map(r => `<div class="eq-li"><span class="eq-sw" style="background:${rgb(r.color)}"></span>${esc(r.label)}</div>`).join("")
-		: `<div class="eq-li">Neighbors never share a color</div>`)
-		+ (nodata && preset.type !== "political" ? `<div class="eq-li"><span class="eq-sw" style="background:#f6f6f4;border:1px solid #cfd4da"></span>No data (${nodata})</div>` : "")
+		: `<div class="eq-li">${esc(t("Neighbors never share a color"))}</div>`)
+		+ (nodata && preset.type !== "political" ? `<div class="eq-li"><span class="eq-sw" style="background:#f6f6f4;border:1px solid #cfd4da"></span>${esc(t("No data ($1)", nodata))}</div>` : "")
 		+ (preset.csv
-			? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${csv.ds.matched}/${csv.ds.rows.length} rows matched by “${esc(csv.ds.header[csv.ds.keyCol])}”${csv.ds.unmatched.length ? ` · unmatched: ${esc(csv.ds.unmatched.slice(0, 3).join(", "))}${csv.ds.unmatched.length > 3 ? "…" : ""}` : ""}</div>`
-			: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · World DB ${esc(world?.updated || "")}</div>`);
+			? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${esc(t("$1/$2 rows matched by “$3”", csv.ds.matched, csv.ds.rows.length, csv.ds.header[csv.ds.keyCol]))}${csv.ds.unmatched.length ? ` · ${esc(t("unmatched: $1", csv.ds.unmatched.slice(0, 3).join(", ") + (csv.ds.unmatched.length > 3 ? "…" : "")))}` : ""}</div>`
+			: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · ${esc(t("World DB"))} ${esc(world?.updated || "")}</div>`);
 	legend.style.display = "block";
 	updateAttr();
 }
@@ -356,10 +374,10 @@ function updatePos() {
 
 // 出典（#attr）
 const attr = el("div", { id: "attr" },
-	`Sources: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`);
+	`${esc(t("Sources: "))}<a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`);
 mapEl.append(attr);
 // 出典＝表示中の主題で変わる（コロプレス中は World DB の出所を足す）
-const attrBase = attr.innerHTML;
+let attrBase = attr.innerHTML;
 function updateAttr() {
 	const P = legendData?.preset;
 	attr.innerHTML = attrBase + (P && !P.csv ? `・<a href="https://www.ortho-earth.com/world/" target="_blank" rel="noopener">World DB</a> (${esc(P.ref || "Wikidata")})` : "");
@@ -392,16 +410,15 @@ function setTip(html) {
 	const left = pointer.cx + 15 + r.width > W ? pointer.cx - r.width - 15 : pointer.cx + 15;
 	tip.style.left = left + "px"; tip.style.top = Math.max(0, Math.min(H - r.height, pointer.cy - r.height / 2)) + "px";
 }
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 function tipText(i) {
 	const n = world?.items[i]; if (!n) return null;
-	let s = esc(n.name?.en || n.key);
+	let s = esc(countryName(n));   // 翻訳つき（?lang=）＝旧＝英語名のまま出していた
 	if (legendData && legendData.preset.type !== "political") {
 		const v = legendData.values[i], P = legendData.preset;
 		if (v != null) {
-			const txt = typeof v === "number" ? v.toLocaleString("en", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 3 }) : String(v);
+			const txt = typeof v === "number" ? v.toLocaleString(lang, { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 3 }) : String(v);
 			const yr = P.year?.(n, legendData.years ? settings.year : null);
-			s += `<div style="opacity:.8">${esc(P.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${yr})` : ""}</div>`;
+			s += `<div style="opacity:.8">${esc(legendData.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${yr})` : ""}</div>`;
 		}
 	}
 	return s;
@@ -413,8 +430,8 @@ const note = el("div", { id: "net-toast" }); note.style.display = "none"; mapEl.
 let noteT = 0;
 function flash(msg, ms = 4500) { note.textContent = msg; note.style.display = "block"; clearTimeout(noteT); noteT = setTimeout(() => { note.style.display = "none"; }, ms); }
 async function openCSV(file) {
-	if (!/\.(csv|tsv|txt)$/i.test(file.name) && !/text\/(csv|tab-separated|plain)/.test(file.type)) { flash("Drop a CSV file (.csv / .tsv)"); return; }
-	if (!(await getWorld())) { flash("World DB is unavailable"); return; }
+	if (!/\.(csv|tsv|txt)$/i.test(file.name) && !/text\/(csv|tab-separated|plain)/.test(file.type)) { flash(t("Drop a CSV file (.csv / .tsv)")); return; }
+	if (!(await getWorld())) { flash(t("World DB is unavailable")); return; }
 	try {
 		countryIndex ??= buildNationIndex(world);
 		const ds = joinCSV(file.name, decodeText(await file.arrayBuffer()), countryIndex);
@@ -462,7 +479,7 @@ async function openGeo(file) {
 		anno.set(pbf); annoName = file.name;
 		attr.dataset.user = file.name;
 		console.log(`[equal] annotation ${file.name}: ${pbf.length} features`);
-		flash(`${file.name}: ${pbf.length} features`, 2500);
+		flash(`${file.name}: ${t("$1 features", pbf.length)}`, 2500);
 	} catch (e) { console.warn("[equal] geo failed", e); flash(`${file.name}: ${e.message}`); }
 	busy.delete(file.name); updateToast(); requestDraw();
 }
@@ -475,12 +492,12 @@ function remoteUrl(spec) {
 	return u.protocol === "https:" || (u.protocol === "http:" && isLocal) ? u : null;
 }
 async function fetchAsFile(spec, kind) {
-	const u = remoteUrl(spec); if (!u) { flash(`${kind}: https URL or gh:user/repo/path only`); return null; }
+	const u = remoteUrl(spec); if (!u) { flash(`${kind}: ${t("https URL or gh:user/repo/path only")}`); return null; }
 	try { const r = await fetch(u.href); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new File([await r.blob()], decodeURIComponent(u.pathname.split("/").pop() || kind)); }
 	catch (e) { flash(`${kind}: ${e.message}`); return null; }
 }
 const isGeoFile = f => /\.(geopbf|pbf|geojson|json|topojson|kml|kmz|gpx|zip|fgb|gpkg)$/i.test(f.name);
-const dropHint = el("div", { id: "eq-drop" }, `<div>Drop a CSV to color countries<small>joined by ISO code or country name — or a geopbf / GeoJSON to draw it</small></div>`);
+const dropHint = el("div", { id: "eq-drop" }, `<div><span data-t="Drop a CSV to color countries">${esc(t("Drop a CSV to color countries"))}</span><small data-t="joined by ISO code or country name — or a geopbf / GeoJSON to draw it">${esc(t("joined by ISO code or country name — or a geopbf / GeoJSON to draw it"))}</small></div>`);
 dropHint.hidden = true; mapEl.append(dropHint);
 let dragDepth = 0;
 const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
@@ -499,6 +516,22 @@ mapEl.addEventListener("drop", e => {
 })();
 let csvSpec = null;
 
+// ── 言語の切り替え（リロードしない）──
+// 辞書（equal＋japan 共有）と world の名前テーブルを取り直し、UI の文字・ラベル・凡例・出典を貼り替えるだけ＝
+// データ（GintBUF・標高・塗り表）は触らない＝?lang= を変えても立ち上がりが起きない（本人 2026-09-18）
+async function switchLang(code) {
+	const c = norm(code); if (!c || c === lang) return;
+	lang = c;
+	const [, table] = await Promise.all([setLang(c), loadI18n(c).catch(e => { console.warn("[equal] i18n", e); return null; })]);
+	i18n = table;
+	mapEl.dir = isRTL() ? "rtl" : "ltr";
+	for (const n of mapEl.querySelectorAll("[data-t]")) n.textContent = t(n.dataset.t);            // 文字を持つ家具
+	for (const n of mapEl.querySelectorAll("[data-tt]")) { n.dataset.tip = t(n.dataset.tt); n.setAttribute("aria-label", t(n.dataset.tt)); }   // ボタンの説明
+	attrBase = attrBase.replace(/^[^<]*/, esc(t("Sources: ")));
+	relabelThemes(); applyChoropleth(); rebuildLabels(); updateToast(); updatePos(); scheduleHash();
+	if (csv) csvBtn.querySelector(".eq-csv-name").textContent = csv.ds.name;   // ファイル名は訳さない
+}
+
 // ── URL（#zoom/lat/lon/l=…）──
 let hashTimer = 0;
 function scheduleHash() {
@@ -509,6 +542,7 @@ function scheduleHash() {
 		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");
 		settings.choro === "csv" && csvSpec ? qs.set("csv", csvSpec) : qs.delete("csv");   // URL 由来の CSV だけ URL に残る（手元のファイルは再現できない）
 		settings.labels ? qs.delete("labels") : qs.set("labels", "0");
+		lang === "en" ? qs.delete("lang") : qs.set("lang", lang);   // 言語＝URL に残す（共有した URL は同じ言葉で開く）
 		legendData?.years && settings.year != null ? qs.set("year", String(settings.year)) : qs.delete("year");
 		const search = qs.toString() ? "?" + qs : "";
 		history.replaceState(null, "", location.pathname + search + buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]));
