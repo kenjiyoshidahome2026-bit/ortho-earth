@@ -76,6 +76,21 @@ isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マ�
   9/14 の再裁定（globe 未着手のうちは japan を直接整えてよい）に沿って、今日はすべて japan で直接やった。
   同じ判断を続けるなら #8 の本文もその旨に直す。
 
+### A′. app.js の見通し（オフィス 9/17 午後・本人「app.js がまだ巨大」→「動作を変えない移動」）
+
+3,552 行 → **2,389 行**。plateau と同じ作法（動作を変えない移動・env の getter・元ブロックとの diff 検分・全門緑）で 4 段：
+
+| 移設先 | 行 | 中身 | 門が捕まえた事 |
+|---|---|---|---|
+| `gint/layers.js` | 667 | 単一スロット・多層 addGint・admin0・bake-ahead・ドレープ・fid 塗り・queryAll。外が読み書きしていた let は `gint.*` のアクセサ | — |
+| `sky/theater.js`／`jp/n02.js` | 251 | 星空劇場（render() の太陽系圏 8 行は `solarFrame`）／N02 新幹線（**日本の知識＝jp/ の下**・本人裁定） | `let a=…, b=…` の複数宣言を xref が先頭しか拾わず `constelVisible` が外に残った（ui 4 頁・webgpu 4 頁・prod が赤）。xref を直した |
+| `scenes/player.js` | 207 | 上映・停止・タイムライン・黒幕・フェード・待ちパネル。?scene=/?g= の起点と remoteUrl は app に残す | — |
+| `boot/tier.js` | 115→純関数 | lowMem / classifyTier / probeGL / fatalOverlay / deadMap。**`tests/t-tier.mjs`（25 件・npm test に登録）** | — |
+
+残る app.js＝芯（render worker 配線・層状態・onMove/render・フライト・入力）＋公開面（map.*）＋配線＋印刷 33 行。
+**次の段（契約）の候補**：jp/n02.js を地域宣言（jp/region.js）から注入して /nl/ では作らない／gint.* の 14 個のアクセサを意味のある口に／
+scenes の demoHandle 預けを mount の戻り値に。**t-print・t-anno は連続実行でだけ落ちる環境フレーク＝単独で回してから疑う。**
+
 ### B. スタイルの置き場（基図を持つ二国目が現れた時）
 
 第二段で移したのは基図の**ソース**と**出典**まで。スタイル（style-mono 206 行＋テーマ変換 3 本＋分類表＋
@@ -143,6 +158,7 @@ isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マ�
 | `npm run verify:i18n [-- --strict]` | キー存在・ja 必須・`$1` 整合・文脈標識の混入・未訳件数（26 言語） |
 | `npm run verify:ui` | 22 頁（`t-rtl` と `t-rtl?lang=ar` を追加） |
 | `npm run verify:webgpu` | `t-bld?gl2=1` を追加＝**建物が実際に立つ絵**（東京駅前 z16 チルト 55°・bld=42,523 px） |
+| `npm test` | `t-tier`（起動時の裁き＝ティア判定・deadMap 25 件・オフィス 9/17 午後）を追加＝5 本 92 件 |
 | `npm run verify:webgpu` | `t-plateau?gl2=1&loadmax=1` を追加（オフィス 9/17）＝**PLATEAU が実際に立つ**（東京駅前 z16 チルト 55°・登録簿→start→done→活性化を map.on("plateau") で見届ける・R2 焼きで約 11 秒） |
 | `npm run verify:prod` / `deploy` | 従来どおり。deploy は verify:editor → verify:prod → wrangler → verify-live |
 

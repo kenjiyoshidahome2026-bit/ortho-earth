@@ -29,8 +29,9 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
-import { createN02Overlay } from "./rail/n02.js";   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（同）
-import { createScenePlayer } from "./scenes/player.js";   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
+import { createN02Overlay } from "./jp/n02.js";   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（日本の知識＝jp/ の下・同）
+import { createScenePlayer } from "./scenes/player.js";
+import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { search as searchGadget } from "./gadgets/searchbox.js";
@@ -240,11 +241,9 @@ const orDetached = el => el || document.createElement("div");
 const canvas = document.getElementById("c");
 const labelCanvas = document.getElementById("labels");
 const logEl = orDetached(document.getElementById("log"));
-// 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
-// タブ1枚あたり ~1-1.5GB でOSが強制終了（落ちて自動リロード）するため、タッチ端末は一律低メモリ扱い。
-// 誤検知側の被害は「同時2区・キャッシュ縮小」だけ＝安全側に倒す。renderWorker（R10キャッシュ縮小）と
+// 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
-const LOW_MEM = navigator.deviceMemory ? navigator.deviceMemory <= 4 : navigator.maxTouchPoints > 1;
+const LOW_MEM = lowMem(navigator);
 // ── 世界の形（現在：全端末＝球6371kmが既定・?ell=1で表示もWGS84楕円体。計測は常時WGS84＝段階A無条件）──
 // 楕円体（段階B 2026-08-11）＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core camera.js の
 // setEllipsoid・ELL 時は世界単位＝a）。決定はこの1点のみ＝worker 文脈（render/plateau/tile）へは各 init の
@@ -268,30 +267,8 @@ console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "spher
 setEllipsoid(ELL_ON);
 const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
-// --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める ---
-// reload=true で「再読み込み」ボタン付き。fatal は紙色の全面＝地図の世界観のまま静かに伝える。
-function fatalOverlay(title, detail, reload) {
-	const d = document.createElement("div");
-	d.id = "fatal";   // スタイルは style.css（#fatal）。最後に起きる事件＝最後の append＝DOM順で最上面
-	d.innerHTML = `<div class="fatal-box">
-		<div class="fatal-title">${title}</div>
-		<div class="fatal-detail">${detail}</div>
-		${reload ? `<button class="fatal-reload" onclick="location.reload()">${t("Reload")}</button>` : ""}</div>`;
-	mapEl.appendChild(d);
-	return d;
-}
-// 起動不能時の静かな退場：案内オーバーレイを出した後、呼び側（site.js / SDK 埋め込み）には「何もしない地図」を
-// 返す。旧・throw は未捕捉例外＝呼び側の then 連鎖ごと死に、site の boot カバーも畳まれない（Chrome の
-// ハードウェアアクセラレーション off で「エラーを吐いて落ちる」実測 2026-09-02）。Proxy＝map.gadget.search() の
-// ようなどんな連鎖・呼び出しも無害に自分を返して空転する（then だけ undefined＝await が即解決する約束）。
-const deadMap = () => {
-	const stub = new Proxy(function () {}, {
-		get: (_, k) => k === "then" ? undefined : (k === Symbol.toPrimitive || k === "toString") ? () => "" : stub,
-		apply: () => stub,
-		set: () => true,
-	});
-	return stub;
-};
+// --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める（boot/tier.js fatalOverlay / deadMap）---
+const fatalOverlay = (title, detail, reload) => showFatal(mapEl, title, detail, reload ? t("Reload") : null);   // reload=true で「再読み込み」ボタン付き
 // 対応判定：このアプリの土台は WebGL2 ＋ OffscreenCanvas（GL を worker に置く設計）。無い環境では静かに案内して止まる。
 // 「非対応」の確実な判別器は transferControlToOffscreen の欠落だけ（これを持つ世代のブラウザは全て WebGL2 対応）。
 // webgl2=null 単独は非対応と断定できない：GPUプロセスのクラッシュ直後（OOM→contextlost の自動リロード直後）は
@@ -299,13 +276,7 @@ const deadMap = () => {
 // → 復帰を10秒リトライ（クラッシュ直後は1〜数秒で戻る）。復帰すればそのまま起動続行、ダメなら環境向け案内＋再読み込み。
 let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）。probe の使い捨てコンテキストから同乗で頂く
 {
-	const probeGL = () => {
-		const g = document.createElement("canvas").getContext("webgl2");
-		const dbg = g?.getExtension("WEBGL_debug_renderer_info");   // 専用コンテキストは新設しない＝この判定用の1枚に相乗り
-		if (dbg) gpuRenderer = g.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "";
-		g?.getExtension("WEBGL_lose_context")?.loseContext();   // 判定用コンテキストは即返却（スロットを食い潰さない）
-		return !!g;
-	};
+	const probeGL = () => { const r = probeWebGL2(); if (r.renderer != null) gpuRenderer = r.renderer; return r.ok; };   // 判定用の 1 枚に相乗りして GPU 素性も頂く（boot/tier.js）
 	if (!HTMLCanvasElement.prototype.transferControlToOffscreen) {
 		fatalOverlay(t("This map cannot be displayed in your browser"),
 			t("This 3D globe is drawn with WebGL2 and OffscreenCanvas. Please try the latest Chrome / Edge / Firefox, or Safari 17 or later."));
@@ -326,31 +297,10 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		}
 	}
 }
-// --- 非力デスクトップ・ティア（MID_TIER）：メモリ天井の低い機体を見抜いて PLATEAU の山を半分にする ---
-// 2026-08-03 実測：Windows10 / i7 / 16GB / 内蔵HD Graphics / HDD が、コールド（キャッシュ無し）の PLATEAU 表示で
-// タブごと落ちた。既定値（同時4区・常駐1.2GB・worker4本・worker内cache 2区/本）は Apple の 16GB ユニファイド機で
-// 調律したもので、コールド時のピークは 16GB 機で renderer 12.3GB という自前実測がある（下の bldCap のコメント）。
-// なぜ deviceMemory で見抜けないか：Chrome の deviceMemory は 8 が上限＝16GB機も64GB機も 8 を返す。
-// LOW_MEM（≤4GB＝スマホ帯）は素通りし、非力な 8〜16GB デスクトップだけが素の既定値を浴びる。
-// 代わりの signal＝GPU の素性：内蔵GPU（Apple 以外）は VRAM がシステムRAMの取り分＝PLATEAU の常駐・過渡と
-// 同じ財布を食う（Apple のユニファイドは同じ物理RAMでも OS がまとめて面倒を見る＝別枠扱いしない）。
-// 不明（文字列マスク環境）は現状維持側＝回帰を出さない。?mid=1 / ?mid=0 で手動上書き（実機A/Bの戻し口）。
-// もう一つの穴＝**RAM の多いスマホ**：LOW_MEM は deviceMemory ≤4 だけなので、8GB の Android（入門機でも
-// 「8GB+仮想4GB」を謳う機種が普通にある）は LOW_MEM を素通りして**デスクトップ扱い**になっていた
-// （4区・1.2GB・worker4本）。タブ予算はデスクトップより遥かに小さい＝最低でも非力機ティアへ落とす。
-// 判定は coarse ポインタ×タッチ＝スマホ/タブレット（タッチ対応ノートPCは主ポインタが fine ＝巻き込まない）。
-const MOBILE_UA = navigator.userAgentData?.mobile === true || (matchMedia("(pointer: coarse)").matches && navigator.maxTouchPoints > 1);
-const MID_TIER = /[?&]mid=1/.test(location.search) || (!/[?&]mid=0/.test(location.search) && !LOW_MEM && (
-	MOBILE_UA ||                                                            // RAM の多いスマホ/タブレット（LOW_MEM を素通りする層）
-	(navigator.hardwareConcurrency || 8) <= 4 ||                            // 4コア以下＝worker4本を養えない
-	(/\bintel\b/i.test(gpuRenderer) && !/\barc\b/i.test(gpuRenderer)) ||    // Intel HD/UHD/Iris/Xe＝内蔵（Arc は独立GPU＝対象外）
-	/\bvega\b|radeon\(tm\) graphics/i.test(gpuRenderer) ||                  // AMD APU の内蔵GPU
-	/swiftshader|llvmpipe|basic render/i.test(gpuRenderer)));               // ソフトウェアラスタ＝論外に非力
+// --- 機体のティア（boot/tier.js classifyTier）：非力デスクトップ MID_TIER（内蔵GPU・4コア以下・RAM の多いスマホ）は PLATEAU の山を半分に、
+// ハイスペック HI_TIER（12コア以上）はロード並行度だけ上へ。根拠と実測は module の注記・台帳は fallback-ladder.md。?mid=0/1・?hi=0/1 が戻し口。
+const { MID_TIER, HI_TIER } = classifyTier({ LOW_MEM, gpuRenderer, search: location.search, nav: navigator, coarse: () => matchMedia("(pointer: coarse)").matches });
 if (MID_TIER) console.log(`[boot] mid-tier device = PLATEAU to safe side (gpu="${gpuRenderer || "unknown"}" cores=${navigator.hardwareConcurrency || "?"})`);
-// ハイスペック判定（初の「上へ伸ばす」側のtier）：deviceMemory は 8 が上限＝16GB機も64GB機も同じ顔（上のコメント）
-// なので、コア数≥12 を物差しにする。効くのは PLATEAU のロード並行度だけ（fast枠3区・タイル並行16）＝描画系は不変。
-// 過渡メモリの根拠は bldCap のコメント参照。?hi=0 が逃げ道・?hi=1 で強制（弱い機でのA/B用）。
-const HI_TIER = /[?&]hi=1/.test(location.search) || (!/[?&]hi=0/.test(location.search) && !LOW_MEM && !MID_TIER && (navigator.hardwareConcurrency || 0) >= 12);
 if (HI_TIER) console.log(`[boot] hi-tier device = PLATEAU wide lanes (cores=${navigator.hardwareConcurrency}, bldCap=3, tileConc=16, decPool)`);
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
@@ -1201,7 +1151,7 @@ dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
 const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
-// --- N02 新幹線＝rail/n02.js（路線＋駅のビーズ・鉄道チップで点灯）。land＝紙色はテーマで差し替わる＝getter。
+// --- N02 新幹線＝jp/n02.js（路線＋駅のビーズ・鉄道チップで点灯・日本の知識）。land＝紙色はテーマで差し替わる＝getter。
 const n02 = createN02Overlay({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
