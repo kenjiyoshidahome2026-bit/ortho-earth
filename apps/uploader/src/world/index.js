@@ -3,15 +3,17 @@
 // ここは「ブラウザで組み立てて bucket に保存する」入口と、資産（旗・音源・地形PNG）の出し入れ。
 //   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・TerrainDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>・rivers（川の形状 GeoJSON）・range（山脈の軸線 GeoJSON）
 //   zip drop: flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。svg 一枚差し（<key>.svg）
+//   NE Cultural: Natural Earth 10m から key ごとに切った台帳（ne-cultural.geopbf）を生成して保存＝apps/equal が国・道路・鉄道・市街地に読む（2026-09-18）
 import * as d3 from 'd3';
 import "common/d3/fileio.js";   // dropFiles 拡張
 import { download } from "common";
-import { decodeZIP, Cache } from "native-bucket";
-import { DIRE, DBS, FLAG, SOUND, GEOMS, makeDB, RIVERS, RANGES } from "./db.js";
+import { decodeZIP, Cache, gzip } from "native-bucket";
+import { DIRE, DBS, FLAG, SOUND, GEOMS, CULTURAL, makeDB, RIVERS, RANGES } from "./db.js";
 import { createGeometryPNG } from "./createGeometryPNG.js";
 import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
 import { buildAll } from "../../../../packages/world/build/index.js";
+import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC } from "../../../../packages/world/build/ne-cultural.js";
 // seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
@@ -67,12 +69,39 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		return `国 ${r.NationDB.length} / 都市 ${r.CityDB.length} / 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}・山脈の軸線 ${r.ranges ? r.ranges.features.length : 0}）/ 言語 ${r.LanguageDB.length} / 通貨 ${r.CurrencyDB.length} / 係争 ${r.Conflicts.length}・warns ${r.report.warns.length}`;
 	}
 
+	// ── NE Cultural（key ごとに切った台帳）＝生成して保存 ──
+	// 切り分けの本体は packages/world/build/ne-cultural.js（Node CLI と同一コード＝出力はバイト一致を検証済み）。
+	// 取得は raw.githubusercontent（版固定・CORS 可）を素で読む＝生 geojson 計 90MB 級なので IDB には残さない（掃除の対象を増やさない）。
+	async function buildCultural() {
+		q.log(`Natural Earth 10m ${NE_TAG} を読む（生 geojson 計 90MB 級・メモリを食う）: ${NE_SOURCES.length} ファイル`);
+		const ne = async name => {
+			q.log(`取得 ${name} …`);
+			const r = await fetch(neURL(name));
+			if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+			return (await r.json()).features;
+		};
+		const r = await buildNeCultural(seed, { ne, log: s => q.log(s), warn: s => console.warn(s) }, {});
+		// 検札（保存前）：層が全部あるか・key が seed の大半に付いたか。欠けたまま上げると equal の国が消える
+		const missing = NE_LAYERS.filter(l => !r.index.report[l]);
+		if (missing.length) throw new Error(`層が欠けている: ${missing.join(", ")}`);
+		const keys = Object.keys(r.index.keys).length;
+		if (keys < seed.nations.length * 0.9) throw new Error(`key が少なすぎる: ${keys} / seed ${seed.nations.length}＝切り分けが途中`);
+		const gz = await gzip(new Blob([await r.encode(CULTURAL, r.all, SINGLE_DESC)]));
+		r.index.single = { file: `${CULTURAL}.geopbf`, features: r.all.length, vertices: r.countVerts(r.all), bytes: gz.size };
+		await db.saveGeoPBF(`${CULTURAL}.geopbf`, gz);
+		await db.saveJSON(CULTURAL, r.index);   // 要約（Node の out/ne-cultural.json と同じ中身）も棚に置く＝どの版が載っているか後から読める
+		q.log(`${DIRE}/${CULTURAL}.geopbf: ${keys} key・${r.all.length} 地物・${(gz.size / 1e6).toFixed(1)}MB (gzip)`);
+		q.log("apps/equal は次の訪問から反映（IDB の写しは ETag の差で入れ替わる）");
+		return `${keys} key / ${r.all.length} 地物`;
+	}
+
 	CMD.append("h1").text("国別DB (world)");
 	CMD.append("button").text(`一覧 (${DIRE})`).on("click", async () => {
 		q.clear(); q.title(`一覧 (${DIRE})`);
 		(await bucket.list()).forEach(t => q.log(`${t.Key}  ${(t.Size / 1024).toFixed(1)}KB  ${t.LastModified}`));
 	});
 	CMD.append("button").text("全部作る（seed → Wikidata/統計 API → 全 DB + i18n を保存）").on("click", run("build", buildAndSave));
+	CMD.append("button").text(`NE Cultural 生成→保存（${CULTURAL}.geopbf・国/道路/鉄道/市街地を key ごとに切る）`).on("click", run("ne-cultural", buildCultural));
 	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG({ db }, q)));
 	CMD.append("button").text(`${FLAG}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${FLAG}.zip`), `${FLAG}.zip`));
 	CMD.append("button").text(`${SOUND}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${SOUND}.zip`), `${SOUND}.zip`));
@@ -113,6 +142,6 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		q.log(`${name}: 対象外（DB は「全部作る」で seed から組み立てる）`);
 	}
 	// console から直接叩けるように（uploader は作業台）
-	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave });
+	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave, buildCultural });
 	return db;
 }

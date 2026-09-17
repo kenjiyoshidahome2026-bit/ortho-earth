@@ -22,6 +22,7 @@ seed/            正本（人が手で持つ・PR の対象）
 i18n/ui.json      UI 文言（英語キー → 25 言語）と言語一覧（langs.json）。categories（地形 35 分類）と plateBoundaries（PB2002 の 7 種別）は Wikidata のクラス項目のラベル＝scripts/i18n-classes.mjs が埋める（2026-09-15）
 build/            組み立て（Node CLI と uploader で共用・依存なし）
   index.js         buildAll(seed, env) → { NationDB, CityDB, TerrainDB, LanguageDB, CurrencyDB, Conflicts, i18n, rivers, ranges, report }
+  ne-cultural.js   NE Cultural の切り分け（国の領域＝admin1 を key で束ねる＋係争主体の重ね・線/面/点の切断）＝Node CLI とブラウザ（uploader）で共用
   geom.js          山脈ポリゴン → 軸線（内部を格子標本化 → 格子グラフの測地距離で最遠の 2 端 → 一端からの距離の等値帯ごとの重心＝弧や鉤に追従・約 120 km 間隔・3〜40 点。幅＝帯ごとの直交方向 p10〜p90 の中央値 km）
   wikidata.js      wbgetentities（50 件束）と「現在の値」の取り出し（preferred > 終了日なし normal・P518/P1001＝部分適用の除外）
   stats.js         World Bank（主）/ IMF WEO（穴埋め）/ UNDP HDR / GPI と国連加盟日（en.wikipedia の表）＝すべて ISO3・QID で結合
@@ -31,7 +32,7 @@ build/            組み立て（Node CLI と uploader で共用・依存なし�
   cli.js           node build/cli.js [--fresh] [--out DIR] → out/
 scripts/          terrains-from-ne.mjs＝地形 seed の生成器（Natural Earth 10m v5.1.2 を .cache/ne/ に取得・Wikidata で記事の有無を確認・Python 版から 2026-09-15 移植＝出力バイト一致）
                   i18n-classes.mjs＝分類名・境界種別・気候区分の多言語名を Wikidata のクラスから ui.json と .cache へ（npm run i18n:classes）
-                  ne-cultural.mjs＝Natural Earth Cultural＝鉄道・道路・市街地・湖・人口密集地・admin1 を key ごとに切り分ける（→ out/ne-cultural.geopbf・--split で国別ファイル）
+                  ne-cultural.mjs＝Natural Earth Cultural＝鉄道・道路・市街地・湖・人口密集地・admin1 を key ごとに切り分ける CLI（切り分け本体は build/ne-cultural.js＝uploader と共用・→ out/ne-cultural.geopbf・--split で国別ファイル）
                   ne-physical.mjs＝Natural Earth Physical＝地形の形状台帳（→ out/ne-physical.geopbf＋ne-physical-lines.geopbf・NE の面/線/点＋Wikidata 位置＋山脈軸線・地理線）
 legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v1 seed（create*.js・geometryISO.js・draw.js・国名一覧.csv・国旗.zip…）は削除済み＝git 履歴 e544907 に残る（2026-09-11）
 ```
@@ -76,7 +77,12 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 領域の定義は `createGeometryPNG`（geoms/<key>.png）と同じ: admin1 を fixISO（iso_a2＋名前の割替え＋FR/NL の海外県）で key に束ねたものが主（互いに重ならない）。
 admin1 に形の無い係争主体（B20 北キプロス・B28 SADR・B30 ソマリランド・B35/B37・B36・B38・B89 クリミア・C02/C03）は disputed_areas の BRK_A3 で独立に切り出す＝主の分割と**重複する**（world の geo_tub と同じ）。
 B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX は形が無いので出力しない。
-1 km 未満の短い海上の外れは海岸線の丸めとみなして隣の key に繋ぐ。当面はローカル（out/）に置く＝bucket には上げない（Kenji 2026-09-14/15）。
+1 km 未満の短い海上の外れは海岸線の丸めとみなして隣の key に繋ぐ。
+
+**配信（Kenji 2026-09-18）**: `bucket GIS/world/ne-cultural.geopbf`（＋要約 `ne-cultural.json`）に置く＝`apps/equal`（Equal Earth の全球図）が国・道路・鉄道・市街地に読む。
+切り分けの本体は `build/ne-cultural.js`＝**Node CLI（`scripts/ne-cultural.mjs`）とブラウザ（uploader）で同一コード**（出力の生バイトは一致を実測）。作り直したら:
+- ブラウザ: uploader の「国別DB (world)」節 → **「NE Cultural 生成→保存」**（NE 10m を raw.githubusercontent から読んで切り、検札して bucket へ置く＝これが正規の手順）
+- ローカル確認: `npm run ne:cultural -w world-data`（`out/` に書くだけ・bucket は触らない）
 
 ## 判断の記録
 

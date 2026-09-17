@@ -10,10 +10,12 @@
 	"dependencies": {
 		"altpbf": "*",
 		"common": "*",
+		"geopbf": "*",
 		"geotiff": "^3.0.5",
 		"native-bucket": "*",
 		"ortho-core": "*",
-		"ortho-map":"*",
+		"ortho-map": "*",
+		"polygon-clipping": "^0.15.7",
 		"three": "^0.177.0"
 	},
 	"devDependencies": {

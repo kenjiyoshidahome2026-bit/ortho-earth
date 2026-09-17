@@ -8,6 +8,7 @@ export const SOUND = "音源";      // 音源.zip（mp3・OtoLogic CC BY 4.0）
 export const RANGES = "range";    // range.json（山脈の軸線 2〜4 点 GeoJSON＝表示側で spline＋ポリゴン化）
 export const RIVERS = "rivers";  // rivers.json（川の形状 GeoJSON＝Natural Earth 10m・build が seed の QID で結合）
 export const GEOMS = "geoms";    // geoms.zip（<key>.png）＋ geoms/<key>.png
+export const CULTURAL = "ne-cultural";   // ne-cultural.geopbf（NE Cultural を key ごとに切った台帳＝apps/equal が国/道路/鉄道/市街地に読む）＋ne-cultural.json（要約）
 // 国以外の旗の id（flags/<id>.svg）。UI 用と旧例外地域（NationDB に無い＝資産として保持）
 export const FLAG_KEYS = ["UN", "EU", "NATO", "DISPUTED", "X-CATALONIA", "X-KURDISTAN", "X-KERGUELEN", "X-DARFUR", "X-CHECHNYA", "X-TIBET", "X-BOUGAINVILLE", "X-MADEIRA", "X-WESTPAPUA"];
 
@@ -20,9 +21,12 @@ export function makeDB(bucket) {
 		const wrapped = Array.isArray(a) ? { updated: new Date().toISOString().slice(0, 10), count: a.length, items: a } : a;
 		return bucket.put(new File([JSON.stringify(wrapped)], `${name}.json`, { type: "application/json" }));
 	};
+	// 形状台帳（*.geopbf）＝gzip のまま素通しで置く（Bucket.put は isGzip 検出で二重圧縮せず Content-Encoding も付けない
+	// ＝Node の scripts が書く out/*.geopbf と同じ実体＝読む側（geopbf / bucket.get）が解く）
+	const saveGeoPBF = (name, gzBlob) => bucket.put(new File([gzBlob], name, { type: "application/x-geopbf" }));
 	const zipAndFiles = (name, mime) => async files => { await bucket.puts(`${name}.zip`, files); for (const f of files) await bucket.put(new File([f], `${name}/${f.name}`, { type: mime })); };
 	return {
-		loadJSON, saveJSON,
+		loadJSON, saveJSON, saveGeoPBF,
 		// 旗/geoPNG＝zip（保管・一括DL）に加えて個別ファイル（flags/<key>.svg・geoms/<key>.png）も配置＝ビューアは見えた分だけ遅延取得
 		loadFlagDB: () => bucket.gets(FLAG), saveFlagDB: zipAndFiles(FLAG, "image/svg+xml"),
 		loadSoundDB: () => bucket.gets(SOUND), saveSoundDB: files => bucket.puts(`${SOUND}.zip`, files),
