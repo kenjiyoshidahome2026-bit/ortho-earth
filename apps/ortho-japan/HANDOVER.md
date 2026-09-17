@@ -56,7 +56,15 @@ app.js に残るのは配線 15 行＝app の状態（cam・moving・flying・pr
 生成後に定義される関数（unprojectXY／playingNow／flyTo）はラップして渡し、戻り値を移設前と同じ名前に分割代入（以降の参照は無改造）。
 `flying` の宣言だけ app.js に残した（flyTo の onFlying が代入する app の状態）。
 機械置換の diff 検分で 1 件捕まえた＝`\bcam\b` が worker への `type: "cam"` 文字列にも掛かっていた（直済み・文字列の守りを生成器に追加）。
-**次＝契約の導入（別コミット）**：env の getter 束と 20 個の分割代入を、意味のある API の形に整える。永続化の鍵は引き続き触らない。
+**第二歩＝契約の導入も完了（同日）。** env は 3 束（機能スイッチ・装置の旗 `device`・登録簿 `catalog`／描画側の口 `renderer`
+`attachMeshPort`／app の状態の覗き窓 getter＋`footPoint()`・`viewBbox()`・`playingNow()`・`flyTo()`）。戻り値は
+`update / standUp / prefetch / trimForScript / firstRevealSets / setExcludeMap / setProgressTap / terminate / sets / progress /
+isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マップは manager が持つ（app は catalog の Promise を渡すだけ）。
+分割代入は消え、app.js は `plateau.update()` 等の呼び口だけ。`firstRevealSets` と HUD の常駐バイト集計も manager へ。
+**踏んだ罠**＝`const foot = foot()`（env の関数と局所変数の同名＝自己シャドウ TDZ）。catalog の `.catch` が例外を「catalog fetch failed」の
+皮で飲んで見えなかった＝t-plateau が「start が来ない」で捕まえ、門に console 採取を足して原因を出した。一突きは `.catch` の外へ出した。
+`terminate()` は見張りタイマーも止める（destroy 後に worker を起こし直さない＝第二歩で足した唯一の挙動追加）。
+**次＝A は完了。** B（スタイルの置き場）は二国目待ち、C は次の大版まで触らない、D は小物。ロードマップ #8 の本文を「japan で直接やった」に直すのは残っている。
 
 `app.js` の連続 690 行（表示判定・ヒステリシス・ロード順・取り消し・降格・常駐予算・追い出し・遠景の星座・
 先読み）が一塊のまま。切り出し三領域のうち、ここだけ手つかず。
@@ -142,6 +150,6 @@ app.js に残るのは配線 15 行＝app の状態（cam・moving・flying・pr
 
 ## 再開の一行
 
-~~「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」~~ ＝ 済（オフィス 9/17）。
-**次は「`plateau/manager.js` の env と戻り値を契約の形に整える」**（別コミット）。永続化の鍵には触らない。
-着手前に `verify:webgpu t-bld t-plateau` と `verify:prod` が緑であることを確かめると、壊した時にすぐ分かる。
+~~「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」~~ ＝ 済。~~「env と戻り値を契約の形に整える」~~ ＝ 済（どちらもオフィス 9/17）。
+**A は完了＝切り出し三領域は全部片付いた。** 残りは push と本番 deploy（本人の手）、そしてロードマップ #8 の本文修正。
+以後 PLATEAU 周りを触る時は `verify:webgpu t-bld t-plateau` と `verify:prod` を先に緑にしてから。

@@ -725,18 +725,13 @@ let moving = false, settleT = null;
 // opts.plateau=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
 const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
-let PLATEAU_SETS = [];
-// カタログ到着の合図＝デモの先読み（prefetchPlateauForViews）が待つ。到着時の自動ロードは従来どおり。
-let plateauExcludeMap = null;   // 除外マップ＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
-if (plateauOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) { plateauExcludeMap = map; plateauWorkers.forEach(w => w.postMessage({ type: "exclude", map })); } }).catch(() => {});   // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ
-const plateauCatalogReady = !plateauOn ? Promise.resolve() :
+// 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は plateau/manager.js（env.catalog）。
+const plateauCatalog = !plateauOn ? null :
 	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
 		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[plateau] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
-		PLATEAU_SETS = sets; console.log(`[plateau] catalog loaded -> ${sets.length} municipalities`);
-		emitPlateau({ phase: "catalog", count: sets.length });
-		autoPlateau(true);   // 復元ビューが z15+ の街なら起動直後に自動ロード（settled扱い＝起動時の視界は確定している。IDB命中なら即座に街が立つ）
-	}).catch(e => console.warn("[plateau] catalog fetch failed", e));
+		return sets;
+	});
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
 // scripts/airports-build.mjs で全国収穫した静的リスト(86空港)から「マークだけ」を注入する（本家地理院地図Vectorの見え方に合わせる）。
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
@@ -869,21 +864,33 @@ function loadPOI(cam) {
 			}).catch(() => poiTiles.set(key, []));
 		}
 }
-// --- 建物3D（PLATEAU）の管理＝plateau/manager.js（2026-09-17 に app.js から**動作を変えずに**移設：表示判定・ヒステリシス・ロード順・
-// 取り消し・降格・常駐予算・追い出し・遠景の星座・先読み・読込トースト・データ管理モーダルの配線）。ここに残るのは配線だけ：
-// app の状態は getter で覗かせ（cam はこの下で定義される＝生成時に掴まない）、生成後に定義される関数はラップして渡す。
-// 分割代入で移設前の名前をそのまま残す＝以降の参照は無改造（契約＝API の形の整理は次のコミット）。
-let flying = false;                        // フライト中フラグ＝autoPlateau のゲート（flyTo が立て、着地/中断で下ろす）
+// --- 建物3D（PLATEAU）の管理＝plateau/manager.js（表示判定・ロード順・常駐予算・遠景・先読み・読込トースト・データ管理モーダル）。
+// ここは配線だけ＝装置の旗・描画側の口・app の状態の覗き窓（getter）・生成後に定義される関数のラップ（一本道の下流＝呼ぶ時に解決）。
+// 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
+function approxViewBbox(cam) {
+	// z＝正射スケール（緯度フリー）に伴い cos(lat) を撤去。係数は従来の東京相当(cos35°≈0.819)を固定＝
+	// PLATEAU区選抜のゲート挙動を全国で従来の東京と同じに（緩めのbboxで拾い、最終判定は点距離が裁く）。
+	// 156543=256px世界の赤道m/px。旧512世界のzで割っていた頃は実質2倍の余裕マージンがあり、それがチルトの
+	// 奥行き（画面奥の区の選抜）を担っていた＝256統一(2026-07-26)で式が正確になった分、係数1.5で明示復元
+	//（0.75のままだと札幌60°チルトで東区・北区がbbox外＝奥の建物が立たない回帰を実測）。
+	const metersPerPx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom);
+	const halfM = Math.max(size.w, size.h) / dpr * 1.5 * metersPerPx;   // 対角余裕込みの半幅×旧実効マージン
+	const dLat = halfM / 111320, dLon = dLat / Math.max(0.15, Math.cos(cam.center[1] * D2R));
+	const [lon, lat] = cam.center;
+	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
+}
+let flying = false;                        // フライト中フラグ＝plateau.update のゲート（flyTo が立て、着地/中断で下ろす）
 const plateau = createPlateauManager({
-	plateauOn, LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON, qNum, dbgHost, mapEl, renderer, wPost, size, dpr, t, emitPlateau, plateauCatalogReady,
-	unprojectXY: (x, y) => unprojectXY(x, y), playingNow: () => playingNow(), flyTo: (...a) => flyTo(...a),   // 一本道の下流で定義される const＝呼ぶ時に解決（TDZ を踏まない）
-	get cam() { return cam; }, get moving() { return moving; }, get flying() { return flying; }, get printHold() { return printHold; }, get elevBusy() { return elevBusy; },
-	get sets() { return PLATEAU_SETS; }, get excludeMap() { return plateauExcludeMap; },
+	plateauOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: plateauCatalog,
+	renderer, attachMeshPort: port => wPost({ type: "plateauPort", port }, [port]), mapEl, dbgHost, emit: emitPlateau,
 	requestDraw: () => { needsDraw = true; },
+	get cam() { return cam; }, get moving() { return moving; }, get flying() { return flying; }, get printHold() { return printHold; }, get elevBusy() { return elevBusy; },
+	// 足元＝チルト時（pitch>20°）は画面下端中央の接地点（球外なら null）。真俯瞰では下端＝単に南＝優先の意味が無いので使わない
+	footPoint: () => cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null,
+	viewBbox: approxViewBbox, playingNow: () => playingNow(), flyTo: (...args) => flyTo(...args),
 });
-const { autoPlateau, standUpWard, prefetchPlateauForViews, plateauTrimForScript, approxViewBbox, bboxIntersects,
-	plateauDb, plateauProg, plateauActive, plateauResident, plateauAutoLoading, plateauDemoted, plateauCancelling,
-	plateauWorkers, plateauDecoders, plateauMemW, plateauDead, bytesOf, PLATEAU_AUTO_Z, PLATEAU_MAX_ACTIVE, PLATEAU_RESIDENT_BYTES, PLATEAU_NW } = plateau;
+// 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。起動後に来ても manager が起きている worker と後から起きる worker の両方へ配る
+if (plateauOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) plateau.setExcludeMap(map); }).catch(() => {});
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
 // 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、
 // eye直下サンプルは下った斜面を見る＝山頂が計算に入らず効かなかった（富士 z15/75° で裏面を見上げる絵）。
@@ -957,13 +964,13 @@ function onMove() {
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
 	updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	ensureStars();                                                                    // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
-	autoPlateau();                                                                    // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
+	plateau.update();                                                                 // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
 		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
-		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); autoPlateau(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
+		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); plateau.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
@@ -2106,10 +2113,11 @@ dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingD
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 dbgHost.__plateau = async (nameOrBase, tiles) => {
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = 3D buildings feature disabled"); return; }
-	const set = !nameOrBase ? PLATEAU_SETS[0]
-		: PLATEAU_SETS.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
-	if (!set) { console.error("[plateau] ward not found:", nameOrBase, `(catalog ${PLATEAU_SETS.length} entries)`); return; }
-	await standUpWard(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUpWard 内の plateauLoading ガードで防ぐ
+	const sets = plateau.sets;
+	const set = !nameOrBase ? sets[0]
+		: sets.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
+	if (!set) { console.error("[plateau] ward not found:", nameOrBase, `(catalog ${sets.length} entries)`); return; }
+	await plateau.standUp(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUp 内の読込中ガードで防ぐ
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 16; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
@@ -2781,13 +2789,10 @@ function showDrawHud(msg) {
 // この closure＝ガジェットはレイアウトと更新のみ（抽象アクセス）。本体は ?hud=1 の時だけ import＝通常バンドル不干渉（三戒：独立/遅延/抽象アクセス）。
 let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝閉じても最悪値＝落ちる寸前の値を失わない）
 function hudSnapshot() {
-	const names = new Set([...plateauActive.keys(), ...plateauResident.keys()]);
-	let plat = 0; for (const n of names) plat += bytesOf(n, plateauActive.get(n) || plateauResident.get(n));
+	const pl = plateau.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
 	const ts = tiles.stats();
 	const gpu = memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）
-	const trC = plateauMemW.reduce((s, m) => s + (m?.cache || 0), 0);    // 過渡＝worker内cache（常駐台帳外・コールド落ちの主役）
-	const trL = plateauMemW.reduce((s, m) => s + (m?.live || 0), 0);     // 過渡＝ロード中の区の全量保持
-	const total = plat + ts.bytes + memTerrain + gpu + trC + trL;
+	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
 	if (total > hudPeak) hudPeak = total;
 	const nc = navigator.connection || {};
 	return {
@@ -2798,11 +2803,11 @@ function hudSnapshot() {
 			dpr: window.devicePixelRatio || 1, vw: window.innerWidth, vh: window.innerHeight,
 			net: nc.effectiveType || null, down: nc.downlink || null, ua: navigator.userAgent,
 		},
-		plateau: { bytes: plat, regions: plateauActive.size }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
+		plateau: { bytes: pl.bytes, regions: pl.regions }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
 		terrain: memTerrain, heap: memHeap, gpu: memGpu, gpuBytes: gpu,
-		transient: { cache: trC, live: trL, bytes: trC + trL },
+		transient: pl.transient,
 		total, peak: hudPeak, budget: 900 * 1048576,   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）＝残りが薄いほど落ちる寸前
-		tier: MID_TIER ? { active: PLATEAU_MAX_ACTIVE, residentGB: PLATEAU_RESIDENT_BYTES / 1e9, workers: PLATEAU_NW } : null,
+		tier: pl.tier,
 	};
 }
 // 本体は遅延 import＝.then は同期init完走後（map.gadget 定義済み）に走る。hud= 指定時だけ計測器ボタンを載せる（open=1/畳=0 は hudOpenInit）。
@@ -2834,8 +2839,7 @@ function destroy() {
 	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); clearInterval(planetTimer); clearInterval(skyClockTimer);   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
-	plateauWorkers.forEach(w => w.terminate());
-	plateauDecoders.forEach(w => w.terminate());   // デコーダも main 所有＝道連れ
+	plateau.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
@@ -3054,7 +3058,7 @@ map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）�
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
 	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = feature disabled; gadget not mounted"); return; }
-	return plateauGadget.call(this, { onOpen: plateauDb.open, ...opts });
+	return plateauGadget.call(this, { onOpen: plateau.openDb, ...opts });
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
@@ -3141,17 +3145,6 @@ if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then((
 // ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 let demoHandle = null;
-// 台本の中で「建物が実際に見える最初の視点」（チルト＋寄り＝pitch≥閾 かつ zoom≥AUTO_Z）の視界に掛かる建物区を返す。
-// waitLoading のリビール準備で「開幕で立つ区だけ」を停止中に GPU へ積むための最小集合＝要らない区（真俯瞰・低ズーム・視界外の隣接・後続ホップ）は含めない。
-function firstRevealSets(views) {
-	for (const hash of views || []) {
-		const v = typeof hash === "string" ? parseViewHash(hash) : hash;
-		if (!v || v.zoom < PLATEAU_AUTO_Z || (v.pitch || 0) < 0.02) continue;   // 真俯瞰/低ズーム＝建物は出ない＝積まない
-		const vb = approxViewBbox({ center: [v.lon, v.lat], zoom: v.zoom });   // approxViewBbox は zoom と center だけ使う（pitch/bearing 不問）
-		return PLATEAU_SETS.filter(s => !s.noMask && bboxIntersects(s.bbox, vb));
-	}
-	return [];
-}
 let sceneBusy = false, sceneRun = 0;   // sceneBusy＝上映ライフサイクル中（準備〜走破〜終幕括弧）／sceneRun＝世代トークン：stopScenes が進めると準備中の再生は静かに降りる
 const playingNow = () => sceneBusy || !!mapEl.querySelector("#demo-bar.on");   // 上映中判定＝▶デモ(バー点灯)もシーン再生も（上映中はドロップ禁止の裁定）
 // ★scene-player API（プラットフォーム公開面・map.playScenes）：台本オブジェクトを直接上映する第三の入口（drop / ?scene= も同じ道）。
@@ -3185,11 +3178,11 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOp
 			//             (b)標高タイル読込 elevBusy（jump した開始画の地形＝先読みポンプの柵でもある）。
 			let ward = { done: 0, total: 0 };
 			const poke = () => sceneLoading({ ...ward, show: true });       // 兆候あり＝出す（以降は更新）
-			const tick = setInterval(() => { if (plateauProg.size || elevBusy) poke(); }, 400);   // elevBusy はイベントが無い＝小さく見回る
-			plateau.setSceneProgTap(poke);   // 建物の枚数進捗はイベント駆動で即時反映
+			const tick = setInterval(() => { if (plateau.progress.size || elevBusy) poke(); }, 400);   // elevBusy はイベントが無い＝小さく見回る
+			plateau.setProgressTap(poke);   // 建物の枚数進捗はイベント駆動で即時反映
 			// 読み切るまで待つ（タイムアウト無し）：各区は成功/失敗(plateauFailed)で必ず終端＝この await も必ず終わる。待ち時間の顔はパネルが引き受ける
-			const wanted = (await prefetchPlateauForViews(views, preload, (d, total) => { ward = { done: d, total }; sceneLoading(ward); }).catch(() => [])) || [];
-			clearInterval(tick); plateau.setSceneProgTap(null);
+			const wanted = (await plateau.prefetch(views, preload, (d, total) => { ward = { done: d, total }; sceneLoading(ward); }).catch(() => [])) || [];
+			clearInterval(tick); plateau.setProgressTap(null);
 			// ★リビール準備＝立ち切ってから開幕：最初のフレームから本物の3D（基図の押し出し箱を見せない）。
 			// PC（WebGPU×非LOW_MEM＝全保持ヒステリシスと同じゲート）＝台本の全区を停止中に GPU 常駐まで積む＝道中・後続シーンも vis 点灯だけで即立つ。
 			// 「ロードは停止中に・移動中は点灯だけ」の原則は不変（今は停止中）。低級機フォールバック＝最初のリビール視点の区だけ（従来）。
@@ -3199,12 +3192,12 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOp
 			// →プリロード済み区との積集合に絞る＝立ち上げ段は常に IDB→GPU だけ（wanted 空の縁だけ従来通り）。
 			const wantedNames = new Set(wanted.map(s => s.name));
 			const targets = ((gpuBackend && !LOW_MEM && wanted.length) ? wanted
-				: firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateauDead(s.name));
+				: plateau.firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateau.isDead(s.name));
 			if (targets.length) {
 				const gpuHint = setTimeout(() => sceneLoading({ ...ward, show: true, phase: "gpu" }), 700);   // 一瞬で立ち切る時はパネルを出さない
-				await Promise.all(targets.map(s => standUpWard(s)));
+				await Promise.all(targets.map(s => plateau.standUp(s)));
 				// standUpWard は「既に可視ロードが走行中」の区を false 即決で素通しする＝活性化の完了を見届ける（安全弁120秒・failed も抜け口）
-				for (const t0 = performance.now(); !targets.every(s => plateauActive.has(s.name) || plateauDead(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
+				for (const t0 = performance.now(); !targets.every(s => plateau.isActive(s.name) || plateau.isDead(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
 				clearTimeout(gpuHint);
 			}
 			sceneLoading(false);
@@ -3216,7 +3209,7 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOp
 		demoHandle.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
-		sceneLoading(false); plateau.setSceneProgTap(null); sceneBusy = false;
+		sceneLoading(false); plateau.setProgressTap(null); sceneBusy = false;
 		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { flyView(returnView, { jump: true }); sceneCover(false); }
 	});
@@ -3229,7 +3222,7 @@ function stopScenes() {
 	if (!playingNow()) return false;
 	sceneRun++;   // 準備中の再生を降ろす（黒幕の下で待っている then 連鎖が run 不一致で静かに終わる）
 	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
-	sceneBusy = false; sceneLoading(false); sceneCover(false); plateau.setSceneProgTap(null);
+	sceneBusy = false; sceneLoading(false); sceneCover(false); plateau.setProgressTap(null);
 	return true;
 }
 // ★タイムライン・スクラブ（scene-player API・map.sceneTimeline）：台本→時刻評価＝再生せず任意秒の絵を出す（エディタのスクラブ用）。
@@ -3395,7 +3388,7 @@ function sceneLoading(state) {
 	mapEl.append(slEl);   // 毎回最後尾へ＝黒幕(#scene-cover)より必ず上（DOM順＋zIndex の二重保険）
 	slEl.style.display = "flex";
 	// 今まさに読んでいる物＝建物（区名 done/total枚・カタログ走査）＋標高。網経路のみ＝IDB命中は現れない（それが正しい）
-	const parts = [...plateauProg.values()].map(p =>
+	const parts = [...plateau.progress.values()].map(p =>
 		p.total ? t("$1 $2/$3 tiles", p.name, p.done, p.total) : t("$1 scanning catalog $2…", p.name, p.scan ?? 0));
 	if (elevBusy) parts.push(t("terrain tiles"));
 	slSub.textContent = parts.join("・") || t("3D city (PLATEAU)");
@@ -3405,7 +3398,7 @@ function sceneLoading(state) {
 		slCount.textContent = t("standing up the city…");
 	} else if (total) {
 		// バーは区の歩み＋読みかけ区のタイル進捗（なめらか担当・並行読みの分は全部加算＝残り区数でクランプ）
-		const frac = Math.min(Math.max(0, total - done), [...plateauProg.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
+		const frac = Math.min(Math.max(0, total - done), [...plateau.progress.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
 		slFill.style.width = Math.max(6, Math.round(Math.min(1, (done + frac) / total) * 100)) + "%";
 		slCount.textContent = t("$1 / $2 districts", done, total);
 	} else {
@@ -3543,13 +3536,13 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 			// 待つのは「これから見える区」だけ＝demote（視界外の在庫化）・cancel 中の区は指紋に載せない。旧・全ロード中区の
 			// 進捗を載せていたため、目の前の区が読み終わっても隣の在庫区のバッチ進捗が動き続けて上限（20s）まで幕が進まなかった
 			//（本人報告 2026-09-08「途中で Plateau の読みが終わると再開しない」＝R2 焼きで本命が数秒で終わるようになり顕在化）
-			const shown = [...plateauAutoLoading.keys()].filter(n => !plateauDemoted.has(n) && !plateauCancelling.has(n));
+			const shown = plateau.visibleLoading();
 			if (!shown.length && !elevBusy && !base) return "";
-			return `A${shown.join(".")}|P${shown.map(n => { const p = plateauProg.get(n); return p ? (p.done ?? p.scan ?? 0) : "-"; }).join(".")}|E${elevN}|B${base ? 1 : 0}`;
+			return `A${shown.join(".")}|P${shown.map(n => { const p = plateau.progress.get(n); return p ? (p.done ?? p.scan ?? 0) : "-"; }).join(".")}|E${elevN}|B${base ? 1 : 0}`;
 		},
 		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
-		onQuiet: views => plateauTrimForScript(views),
-		prefetchViews: prefetchPlateauForViews, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
+		onQuiet: views => plateau.trimForScript(views),
+		prefetchViews: plateau.prefetch, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return demoHandle;
 });
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/14条どの経路でも効く）。
