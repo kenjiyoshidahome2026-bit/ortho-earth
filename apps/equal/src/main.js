@@ -35,7 +35,7 @@ const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || inn
 const fromHash = parseViewHash(location.hash);
 let view = clampView(fromHash ? { lon: fromHash.lon, lat: fromHash.lat, zoom: fromHash.zoom } : { lon: 0, lat: 0, zoom: -Infinity }, ...size(), MAX_ZOOM);
 const settings = {
-	hypso: num01(q.get("hypso"), 1),          // 背景ハイプソの不透明度（0＝紙の陸）
+	hypso: num01(q.get("hypso"), 1),          // 自然の層＝ハイプソと川・湖の不透明度（1 本のスライダで同時・0＝紙の白地図＝陸/海/境界だけ）
 	choro: PRESETS[q.get("choro")] ? q.get("choro") : null,   // "csv"＝ドロップした CSV（URL には残らない）
 	choroAlpha: num01(q.get("choroA"), 0.85),
 };
@@ -163,15 +163,18 @@ function draw() {
 	R.drawSea(PALETTE.sea, PALETTE.bg, PALETTE.edge);
 	const thr = lodThreshold(view.zoom);
 	const ops = [];
+	const fade = (styles, k) => k >= 0.999 ? styles : styles.map(st => ({ ...st, color: [st.color[0], st.color[1], st.color[2], (st.color[3] ?? 1) * k] }));
+	const alphaOf = def => def.water ? settings.hypso : 1;   // 川・湖はハイプソと同時に濃淡が動く（本人 2026-09-18「一つのスライダー」）
 	for (const L of layers) {
 		if (!L.on || L.status !== "ready") continue;
 		const { def } = L, o = def.order || {};
 		const t = gpuTier(L, thr);
+		const k = alphaOf(def);
 		if (L.baked.kind === "point") { ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }
 		if (t.fills) ops.push([o.fill ?? 10, L === countries
 			? () => R.drawCountries(L.vtx, t.fills, { land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: WORLD_PAL_DEFAULT, choropleth: legendData ? settings.choroAlpha : 0, hover: hoverFid })
-			: () => R.drawFill(L.vtx, t.fills, def.fillColor)]);
-		if (t.lines) ops.push([o.lines ?? 50, () => R.drawLines(L.vtx, t.lines, def.lineStyles)]);
+			: () => R.drawFill(L.vtx, t.fills, k >= 0.999 ? def.fillColor : [def.fillColor[0], def.fillColor[1], def.fillColor[2], (def.fillColor[3] ?? 1) * k])]);
+		if (t.lines) ops.push([o.lines ?? 50, () => R.drawLines(L.vtx, t.lines, fade(def.lineStyles, k))]);
 	}
 	ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
@@ -214,7 +217,7 @@ const rangeRow = (label, value, onInput) => {
 	input.addEventListener("input", () => onInput(input.value / 100));
 	row.append(input); return row;
 };
-panel.append(rangeRow("Hypsometry", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
+panel.append(rangeRow("Hypso · water", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
 const themeRow = el("div", { id: "theme-row" });
 const swatchOf = id => {
 	if (!id) return `<span class="sw eq-none"></span>`;
