@@ -15,7 +15,8 @@
 		"./geojson": "./src/geojson.js",
 		"./viewurl": "./src/viewurl.js",
 		"./decode": "./src/decode.js",
-		"./geodesic": "./src/geodesic.js"
+		"./geodesic": "./src/geodesic.js",
+		"./worldpal": "./src/worldpal.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {

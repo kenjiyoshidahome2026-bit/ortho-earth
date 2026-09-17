@@ -1,0 +1,447 @@
+// ortho-equal：地球全体の fallback。正射（ortho）は半球しか見せられない＝その外側を Equal Earth で見せる。
+// 中央経線＝画面中心の経度（横スクロールで中央経線が追従＝左右どこまでも途切れず、中心の歪みが常に最小）。
+// 縮小・スクロールは画面の外に余白を出さない（画面矩形 ⊂ 外形）。チルト・回転なし。URL は ortho と同じ #zoom/lat/lon[/l=…]。
+// UI は japan の作法（quiet-mono・ui-dark・#gadgets/#dock/#attr/#tip）に揃える。
+import "quiet-mono/tokens.scss";
+import "quiet-mono/components.scss";
+import "./style.scss";
+import { createGeopbf, geopbf } from "geopbf";
+import { nativeBucket } from "native-bucket";
+import { parseViewHash, buildViewHash } from "ortho-core/viewurl";
+import { WORLD_PAL_DEFAULT } from "ortho-core/worldpal";
+import { unproject, anchorView, clampView, minZoomFor } from "./equalearth.js";
+import { bakeLayer, bakeGraticule } from "./bake.js";
+import { createRenderer } from "./renderer.js";
+import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
+import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
+import { buildChoropleth } from "./choropleth.js";
+import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
+import { loadNations, colorGraph, PRESETS } from "./nations.js";
+
+const API = "https://api.ortho-earth.com";
+const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom は 8 程度」）
+const q = new URLSearchParams(location.search);
+const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
+
+createGeopbf(API, { bucket: nativeBucket });
+
+const mapEl = document.getElementById("map");
+const canvas = document.getElementById("c");
+const R = createRenderer(canvas);
+if (!R) { mapEl.insertAdjacentHTML("beforeend", `<div id="net-toast" style="display:block">WebGL2 is required.</div>`); throw new Error("WebGL2 unavailable"); }
+
+// ── 状態 ──
+const size = () => [canvas.clientWidth || innerWidth, canvas.clientHeight || innerHeight];
+const fromHash = parseViewHash(location.hash);
+let view = clampView(fromHash ? { lon: fromHash.lon, lat: fromHash.lat, zoom: fromHash.zoom } : { lon: 0, lat: 0, zoom: -Infinity }, ...size(), MAX_ZOOM);
+const settings = {
+	hypso: num01(q.get("hypso"), 1),          // 背景ハイプソの不透明度（0＝紙の陸）
+	choro: PRESETS[q.get("choro")] ? q.get("choro") : null,   // "csv"＝ドロップした CSV（URL には残らない）
+	choroAlpha: num01(q.get("choroA"), 0.85),
+};
+
+// 層：{ def, on, status: "idle"|"loading"|"ready"|"error", baked, vtx, gpu }
+const layers = LAYERS.map(def => ({ def, on: def.fixed || def.on !== false, status: "idle" }));
+layers.push({ def: GRATICULE, on: GRATICULE.on !== false, status: "ready", baked: bakeGraticule() });
+if (fromHash?.layers) for (const L of layers) if (!L.def.fixed) L.on = fromHash.layers.includes(L.def.id);
+const countries = layers.find(L => L.def.id === "countries");
+// 国＝world（NationDB）。ID バッファの値＝国番号（items の添字）・NONE＝world に無い陸（北西ハワイ諸島など＝塗らない）
+let world = null, NONE = 0, political = null, worldP = null;
+const getWorld = () => worldP ??= (async () => {   // 初回要求時に起動（UI の準備より前に走らせない）
+	busy.add("World DB"); updateToast();
+	try { world = await loadNations(); NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations`); }
+	catch (e) { console.error("[equal] World DB failed", e); }
+	busy.delete("World DB"); updateToast(); requestDraw();
+	return world;
+})();
+// world の ne-cultural（国/道路/鉄道/市街地を 1 本）＝層をまたいで 1 回だけ読む。
+// 置き場所＝bucket GIS/world/（本人裁定 2026-09-18）＝world の他の資産と同じ棚・開発も本番も同じ URL＝キャッシュも同じ鍵
+const WORLD_CULTURAL = "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural.geopbf";
+let culturalP = null;
+const getCultural = () => culturalP ??= (async () => {
+	busy.add("World regions"); updateToast();
+	try { return await geopbf(WORLD_CULTURAL, { name: "ne-cultural.geopbf" }); }
+	finally { busy.delete("World regions"); updateToast(); }
+})();
+function countrySpec() {
+	return {
+		include: p => p.layer === "admin_1",   // 係争地の重ね（admin_0）・湖・市街地は国の面に数えない（巻き数と海岸/国境の判定を狂わせない）
+		fill: () => 0,
+		unit: p => world.byKey.get(p.key) ?? NONE,   // key は world が付与済み（ハワイの北西諸島の分離も焼き時に済み）
+		outline: (pa, refs, pb) => !pb ? { cls: 0, minZoom: 0 } : pa.key === pb.key ? { cls: 2, minZoom: 4 } : { cls: 1, minZoom: 0 },
+	};
+}
+
+// ── 読込 ──
+const busy = new Set();
+async function loadLayer(L) {
+	L.status = "loading"; busy.add(L.def.label); updateToast();
+	const { def } = L;
+	try {
+		if (L === countries && !(await getWorld())) throw new Error("World DB unavailable");
+		let pbf = def.source === "world" ? await getCultural() : await geopbf(def.bucket).catch(() => null);
+		if (!pbf?.unPackGint && def.zip) pbf = await geopbf(def.zip, { name: def.bucket });
+		if (!pbf?.unPackGint) throw new Error("GintBUF decode failed");
+		const t0 = performance.now();
+		L.baked = bakeLayer(pbf, { kind: def.kind, ...(L === countries ? countrySpec() : def.spec) });
+		console.log(`[equal] ${def.id}: ${pbf.length} features (source ${def.source || def.bucket}), bake ${Math.round(performance.now() - t0)}ms`);
+		if (L === countries) { political = colorGraph(NONE, L.baked.neighbors || []); applyChoropleth(); }
+		L.status = "ready";
+	} catch (e) {
+		console.error(`[equal] ${def.id} failed`, e);
+		L.status = "error";
+	}
+	busy.delete(L.def.label); updateToast(); requestDraw();
+}
+
+let hypsoState = 0;   // 0=未 1=読込中 2=済
+let near = null;      // 近景 R10 窓（R90 読込後に起動）
+async function loadHypso() {
+	hypsoState = 1; busy.add("Hypsometry"); updateToast();
+	const clim = loadClimate(new URL("koppen-clim.png", new URL(import.meta.env.BASE_URL, location.href)).href)
+		.then(img => { R.setClimate(img); requestDraw(); })
+		.catch(e => console.warn("[hypso] climate texture failed (latitude approximation)", e));
+	const maxTex = R.gl.getParameter(R.gl.MAX_TEXTURE_SIZE);
+	let upT = 0;   // セル到着ごとの再アップロードは 1 フレームにまとめる
+	await loadWorldElevation({ apiUrl: API, cellRes: Math.min(1024, Math.floor(maxTex / 4)),
+		onUpdate: a => { cancelAnimationFrame(upT); upT = requestAnimationFrame(() => { R.setElevation(a.data, a.width, a.height); requestDraw(); }); } })
+		.catch(e => console.error("[hypso] elevation failed", e));
+	await clim;
+	near = createNearElevation({ apiUrl: API, maxTex, onAtlas: a => { R.setNearElevation(a); requestDraw(); },
+		onBusy: b => { b ? busy.add("Terrain R10") : busy.delete("Terrain R10"); updateToast(); } });
+	hypsoState = 2; busy.delete("Hypsometry"); updateToast(); requestDraw();
+}
+
+// ── コロプレス ──
+let legendData = null;
+let csv = null;   // { ds（joinCSV の結果）, col, preset }
+const presetOf = id => id === "csv" ? csv?.preset : PRESETS[id];
+function applyChoropleth() {
+	const preset = settings.choro && presetOf(settings.choro);
+	if (!preset || !world || !political) { legendData = null; renderLegend(); requestDraw(); return; }
+	const opts = preset.type === "political" ? { ...preset, value: (_n, i) => political[i] || null } : preset;
+	const r = buildChoropleth(world.items, opts);
+	R.setPaint(r.rgba, NONE + 1);   // 末尾＝NONE（a=0＝塗らない）
+	legendData = { preset, legend: r.legend, values: r.values };
+	renderLegend(); requestDraw();
+}
+
+// LOD：1 device px の面積（度²）→ rank（gint の焼きと同じ式）。正積なので画面全域で一定。
+// 段は 3 rank 刻み（=ズーム 1 段）で切り下げ＝必要より細かい側に倒す
+function lodThreshold(zoom) {
+	const dpr = Math.min(window.devicePixelRatio || 1, 2);
+	const pxDeg = 360 / (256 * Math.pow(2, zoom) * dpr);
+	const rank = Math.floor(1.5 * Math.log2(pxDeg * pxDeg) + 61.524);
+	return Math.max(0, Math.min(63, Math.floor(rank / 3) * 3));
+}
+const vtxByXY = new WeakMap();
+function gpuTier(L, thr) {
+	const b = L.baked;
+	if (!L.vtx && b.xy) { L.vtx = vtxByXY.get(b.xy); if (!L.vtx) vtxByXY.set(b.xy, L.vtx = R.uploadVertices(b.xy, b.vertexCount)); }   // 同じ pbf の層は頂点テクスチャ 1 枚を共有
+	if (b.kind === "point") return (L.pointsVAO ??= R.instanceVAO(b.points, 3));
+	L.gpu ??= new Map();
+	let t = L.gpu.get(thr);
+	if (!t) {
+		const cpu = b.tier(thr);
+		t = { lines: cpu.lines ? R.instanceVAO(cpu.lines, 3) : null, fills: cpu.fills ? R.instanceVAO(cpu.fills, 4) : null };
+		L.gpu.set(thr, t);
+	}
+	return t;
+}
+
+// ── 描画 ──
+let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "";
+function requestDraw() { if (!raf) raf = requestAnimationFrame(draw); }
+function draw() {
+	raf = 0;
+	view = clampView(view, ...size(), MAX_ZOOM);   // リサイズで下限が変わっても余白を出さない
+	for (const L of layers) if (L.on && L.status === "idle" && view.zoom >= L.def.loadZoom) loadLayer(L);
+	if (settings.hypso > 0 && hypsoState === 0) loadHypso();
+	if (near && settings.hypso > 0) { const [W, H] = size(), k = `${view.lon},${view.lat},${view.zoom},${W},${H}`; if (k !== nearViewKey) { nearViewKey = k; near.ensure(view, W, H, (sx, sy) => unproject(view, sx, sy)); } }
+
+	R.beginFrame(view, PALETTE.sea);
+	const thr = lodThreshold(view.zoom);
+	const ops = [];
+	for (const L of layers) {
+		if (!L.on || L.status !== "ready") continue;
+		const { def } = L, o = def.order || {};
+		const t = gpuTier(L, thr);
+		if (L.baked.kind === "point") { ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }
+		if (t.fills) ops.push([o.fill ?? 10, L === countries
+			? () => R.drawCountries(L.vtx, t.fills, { land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: WORLD_PAL_DEFAULT, choropleth: legendData ? settings.choroAlpha : 0, hover: hoverFid })
+			: () => R.drawFill(L.vtx, t.fills, def.fillColor)]);
+		if (t.lines) ops.push([o.lines ?? 50, () => R.drawLines(L.vtx, t.lines, def.lineStyles)]);
+	}
+	ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
+
+	if (hoverDirty) {   // ホバー識別＝国 ID バッファの 1px 直読み（描いた直後のフレームで）
+		hoverDirty = false;
+		let fid = pointer && !dragging ? R.readFid(pointer.cx, pointer.cy) : -1;
+		if (fid >= NONE) fid = -1;   // world に無い陸＝識別しない
+		if (fid !== hoverFid) { hoverFid = fid; requestDraw(); }
+		setTip(fid >= 0 ? tipText(fid) : null);
+	}
+	updatePos();
+	scheduleHash();
+}
+
+// ── UI（japan の部品と同じ id/class）──
+const el = (tag, attrs = {}, html = "") => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (html) e.innerHTML = html; return e; };
+const gadgets = el("div", { id: "gadgets" }), dock = el("div", { id: "dock" });
+mapEl.append(gadgets, dock);
+
+// 層＋主題パネル（#chips/#layers-btn/#layers-panel/.chip/.lp-theme）
+const chips = el("div", { id: "chips" });
+const layersBtn = el("button", { id: "layers-btn", "aria-expanded": "false", "data-tip": "Layers & themes" },
+	`<svg viewBox="0 0 20 20" width="18" height="18"><path d="M10 2 L18 6.5 10 11 2 6.5 Z" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 10.5 L10 15 18 10.5" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/><path d="M2 14 L10 18.5 18 14" fill="none" stroke="#3f4757" stroke-width="1.4" stroke-linejoin="round"/></svg>`);
+const panel = el("div", { id: "layers-panel" }); panel.hidden = true;
+chips.append(layersBtn, panel);
+gadgets.append(chips);
+const setOpen = open => { panel.hidden = !open; layersBtn.classList.toggle("on", open); layersBtn.setAttribute("aria-expanded", String(open)); };
+layersBtn.addEventListener("click", () => setOpen(panel.hidden));
+addEventListener("keydown", e => { if (e.key === "Escape") setOpen(false); });
+
+for (const L of layers) {
+	if (L.def.fixed) continue;
+	const b = el("button", { class: "chip" + (L.on ? " on" : ""), "data-k": L.def.accent || L.def.id, "aria-pressed": String(L.on) }, L.def.label);
+	b.addEventListener("click", () => { L.on = !L.on; b.classList.toggle("on", L.on); b.setAttribute("aria-pressed", String(L.on)); requestDraw(); });
+	panel.append(b);
+}
+const rangeRow = (label, value, onInput) => {
+	const row = el("div", { class: "eq-row" }, `<span>${label}</span>`);
+	const input = el("input", { type: "range", min: "0", max: "100", value: String(Math.round(value * 100)) });
+	input.addEventListener("input", () => onInput(input.value / 100));
+	row.append(input); return row;
+};
+panel.append(rangeRow("Hypsometry", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
+const themeRow = el("div", { id: "theme-row" });
+const swatchOf = id => {
+	if (!id) return `<span class="sw eq-none"></span>`;
+	const p = PRESETS[id];
+	const bg = p.type === "political" ? "linear-gradient(90deg,#f3d9b1 0 33%,#cfe0bf 33% 66%,#d7d0ea 66%)"
+		: p.type === "categorical" ? "linear-gradient(90deg,#7fa7c9 0 33%,#e0a96d 33% 66%,#8fbf8a 66%)"
+		: { blue: "linear-gradient(90deg,#eef4f8,#18426f)", green: "linear-gradient(90deg,#f2f6ec,#225c2b)", orange: "linear-gradient(90deg,#fbf3e8,#8a3d17)", purple: "linear-gradient(90deg,#f5f2f8,#4a2e70)" }[p.ramp || "blue"];
+	return `<span class="sw" style="background:${bg}"></span>`;
+};
+const themeBtns = [];
+function selectTheme(id) {
+	settings.choro = id;
+	themeBtns.forEach(x => x.classList.toggle("on", x.dataset.theme === (id || "none")));
+	applyChoropleth(); scheduleHash();
+}
+for (const id of [null, ...Object.keys(PRESETS)]) {
+	const b = el("button", { class: "lp-theme" + (settings.choro === id ? " on" : ""), "data-theme": id || "none" }, `${swatchOf(id)}${id ? PRESETS[id].label : "None"}`);
+	b.addEventListener("click", () => selectTheme(id));
+	themeBtns.push(b); themeRow.append(b);
+}
+// CSV：行＝「Open CSV…」（ドロップと同じ入口）→ 読めたらファイル名に変わり、この行で CSV の主題を選び直せる
+const csvBtn = el("button", { class: "lp-theme", "data-theme": "csv" }, `<span class="sw eq-csv"></span><span class="eq-csv-name">Open CSV…</span>`);
+const fileInput = el("input", { type: "file", accept: ".csv,.tsv,.txt,text/csv,text/tab-separated-values", hidden: "" });
+csvBtn.addEventListener("click", () => {
+	if (csv && settings.choro !== "csv") { selectTheme("csv"); return; }
+	fileInput.click();
+});
+fileInput.addEventListener("change", () => { if (fileInput.files[0]) openCSV(fileInput.files[0]); fileInput.value = ""; });
+themeBtns.push(csvBtn); themeRow.append(csvBtn, fileInput);
+panel.append(themeRow);
+const colRow = el("div", { class: "eq-row" }, `<span>Column</span>`); colRow.hidden = true;
+const colSelect = el("select", { class: "eq-select" });
+colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSelect.value; csv.preset = csvPreset(csv.ds, csv.col); selectTheme("csv"); });
+colRow.append(colSelect); panel.append(colRow);
+panel.append(rangeRow("Choropleth", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));
+
+// ズーム（#zoom）
+const zoomBox = el("div", { id: "zoom" },
+	`<button id="zoom-in" data-tip="Zoom in" aria-label="Zoom in">＋</button><button id="zoom-out" data-tip="Zoom out" aria-label="Zoom out">−</button>`);
+gadgets.append(zoomBox);
+function animateZoom(sx, sy, to) {
+	const from = view.zoom, t0 = performance.now(), dur = 260;
+	const step = () => { const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k); zoomAround(sx, sy, from + (to - from) * e); if (k < 1) requestAnimationFrame(step); };
+	requestAnimationFrame(step);
+}
+zoomBox.querySelector("#zoom-in").addEventListener("click", () => animateZoom(0, 0, Math.min(MAX_ZOOM, Math.floor(view.zoom + 1))));
+zoomBox.querySelector("#zoom-out").addEventListener("click", () => animateZoom(0, 0, Math.max(minZoomFor(...size()), Math.ceil(view.zoom - 1))));
+
+// 左下ドック：座標計器（#pos）・凡例（#legend）・読込トースト（#elev-toast）
+const pos = el("div", { id: "pos" }, `<table><thead><tr><th>Lon</th><th>Lat</th><th>z</th><th>Meridian</th></tr></thead><tbody><tr><td></td><td></td><td></td><td></td></tr></tbody></table>`);
+const posTd = pos.querySelectorAll("td");
+const toast = el("div", { id: "elev-toast" });
+const legend = el("div", { id: "legend" }); legend.style.display = "none";
+dock.append(pos, toast, legend);
+function updateToast() { toast.style.display = busy.size ? "block" : "none"; toast.textContent = busy.size ? `Loading ${[...busy].join(", ")} …` : ""; }
+function renderLegend() {
+	if (!legendData) { legend.style.display = "none"; return; }
+	const { preset, legend: rows } = legendData;
+	const rgb = c => `rgb(${c[0]},${c[1]},${c[2]})`;
+	legend.innerHTML = `<div class="eq-title">${esc(preset.label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}</div>` + (rows.length
+		? rows.map(r => `<div class="eq-li"><span class="eq-sw" style="background:${rgb(r.color)}"></span>${esc(r.label)}</div>`).join("")
+		: `<div class="eq-li">Neighbors never share a color</div>`)
+		+ (preset.csv
+			? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${csv.ds.matched}/${csv.ds.rows.length} rows matched by “${esc(csv.ds.header[csv.ds.keyCol])}”${csv.ds.unmatched.length ? ` · unmatched: ${esc(csv.ds.unmatched.slice(0, 3).join(", "))}${csv.ds.unmatched.length > 3 ? "…" : ""}` : ""}</div>`
+			: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · World DB ${esc(world?.updated || "")}</div>`);
+	legend.style.display = "block";
+}
+const fmtLL = v => v.toFixed(5);
+function updatePos() {
+	const ll = pointer ? unproject(view, pointer.sx, pointer.sy) : null;
+	posTd[0].textContent = ll ? fmtLL(ll[0]) : "—";
+	posTd[1].textContent = ll ? fmtLL(ll[1]) : "—";
+	posTd[2].textContent = view.zoom.toFixed(2);
+	posTd[3].textContent = `${Math.abs(view.lon).toFixed(1)}°${view.lon >= 0 ? "E" : "W"}`;
+}
+
+// 出典（#attr）
+const attr = el("div", { id: "attr" },
+	`Sources: <a href="https://www.naturalearthdata.com/" target="_blank" rel="noopener">Natural Earth</a>・<a href="https://www.gebco.net/" target="_blank" rel="noopener">GEBCO</a>・<a href="https://www.gloh2o.org/koppen/" target="_blank" rel="noopener">Beck et al. (CC BY)</a>`);
+mapEl.append(attr);
+
+// ホバーの吹き出し（#tip＝japan gadgets/tip.js と同じ置き方：カーソルの右 15px・縦中央・右端で反転）
+const tip = el("div", { id: "tip" }); tip.style.display = "none"; mapEl.append(tip);
+function setTip(html) {
+	if (!html || !pointer) { tip.style.display = "none"; return; }
+	if (tip.innerHTML !== html) tip.innerHTML = html;
+	tip.style.display = "block";
+	const r = tip.getBoundingClientRect(), W = mapEl.clientWidth, H = mapEl.clientHeight;
+	const left = pointer.cx + 15 + r.width > W ? pointer.cx - r.width - 15 : pointer.cx + 15;
+	tip.style.left = left + "px"; tip.style.top = Math.max(0, Math.min(H - r.height, pointer.cy - r.height / 2)) + "px";
+}
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+function tipText(i) {
+	const n = world?.items[i]; if (!n) return null;
+	let s = esc(n.name?.en || n.key);
+	if (legendData && legendData.preset.type !== "political") {
+		const v = legendData.values[i], P = legendData.preset;
+		if (v != null) {
+			const txt = typeof v === "number" ? v.toLocaleString("en", { maximumFractionDigits: Math.abs(v) >= 100 ? 0 : 3 }) : String(v);
+			const yr = P.year?.(n);
+			s += `<div style="opacity:.8">${esc(P.label)}: ${esc(txt)}${P.unit ? " " + esc(P.unit) : ""}${yr ? ` (${yr})` : ""}</div>`;
+		}
+	}
+	return s;
+}
+
+// ── CSV ドロップ（国へ結合してコロプレス）──
+let countryIndex = null;
+const note = el("div", { id: "net-toast" }); note.style.display = "none"; mapEl.append(note);
+let noteT = 0;
+function flash(msg, ms = 4500) { note.textContent = msg; note.style.display = "block"; clearTimeout(noteT); noteT = setTimeout(() => { note.style.display = "none"; }, ms); }
+async function openCSV(file) {
+	if (!/\.(csv|tsv|txt)$/i.test(file.name) && !/text\/(csv|tab-separated|plain)/.test(file.type)) { flash("Drop a CSV file (.csv / .tsv)"); return; }
+	if (!(await getWorld())) { flash("World DB is unavailable"); return; }
+	try {
+		countryIndex ??= buildNationIndex(world);
+		const ds = joinCSV(file.name, decodeText(await file.arrayBuffer()), countryIndex);
+		csv = { ds, col: ds.defaultCol, preset: csvPreset(ds, ds.defaultCol) };
+		colSelect.innerHTML = ds.columns.map(c => `<option value="${c.i}"${c.i === ds.defaultCol ? " selected" : ""}>${esc(c.name)}</option>`).join("");
+		colRow.hidden = ds.columns.length < 2;
+		csvBtn.querySelector(".eq-csv-name").textContent = ds.name;
+		csvBtn.title = "Click again to open another CSV";
+		selectTheme("csv");
+		console.log(`[equal] CSV ${ds.name}: key="${ds.header[ds.keyCol]}" matched ${ds.matched}/${ds.rows.length}, ${ds.columns.length} value columns`);
+	} catch (e) {
+		console.warn("[equal] CSV failed", e);
+		flash(`${file.name}: ${e.message}`);
+	}
+}
+const dropHint = el("div", { id: "eq-drop" }, `<div>Drop a CSV to color countries<small>joined by ISO code or country name</small></div>`);
+dropHint.hidden = true; mapEl.append(dropHint);
+let dragDepth = 0;
+const hasFiles = e => [...(e.dataTransfer?.types || [])].includes("Files");
+mapEl.addEventListener("dragenter", e => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; dropHint.hidden = false; });
+mapEl.addEventListener("dragover", e => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+mapEl.addEventListener("dragleave", e => { if (!hasFiles(e)) return; if (--dragDepth <= 0) { dragDepth = 0; dropHint.hidden = true; } });
+mapEl.addEventListener("drop", e => {
+	if (!hasFiles(e)) return;
+	e.preventDefault(); dragDepth = 0; dropHint.hidden = true;
+	const f = e.dataTransfer.files[0]; if (f) openCSV(f);
+});
+
+// ── URL（#zoom/lat/lon/l=…）──
+let hashTimer = 0;
+function scheduleHash() {
+	clearTimeout(hashTimer);
+	hashTimer = setTimeout(() => {
+		const l = "l=" + layers.filter(L => !L.def.fixed && L.on).map(L => L.def.id).join(".");
+		const qs = new URLSearchParams(location.search);
+		settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");   // CSV は手元のファイル＝URL で再現できない
+		const search = qs.toString() ? "?" + qs : "";
+		history.replaceState(null, "", location.pathname + search + buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]));
+	}, 250);
+}
+addEventListener("hashchange", () => {
+	const v = parseViewHash(location.hash);
+	if (v) setView({ lon: v.lon, lat: v.lat, zoom: v.zoom });
+});
+
+// ── 入力：ドラッグ＝掴んだ経緯度を指の下に固定・ホイール/ピンチ/ダブルクリック＝錨つきズーム ──
+let pointer = null, dragging = false;   // pointer = { cx, cy（左上原点 CSS px）, sx, sy（中心原点）}
+const local = e => { const r = canvas.getBoundingClientRect(); const cx = e.clientX - r.left, cy = e.clientY - r.top; return { cx, cy, sx: cx - r.width / 2, sy: cy - r.height / 2 }; };
+function setView(v) { view = clampView(v, ...size(), MAX_ZOOM); hoverDirty = true; requestDraw(); }   // 地図が動けば指の下の国も変わる
+function zoomAround(sx, sy, zoom) {
+	const ll = unproject(view, sx, sy);
+	if (!ll) return setView({ ...view, zoom });
+	setView(anchorView(ll[0], ll[1], sx, sy, Math.min(MAX_ZOOM, zoom)));
+}
+const pointers = new Map();
+let grab = null;
+function regrab() {
+	const ps = [...pointers.values()];
+	if (ps.length === 1) grab = { ll: unproject(view, ps[0].sx, ps[0].sy) };
+	else if (ps.length >= 2) {
+		const mx = (ps[0].sx + ps[1].sx) / 2, my = (ps[0].sy + ps[1].sy) / 2;
+		grab = { ll: unproject(view, mx, my), dist: Math.hypot(ps[0].sx - ps[1].sx, ps[0].sy - ps[1].sy), zoom: view.zoom };
+	} else grab = null;
+	dragging = ps.length > 0;
+}
+canvas.addEventListener("pointerdown", e => { canvas.setPointerCapture(e.pointerId); pointers.set(e.pointerId, local(e)); regrab(); setTip(null); });
+canvas.addEventListener("pointermove", e => {
+	pointer = local(e); pos.style.display = "block";
+	if (!pointers.has(e.pointerId)) { hoverDirty = true; requestDraw(); return; }
+	pointers.set(e.pointerId, pointer);
+	const ps = [...pointers.values()];
+	if (!grab?.ll) { regrab(); return; }
+	if (ps.length === 1) setView(anchorView(grab.ll[0], grab.ll[1], ps[0].sx, ps[0].sy, view.zoom));
+	else {
+		const mx = (ps[0].sx + ps[1].sx) / 2, my = (ps[0].sy + ps[1].sy) / 2;
+		const d = Math.hypot(ps[0].sx - ps[1].sx, ps[0].sy - ps[1].sy);
+		setView(anchorView(grab.ll[0], grab.ll[1], mx, my, Math.min(MAX_ZOOM, grab.zoom + Math.log2(Math.max(1, d) / Math.max(1, grab.dist)))));
+	}
+});
+const release = e => { pointers.delete(e.pointerId); regrab(); hoverDirty = true; requestDraw(); };
+canvas.addEventListener("pointerup", release);
+canvas.addEventListener("pointercancel", release);
+canvas.addEventListener("pointerleave", () => { pointer = null; hoverFid = -1; setTip(null); requestDraw(); });
+canvas.addEventListener("wheel", e => {
+	e.preventDefault();
+	const k = e.deltaMode === 1 ? 0.05 : e.deltaMode === 2 ? 1 : 0.0025;
+	const p = local(e);
+	zoomAround(p.sx, p.sy, view.zoom - e.deltaY * k);
+}, { passive: false });
+canvas.addEventListener("dblclick", e => {
+	const p = local(e);
+	animateZoom(p.sx, p.sy, e.shiftKey ? Math.ceil(view.zoom - 1) : Math.min(MAX_ZOOM, Math.floor(view.zoom + 1)));
+});
+addEventListener("keydown", e => {
+	if (e.target !== document.body) return;
+	const step = 80;
+	const pan = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+	if (pan) { const c = unproject(view, 0, 0); if (c) setView(anchorView(c[0], c[1], -pan[0], -pan[1], view.zoom)); }
+	else if (e.key === "+" || e.key === "=") animateZoom(0, 0, Math.min(MAX_ZOOM, Math.floor(view.zoom + 1)));
+	else if (e.key === "-") animateZoom(0, 0, Math.ceil(view.zoom - 1));
+});
+new ResizeObserver(requestDraw).observe(canvas);
+
+renderLegend();
+requestDraw();
+
+// ── 外から使う口（埋め込み・検証）──
+globalThis.equal = {
+	get view() { return view; }, setView,
+	layers,
+	hypso(opacity) { settings.hypso = Math.max(0, Math.min(1, +opacity || 0)); requestDraw(); },
+	choropleth(id, opacity) { if (opacity != null) settings.choroAlpha = +opacity; selectTheme(presetOf(id) ? id : null); },
+	openCSV,   // File/Blob（name 付き）を渡す＝ドロップと同じ
+	get world() { return world; },
+	get busy() { return [...busy]; },
+	fidAt: (cx, cy) => R.readFid(cx, cy),
+};
