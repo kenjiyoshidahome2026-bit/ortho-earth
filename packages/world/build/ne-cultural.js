@@ -17,6 +17,21 @@ export const NE_SOURCES = ["ne_10m_admin_1_states_provinces", "ne_10m_admin_0_di
 export const neURL = name => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${NE_TAG}/geojson/${name}.geojson`;
 const ATTR = `Natural Earth 10m ${NE_TAG} (public domain), split by ortho-earth world keys`;
 export const SINGLE_DESC = `Natural Earth 10m ${NE_TAG} split by ortho-earth world keys: all keys and layers in one (properties key / layer)`;
+// 配信用の分割（2026-09-18・apps/equal の初回体験）：国の形は起動時に要るが道路・鉄道・市街地は z≥5 でしか要らない。
+// 頂点の 7 割が detail 側＝base（国＋係争地の重ね＋人口密集地）だけ先に読めば初回が約 1/4 になる。
+//   ne-cultural.geopbf        … 全部（属性 key / layer）＝従来どおり
+//   ne-cultural-base.geopbf   … admin_1 / admin_0 / populated_places
+//   ne-cultural-detail.geopbf … roads / railroads / urban_areas / lakes / routes
+export const NE_GROUPS = { base: ["admin_1", "admin_0", "populated_places"], detail: ["roads", "railroads", "urban_areas", "lakes", "routes"] };
+export const groupDesc = g => `Natural Earth 10m ${NE_TAG} split by ortho-earth world keys: ${g} layers (${NE_GROUPS[g].join(", ")}; properties key / layer)`;
+// base の属性は配信用に絞る（admin_1 123 列・populated_places 139 列＝多言語名など。9.8MB→6.2MB）。残すのは equal が国/都市ラベルに使う列。
+// 全属性は ne-cultural.geopbf（single）に残る＝ここで捨てても失わない
+const KEEP = {
+	admin_1: ["key", "layer", "name", "name_en", "name_ja", "iso_3166_2", "adm1_code", "type_en", "admin"],
+	populated_places: ["key", "layer", "name", "name_en", "name_ja", "nameascii", "featurecla", "scalerank", "min_zoom", "pop_max", "adm0cap", "adm1cap", "worldcity", "megacity", "wikidataid"],
+};
+const slim = f => { const keep = KEEP[f.properties.layer]; if (!keep) return f; const p = {}; for (const k of keep) if (f.properties[k] != null) p[k] = f.properties[k]; return { ...f, properties: p }; };
+export const splitGroups = all => Object.fromEntries(Object.entries(NE_GROUPS).map(([g, layers]) => { const set = new Set(layers); const feats = all.filter(f => set.has(f.properties.layer)); return [g, g === "base" ? feats.map(slim) : feats]; }));
 
 // GeoPBF は Canvas 由来の型を触る場所がある（Node には無い）＝先に置く
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };

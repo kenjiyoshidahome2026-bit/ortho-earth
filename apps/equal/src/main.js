@@ -54,14 +54,16 @@ const getWorld = () => worldP ??= (async () => {   // 初回要求時に起動�
 	busy.delete("World DB"); updateToast(); requestDraw();
 	return world;
 })();
-// world の ne-cultural（国/道路/鉄道/市街地を 1 本）＝層をまたいで 1 回だけ読む。
-// 置き場所＝bucket GIS/world/（本人裁定 2026-09-18）＝world の他の資産と同じ棚・開発も本番も同じ URL＝キャッシュも同じ鍵
-const WORLD_CULTURAL = "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural.geopbf";
-let culturalP = null;
-const getCultural = () => culturalP ??= (async () => {
-	busy.add("World regions"); updateToast();
-	try { return await geopbf(WORLD_CULTURAL, { name: "ne-cultural.geopbf" }); }
-	finally { busy.delete("World regions"); updateToast(); }
+// world の ne-cultural＝bucket GIS/world/（本人裁定 2026-09-18）＝world の他の資産と同じ棚・開発も本番も同じ URL＝キャッシュも同じ鍵。
+// 配信用に 2 本（packages/world/build/ne-cultural.js NE_GROUPS）：base＝国（起動時）・detail＝道路/鉄道/市街地（z≥5 で初めて読む）。
+// 頂点の 7 割が detail 側＝分けることで初回の国の表示が約 1/4 に（旧＝1 本 20MB を国のために待っていた）
+const WORLD_CULTURAL = g => `https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-${g}.geopbf`;
+const culturalP = {};
+const getCultural = (g = "base") => culturalP[g] ??= (async () => {
+	const label = g === "base" ? "World regions" : "Roads & rail";
+	busy.add(label); updateToast();
+	try { return await geopbf(WORLD_CULTURAL(g), { name: `ne-cultural-${g}.geopbf` }); }
+	finally { busy.delete(label); updateToast(); }
 })();
 function countrySpec() {
 	return {
@@ -79,7 +81,7 @@ async function loadLayer(L) {
 	const { def } = L;
 	try {
 		if (L === countries && !(await getWorld())) throw new Error("World DB unavailable");
-		let pbf = def.source === "world" ? await getCultural() : await geopbf(def.bucket).catch(() => null);
+		let pbf = def.source === "world" ? await getCultural(def.group) : await geopbf(def.bucket).catch(() => null);
 		if (!pbf?.unPackGint && def.zip) pbf = await geopbf(def.zip, { name: def.bucket });
 		if (!pbf?.unPackGint) throw new Error("GintBUF decode failed");
 		const t0 = performance.now();

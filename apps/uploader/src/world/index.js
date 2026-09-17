@@ -13,7 +13,7 @@ import { createGeometryPNG } from "./createGeometryPNG.js";
 import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
 import { buildAll } from "../../../../packages/world/build/index.js";
-import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC } from "../../../../packages/world/build/ne-cultural.js";
+import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC, splitGroups, groupDesc } from "../../../../packages/world/build/ne-cultural.js";
 // seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
@@ -89,6 +89,13 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		const gz = await gzip(new Blob([await r.encode(CULTURAL, r.all, SINGLE_DESC)]));
 		r.index.single = { file: `${CULTURAL}.geopbf`, features: r.all.length, vertices: r.countVerts(r.all), bytes: gz.size };
 		await db.saveGeoPBF(`${CULTURAL}.geopbf`, gz);
+		r.index.groups = {};   // 配信用の分割（base＝国・detail＝道路など）＝apps/equal が読むのはこちら
+		for (const [g, feats] of Object.entries(splitGroups(r.all))) {
+			const b = await gzip(new Blob([await r.encode(`${CULTURAL}-${g}`, feats, groupDesc(g))]));
+			await db.saveGeoPBF(`${CULTURAL}-${g}.geopbf`, b);
+			r.index.groups[g] = { file: `${CULTURAL}-${g}.geopbf`, features: feats.length, vertices: r.countVerts(feats), bytes: b.size };
+			q.log(`${DIRE}/${CULTURAL}-${g}.geopbf: ${feats.length} 地物・${(b.size / 1e6).toFixed(1)}MB (gzip)`);
+		}
 		await db.saveJSON(CULTURAL, r.index);   // 要約（Node の out/ne-cultural.json と同じ中身）も棚に置く＝どの版が載っているか後から読める
 		q.log(`${DIRE}/${CULTURAL}.geopbf: ${keys} key・${r.all.length} 地物・${(gz.size / 1e6).toFixed(1)}MB (gzip)`);
 		q.log("apps/equal は次の訪問から反映（IDB の写しは ETag の差で入れ替わる）");
