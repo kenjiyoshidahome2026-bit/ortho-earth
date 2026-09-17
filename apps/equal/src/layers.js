@@ -1,5 +1,5 @@
 // 層の台帳：Natural Earth 10m だけを Gint で描く（本人裁定 2026-09-18「10mのみ」）。データは共有が第一：
-//   source:"world" ＝packages/world の ne-cultural（国・道路・鉄道・市街地＝world と同じ切り分け・1 本を層で振り分け）
+//   source:"world" ＝packages/world の ne-cultural（国・道路・鉄道・市街地＝world と同じ切り分け）。group base（国＝起動時）/ detail（道路など＝z≥4.5 で読む）
 //   それ以外＝ortho-japan と同じ作法＝bucket の GeoPBF を名前で引き（湖は japan と同じキャッシュ）、未収録なら NE S3 の生 zip
 //   （geopbf が shp をデコードして GintBUF まで焼き、IDB にキャッシュ＝初回だけ重い）。サーバー焼きはしない。
 // loadZoom＝このズーム以上で初めて取りに行く（見えない層のための通信をしない）。
@@ -32,7 +32,7 @@ export const LAYERS = [
 	{
 		// 国＝world の定義そのもの：packages/world の ne-cultural（NE admin_1 を world key で束ね済み・layer="admin_1"・属性 key）。
 		// unit（ID 塗りの番号＝NationDB の並び）と輪郭の分類は main.js が World DB を読んでから差し込む
-		id: "countries", label: "Countries", fixed: true, source: "world", kind: "poly", loadZoom: -Infinity,
+		id: "countries", label: "Countries", fixed: true, source: "world", group: "base", kind: "poly", loadZoom: -Infinity,
 		fillColor: PALETTE.land,
 		lineStyles: [{ color: PALETTE.coast, width: 0.8 }, { color: PALETTE.border, width: 0.8 }, { color: rgb("#a99cb2", 0.45), width: 0.5 }],   // 海岸線・国境・州境（同じ key の admin1 境界）
 		order: { fill: 10, lines: 60 },
@@ -40,7 +40,7 @@ export const LAYERS = [
 	{
 		// 道路・鉄道・市街地＝world の ne-cultural（国境で切って key ごとに 1 地物・属性なし）＝world とデータを共有（本人 2026-09-18）。
 		// 属性（min_zoom）が無い＝地物ごとの出し分けはせず、一定以上の z でまとめて出す
-		id: "urban", label: "Urban areas", on: true, source: "world", kind: "poly", loadZoom: 3.5,
+		id: "urban", label: "Urban areas", on: true, source: "world", group: "detail", kind: "poly", loadZoom: 4.5,
 		spec: { include: p => p.layer === "urban_areas", fill: () => 4 },
 		fillColor: PALETTE.urban,
 		order: { fill: 12 },
@@ -69,13 +69,13 @@ export const LAYERS = [
 		order: { lines: 20 },
 	},
 	{
-		id: "roads", label: "Roads", accent: "road", on: true, source: "world", kind: "line", loadZoom: 3.5,
+		id: "roads", label: "Roads", accent: "road", on: true, source: "world", group: "detail", kind: "line", loadZoom: 4.5,
 		spec: { line: p => p.layer === "roads" ? { cls: 0, minZoom: 5 } : null },
 		lineStyles: [{ color: rgb("#d9a86c"), width: 0.8 }],
 		order: { lines: 30 },
 	},
 	{
-		id: "rail", label: "Rail", accent: "rail", on: true, source: "world", kind: "line", loadZoom: 3.5,
+		id: "rail", label: "Rail", accent: "rail", on: true, source: "world", group: "detail", kind: "line", loadZoom: 4.5,
 		spec: { line: p => p.layer === "railroads" ? { cls: 0, minZoom: 5 } : null },
 		lineStyles: [{ color: rgb("#7d7f86"), width: 0.8 }],
 		order: { lines: 40 },

@@ -9,7 +9,7 @@ import { gzipSync } from "node:zlib";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadSeed } from "../build/seed.js";
-import { buildNeCultural, NE_TAG, NE_LAYERS, neURL, SINGLE_DESC } from "../build/ne-cultural.js";
+import { buildNeCultural, NE_TAG, NE_LAYERS, neURL, SINGLE_DESC, splitGroups, groupDesc } from "../build/ne-cultural.js";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CACHE = path.join(ROOT, ".cache/ne");
@@ -46,6 +46,14 @@ const buf = await gz("ne-cultural", all, SINGLE_DESC);
 await writeFile(OUT + ".geopbf", buf);
 if (WANT_GEOJSON) await writeFile(OUT + ".geojson", JSON.stringify({ type: "FeatureCollection", name: "ne-cultural", features: all }));
 index.single = { file: path.basename(OUT) + ".geopbf", features: all.length, vertices: countVerts(all), bytes: buf.length };
+// 配信用の分割（base＝国・detail＝道路など）＝内容は single の部分集合。apps/equal が読むのはこちら
+index.groups = {};
+for (const [g, feats] of Object.entries(splitGroups(all))) {
+	const b = await gz(`ne-cultural-${g}`, feats, groupDesc(g));
+	await writeFile(`${OUT}-${g}.geopbf`, b);
+	index.groups[g] = { file: `${path.basename(OUT)}-${g}.geopbf`, features: feats.length, vertices: countVerts(feats), bytes: b.length };
+	log(`${OUT}-${g}.geopbf: ${feats.length} 地物・${(b.length / 1e6).toFixed(1)} MB (gzip)`);
+}
 await writeFile(OUT + ".json", JSON.stringify(index, null, 1));
 log(`${OUT}.geopbf: ${Object.keys(index.keys).length} key・${all.length} 地物・${(buf.length / 1e6).toFixed(1)} MB (gzip)`);
 
