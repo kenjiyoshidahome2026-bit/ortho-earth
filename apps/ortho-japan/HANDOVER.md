@@ -64,7 +64,7 @@ isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マ�
 **踏んだ罠**＝`const foot = foot()`（env の関数と局所変数の同名＝自己シャドウ TDZ）。catalog の `.catch` が例外を「catalog fetch failed」の
 皮で飲んで見えなかった＝t-plateau が「start が来ない」で捕まえ、門に console 採取を足して原因を出した。一突きは `.catch` の外へ出した。
 `terminate()` は見張りタイマーも止める（destroy 後に worker を起こし直さない＝第二歩で足した唯一の挙動追加）。
-**次＝A は完了。** B（スタイルの置き場）は二国目待ち、C は次の大版まで触らない、D は小物。ロードマップ #8 の本文を「japan で直接やった」に直すのは残っている。
+**次＝A は完了。** B（スタイルの置き場）は二国目待ち、C は次の大版まで触らない、D は小物。#8 の本文は「japan で直接やった（再裁定 9/14）」に直した＝(1) 専用 5 ファイルの `plateau/` 寄せと (3) 建物枠の契約は #8 側の次の段。
 
 `app.js` の連続 690 行（表示判定・ヒステリシス・ロード順・取り消し・降格・常駐予算・追い出し・遠景の星座・
 先読み）が一塊のまま。切り出し三領域のうち、ここだけ手つかず。
@@ -151,5 +151,5 @@ isActive / isDead / visibleLoading / memStats / openDb`。登録簿と除外マ�
 ## 再開の一行
 
 ~~「app.js の建物 690 行を、動作を変えずに `plateau/` へ寄せる」~~ ＝ 済。~~「env と戻り値を契約の形に整える」~~ ＝ 済（どちらもオフィス 9/17）。
-**A は完了＝切り出し三領域は全部片付いた。push・本番 deploy（japan 2e48128d／nl 0c283533・verify-live 134 本 200）も済。** 残りはロードマップ #8 の本文修正だけ。
+**A は完了＝切り出し三領域は全部片付いた。push・本番 deploy（japan 2e48128d／nl 0c283533・verify-live 134 本 200）も済。** ロードマップ #8（GitHub Issue）の本文も更新済（現状・段階の進捗・前提の再裁定・未決の当面の答え）＝**A に残件なし**。
 以後 PLATEAU 周りを触る時は `verify:webgpu t-bld t-plateau` と `verify:prod` を先に緑にしてから。
