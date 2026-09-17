@@ -8,7 +8,10 @@
 		"dev": "vite",
 		"build": "vite build",
 		"preview": "vite preview",
-		"deploy": "vite build && wrangler deploy"
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node scripts/verify-i18n.mjs",
+		"deploy": "npm run verify:i18n && npm run i18n:build && vite build && wrangler deploy"
 	},
 	"dependencies": {
 		"geopbf": "*",

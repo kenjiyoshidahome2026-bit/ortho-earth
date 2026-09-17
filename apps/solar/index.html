@@ -10,21 +10,21 @@
 	<title>ortho-solar — the Solar System, heliocentric</title>
 	<meta name="description" content="A real-scale 3D solar system. Planets, the Moon and Pluto on their true orbits — scrub time by year, day and hour, visit each world and spin it. No libraries, no server.">
 	<style>
-		/* 文言はすべて英語（翻訳は後段のかなピボットで）。見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字 */
+		/* 文言の原本は英語＝キー（訳は i18n/）。見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字 */
 		* { margin: 0; box-sizing: border-box; }
 		html, body { height: 100%; overflow: hidden; background: #05070f; }
 		body { font: 13px/1.5 system-ui, "Helvetica Neue", sans-serif; color: #cdd6e6; }
 		#c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
 		#c:active { cursor: grabbing; }
 		#nogl { display: none; position: fixed; inset: 0; place-items: center; color: #cdd6e6; }
-		#title { position: fixed; top: 10px; left: 14px; pointer-events: none; text-shadow: 0 1px 4px #000; }
+		#title { position: fixed; top: 10px; inset-inline-start: 14px; pointer-events: none; text-shadow: 0 1px 4px #000; }
 		/* ロゴ・題字は明示白＝継承色に頼らない（Android自動テーマ等の強制配色で黒字化させない） */
 		#title h1 { font-size: 17px; font-weight: 600; letter-spacing: .04em; color: #fff; display: flex; align-items: center; gap: 7px; }
 		#title h1 svg { flex: 0 0 auto; filter: drop-shadow(0 1px 2px #000); }
 		#title p { font-size: 11.5px; opacity: .72; color: #cdd6e6; }
-		#info { position: fixed; top: 10px; right: 12px; display: flex; flex-direction: column; gap: 1px; padding: 7px 11px;
+		#info { position: fixed; top: 10px; inset-inline-end: 12px; display: flex; flex-direction: column; gap: 1px; padding: 7px 11px;
 			background: rgba(16,24,44,.42); border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
-			backdrop-filter: blur(4px); text-align: right; pointer-events: none; }
+			backdrop-filter: blur(4px); text-align: end; pointer-events: none; }
 		#info b { font-size: 14px; }
 		#info span { font-size: 11px; opacity: .82; }
 		#labels { position: fixed; inset: 0; pointer-events: none; }
@@ -44,43 +44,52 @@
 			background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 4px 6px;
 			color-scheme: dark; }
 		#speed { min-width: 74px; text-align: center; font-size: 11.5px; opacity: .9; }
-		#exit { position: fixed; top: 60px; left: 14px; }
-		#hint { position: fixed; left: 14px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px;
+		#exit { position: fixed; top: 60px; inset-inline-start: 14px; display: flex; align-items: center; gap: 4px; }
+		/* 矢印は文字でなく向き＝RTL では左右を返す（文言側に ← を持ち込まない＝訳が矢印を抱えない） */
+		#exit i { font-style: normal; }
+		:root[dir="rtl"] #exit i { transform: scaleX(-1); display: inline-block; }
+		#hint { position: fixed; inset-inline-start: 14px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px;
 			opacity: .5; pointer-events: none; }
-		#attr { position: fixed; right: 12px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10px;
-			opacity: .55; text-align: right; }
+		#attr { position: fixed; inset-inline-end: 12px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10px;
+			opacity: .55; text-align: end; }
 		#attr a { color: inherit; }
-		@media (max-width: 720px) { #hint { display: none; } #info { top: auto; bottom: 108px; } #attr { display: none; } }
+		/* 訳が載るまで文言を伏せる（英語→訳のちらつき除け）。en は同じ tick で外れる＝一瞬も隠れない */
+		:root:not(.i18n-ready) #title, :root:not(.i18n-ready) #exit, :root:not(.i18n-ready) #bottom,
+		:root:not(.i18n-ready) #hint, :root:not(.i18n-ready) #attr { visibility: hidden; }
+		/* 縦画面＝情報パネルを下段の上へ。下段の高さは言語で変わる（長い天体名はチップが3段に折れる）＝
+		   固定値でなく実測（main.js が --bottomH を書く）。変数が無い時の 108px は英語2段の見立て */
+		@media (max-width: 720px) { #hint { display: none; } #attr { display: none; }
+			#info { top: auto; bottom: calc(var(--bottomH, 100px) + 8px); } }
 	</style>
 </head>
 <body>
-	<!-- 文言は英語が原本。日本語は data-ja / data-ja-title に併記＝原文と訳が同じ行に並ぶ（辞書ファイルを持たない）。
-	     切り替えは main.js 冒頭の LANG（?lang=ja 明示 or ブラウザ既定が日本語）。?lang=en で英語に固定できる。 -->
+	<!-- 文言は英語が原本＝この HTML に書いてある英語がそのまま辞書のキー（data-t＝本文・data-t-title＝ツールチップ）。
+	     訳は i18n/ui.json（26 言語）→ i18n/lang/<code>.json。言語は ?lang=xx 明示 or ブラウザ既定。?lang=en で英語に固定。 -->
 	<canvas id="c"></canvas>
-	<div id="nogl" data-ja="このページには WebGL2 が必要です。">This page needs WebGL2.</div>
+	<div id="nogl" data-t>This page needs WebGL2.</div>
 	<div id="title">
 		<!-- ロゴ＝いつもの球儀マーク（favicon と同意匠）。ただし白固定＝favicon の light 用 media query（黒化）は持ち込まない -->
-		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg><span data-ja="太陽系">The Solar System</span></h1>
-		<p data-ja="地動説 — 実スケール・実時刻">Heliocentric — real scale, real time</p>
+		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg><span data-t>The Solar System</span></h1>
+		<p data-t>Heliocentric — real scale, real time</p>
 	</div>
-	<button id="exit" title="Exit to ortho-japan" data-ja="← 地球へ" data-ja-title="ortho-japan へ戻る">← Earth</button>
+	<button id="exit" title="Exit to ortho-japan" data-t-title><i aria-hidden="true">←</i><span data-t>Earth</span></button>
 	<div id="labels"></div>
 	<div id="info"></div>
 	<div id="bottom">
 		<div id="chips"></div>
 		<div id="timebar">
-			<button id="slower" title="Slower — keep pressing to run time backwards" data-ja-title="遅く — 押し続けると時間が逆行します">◀◀</button>
+			<button id="slower" title="Slower — keep pressing to run time backwards" data-t-title>◀◀</button>
 			<!-- ⏸(U+23F8) は Apple 系で絵文字表示になり字面が浮く＝図形の ❚❚(U+275A×2) へ。main.js の setSpeed と対 -->
-			<button id="play" title="Play / pause" data-ja-title="再生／一時停止">❚❚</button>
-			<button id="faster" title="Faster" data-ja-title="速く">▶▶</button>
-			<span id="speed" data-ja="実時間">Real time</span><!-- 初期表示＝setSpeed は URL に s= が無いと呼ばれない＝ここが起動時の唯一の出所 -->
-			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date & time (valid 1800–2050)" data-ja-title="日時を指定（1800〜2050年）">
-			<button id="now" title="Back to the present" data-ja="現在" data-ja-title="現在時刻へ戻す">Now</button>
+			<button id="play" title="Play / pause" data-t-title>❚❚</button>
+			<button id="faster" title="Faster" data-t-title>▶▶</button>
+			<span id="speed" data-t>Real time</span><!-- 初期表示＝setSpeed は URL に s= が無いと呼ばれない＝ここが起動時の唯一の出所 -->
+			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date &amp; time (valid 1800–2050)" data-t-title>
+			<button id="now" title="Back to the present" data-t-title><span data-t>Now</span></button>
 		</div>
 	</div>
-	<div id="hint" data-ja="ドラッグで周回・ホイールでズーム・天体をクリックで訪問">Drag to orbit · Scroll to zoom · Click a world to visit it</div>
-	<div id="attr"><span data-ja="テクスチャ">Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-ja="冥王星">Pluto</span>: NASA/JHUAPL/SwRI<br>
-		<span data-ja="星表">Stars</span>: d3-celestial · <span data-ja="暦">Ephemeris</span>: <span data-ja="JPL 近似軌道要素">JPL approximate elements</span> · © 2026 Kenji Yoshida</div>
+	<div id="hint" data-t>Drag to orbit · Scroll to zoom · Click a world to visit it</div>
+	<div id="attr"><span data-t>Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-t>Pluto</span>: NASA/JHUAPL/SwRI<br>
+		<span data-t>Stars</span>: d3-celestial · <span data-t>Ephemeris</span>: <span data-t>JPL approximate elements</span> · © 2026 Kenji Yoshida</div>
 	<script type="module" src="./main.js"></script>
 </body>
 </html>
