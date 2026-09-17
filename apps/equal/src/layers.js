@@ -46,7 +46,7 @@ export const LAYERS = [
 		order: { fill: 12 },
 	},
 	{
-		id: "lakes", label: "Lakes", fixed: true, ...NE("physical", "ne_10m_lakes"), kind: "poly", loadZoom: -Infinity,
+		id: "lakes", label: "Lakes", fixed: true, water: true, ...NE("physical", "ne_10m_lakes"), kind: "poly", loadZoom: -Infinity,
 		spec: {
 			fill: p => num(f(p, "min_zoom"), 0),
 			outline: p => ({ cls: 0, minZoom: num(f(p, "min_zoom"), 0) }),
@@ -56,7 +56,7 @@ export const LAYERS = [
 		order: { fill: 14, lines: 22 },
 	},
 	{
-		id: "rivers", label: "Rivers", on: true, ...NE("physical", "ne_10m_rivers_lake_centerlines"), kind: "line", loadZoom: 1.5,
+		id: "rivers", label: "Rivers", on: true, water: true, ...NE("physical", "ne_10m_rivers_lake_centerlines"), kind: "line", loadZoom: 1.5,
 		spec: {
 			line: p => {
 				const cla = str(f(p, "featurecla"));
