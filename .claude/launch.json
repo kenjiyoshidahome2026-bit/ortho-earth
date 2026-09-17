@@ -4,14 +4,62 @@
     {
       "name": "ortho-japan",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "-w", "@ortho-earth/japan", "--", "--port", "5173", "--strictPort"],
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@ortho-earth/japan",
+        "--",
+        "--port",
+        "5173",
+        "--strictPort"
+      ],
       "port": 5173
     },
     {
       "name": "native-bucket-worker",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["--prefix", "packages/native-bucket", "wrangler", "dev", "--config", "packages/native-bucket/wrangler.toml", "--port", "8787"],
+      "runtimeArgs": [
+        "--prefix",
+        "packages/native-bucket",
+        "wrangler",
+        "dev",
+        "--config",
+        "packages/native-bucket/wrangler.toml",
+        "--port",
+        "8787"
+      ],
       "port": 8787
+    },
+    {
+      "name": "solar",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "solar",
+        "--",
+        "--port",
+        "5199",
+        "--strictPort"
+      ],
+      "port": 5199
+    },
+    {
+      "name": "solar-dist",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--port",
+        "5299",
+        "--strictPort",
+        "--outDir",
+        "dist/site/solar"
+      ],
+      "port": 5299,
+      "cwd": "apps/solar"
     }
   ]
 }

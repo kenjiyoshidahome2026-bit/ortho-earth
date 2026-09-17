@@ -8,38 +8,46 @@
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { BODIES, byId, bodyPos, orientation, orbitPoints, moonOrbitPoints, jcT, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
+import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
+
+// ---- 言語：英語が原本＝キー（ortho-japan と同じ作法・2026-09-18） ----
+// ?lang=xx で固定・無指定はブラウザ既定（japan のガジェットからの導線は ?lang=<今の UI 言語> つき）。
+// 文言の原本は英語＝index.html の本文と、このファイルが t(…) に渡す英語がそのまま辞書のキー。
+// 訳は i18n/ui.json（26 言語）→ i18n/lang/<code>.json（npm run i18n:build で焼く）。
+// UI を組む前に一度だけ待つ＝訳が揃ってから文字が出る（門＝html の .i18n-ready・en は同じ tick で外れる）。
+await setLang();
+const t = tr(), LANG = getLang();
+document.documentElement.lang = LANG;
+document.documentElement.dir = isRTL() ? "rtl" : "ltr";   // RTL＝配置は論理プロパティ（index.html の CSS）に委ねる
+document.title = t("ortho-solar — the Solar System, heliocentric");
+applyDom();                                                // index.html の英語（＝キー）をその場で訳へ
+document.documentElement.classList.add("i18n-ready");
 
 const canvas = document.getElementById("c");
 const gl = canvas.getContext("webgl2", { antialias: true, alpha: false });
 if (!gl) { document.getElementById("nogl").style.display = "grid"; throw new Error("WebGL2 unavailable"); }
 
-// ---- 言語：?lang=ja で日本語・?lang=en で英語に固定。無指定はブラウザ既定に従う（ortho-japan からの導線は ?lang=ja つき） ----
-// 文言の原本は英語（index.html の本文と、このファイルの英語リテラル）。日本語は data-ja / data-ja-title と
-// 下の JA 分岐に併記＝辞書ファイルを持たない＝原文と訳が離れて片方だけ腐る事故が起きない。
-const LANG_Q = new URLSearchParams(location.search).get("lang");
-const JA = LANG_Q ? /^ja/i.test(LANG_Q) : /^ja/i.test(navigator.language || "");
-if (JA) {
-	document.documentElement.lang = "ja";
-	document.title = "ortho-solar — 太陽系、地動説で";
-	for (const el of document.querySelectorAll("[data-ja]")) el.textContent = el.dataset.ja;
-	for (const el of document.querySelectorAll("[data-ja-title]")) el.title = el.dataset.jaTitle;
-}
-const NAME_JA = { sun: "太陽", mercury: "水星", venus: "金星", earth: "地球", moon: "月", mars: "火星",
-	jupiter: "木星", saturn: "土星", uranus: "天王星", neptune: "海王星", pluto: "冥王星" };   // ortho-japan solarsky.js と同じ台帳
-const NOTE_JA = { "Dwarf planet": "準惑星" };
-const bName = b => JA ? (NAME_JA[b.id] || b.name) : b.name;
+// 数は言語の流儀で（桁区切り・アラビア数字）。d 指定＝小数桁を固定（指定なし＝元の桁のまま）
+const nfmt = (n, d) => n.toLocaleString(LANG, d === undefined ? undefined : { minimumFractionDigits: d, maximumFractionDigits: d });
+const MYRIAD = new Set(["ja", "zh", "ko"]);   // 億で読む言語＝大きな距離は 1e8 刻み（他は百万 km）＝読み癖に合わせる
+// 天体名も UI 文言＝ephem の英語名がそのままキー（"Earth" は出口ボタンと同じ 1 行）。
+// この台帳は検定（verify:i18n）に「使っている」と見せるための並び＝ephem と食い違えば起動時に気づく
+const BODY_KEYS = ["Sun", "Mercury", "Venus", "Earth", "Moon", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Dwarf planet"];
+for (const b of BODIES) if (!BODY_KEYS.includes(b.name)) console.warn("[solar] body name missing from the i18n ledger:", b.name);
+const bName = b => t(b.name);
 
 // ---- 時刻機械：simTime(ms) と速度（実1秒あたりのシミュレート秒）。JPL 要素の有効期間でクランプ ----
 const T_MIN = Date.UTC(1800, 0, 1), T_MAX = Date.UTC(2049, 11, 31);
 // 速度は符号つき段位 speedL ∈ [-8, +8]：0=停止・正=順行・負=逆行。◀◀は停止を通り越して
 // そのまま逆再生へ＝「過去へ戻りたい→◀◀」の直感が一手で通る（初版の±反転ボタンは廃止）
 let simTime = Date.now(), speedL = 1, lastPlayL = 5;
+// label/neg は英語＝辞書のキー（訳は setSpeed の表示時に引く）。neg＝逆行時だけ言い方が変わる段（実時間→1秒/秒）
 const SPEEDS = [
-	{ v: 0, label: "Paused", ja: "停止中" }, { v: 1, label: "Real time", neg: "1 sec/s", ja: "実時間", jaNeg: "1秒/秒" },
-	{ v: 60, label: "1 min/s", ja: "1分/秒" }, { v: 3600, label: "1 hour/s", ja: "1時間/秒" },
-	{ v: 21600, label: "6 hours/s", ja: "6時間/秒" }, { v: 86400, label: "1 day/s", ja: "1日/秒" },
-	{ v: 864000, label: "10 days/s", ja: "10日/秒" }, { v: 2592000, label: "1 month/s", ja: "1か月/秒" },
-	{ v: 31557600, label: "1 year/s", ja: "1年/秒" },
+	{ v: 0, label: "Paused" }, { v: 1, label: "Real time", neg: "1 sec/s" },
+	{ v: 60, label: "1 min/s" }, { v: 3600, label: "1 hour/s" },
+	{ v: 21600, label: "6 hours/s" }, { v: 86400, label: "1 day/s" },
+	{ v: 864000, label: "10 days/s" }, { v: 2592000, label: "1 month/s" },
+	{ v: 31557600, label: "1 year/s" },
 ];
 const simDate = () => new Date(simTime);
 
@@ -384,8 +392,7 @@ const chipsEl = document.getElementById("chips");
 for (const b of BODIES) {
 	const el = document.createElement("button");
 	el.textContent = bName(b); el.dataset.id = b.id;
-	el.title = b.id === "sun" ? (JA ? "太陽系の全景（もう一度で太陽の近景）" : "Solar system view (press again for a close-up)")
-		: (JA ? `${bName(b)}を訪ねる` : `Visit ${b.name}`);
+	el.title = b.id === "sun" ? t("Solar system view (press again for a close-up)") : t("Visit $1", bName(b));
 	if (b.id === "sun") el.classList.add("on");
 	el.onclick = () => flyTo(b.id);
 	chipsEl.appendChild(el);
@@ -412,7 +419,7 @@ const setSpeed = L => {
 	speedL = Math.max(-(SPEEDS.length - 1), Math.min(SPEEDS.length - 1, Math.round(L) || 0));
 	if (speedL !== 0) lastPlayL = speedL;
 	const m = SPEEDS[Math.abs(speedL)];
-	const lab = JA ? (speedL < 0 ? (m.jaNeg || m.ja) : m.ja) : (speedL < 0 ? (m.neg || m.label) : m.label);
+	const lab = t(speedL < 0 ? (m.neg || m.label) : m.label);
 	speedEl.textContent = speedL < 0 ? "−" + lab : lab;
 	document.getElementById("play").textContent = speedL === 0 ? "▶" : "❚❚";   // ⏸ は Apple 系で絵文字化して浮く＝図形の ❚❚（index.html と対）
 	writeHash();
@@ -425,38 +432,41 @@ document.getElementById("now").onclick = () => { simTime = Date.now(); setSpeed(
 // 出た時の視点そのままへ帰る。直接来訪なら z=1（星空圏・日本中心）の japan へ新規遷移
 document.getElementById("exit").onclick = () => {
 	if (document.referrer.includes("/japan") && history.length > 1) history.back();
-	else location.href = (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5173/japan/" : "/japan/") + "#1/36/138";
+	else location.href = (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5173/japan/" : "/japan/") + "?lang=" + LANG + "#1/36/138";
 };
 const infoEl = document.getElementById("info");
+// 下段（チップ＋時間バー）の実測高を CSS へ渡す＝縦画面で情報パネルがその上に載る。
+// 高さは言語で変わる（"Меркурий" のような長い名前はチップが 1 段増える）＝固定値にしない
+const bottomEl = document.getElementById("bottom");
+const syncBottomH = () => document.documentElement.style.setProperty("--bottomH", bottomEl.offsetHeight + "px");
+new ResizeObserver(syncBottomH).observe(bottomEl);
+syncBottomH();
 function updateInfo(date) {
 	const b = byId[cam.focus];
 	if (b.id === "sun") {
-		infoEl.innerHTML = JA ? `<b>太陽</b><span>半径 695,700 km・スペクトル型 G2V</span><span>自転 約25日（赤道）</span>`
-			: `<b>Sun</b><span>Radius 695,700 km · Spectral type G2V</span><span>Rotation ≈ 25 days (equator)</span>`;
+		infoEl.innerHTML = `<b>${bName(b)}</b>`
+			+ [t("Radius $1 km", nfmt(695700)), t("Spectral type G2V"), t("Rotation ≈ 25 days (equator)")]
+				.map(r => `<span>${r}</span>`).join("");
 		return;
 	}
 	const p = bodyPos(b.id, date), rSun = v3.len(p);
 	const e = bodyPos("earth", date), rE = v3.len(v3.sub(p, e));
 	const lm = rE * LIGHT_MIN_PER_AU;
-	// 単位の綴りだけ言語で切り替える（数値と桁区切りは共通）。距離の副表記は英語=百万km・日本語=億km＝それぞれの読み癖に合わせる
-	const light = lm < 1.5 ? (lm * 60).toFixed(0) + (JA ? " 秒" : " s") : lm.toFixed(1) + (JA ? " 分" : " min");
-	const rot = b.rotHours < 48 ? b.rotHours.toFixed(1) + (JA ? " 時間" : " h") : (b.rotHours / 24).toFixed(1) + (JA ? " 日" : " days");
-	const orb = b.periodDays < 1000 ? b.periodDays.toFixed(1) + (JA ? " 日" : " days") : (b.periodDays / 365.25).toFixed(1) + (JA ? " 年" : " years");
-	const rows = (JA ? [
-		b.note ? (NOTE_JA[b.note] || b.note) : "",
-		`半径 ${b.radiusKm.toLocaleString("ja")} km`,
-		`太陽から ${rSun.toFixed(3)} AU（${(rSun * AU_KM / 1e8).toFixed(2)} 億km）`,
-		b.id !== "earth" ? `地球から ${rE.toFixed(3)} AU・光で ${light}` : "",
-		`自転 ${rot}${b.rot.Wd < 0 ? "（逆行）" : ""}`,
-		b.periodDays ? `公転 ${orb}` : "",
-	] : [
-		b.note || "",
-		`Radius ${b.radiusKm.toLocaleString("en")} km`,
-		`From Sun ${rSun.toFixed(3)} AU (${Math.round(rSun * AU_KM / 1e6).toLocaleString("en")} M km)`,
-		b.id !== "earth" ? `From Earth ${rE.toFixed(3)} AU · light ${light}` : "",
-		`Rotation ${rot}${b.rot.Wd < 0 ? " (retrograde)" : ""}`,
-		b.periodDays ? `Orbit ${orb}` : "",
-	]).filter(Boolean);
+	// 数と単位はキーの中で繋ぐ（"Radius " + n + " km" の足し算は言語で語順が壊れる＝語順の掟）。
+	// 距離の副表記だけ刻みを言語で替える：百万km／億km（億で読む言語＝MYRIAD）＝それぞれの読み癖に合わせる
+	const light = lm < 1.5 ? t("$1 s", nfmt(lm * 60, 0)) : t("$1 min", nfmt(lm, 1));
+	const rot = b.rotHours < 48 ? t("$1 h", nfmt(b.rotHours, 1)) : t("$1 days", nfmt(b.rotHours / 24, 1));
+	const orb = b.periodDays < 1000 ? t("$1 days", nfmt(b.periodDays, 1)) : t("$1 years", nfmt(b.periodDays / 365.25, 1));
+	const far = MYRIAD.has(LANG) ? t("$1 hundred million km", nfmt(rSun * AU_KM / 1e8, 2))
+		: t("$1 million km", nfmt(Math.round(rSun * AU_KM / 1e6)));
+	const rows = [
+		b.note ? t(b.note) : "",
+		t("Radius $1 km", nfmt(b.radiusKm)),
+		t("From Sun $1 AU ($2)", nfmt(rSun, 3), far),
+		b.id !== "earth" ? t("From Earth $1 AU · light $2", nfmt(rE, 3), light) : "",
+		b.rot.Wd < 0 ? t("Rotation $1 (retrograde)", rot) : t("Rotation $1", rot),
+		b.periodDays ? t("Orbit $1", orb) : "",
+	].filter(Boolean);
 	infoEl.innerHTML = `<b>${bName(b)}</b>` + rows.map(r => `<span>${r}</span>`).join("");
 }
 
