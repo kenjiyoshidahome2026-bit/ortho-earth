@@ -32,19 +32,31 @@ export function latest(arr) {
 	for (let i = 1; i < arr.length; i++) if (arr[i] != null) return { year: arr[0] - (i - 1), value: arr[i] };
 	return null;
 }
+// 指定年の値（無ければ null）・配列の年の範囲
+export const at = (arr, year) => { if (!Array.isArray(arr) || year == null) return null; const i = arr[0] - year + 1; return i >= 1 && i < arr.length && arr[i] != null ? arr[i] : null; };
+export const yearsOf = (items, member) => {
+	let lo = Infinity, hi = -Infinity;
+	for (const n of items) {
+		const a = n[member];
+		if (!Array.isArray(a) || a.length < 2 || a[0] < 1900) continue;   // 年 -1＝不明（overrides の無人地）は除く
+		hi = Math.max(hi, a[0]); lo = Math.min(lo, a[0] - (a.length - 2));
+	}
+	return hi >= lo ? [lo, hi] : null;
+};
 
 // 主題（apps/world SORTS と同じ項目・単位・出所）。value(nation) → 数値 | 文字列 | null
 const stat = (member, label, ramp, unit, ref, scale = 1) => ({
-	label, unit, ref, type: "quantile", ramp,
-	value: n => { const v = latest(n[member]); return v && v.value > 0 ? v.value * scale : null; },
-	year: n => latest(n[member])?.year,
+	label, unit, ref, type: "quantile", ramp, member,
+	value: (n, _i, year) => { const v = year != null ? at(n[member], year) : latest(n[member])?.value; return v != null && v > 0 ? v * scale : null; },   // year 指定＝その年（欠測は null＝No data）
+	year: (n, year) => year ?? latest(n[member])?.year,
+	years: items => yearsOf(items, member),
 });
 export const PRESETS = {
 	political: { label: "Political", type: "political", ref: "Neighbors from World DB regions" },
 	region: { label: "Region", type: "categorical", ref: "World DB", value: n => REGION_NAMES[n.region] || null },
 	population: stat("population", "Population", "blue", "", "United Nations Population Division"),
-	density: { label: "Population density", unit: "/km²", ref: "Population ÷ Area", type: "quantile", ramp: "blue",
-		value: n => { const p = latest(n.population); return p && n.area > 0 ? p.value / n.area : null; } },
+	density: { label: "Population density", unit: "/km²", ref: "Population ÷ Area", type: "quantile", ramp: "blue", years: items => yearsOf(items, "population"),
+		value: (n, _i, year) => { const p = year != null ? at(n.population, year) : latest(n.population)?.value; return p != null && n.area > 0 ? p / n.area : null; }, year: (n, year) => year ?? latest(n.population)?.year },
 	gdp: stat("gdp", "GDP", "green", "US$", "World Bank / IMF", 1e6),
 	gdppc: stat("gdppc", "GDP per Capita", "orange", "US$", "World Bank / IMF"),
 	ppppc: stat("ppppc", "GDP (PPP) per Capita", "orange", "US$", "World Bank / IMF"),

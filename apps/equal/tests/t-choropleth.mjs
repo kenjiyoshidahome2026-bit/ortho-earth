@@ -24,3 +24,13 @@ const r5 = buildChoropleth([{ p: 1 }, { p: 13 }, { p: 14 }], { type: "political"
 ok(r5.rgba[0] === parseInt(POLITICAL[0].slice(1, 3), 16) && r5.rgba[4] === parseInt(POLITICAL[12].slice(1, 3), 16) && r5.rgba[8] === r5.rgba[0], "政治地図の色番号（14 は巡回で 1）");
 ok(Object.keys(RAMPS).length >= 4, "ランプ");
 console.log(`t-choropleth: ${n} ok`);
+// 6) 発散：0 が中央・奇数段・負は青系（R<B）正は橙系（R>B）
+const r6 = buildChoropleth([{ v: -10 }, { v: -1 }, { v: 0.5 }, { v: 8 }, { v: null }], { type: "diverging", value: n => n.v });
+ok(r6.legend.length % 2 === 1 && r6.rgba[0] < r6.rgba[2] && r6.rgba[3 * 4] > r6.rgba[3 * 4 + 2] && r6.nodata === 1, `発散 ${r6.legend.length} 段・No data ${r6.nodata}`);
+// 7) 対数の等間隔：区切りが桁で並ぶ
+const r7 = buildChoropleth([{ v: 1 }, { v: 10 }, { v: 100 }, { v: 1000 }, { v: 1e6 }], { type: "equal", scale: "log", classes: 3, value: n => n.v });
+ok(r7.legend.length === 3 && r7.legend[0].label.startsWith("1 – 100"), `対数 ${r7.legend.map(l => l.label).join(" | ")}`);
+// 8) 年：value(item, i, year)
+const r8 = buildChoropleth([{ p: [2025, 5, 4, 3] }], { type: "quantile", year: 2023, value: (n, _i, y) => n.p[n.p[0] - y + 1] });
+ok(r8.values[0] === 3, "年指定の値");
+console.log(`t-choropleth+: ${n} ok`);
