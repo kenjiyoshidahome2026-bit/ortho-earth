@@ -87,7 +87,7 @@ const byType = (f, t) => f.filter(x => x.properties.type === t);
 {
 	const src = dxf({ header: [["$INSUNITS", 70, 4], ["$EXTMIN", 10, -12065988, -33275345], ["$EXTMAX", 10, -12065988, -33275345]], entities: E("POINT", [8, "0"], [10, -12065988.612833316], [20, -33275345.71413028]) });
 	let threw = ""; try { await fromDxf(src); } catch (e) { threw = e.message; }
-	ok(/座標系が分からない/.test(threw) && /6677/.test(threw), "CRS 無し＋範囲外＝拒否（EPSG 番号を促す）");
+	ok(/unknown CRS/.test(threw) && /6677/.test(threw), "CRS 無し＋範囲外＝拒否（EPSG 番号を促す）");
 	const r = await fromDxf(src, { crs: 6677 });
 	ok(r.stats.reprojected && r.stats.unitScale === 0.001 && nearPt(r.pbf.geojson.features[0].geometry.coordinates, [139.7, 35.7], 2e-6), `EPSG:6677（mm→m 自動）→ ${r.pbf.geojson.features[0].geometry.coordinates}`);
 	const r2 = await fromDxf(src, { crs: "EPSG:6677", unitScale: 0.001 });
@@ -96,7 +96,7 @@ const byType = (f, t) => f.filter(x => x.properties.type === t);
 	ok(nearPt(r3.pbf.geojson.features[0].geometry.coordinates, [139.7, 35.7], 2e-6), "WKT 文字列でも同じ");
 	const r4 = await fromDxf(src, { ignoreCrs: true });
 	ok(!r4.stats.reprojected && r4.stats.features === 1, "ignoreCrs＝図面座標のまま");
-	threw = ""; try { await fromDxf(src, { crs: 99999 }); } catch (e) { threw = e.message; } ok(/表に無い/.test(threw), "未収録 EPSG は拒否");
+	threw = ""; try { await fromDxf(src, { crs: 99999 }); } catch (e) { threw = e.message; } ok(/not in the built-in table/.test(threw), "未収録 EPSG は拒否");
 	// UTM 54N（EPSG:32654）＝(139.7,35.7) の東距/北距
 	const utm = dxf({ header: [["$INSUNITS", 70, 6]], entities: E("POINT", [8, "0"], [10, 382388.694], [20, 3951453.574]) });
 	const r5 = await fromDxf(utm, { crs: 32654 });
@@ -119,13 +119,13 @@ const byType = (f, t) => f.filter(x => x.properties.type === t);
 	await import("../src/decoder/dxf.js?v=" + Date.now());
 	globalThis.onmessage({ data: { file: new File([src], "t.dxf"), name: "t", precision: 6 } });
 	const r = await Promise.race([got, new Promise(res => setTimeout(() => res("TIMEOUT"), 8000))]);
-	ok(r && r !== "TIMEOUT" && r.type === "dxfdec" && r.data instanceof ArrayBuffer && /経緯度とみなした/.test(r.warning) && /HATCH×1/.test(r.warning), `decoder worker: ${r?.warning}`);
+	ok(r && r !== "TIMEOUT" && r.type === "dxfdec" && r.data instanceof ArrayBuffer && /assumed lon\/lat/.test(r.warning) && /HATCH×1/.test(r.warning), `decoder worker: ${r?.warning}`);
 	if (r?.data) { const p = await new GeoPBF().set(r.data); ok(p.length === 1, "worker 経由 1 地物"); }
 	const tmp = new URL("./fixtures/_t.dxf", import.meta.url).pathname; writeFileSync(tmp, src);
-	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp], { encoding: "utf8" });
-	ok(/エンティティ 2/.test(out) && /LINE×1/.test(out), "CLI dxf2pbf の一覧");
+	const out = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
+	ok(/entities 2/.test(out) && /LINE×1/.test(out), "CLI dxf2pbf の一覧");
 	const outPbf = tmp.replace(/\.dxf$/, ".geopbf");
-	const out2 = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp, outPbf, "--crs", "4326"], { encoding: "utf8" });
+	const out2 = execFileSync("node", [new URL("../bin/geopbf.mjs", import.meta.url).pathname, "dxf2pbf", tmp, outPbf, "--crs", "4326"], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 	ok(/features 1/.test(out2) && /EPSG:4326/.test(out2), "CLI dxf2pbf --crs 4326 で変換");
 	const { unlinkSync } = await import("node:fs"); unlinkSync(tmp); unlinkSync(outPbf);
 }

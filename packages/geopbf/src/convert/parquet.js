@@ -148,7 +148,7 @@ function statsOf(type, vals, bs = null) {
 //         keyValue: {k: v}, createdBy, compress?: async (u8)=>u8 }
 export async function writeParquet({ schema, columns, numRows }, opts = {}) {
 	const rowGroupSize = opts.rowGroupSize ?? 65536, codecName = opts.codec ?? "gzip", codec = CODEC[codecName], pageSize = opts.pageSize ?? (1 << 20);
-	if (codec === undefined || codec === 1) throw new Error("parquet: codec は gzip か zstd か none");
+	if (codec === undefined || codec === 1) throw new Error("parquet: codec must be gzip, zstd or none");
 	const gz = opts.compress ?? (codec === 6 ? (u8) => zstd(u8, opts.level) : gzip);
 	const compress = async (u8) => codec ? gz(u8) : u8;
 	const parts = [new Uint8Array([0x50, 0x41, 0x52, 0x31])];   // "PAR1"

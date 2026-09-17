@@ -112,7 +112,7 @@ export function createGeopbf(apiBase, options = {}) {
         const pbf = await _geopbf(data);
         if (pbf) {
             await pbf.gint({gint: opts.gint});
-            console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString()} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
+            console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString("en-US")} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
             // _staleGint＝キャッシュのGINTが版検札で弾かれた印。上の gint() が再焼き済み＝ここで上書き保存して自己修復完了
             //（これが無いと旧v1が居座り、毎回「Failed to unpack … 旧キャッシュ」＋全量再エンコードを払い続ける。2026-08-20実地）。
             if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: rebaking old GINT cache and overwriting (this warning disappears from next time)`);
@@ -136,8 +136,8 @@ export function createGeopbf(apiBase, options = {}) {
         } else {
             // 文字列（URL/bucket 名）が読めなかった＝空 pbf を黙って返さず例外（呼び手が features.length を検査せずに済む）。
             // オブジェクト/File は従来どおり空 pbf（0 件の FC は正当な入力）。
-            if (isString(data)) throw new Error(`geopbf: could not load ${data}（404/CORS/proxy 拒否＝console の [native-bucket]/[Fetch Error] を参照）`);
-            if (isFile(data)) throw new Error(`geopbf: could not decode ${data.name}（壊れた zip/KML/GPX 等＝console の [kmz]/file decode error を参照）`);   // 1.0.5〜 File も無言の空 pbf にしない
+            if (isString(data)) throw new Error(`geopbf: could not load ${data} (404/CORS/proxy refused; see [native-bucket]/[Fetch Error] in the console)`);
+            if (isFile(data)) throw new Error(`geopbf: could not decode ${data.name} (corrupt zip/KML/GPX etc.; see [kmz]/file decode error in the console)`);   // 1.0.5〜 File も無言の空 pbf にしない
             return new GeoPBF(opts);
         }
         async function _geopbf(q) { // eslint-disable-line no-inner-declarations
@@ -171,7 +171,7 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
                 if (name.match(/\.dxf$/i)) return _geopbf(await decoder("dxf", q, { crs: opts.crs, ignoreCrs: opts.ignoreCrs, unitScale: opts.unitScale, closedAsPolygon: opts.closedAsPolygon, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // DXF（2026-09-16）
-                if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter }));   // 表＝経緯度列か WKT 列
+                if (name.match(/\.(csv|tsv|xlsx)$/i)) return _geopbf(await decoder("csv", q, { lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, delimiter: opts.delimiter, fallbackEncoding: opts.fallbackEncoding }));   // 表＝経緯度列か WKT 列
                 if (name.match(/\.zip$/i)) {
                     // zip の中身で振り分け: *.gdbtable があれば FileGDB（.gdb をそのまま zip したもの）。一覧だけ読む（展開しない）
                     let kind = opts.format === "moj" ? "moj" : opts.format === "gdb" ? "gdb" : "shape";
@@ -181,7 +181,7 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
                 if (name.match(/\.(gml|xml)$/i)) return _geopbf(await decoder("gml", q));
-                throw new Error(`geopbf: unsupported file "${name}"（対応: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .gml .xml .gz）`);   // 旧＝warn して空 pbf（無言の 0 件）
+                throw new Error(`geopbf: unsupported file "${name}" (supported: .geopbf .pbf .geojson .json .topojson .fgb .gpkg .parquet .csv .tsv .xlsx .zip(shape/moj/gdb) .kml .kmz .gpx .gml .xml .gz)`);   // 旧＝warn して空 pbf（無言の 0 件）
             }
             if (isObject(q)) {
                 q = toFeatureCollection(q);

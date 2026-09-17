@@ -1,9 +1,9 @@
 // convert/table.js ── 表（CSV / TSV / XLSX）→ GeoPBF。経緯度の 2 列か WKT の 1 列を持つ表を点・線・面にする（依存ゼロ）。
 //
-//   const { pbf, stats } = await fromTable(u8OrText, { name, precision, lon, lat, wkt, sheet, encoding, delimiter, include/exclude/excludeAll });
+//   const { pbf, stats } = await fromTable(u8OrText, { name, precision, lon, lat, wkt, sheet, encoding, fallbackEncoding, delimiter, include/exclude/excludeAll });
 //   parseCSV(text, { delimiter }) → { header: string[], rows: string[][] }        RFC 4180（引用・改行入りセル）・区切りは , \t ; | を自動判別
 //   readXLSX(u8, { sheet }) → { header, rows, sheet, sheets }                     xlsx の最初の（または名指しの）シート・sharedStrings / inlineStr / 数値 / 論理値
-//   decodeText(u8, encoding) → string                                             BOM を剥がす・UTF-8 で読めなければ Shift_JIS（TextDecoder 組込み・依存なし）
+//   decodeText(u8, encoding, fallback) → string                                   BOM を剥がす・UTF-8 で読めなければ fallback（既定 Shift_JIS・TextDecoder 組込み・依存なし）
 //   parseWKT(text) → GeoJSON geometry | null                                      POINT〜GEOMETRYCOLLECTION・Z/M は落とす・EMPTY は null
 //
 // 列の見つけ方（opts で名指しが最優先）: 経度＝lon/lng/long/longitude/経度/x/X座標/東経、緯度＝lat/latitude/緯度/y/Y座標/北緯、
@@ -27,16 +27,16 @@ export async function fromTable(src, opts = {}) {
 	else {
 		const u8 = src instanceof Uint8Array ? src : new Uint8Array(src);
 		if (u8[0] === 0x50 && u8[1] === 0x4b) { table = await readXLSX(u8, opts); kind = "xlsx"; }
-		else { table = parseCSV(decodeText(u8, opts.encoding), opts); kind = "csv"; }
+		else { table = parseCSV(decodeText(u8, opts.encoding, opts.fallbackEncoding), opts); kind = "csv"; }
 	}
 	const { header, rows } = table;
-	if (!header.length) throw new Error("table: 先頭行（列名）が無い");
+	if (!header.length) throw new Error("table: no header row (column names)");
 	const cols = header.map(norm);
-	const find = (names, want) => { if (want != null) { const i = cols.indexOf(norm(want)); if (i < 0) throw new Error(`table: 列 "${want}" が無い（列: ${header.join(", ")}）`); return i; } for (const n of names) { const i = cols.indexOf(n); if (i >= 0) return i; } return -1; };
+	const find = (names, want) => { if (want != null) { const i = cols.indexOf(norm(want)); if (i < 0) throw new Error(`table: column "${want}" not found (columns: ${header.join(", ")})`); return i; } for (const n of names) { const i = cols.indexOf(n); if (i >= 0) return i; } return -1; };
 	let iw = find(WKT, opts.wkt), ilon = -1, ilat = -1;
 	if (iw < 0 && opts.wkt == null) { const first = rows.find(r => r.some(v => v !== "")) || []; iw = first.findIndex(v => /^\s*(POINT|LINESTRING|POLYGON|MULTIPOINT|MULTILINESTRING|MULTIPOLYGON|GEOMETRYCOLLECTION)\b/i.test(String(v))); }
 	if (iw < 0 || opts.lon != null || opts.lat != null) { ilon = find(LON, opts.lon); ilat = find(LAT, opts.lat); if (ilon >= 0 && ilat >= 0) iw = -1; }
-	if (iw < 0 && (ilon < 0 || ilat < 0)) throw new Error(`table: 経緯度の列（${LON.slice(0, 4).join("/")} と ${LAT.slice(0, 3).join("/")}）も WKT の列も見つからない（列: ${header.join(", ")}）。opts.lon/lat か opts.wkt で名指しできる`);
+	if (iw < 0 && (ilon < 0 || ilat < 0)) throw new Error(`table: no lon/lat columns (${LON.slice(0, 4).join("/")} and ${LAT.slice(0, 3).join("/")}) and no WKT column found (columns: ${header.join(", ")}); name them with opts.lon/lat or opts.wkt`);
 	const keep = attrFilter(opts);
 	const geomCols = new Set(iw >= 0 ? [iw] : [ilon, ilat]);
 	const props = header.map((h, i) => ({ i, name: String(h).replace(/^﻿/, "").trim() })).filter(c => !geomCols.has(c.i) && c.name && (!keep || keep(c.name)));
@@ -98,14 +98,16 @@ export function parseCSV(text, opts = {}) {
 	const header = (rows.shift() || []).map(h => h.trim());
 	return { header, rows: rows.filter(r => r.some(v => v !== "")).map(r => { while (r.length < header.length) r.push(""); return r; }), delimiter };
 }
-/** バイト列 → 文字列。encoding 指定が無ければ UTF-8（fatal）→ Shift_JIS の順に試す。BOM は剥がす。 */
-export function decodeText(u8, encoding) {
+/** バイト列 → 文字列。encoding 指定が無ければ UTF-8（fatal）→ fallback（既定 Shift_JIS・windows-1252 等に差し替え可）の順に試す。BOM は剥がす。 */
+/** 文字コード名の揺れ（sjis / shift-jis / cp932 / windows-31j）を TextDecoder のラベルへ。 */
+export const encodingLabel = (enc) => /^(sjis|shift[-_]?jis|cp932|windows-31j)$/i.test(enc) ? "shift_jis" : enc;
+export function decodeText(u8, encoding, fallback = "shift_jis") {
 	if (u8[0] === 0xEF && u8[1] === 0xBB && u8[2] === 0xBF) return new TextDecoder("utf-8").decode(u8.subarray(3));
 	if (u8[0] === 0xFF && u8[1] === 0xFE) return new TextDecoder("utf-16le").decode(u8.subarray(2));
 	if (u8[0] === 0xFE && u8[1] === 0xFF) return new TextDecoder("utf-16be").decode(u8.subarray(2));
-	if (encoding && !/^utf-?8$/i.test(encoding)) return new TextDecoder(/^(sjis|shift[-_]?jis|cp932|windows-31j)$/i.test(encoding) ? "shift_jis" : encoding).decode(u8);
+	if (encoding && !/^utf-?8$/i.test(encoding)) return new TextDecoder(encodingLabel(encoding)).decode(u8);
 	try { return new TextDecoder("utf-8", { fatal: true }).decode(u8); }
-	catch { return new TextDecoder("shift_jis").decode(u8); }
+	catch { return new TextDecoder(encodingLabel(fallback)).decode(u8); }
 }
 
 // ───────────────────────────── XLSX ─────────────────────────────
@@ -113,18 +115,18 @@ export function decodeText(u8, encoding) {
 // セル: <c r="B3" t="s|b|inlineStr|str|n|e" s="…"><v>…</v>|<is><t>…</t></is></c>。日付は数値（シリアル値）のまま＝スタイルは見ない。
 export async function readXLSX(u8, opts = {}) {
 	const entries = await decodeZIP(new Blob([u8]));
-	if (!entries) throw new Error("xlsx: zip として開けない");
+	if (!entries) throw new Error("xlsx: cannot open as zip");
 	const byName = new Map(entries.map(f => [f.name.replace(/^\//, ""), f]));
 	const text = async n => { const f = byName.get(n); return f ? await f.text() : null; };
-	const wb = await text("xl/workbook.xml"); if (!wb) throw new Error("xlsx: xl/workbook.xml が無い（Excel ブックでない）");
+	const wb = await text("xl/workbook.xml"); if (!wb) throw new Error("xlsx: xl/workbook.xml not found (not an Excel workbook)");
 	const rels = await text("xl/_rels/workbook.xml.rels") || "";
 	const relMap = {}; for (const m of rels.matchAll(/<Relationship\b[^>]*>/g)) { const id = attr(m[0], "Id"), tg = attr(m[0], "Target"); if (id && tg) relMap[id] = tg.replace(/^\/?(xl\/)?/, "xl/"); }
 	const sheets = [...wb.matchAll(/<sheet\b[^>]*>/g)].map(m => ({ name: unesc(attr(m[0], "name") || ""), rid: attr(m[0], "r:id") || attr(m[0], "id"), sheetId: attr(m[0], "sheetId") }));
-	if (!sheets.length) throw new Error("xlsx: シートが無い");
+	if (!sheets.length) throw new Error("xlsx: no sheets");
 	const pick = opts.sheet != null ? sheets.find(s => s.name === opts.sheet || String(s.sheetId) === String(opts.sheet)) : sheets[0];
-	if (!pick) throw new Error(`xlsx: シート "${opts.sheet}" が無い（シート: ${sheets.map(s => s.name).join(", ")}）`);
+	if (!pick) throw new Error(`xlsx: sheet "${opts.sheet}" not found (sheets: ${sheets.map(s => s.name).join(", ")})`);
 	const path = relMap[pick.rid] || `xl/worksheets/sheet${pick.sheetId || 1}.xml`;
-	const xml = await text(path); if (!xml) throw new Error(`xlsx: ${path} が無い`);
+	const xml = await text(path); if (!xml) throw new Error(`xlsx: ${path} not found`);
 	const ss = []; const sst = await text("xl/sharedStrings.xml");
 	if (sst) for (const m of sst.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)) ss.push(unesc([...m[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g)].map(t => t[1]).join("")));
 	const grid = [];   // 行番号 → 列番号 → 値
@@ -159,14 +161,14 @@ export function parseWKT(text) {
 	const ws = () => { while (p < s.length) { const c = s.charCodeAt(p); if (c === 32 || c === 9 || c === 10 || c === 13) p++; else break; } };
 	const at = re => { re.lastIndex = p; return re.exec(s); };
 	const word = () => { ws(); const m = at(WKT_WORD); if (!m) return null; p += m[0].length; return m[0].toUpperCase(); };
-	const expect = ch => { ws(); if (s[p] !== ch) throw new Error(`WKT: "${ch}" が要る（${p} 文字目）`); p++; };
-	const num = () => { ws(); const m = at(WKT_NUM); if (!m) throw new Error(`WKT: 数値が要る（${p} 文字目）`); p += m[0].length; return +m[0]; };
+	const expect = ch => { ws(); if (s[p] !== ch) throw new Error(`WKT: expected "${ch}" at position ${p}`); p++; };
+	const num = () => { ws(); const m = at(WKT_NUM); if (!m) throw new Error(`WKT: expected a number at position ${p}`); p += m[0].length; return +m[0]; };
 	let dims = 2;
 	const pt = () => { const c = [num(), num()]; for (let k = 2; k < dims; k++) num(); return c; };
 	const seq = () => { expect("("); const out = [pt()]; ws(); while (s[p] === ",") { p++; out.push(pt()); ws(); } expect(")"); return out; };
 	const list = f => { expect("("); const out = [f()]; ws(); while (s[p] === ",") { p++; out.push(f()); ws(); } expect(")"); return out; };
 	const geom = () => {
-		const t = word(); if (!t) throw new Error("WKT: 型名が無い");
+		const t = word(); if (!t) throw new Error("WKT: missing geometry type");
 		ws(); const zm = at(WKT_ZM); dims = 2; if (zm) { p += zm[0].length; dims = zm[0].toUpperCase() === "ZM" ? 4 : 3; }
 		ws(); if (at(WKT_EMPTY)) { p += 5; return null; }
 		switch (t) {
@@ -177,7 +179,7 @@ export function parseWKT(text) {
 			case "MULTILINESTRING": return { type: "MultiLineString", coordinates: list(seq) };
 			case "MULTIPOLYGON": return { type: "MultiPolygon", coordinates: list(() => list(seq)) };
 			case "GEOMETRYCOLLECTION": { const gs = list(geom).filter(Boolean); return gs.length ? { type: "GeometryCollection", geometries: gs } : null; }
-			default: throw new Error(`WKT: 未対応の型 ${t}`);
+			default: throw new Error(`WKT: unsupported type ${t}`);
 		}
 	};
 	try { const g = geom(); return g; } catch { return null; }

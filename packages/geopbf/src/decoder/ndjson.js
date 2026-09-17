@@ -8,7 +8,7 @@ onmessage = async (e) => {
 		const { pbf, stats } = await fromNdjson(file, { name, precision, description, license, attribution });
 		await dissolve(pbf);   // json デコーダと同じ（同一属性の地物を併合）
 		const res = pbf.arrayBuffer;
-		postMessage({ type: "ndjsondec", data: res, warning: stats.badLines ? `NDJSON: ${stats.badLines} 行を読めず飛ばした（features ${stats.features}）` : undefined }, [res]);
+		postMessage({ type: "ndjsondec", data: res, warning: stats.badLines ? `NDJSON: ${stats.badLines} unreadable lines skipped (features ${stats.features})` : undefined }, [res]);
 	} catch (err) {
 		console.error("[ndjson decoder]", err);
 		postMessage(null);

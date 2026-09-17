@@ -38,7 +38,7 @@
 		const x = await geopbf(new File([blob], "shapes.xlsx"), { nocache: true });
 		if (x.geojson.features.length !== 2 || x.geojson.features[0].geometry.type !== "LineString") throw new Error(`xlsx ${x.geojson.features.length}`);
 		// parquet 側の幾何 null は書く前に GeoPBF.set が落とす（pbf.dropped）ので parquet には行が無い＝警告は csv 側の 1 件だけ
-		if (src.dropped !== 1 || !warnings.some(w => /座標の無い行 1/.test(w))) throw new Error(`warnings ${JSON.stringify(warnings)} dropped=${src.dropped}`);
+		if (src.dropped !== 1 || !warnings.some(w => /1 rows without coordinates dropped/.test(w))) throw new Error(`warnings ${JSON.stringify(warnings)} dropped=${src.dropped}`);
 		// FileGDB: GDAL の検定資料（zip のまま）を .zip としてドロップ＝中身の *.gdbtable で gdb に振り分く
 		const gz = await (await fetch("./fixtures/gdb/testopenfilegdb.gdb.zip")).blob();
 		const gdb = await geopbf(new File([gz], "testopenfilegdb.gdb.zip"), { layer: "multipolygon", nocache: true });

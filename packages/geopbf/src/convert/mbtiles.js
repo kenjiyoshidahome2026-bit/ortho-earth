@@ -17,19 +17,19 @@ export function openMBTiles(u8) {
 	let get;
 	if (db.tables.has("tiles")) {
 		const t = db.table("tiles"), ci = Object.fromEntries(t.columns.map((c, i) => [c.name, i]));
-		for (const k of ["zoom_level", "tile_column", "tile_row", "tile_data"]) if (ci[k] === undefined) throw new Error(`mbtiles: tiles 表に列 ${k} が無い`);
+		for (const k of ["zoom_level", "tile_column", "tile_row", "tile_data"]) if (ci[k] === undefined) throw new Error(`mbtiles: tiles table has no column ${k}`);
 		for (const { rowid, values: v } of db.rowsProjected("tiles", [ci.zoom_level, ci.tile_column, ci.tile_row])) index.set(key(v[ci.zoom_level], v[ci.tile_column], flip(v[ci.zoom_level], v[ci.tile_row])), rowid);
 		get = (z, x, y) => { const id = index.get(key(z, x, y)); if (id === undefined) return null; return db.get("tiles", id)?.tile_data ?? null; };
 	} else if (db.tables.has("map") && db.tables.has("images")) {
 		const m = db.table("map"), mi = Object.fromEntries(m.columns.map((c, i) => [c.name, i]));
 		const im = db.table("images"), ii = Object.fromEntries(im.columns.map((c, i) => [c.name, i]));
-		for (const k of ["zoom_level", "tile_column", "tile_row", "tile_id"]) if (mi[k] === undefined) throw new Error(`mbtiles: map 表に列 ${k} が無い`);
-		if (ii.tile_id === undefined || ii.tile_data === undefined) throw new Error("mbtiles: images 表に tile_id / tile_data が無い");
+		for (const k of ["zoom_level", "tile_column", "tile_row", "tile_id"]) if (mi[k] === undefined) throw new Error(`mbtiles: map table has no column ${k}`);
+		if (ii.tile_id === undefined || ii.tile_data === undefined) throw new Error("mbtiles: images table has no tile_id / tile_data");
 		const byId = new Map();   // tile_id → images の rowid（tile_data は読み飛ばす）
 		for (const { rowid, values: v } of db.rowsProjected("images", [ii.tile_id])) byId.set(v[ii.tile_id], rowid);
 		for (const { values: v } of db.rowsProjected("map", [mi.zoom_level, mi.tile_column, mi.tile_row, mi.tile_id])) { const id = v[mi.tile_id]; if (id != null && byId.has(id)) index.set(key(v[mi.zoom_level], v[mi.tile_column], flip(v[mi.zoom_level], v[mi.tile_row])), byId.get(id)); }
 		get = (z, x, y) => { const id = index.get(key(z, x, y)); if (id === undefined) return null; return db.get("images", id)?.tile_data ?? null; };
-	} else throw new Error(`mbtiles: tiles 表も map/images 表も無い（表: ${[...db.tables.keys()].join(", ")}）`);
+	} else throw new Error(`mbtiles: neither tiles nor map/images tables found (tables: ${[...db.tables.keys()].join(", ")})`);
 	const zs = new Set(); for (const k of index.keys()) zs.add(+k.slice(0, k.indexOf("/")));
 	const zooms = [...zs].sort((a, b) => a - b);
 	const bounds = metadata.bounds ? metadata.bounds.split(",").map(Number) : null;

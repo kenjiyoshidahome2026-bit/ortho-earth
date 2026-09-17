@@ -11,7 +11,7 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 
 const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 const dir = mkdtempSync(join(tmpdir(), "geopbf-cog-"));
-const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 
 const tif = join(dir, "t.tif");
 writeFileSync(tif, buildCog({ width: 64, height: 48, epsg: 32654, compression: "deflate", predictor: true, overviews: [2, 4], nodata: 0 }));
@@ -27,7 +27,7 @@ ok(/nodata 0/.test(info), "info: nodata");
 
 const bench = run("cog", "info", tif, "--bench");
 ok(/--bench\s+TTFH \d+ ms/.test(bench), "info --bench: TTFH が出る");
-ok(/range \d+ 本/.test(bench), "info --bench: range 本数が出る");
+ok(/range \d+ requests/.test(bench), "info --bench: range 本数が出る");
 
 // ---- png ------------------------------------------------------------------------
 const png = join(dir, "out.png");

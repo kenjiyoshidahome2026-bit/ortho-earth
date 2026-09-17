@@ -21,7 +21,7 @@ const SAFE = 2n ** 53n;
 
 export function openSqlite(u8, opts = {}) {
 	if (!(u8 instanceof Uint8Array)) u8 = new Uint8Array(u8);
-	for (let i = 0; i < 16; i++) if (u8[i] !== MAGIC.charCodeAt(i)) throw new Error("sqlite: SQLite3 ファイルでない（先頭 16 バイトの署名が違う）");
+	for (let i = 0; i < 16; i++) if (u8[i] !== MAGIC.charCodeAt(i)) throw new Error("sqlite: not an SQLite3 file (bad 16-byte header magic)");
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
 	let pageSize = dv.getUint16(16); if (pageSize === 1) pageSize = 65536;
 	const reserved = u8[20];
@@ -29,8 +29,8 @@ export function openSqlite(u8, opts = {}) {
 	const enc = dv.getUint32(56);
 	const encoding = enc === 2 ? "utf-16le" : enc === 3 ? "utf-16be" : "utf-8";
 	const warnings = [];
-	if (u8[18] === 2 || u8[19] === 2) warnings.push("WAL モードのファイル＝チェックポイント前の更新（-wal 側）は読めない");
-	if (u8.length < pageSize * 2 && dv.getUint32(28) > 1) warnings.push("ファイルがページ数より短い（切れている）");
+	if (u8[18] === 2 || u8[19] === 2) warnings.push("WAL-mode file: updates not yet checkpointed (in the -wal file) are not read");
+	if (u8.length < pageSize * 2 && dv.getUint32(28) > 1) warnings.push("file is shorter than its page count (truncated)");
 	return new Db(u8, dv, { pageSize, usable, encoding, warnings }, opts);
 }
 
@@ -49,9 +49,9 @@ class Db {
 	}
 	table(name) {
 		const t = this.tables.get(name);
-		if (!t) throw new Error(`sqlite: 表 "${name}" が無い（表: ${[...this.tables.keys()].join(", ")}）`);
-		if (t.withoutRowid) throw new Error(`sqlite: 表 "${name}" は WITHOUT ROWID＝未対応`);
-		if (!t.rootpage) throw new Error(`sqlite: 表 "${name}" は仮想表＝実体が無い`);
+		if (!t) throw new Error(`sqlite: table "${name}" not found (tables: ${[...this.tables.keys()].join(", ")})`);
+		if (t.withoutRowid) throw new Error(`sqlite: table "${name}" is WITHOUT ROWID; not supported`);
+		if (!t.rootpage) throw new Error(`sqlite: table "${name}" is a virtual table; nothing stored to read`);
 		return t;
 	}
 	/** 行を { 列名: 値 } で順に返す（rowid 順）。 */
@@ -85,7 +85,7 @@ class Db {
 				if (lo < cells) next = dv.getUint32(base + dv.getUint16(hdr + 12 + lo * 2));
 				page = next; continue;
 			}
-			if (type !== 0x0d) throw new Error(`sqlite: 表 B-tree に索引ページ（0x${type.toString(16)}）が混ざっている（ページ ${page}）`);
+			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
 				let p = base + dv.getUint16(hdr + 8 + i * 2);
 				varint(u8, p, vi); const P = vi.v; p = vi.p;
@@ -111,7 +111,7 @@ class Db {
 	// ── 内部 ─────────────────────────────────────────────────────────────
 	_off(page) {
 		const o = (page - 1) * this.pageSize;
-		if (page < 1 || o + this.pageSize > this.u8.length) throw new Error(`sqlite: ページ ${page} がファイルの外（壊れているか切れている）`);
+		if (page < 1 || o + this.pageSize > this.u8.length) throw new Error(`sqlite: page ${page} is outside the file (corrupt or truncated)`);
 		return o;
 	}
 	/** 表 B-tree を rowid 順に歩き、ページ種別とセル数を返す（count 用・葉は復号しない）。 */
@@ -139,7 +139,7 @@ class Db {
 				for (let i = cells - 1; i >= 0; i--) stack.push(dv.getUint32(base + dv.getUint16(hdr + 12 + i * 2)));
 				continue;
 			}
-			if (type !== 0x0d) throw new Error(`sqlite: 表 B-tree に索引ページ（0x${type.toString(16)}）が混ざっている（ページ ${page}）`);
+			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
 				let p = base + dv.getUint16(hdr + 8 + i * 2);
 				varint(u8, p, vi); const P = vi.v; p = vi.p;
@@ -158,7 +158,7 @@ class Db {
 		out.set(this.u8.subarray(p, p + local), 0);
 		let done = local, next = this.dv.getUint32(p + local);
 		while (done < P) {
-			if (!next) throw new Error("sqlite: overflow の鎖が途中で切れている");
+			if (!next) throw new Error("sqlite: overflow chain is broken");
 			const o = this._off(next);
 			const n = Math.min(U - 4, P - done);
 			out.set(this.u8.subarray(o + 4, o + 4 + n), done);
@@ -186,7 +186,7 @@ class Db {
 				case 7: out.push(dv.getFloat64(p)); p += 8; break;
 				case 8: out.push(0); break;
 				case 9: out.push(1); break;
-				case 10: case 11: throw new Error("sqlite: 予約された serial type " + s);
+				case 10: case 11: throw new Error("sqlite: reserved serial type " + s);
 				default: {
 					const n = (s - 12) >> 1;
 					if (s & 1) out.push(this.decoder.decode(b.subarray(p, p + n)));

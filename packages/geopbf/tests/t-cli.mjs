@@ -13,7 +13,7 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 
 const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
 const dir = mkdtempSync(join(tmpdir(), "geopbf-cli-"));
-const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 
 // ---- 元データ（全ジオメトリ種・型付き属性・null 属性・日本語）--------------------
 const src = {
@@ -93,7 +93,7 @@ const rows = [...lodOut.matchAll(/^\s+(\d+)\s+(\d+)\s+([\d,]+)\s+/gm)]
 	.map(m => ({ z: +m[1], keep: +m[3].replace(/,/g, "") }));
 ok(rows.length >= 10, "lod がズーム別の表を出す");
 ok(rows.every((r, i) => i === 0 || r.keep >= rows[i - 1].keep), "描画頂点数はズームに対して単調非減少");
-const totalVerts = +/頂点\s+([\d,]+)/.exec(run("info", pbfPath))[1].replace(/,/g, "");
+const totalVerts = +/vertices\s+([\d,]+)/.exec(run("info", pbfPath))[1].replace(/,/g, "");
 ok(rows.at(-1).z === 21 && rows.at(-1).keep === totalVerts,
 	`z=21 では全頂点が残る（${totalVerts}）`);
 

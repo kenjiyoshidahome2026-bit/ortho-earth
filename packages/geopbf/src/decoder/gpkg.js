@@ -9,12 +9,12 @@ onmessage = async (e) => {
 		const res = pbf.arrayBuffer;
 		const msg = { type: "gpkgdec", data: res };
 		const notes = [];
-		if (stats.layers.length > 1 && !layer) notes.push(`GeoPackage に ${stats.layers.length} 層（${stats.layers.join(", ")}）＝先頭の "${stats.layer}" を読んだ。他の層は opts.layer で`);
-		if (stats.skipped.length) notes.push(`読まなかった列: ${stats.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
-		if (stats.z || stats.m) notes.push("Z/M 値は落とした（GeoPBF は 2D）");
-		if (stats.reprojected) notes.push(`${stats.crs} を経緯度へ戻した${stats.datumApprox ? "（日本測地系は Helmert 近似＝±10 m 級。TKY2JGD 格子を opts.tky2jgd で渡すと 0.2 m 級）" : ""}`);
+		if (stats.layers.length > 1 && !layer) notes.push(`GeoPackage has ${stats.layers.length} layers (${stats.layers.join(", ")}); read the first, "${stats.layer}", choose another with opts.layer`);
+		if (stats.skipped.length) notes.push(`skipped columns: ${stats.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+		if (stats.z || stats.m) notes.push("Z/M values dropped (GeoPBF is 2D)");
+		if (stats.reprojected) notes.push(`${stats.crs} converted to lon/lat${stats.datumApprox ? " (Tokyo Datum via the Helmert approximation, ±10 m; pass a TKY2JGD grid as opts.tky2jgd for 0.2 m)" : ""}`);
 		for (const w of stats.warnings) notes.push(w);
-		if (notes.length) msg.warning = notes.join("・");
+		if (notes.length) msg.warning = notes.join("; ");
 		postMessage(msg, [res]);
 	} catch (err) {
 		console.error("GeoPackage decode Worker Error:", err);

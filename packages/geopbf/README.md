@@ -199,7 +199,8 @@ npx geopbf dxf2pbf plan.dxf plan.geopbf --crs 6677                    # ← DXF 
 npx geopbf gdb2pbf city.gdb                                        # list the feature classes of a File Geodatabase
 npx geopbf gdb2pbf city.gdb.zip parcels.geopbf --layer 筆界         # ← FileGDB (directory or zip), 平面直角座標系/UTM → lon/lat
 npx geopbf gdb2pbf old.gdb out.geopbf --tky2jgd tky2jgd.bin.gz --patchjgd patchjgd.bin.gz   # 日本測地系 → JGD2011
-npx geopbf csv2pbf stations.csv stations.geopbf                    # ← CSV/TSV/XLSX with lon/lat or WKT columns (Shift_JIS auto)
+npx geopbf csv2pbf stations.csv stations.geopbf                    # ← CSV/TSV/XLSX with lon/lat or WKT columns (non-UTF-8 → Shift_JIS)
+npx geopbf csv2pbf legacy.csv out.geopbf --fallback-encoding windows-1252   # other legacy encodings; --encoding forces one
 npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
 ```
@@ -209,6 +210,9 @@ Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the
 `enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage, File Geodatabase and tables — PostGIS and everything
 else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
 needs GDAL ≥ 3.12), or the browser workers in `src/index.js`.
+
+CLI messages and `--help` are in English. Set `GEOPBF_LANG=ja` (or a Japanese `LANG` / `LC_ALL`) for Japanese; the
+library itself (error messages, console warnings) is English only.
 
 ---
 
@@ -474,7 +478,7 @@ const { pbf, stats } = await fromTable(u8, { lon: "経度", lat: "緯度" });   
 | | |
 | :-- | :-- |
 | Columns | detected by name (`lon`/`lng`/`longitude`/`経度`/`x` and `lat`/`latitude`/`緯度`/`y`; `wkt`/`geometry`/`geom`/`shape`), or by a first-row value that starts with `POINT(`…; name them explicitly to override |
-| Text | UTF-8 with or without BOM, UTF-16 with BOM; anything that fails strict UTF-8 is read as Shift_JIS (the browser's own `TextDecoder`, no dependency) |
+| Text | UTF-8 with or without BOM, UTF-16 with BOM; anything that fails strict UTF-8 is read with `fallbackEncoding` (default `shift_jis`; e.g. `windows-1252`), or force one with `encoding` — the browser's own `TextDecoder`, no dependency |
 | CSV | RFC 4180 quoting, quoted newlines, delimiter sniffed among `, \t ; \|` |
 | XLSX | first sheet or `sheet`; sharedStrings, inline strings, numbers, booleans, formula cached values; dates stay as serial numbers |
 | Values | numeric-looking strings become numbers except those with a leading zero (`"01"` stays a string — municipality codes survive), `true`/`false` become booleans, empty cells are absent; dates are never guessed |

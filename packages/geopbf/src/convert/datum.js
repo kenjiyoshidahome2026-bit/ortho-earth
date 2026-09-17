@@ -40,7 +40,7 @@ export function bakeMeshGrid(text, opts = {}) {
 		const k = (latIdx % 10) * 10 + (lonIdx % 10);
 		b[k * 2] = Math.round(dB * 1e5); b[k * 2 + 1] = Math.round(dL * 1e5); cells++;
 	}
-	if (!cells) throw new Error("datum: .par にデータ行が無い（8 桁のメッシュコード＋dB＋dL）");
+	if (!cells) throw new Error("datum: no data rows in .par (8-digit mesh code + dB + dL)");
 	const keys = [...blocks.keys()].sort((a, b) => a - b);
 	// 各ブロックの平均と、平均からの残差の最大（→ 目盛りを決める）
 	const means = new Map(); let maxAbs = 0;
@@ -51,9 +51,9 @@ export function bakeMeshGrid(text, opts = {}) {
 		for (let k = 0; k < 100; k++) if (b[k * 2] !== null) maxAbs = Math.max(maxAbs, Math.abs(b[k * 2] - mB), Math.abs(b[k * 2 + 1] - mL));
 	}
 	const resScale = RES_SCALES.find(s => maxAbs * 1e-5 / s <= 32767);
-	if (!resScale) throw new Error("datum: 残差が大きすぎて Int16 に収まらない");
+	if (!resScale) throw new Error("datum: residuals too large to fit in Int16");
 	const unit = resScale * 1e5;   // 1 残差単位 = unit × 1e-5 秒
-	const meta = { format: MAGIC, transform, source: opts.source ?? "国土地理院 座標補正パラメータ (.par)", version: header, license: "国土地理院コンテンツ利用規約（出典の明示で利用可）",
+	const meta = { format: MAGIC, transform, source: opts.source ?? "GSI Japan coordinate correction parameters (.par)", version: header, license: "GSI Japan content terms of use (attribution required)",
 		cells, blocks: keys.length, resScale, grid: "3rd mesh (30\" x 45\"), value at SW corner, bilinear, added to the source coordinates" };
 	const json = new TextEncoder().encode(JSON.stringify(meta));
 	const head = 16 + json.length, idx = keys.length * 12;
@@ -67,7 +67,7 @@ export function bakeMeshGrid(text, opts = {}) {
 			const v = b[k * 2 + t], o = head + idx + n * 400 + k * 4 + t * 2;
 			if (v === null) { dv.setInt16(o, MISSING, true); continue; }
 			const r = Math.round((v - (t ? mL : mB)) / unit);
-			if (Math.abs(r) > 32767) throw new Error(`datum: 残差が Int16 を超えた（block ${key}）`);
+			if (Math.abs(r) > 32767) throw new Error(`datum: residual exceeds Int16 (block ${key})`);
 			maxRes = Math.max(maxRes, Math.abs(r)); dv.setInt16(o, r, true);
 		}
 	});
@@ -85,7 +85,7 @@ async function fetchBytes(url) { const r = await fetch(url); if (!r.ok) throw ne
 
 export function parseMeshGrid(u8) {
 	const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength);
-	if (u8.length < 16 || new TextDecoder().decode(u8.subarray(0, 8)) !== MAGIC) throw new Error(`datum: 形式が違う（${MAGIC} でない）`);
+	if (u8.length < 16 || new TextDecoder().decode(u8.subarray(0, 8)) !== MAGIC) throw new Error(`datum: wrong format (not ${MAGIC})`);
 	const jl = dv.getUint32(8, true), meta = JSON.parse(new TextDecoder().decode(u8.subarray(12, 12 + jl)));
 	const n = dv.getUint32(12 + jl, true), head = 16 + jl, idx = head + n * 12;
 	const unit = (meta.resScale ?? 1e-3) * 1e5;

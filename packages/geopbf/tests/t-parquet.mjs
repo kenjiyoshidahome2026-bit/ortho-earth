@@ -262,7 +262,7 @@ ok(r3.buffer.length > buf.length, "rowGroupSize=3 で 3 行グループ（footer
 
 // ---- CLI --------------------------------------------------------------------------------------
 const CLI = new URL("../bin/geopbf.mjs", import.meta.url).pathname;
-const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8" });
+const run = (...args) => execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", env: { ...process.env, GEOPBF_LANG: "en" } });
 const inPath = join(dir, "fix.geopbf"); writeFileSync(inPath, Buffer.from(pbf.arrayBuffer));
 const out = run("parquet", inPath, join(dir, "cli.parquet"), "--no-gpu", "--compression", "none", "--order", "none");
 ok(/features 7/.test(out) && /CPU/.test(out) && /Polygon/.test(out), "CLI parquet: 実行報告");

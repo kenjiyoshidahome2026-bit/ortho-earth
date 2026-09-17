@@ -27,7 +27,7 @@
 		if (!hole || hole.geometry.coordinates.length !== 2) throw new Error("polygon+hole not restored");
 		const places = await geopbf(new File([blob], "mixed.gpkg"), { nocache: true });   // layer 省略＝先頭層 places
 		if (places.geojson.features.length !== 1200 || places.geojson.features[0].properties.name !== "東京駅") throw new Error(`places ${places.geojson.features.length}`);
-		if (!warnings.some(w => /3 層/.test(w))) throw new Error(`no multi-layer warning: ${JSON.stringify(warnings)}`);
+		if (!warnings.some(w => /3 layers/.test(w))) throw new Error(`no multi-layer warning: ${JSON.stringify(warnings)}`);
 		// ラスタ: タイル表を直引きして createImageBitmap で復号（地理院タイルの実物があればそれ・無ければ合成 tiny）
 		const { openGpkgTiles } = await import("../src/convert/gpkg.js");
 		const gsiRes = await fetch("./fixtures/gpkg/gsi-tokyo.gpkg");

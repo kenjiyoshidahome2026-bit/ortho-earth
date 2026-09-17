@@ -9,9 +9,9 @@ onmessage = async (e) => {
 		const res = pbf.arrayBuffer;
 		const msg = { type: "parquetdec", data: res };
 		const notes = [];
-		if (stats.droppedGeometries) notes.push(`幾何なしの行 ${stats.droppedGeometries} を落とした`);
-		if (stats.skipped.length) notes.push(`読まなかった列: ${stats.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
-		if (notes.length) msg.warning = notes.join("・");
+		if (stats.droppedGeometries) notes.push(`${stats.droppedGeometries} rows without geometry dropped`);
+		if (stats.skipped.length) notes.push(`skipped columns: ${stats.skipped.map(k => `${k.name}(${k.reason})`).join(" ")}`);
+		if (notes.length) msg.warning = notes.join("; ");
 		postMessage(msg, [res]);
 	} catch (err) {
 		console.error("GeoParquet decode Worker Error:", err);
