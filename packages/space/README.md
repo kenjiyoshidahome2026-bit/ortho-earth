@@ -1,6 +1,6 @@
 # space — 宇宙（天球）の名前データ
 
-星座 88 とメシエ天体の通称を 26 言語で持つ、データだけのパッケージ（コードを配らない）。
+星座 88・メシエ天体の通称・太陽系の天体（太陽・惑星・月・冥王星・衛星 20）の名前を 26 言語で持つ、データだけのパッケージ（コードを配らない）。
 読む側（ortho-solar・将来 ortho-japan）は **bucket の JSON を読むだけ**＝このパッケージの import で繋がない
 （2026-09-19 本人裁定「japan がデータを読む形に」＝コード依存でなくデータ共有）。
 
@@ -8,9 +8,9 @@
 
 | もの | 場所 |
 |---|---|
-| 正本 | `names.json`＝`{ constellations: { <IAU 略号>: { <lang>: 名前 } }, messier: { "M42": { <lang>: 通称 } } }` |
-| 配信 | bucket `GIS/space/i18n/<lang>.json`＝`{ updated, c: { <IAU 略号>: 名前 }, m: { "M42": 通称 } }`（その言語に在るものだけ・1 本 ~3KB） |
-| 焼く | uploader の「space names」ボタン（`build/packs.js` で 26 本に割って put）＝書き込みキーは uploader の `.env.local` |
+| 正本 | `names.json`＝`{ constellations: { <IAU 略号>: { <lang>: 名前 } }, messier: { "M42": { <lang>: 通称 } }, bodies: { <ephem の id>: { <lang>: 名前 } } }` |
+| 配信 | bucket `GIS/space/i18n/<lang>.json`＝`{ updated, c: { <IAU 略号>: 名前 }, m: { "M42": 通称 }, b: { <天体 id>: 名前 } }`（その言語に在るものだけ・1 本 ~3KB） |
+| 焼く | uploader の「space names」ボタン（`packs.js` で 26 本に割って put）＝書き込みキーは uploader の `.env.local` |
 
 URL＝`https://api.ortho-earth.com/bucket/GIS/space/i18n/<lang>.json`（言語は `packages/world/i18n/langs.json` の 26）。
 **gzip のまま置かれる**（native-bucket の put は .json を圧縮し、Content-Type は application/gzip）＝読む側は `nativeBucket(api).Bucket("GIS/space", { lazy: true }).get("i18n/ja.json", "json")`（展開込み）で読む。素の `fetch().json()` では読めない。
@@ -29,6 +29,7 @@ URL＝`https://api.ortho-earth.com/bucket/GIS/space/i18n/<lang>.json`（言語�
 - メシエの en/ja/zh＝手で当てた
 - 他言語＝Wikidata の見出し（2026-09-19 取得）から百科事典の曖昧さ回避（「(…)」・hu の「csillagkép」）とカタログ番号型（Messier 13 など）を除去。
   同じ言語の星座名と同じメシエの見出しは捨てる（星座の項目を指している）。抜き取り検査で見つけた取り違えは手で当て直した（bn おおいぬ座・ar/pt アンドロメダ銀河・es オリオン大星雲）
+- 天体（bodies）＝ortho-solar の UI 辞書（apps/solar/i18n/ui.json）から写した（26 言語そろい）
 - 組み直し＝`scripts/names-from-wikidata.py`（Wikidata への問い合わせ文は先頭のコメント）
 
 ## 検定
