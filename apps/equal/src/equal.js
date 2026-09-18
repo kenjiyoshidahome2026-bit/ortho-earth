@@ -327,9 +327,15 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const panel = el("div", { id: "layers-panel" }); panel.hidden = true;
 	chips.append(layersBtn, panel);
 	gadgets.append(chips);
-	const setOpen = open => { panel.hidden = !open; layersBtn.classList.toggle("on", open); layersBtn.setAttribute("aria-expanded", String(open)); };
+	// 開閉は「一度に一つ」＝二つのパネルは同じ場所（ボタンの右）へ開くので、開いたら他方を閉じる
+	const panels = [];
+	const setOpen = (open, p = panel, b = layersBtn) => {
+		if (open) for (const [op, ob] of panels) if (op !== p) setOpen(false, op, ob);
+		p.hidden = !open; b.classList.toggle("on", open); b.setAttribute("aria-expanded", String(open));
+	};
+	panels.push([panel, layersBtn]);
 	layersBtn.addEventListener("click", () => setOpen(panel.hidden));
-	addEventListener("keydown", e => { if (e.key === "Escape") setOpen(false); }, { signal });
+	addEventListener("keydown", e => { if (e.key === "Escape") for (const [p, b] of panels) setOpen(false, p, b); }, { signal });
 
 	for (const L of layers) {
 		if (L.def.fixed) continue;
@@ -372,7 +378,17 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 
 	// ── 主題（コロプレス）列＝データの塗り分け。地図の配色とは別の軸（2026-09-18 本人裁定「レイヤーから分離」）──
 	// 描画も層ではなく被せパス（renderer.drawChoropleth＝国 ID バッファ＋塗り表だけ）＝層の定義にも配色テーマにも依存しない。
-	panel.append(headRow("Choropleth"));
+	// ── 主題（コロプレス）＝独立したガジェット（本人 2026-09-18「別のアイコンで表示する」）────────────
+	// 地図の層（何を描くか）と主題（データで塗り分ける）は別の仕事＝入口も別のアイコンにする。
+	// アイコンは凡例そのもの（濃さの違う 3 本の帯）＝層アイコン（重なった菱形）と一目で見分けられる。
+	const choroChip = el("div", { class: "qm-chips" });
+	const choroBtn = el("button", { class: "qm-panel-btn", id: "choro-btn", "aria-expanded": "false", "data-tt": "Choropleth", "data-tip": t("Choropleth") },
+		`<svg viewBox="0 0 20 20" width="18" height="18"><rect x="3.5" y="4" width="13" height="3.2" rx="1.1" fill="#3f4757" opacity=".28"/><rect x="3.5" y="8.4" width="13" height="3.2" rx="1.1" fill="#3f4757" opacity=".6"/><rect x="3.5" y="12.8" width="13" height="3.2" rx="1.1" fill="#3f4757" opacity=".92"/></svg>`);
+	const choroPanel = el("div", { class: "qm-panel", id: "choro-panel" }); choroPanel.hidden = true;
+	choroChip.append(choroBtn, choroPanel);
+	gadgets.append(choroChip);
+	panels.push([choroPanel, choroBtn]);
+	choroBtn.addEventListener("click", () => setOpen(choroPanel.hidden, choroPanel, choroBtn));
 	const choroRow = el("div", { id: "choro-row", class: "lp-stack" });
 	const swatchOf = id => {
 		if (!id) return `<span class="sw eq-none"></span>`;
@@ -413,18 +429,18 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		}
 	}
 	relabelChoro();
-	panel.append(choroRow);
+	choroPanel.append(choroRow);
 	const colRow = el("div", { class: "eq-row" }, `<span data-t="Column">${esc(t("Column"))}</span>`); colRow.hidden = true;
 	const colSelect = el("select", { class: "eq-select" });
 	colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSelect.value; csv.preset = csvPreset(csv.ds, csv.col); selectChoro("csv"); });
-	colRow.append(colSelect); panel.append(colRow);
-	panel.append(rangeRow("Opacity", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));   // 見出しが「主題図」＝ここは共有語の「濃さ」
+	colRow.append(colSelect); choroPanel.append(colRow);
+	choroPanel.append(rangeRow("Opacity", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));   // 主題パネルの中＝語は共有語の「濃さ」
 	// 年（DB の統計だけ・各国の最新年＝右端）
 	const yearRow = el("div", { class: "eq-row" }, `<span><span data-t="Year">${esc(t("Year"))}</span> <b class="eq-year"></b></span>`); yearRow.hidden = true;
 	const yearInput = el("input", { type: "range", min: "2000", max: "2025", step: "1", value: "2025" }), yearLabel = yearRow.querySelector(".eq-year");
 	yearInput.addEventListener("input", () => { settings.year = +yearInput.value; yearLabel.textContent = yearInput.value; applyChoropleth(); scheduleHash(); });
 	yearInput.addEventListener("dblclick", () => { settings.year = null; applyChoropleth(); scheduleHash(); });   // ダブルクリック＝最新年へ戻す
-	yearRow.append(yearInput); panel.append(yearRow);
+	yearRow.append(yearInput); choroPanel.append(yearRow);
 
 	// ズーム（#zoom）
 	const zoomBox = el("div", { id: "zoom" },
