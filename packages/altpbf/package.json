@@ -17,7 +17,7 @@
 		"./loader": "./src/loader.js"
 	},
 	"scripts": {
-		"test": "node tests/t-tiff.mjs",
+		"test": "node tests/t-tiff.mjs && node tests/t-worldatlas.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"mirror": "git -C ../.. subtree split --prefix=packages/altpbf -b altpbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/altpbf.git altpbf-mirror:main --force && git -C ../.. branch -D altpbf-mirror"
 	},

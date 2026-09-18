@@ -4,7 +4,7 @@
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
-import { createTileLoader } from "altpbf/loader";
+import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "altpbf/loader";
 
 // 申告された裸地標高(DTM)域と、リフト窓の重なりを取る（[lng0,lat0,spanLng,spanLat]・重なり無し=null）。
 // 純関数＝Node で検定できる（tests/t-dtm.mjs）。dtm 未申告＝裸地の保証がない＝リフトしない。
@@ -99,7 +99,30 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (tile) cacheTile(k, tile);
 		return tile;
 	}
-	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック）
+	// 全球アトラス（WORLD_ATLAS＝uploader が R90 8 枚から焼いた 1 本・4096×2048 Int16・row0=北・3.25MB）：
+	// R90 固定窓（z<5.5 の近窓・z<8 の far 床）はこれ 1 本で埋める＝従来の R90 8 枚（55MB・復号 8 回・downsampleFlipped 8 回）が
+	// 1 本（復号 1 回・切り出しだけ）に。bucket に無い（焼き前）・取得失敗なら cell90 が従来の 8 枚経路へ退避＝絵は同じ（Int16 丸め ±0.5m）。
+	// 常駐 16MB は LRU 予算の外（R90 8 枚の生 117MB を LRU に持つ従来より軽い）。sampleElev の最後の床にも使う。
+	let worldAtlas = null, worldP = null;
+	function getWorldAtlas() {
+		if (worldAtlas) return Promise.resolve(worldAtlas);
+		if (!loadTile) return Promise.resolve(null);
+		return worldP ??= loadTile.byName(WORLD_ATLAS).catch(() => null).then(a => {
+			if (a?.data && a.width === 4 * WORLD_ATLAS_CELL && a.height === 2 * WORLD_ATLAS_CELL) worldAtlas = a;
+			else { console.warn(`[terrain] ${WORLD_ATLAS} unavailable -> R90 tiles`); setTimeout(() => { worldP = null; }, 60000); }   // 無い＝60 秒は退避経路のまま（焼き前の bucket をセル毎に叩かない）
+			return worldAtlas;
+		});
+	}
+	// R90 セル（cx 0..3 西から・cy 0..1 南から）を N² Float32（row0=南）で。アトラス優先・無ければ生 R90＋downsampleFlipped（従来経路）
+	async function cell90(cx, cy, N) {
+		const a = await getWorldAtlas();
+		if (a && WORLD_ATLAS_CELL % N === 0) return worldAtlasCell(a, cx, cy, N);
+		const tile = await getCell(-180 + cx * 90, -90 + cy * 90, 90);
+		return tile ? downsampleFlipped(tile, N) : null;
+	}
+	// 全球の先読み＝アトラス 1 本（16MB）。無ければ従来の R90 8 枚（lowMem は 117MB＝従来どおり見送り＝オンデマンド）
+	const prefetchWorld = () => getWorldAtlas().then(a => { if (!a && !lowMem) for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) getCell(lng, lat, 90); });
+	// ラベル位置の標高(m)。キャッシュ済みの最も細かいセルから（R01→R10→R90 フォールバック→全球アトラス）
 	// downsampleFlipped と同じ南上げ規約でバイリニア。R10(約900m格子)だけだと谷の街に隣の山の標高が
 	// 滲み、チルト時にラベルが浮く。
 	function sampleElev(lon, lat) {
@@ -109,7 +132,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			tile = r10Tiles.get(range + "," + cx0 + "," + cy0);
 			if (tile) break;
 		}
-		if (!tile) return 0;
+		if (!tile) return worldAtlas ? sampleWorldAtlas(worldAtlas, lon, lat) : 0;   // R90 生タイルはアトラス運用では LRU に来ない＝床はアトラス
 		const cx = tile.lng, cy = tile.lat, range = tile.range;
 		const { data, width: w, height: h } = tile;
 		const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * (w - 1)));
@@ -365,9 +388,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 					});
 				}
 			} else {
-				getCell(cellLng, cellLat, range).then(tile => {
+				// R90（世界 4×2 固定窓・originCX=-2/originCY=-1）＝全球アトラスの切り出し。R10/R01＝生タイル→downsampleFlipped
+				const cellP = range === 90 ? cell90(r.originCX + cx + 2, r.originCY + cy + 1, r.cellRes)
+					: getCell(cellLng, cellLat, range).then(t => t ? downsampleFlipped(t, r.cellRes) : null);
+				cellP.then(tile => {
 					pendingElev--; notifyPending(range);
-					if (tile && atlasKey === key) { renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); writtenCells.add(ck); }
+					if (tile && atlasKey === key) { renderer.set(cellSlot(), tile, { cx, cy, cellRes: r.cellRes }); writtenCells.add(ck); }
 					// 取得失敗は「未読込」へ戻す（上限3回）＝次の ensure（カメラが動けば必ず来る）で再挑戦。
 					// 従来は窓替えまで平らなセルが直らなかった。上限は恒久欠損セル（データ無し域）への
 					// 毎移動リフェッチのスパム防止。
@@ -412,9 +438,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				farLoaded.add(ck);
 				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
 				pendingElev++; notifyPending(farSpan);
-				getCell(cellLng, cellLat, farSpan).then(tile => {
+				const farP = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
+					: getCell(cellLng, cellLat, farSpan).then(t => t ? downsampleFlipped(t, fr.cellRes) : null);
+				farP.then(tile => {
 					pendingElev--; notifyPending(farSpan);
-					if (tile && farKey === fkey) { renderer.set("elevCellFar", downsampleFlipped(tile, fr.cellRes), { cx, cy, cellRes: fr.cellRes }); farWritten.add(ck); }
+					if (tile && farKey === fkey) { renderer.set("elevCellFar", tile, { cx, cy, cellRes: fr.cellRes }); farWritten.add(ck); }
 					if (!tile && farKey === fkey) {   // 取得失敗は未読込へ戻す（上限3回）＝近窓と同じ再挑戦則
 						const n = (farFails.get(ck) || 0) + 1; farFails.set(ck, n);
 						if (n <= 3) farLoaded.delete(ck);
@@ -437,8 +465,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		atlasKey, staging, stagePending: stagePending.size, pendingElev,
 		loaded: loadedCells.size, written: writtenCells.size, fails: [...cellFails.entries()],
 		farKey, farLoaded: farLoaded.size, farWritten: farWritten.size, farFails: [...farFails.entries()],
-		lru: r10Tiles.size, bytes: tileBytes,
+		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
-	return { ensure, sampleElev, prefetch: getCell, bytes: () => tileBytes, debug };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }

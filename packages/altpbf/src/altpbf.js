@@ -5,6 +5,7 @@
 import { L3 } from "common";
 import { nativeBucket } from "native-bucket";
 import { encode, decode, encodeName, decodeName } from "./format.js";
+import { WORLD_ATLAS } from "./worldatlas.js";
 export { encode, decode, encodeName, decodeName, altpbf2png } from "./format.js";
 
 let _nb = null;
@@ -31,6 +32,7 @@ export async function index_alos() {
 export const inBbox = (bbox, lng, lat) => !!bbox && lng >= bbox[0] && lng < bbox[2] && lat >= bbox[1] && lat < bbox[3];
 
 export async function load(name) {
+	if (name === WORLD_ATLAS) return load_gepco(name);   // 全球アトラス＝段の規約外（R{段}… でない）・bucket/IDB 直読み
 	const [lng, lat, range] = decodeName(name);
 	if (range !== 1) return load_gepco(name);
 	// R01: bucket（焼き直し済みの域＝裸地 DTM）優先 → 無ければ JAXA（AW3D30 DSM＝表層）
