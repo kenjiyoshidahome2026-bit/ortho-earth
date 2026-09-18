@@ -4,28 +4,102 @@
 <head>
 	<meta charset="UTF-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1.0">
-	<title>2050年対応 日めくりカレンダー</title>
+	<title>日めくりカレンダー</title>
 	<style>
+		:root {
+			--bg: #eceae6;
+			--fg: #333;
+			--card: #fff;
+			--muted: #888;
+			--line: #d8d5cf;
+			--accent: #a22;
+			color-scheme: light dark;
+		}
+		@media (prefers-color-scheme: dark) {
+			:root {
+				--bg: #1b1b1d;
+				--fg: #ddd;
+				--card: #fff;
+				--muted: #999;
+				--line: #3a3a3e;
+				--accent: #e66;
+			}
+		}
+		* { box-sizing: border-box; }
 		body {
 			margin: 0;
-			display: flex;
-			justify-content: center;
-			align-items: center;
 			min-height: 100vh;
-			background: #f0f0f0;
+			background: var(--bg);
+			color: var(--fg);
+			font-family: system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif;
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 20px;
+			padding: 24px 16px 40px;
 		}
-
-		#app {
-			width: 95vw;
-			max-width: 500px;
-			background: #fff;
-			box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+		#page {
+			width: min(92vw, 520px);
+			aspect-ratio: 1;
+			perspective: 1200px;
+			touch-action: pan-y;
 		}
+		#page > div {
+			width: 100%;
+			height: 100%;
+			background: var(--card);
+			border-radius: 4px;
+			box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 12px 32px rgba(0, 0, 0, .14);
+			overflow: hidden;
+		}
+		#page svg { display: block; width: 100%; height: 100%; }
+		#page > div.flip-next { animation: flipNext .28s ease-out; transform-origin: top center; }
+		#page > div.flip-prev { animation: flipPrev .28s ease-out; transform-origin: top center; }
+		@keyframes flipNext { from { transform: rotateX(8deg) translateY(6px); opacity: .4; } }
+		@keyframes flipPrev { from { transform: rotateX(-8deg) translateY(-6px); opacity: .4; } }
+		@media (prefers-reduced-motion: reduce) {
+			#page > div.flip-next, #page > div.flip-prev { animation: none; }
+		}
+		nav {
+			display: flex;
+			gap: 8px;
+			align-items: center;
+			flex-wrap: wrap;
+			justify-content: center;
+		}
+		nav button, nav input {
+			font: inherit;
+			font-size: 14px;
+			color: var(--fg);
+			background: transparent;
+			border: 1px solid var(--line);
+			border-radius: 6px;
+			padding: 6px 12px;
+			cursor: pointer;
+		}
+		nav button:hover { border-color: var(--muted); }
+		nav input { padding: 5px 8px; }
+		.hint { font-size: 12px; color: var(--muted); }
+		#clocks {
+			display: grid;
+			grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+			gap: 12px;
+			width: min(92vw, 760px);
+		}
+		#clocks > div { aspect-ratio: 1; }
 	</style>
 </head>
 
 <body>
-	<div id="app"></div>
+	<div id="page"></div>
+	<nav>
+		<button id="prev" title="前の日（←）">◀</button>
+		<button id="today" title="今日（T）">今日</button>
+		<button id="next" title="次の日（→）">▶</button>
+		<input id="pick" type="date" aria-label="日付を選ぶ">
+	</nav>
+	<div class="hint">← → で一日ずつ・Shift で一か月・スワイプでもめくれます</div>
+	<div id="clocks"></div>
 	<script type="module" src="/src/main.js"></script>
 </body>
 

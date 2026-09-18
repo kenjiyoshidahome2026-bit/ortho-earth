@@ -1,90 +1,66 @@
-import { dayNumber, dayAfter, yearDay, ymd2day, ymd2jdn, initAngle, SunDegreeDay, } from "./共通関数.js";
-const holidayTub = {};
+import { dayNumber, yearDay, ymd2day, initAngle, SunDegreeDay } from "./共通関数.js";
+// 祝日法（1948/7/20 施行）の変遷を年で切り替える。キー=年通日-1（dayNumber）
+const 休日tub = {};
 export function 年間休日(year) {
-	if (holidayTub[year]) return holidayTub[year];
-	const holidays = {};
-	const addHoliday = (m, d, name) => {
-		const dayIdx = dayNumber([year, m, d]);
-		holidays[dayIdx] = name;
-	};
-	const addHappyMonday = (m, nth, name) => {
-		const w = (ymd2jdn([year, m, 1]) + 3) % 7;
-		const firstMon = 1 + (8 - w) % 7; 
-		const d = firstMon + (nth - 1) * 7;
-		addHoliday(m, d, name);
-	};
-	addHoliday(1, 1, "元日");
-	addHappyMonday(1, 2, "成人の日");
-	addHoliday(2, 11, "建国記念の日");
-	addHoliday(2, 23, "天皇誕生日");
-	addHoliday(4, 29, "昭和の日");
-	addHoliday(5, 3, "憲法記念日");
-	addHoliday(5, 4, "みどりの日");
-	addHoliday(5, 5, "こどもの日");
-	addHappyMonday(7, 3, "海の日");
-	addHoliday(8, 11, "山の日");
-	addHappyMonday(9, 3, "敬老の日");
-	addHappyMonday(10, 2, "スポーツの日"); // 2020年以降の名称
-	addHoliday(11, 3, "文化の日");
-	addHoliday(11, 23, "勤労感謝の日");
-	const dt = initAngle(year, 9);
-	const shunbunIdx = Math.floor(SunDegreeDay(year, 0) - dt);
-	const shubunIdx = Math.floor(SunDegreeDay(year, 180) - dt);
-	holidays[shunbunIdx] = "春分の日";
-	holidays[shubunIdx] = "秋分の日";
-	const sortedDays = Object.keys(holidays).map(Number).sort((a, b) => a - b); // 振替休日の計算
-	let finalHolidays = { ...holidays };
-	sortedDays.forEach(dayIdx => {
-		const w = (ymd2jdn(dayAfter([year, 1, 1], dayIdx)) + 3) % 7;
-		if (w === 0) { // 祝日が日曜日なら
-			let nextDay = dayIdx + 1;
-			while (holidays[nextDay]) {
-				nextDay++;
-			}
-			finalHolidays[nextDay] = "振替休日";
-		}
-	});
-	const finalSorted = Object.keys(finalHolidays).map(Number).sort((a, b) => a - b);// 国民の休日の計算
-	for (let i = 0; i < finalSorted.length - 1; i++) {
-		if (finalSorted[i + 1] - finalSorted[i] === 2) {
-			const middleDay = finalSorted[i] + 1;
-			const w = (ymd2jdn(dayAfter([year, 1, 1], middleDay)) + 3) % 7;
-			if (w !== 0 && !finalHolidays[middleDay]) {
-				finalHolidays[middleDay] = "国民の休日";
-			}
-		}
+	if (休日tub[year]) return 休日tub[year];
+	const 祝日 = {};
+	const 日 = (m, d, name) => { 祝日[dayNumber([year, m, d])] = name; };
+	const 月曜 = (m, nth, name) => 日(m, 1 + (8 - ymd2day([year, m, 1])) % 7 + (nth - 1) * 7, name);
+	const 節日 = r => Math.floor(SunDegreeDay(year, r) - initAngle(year, 9)) - 1;
+	if (year < 1948) return (休日tub[year] = {});
+	if (year > 1948) {
+		日(1, 1, "元日");
+		year < 2000 ? 日(1, 15, "成人の日") : 月曜(1, 2, "成人の日");
+		祝日[節日(0)] = "春分の日";
+		日(4, 29, year < 1989 ? "天皇誕生日" : year < 2007 ? "みどりの日" : "昭和の日");
+		日(5, 3, "憲法記念日");
+		year >= 2007 && 日(5, 4, "みどりの日");
+		日(5, 5, "こどもの日");
 	}
-//  --- 特例法によるパッチ（上書き・削除） ---
-	const removeHoliday = (m, d) => { delete finalHolidays[dayNumber([year, m, d])]; };
-	const overrideHoliday = (m, d, name) => { finalHolidays[dayNumber([year, m, d])] = name; };
-	if (year === 2019) { // 令和への改元に伴う特例
-		overrideHoliday(5, 1, "天皇の即位の日");
-		overrideHoliday(4, 30, "国民の休日");
-		overrideHoliday(5, 2, "国民の休日");
-		overrideHoliday(10, 22, "即位礼正殿の儀の行われる日");
-	} else if (year === 2020) { // 東京オリンピック特例
-		removeHoliday(7, 20);  // 本来の海の日
-		removeHoliday(10, 12); // 本来のスポーツの日
-		removeHoliday(8, 11);  // 本来の山の日
-		overrideHoliday(7, 23, "海の日");
-		overrideHoliday(7, 24, "スポーツの日");
-		overrideHoliday(8, 10, "山の日");
-	} else if (year === 2021) { // 東京オリンピック延期に伴う特例
-		removeHoliday(7, 19);  // 本来の海の日
-		removeHoliday(10, 11); // 本来のスポーツの日
-		removeHoliday(8, 11);  // 本来の山の日
-		overrideHoliday(7, 22, "海の日");
-		overrideHoliday(7, 23, "スポーツの日");
-		overrideHoliday(8, 8, "山の日");
-		overrideHoliday(8, 9, "振替休日"); // 8/8が日曜のため
+	year >= 1967 && 日(2, 11, "建国記念の日");
+	year >= 2020 && 日(2, 23, "天皇誕生日");
+	1989 <= year && year <= 2018 && 日(12, 23, "天皇誕生日");
+	if (year >= 1996) year < 2003 ? 日(7, 20, "海の日") : 月曜(7, 3, "海の日");
+	year >= 2016 && 日(8, 11, "山の日");
+	if (year >= 1966) year < 2003 ? 日(9, 15, "敬老の日") : 月曜(9, 3, "敬老の日");
+	祝日[節日(180)] = "秋分の日";
+	if (year >= 1966) year < 2000 ? 日(10, 10, "体育の日") : 月曜(10, 2, year < 2020 ? "体育の日" : "スポーツの日");
+	日(11, 3, "文化の日");
+	日(11, 23, "勤労感謝の日");
+	// 特例法（皇室行事・五輪の移動）
+	const 移 = (from, to, name) => { delete 祝日[dayNumber([year, ...from])]; 日(...to, name); };
+	({
+		1959: () => 日(4, 10, "皇太子明仁親王の結婚の儀"),
+		1989: () => 日(2, 24, "昭和天皇の大喪の礼"),
+		1990: () => 日(11, 12, "即位礼正殿の儀"),
+		1993: () => 日(6, 9, "皇太子徳仁親王の結婚の儀"),
+		2019: () => { 日(5, 1, "天皇の即位の日"); 日(10, 22, "即位礼正殿の儀の行われる日"); },
+		2020: () => { 移([7, 20], [7, 23], "海の日"); 移([10, 12], [7, 24], "スポーツの日"); 移([8, 11], [8, 10], "山の日"); },
+		2021: () => { 移([7, 19], [7, 22], "海の日"); 移([10, 11], [7, 23], "スポーツの日"); 移([8, 11], [8, 8], "山の日"); },
+	})[year]?.();
+	const 休日 = { ...祝日 };
+	const 曜 = n => ymd2day(yearDay(year, n));
+	const 日順 = Object.keys(祝日).map(Number).sort((a, b) => a - b);
+	// 振替休日（1973/4/12〜）：祝日が日曜 → 翌日（2007〜は祝日でない最初の日）
+	for (const n of 日順) {
+		if (曜(n) !== 0 || year < 1973 || (year === 1973 && n < dayNumber([1973, 4, 12]))) continue;
+		let k = n + 1;
+		if (year >= 2007) while (祝日[k]) k++;
+		if (!祝日[k]) 休日[k] = "振替休日";
 	}
-	return (holidayTub[year] = finalHolidays);
+	// 国民の休日（1985/12/27〜）：前日と翌日が祝日の平日（2006 までは日曜・振替休日を除く）
+	if (year >= 1986) for (let i = 0; i + 1 < 日順.length; i++) {
+		const k = 日順[i] + 1;
+		if (日順[i + 1] - 日順[i] !== 2 || 休日[k]) continue;
+		if (year >= 2007 || 曜(k) !== 0) 休日[k] = "国民の休日";
+	}
+	return (休日tub[year] = 休日);
 }
-export function 月間休日(YM) { 
+export function 月間休日(YM) {
 	const v = 年間休日(YM[0]), u = {};
-	Object.keys(v).forEach(k => {
-		const ymd = yearDay(YM[0], +k); 
+	for (const k in v) {
+		const ymd = yearDay(YM[0], +k);
 		if (ymd[1] === YM[1]) u[ymd[2]] = v[k];
-	});
+	}
 	return u;
 }

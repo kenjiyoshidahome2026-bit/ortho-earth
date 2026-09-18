@@ -1,0 +1,10 @@
+@font-face {
+	font-family: 'DSEG14';
+	src: url('./assets/fonts/DSEG14Classic-Regular.woff') format('woff');
+	font-display: swap;
+}
+@font-face {
+	font-family: 'DSEG7';
+	src: url('./assets/fonts/DSEG7Classic-Regular.woff') format('woff');
+	font-display: swap;
+}

@@ -1,10 +1,23 @@
-import "./digital-font.scss";
-export const 世界時計 = function(opts = {}) {
-	const { fg, bg, offset, face, hand, gauge, digital, dfg, dbg }
-	 = Object.assign({ fg: "#b29600", bg: "#050505", offset: 9, face: 0, hand: 1, 
-		gauge: true, digital: true, dfg: "#222", dbg: "#eee" }, opts);
-	const romanSpecial = ["Ⅻ","Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","Ⅶ","Ⅷ","Ⅸ","Ⅹ","Ⅺ"];
-	const arabicStandard = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+import "./digital-font.css";
+// 世界時計(opts) → <svg>。zone は時差(時間)か IANA 名（"America/New_York" 等・夏時間込み）
+// svg.zone(z) / svg.set(opts) / svg.stop() / svg.start()
+const 月名 = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
+const 曜名 = ["SUN","MON","TUE","WED","THU","FRI","SAT"];
+const romanSpecial = ["Ⅻ","Ⅰ","Ⅱ","Ⅲ","Ⅳ","Ⅴ","Ⅵ","Ⅶ","Ⅷ","Ⅸ","Ⅹ","Ⅺ"];
+const arabicStandard = ["12", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+let 通番 = 0;
+const 書式 = {};
+// 指定ゾーンの壁時計 {Y,M,D,h,m,s,w}
+function 現地時刻(zone, now = new Date()) {
+	if (typeof zone === "number") {
+		const t = new Date(now.getTime() + zone * 3600000);
+		return { Y: t.getUTCFullYear(), M: t.getUTCMonth(), D: t.getUTCDate(), h: t.getUTCHours(), m: t.getUTCMinutes(), s: t.getUTCSeconds(), w: t.getUTCDay() };
+	}
+	const f = 書式[zone] ??= new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23",
+		year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric", second: "numeric", weekday: "short" });
+	const p = Object.fromEntries(f.formatToParts(now).map(x => [x.type, x.value]));
+	return { Y: +p.year, M: p.month - 1, D: +p.day, h: +p.hour % 24, m: +p.minute, s: +p.second, w: 曜名.indexOf(p.weekday.toUpperCase()) };
+}
 	const handData = {
 		h: [{ s: 1, d: "M-1.5,5 L1.5,5 L0.5,-20 L-0.5,-20 Z" },
 			{ s: 0.06, d: "m-72.4-161.6c0.2 4.5 3.9 9.1 10.3 7.3 0 12.7 4.6 24.1 16.8 28l0 2c-14.3 9.7 10.3 26.9 15.1 10 0.6-2.2 0.3-3.8-0.2-6 3.9 1 7.8 2.2 11.2 4.5 3 1.9 5.4 4.4 7.4 7.5 13 20.9-7.7 39.4-22.3 50l0 2c3.2 1.1 6 1.8 9.3 2 0.2 9.9 3.9 16.3 9.3 24-5.1 1.5-9.8 4-14 7.5-16.7 14.1-18.8 40.6-4.4 57.4 7.3 8.5 18.1 13.2 28.7 14 11.9 0.9 24.5-2.5 33.6-11.1 16.1-15.1 17.4-42.8 0.9-58.4-4.7-4.4-10-7.3-15.8-9.4 5.2-8.1 8.4-13.9 8.4-24 3.8-0.2 6.9-1.1 10.3-3-4.9-5.4-11.6-8.7-16.5-14.2-11-12.2-14.7-32-0.3-43.2 3.6-2.8 7.9-4.3 12.1-5.6 0 4.3 0.2 8.6 3.8 11.3 5.4 4 14.7 1.2 15.6-6.3 0.5-4.2-1.7-7.6-3.6-11 11.3-3.9 16.3-15 16.8-27 6.6-0.4 15.4-7.9 7.3-14.4-3.6-2.9-7.9 0.5-11.3-1.6-2.8-1.7-4.7-5.4-7.2-7.5-6.7-5.6-14.9-8.3-23.3-8.5 2.2-6.2 4.1-12.2 3.7-19-1-15.6-11.5-29.6-16.5-44-7.7-22-10.8-50.9-6.7-74-4.6-3.1-10.6-6.4-13.4 1.2-1.5 3.8 0.3 8.8 0.4 12.8 0.2 9-0.2 18-1.2 27-1.6 14-4.5 28-9.9 41-7.4 18-19.2 35.2-9.4 55-12.3 0.1-25 5.9-30.8 18-1.9-1-3.5-1.7-5.6-1.9-6-0.4-8.6 3.6-8.4 7.5zm48.6-41.1c0-0.8 0.1-1.7 0.2-2.5 0.6-3.9 4.1-9.1 8.2-9.2 4.5-0.1 6.5 6.4 11.2 7 3.1 0.3 7.4 0.5 10-1.5 2.3-1.7 3.8-5.4 6.9-5.6 6.3-0.3 9.8 8.8 8.9 14.3-0.9 5.6-5.3 10.2-9 13.9-4.9 4.9-9.3 10.1-14 15.1-6.4-9-22.3-18.9-22.4-31.5zm4.7-17.5c5-9.6 8.5-18.8 12.1-29 4.6 1.8 7.5 1.6 12.1 0 2.1 10.7 7.3 19.2 11.2 29-3.1-0.8-6.1-1.2-9.3-0.5-2.8 0.7-5.5 2.7-8.4 2.6-2.6-0.1-5-1.9-7.5-2.6-3.5-0.9-6.8-0.2-10.3 0.5zm3.7 98c4.4-5.2 9.9-10.6 14.9-15 3.9 5.9 9.2 10 14 15-5.6 3.5-10.1 8.5-14 14-5.2-4.5-9.5-9.8-14.9-14zm2.9 73.9c0.3-8.2 7.9-17.6 12-22.9 2.4 8 10.9 14.4 11 23 0.1 10.5-14.3 15.1-20.5 7.6-1.9-2.3-2.6-4.9-2.5-7.7zM4.7-151.8c-0.2-10.2 6.9-20.3 18.1-22.9 17.4-4 36.9 15.1 25.6 33.4-1.8 3-4.2 5.1-6.9 7-0.9-10.6-14.9-18.8-19.7-5.9-1.1 2.9-0.4 6 0.1 8.9-3.1-0.6-5.8-1.6-8.4-3.6-6-4.6-8.7-10.8-8.8-16.9z" },
@@ -16,7 +29,12 @@ export const 世界時計 = function(opts = {}) {
 			{ s: 0.105, d: "m-7.2 115.7 14-1c0-24.7-2-49.3-2-74 0-7.6-2.1-15.4-0.9-23 0.7-4.1 3.9-5 6.8-7.4 3.3-2.7 5.4-6.3 5.9-10.6C17.7-10 9.9-16.8 0.8-17.3V-330.3H-2.2v206 68c0 11.2 0.9 22.8-0.1 34-0.5 5.1-4.4 5.6-7.8 8.6-3.4 2.9-5 7-5.1 11.4-0.1 4.3 1.4 8.4 4.5 11.5 2.9 2.9 6 4 6.4 8.5 0.9 10-0.5 20-0.9 30-1 22.6-2 45.3-2 68z" },
 			{ s: 0.105, d: "m-7.2 115.7 14-1c0-24.7-2-49.3-2-74 0-7.6-2.1-15.4-0.9-23 0.7-4.1 3.9-5 6.8-7.4 3.3-2.7 5.4-6.3 5.9-10.6C17.7-10 9.9-16.8 0.8-17.3V-330.3H-2.2v206 68c0 11.2 0.9 22.8-0.1 34-0.5 5.1-4.4 5.6-7.8 8.6-3.4 2.9-5 7-5.1 11.4-0.1 4.3 1.4 8.4 4.5 11.5 2.9 2.9 6 4 6.4 8.5 0.9 10-0.5 20-0.9 30-1 22.6-2 45.3-2 68z" }]
 	};
+export const 世界時計 = function(opts = {}) {
+	const o = Object.assign({ fg: "#b29600", bg: "#050505", offset: 9, face: 0, hand: 1,
+		gauge: true, digital: true, dfg: "#222", dbg: "#eee", label: "" }, opts);
+	const id = `wc${++通番}`;	// フィルタ ID を時計ごとに分ける（同じページに何台並べても衝突しない）
 	const generateTemplate = () => {
+		const { fg, bg, face, hand, gauge, digital, dfg, dbg, label } = o;
 		const gaugeSrc = gauge ? Array.from({length: 60}).map((_, i) => {
 			const rad = (i * 6 * Math.PI) / 180;
 			const r1 = 34, r2 = (i % 5 === 0) ? 40 : 37;
@@ -30,7 +48,7 @@ export const 世界時計 = function(opts = {}) {
 
 			if (face === 2) {
 				if (i % 3 === 0) return `<circle cx="${x}" cy="${y}" r="2" fill="${fg}" />`;
-				else return `<rect x="-0.5" y="-1.5" width="1" height="3" fill="${fg}" transform="translate(${x}, ${y}) rotate(${face==0?angle:0})" />`;
+				else return `<rect x="-0.5" y="-1.5" width="1" height="3" fill="${fg}" transform="translate(${x}, ${y}) rotate(${angle})" />`;
 			} else {
 				const label = face === 0 ? romanSpecial[i] : arabicStandard[i];
 				const fontFamily = face === 0 ? "Arial" : "serif";
@@ -38,63 +56,69 @@ export const 世界時計 = function(opts = {}) {
 			}
 		}).join('');
 		const h = handData.h[hand], m = handData.m[hand], s = handData.s[hand];
+		const esc = t => String(t).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 		return `
 		<svg xmlns="http://www.w3.org/2000/svg" viewBox="-58 -58 116 116" style="width:100%; height:100%;" class="world-clock-root">
 			<defs>
-				<filter id="fG"><feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/><feSpecularLighting surfaceScale="5" specularConstant="0.8" specularExponent="20" lighting-color="#fff"><fePointLight x="-5000" y="-5000" z="10000"/></feSpecularLighting><feComposite in2="SourceAlpha" operator="in"/><feComposite in="SourceGraphic" k2="1" k3="1" operator="arithmetic"/></filter>
-				<filter id="fI"><feComponentTransfer in="SourceAlpha"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer><feGaussianBlur stdDeviation="1.5"/><feOffset dx="1" dy="1" result="R1"/><feFlood flood-color="#000"/><feComposite in2="R1" operator="in"/><feComposite in2="SourceAlpha" operator="in"/><feMerge><feMergeNode in="SourceGraphic"/><feMergeNode/></feMerge></filter>
-				<radialGradient id="shadowDepth" cx="50%" cy="30%" r="50%"><stop offset="0%" stop-color="#888" stop-opacity="0" /><stop offset="100%" stop-color="#888" stop-opacity="0.2"/></radialGradient>
-				<linearGradient id="lensGrad" x1="0%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="80%" stop-color="#fff" stop-opacity="0.2"/><stop offset="100%" stop-color="#fff" stop-opacity="0.4"/></linearGradient>
+				<filter id="${id}G"><feGaussianBlur in="SourceAlpha" stdDeviation="1.5"/><feSpecularLighting surfaceScale="5" specularConstant="0.8" specularExponent="20" lighting-color="#fff"><fePointLight x="-5000" y="-5000" z="10000"/></feSpecularLighting><feComposite in2="SourceAlpha" operator="in"/><feComposite in="SourceGraphic" k2="1" k3="1" operator="arithmetic"/></filter>
+				<filter id="${id}I"><feComponentTransfer in="SourceAlpha"><feFuncA type="table" tableValues="1 0"/></feComponentTransfer><feGaussianBlur stdDeviation="1.5"/><feOffset dx="1" dy="1" result="R1"/><feFlood flood-color="#000"/><feComposite in2="R1" operator="in"/><feComposite in2="SourceAlpha" operator="in"/><feMerge><feMergeNode in="SourceGraphic"/><feMergeNode/></feMerge></filter>
+				<radialGradient id="${id}D" cx="50%" cy="30%" r="50%"><stop offset="0%" stop-color="#888" stop-opacity="0" /><stop offset="100%" stop-color="#888" stop-opacity="0.2"/></radialGradient>
+				<linearGradient id="${id}L" x1="0%" y1="100%" x2="0%" y2="0%"><stop offset="0%" stop-color="#fff" stop-opacity="0"/><stop offset="80%" stop-color="#fff" stop-opacity="0.2"/><stop offset="100%" stop-color="#fff" stop-opacity="0.4"/></linearGradient>
 			</defs>
-			<circle r="54" fill="none" stroke="${fg}" stroke-width="6" filter="url(#fG)" />
-			<circle id="plate" r="50" fill="${bg}" />
+			<circle r="54" fill="none" stroke="${fg}" stroke-width="6" filter="url(#${id}G)" />
+			<circle r="50" fill="${bg}" />
 			<g>${gaugeSrc}</g>
 			<g style="opacity: ${digital ? 1 : 0}">
-				<rect x="-15" y="-28" width="30" height="8" fill="${dbg}" filter="url(#fI)" rx="1"/>
-				<rect x="-26" y="-6" width="14" height="8" fill="${dbg}" filter="url(#fI)" rx="1"/>
-				<rect x="15" y="-6" width="10" height="8" fill="${dbg}" filter="url(#fI)" rx="1"/>
-				<rect x="-18" y="15" width="36" height="10" fill="${dbg}" filter="url(#fI)" rx="1"/>
-				<text id="tT" x="0" y="-22" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG14"></text>
-				<text id="tL" x="-19" y="0" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG14"></text>
-				<text id="tR" x="20" y="0" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG7"></text>
-				<text id="tB" x="0" y="23" text-anchor="middle" font-size="6" fill="${dfg}" font-family="DSEG7" font-weight="bold"></text>
+				<rect x="-15" y="-28" width="30" height="8" fill="${dbg}" filter="url(#${id}I)" rx="1"/>
+				<rect x="-26" y="-6" width="14" height="8" fill="${dbg}" filter="url(#${id}I)" rx="1"/>
+				<rect x="15" y="-6" width="10" height="8" fill="${dbg}" filter="url(#${id}I)" rx="1"/>
+				<rect x="-18" y="15" width="36" height="10" fill="${dbg}" filter="url(#${id}I)" rx="1"/>
+				<text data-k="T" x="0" y="-22" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG14"></text>
+				<text data-k="L" x="-19" y="0" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG14"></text>
+				<text data-k="R" x="20" y="0" text-anchor="middle" font-size="4" fill="${dfg}" font-family="DSEG7"></text>
+				<text data-k="B" x="0" y="23" text-anchor="middle" font-size="6" fill="${dfg}" font-family="DSEG7" font-weight="bold"></text>
 			</g>
+			${label ? `<text x="0" y="31" text-anchor="middle" font-size="3.6" fill="${fg}" font-family="Arial" letter-spacing="0.4">${esc(label)}</text>` : ""}
 			<g>${faceSrc}</g>
-			<g id="hH"><path d="${h.d}" fill="${fg}" transform="scale(${h.s})" filter="url(#fG)"/></g>
-			<g id="hM"><path d="${m.d}" fill="${fg}" transform="scale(${m.s})" filter="url(#fG)"/></g>
-			<g id="hS"><path d="${s.d}" fill="#d00" transform="scale(${s.s})"/></g>
+			<g data-k="h"><path d="${h.d}" fill="${fg}" transform="scale(${h.s})" filter="url(#${id}G)"/></g>
+			<g data-k="m"><path d="${m.d}" fill="${fg}" transform="scale(${m.s})" filter="url(#${id}G)"/></g>
+			<g data-k="s"><path d="${s.d}" fill="#d00" transform="scale(${s.s})"/></g>
 			<circle r="1.5" fill="#800" stroke="${fg}" stroke-width="0.5" />
-			<circle r="50" fill="url(#shadowDepth)" style="pointer-events: none" />
-			<circle r="50" fill="url(#lensGrad)" transform="scale(0.75,0.6) translate(0,-20) rotate(-45)" style="pointer-events: none" />
+			<circle r="50" fill="url(#${id}D)" style="pointer-events: none" />
+			<circle r="50" fill="url(#${id}L)" transform="scale(0.75,0.6) translate(0,-20) rotate(-45)" style="pointer-events: none" />
 		</svg>`;
 	};
 
 	const parser = new DOMParser();
-	let svg = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement;
-
+	const svg = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement;
+	let el = {};
+	const bind = () => { el = Object.fromEntries([...svg.querySelectorAll("[data-k]")].map(e => [e.dataset.k, e])); };
 	const redraw = () => {
-		const tmp = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement;
-		svg.innerHTML = tmp.innerHTML;
+		svg.innerHTML = parser.parseFromString(generateTemplate(), "image/svg+xml").documentElement.innerHTML;
+		bind(); update();
 	};
 
+	const pad = n => String(n).padStart(2, "0");
 	const update = () => {
-		const now = new Date();
-		const t = new Date(now.getTime() + (now.getTimezoneOffset() * 60000) + (3600000 * offset));
-		svg.querySelector("#hS").setAttribute("transform", `rotate(${t.getSeconds() * 6})`);
-		svg.querySelector("#hM").setAttribute("transform", `rotate(${t.getMinutes() * 6 + t.getSeconds() * 0.1})`);
-		svg.querySelector("#hH").setAttribute("transform", `rotate(${(t.getHours() % 12) * 30 + t.getMinutes() * 0.5})`);
-		const ms = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
-		svg.querySelector("#tT").textContent = `${ms[t.getMonth()]} ${t.getFullYear()}`;
-		svg.querySelector("#tL").textContent = ["SUN","MON","TUE","WED","THU","FRI","SAT"][t.getDay()];
-		svg.querySelector("#tR").textContent = (t.getDate()>9?"":"0")+t.getDate();
-		svg.querySelector("#tB").textContent = t.toTimeString().split(' ')[0];
+		const t = 現地時刻(o.offset);
+		el.s.setAttribute("transform", `rotate(${t.s * 6})`);
+		el.m.setAttribute("transform", `rotate(${t.m * 6 + t.s * 0.1})`);
+		el.h.setAttribute("transform", `rotate(${(t.h % 12) * 30 + t.m * 0.5})`);
+		el.T.textContent = `${月名[t.M]} ${t.Y}`;
+		el.L.textContent = 曜名[t.w];
+		el.R.textContent = pad(t.D);
+		el.B.textContent = `${pad(t.h)}:${pad(t.m)}:${pad(t.s)}`;
 	};
+	// 秒の変わり目に合わせて刻む（setInterval のずれで秒針が飛ばないように）
+	let timer = 0;
+	const tick = () => { update(); timer = setTimeout(tick, 1000 - Date.now() % 1000 + 5); };
 
-	svg.zone = (n) => { offset = n; update(); return svg; };
-	let timer = setInterval(update, 1000);
-	svg.stop = () => { clearInterval(timer); return svg; };
-	svg.start = () => { clearInterval(timer); timer = setInterval(update, 1000); return svg; };
+	svg.zone = z => { o.offset = z; update(); return svg; };
+	svg.set = (p = {}) => { Object.assign(o, p); redraw(); return svg; };
+	svg.stop = () => { clearTimeout(timer); timer = 0; return svg; };
+	svg.start = () => { clearTimeout(timer); tick(); return svg; };
 
-	update();
+	bind();
+	svg.start();
 	return svg;
 };
