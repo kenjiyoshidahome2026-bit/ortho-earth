@@ -669,11 +669,24 @@ document.getElementById("slower").onclick = () => setSpeed(speedL - 1);
 document.getElementById("faster").onclick = () => setSpeed(speedL + 1);
 document.getElementById("play").onclick = () => setSpeed(speedL === 0 ? lastPlayL : 0);
 document.getElementById("now").onclick = () => { simTime = Date.now(); setSpeed(1); needsDraw = true; };
-// 出口＝ortho-japan（縫い目の帰り道）。japanの太陽系ガジェットから来た時は history.back()＝
-// 出た時の視点そのままへ帰る。直接来訪なら z=1（星空圏・日本中心）の japan へ新規遷移
-document.getElementById("exit").onclick = () => {
-	if (document.referrer.includes("/japan") && history.length > 1) history.back();
-	else location.href = (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5173/japan/" : "/japan/") + "?lang=" + LANG + "#1/36/138";
+// 戻り口＝アプリ間の URL の約束（2026-09-19 本人裁定「単体なら要らない・統一的な考え方で」）：
+//   呼び出し元が ?back=<戻り先の URL（同一オリジン）> を付けて開いた時だけ「← 戻る」を出す。単体で開いたら出さない。
+//   押す＝来た道がその頁なら history.back()（出た時の状態そのまま＝japan の視点・bfcache）、でなければ back へ遷移。
+//   呼ばれた側は呼び出し元の名前も場所も知らない（japan 決め打ちを撤去）。他オリジンの back は捨てる＝開いたリダイレクトにしない。
+//   開発は localhost/127.0.0.1 どうしなら別ポートでも可（japan 5173 → solar 5199）
+const BACK = (() => {
+	const b = new URLSearchParams(location.search).get("back"); if (!b) return null;
+	try {
+		const u = new URL(b, location.href), local = h => h === "localhost" || h === "127.0.0.1";
+		return u.origin === location.origin || (local(u.hostname) && local(location.hostname)) ? u : null;
+	} catch { return null; }
+})();
+const exitEl = document.getElementById("exit");
+exitEl.hidden = !BACK;
+exitEl.onclick = () => {
+	const from = document.referrer ? new URL(document.referrer) : null;
+	if (from && from.origin === BACK.origin && from.pathname === BACK.pathname && history.length > 1) history.back();
+	else location.href = BACK.href;
 };
 const infoEl = document.getElementById("info");
 // 下段（チップ＋時間バー）の実測高を CSS へ渡す＝縦画面で情報パネルがその上に載る。
@@ -953,11 +966,11 @@ function frame(now) {
 		gl.bindVertexArray(starVao); gl.drawArrays(gl.POINTS, 0, starN);
 		gl.depthMask(true);
 	}
-	// 1b) 星座線（同じ天球・深度書かず）。色＝japan の太陽系圏と同じ（v1 の青 rgba(120,160,255) を 0.55 倍に薄めた 0.22）
+	// 1b) 星座線（同じ天球・深度書かず）。色＝japan の太陽系圏と同じ青（v1 の rgba(120,160,255)）を薄く
 	if (constOn && constVao) {
 		gl.depthMask(false);
 		gl.useProgram(constP.p); setCommon(constP, view);
-		gl.uniform4f(constP.u.u_color, 0.47, 0.63, 1.0, 0.22);
+		gl.uniform4f(constP.u.u_color, 0.47, 0.63, 1.0, 0.14);   // 0.22→0.14（本人 2026-09-19「少し薄く」＝星と惑星が主役）
 		gl.bindVertexArray(constVao); gl.drawArrays(gl.LINES, 0, constN);
 		gl.depthMask(true);
 	}
