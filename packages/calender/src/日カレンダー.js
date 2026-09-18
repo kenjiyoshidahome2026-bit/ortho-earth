@@ -1,4 +1,4 @@
-import { date2ymd, ymd2jdn, yearLength, monthLength, ymdComp, dayNumber, ymd2day, r360, initAngle, SunDegree, SunDegreeDay } from "./共通関数.js"
+import { date2ymd, ymd2jdn, yearLength, monthLength, ymdComp, dayNumber, ymd2day, mod, r360, initAngle, SunDegree, SunDegreeDay } from "./共通関数.js"
 import { 節説明, 六曜説明, 九星説明, 直説明, 宿説明, 暦注説明, 七十二候説明 } from "./説明.js"; 
 import { 年間休日, 月間休日 } from "./休日.js";
 import { 旧暦計算, 九星計算 } from "./旧暦.js";
@@ -31,7 +31,7 @@ function 元号計算(YMD) {
 		ymdComp(YMD, [1926, 12, 25]) >= 0 ? ["S", YMD[0] - 1925] :
 		ymdComp(YMD, [1912, 7, 30]) >= 0 ? ["T", YMD[0] - 1911] :
 		ymdComp(YMD, [1868, 9, 8]) >= 0 ? ["M", YMD[0] - 1867] : ["", YMD[0]];
-	return [({ R: "令和", H: "平成", S: "昭和", T: "大正", M: "明治" })[v[0]], v[1]] || ["", v[1]];
+	return [({ R: "令和", H: "平成", S: "昭和", T: "大正", M: "明治" })[v[0]] || "", v[1]];
 }
 function 節気計算(YMD, tdiff = 9) {
 	const Y = YMD[0];
@@ -78,12 +78,13 @@ function 十二直計算(YMD) {
 			m1 = (i + 9) % 12 + 1; d1 = i ? 年通日 - 節月[i - 1] - 1 : 0;
 		}
 	});
-	const n0 = (12 - (((通日 - d0) + 3) - (m0 + 1)) % 12) % 12;
-	const n1 = (12 - (((通日 - d1) + 2) - (m1 + 1)) % 12) % 12;
+	const n0 = mod(12 - mod((通日 - d0) + 3 - (m0 + 1), 12), 12);
+	const n1 = mod(12 - mod((通日 - d1) + 2 - (m1 + 1), 12), 12);
 	return 十二直名[((m1 > n0) ? (12 + d0 - n0 - 1) : (12 + d1 - n1 - 1)) % 12];
 }
-function 黄経計算(YMD, tdiff = 9) {
-	return r360(SunDegree(ymd2jdn(YMD) - ymd2jdn([2000, 1, 1.5])) - initAngle(YMD[0], tdiff));
+// その日の現地 h 時の太陽黄経（ymd2jdn は 0時UT の MJD・J2000.0 = MJD 51544.5）
+function 黄経計算(YMD, h = 24, tdiff = 9) {
+	return r360(SunDegree(ymd2jdn(YMD) + (h - tdiff) / 24 - 51544.5));
 }
 function 日暦情報(YMD) {
 	const [年, 月, 日] = YMD;
@@ -96,12 +97,12 @@ function 日暦情報(YMD) {
 	const 旧暦 = 旧暦計算(YMD);
 	const 九星 = 九星計算(YMD, 節日);
 	const 干支 = {
-		年: 十干名[(YMD[0] + 6) % 10] + 十二支名[(YMD[0] + 8) % 12],
+		年: 十干名[mod(YMD[0] + 6, 10)] + 十二支名[mod(YMD[0] + 8, 12)],
 		月: 十干名[(((旧暦.年 + 2) % 5) * 2 + 旧暦.月 - 1) % 10] + 十二支名[(旧暦.月 + 1) % 12],
-		日: 十干名[通日 % 10] + 十二支名[(通日 + 2) % 12]
+		日: 十干名[mod(通日, 10)] + 十二支名[mod(通日 + 2, 12)]
 	};
 	const 暦注 = [];
-	const 干支Num = (通日 + 50) % 60, 干 = 干支Num % 10, 支 = 干支Num % 12, 月Num = 節日.月 - 1;
+	const 干支Num = mod(通日 + 50, 60), 干 = 干支Num % 10, 支 = 干支Num % 12, 月Num = 節日.月 - 1;
 	(旧暦.月 == 8 && 旧暦.日 === 1) && 暦注.push("八朔");
 	(旧暦.月 == 1 && 旧暦.日 === 1) && 暦注.push("旧正月");
 	(旧暦.月 == 1 && 旧暦.日 === 7) && 暦注.push("人日節句(旧暦)");
@@ -110,7 +111,7 @@ function 日暦情報(YMD) {
 	(旧暦.月 == 7 && 旧暦.日 === 7) && 暦注.push("七夕節句(旧暦)");
 	(旧暦.月 == 9 && 旧暦.日 === 9) && 暦注.push("重陽節句(旧暦)");
 	// 暦注下段（土用・受死日・十死日）
-	const 黄経 = 黄経計算(YMD);
+	const 黄経 = 黄経計算(YMD);	// 24時の黄経：その日のうちに越えた境（節入り・候・土用）を当日に数える
 	(27 <= 黄経 && 黄経 < 45) && 暦注.push("土用");
 	(117 <= 黄経 && 黄経 < 135) && 暦注.push((支 === 1) ? "土用の丑" : "土用");
 	(207 <= 黄経 && 黄経 < 225) && 暦注.push("土用");
@@ -170,36 +171,34 @@ function 日暦情報(YMD) {
 		(月Num < 3 ? (干支Num === 14) : 月Num < 6 ? (干支Num === 30) : 月Num < 9 ? (干支Num === 44) : 干支Num === 0) && 暦注.push("天赦日");
 		[1, 3, 4, 6, 8, 9, 13, 15, 18, 20, 21, 24, 27, 30, 32, 33, 35, 36, 37, 39, 41, 42, 43, 44, 45, 47, 48, 51, 54, 55, 56, 57, 59].includes(干支Num) && 暦注.push("神吉日");
 		[7, 8, 9, 13, 15, 18, 20, 23, 28, 31, 38, 40, 41, 42, 45, 46, 47, 52, 55, 56, 57].includes(干支Num) && 暦注.push("大明日");
-		((通日 + 20) % 28 === 22) && 暦注.push("鬼宿日");
+		(mod(通日 + 20, 28) === 22) && 暦注.push("鬼宿日");
 		[0, 1, 2, 3, 4, 15, 16, 17, 18, 19, 45, 46, 47, 48, 49].includes(干支Num) && 暦注.push("天恩日");
 		[[0, 11], [0, 11], [5, 6], [2, 3], [2, 3], [5, 6], [1, 4, 7, 10], [1, 4, 7, 10], [5, 6], [8, 9], [8, 9], [5, 6]][月Num].includes(支) && 暦注.push("母倉日");
 		干 === [2, 0, 8, 6, 2, 0, 8, 6, 2, 0, 8, 6][月Num] && 暦注.push("月徳日");
 		(支 === 5 || 支 === 11) && 暦注.push("重日");
 		[[0, 6], [1, 7], [4, 5], [2, 8], [3, 9], [4, 5], [0, 6], [1, 7], [4, 5], [2, 8], [3, 9], [4, 5]][月Num].includes(干) && 暦注.push("復日");
 	}
-	// 黄経関連計算
-	const r2day = (y, r) => Math.floor(SunDegreeDay(y, r) - initAngle(y));
-	const r = Math.floor(黄経 / 15) * 15;
-	let r0 = r2day(YMD[0] + ((r == 270 && YMD[1] == 1) ? -1 : 0), r360(r));
-	let r1 = r2day(YMD[0] + ((r == 270 && YMD[1] == 12) ? 1 : 0), r360(r + 15));
-	if (r1 === 年通日) { r0 = r1; r1 = r2day(YMD[0], r360(r + 30)); }
-	const n0 = 年通日 - r0 + (r0 > 年通日 ? yearLength(YMD[0] - 1) : 0) + 1;
-	const n1 = r1 - 年通日 + (r1 < 年通日 ? yearLength(YMD[0] - 1) : 0);
-	const n72 = 七十二候説明[Math.floor(r360(黄経+45) / 5)];
+	// 黄経関連計算：前年〜翌年の二十四節気を通日で並べ、今日を挟む二つを引く
+	const 節入 = [];
+	for (const y of [年 - 1, 年, 年 + 1]) for (let r = 0; r < 360; r += 15)
+		節入.push([ymd2jdn([y, 1, 1]) + Math.floor(SunDegreeDay(y, r) - initAngle(y)) - 1, 二十四節気[r]]);
+	節入.sort((a, b) => a[0] - b[0]);
+	const 次 = 節入.findIndex(t => t[0] > 通日), 前 = 節入[次 - 1];
+	const n72 = 七十二候説明[Math.floor(r360(黄経 + 45) / 5)];
 	return { 年, 月, 日, 元号, 暦注,
 		休日: 年休日[年通日 - 1] || "",
-		曜日: 七曜名[(通日 + 3) % 7], Day: Weeks[(通日 + 3) % 7],
+		曜日: 七曜名[mod(通日 + 3, 7)], Day: Weeks[mod(通日 + 3, 7)],
 		六曜: 六曜名[(旧暦.月 + 旧暦.日) % 6],
 		日差: ymdComp(YMD),
 		十二直: 十二直計算(YMD),
-		二十八宿: 二十八宿名[(通日 + 20) % 28],
+		二十八宿: 二十八宿名[mod(通日 + 20, 28)],
 		二十七宿: 二十七宿名[([11, 13, 15, 17, 19, 21, 24, 0, 2, 4, 7, 9][旧暦.月 - 1] + (旧暦.日 - 1)) % 27],
 		年家九星: 九星名[九星.年], 月家九星: 九星名[九星.月], 日家九星: 九星名[九星.日],
-		日干支: 干支.日, 日干支読: 十干読[通日 % 10] + "・" + 十二支読[(通日 + 2) % 12],
+		日干支: 干支.日, 日干支読: 十干読[mod(通日, 10)] + "・" + 十二支読[mod(通日 + 2, 12)],
 		節気: 節気[年通日] || "",
 		旧暦, 旧暦名: `${旧暦.閏 ? '閏' : ""}${漢数字[旧暦.月 - 1]}月${漢数字[旧暦.日 - 1]}日`,
 		旧月: 和風月名[YMD[1] - 1], Month: Months[月 - 1],
-		黄経: [黄経, n72, 節気[r0], n0, 節気[r1], n1, ],
+		黄経: [黄経計算(YMD, 12), n72, 前[1], 通日 - 前[0] + 1, 節入[次][1], 節入[次][0] - 通日],
 	};
 }
 
@@ -221,7 +220,7 @@ export function 日カレンダー(年月日) {
 				<text font-size="55" stroke="#fff" fill="${曜日色}" transform="${日 > 9 ? "scale(0.8 1)" : "scale(1.1 1)"}" stroke-width="0.2" font-weight="700" dominant-baseline="middle">${年月日[2]}</text>
 			</g>
 			<text font-size="5" font-weight="700" transform="translate(50,68)">
-				<tspan fill="#a22">${休日}</tspan> <tspan>${節気}</tspan><title>${節説明[節気]}</title><tspan>
+				<tspan fill="#a22">${休日}</tspan> <tspan>${節気}${節説明[節気] ? `<title>${節説明[節気]}</title>` : ""}</tspan>
 			</text>
 			<text font-size="8" font-weight="700"><tspan fill="${曜日色}" x="10 10 10" y="10 18 26">${曜日}曜日</tspan></text>
 			<text font-size="4" fill="${曜日色}" transform="translate(10,33)">${Day}</text>
@@ -252,10 +251,10 @@ export function 日カレンダー(年月日) {
 			<text font-size="3" transform="translate(82,78)">
 				<tspan>${黄経[2]}<title>${節説明[黄経[2]]}</title></tspan>${(黄経[3] === 1 ? "初日" : 黄経[3] + "日目")}
 				<tspan>[ ${黄経[1][0]} ]</tspan><title>七十二候【${黄経[1][1]}】${黄経[1][2]}</title></text>
-			<text font-size="3" transform="translate(82,83)"><tspan>${黄経[4]}<title>${節説明[黄経[4]]}</title></tspan>まで${黄経[5]}日目</text>
-			<text font-size="3" transform="translate(82,88)">(太陽黄経: ${黄経[0].toFixed(2)}度)</text>
+			<text font-size="3" transform="translate(82,83)"><tspan>${黄経[4]}<title>${節説明[黄経[4]]}</title></tspan>まであと${黄経[5]}日</text>
+			<text font-size="3" transform="translate(82,88)">(太陽黄経 ${黄経[0].toFixed(2)}°・正午)</text>
 			<text font-size="3.2" font-weight="700" transform="translate(50,95)">
-				${暦注.map(t => `<tspan>${t}<title><b>${t}</b>: ${暦注説明[t]}</title></tspan>`).join(" ")}
+				${暦注.map(t => `<tspan>${t}<title>${t}: ${暦注説明[t.replace(/\(.*\)$/, "")] || ""}</title></tspan>`).join(" ")}
 			</text>        </g>
 	</svg>`;
 }
@@ -271,7 +270,7 @@ function 月カレンダー(YMD) {
 		const x = w * (n + 1);
 		if (today == i) body.push(`<circle cx="${x}" cy="${y-0.5}" r="${h/2}" fill="#fee" stroke="#f40" stroke-width="0.5"/>`);
 		if (YMD[2] == i) body.push(`<rect x="${x - h / 2}" y="${y - h / 2-0.5}" width="${h}" height="${h}" fill="#ccc" stroke="#444" stroke-width="0.5"/>`);
-		body.push(`<text font-size="8" x="${x}" y="${y}" fill="${holidays[i] || !n ? "red" : (n == 6 ? "blue" : "black")}" tip="${holidays[i] || ""}">${i}</text>`);
+		body.push(`<text font-size="8" x="${x}" y="${y}" fill="${holidays[i] || !n ? "red" : (n == 6 ? "blue" : "black")}" >${i}${holidays[i] ? `<title>${holidays[i]}</title>` : ""}</text>`);
 		n++; if (n == 7) { n = 0; y += h; }
 	}
 	return `<svg viewBox="0 0 100 70"><g dominant-baseline="middle">${body.join("")}</g></svg>`;

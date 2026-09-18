@@ -1,5 +1,5 @@
 const div = (m, n) => Math.floor(m / n);
-const mod = (m, n) => (m + n) % n;
+export const mod = (m, n) => ((m % n) + n) % n;
 const isLeap = Y => !(Y % 400) || !(Y % 4) && (Y % 100);
 
 export const r360 = r => { while (r < 0) r += 360; while (r >= 360) r -= 360; return r; };
@@ -10,7 +10,7 @@ export const dayAfter = (YMD, n) => jdn2ymd(ymd2jdn(YMD) + n);
 export const dayNumber = YMD => ymd2jdn(YMD) - ymd2jdn([YMD[0], 1, 1]);
 export const ymdComp = (d1, d2) => ymd2jdn(d1) - ymd2jdn(d2 ? d2 : date2ymd().slice(0, 3));
 export const yearDay = (Y, n) => dayAfter([Y, 1, 1], n);
-export const ymd2day = YMD => (ymd2jdn(YMD) + 3) % 7;
+export const ymd2day = YMD => mod(ymd2jdn(YMD) + 3, 7);
 
 export function ymd2jdn(YMD, flag=false) {
 	const y = YMD[0] + div((YMD[1] - 3), 12);
