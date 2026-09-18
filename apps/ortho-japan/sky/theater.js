@@ -5,6 +5,7 @@
 // 戻り値 … ensureStars（z<STARSKY_Z に初めて出た時に一度だけ読む）／toggleConstellations・applyConstellations（星座の点灯）／
 //          solarFrame(w,h)（render() 毎の太陽系圏の出入り）／terminate()（惑星・日時計のタイマー＝destroy）
 import { geopbf } from "geopbf";
+import { skyNames as loadSkyNames } from "./names.js";   // 天体の名前（bucket GIS/space・UI の言語）
 import { getLang } from "../i18n.js";
 
 const D2R = Math.PI / 180;
@@ -21,18 +22,20 @@ const celVec = (raDeg, decDeg) => {
 	const ra = raDeg * D2R, dec = decDeg * D2R, cd = Math.cos(dec);
 	return [cd * Math.cos(ra), Math.sin(dec), cd * Math.sin(ra)];
 };
-// 星空モジュール（planets/skynames＝z<4専用・計~12K）は初期バンドルに載せず、初めて星空パスに入る時に一度だけ動的読込。
+// 星空モジュール（planets＋星座/メシエ名＝z<4専用）は初期バンドルに載せず、初めて星空パスに入る時に一度だけ動的読込。
 // 読込後に下の holder へ注入＝以降の updatePlanets/toggleConstellations は従来どおり同期的に使える（memo化＝多重読込なし）。
-let planetPositions, moonPosition, sunPosition, constellationJa;
+// 星座名・メシエ名・惑星名＝sky/names.js（bucket GIS/space の表・UI の言語・欠けは英語）。
+let planetPositions, moonPosition, sunPosition, skyNames;
 let _skyLoad = null;
-const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), import("../skynames.js")]).then(([p, s]) => {
-	({ planetPositions, moonPosition, sunPosition } = p); ({ constellationJa } = s);
+const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), loadSkyNames()]).then(([p, s]) => {
+	({ planetPositions, moonPosition, sunPosition } = p); skyNames = s;
 }));
 let starsArmed = true;
 function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];
+const PLANET_ID = { 水星: "mercury", 金星: "venus", 火星: "mars", 木星: "jupiter", 土星: "saturn", 月: "moon" };   // planets.js の名前→天体 id（space の表の鍵）
 let solarSky = null, solarSkyLoad = null, inSolarPrev = false;   // 太陽系圏（z<1）＝solarsky.js の状態
 function updatePlanets() {
 	const now = new Date();
@@ -57,7 +60,7 @@ function updatePlanets() {
 	const mCel = celVec(moon.ra, moon.dec), sCel = celVec(sun.ra, sun.dec);
 	const k = (1 - (mCel[0] * sCel[0] + mCel[1] * sCel[1] + mCel[2] * sCel[2])) / 2;
 	renderer.set("skyMoon", { cel: mCel, sunCel: sCel, k });
-	planetLabels = [...ps, moon].map(p => ({ cel: celVec(p.ra, p.dec), name: p.name }));
+	planetLabels = [...ps, moon].map(p => ({ cel: celVec(p.ra, p.dec), name: skyNames?.body(PLANET_ID[p.name]) || p.name }));   // 名前は UI の言語（planets.js は日本語名で返す）
 	if (skyLabels) {
 		skyLabels.planets = planetLabels;
 		if (constelVisible) renderer.set("skyLabels", skyLabels);
@@ -140,7 +143,7 @@ async function toggleConstellations() {
 		return;
 	}
 	constelState = 1;
-	await ensureSkyMod();   // 星座名の日本語化(skynames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
+	await ensureSkyMod();   // 星座名(skyNames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
 	const [cl, ms] = await Promise.all([
 		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[constellation] load failed", e); return null; }),
 		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
@@ -153,8 +156,8 @@ async function toggleConstellations() {
 		for (const line of lines) for (let i = 0; i < line.length - 1; i++)
 			seg.push(...celVec(line[i][0], line[i][1]), ...celVec(line[i + 1][0], line[i + 1][1]));
 		// 星座名の置き場＝全頂点の天球ベクトル平均を正規化（v1のra/dec単純平均はRA 0/360跨ぎの星座で狂う。ベクトル平均は跨ぎ無縁）
-		// 名前は日本語化（skynames.js＝IAU略号/ラテン名の両対応。v2=japanの流儀＝惑星名と揃える）
-		const name = constellationJa(f.properties?.name ?? f.properties?.id ?? f.id);
+		// 名前は UI の言語で（bucket GIS/space の表＝IAU略号/ラテン名の両対応・欠けは英語）
+		const name = skyNames.constellation(f.properties?.name ?? f.properties?.id ?? f.id);
 		if (name) {
 			let vx = 0, vy = 0, vz = 0;
 			for (const line of lines) for (const p of line) { const v = celVec(p[0], p[1]); vx += v[0]; vy += v[1]; vz += v[2]; }
@@ -165,7 +168,7 @@ async function toggleConstellations() {
 	const messier = [];
 	if (ms && ms.geojson) for (const f of ms.geojson.features) {
 		const c = f.geometry.coordinates;
-		messier.push({ cel: celVec(c[0], c[1]), name: f.properties?.name || "", type: f.properties?.type || "" });
+		messier.push({ cel: celVec(c[0], c[1]), name: skyNames.messierLabel(f.properties?.name || ""), type: f.properties?.type || "" });   // "M42 オリオン大星雲"（通称の無いものは番号だけ）
 	}
 	skyLabels = { constellations: consts, messier, planets: planetLabels };   // 惑星名も注記の一員（位置は updatePlanets が更新）
 	renderer.set("constellations", Float32Array.from(seg));
@@ -184,7 +187,7 @@ function applyConstellations(want) { if (!!want !== constelVisible) toggleConste
 // render() が毎フレーム呼ぶ（旧 app.js render() の 8 行をそのまま）。
 function solarFrame(w, h) {
 	const inSolar = !solarOff && cam.zoom < 1;
-	if (inSolar && !solarSkyLoad) solarSkyLoad = import("../solarsky.js").then(m => { solarSky = m.createSolarSky({ mapEl }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
+	if (inSolar && !solarSkyLoad) solarSkyLoad = Promise.all([import("../solarsky.js"), loadSkyNames()]).then(([m, names]) => { solarSky = m.createSolarSky({ mapEl, names }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
 	solarSky?.frame(cam, w, h, inSolar);
 	if (inSolar !== inSolarPrev) {
 		inSolarPrev = inSolar;

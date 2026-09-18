@@ -46,7 +46,7 @@
 - 辞書 52 本・554 項目・ja ユニーク 519・en ユニーク 513。全辞書がリテラルとして機械解析できた（未解析 0）。
 - 反転（ja キー→英語キー）の衝突 5 件。実害は 1 件だけ＝`"S"`（南緯 / 小）。残り 4 件は同義（Title / Close (Esc) / Text / Fill color）で統合してよい。
 - 反転後に ja の語が 1 対多になる箇所は 0＝ja 訳は反転そのもので確定する。
-- t() が無い日本語リテラルが残る面：`gadgets/poiedit.js`（本人道具・対象外）・`demo/scenes.js`（台本＝scene[lang]・対象外）・`skynames.js`/`planets.js`（地図の中身）・`style-mono.js`（基図スタイル）・各 `*.html` の殻（index / geoedit / tellus）。
+- t() が無い日本語リテラルが残る面：`gadgets/poiedit.js`（本人道具・対象外）・`demo/scenes.js`（台本＝scene[lang]・対象外）・`planets.js`（地図の中身）・`style-mono.js`（基図スタイル）・各 `*.html` の殻（index / geoedit / tellus）。
 - 物理方向の CSS（left/right/margin-left 等）はガジェット全体で 11 箇所＝RTL の鏡像化は小工事。
 - ラベル描画は canvas2D `fillText`＝bidi/アラビア字形連結はブラウザ任せで通る（GPU テキスト無し）。RTL で自前 shaping は不要。
 
@@ -83,7 +83,7 @@
 ### Phase 3 — 地図の中身（別戦線・かなピボット）
 - UI 言語とラベル言語を分ける：`?labels=<lang>`（#11 の骨子）。既定＝UI 言語に追従。
 - 日本の地名＝かなピボット（読みテーブル 1 本＋字訳規則＋外名表＋種別語表）。差し替え点は `style-mono.js` の `text-field` 一枚。
-- `skynames.js` / `planets.js` の星・惑星名は world 方式（Wikidata QID → i18n の行）。
+- 星座名・メシエ名は済（2026-09-19）＝bucket GIS/space/i18n（正本 packages/space・Wikidata の見出し＋手当て・26 言語・solar と同じ JSON）。`planets.js` の惑星名は未。
 - 国名・他国の地名は world の名前テーブル（既に 26 言語）を使う＝japan で新しく焼かない。
 - ここは #11 本体に残る。japan では枠（`?labels=`・切替点）だけ先に用意する。
 

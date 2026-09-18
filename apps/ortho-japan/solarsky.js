@@ -12,6 +12,7 @@ import { BODIES, byId, bodyPos, moonGeo, orbitPointsThrough, jcT, EPS, AU_KM } f
 
 const KM_PER_UNIT = 6371;                    // engine 単位球＝地球半径
 const AU_UNIT = AU_KM / KM_PER_UNIT;         // 1AU＝約23481単位
+// 和名＝名前表（sky/names.js）が無い時の既定（読込前・古いパック）。UI の言語の名前は createSolarSky の names から
 const NAMES_JA = { sun: "太陽", mercury: "水星", venus: "金星", earth: "地球", moon: "月",
 	mars: "火星", jupiter: "木星", saturn: "土星", uranus: "天王星", neptune: "海王星", pluto: "冥王星" };
 const cE = Math.cos(EPS), sE = Math.sin(EPS);
@@ -24,7 +25,7 @@ function eclToWorld(p, cg, sg) {
 	return [x * cg + z * sg, y, z * cg - x * sg];
 }
 
-export function createSolarSky({ mapEl }) {
+export function createSolarSky({ mapEl, names = null }) {
 	const cv = document.createElement("canvas");
 	cv.id = "solar-sky";
 	cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
@@ -167,6 +168,9 @@ export function createSolarSky({ mapEl }) {
 		// 3) 名前（星空家具の等幅・淡い星明かり色）。月は地球に埋まる間は無記名
 		ctx.font = `${Math.round(11 * dpr)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
 		ctx.textBaseline = "middle";
+		// 置き場は常に天体の右（x＝右端＋5px から書き始める）＝RTL の頁では canvas の既定（direction=inherit・start 揃え）だと
+		// 文字が左へ伸びて円盤に重なる（ar/he/fa/ur・2026-09-19）。並べ方だけ ltr に固定＝アラビア文字の組みは文字列の中で正しく残る
+		ctx.direction = "ltr"; ctx.textAlign = "left";
 		const placed = [];
 		for (const L of labels) {
 			if (L.a < 0.02) continue;
@@ -178,7 +182,7 @@ export function createSolarSky({ mapEl }) {
 			for (let g = 0; g < 8 && placed.some(p => Math.abs(p.x - x) < 70 * dpr && Math.abs(p.y - y) < 13 * dpr); g++) y += 13 * dpr;
 			placed.push({ x, y });
 			ctx.fillStyle = `rgba(205,214,230,${0.85 * fade * L.a})`;
-			ctx.fillText(NAMES_JA[L.b.id], x, y);
+			ctx.fillText(names?.body(L.b.id) || NAMES_JA[L.b.id], x, y);   // 名前は UI の言語（sky/names.js＝bucket GIS/space）・無ければ従来の和名
 		}
 	}
 	return { frame };
