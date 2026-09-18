@@ -1,4 +1,4 @@
-import { 日カレンダー, 世界時計 } from "./index.js";
+import { 日カレンダー, 世界時計, tip } from "./index.js";
 import { date2ymd, dayAfter, monthLength } from "./共通関数.js";
 
 const $ = id => document.getElementById(id);
@@ -6,6 +6,7 @@ const iso = ([y, m, d]) => `${String(y).padStart(4, "0")}-${String(m).padStart(2
 const parse = s => { const m = /^(\d{1,4})-(\d{1,2})-(\d{1,2})$/.exec(s || ""); return m && [+m[1], +m[2], +m[3]]; };
 const today = () => date2ymd().slice(0, 3);
 
+let hideTip = () => {};
 let ymd = parse(new URLSearchParams(location.search).get("d")) || today();
 
 function show(dir = 0) {
@@ -13,6 +14,7 @@ function show(dir = 0) {
 	page.innerHTML = 日カレンダー(ymd);
 	if (dir) page.className = dir > 0 ? "flip-next" : "flip-prev";
 	$("page").replaceChildren(page);
+	hideTip();   // めくったら前の頁の吹き出しは消す
 	$("pick").value = iso(ymd);
 	const url = new URL(location.href);
 	const isToday = iso(ymd) === iso(today());
@@ -55,6 +57,7 @@ setInterval(() => {
 }, 30000);
 
 show();
+hideTip = tip($("page"));
 
 const 都市 = [
 	["TOKYO", "Asia/Tokyo"],
