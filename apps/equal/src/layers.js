@@ -26,13 +26,13 @@ export const PALETTE = {
 	admin1: rgb("#a99cb2", 0.45),   // 州境（同じ key の admin1 境界）
 	lakeShore: rgb("#9fb4c2"),
 	river: rgb("#86aecb"),
+	maritime: rgb("#8fa9bb", 0.85),   // 海洋境界線（NE の中間線・指示線）＝海の上に薄く
 	disputed: rgb("#9a6e90", 0.28),
 	disputedLine: rgb("#8a5f80", 0.9),
 	road: rgb("#d9a86c"),
 	rail: rgb("#7d7f86"),
 	port: rgb("#2b6e9e"),
-	airport: rgb("#6a3d9a"),
-	airportMinor: rgb("#8b6bb0"),
+	airport: rgb("#6a3d9a"),   // 空港の✈（ラベル層が描く）
 	grat: rgb("#ffffff", 0.45),
 	grat10: rgb("#ffffff", 0.25),
 };
@@ -90,6 +90,14 @@ export const LAYERS = [
 		order: { lines: 20 },
 	},
 	{
+		// 海洋境界線＝NE admin_0 boundary_lines_maritime_indicator（中間線・領海の指示線・221 本）。
+		// 陸の国境（countries の lineStyles）とは別物＝海の上にだけ出る細い線。NE の MIN_ZOOM を地物ごとに使う。
+		id: "maritime", label: "Maritime boundaries", on: true, ...NE("cultural", "ne_10m_admin_0_boundary_lines_maritime_indicator"), kind: "line", loadZoom: 1.5,
+		spec: { line: p => ({ cls: 0, minZoom: num(f(p, "min_zoom"), 4) }) },
+		lineStyles: [{ color: PALETTE.maritime, width: 0.6 }],
+		order: { lines: 58 },
+	},
+	{
 		id: "roads", label: "Roads", accent: "road", on: true, source: "world", group: "detail", kind: "line", loadZoom: 4.5,
 		spec: { line: p => p.layer === "roads" ? { cls: 0, minZoom: 5 } : null },
 		lineStyles: [{ color: PALETTE.road, width: 0.8 }],
@@ -108,14 +116,13 @@ export const LAYERS = [
 		order: { points: 80 },
 	},
 	{
-		id: "airports", label: "Airports", accent: "facility", on: true, ...NE("cultural", "ne_10m_airports"), kind: "point", loadZoom: 2.5,
-		spec: {
-			point: p => {
-				const type = str(f(p, "type")), sr = num(f(p, "scalerank"), 8);
-				return { cls: type.includes("major") ? 0 : 1, minZoom: Math.max(3.5, sr + 1) };   // scalerank 2（大ハブ）→z3.5・9→z10
-			},
-		},
-		pointStyles: [{ color: PALETTE.airport, size: 7 }, { color: PALETTE.airportMinor, size: 5 }],
+		// 空港＝ラベル層に ✈（ortho-japan と同じ Material Icons "flight"）で置く＝都市の丸と形で区別する。
+		// mark:"plane" が立つ層は GL の点を描かない（main.js の draw）＝記号はラベル層の衝突判定に乗る。
+		// 出すのは z>5（本人 2026-09-18）＝loadZoom も 5 に合わせる（見えない層のために通信しない）。
+		id: "airports", label: "Airports", accent: "facility", on: true, ...NE("cultural", "ne_10m_airports"), kind: "point", loadZoom: 5,
+		mark: "plane", markMinZoom: 5,
+		spec: { point: p => ({ cls: 0, minZoom: Math.max(5, num(f(p, "scalerank"), 8) + 1) }) },
+		pointStyles: [{ color: PALETTE.airport, size: 7 }],
 		order: { points: 81 },
 	},
 ];

@@ -6,6 +6,11 @@ import { yOfLat, kOfLat, pxPerUnit } from "./equalearth.js";
 const FONT = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif`;
 const D2R = Math.PI / 180;
 
+// 空港の記号＝ortho-japan の shields.js と同じ Material Icons "flight"（viewBox 24・上向き）。
+// 都市の丸と同じ形にしない＝交通の記号は形で区別する（本人 2026-09-18）。色は配色テーマから貰う。
+const PLANE_PATH = typeof Path2D !== "undefined" ? new Path2D("M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z") : null;
+const MARKS = { plane: { path: () => PLANE_PATH, box: 24 } };   // box＝パスの viewBox（描画時に size へ縮める）
+
 // label: { text, lon, lat, size(CSS px), minZoom, priority(小さいほど強い), kind:"country"|"capital"|"city", color, halo, dot }
 export function createLabels(canvas) {
 	const ctx = canvas.getContext("2d");
@@ -38,10 +43,11 @@ export function createLabels(canvas) {
 			if (view.zoom < L.minZoom || (L.maxZoom != null && view.zoom > L.maxZoom)) continue;
 			const [x, y] = project(view, L, W, H);
 			if (x < -200 || x > W + 200 || y < -50 || y > H + 50) continue;
-			const w = widthOf(L), h = L.size * 1.2;
-			const dx = L.dot ? L.dot + 3 : -w / 2;
+			const mark = L.mark && MARKS[L.mark];
+			const w = mark ? L.size : widthOf(L), h = mark ? L.size : L.size * 1.2;
+			const dx = mark ? -w / 2 : L.dot ? L.dot + 3 : -w / 2;
 			// 国名は代表点の真上に置けなければ上下にずらす（首都名と代表点が近い＝パリ/ベルリン/ローマ）
-			const shifts = L.dot ? [0] : [0, -h * 1.3, h * 1.3, -h * 2.6, h * 2.6];
+			const shifts = (L.dot || mark) ? [0] : [0, -h * 1.3, h * 1.3, -h * 2.6, h * 2.6];
 			let placed = null;
 			for (const dy of shifts) { const x0 = x + dx - pad, y0 = y + dy - h / 2 - pad, x1 = x + dx + w + pad, y1 = y + dy + h / 2 + pad; if (!hit(x0, y0, x1, y1)) { placed = [x0, y0, x1, y1, dy]; break; } }
 			if (!placed) continue;
@@ -68,6 +74,18 @@ export function createLabels(canvas) {
 			if (f.a <= 0 && target === 0) { fades.delete(k); continue; }
 			const L = f.L, [x, y0] = project(view, L, W, H), y = y0 + (f.dy || 0);
 			ctx.globalAlpha = f.a;
+			const mark = L.mark && MARKS[L.mark];
+			if (mark) {   // 記号だけのラベル（空港の✈）＝地色のハローを敷いてから塗る（japan の shields.js と同じ手当て）
+				const path = mark.path(), k = L.size / mark.box;
+				if (path) {
+					ctx.save();
+					ctx.translate(x - L.size / 2, y - L.size / 2); ctx.scale(k, k);
+					ctx.strokeStyle = L.halo; ctx.lineWidth = mark.box * 0.11; ctx.stroke(path);
+					ctx.fillStyle = L.color; ctx.fill(path);
+					ctx.restore();
+				}
+				continue;
+			}
 			ctx.font = fontOf(L);
 			if (L.dot) {   // 都市の点（首都＝二重丸）
 				ctx.beginPath(); ctx.arc(x, y, L.dot, 0, Math.PI * 2); ctx.fillStyle = L.color; ctx.fill();
@@ -77,7 +95,7 @@ export function createLabels(canvas) {
 			const tx = L.dot ? x + L.dot + 3 : x;
 			ctx.textAlign = L.dot ? "left" : "center";
 			if (L.spacing) ctx.letterSpacing = L.spacing; else ctx.letterSpacing = "0px";
-			ctx.lineWidth = 3; ctx.strokeStyle = L.halo; ctx.strokeText(L.text, tx, y);
+			ctx.lineWidth = HALO_W; ctx.strokeStyle = L.halo; ctx.strokeText(L.text, tx, y);
 			ctx.fillStyle = L.color; ctx.fillText(L.text, tx, y);
 		}
 		ctx.globalAlpha = 1;
@@ -90,6 +108,9 @@ export function createLabels(canvas) {
 // 地図上の文字の大きさ（本人 2026-09-18「少しだけ小さく」）＝一つのノブで国名・首都・都市をまとめて縮める。
 // 0.5px 刻みに丸める＝キャンバスの字形が半端な小数でにじまない。国名 13→12 / 都市 10→9 が現物。
 export const LABEL_SCALE = 0.92;
+// 文字のハロー（白枠）の太さ。3 だと字画の内側まで太って和文が潰れ気味＝少しだけ細く（本人 2026-09-18）。
+// 記号（✈）のハローも同じ考えで viewBox 比の係数を一段細める。
+export const HALO_W = 2.4;
 const S = px => Math.round(px * LABEL_SCALE * 2) / 2;
 
 // 日本語の都市名から行政区分の接尾辞を落とす（本人 2026-09-18「〜市、〜特別市をのぞいて」）。
@@ -97,7 +118,15 @@ const S = px => Math.round(px * LABEL_SCALE * 2) / 2;
 // 地図の注記は地名だけで足りる。落とすのは「市」の族（特別市・広域市・直轄市・市）だけ＝都/府/県/州/区 は残す
 // （東京都・クイーンズランド州のように区分名まで含めて通称の物がある）。末尾の 1 つだけ落とす＝
 // 津市市→津市・四日市市→四日市 が正しく残り、呉市→呉・津市→津 も実データで確認済み。
-export const stripJaCitySuffix = s => { const t = String(s ?? "").replace(/(特別市|広域市|直轄市|市)$/, ""); return t || String(s ?? ""); };
+export const stripJaCitySuffix = s => {
+	const src = String(s ?? "");
+	const t = src.replace(/(特別市|広域市|直轄市|市)$/, "");
+	// 「都」は語幹が 2 文字以上の時だけ落とす（本人 2026-09-18「東京都を東京に」）。
+	// 実データの「都」終わりは 東京都・京都・成都 の 3 件だけ＝語幹 東京(2)/京(1)/成(1)＝この一線で正しく分かれる。
+	// 「市」に同じ門を付けないのは 呉市→呉・津市→津 が正しいから（語幹 1 文字でも地名として成立する）。
+	const u = /都$/.test(t) && [...t].length >= 3 ? t.slice(0, -1) : t;
+	return u || t || src;
+};
 // 国：World DB の代表点（Wikidata の座標）・面積で出すズームと文字の大きさを決める（大国＝下限から・小国＝寄ってから）
 export function countryLabels(world, nameOf, pal) {
 	const out = [];
@@ -120,6 +149,22 @@ export function cityLabels(features, nameOf, pal) {
 		const text = nameOf(p); if (!text) continue;
 		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10),
 			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: pal.city, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
+	}
+	return out;
+}
+
+// 空港：NE populated_places と同じ作法で「記号だけ」を置く（名前は出さない＝低ズームの地図が文字で埋まらない）。
+// 出すズームは呼び出し側が渡す（本人 2026-09-18「空港の表示は z>5」）。大ハブほど先に出る（NE の scalerank）。
+export function airportLabels(features, pal, { minZoom = 5, size = 12 } = {}) {
+	const out = [];
+	for (const f of features) {
+		if (!f.geometry || f.geometry.type !== "Point") continue;
+		const p = f.properties, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8;
+		// 出しズームは一律（本人「空港の表示は z>5」）＝段階的に増やさない。混み具合は衝突判定に任せ、
+		// NE の scalerank は優先順にだけ効かせる＝大ハブが先に残り、小さな飛行場から落ちる。
+		out.push({ text: "", mark: "plane", lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
+			size, minZoom, priority: 3 + sr / 20, kind: "airport",
+			color: pal.airport || pal.city, halo: pal.halo });
 	}
 	return out;
 }

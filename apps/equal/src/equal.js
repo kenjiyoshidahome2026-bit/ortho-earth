@@ -21,9 +21,9 @@ import { THEMES, THEME_NAMES, normTheme, hex } from "./themes.js";   // 配色�
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
 import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
-import { loadNations, colorGraph, PRESETS, loadI18n, tr } from "./nations.js";
+import { loadNations, colorGraph, PRESETS, loadI18n, loadNeCities, tr } from "./nations.js";
 import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言＝英語キー・26 言語（japan の辞書に相乗り＋equal 固有）
-import { createLabels, countryLabels, cityLabels, F, stripJaCitySuffix } from "./labels.js";   // stripJaCitySuffix＝日本語名の「〜市」族を落とす（地名の作法は labels.js が持つ）
+import { createLabels, countryLabels, cityLabels, airportLabels, F, stripJaCitySuffix } from "./labels.js";   // stripJaCitySuffix＝日本語名の「〜市」族を落とす（地名の作法は labels.js が持つ）
 import { createAnno } from "../../ortho-japan/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import { kOfLat, yOfLat } from "./equalearth.js";
 
@@ -80,21 +80,36 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	if (fromHash?.layers) for (const L of layers) if (!L.def.fixed) L.on = fromHash.layers.includes(L.def.id);
 	const countries = layers.find(L => L.def.id === "countries");
 	// 国＝world（NationDB）。ID バッファの値＝国番号（items の添字）・NONE＝world に無い陸（北西ハワイ諸島など＝塗らない）
-	let world = null, NONE = 0, political = null, worldP = null, i18n = null, cityFeatures = [], shortEn = new Map();   // shortEn＝NE admin_1 の admin（"Afghanistan"＝DB の正式寄りの英語名より短い）
+	let world = null, NONE = 0, political = null, worldP = null, i18n = null, neCities = null, cityFeatures = [], markFeatures = new Map(), shortEn = new Map();   // markFeatures＝記号ラベルの材料（層 id → 地物）   // neCities＝NE 由来の都市名（言語別・小さな都市の i18n）   // shortEn＝NE admin_1 の admin（"Afghanistan"＝DB の正式寄りの英語名より短い）
 	const labelsLayer = createLabels(mapEl.querySelector("#labels"));
 	const LABEL_PAL = { ...THEMES.mono.labelColor };   // テーマが中身を書き換える（rebuildLabels が読み直す）
 	let worldPal = resolveWorldPal(THEMES[settings.theme].world);   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
 	const countryName = n => i18n?.nations?.[n.key]?.name || shortEn.get(n.key) || n.name?.en || n.key;
-	const cityName = p => lang === "ja" ? (stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name")) : lang === "en" ? (F(p, "name_en") || F(p, "name")) : (i18n?.cities?.[F(p, "wikidataid")]?.name || F(p, "name_en") || F(p, "name"));
+	// 都市名の出所の順（言語ごと）：
+	//   ja＝配信 geopbf の NAME_JA（同梱済み＝通信ゼロ）→「〜市」族を落とす
+	//   en＝NAME_EN
+	//   その他＝World DB の台帳名（564 都市・Wikidata ラベル＝丁寧）→ NE の言語別表（約 6,600 の小さな都市）→ NAME_EN
+	const cityName = p => {
+		if (lang === "ja") return stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name");
+		if (lang === "en") return F(p, "name_en") || F(p, "name");
+		const qid = F(p, "wikidataid");
+		return (qid && i18n?.cities?.[qid]?.name) || (qid && neCities?.[qid]) || F(p, "name_en") || F(p, "name");
+	};
 	function rebuildLabels() {
 		if (!world) return;
-		labelsLayer.setLabels(settings.labels ? [...countryLabels(world, countryName, LABEL_PAL), ...cityLabels(cityFeatures, cityName, LABEL_PAL)] : []);
+		const marks = [];
+		for (const L of layers) {   // 記号ラベル（空港の✈）＝層が on の時だけ・層ごとの出しズームで
+			if (!L.on || !L.def.mark || L.status !== "ready") continue;
+			const feats = markFeatures.get(L.def.id); if (!feats?.length) continue;
+			if (L.def.mark === "plane") marks.push(...airportLabels(feats, LABEL_PAL, { minZoom: L.def.markMinZoom ?? 5 }));
+		}
+		labelsLayer.setLabels(settings.labels ? [...countryLabels(world, countryName, LABEL_PAL), ...cityLabels(cityFeatures, cityName, LABEL_PAL), ...marks] : marks);
 		requestDraw();
 	}
 	const getWorld = () => worldP ??= (async () => {   // 初回要求時に起動（UI の準備より前に走らせない）
 		busy.add("World DB"); updateToast();
 		try {
-			[world, i18n] = await Promise.all([loadNations(), loadI18n(lang).catch(e => { console.warn("[equal] i18n", e); return null; })]);
+			[world, i18n, neCities] = await Promise.all([loadNations(), loadI18n(lang).catch(e => { console.warn("[equal] i18n", e); return null; }), loadNeCities(lang)]);
 			NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations (lang ${lang})`);
 			relabelChoro(); rebuildLabels();
 		}
@@ -135,6 +150,11 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			const t0 = performance.now();
 			L.baked = bakeLayer(pbf, { kind: def.kind, ...(L === countries ? countrySpec() : def.spec) });
 			console.log(`[equal] ${def.id}: ${pbf.length} features (source ${def.source || def.bucket}), bake ${Math.round(performance.now() - t0)}ms`);
+			if (def.mark) {   // 記号ラベル（空港の✈）の材料＝点の位置と属性をラベル層へ渡す（GL の点は描かない）
+				const feats = [];
+				for (let i = 0; i < pbf.length; i++) { const p = pbf.getProperties(i); if (p) feats.push({ properties: p, geometry: pbf.getGeometry(i) }); }
+				markFeatures.set(def.id, feats);
+			}
 			if (L === countries) {
 				political = colorGraph(NONE, L.baked.neighbors || []); applyChoropleth();
 				cityFeatures = []; shortEn = new Map();
@@ -228,7 +248,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const put = (key, v) => { const dst = PALETTE[key], c = Array.isArray(v) ? hex(v[0], v[1]) : hex(v); dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3]; };
 		for (const key in PALETTE) if (T[key] !== undefined) put(key, T[key]);
 		worldPal = resolveWorldPal(T.world);
-		Object.assign(LABEL_PAL, T.labelColor);
+		Object.assign(LABEL_PAL, T.labelColor, { airport: Array.isArray(T.airport) ? T.airport[0] : T.airport });   // 記号（✈）の色もテーマから
 		// 家具（計器・出典・ガラス）は **どのテーマでも黒硝子のまま**＝japan の「白抜き家具＝常時ON」（本人裁定 2026-08-05）と揃える。
 		//   実測（2026-09-18）：ui-dark を外すと #attr/#pos の下地が明るい硝子へ転ぶのに、文字色は equal の #map{color:#cdd}
 		//   （常時暗い家具を前提に書かれている）のまま＝明地に明文字で読めなくなる。テーマで動かすのは地図面と、
@@ -264,7 +284,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			const { def } = L, o = def.order || {};
 			const t = gpuTier(L, thr);
 			const k = alphaOf(def);
-			if (L.baked.kind === "point") { ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }
+			if (L.baked.kind === "point") { if (!def.mark) ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }   // mark 付き（空港の✈）はラベル層が描く
 			// 国 ID バッファ＝面の塗り・コロプレス・ホバー識別が共有する材料。層の塗りとは別の仕事＝別の op（一番先に描く）
 			if (t.fills && def.ids) ops.push([ID_ORDER, () => R.drawIds(L.vtx, t.fills)]);
 			if (t.fills) ops.push([o.fill ?? 10, def.ids
@@ -314,7 +334,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	for (const L of layers) {
 		if (L.def.fixed) continue;
 		const b = el("button", { class: "chip" + (L.on ? " on" : ""), "data-k": L.def.accent || L.def.id, "aria-pressed": String(L.on), "data-t": L.def.label }, esc(t(L.def.label)));
-		b.addEventListener("click", () => { L.on = !L.on; b.classList.toggle("on", L.on); b.setAttribute("aria-pressed", String(L.on)); requestDraw(); });
+		b.addEventListener("click", () => { L.on = !L.on; b.classList.toggle("on", L.on); b.setAttribute("aria-pressed", String(L.on)); if (L.def.mark) rebuildLabels(); requestDraw(); });
 		panel.append(b);
 	}
 	const headRow = label => el("div", { class: "eq-head" }, `<span data-t="${esc(label)}">${esc(t(label))}</span>`);   // パネル内の小見出し＝軸の区切り
@@ -599,8 +619,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	async function switchLang(code) {
 		const c = norm(code); if (!c || c === lang) return;
 		lang = c;
-		const [, table] = await Promise.all([setLang(c), loadI18n(c).catch(e => { console.warn("[equal] i18n", e); return null; })]);
-		i18n = table;
+		const [, table, ne] = await Promise.all([setLang(c), loadI18n(c).catch(e => { console.warn("[equal] i18n", e); return null; }), loadNeCities(c)]);
+		i18n = table; neCities = ne;
 		mapEl.dir = isRTL() ? "rtl" : "ltr";
 		for (const n of mapEl.querySelectorAll("[data-t]")) n.textContent = t(n.dataset.t);            // 文字を持つ家具
 		for (const n of mapEl.querySelectorAll("[data-tt]")) { n.dataset.tip = t(n.dataset.tt); n.setAttribute("aria-label", t(n.dataset.tt)); }   // ボタンの説明

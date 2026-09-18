@@ -13,7 +13,7 @@ import { createGeometryPNG } from "./createGeometryPNG.js";
 import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
 import { buildAll } from "../../../../packages/world/build/index.js";
-import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC, splitGroups, groupDesc } from "../../../../packages/world/build/ne-cultural.js";
+import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC, splitGroups, groupDesc, cityNameTables, NE_CITY_LANGS } from "../../../../packages/world/build/ne-cultural.js";
 // seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
@@ -96,10 +96,34 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			r.index.groups[g] = { file: `${CULTURAL}-${g}.geopbf`, features: feats.length, vertices: r.countVerts(feats), bytes: b.size };
 			q.log(`${DIRE}/${CULTURAL}-${g}.geopbf: ${feats.length} 地物・${(b.size / 1e6).toFixed(1)}MB (gzip)`);
 		}
+		r.index.cityNames = await saveCityNames(r.all);   // 言語別の都市名表（NE の 24 言語・英語と違う分だけ）
 		await db.saveJSON(CULTURAL, r.index);   // 要約（Node の out/ne-cultural.json と同じ中身）も棚に置く＝どの版が載っているか後から読める
 		q.log(`${DIRE}/${CULTURAL}.geopbf: ${keys} key・${r.all.length} 地物・${(gz.size / 1e6).toFixed(1)}MB (gzip)`);
 		q.log("apps/equal は次の訪問から反映（IDB の写しは ETag の差で入れ替わる）");
 		return `${keys} key / ${r.all.length} 地物`;
+	}
+
+	// 言語別の都市名表＝GIS/world/ne-cities/<lang>.json（{ updated, tag, n, names:{QID:名前} }）。
+	// apps/equal は現在の言語の 1 本だけを引く＝起動の 1 本（ne-cultural-base）は太らせない。
+	async function saveCityNames(all) {
+		const { tables, cities, keyed } = cityNameTables(all);
+		const report = {};
+		for (const lang of NE_CITY_LANGS) {
+			const names = tables[lang], n = Object.keys(names).length;
+			await db.saveJSON(`ne-cities/${lang}`, { updated: new Date().toISOString().slice(0, 10), tag: NE_TAG, n, names });
+			report[lang] = n;
+		}
+		q.log(`ne-cities: ${cities} 都市（QID 付き ${keyed}）→ ${NE_CITY_LANGS.length} 言語 … ` + NE_CITY_LANGS.map(l => `${l}:${report[l]}`).join(" "));
+		return { tag: NE_TAG, cities, keyed, langs: report };
+	}
+	// 都市名だけの焼き直し＝NE の populated_places 1 ファイルで済む（ne-cultural 全体の 90MB 取得を待たない）
+	async function buildCityNames() {
+		q.log(`取得 ne_10m_populated_places（Natural Earth 10m ${NE_TAG}）…`);
+		const r = await fetch(neURL("ne_10m_populated_places"));
+		if (!r.ok) throw new Error(`populated_places: HTTP ${r.status}`);
+		const feats = (await r.json()).features.map(f => ({ ...f, properties: { ...f.properties, layer: "populated_places" } }));
+		const out = await saveCityNames(feats);
+		return `${out.keyed} 都市 × ${NE_CITY_LANGS.length} 言語`;
 	}
 
 	CMD.append("h1").text("国別DB (world)");
@@ -109,6 +133,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	});
 	CMD.append("button").text("全部作る（seed → Wikidata/統計 API → 全 DB + i18n を保存）").on("click", run("build", buildAndSave));
 	CMD.append("button").text(`NE Cultural 生成→保存（${CULTURAL}.geopbf・国/道路/鉄道/市街地を key ごとに切る）`).on("click", run("ne-cultural", buildCultural));
+	CMD.append("button").text(`NE 都市名の多言語表（ne-cities/<lang>.json・${NE_CITY_LANGS.length} 言語）`).on("click", run("ne-cities", buildCityNames));
 	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG({ db }, q)));
 	CMD.append("button").text(`${FLAG}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${FLAG}.zip`), `${FLAG}.zip`));
 	CMD.append("button").text(`${SOUND}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${SOUND}.zip`), `${SOUND}.zip`));
@@ -149,6 +174,6 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		q.log(`${name}: 対象外（DB は「全部作る」で seed から組み立てる）`);
 	}
 	// console から直接叩けるように（uploader は作業台）
-	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave, buildCultural });
+	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave, buildCultural, buildCityNames });
 	return db;
 }
