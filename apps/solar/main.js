@@ -65,6 +65,9 @@ const cam = { focus: "sun", yaw: -60 * D2R, pitch: 22 * D2R, dist: 26, fovy: 45 
 const OVERVIEW_DIST = 26;   // Sunボタン＝太陽系全景（土星軌道まで入る）
 let camPos = [0, 0, 26], viewR = null, camD = 26;   // 毎フレーム更新（f64）。camD＝カメラ〜焦点の今の距離（飛行中は補間値）
 let flight = null;   // {t0,dur, fromFocus,toFocus, fromD,toD} 焦点間フライト（800ms・log補間）
+// 次の rAF で描き直す旗。宣言はここ（上の方）＝起動時の readHash・星座・テクスチャ到着など、描画の節より上で
+// 走る口がみな触る（下で宣言していた頃は readHash から触って TDZ で落ちた 2026-09-19）
+let needsDraw = true;
 
 const v3 = { sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len: a => Math.hypot(a[0], a[1], a[2]) };
 const P = {};   // id → 日心位置（AU・f64）。frame() の頭で一度だけ引く＝カメラ・描画・影・情報パネルが同じ値を見る
@@ -243,6 +246,17 @@ const starP = prog(`
 		float a = smoothstep(1.0, 0.25, d) * v_b;
 		o = vec4(v_col * a, a);
 	}`);
+// 星座線（恒星と同じ無限遠の天球＝平行移動を無視・80AU の殻）。LINES の端点列
+const constP = prog(`
+	in vec3 a_pos;
+	uniform mat4 u_view, u_proj; uniform float u_logC;
+	void main() {
+		vec4 P = u_proj * vec4(mat3(u_view) * (a_pos * 80.0), 1.0);
+		${LOGZ}
+		gl_Position = P;
+	}`, `
+	uniform vec4 u_color; out vec4 o;
+	void main() { o = u_color; }`);
 // 太陽グロー（ビルボード・加算）
 const glowP = prog(`
 	in vec2 a_corner;
@@ -427,6 +441,31 @@ const bvColor = v => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v 
 	} catch (e) { console.warn("[stars] load failed (sky stays dark):", e); }
 })();
 
+// ---- 星座線：japan と同じ bucket の constellation_lines（d3-celestial・RA/Dec の折れ線）。初めて点けた時に一度だけ読む ----
+// japan の太陽系圏（z<1）と同じ裁き＝線だけ・薄い青（星座名などの文字注記は出さない＝実位置 3D の惑星ラベルと混ざらない）。
+// 状態は URL の c=1（writeHash）・ボタンと c キーで切替
+let constOn = false, constVao = null, constN = 0, constLoad = null;
+const constBtn = document.getElementById("const-btn");
+function ensureConst() {
+	constLoad ||= geopbf("constellation_lines", { gint: false }).then(pbf => {
+		const seg = [];
+		for (const f of pbf?.geojson?.features || []) {
+			const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
+			for (const line of lines) for (let i = 0; i < line.length - 1; i++) seg.push(...eqToEcl(line[i][0], line[i][1]), ...eqToEcl(line[i + 1][0], line[i + 1][1]));
+		}
+		constVao = lineVao(new Float32Array(seg)).vao; constN = seg.length / 3; needsDraw = true;
+		console.log(`[constellation] ${constN / 2} segments loaded`);
+	}).catch(e => { console.warn("[constellation] load failed", e); constLoad = null; });
+	return constLoad;
+}
+function setConst(on) {
+	constOn = on;
+	constBtn.classList.toggle("on", on); constBtn.setAttribute("aria-pressed", String(on));
+	if (on) ensureConst();
+	needsDraw = true;
+}
+constBtn.onclick = () => { setConst(!constOn); writeHash(); };
+
 // ---- 行列 ----
 let proj = null, pxPerRad = 1;
 function resize() {
@@ -590,6 +629,7 @@ function writeHash() {
 		const p = new URLSearchParams({ f: cam.focus, d: cam.dist.toPrecision(4),
 			yaw: (cam.yaw / D2R).toFixed(1), pit: (cam.pitch / D2R).toFixed(1), s: String(speedL) });
 		if (!isLive()) p.set("t", fmtUTC(simTime));
+		if (constOn) p.set("c", "1");
 		hashWritten = "#" + p.toString().replace(/%3A/g, ":"); hashAt = performance.now();   // フラグメントの ':' は素のままで合法＝人が読める日時に
 		history.replaceState(null, "", hashWritten);
 	}, 300);
@@ -605,12 +645,12 @@ function readHash() {
 	if (p.get("s") !== null && p.get("s") !== "") setSpeed(+p.get("s"));
 	const chipId = satById[cam.focus] ? satById[cam.focus].parent : cam.focus;
 	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
-	flight = null; uiDirty = true;
+	setConst(p.get("c") === "1");
+	flight = null; uiDirty = true; needsDraw = true;
 }
 readHash();
-// 同じタブで URL を貼り替えた時（replaceState は hashchange を起こさない＝自分の書き込みでは走らない）。
-// needsDraw は下（描画の節）で宣言＝起動時の readHash から触ると TDZ で落ちる＝ここで立てる
-window.addEventListener("hashchange", () => { if (location.hash !== hashWritten) { readHash(); needsDraw = true; } });
+// 同じタブで URL を貼り替えた時（replaceState は hashchange を起こさない＝自分の書き込みでは走らない）
+window.addEventListener("hashchange", () => { if (location.hash !== hashWritten) readHash(); });
 
 // ---- 入力：1本指/マウス=周回・ホイール=対数ドリー・2本指=ピンチ（重心で周回＋間隔でドリー）・タップ=天体訪問 ----
 // 指は Map で1本ずつ独立に追う（ortho-japan の input.js と同じ裁き）。旧実装は pointermove が届くたびに
@@ -695,6 +735,7 @@ window.addEventListener("keydown", e => {
 	const act = {
 		ArrowLeft: () => orbitBy(step, 0), ArrowRight: () => orbitBy(-step, 0), ArrowUp: () => orbitBy(0, step), ArrowDown: () => orbitBy(0, -step),
 		"+": () => setDist(cam.dist * 0.85), "=": () => setDist(cam.dist * 0.85), "-": () => setDist(cam.dist / 0.85),
+		c: () => setConst(!constOn),
 		",": () => setSpeed(speedL - 1), ".": () => setSpeed(speedL + 1), Home: () => flyTo("sun"),
 		" ": tag === "BUTTON" ? null : () => setSpeed(speedL === 0 ? lastPlayL : 0),
 	}[e.key];
@@ -709,7 +750,7 @@ canvas.addEventListener("webglcontextlost", e => { e.preventDefault(); glLost = 
 canvas.addEventListener("webglcontextrestored", () => location.reload());
 
 // ---- 描画 ----
-let needsDraw = true, lastFrame = performance.now();
+let lastFrame = performance.now();
 const MIN_PX = 2.6;   // 最小ピクセル半径クランプ（実スケールのまま可視性の下駄）
 // 衛星が現れる距離（カメラ〜親）＝親ごとに「一番外の衛星の軌道半径の 9.5 倍」＝衛星系が画面に収まり始める頃
 // （木星 0.12AU＝カリスト 0.0126AU の 9.5 倍・土星はイアペトゥスで 0.23AU・火星はダイモスで 0.0015AU）
@@ -777,6 +818,14 @@ function frame(now) {
 		gl.depthMask(false);
 		gl.useProgram(starP.p); setCommon(starP, view);
 		gl.bindVertexArray(starVao); gl.drawArrays(gl.POINTS, 0, starN);
+		gl.depthMask(true);
+	}
+	// 1b) 星座線（同じ天球・深度書かず）。色＝japan の太陽系圏と同じ（v1 の青 rgba(120,160,255) を 0.55 倍に薄めた 0.22）
+	if (constOn && constVao) {
+		gl.depthMask(false);
+		gl.useProgram(constP.p); setCommon(constP, view);
+		gl.uniform4f(constP.u.u_color, 0.47, 0.63, 1.0, 0.22);
+		gl.bindVertexArray(constVao); gl.drawArrays(gl.LINES, 0, constN);
 		gl.depthMask(true);
 	}
 

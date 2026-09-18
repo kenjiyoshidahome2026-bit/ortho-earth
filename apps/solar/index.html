@@ -63,6 +63,8 @@
 		#exit { position: fixed; top: 60px; inset-inline-start: 14px; display: flex; align-items: center; gap: 4px; }
 		/* 矢印は文字でなく向き＝RTL では左右を返す（文言側に ← を持ち込まない＝訳が矢印を抱えない） */
 		#exit i { font-style: normal; }
+		#const-btn { position: fixed; top: 94px; inset-inline-start: 14px; }
+		#const-btn.on { background: rgba(120,160,255,.28); border-color: rgba(150,180,255,.55); }   /* 点灯＝天体チップの選択中と同じ意匠 */
 		:root[dir="rtl"] #exit i { transform: scaleX(-1); display: inline-block; }
 		/* 距離スケール＝ortho-earth（quiet-mono #scale）と同じ物差し：1-2-5 刻み・両端ティック・太い下線。下段（チップ＋時間バー）の上・中央。
 		   縮尺は「焦点天体の距離で」＝遠近のある 3D なので、物差しが正しいのは画面中央の天体の奥行きだけ */
@@ -77,7 +79,7 @@
 			opacity: .55; text-align: end; }
 		#attr a { color: inherit; }
 		/* 訳が載るまで文言を伏せる（英語→訳のちらつき除け）。en は同じ tick で外れる＝一瞬も隠れない */
-		:root:not(.i18n-ready) #title, :root:not(.i18n-ready) #exit, :root:not(.i18n-ready) #bottom,
+		:root:not(.i18n-ready) #title, :root:not(.i18n-ready) #exit, :root:not(.i18n-ready) #const-btn, :root:not(.i18n-ready) #bottom,
 		:root:not(.i18n-ready) #hint, :root:not(.i18n-ready) #attr { visibility: hidden; }
 		/* 縦画面＝情報パネルを下段の上へ。下段の高さは言語で変わる（長い天体名はチップが3段に折れる）＝
 		   固定値でなく実測（main.js が --bottomH を書く）。変数が無い時の 108px は英語2段の見立て */
@@ -98,6 +100,7 @@
 		<p data-t>Heliocentric — real scale, real time</p>
 	</div>
 	<button id="exit" title="Exit to ortho-japan" data-t-title><i aria-hidden="true">←</i><span data-t>Earth</span></button>
+	<button id="const-btn" title="Show / hide constellation lines (C)" data-t-title aria-pressed="false"><span data-t>Constellations</span></button>
 	<div id="labels"></div>
 	<div id="info"></div>
 	<div id="bottom">
