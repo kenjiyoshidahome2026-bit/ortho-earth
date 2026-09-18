@@ -30,7 +30,10 @@ class PBFIO {
     constructor(nb, dire) { this.nb = nb; this.dire = dire || "GIS"; }
     async open() {
         const { Bucket, Cache } = this.nb;
-        this.bucket = await Bucket(`${this.dire}/pbf`);
+        // lazy＝到達確認の list() を省く。GIS/pbf は 1893 件・257KB の一覧で Worker 側 4 秒強（2026-09-18 実測）＝
+        // 全消費者（equal/japan/gishub…）が最初の名前引きの前にこれを毎ページ待っていた（IDB 命中でも国が出るまで 4〜9 秒の正体）。
+        // 一覧が要る files() は呼ばれた時に取る。到達不能は各 fetch が個別に失敗して縮退（旧＝open ごと null で同じ縮退）。
+        this.bucket = await Bucket(`${this.dire}/pbf`, { lazy: true });
         this.cache = await Cache(`${this.dire}/pbf`);
         return this;
     }
