@@ -23,7 +23,7 @@ import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
 import { loadNations, colorGraph, PRESETS, loadI18n, tr } from "./nations.js";
 import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言＝英語キー・26 言語（japan の辞書に相乗り＋equal 固有）
-import { createLabels, countryLabels, cityLabels, F } from "./labels.js";
+import { createLabels, countryLabels, cityLabels, F, stripJaCitySuffix } from "./labels.js";   // stripJaCitySuffix＝日本語名の「〜市」族を落とす（地名の作法は labels.js が持つ）
 import { createAnno } from "../../ortho-japan/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import { kOfLat, yOfLat } from "./equalearth.js";
 
@@ -85,7 +85,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const LABEL_PAL = { ...THEMES.mono.labelColor };   // テーマが中身を書き換える（rebuildLabels が読み直す）
 	let worldPal = resolveWorldPal(THEMES[settings.theme].world);   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
 	const countryName = n => i18n?.nations?.[n.key]?.name || shortEn.get(n.key) || n.name?.en || n.key;
-	const cityName = p => lang === "ja" ? (F(p, "name_ja") || F(p, "name_en") || F(p, "name")) : lang === "en" ? (F(p, "name_en") || F(p, "name")) : (i18n?.cities?.[F(p, "wikidataid")]?.name || F(p, "name_en") || F(p, "name"));
+	const cityName = p => lang === "ja" ? (stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name")) : lang === "en" ? (F(p, "name_en") || F(p, "name")) : (i18n?.cities?.[F(p, "wikidataid")]?.name || F(p, "name_en") || F(p, "name"));
 	function rebuildLabels() {
 		if (!world) return;
 		labelsLayer.setLabels(settings.labels ? [...countryLabels(world, countryName, LABEL_PAL), ...cityLabels(cityFeatures, cityName, LABEL_PAL)] : []);
@@ -241,6 +241,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	}
 
 	// ── 描画 ──
+	const ID_ORDER = -1;        // 国 ID バッファ＝他の全部より先（塗りもコロプレスもホバーもこれを読む）
 	const CHORO_ORDER = 10.5;   // コロプレスの重ね順＝国の塗り(10)の直後・係争地(11)/市街地(12)/湖(14) はその上
 	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "";
 	function requestDraw() { if (!raf && !destroyed) raf = requestAnimationFrame(draw); }
@@ -264,14 +265,17 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			const t = gpuTier(L, thr);
 			const k = alphaOf(def);
 			if (L.baked.kind === "point") { ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }
-			if (t.fills) ops.push([o.fill ?? 10, L === countries
-				? () => R.drawCountries(L.vtx, t.fills, { land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: worldPal })
+			// 国 ID バッファ＝面の塗り・コロプレス・ホバー識別が共有する材料。層の塗りとは別の仕事＝別の op（一番先に描く）
+			if (t.fills && def.ids) ops.push([ID_ORDER, () => R.drawIds(L.vtx, t.fills)]);
+			if (t.fills) ops.push([o.fill ?? 10, def.ids
+				? () => R.drawLand({ land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: worldPal })
 				: () => R.drawFill(L.vtx, t.fills, k >= 0.999 ? def.fillColor : [def.fillColor[0], def.fillColor[1], def.fillColor[2], (def.fillColor[3] ?? 1) * k])]);
 			if (t.lines) ops.push([o.lines ?? 50, () => R.drawLines(L.vtx, t.lines, fade(def.lineStyles, k))]);
 		}
-		// コロプレス＝層ではなく被せパス（国 ID バッファ＋塗り表だけで描く）。既定の順は国の塗りの直後＝
-		// 係争地(11)・市街地(12)・湖(14) はその上に乗る＝分離前と同じ見え方。CHORO_ORDER を動かせば重ね順だけ変えられる。
-		if (countries.status === "ready") ops.push([CHORO_ORDER, () => R.drawChoropleth({ alpha: legendData ? settings.choroAlpha : 0, hover: hoverFid })]);
+		// コロプレス＝どの層にも属さない被せパス。材料は国 ID バッファと塗り表だけで、層の幾何も配色テーマも見ない。
+		// 既定の順は国の塗りの直後＝係争地(11)・市街地(12)・湖(14) はその上に乗る（分離前と同じ見え方）。
+		// CHORO_ORDER を動かせば重ね順だけ変えられる＝「湖の下に敷く／上に乗せる」が設定になる。
+		ops.push([CHORO_ORDER, () => R.drawChoropleth({ alpha: legendData ? settings.choroAlpha : 0, hover: hoverFid })]);
 		ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
 		{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）

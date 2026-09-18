@@ -338,6 +338,7 @@ export function createRenderer(canvas) {
 		point: compile(gl, POINT_VS, POINT_FS),
 	};
 	let frame = null;   // 今フレームの共通 uniform 値
+	let idsThisFrame = false;   // このフレームで国 ID バッファ（またはステンシル陸マスク）を描いたか＝drawLand/drawChoropleth の前提
 
 	// 頂点テクスチャ（RG32UI・幅 4096 折り返し）
 	function uploadVertices(xy, count) {
@@ -420,6 +421,7 @@ export function createRenderer(canvas) {
 	}
 
 	function beginFrame(view, clearRGB) {
+		idsThisFrame = false;   // ID バッファは毎フレーム描き直す＝前フレームの残りを当てにしない
 		const dpr = Math.min(window.devicePixelRatio || 1, 2);
 		const W = Math.round(canvas.clientWidth * dpr), H = Math.round(canvas.clientHeight * dpr);
 		if (canvas.width !== W || canvas.height !== H) { canvas.width = W; canvas.height = H; }   // リサイズは描画フレーム先頭（白抜け点滅の轍）
@@ -485,10 +487,12 @@ export function createRenderer(canvas) {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.disable(gl.STENCIL_TEST);
 	}
-	// 国：ID パス → 合成（陸色＋ハイプソ）。コロプレスとホバーは drawChoropleth（層に依存しない被せパス）の領分。
-	// o = { land:[r,g,b], hypso: 0..1, pal: WORLD_PAL }
-	function drawCountries(vtx, vao, o) {
-		if (!vao?.count) return;
+	// ── 国 ID バッファ＝「どの画素がどの国か」だけを持つ独立した資源 ──────────────────────
+	// 面の塗り（drawLand）・コロプレス（drawChoropleth）・ホバー識別（readFid）の 3 者が読む共有の材料で、
+	// どれか一つの持ち物ではない＝ここで単独に描く（2026-09-18 本人裁定「コロプレスをレイヤーから独立させて」）。
+	// float ID を作れない機体は代わりにステンシルで陸マスクだけ立てる＝面は塗れる（コロプレス/ホバーは成立しない）。
+	function drawIds(vtx, vao) {
+		if (!vao?.count) return false;
 		if (hasFloatId) {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, idFbo);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -497,7 +501,13 @@ export function createRenderer(canvas) {
 			fanDraw(vao);
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 			gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		} else stencilFan(vtx, vao);
+		} else stencilFan(vtx, vao);   // ステンシルは次の drawLand が消費する（直後に呼ぶこと）
+		return idsThisFrame = true;
+	}
+	// 面の塗り＝陸色＋ハイプソ。ID バッファ（またはステンシル）で陸だけに乗せる。コロプレスもホバーもここには居ない。
+	// o = { land:[r,g,b], hypso: 0..1, pal: WORLD_PAL }
+	function drawLand(o) {
+		if (!idsThisFrame) return;   // 材料（ID/ステンシル）が無い＝塗る場所が決まらない
 		const pr = prog.composite, u = pr.u, f = frame;
 		gl.useProgram(pr.p);
 		gl.uniform1f(u.u_hasId, hasFloatId ? 1 : 0);
@@ -517,11 +527,11 @@ export function createRenderer(canvas) {
 		gl.disable(gl.STENCIL_TEST);
 	}
 	// コロプレス＝国 ID バッファの被せパス（層の幾何に依存しない＝呼び出し側が描画順を決める）。
-	// o = { alpha: 0..1, hover: fid|-1, hoverColor?:[r,g,b,a] }。drawCountries が同じフレームで ID を描いた後に呼ぶこと。
+	// o = { alpha: 0..1, hover: fid|-1, hoverColor?:[r,g,b,a] }。同じフレームで drawIds が済んでいること（材料＝ID バッファ）。
 	// float ID が無い機体（ID バッファを作れない）＝コロプレスもホバーも成立しない＝何もしない（陸は合成パスが塗り済み）。
 	const HOVER_DEFAULT = [0.10, 0.14, 0.20, 0.14];
 	function drawChoropleth(o = {}) {
-		if (!hasFloatId || !idTex) return;
+		if (!hasFloatId || !idTex || !idsThisFrame) return;
 		const alpha = paintTex ? (o.alpha || 0) : 0, hover = o.hover ?? -1;
 		if (alpha <= 0.001 && hover < 0) return;
 		const pr = prog.choro, u = pr.u;
@@ -554,5 +564,5 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
 }

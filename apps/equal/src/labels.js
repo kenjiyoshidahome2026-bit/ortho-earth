@@ -87,13 +87,25 @@ export function createLabels(canvas) {
 }
 
 // ── ラベルの材料 ──
+// 地図上の文字の大きさ（本人 2026-09-18「少しだけ小さく」）＝一つのノブで国名・首都・都市をまとめて縮める。
+// 0.5px 刻みに丸める＝キャンバスの字形が半端な小数でにじまない。国名 13→12 / 都市 10→9 が現物。
+export const LABEL_SCALE = 0.92;
+const S = px => Math.round(px * LABEL_SCALE * 2) / 2;
+
+// 日本語の都市名から行政区分の接尾辞を落とす（本人 2026-09-18「〜市、〜特別市をのぞいて」）。
+// NE の NAME_JA は中国・韓国・台湾の都市に区分名が付く（北京市・ソウル特別市・釜山広域市…＝実データで 489 件）。
+// 地図の注記は地名だけで足りる。落とすのは「市」の族（特別市・広域市・直轄市・市）だけ＝都/府/県/州/区 は残す
+// （東京都・クイーンズランド州のように区分名まで含めて通称の物がある）。末尾の 1 つだけ落とす＝
+// 津市市→津市・四日市市→四日市 が正しく残り、呉市→呉・津市→津 も実データで確認済み。
+export const stripJaCitySuffix = s => { const t = String(s ?? "").replace(/(特別市|広域市|直轄市|市)$/, ""); return t || String(s ?? ""); };
 // 国：World DB の代表点（Wikidata の座標）・面積で出すズームと文字の大きさを決める（大国＝下限から・小国＝寄ってから）
 export function countryLabels(world, nameOf, pal) {
 	const out = [];
 	for (const n of world.items) {
 		if (!n.coord || !(n.area > 0)) continue;
 		const a = n.area;
-		const [minZoom, size] = a >= 2e6 ? [-9, 13] : a >= 5e5 ? [2.3, 12] : a >= 1e5 ? [3, 11.5] : a >= 2e4 ? [3.8, 11] : a >= 2e3 ? [4.6, 10.5] : [5.4, 10];
+		const [minZoom, size0] = a >= 2e6 ? [-9, 13] : a >= 5e5 ? [2.3, 12] : a >= 1e5 ? [3, 11.5] : a >= 2e4 ? [3.8, 11] : a >= 2e3 ? [4.6, 10.5] : [5.4, 10];
+		const size = S(size0);
 		out.push({ text: nameOf(n), lon: n.coord[0], lat: n.coord[1], size, minZoom, priority: 1 - Math.min(0.9, Math.log10(a) / 8), kind: "country", color: pal.country, halo: pal.halo, spacing: "0.08em" });
 	}
 	return out;
@@ -106,7 +118,7 @@ export function cityLabels(features, nameOf, pal) {
 		const p = f.properties; if (!f.geometry || f.geometry.type !== "Point") continue;
 		const cap = +F(p, "adm0cap") === 1, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8, mz = Number.isFinite(+F(p, "min_zoom")) ? +F(p, "min_zoom") : 6;
 		const text = nameOf(p); if (!text) continue;
-		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10,
+		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10),
 			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: pal.city, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
 	}
 	return out;
