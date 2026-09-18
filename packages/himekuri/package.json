@@ -1,16 +1,41 @@
 {
 	"name": "himekuri",
 	"version": "1.0.0",
+	"description": "日めくりカレンダー（旧暦・六曜・二十四節気・七十二候・暦注・祝日）と世界時計の SVG ウィジェット。依存なし",
+	"keywords": [
+		"calendar",
+		"japanese-calendar",
+		"lunisolar",
+		"kyureki",
+		"rokuyo",
+		"sekki",
+		"holiday",
+		"world-clock",
+		"svg"
+	],
 	"license": "MIT",
-	"type": "module",
-	"scripts": {
-		"dev": "vite",
-		"build": "vite build",
-		"preview": "vite preview"
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/himekuri.git"
 	},
+	"type": "module",
+	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
 		"./*": "./src/*"
+	},
+	"files": [
+		"src",
+		"!src/main.js",
+		"LICENSE",
+		"README.md"
+	],
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "vite preview",
+		"mirror": "git -C ../.. subtree split --prefix=packages/himekuri -b himekuri-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../.. branch -D himekuri-mirror"
 	},
 	"devDependencies": {
 		"vite": "^6.4.3"
