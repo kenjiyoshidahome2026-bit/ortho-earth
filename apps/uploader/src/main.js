@@ -10,6 +10,9 @@ import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf, createGeopbf } from "geopbf";
 import * as POI from "./poi/schema.js";
 import { worldUI } from "./world/index.js";
+// 宇宙の名前データ（星座・メシエの 26 言語）＝正本は packages/space/names.json・ここは bucket へ焼くだけ（world と同じ型）
+import spaceNamesJSON from "../../../packages/space/names.json";
+import { packs as spacePacks, DIRE as SPACE_DIRE } from "../../../packages/space/build/packs.js";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -38,6 +41,7 @@ CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.v
 CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
+CMD.append("button").text("space names").on("click", () => spaceNames(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
@@ -122,6 +126,21 @@ async function constellations(q) {
 	q.log(`constellation_lines: ${pbf.length} features`);
 	await pbf.save();
 	q.success("constellation_lines: saved");
+}
+
+// 星座名・メシエ通称の 26 言語パック → bucket GIS/space/i18n/<lang>.json（solar が fetch＝コードでなくデータで繋ぐ）
+async function spaceNames(q) {
+	q.clear();
+	q.title(`space names → ${SPACE_DIRE}/i18n/<lang>.json`);
+	const bucket = await Bucket(SPACE_DIRE);
+	if (!bucket) throw new Error(`Bucket(${SPACE_DIRE}) に到達できない`);
+	const updated = new Date().toISOString().slice(0, 10);
+	for (const [lang, p] of Object.entries(spacePacks(spaceNamesJSON))) {
+		const body = JSON.stringify({ updated, ...p });
+		await bucket.put(new File([body], `i18n/${lang}.json`, { type: "application/json" }));
+		q.log(`${lang}: ${Object.keys(p.c).length} constellations, ${Object.keys(p.m).length} Messier names (${comma(body.length)} bytes)`);
+	}
+	q.success("space names: saved");
 }
 
 async function messier(q) {
