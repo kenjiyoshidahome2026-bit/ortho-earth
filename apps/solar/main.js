@@ -441,22 +441,96 @@ const bvColor = v => v < -0.3 ? [0.70, 0.78, 1] : v < 0.0 ? [0.85, 0.89, 1] : v 
 	} catch (e) { console.warn("[stars] load failed (sky stays dark):", e); }
 })();
 
-// ---- 星座線：japan と同じ bucket の constellation_lines（d3-celestial・RA/Dec の折れ線）。初めて点けた時に一度だけ読む ----
-// japan の太陽系圏（z<1）と同じ裁き＝線だけ・薄い青（星座名などの文字注記は出さない＝実位置 3D の惑星ラベルと混ざらない）。
+// ---- 星座：japan と同じ bucket の constellation_lines（d3-celestial・RA/Dec の折れ線）＋ messier。初めて点けた時に一度だけ読む ----
+// 線＝薄い青（japan の太陽系圏と同じ）・星座名とメシエ天体＝2D の重ね絵（#sky2d）に同じ天球の向きを投影（japan の labels2d と同じ色と記号）。
+// 名前＝bucket GIS/space/i18n/<lang>.json（正本は packages/space・uploader が焼く）を fetch＝コードでなくデータで繋ぐ（japan も同じ JSON を読める）。
 // 状態は URL の c=1（writeHash）・ボタンと c キーで切替
-let constOn = false, constVao = null, constN = 0, constLoad = null;
+let constOn = false, constVao = null, constN = 0, constLoad = null, skyLab = null;
+// その言語の 1 本＋英語（欠けは英語で補う＝星座は IAU 名・メシエは英語の通称。英語も取れなければ略号/番号のまま＝壊れない）。
+// 読み口は native-bucket の get＝uploader の put は .json を gzip で置く（Content-Type も application/gzip）＝素の fetch では読めない
+// （world の i18n は別経路で素の JSON＝apps/equal は fetch で読めている・2026-09-19 実測）。lazy＝到達確認の一覧 1 本を省く
+async function loadSkyNames(lang) {
+	const space = nativeBucket("https://api.ortho-earth.com").Bucket("GIS/space", { lazy: true, silent: true });
+	const get = l => space.then(b => b?.get(`i18n/${l}.json`, "json")).catch(() => null);
+	const [p, en] = await Promise.all([lang === "en" ? null : get(lang), get("en")]);
+	const E = en || { c: {}, m: {} }, L = p || E;
+	if (!en) console.warn("[space] names not reachable (bucket GIS/space/i18n) — showing IAU abbreviations");
+	return {
+		lang: p ? lang : "en",
+		constellation: a => L.c[a] || E.c[a] || String(a ?? ""),
+		messierLabel: id => { const n = L.m[id] || E.m[id]; return n ? `${id} ${n}` : String(id); },
+	};
+}
+// メシエの種別（d3-celestial）→記号。銀河は s/e/i（渦巻・楕円・不規則）で来る
+const messierKind = t => t === "gc" ? "globular" : t === "oc" ? "open" : t === "s" || t === "e" || t === "i" ? "galaxy" : "nebula";
 const constBtn = document.getElementById("const-btn");
 function ensureConst() {
-	constLoad ||= geopbf("constellation_lines", { gint: false }).then(pbf => {
-		const seg = [];
+	constLoad ||= Promise.all([
+		geopbf("constellation_lines", { gint: false }),
+		geopbf("messier", { gint: false }).catch(() => null),   // 任意（無ければ線と星座名だけ）
+		loadSkyNames(LANG),
+	]).then(([pbf, ms, n]) => {
+		const seg = [], names = [], messier = [];
 		for (const f of pbf?.geojson?.features || []) {
 			const lines = f.geometry.type === "MultiLineString" ? f.geometry.coordinates : [f.geometry.coordinates];
-			for (const line of lines) for (let i = 0; i < line.length - 1; i++) seg.push(...eqToEcl(line[i][0], line[i][1]), ...eqToEcl(line[i + 1][0], line[i + 1][1]));
+			let vx = 0, vy = 0, vz = 0;
+			for (const line of lines) for (let i = 0; i < line.length; i++) {
+				const v = eqToEcl(line[i][0], line[i][1]); vx += v[0]; vy += v[1]; vz += v[2];
+				if (i < line.length - 1) seg.push(...v, ...eqToEcl(line[i + 1][0], line[i + 1][1]));
+			}
+			// 名前の置き場＝全頂点の天球ベクトル平均（RA の 0/360 跨ぎに無縁＝japan と同じ）
+			const l = Math.hypot(vx, vy, vz) || 1;
+			names.push({ v: [vx / l, vy / l, vz / l], text: n.constellation(f.properties?.name) });
 		}
-		constVao = lineVao(new Float32Array(seg)).vao; constN = seg.length / 3; needsDraw = true;
-		console.log(`[constellation] ${constN / 2} segments loaded`);
+		for (const f of ms?.geojson?.features || []) {
+			const c = f.geometry.coordinates;
+			messier.push({ v: eqToEcl(c[0], c[1]), text: n.messierLabel(f.properties?.name || ""), kind: messierKind(f.properties?.type) });
+		}
+		constVao = lineVao(new Float32Array(seg)).vao; constN = seg.length / 3;
+		skyLab = { names, messier }; needsDraw = true;
+		console.log(`[constellation] ${constN / 2} segments, ${names.length} names, ${messier.length} Messier objects (${n.lang})`);
 	}).catch(e => { console.warn("[constellation] load failed", e); constLoad = null; });
 	return constLoad;
+}
+// 星座名とメシエ天体の 2D 注記：天球の向き v（黄道 J2000 単位ベクトル）を回転だけで投影（平行移動なし＝無限遠）。
+// 毎描画で消して描き直す（消灯時も消すだけ走る）＝88 文字列＋110 記号・1ms 未満
+const sky2d = document.getElementById("sky2d"), sctx = sky2d.getContext("2d");
+// screens＝天体の画面位置（frame の値）。天体の円盤の内側に落ちる注記は描かない＝線と星が天体の後ろに隠れるのと揃える
+function drawSky2d(dpr, screens) {
+	const w = canvas.clientWidth, h = canvas.clientHeight;
+	if (sky2d.width !== Math.round(w * dpr) || sky2d.height !== Math.round(h * dpr)) { sky2d.width = Math.round(w * dpr); sky2d.height = Math.round(h * dpr); }
+	sctx.setTransform(dpr, 0, 0, dpr, 0, 0); sctx.clearRect(0, 0, w, h);
+	if (!constOn || !skyLab) return;
+	const k = pxPerRad / dpr, [R, U, B] = viewR;
+	const discs = [];
+	for (const b of ALL) {
+		const sb = screens[b.id]; if (!sb || b.hidden) continue;
+		const r = b.radiusAU / sb.dist * k * (b.ring && !b.clamped ? b.ring.outer : 1);   // 土星は環の外縁まで
+		if (r > 3) discs.push([sb.x, sb.y, r + 4]);
+	}
+	const put = v => {
+		const z = B[0] * v[0] + B[1] * v[1] + B[2] * v[2];
+		if (z > -0.05) return null;   // 背後と視野の縁すれすれは描かない
+		const x = w / 2 + (R[0] * v[0] + R[1] * v[1] + R[2] * v[2]) / -z * k, y = h / 2 - (U[0] * v[0] + U[1] * v[1] + U[2] * v[2]) / -z * k;
+		if (x < -80 || x > w + 80 || y < -20 || y > h + 20) return null;
+		for (const [dx, dy, r] of discs) if (Math.hypot(x - dx, y - dy) < r) return null;
+		return [x, y];
+	};
+	sctx.textAlign = "center"; sctx.direction = isRTL() ? "rtl" : "ltr";
+	sctx.font = "11px system-ui, sans-serif"; sctx.fillStyle = "rgba(160, 200, 255, .55)";
+	for (const L of skyLab.names) { const p = put(L.v); if (p) sctx.fillText(L.text, p[0], p[1]); }
+	const sz = 4.5, P2 = Math.PI * 2;
+	sctx.lineWidth = 0.8; sctx.strokeStyle = "rgba(255, 200, 100, .6)"; sctx.fillStyle = "rgba(255, 220, 150, .55)"; sctx.font = "9px system-ui, sans-serif";
+	for (const M of skyLab.messier) {
+		const p = put(M.v); if (!p) continue;
+		const [x, y] = p;
+		sctx.beginPath();
+		if (M.kind === "globular") { sctx.arc(x, y, sz, 0, P2); sctx.moveTo(x - sz, y); sctx.lineTo(x + sz, y); sctx.moveTo(x, y - sz); sctx.lineTo(x, y + sz); sctx.stroke(); }
+		else if (M.kind === "galaxy") { sctx.ellipse(x, y, sz * 1.5, sz * 0.6, 0.4, 0, P2); sctx.stroke(); }
+		else if (M.kind === "open") { sctx.setLineDash([2, 2]); sctx.arc(x, y, sz, 0, P2); sctx.stroke(); sctx.setLineDash([]); }
+		else { sctx.rect(x - sz, y - sz, sz * 2, sz * 2); sctx.stroke(); }
+		sctx.fillText(M.text, x, y + sz + 10);
+	}
 }
 function setConst(on) {
 	constOn = on;
@@ -958,6 +1032,9 @@ function frame(now) {
 		gl.bindVertexArray(glowMesh); gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		gl.depthMask(true); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 	}
+
+	// 4b) 星座名・メシエ天体（2D の重ね絵）
+	drawSky2d(dpr, screens);
 
 	// 5) HTML ラベル（クリック＝訪問）。寄っている天体（画面の1/4超）は引っ込める。
 	//    全景の中心では内惑星のラベルが団子になる＝縦に押し下げて整列（BODIES順＝太陽から優先）。幅は実測（el._w）
