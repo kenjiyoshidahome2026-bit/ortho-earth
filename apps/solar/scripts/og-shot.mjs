@@ -21,7 +21,7 @@ try {
 	await send("Emulation.setDeviceMetricsOverride", { width: 1200, height: 630, deviceScaleFactor: 1, mobile: false });
 	await send("Page.navigate", { url });
 	await sleep(9000);
-	await send("Runtime.evaluate", { expression: `for (const id of ["bottom","hint","attr","exit","info","labels"]) document.getElementById(id).style.display="none"; window.dispatchEvent(new Event("resize"));` });
+	await send("Runtime.evaluate", { expression: `for (const c of ["bottom","hint","attr","stack","info","labels","title","scale"]) document.querySelector(".ortho-solar .os-" + c).style.display="none"; window.dispatchEvent(new Event("resize"));` });
 	await sleep(1500);
 	const shot = await send("Page.captureScreenshot", { format: "jpeg", quality: 88 });
 	fs.writeFileSync(out, Buffer.from(shot.data, "base64"));

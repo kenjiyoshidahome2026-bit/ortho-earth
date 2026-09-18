@@ -56,9 +56,12 @@ for (const f of jsFiles) {
 		if (v in ui) put(v, f);
 	}
 }
-const html = rd("index.html");
-for (const m of html.matchAll(/<([a-z0-9]+)\b[^>]*\sdata-t(?![\w-])[^>]*>([^<]*)</gi)) put(m[2].trim(), "index.html");
-for (const m of html.matchAll(/\stitle="([^"]*)"[^>]*\sdata-t-title(?![\w-])/gi)) put(m[1].replace(/&amp;/g, "&"), "index.html");
+// HTML の data-t / data-t-title：頁（index.html）と、部品の雛形（solar.js の MARKUP のようにコードの中に書いた HTML）の両方
+for (const f of ["index.html", ...jsFiles]) {
+	const html = rd(f);
+	for (const m of html.matchAll(/<([a-z0-9]+)\b[^>]*\sdata-t(?![\w-])[^>]*>([^<]*)</gi)) put(m[2].trim(), f);
+	for (const m of html.matchAll(/\stitle="([^"]*)"[^>]*\sdata-t-title(?![\w-])/gi)) put(m[1].replace(/&amp;/g, "&"), f);
+}
 
 let err = 0, warn = 0;
 const E = (why, rows = []) => { err++; console.error(`ERROR  ${why}`); for (const x of rows.slice(0, 25)) console.error("       " + x); };

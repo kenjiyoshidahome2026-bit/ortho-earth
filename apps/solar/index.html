@@ -22,111 +22,14 @@
 	<meta name="twitter:card" content="summary_large_image">
 	<link rel="canonical" href="https://www.ortho-earth.com/solar/">
 	<style>
-		/* 文言の原本は英語＝キー（訳は i18n/）。見た目は ortho-japan の計器盤の血筋＝rgba(16,24,44,.4)の板と#cdd6e6の文字 */
-		* { margin: 0; box-sizing: border-box; }
-		html, body { height: 100%; overflow: hidden; background: #05070f; }
-		body { font: 13px/1.5 system-ui, "Helvetica Neue", sans-serif; color: #cdd6e6; }
-		#c { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
-		#c:active { cursor: grabbing; }
-		#nogl { display: none; position: fixed; inset: 0; place-items: center; color: #cdd6e6; }
-		#title { position: fixed; top: 10px; inset-inline-start: 14px; pointer-events: none; text-shadow: 0 1px 4px #000; }
-		/* ロゴ・題字は明示白＝継承色に頼らない（Android自動テーマ等の強制配色で黒字化させない） */
-		#title h1 { font-size: 17px; font-weight: 600; letter-spacing: .04em; color: #fff; display: flex; align-items: center; gap: 7px; }
-		#title h1 svg { flex: 0 0 auto; filter: drop-shadow(0 1px 2px #000); }
-		#title p { font-size: 11.5px; opacity: .72; color: #cdd6e6; }
-		#info { position: fixed; top: 10px; inset-inline-end: 12px; display: flex; flex-direction: column; gap: 1px; padding: 7px 11px;
-			background: rgba(16,24,44,.42); border: 1px solid rgba(255,255,255,.14); border-radius: 9px;
-			backdrop-filter: blur(4px); text-align: end; pointer-events: none; }
-		#info b { font-size: 14px; }
-		#info span { font-size: 11px; opacity: .82; }
-		#labels { position: fixed; inset: 0; pointer-events: none; }
-		#sky2d { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-		/* 天体ラベル＝button（Tab で辿れる）。見た目は文字だけ＝下の button 一般則（板・枠・余白）を打ち消す */
-		.bl { position: absolute; top: 0; left: 0; font: 11px/1.5 system-ui, "Helvetica Neue", sans-serif; letter-spacing: .05em; cursor: pointer;
-			background: none; border: 0; padding: 0; border-radius: 3px; white-space: nowrap;
-			pointer-events: auto; text-shadow: 0 1px 3px #000, 0 0 6px rgba(0,0,0,.8); will-change: transform; }
-		.bl.bl:hover { text-decoration: underline; background: none; }
-		:focus-visible { outline: 2px solid rgba(150,180,255,.9); outline-offset: 2px; }
-		#bottom { position: fixed; left: 0; right: 0; bottom: calc(8px + env(safe-area-inset-bottom, 0px));
-			display: flex; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
-		#chips, #timebar { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; justify-content: center;
-			padding: 5px 8px; background: rgba(16,24,44,.42); border: 1px solid rgba(255,255,255,.14);
-			border-radius: 10px; backdrop-filter: blur(4px); pointer-events: auto; max-width: min(96vw, 780px); }
-		button { font: 11.5px/1 system-ui, sans-serif; color: #cdd6e6; background: rgba(255,255,255,.06);
-			border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 5px 9px; cursor: pointer; }
-		button:hover { background: rgba(255,255,255,.14); }
-		#chips button.on { background: rgba(120,160,255,.28); border-color: rgba(150,180,255,.55); }
-		#timebar input[type=datetime-local] { font: 12px/1 system-ui, sans-serif; color: #cdd6e6;
-			background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); border-radius: 7px; padding: 4px 6px;
-			color-scheme: dark; }
-		#transport { display: flex; gap: 4px; }
-		#speed { min-width: 74px; text-align: center; font-size: 11.5px; opacity: .9; }
-		/* 左上の縦並び：星座（常設）→ 戻る（呼び出し元が ?back= を渡した時だけ＝単体では出ない）。上から詰める */
-		#exit { position: fixed; top: 94px; inset-inline-start: 14px; display: flex; align-items: center; gap: 4px; }
-		#exit[hidden] { display: none; }
-		/* 矢印は文字でなく向き＝RTL では左右を返す（文言側に ← を持ち込まない＝訳が矢印を抱えない） */
-		#exit i { font-style: normal; }
-		#const-btn { position: fixed; top: 60px; inset-inline-start: 14px; }
-		#const-btn.on { background: rgba(120,160,255,.28); border-color: rgba(150,180,255,.55); }   /* 点灯＝天体チップの選択中と同じ意匠 */
-		:root[dir="rtl"] #exit i { transform: scaleX(-1); display: inline-block; }
-		/* 距離スケール＝ortho-earth（quiet-mono #scale）と同じ物差し：1-2-5 刻み・両端ティック・太い下線。下段（チップ＋時間バー）の上・中央。
-		   縮尺は「焦点天体の距離で」＝遠近のある 3D なので、物差しが正しいのは画面中央の天体の奥行きだけ */
-		#scale { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--bottomH, 100px) + 16px + env(safe-area-inset-bottom, 0px));
-			text-align: center; font: 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; color: rgba(225, 232, 242, .9); pointer-events: none; }
-		#scale-txt { display: block; margin-bottom: -2px; white-space: nowrap; text-shadow: 0 0 3px rgba(0, 0, 0, .85); }
-		#scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
-			border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
-		#hint { position: fixed; inset-inline-start: 14px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px;
-			opacity: .5; pointer-events: none; }
-		#attr { position: fixed; inset-inline-end: 12px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10px;
-			opacity: .55; text-align: end; }
-		#attr a { color: inherit; }
-		/* 訳が載るまで文言を伏せる（英語→訳のちらつき除け）。en は同じ tick で外れる＝一瞬も隠れない */
-		:root:not(.i18n-ready) #title, :root:not(.i18n-ready) #exit, :root:not(.i18n-ready) #const-btn, :root:not(.i18n-ready) #bottom,
-		:root:not(.i18n-ready) #hint, :root:not(.i18n-ready) #attr { visibility: hidden; }
-		/* 縦画面＝情報パネルを下段の上へ。下段の高さは言語で変わる（長い天体名はチップが3段に折れる）＝
-		   固定値でなく実測（main.js が --bottomH を書く）。変数が無い時の 108px は英語2段の見立て */
-		@media (max-width: 720px) { #hint { display: none; } #attr { display: none; }
-			#scale { left: auto; transform: none; inset-inline-start: 14px; text-align: start; }   /* 情報パネルが下段右の上に来る＝物差しは左へ */
-			#scale-bar { margin: 0; }
-			#info { top: auto; bottom: calc(var(--bottomH, 100px) + 8px); } }
+		/* 頁の殻：部品（solar.js・.ortho-solar）を画面いっぱいに置くだけ。見た目は部品が自前で持つ */
+		html, body { height: 100%; margin: 0; overflow: hidden; background: #05070f; }
+		#app { position: fixed; inset: 0; }
 	</style>
 </head>
 <body>
-	<!-- 文言は英語が原本＝この HTML に書いてある英語がそのまま辞書のキー（data-t＝本文・data-t-title＝ツールチップ）。
-	     訳は i18n/ui.json（26 言語）→ i18n/lang/<code>.json。言語は ?lang=xx 明示 or ブラウザ既定。?lang=en で英語に固定。 -->
-	<canvas id="c"></canvas>
-	<canvas id="sky2d" aria-hidden="true"></canvas><!-- 星座名・メシエ天体の注記（main.js drawSky2d）＝GL の上・天体ラベルの下 -->
-	<div id="nogl" data-t>This page needs WebGL2.</div>
-	<div id="title">
-		<!-- ロゴ＝いつもの球儀マーク（favicon と同意匠）。ただし白固定＝favicon の light 用 media query（黒化）は持ち込まない -->
-		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg><span data-t>The Solar System</span></h1>
-		<p data-t>Heliocentric — real scale, real time</p>
-	</div>
-	<button id="const-btn" title="Show / hide constellations and Messier objects (C)" data-t-title aria-pressed="false"><span data-t>Constellations</span></button>
-	<button id="exit" hidden title="Go back to the page you came from" data-t-title><i aria-hidden="true">←</i><span data-t>Back</span></button>
-	<div id="labels"></div>
-	<div id="info"></div>
-	<div id="bottom">
-		<div id="chips"></div>
-		<div id="timebar">
-			<!-- 再生の三つ組は RTL でも鏡像にしない（dir="ltr"）＝◀◀ は常に左・▶▶ は常に右。記号の向きは言語で変わらない
-			     （時間の矢の図像は万国共通）＝並びだけ返すと「右の ◀◀ が戻る」のねじれになる。Material の「再生操作はミラーしない」と同じ -->
-			<span id="transport" dir="ltr">
-			<button id="slower" title="Slower — keep pressing to run time backwards" data-t-title>◀◀</button>
-			<!-- ⏸(U+23F8) は Apple 系で絵文字表示になり字面が浮く＝図形の ❚❚(U+275A×2) へ。main.js の setSpeed と対 -->
-			<button id="play" title="Play / pause" data-t-title>❚❚</button>
-			<button id="faster" title="Faster" data-t-title>▶▶</button>
-			</span>
-			<span id="speed" data-t>Real time</span><!-- 初期表示＝setSpeed は URL に s= が無いと呼ばれない＝ここが起動時の唯一の出所 -->
-			<input id="dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date &amp; time (valid 1800–2050)" data-t-title>
-			<button id="now" title="Back to the present" data-t-title><span data-t>Now</span></button>
-		</div>
-	</div>
-	<div id="scale"><span id="scale-txt"></span><div id="scale-bar"></div></div>
-	<div id="hint" data-t>Drag to orbit · Scroll to zoom · Click a world to visit it</div>
-	<div id="attr"><span data-t>Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-t>Pluto</span>: NASA/JHUAPL/SwRI<br>
-		<span data-t>Stars</span>: d3-celestial · <span data-t>Ephemeris</span>: <span data-t>JPL approximate elements</span> · © 2026 Kenji Yoshida</div>
+	<!-- 中身は部品（solar.js の createSolar）が #app の中に組む＝この頁は殻（URL を読んで置くだけ・main.js） -->
+	<div id="app"></div>
 	<script type="module" src="./main.js"></script>
 </body>
 </html>

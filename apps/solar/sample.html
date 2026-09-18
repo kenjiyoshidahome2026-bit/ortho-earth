@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>ortho-solar — component sample</title>
+	<style>
+		/* 開発用のサンプル台（本番には出さない＝vite の入力は index.html だけ）。部品を枠の中に置き、作る・壊す・作り直すを試す */
+		body { margin: 0; padding: 16px; font: 13px/1.5 system-ui, sans-serif; background: #e9ecf1; color: #1c2230; }
+		.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+		.frame { width: min(100%, 900px); height: 520px; border: 1px solid #9aa3b5; border-radius: 8px; overflow: hidden; background: #fff; }
+		pre { margin-top: 10px; font-size: 12px; max-height: 160px; overflow: auto; background: #fff; padding: 8px; border-radius: 6px; }
+	</style>
+</head>
+<body>
+	<div class="bar">
+		<button id="create">create</button>
+		<button id="destroy">destroy</button>
+		<button id="cycle">create → destroy × 10</button>
+		<button id="moon">flyTo("moon")</button>
+		<input id="note" placeholder="the page's own input (keys stay here)">
+	</div>
+	<div class="frame" id="slot"></div>
+	<pre id="log"></pre>
+	<script type="module">
+		import { createSolar } from "./solar.js";
+		const slot = document.getElementById("slot"), logEl = document.getElementById("log");
+		const log = s => { logEl.textContent = `${new Date().toISOString().slice(11, 19)}  ${s}\n` + logEl.textContent; };
+		let app = null;
+		async function create() {
+			if (app) return;
+			app = await createSolar({ target: slot, view: "f=saturn&d=0.03&yaw=-40&pit=25&s=0&t=2026-09-18T03:00Z" });
+			// 持ち主のボタン＝戻る・保存などを外から足す例
+			app.addButton({ text: "Close", title: "destroy this component", arrow: true, onClick: destroy });
+			app.on("view", v => log("view " + v));
+			log("created");
+		}
+		function destroy() { if (!app) return; app.destroy(); app = null; log("destroyed"); }
+		document.getElementById("create").onclick = create;
+		document.getElementById("destroy").onclick = destroy;
+		document.getElementById("moon").onclick = () => app?.flyTo("moon");
+		document.getElementById("cycle").onclick = async () => { for (let i = 0; i < 10; i++) { await create(); destroy(); } await create(); log("cycled 10×"); };
+		window.__sample = { create, destroy, get app() { return app; } };   // 検証台（CDP）用
+		create();
+	</script>
+</body>
+</html>
