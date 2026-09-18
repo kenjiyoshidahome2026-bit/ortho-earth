@@ -37,6 +37,8 @@
 	color: #cdd6e6;
 	user-select: none;
 }
+/* 部品の「×」＝ツールバーの右端（区切りで間を空けて最後に置く＝ツールと見間違えない） */
+#ge-toolbar .ge-close { margin-inline-start: 10px; }
 #ge-toolbar[hidden] { display: none; }
 #ge-toolbar button {
 	all: unset;

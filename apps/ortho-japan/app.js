@@ -57,7 +57,8 @@ import { japan as japanGadget } from "./gadgets/japan.js";
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
-import { edit as editGadget } from "./gadgets/edit.js";   // 編集ボタン（本体は gadgets/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
+import { edit as editGadget } from "./gadgets/edit.js";
+import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は gadgets/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
@@ -2320,7 +2321,10 @@ const INTAKE = [
 
 // 落とされた/URL で渡された1件を載せる。表で振り分け→（変換行なら）GeoPBF 本道。
 // 本道＝geopbf(gint 焼き) → @スタイル付きなら anno（canvas2D 再生）／それ以外は gint スロット → bbox へ fit。
-const loadUserFile = async file => {
+// fit＝読んだ図形へ寄る（ドロップ/?g=）。編集から戻した図形・起動時の復元は寄らない（今の視点のまま置き換える）。
+// editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
+let editDocHook = null;
+const loadUserFile = async (file, { fit = true } = {}) => {
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file)) continue;
 		if (fmt.draw) return fmt.draw(file);
@@ -2338,8 +2342,9 @@ const loadUserFile = async file => {
 		annoCtl?.clear();
 		gint.applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
 	}
+	editDocHook?.(pbf, file.name);
 	const bb = pbf.unPackGint.bbox;
-	if (bb && bb.length === 4) {
+	if (fit && bb && bb.length === 4) {
 		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
 		// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
@@ -2349,13 +2354,33 @@ const loadUserFile = async file => {
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, ...opts }));   // 搭載中はドロップをエディタが所有（dropFile は譲る）
 });
-map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
-	return editGadget.call(this, { mount: () => map.gadget.geoedit(), signal: ac.signal, ...opts });
+map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を部品として搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
+	// 編集中の図形（2026-09-19 本人裁定）：japan は図形を一つ持つ（初めは空）。ドロップ/?g= で読んだもの・編集から戻したものがそれ＝
+	// 専用の置き場（editdoc＝単独 geoedit の自動保存とは別）へ保存し、次に開いた時も続きから。編集＝geoedit に渡して部品として開き、
+	// 右端の「×」（かこのボタン）で結果を受け取り置き換える。?g= で開いた時は ?g= が勝つ（前回分は復元しない＝上書きされる）
+	let doc = null;   // { buf: GeoPBF の ArrayBuffer, name（.geopbf） }
+	const asGeopbf = name => String(name || "edit").replace(/\.[^./]+$/, "") + ".geopbf";   // 中身は GeoPBF＝拡張子で変換を誤らせない
+	editDocHook = (pbf, name) => {
+		if (!pbf) { doc = null; editDocClear(); return; }
+		doc = { buf: pbf.arrayBuffer.slice(0), name: asGeopbf(name) };
+		editDocSave(doc.buf, doc.name);
+	};
+	if (!new URLSearchParams(location.search).get("g")) editDocLoad().then(rec => {
+		if (rec?.buf && !doc) loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false });
+	});
+	return editGadget.call(this, {
+		mount: ({ onClose }) => { annoCtl?.clear(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
+		onResult: async buf => {
+			if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false });
+			else { annoCtl?.clear(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
+		},
+		signal: ac.signal, ...opts,
+	});
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
 	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）

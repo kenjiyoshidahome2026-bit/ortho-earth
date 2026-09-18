@@ -39,7 +39,10 @@ const Q = new URLSearchParams(location.search);
 const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
 const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
-export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+export function initEditor(map, { adopt = true, setDropOwner = null, persist = true, data, onClose = null } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+	// 部品として開く（2026-09-19 本人裁定）：持ち主（japan の編集ボタン）が data＝編集中の図形（GeoPBF の ArrayBuffer・空なら null）を渡し、
+	// onClose＝ツールバー右端の「×」。× が押されたら持ち主が editor.result() で結果を受け取り、自分の図形を置き換えて destroy する。
+	// persist:false＝単独起動の自動保存（IDB geoedit/session "last"）を読みも書きもしない＝部品の編集が単独の「前回の続き」に混ざらない
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
 	if (!document.getElementById("ge-css")) { const st = document.createElement("style"); st.id = "ge-css"; st.textContent = css; document.head.append(st); }
@@ -164,7 +167,8 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			overlay.redraw();
 		}
 		popLayer.sync();   // 確定後のアンカーで @pop 箱を再生（ドラッグで隠していた箱を新位置に戻す・削除分を掃く）
-		if (layer.saveBuffer) idbSave({ buf: layer.saveBuffer, gridExp, view: map.view?.hash, t: Date.now() });   // 保存＝制御点のまま（@splineの表示細分を保存しない＝再読込の多重細分封じ）
+		if (!persist) {}   // 部品＝保存は持ち主の仕事（× で result() を渡す）
+		else if (layer.saveBuffer) idbSave({ buf: layer.saveBuffer, gridExp, view: map.view?.hash, t: Date.now() });   // 保存＝制御点のまま（@splineの表示細分を保存しない＝再読込の多重細分封じ）
 		else if (!st.model.feats.size && st.editGen !== loadGen) idbClear();   // 編集で空になった＝空も「今の姿」＝前回分を残さない（再読込で削除前が復活する穴）。起動時の空セッション（復元を断った直後）は前回分を温存
 	}
 
@@ -472,13 +476,14 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
 		}, toast),
+		close: onClose,   // 部品＝右端の「×」（持ち主へ戻る）。単独起動は null＝出さない
 		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
 		clearAll: async () => {
 			if (!st.model?.feats.size) return toast(t("Nothing to clear"));
 			await flushCommit();   // デバウンス待ちの編集も控えに含める
 			const keep = layer.saveBuffer ? layer.saveBuffer.slice(0) : (await getPbf())?.arrayBuffer?.slice(0);   // 大規模モード＝自動保存が無いので書き出しの口から
 			const grid = gridExp;
-			await idbClear();
+			if (persist) await idbClear();
 			await loadFC({ type: "FeatureCollection", features: [] });
 			banner(t("Everything cleared"), t("Undo"), () => { gridExp = grid; if (keep) loadBuffer(keep, { fly: false, stripEid: true }); });
 		},
@@ -517,22 +522,32 @@ export function initEditor(map, { adopt = true, setDropOwner = null } = {}) {   
 	// 前回分があれば黙って復元し、左下バナーで告知＋「新規で始める」を添える（起動のたびに confirm() で答えを迫らない＝本人裁定 9/4）。
 	const startEmpty = async () => { await loadFC({ type: "FeatureCollection", features: [] }); toast(t("Drop a GIS file, or start drawing with the tools")); };
 	(async () => {
+		if (data !== undefined) {   // 部品＝持ち主が渡した図形で始める（ビューアの取り込み・前回分の復元はしない）
+			if (data?.byteLength) await loadBuffer(data.slice(0), { stripEid: true }); else startEmpty();
+			return;
+		}
 		const viewer = adopt ? map.userPbf?.() : null;   // ビューアで開いているデータ（ドロップ/?g=）＝そのまま編集へ（自動保存より優先＝「見ている物を編む」）
 		if (viewer) {
 			if (viewer.size >= LARGE_BYTES) await loadLarge(viewer); else await loadBuffer(viewer.arrayBuffer.slice(0), { stripEid: true });   // 自分の焼き（__eid 入り）を拾い直す場合もある＝剥がす（他人のデータには無害）
 			banner(t("Opened the data shown in the viewer for editing"), null, null);
 			return;
 		}
-		const rec = await idbLoad();
+		const rec = persist ? await idbLoad() : null;
 		if (!rec?.buf) return startEmpty();
 		gridExp = rec.gridExp ?? 6;
 		if (rec.view) location.hash = rec.view;
 		await loadBuffer(rec.buf, { fly: !rec.view, stripEid: true });   // コミット由来の__eidは剥がす
 		const when = rec.t ? new Date(rec.t).toLocaleString(undefined, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
-		banner(t("Previous session restored") + (when ? `（${when}）` : ""), t("Start fresh"), async () => { await idbClear(); startEmpty(); });
+		banner(t("Previous session restored") + (when ? `（${when}）` : ""), t("Start fresh"), async () => { if (persist) await idbClear(); startEmpty(); });
 	})();
 
 	return {
+		// 結果＝今の図形（GeoPBF の ArrayBuffer・空なら null）。待ちの編集を着地させてから。制御点のまま（@spline の表示細分を含めない＝再編集で多重細分しない）
+		async result() {
+			await flushCommit();
+			if (!st.model?.feats.size) return null;
+			return layer.saveBuffer ? layer.saveBuffer.slice(0) : (await getPbf())?.arrayBuffer?.slice(0) ?? null;   // 大規模モード＝書き出しの口から
+		},
 		destroy() {
 			ac.abort(); map.setEditClick(null); overlay.destroy(); popLayer.destroy(); clearTimeout(commitTimer); clearTimeout(rebuildTimer); tip.hide(); rpc.terminate(); unsubConfirm();
 			confirmBar.remove(); toolbarEl.remove(); props.close(); mapEl.querySelectorAll(".ge-panel, .ge-toast, .ge-banner").forEach(el => el.remove());
