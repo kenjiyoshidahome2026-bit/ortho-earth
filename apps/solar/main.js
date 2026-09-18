@@ -570,24 +570,34 @@ let lastUi = 0, uiDirty = true, dtShown = "";
 function uiTick(now, date) {
 	if (!uiDirty && now - lastUi < 250) return;
 	lastUi = now; uiDirty = false;
+	if (speedL !== 0 && now - hashAt > 1000) { hashAt = now; writeHash(); }   // 先に刻む＝250ms 拍の度に debounce を巻き戻さない   // 再生中も URL の t を追わせる＝いつコピーしても今の場面
 	const v = fmtLocal(simTime);
 	if (!dtEditing && v !== dtShown) dtEl.value = dtShown = v;
 	updateInfo(date);
 }
 
-// ---- URL ⇄ 状態（applyView 一本の流儀：読み＝起動時1回・書き＝操作後debounce） ----
-let hashTimer = null;
+// ---- URL ⇄ 状態（applyView 一本の流儀：読み＝起動時＋貼り替え（hashchange）・書き＝操作後debounce＋再生中は 1 秒ごと） ----
+// t＝UTC（末尾 Z）。旧版はタイムゾーン無しのローカル時刻＝別の時間帯で開くと場面がずれた（東京→オランダで 7〜8 時間）。
+// Z の無い旧リンクは従来どおりローカル時刻として読む（new Date の規則）。
+// 実時間で「今」を見ている時は t を書かない＝後で開いても「今」から始まる生きたリンク（日時を固定したい時は止めて共有）
+const LIVE_MS = 60e3;
+const isLive = () => speedL === 1 && Math.abs(simTime - Date.now()) < LIVE_MS;
+const fmtUTC = ms => { const iso = new Date(ms).toISOString(); return iso.slice(17, 19) === "00" ? iso.slice(0, 16) + "Z" : iso.slice(0, 19) + "Z"; };
+let hashTimer = null, hashWritten = "", hashAt = 0;
 function writeHash() {
 	clearTimeout(hashTimer);
 	hashTimer = setTimeout(() => {
-		const p = new URLSearchParams({ t: fmtLocal(simTime), f: cam.focus, d: cam.dist.toPrecision(4),
+		const p = new URLSearchParams({ f: cam.focus, d: cam.dist.toPrecision(4),
 			yaw: (cam.yaw / D2R).toFixed(1), pit: (cam.pitch / D2R).toFixed(1), s: String(speedL) });
-		history.replaceState(null, "", "#" + p.toString());
+		if (!isLive()) p.set("t", fmtUTC(simTime));
+		hashWritten = "#" + p.toString().replace(/%3A/g, ":"); hashAt = performance.now();   // フラグメントの ':' は素のままで合法＝人が読める日時に
+		history.replaceState(null, "", hashWritten);
 	}, 300);
 }
-(function readHash() {
+function readHash() {
 	const p = new URLSearchParams(location.hash.slice(1));
 	if (p.get("t")) { const t = new Date(p.get("t")).getTime(); if (Number.isFinite(t)) simTime = Math.min(T_MAX, Math.max(T_MIN, t)); }
+	else if (p.get("s") === "1") simTime = Date.now();   // 生きたリンク（t 無し＋実時間）＝開いた瞬間の「今」
 	if (p.get("f") && any[p.get("f")]) cam.focus = p.get("f");
 	if (p.get("d")) cam.dist = Math.max(1e-6, +p.get("d") || OVERVIEW_DIST);
 	if (p.get("yaw")) cam.yaw = +p.get("yaw") * D2R;
@@ -595,7 +605,12 @@ function writeHash() {
 	if (p.get("s") !== null && p.get("s") !== "") setSpeed(+p.get("s"));
 	const chipId = satById[cam.focus] ? satById[cam.focus].parent : cam.focus;
 	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
-})();
+	flight = null; uiDirty = true;
+}
+readHash();
+// 同じタブで URL を貼り替えた時（replaceState は hashchange を起こさない＝自分の書き込みでは走らない）。
+// needsDraw は下（描画の節）で宣言＝起動時の readHash から触ると TDZ で落ちる＝ここで立てる
+window.addEventListener("hashchange", () => { if (location.hash !== hashWritten) { readHash(); needsDraw = true; } });
 
 // ---- 入力：1本指/マウス=周回・ホイール=対数ドリー・2本指=ピンチ（重心で周回＋間隔でドリー）・タップ=天体訪問 ----
 // 指は Map で1本ずつ独立に追う（ortho-japan の input.js と同じ裁き）。旧実装は pointermove が届くたびに
