@@ -63,6 +63,13 @@
 		/* 矢印は文字でなく向き＝RTL では左右を返す（文言側に ← を持ち込まない＝訳が矢印を抱えない） */
 		#exit i { font-style: normal; }
 		:root[dir="rtl"] #exit i { transform: scaleX(-1); display: inline-block; }
+		/* 距離スケール＝ortho-earth（quiet-mono #scale）と同じ物差し：1-2-5 刻み・両端ティック・太い下線。下段（チップ＋時間バー）の上・中央。
+		   縮尺は「焦点天体の距離で」＝遠近のある 3D なので、物差しが正しいのは画面中央の天体の奥行きだけ */
+		#scale { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(var(--bottomH, 100px) + 16px + env(safe-area-inset-bottom, 0px));
+			text-align: center; font: 12px system-ui, sans-serif; font-variant-numeric: tabular-nums; color: rgba(225, 232, 242, .9); pointer-events: none; }
+		#scale-txt { display: block; margin-bottom: -2px; white-space: nowrap; text-shadow: 0 0 3px rgba(0, 0, 0, .85); }
+		#scale-bar { margin: 0 auto; height: 12px; box-sizing: border-box;
+			border-left: 1px solid currentColor; border-right: 1px solid currentColor; border-bottom: 3px solid currentColor; }
 		#hint { position: fixed; inset-inline-start: 14px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10.5px;
 			opacity: .5; pointer-events: none; }
 		#attr { position: fixed; inset-inline-end: 12px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); font-size: 10px;
@@ -74,6 +81,8 @@
 		/* 縦画面＝情報パネルを下段の上へ。下段の高さは言語で変わる（長い天体名はチップが3段に折れる）＝
 		   固定値でなく実測（main.js が --bottomH を書く）。変数が無い時の 108px は英語2段の見立て */
 		@media (max-width: 720px) { #hint { display: none; } #attr { display: none; }
+			#scale { left: auto; transform: none; inset-inline-start: 14px; text-align: start; }   /* 情報パネルが下段右の上に来る＝物差しは左へ */
+			#scale-bar { margin: 0; }
 			#info { top: auto; bottom: calc(var(--bottomH, 100px) + 8px); } }
 	</style>
 </head>
@@ -102,6 +111,7 @@
 			<button id="now" title="Back to the present" data-t-title><span data-t>Now</span></button>
 		</div>
 	</div>
+	<div id="scale"><span id="scale-txt"></span><div id="scale-bar"></div></div>
 	<div id="hint" data-t>Drag to orbit · Scroll to zoom · Click a world to visit it</div>
 	<div id="attr"><span data-t>Textures</span>: <a href="https://www.solarsystemscope.com/textures/" target="_blank" rel="noopener">Solar System Scope</a> (CC BY 4.0) · <span data-t>Pluto</span>: NASA/JHUAPL/SwRI<br>
 		<span data-t>Stars</span>: d3-celestial · <span data-t>Ephemeris</span>: <span data-t>JPL approximate elements</span> · © 2026 Kenji Yoshida</div>
