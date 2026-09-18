@@ -8,6 +8,7 @@ import { simplified } from "./extension/simplify.js";
 import { unPackGintBuffer, attachLazyStreams } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
+import { runInWorker } from "./modules/workerPool.js";
 
 GeoPBF.setProperty('concatinate', { value: concatinate, configurable: false, enumerable: false });
 
@@ -57,12 +58,11 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 		payload = this._gintBuffer = buf.slice(0);   // 自前コピーを保持（呼び出し元の buf と縁を切る＝IDB put 等は従来通り）
 	}
 	if (GeoPBF._gintWorkerFactory || GeoPBF._gintWorkerUrl) {
-		this.unPackGint = await new Promise((resolve, reject) => {
-			const w = GeoPBF._gintWorkerFactory ? GeoPBF._gintWorkerFactory() : new Worker(GeoPBF._gintWorkerUrl, { type: "module" });
-			w.onmessage = e => { w.terminate(); resolve(attachLazyStreams(e.data)); };   // Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝掛け直す
-			w.onerror  = e => { w.terminate(); reject(e); };
-			w.postMessage({ sab: payload });   // AB の場合は structured clone（unpack は内部でコピーする設計＝どちらでも正しい）
-		});
+		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）。
+		// postMessage は AB の場合 structured clone（unpack は内部でコピーする設計＝どちらでも正しい）。
+		// Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝受け側で attachLazyStreams を掛け直す
+		const factory = GeoPBF._gintWorkerFactory || (() => new Worker(GeoPBF._gintWorkerUrl, { type: "module" }));
+		this.unPackGint = attachLazyStreams(await runInWorker("decoder:gint", factory, { sab: payload }));
 	} else {
 		this.unPackGint = unPackGintBuffer(payload);
 	}

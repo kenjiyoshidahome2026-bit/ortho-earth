@@ -31,7 +31,7 @@ const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom
 
 // bucket 基盤は頁で一度（部品を何度作り直しても 1 回）
 let geopbfReady = false;
-const ensureGeopbf = () => { if (!geopbfReady) { createGeopbf(API, { bucket: nativeBucket }); geopbfReady = true; } };
+const ensureGeopbf = () => { if (!geopbfReady) { createGeopbf(API, { bucket: nativeBucket, prewarm: true }); geopbfReady = true; } };   // prewarm＝復号レーンを先に起こす（起動直後に 4 層を必ず解く＝立ち上げを DB/IDB 待ちと重ねる）
 const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : d; };
 
 // target＝置き場（要素か CSS セレクタ・大きさは持ち主が決める）。lang＝UI と地名の言語（省略＝params の lang → ブラウザ）。
