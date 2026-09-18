@@ -37,7 +37,7 @@
        各ボタンのブロックは固有の状態（.on/.busy/初期display等）だけを書く。
        この節は全ブロックより前置＝固有の上書きが同格後勝ちで自然に効く。 --- */
 #hint-btn, #plateau-btn, #palette-btn, #qr-btn, #demo-btn, #reset, #full, #cpos-btn,
-#measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn, #sats-btn {
+#measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn, #sats-btn, .qm-panel-btn {
 	width: 34px; height: 34px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 	display: flex; align-items: center; justify-content: center;
@@ -230,7 +230,8 @@
 	:is(svg, svg *):is([fill="#3f4757"], [fill="#2b3b57"]) { fill: rgba(222, 230, 242, .95); }
 	:is(svg, svg *)[stroke="#9aa0ac"] { stroke: rgba(150, 162, 180, .88); }
 	#cpos-btn.on svg { stroke: #fff; }   /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */
-	#layers-btn.on svg path { stroke: #3f4757; }   /* 表示パネルは開=明パネル+墨菱形＝夜の明インク化より詳細度で勝たせる再掲 */
+	#layers-btn.on svg path, .qm-panel-btn.on svg path { stroke: #3f4757; }   /* 表示パネルは開=明パネル+墨菱形＝夜の明インク化より詳細度で勝たせる再掲 */
+	.qm-panel-btn.on svg rect { fill: #3f4757; }   /* 塗りの記号（主題＝凡例の帯）も同じ極性で墨へ */
 	/* 住所入力：入力欄も黒硝子＝開いた虫めがね（明インク）がそのまま生きる。読む物ではあるが地図の上に
 	   浮く一行の道具＝夜の額装に合わせる（候補リストは白ソリッドのまま＝腰を据えて読む物） */
 	#search #search-in {
@@ -257,7 +258,9 @@
 
 /* --- テーマ・チップ：静かな土台に主題だけ"点火"する最小トグル（右上縦一列＝繋げて一本のカプセル。
        角丸は列の外周＝上端・下端だけ、間の境界線は隣と共有） --- */
-#chips {
+/* .qm-chips＝同じ「1 アイコン＋右へ開くパネル」をもう一組作るための口（apps/equal の主題＝コロプレス）。
+   家具の語彙を増やさない＝#chips と同じ意匠をそのまま名前だけ増やす（2026-09-18） */
+#chips, .qm-chips {
 	position: relative;   /* 左上 #gadgets スタックの子（2026-09-02 パネル左移設）。パネルは右へ開く＝検索と同じ Netflix式 */
 	.chip {
 		font: 13px/1 var(--qm-font); padding: 9px 16px; border: 1px solid var(--qm-border);
@@ -278,7 +281,7 @@
 	}
 	/* パネル化（2026-09-02）：常時チップ帯 → 1アイコンで開閉。#layers-btn＝#palette-btn と同格の34px角ガラス。
 	   パネルの中身は従来の .chip 意匠そのまま（縦積み・隣接ボーダー重ね）＝家具の語彙を増やさない */
-	#layers-btn {
+	#layers-btn, .qm-panel-btn {
 		/* 塗り（地色・照り・縁・hover）はここに書かない：#chips 入れ子＝id2つの特異度が共通ガラス規格
 		   （末尾のボタン一覧＝id1つ）に勝ってしまい、オフ地だけ白パネルになった実測 2026-09-02（本人指摘
 		   「z>5のオフの色がおかしい」）。寸法と .on 反転だけ持ち、待機の見た目は隣のボタン群と同じ出所に委ねる */
@@ -289,9 +292,9 @@
 			background-image: none;   /* 共通規格の硝子照りも消す＝明パネルを濁らせない */
 			svg path { stroke: #3f4757; } }
 	}
-	#layers-panel { position: absolute; inset-inline-start: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
-	#layers-panel[hidden] { display: none; }
-	#layers-panel .chip { text-align: center; }
+	#layers-panel, .qm-panel { position: absolute; inset-inline-start: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
+	#layers-panel[hidden], .qm-panel[hidden] { display: none; }
+	#layers-panel .chip, .qm-panel .chip { text-align: center; }
 	/* テーマ列＝紙色スウォッチ＋名前の小ボタン（本命のライブ見本は palette ガジェットの領分＝ここは即決の入口）。
 	   .lp-stack＝同じ佇まいの縦スタックを他の用途にも（apps/equal の主題＝コロプレス列）＝部品を二度書かない */
 	#theme-row, .lp-stack {
@@ -744,7 +747,7 @@
        ここは質感だけを後勝ちで上書きする（同格の宣言はファイル順＝この節が勝つ）。
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
-#hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full, #layers-btn,
+#hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full, #layers-btn, .qm-panel-btn,
 #cpos-btn, #measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn, #edit-btn, #stac-btn, #sats-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);

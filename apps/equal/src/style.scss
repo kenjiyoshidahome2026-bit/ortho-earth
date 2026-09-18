@@ -13,20 +13,20 @@
 #map[dir="rtl"] .eq-host-btn .eq-arrow { transform: scaleX(-1); }
 
 /* 不透明度の行＝ui-dark の計器（#pos/#attr）と同じ下地＝地図の上でも読める */
-#layers-panel .eq-row {
+.qm-panel .eq-row, #layers-panel .eq-row {
 	display: flex; gap: 8px; align-items: center; margin-top: 6px; padding: 6px 9px; font-size: 11px;
 	color: rgba(225, 232, 242, .92); background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim);
 	backdrop-filter: var(--qm-glass-frost); border: 1px solid rgba(255, 255, 255, .22); border-radius: 5px;
 	span { white-space: nowrap; min-width: 6.5em; }
 	input[type=range] { flex: 1; min-width: 0; accent-color: #cdd6e6; }
 }
-#layers-panel { max-height: calc(100cqh - 20px); overflow-y: auto; }   /* 部品の高さ（コンテナ）で測る＝頁の高さ（100vh）ではない */
+#layers-panel, .qm-panel { max-height: calc(100cqh - 20px); overflow-y: auto; }   /* 部品の高さ（コンテナ）で測る＝頁の高さ（100vh）ではない */
 /* 主題（コロプレス）列＝配色テーマ列と同じ佇まい（quiet-mono .lp-stack）。二つの軸を並べるので間を空ける */
 #choro-row { margin-top: 4px; }
 /* パネル内の小見出し＝「配色（地図の顔）」と「主題図（データの塗り分け）」の二つの軸を目で分ける。
    下地は .eq-row と同じ黒硝子＝明るいテーマ列（.lp-theme は明パネル）の上でも地図の上でも読める
    （明色の文字だけ置くと明パネルに溶けて消える＝実測で一度やった） */
-#layers-panel .eq-head {
+.qm-panel .eq-head, #layers-panel .eq-head {
 	margin-top: 8px; padding: 4px 9px; font-size: 10px; font-weight: 600; letter-spacing: .06em;
 	color: rgba(225, 232, 242, .92); background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim);
 	backdrop-filter: var(--qm-glass-frost); border: 1px solid rgba(255, 255, 255, .22); border-radius: 5px;
@@ -41,7 +41,7 @@
 
 #choro-row .eq-choro .sw.eq-csv { background: linear-gradient(180deg, #f5f2f8 0 33%, #a38bc3 33% 66%, #4a2e70 66%); }
 #choro-row .eq-choro .eq-csv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
-#layers-panel .eq-select { flex: 1; min-width: 0; font: 11px var(--qm-font); color: #2b3b57; background: rgba(255, 255, 255, .9); border: 1px solid var(--qm-border); border-radius: 4px; padding: 2px 4px; }
+.qm-panel .eq-select, #layers-panel .eq-select { flex: 1; min-width: 0; font: 11px var(--qm-font); color: #2b3b57; background: rgba(255, 255, 255, .9); border: 1px solid var(--qm-border); border-radius: 4px; padding: 2px 4px; }
 
 /* ドロップの受け皿＝地図全面の薄い幕＋中央のガラス札（japan の計器と同じ ui-dark の下地） */
 #eq-drop {
