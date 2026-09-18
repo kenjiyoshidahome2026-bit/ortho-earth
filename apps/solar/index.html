@@ -40,6 +40,7 @@
 		#info b { font-size: 14px; }
 		#info span { font-size: 11px; opacity: .82; }
 		#labels { position: fixed; inset: 0; pointer-events: none; }
+		#sky2d { position: fixed; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 		/* 天体ラベル＝button（Tab で辿れる）。見た目は文字だけ＝下の button 一般則（板・枠・余白）を打ち消す */
 		.bl { position: absolute; top: 0; left: 0; font: 11px/1.5 system-ui, "Helvetica Neue", sans-serif; letter-spacing: .05em; cursor: pointer;
 			background: none; border: 0; padding: 0; border-radius: 3px; white-space: nowrap;
@@ -93,6 +94,7 @@
 	<!-- 文言は英語が原本＝この HTML に書いてある英語がそのまま辞書のキー（data-t＝本文・data-t-title＝ツールチップ）。
 	     訳は i18n/ui.json（26 言語）→ i18n/lang/<code>.json。言語は ?lang=xx 明示 or ブラウザ既定。?lang=en で英語に固定。 -->
 	<canvas id="c"></canvas>
+	<canvas id="sky2d" aria-hidden="true"></canvas><!-- 星座名・メシエ天体の注記（main.js drawSky2d）＝GL の上・天体ラベルの下 -->
 	<div id="nogl" data-t>This page needs WebGL2.</div>
 	<div id="title">
 		<!-- ロゴ＝いつもの球儀マーク（favicon と同意匠）。ただし白固定＝favicon の light 用 media query（黒化）は持ち込まない -->
@@ -100,7 +102,7 @@
 		<p data-t>Heliocentric — real scale, real time</p>
 	</div>
 	<button id="exit" title="Exit to ortho-japan" data-t-title><i aria-hidden="true">←</i><span data-t>Earth</span></button>
-	<button id="const-btn" title="Show / hide constellation lines (C)" data-t-title aria-pressed="false"><span data-t>Constellations</span></button>
+	<button id="const-btn" title="Show / hide constellations and Messier objects (C)" data-t-title aria-pressed="false"><span data-t>Constellations</span></button>
 	<div id="labels"></div>
 	<div id="info"></div>
 	<div id="bottom">
