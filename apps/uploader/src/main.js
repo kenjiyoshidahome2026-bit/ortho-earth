@@ -24,6 +24,7 @@ createGeopbf(API_BASE, { apiKey: API_KEY, bucket: nativeBucket });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf/loader";
 import { belowSeaLand } from "./belowsea.js";
+import { worldAtlas } from "./worldatlas.js";
 
 import { 世界時計 } from 'himekuri';
 const clock = 世界時計({});
@@ -48,6 +49,7 @@ CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q))
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
 CMD.append("button").text("below-sea land (GEBCO×admin0)").on("click", () => belowSeaLand(q, { apiUrl: API_BASE }));
+CMD.append("button").text("world hypso atlas (R90×8 → 1枚)").on("click", () => worldAtlas(q, { apiUrl: API_BASE, Bucket }));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
 CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
 CMD.append("button").text("行政区域 (N03 admin_all)").on("click", () => admin(q));

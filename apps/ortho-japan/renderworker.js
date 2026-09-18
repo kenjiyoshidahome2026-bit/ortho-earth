@@ -133,10 +133,10 @@ function finishInit(m) {
 		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が jp/dtm.js から渡す（接地リフトと失効判定の根拠）
 		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 	});
-	// 全球R90（8枚・計55MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
+	// 全球の床（WORLD_ATLAS＝焼き済み 1 本 3.25MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
-	// 低メモリ端末はスキップ＝デモ序盤の裏でデコードの山を作らない（必要時はオンデマンド取得＝機能不変）。
-	if (!m.lowMem && terrain) setTimeout(() => { for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) terrain.prefetch(lng, lat, 90); }, 6000);
+	// アトラスが無い時の退避（R90 8枚・55MB）は terrain 側＝低メモリ端末はそこで見送る（デモ序盤の裏でデコードの山を作らない）。
+	if (terrain) setTimeout(() => terrain.prefetchWorld(), 6000);
 	if (renderer.lost) renderer.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
 		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
 	});

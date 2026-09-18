@@ -77,7 +77,7 @@ export async function createTileLoader(opts = {}) {
 			s.w.removeEventListener("message", onmsg); s.w.removeEventListener("error", onerr);
 			s.busy = false; res(obj); pump(s);
 		};
-		const onmsg = e => { const obj = e.data; if (obj) cache(name, obj); finish(obj); };
+		const onmsg = e => { const obj = e.data; if (obj && cache) cache(name, obj); finish(obj); };
 		const onerr = () => {   // worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
 			console.warn("[tileLoader] worker unresponsive -> recreating:", name);
 			try { s.w.terminate(); } catch { /* 既に死んでいる */ }
@@ -90,20 +90,28 @@ export async function createTileLoader(opts = {}) {
 		s.w.postMessage({ name, apiUrl: opts.apiUrl });
 	}
 	let rr = 0;
-	const loadName = name => new Promise(res => { const s = pool[rr++ % NW]; s.queue.push({ name, res }); pump(s); });
+	const loadName = name => {   // 同名の並行要求は 1 本に併合（loadTile / byName 共通）
+		if (inflight.has(name)) return inflight.get(name);
+		const p = new Promise(res => { const s = pool[rr++ % NW]; s.queue.push({ name, res }); pump(s); }).then(t => { inflight.delete(name); return t; });
+		inflight.set(name, p); return p;
+	};
 	// (lng0, lat0, range) 原点は range 刻み。tile obj | null（R01 は ALOS 無い海等で null）。
-	return async function loadTile(lng0, lat0, range) {
+	const loadTile = async (lng0, lat0, range) => {
 		if (range === 1 && !existAlos(lng0, lat0)) return null;   // R01 は ALOS 未整備（海等）
 		const name = encodeName(lng0, lat0, range);
 		// 形の検札（2026-08-04夜）：同じIDBキーに worker側=圧縮Blob（load_gepco）と外側=デコード済みobj（下のonmsg）の
 		// 二者が非awaitで書く＝別コネクションでコミット順不定＝Blobが最後に勝ったセルが生まれ得る。それを素通しすると
 		// downsampleFlipped が blob.data=undefined を踏み描画ループごと毎フレーム例外（Mac実機実測・マシン/セル依存の地雷）。
 		// data/width を持つ「デコード済みタイル」だけ信用＝Blob なら worker 経路へ（worker はキャッシュBlobをデコードして返す＝自己修復）。
-		const cached = await cache(name); if (cached && cached.data && cached.width && !staleDSM(name, cached, dtm)) return cached;
-		if (inflight.has(name)) return inflight.get(name);
-		const p = loadName(name).then(t => { inflight.delete(name); return t; });
-		inflight.set(name, p); return p;
+		const cached = cache ? await cache(name) : null; if (cached && cached.data && cached.width && !staleDSM(name, cached, dtm)) return cached;
+		return loadName(name);
 	};
+	// 名前直指定（WORLD_ATLAS 等＝段の規約外のオブジェクト）：同じ worker プール・IDB・inflight 併合。失効判定（staleDSM）は掛けない。
+	loadTile.byName = async name => {
+		const cached = cache ? await cache(name) : null; if (cached && cached.data && cached.width) return cached;
+		return loadName(name);
+	};
+	return loadTile;
 }
 
 export async function createGetHeight(opts = {}) {

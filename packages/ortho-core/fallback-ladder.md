@@ -114,7 +114,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 - **md（multi_draw タイル常駐プール）＝LOW_MEM 既定 OFF**（`?md=1` 戻し口）。iOS は WebGL バッファが
   WebContent プロセス＝タブ予算に直乗りする会計の教訓（iPhone 16 Pro 実機 A/B で確定）。
   WebGPU バックエンドは md 自体が無い（classic merge 恒常）＝構造的メモリ優位
-- R10 タイルキャッシュ 256MB LRU（LOW_MEM 64MB）・R90 先読みスキップ・pagehide→destroy（reload 二重居住半減）
+- R10 タイルキャッシュ 256MB LRU（LOW_MEM 64MB）・R90 先読みスキップ（2026-09-18 から全球アトラス WORLD1024_1＝16MB 常駐は LOW_MEM でも先読み・アトラス不在時の R90 8 枚退避だけ見送り）・pagehide→destroy（reload 二重居住半減）
 - 標高：R16F アトラス（GPU半減）・単位格子メッシュ（窓替え 75MB 再確保の根絶）・混成R01 全端末ON（`?nor01=1` 逃げ道）
 - 動的解像度＋GPU格付け＝gpuEmaRaw（30Hz モニタの壁時計の罠回避）。WebGPU も timestamp-query で同じ給餌口（tqFeed）
 - **遷移時AA（WebGPU 既定・2026-08-19）**：カメラ遷移・アニメ継続中は 1x 直描き（MSAA の store/load/resolve を

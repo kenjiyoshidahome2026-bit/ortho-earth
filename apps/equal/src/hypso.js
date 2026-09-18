@@ -2,7 +2,7 @@
 //   標高＝altpbf の R90（90° セル×8＝全球・GEBCO/ALOS 系・IDB キャッシュ）＝ortho-core terrain.js の「世界帯 R90 固定窓 4×2」と同じ窓
 //   気候場＝koppen-clim.png（Köppen-Geiger / Beck et al. CC BY を 720×360 へ焼き縮め・japan public と同一ファイル）
 // 等経緯度 1 枚のアトラス（行0=南）へ再標本化してレンダラへ渡す。
-import { createTileLoader } from "altpbf/loader";
+import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell } from "altpbf/loader";
 
 // ortho-core elevation.js downsampleFlipped と同規約：texel 中心標本・ALOS の最外周 2px（縁の fill 値）を読まない・異常値と負値は 0
 function resampleCell(tile, N, out, W, ox, oy) {
@@ -30,6 +30,15 @@ export async function loadWorldElevation({ apiUrl, cellRes = 1024, onUpdate } = 
 	const loadTile = await getLoader(apiUrl);
 	const N = cellRes, W = 4 * N, H = 2 * N, out = new Float32Array(W * H);
 	const atlas = { data: out, width: W, height: H };
+	// 本線＝焼き済みの全球アトラス 1 本（uploader「world hypso atlas」・bucket GIS/alt・3.25MB・復号 1 回）。
+	// 無い/壊れている/セル寸法が割り切れない時だけ下の 8 枚経路（55MB・復号 8 回）へ退避＝出力は同じ物（Int16 丸め ±0.5m）。
+	const baked = await loadTile.byName(WORLD_ATLAS).catch(() => null);
+	if (baked?.data && baked.width === 4 * WORLD_ATLAS_CELL && baked.height === 2 * WORLD_ATLAS_CELL && WORLD_ATLAS_CELL % N === 0) {
+		for (let cy = 0; cy < 2; cy++) for (let cx = 0; cx < 4; cx++) worldAtlasCell(baked, cx, cy, N, out, W, cx * N, cy * N);
+		onUpdate?.(atlas);
+		return atlas;
+	}
+	console.warn(`[hypso] ${WORLD_ATLAS} unavailable -> falling back to 8×R90`);
 	const cells = [];
 	for (const cy of [-90, 0]) for (const cx of [-180, -90, 0, 90]) cells.push([cx, cy]);
 	const fetchCell = async ([cx, cy]) => {
