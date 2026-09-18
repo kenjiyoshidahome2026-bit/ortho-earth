@@ -7,7 +7,7 @@
 //  - 対数深度バッファ：惑星表面(1e-7AU)〜海王星軌道(60AU)を1パスで
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
-import { BODIES, byId, bodyPos, orientation, orbitPoints, moonOrbitPoints, jcT, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
+import { BODIES, byId, bodyPos, orientation, orbitPointsRel, moonOrbitPoints, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
 	SATELLITES, satById, satPos, satOrbitPoints } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
 
@@ -212,8 +212,8 @@ const ringP = prog(`
 		float sh = along < 0.0 ? 1.0 - smoothstep(0.97, 1.03, length(v_q - along * u_sun)) : 0.0;
 		o = vec4(c.rgb * u_light * (1.0 - 0.93 * sh), c.a);
 	}`);
-// 軌道線（頂点＝基準点からの相対 AU→シェーダ内でカメラ相対化）。惑星の軌道＝基準は太陽（原点）。
-// 月・衛星の軌道＝基準は親天体＝u_camPos に「カメラ−親」を f64 で引いてから渡す（親と一緒に動く）
+// 軌道線（頂点＝基準天体からの相対 AU→シェーダ内でカメラ相対化）。惑星の軌道＝基準は惑星自身、
+// 月・衛星の軌道＝基準は親天体＝u_camPos に「カメラ−基準」を f64 で引いてから渡す（RTE＝絶対座標を f32 に通さない）
 const lineP = prog(`
 	in vec3 a_pos;
 	uniform vec3 u_camPos; uniform mat4 u_view, u_proj; uniform float u_logC;
@@ -304,7 +304,8 @@ const glowMesh = (() => {
 	gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
 	return vao;
 })();
-// 軌道線 VBO（動的）：惑星ごとに保持。要素は epoch から2年ずれたら焼き直し
+// 軌道線 VBO（動的）：惑星ごとに保持。頂点＝惑星自身からの相対（RTE・惑星の傍ほど密）＝時刻が動いたら焼き直す
+// （512 点×10 惑星のケプラー解き＝0.1ms 級。止めて見回す間は焼かない）
 const orbitVbo = {};
 function lineVao(data) {
 	const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
@@ -313,13 +314,12 @@ function lineVao(data) {
 	return { vao, b, n: data.length / 3 };
 }
 function ensureOrbit(id, date) {
-	const T = jcT(date);
 	let o = orbitVbo[id];
-	if (o && Math.abs(T - o.T) < 0.02) return o;   // 2年キャッシュ
-	const pts = orbitPoints(id, T);
+	if (o && o.t === date.getTime()) return o;
+	const pts = orbitPointsRel(id, date);
 	if (!o) { o = lineVao(pts); orbitVbo[id] = o; }
-	else { gl.bindBuffer(gl.ARRAY_BUFFER, o.b); gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STATIC_DRAW); }
-	o.T = T;
+	else { gl.bindBuffer(gl.ARRAY_BUFFER, o.b); gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW); }
+	o.t = date.getTime();
 	return o;
 }
 // 月の軌道線：形は 6 時間キャッシュ。頂点は「焼いた時刻の地球」からの相対＝描く時は今の地球に付いて動く。
@@ -846,20 +846,15 @@ function frame(now) {
 	if (lineFade > 0.01) {
 		gl.depthMask(false);
 		gl.useProgram(lineP.p); setCommon(lineP, view);
-		gl.uniform3f(lineP.u.u_camPos, camPos[0], camPos[1], camPos[2]);
-		for (const b of BODIES) {
-			if (b.id === "sun" || b.id === "moon") continue;
-			const o = ensureOrbit(b.id, date);
-			gl.uniform4f(lineP.u.u_color, b.color[0], b.color[1], b.color[2], 0.32 * lineFade);
-			gl.bindVertexArray(o.vao); gl.drawArrays(gl.LINE_LOOP, 0, o.n);
-		}
-		// 月・衛星の軌道＝親に寄った時だけ（全景ではただの汚れ）。頂点は親からの相対＝カメラ−親を f64 で引いて渡す
+		// 頂点は基準天体からの相対＝「カメラ − 基準」を f64 で引いて渡す（惑星の軌道＝惑星自身・月と衛星の軌道＝親）
 		const relLine = (o, parentId, col, a) => {
 			const c = P[parentId];
 			gl.uniform3f(lineP.u.u_camPos, camPos[0] - c[0], camPos[1] - c[1], camPos[2] - c[2]);
 			gl.uniform4f(lineP.u.u_color, col[0], col[1], col[2], a * lineFade);
 			gl.bindVertexArray(o.vao); gl.drawArrays(gl.LINE_LOOP, 0, o.n);
 		};
+		for (const b of BODIES) if (b.id !== "sun" && b.id !== "moon") relLine(ensureOrbit(b.id, date), b.id, b.color, 0.32);
+		// 月・衛星の軌道＝親に寄った時だけ（全景ではただの汚れ）
 		if (v3.len(v3.sub(P.earth, camPos)) < 0.25) relLine(ensureMoonOrbit(date), "earth", [0.78, 0.78, 0.78], 0.3);
 		for (const b of SATELLITES) if (satNear(b)) relLine(ensureSatOrbit(b, date), b.parent, b.color, 0.3);
 		gl.depthMask(true);
