@@ -12,7 +12,8 @@ import * as POI from "./poi/schema.js";
 import { worldUI } from "./world/index.js";
 // 宇宙の名前データ（星座・メシエの 26 言語）＝正本は packages/space/names.json・ここは bucket へ焼くだけ（world と同じ型）
 import spaceNamesJSON from "../../../packages/space/names.json";
-import { packs as spacePacks, DIRE as SPACE_DIRE } from "../../../packages/space/packs.js";
+import { packs as spacePacks, DIRE as SPACE_DIRE, moonGeoJSON, moonPacks, MOON_GEOPBF } from "../../../packages/space/packs.js";
+import moonJSON from "../../../packages/space/moon.json";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -42,6 +43,7 @@ CMD.append("button").text("borders and stars").on("click", () => borders(q));
 CMD.append("button").text("constellation lines").on("click", () => constellations(q));
 CMD.append("button").text("messier").on("click", () => messier(q));
 CMD.append("button").text("space names").on("click", () => spaceNames(q));
+CMD.append("button").text("moon names").on("click", () => moonNames(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
@@ -141,6 +143,28 @@ async function spaceNames(q) {
 		q.log(`${lang}: ${Object.keys(p.c).length} constellations, ${Object.keys(p.m).length} Messier names (${comma(body.length)} bytes)`);
 	}
 	q.success("space names: saved");
+}
+
+// 月の地名（IAU 採択の主な地名 2,023・packages/space/moon.json）→ geopbf "moon_nomenclature"（英語・点・由来つき）＋
+// 多言語 bucket GIS/space/i18n/moon/<lang>.json（{ <GPN id>: 名前 }）。座標は月面の経緯度＝読む側が月の球へ貼る
+async function moonNames(q) {
+	q.clear();
+	q.title(`moon names → geopbf "${MOON_GEOPBF}" + ${SPACE_DIRE}/i18n/moon/<lang>.json`);
+	const pbf = await geopbf(moonGeoJSON(moonJSON), { name: MOON_GEOPBF, nocache: true, gint: false, precision: 4,   // 0.0001°＝月面で約 3 m
+		attribution: "IAU / USGS Gazetteer of Planetary Nomenclature (public domain)",
+		description: "Moon nomenclature (IAU-approved main features, no satellite craters): selenographic lon/lat (east +), id=GPN Feature ID, code=IAU descriptor, diameter km, origin" });
+	if (pbf.length !== moonJSON.features.length) throw new Error(`${MOON_GEOPBF}: ${pbf.length} / ${moonJSON.features.length} features`);
+	await pbf.save();
+	q.log(`${MOON_GEOPBF}: ${pbf.length} features, keys: [${pbf.keys.join(", ")}]`);
+	const bucket = await Bucket(SPACE_DIRE);
+	if (!bucket) throw new Error(`Bucket(${SPACE_DIRE}) に到達できない`);
+	const updated = new Date().toISOString().slice(0, 10);
+	for (const [lang, names] of Object.entries(moonPacks(moonJSON))) {
+		const body = JSON.stringify({ updated, names });
+		await bucket.put(new File([body], `i18n/moon/${lang}.json`, { type: "application/json" }));
+		q.log(`${lang}: ${Object.keys(names).length} names (${comma(body.length)} bytes)`);
+	}
+	q.success("moon names: saved");
 }
 
 async function messier(q) {
