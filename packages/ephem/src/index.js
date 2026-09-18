@@ -198,13 +198,21 @@ const mul3 = (A, B) => {   // 3×3 行列積（行優先 [r][c]）
 const Rx = t => { const c = Math.cos(t), s = Math.sin(t); return [[1, 0, 0], [0, c, -s], [0, s, c]]; };
 const Rz = t => { const c = Math.cos(t), s = Math.sin(t); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; };
 
-// ---- 衛星（ガリレオ衛星）：BODIES とは別の棚＝japan の太陽系圏（BODIES を総なめする）を 1 行も変えない ----
-// 軌道＝木星赤道面の円軌道・平均黄経 λ = λ0 + n·d（d＝J2000 からの日数）。λ0 と n は JPL Horizons（jup365）の
-// 木星心ベクトル 60 標本（1800–2050）への最小二乗＝一次資料からの実測（n は JPL の平均運動表と 1e-7°/日で一致）。
-// 円軌道で捨てたもの＝離心率（カリスト e=0.0074→±0.85°）とラプラス共鳴の秤動。1800–2050 の実測残差は
-// 最大 イオ 0.50°・エウロパ 1.22°・ガニメデ 0.29°・カリスト 0.98°、面外は 0.55° 以内＝影の通過時刻で数分の粗さ。
-// λ の原点＝木星赤道の ICRF 赤道に対する昇交点＝IAU 自転系の x 軸（orientation と同じ Rz(α+90°)·Rx(90°−δ)）。
-// rot＝IAU WGCCRE（同期自転＝Wd が平均運動と一致・本初子午線が木星を向く＝tests で照合）。
+// ---- 衛星：BODIES とは別の棚＝japan の太陽系圏（BODIES を総なめする）を 1 行も変えない ----
+// 模型は一本：親の「Laplace 面」（極 lap＝赤道 J2000 の RA/Dec・既定は親の IAU 自転極＝親の赤道面）に対し、
+//   平均黄経 λ = λ0 + n·d (+ quad·d² + 秤動 lib) ／ 近点黄経 ϖ = peri[0] + peri[1]·d ／ 昇交点 Ω = node[0] + node[1]·d
+//   ／ 傾斜 inc ／ 離心率 e のケプラー楕円（d＝J2000 からの日数・角度は deg・率は deg/日）。
+// 近点と昇交点がゆっくり回る＝親の扁平（J2）と太陽が軌道面を首振りさせる分。λ・ϖ・Ω の原点＝Laplace 面の
+// ICRF 赤道に対する昇交点＝IAU 自転系の x 軸（orientation と同じ Rz(α+90°)·Rx(90°−δ)）。
+// 値は全て JPL Horizons の親心ベクトル（1800–2050 の 5 段の時間窓・計約 2,600 標本/衛星）への最小二乗＝一次資料からの実測。
+// 追加項は物理があるものだけ：フォボス quad＝潮汐で火星へ落ちていく永年加速（無いと 1800 年で 15° ずれる）／
+// ミマス・テティス lib＝両者の 4:2 共鳴の秤動（周期 70.6 年・ミマス振幅 44°）＝[振幅, 位相, 角速度]＝A·sin(ν·d + φ)。
+// 1800–2050 の実測最大誤差（方向）：ミランダ 1.97°・ミマス 1.22°・イアペトゥス 1.24°・他は 0.8° 以内（Horizons で検定）。
+// ガリレオ衛星（第一版）＝円軌道・木星赤道面（e・inc・lap 省略＝既定）。捨てたのは離心率とラプラス共鳴の秤動
+// ＝最大 イオ 0.50°・エウロパ 1.22°・ガニメデ 0.29°・カリスト 0.98°。
+// rot＝IAU WGCCRE（ガリレオ衛星のみ）。rot の無い衛星＝同期自転を軌道から直に組む（面が常に親を向く・orientation）。
+// 顔ぶれ＝各惑星の半径 ~200km 以上の主要衛星＋火星の二つ（小さいが「火星の月」として外せない）。
+// 海王星のトリトンだけ逆行（親の自転と逆向きに公転）＝lap は海王星の極の対蹠に取り、inc 23° の順行として表す。
 export const SATELLITES = [
 	{ id: "io", name: "Io", parent: "jupiter", radiusKm: 1821.6, aKm: 421745, lambda0: 19.9484, n: 203.4889578, color: [0.93, 0.85, 0.45],
 		rot: { ra: 268.05, dec: 64.50, W0: 200.39, Wd: 203.4889538 } },
@@ -214,36 +222,110 @@ export const SATELLITES = [
 		rot: { ra: 268.20, dec: 64.57, W0: 44.064, Wd: 50.3176081 } },
 	{ id: "callisto", name: "Callisto", parent: "jupiter", radiusKm: 2410.3, aKm: 1882567, lambda0: 80.9859, n: 21.5710713, color: [0.45, 0.41, 0.37],
 		rot: { ra: 268.72, dec: 64.83, W0: 259.51, Wd: 21.5710715 } },
+	{ id: "phobos", name: "Phobos", parent: "mars", radiusKm: 11.08, color: [0.46, 0.41, 0.37],
+		aKm: 9375, lambda0: 215.1621, n: 1128.8447562, e: 0.0151, peri: [25.56, 0.43518], inc: 1.069, node: [169.36, -0.43578], lap: [317.703, 52.91], quad: 9.4442e-9 },
+	{ id: "deimos", name: "Deimos", parent: "mars", radiusKm: 6.27, color: [0.58, 0.53, 0.47],
+		aKm: 23458, lambda0: 259.3521, n: 285.1618864, e: 0.000258, peri: [245.26, 0.017584], inc: 1.793, node: [54.01, -0.018075], lap: [316.684, 53.551] },
+	{ id: "mimas", name: "Mimas", parent: "saturn", radiusKm: 198.2, color: [0.76, 0.76, 0.75],
+		aKm: 185542, lambda0: 160.4822, n: 381.9944987, e: 0.0197, peri: [145.71, 1.0009], inc: 1.571, node: [172.98, -0.9995], lap: [40.602, 83.537], quad: -6.1169e-11, lib: [43.561, 140.42, 0.0139411] },
+	{ id: "enceladus", name: "Enceladus", parent: "saturn", radiusKm: 252.1, color: [0.96, 0.97, 0.99],
+		aKm: 238037, lambda0: 182.3243, n: 262.7318984, e: 0.00475, peri: [172.13, 0.33797], inc: 0.006, node: [329.22, -0.41147], lap: [40.582, 83.538] },
+	{ id: "tethys", name: "Tethys", parent: "saturn", radiusKm: 531.1, color: [0.88, 0.88, 0.86],
+		aKm: 294673, lambda0: 188.3969, n: 190.6979109, e: 0.000132, peri: [292.93, 0.19675], inc: 1.091, node: [259.87, -0.19785], lap: [40.585, 83.54], quad: -2.8157e-11, lib: [2.099, 320.49, 0.0139472] },
+	{ id: "dione", name: "Dione", parent: "saturn", radiusKm: 561.4, color: [0.83, 0.82, 0.8],
+		aKm: 377415, lambda0: 176.9416, n: 131.534931, e: 0.00224, peri: [214.15, 0.084232], inc: 0.027, node: [301.54, -0.083428], lap: [40.558, 83.542] },
+	{ id: "rhea", name: "Rhea", parent: "saturn", radiusKm: 763.5, color: [0.78, 0.77, 0.75],
+		aKm: 527069, lambda0: 52.37, n: 79.6900469, e: 0.000553, peri: [208.57, 0.026138], inc: 0.335, node: [351.44, -0.027458], lap: [40.396, 83.56] },
+	{ id: "titan", name: "Titan", parent: "saturn", radiusKm: 2574.7, color: [0.9, 0.68, 0.34],
+		aKm: 1221865, lambda0: 10.837, n: 22.5769762, e: 0.0288, peri: [207.34, 0.0013965], inc: 0.26, node: [12.22, -0.0014229], lap: [37.291, 83.963] },
+	{ id: "iapetus", name: "Iapetus", parent: "saturn", radiusKm: 734.5, color: [0.62, 0.55, 0.46],
+		aKm: 3560890, lambda0: 264.5725, n: 4.5379524, e: 0.0284, peri: [56.04, 0.00030392], inc: 17.026, node: [119.32, -0.00014511], lap: [224.097, 82.42] },
+	{ id: "miranda", name: "Miranda", parent: "uranus", radiusKm: 235.8, color: [0.7, 0.7, 0.7],
+		aKm: 129867, lambda0: 328.221, n: 254.6906637, e: 0.00134, peri: [253.78, 0.054609], inc: 4.433, node: [100.65, -0.055417], lap: [77.289, 15.204] },
+	{ id: "ariel", name: "Ariel", parent: "uranus", radiusKm: 578.9, color: [0.76, 0.75, 0.73],
+		aKm: 190930, lambda0: 203.1485, n: 142.8356644, e: 0.00112, peri: [43.29, 0.014593], inc: 0.006, node: [176.43, -0.01284], lap: [77.312, 15.171] },
+	{ id: "umbriel", name: "Umbriel", parent: "uranus", radiusKm: 584.7, color: [0.46, 0.46, 0.46],
+		aKm: 265984, lambda0: 251.2364, n: 86.8688747, e: 0.00339, peri: [333.53, 0.0060585], inc: 0.047, node: [229.99, -0.0040555], lap: [77.332, 15.177] },
+	{ id: "titania", name: "Titania", parent: "uranus", radiusKm: 788.9, color: [0.67, 0.63, 0.59],
+		aKm: 436285, lambda0: 281.5805, n: 41.3514151, e: 0.00161, peri: [219.22, 0.00071653], inc: 0.176, node: [7.93, -0.00071232], lap: [77.28, 15.251] },
+	{ id: "oberon", name: "Oberon", parent: "uranus", radiusKm: 761.4, color: [0.61, 0.56, 0.52],
+		aKm: 583447, lambda0: 352.6029, n: 26.7394825, e: 0.00106, peri: [183.18, 0.00025769], inc: 0.23, node: [82.06, -0.00025737], lap: [77.185, 15.067] },
+	{ id: "triton", name: "Triton", parent: "neptune", radiusKm: 1352.6, color: [0.86, 0.81, 0.78],
+		aKm: 354759, lambda0: 60.7598, n: 61.2572605, e: 0.000117, peri: [69.47, 0], inc: 23.087, node: [182.28, -0.0014392], lap: [119.419, -43.375] },
+	{ id: "charon", name: "Charon", parent: "pluto", radiusKm: 606, color: [0.61, 0.58, 0.56],
+		aKm: 19596, lambda0: 304.1219, n: 56.3625303, e: 0.000161, peri: [155.33, 0], inc: 0.083, node: [9.02, 0], lap: [132.993, -6.163] },
 ];
 export const satById = Object.fromEntries(SATELLITES.map(b => [b.id, b]));
-for (const b of SATELLITES) { b.radiusAU = b.radiusKm / AU_KM; b.periodDays = 360 / b.n; b.rotHours = Math.abs(360 / b.rot.Wd) * 24; }
-// 親惑星の赤道系（x＝昇交点・z＝極）→ 黄道 J2000。極は親の rot から＝衛星の軌道面＝親の赤道面
-function parentFrame(parentId) {
-	const { rot } = byId[parentId];
-	return mul3(Rx(-EPS), mul3(Rz(rot.ra * D2R + Math.PI / 2), Rx(Math.PI / 2 - rot.dec * D2R)));
+// Laplace 面の座標系（x＝昇交点・z＝極）→ 黄道 J2000
+function lapFrame(b) {
+	const [ra, dec] = b.lap || [byId[b.parent].rot.ra, byId[b.parent].rot.dec];
+	return mul3(Rx(-EPS), mul3(Rz(ra * D2R + Math.PI / 2), Rx(Math.PI / 2 - dec * D2R)));
 }
-const satLocal = (b, lam, F) => { const r = b.aKm / AU_KM, c = Math.cos(lam) * r, s = Math.sin(lam) * r; return [F[0][0] * c + F[0][1] * s, F[1][0] * c + F[1][1] * s, F[2][0] * c + F[2][1] * s]; };
+// d（J2000 からの日数）での角度（rad）：平均黄経・近点黄経・昇交点
+function satAngles(b, d) {
+	let lam = b.lambda0 + b.n * d;
+	if (b.quad) lam += b.quad * d * d;
+	if (b.lib) lam += b.lib[0] * Math.sin((b.lib[2] * d + b.lib[1]) * D2R);
+	const peri = b.peri ? b.peri[0] + b.peri[1] * d : 0, node = b.node ? b.node[0] + b.node[1] * d : 0;
+	return [lam * D2R, peri * D2R, node * D2R];
+}
+// 楕円上の点（AU・黄道 J2000）。lam＝平均黄経（軌道線は ϖ・Ω を止めて lam だけ一周回す）
+function satLocal(b, lam, varpi, Om) {
+	const e = b.e || 0, a = b.aKm / AU_KM, inc = (b.inc || 0) * D2R, F = b.F;
+	const E = solveE(lam - varpi, e);
+	const xp = a * (Math.cos(E) - e), yp = a * Math.sqrt(1 - e * e) * Math.sin(E);
+	const w = varpi - Om, cw = Math.cos(w), sw = Math.sin(w), cO = Math.cos(Om), sO = Math.sin(Om), ci = Math.cos(inc), si = Math.sin(inc);
+	const X = xp * cw - yp * sw, Y = xp * sw + yp * cw;
+	const v = [X * cO - Y * sO * ci, X * sO + Y * cO * ci, Y * si];
+	return [F[0][0] * v[0] + F[0][1] * v[1] + F[0][2] * v[2], F[1][0] * v[0] + F[1][1] * v[1] + F[1][2] * v[2], F[2][0] * v[0] + F[2][1] * v[1] + F[2][2] * v[2]];
+}
+const dot3 = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const parentPole = b => eqToEcl(byId[b.parent].rot.ra, byId[b.parent].rot.dec);
+// 軌道面の極（公転の角運動量の向き・黄道 J2000 単位ベクトル）
+function satPole(b, Om) {
+	const inc = (b.inc || 0) * D2R, F = b.F, v = [Math.sin(Om) * Math.sin(inc), -Math.cos(Om) * Math.sin(inc), Math.cos(inc)];
+	return [F[0][0] * v[0] + F[0][1] * v[1] + F[0][2] * v[2], F[1][0] * v[0] + F[1][1] * v[1] + F[1][2] * v[2], F[2][0] * v[0] + F[2][1] * v[1] + F[2][2] * v[2]];
+}
+for (const b of SATELLITES) {
+	b.F = lapFrame(b);
+	b.radiusAU = b.radiusKm / AU_KM; b.periodDays = 360 / b.n;
+	// 同期自転の衛星＝自転周期＝公転周期。向き（順行/逆行）＝公転の極が親の IAU 極と同じ側か＝親と同じ約束で読む
+	// （惑星は「北極＝黄道の北側」・冥王星は右手系＝天王星の衛星は天王星と同じく逆行・トリトンは逆行・カロンは冥王星と同じ）
+	if (!b.rot) b.rot = { Wd: dot3(satPole(b, satAngles(b, 0)[2]), parentPole(b)) < 0 ? -b.n : b.n };
+	b.rotHours = Math.abs(360 / b.rot.Wd) * 24;
+}
 // 衛星の親心位置（AU・黄道 J2000）と日心位置
 export function satRel(id, date) {
 	const b = satById[id];
-	return satLocal(b, (b.lambda0 + b.n * (jd(date) - 2451545.0)) * D2R, parentFrame(b.parent));
+	return satLocal(b, ...satAngles(b, jd(date) - 2451545.0));
 }
 export function satPos(id, date) {
 	const p = bodyPos(satById[id].parent, date), r = satRel(id, date);
 	return [p[0] + r[0], p[1] + r[1], p[2] + r[2]];
 }
-// 衛星の軌道線（円）＝中心は渡された時刻の親。起点＝衛星の今の位置＝衛星は常に折れ線の頂点（orbitPointsThrough と同じ理屈）
-export function satOrbitPoints(id, date, n = 192) {
-	const b = satById[id], F = parentFrame(b.parent), c = bodyPos(b.parent, date), out = new Float32Array(n * 3);
-	const lam0 = (b.lambda0 + b.n * (jd(date) - 2451545.0)) * D2R;
-	for (let i = 0; i < n; i++) { const p = satLocal(b, lam0 + i / n * 2 * Math.PI, F); out[i * 3] = c[0] + p[0]; out[i * 3 + 1] = c[1] + p[1]; out[i * 3 + 2] = c[2] + p[2]; }
+// 衛星の軌道線（その時刻の楕円）＝中心は渡された時刻の親。起点＝衛星の今の位置＝衛星は常に折れ線の頂点（orbitPointsThrough と同じ理屈）。
+// relative＝親心のまま返す（描画用）。日心で f32 に詰めると冥王星（35AU）では刻みが ~600km＝カロン軌道（半径 2 万 km）がギザギザになる
+export function satOrbitPoints(id, date, n = 192, relative = false) {
+	const b = satById[id], c = relative ? [0, 0, 0] : bodyPos(b.parent, date), out = new Float32Array(n * 3);
+	const [lam0, varpi, Om] = satAngles(b, jd(date) - 2451545.0);
+	for (let i = 0; i < n; i++) { const p = satLocal(b, lam0 + i / n * 2 * Math.PI, varpi, Om); out[i * 3] = c[0] + p[0]; out[i * 3 + 1] = c[1] + p[1]; out[i * 3 + 2] = c[2] + p[2]; }
 	return out;
+}
+// 同期自転の向き：z＝公転の極（Wd が負なら反対側＝親と同じ約束の「北」）、x＝親の方向（本初子午線が親を向く＝IAU の同期衛星と同じ約束）
+function syncOrientation(b, date) {
+	const d = jd(date) - 2451545.0, ang = satAngles(b, d), r = satLocal(b, ...ang);
+	let z = satPole(b, ang[2]); if (b.rot.Wd < 0) z = z.map(v => -v);
+	const rl = Math.hypot(...r), x0 = r.map(v => -v / rl), k = x0[0] * z[0] + x0[1] * z[1] + x0[2] * z[2];
+	let x = x0.map((v, i) => v - k * z[i]); const xl = Math.hypot(...x); x = x.map(v => v / xl);
+	const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]];
+	return [[x[0], y[0], z[0]], [x[1], y[1], z[1]], [x[2], y[2], z[2]]];
 }
 
 // ---- IAU 自転：体固定→世界（黄道J2000）の 3×3 回転 ----
 // v_eq = Rz(90°+α)·Rx(90°−δ)·Rz(W)·v_body（WGCCRE 標準）→ 黄道へ Rx(−ε)。体座標系＝z:北極, +x:本初子午線
 export function orientation(id, date) {
 	const { rot } = byId[id] ?? satById[id];
+	if (rot.ra === undefined) return syncOrientation(satById[id], date);   // IAU 表を持たない衛星＝同期自転を軌道から
 	const T = jcT(date), d = jd(date) - 2451545.0;
 	const ra = (rot.ra + (rot.raT || 0) * T) * D2R, dec = (rot.dec + (rot.decT || 0) * T) * D2R;
 	const W = (rot.W0 + rot.Wd * d) * D2R;

@@ -34,8 +34,9 @@ const MYRIAD = new Set(["ja", "zh", "ko"]);   // 億で読む言語＝大きな�
 // 天体名も UI 文言＝ephem の英語名がそのままキー（"Earth" は出口ボタンと同じ 1 行）。
 // この台帳は検定（verify:i18n）に「使っている」と見せるための並び＝ephem と食い違えば起動時に気づく
 const BODY_KEYS = ["Sun", "Mercury", "Venus", "Earth", "Moon", "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto", "Dwarf planet",
-	"Io", "Europa", "Ganymede", "Callisto"];
-// 天体の棚：BODIES＝太陽・惑星・月・冥王星（下段チップの顔ぶれ）／SATELLITES＝ガリレオ衛星（木星に寄ると現れる＝チップには並べない）。
+	"Io", "Europa", "Ganymede", "Callisto", "Phobos", "Deimos", "Mimas", "Enceladus", "Tethys", "Dione", "Rhea", "Titan", "Iapetus",
+	"Miranda", "Ariel", "Umbriel", "Titania", "Oberon", "Triton", "Charon"];
+// 天体の棚：BODIES＝太陽・惑星・月・冥王星（下段チップの顔ぶれ）／SATELLITES＝惑星と冥王星の主な衛星（親に寄ると現れる＝チップには並べない）。
 // ALL＝描画・ラベル・タップ・影の総なめ用。any＝id 引き。posOf＝日心位置の一本口。parentOf＝「親の点に埋まる間は描かない」の親
 const ALL = [...BODIES, ...SATELLITES];
 const any = { ...byId, ...satById };
@@ -104,7 +105,7 @@ function flyTo(id) {
 		cam.yaw = Math.atan2(-p[1], -p[0]) + 30 * D2R;
 		cam.pitch = Math.max(8 * D2R, Math.min(35 * D2R, cam.pitch));
 	}
-	// 衛星はチップを持たない＝訪問中は親（木星）を灯す
+	// 衛星はチップを持たない＝訪問中は親を灯す
 	const chipId = satById[id] ? satById[id].parent : id;
 	document.querySelectorAll("#chips button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
 	uiDirty = true;
@@ -333,11 +334,10 @@ function ensureMoonOrbit(date) {
 	moonOrbitT = date.getTime();
 	return moonOrbit;
 }
-// 衛星の軌道線（円）：親からの相対。起点＝衛星の今の位置（衛星は常に折れ線の頂点）＝描くたびに焼く（192 点×4＝木星の傍でだけ）
+// 衛星の軌道線（その時刻の楕円）：親からの相対。起点＝衛星の今の位置（衛星は常に折れ線の頂点）＝描くたびに焼く（192 点×衛星数＝親の傍でだけ）
 const satOrbit = {};
 function ensureSatOrbit(b, date) {
-	const pts = satOrbitPoints(b.id, date), c = P[b.parent];
-	for (let i = 0; i < pts.length; i += 3) { pts[i] -= c[0]; pts[i + 1] -= c[1]; pts[i + 2] -= c[2]; }
+	const pts = satOrbitPoints(b.id, date, 192, true);   // 親心のまま受け取る（日心で f32 を通すと遠い親ほど線が崩れる）
 	let o = satOrbit[b.id];
 	if (!o) o = satOrbit[b.id] = lineVao(pts);
 	else { gl.bindBuffer(gl.ARRAY_BUFFER, o.b); gl.bufferData(gl.ARRAY_BUFFER, pts, gl.DYNAMIC_DRAW); }
@@ -674,15 +674,21 @@ canvas.addEventListener("webglcontextrestored", () => location.reload());
 // ---- 描画 ----
 let needsDraw = true, lastFrame = performance.now();
 const MIN_PX = 2.6;   // 最小ピクセル半径クランプ（実スケールのまま可視性の下駄）
-const SAT_NEAR_AU = 0.12;   // 衛星が現れる距離（カメラ〜親）。カリスト軌道半径 0.0126AU の約 10 倍＝木星系が画面に収まり始める頃
+// 衛星が現れる距離（カメラ〜親）＝親ごとに「一番外の衛星の軌道半径の 9.5 倍」＝衛星系が画面に収まり始める頃
+// （木星 0.12AU＝カリスト 0.0126AU の 9.5 倍・土星はイアペトゥスで 0.23AU・火星はダイモスで 0.0015AU）
+const SAT_NEAR = {};
+for (const b of SATELLITES) SAT_NEAR[b.parent] = Math.max(SAT_NEAR[b.parent] || 0, 9.5 * b.aKm / AU_KM);
+const satNear = b => v3.len(v3.sub(P[b.parent], camPos)) < SAT_NEAR[b.parent];
 gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 gl.enable(gl.BLEND); gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 function setCommon(P_, view) {
 	gl.uniformMatrix4fv(P_.u.u_view, false, view); gl.uniformMatrix4fv(P_.u.u_proj, false, proj);
 	gl.uniform1f(P_.u.u_logC, logC);
 }
-// 影を落とし合う組：[受ける側] → 遮る側。月食の本影だけ赤銅色が残る（地球の大気が曲げた夕焼けの光）
-const OCCLUDERS = { earth: ["moon"], moon: ["earth"], jupiter: SATELLITES.map(b => b.id), ...Object.fromEntries(SATELLITES.map(b => [b.id, [b.parent]])) };
+// 影を落とし合う組：[受ける側] → 遮る側（親⇄その衛星）。月食の本影だけ赤銅色が残る（地球の大気が曲げた夕焼けの光）
+const OCCLUDERS = { earth: ["moon"], moon: ["earth"] };
+for (const b of SATELLITES) { (OCCLUDERS[b.parent] ||= []).push(b.id); OCCLUDERS[b.id] = [b.parent]; }
+const MAX_OCC = 4;   // シェーダの u_occ[4]。土星（7）・天王星（5）は「太陽の側にいて、太陽の方向に一番近い」順に 4 つ＝影を落とし得るもの
 const UMBRA = { moon: [0.30, 0.09, 0.04] };
 const OCC = new Float32Array(16);
 
@@ -754,12 +760,12 @@ function frame(now) {
 		const drawR = Math.max(b.radiusAU, minR);
 		b.clamped = drawR > b.radiusAU * 1.001;
 		// 月・衛星：クランプ表示で親の点に埋まる間（画面上8px未満）は描かない＝二重点のちらつき回避。
-		// 衛星はさらに、カメラが親の傍（SAT_NEAR_AU）に来るまで出さない＝全景は惑星だけ（引き算）
+		// 衛星はさらに、カメラが親の傍（SAT_NEAR）に来るまで出さない＝全景は惑星だけ（引き算）
 		const par = parentOf(b);
 		b.hidden = false;
 		if (par) {
 			const sp_ = screens[par], sb = screens[b.id];
-			if (b.parent && v3.len(v3.sub(P[par], camPos)) > SAT_NEAR_AU) b.hidden = true;
+			if (b.parent && !satNear(b)) b.hidden = true;
 			else if (b.clamped && sp_ && sb && Math.hypot(sp_.x - sb.x, sp_.y - sb.y) < 8) b.hidden = true;
 		}
 		if (b.hidden) continue;
@@ -774,7 +780,11 @@ function frame(now) {
 		gl.uniform1f(sphereP.u.u_emiss, b.emissive ? 1 : 0);
 		gl.uniform1f(sphereP.u.u_hasNight, b.nightTex ? 1 : 0);   // 街明かりを持つのは地球だけ
 		// 影（食・環）：実寸で描いている時だけ（クランプ中の点は寸法が嘘＝影を載せない）。単位＝この天体の半径
-		const occ = !b.clamped && !b.emissive && OCCLUDERS[b.id] || [];
+		let occ = !b.clamped && !b.emissive && OCCLUDERS[b.id] || [];
+		if (occ.length > MAX_OCC) occ = occ.map(oid => {   // 遮る側の向きと太陽方向のなす角（太陽の反対側＝影にならない＝外す）
+			const q = v3.sub(P[oid], p), ql = v3.len(q);
+			return [oid, (q[0] * sd[0] + q[1] * sd[1] + q[2] * sd[2]) / ql];
+		}).filter(o => o[1] > 0).sort((a, b_) => b_[1] - a[1]).slice(0, MAX_OCC).map(o => o[0]);
 		let nOcc = 0;
 		for (const oid of occ) {
 			const q = P[oid];
@@ -851,7 +861,7 @@ function frame(now) {
 			gl.bindVertexArray(o.vao); gl.drawArrays(gl.LINE_LOOP, 0, o.n);
 		};
 		if (v3.len(v3.sub(P.earth, camPos)) < 0.25) relLine(ensureMoonOrbit(date), "earth", [0.78, 0.78, 0.78], 0.3);
-		for (const b of SATELLITES) if (v3.len(v3.sub(P[b.parent], camPos)) < SAT_NEAR_AU) relLine(ensureSatOrbit(b, date), b.parent, b.color, 0.3);
+		for (const b of SATELLITES) if (satNear(b)) relLine(ensureSatOrbit(b, date), b.parent, b.color, 0.3);
 		gl.depthMask(true);
 	}
 
