@@ -122,5 +122,7 @@ export function createNearElevation({ apiUrl, maxTex = 4096, onAtlas, onBusy }) 
 		if (my !== gen) return;   // 途中で窓が替わった＝古い窓は出さない（出来上がるまで前の窓/R90 のまま）
 		onAtlas({ data: atlas, width: W2, height: H2, bounds: [x0, y0, nx * 10, ny * 10] });
 	}
-	return { ensure };
+	// stop＝静止待ちのタイマーを捨て、作りかけの窓を無効にする（部品の destroy から・2026-09-19）
+	function stop() { clearTimeout(timer); gen++; }
+	return { ensure, stop };
 }

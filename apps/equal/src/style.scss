@@ -1,6 +1,16 @@
 /* ortho-equal 固有のスタイル。外観の本体は quiet-mono（main.js が tokens → components → 本ファイルの順で import）。
    ここに残すのは equal だけの道具（パネル内の不透明度行・主題行の見本・凡例の行）。japan の作法（ui-dark・ガラス・ドック）に揃える。 */
-#map { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
+#map { color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
+#map > #c, #map > #labels { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#map > #c { touch-action: none; cursor: grab; }
+#map > #c:active { cursor: grabbing; }
+#map > #labels { pointer-events: none; }
+/* 持ち主のボタン（addButton＝戻る など）＝#gadgets の縦並びの末尾・計器と同じ ui-dark の下地 */
+#gadgets .eq-host-btn { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; font: 12px var(--qm-font); color: rgba(225, 232, 242, .95);
+	background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim); backdrop-filter: var(--qm-glass-frost);
+	border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--qm-r-m, 6px); cursor: pointer; }
+#gadgets .eq-host-btn .eq-arrow { font-style: normal; display: inline-block; }
+#map[dir="rtl"] .eq-host-btn .eq-arrow { transform: scaleX(-1); }
 
 /* 不透明度の行＝ui-dark の計器（#pos/#attr）と同じ下地＝地図の上でも読める */
 #layers-panel .eq-row {
@@ -10,7 +20,7 @@
 	span { white-space: nowrap; min-width: 6.5em; }
 	input[type=range] { flex: 1; min-width: 0; accent-color: #cdd6e6; }
 }
-#layers-panel { max-height: calc(100vh - 20px); overflow-y: auto; }
+#layers-panel { max-height: calc(100cqh - 20px); overflow-y: auto; }   /* 部品の高さ（コンテナ）で測る＝頁の高さ（100vh）ではない */
 #theme-row .lp-theme .sw.eq-none { background: repeating-linear-gradient(135deg, #fff 0 3px, #d9dde3 3px 6px); }
 
 #legend .eq-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }

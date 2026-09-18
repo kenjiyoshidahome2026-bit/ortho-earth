@@ -8,16 +8,14 @@
 	<title>ortho-equal — the whole Earth in Equal Earth</title>
 	<meta name="description" content="The whole Earth on one sheet: Natural Earth 10m in the Equal Earth projection, drawn from Gint on the GPU. The central meridian follows you as you scroll.">
 	<style>
-		/* ページの体裁だけ（地図の中の意匠は quiet-mono＝#map スコープ）＝japan index.html と同じ分担 */
+		/* 頁の殻：部品（equal.js）を画面いっぱいに置くだけ。#app は部品が生きている間 #map に改名される（quiet-mono の家具規格） */
 		html, body { margin: 0; height: 100%; overflow: hidden; background: #e4e8ec; }
-		#map { position: fixed; inset: 0; overflow: hidden; }
-		#c { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
-		#c:active { cursor: grabbing; }
-		#labels { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+		#app, #map { position: fixed; inset: 0; }
 	</style>
 </head>
 <body>
-	<div id="map" class="ui-dark"><canvas id="c"></canvas><canvas id="labels"></canvas></div>
+	<!-- 中身は部品（src/equal.js の createEqual）が #app の中に組む＝この頁は殻（URL を読んで置くだけ・src/main.js） -->
+	<div id="app"></div>
 	<script type="module" src="./src/main.js"></script>
 </body>
 </html>
