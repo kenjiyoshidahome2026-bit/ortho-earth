@@ -61,10 +61,12 @@
 			color-scheme: dark; }
 		#transport { display: flex; gap: 4px; }
 		#speed { min-width: 74px; text-align: center; font-size: 11.5px; opacity: .9; }
-		#exit { position: fixed; top: 60px; inset-inline-start: 14px; display: flex; align-items: center; gap: 4px; }
+		/* 左上の縦並び：星座（常設）→ 戻る（呼び出し元が ?back= を渡した時だけ＝単体では出ない）。上から詰める */
+		#exit { position: fixed; top: 94px; inset-inline-start: 14px; display: flex; align-items: center; gap: 4px; }
+		#exit[hidden] { display: none; }
 		/* 矢印は文字でなく向き＝RTL では左右を返す（文言側に ← を持ち込まない＝訳が矢印を抱えない） */
 		#exit i { font-style: normal; }
-		#const-btn { position: fixed; top: 94px; inset-inline-start: 14px; }
+		#const-btn { position: fixed; top: 60px; inset-inline-start: 14px; }
 		#const-btn.on { background: rgba(120,160,255,.28); border-color: rgba(150,180,255,.55); }   /* 点灯＝天体チップの選択中と同じ意匠 */
 		:root[dir="rtl"] #exit i { transform: scaleX(-1); display: inline-block; }
 		/* 距離スケール＝ortho-earth（quiet-mono #scale）と同じ物差し：1-2-5 刻み・両端ティック・太い下線。下段（チップ＋時間バー）の上・中央。
@@ -101,8 +103,8 @@
 		<h1><svg viewBox="0 0 100 100" width="21" height="21" aria-hidden="true"><g fill="none" stroke="#ffffff" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg><span data-t>The Solar System</span></h1>
 		<p data-t>Heliocentric — real scale, real time</p>
 	</div>
-	<button id="exit" title="Exit to ortho-japan" data-t-title><i aria-hidden="true">←</i><span data-t>Earth</span></button>
 	<button id="const-btn" title="Show / hide constellations and Messier objects (C)" data-t-title aria-pressed="false"><span data-t>Constellations</span></button>
+	<button id="exit" hidden title="Go back to the page you came from" data-t-title><i aria-hidden="true">←</i><span data-t>Back</span></button>
 	<div id="labels"></div>
 	<div id="info"></div>
 	<div id="bottom">
