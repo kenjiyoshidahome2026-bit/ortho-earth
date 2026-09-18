@@ -1,8 +1,9 @@
 // ガジェット：太陽系への口（ortho-solar）。34px規格のアイコン（2026-09-03 文字チップ"The Solar System"から改鋳＝
 // アイコン配列の全z統一に伴い普通のガジェットへ。表示域を絞りたい画面は搭載時 opts.zoom=[min,max) で宣言＝
 // プラットフォームが裁く。ガジェット自身は zoom を知らない）。
-// map.gadget.solar() で搭載（v1 ortho-map の gadget 作法＝this が map）。押すと ortho-solar へ同タブ遷移
-// ＝履歴が残るので、あちらの「← Earth」出口（history.back）でこの視点そのままに帰ってこられる。
+// map.gadget.solar() で搭載（v1 ortho-map の gadget 作法＝this が map）。押すと ortho-solar へ同タブ遷移。
+// 戻り口の約束（アプリ間共通・2026-09-19）：呼び出し元が ?back=<今の URL> を渡す＝あちらは back がある時だけ「← 戻る」を出し、
+// 来た道なら history.back()（この視点そのまま）で帰ってくる。単体で開かれた solar には戻り口が出ない。
 // 地図(天動説の劇場)と太陽系(地動説の劇場)の縫い目は URL＝アプリは疎のまま（プラットフォーム＝プロトコルの流儀）。
 import { gadgetStack } from "./stack.js";
 import { tr, getLang } from "../i18n.js";
@@ -13,7 +14,7 @@ export function solar({ url } = {}) {
 	// 行き先：本番＝同一オリジンの /solar/。開発＝solar の vite（別ポート）。opts.url で差し替え可
 	// ?lang=＝今のUI言語をそのまま持たせる（solar 側の既定はブラウザ言語・?lang= で固定）
 	const dest = url ?? (["localhost", "127.0.0.1"].includes(location.hostname) ? "http://localhost:5199/" : "/solar/");
-	const href = dest + (dest.includes("?") ? "&" : "?") + "lang=" + getLang();
+	const base = dest + (dest.includes("?") ? "&" : "?") + "lang=" + getLang();
 	const btn = document.createElement("button");
 	btn.id = "solar"; btn.dataset.tip = t("To the Solar System (ortho-solar)"); btn.setAttribute("aria-label", t("To the Solar System"));
 	// 土星のシルエット（塗り惑星＋傾いた環＝一目で宇宙。初案の「太陽+軌道+惑星の点」は18pxで目玉に見えた実測 2026-09-03）。
@@ -24,6 +25,6 @@ export function solar({ url } = {}) {
 			<circle cx="12" cy="12" r="4.6" fill="#3f4757" stroke="none"/>
 			<ellipse cx="12" cy="12" rx="10.2" ry="3.1" transform="rotate(-26 12 12)"/></svg>`;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
-	btn.addEventListener("click", () => { location.href = href; });
+	btn.addEventListener("click", () => { location.href = base + "&back=" + encodeURIComponent(location.href); });   // back＝押した瞬間の URL（視点のハッシュ込み）
 	return btn;
 }
