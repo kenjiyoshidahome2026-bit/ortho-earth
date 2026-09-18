@@ -48,6 +48,7 @@ CMD.append("button").text("moon names").on("click", () => moonNames(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
+CMD.append("button").text("NE rivers + airports (10m)").on("click", () => riversAirports(q));
 CMD.append("button").text("below-sea land (GEBCO×admin0)").on("click", () => belowSeaLand(q, { apiUrl: API_BASE }));
 CMD.append("button").text("world hypso atlas (R90×8 → 1枚)").on("click", () => worldAtlas(q, { apiUrl: API_BASE, Bucket }));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
@@ -223,6 +224,35 @@ async function lakes(q) {
 			const pbf = await geopbf(url, { name, nocache: true });
 			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
 			pbf.updateHeader({ description: `世界の湖（Natural Earth ${res} lakes）＝全球ビューの湖面塗り`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
+			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
+			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
+			q.success(`${name}: saved (<= ${url})`);
+			q.log(await pbf.profile());
+		} catch (e) {
+			q.error(`${name}: 失敗 — ${e.message}`);
+		}
+	}
+}
+
+// 川（rivers_lake_centerlines）と空港（airports）→ GIS/pbf。apps/equal の水系ラインと空港マーカー用。
+// なぜ bucket へ置くか＝lakes/admin0 と同じ理由の実測版：この 2 つだけ bucket に無く、equal は毎訪問
+// 「名前引き→404（本番実測 0.6s×2 本）→ S3 生 zip へ退避→ shp デコード」を払っていた（2026-09-18）。
+// IDB が温まっても 404 の往復は毎回発生する＝焼いて置けば根から消える。
+// 解像度は 10m のみ＝equal の NE() ヘルパが 10m 固定（coast/lakes と違い 50m を使う経路が無い）。
+// 増やす時はこの表に足すだけ（res/group/name/description）。
+async function riversAirports(q) {
+	q.clear();
+	q.title("NE rivers + airports (10m)");
+	const items = [
+		{ res: "10m", group: "physical", name: "ne_10m_rivers_lake_centerlines", description: "世界の河川（Natural Earth 10m rivers_lake_centerlines）＝全球ビューの水系ライン" },
+		{ res: "10m", group: "cultural", name: "ne_10m_airports", description: "世界の空港（Natural Earth 10m airports）＝全球ビューの空港マーカー" },
+	];
+	for (const { res, group, name, description } of items) {
+		const url = `https://naturalearth.s3.amazonaws.com/${res}_${group}/${name}.zip`;
+		try {
+			const pbf = await geopbf(url, { name, nocache: true });
+			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
+			pbf.updateHeader({ description, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
 			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
 			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
 			q.success(`${name}: saved (<= ${url})`);
