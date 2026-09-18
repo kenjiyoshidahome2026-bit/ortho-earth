@@ -63,7 +63,7 @@ const simDate = () => new Date(simTime);
 // ---- カメラ：焦点天体を球面座標で周回（yaw/pitch/dist）。焦点は天体と一緒に動く＝時を回すと追走 ----
 const cam = { focus: "sun", yaw: -60 * D2R, pitch: 22 * D2R, dist: 26, fovy: 45 * D2R };
 const OVERVIEW_DIST = 26;   // Sunボタン＝太陽系全景（土星軌道まで入る）
-let camPos = [0, 0, 26], viewR = null;   // 毎フレーム更新（f64）
+let camPos = [0, 0, 26], viewR = null, camD = 26;   // 毎フレーム更新（f64）。camD＝カメラ〜焦点の今の距離（飛行中は補間値）
 let flight = null;   // {t0,dur, fromFocus,toFocus, fromD,toD} 焦点間フライト（800ms・log補間）
 
 const v3 = { sub: (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]], len: a => Math.hypot(a[0], a[1], a[2]) };
@@ -80,7 +80,7 @@ function updateCamera(date) {
 		if (k >= 1) { flight = null; cam.dist = d; }
 	}
 	const cp = Math.cos(cam.pitch), off = [d * cp * Math.cos(cam.yaw), d * cp * Math.sin(cam.yaw), d * Math.sin(cam.pitch)];
-	camPos = [F[0] + off[0], F[1] + off[1], F[2] + off[2]];
+	camPos = [F[0] + off[0], F[1] + off[1], F[2] + off[2]]; camD = d;
 	// 視線基底（前=−z）。up＝黄道北。行優先3行＝right/up/back
 	const f = [-off[0] / d, -off[1] / d, -off[2] / d];
 	let r = [f[1], -f[0], 0]; const rl = Math.hypot(r[0], r[1]) || 1; r = [r[0] / rl, r[1] / rl, 0];
@@ -543,6 +543,28 @@ function updateInfo(date) {
 	}
 	if (html !== infoShown) infoEl.innerHTML = infoShown = html;   // 旧：毎フレーム innerHTML（実測 60 回/秒）
 }
+// 距離スケール（ortho-earth の #scale と同じ 1-2-5 の物差し）。縮尺＝焦点天体の奥行きでの 1px の長さ。
+// 単位は km→AU（0.05AU＝750 万 km で切替）・横に光の到達時間（光年の考え方を太陽系の尺度で＝情報パネルの「光で◯分」と同じ読み）。
+// 1 光年（63,241AU）はカメラの上限 120AU の遥か先＝光年の目盛りは出さない（2026-09-19 本人裁定）
+const scaleTxt = document.getElementById("scale-txt"), scaleBar = document.getElementById("scale-bar");
+let scaleShown = "";
+const nice125 = x => { const r = Math.pow(10, Math.floor(Math.log10(x))), m = x / r; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * r; };
+const sig2 = v => nfmt(Number(v.toPrecision(2)));
+function lightTime(au) {
+	const s = au * LIGHT_MIN_PER_AU * 60;
+	return s < 90 ? t("$1 s", sig2(s)) : s < 5400 ? t("$1 min", sig2(s / 60)) : s < 172800 ? t("$1 h", sig2(s / 3600)) : t("$1 days", sig2(s / 86400));
+}
+function updateScale() {
+	const dpr = Math.min(2, devicePixelRatio || 1), auPx = camD * dpr / pxPerRad;   // 焦点の奥行きで CSS 1px が何 AU か
+	const base = auPx * (canvas.clientWidth < 720 ? 110 : 160);                      // 物差しの最長（px）。1-2-5 で丸めて 40%〜100%
+	let au = nice125(base), dist;
+	if (au < 0.05) { const km = nice125(base * AU_KM); au = km / AU_KM; dist = t("$1 km", nfmt(km)); }
+	else dist = t("$1 AU", nfmt(au));
+	const txt = t("$1 · light $2", dist, lightTime(au)), w = (au / auPx).toFixed(1);
+	if (txt + w === scaleShown) return;   // 変わった時だけ DOM に触る
+	scaleShown = txt + w;
+	scaleTxt.textContent = txt; scaleBar.style.width = w + "px";
+}
 // 時刻欄と情報パネル＝描画とは別の拍（最大 4 回/秒・中身が変わった時だけ DOM に触る）
 let lastUi = 0, uiDirty = true, dtShown = "";
 function uiTick(now, date) {
@@ -727,6 +749,7 @@ function frame(now) {
 	const date = simDate();
 	for (const b of ALL) P[b.id] = posOf(b.id, date);              // 位置はここで一度だけ（f64）
 	updateCamera(date);
+	updateScale();
 	uiTick(now, date);
 	if (!needsDraw && !flight && !movedSinceDraw()) return;
 	needsDraw = false;
