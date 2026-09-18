@@ -3,6 +3,7 @@ import { bufferTub, readBufs } from "./modules/bufferTub.js";
 import { isString, isSimpleObject, isFloat, isBbox } from "./modules/utility.js";
 import { antimeridianFeature } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
+import { runInWorker } from "./modules/workerPool.js";
 
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16, MIN_ZOOM: 17, MAX_ZOOM: 18 };
@@ -458,11 +459,11 @@ function readGeometry(self, n, m) {
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
 
 function _setViaWorker(self, buf) {
-	return new Promise((resolve, reject) => {
-		// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）
-		const w = GeoPBF._workerFactory ? GeoPBF._workerFactory() : new Worker(GeoPBF._workerUrl, { type: "module" });
-		w.onmessage = ({ data: r }) => {
-			w.terminate();
+	// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）。
+	// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）
+	const factory = GeoPBF._workerFactory || (() => new Worker(GeoPBF._workerUrl, { type: "module" }));
+	return runInWorker("decoder:pbf", factory, { buf }, [buf])
+		.then(r => {
 			self.init();
 			self.pbf          = new Pbf(r.buf);
 			self.fmap         = r.fmap;
@@ -478,11 +479,8 @@ function _setViaWorker(self, buf) {
 			self.e            = Math.pow(10, self._precision = r._precision);
 			self._bodyPos     = r._bodyPos;
 			self.end          = r.end;
-			resolve(self);
-		};
-		w.onerror = e => { w.terminate(); reject(e); };
-		w.postMessage({ buf }, [buf]);
-	});
+			return self;
+		});
 }
 
 export { GeoPBF, makeKeys };   // makeKeys＝ストリームエンコード（set() を自前でなぞる呼び出し側＝geoedit）用に公開 2026-08-20

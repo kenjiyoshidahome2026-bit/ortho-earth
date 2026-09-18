@@ -44,6 +44,7 @@ import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "./modules/gzip.js";
 import { decodeZIP } from "./modules/decodeZIP.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
+import { prewarmWorkers } from "./modules/workerPool.js";
 
 // prototype メソッドとレガシー geopbf が使うアクティブインスタンス
 let _activeGetServer = null;
@@ -66,6 +67,10 @@ export function createGeopbf(apiBase, options = {}) {
         // 入口は ./worker.js 1 本・形式は name で指名（decoderWorkers と同じ理由＝核の複製を消す）。
         GeoPBF._workerFactory     ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' });
         GeoPBF._gintWorkerFactory ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gint' });
+        // prewarm＝復号レーンを起動直後に起こす（仕事は投げない）。worker のモジュール評価が DB 取得や IDB 読みと重なり、
+        // 「最初の 1 本だけ極端に遅い」が消える（apps/equal 本番実測 2026-09-18＝最初の geopbf() 1538ms、同データの
+        // メインスレッド解析は 46ms＝差は立ち上げ）。既定 off＝復号しないかもしれない埋め込み先で worker を勝手に起こさない。
+        if (options.prewarm) prewarmWorkers([["decoder:pbf", GeoPBF._workerFactory], ["decoder:gint", GeoPBF._gintWorkerFactory]]);
     }
     const pbfio = createPbfio(apiBase, options);
     let _server = null;
