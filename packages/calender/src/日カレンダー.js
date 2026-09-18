@@ -25,6 +25,9 @@ const 二十四節気 = {
 	"195": "寒露", "210": "霜降", "225": "立冬", "240": "小雪", "255": "大雪", "270": "冬至",
 	"80": "入梅", "100": "半夏生", "297": "土用入", "27": "土用入", "117": "土用入", "207": "土用入"
 };
+// 説明の吹き出し：<title>（ブラウザ既定の tooltip）でなく data-tip に載せ、tip.js が拾って出す。一行目＝見出し
+const 属性 = t => String(t).replace(/[&<>"\n]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "\n": "&#10;" })[c]);
+const tip = (見出し, 説明) => 説明 ? ` data-tip="${属性(`${見出し}\n${説明}`)}"` : "";
 function 元号計算(YMD) {
    const v = ymdComp(YMD, [2019, 5, 1]) >= 0 ? ["R", YMD[0] - 2018] :
 		ymdComp(YMD, [1989, 1, 8]) >= 0 ? ["H", YMD[0] - 1988] :
@@ -220,7 +223,7 @@ export function 日カレンダー(年月日) {
 				<text font-size="55" stroke="#fff" fill="${曜日色}" transform="${日 > 9 ? "scale(0.8 1)" : "scale(1.1 1)"}" stroke-width="0.2" font-weight="700" dominant-baseline="middle">${年月日[2]}</text>
 			</g>
 			<text font-size="5" font-weight="700" transform="translate(50,68)">
-				<tspan fill="#a22">${休日}</tspan> <tspan>${節気}${節説明[節気] ? `<title>${節説明[節気]}</title>` : ""}</tspan>
+				<tspan fill="#a22">${休日}</tspan> <tspan${tip(節気, 節説明[節気])}>${節気}</tspan>
 			</text>
 			<text font-size="8" font-weight="700"><tspan fill="${曜日色}" x="10 10 10" y="10 18 26">${曜日}曜日</tspan></text>
 			<text font-size="4" fill="${曜日色}" transform="translate(10,33)">${Day}</text>
@@ -235,26 +238,26 @@ export function 日カレンダー(年月日) {
 			<g transform="translate(35,${special?65:60}) scale(0.3)">${月カレンダー(年月日)}</g>
 			<text font-size="4" transform="translate(7,40)"><tspan x="0 0" y="0 4">旧暦</tspan></text>
 			<text font-size="4" transform="translate(7,50)"><tspan x="0 0 0 0 0 0 0" dy="${旧暦名dy}">${旧暦名}</tspan></text>
-			<text font-size="4" transform="translate(13,40)"><tspan x="0 0" dy="0 4">${六曜}</tspan><title>${六曜説明[六曜]}</title></text>
+			<text font-size="4" transform="translate(13,40)"${tip(六曜, 六曜説明[六曜])}><tspan x="0 0" dy="0 4">${六曜}</tspan></text>
 			<text font-size="4" transform="translate(13,50)"><tspan x="0 0" dy="0 4">${日干支}</tspan></text>
-			<text font-size="4" transform="translate(13,60)"><tspan x="0 0 0 0" dy="0 4 4 4">${日家九星}<title>${九星説明[日家九星]}</title></tspan></text>
+			<text font-size="4" transform="translate(13,60)"><tspan x="0 0 0 0" dy="0 4 4 4"${tip(日家九星, 九星説明[日家九星])}>${日家九星}</tspan></text>
 			<text font-size="2.4" transform="translate(18,45)"><tspan x="0 0 0 0 0 0 0 0" dy="0 2.5 2.5 2.5 2.5 2.5 2.5 2.5">${日干支読}</tspan></text>
 			<text font-size="2.2" transform="translate(8,80)">十二直</text>
 			<text font-size="2.2" transform="translate(18,80)">二十八宿</text>
 			<text font-size="2.2" transform="translate(28,80)">二十七宿</text>
-			<text font-size="5" font-weight="700" transform="translate(8,86)">${十二直}<title>${直説明[十二直][1]}</title></text>
-			<text font-size="5" font-weight="700" transform="translate(18,86)">${二十八宿}<title>${宿説明[二十八宿][1]}</title></text>
-			<text font-size="5" font-weight="700" transform="translate(28,86)">${二十七宿}<title>${宿説明[二十七宿][1]}</title></text>
+			<text font-size="5" font-weight="700" transform="translate(8,86)"${tip(`十二直 ${十二直}（${直説明[十二直][0]}）`, 直説明[十二直][1])}>${十二直}</text>
+			<text font-size="5" font-weight="700" transform="translate(18,86)"${tip(`二十八宿 ${二十八宿}（${宿説明[二十八宿][0]}）`, 宿説明[二十八宿][1])}>${二十八宿}</text>
+			<text font-size="5" font-weight="700" transform="translate(28,86)"${tip(`二十七宿 ${二十七宿}（${宿説明[二十七宿][0]}）`, 宿説明[二十七宿][1])}>${二十七宿}</text>
 			<text font-size="2.2" transform="translate(8,90)">${直説明[十二直][0]}</text>
 			<text font-size="2.2" transform="translate(18,90)">${宿説明[二十八宿][0]}</text>
 			<text font-size="2.2" transform="translate(28,90)">${宿説明[二十七宿][0]}</text>
 			<text font-size="3" transform="translate(82,78)">
-				<tspan>${黄経[2]}<title>${節説明[黄経[2]]}</title></tspan>${(黄経[3] === 1 ? "初日" : 黄経[3] + "日目")}
-				<tspan>[ ${黄経[1][0]} ]</tspan><title>七十二候【${黄経[1][1]}】${黄経[1][2]}</title></text>
-			<text font-size="3" transform="translate(82,83)"><tspan>${黄経[4]}<title>${節説明[黄経[4]]}</title></tspan>まであと${黄経[5]}日</text>
+				<tspan${tip(黄経[2], 節説明[黄経[2]])}>${黄経[2]}</tspan>${(黄経[3] === 1 ? "初日" : 黄経[3] + "日目")}
+				<tspan${tip(`七十二候 ${黄経[1][0]}（${黄経[1][1]}）`, 黄経[1][2])}>[ ${黄経[1][0]} ]</tspan></text>
+			<text font-size="3" transform="translate(82,83)"><tspan${tip(黄経[4], 節説明[黄経[4]])}>${黄経[4]}</tspan>まであと${黄経[5]}日</text>
 			<text font-size="3" transform="translate(82,88)">(太陽黄経 ${黄経[0].toFixed(2)}°・正午)</text>
 			<text font-size="3.2" font-weight="700" transform="translate(50,95)">
-				${暦注.map(t => `<tspan>${t}<title>${t}: ${暦注説明[t.replace(/\(.*\)$/, "")] || ""}</title></tspan>`).join(" ")}
+				${暦注.map(t => `<tspan${tip(t, 暦注説明[t.replace(/\(.*\)$/, "")])}>${t}</tspan>`).join(" ")}
 			</text>        </g>
 	</svg>`;
 }
@@ -270,7 +273,7 @@ function 月カレンダー(YMD) {
 		const x = w * (n + 1);
 		if (today == i) body.push(`<circle cx="${x}" cy="${y-0.5}" r="${h/2}" fill="#fee" stroke="#f40" stroke-width="0.5"/>`);
 		if (YMD[2] == i) body.push(`<rect x="${x - h / 2}" y="${y - h / 2-0.5}" width="${h}" height="${h}" fill="#ccc" stroke="#444" stroke-width="0.5"/>`);
-		body.push(`<text font-size="8" x="${x}" y="${y}" fill="${holidays[i] || !n ? "red" : (n == 6 ? "blue" : "black")}" >${i}${holidays[i] ? `<title>${holidays[i]}</title>` : ""}</text>`);
+		body.push(`<text font-size="8" x="${x}" y="${y}" fill="${holidays[i] || !n ? "red" : (n == 6 ? "blue" : "black")}"${tip(`${YMD[1]}月${i}日`, holidays[i])}>${i}</text>`);
 		n++; if (n == 7) { n = 0; y += h; }
 	}
 	return `<svg viewBox="0 0 100 70"><g dominant-baseline="middle">${body.join("")}</g></svg>`;
