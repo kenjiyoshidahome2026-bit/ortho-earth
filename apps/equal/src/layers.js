@@ -43,7 +43,9 @@ export const LAYERS = [
 	{
 		// 国＝world の定義そのもの：packages/world の ne-cultural（NE admin_1 を world key で束ね済み・layer="admin_1"・属性 key）。
 		// unit（ID 塗りの番号＝NationDB の並び）と輪郭の分類は main.js が World DB を読んでから差し込む
-		id: "countries", label: "Countries", fixed: true, source: "world", group: "base", kind: "poly", loadZoom: -Infinity,
+		// ids: true＝この層の面から国 ID バッファを作る（renderer.drawIds）。塗りは drawLand（陸色＋ハイプソ）。
+		// ID はコロプレス・ホバー識別・面の塗りが共有する材料＝この層の持ち物ではない（2026-09-18 の分離）。
+		id: "countries", label: "Countries", fixed: true, ids: true, source: "world", group: "base", kind: "poly", loadZoom: -Infinity,
 		fillColor: PALETTE.land,
 		lineStyles: [{ color: PALETTE.coast, width: 0.8 }, { color: PALETTE.border, width: 0.8 }, { color: PALETTE.admin1, width: 0.5 }],   // 海岸線・国境・州境（同じ key の admin1 境界）
 		order: { fill: 10, lines: 60 },
