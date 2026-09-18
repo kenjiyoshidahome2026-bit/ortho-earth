@@ -12,3 +12,24 @@ export function packs({ constellations, messier, bodies }) {
 	}
 	return out;
 }
+
+// ---- 月の地名（moon.json＝IAU 採択の主な地名 2,023）----
+// GeoPBF の元＝英語（IAU 名）の点。properties＝{ id(GPN), name, code(IAU の地形記号), diameter(km), origin(由来・英語), approved(年) }
+// ＝bucket の geopbf "moon_nomenclature"。座標は月面の経緯度（東経正・-180..180）＝地球の地図ではない（読む側が月の球へ貼る）
+export const MOON_GEOPBF = "moon_nomenclature";
+export function moonGeoJSON({ features }) {
+	return {
+		type: "FeatureCollection",
+		features: features.map(f => ({
+			type: "Feature", id: f.id,
+			properties: { id: f.id, name: f.name, code: f.code, diameter: f.diameter, origin: f.origin, approved: f.approved },
+			geometry: { type: "Point", coordinates: [f.lon, f.lat] },
+		})),
+	};
+}
+// 多言語＝言語ごとに { <id>: 名前 }（英名と違うものだけ）＝bucket GIS/space/i18n/moon/<lang>.json。en は持たない（GeoPBF の name が英語）
+export function moonPacks({ features }) {
+	const out = {};
+	for (const l of LANGS.slice(1)) out[l] = Object.fromEntries(features.filter(f => f.names[l]).map(f => [f.id, f.names[l]]));
+	return out;
+}
