@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 宇宙の名前データの常設検定：正本（names.json）の網羅と取り違えの疑い・パックの形
 import fs from "node:fs";
-import { packs, LANGS } from "../build/packs.js";
+import { packs, LANGS } from "../packs.js";
 let fail = 0;
 const check = (name, ok, info = "") => { if (!ok) fail++; console.log(`${ok ? "ok  " : "FAIL"} ${name}${info ? "  " + info : ""}`); };
 const names = JSON.parse(fs.readFileSync(new URL("../names.json", import.meta.url), "utf8"));
@@ -18,9 +18,12 @@ for (const l of LANGS) {   // 同じ言語の中で二つの星座が同じ名�
 	for (const a of IAU) { const v = names.constellations[a][l]; if (!v) continue; if (seen.has(v)) dup.push(`${seen.get(v)}/${a}=${v}`); seen.set(v, a); }
 	if (dup.length) check(`${l}: no duplicate constellation names`, false, dup.join(" "));
 }
+const BODY = ["sun","mercury","venus","earth","moon","mars","jupiter","saturn","uranus","neptune","pluto","io","europa","ganymede","callisto","phobos","deimos","mimas","enceladus","tethys","dione","rhea","titan","iapetus","miranda","ariel","umbriel","titania","oberon","triton","charon"];
+check("bodies: sun, planets, Moon, Pluto and the 20 moons (ephem ids)", BODY.every(k => names.bodies[k]) && Object.keys(names.bodies).length === BODY.length);
+check("bodies: every one has all 26 languages", BODY.every(k => LANGS.every(l => names.bodies[k][l])), BODY.flatMap(k => LANGS.filter(l => !names.bodies[k][l]).map(l => k + ":" + l)).slice(0, 8).join(" "));
 const P = packs(names);
 check("26 packs; en pack is complete", Object.keys(P).length === 26 && Object.keys(P.en.c).length === 88 && Object.keys(P.en.m).length === Object.keys(names.messier).length);
-check("packs carry only that language", P.ja.c.Ori === "オリオン座" && P.ja.m.M42 === "オリオン大星雲" && !("M42" in P.ur.m) && P.en.m.M42 === "Orion Nebula");
+check("packs carry only that language", P.ja.c.Ori === "オリオン座" && P.ja.m.M42 === "オリオン大星雲" && !("M42" in P.ur.m) && P.en.m.M42 === "Orion Nebula" && P.ja.b.mercury === "水星" && P.en.b.moon === "Moon");
 check("pack size stays small (< 5 KB each)", Object.values(P).every(p => JSON.stringify(p).length < 5000), Math.max(...Object.values(P).map(p => JSON.stringify(p).length)) + " B max");
 console.log(fail ? `\nFAIL  ${fail}` : "\nPASS");
 process.exit(fail ? 1 : 0);

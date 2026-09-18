@@ -81,8 +81,9 @@ for m, (en, ja, zh) in MESS.items():
         if l not in ("en", "ja", "zh") and any(C[a].get(l) == row[l] for a in C): mrej.setdefault(l, []).append(f"{m}:{row.pop(l)}(=constellation)")
     M[m] = {l: row[l] for l in L if l in row}
 M["M31"]["ar"] = "مجرة المرأة المسلسلة"; M["M31"]["ur"] = "اینڈرومیڈا کہکشاں"; M["M42"]["es"] = "Nebulosa de Orión"; M["M31"]["pt"] = "Galáxia de Andrômeda"
-out = {"source": "ja=日本天文学会の標準和名（ortho-japan skynames.js の表から写した）・en=IAU 名・zh/pl=標準名を手当て・メシエの en/ja/zh=手当て・他言語=Wikidata の見出し（2026-09-19 取得・百科事典の曖昧さ回避と カタログ番号型の見出しを除去）。欠けた言語は loader が英語（星座＝IAU 名・メシエ＝英語の通称）に落とす",
-       "constellations": C, "messier": M}
+prev = json.load(open(OUT))   # 天体（bodies）は Wikidata 由来でない＝そのまま持ち越す
+out = {"source": "ja=日本天文学会の標準和名（ortho-japan skynames.js の表から写した）・en=IAU 名・zh/pl=標準名を手当て・メシエの en/ja/zh=手当て・他言語=Wikidata の見出し（2026-09-19 取得・百科事典の曖昧さ回避と カタログ番号型の見出しを除去）。天体（bodies＝太陽・惑星・月・冥王星・衛星 20）＝ortho-solar の UI 辞書（i18n/ui.json・26 言語）から写した。欠けた言語は loader が英語（星座＝IAU 名・メシエ＝英語の通称）に落とす",
+       "constellations": C, "messier": M, "bodies": prev.get("bodies", {})}
 json.dump(out, open(OUT, "w"), ensure_ascii=False, indent="\t"); open(OUT, "a").write("\n")
 print("const fallback:", {l: len(v) for l, v in fb.items()})
 for l in L:

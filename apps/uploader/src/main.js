@@ -12,7 +12,7 @@ import * as POI from "./poi/schema.js";
 import { worldUI } from "./world/index.js";
 // 宇宙の名前データ（星座・メシエの 26 言語）＝正本は packages/space/names.json・ここは bucket へ焼くだけ（world と同じ型）
 import spaceNamesJSON from "../../../packages/space/names.json";
-import { packs as spacePacks, DIRE as SPACE_DIRE } from "../../../packages/space/build/packs.js";
+import { packs as spacePacks, DIRE as SPACE_DIRE } from "../../../packages/space/packs.js";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
