@@ -48,7 +48,7 @@ CMD.append("button").text("moon names").on("click", () => moonNames(q));
 CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
 CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
 CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
-CMD.append("button").text("NE rivers + airports (10m)").on("click", () => riversAirports(q));
+CMD.append("button").text("NE rivers + airports + maritime (10m)").on("click", () => riversAirports(q));
 CMD.append("button").text("below-sea land (GEBCO×admin0)").on("click", () => belowSeaLand(q, { apiUrl: API_BASE }));
 CMD.append("button").text("world hypso atlas (R90×8 → 1枚)").on("click", () => worldAtlas(q, { apiUrl: API_BASE, Bucket }));
 CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
@@ -234,7 +234,7 @@ async function lakes(q) {
 	}
 }
 
-// 川（rivers_lake_centerlines）と空港（airports）→ GIS/pbf。apps/equal の水系ラインと空港マーカー用。
+// 川（rivers_lake_centerlines）・空港（airports）・海洋境界線（boundary_lines_maritime_indicator）→ GIS/pbf。apps/equal 用。
 // なぜ bucket へ置くか＝lakes/admin0 と同じ理由の実測版：この 2 つだけ bucket に無く、equal は毎訪問
 // 「名前引き→404（本番実測 0.6s×2 本）→ S3 生 zip へ退避→ shp デコード」を払っていた（2026-09-18）。
 // IDB が温まっても 404 の往復は毎回発生する＝焼いて置けば根から消える。
@@ -242,10 +242,11 @@ async function lakes(q) {
 // 増やす時はこの表に足すだけ（res/group/name/description）。
 async function riversAirports(q) {
 	q.clear();
-	q.title("NE rivers + airports (10m)");
+	q.title("NE rivers + airports + maritime (10m)");
 	const items = [
 		{ res: "10m", group: "physical", name: "ne_10m_rivers_lake_centerlines", description: "世界の河川（Natural Earth 10m rivers_lake_centerlines）＝全球ビューの水系ライン" },
 		{ res: "10m", group: "cultural", name: "ne_10m_airports", description: "世界の空港（Natural Earth 10m airports）＝全球ビューの空港マーカー" },
+		{ res: "10m", group: "cultural", name: "ne_10m_admin_0_boundary_lines_maritime_indicator", description: "海洋境界線（Natural Earth 10m boundary_lines_maritime_indicator）＝海上の中間線・領海の指示線" },
 	];
 	for (const { res, group, name, description } of items) {
 		const url = `https://naturalearth.s3.amazonaws.com/${res}_${group}/${name}.zip`;

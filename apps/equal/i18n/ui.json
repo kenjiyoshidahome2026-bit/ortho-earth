@@ -1160,6 +1160,33 @@
    "fa": "برای باز کردن CSV دیگر دوباره کلیک کنید",
    "ur": "دوسری CSV کھولنے کے لیے دوبارہ کلک کریں",
    "he": "לחצו שוב לפתיחת CSV אחר"
+  },
+  "Maritime boundaries": {
+   "ja": "海洋境界",
+   "zh": "海洋边界",
+   "ko": "해양 경계",
+   "fr": "Frontières maritimes",
+   "de": "Seegrenzen",
+   "es": "Fronteras marítimas",
+   "pt": "Fronteiras marítimas",
+   "it": "Confini marittimi",
+   "nl": "Zeegrenzen",
+   "pl": "Granice morskie",
+   "ru": "Морские границы",
+   "uk": "Морські кордони",
+   "hu": "Tengeri határok",
+   "sv": "Sjögränser",
+   "tr": "Deniz sınırları",
+   "el": "Θαλάσσια σύνορα",
+   "id": "Batas maritim",
+   "vi": "Ranh giới biển",
+   "th": "เขตแดนทางทะเล",
+   "bn": "সামুদ্রিক সীমানা",
+   "hi": "समुद्री सीमाएँ",
+   "ar": "الحدود البحرية",
+   "fa": "مرزهای دریایی",
+   "ur": "سمندری حدود",
+   "he": "גבולות ימיים"
   }
  }
 }

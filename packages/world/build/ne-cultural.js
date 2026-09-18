@@ -30,6 +30,31 @@ const KEEP = {
 	admin_1: ["key", "layer", "name", "name_en", "name_ja", "iso_3166_2", "adm1_code", "type_en", "admin"],
 	populated_places: ["key", "layer", "ne_clip", "NAME", "NAME_EN", "NAME_JA", "NAMEASCII", "FEATURECLA", "SCALERANK", "MIN_ZOOM", "POP_MAX", "ADM0CAP", "ADM1CAP", "WORLDCITY", "MEGACITY", "WIKIDATAID"],   // NE の populated_places は属性が大文字（admin_1 は小文字）
 };
+// ── NE の多言語都市名 → 言語別テーブル（2026-09-18 本人「小さい都市名も NE を使用して、i18n 化して」）──────
+// なぜ配信用 geopbf に入れないか：NE の populated_places は 24 言語の名前列を持つが、全部を base に載せると
+// 起動時の 1 本（全員が引く）が 1MB 級太る。1 人が使うのは 1 言語なので**言語別の小さな表**にして、
+// その言語の人だけが引く（World DB の i18n/<lang>.json と同じ流儀）。
+// 中身は「英語名と違う名前だけ」＝de/es/fr/nl/id 等は 1,000 件前後に縮む（欠け＝表示側が NAME_EN へ落ちる）。
+// 鍵は Wikidata QID（NE の WIKIDATAID・実測 98% が保持）＝世代が変わっても同じ都市を指す。
+// th（タイ語）は NE に列が無い＝英語のまま（表を作らない）。
+export const NE_CITY_LANGS = ["ja", "zh", "ko", "fr", "de", "es", "pt", "it", "nl", "pl", "ru", "uk", "hu", "sv", "tr", "el", "id", "vi", "bn", "hi", "ar", "fa", "he", "ur"];
+export function cityNameTables(features) {
+	const tables = Object.fromEntries(NE_CITY_LANGS.map(l => [l, {}]));
+	let cities = 0, keyed = 0;
+	for (const f of features) {
+		const p = f.properties; if (!p || p.layer !== "populated_places") continue;
+		cities++;
+		const qid = p.WIKIDATAID ?? p.wikidataid; if (!qid || !/^Q\d+$/.test(qid)) continue;
+		keyed++;
+		const en = p.NAME_EN ?? p.name_en ?? "";
+		for (const l of NE_CITY_LANGS) {
+			const v = p["NAME_" + l.toUpperCase()] ?? p["name_" + l];
+			if (v && v !== en) tables[l][qid] = v;   // 英語と同じ名前は書かない＝表示側が NAME_EN へ落ちる
+		}
+	}
+	return { tables, cities, keyed };
+}
+
 const slim = f => { const keep = KEEP[f.properties.layer]; if (!keep) return f; const p = {}; for (const k of keep) if (f.properties[k] != null) p[k] = f.properties[k]; return { ...f, properties: p }; };
 export const splitGroups = all => Object.fromEntries(Object.entries(NE_GROUPS).map(([g, layers]) => { const set = new Set(layers); const feats = all.filter(f => set.has(f.properties.layer)); return [g, g === "base" ? feats.map(slim) : feats]; }));
 
