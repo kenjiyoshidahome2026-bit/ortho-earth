@@ -215,7 +215,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			for (const L of sky.planets) { const p = put(L.cel); if (p) ctx.fillText(L.name, p[0], p[1] + 11); }
 		}
 		if (sky.messier) {
-			const sz = 5, P2 = Math.PI * 2;   // v1 の記号語彙：gc=球状星団 gx/gg=銀河 oc=散開星団 他=矩形
+			// v1 の記号語彙：gc=球状星団 銀河=楕円 oc=散開星団 他=矩形。銀河は d3-celestial の種別で s/e/i（渦巻・楕円・不規則）
+			// で来る＝旧版は gx/gg だけを見ていて銀河が全部矩形になっていた（2026-09-19・packages/space README と solar の messierKind と同じ読み）
+			const sz = 5, P2 = Math.PI * 2, GALAXY = new Set(["s", "e", "i", "gx", "gg"]);
 			ctx.lineWidth = 0.8;
 			ctx.strokeStyle = `rgba(255,200,100,${0.75 * fade})`;
 			ctx.font = `8px ${FONT_STACK}`;
@@ -228,7 +230,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 					ctx.moveTo(px - sz, py); ctx.lineTo(px + sz, py);
 					ctx.moveTo(px, py - sz); ctx.lineTo(px, py + sz);
 					ctx.stroke();
-				} else if (Mo.type === "gx" || Mo.type === "gg") {
+				} else if (GALAXY.has(Mo.type)) {
 					ctx.ellipse(px, py, sz * 1.5, sz * 0.6, 0.4, 0, P2); ctx.stroke();
 				} else if (Mo.type === "oc") {
 					ctx.setLineDash([2, 2]); ctx.arc(px, py, sz, 0, P2); ctx.stroke(); ctx.setLineDash([]);
