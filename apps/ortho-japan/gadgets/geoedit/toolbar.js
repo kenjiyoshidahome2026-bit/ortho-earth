@@ -23,6 +23,7 @@ const ICONS = {
 	imp: S('<path d="M3 7h6l2 2h10v11H3z"/>'),   // 取込＝素のフォルダ（矢印なし・本人裁定 9/15）
 	exp: S('<path d="M12 3v11m0 0l-3.5-3.5M12 14l3.5-3.5"/><path d="M4 15v5h16v-5"/>'),   // 書出＝下向き矢印（受け皿へ落とす＝「そっちの方が感覚が合う」本人裁定 9/15）
 	cloud: S('<path d="M7 17a4 4 0 1 1 .7-7.95A5.5 5.5 0 0 1 18.5 10 3.5 3.5 0 0 1 18 17z"/><path d="M12 21v-7m0 0l-2.5 2.5M12 14l2.5 2.5"/>'),
+	close: S('<path d="M6 6l12 12M18 6L6 18"/>'),
 	trash: S('<path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13"/><path d="M10 11v6M14 11v6"/>'),
 };
 
@@ -88,6 +89,8 @@ export function initToolbar(el, api, signal) {
 	btn("exp", t("Export (8 formats)"), () => api.exportOpen());
 	btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen());
 	btn("trash", t("Clear all (new session)"), () => api.clearAll());
+	// 部品として開かれた時だけ＝右端の「×」＝持ち主（japan）へ戻る（結果で持ち主の図形を置き換える）。単独起動は出さない
+	if (api.close) { const x = btn("close", t("Finish editing"), () => api.close()); x.classList.add("ge-close"); }
 
 	// ---- 作図ツールの既定スタイルパネル（点/線/面それぞれ＝「次に描くもの」に効く）----
 	let panel = null;
