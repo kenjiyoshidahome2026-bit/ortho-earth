@@ -167,6 +167,19 @@ export function orbitPointsThrough(id, date, n = 512) {
 	const M = (((el.L - el.w1) % 360 + 540) % 360 - 180) * D2R;
 	return orbitPoints(id, T, n, solveE(M, el.e));
 }
+// 描画用の軌道線＝天体自身からの相対（AU）・天体の傍ほど密。orbitPointsThrough は日心のまま f32 に詰める＝冥王星（35AU）で
+// 刻み ~600km、しかも等間隔 512 点の弦は楕円から最大 ~11 万 km 内側を通る＝寄ると線が天体から外れて見える（実測 2026-09-19）。
+// ここでは離心近点角のずれを dE = π·s·|s|（s∈[-1,1)）で配る＝天体の傍は刻みが二次で細かい（弦の誤差は数 km）・裏側は等間隔の 2 倍。
+// 頂点 n/2 が天体そのもの（原点）。使う側は「カメラ − 天体」を f64 で引いてシェーダへ渡す（RTE）
+export function orbitPointsRel(id, date, n = 512) {
+	const el = elements(id, jcT(date)), out = new Float32Array(n * 3);
+	const M = (((el.L - el.w1) % 360 + 540) % 360 - 180) * D2R, E0 = solveE(M, el.e), p0 = fromE(el, E0);
+	for (let i = 0; i < n; i++) {
+		const sv = -1 + 2 * i / n, p = fromE(el, E0 + Math.PI * sv * Math.abs(sv));
+		out[i * 3] = p[0] - p0[0]; out[i * 3 + 1] = p[1] - p0[1]; out[i * 3 + 2] = p[2] - p0[2];
+	}
+	return out;
+}
 // 月の軌道線：恒星月一周を時間サンプル（摂動込みの実形状）。中心＝渡された時刻の地球。
 // 摂動（出没差＝引数が朔望月周期）で1恒星月後は同点に戻らない＝この曲線は本当は閉じない。
 // 継ぎ目のカクつきを月の真横に置かないため「今を中心に±半月」でサンプル＝継ぎ目は月の対極（遠側）、
