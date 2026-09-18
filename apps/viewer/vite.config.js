@@ -11,7 +11,7 @@ export default defineConfig({
 		})
 	],
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender']
+		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri']
 	},
 	server: {
 		fs: { allow: ['../..'] },

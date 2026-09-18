@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender', 'pbf'],
+		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf'],
 	},
 	server: {
 		fs: { allow: ['../..'] },

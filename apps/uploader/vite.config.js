@@ -15,11 +15,11 @@ export default defineConfig({
 			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
 			'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
 			'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src'),
-		   'calender': path.resolve(__dirname, '../../packages/calender/src')
+		   'himekuri': path.resolve(__dirname, '../../packages/himekuri/src')
 		}
 	},
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'calender']
+		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri']
 	},
 	server: {
 		fs: { allow: ['../..'] },

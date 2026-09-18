@@ -21,7 +21,7 @@ const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
 import { GEBCO, createGetHeight } from "altpbf/loader";
 import { belowSeaLand } from "./belowsea.js";
 
-import { 世界時計 } from 'calender';
+import { 世界時計 } from 'himekuri';
 const clock = 世界時計({});
 //clock.redraw({digital:false})
 
