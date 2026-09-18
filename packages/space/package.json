@@ -1,0 +1,11 @@
+{
+	"name": "space-data",
+	"version": "1.0.0",
+	"private": true,
+	"description": "宇宙（天球）の名前データ：星座 88・メシエ天体の通称を 26 言語で（names.json＝正本・データは CC BY-SA 4.0）。配信は bucket GIS/space/i18n/<lang>.json（uploader が焼く）",
+	"type": "module",
+	"license": "SEE LICENSE IN LICENSE",
+	"scripts": {
+		"test": "node tests/t-names.mjs"
+	}
+}
