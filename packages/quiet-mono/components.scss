@@ -292,8 +292,9 @@
 	#layers-panel { position: absolute; inset-inline-start: calc(100% + 8px); top: 0; display: flex; flex-direction: column; align-items: stretch; min-width: 96px; }
 	#layers-panel[hidden] { display: none; }
 	#layers-panel .chip { text-align: center; }
-	/* テーマ列＝紙色スウォッチ＋名前の小ボタン（本命のライブ見本は palette ガジェットの領分＝ここは即決の入口） */
-	#theme-row {
+	/* テーマ列＝紙色スウォッチ＋名前の小ボタン（本命のライブ見本は palette ガジェットの領分＝ここは即決の入口）。
+	   .lp-stack＝同じ佇まいの縦スタックを他の用途にも（apps/equal の主題＝コロプレス列）＝部品を二度書かない */
+	#theme-row, .lp-stack {
 		display: flex; flex-direction: column; align-items: stretch; margin-top: 6px;
 		.lp-theme {
 			font: 12px/1 var(--qm-font); padding: 8px 12px 8px 10px; border: 1px solid var(--qm-border);

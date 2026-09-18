@@ -201,8 +201,6 @@ ${OUTLINE}
 uniform vec3 u_land;
 uniform float u_hypsoA; uniform sampler2D u_elevTex; uniform float u_hasElev;
 uniform sampler2D u_nearTex; uniform float u_hasNear; uniform vec4 u_nearB;   // 近景 R10 窓（x0,y0,spanLon,spanLat・行0=南）
-uniform sampler2D u_paint; uniform int u_paintW; uniform float u_choroA;
-uniform float u_hover;
 const float A1=${A1}, A2=${A2}, A3=${A3}, A4=${A4}, M=${M};
 const float D2R = 0.017453292519943295, Y_MAX = 1.3173627591574;
 ${WORLD_HYPSO}
@@ -251,15 +249,33 @@ void main() {
 		float shade = clamp(0.86 + (-hx + hy) * 0.00013 * sqrt(farStep / dstep), 0.62, 1.08);   // japan の全球ハイプソと同じ NW 光
 		c = mix(c, worldHypso(e, ll) * shade, u_hypsoA);
 	}
-	if (id > 0.5) {
-		int fid = int(id) - 1;
-		if (u_choroA > 0.001) {
-			vec4 pc = texelFetch(u_paint, ivec2(fid % u_paintW, fid / u_paintW), 0);
-			c = mix(c, pc.rgb, pc.a * u_choroA);
-		}
-		if (abs(float(fid) - u_hover) < 0.5) c = mix(c, vec3(0.10, 0.14, 0.20), 0.14);
-	}
 	o = vec4(c * cov, cov);
+}`;
+
+// コロプレス＝層から独立した被せパス（2026-09-18 本人裁定「コロプレス機能をレイヤーから分離」）。
+// 材料は国 ID バッファと塗り表テクスチャだけ＝どの層の幾何にも依存しない。国の面を描いたパスが残した ID を読むので、
+// 描画順（ops の order）を呼び出し側が自由に決められる＝「湖や市街地の下に敷く／上に乗せる」が設定になる。
+// ホバーの明暗も同じ ID 読みで済む＝1 パス 1 テクスチャフェッチに相乗り（別パスにすると ID を二度読む）。
+// 塗りとホバーは source-over で自前合成してから 1 回だけ画面へブレンド（＝旧・合成パス内の二段 mix と同じ絵）。
+const CHORO_FS = `#version 300 es
+precision highp float; precision highp int;
+uniform sampler2D u_id;
+uniform sampler2D u_paint; uniform int u_paintW; uniform float u_choroA;
+uniform float u_hover; uniform vec4 u_hoverC;   // rgb＋強さ
+${OUTLINE}
+out vec4 o;
+void main() {
+	float cov = insideK(gl_FragCoord.xy); if (cov <= 0.0) discard;
+	float id = floor(abs(texelFetch(u_id, ivec2(gl_FragCoord.xy), 0).r) + 0.5);
+	if (id < 0.5) discard;
+	int fid = int(id) - 1;
+	vec4 pc = texelFetch(u_paint, ivec2(fid % u_paintW, fid / u_paintW), 0);
+	float a1 = pc.a * u_choroA;
+	float a2 = abs(float(fid) - u_hover) < 0.5 ? u_hoverC.a : 0.0;
+	float a = a1 + a2 * (1.0 - a1);
+	if (a <= 0.0) discard;
+	vec3 pm = pc.rgb * a1 + u_hoverC.rgb * a2 * (1.0 - a1);   // 事前乗算のまま重ねる
+	o = vec4(pm * cov, a * cov);
 }`;
 
 // 点：(ix,iy) を直接インスタンス属性で＝テクスチャ不要。円＋縁取り
@@ -318,6 +334,7 @@ export function createRenderer(canvas) {
 		cover: compile(gl, COVER_VS, COVER_FS),
 		sea: compile(gl, COVER_VS, SEA_FS),
 		composite: compile(gl, COVER_VS, COMPOSITE_FS),
+		choro: compile(gl, COVER_VS, CHORO_FS),
 		point: compile(gl, POINT_VS, POINT_FS),
 	};
 	let frame = null;   // 今フレームの共通 uniform 値
@@ -452,6 +469,8 @@ export function createRenderer(canvas) {
 		gl.colorMask(true, true, true, true);
 		gl.stencilFunc(gl.EQUAL, 1, 1); gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 	}
+	// テクスチャユニットの割り当て（合成・コロプレス共通）。使わない時も各ユニットへ向ける＝unit0 の奪い合いを避ける
+	const bind = (unit, name, tex, u) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
 	// 外形の三つ組（被せ系のプログラム共通）
 	function setOutline(pr) { const u = pr.u, f = frame; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); }
 	function drawSea(sea, bg, edge) {
@@ -466,8 +485,8 @@ export function createRenderer(canvas) {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.disable(gl.STENCIL_TEST);
 	}
-	// 国：ID パス → 合成（陸色＋ハイプソ＋コロプレス＋ホバー）
-	// o = { land:[r,g,b], hypso: 0..1, pal: WORLD_PAL, choropleth: 0..1, hover: fid|-1 }
+	// 国：ID パス → 合成（陸色＋ハイプソ）。コロプレスとホバーは drawChoropleth（層に依存しない被せパス）の領分。
+	// o = { land:[r,g,b], hypso: 0..1, pal: WORLD_PAL }
 	function drawCountries(vtx, vao, o) {
 		if (!vao?.count) return;
 		if (hasFloatId) {
@@ -488,17 +507,32 @@ export function createRenderer(canvas) {
 		const P = o.pal;
 		gl.uniform3fv(u.u_whLowH, P.lowHumid); gl.uniform3fv(u.u_whLowA, P.lowArid); gl.uniform3fv(u.u_whMidH, P.midHumid); gl.uniform3fv(u.u_whMidA, P.midArid);
 		gl.uniform3fv(u.u_whR1, P.ramp1); gl.uniform3fv(u.u_whR2, P.ramp2); gl.uniform3fv(u.u_whPeak, P.peak); gl.uniform3fv(u.u_whSnow, P.snow);
-		gl.uniform1f(u.u_choroA, paintTex && hasFloatId ? (o.choropleth || 0) : 0); gl.uniform1i(u.u_paintW, paintW);
-		gl.uniform1f(u.u_hover, hasFloatId ? (o.hover ?? -1) : -1);
 		// サンプラは使わない時も各ユニットへ向ける（未設定＝unit0 を奪い合う轍）
-		const bind = (unit, name, tex) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
-		bind(1, "u_id", hasFloatId ? idTex : null); bind(2, "u_elevTex", elevTex); bind(3, "u_climTex", climTex); bind(4, "u_paint", paintTex); bind(5, "u_nearTex", nearTex);
+		bind(1, "u_id", hasFloatId ? idTex : null, u); bind(2, "u_elevTex", elevTex, u); bind(3, "u_climTex", climTex, u); bind(5, "u_nearTex", nearTex, u);
 		gl.uniform1f(u.u_hasNear, nearB && elevTex ? 1 : 0);
 		if (nearB) gl.uniform4f(u.u_nearB, nearB[0], nearB[1], nearB[2], nearB[3]);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
-		bind(1, "u_id", null);   // 次フレームの ID パスで FBO 自身を読み書きしない
+		bind(1, "u_id", null, u);   // 次フレームの ID パスで FBO 自身を読み書きしない
 		gl.activeTexture(gl.TEXTURE0);
 		gl.disable(gl.STENCIL_TEST);
+	}
+	// コロプレス＝国 ID バッファの被せパス（層の幾何に依存しない＝呼び出し側が描画順を決める）。
+	// o = { alpha: 0..1, hover: fid|-1, hoverColor?:[r,g,b,a] }。drawCountries が同じフレームで ID を描いた後に呼ぶこと。
+	// float ID が無い機体（ID バッファを作れない）＝コロプレスもホバーも成立しない＝何もしない（陸は合成パスが塗り済み）。
+	const HOVER_DEFAULT = [0.10, 0.14, 0.20, 0.14];
+	function drawChoropleth(o = {}) {
+		if (!hasFloatId || !idTex) return;
+		const alpha = paintTex ? (o.alpha || 0) : 0, hover = o.hover ?? -1;
+		if (alpha <= 0.001 && hover < 0) return;
+		const pr = prog.choro, u = pr.u;
+		gl.useProgram(pr.p); setOutline(pr);
+		gl.uniform1f(u.u_choroA, alpha); gl.uniform1i(u.u_paintW, paintW);
+		gl.uniform1f(u.u_hover, hover);
+		gl.uniform4fv(u.u_hoverC, o.hoverColor || HOVER_DEFAULT);
+		bind(1, "u_id", idTex, u); bind(4, "u_paint", paintTex, u);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+		bind(1, "u_id", null, u);   // 次フレームの ID パスで FBO 自身を読み書きしない
+		gl.activeTexture(gl.TEXTURE0);
 	}
 	// 画面 CSS px（左上原点）の国 → fid | -1（ID バッファの直読み・1px）
 	const px4 = new Float32Array(4);
@@ -520,5 +554,5 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawCountries, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
 }
