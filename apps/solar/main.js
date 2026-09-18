@@ -495,11 +495,68 @@ function ensureConst() {
 // 星座名とメシエ天体の 2D 注記：天球の向き v（黄道 J2000 単位ベクトル）を回転だけで投影（平行移動なし＝無限遠）。
 // 毎描画で消して描き直す（消灯時も消すだけ走る）＝88 文字列＋110 記号・1ms 未満
 const sky2d = document.getElementById("sky2d"), sctx = sky2d.getContext("2d");
+// ---- 月の地名：bucket の geopbf "moon_nomenclature"（IAU 採択の主な地名 2,023・英語・由来つき＝正本 packages/space/moon.json）＋
+// 多言語 bucket GIS/space/i18n/moon/<lang>.json（{ GPN id: 名前 }・欠けは英語＝IAU 名）。月が画面で大きくなった時に初めて読む（さりげなく読む）。
+// 座標は月面の経緯度（IAU・東経正）＝体固定の単位ベクトル（x＝本初子午線・z＝北極＝球メッシュと同じ約束）→ orientation("moon") で世界へ
+let moonNames = null, moonNamesLoad = null;
+const MOON_SEAS = new Set(["ME", "OC", "LC", "SI", "PA"]);   // 海・大洋・湖・入江・沼＝月見の地図の主役（常に優先）
+const MOON_SITES = new Set(["ST", "PL"]);                     // 着陸地点（Statio＝アポロ 11 号の静かの基地・嫦娥・チャンドラヤーン）・着陸平原（ルナ 9 号）
+const MOON_LINES = new Set(["RI", "DO", "VA", "CA", "RU"]);    // 谷・尾根・谷・クレーター列・断崖＝細長い（diameter は長さ）＝閾値を高めに
+// 宇宙飛行士の命名（LF＝アポロ着陸地点まわりの数 km の小地形）は大きさで判定＝着陸地点へ深く寄った時だけ出る
+function ensureMoonNames() {
+	moonNamesLoad ||= Promise.all([
+		geopbf("moon_nomenclature", { gint: false }),
+		nativeBucket("https://api.ortho-earth.com").Bucket("GIS/space", { lazy: true, silent: true })
+			.then(b => LANG === "en" ? null : b?.get(`i18n/moon/${LANG}.json`, "json")).catch(() => null),
+	]).then(([pbf, pack]) => {
+		const L = pack?.names || {};
+		const list = (pbf?.geojson?.features || []).map(f => {
+			const p = f.properties, [lon, lat] = f.geometry.coordinates, cl = Math.cos(lat * D2R);
+			const rank = MOON_SEAS.has(p.code) ? 0 : MOON_SITES.has(p.code) ? 1 : 2;
+			return { v: [cl * Math.cos(lon * D2R), cl * Math.sin(lon * D2R), Math.sin(lat * D2R)], text: L[p.id] || p.name, code: p.code, d: p.diameter, rank };
+		});
+		list.sort((a, b) => a.rank - b.rank || b.d - a.d);   // 描く順＝優先順（重なったら後ろが譲る）
+		moonNames = list; needsDraw = true;
+		console.log(`[moon] ${list.length} features (${Object.keys(L).length} ${LANG} names)`);
+	}).catch(e => { console.warn("[moon] names load failed", e); moonNames = []; });   // 失敗＝この回は地名なし（毎フレームの取り直しで回線を叩かない）
+}
+const MOON_R_KM = 1737.4;
+function drawMoonNames(dpr, screens, w, h) {
+	const b = byId.moon, s = screens.moon;
+	if (!s || b.hidden || b.clamped) return;
+	const rPx = b.radiusAU / s.dist * pxPerRad / dpr;   // 月の見かけの半径（CSS px）
+	if (rPx < 60) return;
+	if (!moonNames) { ensureMoonNames(); return; }
+	const M = orientation("moon", simDate()), c = P.moon, R = b.radiusAU;
+	const placed = [];
+	sctx.textAlign = "center"; sctx.textBaseline = "middle"; sctx.direction = isRTL() ? "rtl" : "ltr";
+	for (const f of moonNames) {
+		// 画面上の大きさで間引く：海など＝画面で 16px 以上・着陸地点＝月が 140px から・細長い地形＝70px 以上・他＝36px 以上
+		const dPx = f.d / (2 * MOON_R_KM) * 2 * rPx;
+		if (f.rank === 0 ? dPx < 16 : f.rank === 1 ? rPx < 140 : dPx < (MOON_LINES.has(f.code) ? 70 : 36)) continue;
+		const n = [M[0][0] * f.v[0] + M[0][1] * f.v[1] + M[0][2] * f.v[2], M[1][0] * f.v[0] + M[1][1] * f.v[1] + M[1][2] * f.v[2], M[2][0] * f.v[0] + M[2][1] * f.v[1] + M[2][2] * f.v[2]];
+		const pw = [c[0] + n[0] * R, c[1] + n[1] * R, c[2] + n[2] * R], toCam = v3.sub(camPos, pw), tl = v3.len(toCam);
+		const facing = (n[0] * toCam[0] + n[1] * toCam[1] + n[2] * toCam[2]) / tl;
+		if (facing < 0.2) continue;                                   // 裏側と縁すれすれは描かない（縁は字が潰れる）
+		const q = project(pw); if (!q || q.x < 0 || q.x > w || q.y < 0 || q.y > h) continue;
+		sctx.font = f.rank === 0 ? "italic 12px system-ui, sans-serif" : "10.5px system-ui, sans-serif";
+		const tw = sctx.measureText(f.text).width, box = [q.x - tw / 2 - 3, q.y - 8, q.x + tw / 2 + 3, q.y + 8];
+		if (placed.some(o => box[0] < o[2] && o[0] < box[2] && box[1] < o[3] && o[1] < box[3])) continue;   // 重なり＝優先の低い方が譲る
+		placed.push(box);
+		const a = Math.min(1, (facing - 0.2) / 0.25);                 // 縁へ向かって薄く
+		sctx.fillStyle = f.rank === 0 ? `rgba(235, 240, 250, ${0.85 * a})` : f.rank === 1 ? `rgba(255, 214, 140, ${0.9 * a})` : `rgba(215, 222, 235, ${0.75 * a})`;
+		sctx.shadowColor = "rgba(0, 0, 0, .85)"; sctx.shadowBlur = 3;
+		if (f.rank === 1) { sctx.beginPath(); sctx.arc(q.x, q.y, 2, 0, Math.PI * 2); sctx.fill(); sctx.fillText(f.text, q.x, q.y - 10); }   // 着陸地点＝点＋名前
+		else sctx.fillText(f.text, q.x, q.y);
+		sctx.shadowBlur = 0;
+	}
+}
 // screens＝天体の画面位置（frame の値）。天体の円盤の内側に落ちる注記は描かない＝線と星が天体の後ろに隠れるのと揃える
 function drawSky2d(dpr, screens) {
 	const w = canvas.clientWidth, h = canvas.clientHeight;
 	if (sky2d.width !== Math.round(w * dpr) || sky2d.height !== Math.round(h * dpr)) { sky2d.width = Math.round(w * dpr); sky2d.height = Math.round(h * dpr); }
 	sctx.setTransform(dpr, 0, 0, dpr, 0, 0); sctx.clearRect(0, 0, w, h);
+	drawMoonNames(dpr, screens, w, h);   // 月の地名（月に寄った時だけ・星座の点灯とは独立）
 	if (!constOn || !skyLab) return;
 	const k = pxPerRad / dpr, [R, U, B] = viewR;
 	const discs = [];
@@ -662,7 +719,7 @@ function updateInfo(date) {
 const scaleTxt = document.getElementById("scale-txt"), scaleBar = document.getElementById("scale-bar");
 let scaleShown = "";
 const nice125 = x => { const r = Math.pow(10, Math.floor(Math.log10(x))), m = x / r; return (m >= 5 ? 5 : m >= 2 ? 2 : 1) * r; };
-const sig2 = v => nfmt(Number(v.toPrecision(2)));
+const sig2 = v => v.toLocaleString(LANG, { maximumSignificantDigits: 2 });   // 有効 2 桁（旧＝小数 3 桁で丸めて 100km が「光で 0 秒」だった）
 function lightTime(au) {
 	const s = au * LIGHT_MIN_PER_AU * 60;
 	return s < 90 ? t("$1 s", sig2(s)) : s < 5400 ? t("$1 min", sig2(s / 60)) : s < 172800 ? t("$1 h", sig2(s / 3600)) : t("$1 days", sig2(s / 86400));
@@ -713,7 +770,9 @@ function readHash() {
 	if (p.get("t")) { const t = new Date(p.get("t")).getTime(); if (Number.isFinite(t)) simTime = Math.min(T_MAX, Math.max(T_MIN, t)); }
 	else if (p.get("s") === "1") simTime = Date.now();   // 生きたリンク（t 無し＋実時間）＝開いた瞬間の「今」
 	if (p.get("f") && any[p.get("f")]) cam.focus = p.get("f");
-	if (p.get("d")) cam.dist = Math.max(1e-6, +p.get("d") || OVERVIEW_DIST);
+	// 下限＝焦点天体の半径の 1.1 倍（手のドリーの下限 focusMinDist より手前＝URL の手書きで天体の中に入らない。
+	// focusMinDist は下で宣言＝ここから呼ぶと TDZ）
+	if (p.get("d")) cam.dist = Math.max(any[cam.focus].radiusAU * 1.1, Math.min(120, +p.get("d") || OVERVIEW_DIST));
 	if (p.get("yaw")) cam.yaw = +p.get("yaw") * D2R;
 	if (p.get("pit")) cam.pitch = Math.max(-88, Math.min(88, +p.get("pit"))) * D2R;
 	if (p.get("s") !== null && p.get("s") !== "") setSpeed(+p.get("s"));
@@ -1043,7 +1102,10 @@ function frame(now) {
 		const el = labels[b.id], s = screens[b.id];
 		if (!s || b.hidden || s.x < -40 || s.x > canvas.clientWidth + 40 || s.y < 0 || s.y > canvas.clientHeight) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
 		const rPx = b.radiusAU / s.dist * pxPerRad / dpr;
-		if (rPx > canvas.clientHeight * 0.22) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
+		// 手前の天体の円盤の内側に落ちる名前＝その天体の向こう側＝隠す（月に寄った時、背後の土星・海王星の名前が月面に出ていた）
+		const behind = ALL.some(o => o !== b && !o.hidden && screens[o.id] && screens[o.id].dist < s.dist &&
+			Math.hypot(screens[o.id].x - s.x, screens[o.id].y - s.y) < o.radiusAU / screens[o.id].dist * pxPerRad / dpr);
+		if (behind || rPx > canvas.clientHeight * 0.22) { if (el._on !== false) { el.style.display = "none"; el._on = false; } continue; }
 		const w = el._w || 64, off = Math.max(6, rPx * 0.8) + 4;
 		let x = s.x + off, y = s.y - 9;
 		if (x + w > canvas.clientWidth - 4 && s.x - off - w > 4) x = s.x - off - w;   // 右端で切れるなら天体の左へ回す（縦画面の衛星名）
