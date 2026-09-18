@@ -12,11 +12,12 @@ import "./style.scss";
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { parseViewHash, buildViewHash } from "ortho-core/viewurl";
-import { WORLD_PAL_DEFAULT } from "ortho-core/worldpal";
+import { resolveWorldPal } from "ortho-core/worldpal";
 import { unproject, anchorView, clampView, minZoomFor, pxPerUnit } from "./equalearth.js";
 import { bakeLayer, bakeGraticule } from "./bake.js";
 import { createRenderer } from "./renderer.js";
 import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
+import { THEMES, THEME_NAMES, normTheme, hex } from "./themes.js";   // 配色テーマ＝japan と同じ名前・同じ c= トークン（世界パレットは ortho-core の共有正本）
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
 import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
@@ -65,6 +66,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const fromHash = parseViewHash(view0 ?? (hash ? location.hash : ""));
 	let view = clampView(fromHash ? { lon: fromHash.lon, lat: fromHash.lat, zoom: fromHash.zoom } : { lon: 0, lat: 0, zoom: -Infinity }, ...size(), MAX_ZOOM);
 	const settings = {
+		theme: normTheme(q.get("c")) || "mono",   // 配色テーマ（japan と同じ c= トークン・?c=night は dark の別名）
 		labels: q.get("labels") !== "0",
 		hypso: num01(q.get("hypso"), 1),          // 自然の層＝ハイプソと川・湖の不透明度（1 本のスライダで同時・0＝紙の白地図＝陸/海/境界だけ）
 		choro: PRESETS[q.get("choro")] ? q.get("choro") : null,   // "csv"＝ドロップした CSV（URL には残らない）
@@ -80,7 +82,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// 国＝world（NationDB）。ID バッファの値＝国番号（items の添字）・NONE＝world に無い陸（北西ハワイ諸島など＝塗らない）
 	let world = null, NONE = 0, political = null, worldP = null, i18n = null, cityFeatures = [], shortEn = new Map();   // shortEn＝NE admin_1 の admin（"Afghanistan"＝DB の正式寄りの英語名より短い）
 	const labelsLayer = createLabels(mapEl.querySelector("#labels"));
-	const LABEL_PAL = { country: "#3a3f4a", city: "#2b3b57", halo: "rgba(255,255,255,.88)" };
+	const LABEL_PAL = { ...THEMES.mono.labelColor };   // テーマが中身を書き換える（rebuildLabels が読み直す）
+	let worldPal = resolveWorldPal(THEMES[settings.theme].world);   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
 	const countryName = n => i18n?.nations?.[n.key]?.name || shortEn.get(n.key) || n.name?.en || n.key;
 	const cityName = p => lang === "ja" ? (F(p, "name_ja") || F(p, "name_en") || F(p, "name")) : lang === "en" ? (F(p, "name_en") || F(p, "name")) : (i18n?.cities?.[F(p, "wikidataid")]?.name || F(p, "name_en") || F(p, "name"));
 	function rebuildLabels() {
@@ -93,7 +96,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		try {
 			[world, i18n] = await Promise.all([loadNations(), loadI18n(lang).catch(e => { console.warn("[equal] i18n", e); return null; })]);
 			NONE = world.items.length; console.log(`[equal] World DB ${world.updated}: ${world.items.length} nations (lang ${lang})`);
-			relabelThemes(); rebuildLabels();
+			relabelChoro(); rebuildLabels();
 		}
 		catch (e) { console.error("[equal] World DB failed", e); }
 		busy.delete("World DB"); updateToast(); requestDraw();
@@ -188,7 +191,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		R.setPaint(r.rgba, NONE + 1);   // 末尾＝NONE（a=0＝塗らない）
 		legendData = { preset, label: T(preset.label), legend: r.legend, values: r.values, nodata: r.nodata, years };
 		yearRow.hidden = !years;
-		if (years) { yearInput.min = years[0]; yearInput.max = years[1]; yearInput.value = settings.year ?? years[1]; yearLabel.textContent = settings.year ?? "latest"; }
+		if (years) { yearInput.min = years[0]; yearInput.max = years[1]; yearInput.value = settings.year ?? years[1]; yearLabel.textContent = settings.year ?? t("latest year"); }   // 凡例（renderLegend）と同じ語＝素の英語を残さない
 		renderLegend(); requestDraw();
 	}
 
@@ -215,7 +218,30 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		return t;
 	}
 
+	// ── 配色テーマ ──────────────────────────────────────────────────────────────────
+	// 地図面の色は PALETTE の配列の**中身**を書き換える（配列の identity は保つ）＝層の定義が参照で掴んでいるので
+	// 焼き直し（bake）も層の作り直しも要らない。ラベルだけは焼いた時の色を持つので rebuildLabels で貼り直す。
+	// UI 家具＝暗い紙のテーマで #map.ui-dark（quiet-mono の夜ガラス）＋ --eq-paper/--eq-ink（凡例・スウォッチの地色）。
+	function applyTheme(name) {
+		const id = normTheme(name) || "mono", T = THEMES[id];
+		settings.theme = id;
+		const put = (key, v) => { const dst = PALETTE[key], c = Array.isArray(v) ? hex(v[0], v[1]) : hex(v); dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3]; };
+		for (const key in PALETTE) if (T[key] !== undefined) put(key, T[key]);
+		worldPal = resolveWorldPal(T.world);
+		Object.assign(LABEL_PAL, T.labelColor);
+		// 家具（計器・出典・ガラス）は **どのテーマでも黒硝子のまま**＝japan の「白抜き家具＝常時ON」（本人裁定 2026-08-05）と揃える。
+		//   実測（2026-09-18）：ui-dark を外すと #attr/#pos の下地が明るい硝子へ転ぶのに、文字色は equal の #map{color:#cdd}
+		//   （常時暗い家具を前提に書かれている）のまま＝明地に明文字で読めなくなる。テーマで動かすのは地図面と、
+		//   家具のうち「紙の色を映す部分」だけ（--eq-paper/--eq-ink＝凡例のデータなし見本・主題なしのスウォッチ）。
+		mapEl.classList.add("ui-dark");
+		mapEl.style.setProperty("--eq-paper", Array.isArray(T.land) ? T.land[0] : T.land);
+		mapEl.style.setProperty("--eq-ink", T.labelColor.country);
+		themeBtns.forEach(b => b.classList.toggle("on", b.dataset.theme === id));
+		rebuildLabels(); renderLegend(); requestDraw();
+	}
+
 	// ── 描画 ──
+	const CHORO_ORDER = 10.5;   // コロプレスの重ね順＝国の塗り(10)の直後・係争地(11)/市街地(12)/湖(14) はその上
 	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "";
 	function requestDraw() { if (!raf && !destroyed) raf = requestAnimationFrame(draw); }
 	function draw() {
@@ -239,10 +265,13 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			const k = alphaOf(def);
 			if (L.baked.kind === "point") { ops.push([o.points ?? 80, () => R.drawPoints(t, def.pointStyles)]); continue; }
 			if (t.fills) ops.push([o.fill ?? 10, L === countries
-				? () => R.drawCountries(L.vtx, t.fills, { land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: WORLD_PAL_DEFAULT, choropleth: legendData ? settings.choroAlpha : 0, hover: hoverFid })
+				? () => R.drawCountries(L.vtx, t.fills, { land: def.fillColor, hypso: hypsoState === 2 ? settings.hypso : 0, pal: worldPal })
 				: () => R.drawFill(L.vtx, t.fills, k >= 0.999 ? def.fillColor : [def.fillColor[0], def.fillColor[1], def.fillColor[2], (def.fillColor[3] ?? 1) * k])]);
 			if (t.lines) ops.push([o.lines ?? 50, () => R.drawLines(L.vtx, t.lines, fade(def.lineStyles, k))]);
 		}
+		// コロプレス＝層ではなく被せパス（国 ID バッファ＋塗り表だけで描く）。既定の順は国の塗りの直後＝
+		// 係争地(11)・市街地(12)・湖(14) はその上に乗る＝分離前と同じ見え方。CHORO_ORDER を動かせば重ね順だけ変えられる。
+		if (countries.status === "ready") ops.push([CHORO_ORDER, () => R.drawChoropleth({ alpha: legendData ? settings.choroAlpha : 0, hover: hoverFid })]);
 		ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
 
 		{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
@@ -284,6 +313,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		b.addEventListener("click", () => { L.on = !L.on; b.classList.toggle("on", L.on); b.setAttribute("aria-pressed", String(L.on)); requestDraw(); });
 		panel.append(b);
 	}
+	const headRow = label => el("div", { class: "eq-head" }, `<span data-t="${esc(label)}">${esc(t(label))}</span>`);   // パネル内の小見出し＝軸の区切り
 	const rangeRow = (label, value, onInput) => {
 		const row = el("div", { class: "eq-row" }, `<span data-t="${esc(label)}">${esc(t(label))}</span>`);
 		const input = el("input", { type: "range", min: "0", max: "100", value: String(Math.round(value * 100)) });
@@ -300,7 +330,26 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		row.append(sel); panel.append(row);
 	}
 	panel.append(rangeRow("Hypso · water", settings.hypso, a => { settings.hypso = a; requestDraw(); }));
+
+	// ── 配色テーマ列（地図の着せ替え）────────────────────────────────────────────────
+	// japan と同じ器：#theme-row / .lp-theme / data-theme=<name>＝名前もトークン（c=）も揃える。
+	// ここは「地図の顔」の軸。データの塗り分け（コロプレス）は下の別の列＝軸を混ぜない。
+	panel.append(headRow("Map colors"));
 	const themeRow = el("div", { id: "theme-row" });
+	const themeBtns = [];
+	for (const name of THEME_NAMES) {
+		const T = THEMES[name];
+		const b = el("button", { class: "lp-theme" + (settings.theme === name ? " on" : ""), "data-theme": name, type: "button" },
+			`<span class="sw" style="background:${T.swatch}"></span><span class="eq-theme-name" data-t="${esc(T.label)}">${esc(t(T.label))}</span>`);
+		b.addEventListener("click", () => { applyTheme(name); scheduleHash(); });
+		themeBtns.push(b); themeRow.append(b);
+	}
+	panel.append(themeRow);
+
+	// ── 主題（コロプレス）列＝データの塗り分け。地図の配色とは別の軸（2026-09-18 本人裁定「レイヤーから分離」）──
+	// 描画も層ではなく被せパス（renderer.drawChoropleth＝国 ID バッファ＋塗り表だけ）＝層の定義にも配色テーマにも依存しない。
+	panel.append(headRow("Choropleth"));
+	const choroRow = el("div", { id: "choro-row", class: "lp-stack" });
 	const swatchOf = id => {
 		if (!id) return `<span class="sw eq-none"></span>`;
 		const p = PRESETS[id];
@@ -309,43 +358,43 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			: { blue: "linear-gradient(90deg,#eef4f8,#18426f)", green: "linear-gradient(90deg,#f2f6ec,#225c2b)", orange: "linear-gradient(90deg,#fbf3e8,#8a3d17)", purple: "linear-gradient(90deg,#f5f2f8,#4a2e70)" }[p.ramp || "blue"];
 		return `<span class="sw" style="background:${bg}"></span>`;
 	};
-	const themeBtns = [];
-	function selectTheme(id) {
+	const choroBtns = [];
+	function selectChoro(id) {
 		settings.choro = id;
-		themeBtns.forEach(x => x.classList.toggle("on", x.dataset.theme === (id || "none")));
+		choroBtns.forEach(x => x.classList.toggle("on", x.dataset.choro === (id || "none")));
 		applyChoropleth(); scheduleHash();
 	}
 	for (const id of [null, ...Object.keys(PRESETS)]) {
-		const b = el("button", { class: "lp-theme" + (settings.choro === id ? " on" : ""), "data-theme": id || "none" }, `${swatchOf(id)}<span class="eq-theme-name"></span>`);
-		b.addEventListener("click", () => selectTheme(id));
-		themeBtns.push(b); themeRow.append(b);
+		const b = el("button", { class: "lp-theme eq-choro" + (settings.choro === id ? " on" : ""), "data-choro": id || "none", type: "button" }, `${swatchOf(id)}<span class="eq-choro-name"></span>`);
+		b.addEventListener("click", () => selectChoro(id));
+		choroBtns.push(b); choroRow.append(b);
 	}
 	// CSV：行＝「Open CSV…」（ドロップと同じ入口）→ 読めたらファイル名に変わり、この行で CSV の主題を選び直せる
-	const csvBtn = el("button", { class: "lp-theme", "data-theme": "csv" }, `<span class="sw eq-csv"></span><span class="eq-csv-name" data-t="Open CSV…">${esc(t("Open CSV…"))}</span>`);
+	const csvBtn = el("button", { class: "lp-theme eq-choro", "data-choro": "csv", type: "button" }, `<span class="sw eq-csv"></span><span class="eq-csv-name" data-t="Open CSV…">${esc(t("Open CSV…"))}</span>`);
 	const fileInput = el("input", { type: "file", accept: ".csv,.tsv,.txt,text/csv,text/tab-separated-values", hidden: "" });
 	csvBtn.addEventListener("click", () => {
-		if (csv && settings.choro !== "csv") { selectTheme("csv"); return; }
+		if (csv && settings.choro !== "csv") { selectChoro("csv"); return; }
 		fileInput.click();
 	});
 	fileInput.addEventListener("change", () => { if (fileInput.files[0]) openCSV(fileInput.files[0]); fileInput.value = ""; });
-	themeBtns.push(csvBtn); themeRow.append(csvBtn, fileInput);
+	choroBtns.push(csvBtn); choroRow.append(csvBtn, fileInput);
 	// 主題の名前＝地図の中身の語＝翻訳（i18n は後から届く＝貼り替える）
-	function relabelThemes() {
-		for (const b of themeBtns) {
-			const id = b.dataset.theme, span = b.querySelector(".eq-theme-name"); if (!span) continue;
+	function relabelChoro() {
+		for (const b of choroBtns) {
+			const id = b.dataset.choro, span = b.querySelector(".eq-choro-name"); if (!span) continue;
 			if (id === "none") { span.textContent = t("None"); continue; }
 			if (id === "csv") continue;   // ファイル名（csvBtn が自分で持つ）
 			const P = PRESETS[id]; if (!P) continue;
 			span.innerHTML = `${esc(tr(i18n, t(P.label)))}${P.unit ? ` <span style="opacity:.6">(${esc(P.unit)})</span>` : ""}`;
 		}
 	}
-	relabelThemes();
-	panel.append(themeRow);
-	const colRow = el("div", { class: "eq-row" }, `<span>Column</span>`); colRow.hidden = true;
+	relabelChoro();
+	panel.append(choroRow);
+	const colRow = el("div", { class: "eq-row" }, `<span data-t="Column">${esc(t("Column"))}</span>`); colRow.hidden = true;
 	const colSelect = el("select", { class: "eq-select" });
-	colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSelect.value; csv.preset = csvPreset(csv.ds, csv.col); selectTheme("csv"); });
+	colSelect.addEventListener("change", () => { if (!csv) return; csv.col = +colSelect.value; csv.preset = csvPreset(csv.ds, csv.col); selectChoro("csv"); });
 	colRow.append(colSelect); panel.append(colRow);
-	panel.append(rangeRow("Choropleth", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));
+	panel.append(rangeRow("Opacity", settings.choroAlpha, a => { settings.choroAlpha = a; requestDraw(); }));   // 見出しが「主題図」＝ここは共有語の「濃さ」
 	// 年（DB の統計だけ・各国の最新年＝右端）
 	const yearRow = el("div", { class: "eq-row" }, `<span><span data-t="Year">${esc(t("Year"))}</span> <b class="eq-year"></b></span>`); yearRow.hidden = true;
 	const yearInput = el("input", { type: "range", min: "2000", max: "2025", step: "1", value: "2025" }), yearLabel = yearRow.querySelector(".eq-year");
@@ -380,7 +429,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		legend.innerHTML = `<div class="eq-title">${esc(label)}${preset.unit ? ` <span style="font-weight:400;color:#89a">(${esc(preset.unit)})</span>` : ""}${yr ? ` <span style="font-weight:400;color:#89a">${esc(yr)}</span>` : ""}</div>` + (rows.length
 			? rows.map(r => `<div class="eq-li"><span class="eq-sw" style="background:${rgb(r.color)}"></span>${esc(r.label)}</div>`).join("")
 			: `<div class="eq-li">${esc(t("Neighbors never share a color"))}</div>`)
-			+ (nodata && preset.type !== "political" ? `<div class="eq-li"><span class="eq-sw" style="background:#f6f6f4;border:1px solid #cfd4da"></span>${esc(t("No data ($1)", nodata))}</div>` : "")
+			+ (nodata && preset.type !== "political" ? `<div class="eq-li"><span class="eq-sw" style="background:var(--eq-paper,#f6f6f4);border:1px solid rgba(128,140,160,.55)"></span>${esc(t("No data ($1)", nodata))}</div>` : "")
 			+ (preset.csv
 				? `<div style="font-size:10px;color:#89a;margin-top:4px" title="${esc(csv.ds.unmatched.slice(0, 40).join(", "))}">${esc(csv.ds.name)} · ${esc(t("$1/$2 rows matched by “$3”", csv.ds.matched, csv.ds.rows.length, csv.ds.header[csv.ds.keyCol]))}${csv.ds.unmatched.length ? ` · ${esc(t("unmatched: $1", csv.ds.unmatched.slice(0, 3).join(", ") + (csv.ds.unmatched.length > 3 ? "…" : "")))}` : ""}</div>`
 				: `<div style="font-size:10px;color:#89a;margin-top:4px">${esc(preset.ref || "")} · ${esc(t("World DB"))} ${esc(world?.updated || "")}</div>`);
@@ -463,8 +512,8 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			colSelect.innerHTML = ds.columns.map(c => `<option value="${c.i}"${c.i === ds.defaultCol ? " selected" : ""}>${esc(c.name)}</option>`).join("");
 			colRow.hidden = ds.columns.length < 2;
 			csvBtn.querySelector(".eq-csv-name").textContent = ds.name;
-			csvBtn.title = "Click again to open another CSV";
-			selectTheme("csv");
+			csvBtn.title = t("Click again to open another CSV");
+			selectChoro("csv");
 			console.log(`[equal] CSV ${ds.name}: key="${ds.header[ds.keyCol]}" matched ${ds.matched}/${ds.rows.length}, ${ds.columns.length} value columns`);
 		} catch (e) {
 			console.warn("[equal] CSV failed", e);
@@ -552,7 +601,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		for (const n of mapEl.querySelectorAll("[data-t]")) n.textContent = t(n.dataset.t);            // 文字を持つ家具
 		for (const n of mapEl.querySelectorAll("[data-tt]")) { n.dataset.tip = t(n.dataset.tt); n.setAttribute("aria-label", t(n.dataset.tt)); }   // ボタンの説明
 		attrBase = attrBase.replace(/^[^<]*/, esc(t("Sources: ")));
-		relabelThemes(); applyChoropleth(); rebuildLabels(); updateToast(); updatePos(); scheduleHash();
+		relabelChoro(); applyChoropleth(); rebuildLabels(); updateToast(); updatePos(); scheduleHash();
 		if (csv) csvBtn.querySelector(".eq-csv-name").textContent = csv.ds.name;   // ファイル名は訳さない
 	}
 
@@ -565,6 +614,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			const qs = new URLSearchParams(hash ? location.search : q);
 			settings.choro && settings.choro !== "csv" ? qs.set("choro", settings.choro) : qs.delete("choro");
 			settings.choro === "csv" && csvSpec ? qs.set("csv", csvSpec) : qs.delete("csv");   // URL 由来の CSV だけ URL に残る（手元のファイルは再現できない）
+			settings.theme !== "mono" ? qs.set("c", settings.theme) : qs.delete("c");   // japan と同じトークン（mono は書かない）
 			settings.labels ? qs.delete("labels") : qs.set("labels", "0");
 			lang === "en" ? qs.delete("lang") : qs.set("lang", lang);   // 言語＝URL に残す（共有した URL は同じ言葉で開く）
 			legendData?.years && settings.year != null ? qs.set("year", String(settings.year)) : qs.delete("year");
@@ -643,6 +693,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	}, { signal });
 	{ const o = new ResizeObserver(requestDraw); o.observe(canvas); observers.push(o); }
 
+	applyTheme(settings.theme);   // 起動時に一度通す＝PALETTE/ラベル/家具/凡例が同じ一本の道で決まる（既定 mono でも no-op ではなく素通り）
 	renderLegend();
 	requestDraw();
 
@@ -652,7 +703,9 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		get view() { return view; }, setView,
 		layers,
 		hypso(opacity) { settings.hypso = Math.max(0, Math.min(1, +opacity || 0)); requestDraw(); },
-		choropleth(id, opacity) { if (opacity != null) settings.choroAlpha = +opacity; selectTheme(presetOf(id) ? id : null); },
+		choropleth(id, opacity) { if (opacity != null) settings.choroAlpha = +opacity; selectChoro(presetOf(id) ? id : null); },
+		theme(name) { applyTheme(name); scheduleHash(); return settings.theme; },   // 配色テーマ＝japan のガジェットとして載る時はホストが呼ぶ（c= と同じ名前）
+		get themes() { return THEME_NAMES.slice(); },
 		openCSV,   // File/Blob（name 付き）を渡す＝ドロップと同じ
 		openGeo, anno,
 		labels: labelsLayer,
