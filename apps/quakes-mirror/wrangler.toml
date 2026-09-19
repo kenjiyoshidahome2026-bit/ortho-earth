@@ -1,0 +1,22 @@
+# 世界の地震（USGS ComCat・M2+）の配信＋月 1 回の直近分取り込み専用 Worker（worker.js 冒頭が仕様の正本）。
+# 読み手＝ortho-japan の地震ビューア（quakes.html → quakes-worker.js・同一オリジン /quakes/*）。
+# ⚠route は "/quakes/*"（スラッシュ付き）＝"quakes*" だと www の /quakes… で始まる別アセットまで横取りする（sats-mirror と同じ轍）。
+name = "quakes-mirror"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/quakes/*", zone_name = "ortho-earth.com" }
+]
+
+# 毎時 17 分に起きる。仕事（未取得・未確定の月）が無ければ recent.json を読むだけで帰る。1 回に 3 か月まで＝Free の CPU 10 ms 枠。
+# 初回の全取得は数時間に分割・以後は月初に先月分＋未確定分だけ。失敗は次の時間にやり直す。
+# ⚠Workers Free 前提＝[limits] cpu_ms は書かない（Paid 専用・書くと deploy が通らない）
+[triggers]
+crons = ["17 * * * *"]
+
+# 置き場＝R2（無料枠 10 GB・archive は gzip 25 MB＝KV の 25 MiB 上限すれすれなので R2）。`npx wrangler r2 bucket create ortho-quakes`
+[[r2_buckets]]
+binding = "QUAKES"
+bucket_name = "ortho-quakes"

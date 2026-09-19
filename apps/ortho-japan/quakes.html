@@ -21,18 +21,29 @@
 	<div id="map"></div>
 	<script type="module">
 		// 世界の地震ビューア＝USGS ComCat（scripts/usgs-quakes-build.mjs が作る GeoPBF）を地球儀に立体表示する。
-		// このページは器だけ：エンジンは dev=./app.js（ソース直）。描画と案内板は ./quakes.js（遅延 chunk）。
-		// データ＝public/quakes/usgs-quakes-m2.geopbf（?src=URL で差し替え可）。
+		// このページは器だけ：SDK 二重構成（tellus.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
+		// 描画と案内板は ./quakes.js（遅延 chunk）。
+		// データ＝本番は apps/quakes-mirror（同一オリジン /quakes/）の archive（確定した過去分・GeoPBF）＋recent（毎月取り込む直近分＝目次＋USGS の CSV）を連結。
+		// dev は public/quakes/usgs-quakes-m2.geopbf（scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
 		(async () => {
+			let engineP;
+			if (import.meta.env.PROD) {
+				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
+				const LIB = "/japan/lib/ortho-japan.js";
+				engineP = import(/* @vite-ignore */ LIB);
+			} else {
+				engineP = import("./app.js");
+			}
 			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
 			try {
-				const [{ default: orthoJapan }, { mountQuakes }] = await Promise.all([import("./app.js"), import("./quakes.js")]);
+				const [{ default: orthoJapan }, { mountQuakes }] = await Promise.all([engineP, import("./quakes.js")]);
 				// 初期視点＝太平洋を囲む「火の輪」が一望できる地球儀（共有 URL の hash があればそちら）
 				const map = await orthoJapan({ target: "#map", view: location.hash || "#2.3/18/165", theme: "dark", chips: false,
 					plateau: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 				dismissBoot();
 				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
-				const src = new URLSearchParams(location.search).get("src") || `${import.meta.env.BASE_URL}quakes/usgs-quakes-m2.geopbf`;
+				const src = new URLSearchParams(location.search).get("src")
+					|| (import.meta.env.DEV ? `${import.meta.env.BASE_URL}quakes/usgs-quakes-m2.geopbf` : ["/quakes/archive.geopbf", "/quakes/recent.json"]);
 				const quakes = await mountQuakes(map, { src });
 				window.__map = map; window.__quakes = quakes;   // console 検証用
 			} catch (e) { console.error("[quakes] startup failed", e); dismissBoot(); }

@@ -482,9 +482,9 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 			else if (m.type === "done") { setData(m); resolve(m); worker.terminate(); }
 		};
 	});
-	const post = s => typeof s === "string" ? worker.postMessage({ url: new URL(s, location.href).href, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M })
-		: worker.postMessage({ buffer: s, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M }, [s]);
-	post(src);
+	// src＝URL か ArrayBuffer、またはその配列（archive＋recent を連結）
+	const srcs = (Array.isArray(src) ? src : [src]).map(s => typeof s === "string" ? new URL(s, location.href).href : s);
+	worker.postMessage({ srcs, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M }, srcs.filter(s => typeof s !== "string"));
 
 	function setData(m) {
 		data = m;

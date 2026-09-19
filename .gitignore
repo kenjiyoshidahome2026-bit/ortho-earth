@@ -38,5 +38,6 @@ apps/gishub-jp/scripts/catalog.json
 apps/ortho-japan/public/quakes/*.geopbf
 # USGS 地震データ本体（scripts/usgs-quakes-build.mjs で再生成できる・25MB）
 /usgs-quakes-*.geopbf
+/usgs-quakes-*.geopbf.json
 # Claude の作業出力（プレビュー画像など）
 Claude outputs/
