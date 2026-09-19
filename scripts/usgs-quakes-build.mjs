@@ -13,7 +13,7 @@
 //             --props --no-gzip --offline --allow-missing（取得失敗の月があっても書き出す）
 //             --refresh（全月を取り直す）/ --refresh-since 2024-01-01（その日以降を含む月だけ取り直す）
 //             --manifest（<out>.json に { start, end(排他), minmag, n, builtAt } を書く＝quakes-mirror の archive 用）
-// 解析と組み立ては apps/quakes-mirror/usgs.js と共有（cron Worker が直近分を同じ形で焼く）。
+// 解析と組み立ては apps/quakes-mirror/usgs.js と共有（ビューアの worker が直近分を USGS 直取りで同じ形に焼く）。
 import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { gzipSync } from "node:zlib";
