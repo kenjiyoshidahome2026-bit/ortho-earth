@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -13,8 +13,8 @@
 		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-	<title>世界の地震 — ortho-japan</title>
-	<meta name="description" content="USGS の地震カタログ（1967年〜・M2以上・約150万件）を、震源の深さとエネルギーで地球儀に立体表示。">
+	<title>World earthquakes — ortho-japan</title>
+	<meta name="description" content="USGS earthquake catalog (1967–, M2+, about 1.5 million events) shown in 3D on the globe by hypocenter depth and energy.">
 </head>
 <body>
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
@@ -27,6 +27,10 @@
 		// end〜今をブラウザが USGS FDSN から直接取り、月ごとに GeoPBF へ焼いて IDB に置く＝quakes-worker.js）を連結。
 		// dev は public/quakes/usgs-quakes-m2.geopbf（scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
 		(async () => {
+			// 言語（./i18n.js・英語キー・26 言語）：html の lang/dir をこの言語に。文言（title/description/パネル）は quakes.js が t() で組む＝走査器（.js だけ読む）の目に入る
+			const { setLang, getLang, isRTL } = await import("./i18n.js");
+			await setLang();
+			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
 			let engineP;
 			if (import.meta.env.PROD) {
 				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));

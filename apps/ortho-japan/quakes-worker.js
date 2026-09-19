@@ -8,12 +8,14 @@
 //   確定した月（月末＋30 日以降に取った）は二度と取らない。未確定の月は 1 日・今月（途中まで）は 1 時間たったら取り直す。
 //   取れなかった月は IDB の古い版で代打、それも無ければ飛ばして skipped で知らせる。
 // 送り方＝層（srcs の 1 本＝q）ごとに、読めたそばから part を送る。直近分は 1 か月届くごとに送り直す（届いた月から地球儀に現れる）。
-//   { type:"progress", q, text } … 層ごとの進み具合
+//   { type:"progress", q, msg:{ key, args, keep } } … 層ごとの進み具合（文言は英語キー＋引数＝訳すのは main の t()。keep＝読み終わっても残す要約）
 //   { type:"part", q, n, pos, attr, lon, lat, time, meta } … 層 q の中身（同じ q は置き換え）
 //   { type:"done", n, skipped } / { type:"error", message }
 import { GeoPBF } from "geopbf/pbf-base";
 import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } from "../quakes-mirror/usgs.js";   // ビルドスクリプトと同じ規則で焼く
 
+// 文言＝英語キー（i18n/ui.json）。worker は訳さない＝{ key, args } を main へ渡すだけ（args に入れ子可・数値は main が桁区切り）
+const t = (key, ...args) => ({ key, args });
 const D2R = Math.PI / 180;
 const Y0 = Date.UTC(1967, 0, 1), YEAR_MS = 365.2425 * 86400000;
 
@@ -44,7 +46,7 @@ async function loadPbf(src, say) {
 	let u8;
 	if (typeof src !== "string") u8 = new Uint8Array(src);
 	else {
-		say?.("ダウンロード中…");
+		say?.(t("Downloading…"));
 		const res = await fetch(src);
 		if (!res.ok) throw new Error(`HTTP ${res.status} ${src}`);
 		const size = +res.headers.get("content-length") || 0;
@@ -56,17 +58,17 @@ async function loadPbf(src, say) {
 				const { done, value } = await rd.read();
 				if (done) break;
 				chunks.push(value); got += value.byteLength;
-				if (got - last > 5e5) { last = got; say(`ダウンロード中… ${mb(got)}${size ? ` / ${mb(size)}` : ""} MB`); }
+				if (got - last > 5e5) { last = got; say(size ? t("Downloading… $1 / $2 MB", mb(got), mb(size)) : t("Downloading… $1 MB", mb(got))); }
 			}
 			u8 = new Uint8Array(got);
 			for (let o = 0, i = 0; i < chunks.length; o += chunks[i++].byteLength) u8.set(chunks[i], o);
 		}
 	}
 	if (u8[0] === 0x1f && u8[1] === 0x8b) {   // gzip は署名で判定（拡張子を信用しない）
-		say?.("展開中…");
+		say?.(t("Decompressing…"));
 		u8 = new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
 	}
-	say?.("GeoPBF を読み込み中…");
+	say?.(t("Reading GeoPBF…"));
 	const pbf = await new GeoPBF().set(u8);
 	const c = columns(pbf.length);
 	for (let i = 0; i < pbf.length; i++) {
@@ -74,7 +76,7 @@ async function loadPbf(src, say) {
 		if (!g || g.type !== "Point") continue;
 		const p = pbf.getProperties(i) || {};
 		push(c, g.coordinates[0], g.coordinates[1], p.mag, p.depth, p.date instanceof Date ? p.date.getTime() : Date.parse(p.date), p.place);
-		if ((i & 0x3ffff) === 0) say?.(`GeoPBF を読み込み中… ${Math.round(i / pbf.length * 100)}%`);
+		if ((i & 0x3ffff) === 0) say?.(t("Reading GeoPBF… $1%", String(Math.round(i / pbf.length * 100))));
 	}
 	c.meta = { name: pbf.name?.(), description: pbf.description?.(), attribution: pbf.attribution?.(), license: pbf.license?.() };
 	return c;
@@ -97,7 +99,6 @@ const monthDb = (() => {
 const MINMAG = 2, FINAL_MS = 30 * DAY, HOUR = 3600000, PARALLEL = 3;
 const monthEnd = a => { const d = new Date(a); return Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1); };
 const ymd = ms => new Date(ms).toISOString().slice(0, 10);
-const fmt = n => n.toLocaleString("ja-JP");
 // 置いてある版をそのまま使ってよいか
 function usable(m, now) {
 	if (!m) return false;
@@ -145,18 +146,18 @@ async function loadUsgs(spec, say, onPart, now, api = API) {
 			const have = await monthDb.get(key(a));
 			let m = usable(have, now) ? have : null;
 			if (!m) {
-				say(`USGS から直接取得中… ${ym}（${done}/${wins.length} か月・${fmt(rows)} 件）`);
+				say(t("Fetching directly from USGS… $1 ($2/$3 months · $4 events)", ym, String(done), String(wins.length), rows));
 				try { m = await bakeMonth(a, z, now, api); await monthDb.set(key(a), m); fetched++; }
 				catch (err) { console.warn("[quakes] USGS", ym, err.message); m = have; if (!m) skipped.push(ym); }
 			}
 			if (m?.buf) { const b = m.buf; cols[i] = await loadPbf(b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), null); rows += cols[i].n; }
 			done++;
-			say(`USGS から直接取得中… ${ym}（${done}/${wins.length} か月・${fmt(rows)} 件）`);
+			say(t("Fetching directly from USGS… $1 ($2/$3 months · $4 events)", ym, String(done), String(wins.length), rows));
 			if (done < wins.length) onPart(Object.assign(concat(cols.filter(Boolean)), { meta: meta() }));
 		}
 	};
 	await Promise.all(Array.from({ length: Math.min(PARALLEL, wins.length) }, lane));
-	say(`USGS 直近分 ${start}〜${ymd(now)}：${fmt(rows)} 件（${wins.length} か月・${fetched ? `うち ${fetched} か月を USGS から今取得` : "すべて手元の GeoPBF から"}）`);
+	say(Object.assign(t("USGS recent $1 to $2: $3 events ($4 months · $5)", start, ymd(now), rows, String(wins.length), fetched ? t("$1 of them fetched from USGS now", String(fetched)) : t("all from local GeoPBF")), { keep: true }));   // ⚠ ...t(…) と書くと i18n の走査器が t( を見落とす（直前の . を弾く）
 	return Object.assign(concat(cols.filter(Boolean)), { meta: meta(), skipped });
 }
 
@@ -200,18 +201,18 @@ self.onmessage = async e => {
 	};
 	try {
 		const got = await Promise.allSettled(srcs.map((s, q) =>
-			load(s, text => self.postMessage({ type: "progress", q, text: (srcs.length > 1 && !s?.usgs ? "過去分 " : "") + text }), c => part(q, c), now, api).then(c => { part(q, c); return c; })));
+			load(s, msg => self.postMessage({ type: "progress", q, msg: srcs.length > 1 && !s?.usgs ? Object.assign(t("Archive: $1", msg), { keep: msg.keep }) : msg }), c => part(q, c), now, api).then(c => { part(q, c); return c; })));
 		got.forEach((g, q) => {
 			if (g.status !== "rejected") return;
 			console.warn("[quakes] skipped", typeof srcs[q] === "string" ? srcs[q] : srcs[q]?.usgs ? "USGS" : "buffer", g.reason);
-			self.postMessage({ type: "progress", q, text: `読めませんでした：${g.reason?.message || g.reason}` });
+			self.postMessage({ type: "progress", q, msg: Object.assign(t("Could not read: $1 ##layer", String(g.reason?.message || g.reason)), { keep: true }) });
 		});
 		if (srcs.length === 1 && got[0].status === "rejected") throw got[0].reason;
 		const parts = got.filter(g => g.status === "fulfilled").map(g => g.value);
-		if (!parts.length) throw new Error("どのデータも読めませんでした");
+		if (!parts.length) { const e = new Error("No data could be loaded"); e.key = e.message; throw e; }
 		const skipped = got.flatMap((g, q) => g.status === "rejected" ? [srcs[q]?.usgs ? "USGS" : "archive"] : g.value.skipped ?? []);
 		self.postMessage({ type: "done", n: parts.reduce((a, c) => a + c.n, 0), skipped });
 	} catch (err) {
-		self.postMessage({ type: "error", message: String(err?.message || err) });
+		self.postMessage({ type: "error", message: String(err?.message || err), key: err?.key });
 	}
 };
