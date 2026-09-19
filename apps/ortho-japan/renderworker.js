@@ -7,10 +7,39 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "ortho-core/labels";
 import { createTerrain } from "ortho-core/terrain";
-import { setEllipsoid } from "ortho-core/camera";
+import { setEllipsoid, cameraState } from "ortho-core/camera";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
+// 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
+// モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
+// ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
+const overlays = new Map();
+function overlayAdd(m) {
+	const o = { canvas: m.canvas, mod: null, queue: [] };
+	overlays.set(m.name, o);
+	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
+	import(/* @vite-ignore */ m.url).then(mod => {
+		if (!overlays.has(m.name)) return;   // 待っている間に外された
+		mod.init(o.canvas, m.opts || {});
+		o.mod = mod;
+		for (const d of o.queue) mod.message(d);
+		o.queue = [];
+		dirty = true; armRaf();
+	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
+}
+function overlayFrame(camNow) {
+	if (!overlays.size) return false;
+	let more = false, s = null;
+	for (const [name, o] of overlays) {
+		if (!o.mod) continue;
+		try {
+			s ??= cameraState(camNow, o.canvas.width, o.canvas.height);   // 注記と同じ＝素の cam・フル解像度（動的解像度の縮小は掛けない）
+			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height })) more = true;
+		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
+	}
+	return more;
+}
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let glRef = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
 let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
@@ -221,6 +250,9 @@ const dispatch = e => {
 						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
 			break;
+		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
+		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); dirty = true; armRaf(); } break; }
+		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
@@ -286,6 +318,8 @@ const dispatch = e => {
 		case "gintLeave": if (gint) gint.leave();  break;
 		case "gintClick": if (gint) gint.click();  break;
 		case "destroy":
+			for (const o of overlays.values()) { try { o.mod?.destroy(); } catch {} }
+			overlays.clear();
 			if (gint) { gint.dispose(); gint = null; gintLs.clear(); }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
@@ -455,6 +489,7 @@ function applyRes() {
 	const s = RES_STEPS[resIdx], w = Math.round(baseW * s), h = Math.round(baseH * s);
 	if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; dirty = true; }
 	if (labelCanvas && (labelCanvas.width !== baseW || labelCanvas.height !== baseH)) { labelCanvas.width = baseW; labelCanvas.height = baseH; }   // ラベル(文字)は常にフル解像度
+	for (const o of overlays.values()) if (o.canvas.width !== baseW || o.canvas.height !== baseH) { o.canvas.width = baseW; o.canvas.height = baseH; }   // オーバーレイも注記と同じフル解像度
 }
 function tuneRes(drew) {
 	const now = performance.now(), dt = now - lastFrameT;
@@ -553,7 +588,8 @@ function frame() {
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
-			if (animating || fogAnim) dirty = true;                  // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			const ovMore = overlayFrame(cam);                        // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）
+			if (animating || fogAnim || ovMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
