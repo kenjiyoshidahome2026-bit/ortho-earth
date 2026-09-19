@@ -2279,11 +2279,19 @@ const remoteUrl = (spec, tag) => {
 	const u = gSpec ? remoteUrl(gSpec, "g") : null;   // 門は ?scene= と共用（remoteUrl）
 	if (u) (async () => {
 		try {
-			const r = await fetch(u, { credentials: "omit" });
-			if (!r.ok) throw new Error(`HTTP ${r.status}`);
-			if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
 			const name = decodeURIComponent(u.pathname.split("/").pop() || "") || "map.geopbf";
-			const pbf = await loadUserFile(new File([await r.blob()], name));
+			let pbf;
+			if (/\.(parquet|geoparquet)$/i.test(u.pathname)) {   // GeoParquet＝footer だけ読んで大きさで振り分け（Range 非対応 host は全量が既に手元＝従来経路）
+				const { openParquet } = await import("geopbf/parquet");
+				const pq = await openParquet(u.href);
+				if (pq.source.size > PARQUET_STREAM_BYTES && !pq.source.wholeFile) { await parquetView(u.href, name); pbf = { length: parquetCtl?.rows }; }
+				else pbf = await loadUserFile(new File([await pq.source.read(0, pq.source.size)], name));
+			} else {
+				const r = await fetch(u, { credentials: "omit" });
+				if (!r.ok) throw new Error(`HTTP ${r.status}`);
+				if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
+				pbf = await loadUserFile(new File([await r.blob()], name));
+			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
 			const attr = document.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
 			if (attr && !attr.querySelector(".g-src")) {
@@ -2296,6 +2304,18 @@ const remoteUrl = (spec, tag) => {
 		} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
 	})();
 }
+// GeoParquet の視野追従（部分読み）＝閾値を超えるファイルは全量変換せず、視野の row group だけ Range で読んで描く（本体は遅延chunk）。
+// 閾値以下は従来の全量経路（INTAKE geoparquet → fromGeoParquet → gint）。本人裁定 2026-09-20：8MB・属性は列のまま。
+const PARQUET_STREAM_BYTES = 8e6;
+let parquetCtl = null;
+const parquetView = async (src, name) => {
+	annoCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null;
+	const m = await import("./gadgets/parquet-view.js");
+	try { parquetCtl = await m.createParquetView(map, src, { name, signal: ac.signal }); }
+	catch (err) { console.error("[parquet] view failed", name, err); throw err; }   // 文面は gadget の t()（トーストへ）
+	dbgHost.__parquet = parquetCtl;   // dev の検証窓（loaded/deferred/pq）
+	return { length: parquetCtl.rows };   // dropFile のトースト用（地物数の代わりに行数）
+};
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
 map.gadget("anno", async function (pbf) {
@@ -2360,6 +2380,11 @@ const INTAKE = [
 		},
 	},
 	{
+		name: "geoparquet-view",   // 閾値を超える GeoParquet＝全量変換せず視野追従（gadgets/parquet-view.js・2026-09-20 Phase B）。File は slice で Range 同等
+		test: f => /\.(parquet|geoparquet)$/i.test(f.name) && f.size > PARQUET_STREAM_BYTES,
+		draw: async file => parquetView(file, file.name),
+	},
+	{
 		name: "geoparquet",
 		test: f => /\.(parquet|geoparquet)$/i.test(f.name),
 		// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
@@ -2414,7 +2439,7 @@ const loadUserFile = async (file, { fit = true } = {}) => {
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, ...opts }));   // 搭載中はドロップをエディタが所有（dropFile は譲る）
