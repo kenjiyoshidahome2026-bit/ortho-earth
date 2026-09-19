@@ -23,8 +23,8 @@
 		// 世界の地震ビューア＝USGS ComCat（scripts/usgs-quakes-build.mjs が作る GeoPBF）を地球儀に立体表示する。
 		// このページは器だけ：SDK 二重構成（tellus.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
 		// 描画と案内板は ./quakes.js（遅延 chunk）。
-		// データ＝本番は apps/quakes-mirror（同一オリジン /quakes/）の archive（確定した過去分・GeoPBF）＋直近分（archive.json の end〜今を
-		// ブラウザが USGS FDSN から直接取り、月ごとに GeoPBF へ焼いて IDB に置く＝quakes-worker.js）を連結。
+		// データ＝本番は apps/quakes-mirror（同一オリジン /quakes/・archive を配るだけ）の archive（確定した過去分・GeoPBF）＋直近分（archive.json の
+		// end〜今をブラウザが USGS FDSN から直接取り、月ごとに GeoPBF へ焼いて IDB に置く＝quakes-worker.js）を連結。
 		// dev は public/quakes/usgs-quakes-m2.geopbf（scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
 		(async () => {
 			let engineP;

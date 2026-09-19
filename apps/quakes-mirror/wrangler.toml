@@ -1,5 +1,5 @@
-# 世界の地震（USGS ComCat・M2+）の配信＋月 1 回の直近分取り込み専用 Worker（worker.js 冒頭が仕様の正本）。
-# 読み手＝ortho-japan の地震ビューア（quakes.html → quakes-worker.js・同一オリジン /quakes/*）。
+# 世界の地震（USGS ComCat・M2+）の確定した過去分（archive）を配るだけの Worker（worker.js 冒頭が仕様の正本）。
+# 読み手＝ortho-japan の地震ビューア（quakes.html → quakes-worker.js・同一オリジン /quakes/*）。直近分はビューアが USGS を直接取る。
 # ⚠route は "/quakes/*"（スラッシュ付き）＝"quakes*" だと www の /quakes… で始まる別アセットまで横取りする（sats-mirror と同じ轍）。
 name = "quakes-mirror"
 main = "worker.js"
@@ -10,13 +10,11 @@ routes = [
 	{ pattern = "www.ortho-earth.com/quakes/*", zone_name = "ortho-earth.com" }
 ]
 
-# 毎時 17 分に起きる。仕事（未取得・未確定の月）が無ければ recent.json を読むだけで帰る。1 回に 3 か月まで＝Free の CPU 10 ms 枠。
-# 初回の全取得は数時間に分割・以後は月初に先月分＋未確定分だけ。失敗は次の時間にやり直す。
-# ⚠Workers Free 前提＝[limits] cpu_ms は書かない（Paid 専用・書くと deploy が通らない）
+# cron は 2026-09-19 に撤去（直近分の取り込みはビューアが USGS 直取り）。空配列を明示＝deploy で既存の schedule も消す
 [triggers]
-crons = ["17 * * * *"]
+crons = []
 
-# 置き場＝R2（無料枠 10 GB・archive は gzip 25 MB＝KV の 25 MiB 上限すれすれなので R2）。`npx wrangler r2 bucket create ortho-quakes`
+# 置き場＝R2（archive は gzip 25 MB＝KV の 25 MiB 上限すれすれなので R2）。`npx wrangler r2 bucket create ortho-quakes`
 [[r2_buckets]]
 binding = "QUAKES"
 bucket_name = "ortho-quakes"
