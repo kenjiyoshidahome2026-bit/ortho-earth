@@ -43,9 +43,10 @@ const entryKB = statSync(entryPath).size / 1024;
 if (entryKB > 100) fail(`入口チャンクが ${entryKB.toFixed(0)}KB＝エンジンが再バンドルされている疑い（DCE失敗）`);
 console.log(`ok:entry（${entry} ${entryKB.toFixed(1)}KB・lib参照）`);
 // 全サイトチャンク＝エンジン指紋なし（scene.html含むどのページもエンジンをソース直で再バンドルしていない証明。
-// 指紋＝エンジン辞書のUI文字列＝minifyでも生き残る）
+// 指紋＝エンジンの console 文字列＝minifyでも生き残り、訳の表には載らない（console は英語＝i18n 対象外）。
+// ⚠ UI 文字列を指紋にすると、サイト側のページが i18n の言語表（assets/ja-*.js 等）を持っただけで偽陽性になる（2026-09-19 quakes で踏んだ）
 for (const f of readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsWith(".js"))) {
-	if (readFileSync(path.join(SITE, "japan/assets", f), "utf8").includes("互換描画(WebGL2)"))
+	if (readFileSync(path.join(SITE, "japan/assets", f), "utf8").includes("[boot] frame1 received backend="))
 		fail(`assets/${f} にエンジンが再バンドルされている（index/sceneのどちらかがソース直参照に戻った疑い）`);
 }
 console.log("ok:fingerprint（全サイトチャンクにエンジン指紋なし）");
