@@ -1,7 +1,7 @@
 // USGS 地震カタログ（ANSS ComCat）→ GeoPBF。1967 年以降・M2 以上・全世界の地震を 1 ファイルに。
 //   ジオメトリ = Point [経度, 緯度]
-//   属性      = date（DATE 型・秒精度 UTC）/ depth（震源の深さ km）/ mag（マグニチュード）
-//               --props id,place,magType,net,status で追加列も載せられる
+//   属性      = date（DATE 型・秒精度 UTC）/ depth（震源の深さ km）/ mag（マグニチュード）/ place（M7 以上だけ・USGS の地名）
+//               --props id,place,magType,net,status で追加列も載せられる（place を指定すると全件に載る）
 // 取得元: https://earthquake.usgs.gov/fdsnws/event/1/ （FDSN Event API・1 リクエスト上限 20,000 件）
 //   月ごとに取り、20,000 件の上限に達した月は期間を二分して取り直す。429 は Retry-After／指数バックオフで待つ。月単位の CSV を --cache に保存するので
 //   中断しても再実行で続きから（月末から 30 日たつ前に取った月は次回取り直す＝未完・速報値を残さない）。
@@ -37,6 +37,10 @@ const PRECISION = Number(opt.precision ?? 4);   // USGS の震央は小数 3〜4
 const CONCURRENCY = Number(opt.concurrency ?? 2);
 const INTERVAL = Number(opt.interval ?? 1000);   // リクエスト開始の最小間隔 ms（全ワーカー共通）＝USGS の 429 対策
 const EXTRA = opt.props ? String(opt.props).split(",").map(s => s.trim()).filter(Boolean) : [];
+// 地名（USGS の place）は M≥PLACE_MIN だけ既定で載せる（ビューアの再生 tip・クリックの詳細用。全件だと文字列 150 万本）。--props place で全件
+const PLACE_MIN = 7;
+const placeOnlyBig = !EXTRA.includes("place");
+if (placeOnlyBig) EXTRA.push("place");
 const GZIP = !opt["no-gzip"];
 const API = process.env.USGS_API ?? USGS_API;
 const FRESH_MS = 30 * DAY;   // これより新しい期間を含む月はキャッシュを信用しない（速報→確定の更新がある）
@@ -114,6 +118,7 @@ if (failed.length) {
 }
 
 const cols = parseCsvTexts(texts, EXTRA);
+if (placeOnlyBig) { const q = EXTRA.indexOf("place"); for (let i = 0; i < cols.N; i++) if (!(cols.MAG[i] >= PLACE_MIN)) cols.X[q][i] = null; }
 const { N, bad } = cols;
 console.log(`地震 ${N.toLocaleString()} 件${bad ? `（壊れた行 ${bad} を除外）` : ""}`);
 if (!N) { console.error("データがありません（--offline でキャッシュが空か、通信に失敗）"); process.exit(1); }

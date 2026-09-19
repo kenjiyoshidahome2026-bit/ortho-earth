@@ -17,20 +17,23 @@ import { API, DAY, fetchRange, csvText, parseCsvTexts, buildGeoPBF, months } fro
 const D2R = Math.PI / 180;
 const Y0 = Date.UTC(1967, 0, 1), YEAR_MS = 365.2425 * 86400000;
 
-// 1 本ぶんの列 { n, lon, lat, mag, dep, time }（mag か時刻の無い地震は落とす）
+// 1 本ぶんの列 { n, lon, lat, mag, dep, time, place }（mag か時刻の無い地震は落とす）。place＝疎（大地震だけ・Map: 添字→USGS の place）
+const PLACE_MIN = 7;   // この M 以上だけ地名を持つ（再生中の tip・クリックの詳細用。全件持つと文字列 150 万本）
 function columns(N) {
-	return { n: 0, lon: new Float32Array(N), lat: new Float32Array(N), mag: new Float32Array(N), dep: new Float32Array(N), time: new Float64Array(N) };
+	return { n: 0, lon: new Float32Array(N), lat: new Float32Array(N), mag: new Float32Array(N), dep: new Float32Array(N), time: new Float64Array(N), place: new Map() };
 }
-function push(c, lon, lat, mag, dep, t) {
+function push(c, lon, lat, mag, dep, t, place) {
 	if (mag == null || !Number.isFinite(t)) return;
 	const n = c.n++;
 	c.lon[n] = lon; c.lat[n] = lat; c.mag[n] = mag; c.dep[n] = dep == null ? 0 : dep; c.time[n] = t;
+	if (place != null && mag >= PLACE_MIN) c.place.set(n, place);
 }
 // 列の連結（並びは渡した順）
 function concat(parts) {
 	const out = columns(parts.reduce((a, c) => a + c.n, 0));
 	for (const c of parts) {
 		for (const k of ["lon", "lat", "mag", "dep", "time"]) out[k].set(c[k].subarray(0, c.n), out.n);
+		for (const [i, p] of c.place) out.place.set(out.n + i, p);
 		out.n += c.n;
 	}
 	return out;
@@ -70,7 +73,7 @@ async function loadPbf(src, say) {
 		const g = pbf.getGeometry(i);
 		if (!g || g.type !== "Point") continue;
 		const p = pbf.getProperties(i) || {};
-		push(c, g.coordinates[0], g.coordinates[1], p.mag, p.depth, p.date instanceof Date ? p.date.getTime() : Date.parse(p.date));
+		push(c, g.coordinates[0], g.coordinates[1], p.mag, p.depth, p.date instanceof Date ? p.date.getTime() : Date.parse(p.date), p.place);
 		if ((i & 0x3ffff) === 0) say?.(`GeoPBF を読み込み中… ${Math.round(i / pbf.length * 100)}%`);
 	}
 	c.meta = { name: pbf.name?.(), description: pbf.description?.(), attribution: pbf.attribution?.(), license: pbf.license?.() };
@@ -110,7 +113,8 @@ async function bakeMonth(a, z, now, api) {
 		if (!r.ok) throw new Error(`HTTP ${r.status} ${url}`);
 		return r.text();
 	};
-	const cols = parseCsvTexts([csvText(await fetchRange(get, a, z, MINMAG, api))]);
+	const cols = parseCsvTexts([csvText(await fetchRange(get, a, z, MINMAG, api))], ["place"]);
+	for (let i = 0; i < cols.N; i++) if (!(cols.MAG[i] >= PLACE_MIN)) cols.X[0][i] = null;   // 地名は大地震だけ
 	const buf = cols.N ? await buildGeoPBF(cols, { minmag: MINMAG, start: ymd(a), end: ymd(z - 1) }) : null;
 	return { from: a, to: z, fetchedAt: now, buf };
 }
@@ -157,7 +161,7 @@ async function loadUsgs(spec, say, onPart, now, api = API) {
 }
 
 // 列 → GPU に渡す形（マグニチュード昇順）
-function toGpu({ n, lon, lat, mag, dep, time }, rAx, earthM) {
+function toGpu({ n, lon, lat, mag, dep, time, place }, rAx, earthM) {
 	const order = new Uint32Array(n);
 	for (let i = 0; i < n; i++) order[i] = i;
 	order.sort((a, b) => mag[a] - mag[b]);
@@ -179,7 +183,9 @@ function toGpu({ n, lon, lat, mag, dep, time }, rAx, earthM) {
 		attr[k * 3 + 2] = 1967 + (time[i] - Y0) / YEAR_MS;
 		oLon[k] = lon[i]; oLat[k] = lat[i]; oTime[k] = time[i];
 	}
-	return { n, pos, attr, lon: oLon, lat: oLat, time: oTime };
+	const oPlace = new Map();
+	for (let k = 0; k < n; k++) { const p = place.get(order[k]); if (p != null) oPlace.set(k, p); }
+	return { n, pos, attr, lon: oLon, lat: oLat, time: oTime, place: oPlace };
 }
 
 const load = (src, say, onPart, now, api) => src?.usgs ? loadUsgs(src.usgs, say, onPart, now, api) : loadPbf(src, say);
