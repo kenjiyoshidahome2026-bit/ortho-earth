@@ -10,8 +10,11 @@ import path from "node:path";
 import fsSync from "node:fs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PAGE = process.argv[2] || "t-editor";   // 省略＝t-editor。同型の実時間ページ（t-backfill 等）を引数で回せる
-const SHOT = process.env.SHOT || "";          // 判定後の画面を PNG で残す（目視の手すり・任意）
+// ページは複数渡せる（省略＝t-editor）。**1 つの vite と 1 つの Chrome を共有し、並行（同時 3 タブ）**で回す＝旧の「ページごとに
+// プロセス・vite・Chrome を立て直して直列」（6 ページで 83 s・2026-09-20 実測）を畳む。同型の実時間ページ（t-backfill 等）を引数で。
+const PAGES = process.argv.slice(2).filter(a => !a.startsWith("--")); if (!PAGES.length) PAGES.push("t-editor");
+const CONC = +(process.env.CONC || 3);
+const SHOT = process.env.SHOT || "";          // 判定後の画面を PNG で残す（目視の手すり・任意・ページが 1 つのとき）
 const PORT = 5244, CDP = 9344;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
@@ -40,31 +43,39 @@ try {
 		if (i > 60) throw new Error("chrome devtools が起動しない");
 		await sleep(250);
 	}
-	const url = `http://localhost:${PORT}/japan/tests/${PAGE.replace(/(\?|$)/, ".html$1")}${PAGE.includes("?") ? "&" : "?"}gl2=1&lang=ja`;   // ページ名に ?query を付けられる（t-rectlook の視点差し替え等）
-	const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
-	const ws = new WebSocket(target.webSocketDebuggerUrl);
-	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-	let id = 0; const pending = new Map();
-	const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
-	ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
-		if (process.env.DEBUG) {   // DEBUG=1＝ページの例外と console.error/warn を標準出力へ（起動しない原因の特定用・2026-09-15）
-			if (m.method === "Runtime.exceptionThrown") console.log("[page exception]", m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text);
-			if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log(`[page ${m.params.type}]`, m.params.args.map(a => a.value ?? a.description ?? "").join(" ").slice(0, 300));
-		} };
-	await send("Runtime.enable");
-	const t0 = Date.now();
-	let title = "";
-	while (Date.now() - t0 < 90000) {   // 健全なら十数秒（コールドviteの変換込みでも収まる）
-		await sleep(1000);
-		const r = await send("Runtime.evaluate", { expression: "document.title", returnByValue: true });
-		title = r?.result?.value || "";
-		if (title.startsWith("PASS") || title.startsWith("FAIL")) break;
-	}
-	if (SHOT) { const r = await send("Page.captureScreenshot", { format: "png" }); if (r?.data) (await import("node:fs")).writeFileSync(SHOT, Buffer.from(r.data, "base64")); }
-	ws.close();
-	const pass = title.startsWith("PASS");
-	fail = pass ? 0 : 1;
-	console.log(`${pass ? "PASS" : "FAIL"}  ${PAGE}  ${(title || "（title未確定＝タイムアウト）").replace(/^(PASS|FAIL) ?/, "")}`);
+	const runPage = async PAGE => {
+		const url = `http://localhost:${PORT}/japan/tests/${PAGE.replace(/(\?|$)/, ".html$1")}${PAGE.includes("?") ? "&" : "?"}gl2=1&lang=ja`;   // ページ名に ?query を付けられる（t-rectlook 等）
+		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" })).json();
+		const ws = new WebSocket(target.webSocketDebuggerUrl);
+		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+		let id = 0; const pending = new Map();
+		const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
+		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+			if (process.env.DEBUG) {   // DEBUG=1＝ページの例外と console.error/warn を標準出力へ（起動しない原因の特定用・2026-09-15）
+				if (m.method === "Runtime.exceptionThrown") console.log(`[${PAGE} exception]`, m.params.exceptionDetails?.exception?.description ?? m.params.exceptionDetails?.text);
+				if (m.method === "Runtime.consoleAPICalled" && /error|warning/.test(m.params.type)) console.log(`[${PAGE} ${m.params.type}]`, m.params.args.map(a => a.value ?? a.description ?? "").join(" "));
+			} };
+		await send("Page.enable"); await send("Runtime.enable");
+		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
+		const t0 = Date.now();
+		let title = "";
+		while (Date.now() - t0 < 120000) {   // 健全なら十数秒（コールドviteの変換込みでも収まる）。並行 3 本ぶんの余裕で 120 s
+			await sleep(500);
+			const r = await send("Runtime.evaluate", { expression: "document.title", returnByValue: true });
+			title = r?.result?.value || "";
+			if (title.startsWith("PASS") || title.startsWith("FAIL")) break;
+		}
+		if (SHOT && PAGES.length === 1) { const r = await send("Page.captureScreenshot", { format: "png" }); if (r?.data) (await import("node:fs")).writeFileSync(SHOT, Buffer.from(r.data, "base64")); }
+		try { await send("Page.close"); } catch { /* 閉じ損ねは無害 */ }
+		ws.close();
+		const pass = title.startsWith("PASS");
+		console.log(`${pass ? "PASS" : "FAIL"}  ${PAGE}  [${((Date.now() - t0) / 1000).toFixed(0)}s]  ${(title || "（title未確定＝タイムアウト）").replace(/^(PASS|FAIL) ?/, "")}`);
+		return pass;
+	};
+	const queue = PAGES.slice(), results = [];
+	const lane = async () => { while (queue.length) results.push(await runPage(queue.shift())); };
+	await Promise.all(Array.from({ length: Math.min(CONC, PAGES.length) }, lane));
+	fail = results.every(Boolean) ? 0 : 1;
 } catch (e) {
 	console.error("✗", e.message || e);
 }
