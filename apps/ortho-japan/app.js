@@ -2317,7 +2317,8 @@ let parquetCtl = null;
 const parquetView = async (src, name) => {
 	annoCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null;
 	const m = await import("./gadgets/parquet-view.js");
-	try { parquetCtl = await m.createParquetView(map, src, { name, signal: ac.signal }); }
+	const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
+	try { parquetCtl = await m.createParquetView(map, src, { name, color, signal: ac.signal }); }
 	catch (err) { console.error("[parquet] view failed", name, err); throw err; }   // 文面は gadget の t()（トーストへ）
 	dbgHost.__parquet = parquetCtl;   // dev の検証窓（loaded/deferred/pq）
 	return { length: parquetCtl.rows };   // dropFile のトースト用（地物数の代わりに行数）
