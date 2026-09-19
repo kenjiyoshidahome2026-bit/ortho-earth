@@ -14,7 +14,7 @@
 // onFrame（札の追従）・setOpacity・mapEl。GPU 描画は quakes-gl.js＝レンダーワーカー内で地球・注記と同じフレーム・同じ cam で描く
 //（main の canvas に onFrame で描いていた頃は 1〜2 フレーム先行して見えた＝2026-09-19 本人指摘）。
 import { cameraState, ellipsoidOn, worldRadiusM } from "ortho-core";
-import glUrl from "./quakes-gl.js?url";   // worker が import() する URL（依存ゼロのモジュール＝バンドルを跨ぐ）
+import glUrl from "./quakes-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は worker 入口扱いで export が tree-shake され 532B の殻になる・2026-09-20）＝モジュールは依存ゼロが掟
 import { M_SPLIT, STOPS, depthT, depthColor, lambdaOf } from "./quakes-gl.js";   // 凡例・pick は同じ表を使う（正本は quakes-gl.js）
 export { depthColor };
 
@@ -433,12 +433,12 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 
 	// ── データ読み込み ──
 	const worker = new Worker(new URL("./quakes-worker.js", import.meta.url), { type: "module", name: "quakes" });
-	const loaded = new Promise((resolve, reject) => {
+	const loaded = new Promise((resolve, reject) => {   // 失敗は status とconsole に出す（呼び手が await しなくても unhandled にしない＝下の catch）
 		worker.onmessage = e => {
 			const m = e.data;
 			if (m.type === "progress") { notes[m.q] = { text: msgText(m.msg), keep: m.msg.keep }; renderStatus(); }
 			else if (m.type === "part") setPart(m);
-			else if (m.type === "error") { $("status").textContent = t("Failed to load: $1", m.key ? t(m.key) : m.message); reject(new Error(m.message)); }
+			else if (m.type === "error") { console.error("[quakes] worker error:", m.message, m.stack || ""); $("status").textContent = t("Failed to load: $1", m.key ? t(m.key) : m.message); reject(new Error(m.message)); }
 			else if (m.type === "done") {
 				notes = notes.map(n => n?.keep ? n : null);   // 済んだら要約（keep）だけ残す
 				if (m.skipped?.length) skippedNote = `<span style="color:#ffb86b">${t("Could not read: $1 (reload to retry)", esc(m.skipped.join(t(", ##list separator"))))}</span>`;
@@ -446,6 +446,7 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 			}
 		};
 	});
+	loaded.catch(() => {});   // 呼び手が await しない使い方（quakes.html）で unhandled rejection にしない（エラーは status/console に出ている）
 	// src＝URL・ArrayBuffer・{ usgs: 起点（日付か archive.json の URL）}、またはその配列（archive＋USGS 直取りを連結）
 	const abs = s => new URL(s, location.href).href;
 	const srcs = (Array.isArray(src) ? src : [src]).map(s => typeof s === "string" ? abs(s) : s?.usgs && !/^\d{4}-\d{2}-\d{2}$/.test(s.usgs) ? { usgs: abs(s.usgs) } : s);

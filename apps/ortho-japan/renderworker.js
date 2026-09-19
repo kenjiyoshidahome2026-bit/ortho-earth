@@ -7,35 +7,52 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "ortho-core/labels";
 import { createTerrain } from "ortho-core/terrain";
-import { setEllipsoid, cameraState } from "ortho-core/camera";
+import { setEllipsoid, cameraState, project } from "ortho-core/camera";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 // 同一フレームのオーバーレイ（#13・2026-09-20）：main の map.overlay(url) が渡す自前 OffscreenCanvas を、地球・注記と同じ rAF で描く。
 // モジュール（依存ゼロ・URL で import()）の契約＝{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }。
 // ready 前に届いた message は queue に貯めて init 後に順に渡す。name → { canvas, mod, queue }
+// init(canvas, opts, host)：host＝{ requestDraw()（画像到着などで次フレームを頼む）, post(data)（main の handle.onmessage へ） }。
+// frame(cam, s, size, api)：api＝{ project(lon,lat)→[x,y,f], projectH(lon,lat,hM), dpr, W, H（CSS px）}＝main の makeProjector/makeProjectorH と同じ
+//   規約（地形リフト＝pitch フェード×標高×elevBase・座標は CSS px・f<0＝裏側）。標高は worker の terrain から同期で引ける（main は非同期メモだった）
 const overlays = new Map();
+let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 function overlayAdd(m) {
 	const o = { canvas: m.canvas, mod: null, queue: [] };
 	overlays.set(m.name, o);
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
+	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }) };
+	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
+	stage("importing", { url: m.url });
 	import(/* @vite-ignore */ m.url).then(mod => {
 		if (!overlays.has(m.name)) return;   // 待っている間に外された
-		mod.init(o.canvas, m.opts || {});
+		stage("imported");
+		mod.init(o.canvas, m.opts || {}, host);
 		o.mod = mod;
 		for (const d of o.queue) mod.message(d);
 		o.queue = [];
+		stage("ready", { queued: o.queue.length });
 		dirty = true; armRaf();
-	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
+	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); stage("failed", { error: String(err?.message || err) }); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
 }
 function overlayFrame(camNow) {
 	if (!overlays.size) return false;
-	let more = false, s = null;
+	let more = false, s = null, api = null;
 	for (const [name, o] of overlays) {
 		if (!o.mod) continue;
 		try {
-			s ??= cameraState(camNow, o.canvas.width, o.canvas.height);   // 注記と同じ＝素の cam・フル解像度（動的解像度の縮小は掛けない）
-			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height })) more = true;
+			if (!s) {
+				const W = o.canvas.width, H = o.canvas.height, dpr = camNow.dpr || 1;
+				s = cameraState(camNow, W, H);   // 注記と同じ＝素の cam・フル解像度（動的解像度の縮小は掛けない）
+				// 地形リフト＝main の dispRadius と同式（pitch 0.06→0.20 でフェードイン・標高×elevBase）。標高は terrain から同期
+				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+				const lift = pf > 0 && terrain ? (lon, lat) => (terrain.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
+				const pr = (lon, lat, hM) => { const [x, y, f] = project(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase); return [x / dpr, y / dpr, f]; };
+				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, dpr, W: W / dpr, H: H / dpr };
+			}
+			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
 	}
 	return more;
@@ -202,6 +219,7 @@ const dispatch = e => {
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
+			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
 			if (m.stay) {

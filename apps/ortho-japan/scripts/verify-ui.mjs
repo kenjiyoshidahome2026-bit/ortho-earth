@@ -21,13 +21,45 @@ for (let i = 0; ; i++) {   // 起動待ち＝base(/japan/)が200を返すまで�
 	if (i > 60) { console.error(`vite が起動しない（port ${PORT} が塞がっている？）`); process.exit(1); }
 	await new Promise(r => setTimeout(r, 250));
 }
+// 実時間で回すページ＝レンダーワーカー内の動的 import（map.overlay のモジュール）に依る検定。--virtual-time-budget 下では worker の
+// import() が永久に解決しない（2026-09-20 実測：stage=importing のまま・実時間＋同じ swiftshader なら 0.5 秒で PASS）＝WebGPU async init と同じ轍。
+// CDP で開き、<title> が PASS/FAIL になるまで実時間で待つ（最長 60 秒）。
+const REALTIME = new Set(["t-anno"]);
+const CDP = 9600 + (process.pid % 200);
+async function runRealtime(url) {
+	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+		"--no-first-run", `--user-data-dir=/tmp/oj-vui-${process.pid}`, "about:blank"], { stdio: "ignore" });
+	try {
+		for (let i = 0; ; i++) {
+			try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ }
+			if (i > 60) return "FAIL chrome devtools が起動しない";
+			await new Promise(r => setTimeout(r, 250));
+		}
+		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" })).json();
+		const ws = new WebSocket(target.webSocketDebuggerUrl);
+		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+		let id = 0; const pending = new Map();
+		const send = (m, p = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p })); setTimeout(() => { if (pending.has(i)) { pending.delete(i); res(null); } }, 5000); });
+		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+		await send("Page.enable"); await send("Runtime.enable");
+		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
+		let title = "";
+		for (let i = 0; i < 120 && !/^(PASS|FAIL)/.test(title); i++) {
+			await new Promise(r => setTimeout(r, 500));
+			title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true }))?.result?.value || "";
+		}
+		ws.close();
+		return /^(PASS|FAIL)/.test(title) ? title : "FAIL no-title(realtime 60s): " + title;
+	} finally { chrome.kill(); }
+}
+
 let fail = 0;
 for (const p of PAGES) {
 	// ページ名は "t-rtl?lang=ar" の形も受ける＝既定（gl2=1&lang=ja）に後から上書きする（同じ鍵を二度書かない＝get は先勝ち）
 	const [page, extra = ""] = p.split("?");
 	const q = new URLSearchParams("gl2=1&lang=ja");
 	for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);
-	const title = await new Promise(res => execFile(CHROME,
+	const title = REALTIME.has(page) ? await runRealtime(`http://localhost:${PORT}/japan/tests/${page}.html?${q}`) : await new Promise(res => execFile(CHROME,
 		["--headless=new", "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
 			"--virtual-time-budget=75000", "--dump-dom", `http://localhost:${PORT}/japan/tests/${page}.html?${q}`],   // lang=ja固定＝headlessは英語ブラウザ（i18n自動判定でenに流れて日本語assertが割れるのを封じる）   // 75s＝t-demoのフライト実尺（glide/z1着地×9s＋自動上演の着地後計時＝仮想20s＋scene-player API回帰）を収める
 			// ?gl2=1＝WebGPU既定化(2026-08-02)後も虚時間ハーネスはGL2固定（WebGPU async init×virtual-time の轍＝t-webgpu を PAGES に載せない理由と同じ）

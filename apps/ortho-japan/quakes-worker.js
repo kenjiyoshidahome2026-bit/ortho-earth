@@ -213,6 +213,7 @@ self.onmessage = async e => {
 		const skipped = got.flatMap((g, q) => g.status === "rejected" ? [srcs[q]?.usgs ? "USGS" : "archive"] : g.value.skipped ?? []);
 		self.postMessage({ type: "done", n: parts.reduce((a, c) => a + c.n, 0), skipped });
 	} catch (err) {
-		self.postMessage({ type: "error", message: String(err?.message || err), key: err?.key });
+		console.error("[quakes] load failed", err);
+		self.postMessage({ type: "error", message: String(err?.message || err), key: err?.key, stack: String(err?.stack || "").slice(0, 600) });
 	}
 };

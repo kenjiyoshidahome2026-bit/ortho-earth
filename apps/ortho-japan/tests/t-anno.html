@@ -5,7 +5,7 @@
      **そのモジュールにローカル束縛を作らない**。輸入側（geoedit）は解決できるので
      「エディタでは曲線が出るのにビューアだけ落ちる」＝WYSIWYG の担保が壊れる非対称バグだった。
      ＝再輸出だけに戻すと必ずここが落ちる、という形で釘を打つ。
-     判定は .anno-overlay の実画素（透明背景＝getImageData は素の描画色）。 -->
+     判定は anno.pixels()（worker のオーバーレイ canvas の実画素・透明背景＝素の描画色）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-anno</title></head>
 <body>
 <script>
@@ -33,12 +33,22 @@ try {
 	const pbf = await geopbf(fc, { gint: true, name: "test/anno" });
 	ok("decode", !!pbf?.unPackGint && pbf.length === 3, pbf?.length);
 
-	await map.gadget.anno(pbf);            // ← 修正前はここで ReferenceError: smoothRing is not defined
-	await new Promise(r => setTimeout(r, 500));
+	const anno = await map.gadget.anno(pbf);   // ← 修正前はここで ReferenceError: smoothRing is not defined
+	const f1 = await Promise.race([new Promise(r => map.on("load", () => r(true))), new Promise(r => setTimeout(() => r(false), 15000))]);
+	ok("frame1", f1);
 
+	// 描画はレンダーワーカー内のオーバーレイ（map.overlay・#13）＝canvas は transfer 済みで main から読めない → anno.pixels() で実画素を取り寄せる。
+	// worker の起動（swiftshader は遅い）＋モジュール import＋初描画を待つ＝何か描けるまで最長 25 秒ポーリング
 	const cv = document.querySelector(".anno-overlay");
-	ok("canvas", !!cv && cv.width > 0, cv ? `${cv.width}x${cv.height}` : "none");
-	const d = cv.getContext("2d").getImageData(0, 0, cv.width, cv.height).data;
+	let px = null;
+	const t0 = performance.now();
+	for (let i = 0; i < 20 && !(px && px.data && px.data.some((v, k) => (k & 3) === 3 && v >= 20)); i++) {
+		await new Promise(r => setTimeout(r, 500));
+		px = await Promise.race([anno.pixels(), new Promise(r => setTimeout(() => r(null), 1000))]);
+	}
+	ok("worker応答", !!px, `${((performance.now() - t0) / 1000).toFixed(1)}s hits=${anno.hits?.length ?? "-"} drawErr=${window.__drawErr ? String(window.__drawErr.msg || window.__drawErr).slice(0, 120) : "none"} stage=${JSON.stringify(window.__overlay?.anno || null)}`);
+	ok("canvas", !!cv && !!px && px.w > 0, px ? `${px.w}x${px.h}` : (cv ? "no pixels" : "none"));
+	const d = px?.data || new Uint8ClampedArray(0);
 	let warm = 0, cold = 0, halo = 0;
 	for (let i = 0; i < d.length; i += 4) {
 		const r = d[i], g = d[i+1], b = d[i+2], a = d[i+3];
