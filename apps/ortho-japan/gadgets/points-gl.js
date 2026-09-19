@@ -1,15 +1,21 @@
 // 汎用の点オーバーレイ（同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam に描く）。
 // 用途＝GeoParquet の点だけのファイル（gadgets/parquet-view.js）：列（経緯度）→ 単位球の xyz → そのまま GPU。gint も GeoPBF も経由しない。
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
-//   message { type:"layer", q, n, pos: Float32Array(n*3) }（同じ q は置き換え）／{ type:"remove", q }／{ type:"style", size, color:[r,g,b,a] }／{ type:"clear" }
+//   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4) }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け）
+//           ／{ type:"remove", q }／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
 // ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く。
 const VS = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_pos;
+layout(location = 1) in vec4 a_rgba;   // 点ごとの色（無い層は u_color）
 uniform mat4 u_mvp;
 uniform vec3 u_eye;
 uniform float u_size;      // 半径（device px）
+uniform vec4 u_color;
+uniform float u_perPoint;  // 1＝a_rgba を使う
+out vec4 v_col;
 void main() {
+	v_col = u_perPoint > 0.5 ? a_rgba : u_color;
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
 	// 地平線の向こう（球の裏側）は描かない：視線 eye→P が球の中を通るなら裏
 	vec3 d = a_pos - u_eye;
@@ -23,18 +29,18 @@ void main() {
 }`;
 const FS = `#version 300 es
 precision highp float;
-uniform vec4 u_color;   // premultiplied でない RGBA
+in vec4 v_col;   // premultiplied でない RGBA
 uniform float u_size;
 out vec4 o;
 void main() {
 	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (u_size + 1.0);
 	float cov = clamp(u_size + 0.5 - length(p), 0.0, 1.0);
 	if (cov <= 0.0) discard;
-	float a = u_color.a * cov;
-	o = vec4(u_color.rgb * a, a);
+	float a = v_col.a * cov;
+	o = vec4(v_col.rgb * a, a);
 }`;
 let gl = null, prog = null, uni = {}, maxPt = 1;
-const layers = new Map();   // q → { n, buf, vao }
+const layers = new Map();   // q → { n, buf, cbuf, vao, perPoint }
 let style = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
 
 function compile(vs, fs) {
@@ -50,14 +56,18 @@ export function init(canvas) {
 	({ p: prog, u: uni } = compile(VS, FS));
 	maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
 }
-const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); gl.deleteVertexArray(L.vao); };
+const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); if (L.cbuf) gl.deleteBuffer(L.cbuf); gl.deleteVertexArray(L.vao); };
 export function message(d) {
 	if (!gl) return;
 	if (d.type === "layer") {
 		drop(layers.get(d.q));
 		const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, d.pos, gl.STATIC_DRAW);
-		const vao = gl.createVertexArray(); gl.bindVertexArray(vao); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0); gl.bindVertexArray(null);
-		layers.set(d.q, { n: d.n, buf, vao });
+		const vao = gl.createVertexArray(); gl.bindVertexArray(vao); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+		let cbuf = null;
+		if (d.rgba) { cbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cbuf); gl.bufferData(gl.ARRAY_BUFFER, d.rgba, gl.STATIC_DRAW); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 0, 0); }
+		else { gl.disableVertexAttribArray(1); gl.vertexAttrib4f(1, 0, 0, 0, 1); }
+		gl.bindVertexArray(null);
+		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba });
 	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); }
 	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
 	else if (d.type === "style") { style = { ...style, ...d }; }
@@ -74,7 +84,7 @@ export function frame(cam, s, { w, h }) {
 	gl.uniform1f(uni.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr));
 	gl.uniform4fv(uni.u_color, new Float32Array(style.color));
 	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-	for (const L of layers.values()) { gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n); }
+	for (const L of layers.values()) { gl.uniform1f(uni.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n); }
 	gl.bindVertexArray(null);
 	return false;
 }
