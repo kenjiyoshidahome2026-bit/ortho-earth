@@ -1,4 +1,7 @@
 // convert/parquet-read.js ── Apache Parquet の最小リーダ（依存ゼロ）。geoparquet.js の逆変換（GeoParquet → GeoPBF）用。
+// 2026-09-20：**部分読み**＝openParquet(src) の src は Uint8Array のほか url / Blob / {read,size}。footer（末尾）だけを最初に読み、
+// 列チャンクは row group × 列の byte range を readMany（隣接合体・並列）で取る＝全量を持たない。row group の列統計（min/max）と
+// GeoParquet の bbox 覆域列から、視野（bbox）に触れる row group だけを選べる（select）。書き手が空間整列していれば読む量が視野比例になる。
 // 読めるもの: Thrift compact の FileMetaData / PageHeader、DataPage v1・v2、PLAIN / PLAIN_DICTIONARY / RLE_DICTIONARY、
 // definition level の RLE/bit-packed、圧縮 none / gzip / zstd（Node）/ snappy（自前・pyarrow と geopandas の既定）。
 // 型: BOOLEAN / INT32 / INT64 / FLOAT / DOUBLE / BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY。平坦な列（optional/required）だけ＝
@@ -6,6 +9,7 @@
 // 戻り: { numRows, keyValue, created, columns: [{ path: string[], name, type, logical, values: Array(numRows) | null }] }
 const DEC = new TextDecoder();   // 呼び出しごとの new TextDecoder を撤去（2026-09-15）
 import { inflate } from "../modules/inflate.js";
+import { openSource } from "../cog/source.js";   // 部分読み（Range）＝COG と同じソース抽象（url | Blob/File | {read,size}）
 
 // ── Thrift compact ──
 class TReader {
@@ -143,19 +147,16 @@ function parseLogical(v) {   // LogicalType union → 名前（＋詳細）
 	return names[id] ?? null;
 }
 
-// ファイルを開いてメタデータと列定義を返す（値は読まない）。readRowGroup(g) で row group 1 つ分の列配列を復号する＝
-// 全 row group を一度に持たない（1GB 級の轍・2026-09-16）。戻り: { numRows, keyValue, created, columns, rowGroups: [{ numRows }], readRowGroup }
-//   readRowGroup(g) → Map(列名 → Array(rgRows) | null)。読めない列は columns[i].unsupported に理由を立てて null（旧 readParquet と同じ扱い）
-export async function openParquet(u8) {
-	const n = u8.length;
-	if (n < 12 || String.fromCharCode(u8[n - 4], u8[n - 3], u8[n - 2], u8[n - 1]) !== "PAR1") throw new Error("parquet: missing PAR1 trailer magic");
-	const metaLen = new DataView(u8.buffer, u8.byteOffset).getUint32(n - 8, true);
-	const meta = new TReader(u8, n - 8 - metaLen).struct({
-		2: (r) => r.list((r) => r.struct({ 4: str })),
-		4: (r) => r.list((r) => r.struct({ 1: (r) => r.list((r) => r.struct({ 1: str, 3: (r) => r.struct({ 3: strList }) })) })),
-		5: (r) => r.list((r) => r.struct({ 1: str, 2: str })),
-		6: str,
-	});
+// ── footer ──
+const spec = {
+	2: (r) => r.list((r) => r.struct({ 4: str })),
+	4: (r) => r.list((r) => r.struct({ 1: (r) => r.list((r) => r.struct({ 1: str, 3: (r) => r.struct({ 3: strList }) })) })),
+	5: (r) => r.list((r) => r.struct({ 1: str, 2: str })),
+	6: str,
+};
+// FileMetaData のバイト列 → スキーマの葉・列定義・row group（チャンクの生メタ付き）
+function parseFooter(foot) {
+	const meta = new TReader(foot, 0).struct(spec);
 	const schema = meta[2], numRows = meta[3] ?? 0, rgs = meta[4] ?? [], created = meta[6] ?? "";
 	const keyValue = {}; for (const kv of meta[5] ?? []) keyValue[kv[1]] = kv[2] ?? null;
 	// スキーマ木を辿って葉の path・最大 definition level・repeated の有無を得る
@@ -171,65 +172,159 @@ export async function openParquet(u8) {
 	while (i < schema.length) walk([], 0, false);
 	const columns = leaves.map(l => ({ path: l.path, name: l.name, type: l.type, logical: l.logical ?? (l.converted === 0 ? "STRING" : l.converted === 19 ? "JSON" : null), unsupported: l.repeated ? "repeated" : null }));
 	const rowGroups = rgs.map(rg => ({ numRows: rg[3] ?? 0, chunks: rg[1] ?? [] }));
+	return { numRows, keyValue, created, leaves, columns, rowGroups };
+}
+// 列チャンクの統計値（min_value/max_value・旧 min/max）を物理型で復号。文字列は STRING のときだけ文字へ
+function statValue(leaf, b) {
+	if (!(b instanceof Uint8Array)) return undefined;
+	const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+	switch (leaf.type) {
+		case 0: return !!b[0];
+		case 1: return b.byteLength >= 4 ? dv.getInt32(0, true) : undefined;
+		case 2: return b.byteLength >= 8 ? dv.getInt32(4, true) * 4294967296 + dv.getUint32(0, true) : undefined;
+		case 4: return b.byteLength >= 4 ? dv.getFloat32(0, true) : undefined;
+		case 5: return b.byteLength >= 8 ? dv.getFloat64(0, true) : undefined;
+		case 6: case 7: return (leaf.logical === "STRING" || leaf.converted === 0) ? DEC.decode(b) : b.slice();
+		default: return undefined;
+	}
+}
+// 列チャンクの byte 範囲＝[min(辞書ページ, データページ), +total_compressed_size)
+const chunkSpan = cm => { const from = cm[11] !== undefined ? Math.min(cm[11], cm[9]) : cm[9]; return { from, len: cm[7] ?? 0 }; };
 
-	async function readRowGroup(g) {
-		const rg = rowGroups[g]; if (!rg) throw new Error(`parquet: row group ${g} not found (${rowGroups.length} groups)`);
-		const out = new Map();
+// 列チャンク 1 本（buf＝chunkSpan の範囲のバイト列）→ 値の配列（rows 行・null 込み）
+async function decodeChunk(buf, cm, leaf, rows) {
+	const values = new Array(rows);
+	const codec = cm[4] ?? 0, numValues = cm[5] ?? 0;
+	const { from } = chunkSpan(cm);
+	let pos = 0;   // buf 内の位置（buf の先頭＝辞書ページかデータページの先頭）
+	const conv = converter(leaf), defW = leaf.maxDef ? Math.ceil(Math.log2(leaf.maxDef + 1)) : 0;
+	let dict = null, got = 0, r = 0;
+	while (got < numValues && pos < buf.length) {
+		const tr = new TReader(buf, pos);
+		const ph = tr.struct({ 5: (r) => r.struct(), 7: (r) => r.struct(), 8: (r) => r.struct() });
+		const kind = ph[1], uncSize = ph[2], compSize = ph[3];
+		const bodyStart = tr.pos; pos = bodyStart + compSize;
+		if (kind === 2) {   // DICTIONARY_PAGE
+			const body = await decompress(buf.subarray(bodyStart, pos), codec, uncSize);
+			dict = decodePlain(body, 0, leaf.type, ph[7][1], leaf.typeLength).out;
+			continue;
+		}
+		if (kind !== 0 && kind !== 3) continue;
+		let numV, enc, levels, body;
+		if (kind === 0) {
+			const h = ph[5]; numV = h[1]; enc = h[2];
+			body = await decompress(buf.subarray(bodyStart, pos), codec, uncSize);
+			let p = 0;
+			if (leaf.maxDef) { const len = new DataView(body.buffer, body.byteOffset).getUint32(0, true); levels = decodeHybrid(body, 4, 4 + len, defW, numV); p = 4 + len; }
+			body = body.subarray(p);
+		} else {
+			const h = ph[8]; numV = h[1]; enc = h[4]; const defLen = h[5] ?? 0, repLen = h[6] ?? 0, compressed = h[7] !== false;
+			const raw = buf.subarray(bodyStart, pos);
+			if (leaf.maxDef) levels = decodeHybrid(raw, repLen, repLen + defLen, defW, numV);
+			const rest = raw.subarray(repLen + defLen);
+			body = compressed ? await decompress(rest, codec, uncSize - repLen - defLen) : rest;
+		}
+		const nonNull = levels ? levels.reduce((s, v) => s + (v === leaf.maxDef ? 1 : 0), 0) : numV;
+		let vals;
+		if (enc === 0) vals = decodePlain(body, 0, leaf.type, nonNull, leaf.typeLength).out;
+		else if (enc === 2 || enc === 8) { if (!dict) throw new Error("parquet: dictionary page missing"); const w = body[0]; const idx = decodeHybrid(body, 1, body.length, w, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = dict[idx[k]]; }
+		else throw new Error("unsupported encoding " + enc);
+		let vi = 0;
+		for (let k = 0; k < numV; k++) {
+			if (levels && levels[k] !== leaf.maxDef) { values[r++] = null; continue; }
+			const v = vals[vi++]; values[r++] = conv ? conv(v) : v;
+		}
+		got += numV;
+	}
+	void from;
+	return values;
+}
+
+// ソース＝Uint8Array/ArrayBuffer（手元）か url/Blob/{read,size}（部分読み・COG と同じ openSource）。戻り { read, readMany, size, tail, metrics, wholeFile }
+const TAIL = 65536;
+async function parquetSource(src, opts) {
+	if (src instanceof ArrayBuffer) src = new Uint8Array(src);
+	if (src instanceof Uint8Array) {
+		const size = src.length;
+		return { read: async (f, l) => src.subarray(f, f + l), readMany: async rs => rs.map(r => src.subarray(r.from, r.from + r.len)),
+			size, tail: src.subarray(Math.max(0, size - TAIL)), metrics: { rangeRequests: 0, coalescedFrom: 0, bytesFetched: 0 }, wholeFile: true, inMemory: true };
+	}
+	return openSource(src, { tailBytes: opts.tailBytes ?? TAIL, gapBytes: opts.gapBytes ?? 65536, maxReq: opts.maxReq ?? (4 << 20), concurrency: opts.concurrency ?? 6, fetch: opts.fetch, signal: opts.signal });
+}
+
+// ファイルを開いてメタデータと列定義を返す（値は読まない）。src＝Uint8Array | ArrayBuffer | url | Blob/File | {read,size}。
+// 戻り: { numRows, keyValue, created, columns, geo, geometry, rowGroups: [{ numRows, bytes, stats }], source: { size, wholeFile, metrics },
+//         readRowGroup(g, { columns? }) → Map(列名 → Array(rgRows) | null), select({ bbox }) → { groups: number[], pruned: boolean } }
+//   readRowGroup：columns を渡すとその列チャンクの byte range だけ取る（全 row group を一度に持たない・1GB 級の轍 2026-09-16）。
+//   読めない列は columns[i].unsupported に理由を立てて null。stats＝列統計 { min, max, nulls }（bbox 覆域列の刈り込みの鍵）。
+//   select：GeoParquet の covering.bbox 列の統計で視野と交わる row group を返す。統計の無い書き手のファイルは全 row group（pruned:false）。
+export async function openParquet(src, opts = {}) {
+	const s = await parquetSource(src, opts);
+	const size = s.size;
+	let tail = s.tail;
+	if (!(size >= 12) || !tail || tail.length < 8) throw new Error("parquet: file too short");
+	if (String.fromCharCode(tail[tail.length - 4], tail[tail.length - 3], tail[tail.length - 2], tail[tail.length - 1]) !== "PAR1") throw new Error("parquet: missing PAR1 trailer magic");
+	const metaLen = new DataView(tail.buffer, tail.byteOffset).getUint32(tail.length - 8, true);
+	if (metaLen + 12 > size) throw new Error(`parquet: footer length ${metaLen} exceeds file (${size} B)`);
+	const foot = metaLen + 8 <= tail.length ? tail.subarray(tail.length - 8 - metaLen, tail.length - 8) : await s.read(size - 8 - metaLen, metaLen);   // 末尾 64KB に収まらない footer は 1 本足す
+	const F = parseFooter(foot);
+	let geo = null; try { geo = F.keyValue.geo ? JSON.parse(F.keyValue.geo) : null; } catch { /* geo メタが壊れている＝普通の parquet として扱う */ }
+	const gname = geo?.primary_column, gmeta = gname ? geo.columns?.[gname] : null;
+	const geometry = gmeta ? { name: gname, encoding: gmeta.encoding ?? "WKB", types: gmeta.geometry_types ?? [], bbox: gmeta.bbox ?? null, crs: gmeta.crs, covering: gmeta.covering?.bbox ? Object.fromEntries(Object.entries(gmeta.covering.bbox).map(([k, p]) => [k, p.join(".")])) : null } : null;
+	const rowGroups = F.rowGroups.map(rg => {
+		const stats = {}; let bytes = 0;
 		for (const ch of rg.chunks) {
 			const cm = ch[3]; if (!cm) continue;
-			const pathKey = (cm[3] ?? []).join("."), ci = columns.findIndex(c => c.name === pathKey);
-			if (ci < 0) continue;
-			const col = columns[ci], leaf = leaves[ci];
-			if (col.unsupported) { out.set(col.name, null); continue; }
-			const values = new Array(rg.numRows);
-			const codec = cm[4] ?? 0, numValues = cm[5] ?? 0;
-			let pos = cm[11] !== undefined ? Math.min(cm[11], cm[9]) : cm[9];
-			const conv = converter(leaf), defW = leaf.maxDef ? Math.ceil(Math.log2(leaf.maxDef + 1)) : 0;
-			let dict = null, got = 0, r = 0;
-			try {
-				while (got < numValues && pos < n) {
-					const tr = new TReader(u8, pos);
-					const ph = tr.struct({ 5: (r) => r.struct(), 7: (r) => r.struct(), 8: (r) => r.struct() });
-					const kind = ph[1], uncSize = ph[2], compSize = ph[3];
-					const bodyStart = tr.pos; pos = bodyStart + compSize;
-					if (kind === 2) {   // DICTIONARY_PAGE
-						const body = await decompress(u8.subarray(bodyStart, pos), codec, uncSize);
-						dict = decodePlain(body, 0, leaf.type, ph[7][1], leaf.typeLength).out;
-						continue;
-					}
-					if (kind !== 0 && kind !== 3) continue;
-					let numV, enc, levels, body;
-					if (kind === 0) {
-						const h = ph[5]; numV = h[1]; enc = h[2];
-						body = await decompress(u8.subarray(bodyStart, pos), codec, uncSize);
-						let p = 0;
-						if (leaf.maxDef) { const len = new DataView(body.buffer, body.byteOffset).getUint32(0, true); levels = decodeHybrid(body, 4, 4 + len, defW, numV); p = 4 + len; }
-						body = body.subarray(p);
-					} else {
-						const h = ph[8]; numV = h[1]; enc = h[4]; const defLen = h[5] ?? 0, repLen = h[6] ?? 0, compressed = h[7] !== false;
-						const raw = u8.subarray(bodyStart, pos);
-						if (leaf.maxDef) levels = decodeHybrid(raw, repLen, repLen + defLen, defW, numV);
-						const rest = raw.subarray(repLen + defLen);
-						body = compressed ? await decompress(rest, codec, uncSize - repLen - defLen) : rest;
-					}
-					const nonNull = levels ? levels.reduce((s, v) => s + (v === leaf.maxDef ? 1 : 0), 0) : numV;
-					let vals;
-					if (enc === 0) vals = decodePlain(body, 0, leaf.type, nonNull, leaf.typeLength).out;
-					else if (enc === 2 || enc === 8) { if (!dict) throw new Error("parquet: dictionary page missing"); const w = body[0]; const idx = decodeHybrid(body, 1, body.length, w, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = dict[idx[k]]; }
-					else throw new Error("unsupported encoding " + enc);
-					let vi = 0;
-					for (let k = 0; k < numV; k++) {
-						if (levels && levels[k] !== leaf.maxDef) { values[r++] = null; continue; }
-						const v = vals[vi++]; values[r++] = conv ? conv(v) : v;
-					}
-					got += numV;
-				}
-			} catch (e) { col.unsupported = String(e.message || e); out.set(col.name, null); continue; }
-			out.set(col.name, values);
+			const name = (cm[3] ?? []).join("."), ci = F.columns.findIndex(c => c.name === name);
+			bytes += cm[7] ?? 0;
+			const st = cm[12];
+			if (st && ci >= 0) {
+				const min = statValue(F.leaves[ci], st[6] ?? st[2]), max = statValue(F.leaves[ci], st[5] ?? st[1]);
+				if (min !== undefined || max !== undefined) stats[name] = { min, max, nulls: st[3] ?? null };
+			}
+		}
+		return { numRows: rg.numRows, bytes, stats, chunks: rg.chunks };
+	});
+
+	async function readRowGroup(g, { columns } = {}) {
+		const rg = rowGroups[g]; if (!rg) throw new Error(`parquet: row group ${g} not found (${rowGroups.length} groups)`);
+		const want = columns ? new Set(columns) : null;
+		const out = new Map(), jobs = [];
+		for (const ch of rg.chunks) {
+			const cm = ch[3]; if (!cm) continue;
+			const name = (cm[3] ?? []).join("."), ci = F.columns.findIndex(c => c.name === name);
+			if (ci < 0 || (want && !want.has(name))) continue;
+			const col = F.columns[ci];
+			if (col.unsupported) { out.set(name, null); continue; }
+			const { from, len } = chunkSpan(cm);
+			if (!(len > 0)) { col.unsupported = "chunk without total_compressed_size"; out.set(name, null); continue; }
+			jobs.push({ name, ci, cm, from, len });
+		}
+		const bufs = await s.readMany(jobs.map(j => ({ from: j.from, len: j.len })));
+		for (let k = 0; k < jobs.length; k++) {
+			const j = jobs[k];
+			try { out.set(j.name, await decodeChunk(bufs[k], j.cm, F.leaves[j.ci], rg.numRows)); }
+			catch (e) { F.columns[j.ci].unsupported = String(e.message || e); out.set(j.name, null); }
 		}
 		return out;
 	}
-	return { numRows, keyValue, created, columns, rowGroups: rowGroups.map(r => ({ numRows: r.numRows })), readRowGroup };
+	// 視野 bbox [w, s, e, n] と交わる row group（GeoParquet の bbox 覆域列の統計から）
+	function select({ bbox } = {}) {
+		const all = rowGroups.map((_, i) => i);
+		if (!bbox || !geometry?.covering) return { groups: all, pruned: false };
+		const c = geometry.covering, [w, so, e, n] = bbox;
+		const groups = [];
+		let complete = true;
+		for (let i = 0; i < rowGroups.length; i++) {
+			const st = rowGroups[i].stats, xmin = st[c.xmin], ymin = st[c.ymin], xmax = st[c.xmax], ymax = st[c.ymax];
+			if (!xmin || !ymin || !xmax || !ymax || [xmin.min, ymin.min, xmax.max, ymax.max].some(v => typeof v !== "number")) { complete = false; groups.push(i); continue; }   // 統計なし＝安全側に読む
+			if (xmin.min <= e && xmax.max >= w && ymin.min <= n && ymax.max >= so) groups.push(i);
+		}
+		return { groups, pruned: complete };
+	}
+	return { numRows: F.numRows, keyValue: F.keyValue, created: F.created, columns: F.columns, geo, geometry,
+		rowGroups: rowGroups.map(r => ({ numRows: r.numRows, bytes: r.bytes, stats: r.stats })),
+		source: { size, wholeFile: !!s.wholeFile, inMemory: !!s.inMemory, metrics: s.metrics }, readRowGroup, select };
 }
 
 // 互換：全 row group を列ごとに連結して返す（values: Array(numRows)）。逐次で良い呼び手は openParquet + readRowGroup を使う

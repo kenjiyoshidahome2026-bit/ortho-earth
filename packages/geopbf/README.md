@@ -379,6 +379,17 @@ in 72 s — 12 s to read, 60 s to encode — with every feature identical to the
 paths. PMTiles has no such inverse: tiles are simplified
 and quantized, so the best one could do is an approximate reassembly, which this package does not attempt.
 
+**Read only what you need.** `openParquet(src)` from `geopbf/parquet` opens a Parquet or GeoParquet file **without
+downloading it**: `src` may be a URL, a `File`/`Blob`, a `Uint8Array` or a `{ read(from, len), size }` you provide. It
+fetches the footer first (one suffix `Range` request, the last 64 KB) and returns the schema, the `geo` metadata, and one
+entry per row group with its byte size and column statistics (`min`/`max`). `pq.select({ bbox })` uses the statistics of
+the bbox covering column to name the row groups that touch a viewport — on a file written with `order: "str"` a
+Tokyo-sized view of an 8,000-feature test file touches 32 of 63 row groups and reads 110 KB of 505 KB — and
+`pq.readRowGroup(g, { columns })` fetches only those column chunks, coalescing neighbouring byte ranges into as few
+requests as possible (the same source as the COG reader). Hosts that ignore `Range` get the whole file once and
+everything else works the same; files without statistics simply select every row group (`pruned: false`).
+`fromGeoParquet(url)` rides on the same reader, so it too stops holding whole files. zstd pages still need Node.
+
 ### 5.5 Where the GPU is, honestly
 
 The kernels that run on the GPU are projection, the per-zoom rank filter with its count/prefix-sum/write, the

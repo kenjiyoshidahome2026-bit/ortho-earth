@@ -13,27 +13,33 @@
 // ヘッダ読みが 32 リクエスト/1.6 s に化けた（64 KB なら 1 本/0.1 s・2026-09-16 実測）。+48 KB は 1 タイル未満
 const DEF = { headerBytes: 65536, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
 
+// opts.tailBytes（2026-09-20・parquet 用）＝先頭でなく**末尾**を最初の 1 本で取る（`Range: bytes=-N`）。footer が末尾にある形式
+// （parquet の PAR1 trailer）は head が無駄になるため。tail 指定時は戻りの .tail に末尾バイト列が入り .head は空。
 export async function openSource(src, opts = {}) {
 	const { headerBytes, gapBytes, maxReq, concurrency } = { ...DEF, ...opts };
+	const tailBytes = opts.tailBytes > 0 ? opts.tailBytes : 0;
 	const f = opts.fetch || fetch;
 	const signal = opts.signal;
 	const metrics = { rangeRequests: 0, coalescedFrom: 0, bytesFetched: 0 };
+	const probe = async (read, size) => tailBytes   // 最初に手元へ置く断片＝head か tail
+		? { head: new Uint8Array(0), tail: await read(Math.max(0, size - tailBytes), Math.min(tailBytes, size)) }
+		: { head: await read(0, Math.min(headerBytes, size)) };
 
 	// ---- Blob / File ----------------------------------------------------------
 	if (typeof Blob !== "undefined" && src instanceof Blob) {
 		const read = async (from, len) => new Uint8Array(await src.slice(from, from + len).arrayBuffer());
-		return withMany({ read, size: src.size, head: await read(0, Math.min(headerBytes, src.size)), etag: null, metrics }, gapBytes, maxReq, concurrency);
+		return withMany({ read, size: src.size, ...(await probe(read, src.size)), etag: null, metrics }, gapBytes, maxReq, concurrency);
 	}
 
 	// ---- {read,size} 注入 ------------------------------------------------------
 	if (src && typeof src.read === "function") {
-		const head = await src.read(0, Math.min(headerBytes, src.size ?? headerBytes));
-		return withMany({ read: src.read, size: src.size ?? null, head, etag: null, metrics }, gapBytes, maxReq, concurrency);
+		if (tailBytes && !(src.size > 0)) throw new Error("source: tailBytes needs a known size");
+		return withMany({ read: src.read, size: src.size ?? null, ...(await probe(src.read, src.size ?? headerBytes)), etag: null, metrics }, gapBytes, maxReq, concurrency);
 	}
 
 	// ---- URL ------------------------------------------------------------------
 	if (typeof src !== "string") throw new Error("cog: unsupported source");
-	const first = await f(src, { headers: { Range: `bytes=0-${headerBytes - 1}` }, signal });
+	const first = await f(src, { headers: { Range: tailBytes ? `bytes=-${tailBytes}` : `bytes=0-${headerBytes - 1}` }, signal });
 	if (!first.ok && first.status !== 206) throw new Error(`cog: HTTP ${first.status}`);
 	metrics.rangeRequests++;
 	const etag = first.headers.get("etag");
@@ -43,14 +49,15 @@ export async function openSource(src, opts = {}) {
 		const blob = await first.blob();
 		metrics.bytesFetched += blob.size;
 		const read = async (from, len) => new Uint8Array(await blob.slice(from, from + len).arrayBuffer());
-		return withMany({ read, size: blob.size, head: await read(0, Math.min(headerBytes, blob.size)), etag, metrics, wholeFile: true }, gapBytes, maxReq, concurrency);
+		return withMany({ read, size: blob.size, ...(await probe(read, blob.size)), etag, metrics, wholeFile: true }, gapBytes, maxReq, concurrency);
 	}
 
 	// 206: Content-Range "bytes 0-16383/12345678" から総長
 	const cr = first.headers.get("content-range");
 	const size = cr ? parseInt(cr.split("/")[1]) || null : null;
-	const head = new Uint8Array(await first.arrayBuffer());
-	metrics.bytesFetched += head.length;
+	const got = new Uint8Array(await first.arrayBuffer());
+	const head = tailBytes ? new Uint8Array(0) : got, tail = tailBytes ? got : undefined;
+	metrics.bytesFetched += got.length;
 
 	const read = async (from, len, sig) => {
 		const res = await f(src, { headers: { Range: `bytes=${from}-${from + len - 1}` }, signal: sig || signal });
@@ -61,7 +68,7 @@ export async function openSource(src, opts = {}) {
 		if (bin.length < len && size !== null && from + len <= size) throw new Error(`cog: truncated ${bin.length}/${len}`);
 		return bin.length > len ? bin.subarray(0, len) : bin;   // 行儀の悪い host の過剰応答も許容
 	};
-	return withMany({ read, size, head, etag, metrics }, gapBytes, maxReq, concurrency);
+	return withMany({ read, size, head, tail, etag, metrics }, gapBytes, maxReq, concurrency);
 }
 
 // readMany: ranges=[{from,len}] → Uint8Array[]（入力順）。オフセット順に整列 → gap<gapBytes を合体 →
