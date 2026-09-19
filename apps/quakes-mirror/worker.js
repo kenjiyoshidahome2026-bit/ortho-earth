@@ -12,7 +12,7 @@
 //   ・仕事が無い回は recent.json を読むだけ。失敗（429/5xx 等）は待たずにやめる＝次の時間にやり直す。
 //   ・archive を差し替えて起点が進んだら、archive に入った月の CSV は目次と R2 から消す。
 // 配信（CORS 開放・ETag で 304）：
-//   GET /quakes/archive.geopbf  GET /quakes/recent.json  GET /quakes/recent/<from>_<to>.csv（?v=fetchedAt で版を刻む＝長期キャッシュ）
+//   GET /quakes/archive.geopbf  GET /quakes/archive.json（end＝ビューアが USGS を直接取る起点）  GET /quakes/recent.json  GET /quakes/recent/<from>_<to>.csv（?v=fetchedAt で版を刻む＝長期キャッシュ）
 //   GET /quakes/status          { archive, recent: { start, end, months, rows, bytes, updatedAt } }（見張り用）
 // archive の焼き直し（年 1 回程度＝recent が 2 年に近づいたら。境目は月初にそろえる）：
 //   node scripts/usgs-quakes-build.mjs --end 2025-08-31 --manifest --out usgs-quakes-archive.geopbf
@@ -133,13 +133,14 @@ export async function serve(req, env) {
 	}
 	let key, type, cache;
 	if (path === "/archive.geopbf") [key, type, cache] = [K.archive, "application/octet-stream", "public, max-age=86400"];
+	else if (path === "/archive.json") [key, type, cache] = [K.archiveMeta, "application/json", "public, max-age=600"];   // end＝ビューアが USGS を直接取りに行く起点
 	else if (path === "/recent.json") [key, type, cache] = [K.manifest, "application/json", "public, max-age=600"];
 	// CSV は text/plain で返す＝Cloudflare のエッジ自動圧縮の対象は text/plain 等で text/csv は外れる（実測 2026-09-19：csv は素の 0.56 MB・json は br）。
 	// 読み手は ?v=fetchedAt を付ける＝取り直せば URL が変わる＝長期キャッシュ
 	else if (CSV_PATH.test(path)) [key, type, cache] = [path.slice(1), "text/plain; charset=utf-8", "public, max-age=2592000"];
 	else return json({ error: "not found" }, 404);
 	const obj = await env.QUAKES.get(key, { onlyIf: req.headers });
-	if (!obj) return json({ error: `${key} not built yet` }, key === K.archive || key === K.manifest ? 503 : 404);
+	if (!obj) return json({ error: `${key} not built yet` }, key === K.archive || key === K.archiveMeta || key === K.manifest ? 503 : 404);
 	const headers = { ...CORS, "Content-Type": type, ETag: obj.httpEtag, "Last-Modified": obj.uploaded.toUTCString(), "Cache-Control": cache };
 	if (!("body" in obj)) return new Response(null, { status: 304, headers });   // If-None-Match 一致
 	return new Response(req.method === "HEAD" ? null : obj.body, { headers: { ...headers, "Content-Length": String(obj.size) } });
