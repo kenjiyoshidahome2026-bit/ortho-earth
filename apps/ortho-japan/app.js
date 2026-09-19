@@ -1884,6 +1884,8 @@ function destroy() {
 	clearTimeout(settleT); clearTimeout(calmT); clearTimeout(bootT); clearTimeout(gpuWatchT); sky.terminate();   // gpuWatchT＝WebGPU frame1 番犬（残すとホストページを reload する）
 	destroyPipeline();                           // tile/scene worker
 	renderWorker.terminate();
+	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
+	overlays.clear();
 	plateau.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
@@ -2076,6 +2078,29 @@ map.setZoomMin = z => {
 map.zoomMin = () => zoomMinCur;
 map.userPbf = () => gint.userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
+// 同一フレームのオーバーレイ（#13・2026-09-20）：レンダーワーカー内で地球・注記と同じ rAF・同じ cam で描く自前 canvas。
+// main の onFrame で描くと 1〜2 フレーム先行する（地球は worker の次の rAF）＝その根治。url＝worker が import() するモジュール
+//（依存ゼロ・{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }）。
+// 戻り値＝{ post(data, transfer), remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
+const overlays = new Map();
+map.overlay = (url, { name, opts } = {}) => {
+	name ??= "ov" + (overlays.size + 1);
+	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
+	const cv = document.createElement("canvas");
+	cv.className = "overlay-gl"; cv.dataset.overlay = name;
+	cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
+	cv.width = size.w; cv.height = size.h;
+	mapEl.insertBefore(cv, labelCanvas);
+	const off = cv.transferControlToOffscreen();
+	wPost({ type: "overlayAdd", name, url: new URL(url, location.href).href, canvas: off, opts }, [off]);
+	const h = {
+		name, el: cv,
+		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
+		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); wPost({ type: "overlayRemove", name }); cv.remove(); },
+	};
+	overlays.set(name, h);
+	return h;
+};
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject

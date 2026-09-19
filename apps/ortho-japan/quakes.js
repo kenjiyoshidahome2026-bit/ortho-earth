@@ -10,195 +10,18 @@
 //   表示下限 … 実寸が 1px 未満の地震は最小サイズで描き、そのぶん薄くする（小さな地震は「雲」として見える）
 //   透け   … 視線が地球の中を通る長さ L に応じて exp(−L/λ) で薄める＝地球の裏側は見えず、真下の深い震源は少し沈んで見える
 //
-// エンジンとの接点は公開面だけ：map.cam（カメラ状態）＋ ortho-core の cameraState（エンジンと同じ mvp）・onFrame・
-// requestDraw・setOpacity・mapEl。描画は自前の WebGL2 canvas を #c（地図）と #labels（注記）の間に差し込む。
+// エンジンとの接点は公開面だけ：map.overlay（同一フレームのオーバーレイ・#13）・map.cam＋ ortho-core の cameraState（pick と札の投影）・
+// onFrame（札の追従）・setOpacity・mapEl。GPU 描画は quakes-gl.js＝レンダーワーカー内で地球・注記と同じフレーム・同じ cam で描く
+//（main の canvas に onFrame で描いていた頃は 1〜2 フレーム先行して見えた＝2026-09-19 本人指摘）。
 import { cameraState, ellipsoidOn, worldRadiusM } from "ortho-core";
+import glUrl from "./quakes-gl.js?url";   // worker が import() する URL（依存ゼロのモジュール＝バンドルを跨ぐ）
+import { M_SPLIT, STOPS, depthT, depthColor, lambdaOf } from "./quakes-gl.js";   // 凡例・pick は同じ表を使う（正本は quakes-gl.js）
+export { depthColor };
+
+const Y_MIN = 1967;   // カタログの先頭年（USGS ComCat の網羅は 1967〜）
 import { tr, setLang, getLang } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
-const M_SPLIT = 6;            // これより大きい（M>6）＝3D 球
-const Y_MIN = 1967;
-
-// ── 深さ → 色（GLSL と JS で同じ表）────────────────────────────────────────
-const DEPTH_MAX = 700;
-const STOPS = [   // t = √(depth/700)
-	[0.00, [255, 38, 38]],     // 0 km   赤
-	[0.15, [255, 48, 34]],     // 16 km  赤（浅発の大半＝10 km 前後はここ）
-	[0.30, [255, 140, 26]],    // 63 km  橙
-	[0.42, [255, 214, 32]],    // 123 km 黄
-	[0.55, [86, 214, 96]],     // 212 km 緑
-	[0.72, [30, 196, 255]],    // 363 km 水色
-	[1.00, [52, 84, 255]],     // 700 km 青
-];
-const depthT = d => Math.sqrt(Math.min(Math.max(d, 0), DEPTH_MAX) / DEPTH_MAX);
-export function depthColor(d) {
-	const t = depthT(d);
-	for (let i = 1; i < STOPS.length; i++) {
-		const [t1, c1] = STOPS[i];
-		if (t <= t1) {
-			const [t0, c0] = STOPS[i - 1], f = (t - t0) / (t1 - t0);
-			return c0.map((v, k) => Math.round(v + (c1[k] - v) * f));
-		}
-	}
-	return STOPS[STOPS.length - 1][1];
-}
-const glslStops = () => {
-	const f = v => (v / 255).toFixed(4);
-	let s = `vec3 depthColor(float d){ float t = sqrt(clamp(d, 0.0, ${DEPTH_MAX.toFixed(1)}) / ${DEPTH_MAX.toFixed(1)});\n`;
-	for (let i = 1; i < STOPS.length; i++) {
-		const [t0, c0] = STOPS[i - 1], [t1, c1] = STOPS[i];
-		s += `  if (t <= ${t1.toFixed(3)}) return mix(vec3(${c0.map(f)}), vec3(${c1.map(f)}), (t - ${t0.toFixed(3)}) / ${(t1 - t0).toFixed(3)});\n`;
-	}
-	return s + `  return vec3(${STOPS[STOPS.length - 1][1].map(f)}); }\n`;
-};
-
-// ── シェーダ ─────────────────────────────────────────────────────────────────
-const COMMON = `#version 300 es
-precision highp float;
-uniform mat4 u_mvp;
-uniform vec3 u_eye;
-uniform float u_focal;     // device px（距離 1 のワールド長 → px）
-uniform float u_scale;     // M6 の半径（ワールド単位）
-uniform float u_lambda;    // 透けの減衰長（ワールド単位）
-uniform vec2 u_mag;        // 表示するマグニチュード範囲
-uniform vec2 u_year;       // 表示する年の範囲（小数年）
-${glslStops()}
-// 視線（eye→P）が単位球の中を通る長さ → exp(-L/λ)
-float seeThrough(vec3 P) {
-	vec3 d = P - u_eye;
-	float a = dot(d, d), b = dot(u_eye, d), c = dot(u_eye, u_eye) - 1.0;
-	float disc = b * b - a * c;
-	if (disc <= 0.0) return 1.0;
-	float s = sqrt(disc);
-	float t0 = clamp((-b - s) / a, 0.0, 1.0), t1 = clamp((-b + s) / a, 0.0, 1.0);
-	return exp(-(t1 - t0) * sqrt(a) / u_lambda);
-}
-float radiusOf(float m) { return u_scale * pow(10.0, 0.5 * (m - 6.0)); }
-bool hidden(vec3 a) { return a.x < u_mag.x || a.x > u_mag.y || a.z < u_year.x || a.z > u_year.y; }
-`;
-
-const SPRITE_VS = COMMON + `
-layout(location = 0) in vec3 a_pos;
-layout(location = 1) in vec3 a_attr;   // mag, depth, year
-uniform float u_minPx, u_floor, u_maxPt, u_split;
-out vec4 v_col;
-out float v_rad;
-void main() {
-	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
-	if (hidden(a_attr) || a_attr.x > u_split) { gl_Position = off; gl_PointSize = 0.0; return; }
-	float see = seeThrough(a_pos);
-	vec4 c = u_mvp * vec4(a_pos, 1.0);
-	if (see < 0.015 || c.w <= 0.0) { gl_Position = off; gl_PointSize = 0.0; return; }
-	float px = radiusOf(a_attr.x) * u_focal / c.w;          // 実寸の半径（device px）
-	float r = clamp(max(px, u_minPx), 0.0, u_maxPt * 0.5 - 1.0);
-	float a = px >= u_minPx ? 1.0 : max(u_floor, px / u_minPx);   // 表示下限に持ち上げた分だけ薄く
-	gl_PointSize = 2.0 * r + 2.0;                              // +2＝縁のアンチエイリアス余白
-	v_rad = r;
-	v_col = vec4(depthColor(a_attr.y), a * see);
-	gl_Position = c;
-}`;
-
-const SPRITE_FS = `#version 300 es
-precision highp float;
-in vec4 v_col;
-in float v_rad;
-out vec4 o;
-void main() {
-	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_rad + 1.0);   // px 単位（中心 0）
-	float d = length(p);
-	float cov = clamp(v_rad + 0.5 - d, 0.0, 1.0);          // 1px の縁ぼかし
-	if (cov <= 0.0) discard;
-	vec3 col = v_col.rgb;
-	if (v_rad > 1.5) {                                       // 球の陰影（左上から光）
-		vec2 q = p / v_rad;
-		vec3 n = vec3(q.x, -q.y, sqrt(max(0.0, 1.0 - dot(q, q))));
-		vec3 L = normalize(vec3(-0.45, 0.55, 0.7));
-		float dif = max(dot(n, L), 0.0);
-		float spec = pow(max(dot(reflect(-L, n), vec3(0.0, 0.0, 1.0)), 0.0), 28.0);
-		col = col * (0.32 + 0.78 * dif) + vec3(spec * 0.45);
-	}
-	float a = v_col.a * cov;
-	o = vec4(col * a, a);   // premultiplied
-}`;
-
-const SPHERE_VS = COMMON + `
-layout(location = 0) in vec3 a_nrm;    // 単位球メッシュの頂点（＝法線）
-layout(location = 1) in vec3 i_pos;    // 震源（インスタンス）
-layout(location = 2) in vec3 i_attr;   // mag, depth, year
-uniform float u_minPx3;
-out vec3 v_n;
-out vec3 v_v;
-out vec4 v_col;
-void main() {
-	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
-	if (hidden(i_attr)) { gl_Position = off; return; }
-	float see = seeThrough(i_pos);
-	vec4 cc = u_mvp * vec4(i_pos, 1.0);
-	if (see < 0.015 || cc.w <= 0.0) { gl_Position = off; return; }
-	float r = radiusOf(i_attr.x);
-	float px = r * u_focal / cc.w;
-	if (px < u_minPx3) r *= u_minPx3 / px;                   // 遠景でも球として読める最小サイズ
-	vec3 w = i_pos + a_nrm * r;
-	v_n = a_nrm;
-	v_v = normalize(u_eye - w);
-	v_col = vec4(depthColor(i_attr.y), see);
-	gl_Position = u_mvp * vec4(w, 1.0);
-}`;
-
-const SPHERE_FS = `#version 300 es
-precision highp float;
-in vec3 v_n;
-in vec3 v_v;
-in vec4 v_col;
-uniform vec3 u_up;
-out vec4 o;
-void main() {
-	vec3 n = normalize(v_n), V = normalize(v_v);
-	vec3 L = normalize(V + u_up * 0.9);                      // 視線の少し上から照らす
-	float dif = max(dot(n, L), 0.0);
-	float spec = pow(max(dot(n, normalize(L + V)), 0.0), 48.0);
-	float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0);
-	vec3 col = v_col.rgb * (0.28 + 0.8 * dif) + vec3(spec * 0.55) + v_col.rgb * rim * 0.35;
-	float a = 0.92 * v_col.a;
-	o = vec4(col * a, a);
-}`;
-
-// ── 小道具 ───────────────────────────────────────────────────────────────────
-function compile(gl, vs, fs) {
-	const mk = (type, src) => {
-		const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
-		if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) + "\n" + src);
-		return s;
-	};
-	const p = gl.createProgram();
-	gl.attachShader(p, mk(gl.VERTEX_SHADER, vs)); gl.attachShader(p, mk(gl.FRAGMENT_SHADER, fs));
-	gl.linkProgram(p);
-	if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
-	const u = {};
-	for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) {
-		const name = gl.getActiveUniform(p, i).name; u[name] = gl.getUniformLocation(p, name);
-	}
-	return { p, u };
-}
-function icosphere(level = 2) {
-	const t = (1 + Math.sqrt(5)) / 2;
-	let v = [[-1, t, 0], [1, t, 0], [-1, -t, 0], [1, -t, 0], [0, -1, t], [0, 1, t], [0, -1, -t], [0, 1, -t], [t, 0, -1], [t, 0, 1], [-t, 0, -1], [-t, 0, 1]]
-		.map(p => { const l = Math.hypot(...p); return p.map(x => x / l); });
-	let f = [[0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11], [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
-		[3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9], [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]];
-	for (let l = 0; l < level; l++) {
-		const cache = new Map(), nf = [];
-		const mid = (a, b) => {
-			const k = a < b ? a + "," + b : b + "," + a;
-			if (cache.has(k)) return cache.get(k);
-			const p = v[a].map((x, i) => (x + v[b][i]) / 2), len = Math.hypot(...p);
-			v.push(p.map(x => x / len)); cache.set(k, v.length - 1); return v.length - 1;
-		};
-		for (const [a, b, c] of f) { const ab = mid(a, b), bc = mid(b, c), ca = mid(c, a); nf.push([a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]); }
-		f = nf;
-	}
-	return { vtx: new Float32Array(v.flat()), idx: new Uint16Array(f.flat()) };
-}
 const fmt = n => n.toLocaleString(getLang());
 const pad = n => String(n).padStart(2, "0");
 const fmtTime = (ms, offH = 0) => { const d = new Date(ms + offH * 3600000); return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`; };
@@ -209,16 +32,6 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	document.title = t("World earthquakes — ortho-japan");   // 器（quakes.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("USGS earthquake catalog (1967–, M2+, about 1.5 million events) shown in 3D on the globe by hypocenter depth and energy."));
 	const mapEl = map.mapEl;
-	const cv = document.createElement("canvas");
-	cv.className = "quakes-gl";
-	cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
-	const labels = mapEl.querySelector("#labels");
-	labels ? mapEl.insertBefore(cv, labels) : mapEl.appendChild(cv);
-	const gl = cv.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: true });
-	if (!gl) throw new Error("WebGL2 is not available");
-	const sprite = compile(gl, SPRITE_VS, SPRITE_FS);
-	const sphere = compile(gl, SPHERE_VS, SPHERE_FS);
-	const maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
 
 	// 状態（パネルが書き換える）
 	const st = {
@@ -229,14 +42,13 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	};
 	const EARTH_M = worldRadiusM();
 	const M6_KM = 15;
+	// GPU 描画＝レンダーワーカー内のオーバーレイ（quakes-gl.js）。ここは列の写しを持つ＝pick・件数・札の投影用
+	const ov = map.overlay(glUrl, { name: "quakes", opts: { earthM: EARTH_M } });
 	// 層（srcs の 1 本ずつ＝archive・USGS 直近分）。worker から届いたそばから差し替えて重ねて描く
-	//   { n, nBig, pos, attr, lon, lat, time, gl:{ bufs, spriteVao, sphereVao } }
+	//   { n, nBig, pos, attr, lon, lat, time, place }
 	const layers = [];
 	const total = () => layers.reduce((a, L) => a + (L?.n ?? 0), 0);
 	let dataYearMax = st.yearMax;
-	const ico = icosphere(3), icoCount = ico.idx.length;   // 1280 面＝M9 級を画面いっぱいに寄せても角が見えない
-	const icoVb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, icoVb); gl.bufferData(gl.ARRAY_BUFFER, ico.vtx, gl.STATIC_DRAW);
-	const icoIb = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, icoIb); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ico.idx, gl.STATIC_DRAW);
 
 	const applyGlobe = () => map.setOpacity({ globe: 1 - 0.8 * st.clear, base: 1 - 0.35 * st.clear });
 	// 再生（年・月ごとに発生した地震を順に見せる）。play.cur＝窓の先頭（小数年・[cur, cur+step)）。積み上げ＝期間の先頭から cur+step まで
@@ -244,70 +56,24 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	// 表示する年の範囲 [a, b)（小数年）＝再生中は再生の窓・それ以外は期間スライダー
 	const yearRange = () => play.on ? [play.accum ? st.yearMin : play.cur, play.cur + play.step] : [st.yearMin, st.yearMax + 1];
 
-	// ── 描画 ──
-	// カメラは 1 フレーム遅らせる：地球はレンダーワーカーが次の rAF で描く（main の render は cam を送るだけ）ので、
-	// onFrame でその場の cam を使うと地震だけ 1 フレーム先行して見える。前フレームに送った cam＝地球が今見せている姿。
-	// 静止した最後の 1 枚は次の rAF で追いつかせる（render が来ないと遅れたままになる）。
+	// ── 描画＝worker のオーバーレイへ状態を送るだけ（描くのは quakes-gl.js・地球と同じフレーム）──
+	// pick と札の投影は main の cam から。1 フレーム遅らせる：地球はレンダーワーカーが次の rAF で描く（main の render は cam を送るだけ）ので、
+	// onFrame の cam をそのまま使うと札だけ 1 フレーム先行する。前フレームに送った cam＝地球が今見せている姿。静止の最後の 1 枚は次の rAF で追いつかせる。
 	let shownCam = null, catchUp = 0;
 	const snapCam = () => ({ ...map.cam, center: [...map.cam.center] });
 	const camState = () => {
 		const c = shownCam ?? map.cam;
 		const dpr = c.dpr || devicePixelRatio || 1;
 		const W = Math.max(1, Math.round(mapEl.clientWidth * dpr)), H = Math.max(1, Math.round(mapEl.clientHeight * dpr));
-		if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-		return { s: cameraState(c, W, H), dpr };
+		return { s: cameraState(c, W, H), dpr, W, H };
 	};
-	function draw() {
-		const { s, dpr } = camState();
-		gl.viewport(0, 0, cv.width, cv.height);
-		gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
-		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		if (!total()) return;
-		const mvp = new Float32Array(s.mvp), eye = new Float32Array(s.eye);
-		const common = (u) => {
-			gl.uniformMatrix4fv(u.u_mvp, false, mvp);
-			gl.uniform3fv(u.u_eye, eye);
-			gl.uniform1f(u.u_focal, s.focal);
-			gl.uniform1f(u.u_scale, M6_KM * 1000 * st.size / EARTH_M);
-			gl.uniform1f(u.u_lambda, 0.012 + 0.28 * st.clear * st.clear);
-			gl.uniform2f(u.u_mag, st.magMin - 1e-4, st.magMax + 1e-4);
-			const [ya, yb] = yearRange();
-			gl.uniform2f(u.u_year, ya, yb);
-		};
-		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
-		// 1) M>6 の 3D 球（深度を書く）
-		if (layers.some(L => L?.nBig) && st.magMax > M_SPLIT) {
-			gl.useProgram(sphere.p); common(sphere.u);
-			gl.uniform1f(sphere.u.u_minPx3, 2.2 * dpr);
-			// 画面の「上」＝ワールドでの向き（光源用）：注視点の法線とカメラ方向から
-			const up = new Float32Array([s.invMvp[4], s.invMvp[5], s.invMvp[6]]);
-			const l = Math.hypot(up[0], up[1], up[2]) || 1; up[0] /= l; up[1] /= l; up[2] /= l;
-			gl.uniform3fv(sphere.u.u_up, up);
-			gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);   // mvp は x 反転（鏡像）＝巻きが逆
-			gl.depthMask(true);
-			for (const L of layers) if (L?.nBig) { gl.bindVertexArray(L.gl.sphereVao); gl.drawElementsInstanced(gl.TRIANGLES, icoCount, gl.UNSIGNED_SHORT, 0, L.nBig); }
-			gl.disable(gl.CULL_FACE);
-		}
-		// 2) M≤6 のスプライト（深度は読むだけ＝球の後ろは隠れる）
-		gl.useProgram(sprite.p); common(sprite.u);
-		gl.uniform1f(sprite.u.u_minPx, 1.1 * dpr);
-		gl.uniform1f(sprite.u.u_floor, st.faint);
-		gl.uniform1f(sprite.u.u_maxPt, maxPt);
-		gl.uniform1f(sprite.u.u_split, M_SPLIT);
-		gl.depthMask(false);
-		for (const L of layers) if (L && L.n > L.nBig) { gl.bindVertexArray(L.gl.spriteVao); gl.drawArrays(gl.POINTS, 0, L.n - L.nBig); }
-		gl.depthMask(true);
-		gl.bindVertexArray(null);
-	}
+	const syncState = () => ov.post({ type: "state", st: { magMin: st.magMin, magMax: st.magMax, size: st.size, faint: st.faint, clear: st.clear, m6km: M6_KM }, range: yearRange() });
 	const offFrame = map.onFrame(() => {
-		draw(); placeTags();
+		placeTags();
 		shownCam = snapCam();
-		if (!catchUp) catchUp = requestAnimationFrame(() => { catchUp = 0; draw(); });
+		if (!catchUp) catchUp = requestAnimationFrame(() => { catchUp = 0; placeTags(); });
 	});
-	const ro = new ResizeObserver(() => { map.requestDraw(); draw(); });
-	ro.observe(mapEl);
-	const redraw = () => { draw(); placeTags(); };
+	const redraw = () => { syncState(); placeTags(); };
 
 	// ── パネル ──
 	const panel = document.createElement("div");
@@ -418,10 +184,9 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	const clearTags = () => { tags.forEach(t => t.el.remove()); tags = []; };
 	const placeTags = () => {
 		if (!tags.length) return;
-		const { s, dpr } = camState();
-		const r = mapEl.getBoundingClientRect();
+		const { s, dpr, W, H } = camState();
 		for (const t of tags) {
-			const p = project(s, t.L, t.i);
+			const p = project(s, t.L, t.i, W, H);
 			if (!p) { t.el.style.display = "none"; continue; }
 			t.el.style.display = ""; t.el.style.marginTop = "";
 			t.el.style.left = (p.x / dpr) + "px"; t.el.style.top = (p.y / dpr) + "px";
@@ -597,8 +362,8 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	map.on("move", () => { info.style.display = "none"; });
 
 	// 震源 → 画面（device px）。裏側（透けが薄い）や画面外は null
-	function project(s, L, i) {
-		const m = s.mvp, E = s.eye, W = cv.width, H = cv.height;
+	function project(s, L, i, W, H) {
+		const m = s.mvp, E = s.eye;
 		const X = L.pos[i * 3], Y = L.pos[i * 3 + 1], Z = L.pos[i * 3 + 2];
 		const w = m[3] * X + m[7] * Y + m[11] * Z + m[15];
 		if (w <= 0) return null;
@@ -610,7 +375,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		const disc = b * b - a * c;
 		if (disc > 0) {
 			const sq = Math.sqrt(disc), t0 = Math.min(1, Math.max(0, (-b - sq) / a)), t1 = Math.min(1, Math.max(0, (-b + sq) / a));
-			if (Math.exp(-(t1 - t0) * Math.sqrt(a) / (0.012 + 0.28 * st.clear * st.clear)) < 0.05) return null;
+			if (Math.exp(-(t1 - t0) * Math.sqrt(a) / lambdaOf(st.clear)) < 0.05) return null;
 		}
 		return { x, y };
 	}
@@ -620,10 +385,10 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		return `<b>M${mg.toFixed(1)}</b>　${fmtTime(tm).slice(0, 10)}<small>${place ? esc(place) : coordText(L.lat[i], L.lon[i])}　${t("Depth $1 km", Math.round(dp))}</small>`;
 	};
 	function pick(x, y) {
-		const { s, dpr } = camState();
-		const m = s.mvp, E = s.eye, W = cv.width, H = cv.height;
+		const { s, dpr, W, H } = camState();
+		const m = s.mvp, E = s.eye;
 		const px = x * dpr, py = y * dpr;
-		const scale = M6_KM * 1000 * st.size / EARTH_M, lam = 0.012 + 0.28 * st.clear * st.clear;
+		const scale = M6_KM * 1000 * st.size / EARTH_M, lam = lambdaOf(st.clear);
 		const [y0, y1] = yearRange(), m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
 		let best = null, bestScore = Infinity;
 		for (const L of layers) {
@@ -686,27 +451,14 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 	const srcs = (Array.isArray(src) ? src : [src]).map(s => typeof s === "string" ? abs(s) : s?.usgs && !/^\d{4}-\d{2}-\d{2}$/.test(s.usgs) ? { usgs: abs(s.usgs) } : s);
 	worker.postMessage({ srcs, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M }, srcs.filter(s => s instanceof ArrayBuffer));
 
-	// 層 q を差し替える（USGS 直近分は 1 か月届くごとに来る）
+	// 層 q を差し替える（USGS 直近分は 1 か月届くごとに来る）。GPU へは写しを渡す＝main の列は pick・件数・札の投影に残す
 	function setPart(m) {
 		const { q, n, pos, attr } = m;
-		const old = layers[q];
-		if (old) { old.gl.bufs.forEach(b => gl.deleteBuffer(b)); gl.deleteVertexArray(old.gl.spriteVao); gl.deleteVertexArray(old.gl.sphereVao); }
 		// M>6 はマグニチュード昇順の末尾にまとまっている
 		let k = n; while (k > 0 && attr[(k - 1) * 3] > M_SPLIT) k--;
-
-		const posBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
-		const attrBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.bufferData(gl.ARRAY_BUFFER, attr, gl.STATIC_DRAW);
-		const spriteVao = gl.createVertexArray(); gl.bindVertexArray(spriteVao);
-		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-		gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-		const sphereVao = gl.createVertexArray(); gl.bindVertexArray(sphereVao);
-		gl.bindBuffer(gl.ARRAY_BUFFER, icoVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, icoIb);
-		const off = k * 3 * 4;
-		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, off); gl.vertexAttribDivisor(1, 1);
-		gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, off); gl.vertexAttribDivisor(2, 1);
-		gl.bindVertexArray(null);
-		layers[q] = { ...m, nBig: n - k, gl: { bufs: [posBuf, attrBuf], spriteVao, sphereVao } };
+		const gp = pos.slice(), ga = attr.slice();
+		ov.post({ type: "layer", q, n, pos: gp, attr: ga }, [gp.buffer, ga.buffer]);
+		layers[q] = { ...m, nBig: n - k };
 
 		// 年の幅（全層）
 		let minY = Infinity, maxY = -Infinity;
@@ -717,7 +469,7 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 			$("span").textContent = t("$1–$2 ##year range", Math.floor(minY), dataYearMax);
 		}
 		syncLabels(); countVisible();
-		map.requestDraw(); redraw();
+		redraw();
 	}
 
 	return {
@@ -726,6 +478,6 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 		get bigCount() { return layers.reduce((a, L) => a + (L?.nBig ?? 0), 0); },
 		get layers() { return layers; },   // console 検証用（層ごとの pos/attr/lon/lat/time の列）
 		pick: (x, y) => total() ? pick(x, y) : null,
-		destroy() { stopPlay(); clearTags(); removeEventListener("keydown", onKey); clock.remove(); offFrame(); cancelAnimationFrame(catchUp); ro.disconnect(); cv.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
+		destroy() { stopPlay(); clearTags(); removeEventListener("keydown", onKey); clock.remove(); offFrame(); cancelAnimationFrame(catchUp); ov.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
 	};
 }
