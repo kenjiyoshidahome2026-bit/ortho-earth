@@ -234,6 +234,10 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	const icoIb = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, icoIb); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ico.idx, gl.STATIC_DRAW);
 
 	const applyGlobe = () => map.setOpacity({ globe: 1 - 0.8 * st.clear, base: 1 - 0.35 * st.clear });
+	// 再生（年・月ごとに発生した地震を順に見せる）。play.cur＝窓の先頭（小数年・[cur, cur+step)）。積み上げ＝期間の先頭から cur+step まで
+	const play = { on: false, cur: 0, step: 1, accum: false, sps: 2, raf: 0, last: 0 };
+	// 表示する年の範囲 [a, b)（小数年）＝再生中は再生の窓・それ以外は期間スライダー
+	const yearRange = () => play.on ? [play.accum ? st.yearMin : play.cur, play.cur + play.step] : [st.yearMin, st.yearMax + 1];
 
 	// ── 描画 ──
 	// カメラは 1 フレーム遅らせる：地球はレンダーワーカーが次の rAF で描く（main の render は cam を送るだけ）ので、
@@ -262,7 +266,8 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 			gl.uniform1f(u.u_scale, M6_KM * 1000 * st.size / EARTH_M);
 			gl.uniform1f(u.u_lambda, 0.012 + 0.28 * st.clear * st.clear);
 			gl.uniform2f(u.u_mag, st.magMin - 1e-4, st.magMax + 1e-4);
-			gl.uniform2f(u.u_year, st.yearMin, st.yearMax + 1);
+			const [ya, yb] = yearRange();
+			gl.uniform2f(u.u_year, ya, yb);
 		};
 		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
@@ -291,13 +296,13 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		gl.bindVertexArray(null);
 	}
 	const offFrame = map.onFrame(() => {
-		draw();
+		draw(); placeTags();
 		shownCam = snapCam();
 		if (!catchUp) catchUp = requestAnimationFrame(() => { catchUp = 0; draw(); });
 	});
 	const ro = new ResizeObserver(() => { map.requestDraw(); draw(); });
 	ro.observe(mapEl);
-	const redraw = () => { draw(); };
+	const redraw = () => { draw(); placeTags(); };
 
 	// ── パネル ──
 	const panel = document.createElement("div");
@@ -308,7 +313,28 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
  box-sizing:border-box;padding:14px 16px 12px;border-radius:12px;background:rgba(12,17,32,.86);color:#e7ecf5;
  border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
  font:12.5px/1.55 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif;box-shadow:0 8px 28px rgba(0,0,0,.35)}
+.quakes-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .quakes-panel h1{font-size:15px;margin:0 0 2px;font-weight:700;letter-spacing:.02em}
+.quakes-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e7ecf5;font-size:14px;line-height:1;cursor:pointer}
+.quakes-panel.min .body{display:none}
+.quakes-panel.min{padding-bottom:10px}
+.quakes-panel .play{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+.quakes-panel .play button{border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#ff8c1a;color:#1a0d00;font-weight:700;padding:5px 12px;cursor:pointer;font:inherit;font-weight:700}
+.quakes-panel .play button.on{background:#e7ecf5;color:#0b1021}
+.quakes-panel .play select{font:inherit;font-size:12px;border-radius:7px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e7ecf5;padding:4px 6px}
+.quakes-panel .play label.chk{display:inline-flex;align-items:center;gap:4px;color:#b9c3d6}
+.quakes-panel .play .spd{flex:1 1 100%;display:flex;align-items:center;gap:8px;color:#b9c3d6}
+.quakes-panel .play .spd input{flex:1;margin:0}
+.quakes-clock{position:absolute;left:50%;bottom:56px;transform:translateX(-50%);z-index:29;pointer-events:none;padding:8px 18px;border-radius:12px;
+ background:rgba(12,17,32,.72);color:#fff;font:700 34px/1.2 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif;font-variant-numeric:tabular-nums;letter-spacing:.03em;
+ border:1px solid rgba(255,255,255,.14);text-shadow:0 2px 12px rgba(0,0,0,.6);white-space:nowrap}
+.quakes-tag{position:absolute;z-index:29;pointer-events:none;transform:translate(-50%,-100%);margin-top:-14px;padding:5px 9px;border-radius:9px;
+ background:rgba(12,17,32,.9);color:#fff;border:1px solid rgba(255,140,26,.7);font:12px/1.4 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif;white-space:nowrap;
+ box-shadow:0 4px 16px rgba(0,0,0,.45)}
+.quakes-tag b{font-size:14px;color:#ffb35c}
+.quakes-tag small{display:block;color:#b9c3d6;font-size:11px}
+.quakes-tag::after{content:"";position:absolute;left:50%;bottom:-6px;width:10px;height:10px;transform:translateX(-50%) rotate(45deg);background:rgba(12,17,32,.9);border-right:1px solid rgba(255,140,26,.7);border-bottom:1px solid rgba(255,140,26,.7)}
+.quakes-clock small{display:block;font-size:12px;font-weight:400;color:#b9c3d6;text-align:center;margin-top:2px}
 .quakes-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
 .quakes-panel .row{margin:9px 0}
 .quakes-panel label{display:flex;justify-content:space-between;color:#b9c3d6}
@@ -335,14 +361,21 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
  font:12px/1.55 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif;box-shadow:0 6px 20px rgba(0,0,0,.4);transform:translate(12px,-50%)}
 .quakes-info b{font-size:15px}
 .quakes-info .sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;vertical-align:-1px}
-@media (max-width:640px){.quakes-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}}
+@media (max-width:640px){.quakes-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:45%}.quakes-clock{bottom:auto;top:10px;font-size:24px;padding:6px 14px}}
 </style>
-<h1>世界の地震</h1>
+<div class="head"><h1>世界の地震</h1><button type="button" class="fold" data-k="fold" aria-label="パネルを畳む">−</button></div>
 <div class="sub">USGS ANSS ComCat ・ M2 以上 ・ <span data-k="span">1967〜</span></div>
 <div class="row"><div data-k="status" class="stat">読み込み中…</div></div>
+<div class="body">
 <div class="row">
  <label>期間 <b data-k="yearLab"></b></label>
  <div class="dual"><input type="range" data-k="y0" step="1"><input type="range" data-k="y1" step="1"></div>
+</div>
+<div class="row play">
+ <button type="button" data-k="play">▶ 再生</button>
+ <select data-k="unit"><option value="1">1 年ずつ</option><option value="month">1 か月ずつ</option></select>
+ <label class="chk"><input type="checkbox" data-k="accum">積み上げ</label>
+ <div class="spd">速さ <input type="range" data-k="speed" min="0.5" max="24" step="0.5"><b data-k="speedLab"></b></div>
 </div>
 <div class="row">
  <label>マグニチュード <b data-k="magLab"></b></label>
@@ -364,12 +397,70 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
  <div class="row"><label>小さな地震の濃さ <b data-k="faintLab"></b></label><input type="range" data-k="faint" min="0.02" max="1" step="0.01"></div>
  <div class="row"><label>地球の透け具合 <b data-k="clearLab"></b></label><input type="range" data-k="clear" min="0" max="1" step="0.01"></div>
 </details>
-<div class="note">クリックで地震の詳細。傾ける（右ドラッグ／2本指）と震源の深さが立体で見えます。<br>出典：U.S. Geological Survey, ANSS Comprehensive Earthquake Catalog</div>`;
+<div class="note">クリックで地震の詳細。再生＝期間スライダーの範囲を年・月ごとに順送り（Esc で停止）。傾ける（右ドラッグ／2本指）と震源の深さが立体で見えます。<br>出典：U.S. Geological Survey, ANSS Comprehensive Earthquake Catalog</div>
+</div>`;
 	(panelHost || mapEl).appendChild(panel);
 	const $ = k => panel.querySelector(`[data-k="${k}"]`);
 	const info = document.createElement("div");
 	info.className = "quakes-info"; info.style.display = "none";
 	mapEl.appendChild(info);
+	const clock = document.createElement("div");
+	clock.className = "quakes-clock"; clock.style.display = "none";
+	mapEl.appendChild(clock);
+	// 再生中の巨大地震の札（窓の中の M≥TAG_MIN・大きい順に TAG_MAX 枚）
+	const TAG_MIN = 7.5, TAG_MAX = 3;
+	let tags = [];   // { L, i, el }
+	const clearTags = () => { tags.forEach(t => t.el.remove()); tags = []; };
+	const placeTags = () => {
+		if (!tags.length) return;
+		const { s, dpr } = camState();
+		const r = mapEl.getBoundingClientRect();
+		for (const t of tags) {
+			const p = project(s, t.L, t.i);
+			if (!p) { t.el.style.display = "none"; continue; }
+			t.el.style.display = ""; t.el.style.marginTop = "";
+			t.el.style.left = (p.x / dpr) + "px"; t.el.style.top = (p.y / dpr) + "px";
+		}
+		// 重なった札は上へ避ける（先に置いた札の上に積む）
+		const placed = [];
+		for (const t of tags) {
+			if (t.el.style.display === "none") continue;
+			let r = t.el.getBoundingClientRect(), lift = 0;
+			for (const q of placed) {
+				if (r.left < q.right + 4 && r.right > q.left - 4 && r.top < q.bottom + 4 && r.bottom > q.top - 4) {
+					lift += r.bottom - q.top + 6;
+					r = new DOMRect(r.left, r.top - (r.bottom - q.top + 6), r.width, r.height);
+				}
+			}
+			if (lift) t.el.style.marginTop = (-14 - lift) + "px";
+			placed.push(r);
+		}
+	};
+	const refreshTags = () => {
+		clearTags();
+		const [y0, y1] = yearRange(), m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
+		const found = [];
+		for (const L of layers) {
+			if (!L || !L.nBig) continue;
+			for (let i = L.n - L.nBig; i < L.n; i++) {   // M>6 は末尾にまとまっている
+				const mg = L.attr[i * 3], yr = L.attr[i * 3 + 2];
+				if (mg >= TAG_MIN && mg >= m0 && mg <= m1 && yr >= y0 && yr <= y1) found.push({ L, i, mg });
+			}
+		}
+		found.sort((a, b) => b.mg - a.mg);
+		for (const f of found.slice(0, TAG_MAX)) {
+			const el = document.createElement("div");
+			el.className = "quakes-tag";
+			el.innerHTML = tagHtml(f.L, f.i);
+			mapEl.appendChild(el);
+			tags.push({ L: f.L, i: f.i, el });
+		}
+		placeTags();
+	};
+	// 折り畳み：小さい画面は最初から畳む（見出し＋件数だけ残す）
+	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? "パネルを開く" : "パネルを畳む"); };
+	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
+	setFold(matchMedia("(max-width:640px)").matches);
 
 	// 凡例
 	$("bar").style.background = `linear-gradient(90deg,${STOPS.map(([t, c]) => `rgb(${c}) ${(t * 100).toFixed(1)}%`).join(",")})`;
@@ -390,6 +481,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	$("y0").value = Y_MIN; $("y1").value = yearNow;
 	$("m0").value = 2; $("m1").value = 9.5;
 	$("size").value = 0; $("faint").value = st.faint; $("clear").value = st.clear;
+	$("speed").value = play.sps;
 
 	let countTimer = 0;
 	const syncLabels = () => {
@@ -398,7 +490,47 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		$("sizeLab").textContent = `×${st.size < 1 ? st.size.toFixed(2) : st.size.toFixed(1)}（M6 半径 ${Math.round(M6_KM * st.size)} km）`;
 		$("faintLab").textContent = Math.round(st.faint * 100) + "%";
 		$("clearLab").textContent = Math.round(st.clear * 100) + "%";
+		$("speedLab").textContent = `${play.sps}${play.step === 1 ? "年" : "か月"}/秒`;
 	};
+	// ── 再生 ──
+	const periodText = () => {
+		const y = Math.floor(play.cur + 1e-6);
+		if (play.step === 1) return `${y}年`;
+		const mo = Math.round((play.cur - y) * 12) + 1;
+		return `${y}年${mo}月`;
+	};
+	const showClock = () => {
+		clock.innerHTML = `${periodText()}<small>${play.accum ? `${st.yearMin}年〜 積み上げ` : play.step === 1 ? "この年の地震" : "この月の地震"}</small>`;
+		clock.style.display = "";
+	};
+	let countT = 0;
+	const tick = now => {
+		play.raf = requestAnimationFrame(tick);
+		if (now - play.last < 1000 / play.sps) return;
+		play.last = now;
+		play.cur += play.step;
+		if (play.cur >= st.yearMax + 1 - 1e-6) play.cur = st.yearMin;   // 端まで来たら先頭へ
+		showClock(); refreshTags(); redraw();
+		if (now - countT > 250) { countT = now; countVisible(); }
+	};
+	const startPlay = () => {
+		if (play.on) return;
+		play.on = true; play.cur = st.yearMin; play.last = 0;
+		$("play").textContent = "■ 停止"; $("play").classList.add("on");
+		info.style.display = "none";
+		showClock(); refreshTags(); redraw(); countVisible();
+		play.raf = requestAnimationFrame(tick);
+	};
+	const stopPlay = () => {
+		if (!play.on) return;
+		play.on = false; cancelAnimationFrame(play.raf); play.raf = 0;
+		$("play").textContent = "▶ 再生"; $("play").classList.remove("on");
+		clock.style.display = "none"; clearTags();
+		redraw(); countVisible();
+	};
+	$("play").addEventListener("click", () => play.on ? stopPlay() : startPlay());
+	const onKey = e => { if (e.key === "Escape" && play.on) stopPlay(); };
+	addEventListener("keydown", onKey);
 	// 状況＝件数の行＋層ごとの進み具合（読み込み中は逐次・済んだ後も USGS の要約は残す）
 	let countLine = "", notes = [], skippedNote = "";
 	const esc = t => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
@@ -409,7 +541,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		const n = total();
 		if (!n) return;
 		let c = 0, big = 0;
-		const y0 = st.yearMin, y1 = st.yearMax + 1, m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
+		const [y0, y1] = yearRange(), m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
 		for (const L of layers) {
 			if (!L) continue;
 			const { attr } = L;
@@ -430,6 +562,10 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		st.faint = +$("faint").value;
 		const clear = +$("clear").value;
 		if (clear !== st.clear) { st.clear = clear; applyGlobe(); }
+		play.step = $("unit").value === "month" ? 1 / 12 : 1;
+		play.accum = $("accum").checked;
+		play.sps = +$("speed").value;
+		if (play.on) play.cur = Math.min(Math.max(play.cur, st.yearMin), st.yearMax + 1 - play.step);
 		syncLabels();
 		clearTimeout(countTimer); countTimer = setTimeout(countVisible, 60);
 		info.style.display = "none";
@@ -453,12 +589,35 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	}, true);
 	map.on("move", () => { info.style.display = "none"; });
 
+	// 震源 → 画面（device px）。裏側（透けが薄い）や画面外は null
+	function project(s, L, i) {
+		const m = s.mvp, E = s.eye, W = cv.width, H = cv.height;
+		const X = L.pos[i * 3], Y = L.pos[i * 3 + 1], Z = L.pos[i * 3 + 2];
+		const w = m[3] * X + m[7] * Y + m[11] * Z + m[15];
+		if (w <= 0) return null;
+		const x = ((m[0] * X + m[4] * Y + m[8] * Z + m[12]) / w * 0.5 + 0.5) * W;
+		const y = (1 - ((m[1] * X + m[5] * Y + m[9] * Z + m[13]) / w * 0.5 + 0.5)) * H;
+		if (x < 0 || y < 0 || x > W || y > H) return null;
+		const dx = X - E[0], dy = Y - E[1], dz = Z - E[2];
+		const a = dx * dx + dy * dy + dz * dz, b = E[0] * dx + E[1] * dy + E[2] * dz, c = E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1;
+		const disc = b * b - a * c;
+		if (disc > 0) {
+			const sq = Math.sqrt(disc), t0 = Math.min(1, Math.max(0, (-b - sq) / a)), t1 = Math.min(1, Math.max(0, (-b + sq) / a));
+			if (Math.exp(-(t1 - t0) * Math.sqrt(a) / (0.012 + 0.28 * st.clear * st.clear)) < 0.05) return null;
+		}
+		return { x, y };
+	}
+	const coordText = (lat, lon) => `${Math.abs(lat).toFixed(2)}°${lat >= 0 ? "N" : "S"} ${Math.abs(lon).toFixed(2)}°${lon >= 0 ? "E" : "W"}`;
+	const tagHtml = (L, i) => {
+		const mg = L.attr[i * 3], dp = L.attr[i * 3 + 1], t = L.time[i], place = L.place?.get(i);
+		return `<b>M${mg.toFixed(1)}</b>　${fmtTime(t).slice(0, 10)}<small>${place ? esc(place) : coordText(L.lat[i], L.lon[i])}　深さ ${Math.round(dp)} km</small>`;
+	};
 	function pick(x, y) {
 		const { s, dpr } = camState();
 		const m = s.mvp, E = s.eye, W = cv.width, H = cv.height;
 		const px = x * dpr, py = y * dpr;
 		const scale = M6_KM * 1000 * st.size / EARTH_M, lam = 0.012 + 0.28 * st.clear * st.clear;
-		const y0 = st.yearMin, y1 = st.yearMax + 1, m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
+		const [y0, y1] = yearRange(), m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
 		let best = null, bestScore = Infinity;
 		for (const L of layers) {
 			if (!L) continue;
@@ -495,7 +654,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		const lat = L.lat[i], lon = L.lon[i];
 		const [r, g, b] = depthColor(dp);
 		info.innerHTML = `<b>M${mg.toFixed(1)}</b>　<span class="sw" style="background:rgb(${r},${g},${b})"></span>深さ ${dp.toFixed(1)} km<br>
-${fmtTime(t)} UTC<br><span style="color:#9aa6bd">${fmtTime(t, 9)} JST</span><br>
+${L.place?.get(i) ? esc(L.place.get(i)) + "<br>" : ""}${fmtTime(t)} UTC<br><span style="color:#9aa6bd">${fmtTime(t, 9)} JST</span><br>
 ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3)}°${lon >= 0 ? "E" : "W"}`;
 		info.style.left = x + "px"; info.style.top = y + "px"; info.style.display = "block";
 	}
@@ -560,6 +719,6 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 		get bigCount() { return layers.reduce((a, L) => a + (L?.nBig ?? 0), 0); },
 		get layers() { return layers; },   // console 検証用（層ごとの pos/attr/lon/lat/time の列）
 		pick: (x, y) => total() ? pick(x, y) : null,
-		destroy() { offFrame(); cancelAnimationFrame(catchUp); ro.disconnect(); cv.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
+		destroy() { stopPlay(); clearTags(); removeEventListener("keydown", onKey); clock.remove(); offFrame(); cancelAnimationFrame(catchUp); ro.disconnect(); cv.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
 	};
 }
