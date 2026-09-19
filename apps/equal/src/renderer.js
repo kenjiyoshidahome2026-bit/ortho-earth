@@ -36,6 +36,34 @@ vec2 ee(float dlon, float lat) {
 }
 vec2 px(vec2 u) { return vec2(u.x, u.y - u_yc) * u_ppu; }     // 中心原点・y 上向き・device px
 vec4 clipOf(vec2 p) { return vec4(p / (u_vp * 0.5), 0.0, 1.0); }
+// ── 変形（japan の球 ⇄ Equal Earth・2026-09-20）──
+// 球は 2D の透視投影＝japan（ortho-core cameraState）のチルト 0 と同じカメラ：注視点は球面・eye は法線上の距離 camDist・
+// 垂直視野 fovy（既定 50°）。中心の倍率は正射スケール（pxPerUnit）と同じで、縁は eye が有限ゆえ縮む（z1.5 でリム 84.3°・
+// 半径 0.91 倍＝実測で japan と一致・案1 9/20）。camDist→∞ で正射に収束。頂点ごとに「球での位置」と「Equal Earth での位置」を
+// device px で線形補間する＝d3 の projection transition と同じ流儀。u_morph=1 が通常（式は ee のまま・分岐は uniform＝コヒーレント）
+uniform float u_morph;     // 0＝球・1＝Equal Earth（通常）
+uniform float u_ppuS;      // 球の中心での device px / 単位（＝pxPerUnit(球の z)・focal/camDist）
+uniform float u_sphLat;    // 球の中心緯度（rad）＝変形の出発点の視点
+uniform float u_camS;      // eye の球面からの距離（半径 1 単位）＝japan の camDist。eye は原点から 1+u_camS
+uniform float u_sphDlon;   // 球の中心経度 − 地図の中心経度（deg）＝「この地点を球体へ」で球の中心が地図の中心と違う時
+vec3 sph(float dlon, float lat) {   // 中心を +z に回した単位球の点：xy＝接平面方向、z＝手前が正
+	float a = (dlon - u_sphDlon) * D2R, b = lat * D2R, cb = cos(b);
+	float x = cb * sin(a), y = sin(b), z = cb * cos(a);
+	float c0 = cos(u_sphLat), s0 = sin(u_sphLat);
+	return vec3(x, y * c0 - z * s0, y * s0 + z * c0);
+}
+// 変形中の位置（device px）と可視度。t=0 は japan と同じ地平（z > 1/(1+camDist)）の外を隠し、開くにつれて現れる（t=1 で全部見える）
+vec2 mpx(float dlon, float lat, out float vis) {
+	vec2 e = px(ee(dlon, lat));
+	if (u_morph >= 1.0) { vis = 1.0; return e; }
+	vec3 s = sph(dlon, lat);
+	float D = 1.0 + u_camS, zh = 1.0 / D;                       // eye の距離・地平の z
+	// 隠す帯の幅 w：t=0 は地平でくっきり（0.06）・途中は広く（裏側が「穴」でなく滲みで現れる／消える＝球の中心が地図の中心と違う時に効く）
+	float w = 0.06 + 0.8 * u_morph;
+	vis = smoothstep(0.0, w, (s.z - zh) + (1.0 + zh + w) * u_morph);
+	vec2 p = s.xy * (u_ppuS * u_camS / (D - s.z));               // 透視：focal·xy/(D−z)・focal = ppuS·camDist（中心で ppuS）
+	return mix(p, e, u_morph);
+}
 // 辺 A→B が中心の裏経線（dλ=±180）を跨ぐか。跨ぐなら s=A 側の符号・latC=跨ぎ点の緯度（経緯度で線形内挿）
 bool crosses(float dA, float latA, float dB, float latB, out float s, out float latC) {
 	s = dA < 0.0 ? -1.0 : 1.0; latC = latA;
@@ -57,13 +85,13 @@ void main() {
 	if (u_zoom < float(a_e.z >> 8u) * 0.1 || prm.x <= 0.0) { gl_Position = OFF; return; }
 	float dA, latA, dB, latB; fetchV(a_e.x, dA, latA); fetchV(a_e.y, dB, latB);
 	int q = gl_VertexID / 6, c = gl_VertexID % 6;
-	float s, latC; vec2 P0, P1;
+	float s, latC; vec2 P0, P1; float v0, v1;
 	if (crosses(dA, latA, dB, latB, s, latC)) {
-		if (q == 0) { P0 = px(ee(dA, latA)); P1 = px(ee(180.0 * s, latC)); }
-		else        { P0 = px(ee(-180.0 * s, latC)); P1 = px(ee(dB, latB)); }
+		if (q == 0) { P0 = mpx(dA, latA, v0); P1 = mpx(180.0 * s, latC, v1); }
+		else        { P0 = mpx(-180.0 * s, latC, v0); P1 = mpx(dB, latB, v1); }
 	} else {
 		if (q == 1) { gl_Position = OFF; return; }
-		P0 = px(ee(dA, latA)); P1 = px(ee(dB, latB));
+		P0 = mpx(dA, latA, v0); P1 = mpx(dB, latB, v1);
 	}
 	float w = prm.x * u_dpr, hw = max(w, 1.0) * 0.5;
 	vec2 d = P1 - P0; float L = length(d);
@@ -73,7 +101,7 @@ void main() {
 	float ext = hw + 1.0;   // AA の縁取り 1px
 	vec2 p = mix(P0, P1, t) + dir * (t * 2.0 - 1.0) * hw + n * side * ext;
 	gl_Position = clipOf(p);
-	v_color = u_color[cls]; v_d = side * ext; v_hw = hw; v_a = min(w, 1.0);
+	v_color = u_color[cls]; v_d = side * ext; v_hw = hw; v_a = min(w, 1.0) * mix(v0, v1, t);   // 変形中＝裏半球の端は消える
 }`;
 const LINE_FS = `#version 300 es
 precision highp float;
@@ -157,6 +185,9 @@ precision highp float;
 ${OUTLINE}
 uniform vec4 u_col; out vec4 o;
 void main() { float a = u_col.a * insideK(gl_FragCoord.xy); if (a <= 0.0) discard; o = vec4(u_col.rgb * a, a); }`;
+
+const VEIL_FS = `#version 300 es
+precision highp float; uniform vec4 u_col; out vec4 o; void main() { o = vec4(u_col.rgb * u_col.a, u_col.a); }`;
 
 // 全球ハイプソ：ortho-core gl/glsl.js WORLD_HYPSO と同式（標高×気候の cross-blend＋5段ランプ＋氷床＋脱彩度）。
 // 色は ortho-core/worldpal の正準既定＝japan と同じ顔。
@@ -290,8 +321,9 @@ void main() {
 	int c = gl_VertexID;
 	vec2 q = vec2((c == 1 || c == 2 || c == 4) ? 1.0 : -1.0, (c == 2 || c == 4 || c == 5) ? 1.0 : -1.0);
 	float r = prm.x * u_dpr * 0.5 + 1.5;
-	gl_Position = clipOf(px(ee(dlon, lat)) + q * r);
-	v_color = u_color[cls]; v_q = q * r; v_r = prm.x * u_dpr * 0.5;
+	float vis; vec2 P = mpx(dlon, lat, vis);
+	gl_Position = clipOf(P + q * r);
+	v_color = u_color[cls] * vec4(1.0, 1.0, 1.0, vis); v_q = q * r; v_r = prm.x * u_dpr * 0.5;
 }`;
 const POINT_FS = `#version 300 es
 precision highp float;
@@ -336,6 +368,7 @@ export function createRenderer(canvas) {
 		composite: compile(gl, COVER_VS, COMPOSITE_FS),
 		choro: compile(gl, COVER_VS, CHORO_FS),
 		point: compile(gl, POINT_VS, POINT_FS),
+		veil: compile(gl, COVER_VS, VEIL_FS),
 	};
 	let frame = null;   // 今フレームの共通 uniform 値
 	let idsThisFrame = false;   // このフレームで国 ID バッファ（またはステンシル陸マスク）を描いたか＝drawLand/drawChoropleth の前提
@@ -420,7 +453,8 @@ export function createRenderer(canvas) {
 		paintW = w;
 	}
 
-	function beginFrame(view, clearRGB) {
+	// morph＝{ t: 0..1, ppuS: 球の中心の CSS px/単位, lat: 球の中心緯度(rad), cam: eye の球面からの距離(半径単位), dlon: 球の中心経度−地図の中心経度(deg) } または null（通常＝u_morph 1）
+	function beginFrame(view, clearRGB, morph = null) {
 		idsThisFrame = false;   // ID バッファは毎フレーム描き直す＝前フレームの残りを当てにしない
 		const dpr = Math.min(window.devicePixelRatio || 1, 2);
 		const W = Math.round(canvas.clientWidth * dpr), H = Math.round(canvas.clientHeight * dpr);
@@ -436,8 +470,10 @@ export function createRenderer(canvas) {
 		frame = {
 			lon0: view.lon, ix0: Math.round((((view.lon + 180) % 360 + 360) % 360) * 1e7) >>> 0,
 			yc: yOfLat(view.lat), ppu: pxPerUnit(view.zoom) * dpr, vp: [W, H], zoom: view.zoom, dpr,
+			morph: morph ? Math.max(0, Math.min(1, morph.t)) : 1, ppuS: morph ? morph.ppuS * dpr : 0, sphLat: morph ? morph.lat : 0, camS: morph ? morph.cam : 1, sphDlon: morph ? morph.dlon || 0 : 0,
 		};
 	}
+	const setMorph = u => { const f = frame; if (u.u_morph) gl.uniform1f(u.u_morph, f.morph); if (u.u_ppuS) gl.uniform1f(u.u_ppuS, f.ppuS); if (u.u_sphLat) gl.uniform1f(u.u_sphLat, f.sphLat); if (u.u_camS) gl.uniform1f(u.u_camS, f.camS); if (u.u_sphDlon) gl.uniform1f(u.u_sphDlon, f.sphDlon); };
 	function setCommon(pr, vtx) {
 		const u = pr.u, f = frame;
 		gl.useProgram(pr.p);
@@ -445,6 +481,7 @@ export function createRenderer(canvas) {
 		gl.uniform1ui(u.u_ix0, f.ix0); gl.uniform1f(u.u_yc, f.yc); gl.uniform1f(u.u_ppu, f.ppu);
 		gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_zoom, f.zoom);
 		if (u.u_dpr) gl.uniform1f(u.u_dpr, f.dpr);
+		setMorph(u);   // 通常は 1（GL の uniform 既定値 0＝球になる＝毎回必ず入れる）
 	}
 	function setStyles(pr, styles) {   // styles[cls] = { color:[r,g,b,a], width }
 		const col = new Float32Array(64), prm = new Float32Array(64);
@@ -474,7 +511,13 @@ export function createRenderer(canvas) {
 	// テクスチャユニットの割り当て（合成・コロプレス共通）。使わない時も各ユニットへ向ける＝unit0 の奪い合いを避ける
 	const bind = (unit, name, tex, u) => { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, tex); gl.uniform1i(u[name], unit); };
 	// 外形の三つ組（被せ系のプログラム共通）
-	function setOutline(pr) { const u = pr.u, f = frame; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); }
+	function setOutline(pr) { const u = pr.u, f = frame; gl.uniform2f(u.u_vp, f.vp[0], f.vp[1]); gl.uniform1f(u.u_ppu, f.ppu); gl.uniform1f(u.u_yc, f.yc); setMorph(u); }
+	// 幕＝全画面を色で覆う（外形で切らない・ステンシルなし）。変形の終わりに地図を黒から溶かし出す／畳む前に黒へ沈める
+	function drawVeil(color) {
+		if (!(color[3] > 0.001)) return;
+		gl.useProgram(prog.veil.p); gl.uniform4fv(prog.veil.u.u_col, color);
+		gl.drawArrays(gl.TRIANGLES, 0, 3);
+	}
 	function drawSea(sea, bg, edge) {
 		const pr = prog.sea; gl.useProgram(pr.p); setOutline(pr);
 		gl.uniform3f(pr.u.u_sea, sea[0], sea[1], sea[2]); gl.uniform3f(pr.u.u_bg, bg[0], bg[1], bg[2]); gl.uniform4fv(pr.u.u_edge, edge);
@@ -564,5 +607,5 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawVeil, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
 }

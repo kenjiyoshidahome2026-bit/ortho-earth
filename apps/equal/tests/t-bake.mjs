@@ -52,4 +52,11 @@ ok(L2.tier(0).fills.length < F.length, "include で減る");
 // 7) 経緯線
 const G = bakeGraticule();
 ok(G.tier(0).lines.length > 1000 && G.vertexCount > 1000, "経緯線");
+// レチクル：既定は 30° が級 0・10° が級 1（minZoom 3.5）・flat は全線が級 0（変形中のフレーム）
+{
+	const g = bakeGraticule(), f = bakeGraticule({ flat: true });
+	const cls = t => new Set(Array.from(t.tier().lines).filter((_, i) => i % 3 === 2));
+	ok(cls(g).size === 2 && cls(f).size === 1 && cls(f).has(0), "レチクルの級");
+	ok(g.vertexCount === f.vertexCount, "flat でも頂点は同じ");
+}
 console.log(`t-bake: ${n} ok`);

@@ -232,18 +232,21 @@ export function bakeLayer(pbf, spec) {
 
 // 経緯線（データでなく生成）：同じ線パスに流す＝中央経線の追従・antimeridian 切断もデータと同一の扱い。
 // cls0＝30°毎（常時）・cls1＝10°毎（ズームで点灯）
-export function bakeGraticule() {
+// flat＝全線を同じ級（class 0・minZoom 0）＝変形中のフレーム（10° ごと・japan に合わせる・本人 9/20）
+export function bakeGraticule({ flat = false } = {}) {
 	const pts = [], L = new U32();
+	const cls = (deg) => flat ? 0 : (deg % 30 === 0 ? 0 : 1 | (35 << 8));
 	const vid = (lon, lat) => { pts.push(Math.round((lon + 180) * 1e7), Math.round((lat + 90) * 1e7)); return pts.length / 2 - 1; };
 	const line = (coords, packed) => { let prev = -1; for (const [lon, lat] of coords) { const v = vid(lon, lat); if (prev >= 0) L.push3(prev, v, packed); prev = v; } };
 	for (let lon = -180; lon < 180; lon += 10) {
 		const cs = []; for (let lat = -90; lat <= 90; lat += 1) cs.push([lon, lat]);
-		line(cs, lon % 30 === 0 ? 0 : 1 | (35 << 8));
+		line(cs, cls(lon));
 	}
 	for (let lat = -80; lat <= 80; lat += 10) {
 		const cs = []; for (let lon = -180; lon <= 180; lon += 1) cs.push([lon === 180 ? 179.9999999 : lon, lat]);
-		line(cs, lat % 30 === 0 ? 0 : 1 | (35 << 8));
+		line(cs, cls(lat));
 	}
 	const lines = L.done();
 	return { kind: "line", xy: Uint32Array.from(pts), vertexCount: pts.length / 2, tiers: new Map(), tier: () => ({ lines }) };
 }
+
