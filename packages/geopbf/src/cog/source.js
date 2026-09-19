@@ -13,8 +13,10 @@
 // ヘッダ読みが 32 リクエスト/1.6 s に化けた（64 KB なら 1 本/0.1 s・2026-09-16 実測）。+48 KB は 1 タイル未満
 const DEF = { headerBytes: 65536, gapBytes: 65536, maxReq: 4 << 20, concurrency: 6 };
 
-// opts.tailBytes（2026-09-20・parquet 用）＝先頭でなく**末尾**を最初の 1 本で取る（`Range: bytes=-N`）。footer が末尾にある形式
-// （parquet の PAR1 trailer）は head が無駄になるため。tail 指定時は戻りの .tail に末尾バイト列が入り .head は空。
+// opts.tailBytes（2026-09-20・parquet 用）＝先頭でなく**末尾**を最初に取る。footer が末尾にある形式（parquet の PAR1 trailer）は head が無駄になるため。
+// tail 指定時は戻りの .tail に末尾バイト列が入り .head は空。⚠ suffix range（`bytes=-N`）は CORS の safelist 外＝preflight が飛び、
+// OPTIONS に答えない host（GitHub raw 等）で「Failed to fetch」になる（2026-09-20 実測）。よって `bytes=0-0` で総長を取ってから
+// `bytes=(size-N)-(size-1)` の 2 本（どちらも safelist の形＝preflight なし）。
 export async function openSource(src, opts = {}) {
 	const { headerBytes, gapBytes, maxReq, concurrency } = { ...DEF, ...opts };
 	const tailBytes = opts.tailBytes > 0 ? opts.tailBytes : 0;
@@ -39,7 +41,7 @@ export async function openSource(src, opts = {}) {
 
 	// ---- URL ------------------------------------------------------------------
 	if (typeof src !== "string") throw new Error("cog: unsupported source");
-	const first = await f(src, { headers: { Range: tailBytes ? `bytes=-${tailBytes}` : `bytes=0-${headerBytes - 1}` }, signal });
+	const first = await f(src, { headers: { Range: tailBytes ? "bytes=0-0" : `bytes=0-${headerBytes - 1}` }, signal });   // tail 時の 0-0＝総長を知るための 1 バイト
 	if (!first.ok && first.status !== 206) throw new Error(`cog: HTTP ${first.status}`);
 	metrics.rangeRequests++;
 	const etag = first.headers.get("etag");
@@ -55,9 +57,18 @@ export async function openSource(src, opts = {}) {
 	// 206: Content-Range "bytes 0-16383/12345678" から総長
 	const cr = first.headers.get("content-range");
 	const size = cr ? parseInt(cr.split("/")[1]) || null : null;
-	const got = new Uint8Array(await first.arrayBuffer());
-	const head = tailBytes ? new Uint8Array(0) : got, tail = tailBytes ? got : undefined;
+	let got = new Uint8Array(await first.arrayBuffer());
 	metrics.bytesFetched += got.length;
+	if (tailBytes) {   // 2 本目＝末尾（先頭位置つきの range＝safelist）
+		if (!size) throw new Error("source: Content-Range has no total length (tail read needs it)");
+		const from = Math.max(0, size - tailBytes);
+		const t = await f(src, { headers: { Range: `bytes=${from}-${size - 1}` }, signal });
+		if (!t.ok && t.status !== 206) throw new Error(`source: HTTP ${t.status}`);
+		metrics.rangeRequests++;
+		got = new Uint8Array(await t.arrayBuffer());
+		metrics.bytesFetched += got.length;
+	}
+	const head = tailBytes ? new Uint8Array(0) : got, tail = tailBytes ? got : undefined;
 
 	const read = async (from, len, sig) => {
 		const res = await f(src, { headers: { Range: `bytes=${from}-${from + len - 1}` }, signal: sig || signal });

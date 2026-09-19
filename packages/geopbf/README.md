@@ -381,7 +381,7 @@ and quantized, so the best one could do is an approximate reassembly, which this
 
 **Read only what you need.** `openParquet(src)` from `geopbf/parquet` opens a Parquet or GeoParquet file **without
 downloading it**: `src` may be a URL, a `File`/`Blob`, a `Uint8Array` or a `{ read(from, len), size }` you provide. It
-fetches the footer first (one suffix `Range` request, the last 64 KB) and returns the schema, the `geo` metadata, and one
+fetches the footer first (two small `Range` requests: `bytes=0-0` for the total length, then the last 64 KB — both in the CORS-safelisted form, so no preflight) and returns the schema, the `geo` metadata, and one
 entry per row group with its byte size and column statistics (`min`/`max`). `pq.select({ bbox })` uses the statistics of
 the bbox covering column to name the row groups that touch a viewport — on a file written with `order: "str"` a
 Tokyo-sized view of an 8,000-feature test file touches 32 of 63 row groups and reads 110 KB of 505 KB — and

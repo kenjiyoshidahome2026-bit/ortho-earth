@@ -324,7 +324,7 @@ export async function openParquet(src, opts = {}) {
 	}
 	return { numRows: F.numRows, keyValue: F.keyValue, created: F.created, columns: F.columns, geo, geometry,
 		rowGroups: rowGroups.map(r => ({ numRows: r.numRows, bytes: r.bytes, stats: r.stats })),
-		source: { size, wholeFile: !!s.wholeFile, inMemory: !!s.inMemory, metrics: s.metrics }, readRowGroup, select };
+		source: { size, wholeFile: !!s.wholeFile, inMemory: !!s.inMemory, metrics: s.metrics, read: (from, len) => s.read(from, len) }, readRowGroup, select };   // read＝全量へ落とす呼び手用（wholeFile なら手元の写しから）
 }
 
 // 互換：全 row group を列ごとに連結して返す（values: Array(numRows)）。逐次で良い呼び手は openParquet + readRowGroup を使う

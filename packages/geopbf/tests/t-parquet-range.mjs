@@ -84,7 +84,7 @@ const serve = (range) => new Promise(res => {
 {
 	const { srv, url } = await serve(true);
 	const pq = await openParquet(url);
-	ok(!pq.source.wholeFile && pq.source.metrics.rangeRequests === 1 && pq.source.metrics.bytesFetched <= 65536, `url(206): footer 1 本 ${pq.source.metrics.bytesFetched} B で開く`);
+	ok(!pq.source.wholeFile && pq.source.metrics.rangeRequests === 2 && pq.source.metrics.bytesFetched <= 65537, `url(206): 0-0 で総長→末尾の 2 本 ${pq.source.metrics.bytesFetched} B で開く（suffix range は CORS preflight を招くので使わない）`);
 	const jp = pq.select({ bbox: [138.5, 34.5, 141.5, 37] });
 	const before = pq.source.metrics.bytesFetched;
 	for (const g of jp.groups) await pq.readRowGroup(g, { columns: ["geometry", "id"] });
