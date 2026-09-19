@@ -224,24 +224,36 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	};
 	const EARTH_M = worldRadiusM();
 	const M6_KM = 15;
-	let data = null, spriteVao = null, sphereVao = null, nBig = 0, icoCount = 0;
+	// 層（srcs の 1 本ずつ＝archive・USGS 直近分）。worker から届いたそばから差し替えて重ねて描く
+	//   { n, nBig, pos, attr, lon, lat, time, gl:{ bufs, spriteVao, sphereVao } }
+	const layers = [];
+	const total = () => layers.reduce((a, L) => a + (L?.n ?? 0), 0);
 	let dataYearMax = st.yearMax;
+	const ico = icosphere(3), icoCount = ico.idx.length;   // 1280 面＝M9 級を画面いっぱいに寄せても角が見えない
+	const icoVb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, icoVb); gl.bufferData(gl.ARRAY_BUFFER, ico.vtx, gl.STATIC_DRAW);
+	const icoIb = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, icoIb); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ico.idx, gl.STATIC_DRAW);
 
 	const applyGlobe = () => map.setOpacity({ globe: 1 - 0.8 * st.clear, base: 1 - 0.35 * st.clear });
 
 	// ── 描画 ──
+	// カメラは 1 フレーム遅らせる：地球はレンダーワーカーが次の rAF で描く（main の render は cam を送るだけ）ので、
+	// onFrame でその場の cam を使うと地震だけ 1 フレーム先行して見える。前フレームに送った cam＝地球が今見せている姿。
+	// 静止した最後の 1 枚は次の rAF で追いつかせる（render が来ないと遅れたままになる）。
+	let shownCam = null, catchUp = 0;
+	const snapCam = () => ({ ...map.cam, center: [...map.cam.center] });
 	const camState = () => {
-		const dpr = map.cam.dpr || devicePixelRatio || 1;
+		const c = shownCam ?? map.cam;
+		const dpr = c.dpr || devicePixelRatio || 1;
 		const W = Math.max(1, Math.round(mapEl.clientWidth * dpr)), H = Math.max(1, Math.round(mapEl.clientHeight * dpr));
 		if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
-		return { s: cameraState(map.cam, W, H), dpr };
+		return { s: cameraState(c, W, H), dpr };
 	};
 	function draw() {
 		const { s, dpr } = camState();
 		gl.viewport(0, 0, cv.width, cv.height);
 		gl.clearColor(0, 0, 0, 0); gl.clearDepth(1);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-		if (!data) return;
+		if (!total()) return;
 		const mvp = new Float32Array(s.mvp), eye = new Float32Array(s.eye);
 		const common = (u) => {
 			gl.uniformMatrix4fv(u.u_mvp, false, mvp);
@@ -255,7 +267,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		// 1) M>6 の 3D 球（深度を書く）
-		if (nBig && st.magMax > M_SPLIT) {
+		if (layers.some(L => L?.nBig) && st.magMax > M_SPLIT) {
 			gl.useProgram(sphere.p); common(sphere.u);
 			gl.uniform1f(sphere.u.u_minPx3, 2.2 * dpr);
 			// 画面の「上」＝ワールドでの向き（光源用）：注視点の法線とカメラ方向から
@@ -264,8 +276,7 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 			gl.uniform3fv(sphere.u.u_up, up);
 			gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK); gl.frontFace(gl.CW);   // mvp は x 反転（鏡像）＝巻きが逆
 			gl.depthMask(true);
-			gl.bindVertexArray(sphereVao);
-			gl.drawElementsInstanced(gl.TRIANGLES, icoCount, gl.UNSIGNED_SHORT, 0, nBig);
+			for (const L of layers) if (L?.nBig) { gl.bindVertexArray(L.gl.sphereVao); gl.drawElementsInstanced(gl.TRIANGLES, icoCount, gl.UNSIGNED_SHORT, 0, L.nBig); }
 			gl.disable(gl.CULL_FACE);
 		}
 		// 2) M≤6 のスプライト（深度は読むだけ＝球の後ろは隠れる）
@@ -275,12 +286,15 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		gl.uniform1f(sprite.u.u_maxPt, maxPt);
 		gl.uniform1f(sprite.u.u_split, M_SPLIT);
 		gl.depthMask(false);
-		gl.bindVertexArray(spriteVao);
-		gl.drawArrays(gl.POINTS, 0, data.n - nBig);
+		for (const L of layers) if (L && L.n > L.nBig) { gl.bindVertexArray(L.gl.spriteVao); gl.drawArrays(gl.POINTS, 0, L.n - L.nBig); }
 		gl.depthMask(true);
 		gl.bindVertexArray(null);
 	}
-	const offFrame = map.onFrame(draw);
+	const offFrame = map.onFrame(() => {
+		draw();
+		shownCam = snapCam();
+		if (!catchUp) catchUp = requestAnimationFrame(() => { catchUp = 0; draw(); });
+	});
 	const ro = new ResizeObserver(() => { map.requestDraw(); draw(); });
 	ro.observe(mapEl);
 	const redraw = () => { draw(); };
@@ -385,16 +399,27 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		$("faintLab").textContent = Math.round(st.faint * 100) + "%";
 		$("clearLab").textContent = Math.round(st.clear * 100) + "%";
 	};
+	// 状況＝件数の行＋層ごとの進み具合（読み込み中は逐次・済んだ後も USGS の要約は残す）
+	let countLine = "", notes = [], skippedNote = "";
+	const esc = t => String(t).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+	const renderStatus = () => {
+		$("status").innerHTML = [countLine, ...notes.filter(Boolean).map(t => `<span style="color:#9aa6bd">${esc(t)}</span>`), skippedNote].filter(Boolean).join("<br>");
+	};
 	const countVisible = () => {
-		if (!data) return;
-		const { attr, n } = data;
+		const n = total();
+		if (!n) return;
 		let c = 0, big = 0;
 		const y0 = st.yearMin, y1 = st.yearMax + 1, m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
-		for (let i = 0; i < n; i++) {
-			const m = attr[i * 3], y = attr[i * 3 + 2];
-			if (m >= m0 && m <= m1 && y >= y0 && y <= y1) { c++; if (m > M_SPLIT) big++; }
+		for (const L of layers) {
+			if (!L) continue;
+			const { attr } = L;
+			for (let i = 0; i < L.n; i++) {
+				const m = attr[i * 3], y = attr[i * 3 + 2];
+				if (m >= m0 && m <= m1 && y >= y0 && y <= y1) { c++; if (m > M_SPLIT) big++; }
+			}
 		}
-		$("status").innerHTML = `表示 <b>${fmt(c)}</b> 件 <span style="color:#9aa6bd">（うち M&gt;6 の球 ${fmt(big)}）／ 全 ${fmt(n)} 件</span>`;
+		countLine = `表示 <b>${fmt(c)}</b> 件 <span style="color:#9aa6bd">（うち M&gt;6 の球 ${fmt(big)}）／ 全 ${fmt(n)} 件</span>`;
+		renderStatus();
 	};
 	const onInput = () => {
 		let y0 = +$("y0").value, y1 = +$("y1").value; if (y0 > y1) [y0, y1] = [y1, y0];
@@ -418,12 +443,12 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 	let down = null;
 	mapEl.addEventListener("pointerdown", e => { down = [e.clientX, e.clientY]; }, true);
 	mapEl.addEventListener("pointerup", e => {
-		if (!down || !data || panel.contains(e.target)) return;
+		if (!down || !total() || panel.contains(e.target)) return;
 		const moved = Math.hypot(e.clientX - down[0], e.clientY - down[1]); down = null;
 		if (moved > 4) return;
 		const r = mapEl.getBoundingClientRect();
 		const hit = pick(e.clientX - r.left, e.clientY - r.top);
-		if (hit < 0) { info.style.display = "none"; return; }
+		if (!hit) { info.style.display = "none"; return; }
 		showInfo(hit, e.clientX - r.left, e.clientY - r.top);
 	}, true);
 	map.on("move", () => { info.style.display = "none"; });
@@ -433,38 +458,41 @@ export async function mountQuakes(map, { src, panelHost } = {}) {
 		const m = s.mvp, E = s.eye, W = cv.width, H = cv.height;
 		const px = x * dpr, py = y * dpr;
 		const scale = M6_KM * 1000 * st.size / EARTH_M, lam = 0.012 + 0.28 * st.clear * st.clear;
-		const { pos, attr, n } = data;
 		const y0 = st.yearMin, y1 = st.yearMax + 1, m0 = st.magMin - 1e-4, m1 = st.magMax + 1e-4;
-		let best = -1, bestScore = Infinity;
-		for (let i = 0; i < n; i++) {
-			const mg = attr[i * 3], yr = attr[i * 3 + 2];
-			if (mg < m0 || mg > m1 || yr < y0 || yr > y1) continue;
-			const X = pos[i * 3], Y = pos[i * 3 + 1], Z = pos[i * 3 + 2];
-			const w = m[3] * X + m[7] * Y + m[11] * Z + m[15];
-			if (w <= 0) continue;
-			const sx = ((m[0] * X + m[4] * Y + m[8] * Z + m[12]) / w * 0.5 + 0.5) * W;
-			const sy = (1 - ((m[1] * X + m[5] * Y + m[9] * Z + m[13]) / w * 0.5 + 0.5)) * H;
-			const d = Math.hypot(sx - px, sy - py);
-			const rad = Math.max(scale * Math.pow(10, 0.5 * (mg - 6)) * s.focal / w, (mg > M_SPLIT ? 2.2 : 1.1) * dpr);
-			const tol = Math.max(rad, 5 * dpr);
-			if (d > tol) continue;
-			// 透け（地球の裏側は拾わない）
-			const dx = X - E[0], dy = Y - E[1], dz = Z - E[2];
-			const a = dx * dx + dy * dy + dz * dz, b = E[0] * dx + E[1] * dy + E[2] * dz, c = E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1;
-			const disc = b * b - a * c;
-			if (disc > 0) {
-				const sq = Math.sqrt(disc), t0 = Math.min(1, Math.max(0, (-b - sq) / a)), t1 = Math.min(1, Math.max(0, (-b + sq) / a));
-				if (Math.exp(-(t1 - t0) * Math.sqrt(a) / lam) < 0.05) continue;
+		let best = null, bestScore = Infinity;
+		for (const L of layers) {
+			if (!L) continue;
+			const { pos, attr, n } = L;
+			for (let i = 0; i < n; i++) {
+				const mg = attr[i * 3], yr = attr[i * 3 + 2];
+				if (mg < m0 || mg > m1 || yr < y0 || yr > y1) continue;
+				const X = pos[i * 3], Y = pos[i * 3 + 1], Z = pos[i * 3 + 2];
+				const w = m[3] * X + m[7] * Y + m[11] * Z + m[15];
+				if (w <= 0) continue;
+				const sx = ((m[0] * X + m[4] * Y + m[8] * Z + m[12]) / w * 0.5 + 0.5) * W;
+				const sy = (1 - ((m[1] * X + m[5] * Y + m[9] * Z + m[13]) / w * 0.5 + 0.5)) * H;
+				const d = Math.hypot(sx - px, sy - py);
+				const rad = Math.max(scale * Math.pow(10, 0.5 * (mg - 6)) * s.focal / w, (mg > M_SPLIT ? 2.2 : 1.1) * dpr);
+				const tol = Math.max(rad, 5 * dpr);
+				if (d > tol) continue;
+				// 透け（地球の裏側は拾わない）
+				const dx = X - E[0], dy = Y - E[1], dz = Z - E[2];
+				const a = dx * dx + dy * dy + dz * dz, b = E[0] * dx + E[1] * dy + E[2] * dz, c = E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1;
+				const disc = b * b - a * c;
+				if (disc > 0) {
+					const sq = Math.sqrt(disc), t0 = Math.min(1, Math.max(0, (-b - sq) / a)), t1 = Math.min(1, Math.max(0, (-b + sq) / a));
+					if (Math.exp(-(t1 - t0) * Math.sqrt(a) / lam) < 0.05) continue;
+				}
+				// 近さ（半径で正規化）を主に、同程度なら大きい地震を優先
+				const score = d / tol - mg * 0.02;
+				if (score < bestScore) { bestScore = score; best = { L, i }; }
 			}
-			// 近さ（半径で正規化）を主に、同程度なら大きい地震を優先
-			const score = d / tol - mg * 0.02;
-			if (score < bestScore) { bestScore = score; best = i; }
 		}
 		return best;
 	}
-	function showInfo(i, x, y) {
-		const mg = data.attr[i * 3], dp = data.attr[i * 3 + 1], t = data.time[i];
-		const lat = data.lat[i], lon = data.lon[i];
+	function showInfo({ L, i }, x, y) {
+		const mg = L.attr[i * 3], dp = L.attr[i * 3 + 1], t = L.time[i];
+		const lat = L.lat[i], lon = L.lon[i];
 		const [r, g, b] = depthColor(dp);
 		info.innerHTML = `<b>M${mg.toFixed(1)}</b>　<span class="sw" style="background:rgb(${r},${g},${b})"></span>深さ ${dp.toFixed(1)} km<br>
 ${fmtTime(t)} UTC<br><span style="color:#9aa6bd">${fmtTime(t, 9)} JST</span><br>
@@ -477,54 +505,61 @@ ${Math.abs(lat).toFixed(3)}°${lat >= 0 ? "N" : "S"}　${Math.abs(lon).toFixed(3
 	const loaded = new Promise((resolve, reject) => {
 		worker.onmessage = e => {
 			const m = e.data;
-			if (m.type === "progress") $("status").textContent = m.text;
+			if (m.type === "progress") { notes[m.q] = m.text; renderStatus(); }
+			else if (m.type === "part") setPart(m);
 			else if (m.type === "error") { $("status").textContent = "読み込みに失敗しました：" + m.message; reject(new Error(m.message)); }
-			else if (m.type === "done") { setData(m); resolve(m); worker.terminate(); }
+			else if (m.type === "done") {
+				notes = notes.map(t => /^USGS/.test(t ?? "") ? t : null);   // 済んだら USGS の要約だけ残す
+				if (m.skipped?.length) skippedNote = `<span style="color:#ffb86b">読めなかった分：${esc(m.skipped.join("・"))}（再読み込みで取り直し）</span>`;
+				renderStatus(); resolve(m); worker.terminate();
+			}
 		};
 	});
-	// src＝URL か ArrayBuffer、またはその配列（archive＋recent を連結）
-	const srcs = (Array.isArray(src) ? src : [src]).map(s => typeof s === "string" ? new URL(s, location.href).href : s);
-	worker.postMessage({ srcs, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M }, srcs.filter(s => typeof s !== "string"));
+	// src＝URL・ArrayBuffer・{ usgs: 起点（日付か archive.json の URL）}、またはその配列（archive＋USGS 直取りを連結）
+	const abs = s => new URL(s, location.href).href;
+	const srcs = (Array.isArray(src) ? src : [src]).map(s => typeof s === "string" ? abs(s) : s?.usgs && !/^\d{4}-\d{2}-\d{2}$/.test(s.usgs) ? { usgs: abs(s.usgs) } : s);
+	worker.postMessage({ srcs, rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, earthM: EARTH_M }, srcs.filter(s => s instanceof ArrayBuffer));
 
-	function setData(m) {
-		data = m;
-		const { n, pos, attr } = m;
+	// 層 q を差し替える（USGS 直近分は 1 か月届くごとに来る）
+	function setPart(m) {
+		const { q, n, pos, attr } = m;
+		const old = layers[q];
+		if (old) { old.gl.bufs.forEach(b => gl.deleteBuffer(b)); gl.deleteVertexArray(old.gl.spriteVao); gl.deleteVertexArray(old.gl.sphereVao); }
 		// M>6 はマグニチュード昇順の末尾にまとまっている
 		let k = n; while (k > 0 && attr[(k - 1) * 3] > M_SPLIT) k--;
-		nBig = n - k;
-		dataYearMax = Math.floor(attr[(n - 1) * 3 + 2]);
-		for (let i = 0; i < n; i++) dataYearMax = Math.max(dataYearMax, Math.floor(attr[i * 3 + 2]));
-		if (st.yearMax >= yearNow) st.yearMax = Math.max(st.yearMax, dataYearMax);
-		let minY = Infinity; for (let i = 0; i < n; i++) minY = Math.min(minY, attr[i * 3 + 2]);
-		$("span").textContent = `${Math.floor(minY)}〜${dataYearMax}`;
 
 		const posBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, pos, gl.STATIC_DRAW);
 		const attrBuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.bufferData(gl.ARRAY_BUFFER, attr, gl.STATIC_DRAW);
-
-		spriteVao = gl.createVertexArray(); gl.bindVertexArray(spriteVao);
+		const spriteVao = gl.createVertexArray(); gl.bindVertexArray(spriteVao);
 		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
 		gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, 0);
-
-		const ico = icosphere(3); icoCount = ico.idx.length;   // 1280 面＝M9 級を画面いっぱいに寄せても角が見えない
-		sphereVao = gl.createVertexArray(); gl.bindVertexArray(sphereVao);
-		const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, ico.vtx, gl.STATIC_DRAW);
-		gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-		const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, ico.idx, gl.STATIC_DRAW);
+		const sphereVao = gl.createVertexArray(); gl.bindVertexArray(sphereVao);
+		gl.bindBuffer(gl.ARRAY_BUFFER, icoVb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, icoIb);
 		const off = k * 3 * 4;
 		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 0, off); gl.vertexAttribDivisor(1, 1);
 		gl.bindBuffer(gl.ARRAY_BUFFER, attrBuf); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 3, gl.FLOAT, false, 0, off); gl.vertexAttribDivisor(2, 1);
 		gl.bindVertexArray(null);
+		layers[q] = { ...m, nBig: n - k, gl: { bufs: [posBuf, attrBuf], spriteVao, sphereVao } };
 
+		// 年の幅（全層）
+		let minY = Infinity, maxY = -Infinity;
+		for (const L of layers) if (L) for (let i = 0; i < L.n; i++) { const y = L.attr[i * 3 + 2]; if (y < minY) minY = y; if (y > maxY) maxY = y; }
+		if (Number.isFinite(maxY)) {
+			dataYearMax = Math.floor(maxY);
+			if (st.yearMax >= yearNow) st.yearMax = Math.max(st.yearMax, dataYearMax);
+			$("span").textContent = `${Math.floor(minY)}〜${dataYearMax}`;
+		}
 		syncLabels(); countVisible();
 		map.requestDraw(); redraw();
 	}
 
 	return {
 		loaded, state: st, redraw,
-		get count() { return data?.n ?? 0; },
-		get bigCount() { return nBig; },
-		get data() { return data; },   // console 検証用（pos/attr/lon/lat/time の列）
-		pick: (x, y) => data ? pick(x, y) : -1,
-		destroy() { offFrame(); ro.disconnect(); cv.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
+		get count() { return total(); },
+		get bigCount() { return layers.reduce((a, L) => a + (L?.nBig ?? 0), 0); },
+		get layers() { return layers; },   // console 検証用（層ごとの pos/attr/lon/lat/time の列）
+		pick: (x, y) => total() ? pick(x, y) : null,
+		destroy() { offFrame(); cancelAnimationFrame(catchUp); ro.disconnect(); cv.remove(); panel.remove(); info.remove(); worker.terminate(); map.setOpacity({ globe: 1, base: 1 }); },
 	};
 }
