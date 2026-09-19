@@ -534,6 +534,8 @@ renderWorker.onmessage = e => {
 	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
+	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
+	if (d.type === "overlayStage") { (dbgHost.__overlay ??= {})[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
 		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
@@ -2081,7 +2083,8 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 同一フレームのオーバーレイ（#13・2026-09-20）：レンダーワーカー内で地球・注記と同じ rAF・同じ cam で描く自前 canvas。
 // main の onFrame で描くと 1〜2 フレーム先行する（地球は worker の次の rAF）＝その根治。url＝worker が import() するモジュール
 //（依存ゼロ・{ init(canvas, opts), message(data), frame(cam, camState, size) → true=続きが要る, destroy() }）。
-// 戻り値＝{ post(data, transfer), remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
+// 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
+// モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
 map.overlay = (url, { name, opts } = {}) => {
 	name ??= "ov" + (overlays.size + 1);
@@ -2094,7 +2097,7 @@ map.overlay = (url, { name, opts } = {}) => {
 	const off = cv.transferControlToOffscreen();
 	wPost({ type: "overlayAdd", name, url: new URL(url, location.href).href, canvas: off, opts }, [off]);
 	const h = {
-		name, el: cv,
+		name, el: cv, onmessage: null,   // onmessage＝worker 側モジュールの host.post(data) を受ける口
 		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
 		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); wPost({ type: "overlayRemove", name }); cv.remove(); },
 	};
