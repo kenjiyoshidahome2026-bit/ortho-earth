@@ -6,7 +6,7 @@ import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
-	primeVerticalRadius, setEllipsoid, worldRadiusM, worldToLonLat,
+	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, worldToLonLat,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
@@ -49,6 +49,7 @@ import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";
+import { sats as satsGadget } from "./gadgets/sats-stub.js";   // 人工衛星の玄関スタブ（本体 sats.js＝軌道要素の取得＋SGP4 伝播は初回クリックで遅延）
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
@@ -1196,6 +1197,7 @@ resize();
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 let profileClick = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
 let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上
+let satClick = null;       // 衛星ガジェット表示中だけ非null＝点に当たった時だけ true を返して消費（外れは識別へ素通し）
 // 計測⇄断面図は排他（後から点けた方が勝ち＝クリックの行き先が常に一意・本人裁定2026-08-27）。
 // 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：setClick(非null)＝モードON の瞬間に相方の stop() を呼ぶ。
 // 本体ハンドルは onBody で到着（スタブ経由の遅延 import 後）＝未ロードの相方は必然的にOFF＝何もしなくてよい。
@@ -1211,6 +1213,7 @@ const input = createInput({
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
+		if (satClick && satClick(x, y)) return;        // 衛星の点に当たった時だけ奪う（外れは下の識別へ）
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
 		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
 		overlay.identifyAt(x, y); if (gint.interactive || extActive) wPost({ type: "gintClick", x, y });
@@ -1963,6 +1966,26 @@ const makeProjector = () => { const st = cameraState(cam, size.w, size.h); retur
 // 真俯瞰では鉛直変位が画面上ほぼ消える＝ピンは自然に「円」へ縮退・チルトで立つ（annoガジェットが使用）。
 const makeProjectorH = ({ terrain = true } = {}) => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, (terrain ? dispRadius(lon, lat) : 1) + (hM || 0) * (TERR_EXAG / EARTH_M)); return [sx / dpr, sy / dpr, f]; }; };   // terrain:false＝地形リフト無し（海面球＋hM）＝大量点の overlay 用（getHeight を叩かない・2026-09-13）
 const unprojectXY = (x, y) => unproject(cameraState(cam, size.w, size.h), x * dpr, y * dpr);
+// makeSkyProjector＝宙に浮いた点（人工衛星：高度 数百〜数万 km）の投影。入力は地球固定の直交座標（ECEF・km）＝呼び手は毎フレーム
+// 経緯度へ戻さなくてよい（1 万点超を回す衛星ガジェット用）。makeProjectorH と違い「見えるか」を地表の半球でなく
+// 視線と地球の交差で決める＝地平線の向こうでも高く上がった衛星は地球の縁の外に見える。戻り [x,y]（canvas CSS px）／null＝地球の陰かカメラ後方。
+// 付帯 earthPx＝地球の見かけの半径（CSS px）＝太陽系圏で地球が点に縮んだら呼び手が描画を畳む物差し（呼び手は zoom を知らない掟）。
+const makeSkyProjector = () => {
+	const st = cameraState(cam, size.w, size.h), m = st.mvp, E = st.eye, ee = E[0] * E[0] + E[1] * E[1] + E[2] * E[2];
+	const k = 1000 / EARTH_M, ky = k / (ellipsoidOn() ? 1 - 1 / 298.257223563 : 1);   // km→単位球（楕円体は β 空間＝y を b/a で割る）
+	const W = st.W / dpr, H = st.H / dpr;
+	const pr = (X, Y, Z) => {
+		const x = X * k, y = Z * ky, z = Y * k;   // ECEF(X,Y,Z)→engine 軸（y＝北極・z＝東経90°）＝lonlatTo3D と同じ並び
+		const w = m[3] * x + m[7] * y + m[11] * z + m[15];
+		if (w <= 1e-6) return null;
+		const dx = x - E[0], dy = y - E[1], dz = z - E[2], dd = dx * dx + dy * dy + dz * dz;
+		const t = -(E[0] * dx + E[1] * dy + E[2] * dz) / dd;   // 視線上で地球中心に最も近い所
+		if (t > 0 && t < 1) { const px = E[0] + dx * t, py = E[1] + dy * t, pz = E[2] + dz * t; if (px * px + py * py + pz * pz < 1) return null; }
+		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / w * 0.5 + 0.5) * W, (0.5 - (m[1] * x + m[5] * y + m[9] * z + m[13]) / w * 0.5) * H];
+	};
+	pr.earthPx = st.focal / dpr / Math.sqrt(Math.max(ee - 1, 1e-12));
+	return pr;
+};
 // shot（画面保存）用スナップショット：render worker（GLは別スレッド＝mainから読めない）に「今の1枚」を
 // 出させる。gint は 1canvas統合で基図と同じ1枚に写り込む＝旧・別撮り合成（wantGint）は消滅。
 // 解像度は size（device px＝フル）を正とし、shot 側が各層をこの寸法へ合わせて重ねる。
@@ -2271,6 +2294,14 @@ map.gadget("cog", async function (src, opts) {
 	return cogCtl;
 });
 // 衛星シーン検索（STAC＝Earth Search→選んだシーンの COG を球へ）。スタブ＝ボタンのみ常駐・本体は初回クリック
+map.gadget("sats", function (opts) {   // 人工衛星（いま軌道にいる衛星）… 宙の点の投影・地表投影・クリック横取りを注入。本体は初回クリックで import()＝frame hook は onBody で本体到着後に配線
+	return satsGadget.call(this, {
+		makeSkyProjector, makeProjector, signal: ac.signal,
+		setClick: fn => { satClick = fn; },
+		onBody: g => { if (g && g._update) frameHooks.add(g._update); },
+		...opts,
+	});
+});
 map.gadget("stac", function (opts) {
 	return stacGadget.call(this, { loadCog: (src, o) => map.gadget.cog(src, o), clearCog: () => cogCtl?.clear(), signal: ac.signal, ...opts });
 });
