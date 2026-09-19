@@ -1,0 +1,20 @@
+# 人工衛星の軌道要素（CelesTrak GP・active）の素通しミラー専用 Worker（worker.js 冒頭が仕様の正本）。
+# 読み手＝ortho-japan の衛星ガジェット（同一オリジン /sats/active.csv）。native-bucket とは無関係（本人裁定 2026-09-19）。
+# ⚠route は "/sats/*"（スラッシュ付き）＝"sats*" だと www の /sats… で始まる別アセットまで横取りする（japan* と同じ轍）。
+name = "sats-mirror"
+main = "worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+
+routes = [
+	{ pattern = "www.ortho-earth.com/sats/*", zone_name = "ortho-earth.com" }
+]
+
+# 毎時 25 分。成功は 110 分に 1 回まで・200 以外は停止札で止まる（worker.js）
+[triggers]
+crons = ["25 * * * *"]
+
+# 置き場＝KV（本体 gzip 約 0.7 MB＋meta＋停止札）。id は `npx wrangler kv namespace create SATS` の出力
+[[kv_namespaces]]
+binding = "SATS"
+id = "f7339d0e9a6d4a4ab08980af7be194e6"

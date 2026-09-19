@@ -40,6 +40,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.full({ narrow: false });   // 全画面トグル（非対応端末では出ない）。狭画面＝出さない（同上）
 	map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
+	map.gadget.sats({ zoom: [-99, 6.5] });     // いま軌道にいる人工衛星（CelesTrak 直読み＋自前 SGP4）＝星空＋世界帯（地球を丸ごと眺める距離の道具）
 	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる＝自前の display 裁き）
 	map.gadget.cpos({ zoom: [6.5, 99] });      // 現在地（GPS。押すと寄って点滅マーカー）＝基図の門から
 	map.gadget.measure({ zoom: [6.5, 99] });   // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）＝同上
