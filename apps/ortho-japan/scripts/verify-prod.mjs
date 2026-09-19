@@ -74,41 +74,54 @@ const server = createServer(async (req, res) => {
 	} catch { requests.push("404 " + p); res.writeHead(404); res.end("not found"); }
 }).listen(PORT);
 
-const dom = await new Promise(resolve => {
-	const args = ["--headless=new", "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-		"--virtual-time-budget=30000", "--dump-dom", `http://localhost:${PORT}/japan/?gl2=1&lang=ja`];
-	const c = spawn(CHROME, args, { timeout: 90000 });
-	let out = "";
-	c.stdout.on("data", d => out += d);
-	c.on("close", () => resolve(out));
-});
-if (!dom.includes("ortho-japan")) fail("実走: タイトル不在＝ページが立っていない");
-if (!/id="chips"/.test(dom) || !dom.includes("地名")) fail("実走: チップ列が出ていない＝エンジン起動失敗の疑い");
-if (!/<canvas id="c"/.test(dom)) fail("実走: 描画canvas不在");
-const got = requests.join("\n");
-if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対化の破れ＝黒地図）"); }
-console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
-
-// ③b scene.html＝エディタページも同じSDK二重構成（editor本体はサイト側チャンク・地図はlib）
-const domScene = await new Promise(resolve => {
-	const c = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/oj-vprod-scene-${process.pid}`, "--disable-gpu",
-		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=30000", "--dump-dom",
-		`http://localhost:${PORT}/japan/scene.html?gl2=1&lang=ja`], { timeout: 90000 });
-	let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => resolve(out));
-});
-if (!/<canvas id="c"/.test(domScene)) fail("scene実走: 描画canvas不在（SDK経由の起動失敗）");
-if (!domScene.includes('id="sc-shoot"')) fail("scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）");
-console.log("ok:scene（エディタページもSDK経由で起動・editor UI点灯）");
-// ③c geoedit.html＝GeoPBF エディタページ（gadget geoedit＝lib 側の遅延chunk・器はサイト側）
-const domGeoedit = await new Promise(resolve => {
-	const c = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/oj-vprod-geoedit-${process.pid}`, "--disable-gpu",
-		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=30000", "--dump-dom",
-		`http://localhost:${PORT}/japan/geoedit.html?gl2=1&lang=ja`], { timeout: 90000 });
-	let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => resolve(out));
-});
-if (!/<canvas id="c"/.test(domGeoedit)) fail("geoedit実走: 描画canvas不在（SDK経由の起動失敗）");
-if (!domGeoedit.includes('id="ge-toolbar"')) fail("geoedit実走: エディタUI不在（gadget geoedit の遅延chunk疎通の疑い）");
-console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・ツールバー点灯）");
+// ③ 実走＝3 ページ（/japan/・scene.html・geoedit.html）を **1 つの Chrome で並行**に開き、DOM の証拠が出た時点で終える（実時間・CDP）。
+//    旧＝--virtual-time-budget=30000 --dump-dom を 3 回直列。仮想時間では worker の import() が解決せず予算が尽きない個体があり、
+//    spawn の timeout（90 s）まで待ってから通っていた（2026-09-20 実測＝scene が 90 s・全体 234 s）。証拠が出れば数秒で済む。
+const CDP0 = 9351;
+const pages = [
+	{ name: "boot", url: `http://localhost:${PORT}/japan/?gl2=1&lang=ja`, ready: `document.title.includes("ortho-japan") && !!document.getElementById("chips") && document.documentElement.outerHTML.includes("地名") && !!document.querySelector("canvas#c")`,
+		fails: [[`document.title.includes("ortho-japan")`, "実走: タイトル不在＝ページが立っていない"], [`!!document.getElementById("chips") && document.documentElement.outerHTML.includes("地名")`, "実走: チップ列が出ていない＝エンジン起動失敗の疑い"], [`!!document.querySelector("canvas#c")`, "実走: 描画canvas不在"]] },
+	{ name: "scene", url: `http://localhost:${PORT}/japan/scene.html?gl2=1&lang=ja`, ready: `!!document.querySelector("canvas#c") && !!document.getElementById("sc-shoot")`,
+		fails: [[`!!document.querySelector("canvas#c")`, "scene実走: 描画canvas不在（SDK経由の起動失敗）"], [`!!document.getElementById("sc-shoot")`, "scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）"]] },
+	{ name: "geoedit", url: `http://localhost:${PORT}/japan/geoedit.html?gl2=1&lang=ja`, ready: `!!document.querySelector("canvas#c") && !!document.getElementById("ge-toolbar")`,
+		fails: [[`!!document.querySelector("canvas#c")`, "geoedit実走: 描画canvas不在（SDK経由の起動失敗）"], [`!!document.getElementById("ge-toolbar")`, "geoedit実走: エディタUI不在（gadget geoedit の遅延chunk疎通の疑い）"]] },
+];
+{
+	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP0}`, "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
+		"--no-first-run", `--user-data-dir=/tmp/oj-vprod-pages-${process.pid}`, "about:blank"], { stdio: "ignore" });
+	for (let i = 0; ; i++) {
+		try { await (await fetch(`http://127.0.0.1:${CDP0}/json/version`)).json(); break; } catch { /* まだ */ }
+		if (i > 60) fail("実走: chrome devtools が起動しない");
+		await sleep(250);
+	}
+	const openTarget = async url => {
+		const target = await (await fetch(`http://127.0.0.1:${CDP0}/json/new?about:blank`, { method: "PUT" })).json();
+		const ws = new WebSocket(target.webSocketDebuggerUrl);
+		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+		let id = 0; const pending = new Map();
+		const send = (m, p = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p })); setTimeout(() => { if (pending.has(i)) { pending.delete(i); res(null); } }, 5000); });
+		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+		await send("Page.enable"); await send("Runtime.enable");
+		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移
+		const ev = async expr => (await send("Runtime.evaluate", { expression: expr, returnByValue: true }))?.result?.value;
+		return { ev, close: () => { try { ws.close(); } catch { /* 終了時 */ } } };
+	};
+	const results = await Promise.all(pages.map(async pg => {
+		const t = await openTarget(pg.url);
+		let ok = false;
+		for (let i = 0; i < 120 && !ok; i++) { await sleep(500); ok = (await t.ev(pg.ready)) === true; }   // 最長 60 s（健全なら数秒）
+		const missing = ok ? [] : (await Promise.all(pg.fails.map(async ([expr, msg]) => (await t.ev(expr)) === true ? null : msg))).filter(Boolean);
+		t.close();
+		return { name: pg.name, ok, missing };
+	}));
+	chrome.kill();
+	for (const r of results) if (!r.ok) fail(r.missing[0] || `${r.name}実走: 60 s で証拠が出ない`);
+	const got = requests.join("\n");
+	if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対の事故＝本番SPAフォールバックHTMLを掴む型）"); }
+	console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
+	console.log("ok:scene（エディタページもSDK経由で起動・editor UI点灯）");
+	console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・ツールバー点灯）");
+}
 
 // ④ ガジェット実クリック（生CDP・実時間）：遅延ロード系＝押した瞬間に動的importが走るボタンを実際に押す。
 //    合否＝例外/console.errorゼロ＋QR/printのDOM証拠＋（この間の404も後段の台帳検査が拾う）。
@@ -138,8 +151,8 @@ console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・
 	await send("Runtime.enable");
 	// 起動待ち＝ボタン列が出るまで（実時間・最大60秒）
 	let up = false;
-	for (let i = 0; i < 60 && !up; i++) {
-		await sleep(1000);
+	for (let i = 0; i < 240 && !up; i++) {   // 250 ms 刻み（旧 1 s）＝出た瞬間に進む
+		await sleep(250);
 		up = (await send("Runtime.evaluate", { expression: `!!document.querySelector("#qr-btn") && !!document.querySelector("#print-btn")`, returnByValue: true }))?.result?.value === true;
 	}
 	if (!up) { chrome.kill(); server.close(); fail("実クリック: ガジェットボタンが60秒で出ない"); }
@@ -155,13 +168,13 @@ console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・
 	];
 	for (const [sel, evidence] of CLICKS) {
 		await send("Runtime.evaluate", { expression: `document.querySelector("${sel}")?.click()` });
-		await sleep(5000);
-		if (evidence) {
-			const okDom = (await send("Runtime.evaluate", { expression: evidence, returnByValue: true }))?.result?.value === true;
+		if (evidence) {   // 証拠が出るまで（最長 5 s・200 ms 刻み）＝旧の固定 5 s 待ち × 8 ボタン＝40 s を数秒へ
+			let okDom = false;
+			for (let i = 0; i < 25 && !okDom; i++) { await sleep(200); okDom = (await send("Runtime.evaluate", { expression: evidence, returnByValue: true }))?.result?.value === true; }
 			if (!okDom) { errs.forEach(e => console.error("      " + e)); chrome.kill(); server.close(); fail(`実クリック: ${sel} のDOM証拠が出ない（動的importチャンク疎通の疑い）`); }
-		}
+		} else await sleep(1200);   // 証拠のないボタン＝動的 import と描画の一拍
 		await send("Runtime.evaluate", { expression: `document.dispatchEvent(new KeyboardEvent("keydown",{key:"Escape"}))` });
-		await sleep(500);
+		await sleep(300);
 	}
 	try { ws.close(); } catch { /* 終了時 */ }
 	chrome.kill();
@@ -176,4 +189,4 @@ console.log(`ok:ledger（クリック中の動的importチャンク含め404ゼ�
 console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK・ガジェット実クリックOK）");
 
 // per-pid の Chrome プロファイル（scene/geoedit/click＝各 ~500MB）は終了時に掃除（/tmp 満杯の轍・2026-09-15）
-process.on("exit", () => { for (const k of ["scene", "geoedit", "click"]) { try { fsSync.rmSync(`/tmp/oj-vprod-${k}-${process.pid}`, { recursive: true, force: true }); } catch { /* 無害 */ } } });
+process.on("exit", () => { for (const k of ["pages", "scene", "geoedit", "click"]) { try { fsSync.rmSync(`/tmp/oj-vprod-${k}-${process.pid}`, { recursive: true, force: true }); } catch { /* 無害 */ } } });

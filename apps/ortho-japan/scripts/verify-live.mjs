@@ -19,7 +19,7 @@ const files = [];
 	}
 })(ROOT);
 let bad = 0, done = 0;
-const CONC = 12;
+const CONC = 24;   // 1 バイト Range＝転送費ほぼゼロ＝並列を上げても回線を食わない（12→24・2026-09-20）
 async function probe(rel) {
 	const url = `${BASE}/${rel.split(path.sep).join("/")}`;
 	try {
