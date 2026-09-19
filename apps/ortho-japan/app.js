@@ -38,6 +38,7 @@ import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { solar as solarGadget } from "./gadgets/solar.js";
+import { equal as equalGadget, equalHereItem, goEqual } from "./gadgets/equal.js";
 import { plateau as plateauGadget } from "./gadgets/plateau.js";
 import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
@@ -2146,6 +2147,11 @@ map.gadget("compass", function (opts) {   // コンパス兼リセット … 内
 	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
 	if (update) { frameHooks.add(update); update(); }   // 針の追従を render のフックへ＝搭載した瞬間から現姿勢を指す
 });
+map.gadget("equal", function (opts) {   // 全球図（ortho-equal・Equal Earth）への口＝球のフレームから開く受け渡し（?morph=1）。右クリック項目は map.gadget.equalHere()
+	return equalGadget.call(this, opts);
+});
+map.gadget("equalHere", function (opts) { return equalHereItem(this, opts); });   // 右クリックメニューの項目＝contextmenu の setter へ渡す材料
+map.gadget("equalStart", function (opts) { return goEqual(this, { morph: false, ...opts }); });   // 入口＝Equal Earth を最初から上に（?start=equal）。japan は裏で起動
 map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）＝34px規格アイコン。表示域を絞るなら搭載側で opts.zoom
 	return solarGadget.call(this, opts);
 });

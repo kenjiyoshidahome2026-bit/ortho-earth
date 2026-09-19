@@ -68,6 +68,7 @@ map.gadget.measure();   // geodesic distance / area measurement
 map.gadget.shot();      // save the view as an image (attribution baked in)
 map.gadget.print();     // paper-spec plan printing (true scale, A4/A3, graticule) → PDF
 map.gadget.qr();        // share the current view as a QR code
+map.gadget.equal({ zoom: [-99, 5] });   // to ortho-equal (Equal Earth): overlays /equal/ in an iframe (same URL) and unfolds from the same globe; map.gadget.equalHere() is the context-menu item
 map.gadget.plateau();   // 3D building data manager (preload / delete)
 map.gadget.contextmenu();
 map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML…)
