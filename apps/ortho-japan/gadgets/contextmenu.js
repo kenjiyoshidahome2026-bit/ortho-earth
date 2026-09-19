@@ -1,7 +1,7 @@
 // ガジェット：右クリックメニュー。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.contextmenu() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // 右クリック（タッチは長押しの contextmenu）で #map 上の指した地点にメニューを出す。
-// 項目は本体が差し替え可＝戻り値の setter に配列を渡す（各項目 {name, icon?, onClick(ctx)}）。
+// 項目は本体が差し替え可＝戻り値の setter に配列、または (ctx, 既定項目)→配列 の関数を渡す（各項目 {name, icon?, onClick(ctx)}）。
 // 未設定なら既定メニュー（この地点へ寄る／座標をコピー）＝搭載しただけで使える。
 // ctx＝{ lng, lat, x, y, map }。lng/lat は指した画面座標の逆投影（screen→world。裏半球や宇宙なら undefined）。
 // unprojectAt＝画面座標→経緯度（実装は engine の unproject／注入は登録側）。signal＝destroy 時のリスナー解除。
@@ -29,7 +29,7 @@ export function contextmenu({ unprojectAt, signal, items } = {}) {
 	mapEl.addEventListener("contextmenu", e => {
 		e.preventDefault();
 		const c = ctx(e);
-		const arr = typeof list === "function" ? list(c) : list;
+		const arr = typeof list === "function" ? list(c, DEFAULT) : list;   // 関数＝(ctx, 既定項目) → 配列（既定に足すだけの搭載側が既定を写さずに済む）
 		if (!Array.isArray(arr) || !arr.length) return hide();
 		menu.replaceChildren();
 		for (const it of arr) {

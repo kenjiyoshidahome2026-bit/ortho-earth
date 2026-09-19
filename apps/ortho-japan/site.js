@@ -39,6 +39,8 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.zoom({ narrow: false });   // ズーム＋/−（縦2連の一体ボタン）。狭画面＝出さない（ピンチが担う・左上溢れ対策）
 	map.gadget.full({ narrow: false });   // 全画面トグル（非対応端末では出ない）。狭画面＝出さない（同上）
 	map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
+	map.gadget.equal({ zoom: [-99, 5] });      // 全球図（Equal Earth）へ＝地球全体を眺める距離だけ（球のフレームから開く受け渡し・2026-09-20）
+	if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });   // 入口＝紙の全球図（本人 9/20「規定を EE に」の体感用・既定化は裁定待ち）。z は equal 側が画面幅に合わせる
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
 	map.gadget.sats({ zoom: [-99, 6.5] });     // いま軌道にいる人工衛星（CelesTrak 直読み＋自前 SGP4）＝星空＋世界帯（地球を丸ごと眺める距離の道具）
 	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる＝自前の display 裁き）
@@ -51,7 +53,8 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.print({ zoom: [6.5, 99] });     // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様）＝GSI基図が前提
 	map.gadget.plateau({ zoom: [6.5, 99] });   // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）＝日本の道具
 	map.gadget.stac({ zoom: [5, 99] });        // 衛星画像を探す（STAC/Earth Search→日付・雲量で選んで COG を球へ）＝世界帯から使える
-	map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
+	const setMenu = map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
+	setMenu((c, defaults) => map.getZoom() < 5 ? [...defaults, map.gadget.equalHere()] : defaults);   // 地球全体の距離では「この地点を中心に全球図へ」を足す
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
 	import("./demo/scenes.js").then(m => map.gadget.demo({ ...m.default, lang: new URLSearchParams(location.search).get("lang") }));   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
