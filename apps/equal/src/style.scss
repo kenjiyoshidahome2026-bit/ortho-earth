@@ -58,3 +58,8 @@
 .eq-pop { position: absolute; max-width: 280px; font: 12px/1.5 var(--qm-font); color: var(--qm-text); background: var(--qm-panel-solid);
 	border: 1px solid var(--qm-border-soft); border-radius: 5px; padding: 8px 26px 8px 10px; box-shadow: var(--qm-shadow-pop); }
 .eq-pop img { max-width: 100%; }
+/* コンテキストメニュー（右クリック／長押し）＝吹き出しと同じ紙 */
+.eq-menu { position: absolute; z-index: 5; min-width: 140px; padding: 4px; font: 12px/1.5 var(--qm-font); color: var(--qm-text); background: var(--qm-panel-solid);
+	border: 1px solid var(--qm-border-soft); border-radius: 5px; box-shadow: var(--qm-shadow-pop); }
+.eq-menu-item { display: block; width: 100%; padding: 5px 10px; border: 0; border-radius: 3px; background: none; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.eq-menu-item:hover, .eq-menu-item:focus-visible { background: var(--qm-hover, rgba(127, 127, 127, .18)); outline: none; }

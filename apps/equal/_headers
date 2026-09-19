@@ -1,0 +1,6 @@
+# 本番（Cloudflare Workers 静的アセット）の応答ヘッダ＝dev の vite.config.js と同じ 2 本（japan の iframe に載るため・2026-09-20）。
+# assets の根（dist/site）に置く必要がある＝package.json の deploy が build 後に写す（outDir は dist/site/equal なので public/ では根に届かない）。
+/*
+  Cross-Origin-Opener-Policy: same-origin
+  Cross-Origin-Embedder-Policy: credentialless
+  Cross-Origin-Resource-Policy: cross-origin

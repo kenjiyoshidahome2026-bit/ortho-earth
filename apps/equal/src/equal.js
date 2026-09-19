@@ -13,7 +13,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { parseViewHash, buildViewHash } from "ortho-core/viewurl";
 import { resolveWorldPal } from "ortho-core/worldpal";
-import { unproject, anchorView, clampView, minZoomFor, pxPerUnit } from "./equalearth.js";
+import { unproject, anchorView, clampView, minZoomFor, pxPerUnit, wrapLon } from "./equalearth.js";
 import { bakeLayer, bakeGraticule } from "./bake.js";
 import { createRenderer } from "./renderer.js";
 import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
@@ -168,7 +168,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 				shortEn.set("US", "United States");   // DB "United States of America" は地図では長い
 				rebuildLabels();
 			}
-			L.status = "ready";
+			L.status = "ready"; L.readyAt = performance.now();
 		} catch (e) {
 			console.error(`[equal] ${def.id} failed`, e);
 			L.status = "error";
@@ -263,8 +263,95 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// ── 描画 ──
 	const ID_ORDER = -1;        // 国 ID バッファ＝他の全部より先（塗りもコロプレスもホバーもこれを読む）
 	const CHORO_ORDER = 10.5;   // コロプレスの重ね順＝国の塗り(10)の直後・係争地(11)/市街地(12)/湖(14) はその上
-	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "";
+	let raf = 0, hoverFid = -1, hoverDirty = false, nearViewKey = "", firstFrame = false;
 	function requestDraw() { if (!raf && !destroyed) raf = requestAnimationFrame(draw); }
+
+	// ── 変形（japan の球 ⇄ Equal Earth）＝「ortho と Equal Earth は相性がいい」を絵にする（本人 2026-09-20・2D 実装）──
+	// 球は renderer の 2D 透視（japan のチルト 0 と同じカメラ・深度なし・頂点シェーダで球の位置と Equal Earth の位置を線形補間）。変形中はフレーム
+	//（国境＋経緯線）だけを描き、着いてから塗り・ハイプソ・ラベルを幕（veil）で背景色から溶かし出す。
+	// 球の視点＝{ lat, zoom } は出発点で固定（経度は view.lon に追従＝球のまま横ドラッグで回る）・Equal Earth 側＝今の view。
+	// 段：dir=+1（球→地図）morph→veil・dir=−1（地図→球）veil→morph→park（球のまま留まる＝戻りは morphIn）
+	const MORPH_MS = 1100, VEIL_MS = 280, D2R = Math.PI / 180;
+	let morph = null;   // { dir, phase: "morph"|"veil"|"park", t0, hold, sphere: { lat, zoom }, resolve }
+	const frameGrat = { baked: bakeGraticule({ flat: true }) };   // 変形中のレチクル＝10° 全線（japan に合わせる）・gpuTier が初回に GPU へ載せる
+	const BLACK = [0, 0, 0];
+	// japan のカメラ（ortho-core cameraState・チルト 0）と同じ eye 距離：camDist = radPerDevPx·(H/2)/tan(fovy/2)・radPerDevPx = 2π/(2^z·256·dpr)
+	//（dpr は約分＝CSS px の高さで計算）。fovy＝japan の既定 50°。同じ画面の高さで開く前提（受け渡しは同一画面）
+	const FOVY = 50 * D2R;
+	const camDistOf = zoom => (2 * Math.PI / (256 * Math.pow(2, zoom))) * (size()[1] / 2) / Math.tan(FOVY / 2);
+	const labelsCanvas = mapEl.querySelector("#labels");
+	labelsCanvas.style.transition = "opacity .25s";
+	const fadeTop = v => { labelsCanvas.style.opacity = v; for (const c of mapEl.querySelectorAll(".eq-overlay")) c.style.opacity = v; };   // ラベルと注釈＝変形中は隠す
+	const ease = k => k * k * (3 - 2 * k);
+	// 変形の時間＝準備時間（本人 9/20）：押した瞬間に球のフレーム（経緯線は即・国境は着き次第フェードで）を出して開き始め、
+	// 地図の本体（国・ハイプソ・層）は変形の裏で読む。着地の幕は揃ってから（最大 MORPH_WAIT_MS）開ける。
+	function morphIn(from, { hold = false } = {}) {   // from＝球の視点 { lon?, lat, zoom }（省略＝留まっている球 or 今の view）。hold＝親の合図（release）まで球のまま待つ
+		return new Promise(resolve => {
+			const sphere = !from && morph?.sphere ? morph.sphere : { lat: from?.lat ?? view.lat, zoom: from?.zoom ?? view.zoom, dlon: from?.lon != null ? wrapLon(from.lon - view.lon) : 0 };   // from.lon＝球の中心が地図の中心と違う（japan の「この地点を中心に」）
+			morph?.resolve?.();
+			morph = { dir: 1, phase: "morph", t0: performance.now(), hold, sphere, resolve };
+			fadeTop("0"); hoverFid = -1; setTip(null);
+			syncGlobeBtn(); emit("morph", 1); requestDraw();
+		});
+	}
+	// 球の中心経度＝地図の中心経度＋dlon（「この地点を球体へ」＝地図は動かさず、その地点が画面中心へ集まりながら球に畳まれる）。
+	// 球のまま横ドラッグすると view.lon が動く＝球も回る（dlon は保つ）
+	const sphereLon = () => wrapLon(view.lon + (morph?.sphere?.dlon || 0));
+	function morphOut(to) {   // Equal Earth から球のフレームへ畳む。畳み終えたら park（球のまま）。to＝球の視点 { lon, lat, zoom }（省略＝今の view・倍率は維持）
+		return new Promise(resolve => {
+			if (morph?.phase === "park" && !to) return resolve();
+			morph?.resolve?.();
+			const dlon = to?.lon != null ? wrapLon(to.lon - view.lon) : 0;
+			morph = { dir: -1, phase: "veil", t0: performance.now(), hold: false, sphere: { lat: to?.lat ?? view.lat, zoom: to?.zoom ?? view.zoom, dlon }, resolve };
+			fadeTop("0"); hoverFid = -1; setTip(null);
+			syncGlobeBtn(); emit("morph", -1); requestDraw();
+		});
+	}
+	const releaseMorph = () => { if (morph?.hold) { morph.hold = false; morph.t0 = performance.now(); requestDraw(); } };
+	const MORPH_WAIT_MS = 6000;   // 着地の幕を待つ上限（回線が遅くても地図は出す）
+	const sceneReady = () => countries.status !== "loading" && countries.status !== "idle" && (!(settings.hypso > 0) || hypsoState === 2);
+	function drawMorph() {
+		const m = morph, now = performance.now();
+		const dur = m.phase === "morph" ? MORPH_MS : VEIL_MS;
+		const k = m.phase === "park" || m.phase === "wait" || m.hold ? 0 : Math.min(1, (now - m.t0) / dur), e = ease(k);
+		let t = 0, veil = 0;   // t＝球(0)→地図(1)・veil＝塗り・ハイプソの見え方(0..1)
+		if (m.phase === "park") { t = 0; veil = 0; }
+		else if (m.phase === "wait") { t = 1; veil = 0; }   // 開き終えて、地図の本体が揃うのを待つ（フレームのまま）
+		else if (m.dir > 0) { if (m.phase === "morph") { t = e; veil = 0; } else { t = 1; veil = e; } }
+		else { if (m.phase === "veil") { t = 1; veil = 1 - e; } else { t = 1 - e; veil = 0; } }
+		// 変形中＝黒地に白のフレーム（本人 9/20「水色は要らない・背景黒・admin0 とレチクルを白」）。着いたら地図を黒から溶かし出す
+		if (veil > 0) { R.beginFrame(view, PALETTE.bg); drawScene(); if (veil < 1) R.drawVeil([0, 0, 0, 1 - veil]); }
+		else R.beginFrame(view, BLACK, { t, ppuS: pxPerUnit(m.sphere.zoom), lat: m.sphere.lat * D2R, cam: camDistOf(m.sphere.zoom), dlon: m.sphere.dlon || 0 });
+		let more = false;
+		if (veil < 1) more = drawFrame(1 - veil);
+		if (m.phase === "wait") { if (sceneReady() || now - m.waitT0 > MORPH_WAIT_MS) { m.phase = "veil"; m.t0 = now; } }
+		else if (k >= 1) {   // 段の終わり
+			if (m.dir > 0) {
+				if (m.phase === "morph") { if (sceneReady()) { m.phase = "veil"; m.t0 = now; } else { m.phase = "wait"; m.waitT0 = now; } }
+				else { morph = null; fadeTop(""); hoverDirty = true; syncGlobeBtn(); m.resolve(); emit("morph", 0); }
+			} else {
+				if (m.phase === "veil") { m.phase = "morph"; m.t0 = now; }
+				else { m.phase = "park"; m.resolve(); }
+			}
+		}
+		if (morph && ((morph.phase !== "park" && !morph.hold) || more)) requestDraw();
+	}
+	// フレーム＝白の国境（海岸線＋国境・州境は出さない）＋白の 10° レチクル。層の on/off に関わらず描く。a＝濃さ（幕と同期）
+	// 戻り値＝まだ動く（国境のフェード中）
+	function drawFrame(a = 1) {
+		const thr = lodThreshold(view.zoom);
+		let more = false;
+		if (countries.status === "ready") {
+			const f = Math.min(1, (performance.now() - (countries.readyAt || 0)) / 350);   // 着き次第フェードで現れる（変形の裏で読んだ国境が「湧く」のでなく滲む）
+			more = f < 1;
+			const tier = gpuTier(countries, thr);
+			if (tier.lines) R.drawLines(countries.vtx, tier.lines, [{ color: [1, 1, 1, 0.9 * a * f], width: 0.8 }, { color: [1, 1, 1, 0.9 * a * f], width: 0.8 }, { color: [0, 0, 0, 0], width: 0 }]);
+		}
+		const tier = gpuTier(frameGrat, thr);
+		if (tier.lines) R.drawLines(frameGrat.vtx, tier.lines, [{ color: [1, 1, 1, 0.35 * a], width: 0.6 }]);
+		return more;
+	}
+
 	function draw() {
 		raf = 0;
 		if (destroyed) return;
@@ -273,7 +360,19 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		if (settings.hypso > 0 && hypsoState === 0) loadHypso();
 		if (near && settings.hypso > 0) { const [W, H] = size(), k = `${view.lon},${view.lat},${view.zoom},${W},${H}`; if (k !== nearViewKey) { nearViewKey = k; near.ensure(view, W, H, (sx, sy) => unproject(view, sx, sy)); } }
 
-		R.beginFrame(view, PALETTE.bg);
+		if (!firstFrame) { firstFrame = true; queueMicrotask(() => emit("frame")); }   // 最初の 1 枚を描いた（埋め込みの殻＝親へ「見せてよい」の合図）
+		if (morph) drawMorph();
+		else {
+			R.beginFrame(view, PALETTE.bg);
+			drawScene();
+			{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
+			for (const fn of frameSubs) fn();   // 注釈（anno）＝ラベルの上
+			if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
+		}
+		updatePos(); updateScale();
+		scheduleHash();
+	}
+	function drawScene() {   // 海 → 層（順は ops）→ コロプレス（beginFrame 済みが前提）
 		R.drawSea(PALETTE.sea, PALETTE.bg, PALETTE.edge);
 		const thr = lodThreshold(view.zoom);
 		const ops = [];
@@ -297,12 +396,6 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		// CHORO_ORDER を動かせば重ね順だけ変えられる＝「湖の下に敷く／上に乗せる」が設定になる。
 		ops.push([CHORO_ORDER, () => R.drawChoropleth({ alpha: legendData ? settings.choroAlpha : 0, hover: hoverFid })]);
 		ops.sort((a, b) => a[0] - b[0]).forEach(([, fn]) => fn());
-
-		{ const [W, H] = size(); if (labelsLayer.draw(view, W, H, Math.min(window.devicePixelRatio || 1, 2))) requestDraw(); }   // ラベル（フェード中は次のフレームも）
-		for (const fn of frameSubs) fn();   // 注釈（anno）＝ラベルの上
-		if (hoverDirty) { hoverDirty = false; identify(); }   // 視点が動いた直後＝描いた ID バッファで指の下を読み直す
-		updatePos(); updateScale();
-		scheduleHash();
 	}
 	// ホバー識別＝国 ID バッファ（最後の描画のもの＝視点が同じ間は有効）の 1px 直読み。
 	// 国が変わった時だけ再描画する（旧＝pointermove ごとに全層を描き直していた＝マウスを動かすだけで GPU が全開）
@@ -327,6 +420,43 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const panel = el("div", { id: "layers-panel" }); panel.hidden = true;
 	chips.append(layersBtn, panel);
 	gadgets.append(chips);
+	// 球 ⇄ 地図（変形の口）：地図なら「Globe」＝球へ畳む・球なら「Map」＝Equal Earth へ開く
+	const globeBtn = el("button", { class: "eq-host-btn eq-globe" });
+	// 埋め込み（japan の iframe）では「地球儀」＝japan の地球儀へ戻る（球へ畳んで emit("closed")＝殻が親へ渡し、親が iframe を閉じる）。
+	// 単体では equal 自身の球に留まる（park）＝以前どおり。Esc も同じ（埋め込みのみ）
+	const embedded = q.get("embed") === "1";
+	const closeToHost = to => { if (morph && morph.dir < 0) return; morphOut(to).then(() => emit("closed", { zoom: morph.sphere.zoom, lat: morph.sphere.lat, lon: sphereLon() })); };   // to＝球の中心 { lon, lat }（右クリック）
+	globeBtn.addEventListener("click", () => {
+		if (embedded) return closeToHost();
+		if (morph && (morph.phase === "park" || morph.dir < 0)) morphIn(); else morphOut();
+	});
+	if (embedded) addEventListener("keydown", e => { if (e.key === "Escape" && !e.defaultPrevented) closeToHost(); }, { signal });
+	function syncGlobeBtn() {
+		const key = morph && (morph.phase === "park" || morph.dir < 0) ? "Map" : "Globe";
+		globeBtn.setAttribute("data-t", key); globeBtn.textContent = t(key); globeBtn.title = t(key);
+		globeBtn.setAttribute("aria-pressed", String(key === "Map"));
+	}
+	syncGlobeBtn();
+	gadgets.append(globeBtn);
+	// コンテキストメニュー（右クリック／長押し）：「この地点を球体へ」＝その地点を中心にした球へ畳む（倍率は維持・本人 9/20）
+	const menu = el("div", { class: "eq-menu", role: "menu" }); menu.hidden = true;
+	const menuItem = el("button", { class: "eq-menu-item", role: "menuitem", "data-t": "Globe here" }, esc(t("Globe here")));
+	menu.append(menuItem); mapEl.append(menu);
+	let menuLL = null;
+	const closeMenu = () => { menu.hidden = true; menuLL = null; };
+	function openMenu(cx, cy) {
+		if (morph) return;   // 球の間は地図の地点が無い
+		const [W, H] = size(); const ll = unproject(view, cx - W / 2, cy - H / 2);
+		if (!ll) return closeMenu();
+		menuLL = ll;
+		menu.hidden = false;
+		const mw = menu.offsetWidth || 160, mh = menu.offsetHeight || 32;
+		menu.style.left = Math.min(cx, W - mw - 4) + "px"; menu.style.top = Math.min(cy, H - mh - 4) + "px";
+	}
+	menuItem.addEventListener("click", () => { const ll = menuLL; closeMenu(); if (!ll) return; embedded ? closeToHost({ lon: ll[0], lat: ll[1] }) : morphOut({ lon: ll[0], lat: ll[1] }); });   // 埋め込み＝その地点を中心にした球で japan へ戻る
+	canvas.addEventListener("contextmenu", e => { e.preventDefault(); const r = canvas.getBoundingClientRect(); openMenu(e.clientX - r.left, e.clientY - r.top); }, { signal });
+	addEventListener("pointerdown", e => { if (!menu.hidden && !menu.contains(e.target)) closeMenu(); }, { signal, capture: true });
+	addEventListener("keydown", e => { if (e.key === "Escape") closeMenu(); }, { signal });
 	// 開閉は「一度に一つ」＝二つのパネルは同じ場所（ボタンの右）へ開くので、開いたら他方を閉じる
 	const panels = [];
 	const setOpen = (open, p = panel, b = layersBtn) => {
@@ -561,13 +691,41 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		}
 	}
 	// ── 注釈（geoedit の geopbf / GeoJSON）＝japan の anno ガジェットを 2D 投影のアダプタで動かす ──
-	// map の契約：mapEl / makeProjector（lon,lat→[x,y,front]）/ unprojectXY / getZoom / requestDraw / onFrame / gadget.tip・pop
+	// map の契約（japan の app.js と同じ口）：mapEl / overlay(url,{name}) / unprojectXY / getZoom / gadget.tip・pop
 	const frameSubs = new Set();
+	// 2D 投影（lon,lat → [x,y,front]・CSS px・左上原点）。裏経線の際は「見えない」扱い＝縫い目を跨ぐ線がそこで切れる
+	const makeProjector = () => { const [W, H] = size(), s = pxPerUnit(view.zoom), yc = yOfLat(view.lat), lon0 = view.lon; return (lon, lat) => { let d = lon - lon0; d = ((d + 180) % 360 + 360) % 360 - 180; return [W / 2 + d * Math.PI / 180 * kOfLat(lat) * s, H / 2 - (yOfLat(lat) - yc) * s, Math.abs(d) > 179.5 ? -1 : 1]; }; };
+	// 同一フレームのオーバーレイ（japan の map.overlay と同じ契約・#13：init(canvas,opts,host)/message/frame(cam,camState,size,api)/destroy）を
+	// main スレッドで。equal はレンダーワーカーを持たない＝依存ゼロのモジュール（anno-draw.js）を import() して自前の canvas に描く。
+	// frame は equal の draw の末尾（ラベルの上・frameSubs）。api.projectH＝2D なので高さは無い（3D ピンは円になる）
+	function overlay(url, { name = "overlay" } = {}) {
+		const cv = el("canvas", { class: "eq-overlay", "data-name": name });
+		Object.assign(cv.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none", transition: "opacity .25s" });
+		labelsCanvas.after(cv);   // ラベルの上・家具（#gadgets…）の下
+		const o = {
+			el: cv, mod: null, queue: [], onmessage: null,
+			post: d => { if (o.mod) { o.mod.message(d); requestDraw(); } else o.queue.push(d); },
+			remove: () => { frameSubs.delete(step); try { o.mod?.destroy(); } catch {} cv.remove(); },
+		};
+		const host = { requestDraw, post: d => o.onmessage?.(d) };
+		import(/* @vite-ignore */ new URL(url, location.href).href)
+			.then(mod => { if (!cv.isConnected) return; o.mod = mod; mod.init(cv, {}, host); for (const d of o.queue) mod.message(d); o.queue = []; requestDraw(); })
+			.catch(err => console.error("[equal] overlay", name, "failed to load", url, err?.message || err));
+		function step() {
+			if (!o.mod) return;
+			const [W, H] = size(), dpr = Math.min(window.devicePixelRatio || 1, 2), pw = Math.round(W * dpr), ph = Math.round(H * dpr);
+			if (cv.width !== pw || cv.height !== ph) { cv.width = pw; cv.height = ph; }
+			const project = makeProjector();
+			const api = { W, H, dpr, project, projectH: (lon, lat) => project(lon, lat) };
+			try { if (o.mod.frame({ zoom: view.zoom, pitch: 0, bearing: 0 }, null, [W, H], api)) requestDraw(); }
+			catch (e) { console.error("[equal] overlay", name, "frame failed", e?.message); }
+		}
+		frameSubs.add(step);
+		return o;
+	}
 	const annoMap = {
-		mapEl, getZoom: () => view.zoom, requestDraw,
-		makeProjector: () => { const [W, H] = size(), s = pxPerUnit(view.zoom), yc = yOfLat(view.lat), lon0 = view.lon; return (lon, lat) => { let d = lon - lon0; d = ((d + 180) % 360 + 360) % 360 - 180; return [W / 2 + d * Math.PI / 180 * kOfLat(lat) * s, H / 2 - (yOfLat(lat) - yc) * s, Math.abs(d) > 179.5 ? -1 : 1]; }; },   // 裏経線の際は「見えない」扱い＝縫い目を跨ぐ線がそこで切れる
+		mapEl, getZoom: () => view.zoom, requestDraw, overlay,
 		unprojectXY: (x, y) => { const [W, H] = size(); return unproject(view, x - W / 2, y - H / 2); },
-		onFrame: fn => { frameSubs.add(fn); return () => frameSubs.delete(fn); },
 		gadget: { tip: () => annoTip, pop: () => popGadget },
 	};
 	let annoTipOn = false;
@@ -658,8 +816,10 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			settings.labels ? qs.delete("labels") : qs.set("labels", "0");
 			lang === "en" ? qs.delete("lang") : qs.set("lang", lang);   // 言語＝URL に残す（共有した URL は同じ言葉で開く）
 			legendData?.years && settings.year != null ? qs.set("year", String(settings.year)) : qs.delete("year");
+			qs.delete("morph");   // 到着の合図＝URL に残さない（再読み込みで二度開かない）
 			const search = qs.toString() ? "?" + qs : "";
-			const vh = buildViewHash({ zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]);
+			const onGlobe = morph && (morph.phase === "park" || morph.dir < 0);   // 球（へ向かう）間は URL も球の視点＝japan へ渡す時はこれを読む
+			const vh = buildViewHash(onGlobe ? { zoom: morph.sphere.zoom, center: [sphereLon(), morph.sphere.lat], pitch: 0, bearing: 0 } : { zoom: view.zoom, center: [view.lon, view.lat], pitch: 0, bearing: 0 }, [l]);
 			if (hash) history.replaceState(null, "", location.pathname + search + vh);   // 殻だけが頁の URL を書く（埋め込みは持ち主の URL に触らない）
 			emit("view", vh);
 		}, 250);
@@ -736,6 +896,12 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	applyTheme(settings.theme);   // 起動時に一度通す＝PALETTE/ラベル/家具/凡例が同じ一本の道で決まる（既定 mono でも no-op ではなく素通り）
 	renderLegend();
 	requestDraw();
+	// ?morph=1＝球（呼び出し元の視点そのまま・clamp 前）から開いて着く／?morph=lon,lat＝球の中心はそこ（japan の視点）・地図の中心は #hash（右クリック「この地点を中心に」）
+	if (q.get("morph") && fromHash) {
+		const m = /^(-?[\d.]+),(-?[\d.]+)$/.exec(q.get("morph"));
+		mapEl.style.background = "#000";   // 最初のフレームまで黒（japan は黒へ落として来る＝灰の一瞬を挟まない）
+		morphIn(m ? { lon: +m[1], lat: +m[2], zoom: fromHash.zoom } : { lat: fromHash.lat, zoom: fromHash.zoom }, { hold: q.get("embed") === "1" }).then(() => { mapEl.style.background = ""; });   // 埋め込み＝親の合図（release）まで球のまま
+	}
 
 	// ── 外から使う口（埋め込み・検証・殻）──
 	return {
@@ -752,6 +918,10 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		get world() { return world; },
 		get busy() { return [...busy]; },
 		fidAt: (cx, cy) => R.readFid(cx, cy),
+		morphIn, morphOut, releaseMorph, close: closeToHost,   // 球 ⇄ Equal Earth の変形（Promise＝着いたら解決）。releaseMorph＝hold を解いて開き始める。close＝球へ畳んで emit("closed", view)
+		get drawn() { return firstFrame; },   // 最初の 1 枚を描いた後か（殻が on("frame") を結ぶ前に描き終えている場合の取りこぼし防止）
+		get sphereView() { return morph ? { zoom: morph.sphere.zoom, lat: morph.sphere.lat, lon: sphereLon() } : null; },
+		get morphing() { return morph ? (morph.phase === "park" ? "globe" : "morphing") : "map"; },
 		// 持ち主のボタン（戻る・保存など）＝左上の縦並び（#gadgets）の末尾。arrow＝先頭に ←（RTL で向きを返す）
 		addButton({ text = "", title = "", arrow = false, onClick } = {}) {
 			const b = document.createElement("button");
