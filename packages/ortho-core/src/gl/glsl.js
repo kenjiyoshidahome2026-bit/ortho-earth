@@ -329,9 +329,15 @@ out float v_fog;
 out float v_h;
 uniform vec4 u_cogMesh;   // COG uv＝off+a_uv×scale（メッシュ窓→COG bbox の変換を JS f64 前計算）
 out vec2 v_cuv;
+uniform vec4 u_rasMeshN;  // 画像タイル層アトラス（近窓/遠窓）＝同じ変換（JS f64 前計算）
+uniform vec4 u_rasMeshF;
+out vec2 v_ruvN;
+out vec2 v_ruvF;
 void main() {
 	vec2 a_ll = u_mesh.xy + u_mesh.zw * a_uv;   // 絶対 lon/lat（旧・頂点属性を単位格子＋uniform へ）
 	v_cuv = u_cogMesh.xy + a_uv * u_cogMesh.zw;
+	v_ruvN = u_rasMeshN.xy + a_uv * u_rasMeshN.zw;
+	v_ruvF = u_rasMeshF.xy + a_uv * u_rasMeshF.zw;
 	vec2 dDeg = a_ll - u_origin;              // 原点相対 (deg)。renderer は terrain に scenes.main.origin を渡す
 	vec3 rel = deltaToRel(dDeg);              // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（df/front/fog は粗くて可）
@@ -369,6 +375,23 @@ vec3 cogTexMix(vec3 col, vec2 uv) {
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return col;
 	vec4 c = texture(u_cogTex, vec2(uv.x, 1.0 - uv.y));
 	return mix(col, c.rgb, c.a);
+}`;
+
+// 画像タイル層のアトラス（raster.js が GPU で合成した経緯度整列 RGBA・前乗算）＝近窓/遠窓の 2 枚を COG と同じ場所で画素標本化
+// （地形面そのものに写る＝幾何の不一致ゼロ＝RTT ドレープ・2026-09-21）。uv の v＝(lat−S)/span（GL の FBO は行0＝南＝反転なし）。
+// 2 枚とも無条件に標本化してから選ぶ（非一様な分岐内の texture() は LOD 未定義＝ミップ境界の縞を避ける）。
+const RAS = /* glsl */`
+uniform sampler2D u_rasNear;
+uniform sampler2D u_rasFar;
+uniform float u_hasRas;   // 0=無し 1=近窓のみ 2=近窓＋遠窓
+vec3 rasMix(vec3 col, vec2 uvN, vec2 uvF) {
+	if (u_hasRas < 0.5) return col;
+	vec4 cN = texture(u_rasNear, clamp(uvN, 0.0, 1.0));
+	vec4 cF = texture(u_rasFar, clamp(uvF, 0.0, 1.0));
+	bool inN = uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0;
+	bool inF = u_hasRas > 1.5 && uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0;
+	vec4 c = inN ? cN : (inF ? cF : vec4(0.0));
+	return col * (1.0 - c.a) + c.rgb;   // アトラスは前乗算＝over 合成
 }`;
 
 const WORLD_HYPSO = /* glsl */`
@@ -426,6 +449,9 @@ uniform float u_farPass;   // 1=遠景メッシュパス：近窓の内側は近
 ${ELEV}
 ${WORLD_HYPSO}
 ${COG}
+${RAS}
+in vec2 v_ruvN;
+in vec2 v_ruvF;
 in vec2 v_cuv;
 in vec2 v_ll;
 in float v_front;
@@ -457,7 +483,7 @@ void main() {
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 colBase = cogTexMix(landC * shade, v_cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
+	vec3 colBase = rasMix(cogTexMix(landC * shade, v_cuv), v_ruvN, v_ruvF);   // ユーザ COG／画像タイル層＝陰影の上・フォグの下（画像は自前の陰影を持つ）
 	vec3 col = mix(colBase, u_fogColor, v_fog);
 	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
@@ -559,6 +585,9 @@ float elevAt(vec2 ll) {
 }
 ${WORLD_HYPSO}
 ${COG}
+${RAS}
+uniform vec4 u_rasBboxN;   // 画像タイル層アトラス（近窓/遠窓）[west,south,spanLon,spanLat] 絶対deg（低ズーム床）
+uniform vec4 u_rasBboxF;
 uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
@@ -612,6 +641,12 @@ void main() {
 		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
 		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
 		base = cogTexMix(base, (cll - u_cogBbox.xy) / u_cogBbox.zw);
+	}
+	if (u_hasRas > 0.5) {   // 画像タイル層＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。絶対経緯度→uv
+		float cb = asin(clamp(P.y, -1.0, 1.0));
+		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
+		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
+		base = rasMix(base, (cll - u_rasBboxN.xy) / u_rasBboxN.zw, (cll - u_rasBboxF.xy) / u_rasBboxF.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
@@ -871,11 +906,17 @@ out float v_w;    // clip w（perspective-correct 補間＝フラグメントで
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
 uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
 out vec2 v_cuv;
+uniform vec4 u_rasOffInvN;  // 画像タイル層アトラス（近窓/遠窓）＝同じ変換
+uniform vec4 u_rasOffInvF;
+out vec2 v_ruvN;
+out vec2 v_ruvF;
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
 	v_ll = ll;
 	v_cuv = u_cogOffInv.xy + dLL * u_cogOffInv.zw;
+	v_ruvN = u_rasOffInvN.xy + dLL * u_rasOffInvN.zw;
+	v_ruvF = u_rasOffInvF.xy + dLL * u_rasOffInvF.zw;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
@@ -900,6 +941,9 @@ uniform float u_seaGate;      // 1＝図郭外フォールバック水域：標�
                               // ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う
 ${ELEV}
 ${COG}
+${RAS}
+in vec2 v_ruvN;
+in vec2 v_ruvF;
 uniform float u_baseAlpha;   // 基図の濃さ（表示パネルのスライダー）。COG は下層（globe/terrain）にも合成済み＝紙と線だけが引く
 in vec2 v_cuv;
 in vec4 v_color;
@@ -915,7 +959,7 @@ void main() {
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (af <= 0.003) discard;
-	fragColor = vec4(mix(cogTexMix(v_color.rgb, v_cuv), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG＝塗りの上・線/建物/ラベルの下
+	fragColor = vec4(mix(rasMix(cogTexMix(v_color.rgb, v_cuv), v_ruvN, v_ruvF), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／画像タイル層＝塗りの上・線/建物/ラベルの下
 	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
 	// 水ポリの巨大三角形では真の対数曲線から数百m相当外れ、掠め視線で地形が偽って手前勝ちする
 	// ＝湖中の偽島（琵琶湖 75° 実測・真俯瞰で消える・R01/R10 とも発症＝データ非依存の深度補間誤差）。
@@ -1081,28 +1125,31 @@ void main() {
 	fragColor = vec4(rgb * a, a);
 }`;
 
-// 画像タイル層（raster.js・2026-09-21）＝塗り VS からの機械派生：頂点色の代わりに uv（＋タイル原点差 u_tileOff・祖先の部分 uv u_uvT）。
-// 球・楕円体・地形リフト（elevQ）・RTE 原点・フォグ・対数深度は塗りと 1 文字も違わない＝地形ドレープと建物遮蔽を自動継承。
-// CRS はここに無い（uv の v はメルカトル線形＝格子の行そのもの・緯度は CPU が逆メルカトルで置く）。
-export const RASTER_VS = derive(FILL_VS, [
-	["in vec4 a_color;", "in vec2 a_uv;\nuniform vec2 u_tileOff;   // タイル北西隅 − シーン原点（deg・CPU f64 で差を取り f32 へ）\nuniform vec4 u_uvT;      // 祖先フォールバックの部分 uv＝(u0, v0, su, sv)\nout vec2 v_uv;"],
-	["\tvec2 dLL = a_delta;", "\tvec2 dLL = u_tileOff + a_delta;   // タイル原点差（小）を先に足す（multidraw の u_tileOff と同じ加算順）"],
-	["\tv_color = a_color;", "\tv_color = vec4(1.0);\n\tv_uv = u_uvT.xy + a_uv * u_uvT.zw;"],
-], "RASTER_VS");
-export const RASTER_FS = `#version 300 es
+
+// 画像タイル層のアトラス合成（raster.js・RTT ドレープ・2026-09-21）：タイル（メルカトル）を経緯度整列の窓へ描く。
+// 頂点＝タイル北西隅からの dLL（格子の行は逆メルカトルの緯度＝warp はメッシュが担う）・u_tileOff＝タイル北西隅−窓の南西隅（CPU f64）。
+// 出力は前乗算（under 不透明→over 半透明の順に over 合成）。地形・球・塗りの FS が rasMix で画素標本化する。
+export const RASTER_ATLAS_VS = `#version 300 es
+precision highp float;
+in vec2 a_delta;
+in vec2 a_uv;
+uniform vec2 u_tileOff;
+uniform vec2 u_winInv;
+uniform vec4 u_uvT;   // 祖先フォールバックの部分 uv (u0,v0,su,sv)
+out vec2 v_uv;
+void main() {
+	vec2 p = (u_tileOff + a_delta) * u_winInv;
+	gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+	v_uv = u_uvT.xy + a_uv * u_uvT.zw;
+}`;
+export const RASTER_ATLAS_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_tex;
 uniform float u_opacity;
-uniform vec3 u_fogColor;
 in vec2 v_uv;
-in float v_front;
-in float v_fog;
 out vec4 fragColor;
 void main() {
-	vec4 c = texture(u_tex, v_uv);   // discard より前（ミップ選択の微分＝uniform control flow）
-	if (v_front < -0.0015) discard;   // 裏半球は描かない（塗りと同じ許容）
-	// 霧は塗りと同じフェードアウト（透明化）＝地平線の先の絵が空に浮かない。α は非前乗算の画像 × 層の不透明度
-	float af = c.a * u_opacity * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
-	if (af <= 0.003) discard;
-	fragColor = vec4(mix(c.rgb, u_fogColor, v_fog) * af, af);   // premultiplied
+	vec4 c = texture(u_tex, v_uv);
+	float a = c.a * u_opacity;
+	fragColor = vec4(c.rgb * a, a);   // premultiplied
 }`;

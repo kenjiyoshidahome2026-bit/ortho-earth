@@ -35,6 +35,8 @@ struct Frame {
 	ellTrig: vec4f,    // 楕円体 dβ 錨 (cos2φ0, sin2φ0, cos4φ0, sin4φ0)（CPU double・原点の測地緯度）。球=vec4(0)＝補正が厳密0
 	ellP: vec4f,       // x=1:楕円体（変位方向・β→φ復元のゲート）0:球, yzw=0
 	cogP: vec4f,       // ユーザ COG uv 係数（f64 前計算＝f32 絶対経緯度ジッタ根治）: fill系 slot=(off.xy, 1/span)・terrain系 slot=(off.xy, mesh.zw/span)
+	rasN: vec4f,       // 画像タイル層アトラス（近窓）uv 係数＝cogP と同形（fill系＝(off.xy, 1/span)・terrain系＝(off.xy, mesh.zw/span)）
+	rasF: vec4f,       // 同・遠窓
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -51,6 +53,22 @@ fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
 	let c = textureSampleLevel(cogTex0, elevSamp, vec2f(uv.x, 1.0 - uv.y), 0.0);
 	return mix(col, c.rgb, c.a);
 }
+// 画像タイル層のアトラス（raster.js が GPU で合成した経緯度整列 RGBA・前乗算）＝近窓/遠窓を COG と同じ場所で画素標本化（RTT ドレープ・2026-09-21）。
+// 行0＝北（WebGPU のレンダーターゲット）＝v 反転。2 枚とも無条件に標本化してから選ぶ（分岐内の textureSample を避ける＝uniformity）。
+@group(0) @binding(6) var rasNear0: texture_2d<f32>;
+@group(0) @binding(7) var rasFar0: texture_2d<f32>;
+@group(0) @binding(8) var<uniform> RS0: RasP;
+struct RasP { near: vec4f, far: vec4f, p: vec4f };   // near/far=[W,S,spanLon,spanLat]・p.x=has（0/1/2）
+fn rasMix0(col: vec3f, uvN: vec2f, uvF: vec2f) -> vec3f {
+	let cN = textureSample(rasNear0, rasSamp, vec2f(clamp(uvN.x, 0.0, 1.0), 1.0 - clamp(uvN.y, 0.0, 1.0)));
+	let cF = textureSample(rasFar0, rasSamp, vec2f(clamp(uvF.x, 0.0, 1.0), 1.0 - clamp(uvF.y, 0.0, 1.0)));
+	if (RS0.p.x < 0.5) { return col; }
+	let inN = uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0;
+	let inF = RS0.p.x > 1.5 && uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0;
+	let c = select(select(vec4f(0.0), cF, inF), cN, inN);
+	return col * (1.0 - c.a) + c.rgb;   // 前乗算＝over 合成
+}
+@group(0) @binding(9) var rasSamp: sampler;
 // 描画役割毎の小物（renderer.js が役割別スロットに詰める）：
 //   fill/line … p0 = (seaGate, lift(m), exactDepth, 0)
 //   terrain  … p0 = (land.rgb, 0)  p1 = (hypso.rgb, hypso量)  p2 = (1/hypso最大標高, 0, 0, 0)
@@ -171,6 +189,8 @@ struct FillOut {
 	@location(3) ll: vec2f,
 	@location(4) w: f32,   // clip w（perspective-correct 補間＝水域の厳密深度用）
 	@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）
+	@location(6) ruvN: vec2f,  // 画像タイル層アトラス uv（近窓/遠窓＝F.rasN/rasF・同じ前計算）
+	@location(7) ruvF: vec2f,
 };
 @vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {
 	var o: FillOut;
@@ -191,6 +211,8 @@ struct FillOut {
 	o.ll = ll;
 	o.w = p.w;
 	o.cuv = F.cogP.xy + a_delta * F.cogP.zw;
+	o.ruvN = F.rasN.xy + a_delta * F.rasN.zw;
+	o.ruvF = F.rasF.xy + a_delta * F.rasF.zw;
 	return o;
 }
 fn fillColor(in: FillOut) -> vec4f {
@@ -198,7 +220,7 @@ fn fillColor(in: FillOut) -> vec4f {
 	// ×P.p0.w＝グローバルα（シーン差し替えクロスフェード用。通常は1）
 	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
 	if (af <= 0.003) { discard; }
-	return vec4f(mix(cogTexMix0(in.color.rgb, in.cuv), F.fogColor, in.fog) * af, af);   // ユーザ COG＝塗りの上・線/建物/ラベルの下
+	return vec4f(mix(rasMix0(cogTexMix0(in.color.rgb, in.cuv), in.ruvN, in.ruvF), F.fogColor, in.fog) * af, af);   // ユーザ COG／画像タイル層＝塗りの上・線/建物/ラベルの下
 }
 @fragment fn fs(in: FillOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }
@@ -355,6 +377,8 @@ struct TerrOut {
 	@location(2) fog: f32,
 	@location(3) h: f32,
 	@location(4) cuv: vec2f,   // COG uv（terrain slot の F.cogP＝メッシュ窓→bbox の f64 前計算係数×a_uv）
+	@location(5) ruvN: vec2f,  // 画像タイル層アトラス uv（近窓/遠窓＝F.rasN/rasF）
+	@location(6) ruvF: vec2f,
 };
 @vertex fn vs(@location(0) a_uv: vec2f) -> TerrOut {
 	var o: TerrOut;
@@ -368,6 +392,8 @@ struct TerrOut {
 	o.h = h;
 	o.ll = a_ll;
 	o.cuv = F.cogP.xy + a_uv * F.cogP.zw;
+	o.ruvN = F.rasN.xy + a_uv * F.rasN.zw;
+	o.ruvF = F.rasF.xy + a_uv * F.rasF.zw;
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
@@ -399,7 +425,7 @@ struct TerrOut {
 		let clim = textureSampleLevel(climTex, climSamp, climUV(in.ll), 0.0).rg;
 		landC = mix(landC, worldHypsoColor(h0, in.ll, clim, P.p2.z), P.p2.y);
 	}
-	let colBase = cogTexMix0(landC * shade, in.cuv);   // ユーザ COG＝陰影の上・フォグの下（画像は自前の陰影を持つ）
+	let colBase = rasMix0(cogTexMix0(landC * shade, in.cuv), in.ruvN, in.ruvF);   // ユーザ COG／画像タイル層＝陰影の上・フォグの下（画像は自前の陰影を持つ）
 	let col = mix(colBase, F.fogColor, in.fog);
 	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
@@ -727,6 +753,11 @@ struct Globe {
 @group(0) @binding(6) var gCogTex: texture_2d<f32>;
 @group(0) @binding(7) var<uniform> GCG: GCogP;
 struct GCogP { bbox: vec4f, p: vec4f };
+// 画像タイル層アトラス（近窓/遠窓）＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）。絶対経緯度→uv・行0＝北
+@group(0) @binding(8) var gRasNear: texture_2d<f32>;
+@group(0) @binding(9) var gRasFar: texture_2d<f32>;
+@group(0) @binding(10) var<uniform> GRS: GRasP;
+struct GRasP { near: vec4f, far: vec4f, p: vec4f };
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
 fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
@@ -799,6 +830,19 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, 1.0 - cuv.y), 0.0);
 			base = mix(base, cc.rgb, cc.a);
 		}
+	}
+	if (GRS.p.x > 0.5) {   // 画像タイル層（球の床）
+		let rb = asin(clamp(Pt.y, -1.0, 1.0));
+		let rlat = rb * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * rb) + 0.0000014098905530233192 * sin(4.0 * rb)) * R2Dg;
+		let rll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, rlat);
+		let uvN = (rll - GRS.near.xy) / GRS.near.zw;
+		let uvF = (rll - GRS.far.xy) / GRS.far.zw;
+		let inN = uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0;
+		let inF = GRS.p.x > 1.5 && uvF.x >= 0.0 && uvF.x <= 1.0 && uvF.y >= 0.0 && uvF.y <= 1.0;
+		let rN = textureSampleLevel(gRasNear, gSamp, vec2f(clamp(uvN.x, 0.0, 1.0), 1.0 - clamp(uvN.y, 0.0, 1.0)), 0.0);
+		let rF = textureSampleLevel(gRasFar, gSamp, vec2f(clamp(uvF.x, 0.0, 1.0), 1.0 - clamp(uvF.y, 0.0, 1.0)), 0.0);
+		let rc = select(select(vec4f(0.0), rF, inF), rN, inN);
+		base = base * (1.0 - rc.a) + rc.rgb;
 	}
 	let viewDir = normalize(A - Pt);
 	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
@@ -884,15 +928,26 @@ export const PLATEAU_TEX_WGSL = deriveWgsl(PLATEAU_WGSL, [
 	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
 ], "PLATEAU_TEX_WGSL");
 
-// 画像タイル層（raster.js・2026-09-21）＝FILL_WGSL からの文字列派生（gl/glsl.js RASTER_VS/FS と対）。
-// 頂点＝a_delta（タイル北西隅からの dLL）＋a_uv・group(2)＝per-tile UBO（tileOff・祖先の部分 uv・不透明度＝dynamic offset）・
-// group(3)＝サンプラ＋テクスチャ（bglPlTex と同じレイアウト）。球・楕円体・地形リフト・RTE・フォグ・対数深度は塗りと同一。
-export const RASTER_WGSL = deriveWgsl(FILL_WGSL, [
-	["@group(1) @binding(0) var<uniform> P: DrawP;\n", "@group(1) @binding(0) var<uniform> P: DrawP;\nstruct RasterP { off: vec4f, uvT: vec4f, p: vec4f };   // off.xy=タイル北西隅−原点(deg)・uvT=(u0,v0,su,sv)・p.x=不透明度\n@group(2) @binding(0) var<uniform> R: RasterP;\n@group(3) @binding(0) var rasS: sampler;\n@group(3) @binding(1) var rasT: texture_2d<f32>;\n"],
-	["\t@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）\n};", "\t@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）\n\t@location(6) uv: vec2f,    // タイルテクスチャ uv（祖先フォールバックの部分 uv 済み）\n};"],
-	["@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {\n\tvar o: FillOut;\n", "@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_uv: vec2f) -> FillOut {\n\tvar o: FillOut;\n\tlet a_delta = R.off.xy + a_delta0;   // タイル原点差（小）を先に足す（GL の u_tileOff と同じ加算順）\n\tlet a_color = vec4f(1.0);\n\to.uv = R.uvT.xy + a_uv * R.uvT.zw;\n"],
-	["@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tif (in.front < -0.0015) { discard; }\n",
-	 "@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tlet c = textureSample(rasT, rasS, in.uv);   // discard より前（uniform control flow）\n\tif (in.front < -0.0015) { discard; }\n"],
-	["let h = select((elevQ(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);", "let h = select((elevQ(ll) + P.p0.y + R.p.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);"],   // R.p.y＝ラスタの接地リフト(m)（稜線の弦の潜り対策）
-	["\treturn fillColor(in);\n}", "\tlet af = c.a * R.p.x * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);   // 霧＝塗りと同じフェードアウト・α は非前乗算の画像×層の不透明度\n\tif (af <= 0.003) { discard; }\n\treturn vec4f(mix(c.rgb, F.fogColor, in.fog) * af, af);   // premultiplied\n}"],
-], "RASTER_WGSL");
+
+// 画像タイル層のアトラス合成（raster.js・RTT ドレープ・2026-09-21）＝gl/glsl.js RASTER_ATLAS_VS/FS と対。
+// タイル（メルカトル）を経緯度整列の窓へ描く：頂点＝タイル北西隅からの dLL（格子の行は逆メルカトルの緯度）・A.off.xy＝タイル北西隅−窓南西隅（CPU f64）
+// A.off.zw＝1/窓幅・A.uvT＝祖先の部分 uv・A.p.x＝不透明度。出力は前乗算。NDC y 上＝北（＝テクスチャ行0＝北＝標本化側で v 反転）。
+export const RASTER_ATLAS_WGSL = /* wgsl */`
+struct AP { off: vec4f, uvT: vec4f, p: vec4f };
+@group(0) @binding(0) var<uniform> A: AP;
+@group(1) @binding(0) var aS: sampler;
+@group(1) @binding(1) var aT: texture_2d<f32>;
+struct AOut { @builtin(position) pos: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_uv: vec2f) -> AOut {
+	var o: AOut;
+	let p = (A.off.xy + a_delta) * A.off.zw;
+	o.pos = vec4f(p * 2.0 - 1.0, 0.0, 1.0);
+	o.uv = A.uvT.xy + a_uv * A.uvT.zw;
+	return o;
+}
+@fragment fn fs(in: AOut) -> @location(0) vec4f {
+	let c = textureSample(aT, aS, in.uv);
+	let a = c.a * A.p.x;
+	return vec4f(c.rgb * a, a);
+}
+`;
