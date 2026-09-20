@@ -120,5 +120,34 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ch.port1.close(); ch.port2.close?.();
 }
 
+// 6. 退避の掟：予算が可視集合より小さくても「描画中のテクスチャ」は絶対に破棄しない（iPhone 黒画面 2026-09-21 の回帰封じ）＋粗化で可視集合が予算に収まる
+{
+	const ch = new MessageChannel();
+	ch.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; ch.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
+	ch.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 18, bbox: null, name: "tiny" } });
+	const freed = new Set(), live = new Set();
+	const R = { last: null,
+		rasterTex: bm => { const h = { kind: "tex", bytes: Math.round(bm.width * bm.height * 4 * 4 / 3) }; live.add(h); return h; },
+		rasterMesh: m => ({ kind: "mesh", bytes: m.pos.byteLength, count: m.idx.length }),
+		rasterFree: h => { if (h.kind === "tex") { freed.add(h); live.delete(h); } }, setRasterDraws: rd => { R.last = rd; } };
+	const raster = createRaster({ renderer: R, requestDraw: () => {}, post: () => {}, budgetMB: 2 });   // 2MB ≈ 6 枚
+	await raster.add("t", { port: ch.port2 }, { order: "under" });
+	const cam = { center: [139.7, 35.7], zoom: 12, pitch: 0.6, bearing: 0, dpr: 1 };
+	let bad = 0, maxDraws = 0;
+	for (let i = 0; i < 60; i++) {
+		raster.update(i % 2 ? cam : { ...cam, zoom: 12.0001 }, 800, 600);   // 静止と微動を交互＝両方の経路で退避が走る
+		await new Promise(r => setTimeout(r, 25));
+		if (R.last) for (const L of R.last.layers) for (const d of L.draws) if (freed.has(d.tex)) bad++;
+		if (R.last) maxDraws = Math.max(maxDraws, R.last.layers[0]?.draws.length || 0);
+	}
+	// 20 フレーム静止＝在庫は予算超過のまま・描画リストは不変＝退避が描画中の物を触らないことの検分
+	for (let i = 0; i < 20; i++) { raster.update(cam, 800, 600); await new Promise(r => setTimeout(r, 25)); if (R.last) for (const L of R.last.layers) for (const d of L.draws) if (freed.has(d.tex)) bad++; }
+	const st = raster.stats();
+	ok(bad === 0, `evict never frees textures in the draw list (violations=${bad}, freed=${freed.size})`);
+	ok(maxDraws > 0 && maxDraws * 349525 <= 2 * 1048576 * 0.7 + 349525, `coarsening keeps visible set near budget (maxDraws=${maxDraws})`);
+	ok(st.texBytes <= 2 * 1048576 + 349525 * 2 || freed.size > 0, `budget enforced or eviction ran (texBytes=${(st.texBytes / 1048576).toFixed(1)}MB freed=${freed.size})`);
+	raster.destroy(); ch.port1.close();
+}
+
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");
 process.exit(fails ? 1 : 0);

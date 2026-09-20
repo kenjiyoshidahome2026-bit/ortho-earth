@@ -50,13 +50,14 @@ export function ancestorUV(x, y, d) {
 	return [(x & (m - 1)) * inv, (y & (m - 1)) * inv, inv, inv];
 }
 
-export function createRaster({ renderer, requestDraw, lowMem = false, post = null, maxTiles = 400 } = {}) {
+export function createRaster({ renderer, requestDraw, lowMem = false, post = null, maxTiles = lowMem ? 160 : 400, budgetMB = null } = {}) {
 	const layers = new Map();          // id → L
 	const meshes = new Map();          // "z/y/n" → { h, seen }（層をまたいで共有）
 	const MESH_CAP = 256;
-	const BUDGET = (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側
+	const BUDGET = budgetMB ? Math.round(budgetMB * 1048576) : (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側。budgetMB＝検定用の明示
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
-	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0;
+	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
+	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false;
 	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
 	function meshFor(z, y) {
@@ -83,7 +84,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	// 取得（並列上限つき・距離順）。ready で層を dirty＝次フレームで描画リストが更新される
 	function pump() {
-		while (inflight < CONC) {
+		while (inflight < (moving ? CONC_MOVING : CONC)) {
 			let best = null, bestL = null;
 			for (const L of layers.values()) {
 				if (!L.source || !L.queue.length) continue;
@@ -119,11 +120,15 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	function selectFor(L, cam, W, H, opts) {
 		const src = L.source;
-		const sel = selectLOD(cam, W, H, {
-			minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom,
-			tilePx: src.tileSize * 1.1,   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）
-			sticky: L.sticky, groundR: opts?.groundR ?? 1,
-		});
+		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
+		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
+		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
+		let tilePx = src.tileSize * 1.1, sel = null;   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）
+		for (let step = 0; step < 4; step++) {
+			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1 });
+			if (sel.length * perTile <= share) break;
+			tilePx *= 1.6;
+		}
 		// 枚数の上限（低 z の巨大視野・極端なチルト）：中心に近い順に残す＝遠景の掠りタイルを落とす
 		if (sel.length > maxTiles) {
 			const c = cam.center;
@@ -192,8 +197,13 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	function evict() {
 		if (texBytes <= BUDGET) return;
+		// ⚠描画リストが参照中のテクスチャは絶対に退避しない：WebGPU は「破棄済みテクスチャを submit で使用」＝検証エラーで
+		// フレームが丸ごと落ちる（＝黒画面。iPhone 実機で 2026-09-21 に被弾：静止中は seen が進まないのに時計だけ進み、
+		// 予算超過の瞬間に可視タイルまで destroy していた）。可視集合が予算を超える分は selectFor の粗化が受け持つ。
+		const inUse = new Set();
+		for (const L of layers.values()) for (const d of L.draws) inUse.add(d.tex);
 		const cands = [];
-		for (const L of layers.values()) for (const [k, e] of L.cache) if (e.status === "ready" && e.seen !== clock) cands.push([L, k, e]);
+		for (const L of layers.values()) for (const [k, e] of L.cache) if (e.status === "ready" && e.tex && !inUse.has(e.tex)) cands.push([L, k, e]);
 		cands.sort((a, b) => a[2].seen - b[2].seen);
 		for (const [L, k, e] of cands) { if (texBytes <= BUDGET) break; freeEntry(e); L.cache.delete(k); }
 	}
@@ -202,6 +212,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	function update(cam, W, H, opts) {
 		if (!layers.size) return;
 		clock++;
+		const wasMoving = moving; moving = !!opts?.moving;
+		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
 		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
 		let changed = false;
 		const rd = { origin: [cam.center[0], cam.center[1]], hideFills: false, layers: [] };
