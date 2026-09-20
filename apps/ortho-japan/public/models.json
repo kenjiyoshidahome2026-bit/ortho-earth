@@ -1,54 +1,174 @@
 {
-	"_": "名所 3D 模型の台帳（models.html）。url＝GLB の置き場（bucket GIS/models/<id>.glb＝uploader で置く）。lon/lat＝設置点（模型の原点が来る所）・heading＝北から時計回りの度・scale＝倍率・zoom/tilt/bearing＝飛んだ後の視点。出典は CC BY（Sketchfab・作者名を必ず出す）。候補の取捨は本人（2026-09-20）",
+	"_": "名所 3D 模型の台帳（models.html）。url＝GLB の置き場（bucket GIS/models/<id>.glb＝uploader で置く）。lon/lat＝設置点（模型の原点が来る所）・heading＝北から時計回りの度・scale＝倍率・zoom/tilt/bearing＝飛んだ後の視点。出典は CC BY（Sketchfab・作者名を必ず出す）。候補の取捨は本人（2026-09-20）。GLB の入手＝Objaverse（Sketchfab CC モデルの Hugging Face ミラー・ログイン不要）＝uid が同じ。無い 5 件（ケルン・ミッケリ・慈寿塔・定慧寺・Holy Rosary）は 9/20 に外した",
 	"base": "https://api.ortho-earth.com/bucket/GIS/models/",
 	"models": [
-		{ "id": "kokura-castle", "name": { "en": "Kokura Castle", "ja": "小倉城" }, "place": { "en": "Kitakyushu, Japan", "ja": "北九州市" },
-		  "lon": 130.8742, "lat": 33.8843, "zoom": 17.2, "tilt": 55, "bearing": 20, "heading": 0, "scale": 1,
-		  "author": "AVATTA", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/kokura-castle-aba23531911c45439067a6e0aaccad07", "faces": 1460392, "mb": 88,
-		  "thumb": "https://media.sketchfab.com/models/aba23531911c45439067a6e0aaccad07/thumbnails/bddd547d11f144b5a02d2f278ddb137c/af95844bc0f34c19be0c9f549a353752.jpeg" },
-		{ "id": "himeji-castle", "name": { "en": "Himeji Castle", "ja": "姫路城" }, "place": { "en": "Himeji, Japan", "ja": "姫路市" },
-		  "lon": 134.6939, "lat": 34.8394, "zoom": 16.8, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Brian Trepanier", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/himeji-castle-himeji-hyogo-japan-6e33b2a9dd42486da236b015bce8c366", "faces": 1532380, "mb": 236,
-		  "thumb": "https://media.sketchfab.com/models/6e33b2a9dd42486da236b015bce8c366/thumbnails/f8a0f982c3a246b89d6f78f21e8f6dd6/b2f4e475c93e4ac1b7ac69dad8ebdfca.jpeg" },
-		{ "id": "shuri-castle", "name": { "en": "Shuri Castle (before the 2019 fire)", "ja": "首里城（2019年焼失前）" }, "place": { "en": "Naha, Okinawa", "ja": "那覇市" },
-		  "lon": 127.7194, "lat": 26.2170, "zoom": 17.2, "tilt": 55, "bearing": -30, "heading": 0, "scale": 1,
-		  "author": "Raiz (Our Shurijo)", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/shuri-castle-shurijo-naha-okinawa-wip-45f901e4d6fa4192a6f329e35f2dc5b8", "faces": 119342, "mb": 42,
-		  "thumb": "https://media.sketchfab.com/models/45f901e4d6fa4192a6f329e35f2dc5b8/thumbnails/cc8828ff0f494b848363748da7a328b7/8bd8dd92b9564aef96baac3924fa8b54.jpeg" },
-		{ "id": "cologne-cathedral", "name": { "en": "Cologne Cathedral", "ja": "ケルン大聖堂" }, "place": { "en": "Cologne, Germany", "ja": "ドイツ・ケルン" },
-		  "lon": 6.9583, "lat": 50.9413, "zoom": 17.0, "tilt": 55, "bearing": 30, "heading": 0, "scale": 1,
-		  "author": "Shahriar Shahrabi", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/cologne-cathedral-200bac005a2e42458e64060d9719cd06", "faces": 367835, "mb": 73,
-		  "thumb": "https://media.sketchfab.com/models/200bac005a2e42458e64060d9719cd06/thumbnails/c9c724a4ba474e0f980a8f3c14843a18/b6cabb76ca4345d78e3c53bcf083ba33.jpeg" },
-		{ "id": "batalha-monastery", "name": { "en": "Monastery of Batalha", "ja": "バターリャ修道院" }, "place": { "en": "Batalha, Portugal", "ja": "ポルトガル・バターリャ" },
-		  "lon": -8.8262, "lat": 39.6593, "zoom": 17.0, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Shahriar Shahrabi", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/monastery-of-batalha-76b0b60b24aa471c9d0cf719db236045", "faces": 502040, "mb": 63,
-		  "thumb": "https://media.sketchfab.com/models/76b0b60b24aa471c9d0cf719db236045/thumbnails/c7a8c152318349b1b55fe0f915dc252e/d93169b14e5d4f9d8dac217f96d686d8.jpeg" },
-		{ "id": "mikkeli-cathedral", "name": { "en": "Mikkeli Cathedral", "ja": "ミッケリ大聖堂" }, "place": { "en": "Mikkeli, Finland", "ja": "フィンランド・ミッケリ" },
-		  "lon": 27.2745, "lat": 61.6873, "zoom": 17.2, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Lassi Kaukonen", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/mikkeli-cathedral-07eb9b534fdc40b2b7b62da4732709a5", "faces": 995328, "mb": 178,
-		  "thumb": "https://media.sketchfab.com/models/07eb9b534fdc40b2b7b62da4732709a5/thumbnails/850410727e494a8e92a934f1edcb4a74/1b8edf5ec4874c5199026713032450ea.jpeg" },
-		{ "id": "butron-castle", "name": { "en": "Butrón Castle", "ja": "ブトロン城" }, "place": { "en": "Gatika, Spain", "ja": "スペイン・ガティカ" },
-		  "lon": -2.9014, "lat": 43.3758, "zoom": 17.4, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "333DDD", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/butron-castle-1ec4dc9a903c4bfeba9e1abcdbac2ae6", "faces": 797762, "mb": 60,
-		  "thumb": "https://media.sketchfab.com/models/1ec4dc9a903c4bfeba9e1abcdbac2ae6/thumbnails/460f5d130c1c490086be3005f8ac5a2f/e1a63e68948e4860a536f65495d8008c.jpeg" },
-		{ "id": "rocca-calascio", "name": { "en": "Rocca Calascio", "ja": "ロッカ・カラーショ城" }, "place": { "en": "Abruzzo, Italy", "ja": "イタリア・アブルッツォ" },
-		  "lon": 13.6969, "lat": 42.3289, "zoom": 17.4, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "333DDD", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/castle-of-rocca-calascio-a2c736d016994ca7b90561516ded119a", "faces": 831310, "mb": 68,
-		  "thumb": "https://media.sketchfab.com/models/a2c736d016994ca7b90561516ded119a/thumbnails/f5492d41da9a4d04a32e4e2fbd3b7e95/8936072af5ee402fad7c65e31df8bf67.jpeg" },
-		{ "id": "cishou-pagoda", "name": { "en": "Cishou Pagoda, Jinshan Temple", "ja": "金山寺 慈寿塔" }, "place": { "en": "Zhenjiang, China", "ja": "中国・鎮江" },
-		  "lon": 119.4126, "lat": 32.2199, "zoom": 17.4, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Metazeon", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/jinshan-temple-cishou-pagoda-75e7f2aeb92a42d1a69c07e167a01ca7", "faces": 945644, "mb": 89,
-		  "thumb": "https://media.sketchfab.com/models/75e7f2aeb92a42d1a69c07e167a01ca7/thumbnails/1ac7a899fc6b422d9f43105f11c77d3d/a353f3ba2a5c4beca4e13ec9cfbcf6a7.jpeg" },
-		{ "id": "dinghui-temple", "name": { "en": "Dinghui Temple, Jiaoshan", "ja": "焦山 定慧寺" }, "place": { "en": "Zhenjiang, China", "ja": "中国・鎮江" },
-		  "lon": 119.4778, "lat": 32.2278, "zoom": 17.2, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Metazeon", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/jiaoshan-dinghui-temple-76b17714145141d4823b2e63eb2a5e80", "faces": 951840, "mb": 87,
-		  "thumb": "https://media.sketchfab.com/models/76b17714145141d4823b2e63eb2a5e80/thumbnails/f6ab1f136ede4d529f168ab164b6bf59/37c04c84a71a4c5483b6209ad8dd78d5.jpeg" },
-		{ "id": "holy-rosary-cathedral", "name": { "en": "Holy Rosary Cathedral", "ja": "ホーリー・ロザリー大聖堂" }, "place": { "en": "Vancouver, Canada", "ja": "カナダ・バンクーバー" },
-		  "lon": -123.1160, "lat": 49.2828, "zoom": 17.4, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "Air Digital", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/cathedral-of-our-lady-of-the-holy-rosary-853fbbef97d646cd805adc4f4fcf2f4b", "faces": 1636766, "mb": 95,
-		  "thumb": "https://media.sketchfab.com/models/853fbbef97d646cd805adc4f4fcf2f4b/thumbnails/9441331a14144f65b961348daa461f2f/a44578f088cf4de490b0810e6e4391f7.jpeg" },
-		{ "id": "peterborough-guildhall", "name": { "en": "Guildhall, Peterborough", "ja": "ピーターバラ ギルドホール" }, "place": { "en": "Peterborough, UK", "ja": "英国・ピーターバラ" },
-		  "lon": -0.2421, "lat": 52.5725, "zoom": 18.0, "tilt": 55, "bearing": 0, "heading": 0, "scale": 1,
-		  "author": "JackMGlauser", "license": "CC BY 4.0", "source": "https://sketchfab.com/3d-models/guildhall-peterborough-uk-3d-scan-b2adfd81474247ce94fd40add8295e49", "faces": 1056154, "mb": 56,
-		  "thumb": "https://media.sketchfab.com/models/b2adfd81474247ce94fd40add8295e49/thumbnails/f0c21070f1cc4571b8e0147ac6b7263d/720x405.jpeg" }
+		{
+			"id": "kokura-castle",
+			"name": {
+				"en": "Kokura Castle",
+				"ja": "小倉城"
+			},
+			"place": {
+				"en": "Kitakyushu, Japan",
+				"ja": "北九州市"
+			},
+			"lon": 130.8742,
+			"lat": 33.8843,
+			"zoom": 17.2,
+			"tilt": 55,
+			"bearing": 20,
+			"heading": 0,
+			"scale": 1,
+			"author": "AVATTA",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/kokura-castle-aba23531911c45439067a6e0aaccad07",
+			"faces": 1460392,
+			"mb": 55,
+			"thumb": "https://media.sketchfab.com/models/aba23531911c45439067a6e0aaccad07/thumbnails/bddd547d11f144b5a02d2f278ddb137c/af95844bc0f34c19be0c9f549a353752.jpeg"
+		},
+		{
+			"id": "himeji-castle",
+			"name": {
+				"en": "Himeji Castle",
+				"ja": "姫路城"
+			},
+			"place": {
+				"en": "Himeji, Japan",
+				"ja": "姫路市"
+			},
+			"lon": 134.6939,
+			"lat": 34.8394,
+			"zoom": 16.8,
+			"tilt": 55,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "Brian Trepanier",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/himeji-castle-himeji-hyogo-japan-6e33b2a9dd42486da236b015bce8c366",
+			"faces": 1532380,
+			"mb": 167,
+			"thumb": "https://media.sketchfab.com/models/6e33b2a9dd42486da236b015bce8c366/thumbnails/f8a0f982c3a246b89d6f78f21e8f6dd6/b2f4e475c93e4ac1b7ac69dad8ebdfca.jpeg"
+		},
+		{
+			"id": "shuri-castle",
+			"name": {
+				"en": "Shuri Castle (before the 2019 fire)",
+				"ja": "首里城（2019年焼失前）"
+			},
+			"place": {
+				"en": "Naha, Okinawa",
+				"ja": "那覇市"
+			},
+			"lon": 127.7194,
+			"lat": 26.217,
+			"zoom": 17.2,
+			"tilt": 55,
+			"bearing": -30,
+			"heading": 0,
+			"scale": 1,
+			"author": "Raiz (Our Shurijo)",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/shuri-castle-shurijo-naha-okinawa-wip-45f901e4d6fa4192a6f329e35f2dc5b8",
+			"faces": 119342,
+			"mb": 7,
+			"thumb": "https://media.sketchfab.com/models/45f901e4d6fa4192a6f329e35f2dc5b8/thumbnails/cc8828ff0f494b848363748da7a328b7/8bd8dd92b9564aef96baac3924fa8b54.jpeg"
+		},
+		{
+			"id": "batalha-monastery",
+			"name": {
+				"en": "Monastery of Batalha",
+				"ja": "バターリャ修道院"
+			},
+			"place": {
+				"en": "Batalha, Portugal",
+				"ja": "ポルトガル・バターリャ"
+			},
+			"lon": -8.8262,
+			"lat": 39.6593,
+			"zoom": 17,
+			"tilt": 55,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "Shahriar Shahrabi",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/monastery-of-batalha-76b0b60b24aa471c9d0cf719db236045",
+			"faces": 502040,
+			"mb": 26,
+			"thumb": "https://media.sketchfab.com/models/76b0b60b24aa471c9d0cf719db236045/thumbnails/c7a8c152318349b1b55fe0f915dc252e/d93169b14e5d4f9d8dac217f96d686d8.jpeg"
+		},
+		{
+			"id": "butron-castle",
+			"name": {
+				"en": "Butrón Castle",
+				"ja": "ブトロン城"
+			},
+			"place": {
+				"en": "Gatika, Spain",
+				"ja": "スペイン・ガティカ"
+			},
+			"lon": -2.9014,
+			"lat": 43.3758,
+			"zoom": 17.4,
+			"tilt": 55,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "333DDD",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/butron-castle-1ec4dc9a903c4bfeba9e1abcdbac2ae6",
+			"faces": 797762,
+			"mb": 35,
+			"thumb": "https://media.sketchfab.com/models/1ec4dc9a903c4bfeba9e1abcdbac2ae6/thumbnails/460f5d130c1c490086be3005f8ac5a2f/e1a63e68948e4860a536f65495d8008c.jpeg"
+		},
+		{
+			"id": "rocca-calascio",
+			"name": {
+				"en": "Rocca Calascio",
+				"ja": "ロッカ・カラーショ城"
+			},
+			"place": {
+				"en": "Abruzzo, Italy",
+				"ja": "イタリア・アブルッツォ"
+			},
+			"lon": 13.6969,
+			"lat": 42.3289,
+			"zoom": 17.4,
+			"tilt": 55,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "333DDD",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/castle-of-rocca-calascio-a2c736d016994ca7b90561516ded119a",
+			"faces": 831310,
+			"mb": 33,
+			"thumb": "https://media.sketchfab.com/models/a2c736d016994ca7b90561516ded119a/thumbnails/f5492d41da9a4d04a32e4e2fbd3b7e95/8936072af5ee402fad7c65e31df8bf67.jpeg"
+		},
+		{
+			"id": "peterborough-guildhall",
+			"name": {
+				"en": "Guildhall, Peterborough",
+				"ja": "ピーターバラ ギルドホール"
+			},
+			"place": {
+				"en": "Peterborough, UK",
+				"ja": "英国・ピーターバラ"
+			},
+			"lon": -0.2421,
+			"lat": 52.5725,
+			"zoom": 18,
+			"tilt": 55,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "JackMGlauser",
+			"license": "CC BY 4.0",
+			"source": "https://sketchfab.com/3d-models/guildhall-peterborough-uk-3d-scan-b2adfd81474247ce94fd40add8295e49",
+			"faces": 1056154,
+			"mb": 40,
+			"thumb": "https://media.sketchfab.com/models/b2adfd81474247ce94fd40add8295e49/thumbnails/f0c21070f1cc4571b8e0147ac6b7263d/720x405.jpeg"
+		}
 	]
 }
