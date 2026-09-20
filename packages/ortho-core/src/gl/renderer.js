@@ -1474,7 +1474,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）。msaa=0＝canvas antialias:true はブラウザ暗黙確保（HUD 注記）
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster });
 	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
-		rasterTex, rasterMesh, rasterFree, setRasterDraws, dbg: () => (dbgC ? { ...dbgC, raster: rasterDrawn } : null) };   // 画像タイル層（raster.js の renderer 契約）
+		rasterTex, rasterMesh, rasterFree, setRasterDraws, dbg: () => (dbgC ? { ...dbgC, raster: rasterDrawn } : null),
+		terrainCell: () => (terrain && elev.has && terrain.G > 1) ? [terrain.mesh[2] / (terrain.G - 1), terrain.mesh[3] / (terrain.G - 1)] : null };   // 地形メッシュの格子幅(deg)＝ラスタの細分が地形より粗くならないように   // 画像タイル層（raster.js の renderer 契約）
 }
 
 // --- GL ヘルパ ---

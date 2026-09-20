@@ -41,8 +41,16 @@ export function buildTileMesh(z, y, n) {
 	}
 	return { pos, uv, idx, n };
 }
-// 細分数：低 z の巨大タイルほど細かく（球の曲率）。z≥6 は 16＝z8 で 1 頂点 ≈ 10km・z16 で 32m
-export const subdivOf = z => z < 3 ? 32 : z < 6 ? 24 : 16;
+// 細分数：低 z の巨大タイルほど細かく（球の曲率）。z≥6 は 16＝z8 で 1 頂点 ≈ 10km・z16 で 32m。
+// cell＝地形メッシュの格子幅(deg・[dLon,dLat])＝チルト時：頂点間隔を地形の格子より細かく（頂点は elevQ で地形面に乗るが
+// 頂点間は平面＝凸斜面で地形が突き抜ける＝gint 線の「地形貫き」と同型）。上限 48（2401 頂点/枚）。
+export const subdivOf = (z, y = 0, cell = null) => {
+	const base = z < 3 ? 32 : z < 6 ? 24 : 16;
+	if (!cell) return base;
+	const [w, s, e, n] = tileBounds(0, y, z);
+	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 1.25);   // 格子より 25% 細かく（対角の向きの差を吸収）
+	return Math.max(base, Math.min(48, need));
+};
 
 // 祖先の部分 uv：タイル (z,x,y) を祖先 (z−d) のテクスチャで描く時の [u0, v0, su, sv]（メルカトルは段を跨いでも線形＝厳密）
 export function ancestorUV(x, y, d) {
@@ -60,8 +68,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false;
 	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
-	function meshFor(z, y) {
-		const n = subdivOf(z), k = `${z}/${y}/${n}`;
+	function meshFor(z, y, cell) {
+		const n = subdivOf(z, y, cell), k = `${z}/${y}/${n}`;
 		let m = meshes.get(k);
 		if (!m) {
 			const h = renderer.rasterMesh(buildTileMesh(z, y, n));
@@ -189,7 +197,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			while (!(e && e.status === "ready") && d < MAX_UP && z > 0) { z--; x >>= 1; y >>= 1; d++; e = L.cache.get(keyOf(z, x, y)); }
 			if (!(e && e.status === "ready")) continue;
 			const [w, , , n] = tileBounds(t.x, t.y, t.z);
-			draws.push({ mesh: meshFor(t.z, t.y), tex: e.tex, off: [w - c[0], n - c[1]], uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z });
+			draws.push({ mesh: meshFor(t.z, t.y, opts?.cell || null), tex: e.tex, off: [w - c[0], n - c[1]], uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z });
 		}
 		L.draws = draws;
 		L.selN = sel.length;
@@ -214,7 +222,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		clock++;
 		const wasMoving = moving; moving = !!opts?.moving;
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
-		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
+		const cl = opts?.cell ? `${opts.cell[0].toExponential(2)}` : "-";   // 地形窓の切替（格子幅が変わる）でもメッシュを組み直す
+		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}/${cl}`;
 		let changed = false;
 		const rd = { origin: [cam.center[0], cam.center[1]], hideFills: false, layers: [] };
 		for (const L of layers.values()) {

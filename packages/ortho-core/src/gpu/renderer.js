@@ -1695,5 +1695,6 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster }),
 		rasterTex, rasterMesh, rasterFree, setRasterDraws,   // 画像タイル層（raster.js の renderer 契約）
+		terrainCell: () => (terrain && elev.has && terrain.G > 1) ? [terrain.mesh[2] / (terrain.G - 1), terrain.mesh[3] / (terrain.G - 1)] : null,   // 地形メッシュの格子幅(deg)
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
