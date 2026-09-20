@@ -48,7 +48,7 @@ export const subdivOf = (z, y = 0, cell = null) => {
 	const base = z < 3 ? 32 : z < 6 ? 24 : 16;
 	if (!cell) return base;
 	const [w, s, e, n] = tileBounds(0, y, z);
-	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 1.25);   // 格子より 25% 細かく（対角の向きの差を吸収）
+	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 2.5);   // 格子の 2.5 倍細かく＝折れ目をまたぐ弦の潜りを小さく（深度バイアスと併用）
 	return Math.max(base, Math.min(48, need));
 };
 

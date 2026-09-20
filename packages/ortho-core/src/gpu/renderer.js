@@ -317,7 +317,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
 			raster: pipe(rasMod, RASTER_BUFS, dsOff, "fs", rasLayout),         // 画像タイル層（平面・深度なし）
-			rasterTest: pipe(rasMod, RASTER_BUFS, dsTest, "fs", rasLayout),    // 同・山岳ビュー（地形深度でテストだけ＝塗りと同じ）
+			rasterTest: pipe(rasMod, RASTER_BUFS, { ...dsTest, depthBias: -4, depthBiasSlopeScale: -1.0 }, "fs", rasLayout),    // 同・山岳ビュー（地形深度でテストだけ）＋手前へのバイアス＝地形の dsTerrain(4,1) の逆向き（折れ目をまたぐ弦が地形に潜って斑になる件・デカールの定石）
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
