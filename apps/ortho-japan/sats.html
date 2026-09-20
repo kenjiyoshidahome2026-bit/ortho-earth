@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#0b1021}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<title>Satellites in orbit now — ortho-japan</title>
+	<meta name="description" content="About 16,000 active satellites (CelesTrak GP) propagated in your browser with SGP4 and shown in 3D around the globe in real time.">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 人工衛星ビューア＝いま軌道にいる衛星（CelesTrak GP・active 約 1.6 万機）を地球儀のまわりに実時刻で立体表示する＝地震（quakes.html＝地下）と対の「3D の地上」。
+		// このページは器だけ：SDK 二重構成（quakes.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
+		// 描画と案内板は ./sats.js（遅延 chunk・GPU 描画は sats-gl.js＝レンダーワーカー内の同一フレーム）。
+		// データ＝ミラー（www.ortho-earth.com/sats/active.csv＝apps/sats-mirror・CORS 開放）→ だめなら CelesTrak 直読み。ブラウザが SGP4 で伝播する（鯖焼き無し）。
+		// ?src=URL で差し替え可（CSV・OMM 形式）。
+		(async () => {
+			// 言語（./i18n.js・英語キー・26 言語）：html の lang/dir をこの言語に。文言（title/description/パネル）は sats.js が t() で組む＝走査器（.js だけ読む）の目に入る
+			const { setLang, getLang, isRTL } = await import("./i18n.js");
+			await setLang();
+			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
+			let engineP;
+			if (import.meta.env.PROD) {
+				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
+				const LIB = "/japan/lib/ortho-japan.js";
+				engineP = import(/* @vite-ignore */ LIB);
+			} else {
+				engineP = import("./app.js");
+			}
+			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
+			try {
+				const [{ default: orthoJapan }, { mountSats, MIRROR, CELESTRAK }] = await Promise.all([engineP, import("./sats.js")]);
+				// 初期視点＝地球を少し引いて眺める（低軌道の殻と中軌道が見える距離。静止軌道はさらに引く）（共有 URL の hash があればそちら）
+				const map = await orthoJapan({ target: "#map", view: location.hash || "#1.4/25/140", theme: "dark", chips: false,
+					plateau: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+				dismissBoot();
+				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+				const src = new URLSearchParams(location.search).get("src") || [MIRROR, CELESTRAK];   // 読む順＝ミラー → 本家
+				const sats = await mountSats(map, { src });
+				window.__map = map; window.__sats = sats;   // console 検証用
+			} catch (e) { console.error("[sats] startup failed", e); dismissBoot(); }
+		})();
+	</script>
+</body>
+</html>

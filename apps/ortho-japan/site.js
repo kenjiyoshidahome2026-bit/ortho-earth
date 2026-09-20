@@ -42,7 +42,6 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.equal({ zoom: [-99, 5] });      // 全球図（Equal Earth）へ＝地球全体を眺める距離だけ（球のフレームから開く受け渡し・2026-09-20）
 	if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });   // 入口＝紙の全球図（本人 9/20「規定を EE に」の体感用・既定化は裁定待ち）。z は equal 側が画面幅に合わせる
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
-	map.gadget.sats({ zoom: [-99, 6.5] });     // いま軌道にいる人工衛星（CelesTrak 直読み＋自前 SGP4）＝星空＋世界帯（地球を丸ごと眺める距離の道具）
 	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる＝自前の display 裁き）
 	map.gadget.cpos({ zoom: [6.5, 99] });      // 現在地（GPS。押すと寄って点滅マーカー）＝基図の門から
 	map.gadget.measure({ zoom: [6.5, 99] });   // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）＝同上
