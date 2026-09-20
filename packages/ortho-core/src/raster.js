@@ -1,16 +1,21 @@
 // 画像タイル層（メルカトル XYZ ラスタ）＝v1 ortho-map base.js の知見を v2 のノード（mat4／球／worker／地形）で再導出したもの。
 //
 // 置き場＝render worker（terrain.js と同じ流儀：自前で取得し、GPU 資産は renderer の口で作る）。DOM に触れない。
-// 描画方式＝「テクスチャ付き塗り op」：タイル 1 枚＝タイル北西隅からの dLL（度）の格子メッシュ＋uv。uv の v はメルカトルで
-// 線形＝格子の行 j は v=j/n・緯度は逆メルカトルで CPU が置く（CRS はシェーダに入れない）。VS は塗りの VS（球・楕円体・
-// 地形リフト・RTE 原点・フォグ）をそのまま使い、FS だけがテクスチャを引く（両バックエンド同型）。
+// 描画方式＝「先に合成・後で貼る」（RTT ドレープ・2026-09-21 本人指摘「基図をしっかり合成してから処理」）：
+//   1. タイル群を GPU で経緯度整列のアトラス（近窓＝視野 1.8 画面幅・遠窓＝選抜の外接）へ合成する（タイル 1 枚＝タイル北西隅からの
+//      dLL 格子メッシュ＋uv。uv の v はメルカトル線形＝格子の行・緯度は逆メルカトルで CPU が置く＝メルカトル→経緯度の warp は
+//      このメッシュが担う。CRS はシェーダに入れない）
+//   2. 地形・球・塗りの FS が画素ごとにアトラスを標本化する（COG スロットと同じ配線）＝地形面そのものに写る＝幾何の不一致がゼロ
+//      （頂点で貼る方式は「折れ目をまたぐ弦が地形に潜る」＝細分・バイアス・リフトでは消えなかった＝iPhone 実機）。
 // 携えた v1 の知見＝祖先フォールバック（親テクスチャの部分 uv）・CLAMP_TO_EDGE＋mips・世代番号で在庫を全捨て。
-// 再導出した所＝選抜（selectLOD：距離 LOD・sticky・地形リフト球）・描画（スクリーン四角形→原点相対メッシュ）・可視判定（深度/カリング）。
+// 再導出した所＝選抜（selectLOD：距離 LOD・sticky・地形リフト球）・貼り方（画素標本化）・可視判定（地形/球の FS に委ねる）。
 //
 // renderer 契約（gl/renderer.js・gpu/renderer.js が実装）：
 //   rasterTex(bitmap) → { kind:"tex", bytes, … }      rasterMesh({pos,uv,idx}) → { kind:"mesh", bytes, count, … }
 //   rasterFree(handle)                                  setRasterDraws(rd | null)
-//   rd = { origin:[lon,lat], hideFills:bool, layers:[{ order:"under"|"over", opacity, draws:[{ mesh, tex, off:[dlon,dlat], uvT:[u0,v0,su,sv] }] }] }
+//   rd = { rev, atlas:2048|1024, near:[W,S,E,N], far:[W,S,E,N]|null, hideFills:bool,
+//          layers:[{ order:"under"|"over", opacity, draws:[{ mesh, tex, nw:[lon,lat], bounds:[w,s,e,n], uvT:[u0,v0,su,sv] }] }] }
+//   renderer は rev が変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
 import { selectLOD } from "./tilecover.js";
 import { tileBounds, tileLocalToLonLat, tileOutsideCoverage } from "./tile.js";
 import { createRasterSource } from "./raster-src.js";
@@ -41,16 +46,8 @@ export function buildTileMesh(z, y, n) {
 	}
 	return { pos, uv, idx, n };
 }
-// 細分数：低 z の巨大タイルほど細かく（球の曲率）。z≥6 は 16＝z8 で 1 頂点 ≈ 10km・z16 で 32m。
-// cell＝地形メッシュの格子幅(deg・[dLon,dLat])＝チルト時：頂点間隔を地形の格子より細かく（頂点は elevQ で地形面に乗るが
-// 頂点間は平面＝凸斜面で地形が突き抜ける＝gint 線の「地形貫き」と同型）。上限 48（2401 頂点/枚）。
-export const subdivOf = (z, y = 0, cell = null) => {
-	const base = z < 3 ? 32 : z < 6 ? 24 : 16;
-	if (!cell) return base;
-	const [w, s, e, n] = tileBounds(0, y, z);
-	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 3);   // 格子の 3 倍細かく＝折れ目をまたぐ弦の潜りを小さく（深度バイアス・リフトと併用）
-	return Math.max(base, Math.min(48, need));
-};
+// 細分数＝メルカトル→経緯度 warp の精度（アトラスは経緯度整列・タイルはメルカトル）。低 z ほど非線形＝細かく。z≥6 は 8 で十分
+export const subdivOf = z => z < 3 ? 32 : z < 6 ? 16 : 8;
 
 // 祖先の部分 uv：タイル (z,x,y) を祖先 (z−d) のテクスチャで描く時の [u0, v0, su, sv]（メルカトルは段を跨いでも線形＝厳密）
 export function ancestorUV(x, y, d) {
@@ -65,11 +62,11 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	const BUDGET = budgetMB ? Math.round(budgetMB * 1048576) : (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側。budgetMB＝検定用の明示
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
 	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
-	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false;
+	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", texSeq = 0;
 	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
-	function meshFor(z, y, cell) {
-		const n = subdivOf(z, y, cell), k = `${z}/${y}/${n}`;
+	function meshFor(z, y) {
+		const n = subdivOf(z), k = `${z}/${y}/${n}`;
 		let m = meshes.get(k);
 		if (!m) {
 			const h = renderer.rasterMesh(buildTileMesh(z, y, n));
@@ -110,7 +107,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 				if (L.gen !== myGen || !layers.has(L.id)) { bitmap?.close?.(); return; }   // 世代替わり（remove/再 add）の遅着＝捨てる
 				if (!bitmap) { e.status = "empty"; }
 				else {
-					try { e.tex = renderer.rasterTex(bitmap); e.bytes = e.tex.bytes || 0; texBytes += e.bytes; e.status = "ready"; }
+					try { e.tex = renderer.rasterTex(bitmap); e.tex.id = ++texSeq; e.bytes = e.tex.bytes || 0; texBytes += e.bytes; e.status = "ready"; }
 					catch (err) { e.status = "error"; e.tries = (e.tries || 0) + 1; console.warn("[raster] texture upload failed", err?.message); }
 					bitmap.close?.();
 				}
@@ -196,8 +193,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			let d = 0;
 			while (!(e && e.status === "ready") && d < MAX_UP && z > 0) { z--; x >>= 1; y >>= 1; d++; e = L.cache.get(keyOf(z, x, y)); }
 			if (!(e && e.status === "ready")) continue;
-			const [w, , , n] = tileBounds(t.x, t.y, t.z);
-			draws.push({ mesh: meshFor(t.z, t.y, opts?.cell || null), tex: e.tex, off: [w - c[0], n - c[1]], uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z });
+			const b = tileBounds(t.x, t.y, t.z);
+			draws.push({ mesh: meshFor(t.z, t.y), tex: e.tex, nw: [b[0], b[3]], bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z });
 		}
 		L.draws = draws;
 		L.selN = sel.length;
@@ -222,13 +219,14 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		clock++;
 		const wasMoving = moving; moving = !!opts?.moving;
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
-		const cl = opts?.cell ? `${opts.cell[0].toExponential(2)}` : "-";   // 地形窓の切替（格子幅が変わる）でもメッシュを組み直す
-		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}/${cl}`;
+		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
 		let changed = false;
-		// 接地リフト(m)＝地形格子幅に比例（72m 格子で ≈9m・2〜12m）：稜線の折れ目をまたぐ弦の潜りはバイアスだけでは尾根沿いに残る（iPhone 実機）。
-		// ラスタは深度を書かない＝建物/線には影響せず、地形深度との比較でだけ手前に出る（線の接地リフト cityLift と同じ機構）
-		const lift = opts?.cell ? Math.max(2, Math.min(12, opts.cell[1] * 111320 * 0.12)) : 0;
-		const rd = { origin: [cam.center[0], cam.center[1]], hideFills: false, lift, layers: [] };
+		// アトラスの窓：近窓＝視野中心 ±0.9 画面幅（cog ガジェットの viewWindow と同じ尺＝2048px が ≈1.1px/画面px）・遠窓＝選抜タイルの外接
+		// （近窓を含む・近窓の 24 倍まで）。窓は動いても rev が変わらなければ描き直さない（下）
+		const dpr = cam.dpr || 1, capW = 360 * (W / dpr) / (256 * Math.pow(2, cam.zoom)) * 0.9, capH = capW * H / W;
+		const cx = cam.center[0], cy = cam.center[1];
+		const near = [cx - capW, Math.max(-85, cy - capH), cx + capW, Math.min(85, cy + capH)];
+		const rd = { rev: 0, atlas: lowMem ? 1024 : 2048, near, far: null, hideFills: false, layers: [] };
 		for (const L of layers.values()) {
 			if (!L.source || !L.visible) { if (L.draws.length) { L.draws = []; changed = true; } continue; }
 			const inRange = cam.zoom >= L.showMin && cam.zoom <= L.showMax;
@@ -242,6 +240,17 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		}
 		evict();
 		drawCount = 0; for (const l of rd.layers) drawCount += l.draws.length;
+		if (rd.layers.length) {
+			let fw = near[0], fs = near[1], fe = near[2], fn = near[3];
+			for (const l of rd.layers) for (const d of l.draws) { fw = Math.min(fw, d.bounds[0]); fs = Math.min(fs, d.bounds[1]); fe = Math.max(fe, d.bounds[2]); fn = Math.max(fn, d.bounds[3]); }
+			const capF = 24;   // 遠窓の上限＝近窓の 24 倍（z0 の全球タイルなどで無限に広げない）
+			fw = Math.max(fw, cx - capW * capF); fe = Math.min(fe, cx + capW * capF); fs = Math.max(fs, cy - capH * capF, -85); fn = Math.min(fn, cy + capH * capF, 85);
+			rd.far = (fw < near[0] - 1e-9 || fs < near[1] - 1e-9 || fe > near[2] + 1e-9 || fn > near[3] + 1e-9) ? [fw, fs, fe, fn] : null;
+			// 改訂番号：描画リスト（tex/uvT）か窓が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない
+			const sig = rd.near.map(v => v.toFixed(5)).join(",") + "|" + (rd.far ? rd.far.map(v => v.toFixed(5)).join(",") : "-") + "|" + rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
+			if (sig !== lastSig) { lastSig = sig; rev++; }
+			rd.rev = rev;
+		} else lastSig = "";
 		renderer.setRasterDraws(rd.layers.length ? rd : null);
 		return changed;
 	}
