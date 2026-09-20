@@ -239,6 +239,9 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			if (L.order === "under" && L.hideFills && L.draws.length) rd.hideFills = true;
 		}
 		evict();
+		// 合成順＝under（基図）を先に・over（重ね）を後に（同種内は追加順）。Map の追加順のままだと「重ねを先に点けてから基図を選ぶ」で
+		// 基図が重ねの上に描かれ、ハザード等が見えなくなる（俯瞰レビューで発見 2026-09-21）
+		rd.layers.sort((a, b) => (a.order === "over" ? 1 : 0) - (b.order === "over" ? 1 : 0));
 		drawCount = 0; for (const l of rd.layers) drawCount += l.draws.length;
 		if (rd.layers.length) {
 			let fw = near[0], fs = near[1], fe = near[2], fn = near[3];
