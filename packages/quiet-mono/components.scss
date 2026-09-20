@@ -805,3 +805,23 @@
 @media (max-width: 480px) {
 	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); inset-inline-end: 10px; }
 }
+
+/* --- 画像タイル（ラスタ）切替：スタックのボタン＋右へ開く小パネル（#search と同じ流儀）。基図＝ラジオ／重ね＝チェック --- */
+#raster {
+	position: relative;
+	#raster-panel {
+		position: absolute; top: 0; inset-inline-start: 42px; display: none; min-width: 190px; max-width: 70vw; max-height: 60vh; overflow-y: auto;   /* 画面下で切れない＝スクロール */
+		background: var(--qm-panel-solid); border: 1px solid var(--qm-border-soft); border-radius: 5px; box-shadow: var(--qm-shadow-pop);
+		padding: 6px 0; font: 13px var(--qm-font); color: #444;
+	}
+	&.open #raster-panel { display: block; }
+	.raster-sec { padding: 4px 12px 2px; font-size: 11px; color: var(--qm-text-faint); letter-spacing: .06em; }
+	.raster-item { display: flex; align-items: center; gap: 8px; padding: 6px 12px; cursor: pointer; white-space: nowrap;
+		&:hover, &.on { background: #eef2f7; }
+		input { margin: 0; accent-color: #3f4757; } }
+}
+/* --- ミニ地球儀（右下・出典の上）：v1 accessories globe の移植。z≤8 で出る・狭画面は出さない（gadgets/globe.js が裁く） --- */
+#globe-mini {
+	position: absolute; inset-inline-end: 10px; bottom: calc(76px + var(--qm-safe-b)); display: none; cursor: pointer;
+	border-radius: 50%; box-shadow: 0 1px 3px rgba(20,30,50,.25);
+}

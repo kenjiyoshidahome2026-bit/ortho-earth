@@ -59,7 +59,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = t("Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / glTF(GLB) / .scenes");
+	card.textContent = t("Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / glTF(GLB) / raster GeoPackage / MBTiles / .scenes");
 	zone.append(card);
 	mapEl.append(zone);
 

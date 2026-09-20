@@ -7,6 +7,7 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "ortho-core/labels";
 import { createTerrain } from "ortho-core/terrain";
+import { createRaster } from "ortho-core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, cameraState, project } from "ortho-core/camera";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
@@ -67,6 +68,7 @@ const gintLs = new Map();   // 追加層のレジストリ（layer id → addLay
 const gTgt = m => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 self.__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
+let raster = null;   // 画像タイル層（ortho-core/raster）：選抜・取得・在庫・描画リストを worker 内で完結（main は add/remove/set の指示だけ）
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
 let perfOn = false, pfN = 0, pfMap = 0, pfGint = 0, pfLast = 0;
 let stayProbe = 0;   // stay診断：frame1 後に present 前テクスチャを1回読み戻し＝rendering/present の切り分け
@@ -186,6 +188,8 @@ function finishInit(m) {
 	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 	// アトラスが無い時の退避（R90 8枚・55MB）は terrain 側＝低メモリ端末はそこで見送る（デモ序盤の裏でデコードの山を作らない）。
 	if (terrain) setTimeout(() => terrain.prefetchWorld(), 6000);
+	// 画像タイル層＝renderer の契約（rasterTex/rasterMesh/setRasterDraws）だけで動く＝バックエンド非依存。main へは rasterInfo/rasterError を通知
+	raster = createRaster({ renderer, requestDraw: () => { dirty = true; armRaf(); }, lowMem: !!m.lowMem, post: msg => postMessage(msg) });
 	if (renderer.lost) renderer.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
 		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
 	});
@@ -306,6 +310,9 @@ const dispatch = e => {
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
 			else if (m.cmd === "plateauVis") plateauInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
+			else if (m.cmd === "rasterAdd") { raster?.add(m.prop, m.data.spec, m.data.opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
+			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop); }
+			else if (m.cmd === "rasterSet") { raster?.set(m.prop, m.data); }   // opacity/visible/order/hideFills/minZoom/maxZoom
 			else if (m.cmd === "scene") {                                        // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
 				// 滞留中の同slotの draw list（multi_draw）はこのクリアより古い＝パージ。残すと転送渋滞の1フレーム後に
 				// 古いシーンが復活する（遅れて届く dl は ack 側の再クリア（onMerged の z<4 分岐）が面倒を見る）。
@@ -322,6 +329,7 @@ const dispatch = e => {
 		case "pongD": pongD++; break;   // stay診断：main→worker 直結チャネルの配達実証
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "terrStats": postMessage({ type: "terrStats", data: terrain?.debug?.() ?? null }); break;   // __terr()＝標高アトラス内部状態の遠隔診断（dev実地用）
+		case "rasterStats": postMessage({ type: "rasterStats", id: m.id, data: raster?.stats() ?? null }); break;   // 画像タイル層の在庫/描画枚数（検定・診断）
 		case "draw":                                             // main からは cam を記録するだけ（実描画は rAF）
 			drawMsgN++;
 			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。
@@ -342,6 +350,7 @@ const dispatch = e => {
 			for (const o of overlays.values()) { try { o.mod?.destroy(); } catch {} }
 			overlays.clear();
 			if (gint) { gint.dispose(); gint = null; gintLs.clear(); }
+			if (raster) { raster.destroy(); raster = null; }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
 			break;
@@ -548,6 +557,13 @@ let lastEnsure = null;
 // camDist が×s に潰れた（＝ズームインした）仮想視点で標高窓の票を取ってしまう→実視野の遠景が窓の外＝
 // 標高ゼロの帯＋窓の縁の壁（スリット）になる（実測: res×0.55 で実視野の3.4%が窓外。res復帰で直る＝
 // 「リロードすると綺麗」の正体）。draw と同じ glCam を受け取り、描画と窓計算の視野を常に一致させる。
+// 地形リフト球の半径（overlayFrame の lift と同式）：チルト×高標高地で「手前くさび欠け」を作らない選抜のため
+function groundRNow(c) {
+	const pt = Math.max(0, Math.min(1, ((c.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	if (!(pf > 0) || !terrain) return 1;
+	const h = terrain.sampleElev ? (terrain.sampleElev(c.center[0], c.center[1], c) || 0) : 0;
+	return 1 + Math.max(0, h) * pf * elevBase;
+}
 function ensureIfMoved(c) {
 	const tol = 72 / Math.pow(2, c.zoom);   // 視野スパンの~10%相当(deg)（256px世界のz）
 	if (lastEnsure &&
@@ -579,6 +595,8 @@ function frame() {
 			// ズーム中(zoom非stable)は標高アトラスを再構築しない＝cellRes連続変化による陰影チラつきを防ぐ（main が opts.terrainGate で通知）。
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
+			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
+			if (raster) raster.update(glCam, canvas.width, canvas.height, { groundR: groundRNow(glCam) });
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
@@ -660,7 +678,7 @@ function frame() {
 	if (memOn && renderer && nowT - memLast > 500) {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
 		hudFrames = 0; memLast = nowT;
-		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null,
+		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName });
 	}
 	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）

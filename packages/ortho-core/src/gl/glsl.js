@@ -1080,3 +1080,29 @@ void main() {
 	vec3 rgb = mix(v_color.rgb, u_fogColor, v_fog);
 	fragColor = vec4(rgb * a, a);
 }`;
+
+// 画像タイル層（raster.js・2026-09-21）＝塗り VS からの機械派生：頂点色の代わりに uv（＋タイル原点差 u_tileOff・祖先の部分 uv u_uvT）。
+// 球・楕円体・地形リフト（elevQ）・RTE 原点・フォグ・対数深度は塗りと 1 文字も違わない＝地形ドレープと建物遮蔽を自動継承。
+// CRS はここに無い（uv の v はメルカトル線形＝格子の行そのもの・緯度は CPU が逆メルカトルで置く）。
+export const RASTER_VS = derive(FILL_VS, [
+	["in vec4 a_color;", "in vec2 a_uv;\nuniform vec2 u_tileOff;   // タイル北西隅 − シーン原点（deg・CPU f64 で差を取り f32 へ）\nuniform vec4 u_uvT;      // 祖先フォールバックの部分 uv＝(u0, v0, su, sv)\nout vec2 v_uv;"],
+	["\tvec2 dLL = a_delta;", "\tvec2 dLL = u_tileOff + a_delta;   // タイル原点差（小）を先に足す（multidraw の u_tileOff と同じ加算順）"],
+	["\tv_color = a_color;", "\tv_color = vec4(1.0);\n\tv_uv = u_uvT.xy + a_uv * u_uvT.zw;"],
+], "RASTER_VS");
+export const RASTER_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_tex;
+uniform float u_opacity;
+uniform vec3 u_fogColor;
+in vec2 v_uv;
+in float v_front;
+in float v_fog;
+out vec4 fragColor;
+void main() {
+	vec4 c = texture(u_tex, v_uv);   // discard より前（ミップ選択の微分＝uniform control flow）
+	if (v_front < -0.0015) discard;   // 裏半球は描かない（塗りと同じ許容）
+	// 霧は塗りと同じフェードアウト（透明化）＝地平線の先の絵が空に浮かない。α は非前乗算の画像 × 層の不透明度
+	float af = c.a * u_opacity * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0);
+	if (af <= 0.003) discard;
+	fragColor = vec4(mix(c.rgb, u_fogColor, v_fog) * af, af);   // premultiplied
+}`;
