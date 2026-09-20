@@ -6,7 +6,8 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"models": "node scripts/models-fetch.mjs"
+		"models": "node scripts/models-fetch.mjs",
+		"landmarks": "node scripts/plateau-landmarks.mjs"
 	},
 	"dependencies": {
 		"altpbf": "*",

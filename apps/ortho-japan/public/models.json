@@ -1,534 +1,222 @@
 {
-	"_": "名所 3D 模型の台帳（models.html）。url＝GLB の置き場（bucket GIS/models/<id>.glb＝uploader で置く）。lon/lat＝設置点（模型の原点が来る所）・heading＝北から時計回りの度・scale＝倍率・zoom/tilt/bearing＝飛んだ後の視点。出典は CC BY（Sketchfab・作者名を必ず出す）。候補の取捨は本人（2026-09-20）。GLB の入手＝Objaverse（Sketchfab CC モデルの Hugging Face ミラー・ログイン不要）＝uid が同じ。無い 5 件（ケルン・ミッケリ・慈寿塔・定慧寺・Holy Rosary）は 9/20 に外した。倍率は 9/20 に本番で bbox 実寸を読んで仮置き（姫路 8・バターリャ 20・ロッカ 15＝ミニ模型）・小倉は原点が角なので設置点を半分 SW へ。細かい向き/倍率は画面の調整欄で合わせて書き戻す",
+	"_": "名所 3D 模型の台帳（models.html）。出典＝国土交通省 Project PLATEAU の 3D 都市モデル（建築物 LOD3・テクスチャ付き）を 3D Tiles 配信から名所のまわりだけ抜いて 1 枚の glb に束ねた物（scripts/tiles3d）。CESIUM_RTC を持つので置き場所は自動＝lon/lat は飛び先の指定だけ。ライセンス＝CC BY 4.0（国土交通省）",
 	"base": "https://api.ortho-earth.com/bucket/GIS/models/",
 	"models": [
 		{
-			"id": "kokura-castle",
+			"id": "skytree",
 			"name": {
-				"en": "Kokura Castle",
-				"ja": "小倉城"
+				"en": "Tokyo Skytree",
+				"ja": "東京スカイツリー"
 			},
 			"place": {
-				"en": "Kitakyushu, Japan",
-				"ja": "北九州市"
+				"en": "Sumida, Tokyo",
+				"ja": "東京都墨田区"
 			},
-			"lon": 130.8734,
-			"lat": 33.8836,
-			"zoom": 17.2,
-			"tilt": 55,
-			"bearing": 20,
-			"heading": 0,
-			"scale": 1,
-			"author": "AVATTA",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/kokura-castle-aba23531911c45439067a6e0aaccad07",
-			"faces": 1460392,
-			"mb": 55,
-			"thumb": "https://media.sketchfab.com/models/aba23531911c45439067a6e0aaccad07/thumbnails/bddd547d11f144b5a02d2f278ddb137c/af95844bc0f34c19be0c9f549a353752.jpeg"
-		},
-		{
-			"id": "himeji-castle",
-			"name": {
-				"en": "Himeji Castle",
-				"ja": "姫路城"
-			},
-			"place": {
-				"en": "Himeji, Japan",
-				"ja": "姫路市"
-			},
-			"lon": 134.6939,
-			"lat": 34.8394,
-			"zoom": 17.4,
-			"tilt": 55,
+			"lon": 139.8107,
+			"lat": 35.71006,
+			"zoom": 16.6,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
-			"scale": 8,
-			"author": "Brian Trepanier",
+			"scale": 1,
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/himeji-castle-himeji-hyogo-japan-6e33b2a9dd42486da236b015bce8c366",
-			"faces": 1532380,
-			"mb": 167,
-			"thumb": "https://media.sketchfab.com/models/6e33b2a9dd42486da236b015bce8c366/thumbnails/f8a0f982c3a246b89d6f78f21e8f6dd6/b2f4e475c93e4ac1b7ac69dad8ebdfca.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 3,
+			"thumb": ""
 		},
 		{
-			"id": "shuri-castle",
+			"id": "tokyo-tower",
 			"name": {
-				"en": "Shuri Castle (before the 2019 fire)",
-				"ja": "首里城（2019年焼失前）"
+				"en": "Tokyo Tower",
+				"ja": "東京タワー"
 			},
 			"place": {
-				"en": "Naha, Okinawa",
-				"ja": "那覇市"
+				"en": "Minato, Tokyo",
+				"ja": "東京都港区"
 			},
-			"lon": 127.7194,
-			"lat": 26.217,
-			"zoom": 17.2,
-			"tilt": 55,
-			"bearing": -30,
+			"lon": 139.74543,
+			"lat": 35.65858,
+			"zoom": 16.8,
+			"tilt": 60,
+			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "Raiz (Our Shurijo)",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/shuri-castle-shurijo-naha-okinawa-wip-45f901e4d6fa4192a6f329e35f2dc5b8",
-			"faces": 119342,
-			"mb": 7,
-			"thumb": "https://media.sketchfab.com/models/45f901e4d6fa4192a6f329e35f2dc5b8/thumbnails/cc8828ff0f494b848363748da7a328b7/8bd8dd92b9564aef96baac3924fa8b54.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 4,
+			"thumb": ""
 		},
 		{
-			"id": "batalha-monastery",
+			"id": "sensoji",
 			"name": {
-				"en": "Monastery of Batalha",
-				"ja": "バターリャ修道院"
+				"en": "Sensō-ji",
+				"ja": "浅草寺"
 			},
 			"place": {
-				"en": "Batalha, Portugal",
-				"ja": "ポルトガル・バターリャ"
+				"en": "Taito, Tokyo",
+				"ja": "東京都台東区"
 			},
-			"lon": -8.8262,
-			"lat": 39.6593,
+			"lon": 139.79665,
+			"lat": 35.71476,
+			"zoom": 17.2,
+			"tilt": 60,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
+			"license": "CC BY 4.0",
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 8,
+			"thumb": ""
+		},
+		{
+			"id": "osaka-castle",
+			"name": {
+				"en": "Osaka Castle",
+				"ja": "大阪城"
+			},
+			"place": {
+				"en": "Osaka",
+				"ja": "大阪市中央区"
+			},
+			"lon": 135.52591,
+			"lat": 34.68745,
 			"zoom": 17,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 20,
-			"author": "Shahriar Shahrabi",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/monastery-of-batalha-76b0b60b24aa471c9d0cf719db236045",
-			"faces": 502040,
-			"mb": 26,
-			"thumb": "https://media.sketchfab.com/models/76b0b60b24aa471c9d0cf719db236045/thumbnails/c7a8c152318349b1b55fe0f915dc252e/d93169b14e5d4f9d8dac217f96d686d8.jpeg"
-		},
-		{
-			"id": "butron-castle",
-			"name": {
-				"en": "Butrón Castle",
-				"ja": "ブトロン城"
-			},
-			"place": {
-				"en": "Gatika, Spain",
-				"ja": "スペイン・ガティカ"
-			},
-			"lon": -2.9014,
-			"lat": 43.3758,
-			"zoom": 17.4,
-			"tilt": 55,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "333DDD",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/butron-castle-1ec4dc9a903c4bfeba9e1abcdbac2ae6",
-			"faces": 797762,
-			"mb": 35,
-			"thumb": "https://media.sketchfab.com/models/1ec4dc9a903c4bfeba9e1abcdbac2ae6/thumbnails/460f5d130c1c490086be3005f8ac5a2f/e1a63e68948e4860a536f65495d8008c.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 1,
+			"thumb": ""
 		},
 		{
-			"id": "rocca-calascio",
+			"id": "kiyomizu-dera",
 			"name": {
-				"en": "Rocca Calascio",
-				"ja": "ロッカ・カラーショ城"
+				"en": "Kiyomizu-dera",
+				"ja": "清水寺"
 			},
 			"place": {
-				"en": "Abruzzo, Italy",
-				"ja": "イタリア・アブルッツォ"
+				"en": "Kyoto",
+				"ja": "京都市東山区"
 			},
-			"lon": 13.6969,
-			"lat": 42.3289,
-			"zoom": 17.4,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 15,
-			"author": "333DDD",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/castle-of-rocca-calascio-a2c736d016994ca7b90561516ded119a",
-			"faces": 831310,
-			"mb": 33,
-			"thumb": "https://media.sketchfab.com/models/a2c736d016994ca7b90561516ded119a/thumbnails/f5492d41da9a4d04a32e4e2fbd3b7e95/8936072af5ee402fad7c65e31df8bf67.jpeg"
-		},
-		{
-			"id": "peterborough-guildhall",
-			"name": {
-				"en": "Guildhall, Peterborough",
-				"ja": "ピーターバラ ギルドホール"
-			},
-			"place": {
-				"en": "Peterborough, UK",
-				"ja": "英国・ピーターバラ"
-			},
-			"lon": -0.2421,
-			"lat": 52.5725,
-			"zoom": 18,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "JackMGlauser",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/guildhall-peterborough-uk-3d-scan-b2adfd81474247ce94fd40add8295e49",
-			"faces": 1056154,
-			"mb": 40,
-			"thumb": "https://media.sketchfab.com/models/b2adfd81474247ce94fd40add8295e49/thumbnails/f0c21070f1cc4571b8e0147ac6b7263d/720x405.jpeg"
-		},
-		{
-			"id": "nantes-castle",
-			"name": {
-				"en": "Château des Ducs de Bretagne",
-				"ja": "ブルターニュ公爵城"
-			},
-			"place": {
-				"en": "Nantes, France",
-				"ja": "フランス・ナント"
-			},
-			"lon": -1.5497,
-			"lat": 47.216,
+			"lon": 135.78501,
+			"lat": 34.99491,
 			"zoom": 17.2,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 15,
-			"author": "Sakado",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/69e974f7ee24452bab00832bb955d248",
-			"faces": 125368,
-			"mb": 6,
-			"thumb": "https://media.sketchfab.com/models/69e974f7ee24452bab00832bb955d248/thumbnails/54c5dd3007b24e67af7e9159540dca33/dc255af6dd614f248fcb88fc39a1e0d8.jpeg"
-		},
-		{
-			"id": "vianden-castle",
-			"name": {
-				"en": "Vianden Castle",
-				"ja": "ヴィアンデン城"
-			},
-			"place": {
-				"en": "Vianden, Luxembourg",
-				"ja": "ルクセンブルク・ヴィアンデン"
-			},
-			"lon": 6.2019,
-			"lat": 49.9349,
-			"zoom": 17.4,
-			"tilt": 55,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "333DDD",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/91a01eae9ada489a9bc76ecf21881237",
-			"faces": 419999,
-			"mb": 14,
-			"thumb": "https://media.sketchfab.com/models/91a01eae9ada489a9bc76ecf21881237/thumbnails/eec2e0ca8646436ca7f87b76a3b8b192/0bbc4802cc5f46b6bc40b797b054603b.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 1,
+			"thumb": ""
 		},
 		{
-			"id": "bellver-castle",
+			"id": "nijo-castle",
 			"name": {
-				"en": "Bellver Castle",
-				"ja": "ベルベル城"
+				"en": "Nijō Castle",
+				"ja": "二条城"
 			},
 			"place": {
-				"en": "Palma, Mallorca",
-				"ja": "スペイン・マヨルカ島パルマ"
+				"en": "Kyoto",
+				"ja": "京都市中京区"
 			},
-			"lon": 2.6196,
-			"lat": 39.5637,
-			"zoom": 17.4,
-			"tilt": 55,
+			"lon": 135.74815,
+			"lat": 35.01416,
+			"zoom": 16.6,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "333DDD",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/70ef075a31ef44ac97bc1459baee7a18",
-			"faces": 541038,
-			"mb": 20,
-			"thumb": "https://media.sketchfab.com/models/70ef075a31ef44ac97bc1459baee7a18/thumbnails/aacf0039ea4d4f7e823acafe0e5bedbd/f4d3c92648a74cb589132988795f6ff7.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 1,
+			"thumb": ""
 		},
 		{
-			"id": "de-haar-castle",
+			"id": "matsue-castle",
 			"name": {
-				"en": "De Haar Castle",
-				"ja": "デ・ハール城"
+				"en": "Matsue Castle",
+				"ja": "松江城"
 			},
 			"place": {
-				"en": "Haarzuilens, Netherlands",
-				"ja": "オランダ・ハールザイレンス"
+				"en": "Matsue, Shimane",
+				"ja": "島根県松江市"
 			},
-			"lon": 4.989,
-			"lat": 52.1215,
-			"zoom": 17.2,
-			"tilt": 55,
+			"lon": 133.05055,
+			"lat": 35.4751,
+			"zoom": 17,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "333DDD",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/5bf7a2ca1ff5405caebf1128dbe3f3e4",
-			"faces": 526868,
-			"mb": 19,
-			"thumb": "https://media.sketchfab.com/models/5bf7a2ca1ff5405caebf1128dbe3f3e4/thumbnails/81a05edd507f47fd83d2f885d2c1735d/5f4ecff3db3d4ded92d9a98776b1140c.jpeg"
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 12,
+			"thumb": ""
 		},
 		{
-			"id": "chepstow-martens-tower",
+			"id": "gifu-castle",
 			"name": {
-				"en": "Chepstow Castle: Marten's Tower",
-				"ja": "チェプストー城 マーテンズタワー"
+				"en": "Gifu Castle",
+				"ja": "岐阜城"
 			},
 			"place": {
-				"en": "Chepstow, Wales",
-				"ja": "英国ウェールズ・チェプストー"
+				"en": "Gifu",
+				"ja": "岐阜市（金華山）"
 			},
-			"lon": -2.6747,
-			"lat": 51.6437,
-			"zoom": 17.8,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "9of9",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/1a64ebded0694e2aaf9f2cec3a2b57d2",
-			"faces": 1306964,
-			"mb": 54,
-			"thumb": "https://media.sketchfab.com/models/1a64ebded0694e2aaf9f2cec3a2b57d2/thumbnails/543de5f79b0c4332aa0b0024891c4849/7531188218724f13af220a62b0beb41d.jpeg"
-		},
-		{
-			"id": "hrusov-castle",
-			"name": {
-				"en": "Hrušov Castle",
-				"ja": "フルショフ城"
-			},
-			"place": {
-				"en": "Hostie, Slovakia",
-				"ja": "スロバキア・ホスチエ"
-			},
-			"lon": 18.3819,
-			"lat": 48.4458,
-			"zoom": 17.4,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 30,
-			"author": "3Dnovator",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/3debc29c16fe4e41a1612a796db3a7e8",
-			"faces": 2000221,
-			"mb": 68,
-			"thumb": "https://media.sketchfab.com/models/3debc29c16fe4e41a1612a796db3a7e8/thumbnails/4784e0ab66fc4c22ba74313c6125da4e/448x252.jpeg"
-		},
-		{
-			"id": "bromo-seltzer-tower",
-			"name": {
-				"en": "Bromo Seltzer Tower",
-				"ja": "ブロモ・セルツァー・タワー"
-			},
-			"place": {
-				"en": "Baltimore, USA",
-				"ja": "米国・ボルチモア"
-			},
-			"lon": -76.6184,
-			"lat": 39.2871,
-			"zoom": 17.8,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Katie Wolfe",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/2c5bdd2a41f646db93dd0357c40aa8e5",
-			"faces": 999812,
-			"mb": 40,
-			"thumb": "https://media.sketchfab.com/models/2c5bdd2a41f646db93dd0357c40aa8e5/thumbnails/e8ca45282f26443eb447a869a9259fc4/aebe63a7a8094c8d9f3525b6dfc11e78.jpeg"
-		},
-		{
-			"id": "seven-foot-knoll-lighthouse",
-			"name": {
-				"en": "Seven Foot Knoll Lighthouse",
-				"ja": "セブンフット・ノール灯台"
-			},
-			"place": {
-				"en": "Baltimore, USA",
-				"ja": "米国・ボルチモア"
-			},
-			"lon": -76.6047,
-			"lat": 39.2836,
-			"zoom": 18.2,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Katie Wolfe",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/949111fbde5b4564811cad303b09727c",
-			"faces": 994652,
-			"mb": 42,
-			"thumb": "https://media.sketchfab.com/models/949111fbde5b4564811cad303b09727c/thumbnails/834d1321c9874f2c8b5b90245ecd12b2/94c40dfcee64463990f64543057bccd1.jpeg"
-		},
-		{
-			"id": "koriyama-public-hall",
-			"name": {
-				"en": "Koriyama City Public Hall (1924)",
-				"ja": "郡山市公会堂（1924）"
-			},
-			"place": {
-				"en": "Koriyama, Fukushima",
-				"ja": "福島県郡山市（設置点は要確認）"
-			},
-			"lon": 140.3957,
-			"lat": 37.3948,
+			"lon": 136.78206,
+			"lat": 35.43364,
 			"zoom": 18,
-			"tilt": 55,
+			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
 			"scale": 1,
-			"author": "Fujihiko Matsumoto",
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
 			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/6cdd3d87ff9e4b8c8dd80a7c66e6c303",
-			"faces": 78952,
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
+			"mb": 1,
+			"thumb": ""
+		},
+		{
+			"id": "yokohama-akarenga",
+			"name": {
+				"en": "Yokohama Red Brick Warehouse",
+				"ja": "横浜赤レンガ倉庫"
+			},
+			"place": {
+				"en": "Yokohama",
+				"ja": "横浜市中区"
+			},
+			"lon": 139.64248,
+			"lat": 35.45293,
+			"zoom": 17.2,
+			"tilt": 60,
+			"bearing": 0,
+			"heading": 0,
+			"scale": 1,
+			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
+			"license": "CC BY 4.0",
+			"source": "https://www.mlit.go.jp/plateau/",
+			"faces": 0,
 			"mb": 5,
-			"thumb": "https://media.sketchfab.com/models/6cdd3d87ff9e4b8c8dd80a7c66e6c303/thumbnails/63164d206c844473b99dad7d06d8f17d/598a7ef8d6a743d1a432b9d5964cf8e1.jpeg"
-		},
-		{
-			"id": "ballycarbery-castle",
-			"name": {
-				"en": "Ballycarbery Castle",
-				"ja": "バリーカーベリー城跡"
-			},
-			"place": {
-				"en": "Cahersiveen, Ireland",
-				"ja": "アイルランド・カハーシビーン"
-			},
-			"lon": -10.2437,
-			"lat": 51.9349,
-			"zoom": 17.8,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "333DDD",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/26ea562f32d54afe919b73486dbf7d53",
-			"faces": 397841,
-			"mb": 13,
-			"thumb": "https://media.sketchfab.com/models/26ea562f32d54afe919b73486dbf7d53/thumbnails/3b21faf040634195b88f923b208cf0ef/d9e1eac47f834cf0a9c55c6c931b7645.jpeg"
-		},
-		{
-			"id": "villalonso-castle",
-			"name": {
-				"en": "Castle of Villalonso",
-				"ja": "ビジャロンソ城"
-			},
-			"place": {
-				"en": "Zamora, Spain",
-				"ja": "スペイン・サモラ"
-			},
-			"lon": -5.233,
-			"lat": 41.553,
-			"zoom": 17.8,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Moøkan",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/5dbe4dc71d8841339e5e602cdcc3f1fc",
-			"faces": 24479,
-			"mb": 5,
-			"thumb": "https://media.sketchfab.com/models/5dbe4dc71d8841339e5e602cdcc3f1fc/thumbnails/d9017900a8f444b28b158ea786974e54/640x360.jpeg"
-		},
-		{
-			"id": "house-of-soviets",
-			"name": {
-				"en": "House of Soviets",
-				"ja": "ソビエトの家"
-			},
-			"place": {
-				"en": "Kaliningrad, Russia",
-				"ja": "ロシア・カリーニングラード"
-			},
-			"lon": 20.513,
-			"lat": 54.7107,
-			"zoom": 17.4,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Mikhail Volkov",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/e7fa5f78056546c198928f788d436fa6",
-			"faces": 199999,
-			"mb": 11,
-			"thumb": "https://media.sketchfab.com/models/e7fa5f78056546c198928f788d436fa6/thumbnails/831dfccc1b6a4350bd4948cd19e67656/30dbe87105e24b4793fbf7fc3f88eff3.jpeg"
-		},
-		{
-			"id": "taipei-pagoda",
-			"name": {
-				"en": "Pagoda in 228 Peace Park",
-				"ja": "二二八和平公園の楼閣"
-			},
-			"place": {
-				"en": "Taipei, Taiwan",
-				"ja": "台湾・台北"
-			},
-			"lon": 121.515,
-			"lat": 25.041,
-			"zoom": 18.2,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "dlfitch",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/520c3273706d48a5af13e0133e4a3e5e",
-			"faces": 2374645,
-			"mb": 79,
-			"thumb": "https://media.sketchfab.com/models/520c3273706d48a5af13e0133e4a3e5e/thumbnails/7429b2a8c9be42a38794f24811982364/7f95f18941e5493984a4bacb8602a874.jpeg"
-		},
-		{
-			"id": "jaaninoja-bridge",
-			"name": {
-				"en": "Jaaninoja Bridge",
-				"ja": "ヤーニノヤ橋"
-			},
-			"place": {
-				"en": "Turku, Finland",
-				"ja": "フィンランド・トゥルク"
-			},
-			"lon": 22.3175,
-			"lat": 60.4705,
-			"zoom": 18.2,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Lassi Kaukonen",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/65a60cc3d66249a0a33beeb6a1ad2540",
-			"faces": 971838,
-			"mb": 41,
-			"thumb": "https://media.sketchfab.com/models/65a60cc3d66249a0a33beeb6a1ad2540/thumbnails/0d4f2e9892624c199355268ccea283c2/cd15b6fbd7bf485c892bf1fd09078890.jpeg"
-		},
-		{
-			"id": "bagan-temple",
-			"name": {
-				"en": "Bagan temple (aerial scan)",
-				"ja": "バガンの寺院（寺院名不明・仮置き）"
-			},
-			"place": {
-				"en": "Bagan, Myanmar",
-				"ja": "ミャンマー・バガン"
-			},
-			"lon": 94.8585,
-			"lat": 21.1717,
-			"zoom": 17.6,
-			"tilt": 55,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "Miguel Bandera",
-			"license": "CC BY 4.0",
-			"source": "https://sketchfab.com/3d-models/fdae1677de194b00ac6059363557d73d",
-			"faces": 73324,
-			"mb": 5,
-			"thumb": "https://media.sketchfab.com/models/fdae1677de194b00ac6059363557d73d/thumbnails/5e7b303c47604b33955dc561ebf2cbf1/f420b1c6e4f745d787a0df33cb08d29f.jpeg"
+			"thumb": ""
 		}
 	]
 }
