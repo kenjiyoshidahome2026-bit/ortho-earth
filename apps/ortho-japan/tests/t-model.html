@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- glTF/GLB 直読み（gadgets/model.js → model-worker → plateaudecode.decodeModel）の門（2026-09-20）。
+     GLB をその場で組み（箱 w×d×h・Y-up・法線つき）、置き方 3 段のうち「錨（落とした地点）」と「CESIUM_RTC（埋め込み優先）」を
+     bbox（度）で検分：中心が錨に一致・幅が実寸（m）に一致・scale で倍・heading 90° で幅と奥行きが入れ替わる。
+     ⚠ REALTIME（verify-ui.mjs）：worker 内の loaders.gl 動的 import は虚時間では解決しない（t-anno と同じ轍）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-model</title></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
+const mark = s => { document.title = "… " + s; };
+const logs = []; for (const k of ["warn", "error"]) { const o = console[k].bind(console); console[k] = (...a) => { logs.push(a.map(x => x instanceof Error ? (x.stack || x.message) : String(x)).join(" ").slice(0, 300)); o(...a); }; }
+window.addEventListener("error", e => logs.push("uncaught " + (e.message || e)));
+window.addEventListener("unhandledrejection", e => logs.push("unhandled " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+
+// 箱の GLB（Y-up・原点＝底面中心）。rtc＝CESIUM_RTC.center（ECEF）＋xf＝頂点/法線の変換（RTC の glb は頂点が ECEF の向き＝ENU の箱を ECEF 軸へ回して書く）
+function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null } = {}) {
+	const X = w / 2, Z = d / 2;
+	const faces = [   // [normal, 4 corners]
+		[[0, 0, 1], [[-X, 0, Z], [X, 0, Z], [X, h, Z], [-X, h, Z]]],
+		[[0, 0, -1], [[X, 0, -Z], [-X, 0, -Z], [-X, h, -Z], [X, h, -Z]]],
+		[[1, 0, 0], [[X, 0, Z], [X, 0, -Z], [X, h, -Z], [X, h, Z]]],
+		[[-1, 0, 0], [[-X, 0, -Z], [-X, 0, Z], [-X, h, Z], [-X, h, -Z]]],
+		[[0, 1, 0], [[-X, h, Z], [X, h, Z], [X, h, -Z], [-X, h, -Z]]],
+		[[0, -1, 0], [[-X, 0, -Z], [X, 0, -Z], [X, 0, Z], [-X, 0, Z]]],
+	];
+	const pos = [], nrm = [], idx = [];
+	faces.forEach(([n, c], f) => { for (const p of c) { pos.push(...(xf ? xf(p) : p)); nrm.push(...(xf ? xf(n) : n)); } idx.push(f * 4, f * 4 + 1, f * 4 + 2, f * 4, f * 4 + 2, f * 4 + 3); });
+	const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+	for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i + k]); mx[k] = Math.max(mx[k], pos[i + k]); }
+	const P = new Float32Array(pos), N = new Float32Array(nrm), I = new Uint16Array(idx);
+	const pad4 = n => (n + 3) & ~3;
+	const binLen = pad4(P.byteLength) + pad4(N.byteLength) + pad4(I.byteLength);
+	const bin = new Uint8Array(binLen); let o = 0;
+	bin.set(new Uint8Array(P.buffer), o); const oP = o; o += pad4(P.byteLength);
+	bin.set(new Uint8Array(N.buffer), o); const oN = o; o += pad4(N.byteLength);
+	bin.set(new Uint8Array(I.buffer), o); const oI = o;
+	const json = {
+		asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+		meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2 }] }],
+		buffers: [{ byteLength: binLen }],
+		bufferViews: [{ buffer: 0, byteOffset: oP, byteLength: P.byteLength }, { buffer: 0, byteOffset: oN, byteLength: N.byteLength }, { buffer: 0, byteOffset: oI, byteLength: I.byteLength }],
+		accessors: [
+			{ bufferView: 0, componentType: 5126, count: 24, type: "VEC3", min: mn, max: mx },
+			{ bufferView: 1, componentType: 5126, count: 24, type: "VEC3" },
+			{ bufferView: 2, componentType: 5123, count: 36, type: "SCALAR" }],
+	};
+	if (rtc) { json.extensions = { CESIUM_RTC: { center: rtc } }; json.extensionsUsed = ["CESIUM_RTC"]; }
+	let js = new TextEncoder().encode(JSON.stringify(json)); const jl = pad4(js.byteLength);
+	const total = 12 + 8 + jl + 8 + binLen;
+	const out = new Uint8Array(total), dv = new DataView(out.buffer);
+	dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, total, true);
+	dv.setUint32(12, jl, true); dv.setUint32(16, 0x4E4F534A, true); out.set(js, 20); for (let i = 20 + js.byteLength; i < 20 + jl; i++) out[i] = 0x20;
+	dv.setUint32(20 + jl, binLen, true); dv.setUint32(24 + jl, 0x004E4942, true); out.set(bin, 28 + jl);
+	return new File([out], "box.glb");
+}
+const ecef = (lon, lat) => { const a = 6378137, e2 = 0.00669437999014, l = lon * Math.PI / 180, p = lat * Math.PI / 180, N = a / Math.sqrt(1 - e2 * Math.sin(p) ** 2); return [N * Math.cos(p) * Math.cos(l), N * Math.cos(p) * Math.sin(l), N * (1 - e2) * Math.sin(p)]; };
+const mLon = lat => 111320 * Math.cos(lat * Math.PI / 180), mLat = 110950;   // 1° の実寸（近似・±10% で見る）
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+const spans = (bb, lat) => [(bb[2] - bb[0]) * mLon(lat), (bb[3] - bb[1]) * mLat];   // 幅・奥行き（m）
+
+try {
+	mark("boot");
+	const AT = [139.7671, 35.6812];
+	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", chips: false, plateau: false });
+	mark("booted");
+	// ① 錨＝落とした地点。20×20×30 の箱
+	let c = await map.gadget.model(makeGlb(), { at: AT, fit: false });
+	let bb = c.bbox, s = spans(bb, AT[1]);
+	mark("anchor " + JSON.stringify(c.stats));
+	ok("mode", c.stats.mode === "anchor", c.stats.mode);
+	ok("tris", c.stats.triangles === 12, String(c.stats.triangles));
+	ok("center", near((bb[0] + bb[2]) / 2, AT[0], 2e-6) && near((bb[1] + bb[3]) / 2, AT[1], 2e-6), `${((bb[0] + bb[2]) / 2).toFixed(6)},${((bb[1] + bb[3]) / 2).toFixed(6)}`);
+	ok("size20", near(s[0], 20, 2) && near(s[1], 20, 2), s.map(v => v.toFixed(1)).join("x"));
+	ok("posted", !!window.__model?.name, String(window.__model?.name));
+	// ② scale=2 → 40 m
+	c = await map.gadget.model(makeGlb(), { at: AT, scale: 2, fit: false }); s = spans(c.bbox, AT[1]);
+	ok("scale2", near(s[0], 40, 4) && near(s[1], 40, 4), s.map(v => v.toFixed(1)).join("x"));
+	// ③ heading=90 で 40(東西)×20(南北) の箱が 20×40 に
+	c = await map.gadget.model(makeGlb({ w: 40, d: 20 }), { at: AT, heading: 0, fit: false }); const s0 = spans(c.bbox, AT[1]);
+	c = await map.gadget.model(makeGlb({ w: 40, d: 20 }), { at: AT, heading: 90, fit: false }); const s90 = spans(c.bbox, AT[1]);
+	ok("heading0", near(s0[0], 40, 4) && near(s0[1], 20, 2), s0.map(v => v.toFixed(1)).join("x"));
+	ok("heading90", near(s90[0], 20, 2) && near(s90[1], 40, 4), s90.map(v => v.toFixed(1)).join("x"));
+	// ④ CESIUM_RTC（大阪の ECEF）＝錨より埋め込みが勝つ
+	const OSAKA = [135.5, 34.7];
+	// 頂点は ECEF の向きで書く：ENU(e,n,u) → ECEF 差分 v=Renu·(e,n,u) → glTF Y-up ローカル p（swap(p)=v ⇒ p=(vx, vz, −vy)）
+	const enu2glb = (lon, lat) => { const l = lon * Math.PI / 180, p = lat * Math.PI / 180, sl = Math.sin(l), cl = Math.cos(l), sp = Math.sin(p), cp = Math.cos(p);
+		return ([x, y, z]) => { const e = x, n = -z, u = y; const v = [-sl * e - sp * cl * n + cp * cl * u, cl * e - sp * sl * n + cp * sl * u, cp * n + sp * u]; return [v[0], v[2], -v[1]]; }; };
+	c = await map.gadget.model(makeGlb({ rtc: ecef(OSAKA[0], OSAKA[1]), xf: enu2glb(OSAKA[0], OSAKA[1]) }), { at: AT, fit: false }); bb = c.bbox; s = spans(bb, OSAKA[1]);
+	ok("rtcMode", c.stats.mode === "rtc", c.stats.mode);
+	ok("rtcCenter", near((bb[0] + bb[2]) / 2, OSAKA[0], 2e-6) && near((bb[1] + bb[3]) / 2, OSAKA[1], 2e-6), `${((bb[0] + bb[2]) / 2).toFixed(6)},${((bb[1] + bb[3]) / 2).toFixed(6)}`);
+	ok("rtcSize", near(s[0], 20, 2) && near(s[1], 20, 2), s.map(v => v.toFixed(1)).join("x"));
+	// ⑤ 置き換え＝単一スロット・clear で空
+	c.clear(); ok("cleared", !window.__model?.name);
+	await new Promise(r => setTimeout(r, 800));   // 送出→render worker の受理（エラーが出るならここまでに）
+	ok("noErr", !logs.some(l => /error|uncaught|unhandled/i.test(l)), logs.slice(0, 2).join(" || "));
+	const pass = t.every(x => x.startsWith("ok:"));
+	document.title = (pass ? "PASS " : "FAIL ") + t.join(" ") + (pass ? "" : " | " + logs.slice(0, 4).join(" || "));
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+</script>
+</body></html>

@@ -1,4 +1,4 @@
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { toVec, quatBetween, quatAngle, quatFromAxisAngle, quatMul, rotateLL, gcCentroid } from "geopbf/edit/sphere";   // 移動＝球の中心まわりの回転（本人裁定 9/14「球体上の図形として角度で移動」）・ホイール＝重心軸まわりの回転
 const t = tr();
 // ドラッグ：頂点（v）／点フィーチャの点（p）／中点挿入（m→v）／移動ツールのフィーチャ回転移動（f＝掴んだ点→今の点の球面回転を全頂点へ）。

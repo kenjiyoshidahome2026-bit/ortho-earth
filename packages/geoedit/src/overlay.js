@@ -6,7 +6,9 @@
 // ★図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath）の正本は
 //   エンジンの anno ガジェット（apps/ortho-japan/gadgets/anno.js）＝ビューア再生と単一実装（pop/tip 共有と同じ型）。
 //   ここは import して再輸出するだけ（styleform 等の既存 import 先を維持）。
-import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, buildLinePath, smoothRing, sanitizeHTML, makeTracer } from "../anno.js";
+import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, buildLinePath, makeTracer } from "geopbf/edit/draw";   // 描画プリミティブの正典（ビューア anno と同じ一本・2026-09-20 に geopbf へ）
+import { smoothRing } from "geopbf/edit/spline";
+import { sanitizeHTML } from "geopbf/sanitize";
 import { gcMidpoint } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）。線分の内挿は anno.js の makeTracer
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 

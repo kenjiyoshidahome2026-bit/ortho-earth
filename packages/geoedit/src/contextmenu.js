@@ -1,4 +1,4 @@
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 
 // 右クリックメニュー＝文脈連動（開くたびに「指した要素／選択／複数選択」で項目を組む）。

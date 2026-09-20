@@ -24,10 +24,10 @@ import { createTip } from "./tip.js";
 import { installContextMenu } from "./contextmenu.js";
 import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
-import { dockStack } from "../stack.js";   // 左下ドック（#log/#pos と同じ容れ物＝重なりを構造で排除）
+// 左下ドック＝ホストが initEditor({ dock }) で注入（ortho-japan の gadgets/stack.js）。無ければ map.mapEl の #dock を見つけるか作る（同じ約束）
+const defaultDock = mapEl => { let d = mapEl.querySelector("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
 import css from "./editor.scss?inline";    // CSS自給（ガジェット三戒）＝遅延chunkに同乗・初回搭載で <style> を1枚
-import { ellipsoidOn } from "ortho-core";
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
@@ -39,7 +39,7 @@ const Q = new URLSearchParams(location.search);
 const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? n : 64) * 1048576); })();
 const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
-export function initEditor(map, { adopt = true, setDropOwner = null, persist = true, data, onClose = null } = {}) {   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+export function initEditor(map, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null } = {}) {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
 	// 部品として開く（2026-09-19 本人裁定）：持ち主（japan の編集ボタン）が data＝編集中の図形（GeoPBF の ArrayBuffer・空なら null）を渡し、
 	// onClose＝ツールバー右端の「×」。× が押されたら持ち主が editor.result() で結果を受け取り、自分の図形を置き換えて destroy する。
 	// persist:false＝単独起動の自動保存（IDB geoedit/session "last"）を読みも書きもしない＝部品の編集が単独の「前回の続き」に混ざらない
@@ -93,7 +93,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		el.append(Object.assign(document.createElement("span"), { textContent: text }));
 		if (action) { const b = document.createElement("button"); b.textContent = action; b.onclick = () => { el.remove(); onAction(); }; el.append(b); }
 		const x = document.createElement("button"); x.className = "ge-x"; x.textContent = "×"; x.title = t("Close"); x.onclick = () => el.remove(); el.append(x);
-		dockStack(mapEl).append(el);   // display:none は詰むのでドックの掟＝出す/消すは append/remove
+		(dock || defaultDock)(mapEl).append(el);   // display:none は詰むのでドックの掟＝出す/消すは append/remove
 		if (ttl) setTimeout(() => el.remove(), ttl);
 		return el;
 	};
@@ -461,7 +461,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		bar.syncTool(next);
 	};
 	ed.setTool = setTool;
-	if (ellipsoidOn()) toast(t("Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
+	if (map.ellipsoidOn?.()) toast(t("Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo,
@@ -471,11 +471,11 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		setDefaults: (t, partial) => { const k = t === "rect" || t === "circle" ? "polygon" : t === "free" ? "line" : t; drawDefaults[k] = mergeProps(drawDefaults[k], partial); },
 		importFile,
 		exportOpen: () => exportPanel(mapEl, getPbf, toast),
-		cloudOpen: () => cloudPanel(mapEl, {
+		cloudOpen: hostCloud ? () => cloudPanel(mapEl, {
 			getPbf,
 			loadBuffer: buf => loadBuffer(buf),   // ドロップ取込と同経路＝新セッション扱い
 			map,   // 公開サムネの撮影用（map.requestSnapshot・mapEl）
-		}, toast),
+		}, toast, hostCloud) : null,
 		close: onClose,   // 部品＝右端の「×」（持ち主へ戻る）。単独起動は null＝出さない
 		// 全消去＝確認ダイアログなし（本人裁定 9/4）。代わりに直前の姿を控え、左下バナー「元に戻す」で15秒間だけ復帰できる
 		clearAll: async () => {

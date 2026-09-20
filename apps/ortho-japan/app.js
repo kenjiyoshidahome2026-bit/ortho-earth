@@ -60,7 +60,7 @@ import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(prin
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
 import { edit as editGadget } from "./gadgets/edit.js";
-import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は gadgets/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
+import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は @ortho-earth/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
@@ -2059,6 +2059,7 @@ map.fitZoomForBbox = gint.fitZoomForBbox;
 map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
 map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
+map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝@ortho-earth/geoedit が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
@@ -2087,7 +2088,7 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
 // モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
-map.overlay = (url, { name, opts } = {}) => {
+map.overlay = (src, { name, opts } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）
 	name ??= "ov" + (overlays.size + 1);
 	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
 	const cv = document.createElement("canvas");
@@ -2096,7 +2097,7 @@ map.overlay = (url, { name, opts } = {}) => {
 	cv.width = size.w; cv.height = size.h;
 	mapEl.insertBefore(cv, labelCanvas);
 	const off = cv.transferControlToOffscreen();
-	wPost({ type: "overlayAdd", name, url: new URL(url, location.href).href, canvas: off, opts }, [off]);
+	wPost({ type: "overlayAdd", name, ...(typeof src === "string" ? { url: new URL(src, location.href).href } : { builtin: src?.builtin }), canvas: off, opts }, [off]);
 	const h = {
 		name, el: cv, onmessage: null,   // onmessage＝worker 側モジュールの host.post(data) を受ける口
 		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
@@ -2276,6 +2277,8 @@ const remoteUrl = (spec, tag) => {
 		arm(0);
 	}).catch(err => console.warn("[scene] failed to fetch ?scene=", sceneUrl, err));
 }
+// ?at=lon,lat[,heading[,scale]]＝?g= の glb/gltf をどこに置くか（3D 模型は地理座標を持たない。省略＝画面中心）。他形式は読まない
+const modelAt = () => { const v = (new URLSearchParams(location.search).get("at") || "").split(",").map(Number); return Number.isFinite(v[0]) && Number.isFinite(v[1]) ? { at: [v[0], v[1]], heading: v[2] || 0, scale: v[3] || 1 } : {}; };
 // ?g=<URL>＝GeoPBF の URL ロード（ドロップと同じ一本道＝取得→loadUserFile）。gh:user/repo[@ref]/path 短縮形は
 // GitHub raw へ展開（ref 省略=HEAD・コミットSHA固定も可）。https 限定（開発時のみ localhost の http 可）・
 // credentials 無し＝他人の置き場を読むだけの姿勢。読めたら出所（ホスト名）を出典 #attr へ常時表示＝
@@ -2296,7 +2299,7 @@ const remoteUrl = (spec, tag) => {
 				const r = await fetch(u, { credentials: "omit" });
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
 				if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
-				pbf = await loadUserFile(new File([await r.blob()], name));
+				pbf = await loadUserFile(new File([await r.blob()], name), modelAt());
 			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
 			const attr = document.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
@@ -2349,6 +2352,24 @@ map.gadget("cog", async function (src, opts) {
 	await cogCtl.load(src, opts);
 	return cogCtl;
 });
+// glTF/GLB（3D 模型）＝PLATEAU と同じ建物メッシュとして立てる（gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（無ければ画面中心）の ENU に置く／
+// CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の plateauMesh スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
+let modelCtl = null;
+map.gadget("model", async function (src, opts) {
+	const m = await import("./gadgets/model.js");
+	modelCtl ??= m.createModel(map, {
+		setMesh: (name, data) => { wPost({ type: "set", cmd: "plateauMesh", data, prop: name }, data ? [data.pos.buffer, data.nrm.buffer, data.idx.buffer] : []); needsDraw = true; },
+		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
+			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
+			const wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 2.5), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 2.5);
+			const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+			flyTo(cx, cy, Math.max(3, Math.min(18, z)), 55);
+		},
+		center: () => [cam.center[0], cam.center[1]], ell: ELL_ON, signal: ac.signal,
+	});
+	dbgHost.__model = modelCtl;   // 検証窓（t-model）
+	return modelCtl.load(src, opts);
+});
 // 衛星シーン検索（STAC＝Earth Search→選んだシーンの COG を球へ）。スタブ＝ボタンのみ常駐・本体は初回クリック
 map.gadget("sats", function (opts) {   // 人工衛星（いま軌道にいる衛星）… 宙の点の投影・地表投影・クリック横取りを注入。本体は初回クリックで import()＝frame hook は onBody で本体到着後に配線
 	return satsGadget.call(this, {
@@ -2387,6 +2408,15 @@ const INTAKE = [
 		},
 	},
 	{
+		name: "model",   // glTF/GLB＝3D 模型（PLATEAU と同じ建物メッシュ経路・gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（ctx.at）に置く／CESIUM_RTC・ECEF 入りは埋め込みが勝つ
+		test: f => /\.(glb|gltf)$/i.test(f.name),
+		draw: async (file, ctx) => {
+			annoCtl?.clear(); gint.clearUserGint();
+			const c = await map.gadget.model(file, { at: ctx?.at, heading: ctx?.heading, scale: ctx?.scale });
+			return { length: c.toastLength() };
+		},
+	},
+	{
 		name: "geoparquet-view",   // 閾値を超える GeoParquet＝全量変換せず視野追従（gadgets/parquet-view.js・2026-09-20 Phase B）。File は slice で Range 同等
 		test: f => /\.(parquet|geoparquet)$/i.test(f.name) && f.size > PARQUET_STREAM_BYTES,
 		draw: async file => parquetView(file, file.name),
@@ -2416,10 +2446,10 @@ const INTAKE = [
 // fit＝読んだ図形へ寄る（ドロップ/?g=）。編集から戻した図形・起動時の復元は寄らない（今の視点のまま置き換える）。
 // editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
 let editDocHook = null;
-const loadUserFile = async (file, { fit = true } = {}) => {
+const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等）＝draw 行へそのまま
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file)) continue;
-		if (fmt.draw) return fmt.draw(file);
+		if (fmt.draw) return fmt.draw(file, { fit, ...ctx });
 		file = await fmt.convert(file);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 		break;
 	}
@@ -2446,10 +2476,14 @@ const loadUserFile = async (file, { fit = true } = {}) => {
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
-map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集（旧 apps/geoedit → gadgets/geoedit・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
-	return import("./gadgets/geoedit/controller.js").then(m => m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, ...opts }));   // 搭載中はドロップをエディタが所有（dropFile は譲る）
+map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝@ortho-earth/geoedit（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
+	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
+	return Promise.all([import("@ortho-earth/geoedit"), import("./gadgets/cloud.js")]).then(async ([m, cloud]) => {
+		await m.setLang(getLang());
+		return m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, dock: dockStack, cloudPanel: cloud.cloudPanel, ...opts });
+	});
 });
 map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック）… 押すと map.gadget.geoedit() を部品として搭載/解除。出現域は搭載側の zoom 宣言（site.js＝[2.5,99]）
 	// 編集中の図形（2026-09-19 本人裁定）：japan は図形を一つ持つ（初めは空）。ドロップ/?g= で読んだもの・編集から戻したものがそれ＝

@@ -9,7 +9,7 @@
 // 値 "" は「そのキーを消す」の意（呼び出し側で delete）。
 import { SHAPE_NAMES, PICTO, SHAPE_SCALE, buildLinePath, sanitizeHTML } from "./overlay.js";
 import { cssColor, DEF } from "./gint-layer.js";
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 
 const u32rgb = u => "#" + (u >>> 8).toString(16).padStart(6, "0");
