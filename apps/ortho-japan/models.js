@@ -112,7 +112,8 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);
 			const blob = await gunzip(await r.blob());
 			if (my !== seq) return;
-			const c = await map.gadget.model(new File([blob], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false });
+			// ground="each"＝建物ごとに接地（PLATEAU の一区画＝高台の城が浮かない）。台帳で ground:"batch" と書けば一体接地へ
+			const c = await map.gadget.model(new File([blob], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
 			if (my !== seq) return;   // 途中で別の模型が選ばれた＝後勝ち（ガジェットは単一スロット）
 			ctl = c; setStatus(""); syncJson(m);
 		} catch (e) {
