@@ -152,9 +152,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	function setRasterDraws(rd) { rasterDraws = rd; }
 	// order:"under"＝地形の直後・塗りの前（基図＝塗りは伏せる）／"over"＝塗りの後・線の前（写真・ハザード＝線と注記は上）。
 	// 塗りと同じ深度規律（山岳ビュー＝地形深度でテストだけ・書かない）は呼び出し側が整えて呼ぶ。
-	function drawRasterLayers(order, st, land, pfFog, cityLift, terrainActive) {
+	function drawRasterLayers(order, st, land, pfFog, cityLift, terrainActive, terrainDepth) {
 		if (!rasterDraws) return 0;
 		let n = 0;
+		// 地形深度あり＝ラスタを手前へ（地形の polygonOffset(1,4) の逆向き・勾配比例）：頂点は elevQ で地形面に乗るが、凸の折れ目を
+		// またぐ三角形は弦として地形の下に潜る＝深度で負けて地形の陰影が斑に出る（写真で顕著・iPhone 実機 2026-09-21）。デカールの定石。
+		if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.0, -4.0); }
 		for (const L of rasterDraws.layers) {
 			if (L.order !== order || !L.draws.length) continue;
 			if (!n) {
@@ -178,6 +181,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				n++;
 			}
 		}
+		if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
 		if (n) { gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(null); }
 		return n;
 	}
@@ -1092,7 +1096,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 画像タイル層（under＝ラスタ基図）：地形の直後・海面下/湖/等高線/塗りの前。山岳ビューは塗りと同じ「地形深度でテストだけ」
 		if (rasterDraws) {
 			if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); }
-			rasterDrawn = drawRasterLayers("under", st, land, pfFog, cityLift, terrainActive);
+			rasterDrawn = drawRasterLayers("under", st, land, pfFog, cityLift, terrainActive, terrainDepth);
 			if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }
 		}
 		// 海面下の陸地（?world=1・bucket below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
@@ -1154,7 +1158,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// over（写真・ハザード）は「塗りの後・最初の線の前」に一度だけ差し込む＝道路・注記はラスタの上に乗る。
 		const rasterHide = !!(rasterDraws && rasterDraws.hideFills);
 		let rasterOverDone = !(rasterDraws && rasterDraws.layers.some(L => L.order === "over" && L.draws.length));
-		const rasterOver = () => { if (rasterOverDone) return; rasterOverDone = true; rasterDrawn += drawRasterLayers("over", st, land, pfFog, cityLift, terrainActive); };
+		const rasterOver = () => { if (rasterOverDone) return; rasterOverDone = true; rasterDrawn += drawRasterLayers("over", st, land, pfFog, cityLift, terrainActive, terrainDepth); };
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
