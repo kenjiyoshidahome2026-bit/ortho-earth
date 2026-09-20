@@ -157,7 +157,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		let n = 0;
 		// 地形深度あり＝ラスタを手前へ（地形の polygonOffset(1,4) の逆向き・勾配比例）：頂点は elevQ で地形面に乗るが、凸の折れ目を
 		// またぐ三角形は弦として地形の下に潜る＝深度で負けて地形の陰影が斑に出る（写真で顕著・iPhone 実機 2026-09-21）。デカールの定石。
-		if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1.0, -4.0); }
+		if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2.0, -8.0); }
 		for (const L of rasterDraws.layers) {
 			if (L.order !== order || !L.draws.length) continue;
 			if (!n) {
@@ -166,7 +166,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				const mq = (terrainActive && terrain) ? terrain.mesh : null;   // 案A：描画メッシュの折れ線面へ量子化（塗りと同じ）
 				gl.uniform4f(loc(gl, rasterProg, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1);
 				gl.uniform1f(loc(gl, rasterProg, "u_meshG"), mq ? terrain.G : 0);
-				gl.uniform1f(loc(gl, rasterProg, "u_lift"), cityLift);
+				gl.uniform1f(loc(gl, rasterProg, "u_lift"), cityLift + (terrainDepth ? (rasterDraws.lift || 0) : 0));   // 接地リフト＝都市帯の 5m＋地形格子比例（稜線の弦の潜り対策）
 				gl.uniform1f(loc(gl, rasterProg, "u_seaGate"), 0);
 				gl.uniform1i(loc(gl, rasterProg, "u_tex"), 10);
 				gl.activeTexture(gl.TEXTURE10);
