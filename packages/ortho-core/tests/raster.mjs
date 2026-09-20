@@ -61,7 +61,7 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 		let inRange = true; for (const i of m.idx) if (i >= V) inRange = false;
 		ok(inRange, `z${z}: indices in range`);
 	}
-	ok(subdivOf(0) === 32 && subdivOf(4) === 24 && subdivOf(12) === 16, "subdivOf ladder");
+	ok(subdivOf(0) === 32 && subdivOf(4) === 16 && subdivOf(12) === 8, "subdivOf ladder");
 }
 
 // 4. 祖先 uv
@@ -99,7 +99,10 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	const st = raster.stats();
 	ok(R.last && R.last.layers.length === 1 && R.last.layers[0].draws.length > 0, `draw list populated (${R.last?.layers[0]?.draws.length ?? 0} draws, ready=${st.layers[0]?.ready})`);
 	ok(R.last.hideFills === true && R.last.layers[0].order === "under", "hideFills propagated for under layer");
-	ok(R.last.origin[0] === cam.center[0] && R.last.origin[1] === cam.center[1], "origin = cam.center");
+	ok(R.last.near && R.last.near[0] < cam.center[0] && R.last.near[2] > cam.center[0] && R.last.near[1] < cam.center[1] && R.last.near[3] > cam.center[1], `near window contains center (${R.last.near?.map(v => v.toFixed(3)).join(",")})`);
+	ok(R.last.atlas === 2048 && R.last.rev > 0, `atlas size/rev (${R.last.atlas}, rev=${R.last.rev})`);
+	ok(R.last.layers[0].draws.every(d => d.nw && d.bounds && d.mesh && d.tex && d.uvT), "draw entries carry nw/bounds/mesh/tex/uvT");
+	{ const r0 = R.last.rev; raster.update(cam, 800, 600); ok(R.last.rev === r0, "static camera + no arrivals = rev unchanged (no re-composite)"); }
 	// 選抜 z≈9（10.3−1）は奇数＝無い → 祖先 z8 の部分 uv で描かれている（uvT の su=0.5）
 	const anc = R.last.layers[0].draws.filter(d => d.uvT[2] < 1);
 	ok(anc.length > 0 && anc.every(d => near(d.uvT[2], 0.5)), `odd zoom missing → parent fallback with quarter uv (${anc.length} draws)`);
