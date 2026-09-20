@@ -99,18 +99,18 @@
 			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/osaka-castle.jpg"
 		},
 		{
-			"id": "kiyomizu-dera",
+			"id": "yasaka-pagoda",
 			"name": {
-				"en": "Kiyomizu-dera",
-				"ja": "清水寺"
+				"en": "Yasaka Pagoda (Hōkan-ji)",
+				"ja": "八坂の塔（法観寺）"
 			},
 			"place": {
 				"en": "Kyoto",
 				"ja": "京都市東山区"
 			},
-			"lon": 135.78501,
-			"lat": 34.99491,
-			"zoom": 17.2,
+			"lon": 135.77843,
+			"lat": 34.99852,
+			"zoom": 17.8,
 			"tilt": 60,
 			"bearing": 0,
 			"heading": 0,
@@ -119,8 +119,8 @@
 			"license": "CC BY 4.0",
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
-			"mb": 1,
-			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/kiyomizu-dera.jpg"
+			"mb": 8,
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/yasaka-pagoda.jpg"
 		},
 		{
 			"id": "nijo-castle",
