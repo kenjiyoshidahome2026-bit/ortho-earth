@@ -7,8 +7,7 @@
 // 置き場所は glb 自身が持つ（CESIUM_RTC／絶対 ECEF）＝lon/lat は飛び先の指定であって錨ではない。
 // 一覧のカードをクリック＝①先に視点へ飛ぶ（遷移の時間＝読み込みの準備時間）②並行で GLB を取りに行き、届いたら設置点に立てる（fit はしない＝視点は台帳が正）。
 // 未アップロード（404）でも場所へは飛ぶ＝候補の取捨（本人）は場所と絵で判断できる。
-// 調整＝heading（北から時計回りの度）と scale（倍率）を打ち直して「適用」＝同じ GLB を読み直して置き直す（ブラウザキャッシュ＝速い）。
-// 決まった値は台帳へ書き戻す（この画面は保存しない）。?m=<id> で起動時に選ぶ（共有）。
+// 選んだ模型は GLB／glTF(.zip) でそのまま落とせる＝このデモの芯（3D Tiles を GLB へ変換してから描いている）。?m=<id> で起動時に選ぶ（共有）。
 import { gunzip } from "geopbf/gzip";
 import { encodeZIP } from "geopbf/encodeZIP";   // glTF（.gltf＋.bin）を 1 つの zip にして渡す
 import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
@@ -20,8 +19,8 @@ const fmt = n => n.toLocaleString(getLang());
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountModels(map, { catalog, panelHost } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/models/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/models.json）も足す
-	document.title = t("Landmarks in 3D — ortho-japan");   // 器（models.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
-	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Landmarks in 3D — PLATEAU LOD3 city models on the globe"));
+	document.title = t("Landmarks in GLB — ortho-japan");   // 器（models.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
+	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Japanese landmarks as PLATEAU LOD3 city models, read straight from GLB on a 3D globe. Download each one as GLB or glTF."));
 	const mapEl = map.mapEl;
 	const lang = getLang();
 	const L = v => (v && typeof v === "object") ? (v[lang] ?? v.en ?? Object.values(v)[0] ?? "") : (v ?? "");
@@ -49,32 +48,28 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 .models-panel .status{margin:6px 0 8px;color:#fff;min-height:1.4em}
 .models-panel .status.err{color:#ffb86b}
 .models-panel .list{display:flex;flex-direction:column;gap:6px}
-.models-panel .card{display:grid;grid-template-columns:96px 1fr;gap:10px;align-items:center;width:100%;border:1px solid transparent;background:rgba(255,255,255,.05);
+.models-panel .card{display:grid;grid-template-columns:96px minmax(0,1fr);gap:10px;align-items:center;width:100%;border:1px solid transparent;background:rgba(255,255,255,.05);
  text-align:start;padding:6px;border-radius:9px;cursor:pointer;font:inherit;color:inherit}
 .models-panel .card:hover{background:rgba(255,255,255,.12)}
 .models-panel .card.on{border-color:rgba(255,255,255,.55);background:rgba(255,255,255,.14)}
+.models-panel .card span{min-width:0}
 .models-panel .card img{width:96px;height:54px;object-fit:cover;border-radius:6px;background:#1a2236;display:block}
 .models-panel .card .noimg{width:96px;height:54px;border-radius:6px;display:block;background:linear-gradient(135deg,#27304a,#161d2e)}
-.models-panel .card b{display:block;font-size:13px;line-height:1.3}
-.models-panel .card small{display:block;color:#9aa6bd;font-size:11px;line-height:1.4}
+.models-panel .card b{display:block;font-size:13px;line-height:1.3;overflow-wrap:anywhere}
+.models-panel .card small{display:block;color:#9aa6bd;font-size:11px;line-height:1.4;overflow-wrap:anywhere}
 .models-panel .cur{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
 .models-panel .cur b{font-size:13.5px}
-.models-panel .cur .m{color:#b9c3d6;font-size:11.5px}
+.models-panel .cur .m{color:#b9c3d6;font-size:11.5px;overflow-wrap:anywhere}
 .models-panel .cur a{color:#9cc4ff}
-.models-panel .adj{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin-top:8px;color:#b9c3d6}
-.models-panel .adj label{display:flex;align-items:center;gap:5px}
-.models-panel .adj input{width:64px;font:inherit;font-size:12px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;padding:3px 6px}
-.models-panel .adj button{border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#ff8c1a;color:#1a0d00;font:inherit;font-weight:700;padding:4px 12px;cursor:pointer}
 .models-panel .dl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:8px;color:#b9c3d6}
 .models-panel .dl a{display:inline-block;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#e7ecf5;text-decoration:none;padding:3px 10px}
 .models-panel .dl a:hover{background:rgba(255,255,255,.18)}
 .models-panel .dl a[aria-disabled="true"]{opacity:.45;pointer-events:none}
-.models-panel .adj code{font:11px ui-monospace,monospace;color:#9aa6bd;flex:1 1 100%;user-select:all;white-space:pre-wrap}
 .models-panel .note{color:#8793aa;font-size:10.5px;margin-top:8px;line-height:1.5}
 @media (max-width:640px){.models-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:50%}}
 </style>
-<div class="head"><h1>${t("Landmarks in 3D")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("Click a landmark to fly there and see its 3D model.")}</div>
+<div class="head"><h1>${t("Landmarks in GLB")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
+<div class="sub">${t("Click a landmark to fly there and see its 3D model.")}<br>${t("The models are PLATEAU LOD3 city models (MLIT Japan, CC BY 4.0), read straight from GLB.")}</div>
 <div class="body">
 <div class="status" data-k="status"></div>
 <div class="list" data-k="list"></div>
@@ -122,11 +117,9 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		const el = $("cur");
 		if (!m) { el.style.display = "none"; return; }
 		el.style.display = "";
-		el.innerHTML = `<b>${esc(L(m.name))}</b><div class="m">${t("3D model: $1 ($2)", esc(m.author), esc(m.license))} · <a href="${esc(m.source)}" target="_blank" rel="noopener">Sketchfab</a>${m.faces ? ` · ${fmt(m.faces)} ▲` : ""}</div>
-			<div class="adj"><label>${t("Heading")} <input type="number" data-k="heading" step="1" value="${+m.heading || 0}">°</label>
-			<label>${t("Scale")} <input type="number" data-k="scale" step="0.05" min="0.01" value="${+m.scale || 1}"></label>
-			<button type="button" data-k="apply">${t("Apply")}</button>
-			<code data-k="json"></code></div>
+		// 出典（CC BY の義務）とダウンロードだけ。向き/縮尺の調整欄は廃止＝PLATEAU の glb は置き場所を自分で持つ（CESIUM_RTC）
+		el.innerHTML = `<b>${esc(L(m.name))}</b>
+			<div class="m">${t("3D model: $1 ($2)", esc(m.author), esc(m.license))}${m.source ? ' · <a href="' + esc(m.source) + '" target="_blank" rel="noopener">' + t("Source ##link") + "</a>" : ""}</div>
 			<div class="dl">${t("Download")} <a href="#" data-k="dlglb">GLB</a> <a href="#" data-k="dlgltf">glTF (.zip)</a></div>`;
 		$("dlglb").addEventListener("click", e => { e.preventDefault(); if (glbBytes) saveAs(new Blob([glbBytes], { type: "model/gltf-binary" }), m.id + ".glb"); });
 		$("dlgltf").addEventListener("click", async e => {
@@ -135,10 +128,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			const zip = await encodeZIP([new File([gltf], m.id + ".gltf", { type: "model/gltf+json" }), new File([bin], m.id + ".bin", { type: "application/octet-stream" })]);
 			saveAs(zip instanceof Blob ? zip : new Blob([zip], { type: "application/zip" }), m.id + "-gltf.zip");
 		});
-		$("apply").addEventListener("click", () => { m.heading = +$("heading").value || 0; m.scale = +$("scale").value || 1; load(m); });
-		syncJson(m);
 	};
-	const syncJson = m => { const c = $("json"); if (c) c.textContent = JSON.stringify({ lon: m.lon, lat: m.lat, zoom: m.zoom, tilt: m.tilt, bearing: m.bearing, heading: m.heading, scale: m.scale }); };
 	async function load(m) {
 		const my = ++seq;
 		setStatus(t("Loading model…"));
@@ -150,9 +140,9 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			if (my !== seq) return;
 			glbBytes = new Uint8Array(await blob.arrayBuffer());   // ダウンロード用に持っておく（描画にも同じ物を渡す）
 			// ground="each"＝建物ごとに接地（PLATEAU の一区画＝高台の城が浮かない）。台帳で ground:"batch" と書けば一体接地へ
-			const c = await map.gadget.model(new File([glbBytes], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
+			const c = await map.gadget.model(new File([glbBytes], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
 			if (my !== seq) return;   // 途中で別の模型が選ばれた＝後勝ち（ガジェットは単一スロット）
-			ctl = c; setStatus(""); syncJson(m);
+			ctl = c; setStatus("");
 		} catch (e) {
 			if (my !== seq) return;
 			const s = String(e?.message || e);
