@@ -113,6 +113,16 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(R.last === null, "visible:false → no draws");
 	raster.set("t", { visible: true, opacity: 0.5, order: "over" }); raster.update(cam, 800, 600);
 	ok(R.last && R.last.layers[0].order === "over" && near(R.last.layers[0].opacity, 0.5) && R.last.hideFills === false, "set order/opacity → over layer does not hide fills");
+	// 合成順：重ね（over）が先に追加されていても、後から足した基図（under）が先に並ぶ（基図が重ねを覆わない）
+	{
+		const ch2 = new MessageChannel();
+		ch2.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; ch2.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
+		ch2.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 12, bbox: null, name: "base2" } });
+		await raster.add("u2", { port: ch2.port2 }, { order: "under" });
+		for (let i = 0; i < 30 && !(R.last && R.last.layers.length === 2 && R.last.layers.every(l => l.draws.length)); i++) await tick();
+		ok(R.last && R.last.layers.length === 2 && R.last.layers[0].order === "under" && R.last.layers[1].order === "over", `under composited before over regardless of add order (${R.last?.layers.map(l => l.order).join(">")})`);
+		raster.remove("u2"); ch2.port1.close();
+	}
 	// 表示域の門：配信下限 0 の 1.5 段下＝−1.5 より下は描かない
 	raster.update({ ...cam, zoom: -2 }, 800, 600);
 	ok(R.last === null, "below showMin → no draws");
