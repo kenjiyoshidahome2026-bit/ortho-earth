@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, PLATEAU_TEX_VS, PLATEAU_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_VS, RASTER_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, PLATEAU_TEX_VS, PLATEAU_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS } from "./glsl.js";
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
@@ -23,7 +23,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
 	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
 	const plateauTexProg = program(gl, PLATEAU_TEX_VS, PLATEAU_TEX_FS);   // 模型（glb 直読み）＝同シェーダの派生（uv＋頂点色＋テクスチャ）
-	const rasterProg = program(gl, RASTER_VS, RASTER_FS);   // 画像タイル層（raster.js）＝塗り VS の派生（uv＋タイル原点差＋祖先の部分 uv）・FS はテクスチャ標本化
+	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを経緯度アトラスへ合成（RTT ドレープ）
 	const whiteTex = gl.createTexture();   // テクスチャ無しの模型バッチ用（頂点色×1）
 	gl.bindTexture(gl.TEXTURE_2D, whiteTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); gl.bindTexture(gl.TEXTURE_2D, null);
 	function plateauTexture(t) {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
@@ -112,21 +112,22 @@ export function createRenderer(canvas, rOpts = {}) {
 		const [W, S, sLon, sLat] = cogSt.bbox;
 		gl.uniform4f(loc(gl, terrainProg, "u_cogMesh"), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat);
 	}
-	// ── 画像タイル層（raster.js の renderer 契約・2026-09-21）────────────────────────────────
-	// テクスチャ＝タイル 1 枚 1 テクスチャ（v1 と同じ・mips＋CLAMP_TO_EDGE＋異方性）。unit10＝空き（1=elev 2-5=mask 6=md線 7=模型 8=far 9=cog 12=clim）。
-	// メッシュ＝(z,y,n) で共有の格子（raster.js がキャッシュ）。描画リストは毎フレーム raster.js が差し替える（setRasterDraws）。
-	let rasterDraws = null, memRaster = 0, rasterDrawn = 0, dbgC = null;
+	// ── 画像タイル層（raster.js の renderer 契約・2026-09-21・RTT ドレープ）────────────────────────
+	// タイル＝1 枚 1 テクスチャ（mips＋CLAMP・v1 と同じ）。描画リスト（rd）の rev が変わった時だけ、タイル群を経緯度整列の
+	// アトラス（近窓＝rd.atlas²・遠窓＝半分）へ FBO で合成し、毎フレームは地形/球/塗りの FS が rasMix で画素標本化する（COG と同じ配線）。
+	// unit10＝合成時のタイル・unit13/14＝アトラス近/遠（1=elev 2-5=mask 6=md線 7=模型 8=far 9=cog 12=clim と不干渉）。
+	let rasterDraws = null, memRaster = 0, dbgC = null;
+	const ras = { near: null, far: null, has: 0, rev: -1, tiles: 0, bytes: 0 };   // near/far＝{ tex, fbo, size, win:[W,S,spanLon,spanLat] }
 	function rasterTex(bitmap) {
 		const tex = gl.createTexture();
 		gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tex);
-		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);   // 画像の行0＝北＝メッシュ v=0（反転しない）・α は FS が掛ける
+		gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false); gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);   // 画像の行0＝北＝メッシュ v=0（反転しない）・α は合成 FS が掛ける
 		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bitmap);
-		gl.generateMipmap(gl.TEXTURE_2D);   // WebGL2 は NPOT でも可。遠景・斜め視のちらつき防止（v1 createTileTexture と同じ）
+		gl.generateMipmap(gl.TEXTURE_2D);
 		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);   // 隣接タイルの滲み防止
-		const aniso = gl.getExtension("EXT_texture_filter_anisotropic"); if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
 		gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
-		const bytes = Math.round(bitmap.width * bitmap.height * 4 * 4 / 3);   // mips 込み（≈4/3）
+		const bytes = Math.round(bitmap.width * bitmap.height * 4 * 4 / 3);
 		memRaster += bytes;
 		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height };
 	}
@@ -134,8 +135,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		const vao = gl.createVertexArray();
 		const bPos = buffer(gl, pos), bUv = buffer(gl, uv);
 		gl.bindVertexArray(vao);
-		attrib(gl, rasterProg, "a_delta", bPos, 2);
-		attrib(gl, rasterProg, "a_uv", bUv, 2);
+		attrib(gl, rasAtlasProg, "a_delta", bPos, 2);
+		attrib(gl, rasAtlasProg, "a_uv", bUv, 2);
 		const ibo = gl.createBuffer();
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
@@ -149,41 +150,91 @@ export function createRenderer(canvas, rOpts = {}) {
 		else { for (const b of h.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(h.vao); }
 		memRaster -= h.bytes || 0;
 	}
-	function setRasterDraws(rd) { rasterDraws = rd; }
-	// order:"under"＝地形の直後・塗りの前（基図＝塗りは伏せる）／"over"＝塗りの後・線の前（写真・ハザード＝線と注記は上）。
-	// 塗りと同じ深度規律（山岳ビュー＝地形深度でテストだけ・書かない）は呼び出し側が整えて呼ぶ。
-	function drawRasterLayers(order, st, land, pfFog, cityLift, terrainActive, terrainDepth) {
-		if (!rasterDraws) return 0;
-		let n = 0;
-		// 地形深度あり＝ラスタを手前へ（地形の polygonOffset(1,4) の逆向き・勾配比例）：頂点は elevQ で地形面に乗るが、凸の折れ目を
-		// またぐ三角形は弦として地形の下に潜る＝深度で負けて地形の陰影が斑に出る（写真で顕著・iPhone 実機 2026-09-21）。デカールの定石。
-		if (terrainDepth) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-2.0, -8.0); }
-		for (const L of rasterDraws.layers) {
-			if (L.order !== order || !L.draws.length) continue;
-			if (!n) {
-				setCommonUniforms(rasterProg, st, rasterDraws.origin, land);
-				gl.uniform1f(loc(gl, rasterProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog));   // 線・塗りと同じ終端
-				const mq = (terrainActive && terrain) ? terrain.mesh : null;   // 案A：描画メッシュの折れ線面へ量子化（塗りと同じ）
-				gl.uniform4f(loc(gl, rasterProg, "u_meshQ"), mq ? mq[0] : 0, mq ? mq[1] : 0, mq ? mq[2] : 1, mq ? mq[3] : 1);
-				gl.uniform1f(loc(gl, rasterProg, "u_meshG"), mq ? terrain.G : 0);
-				gl.uniform1f(loc(gl, rasterProg, "u_lift"), cityLift + (terrainDepth ? (rasterDraws.lift || 0) : 0));   // 接地リフト＝都市帯の 5m＋地形格子比例（稜線の弦の潜り対策）
-				gl.uniform1f(loc(gl, rasterProg, "u_seaGate"), 0);
-				gl.uniform1i(loc(gl, rasterProg, "u_tex"), 10);
-				gl.activeTexture(gl.TEXTURE10);
+	function setRasterDraws(rd) { rasterDraws = rd; if (!rd) { ras.has = 0; ras.tiles = 0; ras.rev = -1; } }
+	function rasAlloc(size) {
+		const tex = gl.createTexture();
+		gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D, tex);
+		gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+		const aniso = gl.getExtension("EXT_texture_filter_anisotropic"); if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));
+		gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
+		const fbo = gl.createFramebuffer();
+		gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+		const bytes = Math.round(size * size * 4 * 4 / 3);
+		ras.bytes += bytes;
+		return { tex, fbo, size, win: [0, 0, 1, 1], bytes };
+	}
+	function rasFree1(a) { if (!a) return; gl.deleteFramebuffer(a.fbo); gl.deleteTexture(a.tex); ras.bytes -= a.bytes; }
+	// 合成（rev が進んだ時だけ）：窓ごとに FBO へタイルを over 合成→mips。描画状態は draw() の冒頭で呼ぶ＝後続が全部設定し直す
+	function renderRasterAtlas() {
+		const rd = rasterDraws;
+		if (!rd || rd.rev === ras.rev) return;
+		ras.rev = rd.rev; ras.tiles = 0;
+		for (const [k, bb] of [["near", rd.near], ["far", rd.far]]) {
+			if (!bb) { if (ras[k]) { rasFree1(ras[k]); ras[k] = null; } continue; }
+			const size = k === "near" ? rd.atlas : (rd.atlas >> 1);
+			if (!ras[k] || ras[k].size !== size) { if (ras[k]) rasFree1(ras[k]); ras[k] = rasAlloc(size); }
+			const a = ras[k]; a.win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
+			gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
+			gl.viewport(0, 0, size, size);
+			gl.disable(gl.DEPTH_TEST); gl.disable(gl.STENCIL_TEST); gl.disable(gl.SCISSOR_TEST);
+			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+			gl.useProgram(rasAtlasProg);
+			gl.uniform2f(loc(gl, rasAtlasProg, "u_winInv"), 1 / a.win[2], 1 / a.win[3]);
+			gl.uniform1i(loc(gl, rasAtlasProg, "u_tex"), 10);
+			gl.activeTexture(gl.TEXTURE10);
+			for (const L of rd.layers) {   // under → over の順（raster.js が並べる）
+				gl.uniform1f(loc(gl, rasAtlasProg, "u_opacity"), L.opacity);
+				for (const d of L.draws) {
+					const b = d.bounds;
+					if (b[2] <= bb[0] || b[0] >= bb[2] || b[3] <= bb[1] || b[1] >= bb[3]) continue;   // 窓と重ならない
+					gl.uniform2f(loc(gl, rasAtlasProg, "u_tileOff"), d.nw[0] - a.win[0], d.nw[1] - a.win[1]);   // CPU f64 で差を取ってから f32
+					gl.uniform4f(loc(gl, rasAtlasProg, "u_uvT"), d.uvT[0], d.uvT[1], d.uvT[2], d.uvT[3]);
+					gl.bindTexture(gl.TEXTURE_2D, d.tex.tex);
+					gl.bindVertexArray(d.mesh.vao);
+					gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
+					ras.tiles++;
+				}
 			}
-			gl.uniform1f(loc(gl, rasterProg, "u_opacity"), L.opacity);
-			for (const d of L.draws) {
-				gl.uniform2f(loc(gl, rasterProg, "u_tileOff"), d.off[0], d.off[1]);
-				gl.uniform4f(loc(gl, rasterProg, "u_uvT"), d.uvT[0], d.uvT[1], d.uvT[2], d.uvT[3]);
-				gl.bindTexture(gl.TEXTURE_2D, d.tex.tex);
-				gl.bindVertexArray(d.mesh.vao);
-				gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
-				n++;
-			}
+			gl.bindVertexArray(null); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
+			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+			gl.bindTexture(gl.TEXTURE_2D, a.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, null);   // 斜め視のちらつき防止
 		}
-		if (terrainDepth) gl.disable(gl.POLYGON_OFFSET_FILL);
-		if (n) { gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0); gl.bindVertexArray(null); }
-		return n;
+		ras.has = ras.near ? (ras.far ? 2 : 1) : 0;
+	}
+	// ⚠サンプラは has=0 でも毎フレーム unit13/14 へ向ける（未設定＝unit0 整数テクスチャの轍＝cog/elev と同族）
+	function bindRas(prog) {
+		gl.uniform1i(loc(gl, prog, "u_rasNear"), 13); gl.uniform1i(loc(gl, prog, "u_rasFar"), 14);
+		gl.uniform1f(loc(gl, prog, "u_hasRas"), ras.has);
+		gl.activeTexture(gl.TEXTURE13); gl.bindTexture(gl.TEXTURE_2D, ras.has ? ras.near.tex : null);
+		gl.activeTexture(gl.TEXTURE14); gl.bindTexture(gl.TEXTURE_2D, ras.has > 1 ? ras.far.tex : null);
+		gl.activeTexture(gl.TEXTURE0);
+	}
+	// fill 系：uv＝off+dLL×inv（シーン原点ごと f64 前計算＝cog の u_cogOffInv と同じ）
+	function setRasScene(prog, origin) {
+		if (!ras.has) return;
+		const o = origin || [0, 0];
+		for (const [name, a] of [["u_rasOffInvN", ras.near], ["u_rasOffInvF", ras.far]]) {
+			if (!a) continue;
+			const [W, S, sLon, sLat] = a.win;
+			gl.uniform4f(loc(gl, prog, name), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat);
+		}
+	}
+	// terrain：メッシュ窓（u_mesh）→アトラス uv（cog の u_cogMesh と同じ）
+	function setRasMesh(mh) {
+		if (!ras.has) return;
+		for (const [name, a] of [["u_rasMeshN", ras.near], ["u_rasMeshF", ras.far]]) {
+			if (!a) continue;
+			const [W, S, sLon, sLat] = a.win;
+			gl.uniform4f(loc(gl, terrainProg, name), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat);
+		}
+	}
+	function setRasGlobe(prog) {
+		for (const [name, a] of [["u_rasBboxN", ras.near], ["u_rasBboxF", ras.far]]) gl.uniform4f(loc(gl, prog, name), a ? a.win[0] : 0, a ? a.win[1] : 0, a ? a.win[2] : 1, a ? a.win[3] : 1);
 	}
 	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
 	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
@@ -878,8 +929,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 
 	function draw(cam, opts) {
+		renderRasterAtlas();   // 画像タイル層＝rev が進んだ時だけアトラスへ合成（FBO・viewport は下で戻る）
 		gl.viewport(0, 0, canvas.width, canvas.height);
-		rasterDrawn = 0;   // 画像タイル層の描画枚数（診断 dbg）
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
@@ -907,7 +958,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 全球ハイプソの出現度（globe パスと terrain パスが共有＝ピッチで色が変わらない）。z5.7→6.5 でフェードアウト
 		// ＝R90 全球窓の限界（z6.5 でアトラスがビュー窓へ切替）に着地し、そこで基図（BASEMAP_MINZOOM=6.5）と交代
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
-		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has;   // COG 搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has && !ras.has;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
@@ -998,6 +1049,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			}
 			bindCog(globeProg);   // ユーザ COG（has=0 でもサンプラは unit9 へ＝轍対策）
 			gl.uniform4f(loc(gl, globeProg, "u_cogBbox"), cogSt.bbox[0], cogSt.bbox[1], cogSt.bbox[2], cogSt.bbox[3]);
+			bindRas(globeProg); setRasGlobe(globeProg);   // 画像タイル層＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
 		}
@@ -1072,10 +1124,11 @@ export function createRenderer(canvas, rOpts = {}) {
 			if (worldHypsoK > 0) { ensureClimTex(view.worldHypso.clim); bindClim(terrainProg); bindWorldPal(terrainProg); }
 			else { gl.uniform1i(loc(gl, terrainProg, "u_climTex"), 12); gl.uniform1f(loc(gl, terrainProg, "u_hasClim"), 0); }   // サンプラは常時unit12へ（未設定=unit0整数テクスチャの轍）
 			bindCog(terrainProg);   // ユーザ COG（陰影の上・フォグの下＝TERRAIN_FS 側で合成）
+			bindRas(terrainProg);   // 画像タイル層（同）
 			const mh = terrain.mesh;   // 窓の原点/幅＝単位格子メッシュを実座標へ伸ばす（メッシュ自体は使い回し）
 			gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			gl.uniform4f(loc(gl, terrainProg, "u_mesh"), mh[0], mh[1], mh[2], mh[3]);
-			setCogMesh(mh);
+			setCogMesh(mh); setRasMesh(mh);
 			gl.bindVertexArray(terrain.vao);
 			gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 			if (far.has && farTex) {
@@ -1083,7 +1136,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				// 近を先に描く＝遠の被り分は深度で早期棄却。頂点コストは近と同額＝チルト×深ズーム時のみ発生。
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 1);
 				gl.uniform4f(loc(gl, terrainProg, "u_mesh"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
-				setCogMesh(far.bounds);
+				setCogMesh(far.bounds); setRasMesh(far.bounds);
 				gl.drawElements(gl.TRIANGLES, terrain.count, gl.UNSIGNED_INT, 0);
 				gl.uniform1f(loc(gl, terrainProg, "u_farPass"), 0);
 			}
@@ -1093,12 +1146,6 @@ export function createRenderer(canvas, rOpts = {}) {
 		// ベクタ(塗り/線)は常にペインタ順で地形の上に描く＝深度で地形と争わせない。傾き時も平面時も、
 		// 陸・海・道路が地形サーフェスと z-fight して揺れる/寸断するのを根絶（地形の起伏は先に深度で解決済）。
 		gl.disable(gl.DEPTH_TEST);
-		// 画像タイル層（under＝ラスタ基図）：地形の直後・海面下/湖/等高線/塗りの前。山岳ビューは塗りと同じ「地形深度でテストだけ」
-		if (rasterDraws) {
-			if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); }
-			rasterDrawn = drawRasterLayers("under", st, land, pfFog, cityLift, terrainActive, terrainDepth);
-			if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }
-		}
 		// 海面下の陸地（?world=1・bucket below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
 		// 描画順が精度を代替する設計（2026-09-01 本人指摘）：海側の境界だけ焼きが正確（admin0海岸線でクリップ）なら
 		// よく、湖側（死海・カスピ沿岸）は上に乗る湖の塗りが、陸側は cover（landK=1 のハイプソ本体）が外側と同色に
@@ -1144,8 +1191,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.useProgram(bldProg); setMeshQ(bldProg);           // 基図建物の足元＋gintBld ドレープ線
 		if (md && md.bldProg) { gl.useProgram(md.bldProg); setMeshQ(md.bldProg); }
 		// ユーザ COG＝基図の塗りに合成（ドレープは塗りの v_ll が担う）。fill 系プログラムへ毎フレーム結線（has=0 でも轍対策）
-		gl.useProgram(fillProg); bindCog(fillProg); setMeshQ(fillProg);
-		if (md && md.fillProg) { gl.useProgram(md.fillProg); bindCog(md.fillProg); setMeshQ(md.fillProg); }
+		gl.useProgram(fillProg); bindCog(fillProg); bindRas(fillProg); setMeshQ(fillProg);
+		if (md && md.fillProg) { gl.useProgram(md.fillProg); bindCog(md.fillProg); bindRas(md.fillProg); setMeshQ(md.fillProg); }
 
 		// 山岳ビュー＝基図(塗り/線)は地形深度でテストだけする（書かない）：尾根の向こうの道路・塗りが透けない。
 		// fill/line の VS は applyLogDepth と同式の対数深度を焼いており地形と直接比較できる。
@@ -1155,10 +1202,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		const slots = (opts && opts.skipMain) ? ["base"]
 			: (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
 		// ラスタ基図（under・hideFills）が描かれている間は基図の塗りを伏せる（裁定 2026-09-21：線と注記は残す）。
-		// over（写真・ハザード）は「塗りの後・最初の線の前」に一度だけ差し込む＝道路・注記はラスタの上に乗る。
-		const rasterHide = !!(rasterDraws && rasterDraws.hideFills);
-		let rasterOverDone = !(rasterDraws && rasterDraws.layers.some(L => L.order === "over" && L.draws.length));
-		const rasterOver = () => { if (rasterOverDone) return; rasterOverDone = true; rasterDrawn += drawRasterLayers("over", st, land, pfFog, cityLift, terrainActive, terrainDepth); };
+		// over（写真・ハザード）はアトラスに合成済み＝塗り FS が rasMix で塗りの上に載せる（線・注記はその上）
+		const rasterHide = !!(rasterDraws && rasterDraws.hideFills && ras.has);
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog);
@@ -1182,7 +1227,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const scene = scenes[slot];
 			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
 				setCommonUniforms(md.fillProg, st, scene.origin, land);
-				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin);
+				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin); setRasScene(md.fillProg, scene.origin);
 				setCommonUniforms(md.lineProg, st, scene.origin, land);
 				gl.useProgram(md.fillProg); gl.uniform1f(loc(gl, md.fillProg, "u_fogFar"), fogFarCap);
 				gl.useProgram(md.lineProg); gl.uniform1f(loc(gl, md.lineProg, "u_fogFar"), fogFarCap);
@@ -1209,7 +1254,6 @@ export function createRenderer(canvas, rOpts = {}) {
 						md.ext.multiDrawElementsWEBGL(gl.TRIANGLES, e.counts, 0, gl.UNSIGNED_INT, e.offsets, 0, e.counts.length);
 						if (slot === "base") dbgC.baseFill += e.counts.length; else dbgC.mainFill += e.counts.length;
 					} else {
-						if (!rasterOverDone) { rasterOver(); curProgM = null; }   // 最初の線の前＝over ラスタ（プログラム/VAO は再バインド）
 						if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 						if (curProgM !== md.lineProg) { gl.useProgram(md.lineProg); gl.bindVertexArray(emptyVAO); curProgM = md.lineProg; }
 						gl.uniform2fv(loc(gl, md.lineProg, "u_tileOff"), e.origins);
@@ -1223,7 +1267,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			if (!scene.draws.length) continue;
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
-			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin);
+			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin); setRasScene(fillProg, scene.origin);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
 			let curProg = null;
@@ -1247,7 +1291,6 @@ export function createRenderer(canvas, rOpts = {}) {
 					else gl.drawArrays(gl.TRIANGLES, 0, d.count);
 					if (slot === "base") dbgC.baseFill++; else dbgC.mainFill++;
 				} else {
-					if (!rasterOverDone) { rasterOver(); curProg = null; }   // 最初の線の前＝over ラスタ（プログラムは再バインド）
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
@@ -1256,7 +1299,6 @@ export function createRenderer(canvas, rOpts = {}) {
 				}
 			}
 		}
-		if (!rasterOverDone) { if (terrainDepth) { gl.enable(gl.DEPTH_TEST); gl.depthMask(false); } rasterOver(); }   // 線が一本も無い画面＝塗りの後に over ラスタ
 		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
 		drawOverlay(st, cam.dpr || 1, land, cam.zoom || 0);
@@ -1434,7 +1476,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { rasFree1(ras.near); rasFree1(ras.far); ras.near = ras.far = null; ras.has = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1476,10 +1518,9 @@ export function createRenderer(canvas, rOpts = {}) {
 	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
 	// gintCtx＝直近 draw の gint 深度統合コンテキスト（renderworker が gint パスへ渡す）
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）。msaa=0＝canvas antialias:true はブラウザ暗黙確保（HUD 注記）
-	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster });
+	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + ras.bytes });
 	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
-		rasterTex, rasterMesh, rasterFree, setRasterDraws, dbg: () => (dbgC ? { ...dbgC, raster: rasterDrawn } : null),
-		terrainCell: () => (terrain && elev.has && terrain.G > 1) ? [terrain.mesh[2] / (terrain.G - 1), terrain.mesh[3] / (terrain.G - 1)] : null };   // 地形メッシュの格子幅(deg)＝ラスタの細分が地形より粗くならないように   // 画像タイル層（raster.js の renderer 契約）
+		rasterTex, rasterMesh, rasterFree, setRasterDraws, dbg: () => (dbgC ? { ...dbgC, raster: rasterDraws ? ras.tiles : 0 } : null) };   // raster＝直近合成でアトラスへ描いたタイル数   // 画像タイル層（raster.js の renderer 契約）
 }
 
 // --- GL ヘルパ ---
