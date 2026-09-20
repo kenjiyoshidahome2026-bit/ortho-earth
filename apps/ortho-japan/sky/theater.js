@@ -31,7 +31,8 @@ const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), l
 	({ planetPositions, moonPosition, sunPosition } = p); skyNames = s;
 }));
 let starsArmed = true;
-function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; loadStars(); ensureSkyMod().then(startPlanets); } }
+// opts.stars=false（人工衛星ページ）＝恒星だけ読まない。惑星・月・星座・太陽系圏はそのまま（月と軌道は衛星のスケールの物差し＝本人 2026-09-20）
+function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; if (env.stars !== false) loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [];

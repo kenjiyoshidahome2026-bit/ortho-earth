@@ -118,6 +118,13 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 .sats-panel .sub{color:#9aa6bd;font-size:11.5px;margin-bottom:10px}
 .sats-panel .row{margin:9px 0}
 .sats-panel .stat{font-variant-numeric:tabular-nums;color:#fff}
+.sats-panel .q{width:100%;box-sizing:border-box;margin:2px 0 6px;padding:6px 9px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;font:inherit;outline:none}
+.sats-panel .q:focus{border-color:rgba(255,255,255,.5)}
+.sats-panel .hits{display:flex;flex-direction:column;gap:1px;margin-bottom:6px}
+.sats-panel .hit{display:flex;justify-content:space-between;gap:8px;width:100%;border:0;background:rgba(255,255,255,.05);text-align:start;padding:4px 8px;border-radius:6px;cursor:pointer;font:inherit;color:inherit}
+.sats-panel .hit:hover,.sats-panel .hit:focus{background:rgba(255,255,255,.14);outline:none}
+.sats-panel .hit em{font-style:normal;color:#9aa6bd;white-space:nowrap}
+.sats-panel .nohit{color:#8793aa;font-size:11px;padding:2px 4px 6px}
 .sats-panel .cat{display:flex;align-items:center;gap:8px;width:100%;border:0;background:none;text-align:start;padding:4px 4px;border-radius:7px;cursor:pointer;font:inherit;color:inherit}
 .sats-panel .cat:hover{background:rgba(255,255,255,.08)}
 .sats-panel .cat i{width:10px;height:10px;border-radius:50%;flex:none}
@@ -140,6 +147,8 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 <div class="sub" data-k="sub">${t("Orbital data: CelesTrak (NORAD GP) · $1", "")}</div>
 <div class="row"><div data-k="status" class="stat">${t("Loading orbits…")}</div></div>
 <div class="body">
+<input class="q" data-k="q" type="search" autocomplete="off" spellcheck="false" placeholder="${t("Search satellites (name or NORAD ID)")}" aria-label="${t("Search satellites (name or NORAD ID)")}">
+<div class="hits" data-k="hits"></div>
 <div class="row" data-k="cats"></div>
 <div class="sel" data-k="sel" style="display:none"></div>
 <div class="note">${t("Click a dot to see its orbit")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>
@@ -167,6 +176,25 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		ov.post({ type: "state", vis: CATS.map(c => vis.has(c.key) ? 1 : 0) });
 		placeTags();
 	});
+	// ── 検索（衛星名の部分一致・NORAD 番号の前方一致）＝選ぶと選択して直下点へ球を回す（見えない裏側の衛星を選んでも表に来る）──
+	const HIT_MAX = 8;
+	const renderHits = () => {
+		const q = $("q").value.trim().toUpperCase(), box = $("hits");
+		if (!q || !n()) { box.innerHTML = ""; return; }
+		const num = /^\d+$/.test(q), hits = [];
+		for (let i = 0; i < n() && hits.length < HIT_MAX; i++) if (num ? String(norad[i]).startsWith(q) : names[i].toUpperCase().includes(q) || (STATIONS.get(norad[i]) || "").toUpperCase().includes(q)) hits.push(i);   // 表示名（ISS/Tiangong）でも引ける（登録名は ISS (ZARYA)・CSS (TIANHE)）
+		box.innerHTML = hits.length
+			? hits.map(i => `<button type="button" class="hit" data-i="${i}"><span>${esc(names[i])}</span><em>${cat[i] < CAT_NONE ? catLabel[CATS[cat[i]].key]() : ""} · ${norad[i]}</em></button>`).join("")
+			: `<div class="nohit">${t("No satellite matches")}</div>`;
+	};
+	const goTo = i => {   // 選択＋直下点を画面中央へ（ズームはそのまま）
+		setPick(i);
+		const jd = jdOf(Date.now()), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
+		if (p && map.flyTo) { const ll = temeToGeodetic(p.r, gmst(jd)); map.flyTo(ll.lon, ll.lat, map.getZoom ? map.getZoom() : map.cam.zoom); }
+	};
+	$("q").addEventListener("input", renderHits);
+	$("q").addEventListener("keydown", e => { if (e.key === "Enter") { const b = $("hits").querySelector(".hit"); if (b) goTo(+b.dataset.i); } else if (e.key === "Escape") { $("q").value = ""; renderHits(); $("q").blur(); } });
+	$("hits").addEventListener("click", e => { const b = e.target.closest(".hit"); if (b) goTo(+b.dataset.i); });
 	const setStatus = html => { $("status").innerHTML = html; };
 	const setSub = () => {
 		const when = dataAt ? new Date(dataAt).toLocaleString(getLang(), { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }) : "";
@@ -329,6 +357,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		propagateAll(nowMs);
 		buildCats(); setSub(); postMarks(); showSel(); refreshTags();
 		setStatus(t("Showing $1 ##count", `<b>${fmt(N)}</b>`));
+		renderHits();   // 読み込み前に打った文字があれば今引く
 		propTimer = setInterval(() => propagateAll(Date.now()), PROP_MS);
 		tagTimer = setInterval(() => { placeTags(); showSel(); }, TAG_MS);
 		return { n: N };
