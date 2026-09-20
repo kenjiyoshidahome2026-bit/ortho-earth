@@ -81,6 +81,8 @@ const t = tr();
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
 //   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
 //   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
+//   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
+//   opts.countryTip＝世界ビュー(z<5.5)のホバー国名 tip（true=[既定]／false=出さない＝自前の tip と重ねない器）
 //   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
 //     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
@@ -1154,7 +1156,7 @@ async function loadLakes() {
 dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
-const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
 // --- N02 新幹線＝jp/n02.js（路線＋駅のビーズ・鉄道チップで点灯・日本の知識）。land＝紙色はテーマで差し替わる＝getter。
 const n02 = createN02Overlay({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
@@ -1233,7 +1235,7 @@ const input = createInput({
 		if ((gint.interactive && gint.hover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
-		const a0TipOn = gint.admin0Layer && gint.admin0Vis && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));
+		const a0TipOn = opts.countryTip !== false && gint.admin0Layer && gint.admin0Vis && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
 		if (a0TipOn && gint.admin0Pbf && gint.hoverTip && !fudeOwn) {
 			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
 			if (cam.zoom >= gint.WORLD_TIP_MAXZ) { if (gint.worldTipOn) { gint.hoverTip(null); gint.worldTipOn = false; } return; }
