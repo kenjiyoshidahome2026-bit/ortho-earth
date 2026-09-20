@@ -19,7 +19,7 @@ import { M_SPLIT, STOPS, depthT, depthColor, lambdaOf } from "./quakes-gl.js";  
 export { depthColor };
 
 const Y_MIN = 1967;   // カタログの先頭年（USGS ComCat の網羅は 1967〜）
-import { tr, setLang, getLang } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 const fmt = n => n.toLocaleString(getLang());
@@ -28,7 +28,7 @@ const fmtTime = (ms, offH = 0) => { const d = new Date(ms + offH * 3600000); ret
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountQuakes(map, { src, panelHost } = {}) {
-	await setLang();   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む
+	await setLang(); await loadPage(c => import(`./i18n/lang/quakes/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/quakes.json）も足す
 	document.title = t("World earthquakes — ortho-japan");   // 器（quakes.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("USGS earthquake catalog (1967–, M2+, about 1.5 million events) shown in 3D on the globe by hypocenter depth and energy."));
 	const mapEl = map.mapEl;

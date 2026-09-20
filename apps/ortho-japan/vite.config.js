@@ -56,9 +56,10 @@ export default defineConfig({
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// quakes.html＝世界の地震ビューア（/japan/quakes.html・データは apps/quakes-mirror の /quakes/*＝public/quakes は dev 専用で deploy から外す）。
 	// sats.html＝人工衛星ビューア（/japan/sats.html・quakes と対＝地上/地下。データはミラー /sats/active.csv＝apps/sats-mirror）。
+	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), models: resolve(import.meta.dirname, "models.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 	} },
 	worker: { format: "es" },

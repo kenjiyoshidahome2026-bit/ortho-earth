@@ -1,0 +1,17 @@
+{
+	"_": "showcase ページの辞書の分け方＝ページ名 → そのページのファイル。ここに無いファイルは本体（ui.json）。ページの正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json（本体は i18n/lang/<code>.json＝SDK が運ぶのは本体だけ）",
+	"pages": {
+		"quakes": [
+			"quakes.js",
+			"quakes-worker.js",
+			"quakes-gl.js"
+		],
+		"sats": [
+			"sats.js",
+			"sats-gl.js"
+		],
+		"models": [
+			"models.js"
+		]
+	}
+}

@@ -19,7 +19,7 @@ import { parseOMM, sgp4init, sgp4, gmst, temeToGeodetic, jdOf } from "ephem/sgp4
 import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）
-import { tr, setLang, getLang } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 export const MIRROR = "https://www.ortho-earth.com/sats/active.csv";   // 専用 Worker apps/sats-mirror（CORS 開放＝開発機からも読める）
@@ -40,7 +40,7 @@ const cssColor = c => `rgb(${c.join(",")})`;
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = {}) {
-	await setLang();   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む
+	await setLang(); await loadPage(c => import(`./i18n/lang/sats/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/sats.json）も足す
 	document.title = t("Satellites in orbit now — ortho-japan");   // 器（sats.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("About 16,000 active satellites (CelesTrak GP) propagated in your browser with SGP4 and shown in 3D around the globe in real time."));
 	const mapEl = map.mapEl;

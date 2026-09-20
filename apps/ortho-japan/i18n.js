@@ -54,6 +54,16 @@ export async function loadLang(code) {
 	return c;
 }
 
+// showcase ページの辞書（i18n/lang/<page>/<code>.json＝正本 i18n/pages/<page>.json）を本体の表に足す。ページの chunk が setLang() の後に一度呼ぶ：
+//   await loadPage(c => import(`./i18n/lang/models/${c}.json`));
+// import はページ側が書く＝vite の glob はそのページの 25 本だけを chunk にし、本体（SDK）はページの訳を運ばない（本人 2026-09-20「i18n は分けたほうがいい」）。en は表を持たない
+export async function loadPage(importer, code = getLang()) {
+	const c = norm(code) ?? "en";
+	if (c === "en") return c;
+	try { registerPack(c, (await importer(c)).default); }
+	catch { /* 表が無い＝英語のまま */ }
+	return c;
+}
 export function registerPack(code, table) { const c = norm(code); if (c) packs[c] = { ...packs[c], ...table }; }   // 外部から訳を差し替える口
 
 export const isRTL = (code = getLang()) => RTL.has(code);

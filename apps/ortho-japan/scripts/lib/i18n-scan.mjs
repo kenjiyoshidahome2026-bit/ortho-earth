@@ -117,10 +117,10 @@ export function scanSource(src, rel = "") {
 	return { dict, dictErrors, tCalls, strings };   // strings は lex が code 文脈でだけ積む＝濾過不要
 }
 
-export function listFiles(dir, out = []) {
+export function listFiles(dir, out = [], root = dir, exclude = null) {
 	for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-		if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) listFiles(path.join(dir, e.name), out); continue; }
-		if (e.name.endsWith(".js")) out.push(path.join(dir, e.name));
+		if (e.isDirectory()) { if (!SKIP_DIRS.has(e.name)) listFiles(path.join(dir, e.name), out, root, exclude); continue; }
+		if (e.name.endsWith(".js") && !(exclude && exclude.has(path.relative(root, path.join(dir, e.name))))) out.push(path.join(dir, e.name));
 	}
 	return out;
 }
@@ -128,8 +128,9 @@ export function listFiles(dir, out = []) {
 // アプリ全体を走査 → 英語キーの台帳。ctx＝衝突の手当て表（scripts/i18n-contexts.json＝{ "<file>": {ja:key}, "*": {ja:key} }）。
 //   keys: 英語キー → { ja, files:Set, uses:[{rel,line,indirect}] }
 //   perFile: rel → Map(ja → 英語キー)＝Phase 1 の置換表そのもの
-export function scanApp(appDir, ctx = {}) {
-	const files = listFiles(appDir).sort().map(abs => {
+// opts.exclude＝走査から外す相対パスの集合（showcase ページの辞書は別＝i18n/pages.json）。opts.only＝この集合だけ走査
+export function scanApp(appDir, ctx = {}, { exclude = null, only = null } = {}) {
+	const files = listFiles(appDir, [], appDir, exclude).filter(abs => !only || only.has(path.relative(appDir, abs))).sort().map(abs => {
 		const rel = path.relative(appDir, abs);
 		return { rel, src: fs.readFileSync(abs, "utf8") };
 	});
@@ -155,7 +156,7 @@ export function scanApp(appDir, ctx = {}) {
 	}
 
 	// 二周目＝使用箇所を数え、台帳を組む
-	const keys = new Map(), collisions = new Map(), untranslated = [], rels = [], literals = new Set();
+	const keys = new Map(), collisions = new Map(), untranslated = [], rels = [], literals = new Set(), literalsByFile = new Map();
 	const put = (key, ja, rawJa, rel) => {
 		const rec = keys.get(key);
 		if (!rec) { keys.set(key, { ja, rawJa, files: new Set([rel]), uses: [] }); return keys.get(key); }
@@ -169,6 +170,7 @@ export function scanApp(appDir, ctx = {}) {
 	for (const f of files) {
 		const s = f.scan, own = perFile.get(f.rel);
 		for (const st of s.strings) literals.add(st.value);   // 表/配列に置かれたキー（t(x) の間接参照）も「在る」印
+		literalsByFile.set(f.rel, new Set(s.strings.map(st => st.value)));
 		if (!own && !s.tCalls.length) continue;
 		// 自分の辞書を持たない file（注入型の部品）＝全体の辞書で引ける ja リテラルだけを自分の置換表にする
 		const map = own ?? new Map();
@@ -189,7 +191,7 @@ export function scanApp(appDir, ctx = {}) {
 		}
 		for (const st of s.strings) if (map.has(st.value)) keys.get(map.get(st.value)).uses.push({ rel: f.rel, line: st.line, indirect: true });
 	}
-	return { files: rels, keys, perFile, collisions, untranslated, dictErrors, jaEra, literals };
+	return { files: rels, keys, perFile, collisions, untranslated, dictErrors, jaEra, literals, literalsByFile };
 }
 
 export { CTX_SEP };
