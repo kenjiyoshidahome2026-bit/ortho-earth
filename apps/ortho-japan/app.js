@@ -861,19 +861,28 @@ if (plateauOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).th
 //   ・時間フェード：opacity の CSS transition（style.css の #underground＝.1s）が ~16Hz サンプルのジッタ/遅れを均す。
 //   ・静止コミット：止まったら帯を捨てて確定＝地中なら全黒（commitUnderground、下の settle）。中途半端なグレーを残さない。
 //   ・真俯瞰(pitch<0.06)=2D は無効（山頂への 2D オーバーズームを妨げない＝地形表示も無い平面地図）。
+//   ・★サンプルは wait:true（2026-09-21）：旧＝wait なしは標高ローダ（1スロット直列）が HUD の照会等で使用中だと
+//     「到着まで 0m」を返す＝地中なのに d=眼高>0 で「地上」と誤判定し、静止コミットもその値を信じて透明のまま。
+//     実測：上高地の谷底（眼高460m・直下1837m）に共有URLで着地→40秒放置で黒くならず、動かして初めて黒。
+//     wait は順番待ちだけ（ローダ死は 20 秒で諦め＝不透明度は据え置き＝「地上」とは言わない）。
+//   ・★再サンプルの契機（同日）：onMove だけでは「起動時に地中で開いた」「静止中にタイルが届いた」を拾えない
+//     → ローダ準備完了（getHeightP）・settle・タイル到着（onend）で force サンプル。静止中に届いた答えは帯でなく確定値。
 let ugT = 0, ugBusy = false, ugLastD = Infinity;   // ugLastD＝直近サンプルの eye直下地表からの余裕[m]（静止時コミット用。Infinity=地上/不明）
-const UG_FADE_TOP_M = 20, UG_FADE_FULL_M = -15;
-function updateUnderground() {   // ~16Hz サンプラ（onMove から）：eye直下の地表との高低差→オーバーレイ不透明度
-	if (!getHeight || ugBusy || performance.now() - ugT < 60) return;
+const UG_FADE_TOP_M = 20, UG_FADE_FULL_M = -15, UG_WAIT_MS = 20000;
+function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove から）：eye直下の地表との高低差→オーバーレイ不透明度。force＝スロットル無視（起動/settle/到着）
+	if (!getHeight || ugBusy || (!force && performance.now() - ugT < 60)) return;
 	ugT = performance.now(); ugBusy = true;
-	const done = (t, d) => { ugBusy = false; ugLastD = d; undergroundEl.style.opacity = t; };
+	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
+	const done = (t, d) => { ugBusy = false; ugLastD = d; undergroundEl.style.opacity = moving ? t : (d < 0 ? 1 : 0); };
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	const st = cameraState(cam, size.w, size.h);
 	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
 	const [lon, lat] = betaToLonLat(st.eye);   // ★eye は β空間（cameraState が S⁻¹ 済み）＝β→測地緯度の一段だけ。生 asin=地心(−10km)・worldToLonLat=S⁻¹二重(+10km) はどちらも ?ell=1 で直下点が 10km 飛ぶ（8/15・9/21）
 	const eyeAltM = (len - 1) * EARTH_M;   // eye の海抜[m]（軌道は sea-level 球なので len-1 がそのまま高度）
-	Promise.resolve(getHeight(lon, lat, cam.zoom))
+	const UG_TIMEOUT = Symbol("ug-timeout");
+	Promise.race([Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })), new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
+			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
 			const d = eyeAltM - (+h || 0);   // 直下地表からの余裕[m]（d<0=地中）
 			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
 			done(x * x * (3 - 2 * x), d);   // smoothstep
@@ -928,7 +937,7 @@ function onMove() {
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
 		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
-		moving = false; needsDraw = true; commitUnderground(); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); plateau.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
+		moving = false; needsDraw = true; commitUnderground(); updateUnderground(true); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); plateau.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
@@ -1283,8 +1292,8 @@ posEl.innerHTML = `<table><thead><tr><th>${t("Lon")}</th><th>${t("Lat")}</th><th
 const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高, z値, 回転, 傾度]（毎フレームはtextContent更新のみ＝DOM再構築しない）
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
-const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); } });   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
-getHeightP.then(f => { getHeight = f; });
+const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
+getHeightP.then(f => { getHeight = f; updateUnderground(true); });   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
 // px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
