@@ -850,11 +850,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		memRaster += bytes;
 		return { kind: "mesh", bPos, bUv, bIdx, count: idx.length, bufs: [bPos, bUv, bIdx], bytes };
 	}
+	// 破棄は次フレームの冒頭（前フレームの submit の後）へ遅延＝「記録済み・未 submit のコマンドが参照するテクスチャを destroy」を構造的に防ぐ保険
+	// （本命は raster.js の退避が描画中テクスチャを触らないこと。iPhone 実機の黒画面 2026-09-21）
+	const rasFreeQ = [];
 	function rasterFree(h) {
 		if (!h) return;
-		if (h.kind === "tex") h.tex.destroy(); else for (const b of h.bufs) b.destroy();
+		rasFreeQ.push(h);
 		memRaster -= h.bytes || 0;
 	}
+	function rasterFlushFree() { for (const h of rasFreeQ) { if (h.kind === "tex") h.tex.destroy(); else for (const b of h.bufs) b.destroy(); } rasFreeQ.length = 0; }
 	function setRasterDraws(rd) { rasterDraws = rd; }
 	// order:"under"＝地形の直後・塗りの前（基図）／"over"＝塗りの後・最初の線の前（写真・ハザード）。深度規律は塗りと同じ（terrainDepth＝テストだけ）
 	function drawRasterLayers(pass, order, terrainDepth) {
@@ -1198,6 +1202,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, far.bounds, 1));
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 		rasN = 0; rasterDrawn = 0;   // 画像タイル層：per-tile UBO のスロットと描画枚数（診断）を毎フレーム 0 から
+		rasterFlushFree();   // 前フレームは submit 済み＝退避されたテクスチャ/バッファをここで実際に破棄
 		if (rasterDraws) device.queue.writeBuffer(frameBuf, SLOT.raster * FRAME_SLOT, packFrame(st, rasterDraws.origin, st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));   // 原点＝cam.center（raster.js が毎フレーム更新）
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));

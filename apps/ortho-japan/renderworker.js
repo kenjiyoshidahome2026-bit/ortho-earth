@@ -596,7 +596,7 @@ function frame() {
 			// noTerrain＝全球ビュー(z<4)では地形そのものが不要。ensure には draw と同じ glCam＝縮小 canvas と整合する視野を渡す。
 			if (terrain && !opts?.noTerrain && opts?.terrainGate !== false) ensureIfMoved(glCam);
 			// 画像タイル層：カメラ不変・在庫不変なら選抜は走らない（raster.js が camKey で判定）。groundR＝地形リフト球（塗りの選抜と同じ流儀）
-			if (raster) raster.update(glCam, canvas.width, canvas.height, { groundR: groundRNow(glCam) });
+			if (raster) raster.update(glCam, canvas.width, canvas.height, { groundR: groundRNow(glCam), moving: opts?.terrainGate === false || lastFrameRun - lastCamMoveT < RES_SETTLE_MS });   // moving＝入力中/飛行中/静定前＝取得の並列を絞る（着地で戻す）
 			let fogAnim = false;
 			const pfT0 = perfOn ? performance.now() : 0;
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
