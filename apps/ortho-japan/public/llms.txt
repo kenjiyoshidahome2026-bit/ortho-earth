@@ -64,6 +64,7 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
   c={lng,lat,x,y,map}。全画面のショートカット=Z単キー（⌘Z/⌘⇧Zは編集アプリのundo/redoに空けてある）
 - 出典表記の義務：instrumentsの"attr"を消す場合はページ側で出典明記（README「出典表記」参照）
 - gadget.dropFile({onLoad(pbf,file), loadFile?, clearGint?})→{say(text,sticky),clear(),destroy()}：受け口は map.mapEl のみ。既定＝geopbf(file)→applyGintData（単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。
+- gadget.model(src: File|url, {at?:[lon,lat], heading?:deg, scale?, fit?})→Promise<{stats:{triangles,vertices,mode:"anchor"|"rtc"|"ecef",bbox}, clear(), destroy()}>：glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地）。マテリアルは baseColor（factor×COLOR_0×baseColorTexture・KHR_texture_transform・pbrSpecularGlossiness の diffuse）＝マテリアルごとに 1 バッチ・stats に materials/textures。metallic/roughness/normal/emissive は読まない。alphaMode＝OPAQUE(α無視)/MASK(alphaCutoff で抜く)/BLEND(半透明＝奥から手前・深度書き込み無し・stats.blended)。テクスチャは三線形ミップ＋異方性 8（両バックエンド）。置き場所＝at（ドロップは落とした地点・省略＝画面中心）／glb に CESIUM_RTC や ECEF が埋まっていればそちらが勝つ。.glb/.gltf のドロップと ?g=…glb（&at=lon,lat[,heading[,scale]]）は INTAKE 表からここへ。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト 55°。
   onLoad で結果を受ける（1.0.5〜。1.0.4 は loadFile を差し替えて横取り）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす・二重搭載は no-op
 - ガジェットの手綱（1.0.4 の d.ts）：shot()→{open(),composite()→Blob} / qr()・print()・palette()→{open,close} / measure()・profile()→{start,stop,stats()}
   / tip()→setter(rows|null)（自動搭載済み）/ contextmenu({items})→項目差し替え関数。操作系＝measure/profile はクリックで頂点・ダブルクリック確定

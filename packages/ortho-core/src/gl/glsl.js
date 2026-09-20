@@ -300,6 +300,21 @@ void main() {
 	fragColor = vec4(c, 1.0);
 }`;
 
+// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）：PLATEAU 本体の文字列から機械的に派生＝本体は 1 文字も変えない。
+// 頂点に a_uv(f32x2)・a_col(RGBA8 正規化＝baseColorFactor×COLOR_0 を worker が焼き込み)、FS は u_tex（unit 7）をサンプル。
+// 陰影 d・フォグ・裏面判定は本体と同じ＝色だけ「建物色」が「頂点色×テクスチャ」に替わる。α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成）。
+// テクスチャは discard より前に引く（ミップ選択の微分＝uniform control flow）。錨（anchor）が無ければ読み込み時に throw＝門で捕まる。
+const derive = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`glsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
+export const PLATEAU_TEX_VS = derive(PLATEAU_VS, [
+	["in vec3 a_normal;   // glTF 実法線を ortho へ変換済\n", "in vec3 a_normal;   // glTF 実法線を ortho へ変換済\nin vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n"],
+	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
+], "PLATEAU_TEX_VS");
+export const PLATEAU_TEX_FS = derive(PLATEAU_FS, [
+	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
+	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 tx = texture(u_tex, v_uv) * v_col;\n"],
+	["\tvec3 c = mix(u_bldColor * d, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 c = mix(tx.rgb * d, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
+], "PLATEAU_TEX_FS");
+
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
 // VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。
 // FS側は可視フラグメント数ぶんの3フェッチ＝総量でも減る上、頂点補間よりシャープな陰影になる。

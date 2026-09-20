@@ -2,7 +2,8 @@
 // orthoJapan() の戻り値から map.gadget.dropFile() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // #map にGISファイルを落とすと geopbf がFileを拡張子で振り分けデコード→GeoPBF化→gint（GeoPBF-native
 // GPUレンダラ）の単一スロットへ載せる。対応＝GeoJSON/TopoJSON/Shapefile(zip)/FlatGeobuf/KML(kmz)/GPX/CZML/GML/
-// GeoPBF＋自動gunzip（geopbf が食える全形式＝拡張子判定は geopbf 側）。
+// GeoPBF＋自動gunzip（geopbf が食える全形式＝拡張子判定は geopbf 側）。COG/GeoParquet/glTF(GLB) は app.js の INTAKE 表が自前で描く。
+// glTF/GLB（3D 模型）は地理座標を持たない＝落とした地点（unprojectAt＝登録側が注入）を loadFile(file, { at }) で添える（2026-09-20）。
 // 描画・ホバー/クリック識別・データへのカメラ寄せは applyGintData が担い、それを束ねた手綱 loadFile(file)＝
 // geopbf(file,{gint:true})→applyGintData を登録側が注入する（グローバルに手を伸ばさない掟）。
 // gint 単一スロットは海岸線/14条筆と共有＝毎回置き換え（複数ドロップは素直に「最後の1枚が勝つ」）。
@@ -38,7 +39,7 @@ export async function sniffScene(file) {
 
 // busy＝上映中判定（app が注入・任意）：デモ/シーン再生の上映中はドロップを無視する（上映と積み込み・flyTo が喧嘩しない）。
 // opts.onLoad(pbf, file)＝読込成功の通知（埋め込みアプリが結果を受け取る口・1.0.5〜。旧＝loadFile を差し替えて横取りするしかなかった）
-export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal, onLoad } = {}) {
+export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal, onLoad, unprojectAt } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#dropzone")) return () => {};   // 二重搭載は無害
 
@@ -58,7 +59,7 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		textAlign: "center", whiteSpace: "pre-line",
 		font: "600 15px/1.6 system-ui, sans-serif", color: "#fff",
 	});
-	card.textContent = t("Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / .scenes");
+	card.textContent = t("Drop GIS files / scenes here\nGeoJSON / Shapefile(zip) / KML / GPX / FlatGeobuf / GeoParquet / COG(GeoTIFF) / glTF(GLB) / .scenes");
 	zone.append(card);
 	mapEl.append(zone);
 
@@ -109,12 +110,13 @@ export function dropFile({ yieldTo, loadFile, clearGint, playScene, busy, signal
 		if (!files.length) return;
 		if (yieldTo?.()) return;   // 編集ガジェットが載っている＝ドロップはエディタの取込へ（ビューアは黙って譲る）
 		if (busy?.()) { say(t("🎬 Drop disabled during playback")); return; }   // デモ中はドロップ禁止（無視）＝台本もGISファイルも受けない
+		const at = unprojectAt ? unprojectAt(e.clientX, e.clientY) : null;   // 落とした地点（球外＝null＝形式側が画面中心で補う）。3D 模型の置き場所
 		for (const file of files) {   // 単一スロット置き換え＝順に読み最後の1枚が残る
 			const scene = playScene ? await sniffScene(file) : null;   // シーン台本(.scenes / type:"scenes")＝プレーヤーへ回す（geopbf に渡さない）
 			if (scene) { say(t("🎬 Playing scene: $1", scene.title || file.name)); playScene(scene); continue; }
 			say(t("Loading: $1 …", file.name), true);
 			try {
-				const pbf = await loadFile(file);
+				const pbf = await loadFile(file, { at });
 				if (!pbf) { say(t("Failed to load: $1", file.name)); continue; }
 				showClear(true);   // 図形が載った＝消去ボタンを出す（新しいドロップは前図形を置き換え＝ボタンは出たまま）
 				try { onLoad?.(pbf, file); } catch (e) { console.error("[dropFile] onLoad", e); }

@@ -71,7 +71,7 @@ map.gadget.qr();        // share the current view as a QR code
 map.gadget.equal({ zoom: [-99, 5] });   // to ortho-equal (Equal Earth): overlays /equal/ in an iframe (same URL) and unfolds from the same globe; map.gadget.equalHere() is the context-menu item
 map.gadget.plateau();   // 3D building data manager (preload / delete)
 map.gadget.contextmenu();
-map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML…)
+map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML/GeoParquet/COG/glTF-GLB…)
 map.gadget.hint();      // gesture help card
 map.gadget("myGadget", function () { /* this = map */ });   // your own
 ```

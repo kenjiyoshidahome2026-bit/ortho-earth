@@ -871,3 +871,15 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	return vec4f(WP.grat.rgb * a, a);   // premultiplied（既定=白）
 }
 `;
+
+// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝PLATEAU_WGSL からの文字列派生（本体は不変・gl/glsl.js PLATEAU_TEX_* と同じ考え）。
+// 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0)、group(3)＝サンプラ＋テクスチャ。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
+const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
+export const PLATEAU_TEX_WGSL = deriveWgsl(PLATEAU_WGSL, [
+	["struct PB { meshOrigin: vec4f, clipMesh: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
+	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n"],
+	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
+	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
+	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n"],
+	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
+], "PLATEAU_TEX_WGSL");
