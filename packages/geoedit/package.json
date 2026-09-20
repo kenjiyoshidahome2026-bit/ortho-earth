@@ -17,7 +17,7 @@
 	"homepage": "https://github.com/kenjiyoshidahome2026-bit/geoedit#readme",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/kenjiyoshidahome2026-bit/geoedit.git"
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/geoedit.git"
 	},
 	"bugs": {
 		"url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues"
