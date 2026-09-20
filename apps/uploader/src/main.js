@@ -10,6 +10,7 @@ import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
 import { geopbf, createGeopbf } from "geopbf";
 import * as POI from "./poi/schema.js";
 import { worldUI } from "./world/index.js";
+import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
 // 宇宙の名前データ（星座・メシエの 26 言語）＝正本は packages/space/names.json・ここは bucket へ焼くだけ（world と同じ型）
 import spaceNamesJSON from "../../../packages/space/names.json";
 import { packs as spacePacks, DIRE as SPACE_DIRE, moonGeoJSON, moonPacks, MOON_GEOPBF } from "../../../packages/space/packs.js";
@@ -64,6 +65,7 @@ CMD.append("button").text("POI civic 京都 (P29+P30+P34+寺院)").on("click", (
 // 国別DB（NationDB/CityDB/国旗/音源…）＝旧システムからの移植・データ移送はドロップ（./world/index.js）
 // await しない＝Bucket の疎通確認（ネットワーク往復）で他ボタンの起動を塞がない
 worldUI({ CMD, q, Bucket, Fetch }).catch(e => console.error("worldUI:", e));
+modelsUI({ CMD, q, Bucket });
 
 // var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
 // console.log(await getHeight(135.2,35.2,10));

@@ -7,6 +7,7 @@
 // 未アップロード（404）でも場所へは飛ぶ＝候補の取捨（本人）は場所と絵で判断できる。
 // 調整＝heading（北から時計回りの度）と scale（倍率）を打ち直して「適用」＝同じ GLB を読み直して置き直す（ブラウザキャッシュ＝速い）。
 // 決まった値は台帳へ書き戻す（この画面は保存しない）。?m=<id> で起動時に選ぶ（共有）。
+import { gunzip } from "geopbf/gzip";
 import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
@@ -103,7 +104,12 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		const my = ++seq;
 		setStatus(t("Loading model…"));
 		try {
-			const c = await map.gadget.model(urlOf(m), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false, name: m.id + ".glb" });
+			// bucket の置き物は uploader が gzip で置く（Content-Type application/gzip＝素の fetch では解かれない）＝自分で取って gunzip（平文は素通し）してから File で渡す
+			const r = await fetch(urlOf(m), { credentials: "omit" });
+			if (!r.ok) throw new Error(`HTTP ${r.status}`);
+			const blob = await gunzip(await r.blob());
+			if (my !== seq) return;
+			const c = await map.gadget.model(new File([blob], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false });
 			if (my !== seq) return;   // 途中で別の模型が選ばれた＝後勝ち（ガジェットは単一スロット）
 			ctl = c; setStatus(""); syncJson(m);
 		} catch (e) {
