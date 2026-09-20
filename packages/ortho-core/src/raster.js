@@ -48,7 +48,7 @@ export const subdivOf = (z, y = 0, cell = null) => {
 	const base = z < 3 ? 32 : z < 6 ? 24 : 16;
 	if (!cell) return base;
 	const [w, s, e, n] = tileBounds(0, y, z);
-	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 2.5);   // 格子の 2.5 倍細かく＝折れ目をまたぐ弦の潜りを小さく（深度バイアスと併用）
+	const need = Math.ceil(Math.max((e - w) / Math.max(cell[0], 1e-9), (n - s) / Math.max(cell[1], 1e-9)) * 3);   // 格子の 3 倍細かく＝折れ目をまたぐ弦の潜りを小さく（深度バイアス・リフトと併用）
 	return Math.max(base, Math.min(48, need));
 };
 
@@ -225,7 +225,10 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const cl = opts?.cell ? `${opts.cell[0].toExponential(2)}` : "-";   // 地形窓の切替（格子幅が変わる）でもメッシュを組み直す
 		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}/${cl}`;
 		let changed = false;
-		const rd = { origin: [cam.center[0], cam.center[1]], hideFills: false, layers: [] };
+		// 接地リフト(m)＝地形格子幅に比例（72m 格子で ≈9m・2〜12m）：稜線の折れ目をまたぐ弦の潜りはバイアスだけでは尾根沿いに残る（iPhone 実機）。
+		// ラスタは深度を書かない＝建物/線には影響せず、地形深度との比較でだけ手前に出る（線の接地リフト cityLift と同じ機構）
+		const lift = opts?.cell ? Math.max(2, Math.min(12, opts.cell[1] * 111320 * 0.12)) : 0;
+		const rd = { origin: [cam.center[0], cam.center[1]], hideFills: false, lift, layers: [] };
 		for (const L of layers.values()) {
 			if (!L.source || !L.visible) { if (L.draws.length) { L.draws = []; changed = true; } continue; }
 			const inRange = cam.zoom >= L.showMin && cam.zoom <= L.showMax;
