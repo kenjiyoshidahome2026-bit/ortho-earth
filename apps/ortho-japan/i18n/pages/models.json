@@ -242,6 +242,33 @@
 			"fa": "بناهای نامدار سه‌بعدی — ساختمان‌های PLATEAU LOD3 روی کره",
 			"ur": "3D میں تاریخی مقامات — گلوب پر PLATEAU LOD3 عمارتیں",
 			"he": "אתרים בתלת-ממד — מבני PLATEAU LOD3 על הגלובוס"
+		},
+		"Download": {
+			"ja": "ダウンロード",
+			"zh": "下载",
+			"ko": "내려받기",
+			"fr": "Télécharger",
+			"de": "Herunterladen",
+			"es": "Descargar",
+			"pt": "Transferir",
+			"it": "Scarica",
+			"nl": "Downloaden",
+			"pl": "Pobierz",
+			"ru": "Скачать",
+			"uk": "Завантажити",
+			"hu": "Letöltés",
+			"sv": "Ladda ner",
+			"tr": "İndir",
+			"el": "Λήψη",
+			"id": "Unduh",
+			"vi": "Tải về",
+			"th": "ดาวน์โหลด",
+			"bn": "ডাউনলোড",
+			"hi": "डाउनलोड",
+			"ar": "تنزيل",
+			"fa": "دانلود",
+			"ur": "ڈاؤن لوڈ",
+			"he": "הורדה"
 		}
 	}
 }

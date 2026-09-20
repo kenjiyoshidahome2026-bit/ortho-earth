@@ -10,6 +10,7 @@
 // 調整＝heading（北から時計回りの度）と scale（倍率）を打ち直して「適用」＝同じ GLB を読み直して置き直す（ブラウザキャッシュ＝速い）。
 // 決まった値は台帳へ書き戻す（この画面は保存しない）。?m=<id> で起動時に選ぶ（共有）。
 import { gunzip } from "geopbf/gzip";
+import { encodeZIP } from "geopbf/encodeZIP";   // glTF（.gltf＋.bin）を 1 つの zip にして渡す
 import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
@@ -64,6 +65,10 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 .models-panel .adj label{display:flex;align-items:center;gap:5px}
 .models-panel .adj input{width:64px;font:inherit;font-size:12px;border-radius:6px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#fff;padding:3px 6px}
 .models-panel .adj button{border-radius:8px;border:1px solid rgba(255,255,255,.2);background:#ff8c1a;color:#1a0d00;font:inherit;font-weight:700;padding:4px 12px;cursor:pointer}
+.models-panel .dl{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px;margin-top:8px;color:#b9c3d6}
+.models-panel .dl a{display:inline-block;border-radius:8px;border:1px solid rgba(255,255,255,.22);background:rgba(255,255,255,.08);color:#e7ecf5;text-decoration:none;padding:3px 10px}
+.models-panel .dl a:hover{background:rgba(255,255,255,.18)}
+.models-panel .dl a[aria-disabled="true"]{opacity:.45;pointer-events:none}
 .models-panel .adj code{font:11px ui-monospace,monospace;color:#9aa6bd;flex:1 1 100%;user-select:all;white-space:pre-wrap}
 .models-panel .note{color:#8793aa;font-size:10.5px;margin-top:8px;line-height:1.5}
 @media (max-width:640px){.models-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:50%}}
@@ -88,7 +93,30 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 	$("list").addEventListener("click", e => { const b = e.target.closest(".card"); if (b) show(b.dataset.id); });
 
 	// ── 表示 ──
-	let cur = null, ctl = null, seq = 0;
+	let cur = null, ctl = null, seq = 0, glbBytes = null;
+	// ── ダウンロード（このデモの芯＝「3D Tiles を glb に変換してから描いている」ので、その glb をそのまま渡せる）──
+	// GLB ＝描いているバイト列そのもの。glTF ＝同じ中身を仕様どおり .gltf（JSON）＋ .bin（バイナリ）へ分けて zip に。
+	// 画像は bufferView 参照のまま .bin に載る＝外部ファイルは増えない（glTF 2.0 の正式な形）。
+	const saveAs = (blob, name) => {
+		const u = URL.createObjectURL(blob), a = document.createElement("a");
+		a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+		setTimeout(() => URL.revokeObjectURL(u), 10000);
+	};
+	function glbToGltf(bytes, base) {   // GLB → { gltf(JSON 文字列), bin(Uint8Array) }
+		const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+		if (new TextDecoder().decode(bytes.subarray(0, 4)) !== "glTF") throw new Error("not glb");
+		const total = dv.getUint32(8, true);
+		let off = 12, json = null, bin = new Uint8Array(0);
+		while (off + 8 <= total) {
+			const len = dv.getUint32(off, true), type = new TextDecoder().decode(bytes.subarray(off + 4, off + 8));
+			const body = bytes.subarray(off + 8, off + 8 + len);
+			if (type.startsWith("JSON")) json = JSON.parse(new TextDecoder().decode(body)); else bin = body;
+			off += 8 + len;
+		}
+		if (!json) throw new Error("no JSON chunk");
+		json.buffers = [{ byteLength: bin.length, uri: base + ".bin" }];   // GLB の無名バッファ → 外部 .bin
+		return { gltf: JSON.stringify(json, null, "\t"), bin };
+	}
 	const setStatus = (msg, err = false) => { const el = $("status"); el.textContent = msg || ""; el.classList.toggle("err", !!err); };
 	const showCur = m => {
 		const el = $("cur");
@@ -98,7 +126,15 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			<div class="adj"><label>${t("Heading")} <input type="number" data-k="heading" step="1" value="${+m.heading || 0}">°</label>
 			<label>${t("Scale")} <input type="number" data-k="scale" step="0.05" min="0.01" value="${+m.scale || 1}"></label>
 			<button type="button" data-k="apply">${t("Apply")}</button>
-			<code data-k="json"></code></div>`;
+			<code data-k="json"></code></div>
+			<div class="dl">${t("Download")} <a href="#" data-k="dlglb">GLB</a> <a href="#" data-k="dlgltf">glTF (.zip)</a></div>`;
+		$("dlglb").addEventListener("click", e => { e.preventDefault(); if (glbBytes) saveAs(new Blob([glbBytes], { type: "model/gltf-binary" }), m.id + ".glb"); });
+		$("dlgltf").addEventListener("click", async e => {
+			e.preventDefault(); if (!glbBytes) return;
+			const { gltf, bin } = glbToGltf(glbBytes, m.id);
+			const zip = await encodeZIP([new File([gltf], m.id + ".gltf", { type: "model/gltf+json" }), new File([bin], m.id + ".bin", { type: "application/octet-stream" })]);
+			saveAs(zip instanceof Blob ? zip : new Blob([zip], { type: "application/zip" }), m.id + "-gltf.zip");
+		});
 		$("apply").addEventListener("click", () => { m.heading = +$("heading").value || 0; m.scale = +$("scale").value || 1; load(m); });
 		syncJson(m);
 	};
@@ -112,8 +148,9 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);
 			const blob = await gunzip(await r.blob());
 			if (my !== seq) return;
+			glbBytes = new Uint8Array(await blob.arrayBuffer());   // ダウンロード用に持っておく（描画にも同じ物を渡す）
 			// ground="each"＝建物ごとに接地（PLATEAU の一区画＝高台の城が浮かない）。台帳で ground:"batch" と書けば一体接地へ
-			const c = await map.gadget.model(new File([blob], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
+			const c = await map.gadget.model(new File([glbBytes], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], heading: +m.heading || 0, scale: +m.scale || 1, fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
 			if (my !== seq) return;   // 途中で別の模型が選ばれた＝後勝ち（ガジェットは単一スロット）
 			ctl = c; setStatus(""); syncJson(m);
 		} catch (e) {
