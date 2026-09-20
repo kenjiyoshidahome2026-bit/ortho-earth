@@ -2,7 +2,9 @@
 // quakes（地下）・sats（地上）と同じ骨格：器＝models.html／一覧と飛行と配線＝ここ／読み込みと描画＝エンジンの model ガジェット（gadgets/model.js＝
 // loaders.gl → PLATEAU と同じ建物メッシュ経路・renderer の plateauMesh スロット）。
 //
-// 台帳＝public/models.json（id・名前 ja/en・設置点・視点・heading/scale・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
+// 台帳＝public/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
+// 中身＝PLATEAU の建築物 LOD3（テクスチャ付き）を 3D Tiles 配信から名所のぶんだけ抜いて束ねた物（apps/uploader の npm run landmarks）。
+// 置き場所は glb 自身が持つ（CESIUM_RTC／絶対 ECEF）＝lon/lat は飛び先の指定であって錨ではない。
 // 一覧のカードをクリック＝①先に視点へ飛ぶ（遷移の時間＝読み込みの準備時間）②並行で GLB を取りに行き、届いたら設置点に立てる（fit はしない＝視点は台帳が正）。
 // 未アップロード（404）でも場所へは飛ぶ＝候補の取捨（本人）は場所と絵で判断できる。
 // 調整＝heading（北から時計回りの度）と scale（倍率）を打ち直して「適用」＝同じ GLB を読み直して置き直す（ブラウザキャッシュ＝速い）。
@@ -18,7 +20,7 @@ const fmt = n => n.toLocaleString(getLang());
 export async function mountModels(map, { catalog, panelHost } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/models/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/models.json）も足す
 	document.title = t("Landmarks in 3D — ortho-japan");   // 器（models.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
-	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Photogrammetry scans of castles and cathedrals (CC BY) placed at their real sites on the globe. Click one to fly there."));
+	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Landmarks in 3D — PLATEAU LOD3 city models on the globe"));
 	const mapEl = map.mapEl;
 	const lang = getLang();
 	const L = v => (v && typeof v === "object") ? (v[lang] ?? v.en ?? Object.values(v)[0] ?? "") : (v ?? "");
@@ -51,6 +53,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 .models-panel .card:hover{background:rgba(255,255,255,.12)}
 .models-panel .card.on{border-color:rgba(255,255,255,.55);background:rgba(255,255,255,.14)}
 .models-panel .card img{width:96px;height:54px;object-fit:cover;border-radius:6px;background:#1a2236;display:block}
+.models-panel .card .noimg{width:96px;height:54px;border-radius:6px;display:block;background:linear-gradient(135deg,#27304a,#161d2e)}
 .models-panel .card b{display:block;font-size:13px;line-height:1.3}
 .models-panel .card small{display:block;color:#9aa6bd;font-size:11px;line-height:1.4}
 .models-panel .cur{margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,.12)}
@@ -66,7 +69,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 @media (max-width:640px){.models-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:50%}}
 </style>
 <div class="head"><h1>${t("Landmarks in 3D")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
-<div class="sub">${t("Click a landmark to fly there and see its 3D model. Models are photogrammetry scans shared under CC BY.")}</div>
+<div class="sub">${t("Click a landmark to fly there and see its 3D model.")}</div>
 <div class="body">
 <div class="status" data-k="status"></div>
 <div class="list" data-k="list"></div>
@@ -80,7 +83,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 
 	// 一覧
 	$("list").innerHTML = models.map(m => `<button type="button" class="card" data-id="${esc(m.id)}">
-		<img src="${esc(m.thumb || "")}" alt="" loading="lazy" referrerpolicy="no-referrer">
+		${m.thumb ? `<img src="${esc(m.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="noimg" aria-hidden="true"></span>`}
 		<span><b>${esc(L(m.name))}</b><small>${esc(L(m.place))}</small><small>${esc(m.author)} · ${esc(m.license)}${m.mb ? ` · ${fmt(m.mb)} MB` : ""}</small></span></button>`).join("");
 	$("list").addEventListener("click", e => { const b = e.target.closest(".card"); if (b) show(b.dataset.id); });
 
