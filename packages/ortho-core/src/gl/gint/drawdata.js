@@ -5,6 +5,7 @@
 // WebGPU 側はエンジンのビュー状態 V（computeDrawData）/ 層状態 L（zoomInRange）を渡す。
 import { cameraState, unproject, lonlatTo3D } from '../../camera.js';
 import * as mat from '../../mat.js';
+import { SUB_S0, SUB_NB } from './utility.js';
 
 // Morton 整数（1e-7°）へ。antimeridian は下流の dlonE7 が畳むのでここは素直に。
 const SE = 1e7;
@@ -119,5 +120,81 @@ export function computeDrawData(s, data) {
 			: null;
 	}
 
+	// ── 近傍窓（地形適応細分の集中域・2026-09-21）＝画面下辺3点（カメラに最も近い地表）と原点（視野中心）の
+	// 経緯度差の最大 ×2。シェーダ subRange はこの箱の内側 [t0,t1] に細分を集め、外側（遠景・画面外）は 1/8 密度。
+	// 下辺が地球を外れる（全球ビュー等）なら 0＝集中なし（辺全体を一様に細分）。
+	{
+		let nx = 0, ny = 0, okN = true;
+		for (const [cx, cy] of [[0, s.height], [s.width * 0.5, s.height], [s.width, s.height]]) {
+			const g = unproject(st, cx, cy);
+			if (!g || !Number.isFinite(g[0]) || !Number.isFinite(g[1])) { okN = false; break; }
+			const dx = (((g[0] - origin[0]) % 360) + 540) % 360 - 180;
+			if (Math.abs(dx) > nx) nx = Math.abs(dx);
+			if (Math.abs(g[1] - origin[1]) > ny) ny = Math.abs(g[1] - origin[1]);
+		}
+		drawData.near = okN ? [nx * 2, ny * 2] : [0, 0];
+	}
+
 	return drawData;
+}
+
+// ── 地形適応細分（gint 線の 3D ドレープ・2026-09-21）──
+// 辺は端点でしか標高を取らない＝長辺は 3D 直線チョードで山を貫く（米加国境状態）。bake がスパンの 2 の冪バケット
+// （utility.js SUB_S0/SUB_NB）ごとに長辺の複製行をメタ末尾へ並べる。毎フレーム：バケット b の上限スパンが地形メッシュ
+// 何セルかで「1辺あたりのサブ区間数 N[b]」（2 の冪・SUB_MAX 以下）を決め、N[b]≥2 のバケットだけ複製行をインスタンス描画
+//（線 VS が各サブ端点を地形メッシュ面へ乗せる）。メイン描画は skipE7（N≥2 の最小バケット下限）以上の辺を飛ばす
+// ＝辺ごとに必要な分だけの細分（費用≈Σ細分数）。dep 無し（2D/地形なし/?nosub）は N=全1・skip=0＝従来経路そのまま。
+export const SUB_MAX = 128;             // 1辺あたりのサブ区間上限（インスタンス数）＝1° の辺でも近傍窓（±0.03°）内が 1.5 セル刻みに収まる
+export const SUB_BUDGET = 1_500_000;    // 1層1フレームのサブ区間予算（Σ 複製行数×N[b]）。超えたら全バケット半減（下位から 1 へ落ち skip が上がる）
+// moving＝カメラ運動中は N を半分（区間は 2 進格子＝粗い方が細かい方の部分集合＝静止で「増える」だけ・滑らない）
+// ＝隠線パスの省略と同じ「移動中の描画予算」の作法（実測 z8.9 チルト admin0 世界図で細分パスが gpuGint +6ms）。
+export function subPlan(dep, subRuns, moving = false) {   // subRuns[b] = [[start,count],…]（可視チャンクの複製行区間）
+	const N = new Int32Array(SUB_NB).fill(1);
+	const plan = { N, skipE7: 0, total: 0 };
+	if (!dep || dep.noSub || !(dep.elevScale > 0) || !dep.hasElev || !(dep.meshG > 1) || !dep.meshQ) return plan;
+	const cell = Math.min(dep.meshQ[2], dep.meshQ[3]) / (dep.meshG - 1);   // 地形メッシュ 1 セル (deg・小さい側)
+	if (!(cell > 0)) return plan;
+	const cnt = new Float64Array(SUB_NB);
+	for (let b = 0; b < SUB_NB; b++) {
+		const cells = SUB_S0 * Math.pow(2, b + 1) * 1e-7 / cell;   // バケット上限スパンのセル数＝どの辺も区間 ≤ 1 セル
+		let n = 1; if (cells > 1) { n = 2; while (n < cells && n < SUB_MAX) n <<= 1; }
+		if (moving) n >>= 1;
+		N[b] = Math.max(n, 1);
+		for (const r of (subRuns?.[b] ?? [])) cnt[b] += r[1];
+	}
+	// 予算＝細分パスの実費（N≥2 のバケットだけ。N=1 に落ちたバケットはメイン描画へ戻る＝費用は従来どおり）
+	const cost = () => { let t = 0; for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) t += cnt[b] * N[b]; return t; };
+	let total = cost();
+	while (total > SUB_BUDGET) {
+		let any = false;
+		for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) { N[b] >>= 1; any = true; }
+		if (!any) break;
+		total = cost();
+	}
+	plan.total = total;
+	for (let b = 0; b < SUB_NB; b++) if (N[b] > 1) { plan.skipE7 = SUB_S0 * Math.pow(2, b); break; }   // 単調（b が大きいほど N 大）
+	return plan;
+}
+// ハイライト（1地物・複製行を使わず originals を一様インスタンス）用：層の最長辺スパンから N を 1 本決める
+export function drapeSubs(dep, runs) {
+	const n = runs.length, out = new Array(n).fill(1);
+	if (!dep || dep.noSub || !(dep.elevScale > 0) || !dep.hasElev || !(dep.meshG > 1) || !dep.meshQ) return out;
+	const cx = dep.meshQ[2] / (dep.meshG - 1), cy = dep.meshQ[3] / (dep.meshG - 1);   // 地形メッシュ 1 セル (deg)
+	if (!(cx > 0) || !(cy > 0)) return out;
+	let total = 0;
+	for (let i = 0; i < n; i++) {
+		const r = runs[i], sx = r[2] ?? -1, sy = r[3] ?? -1;
+		let N = SUB_MAX;
+		if (sx >= 0 && sy >= 0) {
+			const cells = Math.max(sx * 1e-7 / cx, sy * 1e-7 / cy);
+			N = 1; while (N < cells && N < SUB_MAX) N <<= 1;
+		}
+		out[i] = N; total += r[1] * N;
+	}
+	while (total > SUB_BUDGET) {
+		let any = false; total = 0;
+		for (let i = 0; i < n; i++) { if (out[i] > 1) { out[i] >>= 1; any = true; } total += runs[i][1] * out[i]; }
+		if (!any) break;
+	}
+	return out;
 }

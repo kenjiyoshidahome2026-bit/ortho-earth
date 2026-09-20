@@ -1465,6 +1465,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			elevView: (elev.has && elevTexView) ? elevTexView : null, elevSampler,
 			elevBounds: elev.bounds, elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
 			meshQ: qMesh, meshG: qG,   // 案A: gint も描画メッシュ面へ量子化
+			noSub: view.gintSub === false,   // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 		} : null;
 		return fogAnimating || fading;   // fading＝クロスフェード進行中も連続フレーム
 	}

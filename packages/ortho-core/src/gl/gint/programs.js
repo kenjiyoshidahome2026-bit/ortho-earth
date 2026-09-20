@@ -56,6 +56,7 @@ float elevAt(vec2 ll) {
 // 同じ格子頂点で elevAt を取り同じ三角形分割（対角 a-c-b / b-c-d）で補間＝描画されている面に厳密に乗る。
 uniform vec4  u_meshQ;   // 地形メッシュ窓（xy=原点・zw=span deg）
 uniform float u_meshG;   // 格子の頂点数 G（0=量子化オフ）
+uniform vec2  u_near;    // 地形適応細分の近傍窓（原点＝視野中心・半幅 deg）。x<=0＝集中なし（辺全体を一様に細分）
 float elevQAt(vec2 ll) {
 	if (u_meshG < 1.5) return elevAt(ll);
 	vec2 g = (ll - u_meshQ.xy) / u_meshQ.zw;
@@ -157,6 +158,22 @@ vec2 decodeDLL(uint idx) {
 	// 中心(=シーン原点)からの delta を整数空間で計算（精度確保・antimeridian 対応）。
 	return vec2(dlonE7(ix, u_ix_center) * 1e-7, float(int(iy - u_iy_center)) * 1e-7);
 }
+// gint 整数 (ix, iy)（decodeDLL と同じ展開・整数のまま）
+uvec2 decodeIXY(uint idx) {
+	ivec2 tc = ivec2(int(idx) % u_arc_w, int(idx) / u_arc_w);
+	uvec4 px = texelFetch(u_arc_tex, tc, 0);
+	uint lo = px.r, hi = px.g;
+	uint lo_c = ((hi >> 31u) != 0u) ? lo : (lo & 0xFFFFFFC0u);
+	uint hi_c = hi & 0x7FFFFFFFu;
+	return uvec2((compact16(hi_c) << 16u) | compact16(lo_c), (compact16(hi_c >> 1u) << 16u) | compact16(lo_c >> 1u));
+}
+// 辺 A→B の経緯度スパン max(|Δx|,|Δy|)（e7 整数・経度は 360e7 周期の最短側）＝bake の細分バケット分類と厳密同値
+uint spanE7(uint a, uint b) {
+	uvec2 A = decodeIXY(a), B = decodeIXY(b);
+	uint dx = max(A.x, B.x) - min(A.x, B.x); if (dx > 1800000000u) dx = 3600000000u - dx;
+	uint dy = max(A.y, B.y) - min(A.y, B.y);
+	return max(dx, dy);
+}
 // 縫い目上の頂点か（ix が経度 ±180 ちょうど）＝antimeridian 切断の痕。両端が縫い目上の辺は「切断で生えた縦線」＝線パスでは描かない
 //（塗りの巻き数には必要＝塗り扇は素通し）。本人スクショ 2026-09-15（切断された円の中を走る縦線）
 bool onSeam(uint idx) {
@@ -188,10 +205,9 @@ vec3 fetchProject(uint idx) {
 // 深度統合（段階B）用の投影：標高ドレープ（u_elevScale>0 時）を掛けた screen px＋clip.w を返す。
 // ドレープは renderer LINE_MAIN と同式（距離フェード df ＝遠景平ら化に追随・relW=rel+h*dir の相殺なしRTE）
 // ＝基図の線と同じ高さに乗る。u_elevScale=0 なら relW=rel が厳密に成立＝fetchProject と同一結果（従来動作）。
-vec3 projectDrape(uint idx, out float clipW) {
-	vec2 dLL = decodeDLL(idx);
-	vec3 rel = deltaToRel(dLL.x, dLL.y);
-	float zr = u_origin_zr + dot(rel, u_eye);     // 半球判定は非ドレープ（粗くて可）
+// drapeRelW（rel＋経緯度 → 標高変位後の relW）と projectRel（rel/relW → screen px）に分けてある＝地形適応細分の
+// サブ端点（大円上の内挿点＝idx を持たない）も同じ式で乗せる（2026-09-21）。
+vec3 drapeRelW(vec3 rel, vec2 dLL) {
 	vec3 relW = rel;
 	if (u_elevScale > 0.0 && u_hasElev > 0.5) {
 		vec3 dir = u_origin_pt + rel;             // 絶対単位球点（elev/df 用＝粗くて可）
@@ -204,6 +220,10 @@ vec3 projectDrape(uint idx, out float clipW) {
 		}
 		relW = rel + h * dir;                     // (dir*(1+h)) − 原点3D を相殺なしで
 	}
+	return relW;
+}
+vec3 projectRel(vec3 rel, vec3 relW, out float clipW) {
+	float zr = u_origin_zr + dot(rel, u_eye);     // 半球判定は非ドレープ（粗くて可）
 	vec4 clip = u_clipT + u_mvp * vec4(relW, 0.0);
 	clipW = clip.w;
 	if (clip.w <= 0.0) return vec3(u_viewport * 0.5, -1.0);   // カメラ背後 → 裏扱い
@@ -211,6 +231,11 @@ vec3 projectDrape(uint idx, out float clipW) {
 	return vec3((ndc.x * 0.5 + 0.5) * u_viewport.x,
 				(1.0 - (ndc.y * 0.5 + 0.5)) * u_viewport.y,
 				zr);
+}
+vec3 projectDrape(uint idx, out float clipW) {
+	vec2 dLL = decodeDLL(idx);
+	vec3 rel = deltaToRel(dLL.x, dLL.y);
+	return projectRel(rel, drapeRelW(rel, dLL), clipW);
 }
 
 // per-feature bbox テクスチャ（fid→bbox e7整数・RGBA32UI・unit2）。
@@ -506,6 +531,8 @@ uniform usampler2D u_fid_style;    // fid スタイル表（RGBA32UI・unit5。i
 uniform int        u_fidstyle_w;
 uniform int        u_has_fidstyle;
 uniform float      u_width_add;    // パス増分（clean=0 / highlight=+2）
+uniform int        u_sub;          // 地形適応細分：1辺あたりのサブ区間数＝インスタンス数（1＝従来経路・細分なし）
+uniform uint       u_subSkipE7;    // メイン描画（clean・u_sub=1）が飛ばす長辺の下限スパン（e7）＝複製行のインスタンス描画が担う。0＝飛ばさない
 out vec4  v_color;
 out float v_zr;
 out float v_dist;
@@ -517,14 +544,84 @@ out vec2       v_frag;   // 頂点の実スクリーン位置（device px）＝�
 flat out vec2  v_ea;     // 線分端A（device px）
 flat out vec2  v_eb;     // 線分端B（clip済, device px）
 
+// ── 地形適応細分（3D ドレープの地形貫きの根治・2026-09-21）──
+// gint は保持頂点間を 3D 直線チョードで描き、標高は端点でしか取らない＝長辺は途中の地形を無視して山を貫く／浮く
+//（米加国境状態。度アンカーで最悪 1°=111km に縮んだだけ）。線 VS を辺×u_sub インスタンスで起動し、辺を u_sub 個
+// までのサブ区間に割って各サブ端点を地形メッシュ面（elevQAt＝描画されている折れ線面）へ乗せる。
+//  ・区間長の目安＝メッシュ1セル（サブ端点が面の折れ目ごとに乗る＝面に厳密に沿う）
+//  ・密度は近傍窓 u_near（視野中心の箱）の内側 [t0,t1] に集中・外側（遠景/画面外）は 1/8 密度＝1° の長辺が z15 で
+//    画面に掛かっても、見えている数 km に区間が集まる
+//  ・窓境界は 1/32 の倍数・窓内は辺の 2 進格子（1/2^L）・区間数は 2 の冪＝カメラが動いても頂点は「増減」するだけで「滑らない」（入れ子）
+//  ・サブ端点は大円上（完全球体＝頂点は大円で結ぶ・度アンカーと同じ弧）を原点相対・相殺なしで内挿
+//  ・u_sub=1（2D/地形なし）は従来経路そのまま＝ゼロ費用
+int pow2ceil(int x) { int p = 1; while (p < x) p <<= 1; return p; }
+// A,B の rel（頂点3D−原点3D）から大円上の P(t) の rel を返す。P=slerp(Â,B̂)＝ka·Â+kb·B̂・Â=O+ra 等より
+// P−O = ka·ra + kb·rb + (ka+kb−1)·O。ka+kb−1 = cos((½−t)ω)/cos(ω/2) − 1 = 2·sin(tω/2)·sin((1−t)ω/2)/cos(ω/2)（相殺なし）。
+// t=0/1 は ka/kb が厳密 1/0 ＝端点を bit 同一で返す（細分されない辺は従来と同じ位置）。
+vec3 slerpRel(vec3 ra, vec3 rb, float t) {
+	float c = distance(ra, rb);                     // 弦長
+	if (c < 1e-9) return ra;
+	float w = 2.0 * asin(min(0.5 * c, 1.0));        // 中心角
+	float sw = sinP(w);
+	float ka = sinP((1.0 - t) * w) / sw, kb = sinP(t * w) / sw;
+	float ko = 2.0 * sinP(0.5 * t * w) * sinP(0.5 * (1.0 - t) * w) / cosP(0.5 * w);
+	return ka * ra + kb * rb + ko * u_origin_pt;
+}
+// 辺 A→B（原点相対 deg）のサブ区間 s の [ts,te] を返す。false＝この s は空（縮退させる）。
+bool subRange(vec2 dA, vec2 dB, int s, out float ts, out float te) {
+	ts = 0.0; te = 1.0;
+	if (u_sub <= 1 || u_meshG < 1.5 || !(u_elevScale > 0.0 && u_hasElev > 0.5)) return s == 0;
+	vec2 cell = u_meshQ.zw / (u_meshG - 1.0);       // 地形メッシュ 1 セル (deg)
+	vec2 d = dB - dA;
+	float t0 = 0.0, t1 = 1.0;
+	if (u_near.x > 0.0) {                           // Liang-Barsky：-near <= dA + t·d <= near
+		for (int i = 0; i < 2; i++) {
+			float p = -d[i], q = dA[i] + u_near[i];
+			if (p == 0.0) { if (q < 0.0) { t0 = 1.0; t1 = 0.0; } } else { float r = q / p; if (p < 0.0) t0 = max(t0, r); else t1 = min(t1, r); }
+			p = d[i]; q = u_near[i] - dA[i];
+			if (p == 0.0) { if (q < 0.0) { t0 = 1.0; t1 = 0.0; } } else { float r = q / p; if (p < 0.0) t0 = max(t0, r); else t1 = min(t1, r); }
+		}
+		if (t0 > t1) { t0 = 0.0; t1 = 0.0; }        // 窓の外＝全体を 1/8 密度（post 区間として）
+		else { t0 = floor(t0 * 32.0) / 32.0; t1 = ceil(t1 * 32.0) / 32.0; }   // 1/32 倍数へ量子化（窓内格子 1/2^L・L≥5 に乗る）
+	}
+	int pre = (t0 > 0.0) ? 1 : 0, post = (t1 < 1.0) ? 1 : 0;
+	int N = u_sub;
+	if (N < pre + post + 1) return s == 0;
+	// 窓内＝辺自身のパラメータの 2 進格子（区間長 1/2^L・2^L ≥ 辺のセル数＝区間 ≤ 1 セル）＝窓 [t0,t1]（1/32 倍数）が
+	// カメラ追従で動いても区間境界は同じ格子に留まる（完全な入れ子）。L≥5 が取れない小さい N/短辺は等分に退避。
+	int nIn = 0;
+	if (t1 > t0) {
+		float cAll = max(abs(d.x) / cell.x, abs(d.y) / cell.y);   // 辺全体の地形セル数
+		int Ln = 0; while (float(1 << Ln) < cAll && Ln < 12) Ln++;   // 2^Ln 分割で区間 ≤ 1 セル
+		int Lc = 0; while (float(1 << (Lc + 1)) * (t1 - t0) <= float(N - pre - post) && Lc < 12) Lc++;   // 窓内区間数 ≤ N−pre−post
+		int L = min(Ln, Lc);
+		nIn = (L >= 5) ? int((t1 - t0) * float(1 << L) + 0.5)
+		               : min(pow2ceil(int(ceil(min(cAll * (t1 - t0), 4096.0)))), N - pre - post);
+		nIn = max(nIn, 1);
+	}
+	int rem = N - nIn, nPre = 0, nPost = 0;
+	if (pre == 1) { float c = max(abs(d.x) * t0 / cell.x, abs(d.y) * t0 / cell.y) * 0.125; nPre = clamp(pow2ceil(int(ceil(min(c, 4096.0)))), 1, (post == 1) ? rem / 2 : rem); }
+	if (post == 1) { float c = max(abs(d.x) * (1.0 - t1) / cell.x, abs(d.y) * (1.0 - t1) / cell.y) * 0.125; nPost = clamp(pow2ceil(int(ceil(min(c, 4096.0)))), 1, rem - nPre); }
+	int n = nPre + nIn + nPost;
+	if (s >= n) return false;
+	if (s < nPre) { ts = t0 * float(s) / float(nPre); te = t0 * float(s + 1) / float(nPre); }
+	else if (s < nPre + nIn) { int k = s - nPre; ts = t0 + (t1 - t0) * float(k) / float(nIn); te = t0 + (t1 - t0) * float(k + 1) / float(nIn); }
+	else { int k = s - nPre - nIn; ts = t1 + (1.0 - t1) * float(k) / float(nPost); te = t1 + (1.0 - t1) * float(k + 1) / float(nPost); }
+	return true;
+}
+
 void main() {
 	int edge_id = gl_VertexID / 6;
 	int sub     = gl_VertexID % 6;
 	uvec4 meta  = fetchEdgeMeta(edge_id);
+	bool dupRow = (meta.b & 128u) != 0u;   // 複製行（長辺の細分用・メタ末尾・bake appendSubRows）＝元の辺へ引き直す（歩行・破線位相は元の辺）
+	if (dupRow) { edge_id = int(meta.b >> 8u); meta = fetchEdgeMeta(edge_id); }
 	int feat_id = int(meta.a);
 
 	// feature bbox カリング（ポリゴン辺のみ＝styleId 0。折れ線 fid は bbox テクスチャに無い）
 	if ((meta.b & 255u) == 0u && !bboxVisible(meta.a)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+	// 地形適応細分：メイン描画（clean）は skip 下限以上の長辺を飛ばす＝同じ辺の複製行がインスタンス描画で細分する（整数スパン＝bake と厳密一致）
+	if (!dupRow && u_pass == 0 && u_subSkipE7 > 0u && spanE7(meta.r, meta.g) >= u_subSkipE7) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 	if ((meta.b & 255u) == 0u && onSeam(lodA) && onSeam(lodB)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // 切断の縦線（縫い目辺）は描かない
@@ -555,8 +652,21 @@ void main() {
 	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
 
 	float wA, wB;                        // 端点の clip.w（対数深度用。深度オフ時は未使用）
-	vec3 pa3 = projectDrape(lodA, wA);   // ドレープ込み投影（u_elevScale=0 なら fetchProject と同一）
-	vec3 pb3 = projectDrape(lodB, wB);
+	vec3 pa3, pb3;
+	float subOff = 0.0;                  // 破線位相の近似基底（このサブ区間より前の区間数）
+	if (u_sub <= 1) {
+		pa3 = projectDrape(lodA, wA);    // ドレープ込み投影（u_elevScale=0 なら fetchProject と同一）＝従来経路
+		pb3 = projectDrape(lodB, wB);
+	} else {                             // 地形適応細分：サブ区間 gl_InstanceID の端点を大円上に内挿して面へ乗せる
+		vec2 dA = decodeDLL(lodA), dB = decodeDLL(lodB);
+		float ts, te;
+		if (!subRange(dA, dB, gl_InstanceID, ts, te)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
+		vec3 rA = deltaToRel(dA.x, dA.y), rB = deltaToRel(dB.x, dB.y);
+		vec3 r0 = slerpRel(rA, rB, ts), r1 = slerpRel(rA, rB, te);
+		pa3 = projectRel(r0, drapeRelW(r0, mix(dA, dB, ts)), wA);   // 標高は経緯度線形の t で標本（大円との差は ≤120m×(span/1°)²＝実用上ゼロ）
+		pb3 = projectRel(r1, drapeRelW(r1, mix(dA, dB, te)), wB);
+		subOff = float(gl_InstanceID);
+	}
 	v_zr = useA ? pa3.z : pb3.z;
 	// 相手端が視点の裏へ回る場合の端点クリップ（旧＝自端基準の片側のみ→両対称へ）
 	vec2 axy = pa3.xy, bxy = pb3.xy;
@@ -583,7 +693,7 @@ void main() {
 	vec4 baseC = (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
 	v_color = (u_pass == 1) ? (u_hilite_color.a > 0.0 ? u_hilite_color : vec4(1.0, 0.9, 0.0, 1.0)) : baseC;   // ホバー(pass1)＝hiliteColor指定色（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
 	v_dash      = u_dash_table[style_idx];
-	v_dist_base = float(meta.b >> 8u) * 0.017453292;   // 累積px距離の基底（scale 非依存の相対）
+	v_dist_base = float(meta.b >> 8u) * 0.017453292 + subOff * len;   // 累積px距離の基底（scale 非依存の相対）＋サブ区間ぶん（等長近似＝破線位相を辺内で繋ぐ）
 	v_dist = useA ? 0.0 : len;
 	v_perp  = side * halfCss * u_dpr;
 	v_halfw = lw * 0.5 * u_dpr;
@@ -797,6 +907,7 @@ const SHARED_UNIFORM_NAMES = [
 // 線(uRender)に加え、塗り扇(uStencil)・idfill蓄積(uId)もドレープ（fetchClipDrape）で参照する（2026-08-14）。
 export const DEPTH_UNIFORM_NAMES = [
 	'u_logCoef', 'u_fogFar', 'u_origin_pt', 'u_elevTex', 'u_elevBounds', 'u_elevScale', 'u_hasElev', 'u_elevEdgeFade', 'u_meshQ', 'u_meshG', 'u_hidden',
+	'u_near', 'u_sub', 'u_subSkipE7',   // 地形適応細分（線 VS のみ実体。他プログラムは location null＝no-op）
 ];
 const PT_UNIFORM_NAMES = [
 	'u_pt_tex','u_pt_meta_tex','u_pt_w',

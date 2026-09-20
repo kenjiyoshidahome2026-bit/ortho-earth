@@ -1095,6 +1095,7 @@ function switchTheme(name) {
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
 renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
+	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
 	...(theme.hypso && { hypso: theme.hypso }),

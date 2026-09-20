@@ -70,6 +70,9 @@ export function bindDepthUniforms(gl, u, data) {
 	const mq = dep?.meshQ;   // 案A: 描画メッシュ面への量子化（無ければ G=0＝素の elevAt）
 	gl.uniform4f(u.u_meshQ, mq?.[0] ?? 0, mq?.[1] ?? 0, mq?.[2] ?? 1, mq?.[3] ?? 1);
 	gl.uniform1f(u.u_meshG, dep?.meshG ?? 0);
+	if (u.u_near) { const nr = data.near; gl.uniform2f(u.u_near, nr?.[0] ?? 0, nr?.[1] ?? 0); }   // 地形適応細分の近傍窓（deg 半幅・0=集中なし）
+	if (u.u_sub) gl.uniform1i(u.u_sub, 1);   // 1辺あたりサブ区間数の既定＝1（線パスがバケットごとに上書き）
+	if (u.u_subSkipE7) gl.uniform1ui(u.u_subSkipE7, 0);   // メイン描画が飛ばす長辺の下限スパン（e7）。0＝飛ばさない
 	if (u.u_hidden) gl.uniform1f(u.u_hidden, 0);
 	if (dep?.elevTex) { gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, dep.elevTex); gl.activeTexture(gl.TEXTURE0); }
 	return dep;
@@ -97,6 +100,67 @@ export function uploadTex2D(gl, u32, w, h, internalFmt, fmt) {
 //   polyEdgeByFid 無傷）。feature は空間的に小さい＝連続グループがそのまま空間タイルになる。
 // opts.chunkEdges: N — feature 境界に揃えた約N辺のチャンク台帳 [{start,end,bbox}] を返す＝可視カリング単位。
 // 返り値 polyEdgeCount: ポリゴン辺は先頭に連続配置＝stencil 塗りはこの範囲だけ（折れ線をファンさせない）。
+// ── 辺スパンと細分バケット（地形適応細分・2026-09-21）──
+// 辺 A→B の経緯度スパン max(|Δx|,|Δy|)（e7 整数・経度は 360e7 周期の最短側）を 1 頂点 1 decode で取り、
+// 2 の冪バケット b（スパン ∈ [SUB_S0·2^b, SUB_S0·2^(b+1))・SUB_S0=1e-4°≈11m）へ分類する。b<0＝短辺（細分不要）。
+// 描画側は「地形メッシュ 1 セル ≥ バケット上限」のバケットをメイン描画に任せ、それ以上のバケットだけ
+// メタ末尾の複製行（bucket-major・chunk-minor）をインスタンス描画で細分する＝費用≈Σ辺ごとの細分数。
+export const SUB_S0 = 1000;   // バケット 0 の下限スパン（e7）＝1e-4°
+export const SUB_NB = 16;     // バケット数（2^15·SUB_S0 = 3.3° > 度アンカー上限 1°）
+export const SUB_DUP = 0x80;  // 複製行の印（meta.b の style バイト bit7）。b>>8 = 元の辺 id
+export function makeSpanTracker(arcBuffer) {
+	if (!arcBuffer?.length) return null;
+	const u32 = new Uint32Array(arcBuffer.buffer, arcBuffer.byteOffset, arcBuffer.byteLength / 4);
+	let lastIdx = -1, lx = 0, ly = 0, px = 0, py = 0;
+	const dec = idx => {   // shader decodeDLL と同一の Morton 展開（L2 は下位6bit=rank をマスク）
+		const lo = u32[idx * 2], hi = u32[idx * 2 + 1];
+		const loC = (hi & 0x80000000) ? lo : (lo & 0xFFFFFFC0), hiC = hi & 0x7FFFFFFF;
+		px = ((_compact16(hiC) << 16) | _compact16(loC)) >>> 0;
+		py = ((_compact16(hiC >>> 1) << 16) | _compact16(loC >>> 1)) >>> 0;
+	};
+	const t = { sx: 0, sy: 0, ax: 0, ay: 0,   // sx/sy＝現チャンクの最大・ax/ay＝全体の最大
+		add(a, b) {   // 返り値＝バケット（-1＝短辺）
+			if (a !== lastIdx) { dec(a); lx = px; ly = py; }
+			dec(b);
+			let dx = px > lx ? px - lx : lx - px; if (dx > 1800000000) dx = 3600000000 - dx;
+			const dy = py > ly ? py - ly : ly - py;
+			if (dx > t.sx) t.sx = dx; if (dy > t.sy) t.sy = dy;
+			lastIdx = b; lx = px; ly = py;
+			const sp = dx > dy ? dx : dy;
+			if (sp < SUB_S0) return -1;
+			const bk = 31 - Math.clz32(Math.floor(sp / SUB_S0));   // floor(log2(sp/S0))
+			return bk >= SUB_NB ? SUB_NB - 1 : bk;
+		},
+		close() { if (t.sx > t.ax) t.ax = t.sx; if (t.sy > t.ay) t.ay = t.sy; const r = [t.sx, t.sy]; t.sx = 0; t.sy = 0; return r; },
+	};
+	return t;
+}
+// 複製行の組み立て：bucketOf[e]（-1=短辺）と chunk 台帳から、メタ末尾へ bucket-major・chunk-minor で長辺の複製行を並べ、
+// chunk.sub=[b,start,count,…]（start＝メタ行番号・複製区間）を付ける。chunks 無し＝全体を 1 チャンク扱い（result.sub）。
+// 複製行＝[A, B, (style|SUB_DUP)|(元の辺id<<8), fid]。VS は SUB_DUP を見て元の行を引き直す（lodSnap の歩行・破線位相は元の辺）。
+export function appendSubRows(metaU32, edgeCount, bucketOf, chunks) {
+	const ranges = chunks?.length ? chunks.map(c => [c.start, c.end]) : [[0, edgeCount]];
+	const nc = ranges.length;
+	const count = new Uint32Array(SUB_NB * nc);
+	for (let c = 0; c < nc; c++) for (let e = ranges[c][0]; e < ranges[c][1]; e++) { const b = bucketOf[e]; if (b >= 0) count[b * nc + c]++; }
+	let total = 0; for (let i = 0; i < count.length; i++) total += count[i];
+	if (!total) return { metaU32, subCount: 0, sub: null };
+	const off = new Uint32Array(SUB_NB * nc); let acc = 0;
+	for (let i = 0; i < off.length; i++) { off[i] = acc; acc += count[i]; }
+	const out = new Uint32Array((edgeCount + total) * 4);
+	out.set(metaU32.subarray(0, edgeCount * 4));
+	const cur = off.slice();
+	for (let c = 0; c < nc; c++) for (let e = ranges[c][0]; e < ranges[c][1]; e++) {
+		const b = bucketOf[e]; if (b < 0) continue;
+		const row = (edgeCount + cur[b * nc + c]++) * 4, src = e * 4;
+		out[row] = metaU32[src]; out[row + 1] = metaU32[src + 1];
+		out[row + 2] = ((metaU32[src + 2] & 0xFF) | SUB_DUP | (e << 8)) >>> 0; out[row + 3] = metaU32[src + 3];
+	}
+	const subOf = c => { const arr = []; for (let b = 0; b < SUB_NB; b++) { const n = count[b * nc + c]; if (n) arr.push(b, edgeCount + off[b * nc + c], n); } return arr.length ? arr : null; };
+	if (chunks?.length) { for (let c = 0; c < nc; c++) chunks[c].sub = subOf(c); return { metaU32: out, subCount: total, sub: null }; }
+	return { metaU32: out, subCount: total, sub: subOf(0) };
+}
+
 export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null, minWeight = 0, opts = null) {
 	if (!arcMeta) return { metaU32: new Uint32Array(0), edgeCount: 0, polyEdgeCount: 0, polyEdgeByFid: new Map(), chunks: null };
 
@@ -204,10 +268,13 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			if (arcMeta[m + 7] > ckBox[3]) ckBox[3] = arcMeta[m + 7];
 		}
 	};
+	const span = makeSpanTracker(arcBuffer);   // 辺スパン→細分バケット（複製行）＋チャンク毎の最長辺（arcBuffer 無し＝未知＝-1）
+	const bucketOf = span ? new Int8Array(total).fill(-1) : null;   // 辺 id → バケット（-1＝短辺＝細分不要）
 	const closeChunk = (force = false) => { if (!chunks) return;
 		const end = j >> 2;
 		if (end - ckStart >= chunkEdges || (force && end > ckStart)) {
-			chunks.push({ start: ckStart, end, bbox: ckBox ?? [0, 0, 0, 0] });
+			const sp = span ? span.close() : [-1, -1];
+			chunks.push({ start: ckStart, end, bbox: ckBox ?? [0, 0, 0, 0], sx: sp[0], sy: sp[1] });
 			ckStart = end; ckBox = null;
 		}
 	};
@@ -220,6 +287,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 			for (let i = 0; i < len - 1; i++) {
 				const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
 				if (seamSkip) { const k = seamKeyOf(a, b); if (k !== null && seamSkip.has(k)) { skipped++; continue; } }
+				if (span) bucketOf[j >> 2] = span.add(a, b);
 				buf[j++] = a; buf[j++] = b;
 				buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 			}
@@ -233,6 +301,7 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 				if (getW(idx) >= minWeight) {
 					if (prev !== -1) {
 						if (seamSkip) { const k = seamKeyOf(prev, idx); if (k !== null && seamSkip.has(k)) { skipped++; ei++; prev = idx; continue; } }
+						if (span) bucketOf[j >> 2] = span.add(prev, idx);
 						buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid;
 					}
 					prev = idx;
@@ -303,7 +372,13 @@ export function buildEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer = null,
 		}
 		closeChunk(true);
 	}
-	return { metaU32: skipped ? buf.subarray(0, j) : buf, edgeCount: j >> 2, polyEdgeCount, polyEdgeByFid, chunks, seamSkipped: skipped };
+	if (span && !chunks) span.close();   // チャンク台帳無し＝全体最大だけ確定
+	const edgeCount = j >> 2;
+	const meta0 = skipped ? buf.subarray(0, j) : buf;
+	const sub = span ? appendSubRows(meta0, edgeCount, bucketOf, chunks) : { metaU32: meta0, subCount: 0, sub: null };
+	return { metaU32: sub.metaU32, edgeCount, polyEdgeCount, polyEdgeByFid, chunks, seamSkipped: skipped,
+		subCount: sub.subCount, sub: sub.sub,   // 複製行（長辺の細分用）の行数と、台帳無し時の [b,start,count,…]（台帳有りは chunk.sub）
+		spanX: span ? span.ax : -1, spanY: span ? span.ay : -1 };   // 最長辺の経緯度スパン（e7・全体）。-1＝未知
 }
 
 // arc bbox が ±180（ix=0 または 360e7）に載る arc が1つでもあるか＝縫い目辺の有無の門（v1 hasAntimeridianSeam の写し）。
@@ -352,13 +427,14 @@ export function buildWeightHist(arcMeta, polyStream, lineStream, arcU32) {
 // 前提＝リング向きの一貫性（normalizeRingOrientation を先に一度実行）。
 
 // 1 arc 分の辺を書き出す共通実装。返り値=新しい j。
-function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight) {
+function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight, span = null, bucketOf = null) {
 	const aid = arcIdx < 0 ? ~arcIdx : arcIdx;
 	const off = arcMeta[aid * 8], len = arcMeta[aid * 8 + 1], fid = featId >>> 0;
 	if (!getW) {
 		for (let i = 0; i < len - 1; i++) {
-			buf[j++] = arcIdx >= 0 ? off + i     : off + len - 1 - i;
-			buf[j++] = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+			const a = arcIdx >= 0 ? off + i : off + len - 1 - i, b = arcIdx >= 0 ? off + i + 1 : off + len - 2 - i;
+			if (span) bucketOf[j >> 2] = span.add(a, b);
+			buf[j++] = a; buf[j++] = b;
 			buf[j++] = (styleId & 0xFF) | (i << 8); buf[j++] = fid;
 		}
 	} else {
@@ -369,7 +445,7 @@ function emitArcEdges(buf, j, arcIdx, styleId, featId, arcMeta, getW, minWeight)
 		for (let i = iStart; i !== iEnd; i += step) {
 			const idx = off + i;
 			if (getW(idx) >= minWeight) {
-				if (prev !== -1) { buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
+				if (prev !== -1) { if (span) bucketOf[j >> 2] = span.add(prev, idx); buf[j++] = prev; buf[j++] = idx; buf[j++] = (styleId & 0xFF) | (ei++ << 8); buf[j++] = fid; }
 				prev = idx;
 			}
 		}
@@ -419,23 +495,27 @@ export function buildBoundaryEdgeMeta(arcMeta, polyStream, lineStream, arcBuffer
 
 	const buf = new Uint32Array(total * 4);
 	let j = 0;
+	const span = makeSpanTracker(arcBuffer);   // 辺スパン→細分バケット（複製行）。境界メタは台帳無し＝全体 1 チャンク
+	const bucketOf = span ? new Int8Array(total).fill(-1) : null;
 	// winding の符号を保つため、描画向きは正味符号に従い、|net| 回の多重描画で多重度も保つ
 	//（重複筆＝同一リング2回登記で net=±2 の arc を1回に落とすと fan 楔の±1不均衡が漏れる＝v1実測の轍）。
 	for (let aid = 0; aid < nArcs; aid++) {
 		if (net[aid] !== 0) {
 			const mult = Math.abs(net[aid]);
 			for (let k = 0; k < mult; k++)
-				j = emitArcEdges(buf, j, net[aid] > 0 ? aid : ~aid, 0, fidOf[aid] < 0 ? 0 : fidOf[aid], arcMeta, getW, minWeight);
+				j = emitArcEdges(buf, j, net[aid] > 0 ? aid : ~aid, 0, fidOf[aid] < 0 ? 0 : fidOf[aid], arcMeta, getW, minWeight, span, bucketOf);
 		}
 	}
 	const polyEdgeCount = j >> 2;   // ポリゴン境界辺は先頭に連続配置（buildEdgeMeta と同じ規約）
 	if (lineStream) { let p = 0;
 		while (p < lineStream.length) { const fid = lineStream[p++], ns = lineStream[p++];
 			for (let g = 0; g < ns; g++) { const ac = lineStream[p++];
-				for (let a = 0; a < ac; a++) j = emitArcEdges(buf, j, lineStream[p++], 1, fid, arcMeta, getW, minWeight); }
+				for (let a = 0; a < ac; a++) j = emitArcEdges(buf, j, lineStream[p++], 1, fid, arcMeta, getW, minWeight, span, bucketOf); }
 		}
 	}
-	return { metaU32: buf, edgeCount: total, polyEdgeCount };
+	if (span) span.close();
+	const sub = span ? appendSubRows(buf, total, bucketOf, null) : { metaU32: buf, subCount: 0, sub: null };
+	return { metaU32: sub.metaU32, edgeCount: total, polyEdgeCount, subCount: sub.subCount, sub: sub.sub, spanX: span ? span.ax : -1, spanY: span ? span.ay : -1 };
 }
 
 // ── リング向き正規化（v1 から移植）──────────────────────────────

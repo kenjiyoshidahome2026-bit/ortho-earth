@@ -43,7 +43,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	const SLOT_FIELDS = [
 		'gintData', 'arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'pivotW',
 		'totalEdges', 'totalPoints', 'polyEdges', 'totalEdgesB', 'polyEdgesB',
-		'fillOff', 'lowFill', 'tiersDone', 'lodTiers', 'metaChunks',
+		'fillOff', 'lowFill', 'tiersDone', 'lodTiers', 'metaChunks', 'span', 'spanB',   // span/spanB＝最長辺スパン（地形適応細分の上限）
 		'polyEdgeByFid', 'polyBboxByFid', 'outlineZoom', 'minZoom', 'maxZoom',
 		'fidStyleTex', 'fidStyleW', '_fidStyleH', 'fidStyleCount', '_fidStyleData',   // paint（コロプレス表）も層の属性
 	];
@@ -144,7 +144,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				s.requestDraw?.();
 			},
 			stats: () => ({ tiers: st.lodTiers?.length ?? 0, tiersDone: !!st.tiersDone, total: st.totalEdges,
-				edges: st._pfLineEdges ?? 0, tierW: st._pfTierW ?? -1 }),
+				edges: st._pfLineEdges ?? 0, subs: st._pfSubs ?? 0, tierW: st._pfTierW ?? -1 }),
 		};
 	}
 	// 追加層1枚の描画（draw() の層別本文＝既定層の予算/範囲判定と同型を層状態で）
