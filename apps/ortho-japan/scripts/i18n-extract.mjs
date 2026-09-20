@@ -14,6 +14,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanApp, CTX_SEP } from "./lib/i18n-scan.mjs";
+import { loadPages } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const UI = path.join(APP, "i18n/ui.json");
@@ -23,7 +24,7 @@ const check = process.argv.includes("--check");
 
 const ctx = JSON.parse(fs.readFileSync(path.join(APP, "scripts/i18n-contexts.json"), "utf8"));
 const langs = JSON.parse(fs.readFileSync(LANGS, "utf8")).map(l => l.code);
-const r = scanApp(APP, ctx);
+const r = scanApp(APP, ctx, { exclude: loadPages(APP).pageFiles });   // showcase ページ（i18n/pages.json）は別辞書＝本体の正本へ混ぜない
 
 let bad = 0;
 const die = (why, rows) => { bad++; console.error(`ERROR  ${why}`); for (const x of rows.slice(0, 20)) console.error("       " + x); };

@@ -9,6 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { loadPages } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ui = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui ?? {};
@@ -28,6 +29,22 @@ for (const { code } of langs) {
 	if (!keys.length && code !== "ja") { fs.existsSync(file) && fs.rmSync(file); rows.push([code, 0, 0]); continue; }
 	fs.writeFileSync(file, body + "\n");
 	rows.push([code, keys.length, Buffer.byteLength(body)]);
+}
+// showcase ページの辞書（i18n/pages/<page>.json）＝i18n/lang/<page>/<code>.json へ。SDK（本体）は運ばない＝そのページの chunk だけが読む
+const { tables } = loadPages(APP);
+for (const [page, tbl] of Object.entries(tables)) {
+	const dir = path.join(outDir, page); fs.mkdirSync(dir, { recursive: true });
+	let nLangs = 0;
+	for (const { code } of langs) {
+		if (code === "en") continue;
+		const table = {};
+		for (const [key, row] of Object.entries(tbl)) if (row[code]) table[key] = row[code];
+		const keys = Object.keys(table).sort(), file = path.join(dir, `${code}.json`);
+		if (!keys.length) { fs.existsSync(file) && fs.rmSync(file); continue; }
+		fs.writeFileSync(file, JSON.stringify(Object.fromEntries(keys.map(k => [k, table[k]]))) + "\n");
+		nLangs++;
+	}
+	console.log(`pages/${page}.json: ${Object.keys(tbl).length} keys -> lang/${page}/ (${nLangs} languages)`);
 }
 const total = Object.keys(ui).length;
 console.log(`ui.json: ${total} keys`);

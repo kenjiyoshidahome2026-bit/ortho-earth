@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { scanApp, placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
+import { loadPages } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const strict = process.argv.includes("--strict");
@@ -20,7 +21,10 @@ const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i1
 const uiPath = path.join(APP, "i18n/ui.json");
 if (!fs.existsSync(uiPath)) { console.error(`ERROR  ${path.relative(APP, uiPath)} is missing — run: npm run i18n:extract`); process.exit(1); }
 const ui = JSON.parse(fs.readFileSync(uiPath, "utf8")).ui ?? {};
-const r = scanApp(APP, ctx);
+// showcase ページ（i18n/pages.json）＝自分の表（i18n/pages/<page>.json）＋本体の表で引く。本体のファイルは本体の表だけ
+const P = loadPages(APP);
+const r = scanApp(APP, ctx, { exclude: P.pageFiles });
+const rp = Object.fromEntries(Object.keys(P.pages).map(page => [page, scanApp(APP, ctx, { only: new Set(P.pages[page]) })]));
 const jaEra = [...r.perFile.values()].some(m => m.size > 0);   // ja キー期＝まだ持参辞書が生きている
 
 let err = 0, warn = 0;
@@ -34,10 +38,18 @@ if (r.collisions.size) E(`${r.collisions.size} English key(s) claimed by differe
 const missing = [...r.keys.keys()].filter(k => !(k in ui));
 if (missing.length) E(`${missing.length} key(s) used in code are not in i18n/ui.json (run: npm run i18n:extract)`,
 	missing.map(k => `${JSON.stringify(k)}  (${[...r.keys.get(k).files].join(", ")})`));
+for (const [page, rr] of Object.entries(rp)) {
+	const tbl = P.tables[page];
+	const miss = [...rr.keys.keys()].filter(k => !(k in tbl) && !(k in ui));
+	if (miss.length) E(`${miss.length} key(s) used by page "${page}" are in neither i18n/pages/${page}.json nor ui.json`, miss.map(k => `${JSON.stringify(k)}  (${[...rr.keys.get(k).files].join(", ")})`));
+	const dup = Object.keys(tbl).filter(k => k in ui);
+	if (dup.length) E(`${dup.length} key(s) of page "${page}" also exist in ui.json (keep shared keys in ui.json only)`, dup.map(k => JSON.stringify(k)));
+}
 
-// ②③④ 正本の中身
+// ②③④ 正本の中身（本体＋ページ）
 const noJa = [], phBad = [], ctxLeak = [];
-for (const [key, row] of Object.entries(ui)) {
+const allRows = [...Object.entries(ui), ...Object.values(P.tables).flatMap(t => Object.entries(t))];
+for (const [key, row] of allRows) {
 	if (!("ja" in row)) noJa.push(key);
 	for (const [lang, text] of Object.entries(row)) {
 		if (typeof text !== "string") { phBad.push(`${JSON.stringify(key)} [${lang}] is not a string`); continue; }
@@ -51,8 +63,14 @@ if (phBad.length) E(`${phBad.length} placeholder mismatch(es)`, phBad);
 if (ctxLeak.length) E(`${ctxLeak.length} translation(s) carry the context marker`, ctxLeak);
 
 // ⑤ 未訳・死にキー・辞書にない呼び出し
-const dead = Object.keys(ui).filter(k => !r.keys.has(k) && !r.literals.has(k));   // 表/配列に置かれたキーは生きている
+const usedAnywhere = k => r.keys.has(k) || r.literals.has(k) || Object.values(rp).some(rr => rr.keys.has(k) || rr.literals.has(k));   // 本体の共有キーはページからの参照でも生きている
+const dead = Object.keys(ui).filter(k => !usedAnywhere(k));   // 表/配列に置かれたキーは生きている
 if (dead.length) W(`${dead.length} key(s) in ui.json are no longer used in code`, dead.map(k => JSON.stringify(k)));
+for (const [page, rr] of Object.entries(rp)) {
+	const d = Object.keys(P.tables[page]).filter(k => !rr.keys.has(k) && !rr.literals.has(k));
+	if (d.length) W(`${d.length} key(s) in i18n/pages/${page}.json are no longer used by that page`, d.map(k => JSON.stringify(k)));
+	if (rr.untranslated.length) E(`${rr.untranslated.length} t() call(s) in page "${page}" use a key that is in no table`, rr.untranslated.map(u => `${u.rel}:${u.line}  ${JSON.stringify(u.value)}`));
+}
 if (r.untranslated.length) {
 	const rows = r.untranslated.map(u => `${u.rel}:${u.line}  ${JSON.stringify(u.value)}`);
 	if (jaEra) W(`${r.untranslated.length} t() call(s) have no dictionary entry (they stay Japanese in the English UI)`, rows);
@@ -60,14 +78,15 @@ if (r.untranslated.length) {
 }
 
 const total = Object.keys(ui).length;
-console.log(`\nkeys ${total}   era ${jaEra ? "ja-key (pre Phase 1)" : "English-key"}\n`);
+console.log(`\nkeys ${total} (ui.json)${Object.entries(P.tables).map(([p, t]) => ` + ${Object.keys(t).length} (${p})`).join("")}   era ${jaEra ? "ja-key (pre Phase 1)" : "English-key"}\n`);
 console.log("lang  translated  intentionally-English  missing   note");
 const short = [];
 for (const { code, name, rtl } of langs) {
-	if (code === "en") { console.log(`${code.padEnd(5)} ${String(total).padStart(9)} ${"-".padStart(22)} ${"0".padStart(8)}   base language (key itself)`); continue; }
-	const have = Object.values(ui).filter(row => row[code] !== undefined);
+	if (code === "en") { console.log(`${code.padEnd(5)} ${String(allRows.length).padStart(9)} ${"-".padStart(22)} ${"0".padStart(8)}   base language (key itself)`); continue; }
+	const rows = allRows.map(([, row]) => row);
+	const have = rows.filter(row => row[code] !== undefined);
 	const eng = have.filter(t => t[code] === "").length;
-	const miss = total - have.length;
+	const miss = rows.length - have.length;
 	if (miss) short.push(`${code} ${miss}`);
 	console.log(`${code.padEnd(5)} ${String(have.length - eng).padStart(9)} ${String(eng).padStart(22)} ${String(miss).padStart(8)}   ${name}${rtl ? " (RTL)" : ""}`);
 }
