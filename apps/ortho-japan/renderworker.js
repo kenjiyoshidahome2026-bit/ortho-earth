@@ -19,14 +19,17 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 //   規約（地形リフト＝pitch フェード×標高×elevBase・座標は CSS px・f<0＝裏側）。標高は worker の terrain から同期で引ける（main は非同期メモだった）
 const overlays = new Map();
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
+// 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
+// anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js") };
 function overlayAdd(m) {
 	const o = { canvas: m.canvas, mod: null, queue: [] };
 	overlays.set(m.name, o);
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
 	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }) };
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
-	stage("importing", { url: m.url });
-	import(/* @vite-ignore */ m.url).then(mod => {
+	stage("importing", { url: m.url || `builtin:${m.builtin}` });
+	(m.builtin ? (BUILTIN_OVERLAYS[m.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${m.builtin}"`))) : import(/* @vite-ignore */ m.url)).then(mod => {
 		if (!overlays.has(m.name)) return;   // 待っている間に外された
 		stage("imported");
 		mod.init(o.canvas, m.opts || {}, host);

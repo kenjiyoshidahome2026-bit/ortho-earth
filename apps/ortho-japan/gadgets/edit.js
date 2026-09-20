@@ -1,4 +1,4 @@
-// ガジェット：編集（GeoPBF エディタ＝gadgets/geoedit の入口ボタン）。オプトイン＝map.gadget.edit({ zoom:[2.5,99], narrow:false })。
+// ガジェット：編集（GeoPBF エディタ＝@ortho-earth/geoedit（packages/geoedit）の入口ボタン）。オプトイン＝map.gadget.edit({ zoom:[2.5,99], narrow:false })。
 // 押す＝エディタ本体（遅延chunk）を部品として搭載＝持ち主（app）が渡す「編集中の図形」を編集する。
 // 終わり＝エディタのツールバー右端の「×」かこのボタンをもう一度＝結果（editor.result()）を持ち主へ返してから destroy
 //（チルト上限・ズーム下限・右クリック項目・ドロップの所有を搭載前へ戻す）。持ち主は結果で自分の図形を置き換える（onResult）。

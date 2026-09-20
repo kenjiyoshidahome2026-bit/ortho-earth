@@ -3,7 +3,7 @@
 // スタイル変更は input中=即プレビュー（履歴なし）・確定=props コマンド1件（undo可）。
 import { styleForm } from "./styleform.js";
 import { sanitizeHTML } from "./overlay.js";
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 
 // 部分更新の合成：値 "" / null は「そのキーを消す」（styleform の規約）。controller の既定スタイル更新とも共用

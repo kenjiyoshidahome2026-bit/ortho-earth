@@ -1,0 +1,25 @@
+{
+	"name": "@ortho-earth/geoedit",
+	"version": "0.1.0",
+	"description": "GeoPBF topological editor as a map gadget (initEditor(map, opts)). Edits on the sphere, @style annotations, large-file mode — the editor half of the geopbf format.",
+	"license": "MIT",
+	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
+	"type": "module",
+	"private": false,
+	"exports": {
+		".": "./src/index.js",
+		"./editor.scss": "./src/editor.scss",
+		"./i18n/*": "./i18n/*"
+	},
+	"files": ["src", "i18n", "LICENSE", "README.md"],
+	"scripts": {
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"i18n:check": "node scripts/i18n-check.mjs",
+		"test": "npm run i18n:check && npm run -w @ortho-earth/japan verify:editor"
+	},
+	"dependencies": {
+		"geopbf": "*",
+		"quiet-mono": "*"
+	},
+	"repository": { "type": "git", "url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/geoedit" }
+}

@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- 対話回帰（geoedit ガジェット＝gadgets/geoedit・旧 apps/geoedit）：クリック選択→頂点ドラッグ（共有arc＝隣接同時変形）→undo→作図（頂点吸着＝共有化）→削除。
+<!-- 対話回帰（geoedit ガジェット＝@ortho-earth/geoedit（packages/geoedit・2026-09-20 分離）・旧 gadgets/geoedit・旧々 apps/geoedit）：クリック選択→頂点ドラッグ（共有arc＝隣接同時変形）→undo→作図（頂点吸着＝共有化）→削除。
      合成ポインタで実経路（input.js→onClick→editClick／mapEl capture→drag）を叩く。判定は<title>（verify-ui流儀）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:900px;height:650px}#map{width:900px;height:650px}</style><title>t-editor</title></head>
 <body>
@@ -15,7 +15,10 @@ import { gcDistanceDeg, gcMidpoint } from "geopbf/edit/sphere";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
 import { GeoPBF } from "geopbf/pbf-base";
-import { initEditor } from "../gadgets/geoedit/controller.js";
+import { initEditor as initEditor0, setLang } from "@ortho-earth/geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示（この頁は日本語の UI 文字列で判定する）
+import { cloudPanel } from "../gadgets/cloud.js";   // japan のホスト契約＝クラウド保存パネルを注入（ボタン列の検定は japan に載った形で数える）
+await setLang("ja");
+const initEditor = (m, o = {}) => initEditor0(m, { cloudPanel, ...o });
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 window.addEventListener("error", e => t.push("ERR:" + String(e.message).replace(/\s+/g, "_")));
@@ -356,7 +359,7 @@ try {
 	{
 		await editor.commitNow();
 		const src = editor.layer.pbf.arrayBuffer;   // 今のセッション（数フィーチャ・数十頂点）
-		const w = new Worker(new URL("../gadgets/geoedit/model-worker.js", import.meta.url), { type: "module" });
+		const w = (await import("@ortho-earth/geoedit")).createModelWorker();   // パッケージの worker（URL はパッケージ側で解決）
 		const ask = (msg, buf) => new Promise(r => { const id = Math.random(); const h = e => { if (e.data.id === id) { w.removeEventListener("message", h); r(e.data); } }; w.addEventListener("message", h); w.postMessage({ id, ...msg, buffer: buf }, [buf]); });
 		const big = await ask({ mode: "pbf", gridExp: 6, maxVerts: 3 }, src.slice(0));
 		ok("vertGateLarge", big.ok && big.payload.large === true && big.payload.buffer?.byteLength === src.byteLength && big.payload.verts > 3);
@@ -454,7 +457,7 @@ try {
 
 	// ---- 起動時の復元＝confirm() なしで自動復元し、左下バナー「新規で始める」で破棄できる ----
 	{
-		const { idbSave } = await import("../gadgets/geoedit/io.js");
+		const { idbSave } = await import("@ortho-earth/geoedit");
 		await editor.commitNow();
 		const buf = editor.layer.pbf.arrayBuffer.slice(0), nf = m().stats().features;
 		editor.destroy();

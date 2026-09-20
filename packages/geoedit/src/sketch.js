@@ -1,4 +1,4 @@
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 import { gcDistanceDeg, smallCircle, gcRect } from "geopbf/edit/sphere";   // 完全球体＝円は球面上の小円（本人裁定 9/14）・矩形は対角線から球面上で 4 角（9/15）
 const t = tr();
 // 作図（スケッチ）：線/面/穴＝クリックで頂点を積んで Enter/ダブルクリックで確定、矩形/円＝2クリック、

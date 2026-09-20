@@ -1,7 +1,7 @@
 // ガジェット：注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生）。
 // 「エディタで作った表現がビューアで同じ動きで再生される」を**実装の共有**で担保する正典＝
-// 図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/smoothRing/buildLinePath/makeTracer）は anno-draw.js が正本で、
-// ここが再輸出し、geoedit（overlay/model/styleform）はここから import する（pop/tip ガジェット共有と同じ型）。
+// 図形/帯/曲線のプリミティブ（PICTO/SHAPE_SCALE/buildLinePath/makeTracer）は geopbf/edit/draw が正本（2026-09-20 に移設）。
+// ここは再輸出（後方互換）。geoedit（@ortho-earth/geoedit）も geopbf/edit/draw を直接 import する。
 // 描画は全て canvas2D（地形ドレープなし＝本人裁定・注釈スケールなら十分軽い）。gint は使わない＝
 // fid⇄feature の propTub 併合問題も styleTable も無縁。識別は pbf.identifyAt（JS幾何・描画レス）。
 // 対応 @属性：@shape(@fill/@stroke/@size・pin=3Dピン)/@icon(画像・中央クロップ)/@text/@width/
@@ -17,13 +17,12 @@ export { sanitizeHTML };   // @tip/@pop の HTML 消毒（正典は geopbf/sanit
 //   輸入側（geoedit）は再輸出でも解決できるため、エディタでは曲線が出るのにビューアだけ落ちる非対称バグの再発防止・2026-09-01）。
 import { smoothRing, smoothGeom, wrapLon } from "geopbf/edit/spline";
 export { smoothRing, smoothGeom, wrapLon };
-export { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, dLon, buildLinePath } from "./anno-draw.js";
-import annoDrawUrl from "./anno-draw.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（依存ゼロが掟。⚠?worker&url は export が tree-shake される）
+export { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, makeTracer, dLon, buildLinePath } from "geopbf/edit/draw";   // 正典は geopbf（geoedit と同じ一本・2026-09-20 分離）
 
 // ---- ビューア再生本体（createAnno）：map の公開口だけで完結（overlay/tip/pop/unproject/getZoom）----
 export function createAnno(map, { signal } = {}) {
 	const mapEl = map.mapEl;
-	const ov = map.overlay(annoDrawUrl, { name: "anno" });
+	const ov = map.overlay({ builtin: "anno" }, { name: "anno" });   // render worker のバンドル内モジュール（gadgets/anno-draw.js）
 	ov.el.classList.add("anno-overlay");
 
 	let pbf = null, items = [];   // items[fid]＝前処理済み（@spline は set 時に一度だけ細分）＝worker へ写しを送り、main は識別と pop の錨に使う

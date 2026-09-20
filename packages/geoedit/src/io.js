@@ -1,4 +1,4 @@
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 // 入出力：ドロップ取込（dropfile.js の depth-counter 作法）・8形式エクスポート（gishub と同じ *File() 群）・
 // IndexedDB セッション自動保存（コミット済み geopbf の ArrayBuffer を保存＝JSON化しない＝大規模対応）。

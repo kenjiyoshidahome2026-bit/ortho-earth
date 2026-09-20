@@ -2,7 +2,7 @@
 // 作図ツール選択中は「次に描くもの」の既定スタイルパネル（styleform＝点/線/面それぞれ）を出す。
 // 全部 DOM 直組み＝依存ゼロ。重なりは DOM 順（z-index 禁止の掟）。
 import { styleForm } from "./styleform.js";
-import { tr } from "../../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 
 // モノクロ線画アイコン（currentColor）＝Kenji旧ツールバーの流儀（8/20 参考画像）。絵文字混在をやめて統一
@@ -87,7 +87,7 @@ export function initToolbar(el, api, signal) {
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);
 	btn("exp", t("Export (8 formats)"), () => api.exportOpen());
-	btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen());
+	if (api.cloudOpen) btn("cloud", t("Cloud save / open (login required)"), () => api.cloudOpen());   // ホストがクラウド保存パネルを注入した時だけ
 	btn("trash", t("Clear all (new session)"), () => api.clearAll());
 	// 部品として開かれた時だけ＝右端の「×」＝持ち主（japan）へ戻る（結果で持ち主の図形を置き換える）。単独起動は出さない
 	if (api.close) { const x = btn("close", t("Finish editing"), () => api.close()); x.classList.add("ge-close"); }
