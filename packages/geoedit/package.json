@@ -1,25 +1,47 @@
 {
-	"name": "@ortho-earth/geoedit",
+	"name": "geoedit",
 	"version": "0.1.0",
-	"description": "GeoPBF topological editor as a map gadget (initEditor(map, opts)). Edits on the sphere, @style annotations, large-file mode — the editor half of the geopbf format.",
+	"description": "GeoPBF topological editor as a map gadget: initEditor(map, opts). Edits on the sphere (great-circle edges, rotations, small circles), @style annotations shared with the viewer (geopbf/edit/draw), large-file mode on GintBUF — the editor half of the geopbf format. MIT.",
+	"keywords": [
+		"geopbf",
+		"gis",
+		"editor",
+		"topology",
+		"sphere",
+		"geojson",
+		"map",
+		"ortho-earth"
+	],
 	"license": "MIT",
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
+	"homepage": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/tree/main/packages/geoedit#readme",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/geoedit"
+	},
 	"type": "module",
 	"private": false,
 	"exports": {
 		".": "./src/index.js",
-		"./editor.scss": "./src/editor.scss",
 		"./i18n/*": "./i18n/*"
 	},
-	"files": ["src", "i18n", "LICENSE", "README.md"],
+	"files": [
+		"src",
+		"i18n",
+		"LICENSE",
+		"README.md"
+	],
 	"scripts": {
+		"build:css": "node scripts/css-build.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"i18n:check": "node scripts/i18n-check.mjs",
-		"test": "npm run i18n:check && npm run -w @ortho-earth/japan verify:editor"
+		"build": "npm run build:css && npm run i18n:build",
+		"prepack": "npm run build && npm run i18n:check",
+		"test": "npm run i18n:check && npm run -w @ortho-earth/japan verify:editor",
+		"mirror": "git -C ../.. subtree split --prefix=packages/geoedit -b geoedit-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geoedit.git geoedit-mirror:main --force && git -C ../.. branch -D geoedit-mirror"
 	},
 	"dependencies": {
-		"geopbf": "*",
-		"quiet-mono": "*"
-	},
-	"repository": { "type": "git", "url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/geoedit" }
+		"geopbf": "^1.9.0"
+	}
 }

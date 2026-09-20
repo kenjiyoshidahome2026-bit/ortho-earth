@@ -26,7 +26,7 @@ import { geopbf } from "geopbf";
 import { GeoPBF } from "geopbf/pbf-base";
 // 左下ドック＝ホストが initEditor({ dock }) で注入（ortho-japan の gadgets/stack.js）。無ければ map.mapEl の #dock を見つけるか作る（同じ約束）
 const defaultDock = mapEl => { let d = mapEl.querySelector("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
-import css from "./editor.scss?inline";    // CSS自給（ガジェット三戒）＝遅延chunkに同乗・初回搭載で <style> を1枚
+import css from "./editor.css.js";    // CSS自給（ガジェット三戒）＝scss を焼き込んだ文字列（npm run build:css）＝遅延chunkに同乗・初回搭載で <style> を1枚
 import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
 const t = tr();
 

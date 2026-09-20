@@ -15,7 +15,8 @@ window.addEventListener("error", e => logs.push("uncaught " + (e.message || e)))
 window.addEventListener("unhandledrejection", e => logs.push("unhandled " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
 
 // 箱の GLB（Y-up・原点＝底面中心）。rtc＝CESIUM_RTC.center（ECEF）＋xf＝頂点/法線の変換（RTC の glb は頂点が ECEF の向き＝ENU の箱を ECEF 軸へ回して書く）
-function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null } = {}) {
+// tex＝PNG バイト列（baseColorTexture＋TEXCOORD_0 を付ける）／mats＝箱を n 個（x に 30 m ずつ並べ・別々の baseColorFactor＝別マテリアル）
+function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null, tex = null, mats = 1 } = {}) {
 	const X = w / 2, Z = d / 2;
 	const faces = [   // [normal, 4 corners]
 		[[0, 0, 1], [[-X, 0, Z], [X, 0, Z], [X, h, Z], [-X, h, Z]]],
@@ -25,27 +26,34 @@ function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null } = {}) {
 		[[0, 1, 0], [[-X, h, Z], [X, h, Z], [X, h, -Z], [-X, h, -Z]]],
 		[[0, -1, 0], [[-X, 0, -Z], [X, 0, -Z], [X, 0, Z], [-X, 0, Z]]],
 	];
-	const pos = [], nrm = [], idx = [];
-	faces.forEach(([n, c], f) => { for (const p of c) { pos.push(...(xf ? xf(p) : p)); nrm.push(...(xf ? xf(n) : n)); } idx.push(f * 4, f * 4 + 1, f * 4 + 2, f * 4, f * 4 + 2, f * 4 + 3); });
+	const pos = [], nrm = [], idx = [], uv = [];
+	faces.forEach(([n, c], f) => { for (const p of c) { pos.push(...(xf ? xf(p) : p)); nrm.push(...(xf ? xf(n) : n)); } uv.push(0, 0, 1, 0, 1, 1, 0, 1); idx.push(f * 4, f * 4 + 1, f * 4 + 2, f * 4, f * 4 + 2, f * 4 + 3); });
 	const mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
 	for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i + k]); mx[k] = Math.max(mx[k], pos[i + k]); }
-	const P = new Float32Array(pos), N = new Float32Array(nrm), I = new Uint16Array(idx);
+	const P = new Float32Array(pos), N = new Float32Array(nrm), I = new Uint16Array(idx), U = new Float32Array(uv), T = tex ? new Uint8Array(tex) : null;
 	const pad4 = n => (n + 3) & ~3;
-	const binLen = pad4(P.byteLength) + pad4(N.byteLength) + pad4(I.byteLength);
+	const binLen = pad4(P.byteLength) + pad4(N.byteLength) + pad4(I.byteLength) + pad4(U.byteLength) + (T ? pad4(T.byteLength) : 0);
 	const bin = new Uint8Array(binLen); let o = 0;
 	bin.set(new Uint8Array(P.buffer), o); const oP = o; o += pad4(P.byteLength);
 	bin.set(new Uint8Array(N.buffer), o); const oN = o; o += pad4(N.byteLength);
-	bin.set(new Uint8Array(I.buffer), o); const oI = o;
+	bin.set(new Uint8Array(I.buffer), o); const oI = o; o += pad4(I.byteLength);
+	bin.set(new Uint8Array(U.buffer), o); const oU = o; o += pad4(U.byteLength);
+	let oT = 0; if (T) { bin.set(T, o); oT = o; }
+	const COLORS = [[1, 0.2, 0.2, 1], [0.2, 0.3, 1, 1], [0.2, 0.9, 0.3, 1]];
 	const json = {
-		asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
-		meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1 }, indices: 2 }] }],
+		asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: Array.from({ length: mats }, (_, i) => i) }],
+		nodes: Array.from({ length: mats }, (_, i) => ({ mesh: i, translation: [i * 30, 0, 0] })),
+		meshes: Array.from({ length: mats }, (_, i) => ({ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 3 }, indices: 2, material: i }] })),
+		materials: Array.from({ length: mats }, (_, i) => ({ pbrMetallicRoughness: { baseColorFactor: tex ? [1, 1, 1, 1] : COLORS[i % 3], ...(tex ? { baseColorTexture: { index: 0 } } : {}) } })),
 		buffers: [{ byteLength: binLen }],
-		bufferViews: [{ buffer: 0, byteOffset: oP, byteLength: P.byteLength }, { buffer: 0, byteOffset: oN, byteLength: N.byteLength }, { buffer: 0, byteOffset: oI, byteLength: I.byteLength }],
+		bufferViews: [{ buffer: 0, byteOffset: oP, byteLength: P.byteLength }, { buffer: 0, byteOffset: oN, byteLength: N.byteLength }, { buffer: 0, byteOffset: oI, byteLength: I.byteLength }, { buffer: 0, byteOffset: oU, byteLength: U.byteLength }],
 		accessors: [
 			{ bufferView: 0, componentType: 5126, count: 24, type: "VEC3", min: mn, max: mx },
 			{ bufferView: 1, componentType: 5126, count: 24, type: "VEC3" },
-			{ bufferView: 2, componentType: 5123, count: 36, type: "SCALAR" }],
+			{ bufferView: 2, componentType: 5123, count: 36, type: "SCALAR" },
+			{ bufferView: 3, componentType: 5126, count: 24, type: "VEC2" }],
 	};
+	if (T) { json.bufferViews.push({ buffer: 0, byteOffset: oT, byteLength: T.byteLength }); json.images = [{ bufferView: 4, mimeType: "image/png" }]; json.textures = [{ source: 0 }]; }
 	if (rtc) { json.extensions = { CESIUM_RTC: { center: rtc } }; json.extensionsUsed = ["CESIUM_RTC"]; }
 	let js = new TextEncoder().encode(JSON.stringify(json)); const jl = pad4(js.byteLength);
 	const total = 12 + 8 + jl + 8 + binLen;
@@ -91,6 +99,20 @@ try {
 	ok("rtcMode", c.stats.mode === "rtc", c.stats.mode);
 	ok("rtcCenter", near((bb[0] + bb[2]) / 2, OSAKA[0], 2e-6) && near((bb[1] + bb[3]) / 2, OSAKA[1], 2e-6), `${((bb[0] + bb[2]) / 2).toFixed(6)},${((bb[1] + bb[3]) / 2).toFixed(6)}`);
 	ok("rtcSize", near(s[0], 20, 2) && near(s[1], 20, 2), s.map(v => v.toFixed(1)).join("x"));
+	// ⑥ テクスチャ（2×2 の PNG＝赤/緑/青/白）＝1 マテリアル・1 テクスチャ・uv 付き
+	const cv = new OffscreenCanvas(2, 2), cx2 = cv.getContext("2d");
+	for (const [i, col] of [["#f00", 0, 0], ["#0f0", 1, 0], ["#00f", 0, 1], ["#fff", 1, 1]].map(([c, x, y], i) => [i, [c, x, y]])) { cx2.fillStyle = col[0]; cx2.fillRect(col[1], col[2], 1, 1); }
+	const png = await (await cv.convertToBlob({ type: "image/png" })).arrayBuffer();
+	c = await map.gadget.model(makeGlb({ tex: png }), { at: AT, fit: false });
+	ok("texMats", c.stats.materials === 1 && c.stats.textures === 1, `mats=${c.stats.materials} tex=${c.stats.textures}`);
+	ok("texTris", c.stats.triangles === 12, String(c.stats.triangles));
+	// ⑥' 同じ画像を 2 マテリアルで共有＝バッチ 2・どちらもテクスチャ付き（ImageBitmap の transfer 切り離しの回帰）
+	c = await map.gadget.model(makeGlb({ tex: png, mats: 2 }), { at: AT, fit: false });
+	ok("texShared", c.stats.materials === 2 && c.stats.textures === 2, `mats=${c.stats.materials} tex=${c.stats.textures}`);
+	// ⑦ 複数マテリアル＝箱 2 個（別色・30 m 間隔）＝2 バッチ・テクスチャ 0・幅 50 m
+	c = await map.gadget.model(makeGlb({ mats: 2 }), { at: AT, fit: false }); s = spans(c.bbox, AT[1]);
+	ok("twoMats", c.stats.materials === 2 && c.stats.textures === 0 && c.stats.triangles === 24, `mats=${c.stats.materials} tex=${c.stats.textures} tris=${c.stats.triangles}`);
+	ok("twoMatsSize", near(s[0], 50, 5) && near(s[1], 20, 2), s.map(v => v.toFixed(1)).join("x"));
 	// ⑤ 置き換え＝単一スロット・clear で空
 	c.clear(); ok("cleared", !window.__model?.name);
 	await new Promise(r => setTimeout(r, 800));   // 送出→render worker の受理（エラーが出るならここまでに）
