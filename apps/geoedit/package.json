@@ -1,10 +1,10 @@
 {
-	"name": "geoedit",
+	"name": "geoedit-redirect",
 	"version": "0.1.0",
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"description": "旧 /geoedit/ の転送 Worker。エディタ本体は packages/geoedit（@ortho-earth/geoedit）（map.gadget.geoedit）・ページは /japan/geoedit",
+	"description": "旧 /geoedit/ の転送 Worker（www.ortho-earth.com/geoedit* → /japan/geoedit）。エディタ本体は npm の geoedit（packages/geoedit）・ページは /japan/geoedit",
 	"scripts": {
 		"deploy": "wrangler deploy"
 	}

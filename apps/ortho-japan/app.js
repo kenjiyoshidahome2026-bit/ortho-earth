@@ -60,7 +60,7 @@ import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(prin
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
 import { edit as editGadget } from "./gadgets/edit.js";
-import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は @ortho-earth/geoedit の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
+import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は geoedit（npm） の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
 import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
@@ -2059,7 +2059,7 @@ map.fitZoomForBbox = gint.fitZoomForBbox;
 map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
 map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
-map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝@ortho-earth/geoedit が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
+map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝geoedit（npm） が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
@@ -2449,9 +2449,9 @@ const loadUserFile = async (file, { fit = true } = {}) => {
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
 	return dropFileGadget.call(this, { loadFile: loadUserFile, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
-map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝@ortho-earth/geoedit（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
+map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
-	return Promise.all([import("@ortho-earth/geoedit"), import("./gadgets/cloud.js")]).then(async ([m, cloud]) => {
+	return Promise.all([import("geoedit"), import("./gadgets/cloud.js")]).then(async ([m, cloud]) => {
 		await m.setLang(getLang());
 		return m.initEditor(this, { setDropOwner: on => { editDropOwner = !!on; }, dock: dockStack, cloudPanel: cloud.cloudPanel, ...opts });
 	});

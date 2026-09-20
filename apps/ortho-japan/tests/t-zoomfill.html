@@ -13,9 +13,9 @@ window.confirm = () => false;
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
 import orthoJapan from "../app.js";
-import { initEditor, setLang as __geSetLang } from "@ortho-earth/geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示
+import { initEditor, setLang as __geSetLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示
 await __geSetLang("ja");
-import { idbClear } from "@ortho-earth/geoedit";
+import { idbClear } from "geoedit";
 import { composeLayersToCanvas } from "../gadgets/compose.js";
 import { smallCircle } from "geopbf/edit/sphere";
 
