@@ -84,7 +84,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 	// 一覧
 	$("list").innerHTML = models.map(m => `<button type="button" class="card" data-id="${esc(m.id)}">
 		${m.thumb ? `<img src="${esc(m.thumb)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : `<span class="noimg" aria-hidden="true"></span>`}
-		<span><b>${esc(L(m.name))}</b><small>${esc(L(m.place))}</small><small>${esc(m.author)} · ${esc(m.license)}${m.mb ? ` · ${fmt(m.mb)} MB` : ""}</small></span></button>`).join("");
+		<span><b>${esc(L(m.name))}</b><small>${esc(L(m.place))}</small><small>${esc(L(m.author))} · ${esc(m.license)}${m.mb ? ` · ${fmt(m.mb)} MB` : ""}</small></span></button>`).join("");
 	$("list").addEventListener("click", e => { const b = e.target.closest(".card"); if (b) show(b.dataset.id); });
 
 	// ── 表示 ──
@@ -119,7 +119,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		el.style.display = "";
 		// 出典（CC BY の義務）とダウンロードだけ。向き/縮尺の調整欄は廃止＝PLATEAU の glb は置き場所を自分で持つ（CESIUM_RTC）
 		el.innerHTML = `<b>${esc(L(m.name))}</b>
-			<div class="m">${t("3D model: $1 ($2)", esc(m.author), esc(m.license))}${m.source ? ' · <a href="' + esc(m.source) + '" target="_blank" rel="noopener">' + t("Source ##link") + "</a>" : ""}</div>
+			<div class="m">${t("3D model: $1 ($2)", esc(L(m.author)), esc(m.license))}${m.source ? ' · <a href="' + esc(m.source) + '" target="_blank" rel="noopener">' + t("Source ##link") + "</a>" : ""}</div>
 			<div class="dl">${t("Download")} <a href="#" data-k="dlglb">GLB</a> <a href="#" data-k="dlgltf">glTF (.zip)</a></div>`;
 		$("dlglb").addEventListener("click", e => { e.preventDefault(); if (glbBytes) saveAs(new Blob([glbBytes], { type: "model/gltf-binary" }), m.id + ".glb"); });
 		$("dlgltf").addEventListener("click", async e => {
