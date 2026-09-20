@@ -14,11 +14,13 @@
 	],
 	"license": "MIT",
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
-	"homepage": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/tree/main/packages/geoedit#readme",
+	"homepage": "https://github.com/kenjiyoshidahome2026-bit/geoedit#readme",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
-		"directory": "packages/geoedit"
+		"url": "https://github.com/kenjiyoshidahome2026-bit/geoedit.git"
+	},
+	"bugs": {
+		"url": "https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues"
 	},
 	"type": "module",
 	"private": false,
