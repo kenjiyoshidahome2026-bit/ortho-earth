@@ -2,7 +2,9 @@ export async function encodeZIP(files, name = null) {
 	const enc = new TextEncoder(), tbl = new Uint32Array(256).map((_, i) => {
 		let c = i; for (let j = 0; j < 8; j++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; return c;
 	});
-	const crc32 = (bin, c = -1) => { for (let b of bin) c = (c >>> 8) ^ tbl[(c ^ b) & 255]; return c ^ -1; };
+	// CRC は「走り値（未確定）」で継ぎ、最後に一度だけ確定させる。チャンク毎に ^-1 すると 64KB を超えるファイルで壊れる（2026-09-21）
+	const crcRun = (bin, c) => { for (const b of bin) c = (c >>> 8) ^ tbl[(c ^ b) & 255]; return c; };
+	const crc32 = (bin, c = -1) => crcRun(bin, c) ^ -1;
 	let off = 0, cd = [], parts = [];
 	for (let f of files) {
 		const d = f.lastModified ? new Date(f.lastModified) : new Date();
@@ -21,12 +23,12 @@ export async function encodeZIP(files, name = null) {
 		const cs = new CompressionStream('deflate-raw'), w = cs.writable.getWriter();
 		const src = f.stream();
 		const process = (async () => {
-			for await (const chunk of src) { crc = crc32(chunk, crc); uSiz += chunk.length; await w.write(chunk); }
+			for await (const chunk of src) { crc = crcRun(chunk, crc); uSiz += chunk.length; await w.write(chunk); }
 			await w.close();
 		})();
 		for await (const chunk of cs.readable) { parts.push(chunk); cSiz += chunk.length; }
 		await process;
-		crc >>>= 0;
+		crc = (crc ^ -1) >>> 0;   // ここで一度だけ確定
 		const dd = new Uint8Array(16), dv = new DataView(dd.buffer);
 		dv.setUint32(0, 0x08074B50, true); dv.setUint32(4, crc, true);
 		dv.setUint32(8, cSiz, true); dv.setUint32(12, uSiz, true);
