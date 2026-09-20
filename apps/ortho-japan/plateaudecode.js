@@ -330,7 +330,9 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 // 後段＝「経緯度＋法線＋index の生メッシュ」を GPU へ送る形に仕上げる（dedup→bbox→剛体接地→LOD 焼き→RTE→被覆マスク断片→溶接）。
 // decodeBatch（PLATEAU/3D Tiles）と decodeModel（glTF/GLB 直読み・2026-09-20）が同じ後段を通る＝置き方が違うだけで立ち方は同じ。
 // 本体は decodeBatch の末尾からの「動作を変えない移動」（引数＝元のローカル変数そのまま）。
-function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
+// groundBatch＝接地の単位：true＝バッチ最低点で一体（橋梁・単体の模型）／false＝連結成分ごと（街の一区画＝斜面や
+// 高台の建物が浮かない。PLATEAU LOD3 を切り出した名所模型はこちら・2026-09-21 大阪城/岐阜城/松江城が浮いた）
+function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null, groundBatch = brid) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
 	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
@@ -478,7 +480,7 @@ function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra =
 	let ox = 0, oy = 0, oz = 0;
 	for (let i = 0; i < M; i++) {
 		const lon = geo[i*3], lat = geo[i*3+1], cb = Math.cos(lat), sp = Math.sin(lat);
-		const hr = (geo[i*3+2] - (brid ? minH : minAlt[find(i)])) / EARTH_W;   // 基部からの相対高さ＝剛体接地（橋梁はバッチ最低点＝部材の相対高さ保存）
+		const hr = (geo[i*3+2] - (groundBatch ? minH : minAlt[find(i)])) / EARTH_W;   // 基部からの相対高さ＝剛体接地（橋梁/単体模型はバッチ最低点＝部材の相対高さ保存）
 		let x, y, z;
 		if (!ELL) { const r = 1 + hr; x = cb*Math.cos(lon)*r; y = sp*r; z = cb*Math.sin(lon)*r; }
 		else {   // β単位球の面点 u(β) ＋ 測地法線の β空間像 m=(cbcosλ, sinφ/r, cbsinλ) に沿うリフト（S は renderer の mvp が畳む）
@@ -583,7 +585,10 @@ async function textureOf(texture, cache) {   // 解決済み texture → {bitmap
 	return out;
 }
 const dequant = A => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array ? 1 / 255 : A instanceof Int16Array ? 1 / 32767 : A instanceof Uint16Array ? 1 / 65535 : 1;   // 正規化整数属性の係数（float は 1）
-export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true } = {}) {
+// ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
+// mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
+// 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
+export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false } = {}) {
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } }, ...(baseUri ? { baseUri } : {}) });
 	let gltf;
@@ -717,16 +722,26 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	const imgCache = new Map();
 	const batches = [];
 	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
+	// 被覆マスクの座標系＝模型全体の経緯度 bbox（度）。束（マテリアル）が違っても同じ枠＝renderer が断片を OR 合成できる
+	let maskBbox = null;
+	if (mask) {
+		let lo0 = Infinity, la0 = Infinity, lo1 = -Infinity, la1 = -Infinity;
+		for (const g of groups.values()) for (const s of g.segs) for (let i = 0; i < s.geo.length; i += 3) {
+			const lo = s.geo[i], la = s.geo[i+1];
+			if (lo < lo0) lo0 = lo; if (lo > lo1) lo1 = lo; if (la < la0) la0 = la; if (la > la1) la1 = la;
+		}
+		if (lo0 < lo1) maskBbox = [lo0 * R2D, la0 * R2D, lo1 * R2D, la1 * R2D];
+	}
 	for (const g of groups.values()) {
 		if (!g.totalI) continue;
 		const geo = new Float64Array(g.totalV * 3), outNrm = new Int8Array(g.totalV * 4), rawIdx = new Uint32Array(g.totalI), uv = new Float32Array(g.totalV * 2), col = new Uint8Array(g.totalV * 4);
 		let vtx = 0, io = 0;
 		for (const s of g.segs) { geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); vtx += s.geo.length / 3; io += s.idx.length; }
 		g.segs.length = 0;
-		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, null, true, { uv, col });   // brid=true＝一体で接地・両面。マスクなし
+		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, { uv, col }, ground !== "each");   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
 		batches.push({ mesh, tex, alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
-	return { batches, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
+	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
 }

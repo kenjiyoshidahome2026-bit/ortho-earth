@@ -1,5 +1,5 @@
 {
-	"_": "名所 3D 模型の台帳（models.html）。出典＝国土交通省 Project PLATEAU の 3D 都市モデル（建築物 LOD3・テクスチャ付き）を 3D Tiles 配信から名所のまわりだけ抜いて 1 枚の glb に束ねた物（scripts/tiles3d）。CESIUM_RTC を持つので置き場所は自動＝lon/lat は飛び先の指定だけ。ライセンス＝CC BY 4.0（国土交通省）",
+	"_": "名所 3D 模型の台帳（models.html）。出典＝国土交通省 Project PLATEAU の 3D 都市モデル（建築物 LOD3・テクスチャ付き）を 3D Tiles 配信から名所のまわりだけ抜いて 1 枚の glb に束ねた物（scripts/tiles3d）。CESIUM_RTC を持つので置き場所は自動＝lon/lat は飛び先の指定だけ。ライセンス＝CC BY 4.0（国土交通省）。カードのサムネは apps/ortho-japan の画面そのものを CDP で撮った物（bucket GIS/models/thumbs/<id>.jpg）",
 	"base": "https://api.ortho-earth.com/bucket/GIS/models/",
 	"models": [
 		{
@@ -24,7 +24,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 3,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/skytree.jpg"
 		},
 		{
 			"id": "tokyo-tower",
@@ -48,7 +48,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 4,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/tokyo-tower.jpg"
 		},
 		{
 			"id": "sensoji",
@@ -72,7 +72,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 8,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/sensoji.jpg"
 		},
 		{
 			"id": "osaka-castle",
@@ -96,7 +96,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 1,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/osaka-castle.jpg"
 		},
 		{
 			"id": "kiyomizu-dera",
@@ -120,7 +120,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 1,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/kiyomizu-dera.jpg"
 		},
 		{
 			"id": "nijo-castle",
@@ -144,7 +144,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 1,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/nijo-castle.jpg"
 		},
 		{
 			"id": "matsue-castle",
@@ -168,31 +168,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 12,
-			"thumb": ""
-		},
-		{
-			"id": "gifu-castle",
-			"name": {
-				"en": "Gifu Castle",
-				"ja": "岐阜城"
-			},
-			"place": {
-				"en": "Gifu",
-				"ja": "岐阜市（金華山）"
-			},
-			"lon": 136.78206,
-			"lat": 35.43364,
-			"zoom": 18,
-			"tilt": 60,
-			"bearing": 0,
-			"heading": 0,
-			"scale": 1,
-			"author": "国土交通省 Project PLATEAU（建築物 LOD3）",
-			"license": "CC BY 4.0",
-			"source": "https://www.mlit.go.jp/plateau/",
-			"faces": 0,
-			"mb": 1,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/matsue-castle.jpg"
 		},
 		{
 			"id": "yokohama-akarenga",
@@ -216,7 +192,7 @@
 			"source": "https://www.mlit.go.jp/plateau/",
 			"faces": 0,
 			"mb": 5,
-			"thumb": ""
+			"thumb": "https://api.ortho-earth.com/bucket/GIS/models/thumbs/yokohama-akarenga.jpg"
 		}
 	]
 }

@@ -33,7 +33,9 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		clear,
 		destroy() { clear(); worker?.terminate(); worker = null; waiting.clear(); },
 		// src＝File | URL 文字列。戻り値＝ctl（stats/bbox）。失敗は throw（dropFile がトーストへ出す）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true } = {}) {   // textures=false＝形だけ（画像を読まない）
+		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
+		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false } = {}) {   // textures=false＝形だけ（画像を読まない）
 			let ab, baseUri = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -48,14 +50,14 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 				name ??= src.name || "model.glb";
 			}
 			const anchor = at || center?.() || null;
-			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures }, [ab]).catch(err => {
+			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
 			clear();
 			const key = `model/${++seq}`;
 			cur = { name: key, stats: r.stats, src: name };
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff }));   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return ctl;
