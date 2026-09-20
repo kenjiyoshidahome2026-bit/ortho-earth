@@ -32,6 +32,25 @@ export const JP_REGION = {
 		lodFloor: { minViewZoom: 9, z: 8 },
 		minZ: undefined,
 	},
+	// 画像タイル（メルカトル XYZ ラスタ）のカタログ＝この国が持つ公共のサーバーレス源（本人裁定 2026-09-21：地理院を持つ・
+	// Google 直/Bing 代理/8192 下地画像は捨てる）。エンジンはカタログを知らない（外から定義できる口の一つ＝地域パック）。
+	//   id … ?r= と map.raster.select() の鍵／key … i18n の英語キー／url … {z}/{x}/{y} テンプレ／order … "under"＝基図（塗りを伏せる・
+	//   線と注記は残す）・"over"＝重ね（塗りの後・線の前・opacity 可）／minZoom-maxZoom … 配信域（表示は 1.5 段下から）／bbox … 配信圏。
+	// 出典は各タイルの一次資料ページへ（地理院タイル一覧・ハザードマップポータル）。
+	rasters: [
+		{ id: "gsi-std", key: "GSI Standard Map", url: "https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png", minZoom: 5, maxZoom: 18, bbox: [122, 20, 154, 46], order: "under",
+			attribution: { href: "https://maps.gsi.go.jp/development/ichiran.html#std", key: "GSI Tiles (Standard Map)" } },
+		{ id: "gsi-pale", key: "GSI Pale Map", url: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", minZoom: 5, maxZoom: 18, bbox: [122, 20, 154, 46], order: "under",
+			attribution: { href: "https://maps.gsi.go.jp/development/ichiran.html#pale", key: "GSI Tiles (Pale Map)" } },
+		{ id: "gsi-photo", key: "GSI Aerial Photo", url: "https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg", minZoom: 2, maxZoom: 18, bbox: [122, 20, 154, 46], order: "under",
+			attribution: { href: "https://maps.gsi.go.jp/development/ichiran.html#seamlessphoto", key: "GSI Tiles (Seamless Photo)" } },
+		{ id: "gsi-relief", key: "GSI Relief Map", url: "https://cyberjapandata.gsi.go.jp/xyz/relief/{z}/{x}/{y}.png", minZoom: 5, maxZoom: 15, bbox: [122, 20, 154, 46], order: "under",
+			attribution: { href: "https://maps.gsi.go.jp/development/ichiran.html#relief", key: "GSI Tiles (Relief Map)" } },
+		{ id: "gsi-hillshade", key: "GSI Hillshade", url: "https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png", minZoom: 2, maxZoom: 16, bbox: [122, 20, 154, 46], order: "over", opacity: 0.45,
+			attribution: { href: "https://maps.gsi.go.jp/development/ichiran.html#hillshademap", key: "GSI Tiles (Hillshade Map)" } },
+		{ id: "flood-max", key: "Flood inundation (maximum assumed)", url: "https://disaportaldata.gsi.go.jp/raster/01_flood_l2_shinsuishin_data/{z}/{x}/{y}.png", minZoom: 2, maxZoom: 17, bbox: [122, 20, 154, 46], order: "over", opacity: 0.7,
+			attribution: { href: "https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html", key: "Hazard Map Portal Site (MLIT)" } },
+	],
 	// 出典（表示義務）。1 行目＝長い正式名称を単独で／2 行目＝残りのデータ源／3 行目＝加工注記＋©。
 	// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準にした 3 行固定。
 	attribution: {

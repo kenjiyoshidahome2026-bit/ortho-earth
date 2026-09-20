@@ -1,0 +1,94 @@
+<!doctype html>
+<!-- 画像タイル層（メルカトル XYZ ラスタ＝ortho-core/raster・2026-09-21）の門。ネットに出ない：
+     ① MessagePort プロバイダ（このページが合成タイルを配る＝ローカル gpkg/mbtiles の worker と同じ契約）→ 基図（under）＝
+        タイルが描かれ（drawhud の raster>0）・塗りが伏せられ（fill=0・線は残る）・出典に名前が出る
+     ② set（visible/opacity）→ remove で描画が消え塗りが戻る
+     ③ ラスタ PMTiles（geopbf writePMTiles で PNG のアーカイブをその場で焼き Blob URL）→ tileType=png・z 域・描画
+     ④ カタログ API（select/toggle/selected）の門＝未知 id は投げる・選択の形
+     ⚠ REALTIME（verify-ui.mjs）：render worker の fetch/ImageBitmap・port の往復は虚時間では進まない（t-anno/t-model と同じ轍）。?drawhud=1＝描画実績を main へ。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-raster</title></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed"); if (!/drawhud=/.test(location.search)) history.replaceState(null, "", location.href + (location.search ? "&" : "?") + "drawhud=1");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+import { writePMTiles } from "geopbf/convert";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
+const mark = s => { document.title = "… " + s; };
+const logs = []; for (const k of ["warn", "error"]) { const o = console[k].bind(console); console[k] = (...a) => { logs.push(a.map(x => x instanceof Error ? (x.stack || x.message) : String(x)).join(" ").slice(0, 300)); o(...a); }; }
+window.addEventListener("error", e => logs.push("uncaught " + (e.message || e)));
+window.addEventListener("unhandledrejection", e => logs.push("unhandled " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000, step = 200) => { const t0 = performance.now(); for (;;) { const v = await f(); if (v) return v; if (performance.now() - t0 > ms) return null; await sleep(step); } };
+
+// 合成タイル（z で色分け・z/x/y の文字）＝OffscreenCanvas → PNG bytes / ImageBitmap
+const tilePng = async (z, x, y) => {
+	const cv = new OffscreenCanvas(256, 256), c = cv.getContext("2d");
+	c.fillStyle = `hsl(${(z * 47) % 360} 60% 55%)`; c.fillRect(0, 0, 256, 256);
+	c.strokeStyle = "#fff"; c.lineWidth = 4; c.strokeRect(2, 2, 252, 252);
+	c.fillStyle = "#fff"; c.font = "bold 40px sans-serif"; c.textAlign = "center"; c.fillText(`${z}/${x}/${y}`, 128, 140);
+	return new Uint8Array(await (await cv.convertToBlob({ type: "image/png" })).arrayBuffer());
+};
+let mapRef = null;
+const dh = () => { mapRef?.requestDraw(); return window.__drawHud?.d || null; };   // 描画実績 HUD は「描いたフレーム」でしか更新されない＝待つ間は描画を促し続ける（単発フレームの取りこぼし防止）
+
+try {
+	mark("boot");
+	const map = await orthoJapan({ view: "#11/35.6812/139.7671", chips: false, plateau: false });
+	mark("booted"); mapRef = map;
+	ok("api", typeof map.raster?.add === "function" && Array.isArray(map.raster.catalog), `catalog=${map.raster?.catalog?.length}`);
+	// 基図（ベクタ）が描かれている状態を先に確かめる（塗り>0）
+	const d0 = await until(async () => { const d = dh(); return d && (d.mainFill + d.baseFill) > 0 ? d : null; }, 30000);
+	ok("vectorFills", !!d0, d0 ? `fill=${d0.mainFill + d0.baseFill} line=${d0.mainLine + d0.baseLine}` : "no fills within 30s");
+
+	// ① port プロバイダ＝合成タイル
+	const ch = new MessageChannel();
+	let served = 0;
+	ch.port1.onmessage = async ev => { const q = ev.data; if (q.abort || q.id == null) return; served++; const bm = await createImageBitmap(new Blob([await tilePng(q.z, q.x, q.y)], { type: "image/png" }), { premultiplyAlpha: "none" }); ch.port1.postMessage({ id: q.id, bitmap: bm }, [bm]); };
+	ch.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 18, bbox: null, name: "synthetic", attribution: "<b>synthetic tiles</b>" } });
+	const info = await map.raster.add("syn", { port: ch.port2 }, { order: "under" });
+	ok("portInfo", info && info.kind === "port" && info.maxZoom === 18 && info.hideFills === true, JSON.stringify({ kind: info?.kind, z: [info?.minZoom, info?.maxZoom], hide: info?.hideFills }));
+	const st1 = await until(async () => { const s = await map.raster.stats(); return s && s.layers[0]?.ready > 0 && s.draws > 0 ? s : null; });
+	ok("tilesReady", !!st1, st1 ? `ready=${st1.layers[0].ready} draws=${st1.draws} served=${served}` : `served=${served}`);
+	const d1 = await until(async () => { const d = dh(); return d && d.raster > 0 && (d.mainFill + d.baseFill) === 0 ? d : null; });
+	ok("rasterDrawn", !!d1, d1 ? `raster=${d1.raster} fill=${d1.mainFill + d1.baseFill}` : JSON.stringify(dh()));
+	ok("linesKept", !!d1 && (d1.mainLine + d1.baseLine) > 0, d1 ? `line=${d1.mainLine + d1.baseLine}` : "");
+	ok("attr", /synthetic tiles/.test(document.querySelector("#attr")?.innerHTML || ""), (document.querySelector("#attr")?.textContent || "").slice(0, 60));
+	ok("list", map.raster.list().length === 1 && map.raster.info("syn")?.name === "synthetic");
+
+	// ② set → remove
+	map.raster.set("syn", { visible: false });
+	const d2 = await until(async () => { const d = dh(); return d && d.raster === 0 && (d.mainFill + d.baseFill) > 0 ? d : null; });
+	ok("hidden", !!d2, d2 ? `raster=${d2.raster} fill=${d2.mainFill + d2.baseFill}` : JSON.stringify(dh()));
+	map.raster.set("syn", { visible: true, order: "over", opacity: 0.5 });
+	const d3 = await until(async () => { const d = dh(); return d && d.raster > 0 && (d.mainFill + d.baseFill) > 0 ? d : null; });
+	if (!d3) console.log("[raster] over-diag stats", JSON.stringify(await map.raster.stats()), "hud", JSON.stringify(dh()), "list", JSON.stringify(map.raster.list().map(l => l.opts)));
+	ok("overKeepsFills", !!d3, d3 ? `raster=${d3.raster} fill=${d3.mainFill + d3.baseFill}` : JSON.stringify(dh()));
+	ok("remove", map.raster.remove("syn") === true && map.raster.list().length === 0);
+	const d4 = await until(async () => { const d = dh(); return d && d.raster === 0 ? d : null; });
+	ok("removedDraw", !!d4, d4 ? `raster=${d4.raster}` : "");
+	ok("attrGone", !!(await until(async () => !/synthetic tiles/.test(document.querySelector("#attr")?.innerHTML || ""), 5000)));   // 出典の差し替えは次フレーム（render）
+
+	// ③ ラスタ PMTiles（z0-2 の PNG を焼く・tileType=2・タイル無圧縮）→ Blob URL（Range 無視＝全量→メモリ Source）
+	const tiles = [];
+	for (let z = 0; z <= 2; z++) for (let x = 0; x < (1 << z); x++) for (let y = 0; y < (1 << z); y++) tiles.push({ z, x, y, data: await tilePng(z, x, y) });
+	const pm = await writePMTiles(tiles, { name: "synthetic-pm", attribution: "pm-attr" }, { tileType: 2, tileCompression: "none", minZoom: 0, maxZoom: 2, bounds: [-180, -85, 180, 85] });
+	const pmUrl = URL.createObjectURL(new Blob([pm.buffer ?? pm], { type: "application/octet-stream" }));
+	const pinfo = await map.raster.add("pm", { pmtiles: pmUrl }, { order: "under" });
+	ok("pmInfo", pinfo && pinfo.kind === "pmtiles" && pinfo.tileType === "png" && pinfo.minZoom === 0 && pinfo.maxZoom === 2, JSON.stringify({ kind: pinfo?.kind, tt: pinfo?.tileType, z: [pinfo?.minZoom, pinfo?.maxZoom] }));
+	map.cam.zoom = 3; map.requestDraw();
+	const st3 = await until(async () => { const s = await map.raster.stats(); return s && s.layers[0]?.ready > 0 && s.draws > 0 ? s : null; });
+	ok("pmTiles", !!st3, st3 ? `ready=${st3.layers[0].ready} draws=${st3.draws}` : "no pm tiles");
+	map.raster.remove("pm"); URL.revokeObjectURL(pmUrl);
+
+	// ④ カタログ API の門（ネットに出ない範囲）
+	let threw = 0; try { await map.raster.select("no-such-id"); } catch { threw++; } try { await map.raster.toggle("no-such-id", true); } catch { threw++; }
+	ok("catalogGate", threw === 2 && map.raster.selected().base === null && map.raster.selected().overs.length === 0);
+	ok("gadget", !!map.gadget.raster && !!map.gadget.globe);
+
+	await sleep(600);
+	ok("noErr", !logs.some(l => /error|uncaught|unhandled/i.test(l) && !/favicon/i.test(l)), logs.slice(0, 2).join(" || "));
+	const pass = t.every(x => x.startsWith("ok:"));
+	document.title = (pass ? "PASS " : "FAIL ") + t.join(" ") + (pass ? "" : " | " + logs.slice(0, 4).join(" || "));
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+</script>
+</body></html>

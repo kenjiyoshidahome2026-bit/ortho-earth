@@ -43,6 +43,8 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });   // 入口＝紙の全球図（本人 9/20「規定を EE に」の体感用・既定化は裁定待ち）。z は equal 側が画面幅に合わせる
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
 	map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる＝自前の display 裁き）
+	map.gadget.raster({ zoom: [3.5, 99] });   // 画像タイル（地理院 std/pale/写真/陰影/ハザード＝地域パックのカタログ・?r=）＝ラスタ基図と重ね（2026-09-21・v1 base 切替の後継）
+	map.gadget.globe();       // ミニ地球儀（右下＝現在の視野の枠・z≤8 で出る＝v1 accessories globe の移植・2026-09-21）
 	map.gadget.cpos({ zoom: [6.5, 99] });      // 現在地（GPS。押すと寄って点滅マーカー）＝基図の門から
 	map.gadget.measure({ zoom: [6.5, 99] });   // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）＝同上
 	map.gadget.profile({ zoom: [6.5, 99] });
