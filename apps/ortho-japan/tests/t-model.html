@@ -16,7 +16,7 @@ window.addEventListener("unhandledrejection", e => logs.push("unhandled " + (e.r
 
 // 箱の GLB（Y-up・原点＝底面中心）。rtc＝CESIUM_RTC.center（ECEF）＋xf＝頂点/法線の変換（RTC の glb は頂点が ECEF の向き＝ENU の箱を ECEF 軸へ回して書く）
 // tex＝PNG バイト列（baseColorTexture＋TEXCOORD_0 を付ける）／mats＝箱を n 個（x に 30 m ずつ並べ・別々の baseColorFactor＝別マテリアル）
-function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null, tex = null, mats = 1 } = {}) {
+function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null, tex = null, mats = 1, blend = false } = {}) {   // blend＝最後の箱を alphaMode BLEND（α0.4）
 	const X = w / 2, Z = d / 2;
 	const faces = [   // [normal, 4 corners]
 		[[0, 0, 1], [[-X, 0, Z], [X, 0, Z], [X, h, Z], [-X, h, Z]]],
@@ -39,12 +39,12 @@ function makeGlb({ w = 20, d = 20, h = 30, rtc = null, xf = null, tex = null, ma
 	bin.set(new Uint8Array(I.buffer), o); const oI = o; o += pad4(I.byteLength);
 	bin.set(new Uint8Array(U.buffer), o); const oU = o; o += pad4(U.byteLength);
 	let oT = 0; if (T) { bin.set(T, o); oT = o; }
-	const COLORS = [[1, 0.2, 0.2, 1], [0.2, 0.3, 1, 1], [0.2, 0.9, 0.3, 1]];
+	const COLORS = [[1, 0.2, 0.2, 1], blend ? [0.2, 0.3, 1, 0.4] : [0.2, 0.3, 1, 1], [0.2, 0.9, 0.3, 1]];
 	const json = {
 		asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: Array.from({ length: mats }, (_, i) => i) }],
 		nodes: Array.from({ length: mats }, (_, i) => ({ mesh: i, translation: [i * 30, 0, 0] })),
 		meshes: Array.from({ length: mats }, (_, i) => ({ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, TEXCOORD_0: 3 }, indices: 2, material: i }] })),
-		materials: Array.from({ length: mats }, (_, i) => ({ pbrMetallicRoughness: { baseColorFactor: tex ? [1, 1, 1, 1] : COLORS[i % 3], ...(tex ? { baseColorTexture: { index: 0 } } : {}) } })),
+		materials: Array.from({ length: mats }, (_, i) => ({ pbrMetallicRoughness: { baseColorFactor: tex ? [1, 1, 1, 1] : COLORS[i % 3], ...(tex ? { baseColorTexture: { index: 0 } } : {}) }, ...(blend && i === mats - 1 ? { alphaMode: "BLEND" } : {}) })),
 		buffers: [{ byteLength: binLen }],
 		bufferViews: [{ buffer: 0, byteOffset: oP, byteLength: P.byteLength }, { buffer: 0, byteOffset: oN, byteLength: N.byteLength }, { buffer: 0, byteOffset: oI, byteLength: I.byteLength }, { buffer: 0, byteOffset: oU, byteLength: U.byteLength }],
 		accessors: [
@@ -113,6 +113,9 @@ try {
 	c = await map.gadget.model(makeGlb({ mats: 2 }), { at: AT, fit: false }); s = spans(c.bbox, AT[1]);
 	ok("twoMats", c.stats.materials === 2 && c.stats.textures === 0 && c.stats.triangles === 24, `mats=${c.stats.materials} tex=${c.stats.textures} tris=${c.stats.triangles}`);
 	ok("twoMatsSize", near(s[0], 50, 5) && near(s[1], 20, 2), s.map(v => v.toFixed(1)).join("x"));
+	// ⑧ BLEND＝2 箱目が半透明（alphaMode=BLEND・α0.4）＝blended 1・不透明 1
+	c = await map.gadget.model(makeGlb({ mats: 2, blend: true }), { at: AT, fit: false });
+	ok("blend", c.stats.materials === 2 && c.stats.blended === 1, `mats=${c.stats.materials} blended=${c.stats.blended}`);
 	// ⑤ 置き換え＝単一スロット・clear で空
 	c.clear(); ok("cleared", !window.__model?.name);
 	await new Promise(r => setTimeout(r, 800));   // 送出→render worker の受理（エラーが出るならここまでに）

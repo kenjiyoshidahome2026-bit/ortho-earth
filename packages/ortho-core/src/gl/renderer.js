@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, PLATEAU_TEX_VS, PLATEAU_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS } from "./glsl.js";
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
@@ -22,6 +22,23 @@ export function createRenderer(canvas, rOpts = {}) {
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
 	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
+	const plateauTexProg = program(gl, PLATEAU_TEX_VS, PLATEAU_TEX_FS);   // 模型（glb 直読み）＝同シェーダの派生（uv＋頂点色＋テクスチャ）
+	const whiteTex = gl.createTexture();   // テクスチャ無しの模型バッチ用（頂点色×1）
+	gl.bindTexture(gl.TEXTURE_2D, whiteTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); gl.bindTexture(gl.TEXTURE_2D, null);
+	function plateauTexture(t) {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
+		if (!t) return whiteTex;
+		const tex = gl.createTexture();
+		gl.bindTexture(gl.TEXTURE_2D, tex);
+		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+		if (t.bitmap) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, t.bitmap);
+		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, t.w, t.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, t.rgba);
+		gl.generateMipmap(gl.TEXTURE_2D);   // ミップ＝必須（遠景・斜めのちらつき）。WebGL2 は NPOT でも可
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+		const aniso = gl.getExtension("EXT_texture_filter_anisotropic"); if (aniso) gl.texParameterf(gl.TEXTURE_2D, aniso.TEXTURE_MAX_ANISOTROPY_EXT, Math.min(8, gl.getParameter(aniso.MAX_TEXTURE_MAX_ANISOTROPY_EXT) || 1));   // 壁面の斜め視＝異方性
+		gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.REPEAT);
+		gl.bindTexture(gl.TEXTURE_2D, null);
+		return tex;
+	}
 	const stencilProg = program(gl, STENCIL_VS, STENCIL_FS);   // 塗りの stencil パス（fan→巻き数）
 	const coverProg = program(gl, GLOBE_VS, COVER_FS);          // 塗りの cover パス（stencil≠0 を塗る）
 	const contourProg = program(gl, GLOBE_VS, CONTOUR_FS);     // 等高線（真俯瞰でだけ茶の等高線を敷く）
@@ -514,7 +531,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			for (const k of [...plateaux.keys()]) {
 				if (k !== key && !k.startsWith(key + "#")) continue;
 				const p = plateaux.get(k);
-				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b);
+				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); if (p.tex && p.tex !== whiteTex) gl.deleteTexture(p.tex);
 				plateaux.delete(k);
 			}
 			const m = plateauMasks.get(key);
@@ -523,23 +540,32 @@ export function createRenderer(canvas, rOpts = {}) {
 			return;
 		}
 		const old = plateaux.get(key);
-		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); plateaux.delete(key); }
+		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); plateaux.delete(key); }
 		if (!data.pos?.length || !data.idx?.length) return;
+		const textured = !!(data.uv && data.col), prog = textured ? plateauTexProg : plateauProg;   // 模型（glb 直読み）＝uv＋頂点色＋テクスチャ
 		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
 		gl.bindVertexArray(vao);
-		attrib(gl, plateauProg, "a_pos", vbo, 3);
+		attrib(gl, prog, "a_pos", vbo, 3);
 		if (data.nrm instanceof Int8Array) {   // v4: int8量子化法線（xyz+pad 4B/頂点）。FS が normalize するので精度 1/127 で十分
-			const l = gl.getAttribLocation(plateauProg, "a_normal");
+			const l = gl.getAttribLocation(prog, "a_normal");
 			gl.bindBuffer(gl.ARRAY_BUFFER, nbo);
 			gl.enableVertexAttribArray(l);
 			gl.vertexAttribPointer(l, 3, gl.BYTE, true, 4, 0);
-		} else attrib(gl, plateauProg, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
+		} else attrib(gl, prog, "a_normal", nbo, 3);   // 旧 float32（同セッション内の残骸互換）
+		let tex = null; const bufs = [vbo, nbo, ibo];
+		if (textured) {
+			const uvbo = buffer(gl, data.uv), cbo = buffer(gl, data.col); bufs.push(uvbo, cbo);
+			attrib(gl, prog, "a_uv", uvbo, 2); attrib(gl, prog, "a_col", cbo, 4, null, true);
+			tex = plateauTexture(data.tex);
+		}
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
 		gl.bindVertexArray(null);
 		const o = data.origin || [0, 0, 0];
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
-		plateaux.set(key, { vao, bufs: [vbo, nbo, ibo], count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
+		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
+		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
+		plateaux.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
@@ -1234,6 +1260,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (plateaux.size && show3d) {
 			bldStencil(true);   // PLATEAU も建物＝bit7 を刻む
 			gl.useProgram(plateauProg);
+			let curProg = plateauProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
 			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
@@ -1241,6 +1268,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			// （チルト時の遠景は透視で1pxがもっと大きい＝控えめ側の近似）。
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
+			const vis = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
 			for (const p of plateaux.values()) {
 				if (plateauHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
@@ -1255,17 +1283,33 @@ export function createRenderer(canvas, rOpts = {}) {
 					count = p.lodCounts[li];
 					if (!count) continue;
 				}
-				setCommonUniforms(plateauProg, st, [0, 0], land);
+				vis.push({ p, count });
+			}
+			// 描く順＝素の PLATEAU → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
+			// 前乗算 α（既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）。バッチ内の三角形順は並べ替えない（自己重なりの前後は割り切り）
+			const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
+			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !v.p.blend), ...vis.filter(v => v.p.blend).sort((x, y) => d2(y.p) - d2(x.p))];
+			let zOff = false;
+			for (const { p, count } of order) {
+				const pg = p.textured ? plateauTexProg : plateauProg;   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ
+				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
+				if (p.textured) {
+					gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_tex"), 7);   // unit 7＝未使用（1=elev 2..5=mask 6=line 8=far 9=cog 12=clim）
+					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), p.blend ? 1 : 0);
+				}
+				if (!!p.blend !== zOff) { zOff = !!p.blend; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
+				setCommonUniforms(pg, st, [0, 0], land);
 				const lb = elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）
-				gl.uniform4f(loc(gl, plateauProg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
-				gl.uniform3f(loc(gl, plateauProg, "u_bldColor"), c[0], c[1], c[2]);
-				gl.uniform1f(loc(gl, plateauProg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
-				gl.uniform3f(loc(gl, plateauProg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
+				gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
+				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
+				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
-				gl.uniform4f(loc(gl, plateauProg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
+				gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
 				gl.bindVertexArray(p.vao);
 				gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_INT, 0);
 			}
+			if (zOff) gl.depthMask(true);
 			bldStencil(false);
 		}
 		gl.disable(gl.DEPTH_TEST);

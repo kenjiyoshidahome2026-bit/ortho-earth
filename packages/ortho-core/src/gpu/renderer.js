@@ -16,7 +16,7 @@ import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, PLATEAU_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL } from "./wgsl.js";
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -172,6 +172,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// cullBack(meshOrigin.w) は FS が裏面判定に読む＝visibility は VERTEX|FRAGMENT 両方。
 	const bglPlBatch = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
 	const plLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch] });
+	// 模型（glb 直読み・2026-09-20）＝PLATEAU 派生パイプライン。group(3)=サンプラ＋テクスチャ（バッチごと）
+	const bglPlTex = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
+	const plTexLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, bglPlTex] });
 
 	const fillMod = mkMod(FILL_WGSL, "fill");
 	const lineMod = mkMod(LINE_WGSL, "line");
@@ -180,6 +183,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const bldMod = mkMod(BUILDING_WGSL, "building");
 	const contMod = mkMod(CONTOUR_WGSL, "contour");
 	const plMod = mkMod(PLATEAU_WGSL, "plateau");
+	const plTexMod = mkMod(PLATEAU_TEX_WGSL, "plateauTex");
 	// 深度状態の変種＝GL の enable/disable/depthMask/polygonOffset の写し（深度アタッチメントは常設）
 	const dsOff = { format: DEPTH, depthWriteEnabled: false, depthCompare: "always" };
 	const dsTest = { format: DEPTH, depthWriteEnabled: false, depthCompare: "less-equal" };
@@ -190,6 +194,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 扇形状の深度テストは不可（fan は winding の便法＝内部 frag は地形面に乗っていない）＝この bit が唯一の正解。
 	const SBLD = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "replace" };
 	const dsWriteBld = { ...dsWrite, stencilFront: SBLD, stencilBack: SBLD, stencilWriteMask: 0x80 };
+	const dsWriteBldNoZ = { ...dsWriteBld, depthWriteEnabled: false };   // 模型の半透明（BLEND）＝深度テストはするが書かない
 	const FILL_BUFS = [
 		{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },   // a_delta
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "unorm8x4" }] },    // a_color
@@ -290,6 +295,18 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
 			], dsWriteBld, "fs", plLayout),   // stencil bit7=建物マスク（bld と同じ）
+			plateauTex: pipe(plTexMod, [   // 模型（glb 直読み）＝PLATEAU 派生＋uv/頂点色＋テクスチャ group(3)
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },   // a_uv
+				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // a_col（baseColorFactor×COLOR_0）
+			], dsWriteBld, "fs", plTexLayout),
+			plateauTexBlend: pipe(plTexMod, [   // 模型の半透明（alphaMode=BLEND）＝同シェーダ・深度書き込み無し（target の blend は premultiplied 既定）
+				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
+				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
+				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
+			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
@@ -380,7 +397,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}));
 	// PLATEAU per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
 	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 32 } }] });
+	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 48 } }] });   // 48＝meshOrigin+clipMesh+alpha（模型の派生 PB。素の PLATEAU は先頭 32 だけ読む）
 	const plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
 	// 星空劇場：Sky UBO（176B）＋星座線の色 UBO（3スロット×256B＝constel/ecliptic/celeq を静的 offset で切替）
 	const skyBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
@@ -766,6 +783,39 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const plateauMasks = new Map();
 	const plateauHidden = new Set();
 	const maskSampler = device.createSampler({ magFilter: "nearest", minFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
+	// 模型のテクスチャ（glb 直読み）：ミップ＝GPU 生成（レベルごとに全画面三角形でブリット）・三線形＋異方性 8・repeat。無しは白 1x1（頂点色だけ）
+	const texSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "repeat", addressModeV: "repeat" });
+	let mipPipe = null, mipSampler = null;
+	function genMips(tex, levels) {   // rgba8unorm・level0 書き込み済み → 1..levels-1 を順に半分へ（queue 順＝copyExternalImageToTexture の後に走る）
+		if (!mipPipe) {
+			const mod = device.createShaderModule({ code: `@group(0) @binding(0) var s: sampler; @group(0) @binding(1) var t: texture_2d<f32>;
+struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
+@vertex fn vs(@builtin(vertex_index) i: u32) -> VO { var o: VO; let x = f32((i << 1u) & 2u); let y = f32(i & 2u); o.uv = vec2f(x, 1.0 - y); o.p = vec4f(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0); return o; }
+@fragment fn fs(in: VO) -> @location(0) vec4f { return textureSample(t, s, in.uv); }` });
+			mipPipe = device.createRenderPipeline({ layout: "auto", vertex: { module: mod, entryPoint: "vs" }, fragment: { module: mod, entryPoint: "fs", targets: [{ format: "rgba8unorm" }] }, primitive: { topology: "triangle-list" } });
+			mipSampler = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+		}
+		const enc = device.createCommandEncoder();
+		for (let i = 1; i < levels; i++) {
+			const bg = device.createBindGroup({ layout: mipPipe.getBindGroupLayout(0), entries: [{ binding: 0, resource: mipSampler }, { binding: 1, resource: tex.createView({ baseMipLevel: i - 1, mipLevelCount: 1 }) }] });
+			const pass = enc.beginRenderPass({ colorAttachments: [{ view: tex.createView({ baseMipLevel: i, mipLevelCount: 1 }), loadOp: "clear", storeOp: "store" }] });
+			pass.setPipeline(mipPipe); pass.setBindGroup(0, bg); pass.draw(3); pass.end();
+		}
+		device.queue.submit([enc.finish()]);
+	}
+	const whiteTex = device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+	device.queue.writeTexture({ texture: whiteTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
+	const whiteBG = device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: whiteTex.createView() }] });
+	function plateauTexture(t) {   // ImageBitmap か {rgba,w,h} → { tex, bg }。glTF の uv 原点＝画像左上＝copyExternalImageToTexture と一致
+		if (!t) return { tex: null, bg: whiteBG };
+		const w = t.bitmap ? t.bitmap.width : t.w, h = t.bitmap ? t.bitmap.height : t.h;
+		const levels = 1 + Math.floor(Math.log2(Math.max(w, h)));
+		const tex = device.createTexture({ size: [w, h], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+		if (t.bitmap) device.queue.copyExternalImageToTexture({ source: t.bitmap }, { texture: tex }, [w, h]);
+		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
+		if (levels > 1) genMips(tex, levels);
+		return { tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: tex.createView() }] }) };
+	}
 	const dummyMask = device.createTexture({ size: [1, 1], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyMaskView = dummyMask.createView();
 	// building group(2)：mask params UBO（count vec4u + 4×bbox vec4f＝80B）＋4テクスチャ＋sampler。
@@ -811,7 +861,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		for (const k of [...plateaux.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
 			const p = plateaux.get(k);
-			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy();
+			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy();
 			plateaux.delete(k);
 		}
 		const m = plateauMasks.get(ward);
@@ -822,7 +872,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	function setPlateauMesh(key, data) {
 		if (!data) { freePlateauWard(key); return; }   // key=区名：全バッチ+マスク解放
 		const old = plateaux.get(key);
-		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); plateaux.delete(key); }
+		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.tex?.destroy(); plateaux.delete(key); }
 		if (data.pos?.length && data.idx?.length) {
 			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
 			const vbo = device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -831,7 +881,17 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			device.queue.writeBuffer(vbo, 0, data.pos.buffer, data.pos.byteOffset, data.pos.byteLength);
 			device.queue.writeBuffer(nbo, 0, nrm.buffer, nrm.byteOffset, nrm.byteLength);
 			device.queue.writeBuffer(ibo, 0, data.idx.buffer, data.idx.byteOffset, data.idx.byteLength);
-			plateaux.set(key, { vbo, nbo, ibo, count: data.idx.length, origin: data.origin || [0, 0, 0],
+			const textured = !!(data.uv && data.col); let uvbo = null, cbo = null, tex = null, texBG = null;   // 模型（glb 直読み）
+			if (textured) {
+				uvbo = device.createBuffer({ size: (data.uv.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+				cbo = device.createBuffer({ size: (data.col.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+				device.queue.writeBuffer(uvbo, 0, data.uv.buffer, data.uv.byteOffset, data.uv.byteLength);
+				device.queue.writeBuffer(cbo, 0, data.col.buffer, data.col.byteOffset, data.col.byteLength);
+				({ tex, bg: texBG } = plateauTexture(data.tex));
+			}
+			// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
+			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
+			plateaux.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, tex, texBG, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
 		}
@@ -1363,20 +1423,29 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
 				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.two ? 0 : 1;   // meshOrigin.xyz + cullBack
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
+				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = p.blend ? 1 : 0; plBatchCPU[o + 10] = 0; plBatchCPU[o + 11] = 0;   // alpha（模型の派生 PB だけが読む）
 				draws.push({ p, count, slot });
 			}
 			dbg.pl = draws.length;   // ?drawhud=1：PLATEAU の可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
 			if (draws.length) {
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
-				pass.setPipeline(P.plateau);
-				pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
-				pass.setBindGroup(1, paramBG[ROLE.plateau]); // p0=liftBounds, p1=bldColor
-				for (const { p, count, slot } of draws) {
-					pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform
-					pass.setVertexBuffer(0, p.vbo);
-					pass.setVertexBuffer(1, p.nbo);
-					pass.setIndexBuffer(p.ibo, "uint32");
-					pass.drawIndexed(count);
+				// 描く順＝素の PLATEAU → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
+				const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
+				const lists = [[P.plateau, draws.filter(d => !d.p.textured)], [P.plateauTex, draws.filter(d => d.p.textured && !d.p.blend)], [P.plateauTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
+				for (const [pipeline, list] of lists) {
+					const tx = pipeline !== P.plateau;
+					if (!list.length) continue;
+					pass.setPipeline(pipeline);
+					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
+					pass.setBindGroup(1, paramBG[ROLE.plateau]); // p0=liftBounds, p1=bldColor
+					for (const { p, count, slot } of list) {
+						pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform
+						pass.setVertexBuffer(0, p.vbo);
+						pass.setVertexBuffer(1, p.nbo);
+						if (tx) { pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, p.texBG); }
+						pass.setIndexBuffer(p.ibo, "uint32");
+						pass.drawIndexed(count);
+					}
 				}
 			}
 		}
@@ -1521,7 +1590,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
 		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
-		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); }
+		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy(); }
 		plateaux.clear();
 		for (const m of plateauMasks.values()) m.tex.destroy();
 		plateauMasks.clear(); plateauHidden.clear();

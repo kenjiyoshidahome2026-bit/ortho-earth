@@ -10,7 +10,7 @@ import path from "node:path";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar"];
+const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar", "t-model"];
 const PAGES = process.argv.length > 2 ? ALL_PAGES.filter(p => process.argv.slice(2).includes(p)) : ALL_PAGES;   // 引数＝ページ名の絞り込み（例 node scripts/verify-ui.mjs t-scene）
 // t-plateaufs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
 
@@ -24,7 +24,7 @@ for (let i = 0; ; i++) {   // 起動待ち＝base(/japan/)が200を返すまで�
 // 実時間で回すページ＝レンダーワーカー内の動的 import（map.overlay のモジュール）に依る検定。--virtual-time-budget 下では worker の
 // import() が永久に解決しない（2026-09-20 実測：stage=importing のまま・実時間＋同じ swiftshader なら 0.5 秒で PASS）＝WebGPU async init と同じ轍。
 // CDP で開き、<title> が PASS/FAIL になるまで実時間で待つ（最長 60 秒）。
-const REALTIME = new Set(["t-anno"]);
+const REALTIME = new Set(["t-anno", "t-model"]);   // t-model＝model-worker 内の loaders.gl 動的 import（glb 直読み）
 const CDP = 9600 + (process.pid % 200);
 async function runRealtime(url) {
 	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",

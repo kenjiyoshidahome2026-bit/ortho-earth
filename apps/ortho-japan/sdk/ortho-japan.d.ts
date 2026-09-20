@@ -75,8 +75,8 @@ export interface Gadgets {
 	 * （GeoPBF か .length を持つ物を返す・falsy=「読込失敗」表示）。戻り値＝{say,clear,destroy}（二重搭載時は no-op 関数）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
-	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（単色・法線陰影・両面・地形に接地・テクスチャは読まない）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean }): Promise<{ readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number] } | null; readonly bbox: [number, number, number, number] | null; readonly name: string | null; clear(): void; destroy(): void }>;
+	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
+	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean }): Promise<{ readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number } | null; readonly bbox: [number, number, number, number] | null; readonly name: string | null; clear(): void; destroy(): void }>;
 	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;

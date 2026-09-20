@@ -324,6 +324,14 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 		for (const s of segs) { geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); vtx += s.geo.length / 3; io += s.idx.length; }
 		segs.length = 0;
 	}
+	return finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid);
+}
+
+// 後段＝「経緯度＋法線＋index の生メッシュ」を GPU へ送る形に仕上げる（dedup→bbox→剛体接地→LOD 焼き→RTE→被覆マスク断片→溶接）。
+// decodeBatch（PLATEAU/3D Tiles）と decodeModel（glTF/GLB 直読み・2026-09-20）が同じ後段を通る＝置き方が違うだけで立ち方は同じ。
+// 本体は decodeBatch の末尾からの「動作を変えない移動」（引数＝元のローカル変数そのまま）。
+function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
+	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。
 	const seen = new Set(), dedup = new Uint32Array(totalI);
@@ -507,6 +515,218 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 	}
 	// 頂点溶接（2026-09-07）：位置（1mm 格子）＋法線が一致する頂点を束ねる＝Draco 出力の三角形ごと非共有（nv≈3·nt）を
 	// 4〜5 割減へ（GPU バイト・IDB/OPFS・頂点シェーダ回数）。三角形の並びは不変＝lodCounts はそのまま。maskCells は上で導出済み。
+	if (extra) return { pos: outPos, nrm: outNrm, idx: outIdx, ...extra, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };   // 模型（uv/頂点色つき）＝溶接しない（位置＋法線一致でも uv が違う頂点を束ねてしまう）
 	const welded = weldMesh({ pos: outPos, nrm: outNrm, idx: outIdx }, 0.001 / EARTH_W);
 	return { pos: welded.pos, nrm: welded.nrm, idx: welded.idx, origin, bbox, lodH: LOD_H, lodCounts, twoSided: brid ? 1 : 0, maskCells };
+}
+
+// ── glTF/GLB 直読み（2026-09-20・本人裁定＝落とした地点＋埋め込みがあれば優先／PLATEAU 建物経路／loaders.gl）──
+// 単体の glb/gltf を PLATEAU と同じ建物メッシュ（renderer の plateauMesh スロット）として立てる。decodeBatch と違い fetch も b3dm も
+// 無し＝ArrayBuffer 一つを受けて finishMesh へ流すだけ（立ち方は PLATEAU と同じ・置き方だけ違う）。置き方は 3 段（上から順に当たった段）：
+//   ① CESIUM_RTC（3D Tiles 由来の glb）… 頂点は RTC 相対の ECEF（Y-up）＝軸入替 (x,-z,y) の後に中心を足す（decodeBatch と同じ道）
+//   ② シーン変換後のノード原点が地球半径近傍（ECEF を直に持つ glb）… 軸入替だけ
+//   ③ それ以外（普通の 3D モデル＝ローカルのメートル・Y-up）… 錨 at=[lon,lat]（度）の ENU に立てる。X=東・Y=上・−Z=北
+//      （Cesium が glTF を置く向きと同じ）。heading＝北から時計回りの度・scale＝倍率。錨の高さは持たない＝接地（下）が地面に置く。
+// 接地＝brid と同じ「バッチ最低点」（模型は一体の剛体＝部品ごとに沈めない・空中の部品も相対高さのまま）・両面描画（開いた薄面の裏も
+// 見える）・被覆マスクなし（基図の建物は伏せない）。ノード階層は TRS/matrix を根から合成（PLATEAU 経路の「mesh 直付けノードの
+// matrix/translation だけ」より一般＝Sketchfab/Blender 書き出しの入れ子・回転・スケールが通る）。法線が無いプリミティブは三角形の
+// 面法線を頂点へ積む（PLATEAU 経路の「上向き固定」は模型には粗い）。テクスチャ/マテリアルは読まない（色は建物色＝u_bldColor）。
+const D2R = Math.PI / 180;
+const I4 = Float64Array.of(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
+const m4mul = (a, b) => {   // 列優先 4x4（glTF の並び）＝ a·b
+	const o = new Float64Array(16);
+	for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3];
+	return o;
+};
+const m4trs = (t = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1]) => {   // T·R·S（glTF node の既定の合成順）
+	const [x, y, z, w] = q, xx = x*x, yy = y*y, zz = z*z, xy = x*y, xz = x*z, yz = y*z, wx = w*x, wy = w*y, wz = w*z;
+	return Float64Array.of(
+		(1 - 2*(yy+zz)) * s[0], 2*(xy+wz) * s[0], 2*(xz-wy) * s[0], 0,
+		2*(xy-wz) * s[1], (1 - 2*(xx+zz)) * s[1], 2*(yz+wx) * s[1], 0,
+		2*(xz+wy) * s[2], 2*(yz-wx) * s[2], (1 - 2*(xx+yy)) * s[2], 0,
+		t[0], t[1], t[2], 1);
+};
+const m3mul = (a, b) => {   // 列優先 3x3＝ a·b
+	const o = new Float64Array(9);
+	for (let c = 0; c < 3; c++) for (let r = 0; r < 3; r++) o[c*3+r] = a[r]*b[c*3] + a[3+r]*b[c*3+1] + a[6+r]*b[c*3+2];
+	return o;
+};
+const m3v = (m, v) => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
+const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
+// ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
+// 読むのは baseColor（factor＋texture＋COLOR_0）だけ＝陰影は PLATEAU の光（法線×固定光源）のまま。metallic/roughness/normal/emissive は読まない。
+// KHR_materials_pbrSpecularGlossiness は diffuse* を baseColor として読む。KHR_texture_transform は uv に畳む。alphaMode は MASK（alphaCutoff で抜く）と BLEND（半透明＝renderer が奥から手前に合成）をそのまま渡す。
+const baseColorOf = (mat, gltf) => {
+	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
+	const factor = mr?.baseColorFactor || sg?.diffuseFactor || [1, 1, 1, 1];
+	const ti = mr?.baseColorTexture || sg?.diffuseTexture || null;
+	const texture = ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
+	const tt = ti?.extensions?.KHR_texture_transform || null;
+	return { factor, texture, texCoord: (tt?.texCoord ?? ti?.texCoord) || 0, transform: tt };
+};
+const TEX_MAX = 2048;   // これより大きい画像は縮める（GPU 常駐と転送の上限＝模型 1 体に 4k を何枚も要らない）
+async function textureOf(texture, cache) {   // 解決済み texture → {bitmap} | {rgba,w,h} | null。同じ画像を複数マテリアルが使う時は 2 回目以降を複製
+	// （ImageBitmap は transfer で切り離される＝バッチごとに別の実体が要る。デコード/縮小は 1 回）
+	const img = texture?.source?.image; if (!img) return null;
+	if (cache.has(img)) { const c = cache.get(img); if (!c) return null; return c.bitmap ? { bitmap: await createImageBitmap(c.bitmap) } : { rgba: c.rgba.slice(), w: c.w, h: c.h }; }
+	let out = null;
+	try {
+		if (typeof ImageBitmap !== "undefined" && img instanceof ImageBitmap) {
+			const s = Math.min(1, TEX_MAX / Math.max(img.width, img.height));
+			out = { bitmap: s < 1 ? await createImageBitmap(img, { resizeWidth: Math.max(1, Math.round(img.width * s)), resizeHeight: Math.max(1, Math.round(img.height * s)), resizeQuality: "high" }) : img };
+		} else if (img.data && img.width && img.height) {
+			const rgba = img.data instanceof Uint8Array || img.data instanceof Uint8ClampedArray ? new Uint8Array(img.data.buffer, img.data.byteOffset, img.data.byteLength) : null;
+			if (rgba && rgba.length === img.width * img.height * 4) out = { rgba: rgba.slice(), w: img.width, h: img.height };
+		}
+	} catch (e) { console.warn("[model] texture skipped", e?.message); }
+	cache.set(img, out);
+	return out;
+}
+const dequant = A => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array ? 1 / 255 : A instanceof Int16Array ? 1 / 32767 : A instanceof Uint16Array ? 1 / 65535 : 1;   // 正規化整数属性の係数（float は 1）
+export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true } = {}) {
+	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
+	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } }, ...(baseUri ? { baseUri } : {}) });
+	let gltf;
+	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))); }
+	catch (e) {   // 画像のデコードで倒れた（壊れた画像・worker で解けない形式）＝画像なしで読み直す（形は出す）
+		if (!textures) throw e;
+		console.warn("[model] parse with images failed = retry without textures:", e?.message);
+		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false)));
+	}
+	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
+	const nodes = gltf.nodes || [];
+	let roots = gltf.scene?.nodes || gltf.scenes?.[0]?.nodes;
+	if (!roots) { const kids = new Set(); for (const n of nodes) for (const c of n.children || []) kids.add(c); roots = nodes.filter(n => !kids.has(n)); }
+	const inst = [];
+	const visit = (nd, P, depth) => {
+		if (!nd || depth > 64) return;   // 循環/異常な深さの保険
+		const W = m4mul(P, nd.matrix ? Float64Array.from(nd.matrix) : m4trs(nd.translation, nd.rotation, nd.scale));
+		if (nd.mesh) inst.push({ mesh: nd.mesh, W });
+		for (const c of nd.children || []) visit(c, W, depth + 1);
+	};
+	for (const r of roots) visit(r, I4, 0);
+	// 置き方＝A（3x3・ローカル Y-up → ECEF の線形部）と T（ECEF の平行移動）。頂点は ECEF = A·(Wlin·p + Wt) + T
+	const rtc = gltf.extensions?.CESIUM_RTC?.center || gltf.json?.extensions?.CESIUM_RTC?.center || null;
+	let A, T, mode;
+	if (rtc) { A = SWAP; T = rtc; mode = "rtc"; }
+	else if (inst.some(({ W }) => { const r = Math.hypot(W[12], W[14], W[13]); return r > 6200000 && r < 6500000; })) { A = SWAP; T = [0, 0, 0]; mode = "ecef"; }
+	else {
+		if (!at) throw new Error("no anchor");   // 呼び手（gadgets/model.js）が画面中心を補うので通常は来ない
+		const lon = at[0] * D2R, lat = at[1] * D2R, sl = Math.sin(lon), cl = Math.cos(lon), sp = Math.sin(lat), cp = Math.cos(lat);
+		const a = 6378137, e2 = 0.00669437999014, N = a / Math.sqrt(1 - e2 * sp * sp);
+		T = [N * cp * cl, N * cp * sl, N * (1 - e2) * sp];   // 錨＝楕円体面（h=0）。高さは接地が決める
+		const Renu = Float64Array.of(-sl, cl, 0, -sp * cl, -sp * sl, cp, cp * cl, cp * sl, sp);   // 列＝東・北・上（ECEF）
+		const ps = heading * D2R, c = Math.cos(ps), s = Math.sin(ps);
+		const Rh = Float64Array.of(c, -s, 0, s, c, 0, 0, 0, 1);   // ENU 内で上軸まわりに時計回り heading（北向きが東へ倒れる）
+		A = m3mul(Renu, m3mul(Rh, SWAP));
+		if (scale !== 1) for (let i = 0; i < 9; i++) A[i] *= scale;
+		mode = "anchor";
+	}
+	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）
+	const groups = new Map();   // material → { segs, totalV, totalI, mat }
+	let minH = Infinity, nTri = 0, nVert = 0;
+	for (const { mesh, W } of inst) {
+		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
+		const lin = m3mul(A, Wlin), o = m3v(A, [W[12], W[13], W[14]]), ox = o[0] + T[0], oy = o[1] + T[1], oz = o[2] + T[2];
+		const cof = [   // 法線＝余因子（非等方スケールでも面の向きが狂わない。長さは後で正規化）
+			lin[4] * lin[8] - lin[5] * lin[7], lin[5] * lin[6] - lin[3] * lin[8], lin[3] * lin[7] - lin[4] * lin[6],
+			lin[7] * lin[2] - lin[8] * lin[1], lin[8] * lin[0] - lin[6] * lin[2], lin[6] * lin[1] - lin[7] * lin[0],
+			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
+		for (const pr of (mesh.primitives || [])) {
+			const mode4 = pr.mode ?? 4;
+			if (mode4 !== 4 && mode4 !== 5 && mode4 !== 6) continue;   // 三角形系だけ（点/線は建物メッシュにならない）
+			const acc = pr.attributes?.POSITION; const P = acc?.value; if (!P) continue;
+			const NRM = pr.attributes?.NORMAL?.value;
+			const q = acc.normalized ? dequant(P) : 1;
+			const qLo = (P instanceof Int8Array || P instanceof Int16Array) ? -1 : 0;
+			const n = P.length / 3;
+			const mat = pr.material || null;
+			let g = groups.get(mat); if (!g) groups.set(mat, g = { segs: [], totalV: 0, totalI: 0, mat });
+			const base = g.totalV;
+			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
+			for (let i = 0; i < n; i++) {
+				const px = q === 1 ? P[i*3] : Math.max(P[i*3] * q, qLo), py = q === 1 ? P[i*3+1] : Math.max(P[i*3+1] * q, qLo), pz = q === 1 ? P[i*3+2] : Math.max(P[i*3+2] * q, qLo);
+				const ex = lin[0] * px + lin[3] * py + lin[6] * pz + ox, ey = lin[1] * px + lin[4] * py + lin[7] * pz + oy, ez = lin[2] * px + lin[5] * py + lin[8] * pz + oz;
+				ecef[i*3] = ex; ecef[i*3+1] = ey; ecef[i*3+2] = ez;
+				const gg = ecef2geo(ex, ey, ez);
+				if (gg[2] < minH) minH = gg[2];
+				geoSeg[i*3] = gg[0]; geoSeg[i*3+1] = gg[1]; geoSeg[i*3+2] = gg[2];
+			}
+			// index（strip/fan は三角形列へ展開）。番号はこのマテリアル束の通し番号
+			const I = pr.indices?.value;
+			const src = I || null, m = I ? I.length : n;
+			let idxSeg;
+			if (mode4 === 4) { idxSeg = new Uint32Array(m); for (let k = 0; k < m; k++) idxSeg[k] = (src ? src[k] : k) + base; }
+			else {
+				idxSeg = new Uint32Array(Math.max(0, m - 2) * 3);
+				for (let k = 0, w = 0; k + 2 < m; k++) {
+					let a = src ? src[k] : k, b = src ? src[k+1] : k + 1, c = src ? src[k+2] : k + 2;
+					if (mode4 === 6) a = src ? src[0] : 0;
+					else if (k & 1) { const t = b; b = c; c = t; }   // strip の偶奇で巻きを揃える
+					idxSeg[w++] = a + base; idxSeg[w++] = b + base; idxSeg[w++] = c + base;
+				}
+			}
+			// 法線＝ECEF へ回してから ortho 軸（x, z, y）へ。無ければ面法線を頂点へ積む
+			const nE = new Float64Array(n * 3);
+			if (NRM) for (let i = 0; i < n; i++) {
+				const a = NRM[i*3], b = NRM[i*3+1], c = NRM[i*3+2];
+				nE[i*3] = cof[0] * a + cof[3] * b + cof[6] * c; nE[i*3+1] = cof[1] * a + cof[4] * b + cof[7] * c; nE[i*3+2] = cof[2] * a + cof[5] * b + cof[8] * c;
+			} else for (let k = 0; k + 2 < idxSeg.length; k += 3) {
+				const a = idxSeg[k] - base, b = idxSeg[k+1] - base, c = idxSeg[k+2] - base;
+				const ux = ecef[b*3] - ecef[a*3], uy = ecef[b*3+1] - ecef[a*3+1], uz = ecef[b*3+2] - ecef[a*3+2];
+				const vx = ecef[c*3] - ecef[a*3], vy = ecef[c*3+1] - ecef[a*3+1], vz = ecef[c*3+2] - ecef[a*3+2];
+				const fx = uy * vz - uz * vy, fy = uz * vx - ux * vz, fz = ux * vy - uy * vx;   // 面積重み（正規化しない）
+				for (const v of [a, b, c]) { nE[v*3] += fx; nE[v*3+1] += fy; nE[v*3+2] += fz; }
+			}
+			for (let i = 0; i < n; i++) {
+				const nx = nE[i*3], ny = nE[i*3+2], nz = nE[i*3+1];   // ECEF(x,y,z) → ortho 世界軸(x, z, y)
+				const l = Math.hypot(nx, ny, nz);
+				if (l > 0) { const s = 127 / l; nrmSeg[i*4] = Math.round(nx * s); nrmSeg[i*4+1] = Math.round(ny * s); nrmSeg[i*4+2] = Math.round(nz * s); }
+				else nrmSeg[i*4+1] = 127;
+			}
+			// uv（baseColorTexture の TEXCOORD_n＋KHR_texture_transform）と 頂点色（baseColorFactor×COLOR_0、α＝OPAQUE なら 1）
+			const bc = baseColorOf(mat, gltf);
+			const UV = bc.texture ? pr.attributes?.["TEXCOORD_" + bc.texCoord]?.value : null;
+			const uvSeg = new Float32Array(n * 2);
+			if (UV && UV.length >= n * 2) {
+				const qu = pr.attributes["TEXCOORD_" + bc.texCoord].normalized ? dequant(UV) : 1, tt = bc.transform;
+				const ro = tt?.rotation || 0, cs = Math.cos(ro), sn = Math.sin(ro), sx = tt?.scale?.[0] ?? 1, sy = tt?.scale?.[1] ?? 1, tx = tt?.offset?.[0] ?? 0, ty = tt?.offset?.[1] ?? 0;
+				for (let i = 0; i < n; i++) {
+					const u = UV[i*2] * qu, v = UV[i*2+1] * qu;
+					if (tt) { uvSeg[i*2] = cs * sx * u + sn * sy * v + tx; uvSeg[i*2+1] = -sn * sx * u + cs * sy * v + ty; }   // T·R·S（仕様の順）
+					else { uvSeg[i*2] = u; uvSeg[i*2+1] = v; }
+				}
+			}
+			const colSeg = new Uint8Array(n * 4);
+			const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes.COLOR_0.normalized ? dequant(C0) : 1) : 1;
+			const opaque = !mat || (mat.alphaMode || "OPAQUE") === "OPAQUE";
+			const f = bc.factor;
+			for (let i = 0; i < n; i++) {
+				const cr = C0 && cN >= 3 ? C0[i*cN] * qc : 1, cg = C0 && cN >= 3 ? C0[i*cN+1] * qc : 1, cb = C0 && cN >= 3 ? C0[i*cN+2] * qc : 1, ca = C0 && cN === 4 ? C0[i*cN+3] * qc : 1;
+				colSeg[i*4] = Math.max(0, Math.min(255, Math.round(f[0] * cr * 255)));
+				colSeg[i*4+1] = Math.max(0, Math.min(255, Math.round(f[1] * cg * 255)));
+				colSeg[i*4+2] = Math.max(0, Math.min(255, Math.round(f[2] * cb * 255)));
+				colSeg[i*4+3] = opaque ? 255 : Math.max(0, Math.min(255, Math.round((f[3] ?? 1) * ca * 255)));
+			}
+			g.segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg });
+			g.totalV += n; g.totalI += idxSeg.length; nVert += n; nTri += idxSeg.length / 3;
+		}
+	}
+	if (!nTri) return null;
+	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
+	const imgCache = new Map();
+	const batches = [];
+	const bbox = [Infinity, Infinity, -Infinity, -Infinity];
+	for (const g of groups.values()) {
+		if (!g.totalI) continue;
+		const geo = new Float64Array(g.totalV * 3), outNrm = new Int8Array(g.totalV * 4), rawIdx = new Uint32Array(g.totalI), uv = new Float32Array(g.totalV * 2), col = new Uint8Array(g.totalV * 4);
+		let vtx = 0, io = 0;
+		for (const s of g.segs) { geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); vtx += s.geo.length / 3; io += s.idx.length; }
+		g.segs.length = 0;
+		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, null, true, { uv, col });   // brid=true＝一体で接地・両面。マスクなし
+		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
+		batches.push({ mesh, tex, alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
+		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
+	}
+	return { batches, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
 }
