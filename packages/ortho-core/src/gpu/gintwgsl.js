@@ -32,7 +32,7 @@ struct GF {
 	elevBounds: vec4f,
 	elevP: vec4f,      // edgeFade, cos4φ0, sin4φ0, ell(1=楕円体)＝予備3枠に dβ 錨の残りとゲート（球＝0,0,0）
 	meshQ: vec4f,      // 案A: 地形メッシュ窓（xy=原点・zw=span deg）＝ドレープ標高の量子化先
-	meshP: vec4f,      // 案A: (格子の頂点数 G, 0, 0, 0)。G=0＝量子化オフ（⚠GF スロットは 512B へ拡張済み）
+	meshP: vec4f,      // 案A: (格子の頂点数 G, near.x, near.y, skipE7)。G=0＝量子化オフ。yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・0=飛ばさない）（⚠GF スロットは 512B へ拡張済み）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -162,11 +162,10 @@ fn fetchProject(idx: u32) -> Proj {
 	let ndc = clip.xy / clip.w;
 	return Proj(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr, clip.w);
 }
-// 深度統合用：標高ドレープ込み投影（elevScale=0 なら fetchProject と同一）
-fn projectDrape(idx: u32) -> Proj {
-	let dLL = decodeDLL(idx);
-	let rel = deltaToRel(dLL.x, dLL.y);
-	let zr = F.originZr + dot(rel, F.eye);
+// 深度統合用：標高ドレープ込み投影（elevScale=0 なら fetchProject と同一）。
+// drapeRelW（rel＋経緯度 → 標高変位後の relW）と projectRel（rel/relW → screen px）に分けてある＝地形適応細分の
+// サブ端点（大円上の内挿点＝idx を持たない）も同じ式で乗せる（GL programs.js と 1:1・2026-09-21）。
+fn drapeRelW(rel: vec3f, dLL: vec2f) -> vec3f {
 	var relW = rel;
 	if (F.depthP.z > 0.0 && F.depthP.w > 0.5) {
 		var dir = F.originPt + rel;
@@ -179,10 +178,73 @@ fn projectDrape(idx: u32) -> Proj {
 		}
 		relW = rel + h * dir;
 	}
+	return relW;
+}
+fn projectRel(rel: vec3f, relW: vec3f) -> Proj {
+	let zr = F.originZr + dot(rel, F.eye);
 	let clip = F.clipT + F.mvp * vec4f(relW, 0.0);
 	if (clip.w <= 0.0) { return Proj(F.viewport * 0.5, -1.0, clip.w); }
 	let ndc = clip.xy / clip.w;
 	return Proj(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr, clip.w);
+}
+fn projectDrape(idx: u32) -> Proj {
+	let dLL = decodeDLL(idx);
+	let rel = deltaToRel(dLL.x, dLL.y);
+	return projectRel(rel, drapeRelW(rel, dLL));
+}
+// ── 地形適応細分（3D ドレープの地形貫きの根治・2026-09-21・GL programs.js subRange/slerpRel と 1:1）──
+// 線 VS を辺×N インスタンスで起動し、辺を N 個までのサブ区間に割って各サブ端点を地形メッシュ面へ乗せる。
+// N は draw の firstInstance 上位16bit（instance_index=firstInstance+i）で運ぶ＝UBO を run ごとに書き換えない。
+// 区間長の目安＝メッシュ1セル・近傍窓 meshP.yz の内側に集中（外側 1/8）・窓境界 1/32 倍数・窓内は辺の 2 進格子（入れ子＝滑らない）。
+fn pow2ceil(x: i32) -> i32 { var p = 1; while (p < x) { p = p << 1u; } return p; }
+fn slerpRel(ra: vec3f, rb: vec3f, t: f32) -> vec3f {
+	let c = distance(ra, rb);
+	if (c < 1e-9) { return ra; }
+	let w = 2.0 * asin(min(0.5 * c, 1.0));
+	let sw = sinP(w);
+	let ka = sinP((1.0 - t) * w) / sw; let kb = sinP(t * w) / sw;
+	let ko = 2.0 * sinP(0.5 * t * w) * sinP(0.5 * (1.0 - t) * w) / cosP(0.5 * w);   // ka+kb−1（相殺なし）
+	return ka * ra + kb * rb + ko * F.originPt;
+}
+struct SubR { ok: bool, ts: f32, te: f32 };
+fn subRange(dA: vec2f, dB: vec2f, s: i32, N: i32) -> SubR {
+	var r = SubR(s == 0, 0.0, 1.0);
+	if (N <= 1 || F.meshP.x < 1.5 || !(F.depthP.z > 0.0 && F.depthP.w > 0.5)) { return r; }
+	let cell = F.meshQ.zw / (F.meshP.x - 1.0);
+	let d = dB - dA;
+	var t0 = 0.0; var t1 = 1.0;
+	if (F.meshP.y > 0.0) {
+		let near = F.meshP.yz;
+		for (var i = 0; i < 2; i++) {
+			var p = -d[i]; var q = dA[i] + near[i];
+			if (p == 0.0) { if (q < 0.0) { t0 = 1.0; t1 = 0.0; } } else { let rr = q / p; if (p < 0.0) { t0 = max(t0, rr); } else { t1 = min(t1, rr); } }
+			p = d[i]; q = near[i] - dA[i];
+			if (p == 0.0) { if (q < 0.0) { t0 = 1.0; t1 = 0.0; } } else { let rr = q / p; if (p < 0.0) { t0 = max(t0, rr); } else { t1 = min(t1, rr); } }
+		}
+		if (t0 > t1) { t0 = 0.0; t1 = 0.0; } else { t0 = floor(t0 * 32.0) / 32.0; t1 = ceil(t1 * 32.0) / 32.0; }
+	}
+	let pre = select(0, 1, t0 > 0.0); let post = select(0, 1, t1 < 1.0);
+	if (N < pre + post + 1) { return r; }
+	var nIn = 0;   // 窓内＝辺自身のパラメータの 2 進格子（GL と同じ＝窓が動いても境界は同じ格子＝完全な入れ子）
+	if (t1 > t0) {
+		let cAll = max(abs(d.x) / cell.x, abs(d.y) / cell.y);
+		var Ln = 0; while (f32(1 << u32(Ln)) < cAll && Ln < 12) { Ln++; }
+		var Lc = 0; while (f32(1 << u32(Lc + 1)) * (t1 - t0) <= f32(N - pre - post) && Lc < 12) { Lc++; }
+		let L = min(Ln, Lc);
+		if (L >= 5) { nIn = i32((t1 - t0) * f32(1 << u32(L)) + 0.5); }
+		else { nIn = min(pow2ceil(i32(ceil(min(cAll * (t1 - t0), 4096.0)))), N - pre - post); }
+		nIn = max(nIn, 1);
+	}
+	let rem = N - nIn; var nPre = 0; var nPost = 0;
+	if (pre == 1) { let c = max(abs(d.x) * t0 / cell.x, abs(d.y) * t0 / cell.y) * 0.125; nPre = clamp(pow2ceil(i32(ceil(min(c, 4096.0)))), 1, select(rem, rem / 2, post == 1)); }
+	if (post == 1) { let c = max(abs(d.x) * (1.0 - t1) / cell.x, abs(d.y) * (1.0 - t1) / cell.y) * 0.125; nPost = clamp(pow2ceil(i32(ceil(min(c, 4096.0)))), 1, rem - nPre); }
+	let n = nPre + nIn + nPost;
+	if (s >= n) { r.ok = false; return r; }
+	r.ok = true;
+	if (s < nPre) { r.ts = t0 * f32(s) / f32(nPre); r.te = t0 * f32(s + 1) / f32(nPre); }
+	else if (s < nPre + nIn) { let k = s - nPre; r.ts = t0 + (t1 - t0) * f32(k) / f32(nIn); r.te = t0 + (t1 - t0) * f32(k + 1) / f32(nIn); }
+	else { let k = s - nPre - nIn; r.ts = t1 + (1.0 - t1) * f32(k) / f32(nPost); r.te = t1 + (1.0 - t1) * f32(k + 1) / f32(nPost); }
+	return r;
 }
 // stencil 用：クリップ座標のまま（部分表示でも巻き数が壊れない）。z は GL[-w,w]→WebGPU[0,w] へ等価写像
 // 裏半球の頂点を地平円へ射影クランプ（GL horizonClamp・wgsl.js OVERLAY vsStencil p0.z と同式）＝塗り扇の端点専用。
@@ -225,6 +287,20 @@ fn toNDC(p: vec2f) -> vec4f {
 }
 fn fetchEdgeMeta(edgeId: i32) -> vec4u {
 	return textureLoad(metaTex, vec2i(edgeId % F.texw.y, edgeId / F.texw.y), 0);
+}
+// gint 整数 (ix, iy)（decodeDLL と同じ展開・整数のまま）と辺スパン（e7・経度は 360e7 周期の最短側）＝bake の細分バケット分類と厳密同値
+fn decodeIXY(idx: u32) -> vec2u {
+	let px = textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x), 0);
+	let lo = px.r; let hi = px.g;
+	let loC = select(lo & 0xFFFFFFC0u, lo, (hi >> 31u) != 0u);
+	let hiC = hi & 0x7FFFFFFFu;
+	return vec2u((compact16(hiC) << 16u) | compact16(loC), (compact16(hiC >> 1u) << 16u) | compact16(loC >> 1u));
+}
+fn spanE7(a: u32, b: u32) -> u32 {
+	let A = decodeIXY(a); let B = decodeIXY(b);
+	var dx = max(A.x, B.x) - min(A.x, B.x); if (dx > 1800000000u) { dx = 3600000000u - dx; }
+	let dy = max(A.y, B.y) - min(A.y, B.y);
+	return max(dx, dy);
 }
 // 頂点の VW rank（terminal=63 常時保持、他は低6bit）
 fn fetchRank(idx: u32) -> u32 {
@@ -313,15 +389,21 @@ struct LineOut {
 	@location(7) @interpolate(flat) ea: vec2f,
 	@location(8) @interpolate(flat) eb: vec2f,
 };
-@vertex fn vsRender(@builtin(vertex_index) vi: u32) -> LineOut {
+@vertex fn vsRender(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> LineOut {
 	var o: LineOut;
 	o.pos = DEGEN;
-	let edgeId = i32(vi) / 6;
+	var edgeId = i32(vi) / 6;
 	let sub = i32(vi) % 6;
-	let em = fetchEdgeMeta(edgeId);
+	let subN = i32(ii >> 16u); let subS = i32(ii & 0xFFFFu);   // 地形適応細分：N（firstInstance 上位16bit）と区間番号 s
+	var em = fetchEdgeMeta(edgeId);
+	let dupRow = (em.b & 128u) != 0u;   // 複製行（長辺の細分用・メタ末尾）＝元の辺へ引き直す（歩行・破線位相は元の辺）
+	if (dupRow) { edgeId = i32(em.b >> 8u); em = fetchEdgeMeta(edgeId); }
 	let featId = i32(em.a);
 	// feature bbox カリング（ポリゴン辺のみ＝styleId 0）
 	if ((em.b & 255u) == 0u && !bboxVisible(em.a)) { return o; }
+	// 地形適応細分：メイン描画（clean）は skip 下限以上の長辺を飛ばす＝同じ辺の複製行がインスタンス描画で細分する（整数スパン＝bake と厳密一致）
+	let skipE7 = u32(F.meshP.w);
+	if (!dupRow && P.b.y == 0 && skipE7 > 0u && spanE7(em.r, em.g) >= skipE7) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);
 	if (!sn.keep) { return o; }
 	if ((em.b & 255u) == 0u && onSeam(sn.a) && onSeam(sn.b)) { return o; }   // 切断の縦線（縫い目辺）は描かない
@@ -346,8 +428,21 @@ struct LineOut {
 	// 旧＝各頂点が自端基準で dir を取り A/B で perp が反転＝ボウタイ（太線のねじれ・片側欠けの根治）
 	let useA = (sub == 0 || sub == 1 || sub == 3);
 	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
-	let pa3 = projectDrape(sn.a);
-	let pb3 = projectDrape(sn.b);
+	var pa3: Proj; var pb3: Proj;
+	var subOff = 0.0;   // 破線位相の近似基底（このサブ区間より前の区間数）
+	if (subN <= 1) {
+		pa3 = projectDrape(sn.a);   // 従来経路（2D/地形なし）
+		pb3 = projectDrape(sn.b);
+	} else {                       // 地形適応細分：サブ区間 s の端点を大円上に内挿して面へ乗せる
+		let dA = decodeDLL(sn.a); let dB = decodeDLL(sn.b);
+		let sr = subRange(dA, dB, subS, subN);
+		if (!sr.ok) { return o; }
+		let rA = deltaToRel(dA.x, dA.y); let rB = deltaToRel(dB.x, dB.y);
+		let r0 = slerpRel(rA, rB, sr.ts); let r1 = slerpRel(rA, rB, sr.te);
+		pa3 = projectRel(r0, drapeRelW(r0, mix(dA, dB, sr.ts)));   // 標高は経緯度線形の t で標本（大円との差は ≤120m×(span/1°)²）
+		pb3 = projectRel(r1, drapeRelW(r1, mix(dA, dB, sr.te)));
+		subOff = f32(subS);
+	}
 	o.zr = select(pb3.zr, pa3.zr, useA);
 	var axy = pa3.xy; var bxy = pb3.xy;
 	if (pb3.zr < 0.0 && pa3.zr > 0.0) { bxy = pa3.xy + (pa3.zr / (pa3.zr - pb3.zr)) * (pb3.xy - pa3.xy); }
@@ -370,7 +465,7 @@ struct LineOut {
 	// ホバー(pass1)＝P.color(hiliteColor)指定ならそれ（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
 	o.color = select(baseC, select(vec4f(1.0, 0.9, 0.0, 1.0), P.color, P.color.a > 0.0), P.b.y == 1);
 	o.dash = S.dash[styleIdx].xy;
-	o.distBase = f32(em.b >> 8u) * 0.017453292;
+	o.distBase = f32(em.b >> 8u) * 0.017453292 + subOff * len;   // ＋サブ区間ぶん（等長近似＝破線位相を辺内で繋ぐ）
 	o.dist = select(len, 0.0, useA);
 	o.halfw = lw * 0.5;
 	return o;

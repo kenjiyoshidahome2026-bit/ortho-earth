@@ -43,7 +43,7 @@ const seamEdges = edges => edges.filter(e => onSeam(e.ixa) && onSeam(e.ixb));
 	const { base, edges } = edgesOf(d);
 	ok(seamEdges(edges).length === 0, `縫い目辺が線パスの辺メタに残っていない（残り ${seamEdges(edges).length}）`);
 	ok(base.seamSkipped >= 2, `対になった縫い目辺を落とした（skip=${base.seamSkipped}）`);
-	ok(base.edgeCount === base.metaU32.length / 4, "edgeCount と metaU32 長が一致（詰め直し）");
+	ok(base.edgeCount + (base.subCount ?? 0) === base.metaU32.length / 4, "edgeCount＋複製行 と metaU32 長が一致（詰め直し）");
 	const nonSeam = edges.filter(e => !(onSeam(e.ixa) && onSeam(e.ixb)));
 	ok(nonSeam.length >= 36, `円周の辺は残っている（${nonSeam.length} ≥ 36）`);
 }

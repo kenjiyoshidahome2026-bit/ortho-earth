@@ -67,7 +67,7 @@ function referenceBake(g) {   // 旧 uploadGintTextures の CPU 部（builder �
 	normalizeRingOrientation(g.arcBuffer, g.arcMeta, g.polyStream);
 	const polyBboxByFid = buildPolyBboxByFid(g.polyStream, g.arcMeta);
 	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
-	const base = buildEdgeMeta(g.arcMeta, g.polyStream, g.lineStream, null, 0, metaOpts);
+	const base = buildEdgeMeta(g.arcMeta, g.polyStream, g.lineStream, g.arcBuffer, 0, metaOpts);   // bakeBase と同じく arcBuffer を渡す（縫い目辺除去・チャンク最長辺スパン sx/sy）
 	const outlineZoom = deriveOutlineZoom(polyBboxByFid);
 	const boundary = g.polyStream?.length ? buildBoundaryEdgeMeta(g.arcMeta, g.polyStream, g.lineStream, g.arcBuffer, 0) : null;
 	return { base, boundary, polyBboxByFid, outlineZoom };

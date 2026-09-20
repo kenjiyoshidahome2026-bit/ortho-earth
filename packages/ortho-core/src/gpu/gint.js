@@ -20,8 +20,8 @@
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS } from "../gl/gint/state.js";
-import { computeDrawData, zoomInRange } from "../gl/gint/drawdata.js";
-import { checkZoomRange } from "../gl/gint/utility.js";
+import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
+import { checkZoomRange, SUB_NB } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn } from "../camera.js";
@@ -249,7 +249,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		return tex;
 	}
 	function uploadMetaTex(metaU32, edgeCount) {
-		const h = Math.ceil(edgeCount / TEX_META_W);
+		const rows = Math.max(edgeCount, metaU32.length >> 2);   // 複製行（長辺の細分用・メタ末尾）も載せる
+		const h = Math.ceil(rows / TEX_META_W);
 		const pad = new Uint32Array(TEX_META_W * h * 4);
 		pad.set(metaU32);
 		return regBuf(texU32(pad, TEX_META_W, h, "rgba32uint", 4), metaU32);
@@ -272,6 +273,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		L.polyEdges = art.base.polyEdgeCount;
 		L.polyEdgeByFid = art.base.polyEdgeByFid;
 		L.metaChunks = art.base.chunks;
+		L.span = [art.base.spanX ?? -1, art.base.spanY ?? -1];   // 最長辺スパン（e7・地形適応細分の上限。-1=未知）
 		L.polyBboxByFid = art.polyBboxByFid;
 		L.outlineZoom = art.outlineZoom;
 		L.fillOff = art.fillOff;
@@ -286,10 +288,12 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		}
 		dropTex(L.metaTexB);
 		L.metaTexB = null;
-		L.totalEdgesB = 0; L.polyEdgesB = 0;
+		L.totalEdgesB = 0; L.polyEdgesB = 0; L.spanB = [-1, -1]; L.subB = null;
 		if (art.boundary) {
 			L.totalEdgesB = art.boundary.edgeCount;
 			L.polyEdgesB = art.boundary.polyEdgeCount;
+			L.spanB = [art.boundary.spanX ?? -1, art.boundary.spanY ?? -1];
+			L.subB = art.boundary.sub ?? null;   // 境界メタの複製行区間 [b,start,count,…]
 			L.metaTexB = uploadMetaTex(art.boundary.metaU32, art.boundary.edgeCount);
 		}
 		dropTex(L.ptTex); L.ptTex = null;
@@ -532,7 +536,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		}
 		const sel = nominal
 			? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(nominal.edgeCount, nominal.chunks), minW: nominal.minW }
-			: { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, L.metaChunks), minW: 0 };
+			: { tex: baseTex, count: baseCount, runs: visibleRuns(baseCount, L.metaChunks, L.span), minW: 0 };
 		L._pfRuns = sel.runs.length; L._pfChunks = (nominal ? nominal.chunks : L.metaChunks)?.length ?? 0;
 		if (!nominal && finest) {
 			let visibleN = 0;
@@ -555,27 +559,40 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		}
 		return sel;
 	}
-	function visibleRuns(totalCount, chunks) {
+	// run＝[startEdge, edgeCount, spanX, spanY]（passes.js visibleRuns と同型）。spanX/Y＝run 内の最長辺スパン（e7・未知=-1）。
+	// runs.sub[b]＝可視チャンクの複製行区間（長辺の細分用・bucket-major/chunk-minor＝連続チャンクは 1 区間に併合）
+	function visibleRuns(totalCount, chunks, span = null) {
 		const vb = V.lastViewBbox;
-		if (!chunks?.length || !vb) return [[0, totalCount]];
+		if (!chunks?.length) { const r = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
 		const mg = 10000;
-		const vx0 = vb[0] - mg, vy0 = vb[1] - mg, vx1 = vb[2] + mg, vy1 = vb[3] + mg;
-		const runs = [];
-		let curStart = -1, curEnd = 0;
+		const vx0 = vb ? vb[0] - mg : 0, vy0 = vb ? vb[1] - mg : 0, vx1 = vb ? vb[2] + mg : 0, vy1 = vb ? vb[3] + mg : 0;
+		const runs = [], sub = new Array(SUB_NB).fill(null);
+		let curStart = -1, curEnd = 0, sx = -1, sy = -1;
+		const mergeSpan = c => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
+		const addSub = c => { const a = c.sub; if (!a) return;
+			for (let i = 0; i < a.length; i += 3) { const b = a[i], st = a[i + 1], n = a[i + 2]; const L = (sub[b] ??= []); const last = L[L.length - 1];
+				if (last && last[0] + last[1] === st) last[1] += n; else L.push([st, n]); } };
 		for (const c of chunks) {
 			const b = c.bbox;
-			const vis = !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);
-			if (vis) { if (curStart < 0) curStart = c.start; curEnd = c.end; }
-			else if (curStart >= 0) { runs.push([curStart, curEnd - curStart]); curStart = -1; }
+			const vis = !vb || !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);   // vb 無し＝全チャンク可視
+			if (vis) { if (curStart < 0) { curStart = c.start; sx = -1; sy = -1; } curEnd = c.end; mergeSpan(c); addSub(c); }
+			else if (curStart >= 0) { runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]); curStart = -1; }
 		}
-		if (curStart >= 0) runs.push([curStart, curEnd - curStart]);
+		if (curStart >= 0) runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]);
+		runs.sub = sub;
 		return runs;
+	}
+	function subListRuns(list) {   // 台帳無しメタ（境界メタ）の [b,start,count,…] → runs.sub 形式
+		if (!list) return null;
+		const sub = new Array(SUB_NB).fill(null);
+		for (let i = 0; i < list.length; i += 3) (sub[list[i]] ??= []).push([list[i + 1], list[i + 2]]);
+		return sub;
 	}
 
 	// ── UBO 詰め物（CPU 側スクラッチはエンジン共有＝逐次処理ゆえ安全。書き先は層の buffer）──
 	const gfAB = new ArrayBuffer(GF_SLOT * 4);
 	const gfF = new Float32Array(gfAB), gfU = new Uint32Array(gfAB), gfI = new Int32Array(gfAB);
-	function packGF(L, off, d, lodRank, noPivot = false) {
+	function packGF(L, off, d, lodRank, noPivot = false, skipE7 = 0) {
 		const o = off >> 2, dep = d.depth;
 		gfF.set(d.mvp, o);
 		gfF[o + 16] = d.clipT[0]; gfF[o + 17] = d.clipT[1]; gfF[o + 18] = d.clipT[2]; gfF[o + 19] = d.clipT[3];
@@ -609,7 +626,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		gfF[o + 61] = ell ? Math.cos(4 * pr) : 0; gfF[o + 62] = ell ? Math.sin(4 * pr) : 0; gfF[o + 63] = ell ? 1 : 0;
 		const mq = dep?.meshQ;   // 案A: 描画メッシュ面への量子化（無ければ G=0＝素の elevAt）
 		gfF[o + 64] = mq?.[0] ?? 0; gfF[o + 65] = mq?.[1] ?? 0; gfF[o + 66] = mq?.[2] ?? 1; gfF[o + 67] = mq?.[3] ?? 1;
-		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = 0; gfF[o + 70] = 0; gfF[o + 71] = 0;
+		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
@@ -732,7 +749,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				: lowZoomEff && L.metaTexB && L.polyEdgesB > 0
 				&& (finestT ? L.totalEdgesB <= finestT.edgeCount * 1.5 : L.totalEdgesB <= 600_000);
 			lnSel = lnB
-				? { tex: L.metaTexB, count: L.totalEdgesB, runs: null, minW: -2, boundary: true }
+				? { tex: L.metaTexB, count: L.totalEdgesB, runs: null, minW: -2, boundary: true, sub: subListRuns(L.subB) }
 				: data._forceLow ? null   // 安表現中に境界が予算超＝線パスは出さない（フル tier へ落とさない）
 				: { ...pickLineTier(L, data.lodRank ?? 0, L.metaTex, L.totalEdges), boundary: false };
 		}
@@ -807,16 +824,33 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, lnSel.tex));
 			pass.setPipeline(dep ? P.lineTest : P.line);
 			pass.setBindGroup(1, L.paramBG[ROLE.line]);
-			let pfEdges = 0;
-			for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) {
-				pfEdges += cnt;
-				pass.draw(cnt * 6, 1, est * 6);
+			// 地形適応細分（dep 時のみ）：メイン描画は skipE7（GF meshP.w）以上の長辺を VS で飛ばし、バケット b の複製行を
+			// N[b] インスタンスで描く。N は firstInstance の上位16bit で運ぶ（instance_index＝firstInstance+i＝VS が
+			// N=ii>>16・s=ii&0xFFFF と復元＝UBO をバケットごとに書き換えない）。2D/地形なし＝plan は N 全1・skip 0＝従来のまま。
+			const runsL = lnSel.runs ?? [[0, lnSel.count]];
+			const subRuns = lnSel.runs ? lnSel.runs.sub : lnSel.sub;
+			const plan = subPlan(dep, subRuns, isDrawing);   // 移動中は細分を半分（静止で全密度）
+			if (plan.skipE7 > 0) {   // skip 下限を GF（線スロット）へ＝plan 確定後に線スロットだけ書き直す（writeBuffer は submit 前に順序どおり）
+				packGF(L, GF_LINE * GF_SLOT, data, data.lodRank ?? 0, false, plan.skipE7);
+				packGF(L, GF_LINE_B * GF_SLOT, data, data.lodRank ?? 0, true, plan.skipE7);
+				device.queue.writeBuffer(L.gfBuf, 0, gfAB);
 			}
-			L._pfLineEdges = pfEdges; L._pfTierW = lnSel.minW ?? -1;
+			const drawRuns = () => {
+				for (const [est, cnt] of runsL) pass.draw(cnt * 6, 1, est * 6);
+				if (plan.skipE7 > 0 && subRuns) for (let b = 0; b < SUB_NB; b++) {
+					const n = plan.N[b], Ls = subRuns[b];
+					if (n <= 1 || !Ls) continue;
+					for (const [st, cnt] of Ls) pass.draw(cnt * 6, n, st * 6, n << 16);
+				}
+			};
+			let pfEdges = 0;
+			for (const r of runsL) pfEdges += r[1];
+			drawRuns();
+			L._pfLineEdges = pfEdges; L._pfSubs = plan.total; L._pfTierW = lnSel.minW ?? -1;
 			if (dep && !isDrawing && pfEdges < 100_000) {
 				pass.setPipeline(P.lineHidden);
 				pass.setBindGroup(1, L.paramBG[ROLE.lineHidden]);
-				for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) pass.draw(cnt * 6, 1, est * 6);
+				drawRuns();   // 同じ細分＝実線と隠線が同じ折れ線
 			}
 		}
 		// ── 点 ──
@@ -837,8 +871,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				pass.setBindGroup(0, L.frameBG[GF_LINE]);
 				pass.setBindGroup(1, L.paramBG[ROLE.hilite]);
 				pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex));
-				if (hasRange) pass.draw(eCount * 6, 1, eStart * 6);
-				else pass.draw(L.totalEdges * 6);
+				const nH = drapeSubs(dep, [[0, hasRange ? eCount : L.totalEdges, L.span?.[0] ?? -1, L.span?.[1] ?? -1]])[0];   // 清描画と同じ折れ線に乗る
+				if (hasRange) pass.draw(eCount * 6, nH, eStart * 6, nH << 16);
+				else pass.draw(L.totalEdges * 6, nH, 0, nH << 16);
 			}
 			if (L.totalPoints > 0 && L.ptTex && L.ptMetaTex) {
 				pass.setPipeline(P.point);

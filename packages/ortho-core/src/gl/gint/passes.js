@@ -6,6 +6,8 @@
 
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
 import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
+import { drapeSubs, subPlan } from './drawdata.js';
+import { SUB_NB } from './utility.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
 import { canUseIdFill, renderIdFill } from './idfill.js';
 
@@ -29,7 +31,7 @@ function pickLineTier(s, rank, baseTex, baseCount) {
 	}
 	const sel = nominal
 		? { tex: nominal.tex, count: nominal.edgeCount, runs: visibleRuns(s, nominal.edgeCount, nominal.chunks), minW: nominal.minW }
-		: { tex: baseTex, count: baseCount, runs: visibleRuns(s, baseCount, s.metaChunks), minW: 0 };
+		: { tex: baseTex, count: baseCount, runs: visibleRuns(s, baseCount, s.metaChunks, s.span), minW: 0 };
 	s._pfRuns = sel.runs.length; s._pfChunks = (nominal ? nominal.chunks : s.metaChunks)?.length ?? 0;   // perf 計測用
 	if (!nominal && finest) {   // 安全弁（適格 tier 無し＝基準メタに落ちた時だけ）
 		let visible = 0;
@@ -57,23 +59,38 @@ function pickLineTier(s, rank, baseTex, baseCount) {
 	return sel;
 }
 
-// 可視チャンク run（[startEdge, edgeCount] の列）。チャンク台帳や view bbox が無ければ全量1本。
+// 可視チャンク run（[startEdge, edgeCount, spanX, spanY] の列）。チャンク台帳や view bbox が無ければ全量1本。
 // マージン: 線幅ぶん bbox を少し広げる（SE=1e7 単位・約 0.001°）。
-function visibleRuns(s, totalCount, chunks) {
+// spanX/Y＝run 内の最長辺の経緯度スパン（e7・bake の chunk.sx/sy の最大。未知の chunk を含めば -1）＝
+// 地形適応細分（drapeSubs）が 1辺あたりのサブ区間数を決める物差し。全量1本は層全体の span（第4引数）。
+// runs.sub[b]＝可視チャンクの複製行区間（長辺の細分用・bucket-major/chunk-minor 配置＝連続チャンクは 1 区間に併合）。
+function visibleRuns(s, totalCount, chunks, span = null) {
 	const vb = s.lastViewBbox;
-	if (!chunks?.length || !vb) return [[0, totalCount]];
+	if (!chunks?.length) { const r = [[0, totalCount, span?.[0] ?? -1, span?.[1] ?? -1]]; r.sub = null; return r; }
 	const mg = 10000;
-	const vx0 = vb[0] - mg, vy0 = vb[1] - mg, vx1 = vb[2] + mg, vy1 = vb[3] + mg;
-	const runs = [];
-	let curStart = -1, curEnd = 0;
+	const vx0 = vb ? vb[0] - mg : 0, vy0 = vb ? vb[1] - mg : 0, vx1 = vb ? vb[2] + mg : 0, vy1 = vb ? vb[3] + mg : 0;
+	const runs = [], sub = new Array(SUB_NB).fill(null);
+	let curStart = -1, curEnd = 0, sx = -1, sy = -1;
+	const mergeSpan = c => { if (c.sx == null || c.sx < 0 || sx === -2) { sx = -2; return; } if (c.sx > sx) sx = c.sx; if (c.sy > sy) sy = c.sy; };
+	const addSub = c => { const a = c.sub; if (!a) return;
+		for (let i = 0; i < a.length; i += 3) { const b = a[i], st = a[i + 1], n = a[i + 2]; const L = (sub[b] ??= []); const last = L[L.length - 1];
+			if (last && last[0] + last[1] === st) last[1] += n; else L.push([st, n]); } };
 	for (const c of chunks) {
 		const b = c.bbox;
-		const vis = !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);
-		if (vis) { if (curStart < 0) curStart = c.start; curEnd = c.end; }
-		else if (curStart >= 0) { runs.push([curStart, curEnd - curStart]); curStart = -1; }
+		const vis = !vb || !(b[2] < vx0 || b[0] > vx1 || b[3] < vy0 || b[1] > vy1);   // vb 無し＝全チャンク可視
+		if (vis) { if (curStart < 0) { curStart = c.start; sx = -1; sy = -1; } curEnd = c.end; mergeSpan(c); addSub(c); }
+		else if (curStart >= 0) { runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]); curStart = -1; }
 	}
-	if (curStart >= 0) runs.push([curStart, curEnd - curStart]);
+	if (curStart >= 0) runs.push([curStart, curEnd - curStart, sx < 0 ? -1 : sx, sx < 0 ? -1 : sy]);
+	runs.sub = sub;
 	return runs;
+}
+// 台帳無しメタ（境界メタ）の複製行区間 [b,start,count,…] → runs.sub 形式
+function subListRuns(list) {
+	if (!list) return null;
+	const sub = new Array(SUB_NB).fill(null);
+	for (let i = 0; i < list.length; i += 3) (sub[list[i]] ??= []).push([list[i + 1], list[i + 2]]);
+	return sub;
 }
 
 // bindDepthUniforms は utility.js へ移設（2026-08-14＝面ドレープ化で uStencil/uId=idfill.js とも共用）。
@@ -234,7 +251,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 			: lowZoomEff && s.metaTexB && s.polyEdgesB > 0
 			&& (finestT ? s.totalEdgesB <= finestT.edgeCount * 1.5 : s.totalEdgesB <= 600_000);
 		const lnSel = lnB
-			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2 }   // minW=-2＝perf行で境界パスと分かる印
+			? { tex: s.metaTexB, count: s.totalEdgesB, runs: null, minW: -2, sub: subListRuns(s.subB) }   // minW=-2＝perf行で境界パスと分かる印。sub＝境界メタの複製行区間
 			: pickLineTier(s, data.lodRank ?? 0, metaTex, totalEdges);
 		gl.useProgram(renderProgram);
 		bindSharedUniforms(gl, uRender, data, arcTex, lnSel.tex, TEX_ARC_W, TEX_META_W, width, height);
@@ -251,12 +268,30 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		// 尾根の向こうは実線が消え、直後の GREATER パスが「淡い固定破線」で拾う（CAD の隠線表現）。
 		const dep = bindDepthUniforms(gl, uRender, data);
 		if (dep) { gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL); gl.depthMask(false); }
-		let pfEdges = 0;   // perf 計測用（実際に発行した辺数＝tier/カリングの効き確認。?perf=1 の行へ）
-		for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]])) {
-			pfEdges += cnt;
-			gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
-		}
-		s._pfLineEdges = pfEdges; s._pfTierW = lnSel.minW ?? -1;
+		// 地形適応細分（dep 時のみ）：メイン描画（u_sub=1）は skipE7 以上の長辺を VS で飛ばし、バケット b の複製行を
+		// N[b] インスタンスで描く（VS が各サブ端点を地形メッシュ面へ乗せる＝長辺の 3D 直線チョードが山を貫かない）。
+		// 2D/地形なし＝plan は N 全1・skip 0＝従来の drawArrays だけ。
+		const runsL = lnSel.runs ?? [[0, lnSel.count]];
+		const subRuns = lnSel.runs ? lnSel.runs.sub : lnSel.sub;
+		const plan = subPlan(dep, subRuns, !!s._isDrawing);   // 移動中は細分を半分（静止で全密度）
+		const drawRuns = () => {
+			gl.uniform1i(uRender.u_sub, 1);
+			gl.uniform1ui(uRender.u_subSkipE7, plan.skipE7);
+			for (const [est, cnt] of runsL) gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+			if (plan.skipE7 > 0 && subRuns) {
+				gl.uniform1ui(uRender.u_subSkipE7, 0);
+				for (let b = 0; b < SUB_NB; b++) {
+					const n = plan.N[b], L = subRuns[b];
+					if (n <= 1 || !L) continue;
+					gl.uniform1i(uRender.u_sub, n);
+					for (const [st, cnt] of L) gl.drawArraysInstanced(gl.TRIANGLES, st * 6, cnt * 6, n);
+				}
+			}
+		};
+		let pfEdges = 0;   // perf 計測用（実際に発行した辺数／細分サブ区間数＝tier/カリング/細分の効き確認。?perf=1 の行へ）
+		for (const r of runsL) pfEdges += r[1];
+		drawRuns();
+		s._pfLineEdges = pfEdges; s._pfSubs = plan.total; s._pfTierW = lnSel.minW ?? -1;
 		if (dep) {
 			// 隠線パスは静止時のみ（移動中は省略＝tilt山岳ビューの線頂点コストを半減）。淡破線は装飾＝
 			// パン/ズーム中に一瞬消えても違和感がなく、settle の再描画で必ず戻る（terrainGate と同じ思想）。
@@ -265,8 +300,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 			if (!s._isDrawing && pfEdges < 100_000) {
 				gl.depthFunc(gl.GREATER);
 				gl.uniform1f(uRender.u_hidden, 1);
-				for (const [est, cnt] of (lnSel.runs ?? [[0, lnSel.count]]))
-					gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+				drawRuns();   // 同じ細分＝実線と隠線が同じ折れ線（継ぎ目で食い違わない）
 				gl.uniform1f(uRender.u_hidden, 0);
 				gl.depthFunc(gl.LEQUAL);
 			}
@@ -323,7 +357,11 @@ export function drawHighlight(s, data) {
 	//（識別の主目的は「どれが当たっているか」＝隠さない）。ドレープだけ掛けて基図と同じ高さに乗せる。
 	gl.useProgram(renderProgram);
 	bindSharedUniforms(gl, uRender, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-	bindDepthUniforms(gl, uRender, data);
+	const depH = bindDepthUniforms(gl, uRender, data);
+	const nH = drapeSubs(depH, [[0, hasRange ? eCount : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
+	gl.uniform1i(uRender.u_sub, nH);
+	gl.uniform1ui(uRender.u_subSkipE7, 0);
+	const drawH = (est, cnt) => { if (nH > 1) gl.drawArraysInstanced(gl.TRIANGLES, est * 6, cnt * 6, nH); else gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6); };
 	bindFidStyle(s, gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
@@ -334,9 +372,9 @@ export function drawHighlight(s, data) {
 	if (uRender.u_hilite_width) gl.uniform1f(uRender.u_hilite_width, data.hiliteWidth ?? 0.0);   // ホバー全幅(device px・0=未指定＝u_line_width)
 	gl.uniform1i(uRender.u_pass, 1);
 	if (hasRange) {
-		gl.drawArrays(gl.TRIANGLES, eStart * 6, eCount * 6);
+		drawH(eStart, eCount);
 	} else if (totalEdges > 0) {
-		gl.drawArrays(gl.TRIANGLES, 0, totalEdges * 6);
+		drawH(0, totalEdges);
 	}
 
 	// Point highlight：大きく＋黄。

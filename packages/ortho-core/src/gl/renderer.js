@@ -1083,7 +1083,8 @@ export function createRenderer(canvas, rOpts = {}) {
 				logCoef: 2.0 / Math.log2(_lb * 1.15 + st.camDist + 1.0),
 				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
 				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
-				meshQ: mq, meshG: mq ? terrain.G : 0 };   // 案A: gint も描画メッシュ面へ量子化
+				meshQ: mq, meshG: mq ? terrain.G : 0,   // 案A: gint も描画メッシュ面へ量子化
+				noSub: view.gintSub === false };        // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
 		} else gintCtx = null;
 		// 下地の線は「本命(main)の線と同時に出る時だけ」伏せる＝ズーム中に太さ・形状のズレた「LODの荒い線」が
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト

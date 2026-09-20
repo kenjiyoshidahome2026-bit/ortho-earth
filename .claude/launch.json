@@ -102,6 +102,21 @@
         "--strictPort"
       ],
       "port": 5175
+    },
+    {
+      "name": "ortho-japan-5176",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "@ortho-earth/japan",
+        "--",
+        "--port",
+        "5176",
+        "--strictPort"
+      ],
+      "port": 5176
     }
   ]
 }

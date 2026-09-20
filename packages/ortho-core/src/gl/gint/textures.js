@@ -9,7 +9,8 @@ import { bakeBase, bakeTier, tierPlan } from './bake.js';
 
 // RGBA32UI メタ（基準/境界/tier 共通）を TEX_META_W 幅にパディングして搭載。
 function uploadMetaTex(s, gl, metaU32, edgeCount) {
-	const h   = Math.ceil(edgeCount / s.TEX_META_W);
+	const rows = Math.max(edgeCount, metaU32.length >> 2);   // 複製行（長辺の細分用・メタ末尾）も載せる
+	const h   = Math.ceil(rows / s.TEX_META_W);
 	const pad = new Uint32Array(s.TEX_META_W * h * 4);
 	pad.set(metaU32);
 	return uploadTex2D(gl, pad, s.TEX_META_W, h, gl.RGBA32UI, gl.RGBA_INTEGER);
@@ -40,6 +41,7 @@ function applyArtifacts(s, art) {
 	s.polyEdges     = art.base.polyEdgeCount;
 	s.polyEdgeByFid = art.base.polyEdgeByFid;
 	s.metaChunks    = art.base.chunks;
+	s.span          = [art.base.spanX ?? -1, art.base.spanY ?? -1];   // 最長辺スパン（e7・地形適応細分の上限。-1=未知）
 	s.polyBboxByFid = art.polyBboxByFid;
 	s.outlineZoom   = art.outlineZoom;   // 低ズームのベタ塗り切替閾値（ポリゴン無し=null=既定へ）
 	s.fillOff       = art.fillOff;       // 巨大ポリゴンの自動ベタ塗り停止（明示 fillColor は従来どおり尊重）
@@ -63,9 +65,13 @@ function applyArtifacts(s, art) {
 	s.metaTexB = null;
 	s.totalEdgesB = 0;
 	s.polyEdgesB  = 0;
+	s.spanB       = [-1, -1];
+	s.subB        = null;
 	if (art.boundary) {
 		s.totalEdgesB = art.boundary.edgeCount;
 		s.polyEdgesB  = art.boundary.polyEdgeCount;
+		s.spanB       = [art.boundary.spanX ?? -1, art.boundary.spanY ?? -1];
+		s.subB        = art.boundary.sub ?? null;   // 境界メタの複製行区間 [b,start,count,…]（台帳無し＝全体 1 チャンク）
 		s.metaTexB    = uploadMetaTex(s, gl, art.boundary.metaU32, art.boundary.edgeCount);
 		console.debug('[gint] boundary edges=%d (%.1f%%)', s.totalEdgesB, s.totalEdges ? 100 * s.totalEdgesB / s.totalEdges : 0);
 	}

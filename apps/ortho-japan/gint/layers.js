@@ -578,13 +578,15 @@ let gintPaintLast = null;   // 最後に要求された fid→RGBA 表（層差�
 // moveBudget=Infinity＋outlineZoom=0＝移動中もズーム帯でも常に正表現（本人裁定 2026-09-01「リソースは余裕・
 // gintの見せ場」）。既定のままだと admin0（国境込み）は①移動中の描画予算 ②outlineZoom ヒステリシスの
 // 2つの柵で境界メタへ縮退し、共有arc＝国境そのものが（ドラッグ中だけ）消えて見えた。admin0 は tier 梯子が
-// 効く長arc層＝移動中の実コストは軽い。noDepth＝地形深度に参加しない（常に最前面）：チルト中は内陸の長arc
-// が端点標高しか見ず地形に潜り、隠線パスは静止時のみ＝ドラッグで国境だけ消えた（海岸線は海抜0で無事）。
+// 効く長arc層＝移動中の実コストは軽い。
+// 旧 noDepth:true（地形深度に参加しない＝常に最前面）は「チルト中は内陸の長arcが端点標高しか見ず地形に潜り、
+// ドラッグで国境だけ消えた」対策の暫定だった。2026-09-21 エンジン側で根治（gint 線 VS の地形適応細分＝長辺を
+// 地形メッシュ1セル刻みのサブ区間に割って面へ乗せる）＝国境も海岸線と同じく地形に沿い、尾根の向こうは隠線。
 function admin0DrawStyle() {
 	const t = new Float32Array(256 * 4);
 	t.set(env.theme.coastLine);        // style0 = ポリゴン辺（admin0 の海岸線+国境線）
 	t.set(env.theme.coastLine, 4);     // style1 = 折れ線（admin0 では未使用）
-	return { styleTable: t, lineWidth: 0.75, moveBudget: Infinity, outlineZoom: 0, noDepth: true };
+	return { styleTable: t, lineWidth: 0.75, moveBudget: Infinity, outlineZoom: 0 };
 }
 // admin0 独立層の生成（WebGPU 経路）。ペイロードは fillOff 強制済みの admin0Gint（国ポリゴンはアウトライン専用）
 // ＝addGint へはダック（unPackGint=admin0Gint・識別面は原本 admin0Pbf）で渡す。interactive:false＝
