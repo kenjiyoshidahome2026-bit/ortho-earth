@@ -25,15 +25,30 @@ export const betaOf = latDeg => R_AX === 1 ? latDeg
 export const geodeticOf = betaDeg => R_AX === 1 ? betaDeg
 	: Math.atan2(Math.sin(betaDeg * D2R), R_AX * Math.cos(betaDeg * D2R)) * R2D;
 
-// world空間の3D点 → 測地経緯度 [lon,lat]（deg）。unproject の復元と同じ流儀＝S⁻¹（yだけ1/R_AX＝β空間へ戻す）
-// してから geodeticOf で β→測地緯度へ。球(R_AX=1)は恒等。updateUnderground/eyePose が「eyeの地上位置」を
-// 正しく引くための逆変換：world の y を直に asin すると【地心緯度】になり、楕円体では測地緯度と緯度36°で
-// 約0.09°ずれ、eye直下の地表サンプルが約10km飛ぶ（実測：加賀市の地中フェード誤発動の真因 2026-08-15）。
+// world空間の3D点（S 込み＝楕円体面上の点・S·eye）→ 測地経緯度 [lon,lat]（deg）。S⁻¹（yだけ1/R_AX）で
+// β空間へ戻してから geodeticOf で β→測地緯度へ。球(R_AX=1)は恒等。world の y を直に asin すると【地心緯度】
+// になり、楕円体では測地緯度と緯度36°で約0.09°（≒10km 南）ずれる。
+// ⚠ cameraState().eye は既に S⁻¹ 済み（β空間）＝こちらでなく betaToLonLat を通すこと。β点をここへ入れると
+// S⁻¹ が二重に掛かり、緯度が反対側へ同じ量（36°で約+0.09°≒10km 北）ずれる＝updateUnderground の地中フェード
+// 誤発動の真因その2（2026-09-21・?ell=1）。8/15 の修正（57a1f19）は地心緯度(−10km)を +10km に裏返しただけで、
+// 加賀市は北 10km が日本海(0m)ゆえ「直った」ように見えていた。
 export function worldToLonLat(p) {
 	const yb = p[1] / R_AX;                                       // world → β空間（S⁻¹＝y だけ 1/R_AX）
 	const len = Math.hypot(p[0], yb, p[2]) || 1;
 	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, yb / len))) * R2D);
 	const lon = Math.atan2(p[2], p[0]) * R2D;                     // 経度は S（y方向）に不変
+	return [lon, lat];
+}
+
+// β単位球空間の3D点（cameraState().eye・invMvp の出口・unproject の交点）→ 測地経緯度 [lon,lat]（deg）。
+// asin が返すのは β＝geodeticOf で測地緯度へ復元（unproject と同じ手順）。球では恒等。
+// updateUnderground/eyePose が「eye 直下の地表点」を引くための逆変換。β空間では動径が測地法線と ≤f·sin2φ/2
+// (≈0.1°) 開くため、eye の動径投影は測地的な直下点から高度×0.0017 だけずれる（高度 600m で約 1m＝
+// 地中フェードの帯 20m の内。高度 100km で 170m＝影響する消費者が出たら測地法線の足を反復で解くこと）。
+export function betaToLonLat(p) {
+	const len = Math.hypot(p[0], p[1], p[2]) || 1;
+	const lat = geodeticOf(Math.asin(Math.max(-1, Math.min(1, p[1] / len))) * R2D);
+	const lon = Math.atan2(p[2], p[0]) * R2D;
 	return [lon, lat];
 }
 

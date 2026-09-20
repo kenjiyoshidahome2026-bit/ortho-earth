@@ -5,8 +5,9 @@
 //   3. 球モード回帰＝setEllipsoid(false) で従来値とビット同値（mvp/eye/往復）
 //   4. 楕円体の幾何的正しさ：南北1°の画面距離が東西1°·cosφ と M/N 比で食い違う（球では一致）こと
 //   5. dβ 閉形式（シェーダ式のJS写経）と厳密 βOf の一致（全域）
+//   6. eye→直下の地表点（updateUnderground/eyePose）：β空間の eye は betaToLonLat の一段＝pitch=0 で center に戻る
 // 使い方: node packages/ortho-core/tests/ellipsoid.mjs
-import { cameraState, project, unproject, lonlatTo3D, setEllipsoid, betaOf, geodeticOf, ellNormal3D }
+import { cameraState, project, unproject, lonlatTo3D, setEllipsoid, betaOf, geodeticOf, ellNormal3D, betaToLonLat, worldToLonLat }
 	from '../src/camera.js';
 import { meridionalRadius, primeVerticalRadius } from '../src/geodesic.js';
 
@@ -97,6 +98,25 @@ setEllipsoid(true);
 	ok(near(Math.hypot(...w), 1, 1e-12), '|S·m| = 1（worldで単位法線）');
 	const u = lonlatTo3D(139, 35);
 	ok(Math.abs(1 - (m[0] * u[0] + m[1] * u[1] + m[2] * u[2]) / Math.hypot(...m)) > 1e-7, 'm は β動径と別方向（楕円体で有意）');
+}
+console.log('― eye→直下の地表点（updateUnderground/eyePose 2026-09-21）―');
+for (const ell of [false, true]) {
+	setEllipsoid(ell);
+	const r = ell ? 1 - 1 / 298.257223563 : 1, R2D = 180 / Math.PI, name = ell ? '楕円体' : '球';
+	// pitch=0 の eye は注視点の測地法線上＝直下点は center そのもの（z17.7≒高度630m・加賀市の緯度）
+	const cam = CAM(36.3, 17.7, 0, 0);
+	const st = cameraState(cam, 1200, 800);
+	const [lon, lat] = betaToLonLat(st.eye);                            // cameraState.eye は β空間
+	const dm = (lat - cam.center[1]) * 111e3;
+	ok(near(lon, cam.center[0], 1e-9) && Math.abs(dm) < 5, `${name}: betaToLonLat(eye) = center（Δlat = ${dm.toFixed(2)} m）`);
+	const [, latW] = worldToLonLat([st.eye[0], st.eye[1] * r, st.eye[2]]);   // S·eye＝world 空間に戻せば worldToLonLat が正解
+	ok(Math.abs((latW - cam.center[1]) * 111e3) < 5, `${name}: worldToLonLat(S·eye) = center`);
+	if (ell) {
+		const latRaw = Math.asin(st.eye[1] / Math.hypot(...st.eye)) * R2D;   // 8/15 以前＝β生（地心側）
+		const [, latDbl] = worldToLonLat(st.eye);                            // 8/15〜9/21＝β点に S⁻¹ 二重
+		ok(latRaw < cam.center[1] - 0.08 && latDbl > cam.center[1] + 0.08,
+			`楕円体: 旧2式は ∓約0.09°（≒10km）ずれる＝回帰の証拠（β生 ${(latRaw - 36.3).toFixed(4)}° / S⁻¹二重 +${(latDbl - 36.3).toFixed(4)}°）`);
+	}
 }
 setEllipsoid(false);   // 後続テストへの汚染防止
 

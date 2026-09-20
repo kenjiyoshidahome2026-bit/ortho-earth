@@ -6,7 +6,7 @@ import "./style.scss";
 import {
 	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
-	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, worldToLonLat,
+	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
@@ -870,7 +870,7 @@ function updateUnderground() {   // ~16Hz サンプラ（onMove から）：eye�
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
 	const st = cameraState(cam, size.w, size.h);
 	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
-	const [lon, lat] = worldToLonLat(st.eye);   // ★測地緯度で eye の地上位置を引く（地心緯度で直に asin すると楕円体で約10km飛ぶ＝地中フェード誤発動の根治 2026-08-15）
+	const [lon, lat] = betaToLonLat(st.eye);   // ★eye は β空間（cameraState が S⁻¹ 済み）＝β→測地緯度の一段だけ。生 asin=地心(−10km)・worldToLonLat=S⁻¹二重(+10km) はどちらも ?ell=1 で直下点が 10km 飛ぶ（8/15・9/21）
 	const eyeAltM = (len - 1) * EARTH_M;   // eye の海抜[m]（軌道は sea-level 球なので len-1 がそのまま高度）
 	Promise.resolve(getHeight(lon, lat, cam.zoom))
 		.then(h => {
@@ -1920,7 +1920,7 @@ sky.ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も
 const eyePose = () => {
 	const st = cameraState(cam, size.w, size.h);
 	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
-	const [eLon, eLat] = worldToLonLat(st.eye);   // 測地緯度（updateUnderground と同じ逆変換＝楕円体でも正しい eye 位置）
+	const [eLon, eLat] = betaToLonLat(st.eye);   // 測地緯度（updateUnderground と同じ逆変換＝eye は β空間・楕円体でも正しい eye 位置）
 	return { lon: wrapLon(eLon), lat: eLat,
 		altM: (len - 1) * EARTH_M, distM: st.camDist * EARTH_M,   // altM=海抜[m]（sea-level球）・distM=注視点までの実距離[m]
 		fovy: cam.fovy || 50 * D2R };   // 垂直視野角[rad]（エンジン既定50°・水平は aspect 依存＝表示側で 2·atan(tan(fovy/2)·W/H)）
