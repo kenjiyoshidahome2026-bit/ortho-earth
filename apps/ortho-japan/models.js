@@ -9,7 +9,7 @@
 // 未アップロード（404）でも場所へは飛ぶ＝候補の取捨（本人）は場所と絵で判断できる。
 // 選んだ模型は GLB／glTF(.zip) でそのまま落とせる＝このデモの芯（3D Tiles を GLB へ変換してから描いている）。?m=<id> で起動時に選ぶ（共有）。
 import { gunzip } from "geopbf/gzip";
-import { encodeZIP } from "geopbf/encodeZIP";   // glTF（.gltf＋.bin）を 1 つの zip にして渡す
+import { convertToFile, FORMATS } from "glbconv";   // GLB → glTF/OBJ/PLY/STL/USDZ/3D Tiles（依存ゼロの変換ライブラリ・Draco は注入口）
 import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
@@ -97,21 +97,23 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		a.href = u; a.download = name; document.body.appendChild(a); a.click(); a.remove();
 		setTimeout(() => URL.revokeObjectURL(u), 10000);
 	};
-	function glbToGltf(bytes, base) {   // GLB → { gltf(JSON 文字列), bin(Uint8Array) }
-		const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-		if (new TextDecoder().decode(bytes.subarray(0, 4)) !== "glTF") throw new Error("not glb");
-		const total = dv.getUint32(8, true);
-		let off = 12, json = null, bin = new Uint8Array(0);
-		while (off + 8 <= total) {
-			const len = dv.getUint32(off, true), type = new TextDecoder().decode(bytes.subarray(off + 4, off + 8));
-			const body = bytes.subarray(off + 8, off + 8 + len);
-			if (type.startsWith("JSON")) json = JSON.parse(new TextDecoder().decode(body)); else bin = body;
-			off += 8 + len;
-		}
-		if (!json) throw new Error("no JSON chunk");
-		json.buffers = [{ byteLength: bin.length, uri: base + ".bin" }];   // GLB の無名バッファ → 外部 .bin
-		return { gltf: JSON.stringify(json, null, "\t"), bin };
-	}
+	// 変換＝glbconv（依存ゼロ）。Draco の展開だけは読み手を注入する（PLATEAU と同じ loaders.gl の実体を遅延で借りる）
+	let dracoP = null;
+	const decodeDraco = async (bytes, attrIds) => {
+		dracoP ??= import("./plateau-loaders.js").then(m => ({ parse: m.loadersParse, DracoLoader: m.DracoLoader }));
+		const { parse, DracoLoader } = await dracoP;
+		return parse(bytes, DracoLoader, { draco: { attributeNameEntry: "name" } });
+	};
+	// テクスチャの差し替え（OBJ/USDZ 向け）：webp のままだと読めない相手が多い＝ブラウザで jpeg へ焼き直す
+	const transcodeImage = async (bytes, mime, want) => {
+		const bm = await createImageBitmap(new Blob([bytes], { type: mime }));
+		const cv = new OffscreenCanvas(bm.width, bm.height);
+		cv.getContext("2d").drawImage(bm, 0, 0);
+		const out = await cv.convertToBlob({ type: want, quality: 0.9 });
+		bm.close();
+		return { mime: out.type || want, bytes: new Uint8Array(await out.arrayBuffer()) };
+	};
+	const DL = ["glb", "gltf", "obj", "ply", "stl", "usdz", "3dtiles"];   // パネルに出す順（左から使う頻度）
 	const setStatus = (msg, err = false) => { const el = $("status"); el.textContent = msg || ""; el.classList.toggle("err", !!err); };
 	const showCur = m => {
 		const el = $("cur");
@@ -120,13 +122,18 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		// 出典（CC BY の義務）とダウンロードだけ。向き/縮尺の調整欄は廃止＝PLATEAU の glb は置き場所を自分で持つ（CESIUM_RTC）
 		el.innerHTML = `<b>${esc(L(m.name))}</b>
 			<div class="m">${t("3D model: $1 ($2)", esc(L(m.author)), esc(m.license))}${m.source ? ' · <a href="' + esc(m.source) + '" target="_blank" rel="noopener">' + t("Source ##link") + "</a>" : ""}</div>
-			<div class="dl">${t("Download")} <a href="#" data-k="dlglb">GLB</a> <a href="#" data-k="dlgltf">glTF (.zip)</a></div>`;
-		$("dlglb").addEventListener("click", e => { e.preventDefault(); if (glbBytes) saveAs(new Blob([glbBytes], { type: "model/gltf-binary" }), m.id + ".glb"); });
-		$("dlgltf").addEventListener("click", async e => {
-			e.preventDefault(); if (!glbBytes) return;
-			const { gltf, bin } = glbToGltf(glbBytes, m.id);
-			const zip = await encodeZIP([new File([gltf], m.id + ".gltf", { type: "model/gltf+json" }), new File([bin], m.id + ".bin", { type: "application/octet-stream" })]);
-			saveAs(zip instanceof Blob ? zip : new Blob([zip], { type: "application/zip" }), m.id + "-gltf.zip");
+			<div class="dl">${t("Download")}${DL.map(k => `<a href="#" data-f="${k}">${FORMATS[k].label}</a>`).join("")}</div>`;
+		el.querySelector(".dl").addEventListener("click", async e => {
+			const link = e.target.closest("a[data-f]"); if (!link) return;
+			e.preventDefault();
+			if (!glbBytes) return;
+			const was = link.textContent;
+			link.setAttribute("aria-disabled", "true"); link.textContent = "…";
+			try {
+				const out = await convertToFile(glbBytes, link.dataset.f, { name: m.id, decodeDraco, transcodeImage });
+				saveAs(new Blob([out.bytes], { type: out.type }), out.name);
+			} catch (err) { console.error("[models] convert failed", link.dataset.f, err); setStatus(t("Failed to load: $1", String(err?.message || err)), true); }
+			finally { link.removeAttribute("aria-disabled"); link.textContent = was; }
 		});
 	};
 	async function load(m) {

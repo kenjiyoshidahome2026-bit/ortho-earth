@@ -1,0 +1,17 @@
+{
+	"name": "glbconv",
+	"version": "0.1.0",
+	"description": "GLB（glTF バイナリ）を他の 3D 形式へ変換する小さな道具。依存ゼロ・ブラウザと Node の両方で動く。Draco は注入口（decodeDraco）で受ける。",
+	"license": "MIT",
+	"type": "module",
+	"main": "src/index.js",
+	"exports": {
+		".": "./src/index.js",
+		"./zip": "./src/zip.js"
+	},
+	"scripts": {
+		"test": "node tests/t-glbconv.mjs"
+	},
+	"files": ["src", "README.md", "LICENSE"],
+	"keywords": ["gltf", "glb", "obj", "ply", "stl", "usdz", "3d-tiles", "converter"]
+}

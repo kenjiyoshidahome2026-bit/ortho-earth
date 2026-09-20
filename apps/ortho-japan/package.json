@@ -76,16 +76,17 @@
 		"models:thumbs": "node scripts/models-thumbs.mjs"
 	},
 	"devDependencies": {
-		"ortho-core": "*",
-		"geopbf": "*",
-		"altpbf": "*",
-		"geoedit": "*",
-		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/3d-tiles": "^4.3.0",
-		"@loaders.gl/gltf": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
-		"quiet-mono": "*",
+		"@loaders.gl/gltf": "^4.3.0",
+		"altpbf": "*",
 		"ephem": "*",
+		"geoedit": "*",
+		"geopbf": "*",
+		"glbconv": "*",
+		"ortho-core": "*",
+		"quiet-mono": "*",
 		"vite": "^5.0.0"
 	}
 }
