@@ -23,7 +23,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo } from "ortho-core";
+import { createPipeline, pmtilesInfo, isRasterTileType } from "ortho-core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
@@ -55,6 +55,8 @@ import { profile as profileGadget } from "./gadgets/profile-stub.js";   // 玄�
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
 import { japan as japanGadget } from "./gadgets/japan.js";
+import { raster as rasterGadget } from "./gadgets/raster.js";   // 画像タイル（ラスタ）の切替＝v1 Layers/setBase の後継（地域パックのカタログ・2026-09-21）
+import { globe as globeGadget } from "./gadgets/globe.js";     // ミニ地球儀（右下・視野の枠）＝v1 accessories globe の移植（2026-09-21）
 import { print as printGadget } from "./gadgets/print-stub.js";   // 本体(print.js)は初回起動時にimport()＝初期バンドルから隔離
 import { close as closeGadget } from "./gadgets/close.js";
 import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
@@ -198,6 +200,7 @@ const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env
 // ③宣言が basemap を持たない地域（オランダ）＝タイルを一枚も要求しない空ソース＝図郭外と同じ扱い
 // （＝標高ゲート付き全面水域。日本の配信圏の外なので移設前の見え方と同じ・2026-09-17）。
 const REGION_BASEMAP = REGIONS.map(r => r.basemap).find(Boolean) ?? null;
+const REGION_RASTERS = REGIONS.flatMap(r => r.rasters || []);   // 画像タイル（XYZ ラスタ）のカタログ＝地域パックが宣言（エンジンは知らない・?r= と切替ガジェットの鍵）
 const BASE_SOURCE = PM_URL ? {
 	kind: "pmtiles", url: PM_URL, tileUrl: () => PM_URL,
 	coverage: null, tileMinZoom: 0, lodFloor: null, minZ: 0, info: null, attrHTML: null,
@@ -378,7 +381,7 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 // フェード進行・PLATEAUバッチ数を画面へ出す。塗り0枚なら CPU/状態側（シーンが空・退場）、
 // 枚数が出ているのに黒なら GPU 側＝二分の起点になる（Android 実機の反転 2026-08-03・USB接続なしで読める）。
 const drawHud = /[?&]drawhud=1/.test(location.search);
-let memTerrain = 0, memHeap = 0, memGpu = null;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
+let memTerrain = 0, memHeap = 0, memGpu = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
@@ -618,7 +621,10 @@ renderWorker.onmessage = e => {
 		return;
 	}
 	if (d.type === "terrStats") { console.log("[terr]", JSON.stringify(d.data)); return; }   // __terr()の返答＝コンソールに1行
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "rasterInfo") return onRasterInfo(d.id, d.info);       // 画像タイル層：ソースの自己申告が届いた（bbox/zoom 域/出典）
+	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
+	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -996,8 +1002,18 @@ dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プ�
 // ?pm= のアーカイブ自己申告を読む → 層名を役割へ振って描画規則を組み → style へ前置 → 再ビルド。
 // 規則の中身は style-pm.js（役割表・紙→インクの階調・描かないものの裁定）。ここは配線だけ。
 const withPM = s => BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
+// 画像タイル層の起動待ち行列：map.raster（下方で定義）と初フレームが揃ってから実行＝アーカイブのヘッダが先に届いても TDZ/未初期化を踏まない
+const rasterBootQ = [];
+let rasterBoot = fn => rasterBootQ.push(fn);
 if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
 	BASE_SOURCE.info = info;   // maxZ（LOD 上限）にも即効く＝次フレームから分割が maxZoom で止まる
+	// ラスタのアーカイブ（tileType＝png/jpeg/webp/avif）＝ベクタ配管はエンジンの門が空タイルで返す＝画像タイル層（基図・塗りは伏せる）へ回す。
+	// データが自分の種別を申告する＝同じ ?pm= で済む（初めにデータありき）。出典もアーカイブの自己申告（rasterInfo で消毒）
+	if (isRasterTileType(info.tileType)) {
+		rasterBoot(() => map.raster.add("pm", { pmtiles: BASE_SOURCE.url }, { order: "under", hideFills: true }).catch(err => console.warn("[pm] raster archive failed", err)));
+		console.info(`[pm] ${info.name || PM_SPEC}  raster ${info.tileType}  z${info.minZoom}-${info.maxZoom}  -> imagery layer (fills hidden)`);
+		return;
+	}
 	// 出典：アーカイブが metadata で宣言したものを使う。**他人の置き場の HTML＝非信頼入力**につき
 	// innerHTML の直前で消毒する（docs/geopbf §11 の作法・?pm=<攻撃者URL> を踏んでも script が走らない）。
 	BASE_SOURCE.attrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
@@ -1766,11 +1782,14 @@ function render() {
 				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。門が 0 まで開く＝world/sky 圏でも
 				// アーカイブは描かれている＝そちらにも併記する（球のハイプソの出典と両方が要る）。
 				const pmSrc = BASE_SOURCE.url ? (BASE_SOURCE.attrHTML || new URL(BASE_SOURCE.url.replace("pmtiles://", "")).host) : null;
+				// 画像タイル層（ラスタ基図/重ね）の出典＝各層の自己申告（消毒済み）を 1 行足す。基図の線・注記は従来どおり（地理院）＝その出典も残す
+				const rasterSrc = rasterAttrHTML();
+				const rasTail = rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "";
 				// 出典は文単位で組む（"出典：" + 名前 の足し算は言語で語順が壊れる＝i18n.js の掟）。$1 に列を差す
 				const head = pmSrc ? pmSrc + "・" : "";
-				attr.innerHTML = zone === "jp" ? (pmSrc ? t("Source: $1", pmSrc) + tail : attrJPHTML)
-					: zone === "world" ? t("Source: $1", head + worldSrc) + tail
-					: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + tail;   // sky＝星図が先頭（星空劇場の主役）
+				attr.innerHTML = zone === "jp" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : attrJPHTML + rasTail))
+					: zone === "world" ? t("Source: $1", head + worldSrc) + rasTail + tail
+					: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + rasTail + tail;   // sky＝星図が先頭（星空劇場の主役）
 			}
 		}
 	}
@@ -1848,7 +1867,7 @@ let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝
 function hudSnapshot() {
 	const pl = plateau.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
 	const ts = tiles.stats();
-	const gpu = memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）
+	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋画像タイル層のテクスチャ
 	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
 	if (total > hudPeak) hudPeak = total;
 	const nc = navigator.connection || {};
@@ -1861,7 +1880,7 @@ function hudSnapshot() {
 			net: nc.effectiveType || null, down: nc.downlink || null, ua: navigator.userAgent,
 		},
 		plateau: { bytes: pl.bytes, regions: pl.regions }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
-		terrain: memTerrain, heap: memHeap, gpu: memGpu, gpuBytes: gpu,
+		terrain: memTerrain, heap: memHeap, gpu: memGpu, gpuBytes: gpu, raster: memRaster,
 		transient: pl.transient,
 		total, peak: hudPeak, budget: 900 * 1048576,   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）＝残りが薄いほど落ちる寸前
 		tier: pl.tier,
@@ -2099,6 +2118,97 @@ map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
+// ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
+// ここは台帳（id→spec/opts/info）と指示（rasterAdd/Remove/Set）・ローカル容器（gpkg/mbtiles）のプロバイダ worker・
+// カタログ（地域パック rasters＝外から定義）と ?r= の同期。外から定義できる口＝三つ：地域パック（REGION.rasters）／
+// URL（?xyz= ?pm= ?r=）／公開 API（map.raster.add＝自前契約の URL テンプレ・ラスタ PMTiles・MessagePort プロバイダ）。
+const rasterReg = new Map();   // id → { spec, opts, info, error, worker, attrHTML, _res, _rej }
+const rasterCbs = new Set();
+const rasterStatWait = new Map(); let rasterStatSeq = 0;
+const rasterChanged = () => { attrZone = null; needsDraw = true; for (const cb of rasterCbs) { try { cb(); } catch (e) { console.error("[raster] onChange", e); } } };
+const rasterAttrHTML = () => [...rasterReg.values()].map(r => r.attrHTML).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join("・");
+const hostOf = u => { try { return new URL(String(u).replace(/^pmtiles:\/\//, "")).host; } catch { return null; } };
+function onRasterInfo(id, info) {
+	const rec = rasterReg.get(id); if (!rec) return;
+	rec.info = info;
+	// 出典＝ソースの自己申告（PMTiles/MBTiles の metadata・カタログの宣言）を消毒して出す。無ければホスト名（無出典で他人の絵を出さない）
+	rec.attrHTML = info?.attribution ? sanitizeHTML(String(info.attribution)) : (rec.spec?.url ? hostOf(rec.spec.url) : rec.spec?.pmtiles ? hostOf(rec.spec.pmtiles) : (info?.name ? sanitizeHTML(String(info.name)) : null));
+	rec._res?.(info); rec._res = rec._rej = null;
+	rasterChanged();
+}
+function onRasterError(id, error) {
+	const rec = rasterReg.get(id); if (!rec) return;
+	rec.error = error;
+	if (rec._rej) { rasterReg.delete(id); rec.worker?.terminate(); rec._rej(new Error(error)); rec._res = rec._rej = null; rasterChanged(); }
+	else console.warn("[raster]", id, error);
+}
+const catalogSpec = c => ({ url: c.url, tileSize: c.tileSize || 256, minZoom: c.minZoom, maxZoom: c.maxZoom, bbox: c.bbox || null, subdomains: c.subdomains, tms: c.tms,
+	name: c.key ? t(c.key) : (c.name || c.id),
+	attribution: c.attribution ? (c.attribution.href ? `<a href="${c.attribution.href}" target="_blank" rel="noopener">${c.attribution.key ? t(c.attribution.key) : c.attribution.text}</a>` : (c.attribution.key ? t(c.attribution.key) : c.attribution.text)) : null });
+// ?r=<id,id…>＝今の選択（基図＋重ね）を URL の search に写す（hash＝視点とは別の静的パラメータ）。埋め込み（target）ではホストの URL に触れない
+const rasterSyncURL = () => {
+	if (opts.target) return;
+	try {
+		const sel = map.raster.selected(), ids = [sel.base, ...sel.overs].filter(Boolean);
+		const u = new URL(location.href);
+		if (ids.length) u.searchParams.set("r", ids.join(",")); else u.searchParams.delete("r");
+		if (u.href !== location.href) history.replaceState(history.state, "", u.href);
+	} catch { /* 履歴 API 不可の環境＝無害 */ }
+};
+map.raster = {
+	catalog: REGION_RASTERS,
+	// add(id, spec, opts)：spec＝{ url:"…/{z}/{x}/{y}.png", minZoom, maxZoom, bbox, attribution, subdomains, tms, headers }｜{ pmtiles:"…" }｜{ file: File(.gpkg/.mbtiles), table? }｜{ port: MessagePort }
+	//                     opts＝{ order:"under"|"over", opacity, visible, hideFills（under 既定 true）, minZoom, maxZoom（表示域） }。戻り＝ソースの自己申告（info）
+	async add(id, spec, o = {}) {
+		if (rasterReg.has(id)) map.raster.remove(id);
+		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
+		rasterReg.set(id, rec);
+		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
+		if (spec && spec.file) {   // ローカル容器＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
+			const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "rastertiles" });
+			rec.worker = w;
+			const ch = new MessageChannel();
+			const opened = new Promise((res, rej) => {
+				w.onmessage = e => { const d = e.data || {}; if (d.type === "opened") res(d.info); else if (d.type === "error") rej(Object.assign(new Error(d.error), { vectorLayers: d.vectorLayers })); };
+				w.onerror = e => rej(new Error(e.message || "raster provider worker error"));
+			});
+			w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
+			try { await opened; } catch (err) { w.terminate(); if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
+			if (rasterReg.get(id) !== rec) { w.terminate(); throw new Error("removed while opening"); }
+			wireSpec = { port: ch.port2, name: spec.name || spec.file.name, attribution: spec.attribution || null }; transfer = [ch.port2];
+		}
+		const done = new Promise((res, rej) => { rec._res = res; rec._rej = rej; });
+		wPost({ type: "set", cmd: "rasterAdd", prop: id, data: { spec: wireSpec, opts: rec.opts } }, transfer);
+		rasterChanged();
+		return done;
+	},
+	remove(id) { const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
+	set(id, o) { const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
+	list: () => [...rasterReg].map(([id, r]) => ({ id, info: r.info, spec: r.spec, opts: r.opts, error: r.error })),
+	info: id => rasterReg.get(id)?.info ?? null,
+	stats: () => new Promise(res => { const sid = ++rasterStatSeq; rasterStatWait.set(sid, res); wPost({ type: "rasterStats", id: sid }); setTimeout(() => { if (rasterStatWait.delete(sid)) res(null); }, 5000); }),
+	onChange(cb) { rasterCbs.add(cb); return () => rasterCbs.delete(cb); },
+	// カタログ（地域パック）から：基図（under）はラジオ＝1 枚（null＝ベクタ地図に戻す）／重ね（over）はトグル。?r= を同期
+	async select(cid) {
+		const c = cid ? REGION_RASTERS.find(x => x.id === cid && (x.order || "under") !== "over") : null;
+		if (cid && !c) throw new Error(`raster: unknown base "${cid}"`);
+		if (!c) { map.raster.remove("base"); rasterSyncURL(); return null; }
+		const info = await map.raster.add("base", catalogSpec(c), { order: "under", opacity: c.opacity ?? 1, hideFills: true, catalogId: c.id });
+		rasterSyncURL(); return info;
+	},
+	async toggle(cid, on) {
+		const c = REGION_RASTERS.find(x => x.id === cid && x.order === "over");
+		if (!c) throw new Error(`raster: unknown overlay "${cid}"`);
+		const id = "ov:" + c.id, has = rasterReg.has(id), want = on == null ? !has : !!on;
+		if (want === has) return has;
+		if (want) await map.raster.add(id, catalogSpec(c), { order: "over", opacity: c.opacity ?? 0.7, hideFills: false, catalogId: c.id }); else map.raster.remove(id);
+		rasterSyncURL(); return want;
+	},
+	selected: () => ({ base: rasterReg.get("base")?.opts?.catalogId ?? null, overs: [...rasterReg].filter(([id]) => id.startsWith("ov:")).map(([, r]) => r.opts.catalogId).filter(Boolean) }),
+};
+{	// 起動待ち行列の解放＝初フレーム後（render worker 初期化前の set は捨てられる）
+	const off = map.onFrame(() => { off(); rasterBoot = fn => fn(); for (const fn of rasterBootQ.splice(0)) fn(); });
+}
 // ガジェットの表示宣言（プラットフォームの掟 2026-09-03「アイコン配列は全zで一本」）：搭載時 opts に
 //   zoom: [zmin, zmax)  … このズーム域でだけ表示（旧・solar の showBelow 内蔵と z5 一括退場CSSの置き換え）
 //   narrow: false       … 狭画面（narrowMq=480px＝#pos の狭画面掟と同じ境界）では出さない（左上溢れ対策）
@@ -2341,6 +2451,14 @@ map.gadget("cog", async function (src, opts) {
 	await cogCtl.load(src, opts);
 	return cogCtl;
 });
+map.gadget("raster", function (o) {   // 画像タイル（ラスタ）の切替＝地域パックのカタログ＋map.raster（select/toggle）。表示域は搭載側の zoom 宣言
+	return rasterGadget.call(this, { raster: map.raster, catalog: REGION_RASTERS, signal: ac.signal, ...o });
+});
+map.gadget("globe", function (o) {   // ミニ地球儀（右下・視野の枠・z≤8）… 追従は render のフック（戻り値 update を掴む）
+	const u = globeGadget.call(this, { signal: ac.signal, ...o });
+	if (u) { frameHooks.add(u); u(); }
+	return u;
+});
 // glTF/GLB（3D 模型）＝PLATEAU と同じ建物メッシュとして立てる（gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（無ければ画面中心）の ENU に置く／
 // CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の plateauMesh スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
 let modelCtl = null;
@@ -2370,6 +2488,23 @@ map.gadget("stac", function (opts) {
 	// 初フレーム後に発火＝renderworker 初期化前の set は黙って捨てられる（renderworker:246 の if(renderer) ガード）
 	if (u) { const off = map.onFrame(() => { off(); map.gadget.cog(u.href).catch(err => console.warn("[cog] failed", u.href, err)); }); }
 }
+// ?xyz=<URL テンプレ>＝任意の XYZ 画像タイルを基図に（自前契約のタイル鯖・API キー付きも可＝門は ?g= と共用：https 限定）。出典＝ホスト名（宣言が無いので出所だけは出す）
+// ?r=<id,id…>＝地域パックのカタログから（基図 1 枚＋重ね n 枚）。どちらも初フレーム後＝render worker の初期化前の set は捨てられる
+{
+	const q = new URLSearchParams(location.search);
+	const xyzSpec = q.get("xyz"), rSpec = q.get("r");
+	if (xyzSpec) {
+		const u = remoteUrl(xyzSpec, "xyz");
+		if (u) { const tpl = u.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"); const off = map.onFrame(() => { off(); map.raster.add("xyz", { url: tpl, name: u.host, minZoom: +q.get("xyzmin") || 0, maxZoom: +q.get("xyzmax") || 18 }, { order: "under", hideFills: true }).catch(err => console.warn("[xyz] failed", tpl, err)); }); }
+	}
+	if (rSpec) {
+		const ids = rSpec.split(",").map(x => x.trim()).filter(Boolean);
+		const off = map.onFrame(() => { off(); for (const id of ids) {
+			const c = REGION_RASTERS.find(x => x.id === id); if (!c) { console.warn("[raster] ?r= unknown id", id); continue; }
+			(c.order === "over" ? map.raster.toggle(id, true) : map.raster.select(id)).catch(err => console.warn("[raster] ?r=", id, err));
+		} });
+	}
+}
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);
 // ファイル取り込みの一本道（D&D と ?g= の共用）＝geopbf(File,{gint:true})→ @検知で anno 再生 or applyGintData→bboxへ球面フライト
@@ -2380,6 +2515,16 @@ const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@strok
 // 旧構造は if の連なりで、形式が増えるたびに本道の手前が一段伸びた。表なら「行を1つ足す」で済む。
 // ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
 const INTAKE = [
+	{
+		name: "raster-mbtiles",   // MBTiles（画像タイル）＝ローカル容器→プロバイダ worker→画像タイル層（基図・塗りは伏せる・2026-09-21）。ベクタ MBTiles は理由を言って断る
+		test: f => /\.mbtiles$/i.test(f.name),
+		draw: async file => rasterDropFile(file),
+	},
+	{
+		name: "raster-gpkg",   // GeoPackage のラスタ（タイル表）。タイル表が無い（地物層だけ）なら従来のベクタ本道へ合流
+		test: f => /\.gpkg$/i.test(f.name),
+		draw: async (file, ctx) => { const r = await rasterDropFile(file, true); return r === false ? mainRoad(file, ctx) : r; },
+	},
 	{
 		name: "cog",   // COG/GeoTIFF＝cog ガジェットへ（gint 経路の geopbf() は TIFF 非対応で null 死する）
 		test: f => /\.tiff?$/i.test(f.name),
@@ -2434,6 +2579,10 @@ const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝�
 		file = await fmt.convert(file);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 		break;
 	}
+	return mainRoad(file, { fit });
+};
+// 本道（gint 焼き→@検知で anno 再生 or gint スロット→bbox へ fit）＝取り込み表の draw 行からも合流できる（raster-gpkg の地物層フォールバック）
+const mainRoad = async (file, { fit = true } = {}) => {
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 	if (!pbf?.unPackGint) return null;
 	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
@@ -2456,8 +2605,21 @@ const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝�
 	}
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
+// ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
+const rasterDropFile = async (file, fallback = false) => {
+	annoCtl?.clear(); cogCtl?.clear();
+	try {
+		const info = await map.raster.add("drop", { file }, { order: "under", hideFills: true });
+		if (info?.bbox) { const bb = info.bbox, cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2, wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);
+			flyTo(cx, cy, Math.max(3, Math.min(17, Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg))))), 0); }
+		return { length: t("raster tiles z$1–$2", info?.minZoom ?? "?", info?.maxZoom ?? "?") };
+	} catch (err) {
+		if (fallback && /no tile table/.test(String(err?.message))) return false;
+		throw err;
+	}
+};
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）

@@ -106,7 +106,7 @@ export function hud(opts = {}) {
 			row("terrain", mb(s.terrain)) +
 			row("CityGML", mb(s.plateau.bytes) + note(s.plateau.regions + " zones")) +   // PLATEAU＝汎用名（CityGML）で。数値の出所は snapshot.plateau のまま
 			(s.heap ? row("JS heap", mb(s.heap)) : "") +
-			(s.gpuBytes ? row("GPU resident", mb(s.gpuBytes)) + (s.gpu ? det(`atlas ${mb(s.gpu.atlas)} · mesh ${mb(s.gpu.mesh)} · msaa ${mb(s.gpu.msaa)}`) : "") : "") +
+			(s.gpuBytes ? row("GPU resident", mb(s.gpuBytes)) + (s.gpu ? det(`atlas ${mb(s.gpu.atlas)} · mesh ${mb(s.gpu.mesh)} · msaa ${mb(s.gpu.msaa)}${s.raster ? ` · raster ${mb(s.raster)}` : ""}`) : "") : "") +   // raster＝画像タイル層（テクスチャ＋格子メッシュ）
 			row("transient", mb(s.transient.bytes)) + det(`cache ${mb(s.transient.cache)} · loading ${mb(s.transient.live)}`) +
 			row("total", mb(s.total) + note(`peak ${mb(s.peak)} (+ Draco)`), tight ? "val warn" : "val") +   // (+ Draco)＝解凍中間バッファは台帳外＝実ピークはこれより上
 			(s.tier ? row("low-mem tier", `${s.tier.active} zones · ${s.tier.residentGB.toFixed(1)}GB · ${s.tier.workers}w`, "warn") : "") +

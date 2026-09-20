@@ -1,4 +1,4 @@
-# 読める形式・書ける形式の一覧（geopbf／ortho-japan）　2026-09-20 時点
+# 読める形式・書ける形式の一覧（geopbf／ortho-japan）　2026-09-21 時点
 
 コードから起こした台帳。正典＝`packages/geopbf/src/index.js`（拡張子の振り分け）・`packages/geopbf/src/convert/index.js`（API）・
 `apps/ortho-japan/app.js` の INTAKE 表と `?g=`/`?cog=`/`?scene=`/`?pm=`・`gadgets/dropfile.js`。
@@ -46,10 +46,13 @@ CLI（`npx geopbf …`）：`enc`（→GeoPBF）・`dec`（→GeoJSON）・`info
 | ドロップ・?cog= | COG / GeoTIFF（.tif / .tiff） | 球へドレープ（cog ガジェット・Range 直読み） |
 | ドロップ・?g=（+?at=lon,lat[,heading[,scale]]） | glTF / GLB（.glb / .gltf） | PLATEAU と同じ建物メッシュ（落とした地点・CESIUM_RTC/ECEF 優先・マテリアル/テクスチャ/ミップ/BLEND） |
 | ドロップ・?scene= | シーン台本（.scenes / .scenes.gz / type:"scenes" の JSON） | 共有シーンの再生（飛行・ドリー） |
-| ?pm= | PMTiles（MVT ベクタタイル） | 基図として（vector_layers から規則を自動生成） |
+| ?pm= | PMTiles（MVT ベクタタイル／ラスタ png・jpeg・webp・avif） | ベクタ＝基図として（vector_layers から規則を自動生成）／ラスタ＝ヘッダの tileType で自動判別→画像タイル層（基図・塗りは伏せる） |
+| ?xyz=（+?xyzmin= ?xyzmax=）・?r=<id,…> | XYZ 画像タイル（`{z}/{x}/{y}` テンプレ・`{-y}` `{s}` `{q}` 可）／地域パックのカタログ id（地理院 std/pale/写真/色別標高＝基図・陰影/洪水浸水想定＝重ね） | 画像タイル層（ortho-core/raster）＝タイル 1 枚＝格子メッシュ＋uv を塗り VS で描く（地形ドレープ・建物遮蔽を継承・両バックエンド）。公開 API `map.raster.add(id, spec, opts)`＝自前契約の URL テンプレ・ラスタ PMTiles・MessagePort プロバイダ |
+| ドロップ | ラスタ GeoPackage（gpkg_tile_matrix が Web Mercator XYZ 同型の表）・MBTiles（画像） | プロバイダ worker（rastertiles-worker.js＝geopbf openGpkgTiles/openMBTiles）→ MessagePort → 画像タイル層。地物層だけの gpkg はベクタ本道へ・ベクタ MBTiles は理由を言って断る |
 | 地域宣言（jp/nl region） | 3D Tiles（b3dm / glb・Draco・KHR_mesh_quantization・CESIUM_RTC） | PLATEAU / 3DBAG の建物台帳（自動ロード・IDB/OPFS 焼き） |
 | ガジェット | STAC（Earth Search・Sentinel-2 → COG）・Tellus（PALSAR-2 / AVNIR-2 / GCOM-C の COG） | 衛星画像を球へ |
 | ガジェット | USGS 地震 GeoJSON・衛星 TLE（sats-mirror）・e-Stat 小地域・国土数値情報（KSJ 直読み→IDB） | データ直読み（鯖焼きなし） |
 
-未対応・裁定待ち：ラスタ GeoPackage / MBTiles の画像タイル層（ortho-core に画像タイル層が無い）・glTF の
+未対応：非メルカトル（gpkg_tile_matrix が XYZ 同型でない）タイル行列・ベクタ MBTiles（MVT）の表示・glTF の
 metallic/roughness/normal/emissive・KHR_texture_basisu・EXT_texture_webp のテクスチャ（worker で解けない＝形だけ）。
+（ラスタ GeoPackage / MBTiles の画像タイル層は 2026-09-21 に実装＝上の表）

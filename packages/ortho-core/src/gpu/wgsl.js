@@ -883,3 +883,15 @@ export const PLATEAU_TEX_WGSL = deriveWgsl(PLATEAU_WGSL, [
 	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n"],
 	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
 ], "PLATEAU_TEX_WGSL");
+
+// 画像タイル層（raster.js・2026-09-21）＝FILL_WGSL からの文字列派生（gl/glsl.js RASTER_VS/FS と対）。
+// 頂点＝a_delta（タイル北西隅からの dLL）＋a_uv・group(2)＝per-tile UBO（tileOff・祖先の部分 uv・不透明度＝dynamic offset）・
+// group(3)＝サンプラ＋テクスチャ（bglPlTex と同じレイアウト）。球・楕円体・地形リフト・RTE・フォグ・対数深度は塗りと同一。
+export const RASTER_WGSL = deriveWgsl(FILL_WGSL, [
+	["@group(1) @binding(0) var<uniform> P: DrawP;\n", "@group(1) @binding(0) var<uniform> P: DrawP;\nstruct RasterP { off: vec4f, uvT: vec4f, p: vec4f };   // off.xy=タイル北西隅−原点(deg)・uvT=(u0,v0,su,sv)・p.x=不透明度\n@group(2) @binding(0) var<uniform> R: RasterP;\n@group(3) @binding(0) var rasS: sampler;\n@group(3) @binding(1) var rasT: texture_2d<f32>;\n"],
+	["\t@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）\n};", "\t@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）\n\t@location(6) uv: vec2f,    // タイルテクスチャ uv（祖先フォールバックの部分 uv 済み）\n};"],
+	["@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {\n\tvar o: FillOut;\n", "@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_uv: vec2f) -> FillOut {\n\tvar o: FillOut;\n\tlet a_delta = R.off.xy + a_delta0;   // タイル原点差（小）を先に足す（GL の u_tileOff と同じ加算順）\n\tlet a_color = vec4f(1.0);\n\to.uv = R.uvT.xy + a_uv * R.uvT.zw;\n"],
+	["@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tif (in.front < -0.0015) { discard; }\n",
+	 "@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tlet c = textureSample(rasT, rasS, in.uv);   // discard より前（uniform control flow）\n\tif (in.front < -0.0015) { discard; }\n"],
+	["\treturn fillColor(in);\n}", "\tlet af = c.a * R.p.x * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);   // 霧＝塗りと同じフェードアウト・α は非前乗算の画像×層の不透明度\n\tif (af <= 0.003) { discard; }\n\treturn vec4f(mix(c.rgb, F.fogColor, in.fog) * af, af);   // premultiplied\n}"],
+], "RASTER_WGSL");
