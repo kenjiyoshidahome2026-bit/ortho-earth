@@ -893,5 +893,6 @@ export const RASTER_WGSL = deriveWgsl(FILL_WGSL, [
 	["@vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {\n\tvar o: FillOut;\n", "@vertex fn vs(@location(0) a_delta0: vec2f, @location(1) a_uv: vec2f) -> FillOut {\n\tvar o: FillOut;\n\tlet a_delta = R.off.xy + a_delta0;   // タイル原点差（小）を先に足す（GL の u_tileOff と同じ加算順）\n\tlet a_color = vec4f(1.0);\n\to.uv = R.uvT.xy + a_uv * R.uvT.zw;\n"],
 	["@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tif (in.front < -0.0015) { discard; }\n",
 	 "@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tlet c = textureSample(rasT, rasS, in.uv);   // discard より前（uniform control flow）\n\tif (in.front < -0.0015) { discard; }\n"],
+	["let h = select((elevQ(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);", "let h = select((elevQ(ll) + P.p0.y + R.p.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);"],   // R.p.y＝ラスタの接地リフト(m)（稜線の弦の潜り対策）
 	["\treturn fillColor(in);\n}", "\tlet af = c.a * R.p.x * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0);   // 霧＝塗りと同じフェードアウト・α は非前乗算の画像×層の不透明度\n\tif (af <= 0.003) { discard; }\n\treturn vec4f(mix(c.rgb, F.fogColor, in.fog) * af, af);   // premultiplied\n}"],
 ], "RASTER_WGSL");

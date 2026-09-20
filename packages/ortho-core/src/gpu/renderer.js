@@ -317,7 +317,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			], dsWriteBldNoZ, "fs", plTexLayout),
 			contour: pipe(contMod, undefined, dsOff),
 			raster: pipe(rasMod, RASTER_BUFS, dsOff, "fs", rasLayout),         // 画像タイル層（平面・深度なし）
-			rasterTest: pipe(rasMod, RASTER_BUFS, { ...dsTest, depthBias: -4, depthBiasSlopeScale: -1.0 }, "fs", rasLayout),    // 同・山岳ビュー（地形深度でテストだけ）＋手前へのバイアス＝地形の dsTerrain(4,1) の逆向き（折れ目をまたぐ弦が地形に潜って斑になる件・デカールの定石）
+			rasterTest: pipe(rasMod, RASTER_BUFS, { ...dsTest, depthBias: -8, depthBiasSlopeScale: -2.0 }, "fs", rasLayout),    // 同・山岳ビュー（地形深度でテストだけ）＋手前へのバイアス＝地形の dsTerrain(4,1) の逆向き（折れ目をまたぐ弦が地形に潜って斑になる件・デカールの定石）
 			globe: device.createRenderPipeline({
 				layout: globeLayout,
 				vertex: { module: globeMod, entryPoint: "vs" },
@@ -872,7 +872,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const o = rasN * (RAS_SLOT / 4);
 				rasCPU[o] = d.off[0]; rasCPU[o + 1] = d.off[1]; rasCPU[o + 2] = 0; rasCPU[o + 3] = 0;
 				rasCPU[o + 4] = d.uvT[0]; rasCPU[o + 5] = d.uvT[1]; rasCPU[o + 6] = d.uvT[2]; rasCPU[o + 7] = d.uvT[3];
-				rasCPU[o + 8] = L.opacity; rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;
+				rasCPU[o + 8] = L.opacity; rasCPU[o + 9] = terrainDepth ? (rasterDraws.lift || 0) : 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;   // p.y＝接地リフト(m)
 				pass.setBindGroup(2, rasBG, [rasN * RAS_SLOT]);
 				pass.setBindGroup(3, d.tex.bg);
 				pass.setVertexBuffer(0, d.mesh.bPos); pass.setVertexBuffer(1, d.mesh.bUv);
