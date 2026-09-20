@@ -1,5 +1,5 @@
 {
-	"_": "名所 3D 模型の仕込み表（apps/uploader/scripts/plateau-landmarks.mjs が読む）。src＝PLATEAU の 3D Tiles（建築物 LOD3・テクスチャ付き）の tileset.json。r＝名所のまわり何 m のタイルを集めるか。出典＝国土交通省 Project PLATEAU（CC BY 4.0）",
+	"_": "名所 3D 模型の仕込み表（apps/uploader/scripts/plateau-landmarks.mjs が読む）。src＝PLATEAU の 3D Tiles（建築物 LOD3・テクスチャ付き）の tileset.json。r＝名所のまわり何 m のタイルを集めるか。出典＝国土交通省 Project PLATEAU（CC BY 4.0）。lod3 に無い名所は lod2 のテクスチャ付きへ落とす（清水寺）",
 	"base": "https://assets.cms.plateau.reearth.io/assets",
 	"sets": {
 		"minato": "/c7/ffcc73-1d33-434b-a49a-aa0289160814/13103_minato-ku_pref_2025_citygml_1_op_bldg_3dtiles_13103_minato-ku_lod3/tileset.json",
@@ -10,17 +10,66 @@
 		"kyoto-nakagyo": "/3b/cc2d98-1c15-46ee-b026-f7dc851d884a/26100_kyoto-shi_city_2025_citygml_1_op_bldg_3dtiles_26104_nakagyo-ku_lod3/tileset.json",
 		"matsue": "/28/22fc8e-efab-4510-bf95-8d338d9169bb/32201_matsue-shi_city_2024_citygml_1_op_bldg_3dtiles_lod3/tileset.json",
 		"gifu": "/0e/e68899-4fff-4d94-80c7-adb41e4a77d2/21201_gifu-shi_city_2025_citygml_1_op_bldg_3dtiles_lod3/tileset.json",
-		"yokohama-naka": "/98/34e4f3-a849-4f12-8bd2-50826a53fa62/14100_yokohama-shi_city_2024_citygml_2_op_bldg_3dtiles_14104_naka-ku_lod3/tileset.json"
+		"yokohama-naka": "/98/34e4f3-a849-4f12-8bd2-50826a53fa62/14100_yokohama-shi_city_2024_citygml_2_op_bldg_3dtiles_14104_naka-ku_lod3/tileset.json",
+		"kyoto-higashiyama-lod2": "/25/dd4c50-5342-4a0b-ac51-05ffb138b8b5/26100_kyoto-shi_city_2025_citygml_1_op_bldg_3dtiles_26105_higashiyama-ku_lod2/tileset.json"
 	},
 	"landmarks": [
-		{ "id": "skytree", "set": "sumida", "lon": 139.81070, "lat": 35.71006, "r": 120 },
-		{ "id": "tokyo-tower", "set": "minato", "lon": 139.74543, "lat": 35.65858, "r": 110 },
-		{ "id": "sensoji", "set": "taito", "lon": 139.79665, "lat": 35.71476, "r": 130 },
-		{ "id": "osaka-castle", "set": "osaka-chuo", "lon": 135.52591, "lat": 34.68745, "r": 130 },
-		{ "id": "kiyomizu-dera", "set": "kyoto-higashiyama", "lon": 135.78501, "lat": 34.99491, "r": 130 },
-		{ "id": "nijo-castle", "set": "kyoto-nakagyo", "lon": 135.74815, "lat": 35.01416, "r": 180 },
-		{ "id": "matsue-castle", "set": "matsue", "lon": 133.05055, "lat": 35.47510, "r": 130 },
-		{ "id": "gifu-castle", "set": "gifu", "lon": 136.78206, "lat": 35.43364, "r": 90 },
-		{ "id": "yokohama-akarenga", "set": "yokohama-naka", "lon": 139.64248, "lat": 35.45293, "r": 130 }
+		{
+			"id": "skytree",
+			"set": "sumida",
+			"lon": 139.8107,
+			"lat": 35.71006,
+			"r": 120
+		},
+		{
+			"id": "tokyo-tower",
+			"set": "minato",
+			"lon": 139.74543,
+			"lat": 35.65858,
+			"r": 110
+		},
+		{
+			"id": "sensoji",
+			"set": "taito",
+			"lon": 139.79665,
+			"lat": 35.71476,
+			"r": 130
+		},
+		{
+			"id": "osaka-castle",
+			"set": "osaka-chuo",
+			"lon": 135.52591,
+			"lat": 34.68745,
+			"r": 130
+		},
+		{
+			"id": "yasaka-pagoda",
+			"set": "kyoto-higashiyama",
+			"lon": 135.77843,
+			"lat": 34.99852,
+			"r": 120,
+			"note": "清水寺は LOD3/LOD2 とも作り込みが薄い（2,838/14,814 三角形・実測 9/21）＝八坂の塔（36,804）へ差し替え"
+		},
+		{
+			"id": "nijo-castle",
+			"set": "kyoto-nakagyo",
+			"lon": 135.74815,
+			"lat": 35.01416,
+			"r": 180
+		},
+		{
+			"id": "matsue-castle",
+			"set": "matsue",
+			"lon": 133.05055,
+			"lat": 35.4751,
+			"r": 130
+		},
+		{
+			"id": "yokohama-akarenga",
+			"set": "yokohama-naka",
+			"lon": 139.64248,
+			"lat": 35.45293,
+			"r": 130
+		}
 	]
 }
