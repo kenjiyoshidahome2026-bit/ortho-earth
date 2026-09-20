@@ -56,6 +56,9 @@ export function pmtilesInfo(url) {
 				layers: Array.isArray(md?.vector_layers) ? md.vector_layers.map(l => l.id).filter(Boolean) : [],
 				attribution: md?.attribution || null,
 				name: md?.name || null,
+				// タイルの種別＝ヘッダの自己申告（pmtiles.js TileType）。"mvt" 以外＝ラスタ（png/jpeg/webp/avif）＝画像タイル層の領分。
+				// ベクタ配管（fetchPMTiles）はラスタのアーカイブを decodeMVT に流さず空タイルで返す（下の門）。
+				tileType: TILE_TYPE[h.tileType] || "unknown",
 			};
 		})();
 		infos.set(src, info);
@@ -68,6 +71,7 @@ export async function fetchPMTiles(url, z, x, y, signal, need) {
 	// 範囲の門＝アーカイブ自身のヘッダ。索引を歩く前に落とす（ズーム域外・bbox 外は「そこに無い」が正しい答え）。
 	// 索引ミスでも致命ではないが、日本域アーカイブを全球ビューで開くと毎フレーム無駄な走査が出るため門で止める。
 	const info = await pmtilesInfo(url);
+	if (isRasterTileType(info.tileType)) return { __empty: true };   // ラスタのアーカイブ＝ベクタ配管の領分でない（画像タイル層 raster.js が読む）＝decodeMVT に画像を流さない
 	if (z < info.minZoom || z > info.maxZoom) return { __empty: true };
 	if (tileOutsideCoverage(x, y, z, info.bbox)) return { __empty: true };
 	const t = await (await archiveOf(src)).getZxy(z, x, y, signal);
@@ -75,3 +79,21 @@ export async function fetchPMTiles(url, z, x, y, signal, need) {
 	if (!t || !t.data || !t.data.byteLength) return { __empty: true };
 	return decodeMVT(new Uint8Array(t.data), need);
 }
+
+// ラスタ PMTiles の生タイル（画像のバイト列＝png/jpeg/webp/avif そのまま・pmtiles.js がタイル圧縮を解く）。
+// 範囲の門は fetchPMTiles と同じ（アーカイブの自己申告）。null＝正当な「そこに無い」（索引外・域外）＝呼び手は空扱い。
+// 画像タイル層（raster.js）のプロバイダ "pmtiles" が使う＝XYZ の HTTP 404 と同じ意味論に揃える。
+export async function fetchPMTilesRaw(url, z, x, y, signal) {
+	const src = srcOf(url);
+	const info = await pmtilesInfo(url);
+	if (z < info.minZoom || z > info.maxZoom) return null;
+	if (tileOutsideCoverage(x, y, z, info.bbox)) return null;
+	const t = await (await archiveOf(src)).getZxy(z, x, y, signal);
+	if (!t || !t.data || !t.data.byteLength) return null;
+	return new Uint8Array(t.data);
+}
+
+// pmtiles.js TileType（ヘッダ 1 バイト）→ 名前。0=unknown 1=mvt 2=png 3=jpeg 4=webp 5=avif（6=mlt はベクタの別形式＝未対応＝unknown 扱い）
+const TILE_TYPE = { 0: "unknown", 1: "mvt", 2: "png", 3: "jpeg", 4: "webp", 5: "avif" };
+export const RASTER_MIME = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif" };
+export const isRasterTileType = t => t === "png" || t === "jpeg" || t === "webp" || t === "avif";

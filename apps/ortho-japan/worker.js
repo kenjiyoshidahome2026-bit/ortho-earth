@@ -15,6 +15,7 @@ const ROLES = {
 	plateaudecoder: () => import("./plateaudecoder.js"),
 	gintbake:       () => import("./gintbakeworker.js"),
 	estat:          () => import("./estatworker.js"),
+	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
 };
 
 const pending = [];
