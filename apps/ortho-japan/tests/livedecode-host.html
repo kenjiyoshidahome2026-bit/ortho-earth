@@ -8,6 +8,6 @@
 <script type="module">
 	const orthoJapan = (await import("./lib/ortho-japan.js")).default;
 	const q = new URLSearchParams(location.search);
-	window.__map = await orthoJapan({ target: "#here", view: q.get("view") || "#15/26.2124/127.6809/45t", plateau: true, assetBase: "./assets/" });
+	window.__map = await orthoJapan({ target: "#here", view: q.get("view") || "#15/26.2124/127.6809/45t", mesh: true, assetBase: "./assets/" });
 	console.log("[livedecode] map ready");
 </script>

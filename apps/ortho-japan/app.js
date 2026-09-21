@@ -48,7 +48,7 @@ import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { solar as solarGadget } from "./gadgets/solar.js";
 import { equal as equalGadget, equalHereItem, goEqual } from "./gadgets/equal.js";
-import { plateau as meshGadget } from "./gadgets/plateau.js";
+import { mesh as meshGadget } from "./gadgets/mesh.js";
 import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
 import { full as fullGadget } from "./gadgets/full.js";
@@ -90,7 +90,7 @@ const t = tr();
 //   opts.chips＝チップ帯そのものの表示（true=搭載[既定]／false=出さない）。旧配列形式は後方互換で残存（非推奨）
 //   opts.instruments＝下部の計器盤の表示（true=全部[既定]／["pos","scale","attr","log"]から選択的／false=出さない）
 //   ★"attr"（出典）を消す場合は埋め込みページ側で出典明記が必要（README「出典表記」）
-//   opts.plateau＝建物3D（PLATEAU）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）
+//   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は非推奨の別名（mesh が優先）
 //   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
 //   opts.countryTip＝世界ビュー(z<5.5)のホバー国名 tip（true=[既定]／false=出さない＝自前の tip と重ねない器）
@@ -529,10 +529,10 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], plateau: [], settle: [] };   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
-// map.on("plateau")：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [] };   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+// map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitMesh = e => { for (const cb of mapOn.plateau) { try { cb(e); } catch (err) { console.error("[map.on plateau]", err); } } };
+const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
 let mapLoaded = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -707,9 +707,11 @@ let moving = false, settleT = null;
 // 移動中は幾何を再結合しない（タイルのポップ＝チラチラ防止）。停止後に再結合。
 // PLATEAU LOD2 データ登録簿：寄ると自動で出す。bbox は自動トリガ用の緩い矩形（実描画は被覆マスクが実フットプリントに沿わせる）。
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
-// opts.plateau=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
+// opts.mesh=false（旧 opts.plateau=false）＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
-const meshOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opts.mesh (same meaning)');   // 旧名（1.1.0 まで）＝次の大版まで別名で受ける
+const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
 const meshCatalog = !meshOn ? null :
 	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
@@ -1115,7 +1117,7 @@ dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingD
 
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 dbgHost.__mesh = async (nameOrBase, tiles) => {
-	if (!meshOn) { console.warn("[mesh] opts.plateau=false = 3D buildings feature disabled"); return; }
+	if (!meshOn) { console.warn("[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
 	const sets = meshMgr.sets;
 	const set = !nameOrBase ? sets[0]
 		: sets.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
@@ -2161,10 +2163,11 @@ map.gadget("equalStart", function (opts) { return goEqual(this, { morph: false, 
 map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）＝34px規格アイコン。表示域を絞るなら搭載側で opts.zoom
 	return solarGadget.call(this, opts);
 });
-map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
-	if (!meshOn) { console.warn("[mesh] opts.plateau=false = feature disabled; gadget not mounted"); return; }
-	return meshGadget.call(this, { onOpen: meshMgr.openDb, ...opts });
+map.gadget("mesh", function (opts) {   // 建物3Dデータ管理 … モーダルを開く手綱と地域のアイコンはここで注入
+	if (!meshOn) { console.warn("[mesh] opts.mesh=false = feature disabled; gadget not mounted"); return; }
+	return meshGadget.call(this, { onOpen: meshMgr.openDb, icon: REGION_BLD_ICON, ...opts });
 });
+map.gadget("plateau", function (opts) { return map.gadget.mesh.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
 	return paletteGadget.call(this, { current: themeName, onPick: name => { switchTheme(name); saveView(); }, requestSnapshot, getZoom: () => cam.zoom, getCurrent: () => themeName, signal: ac.signal, ...opts });   // pick=テーマ生き替え→URL即書込（switchThemeはURLを書かない＝ここで saveView）

@@ -11,7 +11,7 @@
 history.replaceState(null, "", "?gpu=1&drawhud=1");
 import("../app.js").then(async ({ default: orthoJapan }) => {
 	const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
-	const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+	const m = await orthoJapan({ view: "#13/35.68/139.76", mesh: false });
 	const sleep = ms => new Promise(r => setTimeout(r, ms));
 	const t0 = performance.now();
 	while (!window.__backend && performance.now() - t0 < 25000) await sleep(200);

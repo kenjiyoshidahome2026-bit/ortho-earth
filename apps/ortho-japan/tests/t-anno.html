@@ -17,7 +17,7 @@ const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t
 try {
 	const orthoJapan = (await import("../app.js")).default;
 	const { geopbf } = await import("geopbf");
-	const map = await orthoJapan({ view: "#6/35.5/138.5", plateau: false });
+	const map = await orthoJapan({ view: "#6/35.5/138.5", mesh: false });
 	await new Promise(r => setTimeout(r, 700));
 
 	// ── @spline+@poly+@end:arrow の帯（暖色）／素の線（寒色）／@text ラベル ──

@@ -55,7 +55,7 @@ const map = await orthoJapan({
   layers: { rail: true, facility: false },   // 鉄道は焼き付け・施設は封印（両方チップ非搭載）
                                              // → 残る地名・地形・道路だけが利用者のトグル
   instruments: ["scale", "attr"],   // 座標表示なし（標高照会も止まる＝通信ゼロ）
-  plateau: false,                   // 建物3Dを機能ごと切る＝軽量埋め込み
+  mesh: false,                      // 建物3Dを機能ごと切る＝軽量埋め込み（旧名 plateau も別名で効く）
 });
 ```
 
@@ -82,7 +82,7 @@ map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起�
 ```js
 map.gadget.search();    // 地名・住所検索（地理院API・キー不要）。{ onGo } で飛び方を差し替え可
 map.gadget.compass();   // コンパス兼リセット（3Dの時だけ現れる）
-map.gadget.plateau();   // 建物3D（PLATEAU）データ管理（公式ロゴマーク）
+map.gadget.mesh();      // 建物3Dデータ管理（日本は PLATEAU 公式ロゴマーク・旧名 map.gadget.plateau() も効く）
 map.gadget.palette();   // 配色テーマ切替（中央に他テーマの地図見本＝色で選ぶ）→ { open, close }。未搭載でも c= には従う
 map.gadget.hint();      // 操作説明カード（6秒迷った人にだけ自動表示）→ { open, close }
 map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェットの登録も同じ作法

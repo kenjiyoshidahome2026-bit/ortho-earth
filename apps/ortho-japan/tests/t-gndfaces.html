@@ -44,7 +44,7 @@ const keepTilt = /keeptilt=1/.test(location.search);
 try {
 	mark("boot");
 	const C = [138.73, 35.40];   // 富士山の北斜面（地形の起伏に面が乗る）
-	const map = await orthoJapan({ view: `#12/${C[1]}/${C[0]}`, chips: false, plateau: false });
+	const map = await orthoJapan({ view: `#12/${C[1]}/${C[0]}`, chips: false, mesh: false });
 	mark("booted"); mapRef = map;
 	const d0 = await until(async () => { const d = dh(); return d && (d.mainFill + d.baseFill) > 0 ? d : null; }, 30000);
 	ok("boot2d", !!d0 && !d0.fillsIn && !d0.gndFaces, d0 ? `fill=${d0.mainFill + d0.baseFill} fillsIn=${d0.fillsIn} gndFaces=${d0.gndFaces}` : "no fills within 30s");

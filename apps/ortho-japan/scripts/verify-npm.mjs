@@ -52,7 +52,7 @@ const host = `<!doctype html><meta charset="utf-8"><title>npm-embed</title>
 <div id="here" style="width:480px;height:320px"></div>
 <script type="module">
 import orthoJapan from "/lib/ortho-japan.js";
-orthoJapan({ target: "#here", assetBase: "/assets/", plateau: false }).then(() => { document.title = "PASS npm-embed"; });
+orthoJapan({ target: "#here", assetBase: "/assets/", mesh: false }).then(() => { document.title = "PASS npm-embed"; });
 </script>`;
 const read = promisify(readFile);
 const requests = [];

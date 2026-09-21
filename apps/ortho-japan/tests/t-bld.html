@@ -16,7 +16,7 @@ const mark = s => { document.title = "… " + s; };   // 途中で止まって�
 try {
 	mark("boot");
 	// 東京駅前・z16・チルト。plateau は切る（見たいのは基図の建物＝BldA の押し出し）。
-	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", plateau: false, chips: false });
+	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", mesh: false, chips: false });
 	mark("booted");
 	await new Promise(r => setTimeout(r, 12000));   // タイル到着＋結合（実時間）
 	mark("waited");

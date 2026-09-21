@@ -48,7 +48,7 @@ const duckPbf = (gint, n, identifyAt = null) => ({
 });
 import("../app.js").then(async ({ default: orthoJapan }) => {
 	try {
-		const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+		const m = await orthoJapan({ view: "#13/35.68/139.76", mesh: false });
 		const t0 = performance.now();
 		while (!window.__backend && performance.now() - t0 < 25000) await new Promise(r => setTimeout(r, 200));
 		ok(`boot(${window.__backend})`, !!window.__backend);

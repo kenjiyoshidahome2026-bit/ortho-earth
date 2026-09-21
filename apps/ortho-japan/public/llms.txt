@@ -36,7 +36,7 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 | theme | "mono" | 配色固定（mono/dark/gsi/sepia、またはカスタムオブジェクト）。**指定すると palette ガジェットは載らない**＝利用者が切替できる初期配色は view の c=dark で。worldHypso={sea,lowHumid,…,grat}で全球配色も差し替え可 |
 | layers | — | {place,terrain,rail,road,facility} を true/false で焼き付け/封印。未記述=チップで利用者が選ぶ |
 | chips / instruments | true | 右上チップ帯／下部計器盤の表示制御 |
-| plateau | true | 建物3D機能スイッチ。false=関連通信・workerごと停止（軽量埋め込み） |
+| mesh | true | 建物3D機能スイッチ（1.2.0〜）。false=関連通信・workerごと停止（軽量埋め込み）。旧名 plateau は非推奨の別名（mesh が優先） |
 | lang | 自動 | "ja"/"en"（UIの衣のみ。地図中の地名は対象外）。live 切替 API なし＝view: map.view.hash を持って destroy()→再生成 |
 | maxPitch | 75° | チルト上限（**ラジアン**）。0=俯瞰固定（編集系アプリ向け） |
 | assetBase | "./" | 実行時アセット（plateau-sets.json等）の配信ベースURL（既定＝ページと同じ階層） |
@@ -46,8 +46,8 @@ www.ortho-earth.com 配下に置くページなら、CDNのESモジュールを�
 ## map（戻り値）の公式面
 - flyTo(lon, lat, zoom, tiltDeg?, bearingDeg?)→Promise（着地/中止で解決・1.0.5〜）/ getZoom() / view（{center,zoom,pitch(rad),bearing(rad),theme,hash,…}）/ destroy() / backend（"webgpu"|"webgl2"|null）
   destroy()＝容れ物を id/子要素/class まで元へ。再生成は view: map.view.hash（lang/theme の変更もこれ）。1.0.3 以前は WebGPU 起動後 20s 以内の destroy でホストが reload（罠⑭）
-- on("load"|"move"|"settle"|"plateau"|"click", cb)→map / off(ev, cb)（1.0.5〜）。settle（1.0.5〜）＝カメラ静止（移動が 150ms 止まった時）{center,zoom,pitch,bearing,hash}。
-  plateau（1.0.4〜）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 PlateauEvent）
+- on("load"|"move"|"settle"|"mesh"|"click", cb)→map / off(ev, cb)（1.0.5〜）。settle（1.0.5〜）＝カメラ静止（移動が 150ms 止まった時）{center,zoom,pitch,bearing,hash}。
+  mesh（1.2.0〜・旧名 plateau＝1.0.4〜も同じ合図を受ける）＝{phase:"catalog",count}→{phase:"start"|"done"|"cancelled"|"failed", name, base}（型 MeshEvent・旧名 PlateauEvent は別名）
 - DOM オーバレイの定型（マーカー等）：`const off = map.onFrame(() => { const P = map.makeProjector(); for (const m of markers) { const [x,y,f] = P(m.lon, m.lat);
   m.el.hidden = f < 0; if (f >= 0) m.el.style.transform = `translate(${x}px,${y}px)`; } }); map.requestDraw();`
   ＝座標は mapEl 左上原点の CSS px（自分の層と rect が違えば差を足す）・front<0＝見えない（[0,0,-1]・x,y 無効）・描画はオンデマンドなので載せた直後に requestDraw()。
@@ -147,8 +147,8 @@ triangle/diamond/star/flag、@tip=ホバー一言、@pop=常時吹き出し（\n
     それ以前は生成から 21 秒待つか `?stay=1`
 15. **theme を指定すると palette ガジェットは載らない**（console.warn）。contextmenu は既定 2 項目を持ち items は置換。print は pointer:coarse で非搭載・
     小さな枠では低精細の注意が出る。ガジェット列は 2.5 秒無操作でフェード（ui-idle・スクショ/検証で驚かない）
-16. **PLATEAU/標高の通信量**：建物は R2 焼き（1 区で数〜十数 MB・周辺区も先読み）、標高タイルは plateau:false でも来る（セッションで数十 MB）。
-    読込の合図＝1.0.4〜 map.on("plateau", e=>…)（1.0.3 以前はコンソール文字列 "[plateau] catalog loaded"→"auto-load -> 区名"→"[plateau] done" をフック）。backend＝map.backend
+16. **PLATEAU/標高の通信量**：建物は R2 焼き（1 区で数〜十数 MB・周辺区も先読み）、標高タイルは mesh:false でも来る（セッションで数十 MB）。
+    読込の合図＝1.2.0〜 map.on("mesh", e=>…)（1.0.4〜1.1.x は map.on("plateau")＝今も別名で効く。1.0.3 以前のコンソール文字列 "[plateau] …" のフックは 1.2.0 でログの札が "[mesh]" になり効かない＝map.on へ）。backend＝map.backend
 
 ## 検証の作法（このリポジトリの流儀）
 - 自己判定テストページ：判定結果を<title>にPASS/FAIL+詳細で書く → headless Chromeで--dump-domして読む

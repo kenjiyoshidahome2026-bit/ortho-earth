@@ -1,24 +1,21 @@
-// ガジェット：建物3D（PLATEAU）データ管理ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
-// map.gadget.plateau() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
-// アイコンは Project PLATEAU（国土交通省）公式ロゴマーク（plateau.mlit.go.jp の logo_min そのまま・色はブランド紫）。
+// ガジェット：建物3Dデータ管理ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
+// map.gadget.mesh() で搭載する（旧名 map.gadget.plateau() は非推奨の別名・v1 ortho-map の gadget 作法＝this が map）。
+// アイコンは地域宣言が持つ（日本＝Project PLATEAU 公式ロゴマーク・@ortho-earth/jp の buildings.icon）。宣言が無い地域は汎用の建物の形。
+// DOM id は #plateau-btn のまま（quiet-mono と利用者の CSS が当てる公開面・2026-09-22 の改名でも据え置き）。
 // 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は meshdb.js の領分。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
 const t = tr();
-export function plateau({ onOpen, signal } = {}) {
+// 汎用の建物の形（地域がアイコンを宣言しない時）＝34px 規格・単色（夜テーマは quiet-mono が fill を差し替える）
+const GENERIC_ICON = `<svg viewBox="0 0 20 24" width="15" height="18" fill="#463C64" aria-hidden="true"><path d="M1 23V9l7-3v17H1Zm8 0V2l10 4v17H9Zm2-15v2h2V8h-2Zm4 1v2h2V9h-2Zm-4 4v2h2v-2h-2Zm4 1v2h2v-2h-2ZM3 12v2h3v-2H3Zm0 5v2h3v-2H3Z"/></svg>`;
+export function mesh({ onOpen, signal, icon = null } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#plateau-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
 	btn.id = "plateau-btn"; btn.dataset.tip = t("Manage 3D buildings (PLATEAU) ($1)", mac ? "⌘⇧P" : "Ctrl+⇧P"); btn.setAttribute("aria-label", t("Preload and delete 3D buildings (PLATEAU)"));
-	btn.innerHTML = `
-		<svg viewBox="0 0 20 30" width="14" height="21" fill="#463C64" aria-hidden="true">
-			<path d="M9.70269 11.7457L7.49993 10.452L0 6.04688V17.4448L20 29.1918V17.7939L16.0001 15.4446L14.8514 14.7698L12 13.0951L9.70269 11.7457Z"/>
-			<path d="M9.69941 0L0.293945 5.52444L7.34804 9.66773L9.69941 11.0487V0Z"/>
-			<path d="M14.851 14.0728V8.37378L19.7023 5.52444L10.2969 0V11.3979L12.1185 12.4679L14.851 14.0728Z"/>
-			<path d="M19.9994 17.0956V6.04688L15.4453 8.72162V14.4207L16.3562 14.9556L19.9994 17.0956Z"/>
-		</svg>`;
+	btn.innerHTML = icon || GENERIC_ICON;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	if (onOpen) {
 		btn.addEventListener("click", onOpen);
