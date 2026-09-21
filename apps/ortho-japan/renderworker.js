@@ -158,7 +158,7 @@ async function bootWebGL(m) {
 	bootStage = "awaiting gl import";
 	try { ({ createRenderer, createGintLayer } = await import("ortho-core/gl")); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && err.message || err) }); return; }
-	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, requestDraw: () => { dirty = true; armRaf(); } }); }
+	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
@@ -245,7 +245,7 @@ const dispatch = e => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("ortho-core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
