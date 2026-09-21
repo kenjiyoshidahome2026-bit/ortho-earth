@@ -1068,12 +1068,14 @@ const bootView = parseViewHash(opts.view || location.hash || REGIONS.map(r => r.
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
 if (bootView) applyCamView(bootView);
-else try {
+else if (opts.persistView !== false) try {
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
 	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
 		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
 } catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
-const saveCam = () => { try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
+// opts.persistView=false＝前回ビューを読まない・書かない。localStorage はオリジン単位＝同じドメインの別ページ
+// （www トップの背景・gishub の待ち受け）で回した視点が /japan/ の「前回の続き」を上書きするのを防ぐ（2026-09-21）
+const saveCam = () => { if (opts.persistView === false) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
 const viewHash = () => {
@@ -1243,7 +1245,9 @@ let editClick = null;      // 派生アプリ編集モード（geoedit）中だ�
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
-	blocked: () => modalOpen(mapEl),   // モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）
+	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
+	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
+	blocked: () => modalOpen(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),
 	onGesture: () => flightCtl.cancel(),
 	onClick: (x, y) => {
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
