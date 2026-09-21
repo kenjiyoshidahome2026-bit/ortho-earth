@@ -10,7 +10,6 @@
 		"summary": "repomix --style markdown --output project_summary.md"
 	},
 	"dependencies": {
-		"ortho-map": "*",
 		"geopbf": "*",
 		"common": "*",
 		"native-bucket": "*",

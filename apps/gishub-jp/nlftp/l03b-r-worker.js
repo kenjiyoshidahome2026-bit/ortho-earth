@@ -1,7 +1,9 @@
 /**
  * L03-b_r WebP 変換ワーカー
  * 受信: { meshCode, proxyUrl }
- * 送信: { meshCode, webpData: Uint8Array, bbox } or { meshCode, error }
+ * 送信: { meshCode, webpData: Uint8Array, bbox, classes, width, height } or { meshCode, error }
+ *   classes＝画素値（土地利用コード/10・0=解析範囲外）そのままを deflate-raw した Uint8Array＝地球表示の真実源
+ *   （webpData は ZIP 書き出し用の画像。WebP/JPEG は非可逆で分類が崩れるので表示には使わない）
  */
 
 function readU16LE(u8, off) { return u8[off] | (u8[off + 1] << 8); }
@@ -81,7 +83,7 @@ function parseGeoTiff(u8) {
         rgba[p*4+2] = palette[b+2]; rgba[p*4+3] = palette[b+3];
     }
 
-    return { width, height, rgba, bbox };
+    return { width, height, rgba, bbox, rawPx };
 }
 
 async function extractTifFromZip(u8) {
@@ -119,7 +121,8 @@ self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }) => {
         const arrayBuf = await res.arrayBuffer();
 
         const tifData = await extractTifFromZip(new Uint8Array(arrayBuf));
-        const { width, height, rgba, bbox } = parseGeoTiff(tifData);
+        const { width, height, rgba, bbox, rawPx } = parseGeoTiff(tifData);
+        const classes = new Uint8Array(await new Response(new Blob([rawPx]).stream().pipeThrough(new CompressionStream('deflate-raw'))).arrayBuffer());
 
         const canvas = new OffscreenCanvas(width, height);
         canvas.getContext('2d').putImageData(new ImageData(rgba, width, height), 0, 0);
@@ -127,7 +130,7 @@ self.onmessage = async ({ data: { meshCode, proxyUrl, format = 'webp' } }) => {
         const blob    = await canvas.convertToBlob({ type: `image/${format}`, quality });
         const webpData = new Uint8Array(await blob.arrayBuffer());
 
-        self.postMessage({ meshCode, webpData, bbox, format }, [webpData.buffer]);
+        self.postMessage({ meshCode, webpData, bbox, format, classes, width, height }, [webpData.buffer, classes.buffer]);
     } catch (e) {
         self.postMessage({ meshCode, error: e.message });
     }
