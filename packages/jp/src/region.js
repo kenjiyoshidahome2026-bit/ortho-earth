@@ -15,7 +15,16 @@
 // 後ろ 4 つは 2026-09-22 に app.js の直書きから宣言へ移した（宣言しない地域では生成もしない）。
 import { JP_DTM } from "./dtm.js";
 import { gsiSearch } from "./search-gsi.js";
-import { createN02Overlay } from "./n02.js";
+// 路線オーバーレイ（N02）は初めて load() された時に読む（鉄道チップ ON まで起動のバンドルに載せない・2026-09-22）。
+// 形は createN02Overlay(env) と同じ＝{ load(), loaded }（テーマ切替が loaded=false に戻して load() し直す）。
+const lazyRail = env => {
+	let real = null, wake = null;
+	return {
+		load() { (wake ??= import("./n02.js").then(m => real = m.createN02Overlay(env))).then(r => r.load()); },
+		get loaded() { return real?.loaded ?? false; },
+		set loaded(v) { if (real) real.loaded = v; },
+	};
+};
 
 export { JP_DTM };
 
@@ -85,5 +94,5 @@ export const JP_REGION = {
 		base: "https://api.ortho-earth.com/bucket/GIS/pbf/",      // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
 		overrides: "poi/overrides.json",                          // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
 	},
-	rail: createN02Overlay,
+	rail: lazyRail,
 };

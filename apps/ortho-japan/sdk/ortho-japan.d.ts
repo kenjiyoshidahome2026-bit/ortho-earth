@@ -236,6 +236,10 @@ export interface OrthoJapanMap {
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
 	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
+	/** UI 文言の訳（英語キー → 表示言語・$1… は args で埋める）。SDK が読んだ辞書で引く（1.2.0〜） */
+	t(key: string, ...args: Array<string | number>): string;
+	/** 表示言語コード（ja/en/…・1.2.0〜） */
+	readonly lang: string;
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;
 	/** イベント購読（戻り値＝map・解除 API は無い）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／

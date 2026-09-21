@@ -45,8 +45,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
-const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
-	<circle cx="12" cy="12" r="9"/><path d="M10 8.2 L16 12 L10 15.8 Z"/></svg>`;
+import { ICON } from "./demo-icon.js";
 
 // 台本由来の文字列を innerHTML に入れる前の消毒（?scene= は任意オリジンの JSON＝title/en/視点文字列は敵入力になり得る）
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -77,7 +76,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
 // opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
-export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, player: playerOnly = false } = {}) {
+export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, btn: opts_btn = null, player: playerOnly = false } = {}) {
 	const mapEl = this.mapEl;
 	if (!slideOn && Array.isArray(scenes)) scenes = scenes.filter(s => s.view || !s.slide);   // スライドだけのシーン＝空の停留所になるので抜く
 	scenes = compileVias(scenes ?? []);   // via 行→着点の path へ（via の無い台本は恒等＝同じ配列のまま）
@@ -88,7 +87,8 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	}
 	if (mapEl.querySelector("#demo-bar")) return;   // 二重搭載は無害（バーは常設＝player搭載でも在る確実な印）
 	let btn = null;
-	if (hasBuiltin) {   // ▶＝組み込み台本の入り口（player 搭載では出さない＝押しても流す物が無い）
+	if (hasBuiltin && opts_btn) btn = opts_btn;   // 玄関スタブが先に出したボタン（位置と顔はそのまま）を引き継ぐ
+	else if (hasBuiltin) {   // ▶＝組み込み台本の入り口（player 搭載では出さない＝押しても流す物が無い）
 		btn = document.createElement("button");
 		btn.id = "demo-btn"; btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo"));
 		btn.setAttribute("aria-pressed", "false");   // 上演中＝点灯（星空劇場の家具退場からも除外される＝いつでも止められる）

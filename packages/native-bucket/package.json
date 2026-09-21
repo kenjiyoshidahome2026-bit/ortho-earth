@@ -43,5 +43,6 @@
 		"test:proxy": "node tests/t-proxy.mjs",
 		"test:tellus": "node tests/t-tellus.mjs",
 		"mirror": "node scripts/mirror.mjs"
-	}
+	},
+	"sideEffects": false
 }

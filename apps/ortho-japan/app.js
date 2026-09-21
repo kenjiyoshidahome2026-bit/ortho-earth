@@ -14,7 +14,7 @@ import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-patter
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
-import { JP_REGION, createPoiLedger } from "@ortho-earth/jp";   // 日本の地域パック＝その国の知識の正本（エンジンと altpbf は地域を知らない）・POI台帳の生成（在り処は地域宣言 poi）
+import { JP_REGION } from "@ortho-earth/jp/region";   // 日本の地域パック＝その国の知識の正本（エンジンと altpbf は地域を知らない）。入口（index）でなく region 直＝POI・N02 の実装を起動のバンドルに載せない
 import { NL_REGION, nlEntry } from "./nl/region.js";
 // 部品の worker（geopbf の変換・解析・COG・タイル書き出し／エンジンのタイル・シーン／altpbf の標高／geoedit の編集モデル）も
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
@@ -36,7 +36,6 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createMeshManager } from "./mesh/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -713,7 +712,7 @@ if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opt
 const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
-const meshCatalog = !meshOn ? null :
+const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager を起こす時だけ（wakeMesh）
 	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
 		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[mesh] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
@@ -764,19 +763,64 @@ function approxViewBbox(cam) {
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
 // --- POI台帳（施設の点・z14+）＝packages/jp/src/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
-const poi = REGION_POI ? createPoiLedger(REGION_POI, { viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } }) : null;   // 台帳を宣言しない地域＝null
+// 実装（@ortho-earth/jp/poi）は施設層 ON×z14+ で初めて要った時に読む＝代理の窓口（読み取りは空・ver=0）。台帳を宣言しない地域＝null。
+let poiReal = null, poiWake = null;
+const poiReady = () => poiWake ??= import("@ortho-earth/jp/poi").then(m => {
+	poiReal = m.createPoiLedger(REGION_POI, { viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } });
+	needsDraw = true;
+	return poiReal;
+});
+const poi = !REGION_POI ? null : {
+	load(c) { if (poiReal) poiReal.load(c); else poiReady(); },
+	injectLabels: (...a) => poiReal?.injectLabels(...a),
+	get ver() { return poiReal?.ver ?? 0; },
+	ready: poiReady,
+};
 let flying = false;                        // フライト中フラグ＝meshMgr.update のゲート（flyTo が立て、着地/中断で下ろす）
-const meshMgr = createMeshManager({
-	meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: meshCatalog,
+// 建物メッシュの管理（mesh/manager.js＋データ管理画面）は寄った時（z≥MESH_WAKE_Z）か明示の呼び出し（台本の先読み・区の立ち上げ・
+// データ管理ボタン）で初めて読む＝起動の JS と登録簿（plateau-sets.json）を列島ビューの起動から外す（2026-09-22・約 22KB gz）。
+// 表向きの形（meshMgr.*）は従来と同じ代理の窓口：本物が来るまでの読み取りは空（登録簿 []・進捗は空 Map・HUD は 0）、
+// 非同期の口は本物を待って渡す。除外表と進捗の中継口は本物が来た時に渡す。自動ロード（z15）は起こす線（z12）より深い＝寄る間に届く。
+const MESH_WAKE_Z = 12;
+const meshEnv = {
+	meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON },
 	renderer, attachMeshPort: port => wPost({ type: "meshPort", port }, [port]), mapEl, dbgHost, emit: emitMesh,
 	requestDraw: () => { needsDraw = true; },
 	get cam() { return cam; }, get moving() { return moving; }, get flying() { return flying; }, get printHold() { return printHold; }, get elevBusy() { return elevBusy; },
 	// 足元＝チルト時（pitch>20°）は画面下端中央の接地点（球外なら null）。真俯瞰では下端＝単に南＝優先の意味が無いので使わない
 	footPoint: () => cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null,
 	viewBbox: approxViewBbox, playingNow: () => scenes.playingNow(), flyTo: (...args) => flyTo(...args),
-});
-// 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。起動後に来ても manager が起きている worker と後から起きる worker の両方へ配る
-if (meshOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) meshMgr.setExcludeMap(map); }).catch(() => {});
+};
+let meshReal = null, meshWake = null, meshGone = false, meshTap = null;
+const MESH_NO_PROGRESS = new Map();
+const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./mesh/manager.js").then(async ({ createMeshManager }) => {
+	if (meshGone) return null;   // 起こしている間に destroy された
+	const catalog = loadMeshCatalog();
+	meshReal = createMeshManager(Object.assign(Object.create(meshEnv), { catalog }));   // スプレッド禁止＝cam/moving 等の getter をその瞬間の値に固めてしまう（原型鎖で生きたまま覗かせる）
+	if (meshTap) meshReal.setProgressTap(meshTap);
+	// 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。manager が起きている worker と後から起きる worker の両方へ配る
+	if (REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) meshReal?.setExcludeMap(map); }).catch(() => {});
+	await catalog?.catch(() => {});   // 登録簿が manager に入ってから解決（manager の受け取りは先に登録済み＝この後に走る）
+	needsDraw = true;
+	return meshReal;
+}).catch(e => { console.error("[mesh] manager load failed", e); return null; });
+const meshMgr = {
+	update() { if (meshReal) meshReal.update(); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },
+	standUp: async (...a) => (await wakeMesh())?.standUp(...a),
+	prefetch: async (...a) => (await wakeMesh())?.prefetch(...a) ?? [],
+	openDb: async () => (await wakeMesh())?.openDb(),
+	firstRevealSets: views => meshReal?.firstRevealSets(views) ?? [],
+	trimForScript: views => meshReal?.trimForScript(views),
+	setProgressTap: fn => { meshTap = fn; meshReal?.setProgressTap(fn); },
+	terminate: () => { meshGone = true; meshReal?.terminate(); },
+	get sets() { return meshReal?.sets ?? []; },
+	get progress() { return meshReal?.progress ?? MESH_NO_PROGRESS; },
+	isActive: name => meshReal?.isActive(name) ?? false,
+	isDead: name => meshReal?.isDead(name) ?? false,
+	visibleLoading: () => meshReal?.visibleLoading() ?? [],
+	memStats: () => meshReal?.memStats() ?? { bytes: 0, regions: 0, transient: { cache: 0, live: 0, bytes: 0 }, tier: null },
+	ready: wakeMesh,
+};
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
 // 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、
 // eye直下サンプルは下った斜面を見る＝山頂が計算に入らず効かなかった（富士 z15/75° で裏面を見上げる絵）。
@@ -1118,6 +1162,7 @@ dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingD
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 dbgHost.__mesh = async (nameOrBase, tiles) => {
 	if (!meshOn) { console.warn("[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
+	await meshMgr.ready();   // manager と登録簿が揃うまで待つ（寄る前に呼ばれた時）
 	const sets = meshMgr.sets;
 	const set = !nameOrBase ? sets[0]
 		: sets.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
@@ -1843,6 +1888,7 @@ window.addEventListener("pagehide", e => { if (!e.persisted) destroy(); }, { sig
 // 世界海岸線：初期視点が z<9 ならここで即発火（既定の世界ビュー＝従来どおり最初から描画）。await せず＝基図の起動を妨げない。
 gint.updateGintSlot();
 sky.ensureStars();   // 初期視点が z<5（復元/共有URL）なら星空も最初から
+meshMgr.update();   // 初期視点が z12+（復元/共有URL の街）なら建物メッシュの管理も最初から起こす（onMove を通らない起動の経路・2026-09-22 の遅延化で必要になった一突き）
 
 // 呼び出し側の手綱（視点操作・飛行・描画設定）＋ガジェット登録簿（v1 ortho-map createGadgets の作法の継承）。
 // map.gadget(name, func) で登録し map.gadget.name() で画面に追加する。func 内の this＝この map＝
@@ -1973,6 +2019,8 @@ map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影�
 map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝geoedit（npm） が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）
 map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリック横取りスロット（null で解除＝measure/poi と同型）
+map.t = (key, ...args) => t(key, ...args);   // UI 文言の訳（SDK が起動時に読んだ辞書で引く＝器の頁が i18n と辞書をもう一度読まない・1.2.0〜 2026-09-22）
+Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true });   // 表示言語（ja/en/…）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 map.setOpacity = ({ base, globe } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; renderer.set("view", v); needsDraw = true; };   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
@@ -2236,16 +2284,17 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 // POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
 // 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
 // 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
-if (poi && /[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then(({ poiedit }) => {
+if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import("./gadgets/poiedit.js")).then(({ poiedit }) => {
 	setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
 	map.gadget("poiedit", function (opts) {
+		const L = poiReal;   // ?poiedit=1 は下で poi.ready() を待ってから搭載＝ここでは必ず本物
 		return poiedit.call(this, {
 			// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
 			// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
-			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: poi.distM,
-			apiBase: poi.apiBase, name: poi.ovrName,
-			getPOI: () => poi.patchedAll(), getOvr: poi.getOvr,
-			setOvr: poi.setOvr,
+			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: L.distM,
+			apiBase: L.apiBase, name: L.ovrName,
+			getPOI: () => L.patchedAll(), getOvr: L.getOvr,
+			setOvr: L.setOvr,
 			signal: ac.signal, ...opts,
 		});
 	});

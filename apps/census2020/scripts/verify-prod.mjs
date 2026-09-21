@@ -74,7 +74,7 @@ const need = [
 	["/japan/lib/ortho-japan.css", "SDK意匠"],
 	["/japan/lib/assets/app-", "エンジン本体チャンク"],
 	["/japan/lib/assets/renderworker-", "render worker"],
-	["/japan/plateau-sets.json", "assetBase（/japan/共有棚）"],
+	["/japan/airports.json", "assetBase（/japan/共有棚）"],   // 証拠＝起動時に必ず読む共有棚のファイル（旧 plateau-sets.json は 2026-09-22 から寄った時だけ読む）
 ];
 // 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
 const t0 = Date.now();

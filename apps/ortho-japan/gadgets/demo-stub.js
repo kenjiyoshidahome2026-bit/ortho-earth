@@ -7,6 +7,10 @@
 // ※ 契約：本体到着後はファサードのメソッドを本体への「同期」直接委譲へ差し替える＝マウントを待って
 //   （ready/一拍後に）呼ぶ現実の使い方では元の同期契約そのまま（h.next() が即座に効く）。到着前の呼び出し
 //   だけ Promise で待ち合わせる保険。本番はバーのボタン駆動＝本体を直に叩くので、この差し替えは主にAPI利用者向け。
+import { gadgetStack } from "./stack.js";
+import { ICON } from "./demo-icon.js";
+import { tr } from "../i18n.js";
+const t = tr();
 export function demo(opts = {}) {
 	const map = this, mapEl = this.mapEl;
 	const facade = {};
@@ -17,6 +21,31 @@ export function demo(opts = {}) {
 	const valid = Array.isArray(opts.scenes) && opts.scenes.length > 0;
 	if (valid && mapEl.__orthoDemo) { for (const k of keys) facade[k] = () => undefined; facade.ready = Promise.resolve(null); return facade; }   // 二重搭載＝無害の no-op（import すらしない）
 	if (valid) mapEl.__orthoDemo = true;   // 本物の搭載を同期予約（以降の valid 搭載を上で弾く）
+	// 遅延の形（opts.lazy＝台本を返す関数・2026-09-22）：▶ボタン（同じ顔・同じ位置）だけ先に出し、本体（demo.js）と台本は
+	// 押された時・メソッドが呼ばれた時・ready に触れた時に初めて読む＝起動の転送から外す（サイトの組み込み台本用）。本体は btn を引き継ぐ。
+	if (typeof opts.lazy === "function") {
+		if (mapEl.__orthoDemo) { for (const k of keys) facade[k] = () => undefined; facade.ready = Promise.resolve(null); return facade; }
+		mapEl.__orthoDemo = true;
+		const btn = document.createElement("button");
+		btn.id = "demo-btn"; btn.dataset.tip = t("Play demo"); btn.setAttribute("aria-label", t("Play demo"));
+		btn.setAttribute("aria-pressed", "false");
+		btn.innerHTML = ICON;
+		gadgetStack(mapEl).append(btn);
+		let body = null;
+		const load = () => body ??= Promise.all([opts.lazy(), import("./demo.js")]).then(([extra, m]) => {
+			btn.removeEventListener("click", onFirst);
+			const { lazy, ...rest } = opts;
+			const g = m.demo.call(map, { ...rest, ...extra, btn });
+			if (!g) { mapEl.__orthoDemo = false; return null; }
+			for (const k of keys) facade[k] = (...a) => (g[k] ? g[k](...a) : undefined);
+			return g;
+		}).catch(e => { console.error("[demo] failed to load module", e); return null; });
+		const onFirst = () => load().then(g => { if (g) btn.click(); });   // 本体が btn に付けた ▶ の振る舞いへそのまま渡す
+		btn.addEventListener("click", onFirst);
+		for (const k of keys) facade[k] = (...a) => load().then(g => (g && g[k]) ? g[k](...a) : undefined);
+		Object.defineProperty(facade, "ready", { get: load, enumerable: true });   // 触れたら読む（台本の上映が待つ）
+		return facade;
+	}
 	const pending = name => (...a) => facade.ready.then(g => (g && g[name]) ? g[name](...a) : undefined);
 	for (const k of keys) facade[k] = pending(k);
 	facade.ready = import("./demo.js")   // 搭載＝即・本体を取りに行く（バー構築が「搭載」の実務そのもの）
