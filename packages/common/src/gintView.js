@@ -13,6 +13,25 @@
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const wrapLon = l => ((l + 540) % 360 + 360) % 360 - 180;
 
+// 待ち受けの自転（旧 v1 の autoRotate）。公開のカメラ setter は flyTo（アニメ）だけ＝map.cam を直に回して requestDraw
+// （render が毎フレーム cam を読む）。戻り値＝spin(on)。www トップの背景も使う
+export function createSpin(map, degPerSec = 4) {
+	let raf = 0, t0 = 0;
+	const step = t => {
+		const dt = Math.min(0.1, (t - t0) / 1000); t0 = t;
+		const c = map.cam.center;
+		map.cam.center = [wrapLon(c[0] + degPerSec * dt), c[1]];
+		map.requestDraw();
+		raf = requestAnimationFrame(step);
+	};
+	return on => {
+		if (!on) { cancelAnimationFrame(raf); raf = 0; return; }
+		if (raf) return;
+		t0 = performance.now();
+		raf = requestAnimationFrame(step);
+	};
+}
+
 export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPerSec = 4 } = {}) {
 	const tip = map.gadget.tip();   // カーソル追従（エンジンが起動時に搭載済み＝同じ setter が返る）
 	const pop = map.gadget.pop();   // 地点に錨を打つ吹き出し
@@ -83,21 +102,8 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 	}
 
 	// ---- 待ち受けの自転（旧 autoRotate）----
-	// 公開のカメラ setter は flyTo（アニメ）だけ＝自転は map.cam を直に回して requestDraw（render が毎フレーム cam を読む）。
-	let spinRaf = 0, spinT = 0;
-	function spin(on) {
-		if (!on) { cancelAnimationFrame(spinRaf); spinRaf = 0; return; }
-		if (spinRaf) return;
-		spinT = performance.now();
-		const step = t => {
-			const dt = Math.min(0.1, (t - spinT) / 1000); spinT = t;
-			const c = map.cam.center;
-			map.cam.center = [wrapLon(c[0] + spinDegPerSec * dt), c[1]];
-			map.requestDraw();
-			spinRaf = requestAnimationFrame(step);
-		};
-		spinRaf = requestAnimationFrame(step);
-	}
+	const spinner = createSpin(map, spinDegPerSec);
+	const spin = on => spinner(on);
 	// 待ち受けへ戻る（真俯瞰・概観ズームへ飛んでから自転）。飛行中に次の show が来たら自転しない
 	async function home(lat = 0) {
 		const my = ++token;

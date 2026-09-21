@@ -166,6 +166,21 @@
         "false"
       ],
       "port": 5192
+    },
+    {
+      "name": "www",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "www",
+        "--",
+        "--port",
+        "5193",
+        "--strictPort"
+      ],
+      "port": 5193
     }
   ]
 }
