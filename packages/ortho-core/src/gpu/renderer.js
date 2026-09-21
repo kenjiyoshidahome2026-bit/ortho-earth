@@ -31,8 +31,6 @@ const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェ�
 const PL_BATCH_SLOT = 256; // PLATEAU per-batch UBO（meshOrigin+cullBack, clipMesh＝32B）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_PLATEAU_MASKS = 4;
-const WATER_LIFT_M = 30;        // 水面リフト(m)：DSM帯（gl/renderer.js と同値・同意味論）
-const CITY_WATER_LIFT_M = 10;   // 都市帯(z≥14・DTM)の水面リフト(m)
 
 // f32→f16（IEEE half）。標高(m)は -500..9000 級＝half で ±0.25〜2m 精度（GL の R16F と同じ土俵）。
 // 最近接丸め・Inf/NaN→0（標高データに来ない保険）・subnormal 域(6e-5m未満)は 0 へフラッシュ。
@@ -303,7 +301,6 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return {
 			fillOff: pipe(fillMod, FILL_BUFS, dsOff),
 			fillTest: pipe(fillMod, FILL_BUFS, dsTest),
-			fillTestExact: pipe(fillMod, FILL_BUFS, dsTest, "fsExact"),   // 水域の厳密対数深度（琵琶湖の偽島対策）
 			lineOff: pipe(lineMod, LINE_BUFS, dsOff),
 			lineTest: pipe(lineMod, LINE_BUFS, dsTest),
 			terrain: pipe(terrMod, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, "fs", terrLayout),   // group(2)=気候場（全球ハイプソ）
@@ -700,7 +697,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	let bg0 = null;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
 	let bg0Atl = null;   // 地面アトラス合成パス用（アトラス自身を dummy にした bg0）
 	// 地面アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）：w[i]＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
-	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	const gndPBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0..w3,p
 	const rasSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // CLAMP＝隣接タイルの滲み防止
 	function rebuildBG0() {
@@ -909,9 +906,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const tex = device.createTexture({ size: [size, size], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST });
 		const bytes = Math.round(size * size * 4 * 4 / 3);
 		gnd.bytes += bytes;
-		return { tex, view: tex.createView(), size, levels, win: [0, 0, 1, 1], bytes };
+		return { tex, view: tex.createView(), view0: tex.createView({ baseMipLevel: 0, mipLevelCount: 1 }), size, levels, win: [0, 0, 1, 1], bytes };
 	}
 	function gndFree1(a) { if (!a) return; a.tex.destroy(); gnd.bytes -= a.bytes; }
+	let groundHook = null, groundSig = null;   // gint の面を窓へ焼くフック（renderworker が bakeFaces/bakeSig を結線）：fn(cam, { enc, view, size, win, index })・sig()＝合成鍵
+	function setGroundHook(fn, sig) { groundHook = fn || null; groundSig = sig || null; }
 	// 合成の入口（draw の Frame 書込の後・main パスより先）。fillsIn＝3D（地形あり）＝塗りはアトラス側へ（直描きは伏せる）。
 	// 窓は packFrame（gnd0..2 の係数）が先に読む＝prepareGround で確定し、composeGround で描く（同じフレーム）
 	let gndWins = null, gndKey = "";
@@ -919,10 +918,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
 		const wantFills = fillsIn && !(rasterOn && rasterDraws.hideFills);
 		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
-		if (!rasterOn && !wantFills) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
+		const hook = fillsIn && groundHook;   // gint の面（3D＝地面アトラス側）
+		if (!rasterOn && !wantFills && !hook) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
 		const wins = groundWindows(cam, canvas.width, canvas.height);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}`;
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}`;
 		if (key === gnd.key) return null;
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段
@@ -935,12 +935,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		gnd.n = wins.length; gnd.key = key;
 		if (rebuilt) rebuildBG0();   // アトラスの view が変わった＝bg0/globeBG を作り直す（Frame 書込より前でよい＝バッファは同じ）
 		writeGndP();
-		return { wins, rasterOn, wantFills, seaOff, baseA };
+		return { wins, rasterOn, wantFills, seaOff, baseA, cam, hook };
 	}
 	function composeGround(job, slots) {
 		if (!job) return;
-		const { wins, rasterOn, wantFills, seaOff, baseA } = job;
-		gnd.tiles = 0;
+		const { wins, rasterOn, wantFills, seaOff, baseA, cam, hook } = job;
+		gnd.tiles = 0; gnd.faces = 0;
 		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ layout: rasAtlasLayout,
 			vertex: { module: rasAtlasMod, entryPoint: "vs", buffers: RASTER_BUFS },
 			fragment: { module: rasAtlasMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
@@ -978,13 +978,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					fills.push({ slot, gate, at: m }); m++;
 				}
 			}
-			jobs.push({ a, tiles, fills });
+			jobs.push({ a, tiles, fills, index: i });
 		}
 		if (n) device.queue.writeBuffer(rasBuf, 0, rasCPU.buffer, 0, n * RAS_SLOT);
 		if (m) device.queue.writeBuffer(atlBuf, 0, atlCPU.buffer, 0, m * RAS_SLOT);
 		const enc = device.createCommandEncoder();
-		for (const { a, tiles, fills } of jobs) {
-			const pass = enc.beginRenderPass({ colorAttachments: [{ view: a.tex.createView({ baseMipLevel: 0, mipLevelCount: 1 }), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+		for (const { a, tiles, fills, index } of jobs) {
+			let pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 			const drawTiles = order => {
 				let any = false;
 				for (const t of tiles) {
@@ -1013,6 +1013,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
 					}
 				}
+			}
+			if (hook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）＝pass を切り、gint が自分の pass（stencil 付き）を同じエンコーダへ足す
+				pass.end();
+				try { gnd.faces += hook(cam, { enc, view: a.view0, size: a.size, win: a.win, index }) | 0; } catch (e) { console.error("[gpu] ground hook", e?.message); }
+				pass = enc.beginRenderPass({ colorAttachments: [{ view: a.view0, loadOp: "load", storeOp: "store" }] });
 			}
 			drawTiles("over");
 			pass.end();
@@ -1255,13 +1260,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	// DrawP N_ROLESスロットを一括で書く（256Bストライド・各48B使用）
 	const paramF32 = new Float32Array(PARAM_SLOT / 4 * N_ROLES);
-	function packParams({ cityLift, waterLift, exact, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0 }) {
+	function packParams({ cityLift, land, bldColor, contour, liftBounds, fadeK = 1, worldHypsoK = 0, hasClim = 0 }) {   // p0.y＝線の接地リフト（塗りは 3D では地面アトラス側＝リフト/厳密深度は撤去 2026-09-21）
 		const baseA = view.baseAlpha ?? 1;   // 基図の濃さ（表示パネル）＝fill/line の p0.w に一括（COG は下層にも合成済み＝紙と線だけが引く）
 		const f = paramF32; f.fill(0);
 		const at = (role, vals) => { const o = role * (PARAM_SLOT / 4); for (let i = 0; i < vals.length; i++) f[o + i] = vals[i]; };
 		at(ROLE.normal, [0, cityLift, 0, baseA]);
-		at(ROLE.water, [0, waterLift, exact, baseA]);
-		at(ROLE.seaFb, [1, waterLift, exact, baseA]);
+		at(ROLE.water, [0, 0, 0, baseA]);
+		at(ROLE.seaFb, [1, 0, 0, baseA]);
 		const hy = view.hypso;
 		at(ROLE.terrain, [land[0], land[1], land[2], 0,
 			hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0, hy ? (hy.amount ?? 0.5) : 0,
@@ -1274,8 +1279,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		at(ROLE.plateau, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
 		// クロスフェード中の新シーン用＝通常ロールの複製＋p0.w=α（旧シーンは通常ロールでα1のまま下に描く）
 		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK * baseA]);
-		at(ROLE.fadeWater, [0, waterLift, exact, fadeK * baseA]);
-		at(ROLE.fadeSeaFb, [1, waterLift, exact, fadeK * baseA]);
+		at(ROLE.fadeWater, [0, 0, 0, fadeK * baseA]);
+		at(ROLE.fadeSeaFb, [1, 0, 0, fadeK * baseA]);
 		at(ROLE.fadeBld, [bldColor[0], bldColor[1], bldColor[2], fadeK]);
 		return f;
 	}
@@ -1333,8 +1338,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// keepFine保持のズームアウトで露出した「跨いだ瞬間の段差ポップ」対策。両端値は実測チューニングのまま
 		//（z≥14とz≤13.5の絵は従来と完全一致）。gl/renderer.js と同式。
 		const cityK = terrainDepth ? Math.max(0, Math.min(1, (cam.zoom - 13.5) / 0.5)) : 0;
-		const cityLift = 5 * cityK;
-		const waterLiftM = terrainDepth ? WATER_LIFT_M + (CITY_WATER_LIFT_M - WATER_LIFT_M) * cityK : CITY_WATER_LIFT_M;
+		const cityLift = 5 * cityK;   // 線の接地リフト（塗りは 3D では地面アトラス側）
 		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		const dpr = cam.dpr || 1;
 		const mainOrigin = scenes.main.origin || [0, 0];
@@ -1354,7 +1358,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));
 		const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 17.5) / 1.5));
-		const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
+		const rasterBase = gnd.rasterOn && !!(rasterDraws && rasterDraws.hideFills);   // ラスタ基図の間は湖・海面下陸地・等高線も伏せる（gl/renderer.js と対）
+		const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true && !rasterBase) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
 		const iv = cam.zoom >= 15 ? 15 : cam.zoom >= 12 ? 30 : 60;
 		// クロスフェード進行（main の同一原点差し替え）：期限切れは旧を破棄、進行中は fadeK(0→1) を fade ロールへ
 		let fadeK = 1, fading = false;
@@ -1370,7 +1375,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		worldPal();   // 世界パレット＝knob 参照変化時のみ worldPalBuf へ書込（バインドは常設）
 		device.queue.writeBuffer(paramBuf, 0, packParams({
 			fadeK,
-			cityLift, waterLift: waterLiftM, exact: terrainDepth ? 1 : 0,
+			cityLift,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
 			liftBounds: elev.liftBounds,   // PLATEAU 接地リフトの DTM 保証域
@@ -1499,7 +1504,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 海面下の陸地（?world=1・below_sea_land）＝全球ハイプソの一部として「タイル(湖)より先」に敷く。
 		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
 		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
-		if (worldHypsoK > 0) {
+		if (worldHypsoK > 0 && !rasterBase) {
 			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr);
 			drawWdepr(pass, packOv, st);
 			// 湖（NE lakes）＝wdepr の上・タイルの下（海→海面下→湖→陸の順のまま供給源だけ NE へ 2026-09-03）
@@ -1509,7 +1514,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
 		// （Android 実機の反転 2026-08-03。数え上げは加算だけ＝常時オンでも実害なし）。
-		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; } };
+		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
 		const fillPipe = terrainDepth ? P.fillTest : P.fillOff;
@@ -1531,8 +1536,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const waterC = d.li === sea.li || d.li === sea.li2;
 					if ((seaFB || waterC) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（紙の海）
 					if (hideBldFill && d.li === bldFill.li) continue;            // 3D時＝フットプリント塗りを伏せる
-					// 水面は「リフトして深度テスト維持」＝尾根の遮蔽を保ちつつDSMノイズ瘤を沈める。厳密深度は水域のみ
-					pass.setPipeline(terrainDepth && (waterC || seaFB) ? P.fillTestExact : fillPipe);
+					pass.setPipeline(fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
 					pass.setBindGroup(0, bg0[slot]);
 					pass.setBindGroup(1, paramBG[useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
 					pass.setVertexBuffer(0, d.bPos);
@@ -1687,6 +1691,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			elevBounds: elev.bounds, elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
 			meshQ: qMesh, meshG: qG,   // 案A: gint も描画メッシュ面へ量子化
 			noSub: view.gintSub === false,   // 地形適応細分の逃げ道（view.gintSub=false＝?nosub=1）
+			facesInAtlas: gnd.fillsIn,       // gint の面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		} : null;
 		return fogAnimating || fading;   // fading＝クロスフェード進行中も連続フレーム
 	}
@@ -1835,6 +1840,6 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes }),
-		rasterTex, rasterMesh, rasterFree, setRasterDraws,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）
+		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
