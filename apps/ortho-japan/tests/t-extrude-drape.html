@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 実描画の検分：大きな面の押し出し（市区町村規模の人口密度の塗り）が山で地形に突き抜けられないか（2026-09-22「ドレープの突き抜け」）。
-     ?s=plane（既定）＝データ範囲の最高地点の上の平面に浮かせる／?s=drape＝全ズームで地形に沿わせる（z12 未満でも持ち上げる）。
+     既定＝drape（全ズームで地形に沿わせる＝z12 未満でも持ち上げる）／?bottom=<m>＝その高さの平面に浮かせる。
      日本アルプス上空を傾けて見下ろし、視野を覆う 1 枚の面（高さ 60m・マゼンタ）を押し出す。屋根が外周の頂点だけの巨大三角形だと
      内側の山が屋根を突き抜けて灰色の地形が見える＝マゼンタの画素が減る。屋根を細分して頂点ごとに接地すれば視野のほぼ全部がマゼンタ。
      実時間（verify:webgpu）＝地形の到着と shot の snapshot 往復は虚時間では返らない（t-bld と同じ）。 -->
@@ -21,7 +21,7 @@ try {
 	const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { density: 1 },
 		geometry: { type: "Polygon", coordinates: [[[137.20, 35.95], [138.05, 35.95], [138.05, 36.70], [137.20, 36.70], [137.20, 35.95]]] } }] };
 	const Q = new URLSearchParams(location.search);
-	const res = await map.gadget.extrude(fc, { paint: { "fill-extrusion-color": "#ff00ff", "fill-extrusion-height": +(Q.get("h") || 60) }, surface: Q.get("s") || "plane", fit: false });
+	const res = await map.gadget.extrude(fc, { paint: { "fill-extrusion-color": "#ff00ff", "fill-extrusion-height": +(Q.get("h") || 60) }, bottom: Q.get("bottom") != null ? +Q.get("bottom") : undefined, fit: false });
 	ok("extruded", !!res, res?.stats ? `tris=${res.stats.triangles}` : "");
 	await new Promise(r => setTimeout(r, 4000));
 	mark("extruded");
@@ -40,8 +40,8 @@ try {
 		if (r > 120 && b > 120 && g < 0.6 * Math.min(r, b)) mag++;   // マゼンタ系（陰影で暗くなっても赤と青が緑より十分高い）
 	}
 	const frac = mag / total;
-	// plane＝平面は最高地点の上＝穴が無い（>99%）／drape＝地形に沿う＝頂点の間の鋭い峰がごく僅かに点で抜けるだけ（>95%）
-	ok("covered", frac > ((Q.get("s") || "plane") === "drape" ? 0.95 : 0.99), `magenta=${(frac * 100).toFixed(1)}%`);
+	// ?bottom=<m>＝平面（最高地点より上に置けば穴が無い＝>99%）／無指定＝drape＝地形に沿う＝頂点の間の鋭い峰がごく僅かに点で抜けるだけ（>95%）
+	ok("covered", frac > (Q.get("bottom") == null ? 0.95 : 0.99), `magenta=${(frac * 100).toFixed(1)}%`);
 	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
 </script>

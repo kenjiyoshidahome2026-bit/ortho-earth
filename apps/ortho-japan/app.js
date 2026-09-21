@@ -2438,7 +2438,6 @@ const modelCtlGet = async () => {
 			flyTo(cx, cy, Math.max(3, Math.min(18, z)), 55);
 		},
 		center: () => [cam.center[0], cam.center[1]], ell: ELL_ON, signal: ac.signal,
-		heightAt: (lon, lat) => getHeightP.then(f => f(lon, lat, 9, { wait: true })),   // 統計の押し出しを浮かせる平面の高さ（R10＝z7〜11 の段）
 	});
 	return modelCtl;
 };
@@ -2653,11 +2652,11 @@ const placeImages = async (pbf, name) => {
 };
 // 自動押し出し＝本道の続き。前の押し出しは外す（「最後の 1 枚が勝つ」）。高さの鍵が無ければ遅延 chunk も降ろさない
 const extrudeQ = (() => { const v = new URLSearchParams(location.search).get("extrude"); if (v == null) return null; const [k, sc] = v.split(","); return { off: k === "0" || k === "off", key: k || undefined, scale: +sc > 0 ? +sc : 1 }; })();
-const SURFACE_Q = (v => v === "drape" || v === "plane" ? v : v && isFinite(+v) ? +v : "auto")(new URLSearchParams(location.search).get("surface"));   // ?surface=drape|plane|<m>＝ドロップの自動押し出しの地面（既定 auto＝建物は接地・統計は平面）
+const BOTTOM_Q = (v => v != null && v !== "" && isFinite(+v) ? +v : null)(new URLSearchParams(location.search).get("bottom"));   // ?bottom=<m>＝ドロップ/?g= の自動押し出しをその高さの平面に浮かせる（無指定＝広い面は地形に沿わせる）
 const autoExtrude = async pbf => {
 	modelCtl?.clearExtrude();
 	if (extrudeQ?.off || !(extrudeQ?.key ? pbf.keys?.includes(extrudeQ.key) : hasHeightKey(pbf.keys))) return null;
-	try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1, surface: SURFACE_Q }); }
+	try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1, bottom: BOTTOM_Q }); }
 	catch (err) { console.warn("[extrude] failed", err); return null; }
 };
 // ── 点の集約（クラスタ）とヒートマップ（MapLibre の cluster／heatmap 相当・gadgets/aggregate.js・遅延chunk・2026-09-21）──────────────
