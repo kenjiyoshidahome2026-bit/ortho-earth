@@ -13,3 +13,4 @@ public/moj-local/
 
 # i18n の作業場（正本は i18n/ui.json・実行時の表は i18n/lang/ ＝どちらも追跡する）
 out/
+.showcase-src/

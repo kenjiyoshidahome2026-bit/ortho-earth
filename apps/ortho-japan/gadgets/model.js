@@ -153,13 +153,17 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = true, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {
+		async extrude(src, { height, base, color, scale = 1, mask = "auto", fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
 			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 			const used = [...new Set(polys.map(p => p.fi))].map(fi => ({ f: feats[fi], h: polys.find(p => p.fi === fi).h }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照）
 			const blend = polys.some(p => p.rgba[3] < 255);   // fill-extrusion-opacity<1／半透明の色＝BLEND（模型と同じ派生パイプライン）
 			if (!polys.length) { clearExtrude(); return null; }
 			const tr = []; for (const p of polys) for (const r of p.rings) tr.push(r.buffer);
+			if (mask === "auto") {   // 市区町村・メッシュのような広い面で伏せると、日本中の基図建物が消える＝建物らしい大きさの時だけ
+				const diag = polys.map(p => { const r0 = p.rings[0]; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < r0.length; i += 2) { if (r0[i] < x0) x0 = r0[i]; if (r0[i] > x1) x1 = r0[i]; if (r0[i + 1] < y0) y0 = r0[i + 1]; if (r0[i + 1] > y1) y1 = r0[i + 1]; } return Math.hypot((x1 - x0) * 111320 * Math.cos(y0 * Math.PI / 180), (y1 - y0) * 111320); }).sort((a, b) => a - b);
+				mask = diag[diag.length >> 1] < 500;
+			}
 			const r = await rpc({ kind: "extrude", polys, ell, mask: mask && !blend }, tr);   // 半透明は足元の基図建物を伏せない（透けて見える先が消えると不自然）
 			clearExtrude();
 			const key = `extrude/${++seq}`;
