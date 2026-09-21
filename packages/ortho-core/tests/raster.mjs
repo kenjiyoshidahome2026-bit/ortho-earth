@@ -161,5 +161,27 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	raster.destroy(); ch.port1.close();
 }
 
+// 7. 地面アトラスの窓（ground.js）：真俯瞰＝3 段（近/中/遠）・強いチルト＝前景を足して 4 段（細かい順）・スナップ＝微動で鍵が変わらない
+{
+	const { groundWindows, windowsKey } = await import("../src/ground.js");
+	const cam0 = { center: [139.7, 35.7], zoom: 14.5, pitch: 0, bearing: 0, dpr: 1 };
+	const w0 = groundWindows(cam0, 800, 600);
+	ok(w0.length === 3, `flat: 3 windows (${w0.length})`);
+	const span = w => w[2] - w[0];
+	ok(span(w0[1]) > span(w0[0]) * 5.9 && span(w0[2]) > span(w0[1]) * 5.9, `flat: scales 1/6/36 (${w0.map(w => span(w).toFixed(4)).join(",")})`);
+	ok(w0.every(w => w[0] < cam0.center[0] && w[2] > cam0.center[0] && w[1] < cam0.center[1] && w[3] > cam0.center[1]), "flat: all windows contain the center");
+	const camT = { ...cam0, pitch: 1.15 };   // ≈66°
+	const wT = groundWindows(camT, 800, 600);
+	ok(wT.length === 4 && span(wT[0]) < span(wT[1]), `tilt: foreground window added and finer (${wT.length}, ${wT.length === 4 ? (span(wT[1]) / span(wT[0])).toFixed(2) : "-"}x)`);
+	ok(wT.length === 4 && wT[0][1] < camT.center[1] && wT[0][3] < wT[1][3], "tilt: foreground window sits below the center (toward the camera)");
+	// スナップ：中心を窓幅の 1/50 動かしても鍵は不変・1/2 動かせば変わる
+	const k0 = windowsKey(groundWindows(cam0, 800, 600));
+	const tiny = { ...cam0, center: [cam0.center[0] + span(w0[0]) / 50, cam0.center[1]] };
+	const big = { ...cam0, center: [cam0.center[0] + span(w0[0]) / 2, cam0.center[1]] };
+	ok(windowsKey(groundWindows(tiny, 800, 600)) === k0, "snap: tiny pan keeps the key");
+	ok(windowsKey(groundWindows(big, 800, 600)) !== k0, "snap: half-window pan changes the key");
+	ok(windowsKey(groundWindows({ ...cam0, zoom: 14.6 }, 800, 600)) === k0, "zoom quantized to 1/4 steps (14.5→14.6 same key)");
+}
+
 console.log(fails ? `✗ ${fails} failure(s)` : "✓ raster: all checks passed");
 process.exit(fails ? 1 : 0);
