@@ -2500,15 +2500,19 @@ map.gadget("model", async function (src, opts) {
 // 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当・2026-09-21）＝模型と同じ建物メッシュ経路（worker で earcut→finishMesh）。
 //   src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF（.geojson を持つもの）・File・URL。
 //   opts＝{ height: 鍵名|数|(props)=>m（省略＝height/measuredHeight/高さ…を自動・階数×3m）, base, color: css|(props,h)=>css（省略＝@fill→段彩）,
-//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true・傾きは今のまま） }。null を渡すと外す。戻り値＝stats か null（立つ面なし）
+//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true・傾きは今のまま） }。
+//   MapLibre の書き方もそのまま：opts に { type:"fill-extrusion", paint:{ "fill-extrusion-height"/"-base"/"-color"/"-opacity": 式 }, filter: 式 }、
+//   または src に層を丸ごと（source:{ type:"geojson", data }）。式は基図と同じ評価器・色の interpolate も可・既定値は MapLibre の仕様どおり。null を渡すと外す。戻り値＝stats か null（立つ面なし）
 map.gadget("extrude", async function (src, opts = {}) {
 	const c = await modelCtlGet();
 	if (src == null) { c.clearExtrude(); return null; }
+	// MapLibre の層を丸ごと（{ type:"fill-extrusion", source:{ type:"geojson", data }, paint, filter }）＝source.data を読み、層は opts へ
+	if (src && src.type === "fill-extrusion" && !opts.paint) { const layer = src; src = layer.source?.data ?? layer.source; opts = { ...layer, ...opts }; delete opts.source; delete opts.id; }
 	let gj = src;
 	if (typeof src === "string" || src instanceof Blob) gj = (await geopbf(src, { gint: false }))?.geojson;
 	else if (!src.type && !Array.isArray(src) && src.geojson) gj = src.geojson;
 	const { fit: doFit = true, ...rest } = opts;
-	const st = await c.extrude(gj, { ...rest, fit: false });
+	const st = await c.extrude(gj, { zoom: cam.zoom, ...rest, fit: false });   // zoom＝式の ["zoom"]（評価は呼んだ時に一度＝ズーム追随は呼び直し。gint の paintTable と同じ約束）
 	if (doFit && st?.bbox) {   // 寄る＝今の傾きのまま（押し出しでも傾けない＝本人裁定 9/21）
 		const bb = st.bbox, cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2, wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 1.3);
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));

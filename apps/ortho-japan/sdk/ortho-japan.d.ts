@@ -96,7 +96,7 @@ export interface Gadgets {
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
 	 *  scale＝高さの倍率。mask＝足元の基図建物を伏せる（既定 true）。fit＝寄る（既定 true・傾きは今のまま。真俯瞰では建物を描かない＝立体は傾けた時に見える）。
 	 *  null を渡すと外す。戻り値＝stats、立つ面が無ければ null。ドロップ/?g= の図形に高さの列があれば自動で立つ（?extrude=0 で止める／?extrude=<列名>[,倍率]）。 */
-	extrude(src: GeoJSONFeatureCollection | GeoJSONFeature | GeoJSONFeature[] | File | string | { geojson: GeoJSONFeatureCollection } | null, opts?: { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean; fit?: boolean }): Promise<{ polygons: number; vertices: number; triangles: number; bbox: [number, number, number, number] } | null>;
+	extrude(src: GeoJSONFeatureCollection | GeoJSONFeature | GeoJSONFeature[] | File | string | { geojson: GeoJSONFeatureCollection } | FillExtrusionLayer | null, opts?: ExtrudeOptions | FillExtrusionLayer): Promise<{ polygons: number; vertices: number; triangles: number; bbox: [number, number, number, number] } | null>;
 	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
@@ -189,6 +189,18 @@ export interface RasterAPI {
 	/** 地域パックのカタログ（基図＝1 枚のラジオ・重ね＝トグル）。?r= と同期 */
 	select(catalogId: string | null): Promise<RasterInfo | null>;
 	toggle(catalogId: string, on?: boolean): Promise<boolean>;
+}
+
+/** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal） */
+export type StyleExpression = unknown[] | number | string | boolean;
+export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean; fit?: boolean }
+/** MapLibre の fill-extrusion 層をそのまま（extrude の第 2 引数、または source つきで第 1 引数に）。意味・既定値は MapLibre の仕様どおり（height/base 0・color "#000000"・opacity 1）。
+ *  式は呼んだ時に一度評価（["zoom"] はその時のズーム）。color の interpolate は色として補間。legacy filter（["==","key",v] の旧式）は非対応＝現代式で */
+export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "base" | "color"> {
+	type: "fill-extrusion"; id?: string;
+	source?: { type: "geojson"; data: GeoJSONFeatureCollection | string } | GeoJSONFeatureCollection;
+	paint: { "fill-extrusion-height"?: StyleExpression; "fill-extrusion-base"?: StyleExpression; "fill-extrusion-color"?: StyleExpression; "fill-extrusion-opacity"?: number };
+	filter?: StyleExpression;
 }
 
 export interface OrthoJapanMap {
