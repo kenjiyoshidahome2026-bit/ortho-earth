@@ -266,7 +266,7 @@ export interface OrthoJapanMap {
 	/** 同一フレームのオーバーレイ：レンダーワーカー内で地球・注記と同じフレーム・同じカメラで描く自前 canvas（main の onFrame は 1〜2 フレーム先行する）。
 	 *  url＝worker が import() する依存ゼロのモジュール { init(canvas, opts), message(data), frame(cam, camState, {w,h}) → boolean, destroy() }。
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
-	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown> }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
+	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
 	setOpacity(o: { base?: number; globe?: number }): void;
 	/** クリック横取りスロット（編集アプリ用。gint の onGintClick より優先）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */

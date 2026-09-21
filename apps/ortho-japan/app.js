@@ -2112,14 +2112,14 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
 // モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
-map.overlay = (src, { name, opts } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）
+map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 	name ??= "ov" + (overlays.size + 1);
 	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
 	const cv = document.createElement("canvas");
 	cv.className = "overlay-gl"; cv.dataset.overlay = name;
 	cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
 	cv.width = size.w; cv.height = size.h;
-	mapEl.insertBefore(cv, labelCanvas);
+	if (above) labelCanvas.after(cv); else mapEl.insertBefore(cv, labelCanvas);   // 既定＝注記の下（地震・衛星など）／above＝注記の上（UI 家具は後ろの DOM＝さらに上のまま）
 	const off = cv.transferControlToOffscreen();
 	wPost({ type: "overlayAdd", name, ...(typeof src === "string" ? { url: new URL(src, location.href).href } : { builtin: src?.builtin }), canvas: off, opts }, [off]);
 	const h = {
@@ -2142,7 +2142,8 @@ const rasterReg = new Map();   // id → { spec, opts, info, error, worker, attr
 const rasterCbs = new Set();
 const rasterStatWait = new Map(); let rasterStatSeq = 0;
 const rasterChanged = () => { attrZone = null; needsDraw = true; for (const cb of rasterCbs) { try { cb(); } catch (e) { console.error("[raster] onChange", e); } } };
-const rasterAttrHTML = () => [...rasterReg.values()].map(r => r.attrHTML).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join("・");
+const imageAttrs = new Map();   // 四隅で貼った画像（覆う＝オーバーレイ）の出典 id → 消毒済み HTML（画像層の出典と同じ欄に並べる）
+const rasterAttrHTML = () => [...rasterReg.values()].map(r => r.attrHTML).concat([...imageAttrs.values()]).filter(Boolean).filter((v, i, a) => a.indexOf(v) === i).join("・");
 const hostOf = u => { try { return new URL(String(u).replace(/^pmtiles:\/\//, "")).host; } catch { return null; } };
 function onRasterInfo(id, info) {
 	const rec = rasterReg.get(id); if (!rec) return;
@@ -2675,18 +2676,29 @@ const mainRoad = async (file, { fit = true } = {}) => {
 // 戻り値＝画像を抜いた残りの図形（gint/anno へ）。残りが無ければ null。imagequad（判定・四隅）は遅延 import＝画像の無い読み込みは降ろさない
 const IMAGE_KEY = "@image";
 let imageIds = [], imageQuads = [];   // imageQuads＝[{ id, corners, properties }]（map.queryRenderedFeatures の画像層）
-const clearImages = () => { for (const id of imageIds) map.raster.remove(id); imageIds = []; imageQuads = []; };
+// 覆う描き方（本人裁定 9/21「画像で覆いましょう」）＝画像タイル層（地面アトラス＝道路・注記が上に乗る）でなく、同一フレームのオーバーレイ
+// （render worker 組み込み gadgets/imagequad-draw.js＝注記の後・geoedit と同じ drawImageQuad）。map.raster.add の { image, corners } は従来どおり地面へ貼る口
+let quadOv = null;
+const quadOverlay = () => quadOv ??= map.overlay({ builtin: "imagequad" }, { name: "imagequad", above: true });   // 注記の上＝注記も覆う
+const clearImages = () => { quadOv?.post({ type: "clear" }); for (const id of imageIds) imageAttrs.delete(id); imageIds = []; imageQuads = []; rasterChanged(); };
 const placeImages = async (pbf, name) => {
 	clearImages();
 	const { isImageFeature, cornersOf } = await import("geopbf/edit/imagequad");
 	const gj = pbf.geojson, imgs = [], rest = [];
 	for (const f of gj.features) (isImageFeature(f) && f.properties[IMAGE_KEY] instanceof Blob ? imgs : rest).push(f);
-	imgs.forEach((f, k) => {
-		const id = `img:${k}`, op = +f.properties["@opacity"];
-		imageIds.push(id); imageQuads.push({ id, corners: cornersOf(f.geometry), properties: f.properties });
-		map.raster.add(id, { image: f.properties[IMAGE_KEY], corners: cornersOf(f.geometry), name: f.properties.name || f.properties[IMAGE_KEY].name || name, attribution: f.properties.attribution || null },   // 出典（HTML 可）＝出典欄へ（消毒は onRasterInfo）
-			{ order: "over", opacity: op > 0 && op <= 1 ? op : 1, hideFills: false }).catch(err => console.warn("[image] failed", id, err));
-	});
+	const cap = LOW_MEM ? 2048 : 4096;   // 長辺の上限（省メモリ機＝Air3 jetsam の轍）
+	await Promise.all(imgs.map(async (f, k) => {
+		const id = `img:${k}`, op = +f.properties["@opacity"], corners = cornersOf(f.geometry);
+		imageIds.push(id); imageQuads.push({ id, corners, properties: f.properties });
+		try {
+			let bm = await createImageBitmap(f.properties[IMAGE_KEY]);
+			if (Math.max(bm.width, bm.height) > cap) { const s2 = cap / Math.max(bm.width, bm.height); const b2 = await createImageBitmap(bm, { resizeWidth: Math.round(bm.width * s2), resizeHeight: Math.round(bm.height * s2), resizeQuality: "high" }); bm.close(); bm = b2; }
+			quadOverlay().post({ type: "set", id, bitmap: bm, corners, opacity: op > 0 && op <= 1 ? op : 1 }, [bm]);
+			const credit = f.properties.attribution || f.properties.name || f.properties[IMAGE_KEY].name || name;   // 出典（HTML 可）＝消毒して出典欄の画像の項へ
+			if (credit) imageAttrs.set(id, sanitizeHTML(String(credit)));
+		} catch (err) { console.warn("[image] failed", id, err); }
+	}));
+	if (imgs.length) rasterChanged();
 	if (imgs.length) console.info(`[image] ${imgs.length} image(s) placed by four corners`);
 	if (!rest.length) return null;
 	if (!imgs.length) return pbf;
