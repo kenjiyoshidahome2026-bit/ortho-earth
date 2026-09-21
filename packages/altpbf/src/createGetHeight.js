@@ -1,3 +1,5 @@
+import { spawnWorker } from "./workerFactory.js";
+import { builtinWorker } from "./builtinWorkers.js";
 import { index_alos, encodeName, decodeName, inBbox, setApiUrl } from "./altpbf.js";
 import { Cache } from "native-bucket";
 
@@ -74,7 +76,7 @@ export async function createTileLoader(opts = {}) {
 	const mkWorker = () => {
 		if (inline) return null;
 		let w;
-		try { w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); }
+		try { w = spawnWorker("altpbf:height", () => builtinWorker("altpbf:height")); if (!w) throw new Error("no worker"); }
 		catch (e) { goInline(String(e?.message || e)); return null; }
 		// 起動の失敗は要求より先に起きる（要求ごとの error 受け口が間に合わない＝45 秒のタイムアウト待ちになる）＝ここで即座に退避へ
 		w.onerror = e => {
@@ -153,7 +155,7 @@ export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;
-	const worker = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
+	const worker = spawnWorker("altpbf:height", () => builtinWorker("altpbf:height"));
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	// o.wait=true＝他のタイル読込中でも（描画側の「到着まで 0」縮退でなく）順番を待って値を返す＝公開 API map.getHeight 用（2026-09-10）

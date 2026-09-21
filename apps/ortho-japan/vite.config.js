@@ -62,8 +62,8 @@ export default defineConfig({
 		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), models: resolve(import.meta.dirname, "models.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 	} },
-	// geopbf の worker はアプリの入口（worker.js）で走らせる（app.js の createGeopbf workerFactory）＝geopbf 自身の worker は組み立てない
-	// ＝modules/builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」に差し替える（2026-09-22・geopbf README「Worker entry」）
+	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
+	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") }] },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation, asyncMainCss],

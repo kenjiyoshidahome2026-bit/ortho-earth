@@ -35,6 +35,14 @@ const png = await altpbf2png(new Blob([bin]), { size: 256 });
 
 This package is the **format**: encode, decode, naming, preview. Data acquisition (which DEM, which bucket, which cache) is deliberately out of scope — bring your own tiles from GSI DEM10B, JAXA AW3D30, GEBCO or anywhere else, and store the results wherever you like. Runtime dependency: `geopbf` alone (its protobuf wire codec and compression helpers). Requires `CompressionStream` (all evergreen browsers); `altpbf2png` additionally needs `OffscreenCanvas`.
 
+## Worker entry
+
+`createGetHeight` / `createTileLoader` decode tiles in a small worker pool (role `"altpbf:height"`). A host with its own
+worker entry can run them there: `setWorkerFactory(role => new Worker(…, { name: role }))` from `altpbf/loader`, and in the
+host worker `import("altpbf/worker")` for that name. The factory state is per thread — set it again inside a worker that
+itself creates the loader. Return `null` to keep the built-in worker; if no worker can start, decoding falls back to the
+calling thread. Same convention as geopbf.
+
 ## License
 
 MIT. Technical notes: [ortho-earth.com/docs/altpbf.html](https://www.ortho-earth.com/docs/altpbf.html)
