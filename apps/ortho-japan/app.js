@@ -15,7 +15,10 @@ import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
 import { NL_REGION, nlEntry } from "./nl/region.js";
-createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
+// geopbf の worker（変換・解析・COG・タイル書き出し）もアプリの入口 1 本（worker.js）で走らせる＝geopbf の核を render/estat 等と共有（2026-09-22）。
+// 役割名は geopbf が付ける（"decoder:fgb" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）
+const geopbfWorker = role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: geopbfWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。

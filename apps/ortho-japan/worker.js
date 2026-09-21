@@ -26,7 +26,8 @@ const enqueue = e => pending.push(e);
 self.onmessage = enqueue;
 
 (async () => {
-	const load = ROLES[self.name];
+	// geopbf の役割（"decoder:*" "encoder:*" "geopbf:*"）＝geopbf の入口（self.name で形式を読む）へ（createGeopbf の workerFactory・2026-09-22）
+	const load = ROLES[self.name] ?? (/^(decoder|encoder|geopbf):/.test(self.name) ? () => import("geopbf/worker") : undefined);
 	try {
 		if (!load) throw new Error(`unknown worker role "${self.name}"（${Object.keys(ROLES).join(" / ")}）`);
 		await load();                                   // 脚本が自分の onmessage を張る

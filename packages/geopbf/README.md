@@ -780,6 +780,36 @@ Same deal for D3 (`d3.geoPath` over `r.geojson`), Observable notebooks, or anyth
 
 ---
 
+### Worker entry (v1.12)
+
+geopbf runs conversions, parsing, COG decoding and PMTiles tile writing in its own module worker (`geopbf/worker`, one
+entry; the role is the Worker's `name`: `decoder:<format>`, `encoder:<format>`, `geopbf:cog`, `geopbf:tile`). Bundlers
+build every worker separately, so an app that has its own worker ends up shipping — and loading — geopbf's core twice.
+Hand geopbf a factory and it runs inside your entry instead:
+
+```js
+// main thread
+createGeopbf(apiBase, { workerFactory: role =>
+  new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }) });
+// (or setWorkerFactory(fn) from "geopbf"; return null to fall back to the built-in worker)
+
+// your worker.js
+if (/^(decoder|encoder|geopbf):/.test(self.name)) import("geopbf/worker");   // it reads self.name
+```
+
+To drop geopbf's own worker from the bundle as well, alias the one file that constructs it
+(`new Worker` appears nowhere else) to the no-op version — Vite:
+
+```js
+resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/,
+  replacement: require.resolve("geopbf/no-builtin-workers") }] }
+```
+
+With the alias your factory must always return a Worker. ortho-japan does both: 10 worker builds became 6 and the
+duplicated code in its bundle went from 493 KB to 256 KB.
+
+---
+
 ## 9. Storage injection
 
 Out of the box, `createGeopbf()` fetches plainly and re-converts on every load — correct, dependency-free,

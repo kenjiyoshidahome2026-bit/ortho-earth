@@ -1,42 +1,15 @@
 import { GeoPBF } from "./pbf.js";
 import { createPbfio } from "./pbf-io.js";
+import { spawnWorker, setWorkerFactory } from "./modules/workerFactory.js";
+import { builtinWorker } from "./modules/builtinWorkers.js";   // geopbf 自身の worker（new Worker の直書きはここ 1 か所＝ホストはビルドの alias で「作らない版」に差し替えられる）
+export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
-// 各エントリを直書きで並べるのは、vite が静的に検出できる形＝「new Worker(new URL('…', import.meta.url), {静的 options})」
-// を保つため（URL を変数に貯めたり ?query を足すとビルドで壊れる）。同じ URL なので worker ビルドは 1 つに束ねられる。
-const decoderWorkers = {
-    fgb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:fgb' }),
-    gint:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gint' }),
-    gml:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gml' }),
-    gpkg:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpkg' }),
-    gdb:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gdb' }),
-    parquet: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:parquet' }),
-    csv:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:csv' }),
-    czml:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:czml' }),
-    dxf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:dxf' }),
-    gpx:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gpx' }),
-    json:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:json' }),
-    ndjson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:ndjson' }),
-    kmz:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:kmz' }),
-    moj:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:moj' }),
-    pbf:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' }),
-    shape:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:shape' }),
-    spatialite: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:spatialite' }),
-};
-const encoderWorkers = {
-    czml:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:czml' }),
-    fgb:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:fgb' }),
-    geojson:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geojson' }),
-    geopbf:   () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:geopbf' }),
-    gint:     () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gint' }),
-    gml:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gml' }),
-    gpx:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:gpx' }),
-    kmz:      () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:kmz' }),
-    preview:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:preview' }),
-    profile:  () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:profile' }),
-    shape:    () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:shape' }),
-    topojson: () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'encoder:topojson' }),
-};
+// 2026-09-22：new Worker の直書きは modules/builtinWorkers.js 1 か所へ（COG・タイル書き出しも同じ入口の役割に）。
+// ホストは setWorkerFactory / createGeopbf の workerFactory で自分の入口へ寄せられる（spawnWorker が先に聞く）。
+// 形式の名簿（読む／書く）。worker を作るのは spawnWorker（ホストの入口が勝つ）→ 無ければ modules/builtinWorkers.js（geopbf 自身の入口）。
+const DECODERS = new Set(["fgb", "gint", "gml", "gpkg", "gdb", "parquet", "csv", "czml", "dxf", "gpx", "json", "ndjson", "kmz", "moj", "pbf", "shape", "spatialite"]);
+const ENCODERS = new Set(["czml", "fgb", "geojson", "geopbf", "gint", "gml", "gpx", "kmz", "preview", "profile", "shape", "topojson"]);
 
 import { topology } from "./extension/topology.js";
 import { gint } from "./extension/gint.js";
@@ -65,8 +38,9 @@ export function createGeopbf(apiBase, options = {}) {
         // 直書きだけ。URL を変数に貯める旧方式はビルドで data:URL にインライン化され、worker 内の相対 import が
         // 解決できず本番ビルドだけ黙って死ぬ（devはソース直配信なので動く＝発見が遅れる罠）。ファクトリで直書きを保つ。
         // 入口は ./worker.js 1 本・形式は name で指名（decoderWorkers と同じ理由＝核の複製を消す）。
-        GeoPBF._workerFactory     ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:pbf' });
-        GeoPBF._gintWorkerFactory ??= () => new Worker(new URL('./worker.js', import.meta.url), { type: 'module', name: 'decoder:gint' });
+        if (options.workerFactory) setWorkerFactory(options.workerFactory);   // ホストの入口（役割名 → Worker）＝核の複製を断つ
+        GeoPBF._workerFactory     ??= () => spawnWorker("decoder:pbf", () => builtinWorker("decoder:pbf"));
+        GeoPBF._gintWorkerFactory ??= () => spawnWorker("decoder:gint", () => builtinWorker("decoder:gint"));
         // prewarm＝復号レーンを起動直後に起こす（仕事は投げない）。worker のモジュール評価が DB 取得や IDB 読みと重なり、
         // 「最初の 1 本だけ極端に遅い」が消える（apps/equal 本番実測 2026-09-18＝最初の geopbf() 1538ms、同データの
         // メインスレッド解析は 46ms＝差は立ち上げ）。既定 off＝復号しないかもしれない埋め込み先で worker を勝手に起こさない。
@@ -98,7 +72,7 @@ export function createGeopbf(apiBase, options = {}) {
             const params = { file, name, precision, encoding, description, license, attribution, ...extra };
             const event = `convrsion from ${type} to GeoPBF`;
             throwEvent("ConvertStart",{name, event});
-            const w = decoderWorkers[type]?.();
+            const w = DECODERS.has(type) ? spawnWorker(`decoder:${type}`, () => builtinWorker(`decoder:${type}`)) : null;   // ホストの入口が勝つ（setWorkerFactory）
             if (!w) { resolve(null); return; }
             return new Promise(resolve => {
                 w.onmessage = async e => {
@@ -246,7 +220,7 @@ const encoder = async (pbf, type, opts = {}) => {
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     opts.message == false || throwEvent("ConvertStart", { name, event });
-    const w = encoderWorkers[type]?.();
+    const w = ENCODERS.has(type) ? spawnWorker(`encoder:${type}`, () => builtinWorker(`encoder:${type}`)) : null;
     if (!w) return null;
     return new Promise(resolve => {
         w.onmessage = e => {
@@ -268,7 +242,7 @@ const methods = {
         else if (isObject(canvas)) { props = canvas; canvas = null; }
         const offscreen = canvas || null;
         const buf = this.arrayBuffer, name = this._name;
-        const w = encoderWorkers.preview();
+        const w = spawnWorker("encoder:preview", () => builtinWorker("encoder:preview"));
         const transferables = offscreen ? [buf, offscreen] : [buf];
         const bitmap = await new Promise(resolve => {
             w.onmessage = e => { w.terminate(); resolve(e.data); };
