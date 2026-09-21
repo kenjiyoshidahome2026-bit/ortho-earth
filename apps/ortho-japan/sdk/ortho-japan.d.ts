@@ -207,7 +207,9 @@ export interface RasterAPI {
 
 /** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal） */
 export type StyleExpression = unknown[] | number | string | boolean;
-export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean }
+export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean;
+	/** 地面の扱い（1.2.0〜）："drape"＝地形に沿わせる（全ズーム）／"plane"＝データ範囲の最高地点の上の平面に浮かせる（統計向け・山が突き抜けない）／数値＝その高さ[m]の平面／"auto"（既定）＝建物らしい小さい面は接地・広い面は plane */
+	surface?: "auto" | "drape" | "plane" | number }
 /** MapLibre の fill-extrusion 層をそのまま（extrude の第 2 引数、または source つきで第 1 引数に）。意味・既定値は MapLibre の仕様どおり（height/base 0・color "#000000"・opacity 1）。
  *  式は呼んだ時に一度評価（["zoom"] はその時のズーム）。color の interpolate は色として補間。legacy filter（["==","key",v] の旧式）は非対応＝現代式で */
 export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "base" | "color"> {

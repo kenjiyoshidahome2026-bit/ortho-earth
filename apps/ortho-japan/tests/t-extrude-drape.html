@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- 実描画の検分：大きな面の押し出し（市区町村規模の人口密度の塗り）が山で地形に突き抜けられないか（2026-09-22「ドレープの突き抜け」）。
+     ?s=plane（既定）＝データ範囲の最高地点の上の平面に浮かせる／?s=drape＝全ズームで地形に沿わせる（z12 未満でも持ち上げる）。
+     日本アルプス上空を傾けて見下ろし、視野を覆う 1 枚の面（高さ 60m・マゼンタ）を押し出す。屋根が外周の頂点だけの巨大三角形だと
+     内側の山が屋根を突き抜けて灰色の地形が見える＝マゼンタの画素が減る。屋根を細分して頂点ごとに接地すれば視野のほぼ全部がマゼンタ。
+     実時間（verify:webgpu）＝地形の到着と shot の snapshot 往復は虚時間では返らない（t-bld と同じ）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-extrude-drape</title></head>
+<body><div id="map"></div>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const mark = s => { document.title = "… " + s; };
+try {
+	mark("boot");
+	// 槍・穂高〜常念の稜線を北西から見下ろす（z11・チルト 60°）＝標高差 2,000m 超の谷と尾根が一画面に入る
+	const map = await orthoJapan({ target: "#map", view: new URLSearchParams(location.search).get("v") || "#9.5/36.3/137.6/35t", mesh: false, chips: false, layers: { place: false } });
+	mark("booted");
+	await new Promise(r => setTimeout(r, 12000));   // 地形（DEM10B）の到着
+	mark("terrain");
+	const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { density: 1 },
+		geometry: { type: "Polygon", coordinates: [[[137.20, 35.95], [138.05, 35.95], [138.05, 36.70], [137.20, 36.70], [137.20, 35.95]]] } }] };
+	const Q = new URLSearchParams(location.search);
+	const res = await map.gadget.extrude(fc, { paint: { "fill-extrusion-color": "#ff00ff", "fill-extrusion-height": +(Q.get("h") || 60) }, surface: Q.get("s") || "plane", fit: false });
+	ok("extruded", !!res, res?.stats ? `tris=${res.stats.triangles}` : "");
+	await new Promise(r => setTimeout(r, 4000));
+	mark("extruded");
+	const blob = await Promise.race([map.gadget.shot().composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+	const bmp = await createImageBitmap(blob);
+	const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+	const cx = cv.getContext("2d");
+	cx.drawImage(bmp, 0, 0);
+	// 画面中央の矩形（横 40〜60%・縦 40〜70%）＝この視点では面の内側に収まる＝周りの地形・空・UI の家具を外す
+	const W = (bmp.width * 0.2) | 0, H = (bmp.height * 0.3) | 0;
+	const px = cx.getImageData((bmp.width * 0.4) | 0, (bmp.height * 0.4) | 0, W, H).data;
+	let mag = 0, total = 0;
+	for (let i = 0; i < px.length; i += 4) {
+		total++;
+		const r = px[i], g = px[i + 1], b = px[i + 2];
+		if (r > 120 && b > 120 && g < 0.6 * Math.min(r, b)) mag++;   // マゼンタ系（陰影で暗くなっても赤と青が緑より十分高い）
+	}
+	const frac = mag / total;
+	// plane＝平面は最高地点の上＝穴が無い（>99%）／drape＝地形に沿う＝頂点の間の鋭い峰がごく僅かに点で抜けるだけ（>95%）
+	ok("covered", frac > ((Q.get("s") || "plane") === "drape" ? 0.95 : 0.99), `magenta=${(frac * 100).toFixed(1)}%`);
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+</script>
+</body></html>

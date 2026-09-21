@@ -509,7 +509,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f };   // xyz+cullBack, clip錨
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
 	@builtin(position) pos: vec4f,
@@ -532,7 +532,7 @@ struct PlOut {
 	let lb = P.p0;   // [lng0, lat0, spanLng, spanLat]
 	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
-	let h = elev(vec2f(lon, lat)) * F.elevP.x * inX * inY;
+	let h = elev(vec2f(lon, lat)) * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
 	var p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
 	p.z = logDepthZ(p.w);
 	o.pos = p;
@@ -932,7 +932,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 // 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0)、group(3)＝サンプラ＋テクスチャ。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
 const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
-	["struct PB { meshOrigin: vec4f, clipMesh: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
+	["struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
 	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
