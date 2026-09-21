@@ -2720,6 +2720,94 @@ map.gadget("cluster", async function (src, opts = {}) {
 	if (src?.type === "geojson" && "data" in src) { const { data, cluster, type, ...rest } = src; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
 	return c.cluster(await readPoints(src), opts);
 });
+// ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
+let symCtl = null;
+const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal }); };
+map.addImage = async (name, img, o) => (await symGet()).addImage(name, img, o);           // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
+map.removeImage = name => symCtl?.removeImage(name);
+map.hasImage = name => !!symCtl?.hasImage(name);
+map.listImages = () => symCtl?.listImages() ?? [];
+map.loadSprite = async base => (await symGet()).loadSprite(base);                          // MapLibre の sprite（base.json＋base.png・@2x）
+map.gadget("symbols", async function (src, layer = {}) {   // 記号の層（src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと）・null＋{id}＝外す
+	const c = await symGet();
+	if (src == null) { c.removeLayer(layer.id || "symbols"); return null; }
+	if (src?.type === "symbol") { layer = { ...src, ...layer }; src = src.source?.data ?? src.source; }
+	return c.addLayer(layer.id || "symbols", await readPoints(src), layer);
+});
+
+// ── MapLibre の addSource／addLayer をそのまま（2026-09-21・「形式で相乗り」の入口）────────────────────────────
+// 層の type ごとに今日の部品へ振り分ける：fill/line/circle（集約なし）＝利用者の図形（gint＋map.paint）・fill-extrusion＝押し出し・
+// heatmap＝ヒートマップ・circle/symbol（source が cluster:true）＝集約（丸＝paint・件数の文字＝text・filter で集約/単点を見分ける）・
+// symbol＝記号の層・raster＝image source（四隅）か raster source（XYZ タイル）＝画像層。source は geojson / image / raster。
+// ⚠一つずつしか持てない種類がある（利用者の図形・押し出し・ヒートマップ・集約は各 1 つ＝後から足した層が前を置き換える）。symbol と raster は複数可。
+const mlSources = new Map(), mlLayers = new Map();
+const srcOf = L => typeof L.source === "string" ? mlSources.get(L.source) : L.source;
+const srcId = L => typeof L.source === "string" ? L.source : L.id;
+const dataOf = sp => sp?.data ?? null;
+const hasPointCount = f => JSON.stringify(f ?? null).includes("point_count");
+const mlGen = new Map();   // "cluster:<sid>" / "gint:<sid>" → 世代（組み直しは非同期＝外した後に古い組み直しが着地して復活するのを捨てる）
+const bumpGen = k => { const g = (mlGen.get(k) || 0) + 1; mlGen.set(k, g); return g; };
+const rebuildCluster = async sid => {   // 同じ source の集約の層を一つの集約へ畳む
+	const gen = bumpGen("cluster:" + sid);
+	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
+	const ls = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "cluster").map(v => v.layer);
+	if (!ls.length) { aggCtl?.clear("cluster"); return null; }
+	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: sp.clusterMaxZoom ?? 14 };
+	for (const L of ls) {
+		if (L.type === "circle" && (L.filter == null || hasPointCount(L.filter) && !/"!"/.test(JSON.stringify(L.filter)))) opts.paint = L.paint;
+		else if (L.type === "circle") opts.unclustered = { paint: L.paint };
+		else if (L.type === "symbol") opts.text = { color: typeof L.paint?.["text-color"] === "string" ? L.paint["text-color"] : undefined, size: typeof L.layout?.["text-size"] === "number" ? L.layout["text-size"] : undefined };
+	}
+	const pts = await readPoints(dataOf(sp));
+	if (mlGen.get("cluster:" + sid) !== gen) return null;   // 待っている間に層が足し引きされた＝新しい方に任せる
+	return map.gadget.cluster(pts, opts);
+};
+const rebuildGint = async sid => {   // 同じ source の fill/line/circle を一つの paint に束ねる（filter は最初の層のもの）
+	const gen = bumpGen("gint:" + sid);
+	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
+	const ls = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "gint").map(v => v.layer);
+	if (!ls.length) { gint.clearUserGint(); return null; }
+	let d = dataOf(sp); if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
+	const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
+	if (mlGen.get("gint:" + sid) !== gen) return null;
+	gint.applyGintData(pbf, sid, false, { drape: true });
+	const paint = Object.assign({}, ...ls.map(L => L.paint || {}));
+	await map.paint(Object.keys(paint).length ? paint : null, ls.find(L => L.filter)?.filter);
+	return pbf;
+};
+map.addSource = (id, spec) => { mlSources.set(id, spec); return map; };
+map.getSource = id => { const sp = mlSources.get(id); return sp ? { ...sp, setData: async data => { sp.data = data; for (const v of [...mlLayers.values()].filter(v => srcId(v.layer) === id)) await map.addLayer(v.layer); } } : undefined; };
+map.removeSource = id => { mlSources.delete(id); return map; };
+map.getLayer = id => mlLayers.get(id)?.layer;
+map.addLayer = async layer => {
+	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	const sid = srcId(layer), data = dataOf(sp);
+	let kind, r;
+	if (layer.type === "raster") {
+		kind = "raster";
+		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); r = await map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false }); }
+		else r = await map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false });
+		mlLayers.set(layer.id, { layer, kind, src: sp }); return r;
+	}
+	if (layer.type === "fill-extrusion") { kind = "extrude"; mlLayers.set(layer.id, { layer, kind, src: sp }); return map.gadget.extrude(await readPoints(data), { ...layer, fit: false }); }
+	if (layer.type === "heatmap") { kind = "heatmap"; mlLayers.set(layer.id, { layer, kind, src: sp }); return map.gadget.heatmap(await readPoints(data), layer); }
+	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) { mlLayers.set(layer.id, { layer, kind: "cluster", src: sp }); return rebuildCluster(sid); }
+	if (layer.type === "symbol") { kind = "symbol"; mlLayers.set(layer.id, { layer, kind, src: sp }); return (await symGet()).addLayer(layer.id, await readPoints(data), layer); }
+	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") { mlLayers.set(layer.id, { layer, kind: "gint", src: sp }); return rebuildGint(sid); }
+	throw new Error(`addLayer: type "${layer.type}" is not supported`);
+};
+map.removeLayer = id => {
+	const v = mlLayers.get(id); if (!v) return map;
+	mlLayers.delete(id);
+	const sid = srcId(v.layer);
+	if (v.kind === "raster") map.raster.remove(id);
+	else if (v.kind === "extrude") modelCtl?.clearExtrude();
+	else if (v.kind === "heatmap") aggCtl?.clear("heatmap");
+	else if (v.kind === "symbol") symCtl?.removeLayer(id);
+	else if (v.kind === "cluster") rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
+	else if (v.kind === "gint") rebuildGint(sid);
+	return map;
+};
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 // geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
@@ -2745,6 +2833,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const touches = g => area.ll ? inPolyGeom(g, pt[0], pt[1]) : JSON.stringify(g.coordinates).match(/-?\d+\.?\d*,-?\d+\.?\d*/g)?.some(s => { const [x, y] = s.split(",").map(Number); return inBox(x, y); });
 	const out = [];
 	// 上から：集約の丸 → 画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
+	if (geometry && typeof geometry[0] === "number" && symCtl) for (const h of symCtl.symbolsAt(geometry[0], geometry[1])) if (take(h.layer.id)) out.push(h);
 	if (geometry && typeof geometry[0] === "number" && aggCtl) { const h = aggCtl.clusterAt(geometry[0], geometry[1]); if (h && take(h.layer.id)) out.push(h); }
 	for (const q of [...imageQuads].reverse()) {
 		if (!take(q.id)) continue;
