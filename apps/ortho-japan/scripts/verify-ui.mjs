@@ -6,6 +6,7 @@
 import { spawn, execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { rm } from "node:fs/promises";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
@@ -25,17 +26,35 @@ for (let i = 0; ; i++) {   // 起動待ち＝base(/japan/)が200を返すまで�
 // import() が永久に解決しない（2026-09-20 実測：stage=importing のまま・実時間＋同じ swiftshader なら 0.5 秒で PASS）＝WebGPU async init と同じ轍。
 // CDP で開き、<title> が PASS/FAIL になるまで実時間で待つ（最長 60 秒）。
 const REALTIME = new Set(["t-anno", "t-model", "t-raster", "t-gndfaces"]);   // t-gndfaces＝gint 面の地面アトラス焼き（標高の到着＝実時間）   // t-raster＝画像タイル層（MessagePort プロバイダ＝worker→worker のタイル・ラスタ PMTiles＝実時間の fetch）   // t-model＝model-worker 内の loaders.gl 動的 import（glb 直読み）
-const CDP = 9600 + (process.pid % 200);
+// 実時間ページごとに Chrome を立て直す。⚠旧＝同じ CDP ポート・同じ user-data-dir を使い回し、kill の終了を待たずに次を起動していた
+// ＝次の Chrome が終了途中の古い Chrome（同じプロファイルのロック・同じポート）に取り付き、/json/new が「Could not create new page」を
+// 返して JSON.parse で検定全体が落ちた（2 本目の実時間ページ＝通しの 5 本目・2026-09-22 に変更前でも再現）。
+// 根治＝起動ごとに別ポート・別プロファイル／kill 後は exit を待つ（2 秒で SIGKILL）＋プロファイルを消す／タブが作れなければ 1 回作り直し→理由つき FAIL。
+let rtSeq = 0;
+const waitExit = (proc, ms = 5000) => new Promise(res => {
+	if (proc.exitCode != null || proc.signalCode != null) return res();
+	const t1 = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* もう居ない */ } }, 2000);
+	const t2 = setTimeout(res, ms);
+	proc.once("exit", () => { clearTimeout(t1); clearTimeout(t2); res(); });
+});
 async function runRealtime(url) {
+	const n = ++rtSeq, CDP = 9600 + ((process.pid * 7 + n * 13) % 300), dir = `/tmp/oj-vui-${process.pid}-${n}`;
 	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
-		"--no-first-run", `--user-data-dir=/tmp/oj-vui-${process.pid}`, "about:blank"], { stdio: "ignore" });
+		"--no-first-run", `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
 	try {
 		for (let i = 0; ; i++) {
 			try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ }
 			if (i > 60) return "FAIL chrome devtools が起動しない";
 			await new Promise(r => setTimeout(r, 250));
 		}
-		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" })).json();
+		let target = null, why = "";
+		for (let k = 0; k < 2 && !target; k++) {   // タブ作成＝失敗は本文（文字列）を理由にして 1 回だけ作り直す（JSON.parse で落とさない）
+			const r = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).catch(e => ({ ok: false, text: async () => String(e.message) }));
+			const body = await r.text();
+			try { if (r.ok) target = JSON.parse(body); else why = body; } catch { why = body; }
+			if (!target) await new Promise(res => setTimeout(res, 500));
+		}
+		if (!target?.webSocketDebuggerUrl) return "FAIL chrome: タブを作れない（" + String(why).slice(0, 80) + "）";
 		const ws = new WebSocket(target.webSocketDebuggerUrl);
 		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 		let id = 0; const pending = new Map();
@@ -50,7 +69,13 @@ async function runRealtime(url) {
 		}
 		ws.close();
 		return /^(PASS|FAIL)/.test(title) ? title : "FAIL no-title(realtime 60s): " + title;
-	} finally { chrome.kill(); }
+	} catch (e) {
+		return "FAIL chrome: " + String(e?.message || e).slice(0, 120);
+	} finally {
+		chrome.kill();
+		await waitExit(chrome);   // 終わるまで待つ＝次の起動が古い Chrome に取り付かない
+		await rm(dir, { recursive: true, force: true }).catch(() => {});
+	}
 }
 
 let fail = 0;
