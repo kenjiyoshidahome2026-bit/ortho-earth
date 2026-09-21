@@ -249,6 +249,14 @@ uniform int        u_pivot_w;
 uniform int        u_has_pivot;
 uniform uvec4      u_view_bbox;   // 視野 bbox（e7整数・保守的＝地平キャップ fallback 込み）
 uniform int        u_use_vbb;     // 1＝bboxカリング有効（bboxテクスチャと視野bboxが両方ある時だけ）
+// 地面アトラスへの焼き込み（RTT ドレープ・2026-09-21）：窓座標モード＝原点相対 dLL（deg）を経緯度整列の窓へ線形写像。
+// 球面投影・地平クランプ・ドレープ・視野カリングは無効（窓の外は FBO の外＝クリップ）。塗り扇（stencil/idfill）だけが使う。
+uniform vec4       u_atlas;       // xy＝原点−窓南西隅(deg・CPU f64)・zw＝1/窓幅
+uniform float      u_atlasOn;
+vec4 atlasClip(float dlon, float dlat) {
+	vec2 p = (u_atlas.xy + vec2(dlon, dlat)) * u_atlas.zw;
+	return vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
 uvec4 fetchFidBbox(uint fid) {
 	return texelFetch(u_pivot_tex, ivec2(int(fid) % u_pivot_w, int(fid) / u_pivot_w), 0);
 }
@@ -290,6 +298,7 @@ bool bboxVisible(uint fid) {
 		bool xi = bb.z > 3600000000u ? (u_view_bbox.x <= bb.z - 3600000000u || u_view_bbox.z >= bb.x) : !(bb.z < u_view_bbox.x || bb.x > u_view_bbox.z);
 		if (!xi) return false;
 	}
+	if (u_atlasOn > 0.5) return true;    // 窓座標モード＝vbb（窓 bbox）だけで刈る・地平キャップは無い
 	return capVisible(bb);
 }
 vec4 pivotClip(uint fid) {
@@ -301,6 +310,7 @@ vec4 pivotClip(uint fid) {
 	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）。周期対応 bbox＝[0,360e7) へ
 	float dlon = dlonE7(cx, u_ix_center) * 1e-7;
 	float dlat = float(int(cy - u_iy_center)) * 1e-7;
+	if (u_atlasOn > 0.5) return atlasClip(dlon, dlat);   // 窓座標モード
 	return u_clipT + u_mvp * vec4(deltaToRel(dlon, dlat), 0.0);
 }
 
@@ -333,6 +343,7 @@ vec4 fetchClip(uint idx) {
 //（自己交差/重なり）も winding で斜面に貼る。扇の pivot は非ドレープでよい（winding は screen で pivot 不変）。
 vec4 fetchClipDrape(uint idx) {
 	vec2 dLL = decodeDLL(idx);
+	if (u_atlasOn > 0.5) return atlasClip(dLL.x, dLL.y);   // 窓座標モード（ドレープ・地平クランプ無し＝地形には FS の標本化で乗る）
 	vec3 rel = deltaToRel(dLL.x, dLL.y);
 	vec3 relW = rel;
 	if (u_elevScale > 0.0 && u_hasElev > 0.5) {
@@ -902,6 +913,7 @@ const SHARED_UNIFORM_NAMES = [
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport',
 	'u_ix_center','u_iy_center','u_lod_rank',
 	'u_ell_trig','u_ell',   // 楕円体 dβ 錨＋変位方向ゲート（球=全0=GL既定値＝従来動作）
+	'u_atlas','u_atlasOn',  // 窓座標モード（地面アトラスへの焼き込み・塗り扇のみ・既定 0）
 ];
 // 深度統合（段階B）uniform 名（bindDepthUniforms が set。未設定なら全0=従来動作）。
 // 線(uRender)に加え、塗り扇(uStencil)・idfill蓄積(uId)もドレープ（fetchClipDrape）で参照する（2026-08-14）。

@@ -146,12 +146,13 @@ function bindPointUniforms(s, u, data) {
 
 export function renderCleanScene(s, data, targetFBO = null) {
 	const { gl, programs, arcTex, metaTex, ptTex, ptMetaTex,
-			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W, width, height } = s;
+			totalEdges, totalPoints, TEX_ARC_W, TEX_META_W } = s;
+	const width = data.atlas ? data.atlas.size : s.width, height = data.atlas ? data.atlas.size : s.height;   // 窓座標モード＝窓の寸法
 	const { renderProgram, stencilProgram, fillProgram,
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO);
-	if (s.embedded && !targetFBO) {
+	if ((s.embedded && !targetFBO) || data.atlas) {   // atlas＝地面アトラスの窓へ上書き（色は消さない・stencil だけ）
 		// embedded＝地図が既に描かれた default framebuffer の上に blend で重ねる＝色は消さない。
 		// stencil だけ消す（塗りの winding 判定用。renderer 側の stencil 利用は都度 clear する規約＝衝突しない）。
 		// ★bit7(0x80)＝renderer の建物マスク（面ドレープの深度統合 2026-08-14）＝消さない（0x7F＝winding 側だけ）
@@ -198,12 +199,12 @@ export function renderCleanScene(s, data, targetFBO = null) {
 	const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
 	// paint（fid スタイル表）が預けられていれば ID バッファ塗り＝per-fid コロプレス（gint draw spec.md §7.2）。
 	// 明示 paint は全ズーム尊重（明示 fillColor と同じ原則）。能力なし/fid 超過/FBO 不成立は従来 stencil へ。
-	const idDone = !data._forceLow && canUseIdFill(s) && renderIdFill(s, data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める
+	const idDone = !data.noFaces && !data._forceLow && canUseIdFill(s) && renderIdFill(s, data, targetFBO);   // 安い表現中は idfill（全密度扇）を止める。noFaces＝面は地面アトラス側
 	// 単色 stencil 塗りは常時境界メタ（共有 arc は winding 寄与が正味 0＝落としても数学的に同一で桁違いに軽い）。
 	// ID バッファ塗りは fid 重みのため境界メタ不可＝基準メタ固定（renderIdFill 側）。
 	const hasB = !!(s.metaTexB && s.polyEdgesB > 0);
 	const stTex = hasB ? s.metaTexB : metaTex, stCount = hasB ? s.polyEdgesB : s.polyEdges;
-	if (!idDone && fc[3] > 0 && stCount > 0 && !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8)) {   // 安表現中の塗り予算（embed.js sync の canFill と同じ物差し）
+	if (!data.noFaces && !idDone && fc[3] > 0 && stCount > 0 && !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8)) {   // 安表現中の塗り予算（embed.js sync の canFill と同じ物差し）
 		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
 		const occ = !targetFBO && !!(data.depth && (data.depth.elevScale ?? 0) > 0 && data.depth.hasElev);
 		gl.enable(gl.STENCIL_TEST);
@@ -234,6 +235,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 		gl.disable(gl.STENCIL_TEST);
 	}
+	if (data.facesOnly) return;   // 地面アトラスへの焼き込み＝面だけ（線・点は画面側の 3D パスが描く）
 
 	// ── Fat-line edges ──（低ズーム＝境界メタ＝アウトラインのみ / 中〜高ズーム＝tier＋可視チャンク run）
 	// lowZoom(z<outlineZoom) では筆内部の線は視認不能（ベタ潰れ）＝境界メタで街区外郭だけ描く。

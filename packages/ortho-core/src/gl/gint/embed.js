@@ -26,6 +26,8 @@ import { unproject } from '../../camera.js';
 export function createGintLayer(gl, { requestDraw } = {}) {
 	s.embedded = true;
 	s.requestDraw = requestDraw ?? null;
+	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
+	const bump = () => { bakeRev++; s.requestDraw?.(); };
 	s.gl = gl;
 	s.TEX_ARC_W  = Math.min(s.TEX_ARC_W,  gl.getParameter(gl.MAX_TEXTURE_SIZE));
 	s.TEX_META_W = Math.min(s.TEX_META_W, gl.getParameter(gl.MAX_TEXTURE_SIZE));
@@ -78,6 +80,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		const at = layers.findIndex(x => x.order > L.order);
 		layers.splice(at < 0 ? layers.length : at, 0, L);
 		act = L;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
+		bakeRev++;
 		return layerHandle(L);
 	}
 	function layerHandle(L) {
@@ -100,7 +103,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 						arcMeta: st.gintData.arcMeta, minZoom: data.minZoom ?? null, maxZoom: data.maxZoom ?? null, precision: data.precision ?? 6 }));
 				}
 				st.activeId = -1; st.lastDrawData = null;
-				s.requestDraw?.();
+				bump();
 			},
 			setSlot: () => {},   // 追加層にスロット舞踏は無い（renderworker の層指名 gintBaked が「点火」に呼ぶ＝可視は既定で真）
 			setBaked: (p) => {
@@ -114,15 +117,15 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				({ minZoom: st.minZoom, maxZoom: st.maxZoom } = checkZoomRange({
 					arcMeta: st.gintData.arcMeta, minZoom: p.minZoom ?? null, maxZoom: p.maxZoom ?? null, precision: p.precision ?? 6 }));
 				st.activeId = -1; st.lastDrawData = null;
-				s.requestDraw?.();
+				bump();
 			},
-			style: d => { L.drawStyle = d ?? null; s.requestDraw?.(); },
-			setVisible: v => { L.visible = !!v; s.requestDraw?.(); },
+			style: d => { L.drawStyle = d ?? null; bump(); },
+			setVisible: v => { L.visible = !!v; bump(); },
 			paint: d => {
 				if (d?.table && d.count > 0) uploadFidStyle(st, d.table, d.count);
 				else clearFidStyle(st);
 				st.idOverlapMode = !!d?.overlap;
-				s.requestDraw?.();
+				bump();
 			},
 			activate: () => { if (act !== L) { handleLeave(actSt()); act = L; } },
 			setOrder: n => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
@@ -132,7 +135,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				L.order = n;
 				const at = layers.findIndex(x => x.order > n);
 				layers.splice(at < 0 ? layers.length : at, 0, L);
-				s.requestDraw?.();
+				bump();
 			},
 			remove: () => {
 				const i = layers.indexOf(L);
@@ -141,7 +144,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 				clearTimeout(st._moveTimer);
 				deleteTextures(st); clearFidStyle(st);
 				if (act === L) { act = layers.length ? layers[layers.length - 1] : null; }
-				s.requestDraw?.();
+				bump();
 			},
 			stats: () => ({ tiers: st.lodTiers?.length ?? 0, tiersDone: !!st.tiersDone, total: st.totalEdges,
 				edges: st._pfLineEdges ?? 0, subs: st._pfSubs ?? 0, tierW: st._pfTierW ?? -1 }),
@@ -168,6 +171,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		st._budgetSkipped = false;
 		const drawData = computeDrawData(s, data);   // ビュー（cam/lastViewBbox）はシングルトン＝共有
 		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;
+		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 		if (L.visible) { renderCleanScene(st, drawData, null); drawHighlight(st, drawData); }
 		st.lastDrawData = drawData;
 	}
@@ -200,7 +204,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		activeKey = slots.has(key) ? key : null;
 		// 交替で眠っていた層の梯子が未完なら途中再開（構築済みの段は plan から除外される）
 		if (activeKey != null && !s.tiersDone && s.totalEdges > 0) scheduleTierBuild(s);
-		s.requestDraw?.();
+		bump();
 	}
 
 	// gint ペイロードの差し替え（null/undefined＝スロット空化）。worker 版 set() と同じ台帳更新。
@@ -243,7 +247,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			if (b) { deleteBundleTextures(b); slots.delete(key); }
 		}
 		s.activeId = -1; s.lastDrawData = null;
-		s.requestDraw?.();
+		bump();
 	}
 
 	// bake worker 完成品の搭載（bake-ahead）＝CPU ベイクを一切せずテクスチャ搭載のみ。
@@ -273,11 +277,11 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		slots.set(key, {});                        // 実体は saveActive が写す（それまで s が真実源）
 		s.activeId = -1; s.lastDrawData = null;
 		if (prevKey !== key) setSlot(prevKey);     // 元の表示へ戻す（prevKey=null 含む）＝非活性の要
-		s.requestDraw?.();
+		bump();
 	}
 
-	function style(data)   { drawStyle = data ?? null; s.requestDraw?.(); }
-	function setVisible(v) { visible = !!v; s.requestDraw?.(); }
+	function style(data)   { drawStyle = data ?? null; bump(); }
+	function setVisible(v) { visible = !!v; bump(); }
 
 	// paint（fid スタイル表）の差し替え（gint draw spec.md §7.1）。main が style.js の buildFidStyle で
 	// 式を評価済み＝ここは Uint32Array を受けてテクスチャ更新1回のみ（restyle 契約）。null=解除（従来塗りへ）。
@@ -285,7 +289,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		if (data?.table && data.count > 0) uploadFidStyle(s, data.table, data.count);
 		else clearFidStyle(s);
 		s.idOverlapMode = !!data?.overlap;   // 重複可視化モード（品質監査プローブ。通常 paint では false に戻る）
-		s.requestDraw?.();
+		bump();
 	}
 
 	// 地図フレーム末尾の gint パス。cam は renderer.draw と同じ glCam（動的解像度中は dpr×resScale 済み）
@@ -369,6 +373,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		// tier 間引き後の国境は長いarc＝端点しか標高を見ず地形に潜り、隠線パスは静止時のみ＝チルト中のドラッグで
 		// 国境だけ消えた（海岸線は海抜0＝terrain が海を discard するため無事）。装飾層は最前面が正しい。
 		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;   // passes.js が線パスだけ深度テスト＋隠線2パスに切替
+		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 
 		// ── GL 状態の切替と退避復元 ──
 		// renderer は premultiplied（ONE, ONE_MINUS_SRC_ALPHA）・gint シェーダは straight alpha 出力。
@@ -470,5 +475,40 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			runs: s._pfRuns ?? -1, chunks: s._pfChunks ?? -1, vb: s.lastViewBbox };
 	}
 
-	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer };
+	// 地面アトラスへ面だけ焼く（RTT ドレープ・2026-09-21）：renderer.composeGround のフックから窓ごとに呼ばれる。
+	// target={ fbo, win:[W,S,spanLon,spanLat], size }。各層の面（stencil 単色／idfill）を窓座標モードで描く＝地形には FS の標本化で乗る。
+	// 画面側の draw は ctx.facesInAtlas で面を省く。ハイライト（hover）は従来どおり画面側。
+	function bakeFaces(cam, target) {
+		if (!s.programs) return 0;
+		s.width = gl.canvas.width; s.height = gl.canvas.height;   // draw() と同じ実寸追随（既定層が空のまま非表示だと draw() は寸法を更新しない）
+		const w = target.win, atlas = { off: null, inv: [1 / w[2], 1 / w[3]], size: target.size };
+		// 窓 bbox（e7・lastViewBbox と同じ物差し）＝feature の GPU bbox カリングを窓で行う（地平キャップは無い）。縫い目跨ぎ＝null＝刈らない
+		const seam = w[0] < -180 || w[0] + w[2] > 180;
+		const vbb = seam ? null : [Math.round((w[0] + 180) * 1e7), Math.round((Math.max(-90, w[1]) + 90) * 1e7), Math.round((w[0] + w[2] + 180) * 1e7), Math.round((Math.min(90, w[1] + w[3]) + 90) * 1e7)];
+		let n = 0;
+		const one = (st, style, vis) => {
+			if (!vis || !st.polyBboxByFid || (st.polyBboxByFid.size ?? 0) === 0) return;
+			const data = { cam, ...(style || {}) };
+			if (st._forceLowMove) data._forceLow = true;
+			if (!zoomInRange(st, data) || st.totalEdges === 0) return;
+			const dd = computeDrawData(s, data);   // ビュー（cam/lastViewBbox）はシングルトン＝共有（drawLayerGL と同じ）
+			let off = dd.origin[0] - w[0]; off -= 360 * Math.round((off - w[2] / 2) / 360);   // 原点−窓南西隅（CPU f64・経度は窓中心へ最寄りの周回）
+			dd.atlas = { ...atlas, off: [off, dd.origin[1] - w[1]] };
+			dd.facesOnly = true;
+			const had = Object.prototype.hasOwnProperty.call(st, "lastViewBbox"), saved = st.lastViewBbox;
+			st.lastViewBbox = vbb;   // bindPivot が読む視野 bbox を窓 bbox へ差し替え（描き終えたら戻す）
+			try { renderCleanScene(st, dd, target.fbo); n++; }
+			finally { if (had) st.lastViewBbox = saved; else delete st.lastViewBbox; }
+		};
+		gl.disable(gl.DEPTH_TEST);
+		gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);   // gint は straight alpha 出力＝前乗算の窓に over で正しく乗る
+		for (const L of layers) if (L.order < 0) one(L.st, L.drawStyle, L.visible);
+		one(s, drawStyle, visible);
+		for (const L of layers) if (L.order >= 0) one(L.st, L.drawStyle, L.visible);
+		gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+		return n;   // 焼いた層数（renderer の計器 gndFaces）
+	}
+	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
+	const bakeSig = () => `${bakeRev}|${s._isDrawing ? 1 : 0}${(s._staticN ?? 99) < 4 ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
+	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer, bakeFaces, bakeSig };
 }

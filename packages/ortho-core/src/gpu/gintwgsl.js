@@ -33,6 +33,8 @@ struct GF {
 	elevP: vec4f,      // edgeFade, cos4φ0, sin4φ0, ell(1=楕円体)＝予備3枠に dβ 錨の残りとゲート（球＝0,0,0）
 	meshQ: vec4f,      // 案A: 地形メッシュ窓（xy=原点・zw=span deg）＝ドレープ標高の量子化先
 	meshP: vec4f,      // 案A: (格子の頂点数 G, near.x, near.y, skipE7)。G=0＝量子化オフ。yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・0=飛ばさない）（⚠GF スロットは 512B へ拡張済み）
+	atlas: vec4f,      // 地面アトラスへの焼き込み（窓座標モード）：xy＝原点−窓南西隅(deg)・zw＝1/窓幅（gl/gint u_atlas と対・packGF 72-75）
+	atlasQ: vec4f,     // x＝窓座標モード(1)。塗り扇だけ＝球面投影・地平クランプ・ドレープ無し（地形には FS の標本化で乗る・packGF 76-79）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -260,6 +262,10 @@ fn horizonClamp(relW: vec3f) -> vec3f {
 	if (lp > 1e-6) { t = Pp / lp; }
 	return F.eye / e2 + sqrt(max(1.0 - 1.0 / e2, 0.0)) * t - F.originPt;
 }
+fn atlasClip(dlon: f32, dlat: f32) -> vec4f {   // 窓座標モード＝原点相対 dLL(deg) を経緯度整列の窓へ線形写像（ATLAS_FILL_WGSL と同式）
+	let p = (F.atlas.xy + vec2f(dlon, dlat)) * F.atlas.zw;
+	return vec4f(p * 2.0 - 1.0, 0.5, 1.0);
+}
 fn fetchClip(idx: u32) -> vec4f {
 	let c = F.clipT + F.mvp * vec4f(horizonClamp(decodeRel(idx)), 0.0);
 	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
@@ -269,6 +275,7 @@ fn fetchClip(idx: u32) -> vec4f {
 // 汚い土砂ポリゴン(自己交差/重なり)も winding で斜面に貼る。扇の pivot は非ドレープでよい（winding は screen で pivot 不変）。
 fn fetchClipDrape(idx: u32) -> vec4f {
 	let dLL = decodeDLL(idx);
+	if (F.atlasQ.x > 0.5) { return atlasClip(dLL.x, dLL.y); }   // 窓座標モード
 	let rel = deltaToRel(dLL.x, dLL.y);
 	var relW = rel;
 	if (F.depthP.z > 0.0 && F.depthP.w > 0.5) {
@@ -343,6 +350,7 @@ fn bboxVisible(fid: u32) -> bool {
 		let xi = select(!(bb.z < F.vbb.x || bb.x > F.vbb.z), (F.vbb.x <= bb.z - 3600000000u || F.vbb.z >= bb.x), bb.z > 3600000000u);
 		if (!xi) { return false; }
 	}
+	if (F.atlasQ.x > 0.5) { return true; }   // 窓座標モード＝vbb（窓 bbox）だけで刈る・地平キャップは無い
 	return capVisible(bb);
 }
 // stencil 塗りの扇要（feature bbox 中心）＝TBDR パラメータバッファ対策。無し＝クリップ原点（z01写像済み）
@@ -353,6 +361,7 @@ fn pivotClip(fid: u32) -> vec4f {
 	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u; let cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox＝中心を [0,360e7) へ
 	let dlon = dlonE7(cx, F.centers.x) * 1e-7;
 	let dlat = f32(i32(cy - F.centers.y)) * 1e-7;
+	if (F.atlasQ.x > 0.5) { return atlasClip(dlon, dlat); }   // 窓座標モード
 	let c = F.clipT + F.mvp * vec4f(deltaToRel(dlon, dlat), 0.0);
 	return vec4f(c.xy, (c.z + c.w) * 0.5, c.w);
 }
