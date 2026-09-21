@@ -1101,7 +1101,8 @@ const gint = createGintLayers({
 	get theme() { return theme; },
 	layers: { map: extGint, get active() { return extActive; }, set active(v) { extActive = v; }, nextId: () => ++gintLayerSeq },
 	smallAreaHover: !!opts.smallAreaHover,
-	requestDraw: () => { needsDraw = true; }, onMove: () => onMove(), flyTo: (...args) => flyTo(...args), loadBelowSea: () => loadBelowSea(), loadLakes: () => loadLakes(),
+	requestDraw: () => { needsDraw = true; }, onMove: () => onMove(), flyTo: (...args) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
+	get flying() { return flying; },   // 国境の細密版（10m）も飛行の通過点では読まない
 });
 // --- 海面下の陸地（?world=1・全球ハイプソの一部）--------------------------------------------
 // bucket の below_sea_land（uploader「below-sea land」ボタンで焼成＝admin0 陸マスク∧GEBCO≤-1m のシードを

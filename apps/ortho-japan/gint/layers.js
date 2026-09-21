@@ -476,6 +476,7 @@ function queryAllGint(ll) {
 let admin0Layer = null;   // 独立層ハンドル
 let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝毎フレーム送らない）
 const USER_GINT_MINZ = 7;
+const WORLD_BAND_Z = 6.5;    // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値）
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 const WORLD_ADMIN0_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
 const WORLD_TIP_MAXZ = 5.5;     // 国名ホバー tip の上限＝これ以上は出さない・跨いだら消す（本人裁定 2026-09-02「z>5.5で消して」＝基図接近帯は注記の領分）
@@ -591,11 +592,13 @@ function admin0DrawStyle() {
 // admin0 独立層の生成（WebGPU 経路）。ペイロードは fillOff 強制済みの admin0Gint（国ポリゴンはアウトライン専用）
 // ＝addGint へはダック（unPackGint=admin0Gint・識別面は原本 admin0Pbf）で渡す。interactive:false＝
 // カーソルは触らない（国名 tip は main 同期 identify のまま）。order:-10＝常に最下（user 層や多層の下）。
+// 層へ渡すダック（unPackGint＝fillOff 強制済みペイロード・識別面は原本 admin0Pbf を都度引く＝解像度の差し替えに追随）
+const admin0Duck = () => ({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
+	getProperties: i => admin0Pbf.getProperties(i), getFeature: f => admin0Pbf.getFeature(f),
+	identifyAt: (...a) => admin0Pbf.identifyAt(...a) });
 function ensureAdmin0Layer() {
 	if (admin0Layer || !admin0Gint || !admin0Pbf) return;
-	admin0Layer = addGint({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
-		getProperties: i => admin0Pbf.getProperties(i), getFeature: f => admin0Pbf.getFeature(f),
-		identifyAt: (...a) => admin0Pbf.identifyAt(...a) },
+	admin0Layer = addGint(admin0Duck(),
 	{ order: -10, interactive: false, minZoom: WORLD_VT ? WORLD_ADMIN0_MINZ : null, maxZoom: 9, style: admin0DrawStyle() });
 	admin0Vis = true;
 }
@@ -632,12 +635,15 @@ function clearUserGint() {
 }
 // ズームでスロットの中身を選ぶ。onMove から毎回呼ばれるが post は変更時だけ＝安い。海岸線は初回のみ遅延取得。
 function updateGintSlot() {
-	if (WORLD_VT && cam.zoom < ADMIN0_Z) { env.loadBelowSea(); env.loadLakes(); }   // 海面下の陸地・湖も世界図の文脈で一度だけ遅延取得（wdepr/lakes＝overlay 系スロット＝gint と独立・自己ガード）
+	// 海面下の陸地・湖＝見える帯（世界帯 z<6.5＝whK 連動・app の BASEMAP_MINZOOM と同値）に入った時に一度だけ取得（wdepr/lakes＝gint と独立・自己ガード）。
+	// 旧＝z<9 で取得＝列島ビュー（z6.6）の起動で見えない 0.9MB を読んでいた（2026-09-22 本人裁定で見える帯へ）。飛行中は app 側が待たせる（着地で再評価）。
+	if (WORLD_VT && cam.zoom < WORLD_BAND_Z) { env.loadBelowSea(); env.loadLakes(); }
 	// 国名 tip はズームだけで z5.5 を跨いでも消す（ホバーイベントが来ない＝出しっぱなしになる件の根治 2026-09-02）
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	// admin0＝独立層（スロット外）：ロード発火・層生成・飛行抑制の同期。表示のズーム域はエンジンが裁く
-	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0();
+	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0("50m");
+	else if (!LOW_MEM && admin0Res === "50m" && !admin0Loading && !suppressAdmin0 && !env.flying && cam.zoom >= ADMIN0_FINE_Z && cam.zoom < ADMIN0_Z) loadAdmin0("10m");   // 国境が大きく見える帯で細密版へ
 	ensureAdmin0Layer();
 	syncAdmin0Vis();
 	// LOW_MEM＝user 層が非表示帯（z<minZoom）の間は束を眠らせない＝破棄（iOS jetsam 対策・旧 admin0 スロット
@@ -655,22 +661,26 @@ function updateGintSlot() {
 // 旧・海岸線(ne_coastline 線)から置換（本人裁定 2026-08-30「admin0_countriesの方が国の認識ができる」）：
 // 国ポリゴンの辺＝海岸線＋国境線が1データで出る（隣国の共有arcは gint 境界メタが一本化）うえ、
 // 「国」という実体を gint が持つ＝国名 identify・国別 fid 彩色への口が開く（MVT=描画/Gint=知性の分担）。
-async function loadAdmin0() {
-	if (admin0Loading || admin0Gint) return; admin0Loading = true;
-	// モバイル（LOW_MEM）は 50m 版＝頂点数が一桁小さい＝GintBUF焼き・GPU・スロット束の常駐とも軽量化。
+// 解像度の二段（2026-09-22 本人裁定）：最初は 50m 版（列島ビューの起動＝z6.6 で外国の海岸線・国境を描くのに足りる・約 0.5MB）、
+// z7〜9 の帯（国境が大きく見える）に寄った時に 10m 版（2.6MB）を読み、同じ層へ setData で差し替える（手綱・イベント・識別は生存・
+// 新しい焼き上がりまで旧い線が残る＝消えない）。旧＝起動で 10m を読んでいた。LOW_MEM（モバイル）は従来どおり 50m だけ。
+const ADMIN0_FINE_Z = 7;
+let admin0Res = null;   // 搭載中の解像度 "50m" | "10m"
+async function loadAdmin0(res = "50m") {
+	if (admin0Loading || res === admin0Res) return; admin0Loading = true;
 	// bucket 未収録の間は zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB キャッシュする＝初回のみ。
-	const RES = LOW_MEM ? "50m" : "10m";
-	const NAME = `ne_${RES}_admin_0_countries`;
-	console.log(`[admin0] loading Natural Earth ${RES} admin_0_countries (bucket GeoPBF -> GintBUF)…`);
+	const NAME = `ne_${res}_admin_0_countries`;
+	console.log(`[admin0] loading Natural Earth ${res} admin_0_countries (bucket GeoPBF -> GintBUF)…`);
 	let pbf = await geopbf(NAME).catch(e => { console.warn("[admin0] bucket load failed", e); return null; });
 	if (!pbf?.unPackGint) {
 		console.warn("[admin0] no geopbf in bucket -> falling back to raw zip (S3 -> shp decode)");
-		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${RES}_cultural/${NAME}.zip`, { name: NAME }).catch(e => { console.error("[admin0] geopbf", e); return null; });
+		pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${res}_cultural/${NAME}.zip`, { name: NAME }).catch(e => { console.error("[admin0] geopbf", e); return null; });
 	}
-	admin0Pbf = pbf || null;   // 原本を identify 用に生存（国名 NAME_JA ホバー/クリック＝次の一歩の口）
 	const g = pbf?.unPackGint;
 	admin0Loading = false;
 	if (!g) { console.error("[admin0] GintBUF decode failed", pbf); return; }
+	admin0Pbf = pbf;   // 原本を identify 用に生存（国名 NAME_JA ホバー/クリック）＝層のダックはこの変数を都度引く
+	admin0Res = res;
 	admin0Gint = {   // maxZoom:9＝z≤9 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
@@ -678,11 +688,12 @@ async function loadAdmin0() {
 		maxZoom: 9,
 		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
+	if (admin0Layer) { admin0Layer.setData(admin0Duck()); console.log(`[admin0] upgraded to ${res}`); return; }
 	// 着地＝独立層を生成（addGint が bake-ahead で焼く＝地図は止まらない）
 	ensureAdmin0Layer(); syncAdmin0Vis();
-	console.log("[admin0] loaded as independent layer (z<9 = engine-gated)");
+	console.log(`[admin0] loaded ${res} as independent layer (z<9 = engine-gated)`);
 }
-dbgHost.__admin0 = loadAdmin0;   // 手動リロード用
+dbgHost.__admin0 = res => loadAdmin0(res);   // 手動リロード用
 dbgHost.__a0 = () => ({ layer: !!admin0Layer, vis: admin0Vis, slot: gintSlot });   // 二層化の検定窓（slot は user 専用＝"admin0" は現れない）
 dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印（コンソールで __gintFix ＝ undefined なら古いコードが動いている）
 // 遅延ロードの門番は updateGintSlot（z<9 で海岸線 未取得なら一度だけ取得）＝高ズーム固定の埋め込みは一生読まない
