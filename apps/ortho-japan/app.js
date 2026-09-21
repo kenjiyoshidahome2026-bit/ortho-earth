@@ -2443,7 +2443,11 @@ const parquetView = async (src, name) => {
 	const m = await import("./gadgets/parquet-view.js");
 	const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
 	try { parquetCtl = await m.createParquetView(map, src, { name, color, signal: ac.signal }); }
-	catch (err) { console.error("[parquet] view failed", name, err); throw err; }   // 文面は gadget の t()（トーストへ）
+	catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝小さいファイルの経路（INTAKE geoparquet）と同じ文言で言い換える
+		console.error("[parquet] view failed", name, err);
+		if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
+		throw err;
+	}
 	dbgHost.__parquet = parquetCtl;   // dev の検証窓（loaded/deferred/pq）
 	return { length: parquetCtl.rows };   // dropFile のトースト用（地物数の代わりに行数）
 };

@@ -28,7 +28,7 @@ export async function createParquetView(map, src, { name, budgetBytes = 64e6, co
 	const t = tr();
 	name ??= (typeof src === "string" ? decodeURIComponent(src.split("/").pop() || "") : src?.name) || "parquet";
 	// ── worker（読み手）と RPC ──
-	const worker = new Worker(new URL("./parquet-worker.js", import.meta.url), { type: "module", name: "parquet" });
+	const worker = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "parquet" });   // 入口 1 本（worker.js）＝役割は name（gadgets/parquet-worker.js）
 	let seq = 0; const waiting = new Map();
 	worker.onmessage = e => { const d = e.data, w = waiting.get(d.id); if (!w) return; waiting.delete(d.id); d.error ? w.rej(new Error(d.error)) : w.res(d); };
 	worker.onerror = e => console.error("[parquet] worker error", e.message);

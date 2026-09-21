@@ -132,7 +132,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 	const waiting = new Map();
 	const rpc = (msg, transfer) => new Promise((res, rej) => {
 		worker ??= (() => {
-			const w = new Worker(new URL("../model-worker.js", import.meta.url), { type: "module", name: "model" });
+			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）
 			w.onmessage = e => { const d = e.data, p = waiting.get(d.id); if (!p) return; waiting.delete(d.id); d.error ? p.rej(new Error(d.error)) : p.res(d); };
 			w.onerror = e => console.error("[model] worker error", e.message);
 			return w;
