@@ -117,6 +117,21 @@
         "--strictPort"
       ],
       "port": 5176
+    },
+    {
+      "name": "japan-dist",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "preview",
+        "--port",
+        "5296",
+        "--strictPort",
+        "--outDir",
+        "dist/site/japan"
+      ],
+      "port": 5296,
+      "cwd": "apps/ortho-japan"
     }
   ]
 }
