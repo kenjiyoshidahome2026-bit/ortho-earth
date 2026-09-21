@@ -1102,7 +1102,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, tex, texBG, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape });   // noLift＝地形へ持ち上げない（統計の押し出し＝平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる（2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -1648,7 +1648,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で
 				plBatchCPU[o] = p.origin[0]; plBatchCPU[o + 1] = p.origin[1]; plBatchCPU[o + 2] = p.origin[2]; plBatchCPU[o + 3] = p.two ? 0 : 1;   // meshOrigin.xyz + cullBack
 				plBatchCPU[o + 4] = cM[0]; plBatchCPU[o + 5] = cM[1]; plBatchCPU[o + 6] = cM[2]; plBatchCPU[o + 7] = cM[3];   // clipMesh
-				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = p.blend ? 1 : 0; plBatchCPU[o + 10] = 0; plBatchCPU[o + 11] = 0;   // alpha（模型の派生 PB だけが読む）
+				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = p.blend ? 1 : 0; plBatchCPU[o + 10] = p.noLift ? 1 : 0; plBatchCPU[o + 11] = p.drape ? 1 : 0;   // alpha.xy（模型の派生 PB だけが読む）・.z＝noLift・.w＝drape（素も派生も読む）
 				draws.push({ p, count, slot });
 			}
 			dbg.pl = draws.length;   // ?drawhud=1：メッシュの可視バッチ数（「建物は出ているのに紙が無い」の裏取り）

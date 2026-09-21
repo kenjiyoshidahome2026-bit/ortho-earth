@@ -17,7 +17,7 @@ self.onmessage = async e => {
 	try {
 		setDecodeEnv({ ell: !!ell });   // 楕円体表示（?ell=1）は後段（finishMesh の RTE）が見る＝app と揃える
 		if (kind === "extrude") {
-			const r = extrudeMesh(polys, { mask: mask !== false });
+			const r = extrudeMesh(polys, { mask: mask !== false, refine: e.data.refine ?? 1500 });   // refine＝屋根の細分の刻み(m)（沿わせる=1500・平面=5000）
 			if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 			const batches = [{ mesh: r.mesh, tex: null, alphaMode: "OPAQUE", alphaCutoff: 0.5 }];
 			self.postMessage({ id, batches, mask: r.mask, stats: r.stats }, transferOf(batches));
