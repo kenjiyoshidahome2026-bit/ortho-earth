@@ -29,7 +29,7 @@ export function createPropsPanel(container, api, signal) {   // api={getFeature(
 		curEid = eid;
 		panel = document.createElement("div");
 		panel.className = "ge-panel";
-		const kindLabel = f.type.includes("Poly") ? t("Polygon") : f.type.includes("Line") ? t("Line") : t("Point");
+		const kindLabel = f.properties?.["@image"] != null ? t("Image") : f.type.includes("Poly") ? t("Polygon") : f.type.includes("Line") ? t("Line") : t("Point");
 		// タイトル行＝見出し＋削除＋閉じる（本人裁定：閉じる/削除はここに集約）
 		const head = document.createElement("div");
 		head.className = "ge-head";

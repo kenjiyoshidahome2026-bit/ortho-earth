@@ -54,7 +54,7 @@ export const DEF = {   // styleform（素人向けUI）が初期値表示に使�
 // 1 feature 分の表（4 語）を u32 の i 行へ書く＝全件再構築（buildStyleTable）と 1 件差し替え（restyleOne）の共通部
 export function writeStyleRow(u32, i, f, forceVisible) {
 	const p = f?.properties || {};
-	const fill = cssColor(p["@fill"]) ?? DEF.fill;
+	const fill = cssColor(p["@fill"]) ?? (p["@image"] != null ? 0 : DEF.fill);   // 四隅の画像＝塗らない（画像は overlay が描く・枠だけ見せて掴めるように）
 	const stroke = cssColor(p["@stroke"]) ?? DEF.stroke;
 	const w = Math.max(1, Math.min(255, Math.round((+p["@width"] > 0 ? +p["@width"] : DEF.widthPx) * 8)));
 	const r = Math.max(1, Math.min(255, Math.round(DEF.radiusPx * 4)));

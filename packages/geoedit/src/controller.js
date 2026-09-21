@@ -28,6 +28,8 @@ import { GeoPBF } from "geopbf/pbf-base";
 const defaultDock = mapEl => { let d = mapEl.querySelector("#dock"); if (!d) { d = document.createElement("div"); d.id = "dock"; mapEl.append(d); } return d; };
 import css from "./editor.css.js";    // CSS自給（ガジェット三戒）＝scss を焼き込んだ文字列（npm run build:css）＝遅延chunkに同乗・初回搭載で <style> を1枚
 import { tr } from "./i18n.js";   // UI 多言語化（英語キー＝既定値・訳はパッケージ持参の i18n/ui.json → i18n/lang/<code>.json）
+import { IMAGE_KEY, placeCorners, quadPolygon } from "geopbf/edit/imagequad";   // 四隅で貼る画像（2026-09-21）
+const IMAGE_RE = /\.(png|jpe?g|webp|gif|avif)$/i;
 const t = tr();
 
 const BIG = 100_000;          // これ以上の頂点数＝コミットをアイドル寄せ
@@ -258,7 +260,23 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		} catch (e) { console.error("[geoedit] large load failed", e); toast(t("Failed to load")); }
 		finally { st.busy = false; overlay.redraw(); }
 	}
+	// 素の画像（PNG/JPEG…）＝画面中心に画面の半分の幅・北向きで「@image つき 4 頂点の面」として置く（2026-09-21・MapLibre の image source 相当）。
+	// 以降は普通の面＝頂点ドラッグで四隅を合わせる・移動ツールで動かす/回す。環の順＝左上→右上→右下→左下（geopbf/edit/imagequad）
+	async function importImage(file) {
+		if (st.model?.large) return toast(t("Large mode cannot add/delete vertices (move only)"));
+		const bm = await createImageBitmap(file); const aspect = bm.height / bm.width; bm.close?.();
+		const c = map.view?.center || [0, 0], z = map.getZoom();
+		const wDeg = 360 * mapEl.clientWidth / (256 * 2 ** z) * 0.5;
+		const widthM = Math.max(5, Math.min(2e6, wDeg * 111320 * Math.cos(c[1] * Math.PI / 180)));
+		const feature = { type: "Feature", properties: { name: file.name.replace(/\.[^.]+$/, ""), [IMAGE_KEY]: file }, geometry: quadPolygon(placeCorners(c, widthM, aspect)) };
+		if (!st.model) await loadFC({ type: "FeatureCollection", features: [feature] }, { fly: false });
+		else { const cmd = { op: "add", feature }; doCmd(cmd); setTool("select"); select(cmd.eid); }
+		toast(t("Image placed — drag its corners to fit"));
+	}
 	async function importFile(file) {
+		if (IMAGE_RE.test(file.name) || /^image\/(png|jpeg|webp|gif|avif)$/.test(file.type)) {
+			try { return await importImage(file); } catch (e) { console.error("[geoedit] image failed", e); return toast(t("Import failed: $1", file.name)); }
+		}
 		try {
 			toast(t("Converting… $1", file.name));
 			const pbf = await geopbf(file, { name: "drop/" + file.name });   // 任意形式→geopbfバイト列（デコードworker）。.geojson は呼ばない
@@ -281,7 +299,7 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 
 	// ---- 履歴経由の適用（undo/redo・構造操作共通）----
 	const GEOM_ONLY = new Set(["move", "movePt", "rot", "insert", "delete"]);   // 顔ぶれ（点/blur/帯の集合）を変えない操作
-	const ENV_KEYS = ["@blur", "@poly", "@spline", "@icon", "@shape", "@text", "@size", "@tip", "@pop"];   // 顔ぶれ/描画リストに効く鍵（色・線幅は表だけ）
+	const ENV_KEYS = ["@blur", "@poly", "@spline", "@icon", "@shape", "@text", "@size", "@tip", "@pop", "@image"];   // 顔ぶれ/描画リストに効く鍵（色・線幅は表だけ）
 	const affectedEids = (cmd, res) => {   // このコマンドで gint 表示が古くなるフィーチャ群
 		const out = new Set();
 		const arcRefs = aid => { const a = st.model.arcs.get(aid); if (a) for (const e of a.refs) out.add(e); };

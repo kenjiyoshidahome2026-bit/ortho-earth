@@ -16,6 +16,7 @@ const ROLES = {
 	gintbake:       () => import("./gintbakeworker.js"),
 	estat:          () => import("./estatworker.js"),
 	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
+	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
 };
 
 const pending = [];

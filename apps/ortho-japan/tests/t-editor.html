@@ -448,6 +448,42 @@ try {
 		key("Escape");
 	}
 
+	// ---- 四隅で貼る画像（2026-09-21・geopbf/edit/imagequad）：PNG を取り込む→北向き・縦横比どおりの 4 頂点の面（@image）→
+	//      パネルは「画像」→左上の角をドラッグしても環の先頭（左上）が保たれる→オーバレイに画像が描かれる ----
+	{
+		await editor.loadFC({ type: "FeatureCollection", features: [{ type: "Feature", properties: { n: "nb" }, geometry: { type: "Polygon", coordinates: [sq(139.80, 35.60, 139.81, 35.61)] } }] }, { fly: false });
+		location.hash = "#15/35.68/139.76";
+		await sleep(400);
+		const cv = new OffscreenCanvas(40, 20), g2 = cv.getContext("2d");
+		g2.fillStyle = "#ff0000"; g2.fillRect(0, 0, 20, 20); g2.fillStyle = "#0000ff"; g2.fillRect(20, 0, 20, 20);
+		const png = new File([await cv.convertToBlob({ type: "image/png" })], "old-map.png", { type: "image/png" });
+		await editor.importFile(png);
+		await editor.commitNow(); await sleep(300);
+		const imgF = () => m().toGeoJSON().features.find(f => f.properties["@image"]);
+		const c0 = imgF()?.geometry.coordinates[0];
+		ok("imgPlaced", !!c0 && c0.length === 5 && imgF().properties["@image"] instanceof Blob);
+		ok("imgNorthUp", !!c0 && c0[0][1] > c0[3][1] && c0[1][0] > c0[0][0]);   // 左上→右上→右下→左下
+		const asp = c0 ? ((c0[1][0] - c0[0][0]) * Math.cos(35.68 * Math.PI / 180)) / (c0[0][1] - c0[3][1]) : 0;
+		ok("imgAspect", Math.abs(asp - 2) < 0.05);   // 40×20 の画像＝横 2 : 縦 1
+		ok("imgPanel", /画像/.test(document.querySelector(".ge-panel h3")?.textContent || "") && !!document.querySelector(".ge-panel input[type=range]"));
+		await sleep(200);
+		const mid = map.projectLL((c0[0][0] + c0[1][0]) / 2, (c0[0][1] + c0[3][1]) / 2), q = map.projectLL(c0[0][0] + (c0[1][0] - c0[0][0]) * 0.25, (c0[0][1] + c0[3][1]) / 2);
+		const ov = document.querySelector("canvas.ge-overlay"), dp = ov.width / ov.clientWidth;
+		const px = (x, y) => ov.getContext("2d").getImageData(Math.round(x * dp), Math.round(y * dp), 1, 1).data;
+		let red = px(q[0], q[1]);
+		for (let i = 0; i < 30 && !(red[0] > 200 && red[3] > 200); i++) { await sleep(100); red = px(q[0], q[1]); }   // 画像の復号は非同期（createImageBitmap→requestDraw）＝重い時は数百 ms 掛かる
+		ok("imgDrawn", red[0] > 200 && red[2] < 60 && red[3] > 200, [...red].join());   // 左半分＝赤（画像の左が西）
+		const tl = map.projectLL(c0[0][0], c0[0][1]);
+		C().dispatchEvent(new PointerEvent("pointerdown", ev(tl[0], tl[1])));
+		M().dispatchEvent(new PointerEvent("pointermove", ev(tl[0] - 40, tl[1] - 30)));
+		M().dispatchEvent(new PointerEvent("pointerup", ev(tl[0] - 40, tl[1] - 30)));
+		await sleep(150); await editor.commitNow(); await sleep(150);
+		const c1 = imgF()?.geometry.coordinates[0];
+		ok("imgCornerDrag", !!c1 && c1[0][0] < c0[0][0] && c1[0][1] > c0[0][1] && c1[1][0] === c0[1][0] && c1[2][1] === c0[2][1], JSON.stringify([c0[0], c1?.[0]]));   // 左上だけ北西へ・先頭のまま
+		ok("imgNoFill", !m().toGeoJSON().features.find(f => f.properties["@image"]).properties["@fill"]);
+		key("Escape");
+	}
+
 	// ---- 書き出し／クラウドのダイアログ＝同時に1枚（二重開き・積み重なりなし）----
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();
 	document.querySelector('#ge-toolbar button[data-tip^="書き出し"]').click();
