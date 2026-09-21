@@ -8,7 +8,9 @@
 //        { id, type:"attrs", g }                             → { id, attrs: { 列名: 値[] } }
 //   mode geom：属性は載せない（列のまま）。color 指定時だけその 1 列を properties に載せる＝gint の paint 式（["get", col]）が引ける最小
 //   mode points：bbox 覆域列（＝点の座標）を読む。MultiPoint を含む／覆域列が無い＝WKB を解いて全部の点に展開（rows は元の行）
-import { openParquet, parseWkb } from "geopbf/parquet";
+import { openParquet, parseWkb, setZstdDecoder } from "geopbf/parquet";
+// zstd の列（Node の geopbf 書き出し・Overture 等の既定）＝ブラウザには解凍器が無い＝fzstd（純 JS・MIT）を当たった時だけ読み込んで渡す（2026-09-22）
+setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));
 import { GeoPBF } from "geopbf/pbf-base";
 
 let pq = null, meta = null, cacheKeyBase = null, precision = 6;

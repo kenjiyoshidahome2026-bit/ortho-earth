@@ -7,3 +7,4 @@
 // 前提：Range（206）を返す配信元で効く（返さなければ全量モードへ自動で落ちる＝COG と同じ梯子）。zstd はブラウザでは読めない。
 export { openParquet, readParquet } from "./convert/parquet-read.js";
 export { parseWkb } from "./convert/wkb.js";
+export { setZstdDecoder } from "./modules/inflate.js";   // ブラウザで zstd の列を読む＝解凍器を渡す（例：import { decompress } from "fzstd"; setZstdDecoder(decompress)）

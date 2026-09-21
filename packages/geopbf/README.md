@@ -388,7 +388,16 @@ Tokyo-sized view of an 8,000-feature test file touches 32 of 63 row groups and r
 `pq.readRowGroup(g, { columns })` fetches only those column chunks, coalescing neighbouring byte ranges into as few
 requests as possible (the same source as the COG reader). Hosts that ignore `Range` get the whole file once and
 everything else works the same; files without statistics simply select every row group (`pruned: false`).
-`fromGeoParquet(url)` rides on the same reader, so it too stops holding whole files. zstd pages still need Node.
+`fromGeoParquet(url)` rides on the same reader, so it too stops holding whole files.
+
+**zstd in the browser.** Browsers have no zstd (`DecompressionStream("zstd")` is specified but not shipped), and geopbf
+keeps zero runtime dependencies, so it takes a decoder from you instead (Node uses `node:zlib` first). Inject it in the
+thread that reads — inside the worker if you read in a worker:
+
+```js
+import { setZstdDecoder } from "geopbf/parquet";
+setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));   // loaded only when a zstd page appears
+```
 
 ### 5.5 Where the GPU is, honestly
 
