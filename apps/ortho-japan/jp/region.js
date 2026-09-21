@@ -8,7 +8,14 @@
 //   basemap   … ベクタ基図のソース記述子（null＝基図を持たない地域＝タイルを要求せず図郭外と同じ扱い）
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
 //   view      … その地域を裸で開いた時の初期視点（null＝アプリ既定＝日本）
+//   home      … 「その地域の全体へ戻る」の着地点 { view:[lon,lat,zoom] }（null＝戻りボタンを出さない）
+//   search    … 地名検索の供給元（jp/search-gsi.js の形・null＝検索窓を出さない）
+//   poi       … 施設の点の台帳の在り処 { base, overrides, api }（null＝台帳を読まない）
+//   rail      … 路線オーバーレイの生成関数 createXxx(env)（jp/n02.js の形・null＝作らない）
+// 後ろ 4 つは 2026-09-22 に app.js の直書きから宣言へ移した（宣言しない地域では生成もしない）。
 import { JP_DTM } from "./dtm.js";
+import { gsiSearch } from "./search-gsi.js";
+import { createN02Overlay } from "./n02.js";
 
 export { JP_DTM };
 
@@ -63,4 +70,12 @@ export const JP_REGION = {
 		note: "(Created by processing these data sources)",
 	},
 	view: null,
+	home: { view: [137, 37, 6.6] },   // 列島ビュー（真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点（z6.6＝デモ初景と同値）
+	search: gsiSearch,
+	poi: {
+		api: "https://api.ortho-earth.com",                       // bucket API 基底（poiedit の書込は native-bucket がこの面へ）
+		base: "https://api.ortho-earth.com/bucket/GIS/pbf/",      // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
+		overrides: "poi/overrides.json",                          // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
+	},
+	rail: createN02Overlay,
 };

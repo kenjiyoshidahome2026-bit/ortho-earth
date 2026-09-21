@@ -39,8 +39,7 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
-import { createN02Overlay } from "./jp/n02.js";
-import { createPoiLedger } from "./jp/poi.js";   // POI台帳（施設の点・z14+）＝在庫・タイル・手差分・ラベル注入（日本の知識＝jp/ の下）   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（日本の知識＝jp/ の下・同）
+import { createPoiLedger } from "./jp/poi.js";   // POI台帳（施設の点・z14+）＝在庫・タイル・手差分・ラベル注入（台帳の在り処は地域宣言 poi）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
@@ -113,6 +112,10 @@ const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);  
 const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
 const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
 const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
+const REGION_HOME = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し
+const REGION_SEARCH = REGIONS.map(r => r.search).find(Boolean) ?? null;   // 地名検索の供給元（日本＝地理院 AddressSearch）・null＝検索窓無し
+const REGION_POI = REGIONS.map(r => r.poi).find(Boolean) ?? null;      // 施設の点の台帳（日本＝POI 台帳 z14）・null＝読まない
+const REGION_RAIL = REGIONS.map(r => r.rail).find(Boolean) ?? null;    // 路線オーバーレイ（日本＝N02 新幹線）・null＝作らない
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
 await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即返り・他言語は 1 本取る）
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
@@ -760,7 +763,7 @@ function approxViewBbox(cam) {
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
 // --- POI台帳（施設の点・z14+）＝jp/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
-const poi = createPoiLedger({ viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } });
+const poi = REGION_POI ? createPoiLedger(REGION_POI, { viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } }) : null;   // 台帳を宣言しない地域＝null
 let flying = false;                        // フライト中フラグ＝plateau.update のゲート（flyTo が立て、着地/中断で下ろす）
 const plateau = createPlateauManager({
 	plateauOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: plateauCatalog,
@@ -962,7 +965,7 @@ let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳�
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const JAPAN_VIEW = [137, 37, 6.6];   // 列島ビュー（真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点。z6.6＝デモ初景と同値（world既定化後、z<6.5は全球ハイプソ＝白地図で始まらない。9/2本人裁定「デモの初期値に合わせる」）
+const JAPAN_VIEW = REGION_HOME?.view ?? [137, 37, 6.6];   // 列島ビュー（真俯瞰・地域宣言 home）＝既定起動＆「日本全体」ガジェットの着地点。z6.6＝デモ初景と同値（world既定化後、z<6.5は全球ハイプソ＝白地図で始まらない。9/2本人裁定「デモの初期値に合わせる」）
 const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
@@ -1026,7 +1029,7 @@ function switchTheme(name) {
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	gint.admin0Layer?.style(gint.admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し（色の居座り根治）
-	if (layerState.rail && n02.loaded) { n02.loaded = false; n02.load(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
+	if (layerState.rail && n02?.loaded) { n02.loaded = false; n02.load(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
@@ -1103,8 +1106,8 @@ dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
 const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
-// --- N02 新幹線＝jp/n02.js（路線＋駅のビーズ・鉄道チップで点灯・日本の知識）。land＝紙色はテーマで差し替わる＝getter。
-const n02 = createN02Overlay({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
+// --- 路線オーバーレイ＝地域宣言 rail（日本＝jp/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
+const n02 = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
@@ -1341,7 +1344,7 @@ let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
 	+ (cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM && airportMarks.length ? "A" : "")
 	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
-	+ (layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ (poi && layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -1444,7 +1447,7 @@ function rebuildLabels(order) {
 		}
 	}
 	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝jp/poi.js injectLabels
-	if (layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
+	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
@@ -1499,7 +1502,7 @@ function setLayer(k, on) {
 	layerState[k] = !!on;
 	const b = document.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
-	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02?.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
 	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
@@ -1533,7 +1536,7 @@ document.getElementById("base-alpha")?.addEventListener("input", e => { const a 
 }
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
-if (layerState.rail) { renderer.set("view", { showN02: true }); n02.load(); }
+if (layerState.rail) { renderer.set("view", { showN02: true }); n02?.load(); }
 if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
 
@@ -1557,7 +1560,7 @@ function applyViewLayers(v) {
 	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
-	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02.load();
+	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02?.load();
 	if (layerState.facility) loadLandmarks();
 	applyTerrain();
 }
@@ -1710,7 +1713,7 @@ function render() {
 	// ここへ来るのは z≥TILE_MINZOOM だけ（門の下は上の早期returnでタイルなし）。?pm= は maxZ を
 	// アーカイブの maxZoom で掛けている（tiles.update）＝旧・世界帯の cap と同じ役割を汎用化したもの。
 	const { order, coarseOrder, total } = tu;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
-	if (layerState.facility && cam.zoom >= 14) poi.load(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
+	if (poi && layerState.facility && cam.zoom >= 14) poi.load(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
 	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
@@ -2142,7 +2145,7 @@ map.gadget = function (name, func) {
 	};
 };
 map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget.search({ onGo? })。destroy用のsignalはここで注入
-	return searchGadget.call(this, { signal: ac.signal, ...opts });
+	return searchGadget.call(this, { provider: REGION_SEARCH, signal: ac.signal, ...opts });
 });
 map.gadget("hint", function (opts) {   // 操作説明カード … map.gadget.hint() → { open, close }。キー(?)用に signal を注入
 	return hintGadget.call(this, { signal: ac.signal, ...opts });
@@ -2219,7 +2222,8 @@ map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+p
 	return qrGadget.call(this, { getUrl: () => location.origin + location.pathname + location.search + viewHash(), signal: ac.signal, ...opts });
 });
 map.gadget("japan", function (opts) {   // 日本全体へ（真俯瞰・北向き）… 着地点は既定の列島ビューを共有・⌘/Ctrl+J
-	return japanGadget.call(this, { view: JAPAN_VIEW, signal: ac.signal, ...opts });
+	if (!REGION_HOME) return null;   // 戻り先を宣言しない地域（/nl/）＝ボタンを出さない
+	return japanGadget.call(this, { view: REGION_HOME.view, signal: ac.signal, ...opts });
 });
 map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
 	return printGadget.call(this, { capture: printCapture, signal: ac.signal, ...opts });
@@ -2230,7 +2234,7 @@ map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… o
 // POI台帳の手差分編集（§12）＝?poiedit=1 のときだけ本体を import して搭載＝一般ビルドの死荷重ゼロ（作者用・
 // 書込は bucket API key 保持者のみ）。注入＝抽象アクセス：台帳フィード getPOI（パッチ適用済＝表示と同じ景色から
 // 対象を選ぶ）・手差分の読み書き getOvr/setOvr（保存成功→差し替え→poiVer++＝ラベルのみ再構築で即反映）・座標ブリッジ。
-if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then(({ poiedit }) => {
+if (poi && /[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then(({ poiedit }) => {
 	setLayer("facility", true);   // 編集の舞台＝施設層を正規経路で自動点灯（チップ不在の埋め込みでも効く）
 	map.gadget("poiedit", function (opts) {
 		return poiedit.call(this, {

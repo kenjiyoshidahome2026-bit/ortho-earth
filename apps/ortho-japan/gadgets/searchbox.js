@@ -1,7 +1,7 @@
 // ガジェット：地名・住所検索。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.search() で搭載する（v1 ortho-map の gadget 作法＝this が map）。DOM＋挙動配線をここで完結。
 // input→button の順＝虫めがねが input の上に描かれる（DOM順の裁き・z-index不使用）。
-// 検索本体（API・再ランク・履歴・IME）は search.js の createSearch＝ヒットで onGo（既定＝球面フライト）。
+// 検索の窓（履歴・IME）は search.js の createSearch・問い合わせ先は地域宣言の供給元（opts.provider）＝ヒットで onGo（既定＝球面フライト）。
 import { createSearch } from "../search.js";
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
@@ -10,6 +10,7 @@ const t = tr();
 export function search(opts = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#search")) return;   // 二重搭載は無害（搭載済みのまま）
+	if (!opts.provider) return;   // 検索の供給元を宣言しない地域（/nl/ 等）＝窓を出さない（何も引けない窓は置かない）
 	const box = document.createElement("div");
 	box.id = "search";
 	box.innerHTML = `
@@ -24,7 +25,7 @@ export function search(opts = {}) {
 	list.id = "search-list";
 	list.setAttribute("role", "listbox"); list.setAttribute("aria-label", t("Search suggestions"));
 	mapEl.append(list);
-	createSearch({ onGo: opts.onGo || this.flyTo, signal: opts.signal });   // 飛び方は本体の領分（opts.onGoで差し替え可）。signal＝destroy時のリスナー解除
+	createSearch({ provider: opts.provider, onGo: opts.onGo || this.flyTo, signal: opts.signal });   // 飛び方は本体の領分（opts.onGoで差し替え可）。signal＝destroy時のリスナー解除
 	// /＝検索窓へフォーカス（GitHub/YouTube と同じ所作）。入力欄フォーカス中は素通し＝/ をそのまま打てる・
 	// Firefox のクイック検索も preventDefault で抑止。既存文字は選択して即上書きできる状態に。
 	window.addEventListener("keydown", e => {
