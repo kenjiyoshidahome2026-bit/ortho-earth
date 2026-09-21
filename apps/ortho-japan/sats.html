@@ -43,7 +43,8 @@
 				const [{ default: orthoJapan }, { mountSats, MIRROR, CELESTRAK }] = await Promise.all([engineP, import("./sats.js")]);
 				// 初期視点＝地球を少し引いて眺める（低軌道の殻と中軌道が見える距離。静止軌道はさらに引く）（共有 URL の hash があればそちら）
 				const map = await orthoJapan({ target: "#map", view: location.hash || "#1.4/25/140", chips: false,
-					plateau: false, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });   // stars/countryTip=false＝恒星と国名 tip は出さない（衛星が主役・tip が重なる）。惑星・月は残す（衛星のスケールの物差し）。地球は通常配色（quakes の暗い地下向けテーマは使わない）
+					// glOverlay＝同一フレームのオーバーレイ（人工衛星）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（本人 iPad 実機 2026-09-21）
+					plateau: false, glOverlay: true, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });   // stars/countryTip=false＝恒星と国名 tip は出さない（衛星が主役・tip が重なる）。惑星・月は残す（衛星のスケールの物差し）。地球は通常配色（quakes の暗い地下向けテーマは使わない）
 				dismissBoot();
 				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
 				const src = new URLSearchParams(location.search).get("src") || [MIRROR, CELESTRAK];   // 読む順＝ミラー → 本家

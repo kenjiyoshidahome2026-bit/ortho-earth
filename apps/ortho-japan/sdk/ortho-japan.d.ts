@@ -28,6 +28,9 @@ export interface OrthoJapanOptions {
 	maxPitch?: number;
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
+	/** このページは map.overlay(...) で WebGL2 のオーバーレイを重ねる、の宣言。WebKit（iPadOS/Safari）では
+	 *  本体が WebGPU だとその 2 枚目が描かれないため、宣言したページだけ WebGL2 を既定にする（?gpu=1 で破れる） */
+	glOverlay?: boolean;
 	/** 世界ビュー（z<5.5）のホバー国名 tip。false=出さない（自前の tip と重ねないページ向け。既定true） */
 	countryTip?: boolean;
 	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
