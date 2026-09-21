@@ -1,14 +1,6 @@
 /*
   Cross-Origin-Opener-Policy: same-origin
-  Cross-Origin-Embedder-Policy: require-corp
-
-# GIS-HUB / GIS-HUB-jp は地球儀を ortho-japan エンジン（gint v2・/japan/lib/ の SDK）で描く＝japan/census2020 と同じ
-# credentialless に揃える（require-corp だと SDK が読む CORP 無しの越境資源が落ちて国境等が欠ける＝2026-09-21 実測）。
-# 「!」で上の /* の値を外してから付け直す（同名ヘッダの重複はカンマ連結になる＝不正値。wrangler pages dev で確認済）。
-/gishub/*
-  ! Cross-Origin-Embedder-Policy
   Cross-Origin-Embedder-Policy: credentialless
 
-/gishub-jp/*
-  ! Cross-Origin-Embedder-Policy
-  Cross-Origin-Embedder-Policy: credentialless
+# www（トップの背景）・GIS-HUB・GIS-HUB-jp は地球儀を ortho-japan エンジン（gint v2・/japan/lib/ の SDK）で描く
+# ＝japan/census2020 と同じ credentialless（require-corp だと SDK が読む CORP 無しの越境資源が落ちて国境等が欠ける＝2026-09-21 実測）。

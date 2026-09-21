@@ -22,6 +22,8 @@ const _mapP = engineP.then(m => m.default({
     view: `#${_overviewZoom.toFixed(2)}/${HOME_LAT}/135`,
     lang: 'ja',
     countryTip: false,             // データの tip と国名 tip を混ぜない
+    persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
+    keyboard: () => _viewing,      // 矢印キーは地図に入っている間だけ（待ち受け中は一覧の ↑↓ 移動のもの）
     assetBase: __JAPAN_ASSETS__,   // 実行時アセット＝本番 /japan/・dev は ortho-japan/public を /@fs で
 }));
 const _viewP = _mapP.then(map => {

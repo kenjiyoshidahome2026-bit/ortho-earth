@@ -1,13 +1,24 @@
 // 全球の基図＝背景画像（ER 正距円筒）と Natural Earth のベクタ → bucket GIS/base・GIS/pbf。
 // 読む側：ortho-japan の世界ビュー・apps/equal（名前慣習で load＝クライアントに毎回 zip→shp デコードを払わせない）。
 import { comma, thenEach } from "common";
-import { Layers } from "ortho-map/modules/Layers.js";
 import { tiff2canvas, tile2canvas } from "./lib/file2canvas.js";
 import { bakeEach, neZip, NE_HEADER } from "./lib/bake.js";
 
-// 背景画像（ortho-map の Layers が名指しする base の .webp）→ GIS/base。既にあれば焼かずに IDB へ温めるだけ
+// 背景画像（正距円筒 .webp）の一覧。旧＝ortho-map（v1）の Layers から借りていた＝v1 撤去に伴い必要な分だけここへ写した
+// （2026-09-21・挙動は写す前と同一：名前・タイル URL の式とも packages/ortho-map/src/modules/Layers.js のまま）。
+// 読む側は v1 の地球儀（base.js）だけだった＝v2（ortho-japan/equal）は GIS/base を読まない。
+const quadkey = ([x, y, z]) => { let s = ""; for (let i = z - 1; i >= 0; i--) s += ((y >> i & 1) << 1 | (x >> i & 1)); return s || "0"; };
+let googleN = 0;
+const BASES = [
+	{ base: "whiteEarth.webp" },
+	{ base: "naturalEarth.webp" },
+	{ base: "google.satellite.webp", tile: ([x, y, z]) => z < 7 ? null : `https://mt${(googleN++) % 4}.google.com/vt/lyrs=s&x=${x}&y=${y}&z=${z}` },
+	{ base: "osm.satellite.webp", tile: t => `/bing/${quadkey(t)}` },   // v1 と同じく tilerBase 空＝相対
+];
+
+// 背景画像 → GIS/base。既にあれば焼かずに IDB へ温めるだけ
 export async function baseImages(q, { Bucket, Cache, Fetch }) {
-	const list = Object.values(Layers);
+	const list = BASES;
 	const dire = `GIS/base`;
 	const bucket = await Bucket(dire);
 	const cache = await Cache(dire);
