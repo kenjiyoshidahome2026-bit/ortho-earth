@@ -1,5 +1,4 @@
 import * as d3 from "d3";
-import orthoMap from 'ortho-map';
 import { geopbf, createGeopbf } from "geopbf";
 import { screenLogger } from "common/screenLogger";
 import { geoExec } from "common/geoExec";
@@ -8,19 +7,17 @@ import { Cache, nativeBucket } from "native-bucket";
 import "common/d3/highlight.js";
 import "common/d3/fileio.js";
 import "./main.scss";
+import { mapP, viewP, mountTools } from "./globe.js";
 
 const API_BASE = "https://api.ortho-earth.com";
-const TILER_BASE = "https://tiler.ortho-earth.com";
 createGeopbf(API_BASE, { bucket: nativeBucket });
 const hubCache = await Cache("GISHUB").catch(() => null);
-const initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight)/2*0.5 / 256 * Math.PI * 2);
-const mapInst = (await orthoMap({target:d3.select('body'), center:[0,0], zoom: initialZoom, tilerBase: TILER_BASE, apiUrl: API_BASE})).autoRotate(true);
-const closeBtn = mapInst.gadget.close();
-mapInst.on("ortho:close", exitView);
-const gintTip = mapInst.gadget.tip();
-const gintPop = mapInst.gadget.pop();
-// map gadgets (navigation / utility) — the ones the original www demo carried. Visible in the interactive globe view.
-mapInst.gadget.north(); mapInst.gadget.zoom(); mapInst.gadget.full(); mapInst.gadget.cpos(); mapInst.gadget.measure(); mapInst.gadget.shot();
+// 地球儀（gint v2 エンジン）は裏で立ち上げる＝パネルは地図を待たない（旧 v1 は TLA で地図の起動まで UI ごと待っていた）
+mapP.then(map => {
+	map.mapEl.addEventListener("ortho:close", exitView);
+	map.on("settle", e => { if (gishub.classed("viewing")) history.replaceState(null, "", e.hash); });   // 地図の視点 ⇄ URL hash（共有リンク）
+});
+viewP.then(view => { if (!gishub.classed("viewing")) view.spin(true); });
 const gishub = d3.select("body").append("div").attr("class", "gishub");
 ////------------------------------------------------------
 const left = gishub.append("aside").attr("class", "left");
@@ -64,7 +61,7 @@ uploads.append("p").html(
 	`GIS-HUB is a universal GIS workstation that runs entirely in your browser — no server, no install, no LOD pyramid. ` +
 	`One file at full resolution is all it needs. ` +
 	`The in-memory engine (<b>GeoPBF</b>) builds a spatial index on load; ` +
-	`the WebGL2 renderer (<b>ortho-map</b>) applies dynamic LOD and stencil-tessellation at draw time, ` +
+	`the WebGPU / WebGL2 globe engine (<b>ortho-japan</b>, gint v2) applies GPU dynamic LOD at draw time, ` +
 	`delivering fluid 3D navigation from global to street scale. ` +
 	`Once loaded, data is cached to IndexedDB — every subsequent visit is instant.`
 );
@@ -73,7 +70,7 @@ uploads.append("ul").html(`
 	<li><b>Catalog: </b>Click a sidebar card — data is fetched, decoded, and rendered on the fly. Any format, any source.</li>
 	<li><b>Drop a file: </b>SHP (ZIP), GeoJSON, FlatGeobuf, GML, KMZ, GPX, or GeoPBF — drag, drop, done.</li>
 	<li><b>Paste a URL: </b>Direct links and <code>zip-url#inner-file</code> syntax both work.</li>
-	<li><b>View in Ortho-Map: </b>One click for WebGL2 3D — pan, zoom, rotate at 60 fps.</li>
+	<li><b>View in Ortho-Map: </b>One click for WebGPU / WebGL2 3D — pan, zoom, tilt, rotate at 60 fps.</li>
 	<li><b>Export: </b>GeoPBF · FlatGeobuf · GeoJSON · TopoJSON · Shapefile · GML · KMZ · GPX.</li>
 `);
 uploads.append("img").attr("src", "gishub.svg");
@@ -173,109 +170,39 @@ function showProp(pbf) {
 	});
 	h2.append("button").text("Done").on("click", () => { logger.show(); tables.empty().hide(); });
 }
-let _viewLayer = null;
-let _autoRotateTimeout = null;
-
-async function execView(pbf) {
-	if (_autoRotateTimeout !== null) { clearTimeout(_autoRotateTimeout); _autoRotateTimeout = null; }
-	mapInst.autoRotate(false);
-	closeBtn.show();
+// ── 地図に入る／出る（gint v2：map.addGint＝common/gintView の薄い1枚）──
+function enterView(map) {
+	mountTools(map);
 	gishub.classed("viewing", true);
+}
+async function execView(pbf) {
 	if (!pbf?.length) return;
-
-	if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
-
-	// 先にレイヤーを描画してからトラベル開始
-	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point } = pbf.unPackGint || {};
-	const hasArcs = !!(arcBuffer && arcMeta && (polyStream?.length > 0 || lineStream?.length > 0));
-	const hasPoints = !!(pointBuffer?.length > 0);
-	const propTable = id => {
-		const entries = Object.entries(pbf.getProperties(id) ?? {});
-		if (!entries.length) return;
+	const [map, view] = await Promise.all([mapP, viewP]);
+	enterView(map);
+	const propTable = (fid, props) => {
+		const entries = Object.entries(props ?? pbf.getProperties(fid) ?? {});
+		if (!entries.length) return null;
 		const rows = entries.map(([k, v]) => `<tr><th>${escHtml(k)}</th><td>${escHtml(v)}</td></tr>`).join("");
 		return `<table class="identify-table">${rows}</table>`;
-	}
-	if (hasArcs || hasPoints) {
-		_viewLayer = await mapInst.createRemoteLayer({ name: "GISHUB", type: "gint" });
-		const { polyCompBbox } = pbf.unPackGint ?? {};
-		_viewLayer.set("gint", { arcBuffer, arcMeta, polyStream: polyStream ?? new Int32Array(0), lineStream: lineStream ?? new Int32Array(0), pointBuffer: pointBuffer ?? null, point: point ?? null, polyCompBbox, minZoom: 2 });
-		_viewLayer.onIdentify = featureId => {
-			gintTip(featureId == null ? null: propTable(featureId));
-		};
-		_viewLayer.onClick = (featureId, geomType, x, y, lng, lat) => {
-			featureId == null || gintPop(propTable(featureId), { x, y, lng, lat });
-		};
-	} else {
-		const geomType = pbf.fmap[0]?.[2] ?? 4;
-		const style = geomType < 2
-			? { fill: "#FF6B35", stroke: "#fff", size: 5 }
-			: geomType < 4
-			? { stroke: "#00B4D8", width: 1.5 }
-			: { fill: "rgba(255,107,53,0.25)", stroke: "#FF6B35", width: 0.8 };
-		const features = [];
-		pbf.forEach(n => features.push(pbf.getFeature(n)));
-		_viewLayer = mapInst.createLayer({ name: "GISHUB" });
-		_viewLayer.set("geojson", { type: "FeatureCollection", features }, style);
-	}
-	mapInst.draw();
-
-	const [w, s, e, n] = pbf.bbox;
-	let zoomFeature, zoomOpts = {};
-	if (e - w > 300) {
-		// bbox がほぼ全球 (±180 付近) → bbox 中心は 0° 付近になる誤り。
-		// 各 feature bbox の中心を 3D 平均して真の重心を計算する。
-		const d2r = Math.PI / 180, r2d = 180 / Math.PI;
-		let sx = 0, sy = 0, sz = 0;
-		const pts = [];
-		pbf.forEach(i => {
-			const b = pbf.getBbox(i);
-			if (!b || !isFinite(b[0])) return;
-			const lng = (b[0] + b[2]) / 2, lat = (b[1] + b[3]) / 2;
-			pts.push([lng, lat]);
-			sx += Math.cos(lat * d2r) * Math.cos(lng * d2r);
-			sy += Math.cos(lat * d2r) * Math.sin(lng * d2r);
-			sz += Math.sin(lat * d2r);
-		});
-		const norm = Math.sqrt(sx * sx + sy * sy + sz * sz);
-		if (norm > 0) {
-			zoomOpts = { center: [Math.atan2(sy, sx) * r2d, Math.asin(sz / norm) * r2d] };
-			// 全球を覆う単一フィーチャ（ne_10m_ocean 等）は点が1つ＝extent 0 で fitExtent が
-			// 発散し maxZoom(z=22)へ張り付く。地球全体を見せる概観ズームに固定する。
-			if (pts.length < 2) zoomOpts.zoom = initialZoom;
-			zoomFeature = { type: "Feature", geometry: { type: "MultiPoint", coordinates: pts }, properties: {} };
-		}
-	}
-	if (!zoomFeature) {
-		zoomFeature = { type: "Feature", geometry: {
-			type: "Polygon", coordinates: [[[w,s],[w,n],[e,n],[e,s],[w,s]]]
-		}, properties: {} };
-	}
-	await mapInst.zoomToFeature(zoomFeature, zoomOpts);
+	};
+	await view.show(pbf, { tipHtml: propTable, popHtml: propTable });
 }
 
 // Bare-Earth route: enter the interactive globe with NO GeoPBF loaded — just spin the real planet.
-function globeView() {
+async function globeView() {
 	uploads.hide(); tables.empty().hide(); logger.hide();
-	if (_autoRotateTimeout !== null) { clearTimeout(_autoRotateTimeout); _autoRotateTimeout = null; }
-	mapInst.autoRotate(false);
-	closeBtn.show();
-	gishub.classed("viewing", true);
+	const [map, view] = await Promise.all([mapP, viewP]);
+	view.spin(false);
+	enterView(map);
 }
-function exitView() {
-	gintTip(null);
-	gintPop.clear(true);
-	if (_viewLayer) { _viewLayer.destroy(); _viewLayer = null; }
-	mapInst.setView([0,0], initialZoom);
-	_autoRotateTimeout = setTimeout(() => { _autoRotateTimeout = null; mapInst.autoRotate(true); }, 250);
-	closeBtn.hide();
+async function exitView() {
+	if (!gishub.classed("viewing")) return;   // Esc（close ガジェット）は待ち受け中にも飛ぶ
 	gishub.classed("viewing", false);
 	history.replaceState(null, "", location.pathname + location.search);   // clear the permalink hash on exit
+	const view = await viewP;
+	view.clear();
+	view.home();
 }
 
-// ── Permalink (V1): the interactive globe view ⇄ URL hash, so any view is shareable ──
-const viewToHash = () => { const [[vlng, vlat, vrot], z] = mapInst.view;
-	return `#${z.toFixed(2)}/${(-vlat).toFixed(4)}/${(-vlng).toFixed(4)}/${vrot.toFixed(1)}r`; };
-const hashToView = h => { const m = /^#(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)\/(-?\d+(?:\.\d+)?)(?:\/(-?\d+(?:\.\d+)?)r?)?/.exec(h || "");
-	return m ? { zoom: +m[1], lat: +m[2], lng: +m[3], angle: +(m[4] || 0) } : null; };
-mapInst.dispatcher.on("Drawn.permalink", () => { if (gishub.classed("viewing")) history.replaceState(null, "", viewToHash()); });
-{ const v = hashToView(location.hash); if (v) { mapInst.setView([v.lng, v.lat], v.zoom, v.angle); globeView(); } }
+// ── Permalink：地図の視点 ⇄ URL hash（書き戻しは上の settle 購読。起動時の hash は globe.js が view に渡す）──
+if (/^#-?\d/.test(location.hash)) globeView();

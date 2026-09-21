@@ -132,6 +132,40 @@
       ],
       "port": 5296,
       "cwd": "apps/ortho-japan"
+    },
+    {
+      "name": "gishub",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "gishub",
+        "--",
+        "--port",
+        "5191",
+        "--strictPort",
+        "--open",
+        "false"
+      ],
+      "port": 5191
+    },
+    {
+      "name": "gishub-jp",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "gishub-jp",
+        "--",
+        "--port",
+        "5192",
+        "--strictPort",
+        "--open",
+        "false"
+      ],
+      "port": 5192
     }
   ]
 }

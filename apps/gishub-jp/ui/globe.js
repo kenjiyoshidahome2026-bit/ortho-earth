@@ -1,30 +1,42 @@
-import { select as d3select, geoContains } from 'd3';
-import orthoMap from 'ortho-map';
-// ortho-map内部のborder読み込みはレガシーgeopbf()＝createGeopbf()呼び出し済みが前提。
-// gpbf.jsを先にimportして初期化順を保証する（本番ビルドはTLA直列化で下のorthoMap()が先に走り全border消失）
-import './gpbf.js';
-import { API_BASE, TILER_BASE } from './config.js';
+// 背景の地球儀＝ortho-japan エンジン（gint v2）。旧＝ortho-map（v1）の orthoMap({target:#globe-bg})。
+// SDK 二重構成（census2020 と同じ型）：dev＝ソース直・本番＝/japan/lib/ の SDK 配布物（japan 本体とエンジンのキャッシュを共有）。
+// 地図の口は common/gintView（map.addGint の薄い1枚）に封じる＝このファイルの外はエンジンを知らない。
+import { createGintView, showRasterMeshes } from 'common/gintView';
 
-const _initialZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
-const _mapInst = await orthoMap({
-    target:    d3select('#globe-bg'),
-    center:    [135, 35],
-    zoom:      _initialZoom,
-    tilerBase: TILER_BASE,
-    apiUrl:    API_BASE,
-}).then(m => m.autoRotate(true));
-const _closeBtn = _mapInst.gadget.close();
-let _globeLayer = null;
-let _tipFn = null;
-let _popFn = null;
+let engineP;
+if (import.meta.env.PROD) {
+    document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'stylesheet', href: '/japan/lib/ortho-japan.css' }));
+    const LIB = '/japan/lib/ortho-japan.js';
+    engineP = import(/* @vite-ignore */ LIB);
+} else {
+    engineP = import('../../ortho-japan/app.js');
+}
 
-_mapInst.on('ortho:close', exitGlobeView);
+// 地球の半径＝画面短辺の 1/4（旧 v1 と同じ構図）。待ち受けは日本の上空で自転
+const _overviewZoom = Math.log2(Math.min(window.innerWidth, window.innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);
+const HOME_LAT = 35;
+let _viewing = false;   // 地図に入っている間（パネルが退いている）
+const _host = document.getElementById('globe-bg').appendChild(document.createElement('div'));   // エンジンに貸す容れ物（id は map へ改名される）
+const _mapP = engineP.then(m => m.default({
+    target: _host,
+    view: `#${_overviewZoom.toFixed(2)}/${HOME_LAT}/135`,
+    lang: 'ja',
+    countryTip: false,             // データの tip と国名 tip を混ぜない
+    assetBase: __JAPAN_ASSETS__,   // 実行時アセット＝本番 /japan/・dev は ortho-japan/public を /@fs で
+}));
+const _viewP = _mapP.then(map => {
+    map.mapEl.addEventListener('ortho:close', exitGlobeView);
+    const view = createGintView(map, { overviewZoom: _overviewZoom });
+    if (!_viewing) view.spin(true);
+    return view;
+});
 
-// tip/pop は初回描画時に一度だけ生成
-function _initGadgets() {
-    if (_tipFn) return;
-    _tipFn = _mapInst.gadget.tip();
-    _popFn = _mapInst.gadget.pop();
+// 地図の道具。待ち受け中はパネルの下＝初めて地図に入る時に載せる（載せた瞬間から Z=全画面 等のショートカットが window で生きるため）
+let _tools = false, _legend = null;
+function _mountTools(map) {
+    if (_tools) return; _tools = true;
+    map.gadget.close(); map.gadget.compass(); map.gadget.zoom(); map.gadget.full(); map.gadget.cpos(); map.gadget.measure(); map.gadget.shot();
+    _legend = map.gadget.legend();   // 凡例（左下）の setter。二度目の搭載は空関数が返る＝ここで一度だけ
 }
 
 const _esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -74,127 +86,79 @@ function _buildPop(props, ds) {
     return `${title}<table class="cat-pop-table">${rows}</table>`;
 }
 
-export function getMapInst() { return _mapInst; }
-
 // L03-b_r などのカスタムビューが登録するクリーンアップ関数
 let _onExitExtra = null;
 
-// 地球ビューに入る（X ボタン表示 + .viewing 追加 + クリーンアップ登録）
-export function enterGlobeView(cleanup) {
-    _onExitExtra = cleanup ?? null;
+function _enter(map) {
+    _mountTools(map);
+    _viewing = true;
     document.getElementById('app').classList.add('viewing');
-    _closeBtn.show();
+}
+
+// 地球ビューに入る（× ボタン・Esc で exitGlobeView ＋ cleanup）。戻り値＝map（カスタムビューが map.raster 等を使う）
+export async function enterGlobeView(cleanup) {
+    const [map, view] = await Promise.all([_mapP, _viewP]);
+    view.clear();
+    view.spin(false);
+    _onExitExtra = cleanup ?? null;
+    _enter(map);
+    return map;
+}
+
+// 経緯度矩形の画像群（Map<key,{webpData,bbox}>）を画像タイル層として重ねる＝戻り値は外す関数。
+// opts.palette（分類色表）があれば：色を分類色へ吸着＋ホバーで分類名の tip＋凡例（opts.legendTitle）
+export async function showMeshRaster(meshes, opts = {}) {
+    const [map, view] = await Promise.all([_mapP, _viewP]);
+    const remove = await showRasterMeshes(map, meshes, opts);
+    if (!opts.palette?.length) return remove;
+    const swatch = p => `<div style="display:flex;align-items:center;gap:6px;font-size:11px;line-height:1.6"><span style="width:14px;height:10px;border-radius:2px;display:inline-block;background:rgb(${p.rgb.join(',')})"></span>${_esc(p.label)}</div>`;
+    _legend?.(`<div style="font-size:12px;font-weight:600;margin-bottom:4px">${_esc(opts.legendTitle || opts.name || '')}</div>${opts.palette.map(swatch).join('')}`);
+    // ホバー＝カーソル位置の分類名（1フレームに1回・最後の位置だけ引く）
+    const el = map.mapEl;
+    let raf = 0, last = null, seq = 0;
+    const onMove = e => {
+        const r = el.getBoundingClientRect();
+        last = [e.clientX - r.left, e.clientY - r.top];
+        if (raf) return;
+        raf = requestAnimationFrame(async () => {
+            raf = 0;
+            const my = ++seq, ll = last && map.unprojectXY(last[0], last[1]);
+            const hit = ll ? await remove.query(ll[0], ll[1]) : null;
+            if (my === seq) view.tip(hit ? `${_esc(hit.label)} <span class="cat-tip-code">(${_esc(String(hit.code))})</span>` : null);
+        });
+    };
+    const onLeave = () => { seq++; view.tip(null); };
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerleave', onLeave);
+    return () => {
+        el.removeEventListener('pointermove', onMove);
+        el.removeEventListener('pointerleave', onLeave);
+        cancelAnimationFrame(raf); seq++;
+        view.tip(null);
+        _legend?.(null);
+        remove();
+    };
 }
 
 export async function execGlobeView(pbf, ds = null) {
     if (!pbf?.length) return;
-    _onExitExtra = null; // L03-b_r などのカスタムクリーンアップをリセット
-    _initGadgets();
-    _mapInst.autoRotate(false);
-    _mapInst.on('Click.catalog', null); // 前回の geojson リスナー解除
-    _tipFn?.(null);
-    _popFn?.clear(true);
-
-    if (_globeLayer) { _globeLayer.destroy(); _globeLayer = null; }
-
-    const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point } = pbf.unPackGint || {};
-    const hasArcs   = !!(arcBuffer && arcMeta && (polyStream?.length > 0 || lineStream?.length > 0));
-    const hasPoints = !!(pointBuffer?.length > 0);
-
-    if (hasArcs || hasPoints) {
-        const { polyCompBbox } = pbf.unPackGint ?? {};
-        _globeLayer = await _mapInst.createRemoteLayer({ name: 'CATALOG', type: 'gint' });
-        _globeLayer.set('gint', {
-            arcBuffer, arcMeta,
-            polyStream:   polyStream   ?? new Int32Array(0),
-            lineStream:   lineStream   ?? new Int32Array(0),
-            pointBuffer:  pointBuffer  ?? null,
-            point:        point        ?? null,
-            polyCompBbox, minZoom: 2,
-        });
-
-        _globeLayer.onIdentify = (featureId) => {
-            if (featureId === null || featureId === undefined) { _tipFn?.(null); return; }
-            const f = pbf.getFeature(featureId);
-            _tipFn?.(_buildTip(f?.properties, ds));
-        };
-        _globeLayer.onClick = (featureId, _geomType, x, y, lng, lat) => {
-            if (featureId === null || featureId === undefined) return;
-            const f = pbf.getFeature(featureId);
-            const content = _buildPop(f?.properties, ds);
-            if (content) _popFn?.(content, { x, y, lng, lat });
-        };
-
-    } else {
-        const geomType = pbf.fmap[0]?.[2] ?? 4;
-        const style = geomType < 2
-            ? { fill: '#FF6B35', stroke: '#fff', size: 5 }
-            : geomType < 4
-            ? { stroke: '#00B4D8', width: 1.5 }
-            : { fill: 'rgba(255,107,53,0.25)', stroke: '#FF6B35', width: 0.8 };
-        const features = [];
-        pbf.forEach(n => features.push(pbf.getFeature(n)));
-        _globeLayer = _mapInst.createLayer({ name: 'CATALOG' });
-        _globeLayer.set('geojson', { type: 'FeatureCollection', features }, style);
-
-        _mapInst.on('Click.catalog', e => {
-            if (!e || !_popFn) return;
-            let hit = null;
-            if (geomType >= 4) {
-                hit = features.find(f => geoContains(f, [e.lng, e.lat]));
-            } else if (geomType < 2) {
-                let minDist = Infinity;
-                for (const f of features) {
-                    const c = f.geometry?.coordinates;
-                    if (!c) continue;
-                    const pts = f.geometry.type === 'MultiPoint' ? c : [c];
-                    for (const [fx, fy] of pts) {
-                        const d = Math.hypot(fx - e.lng, fy - e.lat);
-                        if (d < minDist && d < 1) { minDist = d; hit = f; }
-                    }
-                }
-            }
-            if (hit) _popFn(_buildPop(hit.properties, ds), e);
-        });
-    }
-
-    _mapInst.draw();
-    document.getElementById('app').classList.add('viewing');
-
-    const [w, s, e, n] = pbf.bbox;
-    const zoomFeature = (e - w > 300)
-        ? (() => {
-                const d2r = Math.PI / 180, r2d = 180 / Math.PI;
-                let sx = 0, sy = 0, sz = 0; const pts = [];
-                pbf.forEach(i => {
-                    const b = pbf.getBbox(i); if (!b || !isFinite(b[0])) return;
-                    const lng = (b[0]+b[2])/2, lat = (b[1]+b[3])/2; pts.push([lng,lat]);
-                    sx += Math.cos(lat*d2r)*Math.cos(lng*d2r);
-                    sy += Math.cos(lat*d2r)*Math.sin(lng*d2r);
-                    sz += Math.sin(lat*d2r);
-                });
-                const norm = Math.sqrt(sx*sx+sy*sy+sz*sz);
-                return { type:'Feature', geometry:{ type:'MultiPoint', coordinates:pts }, properties:{},
-                                 _center: norm > 0 ? [Math.atan2(sy,sx)*r2d, Math.asin(sz/norm)*r2d] : null };
-            })()
-        : { type:'Feature', geometry:{ type:'Polygon', coordinates:[[[w,s],[w,n],[e,n],[e,s],[w,s]]] }, properties:{} };
-
-    const zoomOpts = zoomFeature._center ? { center: zoomFeature._center } : {};
-    await _mapInst.zoomToFeature(zoomFeature, zoomOpts);
-    _mapInst.draw();
-    _mapInst.trigger("Drawn");
-    _closeBtn.show();
+    const [map, view] = await Promise.all([_mapP, _viewP]);
+    _onExitExtra?.();   // L03-b_r などのカスタムビューを畳む
+    _onExitExtra = null;
+    _enter(map);
+    await view.show(pbf, {
+        tipHtml: (fid, props) => _buildTip(props ?? pbf.getFeature(fid)?.properties, ds),
+        popHtml: (fid, props) => _buildPop(props ?? pbf.getFeature(fid)?.properties, ds),
+    });
 }
 
-export function exitGlobeView() {
+export async function exitGlobeView() {
+    if (!_viewing) return;   // Esc（close ガジェット）は待ち受け中にも飛ぶ
+    _viewing = false;
     _onExitExtra?.();
     _onExitExtra = null;
-    _mapInst.on('Click.catalog', null);
-    _tipFn?.(null);
-    _popFn?.clear(true);
-    if (_globeLayer) { _globeLayer.destroy(); _globeLayer = null; }
-    _mapInst.setView([135, 35], _initialZoom);
-    _mapInst.autoRotate(true);
-    _closeBtn.hide();
     document.getElementById('app').classList.remove('viewing');
+    const view = await _viewP;
+    view.clear();
+    view.home(HOME_LAT);
 }
