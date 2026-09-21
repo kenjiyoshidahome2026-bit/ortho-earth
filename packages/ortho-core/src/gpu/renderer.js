@@ -16,11 +16,12 @@ import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, PLATEAU_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, PLATEAU_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL } from "./wgsl.js";
+import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 100;     // 400B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/rasN/rasF vec4f 含む）
+const FRAME_F32 = 104;     // 416B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-2 vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -155,10 +156,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 3, visibility: VF, texture: { sampleType: "float" } },   // 遠景層（far）アトラス。elev() が静的参照＝FRAME を含む全モジュールのレイアウトに必須
 		{ binding: 4, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // ユーザ COG（FRAME 全モジュール宣言＝未使用は dummy）
 		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // Cog0P（bbox+has）
-		{ binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 画像タイル層アトラス 近窓（未使用は dummy）
-		{ binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・遠窓
-		{ binding: 8, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // RasP（near/far bbox+has）
-		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },      // アトラスのサンプラ（mips・異方性・clamp）
+		{ binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 地面アトラス 近窓（未使用は dummy）
+		{ binding: 7, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・中窓
+		{ binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・遠窓
+		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // GndP（窓 bbox×3＋有効数）
+		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
@@ -192,6 +194,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const rasAtlasMod = mkMod(RASTER_ATLAS_WGSL, "rasterAtlas");
 	const bglRasP = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
 	const rasAtlasLayout = device.createPipelineLayout({ bindGroupLayouts: [bglRasP, bglPlTex] });
+	const atlasFillMod = mkMod(ATLAS_FILL_WGSL, "atlasFill");   // ベクタ塗りを地面アトラスへ（3D 限定）＝group(0)=Frame（origin/標高）・group(1)=DrawP（未使用）・group(2)=AtlP
+	const atlasFillLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglRasP] });
 	const RASTER_BUFS = [
 		{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] },   // a_delta（タイル北西隅からの dLL）
 		{ arrayStride: 8, attributes: [{ shaderLocation: 1, offset: 0, format: "float32x2" }] },   // a_uv
@@ -229,9 +233,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // far床（未使用は dummy）
 		{ binding: 6, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // ユーザ COG（未使用は dummy）
 		{ binding: 7, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // CogP（bbox+has）
-		{ binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 画像タイル層アトラス 近窓（球の床）
-		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・遠窓
-		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                         // GRasP
+		{ binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 地面アトラス 近窓（球の床）
+		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・中窓
+		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・遠窓
+		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                         // GGndP
 	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
 	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
@@ -691,16 +696,28 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0, memMsaa = 0;
 	let bg0 = null;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
-	// 画像タイル層アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）
-	const ras = { near: null, far: null, has: 0, rev: -1, tiles: 0, bytes: 0 };   // near/far＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
-	const rasPBuf = device.createBuffer({ size: 48, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // RasP/GRasP：near, far, p
+	let bg0Atl = null;   // 地面アトラス合成パス用（アトラス自身を dummy にした bg0）
+	// 地面アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）：w[i]＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
+	const gnd = { w: [null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };
+	const gndPBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0,w1,w2,p
 	const rasSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // CLAMP＝隣接タイルの滲み防止
 	function rebuildBG0() {
 		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
 		farTexView = farTexObj ? farTexObj.createView() : null;
 		const view = (elev.has && elevTexView) ? elevTexView : dummyView;
 		const farView = (far.has && farTexView) ? farTexView : dummyView;
-		bg0 = {};
+		bg0 = {}; bg0Atl = {};
+		// 地面アトラスへ塗りを焼くパス用＝同じレイアウトだがアトラス自身（binding 6-8）は dummy：描き込み先のテクスチャを同じ同期スコープで
+		// 読み取り側にも張ると「writable usage と別 usage の同居」で CommandBuffer ごと無効になる（実際に踏んだ 2026-09-21）
+		for (const [name, idx] of Object.entries(SLOT)) bg0Atl[name] = device.createBindGroup({
+			layout: bgl0, entries: [
+				{ binding: 0, resource: { buffer: frameBuf, offset: idx * FRAME_SLOT, size: FRAME_SLOT } },
+				{ binding: 1, resource: view }, { binding: 2, resource: elevSampler }, { binding: 3, resource: farView },
+				{ binding: 4, resource: cogTexView || dummyView }, { binding: 5, resource: { buffer: cogBuf } },
+				{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
+				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler },
+			],
+		});
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
 			layout: bgl0, entries: [
 				{ binding: 0, resource: { buffer: frameBuf, offset: idx * FRAME_SLOT, size: FRAME_SLOT } },
@@ -709,10 +726,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ binding: 3, resource: farView },
 				{ binding: 4, resource: cogTexView || dummyView },   // ユーザ COG（無ければ dummy＝Cog0P.p.x=0 ガード）
 				{ binding: 5, resource: { buffer: cogBuf } },
-				{ binding: 6, resource: ras.near ? ras.near.view : dummyView },   // 画像タイル層アトラス（無ければ dummy＝RasP.p.x=0 ガード）
-				{ binding: 7, resource: ras.far ? ras.far.view : dummyView },
-				{ binding: 8, resource: { buffer: rasPBuf } },
-				{ binding: 9, resource: rasSampler },
+				{ binding: 6, resource: gnd.w[0] ? gnd.w[0].view : dummyView },   // 地面アトラス（無ければ dummy＝GndP.p.x=0 ガード）
+				{ binding: 7, resource: gnd.w[1] ? gnd.w[1].view : dummyView },
+				{ binding: 8, resource: gnd.w[2] ? gnd.w[2].view : dummyView },
+				{ binding: 9, resource: { buffer: gndPBuf } },
+				{ binding: 10, resource: rasSampler },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -725,9 +743,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 5, resource: farView },   // far床（farViewはbg0のbinding3と同じ実体＝無ければdummy）
 			{ binding: 6, resource: cogTexView || dummyView },   // ユーザ COG（無ければ dummy＝CogP.p.x=0 ガード）
 			{ binding: 7, resource: { buffer: cogBuf } },
-			{ binding: 8, resource: ras.near ? ras.near.view : dummyView },   // 画像タイル層アトラス（球の床）
-			{ binding: 9, resource: ras.far ? ras.far.view : dummyView },
-			{ binding: 10, resource: { buffer: rasPBuf } },
+			{ binding: 8, resource: gnd.w[0] ? gnd.w[0].view : dummyView },   // 地面アトラス（球の床）
+			{ binding: 9, resource: gnd.w[1] ? gnd.w[1].view : dummyView },
+			{ binding: 10, resource: gnd.w[2] ? gnd.w[2].view : dummyView },
+			{ binding: 11, resource: { buffer: gndPBuf } },
 		] });
 		climBG = device.createBindGroup({ layout: bglClim, entries: [
 			{ binding: 0, resource: climTexView || dummyView },
@@ -847,10 +866,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (levels > 1) genMips(tex, levels);
 		return { tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: tex.createView() }] }) };
 	}
-	// ── 画像タイル層（raster.js の renderer 契約・RTT ドレープ）：テクスチャ＝タイル 1 枚 1 テクスチャ（mips・group(1) bind group 同梱）／
-	// メッシュ＝(z,y,n) 共有格子／rev が進んだ時だけ近窓/遠窓のアトラスへ合成（別エンコーダで先に submit）→毎フレームは FS の rasMix0 が画素標本化
-	let rasterDraws = null, memRaster = 0;
-	let rasAtlasPipe = null;
+	// ── 地面アトラス（RTT ドレープ・2026-09-21）＝ラスタ基図 → ベクタ塗り（3D 時）→ ラスタ重ね を 3 段窓（近/中/遠）へ合成し、地形・球・塗りの
+	// FS が gndMix0 で画素標本化する（gl/renderer.js と対）。合成は鍵（窓・ラスタ rev・シーン rev・ゲート）が変わった時だけ＝別エンコーダで
+	// main パスより先に submit → mips。raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）
+	let rasterDraws = null, memRaster = 0, sceneRev = 0;
+	let rasAtlasPipe = null, atlasFillPipe = null;
+	const atlBuf = device.createBuffer({ size: RAS_SLOT * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 3×スロット 2×ゲート 2＝12 枠
+	const atlBG = device.createBindGroup({ layout: bglRasP, entries: [{ binding: 0, resource: { buffer: atlBuf, offset: 0, size: 32 } }] });
+	const atlCPU = new Float32Array(RAS_SLOT / 4 * 16);
 	function rasterTex(bitmap) {
 		const w = bitmap.width, h = bitmap.height, levels = 1 + Math.floor(Math.log2(Math.max(w, h)));
 		const tex = device.createTexture({ size: [w, h], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
@@ -870,71 +893,127 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	const rasFreeQ = [];
 	function rasterFree(h) { if (!h) return; rasFreeQ.push(h); memRaster -= h.bytes || 0; }
 	function rasterFlushFree() { for (const h of rasFreeQ) { if (h.kind === "tex") h.tex.destroy(); else for (const b of h.bufs) b.destroy(); } rasFreeQ.length = 0; }
-	function setRasterDraws(rd) { rasterDraws = rd; if (!rd) { const had = ras.has; ras.has = 0; ras.tiles = 0; ras.rev = -1; if (had) writeRasP(); } }
-	function writeRasP() {
-		const f = new Float32Array(12);
-		for (const [i, a] of [[0, ras.near], [4, ras.far]]) { f[i] = a ? a.win[0] : 0; f[i + 1] = a ? a.win[1] : 0; f[i + 2] = a ? a.win[2] : 1; f[i + 3] = a ? a.win[3] : 1; }
-		f[8] = ras.has;
-		device.queue.writeBuffer(rasPBuf, 0, f);
+	function setRasterDraws(rd) { rasterDraws = rd; }
+	function writeGndP() {
+		const f = new Float32Array(16);
+		for (let i = 0; i < 3; i++) { const a = gnd.n ? gnd.w[i] : null; f[i * 4] = a ? a.win[0] : 0; f[i * 4 + 1] = a ? a.win[1] : 0; f[i * 4 + 2] = a ? a.win[2] : 1; f[i * 4 + 3] = a ? a.win[3] : 1; }
+		f[12] = gnd.n;
+		device.queue.writeBuffer(gndPBuf, 0, f);
 	}
-	function rasAlloc(size) {
+	function gndAlloc(size) {
 		const levels = 1 + Math.floor(Math.log2(size));
 		const tex = device.createTexture({ size: [size, size], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.COPY_DST });
 		const bytes = Math.round(size * size * 4 * 4 / 3);
-		ras.bytes += bytes;
+		gnd.bytes += bytes;
 		return { tex, view: tex.createView(), size, levels, win: [0, 0, 1, 1], bytes };
 	}
-	function rasFree1(a) { if (!a) return; a.tex.destroy(); ras.bytes -= a.bytes; }
-	// 合成（rev が進んだ時だけ）：窓ごとに独立の render pass（rgba8・深度なし・premultiplied blend）→ 別エンコーダで submit → mips。
-	// テクスチャの作り直し（初回/寸法変更/遠窓の出入り）は bind group（bg0/globeBG）の作り直しを伴う
-	function renderRasterAtlas() {
-		const rd = rasterDraws;
-		if (!rd || rd.rev === ras.rev) return;
-		ras.rev = rd.rev; ras.tiles = 0;
+	function gndFree1(a) { if (!a) return; a.tex.destroy(); gnd.bytes -= a.bytes; }
+	// 合成の入口（draw の Frame 書込の後・main パスより先）。fillsIn＝3D（地形あり）＝塗りはアトラス側へ（直描きは伏せる）。
+	// 窓は packFrame（gnd0..2 の係数）が先に読む＝prepareGround で確定し、composeGround で描く（同じフレーム）
+	let gndWins = null, gndKey = "";
+	function prepareGround(cam, fillsIn, slots) {
+		const rasterOn = !!(rasterDraws && rasterDraws.layers.length);
+		const wantFills = fillsIn && !(rasterOn && rasterDraws.hideFills);
+		gnd.rasterOn = rasterOn; gnd.fillsIn = fillsIn;
+		if (!rasterOn && !wantFills) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
+		const wins = groundWindows(cam, canvas.width, canvas.height);
+		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}`;
+		if (key === gnd.key) return null;
+		let rebuilt = false;
+		const N = rOpts.lowMem ? 1024 : 2048;
+		for (let i = 0; i < 3; i++) {
+			const bb = wins[i], size = i === 0 ? N : (N >> 1);
+			if (!gnd.w[i] || gnd.w[i].size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); rebuilt = true; }
+			gnd.w[i].win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
+		}
+		gnd.n = 3; gnd.key = key;
+		if (rebuilt) rebuildBG0();   // アトラスの view が変わった＝bg0/globeBG を作り直す（Frame 書込より前でよい＝バッファは同じ）
+		writeGndP();
+		return { wins, rasterOn, wantFills, seaOff, baseA };
+	}
+	function composeGround(job, slots) {
+		if (!job) return;
+		const { wins, rasterOn, wantFills, seaOff, baseA } = job;
+		gnd.tiles = 0;
 		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ layout: rasAtlasLayout,
 			vertex: { module: rasAtlasMod, entryPoint: "vs", buffers: RASTER_BUFS },
 			fragment: { module: rasAtlasMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
 			primitive: { topology: "triangle-list" } });
-		let rebuilt = false;
+		if (!atlasFillPipe) atlasFillPipe = device.createRenderPipeline({ layout: atlasFillLayout,
+			vertex: { module: atlasFillMod, entryPoint: "vs", buffers: FILL_BUFS },
+			fragment: { module: atlasFillMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: BLEND }] },
+			primitive: { topology: "triangle-list" } });
+		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
+		let n = 0, m = 0;
 		const jobs = [];
-		let n = 0;
-		for (const [k, bb] of [["near", rd.near], ["far", rd.far]]) {
-			if (!bb) { if (ras[k]) { rasFree1(ras[k]); ras[k] = null; rebuilt = true; } continue; }
-			const size = k === "near" ? rd.atlas : (rd.atlas >> 1);
-			if (!ras[k] || ras[k].size !== size) { if (ras[k]) rasFree1(ras[k]); ras[k] = rasAlloc(size); rebuilt = true; }
-			const a = ras[k]; a.win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
-			const list = [];
-			for (const L of rd.layers) for (const d of L.draws) {   // under → over の順（raster.js が並べる）
-				const b = d.bounds;
-				if (b[2] <= bb[0] || b[0] >= bb[2] || b[3] <= bb[1] || b[1] >= bb[3]) continue;
-				if (n >= MAX_RAS) { console.warn(`[gpu] raster atlas draws exceed ${MAX_RAS} = truncated`); break; }
-				const o = n * (RAS_SLOT / 4);
-				rasCPU[o] = d.nw[0] - a.win[0]; rasCPU[o + 1] = d.nw[1] - a.win[1]; rasCPU[o + 2] = 1 / a.win[2]; rasCPU[o + 3] = 1 / a.win[3];   // CPU f64 で差を取ってから f32
-				rasCPU[o + 4] = d.uvT[0]; rasCPU[o + 5] = d.uvT[1]; rasCPU[o + 6] = d.uvT[2]; rasCPU[o + 7] = d.uvT[3];
-				rasCPU[o + 8] = L.opacity; rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;
-				list.push({ d, slot: n }); n++; ras.tiles++;
+		for (let i = 0; i < 3; i++) {
+			const a = gnd.w[i], bb = wins[i];
+			const tiles = [];
+			if (rasterOn) for (const order of ["under", "over"]) for (const L of rasterDraws.layers) {
+				if (L.order !== order) continue;
+				for (const d of L.draws) {
+					const b = d.bounds;
+					if (b[2] <= bb[0] || b[0] >= bb[2] || b[3] <= bb[1] || b[1] >= bb[3]) continue;
+					if (n >= MAX_RAS) { console.warn(`[gpu] raster atlas draws exceed ${MAX_RAS} = truncated`); break; }
+					const o = n * (RAS_SLOT / 4);
+					rasCPU[o] = d.nw[0] - a.win[0]; rasCPU[o + 1] = d.nw[1] - a.win[1]; rasCPU[o + 2] = 1 / a.win[2]; rasCPU[o + 3] = 1 / a.win[3];
+					rasCPU[o + 4] = d.uvT[0]; rasCPU[o + 5] = d.uvT[1]; rasCPU[o + 6] = d.uvT[2]; rasCPU[o + 7] = d.uvT[3];
+					rasCPU[o + 8] = L.opacity; rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;
+					tiles.push({ d, slot: n, order }); n++; gnd.tiles++;
+				}
 			}
-			jobs.push({ a, list });
+			const fills = [];
+			if (wantFills) for (const slot of slots) {
+				const scene = scenes[slot]; if (!scene.draws.length) continue;
+				for (const gate of [0, 1]) {
+					const o = m * (RAS_SLOT / 4);
+					atlCPU[o] = scene.origin[0] - a.win[0]; atlCPU[o + 1] = scene.origin[1] - a.win[1]; atlCPU[o + 2] = 1 / a.win[2]; atlCPU[o + 3] = 1 / a.win[3];
+					atlCPU[o + 4] = gate; atlCPU[o + 5] = baseA; atlCPU[o + 6] = 0; atlCPU[o + 7] = 0;
+					fills.push({ slot, gate, at: m }); m++;
+				}
+			}
+			jobs.push({ a, tiles, fills });
 		}
 		if (n) device.queue.writeBuffer(rasBuf, 0, rasCPU.buffer, 0, n * RAS_SLOT);
+		if (m) device.queue.writeBuffer(atlBuf, 0, atlCPU.buffer, 0, m * RAS_SLOT);
 		const enc = device.createCommandEncoder();
-		for (const { a, list } of jobs) {
+		for (const { a, tiles, fills } of jobs) {
 			const pass = enc.beginRenderPass({ colorAttachments: [{ view: a.tex.createView({ baseMipLevel: 0, mipLevelCount: 1 }), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
-			pass.setPipeline(rasAtlasPipe);
-			for (const { d, slot } of list) {
-				pass.setBindGroup(0, rasBG, [slot * RAS_SLOT]);
-				pass.setBindGroup(1, d.tex.bg);
-				pass.setVertexBuffer(0, d.mesh.bPos); pass.setVertexBuffer(1, d.mesh.bUv);
-				pass.setIndexBuffer(d.mesh.bIdx, "uint16");
-				pass.drawIndexed(d.mesh.count);
+			const drawTiles = order => {
+				let any = false;
+				for (const t of tiles) {
+					if (t.order !== order) continue;
+					if (!any) { pass.setPipeline(rasAtlasPipe); any = true; }
+					pass.setBindGroup(0, rasBG, [t.slot * RAS_SLOT]); pass.setBindGroup(1, t.d.tex.bg);
+					pass.setVertexBuffer(0, t.d.mesh.bPos); pass.setVertexBuffer(1, t.d.mesh.bUv);
+					pass.setIndexBuffer(t.d.mesh.bIdx, "uint16"); pass.drawIndexed(t.d.mesh.count);
+				}
+			};
+			drawTiles("under");
+			if (fills.length) {
+				pass.setPipeline(atlasFillPipe);
+				pass.setBindGroup(1, paramBG[ROLE.normal]);
+				for (const { slot, gate, at } of fills) {
+					const scene = scenes[slot];
+					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
+					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
+					for (const d of scene.draws) {
+						if (d.kind !== "fill") continue;
+						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
+						if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
+						if ((seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
+						if (bldFill.li >= 0 && d.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる
+						pass.setVertexBuffer(0, d.bPos); pass.setVertexBuffer(1, d.bCol);
+						if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
+					}
+				}
 			}
+			drawTiles("over");
 			pass.end();
 		}
 		device.queue.submit([enc.finish()]);
 		for (const { a } of jobs) if (a.levels > 1) genMips(a.tex, a.levels);   // 斜め視のちらつき防止（queue 順＝合成の後）
-		ras.has = ras.near ? (ras.far ? 2 : 1) : 0;
-		writeRasP();
-		if (rebuilt) rebuildBG0();   // アトラスの view が変わった＝bg0/globeBG を作り直す
 	}
 	const dummyMask = device.createTexture({ size: [1, 1], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyMaskView = dummyMask.createView();
@@ -1082,6 +1161,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function setScene(s, slot = "main") {
 		if (!scenes[slot]) return;   // overlay 等の未知スロットは対象外
+		sceneRev++;   // 地面アトラス（3D の塗り）の再合成の鍵
 		// クロスフェード：main の同一原点差し替え（ロード流入中の典型）は旧シーンを FADE_MS だけ温存し
 		// 新シーンをα昇順で重ねる＝classic merge の「ポンッ」を溶かす（モバイルのパラパラ感対策）。
 		// 原点が変わる大移動は従来どおり即替え（旧シーンの Frame origin が異なり二重描画できないため）。
@@ -1158,9 +1238,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (mesh) { f[88] = (mesh[0] - W) / sLon; f[89] = (mesh[1] - S) / sLat; f[90] = mesh[2] / sLon; f[91] = mesh[3] / sLat; }
 			else { f[88] = (origin[0] - W) / sLon; f[89] = (origin[1] - S) / sLat; f[90] = 1 / sLon; f[91] = 1 / sLat; }
 		} else { f[88] = 0; f[89] = 0; f[90] = 0; f[91] = 0; }
-		// 画像タイル層アトラス（近窓/遠窓）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
-		for (const [i, a] of [[92, ras.near], [96, ras.far]]) {
-			if (!a || !ras.has) { f[i] = 0; f[i + 1] = 0; f[i + 2] = 0; f[i + 3] = 0; continue; }
+		// 地面アトラス（近/中/遠）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
+		for (let k = 0; k < 3; k++) {
+			const i = 92 + k * 4, a = gnd.n ? gnd.w[k] : null;
+			if (!a) { f[i] = 0; f[i + 1] = 0; f[i + 2] = 0; f[i + 3] = 0; continue; }
 			const [W, S, sLon, sLat] = a.win;
 			if (mesh) { f[i] = (mesh[0] - W) / sLon; f[i + 1] = (mesh[1] - S) / sLat; f[i + 2] = mesh[2] / sLon; f[i + 3] = mesh[3] / sLat; }
 			else { f[i] = (origin[0] - W) / sLon; f[i + 1] = (origin[1] - S) / sLat; f[i + 2] = 1 / sLon; f[i + 3] = 1 / sLat; }
@@ -1235,7 +1316,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const pf = pt * pt * (3 - 2 * pt);
 		elevScaleEff = elev.scale * pf;
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
-		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !ras.has;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
+		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
@@ -1253,7 +1334,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const dpr = cam.dpr || 1;
 		const mainOrigin = scenes.main.origin || [0, 0];
 		rasterFlushFree();      // 前フレームは submit 済み＝退避されたタイルテクスチャをここで実際に破棄
-		renderRasterAtlas();    // 画像タイル層＝rev が進んだ時だけアトラスへ合成（別エンコーダ・main パスより先に submit）。packFrame が窓の係数を読む
+		// 地面アトラス（RTT ドレープ）：窓と鍵を確定（packFrame が窓の係数を読む）→ Frame 書込 → 合成（別エンコーダ・main パスより先に submit）
+		const slotsG = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
+		const gndJob = prepareGround(cam, terrainActive, slotsG);
 		// Frame 4スロット：base/main=fill/line（fogFar=cap）、terrain=遠山ブルー、bld=既定fog(2.5×/14×)
 		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
 		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
@@ -1262,6 +1345,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const farActive = terrainActive && far.has && !!farTexObj;   // 遠景メッシュパス（terrain slot と同 fog・mesh=遠窓・farPass=1）
 		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, far.bounds, 1));
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+		composeGround(gndJob, slotsG);   // 鍵が変わった時だけ（Frame 書込の後＝塗りの焼き込みが bg0[slot] の origin を読む）
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));
 		const zf = 1 - Math.max(0, Math.min(1, (cam.zoom - 17.5) / 1.5));
@@ -1420,13 +1504,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// dbg＝?drawhud=1 の実機計器（描いた枚数と状態）。「背景が黒＝塗りが一枚も出ていない」時に、
 		// 犯人が CPU 側（シーンが空・スロット退場）か GPU 側（描いたのに出ない）かを画面で名指しするための物差し
 		// （Android 実機の反転 2026-08-03。数え上げは加算だけ＝常時オンでも実害なし）。
-		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return rasterDraws ? ras.tiles : 0; } };
+		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; } };
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
 		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
 		const fillPipe = terrainDepth ? P.fillTest : P.fillOff;
 		const linePipe = terrainDepth ? P.lineTest : P.lineOff;
-		// ラスタ基図（under・hideFills）が描かれている間は塗りを伏せる（線と注記は残す）。over はアトラスに合成済み＝塗り FS が rasMix0 で載せる
-		const rasterHide = !!(rasterDraws && rasterDraws.hideFills && ras.has);
+		// 塗りの直描きを伏せる条件：3D（地形あり）＝塗りは地面アトラスへ焼いてある（RTT ドレープ）／ラスタ基図（under・hideFills）＝裁定（線と注記は残す）
+		const rasterHide = gnd.fillsIn || !!(rasterDraws && rasterDraws.hideFills && gnd.rasterOn);
 		for (const slot of slots) {
 			const scene = scenes[slot];
 			// フェード中の main＝旧シーン（通常ロール・α1）を先に敷き、新シーンを fade ロール（α=fadeK）で重ねる
@@ -1718,7 +1802,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		frame = null; gctx = null;
 		disposeSlot("base"); disposeSlot("main");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
-		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); rasPBuf.destroy(); rasterFlushFree(); rasFree1(ras.near); rasFree1(ras.far); ras.near = ras.far = null;
+		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 3; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
 		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
@@ -1745,7 +1829,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + ras.bytes }),
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes }),
 		rasterTex, rasterMesh, rasterFree, setRasterDraws,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
