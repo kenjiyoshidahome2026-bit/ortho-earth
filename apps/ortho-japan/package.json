@@ -88,7 +88,7 @@
 		"geoedit": "*",
 		"geopbf": "*",
 		"glbconv": "*",
-		"ortho-core": "*",
+		"@ortho-earth/core": "*",
 		"quiet-mono": "*",
 		"vite": "^5.0.0"
 	}

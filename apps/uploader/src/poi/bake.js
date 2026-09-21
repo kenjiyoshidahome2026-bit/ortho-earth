@@ -91,7 +91,7 @@ export async function poi(q, { Bucket }, { prefs = ["26"], sets = ["P29"], anno 
 // experimental注記(z16 label層)を、点が要る分のタイルだけ取得し、正規化名 → [{ll,knj,kana}] の索引に。
 // withAnno のときだけ ortho-core(fetchMVT) を動的 import＝KSJ単体の焼きは ortho-core に依存しない。
 async function buildAnnoIndex(pts, set, q) {
-	const { fetchMVT } = await import("ortho-core/decode");   // decode.js だけ（pbf のみ依存）＝GLバレルを引かない
+	const { fetchMVT } = await import("@ortho-earth/core/decode");   // decode.js だけ（pbf のみ依存）＝GLバレルを引かない
 	const Z = 16, need = new Set();
 	for (const p of pts) { const [x, y] = POI.tileXY(p.ll[0], p.ll[1], Z); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) need.add(`${x + dx}/${y + dy}`); }
 	const keys = [...need];
@@ -121,7 +121,7 @@ async function buildAnnoIndex(pts, set, q) {
 // 注記由来POIの採取：a.bbox の z16 label タイルを掃引し annoCtg==a.code の注記を「POIそのもの」として採る。
 // KSJに無い寺社等・位置は注記＝建物の上（§1 の三十三間堂 3m の正しい方）。posSrc/typeSrc とも ANNO で焼く。
 async function sweepAnno(a, q) {
-	const { fetchMVT } = await import("ortho-core/decode");
+	const { fetchMVT } = await import("@ortho-earth/core/decode");
 	const Z = 16, [w, s, e, n] = a.bbox;
 	const [x0, y0] = POI.tileXY(w, n, Z), [x1, y1] = POI.tileXY(e, s, Z);
 	const keys = [];

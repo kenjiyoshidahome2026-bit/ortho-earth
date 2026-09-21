@@ -13,7 +13,7 @@
 // エンジンとの接点は公開面だけ：map.overlay（同一フレームのオーバーレイ・#13）・map.cam＋ ortho-core の cameraState（pick と札の投影）・
 // onFrame（札の追従）・setOpacity・mapEl。GPU 描画は quakes-gl.js＝レンダーワーカー内で地球・注記と同じフレーム・同じ cam で描く
 //（main の canvas に onFrame で描いていた頃は 1〜2 フレーム先行して見えた＝2026-09-19 本人指摘）。
-import { cameraState, ellipsoidOn, worldRadiusM } from "ortho-core";
+import { cameraState, ellipsoidOn, worldRadiusM } from "@ortho-earth/core";
 import glUrl from "./quakes-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は worker 入口扱いで export が tree-shake され 532B の殻になる・2026-09-20）＝モジュールは依存ゼロが掟
 import { M_SPLIT, STOPS, depthT, depthColor, lambdaOf } from "./quakes-gl.js";   // 凡例・pick は同じ表を使う（正本は quakes-gl.js）
 export { depthColor };

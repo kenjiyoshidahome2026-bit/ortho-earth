@@ -16,7 +16,7 @@
 		"altpbf": "*",
 		"geopbf": "*",
 		"native-bucket": "*",
-		"ortho-core": "*",
+		"@ortho-earth/core": "*",
 		"quiet-mono": "*"
 	},
 	"devDependencies": {

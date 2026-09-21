@@ -8,7 +8,7 @@
 // グラフ：縦軸基準（最低標高/0m）切替・縦横比（縦誇張）表示・ホバーで地図上に対応点マーカー・PNG/GeoJSON保存。
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal。
 import { gadgetStack } from "./stack.js";
-import { geodesicDistance } from "ortho-core";
+import { geodesicDistance } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();
 

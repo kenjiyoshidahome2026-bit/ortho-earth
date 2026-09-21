@@ -12,7 +12,7 @@
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {
-		"ortho-core": "*",
+		"@ortho-earth/core": "*",
 		"geopbf": "*",
 		"altpbf": "*",
 		"native-bucket": "*",

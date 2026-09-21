@@ -11,7 +11,7 @@
 //   予算：常駐は budgetBytes（既定 64MB・row group の圧縮サイズで数える）。視野の中心に近い row group から載せ、超えた分は
 //         「ズームインで残り N」と状況表示に出す。視野から外れた row group は外す。統計の無いファイルは「統計なし＝全読み」と明示。
 import { geopbf } from "geopbf";
-import { ellipsoidOn } from "ortho-core";
+import { ellipsoidOn } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 import pointsUrl from "./points-gl.js?url";   // worker が import() する URL（依存ゼロのモジュール）
 

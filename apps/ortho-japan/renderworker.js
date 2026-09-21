@@ -5,14 +5,14 @@
 // バックエンド（WebGL2 / WebGPU）は init で選んだ片方だけを dynamic import する（ortho-core/gl・ortho-core/gpu）。
 // index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
-import { createLabelLayer } from "ortho-core/labels";
-import { createTerrain } from "ortho-core/terrain";
+import { createLabelLayer } from "@ortho-earth/core/labels";
+import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
 // terrain の標高ローダ（altpbf）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→altpbf がその場実行へ退避
 setAltWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
-import { createRaster } from "ortho-core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, cameraState, project } from "ortho-core/camera";
+import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
+import { setEllipsoid, cameraState, project } from "@ortho-earth/core/camera";
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
@@ -160,7 +160,7 @@ function tqFeed(tag, ms) {
 async function bootWebGL(m) {
 	let createRenderer, createGintLayer;
 	bootStage = "awaiting gl import";
-	try { ({ createRenderer, createGintLayer } = await import("ortho-core/gl")); }
+	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && err.message || err) }); return; }
 	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
@@ -250,7 +250,7 @@ const dispatch = e => {
 			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
-			(m.gpu ? import("ortho-core/gpu")
+			(m.gpu ? import("@ortho-earth/core/gpu")
 					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）

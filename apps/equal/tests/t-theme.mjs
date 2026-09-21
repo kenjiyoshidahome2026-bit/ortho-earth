@@ -9,7 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { THEMES, THEME_NAMES, normTheme, hex } from "../src/themes.js";
 import { PALETTE } from "../src/layers.js";
-import { WORLD_PAL_THEMES, resolveWorldPal, WORLD_PAL_DEFAULT } from "ortho-core/worldpal";
+import { WORLD_PAL_THEMES, resolveWorldPal, WORLD_PAL_DEFAULT } from "@ortho-earth/core/worldpal";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 let n = 0, fails = 0;

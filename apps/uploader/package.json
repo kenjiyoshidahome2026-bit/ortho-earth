@@ -15,7 +15,7 @@
 		"geopbf": "*",
 		"geotiff": "^3.0.5",
 		"native-bucket": "*",
-		"ortho-core": "*"
+		"@ortho-earth/core": "*"
 	},
 	"devDependencies": {
 		"vite": "^6.0.0"

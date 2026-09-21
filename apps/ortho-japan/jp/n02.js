@@ -3,7 +3,7 @@
 // **動作を変えずに**ここへ移した（2026-09-17）。地域宣言（jp/region.js）から注入して /nl/ では作らない形は次の契約段。
 // env … renderer, requestDraw／land（紙色＝テーマで差し替わる getter）／BASEMAP_MINZOOM（路線を描く下限＝基図と同じ門）
 // 戻り値 … load()／loaded（読込済フラグ＝テーマ切替が false に戻して引き直す）
-import { buildGeoJSONOverlay } from "ortho-core";
+import { buildGeoJSONOverlay } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 
 export function createN02Overlay(env) {

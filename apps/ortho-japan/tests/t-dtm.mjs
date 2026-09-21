@@ -8,7 +8,7 @@
 //
 // 使い方: node tests/t-dtm.mjs
 import { staleDSM } from "altpbf/loader";
-import { clipToDTM } from "ortho-core/terrain";
+import { clipToDTM } from "@ortho-earth/core/terrain";
 import { JP_DTM } from "../jp/dtm.js";
 
 let ok = 0, ng = 0;

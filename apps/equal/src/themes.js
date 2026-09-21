@@ -10,7 +10,7 @@
 //
 // テーマを足す＝ここに 1 エントリ。equal 単独でも japan のガジェットとしても同じ台帳を使う
 //（ガジェット時はホストがテーマ名を渡す＝equal.theme("dark")）。
-import { WORLD_PAL_THEMES } from "ortho-core/worldpal";
+import { WORLD_PAL_THEMES } from "@ortho-earth/core/worldpal";
 
 export const hex = (h, a = 1) => [parseInt(h.slice(1, 3), 16) / 255, parseInt(h.slice(3, 5), 16) / 255, parseInt(h.slice(5, 7), 16) / 255, a];
 
