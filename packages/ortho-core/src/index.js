@@ -3,6 +3,7 @@
 export { evalExpr, truthy } from "./expr.js";
 export { parseRGBA } from "./color.js";
 export { fetchMVT } from "./decode.js";
+export { queryTiles } from "./query.js";   // 描画結果への問い合わせ（queryRenderedFeatures 相当＝描いているタイルを取り直して今のスタイルで当てる）
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";

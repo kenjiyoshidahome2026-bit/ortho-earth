@@ -4,7 +4,7 @@ import "quiet-mono/tokens.scss";
 import "quiet-mono/components.scss";
 import "./style.scss";
 import {
-	evalExpr, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
+	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
 } from "ortho-core";
@@ -24,7 +24,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType } from "ortho-core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "ortho-core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
@@ -1395,6 +1395,7 @@ if (bootView?.layers?.includes(SKY_LAYER)) sky.applyConstellations(true);   // l
 if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c（等高線トグル時代）＝地形チップに読み替え（後方互換）
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
+let lastTileOrder = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
 let themes = createThemes(style, { suppressAdmin: !!opts.hideAdminBoundary });   // 分類（allowlist）は themes.js の純関数。
 dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点火ゲートの検定窓（t-palette-live＝添字ズレの回帰封じ）hideAdminBoundary＝基図の行政界(赤線)を常に隠す（派生アプリが自前境界を描く時）。⚠層添字（LI_*）は style 依存＝テーマ生き替え(switchTheme)で必ず作り直す（旧添字の hidden が「土台を隠し点火層を出す」実バグ 2026-09-09）
 
@@ -1754,9 +1755,11 @@ function render() {
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
 	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
+	if (!basemap) lastTileOrder = [];
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
 		skipBase = tu.covered && merged;
@@ -2671,8 +2674,8 @@ const mainRoad = async (file, { fit = true } = {}) => {
 // 四隅で貼った画像＝1 枚ごとに画像タイル層 "img:<n>"（重ね・@opacity）。前の画像は外す（「最後の 1 枚が勝つ」＝図形と同じ）。
 // 戻り値＝画像を抜いた残りの図形（gint/anno へ）。残りが無ければ null。imagequad（判定・四隅）は遅延 import＝画像の無い読み込みは降ろさない
 const IMAGE_KEY = "@image";
-let imageIds = [];
-const clearImages = () => { for (const id of imageIds) map.raster.remove(id); imageIds = []; };
+let imageIds = [], imageQuads = [];   // imageQuads＝[{ id, corners, properties }]（map.queryRenderedFeatures の画像層）
+const clearImages = () => { for (const id of imageIds) map.raster.remove(id); imageIds = []; imageQuads = []; };
 const placeImages = async (pbf, name) => {
 	clearImages();
 	const { isImageFeature, cornersOf } = await import("geopbf/edit/imagequad");
@@ -2680,7 +2683,7 @@ const placeImages = async (pbf, name) => {
 	for (const f of gj.features) (isImageFeature(f) && f.properties[IMAGE_KEY] instanceof Blob ? imgs : rest).push(f);
 	imgs.forEach((f, k) => {
 		const id = `img:${k}`, op = +f.properties["@opacity"];
-		imageIds.push(id);
+		imageIds.push(id); imageQuads.push({ id, corners: cornersOf(f.geometry), properties: f.properties });
 		map.raster.add(id, { image: f.properties[IMAGE_KEY], corners: cornersOf(f.geometry), name: f.properties.name || f.properties[IMAGE_KEY].name || name, attribution: f.properties.attribution || null },   // 出典（HTML 可）＝出典欄へ（消毒は onRasterInfo）
 			{ order: "over", opacity: op > 0 && op <= 1 ? op : 1, hideFills: false }).catch(err => console.warn("[image] failed", id, err));
 	});
@@ -2696,6 +2699,49 @@ const autoExtrude = async pbf => {
 	if (extrudeQ?.off || !(extrudeQ?.key ? pbf.keys?.includes(extrudeQ.key) : hasHeightKey(pbf.keys))) return null;
 	try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1 }); }
 	catch (err) { console.warn("[extrude] failed", err); return null; }
+};
+// ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
+// geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
+// 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
+// その上に載せたもの＝画像（id "img:<n>"・raster）・押し出し（"extrude"・fill-extrusion）・利用者の図形（"user"・gint の識別＝許容は m 換算）。
+// MapLibre と違う点＝非同期（タイルを取り直すため）。基図の層 id はスタイルの id（地域パックの style）。
+const queryCache = new Map();   // "z/x/y" → 解読済みタイル（直近 32 枚）
+map.queryRenderedFeatures = async (geometry, qo = {}) => {
+	if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
+	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 3;
+	let area;
+	if (geometry && typeof geometry[0] === "number") { const ll = unprojectXY(geometry[0], geometry[1]); if (!ll) return []; area = { ll }; }
+	else {
+		const [[x0, y0], [x1, y1]] = geometry || [[0, 0], [W, H]];
+		const cs = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, (y0 + y1) / 2]].map(([x, y]) => unprojectXY(x, y)).filter(Boolean);
+		if (!cs.length) return [];
+		area = { bbox: [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))] };
+	}
+	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
+	const inBox = (lon, lat) => area.bbox ? lon >= area.bbox[0] && lon <= area.bbox[2] && lat >= area.bbox[1] && lat <= area.bbox[3] : false;
+	const pt = area.ll || [(area.bbox[0] + area.bbox[2]) / 2, (area.bbox[1] + area.bbox[3]) / 2];
+	const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+	const inPolyGeom = (g, x, y) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).some(p => inRing(p[0], x, y) && !p.slice(1).some(h => inRing(h, x, y)));
+	const touches = g => area.ll ? inPolyGeom(g, pt[0], pt[1]) : JSON.stringify(g.coordinates).match(/-?\d+\.?\d*,-?\d+\.?\d*/g)?.some(s => { const [x, y] = s.split(",").map(Number); return inBox(x, y); });
+	const out = [];
+	// 上から：画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
+	for (const q of [...imageQuads].reverse()) {
+		if (!take(q.id)) continue;
+		const g = { type: "Polygon", coordinates: [[...q.corners, q.corners[0]]] };
+		if (touches(g)) { const { [IMAGE_KEY]: _img, ...props } = q.properties || {}; out.push({ type: "Feature", properties: props, geometry: g, layer: { id: q.id, type: "raster" }, source: "image" }); }
+	}
+	if (take("extrude")) for (const { f, h } of modelCtl?.extrudedFeatures || []) if (touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: "extrude", type: "fill-extrusion" }, source: "extrude", height: h });
+	const upbf = gint.userGint?.pbf;
+	if (upbf && take("user")) {
+		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
+		const fids = area.ll ? [upbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx })].filter(v => v != null) : null;
+		const feats = fids ? fids.map(i => [i, upbf.getFeature(i)]) : upbf.features.map((f, i) => [i, f]).filter(([, f]) => f?.geometry && touches(f.geometry));
+		for (const [i, f] of feats) if (f) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: "user", type: "gint" }, source: "user" });
+	}
+	if (queryCache.size > 32) queryCache.clear();
+	const base = await queryTiles({ style, hidden: themes.hiddenLi(layerState, cam.zoom), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
+		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache }).catch(err => { console.warn("[query] basemap", err); return []; });
+	return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {} }))).concat(base) : out.concat(base);
 };
 // ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
 const rasterDropFile = async (file, fallback = false) => {

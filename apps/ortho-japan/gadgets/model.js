@@ -88,7 +88,8 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 	const out = [];
 	const ml = isMapLibreLayer({ type, paint });
 	const opacity = ml ? Math.max(0, Math.min(1, +evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {} }))) : 1;   // MapLibre では層単位（データ駆動しない）
-	for (const f of feats) {
+	for (let fi = 0; fi < feats.length; fi++) {
+		const f = feats[fi];
 		const g = f?.geometry; if (!g) continue;
 		const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : null;
 		if (!polys) continue;
@@ -104,7 +105,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 				for (const rings of polys) {
 					const rs = [];
 					for (const r of rings || []) { if (!r || r.length < 3) continue; const a = new Float64Array(r.length * 2); r.forEach((q, i) => { a[i*2] = q[0]; a[i*2+1] = q[1]; }); rs.push(a); }
-					if (rs.length) out.push({ rings: rs, h, base: b, rgba });
+					if (rs.length) out.push({ rings: rs, h, base: b, rgba, fi });
 				}
 				continue;
 			}
@@ -119,7 +120,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 		for (const rings of polys) {
 			const rs = [];
 			for (const r of rings || []) { if (!r || r.length < 3) continue; const a = new Float64Array(r.length * 2); r.forEach((c, i) => { a[i*2] = c[0]; a[i*2+1] = c[1]; }); rs.push(a); }
-			if (rs.length) out.push({ rings: rs, h, base: b, rgba });
+			if (rs.length) out.push({ rings: rs, h, base: b, rgba, fi });   // fi＝元の地物の番号（問い合わせで属性へ戻る）
 		}
 	}
 	return out;
@@ -147,19 +148,22 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		get name() { return cur?.name || null; },
 		clear,
 		get extruded() { return ext?.stats || null; },
+		get extrudedFeatures() { return ext?.used || []; },   // [{ f: Feature, h }]＝map.queryRenderedFeatures の押し出し層
 		clearExtrude,
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
 		async extrude(src, { height, base, color, scale = 1, mask = true, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {
 			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type });
+			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
+			const used = [...new Set(polys.map(p => p.fi))].map(fi => ({ f: feats[fi], h: polys.find(p => p.fi === fi).h }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照）
 			const blend = polys.some(p => p.rgba[3] < 255);   // fill-extrusion-opacity<1／半透明の色＝BLEND（模型と同じ派生パイプライン）
 			if (!polys.length) { clearExtrude(); return null; }
 			const tr = []; for (const p of polys) for (const r of p.rings) tr.push(r.buffer);
 			const r = await rpc({ kind: "extrude", polys, ell, mask: mask && !blend }, tr);   // 半透明は足元の基図建物を伏せない（透けて見える先が消えると不自然）
 			clearExtrude();
 			const key = `extrude/${++seq}`;
-			ext = { name: key, stats: r.stats };
+			ext = { name: key, stats: r.stats, used };
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
