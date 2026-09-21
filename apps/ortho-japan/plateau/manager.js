@@ -25,7 +25,7 @@
 //   sets / progress           … 登録簿（読み取り）／読込進捗 Map（読み取り）
 //   isActive(name) / isDead(name) / visibleLoading() / memStats() … 上映の待ち判定と HUD の物差し
 //   openDb()                  … データ管理モーダル
-import { parseViewHash, wrapLon } from "ortho-core";
+import { parseViewHash, wrapLon } from "@ortho-earth/core";
 import { createPlateauDb } from "../plateaudb.js";
 import { dockStack } from "../gadgets/stack.js";   // 左下ドック（読込トーストの容れ物）
 import { tr } from "../i18n.js";

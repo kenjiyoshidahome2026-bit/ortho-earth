@@ -6,7 +6,7 @@ import styleMono from "./style-mono.js";
 import styleDark from "./style-dark.js";
 import styleGsi from "./style-gsi.js";
 import styleSepia from "./style-sepia.js";
-import { WORLD_PAL_THEMES } from "ortho-core/worldpal";   // 全球パレットの正本＝apps/equal と同じ値を引く（二度書かない・2026-09-18）
+import { WORLD_PAL_THEMES } from "@ortho-earth/core/worldpal";   // 全球パレットの正本＝apps/equal と同じ値を引く（二度書かない・2026-09-18）
 
 export const MAP_THEMES = {
 	// mono＝白地図（既定）。contourColor/distColor/hypso 省略＝renderer 既定（セピア・遠山ブルー・単色陰影）。

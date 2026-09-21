@@ -7,7 +7,7 @@
 // cluster(src, opts)：{ clusterRadius:50, clusterMaxZoom:14, paint:{ circle-color/-radius/-stroke-color/-stroke-width/-opacity }（集約の丸）,
 //   text:{ color, size }, unclustered:{ paint } }。集約の属性＝{ cluster:true, point_count, point_count_abbreviated }（MapLibre と同じ名前）。
 //   クリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）。
-import { evalExpr } from "ortho-core";
+import { evalExpr } from "@ortho-earth/core";
 import heatUrl from "../heatmap-gl.js?url";
 import clusterUrl from "../cluster-2d.js?url";
 

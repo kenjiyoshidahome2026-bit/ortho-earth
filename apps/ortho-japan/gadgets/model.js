@@ -10,7 +10,7 @@
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
-import { evalExpr, truthy, parseRGBA } from "ortho-core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
+import { evalExpr, truthy, parseRGBA } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
 
 const MAX_BYTES = 256e6;   // 正気上限（?g= と同じ・敵入力の巨大確保よけ）
 

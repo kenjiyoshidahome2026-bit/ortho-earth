@@ -9,7 +9,7 @@
 // 縮尺の正しさは「切り出す地表幅 ↔ 紙の地図幅(mm)」の対応で構成的に保証（解像度は精細度にだけ効く）。
 import { keyBusy } from "./keys.js";
 import { composeLayersToCanvas } from "./compose.js";
-import { WORLD_PX, primeVerticalRadius } from "ortho-core";
+import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();
 

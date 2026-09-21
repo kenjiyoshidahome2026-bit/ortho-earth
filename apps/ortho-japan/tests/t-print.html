@@ -7,7 +7,7 @@
 <script type="module">
 import orthoJapan from "../app.js";
 import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "../gadgets/print.js";
-import { primeVerticalRadius } from "ortho-core";
+import { primeVerticalRadius } from "@ortho-earth/core";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	// レイアウト：A4横=297×210・内罫は外罫の内側・下帯が外罫の下

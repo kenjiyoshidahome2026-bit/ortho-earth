@@ -7,7 +7,7 @@ import {
 	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
-} from "ortho-core";
+} from "@ortho-earth/core";
 import { createGeopbf, geopbf } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
@@ -33,7 +33,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "ortho-core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）

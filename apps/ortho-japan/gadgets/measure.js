@@ -10,7 +10,7 @@
 // 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・requestDraw・signal。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
-import { geodesicDistance, geodesicArea } from "ortho-core";
+import { geodesicDistance, geodesicArea } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();
 

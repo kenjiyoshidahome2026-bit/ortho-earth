@@ -1,5 +1,5 @@
 // 点の集約（クラスタ）とヒートマップの計算部分（DOM・オーバーレイ無し＝Node の検定からも読める）。描画側は gadgets/aggregate.js。
-import { evalExpr } from "ortho-core";
+import { evalExpr } from "@ortho-earth/core";
 import { evalColor } from "./model.js";
 
 export const D2R = Math.PI / 180;

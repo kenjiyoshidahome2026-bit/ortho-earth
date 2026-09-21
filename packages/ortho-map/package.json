@@ -16,7 +16,7 @@
 	},
 	"dependencies": {
 		"common": "*",
-		"ortho-core": "*",
+		"@ortho-earth/core": "*",
 		"native-bucket": "*",
 		"geopbf": "*",
 		"altpbf": "*"

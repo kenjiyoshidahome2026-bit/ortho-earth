@@ -11,7 +11,7 @@
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {
-		"ortho-core": "*",
+		"@ortho-earth/core": "*",
 		"geopbf": "*",
 		"altpbf": "*",
 		"@loaders.gl/core": "^4.3.0",

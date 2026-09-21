@@ -2,7 +2,7 @@
 // map.gadget.compass() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // 3D（傾き or 回転）の時だけ表示。針は方位を指し、押すと水平・北向きへスッと戻る。
 // 針の毎フレーム追従は本体 render のフック＝この関数が返す update を本体（app.js の登録側）が掴んで呼ぶ。
-import { shortBearingOf } from "ortho-core";
+import { shortBearingOf } from "@ortho-earth/core";
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";

@@ -45,4 +45,4 @@ preventDefault で横取りできるので `ctrl(⌘)` 付きのまま。
 - `/` は検索窓が畳んでいれば展開してからフォーカスする。
 - ショートカット（矢印・単発キー）は「文字入力系にフォーカス中（入力欄・プルダウン `<select>`・編集領域）」か
   「モーダルが開いている（印刷・PLATEAU・右クリックメニュー）」間は無効＝背後の地図/ガジェットへ漏れない。
-  この判定は `gadgets/keys.js`（矢印は `ortho-core` の `isTypingTarget` と共有）に一元化。
+  この判定は `gadgets/keys.js`（矢印は `@ortho-earth/core` の `isTypingTarget` と共有）に一元化。

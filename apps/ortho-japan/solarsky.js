@@ -7,7 +7,7 @@
 //  - この深度では木星すら1px未満＝描くのは点・線・文字だけ＝Canvas2D で足りる（GL不要・依存ゼロ）
 //  - 地球は engine の球がそのまま主役。約3px を切る z≈-4.8 からこちらの点表示が代打に立つ
 //  - 実時刻のみ（星空劇場と同じ正直さ）。時間を巻きたければ左上の The Solar System から ortho-solar へ
-import { cameraState } from "ortho-core";
+import { cameraState } from "@ortho-earth/core";
 import { BODIES, byId, bodyPos, moonGeo, orbitPointsThrough, jcT, EPS, AU_KM } from "ephem";
 
 const KM_PER_UNIT = 6371;                    // engine 単位球＝地球半径

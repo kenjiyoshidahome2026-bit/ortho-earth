@@ -11,8 +11,8 @@
 // verify:ui 22 頁・verify:prod の緑であって、画素比較ではない。z≥14 の建物が実際に立つ絵での確認は未了。
 //
 // 使い方: node tests/t-vocab.mjs
-import { neededSourceLayers } from "ortho-core/decode";
-import { buildBuildings } from "ortho-core";
+import { neededSourceLayers } from "@ortho-earth/core/decode";
+import { buildBuildings } from "@ortho-earth/core";
 import mono from "../style-mono.js";
 import dark from "../style-dark.js";
 import gsi from "../style-gsi.js";

@@ -10,7 +10,7 @@
 //   smallAreaHover … opts.smallAreaHover（census2020 限定の町丁目ホバー）
 //   requestDraw(), onMove(), flyTo(...), loadBelowSea(), loadLakes() … 生成後に定義される関数は app 側でラップ
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
-import { WORLD_PX } from "ortho-core";
+import { WORLD_PX } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 
 const D2R = Math.PI / 180;
@@ -210,7 +210,7 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 		if (edges > DRAPE_MAX_EDGES) break;
 	}
 	if (edges > DRAPE_MAX_EDGES) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); console.warn("[standup] ⚠ edges %d > limit %d = skipping terrain drape (huge layer). raise DRAPE_MAX_EDGES to allow", edges, DRAPE_MAX_EDGES); return; }
-	const { buildDrapedGeometry } = await import("ortho-core");
+	const { buildDrapedGeometry } = await import("@ortho-earth/core");
 	const b = userGint.pbf.unPackGint.bbox;                       // 表示CRS(経緯度)の bbox＝RTE の origin に使う
 	const origin = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 	// CRS サニティ：geojson の座標が bbox(経緯度)から大きく外れていたら局所座標系＝線だけズレる（gint表示は変換済で正しい）
@@ -299,7 +299,7 @@ async function paintGint(paint, filter = null) {
 	if (!paint) { sendGintPaint(null); requestDraw(); return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
 	if (!feats) { console.warn("[paint] user gint layer not loaded (load via __moj etc. first)"); return; }
-	const { buildFidStyle } = await import("ortho-core");
+	const { buildFidStyle } = await import("@ortho-earth/core");
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });
 	requestDraw();
@@ -341,7 +341,7 @@ function addGint(pbf, opts = {}) {
 	};
 	const refreshLabels = async () => {
 		if (!labelOpt?.field) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
-		const { evalExpr } = await import("ortho-core");
+		const { evalExpr } = await import("@ortho-earth/core");
 		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list = [];
 		for (let i = 0; i < n; i++) {
 			if (lastTable && !(lastTable[i * 4 + 2] & 1)) continue;   // filter 連動＝fid 表の visible ビット（bit0）を尊重（paint/filter 未設定＝全通し）
@@ -390,7 +390,7 @@ function addGint(pbf, opts = {}) {
 			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { buildFidStyle } = await import("ortho-core");
+			const { buildFidStyle } = await import("@ortho-earth/core");
 			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates });
 			lastTable = u32;
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);

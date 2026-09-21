@@ -4,7 +4,7 @@
 // env … mapEl, LOW_MEM, gpuBackend, plateauOn, plateau, flightCtl, CAM_ZOOM_MIN, themeFixed（生成前に定義済み）／
 //       themeName・elevBusy（getter）／onMove・flyView・applyCamView・applyViewLayers・switchTheme・viewHash・saveView（app の関数＝ラップ）
 // 戻り値 … playScenes / playScene / stopScenes / sceneTimeline / playingNow / fadeViewRun と、demoHandle（app が預ける）・fadeBusy（demo の着地待ち）のアクセサ
-import { parseViewHash } from "ortho-core";
+import { parseViewHash } from "@ortho-earth/core";
 import { parseScenes } from "../demo/scene-adapter.js";     // 共有シーン台本→プレーヤー受け渡しの純関数
 import { buildSceneTimeline } from "../demo/scene-timeline.js";   // 台本→総タイムライン（時刻評価・純関数）
 import { tr } from "../i18n.js";
