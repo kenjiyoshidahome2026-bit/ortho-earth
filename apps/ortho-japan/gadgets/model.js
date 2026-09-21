@@ -53,7 +53,7 @@ export function cssRGBA(c) {   // → [r,g,b（0-255）, a（0-1）] | null
 	const r = f.match(/[\d.]+/g);
 	return r ? [+r[0], +r[1], +r[2], r[3] != null ? +r[3] : 1] : null;
 }
-function evalColor(e, ctx) {
+export function evalColor(e, ctx) {
 	if (Array.isArray(e) && e[0] === "interpolate") {
 		const input = evalExpr(e[2], ctx), stops = [];
 		for (let i = 3; i < e.length; i += 2) stops.push([e[i], e[i + 1]]);

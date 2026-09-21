@@ -2700,10 +2700,30 @@ const autoExtrude = async pbf => {
 	try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1 }); }
 	catch (err) { console.warn("[extrude] failed", err); return null; }
 };
+// ── 点の集約（クラスタ）とヒートマップ（MapLibre の cluster／heatmap 相当・gadgets/aggregate.js・遅延chunk・2026-09-21）──────────────
+// 描画は同一フレームのオーバーレイ（heatmap-gl.js・cluster-2d.js）＝エンジン本体は触らない。src＝GeoJSON/GeoPBF/File/URL（押し出しと同じ読み口）。
+//   heatmap(src, { paint:{ "heatmap-*": 式 }, minzoom, maxzoom }) または層を丸ごと（{ type:"heatmap", source:{ type:"geojson", data }, paint }）
+//   cluster(src, { clusterRadius, clusterMaxZoom, paint, unclustered:{ paint }, text }) または MapLibre の source（{ type:"geojson", data, cluster:true, … }）
+//   null＝外す。ズームは ortho の z（MapLibre の z＋1 と同じ見た目の縮尺）。
+let aggCtl = null;
+const aggGet = async () => { const m = await import("./gadgets/aggregate.js"); return aggCtl ??= m.createAggregate(map, { signal: ac.signal }); };
+const readPoints = async src => (typeof src === "string" || src instanceof Blob) ? (await geopbf(src, { gint: false }))?.geojson : (!src?.type && !Array.isArray(src) && src?.geojson) ? src.geojson : src;
+map.gadget("heatmap", async function (src, layer = {}) {
+	const c = await aggGet();
+	if (src == null) { c.clear("heatmap"); return null; }
+	if (src?.type === "heatmap") { layer = { ...src, ...layer }; src = src.source?.data ?? src.source; }
+	return c.heatmap(await readPoints(src), layer);
+});
+map.gadget("cluster", async function (src, opts = {}) {
+	const c = await aggGet();
+	if (src == null) { c.clear("cluster"); return null; }
+	if (src?.type === "geojson" && "data" in src) { const { data, cluster, type, ...rest } = src; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
+	return c.cluster(await readPoints(src), opts);
+});
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 // geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
-// その上に載せたもの＝画像（id "img:<n>"・raster）・押し出し（"extrude"・fill-extrusion）・利用者の図形（"user"・gint の識別＝許容は m 換算）。
+// その上に載せたもの＝集約（"clusters"/"unclustered-point"・点の問い合わせだけ）・画像（id "img:<n>"・raster）・押し出し（"extrude"・fill-extrusion）・利用者の図形（"user"・gint の識別＝許容は m 換算）。
 // MapLibre と違う点＝非同期（タイルを取り直すため）。基図の層 id はスタイルの id（地域パックの style）。
 const queryCache = new Map();   // "z/x/y" → 解読済みタイル（直近 32 枚）
 map.queryRenderedFeatures = async (geometry, qo = {}) => {
@@ -2724,7 +2744,8 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const inPolyGeom = (g, x, y) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).some(p => inRing(p[0], x, y) && !p.slice(1).some(h => inRing(h, x, y)));
 	const touches = g => area.ll ? inPolyGeom(g, pt[0], pt[1]) : JSON.stringify(g.coordinates).match(/-?\d+\.?\d*,-?\d+\.?\d*/g)?.some(s => { const [x, y] = s.split(",").map(Number); return inBox(x, y); });
 	const out = [];
-	// 上から：画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
+	// 上から：集約の丸 → 画像（最後に貼ったものが上）→ 押し出し → 利用者の図形 → 基図
+	if (geometry && typeof geometry[0] === "number" && aggCtl) { const h = aggCtl.clusterAt(geometry[0], geometry[1]); if (h && take(h.layer.id)) out.push(h); }
 	for (const q of [...imageQuads].reverse()) {
 		if (!take(q.id)) continue;
 		const g = { type: "Polygon", coordinates: [[...q.corners, q.corners[0]]] };
