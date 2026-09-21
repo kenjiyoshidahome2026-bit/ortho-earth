@@ -69,16 +69,44 @@ const server = createServer(async (req, res) => {
 	} catch { requests.push("404 " + p); res.writeHead(404); res.end("nf"); }
 }).listen(PORT);
 
-const dom = await new Promise(resolve => {
-	const c = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/oj-npm-${process.pid}`, "--disable-gpu",
-		"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=25000", "--dump-dom",
-		`http://localhost:${PORT}/`], { timeout: 90000 });
-	let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => resolve(out));
-});
+// 実時間の CDP で待つ（旧＝--virtual-time-budget＋--dump-dom。仮想時間では worker の import が解決せず起動が進まない上、
+// spawn の timeout は Chrome 本体しか殺さず子プロセスが stdout を握ったまま＝関門が無限に止まった・2026-09-21 Chrome 153）。
+// verify-lib と同じ作法：about:blank で立てて Page.navigate（PUT /json/new?url= は about:blank になる個体がある）。
+const CDP = PORT + 1;
+const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, `--user-data-dir=/tmp/oj-npm-${process.pid}`, "--disable-gpu",
+	"--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-first-run", "about:blank"], { stdio: "ignore" });
+const killChrome = () => { try { chrome.kill("SIGKILL"); } catch { /* 済 */ } };
+process.on("exit", killChrome);
+const embed = await (async () => {
+	for (let i = 0; ; i++) {
+		try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ }
+		if (i > 60) return { err: "chrome devtools が起動しない" };
+		await sleep(250);
+	}
+	const target = (await (await fetch(`http://127.0.0.1:${CDP}/json/list`)).json()).find(t => t.type === "page");
+	const ws = new WebSocket(target.webSocketDebuggerUrl);
+	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+	let id = 0; const pending = new Map(), errs = [];
+	const send = (method, params = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
+	ws.onmessage = ev => { const m = JSON.parse(ev.data);
+		if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); return; }
+		if (m.method === "Runtime.exceptionThrown") errs.push("EXC " + (m.params?.exceptionDetails?.exception?.description || m.params?.exceptionDetails?.text || "?"));
+	};
+	await send("Runtime.enable");
+	await send("Page.navigate", { url: `http://localhost:${PORT}/` });
+	const ev = async expr => (await send("Runtime.evaluate", { expression: expr, returnByValue: true }))?.result?.value;
+	const t0 = Date.now(); let title = "";
+	while (Date.now() - t0 < 60000) { await sleep(1000); title = await ev("document.title") || ""; if (title.startsWith("PASS")) break; }
+	const canvas = await ev(`!!document.querySelector("canvas#c")`);
+	try { ws.close(); } catch { /* 済 */ }
+	return { title, canvas, errs };
+})();
+killChrome();
 server.close();
 rmSync(WORK, { recursive: true, force: true });
-if (!dom.includes("PASS npm-embed")) fail("実走: orthoJapan() が resolve しない（tarball 消費で起動失敗）");
-if (!/<canvas id="c"/.test(dom)) fail("実走: 描画canvas不在");
+if (embed.err) fail(`実走: ${embed.err}`);
+if (embed.title !== "PASS npm-embed") fail(`実走: orthoJapan() が resolve しない（tarball 消費で起動失敗）${embed.errs.length ? "\n      " + embed.errs.slice(0, 5).join("\n      ") : ""}`);
+if (!embed.canvas) fail("実走: 描画canvas不在");
 const notFound = requests.filter(r => r.startsWith("404 ") && !r.includes("favicon"));
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
 if (!requests.some(r => r.includes("/lib/assets/renderworker-"))) fail("実走: render worker が相対で引かれていない");
