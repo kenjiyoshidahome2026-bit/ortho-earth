@@ -32,6 +32,9 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	if (data.clipT) gl.uniform4f(u.u_clipT, data.clipT[0], data.clipT[1], data.clipT[2], data.clipT[3]);
 	gl.uniform1f(u.u_origin_zr, data.originZr ?? 0.0);
 	gl.uniform1f(u.u_lod_rank, data.lodRank ?? 0.0);   // GPU Dynamic LOD 閾値（未設定=0=全描画）
+	// 窓座標モード（地面アトラスへの焼き込み）：data.atlas={ off:[dlon,dlat], inv:[1/sLon,1/sLat] }。無ければ 0＝従来
+	if (u.u_atlasOn) gl.uniform1f(u.u_atlasOn, data.atlas ? 1 : 0);
+	if (u.u_atlas) gl.uniform4f(u.u_atlas, data.atlas ? data.atlas.off[0] : 0, data.atlas ? data.atlas.off[1] : 0, data.atlas ? data.atlas.inv[0] : 1, data.atlas ? data.atlas.inv[1] : 1);
 }
 
 // feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は

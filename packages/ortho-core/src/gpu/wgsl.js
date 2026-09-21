@@ -70,15 +70,20 @@ fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f, uv3: vec2f) -> vec3f 
 	let c2 = textureSample(gndTex2, gndSamp, vec2f(clamp(uv2.x, 0.0, 1.0), 1.0 - clamp(uv2.y, 0.0, 1.0)));
 	let c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));
 	if (GD0.p.x < 0.5) { return col; }
-	let in0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
-	let in1 = GD0.p.x > 1.5 && uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
-	let in2 = GD0.p.x > 2.5 && uv2.x >= 0.0 && uv2.x <= 1.0 && uv2.y >= 0.0 && uv2.y <= 1.0;
-	let in3 = GD0.p.x > 3.5 && uv3.x >= 0.0 && uv3.x <= 1.0 && uv3.y >= 0.0 && uv3.y <= 1.0;
-	let c = select(select(select(select(vec4f(0.0), c3, in3), c2, in2), c1, in1), c0, in0);
+	// 窓の縁 4% はひとつ外の窓へクロスフェード＝解像度の段差を溶かす（gl/glsl.js gndMix と同式）
+	let w0 = gndEdge(uv0);
+	let w1 = select(0.0, gndEdge(uv1), GD0.p.x > 1.5);
+	let w2 = select(0.0, gndEdge(uv2), GD0.p.x > 2.5);
+	let w3 = select(0.0, gndEdge(uv3), GD0.p.x > 3.5);
+	let c = mix(mix(mix(mix(vec4f(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
 	return col * (1.0 - c.a) + c.rgb;   // 前乗算＝over 合成
 }
+fn gndEdge(uv: vec2f) -> f32 {   // 窓内 1・縁 4% で 0 へ・外 0
+	let d = min(uv, vec2f(1.0) - uv);
+	return clamp(min(d.x, d.y) / 0.04, 0.0, 1.0);
+}
 // 描画役割毎の小物（renderer.js が役割別スロットに詰める）：
-//   fill/line … p0 = (seaGate, lift(m), exactDepth, 0)
+//   fill/line … p0 = (seaGate, lift(m・線の接地リフト。塗りは 3D では地面アトラス側＝未使用), 0, α)
 //   terrain  … p0 = (land.rgb, 0)  p1 = (hypso.rgb, hypso量)  p2 = (1/hypso最大標高, 0, 0, 0)
 //   building … p0 = (bldColor.rgb, 0)
 //   contour  … p0 = (cColor.rgb, 主曲線間隔m)  p1 = (計曲線間隔m, 濃さ, 0, 0)
@@ -184,9 +189,9 @@ fn elevQ(ll: vec2f) -> f32 {
 }
 `;
 
-// 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：
-// 標高ドレープ（距離フェード df 込み）・水面リフト(P.p0.y)・図郭外フォールバック水域（seaGate＝FS標高ゲート）。
-// fs=通常（frag_depth 触れない＝early-Z 温存）／fsExact=水域の厳密対数深度（琵琶湖の偽島対策＝GL と同じ棲み分け）。
+// 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：図郭外フォールバック水域（seaGate＝FS標高ゲート）。
+// 直描きは 2D（地形なし）だけ＝3D の塗りは地面アトラスへ焼く（ATLAS_FILL_WGSL・2026-09-21）。かつての標高ドレープ・
+// 水面リフト・水域の厳密対数深度（fsExact）は塗りには不要となり撤去。
 export const FILL_WGSL = /* wgsl */`
 ${FRAME}
 struct FillOut {
@@ -195,7 +200,6 @@ struct FillOut {
 	@location(1) front: f32,
 	@location(2) fog: f32,
 	@location(3) ll: vec2f,
-	@location(4) w: f32,   // clip w（perspective-correct 補間＝水域の厳密深度用）
 	@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）
 	@location(6) guv0: vec2f,  // 地面アトラス uv（前景/近/中/遠＝F.gnd0..3・同じ前計算）
 	@location(7) guv1: vec2f,
@@ -206,20 +210,14 @@ struct FillOut {
 	var o: FillOut;
 	let ll = F.origin + a_delta;              // elev 参照用の絶対（粗くて可）
 	let rel = deltaToRel(a_delta);            // 頂点3D − 原点3D（小・正確）
-	let dir = F.originPt + rel;               // 絶対単位球点（front/fog/df 用＝粗くて可）
-	// 標高変位は地形と同じ距離フェード＝遠景で地形が平ら化された時に塗りだけ浮かない（glsl.js と同式）
-	let df = 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
-	// seaGate=1（図郭外フォールバック水域）は海抜0の球面に置く（隅が山に乗ると水面ごと傾く）
-	let h = select((elevQ(ll) + P.p0.y) * F.elevP.x * df, 0.0, P.p0.x > 0.5);   // 案A＝描画メッシュの折れ線面に乗せる
-	let relW = rel + h * liftDir(ll, dir);   // 楕円体＝測地法線で変位（球＝従来の dir）
-	var p = F.clipT + F.mvp * vec4f(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
+	let dir = F.originPt + rel;               // 絶対単位球点（front/fog 用＝粗くて可）
+	var p = F.clipT + F.mvp * vec4f(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	o.color = a_color;
 	o.front = dot(dir, F.eye) - 1.0;
-	o.fog = fogOf(F.originPt + relW);
+	o.fog = fogOf(dir);
 	o.ll = ll;
-	o.w = p.w;
 	o.cuv = F.cogP.xy + a_delta * F.cogP.zw;
 	o.guv0 = F.gnd0.xy + a_delta * F.gnd0.zw;
 	o.guv1 = F.gnd1.xy + a_delta * F.gnd1.zw;
@@ -238,17 +236,6 @@ fn fillColor(in: FillOut) -> vec4f {
 	if (in.front < -0.0015) { discard; }
 	if (P.p0.x > 0.5 && elev(in.ll) > 0.0) { discard; }   // 図郭外＝陸は塗り残す（紙色+等高線に委ねる）
 	return fillColor(in);
-}
-// 水域の厳密深度：頂点線形補間の対数深度は湖全体を跨ぐ巨大三角形で真の曲線から外れ「湖中の偽島」になる
-// ＝perspective-correct な w から真の対数深度を書き直す（GL 版 u_exactDepth と同じ・水域 draw だけこの変種）。
-struct FillDepthOut { @location(0) color: vec4f, @builtin(frag_depth) depth: f32 };
-@fragment fn fsExact(in: FillOut) -> FillDepthOut {
-	if (in.front < -0.0015) { discard; }
-	if (P.p0.x > 0.5 && elev(in.ll) > 0.0) { discard; }
-	var o: FillDepthOut;
-	o.color = fillColor(in);
-	o.depth = select(in.pos.z, clamp(log2(max(1.0 + in.w, 1e-6)) * F.params.z * 0.5, 0.0, 1.0), P.p0.z > 0.5);
-	return o;
 }
 `;
 
@@ -857,15 +844,16 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let u1 = (rll - GGD.w1.xy) / GGD.w1.zw;
 		let u2 = (rll - GGD.w2.xy) / GGD.w2.zw;
 		let u3 = (rll - GGD.w3.xy) / GGD.w3.zw;
-		let i0 = u0.x >= 0.0 && u0.x <= 1.0 && u0.y >= 0.0 && u0.y <= 1.0;
-		let i1 = GGD.p.x > 1.5 && u1.x >= 0.0 && u1.x <= 1.0 && u1.y >= 0.0 && u1.y <= 1.0;
-		let i2 = GGD.p.x > 2.5 && u2.x >= 0.0 && u2.x <= 1.0 && u2.y >= 0.0 && u2.y <= 1.0;
-		let i3 = GGD.p.x > 3.5 && u3.x >= 0.0 && u3.x <= 1.0 && u3.y >= 0.0 && u3.y <= 1.0;
+		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
+		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
+		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
+		let w2 = select(0.0, clamp(min(d2.x, d2.y) / 0.04, 0.0, 1.0), GGD.p.x > 2.5);
+		let w3 = select(0.0, clamp(min(d3.x, d3.y) / 0.04, 0.0, 1.0), GGD.p.x > 3.5);
 		let g0 = textureSampleLevel(gGnd0, gSamp, vec2f(clamp(u0.x, 0.0, 1.0), 1.0 - clamp(u0.y, 0.0, 1.0)), 0.0);
 		let g1 = textureSampleLevel(gGnd1, gSamp, vec2f(clamp(u1.x, 0.0, 1.0), 1.0 - clamp(u1.y, 0.0, 1.0)), 0.0);
 		let g2 = textureSampleLevel(gGnd2, gSamp, vec2f(clamp(u2.x, 0.0, 1.0), 1.0 - clamp(u2.y, 0.0, 1.0)), 0.0);
 		let g3 = textureSampleLevel(gGnd3, gSamp, vec2f(clamp(u3.x, 0.0, 1.0), 1.0 - clamp(u3.y, 0.0, 1.0)), 0.0);
-		let gc = select(select(select(select(vec4f(0.0), g3, i3), g2, i2), g1, i1), g0, i0);
+		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
 	let viewDir = normalize(A - Pt);

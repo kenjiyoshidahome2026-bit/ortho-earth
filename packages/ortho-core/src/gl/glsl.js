@@ -392,17 +392,19 @@ uniform sampler2D u_gnd1;
 uniform sampler2D u_gnd2;
 uniform sampler2D u_gnd3;
 uniform float u_gndN;   // 有効な窓の数（0..4・細かい順＝前景/近/中/遠）
+float gndEdge(vec2 uv) {   // 窓内 1・縁 4% で 0 へ・外 0
+	vec2 d = min(uv, 1.0 - uv);
+	return clamp(min(d.x, d.y) / 0.04, 0.0, 1.0);
+}
 vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	if (u_gndN < 0.5) return col;
 	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
 	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
 	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
 	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
-	bool in0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
-	bool in1 = u_gndN > 1.5 && uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
-	bool in2 = u_gndN > 2.5 && uv2.x >= 0.0 && uv2.x <= 1.0 && uv2.y >= 0.0 && uv2.y <= 1.0;
-	bool in3 = u_gndN > 3.5 && uv3.x >= 0.0 && uv3.x <= 1.0 && uv3.y >= 0.0 && uv3.y <= 1.0;
-	vec4 c = in0 ? c0 : (in1 ? c1 : (in2 ? c2 : (in3 ? c3 : vec4(0.0))));
+	// 窓の縁 4% はひとつ外の窓へクロスフェード＝解像度の段差を溶かす（w=1 で内側・0 で外側。前乗算同士の線形補間）
+	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
+	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
 	return col * (1.0 - c.a) + c.rgb;   // アトラスは前乗算＝over 合成
 }`;
 
@@ -905,20 +907,16 @@ void main() {
 	fragColor = vec4(u_cColor * a, a);                  // premultiplied
 }`;
 
+// 塗りの直描き＝2D（地形なし）だけ。3D（地形あり）の塗りは地面アトラスへ焼いて FS が画素標本化する（ATLAS_FILL_VS/FS・
+// 2026-09-21）＝かつての標高ドレープ・水面リフト(+30/+10m)・水域の厳密対数深度（v_w/gl_FragDepth）は塗りには不要となり撤去。
 export const FILL_VS = `#version 300 es
 precision highp float;
 in vec2 a_delta;
 in vec4 a_color;
 ${PROJECT}
-${QELEV}
-uniform float u_lift;   // 水面リフト(m)：水域(fill)だけ山岳レジームで+30m＝DSMの水面ノイズ瘤を沈めつつ
-                        // 尾根(数百m級)の遮蔽は保つ（深度テスト免除=後書きの廃止）。通常塗りは 0。
-uniform float u_seaGate;   // 1＝図郭外フォールバック水域（empty-sea op）：頂点は海抜0の球面に置き
-                           // （全面クアッドの隅が山に乗ると水面ごと傾くため）、FS が elev>0 を discard
 out vec4 v_color;
 out float v_front;
 out float v_fog;
-out float v_w;    // clip w（perspective-correct 補間＝フラグメントで真の視距離。水域の厳密深度用）
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
 uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
 out vec2 v_cuv;
@@ -940,25 +938,17 @@ void main() {
 	v_guv2 = u_gndOffInv2.xy + dLL * u_gndOffInv2.zw;
 	v_guv3 = u_gndOffInv3.xy + dLL * u_gndOffInv3.zw;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
-	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
-	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
-	// 塗りだけ山の高さに浮くのを防ぐ（浮くと地平線の上に塗りの切れ端が漂う）
-	float df = 1.0 - smoothstep(u_fogFar * 0.8, u_fogFar * 2.0, distance(u_eye, dir));
-	float h = u_seaGate > 0.5 ? 0.0 : (elevQ(ll) + u_lift) * u_elevScale * df;   // 案A＝描画メッシュの折れ線面に乗せる
-	vec3 relW = rel + h * liftDir(ll, dir);   // (dir*(1+h)) − 原点3D を相殺なしで（標高で地形に貼りつく。楕円体＝測地法線）
+	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog 用＝粗くて可）
 	v_color = a_color;
 	v_front = dot(dir, u_eye) - 1.0;          // >0 で手前半球（cull＝粗くて可）
-	v_fog = fogOf(u_originPt + relW);
-	gl_Position = u_clipT + u_mvp * vec4(relW, 0.0);   // RTE：mvp*[w,1] を相殺なしで
-	applyLogDepth();   // 山岳ビュー(z<13)は深度テストON＝地形(対数深度)が尾根の向こうを遮蔽。テストOFF時は無害
-	v_w = gl_Position.w;
+	v_fog = fogOf(dir);
+	gl_Position = u_clipT + u_mvp * vec4(rel, 0.0);   // RTE：mvp*[w,1] を相殺なしで（海抜0の球面）
+	applyLogDepth();   // 深度テストOFF（2D）では無害
 }`;
 
 export const FILL_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
-uniform float u_logCoef;
-uniform float u_exactDepth;   // 1＝フラグメント厳密対数深度（terrainDepth 中の水域のみ）
 uniform float u_seaGate;      // 1＝図郭外フォールバック水域：標高が陸(h>0)の画素は塗らない
                               // ＝「水域は地理院・陸は標高(GEBCO/R10)」の管轄裁定を画素単位で行う
 ${ELEV}
@@ -973,7 +963,6 @@ in vec2 v_cuv;
 in vec4 v_color;
 in float v_front;
 in float v_fog;
-in float v_w;
 in vec2 v_ll;
 out vec4 fragColor;
 void main() {
@@ -984,14 +973,6 @@ void main() {
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (af <= 0.003) discard;
 	fragColor = vec4(mix(gndMix(cogTexMix(v_color.rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
-	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
-	// 水ポリの巨大三角形では真の対数曲線から数百m相当外れ、掠め視線で地形が偽って手前勝ちする
-	// ＝湖中の偽島（琵琶湖 75° 実測・真俯瞰で消える・R01/R10 とも発症＝データ非依存の深度補間誤差）。
-	// v_w は perspective-correct 補間＝平面水面の真の clip w → 真の対数深度を書き直す。
-	// gl_FragDepth の静的使用で fill 全描画の early-Z は失うが、fill は深度を書かない・FS も軽い＝実害なし。
-	gl_FragDepth = (u_exactDepth > 0.5)
-		? clamp((log2(max(1.0 + v_w, 1e-6)) * u_logCoef - 1.0) * 0.5 + 0.5, 0.0, 1.0)
-		: gl_FragCoord.z;
 }`;
 
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
