@@ -329,18 +329,21 @@ out float v_fog;
 out float v_h;
 uniform vec4 u_cogMesh;   // COG uv＝off+a_uv×scale（メッシュ窓→COG bbox の変換を JS f64 前計算）
 out vec2 v_cuv;
-uniform vec4 u_gndMesh0;  // 地面アトラス（近/中/遠）＝同じ変換（JS f64 前計算）
+uniform vec4 u_gndMesh0;  // 地面アトラス（前景/近/中/遠）＝同じ変換（JS f64 前計算）
 uniform vec4 u_gndMesh1;
 uniform vec4 u_gndMesh2;
+uniform vec4 u_gndMesh3;
 out vec2 v_guv0;
 out vec2 v_guv1;
 out vec2 v_guv2;
+out vec2 v_guv3;
 void main() {
 	vec2 a_ll = u_mesh.xy + u_mesh.zw * a_uv;   // 絶対 lon/lat（旧・頂点属性を単位格子＋uniform へ）
 	v_cuv = u_cogMesh.xy + a_uv * u_cogMesh.zw;
 	v_guv0 = u_gndMesh0.xy + a_uv * u_gndMesh0.zw;
 	v_guv1 = u_gndMesh1.xy + a_uv * u_gndMesh1.zw;
 	v_guv2 = u_gndMesh2.xy + a_uv * u_gndMesh2.zw;
+	v_guv3 = u_gndMesh3.xy + a_uv * u_gndMesh3.zw;
 	vec2 dDeg = a_ll - u_origin;              // 原点相対 (deg)。renderer は terrain に scenes.main.origin を渡す
 	vec3 rel = deltaToRel(dDeg);              // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（df/front/fog は粗くて可）
@@ -387,16 +390,19 @@ const GND = /* glsl */`
 uniform sampler2D u_gnd0;
 uniform sampler2D u_gnd1;
 uniform sampler2D u_gnd2;
-uniform float u_gndN;   // 有効な窓の数（0..3・近→遠の順）
-vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2) {
+uniform sampler2D u_gnd3;
+uniform float u_gndN;   // 有効な窓の数（0..4・細かい順＝前景/近/中/遠）
+vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	if (u_gndN < 0.5) return col;
 	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
 	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
 	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
+	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
 	bool in0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
 	bool in1 = u_gndN > 1.5 && uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
 	bool in2 = u_gndN > 2.5 && uv2.x >= 0.0 && uv2.x <= 1.0 && uv2.y >= 0.0 && uv2.y <= 1.0;
-	vec4 c = in0 ? c0 : (in1 ? c1 : (in2 ? c2 : vec4(0.0)));
+	bool in3 = u_gndN > 3.5 && uv3.x >= 0.0 && uv3.x <= 1.0 && uv3.y >= 0.0 && uv3.y <= 1.0;
+	vec4 c = in0 ? c0 : (in1 ? c1 : (in2 ? c2 : (in3 ? c3 : vec4(0.0))));
 	return col * (1.0 - c.a) + c.rgb;   // アトラスは前乗算＝over 合成
 }`;
 
@@ -459,6 +465,7 @@ ${GND}
 in vec2 v_guv0;
 in vec2 v_guv1;
 in vec2 v_guv2;
+in vec2 v_guv3;
 in vec2 v_cuv;
 in vec2 v_ll;
 in float v_front;
@@ -490,7 +497,7 @@ void main() {
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
 	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 colBase = gndMix(cogTexMix(landC * shade, v_cuv), v_guv0, v_guv1, v_guv2);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	vec3 colBase = gndMix(cogTexMix(landC * shade, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	vec3 col = mix(colBase, u_fogColor, v_fog);
 	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
@@ -593,9 +600,10 @@ float elevAt(vec2 ll) {
 ${WORLD_HYPSO}
 ${COG}
 ${GND}
-uniform vec4 u_gndBbox0;   // 地面アトラス（近/中/遠）[west,south,spanLon,spanLat] 絶対deg（球の床）
+uniform vec4 u_gndBbox0;   // 地面アトラス（前景/近/中/遠）[west,south,spanLon,spanLat] 絶対deg（球の床）
 uniform vec4 u_gndBbox1;
 uniform vec4 u_gndBbox2;
+uniform vec4 u_gndBbox3;
 uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
@@ -654,7 +662,7 @@ void main() {
 		float cb = asin(clamp(P.y, -1.0, 1.0));
 		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
 		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
-		base = gndMix(base, (cll - u_gndBbox0.xy) / u_gndBbox0.zw, (cll - u_gndBbox1.xy) / u_gndBbox1.zw, (cll - u_gndBbox2.xy) / u_gndBbox2.zw);
+		base = gndMix(base, (cll - u_gndBbox0.xy) / u_gndBbox0.zw, (cll - u_gndBbox1.xy) / u_gndBbox1.zw, (cll - u_gndBbox2.xy) / u_gndBbox2.zw, (cll - u_gndBbox3.xy) / u_gndBbox3.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
@@ -914,12 +922,14 @@ out float v_w;    // clip w（perspective-correct 補間＝フラグメントで
 out vec2 v_ll;    // 絶対 lon/lat(deg)＝FS 標高ゲート（u_seaGate）用
 uniform vec4 u_cogOffInv;   // COG uv＝off+dLL×inv（off=(origin−west)/span を JS f64 前計算＝f32 ジッタ回避）
 out vec2 v_cuv;
-uniform vec4 u_gndOffInv0;  // 地面アトラス（近/中/遠）＝同じ変換
+uniform vec4 u_gndOffInv0;  // 地面アトラス（前景/近/中/遠）＝同じ変換
 uniform vec4 u_gndOffInv1;
 uniform vec4 u_gndOffInv2;
+uniform vec4 u_gndOffInv3;
 out vec2 v_guv0;
 out vec2 v_guv1;
 out vec2 v_guv2;
+out vec2 v_guv3;
 void main() {
 	vec2 dLL = a_delta;                       // 原点相対 (deg)。multidraw は mdize が u_tileOff を足す
 	vec2 ll = u_origin + dLL;                  // elev 参照用の絶対（粗くて可）
@@ -928,6 +938,7 @@ void main() {
 	v_guv0 = u_gndOffInv0.xy + dLL * u_gndOffInv0.zw;
 	v_guv1 = u_gndOffInv1.xy + dLL * u_gndOffInv1.zw;
 	v_guv2 = u_gndOffInv2.xy + dLL * u_gndOffInv2.zw;
+	v_guv3 = u_gndOffInv3.xy + dLL * u_gndOffInv3.zw;
 	vec3 rel = deltaToRel(dLL);               // 頂点3D − 原点3D（小・正確）
 	vec3 dir = u_originPt + rel;              // 絶対単位球点（front/fog/df 用＝粗くて可）
 	// 標高変位は地形と同じ距離フェード（TERRAIN_VS の df と同式）＝遠景で地形が平ら化された時に
@@ -956,6 +967,7 @@ ${GND}
 in vec2 v_guv0;
 in vec2 v_guv1;
 in vec2 v_guv2;
+in vec2 v_guv3;
 uniform float u_baseAlpha;   // 基図の濃さ（表示パネルのスライダー）。COG は下層（globe/terrain）にも合成済み＝紙と線だけが引く
 in vec2 v_cuv;
 in vec4 v_color;
@@ -971,7 +983,7 @@ void main() {
 	// 1.2倍＝霧83%で完全消滅：地形の霞（fog=1で紙色の帯）より一歩先に消え、暗い空に尻尾が残らない
 	float af = v_color.a * clamp(1.0 - 1.2 * v_fog, 0.0, 1.0) * u_baseAlpha;
 	if (af <= 0.003) discard;
-	fragColor = vec4(mix(gndMix(cogTexMix(v_color.rgb, v_cuv), v_guv0, v_guv1, v_guv2), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
+	fragColor = vec4(mix(gndMix(cogTexMix(v_color.rgb, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3), u_fogColor, v_fog) * af, af);  // premultiplied・ユーザCOG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 	// 水域の厳密深度：applyLogDepth（VS焼き）は「三角形が小さい」前提の頂点線形補間＝湖全体を跨ぐ
 	// 水ポリの巨大三角形では真の対数曲線から数百m相当外れ、掠め視線で地形が偽って手前勝ちする
 	// ＝湖中の偽島（琵琶湖 75° 実測・真俯瞰で消える・R01/R10 とも発症＝データ非依存の深度補間誤差）。
