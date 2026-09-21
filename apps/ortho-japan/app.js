@@ -411,6 +411,13 @@ for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEve
 // 素通りするが、稀ケースかつ落ち網3枚の内側なので許容。
 const IS_ANDROID = /Android/.test(navigator.userAgent) || navigator.userAgentData?.platform === "Android";
 const forceGl2 = /[?&]gl2=1/.test(location.search);
+// 【WebKit × WebGPU × 重ねた WebGL2 は描かれない・2026-09-21 本人 iPad 実機】同一フレームのオーバーレイ（#13）は
+// 自前の OffscreenCanvas に WebGL2 で描く。本体が WebGPU の時、WebKit（iPadOS/Safari）ではこの 2 枚目だけが
+// 出ない（?gl2=1 なら出る＝WebGPU 経路で確定・エラー無しの沈黙故障・Chrome の WebGPU では再現せず）。
+// 対処＝Android と同じ形：オーバーレイを重ねるページが opts.glOverlay:true を宣言し、WebKit ではそのページだけ
+// WebGL2 を選ぶ（落とすのは本体の backend 選択だけ＝他のページと機能は変わらない）。?gpu=1 はこの封も破る（再評価の入口）。
+const IS_WEBKIT = navigator.vendor === "Apple Computer, Inc." || (/Safari/.test(navigator.userAgent) && !/Chrome|Chromium|Android|CriOS|FxiOS|Edg\//.test(navigator.userAgent));
+const sealGpuForOverlay = !!opts.glOverlay && IS_WEBKIT;
 // 【柔らか鍵 2026-08-04】旧 oj.nogpu は「一発失敗＝タブが生きている限り GL2 固定・表示なし」＝黙殺だった。
 // だが失敗2経路のうち watchdog(20秒 frame1 不達)は遅い回線でも誤爆する＝一度の躓きで 3GB 機が重い GL2 に
 // 落ちたまま jetsam（タブ落ち→Safari 自動リロードでも sessionStorage は生き残る＝固定が続く悪循環）。
@@ -421,10 +428,11 @@ const nogpuN = +(sessionStorage.getItem("oj.nogpuN") || 0);
 const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
 const markNoGpu = why => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
-const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !nogpuMark && nogpuN < 2));
+const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sealGpuForOverlay && !nogpuMark && nogpuN < 2));
 // フォールバック起因の GL2（＝WebGPU が使えるはずの環境で印により落ちている）だけチップを出す。
 // Android 既定 GL2・?gl2=1・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
-const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !gpuBackend;
+const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !sealGpuForOverlay && !gpuBackend;   // 設計どおりの GL2（封・Android・?gl2=1）にはチップを出さない
+if (sealGpuForOverlay && "gpu" in navigator && !gpuBackend) console.log("[boot] WebKit + glOverlay = WebGL2 by default (WebGPU main + WebGL2 overlay is not composited on WebKit; retry with ?gpu=1)");
 if (IS_ANDROID && "gpu" in navigator && !gpuBackend && !forceGl2) console.log("[boot] Android = WebGL2 by default (WebGPU sealed due to driver black-screen family; retry with ?gpu=1)");
 // stay=1 の診断HUD：コンソールを見なくても分かるよう、判定を画面へ大書（iOS 実機診断 2026-08-02）
 const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
