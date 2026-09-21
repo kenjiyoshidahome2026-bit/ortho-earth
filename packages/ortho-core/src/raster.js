@@ -13,9 +13,9 @@
 // renderer 契約（gl/renderer.js・gpu/renderer.js が実装）：
 //   rasterTex(bitmap) → { kind:"tex", bytes, … }      rasterMesh({pos,uv,idx}) → { kind:"mesh", bytes, count, … }
 //   rasterFree(handle)                                  setRasterDraws(rd | null)
-//   rd = { rev, atlas:2048|1024, near:[W,S,E,N], far:[W,S,E,N]|null, hideFills:bool,
-//          layers:[{ order:"under"|"over", opacity, draws:[{ mesh, tex, nw:[lon,lat], bounds:[w,s,e,n], uvT:[u0,v0,su,sv] }] }] }
-//   renderer は rev が変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
+//   rd = { rev, hideFills:bool, layers:[{ order:"under"|"over", opacity, draws:[{ mesh, tex, nw:[lon,lat], bounds:[w,s,e,n], uvT:[u0,v0,su,sv] }] }] }
+//   窓（近/中/遠）は renderer が持つ（ベクタ塗りと同じ「地面アトラス」＝2026-09-21 RTT ドレープ統合）。renderer は rev か窓か塗りが
+//   変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
 import { selectLOD } from "./tilecover.js";
 import { tileBounds, tileLocalToLonLat, tileOutsideCoverage } from "./tile.js";
 import { createRasterSource } from "./raster-src.js";
@@ -221,12 +221,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
 		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
 		let changed = false;
-		// アトラスの窓：近窓＝視野中心 ±0.9 画面幅（cog ガジェットの viewWindow と同じ尺＝2048px が ≈1.1px/画面px）・遠窓＝選抜タイルの外接
-		// （近窓を含む・近窓の 24 倍まで）。窓は動いても rev が変わらなければ描き直さない（下）
-		const dpr = cam.dpr || 1, capW = 360 * (W / dpr) / (256 * Math.pow(2, cam.zoom)) * 0.9, capH = capW * H / W;
-		const cx = cam.center[0], cy = cam.center[1];
-		const near = [cx - capW, Math.max(-85, cy - capH), cx + capW, Math.min(85, cy + capH)];
-		const rd = { rev: 0, atlas: lowMem ? 1024 : 2048, near, far: null, hideFills: false, layers: [] };
+		const rd = { rev: 0, hideFills: false, layers: [] };
 		for (const L of layers.values()) {
 			if (!L.source || !L.visible) { if (L.draws.length) { L.draws = []; changed = true; } continue; }
 			const inRange = cam.zoom >= L.showMin && cam.zoom <= L.showMax;
@@ -244,13 +239,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		rd.layers.sort((a, b) => (a.order === "over" ? 1 : 0) - (b.order === "over" ? 1 : 0));
 		drawCount = 0; for (const l of rd.layers) drawCount += l.draws.length;
 		if (rd.layers.length) {
-			let fw = near[0], fs = near[1], fe = near[2], fn = near[3];
-			for (const l of rd.layers) for (const d of l.draws) { fw = Math.min(fw, d.bounds[0]); fs = Math.min(fs, d.bounds[1]); fe = Math.max(fe, d.bounds[2]); fn = Math.max(fn, d.bounds[3]); }
-			const capF = 24;   // 遠窓の上限＝近窓の 24 倍（z0 の全球タイルなどで無限に広げない）
-			fw = Math.max(fw, cx - capW * capF); fe = Math.min(fe, cx + capW * capF); fs = Math.max(fs, cy - capH * capF, -85); fn = Math.min(fn, cy + capH * capF, 85);
-			rd.far = (fw < near[0] - 1e-9 || fs < near[1] - 1e-9 || fe > near[2] + 1e-9 || fn > near[3] + 1e-9) ? [fw, fs, fe, fn] : null;
-			// 改訂番号：描画リスト（tex/uvT）か窓が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない
-			const sig = rd.near.map(v => v.toFixed(5)).join(",") + "|" + (rd.far ? rd.far.map(v => v.toFixed(5)).join(",") : "-") + "|" + rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
+			// 改訂番号：描画リスト（tex/uvT/位置/不透明度）が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない
+			const sig = rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
 			if (sig !== lastSig) { lastSig = sig; rev++; }
 			rd.rev = rev;
 		} else lastSig = "";
