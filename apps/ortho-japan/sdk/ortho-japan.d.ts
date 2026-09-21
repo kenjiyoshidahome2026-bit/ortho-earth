@@ -286,7 +286,7 @@ export interface OrthoJapanMap {
 	listImages(): string[];
 	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
 	loadSprite(base: string): Promise<number>;
-	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster）。
+	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
 	 *  ⚠利用者の図形（fill/line/circle）・押し出し・ヒートマップ・集約は各 1 つ（後の層が置き換える）。symbol と raster は複数可。式は呼んだ時に評価（symbol の zoom 式は止まるたび） */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> }) | undefined;
