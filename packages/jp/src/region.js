@@ -2,16 +2,16 @@
 //
 // 地域宣言は「データの記述子」であってクラスではない。エンジンも altpbf も地域を知らず、
 // アプリが起動時にこの宣言を渡す（標高＝2026-09-17・建物＝同日）。
-//   dtm       … 裸地標高の申告（jp/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
+//   dtm       … 裸地標高の申告（packages/jp/src/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
 //   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）。
 //               sets を持つ地域はカタログを取らず、その場の配列を台帳へ足す（オランダ側を見よ）
 //   basemap   … ベクタ基図のソース記述子（null＝基図を持たない地域＝タイルを要求せず図郭外と同じ扱い）
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
 //   view      … その地域を裸で開いた時の初期視点（null＝アプリ既定＝日本）
 //   home      … 「その地域の全体へ戻る」の着地点 { view:[lon,lat,zoom] }（null＝戻りボタンを出さない）
-//   search    … 地名検索の供給元（jp/search-gsi.js の形・null＝検索窓を出さない）
+//   search    … 地名検索の供給元（packages/jp/src/search-gsi.js の形・null＝検索窓を出さない）
 //   poi       … 施設の点の台帳の在り処 { base, overrides, api }（null＝台帳を読まない）
-//   rail      … 路線オーバーレイの生成関数 createXxx(env)（jp/n02.js の形・null＝作らない）
+//   rail      … 路線オーバーレイの生成関数 createXxx(env)（packages/jp/src/n02.js の形・null＝作らない）
 // 後ろ 4 つは 2026-09-22 に app.js の直書きから宣言へ移した（宣言しない地域では生成もしない）。
 import { JP_DTM } from "./dtm.js";
 import { gsiSearch } from "./search-gsi.js";

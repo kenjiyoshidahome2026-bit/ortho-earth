@@ -90,6 +90,7 @@
 		"glbconv": "*",
 		"@ortho-earth/core": "*",
 		"quiet-mono": "*",
-		"vite": "^5.0.0"
+		"vite": "^5.0.0",
+		"@ortho-earth/jp": "*"
 	}
 }

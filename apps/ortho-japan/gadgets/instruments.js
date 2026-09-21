@@ -36,7 +36,7 @@ export function mountInstruments(mapEl, keys = true, attribution = []) {
 		const boot = document.querySelector("#attr[data-boot]");
 		const attr = boot || document.createElement("div");
 		if (boot) boot.removeAttribute("data-boot"); else attr.id = "attr";
-		// 中身は**地域宣言が持つ**（jp/region.js・nl/region.js の attribution）＝この gadget は組み立てるだけ。
+		// 中身は**地域宣言が持つ**（packages/jp/src/region.js・nl/region.js の attribution）＝この gadget は組み立てるだけ。
 		// 入口ごとに出典が差し替わる理由：日本のデータを出していない画面に地理院・PLATEAU を並べるのは、
 		// 表示義務以前に嘘になる（3DBAG は CC BY 4.0＝表示が義務）。2026-09-17 に宣言へ移設。
 		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準＝宣言側が行で分ける。#attr の

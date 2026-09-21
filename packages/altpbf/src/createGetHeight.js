@@ -44,7 +44,7 @@ async function loadAlosIndex(cache, onUpdate) {
 // ラスタタイルを返すローダー（点サンプラでなく生タイル）。ortho-japan の GPU アトラス用。
 // R90/R10=bucket・R01=JAXA（ALOS）を worker で読み、IDB キャッシュ。R01 は ALOS 未整備域では null。
 export async function createTileLoader(opts = {}) {
-	const dtm = opts.dtm || null;   // 地域の申告（jp/dtm.js 等）。未指定＝失効判定なし
+	const dtm = opts.dtm || null;   // 地域の申告（packages/jp/src/dtm.js 等）。未指定＝失効判定なし
 	if (opts.apiUrl) setApiUrl(opts.apiUrl);   // メイン側の bucket/JAXA fetch（index_alos 等）に必要
 	// IDB 不可（プライベートブラウズ/破損）は「キャッシュ無しで続行」へ縮退＝標高システムを一発死させない
 	//（旧・素の await は reject が createTileLoader ごと落とし、山が永久に平らになる＝iPhone私的モード実症状）。

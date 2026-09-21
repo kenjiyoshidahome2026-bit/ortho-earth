@@ -14,7 +14,7 @@ import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-patter
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
-import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
+import { JP_REGION, createPoiLedger } from "@ortho-earth/jp";   // 日本の地域パック＝その国の知識の正本（エンジンと altpbf は地域を知らない）・POI台帳の生成（在り処は地域宣言 poi）
 import { NL_REGION, nlEntry } from "./nl/region.js";
 // 部品の worker（geopbf の変換・解析・COG・タイル書き出し／エンジンのタイル・シーン／altpbf の標高／geoedit の編集モデル）も
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
@@ -39,7 +39,6 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
-import { createPoiLedger } from "./jp/poi.js";   // POI台帳（施設の点・z14+）＝在庫・タイル・手差分・ラベル注入（台帳の在り処は地域宣言 poi）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
@@ -102,7 +101,7 @@ const t = tr();
 export default async function orthoJapan(opts = {}) {
 // この入口で有効な地域宣言（**使う所より前で決める**＝render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 // オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る
-// （移設 2026-09-17 でこの振る舞いは変えていない）。中身は jp/region.js と nl/region.js が持つ。
+// （移設 2026-09-17 でこの振る舞いは変えていない）。中身は packages/jp/src/region.js と nl/region.js が持つ。
 const nlMode = nlEntry();                                            // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
 const nlOn = !!nlMode;
 const REGIONS = nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
@@ -762,7 +761,7 @@ function approxViewBbox(cam) {
 	const [lon, lat] = cam.center;
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
-// --- POI台帳（施設の点・z14+）＝jp/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
+// --- POI台帳（施設の点・z14+）＝packages/jp/src/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
 const poi = REGION_POI ? createPoiLedger(REGION_POI, { viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } }) : null;   // 台帳を宣言しない地域＝null
 let flying = false;                        // フライト中フラグ＝plateau.update のゲート（flyTo が立て、着地/中断で下ろす）
 const plateau = createPlateauManager({
@@ -1106,7 +1105,7 @@ dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
 const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
-// --- 路線オーバーレイ＝地域宣言 rail（日本＝jp/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
+// --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
 const n02 = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
@@ -1446,7 +1445,7 @@ function rebuildLabels(order) {
 			}
 		}
 	}
-	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝jp/poi.js injectLabels
+	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝packages/jp/src/poi.js injectLabels
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す

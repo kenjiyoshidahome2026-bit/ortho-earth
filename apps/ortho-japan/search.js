@@ -1,10 +1,10 @@
 // 地名検索の窓：UIは Quiet Mono の作法（白の静かな箱、候補は下に）。ヒット→ onGo(lon, lat, zoom, tilt) を呼ぶだけ＝
 // 飛び方（球面フライト）は呼び出し側の領分。何をどこへ問い合わせるか（API・前処理・着地ズーム）は地域宣言の供給元
-// （日本＝jp/search-gsi.js の地理院 AddressSearch）＝窓は国を知らない（2026-09-22 分離）。
+// （日本＝packages/jp/src/search-gsi.js の地理院 AddressSearch）＝窓は国を知らない（2026-09-22 分離）。
 import { tr } from "./i18n.js";
 const t = tr();
 
-export function createSearch({ provider, onGo, signal }) {   // provider＝地域宣言の検索供給元（jp/search-gsi.js の形）・signal＝map.destroy() で document リスナーを束ごと外すため
+export function createSearch({ provider, onGo, signal }) {   // provider＝地域宣言の検索供給元（packages/jp/src/search-gsi.js の形）・signal＝map.destroy() で document リスナーを束ごと外すため
 	const box = document.getElementById("search");
 	const btn = document.getElementById("search-btn");
 	const input = document.getElementById("search-in");

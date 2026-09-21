@@ -46,7 +46,7 @@ export function applyPoiOvr(list, ovrRecs, tileLoaded) {
 	return out;
 }
 
-// decl＝地域宣言の poi { api, base, overrides }（jp/region.js）・env＝{ viewBbox(cam) → [w,s,e,n], requestDraw() }。戻り＝{ load(cam), injectLabels(allLabels, ctx), patchedAll(), ver, … }。
+// decl＝地域宣言の poi { api, base, overrides }（packages/jp/src/region.js）・env＝{ viewBbox(cam) → [w,s,e,n], requestDraw() }。戻り＝{ load(cam), injectLabels(allLabels, ctx), patchedAll(), ver, … }。
 export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_OVR_NAME }, { viewBbox, requestDraw }) {
 	const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
 	const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
