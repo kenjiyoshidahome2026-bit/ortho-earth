@@ -22,10 +22,19 @@ const pipe = async (u8, ts) => {
 };
 const Z = { gzip: ["gzipSync", "gunzipSync"], deflate: ["deflateSync", "inflateSync"], "deflate-raw": ["deflateRawSync", "inflateRawSync"] };
 
+// zstd の解凍器の注入口（2026-09-22）。ブラウザには zstd が無い（DecompressionStream("zstd") は仕様にあるが未実装）。
+// geopbf は実行時依存ゼロを守る＝解凍器は持たず、呼び手が渡す（fzstd の decompress など・同期でも非同期でも可）。
+// 注入は「その解凍が走るスレッド」で行う（worker の中で読むなら worker の中で setZstdDecoder を呼ぶ）。Node は node:zlib が優先。
+let zstdDecoder = null;
+export function setZstdDecoder(fn) { zstdDecoder = typeof fn === "function" ? fn : null; }
 export async function hasZstd() { await probe(); return !!(zlib && typeof zlib.zstdCompressSync === "function"); }
 export async function inflate(u8, format = "deflate") {
 	await probe();
-	if (format === "zstd") { if (!zlib?.zstdDecompressSync) throw new Error("zstd is not available in this environment (node:zlib on Node 22.15+ only)"); return new Uint8Array(zlib.zstdDecompressSync(u8)); }
+	if (format === "zstd") {
+		if (zlib?.zstdDecompressSync) return new Uint8Array(zlib.zstdDecompressSync(u8));
+		if (zstdDecoder) return new Uint8Array(await zstdDecoder(u8));
+		throw new Error("zstd is not available in this environment (node:zlib on Node 22.15+, or inject a decoder with setZstdDecoder)");
+	}
 	if (zlib) return new Uint8Array(zlib[Z[format][1]](u8));
 	return pipe(u8, new DecompressionStream(format));
 }

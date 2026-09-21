@@ -89,5 +89,9 @@
 		"ortho-core": "*",
 		"quiet-mono": "*",
 		"vite": "^5.0.0"
+	},
+	"dependencies": {
+		"earcut": "^3.2.3",
+		"fzstd": "^0.1.1"
 	}
 }

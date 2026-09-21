@@ -2617,10 +2617,11 @@ const INTAKE = [
 		name: "geoparquet",
 		test: f => /\.(parquet|geoparquet)$/i.test(f.name),
 		// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
-		// 内部圧縮は none/snappy/gzip を自前で読む。zstd だけはブラウザに実装が無く（DecompressionStream("zstd") は
-		// 仕様にあるが全ブラウザ未実装・Node 22.15+ の node:zlib のみ）、素のエラーは "Node" と言って読み手を惑わすので包み直す。
+		// 内部圧縮は none/snappy/gzip を自前で読む。zstd はブラウザに実装が無い（DecompressionStream("zstd") は未実装）＝
+		// fzstd を注入して読む（2026-09-22）。それでも読めない時の素のエラーは読み手を惑わすので包み直す。
 		convert: async file => {
-			const { fromGeoParquet } = await import("geopbf/geoparquet");
+			const [{ fromGeoParquet }, { setZstdDecoder }] = await Promise.all([import("geopbf/geoparquet"), import("geopbf/parquet")]);
+			setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));   // zstd の列＝fzstd（当たった時だけ読み込む・geopbf は依存ゼロのまま＝注入）
 			const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
 				if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
 				throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
