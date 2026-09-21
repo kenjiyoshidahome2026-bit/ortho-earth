@@ -1,20 +1,30 @@
+// uploader＝データを焼いて bucket（api.ortho-earth.com）へ置く作業台。
+// このファイルは「接続」と「メニュー表」だけ。焼きの中身は分野ごとのモジュールへ：
+//   globe.js       全球の基図（背景画像・Natural Earth）
+//   space/         星座線・メシエ・天体名・月の地名
+//   terrain/       標高（GEBCO 由来の海面下の陸・全球アトラス）
+//   japan.js       国土数値情報・環境省
+//   poi/           POI 台帳（schema.js は ortho-japan の検定と共用＝動かさない）
+//   world/         国別 DB（自前の節を持つ）
+//   models.js      名所 3D 模型（自前の節を持つ）
+//   lib/           共通の手順（bakeEach）と画像変換
+// ボタンを足す時は MENU に一行（と、中身は分野のモジュールへ）。
 import * as d3 from 'd3';
 import "./main.scss";
 import { screenLogger } from "common/screenLogger";
 import "common/d3/selection.js";
-import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat, thenEach } from "common";
-import { Layers } from "ortho-map/modules/Layers.js";
 import { nativeBucket } from "native-bucket";
+import { createGeopbf } from "geopbf";
+import { GEBCO } from "altpbf/loader";
 
-import { tiff2canvas, exr2canvas, tile2canvas } from './file2canvas';
-import { geopbf, createGeopbf } from "geopbf";
-import * as POI from "./poi/schema.js";
+import * as globe from "./globe.js";
+import * as space from "./space/index.js";
+import * as japan from "./japan.js";
+import { poi } from "./poi/bake.js";
+import { belowSeaLand } from "./terrain/belowsea.js";
+import { worldAtlas } from "./terrain/worldatlas.js";
 import { worldUI } from "./world/index.js";
 import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
-// 宇宙の名前データ（星座・メシエの 26 言語）＝正本は packages/space/names.json・ここは bucket へ焼くだけ（world と同じ型）
-import spaceNamesJSON from "../../../packages/space/names.json";
-import { packs as spacePacks, DIRE as SPACE_DIRE, moonGeoJSON, moonPacks, MOON_GEOPBF } from "../../../packages/space/packs.js";
-import moonJSON from "../../../packages/space/moon.json";
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -23,559 +33,56 @@ const API_KEY = import.meta.env.VITE_API_KEY ?? "";
 if (!API_KEY) console.warn("uploader: VITE_API_KEY が未設定（.env.local）＝アップロードは 403 で失敗します");
 createGeopbf(API_BASE, { apiKey: API_KEY, bucket: nativeBucket });
 const { Fetch, Bucket, Cache } = nativeBucket(API_BASE, { apiKey: API_KEY });
-import { GEBCO, createGetHeight } from "altpbf/loader";
-import { belowSeaLand } from "./belowsea.js";
-import { worldAtlas } from "./worldatlas.js";
-
-import { 世界時計 } from 'himekuri';
-const clock = 世界時計({});
-//clock.redraw({digital:false})
+const ctx = { Fetch, Bucket, Cache, apiUrl: API_BASE };
 
 const body = d3.select("body");
 const CMD = body.append("div").classed("command", true);
-const LOG = body.append("div").attr("id","logArea").classed("logArea", true);
-LOG.appendNode(clock);
-
+const LOG = body.append("div").attr("id", "logArea").classed("logArea", true);
 const q = new screenLogger(LOG);
 
+// [節, [[ボタン, 実行]...]]。実行は (q, ctx) を受ける
+const MENU = [
+	["全球の基図", [
+		["base ER pictures", globe.baseImages],
+		["borders and stars", globe.borders],
+		["coastline (10m+50m)", globe.coastline],
+		["admin0 countries (10m+50m)", globe.admin0],
+		["NE lakes (10m+50m)", globe.lakes],
+		["NE rivers + airports + maritime (10m)", globe.riversAirports],
+	]],
+	["宇宙", [
+		["constellation lines", space.constellations],
+		["messier", space.messier],
+		["space names", space.spaceNames],
+		["moon names", space.moonNames],
+	]],
+	["標高", [
+		["create GEBCO(R90/R10)", q => GEBCO({ year: 2026, log: q })],
+		["below-sea land (GEBCO×admin0)", belowSeaLand],
+		["world hypso atlas (R90×8 → 1枚)", worldAtlas],   // R90 を GEBCO で更新してから
+	]],
+	["日本", [
+		["KSJ 鉄道/高速道路 (N02/N06)", japan.ksj],
+		["国立公園 (環境省 nps_all)", japan.nps],
+		["行政区域 (N03 admin_all)", japan.admin],
+	]],
+	["POI 台帳", [
+		["POI civic (KSJ P29→z14)", poi],
+		["POI civic (P29+注記突合)", (q, c) => poi(q, c, { sets: ["P29"], withAnno: true })],
+		// 京都・全civic合流＝学校P29＋郵便局P30＋役場P34（z14窓）＋寺院662を注記から掃引（三十三間堂の正しい位置＝§1解決）。
+		["POI civic 京都 (P29+P30+P34+寺院)", (q, c) => poi(q, c, {
+			sets: ["P29", "P30", "P34"], anno: [{ code: 662, label: "寺院", bbox: [135.70, 34.95, 135.83, 35.06] }],
+		})],
+	]],
+];
+
 CMD.append("h1").text("DB Updater");
-CMD.append("button").text("create GEBCO(R90/R10)").on("click", () => GEBCO({year:2026, log:q}));
-CMD.append("button").text("base ER pictures").on("click", () => base(q, Object.values(Layers)));
-CMD.append("button").text("borders and stars").on("click", () => borders(q));
-CMD.append("button").text("constellation lines").on("click", () => constellations(q));
-CMD.append("button").text("messier").on("click", () => messier(q));
-CMD.append("button").text("space names").on("click", () => spaceNames(q));
-CMD.append("button").text("moon names").on("click", () => moonNames(q));
-CMD.append("button").text("coastline (10m+50m)").on("click", () => coastline(q));
-CMD.append("button").text("admin0 countries (10m+50m)").on("click", () => admin0(q));
-CMD.append("button").text("NE lakes (10m+50m)").on("click", () => lakes(q));
-CMD.append("button").text("NE rivers + airports + maritime (10m)").on("click", () => riversAirports(q));
-CMD.append("button").text("below-sea land (GEBCO×admin0)").on("click", () => belowSeaLand(q, { apiUrl: API_BASE }));
-CMD.append("button").text("world hypso atlas (R90×8 → 1枚)").on("click", () => worldAtlas(q, { apiUrl: API_BASE, Bucket }));
-CMD.append("button").text("KSJ 鉄道/高速道路 (N02/N06)").on("click", () => ksj(q));
-CMD.append("button").text("国立公園 (環境省 nps_all)").on("click", () => nps(q));
-CMD.append("button").text("行政区域 (N03 admin_all)").on("click", () => admin(q));
-CMD.append("button").text("POI civic (KSJ P29→z14)").on("click", () => poi(q));
-CMD.append("button").text("POI civic (P29+注記突合)").on("click", () => poi(q, { sets: ["P29"], withAnno: true }));
-// 京都・全civic合流＝学校P29＋郵便局P30＋役場P34（z14窓）＋寺院662を注記から掃引（三十三間堂の正しい位置＝§1解決）。
-CMD.append("button").text("POI civic 京都 (P29+P30+P34+寺院)").on("click", () => poi(q, {
-	sets: ["P29", "P30", "P34"], anno: [{ code: 662, label: "寺院", bbox: [135.70, 34.95, 135.83, 35.06] }],
-}));
-
-// 国別DB（NationDB/CityDB/国旗/音源…）＝旧システムからの移植・データ移送はドロップ（./world/index.js）
-// await しない＝Bucket の疎通確認（ネットワーク往復）で他ボタンの起動を塞がない
-worldUI({ CMD, q, Bucket, Fetch }).catch(e => console.error("worldUI:", e));
-modelsUI({ CMD, q, Bucket });
-
-// var getHeight = await createGetHeight({onstart:s=>console.log("start: "+s),onend:s=>console.log("end: "+s)});
-// console.log(await getHeight(135.2,35.2,10));
-// console.log((await geopbf({type:"Feature", geometry:d3.geoGraticule10()})).geojson);
-
-async function base(q, list) {
-	const dire = `GIS/base`;
-	const bucket = await Bucket(dire);
-	const cache = await Cache(dire);
-	q.clear();
-	q.title("base ER pictures");
-	const baseMap = {};
-	await thenEach(list, async t => {
-		const base = t.base; if (base in baseMap) return;
-		baseMap[base] = await bucket.get(base) || await createBaseMap(t);
-		q.success(base);
-		q.log(baseMap[base]);
-		await cache(base, await createImageBitmap(baseMap[base]))
-	});
-	q.log(await bucket.list());
-	async function createBaseMap(layer) {
-		const base = layer.base;
-		switch (base) {
-			case "naturalEarth.webp": await NaturalEarth("HYP_LR_SR_OB_DR"); break;
-			case "whiteEarth.webp": await NaturalEarth("GRAY_LR_SR_OB_DR"); break;
-			case "google.satellite.webp": await tile2rect(layer.tile); break;
-			case "osm.satellite.webp": await tile2rect(layer.tile); break;
-			case "moon.webp": await moon(); break;
-			case "universe.webp": await universe(); break;
-		}
-		async function tile2rect(url) { await saveWEBPs(await tile2canvas(url)); }
-		async function NaturalEarth(target) {
-			const url = `https://naciscdn.org/naturalearth/10m/raster/${target}.zip`;
-			const tiff = await Fetch(url, { target: `${target}.tif`, cors: true });
-			await saveWEBPs(await tiff2canvas(tiff));
-		}
-		async function moon() {
-			const tiff = await Fetch(`https://svs.gsfc.nasa.gov/vis/a000000/a004700/a004720/lroc_color_16bit_srgb_16k.tif`);
-			await saveWEBPs(await tiff2canvas(tiff));
-		}
-		async function universe() {
-			const exr = await Fetch(`https://svs.gsfc.nasa.gov/vis/a000000/a004800/a004851/starmap_2020_16k.exr`);
-			await saveWEBPs(await exr2canvas(exr));
-		}
-		async function saveWEBPs(canvas) {
-			const dstX = 10000, dstY = dstX / 2;
-			const type = `image/webp`, quality = 0.8;
-			const blob = await canvas.convertToBlob({ type, quality });
-			const img = await createImageBitmap(blob), w = canvas.width, h = canvas.height;
-			const target = new OffscreenCanvas(dstX, dstY);
-			target.getContext("2d").drawImage(img, 0, 0, w, h, 0, 0, dstX, dstY);
-			const file = new File([await target.convertToBlob({ type, quality })], base, { type });
-			await bucket.put(file);
-			console.log(`%c${file.name}: [ ${comma(dstX)} x ${comma(dstY)} ] ${comma(file.size)} bytes`, "font-size:1.5em");
-		}
-	}
+for (const [title, buttons] of MENU) {
+	CMD.append("h2").text(title);
+	for (const [label, run] of buttons)
+		CMD.append("button").text(label).on("click", () => Promise.resolve(run(q, ctx))
+			.catch(e => { console.error(e); q.error(`${label}: 失敗 — ${e?.message || e}`); }));
 }
-async function constellations(q) {
-	const data = {"type":"FeatureCollection","features":[{"type":"Feature","id":"And","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[30.9748,42.3297],[17.433,35.6206],[9.832,30.861],[2.0969,29.0904]],[[14.3017,23.4176],[11.8347,24.2672],[9.6389,29.3118],[9.832,30.861],[9.2202,33.7193],[-5.4658,43.2681],[-14.5197,42.326]],[[-5.4658,43.2681],[-4.8979,44.3339],[-5.609,46.4582]],[[17.433,35.6206],[14.1884,38.4993],[12.4535,41.0789],[17.3755,47.2418],[24.4982,48.6282]],[[-4.8979,44.3339],[-3.4915,46.4203]]]}},{"type":"Feature","id":"Ant","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[142.3113,-35.9513],[156.7879,-31.0678],[164.1794,-37.1378]]]}},{"type":"Feature","id":"Aps","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-138.0345,-79.0448],[-114.9133,-78.6957],[-109.2306,-77.5174],[-111.6372,-78.8971]]]}},{"type":"Feature","id":"Aqr","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-48.081,-9.4958],[-46.8365,-8.9833],[-37.1103,-5.5712],[-28.554,-0.3199],[-24.5859,-1.3873],[-22.792,-0.02],[-21.1609,-0.1175],[-16.8464,-7.5796],[-10.5241,-9.1825],[-12.6383,-21.1724]],[[-37.1103,-5.5712],[-28.3907,-13.8697]],[[-28.554,-0.3199],[-25.7915,-7.7833]],[[-22.792,-0.02],[-23.6807,1.3774]],[[-9.2574,-20.1006],[-10.5241,-9.1825],[-4.5591,-17.8165]]]}},{"type":"Feature","id":"Aql","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-63.4351,10.6133],[-62.3042,8.8683],[-61.1717,6.4068],[-57.1738,-0.8215],[-61.8818,1.0057],[-68.6254,3.1148],[-73.6475,13.8635],[-62.3042,8.8683],[-68.6254,3.1148],[-73.4378,-4.8826]]]}},{"type":"Feature","id":"Ara","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-98.6514,-56.3777],[-97.2254,-60.6838],[-107.5535,-59.0414],[-105.345,-55.9901],[-105.104,-53.1604],[-97.0396,-49.8761],[-98.675,-55.5299]]]}},{"type":"Feature","id":"Ari","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[42.496,27.2605],[31.7934,23.4624],[28.66,20.808],[28.3826,19.2939]]]}},{"type":"Feature","id":"Aur","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[89.8822,44.9474],[79.1723,45.998],[76.6287,41.2345],[74.2484,33.1661],[81.573,28.6075],[89.9303,37.2126],[89.8822,44.9474],[89.8818,54.2847],[79.1723,45.998],[75.4922,43.8233],[75.6195,41.0758]]]}},{"type":"Feature","id":"Boo","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-153.1844,17.4569],[-151.3288,18.3977],[-146.0847,19.1824],[-142.0425,30.3714],[-141.9805,38.3083],[-134.5135,40.3906],[-131.1243,33.3148],[-138.7533,27.0742],[-146.0847,19.1824],[-139.7127,13.7283]],[[-141.9805,38.3083],[-145.9041,46.0883],[-146.6341,51.7879],[-143.7008,51.8507],[-145.9041,46.0883]]]}},{"type":"Feature","id":"Cae","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[67.7087,-44.9537],[70.1405,-41.8638],[70.5145,-37.1443],[76.1017,-35.483]]]}},{"type":"Feature","id":"Cam","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[74.3217,53.7521],[75.8545,60.4422],[73.5125,66.3427],[57.5896,71.3323],[57.3803,65.526],[52.2672,59.9403]],[[73.5125,66.3427],[94.7116,69.3198],[105.0168,76.9774]]]}},{"type":"Feature","id":"Cnc","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[134.6218,11.8577],[131.1712,18.1543],[130.8214,21.4685],[131.6666,28.7651]],[[131.1712,18.1543],[124.1288,9.1855]]]}},{"type":"Feature","id":"CVn","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-165.9981,38.3149],[-171.5644,41.3575]]]}},{"type":"Feature","id":"CMa","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[95.6749,-17.9559],[101.2872,-16.7161],[105.7561,-23.8333],[107.0979,-26.3932],[105.4298,-27.9348],[104.6565,-28.9721],[95.0783,-30.0634]],[[111.0238,-29.3031],[107.0979,-26.3932]],[[101.2872,-16.7161],[104.0343,-17.0542],[105.9396,-15.6333],[103.5475,-12.0386],[104.0343,-17.0542]]]}},{"type":"Feature","id":"CMi","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[114.8255,5.225],[111.7877,8.2893]]]}},{"type":"Feature","id":"Cap","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-55.588,-12.5082],[-54.7472,-14.7814],[-52.7849,-17.8137],[-48.4761,-25.2709],[-47.0446,-26.9191],[-38.3332,-22.4113],[-33.2398,-16.1273],[-34.9773,-16.6623],[-39.4383,-16.8345],[-43.5132,-17.2329],[-55.588,-12.5082]]]}},{"type":"Feature","id":"Car","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[99.4403,-43.1959],[95.988,-52.6957],[138.2999,-69.7172],[153.4342,-70.0379],[160.7392,-64.3945],[158.0061,-61.6853],[154.2707,-61.3323],[139.2725,-59.2752],[125.6285,-59.5095],[119.1946,-52.9824],[122.3831,-47.3366],[131.1759,-54.7088],[139.2725,-59.2752]],[[160.7392,-64.3945],[166.6351,-62.4241],[167.1417,-61.9472],[168.1501,-60.3176],[167.1475,-58.975],[163.3736,-58.8532],[158.0061,-61.6853]]]}},{"type":"Feature","id":"Cas","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[28.5989,63.6701],[21.454,60.2353],[14.1772,60.7167],[10.1268,56.5373],[2.2945,59.1498]]]}},{"type":"Feature","id":"Cen","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[170.2517,-54.491],[-177.9104,-50.7224],[-172.9901,-50.2306],[-169.6207,-48.9599],[-155.0281,-53.4664],[-151.1151,-47.2884],[-152.5959,-42.4737],[-152.6238,-41.6877],[-148.3294,-36.37],[-141.1232,-42.1578],[-135.2096,-42.1042]],[[-152.6238,-41.6877],[-159.8508,-36.7123]],[[-140.1038,-60.8372],[-155.0281,-53.4664],[-149.0441,-60.373]],[[-172.9901,-50.2306],[-177.087,-52.3685],[172.942,-59.4421]]]}},{"type":"Feature","id":"Cep","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-52.6046,62.9941],[-48.6776,61.8388],[-40.3551,62.5856],[-34.1231,58.78],[-26.2409,57.0436],[-27.2863,58.2013],[-22.7072,58.4152],[-17.5799,66.2004],[-5.1631,77.6323],[-37.835,70.5607],[-40.3551,62.5856]],[[-37.835,70.5607],[-17.5799,66.2004]]]}},{"type":"Feature","id":"Cet","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[40.8252,3.2358],[38.9686,5.5932],[37.0398,8.4601],[41.2356,10.1141],[44.9288,8.9074],[45.5699,4.0897],[40.8252,3.2358],[39.8707,0.3285],[34.8366,-2.9776],[27.8651,-10.335],[26.017,-15.9375],[10.8974,-17.9866],[4.857,-8.8239],[17.1475,-10.1823],[21.0059,-8.1833],[27.8651,-10.335]]]}},{"type":"Feature","id":"Cha","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[124.6315,-76.9197],[158.8671,-78.6078],[161.318,-80.4696],[-175.4132,-79.3122],[179.9066,-78.2218],[158.8671,-78.6078]]]}},{"type":"Feature","id":"Cir","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-130.6215,-58.8012],[-139.3733,-64.9751],[-129.1556,-59.3208]]]}},{"type":"Feature","id":"Col","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[95.5285,-33.4364],[87.74,-35.7683],[84.9122,-34.0741],[82.8031,-35.4705]],[[87.74,-35.7683],[89.7867,-42.8151]]]}},{"type":"Feature","id":"Com","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-162.503,17.5294],[-162.0317,27.8782],[-173.2655,28.2684]]]}},{"type":"Feature","id":"CrA","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-75.3193,-37.1074],[-73.3954,-37.0634],[-72.6319,-37.9045],[-72.4927,-39.3408],[-72.9126,-40.4967],[-74.2213,-42.0951],[-77.6042,-43.4341],[-81.6242,-42.3125]]]}},{"type":"Feature","id":"CrB","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-126.7676,31.3591],[-128.0428,29.1057],[-126.328,26.7147],[-124.3143,26.2956],[-122.6015,26.0684],[-120.6031,26.8779],[-119.6393,29.8511]]]}},{"type":"Feature","id":"Crv","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-177.8966,-24.7289],[-177.4688,-22.6198],[-176.0485,-17.5419],[-172.5339,-16.5154],[-171.4032,-23.3968],[-177.4688,-22.6198]]]}},{"type":"Feature","id":"Crt","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[174.1705,-9.8022],[171.1525,-10.8593],[169.8352,-14.7785],[164.9436,-18.2988],[167.9145,-22.8258],[170.8412,-18.78],[171.2205,-17.684],[176.1907,-18.3507],[179.004,-17.1508]],[[169.8352,-14.7785],[171.2205,-17.684]]]}},{"type":"Feature","id":"Cru","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-168.0697,-59.6888],[-176.2137,-58.7489]],[[-173.3504,-63.0991],[-172.2085,-57.1132]]]}},{"type":"Feature","id":"Cyg","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-41.7659,30.2269],[-48.4472,33.9703],[-54.4429,40.2567],[-63.7563,45.1308],[-67.5735,51.7298],[-70.7243,53.3685]],[[-49.642,45.2803],[-54.4429,40.2567],[-60.9235,35.0834],[-67.3197,27.9597]]]}},{"type":"Feature","id":"Del","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-51.6968,11.3033],[-50.6127,14.5951],[-50.0905,15.9121],[-48.3381,16.1241],[-49.1353,15.0746],[-50.6127,14.5951]]]}},{"type":"Feature","id":"Dor","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[64.0066,-51.4866],[68.4991,-55.045],[83.4063,-62.4898],[86.1932,-65.7355],[88.5252,-63.0896],[83.4063,-62.4898],[76.3777,-57.4727],[68.4991,-55.045]]]}},{"type":"Feature","id":"Dra","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-91.6178,56.8726],[-90.8485,51.4889],[-97.3918,52.3014],[-96.9332,55.173],[-91.6178,56.8726],[-71.8612,67.6615],[-84.8107,71.3378],[-102.8034,65.7147],[-114.0021,61.5142],[-119.5277,58.5653],[-128.7676,58.9661],[-148.9027,64.3759],[-171.6294,69.7882],[172.8509,69.3311]],[[-84.8107,71.3378],[-84.7359,72.7328]],[[-71.8612,67.6615],[-62.9569,70.2679]]]}},{"type":"Feature","id":"Equ","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-41.044,5.2478],[-41.3799,10.007],[-42.4146,10.1316]]]}},{"type":"Feature","id":"Eri","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[76.9624,-5.0864],[71.3756,-3.2547],[69.0798,-3.3525],[62.9664,-6.8376],[59.5074,-13.5085],[56.5356,-12.1016],[55.8121,-9.7634],[53.2327,-9.4583],[44.1069,-8.8981],[41.0306,-13.8587],[41.2758,-18.5726],[45.5979,-23.6245],[49.8792,-21.7579],[53.447,-21.6329],[56.712,-23.2497],[68.8877,-30.5623],[66.0092,-34.0168],[64.4736,-33.7983],[57.3635,-36.2003],[54.2737,-40.2745],[49.9819,-43.0698],[44.5653,-40.3047],[40.1668,-39.8554],[36.7463,-47.7038],[34.1274,-51.5122],[28.9895,-51.6089],[24.4285,-57.2368]]]}},{"type":"Feature","id":"For","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[48.0189,-28.9876],[42.2726,-32.4059],[31.1227,-29.2968]]]}},{"type":"Feature","id":"Gem","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[93.7194,22.5068],[95.7401,22.5136],[100.983,25.1311],[107.7849,30.2452],[113.6494,31.8883],[116.329,28.0262],[113.9806,26.8957],[110.0307,21.9823],[106.0272,20.5703],[99.4279,16.3993],[101.3224,12.8956]],[[110.0307,21.9823],[109.5232,16.5404]]]}},{"type":"Feature","id":"Gru","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-14.78,-52.7541],[-17.8613,-51.3169],[-19.3331,-46.8846],[-22.5607,-43.7492],[-27.9417,-46.961],[-19.3331,-46.8846]],[[-22.6826,-43.4956],[-26.0962,-41.3467],[-28.4713,-39.5434],[-31.5178,-37.3649]]]}},{"type":"Feature","id":"Her","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-114.5199,19.1531],[-112.445,21.4896],[-109.6785,31.6027],[-109.276,38.9223],[-111.4742,42.437],[-115.0648,46.3134],[-117.8076,44.9349],[-121.8311,42.4515]],[[-109.6785,31.6027],[-104.9276,30.9264]],[[-109.276,38.9223],[-101.2382,36.8092]],[[-90.9367,37.2505],[-99.0794,37.1459],[-101.2382,36.8092],[-104.9276,30.9264],[-101.242,24.8392],[-93.3853,27.7207],[-90.5588,29.2479],[-88.1144,28.7625]],[[-101.3381,14.3903],[-112.445,21.4896]]]}},{"type":"Feature","id":"Hor","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[63.5005,-42.2944],[40.6394,-50.8003],[39.3515,-52.5431],[40.1651,-54.5499],[45.9034,-59.7378],[44.6992,-64.0713]]]}},{"type":"Feature","id":"Hya","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[131.6938,6.4188],[132.1082,5.8378],[130.8061,3.3987],[129.6893,3.3414],[129.414,5.7038],[131.6938,6.4188],[133.8484,5.9456],[138.5911,2.3143],[144.964,-1.1428],[141.8968,-8.6586],[147.8696,-14.8466],[152.647,-12.3541],[156.5226,-16.8363],[162.4062,-16.1936],[173.2505,-31.8576],[178.2272,-33.9081],[-160.2696,-23.1715],[-148.4071,-26.6824],[-137.4279,-27.9604]]]}},{"type":"Feature","id":"Hyi","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[6.4378,-77.2542],[56.8098,-74.239],[39.8973,-68.2669],[35.4373,-68.6594],[28.7339,-67.6473],[29.6925,-61.5699]]]}},{"type":"Feature","id":"Ind","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-50.6082,-47.2915],[-48.9903,-51.921],[-46.2975,-58.4542],[-30.5205,-54.9926],[-40.0334,-53.4494],[-50.6082,-47.2915]]]}},{"type":"Feature","id":"Lac","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-24.1099,52.229],[-22.1771,50.2825],[-22.6174,47.7069],[-24.7436,46.5366],[-22.3781,43.1234],[-19.8714,44.2763],[-22.6174,47.7069],[-23.8709,49.4764],[-24.1099,52.229]],[[-22.3781,43.1234],[-26.5303,39.7149],[-26.0076,37.7487]]]}},{"type":"Feature","id":"Leo","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[152.093,11.9672],[151.8331,16.7627],[154.9931,19.8415],[168.5271,20.5237],[177.2649,14.5721],[168.56,15.4296],[152.093,11.9672]],[[154.9931,19.8415],[154.1726,23.4173],[148.1909,26.007],[146.4628,23.7743]]]}},{"type":"Feature","id":"LMi","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[151.8573,35.2447],[156.4784,33.7961],[163.3279,34.2149],[156.9708,36.7072],[151.8573,35.2447],[143.5558,36.3976]]]}},{"type":"Feature","id":"Lep","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[91.5388,-14.9353],[89.1012,-14.1677],[86.7389,-14.822],[83.1826,-17.8223],[78.2329,-16.2055],[76.3653,-22.371],[82.0613,-20.7594],[86.1158,-22.4484],[87.8304,-20.8791]],[[78.3078,-12.9413],[78.2329,-16.2055],[79.8939,-13.1768]]]}},{"type":"Feature","id":"Lib","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-133.9824,-25.282],[-137.2804,-16.0418],[-130.7483,-9.3829],[-126.1184,-14.7895],[-125.744,-28.1351],[-125.336,-29.7778]],[[-137.2804,-16.0418],[-126.1184,-14.7895]]]}},{"type":"Feature","id":"Lup","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-122.2603,-33.6272],[-125.0584,-34.4119],[-129.5485,-36.2614],[-129.657,-40.6475],[-135.367,-43.134],[-139.5177,-47.3882],[-131.9288,-52.0992],[-130.3666,-47.8753],[-129.3297,-44.6896],[-126.2148,-41.1668],[-119.9695,-38.3967],[-118.3519,-36.8023]],[[-129.657,-40.6475],[-126.2148,-41.1668]]]}},{"type":"Feature","id":"Lyn","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[94.9058,59.011],[104.3192,58.4228],[111.6785,49.2115],[125.7088,43.1881],[135.1599,41.7829],[139.711,36.8026],[140.2638,34.3926]]]}},{"type":"Feature","id":"Lyr","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-78.8068,37.6051],[-78.9051,39.6127],[-80.7653,38.7837],[-78.8068,37.6051],[-76.3738,36.8986],[-75.2641,32.6896],[-77.48,33.3627],[-78.8068,37.6051]]]}},{"type":"Feature","id":"Men","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[92.5603,-74.753],[82.9709,-76.341],[73.7967,-74.9369],[75.6792,-71.3143]]]}},{"type":"Feature","id":"Mic","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-47.508,-33.7797],[-47.8786,-43.9885],[-39.8098,-40.8095],[-40.5155,-32.1725],[-44.6772,-32.2578],[-47.508,-33.7797]]]}},{"type":"Feature","id":"Mon","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[115.3118,-9.5511],[122.1485,-2.9838],[107.9661,-0.4928],[97.2045,-7.0331],[93.7139,-6.2748]],[[107.9661,-0.4928],[101.9652,2.4122],[95.942,4.5929],[98.2259,7.333],[100.2444,9.8958]]]}},{"type":"Feature","id":"Mus","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[176.4017,-66.7288],[-175.6072,-67.9607],[-170.7041,-69.1356],[-168.43,-68.1081],[-164.4322,-71.5489],[-171.8833,-72.133],[-170.7041,-69.1356]]]}},{"type":"Feature","id":"Nor","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-118.3773,-45.1732],[-113.204,-47.5548],[-115.0399,-50.1555],[-119.1963,-49.2297],[-118.3773,-45.1732]]]}},{"type":"Feature","id":"Oct","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-143.2699,-83.6679],[-18.4854,-81.3816],[-34.6306,-77.39],[-143.2699,-83.6679]]]}},{"type":"Feature","id":"Oph","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-90.2434,-9.7736],[-93.0268,2.7073],[-94.1319,4.5673],[-96.2664,12.56],[-105.5829,9.375],[-112.2716,1.9839],[-116.4136,-3.6943],[-115.4196,-4.6925],[-110.7103,-10.5671],[-102.4055,-15.7249]],[[-105.5829,9.375],[-110.7103,-10.5671],[-112.2151,-16.6127],[-113.244,-18.4563],[-113.9742,-20.0373],[-113.6037,-23.4472]],[[-94.1319,4.5673],[-102.4055,-15.7249],[-99.4976,-24.9995],[-98.1614,-29.867]]]}},{"type":"Feature","id":"Ori","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[91.893,14.7685],[88.5958,20.2762],[90.9799,20.1385],[92.985,14.2088],[90.5958,9.6473],[88.7929,7.4071],[81.2828,6.3497],[73.7239,10.1508]],[[74.6371,1.714],[73.5629,2.4407],[72.8015,5.6051],[72.46,6.9613],[72.653,8.9002],[73.7239,10.1508],[74.0928,13.5145],[76.1423,15.4041],[77.4248,15.5972]],[[78.6345,-8.2016],[81.1192,-2.3971],[83.0017,-0.2991],[81.2828,6.3497],[83.7845,9.9342],[88.7929,7.4071],[85.1897,-1.9426],[86.9391,-9.6696]],[[85.1897,-1.9426],[84.0534,-1.2019],[83.0017,-0.2991]]]}},{"type":"Feature","id":"Pav","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-53.5881,-56.7351],[-48.7604,-66.2032],[-57.8183,-66.1821],[-76.9457,-62.1876],[-84.1932,-61.4939],[-87.8549,-63.6686],[-93.5667,-64.7239],[-79.2411,-71.4281],[-59.8519,-72.9105],[-48.7604,-66.2032],[-38.3891,-65.3662]]]}},{"type":"Feature","id":"Peg","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-27.5031,33.1782],[-19.2494,30.2212],[-14.0564,28.0828],[2.0969,29.0904],[3.309,15.1836],[-13.8098,15.2053],[-18.3267,12.1729],[-19.6345,10.8314],[-27.4501,6.1979],[-33.9535,9.875]],[[-13.8098,15.2053],[-14.0564,28.0828],[-17.4992,24.6016],[-18.3672,23.5657],[-28.2472,25.3451],[-33.8386,25.645]]]}},{"type":"Feature","id":"Per","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[56.0797,32.2882],[58.533,31.8836],[59.7413,35.791],[59.4635,40.0102],[56.2985,42.5785],[55.7313,47.7876],[54.1224,48.1926],[51.0807,49.8612],[46.1991,53.5064],[42.6742,55.8955],[43.5644,52.7625],[47.2667,49.6133],[47.374,44.8575],[47.0422,40.9556],[47.8224,39.6116],[46.2941,38.8403],[44.6903,39.6627],[44.9162,41.0329],[47.0422,40.9556]],[[61.646,50.3513],[63.7244,48.4093],[62.1654,47.7125],[55.7313,47.7876]],[[47.2667,49.6133],[41.0499,49.2284],[25.9152,50.6887]]]}},{"type":"Feature","id":"Phe","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[6.571,-42.306],[16.521,-46.7184],[22.0914,-43.3182],[22.8129,-49.0727],[17.0962,-55.2458],[16.521,-46.7184],[2.3527,-45.7474],[6.571,-42.306]]]}},{"type":"Feature","id":"Pic","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[102.0477,-61.9414],[87.4569,-56.1667],[86.8212,-51.0665]]]}},{"type":"Feature","id":"Psc","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[18.4373,24.5837],[17.9152,30.0896],[19.8666,27.2641],[18.4373,24.5837],[17.8634,21.0347],[22.8709,15.3458],[26.3485,9.1577],[30.5118,2.7638],[28.389,3.1875],[25.3579,5.4876],[22.5463,6.1438],[18.4329,7.5754],[15.7359,7.8901],[12.1706,7.5851],[-0.1721,6.8633],[-5.0123,5.6263],[-8.0079,6.379],[-9.9142,5.3813],[-10.7086,3.2823],[-8.2669,1.2556],[-4.4883,1.78],[-3.402,3.4868],[-5.0123,5.6263]],[[-10.7086,3.2823],[-14.0308,3.82]]]}},{"type":"Feature","id":"PsA","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-19.8361,-27.0436],[-15.5873,-29.6222],[-16.0129,-32.5396],[-16.8686,-32.8755],[-22.1236,-32.3461],[-27.9041,-32.9885],[-33.7633,-33.0258],[-33.066,-30.8983],[-27.9041,-32.9885],[-19.8361,-27.0436]]]}},{"type":"Feature","id":"Pup","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[99.4403,-43.1959],[109.2857,-37.0975],[113.8454,-28.3693],[114.7078,-26.8038],[117.3236,-24.8598],[119.2147,-22.8801],[121.886,-24.3043],[120.896,-40.0031],[122.3831,-47.3366]],[[117.3236,-24.8598],[117.0215,-25.9372],[115.952,-28.9548],[113.8454,-28.3693]]]}},{"type":"Feature","id":"Pyx","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[120.896,-40.0031],[130.0256,-35.3084],[130.8981,-33.1864],[132.633,-27.7098]]]}},{"type":"Feature","id":"Ret","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[63.6062,-62.4739],[64.121,-59.3022],[59.6865,-61.4002],[56.0499,-64.8069],[63.6062,-62.4739]]]}},{"type":"Feature","id":"Sge","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-64.9759,18.0139],[-63.1531,18.5343],[-60.3107,19.4921]],[[-64.7378,17.476],[-63.1531,18.5343]]]}},{"type":"Feature","id":"Sgr","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-85.5932,-36.7617],[-83.957,-34.3846],[-84.7515,-29.8281],[-83.0073,-25.4217],[-86.5591,-21.0588]],[[-69.3404,-44.459],[-69.0284,-40.6159],[-74.347,-29.8801],[-78.5859,-26.9908],[-83.0073,-25.4217]],[[-61.1846,-41.8683],[-60.0659,-35.2763],[-61.0402,-26.2995],[-65.8232,-24.8836],[-68.6813,-24.5086],[-71.1149,-25.2567],[-76.1836,-26.2967],[-78.5859,-26.9908],[-84.7515,-29.8281],[-88.548,-30.4241],[-83.957,-34.3846],[-74.347,-29.8801],[-73.265,-27.6704],[-76.1836,-26.2967],[-73.8292,-21.7415],[-72.559,-21.0236],[-70.5913,-18.9529],[-69.5818,-17.8472],[-69.5682,-15.955]],[[-73.8292,-21.7415],[-75.5675,-21.1067],[-76.4576,-22.7448],[-76.1836,-26.2967]]]}},{"type":"Feature","id":"Sco","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-120.287,-26.1141],[-119.9166,-22.6217],[-118.6407,-19.8055]],[[-119.9166,-22.6217],[-114.7028,-25.5928],[-112.6481,-26.432],[-111.0294,-28.216],[-107.4591,-34.2932],[-107.0324,-38.0474],[-106.3541,-42.3613],[-101.9617,-43.2392],[-95.6703,-42.9978],[-93.1038,-40.127],[-94.378,-39.03],[-96.5978,-37.1038]]]}},{"type":"Feature","id":"Scl","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[14.6515,-29.3574],[-2.7686,-28.1303],[-10.294,-32.532],[-6.7573,-37.8183]]]}},{"type":"Feature","id":"Sct","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-81.1982,-8.2441],[-78.2064,-4.7479],[-79.4316,-9.0525],[-82.7006,-14.5658],[-81.1982,-8.2441]]]}},{"type":"Feature","id":"Ser","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-123.4531,15.4218],[-124.6123,19.6704],[-122.8151,18.1416],[-120.8867,15.6616],[-123.4531,15.4218],[-126.2994,10.5389],[-123.933,6.4256],[-122.296,4.4777],[-116.4136,-3.6943]]]}},{"type":"Feature","id":"Ser","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-102.4055,-15.7249],[-95.6033,-15.3986],[-90.2434,-9.7736],[-89.2295,-8.1803],[-84.6725,-2.8988],[-75.9451,4.2036]]]}},{"type":"Feature","id":"Sex","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[151.9845,-0.3716],[148.1268,-8.105],[157.3696,-2.7391],[157.5728,-0.637]]]}},{"type":"Feature","id":"Tau","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[84.4112,21.1425],[68.9802,16.5093],[67.1656,15.8709],[64.9483,15.6276],[65.7337,17.5425],[67.1542,19.1804],[81.573,28.6075]],[[64.9483,15.6276],[60.1701,12.4903],[51.7923,9.7327],[60.7891,5.9893]],[[51.7923,9.7327],[51.2033,9.0289],[54.2183,0.4017]]]}},{"type":"Feature","id":"Tel","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-87.1927,-45.9544],[-83.2566,-45.9685],[-82.7923,-49.0706]]]}},{"type":"Feature","id":"Tri","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[28.2704,29.5788],[32.3859,34.9873],[34.3286,33.8472],[28.2704,29.5788]]]}},{"type":"Feature","id":"TrA","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-107.8338,-69.0277],[-121.2143,-63.4307],[-130.2726,-68.6795],[-107.8338,-69.0277]]]}},{"type":"Feature","id":"Tuc","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-25.3746,-60.2596],[-10.6426,-58.2357],[7.8861,-62.9582],[5.0178,-64.8748],[-0.0209,-65.5771],[-23.1668,-64.9664],[-25.3746,-60.2596]]]}},{"type":"Feature","id":"UMa","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[-176.1435,57.0326],[165.932,61.751],[165.4603,56.3824],[178.4577,53.6948],[-176.1435,57.0326],[-166.4927,55.9598],[-159.0186,54.9254],[-153.1148,49.3133]],[[178.4577,53.6948],[176.5126,47.7794],[169.6197,33.0943],[169.5468,31.5308]],[[176.5126,47.7794],[167.4159,44.4985],[155.5823,41.4995]],[[167.4159,44.4985],[154.2741,42.9144]],[[165.932,61.751],[142.8821,63.0619],[127.5661,60.7182],[147.7473,59.0387],[165.4603,56.3824]],[[165.4603,56.3824],[148.0265,54.0643],[143.2143,51.6773],[134.8019,48.0418]],[[135.9064,47.1565],[143.2143,51.6773]]]}},{"type":"Feature","id":"UMi","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[-123.9853,77.7945],[-115.6238,75.7553],[-129.8179,71.834],[-137.3236,74.1555],[-123.9853,77.7945],[-108.5073,82.0373],[-96.9458,86.5865],[37.9545,89.2641]]]}},{"type":"Feature","id":"Vel","properties":{"rank":"2"},"geometry":{"type":"MultiLineString","coordinates":[[[131.1759,-54.7088],[140.5284,-55.0107],[149.2156,-54.5678],[161.6924,-49.4203],[153.684,-42.1219],[142.675,-40.4668],[136.999,-43.4326],[122.3831,-47.3366]]]}},{"type":"Feature","id":"Vir","properties":{"rank":"1"},"geometry":{"type":"MultiLineString","coordinates":[[[176.4648,6.5294],[177.6738,1.7647],[-175.0235,-0.6668],[-169.5848,-1.4494],[-162.5125,-5.539],[-158.7018,-11.1613],[-145.9964,-6.0005],[-139.2349,-5.6582]],[[-164.4558,10.9592],[-166.0991,3.3975],[-169.5848,-1.4494]],[[-162.5125,-5.539],[-156.3267,-0.5958],[-149.5884,1.5445],[-138.4378,1.8929]]]}},{"type":"Feature","id":"Vol","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[135.6116,-66.3961],[126.4341,-66.1369],[121.9825,-68.6171],[109.2076,-67.9572],[107.1869,-70.4989],[121.9825,-68.6171],[135.6116,-66.3961]]]}},{"type":"Feature","id":"Vul","properties":{"rank":"3"},"geometry":{"type":"MultiLineString","coordinates":[[[-70.9457,21.3904],[-67.8236,24.6649],[-61.6346,24.0796],[-59.7248,27.7536],[-56.0578,27.8142]]]}}]};
-	data.features.forEach(f => { f.properties.name = f.id; });
-	q.clear();
-	q.title("constellation lines");
-	const pbf = await geopbf(data, { name: "constellation_lines", nocache: true, gint: false });
-	if (!pbf.length) throw new Error("constellation_lines: encoding produced 0 features");
-	q.log(`constellation_lines: ${pbf.length} features`);
-	await pbf.save();
-	q.success("constellation_lines: saved");
-}
-
-// 星座名・メシエ通称の 26 言語パック → bucket GIS/space/i18n/<lang>.json（solar が fetch＝コードでなくデータで繋ぐ）
-async function spaceNames(q) {
-	q.clear();
-	q.title(`space names → ${SPACE_DIRE}/i18n/<lang>.json`);
-	const bucket = await Bucket(SPACE_DIRE);
-	if (!bucket) throw new Error(`Bucket(${SPACE_DIRE}) に到達できない`);
-	const updated = new Date().toISOString().slice(0, 10);
-	for (const [lang, p] of Object.entries(spacePacks(spaceNamesJSON))) {
-		const body = JSON.stringify({ updated, ...p });
-		await bucket.put(new File([body], `i18n/${lang}.json`, { type: "application/json" }));
-		q.log(`${lang}: ${Object.keys(p.c).length} constellations, ${Object.keys(p.m).length} Messier names (${comma(body.length)} bytes)`);
-	}
-	q.success("space names: saved");
-}
-
-// 月の地名（IAU 採択の主な地名 2,023・packages/space/moon.json）→ geopbf "moon_nomenclature"（英語・点・由来つき）＋
-// 多言語 bucket GIS/space/i18n/moon/<lang>.json（{ <GPN id>: 名前 }）。座標は月面の経緯度＝読む側が月の球へ貼る
-async function moonNames(q) {
-	q.clear();
-	q.title(`moon names → geopbf "${MOON_GEOPBF}" + ${SPACE_DIRE}/i18n/moon/<lang>.json`);
-	const pbf = await geopbf(moonGeoJSON(moonJSON), { name: MOON_GEOPBF, nocache: true, gint: false, precision: 4,   // 0.0001°＝月面で約 3 m
-		attribution: "IAU / USGS Gazetteer of Planetary Nomenclature (public domain)",
-		description: "Moon nomenclature (IAU-approved main features, no satellite craters): selenographic lon/lat (east +), id=GPN Feature ID, code=IAU descriptor, diameter km, origin" });
-	if (pbf.length !== moonJSON.features.length) throw new Error(`${MOON_GEOPBF}: ${pbf.length} / ${moonJSON.features.length} features`);
-	await pbf.save();
-	q.log(`${MOON_GEOPBF}: ${pbf.length} features, keys: [${pbf.keys.join(", ")}]`);
-	const bucket = await Bucket(SPACE_DIRE);
-	if (!bucket) throw new Error(`Bucket(${SPACE_DIRE}) に到達できない`);
-	const updated = new Date().toISOString().slice(0, 10);
-	for (const [lang, names] of Object.entries(moonPacks(moonJSON))) {
-		const body = JSON.stringify({ updated, names });
-		await bucket.put(new File([body], `i18n/moon/${lang}.json`, { type: "application/json" }));
-		q.log(`${lang}: ${Object.keys(names).length} names (${comma(body.length)} bytes)`);
-	}
-	q.success("moon names: saved");
-}
-
-async function messier(q) {
-	const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
-	q.clear();
-	q.title("messier");
-	const pbf = await geopbf(ofrohn("messier"), { name: "messier", nocache: true, gint: false });
-	if (!pbf.length) throw new Error("messier: encoding produced 0 features");
-	q.log(`messier: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-	await pbf.save();
-	q.success("messier: saved");
-}
-// 世界海岸線（Natural Earth）。ortho-japan が起動時に読む＝クライアントに毎回 zip→shp デコードを
-// 払わせず、ここで一度だけ GeoPBF に焼いて GIS/pbf/ne_{RES}_coastline に置く（読み側は名前慣習で load）。
-// 10m=デスクトップ／50m=モバイル（LOW_MEM＝頂点が一桁小さく GPU・常駐束を軽く＝Kenji 指定 2026-07-29）。
-// 両解像度とも bucket に置くのが要点：50m を bucket 未収録のままにすると、モバイルは毎回 S3 生zip
-// フォールバック（shape デコード）に落ちる＝(a) 提供圏外と同じく 404 がコンソールに出る、(b) WebKit で
-// props.join TypeError の既知バグ経路（＝iOS で海岸線が出ない恐れ）。bucket 収録で両方を根から断つ。
-// 世界の国ポリゴン（Natural Earth admin_0_countries）→ GIS/pbf。ortho-japan 世界ビュー（?world=1）の
-// gint 束＝海岸線+国境線+国名identify(NAME_JA) の一本データ（旧 coastline スロットの後継・2026-08-31）。
-// 50m=LOW_MEM（モバイル）用。焼けるまでアプリは S3 zip フォールバックで動く（毎初回3.2MB＝焼けば無通信）。
-async function admin0(q) {
-	q.clear();
-	q.title("admin_0_countries (50m + 10m)");
-	for (const res of ["50m", "10m"]) {
-		const name = `ne_${res}_admin_0_countries`;
-		const url = `https://naturalearth.s3.amazonaws.com/${res}_cultural/${name}.zip`;
-		try {
-			const pbf = await geopbf(url, { name, nocache: true });
-			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
-			pbf.updateHeader({ description: `世界の国ポリゴン（Natural Earth ${res} admin_0_countries）＝国境線・海岸線・国名`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
-			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
-			q.success(`${name}: saved (<= ${url})`);
-			q.log(await pbf.profile());
-		} catch (e) {
-			q.error(`${name}: 失敗 — ${e.message}`);
-		}
-	}
-}
-
-// 湖（Natural Earth lakes）→ GIS/pbf。ortho-japan 世界ビュー（world 既定）のエンジン lakes スロット
-// （wdepr の兄弟＝worldPal.sea の平色塗り・app.js loadLakes）用。旧・Protomaps 世界タイル world-water 層の
-// 後継（2026-09-03 本人裁定「湖はNE経由＝B案」＝© OpenStreetMap/ODbL 出典義務の撤去）。
-// 10m=デスクトップ／50m=LOW_MEM（モバイル）。両解像度とも bucket に置く理由は admin0 と同じ＝
-// S3 生zip フォールバック（毎初回 404 ログ+shp デコード・WebKit props.join 轍）を根から断つ。
-async function lakes(q) {
-	q.clear();
-	q.title("ne_lakes (50m + 10m)");
-	for (const res of ["50m", "10m"]) {
-		const name = `ne_${res}_lakes`;
-		const url = `https://naturalearth.s3.amazonaws.com/${res}_physical/${name}.zip`;
-		try {
-			const pbf = await geopbf(url, { name, nocache: true });
-			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
-			pbf.updateHeader({ description: `世界の湖（Natural Earth ${res} lakes）＝全球ビューの湖面塗り`, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
-			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
-			q.success(`${name}: saved (<= ${url})`);
-			q.log(await pbf.profile());
-		} catch (e) {
-			q.error(`${name}: 失敗 — ${e.message}`);
-		}
-	}
-}
-
-// 川（rivers_lake_centerlines）・空港（airports）・海洋境界線（boundary_lines_maritime_indicator）→ GIS/pbf。apps/equal 用。
-// なぜ bucket へ置くか＝lakes/admin0 と同じ理由の実測版：この 2 つだけ bucket に無く、equal は毎訪問
-// 「名前引き→404（本番実測 0.6s×2 本）→ S3 生 zip へ退避→ shp デコード」を払っていた（2026-09-18）。
-// IDB が温まっても 404 の往復は毎回発生する＝焼いて置けば根から消える。
-// 解像度は 10m のみ＝equal の NE() ヘルパが 10m 固定（coast/lakes と違い 50m を使う経路が無い）。
-// 増やす時はこの表に足すだけ（res/group/name/description）。
-async function riversAirports(q) {
-	q.clear();
-	q.title("NE rivers + airports + maritime (10m)");
-	const items = [
-		{ res: "10m", group: "physical", name: "ne_10m_rivers_lake_centerlines", description: "世界の河川（Natural Earth 10m rivers_lake_centerlines）＝全球ビューの水系ライン" },
-		{ res: "10m", group: "cultural", name: "ne_10m_airports", description: "世界の空港（Natural Earth 10m airports）＝全球ビューの空港マーカー" },
-		{ res: "10m", group: "cultural", name: "ne_10m_admin_0_boundary_lines_maritime_indicator", description: "海洋境界線（Natural Earth 10m boundary_lines_maritime_indicator）＝海上の中間線・領海の指示線" },
-	];
-	for (const { res, group, name, description } of items) {
-		const url = `https://naturalearth.s3.amazonaws.com/${res}_${group}/${name}.zip`;
-		try {
-			const pbf = await geopbf(url, { name, nocache: true });
-			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
-			pbf.updateHeader({ description, license: "Natural Earth (public domain)", attribution: "Natural Earth" });
-			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
-			q.success(`${name}: saved (<= ${url})`);
-			q.log(await pbf.profile());
-		} catch (e) {
-			q.error(`${name}: 失敗 — ${e.message}`);
-		}
-	}
-}
-
-async function coastline(q) {
-	q.clear();
-	q.title("coastline (50m + 10m)");
-	// 50m を先に焼く（モバイルで欠けている本命）。各解像度は独立＝10m の失敗が 50m を巻き添えにしない。
-	for (const res of ["50m", "10m"]) {
-		const name = `ne_${res}_coastline`;
-		const url = `https://naturalearth.s3.amazonaws.com/${res}_physical/${name}.zip`;
-		try {
-			const pbf = await geopbf(url, { name, nocache: true });
-			if (!pbf.length) throw new Error(`0 features — check source URL or decoder`);
-			q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-			await pbf.save();   // ← VITE_API_KEY 未設定だとここで 403（起動時の警告が出ていたら鍵を設定して dev server 再起動）
-			q.success(`${name}: saved (<= ${url})`);
-			q.log(await pbf.profile());
-		} catch (e) {
-			q.error(`${name}: 失敗 — ${e.message}`);
-		}
-	}
-}
-
-// 国土数値情報 N02(鉄道)/N06(高速道路時系列) を GeoPBF 化して GIS/pbf へ。ortho-japan の新幹線
-// オーバーレイと将来のホバー名表示（路線名/駅名/道路名/IC名）の弾。年度更新時は URL の年式を上げて再クリック。
-// ※国道は現行 KSJ に路線番号付きラインデータが無い（N13 は道路分類のみ・2400万セグメント）＝棚上げ中。
-async function ksj(q) {
-	const N02 = "https://nlftp.mlit.go.jp/ksj/gml/data/N02/N02-25/N02-25_GML.zip";
-	const N06 = "https://nlftp.mlit.go.jp/ksj/gml/data/N06/N06-24/N06-24_GML.zip";
-	const LICENSE = "国土数値情報 利用規約（政府標準利用規約準拠・出典明示で利用可）";
-	const items = [
-		{ zip: N02, name: "N02-25_RailroadSection", description: "鉄道区間（路線名・事業者）2025年度", attribution: "国土交通省 国土数値情報（鉄道データ N02-25）" },
-		{ zip: N02, name: "N02-25_Station", description: "鉄道駅（駅名・路線名・事業者）2025年度", attribution: "国土交通省 国土数値情報（鉄道データ N02-25）" },
-		{ zip: N06, name: "N06-24_HighwaySection", description: "高速道路区間（道路名・供用年度）2024年度", attribution: "国土交通省 国土数値情報（高速道路時系列データ N06-24）" },
-		{ zip: N06, name: "N06-24_Joint", description: "高速道路IC/JCT/SA（施設名）2024年度", attribution: "国土交通省 国土数値情報（高速道路時系列データ N06-24）" },
-	];
-	q.clear();
-	q.title("KSJ 鉄道/高速道路");
-	await thenEach(items, async it => {
-		const pbf = await geopbf(`${it.zip}#${it.name}.geojson`, { name: it.name, nocache: true });
-		if (!pbf.length) throw new Error(`${it.name}: encoding produced 0 features`);
-		pbf.updateHeader({ description: it.description, license: LICENSE, attribution: it.attribution });
-		q.log(`${it.name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-		await pbf.save();
-		q.success(`${it.name}: saved`);
-	});
-}
-
-// 環境省 国立公園区域・地種区分 → GIS/pbf/nps_all。属性＝名称/地域区（特別保護地区・第1〜3種特別地域・
-// 海域公園地区・普通地域）＝ホバーで地種区分まで言える。
-// ソースは環境ジオポータルの FeatureServer（2000件/頁でページング）。全国版 nps_all は2024-05版で
-// 日高山脈襟裳十勝（2024-06指定・35番目）を含まないため、北海道事務所の nps_hokkaido から継ぎ足す。
-// クリーニング＝エンコード→デコードのプローブで precision 6（±11cm）で潰れる退化スライバーと
-// ソース由来 null geometry を実測除去（数十件・全て幅数cmの掃除ゴミ）。
-async function nps(q) {
-	const ALL = "https://services.arcgis.com/wlVTGRSYTzAbjjiC/arcgis/rest/services/nps_all/FeatureServer/0/query";
-	const HOKKAIDO = "https://services5.arcgis.com/xyLLVFhw1NuQvexI/arcgis/rest/services/nps_hokkaido/FeatureServer/0/query";
-	q.clear();
-	q.title("国立公園 (nps_all)");
-	const page = async (url, params, offset) => (await fetch(`${url}?${new URLSearchParams({
-		where: "1=1", outSR: "4326", f: "geojson", resultOffset: offset, resultRecordCount: 2000, ...params })}`)).json();
-	const features = [];
-	for (let off = 0; ; off += 2000) {   // 全国版（名称/地域区）
-		const d = await page(ALL, { outFields: "名称,地域区" }, off);
-		features.push(...d.features);
-		q.log(`nps_all: ${features.length} features …`);
-		if (!d.properties?.exceededTransferLimit && !d.exceededTransferLimit) break;
-	}
-	const hidaka = await page(HOKKAIDO, { where: "NAME LIKE '%日高%'", outFields: "NAME,ZONE" }, 0);
-	for (const f of hidaka.features)
-		features.push({ type: "Feature", properties: { 名称: f.properties.NAME, 地域区: f.properties.ZONE }, geometry: f.geometry });
-	q.log(`日高山脈襟裳十勝: +${hidaka.features.length} features（北海道事務所データ）`);
-
-	// プローブ＝一意IDを焼いて往復し、geometry付きで生き残った個体だけ採用
-	const probeFeats = features.map((f, i) => ({ ...f, properties: { ...f.properties, __i: i } }));
-	const probe = await geopbf({ type: "FeatureCollection", features: probeFeats }, { name: "nps_probe", nocache: true, gint: false });
-	const aliveIdx = new Set();
-	probe.geojson.features.forEach(f => { if (f.geometry?.coordinates?.length) aliveIdx.add(f.properties.__i); });
-	const clean = features.filter((f, i) => aliveIdx.has(i));
-	q.log(`クリーニング: ${clean.length} 採用 / ${features.length - clean.length} 除去（退化スライバー・null）`);
-
-	const pbf = await geopbf({ type: "FeatureCollection", features: clean }, { name: "nps_all", nocache: true });
-	if (!pbf.length) throw new Error("nps_all: encoding produced 0 features");
-	pbf.updateHeader({
-		description: "国立公園区域・地種区分 全35公園（名称・特別保護地区/第1〜3種特別地域/海域公園地区/普通地域。日高山脈襟裳十勝は北海道事務所データで補完）",
-		license: "政府標準利用規約準拠・出典明示で利用可",
-		attribution: "環境省 環境ジオポータル（国立公園区域等 nps_all／nps_hokkaido）",
-	});
-	const parks = new Set(pbf.geojson.features.map(f => f.properties["名称"]));
-	q.log(`nps_all: ${pbf.length} features, 公園数 ${parks.size}`);
-	if (parks.size !== 35) throw new Error(`公園数 ${parks.size} ≠ 35`);
-	await pbf.save();
-	q.success("nps_all: saved（35公園・地種区分付き）");
-}
-
-// 国土数値情報 N03（行政区域・2025年版）→ GIS/pbf/admin_all
-// 【専用データ】描画用ではなく「座標→市区町村」の逆引き（pbf.identifyAt）専用＝
-// VWランク24（≈z13・境界誤差~20m級）でガッツリ間引く。海岸線が少し太っても identify には無問題。
-// 属性は code（N03_007 行政区域コード＝jp/codes.js のアドレス空間に直結）と name（住所風表記）のみ。
-async function admin(q) {
-	const RANK = 24;
-	q.clear();
-	q.title("行政区域 (admin_all)");
-	const features = [];
-	let rawVerts = 0, keptVerts = 0;
-	for (let p = 1; p <= 47; p++) {
-		const pref = String(p).padStart(2, "0");
-		const url = `https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2025/N03-20250101_${pref}_GML.zip`;
-		const pbf = await geopbf(url, { name: `n03_${pref}`, nocache: true });
-		if (!pbf.length) throw new Error(`${pref}: 0 features`);
-		const fc = pbf.simplified(RANK);
-		let kept = 0;
-		for (const f of fc.features) {
-			const pr = f.properties;
-			const code = pr["N03_007"];
-			if (!code) continue;   // 所属未定地
-			f.properties = { code, name: [pr["N03_001"], pr["N03_003"], pr["N03_004"], pr["N03_005"]].filter(t => t && t !== "None").join("") };
-			features.push(f);
-			kept++;
-		}
-		const nv = fc.features.reduce((s2, f) => { const g = f.geometry;
-			const cr = r => s2 += r.length;
-			if (g.type === "Polygon") g.coordinates.forEach(cr);
-			else if (g.type === "MultiPolygon") g.coordinates.forEach(c => c.forEach(cr));
-			return s2; }, 0);
-		keptVerts += nv; rawVerts += pbf.length;
-		q.log(`${pref}: ${kept} features / ${nv.toLocaleString()} verts`);
-	}
-	const out = await geopbf({ type: "FeatureCollection", features }, { name: "admin_all", nocache: true });
-	if (!out.length) throw new Error("admin_all: encoding produced 0 features");
-	out.updateHeader({
-		description: "全国市区町村ポリゴン（座標→市区町村の逆引き専用・VWランク24間引き＝境界誤差~20m級。描画用途には元のN03を使うこと）",
-		license: "政府標準利用規約準拠・出典明示で利用可",
-		attribution: "国土交通省 国土数値情報（行政区域 N03 2025年版）",
-	});
-	const codes = new Set(out.geojson.features.map(f => f.properties.code));
-	q.log(`admin_all: ${out.length.toLocaleString()} features / ${codes.size} 市区町村コード / ${(out.size / 1e6).toFixed(1)}MB / verts ${keptVerts.toLocaleString()}`);
-	await out.save();
-	q.success(`admin_all: saved（${codes.size}市区町村・${(out.size / 1e6).toFixed(1)}MB）`);
-}
-
-// ── POI台帳 civic（KSJ → z14 geopbfタイル）── docs/poi-ledger.md §11 / schema は ./poi/schema.js
-// KSJ をブラウザで直読み（§9 の「Node で動かない」問題がここには無い）→ 種別/rank を付与 → z14 タイルへ
-// 分配 → タイルごとに geopbf 化して GIS/pbf/poi/14/x/y へ save。読み側は geopbf("poi/14/x/y") で対称に戻る。
-// v1 は P29学校（京都26）から。withAnno=true で experimental注記の位置採用・鮮度判定を足す（§8・遅い＝z16を数千枚）。
-async function poi(q, { prefs = ["26"], sets = ["P29"], anno = [], withAnno = false } = {}) {
-	q.clear();
-	q.title(`POI civic (KSJ→z14${anno.length ? "＋注記由来" : ""}${withAnno ? "・突合" : ""})`);
-	const LICENSE = "政府標準利用規約準拠・出典明示で利用可";
-	const ATTR = "国土交通省 国土数値情報" + (withAnno || anno.length ? "／国土地理院 experimental_bvmap" : "");
-	const recs = [];
-	for (const setKey of sets) {
-		const set = POI.KSJ_SETS[setKey];
-		const base = `${setKey}-${set.year}`;
-		for (const pref of prefs) {
-			// 1) KSJ点をブラウザ直読み：geojson同梱=#inner.geojson／dbfのみ=#inner.shp（geopbf が zip 内を解決）
-			const stem = set.national ? base : `${base}_${pref}`;
-			const zip = set.national
-				? `https://nlftp.mlit.go.jp/ksj/gml/data/${setKey}/${base}/${base}.zip`
-				: `https://nlftp.mlit.go.jp/ksj/gml/data/${setKey}/${base}/${stem}_GML.zip`;
-			const srcRef = `${zip}#${stem}.${set.geojson ? "geojson" : "shp"}`;
-			q.log(`読込 ${setKey} ${pref} … ${srcRef.split("/").pop()}`);
-			const src = await geopbf(srcRef, { name: `ksj_${setKey}_${pref}`, nocache: true, gint: false });
-			let pts = src.geojson.features.map(f => ({
-				ll: f.geometry?.coordinates?.slice(0, 2),
-				name: (f.properties[set.nameKey] || "").trim(),
-				cls: String(f.properties[set.classKey] ?? ""),
-				pref: set.prefKey ? String(f.properties[set.prefKey] ?? "") : pref,
-			})).filter(p => p.name && p.ll && isFinite(p.ll[0]) && isFinite(p.ll[1]));
-			if (set.national) pts = pts.filter(p => p.pref.startsWith(pref));   // 全国ファイルは pref で絞る
-			q.log(`  ${set.label} ${pref}: ${pts.length}点`);
-
-			// 2) 注記突合（任意）：点が要求する z16 label タイルを取得し正規化名で索引化（§8.1/§8.3）
-			const annoIndex = withAnno ? await buildAnnoIndex(pts, set, q) : null;
-
-			// 3) 種別・位置・rank を確定（§11.4/11.5/11.7）
-			for (const p of pts) {
-				const type = POI.ksjType(set, p);
-				let ll = p.ll, posSrc = POI.SRC.KSJ, kana = "";
-				if (annoIndex) { const r = POI.resolvePoint(p, set, annoIndex); ll = r.ll; posSrc = r.posSrc; kana = r.kana; }
-				const rank = POI.rankOf(type, { demote: set.demoteOf ? set.demoteOf(p.name) : 0 });
-				if (rank <= 0) continue;   // 不明は描かない（§6）
-				recs.push({ ll, name: p.name, type, rank, src: POI.packSrc(posSrc, POI.SRC.KSJ), kana });
-			}
-		}
-	}
-
-	// KSJ に無い系統（寺社など）＝experimental注記を bbox 掃引して annoCtg から直に採る（注記=正しい位置）。
-	// posSrc=ANNO で焼く＝表示側が「基図注記を上書き」する（§1 の三十三間堂 274mズレを直す本手）。
-	for (const a of anno) recs.push(...await sweepAnno(a, q));
-
-	// 3.5) §12 手差分（サーバー正本 poi/overrides.json）を最終合成＝del/move/rename をタイルへ焼き込む。
-	// add は焼かない（withAdds:false＝schema.applyOverrides の柵コメント参照・実行時フィードが常時適用）。
-	// レコードは合成後も消さない＝履歴。意味論は冪等＝毎回の焼きで再適用してよい。
-	const bkt = await Bucket("GIS/pbf");
-	const ovr = bkt && await bkt.get(POI.OVR_NAME, "json");   // bucket不達＝手差分なしで続行（saveで別途落ちる）
-	const appliedOvr = [];   // この焼きで効いたrec id → マニフェスト baked へ（表示が再適用しない＝再発火封じ）
-	const baked = POI.applyOverrides(recs, ovr?.recs, { withAdds: false, applied: appliedOvr });
-	if (ovr?.recs?.length) q.log(`手差分 ${ovr.recs.length}件 合成（${recs.length}→${baked.length}点・焼き込み${appliedOvr.length}件・add は実行時フィードのみ）`);
-
-	// 4) z14 タイルへ分配 → タイルごとに geopbf 化 → poi/14/x/y で save（§11.8）
-	const tiles = new Map();
-	for (const r of baked) { const [x, y] = POI.tileXY(r.ll[0], r.ll[1]); const k = `${x}/${y}`; (tiles.get(k) || tiles.set(k, []).get(k)).push(r); }
-	q.log(`合計 ${baked.length} POI → ${tiles.size} タイルを焼く…`);
-	let n = 0, bytes = 0;
-	for (const [k, rs] of tiles) {
-		const fc = { type: "FeatureCollection", features: rs.map(r => ({
-			type: "Feature",
-			geometry: { type: "Point", coordinates: r.ll },
-			properties: { n: r.name, t: r.type, r: r.rank, s: r.src, ...(r.kana ? { k: r.kana } : {}) },
-		})) };
-		const pbf = await geopbf(fc, { name: `poi/14/${k}`, nocache: true, gint: false, minZoom: 14 });
-		if (!pbf.length) continue;
-		pbf.updateHeader({ description: `POI civic z14 ${k}（t=種別 r=rank s=出典）`, license: LICENSE, attribution: ATTR });
-		await pbf.save();
-		n++; bytes += pbf.size;
-		if (n % 50 === 0) q.log(`  ${n}/${tiles.size} タイル…`);
-	}
-	// タイル在庫マニフェスト（形と合流の正典＝schema.mergeManifest）：表示側が存在タイルだけ取りに行く＝404空振りゼロ＋
-	// 版でキャッシュ制御・baked＝焼き込み済み手差分id（表示はここに無いrecだけ実行時適用＝再発火封じ）。
-	let prev = null;
-	try { prev = await bkt.get(POI.MANIFEST_NAME, "json"); } catch { }
-	const idx = POI.mergeManifest(prev, tiles.keys(), appliedOvr);
-	await bkt.put(new File([JSON.stringify(idx)], POI.MANIFEST_NAME, { type: "application/json" }));
-	q.log(`マニフェスト ${POI.MANIFEST_NAME} → ${idx.tiles.length}タイル（今回${tiles.size}・既存${prev?.tiles?.length || 0}・焼き込み済み手差分${idx.baked.length}件）`);
-	q.success(`POI civic: ${n} タイル・${baked.length}点・${(bytes / 1024).toFixed(0)}KB → GIS/pbf/poi/14/`);
-}
-
-// experimental注記(z16 label層)を、点が要る分のタイルだけ取得し、正規化名 → [{ll,knj,kana}] の索引に。
-// withAnno のときだけ ortho-core(fetchMVT) を動的 import＝KSJ単体の焼きは ortho-core に依存しない。
-async function buildAnnoIndex(pts, set, q) {
-	const { fetchMVT } = await import("ortho-core/decode");   // decode.js だけ（pbf のみ依存）＝GLバレルを引かない
-	const Z = 16, need = new Set();
-	for (const p of pts) { const [x, y] = POI.tileXY(p.ll[0], p.ll[1], Z); for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) need.add(`${x + dx}/${y + dy}`); }
-	const keys = [...need];
-	q.log(`  注記 z16 タイル ${keys.length} 枚を取得…（遅い）`);
-	const index = new Map();
-	let i = 0;
-	await Promise.all(Array.from({ length: 12 }, async () => {
-		while (i < keys.length) {
-			const [x, y] = keys[i++].split("/").map(Number);
-			try {
-				const layers = await fetchMVT(`https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/${Z}/${x}/${y}.pbf`, undefined, new Set(["label"]));
-				const L = layers?.label; if (!L) continue;
-				for (const f of L.features) {
-					if (f.props.annoCtg !== set.annoCode) continue;
-					const knj = (f.props.knj || "").trim(); if (!knj) continue;
-					const key = set.norm(knj); if (!key) continue;
-					const ll = POI.tileLocalLL(x, y, f.geom.coords[0], f.geom.coords[1], L.extent);
-					(index.get(key) || index.set(key, []).get(key)).push({ ll, knj, kana: f.props.kana || "" });
-				}
-			} catch { /* 落ちたタイルは無視＝その点は KSJ 位置へ倒れる（§8.3 の d0 側） */ }
-		}
-	}));
-	q.log(`  注記索引 ${index.size} 名`);
-	return index;
-}
-
-// 注記由来POIの採取：a.bbox の z16 label タイルを掃引し annoCtg==a.code の注記を「POIそのもの」として採る。
-// KSJに無い寺社等・位置は注記＝建物の上（§1 の三十三間堂 3m の正しい方）。posSrc/typeSrc とも ANNO で焼く。
-async function sweepAnno(a, q) {
-	const { fetchMVT } = await import("ortho-core/decode");
-	const Z = 16, [w, s, e, n] = a.bbox;
-	const [x0, y0] = POI.tileXY(w, n, Z), [x1, y1] = POI.tileXY(e, s, Z);
-	const keys = [];
-	for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) keys.push([x, y]);
-	const type = a.type ?? POI.ANNO_TO_TYPE[a.code] ?? POI.TYPE.その他;
-	q.log(`注記掃引 annoCtg=${a.code}（${a.label || ""}）… z16 ${keys.length}枚`);
-	const out = [], seen = new Set();
-	let i = 0;
-	await Promise.all(Array.from({ length: 12 }, async () => {
-		while (i < keys.length) {
-			const [x, y] = keys[i++];
-			try {
-				const layers = await fetchMVT(`https://cyberjapandata.gsi.go.jp/xyz/experimental_bvmap/${Z}/${x}/${y}.pbf`, undefined, new Set(["label"]));
-				const L = layers?.label; if (!L) continue;
-				for (const f of L.features) {
-					if (f.props.annoCtg !== a.code) continue;
-					const name = (f.props.knj || "").trim(); if (!name) continue;
-					const ll = POI.tileLocalLL(x, y, f.geom.coords[0], f.geom.coords[1], L.extent);
-					const key = name + "@" + ll[0].toFixed(4) + "," + ll[1].toFixed(4);
-					if (seen.has(key)) continue; seen.add(key);   // 隣タイル境界の同一注記（両側収録）を排除
-					out.push({ ll, name, type, rank: POI.rankOf(type), src: POI.packSrc(POI.SRC.ANNO, POI.SRC.ANNO), kana: f.props.kana || "" });
-				}
-			} catch { /* 落ちたタイルは無視 */ }
-		}
-	}));
-	q.log(`  → ${out.length} 件（${a.label || a.code}）`);
-	return out;
-}
-
-async function borders(q) {
-	const nvkelso = _ => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/master/geojson/${_}.geojson`;
-	const ofrohn = _ => `https://raw.githubusercontent.com/ofrohn/d3-celestial/master/data/${_}.json`;
-	const pbfs = {
-		"ne_110m_land": nvkelso("ne_110m_land"),
-		"ne_50m_land": nvkelso("ne_50m_land"),
-		"ne_110m_graticules_10": nvkelso("ne_110m_graticules_10"),
-		"ne_50m_admin_0_boundary_lines_land": nvkelso("ne_50m_admin_0_boundary_lines_land"),
-		"ne_50m_admin_0_boundary_lines_maritime_indicator": nvkelso("ne_50m_admin_0_boundary_lines_maritime_indicator"),
-		"ne_50m_geographic_lines": nvkelso("ne_50m_geographic_lines"),
-		"stars.6": ofrohn("stars.6"),
-		"stars.8": ofrohn("stars.8")
-	};
-	q.clear();
-	q.title("borders and stars");
-	await thenEach(Object.entries(pbfs), async ([name, original]) => {
-		const pbf = await geopbf(original, { name, nocache: true });
-		if (!pbf.length) throw new Error(`${name}: encoding produced 0 features — check source URL or decoder`);
-		q.log(`${name}: ${pbf.length} features, keys: [${pbf.keys.join(', ')}]`);
-		await pbf.save();
-		q.success(`${name}: (<= ${original})`)
-		q.log(await pbf.profile());
-	})
-}
-
+// 自前の節を持つもの。置き場所の div を先に確保＝world の疎通確認（非同期）を待たずに並び順が決まる
+modelsUI({ CMD: CMD.append("div"), q, Bucket });
+worldUI({ CMD: CMD.append("div"), q, Bucket, Fetch }).catch(e => console.error("worldUI:", e));   // await しない＝疎通待ちで他の節を塞がない

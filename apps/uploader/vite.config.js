@@ -2,11 +2,9 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-//import wasm from 'vite-plugin-wasm';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
-//    plugins: [wasm()],
 	resolve: {
 		// 旧パスエイリアス（src直指し）。geopbf だけは撤去（2026-08-21）＝exports のサブパス
 		// （geopbf/encodeZIP 等）を迂回して解決不能になるため、workspace 解決に委ねる。
@@ -15,11 +13,10 @@ export default defineConfig({
 			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
 			'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
 			'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src'),
-		   'himekuri': path.resolve(__dirname, '../../packages/himekuri/src')
 		}
 	},
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri']
+		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
 	},
 	server: {
 		fs: { allow: ['../..'] },
@@ -40,6 +37,6 @@ export default defineConfig({
 	},
 	build: {
 		sourcemap: true,
-		target: 'esnext' // または 'es2022'
+		target: 'esnext'
 	}
 });
