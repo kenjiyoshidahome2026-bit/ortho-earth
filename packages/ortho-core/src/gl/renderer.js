@@ -120,7 +120,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// シーンの rev・ゲート」の鍵が変わった時だけ＝静止中はゼロコスト。unit10＝合成時のタイル・unit13/14/15＝窓 0/1/2。
 	// raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）。
 	let rasterDraws = null, memRaster = 0, dbgC = null, sceneRev = 0;
-	const gnd = { w: [null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }
+	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };   // w[i]＝{ tex, fbo, size, win:[W,S,spanLon,spanLat], bytes }・段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	function rasterTex(bitmap) {
 		const tex = gl.createTexture();
 		gl.activeTexture(gl.TEXTURE10); gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -252,9 +252,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}`;
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0;
-		const N = rOpts.lowMem ? 1024 : 2048;
-		for (let i = 0; i < 3; i++) {
-			const bb = wins[i], size = i === 0 ? N : (N >> 1);
+		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
+		for (let i = 0; i < wins.length; i++) {
+			const bb = wins[i], size = sizes[i];
 			if (!gnd.w[i] || gnd.w[i].size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); }
 			const a = gnd.w[i]; a.win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
 			gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo);
@@ -268,28 +268,29 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 			gl.bindTexture(gl.TEXTURE_2D, a.tex); gl.generateMipmap(gl.TEXTURE_2D); gl.bindTexture(gl.TEXTURE_2D, null);   // 斜め視のちらつき防止
 		}
-		gnd.n = 3;
+		gnd.n = wins.length;
 	}
-	// ⚠サンプラは n=0 でも毎フレーム unit13/14/15 へ向ける（未設定＝unit0 整数テクスチャの轍＝cog/elev と同族）
+	// ⚠サンプラは n=0 でも毎フレーム unit13/14/15/11 へ向ける（未設定＝unit0 整数テクスチャの轍＝cog/elev と同族）
+	const GND_UNITS = [13, 14, 15, 11];
 	function bindGnd(prog) {
-		gl.uniform1i(loc(gl, prog, "u_gnd0"), 13); gl.uniform1i(loc(gl, prog, "u_gnd1"), 14); gl.uniform1i(loc(gl, prog, "u_gnd2"), 15);
+		for (let i = 0; i < 4; i++) gl.uniform1i(loc(gl, prog, "u_gnd" + i), GND_UNITS[i]);
 		gl.uniform1f(loc(gl, prog, "u_gndN"), gnd.n);
-		for (let i = 0; i < 3; i++) { gl.activeTexture(gl.TEXTURE13 + i); gl.bindTexture(gl.TEXTURE_2D, gnd.n && gnd.w[i] ? gnd.w[i].tex : null); }
+		for (let i = 0; i < 4; i++) { gl.activeTexture(gl.TEXTURE0 + GND_UNITS[i]); gl.bindTexture(gl.TEXTURE_2D, i < gnd.n && gnd.w[i] ? gnd.w[i].tex : null); }
 		gl.activeTexture(gl.TEXTURE0);
 	}
 	// fill 系：uv＝off+dLL×inv（シーン原点ごと f64 前計算＝cog の u_cogOffInv と同じ）
 	function setGndScene(prog, origin) {
 		if (!gnd.n) return;
 		const o = origin || [0, 0];
-		for (let i = 0; i < 3; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, prog, "u_gndOffInv" + i), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat); }
+		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, prog, "u_gndOffInv" + i), (o[0] - W) / sLon, (o[1] - S) / sLat, 1 / sLon, 1 / sLat); }
 	}
 	// terrain：メッシュ窓（u_mesh）→アトラス uv（cog の u_cogMesh と同じ）
 	function setGndMesh(mh) {
 		if (!gnd.n) return;
-		for (let i = 0; i < 3; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, terrainProg, "u_gndMesh" + i), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat); }
+		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, terrainProg, "u_gndMesh" + i), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat); }
 	}
 	function setGndGlobe(prog) {
-		for (let i = 0; i < 3; i++) { const a = gnd.n ? gnd.w[i] : null; gl.uniform4f(loc(gl, prog, "u_gndBbox" + i), a ? a.win[0] : 0, a ? a.win[1] : 0, a ? a.win[2] : 1, a ? a.win[3] : 1); }
+		for (let i = 0; i < 4; i++) { const a = i < gnd.n ? gnd.w[i] : null; gl.uniform4f(loc(gl, prog, "u_gndBbox" + i), a ? a.win[0] : 0, a ? a.win[1] : 0, a ? a.win[2] : 1, a ? a.win[3] : 1); }
 	}
 	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
 	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
@@ -1539,7 +1540,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { for (let i = 0; i < 3; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。

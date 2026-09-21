@@ -38,6 +38,7 @@ struct Frame {
 	gnd0: vec4f,       // 地面アトラス（近窓）uv 係数＝cogP と同形（fill系＝(off.xy, 1/span)・terrain系＝(off.xy, mesh.zw/span)）
 	gnd1: vec4f,       // 同・中窓
 	gnd2: vec4f,       // 同・遠窓
+	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -61,16 +62,19 @@ fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
 @group(0) @binding(8) var gndTex2: texture_2d<f32>;
 @group(0) @binding(9) var<uniform> GD0: GndP;
 @group(0) @binding(10) var gndSamp: sampler;
-struct GndP { w0: vec4f, w1: vec4f, w2: vec4f, p: vec4f };   // w*=[W,S,spanLon,spanLat]・p.x=有効な窓の数（0..3）
-fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f) -> vec3f {
+@group(0) @binding(11) var gndTex3: texture_2d<f32>;
+struct GndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };   // w*=[W,S,spanLon,spanLat]・p.x=有効な窓の数（0..4・細かい順）
+fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f, uv3: vec2f) -> vec3f {
 	let c0 = textureSample(gndTex0, gndSamp, vec2f(clamp(uv0.x, 0.0, 1.0), 1.0 - clamp(uv0.y, 0.0, 1.0)));
 	let c1 = textureSample(gndTex1, gndSamp, vec2f(clamp(uv1.x, 0.0, 1.0), 1.0 - clamp(uv1.y, 0.0, 1.0)));
 	let c2 = textureSample(gndTex2, gndSamp, vec2f(clamp(uv2.x, 0.0, 1.0), 1.0 - clamp(uv2.y, 0.0, 1.0)));
+	let c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));
 	if (GD0.p.x < 0.5) { return col; }
 	let in0 = uv0.x >= 0.0 && uv0.x <= 1.0 && uv0.y >= 0.0 && uv0.y <= 1.0;
 	let in1 = GD0.p.x > 1.5 && uv1.x >= 0.0 && uv1.x <= 1.0 && uv1.y >= 0.0 && uv1.y <= 1.0;
 	let in2 = GD0.p.x > 2.5 && uv2.x >= 0.0 && uv2.x <= 1.0 && uv2.y >= 0.0 && uv2.y <= 1.0;
-	let c = select(select(select(vec4f(0.0), c2, in2), c1, in1), c0, in0);
+	let in3 = GD0.p.x > 3.5 && uv3.x >= 0.0 && uv3.x <= 1.0 && uv3.y >= 0.0 && uv3.y <= 1.0;
+	let c = select(select(select(select(vec4f(0.0), c3, in3), c2, in2), c1, in1), c0, in0);
 	return col * (1.0 - c.a) + c.rgb;   // 前乗算＝over 合成
 }
 // 描画役割毎の小物（renderer.js が役割別スロットに詰める）：
@@ -193,9 +197,10 @@ struct FillOut {
 	@location(3) ll: vec2f,
 	@location(4) w: f32,   // clip w（perspective-correct 補間＝水域の厳密深度用）
 	@location(5) cuv: vec2f,   // COG uv（F.cogP＝f64 前計算係数×原点相対 dLL）
-	@location(6) guv0: vec2f,  // 地面アトラス uv（近/中/遠＝F.gnd0..2・同じ前計算）
+	@location(6) guv0: vec2f,  // 地面アトラス uv（前景/近/中/遠＝F.gnd0..3・同じ前計算）
 	@location(7) guv1: vec2f,
 	@location(8) guv2: vec2f,
+	@location(9) guv3: vec2f,
 };
 @vertex fn vs(@location(0) a_delta: vec2f, @location(1) a_color: vec4f) -> FillOut {
 	var o: FillOut;
@@ -219,6 +224,7 @@ struct FillOut {
 	o.guv0 = F.gnd0.xy + a_delta * F.gnd0.zw;
 	o.guv1 = F.gnd1.xy + a_delta * F.gnd1.zw;
 	o.guv2 = F.gnd2.xy + a_delta * F.gnd2.zw;
+	o.guv3 = F.gnd3.xy + a_delta * F.gnd3.zw;
 	return o;
 }
 fn fillColor(in: FillOut) -> vec4f {
@@ -226,7 +232,7 @@ fn fillColor(in: FillOut) -> vec4f {
 	// ×P.p0.w＝グローバルα（シーン差し替えクロスフェード用。通常は1）
 	let af = in.color.a * clamp(1.0 - 1.2 * in.fog, 0.0, 1.0) * P.p0.w;
 	if (af <= 0.003) { discard; }
-	return vec4f(mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2), F.fogColor, in.fog) * af, af);   // ユーザ COG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
+	return vec4f(mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), F.fogColor, in.fog) * af, af);   // ユーザ COG／地面アトラス（2D のラスタ重ね）＝塗りの上・線/建物/ラベルの下
 }
 @fragment fn fs(in: FillOut) -> @location(0) vec4f {
 	if (in.front < -0.0015) { discard; }
@@ -383,9 +389,10 @@ struct TerrOut {
 	@location(2) fog: f32,
 	@location(3) h: f32,
 	@location(4) cuv: vec2f,   // COG uv（terrain slot の F.cogP＝メッシュ窓→bbox の f64 前計算係数×a_uv）
-	@location(5) guv0: vec2f,  // 地面アトラス uv（近/中/遠＝F.gnd0..2）
+	@location(5) guv0: vec2f,  // 地面アトラス uv（前景/近/中/遠＝F.gnd0..3）
 	@location(6) guv1: vec2f,
 	@location(7) guv2: vec2f,
+	@location(8) guv3: vec2f,
 };
 @vertex fn vs(@location(0) a_uv: vec2f) -> TerrOut {
 	var o: TerrOut;
@@ -402,6 +409,7 @@ struct TerrOut {
 	o.guv0 = F.gnd0.xy + a_uv * F.gnd0.zw;
 	o.guv1 = F.gnd1.xy + a_uv * F.gnd1.zw;
 	o.guv2 = F.gnd2.xy + a_uv * F.gnd2.zw;
+	o.guv3 = F.gnd3.xy + a_uv * F.gnd3.zw;
 	let relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(F.originPt + relW);
@@ -433,7 +441,7 @@ struct TerrOut {
 		let clim = textureSampleLevel(climTex, climSamp, climUV(in.ll), 0.0).rg;
 		landC = mix(landC, worldHypsoColor(h0, in.ll, clim, P.p2.z), P.p2.y);
 	}
-	let colBase = gndMix0(cogTexMix0(landC * shade, in.cuv), in.guv0, in.guv1, in.guv2);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	let colBase = gndMix0(cogTexMix0(landC * shade, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	let col = mix(colBase, F.fogColor, in.fog);
 	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
@@ -766,7 +774,8 @@ struct GCogP { bbox: vec4f, p: vec4f };
 @group(0) @binding(9) var gGnd1: texture_2d<f32>;
 @group(0) @binding(10) var gGnd2: texture_2d<f32>;
 @group(0) @binding(11) var<uniform> GGD: GGndP;
-struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, p: vec4f };
+@group(0) @binding(12) var gGnd3: texture_2d<f32>;
+struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
 fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
@@ -847,13 +856,16 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let u0 = (rll - GGD.w0.xy) / GGD.w0.zw;
 		let u1 = (rll - GGD.w1.xy) / GGD.w1.zw;
 		let u2 = (rll - GGD.w2.xy) / GGD.w2.zw;
+		let u3 = (rll - GGD.w3.xy) / GGD.w3.zw;
 		let i0 = u0.x >= 0.0 && u0.x <= 1.0 && u0.y >= 0.0 && u0.y <= 1.0;
 		let i1 = GGD.p.x > 1.5 && u1.x >= 0.0 && u1.x <= 1.0 && u1.y >= 0.0 && u1.y <= 1.0;
 		let i2 = GGD.p.x > 2.5 && u2.x >= 0.0 && u2.x <= 1.0 && u2.y >= 0.0 && u2.y <= 1.0;
+		let i3 = GGD.p.x > 3.5 && u3.x >= 0.0 && u3.x <= 1.0 && u3.y >= 0.0 && u3.y <= 1.0;
 		let g0 = textureSampleLevel(gGnd0, gSamp, vec2f(clamp(u0.x, 0.0, 1.0), 1.0 - clamp(u0.y, 0.0, 1.0)), 0.0);
 		let g1 = textureSampleLevel(gGnd1, gSamp, vec2f(clamp(u1.x, 0.0, 1.0), 1.0 - clamp(u1.y, 0.0, 1.0)), 0.0);
 		let g2 = textureSampleLevel(gGnd2, gSamp, vec2f(clamp(u2.x, 0.0, 1.0), 1.0 - clamp(u2.y, 0.0, 1.0)), 0.0);
-		let gc = select(select(select(vec4f(0.0), g2, i2), g1, i1), g0, i0);
+		let g3 = textureSampleLevel(gGnd3, gSamp, vec2f(clamp(u3.x, 0.0, 1.0), 1.0 - clamp(u3.y, 0.0, 1.0)), 0.0);
+		let gc = select(select(select(select(vec4f(0.0), g3, i3), g2, i2), g1, i1), g0, i0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
 	let viewDir = normalize(A - Pt);

@@ -21,7 +21,7 @@ import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラ�
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 104;     // 416B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-2 vec4f 含む）
+const FRAME_F32 = 108;     // 432B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3 vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -161,6 +161,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 8, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・遠窓
 		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                          // GndP（窓 bbox×3＋有効数）
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },     // アトラスのサンプラ（mips・異方性・clamp）
+		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目（前景あり時）
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
@@ -237,6 +238,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 9, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },   // 同・中窓
 		{ binding: 10, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・遠窓
 		{ binding: 11, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                         // GGndP
+		{ binding: 12, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },  // 同・4 段目
 	] });
 	const globeLayout = device.createPipelineLayout({ bindGroupLayouts: [bglGlobe] });
 	// terrain group(2)＝気候場（全球ハイプソの cross-blend）。未着は dummy（DrawP p2.z=0 で不使用）
@@ -698,8 +700,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	let bg0 = null;   // group(0) の5スロット bind group（elevTex/farTex 差し替えで作り直し）
 	let bg0Atl = null;   // 地面アトラス合成パス用（アトラス自身を dummy にした bg0）
 	// 地面アトラスの状態（rebuildBG0 が bind group に張る＝先に宣言・TDZ 回避）：w[i]＝{ tex, view, size, levels, win:[W,S,spanLon,spanLat], bytes }
-	const gnd = { w: [null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };
-	const gndPBuf = device.createBuffer({ size: 64, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0,w1,w2,p
+	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false };   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
+	const gndPBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0..w3,p
 	const rasSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // CLAMP＝隣接タイルの滲み防止
 	function rebuildBG0() {
 		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
@@ -715,7 +717,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ binding: 1, resource: view }, { binding: 2, resource: elevSampler }, { binding: 3, resource: farView },
 				{ binding: 4, resource: cogTexView || dummyView }, { binding: 5, resource: { buffer: cogBuf } },
 				{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
-				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler },
+				{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
 			],
 		});
 		for (const [name, idx] of Object.entries(SLOT)) bg0[name] = device.createBindGroup({
@@ -731,6 +733,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ binding: 8, resource: gnd.w[2] ? gnd.w[2].view : dummyView },
 				{ binding: 9, resource: { buffer: gndPBuf } },
 				{ binding: 10, resource: rasSampler },
+				{ binding: 11, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
 			],
 		});
 		// globe（全球ハイプソ＝標高+気候）と terrain group(2)（気候）も同じ素材に依存＝一緒に作り直す
@@ -747,6 +750,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 9, resource: gnd.w[1] ? gnd.w[1].view : dummyView },
 			{ binding: 10, resource: gnd.w[2] ? gnd.w[2].view : dummyView },
 			{ binding: 11, resource: { buffer: gndPBuf } },
+			{ binding: 12, resource: gnd.w[3] ? gnd.w[3].view : dummyView },
 		] });
 		climBG = device.createBindGroup({ layout: bglClim, entries: [
 			{ binding: 0, resource: climTexView || dummyView },
@@ -871,7 +875,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// main パスより先に submit → mips。raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）
 	let rasterDraws = null, memRaster = 0, sceneRev = 0;
 	let rasAtlasPipe = null, atlasFillPipe = null;
-	const atlBuf = device.createBuffer({ size: RAS_SLOT * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 3×スロット 2×ゲート 2＝12 枠
+	const atlBuf = device.createBuffer({ size: RAS_SLOT * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 4×スロット 2×ゲート 2＝16 枠
 	const atlBG = device.createBindGroup({ layout: bglRasP, entries: [{ binding: 0, resource: { buffer: atlBuf, offset: 0, size: 32 } }] });
 	const atlCPU = new Float32Array(RAS_SLOT / 4 * 16);
 	function rasterTex(bitmap) {
@@ -895,9 +899,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function rasterFlushFree() { for (const h of rasFreeQ) { if (h.kind === "tex") h.tex.destroy(); else for (const b of h.bufs) b.destroy(); } rasFreeQ.length = 0; }
 	function setRasterDraws(rd) { rasterDraws = rd; }
 	function writeGndP() {
-		const f = new Float32Array(16);
-		for (let i = 0; i < 3; i++) { const a = gnd.n ? gnd.w[i] : null; f[i * 4] = a ? a.win[0] : 0; f[i * 4 + 1] = a ? a.win[1] : 0; f[i * 4 + 2] = a ? a.win[2] : 1; f[i * 4 + 3] = a ? a.win[3] : 1; }
-		f[12] = gnd.n;
+		const f = new Float32Array(20);
+		for (let i = 0; i < 4; i++) { const a = i < gnd.n ? gnd.w[i] : null; f[i * 4] = a ? a.win[0] : 0; f[i * 4 + 1] = a ? a.win[1] : 0; f[i * 4 + 2] = a ? a.win[2] : 1; f[i * 4 + 3] = a ? a.win[3] : 1; }
+		f[16] = gnd.n;
 		device.queue.writeBuffer(gndPBuf, 0, f);
 	}
 	function gndAlloc(size) {
@@ -921,13 +925,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}`;
 		if (key === gnd.key) return null;
 		let rebuilt = false;
-		const N = rOpts.lowMem ? 1024 : 2048;
-		for (let i = 0; i < 3; i++) {
-			const bb = wins[i], size = i === 0 ? N : (N >> 1);
+		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段
+		for (let i = 0; i < wins.length; i++) {
+			const bb = wins[i], size = sizes[i];
 			if (!gnd.w[i] || gnd.w[i].size !== size) { if (gnd.w[i]) gndFree1(gnd.w[i]); gnd.w[i] = gndAlloc(size); rebuilt = true; }
 			gnd.w[i].win = [bb[0], bb[1], bb[2] - bb[0], bb[3] - bb[1]];
 		}
-		gnd.n = 3; gnd.key = key;
+		if (gnd.n !== wins.length) rebuilt = true;   // 段数が変わる（前景の出入り）＝bind group の 4 段目が dummy⇄実体
+		gnd.n = wins.length; gnd.key = key;
 		if (rebuilt) rebuildBG0();   // アトラスの view が変わった＝bg0/globeBG を作り直す（Frame 書込より前でよい＝バッファは同じ）
 		writeGndP();
 		return { wins, rasterOn, wantFills, seaOff, baseA };
@@ -947,7 +952,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// per-draw uniform：ラスタタイル（rasBuf）と塗り（atlBuf：窓×スロット×ゲート）を先に全部書く（writeBuffer は submit より先に着地）
 		let n = 0, m = 0;
 		const jobs = [];
-		for (let i = 0; i < 3; i++) {
+		for (let i = 0; i < wins.length; i++) {
 			const a = gnd.w[i], bb = wins[i];
 			const tiles = [];
 			if (rasterOn) for (const order of ["under", "over"]) for (const L of rasterDraws.layers) {
@@ -1239,8 +1244,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			else { f[88] = (origin[0] - W) / sLon; f[89] = (origin[1] - S) / sLat; f[90] = 1 / sLon; f[91] = 1 / sLat; }
 		} else { f[88] = 0; f[89] = 0; f[90] = 0; f[91] = 0; }
 		// 地面アトラス（近/中/遠）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
-		for (let k = 0; k < 3; k++) {
-			const i = 92 + k * 4, a = gnd.n ? gnd.w[k] : null;
+		for (let k = 0; k < 4; k++) {
+			const i = 92 + k * 4, a = k < gnd.n ? gnd.w[k] : null;
 			if (!a) { f[i] = 0; f[i + 1] = 0; f[i + 2] = 0; f[i + 3] = 0; continue; }
 			const [W, S, sLon, sLat] = a.win;
 			if (mesh) { f[i] = (mesh[0] - W) / sLon; f[i + 1] = (mesh[1] - S) / sLat; f[i + 2] = mesh[2] / sLon; f[i + 3] = mesh[3] / sLat; }
@@ -1802,7 +1807,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		frame = null; gctx = null;
 		disposeSlot("base"); disposeSlot("main");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
-		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 3; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
+		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
 		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
