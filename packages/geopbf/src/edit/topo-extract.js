@@ -51,9 +51,10 @@ function findJunctions(items, e) {
 		if (!r) set2(seen, x, y, { a, j: false });
 		else if (r.a !== a) r.j = true;
 	};
-	for (const { line, ring } of items) {
+	for (const { line, ring, anchor } of items) {
 		const n = line.length;
 		if (!ring) { mark(line[0][0], line[0][1]); mark(line[n - 1][0], line[n - 1][1]); }
+		if (anchor) mark(line[0][0], line[0][1]);   // 四隅で貼る画像の外環＝先頭（左上）を必ずノードに＝cutRing が先頭から切る＝隣と辺を共有しても環の開始点が動かない
 		for (let i = ring ? 0 : 1; i < (ring ? n : n - 1); i++) {
 			const p = line[(i - 1 + n) % n], c = line[i], nx = line[(i + 1) % n];
 			visit(c[0], c[1], p[0], p[1], nx[0], nx[1]);
@@ -164,7 +165,8 @@ export function createExtractor(gridExp) {
 			const polys = (t === "Polygon" ? [g.coordinates] : g.coordinates)
 				.map(rings => rings.map(r => quantizeLine(r, e, true)).filter(Boolean)).filter(pl => pl.length);
 			if (!polys.length) { warnings.push(`feature ${id}: degenerate after quantization, skipped`); return id; }
-			for (const pl of polys) for (const r of pl) items.push({ line: r, ring: true });
+			const anchor = props?.["@image"] != null;   // edit/imagequad：環の順（左上→右上→右下→左下）が画像の向き＝開始点を保つ
+			for (const pl of polys) pl.forEach((r, k) => items.push({ line: r, ring: true, anchor: anchor && k === 0 }));
 			preps.push([id, t, polys, props]);
 			return id;
 		}

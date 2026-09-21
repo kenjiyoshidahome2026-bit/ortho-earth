@@ -9,7 +9,8 @@
 import { SHAPE_NAMES, SHAPE_SCALE, PICTO, BOTTOM_ANCHOR, buildLinePath, makeTracer } from "geopbf/edit/draw";   // 描画プリミティブの正典（ビューア anno と同じ一本・2026-09-20 に geopbf へ）
 import { smoothRing } from "geopbf/edit/spline";
 import { sanitizeHTML } from "geopbf/sanitize";
-import { gcMidpoint } from "geopbf/edit/sphere";   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）。線分の内挿は anno.js の makeTracer
+import { gcMidpoint } from "geopbf/edit/sphere";
+import { IMAGE_KEY, cornersOf, drawImageQuad } from "geopbf/edit/imagequad";   // 四隅で貼る画像（ビューアの画像タイル層と同じ写像・2026-09-21）   // 完全球体＝辺は大円で結ぶ（本人裁定 9/14）。線分の内挿は anno.js の makeTracer
 export { SHAPE_NAMES, SHAPE_SCALE, PICTO, buildLinePath, sanitizeHTML };
 
 const COL = {
@@ -55,18 +56,19 @@ export function createOverlay(map, mapEl, getState) {
 	// 環境層（点シンボル/blur面/帯線）の描画リスト＝モデルと st.envGen（顔ぶれの世代）ごとに一度だけ全走査して作る。
 	// 毎フレーム全 feats を3周（旧実装）は 10万点級でパン中の主コストだった。頂点移動では envGen は進まない（座標は
 	// f.coords / arcs を直読みするので索引は古びない）。
-	let env = { model: null, gen: -1, points: [], blurs: [], bands: [] };
+	let env = { model: null, gen: -1, points: [], blurs: [], bands: [], quads: [] };
 	const envOf = st => {
 		if (env.model === st.model && env.gen === st.envGen) return env;
-		const points = [], blurs = [], bands = [];
+		const points = [], blurs = [], bands = [], quads = [];
 		for (const [eid, f] of st.model.feats) {
 			if (f.coords) { points.push(eid); continue; }
 			const p = f.properties;
 			if (!p) continue;
 			if (+p["@blur"] > 0) blurs.push(eid);
 			if (p["@poly"]) bands.push(eid);
+			if (p[IMAGE_KEY] instanceof Blob) quads.push(eid);
 		}
-		env = { model: st.model, gen: st.envGen, points, blurs, bands };
+		env = { model: st.model, gen: st.envGen, points, blurs, bands, quads };
 		return env;
 	};
 	// 視野の経緯度箱（点の投影前カリング用）：四隅を逆投影。球外（低ズームで縁が見える）や日付変更線跨ぎは null＝間引かない
@@ -160,6 +162,32 @@ export function createOverlay(map, mapEl, getState) {
 	// canvas 直描きは廃止＝ここでは扱わない。
 
 	// @blur＝不確定エリア＝canvas2D の blur で soft な塗りを描く（stroke なし・面のみ・@spline と併用可）。gint は非描画。
+	// 四隅で貼った画像（@image つき 4 頂点の面）。arcs を直読み＝頂点ドラッグ中も画像が追従して歪む（古地図の位置合わせ）
+	const quadImgs = new WeakMap();   // Blob → ImageBitmap（読み込み中は "pending"・壊れた画像は "bad"）
+	const quadImg = b => {
+		const v = quadImgs.get(b);
+		if (v === undefined) {
+			quadImgs.set(b, "pending");
+			createImageBitmap(b).then(bm => { quadImgs.set(b, bm); map.requestDraw(); }, () => quadImgs.set(b, "bad"));
+			return null;
+		}
+		return typeof v === "string" ? null : v;
+	};
+	function drawQuads(pr, st) {
+		const feats = st.model.feats;
+		for (const eid of envOf(st).quads) {
+			const f = feats.get(eid);
+			if (!f || f.coords) continue;
+			const img = quadImg(f.properties[IMAGE_KEY]);
+			if (!img) continue;
+			const ring = st.model.listsOf(f).find(l => l.ring);
+			const c = ring && cornersOf({ type: "Polygon", coordinates: [st.model.stitch(ring.list)] });
+			if (!c) continue;   // 頂点を足して 4 隅でなくなった＝貼れない（枠だけ見える）
+			const op = +f.properties["@opacity"];
+			drawImageQuad(ctx, img, c, (lo, la) => { const q = pr(lo, la); return q[2] < 0 ? null : [q[0], q[1]]; }, { grid: 10, alpha: op > 0 && op <= 1 ? op : 1 });
+		}
+	}
+
 	function drawBlurs(pr, st) {
 		const feats = st.model.feats;
 		for (const eid of envOf(st).blurs) {
@@ -289,6 +317,7 @@ export function createOverlay(map, mapEl, getState) {
 		// 大規模モード＝環境系パス（シンボル/blur/帯＝全feats走査）は描かない。選択・ドラッグ中の
 		// フィーチャとハンドルだけ描く（Phase2 頂点編集＝GintBUF lift 済みの arcs を model と同規約で読む）
 		if (!st.model.large) {
+			drawQuads(pr, st);   // 四隅で貼った画像（いちばん下）
 			drawBlurs(pr, st);   // 不確定エリアのぼかし塗り（面の下地）
 			drawPolyLines(pr, st);   // ポリゴン化した線＝帯（@poly＝canvas2D 経路）
 			drawSymbols(pr, st);

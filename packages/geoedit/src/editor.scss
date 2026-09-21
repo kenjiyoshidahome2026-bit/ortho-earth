@@ -213,6 +213,7 @@
 .ge-panel .ge-copytip:hover { background: rgba(255, 255, 255, .2); opacity: 1; }
 .ge-panel .ge-row input[type="range"] { flex: 1; min-width: 70px; accent-color: #78aadd; }
 .ge-panel .ge-row .ge-val { min-width: 3.2em; text-align: right; opacity: .8; }
+.ge-panel .ge-hint { font-size: 11px; opacity: .7; margin: 2px 0 6px; }
 .ge-panel .ge-row input.ge-num { flex: 1; min-width: 70px; max-width: 110px; }
 .ge-panel .ge-drop {
 	flex: 1;

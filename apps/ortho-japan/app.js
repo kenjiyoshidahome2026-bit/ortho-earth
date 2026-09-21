@@ -2167,24 +2167,28 @@ const rasterSyncURL = () => {
 map.raster = {
 	catalog: REGION_RASTERS,
 	// add(id, spec, opts)：spec＝{ url:"…/{z}/{x}/{y}.png", minZoom, maxZoom, bbox, attribution, subdomains, tms, headers }｜{ pmtiles:"…" }｜{ file: File(.gpkg/.mbtiles), table? }｜{ port: MessagePort }
+	//                     ｜{ image: Blob|ImageBitmap, corners: [[lon,lat]×4 左上→右上→右下→左下], name? }（四隅で貼る＝MapLibre の image source 相当・2026-09-21）
 	//                     opts＝{ order:"under"|"over", opacity, visible, hideFills（under 既定 true）, minZoom, maxZoom（表示域） }。戻り＝ソースの自己申告（info）
 	async add(id, spec, o = {}) {
 		if (rasterReg.has(id)) map.raster.remove(id);
 		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
 		rasterReg.set(id, rec);
 		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
-		if (spec && spec.file) {   // ローカル容器＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
-			const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "rastertiles" });
+		if (spec && (spec.file || spec.image)) {   // ローカル容器／四隅で貼る画像＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
+			const w = spec.image
+				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
+				: new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "rastertiles" });
 			rec.worker = w;
 			const ch = new MessageChannel();
 			const opened = new Promise((res, rej) => {
 				w.onmessage = e => { const d = e.data || {}; if (d.type === "opened") res(d.info); else if (d.type === "error") rej(Object.assign(new Error(d.error), { vectorLayers: d.vectorLayers })); };
 				w.onerror = e => rej(new Error(e.message || "raster provider worker error"));
 			});
-			w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
+			if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, port: ch.port1 }, [ch.port1]);
+			else w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
 			try { await opened; } catch (err) { w.terminate(); if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
 			if (rasterReg.get(id) !== rec) { w.terminate(); throw new Error("removed while opening"); }
-			wireSpec = { port: ch.port2, name: spec.name || spec.file.name, attribution: spec.attribution || null }; transfer = [ch.port2];
+			wireSpec = { port: ch.port2, name: spec.name || spec.file?.name || "image", attribution: spec.attribution || null }; transfer = [ch.port2];
 		}
 		const done = new Promise((res, rej) => { rec._res = res; rec._rej = rej; });
 		wPost({ type: "set", cmd: "rasterAdd", prop: id, data: { spec: wireSpec, opts: rec.opts } }, transfer);
@@ -2558,6 +2562,20 @@ const INTAKE = [
 		},
 	},
 	{
+		name: "image",   // 素の画像（PNG/JPEG/WebP…）＝落とした地点（無ければ画面中心）に画面の半分の幅・北向きで貼る（2026-09-21）。
+		// 中身は「@image つき 4 頂点の面」の GeoPBF＝本道へ合流＝編集ボタンで geoedit に渡せば四隅をドラッグで合わせられる（古地図の位置合わせ）
+		test: f => /\.(png|jpe?g|webp|gif|avif)$/i.test(f.name),
+		convert: async (file, ctx) => {
+			const { placeCorners, quadPolygon, IMAGE_KEY: K } = await import("geopbf/edit/imagequad");
+			const bm = await createImageBitmap(file); const aspect = bm.height / bm.width; bm.close?.();
+			const c = ctx?.at || [cam.center[0], cam.center[1]];
+			const wDeg = 360 * size.w / (WORLD_PX * 2 ** cam.zoom) * 0.5, widthM = Math.max(5, Math.min(2e6, wDeg * 111320 * Math.cos(c[1] * D2R)));
+			const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { name: file.name.replace(/\.[^.]+$/, ""), [K]: file }, geometry: quadPolygon(placeCorners(c, widthM, aspect)) }] };
+			const pbf = await geopbf(fc, { gint: false, name: file.name });
+			return new File([pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
+		},
+	},
+	{
 		name: "model",   // glTF/GLB＝3D 模型（PLATEAU と同じ建物メッシュ経路・gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（ctx.at）に置く／CESIUM_RTC・ECEF 入りは埋め込みが勝つ
 		test: f => /\.(glb|gltf)$/i.test(f.name),
 		draw: async (file, ctx) => {
@@ -2600,7 +2618,7 @@ const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝�
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file)) continue;
 		if (fmt.draw) return fmt.draw(file, { fit, ...ctx });
-		file = await fmt.convert(file);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
+		file = await fmt.convert(file, ctx);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 		break;
 	}
 	return mainRoad(file, { fit });
@@ -2612,12 +2630,15 @@ const mainRoad = async (file, { fit = true } = {}) => {
 	if (!pbf?.unPackGint) return null;
 	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
 	// 瞬間ジャンプ(ポップイン)でなく「図形が現れて→近づく」。着地は真俯瞰(tilt/bearing=0)・北向き＝fit の north-up 前提。
-	if (pbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
+	// 四隅で貼った画像（@image つき 4 頂点の面＝geoedit で置いた古地図・写真）＝画像タイル層へ。描く図形からは抜く（枠を二重に描かない）
+	const drawPbf = pbf.keys?.includes(IMAGE_KEY) ? await placeImages(pbf, file.name) : (clearImages(), pbf);
+	if (!drawPbf) { gint.clearUserGint(); annoCtl?.clear(); }
+	else if (drawPbf.keys?.some(k => ANNO_KEYS.has(k))) {   // @スタイル付き＝注釈レイヤ（geoedit 作）＝canvas2D 再生（gint スロットは触らない→前の層は消す）
 		gint.clearUserGint();
-		await map.gadget.anno(pbf);
+		await map.gadget.anno(drawPbf);
 	} else {
 		annoCtl?.clear();
-		gint.applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
+		gint.applyGintData(drawPbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
 	}
 	editDocHook?.(pbf, file.name);
 	// 高さの列を持つ面＝自動で 3D 押し出し（geoedit の面パネル「高さ」もここ）。?extrude=0＝しない／?extrude=<列名>[,倍率]＝列を指定
@@ -2632,6 +2653,27 @@ const mainRoad = async (file, { fit = true } = {}) => {
 		flyTo(cx, cy, Math.max(3, Math.min(17, z)), ex ? 50 : 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0・押し出しがあれば 50° 起こす＝真俯瞰では建物を描かない）
 	}
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
+};
+// 四隅で貼った画像＝1 枚ごとに画像タイル層 "img:<n>"（重ね・@opacity）。前の画像は外す（「最後の 1 枚が勝つ」＝図形と同じ）。
+// 戻り値＝画像を抜いた残りの図形（gint/anno へ）。残りが無ければ null。imagequad（判定・四隅）は遅延 import＝画像の無い読み込みは降ろさない
+const IMAGE_KEY = "@image";
+let imageIds = [];
+const clearImages = () => { for (const id of imageIds) map.raster.remove(id); imageIds = []; };
+const placeImages = async (pbf, name) => {
+	clearImages();
+	const { isImageFeature, cornersOf } = await import("geopbf/edit/imagequad");
+	const gj = pbf.geojson, imgs = [], rest = [];
+	for (const f of gj.features) (isImageFeature(f) && f.properties[IMAGE_KEY] instanceof Blob ? imgs : rest).push(f);
+	imgs.forEach((f, k) => {
+		const id = `img:${k}`, op = +f.properties["@opacity"];
+		imageIds.push(id);
+		map.raster.add(id, { image: f.properties[IMAGE_KEY], corners: cornersOf(f.geometry), name: f.properties.name || f.properties[IMAGE_KEY].name || name },
+			{ order: "over", opacity: op > 0 && op <= 1 ? op : 1, hideFills: false }).catch(err => console.warn("[image] failed", id, err));
+	});
+	if (imgs.length) console.info(`[image] ${imgs.length} image(s) placed by four corners`);
+	if (!rest.length) return null;
+	if (!imgs.length) return pbf;
+	return geopbf({ type: "FeatureCollection", features: rest }, { gint: true, name: `drop/${name}` }).catch(err => { console.error("[image] rest", err); return null; });
 };
 // 自動押し出し＝本道の続き。前の押し出しは外す（「最後の 1 枚が勝つ」）。高さの鍵が無ければ遅延 chunk も降ろさない
 const extrudeQ = (() => { const v = new URLSearchParams(location.search).get("extrude"); if (v == null) return null; const [k, sc] = v.split(","); return { off: k === "0" || k === "off", key: k || undefined, scale: +sc > 0 ? +sc : 1 }; })();
@@ -2655,7 +2697,7 @@ const rasterDropFile = async (file, fallback = false) => {
 	}
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
@@ -2679,10 +2721,10 @@ map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック�
 		if (rec?.buf && !doc) loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false });
 	});
 	return editGadget.call(this, {
-		mount: ({ onClose }) => { annoCtl?.clear(); modelCtl?.clearExtrude(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
+		mount: ({ onClose }) => { annoCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
 		onResult: async buf => {
 			if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false });
-			else { annoCtl?.clear(); modelCtl?.clearExtrude(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
+			else { annoCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
 		},
 		signal: ac.signal, ...opts,
 	});

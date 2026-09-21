@@ -82,7 +82,7 @@ export function initToolbar(el, api, signal) {
 	btn("imp", t("Import a GIS file (or drop it)"), () => file.click());
 	const file = document.createElement("input");
 	file.type = "file";
-	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.dxf,.gz";
+	file.accept = ".geopbf,.pbf,.geojson,.ndjson,.geojsonl,.jsonl,.json,.topojson,.fgb,.zip,.kmz,.gpx,.gml,.xml,.gpkg,.sqlite,.spatialite,.dxf,.gz,.png,.jpg,.jpeg,.webp,.gif,.avif";   // 画像＝四隅で貼る（古地図・写真）
 	file.hidden = true;
 	file.addEventListener("change", () => { if (file.files[0]) api.importFile(file.files[0]); file.value = ""; }, { signal });
 	el.append(file);

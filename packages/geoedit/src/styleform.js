@@ -301,8 +301,35 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	};
 
 	// ---- 型ごとの構成 ----
+	// ---- 四隅で貼った画像（@image つき 4 頂点の面）＝濃さ・画像の差し替えだけ（四隅は頂点ドラッグで合わせる）----
+	const quadRows = () => {
+		const da = row(t("Opacity"));
+		const cur = +props()["@opacity"] > 0 ? +props()["@opacity"] : 1;
+		const a = Object.assign(document.createElement("input"), { type: "range", min: 5, max: 100, value: Math.round(cur * 100), title: t("Image opacity") });
+		const av = document.createElement("span"); av.className = "ge-val"; av.textContent = Math.round(cur * 100) + "%";
+		const val = () => +a.value >= 100 ? "" : +a.value / 100;   // 100%＝既定＝鍵を消す
+		a.addEventListener("input", () => { av.textContent = a.value + "%"; set({ "@opacity": val() }, false); }, { signal });
+		a.addEventListener("change", () => set({ "@opacity": val() }, true), { signal });
+		da.append(a, av);
+		const dz = row(t("Image"));
+		const zone = document.createElement("div");
+		zone.className = "ge-drop"; zone.textContent = t("Drop an image here to replace it");
+		zone.addEventListener("dragover", e => e.preventDefault(), { signal });
+		zone.addEventListener("drop", e => {
+			e.preventDefault(); e.stopPropagation();
+			const f = e.dataTransfer.files?.[0];
+			if (!f || !/^image\//.test(f.type)) return;
+			set({ "@image": f }, true);   // 四隅はそのまま＝画像だけ替える（縦横比が違えば四隅を合わせ直す）
+			zone.textContent = `✓ ${f.name}`;
+		}, { signal });
+		dz.append(zone);
+		const hint = document.createElement("div"); hint.className = "ge-hint"; hint.textContent = t("Drag the four corners to fit the map underneath");
+		mount.append(hint);
+	};
+
 	preview = makePreview(); host.append(preview.el);
-	if (kind === "polygon") {
+	if (kind === "polygon" && props()["@image"] != null) quadRows();
+	else if (kind === "polygon") {
 		colorRow(t("Fill color ##polygon"), "@fill", DEF.fill, true);
 		const strokeRow = colorRow(t("Line color"), "@stroke", DEF.stroke, false), widthEl = widthRow();
 		boolRow(t("Smooth"), "@spline", t("Curve (fuzzy)"));
