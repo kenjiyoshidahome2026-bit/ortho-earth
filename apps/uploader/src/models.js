@@ -1,5 +1,5 @@
 // 名所 3D 模型（GLB）の一括アップロード → bucket GIS/models/<id>.glb（ortho-japan の /japan/models.html が読む）。
-// 台帳＝apps/ortho-japan/public/models.json（monorepo 直読み＝正本は japan 側）。本人が Sketchfab から落とした GLB を選ぶ→
+// 台帳＝apps/ortho-japan/public/models.json（monorepo 直読み＝正本は japan 側）。GLB（npm run landmarks が作る）を選ぶ→
 // ファイル名から台帳の id を推定（手で直せる）→「全部アップロード」＝順に put（50 MB 以上は native-bucket が multipart）。
 // 置き物は native-bucket の put が gzip で置く（.glb は圧縮対象）＝読む側（models.js）は自分で gunzip する。
 // 台帳に無い模型は「ファイル名のまま」で置ける（後で台帳へ行を足す）。
@@ -24,6 +24,7 @@ function guess(fileName, models) {
 const safeName = s => s.replace(/[^\w.\-]+/g, "-").replace(/^-+|-+$/g, "").toLowerCase();
 
 export function modelsUI({ CMD, q, Bucket }) {
+	CMD.append("h2").text("3D 模型");
 	CMD.append("button").text("3D 模型 GLB → GIS/models（名所 showcase）").on("click", () => open().catch(e => { console.error(e); q.error(String(e?.message || e)); }));
 
 	async function open() {

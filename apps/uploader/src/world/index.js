@@ -126,7 +126,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		return `${out.keyed} 都市 × ${NE_CITY_LANGS.length} 言語`;
 	}
 
-	CMD.append("h1").text("国別DB (world)");
+	CMD.append("h2").text("国別DB (world)");
 	CMD.append("button").text(`一覧 (${DIRE})`).on("click", async () => {
 		q.clear(); q.title(`一覧 (${DIRE})`);
 		(await bucket.list()).forEach(t => q.log(`${t.Key}  ${(t.Size / 1024).toFixed(1)}KB  ${t.LastModified}`));
