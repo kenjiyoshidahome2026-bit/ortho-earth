@@ -1,7 +1,7 @@
 // スタイル入力フォーム（GIS素人向けの日本語UI）＝@プロパティを直接見せない編集面。
 // 点/線/面でコントロールが変わる共通部品：選択中フィーチャの編集（properties.js）と
 // 作図ツールの既定スタイル（toolbar.js）の両方から使う。
-//   面: 面の色(picker)＋塗りの濃さ(スライダー) / 線の色 / 線幅(1–10px)
+//   面: 面の色(picker)＋塗りの濃さ(スライダー) / 線の色 / 線幅(1–10px) / 高さ(m＝height・ビューアで 3D 押し出し)
 //   線: 線の色 / 線幅
 //   点: シンボル（アイコン/基本図形/テキスト）・大きさ（大中小）・色
 //   共通: ツールチップ(@tip)・吹き出し(@pop)＝改行できる textarea
@@ -286,6 +286,20 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 		return { el: d, draw };
 	};
 
+	// ---- 高さ（面のみ・height＝メートル）。ビューアが 3D に押し出す（MapLibre の fill-extrusion と同じ鍵名＝他の道具へ持ち出しても通じる）。
+	//      @ を付けない＝見た目でなくデータ（建物の高さ）。空欄＝消す（平らな面に戻る）----
+	const heightRow = () => {
+		const d = row(t("Height"));
+		const cur = +props().height > 0 ? +props().height : "";
+		const inp = Object.assign(document.createElement("input"), { type: "number", min: 0, max: 9000, step: 1, value: cur, placeholder: "0", title: t("Height in metres (stands up in 3D in the viewer)") });
+		inp.className = "ge-num";
+		const u = document.createElement("span"); u.className = "ge-val"; u.textContent = "m";
+		const val = () => { const v = +inp.value; return v > 0 ? Math.min(9000, v) : ""; };
+		inp.addEventListener("input", () => set({ height: val() }, false), { signal });
+		inp.addEventListener("change", () => set({ height: val() }, true), { signal });
+		d.append(inp, u);
+	};
+
 	// ---- 型ごとの構成 ----
 	preview = makePreview(); host.append(preview.el);
 	if (kind === "polygon") {
@@ -293,6 +307,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 		const strokeRow = colorRow(t("Line color"), "@stroke", DEF.stroke, false), widthEl = widthRow();
 		boolRow(t("Smooth"), "@spline", t("Curve (fuzzy)"));
 		blurRow([strokeRow, widthEl]);   // blur ON の間は線の色/線幅を隠す（stroke 無し）
+		heightRow();
 	}
 	else if (kind === "line") {
 		colorRow(t("Line color"), "@stroke", DEF.stroke, false);

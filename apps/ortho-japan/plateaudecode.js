@@ -332,7 +332,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 // 本体は decodeBatch の末尾からの「動作を変えない移動」（引数＝元のローカル変数そのまま）。
 // groundBatch＝接地の単位：true＝バッチ最低点で一体（橋梁・単体の模型）／false＝連結成分ごと（街の一区画＝斜面や
 // 高台の建物が浮かない。PLATEAU LOD3 を切り出した名所模型はこちら・2026-09-21 大阪城/岐阜城/松江城が浮いた）
-function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null, groundBatch = brid) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
+export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null, groundBatch = brid) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
 	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
 	// 重複は同一タイル内（nusamai両面出力等）が支配的＝バッチ内 dedup で実質すべて捕まる。

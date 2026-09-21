@@ -9,6 +9,7 @@ import {
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
+import { hasHeightKey } from "./extrude-keys.js";   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
@@ -2470,9 +2471,10 @@ map.gadget("globe", function (o) {   // ミニ地球儀（右下・視野の枠�
 // glTF/GLB（3D 模型）＝PLATEAU と同じ建物メッシュとして立てる（gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（無ければ画面中心）の ENU に置く／
 // CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の plateauMesh スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
 let modelCtl = null;
-map.gadget("model", async function (src, opts) {
+const modelCtlGet = async () => {
 	const m = await import("./gadgets/model.js");
-	modelCtl ??= m.createModel(map, {
+	if (modelCtl) return modelCtl;
+	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "plateauMesh", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
@@ -2482,8 +2484,22 @@ map.gadget("model", async function (src, opts) {
 		},
 		center: () => [cam.center[0], cam.center[1]], ell: ELL_ON, signal: ac.signal,
 	});
-	dbgHost.__model = modelCtl;   // 検証窓（t-model）
-	return modelCtl.load(src, opts);
+	return modelCtl;
+};
+map.gadget("model", async function (src, opts) {
+	return (await modelCtlGet()).load(src, opts);
+});
+// 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当・2026-09-21）＝模型と同じ建物メッシュ経路（worker で earcut→finishMesh）。
+//   src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF（.geojson を持つもの）・File・URL。
+//   opts＝{ height: 鍵名|数|(props)=>m（省略＝height/measuredHeight/高さ…を自動・階数×3m）, base, color: css|(props,h)=>css（省略＝@fill→段彩）,
+//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true） }。null を渡すと外す。戻り値＝stats か null（立つ面なし）
+map.gadget("extrude", async function (src, opts = {}) {
+	const c = await modelCtlGet();
+	if (src == null) { c.clearExtrude(); return null; }
+	let gj = src;
+	if (typeof src === "string" || src instanceof Blob) gj = (await geopbf(src, { gint: false }))?.geojson;
+	else if (!src.type && !Array.isArray(src) && src.geojson) gj = src.geojson;
+	return c.extrude(gj, { fit: true, ...opts });
 });
 // 衛星シーン検索（STAC＝Earth Search→選んだシーンの COG を球へ）。スタブ＝ボタンのみ常駐・本体は初回クリック
 map.gadget("stac", function (opts) {
@@ -2589,6 +2605,7 @@ const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝�
 	}
 	return mainRoad(file, { fit });
 };
+dbgHost.__loadUserFile = loadUserFile;   // 検証窓（ドロップと同じ一本道を CDP から＝自動押し出しの確認）
 // 本道（gint 焼き→@検知で anno 再生 or gint スロット→bbox へ fit）＝取り込み表の draw 行からも合流できる（raster-gpkg の地物層フォールバック）
 const mainRoad = async (file, { fit = true } = {}) => {
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
@@ -2603,15 +2620,26 @@ const mainRoad = async (file, { fit = true } = {}) => {
 		gint.applyGintData(pbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
 	}
 	editDocHook?.(pbf, file.name);
+	// 高さの列を持つ面＝自動で 3D 押し出し（geoedit の面パネル「高さ」もここ）。?extrude=0＝しない／?extrude=<列名>[,倍率]＝列を指定
+	const ex = await autoExtrude(pbf);
 	const bb = pbf.unPackGint.bbox;
+	if (!fit && ex && (cam.pitch || 0) < 0.02) flyTo(cam.center[0], cam.center[1], cam.zoom, 50, cam.bearing * R2D);   // 真俯瞰では建物は描かれない＝その場で起こす
 	if (fit && bb && bb.length === 4) {
 		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
 		// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
-		flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）
+		flyTo(cx, cy, Math.max(3, Math.min(17, z)), ex ? 50 : 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0・押し出しがあれば 50° 起こす＝真俯瞰では建物を描かない）
 	}
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
+};
+// 自動押し出し＝本道の続き。前の押し出しは外す（「最後の 1 枚が勝つ」）。高さの鍵が無ければ遅延 chunk も降ろさない
+const extrudeQ = (() => { const v = new URLSearchParams(location.search).get("extrude"); if (v == null) return null; const [k, sc] = v.split(","); return { off: k === "0" || k === "off", key: k || undefined, scale: +sc > 0 ? +sc : 1 }; })();
+const autoExtrude = async pbf => {
+	modelCtl?.clearExtrude();
+	if (extrudeQ?.off || !(extrudeQ?.key ? pbf.keys?.includes(extrudeQ.key) : hasHeightKey(pbf.keys))) return null;
+	try { return await (await modelCtlGet()).extrude(pbf.geojson, { height: extrudeQ?.key, scale: extrudeQ?.scale ?? 1 }); }
+	catch (err) { console.warn("[extrude] failed", err); return null; }
 };
 // ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
 const rasterDropFile = async (file, fallback = false) => {
@@ -2627,7 +2655,7 @@ const rasterDropFile = async (file, fallback = false) => {
 	}
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
@@ -2651,10 +2679,10 @@ map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック�
 		if (rec?.buf && !doc) loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false });
 	});
 	return editGadget.call(this, {
-		mount: ({ onClose }) => { annoCtl?.clear(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
+		mount: ({ onClose }) => { annoCtl?.clear(); modelCtl?.clearExtrude(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
 		onResult: async buf => {
 			if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false });
-			else { annoCtl?.clear(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
+			else { annoCtl?.clear(); modelCtl?.clearExtrude(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
 		},
 		signal: ac.signal, ...opts,
 	});
