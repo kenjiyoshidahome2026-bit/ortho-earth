@@ -17,6 +17,23 @@ const STORE_NAME  = 'L03bR-raster';
 
 const MAP = { west: 122, east: 154, south: 20, north: 47 };
 
+// 土地利用種別（平成26年度）＝GeoTIFF の画素値と ColorMap（zip 同梱 LandUseCd-TIFF.htm と TIFF の ColorMap で確認 2026-09-21）。
+// 0＝解析範囲外（透明）。地球表示で WebP/JPEG の圧縮にじみをこの色へ吸着し、ホバーで種別名を出す。
+const LANDUSE = [
+    { code: 10,  label: '田',             rgb: [255, 255,   0] },
+    { code: 20,  label: 'その他の農用地', rgb: [255, 204, 153] },
+    { code: 50,  label: '森林',           rgb: [  0, 170,   0] },
+    { code: 60,  label: '荒地',           rgb: [255, 153,   0] },
+    { code: 70,  label: '建物用地',       rgb: [255,   0,   0] },
+    { code: 91,  label: '道路',           rgb: [140, 140, 140] },
+    { code: 92,  label: '鉄道',           rgb: [180, 180, 180] },
+    { code: 100, label: 'その他の用地',   rgb: [200,  70,  15] },
+    { code: 110, label: '河川地及び湖沼', rgb: [  0,   0, 255] },
+    { code: 140, label: '海浜',           rgb: [255, 255, 153] },
+    { code: 150, label: '海水域',         rgb: [  0, 204, 255] },
+    { code: 160, label: 'ゴルフ場',       rgb: [  0, 255,   0] },
+];
+
 function nlftp2proxy(url) {
     return `${API_BASE}/proxy/?url=${encodeURIComponent(url)}`;
 }
@@ -172,7 +189,7 @@ export async function openL03bRViewer(format = 'webp') {
 
     let alive = true;
     const workers = new Set();
-    const webpMap = new Map(); // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n] }
+    const webpMap = new Map(); // meshCode → { webpData: Uint8Array, bbox: [w,s,e,n], classes, width, height }
     let total = 0, done = 0, errors = 0;
 
     // ---- キャンバス描画ヘルパー ----------------------------------------
@@ -241,12 +258,14 @@ export async function openL03bRViewer(format = 'webp') {
         try { cachedRecords = await idbGetAll(db); } catch (e) {}
     }
 
-    const formatMatch = cachedRecords.length > 0 && cachedRecords[0].format === format;
+    // classes（分類コード）の無い旧キャッシュは使わない＝地球表示が非可逆画像の色から分類を推し量ることになる（正答率 73%・2026-09-21 実測）
+    const formatMatch = cachedRecords.length > 0 && cachedRecords[0].format === format && cachedRecords.every(r => r.classes);
+    if (cachedRecords.length && !formatMatch && cachedRecords.every(r => r.format === format)) console.info('[L03-b_r] 旧形式のキャッシュ＝分類コードを保存し直すため変換し直します');
     if (formatMatch) {
         total = cachedRecords.length;
         statusEl.textContent = `IDBキャッシュ: ${total} 件 (${FMT_LABEL[format]})`;
         for (const rec of cachedRecords) {
-            webpMap.set(rec.meshCode, { webpData: rec.webpData, bbox: rec.bbox });
+            webpMap.set(rec.meshCode, { webpData: rec.webpData, bbox: rec.bbox, classes: rec.classes, width: rec.width, height: rec.height });
             drawTileOnCanvas(rec.webpData, rec.bbox);
             done++;
         }
@@ -276,10 +295,10 @@ export async function openL03bRViewer(format = 'webp') {
                 console.warn(`[L03-b_r] ${data.meshCode}: ${data.error}`);
             } else {
                 done++;
-                const { meshCode, webpData, bbox } = data;
-                webpMap.set(meshCode, { webpData, bbox });
+                const { meshCode, webpData, bbox, classes, width, height } = data;
+                webpMap.set(meshCode, { webpData, bbox, classes, width, height });
                 drawTileOnCanvas(webpData, bbox);
-                if (db) idbPut(db, { meshCode, webpData, bbox, format }).catch(() => {});
+                if (db) idbPut(db, { meshCode, webpData, bbox, format, classes, width, height }).catch(() => {});
             }
             updateProgress();
         }
@@ -343,7 +362,8 @@ export async function openL03bRViewer(format = 'webp') {
         let remove = null, closed = false;
         const map = await enterGlobeView(() => { closed = true; remove?.(); remove = null; });   // × ボタン・Escape で外す
         try {
-            remove = await showMeshRaster(webpMap, { id: 'L03bR-Raster', name: 'L03-b_r', attribution: '国土数値情報（土地利用細分メッシュ）', opacity: 0.85 });
+            remove = await showMeshRaster(webpMap, { id: 'L03bR-Raster', name: 'L03-b_r', attribution: '国土数値情報（土地利用細分メッシュ）', opacity: 0.85,
+                palette: LANDUSE, legendTitle: '土地利用種別（平成26年度）' });
             if (closed) { remove(); remove = null; return; }   // 準備中に閉じられた
         } catch (e) {
             console.error('[L03-b_r] レイヤー作成失敗:', e);
