@@ -6,7 +6,7 @@
 	"scripts": {
 		"dev": "vite",
 		"build": "vite build",
-		"models": "node scripts/models-fetch.mjs",
+		"models": "node scripts/models-upload.mjs",
 		"landmarks": "node scripts/plateau-landmarks.mjs"
 	},
 	"dependencies": {
@@ -17,7 +17,6 @@
 		"native-bucket": "*",
 		"ortho-core": "*",
 		"ortho-map": "*",
-		"polygon-clipping": "^0.15.7",
 		"three": "^0.177.0"
 	},
 	"devDependencies": {
