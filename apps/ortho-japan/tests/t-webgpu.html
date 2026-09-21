@@ -8,7 +8,7 @@
 history.replaceState(null, "", "?gpu=1");   // app.js は起動時に location.search を読む＝import 実行前に旗を立てる
 import("../app.js").then(async ({ default: orthoJapan }) => {
 	const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
-	const m = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });
+	const m = await orthoJapan({ view: "#13/35.68/139.76", mesh: false });
 	// frame1（初描画成功）→ window.__backend 確定を待つ（健全なら1秒未満・仮想時間で25s上限）
 	const t0 = performance.now();
 	while (!window.__backend && performance.now() - t0 < 25000) await new Promise(r => setTimeout(r, 200));

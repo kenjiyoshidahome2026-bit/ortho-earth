@@ -11,7 +11,7 @@ import orthoJapan from "../app.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 try {
-	const map = await orthoJapan({ view: "#12.2/32.2/138/60t", plateau: false, chips: false });
+	const map = await orthoJapan({ view: "#12.2/32.2/138/60t", mesh: false, chips: false });
 	await new Promise(r => { let done = false; const h = () => { if (!done) { done = true; map.off?.("settle", h); r(); } }; map.on?.("settle", h); setTimeout(h, 8000); });
 	const pitchDeg = map.view.pitch * 180 / Math.PI;
 	ok(`pitch=${pitchDeg.toFixed(0)}°`, map.view.pitch > 0.1);   // dispRadius→elevOf を通る前提（真俯瞰では検定にならない）

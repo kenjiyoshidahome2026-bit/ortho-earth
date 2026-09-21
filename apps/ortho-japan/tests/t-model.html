@@ -71,7 +71,7 @@ const spans = (bb, lat) => [(bb[2] - bb[0]) * mLon(lat), (bb[3] - bb[1]) * mLat]
 try {
 	mark("boot");
 	const AT = [139.7671, 35.6812];
-	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", chips: false, plateau: false });
+	const map = await orthoJapan({ view: "#16/35.6812/139.7671/55t", chips: false, mesh: false });
 	mark("booted");
 	// ① 錨＝落とした地点。20×20×30 の箱
 	let c = await map.gadget.model(makeGlb(), { at: AT, fit: false });

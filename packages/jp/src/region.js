@@ -3,7 +3,7 @@
 // 地域宣言は「データの記述子」であってクラスではない。エンジンも altpbf も地域を知らず、
 // アプリが起動時にこの宣言を渡す（標高＝2026-09-17・建物＝同日）。
 //   dtm       … 裸地標高の申告（packages/jp/src/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
-//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）。
+//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・icon は建物データ管理ボタンの顔。
 //               sets を持つ地域はカタログを取らず、その場の配列を台帳へ足す（オランダ側を見よ）
 //   basemap   … ベクタ基図のソース記述子（null＝基図を持たない地域＝タイルを要求せず図郭外と同じ扱い）
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
@@ -26,6 +26,14 @@ export const JP_REGION = {
 		catalog: "plateau-sets.json",       // scripts/plateau-catalog-build.mjs が datacatalog API から生成
 		exclude: "plateau-exclude.json",    // 区ごとの除外タイル（decode 側へ配る）
 		landmarks: "plateau-landmarks.json",// ランドマークの名札（施設チップ ON の時だけ）
+		// 建物データ管理ボタン（map.gadget.mesh）のアイコン＝Project PLATEAU（国土交通省）公式ロゴマーク
+		//（plateau.mlit.go.jp の logo_min そのまま・色はブランド紫）。宣言しない地域は汎用の建物の形（2026-09-22 アプリから移設）。
+		icon: `<svg viewBox="0 0 20 30" width="14" height="21" fill="#463C64" aria-hidden="true">
+			<path d="M9.70269 11.7457L7.49993 10.452L0 6.04688V17.4448L20 29.1918V17.7939L16.0001 15.4446L14.8514 14.7698L12 13.0951L9.70269 11.7457Z"/>
+			<path d="M9.69941 0L0.293945 5.52444L7.34804 9.66773L9.69941 11.0487V0Z"/>
+			<path d="M14.851 14.0728V8.37378L19.7023 5.52444L10.2969 0V11.3979L12.1185 12.4679L14.851 14.0728Z"/>
+			<path d="M19.9994 17.0956V6.04688L15.4453 8.72162V14.4207L16.3562 14.9556L19.9994 17.0956Z"/>
+		</svg>`,
 	},
 	// 地理院 optimal_bvmap。配信圏の外接矩形＝これと全く重ならないタイルは常に 404 が返る提供圏外＝
 	// pipeline が fetch を省いて空タイル（標高ゲート付き全面水域）扱いにする（無駄な 404 を断つ）。

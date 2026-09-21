@@ -23,7 +23,9 @@ export interface OrthoJapanOptions {
 	chips?: boolean;
 	/** 下部計器盤。true=全部／配列=選択（"attr"を消すならページ側で出典明記の義務） */
 	instruments?: boolean | Array<"pos" | "scale" | "attr" | "log">;
-	/** 建物3D（PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true） */
+	/** 建物3D（建物メッシュ・日本では PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true・1.2.0〜） */
+	mesh?: boolean;
+	/** @deprecated 1.2.0〜 mesh を使う（同じ意味・両方あれば mesh が優先）。次の大版で撤去 */
 	plateau?: boolean;
 	/** UI言語（地図中の地名は対象外）。live 切替 API は無い＝変えるなら view: map.view.hash を持って destroy()→再生成 */
 	lang?: OrthoJapanLang;
@@ -48,10 +50,12 @@ export interface OrthoJapanOptions {
 	debugGlobals?: boolean;
 }
 
-/** map.on("plateau") の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
+/** map.on("mesh")（1.2.0〜・旧名 "plateau"）の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
 export type MeshEvent =
 	| { phase: "catalog"; count: number }
 	| { phase: "start" | "done" | "cancelled" | "failed"; name: string; base: string };
+/** @deprecated 1.2.0〜 MeshEvent を使う（同じ型）。次の大版で撤去 */
+export type PlateauEvent = MeshEvent;
 
 /** 右クリックメニュー項目（map.gadget.contextmenu({items})） */
 export interface ContextMenuItem {
@@ -81,7 +85,9 @@ export interface Gadgets {
 	qr(): { open(): void; close(): void };
 	print(): { open(): void; close(): void };
 	cpos(): unknown;
-	/** 建物3D データ管理（先読み/削除）。plateau:false では載らない */
+	/** 建物3D データ管理（先読み/削除）。mesh:false では載らない（1.2.0〜・アイコンは地域の宣言＝日本は PLATEAU 公式ロゴ） */
+	mesh(): unknown;
+	/** @deprecated 1.2.0〜 mesh() を使う（同じもの）。次の大版で撤去 */
 	plateau(): unknown;
 	/**
 	 * GIS ファイルのドラッグ&ドロップ受け口（geopbf() が読める全形式）。受け口は mapEl のみ（ページ他所は自前）。既定＝geopbf(file)→applyGintData
@@ -233,9 +239,11 @@ export interface OrthoJapanMap {
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;
 	/** イベント購読（戻り値＝map・解除 API は無い）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
-	 *  plateau＝建物3D の読込合図（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
+	 *  mesh＝建物3D の読込合図（1.2.0〜・旧名 plateau も同じ合図を受ける）（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
 	on(ev: "load", cb: (e: {}) => void): OrthoJapanMap;
 	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): OrthoJapanMap;
+	on(ev: "mesh", cb: (e: MeshEvent) => void): OrthoJapanMap;
+	/** @deprecated 1.2.0〜 "mesh" を使う（同じ合図）。次の大版で撤去 */
 	on(ev: "plateau", cb: (e: MeshEvent) => void): OrthoJapanMap;
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */

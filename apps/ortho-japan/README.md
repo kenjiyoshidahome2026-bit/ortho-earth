@@ -44,12 +44,13 @@ A working sample ships in the zip (`example/index.html`): serve the unzipped fol
 | `layers` | — | Pin layers on/off: `place`, `terrain`, `rail`, `road`, `facility`. `true` = always on, `false` = always off (both hide the toggle chip); unset = user-toggleable |
 | `chips` | `true` | The layer/theme chip bar (top right) |
 | `instruments` | `true` | Bottom instrument bar. `true` = all, array = selective, `false` = none. Keys: `pos`, `scale`, `attr` (attribution), `log` |
-| `plateau` | `true` | 3D buildings (PLATEAU) master switch. `false` disables the catalog, workers, and auto-loading entirely — no multi-MB transfers ever start |
+| `mesh` | `true` | 3D buildings (PLATEAU) master switch. `false` disables the catalog, workers, and auto-loading entirely — no multi-MB transfers ever start |
+| `plateau` | — | Deprecated alias of `mesh` (1.1.x name; still accepted, `mesh` wins if both are given). |
 | `maxPitch` | `75°` | Tilt limit in **radians**. `0` = locked top-down |
 | `lang` | auto | UI language `"ja"` / `"en"`. Unset = `?lang=` → browser language. Applies to UI chrome only — map labels are part of the map data |
 | `assetBase` | `"./"` | Where the runtime assets live (see Install). Relative or absolute URL |
 
-Returns `map` — the full surface is typed in `dist/lib/ortho-japan.d.ts`: `view` / `flyTo` (Promise) / `on`/`off` (load, move, settle, plateau, click) / `projectLL`, `makeProjector`, `onFrame`, `requestDraw` (DOM overlays) / `unprojectXY` / `getHeight` / `gadget.*` / the gint handles (`applyGintData`, `paint`, `paintTable`, `onGintClick`) / `backend` / `destroy`.
+Returns `map` — the full surface is typed in `dist/lib/ortho-japan.d.ts`: `view` / `flyTo` (Promise) / `on`/`off` (load, move, settle, mesh — old name plateau still fires —, click) / `projectLL`, `makeProjector`, `onFrame`, `requestDraw` (DOM overlays) / `unprojectXY` / `getHeight` / `gadget.*` / the gint handles (`applyGintData`, `paint`, `paintTable`, `onGintClick`) / `backend` / `destroy`.
 
 `map.destroy()` tears everything down — workers, listeners, render loop, timers, DOM — and returns the container as it was (id restored, children removed, SDK classes removed). IndexedDB caches (PLATEAU, elevation) survive as origin assets, so revisits stay fast. Re-create with `view: map.view.hash` to keep the viewpoint — that is also how you change `lang` or `theme`, which have no live-switch API. (1.0.3 and earlier: destroying within 20 s of a WebGPU boot left a watchdog that reloaded the host page — fixed in 1.0.4.)
 
@@ -69,7 +70,7 @@ map.gadget.shot();      // save the view as an image (attribution baked in)
 map.gadget.print();     // paper-spec plan printing (true scale, A4/A3, graticule) → PDF
 map.gadget.qr();        // share the current view as a QR code
 map.gadget.equal({ zoom: [-99, 5] });   // to ortho-equal (Equal Earth): overlays /equal/ in an iframe (same URL) and unfolds from the same globe; map.gadget.equalHere() is the context-menu item
-map.gadget.plateau();   // 3D building data manager (preload / delete)
+map.gadget.mesh();      // 3D building data manager (preload / delete) — old name map.gadget.plateau() still works
 map.gadget.contextmenu();
 map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML/GeoParquet/COG/glTF-GLB…)
 map.gadget.hint();      // gesture help card

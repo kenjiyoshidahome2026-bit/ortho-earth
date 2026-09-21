@@ -3,11 +3,11 @@
 // 作法＝クラスも継承も作らない。登録簿（catalog）と除外マップはここが持つ。永続化の鍵（DECODE_VER / PLQ_VER / FAR_VER）はここに無い。
 //
 // env（生成時に渡す・3 束）：
-//   meshOn                 … 機能スイッチ（opts.plateau=false / ?nopl=1）
+//   meshOn                 … 機能スイッチ（opts.mesh=false［旧 opts.plateau］ / ?nopl=1）
 //   device                    … 起動時に確定する装置の旗 { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }
 //   catalog                   … 登録簿の Promise<set[]>（null＝機能 OFF）。到着の裁き（合図・自動ロード）はここ
 //   renderer, attachMeshPort  … 描画側：renderer.set(cmd,…)／区 worker→render worker のメッシュ直結ポートを渡す口
-//   mapEl, dbgHost, emit      … 読込トーストの容れ物／デバッグ手（__farState/__meshPurge）の宿主／map.on("plateau") の合図
+//   mapEl, dbgHost, emit      … 読込トーストの容れ物／デバッグ手（__farState/__meshPurge）の宿主／map.on("mesh") の合図
 //   requestDraw()             … 描画要求（pipeline と同じ口）
 //   cam, moving, flying, printHold, elevBusy … app の状態の覗き窓（getter＝毎回読む。cam は生成後に定義される）
 //   footPoint()               … 画面下端中央の接地点 [lon,lat]|null（チルト時の「手前」＝選抜とタイル順の錨）
@@ -38,7 +38,7 @@ export function createMeshManager(env) {
 const { meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, dbgHost, mapEl, renderer, attachMeshPort, emit, requestDraw, footPoint, viewBbox, playingNow, flyTo } = env;
 let SETS = [];             // 登録簿（カタログ到着で確定。地域宣言の catalog＋地域が直書きする set）
 let excludeMap = null;     // 捨てる地物（gml_id）＝起動後に来ても、後から起きる worker（遅延生成）にも配れるよう保持
-// 登録簿の到着＝合図（map.on("plateau") catalog）と自動ロードの一突き（復元ビューが z15+ の街なら起動直後に立つ＝settled 扱い）。
+// 登録簿の到着＝合図（map.on("mesh") catalog）と自動ロードの一突き（復元ビューが z15+ の街なら起動直後に立つ＝settled 扱い）。
 // 取得の失敗は警告のみ＝待つ側（prefetch）は解決を待ってから空の登録簿を見て諦める。一突きは .catch の外＝表示判定の例外を
 // 「catalog fetch failed」の皮を被せて飲まない（第二歩で foot の自己シャドウ TDZ がこの皮の下に隠れた轍・t-mesh が捕まえた）。
 const catalogReady = Promise.resolve(env.catalog).then(sets => {
@@ -526,7 +526,7 @@ function showResidentInFlight() {
 	}
 }
 function autoMesh(settled = false) {
-	if (!meshOn) return;   // 機能ごと停止（opts.plateau=false）
+	if (!meshOn) return;   // 機能ごと停止（opts.mesh=false）
 	if (env.flying) { showResidentInFlight(); return; }   // フライト中は新規ロード/解放はしない（原spec＝ジッタ対策）が、既に常駐する区の点灯（=ロードでない）だけは通す＝グライドのリビールで基図の箱を出さない
 	if (env.printHold) return;   // 印刷（平面図）撮影中＝印刷カメラで自動ロード/解放をしない（帯域と現ロード状態を乱さない）
 	if (env.cam.zoom >= MESH_AUTO_Z - 2 && (env.cam.pitch || 0) >= 0.02) spawnMeshWorkers();   // 暖機＝街に寄り始めたら先に worker を起こす（初回ロードの待ちを短く）

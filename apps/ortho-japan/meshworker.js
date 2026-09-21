@@ -319,7 +319,7 @@ navigator.storage?.estimate?.().then(e => {
 	if (e?.quota) idbBudget = Math.min(Math.max(e.quota * 0.5, 1.2e9), Math.max(e.quota * 0.8, 3e8));
 	console.log(`[mesh] IDB budget ${(idbBudget / 1e9).toFixed(1)}GB (origin quota ${((e?.quota || 0) / 1e9).toFixed(1)}GB, used ${((e?.usage || 0) / 1e9).toFixed(2)}GB)`);
 }).catch(() => {});
-const idbReady = Cache("GIS/plateau").catch(e => { console.warn("[mesh] IDB unavailable (continuing with memory cache only)", e); return null; });
+const idbReady = Cache("GIS/plateau")/* ⚠IDB の置き場名は据え置き＝利用者の端末に残る（mesh 改名 2026-09-22 でも変えない） */.catch(e => { console.warn("[mesh] IDB unavailable (continuing with memory cache only)", e); return null; });
 
 // ── バッチ本体の置き場＝OPFS（2026-08-02・XS温走行の「読了時落ち」対策）。台帳(meta)は IDB のまま二層 ──
 // 狙いは唯一「読みでピークを積まない」：旧・IDB命中は区の全バッチ(100-160MB)を配列に実体化してから送出＝

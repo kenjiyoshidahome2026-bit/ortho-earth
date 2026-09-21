@@ -39,7 +39,7 @@ try {
 	const map = await orthoJapan({
 		target: "#here",
 		view: "#13/35.68/139.76",
-		plateau: false,          // 通信を増やさない（機能スイッチの検定は t-opts の領分）
+		mesh: false,          // 通信を増やさない（機能スイッチの検定は t-opts の領分）
 		assetBase: "./assets-none/",   // 実行時アセットは同梱しない設計＝404 でも地図は立つ、の確認も兼ねる
 	});
 	await new Promise(r => setTimeout(r, 1200));

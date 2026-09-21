@@ -65,7 +65,7 @@ export function unpackBatch(readAt, headerOnly = false, take = null) {
 export async function opfsStore() {
 	if (!navigator.storage?.getDirectory) return null;
 	const root = await navigator.storage.getDirectory();
-	const dir = await root.getDirectoryHandle("plateau", { create: true });
+	const dir = await root.getDirectoryHandle("plateau", { create: true });   // ⚠名前は "plateau" のまま＝利用者の端末に残る OPFS の置き場（2026-09-22 の mesh 改名でも据え置き・変えると焼き済みが全部消える）
 	// probe 名は worker ごとに一意：MESH_NW 本が同時に initFs する＝同名だと同期ハンドルのロック競合で
 	// 後着が InvalidStateError＝そのworkerだけ silent に IDB フォールバックへ落ちる（E2E実測 2026-08-02＝4本中1本しか有効にならない）。
 	const probeName = "#probe-" + Math.random().toString(36).slice(2);

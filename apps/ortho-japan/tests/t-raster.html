@@ -33,7 +33,7 @@ const dh = () => { mapRef?.requestDraw(); return window.__drawHud?.d || null; };
 
 try {
 	mark("boot");
-	const map = await orthoJapan({ view: "#11/35.6812/139.7671", chips: false, plateau: false });
+	const map = await orthoJapan({ view: "#11/35.6812/139.7671", chips: false, mesh: false });
 	mark("booted"); mapRef = map;
 	ok("api", typeof map.raster?.add === "function" && Array.isArray(map.raster.catalog), `catalog=${map.raster?.catalog?.length}`);
 	// 基図（ベクタ）が描かれている状態を先に確かめる（塗り>0）
