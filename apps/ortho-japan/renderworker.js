@@ -185,7 +185,7 @@ function finishInit(m) {
 	if (!m.noTerr) terrain = createTerrain({
 		renderer, requestDraw: () => { dirty = true; },
 		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
-		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が jp/dtm.js から渡す（接地リフトと失効判定の根拠）
+		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
 		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 	});
 	// 全球の床（WORLD_ATLAS＝焼き済み 1 本 3.25MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝

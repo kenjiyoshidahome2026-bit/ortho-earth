@@ -1,4 +1,4 @@
-// 地域宣言（jp/region.js・nl/region.js）が、今と同じ台帳を組み立てることを写し取る検定（2026-09-17）。
+// 地域宣言（packages/jp/src/region.js・nl/region.js）が、今と同じ台帳を組み立てることを写し取る検定（2026-09-17）。
 //
 // なぜ要るか：オランダ 3 件は app.js のソースに直書きされていた＝二国目がコードで入ったので三国目も
 // コードで入ることになる。宣言（データ）へ移した後も、①日本だけの時は 336 件そのまま、②?nl=1 では
@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { JP_REGION } from "../jp/region.js";
+import { JP_REGION } from "@ortho-earth/jp";
 import { NL_REGION } from "../nl/region.js";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));

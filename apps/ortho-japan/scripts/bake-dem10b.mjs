@@ -16,12 +16,12 @@ import { deflateRawSync, gzipSync, inflateSync } from 'node:zlib';
 import { mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
-import { JP_BOX } from "../jp/dtm.js";
+import { JP_BOX } from "@ortho-earth/jp/dtm";
 
 const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dem10b-out');
 mkdirSync(OUT, { recursive: true });
 const W = 3600, Z = 12, TZ = 256;            // 出力格子 1秒 / 地理院 dem_png z12（1.24秒/px＝格子と同オーダー）
-const JP = JP_BOX;   // 焼き対象の箱＝jp/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
+const JP = JP_BOX;   // 焼き対象の箱＝packages/jp/src/dtm.js が正本（複製禁止・実行時の申告と同じ数字）
 const L3 = n => String(n).padStart(3, '0');
 const cellName = (lng, lat) => `${lat < 0 ? 'S' : 'N'}${L3(Math.abs(lat))}${lng < 0 ? 'W' : 'E'}${L3(Math.abs(lng))}`;   // JAXA index / encodeName の緯度先行表記
 

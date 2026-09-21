@@ -129,6 +129,9 @@ export function listFiles(dir, out = [], root = dir, exclude = null) {
 //   keys: 英語キー → { ja, files:Set, uses:[{rel,line,indirect}] }
 //   perFile: rel → Map(ja → 英語キー)＝Phase 1 の置換表そのもの
 // opts.exclude＝走査から外す相対パスの集合（showcase ページの辞書は別＝i18n/pages.json）。opts.only＝この集合だけ走査
+// LITERAL_ROOTS＝アプリの外にある地域パック（@ortho-earth/jp）＝t() は呼ばないが出典・画像タイルの key を英語キーのデータとして持つ
+// ＝文字列だけを「在る」印に数える（無いと移設したキーが次の i18n:extract で退役する・2026-09-22）。opts.only（ページ別の走査）には足さない。
+export const LITERAL_ROOTS = ["../../packages/jp/src"];
 export function scanApp(appDir, ctx = {}, { exclude = null, only = null } = {}) {
 	const files = listFiles(appDir, [], appDir, exclude).filter(abs => !only || only.has(path.relative(appDir, abs))).sort().map(abs => {
 		const rel = path.relative(appDir, abs);
@@ -190,6 +193,10 @@ export function scanApp(appDir, ctx = {}, { exclude = null, only = null } = {}) 
 			untranslated.push({ rel: f.rel, line: c.line, value: c.value });   // 辞書にない＝英語 UI でも日本語のまま出る
 		}
 		for (const st of s.strings) if (map.has(st.value)) keys.get(map.get(st.value)).uses.push({ rel: f.rel, line: st.line, indirect: true });
+	}
+	if (!only) for (const rel of LITERAL_ROOTS) {
+		const root = path.join(appDir, rel);
+		if (fs.existsSync(root)) for (const abs of listFiles(root)) for (const st of scanSource(fs.readFileSync(abs, "utf8"), path.relative(appDir, abs)).strings) literals.add(st.value);
 	}
 	return { files: rels, keys, perFile, collisions, untranslated, dictErrors, jaEra, literals, literalsByFile };
 }

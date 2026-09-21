@@ -1,11 +1,11 @@
 // §12 手差分（poi/overrides.json）の意味論を検証する Node ハーネス。
 //   node tests/t-poioverrides.mjs
-// 二枚実装（焼き側 uploader/src/poi/schema.js applyOverrides ＝正典／表示側 jp/poi.js applyPoiOvr ＝実行時版）の
+// 二枚実装（焼き側 uploader/src/poi/schema.js applyOverrides ＝正典／表示側 packages/jp/src/poi.js applyPoiOvr ＝実行時版）の
 // 「同値」を機械検証する＝複製の錆び止め（実モジュールを import＝写経した複製を試験しない）。
 // 検証する意味論：match=名前完全一致∧300m最近傍1件／id昇順fold（rename後は新名でmatch）／
 // moveは pos-src を手管理(3)へ・typeSrc維持／add=手管理0x33／焼き込み後の再適用が冪等（bake+runtime二重掛け）。
 import * as POI from "../../uploader/src/poi/schema.js";
-import { applyPoiOvr } from "../jp/poi.js";   // 表示側の実行時版（2026-09-22 app.js から移設＝切り出し不要になった）
+import { applyPoiOvr } from "@ortho-earth/jp/poi";   // 表示側の実行時版（2026-09-22 app.js から移設＝切り出し不要になった）
 
 // ── 共通フィクスチャ（schema形 {name,ll,type,rank,src} ⇄ 表示形 {n,anchor,r,s}）──────────────
 // A-B は同名で約319m（>300m＝別施設として拾わない距離）・C は注記権威（posSrc=1）。
