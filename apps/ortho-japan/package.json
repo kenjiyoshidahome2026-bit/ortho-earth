@@ -73,7 +73,8 @@
 		"pack:sdk": "node scripts/pack-sdk.mjs",
 		"prepack": "npm run build:lib && node scripts/stage-npm-assets.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
-		"models:thumbs": "node scripts/models-thumbs.mjs"
+		"models:thumbs": "node scripts/models-thumbs.mjs",
+		"og": "node scripts/og-shot.mjs"
 	},
 	"devDependencies": {
 		"@loaders.gl/3d-tiles": "^4.3.0",

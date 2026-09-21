@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- cover＝safe-area-inset を有効化（下辺UIの浮かせとセット）。maximum-scale=1/user-scalable=no は撤去（2026-08-04）＝Lighthouse a11y「ピンチ拡大を殺すな」を取りに行く。地図面のジェスチャは #c{touch-action:none}+app.jsのgesture抑止が本丸＝メタ無しでも堅い。UI上のピンチ＝ページ拡大は弱視配慮そのもの。ダブルタップ誤爆は #map{touch-action:manipulation}・入力フォーカス自動ズームは検索16pxで防御 -->
@@ -34,18 +34,23 @@
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-solar と同じ一枚＝球儀マーク -->
 	<meta name="apple-mobile-web-app-title" content="ortho-japan">
-	<title>ortho-japan — 球面に直描きする日本地図</title>
-	<meta name="description" content="国土地理院のベクトルタイルを球のまま直描きする日本地図。実スケールの地形、寄ると立ち上がるPLATEAU都市モデル。サーバーレス・依存ゼロの自作WebGLエンジン。">
-	<!-- OGP：SNS共有カード。og:url / og:image は絶対URL必須＝デプロイ先確定時にこの2行を実URLへ。画像は public/ogp.png（1200×630） -->
+	<title>ortho-japan — a map of Japan drawn straight onto the globe</title>
+	<meta name="description" content="Japan's GSI vector tiles drawn directly on a true sphere. Real-scale terrain, and PLATEAU 3D city models that rise as you zoom in. Serverless, zero-dependency, hand-built WebGL engine.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/japan/">
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="ortho-earth">
-	<meta property="og:title" content="ortho-japan — 球面に直描きする日本地図">
-	<meta property="og:description" content="国土地理院のベクトルタイルを球のまま直描き。実スケール地形・PLATEAU都市モデル・紙地図の作法。サーバーレス・依存ゼロの自作WebGLエンジン。">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="ortho-japan — a map of Japan drawn straight onto the globe">
+	<meta property="og:description" content="GSI vector tiles drawn straight onto the globe. Real-scale terrain, PLATEAU 3D cities and the craft of paper maps — serverless, zero dependencies, a hand-built WebGL engine.">
 	<meta property="og:url" content="https://www.ortho-earth.com/japan/">
 	<meta property="og:image" content="https://www.ortho-earth.com/japan/ogp.jpg">
 	<meta property="og:image:width" content="1200">
 	<meta property="og:image:height" content="630">
 	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="ortho-japan — a map of Japan drawn straight onto the globe">
+	<meta name="twitter:description" content="GSI vector tiles drawn straight onto the globe. Real-scale terrain, PLATEAU 3D cities and the craft of paper maps — serverless, zero dependencies, a hand-built WebGL engine.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/japan/ogp.jpg">
 </head>
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->

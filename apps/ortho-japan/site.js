@@ -27,6 +27,9 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 // top-level await は使わない＝既定ビルドターゲット(es2020)の掟。then連鎖で同じ流れ。
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
+	// タブの題名＝読む人の言語へ（head は英語＝X/Slack/LINE の共有カードと検索が読む・本人 2026-09-21「全ての head は英語」）。
+	// 訳は ui.json の 1 キー。エンジン起動が setLang を済ませた後なので待たずに引ける
+	import("./i18n.js").then(({ tr, getLang }) => { document.documentElement.lang = getLang(); document.title = tr()("ortho-japan — a map of Japan drawn straight onto the globe"); });
 	// ガジェット搭載＝この並びが左上からのアイコン配列（全zで一本＝2026-09-03 シンプル化）。
 	// 表示宣言はガジェット毎に搭載時 opts で：zoom:[zmin,zmax)＝ズーム域・narrow:false＝狭画面(480px)では
 	// 出さない（左上溢れ対策）。プラットフォームが裁き、圏外は display:none で上詰め（並び順不変）。

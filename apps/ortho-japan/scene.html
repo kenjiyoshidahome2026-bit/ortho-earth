@@ -1,12 +1,28 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
 <head>
 	<meta charset="utf-8">
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<!-- PC専用ツール（scene再生と同じプロファイル）＝モバイル最適化はしない。配色はアプリが決める＝自動反転を断る -->
 	<meta name="color-scheme" content="only light">
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
-	<title>scenes エディタ — ortho-japan</title>
+	<title>scenes editor — ortho-japan</title>
+	<meta name="description" content="Compose flythrough scenes over the globe — shots, waypoints and transitions — then play them back or record them to MP4.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/japan/scene">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="scenes editor — ortho-japan">
+	<meta property="og:description" content="Compose flythrough scenes over the globe and record them to MP4.">
+	<meta property="og:url" content="https://www.ortho-earth.com/japan/scene">
+	<meta property="og:image" content="https://www.ortho-earth.com/japan/ogp.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="scenes editor — ortho-japan">
+	<meta name="twitter:description" content="Compose flythrough scenes over the globe and record them to MP4.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/japan/ogp.jpg">
 	<!-- ページ骨格だけここ（舞台＝マット＋フレーム＋パネル）。エディタUIの中身は demo/editor.js が自給（ガジェット作法） -->
 	<style>
 		html, body { margin: 0; height: 100%; overflow: hidden; background: #444; }   /* マット＝中間グレー（編集台の作法） */
@@ -27,6 +43,8 @@
 		//   エディタ本体(demo/editor.js)はサイト側チャンクのまま＝作業台はソース・舞台の地図は出荷物。
 		//   libのURLは変数経由（devのimport解析がリテラルを解決しにいく罠）・CSSはlib抽出分を本番だけ貼る。
 		import { mountSceneEditor } from "./demo/editor.js";
+		import { getLang } from "./i18n.js";
+		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "scenes エディタ — ortho-japan"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
 		(async () => {   // TLA はビルドターゲット外＝async IIFE で包む
 			let engineP;
 			if (import.meta.env.PROD) {
