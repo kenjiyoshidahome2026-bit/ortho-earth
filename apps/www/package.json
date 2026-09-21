@@ -8,8 +8,10 @@
 		"preview": "vite preview"
 	},
 	"dependencies": {
-		"common": "*",
-		"d3": "^7.9.0"
+		"altpbf": "*",
+		"d3": "^7.9.0",
+		"geopbf": "*",
+		"native-bucket": "*"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"
