@@ -636,7 +636,21 @@ model.stats();                                      // → { features, arcs, ver
 | `geopbf/edit/sphere` | perfect-sphere geometry: `slerp` / `gcMidpoint` / `gcDistanceDeg` (great circles), `quatBetween` / `rotateLL` (rotation about the globe center), `smallCircle`, `gcCentroid` (edge-weighted spherical centroid = the axis the editor's wheel-rotation spins about). `createModel` exposes `featureVerts` + `rotateFeature(eid, q, base)` = move a feature as a rigid figure on the sphere (command `{op:"rot"}`; undo restores the snapshot exactly) |
 
 Granular imports: `geopbf/edit/model`, `geopbf/edit/large-model`, `geopbf/edit/topo-extract`, `geopbf/edit/snap`,
-`geopbf/edit/history`, `geopbf/edit/spline`, `geopbf/edit/sphere`.
+`geopbf/edit/history`, `geopbf/edit/spline`, `geopbf/edit/sphere`, `geopbf/edit/draw`, `geopbf/edit/imagequad`.
+
+**Images placed by four corners (v1.11, `geopbf/edit/imagequad`).** An image laid on the ground (an old map, a scanned plan, a photo)
+is an ordinary feature: a **4-vertex Polygon whose ring runs top-left → top-right → bottom-right → bottom-left**, with the image as a
+Blob in the `@image` property (stored once in the file's buffer pool, like `@icon`). Because it is just a polygon, the editor's vertex
+drag, move and rotate *are* the corner editing. `buildTopology` makes the first vertex of an `@image` outer ring a node, so the ring
+start (= which corner is top-left) survives sharing an edge with a neighbour.
+
+| | |
+| :-- | :-- |
+| `cornersOf(geometry)` | the four corners `[TL, TR, BR, BL]`; a ring rewound counter-clockwise is restored with its start kept. `null` if not 4 vertices |
+| `quadMapping(corners)` | projective transform (homography) image `uv` ⇄ Web Mercator: `H`, `Hi`, `bbox`, `uvToLonLat` — a trapezoid fits without shear; continuous across the antimeridian |
+| `drawImageQuad(ctx, img, corners, project)` | draw on a canvas 2D (triangle grid, affine per cell); DOM-free, works in workers |
+| `placeCorners(center, widthM, aspect)` / `quadPolygon(corners)` | north-up corners for a new image / the closed Polygon |
+| `isImageFeature(f)` | Polygon + 4 corners + `@image` |
 
 **Edge semantics (Gint v5).** Consecutive vertices are joined by **great circles on a perfect sphere**: the Gint bake inserts
 great-circle anchors so that no rendered chord spans more than 1°, the antimeridian cut already uses the spherical crossing, and
