@@ -12,9 +12,10 @@
 	},
 	"dependencies": {
 		"adm-zip": "^0.5.17",
+		"common": "*",
 		"d3": "^7.9.0",
 		"geopbf": "*",
-		"ortho-map": "*",
+		"native-bucket": "*",
 		"shapefile": "^0.6.6",
 		"sharp": "^0.35.2"
 	},

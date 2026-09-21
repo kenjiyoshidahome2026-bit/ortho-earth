@@ -101,14 +101,14 @@ export function placeholder(catalog) {
                             各頂点には <strong>gint</strong>（Morton 曲線ベースの 64bit 整数）で
                             Visvalingam–Whyatt の重要度ランクを埋め込んでおり、ズームに連動した動的 LOD を単一ファイルで実現しています。
                             隣接ポリゴンの共有境界は <strong>Arc 構造</strong>で重複なく格納するため、面積誤差やすき間が生じません。
-                            GINT レンダラーがこのデータを WebGL2 で高速描画します。また既存の GISフォーマットへの即時変換も可能です。
+                            GINT v2 レンダラー（WebGPU / WebGL2）がこのデータを高速描画します。また既存の GISフォーマットへの即時変換も可能です。
                         </p>
                     </div>
                     <ul class="ph-feat-list">
                         <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — デルタ符号化 + Varint で GeoJSON 比 約1/10 のサイズ。14条地図や筆ポリゴンもブラウザで即時表示</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — gint の VW ランクビットにより、ズームに応じた頂点間引きを単一データで実現</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — Arc 構造で隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — GINT レンダラーが WebGL2 頂点バッファへ転送し、リアルタイムで三角形を生成して描画</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — GINT v2 レンダラーが GPU バッファへ転送し、動的 LOD で描画（WebGPU・無い環境は WebGL2）</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — グローバル KEYS 辞書とインデックスで属性を高速取得。クリック identify が即応</span></li>
                         <li><span> 詳しい技術内容は、技術ドキュメントを参考にしてください。</span></li>
                     </ul>

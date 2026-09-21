@@ -6,7 +6,7 @@
  * 「地球に描画」：オーバーレイを閉じて地球儀へ転送、X ボタンで復帰
  */
 import { API_BASE } from '../ui/config.js';
-import { getMapInst, enterGlobeView } from '../ui/globe.js';
+import { enterGlobeView, showMeshRaster } from '../ui/globe.js';
 
 const NLFTP_BASE  = 'https://nlftp.mlit.go.jp';
 const PAGE_PATH   = '/ksj/gml/datalist/KsjTmplt-L03-b_r.html';
@@ -339,40 +339,19 @@ export async function openL03bRViewer(format = 'webp') {
         alive = false;
         for (const w of workers) w.terminate();
 
-        const mapInst = getMapInst();
-        mapInst.autoRotate(false);
-        mapInst.removeLayer?.('L03bR-Raster');
-
-        let globeLayer = null;
+        // gint v2：画像タイル層（map.raster）へ＝メッシュ画像（経緯度矩形）をタイル供給へ写す（common/gintView）
+        let remove = null, closed = false;
+        const map = await enterGlobeView(() => { closed = true; remove?.(); remove = null; });   // × ボタン・Escape で外す
         try {
-            globeLayer = await mapInst.createRemoteLayer({ name: 'L03bR-Raster', type: 'image' });
-            globeLayer.opacity(0.85);
+            remove = await showMeshRaster(webpMap, { id: 'L03bR-Raster', name: 'L03-b_r', attribution: '国土数値情報（土地利用細分メッシュ）', opacity: 0.85 });
+            if (closed) { remove(); remove = null; return; }   // 準備中に閉じられた
         } catch (e) {
             console.error('[L03-b_r] レイヤー作成失敗:', e);
             return;
         }
-
-        // X ボタン・Escape で exitGlobeView → クリーンアップ
-        enterGlobeView(() => {
-            if (globeLayer) { globeLayer.destroy(); globeLayer = null; }
-        });
-
-        for (const [meshCode, { webpData, bbox }] of webpMap) {
-            const buf = webpData.buffer.slice(
-                webpData.byteOffset,
-                webpData.byteOffset + webpData.byteLength
-            );
-            globeLayer.set('overlay', buf, { bbox, id: meshCode }, [buf]);
-        }
-
-        // 全タイル転送後にズーム
-        const japanBbox = { type: 'Feature', geometry: {
-            type: 'Polygon',
-            coordinates: [[[122,20],[122,47],[154,47],[154,20],[122,20]]],
-        }, properties: {} };
-        await mapInst.zoomToFeature(japanBbox);
-        mapInst.draw();
-        mapInst.trigger('Drawn');
+        // 全メッシュの範囲へ寄る（日本全域）
+        const bb = [MAP.west, MAP.south, MAP.east, MAP.north];
+        map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, map.fitZoomForBbox(bb), 0, 0);
     });
 
     // ---- ZIP ダウンロード ----------------------------------------------

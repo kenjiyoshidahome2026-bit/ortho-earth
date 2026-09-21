@@ -22,14 +22,14 @@ a { color: $accent; text-decoration: none; &:hover { text-decoration: underline;
 button { cursor: pointer; font-family: $font; touch-action: manipulation; } // 300ms タップ遅延除去
 
 // ============================================================
-// Globe (ortho-map) — 背景に固定
+// Globe（ortho-japan エンジン・gint v2）— 背景に固定
 // ============================================================
 #globe-bg {
 	position: fixed;
 	inset: 0;
 	z-index: 0;
 
-	// ortho-map が内部で生成する mapFrame div
+	// エンジンに貸す容れ物（ui/globe.js が生やす div・id は map へ改名される＝寸法はここで与える）
 	> div { width: 100% !important; height: 100% !important; }
 }
 
