@@ -58,6 +58,15 @@ async function open(src) {
 	// 数値列の全体レンジ（row group 統計の min/max を束ねる）＝色分けの物差し（データを読まずに決まる）
 	const range = {};
 	for (const c of columns) if (c.numeric) { let lo = Infinity, hi = -Infinity; for (const rg of pq.rowGroups) { const s = rg.stats[c.name]; if (!s) continue; if (typeof s.min === "number" && s.min < lo) lo = s.min; if (typeof s.max === "number" && s.max > hi) hi = s.max; } if (lo <= hi) range[c.name] = [lo, hi]; }
+	// 試し読み＝最初の row group の「描くのに要る列」を 1 本だけ（小さい・チャンク 1 個）。読めない＝圧縮が解けない（ブラウザに zstd は無い）等＝
+	// ここで理由つきで断る（旧＝開けたまま全 row group が null を触って「Cannot read properties of null」＝何が悪いか分からなかった・2026-09-22）
+	if (pq.rowGroups.length) {
+		const probeCol = cov?.xmin || g?.name;
+		if (probeCol) {
+			const pm = await pq.readRowGroup(0, { columns: [probeCol] });
+			if (pm.get(probeCol) == null) { const why = pq.columns.find(c => c.name === probeCol)?.unsupported || "unreadable"; throw new Error(/zstd/i.test(why) ? `zstd: ${why}` : `column "${probeCol}" ${why}`); }
+		}
+	}
 	cacheKeyBase = typeof src === "string" ? `${src}|${pq.source.etag || pq.source.size || ""}` : null;
 	if (cacheKeyBase) db.prune();
 	meta = { numRows: pq.numRows, rowGroups: pq.rowGroups, geometry: g, columns, range, precision, size: pq.source.size, wholeFile: pq.source.wholeFile, keyValue: { name: pq.keyValue["geopbf:name"] ?? null } };
