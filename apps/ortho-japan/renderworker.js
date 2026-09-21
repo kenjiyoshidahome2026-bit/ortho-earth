@@ -190,6 +190,8 @@ function finishInit(m) {
 	if (terrain) setTimeout(() => terrain.prefetchWorld(), 6000);
 	// 画像タイル層＝renderer の契約（rasterTex/rasterMesh/setRasterDraws）だけで動く＝バックエンド非依存。main へは rasterInfo/rasterError を通知
 	raster = createRaster({ renderer, requestDraw: () => { dirty = true; armRaf(); }, lowMem: !!m.lowMem, post: msg => postMessage(msg) });
+	// gint の面（3D）＝地面アトラスへ焼く（RTT ドレープ統合・2026-09-21）。gint は後から差し替わり得る（context lost）＝変数を都度読む
+	if (renderer.setGroundHook) renderer.setGroundHook((cam, t) => gint?.bakeFaces ? gint.bakeFaces(cam, t) : 0, () => gint?.bakeSig ? gint.bakeSig() : "");   // 戻り値＝焼いた層数（drawhud gndFaces）
 	if (renderer.lost) renderer.lost.then(info => {   // WebGPU の device lost＝WebGL の contextlost と同じ扱いで main が立て直す
 		if (!sentCtxLost) { sentCtxLost = true; console.warn("[render] GPU device lost:", info && info.message); postMessage({ type: "contextlost" }); }
 	});

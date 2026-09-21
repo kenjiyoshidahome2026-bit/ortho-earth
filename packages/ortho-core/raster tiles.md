@@ -44,6 +44,28 @@ v1（packages/ortho-map）の機能でまだ v2 に無かった「ラスタタ�
 - 目視（GL2/WebGPU・実 GPU）：静岡北部の稜線 66°（ラスタ）・東京湾 58°（ベクタ塗り＝本番と同じ絵で fill 0）・山中湖 60°（湖の塗り＝偽島なし）。
 - ⚠轍：合成 FS が標高テクスチャ（unit1/8）を引く＝直前の gint パスが整数テクスチャを残しているとサンプラ型不一致でドロー全体が無効＝合成前に張り直す。
 
+## 9. 仕上げ（2026-09-21・本人「面も地面アトラスへ焼くことを前提に、4 まで」）
+
+1. **ラスタ基図 ON＝湖・海面下陸・等高線も伏せる**（`rasterBase` ゲート・両バックエンド）＝塗りと同じ「基図側の面」は写真の下地を隠さない。線と注記は残す（裁定③）。
+2. **窓の境界フェード**＝`gndMix`/`gndMix0` が窓端 4% を次段へクロスフェード（`gndEdge`）＝段の継ぎ目が線にならない。
+3. **gint の面（塗り扇・fid 塗り）も 3D では地面アトラスへ焼く**：
+   - 共通 VS ヘッダに **窓座標モード**（GL `u_atlas/u_atlasOn`・WGSL `GF.atlas/atlasQ`）＝原点相対 dLL(deg) を窓へ線形写像（ATLAS_FILL と同式）。
+     `pivotClip`/`fetchClipDrape` はこのモードでは球面投影・地平クランプ・ドレープを飛ばす（地形には FS の標本化で乗る）。feature の bbox カリングは
+     **窓 bbox**（縫い目跨ぎ＝null＝刈らない）で行い、地平キャップ判定だけ外す。
+   - 入口 `gint.bakeFaces(cam, target)`：GL＝`{fbo, win, size}`（窓 FBO に STENCIL_INDEX8 を足す・`renderCleanScene` の `data.atlas/facesOnly`・
+     idfill の ID FBO は窓寸）／WebGPU＝`{enc, view, size, win, index}`（合成エンコーダに自分の pass を足す・stencil8 を寸法ごとに 1 枚共有・
+     層所有の GF を窓×{fill,fillB} の 8 スロットに分ける＝同じ submit に並ぶ 4 窓の writeBuffer が互いを潰さない・idfill は窓寸の ID テクスチャ）。
+   - renderer は `setGroundHook(fn, sig)`：合成順＝under → 基図の塗り → **gint の面** → over。`sig()`＝`bakeSig`（内容世代 bakeRev＋運動状態）が合成鍵に入る
+     ＝set/style/paint/表示/層構成が変わった時・安表現⇄正表現が切り替わった時だけ焼き直す。画面側は `ctx.facesInAtlas` で面パスを省き線・点・ハイライトだけ描く。
+   - 計器＝drawhud `gndFaces`（直近合成で焼いた層数×窓数）。門＝`tests/t-gndfaces.html`（REALTIME・verify:ui／verify:webgpu）：真俯瞰 0 → チルト 4 → setPaint 4 → 非表示 0 → 再表示 4 → 真俯瞰 0。
+   - 目視（富士北斜面・60°・GL2/WebGPU）：単色面も fid 塗りも稜線に沿って貼りつく（弦の潜りなし）。
+4. **塗り側の死んだコードを撤去**：FILL_VS/FILL_FS・FILL_WGSL から標高ドレープ・水面リフト(+30/+10m)・水域の厳密対数深度（`v_w`/`gl_FragDepth`/`fsExact`）を削除
+   （直描きは 2D だけ＝標高スケール 0）。renderer の `waterLiftM`・`u_lift/u_exactDepth`（塗り）・`fillTestExact` も撤去。線の接地リフト（cityLift）は従来のまま。
+   副産物＝FILL_FS が `gl_FragDepth` を触らない＝2D 塗りの early-Z が戻る。
+
+⚠轍：`renderer.setGroundHook` の fn は **焼いた層数を返す**（計器の元・`{ }` で包むと undefined＝0）。標高ロードは cam 直書きでは発火しない＝検定は `flyTo` で settle 経路を通す。
+console-dump の `WAIT` は秒。
+
 ---
 
 ---

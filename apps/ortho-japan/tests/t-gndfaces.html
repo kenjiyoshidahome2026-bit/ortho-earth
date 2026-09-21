@@ -1,0 +1,91 @@
+<!doctype html>
+<!-- gint の面を地面アトラスへ焼く（RTT ドレープ統合・2026-09-21）の門。実アプリを起動し
+     ① 真俯瞰＝面は画面側（fillsIn=0・gndFaces=0）
+     ② チルト（地形あり）＝面は地面アトラス側へ焼かれる（drawhud の gndFaces>0）
+     ③ setPaint（fid 塗り＝idfill 経路）でも焼かれる（署名が変わる＝焼き直し）
+     ④ 真俯瞰へ戻す＝焼きが止まる（?keeptilt=1＝スクショ用にチルトのまま終える）
+     ⚠ REALTIME（verify-ui.mjs）：標高（altpbf）の到着は虚時間では進まない。?drawhud=1＝描画実績を main へ。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-gndfaces</title></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed"); if (!/drawhud=/.test(location.search)) history.replaceState(null, "", location.href + (location.search ? "&" : "?") + "drawhud=1");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? "(" + x + ")" : ""));
+const mark = s => { document.title = "… " + s; };
+const logs = []; for (const k of ["warn", "error"]) { const o = console[k].bind(console); console[k] = (...a) => { logs.push(a.map(x => x instanceof Error ? (x.stack || x.message) : String(x)).join(" ").slice(0, 300)); o(...a); }; }
+window.addEventListener("error", e => logs.push("uncaught " + (e.message || e)));
+window.addEventListener("unhandledrejection", e => logs.push("unhandled " + (e.reason && (e.reason.stack || e.reason.message) || e.reason)));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000, step = 200) => { const t0 = performance.now(); for (;;) { const v = await f(); if (v) return v; if (performance.now() - t0 > ms) return null; await sleep(step); } };
+// Morton pack（geopbf gint.packFromInt と同式・t-gintlayers と同じ自給）
+const spread16 = v => { v &= 0xFFFF; v = (v | (v << 8)) & 0xFF00FF; v = (v | (v << 4)) & 0xF0F0F0F; v = (v | (v << 2)) & 0x33333333; v = (v | (v << 1)) & 0x55555555; return v >>> 0; };
+const pack = (lon, lat, terminal, weight = 0) => {
+	const ix = Math.round((lon + 180) * 1e7) >>> 0, iy = Math.round((lat + 90) * 1e7) >>> 0;
+	const lo = (spread16(ix & 0xFFFF) | (spread16(iy & 0xFFFF) << 1)) >>> 0, hi = (spread16(ix >>> 16) | (spread16(iy >>> 16) << 1)) >>> 0;
+	let v = (BigInt(hi) << 32n) | BigInt(lo);
+	return terminal ? (v | (1n << 63n)) : ((v & ~0x3Fn) | BigInt(weight & 63));
+};
+const e7 = d => Math.round(d * 1e7) >>> 0;
+const buildArcs = arcs => {
+	const arcBuffer = BigUint64Array.from(arcs.flat().map(([lon, lat, term, w]) => pack(lon, lat, !!term, w)));
+	const arcMeta = new Uint32Array(arcs.length * 8); let off = 0;
+	arcs.forEach((a, aid) => {
+		arcMeta[aid * 8] = off; arcMeta[aid * 8 + 1] = a.length;
+		let xm = 4e9, ym = 4e9, xM = 0, yM = 0;
+		for (const [lon, lat] of a) { xm = Math.min(xm, e7(lon + 180)); xM = Math.max(xM, e7(lon + 180)); ym = Math.min(ym, e7(lat + 90)); yM = Math.max(yM, e7(lat + 90)); }
+		arcMeta[aid * 8 + 4] = xm; arcMeta[aid * 8 + 5] = ym; arcMeta[aid * 8 + 6] = xM; arcMeta[aid * 8 + 7] = yM; off += a.length;
+	});
+	return { arcBuffer, arcMeta };
+};
+const duckPbf = (gint, n) => ({ unPackGint: { ...gint, precision: 6 }, fmap: { length: n }, getProperties: i => ({ fid: i }), getFeature: fid => ({ properties: { fid }, geometry: { type: "Point", coordinates: [138.73, 35.36] } }) });
+let mapRef = null;
+const dh = () => { mapRef?.requestDraw(); return window.__drawHud?.d || null; };
+const keepTilt = /keeptilt=1/.test(location.search);
+try {
+	mark("boot");
+	const C = [138.73, 35.40];   // 富士山の北斜面（地形の起伏に面が乗る）
+	const map = await orthoJapan({ view: `#12/${C[1]}/${C[0]}`, chips: false, plateau: false });
+	mark("booted"); mapRef = map;
+	const d0 = await until(async () => { const d = dh(); return d && (d.mainFill + d.baseFill) > 0 ? d : null; }, 30000);
+	ok("boot2d", !!d0 && !d0.fillsIn && !d0.gndFaces, d0 ? `fill=${d0.mainFill + d0.baseFill} fillsIn=${d0.fillsIn} gndFaces=${d0.gndFaces}` : "no fills within 30s");
+	// 面 1 枚（2 arcs で閉じる四角形 fid=7）＝赤の半透明
+	const d = 0.025;
+	const A = buildArcs([
+		[[C[0] - d, C[1] - d, 1, 0], [C[0], C[1] - d * 0.9, 0, 30], [C[0] + d, C[1] - d, 1, 0]],
+		[[C[0] - d, C[1] - d, 1, 0], [C[0] - d * 0.6, C[1] + d, 0, 30], [C[0] + d * 0.6, C[1] + d, 0, 30], [C[0] + d, C[1] - d, 1, 0]],
+	]);
+	const la = map.addGint(duckPbf({ arcBuffer: A.arcBuffer, arcMeta: A.arcMeta, polyStream: Int32Array.from([7, 1, 2, 0, ~1]) }, 8), { style: { fillColor: [1, 0, 0, 0.6] }, minZoom: 2 });
+	ok("addGint", !!la && await la.ready === true);
+	await sleep(500);
+	const d1 = dh();
+	ok("faces2d", !!d1 && !d1.fillsIn && !d1.gndFaces, d1 ? `fillsIn=${d1.fillsIn} gndFaces=${d1.gndFaces}` : "");
+	// ② チルト＝地形が立ち上がると塗りも面もアトラス側へ
+	mark("tilt");
+	await Promise.resolve(map.flyTo(C[0], C[1], 12, 60));   // settle 経路を通す（cam 直書きだと標高ロードが発火しない）
+	const d2 = await until(async () => { const d = dh(); return d && d.fillsIn && d.gndFaces > 0 ? d : null; }, 60000);
+	ok("bakedOnTilt", !!d2, d2 ? `fillsIn=${d2.fillsIn} gndFaces=${d2.gndFaces} terrainDepth=${d2.terrainDepth}` : JSON.stringify(dh()));
+	// ③ fid 塗り（idfill 経路）＝署名が変わり焼き直される（層数は同じ 1×窓数）
+	await la.setPaint({ "fill-color": "#00c853", "fill-opacity": 0.7 });
+	const d3 = await until(async () => { const d = dh(); return d && d.fillsIn && d.gndFaces > 0 ? d : null; }, 20000);
+	ok("bakedPaint", !!d3, d3 ? `gndFaces=${d3.gndFaces}` : JSON.stringify(dh()));
+	// 非表示＝焼かれない
+	la.setVisible(false); await sleep(300);
+	const d4 = await until(async () => { const d = dh(); return d && d.fillsIn && d.gndFaces === 0 ? d : null; }, 20000);
+	ok("hiddenNotBaked", !!d4, d4 ? `gndFaces=${d4.gndFaces}` : JSON.stringify(dh()));
+	la.setVisible(true);
+	const d5 = await until(async () => { const d = dh(); return d && d.fillsIn && d.gndFaces > 0 ? d : null; }, 20000);
+	ok("rebakedVisible", !!d5, d5 ? `gndFaces=${d5.gndFaces}` : JSON.stringify(dh()));
+	// ④ 真俯瞰へ＝焼きが止まる（スクショ用 ?keeptilt=1 は飛ばす）
+	if (!keepTilt) {
+		await Promise.resolve(map.flyTo(C[0], C[1], 12, 0));
+		const d6 = await until(async () => { const d = dh(); return d && !d.fillsIn && !d.gndFaces ? d : null; }, 20000);
+		ok("flatStops", !!d6, d6 ? `fillsIn=${d6.fillsIn} gndFaces=${d6.gndFaces}` : JSON.stringify(dh()));
+	}
+	await sleep(600);
+	ok("noErr", !logs.some(l => /error|uncaught|unhandled/i.test(l) && !/favicon/i.test(l)), logs.slice(0, 2).join(" || "));
+	const pass = t.every(x => x.startsWith("ok:"));
+	document.title = (pass ? "PASS " : "FAIL ") + t.join(" ") + (pass ? "" : " | " + logs.slice(0, 4).join(" || "));
+} catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
+for (const x of document.title.split(" ")) console.log("[render] R " + x);   // console-dump の 220 字切り詰め対策＝1 項目 1 行
+</script>
+</body></html>

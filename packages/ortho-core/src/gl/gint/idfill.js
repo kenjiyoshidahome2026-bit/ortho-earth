@@ -196,14 +196,14 @@ function ensurePrograms(gl) {
 
 // ID バッファ FBO（canvas と同寸）。embedded の動的解像度ではフレーム毎に寸法が変わり得る＝
 // 不一致時のみ作り直し（解像度段の変化は稀＝churn は実用上無視できる）。
-function ensureIdFBO(gl, caps) {
-	if (gS._idFBO && gS._idW === gS.width && gS._idH === gS.height) return true;
+function ensureIdFBO(gl, caps, w = gS.width, h = gS.height) {   // w/h＝窓座標モードは窓の寸法（画面⇄窓の切替時だけ作り直し）
+	if (gS._idFBO && gS._idW === w && gS._idH === h) return true;
 	if (gS._idFBO) { gl.deleteFramebuffer(gS._idFBO); gl.deleteTexture(gS._idTex); }
 	const tex = gl.createTexture();
 	gl.bindTexture(gl.TEXTURE_2D, tex);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
 	gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-	gl.texImage2D(gl.TEXTURE_2D, 0, caps.internal, gS.width, gS.height, 0, caps.fmt, caps.type, null);
+	gl.texImage2D(gl.TEXTURE_2D, 0, caps.internal, w, h, 0, caps.fmt, caps.type, null);
 	const fbo = gl.createFramebuffer();
 	gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
 	gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
@@ -215,7 +215,7 @@ function ensureIdFBO(gl, caps) {
 		console.warn('[gint] idFill FBO incomplete -> degraded to stencil flat color');
 		return false;
 	}
-	gS._idFBO = fbo; gS._idTex = tex; gS._idW = gS.width; gS._idH = gS.height;
+	gS._idFBO = fbo; gS._idTex = tex; gS._idW = w; gS._idH = h;
 	return true;
 }
 
@@ -225,12 +225,13 @@ function ensureIdFBO(gl, caps) {
 export function renderIdFill(s, data, targetFBO) {
 	const gl = s.gl;
 	const caps = idCaps(gl);
-	if (!caps || !ensurePrograms(gl) || !ensureIdFBO(gl, caps)) {
+	const width = data.atlas ? data.atlas.size : s.width, height = data.atlas ? data.atlas.size : s.height;   // 窓座標モード＝窓の寸法
+	if (!caps || !ensurePrograms(gl) || !ensureIdFBO(gl, caps, width, height)) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, targetFBO ?? null);   // 失敗時も呼び出し元のターゲットへ戻す（stencil 分岐が続行できる状態）
 		return false;
 	}
 	const { idProgram, resolveProgram, uId, uResolve } = gS._idPrograms;
-	const { arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height } = s;
+	const { arcTex, metaTex, TEX_ARC_W, TEX_META_W } = s;
 
 	// ① winding 和の蓄積（自前 FBO へ加算）。stencil と同じく全密度（u_lod_rank=0）＝
 	//    LOD 簡略化の自己交差で winding が壊れる斑点を出さない（stencil 塗りと同じ設計判断）。

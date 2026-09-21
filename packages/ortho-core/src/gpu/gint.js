@@ -34,6 +34,8 @@ const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStenc
 
 export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const { device, format } = host;
+	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
+	const bump = () => { bakeRev++; requestDraw?.(); };
 	// ── storage buffer 経路（?gintsb=0 で従来のテクスチャ経路へ）──────────────
 	// group(2)（頂点 arc・辺メタ）だけを storage buffer にする。テクスチャ経路は GL2 の制約の形で、
 	// WebGPU では線形添字の `% w` / `/ w`（整数除算）を頂点シェーダの最内側で毎回払う羽目になる。
@@ -417,6 +419,12 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			{ binding: 0, resource: { buffer: L.gfBuf, offset: off, size: GF_SLOT } },
 			{ binding: 1, resource: { buffer: L.styleBuf } },
 		] }));
+		// 地面アトラス焼き込み用 GF（窓 4 × {fill, fillB}）＝同じ submit に並ぶ 4 窓の writeBuffer が互いを潰さない
+		L.gfBufA = device.createBuffer({ size: GF_SLOT * 8, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		L.frameBGA = [0, 1, 2, 3, 4, 5, 6, 7].map(k => device.createBindGroup({ layout: bglFrame, entries: [
+			{ binding: 0, resource: { buffer: L.gfBufA, offset: k * GF_SLOT, size: GF_SLOT } },
+			{ binding: 1, resource: { buffer: L.styleBuf } },
+		] }));
 		L.paramBG = [];
 		for (let r = 0; r < 11; r++) L.paramBG.push(device.createBindGroup({ layout: bglParam, entries: [{ binding: 0, resource: { buffer: L.gpBuf, offset: r * GP_SLOT, size: 48 } }] }));
 		return L;
@@ -447,7 +455,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		loadBundle(L, L.slots.get(key) ?? emptySlot());
 		L.activeKey = L.slots.has(key) ? key : null;
 		if (L.activeKey != null && !L.tiersDone && L.totalEdges > 0) scheduleTierBuild(L);
-		requestDraw?.();
+		bump();
 	}
 	function set(L, data, key) {
 		key = key ?? "user";
@@ -487,7 +495,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		}
 		if (L === act) activeId = -1;
 		L.lastDrawData = null;
-		requestDraw?.();
+		bump();
 	}
 	function setBaked(L, p, key) {
 		key = key ?? "user";
@@ -516,15 +524,15 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		if (L === act) activeId = -1;
 		L.lastDrawData = null;
 		if (prevKey !== key) setSlot(L, prevKey);
-		requestDraw?.();
+		bump();
 	}
-	function style(L, data) { L.drawStyle = data ?? null; L.stylesDirty = true; requestDraw?.(); }
-	function setVisible(L, v) { L.visible = !!v; requestDraw?.(); }
+	function style(L, data) { L.drawStyle = data ?? null; L.stylesDirty = true; bump(); }
+	function setVisible(L, v) { L.visible = !!v; bump(); }
 	function paint(L, data) {
 		if (data?.table && data.count > 0) uploadFidStyle(L, data.table, data.count);
 		else clearFidStyle(L);
 		L.idOverlapMode = !!data?.overlap;
-		requestDraw?.();
+		bump();
 	}
 
 	// ── tier 選択・可視 run（passes.js の純JS部を逐語で携行）────────────────
@@ -592,7 +600,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	// ── UBO 詰め物（CPU 側スクラッチはエンジン共有＝逐次処理ゆえ安全。書き先は層の buffer）──
 	const gfAB = new ArrayBuffer(GF_SLOT * 4);
 	const gfF = new Float32Array(gfAB), gfU = new Uint32Array(gfAB), gfI = new Int32Array(gfAB);
-	function packGF(L, off, d, lodRank, noPivot = false, skipE7 = 0) {
+	function packGF(L, off, d, lodRank, noPivot = false, skipE7 = 0, atlas = null) {
 		const o = off >> 2, dep = d.depth;
 		gfF.set(d.mvp, o);
 		gfF[o + 16] = d.clipT[0]; gfF[o + 17] = d.clipT[1]; gfF[o + 18] = d.clipT[2]; gfF[o + 19] = d.clipT[3];
@@ -610,7 +618,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		const ell = ellipsoidOn(), pr = d.origin[1] * Math.PI / 180;
 		gfF[o + 40] = d.originZr ?? 0; gfF[o + 41] = lodRank;
 		gfF[o + 42] = ell ? Math.cos(2 * pr) : 0; gfF[o + 43] = ell ? Math.sin(2 * pr) : 0;   // ellT2（旧 _pad0）
-		const vb = V.lastViewBbox;
+		const vb = atlas ? atlas.vbb : V.lastViewBbox;   // 窓座標モード＝窓 bbox で刈る（縫い目跨ぎ＝null＝刈らない）
 		if (vb) {
 			gfU[o + 44] = Math.max(0, vb[0] - 10000); gfU[o + 45] = Math.max(0, vb[1] - 10000);
 			gfU[o + 46] = Math.min(0xFFFFFFFF, vb[2] + 10000); gfU[o + 47] = Math.min(0xFFFFFFFF, vb[3] + 10000);
@@ -626,7 +634,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		gfF[o + 61] = ell ? Math.cos(4 * pr) : 0; gfF[o + 62] = ell ? Math.sin(4 * pr) : 0; gfF[o + 63] = ell ? 1 : 0;
 		const mq = dep?.meshQ;   // 案A: 描画メッシュ面への量子化（無ければ G=0＝素の elevAt）
 		gfF[o + 64] = mq?.[0] ?? 0; gfF[o + 65] = mq?.[1] ?? 0; gfF[o + 66] = mq?.[2] ?? 1; gfF[o + 67] = mq?.[3] ?? 1;
-		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
+		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;
+		gfF[o + 72] = atlas ? atlas.off[0] : 0; gfF[o + 73] = atlas ? atlas.off[1] : 0; gfF[o + 74] = atlas ? atlas.inv[0] : 1; gfF[o + 75] = atlas ? atlas.inv[1] : 1;
+		gfF[o + 76] = atlas ? 1 : 0; gfF[o + 77] = 0; gfF[o + 78] = 0; gfF[o + 79] = 0;   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
@@ -706,6 +716,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		L._budgetSkipped = false;
 		const drawData = computeDrawData(V, data);
 		if (ctx && ctx.terrainDepth && !data.noDepth) drawData.depth = ctx;   // noDepth＝地形深度に参加しない（admin0 世界図＝gl/embed.js と同型）
+		if (ctx && ctx.facesInAtlas) drawData.noFaces = true;   // 面は地面アトラス側（bakeFaces）＝画面では線・点だけ
 
 		if (L.visible) renderScene(L, drawData, fr, ctx);
 		mark(L, cam, L.visible ? "drew" : "invisible");
@@ -713,6 +724,24 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		if (L === act && pickPending) { pickPending = false; drawn(); }
 	}
 
+	// 塗り（面）の計画（renderCleanScene の判定＝逐語）。noFaces＝面は地面アトラス側（bakeFaces）＝画面では描かない
+	function fillPlan(L, data) {
+		const st = data.styleTable ?? DEF_STYLE;
+		const zoomV = data.zoom ?? 99, oz = data.outlineZoom ?? L.outlineZoom ?? OUTLINE_ZOOM;   // スタイル側上書き（gl/passes.js と同型＝admin0 の境界メタ縮退切り）
+		const lowZoom = zoomV < oz;
+		const moving = isDrawing || (staticN ?? 99) < 4;
+		const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5) || !!data._forceLow;
+		const hasPoly = (L.polyBboxByFid?.size ?? 0) > 0 && (!L.fillOff || L.lowFill);   // lowFill＝低ズーム帯の単色塗りは生かす（fillA フェードが z<oz+1.2 に閉じ込める）
+		const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
+			: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
+		const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
+		const hasB = !!(L.metaTexB && L.polyEdgesB > 0);
+		const stTex = hasB ? L.metaTexB : L.metaTex, stCount = hasB ? L.polyEdgesB : L.polyEdges;
+		const doFill = !data.noFaces && fc[3] > 0 && stCount > 0 && L.arcTex
+			&& !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8);   // 安表現中の塗り予算（sync の canFill と同じ物差し）
+		const idFill = !data.noFaces && !data._forceLow && canUseIdFill(L);   // 安い表現中は idfill（全密度扇）を止める
+		return { lowZoom, lowZoomEff, moving, fc, hasB, stTex, stCount, doFill, idFill };
+	}
 	function renderScene(L, data, fr, ctx) {
 		const dep = data.depth;
 		const P = pipesFor(fr.samples || host.samples || 4, L.sbOn);   // 遷移時AA＝renderer のフレーム段数にセットごと追随
@@ -724,23 +753,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		device.queue.writeBuffer(L.gfBuf, 0, gfAB);
 		if (L.stylesDirty) uploadStyles(L, data);
 
-		// renderCleanScene の判定（逐語）
+		// renderCleanScene の判定（逐語）＝fillPlan（画面と地面アトラスの焼き込みで同じ判定）
 		const st = data.styleTable ?? DEF_STYLE;
-		const zoomV = data.zoom ?? 99, oz = data.outlineZoom ?? L.outlineZoom ?? OUTLINE_ZOOM;   // スタイル側上書き（gl/passes.js と同型＝admin0 の境界メタ縮退切り）
-		const lowZoom = zoomV < oz;
-		const moving = isDrawing || (staticN ?? 99) < 4;
-		const lowZoomEff = lowZoom || (moving && zoomV < oz + 1.5) || !!data._forceLow;
+		const fp = fillPlan(L, data);
+		const { lowZoom, lowZoomEff, moving, fc, hasB, stTex, stCount, doFill } = fp;
 		if (!isDrawing && moving && !lowZoom && lowZoomEff) requestDraw?.();
-		const hasPoly = (L.polyBboxByFid?.size ?? 0) > 0 && (!L.fillOff || L.lowFill);   // lowFill＝低ズーム帯の単色塗りは生かす（fillA フェードが z<oz+1.2 に閉じ込める）
-		const fillA = data._forceLow ? st[3] * 0.8   // 安表現中＝フェード無効（内陸ビューでも面のシルエットを残す）
-			: st[3] * 0.8 * Math.max(0, Math.min(1, ((oz + 1.2) - zoomV) / 1.2));
-		const fc = data.fillColor ?? (hasPoly && (lowZoomEff || fillA > 0.004) ? [st[0], st[1], st[2], fillA] : DEF_FILL);
-		const hasB = !!(L.metaTexB && L.polyEdgesB > 0);
-		const stTex = hasB ? L.metaTexB : L.metaTex, stCount = hasB ? L.polyEdgesB : L.polyEdges;
-		const doFill = fc[3] > 0 && stCount > 0 && L.arcTex
-			&& !(data._forceLow && stCount > (data.moveBudget ?? 250_000) * 8);   // 安表現中の塗り予算（sync の canFill と同じ物差し）
 		// コロプレス（paint 時）＝ID バッファ塗り。能力あり＝単色 stencil でなく idfill（優先）。基準メタ固定（fid 重み）
-		const idFill = !data._forceLow && canUseIdFill(L) && ensureIdTex() && !!idResolveBGFor(L);   // 安い表現中は idfill（全密度扇）を止める
+		const idFill = fp.idFill && ensureIdTex() && !!idResolveBGFor(L);
 		// 線 tier 選択（passes.js と同判断）
 		let lnSel = null;
 		if (L.totalEdges > 0 && L.arcTex) {
@@ -1043,7 +1062,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		L.slots.clear(); L.activeKey = null;
 		deleteTextures(L);
 		clearFidStyle(L);
-		L.gfBuf.destroy(); L.gpBuf.destroy(); L.styleBuf.destroy(); L.idRBuf.destroy();
+		L.gfBuf.destroy(); L.gpBuf.destroy(); L.styleBuf.destroy(); L.idRBuf.destroy(); L.gfBufA?.destroy(); L._idrA = null;
 		L.gintData = null;
 		L.polyEdgeByFid = null; L.polyBboxByFid = null; L.fillOff = false; L.lowFill = false;
 		L.totalEdges = L.totalPoints = L.polyEdges = 0;
@@ -1055,6 +1074,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		if (pickTex) { pickTex.destroy(); pickTex = null; }
 		if (pickBuf) { pickBuf.destroy(); pickBuf = null; }
 		if (idTex) { idTex.destroy(); idTex = null; }
+		for (const sc of scratchA.values()) { sc.stTex.destroy(); sc.idTex?.destroy(); }
+		scratchA.clear();
 		dummyU32.destroy(); dummyF32.destroy();
 	}
 	function statsFor(L) {
@@ -1078,7 +1099,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				L.order = n;
 				const at = layers.findIndex(x => x.order > n);
 				layers.splice(at < 0 ? layers.length : at, 0, L);
-				requestDraw?.();
+				bump();
 			},
 			remove: () => {
 				const i = layers.indexOf(L);
@@ -1086,7 +1107,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				layers.splice(i, 1);
 				disposeLayer(L);
 				if (act === L) { act = layers.length ? layers[layers.length - 1] : null; activeId = -1; }
-				requestDraw?.();
+				bump();
 			},
 		};
 	}
@@ -1098,8 +1119,114 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		const at = layers.findIndex(x => x.order > L.order);   // 安定挿入（同 order は追加順を保つ）
 		layers.splice(at < 0 ? layers.length : at, 0, L);
 		act = L; activeId = -1;   // 既定のアクティブ＝最後に足した層（§4.1「今載せたデータを見たい」）
+		bakeRev++;
 		return layerHandle(L);
 	}
+
+	// ── 地面アトラスへの面焼き込み（RTT ドレープ・2026-09-21）＝renderer.composeGround のフックから窓ごとに呼ばれる ──
+	// target={ enc, view, size, win:[W,S,spanLon,spanLat], index }。窓 FBO（rgba8unorm・1x）へ塗り扇（stencil-then-cover／
+	// idfill）だけを窓座標モード（GF.atlasQ.x=1）で描く＝球面投影・地平クランプ・ドレープ無し（地形には FS の標本化で乗る）。
+	// stencil は窓寸の stencil8 を寸法ごとに 1 枚共有（窓・層ごとに pass 先頭で clear）。画面側 draw は ctx.facesInAtlas で面を省く。
+	const stA = { format: "stencil8", depthWriteEnabled: false, depthCompare: "always" };
+	const pipeA = (mod, vs, fs, ds, lay, blend, writeMask) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: vs },
+		fragment: { module: mod, entryPoint: fs, targets: [{ format: "rgba8unorm", blend, writeMask }] }, primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: 1 } });
+	const pipesA = new Map();
+	const pipesAFor = sb => {
+		let p = pipesA.get(sb);
+		if (!p) {
+			const [sm, lay] = sb ? [stencilModSB, layoutSB] : [stencilMod, layout];
+			const ne = { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" };
+			p = {
+				stencilFan: pipeA(sm, "vsStencil", "fsNull", { ...stA, stencilFront: wind, stencilBack: windB, stencilWriteMask: 0xFF }, lay, undefined, 0),
+				cover: pipeA(sm, "vsFull", "fsFill", { ...stA, stencilFront: ne, stencilBack: ne, stencilReadMask: 0xFF, stencilWriteMask: 0 }, lay, SBLEND, undefined),
+				idResolve: device.createRenderPipeline({ layout: idResolveLayout, vertex: { module: idResolveMod, entryPoint: "vs" },
+					fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format: "rgba8unorm", blend: SBLEND }] }, primitive: { topology: "triangle-list" }, depthStencil: stA, multisample: { count: 1 } }),
+			};
+			pipesA.set(sb, p);
+		}
+		return p;
+	};
+	const scratchA = new Map();   // size → { stView, idTex, idView, gen }（窓は 2 寸法＝2 組）
+	function scratchFor(size) {
+		let sc = scratchA.get(size);
+		if (!sc) {
+			const stTex = device.createTexture({ size: [size, size], format: "stencil8", usage: GPUTextureUsage.RENDER_ATTACHMENT });
+			sc = { stTex, stView: stTex.createView(), idTex: null, idView: null, gen: 0 };
+			scratchA.set(size, sc);
+		}
+		return sc;
+	}
+	function idViewA(sc, size) {
+		if (!sc.idTex) { sc.idTex = device.createTexture({ size: [size, size], format: ID_FMT, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING }); sc.idView = sc.idTex.createView(); sc.gen++; }
+		return sc.idView;
+	}
+	function idResolveBGAFor(L, sc, size) {
+		const m = L._idrA ??= new Map();
+		const c = m.get(size);
+		if (c && c.gen === sc.gen && c.fid === L.fidStyleTex) return c.bg;
+		const bg = device.createBindGroup({ layout: bglIdResolve, entries: [
+			{ binding: 0, resource: idViewA(sc, size) }, { binding: 1, resource: L.fidStyleTex.createView() }, { binding: 2, resource: { buffer: L.idRBuf } }] });
+		m.set(size, { gen: sc.gen, fid: L.fidStyleTex, bg });
+		return bg;
+	}
+	function bakeFaces(cam, { enc, view, size, win: w, index }) {
+		if (!V.width) return 0;   // 初回 draw 前（ビュー寸法なし）は焼かない
+		const sc = scratchFor(size);
+		const seam = w[0] < -180 || w[0] + w[2] > 180;   // 窓 bbox（e7・lastViewBbox と同じ物差し）＝feature bbox カリングを窓で。縫い目跨ぎ＝null＝刈らない
+		const vbb = seam ? null : [Math.round((w[0] + 180) * 1e7), Math.round((Math.max(-90, w[1]) + 90) * 1e7), Math.round((w[0] + w[2] + 180) * 1e7), Math.round((Math.min(90, w[1] + w[3]) + 90) * 1e7)];
+		const gctx = host.gintCtx?.();
+		let n = 0;
+		for (const L of layers) {
+			if (!L.visible || (L.polyBboxByFid?.size ?? 0) === 0 || !L.arcTex) continue;
+			const data = { cam, ...(L.drawStyle || {}) };
+			if (L._forceLowMove) data._forceLow = true;
+			if (!zoomInRange(L, data) || L.totalEdges === 0) continue;
+			const dd = computeDrawData(V, data);
+			const fp = fillPlan(L, dd);
+			const idFill = fp.idFill && !!L.fidStyleTex;
+			if (!idFill && !fp.doFill) continue;
+			L.sbOn = sbReady(L);
+			const lon = ((dd.origin[0] % 360) + 540) % 360 - 180;
+			let off = lon - w[0]; off -= 360 * Math.round((off - w[2] / 2) / 360);   // 原点−窓南西隅（CPU f64・経度は窓中心へ最寄りの周回）
+			const atlas = { off: [off, dd.origin[1] - w[1]], inv: [1 / w[2], 1 / w[3]], vbb };
+			packGF(L, 0, dd, 0, false, 0, atlas); packGF(L, GF_SLOT, dd, 0, true, 0, atlas);
+			device.queue.writeBuffer(L.gfBufA, index * 2 * GF_SLOT, gfAB, 0, GF_SLOT * 2);
+			if (L.stylesDirty) uploadStyles(L, dd);
+			const aux = auxGroup(L, gctx?.elevView, gctx?.elevSampler);   // 窓座標モードは標高を読まない＝bind group キャッシュを画面側と共有するだけ
+			const PA = pipesAFor(L.sbOn);
+			if (idFill) {
+				idRCPU[0] = L.fidStyleW || 1; idRCPU[1] = L.fidStyleCount; idRCPU[2] = L.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
+				device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
+				const idPass = enc.beginRenderPass({ colorAttachments: [{ view: idViewA(sc, size), loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
+				idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
+				idPass.setBindGroup(0, L.frameBGA[index * 2]); idPass.setBindGroup(1, L.paramBG[ROLE.stencil]);
+				idPass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex)); idPass.setBindGroup(3, aux);
+				idPass.draw(L.polyEdges * 3);
+				idPass.end();
+			} else {
+				packGP(ROLE.fill, { color: fp.fc });
+				device.queue.writeBuffer(L.gpBuf, ROLE.fill * GP_SLOT, gpAB, ROLE.fill * GP_SLOT, GP_SLOT);
+			}
+			const pass = enc.beginRenderPass({
+				colorAttachments: [{ view, loadOp: "load", storeOp: "store" }],
+				depthStencilAttachment: { view: sc.stView, stencilLoadOp: "clear", stencilClearValue: 0, stencilStoreOp: "discard" },
+			});
+			pass.setStencilReference(0);
+			if (idFill) {
+				pass.setPipeline(PA.idResolve); pass.setBindGroup(0, idResolveBGAFor(L, sc, size)); pass.draw(3);
+			} else {
+				pass.setBindGroup(0, L.frameBGA[index * 2 + (fp.hasB ? 1 : 0)]); pass.setBindGroup(1, L.paramBG[ROLE.stencil]);
+				pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, fp.stTex)); pass.setBindGroup(3, aux);
+				pass.setPipeline(PA.stencilFan); pass.draw(fp.stCount * 3);
+				pass.setPipeline(PA.cover); pass.setBindGroup(1, L.paramBG[ROLE.fill]); pass.draw(3);
+			}
+			pass.end();
+			n++;
+		}
+		return n;   // 焼いた層数（renderer の計器 gndFaces）
+	}
+	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
+	const bakeSig = () => `${bakeRev}|${isDrawing ? 1 : 0}${(staticN ?? 99) < 4 ? 1 : 0}|${layers.map(L => L._forceLowMove ? 1 : 0).join("")}`;
 
 	// ── 公開面：既定層への facade（従来 API と同形＝renderworker 無改造）＋ addLayer（多層の新しい口）──
 	const L0h = addLayer();
@@ -1107,6 +1234,6 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		set: L0h.set, setSlot: L0h.setSlot, setBaked: L0h.setBaked,
 		style: L0h.style, setVisible: L0h.setVisible, paint: L0h.paint, stats: L0h.stats, activate: L0h.activate,
 		draw, drawn, move, leave, click, dispose,
-		addLayer,
+		addLayer, bakeFaces, bakeSig,
 	};
 }
