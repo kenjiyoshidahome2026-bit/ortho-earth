@@ -2,13 +2,13 @@
 // 画像タイル層（ortho-core/raster-src の "port" 契約）へ流す＝地形へのドレープ・透明度・重ね順は既存のラスタ層がそのまま受け持つ。
 // 所有者は main（入れ子 worker 禁止）。main が MessageChannel を作り、port1 をここへ・port2 を render worker へ。
 //
-// 受け口（main → ここ）: { type:"open", image: Blob|ImageBitmap, corners: [[lon,lat]×4 左上→右上→右下→左下], port, name? }
+// 受け口（main → ここ）: { type:"open", image: Blob|ImageBitmap, corners: [[lon,lat]×4 左上→右上→右下→左下], port, name?, maxSide? }
 // 返事（ここ → main）:   { type:"opened", info } | { type:"error", error }
 // 焼き方：タイルの各画素中心（メルカトル）→ 逆射影変換で画像 uv → ミップ段を選んで双一次補間。四隅の外は透明。
 // ミップ＝縦横半分ずつの箱フィルタ（遠目でちらつかない）。段はタイル中心での画素の足跡（画像画素/タイル画素）で 1 タイル 1 段。
 import { quadMapping, apply3 } from "geopbf/edit/imagequad";
 
-const MAX_SIDE = 4096;   // 取り込む画像の長辺上限（それ以上は縮めてから持つ＝RGBA 64MB 以内）
+const MAX_SIDE = 4096;   // 取り込む画像の長辺上限の既定（それ以上は縮めてから持つ＝RGBA 64MB 以内）。main が省メモリ機では 2048 を渡す（maxSide）
 const TS = 256;
 
 self.onmessage = async e => {
@@ -16,8 +16,9 @@ self.onmessage = async e => {
 	if (m.type !== "open") return;
 	try {
 		let bm = m.image instanceof ImageBitmap ? m.image : await createImageBitmap(m.image);
-		if (Math.max(bm.width, bm.height) > MAX_SIDE) {
-			const s = MAX_SIDE / Math.max(bm.width, bm.height);
+		const cap = Math.max(256, Math.min(MAX_SIDE, +m.maxSide || MAX_SIDE));
+		if (Math.max(bm.width, bm.height) > cap) {
+			const s = cap / Math.max(bm.width, bm.height);
 			const b2 = await createImageBitmap(bm, { resizeWidth: Math.max(1, Math.round(bm.width * s)), resizeHeight: Math.max(1, Math.round(bm.height * s)), resizeQuality: "high" });
 			bm.close?.(); bm = b2;
 		}
@@ -37,7 +38,7 @@ self.onmessage = async e => {
 		const map = quadMapping(m.corners);
 		const [mx0, my0, mx1, my1] = map.mercBox;
 		const nativeZ = Math.log2(Math.max(W0, H0) / Math.max(mx1 - mx0, my1 - my0) / TS);
-		const info = { tileSize: TS, minZoom: 0, maxZoom: Math.max(0, Math.min(22, Math.ceil(nativeZ))), bbox: map.bbox, name: m.name || "image", attribution: null };
+		const info = { tileSize: TS, minZoom: 0, maxZoom: Math.max(0, Math.min(22, Math.ceil(nativeZ))), bbox: map.bbox, name: m.name || "image", attribution: m.attribution || null };   // 出典＝地物の attribution（main が消毒して出典欄へ）
 		const out = new OffscreenCanvas(TS, TS), og = out.getContext("2d");
 		const Hi = map.Hi;
 		const render = (z, tx, ty) => {
