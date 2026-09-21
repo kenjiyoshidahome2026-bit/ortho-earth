@@ -37,6 +37,10 @@ export interface OrthoJapanOptions {
 	assetBase?: string;
 	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない */
 	urlHash?: boolean;
+	/** 矢印キーのカメラ操作（window で受ける）。false＝取らない／関数＝真を返す間だけ取る（背景に置く時にページのスクロールを奪わない。既定 true） */
+	keyboard?: boolean | (() => boolean);
+	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true） */
+	persistView?: boolean;
 	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
 	debugGlobals?: boolean;
 }
