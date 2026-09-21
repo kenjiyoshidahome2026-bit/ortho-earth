@@ -1,5 +1,6 @@
 import { fname2mime } from "geopbf/fname2mime";
-import { decodeZIP } from "geopbf/decodeZIP";
+// zip の読み書きは zip を扱う時だけ読む（動的 import＝標高タイル等の普通の取得で worker に乗せない・2026-09-22）
+const zipDec = async (...a) => (await import("geopbf/decodeZIP")).decodeZIP(...a);
 
 export async function Fetch(url, opts = {}) {
 	const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();
@@ -40,11 +41,11 @@ export async function Fetch(url, opts = {}) {
 			cors = false; targetURL = url; range = false; knownSize = 0;
 		}
 		if (range && target != null) {
-			const file = await decodeZIP(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
+			const file = await zipDec(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
 			if (target === false) return file; 
 			if (!file) { 
 				console.warn(`file is not exist: ${target} in ${url}`);
-				console.log("zip file includes:", await decodeZIP(targetURL, false));
+				console.log("zip file includes:", await zipDec(targetURL, false));
 			}
 			return await convert(file, type, encoding);
 		}
@@ -81,7 +82,7 @@ export async function Fetch(url, opts = {}) {
 		}
 
 		let file = new File([rawBlob], name, {type: fname2mime(name)});
-		if (target) file = await decodeZIP(file, target);
+		if (target) file = await zipDec(file, target);
 		return await convert(file, type, encoding);
 
 	} catch (error) { 

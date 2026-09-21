@@ -26,8 +26,10 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 	let identifyHandler = null;   // identify結果の派生アプリ受け口（setIdentifyHandler）。未登録なら従来の say パネル
 	let highlightWait = null;     // highlightKey の完了待ち（worker 返信は直列＝最後の呼びが勝つで足りる）
 
-	const estatWorker = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "estat" });
-	estatWorker.onmessage = e => {
+	// e-Stat worker は初めて要る時（loadEstat）に立てる＝census2020 以外の頁では起動しない（旧＝起動時に常に立っていた・2026-09-22）
+	let estatW = null;
+	const estatWorker = () => estatW ??= Object.assign(new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "estat" }), { onmessage: onEstatMessage });
+	const onEstatMessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {
 			const o = estatOpts;
@@ -93,7 +95,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		// bbox短絡は廃止＝毎ホバーきっちり点in面で識別（worker findHit）。ミス（町丁目外＝他市区町村上）は
 		// hovertip name:null で返り、呼び出し側が gint ホバーへフォールバックする（本人指摘2026-08-14
 		// 「bboxを使うとバグが残る・identifyをきちっと」＝移動点→identifyの正しさを最優先）。
-		estatWorker.postMessage({ type: "hovertip", lon: ll[0], lat: ll[1] });   // 結果 hovertip は onmessage が tip＋境界へ
+		estatWorker().postMessage({ type: "hovertip", lon: ll[0], lat: ll[1] });   // 結果 hovertip は onmessage が tip＋境界へ
 		return true;
 	}
 	function identifyAt(clientX, clientY) {
@@ -101,7 +103,7 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		const st = cameraState(cam, size.w, size.h);
 		const ll = unproject(st, clientX * dpr, clientY * dpr);
 		if (!ll) return;
-		if (estatActive) { estatWorker.postMessage({ type: "identify", lon: ll[0], lat: ll[1] }); return; }   // 結果は onmessage が描く
+		if (estatActive) { estatWorker().postMessage({ type: "identify", lon: ll[0], lat: ll[1] }); return; }   // 結果は onmessage が描く
 		const hit = overlayFeatures.findIndex(f => pointInFeature(ll[0], ll[1], f.geometry));
 		renderer.set("overlayHi", hit >= 0 ? buildGeoJSONOverlay([overlayFeatures[hit]], overlayOrigin) : null);   // ヒット地物だけ別 stencil で強調
 		if (hit >= 0) {
@@ -116,12 +118,12 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 	async function loadEstat(codes, year = "2020", style = null, opts = {}) {
 		estatOpts = opts;
 		if (!opts.quiet) say(t("Loading e-Stat small areas ($1 municipalities)…", codes.length));
-		estatWorker.postMessage({ type: "load", codes, year, style, interiorOnly: !!opts.interiorOnly });   // interiorOnly＝census2020限定で内側メッシュのみ（既定=全ユニーク辺＝凍結デモ AI 経路）
+		estatWorker().postMessage({ type: "load", codes, year, style, interiorOnly: !!opts.interiorOnly });   // interiorOnly＝census2020限定で内側メッシュのみ（既定=全ユニーク辺＝凍結デモ AI 経路）
 	}
 	// 小地域 KEY_CODE（9/11桁）でハイライト → {key,bbox,count}｜ヒットなし・estat未ロードは null
 	function highlightKey(key) {
 		if (!estatActive) return Promise.resolve(null);
-		return new Promise(r => { highlightWait = r; estatWorker.postMessage({ type: "highlight", key: String(key) }); });
+		return new Promise(r => { highlightWait = r; estatWorker().postMessage({ type: "highlight", key: String(key) }); });
 	}
 	function clearOverlay() {   // overlay/estat 層を消す（identify 対象も外す）＝派生アプリ（census2020 leaveCity）の受け口
 		estatActive = false; overlayFeatures = null;
@@ -138,5 +140,5 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		// 重ねると頂点キャップが数珠（チリチリ）になる上、gint 側の境界線と二重になる（本人指摘2026-08-14）。
 		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0 }), HI_MASK);
 	}
-	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatWorker.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
+	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatW?.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }

@@ -17,7 +17,7 @@
 //
 // 画像は premultiply しない（createImageBitmap premultiplyAlpha:"none"）＝FS が α を掛けて前乗算で出す（両バックエンド同じ）。
 // worker でも main でも動く（DOM 不使用・fetch/createImageBitmap のみ）。
-import { pmtilesInfo, fetchPMTilesRaw, isRasterTileType, RASTER_MIME } from "./pmtiles-src.js";
+// pmtiles-src は PMTiles の源が来た時だけ読む（動的 import＝XYZ だけの起動で render worker に乗せない・2026-09-22）
 
 // URL テンプレの展開。{z}/{x}/{y}・{-y}（TMS＝下から数える）・{s}（サブドメイン＝x+y で巡回）・{q}（quadkey）。
 export function expandTemplate(tpl, z, x, y, subdomains = null, tms = false) {
@@ -75,6 +75,7 @@ export async function createRasterSource(spec) {
 		};
 	}
 	if (n.kind === "pmtiles") {
+		const { pmtilesInfo, fetchPMTilesRaw, isRasterTileType, RASTER_MIME } = await import("./pmtiles-src.js");
 		const info = await pmtilesInfo(n.url);
 		if (!isRasterTileType(info.tileType)) throw new Error(`raster: PMTiles tileType is "${info.tileType}" (not a raster archive)`);
 		const mime = RASTER_MIME[info.tileType];

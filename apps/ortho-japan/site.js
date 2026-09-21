@@ -28,9 +28,8 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
 	// タブの題名＝読む人の言語へ（head は英語＝X/Slack/LINE の共有カードと検索が読む・本人 2026-09-21「全ての head は英語」）。
-	// 訳は ui.json の 1 キー
-	// ⚠本番ではこの頁の i18n.js は SDK と別実体＝訳の表をこちらでも読んでから引く（quakes/sats/models と同じ作法）
-	import("./i18n.js").then(async ({ tr, setLang, getLang }) => { await setLang(); document.documentElement.lang = getLang(); document.title = tr()("ortho-japan — a map of Japan drawn straight onto the globe"); });
+	// 訳は ui.json の 1 キー＝SDK が読み終えた辞書を map.t で借りる（旧＝この頁でも i18n.js と辞書を読み直し＝起動時に ja が二重・2026-09-22）
+	document.documentElement.lang = map.lang; document.title = map.t("ortho-japan — a map of Japan drawn straight onto the globe");
 	// ガジェット搭載＝この並びが左上からのアイコン配列（全zで一本＝2026-09-03 シンプル化）。
 	// 表示宣言はガジェット毎に搭載時 opts で：zoom:[zmin,zmax)＝ズーム域・narrow:false＝狭画面(480px)では
 	// 出さない（左上溢れ対策）。プラットフォームが裁き、圏外は display:none で上詰め（並び順不変）。
@@ -61,7 +60,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	const setMenu = map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	setMenu((c, defaults) => map.getZoom() < 5 ? [...defaults, map.gadget.equalHere()] : defaults);   // 地球全体の距離では「この地点を中心に全球図へ」を足す
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
-	import("./demo/scenes.js").then(m => map.gadget.demo({ ...m.default, lang: new URLSearchParams(location.search).get("lang") }));   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
+	map.gadget.demo({ lazy: () => import("./demo/scenes.js").then(m => ({ ...m.default, lang: new URLSearchParams(location.search).get("lang") })) });   // ▶だけ先に出し、台本と本体は押した時に読む（2026-09-22＝起動の転送から約 9KB 外す）   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 });
 // サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。

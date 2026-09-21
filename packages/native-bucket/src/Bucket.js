@@ -1,6 +1,7 @@
 import { fname2mime } from "geopbf/fname2mime";
-import { decodeZIP } from "geopbf/decodeZIP";
-import { encodeZIP } from "geopbf/encodeZIP";
+// zip の読み書きは zip を扱う時だけ読む（動的 import＝標高タイル等の普通の取得で worker に乗せない・2026-09-22）
+const zipDec = async (...a) => (await import("geopbf/decodeZIP")).decodeZIP(...a);
+const zipEnc = async (...a) => (await import("geopbf/encodeZIP")).encodeZIP(...a);
 import { gzip, gunzip, isGzip } from "geopbf/gzip";
 
 class _Bucket {
@@ -129,10 +130,10 @@ class _Bucket {
 	}
 	async gets(name, target = null) {
 		const blob = await this.get(name.replace(/\.zip/i, "") + ".zip");
-		return blob ? decodeZIP(blob, target) : [];
+		return blob ? zipDec(blob, target) : [];
 	}
 	async puts(name, files) {
-		const blob = await encodeZIP(files);
+		const blob = await zipEnc(files);
 		return this.put(new File([blob], name, { type: blob.type }));
 	}
 }
