@@ -45,9 +45,8 @@ const MENU = [
 	["全球の基図", [
 		["base ER pictures", globe.baseImages],
 		["borders and stars", globe.borders],
-		["coastline (10m+50m)", globe.coastline],
-		["admin0 countries (10m+50m)", globe.admin0],
-		["NE lakes (10m+50m)", globe.lakes],
+		["admin0 countries (50m+10m)", globe.admin0],
+		["NE lakes (50m+10m)", globe.lakes],
 		["NE rivers + airports + maritime (10m)", globe.riversAirports],
 	]],
 	["宇宙", [
@@ -76,12 +75,25 @@ const MENU = [
 	]],
 ];
 
-CMD.append("h1").text("DB Updater");
+const head = CMD.append("header");
+head.append("h1").text("Uploader");
+const conn = head.append("div").classed("conn", true);
+conn.append("span").classed("dot", true).classed("ng", !API_KEY);
+conn.append("span").text(`api.ortho-earth.com${import.meta.env.DEV ? "（dev proxy 経由）" : ""}${API_KEY ? "" : "・書き込み鍵なし＝403 になる"}`);   // dev でも書き込み先は本番 bucket
+LOG.append("div").classed("empty", true).text("左のボタンで焼いて bucket へ置く。進み具合と結果はここに出る。");
+
 for (const [title, buttons] of MENU) {
 	CMD.append("h2").text(title);
-	for (const [label, run] of buttons)
-		CMD.append("button").text(label).on("click", () => Promise.resolve(run(q, ctx))
-			.catch(e => { console.error(e); q.error(`${label}: 失敗 — ${e?.message || e}`); }));
+	for (const [label, run] of buttons) {
+		const btn = CMD.append("button").text(label);
+		btn.on("click", async () => {
+			if (btn.classed("busy")) return;   // 二度押しで同じ焼きが並走しない
+			btn.classed("busy", true).classed("ok ng", false);
+			try { await run(q, ctx); btn.classed("ok", true); }
+			catch (e) { console.error(e); q.error(`${label}: 失敗 — ${e?.message || e}`); btn.classed("ng", true); }
+			finally { btn.classed("busy", false); }
+		});
+	}
 }
 // 自前の節を持つもの。置き場所の div を先に確保＝world の疎通確認（非同期）を待たずに並び順が決まる
 modelsUI({ CMD: CMD.append("div"), q, Bucket });

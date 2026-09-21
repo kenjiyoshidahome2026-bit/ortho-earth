@@ -1,16 +1,59 @@
-html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior: none;
-	   touch-action: none; -webkit-touch-callout: none;
-	   font-size:13px; overflow: hidden; 
+// uploader の見た目。ログの素の体裁は common/screenLogger.scss（他アプリと共用＝触らない）＝ここは div.logArea.log の下で上書きするだけ
+// （.log を重ねて詳細度で勝つ＝scss の読み込み順に頼らない）。
+:root {
+	--bg: #0e0f11; --panel: #15171a; --line: #262a30; --hover: #1f2329;
+	--text: #e6e8eb; --muted: #8a919b; --accent: #5aa9ff;
+	--ok: #5fd08a; --warn: #e6c14d; --ng: #ff6b6b;
+	--sans: system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+	--mono: ui-monospace, SFMono-Regular, Menlo, "Courier New", monospace;
 }
-div.command { position:absolute; inset:0; right:auto; width:300px;
-	background:#000; color:#fff; padding:0.5em; overflow:auto;   // ボタンが縦に溢れたらスクロール（下のボタンが押せない事故防止）
-	box-sizing:border-box;   // padding込みで300px＝右端が logArea(left:300px) の下に潜らない
-	h1 { font-size:20px; margin:0.5em; padding:0.5em; text-align:center; }
-	h2 { font-size:14px; margin:1.2em 0.5em 0.3em; padding:0.2em 0; border-bottom:1px solid #555; color:#aaa; font-weight:normal; }
-	button { font-size:16px; display:block; margin:0.5em; padding:0.5em 1em; cursor:pointer;
-		background:#222; color:#fff; border:1px solid #fff; border-radius:3px;
-		font-family:'Lucida Sans', 'Lucida Sans Regular', 'Lucida Grande', 'Lucida Sans Unicode', Geneva, Verdana, sans-serif;
-		&:hover { background:#eee; color:#000; }
+html, body { position:absolute; inset:0; background:var(--bg); color:var(--text); margin:0; padding:0;
+	overscroll-behavior:none; font:13px/1.5 var(--sans); overflow:hidden; }
+
+div.command { position:absolute; inset:0; right:auto; width:280px; box-sizing:border-box;
+	background:var(--panel); border-right:1px solid var(--line); padding:0 12px 24px;
+	overflow:auto;   // ボタンが縦に溢れたらスクロール（下のボタンが押せない事故防止）
+	header { position:sticky; top:0; z-index:1; background:var(--panel); padding:16px 4px 12px; margin:0 -4px; border-bottom:1px solid var(--line);
+		h1 { font-size:17px; font-weight:600; margin:0; letter-spacing:0.02em; }
+		.conn { margin-top:4px; color:var(--muted); font-size:12px; display:flex; align-items:center; gap:6px; }
+		.dot { width:7px; height:7px; border-radius:50%; background:var(--ok); flex:none;
+			&.ng { background:var(--ng); } }
 	}
+	h2 { font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.08em; color:var(--muted);
+		margin:20px 4px 6px; }
+	button { display:block; width:100%; box-sizing:border-box; margin:2px 0; padding:6px 10px; text-align:left;
+		font:13px/1.4 var(--sans); color:var(--text); background:transparent; border:1px solid transparent; border-radius:6px; cursor:pointer;
+		&:hover { background:var(--hover); border-color:var(--line); }
+		&:active { background:var(--line); }
+		&:disabled { color:var(--muted); cursor:default; background:transparent; }
+		// 実行状態（main.js の MENU のボタンだけ）＝右端に印
+		&::after { float:right; margin-left:8px; }
+		&.busy { color:var(--accent); cursor:progress; &::after { content:"…"; } }
+		&.ok::after { content:"✓"; color:var(--ok); }
+		&.ng::after { content:"✖"; color:var(--ng); }
+	}
+	p { color:var(--muted); font-size:11px; margin:8px 4px; word-break:break-all; }
 }
-div.logArea { position:absolute; inset:0; left:300px; background:#222; color:#fff; overflow:auto; }
+
+div.logArea.log { position:absolute; inset:0; left:280px; background:var(--bg); color:var(--text); overflow:auto; padding:8px 12px 40px; box-sizing:border-box;
+	font:12.5px/1.55 var(--mono);
+	> p { margin:2px 8px;
+		&.title { margin:16px 8px 12px;
+			> span.title { font:600 16px var(--sans); background:none; padding:0; border-radius:0; }
+		}
+		&.success { color:var(--ok); font-size:inherit; }
+		&.warn { color:var(--warn); font-size:inherit; }
+		&.error { color:var(--ng); font-size:inherit; }
+		&.progress .done { color:var(--accent); }
+		&.progress .rest { color:var(--line); }
+		> table { margin:4px 0; font-size:12px;
+			tr:nth-child(odd) { background:var(--panel); }
+			td { border-color:var(--line); }
+		}
+		> dl { margin:4px 0; display:grid; grid-template-columns:max-content 1fr; gap:1px 12px;
+			dt { color:var(--muted); } dd { margin:0; } }
+		button { background:var(--hover); border-color:var(--line); border-radius:6px; font-family:var(--sans);
+			&:hover { background:var(--line); color:var(--text); } }
+	}
+	> .empty { color:var(--muted); font:13px/1.6 var(--sans); margin:40px 8px; }
+}
