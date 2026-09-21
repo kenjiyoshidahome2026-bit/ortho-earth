@@ -12,11 +12,10 @@ export default defineConfig({
 			'common': path.resolve(__dirname, '../../packages/common/src'),
 			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
 			'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
-			'ortho-map': path.resolve(__dirname, '../../packages/ortho-map/src'),
 		}
 	},
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
+		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket']
 	},
 	server: {
 		fs: { allow: ['../..'] },
