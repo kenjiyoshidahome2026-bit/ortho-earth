@@ -10,6 +10,7 @@
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
+import { evalExpr, truthy, parseRGBA } from "ortho-core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
 
 const MAX_BYTES = 256e6;   // 正気上限（?g= と同じ・敵入力の巨大確保よけ）
 
@@ -35,6 +36,43 @@ function rgbaOf(c) {
 	let h = m[1]; if (h.length <= 4) h = [...h].map(x => x + x).join("");
 	return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16), 255];   // α は捨てる＝壁は不透明（半透明の塗り色でも建物は立つ色で）
 }
+// ── MapLibre の fill-extrusion をそのまま受ける口（2026-09-21・「形式で相乗り」）──────────────────
+// paint の "fill-extrusion-height" / "-base" / "-color" / "-opacity" と filter を、MapLibre と同じ意味で評価する。
+// 式は基図スタイルと同じ評価器（ortho-core の evalExpr）。色の補間（interpolate の出力が色）は評価器が数しか補間しない
+// ＝ここで色として補間する（MapLibre の定番＝高さで lightgray→royalblue）。色名・hsl は canvas に正規化させる。
+// 既定値は MapLibre の仕様どおり（height 0・base 0・color "#000000"・opacity 1）＝height を書かない層は立たない。
+export const FX = { height: "fill-extrusion-height", base: "fill-extrusion-base", color: "fill-extrusion-color", opacity: "fill-extrusion-opacity" };
+export function cssRGBA(c) {   // → [r,g,b（0-255）, a（0-1）] | null
+	if (Array.isArray(c)) return c.length >= 3 ? [c[0] * 255, c[1] * 255, c[2] * 255, c[3] ?? 1] : null;   // 評価器の rgba 配列（0-1）
+	if (typeof c !== "string" || !c) return null;
+	if (typeof OffscreenCanvas === "undefined") { const q = parseRGBA(c); return [q[0] * 255, q[1] * 255, q[2] * 255, q[3]]; }   // Node（検定）＝hex/rgb だけ
+	ctx2d ??= new OffscreenCanvas(1, 1).getContext("2d");
+	ctx2d.fillStyle = "#000"; ctx2d.fillStyle = c;
+	const f = ctx2d.fillStyle, m = f.match(/^#([0-9a-f]{6})$/i);
+	if (m) return [parseInt(m[1].slice(0, 2), 16), parseInt(m[1].slice(2, 4), 16), parseInt(m[1].slice(4, 6), 16), 1];
+	const r = f.match(/[\d.]+/g);
+	return r ? [+r[0], +r[1], +r[2], r[3] != null ? +r[3] : 1] : null;
+}
+function evalColor(e, ctx) {
+	if (Array.isArray(e) && e[0] === "interpolate") {
+		const input = evalExpr(e[2], ctx), stops = [];
+		for (let i = 3; i < e.length; i += 2) stops.push([e[i], e[i + 1]]);
+		if (!stops.length) return null;
+		const col = k => cssRGBA(evalExpr(stops[k][1], ctx));
+		if (!(input > stops[0][0])) return col(0);
+		if (input >= stops[stops.length - 1][0]) return col(stops.length - 1);
+		let k = 0; while (k < stops.length - 1 && stops[k + 1][0] <= input) k++;
+		const x0 = stops[k][0], x1 = stops[k + 1][0], type = e[1];
+		let t = (input - x0) / (x1 - x0);
+		if (type?.[0] === "exponential" && type[1] !== 1) t = (Math.pow(type[1], input - x0) - 1) / (Math.pow(type[1], x1 - x0) - 1);
+		const a = col(k), b = col(k + 1);
+		return a && b ? a.map((v, i) => v + (b[i] - v) * t) : (a || b);
+	}
+	return cssRGBA(evalExpr(e, ctx));
+}
+// MapLibre の層（{ type:"fill-extrusion", paint, filter }）か paint/filter を持つ opts か
+export const isMapLibreLayer = o => !!o && (o.type === "fill-extrusion" || (o.paint && Object.keys(o.paint).some(k => k.startsWith("fill-extrusion-"))));
+
 // 既定の色＝高さの段彩（低い＝明るい砂色 → 高い＝群青）。@fill（geoedit の面の色）があればそちらが勝つ
 const RAMP = [[0, [236, 226, 204]], [15, [214, 196, 160]], [40, [150, 170, 196]], [100, [86, 118, 170]], [250, [44, 62, 120]]];
 function rampOf(h) {
@@ -45,14 +83,32 @@ function rampOf(h) {
 	return RAMP[RAMP.length - 1][1].concat(255);
 }
 // GeoJSON（Feature/FeatureCollection/features 配列）→ worker へ渡す面の列（環は度の平坦 Float64Array）
-export function extrudePolys(src, { height, base, color, scale = 1 } = {}) {
+export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null } = {}) {
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	const out = [];
+	const ml = isMapLibreLayer({ type, paint });
+	const opacity = ml ? Math.max(0, Math.min(1, +evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {} }))) : 1;   // MapLibre では層単位（データ駆動しない）
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
 		const polys = g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : null;
 		if (!polys) continue;
 		const p = f.properties || {};
+		if (ml || filter) {   // MapLibre の意味（filter は真偽式・paint は式）。geometry-type は MapLibre と同じ "Polygon"（Multi も Polygon）
+			const ctx = { zoom, props: p, geom: "Polygon", vars: {} };
+			if (filter != null && !truthy(evalExpr(filter, ctx))) continue;
+			if (ml) {
+				const h = +evalExpr(paint[FX.height] ?? 0, ctx) * scale, b = Math.max(0, +evalExpr(paint[FX.base] ?? 0, ctx) * scale);
+				if (!(h > b)) continue;
+				const c = evalColor(paint[FX.color] ?? "#000000", ctx) || [0, 0, 0, 1];
+				const rgba = [c[0], c[1], c[2], (c[3] ?? 1) * opacity * 255].map(v => Math.max(0, Math.min(255, Math.round(v))));
+				for (const rings of polys) {
+					const rs = [];
+					for (const r of rings || []) { if (!r || r.length < 3) continue; const a = new Float64Array(r.length * 2); r.forEach((q, i) => { a[i*2] = q[0]; a[i*2+1] = q[1]; }); rs.push(a); }
+					if (rs.length) out.push({ rings: rs, h, base: b, rgba });
+				}
+				continue;
+			}
+		}
 		const h = heightOf(p, height) * scale;
 		if (!(h > 0)) continue;
 		let b = typeof base === "function" ? +base(p) : typeof base === "number" ? base : typeof base === "string" ? num(p[base]) : NaN;
@@ -93,16 +149,18 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		get extruded() { return ext?.stats || null; },
 		clearExtrude,
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
+		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = true, fit: doFit = false } = {}) {
-			const polys = extrudePolys(src, { height, base, color, scale });
+		async extrude(src, { height, base, color, scale = 1, mask = true, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {
+			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type });
+			const blend = polys.some(p => p.rgba[3] < 255);   // fill-extrusion-opacity<1／半透明の色＝BLEND（模型と同じ派生パイプライン）
 			if (!polys.length) { clearExtrude(); return null; }
 			const tr = []; for (const p of polys) for (const r of p.rings) tr.push(r.buffer);
-			const r = await rpc({ kind: "extrude", polys, ell, mask }, tr);
+			const r = await rpc({ kind: "extrude", polys, ell, mask: mask && !blend }, tr);   // 半透明は足元の基図建物を伏せない（透けて見える先が消えると不自然）
 			clearExtrude();
 			const key = `extrude/${++seq}`;
 			ext = { name: key, stats: r.stats };
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: null, alphaMode: "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;
