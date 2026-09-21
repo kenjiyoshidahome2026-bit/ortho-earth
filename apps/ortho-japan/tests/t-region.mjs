@@ -27,6 +27,10 @@ const compose = regions => ({
 	catalog: regions.map(r => r.buildings?.catalog).filter(Boolean),
 	basemap: regions.map(r => r.basemap).find(Boolean) ?? null,
 	attr: regions.map(r => r.attribution).filter(Boolean),
+	home: regions.map(r => r.home).find(Boolean) ?? null,
+	search: regions.map(r => r.search).find(Boolean) ?? null,
+	poi: regions.map(r => r.poi).find(Boolean) ?? null,
+	rail: regions.map(r => r.rail).find(Boolean) ?? null,
 });
 // app.js と同じ入口の裁き（"only"=/nl/ 独立／"with-jp"=?nl=1 重ね／null=日本）
 const pick = mode => mode === "only" ? [NL_REGION] : mode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
@@ -79,6 +83,21 @@ eq("識別キーは国で衝突しない", NL_REGION.buildings.sets.filter(s => 
 
 // 識別キーは永続化の鍵（worker 振り分け・IDB・OPFS のファイル名）＝移設で変わっていないこと
 eq("オランダの識別キー", NL_REGION.buildings.sets.map(s => s.base), ["nl-3dbag-delft/", "nl-3dbag-rotterdam/", "nl-3dbag-amsterdam/"]);
+
+// ── 宣言から注入する 4 つの口（2026-09-22：app.js の直書きから移設）──────────────────────────
+// 日本＝全部持つ／/nl/＝どれも持たない（検索窓・日本ボタン・POI・N02 を作らない）／?nl=1＝日本のものが効く
+eq("日本の戻り先＝列島ビュー（移設前の JAPAN_VIEW と同値）", jp.home?.view, [137, 37, 6.6]);
+yes("日本の検索供給元＝契約の形", jp.search && typeof jp.search.query === "function" && typeof jp.search.viewFor === "function" && jp.search.histKey === "ortho-japan.searches");
+eq("日本の POI 台帳の在り処（移設前と同値）", jp.poi, { api: "https://api.ortho-earth.com", base: "https://api.ortho-earth.com/bucket/GIS/pbf/", overrides: "poi/overrides.json" });
+yes("日本の路線オーバーレイ＝生成関数", typeof jp.rail === "function");
+eq("着地ズーム：自然地名は地形ビュー", jp.search.viewFor("富士山"), { zoom: 12.8, tilt: 55 });
+eq("着地ズーム：市区町村", jp.search.viewFor("東京都渋谷区"), { zoom: 13 });
+{
+	const o = compose(pick("only"));
+	eq("/nl/ は 4 つの口をどれも持たない", [o.home, o.search, o.poi, o.rail], [null, null, null, null]);
+	const b = compose(pick("with-jp"));
+	yes("?nl=1 は日本の 4 つがそのまま効く", b.home === jp.home && b.search === jp.search && b.poi === jp.poi && b.rail === jp.rail);
+}
 
 console.log(ng ? `\nFAIL  ${ng} / ${ok + ng}` : `\nPASS  ${ok} 件すべて`);
 process.exit(ng ? 1 : 0);

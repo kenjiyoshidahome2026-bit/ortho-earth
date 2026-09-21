@@ -8,9 +8,6 @@ import { lonLatToTile } from "@ortho-earth/core";
 export const POI_CODE = 9102;                                  // landmark(9101) の隣。9xxx 帯は空き＝施設チップ傘下に自動で入る
 const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
 const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
-const POI_API = "https://api.ortho-earth.com";                 // bucket API 基底（poiedit の書込は native-bucket がこの面へ）
-const POI_BASE = POI_API + "/bucket/GIS/pbf/";                 // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
-const POI_OVR_NAME = "poi/overrides.json";                     // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
 
 // 自前fetch：404を例外でなく「空(null)」として静かに返す（geopbf(name) は PBFIO が404を毎回コンソールに吐く＝
 // 空タイルの海で洪水になる）。bucketは生gzipで返す（Content-Encoding無し）＝自前gunzip。返り＝Uint8Array／null。
@@ -49,8 +46,8 @@ export function applyPoiOvr(list, ovrRecs, tileLoaded) {
 	return out;
 }
 
-// env＝{ viewBbox(cam) → [w,s,e,n], requestDraw() }。戻り＝{ load(cam), injectLabels(allLabels, ctx), patchedAll(), ver, … }。
-export function createPoiLedger({ viewBbox, requestDraw }) {
+// decl＝地域宣言の poi { api, base, overrides }（jp/region.js）・env＝{ viewBbox(cam) → [w,s,e,n], requestDraw() }。戻り＝{ load(cam), injectLabels(allLabels, ctx), patchedAll(), ver, … }。
+export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_OVR_NAME }, { viewBbox, requestDraw }) {
 	const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
 	const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
 	let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）

@@ -2,7 +2,7 @@
 // プレロード（事前ダウンロード）と地区単位の削除を行う。回線の細い環境（タブレット・外出先）へ出る前に
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
 // （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderPlateauProg から onProg で中継される。
-import { PREF } from "./search.js";
+import { PREF } from "./jp/search-gsi.js";
 import { tr } from "./i18n.js";
 
 const t = tr();
