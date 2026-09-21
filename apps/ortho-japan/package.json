@@ -82,16 +82,14 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"altpbf": "*",
+		"earcut": "^3.2.3",
 		"ephem": "*",
+		"fzstd": "^0.1.1",
 		"geoedit": "*",
 		"geopbf": "*",
 		"glbconv": "*",
 		"ortho-core": "*",
 		"quiet-mono": "*",
 		"vite": "^5.0.0"
-	},
-	"dependencies": {
-		"earcut": "^3.2.3",
-		"fzstd": "^0.1.1"
 	}
 }
