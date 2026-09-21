@@ -1,6 +1,6 @@
 {
 	"name": "geoedit",
-	"version": "0.1.1",
+	"version": "0.2.0",
 	"description": "GeoPBF topological editor as a map gadget: initEditor(map, opts). Edits on the sphere (great-circle edges, rotations, small circles), @style annotations shared with the viewer (geopbf/edit/draw), large-file mode on GintBUF — the editor half of the geopbf format. MIT.",
 	"keywords": [
 		"geopbf",
@@ -44,6 +44,6 @@
 		"mirror": "git -C ../.. subtree split --prefix=packages/geoedit -b geoedit-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geoedit.git geoedit-mirror:main --force && git -C ../.. branch -D geoedit-mirror"
 	},
 	"dependencies": {
-		"geopbf": "^1.10.0"
+		"geopbf": "^1.11.0"
 	}
 }
