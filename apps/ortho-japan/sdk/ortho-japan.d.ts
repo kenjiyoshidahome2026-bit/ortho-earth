@@ -203,6 +203,9 @@ export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "bas
 	filter?: StyleExpression;
 }
 
+export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
+export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" }
+
 export interface OrthoJapanMap {
 	// ---- 基本 ----
 	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
@@ -259,6 +262,10 @@ export interface OrthoJapanMap {
 	 *  spec＝XYZ テンプレ｜ラスタ PMTiles｜ローカル容器（.gpkg/.mbtiles）｜外部プロバイダの MessagePort｜**四隅で貼る画像**（MapLibre の image source 相当・1.1〜）。
 	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
 	raster: RasterAPI;
+	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
+	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（"extrude"）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
+	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
 
 	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
