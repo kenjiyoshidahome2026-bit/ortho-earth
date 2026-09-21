@@ -19,6 +19,11 @@ const ROLES = {
 	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
 	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・plateaudecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
 	parquet:        () => import("./gadgets/parquet-worker.js"),   // GeoParquet の視野追従（同上・geopbf の核を共有）
+	// 部品の worker（2026-09-22・標準の作法＝各部品の setWorkerFactory / 役割名 → この入口）。geopbf の役割（decoder:/encoder:/geopbf:）は下の正規表現
+	"ortho:tile":    () => import("ortho-core/workers/tile"),      // タイルの取得・解読・三角形化（createPipeline の workerFactory）
+	"ortho:scene":   () => import("ortho-core/workers/scene"),     // シーンの結合
+	"altpbf:height": () => import("altpbf/worker"),                // 標高タイルの復号（main の createGetHeight・render worker の terrain）
+	"geoedit:model": () => import("geoedit/model-worker"),         // geoedit の編集モデル
 };
 
 const pending = [];

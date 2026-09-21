@@ -3,7 +3,9 @@
 //   ・Worker 自体の失敗（モジュール読込不可・OOM 等）＝返り便が永遠に来ない＝呼び手の busy が立ったまま全入力が死ぬ
 //     → 待っている全件を reject し、Worker は捨てて次回に作り直す
 // 編集モデルの worker（1 箇所で生成＝vite のチャンクも 1 本）。検定ページも index.js 経由でこれを使う
-export const createModelWorker = () => new Worker(new URL("./model-worker.js", import.meta.url), { type: "module", name: "geoedit-model" });
+import { spawnWorker } from "./workerFactory.js";
+import { builtinWorker } from "./builtinWorkers.js";
+export const createModelWorker = () => spawnWorker("geoedit:model", () => builtinWorker("geoedit:model"));   // ホストの入口が勝つ（setWorkerFactory・2026-09-22）
 export function createWorkerRpc() {
 	let worker = null, reqId = 0;
 	const pending = new Map();

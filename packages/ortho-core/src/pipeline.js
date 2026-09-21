@@ -3,11 +3,14 @@
 // 入口＝style / tileUrl / requestDraw / scenePort(render worker直結)。出口＝tiles(LOD管理) と requestMerge。
 // geometry は main を通らず scene worker → render worker へ直行（main は geometry を知らない）。
 import { createTileManager } from "./tilemanager.js";
+import { spawnWorker, setWorkerFactory } from "./workerFactory.js";
+import { builtinWorker } from "./builtinWorkers.js";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ }) {
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory }) {
+	if (workerFactory) setWorkerFactory(workerFactory);   // ホストの入口（役割名 "ortho:scene" / "ortho:tile" → Worker・2026-09-22）
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
-	const sceneWorker = new Worker(new URL("./workers/sceneworker.js", import.meta.url), { type: "module" });
+	const sceneWorker = spawnWorker("ortho:scene", () => builtinWorker("ortho:scene"));
 	sceneWorker.postMessage({ type: "connect", port: scenePort }, [scenePort]);   // scene→render 直結
 	// iOS WebKit の轍（2026-08-02）：WebGPU を作った worker はページからの受信が全チャネル死ぬ。
 	// 生きている「page→scene worker→（scenePort）→render worker」で制御メッセージを中継する口。
@@ -36,7 +39,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	const tileWorkers = [], pending = new Map(), keyToId = new Map();
 	let wIdx = 0, reqId = 0;
 	for (let i = 0; i < NW; i++) {
-		const w = new Worker(new URL("./workers/tileworker.js", import.meta.url), { type: "module" });
+		const w = spawnWorker("ortho:tile", () => builtinWorker("ortho:tile"));
 		w.onmessage = e => {
 			const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
 			if (keyToId.get(p.key) === e.data.id) keyToId.delete(p.key);

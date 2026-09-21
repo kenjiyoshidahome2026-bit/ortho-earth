@@ -2,9 +2,24 @@
 	"name": "altpbf",
 	"version": "1.1.0",
 	"description": "ALTPBF — a tiny binary format for elevation tiles: delta-coded SVarint grids with deflate-raw, decoded straight into Int16Array (no intermediate JS arrays). The elevation backbone of ortho-earth: 8 tiles / 55 MB cover the whole planet at R90. Encode, decode, name-scheme helpers and PNG preview, all in the browser. MIT.",
-	"keywords": ["elevation", "dem", "terrain", "heightmap", "tiles", "geospatial", "gis", "binary", "format", "varint", "browser"],
+	"keywords": [
+		"elevation",
+		"dem",
+		"terrain",
+		"heightmap",
+		"tiles",
+		"geospatial",
+		"gis",
+		"binary",
+		"format",
+		"varint",
+		"browser"
+	],
 	"homepage": "https://www.ortho-earth.com/docs/altpbf.html",
-	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/altpbf.git" },
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/altpbf.git"
+	},
 	"author": "Kenji Yoshida <kenji.yoshida.home.2026@gmail.com>",
 	"license": "MIT",
 	"type": "module",
@@ -14,7 +29,8 @@
 	],
 	"exports": {
 		".": "./src/format.js",
-		"./loader": "./src/loader.js"
+		"./loader": "./src/loader.js",
+		"./worker": "./src/worker.js"
 	},
 	"scripts": {
 		"test": "node tests/t-tiff.mjs && node tests/t-worldatlas.mjs",

@@ -96,8 +96,8 @@ export default defineConfig({
 	publicDir: false,
 	// worker の別ビルドには `plugins` が効かない（vite 5：build では worker.plugins のみ）＝.wasm 実体化と空白 minify を両方ここにも挿す。
 	// 空白 minify を worker に入れ忘れていた実測（2026-09-14）：renderworker 6,380 行・plateauworker 11,377 行のまま配っていた。
-	// geopbf の worker はアプリの入口（worker.js）で走らせる（app.js の createGeopbf workerFactory）＝geopbf 自身の worker は組み立てない
-	// ＝modules/builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」に差し替える（2026-09-22・geopbf README「Worker entry」）
+	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
+	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") }] },
 	worker: { format: "es", plugins: () => [wasmAsFile, forceMinifyWhitespace] },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。

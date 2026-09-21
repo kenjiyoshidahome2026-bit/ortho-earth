@@ -12,13 +12,18 @@ import { createGeopbf, geopbf } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
-import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
+import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
+import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
 import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
 import { NL_REGION, nlEntry } from "./nl/region.js";
-// geopbf の worker（変換・解析・COG・タイル書き出し）もアプリの入口 1 本（worker.js）で走らせる＝geopbf の核を render/estat 等と共有（2026-09-22）。
-// 役割名は geopbf が付ける（"decoder:fgb" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）
-const geopbfWorker = role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
-createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: geopbfWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
+// 部品の worker（geopbf の変換・解析・COG・タイル書き出し／エンジンのタイル・シーン／altpbf の標高／geoedit の編集モデル）も
+// アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
+// 役割名は部品が付ける（"decoder:fgb" "ortho:tile" 等）＝options は静的でない＝@vite-ignore（worker の組み立て自体は vite が行う）。
+// ⚠部品の組み込み worker はビルドの alias で「作らない版」に差し替え済み（vite.config.js）＝この口が必ず Worker を返すこと
+const hostWorker = role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+setAltWorkerFactory(hostWorker);
+setGeoeditWorkerFactory(hostWorker);
+createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
@@ -969,7 +974,7 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 style.emptySea = "water";
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: BASE_SOURCE.tileUrl, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON,
+	style, tileUrl: BASE_SOURCE.tileUrl, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker,   // タイル/シーン worker もアプリの入口で
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は

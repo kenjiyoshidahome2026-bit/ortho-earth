@@ -22,6 +22,7 @@ export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { selectLOD } from "./tilecover.js";
 export { createTileManager } from "./tilemanager.js";
 export { createPipeline } from "./pipeline.js";
+export { setWorkerFactory } from "./workerFactory.js";   // worker の入口を差し替える（役割 "ortho:scene" / "ortho:tile"・createPipeline の workerFactory でも可・2026-09-22）
 export { createTerrain } from "./terrain.js";
 export { mergeTiles } from "./scene.js";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";

@@ -32,5 +32,11 @@ const editor = initEditor(map, {           // map = an ortho-earth map (public A
 `setEditClick`, `setMaxPitch`/`maxPitch`, `setZoomMin`/`zoomMin`, `requestSnapshot`, `ellipsoidOn`, and the `tip`/`pop`
 gadgets (`map.gadget.tip()`, `map.gadget.pop()`). Styles are baked into `src/editor.css.js` (from `editor.scss`; `npm run build:css`), so the host needs neither sass nor Vite-only imports.
 
+**Worker entry** — the editing model runs in a module worker (role `"geoedit:model"`). A host with its own worker entry can
+run it there instead, sharing geopbf's core with its other workers: `setWorkerFactory(role => new Worker(…, { name: role }))`
+(from `geoedit` or the tiny `geoedit/worker-factory`), and in the host worker `import("geoedit/model-worker")` for that name.
+Return `null` to keep the built-in worker. Same convention as geopbf (README "Worker entry"), including the build alias
+that drops the built-in worker.
+
 Install: `npm i geoedit` (depends on `geopbf` ≥ 1.11.0). With Vite, set `worker: { format: "es" }` in your config (geopbf's workers use dynamic imports; Vite's default `iife` worker format cannot bundle them). Tests live with the host app for now (`apps/ortho-japan/tests/t-editor.html` and friends) and run with
 `npm test` here (→ `verify:editor` of ortho-japan).
