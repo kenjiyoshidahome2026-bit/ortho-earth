@@ -39,7 +39,8 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
-import { createN02Overlay } from "./jp/n02.js";   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（日本の知識＝jp/ の下・同）
+import { createN02Overlay } from "./jp/n02.js";
+import { createPoiLedger } from "./jp/poi.js";   // POI台帳（施設の点・z14+）＝在庫・タイル・手差分・ラベル注入（日本の知識＝jp/ の下）   // N02 新幹線オーバーレイ＝路線＋駅のビーズ（日本の知識＝jp/ の下・同）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
@@ -743,109 +744,6 @@ function loadLandmarks() {
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
 	}).catch(e => console.warn("[landmark] ledger fetch failed", e));
 }
-// ── POI台帳（施設の点・z14+）＝uploader で焼いた poi/14/x/y を「寄った時だけ」読み、rank で解禁（docs/poi-ledger.md §11）。
-// landmark 名札と同じ経路に相乗り：施設チップの傘（9xxx 合成コード＝isFacility 真）・現テーマ色・案A で同名 dedup。
-// アイコン化は後段＝まず名札で「見える」を取る。線/面/地名/交通は optbv のまま（施設の点だけ自前台帳）。
-const POI_CODE = 9102;                                         // landmark(9101) の隣。9xxx 帯は空き＝施設チップ傘下に自動で入る
-const POI_SRC_ANNO = 1;                                        // 出典の pos-src=注記＝権威位置（基図を上書きしてよい）＝schema.SRC.ANNO
-const poiZAppear = rank => 14 + (255 - rank) * 3 / 255;        // rank 大＝早く出る（255→z14 / 中位→z15 / 小→z17）＝§11.5 の解禁段
-const poiTiles = new Map();                                    // "x/y" → 地物配列 ／ "loading" ／ []（POI 無しタイル）
-const POI_API = "https://api.ortho-earth.com";                     // bucket API 基底（poiedit の書込は native-bucket がこの面へ）
-const POI_BASE = POI_API + "/bucket/GIS/pbf/";                     // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
-const POI_OVR_NAME = "poi/overrides.json";                         // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
-const POI_BUST = Date.now();                                   // セッション毎の一意値＝マニフェストのHTTPキャッシュ回避／未整備時のフォールバック版
-let poiVer = 0;                                                // タイル到着ごとに ++＝labelGate が拾ってラベルのみ再構築（merge なし）
-let poiManifest = null, poiManReq = null, poiManState = "none";   // マニフェスト {v,tiles:Set,baked:Set}＋状態(none/loading/loaded/absent)。解決前はタイル要求しない（race404防止）
-const poiLog = /[?&]poilog=1/.test(location.search);           // ?poilog=1＝POI層の診断（在庫/表示/rank待ち/基図重複/上書き）
-const poiAll = /[?&]poiall=1/.test(location.search);           // ?poiall=1＝rank解禁と dedup を無効化＝全POIを z14+ で出す（評価用）
-// 自前fetch：404を例外でなく「空(null)」として静かに返す（geopbf(name) は PBFIO が404を毎回コンソールに吐く＝
-// 空タイルの海で洪水になる）。bucketは生gzipで返す（Content-Encoding無し）＝自前gunzip。返り＝Uint8Array／null。
-async function poiFetch(url) {
-	const r = await fetch(url);
-	if (!r.ok) return null;
-	let buf = new Uint8Array(await r.arrayBuffer());
-	if (buf[0] === 0x1f && buf[1] === 0x8b) buf = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
-	return buf;
-}
-// タイル在庫マニフェストを一度だけ取得。無ければ（未焼き/旧焼き）フォールバック＝bbox全スキャン（自前fetchなので404は静か）。
-function loadPoiManifest() {
-	if (poiManReq) return poiManReq;
-	poiManState = "loading";
-	return poiManReq = poiFetch(`${POI_BASE}poi/14/index.json?_=${POI_BUST}`).then(buf => {
-		if (buf) { const j = JSON.parse(new TextDecoder().decode(buf)); if (j?.tiles) { poiManifest = { v: j.v, tiles: new Set(j.tiles), baked: new Set(j.baked || []) }; poiManState = "loaded"; if (poiLog) console.log(`[poi] manifest ${j.tiles.length} tiles v${j.v}, baked-in overrides ${poiManifest.baked.size}`); } }
-		if (poiManState !== "loaded") poiManState = "absent";   // 無し/壊れ＝フォールバック（bboxスキャン）
-		poiVer++; needsDraw = true;                            // 解決＝loadPOI を回して在庫ゲート/スキャン開始
-	}).catch(() => { poiManState = "absent"; poiVer++; needsDraw = true; });
-}
-// ── §12 手差分（サーバー正本 poi/overrides.json）＝ベクターファイル(タイル)と分離した bucket 管理（本人裁定2026-08-10）。
-// 表示は実行時パッチ＝タイル在庫の上へ即座に被せる（焼き直し待ちにしない・編集ガジェットの setPoiOvr でも即反映）。
-// 意味論の正典＝uploader/src/poi/schema.js applyOverrides（match=名前完全一致∧300m最近傍・id昇順fold・
-// moveは pos-src を手管理へ）。ここはその実行時版（表示形 {anchor,n,r,s}）＝tests/t-poioverrides.mjs が同値を機械検証。
-const POI_SRC_MANUAL = 3;                                      // 出典 pos-src=手管理（編集）＝権威位置（schema.SRC.MANUAL）
-const poiOvrDist = (a, b) => Math.hypot((a[0] - b[0]) * 111320 * Math.cos(b[1] * Math.PI / 180), (a[1] - b[1]) * 111320);
-function applyPoiOvr(list, ovrRecs, tileLoaded) {
-	const out = list.map(p => ({ ...p }));   // コピー＝poiTiles のキャッシュを壊さない
-	for (const o of [...(ovrRecs || [])].sort((a, b) => a.id - b.id)) {
-		if (o.op === "add") {   // 追加＝手管理の権威点。読み込んでいる z14 タイル圏だけ出す（全国の add を毎回積まない）
-			if (!tileLoaded || tileLoaded(o.ll)) out.push({ anchor: o.ll, n: o.n, r: o.r ?? 120, s: (POI_SRC_MANUAL << 4) | POI_SRC_MANUAL });
-			continue;
-		}
-		let bi = -1, bd = 300;
-		for (let i = 0; i < out.length; i++) {
-			if (out[i].n !== o.n) continue;
-			const d = poiOvrDist(out[i].anchor, o.ll);
-			if (d < bd) { bd = d; bi = i; }
-		}
-		if (bi < 0) continue;   // 対象なし（焼き込み済/未ロード地域）＝no-op＝冪等
-		if (o.op === "del") out.splice(bi, 1);
-		else if (o.op === "move") { out[bi].anchor = o.to; out[bi].s = (POI_SRC_MANUAL << 4) | (out[bi].s & 0x0F); }
-		else if (o.op === "rename") out[bi].n = o.to;
-	}
-	return out;
-}
-let poiOvr = null, poiOvrReq = null;   // {v,seq,recs}＝サーバー手差分（編集ガジェットが setPoiOvr で差し替え）
-function loadPoiOverrides() {
-	if (poiOvrReq) return poiOvrReq;
-	return poiOvrReq = poiFetch(`${POI_BASE}${POI_OVR_NAME}?_=${POI_BUST}`).then(buf => {   // 未作成(404)＝null＝静かに
-		if (!buf) return;
-		poiOvr = JSON.parse(new TextDecoder().decode(buf));
-		if (poiOvr?.recs?.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] overrides ${poiOvr.recs.length} recs v${poiOvr.v}`); }
-	}).catch(() => {});
-}
-// ロード済み全タイルの地物＋手差分パッチ＝表示とガジェット（対象選択）の共通フィード。
-// 焼き込み済みレコード（manifest.baked）は適用しない＝del/move が同名近傍の別施設を最近傍matchで
-// 誤爆する「再発火」を封じる（schema.js の⚠・t-poioverrides.mjs が検証）。タイルとbakedは同じ
-// マニフェスト便で届く（タイルURLは ?v=版）＝新旧が食い違わない。
-function poiPatchedAll() {
-	const feats = [];
-	for (const fs of poiTiles.values()) if (Array.isArray(fs)) feats.push(...fs);
-	if (!poiOvr?.recs?.length) return feats;
-	const recs = poiManifest?.baked?.size ? poiOvr.recs.filter(r => !poiManifest.baked.has(r.id)) : poiOvr.recs;
-	if (!recs.length) return feats;
-	return applyPoiOvr(feats, recs, ll => poiTiles.has(lonLatToTile(ll[0], ll[1], 14).join("/")));
-}
-function loadPOI(cam) {
-	loadPoiManifest();
-	loadPoiOverrides();
-	if (poiManState === "loading") return;                    // マニフェスト解決待ち＝未存在タイルへの空振り404を防ぐ（race根治）
-	const [w, s, e, n] = approxViewBbox(cam);
-	const [x0, y0] = lonLatToTile(w, n, 14), [x1, y1] = lonLatToTile(e, s, 14);   // 北西→(minx,miny) 南東→(maxx,maxy)
-	const ver = poiManifest ? poiManifest.v : POI_BUST;       // 版でキャッシュ制御（再焼きで自動失効）／フォールバックはセッション値
-	for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++)
-		for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) {
-			const key = x + "/" + y;
-			if (poiTiles.has(key)) continue;                  // 既取得（空タイル [] 含む）＝二度と要求しない
-			if (poiManifest && !poiManifest.tiles.has(key)) { poiTiles.set(key, []); continue; }   // 在庫外＝要求しない
-			poiTiles.set(key, "loading");
-			poiFetch(`${POI_BASE}poi/14/${key}?v=${ver}`).then(async buf => {
-				if (!buf) { poiTiles.set(key, []); return; }   // 404＝空＝静かに（コンソールを汚さない）
-				const pbf = await geopbf(buf, { gint: false });   // バッファ直デコード（名前解決/fetch/IDBを通さない）
-				const feats = pbf?.geojson?.features || [];
-				poiTiles.set(key, feats.map(f => ({ anchor: f.geometry.coordinates, n: f.properties.n, r: f.properties.r, s: f.properties.s ?? 0 })));
-				if (feats.length) { poiVer++; needsDraw = true; if (poiLog) console.log(`[poi] tile ${key} loaded ${feats.length} features`); }
-			}).catch(() => poiTiles.set(key, []));
-		}
-}
 // --- 建物3D（PLATEAU）の管理＝plateau/manager.js（表示判定・ロード順・常駐予算・遠景・先読み・読込トースト・データ管理モーダル）。
 // ここは配線だけ＝装置の旗・描画側の口・app の状態の覗き窓（getter）・生成後に定義される関数のラップ（一本道の下流＝呼ぶ時に解決）。
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
@@ -861,6 +759,8 @@ function approxViewBbox(cam) {
 	const [lon, lat] = cam.center;
 	return [lon - dLon, lat - dLat, lon + dLon, lat + dLat];
 }
+// --- POI台帳（施設の点・z14+）＝jp/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
+const poi = createPoiLedger({ viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } });
 let flying = false;                        // フライト中フラグ＝plateau.update のゲート（flyTo が立て、着地/中断で下ろす）
 const plateau = createPlateauManager({
 	plateauOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: plateauCatalog,
@@ -1441,7 +1341,7 @@ let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
 	+ (cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM && airportMarks.length ? "A" : "")
 	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
-	+ (layerState.facility && cam.zoom >= 14 ? "P" + poiVer + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ (layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -1543,34 +1443,8 @@ function rebuildLabels(order) {
 			}
 		}
 	}
-	// POI台帳（施設チップON・z14+）：焼いた点を rank で解禁。同名は既存注記＋landmark に譲る（§11.2 案A＝d2 の実行時版）。
-	// sort=4−rank/255＝rank 大ほど衝突に強い（§11.5 の二役）。
-	if (poiTiles.size && layerState.facility && cam.zoom >= 14) {
-		const { color, halo, haloW } = facInk();
-		// §12 実行時パッチ：サーバー手差分をタイル在庫の上へ被せてから注入（add/move/rename/del・冪等）
-		const patched = poiPatchedAll();
-		// 権威位置（注記由来 s>>4=ANNO＝寺社など・手管理 MANUAL＝編集で人が置いた点）のPOI名を集め、
-		// 基図の同名注記を先に消す＝POIが基図を上書き（§1 の三十三間堂 274mズレの解決＝基図の間違った位置を
-		// 台帳の正しい位置で置換）。landmark/POI自身は消さない。学校(KSJ位置)は非権威＝基図に譲る（基図もほぼ正確・§2）。
-		const poiAuth = s => { const p = s >> 4; return p === POI_SRC_ANNO || p === POI_SRC_MANUAL; };
-		const authNames = new Set();
-		for (const p of patched) if (poiAuth(p.s) && (poiAll || cam.zoom >= poiZAppear(p.r))) authNames.add(p.n);
-		if (authNames.size) for (let i = allLabels.length - 1; i >= 0; i--) {
-			const c = allLabels[i].code;
-			if (c !== POI_CODE && c !== LANDMARK_CODE && authNames.has(allLabels[i].text)) allLabels.splice(i, 1);
-		}
-		const have = new Set(allLabels.map(L => L.text));   // タイル注記(上書き済)＋landmark に既出の名前は出さない（案A）
-		let nAvail = 0, nShown = 0, nGated = 0, nDedup = 0;
-		for (const p of patched) {
-			nAvail++;
-			if (!poiAll && cam.zoom < poiZAppear(p.r)) { nGated++; continue; }   // rank解禁（?poiall=1で無効）
-			const auth = poiAuth(p.s);                  // 権威＝基図を消した側＝必ず出す。非権威は基図/landmarkに譲る
-			if (!poiAll && !auth && have.has(p.n)) { nDedup++; continue; }        // 案A dedup（?poiall=1で無効）
-			allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
-			have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
-		}
-		if (poiLog) console.log(`[poi] z${cam.zoom.toFixed(1)} -> shown ${nShown} / stock ${nAvail} (rank-gated ${nGated}, basemap-dup ${nDedup}, overriding ${authNames.size}, manual ${poiOvr?.recs?.length ?? 0})${poiAll ? " [poiall]" : ""}`);
-	}
+	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝jp/poi.js injectLabels
+	if (layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
@@ -1836,7 +1710,7 @@ function render() {
 	// ここへ来るのは z≥TILE_MINZOOM だけ（門の下は上の早期returnでタイルなし）。?pm= は maxZ を
 	// アーカイブの maxZoom で掛けている（tiles.update）＝旧・世界帯の cap と同じ役割を汎用化したもの。
 	const { order, coarseOrder, total } = tu;   // 選抜は上（描画命令の前・基図圏のみ）で実施済み
-	if (layerState.facility && cam.zoom >= 14) loadPOI(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
+	if (layerState.facility && cam.zoom >= 14) poi.load(cam);   // z14+×施設ON＝POI台帳タイル(poi/14/x/y)を可視ぶん先読み（既取得は素通り）
 	dbgHost.__lastOrder = order;   // デバッグ：現在の選択タイル（コンソール/検証スクリプトから確認）
 	dbgHost.__tileStats = () => { const s = tiles.stats(); console.log(`[tiles] resident ${s.tiles} tiles / ${(s.bytes/1048576).toFixed(1)}MB (budget ${(s.budgetBytes/1048576).toFixed(0)}MB, deviceMemory≈${s.deviceMemoryGB}GB, cacheEntries ${s.cacheEntries})`); return s; };   // コンソールから常駐メモリ確認
 	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
@@ -2362,10 +2236,10 @@ if (/[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js").then((
 		return poiedit.call(this, {
 			// クリックは createInput の onClick 横取り（measure と同型）＝ドラッグ弁別は input.js が正本・
 			// armed中の選択クリックが識別/星座へ素通りしない。座標は unprojectXY/makeProjector と同じ canvas CSS系。
-			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: poiOvrDist,
-			apiBase: POI_API, name: POI_OVR_NAME,
-			getPOI: () => poiPatchedAll(), getOvr: () => poiOvr,
-			setOvr: o => { poiOvr = o; poiVer++; needsDraw = true; },
+			setClick: fn => { poiClick = fn; }, unprojectXY, makeProjector, distM: poi.distM,
+			apiBase: poi.apiBase, name: poi.ovrName,
+			getPOI: () => poi.patchedAll(), getOvr: poi.getOvr,
+			setOvr: poi.setOvr,
 			signal: ac.signal, ...opts,
 		});
 	});

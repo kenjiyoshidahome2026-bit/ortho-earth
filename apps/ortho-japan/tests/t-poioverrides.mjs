@@ -1,19 +1,11 @@
 // §12 手差分（poi/overrides.json）の意味論を検証する Node ハーネス。
 //   node tests/t-poioverrides.mjs
-// 二枚実装（焼き側 uploader/src/poi/schema.js applyOverrides ＝正典／表示側 app.js applyPoiOvr ＝実行時版）の
-// 「同値」を機械検証する＝複製の錆び止め（t-chome と同じく実ソースを切り出す＝写経した複製を試験しない）。
+// 二枚実装（焼き側 uploader/src/poi/schema.js applyOverrides ＝正典／表示側 jp/poi.js applyPoiOvr ＝実行時版）の
+// 「同値」を機械検証する＝複製の錆び止め（実モジュールを import＝写経した複製を試験しない）。
 // 検証する意味論：match=名前完全一致∧300m最近傍1件／id昇順fold（rename後は新名でmatch）／
 // moveは pos-src を手管理(3)へ・typeSrc維持／add=手管理0x33／焼き込み後の再適用が冪等（bake+runtime二重掛け）。
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import * as POI from "../../uploader/src/poi/schema.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(HERE, "../app.js"), "utf8");
-const from = src.indexOf("const POI_SRC_MANUAL"), to = src.indexOf("let poiOvr = null");
-if (from < 0 || to < 0 || to < from) { console.error("app.js から applyPoiOvr を切り出せない（実装が移動した？）"); process.exit(1); }
-const applyPoiOvr = new Function(src.slice(from, to) + "\nreturn applyPoiOvr;")();
+import { applyPoiOvr } from "../jp/poi.js";   // 表示側の実行時版（2026-09-22 app.js から移設＝切り出し不要になった）
 
 // ── 共通フィクスチャ（schema形 {name,ll,type,rank,src} ⇄ 表示形 {n,anchor,r,s}）──────────────
 // A-B は同名で約319m（>300m＝別施設として拾わない距離）・C は注記権威（posSrc=1）。
