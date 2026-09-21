@@ -2577,18 +2577,20 @@ const INTAKE = [
 // fit＝読んだ図形へ寄る（ドロップ/?g=）。編集から戻した図形・起動時の復元は寄らない（今の視点のまま置き換える）。
 // editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
 let editDocHook = null;
-const loadUserFile = async (file, { fit = true, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等）＝draw 行へそのまま
+const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file)) continue;
 		if (fmt.draw) return fmt.draw(file, { fit, ...ctx });
 		file = await fmt.convert(file, ctx);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 		break;
 	}
-	return mainRoad(file, { fit });
+	return mainRoad(file, { fit, persist });
 };
 dbgHost.__loadUserFile = loadUserFile;   // 検証窓（ドロップと同じ一本道を CDP から＝自動押し出しの確認）
 // 本道（gint 焼き→@検知で anno 再生 or gint スロット→bbox へ fit）＝取り込み表の draw 行からも合流できる（raster-gpkg の地物層フォールバック）
-const mainRoad = async (file, { fit = true } = {}) => {
+// persist＝編集中の図形の置き場（IDB）の扱い："save"＝編集の結果（× で戻した）を残す／"keep"＝起動の復元（置き場はそのまま）／
+// 既定＝見ただけ（ドロップ・?g=）＝置き場を空にする（画面が別の図形に替わった＝古い編集結果を次の起動で蘇らせない・2026-09-22 本人再裁定）
+const mainRoad = async (file, { fit = true, persist } = {}) => {
 	const pbf = await geopbf(file, { gint: true, name: `drop/${file.name}` }).catch(err => { console.error("[dropFile] geopbf", file.name, err); return null; });
 	if (!pbf?.unPackGint) return null;
 	// 低ズーム描画が速くなった＝先に現在ビューへ図形を描き（カメラは動かさない）、その後 flyTo で寄る。
@@ -2603,7 +2605,7 @@ const mainRoad = async (file, { fit = true } = {}) => {
 		annoCtl?.clear();
 		gint.applyGintData(drawPbf, file.name, false, { drape: true });   // 先に描画（gint スロットへ set・識別点火・カメラ据え置き）＋ポリゴンは地形沿い境界線を自動発火
 	}
-	editDocHook?.(pbf, file.name);
+	editDocHook?.(pbf, file.name, persist);
 	// 高さの列を持つ面＝自動で 3D 押し出し（geoedit の面パネル「高さ」もここ）。?extrude=0＝しない／?extrude=<列名>[,倍率]＝列を指定
 	const ex = await autoExtrude(pbf);
 	const bb = pbf.unPackGint.bbox;
@@ -2861,18 +2863,21 @@ map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック�
 	// 右端の「×」（かこのボタン）で結果を受け取り置き換える。?g= で開いた時は ?g= が勝つ（前回分は復元しない＝上書きされる）
 	let doc = null;   // { buf: GeoPBF の ArrayBuffer, name（.geopbf） }
 	const asGeopbf = name => String(name || "edit").replace(/\.[^./]+$/, "") + ".geopbf";   // 中身は GeoPBF＝拡張子で変換を誤らせない
-	editDocHook = (pbf, name) => {
+	editDocHook = (pbf, name, persist) => {
 		if (!pbf) { doc = null; editDocClear(); return; }
-		doc = { buf: pbf.arrayBuffer.slice(0), name: asGeopbf(name) };
-		editDocSave(doc.buf, doc.name);
+		doc = { buf: pbf.arrayBuffer.slice(0), name: asGeopbf(name) };   // 編集ボタンが開く「今の図形」はいつでも（見ただけでも）
+		if (persist === "save") editDocSave(doc.buf, doc.name);   // 次の起動へ持ち越すのは編集の結果だけ
+		else if (persist !== "keep") editDocClear();              // 見ただけ＝置き場を空に
 	};
 	if (!new URLSearchParams(location.search).get("g")) editDocLoad().then(rec => {
-		if (rec?.buf && !doc) loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false });
+		if (!rec?.buf || doc) return;
+		if (!rec.edited) { editDocClear(); return; }   // 旧い置き場（見ただけで残っていた・印なし）は復元せず捨てる
+		loadUserFile(new File([rec.buf], rec.name || "edit.geopbf"), { fit: false, persist: "keep" });
 	});
 	return editGadget.call(this, {
 		mount: ({ onClose }) => { annoCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); return map.gadget.geoedit({ data: doc?.buf ?? null, persist: false, adopt: false, onClose }); },   // 注釈の再生は外す＝エディタが同じ図形を描く（二重に見せない）
 		onResult: async buf => {
-			if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false });
+			if (buf) await loadUserFile(new File([buf], doc?.name || "edit.geopbf"), { fit: false, persist: "save" });
 			else { annoCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); gint.clearUserGint(); editDocHook(null); }   // 全部消して戻った＝編集中の図形も空へ
 		},
 		signal: ac.signal, ...opts,
