@@ -104,6 +104,8 @@ export interface Gadgets {
 	/** 点の集約（MapLibre の cluster 相当・canvas2D のオーバーレイ）。src＝点のデータか MapLibre の source（{ type:"geojson", data, cluster:true, clusterRadius, clusterMaxZoom }）。
 	 *  集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。queryRenderedFeatures の点の問い合わせに "clusters"/"unclustered-point" で出る */
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
+	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key）。null＋{id} で外す */
+	symbols(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | ({ type: "symbol" } & Omit<MapLibreLayer, "type">) | null, layer?: Partial<MapLibreLayer>): Promise<{ features: number } | null>;
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
@@ -213,8 +215,13 @@ export interface HeatmapLayer { type: "heatmap"; id?: string; source?: { type: "
 	paint?: { "heatmap-radius"?: StyleExpression; "heatmap-weight"?: StyleExpression; "heatmap-intensity"?: StyleExpression; "heatmap-color"?: StyleExpression; "heatmap-opacity"?: number } }
 export interface CirclePaint { "circle-color"?: StyleExpression; "circle-radius"?: StyleExpression; "circle-stroke-color"?: StyleExpression; "circle-stroke-width"?: StyleExpression; "circle-opacity"?: StyleExpression }
 export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number } }
+export type MapLibreSource =
+	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number }
+	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
+	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
+export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
-export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster"; expansionZoom?: number }
+export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols"; expansionZoom?: number }
 
 export interface OrthoJapanMap {
 	// ---- 基本 ----
@@ -272,6 +279,21 @@ export interface OrthoJapanMap {
 	 *  spec＝XYZ テンプレ｜ラスタ PMTiles｜ローカル容器（.gpkg/.mbtiles）｜外部プロバイダの MessagePort｜**四隅で貼る画像**（MapLibre の image source 相当・1.1〜）。
 	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
 	raster: RasterAPI;
+	/** 記号帳（MapLibre の addImage 相当）。img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}。sdf＝icon-color で塗れる記号 */
+	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;
+	removeImage(name: string): void;
+	hasImage(name: string): boolean;
+	listImages(): string[];
+	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
+	loadSprite(base: string): Promise<number>;
+	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster）。
+	 *  ⚠利用者の図形（fill/line/circle）・押し出し・ヒートマップ・集約は各 1 つ（後の層が置き換える）。symbol と raster は複数可。式は呼んだ時に評価（symbol の zoom 式は止まるたび） */
+	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
+	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> }) | undefined;
+	removeSource(id: string): OrthoJapanMap;
+	addLayer(layer: MapLibreLayer): Promise<unknown>;
+	getLayer(id: string): MapLibreLayer | undefined;
+	removeLayer(id: string): OrthoJapanMap;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
 	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（"extrude"）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
