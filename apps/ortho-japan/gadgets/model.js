@@ -126,6 +126,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 	return out;
 }
 
+const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
 export function createModel(map, { setMesh, fit, center, ell = false, signal } = {}) {
 	const t = tr();
 	let worker = null, seq = 0, cur = null;   // cur＝{ name, stats, src }
@@ -153,7 +154,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {   // bottom＝数値[m]ならその高さの平面に浮かせる（全体の床の高さ・面ごとの base とは別）（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
+		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。無指定＝広い面は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
 			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 			const used = [...new Set(polys.map(p => p.fi))].map(fi => ({ f: feats[fi], h: polys.find(p => p.fi === fi).h }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照）
@@ -161,12 +162,13 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			if (!polys.length) { clearExtrude(); return null; }
 			const tr = []; for (const p of polys) for (const r of p.rings) tr.push(r.buffer);
 			const buildingLike = (() => { const diag = polys.map(p => { const r0 = p.rings[0]; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < r0.length; i += 2) { if (r0[i] < x0) x0 = r0[i]; if (r0[i] > x1) x1 = r0[i]; if (r0[i+1] < y0) y0 = r0[i+1]; if (r0[i+1] > y1) y1 = r0[i+1]; } return Math.hypot((x1 - x0) * 111320 * Math.cos((y0 + y1) / 2 * Math.PI / 180), (y1 - y0) * 110540); }).sort((a, b) => a - b); return diag[diag.length >> 1] < 500; })();
-			// 地面の扱い（2026-09-22 本人裁定「bottom=n で最低高を外から指定すればそれに合わせる・なければドレープがわかりやすい」）：
+			// 地面の扱い（2026-09-22 本人裁定：「bottom=n で最低高を外から指定すればそれに合わせる」→ドレープは寄ると R01 の起伏に屋根が追いつかず
+			// まだらに抜けた＝「ドレイプはやっぱり厳しい・bottom=2000 ぐらいで」）：
 			//   bottom（数値）＝その高さ[m]の平面に浮かせる＝地形へ持ち上げない（noLift）・屋根は弦のたわみだけ消す刻み
-			//   無指定＝広い面（市区町村・メッシュの統計）は drape＝頂点ごとに地表へ持ち上げる（DTM 保証域に縛らず全ズーム・屋根は起伏に沿う刻み）
-			//           建物らしい面は従来どおり接地（DTM 保証域の中で持ち上げる）
-			const mode = Number.isFinite(bottom) ? "plane" : buildingLike ? "ground" : "drape";
-			const lift = mode === "plane" ? bottom : null;
+			//   bottom:"drape"＝頂点ごとに地表へ持ち上げる（DTM 保証域に縛らず全ズーム・屋根は起伏に沿う刻み）
+			//   無指定＝広い面（市区町村・メッシュの統計）は DEFAULT_BOTTOM の平面／建物らしい面は従来どおり接地（DTM 保証域の中で持ち上げる）
+			const mode = bottom === "drape" ? "drape" : Number.isFinite(bottom) ? "plane" : buildingLike ? "ground" : "plane";
+			const lift = mode === "plane" ? (Number.isFinite(bottom) ? bottom : DEFAULT_BOTTOM) : null;
 			if (lift != null) for (const p of polys) { p.base += lift; p.h += lift; }
 			if (mask === "auto") {   // 市区町村・メッシュのような広い面で伏せると、日本中の基図建物が消える＝建物らしい大きさの時だけ
 				const diag = polys.map(p => { const r0 = p.rings[0]; let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (let i = 0; i < r0.length; i += 2) { if (r0[i] < x0) x0 = r0[i]; if (r0[i] > x1) x1 = r0[i]; if (r0[i + 1] < y0) y0 = r0[i + 1]; if (r0[i + 1] > y1) y1 = r0[i + 1]; } return Math.hypot((x1 - x0) * 111320 * Math.cos(y0 * Math.PI / 180), (y1 - y0) * 111320); }).sort((a, b) => a - b);
