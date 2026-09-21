@@ -13,8 +13,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanApp, CTX_SEP } from "./lib/i18n-scan.mjs";
-import { loadPages } from "./lib/i18n-pages.mjs";
+import { CTX_SEP } from "./lib/i18n-scan.mjs";
+import { scanAll } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const UI = path.join(APP, "i18n/ui.json");
@@ -24,7 +24,7 @@ const check = process.argv.includes("--check");
 
 const ctx = JSON.parse(fs.readFileSync(path.join(APP, "scripts/i18n-contexts.json"), "utf8"));
 const langs = JSON.parse(fs.readFileSync(LANGS, "utf8")).map(l => l.code);
-const r = scanApp(APP, ctx, { exclude: loadPages(APP).pageFiles });   // showcase ページ（i18n/pages.json）は別辞書＝本体の正本へ混ぜない
+const { r, alive } = scanAll(APP, ctx);   // 走査は本体だけ（showcase ページ＝i18n/pages.json は別辞書＝本体の正本へ混ぜない）・生死はページからの参照も数える（検定と同じ物差し）
 
 let bad = 0;
 const die = (why, rows) => { bad++; console.error(`ERROR  ${why}`); for (const x of rows.slice(0, 20)) console.error("       " + x); };
@@ -35,7 +35,6 @@ if (r.collisions.size) die(`${r.collisions.size} English key(s) claimed by diffe
 
 // 既存の訳を読み、ja を入れ直して書き戻す（他言語は触らない）
 const prev = fs.existsSync(UI) ? JSON.parse(fs.readFileSync(UI, "utf8")).ui ?? {} : {};
-const alive = k => r.keys.has(k) || r.literals.has(k);   // 直接の t("…") か、表/配列に置かれたキー
 const ui = {}, added = [], retired = Object.keys(prev).filter(k => !alive(k));
 for (const k of Object.keys(prev)) if (alive(k) && !r.keys.has(k)) r.keys.set(k, { ja: "", rawJa: "", files: new Set(), uses: [] });
 for (const key of [...r.keys.keys()].sort()) {

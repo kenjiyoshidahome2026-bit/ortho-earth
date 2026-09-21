@@ -11,8 +11,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { scanApp, placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
-import { loadPages } from "./lib/i18n-pages.mjs";
+import { placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
+import { scanAll } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const strict = process.argv.includes("--strict");
@@ -22,9 +22,7 @@ const uiPath = path.join(APP, "i18n/ui.json");
 if (!fs.existsSync(uiPath)) { console.error(`ERROR  ${path.relative(APP, uiPath)} is missing — run: npm run i18n:extract`); process.exit(1); }
 const ui = JSON.parse(fs.readFileSync(uiPath, "utf8")).ui ?? {};
 // showcase ページ（i18n/pages.json）＝自分の表（i18n/pages/<page>.json）＋本体の表で引く。本体のファイルは本体の表だけ
-const P = loadPages(APP);
-const r = scanApp(APP, ctx, { exclude: P.pageFiles });
-const rp = Object.fromEntries(Object.keys(P.pages).map(page => [page, scanApp(APP, ctx, { only: new Set(P.pages[page]) })]));
+const { P, r, rp, alive: usedAnywhere } = scanAll(APP, ctx);   // 生死の物差し＝抽出と共通（本体の共有キーはページからの参照でも生きている）
 const jaEra = [...r.perFile.values()].some(m => m.size > 0);   // ja キー期＝まだ持参辞書が生きている
 
 let err = 0, warn = 0;
@@ -63,7 +61,6 @@ if (phBad.length) E(`${phBad.length} placeholder mismatch(es)`, phBad);
 if (ctxLeak.length) E(`${ctxLeak.length} translation(s) carry the context marker`, ctxLeak);
 
 // ⑤ 未訳・死にキー・辞書にない呼び出し
-const usedAnywhere = k => r.keys.has(k) || r.literals.has(k) || Object.values(rp).some(rr => rr.keys.has(k) || rr.literals.has(k));   // 本体の共有キーはページからの参照でも生きている
 const dead = Object.keys(ui).filter(k => !usedAnywhere(k));   // 表/配列に置かれたキーは生きている
 if (dead.length) W(`${dead.length} key(s) in ui.json are no longer used in code`, dead.map(k => JSON.stringify(k)));
 for (const [page, rr] of Object.entries(rp)) {
