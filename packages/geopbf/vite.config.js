@@ -15,7 +15,7 @@ export default defineConfig({
 	},
 	worker: { format: 'es' },
 	optimizeDeps: {
-		exclude: ['ortho-map', 'common', 'geopbf', 'altpbf', 'native-bucket']
+		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket']
 	},
 	build: {
 		target: 'esnext',
