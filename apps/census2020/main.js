@@ -73,7 +73,7 @@ engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW,
 	map.gadget.measure();     // 距離・面積の計測
 	map.gadget.shot();        // 画面保存
 	map.gadget.qr();          // この視点をQRで共有
-	map.gadget.plateau();     // 建物3D（PLATEAU）＝市区町村ズームで autoPlateau が自動点灯
+	map.gadget.plateau();     // 建物3D（PLATEAU）＝市区町村ズームで autoMesh が自動点灯
 	map.gadget.contextmenu(); // 右クリックメニュー
 	map.gadget.hint();        // 操作説明カード
 	const legend = map.gadget.legend();   // 左下の凡例＝コロプレス/防災の色の読み物

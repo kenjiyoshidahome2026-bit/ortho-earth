@@ -1,7 +1,7 @@
 // ortho-japan/worker.js ── アプリ側 worker の唯一の入口（処方③④・ortho-earth#12・2026-09-14）。
 //
-// render / plateau / plateaudecoder / gintbake / estat を別ファイルの worker として new Worker すると、vite は worker ごとに
-// 独立した rollup ビルドを回す＝loaders.gl（plateauworker と plateaudecoder で二重・約 360 KB）や geopbf の核・ortho-core の
+// render / plateau / meshdecoder / gintbake / estat を別ファイルの worker として new Worker すると、vite は worker ごとに
+// 独立した rollup ビルドを回す＝loaders.gl（meshworker と meshdecoder で二重・約 360 KB）や geopbf の核・ortho-core の
 // glsl.js が worker の数だけ複製された（dist/lib の計量）。入口をこの 1 本にし、役割を動的 import にすると worker ビルドは
 // 1 つ＝共有物はその中の共有チャンク 1 つになる。geopbf/src/worker.js と同じ流儀。
 //
@@ -11,13 +11,13 @@
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
 const ROLES = {
 	render:         () => import("./renderworker.js"),
-	plateau:        () => import("./plateauworker.js"),
-	plateaudecoder: () => import("./plateaudecoder.js"),
+	mesh:           () => import("./meshworker.js"),
+	meshdecoder: () => import("./meshdecoder.js"),
 	gintbake:       () => import("./gintbakeworker.js"),
 	estat:          () => import("./estatworker.js"),
 	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
 	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
-	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・plateaudecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
+	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・meshdecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
 	parquet:        () => import("./gadgets/parquet-worker.js"),   // GeoParquet の視野追従（同上・geopbf の核を共有）
 	// 部品の worker（2026-09-22・標準の作法＝各部品の setWorkerFactory / 役割名 → この入口）。geopbf の役割（decoder:/encoder:/geopbf:）は下の正規表現
 	"ortho:tile":    () => import("@ortho-earth/core/workers/tile"),      // タイルの取得・解読・三角形化（createPipeline の workerFactory）

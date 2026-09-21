@@ -1,6 +1,6 @@
-// t-plateaufs の実体：OPFS ストア（plateaufs.js）を dedicated worker で実往復する
+// t-meshfs の実体：OPFS ストア（meshfs.js）を dedicated worker で実往復する
 // （createSyncAccessHandle は worker 専用＝ページ側では検証できない）。結果は文字列配列で postMessage。
-import { opfsStore, packBatch, unpackBatch } from "../plateaufs.js";
+import { opfsStore, packBatch, unpackBatch } from "../meshfs.js";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const mesh = (n, seed) => {

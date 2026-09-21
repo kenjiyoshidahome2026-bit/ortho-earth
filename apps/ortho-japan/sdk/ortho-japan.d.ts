@@ -49,7 +49,7 @@ export interface OrthoJapanOptions {
 }
 
 /** map.on("plateau") の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
-export type PlateauEvent =
+export type MeshEvent =
 	| { phase: "catalog"; count: number }
 	| { phase: "start" | "done" | "cancelled" | "failed"; name: string; base: string };
 
@@ -236,7 +236,7 @@ export interface OrthoJapanMap {
 	 *  plateau＝建物3D の読込合図（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
 	on(ev: "load", cb: (e: {}) => void): OrthoJapanMap;
 	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): OrthoJapanMap;
-	on(ev: "plateau", cb: (e: PlateauEvent) => void): OrthoJapanMap;
+	on(ev: "plateau", cb: (e: MeshEvent) => void): OrthoJapanMap;
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
 	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;

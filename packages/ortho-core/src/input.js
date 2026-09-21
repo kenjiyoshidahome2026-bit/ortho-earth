@@ -16,7 +16,7 @@ import { dot, cross, add, scale } from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
 // フォーカスが文字入力系（入力・複数行・プルダウン・編集可能領域）にあるか＝キーボードのカメラ操作/
-// ショートカットを譲る対象。SELECT を含む＝プルダウンの矢印/文字送りを地図に奪わせない（印刷/PLATEAU の
+// ショートカットを譲る対象。SELECT を含む＝プルダウンの矢印/文字送りを地図に奪わせない（印刷/建物データ管理 の
 // 設定 select で顕在化）。呼び出し側のショートカット群と ortho-core の矢印操作で同じ判定を使い回す。
 export const isTypingTarget = (el = document.activeElement) => {
 	const t = el && el.tagName;

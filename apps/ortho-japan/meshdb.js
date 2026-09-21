@@ -1,13 +1,13 @@
 // 建物3D（PLATEAU）データ管理モーダル：全国カタログ（300市区町村）に IDB キャッシュ状況（済・容量）を重ね、
 // プレロード（事前ダウンロード）と地区単位の削除を行う。回線の細い環境（タブレット・外出先）へ出る前に
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
-// （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderPlateauProg から onProg で中継される。
+// （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderMeshProg から onProg で中継される。
 import { PREF } from "@ortho-earth/jp/search-gsi";
 import { tr } from "./i18n.js";
 
 const t = tr();
 
-export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) {
+export function createMeshDb({ getSets, idbList, idbDelete, preload, show }) {
 	let root = null, listEl = null, sumEl = null, filterEl = null;
 	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
 	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
@@ -62,7 +62,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 			const statusEl = document.createElement("span"); statusEl.className = "pdb-status";
 			const drawEl = document.createElement("button"); drawEl.className = "pdb-act draw"; drawEl.textContent = t("Draw");
 			drawEl.title = t("Fly to this district and show its 3D buildings");
-			drawEl.addEventListener("click", () => show(set));   // モーダルを閉じて球面フライト→autoPlateau がキャッシュ命中で即表示
+			drawEl.addEventListener("click", () => show(set));   // モーダルを閉じて球面フライト→autoMesh がキャッシュ命中で即表示
 			const actEl = document.createElement("button"); actEl.className = "pdb-act";
 			actEl.addEventListener("click", () => onAct(set));
 			rowEl.append(nameEl, statusEl, drawEl, actEl); listEl.appendChild(rowEl);
@@ -110,7 +110,7 @@ export function createPlateauDb({ getSets, idbList, idbDelete, preload, show }) 
 		for (const r of rows.values()) renderRow(r);
 		onProg(lastProg);   // 進行中の行は進捗表示を優先で上書き
 	}
-	// main の進捗 Map（name → {scan}|{done,total}）を行表示へ。autoPlateau 起点の読み込みも同じ経路で見える。
+	// main の進捗 Map（name → {scan}|{done,total}）を行表示へ。autoMesh 起点の読み込みも同じ経路で見える。
 	// 進行中だった行が消えた＝完了/失敗＝一覧を引き直して「済」へ（vanish→refresh→onProg は wasLoading が同期済みなので循環しない）。
 	function onProg(progMap) {
 		lastProg = progMap;

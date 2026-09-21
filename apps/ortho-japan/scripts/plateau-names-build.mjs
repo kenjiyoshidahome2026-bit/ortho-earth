@@ -51,7 +51,7 @@ const fetchJSON = async (url, tries = 3) => {
 	}
 };
 
-// tileset.json を降りて葉タイル（b3dm）のURLを集める。plateauworker.js collectLeafTiles と同じ規約（外部 json は深さ4まで）。
+// tileset.json を降りて葉タイル（b3dm）のURLを集める。meshworker.js collectLeafTiles と同じ規約（外部 json は深さ4まで）。
 async function collectLeaves(tilesetUrl, depth = 0) {
 	const ts = await fetchJSON(tilesetUrl);
 	const base = tilesetUrl.slice(0, tilesetUrl.lastIndexOf("/") + 1);

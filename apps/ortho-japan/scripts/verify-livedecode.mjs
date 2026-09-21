@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // PLATEAU ライブデコードの実走検定：dist/lib（出荷物そのもの）を tests/livedecode-host.html に埋め込み、
 // **焼き（R2 の PLQ）を空振りさせ・デコードプールを強制（?dec=3）・新規プロファイル** で未焼き経路を必ず踏ませ、
-// 区 worker → デコーダ（main 生成・MessagePort 直結）→ loaders.gl 初回 import → 16 バッチ → main の "[plateau] done" までを見る。
+// 区 worker → デコーダ（main 生成・MessagePort 直結）→ loaders.gl 初回 import → 16 バッチ → main の "[mesh] done" までを見る。
 // 生まれた経緯：入口 1 本化（worker.js）後、区 worker からの入れ子 new Worker を vite が new Worker(self.location.href,{name}) に
 // 書き換え、環境によって子が一度も走らず**未焼き区だけ永久 STALL** した（本番 c34c353e・2026-09-14）。焼き済み区は OPFS/IDB から
 // 立つので通常の検定では見えない＝この関門でしか捕まらない。
@@ -64,7 +64,7 @@ try {
 			const t = m.params.targetInfo; names.set(m.params.sessionId, `${t.type}:${t.title || t.url.split("/").pop()}`.slice(0, 40));
 			send("Runtime.enable", {}, m.params.sessionId); send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: false, flatten: true }, m.params.sessionId); return;
 		}
-		if (m.method === "Runtime.consoleAPICalled") { const s = (m.params.args || []).map(a => a.value ?? a.description ?? "").join(" "); if (/plateau|worker|decode|livedecode/i.test(s)) logs.push(`[${who}][${m.params.type}] ${s.slice(0, 180)}`); }
+		if (m.method === "Runtime.consoleAPICalled") { const s = (m.params.args || []).map(a => a.value ?? a.description ?? "").join(" "); if (/mesh|worker|decode|livedecode/i.test(s)) logs.push(`[${who}][${m.params.type}] ${s.slice(0, 180)}`); }
 		if (m.method === "Runtime.exceptionThrown") logs.push(`[${who}] EXC ` + (m.params?.exceptionDetails?.exception?.description || m.params?.exceptionDetails?.text || "?").slice(0, 240));
 	};
 	await send("Runtime.enable"); await send("Page.enable");
@@ -74,11 +74,11 @@ try {
 	while (Date.now() - t0 < LIMIT_MS) {
 		await sleep(1000);
 		if (stalledAt == null && logs.some(l => /stall reported/.test(l))) stalledAt = Math.round((Date.now() - t0) / 1000);
-		if (logs.some(l => /\[page\].*\[plateau\] done /.test(l))) { done = true; break; }
+		if (logs.some(l => /\[page\].*\[mesh\] done /.test(l))) { done = true; break; }
 	}
 	const secs = Math.round((Date.now() - t0) / 1000);
 	const poolUp = logs.some(l => /decode pool up/.test(l));
-	const batches = logs.filter(l => /\[plateau\] batch \d+ /.test(l)).length;
+	const batches = logs.filter(l => /\[mesh\] batch \d+ /.test(l)).length;
 	const bakeMiss = hits.some(h => h.startsWith("/nobake/"));
 	const checks = [
 		[bakeMiss, `bakeMiss(${bakeMiss ? "manifest 404＝生経路" : "焼きを引いていない？"})`],

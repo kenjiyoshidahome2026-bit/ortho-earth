@@ -1,7 +1,7 @@
 // WebGL2 レンダラ：可視タイルを跨いで同一 style層を1バッファに結合した「シーン」を描く。
 // draw call は「タイル数×層数」から「層数」へ激減し、uniform も1フレーム1回。共通のシーン原点で投影。
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
-import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, PLATEAU_VS, PLATEAU_FS, PLATEAU_TEX_VS, PLATEAU_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.js";
+import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, MESH_VS, MESH_FS, MESH_TEX_VS, MESH_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.js";
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ）
 import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
@@ -22,14 +22,14 @@ export function createRenderer(canvas, rOpts = {}) {
 	const gratProg = program(gl, GLOBE_VS, GRAT_FS);       // 10度レチクル（v1 geoGraticule10 移植・フルスクリーン計算）
 	const bldProg = program(gl, BUILDING_VS, BUILDING_FS);
 	const terrainProg = program(gl, TERRAIN_VS, TERRAIN_FS);
-	const plateauProg = program(gl, PLATEAU_VS, PLATEAU_FS);   // PLATEAU LOD2 建物メッシュ
-	const plateauTexProg = program(gl, PLATEAU_TEX_VS, PLATEAU_TEX_FS);   // 模型（glb 直読み）＝同シェーダの派生（uv＋頂点色＋テクスチャ）
+	const meshProg = program(gl, MESH_VS, MESH_FS);   // 建物メッシュ（LOD2 等）
+	const meshTexProg = program(gl, MESH_TEX_VS, MESH_TEX_FS);   // 模型（glb 直読み）＝同シェーダの派生（uv＋頂点色＋テクスチャ）
 	const rasAtlasProg = program(gl, RASTER_ATLAS_VS, RASTER_ATLAS_FS);   // 画像タイル層（raster.js）＝タイルを地面アトラスへ合成（RTT ドレープ）
 	// ベクタ塗りを地面アトラスへ焼く（3D 限定）。属性位置は塗り本体の VAO（fillProg／md.fillProg で束ねた）と一致させる＝リンク前に bindAttribLocation
 	const atlasFillProg = programBound(gl, ATLAS_FILL_VS, ATLAS_FILL_FS, { a_delta: gl.getAttribLocation(fillProg, "a_delta"), a_color: gl.getAttribLocation(fillProg, "a_color") });
 	const whiteTex = gl.createTexture();   // テクスチャ無しの模型バッチ用（頂点色×1）
 	gl.bindTexture(gl.TEXTURE_2D, whiteTex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255])); gl.bindTexture(gl.TEXTURE_2D, null);
-	function plateauTexture(t) {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
+	function meshTexture(t) {   // 模型のテクスチャ（ImageBitmap か {rgba,w,h}）。無ければ白 1x1。glTF の uv 原点＝画像左上＝texImage2D の先頭行＝flip 不要
 		if (!t) return whiteTex;
 		const tex = gl.createTexture();
 		gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -57,7 +57,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// ＝jetsam にも効く。標高はメートル値を half-float で格納＝精度は十分（~4km で ±2m・低地は ±0.25m 級）。
 	// 標高（GEBCO/ALOS）：テクスチャ＋地形格子メッシュ
 	let elevTex = null, elev = { bounds: [0, 0, 1, 0], scale: 0, has: 0 }, terrain = null;
-	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=PLATEAUマスク・6=md線・7=gint elev と不干渉）
+	// 遠景層（far）＝近窓の外を受け持つ粗い R10 第2アトラス（terrain.js が深ズーム×チルトで常設）。unit8（2-5=メッシュマスク・6=md線・7=gint elev と不干渉）
 	let farTex = null, far = { bounds: [0, 0, 1, 0], has: 0, edgeFade: 0 };
 	// 気候場テクスチャ（全球ハイプソの cross-blend 用・view.worldHypso.clim の URL から一度だけ取得）。
 	// 未着の間はシェーダが緯度近似へフォールバック（u_hasClim=0）＝1-2フレームの色ズレのみ。
@@ -78,7 +78,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		}).catch(e => { console.warn("[hypso] climate texture load failed (continuing with latitude approximation)", e); });
 	}
 	// ユーザ COG アトラス（gadgets/cog.js が geopbf/cog の renderTo で等経緯度 RGBA に warp 済みを渡す）。
-	// unit9＝空き（1=elev・2-5=PLATEAUマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
+	// unit9＝空き（1=elev・2-5=メッシュマスク・6=md線・7=gint elev・8=far・12=clim と不干渉）。
 	let cogTex = null, cogSt = { bbox: [0, 0, 1, 1], has: 0, bytes: 0 };
 	function setCogTex(data) {
 		if (!data) {   // 解放
@@ -333,13 +333,13 @@ export function createRenderer(canvas, rOpts = {}) {
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算）：標高アトラス（近/舞台裏/遠）＋地形メッシュ。
 	// canvas antialias:true の MSAA はブラウザ暗黙確保＝ここでは数えない（HUD 側注記）。
 	let memAtlas = 0, memStage = 0, memFar = 0, memMesh = 0;
-	// PLATEAU LOD2 建物メッシュ：バッチキー "区名#i" →{ vao, bufs, count, origin, bbox }（頂点は重心相対 delta）。
+	// 建物メッシュ（LOD2 等）：バッチキー "区名#i" →{ vao, bufs, count, origin, bbox }（頂点は重心相対 delta）。
 	// worker が区をバッチ分割して逐次送ってくる＝完成した近傍から順に立つ。bbox は draw 時のフラスタムカリングに使う。
-	// 基図建物を伏せる被覆マスクは区単位で別管理（plateauMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
-	const plateaux = new Map();
-	const plateauMasks = new Map();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
-	const plateauHidden = new Set();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は plateauVis 切替のみで再アップロード不要）
-	const MAX_PLATEAU_MASKS = 4;
+	// 基図建物を伏せる被覆マスクは区単位で別管理（meshMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
+	const meshes = new Map();
+	const meshMasks = new Map();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
+	const meshHidden = new Set();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は meshVis 切替のみで再アップロード不要）
+	const MAX_MESH_MASKS = 4;
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
@@ -718,25 +718,25 @@ export function createRenderer(canvas, rOpts = {}) {
 		terrain = { vao, vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
-	// PLATEAU LOD2 建物メッシュを受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
+	// 建物メッシュ（LOD2 等）を受ける。key=バッチキー "区名#i"（data あり）または区名（data=null＝区の全バッチ+マスク解放）。
 	// data={ pos:Float32Array(xyz…), idx:Uint32Array, ward, mask, maskN, maskBbox }（頂点は ortho 単位球座標へ変換済み）。
-	function setPlateauMesh(key, data) {
+	function setMeshSet(key, data) {
 		if (!data) {   // key=区名：その区の全バッチとマスクを解放
-			for (const k of [...plateaux.keys()]) {
+			for (const k of [...meshes.keys()]) {
 				if (k !== key && !k.startsWith(key + "#")) continue;
-				const p = plateaux.get(k);
+				const p = meshes.get(k);
 				gl.deleteVertexArray(p.vao); for (const b of p.bufs) gl.deleteBuffer(b); if (p.tex && p.tex !== whiteTex) gl.deleteTexture(p.tex);
-				plateaux.delete(k);
+				meshes.delete(k);
 			}
-			const m = plateauMasks.get(key);
-			if (m) { gl.deleteTexture(m.tex); plateauMasks.delete(key); }
-			plateauHidden.delete(key);
+			const m = meshMasks.get(key);
+			if (m) { gl.deleteTexture(m.tex); meshMasks.delete(key); }
+			meshHidden.delete(key);
 			return;
 		}
-		const old = plateaux.get(key);
-		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); plateaux.delete(key); }
+		const old = meshes.get(key);
+		if (old) { gl.deleteVertexArray(old.vao); for (const b of old.bufs) gl.deleteBuffer(b); if (old.tex && old.tex !== whiteTex) gl.deleteTexture(old.tex); meshes.delete(key); }
 		if (!data.pos?.length || !data.idx?.length) return;
-		const textured = !!(data.uv && data.col), prog = textured ? plateauTexProg : plateauProg;   // 模型（glb 直読み）＝uv＋頂点色＋テクスチャ
+		const textured = !!(data.uv && data.col), prog = textured ? meshTexProg : meshProg;   // 模型（glb 直読み）＝uv＋頂点色＋テクスチャ
 		const vao = gl.createVertexArray(), vbo = buffer(gl, data.pos), nbo = buffer(gl, data.nrm), ibo = gl.createBuffer();
 		gl.bindVertexArray(vao);
 		attrib(gl, prog, "a_pos", vbo, 3);
@@ -750,7 +750,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (textured) {
 			const uvbo = buffer(gl, data.uv), cbo = buffer(gl, data.col); bufs.push(uvbo, cbo);
 			attrib(gl, prog, "a_uv", uvbo, 2); attrib(gl, prog, "a_col", cbo, 4, null, true);
-			tex = plateauTexture(data.tex);
+			tex = meshTexture(data.tex);
 		}
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ibo);
 		gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, data.idx, gl.STATIC_DRAW);
@@ -759,16 +759,16 @@ export function createRenderer(canvas, rOpts = {}) {
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		plateaux.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
 			const N = data.maskN | 0;
-			let m = plateauMasks.get(data.ward);
+			let m = meshMasks.get(data.ward);
 			if (!m || m.n !== N) {
 				if (m) gl.deleteTexture(m.tex);
 				m = { tex: gl.createTexture(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
-				plateauMasks.set(data.ward, m);
+				meshMasks.set(data.ward, m);
 			}
 			m.bbox = data.maskBbox;
 			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
@@ -783,15 +783,15 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 	}
 
-	// PLATEAU 区単位の表示切替（GPU常駐のまま）。off＝draw skip＋被覆マスクのスロット除外（基図建物が復活する）。
+	// メッシュの区単位の表示切替（GPU常駐のまま）。off＝draw skip＋被覆マスクのスロット除外（基図建物が復活する）。
 	// バッファ削除ではないので on へ戻すのは無料＝視野外れの「解放」をこれに置き換えると再訪の再アップロードが消える。
-	function setPlateauVis(ward, on) {
-		if (on) plateauHidden.delete(ward); else plateauHidden.add(ward);
+	function setMeshVis(ward, on) {
+		if (on) meshHidden.delete(ward); else meshHidden.add(ward);
 	}
 
 	// バッチ bbox（経緯度deg）の可視判定：4隅+中心を投影し、拡張スクリーン矩形と交差するか。
 	// pad は高層ビルの頭が地表bbox角の投影から食み出す分の余白（半画面）。カメラがbbox内に居れば無条件で可視。
-	function plateauBboxVisible(st, bbox, center, pad) {
+	function meshBboxVisible(st, bbox, center, pad) {
 		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
 		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
 		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
@@ -991,7 +991,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
 		gl.uniform1f(loc(gl, prog, "u_hasElev"), elev.has);
 		gl.uniform1f(loc(gl, prog, "u_elevEdgeFade"), elev.edgeFade || 0);   // 窓の縁のフェード幅(deg)。R90全球窓=0
-		gl.uniform1i(loc(gl, prog, "u_farElevTex"), 8);   // 遠景層（unit8＝PLATEAUマスク2-5/md線6/gint7と不干渉）
+		gl.uniform1i(loc(gl, prog, "u_farElevTex"), 8);   // 遠景層（unit8＝メッシュマスク2-5/md線6/gint7と不干渉）
 		gl.uniform4f(loc(gl, prog, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_hasFar"), far.has);
 		gl.uniform1f(loc(gl, prog, "u_farEdgeFade"), far.edgeFade || 0);
@@ -1141,7 +1141,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// ここから深度あり（建物同士の前後関係を共有）
 		gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
 		// 地形サーフェス（標高変位＋hillshade）。真俯瞰(pf≈0)では描かない＝平面地図。
-		// 深度は書かない＝背景扱い：地形サーフェスが深度を書くと、その上に立つ建物(基図/PLATEAU)と
+		// 深度は書かない＝背景扱い：地形サーフェスが深度を書くと、その上に立つ建物(基図/建物メッシュ)と
 		// 干渉し得る（DSM時代は「屋根の高さのテント」が建物を丸ごと飲んだ。現 R01=DTM でも接地誤差の
 		// z-fight を避ける）。塗り・線が既にペインタ順で地形の上な設計（半透明の山）
 		// に建物も合わせ、地形深度との衝突を根絶する。地形自身は凸地形の重なりが稀に透けるが設計内の割り切り。
@@ -1389,9 +1389,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.enable(gl.DEPTH_TEST);   // 建物は常に深度で前後関係を解決（地形・尾根に遮蔽される）
 
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。
-		// PLATEAU の区bbox 内だけ基図建物を伏せる（u_plateauBboxN）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
-		// マスクは区単位（plateauMasks）＝最大 MAX_PLATEAU_MASKS 区まで（シェーダのスロット数固定）。
-		// 真俯瞰（チルト≈0）では基図/PLATEAU とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
+		// メッシュの区bbox 内だけ基図建物を伏せる（u_meshBboxN）＝同一体積の全面 z-fight を断ちつつ、範囲外の建物は残す。
+		// マスクは区単位（meshMasks）＝最大 MAX_MESH_MASKS 区まで（シェーダのスロット数固定）。
+		// 真俯瞰（チルト≈0）では基図/建物メッシュ とも建物3Dを描かない＝平面地図（閾値は flat2d と同じ 0.02rad≈1.1°）。
 		const show3d = (cam.pitch || 0) >= 0.02;
 		// 建物マスク bit7(0x80)＝面ドレープの深度統合（2026-08-14・WebGPU dsWriteBld と同義）：建物の見えている画素に
 		// stencil bit7 を刻む→gint の cover/idResolve が「建物の陰」を画素単位でスキップ。毎フレーム bit7 だけ先に掃除
@@ -1412,26 +1412,26 @@ export function createRenderer(canvas, rOpts = {}) {
 			setCommonUniforms(prog, st, scenes.main.origin, land);
 			gl.uniform3f(loc(gl, prog, "u_bldColor"), c[0], c[1], c[2]);
 			// 可視優先の4枠選抜（2026-08-04）：旧・読み込み順slice(0,4)は、全保持化(2026-08-03)でマスクが何区も
-			// 溜まると「今見ている区が枠に入らない」→基図建物が伏せられずPLATEAU壁と数十cm差の深度戦い＝
+			// 溜まると「今見ている区が枠に入らない」→基図建物が伏せられずメッシュの壁と数十cm差の深度戦い＝
 			// pan/zoom中だけ壁面が瞬く（対数深度係数が毎フレーム再配分・大きいビルは基図押し出しが低いぶん
 			// 下部だけ・本人実機で特定）。カメラ→区bbox距離の昇順＝画面の区が必ず枠を取る（内包=距離0・
 			// 同率はsort安定性でMap挿入順のまま＝フレーム間で選抜が揺れない）。
 			const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
 			const mdist = m => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
-			const active = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m)
-				.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_PLATEAU_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
-			gl.uniform1i(loc(gl, prog, "u_plateauCount"), active.length);
+			const active = [...meshMasks.entries()].filter(([w]) => !meshHidden.has(w)).map(([, m]) => m)
+				.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_MESH_MASKS);   // 非表示区のマスクはスロットに載せない＝基図建物が戻る
+			gl.uniform1i(loc(gl, prog, "u_meshCount"), active.length);
 			const mo = scenes.main.origin || [0, 0];
-			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
+			for (let i = 0; i < MAX_MESH_MASKS; i++) {
 				// スロットは (off, inv)＝FS の uv = off + rel×inv。off=(origin−bboxMin)/span を JS の f64 で前計算＝
 				// FS は原点相対の小値だけ扱う（絶対経緯度 varying の f32 ジッタ＝深ズームの点描ゴースト根治）。空きは uv 圏外。
 				const m = active[i], bb = m && m.bbox;
 				const sx = bb ? bb[2] - bb[0] : 1, sy = bb ? bb[3] - bb[1] : 1;
-				gl.uniform4f(loc(gl, prog, `u_plateauBbox${i}`), bb ? (mo[0] - bb[0]) / sx : 2e9, bb ? (mo[1] - bb[1]) / sy : 2e9, bb ? 1 / sx : 0, bb ? 1 / sy : 0);
+				gl.uniform4f(loc(gl, prog, `u_meshBbox${i}`), bb ? (mo[0] - bb[0]) / sx : 2e9, bb ? (mo[1] - bb[1]) / sy : 2e9, bb ? 1 / sx : 0, bb ? 1 / sy : 0);
 				// 空きスロットも「null を」バインド＝unit2..5 は gint（pivotTex/idTex/fidStyle＝RGBA32UI整数）と共用。
-				// 残留整数テクスチャを float sampler(u_plateauMask) が掴むと sampler型不整合で draw 全滅（unit1 と同病）。
+				// 残留整数テクスチャを float sampler(u_meshMask) が掴むと sampler型不整合で draw 全滅（unit1 と同病）。
 				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, m ? m.tex : null); gl.activeTexture(gl.TEXTURE0);
-				gl.uniform1i(loc(gl, prog, `u_plateauMask${i}`), 2 + i);
+				gl.uniform1i(loc(gl, prog, `u_meshMask${i}`), 2 + i);
 			}
 			if (scenes.main.bld) {
 				gl.bindVertexArray(bld.vao);
@@ -1448,14 +1448,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		// gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線：各頂点が自分の標高に乗る（anchor=自分）＝辺が地形に沿う。
 		// ★常時描画（show3d ゲートなし）＝平面との連続性：高さ=elev×elevScaleEff で、真俯瞰(elevScaleEff=0)は海面の平面、
 		//   チルトで滑らかに地形へ立ち上がる（同じ線が elevScale でモーフ＝ポップしない）。独自 origin・深度で地形/尾根に遮蔽。
-		// fillなし＝GL_LINES。PLATEAUマスク不要(count0)。
+		// fillなし＝GL_LINES。メッシュマスク不要(count0)。
 		if (gintBld) {
 			setCommonUniforms(bldProg, st, gintBld.origin, land);
-			gl.uniform1i(loc(gl, bldProg, "u_plateauCount"), 0);
-			for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {   // 空きスロットも null バインド＝残留整数texをfloat samplerが掴む事故を防ぐ（main bld と同病対策）
-				gl.uniform4f(loc(gl, bldProg, `u_plateauBbox${i}`), 1e9, 1e9, -1e9, -1e9);
+			gl.uniform1i(loc(gl, bldProg, "u_meshCount"), 0);
+			for (let i = 0; i < MAX_MESH_MASKS; i++) {   // 空きスロットも null バインド＝残留整数texをfloat samplerが掴む事故を防ぐ（main bld と同病対策）
+				gl.uniform4f(loc(gl, bldProg, `u_meshBbox${i}`), 1e9, 1e9, -1e9, -1e9);
 				gl.activeTexture(gl.TEXTURE2 + i); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
-				gl.uniform1i(loc(gl, bldProg, `u_plateauMask${i}`), 2 + i);
+				gl.uniform1i(loc(gl, bldProg, `u_meshMask${i}`), 2 + i);
 			}
 			for (const bt of gintBld.batches) {
 				const c = bt.color || view.bldColor || [0.86, 0.86, 0.85];
@@ -1464,14 +1464,14 @@ export function createRenderer(canvas, rOpts = {}) {
 				if (bt.pointCount) { gl.bindVertexArray(bt.pointVAO); gl.drawArrays(gl.POINTS, 0, bt.pointCount); }
 			}
 		}
-		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
+		// 建物メッシュ（LOD2 等）（任意三角形・面法線陰影）。深度で地形・自身の前後を解決。
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
-		if (plateaux.size && show3d) {
-			bldStencil(true);   // PLATEAU も建物＝bit7 を刻む
-			gl.useProgram(plateauProg);
-			let curProg = plateauProg;
+		if (meshes.size && show3d) {
+			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
+			gl.useProgram(meshProg);
+			let curProg = meshProg;
 			const c = view.bldColor || [0.86, 0.86, 0.85];   // 基図の押し出し建物と同色＝周辺と地続きに見せる
 			const pad = 0.5 * Math.max(st.W, st.H);          // 高層ビルの頭のはみ出し余白（半画面）
 			// LOD打ち切りの物差し＝画面1pxが何mか（app.js approxViewBbox と同式。ortho-z は緯度非依存）。
@@ -1480,9 +1480,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			const vis = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
-			for (const p of plateaux.values()) {
-				if (plateauHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
-				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
+			for (const p of meshes.values()) {
+				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
+				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
@@ -1496,13 +1496,13 @@ export function createRenderer(canvas, rOpts = {}) {
 				}
 				vis.push({ p, count });
 			}
-			// 描く順＝素の PLATEAU → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
+			// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明）。半透明は奥から手前（バッチ重心とカメラの距離）・深度書き込み無し・
 			// 前乗算 α（既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）。バッチ内の三角形順は並べ替えない（自己重なりの前後は割り切り）
 			const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
 			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !v.p.blend), ...vis.filter(v => v.p.blend).sort((x, y) => d2(y.p) - d2(x.p))];
 			let zOff = false;
 			for (const { p, count } of order) {
-				const pg = p.textured ? plateauTexProg : plateauProg;   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ
+				const pg = p.textured ? meshTexProg : meshProg;   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ
 				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
 				if (p.textured) {
 					gl.activeTexture(gl.TEXTURE7); gl.bindTexture(gl.TEXTURE_2D, p.tex); gl.activeTexture(gl.TEXTURE0); gl.uniform1i(loc(gl, pg, "u_tex"), 7);   // unit 7＝未使用（1=elev 2..5=mask 6=line 8=far 9=cog 12=clim）
@@ -1575,8 +1575,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "elevAtlasFar": setElevationAtlasFar(data); break;                             // 遠景層（R10 第2アトラス）
 			case "elevCellFar": setElevationCellFar(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
-			case "plateauMesh": setPlateauMesh(prop, data); break;                             // prop=地区名(key)、data={pos,idx} PLATEAU LOD2 建物（null=解放）
-			case "plateauVis":  setPlateauVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
+			case "meshSet": setMeshSet(prop, data); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
+			case "meshVis":  setMeshVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
 			case "planets":   setPlanets(data); break;                                         // data=Float32Array（starsと同8fレイアウト・惑星5点＋月）

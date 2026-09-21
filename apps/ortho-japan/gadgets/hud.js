@@ -82,7 +82,7 @@ export function hud(opts = {}) {
 
 	function render() {
 		const s = snapshot();
-		if (!s || !s.plateau) return;
+		if (!s || !s.mesh) return;
 		const d = s.device || {}, dpr = d.dpr || 1, dev = deviceInfo(d.ua);
 		const tight = s.budget - s.peak < 150 * 1048576;   // ピークが予算(≈4GB機のタブ枠900MB)まで残 <150MB＝jetsam 圏＝合計を赤で警告
 		const beNote = s.backend === "webgl2" && "gpu" in navigator ? note("fallback") : "";   // WebGPU可の環境でGL2＝フォールバック中＝落ち診断の勘所
@@ -104,7 +104,7 @@ export function hud(opts = {}) {
 			sec("Memory · MB") +
 			row("tiles", `${mb(s.tiles.bytes)} / ${mb(s.tiles.budget)}`) +
 			row("terrain", mb(s.terrain)) +
-			row("CityGML", mb(s.plateau.bytes) + note(s.plateau.regions + " zones")) +   // PLATEAU＝汎用名（CityGML）で。数値の出所は snapshot.plateau のまま
+			row("CityGML", mb(s.mesh.bytes) + note(s.mesh.regions + " zones")) +   // PLATEAU＝汎用名（CityGML）で。数値の出所は snapshot.mesh
 			(s.heap ? row("JS heap", mb(s.heap)) : "") +
 			(s.gpuBytes ? row("GPU resident", mb(s.gpuBytes)) + (s.gpu ? det(`atlas ${mb(s.gpu.atlas)} · mesh ${mb(s.gpu.mesh)} · msaa ${mb(s.gpu.msaa)}${s.raster ? ` · raster ${mb(s.raster)}` : ""}`) : "") : "") +   // raster＝画像タイル層（テクスチャ＋格子メッシュ）
 			row("transient", mb(s.transient.bytes)) + det(`cache ${mb(s.transient.cache)} · loading ${mb(s.transient.live)}`) +

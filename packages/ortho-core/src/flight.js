@@ -2,7 +2,7 @@
 // ①紙地図の作法＝場所の把握はまず真俯瞰・北向きで（回転や傾きを持ったまま飛ぶと現在地を見失う）。
 // ②van Wijk & Nuij の厳密解（d3.interpolateZoom と同式・ρ=√2）＝知覚速度一定の最適経路。
 //   「行程が視野に入る高度まで上げる」式の近似は上がりすぎて低ズーム滞在が長く、画面速度が暴れる（実証済み）。
-// ③着地の瞬間 onFlying(false)＝重い自動ロード（PLATEAU等）の解禁は呼び出し側がここで行う＝
+// ③着地の瞬間 onFlying(false)＝重い自動ロード（建物メッシュ等）の解禁は呼び出し側がここで行う＝
 //   デコード/GPU転送が飛行アニメと帯域を取り合わない。立ち上がりが着陸の演出になる。
 // ユーザーのドラッグ/ホイールで即中断＝主導権は常に人（呼び出し側が cancel() を叩く）。
 //
@@ -107,7 +107,7 @@ export function glidePlan(cam0, env, lon, lat, zoom, tiltDeg, bearingDeg) {
 		}
 		return c;
 	};
-	return { dur, land: dur, at };   // 滑走完了＝着地扱い（autoPlateau 解禁）
+	return { dur, land: dur, at };   // 滑走完了＝着地扱い（autoMesh 解禁）
 }
 
 // 連続ドリー（glidePath）＝via 通過点の列を1本の centripetal Catmull-Rom で通す（例：隅田川に沿ってカメラを流す）。
@@ -162,7 +162,7 @@ export function glidePathPlan(cam0, env, pts) {
 	};
 	// 実到達時刻＝全体 ease の逆関数（smoothstep は単調＝二分法で十分）：ss(k)=T[j]/dur → k*dur
 	const kInv = y => { let lo = 0, hi = 1; for (let j = 0; j < 24; j++) { const m = (lo + hi) / 2; if (ss(m) < y) lo = m; else hi = m; } return (lo + hi) / 2; };
-	return { dur, land: dur, at, knots: pts.map((_, j) => kInv(T[j + 1] / dur) * dur) };   // 走破＝着地扱い（autoPlateau 解禁）
+	return { dur, land: dur, at, knots: pts.map((_, j) => kInv(T[j + 1] / dur) * dur) };   // 走破＝着地扱い（autoMesh 解禁）
 }
 
 // createFlight({ cam, viewW, maxPitch, minZoom, onMove, onFlying }) →

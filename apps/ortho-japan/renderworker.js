@@ -284,8 +284,8 @@ const dispatch = e => {
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
 		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); dirty = true; armRaf(); } break; }
 		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
-		case "plateauPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
-			m.port.onmessage = ev => { plateauInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
+		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
+			m.port.onmessage = ev => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
 			break;
 		case "resize": {                                         // 両キャンバスを同じ寸法に（main は transfer 後触れない）
 			// 端末上限クランプ＝縦長ウィンドウ×高dpr（ブラウザ拡大率・特殊ディスプレイ）でスワップチェイン/
@@ -314,8 +314,8 @@ const dispatch = e => {
 			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
-			else if (m.cmd === "plateauMesh") plateauInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
-			else if (m.cmd === "plateauVis") plateauInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
+			else if (m.cmd === "meshSet") meshInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
+			else if (m.cmd === "meshVis") meshInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop, m.data.spec, m.data.opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
 			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop); }
 			else if (m.cmd === "rasterSet") { raster?.set(m.prop, m.data); }   // opacity/visible/order/hideFills/minZoom/maxZoom
@@ -456,7 +456,7 @@ let lastAA = 0;        // 直近フレームの段数（1/4）＝静止時の品
 //   ズーム中に連続で届く粗い下地の中間版は上げずに捨てる（転送の仕事そのものが減る）。
 // ・PLATEAU バッチ（typed array 10〜20MB）は FIFO＝解放(null)の追い越し禁止（先に解放が効くと
 //   後から亡霊バッチが立つ）。解放は deleteBuffer だけで軽い＝同フレームで続けて消化。
-const sceneInbox = new Map(), plateauInbox = [], mdInbox = [];
+const sceneInbox = new Map(), meshInbox = [], mdInbox = [];
 // multi_draw 系の消化：FIFO 厳守（dl が up を追い越さない）・重い転送(up)だけバイト予算で平準化。
 // grow は GPU 内コピー、dl は参照リスト差し替え＝どちらもタダ同然なので同フレームで続けて消化する。
 const MD_BYTES_PER_FRAME = 3 << 20;
@@ -492,11 +492,11 @@ function drainUploads() {
 		dirty = true; uploadSkip = 2;
 		return;
 	}
-	while (plateauInbox.length) {
-		const item = plateauInbox.shift();
-		if ("vis" in item) { renderer.set("plateauVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
+	while (meshInbox.length) {
+		const item = meshInbox.shift();
+		if ("vis" in item) { renderer.set("meshVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
 		const { meshData, name } = item;
-		try { renderer.set("plateauMesh", meshData, name); }
+		try { renderer.set("meshSet", meshData, name); }
 		finally {
 			if (item.port) {
 				// 消化ack＝クレジット返却（例外でも返す＝送出が止まらない）＋器の返却：GPU登録（bufferData/writeBuffer）は

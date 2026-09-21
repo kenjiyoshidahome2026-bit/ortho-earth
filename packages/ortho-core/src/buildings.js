@@ -1,6 +1,6 @@
 // 建物の押し出し（LOD1相当）：bvmap の BldA フットプリントを高さ方向に立ち上げる。
 // bvmap に高さ属性は無いので vt_code(建物種別)から概略高さを推定。屋根(earcut)＋壁(各辺のquad)を生成。
-// PLATEAU実メッシュ（正確な高さ/屋根）への"扉"の叩き台。
+// 建物の実メッシュ（正確な高さ/屋根）への"扉"の叩き台。
 import earcut from "earcut";
 import { tileLocalToLonLat } from "./tile.js";
 import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（build と共用）

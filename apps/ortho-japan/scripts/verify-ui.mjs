@@ -13,7 +13,7 @@ const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar", "t-model"];
 const PAGES = process.argv.length > 2 ? ALL_PAGES.filter(p => process.argv.slice(2).includes(p)) : ALL_PAGES;   // 引数＝ページ名の絞り込み（例 node scripts/verify-ui.mjs t-scene）
-// t-plateaufs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
+// t-meshfs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
 
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
 process.on("exit", () => vite.kill());

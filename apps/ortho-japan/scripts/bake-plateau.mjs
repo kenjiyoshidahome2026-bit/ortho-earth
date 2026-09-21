@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // PLATEAU 焼き（2026-09-07）＝カタログ（public/plateau-sets.json）の全セットをブラウザと同じデコード経路
-// （plateaudecode.decodeBatch＝fetch→Draco→座標変換→dedup→接地→LOD→RTE→マスク断片）で Node 上で煮て、
-// GPU 直行形式の量子化版（plateauq.js PLQ1）に落とす。置き先＝R2（native-bucket）GIS/plateau/v{DECODE_VER}/{slug}/。
-// ブラウザ（plateauworker）はこの焼きを「第三の入口」として MLIT 生経路の前に引く＝Draco もデコード過渡メモリも無し。
+// （meshdecode.decodeBatch＝fetch→Draco→座標変換→dedup→接地→LOD→RTE→マスク断片）で Node 上で煮て、
+// GPU 直行形式の量子化版（meshq.js PLQ1）に落とす。置き先＝R2（native-bucket）GIS/plateau/v{DECODE_VER}/{slug}/。
+// ブラウザ（meshworker）はこの焼きを「第三の入口」として MLIT 生経路の前に引く＝Draco もデコード過渡メモリも無し。
 // 無い/古い/壊れ＝生経路へ静かに落ちる（タイル粒度）。
 //
 //   node scripts/bake-plateau.mjs [--only=名前や base の部分文字列] [--out=DIR] [--batch=32] [--shard=i/n]
@@ -18,8 +18,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setLoaderOptions } from "@loaders.gl/core";
 import draco3d from "draco3d";
-import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "../plateaudecode.js";
-import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "../plateauq.js";
+import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "../meshdecode.js";
+import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "../meshq.js";
 
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };

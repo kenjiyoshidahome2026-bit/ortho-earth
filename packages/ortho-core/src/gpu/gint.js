@@ -100,7 +100,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		});
 	const wind = { compare: "always", failOp: "keep", depthFailOp: "keep", passOp: "increment-wrap" };
 	const windB = { ...wind, passOp: "decrement-wrap" };
-	// stencil bit7(0x80)＝renderer の建物マスク（bld/plateau が刻む・面ドレープの深度統合 2026-08-14）＝winding は
+	// stencil bit7(0x80)＝renderer の建物マスク（bld/mesh が刻む・面ドレープの深度統合 2026-08-14）＝winding は
 	// ビット0-6（±63で十分）に閉じ込め、cover/mask の比較・書きも 0x7F に限定して bit7 を汚さない。
 	const stFan = { ...keepDS, stencilFront: wind, stencilBack: windB, stencilWriteMask: 0x7F };
 	const stCoverNE = { ...keepDS, stencilFront: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilBack: { compare: "not-equal", failOp: "keep", depthFailOp: "keep", passOp: "keep" }, stencilReadMask: 0x7F, stencilWriteMask: 0 };

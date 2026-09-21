@@ -1,8 +1,8 @@
-// PLQ（plateauq.js）の往復検定＝Node 単体。合成メッシュ（iota/explicit 両レイアウト）＋ --real で港区の実バッチ
+// PLQ（meshq.js）の往復検定＝Node 単体。合成メッシュ（iota/explicit 両レイアウト）＋ --real で港区の実バッチ
 // （ネットワーク・Draco＝draco3d 注入）を焼いて量子化誤差・index/LOD/mask の不変・gzip 後サイズを数字で見る。
-//   node tests/t-plateauq.mjs          合成のみ（数十ms）
-//   node tests/t-plateauq.mjs --real   実バッチ込み（数秒・要ネット）
-import { packPLQ, unpackPLQ, headPLQ, weldMesh, extrudePrisms, enuBasis, PRISM_Q, bakeSlug, PLQ_VER } from "../plateauq.js";
+//   node tests/t-meshq.mjs          合成のみ（数十ms）
+//   node tests/t-meshq.mjs --real   実バッチ込み（数秒・要ネット）
+import { packPLQ, unpackPLQ, headPLQ, weldMesh, extrudePrisms, enuBasis, PRISM_Q, bakeSlug, PLQ_VER } from "../meshq.js";
 import { existsSync, readFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 
@@ -147,7 +147,7 @@ if (process.argv.includes("--real")) {
 	const { setLoaderOptions } = await import("@loaders.gl/core");
 	const draco3d = (await import("draco3d")).default;
 	setLoaderOptions({ modules: { draco3d } });
-	const { decodeBatch, collectLeafTiles } = await import("../plateaudecode.js");
+	const { decodeBatch, collectLeafTiles } = await import("../meshdecode.js");
 	const base = "https://api.plateauview.mlit.go.jp/datacatalog/3dtiles/13103-bldg-lod2-notexture-latest/";
 	const leaves = await collectLeafTiles(base + "tileset.json");
 	const bbox = [139.708705279, 35.623138305999994, 139.782376342, 35.682810279];

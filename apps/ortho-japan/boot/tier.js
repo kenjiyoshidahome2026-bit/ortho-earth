@@ -14,7 +14,7 @@ export const lowMem = nav => nav.deviceMemory ? nav.deviceMemory <= 4 : nav.maxT
 // --- 非力デスクトップ・ティア（MID_TIER）：メモリ天井の低い機体を見抜いて PLATEAU の山を半分にする ---
 // 2026-08-03 実測：Windows10 / i7 / 16GB / 内蔵HD Graphics / HDD が、コールド（キャッシュ無し）の PLATEAU 表示で
 // タブごと落ちた。既定値（同時4区・常駐1.2GB・worker4本・worker内cache 2区/本）は Apple の 16GB ユニファイド機で
-// 調律したもので、コールド時のピークは 16GB 機で renderer 12.3GB という自前実測がある（plateau/manager.js の bldCap のコメント）。
+// 調律したもので、コールド時のピークは 16GB 機で renderer 12.3GB という自前実測がある（mesh/manager.js の bldCap のコメント）。
 // なぜ deviceMemory で見抜けないか：Chrome の deviceMemory は 8 が上限＝16GB機も64GB機も 8 を返す。
 // LOW_MEM（≤4GB＝スマホ帯）は素通りし、非力な 8〜16GB デスクトップだけが素の既定値を浴びる。
 // 代わりの signal＝GPU の素性：内蔵GPU（Apple 以外）は VRAM がシステムRAMの取り分＝PLATEAU の常駐・過渡と

@@ -1,7 +1,7 @@
 // シーン再生プレーヤー＝共有シーン台本（type:"scenes"）の上映・停止・タイムライン（スクラブ）・開幕/終幕の黒幕・フェード遷移・
 // 読み込み待ちパネル。組み込み ▶ デモ（gadgets/demo.js）と同じ再生ルーチンを「素モード」で借りる＝demoHandle は demo ガジェットの搭載時に
 // app が預ける。app.js の一塊（旧 2238〜2500 行のうち ?scene= / ?g= の起点と remoteUrl を除く）を**動作を変えずに**ここへ移した（2026-09-17）。
-// env … mapEl, LOW_MEM, gpuBackend, plateauOn, plateau, flightCtl, CAM_ZOOM_MIN, themeFixed（生成前に定義済み）／
+// env … mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed（生成前に定義済み）／
 //       themeName・elevBusy（getter）／onMove・flyView・applyCamView・applyViewLayers・switchTheme・viewHash・saveView（app の関数＝ラップ）
 // 戻り値 … playScenes / playScene / stopScenes / sceneTimeline / playingNow / fadeViewRun と、demoHandle（app が預ける）・fadeBusy（demo の着地待ち）のアクセサ
 import { parseViewHash } from "@ortho-earth/core";
@@ -11,7 +11,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 export function createScenePlayer(env) {
-const { mapEl, LOW_MEM, gpuBackend, plateauOn, plateau, flightCtl, CAM_ZOOM_MIN, themeFixed } = env;
+const { mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed } = env;
 
 let demoHandle = null;
 let sceneBusy = false, sceneRun = 0;   // sceneBusy＝上映ライフサイクル中（準備〜走破〜終幕括弧）／sceneRun＝世代トークン：stopScenes が進めると準備中の再生は静かに降りる
@@ -38,35 +38,35 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOp
 	const endHook = r => { if (r !== "finished" || quick) { sceneBusy = false; sceneCover(false); } onEnd?.(r); };
 	if (!quick) sceneCover(true);   // ★開幕の黒幕＝jump も読み込みも隠し、開始の瞬間に fade-in（quick＝試写は儀式なし）
 	Promise.resolve(demoHandle.ready).then(async () => {   // 遅延本体の到着を待ってから（起動直後の保険。通常は解決済み＝即）
-		if (!quick && waitLoading && plateauOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
+		if (!quick && waitLoading && meshOn) {   // ★読み込み待ちモード＝プリロード前提：重いデータを読み切り、都市をGPUへ立て切ってから開幕。
 			// scene 再生＝「綺麗な動画が撮れる」側のプロファイル（PC前提）＝タイムアウトで妥協しない（▶デモ＝「絶対失敗しない」側とは別・そちらは従来どおり）。
 			const first = scenes[from] ?? scenes[0], firstView = first.view ?? first.glide ?? first.fade;   // 開始行の視点（via は parseScenes が先頭から除去済み）
 			if (firstView) env.flyView(firstView, { jump: true });   // 開始画へ即 jump（黒幕の下・demo の内部先読みを起こさず、自前の進捗つき先読みへ一本化）
 			// パネルは「実際に読むものがある時」だけ出す（IDB温間・全て焼き済みなら黒幕→即開幕＝何も出さない）。
-			// 実読みの兆候＝(a)建物のネットワーク進捗 plateauProg（renderPlateauProg の tap＝網経路のみ発火・区名+枚数）
+			// 実読みの兆候＝(a)建物のネットワーク進捗 meshProg（renderMeshProg の tap＝網経路のみ発火・区名+枚数）
 			//             (b)標高タイル読込 elevBusy（jump した開始画の地形＝先読みポンプの柵でもある）。
 			let ward = { done: 0, total: 0 };
 			const poke = () => sceneLoading({ ...ward, show: true });       // 兆候あり＝出す（以降は更新）
-			const tick = setInterval(() => { if (plateau.progress.size || env.elevBusy) poke(); }, 400);   // env.elevBusy はイベントが無い＝小さく見回る
-			plateau.setProgressTap(poke);   // 建物の枚数進捗はイベント駆動で即時反映
-			// 読み切るまで待つ（タイムアウト無し）：各区は成功/失敗(plateauFailed)で必ず終端＝この await も必ず終わる。待ち時間の顔はパネルが引き受ける
-			const wanted = (await plateau.prefetch(views, preload, (d, total) => { ward = { done: d, total }; sceneLoading(ward); }).catch(() => [])) || [];
-			clearInterval(tick); plateau.setProgressTap(null);
+			const tick = setInterval(() => { if (meshMgr.progress.size || env.elevBusy) poke(); }, 400);   // env.elevBusy はイベントが無い＝小さく見回る
+			meshMgr.setProgressTap(poke);   // 建物の枚数進捗はイベント駆動で即時反映
+			// 読み切るまで待つ（タイムアウト無し）：各区は成功/失敗(meshFailed)で必ず終端＝この await も必ず終わる。待ち時間の顔はパネルが引き受ける
+			const wanted = (await meshMgr.prefetch(views, preload, (d, total) => { ward = { done: d, total }; sceneLoading(ward); }).catch(() => [])) || [];
+			clearInterval(tick); meshMgr.setProgressTap(null);
 			// ★リビール準備＝立ち切ってから開幕：最初のフレームから本物の3D（基図の押し出し箱を見せない）。
 			// PC（WebGPU×非LOW_MEM＝全保持ヒステリシスと同じゲート）＝台本の全区を停止中に GPU 常駐まで積む＝道中・後続シーンも vis 点灯だけで即立つ。
 			// 「ロードは停止中に・移動中は点灯だけ」の原則は不変（今は停止中）。低級機フォールバック＝最初のリビール視点の区だけ（従来）。
-			// 失敗区(plateauFailed)は諦めて進む＝黒画面で永遠に待たない。
+			// 失敗区(meshFailed)は諦めて進む＝黒画面で永遠に待たない。
 			// 低級機フォールバックの選抜（firstRevealSets＝bbox交差）はプリロード選抜（前方点ゲート）より緩い＝
 			// 未プリロード区が混ざると立ち上げ段で網ロードが始まる（実測=千代田区・リビール直前の想定外ネットワーク）。
 			// →プリロード済み区との積集合に絞る＝立ち上げ段は常に IDB→GPU だけ（wanted 空の縁だけ従来通り）。
 			const wantedNames = new Set(wanted.map(s => s.name));
 			const targets = ((gpuBackend && !LOW_MEM && wanted.length) ? wanted
-				: plateau.firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !plateau.isDead(s.name));
+				: meshMgr.firstRevealSets(views).filter(s => !wanted.length || wantedNames.has(s.name))).filter(s => !meshMgr.isDead(s.name));
 			if (targets.length) {
 				const gpuHint = setTimeout(() => sceneLoading({ ...ward, show: true, phase: "gpu" }), 700);   // 一瞬で立ち切る時はパネルを出さない
-				await Promise.all(targets.map(s => plateau.standUp(s)));
+				await Promise.all(targets.map(s => meshMgr.standUp(s)));
 				// standUpWard は「既に可視ロードが走行中」の区を false 即決で素通しする＝活性化の完了を見届ける（安全弁120秒・failed も抜け口）
-				for (const t0 = performance.now(); !targets.every(s => plateau.isActive(s.name) || plateau.isDead(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
+				for (const t0 = performance.now(); !targets.every(s => meshMgr.isActive(s.name) || meshMgr.isDead(s.name)) && performance.now() - t0 < 120000;) await new Promise(r => setTimeout(r, 250));
 				clearTimeout(gpuHint);
 			}
 			sceneLoading(false);
@@ -78,7 +78,7 @@ function playScenes(obj, { from = 0, quick = false, onScene, onEnd, lang: langOp
 		demoHandle.start?.(from, true, { scenes, lang, mobile, hold, slideHold, preload, finale: quick ? null : returnToStart, bare: true, onScene, onEnd: endHook });   // フル＝終演で括弧を閉じる（黒→上映前の画面へ）
 		if (!quick) sceneCover(false);   // ★開始と同時に黒幕を fade-out＝最初の画面へ fade-in（約1.2秒）
 	}).catch(e => {   // ★fallback＝どの失敗でも「黒幕を残さず、上映前の画面へ帰る」＝終幕と同じ着地（上映ロックも解除）
-		sceneLoading(false); plateau.setProgressTap(null); sceneBusy = false;
+		sceneLoading(false); meshMgr.setProgressTap(null); sceneBusy = false;
 		console.warn("[scene] playback prep failed = returning to pre-show view", e);
 		if (!quick) { env.flyView(returnView, { jump: true }); sceneCover(false); }
 	});
@@ -91,7 +91,7 @@ function stopScenes() {
 	if (!playingNow()) return false;
 	sceneRun++;   // 準備中の再生を降ろす（黒幕の下で待っている then 連鎖が run 不一致で静かに終わる）
 	demoHandle?.exit?.();   // 上映中なら exit→onEnd("stopped")→endHook が解除（▶デモの上映中でも安全＝ただ終演するだけ）
-	sceneBusy = false; sceneLoading(false); sceneCover(false); plateau.setProgressTap(null);
+	sceneBusy = false; sceneLoading(false); sceneCover(false); meshMgr.setProgressTap(null);
 	return true;
 }
 // ★タイムライン・スクラブ（scene-player API・map.sceneTimeline）：台本→時刻評価＝再生せず任意秒の絵を出す（エディタのスクラブ用）。
@@ -173,7 +173,7 @@ async function fadeViewRun(hash, secs) {
 	} finally { fadeBusy = false; }
 }
 // waitLoading の待機中に画面中央へ出す進捗パネル。**実際に読むものがある時だけ**出す（state.show が兆候の合図＝
-// 温間・全焼き済みは無表示のまま黒幕→即開幕）。「何をどう読んでいるか」＝ plateauProg（区名+枚数・網経路のみ）と
+// 温間・全焼き済みは無表示のまま黒幕→即開幕）。「何をどう読んでいるか」＝ meshProg（区名+枚数・網経路のみ）と
 // elevBusy（標高タイル）をここで直接読んで一行に組む。触れない・待ち終わりに退場。
 let slEl = null, slFill = null, slSub = null, slCount = null;
 function sceneLoading(state) {
