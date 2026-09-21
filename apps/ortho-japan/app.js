@@ -2419,7 +2419,7 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 				const r = await fetch(u, { credentials: "omit" });
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
 				if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
-				pbf = await loadUserFile(new File([await r.blob()], name), modelAt());
+				pbf = await loadUserFile(new File([await r.blob()], name), { ...modelAt(), fit: !themeBootV });   // URL に視点（#…）があればそれが勝つ＝寄せない（共有した傾き・画角を保つ・2026-09-21）
 			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
 			const attr = document.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
@@ -2504,7 +2504,7 @@ map.gadget("model", async function (src, opts) {
 // 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当・2026-09-21）＝模型と同じ建物メッシュ経路（worker で earcut→finishMesh）。
 //   src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF（.geojson を持つもの）・File・URL。
 //   opts＝{ height: 鍵名|数|(props)=>m（省略＝height/measuredHeight/高さ…を自動・階数×3m）, base, color: css|(props,h)=>css（省略＝@fill→段彩）,
-//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true・傾きは今のまま） }。
+//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 "auto"＝建物らしい大きさの時だけ）, fit（寄る・既定 true・傾きは今のまま） }。
 //   MapLibre の書き方もそのまま：opts に { type:"fill-extrusion", paint:{ "fill-extrusion-height"/"-base"/"-color"/"-opacity": 式 }, filter: 式 }、
 //   または src に層を丸ごと（source:{ type:"geojson", data }）。式は基図と同じ評価器・色の interpolate も可・既定値は MapLibre の仕様どおり。null を渡すと外す。戻り値＝stats か null（立つ面なし）
 map.gadget("extrude", async function (src, opts = {}) {
