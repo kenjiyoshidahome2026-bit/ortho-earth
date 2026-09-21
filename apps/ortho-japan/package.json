@@ -50,7 +50,7 @@
 	],
 	"scripts": {
 		"dev": "vite",
-		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs",
+		"test": "node demo/samples/test-scene-adapter.mjs && node tests/t-extrude.mjs && node tests/t-dtm.mjs && node tests/t-vocab.mjs && node tests/t-region.mjs && node tests/t-tier.mjs",
 		"build": "vite build",
 		"build:prod": "npm run build:lib && vite build && cp -R dist/lib dist/site/japan/lib && find dist/site/japan/lib -name '*.map' -delete",
 		"i18n:extract": "node scripts/i18n-extract.mjs",

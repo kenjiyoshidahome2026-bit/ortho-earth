@@ -58,6 +58,18 @@ try {
 	ok("stylePanel", !!document.querySelector(".ge-panel input[type=color]"));   // 選択＝日本語スタイルUI（色picker）が開く
 	ok("tooltips", document.querySelectorAll("#ge-toolbar button[data-tip]").length >= 16 && !document.querySelector("#ge-toolbar [title]") && document.querySelector("#ge-toolbar .ge-snapwrap[data-tip]") && !!document.querySelector(".ge-panel .ge-icon-btn[data-tip]"));   // 吹き出し＝data-tip（OS title は無し）
 
+	// ---- 面の「高さ」（height＝ビューアが 3D に押し出す鍵・2026-09-21）：入れる→属性に数で入る→undo で消える ----
+	const hIn = document.querySelector(".ge-panel input.ge-num");
+	ok("heightRow", !!hIn);
+	if (hIn) {
+		hIn.value = "25"; hIn.dispatchEvent(new Event("input")); hIn.dispatchEvent(new Event("change"));
+		await sleep(50);
+		ok("heightSet", m().feats.get(0).properties.height === 25);
+		key("z", { metaKey: true });
+		await sleep(100);
+		ok("heightUndo", !("height" in m().feats.get(0).properties));
+	}
+
 	// ---- 頂点ドラッグ：共有辺の角（139.76,35.69）＝ノード＝A/B両方が動く。パンが起きないことも確認 ----
 	const cen0 = JSON.stringify(map.view.center);
 	const h = map.projectLL(139.76, 35.69);
