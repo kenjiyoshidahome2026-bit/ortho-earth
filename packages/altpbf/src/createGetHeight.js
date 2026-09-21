@@ -54,12 +54,37 @@ export async function createTileLoader(opts = {}) {
 	// 地形の立ち上がりが数倍遅い。各workerは従来通り1件ずつ直列（応答FIFO＝取りこぼさない）で、
 	// プール間はラウンドロビン＝並列。IDBキャッシュ後は経路無関係に即答。
 	const NW = Math.min(3, Math.max(1, (navigator.hardwareConcurrency || 4) - 2));   // 低コア端末(タブレット)ではプールを絞る＝worker乱立でメインが飢えない
+	// 入れ子 worker が無い環境への退避（2026-09-21）：このローダは ortho-japan では render worker の中で動く＝worker から
+	// worker を立てる。入れ子 worker を持たない実行環境（Claude デスクトップの内蔵ブラウザ＝Electron・iOS Safari 15.5 未満 等）
+	// では 1 本も立たず、毎回 opaque な error を吐いて地形が出なかった。worker.js の中身は load(name) 一発＝同じ load を
+	// この場で呼べば結果は同じ。最初の 1 本がメッセージを返す前に落ちたら（＝環境として立たない）その場実行へ切り替える。
+	// 一度でも動いた worker の後の死は従来どおり「作り直し」（実環境の一過性の死と区別する）。
+	let inline = typeof Worker === "undefined";   // worker 内に Worker コンストラクタが無い環境（古い Safari）
+	let everOk = false;                            // どれかの worker が一度でも返事をした
+	const inlineLoad = async name => {
+		try { const { load } = await import("./altpbf.js"); return await load(name); } catch { return null; }   // worker.js と同じ＝失敗は null
+	};
+	const goInline = why => {
+		if (inline) return;
+		inline = true;
+		console.info(`[tileLoader] workers unavailable in this context (${why}) -> decoding in-thread`);
+		for (const s of pool) { try { s.w?.terminate(); } catch { /* 立っていない */ } s.w = null; }
+		for (const s of pool) s.abort?.();   // 止めた worker に預けていた要求＝その場実行でやり直す（terminate は error を出さない）
+	};
 	const mkWorker = () => {
-		const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' });
-		w.onerror = e => console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
+		if (inline) return null;
+		let w;
+		try { w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); }
+		catch (e) { goInline(String(e?.message || e)); return null; }
+		// 起動の失敗は要求より先に起きる（要求ごとの error 受け口が間に合わない＝45 秒のタイムアウト待ちになる）＝ここで即座に退避へ
+		w.onerror = e => {
+			if (!everOk) return goInline("nested worker failed to start");
+			console.error("[tileLoader] worker error:", e.message || "(opaque)", "@", e.filename || "?", "L" + (e.lineno ?? "?"), e.error || "");
+		};
 		return w;
 	};
-	const pool = Array.from({ length: NW }, () => ({ w: mkWorker(), queue: [], busy: false }));
+	const pool = Array.from({ length: NW }, () => ({ w: null, queue: [], busy: false }));
+	for (const s of pool) s.w = mkWorker();
 	const inflight = new Map();
 	// 応答の看視：worker.js は失敗でも必ず null を返す作りだが、worker「自体」が死ぬと（devサーバ断・
 	// モジュール取得404・GPU/メモリ起因のkill等）message も error も返らず、レーンが busy のまま永久に詰まる
@@ -70,24 +95,26 @@ export async function createTileLoader(opts = {}) {
 		if (s.busy || !s.queue.length) return;
 		s.busy = true;
 		const { name, res } = s.queue.shift();
+		const settle = obj => { if (obj && cache) cache(name, obj); s.busy = false; res(obj); pump(s); };
+		if (inline || !s.w) { inlineLoad(name).then(settle); return; }
+		const w = s.w;
 		let done = false, tm = 0;
-		const finish = obj => {
-			if (done) return; done = true;
-			clearTimeout(tm);
-			s.w.removeEventListener("message", onmsg); s.w.removeEventListener("error", onerr);
-			s.busy = false; res(obj); pump(s);
-		};
-		const onmsg = e => { const obj = e.data; if (obj && cache) cache(name, obj); finish(obj); };
-		const onerr = () => {   // worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
+		const detach = () => { clearTimeout(tm); w.removeEventListener("message", onmsg); w.removeEventListener("error", onerr); if (s.abort === onerr) s.abort = null; };
+		const onmsg = e => { if (done) return; done = true; everOk = true; detach(); settle(e.data); };
+		const onerr = () => {
+			if (done) return; done = true; detach();
+			if (!everOk) { goInline("nested worker failed to start"); inlineLoad(name).then(settle); return; }   // 環境として立たない＝この要求からその場実行
+			// worker死＝作り直し（次の要求は新workerで正常化）。この要求は null＝欠けは次の窓替えで再挑戦
 			console.warn("[tileLoader] worker unresponsive -> recreating:", name);
-			try { s.w.terminate(); } catch { /* 既に死んでいる */ }
+			try { w.terminate(); } catch { /* 既に死んでいる */ }
 			s.w = mkWorker();
-			finish(null);
+			s.busy = false; res(null); pump(s);
 		};
 		tm = setTimeout(onerr, REQ_TIMEOUT);
-		s.w.addEventListener("message", onmsg);
-		s.w.addEventListener("error", onerr);
-		s.w.postMessage({ name, apiUrl: opts.apiUrl });
+		s.abort = onerr;   // goInline がこのレーンの預け物を回収する口
+		w.addEventListener("message", onmsg);
+		w.addEventListener("error", onerr);
+		w.postMessage({ name, apiUrl: opts.apiUrl });
 	}
 	let rr = 0;
 	const loadName = name => {   // 同名の並行要求は 1 本に併合（loadTile / byName 共通）
