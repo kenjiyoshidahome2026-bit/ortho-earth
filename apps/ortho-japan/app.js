@@ -9,7 +9,8 @@ import {
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
 } from "ortho-core";
 import { createGeopbf, geopbf } from "geopbf";
-import { hasHeightKey } from "./extrude-keys.js";   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
+import { hasHeightKey } from "./extrude-keys.js";
+import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, setApiUrl as setAltApiUrl } from "altpbf/loader";
 import { JP_REGION } from "./jp/region.js";   // 地域宣言＝その国の知識の正本（エンジンと altpbf は地域を知らない）
@@ -2787,6 +2788,27 @@ const rebuildGint = async sid => {   // 同じ source の fill/line/circle を�
 	await map.paint(Object.keys(paint).length ? paint : null, ls.find(L => L.filter)?.filter);
 	return pbf;
 };
+// 塗り/線の模様（MapLibre の fill-pattern／line-pattern）＝記号帳の画像を敷き詰める canvas2D のオーバーレイ（pattern-2d.js）。
+// ⚠設計原則「紙の遺物を捨てる」の側＝既定では何も描かない。MapLibre の層を受ける互換の口だけ（本人 9/21「残りをお願いします」）
+let patOv = null, patOrder = 0;
+const patSent = new Set();
+const addPattern = async (layer, data) => {
+	const c = await symGet(); patOv ??= map.overlay(patUrl, { name: "pattern" });
+	let d = data; if (typeof d === "string" || d instanceof Blob) d = (await geopbf(d, { gint: false }))?.geojson;
+	const feats = d?.features || (Array.isArray(d) ? d : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];
+	for (const f of feats) {
+		const g = f?.geometry; if (!g) continue;
+		const ctx = { zoom: cam.zoom, props: f.properties || {}, geom: g.type.replace("Multi", ""), vars: {} };
+		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
+		const pattern = evalExpr(P[fill ? "fill-pattern" : "line-pattern"], ctx);
+		if (!pattern || !c.getImage(pattern)) continue;
+		const parts = fill ? (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) : (g.type === "LineString" ? [[g.coordinates]] : g.type === "MultiLineString" ? g.coordinates.map(l => [l]) : []);
+		for (const rings of parts) items.push({ rings: rings.map(r => Float64Array.from(r.flat())), pattern, opacity: +evalExpr(P[fill ? "fill-opacity" : "line-opacity"] ?? 1, ctx), width: fill ? 0 : +evalExpr(P["line-width"] ?? 1, ctx) });
+	}
+	for (const name of new Set(items.map(i => i.pattern))) if (!patSent.has(name)) { const im = c.getImage(name); const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
+	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: patOrder++ });
+	return { features: items.length };
+};
 map.addSource = (id, spec) => { mlSources.set(id, spec); return map; };
 map.getSource = id => { const sp = mlSources.get(id); return sp ? { ...sp, setData: async data => { sp.data = data; for (const v of [...mlLayers.values()].filter(v => srcId(v.layer) === id)) await map.addLayer(v.layer); } } : undefined; };
 map.removeSource = id => { mlSources.delete(id); return map; };
@@ -2805,6 +2827,7 @@ map.addLayer = async layer => {
 	if (layer.type === "heatmap") { kind = "heatmap"; mlLayers.set(layer.id, { layer, kind, src: sp }); return map.gadget.heatmap(await readPoints(data), layer); }
 	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) { mlLayers.set(layer.id, { layer, kind: "cluster", src: sp }); return rebuildCluster(sid); }
 	if (layer.type === "symbol") { kind = "symbol"; mlLayers.set(layer.id, { layer, kind, src: sp }); return (await symGet()).addLayer(layer.id, await readPoints(data), layer); }
+	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) { mlLayers.set(layer.id, { layer, kind: "pattern", src: sp }); return addPattern(layer, data); }
 	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") { mlLayers.set(layer.id, { layer, kind: "gint", src: sp }); return rebuildGint(sid); }
 	throw new Error(`addLayer: type "${layer.type}" is not supported`);
 };
@@ -2818,6 +2841,7 @@ map.removeLayer = id => {
 	else if (v.kind === "symbol") symCtl?.removeLayer(id);
 	else if (v.kind === "cluster") rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
 	else if (v.kind === "gint") rebuildGint(sid);
+	else if (v.kind === "pattern") patOv?.post({ type: "removeLayer", id });
 	return map;
 };
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────

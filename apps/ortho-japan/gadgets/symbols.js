@@ -33,6 +33,7 @@ export function createSymbols(map, { signal } = {}) {
 		},
 		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); },
 		hasImage: name => images.has(name),
+		getImage: name => images.get(name) || null,   // { bitmap, pixelRatio, sdf }（模様の層が使う）
 		listImages: () => [...images.keys()],
 		// sprite＝MapLibre の書式（base.json＋base.png、高解像度は base@2x.*）。戻り値＝足した名前の数
 		async loadSprite(base) {
