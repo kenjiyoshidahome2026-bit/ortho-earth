@@ -203,7 +203,7 @@ function sceneLoading(state) {
 	mapEl.append(slEl);   // 毎回最後尾へ＝黒幕(#scene-cover)より必ず上（DOM順＋zIndex の二重保険）
 	slEl.style.display = "flex";
 	// 今まさに読んでいる物＝建物（区名 done/total枚・カタログ走査）＋標高。網経路のみ＝IDB命中は現れない（それが正しい）
-	const parts = [...plateau.progress.values()].map(p =>
+	const parts = [...meshMgr.progress.values()].map(p =>
 		p.total ? t("$1 $2/$3 tiles", p.name, p.done, p.total) : t("$1 scanning catalog $2…", p.name, p.scan ?? 0));
 	if (env.elevBusy) parts.push(t("terrain tiles"));
 	slSub.textContent = parts.join("・") || t("3D city (PLATEAU)");
@@ -213,7 +213,7 @@ function sceneLoading(state) {
 		slCount.textContent = t("standing up the city…");
 	} else if (total) {
 		// バーは区の歩み＋読みかけ区のタイル進捗（なめらか担当・並行読みの分は全部加算＝残り区数でクランプ）
-		const frac = Math.min(Math.max(0, total - done), [...plateau.progress.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
+		const frac = Math.min(Math.max(0, total - done), [...meshMgr.progress.values()].reduce((a, p) => a + (p.total ? Math.min(1, p.done / p.total) : 0), 0));
 		slFill.style.width = Math.max(6, Math.round(Math.min(1, (done + frac) / total) * 100)) + "%";
 		slCount.textContent = t("$1 / $2 districts", done, total);
 	} else {
