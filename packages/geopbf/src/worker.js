@@ -10,6 +10,8 @@
 // decoder/*.js・encoder/*.js は従来どおり「自分で onmessage を張る worker 脚本」のまま無改修。ここは指名された脚本を
 // 読み込み、読み込み中に届いたメッセージを手渡すだけ。1 インスタンス＝1 仕事（呼び手が terminate する運用も従来どおり）。
 const MODULES = {
+	"geopbf:cog":      () => import("./cog/worker.js"),            // COG の復号（cog/pool）＝ホストの入口から来る時の名前（2026-09-22）
+	"geopbf:tile":     () => import("./convert/tile-worker.js"),   // PMTiles のタイル書き出し（convert/pool）＝同上
 	"decoder:fgb":     () => import("./decoder/fgb.js"),
 	"decoder:gint":    () => import("./decoder/gint.js"),
 	"decoder:gml":     () => import("./decoder/gml.js"),

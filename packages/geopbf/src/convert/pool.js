@@ -1,12 +1,14 @@
 // convert/pool.js ── tile-worker.js のプール（ブラウザ Worker / Node worker_threads 両対応・FIFO lane）。
 // ⚠Vite 規律: worker URL は文字どおり new Worker(new URL('./tile-worker.js', import.meta.url), {type:'module'}) と書く
 //（cog/pool.js と同じ理由＝変数経由は本番ビルドで data:URL にインライン化され相対 import が死ぬ）。
+import { spawnWorker } from "../modules/workerFactory.js";
+import { builtinWorker } from "../modules/builtinWorkers.js";
 export async function createPool(n) {
 	const isNode = typeof process !== "undefined" && !!process.versions?.node && typeof Worker === "undefined";
 	let NodeWorker = null;
 	if (isNode) ({ Worker: NodeWorker } = await import(/* @vite-ignore */ "node:" + "worker_threads"));   // 組み立て式＋@vite-ignore＝バンドラに node: を解決させない（modules/inflate.js と同じ）
 	const spawn = () => {
-		const w = isNode ? new NodeWorker(new URL("./tile-worker.js", import.meta.url)) : new Worker(new URL("./tile-worker.js", import.meta.url), { type: "module" });
+		const w = isNode ? new NodeWorker(new URL("./tile-worker.js", import.meta.url)) : spawnWorker("geopbf:tile", () => builtinWorker("geopbf:tile"));   // ブラウザはホストの入口が勝つ・既定＝geopbf の入口 src/worker.js の "geopbf:tile"
 		const lane = { w, busy: false, pending: null };
 		const onMsg = (data) => { const p = lane.pending; if (!p) return; lane.pending = null; lane.busy = false; data?.error ? p.reject(new Error(data.error)) : p.resolve(data); pump(); };
 		const onErr = (e) => { const p = lane.pending; lane.pending = null; lane.busy = false; p?.reject(new Error("tile worker: " + (e?.message || e))); pump(); };

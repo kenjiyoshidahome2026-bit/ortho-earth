@@ -56,6 +56,8 @@
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
+		"./worker": "./src/worker.js",
+		"./no-builtin-workers": "./src/modules/builtinWorkers.none.js",
 		"./identify": "./src/extension/identify.js",
 		"./gint": "./src/extension/gint.js",
 		"./topology": "./src/extension/topology.js",
