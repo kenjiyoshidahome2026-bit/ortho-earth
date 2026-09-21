@@ -338,6 +338,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	// worker が区をバッチ分割して逐次送ってくる＝完成した近傍から順に立つ。bbox は draw 時のフラスタムカリングに使う。
 	// 基図建物を伏せる被覆マスクは区単位で別管理（meshMasks）＝バッチ数でシェーダの固定スロットを枯渇させない。
 	const meshes = new Map();
+	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
 	const meshMasks = new Map();   // 区名 → { tex, bbox }（worker が累積スナップショットを送る度に丸ごと差し替え）
 	const meshHidden = new Set();  // 非表示の区名（VAO/マスクはVRAM保持＝draw skipとスロット除外だけ。再訪は meshVis 切替のみで再アップロード不要）
 	const MAX_MESH_MASKS = 4;
@@ -760,7 +761,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// lodH/lodCounts（v4）：index は建物高さ降順＝lodCounts[k] で「高さ lodH[k] 以上だけ」を先頭打ち切り描画できる
 		// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 		const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape });   // noLift＝地形へ持ち上げない（統計の押し出し＝平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる（2026-09-22）
+		meshes.set(key, { vao, bufs, tex, textured, blend, cut, count: data.idx.length, origin: o, bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0], lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d });   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		// 被覆マスク（NEAREST・CLAMP）＝届いたバッチの断片(maskCells)だけをOR合成（gpu/renderer.js と同意味論）。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「矩形の隙間」を作った＝断片方式で根治。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
@@ -1469,7 +1470,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// ※巻き順が不揃いなデータなので back-face カリングは使わない（屋根を誤って捨てる）＝両面描画。
 		//   z-fight の元＝重複面は worker 側の頂点3つ組 dedup で断つ。
 		// バッチ単位でフラスタムカリング＝区全体(数百万tris)のうち画面に掛かるバッチだけ頂点処理へ流す。
-		if (meshes.size && show3d) {
+		if (meshes.size && (show3d || meshKeep2d())) {   // 真俯瞰でも keep2d のバッチ（統計の押し出し）は描く＝色を平面のまま見せる
 			bldStencil(true);   // 建物メッシュも建物＝bit7 を刻む
 			gl.useProgram(meshProg);
 			let curProg = meshProg;
@@ -1482,12 +1483,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			const vis = [];   // 可視バッチ（カリング＋LOD 済み）＝描く順を並べ替えるため一度溜める
 			for (const p of meshes.values()) {
+				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;   // 常駐中の非表示区（VRAM保持・draw skip）
 				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				let count = p.count;
 				// LOD打ち切りは建物のみ。橋梁（two＝両面）は「高さ3〜5m×長さ数百m」＝高さ基準だと小物と誤判定され
 				// 桁が距離で歯抜けになる（横浜ベイブリッジで実測）ため適用しない。橋梁データは軽い＝全描画で問題ない。
-				if (p.lodH && !p.two) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる
+				if (p.lodH && !p.two && !p.keep2d) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」になる（keep2d＝統計＝低い値も意味がある＝間引かない）
 					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
 					const minH = mppx * (1 + dm / 4000);
 					let li = 0;

@@ -39,7 +39,7 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	const ALL = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-drape?gl2=1", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-gintlayers", "t-gintlayers?gl2=1", "t-meshfs", "t-baselane", "t-backfill", "t-anchorfill", "t-rectlook", "t-zoomfill", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster", "t-gndfaces"];   // t-raster＝画像タイル層の WGSL 経路（配列 UBO の dynamic offset・per-tile bind group）
+	const ALL = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-drape?gl2=1", "t-extrude-drape?gl2=1&v=%2310/36.3/137.6", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-gintlayers", "t-gintlayers?gl2=1", "t-meshfs", "t-baselane", "t-backfill", "t-anchorfill", "t-rectlook", "t-zoomfill", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster", "t-gndfaces"];   // t-raster＝画像タイル層の WGSL 経路（配列 UBO の dynamic offset・per-tile bind group）
 	const PAGES = process.argv.length > 2 ? process.argv.slice(2) : ALL;   // 引数＝ページ名（?query 付き可＝t-rectlook の視点差し替え等）。SHOT=path で最後のページの画面を PNG に
 	for (const page of PAGES) {   // t-backfill＝gint 塗り扇の球体カリング（裏半球のゴースト/跨ぎ面）＝WGSL 側の実 GPU 検分   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-meshfs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
 		const url = `http://localhost:${PORT}/japan/tests/${page.replace(/(\?|$)/, ".html$1")}`;
