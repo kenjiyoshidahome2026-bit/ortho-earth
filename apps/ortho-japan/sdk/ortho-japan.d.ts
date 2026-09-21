@@ -91,7 +91,7 @@ export interface Gadgets {
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
-	 *  scale＝高さの倍率。mask＝足元の基図建物を伏せる（既定 true）。fit＝寄る（既定 true・チルトつき＝真俯瞰では建物を描かない）。
+	 *  scale＝高さの倍率。mask＝足元の基図建物を伏せる（既定 true）。fit＝寄る（既定 true・傾きは今のまま。真俯瞰では建物を描かない＝立体は傾けた時に見える）。
 	 *  null を渡すと外す。戻り値＝stats、立つ面が無ければ null。ドロップ/?g= の図形に高さの列があれば自動で立つ（?extrude=0 で止める／?extrude=<列名>[,倍率]）。 */
 	extrude(src: GeoJSONFeatureCollection | GeoJSONFeature | GeoJSONFeature[] | File | string | { geojson: GeoJSONFeatureCollection } | null, opts?: { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean; fit?: boolean }): Promise<{ polygons: number; vertices: number; triangles: number; bbox: [number, number, number, number] } | null>;
 	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
@@ -166,6 +166,28 @@ export interface GintApplyOptions {
 	onReady?: () => void;
 }
 
+export type RasterSpec =
+	| { url: string; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; subdomains?: string[]; tms?: boolean; headers?: Record<string, string>; name?: string }
+	| { pmtiles: string; name?: string; attribution?: string }
+	| { file: File; table?: string; name?: string; attribution?: string }
+	| { port: MessagePort; name?: string; attribution?: string }
+	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string };
+export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number }
+export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean }
+export interface RasterAPI {
+	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典） */
+	add(id: string, spec: RasterSpec, opts?: RasterOptions): Promise<RasterInfo>;
+	remove(id: string): boolean;
+	/** 表示の変更（不透明度・重ね順・表示/非表示） */
+	set(id: string, opts: RasterOptions): boolean;
+	list(): Array<{ id: string; info: RasterInfo | null; spec: RasterSpec; opts: RasterOptions; error: string | null }>;
+	info(id: string): RasterInfo | null;
+	onChange(cb: () => void): () => void;
+	/** 地域パックのカタログ（基図＝1 枚のラジオ・重ね＝トグル）。?r= と同期 */
+	select(catalogId: string | null): Promise<RasterInfo | null>;
+	toggle(catalogId: string, on?: boolean): Promise<boolean>;
+}
+
 export interface OrthoJapanMap {
 	// ---- 基本 ----
 	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
@@ -218,6 +240,10 @@ export interface OrthoJapanMap {
 	 *  1.0.4〜ローダ着荷（数秒）を待って返す（初期化失敗は reject）。1.0.3 以前は未着の間 0 を返す＝>0 になるまで再照会 */
 	getHeight(lon: number, lat: number): Promise<number>;
 	fitZoomForBbox(bbox: Bbox): number;
+	/** 画像タイル層（ラスタ）。地形へドレープされる（地面の塗りと同じ合成）。order:"under"＝基図（塗りを伏せる）／"over"＝重ね（線と注記は上に残る）。
+	 *  spec＝XYZ テンプレ｜ラスタ PMTiles｜ローカル容器（.gpkg/.mbtiles）｜外部プロバイダの MessagePort｜**四隅で貼る画像**（MapLibre の image source 相当・1.1〜）。
+	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
+	raster: RasterAPI;
 
 	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
@@ -251,8 +277,6 @@ export interface OrthoJapanMap {
 	paintTable(u32: Uint32Array, count: number): void;
 	/** 地形沿い線化（liftM=null で解除） */
 	standupGint(liftM: number | null): Promise<void> | void;
-	/** e-Stat/geopbfオーバーレイの手綱 */
-	readonly overlay: Record<string, unknown>;
 }
 
 /** 1行で地球儀が立ち上がる入口。await 必須 */

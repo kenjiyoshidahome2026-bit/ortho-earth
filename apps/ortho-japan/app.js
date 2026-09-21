@@ -2188,7 +2188,7 @@ map.raster = {
 				w.onmessage = e => { const d = e.data || {}; if (d.type === "opened") res(d.info); else if (d.type === "error") rej(Object.assign(new Error(d.error), { vectorLayers: d.vectorLayers })); };
 				w.onerror = e => rej(new Error(e.message || "raster provider worker error"));
 			});
-			if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, port: ch.port1 }, [ch.port1]);
+			if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, attribution: spec.attribution || null, maxSide: LOW_MEM ? 2048 : 4096, port: ch.port1 }, [ch.port1]);   // 省メモリ機＝長辺 2048（RGBA＋ミップ ≈21MB・4096 だと ≈85MB＝Air3 jetsam の轍）
 			else w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
 			try { await opened; } catch (err) { w.terminate(); if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
 			if (rasterReg.get(id) !== rec) { w.terminate(); throw new Error("removed while opening"); }
@@ -2500,14 +2500,21 @@ map.gadget("model", async function (src, opts) {
 // 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当・2026-09-21）＝模型と同じ建物メッシュ経路（worker で earcut→finishMesh）。
 //   src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF（.geojson を持つもの）・File・URL。
 //   opts＝{ height: 鍵名|数|(props)=>m（省略＝height/measuredHeight/高さ…を自動・階数×3m）, base, color: css|(props,h)=>css（省略＝@fill→段彩）,
-//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true） }。null を渡すと外す。戻り値＝stats か null（立つ面なし）
+//          scale（高さの倍率）, mask（足元の基図建物を伏せる・既定 true）, fit（寄る・既定 true・傾きは今のまま） }。null を渡すと外す。戻り値＝stats か null（立つ面なし）
 map.gadget("extrude", async function (src, opts = {}) {
 	const c = await modelCtlGet();
 	if (src == null) { c.clearExtrude(); return null; }
 	let gj = src;
 	if (typeof src === "string" || src instanceof Blob) gj = (await geopbf(src, { gint: false }))?.geojson;
 	else if (!src.type && !Array.isArray(src) && src.geojson) gj = src.geojson;
-	return c.extrude(gj, { fit: true, ...opts });
+	const { fit: doFit = true, ...rest } = opts;
+	const st = await c.extrude(gj, { ...rest, fit: false });
+	if (doFit && st?.bbox) {   // 寄る＝今の傾きのまま（押し出しでも傾けない＝本人裁定 9/21）
+		const bb = st.bbox, cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2, wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 1.3);
+		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
+		flyTo(cx, cy, Math.max(3, Math.min(18, z)), (cam.pitch || 0) * R2D, (cam.bearing || 0) * R2D);
+	}
+	return st;
 });
 // 衛星シーン検索（STAC＝Earth Search→選んだシーンの COG を球へ）。スタブ＝ボタンのみ常駐・本体は初回クリック
 map.gadget("stac", function (opts) {
@@ -2648,13 +2655,12 @@ const mainRoad = async (file, { fit = true } = {}) => {
 	// 高さの列を持つ面＝自動で 3D 押し出し（geoedit の面パネル「高さ」もここ）。?extrude=0＝しない／?extrude=<列名>[,倍率]＝列を指定
 	const ex = await autoExtrude(pbf);
 	const bb = pbf.unPackGint.bbox;
-	if (!fit && ex && (cam.pitch || 0) < 0.02) flyTo(cam.center[0], cam.center[1], cam.zoom, 50, cam.bearing * R2D);   // 真俯瞰では建物は描かれない＝その場で起こす
 	if (fit && bb && bb.length === 4) {
 		const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 		const wDeg = Math.max(1e-6, (bb[2] - bb[0]) * 1.3), hDeg = Math.max(1e-6, (bb[3] - bb[1]) * 1.3);   // 30%余白（縁ぴったりを避ける）
 		// 視野幅[deg]=360*size.w/(WORLD_PX*2^z)（flight の van Wijk 尺と同一）を逆解き＝横/縦の狭い側に合わせる。
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
-		flyTo(cx, cy, Math.max(3, Math.min(17, z)), ex ? 50 : 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0・押し出しがあれば 50° 起こす＝真俯瞰では建物を描かない）
+		flyTo(cx, cy, Math.max(3, Math.min(17, z)), 0);   // 描画後に寄る＝fit へ球面フライト（tilt/bearing=0）。押し出しがあっても傾けない（本人裁定 9/21＝立体は傾けた時に見えればよい）
 	}
 	return pbf;   // gadget が pbf.length（地物数）をトーストに使う
 };
@@ -2671,7 +2677,7 @@ const placeImages = async (pbf, name) => {
 	imgs.forEach((f, k) => {
 		const id = `img:${k}`, op = +f.properties["@opacity"];
 		imageIds.push(id);
-		map.raster.add(id, { image: f.properties[IMAGE_KEY], corners: cornersOf(f.geometry), name: f.properties.name || f.properties[IMAGE_KEY].name || name },
+		map.raster.add(id, { image: f.properties[IMAGE_KEY], corners: cornersOf(f.geometry), name: f.properties.name || f.properties[IMAGE_KEY].name || name, attribution: f.properties.attribution || null },   // 出典（HTML 可）＝出典欄へ（消毒は onRasterInfo）
 			{ order: "over", opacity: op > 0 && op <= 1 ? op : 1, hideFills: false }).catch(err => console.warn("[image] failed", id, err));
 	});
 	if (imgs.length) console.info(`[image] ${imgs.length} image(s) placed by four corners`);
