@@ -36,7 +36,7 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createPlateauManager } from "./plateau/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
+import { createMeshManager } from "./mesh/manager.js";   // 建物3D（PLATEAU）の管理＝表示判定・ロード順・常駐予算・遠景・先読み（app からは配線だけ）
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -48,7 +48,7 @@ import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { solar as solarGadget } from "./gadgets/solar.js";
 import { equal as equalGadget, equalHereItem, goEqual } from "./gadgets/equal.js";
-import { plateau as plateauGadget } from "./gadgets/plateau.js";
+import { plateau as meshGadget } from "./gadgets/plateau.js";
 import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
 import { full as fullGadget } from "./gadgets/full.js";
@@ -167,7 +167,7 @@ undergroundEl.id = "underground";
 // opts.assetBase で指し直せる口を開けておく（相対でも絶対URLでもよい・末尾スラッシュは自動で整える）。
 // 例: orthoJapan({ assetBase: "https://cdn.example.com/ortho-japan/" })
 const ASSET_BASE = String(opts.assetBase ?? import.meta.env.BASE_URL).replace(/\/*$/, "/");
-// デバッグ手（__cam / __coast / __plateau …）の宿主。自前ページのコンソールから叩く道具を窓に生やすが、
+// デバッグ手（__cam / __coast / __mesh …）の宿主。自前ページのコンソールから叩く道具を窓に生やすが、
 // SDK として第三者ページへ埋め込まれた時にホストの window を汚すのは筋が悪い（2026-08-19）。
 // 既定＝容れ物を預かっていない時（target 未指定＝自前ページ）だけ本物の window、埋め込み時は使い捨ての器。
 // 器に変えても内部の読み書き（__backend の frame1 判定・__drawSendN の起動HUD）はそのまま通る＝挙動は不変。
@@ -521,7 +521,7 @@ if (gpuBackend) gpuWatchT = setTimeout(() => {
 		location.reload();
 	}
 }, 20000);
-// 印刷（平面図）撮影中の抑止フラグ：autoPlateau/settle保存を止める。描画は noTerrain にしない＝
+// 印刷（平面図）撮影中の抑止フラグ：autoMesh/settle保存を止める。描画は noTerrain にしない＝
 // 標高アトラスは生かす（真俯瞰 pitch0 なので elevScaleEff=0＝地形サーフェス/陰影/変位は自然に消え、
 // 等高線(ベクタ)だけが敷かれた厳密な正射平面図になる）。noTerrain にすると等高線もアトラスごと消えるので不可。
 let printHold = false;
@@ -532,7 +532,7 @@ let extActive = null;        // カーソルを持つ追加層の id（null＝�
 const mapOn = { click: [], move: [], load: [], plateau: [], settle: [] };   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("plateau")：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
-const emitPlateau = e => { for (const cb of mapOn.plateau) { try { cb(e); } catch (err) { console.error("[map.on plateau]", err); } } };
+const emitMesh = e => { for (const cb of mapOn.plateau) { try { cb(e); } catch (err) { console.error("[map.on plateau]", err); } } };
 let mapLoaded = false;   // 'load' 後の登録は即発火（maplibre 同様の耳）
 renderWorker.onmessage = e => {
 	const d = e.data;
@@ -709,12 +709,12 @@ let moving = false, settleT = null;
 // 全国 300 市区町村分は scripts/plateau-catalog-build.mjs で datacatalog API から生成＝public/plateau-sets.json を起動時に fetch。
 // opts.plateau=false＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
-const plateauOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
-// 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は plateau/manager.js（env.catalog）。
-const plateauCatalog = !plateauOn ? null :
+const meshOn = opts.plateau !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+// 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
+const meshCatalog = !meshOn ? null :
 	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
-		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[plateau] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
+		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[mesh] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
 		return sets;
 	});
 // 空港マーク台帳：optbv の空港名注記(441)は z11 以上のタイルにしか無い＝低ズームでは
@@ -746,7 +746,7 @@ function loadLandmarks() {
 		readySig = ""; mergeReq.main.sig = ""; needsDraw = true;   // 到着＝ラベル再結合（空港台帳と同じ作法）
 	}).catch(e => console.warn("[landmark] ledger fetch failed", e));
 }
-// --- 建物3D（PLATEAU）の管理＝plateau/manager.js（表示判定・ロード順・常駐予算・遠景・先読み・読込トースト・データ管理モーダル）。
+// --- 建物3D（PLATEAU）の管理＝mesh/manager.js（表示判定・ロード順・常駐予算・遠景・先読み・読込トースト・データ管理モーダル）。
 // ここは配線だけ＝装置の旗・描画側の口・app の状態の覗き窓（getter）・生成後に定義される関数のラップ（一本道の下流＝呼ぶ時に解決）。
 // 現在の画面に映る範囲をラフに見積もる（フラスタム厳密解ではなく自動ロードのゲート用）。z14+の寄った状態でしか呼ばれない＝視野は元々狭く、この近似で十分。
 function approxViewBbox(cam) {
@@ -763,10 +763,10 @@ function approxViewBbox(cam) {
 }
 // --- POI台帳（施設の点・z14+）＝packages/jp/src/poi.js（在庫マニフェスト・タイル・§12 手差分・ラベル注入）。ここは配線だけ。
 const poi = REGION_POI ? createPoiLedger(REGION_POI, { viewBbox: approxViewBbox, requestDraw: () => { needsDraw = true; } }) : null;   // 台帳を宣言しない地域＝null
-let flying = false;                        // フライト中フラグ＝plateau.update のゲート（flyTo が立て、着地/中断で下ろす）
-const plateau = createPlateauManager({
-	plateauOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: plateauCatalog,
-	renderer, attachMeshPort: port => wPost({ type: "plateauPort", port }, [port]), mapEl, dbgHost, emit: emitPlateau,
+let flying = false;                        // フライト中フラグ＝meshMgr.update のゲート（flyTo が立て、着地/中断で下ろす）
+const meshMgr = createMeshManager({
+	meshOn, device: { LOW_MEM, MID_TIER, HI_TIER, gpuBackend, hudOn, ELL_ON }, catalog: meshCatalog,
+	renderer, attachMeshPort: port => wPost({ type: "meshPort", port }, [port]), mapEl, dbgHost, emit: emitMesh,
 	requestDraw: () => { needsDraw = true; },
 	get cam() { return cam; }, get moving() { return moving; }, get flying() { return flying; }, get printHold() { return printHold; }, get elevBusy() { return elevBusy; },
 	// 足元＝チルト時（pitch>20°）は画面下端中央の接地点（球外なら null）。真俯瞰では下端＝単に南＝優先の意味が無いので使わない
@@ -774,7 +774,7 @@ const plateau = createPlateauManager({
 	viewBbox: approxViewBbox, playingNow: () => scenes.playingNow(), flyTo: (...args) => flyTo(...args),
 });
 // 捨てる地物（精査で不要と裁定した gml_id）＝生経路も焼きと同じ。起動後に来ても manager が起きている worker と後から起きる worker の両方へ配る
-if (plateauOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) plateau.setExcludeMap(map); }).catch(() => {});
+if (meshOn && REGION_EXCLUDE.length) fetch(ASSET_BASE + REGION_EXCLUDE[0]).then(r => r.ok ? r.json() : null).then(map => { if (map) meshMgr.setExcludeMap(map); }).catch(() => {});
 // --- 地中フェード（クランプの代替・2026-07-28）: カメラが地表(DTM)より下へ潜ったら全画面を暗色で覆う ---
 // 旧・カメラ地形クランプ（eye 押し上げ）は廃止：山頂×高チルトで eye が sea-level 軌道ごと山体に埋まり、
 // eye直下サンプルは下った斜面を見る＝山頂が計算に入らず効かなかった（富士 z15/75° で裏面を見上げる絵）。
@@ -857,13 +857,13 @@ function onMove() {
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
 	gint.updateGintSlot();                                                                // gint 単一スロットを z=4 で調停（ユーザー層⇄世界海岸線）＋海岸線の遅延ロード
 	sky.ensureStars();                                                                // 星空も同じ流儀＝初めて z<4 に出た瞬間に読む
-	plateau.update();                                                                 // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
+	meshMgr.update();                                                                 // 寄る/離れるで PLATEAU を自動ロード/解放（ガードで実質タダ）
 	renderer.draw(cam, { skipBase: false, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
 		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
-		moving = false; needsDraw = true; commitUnderground(); updateUnderground(true); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); plateau.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
+		moving = false; needsDraw = true; commitUnderground(); updateUnderground(true); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); meshMgr.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
 	schedulePos();   // 座標読み取りもカメラに追随（rAF畳み込み＝タダ同然）
@@ -1114,17 +1114,17 @@ dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingD
 };
 
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
-dbgHost.__plateau = async (nameOrBase, tiles) => {
-	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = 3D buildings feature disabled"); return; }
-	const sets = plateau.sets;
+dbgHost.__mesh = async (nameOrBase, tiles) => {
+	if (!meshOn) { console.warn("[mesh] opts.plateau=false = 3D buildings feature disabled"); return; }
+	const sets = meshMgr.sets;
 	const set = !nameOrBase ? sets[0]
 		: sets.find(s => s.base === nameOrBase || s.name === nameOrBase || s.name.includes(nameOrBase));
-	if (!set) { console.error("[plateau] ward not found:", nameOrBase, `(catalog ${sets.length} entries)`); return; }
-	await plateau.standUp(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUp 内の読込中ガードで防ぐ
+	if (!set) { console.error("[mesh] ward not found:", nameOrBase, `(catalog ${sets.length} entries)`); return; }
+	await meshMgr.standUp(set, tiles);   // 立ち上げ（常駐ヒット＝vis戻し／未常駐＝ロード）。二重ロードは standUp 内の読込中ガードで防ぐ
 	const [w, s, e, n] = set.bbox;
 	cam.center = [(w + e) / 2, (s + n) / 2]; cam.zoom = 16; cam.pitch = 45 * D2R; cam.bearing = 0;   // 地区中心・傾けて建物を見る
 	onMove();
-	console.log(`[plateau] done -> ${set.name} z16 tilt45°. right-drag to adjust tilt`);
+	console.log(`[mesh] done -> ${set.name} z16 tilt45°. right-drag to adjust tilt`);
 };
 
 function resize() {
@@ -1281,7 +1281,7 @@ canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.dis
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
-// onFlying＝autoPlateau のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
+// onFlying＝autoMesh のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
 const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (!f && gint.suppressAdmin0) { gint.suppressAdmin0 = false; gint.updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
@@ -1766,7 +1766,7 @@ function showDrawHud(msg) {
 // この closure＝ガジェットはレイアウトと更新のみ（抽象アクセス）。本体は ?hud=1 の時だけ import＝通常バンドル不干渉（三戒：独立/遅延/抽象アクセス）。
 let hudPeak = 0;   // 走行後ピーク（HUD を畳んでいる間も積む＝閉じても最悪値＝落ちる寸前の値を失わない）
 function hudSnapshot() {
-	const pl = plateau.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
+	const pl = meshMgr.memStats();   // 常駐（表示＋非表示）の実測バイト・区数・過渡・ティア
 	const ts = tiles.stats();
 	const gpu = (memGpu ? memGpu.atlas + memGpu.mesh + memGpu.msaa : 0) + memRaster;   // GPU固定＝標高アトラス近/裏/遠＋地形メッシュ＋MSAA（webgpuのみ・GL2は暗黙確保で0表示）＋画像タイル層のテクスチャ
 	const total = pl.bytes + ts.bytes + memTerrain + gpu + pl.transient.bytes;
@@ -1780,7 +1780,7 @@ function hudSnapshot() {
 			dpr: window.devicePixelRatio || 1, vw: window.innerWidth, vh: window.innerHeight,
 			net: nc.effectiveType || null, down: nc.downlink || null, ua: navigator.userAgent,
 		},
-		plateau: { bytes: pl.bytes, regions: pl.regions }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
+		mesh: { bytes: pl.bytes, regions: pl.regions }, tiles: { bytes: ts.bytes, budget: ts.budgetBytes },
 		terrain: memTerrain, heap: memHeap, gpu: memGpu, gpuBytes: gpu, raster: memRaster,
 		transient: pl.transient,
 		total, peak: hudPeak, budget: 900 * 1048576,   // 4GB機の推定タブ予算（8GB機の~1.4GBより小さい）＝残りが薄いほど落ちる寸前
@@ -1818,12 +1818,12 @@ function destroy() {
 	renderWorker.terminate();
 	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
 	overlays.clear();
-	plateau.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
+	meshMgr.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
 	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
-	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__plateau", "__plateauPurge", "__sapporo", "__standup", "__style", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
+	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__sapporo", "__standup", "__style", "__tileCache", "__tileStats", "__tokyo", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world", "ui-dark", "ui-idle");   // SDK が付けた class を全部外す（全球フェード・白抜き家具・無操作フェード）＝"as it was" を真に
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
@@ -1920,7 +1920,7 @@ map.requestSnapshot = requestSnapshot;   // ★プラットフォーム公開面
 dbgHost.__map = map;   // デバッグ手（__cam 等と同族）＝コンソール/CDP 検証から公開面を叩く取っ手（埋め込み時は器止まり＝窓を汚さない）
 // --- 印刷（平面図）用の撮影：ライブパイプラインを一時的に「印刷カメラ」（同中心・真俯瞰・北向き・指定z・
 // noTerrain＝紙仕様）へ振り、タイル/注記の読み込みが落ち着いてから readPixels スナップショットを取り、
-// 元のカメラへ戻す。printHold が autoPlateau と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
+// 元のカメラへ戻す。printHold が autoMesh と settle保存を抑止（印刷カメラを自動ロードや保存に漏らさない）。
 const printSettled = timeout => new Promise(res => {
 	const t0 = performance.now();
 	const tick = () => {
@@ -2162,8 +2162,8 @@ map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）�
 	return solarGadget.call(this, opts);
 });
 map.gadget("plateau", function (opts) {   // 建物3D（PLATEAU）データ管理 … モーダルを開く手綱はここで注入
-	if (!plateauOn) { console.warn("[plateau] opts.plateau=false = feature disabled; gadget not mounted"); return; }
-	return plateauGadget.call(this, { onOpen: plateau.openDb, ...opts });
+	if (!meshOn) { console.warn("[mesh] opts.plateau=false = feature disabled; gadget not mounted"); return; }
+	return meshGadget.call(this, { onOpen: meshMgr.openDb, ...opts });
 });
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
 	if (themeFixed) { console.warn("[palette] opts.theme is baked in = c= cannot override; gadget not mounted"); return; }
@@ -2251,7 +2251,7 @@ if (poi && /[?&]poiedit=1/.test(location.search)) import("./gadgets/poiedit.js")
 // ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 // --- シーン再生＝scenes/player.js（上映・停止・タイムライン・黒幕・フェード・待ちパネル）。ここは配線だけ＝app の状態は getter、関数はラップ。
-const scenes = createScenePlayer({ mapEl, LOW_MEM, gpuBackend, plateauOn, plateau, flightCtl, CAM_ZOOM_MIN, themeFixed,
+const scenes = createScenePlayer({ mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed,
 	get themeName() { return themeName; }, get elevBusy() { return elevBusy; },
 	onMove: () => onMove(), flyView: (...args) => flyView(...args), applyCamView: v => applyCamView(v), applyViewLayers: v => applyViewLayers(v), switchTheme: n => switchTheme(n), viewHash: () => viewHash(), saveView: () => saveView() });
 // ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
@@ -2371,13 +2371,13 @@ map.gadget("globe", function (o) {   // ミニ地球儀（右下・視野の枠�
 	return u;
 });
 // glTF/GLB（3D 模型）＝PLATEAU と同じ建物メッシュとして立てる（gadgets/model.js・遅延chunk・2026-09-20）。落とした地点（無ければ画面中心）の ENU に置く／
-// CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の plateauMesh スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
+// CESIUM_RTC・ECEF 入りの glb は埋め込みを信じる。描画は renderer の meshSet スロット（wPost 直・transfer）＝建物 3D と同じシェーダ。
 let modelCtl = null;
 const modelCtlGet = async () => {
 	const m = await import("./gadgets/model.js");
 	if (modelCtl) return modelCtl;
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
-		setMesh: (name, data) => { wPost({ type: "set", cmd: "plateauMesh", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
+		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 2.5), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 2.5);
@@ -2833,7 +2833,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 	};
 	scenes.demoHandle = demoGadget.call(this, { flyView, fadeView: scenes.fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || scenes.fadeBusy,
 		// 書き終わりの合図（自動上演の行送りゲート・裁定2026-08-12「非力機は書き終わるまで待つ」）＝可視の立ち上げ
-		// (autoPlateau発＝prefetchは含めない・ackはクレジット窓2で「ほぼ描き切り」)・標高タイル・基図sig（z<4は
+		// (autoMesh発＝prefetchは含めない・ackはクレジット窓2で「ほぼ描き切り」)・標高タイル・基図sig（z<4は
 		// mainスロット空でsigが恒久不一致＝地球儀シーンを堰き止めないよう z≥4 限定）。裏仕込み(prefetch)は幕を止めない。
 		// 返り値＝進捗指紋の文字列（空=静か）：demo側は「指紋が動く間だけ」待つ＝止まった待ち（オフライン等）は打ち切れる。
 		loadingActive: () => {
@@ -2841,13 +2841,13 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 			// 待つのは「これから見える区」だけ＝demote（視界外の在庫化）・cancel 中の区は指紋に載せない。旧・全ロード中区の
 			// 進捗を載せていたため、目の前の区が読み終わっても隣の在庫区のバッチ進捗が動き続けて上限（20s）まで幕が進まなかった
 			//（本人報告 2026-09-08「途中で Plateau の読みが終わると再開しない」＝R2 焼きで本命が数秒で終わるようになり顕在化）
-			const shown = plateau.visibleLoading();
+			const shown = meshMgr.visibleLoading();
 			if (!shown.length && !elevBusy && !base) return "";
-			return `A${shown.join(".")}|P${shown.map(n => { const p = plateau.progress.get(n); return p ? (p.done ?? p.scan ?? 0) : "-"; }).join(".")}|E${elevN}|B${base ? 1 : 0}`;
+			return `A${shown.join(".")}|P${shown.map(n => { const p = meshMgr.progress.get(n); return p ? (p.done ?? p.scan ?? 0) : "-"; }).join(".")}|E${elevN}|B${base ? 1 : 0}`;
 		},
 		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
-		onQuiet: views => plateau.trimForScript(views),
-		prefetchViews: plateau.prefetch, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
+		onQuiet: views => meshMgr.trimForScript(views),
+		prefetchViews: meshMgr.prefetch, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return scenes.demoHandle;
 });
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/14条どの経路でも効く）。

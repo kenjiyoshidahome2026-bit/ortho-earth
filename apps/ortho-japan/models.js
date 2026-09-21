@@ -1,6 +1,6 @@
 // 名所の 3D 模型（写真測量スキャン・CC BY）を実在の場所に置いて見せる showcase（models.html から遅移 import）。
 // quakes（地下）・sats（地上）と同じ骨格：器＝models.html／一覧と飛行と配線＝ここ／読み込みと描画＝エンジンの model ガジェット（gadgets/model.js＝
-// loaders.gl → PLATEAU と同じ建物メッシュ経路・renderer の plateauMesh スロット）。
+// loaders.gl → PLATEAU と同じ建物メッシュ経路・renderer の meshSet スロット）。
 //
 // 台帳＝public/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
 // 中身＝PLATEAU の建築物 LOD3（テクスチャ付き）を 3D Tiles 配信から名所のぶんだけ抜いて束ねた物（apps/uploader の npm run landmarks）。
@@ -100,7 +100,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 	// 変換＝glbconv（依存ゼロ）。Draco の展開だけは読み手を注入する（PLATEAU と同じ loaders.gl の実体を遅延で借りる）
 	let dracoP = null;
 	const decodeDraco = async (bytes, attrIds) => {
-		dracoP ??= import("./plateau-loaders.js").then(m => ({ parse: m.loadersParse, DracoLoader: m.DracoLoader }));
+		dracoP ??= import("./mesh-loaders.js").then(m => ({ parse: m.loadersParse, DracoLoader: m.DracoLoader }));
 		const { parse, DracoLoader } = await dracoP;
 		return parse(bytes, DracoLoader, { draco: { attributeNameEntry: "name" } });
 	};

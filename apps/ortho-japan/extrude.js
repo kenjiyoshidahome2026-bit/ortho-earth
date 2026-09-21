@@ -6,7 +6,7 @@
 // base>0（min_height）はそのまま宙に浮く（MapLibre の fill-extrusion-base と同じ意味）。
 // 法線は ortho の世界軸（ECEF(x,y,z) → (x, z, y)）で Int8×4。
 import earcut from "earcut";
-import { finishMesh, MASK_N } from "./plateaudecode.js";
+import { finishMesh, MASK_N } from "./meshdecode.js";
 
 const D2R = Math.PI / 180, R = 6371008.8;
 

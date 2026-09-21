@@ -314,7 +314,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		s.dpr    = cam.dpr || 1;       // 線幅・identify の CSS→device 変換も同じ実効 dpr を共有
 
 		// カメラが実際に動いた時だけ panning（＝ホバー識別を止める＝移動中の pick buffer は古い）。
-		// fog追従・ラベル/タイル/PLATEAUロード等でカメラ静止中も再描画が続く＝それを panning 扱いすると
+		// fog追従・ラベル/タイル/メッシュロード等でカメラ静止中も再描画が続く＝それを panning 扱いすると
 		// 識別が settle まで永久に止まる。静止中の再描画は panning:false＝識別を通す（旧 onSync と同判断）。
 		const l = s._lastSyncCam;
 		const moved = !l || l.center[0] !== cam.center[0] || l.center[1] !== cam.center[1]

@@ -1,9 +1,9 @@
 <!doctype html>
 <!-- 実ロードの検分：PLATEAU（建物 3D）が z16 チルトの東京駅前で**実際に立つ**か。表示判定→ロード→ack→活性化の一本道が
-     plateau/manager.js へ移った後も同じ道を通ることを見る門（2026-09-17）。判定はページ内・結果は<title>。
+     mesh/manager.js へ移った後も同じ道を通ることを見る門（2026-09-17）。判定はページ内・結果は<title>。
      t-bld（plateau:false＝基図の押し出し建物）とは別物＝こちらは登録簿（plateau-sets.json）と R2 焼き（api.ortho-earth.com）を実際に読む。
      ⚠ verify:webgpu（実時間）側に載せる：worker のロードと ack は虚時間では回らない（t-bld と同じ理由）。 -->
-<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-plateau</title></head>
+<html lang="ja"><head><meta charset="utf-8"><style>html{background:#0b1021}</style><title>t-mesh</title></head>
 <body>
 <script>
 localStorage.setItem("oj.hint", "closed");
@@ -30,7 +30,7 @@ try {
 	});
 	mark("booted");
 	await Promise.race([finP, new Promise(r => setTimeout(r, 55000))]);   // 最初の 1 区が立つまで（R2 焼き＝健全なら十数秒。verify-webgpu の枠 90 秒より内側で必ず判定へ）
-	await new Promise(r => setTimeout(r, 1500));   // ack → 活性化（plateauActive）の反映
+	await new Promise(r => setTimeout(r, 1500));   // ack → 活性化（meshActive）の反映
 	settled = true;
 	const st = window.__farState?.();
 	ok("catalog", ev.catalog > 300, `count=${ev.catalog}`);

@@ -62,7 +62,7 @@ function style(data) { s.drawStyle = data.data ?? null; }
 function onSync(d) {
 	if (!d || !d.cam) return;
 	// カメラが実際に動いた時だけ panning（＝ホバー識別を止める＝移動中の pick buffer は古い）。
-	// fog追従・ラベル/タイル/PLATEAUロード等でカメラ静止中も同期が来続ける＝それを panning 扱いすると
+	// fog追従・ラベル/タイル/メッシュロード等でカメラ静止中も同期が来続ける＝それを panning 扱いすると
 	// 識別が settle まで永久に止まる（＝ホバーで内容が変わらない）。静止中の再描画は panning:false＝識別を通す。
 	const c = d.cam, l = s._lastSyncCam;
 	const moved = !l || l.center[0] !== c.center[0] || l.center[1] !== c.center[1] || l.zoom !== c.zoom || l.pitch !== c.pitch || l.bearing !== c.bearing;

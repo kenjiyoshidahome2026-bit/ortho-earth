@@ -435,12 +435,12 @@ struct TerrOut {
 `;
 
 // 建物（BUILDING_VS/FS の移植）：フットプリント押し出し・基準点(anchor)の単一標高で足元を揃える（屋根水平・
-// 壁垂直）。PLATEAU 被覆マスクは Phase 2 未搭載（u_plateauCount=0 相当）＝PLATEAU 移植時に追加。
+// 壁垂直）。メッシュ被覆マスクは Phase 2 未搭載（u_meshCount=0 相当）＝メッシュ移植時に追加。
 export const BUILDING_WGSL = /* wgsl */`
 ${FRAME}
-// PLATEAU 被覆マスク（group(2)）：実フットプリントが立つ区（最大4）を uv 正規化で参照し、基図の押し出し
-// 建物を伏せる＝同一体積の全面 z-fight を断ちつつ範囲外は残す（GL BUILDING_FS の u_plateauMaskN 移植）。
-// mparams.count=0（PLATEAU 無し）なら discard は起きない＝素通し。
+// メッシュ被覆マスク（group(2)）：実フットプリントが立つ区（最大4）を uv 正規化で参照し、基図の押し出し
+// 建物を伏せる＝同一体積の全面 z-fight を断ちつつ範囲外は残す（GL BUILDING_FS の u_meshMaskN 移植）。
+// mparams.count=0（メッシュ無し）なら discard は起きない＝素通し。
 struct MaskP { count: vec4u, bbox: array<vec4f, 4> };
 @group(2) @binding(0) var<uniform> M: MaskP;
 @group(2) @binding(1) var maskTex0: texture_2d<f32>;
@@ -501,13 +501,13 @@ struct BldOut {
 }
 `;
 
-// PLATEAU LOD2 建物メッシュ（PLATEAU_VS/FS の移植）。頂点は重心(u_meshOrigin)相対 delta（RTE-lite＝
+// 建物メッシュ（LOD2 等）（MESH_VS/FS の移植）。頂点は重心(u_meshOrigin)相対 delta（RTE-lite＝
 // 小さい値＝float32 仮数フル活用）、法線は int8 量子化（FS で normalize＝精度 1/127 で十分）。
 // 投影は基図(fill/line/terrain)と別＝重心相対（scene 原点相対でない）：絶対位置 = meshOrigin + a_pos、
 // clip 錨は u_clipMesh（CPU double・相殺回避）。接地リフトは DTM 保証域(P.p0=liftBounds)内だけ。
 // フレーム共通 uniform は建物 bld スロットの Frame を流用（mvp/eye/fog/elev が同一）＝group(0)=bld。
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
-export const PLATEAU_WGSL = /* wgsl */`
+export const MESH_WGSL = /* wgsl */`
 ${FRAME}
 struct PB { meshOrigin: vec4f, clipMesh: vec4f };   // xyz+cullBack, clip錨
 @group(2) @binding(0) var<uniform> B: PB;
@@ -545,7 +545,7 @@ struct PlOut {
 	if (in.front < 0.0) { discard; }
 	var n = normalize(in.n);
 	// 裏面カリングは幾何法線＝面内で一定＝画素毎の揺れゼロ。旧・補間int8法線のdot閾値は「すれすれ帯≈1px」
-	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js PLATEAU_FS と同文・2026-08-02）。
+	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js MESH_FS と同文・2026-08-02）。
 	// 向きは属性法線で採決＝巻き順非依存。退化面（微分ゼロ）だけ旧判定へフォールバック。
 	let g2 = dot(gnRaw, gnRaw);
 	let fe = select(dot(n, normalize(in.toEye)), dot(normalize(gnRaw * sign(dot(gnRaw, n))), normalize(in.toEye)), g2 > 1e-18);
@@ -928,17 +928,17 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 }
 `;
 
-// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝PLATEAU_WGSL からの文字列派生（本体は不変・gl/glsl.js PLATEAU_TEX_* と同じ考え）。
+// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝MESH_WGSL からの文字列派生（本体は不変・gl/glsl.js MESH_TEX_* と同じ考え）。
 // 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0)、group(3)＝サンプラ＋テクスチャ。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
 const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
-export const PLATEAU_TEX_WGSL = deriveWgsl(PLATEAU_WGSL, [
+export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["struct PB { meshOrigin: vec4f, clipMesh: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
 	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
 	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n"],
 	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
-], "PLATEAU_TEX_WGSL");
+], "MESH_TEX_WGSL");
 
 
 // 画像タイル層のアトラス合成（raster.js・RTT ドレープ・2026-09-21）＝gl/glsl.js RASTER_ATLAS_VS/FS と対。

@@ -320,7 +320,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// R10/R01窓は「窓の外＝標高0」との崖と陰影の切れ目（地球の淵の標高抜け）をこの幅で馴染ませる。
 			// 窓選定（票×√解像度・掠りは制約外）はそのまま＝中心の解像度は犠牲にしない、見た目だけの解。
 			const edgeFade = EDGE_FADE(range);
-			// liftBounds＝「裸地標高(DTM)が保証される経緯度域」。PLATEAU 接地リフトはこの中でだけ有効：
+			// liftBounds＝「裸地標高(DTM)が保証される経緯度域」。メッシュ接地リフトはこの中でだけ有効：
 			// R10/R90 や国外の R01＝表層(DSM・ビル天端込み)でリフトすると屋根が斜面に裂ける（東新橋/汐留 z<13 高チルトで実測）。
 			// 純R01窓=窓全域 / 混成窓=近傍3×3（nearCam=camセル±1）/ R10・R90窓=なし(null)。最後に申告域(dtmBounds)で切る。
 			// ※混成の近傍セルは R01 到着までの数秒だけ R10 切り出しが入る＝過渡の歪みは許容（すぐ直る）。

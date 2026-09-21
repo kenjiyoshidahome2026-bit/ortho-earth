@@ -1,5 +1,5 @@
 <!doctype html>
-<!-- glTF/GLB 直読み（gadgets/model.js → model-worker → plateaudecode.decodeModel）の門（2026-09-20）。
+<!-- glTF/GLB 直読み（gadgets/model.js → model-worker → meshdecode.decodeModel）の門（2026-09-20）。
      GLB をその場で組み（箱 w×d×h・Y-up・法線つき）、置き方 3 段のうち「錨（落とした地点）」と「CESIUM_RTC（埋め込み優先）」を
      bbox（度）で検分：中心が錨に一致・幅が実寸（m）に一致・scale で倍・heading 90° で幅と奥行きが入れ替わる。
      ⚠ REALTIME（verify-ui.mjs）：worker 内の loaders.gl 動的 import は虚時間では解決しない（t-anno と同じ轍）。 -->

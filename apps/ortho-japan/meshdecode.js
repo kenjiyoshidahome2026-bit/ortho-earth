@@ -1,24 +1,24 @@
-// PLATEAU バッチデコードの実体（②区内デコード並列化・2026-08-28 に plateauworker.js から切り出し）。
+// PLATEAU バッチデコードの実体（②区内デコード並列化・2026-08-28 に meshworker.js から切り出し）。
 // 「バッチ＝タイル列の一部」を単一メッシュへ煮る自己完結パイプラインだけを持つ：
 // fetch→b3dm/Draco解凍→ECEF→世界座標→重複面dedup→剛体接地→LOD焼き→RTE→被覆マスク断片。
-// 呼び出し元は2系統＝plateauworker（従来の直列経路・lowMem/mid/slow/preload）と plateaudecoder（ハイスペック機の
+// 呼び出し元は2系統＝meshworker（従来の直列経路・lowMem/mid/slow/preload）と meshdecoder（ハイスペック機の
 // 並列プール経路）。経路差はゼロ＝同じ関数を別コアで回すだけ。区単位の状態（IDB/OPFS・far-DB・クレジット・
 // レーン）は一切持たない。環境（楕円体・タイル並行数）は setDecodeEnv で注入＝各workerのinitが責任を持つ。
 // loaders.gl（core＋3d-tiles＋gltf＋draco ≈ 220 KB）は最初のタイルを解く時に読む（処方②・ortho-earth#12・2026-09-14）。
-// 静的 import だと plateauworker / plateaudecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
+// 静的 import だと meshworker / meshdecoder の起動（z4 の初期ロード・本番既定は PLATEAU オン）でプール本数分の
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
 let _loaders = null;
-const loaders = () => _loaders ??= import("./plateau-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
-import { weldMesh } from "./plateauq.js";   // 頂点溶接（焼きと共用）
+const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
+import { weldMesh } from "./meshq.js";   // 頂点溶接（焼きと共用）
 
 const R2D = 180 / Math.PI;
-// デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（plateauworker の
+// デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（meshworker の
 // IDB_FMT_VER）も R2 の焼き（scripts/bake-plateau.mjs の置き場 v{n}/）も同じ番号で世代分離される。
-export const DECODE_VER = 5;   // v5: 空中部材の借り接地（詳細は plateauworker.js IDB_FMT_VER の注記）
+export const DECODE_VER = 5;   // v5: 空中部材の借り接地（詳細は meshworker.js IDB_FMT_VER の注記）
 export const MASK_N = 256;           // 区単位の被覆マスク解像度（基図建物を伏せるセル）
 const LOD_H = [0, 3, 6, 12, 24, 48];   // LOD段の高さ閾値(m)。renderer が「画面上1px未満の建物」を先頭countの打ち切りで捨てる
 let TILE_CONCURRENCY = 8;   // バッチ内のタイル並行fetch/デコード数。直列だと往復レイテンシが積み上がり支配的になる。
-let ELL = false, EARTH_W = 6371000;   // 楕円体モード（?ell=1）＝β単位球×a（plateauworker と同じ分解）。既定は球
+let ELL = false, EARTH_W = 6371000;   // 楕円体モード（?ell=1）＝β単位球×a（meshworker と同じ分解）。既定は球
 const ELL_RAX = 1 - 1 / 298.257223563;   // b/a
 let EXCLUDE = null;   // base URL → Set(gml_id)＝捨てる地物（public/plateau-exclude.json・焼きと生経路で共用）
 export function setDecodeEnv({ ell, tileConcurrency, exclude } = {}) {
@@ -55,7 +55,7 @@ async function fetchBody(url, read, ms = 20000, retries = 1) {
 export const fetchJSON = (url) => fetchBody(url, r => r.json(), 15000);
 export const fetchAB = (url) => fetchBody(url, r => r.arrayBuffer(), 25000);
 
-// ── 葉タイル走査（2026-09-07 に plateauworker.js から移設＝scripts/bake-plateau.mjs と共有）──
+// ── 葉タイル走査（2026-09-07 に meshworker.js から移設＝scripts/bake-plateau.mjs と共有）──
 const SCAN_CONCURRENCY = 8;   // ネストtileset走査の並行fetch数（fetchJSONの15sタイムアウトが順番待ちで誤発火しない程度に絞る）
 // content.uri は絶対URL（別ホストへの委譲）と相対（同ディレクトリ）の両方があり得る。
 export const resolveUrl = (base, uri) => /^https?:\/\//.test(uri) ? uri : base + uri;
@@ -218,7 +218,7 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 			// 保険：実効原点が地表から明らかに外れていたら(=CESIUM_RTCもnodeの変換も見つからなかった/壊れていた)
 			// そのmeshは丸ごと捨てる。ローカル座標をECEF原点近くに置いたまま混ぜるとbbox・接地・マスクまで壊すため。
 			const rtcR = Math.hypot(tr[0] + rtcE[0], -tr[2] + rtcE[1], tr[1] + rtcE[2]);
-			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[plateau] mesh dropped (bad rtc origin)", tr, rtcE); continue; }
+			if (rtcR < 6200000 || rtcR > 6500000) { console.warn("[mesh] mesh dropped (bad rtc origin)", tr, rtcE); continue; }
 			// 法線は行列の余因子（=逆転置の定数倍。列ごとに c1×c2, c2×c0, c0×c1）で送る＝非等方スケールでも
 			// 面の向きが狂わない。長さは後段で正規化するので定数倍は無害。線形部なし（PLATEAU）なら素通し。
 			const cof = lin && [
@@ -310,12 +310,12 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 				const { loadParse, Tiles3DLoader } = await loaders();
 				const tile = await loadParse(fixMeshoptGlb(ab), Tiles3DLoader, { "3d-tiles": { loadGLTF: true }, gltf: { loadImages: false, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } } });
 				mergeTile(tile);
-			} catch (e) { console.warn("[plateau] tile failed", t.uri, e.message); }
+			} catch (e) { console.warn("[mesh] tile failed", t.uri, e.message); }
 			onTile && onTile();   // 成否に関わらず歩数は進む＝分母が縮まない
 		}
 	}
 	await Promise.all(Array.from({ length: Math.min(TILE_CONCURRENCY, leaves.length) }, (_, wi) => tileWorker(wi)));
-	if (excludedTris) console.log(`[plateau] excluded ${excludedTris} tris (plateau-exclude.json)`, base);
+	if (excludedTris) console.log(`[mesh] excluded ${excludedTris} tris (plateau-exclude.json)`, base);
 	if (!totalI) return null;
 	// セグメントを一括結合（memcpy）。idx はセグメント生成時にバッチ通し番号で焼き込み済み＝コピーだけで整合。
 	const geo = new Float64Array(totalV * 3), outNrm = new Int8Array(totalV * 4), rawIdx = new Uint32Array(totalI);
@@ -523,7 +523,7 @@ export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, 
 }
 
 // ── glTF/GLB 直読み（2026-09-20・本人裁定＝落とした地点＋埋め込みがあれば優先／PLATEAU 建物経路／loaders.gl）──
-// 単体の glb/gltf を PLATEAU と同じ建物メッシュ（renderer の plateauMesh スロット）として立てる。decodeBatch と違い fetch も b3dm も
+// 単体の glb/gltf を PLATEAU と同じ建物メッシュ（renderer の meshSet スロット）として立てる。decodeBatch と違い fetch も b3dm も
 // 無し＝ArrayBuffer 一つを受けて finishMesh へ流すだけ（立ち方は PLATEAU と同じ・置き方だけ違う）。置き方は 3 段（上から順に当たった段）：
 //   ① CESIUM_RTC（3D Tiles 由来の glb）… 頂点は RTC 相対の ECEF（Y-up）＝軸入替 (x,-z,y) の後に中心を足す（decodeBatch と同じ道）
 //   ② シーン変換後のノード原点が地球半径近傍（ECEF を直に持つ glb）… 軸入替だけ

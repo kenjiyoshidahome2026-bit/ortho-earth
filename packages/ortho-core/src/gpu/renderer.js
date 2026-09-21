@@ -2,7 +2,7 @@
 // Phase 1: globe＋基図シーン（fill/line・classic merge 経路）。Phase 2: 標高アトラス（R16F）・地形サーフェス・
 // 深度（対数・尾根の遮蔽）・建物押し出し・等高線。公開面は createRenderer と同形 { set, draw, dispose, md, mdMax, gintCtx }。
 // md=false＝scene worker は CPU merge フォールバック（?nomd=1 と同じ実証済み経路）で typed array シーンを送ってくる。
-// 未搭載（set は握り潰し・描画は素通し）：PLATEAU・overlay(stencil)・星空/夜面・gint。
+// 未搭載（set は握り潰し・描画は素通し）：建物メッシュ・overlay(stencil)・星空/夜面・gint。
 //
 // WebGL 版との設計差：
 // ・uniform は 1 フレーム 1 回の UBO 書込：Frame（512B×4スロット＝base/main/terrain/bld。origin と fog の違いを
@@ -16,7 +16,7 @@ import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
-import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, PLATEAU_WGSL, PLATEAU_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL } from "./wgsl.js";
+import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL } from "./wgsl.js";
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
@@ -25,12 +25,12 @@ const FRAME_F32 = 108;     // 432B/4（wgsl.js Frame と厳密対応。詰め順
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
-const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, plateau: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
+const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
 const N_ROLES = 11;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
-const PL_BATCH_SLOT = 256; // PLATEAU per-batch UBO（meshOrigin+cullBack, clipMesh＝32B）のスロット境界（dynamic offset）
+const PL_BATCH_SLOT = 256; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh＝32B）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
-const MAX_PLATEAU_MASKS = 4;
+const MAX_MESH_MASKS = 4;
 
 // f32→f16（IEEE half）。標高(m)は -500..9000 級＝half で ±0.25〜2m 精度（GL の R16F と同じ土俵）。
 // 最近接丸め・Inf/NaN→0（標高データに来ない保険）・subnormal 域(6e-5m未満)は 0 へフラッシュ。
@@ -163,7 +163,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	] });
 	const bgl1 = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
 	const layout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1] });
-	// building group(2)＝PLATEAU 被覆マスク（count+bbox UBO＋4テクスチャ＋sampler）。PLATEAU 無しでも count=0 で素通し
+	// building group(2)＝メッシュ被覆マスク（count+bbox UBO＋4テクスチャ＋sampler）。メッシュ無しでも count=0 で素通し
 	const bglMask = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.FRAGMENT, buffer: {} },
 		{ binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } },
@@ -173,11 +173,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ binding: 5, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } },
 	] });
 	const bldLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglMask] });
-	// PLATEAU group(2)＝per-batch UBO（meshOrigin+cullBack, clipMesh）を dynamic offset で切替。
+	// mesh group(2)＝per-batch UBO（meshOrigin+cullBack, clipMesh）を dynamic offset で切替。
 	// cullBack(meshOrigin.w) は FS が裏面判定に読む＝visibility は VERTEX|FRAGMENT 両方。
 	const bglPlBatch = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
 	const plLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch] });
-	// 模型（glb 直読み・2026-09-20）＝PLATEAU 派生パイプライン。group(3)=サンプラ＋テクスチャ（バッチごと）
+	// 模型（glb 直読み・2026-09-20）＝メッシュ派生パイプライン。group(3)=サンプラ＋テクスチャ（バッチごと）
 	const bglPlTex = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "filtering" } }, { binding: 1, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "float" } }] });
 	const plTexLayout = device.createPipelineLayout({ bindGroupLayouts: [bgl0, bgl1, bglPlBatch, bglPlTex] });
 
@@ -187,8 +187,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const terrMod = mkMod(TERRAIN_WGSL, "terrain");
 	const bldMod = mkMod(BUILDING_WGSL, "building");
 	const contMod = mkMod(CONTOUR_WGSL, "contour");
-	const plMod = mkMod(PLATEAU_WGSL, "plateau");
-	const plTexMod = mkMod(PLATEAU_TEX_WGSL, "plateauTex");
+	const plMod = mkMod(MESH_WGSL, "mesh");
+	const plTexMod = mkMod(MESH_TEX_WGSL, "meshTex");
 	// 画像タイル層（raster.js・2026-09-21・RTT ドレープ）：アトラス合成パイプライン＝group(0)=per-tile UBO（dynamic offset）・group(1)=サンプラ＋テクスチャ（bglPlTex 流用）
 	const rasAtlasMod = mkMod(RASTER_ATLAS_WGSL, "rasterAtlas");
 	const bglRasP = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
@@ -308,19 +308,19 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos (dlon,dlat,hWorld)
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },      // a_shade
 				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },    // a_anchor
-			], dsWriteBld, "fs", bldLayout),   // group(2)=PLATEAU 被覆マスク。stencil bit7=建物マスク（gint 面ドレープの深度統合）
-			// PLATEAU LOD2：頂点=重心相対 pos(f32x3)＋int8量子化法線(snorm8x4・stride4)。裏面カリングは FS（両面データ）＝cullMode none
-			plateau: pipe(plMod, [
+			], dsWriteBld, "fs", bldLayout),   // group(2)=メッシュ被覆マスク。stencil bit7=建物マスク（gint 面ドレープの深度統合）
+			// 建物メッシュ（LOD2 等）：頂点=重心相対 pos(f32x3)＋int8量子化法線(snorm8x4・stride4)。裏面カリングは FS（両面データ）＝cullMode none
+			mesh: pipe(plMod, [
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },   // a_pos（重心相対 delta）
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },     // a_normal（xyz+pad・FS で normalize）
 			], dsWriteBld, "fs", plLayout),   // stencil bit7=建物マスク（bld と同じ）
-			plateauTex: pipe(plTexMod, [   // 模型（glb 直読み）＝PLATEAU 派生＋uv/頂点色＋テクスチャ group(3)
+			meshTex: pipe(plTexMod, [   // 模型（glb 直読み）＝メッシュ派生＋uv/頂点色＋テクスチャ group(3)
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
 				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },   // a_uv
 				{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // a_col（baseColorFactor×COLOR_0）
 			], dsWriteBld, "fs", plTexLayout),
-			plateauTexBlend: pipe(plTexMod, [   // 模型の半透明（alphaMode=BLEND）＝同シェーダ・深度書き込み無し（target の blend は premultiplied 既定）
+			meshTexBlend: pipe(plTexMod, [   // 模型の半透明（alphaMode=BLEND）＝同シェーダ・深度書き込み無し（target の blend は premultiplied 既定）
 				{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 				{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
 				{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
@@ -404,7 +404,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const pipesFor = sc => { let p = pipeSets.get(sc); if (!p) { p = buildPipes(sc); pipeSets.set(sc, p); } return p; };
 	let P = pipesFor(SAMPLES);   // 品質段（既定4x）は起動時に先行コンパイル＝初回フレーム検証スコープで検札。1x は初の遷移フレームで遅延生成
 
-	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / PLATEAU per-batch（dynamic offset）
+	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)
@@ -414,9 +414,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	for (let r = 0; r < N_ROLES; r++) paramBG.push(device.createBindGroup({
 		layout: bgl1, entries: [{ binding: 0, resource: { buffer: paramBuf, offset: r * PARAM_SLOT, size: 48 } }],
 	}));
-	// PLATEAU per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
+	// mesh per-batch UBO（dynamic offset＝1つの bind group で全バッチを切替）
 	const plBatchBuf = device.createBuffer({ size: PL_BATCH_SLOT * MAX_PL_BATCH, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 48 } }] });   // 48＝meshOrigin+clipMesh+alpha（模型の派生 PB。素の PLATEAU は先頭 32 だけ読む）
+	const plBatchBG = device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: 48 } }] });   // 48＝meshOrigin+clipMesh+alpha（模型の派生 PB。素の建物メッシュ は先頭 32 だけ読む）
 	const plBatchCPU = new Float32Array(PL_BATCH_SLOT / 4 * MAX_PL_BATCH);
 	// 画像タイル層の per-tile UBO（dynamic offset・アトラス合成 1 回あたり最大 MAX_RAS 枚＝近窓＋遠窓の合算）
 	const RAS_SLOT = 256, MAX_RAS = 1200;
@@ -827,12 +827,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		terrain = { vbo, ibo, count: idx.length, G, mesh: [oLng, oLat, spanLng, spanLat] };
 	}
 
-	// --- PLATEAU LOD2 建物（gl/renderer.js setPlateauMesh/setPlateauVis/plateauBboxVisible の移植）---
-	// plateaux: key("区名#i") → { vbo(pos), nbo(normal), ibo, count, origin, bbox, ward, lodH, lodCounts, two }
-	// plateauMasks: 区名 → { tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
-	const plateaux = new Map();
-	const plateauMasks = new Map();
-	const plateauHidden = new Set();
+	// --- 建物メッシュ（LOD2 等）（gl/renderer.js setMeshSet/setMeshVis/meshBboxVisible の移植）---
+	// meshes: key("区名#i") → { vbo(pos), nbo(normal), ibo, count, origin, bbox, ward, lodH, lodCounts, two }
+	// meshMasks: 区名 → { tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
+	const meshes = new Map();
+	const meshMasks = new Map();
+	const meshHidden = new Set();
 	const maskSampler = device.createSampler({ magFilter: "nearest", minFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	// 模型のテクスチャ（glb 直読み）：ミップ＝GPU 生成（レベルごとに全画面三角形でブリット）・三線形＋異方性 8・repeat。無しは白 1x1（頂点色だけ）
 	const texSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "repeat", addressModeV: "repeat" });
@@ -857,7 +857,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	const whiteTex = device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	device.queue.writeTexture({ texture: whiteTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
 	const whiteBG = device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: whiteTex.createView() }] });
-	function plateauTexture(t) {   // ImageBitmap か {rgba,w,h} → { tex, bg }。glTF の uv 原点＝画像左上＝copyExternalImageToTexture と一致
+	function meshTexture(t) {   // ImageBitmap か {rgba,w,h} → { tex, bg }。glTF の uv 原点＝画像左上＝copyExternalImageToTexture と一致
 		if (!t) return { tex: null, bg: whiteBG };
 		const w = t.bitmap ? t.bitmap.width : t.w, h = t.bitmap ? t.bitmap.height : t.h;
 		const levels = 1 + Math.floor(Math.log2(Math.max(w, h)));
@@ -1038,7 +1038,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (maskBG && sig === maskSig) return maskBG;   // active 集合・origin 不変＝作り直さない
 		maskSig = sig;
 		maskParamU[0] = active.length;
-		for (let i = 0; i < MAX_PLATEAU_MASKS; i++) {
+		for (let i = 0; i < MAX_MESH_MASKS; i++) {
 			// スロットは (off, inv)＝FS の uv = off + rel×inv。off=(origin−bboxMin)/span を JS の f64 で前計算＝
 			// FS は原点相対の小値だけ扱う（絶対経緯度 varying の f32 ジッタ＝深ズームの点描ゴースト根治・gl 同文）。空きは uv 圏外。
 			const bb = active[i] && active[i].bbox;
@@ -1066,22 +1066,22 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		{ binding: 1, resource: dummyMaskView }, { binding: 2, resource: dummyMaskView },
 		{ binding: 3, resource: dummyMaskView }, { binding: 4, resource: dummyMaskView }, { binding: 5, resource: maskSampler },
 	] });
-	function freePlateauWard(ward) {
-		for (const k of [...plateaux.keys()]) {
+	function freeMeshWard(ward) {
+		for (const k of [...meshes.keys()]) {
 			if (k !== ward && !k.startsWith(ward + "#")) continue;
-			const p = plateaux.get(k);
+			const p = meshes.get(k);
 			p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy();
-			plateaux.delete(k);
+			meshes.delete(k);
 		}
-		const m = plateauMasks.get(ward);
-		if (m) { m.tex.destroy(); plateauMasks.delete(ward); }
-		plateauHidden.delete(ward);
+		const m = meshMasks.get(ward);
+		if (m) { m.tex.destroy(); meshMasks.delete(ward); }
+		meshHidden.delete(ward);
 		maskSig = "\0";   // active 集合が変わり得る＝次フレーム再構築を強制
 	}
-	function setPlateauMesh(key, data) {
-		if (!data) { freePlateauWard(key); return; }   // key=区名：全バッチ+マスク解放
-		const old = plateaux.get(key);
-		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.tex?.destroy(); plateaux.delete(key); }
+	function setMeshSet(key, data) {
+		if (!data) { freeMeshWard(key); return; }   // key=区名：全バッチ+マスク解放
+		const old = meshes.get(key);
+		if (old) { old.vbo.destroy(); old.nbo.destroy(); old.ibo.destroy(); old.uvbo?.destroy(); old.cbo?.destroy(); old.tex?.destroy(); meshes.delete(key); }
 		if (data.pos?.length && data.idx?.length) {
 			const nrm = data.nrm instanceof Int8Array ? data.nrm : Int8Array.from(data.nrm || new Int8Array(data.pos.length / 3 * 4));
 			const vbo = device.createBuffer({ size: (data.pos.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
@@ -1096,26 +1096,26 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				cbo = device.createBuffer({ size: (data.col.byteLength + 3) & ~3, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 				device.queue.writeBuffer(uvbo, 0, data.uv.buffer, data.uv.byteOffset, data.uv.byteLength);
 				device.queue.writeBuffer(cbo, 0, data.col.buffer, data.col.byteOffset, data.col.byteLength);
-				({ tex, bg: texBG } = plateauTexture(data.tex));
+				({ tex, bg: texBG } = meshTexture(data.tex));
 			}
 			// α の扱い（模型）：cut＝これ未満は discard（MASK=alphaCutoff・OPAQUE=−1＝テクスチャの α を無視・BLEND=1/255）／blend＝半透明＝奥から手前・深度書き込み無し
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
-			plateaux.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, tex, texBG, count: data.idx.length, origin: data.origin || [0, 0, 0],
+			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, tex, texBG, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
 				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0 });
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
-		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのにPLATEAUが無い」
+		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
 		// 矩形の隙間を作った（demote/cancel/復元中断で顕在化）。断片方式ならマスクはメッシュと同時にしか
-		// 育たず、解放は区単位（freePlateauWard＝メッシュとマスクを同時破棄）で対称＝隙間は構造的に出ない。
+		// 育たず、解放は区単位（freeMeshWard＝メッシュとマスクを同時破棄）で対称＝隙間は構造的に出ない。
 		if (data.ward && (data.maskCells || data.mask) && (data.maskN | 0) > 0 && data.maskBbox) {
 			const N = data.maskN | 0;
-			let m = plateauMasks.get(data.ward);
+			let m = meshMasks.get(data.ward);
 			if (!m || m.n !== N) {
 				if (m) m.tex.destroy();
 				const tex = device.createTexture({ size: [N, N], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 				m = { tex, view: tex.createView(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
-				plateauMasks.set(data.ward, m);
+				meshMasks.set(data.ward, m);
 			}
 			m.bbox = data.maskBbox;
 			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
@@ -1124,12 +1124,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			maskSig = "\0";   // 次フレーム再構築
 		}
 	}
-	function setPlateauVis(ward, on) {
-		if (on) plateauHidden.delete(ward); else plateauHidden.add(ward);
+	function setMeshVis(ward, on) {
+		if (on) meshHidden.delete(ward); else meshHidden.add(ward);
 		maskSig = "\0";   // 非表示区はマスクスロットから外す＝基図建物が戻る（次フレーム再構築）
 	}
-	// バッチ bbox（経緯度deg）の可視判定＝gl/renderer.js plateauBboxVisible と同一（4隅+中心を投影）
-	function plateauBboxVisible(st, bbox, center, pad) {
+	// バッチ bbox（経緯度deg）の可視判定＝gl/renderer.js meshBboxVisible と同一（4隅+中心を投影）
+	function meshBboxVisible(st, bbox, center, pad) {
 		if (center[0] >= bbox[0] && center[0] <= bbox[2] && center[1] >= bbox[1] && center[1] <= bbox[3]) return true;
 		const pts = [[bbox[0], bbox[1]], [bbox[2], bbox[1]], [bbox[0], bbox[3]], [bbox[2], bbox[3]], [(bbox[0] + bbox[2]) * 0.5, (bbox[1] + bbox[3]) * 0.5]];
 		let minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9, nf = 0;
@@ -1274,9 +1274,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		at(ROLE.bld, [bldColor[0], bldColor[1], bldColor[2], 1]);
 		at(ROLE.contour, [contour.color[0], contour.color[1], contour.color[2], contour.interval,
 			contour.major, contour.alpha, 0, 0]);
-		// PLATEAU: p0=liftBounds（DTM保証域・無ければ全0＝リフト無し）, p1=bldColor
+		// mesh: p0=liftBounds（DTM保証域・無ければ全0＝リフト無し）, p1=bldColor
 		const lb = liftBounds || [0, 0, 0, 0];
-		at(ROLE.plateau, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
+		at(ROLE.mesh, [lb[0], lb[1], lb[2], lb[3], bldColor[0], bldColor[1], bldColor[2], 0]);
 		// クロスフェード中の新シーン用＝通常ロールの複製＋p0.w=α（旧シーンは通常ロールでα1のまま下に描く）
 		at(ROLE.fadeNormal, [0, cityLift, 0, fadeK * baseA]);
 		at(ROLE.fadeWater, [0, 0, 0, fadeK * baseA]);
@@ -1378,7 +1378,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			cityLift,
 			land, bldColor: view.bldColor || [0.86, 0.86, 0.85],
 			contour: { color: view.contourColor || [0.42, 0.30, 0.18], interval: iv, major: iv * 5.0, alpha: cAlpha * (view.contourAlpha || 1) },
-			liftBounds: elev.liftBounds,   // PLATEAU 接地リフトの DTM 保証域
+			liftBounds: elev.liftBounds,   // メッシュ接地リフトの DTM 保証域
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
@@ -1441,7 +1441,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			depthStencilAttachment: {
 				view: t.depthView,
 				depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store",   // gint の隠線（地形深度テスト）が読む
-				stencilLoadOp: "clear", stencilStoreOp: "store",                      // bit7=建物マスク（bld/plateau が刻み gint パスが load で読む）
+				stencilLoadOp: "clear", stencilStoreOp: "store",                      // bit7=建物マスク（bld/mesh が刻み gint パスが load で読む）
 			},
 		};
 		let pass;
@@ -1572,13 +1572,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		pass.setStencilReference(0x80);
 		// 建物（3D押し出し）：深度で前後関係を解決（地形・尾根にも遮蔽される）。真俯瞰では描かない＝平面地図
 		const show3d = (cam.pitch || 0) >= 0.02;
-		// PLATEAU の実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
+		// メッシュの実フットプリントが立つ区の被覆マスク（最大4・非表示区は除外）＝基図建物を伏せる
 		// 可視優先の4枠選抜（2026-08-04・gl/renderer.js と同文）：旧・読み込み順slice(0,4)は全保持化でマスクが
-		// 溜まると今見ている区が枠に入らず、基図建物の壁がPLATEAU壁と深度戦い＝pan/zoom中の壁面の瞬き。
+		// 溜まると今見ている区が枠に入らず、基図建物の壁がメッシュの壁と深度戦い＝pan/zoom中の壁面の瞬き。
 		const mcx = cam.center[0], mcy = cam.center[1], mcw = Math.cos(mcy * Math.PI / 180);
 		const mdist = m => { const bb = m.bbox; const dx = Math.max(bb[0] - mcx, 0, mcx - bb[2]) * mcw, dy = Math.max(bb[1] - mcy, 0, mcy - bb[3]); return dx * dx + dy * dy; };
-		const activeMasks = [...plateauMasks.entries()].filter(([w]) => !plateauHidden.has(w)).map(([, m]) => m)
-			.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_PLATEAU_MASKS);
+		const activeMasks = [...meshMasks.entries()].filter(([w]) => !meshHidden.has(w)).map(([, m]) => m)
+			.sort((a, b) => mdist(a) - mdist(b)).slice(0, MAX_MESH_MASKS);
 		const bldMaskBG = buildMaskBG(activeMasks, scenes.main.origin || [0, 0]);
 		const bld = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;   // noBld=?nobld=1診断ノブ（二重壁の切り分け）
 		const bldPrev = show3d && !(opts && opts.skipMain) && !(opts && opts.noBld) && fading ? scenes.main.fadePrev.bld : null;
@@ -1596,7 +1596,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setPipeline(P.bld);
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[fading ? ROLE.fadeBld : ROLE.bld]);
-			pass.setBindGroup(2, bldMaskBG);   // PLATEAU 区の footprint を伏せる（count=0 なら素通し）
+			pass.setBindGroup(2, bldMaskBG);   // メッシュの区の footprint を伏せる（count=0 なら素通し）
 			pass.setVertexBuffer(0, bld.bPos);
 			pass.setVertexBuffer(1, bld.bSh);
 			pass.setVertexBuffer(2, bld.bAnc);
@@ -1620,21 +1620,21 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (bt.point) { pass.setPipeline(P.gbPoint); pass.setVertexBuffer(0, bt.point.bPos); pass.setVertexBuffer(1, bt.point.bSh); pass.setVertexBuffer(2, bt.point.bAnc); pass.draw(bt.point.count); }
 			}
 		}
-		// PLATEAU LOD2 建物メッシュ（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
+		// 建物メッシュ（LOD2 等）（任意三角形・面法線陰影）。バッチ単位フラスタムカリング＋高さLOD打ち切り。
 		// per-batch uniform（meshOrigin/clipMesh/cullBack）は dynamic offset UBO で1バッチ1スロット。
 		// ⚠skipMain では消さない（GL 867 と同等）：skipMain＝ズームアウト滑走中の「古いタイルシーン退場」であり、
-		// PLATEAU は別ソース＝退場対象でない。移植時にここへ !skipMain を発明していた＝滑走中に街ごと消える
+		// 建物メッシュは別ソース＝退場対象でない。移植時にここへ !skipMain を発明していた＝滑走中に街ごと消える
 		// 「シーン抜け」（gpu単独・東京駅〜丸の内で実測）の正体。基図退場中も街は立ち続けるのが GL の挙動。
-		if (plateaux.size && show3d) {
+		if (meshes.size && show3d) {
 			const pad = 0.5 * Math.max(st.W, st.H);   // 高層ビルの頭のはみ出し余白（半画面）
 			const mppx = 156543.03392 * 0.819 / Math.pow(2, cam.zoom || 0);   // 画面1pxが何m（LOD打ち切りの物差し）
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180);
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws = [];
-			for (const p of plateaux.values()) {
-				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] PLATEAU visible batches exceed ${MAX_PL_BATCH} = truncated`); break; }
-				if (plateauHidden.has(p.ward)) continue;
-				if (!plateauBboxVisible(st, p.bbox, cam.center, pad)) continue;
+			for (const p of meshes.values()) {
+				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] mesh visible batches exceed ${MAX_PL_BATCH} = truncated`); break; }
+				if (meshHidden.has(p.ward)) continue;
+				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;
 				let count = p.count;
 				if (p.lodH && !p.two) {   // index は建物高さ降順＝先頭 count で「高さ閾値以上だけ」（橋梁 two は全描画）
 					const dm = Math.hypot(((p.bbox[0] + p.bbox[2]) / 2 - cam.center[0]) * 111320 * cosLat, ((p.bbox[1] + p.bbox[3]) / 2 - cam.center[1]) * 111320);
@@ -1651,18 +1651,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU[o + 8] = p.cut ?? -1; plBatchCPU[o + 9] = p.blend ? 1 : 0; plBatchCPU[o + 10] = 0; plBatchCPU[o + 11] = 0;   // alpha（模型の派生 PB だけが読む）
 				draws.push({ p, count, slot });
 			}
-			dbg.pl = draws.length;   // ?drawhud=1：PLATEAU の可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
+			dbg.pl = draws.length;   // ?drawhud=1：メッシュの可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
 			if (draws.length) {
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
-				// 描く順＝素の PLATEAU → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
+				// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
 				const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
-				const lists = [[P.plateau, draws.filter(d => !d.p.textured)], [P.plateauTex, draws.filter(d => d.p.textured && !d.p.blend)], [P.plateauTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const lists = [[P.mesh, draws.filter(d => !d.p.textured)], [P.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [P.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
 				for (const [pipeline, list] of lists) {
-					const tx = pipeline !== P.plateau;
+					const tx = pipeline !== P.mesh;
 					if (!list.length) continue;
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
-					pass.setBindGroup(1, paramBG[ROLE.plateau]); // p0=liftBounds, p1=bldColor
+					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
 					for (const { p, count, slot } of list) {
 						pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform
 						pass.setVertexBuffer(0, p.vbo);
@@ -1795,8 +1795,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasFar": setElevationAtlasFar(data); break;
 			case "elevCellFar": setElevationCellFar(prop.cx, prop.cy, data, prop.cellRes); break;
 			case "elevAtlasFarOff": clearElevationFar(); break;
-			case "plateauMesh": setPlateauMesh(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
-			case "plateauVis":  setPlateauVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
+			case "meshSet": setMeshSet(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
+			case "meshVis":  setMeshVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
 			case "planets":     planets = setStarBuf(planets, data, 8); break;     // 惑星（starsと同8fレイアウト・アプリが実位置更新）
 			case "constellations": constel = setStarBuf(constel, data, 3); break;  // [cel.xyz]×2n（LINES端点列）表示は view.showConst
@@ -1817,10 +1817,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
 		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
-		for (const p of plateaux.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy(); }
-		plateaux.clear();
-		for (const m of plateauMasks.values()) m.tex.destroy();
-		plateauMasks.clear(); plateauHidden.clear();
+		for (const p of meshes.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy(); }
+		meshes.clear();
+		for (const m of meshMasks.values()) m.tex.destroy();
+		meshMasks.clear(); meshHidden.clear();
 		dummyMask.destroy();
 		if (terrain) { terrain.vbo.destroy(); terrain.ibo.destroy(); terrain = null; }
 		if (elevTexObj) { elevTexObj.destroy(); elevTexObj = null; }

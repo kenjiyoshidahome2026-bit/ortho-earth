@@ -1,7 +1,7 @@
 // ガジェット：建物3D（PLATEAU）データ管理ボタン。標準装備でなくオプトイン＝orthoJapan() の戻り値から
 // map.gadget.plateau() で搭載する（v1 ortho-map の gadget 作法＝this が map）。
 // アイコンは Project PLATEAU（国土交通省）公式ロゴマーク（plateau.mlit.go.jp の logo_min そのまま・色はブランド紫）。
-// 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は plateaudb.js の領分。
+// 押した時の挙動（データ管理モーダル #pdb を開く）は本体が onOpen で注入＝モーダル実体は meshdb.js の領分。
 import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";

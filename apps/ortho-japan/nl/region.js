@@ -5,7 +5,7 @@
 // 走査を枝刈りして「区」相当の粒度に切る。
 //   base       … 識別キー（worker 振り分け・キャッシュ・OPFS のファイル名）＝同じ tileset を街ごとに
 //                別枠で持つため、実 URL は tilesetUrl で別に渡す
-//   tilesetUrl … 3D Tiles 1.1 の glb＝頂点が int16 量子化（plateauworker が解除）
+//   tilesetUrl … 3D Tiles 1.1 の glb＝頂点が int16 量子化（meshworker が解除）
 //
 // 入口は /nl/（本番＝deploy-worker が japan の資産をそのまま出す独立 URL）と ?nl=1（開発・日本に重ねて
 // 確認する時）。どちらも**日本の台帳に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る（2026-09-17 の

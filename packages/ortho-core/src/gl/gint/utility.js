@@ -49,7 +49,7 @@ export function bindPivot(s, gl, u) {
 	if (vb) gl.uniform4ui(u.u_view_bbox,
 		Math.max(0, vb[0] - 10000), Math.max(0, vb[1] - 10000),
 		Math.min(0xFFFFFFFF, vb[2] + 10000), Math.min(0xFFFFFFFF, vb[3] + 10000));
-	// pivot 無しでも「null を」バインド＝unit2 は基図の plateau マスク（float）と共用。残留 float を
+	// pivot 無しでも「null を」バインド＝unit2 は基図の メッシュマスク（float）と共用。残留 float を
 	// usampler(u_pivot_tex) が掴むと sampler型不整合で draw 全滅（renderer unit1 の標高と対の同病）。
 	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex || null); gl.activeTexture(gl.TEXTURE0);
 }

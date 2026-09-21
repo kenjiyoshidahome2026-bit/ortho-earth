@@ -1,5 +1,5 @@
 // PLATEAU 焼き済みバッチの量子化形式（PLQ・2026-09-07）＝「Cloudflare（R2）に GPU 直行形式を置く」の器。
-// plateauworker（ブラウザ）と scripts/bake-plateau.mjs（Node）が同じ pack/unpack を共有＝経路差ゼロ。
+// meshworker（ブラウザ）と scripts/bake-plateau.mjs（Node）が同じ pack/unpack を共有＝経路差ゼロ。
 // 対象は decodeBatch の出力 { pos:f32×3(origin相対), nrm:i8×4, idx:u32, origin, bbox, lodH, lodCounts, twoSided, maskCells }
 // ＝接地・dedup・LOD 並べ替え・RTE まで済んだ「GPU に上げるだけ」のメッシュ。復元側は unpack → 従来の finishBatch へ。
 //
@@ -17,7 +17,7 @@
 // ・LOD: lodCounts（index 数・高さ降順の先頭打ち切り）は、メッシュ側＝残った三角形の段ごと累積、角柱側＝段ごとの本数
 //   （json.prisms.tiers）で持ち、復元時に段（LOD_H 上位から）ごとに「メッシュ→角柱」の順で合流して再計算する。
 // 形式版 PLQ_VER＝レイアウトを変えたら上げる（マニフェストと突合＝旧焼きは黙って無視→生経路）。v2＝角柱部。v1 も読める。
-// デコードパイプライン（接地・dedup 等）の版は IDB_FMT_VER（plateauworker）＝焼きの置き場 v{n}/ に刻む。
+// デコードパイプライン（接地・dedup 等）の版は IDB_FMT_VER（meshworker）＝焼きの置き場 v{n}/ に刻む。
 export const PLQ_VER = 2;
 const MAGIC1 = 0x31514c50;   // "PLQ1"
 const MAGIC2 = 0x32514c50;   // "PLQ2"
@@ -32,7 +32,7 @@ const PRISM_MIN_H = 0.3 / 6371000;  // 底/天の最小差＝30cm（それ未満
 export function bakeSlug(base) {
 	return base.replace(/^https?:\/\//, "").replace(/\/+$/, "").replace(/[^A-Za-z0-9._-]+/g, "_");
 }
-// 球（既定）と楕円体（?ell=1）は座標が違う＝別焼き・別置き場（…/ell/）。fmtVer＝plateaudecode.DECODE_VER
+// 球（既定）と楕円体（?ell=1）は座標が違う＝別焼き・別置き場（…/ell/）。fmtVer＝meshdecode.DECODE_VER
 export const bakeDir = (base, fmtVer, ell = false) => `v${fmtVer}/${bakeSlug(base)}/${ell ? "ell/" : ""}`;
 
 const zig = v => (v << 1) ^ (v >> 31);            // zigzag（|v| < 2^30 前提＝u16 差分・index 差分・1cm 格子（±2km=2e5）とも収まる）

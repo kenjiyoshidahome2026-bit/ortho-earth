@@ -156,7 +156,7 @@ function ensureUploaded(key) {
 	if (transfer.length) renderPort.postMessage(up, transfer);
 	md.res.set(key, rec);
 	// GPU常駐が確定したらCPU側の元geometryは捨てる＝mainのタイル予算(24-96MB)を CPU と GPU で二重に
-	// 持たない（スマホは GPU も同じ RAM＝実質倍増でタブ落ちする。PLATEAU の百MB級が乗ると顕在化）。
+	// 持たない（スマホは GPU も同じ RAM＝実質倍増でタブ落ちする。建物メッシュの百MB級が乗ると顕在化）。
 	// プール成長は GPU 内コピー・再結合は res のレンジだけで済む＝CPU コピーの用途はもう無い。
 	// context lost は main が自動リロード＝ゼロから再取得（従来と同じ）。
 	geom.delete(key);

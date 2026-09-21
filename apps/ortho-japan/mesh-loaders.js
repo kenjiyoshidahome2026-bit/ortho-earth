@@ -1,4 +1,4 @@
-// loaders.gl の「使う 3 名前」だけを束ねる薄い入口。plateaudecode.js はこれを dynamic import する。
+// loaders.gl の「使う 3 名前」だけを束ねる薄い入口。meshdecode.js はこれを dynamic import する。
 // パッケージを直接 dynamic import すると namespace 取得扱いで tree-shaking が効かず、未使用の export まで
 // 遅延チャンクに乗る（計量：239 KB → 302 KB に膨れた・2026-09-14）。名前付きの静的 import をここで固定すれば
 // 遅延チャンク内で従来どおり刈り込まれる。GLTFLoader は Tiles3DLoader が内部で使う同じ物＝チャンクは増えない（glb 直読み・2026-09-20）。

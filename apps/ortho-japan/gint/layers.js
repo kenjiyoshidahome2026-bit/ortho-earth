@@ -1,7 +1,7 @@
 // gint（知性の層）＝14条筆・ドロップ GIS・AI 層などの「突合できるエンティティ」を球に載せる側の main 部。
 // 単一スロットのユーザー層（applyGintData／clearUserGint）・多層（addGint＝spec §4）・admin0 独立層（世界の国ポリゴン）・
 // bake-ahead worker・地形ドレープ（standupGint）・fid 塗り（paint）・層をまたぐ照会（queryAll）。
-// app.js の一塊（旧 1143〜1809 行）を**動作を変えずに**ここへ移した（2026-09-17・plateau/manager.js と同じ作法）。契約の整理は別コミット。
+// app.js の一塊（旧 1143〜1809 行）を**動作を変えずに**ここへ移した（2026-09-17・mesh/manager.js と同じ作法）。契約の整理は別コミット。
 //
 // 作法＝クラスも継承も作らない。app の状態は env で受ける：
 //   定数・道具 … canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam（生成前に定義済み）

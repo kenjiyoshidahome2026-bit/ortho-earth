@@ -54,7 +54,7 @@ float fogOf(vec3 w) { return clamp((distance(u_eye, w) - u_fogNear) / max(u_fogF
 uniform float u_logCoef;   // 対数深度係数 = 2/log2(far+1)。球(半径1)+局所(建物)の深度精度枯れ(z-fight/マダラ)対策
 // 対数深度を頂点側で焼く（Outerra法のVS版）。FSで gl_FragDepth を書くと GPU の early-Z/階層Z棄却が無効になり
 // 隠面フラグメントまで全額シェーディングされるため、クリップ座標 z に log2(1+w) を書き込み FS は深度に触れない。
-// 三角形内は線形補間＝厳密な対数曲線と微差が出るが、terrain/建物/PLATEAU とも三角形が小さく実害なし。
+// 三角形内は線形補間＝厳密な対数曲線と微差が出るが、terrain/建物/建物メッシュ とも三角形が小さく実害なし。
 // window深度は 0.5*(z/w+1) = log2(1+w)*u_logCoef*0.5 ＝旧FS版と同一式（全パスで一貫＝深度の互換維持）。
 void applyLogDepth() {
 	gl_Position.z = (log2(max(1.0 + gl_Position.w, 1e-6)) * u_logCoef - 1.0) * gl_Position.w;
@@ -169,7 +169,7 @@ ${QELEV}
 out float v_shade;
 out float v_front;
 out float v_fog;
-out vec2  v_ll;      // シーン原点相対の lon/lat 差分(deg)＝PLATEAU マスク uv 用。⚠絶対経緯度を varying で運ばない：
+out vec2  v_ll;      // シーン原点相対の lon/lat 差分(deg)＝メッシュマスク uv 用。⚠絶対経緯度を varying で運ばない：
                      // f32 の ulp は経度139°で~1.4m＝25mマスクセルの境界で画素ジッタ→深ズーム(z20)で櫛状の
                      // まだら discard（点描ゴースト・2026-08-02 中野実測）。大きい定数部は uniform 側で f64 前計算。
 void main() {
@@ -190,21 +190,21 @@ void main() {
 	applyLogDepth();
 }`;
 
-// 隣接区境をまたぐと PLATEAU 地区が同時に複数(最大4)アクティブになるため、bbox/mask をスロット化。
+// 隣接区境をまたぐと メッシュ地区が同時に複数(最大4)アクティブになるため、bbox/mask をスロット化。
 // GLSL ES 3.00 は sampler 配列の動的添字を許さないので4本を個別 uniform にしアンロールで判定。
 export const BUILDING_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
-uniform int u_plateauCount;         // 0..4：アクティブな PLATEAU 地区数
-uniform vec4 u_plateauBbox0;        // [minLon,minLat,maxLon,maxLat] deg。マスクの UV 正規化に使う
-uniform vec4 u_plateauBbox1;
-uniform vec4 u_plateauBbox2;
-uniform vec4 u_plateauBbox3;
-uniform sampler2D u_plateauMask0;   // PLATEAU 実フットプリントの被覆マスク（立ってるセル＝LOD2 が担う）
-uniform sampler2D u_plateauMask1;
-uniform sampler2D u_plateauMask2;
-uniform sampler2D u_plateauMask3;
+uniform int u_meshCount;         // 0..4：アクティブなメッシュ地区数
+uniform vec4 u_meshBbox0;        // [minLon,minLat,maxLon,maxLat] deg。マスクの UV 正規化に使う
+uniform vec4 u_meshBbox1;
+uniform vec4 u_meshBbox2;
+uniform vec4 u_meshBbox3;
+uniform sampler2D u_meshMask0;   // メッシュの実フットプリントの被覆マスク（立ってるセル＝LOD2 が担う）
+uniform sampler2D u_meshMask1;
+uniform sampler2D u_meshMask2;
+uniform sampler2D u_meshMask3;
 in float v_shade;
 in float v_front;
 in float v_fog;
@@ -219,18 +219,18 @@ bool maskedBy(vec4 offInv, sampler2D mask, vec2 rel) {
 void main() {
 	if (v_front < 0.0) discard;
 	// 実フットプリントが立つセルだけ基図建物を伏せる（矩形でなく被覆マスク＝空白地帯なし）
-	if ((u_plateauCount > 0 && maskedBy(u_plateauBbox0, u_plateauMask0, v_ll)) ||
-	    (u_plateauCount > 1 && maskedBy(u_plateauBbox1, u_plateauMask1, v_ll)) ||
-	    (u_plateauCount > 2 && maskedBy(u_plateauBbox2, u_plateauMask2, v_ll)) ||
-	    (u_plateauCount > 3 && maskedBy(u_plateauBbox3, u_plateauMask3, v_ll))) discard;
+	if ((u_meshCount > 0 && maskedBy(u_meshBbox0, u_meshMask0, v_ll)) ||
+	    (u_meshCount > 1 && maskedBy(u_meshBbox1, u_meshMask1, v_ll)) ||
+	    (u_meshCount > 2 && maskedBy(u_meshBbox2, u_meshMask2, v_ll)) ||
+	    (u_meshCount > 3 && maskedBy(u_meshBbox3, u_meshMask3, v_ll))) discard;
 	// 深度は VS の applyLogDepth() が焼き済み（gl_FragDepth を書くと early-Z が無効になるためFSでは触れない）
 	vec3 c = mix(u_bldColor * v_shade, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
 
-// PLATEAU LOD2 建物メッシュ（任意三角形）。頂点は ortho 単位球座標へ変換済み。
+// 建物メッシュ（LOD2 等）（任意三角形）。頂点は ortho 単位球座標へ変換済み。
 // 面法線は FS で dFdx/dFdy から算出＝CPU法線/un-index 不要のフラット陰影。裏半球カリング＋深度で前後解決。
-export const PLATEAU_VS = `#version 300 es
+export const MESH_VS = `#version 300 es
 precision highp float;
 in vec3 a_pos;      // 重心(u_meshOrigin)相対の delta（RTE-lite：小さい値＝float32 仮数がフルに効く＝建物ディテールを高精度に）
 in vec3 a_normal;   // glTF 実法線を ortho へ変換済
@@ -270,7 +270,7 @@ void main() {
 	applyLogDepth();
 }`;
 
-export const PLATEAU_FS = `#version 300 es
+export const MESH_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
@@ -300,20 +300,20 @@ void main() {
 	fragColor = vec4(c, 1.0);
 }`;
 
-// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）：PLATEAU 本体の文字列から機械的に派生＝本体は 1 文字も変えない。
+// テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）：メッシュ本体の文字列から機械的に派生＝本体は 1 文字も変えない。
 // 頂点に a_uv(f32x2)・a_col(RGBA8 正規化＝baseColorFactor×COLOR_0 を worker が焼き込み)、FS は u_tex（unit 7）をサンプル。
 // 陰影 d・フォグ・裏面判定は本体と同じ＝色だけ「建物色」が「頂点色×テクスチャ」に替わる。α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成）。
 // テクスチャは discard より前に引く（ミップ選択の微分＝uniform control flow）。錨（anchor）が無ければ読み込み時に throw＝門で捕まる。
 const derive = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`glsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
-export const PLATEAU_TEX_VS = derive(PLATEAU_VS, [
+export const MESH_TEX_VS = derive(MESH_VS, [
 	["in vec3 a_normal;   // glTF 実法線を ortho へ変換済\n", "in vec3 a_normal;   // glTF 実法線を ortho へ変換済\nin vec2 a_uv;\nin vec4 a_col;\nout vec2 v_uv;\nout vec4 v_col;\n"],
 	["\tv_n = a_normal;\n", "\tv_n = a_normal;\n\tv_uv = a_uv; v_col = a_col;\n"],
-], "PLATEAU_TEX_VS");
-export const PLATEAU_TEX_FS = derive(PLATEAU_FS, [
+], "MESH_TEX_VS");
+export const MESH_TEX_FS = derive(MESH_FS, [
 	["uniform float u_cullBack;", "uniform float u_cullBack;\nuniform sampler2D u_tex;\nuniform float u_alphaCut;\nuniform float u_blend;\nin vec2 v_uv;\nin vec4 v_col;"],   // u_alphaCut＝これ未満の α は discard（MASK=alphaCutoff・OPAQUE=−1・BLEND=1/255）／u_blend=1＝半透明（α を前乗算で出力＝既定の blendFunc ONE/ONE_MINUS_SRC_ALPHA）
 	["\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n", "\tvec3 gn = cross(dFdx(v_toEye), dFdy(v_toEye));\n\tvec4 tx = texture(u_tex, v_uv) * v_col;\n"],
 	["\tvec3 c = mix(u_bldColor * d, u_fogColor, v_fog);\n\tfragColor = vec4(c, 1.0);\n}", "\tif (tx.a < u_alphaCut) discard;\n\tfloat a = u_blend > 0.5 ? tx.a : 1.0;\n\tvec3 c = mix(tx.rgb * d, u_fogColor, v_fog);\n\tfragColor = vec4(c * a, a);\n}"],
-], "PLATEAU_TEX_FS");
+], "MESH_TEX_FS");
 
 // 地形サーフェス：標高で変位した格子メッシュ。hillshade は FS で per-pixel に計算＝
 // VS の標高フェッチを5回/頂点（変位1+中央差分勾配4）→1回に削減（格子236万頂点＝毎フレーム~950万フェッチの削減）。
@@ -372,7 +372,7 @@ void main() {
 // ・末尾のわずかな脱彩度＝NE1系の落ち着いた色域へ
 // ユーザ COG（geopbf/cog が等経緯度整列 RGBA へ warp 済み）。uv は呼び出し側が「原点相対の小値 × f64 前計算係数」で
 // VS にて組む（u_cogOffInv/u_cogMesh）＝絶対経緯度を f32 で引かない（サブメートル COG の位置ジッタ根治＝
-// plateauBbox の off+rel×inv 方式と同族）。アトラスは行0=北＝v 反転。α合成＝下色の上に被せる（nodata/圏外は素通し）。
+// meshBbox の off+rel×inv 方式と同族）。アトラスは行0=北＝v 反転。α合成＝下色の上に被せる（nodata/圏外は素通し）。
 const COG = /* glsl */`
 uniform sampler2D u_cogTex;
 uniform float u_hasCog;
@@ -498,7 +498,7 @@ void main() {
 	// 標高ティント：land を高所ほど u_hypso へ寄せる（テーマのノブ＝未指定は y=0 で恒等）。陰影の前＝shade が上に乗る
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
-	// 深度は VS の applyLogDepth() が焼き済み（plateau/building と一貫。FSで書くと early-Z が死ぬ）
+	// 深度は VS の applyLogDepth() が焼き済み（mesh/building と一貫。FSで書くと early-Z が死ぬ）
 	vec3 colBase = gndMix(cogTexMix(landC * shade, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	vec3 col = mix(colBase, u_fogColor, v_fog);
 	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度

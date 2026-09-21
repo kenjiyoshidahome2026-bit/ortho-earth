@@ -4,7 +4,7 @@
 // そのまま transfer できる（コピーもクローンも無い）。台帳（meta）は IDB のまま＝二層構成。
 // 1ファイル=1バッチ・開いたら必ず即 close（Safari のファイルロックは「初書込→close まで全体」と粗い＝窓を最小化）。
 // ファイル名は encodeURIComponent(base)+"#"+i（OPFS が禁じる文字は "/" のみ＝encode で消える）。
-// 同期ハンドルは dedicated worker 専用＝この store は plateauworker からのみ使う。
+// 同期ハンドルは dedicated worker 専用＝この store は meshworker からのみ使う。
 // base→worker はハッシュ固定ルーティング＝同一ファイルを複数 worker が同時に触ることは無い。
 
 const MAGIC = 0x35424c50;   // "PLB5"（リトルエンディアン）＝形式印。meta.ver とは独立の破損検知
@@ -66,7 +66,7 @@ export async function opfsStore() {
 	if (!navigator.storage?.getDirectory) return null;
 	const root = await navigator.storage.getDirectory();
 	const dir = await root.getDirectoryHandle("plateau", { create: true });
-	// probe 名は worker ごとに一意：PLATEAU_NW 本が同時に initFs する＝同名だと同期ハンドルのロック競合で
+	// probe 名は worker ごとに一意：MESH_NW 本が同時に initFs する＝同名だと同期ハンドルのロック競合で
 	// 後着が InvalidStateError＝そのworkerだけ silent に IDB フォールバックへ落ちる（E2E実測 2026-08-02＝4本中1本しか有効にならない）。
 	const probeName = "#probe-" + Math.random().toString(36).slice(2);
 	const probe = await dir.getFileHandle(probeName, { create: true });

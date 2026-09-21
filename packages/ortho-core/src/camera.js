@@ -14,7 +14,7 @@ export const WORLD_PX = 256;
 // 球面機械（versor回転・limb接線・レイ×球交差・RTE の相殺回避）は全て β 単位球上でそのまま厳密に生きる
 // （線形写像 S は接線性を保存）。S は cameraState が mvp へ一度だけ畳む＝下流の式は一切変わらない。
 // r=1（球・既定）で全式がビット同値に退化する＝フラグ1本で新旧を往復でき、回帰面がゼロ。
-// 各実行文脈（main・render worker・plateau worker）は起動時に setEllipsoid を同値で呼ぶこと（init で搬送）。
+// 各実行文脈（main・render worker・mesh worker）は起動時に setEllipsoid を同値で呼ぶこと（init で搬送）。
 let R_AX = 1;   // b/a（球=1）。シェーダ側の dβ 補正は u_ellTrig=(0,…)＝球で厳密0（renderer が配る）
 export function setEllipsoid(on) { R_AX = on ? 1 - 1 / 298.257223563 : 1; }
 export const ellipsoidOn = () => R_AX !== 1;
