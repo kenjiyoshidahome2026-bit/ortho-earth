@@ -20,6 +20,7 @@ import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, col
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
 import { makeFlag } from "./flag.js";
 import { hebon2kana, kanaPattern } from "./hebon2kana.js";
+import { createFlagWave } from "./flagwave.js";   // 国歌の間、旗を風にたなびかせる（2026-09-23）
 // ── カードの文字を枠に収める（Kenji 2026-09-10「はみ出すものは、フォントを小さくしてでも、枠に入れた方が綺麗」「描画前にサイズを計算しておく」）
 //   DOM に入れる前に canvas.measureText で行幅を測り、枠幅を超える行だけ font-size を縮める（レイアウト読み戻し無し＝262 枚でも一瞬）。
 //   下限 FIT_MIN までで収まらない極端な行だけ CSS の折り返し（draw.scss の overflow-wrap）に落ちる
@@ -185,6 +186,7 @@ export default async function world(opts = {}) {
 	[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = sel(t));
 	wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
 	let modalEscape = null;   // 国旗モーダルの Escape（wiki を閉じた後に復帰させる）
+	let flagWave = null;      // 今の旗のたなびき（国歌の play/pause/ended に連動・旗を替える/閉じる時に片付ける）
 	function showWiki(url, name) {
 		Sound("操作H");
 		wikiPane.title.text(name || ""); wikiPane.newtab.attr("href", url).tip(trans("Open '$1' on Wikipedia", name || ""));
@@ -422,6 +424,7 @@ export default async function world(opts = {}) {
 	////-------------------------------------------------------------------------------------------------------------
 	async function openFlag(q, target) { await showFlag(q); modal.resumeShow(target, { fallback: () => scroll.hide() }); }
 	function closeFlag() {
+		flagWave?.destroy(); flagWave = null;
 		scroll.show();
 		modal.node().animate({ opacity: 0 }, { duration: 500 }).onfinish = () => { modal.hide(); modal.css({ opacity: 1 }); pendingUpdate && pendingUpdate(); };
 	}
@@ -440,12 +443,16 @@ export default async function world(opts = {}) {
 		modal.backward.html(icon.left).tip(trans("Show '$1'", sft(-1).Name)).on("click", () => move(-1));
 		modal.forward.html(icon.right).tip(trans("Show '$1'", sft(+1).Name)).on("click", () => move(+1));
 		modal.select("audio").tip(trans("Play the anthem of '$1'", q.Name));
+		// 国歌をならしている間だけ旗がたなびく（止めると静かに垂れて静止画へ戻る）
+		flagWave?.destroy(); flagWave = createFlagWave(flag.node());
+		{ const au = modal.select("audio").node(); if (au) { const w = flagWave; au.addEventListener("play", () => w.start()); au.addEventListener("pause", () => w.stop()); au.addEventListener("ended", () => w.stop()); } }
 		modal.UL.select("img").tip(mapTip(q));
 		q.capital && setTimeout(() => Speech(trans("The capital of $1 is $2", q.Name, q.capitalName)), 250);
 		modalEscape = () => { close(); escape(null); modalEscape = null; }; escape(modalEscape);
 		function move(i) {
 			const r = sft(i), duration = 500;
 			const translate = i => `translate(${-50 + (110) * i}%,${-50}%)`;
+			flagWave?.destroy(); flagWave = null;   // 旗を替える＝今のたなびきは片付ける（次の showFlag が作り直す）
 			const dmy = modal.flag.append("img").attr("src", r.flagURL);
 			dmy.node().animate({ transform: [translate(i), translate(0)] }, { duration });
 			flag.node().animate({ transform: [translate(0), translate(-i)] }, { duration })
