@@ -157,7 +157,7 @@ export function createGeopbf(apiBase, options = {}) {
                     // zip の中身で振り分け: *.gdbtable があれば FileGDB（.gdb をそのまま zip したもの）。一覧だけ読む（展開しない）
                     let kind = opts.format === "moj" ? "moj" : opts.format === "gdb" ? "gdb" : "shape";
                     if (kind === "shape") { const list = await decodeZIP(q, false).catch(() => null); if (list?.some(e => /\.gdbtable$/i.test(e.name))) kind = "gdb"; }
-                    return _geopbf(await decoder(kind, q, kind === "gdb" ? { layer: opts.layer, ignoreCrs: opts.ignoreCrs, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd } : {}));
+                    return _geopbf(await decoder(kind, q, kind === "gdb" ? { layer: opts.layer, ignoreCrs: opts.ignoreCrs, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd } : kind === "shape" ? { crs: opts.crs } : {}));   // shape の crs＝.prj が無い時の座標系
                 }
                 if (name.match(/\.km[lz]$/i)) return _geopbf(await decoder("kmz", q));   // .kml（生）も kmz デコーダが読む（1.0.5〜）
                 if (name.match(/\.gpx$/i)) return _geopbf(await decoder("gpx", q));
@@ -187,7 +187,7 @@ export function createGeopbf(apiBase, options = {}) {
                         return pbf;
                     }
                     const fetched = await server.fetch(fetchUrl);
-                    if (_shpInZip) return _geopbf(await decoder("shape", fetched, { shpTarget: _inner }));
+                    if (_shpInZip) return _geopbf(await decoder("shape", fetched, { shpTarget: _inner, crs: opts.crs }));
                     return _geopbf(fetched);
                 }
                 return _geopbf(await server.load(q, { gint: opts.gint }));
