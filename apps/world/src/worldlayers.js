@@ -138,7 +138,7 @@ export function countryLayers(map, geopbf) {
 				const f = pbf.getFeature(i); if (f?.geometry) feats.push(f);
 			}
 			if (!feats.length) return null;
-			return { fc: { type: "FeatureCollection", features: feats }, bbox: nearBbox(feats, nation.coord, nation.area) };
+			return { fc: { type: "FeatureCollection", features: feats.map(f => ({ ...f, geometry: simplifyGeom(f.geometry, 0.004) })) }, bbox: nearBbox(feats, nation.coord, nation.area) };   // マスク/輪郭の扇と線＝間引いた形で十分（z≤8）
 		},
 		/** その国の都市（NE populated_places）を名前つきで置く。首都＝ADM0CAP・出すズーム＝NE の MIN_ZOOM・大きさ/優先＝SCALERANK（equal の cityLabels と同じ） */
 		async labels(k, lang = "en") {
@@ -213,7 +213,7 @@ export function countryLayers(map, geopbf) {
 			return p.key ? { key: p.key, layer: p.layer, fid, admin1: p.layer === "admin_1" ? admin1Name(p, lang) : "" } : null;
 		},
 		/** base の 1 地物の形（ホバーの輪郭に渡す） */
-		geometry(fid) { const pbf = held.base; try { return pbf?.getFeature(fid)?.geometry || null; } catch { return null; } },
+		geometry(fid) { const pbf = held.base; try { const g = pbf?.getFeature(fid)?.geometry; return g ? simplifyGeom(g, 0.004) : null; } catch { return null; } },   // 輪郭は毎フレーム描く＝間引いて渡す（GPU の線の本数）
 		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.anno(null); map.gadget.symbols(null, { id: "world-cities" }); map.gadget.symbols(null, { id: "world-airports" }); },
 	};
 }
