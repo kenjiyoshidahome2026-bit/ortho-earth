@@ -30,7 +30,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 		main { flex: 1; display: flex; flex-direction: column;
 			background:rgba(0,0,0,0.6); padding: 2.5rem 2rem;
 			justify-content: flex-start; align-items: center; text-align: center; overflow-y: auto;
-			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: .9rem; }
+			.title { font-size: clamp(2.6rem, 8vw, 5.6rem); font-weight: 900; line-height: 1.05; letter-spacing: -.01em; margin-bottom: 1rem; }   // キャッチ＝ページの顔（本人 9/22「もっと大きく」）
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
 			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
 				margin-bottom: 1.75rem; line-height: 1.6; max-width: 640px; }
@@ -136,11 +136,6 @@ body #demoOverlay main .tagline { margin-top: 1rem; }
 body #demoOverlay main #panel-demos { display: block; }
 body #demoOverlay main #panel-demos[hidden] { display: none; }
 body #demoOverlay main #panel-demos .card.featured { margin-bottom: 1.4rem; }
-body #demoOverlay main .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: .45rem; margin-bottom: 1.1rem; }
-body #demoOverlay main .chips .chip { padding: .45rem 1rem; border-radius: 999px; font-size: .85rem; font-weight: 600; box-shadow: none;
-	background: var(--glass-bg); color: var(--text-secondary); border: 1px solid var(--glass-border); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
-body #demoOverlay main .chips .chip:hover { transform: none; color: var(--text-primary); border-color: var(--accent-2-bright); }
-body #demoOverlay main .chips .chip.is-active { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
 body #demoOverlay main .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .9rem; }
 body #demoOverlay main .grid .card { padding: 1.15rem 1.25rem 1rem; }
 body #demoOverlay main .grid .card[hidden] { display: none; }
@@ -165,3 +160,40 @@ body #demoOverlay main .grid .card { padding: 0 0 1rem; overflow: hidden; }
 body #demoOverlay main .grid .card .card-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: #0d0d12; margin-bottom: .8rem; border-bottom: 1px solid var(--glass-border); }
 body #demoOverlay main .grid .card > :not(.card-thumb) { margin-inline: 1.15rem; }
 body #demoOverlay main .grid .card .card-cta { margin-inline-end: 1.15rem; }
+/* 始める（Get started）＝番号つきの手順カード・コードは左→右固定 */
+body #demoOverlay main .apps.start { align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* minmax(0,…)＝コードの長い行に列幅を奪わせない */
+body #demoOverlay main .apps.start .card.step { min-width: 0; }
+body #demoOverlay main .apps.start .card.step:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
+body #demoOverlay main .apps.start .step-no { display: inline-flex; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border-radius: 50%;
+	background: var(--accent-2); color: #fff; font-weight: 800; font-size: .9rem; margin-bottom: .6rem; }
+body #demoOverlay main .apps.start pre.code { margin-top: .8rem; padding: .7rem .8rem; border-radius: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--glass-border);
+	color: #d8f5ec; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; overflow-x: auto; white-space: pre; }
+body #demoOverlay main .apps.start .doclinks { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+body #demoOverlay main .apps.start .doclinks a { display: inline-flex; align-items: center; padding: .35rem .8rem; border-radius: 8px; font-size: .8rem; font-weight: 600;
+	text-decoration: none; color: var(--accent-color); background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); }
+body #demoOverlay main .apps.start .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
+@media (max-width: 640px) { body #demoOverlay main .apps.start { grid-template-columns: minmax(0, 1fr); } }
+/* 言語のバッジ＝画像の右上（RTL は左上）。26 言語＝アクセント・日本語のみ＝控えめ */
+body #demoOverlay main .grid .card { position: relative; }
+body #demoOverlay main .grid .card .card-lang { position: absolute; top: .6rem; inset-inline-end: .6rem; margin: 0; z-index: 2;
+	padding: .2rem .55rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
+	background: rgba(10, 10, 15, .78); border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+body #demoOverlay main .grid .card .card-lang.all { color: var(--accent-color); border-color: rgba(0, 255, 204, .55); }
+body #demoOverlay main .grid .card .card-lang.ja, body #demoOverlay main .grid .card .card-lang.en { color: #ffd479; border-color: rgba(255, 212, 121, .55); }
+
+// ── デモを iframe で開く（本人 2026-09-22「デモに行くと戻りづらい＝ナビを残して本文を iframe に・ナビに戻る」）──────────
+// ナビはそのまま・本文（main）とフッターを隠し、iframe が残りの高さを埋める（#demoOverlay は縦の flex）。背景の地球は main.js が止める
+body #demoOverlay nav .brand { display: flex; align-items: center; gap: .9rem; min-width: 0; }
+body #demoOverlay nav .back { display: inline-flex; align-items: center; gap: .35rem; padding: .45rem 1rem; border-radius: 999px;
+	border: 1px solid var(--glass-border); background: var(--accent-2); color: #fff; font: inherit; font-size: 1rem; font-weight: 700;
+	cursor: pointer; white-space: nowrap; box-shadow: 0 4px 18px var(--accent-2-glow);
+	&:hover { filter: brightness(1.1); }
+	&[hidden] { display: none; }
+}
+body #demoOverlay iframe.demo-frame { flex: 1; width: 100%; min-height: 0; border: 0; display: block; background: #000; }
+body #demoOverlay #demoFrame { display: none; }   // 雛形（main.js が複製して使う＝開くたびに新しい iframe＝履歴を汚さない）
+body.in-demo {
+	#mapContainer { visibility: hidden; }
+	#demoOverlay main, #demoOverlay footer { display: none; }
+	#demoOverlay nav { padding-block: .7rem; }   // デモの面を広く
+}

@@ -58,7 +58,7 @@
 			try {
 				const [{ default: orthoJapan }, { mountQuakes }] = await Promise.all([engineP, import("./quakes.js")]);
 				// 初期視点＝太平洋を囲む「火の輪」が一望できる地球儀（共有 URL の hash があればそちら）
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#2.3/18/165", theme: "dark", chips: false,
+				const map = await orthoJapan({ target: "#map", view: location.hash || "#2.8/18/165", theme: "dark", chips: false,
 					// glOverlay＝同一フレームのオーバーレイ（地震）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（本人 iPad 実機 2026-09-21）
 					mesh: false, glOverlay: true, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 				dismissBoot();

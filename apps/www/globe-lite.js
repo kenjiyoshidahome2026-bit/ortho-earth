@@ -122,12 +122,15 @@ export function liteGlobe(host, { src, degPerSec = 4, lat0 = 0, lon0 = 0, onFirs
 		draw();
 		raf = requestAnimationFrame(step);
 	};
-	const start = () => { if (raf || !ready) return; t0 = performance.now(); raf = requestAnimationFrame(step); };
+	let paused = false;   // デモを iframe で開いている間は回さない（www の main.js が pause/resume）
+	const start = () => { if (raf || !ready || paused) return; t0 = performance.now(); raf = requestAnimationFrame(step); };
 	const stop = () => { cancelAnimationFrame(raf); raf = 0; };
 	const motionMq = matchMedia("(prefers-reduced-motion: reduce)");
 	let spinning = !motionMq.matches;
 	motionMq.addEventListener?.("change", () => { spinning = !motionMq.matches; spinning ? start() : stop(); });
 	const ro = new ResizeObserver(resize); ro.observe(host);
 	resize();
-	return { canvas, destroy() { stop(); ro.disconnect(); canvas.remove(); } };
+	return { canvas, destroy() { stop(); ro.disconnect(); canvas.remove(); },
+		pause() { paused = true; stop(); },
+		resume() { paused = false; if (spinning) start(); } };
 }
