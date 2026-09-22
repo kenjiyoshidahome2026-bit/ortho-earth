@@ -1,0 +1,21 @@
+{
+	"name": "geopbf-demo",
+	"version": "1.0.0",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"preview": "vite preview",
+		"summary": "repomix --style markdown --output project_summary.md",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs"
+	},
+	"dependencies": {
+		"geopbf": "*",
+		"common": "*",
+		"native-bucket": "*",
+		"d3": "^7.9.0"
+	},
+	"description": "GeoPBF demo: convert GIS files in the browser (www.ortho-earth.com/geopbf/)"
+}
