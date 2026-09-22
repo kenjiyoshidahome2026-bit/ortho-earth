@@ -91,11 +91,17 @@ function _buildPop(props, ds) {
 // L03-b_r などのカスタムビューが登録するクリーンアップ関数
 let _onExitExtra = null;
 
+// 地図に入る＝履歴を 1 段積む（ブラウザの「戻る」・スマホの戻る操作で地図を閉じて一覧へ戻れる）
 function _enter(map) {
     _mountTools(map);
+    if (!_viewing) history.pushState({ ...history.state, globe: 1 }, '', location.href);
     _viewing = true;
     document.getElementById('app').classList.add('viewing');
+    document.body.classList.add('globe-viewing');
 }
+
+// 「戻る」で地図の段を抜けた（× / Esc で閉じた時は _viewing が先に落ちている＝空振り）
+window.addEventListener('popstate', () => { if (_viewing && !history.state?.globe) exitGlobeView(); });
 
 // 地球ビューに入る（× ボタン・Esc で exitGlobeView ＋ cleanup）。戻り値＝map（カスタムビューが map.raster 等を使う）
 export async function enterGlobeView(cleanup) {
@@ -157,9 +163,11 @@ export async function execGlobeView(pbf, ds = null) {
 export async function exitGlobeView() {
     if (!_viewing) return;   // Esc（close ガジェット）は待ち受け中にも飛ぶ
     _viewing = false;
+    if (history.state?.globe) history.back();   // × / Esc で閉じた＝積んだ段を戻す（URL は同じ＝hashchange は立たない）
     _onExitExtra?.();
     _onExitExtra = null;
     document.getElementById('app').classList.remove('viewing');
+    document.body.classList.remove('globe-viewing');
     const view = await _viewP;
     view.clear();
     view.home(HOME_LAT);

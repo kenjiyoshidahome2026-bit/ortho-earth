@@ -9,6 +9,7 @@ export function placeholder(catalog) {
     const cards = [
         {
             icon:  '🗾',
+            go:    'nlftp',
             min:   '国土交通省',
             url:   'https://nlftp.mlit.go.jp/ksj/',
             label: '国土数値情報',
@@ -18,6 +19,7 @@ export function placeholder(catalog) {
         },
         {
             icon:  '📊',
+            go:    'estat',
             min:   '総務省',
             url:   'https://www.e-stat.go.jp/gis',
             label: '統計 GIS・国勢調査',
@@ -27,6 +29,7 @@ export function placeholder(catalog) {
         },
         {
             icon:  '🏠',
+            go:    'moj',
             min:   '法務省',
             url:   'https://www.geospatial.jp/ckan/organization/moj',
             label: '登記所備付地図',
@@ -36,6 +39,7 @@ export function placeholder(catalog) {
         },
         {
             icon:  '🌾',
+            go:    'maff',
             min:   '農林水産省',
             url:   'https://open.fude.maff.go.jp/',
             label: '農地（筆ポリゴン）',
@@ -45,6 +49,7 @@ export function placeholder(catalog) {
         },
         {
             icon:  '🏔️',
+            go:    'nps',
             min:   '環境省',
             url:   'https://geo.env.go.jp/',
             label: '国立公園',
@@ -53,7 +58,7 @@ export function placeholder(catalog) {
             desc:  '特別保護地区〜普通地域の地種区分付き区域界（GeoPBF）',
         },
     ].map(c => `
-        <a class="ph-card" href="${c.url}" target="_blank">
+        <div class="ph-card" data-go="${c.go}" role="link" tabindex="0" title="${c.label}を開く">
             <div class="ph-card-min">${c.min}</div>
             <div class="ph-card-cnt">${fmt(c.cnt)}</div>
             <div class="ph-card-head">
@@ -62,7 +67,8 @@ export function placeholder(catalog) {
             </div>
             <div class="ph-card-unit">${c.unit}</div>
             <div class="ph-card-desc">${c.desc}</div>
-        </a>
+            <a class="ph-card-src" href="${c.url}" target="_blank" rel="noopener">配布元のサイト ↗</a>
+        </div>
     `).join('');
 
     return `
@@ -71,11 +77,11 @@ export function placeholder(catalog) {
             <div class="ph-hero">
                 <div class="ph-hero-title">
                     <img class="ph-logo" src="favicon.svg" alt="">
-                    <div class="ph-title">GIS-HUB-jp 🇯🇵</div>
+                    <div class="ph-title">日本の公開 GIS データ</div>
                 </div>
                 <div class="ph-sub">GeoPBF を使用して、国が公開するGISデータを直接地図に描画します。</div>
                 <div class="ph-hero-link">
-                    <a href="/gishub" target="_blank" rel="noopener">→ GIS-HUB（グローバル版）</a>
+                    <a href="/gishub/" target="_blank" rel="noopener">→ GeoPBF のデモ（世界版）</a>
                     <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" class="ph-github-link">
                         <svg viewBox="0 0 16 16" width="14" height="14" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                         GitHub（オープンソース）
@@ -101,14 +107,14 @@ export function placeholder(catalog) {
                             各頂点には <strong>gint</strong>（Morton 曲線ベースの 64bit 整数）で
                             Visvalingam–Whyatt の重要度ランクを埋め込んでおり、ズームに連動した動的 LOD を単一ファイルで実現しています。
                             隣接ポリゴンの共有境界は <strong>Arc 構造</strong>で重複なく格納するため、面積誤差やすき間が生じません。
-                            GINT v2 レンダラー（WebGPU / WebGL2）がこのデータを高速描画します。また既存の GISフォーマットへの即時変換も可能です。
+                            Gint レンダラー（WebGPU / WebGL2）がこのデータを高速描画します。また既存の GISフォーマットへの即時変換も可能です。
                         </p>
                     </div>
                     <ul class="ph-feat-list">
                         <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — デルタ符号化 + Varint で GeoJSON 比 約1/10 のサイズ。14条地図や筆ポリゴンもブラウザで即時表示</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — gint の VW ランクビットにより、ズームに応じた頂点間引きを単一データで実現</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — Arc 構造で隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — GINT v2 レンダラーが GPU バッファへ転送し、動的 LOD で描画（WebGPU・無い環境は WebGL2）</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — Gint レンダラーが GPU バッファへ転送し、動的 LOD で描画（WebGPU・無い環境は WebGL2）</span></li>
                         <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — グローバル KEYS 辞書とインデックスで属性を高速取得。クリック identify が即応</span></li>
                         <li><span> 詳しい技術内容は、技術ドキュメントを参考にしてください。</span></li>
                     </ul>
@@ -124,7 +130,7 @@ export function placeholder(catalog) {
 
             <section class="ph-section">
                 <h3 class="ph-section-title">使い方</h3>
-                <p class="ph-howto">左のデータセットを選択して、ファイルを選んでください。プレビューや属性が表示され、多種の GIS ファイルへの変換・地図への描画が可能です。</p>
+                <p class="ph-howto">上のカードか左の一覧からデータセットを選び、市区町村やファイルを選んでください。読み込むと属性の一覧・各種 GIS 形式への書き出し・地球への描画ができます。地図は × ・ Esc ・ブラウザの「戻る」で閉じます。</p>
             </section>
 
             <div class="ph-closing">

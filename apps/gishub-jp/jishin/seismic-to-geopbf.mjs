@@ -1,7 +1,7 @@
 /**
  * 地震観測施設（地震調査研究推進本部 地震本部）→ GeoJSON（canonical）＋ GeoPBF（描画用）
  *
- * 4種の地震計観測点CSV（Shift-JIS）を統合する。緯度経度は既に十進度（世界測地系）。
+ * 4種の地震計観測点CSV（2025年版まで Shift-JIS・2026年版は UTF-8）を統合する。緯度経度は既に十進度（世界測地系）。
  *   high_sens=高感度 / broad=広帯域 / strong_og=強震(地上) / strong_ug=強震(地下)
  * 列: 0種類 1名称 2ローマ字 3コード 4緯度 5経度 6標高 7深さ 8保守機関 9機関英 10開始年 11月 12機種
  *
@@ -9,7 +9,7 @@
  *   jishin/seismic.geojson         … canonical
  *   public/jishin/seismic.geopbf   … 描画用（PRECISION=7）
  *
- * node jishin/seismic-to-geopbf.mjs
+ * node jishin/seismic-to-geopbf.mjs [年]   … 年＝地震本部の公開年版（既定 2026＝kansoku26/csv/*_2026.csv）
  */
 import { writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -17,7 +17,8 @@ import { dirname, join } from 'path';
 import { encodeGeoPBF } from '../scripts/geopbf-encode.mjs';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const BASE = 'https://www.jishin.go.jp/main/kansoku/kansoku25/csv';
+const YEAR = +(process.argv[2] || 2026);
+const BASE = `https://www.jishin.go.jp/main/kansoku/kansoku${String(YEAR).slice(2)}/csv`;
 const NETS = [
     { file: 'high_sens', net: '高感度',     tag: 'HS' },
     { file: 'broad',     net: '広帯域',     tag: 'BB' },
@@ -36,9 +37,12 @@ function parseLine(l) {
 }
 
 async function fetchCsv(file) {
-    const resp = await fetch(`${BASE}/${file}_2025.csv`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(60_000) });
+    const resp = await fetch(`${BASE}/${file}_${YEAR}.csv`, { headers: { 'User-Agent': 'Mozilla/5.0' }, signal: AbortSignal.timeout(60_000) });
     if (!resp.ok) throw new Error(`${file}: HTTP ${resp.status}`);
-    return new TextDecoder('shift-jis').decode(new Uint8Array(await resp.arrayBuffer()));
+    // 2025 年版までは Shift-JIS・2026 年版は UTF-8（BOM 付き）＝UTF-8 として厳格に読めなければ Shift-JIS
+    const buf = new Uint8Array(await resp.arrayBuffer());
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(buf); }   // BOM は既定で落ちる
+    catch { return new TextDecoder('shift-jis').decode(buf); }
 }
 
 async function main() {
@@ -46,7 +50,7 @@ async function main() {
     const perNet = {};
     const uidSeen = new Map();   // 突合キーの行一意化（衝突時に #2, #3 …）
     for (const { file, net, tag } of NETS) {
-        console.log(`fetching ${file}_2025.csv …`);
+        console.log(`fetching ${file}_${YEAR}.csv …`);
         const rows = (await fetchCsv(file)).split(/\r?\n/).map(parseLine);
         let n = 0;
         for (const c of rows) {
@@ -86,7 +90,7 @@ async function main() {
 
     const raw = encodeGeoPBF(features, {
         name: 'seismic',
-        description: '地震観測施設（高感度・広帯域・強震）',
+        description: `地震観測施設（高感度・広帯域・強震）${YEAR}年版`,
         license: '地震調査研究推進本部',
         attribution: '地震調査研究推進本部（地震本部）',
     });

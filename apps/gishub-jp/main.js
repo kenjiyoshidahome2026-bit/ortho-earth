@@ -127,9 +127,12 @@ function dsItemHtml(ds) {
 }
 
 function renderList() {
-	const q = document.getElementById('search').value.toLowerCase();
+	const q = document.getElementById('search').value.trim().toLowerCase();
+	// 題名・コードに加えて省庁名（「法務省」「国土交通省」）と注記でも引ける
+	const hit = ds => [ds.title, ds.dataset_code, ds.note, SOURCE_GROUP_LABELS[ds._sourceId]]
+		.some(v => v && String(v).toLowerCase().includes(q));
 	const items = catalog.filter(ds => {
-		if (q && !ds.title.toLowerCase().includes(q) && !ds.dataset_code.toLowerCase().includes(q)) return false;
+		if (q && !hit(ds)) return false;
 		if (licFilter === 'ok' && _licFilterKey(ds.license) !== 'ok') return false;
 		if (licFilter === 'ng' && _licFilterKey(ds.license) !== 'ng') return false;
 		return true;
@@ -154,7 +157,7 @@ function renderList() {
 		const titleHtml = url
 			? `<a class="sidebar-group-link" href="${url}" target="_blank">${label}</a>`
 			: label;
-		html.push(`<div class="sidebar-group"><h2 class="sidebar-group-title">${titleHtml}</h2>`);
+		html.push(`<div class="sidebar-group" data-source="${escHtml(sid)}"><h2 class="sidebar-group-title">${titleHtml}</h2>`);
 		html.push(dsItems.map(dsItemHtml).join(''));
 		html.push(`</div>`);
 	}
@@ -289,8 +292,27 @@ async function init() {
 }
 
 
+// トップのカード＝アプリ内で開く（旧＝配布元の外部サイトへ飛んでいた。配布元はカード内の小さなリンクへ）
+function goCard(code) {
+	if (LAZY_VIEWS[code]) { selectDataset(code, true); document.querySelector(`.ds-item[data-code="${code}"]`)?.scrollIntoView({ block: 'nearest' }); return; }
+	// 国土数値情報＝一覧の該当グループへ（狭い画面ではサイドバーを開く・絞り込み中なら解く）
+	sidebar.open();
+	let group = document.querySelector(`.sidebar-group[data-source="${code}"]`);
+	if (!group) { document.getElementById('search').value = ''; renderList(); group = document.querySelector(`.sidebar-group[data-source="${code}"]`); }
+	group?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+}
+const detailBody = document.getElementById('detail-body');
+detailBody.addEventListener('click', e => {
+	const card = e.target.closest('.ph-card[data-go]');
+	if (card && !e.target.closest('a')) goCard(card.dataset.go);
+});
+detailBody.addEventListener('keydown', e => {
+	const card = e.target.closest?.('.ph-card[data-go]');
+	if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.stopPropagation(); goCard(card.dataset.go); }
+});
+
 init();
-initSidebarToggle();
+const sidebar = initSidebarToggle();
 initDetailEventListeners();
 
 document.getElementById('sidebar-brand').addEventListener('click', goHome);
