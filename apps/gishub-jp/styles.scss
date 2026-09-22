@@ -578,6 +578,25 @@ body:not(.globe-viewing) #globe-bg #sky-clock { display: none; }
 		strong { color: $hi; }
 	}
 
+	// 技術の説明＝見出しをクリックで開く（既定は閉じる）
+	.ph-fold {
+		> summary {
+			cursor: pointer;
+			list-style: none;
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			&::-webkit-details-marker { display: none; }
+			&::before { content: '▸'; color: $accent; font-size: 10px; transition: transform 150ms; }
+			&::after { content: 'クリックで開く'; margin-left: auto; font-weight: normal; letter-spacing: 0; color: #555; }
+			&:hover { color: $hi; }
+		}
+		&[open] > summary {
+			&::before { transform: rotate(90deg); }
+			&::after { content: '閉じる'; }
+		}
+		&:not([open]) { margin-bottom: 16px; }
+	}
 	.ph-sub-title { font-size: 12px; color: $hi; margin: 18px 0 8px; font-weight: bold; }
 	.ph-text {
 		p { font-size: 12px; color: $text; line-height: 1.8; margin-bottom: 8px; }

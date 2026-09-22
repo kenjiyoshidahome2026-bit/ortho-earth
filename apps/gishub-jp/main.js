@@ -248,6 +248,7 @@ document.addEventListener('keydown', e => {
 		s.blur(); return;
 	}
 	if (!['ArrowUp','ArrowDown','Enter'].includes(e.key) || inInput) return;
+	if (e.key === 'Enter' && ['SUMMARY', 'BUTTON', 'A'].includes(tag)) return;   // 折りたたみ見出し・ボタン・リンクの Enter は奪わない
 	e.preventDefault();
 
 	const items = [...document.querySelectorAll('.ds-item')];
