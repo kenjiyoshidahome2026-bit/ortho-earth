@@ -73,6 +73,11 @@ export function renderDetail(ds, showBack = false) {
         history.replaceState(null, '', '#moj');
         ctx.renderMojList();
     });
+
+    // 市区町村別のファイル（例 A29-19_01100.geojson）があれば行政区域コード表を読み、エリア欄に市区町村名を入れて描き直す
+    if (!_adminNames && ds.files?.some(_cityCodeOf)) {
+        _loadAdminRows().then(() => { if (_currentDs === ds) applyFileFilters(); }).catch(e => console.warn('[nlftp] 市区町村名の表を読めない:', e));
+    }
 }
 
 export async function nlftpSelectDataset(code) {
@@ -110,7 +115,7 @@ export function applyFileFilters() {
     document.getElementById('files-list').innerHTML  = _buildFileRows(filtered, _currentDs);
     const bulkBtn = document.getElementById('files-dl-all');
     if (bulkBtn) {
-        const totalBytes = filtered.reduce((s, f) => s + (f.size || 0), 0);
+        const totalBytes = _zipBytes(filtered);
         const sizeLabel  = totalBytes ? ` (${fmtBytes(totalBytes)})` : '';
         bulkBtn.textContent = `一括↓IDB${sizeLabel}`;
     }
@@ -249,7 +254,7 @@ function _renderFiles(ds) {
                     ${prefOpts}
                     ${meshOpts}
                     ${allFiles.length > 1 ? (() => {
-                        const totalBytes = allFiles.reduce((s, f) => s + (f.size || 0), 0);
+                        const totalBytes = _zipBytes(allFiles);
                         const sizeLabel  = totalBytes ? ` (${fmtBytes(totalBytes)})` : '';
                         return `<button class="bulk-dl-btn" id="files-dl-all">一括↓IDB${sizeLabel}</button>`;
                     })() : ''}
@@ -272,7 +277,22 @@ function _buildFileRows(files, ds, limit = 200) {
         (rest ? `<div class="more-row"><span>…残り ${rest} 件</span> <button class="load-more-btn">すべて表示</button></div>` : '');
 }
 
+// 合計サイズ＝zip ごとに 1 回（size は zip の大きさ＝同じ zip の中の市区町村ファイルを足すと数十倍に膨らんでいた）
+function _zipBytes(files) {
+    const seen = new Map();
+    for (const f of files) seen.set(f.target.split('#')[0], f.size || 0);
+    let s = 0; for (const v of seen.values()) s += v; return s;
+}
+
+// 市区町村別ファイル＝zip の中のファイル名が _<5桁の行政区域コード>.<拡張子> で終わるもの
+function _cityCodeOf(f) {
+    return (f.target || '').split('#')[1]?.match(/_(\d{5})\.(?:geojson|shp)$/i)?.[1] || null;
+}
+
 function _scopeLabel(f) {
+    const city = _cityCodeOf(f);
+    if (city?.endsWith('000') && PREFS[city.slice(0, 2)]) return `${PREFS[city.slice(0, 2)]}（全域）`;   // 例 13000＝都全体
+    if (city && _adminNames?.has(city)) return `${PREFS[city.slice(0, 2)] || ''} ${_adminNames.get(city)}`.trim();   // 例「北海道 札幌市」（同名の市＝府中市・伊達市 等があるので県名つき）
     const scope = f.scope || '全国';
     if (scope === '全国') {
         if (f.location_code) return f.location_code;
@@ -363,8 +383,31 @@ function _showCodelistPopup(entries, btn) {
     setTimeout(() => document.addEventListener('click', close, true), 0);
 }
 
-// --- 行政区域コードポップアップ ---
+// --- 行政区域コード表（bucket catalog/admin-boundary.csv・欠番込み）＝ポップアップとファイル一覧の市区町村名で共用 ---
 let _adminBoundaryRows = null; // キャッシュ
+let _adminNames = null;        // code5 → 市区町村名
+let _adminLoading = null;
+
+function _loadAdminRows() {
+    return _adminLoading ??= (async () => {
+        const res = await fetch(`${API_BASE}/bucket/${NLFTP_SOURCE.bucket}/admin-boundary.csv`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const buf  = await res.arrayBuffer();
+        const head = new Uint8Array(buf, 0, 2);
+        const text = head[0] === 0x1f && head[1] === 0x8b
+            ? await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).text()
+            : new TextDecoder().decode(buf);
+        const lines = text.trim().split(/\r?\n/).slice(1); // skip header
+        _adminBoundaryRows = lines.map(line => {
+            const cols = line.split(',');
+            return { code: cols[0], pref: cols[1], city: cols[2], status: cols[5] };
+        }).filter(r => r.code);
+        // 同じコードに旧名（名称変更・欠番）と現役が並ぶ＝旧名を先に入れて現役（status 空）で上書き
+        const named = _adminBoundaryRows.filter(r => r.city);
+        _adminNames = new Map([...named.filter(r => r.status), ...named.filter(r => !r.status)].map(r => [r.code, r.city]));
+        return _adminBoundaryRows;
+    })().catch(e => { _adminLoading = null; throw e; });   // 失敗は次回やり直せるように
+}
 
 async function _showAdminBoundaryPopup(btn) {
     document.querySelectorAll('.codelist-popup').forEach(el => el.remove());
@@ -373,22 +416,7 @@ async function _showAdminBoundaryPopup(btn) {
         btn.disabled = true;
         btn.textContent = '読み込み中...';
         try {
-            const res = await fetch(`${API_BASE}/bucket/${NLFTP_SOURCE.bucket}/admin-boundary.csv`);
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const buf  = await res.arrayBuffer();
-            const head = new Uint8Array(buf, 0, 2);
-            let text;
-            if (head[0] === 0x1f && head[1] === 0x8b) {
-                const stream = new DecompressionStream('gzip');
-                text = await new Response(new Blob([buf]).stream().pipeThrough(stream)).text();
-            } else {
-                text = new TextDecoder().decode(buf);
-            }
-            const lines = text.trim().split(/\r?\n/).slice(1); // skip header
-            _adminBoundaryRows = lines.map(line => {
-                const cols = line.split(',');
-                return { code: cols[0], pref: cols[1], city: cols[2], status: cols[5] };
-            }).filter(r => r.code);
+            await _loadAdminRows();
         } catch (e) {
             btn.disabled = false;
             btn.textContent = '行政区域コード';
