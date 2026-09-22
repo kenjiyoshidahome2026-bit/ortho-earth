@@ -562,6 +562,31 @@ bilinear interpolation of the 3rd-mesh corners, exactly as GSI's own tools do.
 
 ---
 
+### 5.11 FlatGeobuf in (v3, v1.13)
+
+`geopbf(file)` / `geopbf(url)` read any FlatGeobuf **v3** file — the ones written by the official `flatgeobuf`
+libraries and by GDAL, not only geopbf's own `fgbFile()` output. `geopbf/fgb` exposes the reader for Node and
+the browser:
+
+```js
+import { fromFlatGeobuf, readFlatGeobufHeader } from "geopbf/fgb";
+const { pbf, stats } = await fromFlatGeobuf(u8);   // stats: features, droppedGeometries, columns, crs, reprojected …
+```
+
+- Geometry type comes from the feature, or from the header when the file has a single type (the usual case).
+- The packed Hilbert R-tree is skipped (`index_node_size` defaults to 16 when the field is absent);
+  `features_count = 0` (unknown) is read to the end.
+- Attributes are decoded by column type: Byte … Double, String, Json (parsed when valid), DateTime (kept as the
+  ISO string). Binary columns are skipped; 64-bit integers outside the safe range become strings.
+- CRS: none / 0 / EPSG:4326 / CRS84 are taken as lon/lat; EPSG:3857 and the projections `geopbf/proj` knows
+  (Japan plane rectangular etc.) are converted to lon/lat; anything else throws unless `ignoreCrs` is passed.
+- Z/M are dropped (GeoPBF is 2D). Features without geometry, and curve / surface types, are dropped and counted.
+- FlatGeobuf v2 files are rejected with an explicit error.
+
+The test fixtures are the official `test/data` samples (BSD-2-Clause), `tests/t-fgb.mjs`.
+
+---
+
 ## 6. COG — Cloud Optimized GeoTIFF
 
 Rasters, the same way: a COG is a static file read by HTTP Range requests — no tile server, no preprocessing. The
