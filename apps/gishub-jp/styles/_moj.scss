@@ -196,5 +196,23 @@
 	margin-bottom: 4px;
 }
 
+// 狭い画面：都道府県名が横並びの付記（座標系・容量）に潰されて消えていた＝名前を優先し付記は畳む
+@media (max-width: 640px) {
+	.moj-list-head { padding: 18px 16px 12px; }   // 上の 36px 帯（#detail-header）が ☰ ボタンの逃げ
+	.moj-head-row { flex-wrap: wrap; }
+	.grouped-list { padding: 12px 10px 24px; }
+	.pref-header {
+		padding: 10px;
+		.pref-name { flex: 1 0 auto; }
+		.pref-coord-sys, .size-note { display: none; }
+	}
+	.moj-city-item {
+		grid-template-columns: 48px minmax(0, 1fr) auto;
+		gap: 8px;
+		padding: 7px 10px;
+		.moj-city-file { display: none; }
+	}
+}
+
 // fmt バッジ
 .fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }
