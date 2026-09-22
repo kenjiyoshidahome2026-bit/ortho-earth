@@ -44,7 +44,9 @@ async function build({ lang }) {
 	});
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.shot();
 	inside = countryLayers(map, engine.geopbf);   // その国の州境・道路・鉄道・市街地（ne-cultural＝equal と同じ 2 本）
-	const runPending = () => { const k = pending; pending = null; clearTimeout(pendTimer); if (k && open) inside.show(k).catch(e => console.warn("[world] 国の中身", e)); };
+	const runPending = () => { const k = pending; pending = null; clearTimeout(pendTimer); if (!k || !open) return;
+		inside.show(k).catch(e => console.warn("[world] 国の中身", e));
+		inside.labels(k, lang).catch(e => console.warn("[world] 都市名", e)); };
 	map.on("settle", runPending);   // カメラ静止の合図（飛行が終わった）
 
 	const show = async (sign = {}) => {

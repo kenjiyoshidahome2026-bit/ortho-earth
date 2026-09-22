@@ -53,9 +53,10 @@ const ENGINE_STUB = `export default async function (opts) {
 	window.__engineOpts = opts;
 	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
 	el.appendChild(document.createElement("canvas"));
-	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], clear() { window.__spotCleared = true; } }; } };
+	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], clear() { window.__spotCleared = true; } }; },
+		symbols: async (src, layer) => { window.__symbols = { n: src ? src.features.length : 0, id: layer && layer.id }; return src ? { features: src.features.length } : null; } };
 	return {
-		gadget, lang: opts.lang,
+		gadget, lang: opts.lang, addImage: async () => {}, hasImage: () => false,
 		on() {}, fitZoomForBbox: () => 5,
 		flyTo: (lon, lat, z) => { window.__flyTo = [lon, lat, z]; },
 		// 国の中身の層＝呼ばれた事と filter だけ控える（実データは引かない）
