@@ -94,8 +94,8 @@ export function placeholder(catalog) {
                 <div class="ph-cards">${cards}</div>
             </section>
 
-            <section class="ph-section">
-                <h3 class="ph-section-title">GeoPBF とは</h3>
+            <details class="ph-section ph-fold">
+                <summary class="ph-section-title">GeoPBF とは</summary>
                 <div class="ph-text">
                     <p>
                         <strong>GeoPBF</strong> は、地理データ（点・線・面とその属性）をブラウザで扱うためのバイナリのファイル形式です。
@@ -144,10 +144,10 @@ export function placeholder(catalog) {
                         また経度 ±180°（日付変更線）をまたぐ形は、格納時に球面上の正確な交点で切り分けます。
                     </p>
                 </div>
-            </section>
+            </details>
 
-            <section class="ph-section">
-                <h3 class="ph-section-title">Gint とは（描画）</h3>
+            <details class="ph-section ph-fold">
+                <summary class="ph-section-title">Gint とは（描画）</summary>
                 <div class="ph-text">
                     <p>
                         地球に描いているのは <strong>Gint</strong> です。GeoPBF からブラウザの中で組み立てる、GPU（WebGPU / WebGL2）がそのまま読める頂点の並びで、次のことを受け持ちます。
@@ -165,7 +165,7 @@ export function placeholder(catalog) {
                     <a href="/docs/gint-jp.html" target="_blank" rel="noopener">GINT バッファ構造</a>
                     <a href="/docs/GC.html"       target="_blank" rel="noopener">GPU Culling</a>
                 </div>
-            </section>
+            </details>
 
             <section class="ph-section">
                 <h3 class="ph-section-title">使い方</h3>
