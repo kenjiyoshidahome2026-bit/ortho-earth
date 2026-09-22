@@ -216,21 +216,86 @@
 	"precision": 5
 	},
 	{
-	"name": "N03-20260101",
-	"description": "2026 Japan Administrative Area Data",
-	"target": "https://nlftp.mlit.go.jp/ksj/gml/data/N03/N03-2026/N03-20260101_GML.zip#N03-20260101.geojson",
-	"link": "https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N03-2026.html",
-	"attribution": "JAPAN MLIT",
-	"license": "CC_BY_4.0",
-	"precision": 7
+	"name": "4.5_month",
+	"description": "Earthquakes M4.5+, past 30 days (GeoJSON, live)",
+	"target": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/4.5_month.geojson",
+	"link": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/geojson.php",
+	"attribution": "USGS | Earthquake Hazards",
+	"license": "Public Domain",
+	"precision": 5,
+	"nocache": true
 	},
 	{
-	"name": "04101__10_r_2025",
-	"description": "2025 Sendai-city Aoba-word land division",
-	"target": "https://www.geospatial.jp/ckan/dataset/3a2ad3da-af5d-4edd-85dc-4cfe29865fbe/resource/e8936e86-0d81-44e0-a51b-4eb04fb511d0/download/04101__10_r_2025.geojson",
-	"link": "https://www.geospatial.jp/ckan/dataset/aigid-moj-04101",
-	"attribution": "JAPAN MOJ",
-	"license": "CC_BY_4.0",
-	"precision": 7
-}
+	"name": "2.5_week_age",
+	"description": "Earthquakes M2.5+, past 7 days (KML, live)",
+	"target": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/2.5_week_age.kml",
+	"link": "https://earthquake.usgs.gov/earthquakes/feed/v1.0/kml.php",
+	"attribution": "USGS | Earthquake Hazards",
+	"license": "Public Domain",
+	"precision": 5,
+	"nocache": true
+	},
+	{
+	"name": "CNTR_RG_20M_2020_4326",
+	"description": "World Countries 2020 (1:20M, GeoJSON)",
+	"target": "https://gisco-services.ec.europa.eu/distribution/v2/countries/geojson/CNTR_RG_20M_2020_4326.geojson",
+	"link": "https://ec.europa.eu/eurostat/web/gisco/geodata/administrative-units/countries",
+	"attribution": "Eurostat GISCO",
+	"license": "© EuroGeographics",
+	"precision": 5
+	},
+	{
+	"name": "NUTS_RG_20M_2021_4326_LEVL_2",
+	"description": "EU NUTS level 2 regions 2021 (1:20M, TopoJSON)",
+	"target": "https://gisco-services.ec.europa.eu/distribution/v2/nuts/topojson/NUTS_RG_20M_2021_4326_LEVL_2.json",
+	"link": "https://ec.europa.eu/eurostat/web/gisco/geodata/statistical-units/territorial-units-statistics",
+	"attribution": "Eurostat GISCO",
+	"license": "© EuroGeographics",
+	"precision": 5
+	},
+	{
+	"name": "PB2002_boundaries",
+	"description": "Tectonic plate boundaries (Bird 2003, GeoJSON)",
+	"target": "https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json",
+	"link": "https://github.com/fraxen/tectonicplates",
+	"attribution": "Tectonic plates | PB2002",
+	"license": "ODC-BY",
+	"precision": 5
+	},
+	{
+	"name": "PB2002_plates",
+	"description": "Tectonic plates (Bird 2003, GeoJSON)",
+	"target": "https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_plates.json",
+	"link": "https://github.com/fraxen/tectonicplates",
+	"attribution": "Tectonic plates | PB2002",
+	"license": "ODC-BY",
+	"precision": 5
+	},
+	{
+	"name": "global_power_plant_database",
+	"description": "Global Power Plant Database, ~35,000 plants (CSV)",
+	"target": "https://raw.githubusercontent.com/wri/global-power-plant-database/master/output_database/global_power_plant_database.csv",
+	"link": "https://datasets.wri.org/dataset/globalpowerplantdatabase",
+	"attribution": "World Resources Institute",
+	"license": "CC BY 4.0",
+	"precision": 5
+	},
+	{
+	"name": "ne_10m_time_zones",
+	"description": "Time Zones (1:10m)",
+	"target": "https://naturalearth.s3.amazonaws.com/10m_cultural/ne_10m_time_zones.zip",
+	"link": "https://www.naturalearthdata.com/downloads/10m-cultural-vectors/timezones/",
+	"attribution": "Natural Earth | Cultural",
+	"license": "Public Domain",
+	"precision": 5
+	},
+	{
+	"name": "countries",
+	"description": "World countries — FlatGeobuf sample (with spatial index)",
+	"target": "https://raw.githubusercontent.com/flatgeobuf/flatgeobuf/master/test/data/countries.fgb",
+	"link": "https://github.com/flatgeobuf/flatgeobuf",
+	"attribution": "FlatGeobuf | sample data",
+	"license": "BSD-2-Clause",
+	"precision": 5
+	}
 ]
