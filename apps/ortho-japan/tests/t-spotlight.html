@@ -18,7 +18,7 @@ try {
 	mark("booted");
 	await new Promise(r => setTimeout(r, 9000));   // 世界の国の形（admin0）と地形の到着
 	const r = await map.gadget.spotlight(Q.get("iso") || "JP", Q.get("fit") === "0" ? { fit: false } : {});
-	ok("found", !!r?.bbox, r ? `${r.name}` : "null");
+	ok("found", !!r?.bbox, r?.bbox ? r.bbox.map(v => v.toFixed(1)).join(",") : "null");
 	await new Promise(r2 => setTimeout(r2, 6000));   // 寄る（飛行）＋マスクの描画
 	mark("lit");
 	if (Q.get("fit") !== "0") ok("fit", map.getZoom() > 3, `z=${map.getZoom().toFixed(1)}`);   // 世界ビュー（z2.2）からその国まで寄った
@@ -44,7 +44,7 @@ try {
 		n++; if (b - a > 10) dim++; else if (Math.abs(b - a) <= 3) same++;
 	}
 	ok("dimmed", dim / n > 0.25, `暗くなった ${(dim / n * 100).toFixed(0)}%`);      // 国の外＝マスクが掛かる
-	ok("kept", same / n > 0.05, `素のまま ${(same / n * 100).toFixed(0)}%`);        // 国の中＝形が抜けて見える
+	ok("kept", same / n > 0.01, `素のまま ${(same / n * 100).toFixed(0)}%`);        // 国の中＝形が抜けて見える（国全体に寄ると陸は画面の数%＝閾は低め）
 	if (Q.has("keep")) { await map.gadget.spotlight(Q.get("iso") || "JP", { fit: false }); await new Promise(r2 => setTimeout(r2, 1500)); }   // ?keep=1＝最後にマスクを戻す（SHOT= で絵を見るため）
 	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + document.title.replace(/^\u2026 /, "@") + " " + (e && e.message || e); }

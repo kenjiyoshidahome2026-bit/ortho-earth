@@ -53,8 +53,22 @@ const ENGINE_STUB = `export default async function (opts) {
 	window.__engineOpts = opts;
 	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
 	el.appendChild(document.createElement("canvas"));
-	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], name: "Stub", iso2: "", clear() { window.__spotCleared = true; } }; } };
-	return { gadget, lang: opts.lang };
+	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], clear() { window.__spotCleared = true; } }; } };
+	return {
+		gadget, lang: opts.lang,
+		on() {}, fitZoomForBbox: () => 5,
+		flyTo: (lon, lat, z) => { window.__flyTo = [lon, lat, z]; },
+		// 国の中身の層＝呼ばれた事と filter だけ控える（実データは引かない）
+		addGint: () => ({ ready: Promise.resolve(), setVisible() {}, setPaint: async (paint, filter) => { (window.__paints = window.__paints || []).push(filter); } }),
+	};
+}
+// 偽の ne-cultural＝一覧が持っている国の key で「形」を 1 枚ずつ作る（世界 16MB を落とさずに殻の配線だけ検める）
+export async function geopbf() {
+	const list = ((window.world && window.world.list && window.world.list()) || []).filter(n => n && n.key);
+	const feats = list.map(n => { const c = n.coord || [0, 0];   // 形はその国の中心に置く＝寄り先の判定（中心からの距離）が実物と同じ形で通る
+		return { type: "Feature", properties: { key: n.key, layer: "admin_1" },
+			geometry: { type: "Polygon", coordinates: [[[c[0] - 1, c[1] - 1], [c[0] + 1, c[1] - 1], [c[0] + 1, c[1] + 1], [c[0] - 1, c[1] + 1], [c[0] - 1, c[1] - 1]]] } }; });
+	return { fmap: feats, unPackGint: {}, getProperties: i => feats[i].properties, getFeature: i => feats[i] };
 }`;
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
@@ -208,13 +222,15 @@ console.log("ok:modal（国旗モーダル・覆いの後片付けまで）");
 		{ bye(); fail(`実走: 地図の起動オプションが違う（${JSON.stringify(o)}）＝建物3D/前回視点/チップを持ち込まない約束`); }
 	// globe 仕様の約束（本人裁定 2026-09-23）＝地域の申告なし（日本固有の表現ゼロ）でズーム上限 8（世界データが在る所まで）
 	if (o.region !== 0 || o.zoomMax !== 8) { bye(); fail(`実走: globe 仕様になっていない（region=${o.region} zoomMax=${o.zoomMax}）`); }
-	const spot = await ev(`window.__spot && { key: __spot.src && (__spot.src.iso2 || __spot.src.key), maxZoom: __spot.opts && __spot.opts.maxZoom }`);
-	if (!spot || !spot.key) { bye(); fail("実走: spotlight に国が渡っていない（合図をそのまま渡す約束）"); }
+	// 形は world 自身のデータ（ne-cultural を key で引いたもの）を渡し、寄り先も world が決める（本人裁定 2026-09-23）
+	const spot = await ev(`window.__spot && { type: __spot.src && __spot.src.type, n: __spot.src && __spot.src.features && __spot.src.features.length, fit: __spot.opts && __spot.opts.fit, key: (__spot.src && __spot.src.features && __spot.src.features[0] || {}).properties?.key, flew: !!window.__flyTo, filters: JSON.stringify(window.__paints || []) }`);
+	if (!spot || spot.type !== "FeatureCollection" || !spot.n) { bye(); fail(`実走: spotlight に国の形が渡っていない（${JSON.stringify(spot)}）`); }
+	if (!spot.flew) { bye(); fail("実走: その国へ寄っていない（world が寄り先を決める約束）"); }
 	await ev(`document.querySelector('#world-map .close').click()`);
 	await sleep(400);
 	if (!await ev(`document.getElementById('world-map').classList.contains('hidden') && window.__spotCleared === true`))
 		{ bye(); fail("実走: 地図パネルが閉じない／マスクが外れていない"); }
-	console.log(`ok:map（${pane} / globe仕様 region=なし zoomMax=${o.zoomMax} / spotlight=${spot.key} / 閉じてマスクも外れる）`);
+	console.log(`ok:map（${pane} / globe仕様 region=なし zoomMax=${o.zoomMax} / 形=${spot.n}枚 key=${spot.key} / 寄った / 閉じてマスクも外れる）`);
 }
 
 // ── ④ 復旧: 古い版の形の IDB から起動しても自力で直る ─────────────────────

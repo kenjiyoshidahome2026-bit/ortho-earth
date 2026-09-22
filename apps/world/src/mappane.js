@@ -22,8 +22,8 @@ async function build({ lang }) {
 	const pane = document.body.appendChild(Object.assign(document.createElement("div"), { id: "world-map" }));
 	pane.innerHTML = `<div class="bar"><span class="title"></span><button type="button" class="close" aria-label="Close">✕</button></div><div class="host"></div>`;
 	const title = pane.querySelector(".title"), host = pane.querySelector(".host");
-	let open = true, spot = null, inside = null;   // 起動中も開いている扱い＝閉じられたら片付ける（inside は起動後に入る＝早い close でも TDZ にしない）
-	const hide = () => { open = false; pane.classList.add("hidden"); spot?.clear(); spot = null; inside?.clear(); };
+	let open = true, spot = null, inside = null, pending = null, pendTimer = 0, lastKey = null;   // 起動中も開いている扱い＝閉じられたら片付ける（inside は起動後に入る＝早い close でも TDZ にしない）
+	const hide = () => { open = false; pending = null; clearTimeout(pendTimer); pane.classList.add("hidden"); spot?.clear(); spot = null; inside?.clear(); };
 	pane.querySelector(".close").addEventListener("click", hide);
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && open) { e.stopPropagation(); hide(); } }, true);
 
@@ -44,17 +44,26 @@ async function build({ lang }) {
 	});
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.shot();
 	inside = countryLayers(map, engine.geopbf);   // その国の州境・道路・鉄道・市街地（ne-cultural＝equal と同じ 2 本）
+	const runPending = () => { const k = pending; pending = null; clearTimeout(pendTimer); if (k && open) inside.show(k).catch(e => console.warn("[world] 国の中身", e)); };
+	map.on("settle", runPending);   // カメラ静止の合図（飛行が終わった）
 
 	const show = async (sign = {}) => {
 		open = true; pane.classList.remove("hidden");
 		title.textContent = sign.name || sign.iso2 || sign.key || "";
-		// 合図をそのまま渡す＝ISO2/ISO3/鍵/QID/名前の順にエンジンが当てる。寄りは z6 まで＝世界の陸の色（ハイプソ）と
-		// 湖が出ている帯の内側。これを超えると日本の外は海岸線だけの白い紙になる（シンガポール/クリッパートンの轍・2026-09-23）＝
-		// 小さな国は小さく見えるが、地図としては正しい絵のまま（スポットライトが在り処を示す）。
-		spot = await map.gadget.spotlight(sign);   // 寄りは器のズーム上限（z8）に従う＝その国いっぱいに FIT する
-		if (spot?.name && !sign.name) title.textContent = spot.name;
-		if (!spot) console.warn("[world] 世界の行政界に形が無い", sign.key || sign.iso2);   // NE に無い下位地域＝地図は世界のまま（名前だけ出す）
-		if (sign.key) inside.show(sign.key).catch(e => console.warn("[world] 国の中身", e));   // 形を出した後＝待たせない（届いた順に現れる）
+		lastKey = sign.key || null;
+		// 国の形も寄り先も **world のデータ**から（本人 2026-09-23「world の DB に全てある・ISO で対応が取れる」）：
+		//   形＝ne-cultural の admin_1 を key で束ねたもの／寄り先＝NationDB の coord・area で飛び地を外した矩形。
+		// エンジンには「この形を指せ」とだけ言う（国の身分はエンジンの関知するところではない）。
+		const sh = await inside.shape(sign.key, sign.nation || {});
+		if (!sh) { console.warn("[world] 形が無い", sign.key); return; }   // 形を持たない項目＝地図は世界のまま
+		if (!open || sign.key !== lastKey) return;   // 待っている間に閉じた／別の国が押された
+		spot = await map.gadget.spotlight(sh.fc, { fit: false });
+		// 寄り先＝形の矩形。形が本体から遠い物しか無い時は NationDB の coord と area で矩形を作る（＝必ず寄る）
+		const n = sign.nation || {}, r = Math.sqrt(Math.max(1, n.area || 0) / Math.PI) / 111.32;
+		const bb = sh.bbox || (n.coord ? [n.coord[0] - r, n.coord[1] - r, n.coord[0] + r, n.coord[1] + r] : null);
+		if (bb) map.flyTo((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2, Math.min(ZMAX, map.fitZoomForBbox(bb)), 0, 0);   // 余白は fitZoomForBbox 自身が持つ（画面の 85%）
+		pending = sign.key || null;
+		clearTimeout(pendTimer); pendTimer = setTimeout(runPending, 4000);
 	};
 	return { show, hide };
 }
