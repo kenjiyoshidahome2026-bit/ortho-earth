@@ -19,6 +19,14 @@
 	<meta name="twitter:title" content="Ortho Earth — Equal to all, fair to the Earth" />
 	<meta name="twitter:description" content="This is the project for all people on the earth. The earth is round." />
 	<meta name="twitter:image" content="https://www.ortho-earth.com/og-image.jpg" />
+	<!-- 言語を最初に決める（CLS 対策）：英語以外なら辞書 /i18n/<code>.json を HTML と並行に先読みし、貼り替えが済むまで本文を隠す
+	     （html.i18n-wait・最長 1.5 秒で必ず外す）。見えない要素のずれは CLS に数えない。言語コードはビルド時に world の一覧から差し込む -->
+	<script>(()=>{try{const L="__LANG_CODES__".split(" "),R="__RTL_CODES__".split(" "),q=new URLSearchParams(location.search).get("lang"),
+	n=s=>{s=String(s||"").trim().toLowerCase();if(s==="jp")s="ja";const b=s.split(/[-_]/)[0];return L.includes(s)?s:L.includes(b)?b:null},
+	c=q?n(q):n(navigator.language);if(!c||c==="en")return;const d=document.documentElement;d.lang=c;if(R.includes(c))d.dir="rtl";
+	d.classList.add("i18n-wait");const l=document.createElement("link");l.rel="preload";l.as="fetch";l.crossOrigin="anonymous";l.href="/i18n/"+c+".json";
+	document.head.appendChild(l);setTimeout(()=>d.classList.remove("i18n-wait"),1500)}catch(e){}})()</script>
+	<style>html.i18n-wait #demoOverlay main { visibility: hidden; }</style>
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 	<link rel="apple-touch-icon" href="/favicon.svg" />
@@ -49,7 +57,7 @@
 		</nav>
 		<main class="main">
 			<!-- キャッチ＝本人の文のまま（流暢化しない・訳さない）。英語以外では下に小さく訳を添える（.motto-tr） -->
-			<h1 class="title" translate="no" dir="ltr" lang="en">Equal to all,<br><span class="highlight">fair to the Earth</span></h1>
+			<h1 class="title highlight" translate="no" dir="ltr" lang="en">Equal to all,<br>fair to the Earth</h1>
 			<p class="motto" translate="no" dir="ltr" lang="en">This is the project for all people on the earth. The earth is round.</p>
 			<p class="motto-tr" data-t="This is the project for all people on the earth. The earth is round. ##motto" hidden></p>
 			<p class="tagline" data-t="Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.">Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.</p>

@@ -1,46 +1,219 @@
 {
 	"groups": [
-		{ "id": "earth", "label": "The round Earth" },
-		{ "id": "japan", "label": "Japan's open data" },
-		{ "id": "space", "label": "Beyond the Earth" },
-		{ "id": "tools", "label": "Tools" }
+		{
+			"id": "earth",
+			"label": "The round Earth"
+		},
+		{
+			"id": "japan",
+			"label": "Japan's open data"
+		},
+		{
+			"id": "space",
+			"label": "Beyond the Earth"
+		},
+		{
+			"id": "tools",
+			"label": "Tools"
+		}
 	],
 	"demos": [
 		{
-			"id": "japan", "href": "/japan/", "group": "japan", "featured": true,
-			"title": "ortho-japan", "eyebrow": "Flagship",
-			"desc": "Japan drawn straight onto the globe from government vector tiles, with real-scale terrain and PLATEAU 3D cities that rise as you zoom.",
-			"cta": "Enter the 3D map",
-			"img": { "src": "/hero-japan.webp", "srcset": "/hero-japan-800.webp 800w, /hero-japan-1200.webp 1200w, /hero-japan.webp 1600w", "width": 1600, "height": 1000,
-				"alt": "PLATEAU 3D buildings of central Tokyo with the Rainbow Bridge, rendered from GSI vector tiles" }
+			"id": "equal",
+			"href": "/equal/",
+			"group": "earth",
+			"icon": "🗺️",
+			"title": "ortho-equal",
+			"desc": "The globe unrolls into the Equal Earth map — every country at its true size, names in 26 languages.",
+			"img": "/thumbs/equal.webp",
+			"shot": {
+				"wait": 10
+			}
 		},
-		{ "id": "equal", "href": "/equal/", "group": "earth", "icon": "🗺️", "title": "ortho-equal",
-			"desc": "The globe unrolls into the Equal Earth map — every country at its true size, names in 26 languages." },
-		{ "id": "quakes", "href": "/japan/quakes", "group": "earth", "icon": "🌋", "title": "World earthquakes",
-			"desc": "Earthquakes from USGS, month by month, above and below the surface of the globe." },
-		{ "id": "sats", "href": "/japan/sats", "group": "earth", "icon": "🛰️", "title": "Satellites in orbit now",
-			"desc": "Satellites computed from their orbits in your browser, moving in the same frame as the Earth." },
-		{ "id": "tellus", "href": "/japan/tellus", "group": "earth", "icon": "📡", "title": "Tellus satellite data",
-			"desc": "Radar and optical satellite images from Tellus, laid on the 3D globe." },
-		{ "id": "world", "href": "/world/", "group": "earth", "icon": "🏳️", "title": "Nations of the World",
-			"desc": "A card for every country — flag, outline and basic facts." },
-		{ "id": "nl", "href": "/nl/", "group": "earth", "icon": "🇳🇱", "title": "ortho-nl",
-			"desc": "The same engine in another country: the Netherlands and its 3DBAG buildings." },
-		{ "id": "models", "href": "/japan/models", "group": "japan", "icon": "🗼", "title": "Landmarks in 3D",
-			"desc": "Tokyo Tower and other landmarks as PLATEAU LOD3 models, placed on the globe." },
-		{ "id": "census2020", "href": "/japan/census2020/", "group": "japan", "icon": "📊", "title": "census2020",
-			"desc": "Japan's 2020 census on the globe — small areas, disaster risk and land parcels." },
-		{ "id": "gishub-jp", "href": "/gishub-jp/", "group": "japan", "icon": "🗾", "title": "Japan's open GIS data",
-			"desc": "Open data from Japan's ministries — cadastral maps, census small areas, national land data — to view and convert." },
-		{ "id": "solar", "href": "/solar/", "group": "space", "icon": "🪐", "title": "ortho-solar",
-			"desc": "The Solar System around the Sun, with the planets and their moons where they are now." },
-		{ "id": "geopbf", "href": "/geopbf/", "group": "tools", "icon": "🔁", "title": "GeoPBF",
-			"desc": "Drop a GIS file, check it on the globe, write it in another format — 18 formats in, 14 out. The file never leaves your machine." },
-		{ "id": "geoedit", "href": "/japan/geoedit", "group": "tools", "icon": "✏️", "title": "geoedit",
-			"desc": "Draw and edit shapes on the globe, and save them as GeoPBF." },
-		{ "id": "scene", "href": "/japan/scene", "group": "tools", "icon": "🎥", "title": "Scenes editor",
-			"desc": "Make a camera tour of the globe and record it as a video." },
-		{ "id": "maps", "href": "/maps/", "group": "tools", "icon": "📚", "title": "Maps",
-			"desc": "Maps people published from their own GitHub — open them on the globe." }
+		{
+			"id": "quakes",
+			"href": "/japan/quakes",
+			"group": "earth",
+			"icon": "🌋",
+			"title": "World earthquakes",
+			"desc": "Earthquakes from USGS, month by month, above and below the surface of the globe.",
+			"img": "/thumbs/quakes.webp",
+			"shot": {
+				"wait": 18
+			}
+		},
+		{
+			"id": "sats",
+			"href": "/japan/sats",
+			"group": "earth",
+			"icon": "🛰️",
+			"title": "Satellites in orbit now",
+			"desc": "Satellites computed from their orbits in your browser, moving in the same frame as the Earth.",
+			"img": "/thumbs/sats.webp",
+			"shot": {
+				"wait": 15
+			}
+		},
+		{
+			"id": "tellus",
+			"href": "/japan/tellus",
+			"group": "earth",
+			"icon": "📡",
+			"title": "Tellus satellite data",
+			"desc": "Radar and optical satellite images from Tellus, laid on the 3D globe.",
+			"img": "/thumbs/tellus.webp",
+			"shot": {
+				"wait": 18
+			}
+		},
+		{
+			"id": "world",
+			"href": "/world/",
+			"group": "earth",
+			"icon": "🏳️",
+			"title": "Nations of the World",
+			"desc": "A card for every country — flag, outline and basic facts.",
+			"img": "/thumbs/world.webp",
+			"shot": {
+				"wait": 8
+			}
+		},
+		{
+			"id": "nl",
+			"href": "/nl/",
+			"group": "earth",
+			"icon": "🇳🇱",
+			"title": "ortho-nl",
+			"desc": "The same engine in another country: the Netherlands and its 3DBAG buildings.",
+			"img": "/thumbs/nl.webp",
+			"shot": {
+				"wait": 25,
+				"eval": "document.getElementById('net-toast')?.remove()"
+			}
+		},
+		{
+			"id": "japan",
+			"href": "/japan/",
+			"group": "japan",
+			"icon": "🗾",
+			"title": "ortho-japan",
+			"desc": "Japan drawn straight onto the globe from government vector tiles, with real-scale terrain and PLATEAU 3D cities that rise as you zoom.",
+			"img": "/thumbs/japan.webp",
+			"shot": {
+				"from": "public/hero-japan-800.webp"
+			}
+		},
+		{
+			"id": "japan-demo",
+			"href": "/japan/?demo=1",
+			"group": "japan",
+			"icon": "▶️",
+			"title": "japan-demo",
+			"desc": "The demo tour of Japan starts by itself — from the whole Earth down to 3D Tokyo.",
+			"img": "/thumbs/japan-demo.webp",
+			"shot": {
+				"url": "/japan/?demo=1",
+				"wait": 10,
+				"eval": "document.getElementById('demo-play')?.getAttribute('aria-pressed')==='true' && document.getElementById('demo-play').click(); [...document.querySelectorAll('#demo-bar button[data-i]')].find(b=>/Mt\\. Fuji/.test(b.textContent))?.click()",
+				"after": 30
+			}
+		},
+		{
+			"id": "models",
+			"href": "/japan/models",
+			"group": "japan",
+			"icon": "🗼",
+			"title": "Landmarks in 3D",
+			"desc": "Tokyo Tower and other landmarks as PLATEAU LOD3 models, placed on the globe.",
+			"img": "/thumbs/models.webp",
+			"shot": {
+				"wait": 22
+			}
+		},
+		{
+			"id": "census2020",
+			"href": "/japan/census2020/",
+			"group": "japan",
+			"icon": "📊",
+			"title": "census2020",
+			"desc": "Japan's 2020 census on the globe — small areas, disaster risk and land parcels.",
+			"img": "/thumbs/census2020.webp",
+			"shot": {
+				"wait": 18
+			}
+		},
+		{
+			"id": "gishub-jp",
+			"href": "/gishub-jp/",
+			"group": "japan",
+			"icon": "🗾",
+			"title": "Japan's open GIS data",
+			"desc": "Open data from Japan's ministries — cadastral maps, census small areas, national land data — to view and convert.",
+			"img": "/thumbs/gishub-jp.webp",
+			"shot": {
+				"wait": 6
+			}
+		},
+		{
+			"id": "solar",
+			"href": "/solar/",
+			"group": "space",
+			"icon": "🪐",
+			"title": "ortho-solar",
+			"desc": "The Solar System around the Sun, with the planets and their moons where they are now.",
+			"img": "/thumbs/solar.webp",
+			"shot": {
+				"wait": 12
+			}
+		},
+		{
+			"id": "geopbf",
+			"href": "/geopbf/",
+			"group": "tools",
+			"icon": "🔁",
+			"title": "GeoPBF",
+			"desc": "Drop a GIS file, check it on the globe, write it in another format — 18 formats in, 14 out. The file never leaves your machine.",
+			"img": "/thumbs/geopbf.webp",
+			"shot": {
+				"wait": 6
+			}
+		},
+		{
+			"id": "geoedit",
+			"href": "/japan/geoedit",
+			"group": "tools",
+			"icon": "✏️",
+			"title": "geoedit",
+			"desc": "Draw and edit shapes on the globe, and save them as GeoPBF.",
+			"img": "/thumbs/geoedit.webp",
+			"shot": {
+				"wait": 12
+			}
+		},
+		{
+			"id": "scene",
+			"href": "/japan/scene",
+			"group": "tools",
+			"icon": "🎥",
+			"title": "Scenes editor",
+			"desc": "Make a camera tour of the globe and record it as a video.",
+			"img": "/thumbs/scene.webp",
+			"shot": {
+				"wait": 12,
+				"eval": "document.querySelector('#sc-start button[data-f=\"16:9\"]')?.click()"
+			}
+		},
+		{
+			"id": "maps",
+			"href": "/maps/",
+			"group": "tools",
+			"icon": "📚",
+			"title": "Maps",
+			"desc": "Maps people published from their own GitHub — open them on the globe.",
+			"img": "/thumbs/maps.webp",
+			"shot": {
+				"wait": 6
+			}
+		}
 	]
 }

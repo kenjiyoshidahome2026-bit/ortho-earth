@@ -160,3 +160,8 @@ body #demoOverlay main .apps.tech .tech-lead { grid-column: 1 / -1; font-size: 1
 	body #demoOverlay nav .links select.lang { max-width: 6.5rem; margin-inline-start: .6rem; }
 	body #demoOverlay main .grid { grid-template-columns: 1fr; }
 }
+/* デモの画像（全カード・9/22 本人「全てのデモに画像を」）＝カード上端いっぱい・16:10 */
+body #demoOverlay main .grid .card { padding: 0 0 1rem; overflow: hidden; }
+body #demoOverlay main .grid .card .card-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: #0d0d12; margin-bottom: .8rem; border-bottom: 1px solid var(--glass-border); }
+body #demoOverlay main .grid .card > :not(.card-thumb) { margin-inline: 1.15rem; }
+body #demoOverlay main .grid .card .card-cta { margin-inline-end: 1.15rem; }

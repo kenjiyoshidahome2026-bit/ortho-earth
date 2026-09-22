@@ -24,6 +24,7 @@ function propagate(lang) {
 	const asked = norm(new URLSearchParams(location.search).get("lang"));
 	await setLang(asked || norm(navigator.language) || "en");
 	relabel();
+	document.documentElement.classList.remove("i18n-wait");   // 先頭のスクリプトが隠した本文を、貼り替えが済んだ所で出す
 	if (asked) propagate(asked);
 	const sel = document.querySelector("select.lang");
 	for (const l of LANGUAGES) sel.append(new Option(l.name, l.code));
