@@ -83,7 +83,7 @@ export function countryLayers(map, geopbf) {
 		// カメラが動いている間、gint はポリゴンを「単色のベタ塗り」に落とす（fid 別の塗りは止まる）。その色が既定スタイル
 		// （#FF6B35＝オレンジ）で、しかも filter を見ない＝遷移中に全世界の面がオレンジに塗られる（本人指摘 2026-09-23）。
 		// 層の fillColor を透明にすると、この単色塗りだけが消え、静止時の fid 別の塗り（市街地・係争地）は残る。
-		h?.style({ fillColor: [0, 0, 0, 0] });
+		h?.style?.({ fillColor: [0, 0, 0, 0] });   // 口の無い版（古い SDK・検定の偽エンジン）は素通り
 		return layer[g] = h;
 	};
 	// equal の層定義（countries の admin1 線・disputed の薄い塗り＋線・urban の塗り・roads/rail の線）をそのまま式に写す
