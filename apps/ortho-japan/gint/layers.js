@@ -742,7 +742,10 @@ dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印
 return {
 	// 動詞
 	applyGintData, clearUserGint, addGint, queryAllGint, standupGint, paintGint, sendGintPaint, fitZoomForBbox, gintFidFeatures, updateGintSlot,
-	ensureAdmin0: async (res = LOW_MEM ? "50m" : "10m") => { await loadAdmin0(res); return admin0Pbf; },   // 世界の国の形を用意して原本を返す（スポットライト＝国を指す口が使う・2026-09-23） admin0DrawStyle,
+	// 世界の国の形を用意して原本を返す（スポットライト／輪郭＝国を指す口が使う・2026-09-23）。既定＝**今載っている解像度**（無ければ 50m）＝
+	// 指す口のために 10m を新たに読み込まない（旧＝既定 10m で、他国 hover のたびに 10m へ差し替わり毎フレームの gint が重くなって
+	// 動的解像度が降段した・本人指摘 2026-09-23）。細密版へは updateGintSlot の梯子（z≥7）が従来どおり上げる
+	ensureAdmin0: async (res = admin0Res || "50m") => { await loadAdmin0(res); return admin0Pbf; }, admin0DrawStyle,
 	// 定数
 	ADMIN0_Z, WORLD_TIP_MAXZ,
 	// 状態のアクセサ（外が読む／書く。移設前の let と同じ意味）
