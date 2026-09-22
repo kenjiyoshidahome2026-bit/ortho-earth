@@ -95,28 +95,69 @@ export function placeholder(catalog) {
             </section>
 
             <section class="ph-section">
-                <h3 class="ph-section-title">GeoPBF と Gint</h3>
-                <div class="ph-geopbf">
-                    <div class="ph-geopbf-text">
-                        <p>
-                            <strong>GeoPBF</strong> は保存・配布・変換のための<strong>ファイル形式</strong>、
-                            <strong>Gint</strong> は地球に描くための<strong>描画の形</strong>です。
-                        </p>
-                        <p>
-                            国が配布する Shapefile・GeoJSON などをブラウザの中で GeoPBF に変換し、
-                            そこから Gint（GPU がそのまま読める頂点の並び）を組み立てて、WebGPU / WebGL2 で描きます。
-                            書き出し（GeoJSON・Shapefile・KML など）は GeoPBF から行います。
-                        </p>
-                    </div>
-                    <ul class="ph-feat-list">
-                        <li><span class="ph-feat-ic">▸</span><span><strong>GeoPBF：小さい</strong> — 座標を整数格子上の差分（デルタ）＋ Varint で符号化。gzip どうしで比べて GeoJSON の約 1/2〜1/4</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>GeoPBF：変換の中継点</strong> — 属性名はファイル全体で 1 つの辞書（KEYS）。GeoJSON・Shapefile・GML・KML・FlatGeobuf などと相互に変換</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：動的 LOD</strong> — 各頂点に Visvalingam–Whyatt の重要度を持たせ、ズームに応じた頂点の間引きを GPU の頂点シェーダで行う。ズームしても取り直しなし</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：位相</strong> — 隣り合うポリゴンの共有境界（arc）を 1 本にまとめる。境界線を二重に描かず、すき間も生じない</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：識別</strong> — クリックした地点の地物を Gint の形から引き、GeoPBF の属性を表示</span></li>
-                        <li><span> 詳しい技術内容は、技術ドキュメントを参考にしてください。</span></li>
-                    </ul>
+                <h3 class="ph-section-title">GeoPBF とは</h3>
+                <div class="ph-text">
+                    <p>
+                        <strong>GeoPBF</strong> は、地理データ（点・線・面とその属性）をブラウザで扱うためのバイナリのファイル形式です。
+                        Protocol Buffers（Google が作ったデータの符号化方式）の書き方で GeoJSON と同じ中身を詰め、小さく・速く読めるようにしています。
+                        MIT ライセンスで公開しており、npm の <code>geopbf</code> パッケージで誰でも使えます。
+                    </p>
+                    <p>この地図では、配布元の Shapefile や GeoJSON をブラウザの中でいったん GeoPBF に変換し、描画・属性の表示・書き出しのすべてをそこから行います。</p>
                 </div>
+
+                <h4 class="ph-sub-title">ファイルの中身</h4>
+                <table class="ph-spec">
+                    <tr><th>ヘッダ</th><td>名前・説明・ライセンス・出典・座標の精度・<strong>属性名の辞書（KEYS）</strong>。本体を作り直さずに書き換えられる</td></tr>
+                    <tr><th>地物の並び</th><td>地物ごとに「形の種類（点／線／面／マルチ）・頂点数・座標列」と「属性（辞書の番号＋値）」</td></tr>
+                    <tr><th>属性の型</th><td>文字列・整数・小数・真偽・日付・色・JSON・画像など。値ごとに型を付けて保存する</td></tr>
+                </table>
+
+                <h4 class="ph-sub-title">小さくする仕組み</h4>
+                <div class="ph-text">
+                    <p>
+                        座標は小数の文字列ではなく、<strong>精度を決めた整数</strong>（この地図の既定は 10<sup>−6</sup> 度≒ 0.1 m、登記所備付地図は 10<sup>−7</sup> 度）にしたうえで、
+                        <strong>一つ前の頂点との差（デルタ）</strong>だけを記録します。隣り合う頂点の差は小さな数なので、
+                        小さな数ほど短いバイト数で書ける <strong>Varint</strong> で 1〜2 バイトに収まります。
+                        属性名は地物ごとに繰り返さず、ヘッダの辞書の番号で指します。
+                    </p>
+                </div>
+                <div class="ph-code">経度 139.740000 → 139740000 → そのまま記録
+経度 139.741230 → 139741230 → 差 +1230 だけ記録（2 バイト）
+経度 139.742460 → 139742460 → 差 +1230 だけ記録（2 バイト）</div>
+                <div class="ph-text">
+                    <p>
+                        実測（国土数値情報 N03 2026 全国市区町村界・12.5 万地物・1,567 万頂点）：
+                        GeoJSON 579.6 MB → <strong>GeoPBF 48.6 MB</strong>。配布時の gzip どうしでは 138.6 MB → <strong>34.4 MB</strong>（約 1/4）。
+                    </p>
+                </div>
+
+                <h4 class="ph-sub-title">変換の中継点</h4>
+                <div class="ph-text">
+                    <p>
+                        GeoPBF のライブラリは、GeoJSON・Shapefile（zip）・KML／KMZ・GML・GPX・FlatGeobuf・TopoJSON・GeoParquet・登記所備付地図（法務省 XML）などを読み、
+                        GeoJSON・Shapefile・KML／KMZ・GML・GPX・FlatGeobuf・TopoJSON・GeoParquet・PMTiles などへ書き出します。
+                        GeoPBF を真ん中に置くので、どの形式からどの形式へも 1 回の変換で移れます。形式は拡張子と中身の先頭から自動で判定します。
+                        この画面の書き出しは GeoPBF・GeoJSON・TopoJSON・FlatGeobuf・Shapefile・KMZ／KML・GML・GPX と、属性一覧からの CSV／Excel です。
+                    </p>
+                    <p>
+                        登記所備付地図は平面直角座標系（19 系）で配られているため、読み込み時に経緯度へ直します。
+                        また経度 ±180°（日付変更線）をまたぐ形は、格納時に球面上の正確な交点で切り分けます。
+                    </p>
+                </div>
+            </section>
+
+            <section class="ph-section">
+                <h3 class="ph-section-title">Gint とは（描画）</h3>
+                <div class="ph-text">
+                    <p>
+                        地球に描いているのは <strong>Gint</strong> です。GeoPBF からブラウザの中で組み立てる、GPU（WebGPU / WebGL2）がそのまま読める頂点の並びで、次のことを受け持ちます。
+                    </p>
+                </div>
+                <ul class="ph-feat-list">
+                    <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — 各頂点に Visvalingam–Whyatt の重要度を持たせ、ズームに応じた頂点の間引きを GPU の頂点シェーダで行う。ズームしても取り直しなし</span></li>
+                    <li><span class="ph-feat-ic">▸</span><span><strong>位相</strong> — 隣り合うポリゴンの共有境界（arc）を 1 本にまとめる。境界線を二重に描かず、すき間も生じない</span></li>
+                    <li><span class="ph-feat-ic">▸</span><span><strong>識別</strong> — クリックした地点の地物を Gint の形から引き、GeoPBF の属性を表示</span></li>
+                </ul>
                 <div class="ph-doc-links">
                     <span class="ph-doc-label">技術ドキュメント</span>
                     <a href="/docs/geopbf-jp.html" target="_blank" rel="noopener">GeoPBF 仕様</a>
@@ -131,10 +172,6 @@ export function placeholder(catalog) {
                 <p class="ph-howto">上のカードか左の一覧からデータセットを選び、市区町村やファイルを選んでください。読み込むと属性の一覧・各種 GIS 形式への書き出し・地球への描画ができます。地図は × ・ Esc ・ブラウザの「戻る」で閉じます。</p>
             </section>
 
-            <div class="ph-closing">
-                GeoPBF は生まれたてのテクノロジーです。バグや改善点があればぜひ教えてください。多くの方の参加と協力をお待ちしています。
-                <div class="ph-author">Kenji Yoshida @ Yokohama &nbsp;·&nbsp; <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues" target="_blank" rel="noopener">GitHub Issues</a></div>
-            </div>
 
         </div>
     `;
