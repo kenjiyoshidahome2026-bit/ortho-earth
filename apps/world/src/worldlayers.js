@@ -11,7 +11,7 @@ import { gunzip, isGzip } from "geopbf/gzip";   // bucket は圧縮して置く�
 
 // 色＝equal の PALETTE / labelColor（apps/equal/src/layers.js・themes.js mono）と同じ顔＝2 つのアプリで同じ世界に見える
 const C = { admin1: "rgba(169,156,178,0.45)", admin1Fill: "rgba(169,156,178,0.14)", disputed: "rgba(154,110,144,0.28)", disputedLine: "rgba(138,95,128,0.9)",
-	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.5)", city: "#2b3b57", capital: "#c8443c", halo: "rgba(255,255,255,0.88)", airport: "#6a3d9a" };
+	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.4)", city: "#2b3b57", capital: "#c8443c", halo: "rgba(255,255,255,0.88)", airport: "#6a3d9a" };
 const LINES_Z = 5;   // 道路・鉄道を出すズーム（equal の roads/rail minZoom と同値）
 
 // 都市名（equal と同じ出所の順・言語ごと）：ja＝配信 geopbf の NAME_JA（「〜市」族を落とす）／en＝NAME_EN／
@@ -67,6 +67,29 @@ const nearBbox = (feats, coord, area) => {
 	return x0 <= x1 ? [x0, y0, x1, y1] : null;
 };
 
+// 面の頂点を一度だけ間引く（Douglas–Peucker・度）。canvas2D は毎フレーム全頂点を投影する＝大国の州（NE 10m で数十万頂点）を
+// そのまま描かない。薄い塗りなので z8（1px≈0.0055°）で見えない差＝tol 0.006°。
+const simplify = (ring, tol) => {
+	if (ring.length <= 4) return ring;
+	const keep = new Uint8Array(ring.length); keep[0] = keep[ring.length - 1] = 1;
+	const stack = [[0, ring.length - 1]];
+	while (stack.length) {
+		const [a, b] = stack.pop(); if (b - a < 2) continue;
+		const [ax, ay] = ring[a], [bx, by] = ring[b], dx = bx - ax, dy = by - ay, L = dx * dx + dy * dy;
+		let best = -1, bi = -1;
+		for (let i = a + 1; i < b; i++) {
+			const [px, py] = ring[i];
+			const d = L ? Math.abs((px - ax) * dy - (py - ay) * dx) / Math.sqrt(L) : Math.hypot(px - ax, py - ay);
+			if (d > best) { best = d; bi = i; }
+		}
+		if (best > tol) { keep[bi] = 1; stack.push([a, bi], [bi, b]); }
+	}
+	const out = []; for (let i = 0; i < ring.length; i++) if (keep[i]) out.push(ring[i]);
+	return out.length >= 4 ? out : ring;
+};
+const simplifyGeom = (g, tol) => g.type === "Polygon" ? { type: "Polygon", coordinates: g.coordinates.map(r => simplify(r, tol)) }
+	: g.type === "MultiPolygon" ? { type: "MultiPolygon", coordinates: g.coordinates.map(poly => poly.map(r => simplify(r, tol))) } : g;
+
 /** 国の形（スポットライトへ渡す）と中身（州境・道路・鉄道・市街地）。shape(key,nation) / show(key) / clear() */
 export function countryLayers(map, geopbf) {
 	if (!geopbf || !map.addGint) return { shape: async () => null, show: async () => {}, clear: () => {} };   // 古いエンジン＝静かに何もしない
@@ -85,7 +108,7 @@ export function countryLayers(map, geopbf) {
 		if (!pbf) return null;
 		held[g] = pbf;
 		// fillMaxEdges＝面を塗る上限（市街地の塗りが要る detail だけ開ける）。interactive:false＝識別はスポットライトの領分
-		const h = map.addGint(pbf, { order: g === "base" ? -6 : -5, interactive: false, minZoom: g === "base" ? 2.5 : LINES_Z });
+		const h = map.addGint(pbf, { order: g === "base" ? -6 : -5, interactive: false, minZoom: g === "base" ? 2.5 : LINES_Z, fillMaxEdges: 0 });   // 線だけ（面は anno）
 		h?.setVisible(false);   // 国で絞るまで出さない＝焼き上がり直後の 1 枚で他国の市街地が閃くのを断つ
 		// カメラが動いている間、gint はポリゴンを「単色のベタ塗り」に落とす（fid 別の塗りは止まる）。その色が既定スタイル
 		// （#FF6B35＝オレンジ）で、しかも filter を見ない＝遷移中に全世界の面がオレンジに塗られる（本人指摘 2026-09-23）。
@@ -93,13 +116,12 @@ export function countryLayers(map, geopbf) {
 		h?.style?.({ fillColor: [0, 0, 0, 0] });   // 口の無い版（古い SDK・検定の偽エンジン）は素通り
 		return layer[g] = h;
 	};
-	// equal の層定義（countries の admin1 線・disputed の薄い塗り＋線・urban の塗り・roads/rail の線）をそのまま式に写す
+	// 線は gint（州境・係争地の線・道路・鉄道）。**面は gint に塗らせない**（本人裁定 2026-09-23「1 で」）＝gint の fid 別の塗りは
+	// カメラ移動中に止まる設計＝面が消える。面（州の薄い色・係争地・市街地）は anno（同一フレームの canvas2D）が毎フレーム塗る＝fills()
 	const paintOf = g => g === "base"
-		? { "fill-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputed, C.admin1Fill],   // 係争主体＝薄く重ねる・州＝常時薄い色（本人 2026-09-23）
-			"line-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputedLine, C.admin1],
+		? { "line-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputedLine, C.admin1],
 			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.8, 0.5] }
-		: { "fill-color": ["case", ["==", ["get", "layer"], "urban_areas"], C.urban, "rgba(0,0,0,0)"],   // 市街地だけ塗る
-			"line-color": ["match", ["get", "layer"], "roads", C.road, "railroads", C.rail, "rgba(0,0,0,0)"],
+		: { "line-color": ["match", ["get", "layer"], "roads", C.road, "railroads", C.rail, "rgba(0,0,0,0)"],
 			"line-width": 0.8 };
 	const filterOf = g => g === "base"
 		? ["all", ["==", ["get", "key"], key], ["match", ["get", "layer"], ["admin_1", "admin_0"], true, false]]
@@ -153,7 +175,20 @@ export function countryLayers(map, geopbf) {
 				if (k !== key) return;   // 待っている間に別の国が押された＝古い方は出さない
 				h.setVisible(true);      // 絞り終えてから出す
 			}
+			await this.fills(k);
 			await this.airports(k);
+		},
+		/** 面（州の薄い色・係争地・市街地）＝anno（同一フレームの canvas2D）が毎フレーム塗る＝カメラ移動中も消えない（本人裁定 2026-09-23「1 で」） */
+		async fills(k) {
+			const feats = [], TOL = 0.006;
+			const take = (pbf, want) => { const n = pbf?.fmap?.length ?? 0; for (let i = 0; i < n; i++) {
+				const p = pbf.getProperties(i) || {}; const fill = p.key === k ? want[p.layer] : null; if (!fill) continue;
+				const f = pbf.getFeature(i); const g = f?.geometry; if (!g || (g.type !== "Polygon" && g.type !== "MultiPolygon")) continue;
+				feats.push({ type: "Feature", geometry: simplifyGeom(g, TOL), properties: { "@fill": fill, "@stroke": "rgba(0,0,0,0)", "@width": 0.01 } }); } };   // 線は gint＝anno の輪郭は透明
+			take(held.base, { admin_1: C.admin1Fill, admin_0: C.disputed });
+			take(held.detail, { urban_areas: C.urban });
+			if (k !== key) return;
+			await map.gadget.anno({ features: feats });
 		},
 		/** 空港＝✈ の記号だけ（名前は出さない・z>5・大ハブほど先＝equal の airportLabels と同じ）。detail に airports が無い焼き（旧）なら何も出ない */
 		async airports(k) {
@@ -179,6 +214,6 @@ export function countryLayers(map, geopbf) {
 		},
 		/** base の 1 地物の形（ホバーの輪郭に渡す） */
 		geometry(fid) { const pbf = held.base; try { return pbf?.getFeature(fid)?.geometry || null; } catch { return null; } },
-		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.symbols(null, { id: "world-cities" }); map.gadget.symbols(null, { id: "world-airports" }); },
+		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.anno(null); map.gadget.symbols(null, { id: "world-cities" }); map.gadget.symbols(null, { id: "world-airports" }); },
 	};
 }
