@@ -9,6 +9,9 @@
  * @param {Function}      [opts.onSuccess]- callback(pbf, { previewCanvas, profileHtml, logger })
  * @param {Function}      [opts.onError]  - callback(err, { logger, info })
  */
+// URL の %E5%8D%83… を読める字に戻す（表示専用・壊れた符号はそのまま）
+const readable = s => { try { return decodeURI(String(s ?? "")); } catch { return String(s ?? ""); } };
+
 export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, onError } = {}) {
 	const def = { target:"", name:"", precision:6, license:"", description:"", attribution:"", link:"", nocache:false, format:"" };
 	const { target, name, precision, license, description, attribution, link, nocache, format } =
@@ -27,7 +30,8 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 				: null);
 		const cached = cacheKey && !nocache && cache && await cache(cacheKey).catch(() => null);
 
-		p = logger?.log(`Requesting: ${target.name || target} <span class="cancel">cancel</span>`);
+		const shown = readable(target.name || target).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");   // %E5… を読める字で・html へ流すのでエスケープ
+		p = logger?.log(`Requesting: ${shown} <span class="cancel">cancel</span>`);
 		const cancel = p?.select?.("span").hide().on("click", () => location.reload());
 		setTimeout(() => inExec && cancel?.show?.(), 1000);
 

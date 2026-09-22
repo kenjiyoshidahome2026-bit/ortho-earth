@@ -38,7 +38,7 @@ function maffCityItemHtml(city) {
             <span class="moj-city-code">${escHtml(city.code)}</span>
             <span class="moj-city-name">${escHtml(city.name)}</span>
             <span class="moj-city-file">${escHtml(city.year)}年度${sizeBadge}</span>
-            <span class="badge fmt-geojson">GeoJSON</span>
+            <span class="badge fmt-pbf">GeoPBF</span>
         </div>
     `;
 }
