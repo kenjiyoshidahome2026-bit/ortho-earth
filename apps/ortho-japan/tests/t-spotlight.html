@@ -12,14 +12,16 @@ const mark = s => { document.title = "… " + s; };
 const Q = new URLSearchParams(location.search);
 try {
 	mark("boot");
-	const map = await orthoJapan({ target: "#map", view: "#2.2/20/140", mesh: false, chips: false });
+	// ?globe=1＝地域の申告なし（world の国の地図と同じ globe 仕様）＝日本の基図が来ない・ハイプソが上限まで
+	const map = await orthoJapan({ target: "#map", view: Q.get("v") || "#2.2/20/140", mesh: false, chips: false,
+		...(Q.get("globe") === "1" ? { region: [], zoomMax: 8 } : {}) });   // ?v=＝視点を固定（?fit=0 と対で「裏側に punch しないか」を見る）
 	mark("booted");
 	await new Promise(r => setTimeout(r, 9000));   // 世界の国の形（admin0）と地形の到着
-	const r = await map.gadget.spotlight(Q.get("iso") || "JP");
+	const r = await map.gadget.spotlight(Q.get("iso") || "JP", Q.get("fit") === "0" ? { fit: false } : {});
 	ok("found", !!r?.bbox, r ? `${r.name}` : "null");
 	await new Promise(r2 => setTimeout(r2, 6000));   // 寄る（飛行）＋マスクの描画
 	mark("lit");
-	ok("fit", map.getZoom() > 3, `z=${map.getZoom().toFixed(1)}`);   // 世界ビュー（z2.2）からその国まで寄った
+	if (Q.get("fit") !== "0") ok("fit", map.getZoom() > 3, `z=${map.getZoom().toFixed(1)}`);   // 世界ビュー（z2.2）からその国まで寄った
 	const shot = map.gadget.shot();   // 控え＝二度目の map.gadget.shot() はボタン既設で undefined を返す（スタブの「二重搭載は無害」）
 	const grab = async () => {   // 今の画面を 1 枚（カメラは動かさない＝マスクの有無だけが差になる）
 		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);

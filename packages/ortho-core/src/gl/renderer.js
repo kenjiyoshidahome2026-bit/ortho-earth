@@ -847,16 +847,22 @@ export function createRenderer(canvas, rOpts = {}) {
 	function drawOne(o, st, dpr, land) {
 		if (!o) return;
 		if (o.fanCount) {   // 面がある時だけ stencil 塗り（純線オーバーレイ＝N02 は面ゼロでも線を描く）
-			// stencil パス：fan を巻き数へ（色は書かない・FRONT+1/BACK-1、球の前後半球も相殺）
-			gl.enable(gl.STENCIL_TEST);
-			gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
-			gl.colorMask(false, false, false, false);
-			gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
-			gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
-			gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
-			setCommonUniforms(stencilProg, st, o.origin, land);
-			gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（面の stencil 位置）
-			gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+			// 地球規模の地物（国＝スポットライト）は wdepr/lakes と同じ球体カリングへ回す＝裏半球の地物が
+			// 手前へ punch する（球の向こうの国の形が抜けて見える）のを断つ。シーンが feats（feature毎レンジ＋
+			// 外接円＝buildGeoJSONOverlay {ranges:true}）を持っている時だけ＝従来の局所ポリゴンは素通り（2026-09-23）。
+			if (o.feats) stencilWorldFan(o, st, land);
+			else {
+				// stencil パス：fan を巻き数へ（色は書かない・FRONT+1/BACK-1、球の前後半球も相殺）
+				gl.enable(gl.STENCIL_TEST);
+				gl.clearStencil(0); gl.clear(gl.STENCIL_BUFFER_BIT);
+				gl.colorMask(false, false, false, false);
+				gl.stencilMask(0xFF); gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+				gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
+				gl.stencilOpSeparate(gl.BACK, gl.KEEP, gl.KEEP, gl.DECR_WRAP);
+				setCommonUniforms(stencilProg, st, o.origin, land);
+				gl.uniform1f(loc(gl, stencilProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（面の stencil 位置）
+				gl.bindVertexArray(o.fanVao); gl.drawArrays(gl.TRIANGLES, 0, o.fanCount);
+			}
 			// cover パス：通常＝stencil≠0(内側)を塗り0へ戻す／o.mask＝stencil==0(外側)を暗く塗り→内側stencilは後始末
 			gl.colorMask(true, true, true, true);
 			gl.useProgram(coverProg);
@@ -1034,7 +1040,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
 		// 全球ハイプソの出現度（globe パスと terrain パスが共有＝ピッチで色が変わらない）。z5.7→6.5 でフェードアウト
 		// ＝R90 全球窓の限界（z6.5 でアトラスがビュー窓へ切替）に着地し、そこで基図（BASEMAP_MINZOOM=6.5）と交代
-		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
+		// 世界ハイプソの退場ズーム＝地域の基図が入場する所（日本＝6.5）。view.worldHypsoZ で動かせる＝
+		// 地域の申告が無い器（apps/world の国の地図＝globe 仕様）は基図が来ない＝最後まで世界の色で描く（2026-09-23）。
+		const whZ = view.worldHypsoZ ?? 6.5;
+		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
 		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has && !gnd.rasterOn;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
@@ -1378,7 +1387,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 10度レチクル（view.graticule・v1「地図の上に Canvas2D で重ねる」と同じ最前面・ラベルの下）：
 		// z1.7→2.2 で出現（v1 borders minZoom2）・z6.0→6.5 で退場（基図=日本帯へ委ねる）。白の細線＝v1と同じ。
 		if (view.graticule && !flat2d) {
-			const gratA = Math.max(0, Math.min(1, ((cam.zoom || 0) - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - (cam.zoom || 0)) / 0.5)) * 0.5;
+			const gratA = Math.max(0, Math.min(1, ((cam.zoom || 0) - 1.7) / 0.5)) * Math.max(0, Math.min(1, ((view.worldHypsoZ ?? 6.5) - (cam.zoom || 0)) / 0.5)) * 0.5;   // 罫線もハイプソと同じ帯で退場
 			if (gratA > 0.003) {
 				gl.useProgram(gratProg);
 				gl.uniformMatrix4fv(loc(gl, gratProg, "u_invMvp"), false, Float32Array.from(st.invMvp));

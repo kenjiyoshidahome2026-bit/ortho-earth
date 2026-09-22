@@ -476,7 +476,7 @@ function queryAllGint(ll) {
 let admin0Layer = null;   // 独立層ハンドル
 let admin0Vis = true;     // 独立層の表示台帳（変更時だけ post＝毎フレーム送らない）
 const USER_GINT_MINZ = 7;
-const WORLD_BAND_Z = 6.5;    // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値）
+const WORLD_BAND_Z = env.worldBandZ ?? 6.5;   // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値＝地域の申告が無い器は上限まで）
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 const WORLD_ADMIN0_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
 const WORLD_TIP_MAXZ = 5.5;     // 国名ホバー tip の上限＝これ以上は出さない・跨いだら消す（本人裁定 2026-09-02「z>5.5で消して」＝基図接近帯は注記の領分）

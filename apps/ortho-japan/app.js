@@ -101,9 +101,14 @@ export default async function orthoJapan(opts = {}) {
 // この入口で有効な地域宣言（**使う所より前で決める**＝render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 // オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る
 // （移設 2026-09-17 でこの振る舞いは変えていない）。中身は packages/jp/src/region.js と nl/region.js が持つ。
+// opts.region＝地域宣言の差し替え口（1.2.0〜 2026-09-23）。配列でも単体でもよい。**[] や null＝宣言なし**＝
+// 基図・裸地標高・ラスタ台帳・出典・戻り先・検索・POI・鉄道が丸ごと来ない＝世界データだけの「globe 仕様」
+// （apps/world の国の地図パネル）。未指定＝従来どおり URL で決まる（/nl/・?nl=1・既定は日本）。
 const nlMode = nlEntry();                                            // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
 const nlOn = !!nlMode;
-const REGIONS = nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
+const REGIONS = opts.region !== undefined ? [].concat(opts.region || []).filter(Boolean)
+	: nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
+const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（日本固有の台帳も読まない）
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
 const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
@@ -685,7 +690,13 @@ let attrZone = null, attrJPHTML = null;   // 出典（#attr）の圏＝"jp"|"wor
 // （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。標高はz5.5からR10（terrain.js・
 // 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
 // 星空・星座・太陽系の門は別（STARSKY_Z＝従来の5のまま）。
-const BASEMAP_MINZOOM = WORLD_VT ? 6.5 : 5;
+// ズームの上限＝器ごとの頭打ち（opts.zoomMax・1.2.0〜 2026-09-23）＝データが在る所までしか寄らせない
+// （apps/world の国の地図＝世界データだけ＝z8）。入力・飛行・共有hash・fit の全経路がこの値に従う。
+// 既定 20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す。
+const ZOOM_MAX = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
+// 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
+// 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
+const BASEMAP_MINZOOM = REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;
 // タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
 // 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
 // （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
@@ -723,7 +734,7 @@ const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager �
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
 const AIRPORT_MARK_MAXZ = 13;              // これ未満のズームで静的マークを注入
 let airportMarks = [];
-fetch(ASSET_BASE + "airports.json").then(r => r.json()).then(list => {
+if (!REGIONLESS) fetch(ASSET_BASE + "airports.json").then(r => r.json()).then(list => {   // 日本の台帳＝地域の申告が無い器では読まない
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
@@ -995,7 +1006,7 @@ dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world�
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;
 let maxPitchCur = opts.maxPitch ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
-const ZOOM_MAX = 20;         // 上限20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す
+// ZOOM_MAX は上方（基図の門より前）で決めている＝BASEMAP_MINZOOM が参照する（使う所より前で決める・TDZ の轍）
 const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 // 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
 // 飛行系（デモ・scene・flyTo）も CAM_ZOOM_MIN 床＝台本から太陽系へ飛べる（2026-08-21・LT台本の z=-17 行が動機。
@@ -1066,7 +1077,7 @@ function switchTheme(name) {
 		hypso: theme.hypso || null,
 		// 世界パレット＝オブジェクト丸ごと再送（前テーマのキー居座りなし・レンダラは参照変化で再解決）。
 		// clim 再送は無害（両レンダラとも取得済みキャッシュで no-op）。boot（下方の初期 set("view")）と同形
-		graticule: WORLD_VT,
+		graticule: WORLD_VT, worldHypsoZ: BASEMAP_MINZOOM,
 		worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
 	renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
@@ -1087,6 +1098,7 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	// （Köppen-Geiger/Beck et al. CC-BY を 720x360 に焼き縮め・public 資産）。theme.worldHypso で色ノブ上書き可。
 	// null 明示＝居座り防止の流儀。showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
 	graticule: WORLD_VT,   // 10度レチクル（v1 geoGraticule10 の移植・本人指名 2026-09-01）＝シェーダ計算（z帯はレンダラ側）
+	worldHypsoZ: BASEMAP_MINZOOM,   // 世界の色（ハイプソ・湖・罫線）が退場するズーム＝地域の基図が入場する所と同値
 	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
@@ -1098,6 +1110,7 @@ renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") }
 // 状態（hoverTip / estatTipOwn / suppressAdmin0 …）は gint.* のアクセサで同名の意味のまま。
 const gint = createGintLayers({
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
+	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
 	layers: { map: extGint, get active() { return extActive; }, set active(v) { extActive = v; }, nextId: () => ++gintLayerSeq },
 	smallAreaHover: !!opts.smallAreaHover,

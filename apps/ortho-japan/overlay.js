@@ -138,7 +138,9 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		const feats = [{ geometry: geom }];
 		// 線は描かない（lineWidth 0）＝マスク（外側の暗み）の縁だけが境界を示す。フル解像度の生線を半透明で
 		// 重ねると頂点キャップが数珠（チリチリ）になる上、gint 側の境界線と二重になる（本人指摘2026-08-14）。
-		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0 }), opts.color ? { mask: true, color: opts.color } : HI_MASK);
+		// ranges:true＝feature 毎のレンジ＋外接円を同梱＝描画側の球体カリングが効く（国のような地球規模の面で
+		// 裏半球の形が手前へ punch するのを断つ・2026-09-23）。小さな市区町村では実質 no-op（1 feature 分の円）。
+		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0, ranges: true }), opts.color ? { mask: true, color: opts.color } : HI_MASK);
 	}
 	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatW?.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }
