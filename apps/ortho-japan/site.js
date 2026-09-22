@@ -63,7 +63,17 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	const demoH = map.gadget.demo({ lazy: () => import("./demo/scenes.js").then(m => ({ ...m.default, lang: new URLSearchParams(location.search).get("lang") })) });   // ▶だけ先に出し、台本と本体は押した時に読む（2026-09-22＝起動の転送から約 9KB 外す）   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
 	// ?demo=1＝起動したらそのまま組み込みデモを上演（www の「japan-demo」カードの行き先・2026-09-22）。初描画（load）を待って ▶ と同じ入口を押す
 	// ▶ は上演を始めるだけ（デスクトップは場面送りが手動）＝続けて自動上演（▷）も入れる＝押さなくても流れる
-	if (new URLSearchParams(location.search).get("demo") === "1") map.on("load", () => { document.getElementById("demo-btn")?.click(); demoH.play(); });
+	if (new URLSearchParams(location.search).get("demo") === "1") {
+		// 上演中は左のボタン列（#gadgets）を出さない＝見せ物に集中（本人 9/22「/japan/?demo=1 の場合、左のボタンは出さない」）。
+		// 終わったら（▶ の押下が戻ったら）戻す＝デモの後に地図を触りたい人が道具を失わない。▶ も列の中だが、コードからの押下は隠れていても効く
+		const stack = document.getElementById("gadgets");
+		if (stack) stack.style.visibility = "hidden";
+		map.on("load", () => {
+			const btn = document.getElementById("demo-btn");
+			btn?.click(); demoH.play();
+			if (btn && stack) { let on = false; new MutationObserver((_, mo) => { if (btn.getAttribute("aria-pressed") === "true") on = true; else if (on) { stack.style.visibility = ""; mo.disconnect(); } }).observe(btn, { attributes: true, attributeFilter: ["aria-pressed"] }); }
+		});
+	}
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 });
 // サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
