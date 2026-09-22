@@ -759,7 +759,7 @@ body:not(.globe-viewing) #globe-bg #sky-clock { display: none; }
 
 .file-list-header {
 	display: grid;
-	grid-template-columns: 50px 80px 1fr 70px auto;
+	grid-template-columns: 50px 130px 1fr 70px auto;   // エリア＝「北海道 札幌市」まで入る幅
 	gap: 12px;
 	padding: 6px 14px;
 	background: $deep;
@@ -774,7 +774,7 @@ body:not(.globe-viewing) #globe-bg #sky-clock { display: none; }
 
 .file-row {
 	display: grid;
-	grid-template-columns: 50px 80px 1fr 70px auto;
+	grid-template-columns: 50px 130px 1fr 70px auto;   // エリア＝「北海道 札幌市」まで入る幅
 	align-items: center;
 	gap: 12px;
 	padding: 7px 14px;
