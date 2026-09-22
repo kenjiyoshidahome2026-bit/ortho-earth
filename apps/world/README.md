@@ -36,6 +36,11 @@ Every signal carries the country in the codes a map is likely to hold:
   name: "Japan", label: "日本", nation: { /* area, population, capital, … */ } }
 ```
 
+If your map is the [ortho-earth](https://www.ortho-earth.com/japan/) globe, hand the whole signal to its
+`spotlight` port — `map.gadget.spotlight(e)` — and it flies to that country and dims everything around it,
+so the shape stands out. That is exactly what [www.ortho-earth.com/world/](https://www.ortho-earth.com/world/)
+does when you click a card's map icon.
+
 And anything you pass **in** is resolved against all of them — `w.hover("FR")`, `w.hover("FRA")`,
 `w.hover(250)`, `w.hover("Q142")` all find France. Twelve entries (Antarctica, Abkhazia, …) are not in
 ISO 3166-1; for those `iso2`/`iso3` are `""` and you use `key`, which is always present.

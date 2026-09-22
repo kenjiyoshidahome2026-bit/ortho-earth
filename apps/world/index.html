@@ -9,7 +9,15 @@
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<!-- ページ側の器だけ。中身の意匠は全部 .ortho-world（モジュール）が持つ -->
 	<style>html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior:none; }
-	#world { position:absolute; inset:0; }</style>
+	#world { position:absolute; inset:0; }
+	/* 地図パネル（src/mappane.js）＝一覧の上に被せる器。中身の意匠はエンジン（ortho-japan）の持ち物 */
+	#world-map { position:fixed; inset:0; z-index:40; display:flex; flex-direction:column; background:#000; }
+	#world-map.hidden { display:none; }
+	#world-map > .bar { flex:none; display:flex; align-items:center; gap:10px; height:40px; padding:0 8px 0 14px; background:#111; color:#eee; font:14px/1 verdana, sans-serif; }
+	#world-map > .bar > .title { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+	#world-map > .bar > .close { flex:none; width:32px; height:28px; border:0; border-radius:4px; background:#222; color:#eee; font-size:15px; cursor:pointer; }
+	#world-map > .bar > .close:hover { background:#333; }
+	#world-map > .host { flex:1; position:relative; min-height:0; }</style>
 </head>
 <body>
 	<div id="world"></div>

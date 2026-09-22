@@ -5,7 +5,9 @@
 //   vite preview を挟まず dist/site を素の静的サーバで配る＝出荷物そのものを食う。
 // 検査項目:
 //   ① 静的: d3 が混ざっていない（common/dom へ移した後の逆戻り検知＝xlink 名前空間はd3-selection固有の指紋）
-//   ② 実走: 起動→カード262枚→旗/サムネの実描画→tip→検索+highlight→一覧表→国旗モーダル（resumeShow）
+//   ② 実走: 起動→カード262枚→旗/サムネの実描画→tip→検索+highlight→一覧表→国旗モーダル（resumeShow）→地図パネル
+//      地図パネル（src/mappane.js）は **エンジンの偽物**を /japan/lib/ に差して検める＝ここで見たいのは殻の配線
+//      （合図→パネル生成→起動オプション→spotlight にその国が渡る）。実描画は japan 側の関門（tests/t-spotlight）の領分。
 //   ③ コンソール: **自分のオリジンの全ターゲット**に接続して例外/error を数える（worker や同一オリジン iframe を
 //      将来足しても取りこぼさない）。Wikipedia の iframe は別オリジン＝別ターゲットで、数に入れず落とした件数だけ出す
 //      （ja/fr/ko の skin-theme-description は MediaWiki 側の既知の parse error＝こちらの責任ではない）
@@ -46,8 +48,21 @@ execFileSync("npm", ["run", "build"], { cwd: APP, stdio: "inherit" });
 // ── 素の静的サーバ（出荷物そのもの）────────────────────────────────────────
 const read = promisify(readFile);
 const requests = [];
+// エンジンの偽物＝本番なら japan Worker が配る場所（/japan/lib/）に差す。殻が何を頼み、何を渡すかだけを控える
+const ENGINE_STUB = `export default async function (opts) {
+	window.__engineOpts = opts;
+	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
+	el.appendChild(document.createElement("canvas"));
+	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], name: "Stub", iso2: "", clear() { window.__spotCleared = true; } }; } };
+	return { gadget, lang: opts.lang };
+}`;
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
+	if (p === "/japan/lib/ortho-japan.js" || p === "/japan/lib/ortho-japan.css") {
+		requests.push("200 " + p);
+		res.writeHead(200, { "Content-Type": p.endsWith(".css") ? "text/css" : "text/javascript" });
+		return res.end(p.endsWith(".css") ? "/* stub */" : ENGINE_STUB);
+	}
 	const file = path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
 	try {
 		const body = await read(file);
@@ -180,6 +195,26 @@ const covers = await ev(`document.querySelectorAll('.overlay-fullbody').length`)
 if (covers) { bye(); fail(`実走: resumeShow の覆いが ${covers} 枚残っている（アニメ終了後の後片付け漏れ）`); }
 console.log("ok:modal（国旗モーダル・覆いの後片付けまで）");
 
+// 地図パネル（カードの地図ボタン＝on("map") → src/mappane.js）。エンジンは偽物＝殻の配線だけを見る
+{
+	await ev(`document.querySelector('[name=modal] [name=close]')?.click() ?? document.querySelector('[name=modal] button[name=close]')?.click()`);
+	await sleep(600);
+	await ev(`document.querySelector('div.nation img.mapopen').click()`);
+	await sleep(2500);
+	const pane = await ev(`(() => { const p = document.getElementById('world-map'); return p && !p.classList.contains('hidden') ? (p.querySelector('canvas') ? 'canvas' : 'no-canvas') + ':' + p.querySelector('.title').textContent : 'none'; })()`);
+	if (!String(pane).startsWith("canvas:")) { bye(); fail(`実走: 地図パネルが開かない（${pane}）`); }
+	const o = await ev(`window.__engineOpts && { mesh: __engineOpts.mesh, persist: __engineOpts.persistView, chips: __engineOpts.chips, lang: __engineOpts.lang, target: !!__engineOpts.target }`);
+	if (!o || o.mesh !== false || o.persist !== false || o.chips !== false || !o.target)
+		{ bye(); fail(`実走: 地図の起動オプションが違う（${JSON.stringify(o)}）＝建物3D/前回視点/チップを持ち込まない約束`); }
+	const spot = await ev(`window.__spot && { key: __spot.src && (__spot.src.iso2 || __spot.src.key), maxZoom: __spot.opts && __spot.opts.maxZoom }`);
+	if (!spot || !spot.key) { bye(); fail("実走: spotlight に国が渡っていない（合図をそのまま渡す約束）"); }
+	await ev(`document.querySelector('#world-map .close').click()`);
+	await sleep(400);
+	if (!await ev(`document.getElementById('world-map').classList.contains('hidden') && window.__spotCleared === true`))
+		{ bye(); fail("実走: 地図パネルが閉じない／マスクが外れていない"); }
+	console.log(`ok:map（${pane} / spotlight=${spot.key} maxZoom=${spot.maxZoom} / 閉じてマスクも外れる）`);
+}
+
 // ── ④ 復旧: 古い版の形の IDB から起動しても自力で直る ─────────────────────
 {
 	const mutated = await ev(`(async () => {
@@ -210,4 +245,4 @@ if (notFound.length) { bye(); fail(`台帳: 404が${notFound.length}件＝${[...
 console.log(`ok:console（自オリジンの例外/error ゼロ・別オリジン由来 ${foreign} 件は対象外 / 404ゼロ・総要求${requests.length}件）`);
 
 bye();
-console.log("✓ world 本番出荷物の検定PASS（d3非同梱・実走OK・古い IDB からの復旧OK）");
+console.log("✓ world 本番出荷物の検定PASS（d3非同梱・実走OK・地図パネルOK・古い IDB からの復旧OK）");

@@ -133,12 +133,12 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 	const setIdentifyHandler = fn => { identifyHandler = fn; };   // 派生アプリの identify 受け口（null で従来 say へ復帰）
 	// 選択地物（市区町村ポリゴン等）を「周辺マスク」で表示＝統一ルール（選択=マスク/ホバー=線）。geom=null で解除。
 	// overlayHi スロットを使う＝町丁目選択マスクと同じ器（1度に1つ＝現在の選択の外を暗く）。
-	function setSelectionMask(geom) {
+	function setSelectionMask(geom, opts = {}) {   // opts.color＝マスクの色と濃さ（既定＝HI_MASK の薄い黒）
 		if (!geom) { renderer.set("overlayHi", null); return; }
 		const feats = [{ geometry: geom }];
 		// 線は描かない（lineWidth 0）＝マスク（外側の暗み）の縁だけが境界を示す。フル解像度の生線を半透明で
 		// 重ねると頂点キャップが数珠（チリチリ）になる上、gint 側の境界線と二重になる（本人指摘2026-08-14）。
-		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0 }), HI_MASK);
+		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0 }), opts.color ? { mask: true, color: opts.color } : HI_MASK);
 	}
 	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatW?.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }
