@@ -45,7 +45,7 @@ export function placeholder(catalog) {
             label: '農地（筆ポリゴン）',
             cnt:   COUNTS.maff,
             unit:  '市区町村',
-            desc:  '全国の農地区画。作付・耕地種別などの属性付き（GeoJSON）',
+            desc:  '全国の農地区画（筆）。耕地の種類などの属性付き（GeoPBF）',
         },
         {
             icon:  '🏔️',
@@ -79,7 +79,7 @@ export function placeholder(catalog) {
                     <img class="ph-logo" src="favicon.svg" alt="">
                     <div class="ph-title">日本の公開 GIS データ</div>
                 </div>
-                <div class="ph-sub">GeoPBF を使用して、国が公開するGISデータを直接地図に描画します。</div>
+                <div class="ph-sub">国が公開する GIS データをブラウザで読み込み、GeoPBF に変換して、Gint で地球に描きます。</div>
                 <div class="ph-hero-link">
                     <a href="/gishub/" target="_blank" rel="noopener">→ GeoPBF のデモ（世界版）</a>
                     <a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" class="ph-github-link">
@@ -95,27 +95,25 @@ export function placeholder(catalog) {
             </section>
 
             <section class="ph-section">
-                <h3 class="ph-section-title">GeoPBF とは</h3>
+                <h3 class="ph-section-title">GeoPBF と Gint</h3>
                 <div class="ph-geopbf">
                     <div class="ph-geopbf-text">
                         <p>
-                            <strong>GeoPBF</strong> は Webブラウザ向けGISフォーマットです。
-                            国が配布する Shapefile・GeoJSON 等を変換し<strong>GeoPBF</strong>を生成しています。
+                            <strong>GeoPBF</strong> は保存・配布・変換のための<strong>ファイル形式</strong>、
+                            <strong>Gint</strong> は地球に描くための<strong>描画の形</strong>です。
                         </p>
                         <p>
-                            座標は<strong>デルタ符号化</strong>（差分の Varint 圧縮）により、GeoJSON 比で約 1/10 のバイナリサイズを実現します。
-                            各頂点には <strong>gint</strong>（Morton 曲線ベースの 64bit 整数）で
-                            Visvalingam–Whyatt の重要度ランクを埋め込んでおり、ズームに連動した動的 LOD を単一ファイルで実現しています。
-                            隣接ポリゴンの共有境界は <strong>Arc 構造</strong>で重複なく格納するため、面積誤差やすき間が生じません。
-                            Gint レンダラー（WebGPU / WebGL2）がこのデータを高速描画します。また既存の GISフォーマットへの即時変換も可能です。
+                            国が配布する Shapefile・GeoJSON などをブラウザの中で GeoPBF に変換し、
+                            そこから Gint（GPU がそのまま読める頂点の並び）を組み立てて、WebGPU / WebGL2 で描きます。
+                            書き出し（GeoJSON・Shapefile・KML など）は GeoPBF から行います。
                         </p>
                     </div>
                     <ul class="ph-feat-list">
-                        <li><span class="ph-feat-ic">▸</span><span><strong>高圧縮</strong> — デルタ符号化 + Varint で GeoJSON 比 約1/10 のサイズ。14条地図や筆ポリゴンもブラウザで即時表示</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>動的 LOD</strong> — gint の VW ランクビットにより、ズームに応じた頂点間引きを単一データで実現</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>位相保持</strong> — Arc 構造で隣接ポリゴンの共有境界を重複なく格納。面積誤差・すき間が生じない</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>GPU 描画</strong> — Gint レンダラーが GPU バッファへ転送し、動的 LOD で描画（WebGPU・無い環境は WebGL2）</span></li>
-                        <li><span class="ph-feat-ic">▸</span><span><strong>属性アクセス</strong> — グローバル KEYS 辞書とインデックスで属性を高速取得。クリック identify が即応</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>GeoPBF：小さい</strong> — 座標を整数格子上の差分（デルタ）＋ Varint で符号化。gzip どうしで比べて GeoJSON の約 1/2〜1/4</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>GeoPBF：変換の中継点</strong> — 属性名はファイル全体で 1 つの辞書（KEYS）。GeoJSON・Shapefile・GML・KML・FlatGeobuf などと相互に変換</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：動的 LOD</strong> — 各頂点に Visvalingam–Whyatt の重要度を持たせ、ズームに応じた頂点の間引きを GPU の頂点シェーダで行う。ズームしても取り直しなし</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：位相</strong> — 隣り合うポリゴンの共有境界（arc）を 1 本にまとめる。境界線を二重に描かず、すき間も生じない</span></li>
+                        <li><span class="ph-feat-ic">▸</span><span><strong>Gint：識別</strong> — クリックした地点の地物を Gint の形から引き、GeoPBF の属性を表示</span></li>
                         <li><span> 詳しい技術内容は、技術ドキュメントを参考にしてください。</span></li>
                     </ul>
                 </div>

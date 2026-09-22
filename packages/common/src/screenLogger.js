@@ -2,6 +2,10 @@ import * as d3 from "d3";
 import "./d3/selection.js";
 import { comma, isArray, isString, isNumber, isObject, isBlob, unique, concat } from "./index.js";
 import "./screenLogger.scss";
+
+// URL・ファイル名の %E5%8D%83… を読める字に戻す（表示専用・壊れた符号はそのまま）
+export const readable = s => { try { return decodeURI(String(s ?? "")); } catch { return String(s ?? ""); } };
+const escHtml = s => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 export class screenLogger {
 	constructor (div) {
 		this.target = div.classed("log", true); this.time = performance.now();
@@ -60,8 +64,9 @@ export class screenLogger {
 	}
 	progress(type, e) {
 		const { name, loaded, total, size } = e.detail;
+		const label = readable(name);   // 表示だけ復号（bars の鍵は受け取った name のまま）
 		if (type === "start") { if (this.bars[name]) return;
-			const bar = this.empty().classed("progress", true).text("⏳ " + name)
+			const bar = this.empty().classed("progress", true).text("⏳ " + label)
 			this.bars[name] = [bar, performance.now(), 0];
 		} else if (type === "progress" && this.bars[name]) {
 			const bar = this.bars[name][0], count = this.bars[name][2] = this.bars[name][2]+1;
@@ -76,12 +81,12 @@ export class screenLogger {
 				p = `<span class='rest'>${"░".repeat(pos)}</span><span class='done'>████</span><span class='rest'>${"░".repeat(16 - pos)}</span>`;
 				info = `${comma(loaded)} bytes`;
 			}
-			bar.html(`⏳ ${name}: ${d}[${p}] ${info}`);
+			bar.html(`⏳ ${escHtml(label)}: ${d}[${p}] ${info}`);
 		} else if (type === "end" && this.bars[name]) {
 			const bar = this.bars[name][0], start = this.bars[name][1];
 			const time = ((performance.now() - start)/1000).toFixed(3);
 			const speed = comma(((size||total) / time / 1024 / 1024).toFixed(2));
-			bar.text(`⏳ ${name}: ${comma(size||total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
+			bar.text(`⏳ ${label}: ${comma(size||total)} bytes / ${comma(time)}sec (${speed} Mbytes/sec)`);
 			delete this.bars[name];
 		}
 	}
