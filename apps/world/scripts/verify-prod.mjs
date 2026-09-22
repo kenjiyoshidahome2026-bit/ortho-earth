@@ -60,7 +60,7 @@ const ENGINE_STUB = `export default async function (opts) {
 		on() {}, fitZoomForBbox: () => 5,
 		flyTo: (lon, lat, z) => { window.__flyTo = [lon, lat, z]; },
 		// 国の中身の層＝呼ばれた事と filter だけ控える（実データは引かない）
-		addGint: () => ({ ready: Promise.resolve(), setVisible() {}, setPaint: async (paint, filter) => { (window.__paints = window.__paints || []).push(filter); } }),
+		addGint: () => ({ ready: Promise.resolve(), setVisible() {}, style() {}, setPaint: async (paint, filter) => { (window.__paints = window.__paints || []).push(filter); } }),
 	};
 }
 // 偽の ne-cultural＝一覧が持っている国の key で「形」を 1 枚ずつ作る（世界 16MB を落とさずに殻の配線だけ検める）
