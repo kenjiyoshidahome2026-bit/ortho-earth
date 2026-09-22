@@ -6,9 +6,9 @@ export function renderMinistryList({
     id, title, subtitle, cities, expanded,
     getSearch, setSearch, itemHtml, groupFn,
     toEntry, bulkByGroup, allEntries, downloadFn = null,
-    groupHeaderHtml = null, onItemClick = null,
+    groupHeaderHtml = null, onItemClick = null, noBulk = false,   // noBulk＝一括ボタンを出さない（市区町村のオープンデータ等＝束の中身が種類ばらばら）
 }) {
-    const bulkLabel = downloadFn ? '一括↓IDB' : '一括コピー';   // 表記は実挙動（downloadFn無しはクリップボードコピー）に一致させる
+    const bulkLabel = noBulk ? null : downloadFn ? '一括↓IDB' : '一括コピー';   // 表記は実挙動（downloadFn無しはクリップボードコピー）に一致させる
     const totalSize = cities.reduce((s, c) => s + (c.size || 0), 0);
     const totalSizeLabel = totalSize
         ? `<span class="moj-total-size">${fmtBytes(totalSize)}</span>`
@@ -21,7 +21,7 @@ export function renderMinistryList({
                         <h2>${title}</h2>
                         <p class="moj-subtitle">${subtitle}<span class="moj-total">${cities.length.toLocaleString()}市区町村</span>${totalSizeLabel}</p>
                     </div>
-                    <button class="bulk-dl-btn" id="${id}-bulk-all">${bulkLabel}</button>
+                    ${bulkLabel ? `<button class="bulk-dl-btn" id="${id}-bulk-all">${bulkLabel}</button>` : ''}
                 </div>
                 <input type="text" id="${id}-search" class="moj-search" placeholder="市区町村・都道府県を検索...">
             </div>
@@ -29,7 +29,7 @@ export function renderMinistryList({
         </div>
     `);
 
-    document.getElementById(`${id}-bulk-all`).addEventListener('click', function() {
+    document.getElementById(`${id}-bulk-all`)?.addEventListener('click', function() {
         if (downloadFn) ctx.bulkDownload(allEntries(), title, downloadFn);
         else ctx.copyEntries(allEntries(), this);
     });

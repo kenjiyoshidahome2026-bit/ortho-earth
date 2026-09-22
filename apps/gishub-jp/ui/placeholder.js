@@ -48,6 +48,16 @@ export function placeholder(catalog) {
             desc:  '全国の農地区画（筆）。耕地の種類などの属性付き（GeoPBF）',
         },
         {
+            icon:  '🏘️',
+            go:    'munic',
+            min:   '市区町村',
+            url:   'https://www.geospatial.jp/ckan/organization/',
+            label: '市区町村のオープンデータ',
+            cnt:   COUNTS.munic,
+            unit:  `自治体 / ${fmt(COUNTS.municSets)} データセット`,
+            desc:  '地番図・防災・施設・AED など、市区町村が G空間情報センターに公開しているデータ',
+        },
+        {
             icon:  '🏔️',
             go:    'nps',
             min:   '環境省',

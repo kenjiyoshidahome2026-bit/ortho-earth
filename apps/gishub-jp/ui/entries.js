@@ -25,4 +25,8 @@ export const census2015SidebarEntry = () =>
 export const npsSidebarEntry = () =>
     ({ dataset_code:'nps', title:'国立公園（区域・地種区分）', file_count:35, license:'政府標準利用規約(CC BY互換)', _sourceId:'env', attribution:'環境省 環境ジオポータル' });
 
+export const municSidebarEntry = () =>
+    ({ dataset_code:'munic', title:'市区町村のオープンデータ', file_count:COUNTS.municSets, license:'CC BY ほか（自治体ごと）', _sourceId:'munic',
+       note:`${COUNTS.munic} 自治体・地番図・防災・施設など` });
+
 export { COUNTS };

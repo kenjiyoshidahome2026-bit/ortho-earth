@@ -15,7 +15,7 @@ import { initSidebarToggle }  from './ui/sidebar.js';
 import {
     mojSidebarEntry, maffSidebarEntry, estatSidebarEntry,
     census2025SidebarEntry, censusSmall2020SidebarEntry, census2015SidebarEntry,
-    npsSidebarEntry,
+    npsSidebarEntry, municSidebarEntry,
 } from './ui/entries.js';
 
 // dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
@@ -26,6 +26,7 @@ const LAZY_VIEWS = {
     'amedas':            { load: () => import('./jma/ui.js'),    fn: 'showAmedas' },
     'seismic':           { load: () => import('./jishin/ui.js'), fn: 'showSeismic' },
     'nps':               { load: () => import('./nps/ui.js'),    fn: 'renderNpsView' },
+    'munic':             { load: () => import('./munic/ui.js'),  fn: 'renderMunicList' },
     'census2025':        { load: () => import('./census/ui.js'), fn: 'renderCensus2025List' },
     'census2020':        { load: () => import('./census/ui.js'), fn: 'renderCensus2020List' },
     'census2015':        { load: () => import('./census/ui.js'), fn: 'renderCensus2015List' },
@@ -65,6 +66,7 @@ async function loadCatalog() {
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
 			census2015SidebarEntry(),
 			npsSidebarEntry(),
+			municSidebarEntry(),
 		];
 
 		const nlftpEntries = await loadCatalogEntries().catch(e => { console.error('[nlftp] catalog load failed:', e); return []; });
@@ -99,6 +101,7 @@ const SOURCE_GROUP_LABELS = {
 	estat: '総務省 e-Stat',
 	env:   '環境省 環境ジオポータル',
 	nlftp: '国土交通省 国土数値情報',
+	munic: '市区町村（G空間情報センター）',
 };
 
 const SOURCE_GROUP_URLS = {
@@ -107,6 +110,7 @@ const SOURCE_GROUP_URLS = {
 	estat: 'https://www.e-stat.go.jp/gis',
 	env:   'https://geo.env.go.jp/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
+	munic: 'https://www.geospatial.jp/ckan/organization/',
 };
 
 function dsItemHtml(ds) {
