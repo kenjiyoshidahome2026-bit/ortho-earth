@@ -216,3 +216,33 @@
 
 // fmt バッジ
 .fmt-moj { background: rgba(255, 180, 30, 0.12); color: #e6b030; }
+
+// ============================================================
+// 市区町村のオープンデータ（munic/ui.js）
+// ============================================================
+.munic-cad-only { margin-left: 12px; color: $text; cursor: pointer; input { vertical-align: middle; margin-right: 4px; } }
+.munic-cad-tag { background: rgba(255, 180, 30, 0.14); color: #e6b030; }
+.munic-city {
+	.munic-note { font-size: 11px; color: $mid; margin-top: 8px; line-height: 1.7; }
+	.munic-sets { padding: 6px 12px 10px; }
+}
+.munic-set {
+	padding: 10px 2px;
+	border-top: 1px solid $divider;
+	&:first-child { border-top: none; }
+	.munic-set-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+	.munic-set-title { font-size: 13px; color: $hi; font-weight: bold; }
+	.meta-lic { font-size: 10px; color: $mid; }
+	.munic-src { font-size: 11px; color: $mid; margin-left: auto; &:hover { color: $accent; } }
+	.munic-res { display: flex; flex-wrap: wrap; gap: 6px; }
+	.munic-res-btn {
+		@include btn-ghost($color: $text, $bg: $dark);
+		display: inline-flex; align-items: center; gap: 6px;
+		max-width: 100%;
+		padding: 4px 10px;
+		border-radius: 4px;
+		font-size: 12px;
+		font-family: $font;
+		white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+	}
+}

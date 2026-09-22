@@ -6,7 +6,7 @@ export function renderGroupedCities(cities, containerId, expandedSet, itemHtml, 
     onBulkClick     = null,
     onItemClick     = null,
     groupHeaderHtml = null,
-    bulkLabel       = '一括↓IDB',
+    bulkLabel       = '一括↓IDB',   // null＝一括ボタンを出さない
 } = {}) {
     const q = query.toLowerCase();
     const container = document.getElementById(containerId);
@@ -40,7 +40,7 @@ export function renderGroupedCities(cities, containerId, expandedSet, itemHtml, 
                     <span class="pref-name">${escHtml(groupName)}</span>
                     ${extraHtml}
                     <span class="cnt">${matched.length}</span>
-                    <button class="pref-bulk-btn" data-group="${escHtml(key)}">${escHtml(bulkLabel)}</button>
+                    ${bulkLabel ? `<button class="pref-bulk-btn" data-group="${escHtml(key)}">${escHtml(bulkLabel)}</button>` : ''}
                 </div>
                 <div class="pref-cities${isExpanded ? '' : ' hidden'}">
                     ${matched.map(c => itemHtml(c)).join('')}

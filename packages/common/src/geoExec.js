@@ -13,9 +13,9 @@
 const readable = s => { try { return decodeURI(String(s ?? "")); } catch { return String(s ?? ""); } };
 
 export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, onError } = {}) {
-	const def = { target:"", name:"", precision:6, license:"", description:"", attribution:"", link:"", nocache:false, format:"" };
-	const { target, name, precision, license, description, attribution, link, nocache, format } =
-		Object.assign({}, def, info);
+	const def = { target:"", name:"", precision:6, license:"", description:"", attribution:"", link:"", nocache:false, format:"", crs:null };
+	const { target, name, precision, license, description, attribution, link, nocache, format, crs } =
+		Object.assign({}, def, info);   // crs＝.prj の無い Shapefile の座標系（EPSG 番号か WKT）＝geopbf へ素通し
 
 	try {
 		logger?.clear().show();
@@ -35,7 +35,7 @@ export async function geoExec(info, { geopbf, logger, cache = null, onSuccess, o
 		const cancel = p?.select?.("span").hide().on("click", () => location.reload());
 		setTimeout(() => inExec && cancel?.show?.(), 1000);
 
-		const pbf = await geopbf(target, { name, precision, license, description, attribution, nocache, format });
+		const pbf = await geopbf(target, { name, precision, license, description, attribution, nocache, format, ...(crs ? { crs } : {}) });
 
 		inExec = false;
 		cancel?.hide?.();
