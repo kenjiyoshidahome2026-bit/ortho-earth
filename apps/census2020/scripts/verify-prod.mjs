@@ -22,22 +22,20 @@ const PORT = 5242, CHROME = process.env.CHROME || "/Applications/Google Chrome.a
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".csv": "text/csv", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
-console.log("… build（census）＋ build:lib（隣のSDK＝本番で /japan/lib/ に居る物の代役）");
+console.log("… build（census＝エンジン同梱・A 裁定 2026-09-23）");
 execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
-execFileSync("npm", ["run", "build:lib", "--silent"], { cwd: JAPAN, stdio: "inherit" });
 
-// ① 入口＝lib参照・エンジン非同梱（指紋＝エンジン辞書のUI文字列）
+// ① 入口＝エンジン同梱（指紋＝エンジン辞書のUI文字列が census の束の中に在る）・/japan/lib/ への参照が無い（旧・実行時 SDK の逆戻り検知）
 const assetsDir = path.join(OUT, "japan/census2020/assets");
 const chunks = readdirSync(assetsDir).filter(f => f.endsWith(".js"));
-let libRef = false;
+let engineIn = false;
 for (const f of chunks) {
 	const src = readFileSync(path.join(assetsDir, f), "utf8");
-	if (src.includes("/japan/lib/ortho-japan.js")) libRef = true;
-	if (src.includes("互換描画(WebGL2)")) fail(`${f} にエンジンが再バンドルされている（指紋文字列を検出）`);
+	if (src.includes("/japan/lib/ortho-japan.js")) fail(`${f} が /japan/lib/ortho-japan.js を import している（実行時 SDK への逆戻り＝japan を出さないと動かない形）`);
+	if (src.includes("互換描画(WebGL2)")) engineIn = true;
 }
-if (!libRef) fail("どのチャンクも /japan/lib/ortho-japan.js を import していない（devソース直が紛れた疑い）");
-if (!existsSync(path.join(JAPAN, "dist/lib/ortho-japan.js"))) fail("隣の dist/lib が無い（build:lib 失敗）");
-console.log(`ok:entry（${chunks.length}チャンク・lib参照あり・エンジン指紋なし）`);
+if (!engineIn) fail("どのチャンクにもエンジンが無い（同梱されていない）");
+console.log(`ok:entry（${chunks.length}チャンク・エンジン同梱・lib参照なし）`);
 
 // ② 実走：census dist ＋ /japan/lib/（隣のdist/lib）＋ /japan/*（共有棚 public）を一つの静的サーバで
 const read = promisify(readFile);
@@ -72,11 +70,8 @@ const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/census-vpr
 	`http://localhost:${PORT}/japan/census2020/?gl2=1&verify=1`], { stdio: "ignore" });
 process.on("exit", () => { server.close(); chrome.kill(); });
 const need = [
-	["/japan/census2020/assets/", "census入口チャンク"],
-	["/japan/lib/ortho-japan.js", "SDK入口"],
-	["/japan/lib/ortho-japan.css", "SDK意匠"],
-	["/japan/lib/assets/app-", "エンジン本体チャンク"],
-	["/japan/lib/assets/renderworker-", "render worker"],
+	["/japan/census2020/assets/index-", "census入口チャンク（エンジン同梱）"],
+	["/japan/census2020/assets/renderworker-", "render worker（同梱）"],
 	["/japan/airports.json", "assetBase（/japan/共有棚）"],   // 証拠＝起動時に必ず読む共有棚のファイル（旧 plateau-sets.json は 2026-09-22 から寄った時だけ読む）
 ];
 // 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い

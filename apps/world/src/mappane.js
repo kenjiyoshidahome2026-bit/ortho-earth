@@ -3,12 +3,12 @@
 // ここが ortho-earth のエンジン（ortho-japan の SDK 配布物）を遅延 import して、その国を **スポットライト**で指す
 // ＝周りを薄い黒で覆い、国の形だけ素の地図を残す（本人 2026-09-23）。
 // エンジンは一度だけ起動して使い回す＝2 か国目からは spotlight を差し替えるだけ（起動のやり直しをしない）。
-// dev＝../../ortho-japan/app.js をソース直／本番＝/japan/lib/ortho-japan.js（japan 本体と同じ URL＝ブラウザキャッシュを共有）。
+// エンジンは world 自身の束に焼く（本人裁定 2026-09-23「A 一択」）：dev も本番もソース直＝build 時にワークスペースの
+// ortho-japan/app.js ごと束なる（地図ボタンを押した時だけ読む遅延チャンク）。旧＝本番だけ /japan/lib/ の SDK を実行時に食い、
+// japan を出さないと進めず・出すと全消費者が同時に変わった。window.__orthoEngine＝検定の注入口（偽エンジン）。
 import { countryLayers } from "./worldlayers.js";
-const LIB = "/japan/lib/ortho-japan.js";
 const ZMAX = 8;   // この地図のズーム上限＝世界データ（NE 10m・ハイプソ）が持つ所まで（本人裁定 2026-09-23）
-// 二股は import.meta.env.PROD を直に書く＝ビルドで true/false に畳まれて片方が消える（変数に受けると両方が束に残る）
-const engineP = () => import.meta.env.PROD ? import(/* @vite-ignore */ LIB) : import("../../ortho-japan/app.js");
+const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("../../ortho-japan/app.js");
 
 let paneP = null;
 
@@ -18,7 +18,6 @@ export function showMap(sign = {}, { lang = "en", nation = null } = {}) {
 }
 
 async function build({ lang, nation }) {
-	if (import.meta.env.PROD) document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/japan/lib/ortho-japan.css" }));
 	const pane = document.body.appendChild(Object.assign(document.createElement("div"), { id: "world-map" }));
 	pane.innerHTML = `<div class="bar"><span class="title"></span><button type="button" class="close" aria-label="Close">✕</button></div><div class="host"></div>`;
 	const title = pane.querySelector(".title"), host = pane.querySelector(".host");

@@ -19,7 +19,7 @@ const ESTAT_STYLE = { lineColor: [0.31, 0.51, 0.81, 1.0], lineWidth: 0.6 };
 const SA_MAX_ZOOM = 16.3;   // 丁目 bbox は極小＝寄り過ぎ防止の上限（周りの区画が画面に残る＝「拡大」と「区画を残す」の両立点）
 
 export function initBind(map, { choro, legend }) {
-	const overlay = map.overlay;
+	const overlay = map.estat;   // 正式な口（旧 map.overlay＝9/20 に同一フレーム overlay の関数へ上書きされ起動不能になった轍・2026-09-23）
 	let cityCode = null;         // ドリル中の市区町村（estat 境界の単位）
 	let slotOwner = "admin";     // gint 単一スロットの占有者: 'admin' | 'stack'
 	// ?area=＋hash 共有URLで開いた時は hash のカメラが正＝復元ドリルの flyTo を1回だけ抑止
