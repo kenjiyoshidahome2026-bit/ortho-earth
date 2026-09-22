@@ -1,6 +1,7 @@
 import { fname2mime } from "geopbf/fname2mime";
-// zip の読み書きは zip を扱う時だけ読む（動的 import＝標高タイル等の普通の取得で worker に乗せない・2026-09-22）
-const zipDec = async (...a) => (await import("geopbf/decodeZIP")).decodeZIP(...a);
+// ⚠zip の読み書きは静的 import のまま（2026-09-23 差し戻し）：動的 import にすると world の出荷物で `import("geopbf/decodeZIP")` が
+// 解決されないまま止まり（失敗なら捨てられるが「止まる」＝gets の Promise が永久に未解決）、起動が「Loading the world…」で固まった。
+import { decodeZIP } from "geopbf/decodeZIP";
 
 export async function Fetch(url, opts = {}) {
 	const type = ((typeof opts == "string")? opts: opts.type || "file").toLowerCase();
@@ -41,11 +42,11 @@ export async function Fetch(url, opts = {}) {
 			cors = false; targetURL = url; range = false; knownSize = 0;
 		}
 		if (range && target != null) {
-			const file = await zipDec(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
+			const file = await decodeZIP(targetURL, { target, encoding, eventTarget, totalLength: knownSize });
 			if (target === false) return file; 
 			if (!file) { 
 				console.warn(`file is not exist: ${target} in ${url}`);
-				console.log("zip file includes:", await zipDec(targetURL, false));
+				console.log("zip file includes:", await decodeZIP(targetURL, false));
 			}
 			return await convert(file, type, encoding);
 		}
@@ -82,7 +83,7 @@ export async function Fetch(url, opts = {}) {
 		}
 
 		let file = new File([rawBlob], name, {type: fname2mime(name)});
-		if (target) file = await zipDec(file, target);
+		if (target) file = await decodeZIP(file, target);
 		return await convert(file, type, encoding);
 
 	} catch (error) { 
