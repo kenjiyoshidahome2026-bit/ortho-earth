@@ -1,7 +1,22 @@
 import { defineConfig } from 'vite';
+import { readFileSync } from 'node:fs';
+import { renderDemos } from './cards.js';
+
+// デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
+const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
+const demosHtml = () => ({
+	name: 'www-demos',
+	transformIndexHtml(html) { return html.replace('<!--DEMOS-->', renderDemos(readDemos())); },
+	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）
+	generateBundle() {
+		const apps = readDemos().demos.map(d => `- [${d.title}](https://www.ortho-earth.com${d.href}): ${d.desc}`).join('\n');
+		this.emitFile({ type: 'asset', fileName: 'llms.txt', source: readFileSync(new URL('./llms.template.txt', import.meta.url), 'utf8').replace('<!--APPS-->', apps) });
+	},
+});
 
 // 背景の地球は globe-lite.js（webp 1 枚＋WebGL）＝エンジンは載せない。prefetch.js が geopbf/altpbf で /japan/ の世界データを IDB へ先読みする。
 export default defineConfig({
+	plugins: [demosHtml()],
 	optimizeDeps: {
 		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf'],
 	},
