@@ -2418,6 +2418,78 @@ map.gadget("cog", async function (src, opts) {
 map.gadget("raster", function (o) {   // 画像タイル（ラスタ）の切替＝地域パックのカタログ＋map.raster（select/toggle）。表示域は搭載側の zoom 宣言
 	return rasterGadget.call(this, { raster: map.raster, catalog: REGION_RASTERS, signal: ac.signal, ...o });
 });
+// ── スポットライト（本人裁定 2026-09-23「その国の周りを低いオパシティのマスクで覆って、国の形がわかるように」）──────────────
+// map.gadget.spotlight(src, { opacity, fit, color }) ＝ 渡した面の「外側」を薄く覆い、その面だけ素の地図のまま残す
+//（census の小地域の選択＝周辺マスクと同じ器＝overlayHi の1スロット。線は引かない＝マスクの縁が形を示す）。
+//   src … 国の記号（"JP" / "JPN" / "Japan" / { iso2 | iso3 | qid | name }）か GeoJSON（Feature / FeatureCollection / geometry）
+//         記号の時はエンジンが持つ世界の国の形（Natural Earth admin_0・LOW_MEM は 50m・他は 10m）から引く＝呼ぶ側はデータを持たなくてよい
+//   fit … その国が収まる所まで寄る（既定 true）。opacity … 外側の濃さ（0-1・既定 0.55）
+//   戻り … { bbox, name, clear() }（見つからなければ null）
+const spotFeature = async src => {
+	if (!src) return null;
+	if (src.type === "FeatureCollection") return src.features?.[0] || null;
+	if (src.type === "Feature") return src;
+	if (src.type && src.coordinates) return { type: "Feature", properties: {}, geometry: src };
+	// 文字列 1 本でも、国の身分証を束ねた物（ortho-world の合図がそのまま入る）でも受ける。
+	// 当てる順＝ISO2 → ISO3 → 鍵 → Wikidata → 名前（先の物ほど曖昧さが無い。"FR-CP" のような下位地域の鍵は NE に無く、
+	// その場合だけ QID や名前まで落ちる＝それでも無ければ null＝地図は世界のまま）。
+	const q = typeof src === "string" ? { key: src } : src;
+	const keys = [q.iso2, q.iso3, q.key, q.qid, q.ioc, q.name].map(v => String(v ?? "").trim().toUpperCase()).filter(Boolean);
+	if (!keys.length) return null;
+	const pbf = await gint.ensureAdmin0().catch(e => { console.warn("[spotlight] admin0", e); return null; });
+	const feats = pbf?.features || pbf?.geojson?.features || [];
+	const lang = "NAME_" + getLang().toUpperCase();
+	for (const up of keys) {
+		const hit = feats.find(f => {
+			const p = f?.properties || {};
+			return [p.ISO_A2, p.ISO_A3, p.ISO_A2_EH, p.ISO_A3_EH, p.ADM0_A3, p.WIKIDATAID].some(v => v && String(v).toUpperCase() === up)
+				|| [p.NAME_EN, p.NAME, p[lang]].some(v => v && String(v).toUpperCase() === up);
+		});
+		if (hit) return hit;
+	}
+	return null;
+};
+// 寄る先の外接矩形＝「一番大きい塊」の外周だけ（本土の地図を見たいのであって、飛び地まで入れると引きすぎる＝
+// France は仏領ギアナ+レユニオンで世界大、New Zealand はチャタム諸島で日付変更線を跨ぐ）。マスクは全部の塊に掛かる。
+// 経度は輪ごとに前の頂点から近い方へ解いて（±360 を足して）持つ＝日付変更線を跨ぐ輪でも幅が正しい。
+const spotBbox = geom => {
+	const rings = [];   // 各塊の外周（Polygon=[外周]・MultiPolygon=塊ごとの外周）
+	const g = geom?.type === "MultiPolygon" ? geom.coordinates : geom?.type === "Polygon" ? [geom.coordinates] : null;
+	if (g) for (const poly of g) poly?.[0]?.length && rings.push(poly[0]);
+	else if (geom?.coordinates) { const pts = []; const walk = c => Array.isArray(c[0]) ? c.forEach(walk) : pts.push(c); walk(geom.coordinates); pts.length && rings.push(pts); }   // 点/線＝座標を一塊として
+	let best = null;
+	for (const ring of rings) {
+		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity, lon = null, area = 0, px = 0, py = 0;
+		for (const c of ring) {
+			if (!c || c.length < 2) continue;
+			lon = lon == null ? c[0] : c[0] + 360 * Math.round((lon - c[0]) / 360);   // 前の頂点に近い方へ解く
+			const y = c[1];
+			if (lon < x0) x0 = lon; if (lon > x1) x1 = lon; if (y < y0) y0 = y; if (y > y1) y1 = y;
+			area += px * y - lon * py; px = lon; py = y;   // 符号付き面積（向きは問わない＝絶対値で比べる）
+		}
+		if (x0 > x1) continue;
+		const w = Math.abs(area) / 2 * Math.cos((y0 + y1) / 2 * Math.PI / 180);   // 高緯度の経度は狭い＝cos で均す
+		if (!best || w > best.w) best = { w, bbox: [x0, y0, x1, y1] };
+	}
+	return best?.bbox || null;
+};
+// スポットライト＝「その国（その面）を指す」口。周りを薄い黒で覆い、指した形だけ素の地図を残す（world のカードの地図ボタン・2026-09-23）。
+// 引数＝ISO2/ISO3/国名/WikidataID の文字列、または GeoJSON（Feature/FeatureCollection/Geometry）を直に。null＝解除。
+// 戻り＝{ bbox, name, iso2, clear() }。fit=false で寄らない／pad で余白（1 で外接矩形ぴったり・既定 1.25＝周りの形も少し見える）／
+// maxZoom で寄りの上限（小さな島国を地図の無い倍率まで拡大しない器のための手綱）。
+map.gadget("spotlight", async function (src, { opacity = 0.55, fit: doFit = true, color = null, pad = 1.25, maxZoom = null } = {}) {
+	if (src == null) { overlay.setSelectionMask(null); return null; }   // null＝解除
+	const f = await spotFeature(src);
+	if (!f?.geometry) { console.warn("[spotlight] not found", src); return null; }
+	overlay.setSelectionMask(f.geometry, { color: color || [0, 0, 0, opacity] });
+	const bbox = spotBbox(f.geometry);
+	if (doFit && bbox) {   // 中心は ±180 へ畳んで渡す（矩形は跨ぎを解いたまま＝幅が正）
+		const z = gint.fitZoomForBbox(bbox) - Math.log2(Math.max(1, pad));
+		flyTo(wrapLon((bbox[0] + bbox[2]) / 2), (bbox[1] + bbox[3]) / 2, maxZoom == null ? z : Math.min(z, maxZoom), 0, 0);
+	}
+	const p = f.properties || {};
+	return { bbox, name: p.NAME_EN || p.NAME || null, iso2: p.ISO_A2 || null, clear: () => overlay.setSelectionMask(null) };
+});
 map.gadget("globe", function (o) {   // ミニ地球儀（右下・視野の枠・z≤8）… 追従は render のフック（戻り値 update を掴む）
 	const u = globeGadget.call(this, { signal: ac.signal, ...o });
 	if (u) { frameHooks.add(u); u(); }

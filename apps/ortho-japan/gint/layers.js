@@ -666,7 +666,12 @@ function updateGintSlot() {
 // 新しい焼き上がりまで旧い線が残る＝消えない）。旧＝起動で 10m を読んでいた。LOW_MEM（モバイル）は従来どおり 50m だけ。
 const ADMIN0_FINE_Z = 7;
 let admin0Res = null;   // 搭載中の解像度 "50m" | "10m"
-async function loadAdmin0(res = "50m") {
+// 走っている読み込みを外から待てるようにする（旧＝読み込み中は素通りで return＝起動直後に呼ぶ口が空を掴んだ・
+// world の地図ボタン 2026-09-23）。自動の梯子（updateGintSlot）は従来どおり戻りを無視して呼ぶだけ。
+let admin0Job = null;
+const loadAdmin0 = (res = "50m") => admin0Job || (res === admin0Res ? Promise.resolve()
+	: (admin0Job = loadAdmin0Now(res).finally(() => { admin0Job = null; })));
+async function loadAdmin0Now(res = "50m") {
 	if (admin0Loading || res === admin0Res) return; admin0Loading = true;
 	// bucket 未収録の間は zip フォールバック（S3→shpデコード）だが geopbf が URL キーで IDB キャッシュする＝初回のみ。
 	const NAME = `ne_${res}_admin_0_countries`;
@@ -703,7 +708,8 @@ dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印
 
 return {
 	// 動詞
-	applyGintData, clearUserGint, addGint, queryAllGint, standupGint, paintGint, sendGintPaint, fitZoomForBbox, gintFidFeatures, updateGintSlot, admin0DrawStyle,
+	applyGintData, clearUserGint, addGint, queryAllGint, standupGint, paintGint, sendGintPaint, fitZoomForBbox, gintFidFeatures, updateGintSlot,
+	ensureAdmin0: async (res = LOW_MEM ? "50m" : "10m") => { await loadAdmin0(res); return admin0Pbf; },   // 世界の国の形を用意して原本を返す（スポットライト＝国を指す口が使う・2026-09-23） admin0DrawStyle,
 	// 定数
 	ADMIN0_Z, WORLD_TIP_MAXZ,
 	// 状態のアクセサ（外が読む／書く。移設前の let と同じ意味）
