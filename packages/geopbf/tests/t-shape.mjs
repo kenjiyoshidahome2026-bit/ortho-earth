@@ -70,6 +70,12 @@ const lonlat = pbf => pbf.getGeometry(0).coordinates[0][0];
 	const [lon, lat] = pbf ? lonlat(pbf) : [0, 0];
 	ok(Math.abs(lon - (139 + 50 / 60)) < 1e-4 && Math.abs(lat - 36) < 1e-4, `平面直角 IX 系の原点付近 → 経緯度（${lon.toFixed(5)}, ${lat.toFixed(5)}）`);
 }
+// zip の中の zip（長与町の地番参考図＝「地番.zip」「筆界.zip」を束ねた zip）
+{
+	const inner = await encodeZIP([new File([shp(25)], "筆界/POLY.shp"), new File([dbf(["A", "B", "C"])], "筆界/POLY.dbf"), new File([epsgToWKT(6677)], "筆界/POLY.prj")], "筆界.zip");
+	const pbf = await decode([new File([await inner.arrayBuffer()], "tiban/筆界.zip")]);
+	ok(pbf?.length === 2 && Math.abs(pbf.getGeometry(0).coordinates[0][0][1] - 36) < 1e-4, `zip の中の zip も読む（${pbf?.length} 件）`);
+}
 // .prj 無し＋ opts.crs（EPSG 番号）
 {
 	const pbf = await decode([new File([shp(5)], "T/p.shp"), new File([dbf(["A", "B", "C"])], "T/p.dbf")], { crs: 6677 });

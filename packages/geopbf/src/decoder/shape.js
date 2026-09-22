@@ -144,8 +144,18 @@ onmessage = async (e) => {
 	try {
 		const { file, encoding, precision, shpTarget, crs: crsOpt } = e.data;   // crs＝.prj が無い時の指定（EPSG 番号か WKT。例 6673＝JGD2011 平面直角 V 系）
 		const name = file.name.replace(/\.[^\.]+$/, "");
-		const entries = await decodeZIP(file);
+		let entries = await decodeZIP(file);
 		if (!entries) { postMessage(null); return; }
+		// zip の中の zip を開く（二段まで）＝自治体の地番図は「地番.zip」「筆界.zip」を束ねた zip で配られることがある（長与町 BODIK 等）
+		for (let depth = 0; depth < 2 && entries.some(t => /\.zip$/i.test(t.name)); depth++) {
+			const next = [];
+			for (const t of entries) {
+				if (!/\.zip$/i.test(t.name)) { next.push(t); continue; }
+				const inner = await decodeZIP(new File([await t.arrayBuffer()], t.name)).catch(() => null);
+				if (inner) next.push(...inner.map(u => Object.defineProperty(u, "name", { value: t.name.replace(/\.zip$/i, "") + "/" + u.name })));
+			}
+			entries = next;
+		}
 		const keySet = new Set();
 		const shpFiles = shpTarget
 			? entries.filter(t => t.name.endsWith(shpTarget))
