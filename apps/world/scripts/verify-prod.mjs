@@ -54,7 +54,7 @@ const ENGINE_STUB = `export default async function (opts) {
 	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
 	el.appendChild(document.createElement("canvas"));
 	const gadget = { zoom() {}, compass() {}, shot() {}, spotlight: async (src, o) => { window.__spot = { src, opts: o }; return { bbox: [0, 0, 1, 1], clear() { window.__spotCleared = true; } }; },
-		tip: () => () => {},
+		tip: () => () => {}, outline: async () => null,
 		symbols: async (src, layer) => { window.__symbols = { n: src ? src.features.length : 0, id: layer && layer.id }; return src ? { features: src.features.length } : null; } };
 	return {
 		gadget, lang: opts.lang, addImage: async () => {}, hasImage: () => false,

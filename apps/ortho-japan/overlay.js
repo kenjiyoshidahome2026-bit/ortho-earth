@@ -142,5 +142,13 @@ export function createOverlay({ renderer, cam, size, dpr, requestDraw, tip }) {
 		// 裏半球の形が手前へ punch するのを断つ・2026-09-23）。小さな市区町村では実質 no-op（1 feature 分の円）。
 		renderer.set("overlayHi", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: [0, 0, 0, 0], lineWidth: 0, ranges: true }), opts.color ? { mask: true, color: opts.color } : HI_MASK);
 	}
-	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatW?.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
+	// ホバー中の地物を「線だけ」で示す＝統一ルールのもう半分（選択=マスク／ホバー=線）。overlayHover スロット（町丁目ホバーと同じ器・マスクと両立）。
+	// geom=null で消す。opts.color＝[r,g,b,a]（既定＝濃い灰）・opts.width＝px。
+	function setHoverOutline(geom, opts = {}) {
+		if (!geom) { renderer.set("overlayHover", null); requestDraw(); return; }
+		const feats = [{ geometry: geom }];
+		renderer.set("overlayHover", buildGeoJSONOverlay(feats, bboxCenter(feats).center, { lineColor: opts.color || [0.2, 0.22, 0.28, 0.9], lineWidth: opts.width ?? 1.6, ranges: true }));
+		requestDraw();
+	}
+	return { identifyAt, hoverAt, isEstatActive: () => estatActive, setSelectionMask, setHoverOutline, loadOverlay, loadEstat, clearOverlay, highlightKey, setIdentifyHandler, destroy: () => estatW?.terminate() };   // destroy＝map.destroy() から（worker外し漏れゼロの掟）
 }

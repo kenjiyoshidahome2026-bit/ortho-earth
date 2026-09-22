@@ -2079,6 +2079,11 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 	overlays.set(name, h);
 	return h;
 };
+// ★互換：map.overlay は 9/20（c246591a）まで「estat 小地域・geopbf オーバーレイ・選択マスク・identify の手綱」（上の overlay）だった。
+// 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
+// choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
+// map.overlay(url)（quakes/anno）と map.overlay.loadEstat(...)（census2020）の両方が無傷。正式な別名は裁定待ち。
+Object.assign(map.overlay, overlay);
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
@@ -2476,6 +2481,15 @@ map.gadget("spotlight", async function (src, { opacity = 0.55, fit: doFit = true
 		flyTo(wrapLon((bbox[0] + bbox[2]) / 2), (bbox[1] + bbox[3]) / 2, maxZoom == null ? z : Math.min(z, maxZoom), 0, 0);
 	}
 	return { bbox, clear: () => overlay.setSelectionMask(null) };
+});
+// 輪郭＝「この形の線だけ」（ホバーの合図）。src は spotlight と同じ（GeoJSON か ISO コード）・null で消す。
+// マスク（overlayHi）とは別スロット＝スポットライトと両立する。色は [r,g,b,a]（0..1）・width は px。
+map.gadget("outline", async function (src, { color = null, width = 1.6 } = {}) {
+	if (src == null) { overlay.setHoverOutline(null); return null; }
+	const f = await spotFeature(src);
+	if (!f?.geometry) return null;
+	overlay.setHoverOutline(f.geometry, { color: color || undefined, width });
+	return { clear: () => overlay.setHoverOutline(null) };
 });
 map.gadget("globe", function (o) {   // ミニ地球儀（右下・視野の枠・z≤8）… 追従は render のフック（戻り値 update を掴む）
 	const u = globeGadget.call(this, { signal: ac.signal, ...o });

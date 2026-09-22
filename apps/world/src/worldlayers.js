@@ -10,7 +10,7 @@ const BASE_URL = "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-";
 import { gunzip, isGzip } from "geopbf/gzip";   // bucket は圧縮して置く＝読む側で解く（equal と同じ作法）
 
 // 色＝equal の PALETTE / labelColor（apps/equal/src/layers.js・themes.js mono）と同じ顔＝2 つのアプリで同じ世界に見える
-const C = { admin1: "rgba(169,156,178,0.45)", disputed: "rgba(154,110,144,0.28)", disputedLine: "rgba(138,95,128,0.9)",
+const C = { admin1: "rgba(169,156,178,0.45)", admin1Fill: "rgba(169,156,178,0.14)", disputed: "rgba(154,110,144,0.28)", disputedLine: "rgba(138,95,128,0.9)",
 	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.5)", city: "#2b3b57", capital: "#c8443c", halo: "rgba(255,255,255,0.88)", airport: "#6a3d9a" };
 const LINES_Z = 5;   // 道路・鉄道を出すズーム（equal の roads/rail minZoom と同値）
 
@@ -95,7 +95,7 @@ export function countryLayers(map, geopbf) {
 	};
 	// equal の層定義（countries の admin1 線・disputed の薄い塗り＋線・urban の塗り・roads/rail の線）をそのまま式に写す
 	const paintOf = g => g === "base"
-		? { "fill-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputed, "rgba(0,0,0,0)"],   // 係争主体＝薄く重ねる（州は塗らない）
+		? { "fill-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputed, C.admin1Fill],   // 係争主体＝薄く重ねる・州＝常時薄い色（本人 2026-09-23）
 			"line-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputedLine, C.admin1],
 			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.8, 0.5] }
 		: { "fill-color": ["case", ["==", ["get", "layer"], "urban_areas"], C.urban, "rgba(0,0,0,0)"],   // 市街地だけ塗る
@@ -175,8 +175,10 @@ export function countryLayers(map, geopbf) {
 			const pbf = held.base; if (!pbf?.identifyAt || !ll) return null;
 			const fid = pbf.identifyAt(ll[0], ll[1]); if (fid == null) return null;
 			const p = pbf.getProperties(fid) || {};
-			return p.key ? { key: p.key, layer: p.layer, admin1: p.layer === "admin_1" ? admin1Name(p, lang) : "" } : null;
+			return p.key ? { key: p.key, layer: p.layer, fid, admin1: p.layer === "admin_1" ? admin1Name(p, lang) : "" } : null;
 		},
+		/** base の 1 地物の形（ホバーの輪郭に渡す） */
+		geometry(fid) { const pbf = held.base; try { return pbf?.getFeature(fid)?.geometry || null; } catch { return null; } },
 		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.symbols(null, { id: "world-cities" }); map.gadget.symbols(null, { id: "world-airports" }); },
 	};
 }

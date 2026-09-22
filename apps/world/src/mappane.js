@@ -47,7 +47,7 @@ async function build({ lang, nation }) {
 	// tip＝自国は州の名前・他国は国の名前（本人 2026-09-23）。当たりは base の面を JS で引く＝描画の絞りに依らない
 	const tip = map.gadget.tip();
 	const cv = () => host.querySelector("canvas");
-	let hovAt = 0;
+	let hovAt = 0, hovUnit = null;
 	host.addEventListener("pointermove", e => {
 		const now = performance.now(); if (now - hovAt < 60) return; hovAt = now;   // 16ms 毎に 12k 面を当てない
 		const c = cv(); if (!c || !open) return;
@@ -55,13 +55,20 @@ async function build({ lang, nation }) {
 		const hit = ll && inside?.query(ll, lang);
 		const text = !hit ? null : hit.key === lastKey ? (hit.admin1 || null) : (nation?.(hit.key)?.label || nation?.(hit.key)?.name || null);
 		tip(text ? [text] : null);
+		// hover＝線だけ（自国＝その州の輪郭・他国＝その国の輪郭）。同じ単位の上では作り直さない
+		const unit = !hit ? null : hit.key === lastKey ? (hit.layer === "admin_1" ? "f" + hit.fid : null) : "k" + hit.key;
+		if (unit === hovUnit) return; hovUnit = unit;
+		if (!unit) { map.gadget.outline(null); return; }
+		const OTHER = { color: [0.96, 0.96, 0.98, 0.85], width: 1.4 };   // 他国はマスクの暗みの上＝明るい線で読ませる（自国の州は既定の濃い線）
+		if (unit[0] === "f") map.gadget.outline(inside.geometry(hit.fid));
+		else map.gadget.outline(hit.key, OTHER).then(r => { if (!r && hovUnit === unit) inside.shape(hit.key).then(sh => hovUnit === unit && sh && map.gadget.outline(sh.fc, OTHER)); });   // ISO で引けない主体（B コード）＝world の形で
 	});
-	host.addEventListener("pointerleave", () => tip(null));
+	host.addEventListener("pointerleave", () => { tip(null); hovUnit = null; map.gadget.outline(null); });
 	// 他国をクリック＝その国へ移る（一覧の合図と同じ形で show）
 	map.on("click", e => {
 		const hit = e?.lngLat && inside?.query(e.lngLat, lang);
 		if (!hit?.key || hit.key === lastKey) return;
-		const n = nation?.(hit.key); if (n) { tip(null); show(n); }
+		const n = nation?.(hit.key); if (n) { tip(null); hovUnit = null; map.gadget.outline(null); show(n); }
 	});
 	if (import.meta.env.DEV) window.__worldPane = { map, query: ll => inside?.query(ll, lang), key: () => lastKey };   // dev の検分窓（本番束には入らない）
 	const runPending = () => { const k = pending; pending = null; clearTimeout(pendTimer); if (!k || !open) return;
