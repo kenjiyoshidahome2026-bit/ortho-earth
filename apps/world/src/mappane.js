@@ -13,11 +13,11 @@ const engineP = () => import.meta.env.PROD ? import(/* @vite-ignore */ LIB) : im
 let paneP = null;
 
 /** 地図パネルを開いてその国を指す。初回だけエンジンを起動する（枠は先に見せる＝待ち時間が黒画面にならない） */
-export function showMap(sign = {}, { lang = "en" } = {}) {
-	return (paneP ||= build({ lang })).then(p => p.show(sign));
+export function showMap(sign = {}, { lang = "en", nation = null } = {}) {
+	return (paneP ||= build({ lang, nation })).then(p => p.show(sign));
 }
 
-async function build({ lang }) {
+async function build({ lang, nation }) {
 	if (import.meta.env.PROD) document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/japan/lib/ortho-japan.css" }));
 	const pane = document.body.appendChild(Object.assign(document.createElement("div"), { id: "world-map" }));
 	pane.innerHTML = `<div class="bar"><span class="title"></span><button type="button" class="close" aria-label="Close">✕</button></div><div class="host"></div>`;
@@ -44,6 +44,26 @@ async function build({ lang }) {
 	});
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.shot();
 	inside = countryLayers(map, engine.geopbf);   // その国の州境・道路・鉄道・市街地（ne-cultural＝equal と同じ 2 本）
+	// tip＝自国は州の名前・他国は国の名前（本人 2026-09-23）。当たりは base の面を JS で引く＝描画の絞りに依らない
+	const tip = map.gadget.tip();
+	const cv = () => host.querySelector("canvas");
+	let hovAt = 0;
+	host.addEventListener("pointermove", e => {
+		const now = performance.now(); if (now - hovAt < 60) return; hovAt = now;   // 16ms 毎に 12k 面を当てない
+		const c = cv(); if (!c || !open) return;
+		const r = c.getBoundingClientRect(), ll = map.unprojectXY(e.clientX - r.left, e.clientY - r.top);
+		const hit = ll && inside?.query(ll, lang);
+		const text = !hit ? null : hit.key === lastKey ? (hit.admin1 || null) : (nation?.(hit.key)?.label || nation?.(hit.key)?.name || null);
+		tip(text ? [text] : null);
+	});
+	host.addEventListener("pointerleave", () => tip(null));
+	// 他国をクリック＝その国へ移る（一覧の合図と同じ形で show）
+	map.on("click", e => {
+		const hit = e?.lngLat && inside?.query(e.lngLat, lang);
+		if (!hit?.key || hit.key === lastKey) return;
+		const n = nation?.(hit.key); if (n) { tip(null); show(n); }
+	});
+	if (import.meta.env.DEV) window.__worldPane = { map, query: ll => inside?.query(ll, lang), key: () => lastKey };   // dev の検分窓（本番束には入らない）
 	const runPending = () => { const k = pending; pending = null; clearTimeout(pendTimer); if (!k || !open) return;
 		inside.show(k).catch(e => console.warn("[world] 国の中身", e));
 		inside.labels(k, lang).catch(e => console.warn("[world] 都市名", e)); };
