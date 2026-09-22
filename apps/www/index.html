@@ -40,15 +40,17 @@
 	<div id="mapContainer"></div>
 	<div id="demoOverlay">
 		<nav class="header">
-			<div class="logo" translate="no"></div>
+			<div class="brand">
+				<button class="back" type="button" hidden><span aria-hidden="true">←</span> <span data-t="Back">Back</span></button>
+				<div class="logo" translate="no"></div>
+			</div>
 			<div class="links">
 				<a href="/docs/introduction.html" data-t="Story">Story</a>
-				<a href="/maps/" data-t="Maps">Maps</a>
 				<select class="lang" translate="no" aria-label="Language" data-t-aria-label="Language"></select>
 				<a href="https://x.com/KenjiYoshida168" target="_blank" rel="noopener" aria-label="X (Twitter)">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
 				</a>
-				<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth" target="_blank" rel="noopener" aria-label="GitHub">
+				<a href="https://github.com/kenjiyoshidahome2026-bit" target="_blank" rel="noopener" aria-label="GitHub">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
 						<path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/>
 					</svg>
@@ -60,13 +62,66 @@
 			<h1 class="title highlight" translate="no" dir="ltr" lang="en">Equal to all,<br>fair to the Earth</h1>
 			<p class="motto" translate="no" dir="ltr" lang="en">This is the project for all people on the earth. The earth is round.</p>
 			<p class="motto-tr" data-t="This is the project for all people on the earth. The earth is round. ##motto" hidden></p>
-			<p class="tagline" data-t="Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.">Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.</p>
+			<p class="tagline" data-t="A 3D globe with no install, no account and no server. Share the GIS data you made with everyone on Earth.">A 3D globe with no install, no account and no server. Share the GIS data you made with everyone on Earth.</p>
 			<div class="tabs" role="tablist" data-t-aria-label="Sections" aria-label="Sections">
 				<button class="tab is-active" id="tab-demos" role="tab" aria-selected="true" aria-controls="panel-demos" data-tab="demos" data-t="Demos">Demos</button>
+				<button class="tab" id="tab-start" role="tab" aria-selected="false" aria-controls="panel-start" data-tab="start" data-t="Get started">Get started</button>
 				<button class="tab" id="tab-tech" role="tab" aria-selected="false" aria-controls="panel-tech" data-tab="tech" data-t="Technologies">Technologies</button>
 			</div>
 			<div class="apps" id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
 				<!--DEMOS-->
+			</div>
+			<!-- 始める：見る → 変換する → 自分のページに → 公開する（コードは訳さない） -->
+			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
+				<div class="card step">
+					<span class="step-no" aria-hidden="true">1</span>
+					<span class="card-title" data-t="Look">Look</span>
+					<span class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</span>
+					<span class="doclinks">
+						<a href="/japan/" translate="no">ortho-japan</a>
+						<a href="/geopbf/" translate="no">GeoPBF</a>
+					</span>
+				</div>
+				<div class="card step">
+					<span class="step-no" aria-hidden="true">2</span>
+					<span class="card-title" data-t="Convert in your code">Convert in your code</span>
+					<span class="card-desc" data-t="The converter is an npm package with no runtime dependencies. It works in the browser and in Node.">The converter is an npm package with no runtime dependencies. It works in the browser and in Node.</span>
+					<pre class="code" translate="no" dir="ltr"><code>npm install geopbf
+
+import { createGeopbf } from "geopbf";
+const geopbf = createGeopbf();
+const pbf = await geopbf(file);   // Shapefile, GeoPackage, FlatGeobuf …
+const fgb = await pbf.fgbFile();  // or geojsonFile(), shapeFile() …</code></pre>
+					<span class="doclinks">
+						<a href="/docs/geopbf.html" data-t="Docs">Docs</a>
+						<a href="https://www.npmjs.com/package/geopbf" translate="no">npm</a>
+					</span>
+				</div>
+				<div class="card step">
+					<span class="step-no" aria-hidden="true">3</span>
+					<span class="card-title" data-t="Put the globe on your page">Put the globe on your page</span>
+					<span class="card-desc" data-t="Copy the SDK files to your site and add a few lines. No API key, no billing, no server of your own.">Copy the SDK files to your site and add a few lines. No API key, no billing, no server of your own.</span>
+					<pre class="code" translate="no" dir="ltr"><code>npm install @ortho-earth/japan
+
+&lt;div id="here" style="height:420px"&gt;&lt;/div&gt;
+&lt;script type="module"&gt;
+  import orthoJapan from "./lib/ortho-japan.js";
+  await orthoJapan({ target: "#here", assetBase: "./assets/" });
+&lt;/script&gt;</code></pre>
+					<span class="doclinks">
+						<a href="https://www.npmjs.com/package/@ortho-earth/japan" translate="no">npm</a>
+						<a href="https://github.com/kenjiyoshidahome2026-bit" translate="no">GitHub</a>
+					</span>
+				</div>
+				<div class="card step">
+					<span class="step-no" aria-hidden="true">4</span>
+					<span class="card-title" data-t="Publish your map">Publish your map</span>
+					<span class="card-desc" data-t="Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.">Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.</span>
+					<pre class="code" translate="no" dir="ltr"><code>https://www.ortho-earth.com/japan/?g=gh:you/repo/map.geopbf</code></pre>
+					<span class="doclinks">
+						<a href="/maps/" data-t="Maps">Maps</a>
+					</span>
+				</div>
 			</div>
 			<div class="apps tech" id="panel-tech" role="tabpanel" aria-labelledby="tab-tech" hidden>
 				<p class="tech-lead" data-t="Parquet draws big data, Gint thinks, and nothing is exaggerated.">Parquet draws big data, Gint thinks, and nothing is exaggerated.</p>
@@ -124,6 +179,8 @@
 				</div>
 			</div>
 		</main>
+		<!-- デモ＝ページを離れずにナビの下で開く（本人 9/22「デモに行くと戻りづらい」）。main.js がカードのクリックを受けて src を入れる -->
+		<iframe id="demoFrame" hidden title="Demo" allow="fullscreen; geolocation; clipboard-read; clipboard-write; web-share; xr-spatial-tracking" allowfullscreen></iframe>
 		<footer class="footer">
 			<p><span data-t="Released under the MIT / GPL-3.0-or-later License.">Released under the MIT / GPL-3.0-or-later License.</span> ©︎ 2026
 				<span translate="no">Kenji Yoshida</span>
