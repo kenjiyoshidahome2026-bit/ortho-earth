@@ -51,7 +51,7 @@ async function build({ lang }) {
 
 	const show = async (sign = {}) => {
 		open = true; pane.classList.remove("hidden");
-		title.textContent = sign.name || sign.iso2 || sign.key || "";
+		title.textContent = sign.label || sign.name || sign.iso2 || sign.key || "";   // label＝一覧の言語の名前（日本）・name＝英語
 		lastKey = sign.key || null;
 		// 国の形も寄り先も **world のデータ**から（本人 2026-09-23「world の DB に全てある・ISO で対応が取れる」）：
 		//   形＝ne-cultural の admin_1 を key で束ねたもの／寄り先＝NationDB の coord・area で飛び地を外した矩形。
