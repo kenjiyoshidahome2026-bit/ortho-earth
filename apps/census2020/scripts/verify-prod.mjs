@@ -64,7 +64,10 @@ const server = createServer(async (req, res) => {
 //   ブラウザが実際に何を取りに来たか（lib入口→エンジン→worker→assetBase棚）＋404ゼロ。
 //   ネットワーク要求は main スレッドの混み具合と無関係に必ず観測できる＝ハングしない検定。
 // --remote-debugging-port=0＝「アクションフラグ無しのheadlessは即exit」を防ぐ生存錨（接続はしない・ポートも使わない）
-const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/census-vprod-${process.pid}`, "--remote-debugging-port=0",
+// ＋受動的なコンソール監視（2026-09-23）：起動プロセスが走っても、その後に「エンジン起動失敗」で死ぬ壊れ方を台帳は見抜けない
+//（9/20 の map.overlay 上書きで本番 3 日間そうなっていた）。CDP に**受動で**繋いで console.error と例外だけ拾う＝evaluate はしない（ハングしない）。
+const CDP = 9347;
+const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/census-vprod-${process.pid}`, `--remote-debugging-port=${CDP}`,
 	"--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--no-first-run",
 	`http://localhost:${PORT}/japan/census2020/?gl2=1&verify=1`], { stdio: "ignore" });
 process.on("exit", () => { server.close(); chrome.kill(); });
@@ -77,6 +80,19 @@ const need = [
 	["/japan/airports.json", "assetBase（/japan/共有棚）"],   // 証拠＝起動時に必ず読む共有棚のファイル（旧 plateau-sets.json は 2026-09-22 から寄った時だけ読む）
 ];
 // 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
+const errs = [];   // 自オリジンの console.error / 例外（受動）
+(async () => {
+	try {
+		let list = null;
+		for (let i = 0; i < 40 && !list; i++) { await sleep(250); try { const l = await (await fetch(`http://127.0.0.1:${CDP}/json/list`)).json(); list = l.find(t => t.type === "page" && t.url.includes("census2020")) || null; } catch { /* まだ */ } }
+		if (!list) return;
+		const ws = new WebSocket(list.webSocketDebuggerUrl); await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+		ws.onmessage = ev => { const m = JSON.parse(ev.data);
+			if (m.method === "Runtime.consoleAPICalled" && m.params.type === "error") errs.push((m.params.args || []).map(a => a.value ?? a.description ?? "").join(" ").slice(0, 200));
+			if (m.method === "Runtime.exceptionThrown") errs.push("例外: " + (m.params.exceptionDetails?.exception?.description || m.params.exceptionDetails?.text || "").split("\n")[0].slice(0, 200)); };
+		ws.send(JSON.stringify({ id: 1, method: "Runtime.enable" }));
+	} catch { /* 監視が付かなくても台帳の検定は続く */ }
+})();
 const t0 = Date.now();
 let missing = need;
 while (Date.now() - t0 < 90000) {
@@ -85,8 +101,10 @@ while (Date.now() - t0 < 90000) {
 	missing = need.filter(([frag]) => !got.includes(frag));
 	if (!missing.length) break;
 }
+await sleep(6000);   // 台帳が揃った後＝エンジン起動の直後に census 側の配線（bind/choropleth）が走る＝その例外を待つ
 chrome.kill();
 server.close();
+if (errs.length) { errs.slice(0, 5).forEach(e => console.error("      " + e)); fail(`実走: 起動後にエラー ${errs.length} 件（例: ${errs[0].slice(0, 80)}）`); }
 console.log(`  取得台帳 ${requests.length}件・${((Date.now() - t0) / 1000) | 0}s（先頭）: ${requests.slice(0, 6).join(" | ") || "（空＝ブラウザが来ていない）"}`);
 if (missing.length) { console.error("  台帳全行:\n  " + requests.join("\n  ")); fail(`実走: ${missing.map(([f, l]) => `${l}（${f}…）`).join("・")}が取得されていない`); }
 const notFound = requests.filter(r => r.startsWith("404 "));
