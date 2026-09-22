@@ -6,7 +6,7 @@
 //
 // 使い方：
 //   const view = createGintView(map, { overviewZoom });
-//   await view.show(pbf, { tipHtml: (fid, props) => html|null, popHtml: (fid, props) => html|null });
+//   await view.show(pbf, { tipHtml: (fid, props) => html|null, popHtml: (fid, props) => html|null, fill: true|false });
 //   view.clear();  view.spin(true|false);  view.home();
 //   const off = await view.showRasterMeshes(meshes, { id, name, attribution, opacity });   // L03-b_r 型（経緯度矩形の画像群）
 
@@ -38,7 +38,7 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 	let layer = null, token = 0;
 
 	// ---- 1枚見せる ----
-	async function show(pbf, { tipHtml = null, popHtml = null, fit = true } = {}) {
+	async function show(pbf, { tipHtml = null, popHtml = null, fit = true, fill = true } = {}) {   // fill:false＝面を塗らず輪郭だけ
 		clear();
 		const my = ++token;
 		if (!pbf?.length) return null;
@@ -47,7 +47,7 @@ export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPe
 		if (my !== token) return null;   // 焼いている間に次のデータ／閉じるが来た
 		if (!pbf.unPackGint) { console.error("[gintView] no gint buffer (unPackGint) = cannot draw", pbf.name?.()); return null; }
 		spin(false);
-		layer = map.addGint(pbf, { minZoom });
+		layer = map.addGint(pbf, { minZoom, ...(fill ? {} : { fillMaxEdges: 0 }) });   // fillMaxEdges:0＝エンジンの塗り切り（国境層と同じ口）
 		layer.on("hover", f => tip(f && tipHtml ? tipHtml(f.fid, f.properties) || null : null));
 		layer.on("click", e => {
 			if (e.fid == null || !popHtml) return;

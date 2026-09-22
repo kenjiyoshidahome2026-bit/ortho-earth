@@ -99,7 +99,7 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	// style/minZoom は層の属性としてここに預ける（スロット再適用(applyUserSlot)がズーム跨ぎの度に走るため、外に置くと切替で剥がれる）
 	// opts.fillMaxEdges＝この層だけ塗り上限を上げる（フル解像度の行政界コロプレス等・既定 2M の暴走止めを個別解除）。
 	// opts.lowFill＝fillOff のままでも低ズーム帯（z<outlineZoom）の単色ベタ塗りだけ生かす（geoedit 大規模モード）。
-	if (opts.fillMaxEdges) pbf.unPackGint.fillMaxEdges = opts.fillMaxEdges;
+	if (opts.fillMaxEdges != null) pbf.unPackGint.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）
 	if (opts.lowFill) pbf.unPackGint.lowFill = true;
 	// opts.onReady＝この層の焼きが表示束に着地した瞬間の通知（geoedit 大規模モードの g再送＝編集コミットが
 	// 「旧座標の絵が消えた」タイミングを知るための口）。層差し替えで焼きが捨てられた時は呼ばれない＝呼び出し側がタイムアウトで保険。
@@ -317,7 +317,7 @@ function addGint(pbf, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[addGint] invalid source (unPackGint missing) = pass geopbf(…, {gint:true})"); return null; }
 	const seq = layers.nextId(), id = "gl" + seq;
 	let g = pbf.unPackGint;
-	if (opts.fillMaxEdges) g.fillMaxEdges = opts.fillMaxEdges;
+	if (opts.fillMaxEdges != null) g.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）も通す（旧 truthy 判定は 0 を捨てていた）
 	if (opts.lowFill) g.lowFill = true;
 	// ack は待ち行列（初回 ready ＋ setData の再ロード完了を同じ経路で受ける）
 	const ackQ = [];
@@ -412,7 +412,7 @@ function addGint(pbf, opts = {}) {
 		setData: (newPbf, o2 = {}) => {   // ④ データ差し替え（handle/イベント/paint は生存＝MapLibre の source setData 相当）
 			if (!newPbf?.unPackGint) { console.error("[addGint] setData: invalid source"); return Promise.resolve(false); }
 			pbf = newPbf; g = pbf.unPackGint;
-			if (opts.fillMaxEdges) g.fillMaxEdges = opts.fillMaxEdges;
+			if (opts.fillMaxEdges != null) g.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）も通す（旧 truthy 判定は 0 を捨てていた）
 			if (opts.lowFill) g.lowFill = true;
 			if (o2.minZoom !== undefined) opts.minZoom = o2.minZoom;
 			if (o2.maxZoom !== undefined) opts.maxZoom = o2.maxZoom;

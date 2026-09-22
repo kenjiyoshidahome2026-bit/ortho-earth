@@ -134,13 +134,13 @@
       "cwd": "apps/ortho-japan"
     },
     {
-      "name": "gishub",
+      "name": "geopbf-demo",
       "runtimeExecutable": "npm",
       "runtimeArgs": [
         "run",
         "dev",
         "-w",
-        "gishub",
+        "geopbf-demo",
         "--",
         "--port",
         "5191",
