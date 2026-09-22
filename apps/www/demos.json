@@ -73,8 +73,7 @@
 			"img": "/thumbs/world.webp",
 			"shot": {
 				"wait": 8
-			},
-			"frame": false
+			}
 		},
 		{
 			"id": "quakes",

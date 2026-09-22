@@ -1,7 +1,8 @@
 import { fname2mime } from "geopbf/fname2mime";
-// zip の読み書きは zip を扱う時だけ読む（動的 import＝標高タイル等の普通の取得で worker に乗せない・2026-09-22）
-const zipDec = async (...a) => (await import("geopbf/decodeZIP")).decodeZIP(...a);
-const zipEnc = async (...a) => (await import("geopbf/encodeZIP")).encodeZIP(...a);
+// ⚠zip の読み書きは静的 import のまま（2026-09-23 差し戻し）：動的 import にすると world の出荷物で `import("geopbf/decodeZIP")` が
+// 解決されないまま止まり（失敗なら捨てられるが「止まる」＝gets の Promise が永久に未解決）、起動が「Loading the world…」で固まった。
+import { decodeZIP } from "geopbf/decodeZIP";
+import { encodeZIP } from "geopbf/encodeZIP";
 import { gzip, gunzip, isGzip } from "geopbf/gzip";
 
 class _Bucket {
@@ -130,10 +131,10 @@ class _Bucket {
 	}
 	async gets(name, target = null) {
 		const blob = await this.get(name.replace(/\.zip/i, "") + ".zip");
-		return blob ? zipDec(blob, target) : [];
+		return blob ? decodeZIP(blob, target) : [];
 	}
 	async puts(name, files) {
-		const blob = await zipEnc(files);
+		const blob = await encodeZIP(files);
 		return this.put(new File([blob], name, { type: blob.type }));
 	}
 }
