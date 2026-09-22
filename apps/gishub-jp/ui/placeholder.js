@@ -137,7 +137,7 @@ export function placeholder(catalog) {
                         GeoPBF のライブラリは、GeoJSON・Shapefile（zip）・KML／KMZ・GML・GPX・FlatGeobuf・TopoJSON・GeoParquet・登記所備付地図（法務省 XML）などを読み、
                         GeoJSON・Shapefile・KML／KMZ・GML・GPX・FlatGeobuf・TopoJSON・GeoParquet・PMTiles などへ書き出します。
                         GeoPBF を真ん中に置くので、どの形式からどの形式へも 1 回の変換で移れます。形式は拡張子と中身の先頭から自動で判定します。
-                        この画面の書き出しは GeoPBF・GeoJSON・TopoJSON・FlatGeobuf・Shapefile・KMZ／KML・GML・GPX と、属性一覧からの CSV／Excel です。
+                        この画面の書き出しは GeoPBF・GeoJSON・TopoJSON・FlatGeobuf・Shapefile・KMZ／KML・GML・GPX・NDJSON・CZML・GeoParquet・PMTiles と、形つきの CSV／Excel（点は経緯度・線や面は WKT）です。
                     </p>
                     <p>
                         登記所備付地図は平面直角座標系（19 系）で配られているため、読み込み時に経緯度へ直します。
