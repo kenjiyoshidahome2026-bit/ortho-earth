@@ -48,7 +48,7 @@ execFileSync("npm", ["run", "build"], { cwd: APP, stdio: "inherit" });
 // ── 素の静的サーバ（出荷物そのもの）────────────────────────────────────────
 const read = promisify(readFile);
 const requests = [];
-// エンジンの偽物＝本番なら japan Worker が配る場所（/japan/lib/）に差す。殻が何を頼み、何を渡すかだけを控える
+// エンジンの偽物＝注入口 window.__orthoEngine（mappane.js）へ index.html の先頭 module script で渡す（A 裁定でエンジンは同梱＝URL では差せない）
 const ENGINE_STUB = `export default async function (opts) {
 	window.__engineOpts = opts;
 	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
@@ -74,12 +74,14 @@ export async function geopbf() {
 }`;
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
-	if (p === "/japan/lib/ortho-japan.js" || p === "/japan/lib/ortho-japan.css") {
-		requests.push("200 " + p);
-		res.writeHead(200, { "Content-Type": p.endsWith(".css") ? "text/css" : "text/javascript" });
-		return res.end(p.endsWith(".css") ? "/* stub */" : ENGINE_STUB);
-	}
+	if (p === "/__engine-stub.js") { requests.push("200 " + p); res.writeHead(200, { "Content-Type": "text/javascript" }); return res.end(ENGINE_STUB); }
 	const file = path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
+	if (file.endsWith("index.html")) {   // 注入口＝main の module script より前に偽エンジンを window.__orthoEngine へ（module script は文書順に実行される）
+		try {
+			const html = (await read(file, "utf8")).replace("<script type=\"module\"", "<script type=\"module\">import * as e from \"/__engine-stub.js\"; window.__orthoEngine = e;</script><script type=\"module\"");
+			requests.push("200 " + p); res.writeHead(200, { "Content-Type": "text/html" }); return res.end(html);
+		} catch { requests.push("404 " + p); res.writeHead(404); return res.end("not found"); }
+	}
 	try {
 		const body = await read(file);
 		requests.push("200 " + p);

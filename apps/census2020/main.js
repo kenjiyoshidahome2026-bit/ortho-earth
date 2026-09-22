@@ -9,17 +9,12 @@ import { nativeBucket } from "native-bucket";
 //   lib側コピーにしか効かない（本番だけ choro.ready 失敗の罠・8/20実地）。devはソース直＝同一インスタンスの
 //   二重呼びになるが createGeopbf は冪等（同apiBase）＝無害。
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket });
-// ★SDK二重構成（ortho-japan/site.js と同じ型・8/20）：dev=ソース直（編集即反映）・本番=/japan/lib/ のSDK配布物。
-//   本番は japan 本体と**同じURLのエンジン**を食う＝ブラウザキャッシュが両アプリで共有（エンジン1回DLで両方立つ）。
-//   URLは変数経由＝viteのimport解析（devでもリテラルは解決しにいく）を素通りさせる。CSSはlib抽出分をここで貼る。
-let engineP;
-if (import.meta.env.PROD) {
-	document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "/japan/lib/ortho-japan.css" }));
-	const LIB = "/japan/lib/ortho-japan.js";
-	engineP = import(/* @vite-ignore */ LIB);
-} else {
-	engineP = import("../ortho-japan/app.js");
-}
+// ★エンジンは自分の束に焼く（本人裁定 2026-09-23「A 一択」）：dev も本番もソース直＝build 時にワークスペースの
+//   ortho-japan/app.js ごと束ねる。旧（8/20〜9/23）は本番だけ /japan/lib/ の SDK 配布物を実行時に食っていた＝japan を
+//   出すたびに全消費者が同時に変わり、9/20 の map.overlay 上書きで本番の census2020 が 3 日間起動不能だった。
+//   代償＝エンジン分（gzip 300KB 台）の重複＝japan とのブラウザキャッシュ共有は無くなる。実行時アセット（airports.json 等）は
+//   引き続き /japan/ の共有棚（データであってコードではない）。
+const engineP = import("../ortho-japan/app.js");
 import { setup } from "./ui/ctx.js";
 import { renderCensusSmall2020, drillTo, drillToArea } from "./census/ui.js";
 import { prefetchSmallAreaIdb } from "./census/small-area.js";
@@ -59,7 +54,7 @@ const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() =
 
 // hash（共有ビュー）があればそれを優先、無ければ列島俯瞰＝コロプレスの見せ場から始める
 const JAPAN_VIEW = "#5.1/38.2/136.9";
-// assetBase: 本番=/japan/（ortho-japan Workerの共有棚＝実行時アセットもキャッシュ共有）・dev=自分のbase（publicDir共有＝従来どおり）
+// assetBase: 本番=/japan/（ortho-japan Worker の共有棚＝実行時アセット。コードは同梱・データは共有）・dev=自分のbase（publicDir共有＝従来どおり）
 engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW, hideAdminBoundary: true, smallAreaHover: true, assetBase: import.meta.env.PROD ? "/japan/" : import.meta.env.BASE_URL })).then(map => {   // hideAdminBoundary=基図の行政界(赤線)抑止／smallAreaHover=町丁目ホバー(名前tip+境界太線)。共に census2020 限定（デモは無効）
 	dismissBoot();
 	window.__map = map;   // console 検証用（デバッグの手すり）

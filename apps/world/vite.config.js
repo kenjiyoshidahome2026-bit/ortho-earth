@@ -12,8 +12,8 @@ const coepHeaders = () => ({
 	name: "coep-headers",
 	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
 });
-// 地図パネル（src/mappane.js）＝エンジン（ortho-japan）を遅延 import する。dev＝../ortho-japan/app.js をソース直
-// （wasm プラグインと __JAPAN_ASSETS__ が要る＝geopbf-demo と同じ配線）／本番＝/japan/lib/ の SDK 配布物（external）。
+// 地図パネル（src/mappane.js）＝エンジン（ortho-japan）を遅延 import する。dev も本番も ../ortho-japan/app.js をソース直
+// （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __JAPAN_ASSETS__ が要る＝geopbf-demo と同じ配線）。
 const JAPAN_PUBLIC = path.resolve(__dirname, '../ortho-japan/public');
 
 export default defineConfig(({ command }) => ({
@@ -34,5 +34,5 @@ export default defineConfig(({ command }) => ({
 		proxy: { '/api': { target: 'https://api.ortho-earth.com', changeOrigin: true, rewrite: p => p.replace(/^\/api/, '') } }
 	},
 	worker: { format: 'es' },
-	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true, rollupOptions: { external: ['/japan/lib/ortho-japan.js'] } }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）
+	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）。エンジンは同梱（external 無し）
 }));

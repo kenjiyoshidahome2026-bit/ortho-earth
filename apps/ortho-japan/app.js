@@ -2084,6 +2084,7 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
 // map.overlay(url)（quakes/anno）と map.overlay.loadEstat(...)（census2020）の両方が無傷。正式な別名は裁定待ち。
 Object.assign(map.overlay, overlay);
+map.estat = overlay;   // ★正式な口（2026-09-23 命名）＝e-Stat 小地域・geopbf オーバーレイ・identify の器。選択マスク／ホバー線は map.gadget.spotlight／outline が公開面
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject

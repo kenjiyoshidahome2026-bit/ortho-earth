@@ -324,7 +324,7 @@ export function initChoropleth(map, { legend } = {}) {
 	function setSelected(code) {
 		selected = code || null;
 		buildTable();
-		map.overlay?.setSelectionMask?.(selected ? geomForCode(selected) : null);   // 統一ルール：選択=周辺マスク（都道府県/市区町村の外を暗く）
+		map.estat?.setSelectionMask?.(selected ? geomForCode(selected) : null);   // 統一ルール：選択=周辺マスク（都道府県/市区町村の外を暗く）
 	}
 
 	function geomForCode(code) {   // code→境界幾何（admin_all 由来）。防災の市域クリップ用。
