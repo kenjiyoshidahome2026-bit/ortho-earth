@@ -100,6 +100,7 @@ const listUrl = () => { const q = new URLSearchParams(location.search); q.delete
 document.addEventListener("click", e => {
 	const a = e.target.closest?.("#panel-demos a.card");
 	if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+	if (a.dataset.frame === "0") return;   // iframe に入れないデモ（中の頁が COEP を送らない）＝普通に開く
 	const path = demoPath(a.getAttribute("href")); if (!path) return;
 	e.preventDefault();
 	const q = new URLSearchParams(location.search); q.set("d", path);

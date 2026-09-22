@@ -23,7 +23,8 @@ function card(d) {
 	// 言語のバッジ（本人 9/22「26 言語、Japanese only をバッジで」）＝lang: "26"（26 言語の UI）| "ja"（日本語のみ）
 	// "en"＝英語のみ（本人 9/22 表）＝英語が読めない人への知らせ＝各言語へ訳して出す（日本語のみの札が英語のままなのと逆の理屈）
 	const badge = d.lang === "26" ? T("span", "card-lang all", "26 languages") : d.lang === "ja" ? `<span class="card-lang ja" translate="no">Japanese only</span>` : d.lang === "en" ? T("span", "card-lang en", "English only") : "";   // 日本語が読めない人への知らせ＝どの言語でも英語のまま
-	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}">` + thumb + badge +
+	// frame:false＝ナビの下の iframe で開かない（中の頁が COEP を送らない＝拒まれる）＝普通の画面遷移へ
+	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}"${d.frame === false ? ` data-frame="0"` : ""}>` + thumb + badge +
 		(d.icon && !d.img ? `<span class="card-icon" aria-hidden="true">${esc(d.icon)}</span>` : "") +
 		title + T("span", "card-desc", d.desc) + `<span class="card-cta" aria-hidden="true">→</span></a>`;
 }
