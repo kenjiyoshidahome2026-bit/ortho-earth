@@ -36,28 +36,22 @@ function propagate(lang) {
 		history.replaceState(null, "", (q.size ? "?" + q : location.pathname) + location.hash);
 	});
 }
-// 絞り込み（All / The round Earth / Japan's open data / …）＝サンプルが増えても一覧が長くなりすぎない
-document.querySelectorAll(".chips .chip").forEach(chip => chip.addEventListener("click", () => {
-	const f = chip.dataset.filter;
-	document.querySelectorAll(".chips .chip").forEach(c => c.classList.toggle("is-active", c === chip));
-	document.querySelectorAll(".grid .card").forEach(c => { c.hidden = f !== "all" && c.dataset.group !== f; });
-}));
 // Section tabs (Demos / Technologies) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
+const HASH = { start: "#get-started", tech: "#technologies" };
 function selectTab(name) {
 	d3.selectAll('.tab').each(function () {
 		const on = this.dataset.tab === name;
 		d3.select(this).classed('is-active', on).attr('aria-selected', on ? 'true' : 'false');
 	});
-	d3.select('#panel-demos').attr('hidden', name === 'tech' ? 'hidden' : null);
-	d3.select('#panel-tech').attr('hidden', name === 'tech' ? null : 'hidden');
+	for (const p of ["demos", "start", "tech"]) d3.select(`#panel-${p}`).attr('hidden', p === name ? null : 'hidden');
 }
 d3.selectAll('.tab').on('click', function () {
 	const name = this.dataset.tab;
 	selectTab(name);
-	history.replaceState(null, '', name === 'tech' ? '#technologies' : location.pathname);
+	history.replaceState(null, '', location.search + (HASH[name] ?? '') || location.pathname);
 });
-if (location.hash === '#technologies') selectTab('tech');
+{ const n = Object.keys(HASH).find(k => HASH[k] === location.hash); if (n) selectTab(n); }
 d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Earth`);
 //------------------------------------------------------
 // Ambient auto-rotating globe behind the overlay (background only — no interactive demo mode).
@@ -67,7 +61,7 @@ d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Ear
 // ＝同オリジンの /japan/ が IDB から立つ。データ節約・遅い回線では見送る。
 const whenIdle = cb => (window.requestIdleCallback ? requestIdleCallback(cb, { timeout: 3000 }) : setTimeout(cb, 500));
 const afterLoad = cb => document.readyState === "complete" ? cb() : addEventListener("load", cb, { once: true });
-liteGlobe(document.getElementById('mapContainer'), {
+const globe = liteGlobe(document.getElementById('mapContainer'), {
 	src: "/earth-lite.webp",
 	onFirstFrame: () => afterLoad(() => whenIdle(async () => {
 		const { shouldPrefetch, prefetchJapanWorld } = await import("./prefetch.js");
@@ -75,3 +69,43 @@ liteGlobe(document.getElementById('mapContainer'), {
 		else console.info("[prefetch] skipped (save-data or slow connection)");
 	})),
 });
+//------------------------------------------------------
+// デモ＝ページを離れずにナビの下の iframe で開く（本人 2026-09-22「デモに行くと戻りづらい・ナビを残して本文を iframe に・ナビに戻る」）。
+// ・カードのクリック（修飾キーなし＝新しいタブで開きたい操作は邪魔しない）を受けて iframe に入れ、履歴を一段積む（?d=<デモのパス>）
+//   ＝ブラウザの戻るでも一覧へ。?d= で直接開いた時（共有・再読み込み）も同じ形。
+// ・iframe は開くたびに雛形（#demoFrame）から新しく作り、閉じたら取り除く＝src の差し替えで履歴に段が積まれない（戻るが一回で済む）。
+// ・ナビの「戻る」＝自分で積んだ段なら history.back、直接開いた時は一覧へ置き換え。デモの間は背景の地球を止める（GPU を取り合わない）。
+// ・デモは同じオリジンのパスだけ（?d= に外のアドレスを入れても開かない）。
+const tpl = document.getElementById("demoFrame"), backBtn = document.querySelector("nav .back");
+let frame = null;
+const demoPath = p => { try { const u = new URL(p, location.origin); return u.origin === location.origin && u.pathname !== "/" ? u.pathname + u.search + u.hash : null; } catch { return null; } };
+function showDemo(path, title) {
+	if (!frame || frame.dataset.path !== path) {
+		frame?.remove();
+		frame = tpl.cloneNode(false);
+		frame.removeAttribute("id"); frame.hidden = false; frame.className = "demo-frame";
+		frame.dataset.path = path; frame.title = title || "Demo"; frame.src = path;
+		frame.addEventListener("load", () => { try { frame.contentWindow.focus(); } catch { /* 読み込み失敗 */ } }, { once: true });   // キー操作（矢印・Esc 等）がすぐデモに届く
+		tpl.after(frame);
+	}
+	backBtn.hidden = false;
+	document.body.classList.add("in-demo"); globe.pause();
+}
+function hideDemo() {
+	frame?.remove(); frame = null;   // デモの GPU とメモリを返す
+	backBtn.hidden = true;
+	document.body.classList.remove("in-demo"); globe.resume();
+}
+const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + q : location.pathname) + location.hash; };
+document.addEventListener("click", e => {
+	const a = e.target.closest?.("#panel-demos a.card");
+	if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+	const path = demoPath(a.getAttribute("href")); if (!path) return;
+	e.preventDefault();
+	const q = new URLSearchParams(location.search); q.set("d", path);
+	history.pushState({ demo: path }, "", "?" + q);
+	showDemo(path, a.querySelector(".card-title")?.textContent);
+});
+backBtn.addEventListener("click", () => { if (history.state?.demo) history.back(); else { history.replaceState(null, "", listUrl()); hideDemo(); } });
+addEventListener("popstate", e => { const p = e.state?.demo ?? demoPath(new URLSearchParams(location.search).get("d") || ""); p ? showDemo(p) : hideDemo(); });
+{ const d = new URLSearchParams(location.search).get("d"); const p = d && demoPath(d); if (p) showDemo(p); }

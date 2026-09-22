@@ -16,32 +16,32 @@ function card(d) {
 			T("span", "card-cta", `${d.cta ?? "Open"} →`) + `</span></a>`;
 	}
 	// 固有名詞（ortho-equal 等）は訳さない＝英語の普通名詞の題（World earthquakes 等）だけ data-t
-	const proper = /^[a-z0-9]|^GeoPBF$/.test(d.title);
+	const proper = d.proper || /^[a-z0-9]|^GeoPBF$/.test(d.title);   // proper:true＝固有名詞（Equal Earth 等）＝訳さない
 	const title = proper ? `<span class="card-title"${noT}>${esc(d.title)}</span>` : T("span", "card-title", d.title);
 	// 画像＝全デモに 1 枚（/thumbs/<id>.webp・640×400）。先頭の数枚だけ即時（初画面に入る）・残りは lazy＝Lighthouse の LCP を汚さない
 	const thumb = d.img ? `<img class="card-thumb" src="${esc(d.img)}" width="640" height="400" alt="" decoding="async"${d.eager ? ` fetchpriority="high"` : ` loading="lazy"`} />` : "";
-	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}">` + thumb +
+	// 言語のバッジ（本人 9/22「26 言語、Japanese only をバッジで」）＝lang: "26"（26 言語の UI）| "ja"（日本語のみ）
+	// "en"＝英語のみ（本人 9/22 表）＝英語が読めない人への知らせ＝各言語へ訳して出す（日本語のみの札が英語のままなのと逆の理屈）
+	const badge = d.lang === "26" ? T("span", "card-lang all", "26 languages") : d.lang === "ja" ? `<span class="card-lang ja" translate="no">Japanese only</span>` : d.lang === "en" ? T("span", "card-lang en", "English only") : "";   // 日本語が読めない人への知らせ＝どの言語でも英語のまま
+	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}">` + thumb + badge +
 		(d.icon && !d.img ? `<span class="card-icon" aria-hidden="true">${esc(d.icon)}</span>` : "") +
 		title + T("span", "card-desc", d.desc) + `<span class="card-cta" aria-hidden="true">→</span></a>`;
 }
 
 export function renderDemos({ groups, demos }) {
 	const featured = demos.filter(d => d.featured), rest = demos.filter(d => !d.featured).map((d, i) => ({ ...d, eager: i < 3 }));
-	const chips = [`<button class="chip is-active" data-filter="all" data-t="All">All</button>`]
-		.concat(groups.filter(g => rest.some(d => d.group === g.id)).map(g => `<button class="chip" data-filter="${esc(g.id)}" data-t="${esc(g.label)}">${esc(g.label)}</button>`));
 	return featured.map(card).join("") +
-		`<div class="chips" role="toolbar" data-t-aria-label="Filter demos" aria-label="Filter demos">${chips.join("")}</div>` +
 		`<div class="grid">${rest.map(card).join("")}</div>`;
 }
 
 // 訳すべき文言の一覧（verify-i18n の門が使う）
 export function demoKeys({ groups, demos }) {
-	const k = new Set(["All", "Filter demos"]);
-	for (const g of groups) k.add(g.label);
+	const k = new Set(["26 languages"]);
+	if (demos.some(d => d.lang === "en")) k.add("English only");   // 絞り込みチップは撤去（本人 9/22「すべて〜道具のセレクタは不要」）＝棚の名前は訳さない
 	for (const d of demos) {
 		k.add(d.desc);
 		if (d.featured) { d.eyebrow && k.add(d.eyebrow); k.add(`${d.cta ?? "Open"} →`); d.img?.alt && k.add(d.img.alt); }
-		else if (!/^[a-z0-9]|^GeoPBF$/.test(d.title)) k.add(d.title);
+		else if (!d.proper && !/^[a-z0-9]|^GeoPBF$/.test(d.title)) k.add(d.title);
 	}
 	return [...k];
 }
