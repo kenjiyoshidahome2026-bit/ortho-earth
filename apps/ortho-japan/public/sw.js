@@ -7,7 +7,8 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v2";      // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
+const CACHE = "oj-assets-v3";      // v3＝2026-09-22 の大改名（PLATEAU→mesh・遅延ロードの組み替え）で旧チャンクが全部入れ替わった＝古い掴みを一掃する
+// v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
 // content-hash 名の不変資産＝cache-first で握るプレフィックス。
 //   /japan/assets/     … サイト殻（site.js・scenes台本・scene.html エディタ）のチャンク
 //   /japan/lib/assets/ … SDK（本番の index が食うエンジン実体）のチャンク＝配布 zip と同一物
