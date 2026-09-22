@@ -97,7 +97,9 @@ export function createGeopbf(apiBase, options = {}) {
             // _staleGint＝キャッシュのGINTが版検札で弾かれた印。上の gint() が再焼き済み＝ここで上書き保存して自己修復完了
             //（これが無いと旧v1が居座り、毎回「Failed to unpack … 旧キャッシュ」＋全量再エンコードを払い続ける。2026-08-20実地）。
             if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: rebaking old GINT cache and overwriting (this warning disappears from next time)`);
-            if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
+            // 0 件の結果は保存しない（旧 fgb デコーダの 0 件を IDB が覚えて、直した後も「Failed to load」を返し続けた・2026-09-22）
+            if (!pbf.length) { /* 保存しない */ }
+            else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
                     const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
@@ -134,8 +136,9 @@ export function createGeopbf(apiBase, options = {}) {
                     const server = await getServer().catch(() => null);
                     if (server) {
                         const val = await server.cache(fileKey).catch(() => null);
-                        if (val?.PBF) {
-                            const pbf = await new GeoPBF(opts).set(val.PBF);
+                        const cachedPbf = val?.PBF ? await new GeoPBF(opts).set(val.PBF) : null;
+                        if (cachedPbf?.length) {   // 0 件の保存分は捨てて読み直す（旧版が覚えた空の結果を自己修復）
+                            const pbf = cachedPbf;
                             opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
                             if (opts.gint !== false && val.GINT && !pbf.unPackGint) pbf._staleGint = true;   // 旧版GINT→外側で再焼き＋上書き保存（自己修復）
                             pbf._fileKey = fileKey;
@@ -147,7 +150,7 @@ export function createGeopbf(apiBase, options = {}) {
                 if (name.match(/\.(ndjson|geojsonl|geojsons|jsonl)$/i)) return _geopbf(await decoder("ndjson", q));   // 1 行 1 地物 / GeoJSON Text Sequence（2026-09-16）
                 if (name.match(/\.geojson$/i)) return _geopbf(await decoder("json", q));
                 if (name.match(/\.(topo)?json$/i)) return _geopbf(await file2json(q));
-                if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q));
+                if (name.match(/\.fgb$/i)) return _geopbf(await decoder("fgb", q, { ignoreCrs: opts.ignoreCrs, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // FlatGeobuf v3（仕様どおり＝公式/GDAL の出力も・2026-09-22）
                 if (name.match(/\.(sqlite|sqlite3|spatialite|db)$/i)) return _geopbf(await decoder("spatialite", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）   // SpatiaLite（2026-09-16）
                 if (name.match(/\.gpkg$/i)) return _geopbf(await decoder("gpkg", q, { layer: opts.layer, tky2jgd: opts.tky2jgd ?? options.tky2jgd, patchjgd: opts.patchjgd ?? options.patchjgd }));   // GeoPackage＝自前 SQLite リーダ（読み専用・1 層）
                 if (name.match(/\.(geo)?parquet$/i)) return _geopbf(await decoder("parquet", q, { geometryColumn: opts.geometryColumn, ignoreCrs: opts.ignoreCrs }));   // GeoParquet（WKB・経緯度）
@@ -178,7 +181,8 @@ export function createGeopbf(apiBase, options = {}) {
                         : isInZip(q) ? q
                         : (q.match(/\.zip$/) && opts.target) ? [q, opts.target].join("#") : q;
                     const val = opts.nocache == true? undefined: await server.cache(fetchUrl).catch(console.error);
-                    if (val && val.PBF) { const pbf = (await new GeoPBF(opts).set(val.PBF));
+                    const cachedPbf = val?.PBF ? await new GeoPBF(opts).set(val.PBF) : null;
+                    if (cachedPbf?.length) { const pbf = cachedPbf;   // 0 件の保存分は捨てて取り直す（旧版が覚えた空の結果を自己修復）
                         opts.gint !== false && val.GINT && await pbf.setGintBUF(val.GINT);   // キャッシュ再読込も gint:false を尊重（空gintの誤復号→RangeError根治）
                         // 版検札落ち（unPackGint=null）＝旧フォーマットのGINTがIDBに残っている。印だけ立てて返す＝
                         // 外側の gint() が再焼きし、外側のキャッシュ書き込みが上書き保存（自己修復・pbf-io.load と同じ流儀）。
