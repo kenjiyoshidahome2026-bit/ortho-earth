@@ -646,7 +646,9 @@
 }
 
 /* --- 閉じる×（埋め込み用）：右上の額縁の金具＝スタック不参加（骨格は34px規格） --- */
-#close-btn {
+/* ⚠#map を前置＝詳細度 (2,0,0)。#map [data-tip]:hover { position: relative }（吹き出しの錨）に負けると、
+   ホバーした瞬間に×が左上へ飛び→カーソルが外れて戻る、の点滅で押せなかった（2026-09-22）。absolute も ::after の錨になる */
+#map #close-btn {
 	position: absolute; top: 10px; inset-inline-end: 10px;
 }
 /* 旧・×併存時のチップ退避（top:54）は廃止＝chips は左上スタックへ移設（2026-09-02）＝右上の×と干渉しない */
@@ -801,9 +803,12 @@
 	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
 #map.world #sky-clock { opacity: 1; }
+/* 埋め込みで×（#close-btn＝右上 10px・34px 角）が載っている時は、時計を×の左へ寄せる（重なって×が押しづらかった 2026-09-22） */
+#map:has(#close-btn) #sky-clock { inset-inline-end: 56px; top: calc(17px + env(safe-area-inset-top, 0px)); }
 /* 狭画面（スマホ縦）：時計は一回り小さく */
 @media (max-width: 480px) {
 	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); inset-inline-end: 10px; }
+	#map:has(#close-btn) #sky-clock { inset-inline-end: 52px; top: calc(19px + env(safe-area-inset-top, 0px)); }
 }
 
 /* --- 画像タイル（ラスタ）切替：スタックのボタン＋右へ開く小パネル（#search と同じ流儀）。基図＝ラジオ／重ね＝チェック --- */
