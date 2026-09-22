@@ -101,7 +101,7 @@ const SOURCE_GROUP_LABELS = {
 	estat: '総務省 e-Stat',
 	env:   '環境省 環境ジオポータル',
 	nlftp: '国土交通省 国土数値情報',
-	munic: '市区町村（G空間情報センター）',
+	munic: '市区町村（G空間情報センター・データカタログ横断検索）',
 };
 
 const SOURCE_GROUP_URLS = {
@@ -110,7 +110,7 @@ const SOURCE_GROUP_URLS = {
 	estat: 'https://www.e-stat.go.jp/gis',
 	env:   'https://geo.env.go.jp/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
-	munic: 'https://www.geospatial.jp/ckan/organization/',
+	munic: 'https://search.ckan.jp/',
 };
 
 function dsItemHtml(ds) {

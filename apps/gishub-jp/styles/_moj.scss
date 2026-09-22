@@ -232,6 +232,7 @@
 	&:first-child { border-top: none; }
 	.munic-set-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
 	.munic-set-title { font-size: 13px; color: $hi; font-weight: bold; }
+	.munic-set-src { font-size: 10px; color: $mid; border: 1px solid $border; border-radius: 3px; padding: 0 5px; }
 	.meta-lic { font-size: 10px; color: $mid; }
 	.munic-src { font-size: 11px; color: $mid; margin-left: auto; &:hover { color: $accent; } }
 	.munic-res { display: flex; flex-wrap: wrap; gap: 6px; }

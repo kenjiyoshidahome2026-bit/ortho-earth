@@ -530,7 +530,7 @@ body:not(.globe-viewing) #globe-bg #sky-clock { display: none; }
 
 	.ph-cards {
 		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));   // 6枚を1段に・狭い画面では折り返す
+		grid-template-columns: repeat(3, minmax(0, 1fr));   // 6 枚＝3×2（狭い画面は下の @media で 2 列）
 		gap: 10px;
 	}
 	.ph-card {

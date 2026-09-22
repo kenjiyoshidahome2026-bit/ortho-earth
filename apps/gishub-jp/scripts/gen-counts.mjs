@@ -21,7 +21,7 @@ const counts = {
     maff:  read('maff/manifest.json').length,
     estat: read('estat/manifest.json').length,
     munic: read('munic/manifest.json').length,   // 市区町村のオープンデータ（G空間の自治体組織）の団体数
-    municSets: read('munic/manifest.json').reduce((s, e) => s + e.sets.length, 0),
+    municSets: read('munic/manifest.json').reduce((s, e) => s + e.n, 0),   // 目次の n＝データセット数
 };
 
 writeFileSync(join(app, 'ui/counts.json'), JSON.stringify(counts) + '\n');

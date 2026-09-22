@@ -51,11 +51,11 @@ export function placeholder(catalog) {
             icon:  '🏘️',
             go:    'munic',
             min:   '市区町村',
-            url:   'https://www.geospatial.jp/ckan/organization/',
+            url:   'https://search.ckan.jp/',
             label: '市区町村のオープンデータ',
             cnt:   COUNTS.munic,
             unit:  `自治体 / ${fmt(COUNTS.municSets)} データセット`,
-            desc:  '地番図・防災・施設・AED など、市区町村が G空間情報センターに公開しているデータ',
+            desc:  '地番図・防災・施設・AED など、市区町村が公開しているデータ（G空間情報センター＋データカタログ横断検索）',
         },
         {
             icon:  '🏔️',

@@ -1,8 +1,10 @@
 /**
- * 市区町村のオープンデータ台帳の生成（G空間情報センター CKAN の自治体組織）
+ * 市区町村のオープンデータ台帳の生成（① G空間情報センター CKAN の自治体組織 ② データカタログ横断検索 search.ckan.jp＝G空間の外）
  *
- * 出力: munic/manifest.json（アプリ同梱・「市区町村」一覧を開いた時だけ dynamic import）
- *   [{ code, pref, city, org, orgTitle, sets: [{ id, title, cat, license, crs, res: [{ name, fmt, url }] }] }]
+ * 出力（アプリ同梱・どちらも開いた時だけ dynamic import）:
+ *   munic/manifest.json   … 目次 [{ code, city, n（データセット数）, cad（地番図・地籍あり） }]
+ *   munic/pref/<2桁>.json … 都道府県ごとの詳細 [{ code, pref, city, org, orgTitle, sets: [{ id, title, cat, license, crs, page?, src?, res: [{ name, fmt, url }] }] }]
+ *   （page・src は横断検索の分だけ＝G空間は id からページを作る）
  * データ本体は置かない＝ブラウザが配布元（G空間＝CORS 可）を直読みしてその場で GeoPBF 変換（bucket には置かない大前提）。
  *
  * 自治体の見分け方: 組織名の頭が都道府県のローマ字（saitama-… 等・…pref は県庁＝除外）で、表示名が市区町村名。
@@ -12,7 +14,7 @@
  *
  * 使い方: node munic/munic-manifest.js
  */
-import { readFileSync, writeFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 const __dir = dirname(fileURLToPath(import.meta.url));
@@ -117,8 +119,94 @@ for (const { o, m } of munis) {
 	process.stdout.write(`\r${out.size} 団体 ${nSets} データセット ${nRes} 資料   `);
 	await new Promise(r => setTimeout(r, WAIT));
 }
+console.log(`\nG空間: ${out.size} 団体・${nSets} データセット`);
+
+// ───────── 第 2 段：データカタログ横断検索（search.ckan.jp）＝G空間の外の自治体カタログ（BODIK・東京都・各市のサイト等）─────────
+// 取り方は配布元しだい：CORS 可なら直・不可なら native-bucket の中継が自動で拾う（www.ortho-earth.com から）。bucket には置かない。
+const XCKAN = 'https://search.ckan.jp/backend/api/package_search';
+const EXCLUDE = ['Ｇ空間情報センター', '学術機関リポジトリ', 'DATA GO JP データカタログサイト'];   // G空間は第 1 段で取得済み・学術/国は対象外
+const EX = `-xckan_site_name:(${EXCLUDE.map(s => `"${s}"`).join(' OR ')})`;
+const ODS = ['AED', '避難', '公共施設', '公衆トイレ', '文化財', '観光施設', '医療機関', '介護', '子育て'];   // 自治体標準オープンデータセット＝緯度経度列つき CSV
+const QUERIES = [
+	{ label: '地図形式', fq: `res_format:(GeoJSON OR KML OR KMZ OR SHP OR ZIP OR GML) AND ${EX}`, csv: false },
+	{ label: '地番',     q: '地番 OR 地籍 OR 筆界', fq: EX, csv: false },
+	{ label: '自治体標準（CSV）', q: `title:(${ODS.join(' OR ')})`, fq: `res_format:CSV AND ${EX}`, csv: true },
+];
+async function xsearch({ q = '', fq }) {
+	const all = [];
+	for (let start = 0; ; start += 1000) {
+		const u = `${XCKAN}?rows=1000&start=${start}${q ? `&q=${encodeURIComponent(q)}` : ''}&fq=${encodeURIComponent(fq)}`;
+		const r = await getJson(u);
+		all.push(...r.results);
+		if (start + 1000 >= r.count) break;
+		await new Promise(r => setTimeout(r, WAIT));
+	}
+	return all;
+}
+// 市区町村の見分け：組織名が団体コード（BODIK＝6 桁）ならそれ・無ければ組織名／カタログ名／題名に含まれる市区町村名（同名は都道府県名で絞る）
+const PREF_NAMES = [...new Set(ADMIN.map(a => a.pref))];
+const NAMES = [...new Set(ADMIN.map(a => a.city))].sort((a, b) => b.length - a.length);   // 長い名前から（「府中市」より「府中町」…の取り違えを避ける）
+const codesByName = new Map(); for (const a of ADMIN) (codesByName.get(a.city) || codesByName.set(a.city, []).get(a.city)).push(a);
+function municipalityOfX(p) {
+	const bracket = p.xckan_title?.match(/【([^】]+)】/)?.[1], paren = p.xckan_title?.match(/[（(]([^）)]+)[）)]/)?.[1];
+	const texts = [bracket, paren, p.organization?.title, p.xckan_site_name, p.xckan_title].filter(Boolean);   // 題名の【】（）を最優先
+	const all = texts.join(' ');
+	// 組織名の数字：BODIK は団体コード（6 桁）。他のカタログは独自番号のことがある（岐阜県の「40230 羽島郡笠松町」＝糸島市のコードと衝突）
+	// ＝BODIK か、その団体名が本文に書かれている時だけ信じる
+	const d = p.organization?.name?.match(/^(\d{5})\d?$/)?.[1];
+	if (d && byCode.has(d) && (p.xckan_site_name === 'BODIK ODCS' || all.includes(byCode.get(d).city))) return byCode.get(d);
+	const prefHint = PREF_NAMES.find(n => all.includes(n));
+	for (const t of texts) {
+		const name = NAMES.find(n => t.includes(n));
+		if (!name) continue;
+		const cands = codesByName.get(name);
+		if (cands.length === 1) return cands[0];
+		const hit = prefHint && cands.find(a => a.pref === prefHint);
+		if (hit) return hit;
+	}
+	return null;
+}
+// 地図になる資料だけ：GeoJSON/KML/KMZ/GML/GPKG/FGB は常に・zip は Shapefile/地図と分かる時だけ・CSV/Excel は自治体標準（緯度経度列つき）の問い合わせだけ
+const GEO_HINT = /shp|shape|シェープ|gis|地図|ポリゴン|区域|境界|地番|筆界/i;
+function keepRes(r, rawFormat, pkgText, csvOK) {
+	if (['geojson', 'kml', 'kmz', 'gml', 'gpkg', 'fgb'].includes(r.fmt)) return true;
+	if (r.fmt === 'zip') return GEO_HINT.test(`${rawFormat} ${r.name} ${pkgText}`);
+	return csvOK;
+}
+const seen = new Set();
+let xSets = 0, xMiss = 0;
+for (const Q of QUERIES) {
+	const pkgs = await xsearch(Q);
+	let n = 0;
+	for (const p of pkgs) {
+		if (seen.has(p.xckan_id)) continue;
+		seen.add(p.xckan_id);
+		const m = municipalityOfX(p);
+		if (!m) { xMiss++; continue; }
+		const pkgText = `${p.xckan_title || ''} ${(p.notes || '').slice(0, 300)}`;
+		const res = (p.resources || []).map(r => ({ raw: r.format || '', name: (r.name || '').trim() || String(r.url || '').split('/').pop(), fmt: fmtOf(r), url: r.url }))
+			.filter(r => r.fmt && /^https?:\/\//.test(r.url || '') && keepRes(r, r.raw, pkgText, Q.csv))
+			.map(({ raw, ...r }) => r);
+		if (!res.length) continue;
+		const title = cleanTitle(p.xckan_title || p.title || p.name);
+		const set = { id: p.xckan_id, title, cat: catOf(`${title} ${p.notes || ''}`.slice(0, 400)), license: p.license_title || p.license_id || '', crs: null,
+			page: p.xckan_site_url, src: p.xckan_site_name, res };
+		const e = out.get(m.code) || { code: m.code, pref: m.pref, city: m.city, org: null, orgTitle: m.city, sets: [] };
+		e.sets.push(set); out.set(m.code, e);
+		n++; xSets++;
+	}
+	console.log(`横断検索 ${Q.label}: ${pkgs.length} 件 → 市区町村 ${n} データセット`);
+}
+console.log(`横断検索: 計 ${xSets} データセット（市区町村を特定できず ${xMiss} 件）`);
+
 const list = [...out.values()].sort((a, b) => a.code.localeCompare(b.code));
 list.forEach(e => e.sets.sort((a, b) => (a.cat === '地番図・地籍' ? -1 : 0) - (b.cat === '地番図・地籍' ? -1 : 0) || a.title.localeCompare(b.title, 'ja')));
-writeFileSync(OUT, JSON.stringify(list));
+// 目次（団体ごとの件数と地番図の有無＝一覧を描く分だけ）＋ 都道府県ごとの詳細（市区町村を開いた時にその県の分だけ読む）
+mkdirSync(join(__dir, 'pref'), { recursive: true });
+writeFileSync(OUT, JSON.stringify(list.map(e => ({ code: e.code, city: e.city, n: e.sets.length, cad: e.sets.some(s => s.cat === '地番図・地籍') }))));
+const byPref = new Map();
+for (const e of list) { const k = e.code.slice(0, 2); (byPref.get(k) || byPref.set(k, []).get(k)).push(e); }
+for (const [k, es] of byPref) writeFileSync(join(__dir, 'pref', `${k}.json`), JSON.stringify(es));
 const cad = list.filter(e => e.sets.some(s => s.cat === '地番図・地籍'));
+nSets = list.reduce((s, e) => s + e.sets.length, 0); nRes = list.reduce((s, e) => s + e.sets.reduce((t, x) => t + x.res.length, 0), 0);
 console.log(`\n✓ ${OUT}: ${list.length} 団体・${nSets} データセット・${nRes} 資料（地番図・地籍あり ${cad.length} 団体: ${cad.map(e => e.city).join('・')}）`);
