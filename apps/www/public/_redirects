@@ -1,0 +1,3 @@
+# 旧 GIS-HUB → GeoPBF のデモ（2026-09-22 改名）。名刺・過去の投稿のリンクを生かす（#視点 は ブラウザが持ち越す）
+/gishub        /geopbf/         301
+/gishub/*      /geopbf/:splat   301

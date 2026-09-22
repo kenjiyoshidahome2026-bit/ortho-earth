@@ -2,5 +2,5 @@
   Cross-Origin-Opener-Policy: same-origin
   Cross-Origin-Embedder-Policy: credentialless
 
-# www（トップの背景）・GIS-HUB・GIS-HUB-jp は地球儀を ortho-japan エンジン（gint v2・/japan/lib/ の SDK）で描く
+# www（トップの背景）・GeoPBF デモ（/geopbf/）・GIS-HUB-jp は地球儀を ortho-japan エンジン（gint v2・/japan/lib/ の SDK）で描く
 # ＝japan/census2020 と同じ credentialless（require-corp だと SDK が読む CORP 無しの越境資源が落ちて国境等が欠ける＝2026-09-21 実測）。

@@ -1,0 +1,177 @@
+$bg: #000; $dark:#222; $mid:#888; $text: #ccc; $highlight: #fff; $accent: #4b90ff; $remark: #c40;
+$font: 'Verdana', "Inter", 'Hiragino Kaku Gothic ProN', Arial, sans-serif;
+$mono: 'Courier New', Courier, monospace;
+$side: min(300px, 100vw);
+
+body, html { overflow: hidden; width:100%; height:100%; background:$bg; color:$text; }
+// 背景の地球儀（ortho-japan エンジン）。中の div がエンジンに貸す容れ物（id は map へ改名される＝寸法はここで与える）
+.globe-bg { position: fixed; inset: 0; z-index: 0; > div { width: 100%; height: 100%; } }
+* { margin:0; padding:0; box-sizing: border-box; outline:none; }
+button, a, select { touch-action: manipulation; } // Safari 300ms タップ遅延除去
+:focus-visible { outline: 2px solid $accent; outline-offset: 2px; }
+.identify-tip {
+	position: absolute; pointer-events: none; z-index: 100;
+	background: rgba(0,0,0,0.75); color: #fff; font-size: 12px;
+	padding: 4px 8px; border-radius: 4px; white-space: nowrap;
+	border: 1px solid rgba(255,255,255,0.2);
+	max-width: 280px; overflow: hidden; text-overflow: ellipsis;
+}
+.identify-table {
+	border-collapse: collapse; font-size: 10px;
+	th { text-align: start; padding: 1px 3px; color: #ccc; font-weight: normal; }
+	td { padding: 1px 3px; color: #fff; }
+	tr:nth-child(even) { background: rgba(255,255,255,0.05); }
+}
+// 左右は論理プロパティ（inline-start/end）＝RTL（ar/fa/ur/he）で側板が右へ回る
+.demo { position: absolute; inset: 0px; z-index: 1; background: $bg; color: $text; opacity:0.85; pointer-events: auto;
+	transition: all 500ms ease-in-out; font-family: $font;
+	.left { position: absolute; top: 0; bottom: 0; inset-inline-start: 0; width: $side; transition: all 250ms ease-in-out;
+		border-inline-end: 1px solid $dark; padding: 0;
+		> img { display: inline-block; width:30px; vertical-align: middle; margin:10px; border-radius:5px; cursor: pointer;
+			&:hover { outline: 1px solid $text; }
+			[dir=rtl] & { transform: scaleX(-1); }
+		}
+		> input { display:inline-block; height:30px; width:240px; max-width: calc(100% - 60px); margin:10px 0; border-radius:5px;
+			background:$dark; border:none; color:$text; padding-inline-start:1rem; font-size:1rem;
+		}
+		nav { position:absolute; inset:0; top:50px; overflow-y: auto;
+			.nav-title { font-size: 0.75rem; letter-spacing: 0.08em; text-transform: uppercase; color: $accent; padding: 0.5rem 1rem 0; }
+			.group { padding:0.5em 1rem;
+				h2 { font-size: 0.8rem; color: $mid; margin-bottom: 5px; text-align: start; }
+				.card { display:block; background: $bg; color: $text; position:relative; width:100%; text-align: start;
+					padding: 8px; border: 1px solid $mid; border-radius: 8px; cursor: pointer; direction: ltr;
+					margin-bottom: 5px; transition: background 300ms;
+					.name { font-weight: bold; font-size: 0.9rem; padding-right: 5em; overflow-wrap: anywhere; }
+					.desc { font-size: 0.7rem; color: $mid; margin-top: 4px; }
+					.license { position:absolute; font-size: 0.5rem; color: $mid; top:1em; right:1em; }
+					@media (hover: hover) {
+						&:hover { background: $accent; color:$highlight; border-color: $highlight;
+							.license, .desc { color: $highlight; }
+						}
+						&[disabled]:hover { background: $bg; color:$text; border-color: $mid;
+							.license, .desc { color: $mid; }
+						}
+					}
+					&:active:not([disabled]) { background: $accent; color:$highlight; border-color: $highlight; }
+					&[disabled] { opacity:0.5; cursor: not-allowed; }
+				}
+			}
+			.highlight { background: $remark; color:$highlight; }
+		}
+	}
+	.main { position: absolute; top: 0; bottom: 0; inset-inline-end: 0; inset-inline-start: $side; transition: all 250ms ease-in-out;
+		> header { display:flex; align-items:center; gap: 0.6rem; margin: 18px 30px; white-space: nowrap;
+			h1 { display:flex; align-items:center; font-size: 1.4rem; color: $accent; cursor:pointer;
+				img { width: 28px; }
+				span { padding-inline-start: 0.8rem; }
+			}
+			.tag { font-size: 0.7rem; font-family: $mono; color: $text; border: 1px solid $mid; border-radius: 4px; padding: 1px 6px; }
+			.tools { margin-inline-start: auto; display: flex; gap: 0.5rem; align-items: center; }
+			.lang { font-size: 0.8rem; background: $dark; color: $text; border: 1px solid $mid; border-radius: 999px; padding: 6px 10px; max-width: 9.5rem;
+				&:hover { border-color: $accent; } }
+			.globe-btn { cursor:pointer; font-size:0.82rem; font-family:$mono; font-weight:600;
+				background:$dark; color:$highlight; border:1px solid $mid; border-radius:999px; padding:7px 16px;
+				transition: border-color 150ms, color 150ms;
+				&:hover { border-color:$accent; color:$accent; } }
+		}
+		> .log { position: absolute; inset:70px 30px 30px; overflow-y: auto; font-family:$mono;
+			p.title span { background:#000; padding:1em 0;}
+			canvas { border: 1px solid #333; margin-top: 0.5em; padding:1em; border-radius: 5px;}
+			> p.actions, > p.downloads { margin-top: 1em; }
+			.formats { display: flex; flex-wrap: wrap; margin: 0.3em 0; button { margin: 0.25em; min-width: 6.5em; } }
+			.options { display: flex; flex-wrap: wrap; gap: 0.4em 1.4em; font-family: $font; font-size: 0.8rem; color: $text; margin: 0.4em 0.3em 1em;
+				label { display: inline-flex; align-items: center; gap: 0.4em; cursor: pointer; }
+				select, input[type=number] { background: $dark; color: $highlight; border: 1px solid $mid; border-radius: 4px; padding: 2px 4px; font-size: 0.8rem; }
+				input[type=number] { width: 4em; }
+			}
+		}
+		> .uploads { position: absolute; inset:70px 30px 30px; overflow-y: auto; border:2px solid transparent; border-radius: 10px; line-height:1.6em; text-align:center; padding: 0 0.5rem 1rem;
+			> * { max-width: 780px; margin-inline: auto; }
+			p { font-size: 0.9rem; margin:0 auto 0.8rem; color:$text; }
+			p.lead { font-size: 1.35rem; color: $highlight; font-weight: 600; margin: 0.6rem auto 0.8rem; line-height: 1.4; }
+			ul { font-size: 0.85rem; margin:0 auto 1rem; display:block; width: fit-content; text-align:start; padding-inline-start:1.5rem; color:$text; }
+			li { list-style-type: square; }
+			input.url { display:block; width:100%; margin:0 auto 1rem; box-sizing:border-box;
+				font-family: $mono;
+				background:$dark; border:1px solid $mid; color:$highlight; border-radius:5px; padding:10px; font-size:0.9rem;
+				&:focus { border-color: $accent; }
+				&::placeholder { font-family: $font; color:$accent; text-align: center;font-size: 0.85rem; font-weight:500; font-style: oblique;}
+			}
+			.links { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.4rem 1.2rem; font-size: 0.8rem;
+				code { font-family: $mono; background: $dark; color: $highlight; padding: 2px 8px; border-radius: 4px; }
+				a { color: $accent; text-decoration: none; &:hover { text-decoration: underline; } }
+				.mit { color: $mid; }
+			}
+			&.drag-over { background: $dark; border: 2px dashed $remark; }
+		}
+		> .tables { position: absolute; inset: 70px 30px 30px;
+			font-family: 'Courier New', Courier, monospace; direction: ltr;
+			h2 { font-size: 1.2rem; text-align: left; white-space: nowrap; overflow-x: auto; overflow-y: hidden; span { font-size: 0.7em; margin: 0 0.3rem; } span.name { font-size: 1em; margin: 0; } }
+			.prop-table { position: absolute; inset: 60px 0 10px; overflow-y: auto;
+				table { position: absolute; height:100%;
+					border-collapse: separate; border-spacing: 0; text-align: left;
+					font-size: 12px; color:#fff;
+					th { position: sticky; top: 0; background: #222; z-index: 1; text-align:center;
+						border-top: 1px solid #888;border-bottom: 1px solid #888; padding: 6px 8px; }
+					td { border-bottom: 1px solid #888; padding: 6px 8px; max-width: 200px;
+						overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+					}
+					tr:hover { background: #222; }
+				}
+			}
+			button { padding: 0.5em 1em; margin: 0.5em; height: 2.4em; vertical-align: middle; line-height:1.4em;
+				background: #444; color: #fff; border: 1px solid #ccc; border-radius: 5px; font-family: $font;
+				&:hover { background: #ccc; color: #000; }
+				&:disabled { background: #444; color: #888; }
+			}
+		}
+		.cancel{ background: $accent; color:$highlight; font-weight: bold; cursor: pointer; padding:2px 0.5em; border-radius:3px;
+			&:hover { background:$highlight; color: $accent; }
+		}
+		.accent { background: $accent; font-weight:bold; }
+	}
+	&.close {
+		.left { width:50px; input,nav {display:none; } }
+		.main { inset-inline-start: 50px; }
+	}
+	&.viewing { opacity:0; pointer-events:none; }
+}
+
+// ── 変換の図（formats.js の conversionSVG）
+.diagram { margin: 0.4rem auto 1.2rem;
+	svg.convert { display: block; width: 100%; height: auto; overflow: visible; font-family: $font; direction: ltr;
+		&.narrow { max-width: 420px; margin-inline: auto; }
+		text { dominant-baseline: middle; text-anchor: middle; }
+		.head { font-size: 12px; fill: $mid; font-weight: 600; letter-spacing: 0.04em; dominant-baseline: auto; text-anchor: start; &.end { text-anchor: end; } }
+		.pill { rect { fill: #111; stroke: #555; stroke-width: 1; transition: fill 150ms, stroke 150ms; }
+			text { font-size: 12px; fill: $text; pointer-events: none; }
+			&.read { cursor: pointer;
+				&:hover rect { fill: $accent; stroke: $highlight; }
+				&:hover text { fill: $highlight; }
+			}
+			&.write rect { stroke: #3a5a8a; }
+		}
+		.links path, .down { fill: none; stroke: #3d5f99; stroke-width: 1.2; stroke-dasharray: 3 5; animation: flow 1.6s linear infinite; }
+		.down { stroke: $mid; }
+		.hub { rect { fill: $accent; stroke: $highlight; stroke-width: 2; }
+			.hub-name { font-size: 22px; font-weight: 700; fill: $highlight; }
+			.hub-sub { font-size: 11px; fill: #e8f0ff; }
+		}
+		.globe { cursor: pointer;
+			rect { fill: $dark; stroke: $mid; } text { font-size: 12px; fill: $highlight; font-weight: 600; }
+			&:hover rect { stroke: $accent; }
+		}
+	}
+}
+@keyframes flow { to { stroke-dashoffset: -16; } }
+@media (prefers-reduced-motion: reduce) { .diagram svg.convert .links path, .diagram svg.convert .down { animation: none; } }
+@media (max-width: 560px) {
+	.demo .main > header { margin: 14px 12px; gap: 0.4rem;
+		.tag { display: none; }
+		h1 { font-size: 1.2rem; img { width: 22px; } span { padding-inline-start: 0.5rem; } }
+		.tools { gap: 0.3rem; }
+		.lang { max-width: 6.5rem; padding: 6px 6px; }
+		.globe-btn { padding: 6px 9px; span { display: none; } }   // 狭い画面は 🌐 だけ（title が説明）
+	}
+	.demo .main > .uploads, .demo .main > .log, .demo .main > .tables { inset: 64px 12px 16px; }
+}

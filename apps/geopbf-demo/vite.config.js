@@ -8,11 +8,11 @@ const ROOT = resolve(import.meta.dirname, '../..');
 const JAPAN_PUBLIC = resolve(import.meta.dirname, '../ortho-japan/public');
 
 export default defineConfig(({ command }) => ({
-	base: '/gishub/',
+	base: '/geopbf/',
 	plugins: [
 		wasm(),
 	],
-	define: { __JAPAN_ASSETS__: JSON.stringify(command === 'serve' ? `/gishub/@fs${JAPAN_PUBLIC}/` : '/japan/') },
+	define: { __JAPAN_ASSETS__: JSON.stringify(command === 'serve' ? `/geopbf/@fs${JAPAN_PUBLIC}/` : '/japan/') },
 	server: {
 		fs: { allow: [ROOT] },
 		// COEP は japan/census2020 と同じ credentialless（crossOriginIsolated＝SharedArrayBuffer の点火条件。無くてもコピー経路で動く）
