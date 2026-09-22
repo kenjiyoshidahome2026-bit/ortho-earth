@@ -103,7 +103,8 @@ export function createAnno(map, { signal } = {}) {
 		const fid = symbolAt(x, y) ?? (ll ? identify(ll[0], ll[1]) : null);
 		const tip = fid != null ? items[fid]?.p["@tip"] : null;
 		const raw = tip != null && tip !== "" ? String(tip) : null;
-		if (raw !== tipRaw) { tipRaw = raw; tipClean = raw == null ? null : sanitizeHTML(raw); }   // 内容変化時だけ消毒
+		if (raw === tipRaw) return;   // 自分の tip が変わらない間は共有の tip 箱に触らない（毎 move の null 上書きが、器の頁の tip＝world の州名/国名を消していた・2026-09-23）
+		tipRaw = raw; tipClean = raw == null ? null : sanitizeHTML(raw);   // 内容変化時だけ消毒
 		tipSet ??= map.gadget.tip();
 		tipSet(tipClean);
 	}, { signal, passive: true });
