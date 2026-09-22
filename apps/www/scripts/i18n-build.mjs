@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ui = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui ?? {};
 const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
-const outDir = path.join(APP, "i18n/lang");
+const outDir = path.join(APP, "public/i18n");   // 名前の決まった JSON＝頁の先頭で先読みできる（hash 付きの chunk だと HTML から名指しできない）
 fs.mkdirSync(outDir, { recursive: true });
 const rows = [];
 for (const { code } of langs) {

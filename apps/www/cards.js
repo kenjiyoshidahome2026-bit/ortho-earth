@@ -18,13 +18,15 @@ function card(d) {
 	// 固有名詞（ortho-equal 等）は訳さない＝英語の普通名詞の題（World earthquakes 等）だけ data-t
 	const proper = /^[a-z0-9]|^GeoPBF$/.test(d.title);
 	const title = proper ? `<span class="card-title"${noT}>${esc(d.title)}</span>` : T("span", "card-title", d.title);
-	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}">` +
-		(d.icon ? `<span class="card-icon" aria-hidden="true">${esc(d.icon)}</span>` : "") +
+	// 画像＝全デモに 1 枚（/thumbs/<id>.webp・640×400）。先頭の数枚だけ即時（初画面に入る）・残りは lazy＝Lighthouse の LCP を汚さない
+	const thumb = d.img ? `<img class="card-thumb" src="${esc(d.img)}" width="640" height="400" alt="" decoding="async"${d.eager ? ` fetchpriority="high"` : ` loading="lazy"`} />` : "";
+	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}">` + thumb +
+		(d.icon && !d.img ? `<span class="card-icon" aria-hidden="true">${esc(d.icon)}</span>` : "") +
 		title + T("span", "card-desc", d.desc) + `<span class="card-cta" aria-hidden="true">→</span></a>`;
 }
 
 export function renderDemos({ groups, demos }) {
-	const featured = demos.filter(d => d.featured), rest = demos.filter(d => !d.featured);
+	const featured = demos.filter(d => d.featured), rest = demos.filter(d => !d.featured).map((d, i) => ({ ...d, eager: i < 3 }));
 	const chips = [`<button class="chip is-active" data-filter="all" data-t="All">All</button>`]
 		.concat(groups.filter(g => rest.some(d => d.group === g.id)).map(g => `<button class="chip" data-filter="${esc(g.id)}" data-t="${esc(g.label)}">${esc(g.label)}</button>`));
 	return featured.map(card).join("") +

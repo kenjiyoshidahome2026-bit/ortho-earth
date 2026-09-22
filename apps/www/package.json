@@ -7,7 +7,8 @@
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"preview": "vite preview",
 		"i18n:build": "node scripts/i18n-build.mjs",
-		"verify:i18n": "node scripts/verify-i18n.mjs"
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"thumbs": "node scripts/thumbs.mjs"
 	},
 	"dependencies": {
 		"altpbf": "*",

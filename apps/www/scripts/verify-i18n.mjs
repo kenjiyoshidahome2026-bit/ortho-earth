@@ -16,7 +16,7 @@ for (const k of page) { const m = missing(k); if (m.length) errs.push(`page "${k
 for (const k of demos) { const m = missing(k); if (m.length) warns.push(`demo "${k}": English only in ${m.length === langs.length ? "all languages" : m.join(",")}`); }
 for (const k of Object.keys(ui)) if (!page.includes(k) && !demos.includes(k)) warns.push(`unused key: ${k}`);
 for (const c of langs) {
-	const f = path.join(APP, `i18n/lang/${c}.json`);
+	const f = path.join(APP, `public/i18n/${c}.json`);
 	const baked = fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, "utf8")) : {};
 	for (const [k, row] of Object.entries(ui)) if (row[c] && baked[k] !== row[c]) { errs.push(`${c}.json is stale (run npm run i18n:build -w www)`); break; }
 }

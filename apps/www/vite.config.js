@@ -6,7 +6,11 @@ import { renderDemos } from './cards.js';
 const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
 const demosHtml = () => ({
 	name: 'www-demos',
-	transformIndexHtml(html) { return html.replace('<!--DEMOS-->', renderDemos(readDemos())); },
+	transformIndexHtml(html) {
+		const langs = JSON.parse(readFileSync(new URL('../../packages/world/i18n/langs.json', import.meta.url), 'utf8'));
+		return html.replace('<!--DEMOS-->', renderDemos(readDemos()))
+			.replace('__LANG_CODES__', langs.map(l => l.code).join(' ')).replace('__RTL_CODES__', langs.filter(l => l.rtl).map(l => l.code).join(' '));
+	},
 	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）
 	generateBundle() {
 		const apps = readDemos().demos.map(d => `- [${d.title}](https://www.ortho-earth.com${d.href}): ${d.desc}`).join('\n');
