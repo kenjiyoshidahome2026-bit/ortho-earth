@@ -203,16 +203,18 @@ console.log("ok:modal（国旗モーダル・覆いの後片付けまで）");
 	await sleep(2500);
 	const pane = await ev(`(() => { const p = document.getElementById('world-map'); return p && !p.classList.contains('hidden') ? (p.querySelector('canvas') ? 'canvas' : 'no-canvas') + ':' + p.querySelector('.title').textContent : 'none'; })()`);
 	if (!String(pane).startsWith("canvas:")) { bye(); fail(`実走: 地図パネルが開かない（${pane}）`); }
-	const o = await ev(`window.__engineOpts && { mesh: __engineOpts.mesh, persist: __engineOpts.persistView, chips: __engineOpts.chips, lang: __engineOpts.lang, target: !!__engineOpts.target }`);
+	const o = await ev(`window.__engineOpts && { mesh: __engineOpts.mesh, persist: __engineOpts.persistView, chips: __engineOpts.chips, lang: __engineOpts.lang, target: !!__engineOpts.target, region: Array.isArray(__engineOpts.region) ? __engineOpts.region.length : "なし", zoomMax: __engineOpts.zoomMax }`);
 	if (!o || o.mesh !== false || o.persist !== false || o.chips !== false || !o.target)
 		{ bye(); fail(`実走: 地図の起動オプションが違う（${JSON.stringify(o)}）＝建物3D/前回視点/チップを持ち込まない約束`); }
+	// globe 仕様の約束（本人裁定 2026-09-23）＝地域の申告なし（日本固有の表現ゼロ）でズーム上限 8（世界データが在る所まで）
+	if (o.region !== 0 || o.zoomMax !== 8) { bye(); fail(`実走: globe 仕様になっていない（region=${o.region} zoomMax=${o.zoomMax}）`); }
 	const spot = await ev(`window.__spot && { key: __spot.src && (__spot.src.iso2 || __spot.src.key), maxZoom: __spot.opts && __spot.opts.maxZoom }`);
 	if (!spot || !spot.key) { bye(); fail("実走: spotlight に国が渡っていない（合図をそのまま渡す約束）"); }
 	await ev(`document.querySelector('#world-map .close').click()`);
 	await sleep(400);
 	if (!await ev(`document.getElementById('world-map').classList.contains('hidden') && window.__spotCleared === true`))
 		{ bye(); fail("実走: 地図パネルが閉じない／マスクが外れていない"); }
-	console.log(`ok:map（${pane} / spotlight=${spot.key} maxZoom=${spot.maxZoom} / 閉じてマスクも外れる）`);
+	console.log(`ok:map（${pane} / globe仕様 region=なし zoomMax=${o.zoomMax} / spotlight=${spot.key} / 閉じてマスクも外れる）`);
 }
 
 // ── ④ 復旧: 古い版の形の IDB から起動しても自力で直る ─────────────────────

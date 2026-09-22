@@ -17,6 +17,13 @@ export interface OrthoJapanOptions {
 	/** 配色の焼き付け（"mono"|"dark"|"gsi"|"sepia" または台帳と同形のカスタム）。**指定すると palette ガジェットは載らない**（固定＝切替不可）。
 	 *  利用者が切り替えられる初期配色は view の "…/c=dark" で。theme をここで渡すと view.hash に c= は入らない＝view: map.view.hash で再生成する時は theme も渡し直す */
 	theme?: string | object;
+	/** 地域の申告（1.2.0〜）。渡さなければ URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
+	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
+	 *  世界の陸の段彩（ハイプソ）・湖・罫線は zoomMax まで出たままになる（地域の基図が入場しないため）。 */
+	region?: object | object[] | null;
+	/** ズームの上限（既定 20）。データが在る所までしか寄らせない器のため（世界データだけ＝8 が目安）。
+	 *  入力（ホイール/ピンチ）・飛行・共有 hash・fit の全経路がこの値に従う。 */
+	zoomMax?: number;
 	/** 表示項目の固定。true=常時表示・false=封印・未記述=チップで利用者が選ぶ */
 	layers?: Partial<Record<"place" | "terrain" | "rail" | "road" | "facility", boolean>>;
 	/** 右上チップ帯の表示（既定true） */

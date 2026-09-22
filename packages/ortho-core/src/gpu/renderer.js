@@ -588,6 +588,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			const po = i * (PARAM_SLOT / 4);
 			ovParamCPU[po + 1] = OVERLAY_LIFT;   // p0.y=地形からのリフト(m)＝境界線/面が地形メッシュと同一面で z-fight し明滅・消失する件の根治（小地域の町丁目境界で実証 2026-08-12）
 			ovParamCPU[po + 3] = 1;   // p0.w=グローバルα（LINE FS が乗算＝境界線の可視・fill(0)のままだと全消灯）
+			if (o.feats) ovParamCPU[po + 2] = 1;   // p0.z=地平円クランプ＝地球規模の地物（国＝スポットライト）だけ（gl/renderer.js と対・2026-09-23）
 			ovParamCPU[po + 4] = o.fill[0]; ovParamCPU[po + 5] = o.fill[1]; ovParamCPU[po + 6] = o.fill[2]; ovParamCPU[po + 7] = o.fill[3];   // p1=塗り色
 		}
 		device.queue.writeBuffer(ovParamBuf, 0, ovParamCPU.buffer, 0, n * PARAM_SLOT);
@@ -597,7 +598,22 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			if (o.fanCount) {   // 面：stencil fan → cover（stencil≠0 を塗り・0 へ戻す）／o.mask は外側(stencil==0)を暗く塗る
 				pass.setPipeline(P.ovStencil);
 				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
-				pass.setVertexBuffer(0, o.fanBuf); pass.draw(o.fanCount);
+				pass.setVertexBuffer(0, o.fanBuf);
+				// 球体カリング二段構え（wdepr/lakes の stencilWorldFan と同型）：完全裏側の feature はレンジごと
+				// 描かない＝球の向こうの国が手前へ punch しない。feats を持たない局所ポリゴンは従来どおり一括
+				if (o.feats) {
+					const E = st.eye, eLen = Math.hypot(E[0], E[1], E[2]) || 1;
+					const cosH = Math.min(1, 1 / eLen), sinH = Math.sqrt(Math.max(0, 1 - cosH * cosH));
+					const ex = E[0] / eLen, ey = E[1] / eLen, ez = E[2] / eLen;
+					let run0 = -1, runN = 0;
+					for (const f of o.feats) {
+						const vis = f.C[0] * ex + f.C[1] * ey + f.C[2] * ez > f.cosR * cosH - f.sinR * sinH;
+						if (vis && run0 >= 0 && f.start === run0 + runN) { runN += f.count; continue; }
+						if (runN) pass.draw(runN, 1, run0);
+						run0 = vis ? f.start : -1; runN = vis ? f.count : 0;
+					}
+					if (runN) pass.draw(runN, 1, run0);
+				} else pass.draw(o.fanCount);
 				if (o.mask) {   // 周辺マスク＝外側を暗く塗り→内側stencilを0へ後始末（gint/次スロットのため）
 					pass.setPipeline(P.ovMaskCover);
 					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
@@ -1371,7 +1387,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 全球ハイプソの出現度（globe/terrain 共有＝ピッチで色が変わらない）。z5.7→6.5 フェードアウト
 		// ＝R90 全球窓の限界に着地（gl/renderer.js と同式）。気候場テクスチャも必要時に一度だけ取得
-		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.8)) : 0;
+		const whZ = view.worldHypsoZ ?? 6.5;   // 世界ハイプソの退場ズーム（gl/renderer.js と対・地域の申告が無い器は最後まで世界の色）
+		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
 		if (worldHypsoK > 0) ensureClimTex(view.worldHypso.clim);
 		worldPal();   // 世界パレット＝knob 参照変化時のみ worldPalBuf へ書込（バインドは常設）
 		device.queue.writeBuffer(paramBuf, 0, packParams({
@@ -1392,7 +1409,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 			// seaC.w の空き＝10度レチクルの出現度（fsGrat・v1 geoGraticule10 移植）：z1.7→2.2 出現・z6.0→6.5 退場×基礎α0.5
 			g[32] = sc[0]; g[33] = sc[1]; g[34] = sc[2];
-			g[35] = view.graticule ? Math.max(0, Math.min(1, (cam.zoom - 1.7) / 0.5)) * Math.max(0, Math.min(1, (6.5 - cam.zoom) / 0.5)) * 0.5 : 0;
+			g[35] = view.graticule ? Math.max(0, Math.min(1, (cam.zoom - 1.7) / 0.5)) * Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.5)) * 0.5 : 0;   // 罫線もハイプソと同じ帯で退場
 			g[36] = far.bounds[0]; g[37] = far.bounds[1]; g[38] = far.bounds[2]; g[39] = far.bounds[3];   // far床（世界帯z<8=R90全球固定窓）
 			g[40] = far.has; g[41] = elev.edgeFade || 0;   // farP=(hasFar, 近窓縁フェード幅deg, 0, 0)
 			g[44] = view.globeAlpha ?? 1;   // misc.x＝球体の不透明度（globe/wdepr/terrain(p2.w)/湖/夜面に一括）
