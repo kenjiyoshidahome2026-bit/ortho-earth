@@ -3,21 +3,21 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<meta name="description" content="A serverless WebGPU/GL2 orthographic map engine built from scratch — zero dependencies, no tile servers. Renders government vector tiles and PBF binary directly onto a 3D globe." />
-	<title>Ortho Earth - High Performance Orthographic Map Engine</title>
+	<meta name="description" content="Equal to all, fair to the Earth. This is the project for all people on the earth. The earth is round. Open data of the Earth on a round globe, in your browser — no server, no account." />
+	<title>Ortho Earth — Equal to all, fair to the Earth</title>
 	<meta name="theme-color" content="#4A90E2" />
 	<meta property="og:type" content="website" />
 	<meta property="og:url" content="https://www.ortho-earth.com/" />
-	<meta property="og:title" content="Ortho Earth" />
-	<meta property="og:description" content="A serverless WebGPU/GL2 map engine built from scratch — zero dependencies, no tile servers. Explore the family of open-data maps it powers, from a 3D globe of Japan to global open GIS." />
+	<meta property="og:title" content="Ortho Earth — Equal to all, fair to the Earth" />
+	<meta property="og:description" content="This is the project for all people on the earth. The earth is round. Open data of the Earth on a round globe, in your browser." />
 	<meta property="og:image" content="https://www.ortho-earth.com/og-image.jpg" />
 	<meta property="og:image:type" content="image/jpeg" />
 	<meta property="og:image:width" content="1200" />
 	<meta property="og:image:height" content="630" />
 	<meta property="og:image:alt" content="PLATEAU 3D buildings of central Tokyo rendered from GSI vector tiles" />
 	<meta name="twitter:card" content="summary_large_image" />
-	<meta name="twitter:title" content="Ortho Earth" />
-	<meta name="twitter:description" content="A serverless WebGPU/GL2 map engine built from scratch — explore the open-data maps it powers." />
+	<meta name="twitter:title" content="Ortho Earth — Equal to all, fair to the Earth" />
+	<meta name="twitter:description" content="This is the project for all people on the earth. The earth is round." />
 	<meta name="twitter:image" content="https://www.ortho-earth.com/og-image.jpg" />
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
@@ -34,8 +34,9 @@
 		<nav class="header">
 			<div class="logo" translate="no"></div>
 			<div class="links">
-				<a href="/docs/introduction.html">Story</a>
-				<a href="/maps/">Maps</a>
+				<a href="/docs/introduction.html" data-t="Story">Story</a>
+				<a href="/maps/" data-t="Maps">Maps</a>
+				<select class="lang" translate="no" aria-label="Language" data-t-aria-label="Language"></select>
 				<a href="https://x.com/KenjiYoshida168" target="_blank" rel="noopener" aria-label="X (Twitter)">
 					<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
 				</a>
@@ -47,94 +48,76 @@
 			</div>
 		</nav>
 		<main class="main">
-			<h1 class="title" translate="no">Explore the World<br><span class="highlight">Orthographically.</span></h1>
-			<p class="tagline">
-				A serverless WebGPU/GL2 map engine built from scratch<br>
-				— zero dependencies, no tile servers.<br>
-				Explore the family of open-data maps it powers.
-			</p>
-			<div class="tabs" role="tablist" aria-label="Sections">
-				<button class="tab is-active" id="tab-demos" role="tab" aria-selected="true" aria-controls="panel-demos" data-tab="demos">Demos</button>
-				<button class="tab" id="tab-tech" role="tab" aria-selected="false" aria-controls="panel-tech" data-tab="tech">Technologies</button>
+			<!-- キャッチ＝本人の文のまま（流暢化しない・訳さない）。英語以外では下に小さく訳を添える（.motto-tr） -->
+			<h1 class="title" translate="no" dir="ltr" lang="en">Equal to all,<br><span class="highlight">fair to the Earth</span></h1>
+			<p class="motto" translate="no" dir="ltr" lang="en">This is the project for all people on the earth. The earth is round.</p>
+			<p class="motto-tr" data-t="This is the project for all people on the earth. The earth is round. ##motto" hidden></p>
+			<p class="tagline" data-t="Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.">Open data of the Earth, read in your own browser — on a round globe, at true scale. No server, no account, no install.</p>
+			<div class="tabs" role="tablist" data-t-aria-label="Sections" aria-label="Sections">
+				<button class="tab is-active" id="tab-demos" role="tab" aria-selected="true" aria-controls="panel-demos" data-tab="demos" data-t="Demos">Demos</button>
+				<button class="tab" id="tab-tech" role="tab" aria-selected="false" aria-controls="panel-tech" data-tab="tech" data-t="Technologies">Technologies</button>
 			</div>
 			<div class="apps" id="panel-demos" role="tabpanel" aria-labelledby="tab-demos">
-				<a class="card featured" href="/japan/">
-					<span class="card-badge v2">V2 · WebGPU · OPFS</span>
-					<!-- LCP要素＝lazy禁止・優先取得（loading="lazy"はLoad Delay 2.1s/LCP4.1sの主犯だった 2026-08-21 Lighthouse mobile実測）。
-				     srcset＝カード実寸（デスクトップ≈378px・モバイル≈92vw）に合わせ 800/1200/1600w を配る -->
-				<img class="card-poster" src="/hero-japan.webp"
-					srcset="/hero-japan-800.webp 800w, /hero-japan-1200.webp 1200w, /hero-japan.webp 1600w"
-					sizes="(max-width: 640px) 92vw, 378px"
-					width="1600" height="1000" fetchpriority="high" decoding="async" alt="PLATEAU 3D buildings of central Tokyo with the Rainbow Bridge, rendered from GSI vector tiles" />
-					<span class="card-body">
-						<span class="card-eyebrow">Flagship</span>
-						<span class="card-title" translate="no">ortho-japan</span>
-						<span class="card-desc">Japan's government publishes PLATEAU — remarkably advanced open 3D city data. Rendered on a real sphere with the latest browser tech: WebGPU-accelerated cities that rise as you zoom. Zero dependencies.</span>
-						<span class="card-cta">Enter the 3D map →</span>
-					</span>
-				</a>
-				<a class="card" href="/geopbf/">
-					<span class="card-eyebrow">Demo · Convert in your browser</span>
-					<span class="card-title" translate="no">GeoPBF</span>
-					<span class="card-desc">Drop a GIS file, check it on the globe, write it out in another format — 18 formats in, 14 out (Shapefile, GeoPackage, FileGDB, GeoParquet, PMTiles …). The file never leaves your machine.</span>
-					<span class="card-cta">Try it →</span>
-				</a>
-				<a class="card" href="/gishub-jp/">
-					<span class="card-badge v1">V1 · WebGL2</span>
-					<span class="card-eyebrow">Japan · Open data</span>
-					<span class="card-title" translate="no">GIS-HUB Japan</span>
-					<span class="card-desc">Japan's open datasets on the same engine — national census small-area statistics, choropleths, and more.</span>
-					<span class="card-cta">Launch →</span>
-				</a>
+				<!--DEMOS-->
 			</div>
 			<div class="apps tech" id="panel-tech" role="tabpanel" aria-labelledby="tab-tech" hidden>
+				<p class="tech-lead" data-t="Parquet draws big data, Gint thinks, and nothing is exaggerated.">Parquet draws big data, Gint thinks, and nothing is exaggerated.</p>
 				<div class="card tech-card">
-					<span class="card-eyebrow">Data format · MIT</span>
+					<span class="card-eyebrow" data-t="Data format · MIT">Data format · MIT</span>
 					<span class="card-title" translate="no">GeoPBF</span>
-					<span class="card-desc">A Protocol Buffers geospatial binary format extending GeoJSON — about 1/10 the size, with bidirectional converters to common GIS formats. Can even carry icons.</span>
+					<span class="card-desc" data-t="A compact binary format for geometry, and a converter that runs in the browser: 18 formats in, 14 out, with GDAL-free support for Japanese coordinate systems. It does not keep an index — partial reads are GeoParquet's job.">A compact binary format for geometry, and a converter that runs in the browser: 18 formats in, 14 out, with GDAL-free support for Japanese coordinate systems. It does not keep an index — partial reads are GeoParquet's job.</span>
 					<span class="doclinks">
-						<a href="/docs/geopbf.html">Overview</a>
+						<a href="/docs/geopbf.html" data-t="Overview">Overview</a>
 						<a href="/docs/geopbf-jp.html" lang="ja" translate="no">日本語</a>
+						<a href="https://www.npmjs.com/package/geopbf" translate="no">npm</a>
+						<a href="/geopbf/" data-t="Try it">Try it</a>
 					</span>
 				</div>
 				<div class="card tech-card">
-					<span class="card-eyebrow">Elevation · MIT</span>
-					<span class="card-title" translate="no">AltPBF</span>
-					<span class="card-desc">Protocol Buffers raster elevation tiles — 3-tier zoom LOD, GEBCO + ALOS sources, Int16 delta with deflate, zero-copy worker transfer for high-throughput terrain.</span>
+					<span class="card-eyebrow" data-t="Vector engine · GPL-3.0">Vector engine · GPL-3.0</span>
+					<span class="card-title" translate="no">Gint</span>
+					<span class="card-desc" data-t="The intelligence layer: shared-edge topology in a GPU-readable form — instant identify, choropleths and level of detail straight on the GPU.">The intelligence layer: shared-edge topology in a GPU-readable form — instant identify, choropleths and level of detail straight on the GPU.</span>
 					<span class="doclinks">
-						<a href="/docs/altpbf.html">Overview</a>
-						<a href="/docs/altpbf-jp.html" lang="ja" translate="no">日本語</a>
+						<a href="/docs/gint.html" data-t="Overview">Overview</a>
+						<a href="/docs/gint-jp.html" lang="ja" translate="no">日本語</a>
+					</span>
+					<span class="doclinks-label" data-t="Interactive demos">Interactive demos</span>
+					<span class="doclinks demos">
+						<a href="/docs/MO.html" data-t="Morton Order">Morton Order</a>
+						<a href="/docs/GC.html" data-t="GPU Culling">GPU Culling</a>
+						<a href="/docs/ST.html" data-t="Stencil Tessellation">Stencil Tessellation</a>
 					</span>
 				</div>
 				<div class="card tech-card">
-					<span class="card-eyebrow">Renderer · GPL-3.0</span>
-					<span class="card-title" translate="no">OrthoMap</span>
-					<span class="card-desc">A WebGL framework for the orthographic globe — composites base map, vector (Gint) and terrain through a worker pipeline. Reads GeoPBF / AltPBF natively.</span>
+					<span class="card-eyebrow" data-t="Map engine · GPL-3.0">Map engine · GPL-3.0</span>
+					<span class="card-title" translate="no">@ortho-earth/core</span>
+					<span class="card-desc" data-t="The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.">The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.</span>
 					<span class="doclinks">
-						<a href="/docs/ortho-map.html">Overview</a>
+						<a href="/docs/ortho-map.html" data-t="Overview">Overview</a>
 						<a href="/docs/ortho-map-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
 				</div>
 				<div class="card tech-card">
-					<span class="card-eyebrow">Vector engine · GPL-3.0</span>
-					<span class="card-title" translate="no">Gint</span>
-					<span class="card-desc">Geographic Interleaved Binary — a 64-bit format pairing Morton spatial indexing with Visvalingam–Whyatt LOD weighting. GPU Culling and Stencil Tessellation, straight on the GPU.</span>
+					<span class="card-eyebrow" data-t="Elevation · MIT">Elevation · MIT</span>
+					<span class="card-title" translate="no">AltPBF</span>
+					<span class="card-desc" data-t="Elevation tiles in Protocol Buffers — three zoom tiers from GEBCO and ALOS, delta-coded and deflated for fast terrain.">Elevation tiles in Protocol Buffers — three zoom tiers from GEBCO and ALOS, delta-coded and deflated for fast terrain.</span>
 					<span class="doclinks">
-						<a href="/docs/gint.html">Overview</a>
-						<a href="/docs/gint-jp.html" lang="ja" translate="no">日本語</a>
-					</span>
-					<span class="doclinks-label">Interactive demos</span>
-					<span class="doclinks demos">
-						<a href="/docs/MO.html">Morton Order</a>
-						<a href="/docs/GC.html">GPU Culling</a>
-						<a href="/docs/ST.html">Stencil Tessellation</a>
+						<a href="/docs/altpbf.html" data-t="Overview">Overview</a>
+						<a href="/docs/altpbf-jp.html" lang="ja" translate="no">日本語</a>
 					</span>
 				</div>
-				<p class="tech-note">Building with GIS-HUB? See the <a href="/docs/gishub-faq.html">GIS-HUB FAQ</a>.</p>
+				<div class="card tech-card">
+					<span class="card-eyebrow" data-t="3D models · MIT">3D models · MIT</span>
+					<span class="card-title" translate="no">glbconv</span>
+					<span class="card-desc" data-t="Converts GLB to glTF, OBJ, PLY, STL, USDZ and 3D Tiles in the browser, keeping each model's place on the Earth.">Converts GLB to glTF, OBJ, PLY, STL, USDZ and 3D Tiles in the browser, keeping each model's place on the Earth.</span>
+					<span class="doclinks">
+						<a href="https://www.npmjs.com/package/glbconv" translate="no">npm</a>
+					</span>
+				</div>
 			</div>
 		</main>
 		<footer class="footer">
-			<p>Released under the MIT / GPL-3.0-or-later License. ©︎ 2026
+			<p><span data-t="Released under the MIT / GPL-3.0-or-later License.">Released under the MIT / GPL-3.0-or-later License.</span> ©︎ 2026
 				<span translate="no">Kenji Yoshida</span>
 			</p>
 		</footer>

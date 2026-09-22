@@ -20,7 +20,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 				svg { vertical-align: top; display: inline-block; height: 1.2em; padding-right: 0.2em; stroke:var(--text-secondary); fill:none; stroke-width:6px;}
 			}
 			.links a { color: var(--text-secondary); text-decoration: none; display: inline-flex; align-items: center;
-				margin-left: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
+				margin-inline-start: 1rem; font-size: 1.2rem; font-weight: 500; transition: color 0.2s;
 				&:hover { color: var(--accent-color); }
 				svg { display: block; flex-shrink: 0; fill: currentColor; stroke: none; width: 22px; height: 22px; margin-top: 2px;
 					path, ellipse { fill: currentColor; stroke: none; stroke-width: 0; }
@@ -30,13 +30,13 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 		main { flex: 1; display: flex; flex-direction: column;
 			background:rgba(0,0,0,0.6); padding: 2.5rem 2rem;
 			justify-content: flex-start; align-items: center; text-align: center; overflow-y: auto;
-			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: 1rem; }
+			.title { font-size: clamp(2rem, 5vw, 3.5rem); font-weight: 900; line-height: 1.1; margin-bottom: .9rem; }
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
 			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
 				margin-bottom: 1.75rem; line-height: 1.6; max-width: 640px; }
 			.apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
 				width: 100%; max-width: 900px; margin-bottom: 2rem;
-				.card { display: flex; flex-direction: column; text-align: left;
+				.card { display: flex; flex-direction: column; text-align: start;
 					padding: 1.5rem 1.6rem; border-radius: 16px; text-decoration: none; color: var(--text-primary);
 					background: var(--glass-bg); border: 1px solid var(--glass-border);
 					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -122,3 +122,41 @@ body #demoOverlay main .apps .card .card-badge.v2 { color: var(--accent-color); 
 body #demoOverlay main .apps .card .card-badge.v1 { color: var(--text-secondary); border-color: var(--glass-border); background: rgba(10, 10, 15, 0.72); }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks-label { display: block; margin-top: 1rem; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary); opacity: .7; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos { margin-top: .45rem; }
+
+/* ── 2026-09-22 作り直し：キャッチ・絞り込み・増えていくカードの格子・言語・RTL ── */
+body #demoOverlay nav .links { display: flex; align-items: center; }
+body #demoOverlay nav .links select.lang { margin-inline-start: 1rem; font: 500 .85rem/1 inherit; color: var(--text-secondary);
+	background: rgba(255,255,255,.06); border: 1px solid var(--glass-border); border-radius: 999px; padding: .45rem .7rem; max-width: 9rem; cursor: pointer; }
+body #demoOverlay nav .links select.lang:hover { border-color: var(--accent-color); color: var(--text-primary); }
+body #demoOverlay main .motto { font-size: clamp(1rem, 2.2vw, 1.3rem); color: var(--text-primary); font-weight: 600; margin-bottom: .35rem; max-width: 720px; line-height: 1.5; }
+body #demoOverlay main .motto-tr { font-size: .9rem; color: var(--text-secondary); margin-bottom: .2rem; max-width: 720px; }
+body #demoOverlay main .motto-tr[hidden] { display: none; }
+body #demoOverlay main .tagline { margin-top: 1rem; }
+/* デモ：旗艦（全幅）→ 絞り込み → 格子（auto-fill＝件数が増えても段が増えるだけ） */
+body #demoOverlay main #panel-demos { display: block; }
+body #demoOverlay main #panel-demos[hidden] { display: none; }
+body #demoOverlay main #panel-demos .card.featured { margin-bottom: 1.4rem; }
+body #demoOverlay main .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: .45rem; margin-bottom: 1.1rem; }
+body #demoOverlay main .chips .chip { padding: .45rem 1rem; border-radius: 999px; font-size: .85rem; font-weight: 600; box-shadow: none;
+	background: var(--glass-bg); color: var(--text-secondary); border: 1px solid var(--glass-border); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+body #demoOverlay main .chips .chip:hover { transform: none; color: var(--text-primary); border-color: var(--accent-2-bright); }
+body #demoOverlay main .chips .chip.is-active { background: var(--accent-2); color: #fff; border-color: var(--accent-2); }
+body #demoOverlay main .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .9rem; }
+body #demoOverlay main .grid .card { padding: 1.15rem 1.25rem 1rem; }
+body #demoOverlay main .grid .card[hidden] { display: none; }
+body #demoOverlay main .grid .card .card-icon { font-size: 1.6rem; line-height: 1; margin-bottom: .55rem; }
+body #demoOverlay main .grid .card .card-title { font-size: 1.1rem; margin-bottom: .35rem; }
+body #demoOverlay main .grid .card .card-desc { font-size: .84rem; }
+body #demoOverlay main .grid .card .card-cta { padding-top: .6rem; align-self: flex-end; }
+[dir=rtl] body #demoOverlay main .grid .card .card-cta { transform: scaleX(-1); }
+[dir=rtl] body #demoOverlay main .grid .card .card-cta { align-self: flex-start; }
+body #demoOverlay main .apps.tech .tech-lead { grid-column: 1 / -1; font-size: 1rem; color: var(--text-primary); font-weight: 600; margin-bottom: .2rem; }
+@media (max-width: 640px) {
+	body #demoOverlay nav { padding: 1rem 1rem; }
+	body #demoOverlay nav .logo { font-size: 1.1em; white-space: nowrap; }
+	body #demoOverlay nav .links a { margin-inline-start: .7rem; }
+	/* 狭い画面＝物語・地図はカード／フッタから辿れる＝ヘッダは言語と X・GitHub だけ */
+	body #demoOverlay nav .links a[href^="/docs/introduction"], body #demoOverlay nav .links a[href^="/maps"] { display: none; }
+	body #demoOverlay nav .links select.lang { max-width: 6.5rem; margin-inline-start: .6rem; }
+	body #demoOverlay main .grid { grid-template-columns: 1fr; }
+}

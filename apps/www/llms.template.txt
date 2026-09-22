@@ -1,0 +1,24 @@
+# Ortho Earth
+
+> Equal to all, fair to the Earth. This is the project for all people on the earth. The earth is round.
+
+Ortho Earth reads the open data of the Earth in your own browser — on a round globe, at true scale, with no server, no account and no install. A map engine built from scratch (WebGPU with a WebGL2 fallback) draws government vector tiles straight onto the sphere, lifts real terrain, and raises 3D cities as you zoom in. Big data is drawn from GeoParquet, the intelligence layer (identify, topology, choropleths) is Gint, and nothing is exaggerated (terrain at real scale).
+
+## Apps
+
+<!--APPS-->
+
+## Formats and libraries
+
+- [GeoPBF](https://www.ortho-earth.com/docs/geopbf.html): Compact binary format for geometry and an in-browser converter — 18 formats in, 14 out. npm `geopbf` (MIT).
+- [Gint](https://www.ortho-earth.com/docs/gint.html): Shared-edge topology in a GPU-readable form (GPL-3.0-or-later).
+- [AltPBF](https://www.ortho-earth.com/docs/altpbf.html): Elevation tiles in Protocol Buffers (MIT).
+- glbconv: GLB → glTF / OBJ / PLY / STL / USDZ / 3D Tiles in the browser. npm `glbconv` (MIT).
+
+## Documentation
+
+- [Docs](https://www.ortho-earth.com/docs/): Guides and reference for using and embedding the map engine.
+
+## Source
+
+- [GitHub repository](https://github.com/kenjiyoshidahome2026-bit/ortho-earth): Full source code (MIT / GPL-3.0-or-later).
