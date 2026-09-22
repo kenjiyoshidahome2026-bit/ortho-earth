@@ -11,7 +11,7 @@ import { gunzip, isGzip } from "geopbf/gzip";   // bucket は圧縮して置く�
 
 // 色＝equal の PALETTE / labelColor（apps/equal/src/layers.js・themes.js mono）と同じ顔＝2 つのアプリで同じ世界に見える
 const C = { admin1: "rgba(169,156,178,0.45)", disputed: "rgba(154,110,144,0.28)", disputedLine: "rgba(138,95,128,0.9)",
-	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.5)", city: "#2b3b57", halo: "rgba(255,255,255,0.88)" };
+	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.5)", city: "#2b3b57", capital: "#c8443c", halo: "rgba(255,255,255,0.88)", airport: "#6a3d9a" };
 const LINES_Z = 5;   // 道路・鉄道を出すズーム（equal の roads/rail minZoom と同値）
 
 // 都市名（equal と同じ出所の順・言語ごと）：ja＝配信 geopbf の NAME_JA（「〜市」族を落とす）／en＝NAME_EN／
@@ -24,6 +24,10 @@ const nameTables = {};   // lang → Promise<{ db, ne }>（en・ja は表を引�
 const namesFor = lang => nameTables[lang] ||= (lang === "en" || lang === "ja") ? Promise.resolve({})
 	: Promise.all([jsonMaybeGz(`${WORLD}i18n/${lang}.json`).then(j => j?.cities || {}).catch(() => ({})), lang === "th" ? {} : jsonMaybeGz(`${WORLD}ne-cities/${lang}.json`).then(j => j?.names || {}).catch(() => ({}))])
 		.then(([db, ne]) => ({ db, ne }));
+// 州の名前（NE admin_1 の name/name_en/name_ja＝base に残した列）
+const admin1Name = (p, lang) => (lang === "ja" && p.name_ja) || p.name_en || p.name || "";
+// 空港の ✈＝equal の labels.js と同じ Material Icons "flight"（viewBox 24）
+const PLANE = "M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z";
 const cityName = (p, lang, t) => {
 	if (lang === "ja") return stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name");
 	if (lang === "en") return F(p, "name_en") || F(p, "name");
@@ -67,10 +71,13 @@ const nearBbox = (feats, coord, area) => {
 export function countryLayers(map, geopbf) {
 	if (!geopbf || !map.addGint) return { shape: async () => null, show: async () => {}, clear: () => {} };   // 古いエンジン＝静かに何もしない
 	const layer = {}, held = {};   // group → addGint のハンドル／原本
-	let key = null, dotAdded = false;
+	let key = null, dotAdded = false, planeAdded = false;
+	const planeBitmap = () => { const s = 40, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d");
+		cx.translate(4, 4); cx.scale(32 / 24, 32 / 24); const path = new Path2D(PLANE); cx.lineWidth = 3; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.lineJoin = "round"; cx.stroke(path); cx.fillStyle = C.airport; cx.fill(path); return cv; };
 	// 都市の丸（首都は大きく）＝equal の dot と同じ形。記号帳に一度だけ登録して icon-size で伸縮
-	const dotBitmap = () => { const s = 16, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d");
-		cx.beginPath(); cx.arc(s / 2, s / 2, 5, 0, Math.PI * 2); cx.fillStyle = C.city; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.stroke(); return cv; };
+	// 首都は赤っぽく・少し大きく（本人 2026-09-23）＝丸を 2 種（色）にして icon-size で大きさを分ける
+	const dotBitmap = (color = C.city) => { const s = 16, cv = document.createElement("canvas"); cv.width = cv.height = s; const cx = cv.getContext("2d");
+		cx.beginPath(); cx.arc(s / 2, s / 2, 5, 0, Math.PI * 2); cx.fillStyle = color; cx.fill(); cx.lineWidth = 2; cx.strokeStyle = "rgba(255,255,255,0.9)"; cx.stroke(); return cv; };
 	const ensure = async g => {
 		if (layer[g] !== undefined) return layer[g];
 		layer[g] = null;   // 取得中の二重起動を止める
@@ -126,11 +133,11 @@ export function countryLayers(map, geopbf) {
 				const name = cityName(p, lang, t); if (!name) continue;
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { name, cap, mz: cap ? Math.min(mz, 3) : mz, pri: cap ? 0.2 + sr / 20 : 2 + sr / 20, size: cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10 } });
 			}
-			if (!map.hasImage?.("world-dot") && !dotAdded) { dotAdded = true; await map.addImage("world-dot", dotBitmap(), { pixelRatio: 2 }); }
+			if (!dotAdded) { dotAdded = true; await map.addImage("world-dot", dotBitmap(), { pixelRatio: 2 }); await map.addImage("world-dot-cap", dotBitmap(C.capital), { pixelRatio: 2 }); }
 			await map.gadget.symbols({ type: "FeatureCollection", features: feats }, {
 				id: "world-cities", minzoom: 2.5,
 				filter: ["<=", ["get", "mz"], ["zoom"]],   // NE の出しズーム（止まるたびに評価し直される）
-				layout: { "icon-image": "world-dot", "icon-size": ["case", ["get", "cap"], 1, 0.75], "symbol-sort-key": ["get", "pri"],
+				layout: { "icon-image": ["case", ["get", "cap"], "world-dot-cap", "world-dot"], "icon-size": ["case", ["get", "cap"], 1.3, 0.75], "symbol-sort-key": ["get", "pri"],
 					"text-field": ["get", "name"], "text-size": ["get", "size"], "text-anchor": "left", "text-offset": [0.55, 0] },
 				paint: { "text-color": C.city, "text-halo-color": C.halo, "text-halo-width": 2 },
 			});
@@ -146,7 +153,30 @@ export function countryLayers(map, geopbf) {
 				if (k !== key) return;   // 待っている間に別の国が押された＝古い方は出さない
 				h.setVisible(true);      // 絞り終えてから出す
 			}
+			await this.airports(k);
 		},
-		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.symbols(null, { id: "world-cities" }); },
+		/** 空港＝✈ の記号だけ（名前は出さない・z>5・大ハブほど先＝equal の airportLabels と同じ）。detail に airports が無い焼き（旧）なら何も出ない */
+		async airports(k) {
+			const pbf = held.detail; if (!pbf) return;
+			const n = pbf.fmap?.length ?? 0, feats = [];
+			for (let i = 0; i < n; i++) {
+				const p = pbf.getProperties(i) || {};
+				if (p.key !== k || p.layer !== "airports") continue;
+				const f = pbf.getFeature(i); if (f?.geometry?.type !== "Point") continue;
+				const srv = +F(p, "scalerank"); feats.push({ type: "Feature", geometry: f.geometry, properties: { sr: Number.isFinite(srv) ? srv : 8 } });
+			}
+			if (!feats.length || k !== key) return;
+			if (!planeAdded) { planeAdded = true; await map.addImage("world-plane", planeBitmap(), { pixelRatio: 2 }); }
+			await map.gadget.symbols({ type: "FeatureCollection", features: feats }, { id: "world-airports", minzoom: 5,
+				layout: { "icon-image": "world-plane", "icon-size": 0.65, "symbol-sort-key": ["get", "sr"] } });
+		},
+		/** 地点の下にある州／国（base の面を JS で当てる＝表示の絞りに依らない）。戻り＝{ key, layer, admin1 } | null */
+		query(ll, lang = "en") {
+			const pbf = held.base; if (!pbf?.identifyAt || !ll) return null;
+			const fid = pbf.identifyAt(ll[0], ll[1]); if (fid == null) return null;
+			const p = pbf.getProperties(fid) || {};
+			return p.key ? { key: p.key, layer: p.layer, admin1: p.layer === "admin_1" ? admin1Name(p, lang) : "" } : null;
+		},
+		clear() { for (const h of Object.values(layer)) h?.setVisible(false); map.gadget.symbols(null, { id: "world-cities" }); map.gadget.symbols(null, { id: "world-airports" }); },
 	};
 }

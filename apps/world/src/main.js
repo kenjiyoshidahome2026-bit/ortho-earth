@@ -7,7 +7,7 @@ const w = await world();
 
 // 埋め込み側の見本＝ここで起きる合図。地図の部品と繋ぐならこの3本を使う（README/型定義に同じものを載せる）
 // 地図＝この殻の持ち物（src/mappane.js）。合図を受けてから初めてエンジンを import する＝一覧だけ見る人には 1 バイトも降ってこない。
-w.on("map", e => import("./mappane.js").then(m => m.showMap(e, { lang: w.lang() })));
+w.on("map", e => import("./mappane.js").then(m => m.showMap(e, { lang: w.lang(), nation: k => w.nation(k) })));   // nation＝地図の上で当たった国を一覧の言葉で引く（tip・他国クリック）
 w.on("select", e => console.log("select:", e.iso2 || e.key, e.name)); // 国が選ばれた
 w.on("hover", e => e && console.debug("hover:", e.iso2 || e.key));    // 一覧の上でホバー（離れると null）
 

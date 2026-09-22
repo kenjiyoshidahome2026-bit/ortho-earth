@@ -12,8 +12,8 @@ import polygonClipping from "polygon-clipping";
 import { GeoPBF } from "../../geopbf/src/pbf-base.js";
 
 export const NE_TAG = "v5.1.2";
-export const NE_LAYERS = ["railroads", "roads", "urban_areas", "lakes", "populated_places", "admin_1", "admin_0"];
-export const NE_SOURCES = ["ne_10m_admin_1_states_provinces", "ne_10m_admin_0_disputed_areas", "ne_10m_railroads", "ne_10m_roads", "ne_10m_urban_areas", "ne_10m_lakes", "ne_10m_populated_places"];
+export const NE_LAYERS = ["railroads", "roads", "urban_areas", "lakes", "populated_places", "airports", "admin_1", "admin_0"];   // airports＝2026-09-23（本人「空港は国に入れる」）
+export const NE_SOURCES = ["ne_10m_admin_1_states_provinces", "ne_10m_admin_0_disputed_areas", "ne_10m_railroads", "ne_10m_roads", "ne_10m_urban_areas", "ne_10m_lakes", "ne_10m_populated_places", "ne_10m_airports"];
 export const neURL = name => `https://raw.githubusercontent.com/nvkelso/natural-earth-vector/${NE_TAG}/geojson/${name}.geojson`;
 const ATTR = `Natural Earth 10m ${NE_TAG} (public domain), split by ortho-earth world keys`;
 export const SINGLE_DESC = `Natural Earth 10m ${NE_TAG} split by ortho-earth world keys: all keys and layers in one (properties key / layer)`;
@@ -21,8 +21,8 @@ export const SINGLE_DESC = `Natural Earth 10m ${NE_TAG} split by ortho-earth wor
 // 頂点の 7 割が detail 側＝base（国＋係争地の重ね＋人口密集地）だけ先に読めば初回が約 1/4 になる。
 //   ne-cultural.geopbf        … 全部（属性 key / layer）＝従来どおり
 //   ne-cultural-base.geopbf   … admin_1 / admin_0 / populated_places
-//   ne-cultural-detail.geopbf … roads / railroads / urban_areas / lakes / routes
-export const NE_GROUPS = { base: ["admin_1", "admin_0", "populated_places"], detail: ["roads", "railroads", "urban_areas", "lakes", "routes"] };
+//   ne-cultural-detail.geopbf … roads / railroads / urban_areas / lakes / routes / airports（空港＝点・国の内外判定で key を付ける）
+export const NE_GROUPS = { base: ["admin_1", "admin_0", "populated_places"], detail: ["roads", "railroads", "urban_areas", "lakes", "routes", "airports"] };
 export const groupDesc = g => `Natural Earth 10m ${NE_TAG} split by ortho-earth world keys: ${g} layers (${NE_GROUPS[g].join(", ")}; properties key / layer)`;
 // base の属性は配信用に絞る（admin_1 123 列・populated_places 139 列＝多言語名など。9.8MB→6.2MB）。残すのは equal が国/都市ラベルに使う列。
 // 全属性は ne-cultural.geopbf（single）に残る＝ここで捨てても失わない
@@ -377,6 +377,7 @@ export async function buildNeCultural(seed, env, opts = {}) {
 	if (LAYERS.has("urban_areas")) doPolygons("urban_areas", await ne("ne_10m_urban_areas"));
 	if (LAYERS.has("lakes")) doPolygons("lakes", await ne("ne_10m_lakes"));
 	if (LAYERS.has("populated_places")) doPoints("populated_places", await ne("ne_10m_populated_places"));
+	if (LAYERS.has("airports")) doPoints("airports", await ne("ne_10m_airports"));   // 記号だけ置く（名前は出さない）＝scalerank で優先
 	if (LAYERS.has("admin_1")) { let n = 0; for (const [key, fs] of adminByKey) for (const f of fs) { push(key, "admin_1", { type: "Feature", properties: { ...f.properties, key }, geometry: f.geometry }); n++; } report.admin_1 = { features: admin1.length, out: n }; log(`admin_1: ${n}`); }
 
 	for (const [key, o] of geomOnly) for (const [layer, geoms] of Object.entries(o))
