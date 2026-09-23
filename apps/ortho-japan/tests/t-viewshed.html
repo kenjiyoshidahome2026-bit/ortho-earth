@@ -1,0 +1,36 @@
+<!doctype html>
+<!-- 実描画の検分：可視域と見通し線（#44）。試料＝tests/fixtures/tiles3d（東京駅の ENU の根・青い箱 4 棟＝中心 (±150,±150)・一辺 100m・高さ 80〜160m）。
+     視点＝原点（目の高さ 1.6m）。①NE の箱（高さ 80m）の陰 (300,300) は見えない・箱の無い東 (300,0) は見える・建物なしなら陰も見える
+     ②見通し線：原点→(300,300) は箱の角（約 141m）で遮られる・原点→(300,0) は見える ③画像（"viewshed"）と線（"los"）④ボタンとパネル。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-viewshed</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];   // ENU（m）→ 経緯度（近似）
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false });
+	const TS = ["./fixtures/tiles3d/tileset.json"], O = ll(0, 0);
+	const v = await map.viewshed({ tilesets: TS, observer: O, radius: 500, cell: 2, probe: [ll(300, 300), ll(300, 0), ll(-300, -300)] });
+	ok("viewshed", v.triangles > 0 && v.visibleRatio > 0.2 && v.visibleRatio < 0.95, JSON.stringify({ ...v, probes: undefined }));
+	ok("behindBox", v.probes[0] === 0 && v.probes[2] === 0, `NE=${v.probes[0]} SW=${v.probes[2]}`);
+	ok("open", v.probes[1] === 1, `E=${v.probes[1]}`);
+	const b = await map.viewshed({ buildings: false, observer: O, radius: 500, probe: [ll(300, 300)] });
+	ok("noBuildings", b.probes[0] === 1, `NE=${b.probes[0]} ratio=${b.visibleRatio}`);
+	ok("image", map.raster.list().some(r => r.id === "viewshed"));
+	const L1 = await map.lineOfSight(O, ll(300, 300), { tilesets: TS });
+	const k = Math.cos(LAT * Math.PI / 180) * K, dBlock = L1.blockAt ? Math.hypot((L1.blockAt[0] - O[0]) * k, (L1.blockAt[1] - O[1]) * K) : -1;
+	ok("losBlocked", !L1.visible && dBlock > 125 && dBlock < 160, `d=${dBlock.toFixed(1)} dist=${L1.distance}`);
+	const L2 = await map.lineOfSight(O, ll(300, 0), { tilesets: TS });
+	ok("losClear", L2.visible && Math.abs(L2.distance - 300) < 10 && L2.profile.length > 10, `dist=${L2.distance}`);
+	ok("line", !!map.getLayer("los"));
+	await map.clearViewshed();
+	ok("cleared", !map.getLayer("los") && !map.raster.list().some(r => r.id === "viewshed"));
+	map.gadget.viewshed();
+	document.getElementById("viewshed-btn").click();
+	ok("panel", !!document.querySelector(".viewshed-panel .vs-eye"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

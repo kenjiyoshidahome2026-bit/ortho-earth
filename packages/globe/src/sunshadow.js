@@ -158,3 +158,83 @@ function fillTri(px, py, W, H, stamp, cnt, sid) {
 		}
 	}
 }
+
+// ── 可視域と見通し線（#44・2026-09-23）＝同じ worker。地表＝main が render worker の地形から升目で渡す（外来 DEM の上書き込み）・建物＝上と同じ読み方で高さの升目へ
+// 地球の丸みと大気の屈折（係数 0.13）で遠方は下がる。視点＝地表（建物の上ならその屋上）＋eyeH。
+const K_REFR = 0.13;
+function buildingGrid(g, W, H, cell, x0, y1) {   // 升目ごとの建物の高さ（足元から・屋根の最大）
+	const bh = new Float32Array(W * H);
+	for (const buf of g.tris) for (let t = 0; t < buf.length; t += 9) {
+		const hm = Math.max(buf[t + 2], buf[t + 5], buf[t + 8]); if (hm < 1) continue;
+		const px = [(buf[t] - x0) / cell, (buf[t + 3] - x0) / cell, (buf[t + 6] - x0) / cell], py = [(y1 - buf[t + 1]) / cell, (y1 - buf[t + 4]) / cell, (y1 - buf[t + 7]) / cell];
+		const minX = Math.max(0, Math.floor(Math.min(...px))), maxX = Math.min(W - 1, Math.ceil(Math.max(...px))), minY = Math.max(0, Math.floor(Math.min(...py))), maxY = Math.min(H - 1, Math.ceil(Math.max(...py)));
+		const area = (px[1] - px[0]) * (py[2] - py[0]) - (px[2] - px[0]) * (py[1] - py[0]); if (Math.abs(area) < 1e-9) continue;
+		const sg = area > 0 ? 1 : -1;
+		for (let y = minY; y <= maxY; y++) for (let x = minX; x <= maxX; x++) {
+			const cx = x + 0.5, cy = y + 0.5;
+			if (((px[1] - px[0]) * (cy - py[0]) - (py[1] - py[0]) * (cx - px[0])) * sg < 0) continue;
+			if (((px[2] - px[1]) * (cy - py[1]) - (py[2] - py[1]) * (cx - px[1])) * sg < 0) continue;
+			if (((px[0] - px[2]) * (cy - py[2]) - (py[0] - py[2]) * (cx - px[2])) * sg < 0) continue;
+			const i = y * W + x; if (hm > bh[i]) bh[i] = hm;
+		}
+	}
+	return bh;
+}
+// opts＝{ bbox, N, ground:Float32Array(N×N・row0＝北・画素の中心), observer:[lon,lat], eyeH:1.6, targetH:0, radius(m), buildings:true, tilesets?, sets?, probe?, los?:[lon,lat] }
+export async function computeViewshed(opts) {
+	const { bbox, N, ground, observer, eyeH = 1.6, targetH = 0, radius = 1000 } = opts;
+	const [w, s, e, n] = bbox, lat0 = (s + n) / 2 * D2R, lon0 = (w + e) / 2 * D2R, kx = Math.cos(lat0) * R_EARTH, ky = R_EARTH;
+	const spanX = (e - w) * D2R * kx, spanY = (n - s) * D2R * ky, cellX = spanX / N, cellY = spanY / N, cell = (cellX + cellY) / 2;
+	const g = opts.buildings === false ? { tris: [], count: 0, tiles: 0 } : await gatherTriangles({ ...opts, bbox });
+	const bh = g.count ? buildingGrid({ tris: g.tris }, N, N, cell, -spanX / 2, spanY / 2) : new Float32Array(N * N);
+	const S = new Float32Array(N * N); for (let i = 0; i < N * N; i++) S[i] = (ground[i] || 0) + bh[i];
+	const toCell = ([lo, la]) => [((lo - w) / (e - w)) * N, ((n - la) / (n - s)) * N];
+	const [ox, oy] = toCell(observer), oi = Math.min(N - 1, Math.max(0, oy | 0)) * N + Math.min(N - 1, Math.max(0, ox | 0));
+	const z0 = S[oi] + eyeH;
+	const drop = d => d * d / (2 * R_EARTH) * (1 - K_REFR);
+	const rCells = radius / cell;
+	// 光線を 1 本（視点→(tx,ty)）歩いて、見える升目に印。los＝その 1 本の結果を返す
+	const vis = new Uint8Array(N * N);
+	const ray = (tx, ty, mark = true) => {
+		const dx = tx - ox, dy = ty - oy, L = Math.hypot(dx, dy); if (L < 1e-6) return { visible: true, block: null };
+		const steps = Math.ceil(L * 2), sx = dx / steps, sy = dy / steps;
+		let maxSlope = -Infinity, block = null, lastVis = true;
+		for (let k = 1; k <= steps; k++) {
+			const x = ox + sx * k, y = oy + sy * k, ix = x | 0, iy = y | 0;
+			if (ix < 0 || iy < 0 || ix >= N || iy >= N) break;
+			const d = Math.hypot((x - ox) * cellX, (y - oy) * cellY), i = iy * N + ix, dr = drop(d);
+			const tSlope = (S[i] + targetH - dr - z0) / d;
+			lastVis = tSlope >= maxSlope;
+			if (mark && lastVis && Math.hypot(x - ox, y - oy) <= rCells) vis[i] = 1;
+			const sSlope = (S[i] - dr - z0) / d;
+			if (sSlope > maxSlope) { if (!block && k < steps - 1 && Math.hypot(x - ox, y - oy) > 1) block = [x, y]; maxSlope = sSlope; }
+		}
+		return { visible: lastVis, block };
+	};
+	let los = null;
+	if (opts.los) {   // 見通し線＝視点→目標の 1 本。遮る最初の点（目標より手前で視線より高い所）
+		const [tx, ty] = toCell(opts.los), L = Math.hypot(tx - ox, ty - oy), steps = Math.ceil(L * 2), prof = [];
+		const zt = S[Math.min(N - 1, Math.max(0, ty | 0)) * N + Math.min(N - 1, Math.max(0, tx | 0))] + targetH;
+		let blockAt = null;
+		for (let k = 1; k < steps; k++) {
+			const f = k / steps, x = ox + (tx - ox) * f, y = oy + (ty - oy) * f, i = Math.min(N - 1, Math.max(0, y | 0)) * N + Math.min(N - 1, Math.max(0, x | 0));
+			const d = Math.hypot((x - ox) * cellX, (y - oy) * cellY), sight = z0 + (zt - drop(L * cell) - z0) * f + 0;   // 視線（直線）
+			const surf = S[i] - drop(d);
+			if (k % Math.max(1, steps >> 7) === 0) prof.push([+d.toFixed(1), +surf.toFixed(1), +sight.toFixed(1)]);
+			if (!blockAt && surf > sight) blockAt = [w + x / N * (e - w), n - y / N * (n - s)];
+		}
+		los = { visible: !blockAt, blockAt, distance: +(L * cell).toFixed(1), profile: prof };
+	} else {
+		for (let x = 0; x < N; x++) { ray(x + 0.5, 0.5); ray(x + 0.5, N - 0.5); }
+		for (let y = 0; y < N; y++) { ray(0.5, y + 0.5); ray(N - 0.5, y + 0.5); }
+		vis[oi] = 1;
+	}
+	const rgba = new Uint8ClampedArray(N * N * 4);
+	let inR = 0, seen = 0;
+	if (!opts.los) for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) {
+		const i = y * N + x; if (Math.hypot(x + 0.5 - ox, y + 0.5 - oy) > rCells) continue;
+		inR++; if (vis[i]) { seen++; rgba[i * 4] = 40; rgba[i * 4 + 1] = 200; rgba[i * 4 + 2] = 110; rgba[i * 4 + 3] = 120; } else { rgba[i * 4] = 60; rgba[i * 4 + 1] = 40; rgba[i * 4 + 2] = 70; rgba[i * 4 + 3] = 90; }
+	}
+	const probes = (opts.probe || []).map(p => { const [x, y] = toCell(p); const ix = x | 0, iy = y | 0; return ix >= 0 && iy >= 0 && ix < N && iy < N ? vis[iy * N + ix] : 0; });
+	return { rgba, w: N, h: N, bbox, probes, los, stats: { cells: inR, visibleRatio: inR ? +(seen / inR).toFixed(3) : 0, triangles: g.count, eyeZ: +z0.toFixed(1), cell: +cell.toFixed(2) } };
+}
