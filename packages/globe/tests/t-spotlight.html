@@ -5,7 +5,7 @@
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-spotlight</title></head>
 <body><div id="map"></div>
 <script type="module">
-import orthoJapan, { createGlobe } from "../app.js";
+import { createGlobe } from "@ortho-earth/globe";
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const mark = s => { document.title = "… " + s; };
@@ -13,7 +13,7 @@ const Q = new URLSearchParams(location.search);
 try {
 	mark("boot");
 	// ?globe=1＝地域の申告なし（world の国の地図と同じ globe 仕様）＝日本の基図が来ない・ハイプソが上限まで
-	const boot = Q.get("globe") === "1" ? createGlobe : orthoJapan;   // globe=1＝地球儀のホスト（LAYERS.md の口）で起動
+	const boot = createGlobe;   // 2026-09-24 に packages/globe へ移設＝この頁はもとから地域を要らない（旧 ?globe=1 の分岐は同じ口を指すだけになった）
 	const map = await boot({ target: "#map", view: Q.get("v") || "#2.2/20/140", mesh: false, chips: false, ...(Q.get("globe") === "1" ? { zoomMax: 8 } : {}) });   // ?v=＝視点を固定（?fit=0 と対で「裏側に punch しないか」を見る）
 	mark("booted");
 	await new Promise(r => setTimeout(r, 9000));   // 世界の国の形（admin0）と地形の到着
