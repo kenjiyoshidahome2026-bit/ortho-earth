@@ -7,7 +7,7 @@ import { decodeModel, setDecodeEnv } from "./meshdecode.js";
 import { extrudeMesh } from "./extrude.js";
 import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
 import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.js";
-import { computeSunShadow } from "./sunshadow.js";   // 日影（#44）＝kind:"sunshadow"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
+import { computeSunShadow, computeViewshed } from "./sunshadow.js";   // 日影・可視域・見通し線（#44）＝kind:"sunshadow"/"viewshed"   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
 
 const transferOf = batches => {
 	const tr = new Set();
@@ -26,6 +26,7 @@ self.onmessage = async e => {
 			self.postMessage({ id, batches, mask: r.mask, stats: r.stats }, transferOf(batches));
 			return;
 		}
+		if (kind === "viewshed") { const r = await computeViewshed(e.data.opts); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
 		if (kind === "sunshadow") { const r = await computeSunShadow(e.data.opts); self.postMessage({ id, ...r }, [r.rgba.buffer]); return; }
 		if (kind === "i3sOpen") { self.postMessage({ id, ...(await i3sOpen(e.data.url, e.data.token)) }); return; }
 		if (kind === "i3sNodes") { self.postMessage({ id, nodes: await i3sNodes(e.data.url, e.data.ids, e.data.token) }); return; }
