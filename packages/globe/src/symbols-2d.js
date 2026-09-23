@@ -45,20 +45,43 @@ export function frame(cam, s, { w, h }, api) {
 			const [x, y, f] = api.project(it.lon, it.lat);
 			if (f < 0 || x < -64 || y < -64 || x > W + 64 || y > H + 64) continue;
 			let ib = null, tb = null, im = null, iw = 0, ih = 0;
-			if (it.icon && (im = images.get(it.icon))) {
+			if (it.icon) im = images.get(it.icon) || null;
+			const fit = im && it.text && it.iconTextFit && it.iconTextFit !== "none" ? it.iconTextFit : null;   // icon-text-fit（#39）
+			if (im && !fit) {
 				iw = im.bm.width / im.pr * it.size; ih = im.bm.height / im.pr * it.size;
 				const a = ANCH[it.anchor] || ANCH.center, ox = x + it.offset[0] * it.size - a[0] * iw, oy = y + it.offset[1] * it.size - a[1] * ih;
 				ib = [ox, oy, ox + iw, oy + ih];
 			}
-			if (it.text) {
+			// 文字の箱（text-variable-anchor＝候補を順に試し、空いている最初の位置・#39）
+			const textBox = anchor => {
 				ctx.font = `${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`;
-				const tw = ctx.measureText(it.text).width, th = it.textSize * 1.2, a = ANCH[it.textAnchor] || ANCH.center;
-				const tx = x + it.textOffset[0] * it.textSize - a[0] * tw, ty = y + it.textOffset[1] * it.textSize - a[1] * th;
-				tb = [tx, ty, tx + tw, ty + th];
+				const tw = ctx.measureText(it.text).width, th = it.textSize * 1.2, a = ANCH[anchor] || ANCH.center;
+				let ox = it.textOffset[0], oy = it.textOffset[1];
+				if (it.textVariableAnchor) {   // 候補ごとに錨から離す向き＝錨の反対側へ（MapLibre と同じ：radial があればそれ・無ければ text-offset の大きさ）
+					const r = it.textRadialOffset ?? Math.max(Math.abs(ox), Math.abs(oy)), k = anchor.includes("-") ? Math.SQRT1_2 : 1;
+					ox = (anchor.includes("left") ? r : anchor.includes("right") ? -r : 0) * k; oy = (anchor.startsWith("top") ? r : anchor.startsWith("bottom") ? -r : 0) * k;
+				}
+				const tx = x + ox * it.textSize - a[0] * tw, ty = y + oy * it.textSize - a[1] * th;
+				return [tx, ty, tx + tw, ty + th];
+			};
+			const iconFor = t => {   // icon-text-fit：文字の箱＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ）
+				const [pt, pr, pb, pl] = it.iconTextFitPadding || [0, 0, 0, 0], nw = im.bm.width / im.pr * it.size, nh = im.bm.height / im.pr * it.size;
+				const cx = (t[0] + t[2]) / 2, cy = (t[1] + t[3]) / 2;
+				const x0 = fit === "height" ? cx - nw / 2 : t[0] - pl, x1 = fit === "height" ? cx + nw / 2 : t[2] + pr;
+				const y0 = fit === "width" ? cy - nh / 2 : t[1] - pt, y1 = fit === "width" ? cy + nh / 2 : t[3] + pb;
+				return [x0, y0, x1, y1];
+			};
+			if (it.text) {
+				const cands = it.textVariableAnchor?.length ? it.textVariableAnchor : [it.textAnchor];
+				for (const an of cands) {
+					const t = textBox(an), i2 = fit ? iconFor(t) : ib;
+					if (it.textOverlap || (free(t) && (!i2 || it.iconOverlap || free(i2)))) { tb = t; if (fit) ib = i2; break; }
+				}
+				if (!tb) continue;   // どの候補も置けない＝この記号は出さない
+				if (fit) { iw = ib[2] - ib[0]; ih = ib[3] - ib[1]; }
 			}
 			// 重なり（MapLibre：記号と文字は一緒に置けなければ両方出さない＝optional は扱わない）
 			if (ib && !it.iconOverlap && !free(ib)) continue;
-			if (tb && !it.textOverlap && !free(tb)) continue;
 			if (ib && !it.iconIgnore) placed.push(ib);
 			if (tb && !it.textIgnore) placed.push(tb);
 			ctx.globalAlpha = it.opacity ?? 1;
