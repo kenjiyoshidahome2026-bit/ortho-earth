@@ -25,7 +25,7 @@ const t = tr();
 export const MIRROR = "https://www.ortho-earth.com/sats/active.csv";   // 専用 Worker apps/sats-mirror（CORS 開放＝開発機からも読める）
 export const CELESTRAK = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";   // 本家（ミラーが無い時だけ）
 const CACHE = "ortho-sats-v1", CACHE_KEY = CELESTRAK, FRESH_MS = 30 * 60e3;
-const PROP_MS = 1000, TAG_MS = 100, PATH_MS = 15000;   // 全機の伝播間隔／札の追従間隔／選択衛星の軌道の引き直し
+const PROP_MS = 1000, TAG_MS = 100, PATH_MS = 15000, PROP_TICK = 250, DT_MAX = 30;   // PROP_TICK＝伝播の見回り（実 ms）・DT_MAX＝直線外挿の上限（秒・時計の早送り中の飛び出し止め）   // 全機の伝播間隔／札の追従間隔／選択衛星の軌道の引き直し
 const STATIONS = new Map([[25544, "ISS"], [48274, "Tiangong"]]);   // 有人の宇宙ステーション（NORAD 番号→表示名）＝常に名前つき
 const DEFAULT_PICK = 25544;
 const PATH_N = 240;                         // 選択衛星の軌道の標本数（前後半周）
@@ -66,8 +66,10 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	let Wp = null, Wv = null, ok = null, tProp = 0;     // 直近の伝播（β ワールド・位置と速度/秒）と時刻(ms)
 	let pick = -1, pathAt = 0, dataAt = 0, catDirty = false;
 	const n = () => S.length;
-	const nowPos = (i, now = Date.now()) => {   // 直近の伝播から直線外挿した今の位置（GPU と同じ式）
-		const dt = (now - tProp) / 1000;
+	// その時刻＝共通の時計（#42・map.clock）。早送り・巻き戻し・日時の指定で衛星も同じ時刻へ（無ければ実時刻）
+	const simNow = () => map.clock ? map.clock.time : Date.now();
+	const nowPos = (i, now = simNow()) => {   // 直近の伝播から直線外挿した今の位置（GPU と同じ式）
+		const dt = Math.max(-DT_MAX, Math.min(DT_MAX, (now - tProp) / 1000));   // 外挿は ±DT_MAX 秒まで（sats-gl.js と同じ）
 		return [Wp[i * 3] + Wv[i * 3] * dt, Wp[i * 3 + 1] + Wv[i * 3 + 1] * dt, Wp[i * 3 + 2] + Wv[i * 3 + 2] * dt];
 	};
 
@@ -189,7 +191,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	};
 	const goTo = i => {   // 選択＋直下点を画面中央へ（ズームはそのまま）
 		setPick(i);
-		const jd = jdOf(Date.now()), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
+		const jd = jdOf(simNow()), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
 		if (p && map.flyTo) { const ll = temeToGeodetic(p.r, gmst(jd)); map.flyTo(ll.lon, ll.lat, map.getZoom ? map.getZoom() : map.cam.zoom); }
 	};
 	$("q").addEventListener("input", renderHits);
@@ -206,7 +208,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (pick < 0 || !n()) { el.style.display = "none"; selKey = ""; return; }
 		el.style.display = "";
 		if (!ok[pick]) { if (selKey !== "x" + pick) { selKey = "x" + pick; el.innerHTML = `<b>${esc(names[pick])}</b>`; } return; }
-		const now = Date.now(), jd = jdOf(now), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);
+		const now = simNow(), jd = jdOf(now), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);
 		if (!p) return;
 		const h = temeToGeodetic(p.r, gmst(jd)).h, v = Math.hypot(p.v[0], p.v[1], p.v[2]);
 		const key = `${pick}|${Math.round(h)}|${v.toFixed(2)}`;
@@ -251,7 +253,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (earthPxOf(s) / dpr < MIN_EARTH_PX) return -1;
 		const px = x * dpr, py = y * dpr, bd = rad * dpr;
 		let best = -1, bestD = bd * bd;
-		const now = Date.now();
+		const now = simNow();
 		for (let i = 0; i < n(); i++) {
 			if (!ok[i] || !vis.has(CATS[cat[i]]?.key)) continue;
 			const [X, Y, Z] = nowPos(i, now);
@@ -284,7 +286,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	}, { signal, capture: true });
 	function setPick(i) {
 		pick = i; selKey = ""; tip.style.display = "none";
-		postMarks(); buildPath(Date.now()); showSel(); refreshTags();
+		postMarks(); buildPath(simNow()); showSel(); refreshTags();
 	}
 	const postMarks = () => {
 		const st = []; norad.forEach((id, i) => { if (STATIONS.has(id)) st.push(i); });
@@ -354,11 +356,15 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		Wp = new Float64Array(N * 3); Wv = new Float64Array(N * 3); ok = new Uint8Array(N);
 		if (pick < 0) pick = norad.indexOf(DEFAULT_PICK);
 		catDirty = true;
-		propagateAll(nowMs);
+		propagateAll(simNow());
 		buildCats(); setSub(); postMarks(); showSel(); refreshTags();
 		setStatus(t("Showing $1 ##count", `<b>${fmt(N)}</b>`));
 		renderHits();   // 読み込み前に打った文字があれば今引く
-		propTimer = setInterval(() => propagateAll(Date.now()), PROP_MS);
+		// 時計の時刻で 1 秒ぶん進んだら伝播し直す（実時間＝従来どおり 1 Hz／早送り＝PROP_TICK ごと＝外挿は ±DT_MAX で頭打ち＝低軌道が接線へ飛び出さない）
+		propTimer = setInterval(() => { const now = simNow(); if (Math.abs(now - tProp) >= PROP_MS) propagateAll(now); }, PROP_TICK);
+		// 時計が跳んだ（日時の指定・今へ戻る・段の変更）＝その場で伝播し直し・軌道も引き直す
+		const onTime = e => { if (e.ticking) return; const now = simNow(); propagateAll(now); buildPath(now); showSel(); placeTags(); };
+		map.on?.("time", onTime); signal.addEventListener("abort", () => map.off?.("time", onTime), { once: true });
 		tagTimer = setInterval(() => { placeTags(); showSel(); }, TAG_MS);
 		return { n: N };
 	})();
@@ -382,7 +388,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (catDirty) { msg.cat = cat.slice(); transfer.push(msg.cat.buffer); catDirty = false; }
 		if (pick >= 0 && ok[pick]) msg.plumb = plumbOf(now, g);
 		ov.post(msg, transfer);
-		if (pick >= 0 && now - pathAt > PATH_MS) buildPath(now);
+		if (pick >= 0 && Math.abs(now - pathAt) > PATH_MS) buildPath(now);
 	}
 	function plumbOf(now, g) {   // 真下への糸＝衛星の今の位置 → 直下の地表点
 		const jd = jdOf(now), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);

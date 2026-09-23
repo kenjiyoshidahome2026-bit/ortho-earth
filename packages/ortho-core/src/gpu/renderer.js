@@ -16,6 +16,8 @@ import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
+import { clockNow } from "ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
+import { gmstAt, sunSubpoint } from "ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL } from "./wgsl.js";
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 
@@ -1420,16 +1422,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const starFade = (stars || constel || planets) ? worldFade : 0;
 		const showConst = view.showConst && (constel || ecliptic || celeq);
 		if (worldFade > 0) {
-			const now = Date.now();
-			const gmst = (((18.697374 + 24.0657098 * (now / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+			const now = clockNow(view.clock);   // 共通の時計（#42）
+			const gmst = gmstAt(now);
 			// z1 の硬クランプ（max）は天球スケールの変化が z1 で急停止＝太陽系圏の出入りで星の動きが不連続に
 			// 見えた（本人指摘 2026-09-02「上手に繋げて」）→ softplus の軟クランプ＝C∞接続：z≫1 は従来の線形・
 			// z≪1 は z1 相当へ漸近凍結（無限遠の星空はズームアウトで縮まない・負zの係数反転も防ぐ＝旧仕様を保存）。
 			const zx = cam.zoom - 1, zs = 1 + (zx > 0 ? zx + 0.25 * Math.log(1 + Math.exp(-zx / 0.25)) : 0.25 * Math.log(1 + Math.exp(zx / 0.25)));   // 数値安定形 softplus（幅0.25z）
 			const skyK = (0.4 + 0.3 * zs) / 1.6;
-			const dDay = now / 864e5;   // 夜面の太陽直下点（v1 nightJSON と同式）
-			const sunLat = 23.4 * Math.sin((dDay / 365.24 % 1 - 0.225) * 2 * Math.PI) * Math.PI / 180;
-			const sunLng = (((dDay % 1 * -360 + 360) % 360) - 180) * Math.PI / 180;
+			const [sunLng, sunLat] = sunSubpoint(now);   // 夜面の太陽直下点（ephem/sun＝solar と同じ式・均時差込み）
 			const cs = Math.cos(sunLat);
 			const s = skyCPU;
 			s.set(st.mvp, 0); s.set(st.invMvp, 16);

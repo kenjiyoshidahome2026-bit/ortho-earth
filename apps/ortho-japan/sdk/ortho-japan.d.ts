@@ -14,6 +14,22 @@ export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; 
 /** UI 言語（26 言語・1.1.0〜。1.0.5 以前は ja/en のみ）。ar/fa/ur/he は右横書き（容れ物に dir=rtl）。"ja-JP" 等の地域付きは基底へ寄せる */
 export type OrthoJapanLang = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es" | "pt" | "it" | "nl" | "pl" | "ru" | "uk" | "hu" | "sv" | "tr" | "el" | "id" | "vi" | "th" | "bn" | "hi" | "ar" | "fa" | "ur" | "he";
 
+/** 共通の時計（#42）。time＝ms（UTC エポック）・step＝速度段 −8〜+8（0＝停止・負＝逆行・1＝実時間の速さ）・範囲 1800〜2049（端で止まる） */
+export interface OrthoClock {
+	readonly time: number; readonly date: Date; readonly step: number;
+	/** 実 1 秒あたりのシミュレート秒（符号つき） */
+	readonly speed: number; readonly playing: boolean; readonly range: [number, number];
+	isLive(): boolean;
+	/** 速さの表示（英語の鍵を tr で訳す） */
+	label(tr?: (s: string) => string): string;
+	setTime(ms: number): OrthoClock; setStep(step: number): OrthoClock;
+	slower(): OrthoClock; faster(): OrthoClock; toggle(): OrthoClock;
+	/** 今へ戻る（実時間） */
+	live(): OrthoClock;
+	/** URL の t=/s= ⇄ 状態 */
+	toParams(p?: URLSearchParams): URLSearchParams; fromParams(p: URLSearchParams | string): OrthoClock;
+	on(ev: "change" | "tick", cb: (c: OrthoClock) => void): OrthoClock; off(ev: "change" | "tick", cb: (c: OrthoClock) => void): OrthoClock;
+}
 export interface OrthoJapanOptions {
 	/** 埋め込み先（セレクタ or 要素）。idは"map"へ正規化される＝サイズ指定は#idセレクタ禁止 */
 	target?: string | HTMLElement;
@@ -68,6 +84,8 @@ export interface OrthoJapanOptions {
 	keyboard?: boolean | (() => boolean);
 	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜） */
 	persistView?: boolean;
+	/** 共通の時計の起動時刻（Date｜ISO 文字列｜ms・1.2.0〜・#42）。省略＝実時間。URL の t=/s= があればそちらが勝つ */
+	time?: Date | string | number;
 	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
 	debugGlobals?: boolean;
 }
@@ -146,6 +164,8 @@ export interface Gadgets {
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m）＝map.sunShadow の UI */
 	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く */
+	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 任意の 3D Tiles（map.add3DTiles と同じ）。null＝全部（opts.id＝その 1 つ）を外す */
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
 	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key）。null＋{id} で外す */
@@ -341,6 +361,8 @@ export interface OrthoJapanMap {
 	/** @deprecated 1.2.0〜 "mesh" を使う（同じ合図）。次の大版で撤去 */
 	on(ev: "plateau", cb: (e: MeshEvent) => void): OrthoJapanMap;
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
+	/** 共通の時計（1.2.0〜・#42）。ticking＝再生中の刻み（最大フレームごと）／false＝段・日時・今・範囲の端など状態の変わり目 */
+	on(ev: "time", cb: (e: { time: number; step: number; live: boolean; ticking: boolean }) => void): OrthoJapanMap;
 	/** 層ごとのイベント（MapLibre 同名・1.2.0〜・#34）。layerId＝addLayer の層 id か基図の層 id（配列可）。click はドラッグを除く・mousemove は rAF に畳む */
 	on(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
 	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
@@ -372,7 +394,8 @@ export interface OrthoJapanMap {
 	/** 次フレームの描画を1回点火（オーバレイ更新後に） */
 	requestDraw(): void;
 	/** 同一フレームのオーバーレイ：レンダーワーカー内で地球・注記と同じフレーム・同じカメラで描く自前 canvas（main の onFrame は 1〜2 フレーム先行する）。
-	 *  url＝worker が import() する依存ゼロのモジュール { init(canvas, opts), message(data), frame(cam, camState, {w,h}) → boolean, destroy() }。
+	 *  url＝worker が import() する依存ゼロのモジュール { init(canvas, opts), message(data), frame(cam, camState, {w,h}, api) → boolean, destroy() }。
+	 *  api＝{ project, projectH, dpr, W, H, time（共通の時計の時刻 ms・1.2.0〜・#42）, clock（{sim,wall,rate}｜null＝実時刻） }。
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
 	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
@@ -444,6 +467,9 @@ export interface OrthoJapanMap {
 	lineOfSight(a: LonLat, b: LonLat, opts?: { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number }): Promise<{ visible: boolean; blockAt: LonLat | null; distance: number; profile: [number, number, number][]; triangles: number }>;
 	/** 可視域の画像と見通し線を消す */
 	clearViewshed(): Promise<void>;
+	/** 共通の時計（1.2.0〜・#42・ephem/clock＝ortho-solar と同じ部品）。夜の側・星空・惑星と月・太陽系圏・同一フレームのオーバーレイ（api.time＝衛星など）がこの時刻で描く。
+	 *  既定＝実時間。URL（ビューの hash）に t=<UTC>/s=<段> を書く（実時間なら書かない）＝共有リンクで同じ時刻が開く。操作盤は map.gadget.clock() */
+	readonly clock: OrthoClock;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
 	setTerrain(terrain: { source: string | RasterDemSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;

@@ -40,6 +40,7 @@ import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibr
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createClock, fmtUTC } from "ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
@@ -63,6 +64,7 @@ import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";
+import { clockGadget } from "./gadgets/clock.js";   // 時計の操作盤（#42）＝map.clock の ◀◀ ▶ ▶▶・日時・今
 import { viewshed as viewshedGadget } from "./gadgets/viewshed.js";   // 可視域・見通し線（#44）＝同じ worker
 import { sunShadow as sunShadowGadget } from "./gadgets/sunshadow.js";   // 日影（#44）＝ボタン＋小さなパネル（計算は model 役の worker・sunshadow.js）   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
@@ -573,7 +575,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [] };   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [] };   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -1082,6 +1084,12 @@ const bootView = parseViewHash(opts.view || location.hash || REGIONS.map(r => r.
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
 if (bootView) applyCamView(bootView);
+// ── 共通の時計（#42・2026-09-23）＝ephem/clock（solar と同じ部品）。既定＝実時間（Date.now に張り付く）。
+// 起動の優先度＝URL の t=/s=（共有リンク）> opts.time（Date｜ISO 文字列｜ms）> 実時間。状態が変わった時だけ worker へ基準を送る（下の sky の後で結線）
+const clock = createClock();
+const clockParamsOf = v => { const p = new URLSearchParams(); if (v.time) p.set("t", v.time); if (v.speed != null) p.set("s", String(v.speed)); return p; };
+if (opts.time != null) clock.setTime(opts.time instanceof Date ? opts.time.getTime() : typeof opts.time === "string" ? Date.parse(opts.time) : +opts.time);
+if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(clockParamsOf(bootView));
 else if (opts.persistView !== false) try {
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
 	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
@@ -1099,6 +1107,9 @@ const viewHash = () => {
 	const extras = changed ? ["l=" + on.join(".")] : [];
 	// 配色テーマ＝c=<name>（既定 mono は書かない＝素の視点はURLも素。固定(opts.theme)も書かない＝埋め込み構成を持ち出さない）
 	if (!themeFixed && themeName !== "mono" && MAP_THEMES[themeName]) extras.push("c=" + themeName);
+	// 時計＝実時間なら書かない（開いた人の「今」）。止めた・早送り・過去未来＝t=（UTC）と s=（段）＝solar と同じ書式
+	if (!clock.isLive()) extras.push("t=" + fmtUTC(clock.time));
+	if (clock.step !== 1) extras.push("s=" + clock.step);
 	return buildViewHash(cam, extras);
 };
 const saveView = () => { saveCam(); if (ownMapEl || opts.urlHash) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
@@ -1212,7 +1223,16 @@ async function loadLakes() {
 dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
-const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, now: () => clock.time, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+// 時計の状態が変わった（段・日時・今へ戻る・範囲の端で停止・URL の読み込み）＝worker へ基準・空と惑星・URL・map.on("time")
+let clockSentAt = 0;
+function sendClock() { clockSentAt = performance.now(); wPost({ type: "set", cmd: "clock", data: clock.isLive() ? null : clock.anchor() }); }
+clock.on("change", () => {
+	sendClock(); sky.timeChanged(); needsDraw = true;
+	if (!printHold) saveView();
+	for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: clock.isLive(), ticking: false }); } catch (e) { console.error("[map.on time]", e); } }
+});
+if (!clock.isLive()) sendClock();   // 起動時に過去/未来の t= か opts.time が来ていた
 // --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
 const n02 = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
@@ -1689,6 +1709,7 @@ function applyViewLayers(v) {
 function applyView(v, { fly = false, glide = false, jump = false } = {}) {
 	if (!v) return false;
 	applyViewLayers(v);                                                        // 1) l=（チップ）＝先に反映
+	if (v.time || v.speed != null) clock.fromParams(clockParamsOf(v));   // 時計（t=/s=・#42）＝貼り替え・台本のビューが時刻を持つ時だけ（無ければ今の時計のまま）
 	if (!themeFixed && v.theme && v.theme !== themeName) switchTheme(v.theme);  // 2) c=（テーマ生き替え・switchThemeはURLを書かない＝ここで束ねる）
 	if (fly && !jump) (glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * R2D, v.bearing * R2D);   // 3a) フライト（離陸＝現視点のまま animate）
 	else { if (jump) flightCtl.cancel(); applyCamView(v); onMove(); }          // 3b) 即時＝カメラ直書き（jump／hashchange貼付け）
@@ -1906,8 +1927,19 @@ if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
 }).catch(e => console.error("[hud] failed to load module", e));
 // 初期 overlay なし（全球 land は検証用。__loadOverlay(name) で任意に。__tokyo() は日本の install が生やす）
 
+let clockLastT = performance.now(), clockUrlAt = 0;
 function frame() {
 	if (destroyed) return;   // destroy 後はループを再予約しない＝rAF が自然消滅
+	// 共通の時計を進める（#42）：実時間は Date.now に張り付くので何もしない。早送り/巻き戻し中だけ積算し、惑星・日時計・太陽系圏を追わせる。
+	// worker の基準は 1 秒ごとに送り直す（main の積算は dt を 0.1 秒で頭打ち＝裏タブ復帰の跳びを防ぐ solar の流儀／worker は壁時計で外挿＝その差を詰める）
+	const nowT = performance.now(), dtC = Math.min(0.1, (nowT - clockLastT) / 1000); clockLastT = nowT;
+	if (clock.playing && !clock.isLive()) {
+		clock.tick(dtC); sky.timeChanged();
+		if (cam.zoom < STARSKY_Z) needsDraw = true;
+		if (nowT - clockSentAt > 1000) sendClock();
+		if (nowT - clockUrlAt > 1000) { clockUrlAt = nowT; if (!printHold) saveView(); }   // 再生中も URL の t を追わせる＝いつコピーしても今の場面（solar と同じ）
+		for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: false, ticking: true }); } catch (e) { console.error("[map.on time]", e); } }
+	}
 	if (needsDraw) { needsDraw = false; render(); }
 	requestAnimationFrame(frame);
 }
@@ -1967,7 +1999,7 @@ const eyePose = () => {
 		altM: (len - 1) * EARTH_M, distM: st.camDist * EARTH_M,   // altM=海抜[m]（sea-level球）・distM=注視点までの実距離[m]
 		fovy: cam.fovy || 50 * D2R };   // 垂直視野角[rad]（エンジン既定50°・水平は aspect 依存＝表示側で 2·atan(tan(fovy/2)·W/H)）
 };
-const map = { cam, flyTo, renderer, mapEl, destroy,
+const map = { cam, flyTo, renderer, mapEl, destroy, clock,
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。
@@ -2525,6 +2557,7 @@ map.gadget("sunshadow", function (opts) {
 	return sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), signal: ac.signal, ...opts });
 });
 map.clearViewshed = async () => { map.raster.remove("viewshed"); if (map.getLayer("los")) { map.removeLayer("los"); map.removeSource("los"); } };
+map.gadget("clock", function (opts) { return clockGadget.call(this, { signal: ac.signal, ...opts }); });
 map.gadget("viewshed", function (opts) {
 	return viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, signal: ac.signal, ...opts });
 });

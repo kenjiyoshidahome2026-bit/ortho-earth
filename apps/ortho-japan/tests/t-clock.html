@@ -1,0 +1,52 @@
+<!doctype html>
+<!-- 実描画の検分：共通の時計（#42）。①既定＝実時間（URL に t= を書かない）②日時を決めると夜の側が動く（日本の正午は明るく・真夜中は暗い）
+     ③URL の hash に t=/s=・hash の貼り替えで時計が合う ④早送り（1 日/秒）で時刻が進む ⑤同一フレームのオーバーレイに api.time が届く ⑥操作盤（今ではない時は開く・今ボタン）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-clock</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (await f()) return true; await sleep(200); } return false; };
+try {
+	const map = await createGlobe({ target: "#map", view: "#1.6/35/138", chips: false, urlHash: true, persistView: false });
+	await new Promise(r => map.on("load", r));
+	ok("liveDefault", map.clock.isLive() && Math.abs(map.clock.time - Date.now()) < 2000 && !/\/t=/.test(location.hash), location.hash);
+	const shot = map.gadget.shot();
+	const grab = async () => { const bmp = await createImageBitmap(await shot.composite()); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); const g = cv.getContext("2d"); g.drawImage(bmp, 0, 0); return g.getImageData((bmp.width >> 1) - 20, (bmp.height >> 1) - 20, 40, 40); };
+	const lum = img => { let s = 0; for (let i = 0; i < img.data.length; i += 4) s += 0.2126 * img.data[i] + 0.7152 * img.data[i + 1] + 0.0722 * img.data[i + 2]; return s / (img.data.length / 4); };
+	// 日本（138°E）の正午＝03:00Z 前後／真夜中＝15:00Z
+	map.clock.setStep(0);   // 止めてから日時を決める（実時間の速さのままだと秒が進んで t= に秒が付く）
+	map.clock.setTime(Date.parse("2026-06-21T03:00:00Z")); await sleep(1500); const day = lum(await grab());
+	map.clock.setTime(Date.parse("2026-06-21T15:00:00Z")); await sleep(1500); const night = lum(await grab());
+	ok("nightSide", day > night * 1.3, `day=${day.toFixed(1)} night=${night.toFixed(1)}`);
+	await until(() => /\/t=2026-06-21T15:00Z/.test(location.hash), 3000);
+	ok("urlWrite", /\/t=2026-06-21T15:00Z/.test(location.hash) && /\/s=0(\/|$)/.test(location.hash), location.hash);
+	// hash の貼り替え＝時計が合う
+	location.hash = "#1.6/35/138/t=2011-03-11T05:46Z/s=0";
+	await until(() => map.clock.time === Date.parse("2011-03-11T05:46:00Z"), 3000);
+	ok("urlRead", map.clock.time === Date.parse("2011-03-11T05:46:00Z") && map.clock.step === 0, `${new Date(map.clock.time).toISOString()} s=${map.clock.step}`);
+	// 早送り 1 日/秒
+	map.clock.setStep(5); const a = map.clock.time; await sleep(1000); const adv = (map.clock.time - a) / 864e5;
+	ok("fastForward", adv > 0.6 && adv < 1.4, `+${adv.toFixed(2)} days in 1 s`);
+	map.clock.setStep(0);
+	// 同一フレームのオーバーレイ＝api.time
+	let got = null;
+	const ov = map.overlay(new URL("./fixtures/clock/probe-overlay.js", location.href).href, { name: "probe" });
+	ov.onmessage = d => { got = d; };
+	await until(() => got, 10000);
+	ok("overlayTime", got && Math.abs(got.time - map.clock.time) < 2000 && got.clock && got.clock.rate === 0, JSON.stringify(got));
+	ov.remove();
+	// 操作盤：今ではない＝開いている・今ボタンで実時間へ
+	map.gadget.clock();
+	const bar = document.querySelector(".clock-bar");
+	ok("barOpen", !!bar && bar.style.display !== "none" && /Paused|停止/.test(bar.querySelector(".ck-speed").textContent), bar?.querySelector(".ck-speed").textContent);
+	bar.querySelector(".ck-now").click();
+	ok("now", map.clock.isLive() && Math.abs(map.clock.time - Date.now()) < 2000);
+	await until(() => !/\/t=/.test(location.hash), 3000);
+	ok("urlLive", !/\/t=/.test(location.hash), location.hash);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

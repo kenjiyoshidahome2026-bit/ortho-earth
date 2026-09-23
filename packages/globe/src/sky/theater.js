@@ -12,6 +12,8 @@ const D2R = Math.PI / 180;
 
 export function createSkyTheater(env) {
 const { mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, requestDraw } = env;
+// その時刻＝共通の時計（#42・env.now＝map.clock の時刻）。無ければ実時刻
+const nowMs = () => env.now ? env.now() : Date.now();
 
 // --- 星空劇場（z<4・v1 ortho-map の星空アクセサリー移植）---
 // stars.6（実在星表：RA/Dec・等級・B-V色指数）を天球単位ベクトル＋色＋点径に焼いて render worker へ。
@@ -35,11 +37,11 @@ let starsArmed = true;
 function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; if (env.stars !== false) loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
-let planetTimer = null, planetLabels = [];
+let planetTimer = null, planetLabels = [], planetT = 0;   // planetT＝最後に位置を出した時計の時刻
 const PLANET_ID = { 水星: "mercury", 金星: "venus", 火星: "mars", 木星: "jupiter", 土星: "saturn", 月: "moon" };   // planets.js の名前→天体 id（space の表の鍵）
 let solarSky = null, solarSkyLoad = null, inSolarPrev = false;   // 太陽系圏（z<1）＝solarsky.js の状態
 function updatePlanets() {
-	const now = new Date();
+	const now = new Date(nowMs()); planetT = now.getTime();
 	// 太陽系圏＝ドーム表現（天球方向のみ・距離なし）は世界表現（solarsky＝実位置3D）と矛盾する＝引っ込めて交代
 	if (!solarOff && cam.zoom < 1) {
 		renderer.set("planets", new Float32Array(0));
@@ -76,11 +78,18 @@ mapEl.appendChild(skyClockEl);
 // （旧 #sky-attr＝星空専用の出典別要素は廃止 2026-09-03「attr表示を各ズームで綺麗に統合」＝
 //   #attr 一枚が圏で差し替わる。星空圏の文面は render() の attrZone="sky" 節）
 const SKY_WD = getLang() === "ja" ? ["日", "月", "火", "水", "木", "金", "土"] : ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const skyClockTimer = setInterval(() => {
+const skyClockShow = () => {
 	if (cam.zoom >= STARSKY_Z) return;   // 見えていない間はDOMに触れない（星空圏の外）
-	const d = new Date(), L2 = n => String(n).padStart(2, "0");
+	const d = new Date(nowMs()), L2 = n => String(n).padStart(2, "0");
 	skyClockEl.textContent = `${d.getFullYear()}/${L2(d.getMonth() + 1)}/${L2(d.getDate())} (${SKY_WD[d.getDay()]}) ${L2(d.getHours())}:${L2(d.getMinutes())}:${L2(d.getSeconds())}`;
-}, 1000);
+};
+const skyClockTimer = setInterval(skyClockShow, 1000);
+// 時計が動いた（早送り・日時の指定・今へ戻る＝#42）＝惑星と月を追わせる（時計の時刻で 10 分以上ずれたら出し直す）・日時計も即時
+let clockShown = 0;
+function timeChanged() {
+	if (planetTimer && Math.abs(nowMs() - planetT) > 600000) updatePlanets();
+	const w = performance.now(); if (w - clockShown > 100) { clockShown = w; skyClockShow(); }
+}
 
 function startPlanets() {
 	if (planetTimer) return;
@@ -188,7 +197,7 @@ function applyConstellations(want) { if (!!want !== constelVisible) toggleConste
 // render() が毎フレーム呼ぶ（旧 app.js render() の 8 行をそのまま）。
 function solarFrame(w, h) {
 	const inSolar = !solarOff && cam.zoom < 1;
-	if (inSolar && !solarSkyLoad) solarSkyLoad = Promise.all([import("../solarsky.js"), loadSkyNames()]).then(([m, names]) => { solarSky = m.createSolarSky({ mapEl, names }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
+	if (inSolar && !solarSkyLoad) solarSkyLoad = Promise.all([import("../solarsky.js"), loadSkyNames()]).then(([m, names]) => { solarSky = m.createSolarSky({ mapEl, names, now: nowMs }); requestDraw(); }).catch(e => console.warn("[solar] zone load failed", e));
 	solarSky?.frame(cam, w, h, inSolar);
 	if (inSolar !== inSolarPrev) {
 		inSolarPrev = inSolar;
@@ -197,5 +206,5 @@ function solarFrame(w, h) {
 	}
 }
 function terminate() { clearInterval(planetTimer); clearInterval(skyClockTimer); }   // destroy：惑星の再計算・日時計
-return { ensureStars, toggleConstellations, applyConstellations, solarFrame, terminate, get constelVisible() { return constelVisible; } };   // constelVisible＝共有 URL の l=sky（viewHash / map.view）が読む
+return { ensureStars, toggleConstellations, applyConstellations, solarFrame, terminate, timeChanged, get constelVisible() { return constelVisible; } };   // constelVisible＝共有 URL の l=sky（viewHash / map.view）が読む
 }
