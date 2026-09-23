@@ -16,6 +16,7 @@ import {
     mojSidebarEntry, maffSidebarEntry, estatSidebarEntry,
     census2025SidebarEntry, censusSmall2020SidebarEntry, census2015SidebarEntry,
     npsSidebarEntry, municSidebarEntry,
+    jishinSeismicSidebarEntry, jishinFaultSidebarEntry,
 } from './ui/entries.js';
 
 // dataset_code → { モジュール読込, 描画関数名 }（カタログ外の #amedas/#seismic も同じ機構）
@@ -67,6 +68,8 @@ async function loadCatalog() {
 			censusSmall2020SidebarEntry(),   // 「国勢調査 2020 基本集計」= 全国→小地域の総合ドリルダウン（旧フラット2020を統合）
 			census2015SidebarEntry(),
 			npsSidebarEntry(),
+			jishinSeismicSidebarEntry(),
+			jishinFaultSidebarEntry(),
 			municSidebarEntry(),
 		];
 
@@ -102,6 +105,7 @@ const SOURCE_GROUP_LABELS = {
 	estat: '総務省 e-Stat',
 	env:   '環境省 環境ジオポータル',
 	nlftp: '国土交通省 国土数値情報',
+	jishin: '文部科学省 地震調査研究推進本部（地震本部）',
 	munic: '市区町村（G空間情報センター・データカタログ横断検索）',
 };
 
@@ -111,6 +115,7 @@ const SOURCE_GROUP_URLS = {
 	estat: 'https://www.e-stat.go.jp/gis',
 	env:   'https://geo.env.go.jp/',
 	nlftp: 'https://nlftp.mlit.go.jp/ksj/',
+	jishin: 'https://www.jishin.go.jp/',
 	munic: 'https://search.ckan.jp/',
 };
 

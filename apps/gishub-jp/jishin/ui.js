@@ -6,8 +6,6 @@
 import { geopbf } from '../ui/gpbf.js';
 import { execGlobeView } from '../ui/globe.js';
 
-const LATEST = 2026;
-
 // 観測網＝生成側 NETS の tag と対。GeoPBF は符号で持ち、名前はここで開く
 const NET = {
     HS: '高感度地震計', BB: '広帯域地震計', SG: '強震計（地上）', SU: '強震計（地下）',
@@ -25,15 +23,6 @@ const SEISMIC_DS = {
     codelist: { net: NET },
 };
 
-export function jishinSeismicSidebarEntry() {
-    return {
-        dataset_code: 'seismic',
-        title: `地震観測施設（11観測網・2013〜${LATEST}年版）`,
-        file_count: 9276,
-        license: '地震本部',
-        _sourceId: 'jishin',
-    };
-}
 
 let _pbf = null;
 export async function showSeismic() {
@@ -60,15 +49,6 @@ const FAULT_DS = {
     codelist: {},
 };
 
-export function jishinFaultSidebarEntry() {
-    return {
-        dataset_code: 'fault',
-        title: '震源断層モデル（全国地震動予測地図 2009年版）',
-        file_count: 231,
-        license: '地震本部',
-        _sourceId: 'jishin',
-    };
-}
 
 let _fault = null;
 export async function showFault() {
