@@ -5,6 +5,7 @@
 // kind:"extrude"＝任意ポリゴンの押し出し（extrude.js・2026-09-21）。返す形は模型と同じ（バッチ 1 本・テクスチャ無し）。
 import { decodeModel, setDecodeEnv } from "./meshdecode.js";
 import { extrudeMesh } from "./extrude.js";
+import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
 
 const transferOf = batches => {
 	const tr = new Set();
@@ -21,6 +22,18 @@ self.onmessage = async e => {
 			if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 			const batches = [{ mesh: r.mesh, tex: null, alphaMode: "OPAQUE", alphaCutoff: 0.5 }];
 			self.postMessage({ id, batches, mask: r.mask, stats: r.stats }, transferOf(batches));
+			return;
+		}
+		if (kind === "tile3d") {   // 3D Tiles のタイル＝worker が取りに行く（main は URL と変換だけ渡す）
+			const { url, transform, baseH, groundMode } = e.data;
+			const res = await fetch(url, { credentials: "omit", signal: AbortSignal.timeout(30000) });
+			if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
+			const buf = await res.arrayBuffer();
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode });
+			if (!r) { self.postMessage({ id, batches: [], points: [], stats: { triangles: 0, points: 0, bytes: buf.byteLength } }); return; }
+			r.stats.bytes = buf.byteLength;
+			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
+			self.postMessage({ id, batches: r.batches, points: r.points, stats: r.stats }, tr);
 			return;
 		}
 		const r = await decodeModel(ab, { at, heading, scale, baseUri, textures: textures !== false, ground, mask });

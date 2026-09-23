@@ -1,14 +1,17 @@
 // 汎用の点オーバーレイ（同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam に描く）。
 // 用途＝GeoParquet の点だけのファイル（gadgets/parquet-view.js）：列（経緯度）→ 単位球の xyz → そのまま GPU。gint も GeoPBF も経由しない。
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
-//   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4) }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け）
-//           ／{ type:"remove", q }／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
+//   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4), origin?: [x,y,z] }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け）
+//           origin＝pos の原点（原点相対＝RTE・3D Tiles の点群 #41）＝絶対座標を float32 に通さない（寄ると 0.4m 級のガタつき）。
+//           mvp×平行移動(origin) は倍精度で掛けてから float32 へ＝原点付近の精度が桁で戻る
+//           ／{ type:"remove", q }／{ type:"vis", q, on }（表示だけ切替）／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
 // ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く。
 const VS = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec4 a_rgba;   // 点ごとの色（無い層は u_color）
-uniform mat4 u_mvp;
+uniform mat4 u_mvp;         // 層ごと＝mvp×平行移動(origin)
+uniform vec3 u_origin;      // 層の原点（地平線の判定だけに使う＝粗くてよい）
 uniform vec3 u_eye;
 uniform float u_size;      // 半径（device px）
 uniform vec4 u_color;
@@ -18,7 +21,7 @@ void main() {
 	v_col = u_perPoint > 0.5 ? a_rgba : u_color;
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
 	// 地平線の向こう（球の裏側）は描かない：視線 eye→P が球の中を通るなら裏
-	vec3 d = a_pos - u_eye;
+	vec3 d = (a_pos + u_origin) - u_eye;
 	float a = dot(d, d), b = dot(u_eye, d), c = dot(u_eye, u_eye) - 1.0;
 	float disc = b * b - a * c;
 	if (disc > 0.0) { float s = sqrt(disc); float t0 = (-b - s) / a; if (t0 > 1e-4 && t0 < 1.0 - 1e-4) { gl_Position = off; gl_PointSize = 0.0; return; } }
@@ -67,8 +70,9 @@ export function message(d) {
 		if (d.rgba) { cbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cbuf); gl.bufferData(gl.ARRAY_BUFFER, d.rgba, gl.STATIC_DRAW); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 0, 0); }
 		else { gl.disableVertexAttribArray(1); gl.vertexAttrib4f(1, 0, 0, 0, 1); }
 		gl.bindVertexArray(null);
-		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba });
+		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba, origin: d.origin || null, on: true });
 	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); }
+	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
 	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
 	else if (d.type === "style") { style = { ...style, ...d }; }
 }
@@ -79,12 +83,21 @@ export function frame(cam, s, { w, h }) {
 	if (!layers.size) return false;
 	const dpr = cam.dpr || 1;
 	gl.useProgram(prog);
-	gl.uniformMatrix4fv(uni.u_mvp, false, new Float32Array(s.mvp));
+	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M);
 	gl.uniform3fv(uni.u_eye, new Float32Array(s.eye));
 	gl.uniform1f(uni.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr));
 	gl.uniform4fv(uni.u_color, new Float32Array(style.color));
 	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-	for (const L of layers.values()) { gl.uniform1f(uni.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n); }
+	for (const L of layers.values()) {
+		if (!L.on) continue;
+		const o = L.origin;
+		if (o) {   // mvp·T(o)＝4 列目だけが変わる（倍精度で掛ける）
+			for (let i = 0; i < 12; i++) mvpL[i] = M[i];
+			for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
+			gl.uniformMatrix4fv(uni.u_mvp, false, mvpL); gl.uniform3f(uni.u_origin, o[0], o[1], o[2]);
+		} else { gl.uniformMatrix4fv(uni.u_mvp, false, mvp0); gl.uniform3f(uni.u_origin, 0, 0, 0); }
+		gl.uniform1f(uni.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
+	}
 	gl.bindVertexArray(null);
 	return false;
 }
