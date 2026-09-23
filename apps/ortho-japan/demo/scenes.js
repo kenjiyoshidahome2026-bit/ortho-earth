@@ -38,7 +38,7 @@ export default { mobile:-1.2,
 		{ title: "Blank Map of Japan", jp: "白地図の日本", view: "#6.6/37/137/l=/c=mono", hold:0, slide: slideStart, mobile: 0 },   // z6.6＝world既定化(9/2)後も基図帯（z<6.5は全球ハイプソ＝白にならない）。mobile:0＝-1.2既定だと5.4で色が付くため据置（幕が主役の開幕＝切れは許容）
 		{ title: "The Earth is Round = orthographic", jp: "地球は丸い", view: "#4/37/137/l=/c=mono" },
 		{ title: "4 map styles", jp: "4つの地図モード", view: "#9.14/35.57334/138.11457/0r/l=/c=mono" },
-		{ title: "GSI Mode", jp: "地理院地図", view: "#9.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=gsi", hold: 1.5 },
+		{ title: "GSI Mode", jp: "地理院地図", view: "#9.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=topo", hold: 1.5 },
 		{ title: "Dark Mode", jp: "ダーク・モード", view: "#9.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=dark", hold: 1.5 },
 		{ title: "Sepia Mode", jp: "セピア・モード", view: "#9.14/35.57334/138.11457/0r/l=place.terrain/c=sepia", hold: 1.5 },
 		{ title: "Mono Mode", jp: "淡色地図", view: "#9.14/35.57334/138.11457/0r/l=place.terrain.rail.road.facility/c=mono", hold: 1.5 },

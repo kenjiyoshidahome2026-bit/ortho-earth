@@ -49,15 +49,15 @@ try {
 		ok("road→ダーク", near(at(0.5), [85, 149, 220]));     // #2f6cad → #5595dc
 		ok("宇宙は黒のまま", near(at(0.9), [0, 0, 0]));
 	} else ok("darkカード", false);
-	// gsi カード：幹線青→地理院の緑（対応表写像＝色相ごと替わるのが見どころ）。
+	// topo カード（配色の出所は地理院 std.json）：幹線青→地理院の緑（対応表写像＝色相ごと替わるのが見どころ）。
 	// 海(水色 #aecbe6)→地理院シアン＝「幹線2の淡青」への誤分類回帰（海がオレンジ #e69212 に化けた実害）を封じる。
-	const gsi = picker.querySelector('.tp-card[data-theme="gsi"] canvas');
+	const gsi = picker.querySelector('.tp-card[data-theme="topo"] canvas');
 	if (gsi) {
 		const gctx = gsi.getContext("2d", { willReadFrequently: true });
 		const gat = fx => [...gctx.getImageData(Math.round(360 * fx), 126, 1, 1).data].slice(0, 3);
 		ok("road→地理院緑", near(gat(0.5), [61, 151, 56]));    // #2f6cad → #3d9738
 		ok("海→地理院シアン", near(gat(0.7), [0, 176, 236]));  // #aecbe6 → #00b0ec（オレンジ化の回帰封じ）
-	} else ok("gsiカード", false);
+	} else ok("topoカード", false);
 
 	// ESC＝閉じる（従来挙動の回帰）
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
@@ -90,13 +90,13 @@ try {
 	// detectTheme（画面の実色から写像元を推定）なら mono→各テーマへ正しく写る。
 	await h.open();
 	await new Promise(r => setTimeout(r, 300));
-	const gsi2 = picker.querySelector('.tp-card[data-theme="gsi"] canvas');
+	const gsi2 = picker.querySelector('.tp-card[data-theme="topo"] canvas');
 	if (gsi2) {
 		const c2 = gsi2.getContext("2d", { willReadFrequently: true });
 		const at2 = fx => [...c2.getImageData(Math.round((gsi2.width - 1) * fx), gsi2.height >> 1, 1, 1).data].slice(0, 3);
 		ok("切替窓:紙→地理院紙", near(at2(0.2), [254, 254, 255]));    // mono紙 #f6f6f4 →（mono と推定して写像）→ gsi紙 #fefeff
 		ok("切替窓:幹線→地理院緑", near(at2(0.5), [61, 151, 56]));    // mono幹線 #2f6cad → gsi緑 #3d9738
-	} else ok("切替窓:gsiカード", false);
+	} else ok("切替窓:topoカード", false);
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 
 	map.destroy();

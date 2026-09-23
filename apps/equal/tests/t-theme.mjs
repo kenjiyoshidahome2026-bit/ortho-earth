@@ -50,10 +50,10 @@ for (const name of THEME_NAMES) {
 
 // ④ 全球パレット＝ortho-core の共有正本を引いている（japan の palettes.js と同じ物）
 ok(THEMES.mono.world === WORLD_PAL_THEMES.mono, "mono.world は共有正本（既定＝null）");
-for (const name of ["dark", "gsi", "sepia"]) ok(THEMES[name].world === WORLD_PAL_THEMES[name], `${name}.world は ortho-core の共有正本そのもの（写しを作らない）`);
+for (const name of ["dark", "topo", "sepia"]) ok(THEMES[name].world === WORLD_PAL_THEMES[name], `${name}.world は ortho-core の共有正本そのもの（写しを作らない）`);
 {
-	const p = resolveWorldPal(THEMES.gsi.world);
-	ok(p.sea !== WORLD_PAL_DEFAULT.sea && p.lowHumid === WORLD_PAL_DEFAULT.lowHumid, "gsi＝海だけ差し替え（per-key マージ）が成立");
+	const p = resolveWorldPal(THEMES.topo.world);
+	ok(p.sea !== WORLD_PAL_DEFAULT.sea && p.lowHumid === WORLD_PAL_DEFAULT.lowHumid, "topo＝海だけ差し替え（per-key マージ）が成立");
 	const m = resolveWorldPal(THEMES.mono.world);
 	ok(Object.keys(WORLD_PAL_DEFAULT).every(k => m[k] === WORLD_PAL_DEFAULT[k]), "mono＝既定そのもの（従来出力と一致）");
 }

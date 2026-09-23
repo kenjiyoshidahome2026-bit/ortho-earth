@@ -31,7 +31,7 @@ export { Marker, Popup };
 import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };
 import { MAP_THEMES } from "./palettes.js";
-import { WORLD_STYLE_THEMES } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色）
+import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
@@ -116,8 +116,10 @@ const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世
 const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
 const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
-const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
-const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
+// 建物の申告＝「台帳の在り処」と「焼きの置き場」の対。どちらも地域が持ち、ホストは中身を知らない。
+const stampBake = (sets, b) => b.bakeBase ? sets.map(s => s.bakeBase ? s : { ...s, bakeBase: b.bakeBase }) : sets;   // 台帳の各 set へ焼きの置き場を刻む（区ごとの別置き場も許す）。無宣言＝焼き無し＝生経路のみ
+const REGION_SETS = REGIONS.flatMap(r => r.buildings ? stampBake(r.buildings.sets ?? [], r.buildings) : []);   // その場で配る建物台帳（オランダ 3 件）
+const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog);   // 取得する台帳の申告（日本の 336 件）＝{ catalog, bakeBase? }
 const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
 const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
 const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
@@ -295,6 +297,7 @@ const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書か
 const themeBootV = parseViewHash(opts.view || location.hash);
 let themeName = typeof opts.theme === "string" ? opts.theme
 	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
+if (typeof opts.theme !== "object" && themeName && !MAP_THEMES[themeName] && normWorldTheme(themeName)) themeName = normWorldTheme(themeName);   // 旧名を正名へ（c=gsi → topo・c=night → dark）＝別名の台帳は ortho-core worldstyle 一本
 if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] unknown theme "${themeName}" = starting as mono (valid: ${Object.keys(MAP_THEMES).join(", ")})`);
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
@@ -768,7 +771,7 @@ const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(locat
 const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
 const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager を起こす時だけ（wakeMesh）
-	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+	Promise.all(REGION_CATALOG.map(b => fetch(ASSET_BASE + b.catalog).then(r => r.json()).then(list => stampBake(list, b)))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
 		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[mesh] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
 		return sets;
@@ -1127,7 +1130,7 @@ function switchTheme(name) {
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
 	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
 	// ★任意ノブ(等高線色/遠山/標高段彩)は「新テーマが持たなければ null」で必ず既定へ戻す＝前テーマの居座り防止。
-	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/gsi へ漏れて「山が茶色」になる。
+	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/topo へ漏れて「山が茶色」になる。
 	renderer.set("view", { clear, land, atmo, bldColor,
 		contourColor: theme.contourColor || null,
 		distColor: theme.distColor || null,

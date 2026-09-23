@@ -40,9 +40,10 @@ export const WORLD_STYLE_THEMES = {
 		grat: ["#8ea0bd", 0.34], grat10: ["#8ea0bd", 0.18],
 		labelColor: { country: "#cfd6e2", city: "#aebdd6", halo: "rgba(8,11,17,.86)" },
 	},
-	// gsi＝地理院配色。陸は自然色のまま（world は海だけ差し替え）＝紙と線だけ地理院の顔へ寄せる。
-	gsi: {
-		label: "GSI", swatch: "#fdfdf9", dark: false, world: WORLD_PAL_THEMES.gsi,
+	// topo＝地形図（紙の地形図の顔）。陸は自然色のまま（world は海だけ差し替え）＝紙と線だけ地形図へ寄せる。
+	// 実色の出所は日本の標準地図（一次資料 std.json）だが、名前は顔で呼ぶ＝core は機関名を名乗らない（2026-09-24 改名・旧 gsi）。
+	topo: {
+		label: "Topographic", swatch: "#fdfdf9", dark: false, world: WORLD_PAL_THEMES.topo,
 		capital: "#c8443c",   // 首都の点（world の国の地図＝本人 2026-09-23「赤っぽく・少し大きく」）
 		sea: "#bed2ff", land: "#fdfdf9", bg: "#eaeade", edge: ["#9aa6b2", 0.8],
 		coast: "#1f8cbd", border: "#b58ab0", admin1: ["#b58ab0", 0.45],
@@ -70,7 +71,8 @@ export const WORLD_STYLE_THEMES = {
 
 export const WORLD_THEME_NAMES = Object.keys(WORLD_STYLE_THEMES);
 // japan と同じ綴りを正とし、口語の別名だけ受ける（?c=night → dark）。未知の名前は null（呼び手が既定へ）。
-const ALIAS = { night: "dark", light: "mono", blank: "mono", white: "mono", default: "mono" };
+// gsi＝旧名（2026-09-24 改名前に配った共有 URL・名刺 QR・台本の c=gsi を殺さない＝別名は永久に残す）
+const ALIAS = { night: "dark", light: "mono", blank: "mono", white: "mono", default: "mono", gsi: "topo" };
 export const normWorldTheme = name => {
 	const s = String(name || "").trim().toLowerCase();
 	return WORLD_STYLE_THEMES[s] ? s : (WORLD_STYLE_THEMES[ALIAS[s]] ? ALIAS[s] : null);

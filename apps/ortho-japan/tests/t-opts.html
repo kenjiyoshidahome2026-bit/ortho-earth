@@ -37,6 +37,12 @@ ok("warn", __warns.filter(x => x.includes("unknown key")).length === 3);   // co
 ok("destroyClean", !document.getElementById("map") && !window.__cam);   // probe後は毎回まっさら
 // plateau:false＝カタログfetchが一切発生していない（全probe共通）
 ok("meshOff", !performance.getEntriesByType("resource").some(e => e.name.includes("plateau-sets.json")));
+// c= の旧名は正名へ（c=gsi → topo・2026-09-24 改名）＝配った共有URL・名刺QR・台本の綴りを殺さない
+const holder3 = document.createElement("div"); holder3.style.cssText = "position:fixed;inset:0";
+document.body.appendChild(holder3);
+const m3 = await orthoJapan({ target: holder3, view: "#13/35.68/139.76/c=gsi", mesh: false });
+ok("themeAlias", m3.view.theme === "topo" && !__warns.some(x => x.includes("unknown theme")));
+m3.destroy(); holder3.remove();
 // target無指定＝容れ物を自作→destroyで丸ごと消える・同ページ再起動できる
 const m2 = await orthoJapan({ view: "#13/35.68/139.76", plateau: false });   // 旧名 opts.plateau（非推奨の別名）が今も機能を止めること＝カタログ fetch ゼロの検分に乗る
 ok("reboot", !!document.getElementById("map") && typeof window.__cam === "function");

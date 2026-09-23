@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 実描画の検分：可視域と見通し線（#44）。試料＝tests/fixtures/tiles3d（東京駅の ENU の根・青い箱 4 棟＝中心 (±150,±150)・一辺 100m・高さ 80〜160m）。
-     視点＝原点（目の高さ 1.6m）。①NE の箱（高さ 80m）の陰 (300,300) は見えない・箱の無い東 (300,0) は見える・建物なしなら陰も見える
+     視点＝原点（目の高さ 1.6m）。①NE の箱（高さ 80m）の陰 (300,300) は見えない・箱の無い東 (300,0) は見える・建物なしなら広く見える（地形の到着に依らない比較）
      ②見通し線：原点→(300,300) は箱の角（約 141m）で遮られる・原点→(300,0) は見える ③画像（"viewshed"）と線（"los"）④ボタンとパネル。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-viewshed</title></head>
 <body><div id="map"></div>
@@ -17,7 +17,10 @@ try {
 	ok("behindBox", v.probes[0] === 0 && v.probes[2] === 0, `NE=${v.probes[0]} SW=${v.probes[2]}`);
 	ok("open", v.probes[1] === 1, `E=${v.probes[1]}`);
 	const b = await map.viewshed({ buildings: false, observer: O, radius: 500, probe: [ll(300, 300)] });
-	ok("noBuildings", b.probes[0] === 1, `NE=${b.probes[0]} ratio=${b.visibleRatio}`);
+	// 建物を外せば「必ずより広く見える」＝**地形の到着に依らない不変量**で見る。旧＝`b.probes[0] === 1`（NE の陰も見える）は
+	// 地面が平らな時しか成り立たず、DEM10B（東京駅の数 m の起伏は目の高さ 1.6m の視線を 424m 先で普通に遮る）が
+	// 2 回目の呼び出しより先に届くと落ちた＝遅い機械／長い通しで負ける競走だった（2026-09-24 に不変量へ）。
+	ok("noBuildings", b.visibleRatio > v.visibleRatio, `ratio=${b.visibleRatio} vs ${v.visibleRatio} NE=${b.probes[0]}`);
 	ok("image", map.raster.list().some(r => r.id === "viewshed"));
 	const L1 = await map.lineOfSight(O, ll(300, 300), { tilesets: TS });
 	const k = Math.cos(LAT * Math.PI / 180) * K, dBlock = L1.blockAt ? Math.hypot((L1.blockAt[0] - O[0]) * k, (L1.blockAt[1] - O[1]) * K) : -1;

@@ -19,7 +19,7 @@ const t = tr();
 const THEMES = [
 	{ k: "mono", name: "Blank map", paper: "#f6f6f4", ink: "#86867f", water: "#e2e6ea", water2: "#aecbe6", bldg: "#ececea", roads: ["#2f6cad", "#8fb2d6", "#cececb"], contour: "#b28f5e", admin: "#aa7878" },
 	{ k: "dark", name: "Dark", paper: "#191d24", ink: "#9aa1a9", water: "#090c12", water2: "#2b6d80", bldg: "#21252d", roads: ["#5595dc", "#46688f", "#565c66"], contour: "#b89466", admin: "#a03a42" },
-	{ k: "gsi", name: "GSI", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
+	{ k: "topo", name: "Topographic", paper: "#fefeff", ink: "#555555", water: "#bed2ff", water2: "#00b0ec", bldg: "#ffe6be", roads: ["#3d9738", "#e69212", "#b8b8b8"], contour: "#c8a03c", admin: "#440080" },
 	{ k: "sepia", name: "Sepia", paper: "#f0e6d3", ink: "#6a5c46", water: "#d6ddd7", water2: "#b9c8c1", bldg: "#e6d7bd", roads: ["#5f82a0", "#93a8bd", "#cab896"], contour: "#8c6b45", admin: "#a4685a" },
 ];
 
