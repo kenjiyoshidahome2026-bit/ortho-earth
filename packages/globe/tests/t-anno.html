@@ -15,9 +15,9 @@ window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 30)
 const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? `(${x})` : ""));
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 try {
-	const orthoJapan = (await import("../app.js")).default;
+	const { createGlobe } = await import("@ortho-earth/globe");   // 地域なしの地球儀（頁は世界の視点＝日本の申告は効かない・2026-09-24 に packages/globe へ移設）
 	const { geopbf } = await import("geopbf");
-	const map = await orthoJapan({ view: "#6/35.5/138.5", mesh: false });
+	const map = await createGlobe({ view: "#6/35.5/138.5", mesh: false });
 	await new Promise(r => setTimeout(r, 700));
 
 	// ── @spline+@poly+@end:arrow の帯（暖色）／素の線（寒色）／@text ラベル ──

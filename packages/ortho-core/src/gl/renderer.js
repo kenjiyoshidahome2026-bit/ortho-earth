@@ -7,8 +7,8 @@ import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
-import { clockNow } from "ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
-import { gmstAt, sunSubpoint } from "ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
+import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
+import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 

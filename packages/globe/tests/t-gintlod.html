@@ -24,7 +24,7 @@ const pack = (lon, lat, terminal, weight = 0) => {
 const e7 = d => Math.round(d * 1e7) >>> 0;
 
 try {
-	const worker = new Worker(new URL("../gintworker.js", import.meta.url), { type: "module" });
+	const worker = new Worker(new URL("./gintworker.js", import.meta.url), { type: "module" });
 	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
 	// pump：headless virtual-time は「worker の実CPU仕事」を待たず budget を食い潰す。
 	// pending fetch 中は仮想時間が停止する性質を使い、worker 応答まで no-store fetch を回して実時間を確保する。

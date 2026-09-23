@@ -13,7 +13,7 @@ import { setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
 setAltWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, cameraState, project } from "@ortho-earth/core/camera";
-import { clockNow } from "ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
+import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;

@@ -15,7 +15,7 @@
 //   畳み   … 地球の見かけの半径が小さい（太陽系圏の奥）＝点が地球に団子＝描かない（sats-gl.js）
 // エンジンとの接点は公開面だけ：map.overlay（同一フレームのオーバーレイ・#13）・map.cam＋ ortho-core の cameraState（pick と札の投影）・onFrame（札の追従）・mapEl。
 import { cameraState, ellipsoidOn, worldRadiusM } from "@ortho-earth/core";
-import { parseOMM, sgp4init, sgp4, gmst, temeToGeodetic, jdOf } from "ephem/sgp4";
+import { parseOMM, sgp4init, sgp4, gmst, temeToGeodetic, jdOf } from "@ortho-earth/ephem/sgp4";
 import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）

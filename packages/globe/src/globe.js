@@ -40,7 +40,7 @@ import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibr
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
-import { createClock, fmtUTC } from "ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
+import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
@@ -156,7 +156,7 @@ const mapElPrevId = mapEl.id;   // 預かった div の元の id＝destroy で�
 //   その指定は改名の瞬間に外れる（寸法を id で与えていると #map{height:100%} が親無しで 0 になり地図が消える）。
 //   黙って0サイズにするのが最悪なので、借りる時に一度だけ言う。寸法はクラスか inline style で与えてもらう。
 if (mapElPrevId && mapElPrevId !== "map")
-	console.warn(`[ortho-japan] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
+	console.warn(`[globe] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
 		+ `CSS targeting #${mapElPrevId} will no longer apply = give dimensions via class or inline style. `
 		+ `destroy() restores the id.`);
 mapEl.id = "map";

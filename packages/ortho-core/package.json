@@ -1,8 +1,7 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"license": "GPL-3.0-or-later",
-	"private": true,
 	"type": "module",
 	"main": "src/index.js",
 	"exports": {
@@ -22,14 +21,39 @@
 		"./workers/tile": "./src/workers/tileworker.js",
 		"./workers/scene": "./src/workers/sceneworker.js",
 		"./workers/gintbake": "./src/gl/gint/bakeworker.js",
+		"./workers/gint": "./src/gl/gint/worker.js",
 		"./worldstyle": "./src/worldstyle.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {
+		"@ortho-earth/ephem": "^1.0.0",
 		"altpbf": "^1.1.0",
 		"earcut": "^3.0.1",
 		"geopbf": "^1.11.0",
-		"pmtiles": "^4.5.0",
-		"ephem": "*"
-	}
+		"pmtiles": "^4.5.0"
+	},
+	"keywords": [
+		"map",
+		"globe",
+		"webgl",
+		"webgpu",
+		"vector-tiles",
+		"mvt",
+		"terrain",
+		"orthographic",
+		"sphere",
+		"gis"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/ortho-core"
+	},
+	"homepage": "https://www.ortho-earth.com/",
+	"files": [
+		"src",
+		"LICENSE",
+		"README.md"
+	],
+	"sideEffects": false
 }
