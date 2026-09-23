@@ -11,7 +11,7 @@ const D2R = Math.PI / 180;
 const PLANE_PATH = typeof Path2D !== "undefined" ? new Path2D("M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z") : null;
 const MARKS = { plane: { path: () => PLANE_PATH, box: 24 } };   // box＝パスの viewBox（描画時に size へ縮める）
 
-// label: { text, lon, lat, size(CSS px), minZoom, priority(小さいほど強い), kind:"country"|"capital"|"city", color, halo, dot }
+// label: { text, lon, lat, size(CSS px), minZoom, priority(小さいほど強い), kind:"country"|"capital"|"city", color, halo, dot, dotColor（点だけの色・無ければ color） }
 export function createLabels(canvas) {
 	const ctx = canvas.getContext("2d");
 	let labels = [], winners = new Map(), lastCollide = -1e9, lastKey = "";
@@ -88,9 +88,10 @@ export function createLabels(canvas) {
 			}
 			ctx.font = fontOf(L);
 			if (L.dot) {   // 都市の点（首都＝二重丸）
-				ctx.beginPath(); ctx.arc(x, y, L.dot, 0, Math.PI * 2); ctx.fillStyle = L.color; ctx.fill();
+				const dc = L.dotColor || L.color;
+				ctx.beginPath(); ctx.arc(x, y, L.dot, 0, Math.PI * 2); ctx.fillStyle = dc; ctx.fill();
 				ctx.lineWidth = 1; ctx.strokeStyle = L.halo; ctx.stroke();
-				if (L.kind === "capital") { ctx.beginPath(); ctx.arc(x, y, L.dot + 2.5, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = L.color; ctx.stroke(); }
+				if (L.kind === "capital") { ctx.beginPath(); ctx.arc(x, y, L.dot + 2.5, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = dc; ctx.stroke(); }
 			}
 			const tx = L.dot ? x + L.dot + 3 : x;
 			ctx.textAlign = L.dot ? "left" : "center";
@@ -148,7 +149,7 @@ export function cityLabels(features, nameOf, pal) {
 		const cap = +F(p, "adm0cap") === 1, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8, mz = Number.isFinite(+F(p, "min_zoom")) ? +F(p, "min_zoom") : 6;
 		const text = nameOf(p); if (!text) continue;
 		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10),
-			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: cap ? (pal.capital || pal.city) : pal.city, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都＝正本の capital（world の国の地図と同じ顔・2026-09-23）   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
+			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: pal.city, dotColor: cap ? (pal.capital || pal.city) : undefined, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都の点だけ正本の capital（赤・world の国の地図と同じ顔）＝首都名の文字は他の都市と同じ色（本人 2026-09-24「黒に戻して」）   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
 	}
 	return out;
 }
