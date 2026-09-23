@@ -31,3 +31,4 @@ export { pmtilesInfo, isPMTiles, isRasterTileType } from "./pmtiles-src.js";   /
 export { createRaster } from "./raster.js";   // 画像タイル層（メルカトル XYZ ラスタ・render worker 常駐）
 export { createRasterSource, expandTemplate, normalizeSpec, wmsTemplate, wmtsTemplate, wmtsFromCapabilities } from "./raster-src.js";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）
 export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom } from "./mlstyle.js";   // 外来の MapLibre style.json を基図 style へ（#33）
+export { createDemSource, decodeDEM, normalizeDemSpec } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）

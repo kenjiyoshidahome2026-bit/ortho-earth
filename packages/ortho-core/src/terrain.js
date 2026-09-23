@@ -5,6 +5,7 @@
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "altpbf/loader";
+import { createDemSource } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 
 // 申告された裸地標高(DTM)域と、リフト窓の重なりを取る（[lng0,lat0,spanLng,spanLat]・重なり無し=null）。
 // 純関数＝Node で検定できる（tests/t-dtm.mjs）。dtm 未申告＝裸地の保証がない＝リフトしない。
@@ -18,9 +19,13 @@ export function clipToDTM(box, dtm) {
 // dtm＝呼び出し側が申告する裸地標高の域 { bbox:[西,南,東,北], range, brand }。段(range)だけでは
 // その段が裸地か表層かを決められない＝日本の R01 は DEM10B(裸地) だが国外の R01 は AW3D30(表層)。
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null }) {
-	const dtmDecl = dtm || null, dtmBounds = dtmDecl?.bbox || null;
-	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + dtmDecl.brand + ")" : "none (no ground lift)"}`);
+// dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
+//   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null }) {
+	const dtmDecl = dtm || null;
+	let demSrc = dem ? createDemSource(dem) : null;
+	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
+	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
 	let atlasKey = "", loadedCells = new Set();
 	let cellFails = new Map();   // ck → 取得失敗回数（窓の世代ごとにリセット。上限内は次の ensure で再挑戦）
 	// 遠景層（far）＝近窓が R01 級（cap4=4°）へ縮む深ズーム×チルトで、粗い R10 を第2アトラスへ常設。
@@ -84,6 +89,27 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (z < 13 || ((cam.pitch || 0) > 0.9 && z < 14)) return 10;
 		return 1;
 	}
+	// DEM のセル（格子点・row0＝北）に、無効（NaN）の画素だけ altpbf のタイルの値を入れる（無ければ 0＝海）
+	function mergeDemCell(d, base) {
+		const { data, width: N } = d;
+		for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
+			const i = r * N + c; if (data[i] === data[i]) continue;
+			if (!base) { data[i] = 0; continue; }
+			const w = base.width, h = base.height, gx = c / (N - 1) * (w - 1), gy = r / (N - 1) * (h - 1), x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = gx - x0, fy = gy - y0, B = base.data;
+			const a = B[y0 * w + x0], b = B[y0 * w + x0 + 1], cc = B[(y0 + 1) * w + x0], dd = B[(y0 + 1) * w + x0 + 1];
+			data[i] = (a + (b - a) * fx) * (1 - fy) + (cc + (dd - cc) * fx) * fy;
+		}
+		return d;
+	}
+	// 外来の DEM の生き替え（null＝外す）。R01 のキャッシュとアトラスの世代を捨てて組み直す
+	function setDem(spec) {
+		demSrc = spec ? createDemSource(spec) : null;
+		dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
+		for (const [k, t] of [...r10Tiles]) if (k.startsWith("1,") || k.startsWith("10,")) { r10Tiles.delete(k); tileBytes -= tileSize(t); }
+		atlasKey = ""; requestDraw();
+	}
+	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
+	const demHeight = (lon, lat) => demSrc ? demSrc.height(lon, lat).then(v => (v === v ? v : null)) : Promise.resolve(null);
 	async function getCell(cellLng, cellLat, range) {
 		if (!loadTile) return null;
 		// 経度は周期正規化：日付変更線を跨いだ窓のセルは cellLng が 180 や -270 になり、そのまま
@@ -94,7 +120,12 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (hit) { r10Tiles.delete(k); r10Tiles.set(k, hit); return hit; }   // ヒット＝LRU 末尾へ（追い出され順の更新）
 		// 失敗は null に畳む＝getCell は絶対に reject しない（呼び出し側の pending デクリメントが
 		// .then 購読のみのため、reject が漏れると読込インジケータが永久に残る）
-		const tile = await loadTile(lngN, cellLat, range).catch(e => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		let tile = await loadTile(lngN, cellLat, range).catch(e => { console.warn("[terrain] cell fetch failed", k, e); return null; });
+		if ((range === 1 || range === 10) && demSrc?.covers(lngN, cellLat, range)) {   // 外来の DEM（#36）＝有効な画素だけ上書き（R01・R10。R90＝全球の眺めは既定のまま）
+			const src = demSrc, d = await src.cell(lngN, cellLat, range).catch(e => { console.warn("[terrain] dem cell failed", k, e?.message); return null; });
+			if (src !== demSrc) return null;   // 待っている間に差し替えられた
+			if (d) tile = mergeDemCell(d, tile && tile.data && tile.width ? tile : null);
+		}
 		if (tile && !(tile.data && tile.width)) { console.warn("[terrain] malformed tile (Blob-contaminated cache?) -> treated as null", k); return null; }   // クラッシュ保険＝描画ループを絶対に落とさない（根治はローダ側の形検札）
 		if (tile) cacheTile(k, tile);
 		return tile;
@@ -468,5 +499,5 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		lru: r10Tiles.size, bytes: tileBytes, world: worldAtlas ? "atlas" : worldP ? "loading" : "none",
 		lastCam: lastEnsureCam ? { z: +lastEnsureCam.zoom.toFixed(2), c: [+lastEnsureCam.center[0].toFixed(2), +lastEnsureCam.center[1].toFixed(2)], p: +(lastEnsureCam.pitch || 0).toFixed(2) } : null,
 		lastSize: lastEnsureSize });
-	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
+	return { ensure, sampleElev, prefetch: getCell, prefetchWorld, bytes: () => tileBytes, debug, setDem, demHeight };   // bytes: 標高LRU の常駐実バイト（?mem=1 HUD が render worker 経由で吸い上げる）
 }

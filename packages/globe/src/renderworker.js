@@ -185,6 +185,7 @@ function finishInit(m) {
 	if (!m.noTerr) terrain = createTerrain({
 		renderer, requestDraw: () => { dirty = true; },
 		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
+		dem: m.dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
 		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
 		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
 	});
@@ -325,6 +326,7 @@ const dispatch = e => {
 				for (let i = mdInbox.length - 1; i >= 0; i--) if (mdInbox[i].type === "dl" && mdInbox[i].slot === m.prop) mdInbox.splice(i, 1);
 				sceneInbox.set(m.prop, m.data);
 			}
+			else if (m.cmd === "dem") { terrain?.setDem(m.data || null); }        // 外来の標高タイルの生き替え（#36）
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;

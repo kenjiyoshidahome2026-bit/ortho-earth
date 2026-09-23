@@ -36,7 +36,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
@@ -221,6 +221,15 @@ const loadExtStyle = async spec => {
 	if (split.skipped.length) console.info(`[style] ${ms.name || spec}: ${split.skipped.length} layers not drawn —`, [...new Set(split.skipped.map(k => `${k.type} (${k.why})`))].join(", "));
 	return { ms, split, src, baseUrl, url: typeof spec === "string" ? baseUrl : null };
 };
+// 外来の標高タイル（raster-dem・#36）：opts.terrain＝{ source: raster-dem の spec, exaggeration } ／ ?dem=<XYZ の型紙>&demenc=terrarium|mapbox|gsi&demmax=<z>&demdtm=1
+const DEM0 = (() => {
+	const absT = sp => ({ ...sp, tiles: (sp.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) });   // 相対の型紙は頁基準（render worker で解決させない）
+	if (opts.terrain?.source && typeof opts.terrain.source === "object") return absT(opts.terrain.source);
+	const q = new URLSearchParams(location.search), u = q.get("dem");
+	if (!u) return null;
+	try { const x = new URL(u, location.href); if (x.protocol !== "https:" && !(x.protocol === "http:" && (x.hostname === "localhost" || x.origin === location.origin))) throw 0; return { tiles: [x.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")], encoding: q.get("demenc") || "terrarium", maxzoom: +q.get("demmax") || 14, dtm: q.get("demdtm") === "1" }; }
+	catch { console.warn("[dem] ?dem= must be an https URL template", u); return null; }
+})();
 let EXT = null;
 if (STYLE_SPEC) { try { EXT = await loadExtStyle(STYLE_SPEC); } catch (err) { console.error("[style] cannot load the style — falling back to the default basemap", err); } }
 const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true });
@@ -518,7 +527,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -2215,7 +2224,26 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 Object.assign(map.overlay, overlay);   // globe の器（setSelectionMask/setHoverOutline/loadOverlay/clearOverlay）。e-Stat の口は日本の install が map.estat と同名に足す
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
-map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
+// 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
+let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
+const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();
+map.getHeight = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
+// MapLibre 同名：setTerrain({ source: id|spec, exaggeration }) / setTerrain(null)。source＝raster-dem（tiles か TileJSON の url・encoding）。
+// exaggeration は受け流す（地形は誇張しない＝本人の方針）。地形のセル（R01）と 1 点の標高の両方がこの DEM を見る
+map.setTerrain = async t => {
+	let sp = t?.source ?? null;
+	if (typeof sp === "string") sp = mlSources.get(sp) ?? EXT?.ms.sources?.[sp] ?? null;
+	if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
+	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds }; }
+	if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
+	if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
+	demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize, minzoom: sp.minzoom, maxzoom: sp.maxzoom, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom } : null;   // MapLibre の raster-dem の既定 encoding は mapbox
+	demMain = demSpec ? createDemSource(demSpec) : null;
+	wPost({ type: "set", cmd: "dem", data: demSpec });
+	needsDraw = true;
+	return map;
+};
+map.getTerrain = () => demSpec ? { source: demSpec, exaggeration: 1 } : null;   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 // ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
 // ここは台帳（id→spec/opts/info）と指示（rasterAdd/Remove/Set）・ローカル容器（gpkg/mbtiles）のプロバイダ worker・
@@ -2432,7 +2460,7 @@ map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・�
 		setClick: fn => { profileClick = fn; fn && measureBody?.stop?.(); },   // 断面図ON＝計測OFF（排他）
 		// 標高サンプラ＝zoom=99 固定で最良解像度（日本=R01 DEM10B 10m・海外=ALOS/GEBCOへ自動フォールバック）。
 		// getHeightP 経由＝ローダ未着でも待って照会（map.getHeight の「未着=0m」縮退はグラフには不適）。
-		sampleHeight: (lon, lat) => getHeightP.then(f => (f ? f(lon, lat, 99) : 0)).then(h => +h || 0),
+		sampleHeight: (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => (f ? f(lon, lat, 99) : 0))).then(h => +h || 0),   // 外来の DEM（#36）が先
 		onBody: p => { profileBody = p; if (p && p._update) { frameHooks.add(p._update); p._update(); } },   // 抽象アクセス：本体到着後に _update を毎フレ描画へ（measure と同型）
 		...opts,
 	});
@@ -3205,6 +3233,10 @@ const mountExtExtras = async ext => {
 	if (ext.split.geojson.some(L => L.layout?.["icon-image"] != null) && ms.sprite) {
 		const sp = Array.isArray(ms.sprite) ? ms.sprite[0]?.url : ms.sprite;
 		if (sp) await map.loadSprite(new URL(sp, ext.baseUrl).href).catch(err => console.warn("[style] sprite", err));
+	}
+	if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "raster-dem") {   // style の terrain（MapLibre）＝その raster-dem を地形へ（#36）
+		const sp = { ...ms.sources[ms.terrain.source] }; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (sp.tiles) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
+		await map.setTerrain({ source: sp, exaggeration: ms.terrain.exaggeration }).catch(err => console.warn("[style] terrain", err));
 	}
 	for (const L of ext.split.geojson) {
 		try {
