@@ -1,8 +1,7 @@
 {
 	"name": "@ortho-earth/globe",
-	"version": "0.0.1",
+	"version": "1.0.0",
 	"license": "GPL-3.0-or-later",
-	"private": true,
 	"type": "module",
 	"description": "地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)・世界層・地域非依存ガジェット・worker の入口。地域は opts.region の申告で足す＝このパッケージは地域名を知らない（bvmap の語彙＝themes/style は本人裁定 2026-09-23 案 b で当面ここが抱える）",
 	"exports": {
@@ -19,21 +18,46 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@loaders.gl/i3s": "^4.4.3",
-		"@ortho-earth/core": "*",
+		"@ortho-earth/core": "^1.0.0",
 		"@ortho-earth/ephem": "^1.0.0",
-		"altpbf": "*",
+		"altpbf": "^1.1.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
-		"geoedit": "*",
-		"geopbf": "*",
-		"glbconv": "*",
-		"native-bucket": "*",
-		"quiet-mono": "*"
+		"geoedit": "^0.3.0",
+		"geopbf": "^1.13.1",
+		"glbconv": "^0.1.0",
+		"native-bucket": "^1.0.0",
+		"quiet-mono": "^1.0.0"
 	},
 	"scripts": {
 		"verify": "npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs"
-	}
+	},
+	"keywords": [
+		"globe",
+		"map",
+		"3d",
+		"webgl",
+		"webgpu",
+		"3d-tiles",
+		"i3s",
+		"terrain",
+		"gis",
+		"ortho-earth"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/globe"
+	},
+	"homepage": "https://www.ortho-earth.com/",
+	"files": [
+		"src",
+		"scripts",
+		"LICENSE",
+		"README.md"
+	],
+	"sideEffects": false
 }

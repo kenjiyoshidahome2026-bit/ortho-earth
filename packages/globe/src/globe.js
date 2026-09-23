@@ -156,7 +156,7 @@ const mapElPrevId = mapEl.id;   // 預かった div の元の id＝destroy で�
 //   その指定は改名の瞬間に外れる（寸法を id で与えていると #map{height:100%} が親無しで 0 になり地図が消える）。
 //   黙って0サイズにするのが最悪なので、借りる時に一度だけ言う。寸法はクラスか inline style で与えてもらう。
 if (mapElPrevId && mapElPrevId !== "map")
-	console.warn(`[ortho-japan] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
+	console.warn(`[globe] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
 		+ `CSS targeting #${mapElPrevId} will no longer apply = give dimensions via class or inline style. `
 		+ `destroy() restores the id.`);
 mapEl.id = "map";
