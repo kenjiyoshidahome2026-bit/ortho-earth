@@ -1,0 +1,19 @@
+<!doctype html>
+<!-- 実描画の検分：OGC の画像（#45）＝WMTS（GetCapabilities を読む）と WMS（GetMap をタイルに割る）を map.raster.add で球へ。
+     相手は NASA GIBS（CORS 可・キー不要）＝外部配信に依る検定（手で回す・関門には入れない）。?kind=wmts|wms -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-ogc</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const Q = new URLSearchParams(location.search), kind = Q.get("kind") || "wmts", sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const map = await createGlobe({ target: "#map", view: "#2.5/30/140", chips: false });
+	await sleep(1500);
+	const spec = kind === "wms"
+		? { wms: { url: "https://gibs.earthdata.nasa.gov/wms/epsg3857/best/wms.cgi", layers: "BlueMarble_ShadedRelief_Bathymetry", format: "image/jpeg", transparent: false }, maxZoom: 8, attribution: "NASA GIBS" }
+		: { wmts: { capabilities: "https://gibs.earthdata.nasa.gov/wmts/epsg3857/best/1.0.0/WMTSCapabilities.xml", layer: "BlueMarble_ShadedRelief_Bathymetry" }, attribution: "NASA GIBS" };
+	const info = await map.raster.add("ogc", spec, { order: "under", hideFills: true });
+	let st = null; for (let i = 0; i < 40; i++) { await sleep(1000); st = await map.raster.stats(); if (st && JSON.stringify(st).match(/"served":\s*[1-9]/)) break; }
+	document.title = "HOLD " + kind + " " + JSON.stringify({ kind: info?.kind, z: [info?.minZoom, info?.maxZoom], name: info?.name }) + " " + JSON.stringify(st).slice(0, 300);
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script></body></html>

@@ -6,7 +6,7 @@
 //   4. ancestorUV：子 (z,x,y) を祖先 d 段上のテクスチャで描く部分 uv（メルカトル線形＝厳密）
 //   5. createRaster：偽 renderer＋MessagePort プロバイダで add→update→描画リスト→hideFills→set/remove の一周（fetch/ImageBitmap 不要）
 // 使い方: node packages/ortho-core/tests/raster.mjs
-import { expandTemplate, normalizeSpec } from "../src/raster-src.js";
+import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities } from "../src/raster-src.js";
 import { buildTileMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.js";
 import { tileBounds, tileLocalToLonLat } from "../src/tile.js";
 
@@ -21,6 +21,29 @@ ok(expandTemplate("https://h/{z}/{x}/{y}.png", 3, 5, 2, null, true) === "https:/
 ok(expandTemplate("https://{s}.h/{z}/{x}/{y}", 1, 1, 0, ["a", "b"]) === "https://b.h/1/1/0", "{s} cycles by x+y");
 ok(expandTemplate("https://h/{q}.jpg", 3, 3, 5) === "https://h/213.jpg", "quadkey (z3 x3 y5 = 213)");
 ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey z0 = 0");
+
+// 1b. OGC（#45）：{bbox-epsg-3857}（WMS）・{TileMatrix}/{TileRow}/{TileCol}（WMTS）・wms/wmts 記述子・GetCapabilities の最小の読み
+{
+	const R = 20037508.342789244;
+	ok(expandTemplate("https://h/?BBOX={bbox-epsg-3857}", 0, 0, 0) === `https://h/?BBOX=${-R},${-R},${R},${R}`, "bbox z0 = whole world");
+	ok(expandTemplate("https://h/?BBOX={bbox-epsg-3857}", 1, 1, 0) === `https://h/?BBOX=0,0,${R},${R}`, "bbox z1 x1 y0 = NE quadrant");
+	ok(expandTemplate("https://h/{TileMatrix}/{TileRow}/{TileCol}", 2, 3, 1, null, false, ["a", "b", "c"]) === "https://h/c/1/3", "wmts rest: matrix id by z, row=y col=x");
+	ok(expandTemplate("https://h/{TileMatrix}/{TileRow}/{TileCol}", 2, 3, 1) === "https://h/2/1/3", "wmts rest: no ids = z");
+	const w = normalizeSpec({ wms: { url: "https://ex.com/wms", layers: "a,b" } });
+	ok(w.kind === "xyz" && /REQUEST=GetMap/.test(w.url) && /CRS=EPSG%3A3857/.test(w.url) && w.url.includes("BBOX={bbox-epsg-3857}") && w.url.includes("WIDTH={width}"), "wms spec → GetMap template (1.3.0 CRS)");
+	ok(/SRS=EPSG%3A3857/.test(wmsTemplate({ url: "https://ex.com/wms", layers: "a", version: "1.1.1" })), "wms 1.1.1 → SRS");
+	const k = normalizeSpec({ wmts: { url: "https://ex.com/wmts", layer: "L", tileMatrixSet: "GoogleMapsCompatible" } });
+	ok(/REQUEST=GetTile/.test(k.url) && k.url.includes("TILEMATRIX={TileMatrix}"), "wmts kvp spec → GetTile template");
+	const caps = `<Capabilities><ows:OperationsMetadata><ows:Operation name='GetTile'><ows:Get xlink:href='https://t.example/wmts?'/></ows:Operation></ows:OperationsMetadata><Contents>
+<Layer><ows:Title>Relief</ows:Title><ows:Identifier>relief</ows:Identifier><Style isDefault='true'><ows:Identifier>default</ows:Identifier></Style><Format>image/png</Format>
+<TileMatrixSetLink><TileMatrixSet>wm</TileMatrixSet></TileMatrixSetLink><TileMatrixSetLink><TileMatrixSet>jgd</TileMatrixSet></TileMatrixSetLink>
+<ResourceURL format='image/png' resourceType='tile' template='https://t.example/relief/{Style}/{TileMatrixSet}/{TileMatrix}/{TileRow}/{TileCol}.png'/></Layer>
+<TileMatrixSet><ows:Identifier>jgd</ows:Identifier><ows:SupportedCRS>urn:ogc:def:crs:EPSG::6668</ows:SupportedCRS><TileMatrix><ows:Identifier>0</ows:Identifier><ScaleDenominator>1000</ScaleDenominator></TileMatrix></TileMatrixSet>
+<TileMatrixSet><ows:Identifier>wm</ows:Identifier><ows:SupportedCRS>urn:ogc:def:crs:EPSG::3857</ows:SupportedCRS>
+<TileMatrix><ows:Identifier>L05</ows:Identifier><ScaleDenominator>8735660.375448715</ScaleDenominator></TileMatrix><TileMatrix><ows:Identifier>L06</ows:Identifier><ScaleDenominator>4367830.187724357</ScaleDenominator></TileMatrix></TileMatrixSet></Contents></Capabilities>`;
+	const c = wmtsFromCapabilities(caps, { layer: "relief" });
+	ok(c.url === "https://t.example/relief/default/wm/{TileMatrix}/{TileRow}/{TileCol}.png" && c.minZoom === 6 && c.maxZoom === 7 && c.matrixIds[6] === "L05" && c.matrixIds[7] === "L06" && c.name === "Relief", `capabilities → web-mercator set, ids by z (${JSON.stringify(c)})`);
+}
 
 // 2. spec 正規化
 {
