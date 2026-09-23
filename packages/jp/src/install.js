@@ -16,5 +16,6 @@ export function installJapan(map, host) {
 	map.estat = facade;
 	Object.assign(map.overlay, facade);   // ★互換：map.overlay.loadEstat 等（9/20 までの口）＝次の大版まで
 	host.dbg.__loadEstat = estat.loadEstat;
+	host.dbg.__tokyo = () => estat.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域（コンソールの道具）
 	host.onDestroy(() => estat.destroy());   // e-Stat worker（立っていれば）
 }

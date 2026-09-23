@@ -89,6 +89,10 @@ export interface Gadgets {
 	legend(): unknown;
 	palette(): { open(): void; close(): void };
 	hint(): unknown;
+	/** 地域の全体へ戻るボタン（1.2.0〜・着地点/顔/札は地域宣言 home・宣言が無い地域＝載らない）。J キー */
+	home(): unknown;
+	/** @deprecated 1.2.0〜 home() を使う（同じもの）。次の大版で撤去 */
+	japan(): unknown;
 	qr(): { open(): void; close(): void };
 	print(): { open(): void; close(): void };
 	cpos(): unknown;

@@ -41,7 +41,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	// 右上の表示パネル（chips のテーマ列）に集約。ライブ見本つきのガジェット自体は健在＝map.gadget.palette() で復帰可
 	map.gadget.zoom({ narrow: false });   // ズーム＋/−（縦2連の一体ボタン）。狭画面＝出さない（ピンチが担う・左上溢れ対策）
 	map.gadget.full({ narrow: false });   // 全画面トグル（非対応端末では出ない）。狭画面＝出さない（同上）
-	map.gadget.japan();       // 日本全体へ（真俯瞰・北向きに戻る）
+	map.gadget.home();        // 日本全体へ（真俯瞰・北向きに戻る）＝地域宣言 home（旧名 japan）
 	map.gadget.equal({ zoom: [-99, 5] });      // 全球図（Equal Earth）へ＝地球全体を眺める距離だけ（球のフレームから開く受け渡し・2026-09-20）
 	if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });   // 入口＝紙の全球図（本人 9/20「規定を EE に」の体感用・既定化は裁定待ち）。z は equal 側が画面幅に合わせる
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）

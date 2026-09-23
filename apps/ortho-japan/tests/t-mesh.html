@@ -42,6 +42,11 @@ try {
 	ok("active", !!st && st.active.length > 0, st ? st.active.join("+") : "no __farState");
 	ok("noFail", ev.failed.length === 0, ev.failed.join("+"));
 	ok("alias", aliasN > 0 && aliasN === meshN, `mesh=${meshN} plateau=${aliasN}`);
+	// データ管理モーダル＝並びと見出しは地域宣言 buildings.group（日本＝都道府県・北海道が先頭）。ホストは地域を知らない（LAYERS.md 段階 2 S3d）
+	map.gadget.mesh(); document.getElementById("plateau-btn")?.click();
+	await new Promise(r => setTimeout(r, 800));
+	const heads = [...document.querySelectorAll(".pdb-pref")].filter(h => !h.hidden).map(h => h.textContent);
+	ok("dbGroups", heads.length >= 40 && heads[0] === "北海道", `n=${heads.length} first=${heads[0]}`);
 	const pass = t.every(x => x.startsWith("ok:"));
 	document.title = (pass ? "PASS " : "FAIL ") + t.join(" ") + (pass ? "" : " | " + logs.slice(0, 4).join(" || "));
 } catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }

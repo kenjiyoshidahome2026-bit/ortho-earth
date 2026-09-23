@@ -450,7 +450,7 @@ function meshPreload(set) {   // プレロード＝IDBに貯めるだけ（描�
 		.catch(() => false).finally(() => meshLoading.delete(set.name));
 }
 const meshDb = createMeshDb({
-	getSets: () => SETS, idbList: meshIdbList, idbDelete: meshIdbDelete, preload: meshPreload,
+	getSets: () => SETS, idbList: meshIdbList, idbDelete: meshIdbDelete, preload: meshPreload, groupOf: env.groupOf ?? null,   // 見出し・並び＝地域宣言 buildings.group
 	// 描画＝モーダルを閉じて地区中心へ球面フライト（z15.5=PLATEAU自動ロード圏・チルト45°）→ autoMesh がキャッシュ命中で即表示
 	show: set => { meshDb.close(); flyTo((set.bbox[0] + set.bbox[2]) / 2, (set.bbox[1] + set.bbox[3]) / 2, 15.5, 45); },
 });
