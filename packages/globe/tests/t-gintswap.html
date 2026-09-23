@@ -59,14 +59,21 @@ try {
 	const CAM = [139.7, 35.7], D = 0.03, OFF = 0.06;
 	const CU = [CAM[0] - OFF, CAM[1]], CC = [CAM[0] + OFF, CAM[1]];
 	const cam = { center: CAM, zoom: 9.8, pitch: 0, bearing: 0, dpr: 1 };
-	const st = cameraState(cam, 256, 256);
+	const st = cameraState(cam, 256, 256);   // 入力（gintMove の x,y）は**論理 256px**＝canvas の大きさで測る
+	// ★一方、画素を読む座標は**撮れた絵の大きさ**で計算する（256 決め打ちにしない）。重い層でフレームが遅くなると
+	// 動的解像度が framebuffer を 0.85 倍などへ落とす＝256 前提で読むと座標が外れ、描けているのに「描けていない」に見える
+	// （2026-09-24：COI 無し×冷えた環境でだけ ⑥ が落ちていた真因。SAB の有無ではなかった）。
 	post({ type: "set", cmd: "gintStyle", data: { fillColor: [1, 0, 0, 0.6], lineWidth: 1 } });
 	const isRed = (a8, i) => a8[i] > 190 && a8[i + 1] < 180 && a8[i + 1] > 30;
-	const redAt = (a8, lon, lat) => { const p = project(st, lon, lat); const x = Math.round(p[0]), y = Math.round(p[1]);
-		let m = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++)
-			if (isRed(a8, ((255 - (y + dy)) * 256 + (x + dx)) * 4)) m++;
+	const redAt = (S, lon, lat) => { const p = project(cameraState(cam, S.w, S.h), lon, lat);
+		const x = Math.round(p[0]), y = Math.round(p[1]);
+		let m = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+			const xx = x + dx, yy = y + dy;
+			if (xx < 0 || yy < 0 || xx >= S.w || yy >= S.h) continue;
+			if (isRed(S.a8, ((S.h - 1 - yy) * S.w + xx) * 4)) m++;
+		}
 		return m; };
-	const shot = async () => new Uint8Array((await snapshot()).base);
+	const shot = async () => { const s = await snapshot(); return { a8: new Uint8Array(s.base), w: s.w, h: s.h }; };
 	const draw = () => post({ type: "draw", cam, opts: { noTerrain: true } });
 
 	// ── ① user 層を従来同期経路で搭載 → 表示 ──
