@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 5238, CDP = 9335;
+const PORT = +process.env.VWG_PORT || 5238, CDP = +process.env.VWG_CDP || 9335;   // VWG_PORT／VWG_CDP＝別の検定や取り残しの vite がポートを掴んでいる時の逃げ道
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 
 
