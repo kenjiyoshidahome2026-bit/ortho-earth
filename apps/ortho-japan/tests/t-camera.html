@@ -1,0 +1,81 @@
+<!doctype html>
+<!-- UI回帰：カメラの口（#35・2026-09-23・MapLibre と同名）。jumpTo / easeTo / flyTo({…}) / fitBounds（padding・maxZoom・±180 跨ぎ）/
+     setPadding / setMaxBounds / setMaxZoom / getBounds を、globe（地域の申告なし）で数値だけで確かめる（画素は見ない）。
+     座標の確かめは map.projectLL（経緯度→画面 CSS px）＝「中身の中心に来たか」「bbox の四隅が枠に収まったか」。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-camera</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const near = (a, b, e) => Math.abs(a - b) <= e;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const map = await createGlobe({ target: "#map", view: "#3/20/140", chips: false });
+	const W = 960, H = 600;
+	// ① jumpTo＝即座・角は度
+	map.jumpTo({ center: [139.76, 35.68], zoom: 10, pitch: 30, bearing: 20 });
+	const c = map.getCenter();
+	ok("jump", near(c.lng, 139.76, 1e-6) && near(c.lat, 35.68, 1e-6) && near(map.getZoom(), 10, 1e-9) && near(map.getPitch(), 30, 1e-6) && near(map.getBearing(), 20, 1e-6));
+	// ② padding＝左 300px のパネル → 目標は中身の中心（x = 300 + (960−300)/2 = 630, y = 300）に来る（真俯瞰・方位あり）
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0, bearing: 30, padding: { left: 300 } });
+	let [x, y] = map.projectLL(139.76, 35.68);
+	ok("padding", near(x, 630, 4) && near(y, 300, 4), `${x.toFixed(1)},${y.toFixed(1)}`);
+	// ③ fitBounds（真俯瞰・北向き）：bbox の四隅が画面内・どれかの辺にほぼ接する
+	const bb = [135.0, 34.3, 136.0, 35.2];   // 大阪〜京都
+	map.fitBounds(bb, { animate: false, padding: 20 });
+	const cs = [[bb[0], bb[1]], [bb[2], bb[1]], [bb[0], bb[3]], [bb[2], bb[3]]].map(p => map.projectLL(p[0], p[1]));
+	const inside = cs.every(([px, py]) => px >= 15 && px <= W - 15 && py >= 15 && py <= H - 15);
+	const xs = cs.map(p => p[0]), ys = cs.map(p => p[1]);
+	const tight = Math.min(xs.reduce((a, b) => Math.min(a, b)), ys.reduce((a, b) => Math.min(a, b)), W - Math.max(...xs), H - Math.max(...ys)) < 60;
+	ok("fitBounds", inside && tight, cs.map(p => p.map(v => v.toFixed(0)).join(",")).join(" "));
+	// ④ fitBounds の maxZoom
+	map.fitBounds([139.76, 35.68, 139.77, 35.69], { animate: false, maxZoom: 13 });
+	ok("maxZoom", near(map.getZoom(), 13, 1e-6), map.getZoom().toFixed(2));
+	// ⑤ ±180 跨ぎの bbox（フィジー周辺）＝中心は 180 近傍・両端が見える
+	map.fitBounds([177, -20, -178, -15], { animate: false });
+	const cc = map.getCenter();
+	ok("antimeridian", Math.abs(Math.abs(cc.lng) - 179.5) < 0.6 && map.getZoom() > 4, `${cc.lng.toFixed(2)} z${map.getZoom().toFixed(1)}`);
+	// ⑥ easeTo（実時間の rAF でなぞる・Promise で着地）
+	map.jumpTo({ center: [139, 35], zoom: 8, pitch: 0, bearing: 0 });
+	await map.easeTo({ center: [140, 36], zoom: 9, pitch: 40, bearing: -30, duration: 300 });
+	const e = map.getCenter();
+	ok("easeTo", near(e.lng, 140, 1e-6) && near(e.lat, 36, 1e-6) && near(map.getZoom(), 9, 1e-6) && near(map.getPitch(), 40, 1e-4) && near(map.getBearing(), -30, 1e-4));
+	// ⑦ flyTo の MapLibre 形（省略した角は今の値）＋従来の位置引数も健在
+	await map.flyTo({ center: [135.5, 34.7], zoom: 11, animate: false });
+	ok("flyToObj", near(map.getCenter().lng, 135.5, 1e-6) && near(map.getPitch(), 40, 1e-4));
+	await Promise.race([map.flyTo(135.6, 34.8, 11.5, 0, 0), sleep(20000)]);
+	ok("flyToPos", near(map.getCenter().lng, 135.6, 1e-3) && near(map.getZoom(), 11.5, 1e-3));
+	// ⑧ setMaxBounds＝中心は可動域に締まる（跨ぎなし／跨ぎあり）・null で解除
+	map.setMaxBounds([130, 30, 140, 40]);
+	map.jumpTo({ center: [150, 45], zoom: 6 });
+	let m = map.getCenter();
+	ok("maxBounds", near(m.lng, 140, 1e-6) && near(m.lat, 40, 1e-6), `${m.lng},${m.lat}`);
+	map.setMaxBounds([170, -30, -170, 0]);
+	map.jumpTo({ center: [-175, -10] });
+	ok("maxBoundsWrapIn", near(map.getCenter().lng, -175, 1e-6));
+	map.jumpTo({ center: [160, -10] });
+	ok("maxBoundsWrapOut", near(map.getCenter().lng, 170, 1e-6), map.getCenter().lng.toFixed(2));
+	map.setMaxBounds(null);
+	map.jumpTo({ center: [10, 50] });
+	ok("maxBoundsOff", near(map.getCenter().lng, 10, 1e-6));
+	// ⑨ setMaxZoom＝寄りの上限（jump でも締まる）・null で起動時の上限へ
+	map.setMaxZoom(9);
+	map.jumpTo({ zoom: 14 });
+	ok("setMaxZoom", near(map.getZoom(), 9, 1e-9));
+	map.setMaxZoom(null);
+	map.jumpTo({ zoom: 14 });
+	ok("setMaxZoomOff", near(map.getZoom(), 14, 1e-9));
+	// ⑩ setPadding＝既定の padding（以後の jumpTo の center に効く）
+	map.setPadding({ bottom: 200 });
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0, bearing: 0 });
+	[x, y] = map.projectLL(139.76, 35.68);
+	ok("setPadding", near(x, 480, 4) && near(y, 200, 4), `${x.toFixed(1)},${y.toFixed(1)}`);
+	map.setPadding(0);
+	// ⑪ getBounds＝見えている範囲が中心を含み、ズームに見合う幅
+	const b = map.getBounds();
+	ok("getBounds", !!b && b[0] < 139.76 && b[2] > 139.76 && b[1] < 35.68 && b[3] > 35.68 && (b[2] - b[0]) < 1, b ? b.map(v => v.toFixed(3)).join(",") : "null");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

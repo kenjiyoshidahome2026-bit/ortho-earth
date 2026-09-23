@@ -5,6 +5,11 @@
 
 export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
+/** 画面の縁から中身を寄せる余白（CSS px）＝UI パネルに隠れる分（#35） */
+export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
+/** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
+export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; padding?: Partial<PaddingOptions> | number }
+export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number }
 
 /** UI 言語（26 言語・1.1.0〜。1.0.5 以前は ja/en のみ）。ar/fa/ur/he は右横書き（容れ物に dir=rtl）。"ja-JP" 等の地域付きは基底へ寄せる */
 export type OrthoJapanLang = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es" | "pt" | "it" | "nl" | "pl" | "ru" | "uk" | "hu" | "sv" | "tr" | "el" | "id" | "vi" | "th" | "bn" | "hi" | "ar" | "fa" | "ur" | "he";
@@ -253,6 +258,41 @@ export interface OrthoJapanMap {
 	// ---- 基本 ----
 	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
 	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): Promise<void>;
+	/** MapLibre の形の飛行（1.2.0〜・#35）。省略した項目は今の値。animate:false＝jumpTo と同じ */
+	flyTo(options: CameraOptions & { animate?: boolean }): Promise<void>;
+	/** 即座に移る（MapLibre 同名・角は度） */
+	jumpTo(options: CameraOptions): OrthoJapanMap;
+	/** 全項目を一本の緩急で同時に動かす（MapLibre 同名）。duration 既定 500ms。着地（または中断）で解決 */
+	easeTo(options: CameraOptions & { duration?: number; animate?: boolean }): Promise<void>;
+	/** bbox が収まる所へ（MapLibre 同名）。west>east＝±180 跨ぎ。linear:true＝easeTo・既定＝flyTo・animate:false＝jumpTo */
+	fitBounds(bounds: Bbox | [LonLat, LonLat], options?: FitBoundsOptions): Promise<void>;
+	/** fitBounds が向かうカメラ（動かさない） */
+	cameraForBounds(bounds: Bbox | [LonLat, LonLat], options?: FitBoundsOptions): (Required<Pick<CameraOptions, "center" | "zoom" | "pitch" | "bearing">> & { padding: PaddingOptions }) | null;
+	/** 既定の padding（以後の jumpTo/easeTo/flyTo/fitBounds の中身の中心）。数値＝四辺同じ */
+	setPadding(padding: PaddingOptions | number): OrthoJapanMap;
+	getPadding(): PaddingOptions;
+	/** 中心の可動域。null で解除。west>east＝±180 跨ぎ。入力・飛行・URL 復元のどれで動いても締まる */
+	setMaxBounds(bounds: Bbox | [LonLat, LonLat] | null): OrthoJapanMap;
+	getMaxBounds(): Bbox | null;
+	setMinZoom(zoom: number | null): OrthoJapanMap;
+	getMinZoom(): number;
+	/** 寄りの上限（起動時の zoomMax を超えない）。null＝起動時の上限へ */
+	setMaxZoom(zoom: number | null): OrthoJapanMap;
+	getMaxZoom(): number;
+	getCenter(): { lng: number; lat: number };
+	/** 度（map.view.pitch はラジアン） */
+	getPitch(): number;
+	/** 度（map.view.bearing はラジアン） */
+	getBearing(): number;
+	setCenter(center: LonLat | { lng: number; lat: number }): OrthoJapanMap;
+	setZoom(zoom: number): OrthoJapanMap;
+	setPitch(pitchDeg: number): OrthoJapanMap;
+	setBearing(bearingDeg: number): OrthoJapanMap;
+	/** 見えている範囲の概算 [w,s,e,n]（画面の四隅と辺の中点の逆投影）。球の縁が画面に入る時は null */
+	getBounds(): Bbox | null;
+	isMoving(): boolean;
+	/** 飛行・easeTo を止める */
+	stop(): OrthoJapanMap;
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
 	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
