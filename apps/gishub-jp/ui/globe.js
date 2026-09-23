@@ -141,16 +141,26 @@ export async function showMeshRaster(meshes, opts = {}) {
     };
 }
 
-export async function execGlobeView(pbf, ds = null) {
-    if (!pbf?.length) return;
+// opts（どれも任意）＝層の見た目と後始末を呼び手が持つための口。層そのもの（map.addGint のハンドル）を返す。
+//   paint  … gint draw spec §4 の paint（点=circle-color/circle-radius・線=line-color/line-width・式可）
+//   legend … 左下の凡例に流す HTML（層を替える/閉じる時はこちらで消す）
+//   pop:false … 地物クリックの既定ポップを出さない（クリックを呼び手が全部持つ層）
+//   onReady(map, layer, view) … 追加の結線（map.on('click') など）。返した関数は地図を出る時に呼ばれる
+export async function execGlobeView(pbf, ds = null, opts = {}) {
+    if (!pbf?.length) return null;
     const [map, view] = await Promise.all([_mapP, _viewP]);
     _onExitExtra?.();   // L03-b_r などのカスタムビューを畳む
     _onExitExtra = null;
     _enter(map);
-    await view.show(pbf, {
+    _legend?.(null);    // 前の層の凡例を残さない（_enter で _mountTools 済み＝ここで初めて setter が居る）
+    const layer = await view.show(pbf, {
         tipHtml: (fid, props) => _buildTip(props ?? pbf.getFeature(fid)?.properties, ds),
-        popHtml: (fid, props) => _buildPop(props ?? pbf.getFeature(fid)?.properties, ds),
+        popHtml: opts.pop === false ? null : (fid, props) => _buildPop(props ?? pbf.getFeature(fid)?.properties, ds),
     });
+    if (opts.paint && layer) await layer.setPaint(opts.paint);
+    if (opts.legend) _legend?.(opts.legend);
+    if (opts.onReady && layer) _onExitExtra = opts.onReady(map, layer, view) ?? null;
+    return layer;
 }
 
 export async function exitGlobeView() {
@@ -159,6 +169,7 @@ export async function exitGlobeView() {
     if (history.state?.globe) history.back();   // × / Esc で閉じた＝積んだ段を戻す（URL は同じ＝hashchange は立たない）
     _onExitExtra?.();
     _onExitExtra = null;
+    _legend?.(null);
     document.getElementById('app').classList.remove('viewing');
     document.body.classList.remove('globe-viewing');
     const view = await _viewP;
