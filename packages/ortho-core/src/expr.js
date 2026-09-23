@@ -1,4 +1,4 @@
-// MapLibre GL style 式インタプリタ（地理院 optimal_bvmap std.json が使う部分集合）。
+// MapLibre GL style 式インタプリタ（地理院 optimal_bvmap std.json が使う部分集合＋外来 style.json の常用分＝#33 2026-09-23）。
 // node で実タイル/実スタイルに対し検証済み（全123層のfilter・paintが未知opゼロで評価される）。
 // filter も paint も同一の評価器で処理する（std.json は全て現代式＝レガシーfilter無し）。
 //
@@ -6,6 +6,16 @@
 // （WeakMap でノード単位にキャッシュ）、以後の評価は switch ディスパッチ・slice・毎回のクロージャ生成
 // なしの直接関数呼び出しになる。style オブジェクトは全タイルで同一identity＝初回コンパイルのみ、
 // 以後は feature 毎にコンパイル済み関数を呼ぶだけ。意味論は旧インタプリタと完全一致（node で全出力突合済み）。
+
+import { parseRGBA } from "./color.js";
+
+// 色の補間（interpolate の出力が色文字列の時・#33）＝rgba の各成分を線形に。出力は "rgba(r,g,b,a)"（parseRGBA が読む形）
+const lerpColor = (a, b, t) => { const p = parseRGBA(a), q = parseRGBA(b); const c = i => p[i] + t * (q[i] - p[i]); return `rgba(${Math.round(c(0) * 255)},${Math.round(c(1) * 255)},${Math.round(c(2) * 255)},${+c(3).toFixed(4)})`; };
+const lerpAny = (y0, y1, t) => typeof y0 === "number" && typeof y1 === "number" ? y0 + t * (y1 - y0)
+	: typeof y0 === "string" && typeof y1 === "string" ? lerpColor(y0, y1, t)
+	: Array.isArray(y0) && Array.isArray(y1) && y0.length === y1.length ? y0.map((v, i) => lerpAny(v, y1[i], t))
+	: t < 0.5 ? y0 : y1;
+const TYPE_OF = v => v == null ? "null" : Array.isArray(v) ? "array" : typeof v === "object" ? "object" : typeof v;
 
 export function truthy(v) {
 	return v !== false && v != null && v !== 0 && v !== "" && !(typeof v === "number" && isNaN(v));
@@ -96,7 +106,7 @@ function build(e) {
 				const x0 = sk[k], x1 = sk[k + 1], y0 = sv[k](ctx), y1 = sv[k + 1](ctx);
 				let t = (input - x0) / (x1 - x0);
 				if (expo && base !== 1) t = (Math.pow(base, input - x0) - 1) / (Math.pow(base, x1 - x0) - 1);
-				return y0 + t * (y1 - y0);
+				return typeof y0 === "number" && typeof y1 === "number" ? y0 + t * (y1 - y0) : lerpAny(y0, y1, t);   // 色（文字列）・配列も補間（#33）
 			};
 		}
 		case "+": { const xs = e.slice(1).map(compile); return ctx => { let s = 0; for (const f of xs) s += f(ctx); return s; }; }
@@ -112,6 +122,36 @@ function build(e) {
 		case "feature-state": { const k = compile(e[1]); return ctx => ctx.state?.[k(ctx)]; }   // 層の一時状態（hover/選択…）＝gint layer.setFeatureState。基図 ctx は state 無し＝undefined（無害）
 		case "concat": { const xs = e.slice(1).map(compile); return ctx => xs.map(f => f(ctx) ?? "").join(""); }   // text-field 用（maplibre 同名）
 		case "to-string": { const a = compile(e[1]); return ctx => { const v = a(ctx); return v == null ? "" : String(v); }; }
+		// ── 外来 style.json の常用分（#33・2026-09-23）──
+		case "interpolate-hcl": case "interpolate-lab": return build(["interpolate", ...e.slice(1)]);   // 色空間の違いは rgb の線形で近似
+		case "id": return ctx => ctx.id;
+		case "properties": return ctx => ctx.props;
+		case "to-boolean": { const a = compile(e[1]); return ctx => truthy(a(ctx)); }
+		case "to-color": case "string": case "number": case "boolean": case "object": case "array": {   // 型の表明＝最初に null でないもの（MapLibre の意味の簡略）
+			const xs = op === "array" ? [compile(e[e.length - 1])] : e.slice(1).map(compile);   // array は ["array", 型?, 長さ?, 値]＝値だけ
+			return ctx => { for (const f of xs) { const v = f(ctx); if (v != null) return v; } return null; };
+		}
+		case "rgb": case "rgba": { const xs = e.slice(1).map(compile); return ctx => { const v = xs.map(f => f(ctx)); return `rgba(${v[0]},${v[1]},${v[2]},${v[3] ?? 1})`; }; }
+		case "typeof": { const a = compile(e[1]); return ctx => TYPE_OF(a(ctx)); }
+		case "downcase": { const a = compile(e[1]); return ctx => String(a(ctx) ?? "").toLowerCase(); }
+		case "upcase": { const a = compile(e[1]); return ctx => String(a(ctx) ?? "").toUpperCase(); }
+		case "length": { const a = compile(e[1]); return ctx => { const v = a(ctx); return v == null ? 0 : v.length ?? 0; }; }
+		case "slice": { const a = compile(e[1]), b = compile(e[2]), c = e.length > 3 ? compile(e[3]) : null; return ctx => { const v = a(ctx); return v == null ? v : v.slice(b(ctx), c ? c(ctx) : undefined); }; }
+		case "index-of": { const a = compile(e[1]), b = compile(e[2]); return ctx => { const h = b(ctx); return h == null ? -1 : h.indexOf(a(ctx)); }; }
+		case "abs": case "floor": case "ceil": case "round": case "sqrt": case "log10": case "log2": { const a = compile(e[1]), f = Math[op]; return ctx => f(a(ctx)); }
+		case "ln": { const a = compile(e[1]); return ctx => Math.log(a(ctx)); }
+		case "e": return () => Math.E;
+		case "pi": return () => Math.PI;
+		case "image": { const a = compile(e[1]); return ctx => a(ctx); }   // 記号の名前をそのまま（記号帳が引く）
+		case "format": {   // 書式つき文字列＝文字だけを連結（書体・大きさの指定は捨てる）
+			const parts = []; for (let i = 1; i < e.length; i++) { const x = e[i]; if (x && typeof x === "object" && !Array.isArray(x)) continue; parts.push(compile(x)); }
+			return ctx => parts.map(f => { const v = f(ctx); return v == null ? "" : String(v); }).join("");
+		}
+		case "number-format": { const a = compile(e[1]), o = e[2] || {}; return ctx => { const v = a(ctx); return v == null ? "" : Number(v).toLocaleString(o.locale || undefined, { minimumFractionDigits: o["min-fraction-digits"], maximumFractionDigits: o["max-fraction-digits"] }); }; }
+		case "is-supported-script": return () => true;
+		case "resolved-locale": return () => (typeof navigator !== "undefined" && navigator.language) || "en";
+		case "collator": return () => null;
+		case "accumulated": case "line-progress": case "heatmap-density": return ctx => ctx.vars?.[op] ?? 0;
 		default: (globalThis.__orthovtUnknownOps ||= new Set()).add(op); return () => undefined;
 	}
 }

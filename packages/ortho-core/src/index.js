@@ -30,3 +30,4 @@ export { WORLD_PAL_DEFAULT } from "./worldpal.js";
 export { pmtilesInfo, isPMTiles, isRasterTileType } from "./pmtiles-src.js";   // isRasterTileType＝?pm= のアーカイブがラスタ（png/jpeg/webp/avif）か＝画像タイル層へ回す判定   // PMTiles アーカイブの自己申告（bbox/ズーム域/層名）＝範囲制御の正本。消費者が bbox を手で持たないための口
 export { createRaster } from "./raster.js";   // 画像タイル層（メルカトル XYZ ラスタ・render worker 常駐）
 export { createRasterSource, expandTemplate, normalizeSpec } from "./raster-src.js";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）
+export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom } from "./mlstyle.js";   // 外来の MapLibre style.json を基図 style へ（#33）

@@ -22,6 +22,11 @@ export interface OrthoJapanOptions {
 	/** 配色の焼き付け（"mono"|"dark"|"gsi"|"sepia" または台帳と同形のカスタム）。**指定すると palette ガジェットは載らない**（固定＝切替不可）。
 	 *  利用者が切り替えられる初期配色は view の "…/c=dark" で。theme をここで渡すと view.hash に c= は入らない＝view: map.view.hash で再生成する時は theme も渡し直す */
 	theme?: string | object;
+	/** 基図を外来の MapLibre style で描く（1.2.0〜・#33）。URL か style の object（?style=<URL> と同じ）。地域の基図・?pm= より優先。
+	 *  基図に入るのは style の中のひとつのベクタ source（XYZ・TileJSON・pmtiles://）の fill / line / 点ラベル / background。旧式フィルタ・stops 関数・"{name}" 記法は読み替える。
+	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer へ。
+	 *  描かない層（fill-extrusion・線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
+	style?: string | Record<string, unknown>;
 	/** 地域の申告（1.2.0〜）。渡さなければ URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
 	 *  世界の陸の段彩（ハイプソ）・湖・罫線は zoomMax まで出たままになる（地域の基図が入場しないため）。 */
@@ -391,8 +396,10 @@ export interface OrthoJapanMap {
 	/** feature-state（MapLibre 同名）。id＝その source の地物の番号（GeoJSON の並び順）。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない */
 	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
 	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
-	/** MapLibre の style の形（version 8）。layers＝基図の層（source "basemap"・読むだけ）の上に利用者の層 */
+	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"・読むだけ）の上に利用者の層 */
 	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };
+	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
+	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
 	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。

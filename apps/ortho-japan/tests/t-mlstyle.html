@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- 実描画の検分：外来の MapLibre style で基図を描く（#33・2026-09-23）。globe（地域なし）を opts.style で起動。
+     style は地理院ベクタタイル（optimal_bvmap）を指す小さな物を内側に書く＝旧式の関数（stops）・旧式フィルタ・"{name}" 記法を混ぜる。
+     ①東京湾の海の画素が style の水の色（マゼンタ）②map.setStyle で水の色（シアン）に替わる ③getStyle の層と source 名
+     ④queryRenderedFeatures が基図の層 id（"water"）で引ける ⑤地域の基図で起動した地図の setStyle は投げる（は別頁の役目＝ここでは見ない）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlstyle</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const styleOf = water => ({
+	version: 8, name: "t-mlstyle",
+	sources: { gsi: { type: "vector", tiles: ["https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
+	layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+		{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": { stops: [[0, water], [22, water]] } } },   // 旧式の関数
+		{ id: "road", type: "line", source: "gsi", "source-layer": "RdCL", filter: ["!=", "vt_rdctg", "zzz"], paint: { "line-color": "#888", "line-width": { base: 1.4, stops: [[8, 0.5], [16, 3]] } } },   // 旧式フィルタ
+		{ id: "label", type: "symbol", source: "gsi", "source-layer": "Anno", layout: { "text-field": "{vt_text}", "text-size": 12 }, paint: { "text-color": "#333" } },   // 差し込み記法
+		{ id: "bld3d", type: "fill-extrusion", source: "gsi", "source-layer": "BldA", paint: { "fill-extrusion-height": 10 } },   // 描かない層（数える）
+	],
+});
+try {
+	const map = await createGlobe({ target: "#map", view: "#10.5/35.5/139.85", chips: false, style: styleOf("#ff00ff") });
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const share = (img, test) => { let n = 0, k = 0; for (let i = 0; i < img.data.length; i += 16) { n++; if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; } return k / n; };
+	await sleep(9000);
+	const a = await grab();
+	const mag = share(a, (r, g, b) => r > 200 && g < 80 && b > 200);
+	ok("waterColor", mag > 0.05, `magenta ${(mag * 100).toFixed(0)}%`);
+	// ④ 基図の層 id で問い合わせ（海の上＝"water"）
+	const [x, y] = map.projectLL(139.85, 35.45);
+	const hits = await map.queryRenderedFeatures([x, y], { layers: ["water"] });
+	ok("query", hits.some(f => f.layer.id === "water"), hits.map(f => f.layer.id).join(","));
+	// ③ getStyle＝source 名は style のまま・描かない層は基図に入らない
+	const st = map.getStyle();
+	ok("getStyle", !!st.sources.gsi && st.layers.some(L => L.id === "water" && L.source === "gsi") && !st.layers.some(L => L.id === "bld3d"), st.layers.map(L => L.id).join(","));
+	// ② 生き替え
+	await map.setStyle(styleOf("#00ffff"));
+	await sleep(6000);
+	const b = await grab();
+	const cyan = share(b, (r, g, bl) => r < 80 && g > 200 && bl > 200), mag2 = share(b, (r, g, bl) => r > 200 && g < 80 && bl > 200);
+	ok("setStyle", cyan > 0.05 && mag2 < 0.01, `cyan ${(cyan * 100).toFixed(0)}% magenta ${(mag2 * 100).toFixed(1)}%`);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

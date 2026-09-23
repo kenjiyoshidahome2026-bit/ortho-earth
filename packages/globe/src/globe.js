@@ -32,7 +32,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
@@ -196,6 +196,29 @@ const CLIM_URL = new URL("koppen-clim.png", new URL(ASSET_BASE, location.href)).
 const PM_SPEC = new URLSearchParams(location.search).get("pm");
 const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env?.BASE_URL || "/", location.href)).href : null;
 
+// ── 外来の MapLibre style（#33・2026-09-23）──────────────────────────────────
+// opts.style（URL か style の object）／?style=<URL>＝基図をその style で描く（地域の基図・?pm= より優先）。
+// 基図に入るのは style の中の「ひとつのベクタ source」の fill / line / 点ラベル / background（読み替えは core の mlstyle.js）。
+// 同じ style の raster source の層＝画像層（map.raster）・geojson/image source の層＝利用者の層（map.addLayer）へ振り分ける。
+// 描けない層（fill-extrusion・線に沿うラベル・模様…）は数えて console に出す。書体（glyphs）はこの地図の文字で描く（text-font は読まない）。
+// この形で起動した地図は map.setStyle(別の style) で生き替えできる（地域の基図で起動した地図は setStyle しない＝基図の門が違う）。
+const STYLE_SPEC = opts.style ?? new URLSearchParams(location.search).get("style");
+const loadExtStyle = async spec => {
+	const { style: ms, baseUrl } = await loadMapLibreStyle(spec);
+	const split = splitMapLibreStyle(ms);
+	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl) : null;
+	if (split.skipped.length) console.info(`[style] ${ms.name || spec}: ${split.skipped.length} layers not drawn —`, [...new Set(split.skipped.map(k => `${k.type} (${k.why})`))].join(", "));
+	return { ms, split, src, baseUrl, url: typeof spec === "string" ? baseUrl : null };
+};
+let EXT = null;
+if (STYLE_SPEC) { try { EXT = await loadExtStyle(STYLE_SPEC); } catch (err) { console.error("[style] cannot load the style — falling back to the default basemap", err); } }
+const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true });
+const extSourceFields = ext => {   // BASE_SOURCE の中身（setStyle でも同じ形で差し替える）
+	const s = ext.src;
+	return { kind: s?.pmtiles ? "pmtiles" : "style", url: s?.pmtiles || s?.tiles?.[0] || ext.url || null, tileUrl: s ? tileUrlOf(s) : () => null,
+		coverage: null, tileMinZoom: 0, lodFloor: null, minZ: Math.max(0, s?.minzoom ?? 0), info: s && !s.pmtiles ? { maxZoom: s.maxzoom ?? 14, minZoom: s.minzoom ?? 0 } : null,
+		attrHTML: s?.attribution ? sanitizeHTML(String(s.attribution)) : null };
+};
 // ── 基図ソースの記述子 ───────────────────────────────────────────────────────
 // 「どこから引くか・どこを持つか・どのズームから出すか・LOD の床・出典」を **一つの物** に束ねる。
 // 旧構造ではこの5つが createPipeline の別々の引数と散在する門に分解されており、ソースを1種類増やすたびに
@@ -214,7 +237,7 @@ const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env
 // （＝標高ゲート付き全面水域。日本の配信圏の外なので移設前の見え方と同じ・2026-09-17）。
 const REGION_BASEMAP = REGIONS.map(r => r.basemap).find(Boolean) ?? null;
 const REGION_RASTERS = REGIONS.flatMap(r => r.rasters || []);   // 画像タイル（XYZ ラスタ）のカタログ＝地域パックが宣言（エンジンは知らない・?r= と切替ガジェットの鍵）
-const BASE_SOURCE = PM_URL ? {
+const BASE_SOURCE = EXT ? extSourceFields(EXT) : PM_URL ? {
 	kind: "pmtiles", url: PM_URL, tileUrl: () => PM_URL,
 	coverage: null, tileMinZoom: 0, lodFloor: null, minZ: 0, info: null, attrHTML: null,
 } : REGION_BASEMAP ? {
@@ -252,7 +275,7 @@ let themeName = typeof opts.theme === "string" ? opts.theme
 if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] unknown theme "${themeName}" = starting as mono (valid: ${Object.keys(MAP_THEMES).join(", ")})`);
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
-let style = theme.style;
+let style = EXT ? extBaseStyle(EXT) : theme.style;   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
@@ -693,7 +716,7 @@ const ZOOM_MAX = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
 let zoomMaxCur = ZOOM_MAX, camBounds = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
-const BASEMAP_MINZOOM = REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;
+const BASEMAP_MINZOOM = EXT ? 0 : REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;   // 外来 style＝全ズームがその基図（世界のハイプソは出さない＝MapLibre と同じ見え方）
 // タイルの門だけを分ける：BASEMAP_MINZOOM は「日本の基図（GSI）を出す圏」の意味も兼ねており、注記・空港マーク・
 // 出典圏の判定にも使われている。?pm= の基図は日本固有ではない＝タイルを出す下限はアーカイブの持ち分に従う
 // （実際の下限は minZoom で、それ未満はエンジンの門が空タイルを返す）。旧・世界タイルの !WORLD_VT 例外と同じ役割。
@@ -931,9 +954,9 @@ function onMove() {
 // 図郭外フォールバック水域：optimal_bvmap が 404 を返す提供圏外（韓国・台湾等の外国域）に、water 層の色で
 // 「標高ゲート付き全面水域」を敷く（FS が標高h>0を discard＝海は地理院・陸は標高(GEBCO/R10) の管轄裁定。
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
-style.emptySea = "water";
+if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: BASE_SOURCE.tileUrl, requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker,   // タイル/シーン worker もアプリの入口で
+	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y), requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker,   // タイル/シーン worker もアプリの入口で・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -978,7 +1001,7 @@ dbgHost.__mergeFail = () => requestMerge.debugFail();   // 次の merge を故�
 dbgHost.__vtPool = () => requestMerge.stats();          // multi_draw 常駐プールの占有を scene worker の console に出す
 // ?pm= のアーカイブ自己申告を読む → 層名を役割へ振って描画規則を組み → style へ前置 → 再ビルド。
 // 規則の中身は style-pm.js（役割表・紙→インクの階調・描かないものの裁定）。ここは配線だけ。
-const withPM = s => BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
+const withPM = s => EXT ? extBaseStyle(EXT) : BASE_SOURCE.info?.layers?.length ? { ...s, layers: [...pmLayers(BASE_SOURCE.info, theme), ...s.layers] } : s;   // テーマ切替でも掛け直す（switchTheme が theme.style へ戻す・階調は新テーマの紙から作り直る）
 // 画像タイル層の起動待ち行列：map.raster（下方で定義）と初フレームが揃ってから実行＝アーカイブのヘッダが先に届いても TDZ/未初期化を踏まない
 const rasterBootQ = [];
 let rasterBoot = fn => rasterBootQ.push(fn);
@@ -1080,9 +1103,9 @@ function switchTheme(name) {
 		// clim 再送は無害（両レンダラとも取得済みキャッシュで no-op）。boot（下方の初期 set("view")）と同形
 		graticule: WORLD_VT, worldHypsoZ: BASEMAP_MINZOOM,
 		worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
-	renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });
-	renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
-	themes = createThemes(style, { suppressAdmin: !!opts.hideAdminBoundary });   // ★層添字（LI_RAILHI 等）を新テーマの層配列で焼き直す＝hidden(点火ゲート)の添字ズレ根治。
+	renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });
+	renderer.set("bldFill", { li: seaLi(style, "building") });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
+	themes = mkThemes(style);   // ★層添字（LI_RAILHI 等）を新テーマの層配列で焼き直す＝hidden(点火ゲート)の添字ズレ根治。
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	gint.admin0Layer?.style(gint.admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し（色の居座り根治）
@@ -1102,8 +1125,9 @@ renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
 	worldHypsoZ: BASEMAP_MINZOOM,   // 世界の色（ハイプソ・湖・罫線）が退場するズーム＝地域の基図が入場する所と同値
 	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
-renderer.set("sea", { li: style.layers.findIndex(L => L.id === "water"), li2: style.layers.findIndex(L => L.id === "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
-renderer.set("bldFill", { li: style.layers.findIndex(L => L.id === "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
+const seaLi = (st, id) => st.ext ? -1 : st.layers.findIndex(L => L.id === id);   // 外来 style＝地理院の「海は z9 から」「建物の塗りはチルトで伏せる」の門を当てない（層 id が偶然同じでも）
+renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
+renderer.set("bldFill", { li: seaLi(style, "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
 
 // --- gint（知性の層）＝gint/layers.js（単一スロットのユーザー層・多層 addGint・admin0 独立層・bake-ahead・地形ドレープ・fid 塗り・queryAll）。
 // ここは配線だけ：定数と道具を渡し、テーマは getter、多層の台帳（extGint / extActive / gintLayerSeq）は onmessage より先に宣言した
@@ -1370,7 +1394,8 @@ if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
 let lastTileOrder = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
-let themes = createThemes(style, { suppressAdmin: !!opts.hideAdminBoundary });   // 分類（allowlist）は themes.js の純関数。
+const mkThemes = st => { const th = createThemes(st, { suppressAdmin: !!opts.hideAdminBoundary }); if (st.ext) { th.hiddenLi = () => new Set(); th.filterLabels = all => all; } return th; };   // 外来 style＝チップの点火ゲートと注記の分類（地理院の層 id・注記コード）を当てない＝style が描くと言った物を全部
+let themes = mkThemes(style);   // 分類（allowlist）は themes.js の純関数。
 dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点火ゲートの検定窓（t-palette-live＝添字ズレの回帰封じ）hideAdminBoundary＝基図の行政界(赤線)を常に隠す（派生アプリが自前境界を描く時）。⚠層添字（LI_*）は style 依存＝テーマ生き替え(switchTheme)で必ず作り直す（旧添字の hidden が「土台を隠し点火層を出す」実バグ 2026-09-09）
 
 // LOD選択 or テーマ状態(styleSig)が変わった時だけシーンを再結合。原点は安定化（プルプル防止）。
@@ -3066,12 +3091,72 @@ map.removeFeatureState = ({ source, id } = {}, key) => {
 	return map;
 };
 map.getLayers = () => [...mlLayers.values()].map(v => v.layer);
-// getStyle＝MapLibre の style の形（version 8）。layers＝基図の層（source "basemap"・読むだけ）の上に利用者の層（登録順）
-map.getStyle = () => ({
-	version: 8,
-	sources: { basemap: { type: "vector" }, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
-	layers: [...(style.layers || []).map(L => ({ ...L, source: L.source ?? "basemap" })), ...[...mlLayers.values()].map(v => ({ ...v.layer, source: srcId(v.layer) }))],
-});
+// getStyle＝MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"＝読むだけ）の上に利用者の層（登録順）
+map.getStyle = () => {
+	const baseSid = EXT?.split.vectorSource ?? "basemap";
+	const baseSrc = EXT ? EXT.ms.sources[baseSid] : { type: "vector" };
+	return {
+		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
+		sources: { [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
+		layers: [...(style.layers || []).map(L => L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }), ...[...mlLayers.values()].map(v => ({ ...v.layer, source: srcId(v.layer) }))],
+	};
+};
+// 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
+const extExtras = { raster: [], layers: [], sources: [], offs: [] };
+const mountExtExtras = async ext => {
+	const ms = ext.ms, baseIdx = ms.layers.findIndex(L => L.source === ext.split.vectorSource && L.type !== "background");
+	for (const L of ext.split.raster) {
+		// 画像層は基図の塗りの「上」にしか合成できない（地面アトラスで塗りの後に重ねる）。style で基図の塗りより前（下）に書かれた画像
+		//（例：陰影図を土地被覆の下に敷く）は描かない＝上に載せると塗りを白く洗ってしまう。数えて知らせる
+		if (baseIdx >= 0 && ms.layers.findIndex(x => x.id === L.id) < baseIdx) { console.info(`[style] raster layer "${L.id}" sits under the vector fills — not drawn (imagery can only go above the basemap fills)`); continue; }
+		try {
+			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl);   // TileJSON の解決は raster も同じ
+			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {} });
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: opNow(), hideFills: false });
+			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
+			extExtras.raster.push(L.id);
+		} catch (err) { console.warn("[style] raster layer", L.id, err); }
+	}
+	if (ext.split.geojson.some(L => L.layout?.["icon-image"] != null) && ms.sprite) {
+		const sp = Array.isArray(ms.sprite) ? ms.sprite[0]?.url : ms.sprite;
+		if (sp) await map.loadSprite(new URL(sp, ext.baseUrl).href).catch(err => console.warn("[style] sprite", err));
+	}
+	for (const L of ext.split.geojson) {
+		try {
+			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; map.addSource(L.source, sp); extExtras.sources.push(L.source); }
+			await map.addLayer(L); extExtras.layers.push(L.id);
+		} catch (err) { console.warn("[style] layer", L.id, err); }
+	}
+};
+const unmountExtExtras = () => {
+	for (const id of extExtras.raster) map.raster.remove(id);
+	for (const id of extExtras.layers) map.removeLayer(id);
+	for (const sid of extExtras.sources) { try { map.removeSource(sid); } catch { /* 利用者が同じ source に層を足している＝残す */ } }
+	for (const f of extExtras.offs) f();
+	extExtras.raster = []; extExtras.layers = []; extExtras.sources = []; extExtras.offs = [];
+};
+if (EXT) map.on("load", () => { mountExtExtras(EXT); });
+// 基図の style を生き替える（外来 style で起動した地図だけ）。spec＝URL か style の object。解決は新しい style の基図が描き始めた後
+map.setStyle = async spec => {
+	if (!EXT) throw new Error("setStyle: this map uses the regional basemap — boot with opts.style (or ?style=) to switch MapLibre styles");
+	const nx = await loadExtStyle(spec);
+	unmountExtExtras();
+	EXT = nx;
+	Object.assign(BASE_SOURCE, extSourceFields(nx));
+	if (BASE_SOURCE.kind === "pmtiles") {
+		const info = await pmtilesInfo(BASE_SOURCE.url).catch(err => { console.warn("[style] cannot read PMTiles", err); return null; });
+		BASE_SOURCE.info = info; if (info?.attribution && !BASE_SOURCE.attrHTML) BASE_SOURCE.attrHTML = sanitizeHTML(String(info.attribution));
+	}
+	style = extBaseStyle(nx);
+	bg = style.layers.find(L => L.type === "background");
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : land;
+	renderer.set("view", { land });
+	themes = mkThemes(style);
+	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
+	attrZone = null; needsDraw = true;
+	await mountExtExtras(nx);
+	return map;
+};
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 // geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
