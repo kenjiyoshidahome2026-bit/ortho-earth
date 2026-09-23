@@ -3277,7 +3277,8 @@ map.setStyle = async spec => {
 	renderer.set("view", { land });
 	themes = mkThemes(style);
 	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
-	attrZone = null; needsDraw = true;
+	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）
+	attrZone = null; needsDraw = true; onMove();
 	await mountExtExtras(nx);
 	return map;
 };
