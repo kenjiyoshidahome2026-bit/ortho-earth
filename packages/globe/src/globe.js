@@ -865,7 +865,9 @@ const wakeMesh = () => meshWake ??= !meshOn ? Promise.resolve(null) : import("./
 	return meshReal;
 }).catch(e => { console.error("[mesh] manager load failed", e); return null; });
 const meshMgr = {
-	update() { if (meshReal) meshReal.update(); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },
+	// settled（カメラ静止＝onMove の 150ms 無音）は本物へ必ず渡す＝新しい区のロードは settled の時だけ始まる。
+	// ⚠落とすと、止まっても何も読まない（2026-09-22〜24：デモの全幕で PLATEAU が出ず、手動でも「他の区の読み込み完了」等の一突き次第＝再現性のない不表示）
+	update(settled) { if (meshReal) meshReal.update(settled); else if (meshOn && !meshGone && cam.zoom >= MESH_WAKE_Z) wakeMesh(); },   // 起こした時は登録簿の到着で autoMesh(true) が一度走る（manager 側）
 	standUp: async (...a) => (await wakeMesh())?.standUp(...a),
 	prefetch: async (...a) => (await wakeMesh())?.prefetch(...a) ?? [],
 	openDb: async () => (await wakeMesh())?.openDb(),
