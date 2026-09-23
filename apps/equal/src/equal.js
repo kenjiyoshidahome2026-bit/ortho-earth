@@ -708,7 +708,10 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			remove: () => { frameSubs.delete(step); try { o.mod?.destroy(); } catch {} cv.remove(); },
 		};
 		const host = { requestDraw, post: d => o.onmessage?.(d) };
-		import(/* @vite-ignore */ new URL(url, location.href).href)
+		// url＝文字列（相対/絶対 URL）か { builtin: "anno" }（globe の同一フレーム overlay の組み込みモジュール名＝japan の map.overlay と同じ契約）
+		const BUILTIN = { anno: () => import("@ortho-earth/globe/gadgets/anno-draw.js") };
+		const load = url && typeof url === "object" ? (BUILTIN[url.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${url.builtin}"`))) : import(/* @vite-ignore */ new URL(url, location.href).href);
+		load
 			.then(mod => { if (!cv.isConnected) return; o.mod = mod; mod.init(cv, {}, host); for (const d of o.queue) mod.message(d); o.queue = []; requestDraw(); })
 			.catch(err => console.error("[equal] overlay", name, "failed to load", url, err?.message || err));
 		function step() {
