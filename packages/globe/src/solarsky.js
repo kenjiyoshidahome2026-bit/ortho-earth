@@ -3,12 +3,13 @@
 // 設計の芯：
 //  - カメラは engine と同じ cameraState（純関数）を import＝mvp を共有＝星空・地球と寸分違わぬ整合
 //  - 世界系＝engine と同じ「地球固定・単位球（1=地球半径）・y=北極」。天体は 黄道→赤道→GMST回転 で持ち込む
-//    （STARS_VS が星にかけている回転と同式＝実時刻の空に惑星が正しく乗る）
+//    （STARS_VS が星にかけている回転と同式＝その時刻の空に惑星が正しく乗る）
 //  - この深度では木星すら1px未満＝描くのは点・線・文字だけ＝Canvas2D で足りる（GL不要・依存ゼロ）
 //  - 地球は engine の球がそのまま主役。約3px を切る z≈-4.8 からこちらの点表示が代打に立つ
-//  - 実時刻のみ（星空劇場と同じ正直さ）。時間を巻きたければ左上の The Solar System から ortho-solar へ
+//  - 時刻は共通の時計（#42・map.clock・ephem/clock）＝地球の夜の側・星空・衛星と同じ「その時刻」（旧＝実時刻のみ・時間旅行は ortho-solar へ＝本人裁定 9/23 で外した）
 import { cameraState } from "@ortho-earth/core";
 import { BODIES, byId, bodyPos, moonGeo, orbitPointsThrough, jcT, EPS, AU_KM } from "ephem";
+import { gmstAt } from "ephem/sun";
 
 const KM_PER_UNIT = 6371;                    // engine 単位球＝地球半径
 const AU_UNIT = AU_KM / KM_PER_UNIT;         // 1AU＝約23481単位
@@ -25,7 +26,7 @@ function eclToWorld(p, cg, sg) {
 	return [x * cg + z * sg, y, z * cg - x * sg];
 }
 
-export function createSolarSky({ mapEl, names = null }) {
+export function createSolarSky({ mapEl, names = null, now: nowOf = () => Date.now() }) {   // now＝共通の時計の時刻（#42）
 	const cv = document.createElement("canvas");
 	cv.id = "solar-sky";
 	cv.style.cssText = "position:absolute;inset:0;width:100%;height:100%;pointer-events:none;";
@@ -102,8 +103,8 @@ export function createSolarSky({ mapEl, names = null }) {
 		const fade = Math.max(0, Math.min(1, (1 - cam.zoom) / 0.5));   // z1→z0.5 で出現（星空劇場の作法）
 		ctx.clearRect(0, 0, W, H);
 		if (!fade) return;
-		const now = Date.now(), date = new Date(now);
-		const gmst = (((18.697374 + 24.0657098 * (now / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;   // engine renderer と同式
+		const now = nowOf(), date = new Date(now);
+		const gmst = gmstAt(now);   // engine renderer と同じ ephem/sun
 		const cg = Math.cos(gmst), sg = Math.sin(gmst);
 		const st = cameraState(cam, W, H); st.W = W; st.H = H;
 		const dpr = cam.dpr || 1;

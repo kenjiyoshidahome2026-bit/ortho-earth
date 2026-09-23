@@ -13,6 +13,7 @@ import { setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
 setAltWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, cameraState, project } from "@ortho-earth/core/camera";
+import { clockNow } from "ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
 let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
@@ -22,7 +23,9 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 // init(canvas, opts, host)：host＝{ requestDraw()（画像到着などで次フレームを頼む）, post(data)（main の handle.onmessage へ） }。
 // frame(cam, s, size, api)：api＝{ project(lon,lat)→[x,y,f], projectH(lon,lat,hM), dpr, W, H（CSS px）}＝main の makeProjector/makeProjectorH と同じ
 //   規約（地形リフト＝pitch フェード×標高×elevBase・座標は CSS px・f<0＝裏側）。標高は worker の terrain から同期で引ける（main は非同期メモだった）
+//   api.time＝共通の時計のその時刻（ms・UTC エポック・#42）＝衛星などはこれで位置を出す（Date.now() を直に読まない）。api.clock＝基準 {sim,wall,rate}（rate＝実 1ms あたりのシミュレート ms・0＝停止）
 const overlays = new Map();
+let clockA = null, clockSet = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
@@ -58,7 +61,7 @@ function overlayFrame(camNow) {
 				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
 				const lift = pf > 0 && terrain ? (lon, lat) => (terrain.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon, lat, hM) => { const [x, y, f] = project(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase); return [x / dpr, y / dpr, f]; };
-				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, dpr, W: W / dpr, H: H / dpr };
+				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA };
 			}
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
@@ -327,6 +330,7 @@ const dispatch = e => {
 				sceneInbox.set(m.prop, m.data);
 			}
 			else if (m.cmd === "dem") { terrain?.setDem(m.data || null); }        // 外来の標高タイルの生き替え（#36）
+			else if (m.cmd === "clock") { clockA = m.data; dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;
@@ -602,6 +606,7 @@ function frame() {
 		if (dirty && renderer && cam) {
 			if (resPending) applyRes();   // 予約されたリサイズ＝描画の直前に適用（クリア→同一タスクで全描画＝白フレームをcommitさせない）
 			dirty = false; drew = true;
+			if (clockSet !== clockA) { renderer.set("view", { clock: clockA }); clockSet = clockA; }
 			// 動的解像度中は GL 側の dpr に resScale を掛ける＝線の太さ(SDF capsule)が CSS 上で不変。
 			// ラベルは自前 canvas（フル解像度）＋自前 cameraState なので素の cam のまま＝幾何は両者で一致する。
 			const s = RES_STEPS[resIdx];
@@ -642,7 +647,8 @@ function frame() {
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			const ovMore = overlayFrame(cam);                        // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）
-			if (animating || fogAnim || ovMore) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
+			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
+			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）

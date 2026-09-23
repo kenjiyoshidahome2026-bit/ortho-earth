@@ -29,6 +29,7 @@
 		"altpbf": "^1.1.0",
 		"earcut": "^3.0.1",
 		"geopbf": "^1.11.0",
-		"pmtiles": "^4.5.0"
+		"pmtiles": "^4.5.0",
+		"ephem": "*"
 	}
 }

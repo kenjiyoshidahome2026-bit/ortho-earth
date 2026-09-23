@@ -7,6 +7,8 @@ import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
+import { clockNow } from "ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
+import { gmstAt, sunSubpoint } from "ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
@@ -1059,7 +1061,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const worldFade = !flat2d && cam.zoom < 5 ? Math.min(1, (5 - cam.zoom) / 0.5) : 0;   // 星空劇場（星・夜面）共通の出現フェード
 		const starFade = (stars || constel || planets) ? worldFade : 0;
 		if (starFade > 0) {
-			const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+			const gmst = gmstAt(clockNow(view.clock));
 			const cg = Math.cos(gmst), sg = Math.sin(gmst);
 			// 遠近表現（v1移植）：天球倍率 ∝ (0.4+0.3z)＝ズームに線形（地球は2^z）。z4（フェード境界）で1に正規化
 			// ＝出現時のスケールが素の投影と連続（ポップしない）。ズームアウトで星空が密に寄る＝空が「遠くなる」。
@@ -1536,12 +1538,10 @@ export function createRenderer(canvas, rOpts = {}) {
 			bldStencil(false);
 		}
 		gl.disable(gl.DEPTH_TEST);
-		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽直下点（v1 nightJSON と同式＝
-		// 赤緯23.4°正弦近似＋UTC時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
+		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：時計の時刻の太陽直下点（ephem/sun＝solar と同じ式・均時差込み。
+		// 旧＝v1 nightJSON の赤緯正弦近似＋UTC 時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
 		if (worldFade > 0) {
-			const dDay = Date.now() / 864e5;
-			const sunLat = 23.4 * Math.sin((dDay / 365.24 % 1 - 0.225) * 2 * Math.PI) * Math.PI / 180;
-			const sunLng = (((dDay % 1 * -360 + 360) % 360) - 180) * Math.PI / 180;
+			const [sunLng, sunLat] = sunSubpoint(clockNow(view.clock));
 			const cs = Math.cos(sunLat);
 			gl.useProgram(nightProg);
 			gl.uniformMatrix4fv(loc(gl, nightProg, "u_invMvp"), false, Float32Array.from(st.invMvp));

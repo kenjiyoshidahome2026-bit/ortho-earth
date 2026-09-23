@@ -4,13 +4,15 @@
 	"license": "GPL-3.0-or-later",
 	"private": true,
 	"type": "module",
-	"description": "太陽系エフェメリス（JPL近似軌道要素1800-2050・Schlyter月理論・IAU自転）＋人工衛星 SGP4/SDP4（ephem/sgp4）。ortho-solar と ortho-japan の共用臓器",
+	"description": "太陽系エフェメリス（JPL近似軌道要素1800-2050・Schlyter月理論・IAU自転）＋共通の時計（ephem/clock・#42）＋人工衛星 SGP4/SDP4（ephem/sgp4）。ortho-solar と ortho-japan の共用臓器",
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
-		"./sgp4": "./src/sgp4.js"
+		"./sgp4": "./src/sgp4.js",
+		"./clock": "./src/clock.js",
+		"./sun": "./src/sun.js"
 	},
 	"scripts": {
-		"test": "node tests/t-ephem.mjs && node tests/t-sgp4.mjs"
+		"test": "node tests/t-ephem.mjs && node tests/t-sgp4.mjs && node tests/t-clock.mjs && node tests/t-sun.mjs"
 	}
 }

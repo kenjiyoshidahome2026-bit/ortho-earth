@@ -25,6 +25,8 @@ export function solar({ url } = {}) {
 			<circle cx="12" cy="12" r="4.6" fill="#3f4757" stroke="none"/>
 			<ellipse cx="12" cy="12" rx="10.2" ry="3.1" transform="rotate(-26 12 12)"/></svg>`;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
-	btn.addEventListener("click", () => { location.href = base + "&back=" + encodeURIComponent(location.href); });   // back＝押した瞬間の URL（視点のハッシュ込み）
+	// 時刻も連れていく（#42）：地図の時計が実時間でない（過去・未来・止めた・早送り）時は solar の hash に t=/s=（同じ書式＝ephem/clock）。実時間なら何も付けない＝あちらも「今」
+	const when = () => { const c = this.clock; return c && !c.isLive() ? "#" + c.toParams().toString().replace(/%3A/g, ":") : ""; };
+	btn.addEventListener("click", () => { location.href = base + "&back=" + encodeURIComponent(location.href) + when(); });   // back＝押した瞬間の URL（視点のハッシュ込み）
 	return btn;
 }

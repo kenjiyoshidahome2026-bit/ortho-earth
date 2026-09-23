@@ -18,6 +18,7 @@ import { nativeBucket } from "native-bucket";
 import { BODIES, byId, bodyPos, orientation, orbitPointsRel, moonOrbitPoints, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
 	SATELLITES, satById, satPos, satOrbitPoints } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
+import { createClock, fmtUTC } from "ephem/clock";   // 共通の時計（#42）＝地図（globe）と同じ部品
 
 // bucket 基盤は頁で一度（ortho-japan と同じ・読み出しキー不要）＝部品を何度作り直しても 1 回
 let geopbfReady = false;
@@ -115,11 +116,11 @@ const MARKUP = `
 			     （時間の矢の図像は万国共通）＝並びだけ返すと「右の ◀◀ が戻る」のねじれになる。Material の「再生操作はミラーしない」と同じ -->
 			<span class="os-transport" dir="ltr">
 				<button class="os-slower" title="Slower — keep pressing to run time backwards" data-t-title>◀◀</button>
-				<!-- ⏸(U+23F8) は Apple 系で絵文字表示になり字面が浮く＝図形の ❚❚(U+275A×2) へ。setSpeed と対 -->
+				<!-- ⏸(U+23F8) は Apple 系で絵文字表示になり字面が浮く＝図形の ❚❚(U+275A×2) へ。clock の change と対 -->
 				<button class="os-play" title="Play / pause" data-t-title>❚❚</button>
 				<button class="os-faster" title="Faster" data-t-title>▶▶</button>
 			</span>
-			<span class="os-speed" data-t>Real time</span><!-- 初期表示＝setSpeed は view に s= が無いと呼ばれない＝ここが起動時の唯一の出所 -->
+			<span class="os-speed" data-t>Real time</span><!-- 初期表示＝時計の change は view に t=/s= が無いと起きない＝ここが起動時の唯一の出所 -->
 			<input class="os-dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="Set date &amp; time (valid 1800–2050)" data-t-title>
 			<button class="os-now" title="Back to the present" data-t-title><span data-t>Now</span></button>
 		</div>
@@ -172,20 +173,10 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	for (const b of ALL) if (!BODY_KEYS.includes(b.name)) console.warn("[solar] body name missing from the i18n ledger:", b.name);
 	const bName = b => t(b.name);
 
-	// ---- 時刻機械：simTime(ms) と速度（実1秒あたりのシミュレート秒）。JPL 要素の有効期間でクランプ ----
-	const T_MIN = Date.UTC(1800, 0, 1), T_MAX = Date.UTC(2049, 11, 31);
-	// 速度は符号つき段位 speedL ∈ [-8, +8]：0=停止・正=順行・負=逆行。◀◀は停止を通り越して
-	// そのまま逆再生へ＝「過去へ戻りたい→◀◀」の直感が一手で通る（初版の±反転ボタンは廃止）
-	let simTime = Date.now(), speedL = 1, lastPlayL = 5;
-	// label/neg は英語＝辞書のキー（訳は setSpeed の表示時に引く）。neg＝逆行時だけ言い方が変わる段（実時間→1秒/秒）
-	const SPEEDS = [
-		{ v: 0, label: "Paused" }, { v: 1, label: "Real time", neg: "1 sec/s" },
-		{ v: 60, label: "1 min/s" }, { v: 3600, label: "1 hour/s" },
-		{ v: 21600, label: "6 hours/s" }, { v: 86400, label: "1 day/s" },
-		{ v: 864000, label: "10 days/s" }, { v: 2592000, label: "1 month/s" },
-		{ v: 31557600, label: "1 year/s" },
-	];
-	const simDate = () => new Date(simTime);
+	// ---- 時刻機械：共通の時計（@ortho-earth/core/clock・#42）＝時刻(ms)と符号つき速度段（−8〜+8：0=停止・正=順行・負=逆行）。
+	// 範囲＝1800〜2049（JPL 要素の有効期間）で端に着くと止まる。◀◀は停止を通り越してそのまま逆再生へ。実時間で「今」を見ている間は時計が Date.now() に張り付く
+	const clock = createClock();
+	const simDate = () => clock.date;
 
 	// ---- カメラ：焦点天体を球面座標で周回（yaw/pitch/dist）。焦点は天体と一緒に動く＝時を回すと追走 ----
 	const cam = { focus: "sun", yaw: -60 * D2R, pitch: 22 * D2R, dist: 26, fovy: 45 * D2R };
@@ -782,20 +773,17 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	let dtEditing = false;
 	dtEl.addEventListener("focus", () => dtEditing = true);
 	dtEl.addEventListener("blur", () => dtEditing = false);
-	dtEl.addEventListener("change", () => { const t = new Date(dtEl.value).getTime(); if (Number.isFinite(t)) { simTime = Math.min(T_MAX, Math.max(T_MIN, t)); needsDraw = true; writeHash(); } });
-	const setSpeed = L => {
-		speedL = Math.max(-(SPEEDS.length - 1), Math.min(SPEEDS.length - 1, Math.round(L) || 0));
-		if (speedL !== 0) lastPlayL = speedL;
-		const m = SPEEDS[Math.abs(speedL)];
-		const lab = t(speedL < 0 ? (m.neg || m.label) : m.label);
-		speedEl.textContent = speedL < 0 ? "−" + lab : lab;
-		$("play").textContent = speedL === 0 ? "▶" : "❚❚";   // ⏸ は Apple 系で絵文字化して浮く＝図形の ❚❚（index.html と対）
-		writeHash();
-	};
-	$("slower").onclick = () => setSpeed(speedL - 1);
-	$("faster").onclick = () => setSpeed(speedL + 1);
-	$("play").onclick = () => setSpeed(speedL === 0 ? lastPlayL : 0);
-	$("now").onclick = () => { simTime = Date.now(); setSpeed(1); needsDraw = true; };
+	dtEl.addEventListener("change", () => { const t = new Date(dtEl.value).getTime(); if (Number.isFinite(t)) clock.setTime(t); });
+	// 時計の状態が変わった（段・時刻・範囲の端で停止・URL の読み込み）＝表示と URL を追わせる
+	clock.on("change", () => {
+		speedEl.textContent = clock.label(t);
+		$("play").textContent = clock.playing ? "❚❚" : "▶";   // ⏸ は Apple 系で絵文字化して浮く＝図形の ❚❚（index.html と対）
+		needsDraw = true; uiDirty = true; writeHash();
+	});
+	$("slower").onclick = () => clock.slower();
+	$("faster").onclick = () => clock.faster();
+	$("play").onclick = () => clock.toggle();
+	$("now").onclick = () => clock.live();
 	const infoEl = $("info");
 	// 下段（チップ＋時間バー）の実測高を CSS へ渡す＝縦画面で情報パネルがその上に載る。
 	// 高さは言語で変わる（"Меркурий" のような長い名前はチップが 1 段増える）＝固定値にしない
@@ -861,8 +849,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	function uiTick(now, date) {
 		if (!uiDirty && now - lastUi < 250) return;
 		lastUi = now; uiDirty = false;
-		if (speedL !== 0 && now - hashAt > 1000) { hashAt = now; writeHash(); }   // 先に刻む＝250ms 拍の度に debounce を巻き戻さない   // 再生中も URL の t を追わせる＝いつコピーしても今の場面
-		const v = fmtLocal(simTime);
+		if (clock.playing && now - hashAt > 1000) { hashAt = now; writeHash(); }   // 先に刻む＝250ms 拍の度に debounce を巻き戻さない   // 再生中も URL の t を追わせる＝いつコピーしても今の場面
+		const v = fmtLocal(clock.time);
 		if (!dtEditing && v !== dtShown) dtEl.value = dtShown = v;
 		updateInfo(date);
 	}
@@ -871,15 +859,12 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// t＝UTC（末尾 Z）。旧版はタイムゾーン無しのローカル時刻＝別の時間帯で開くと場面がずれた（東京→オランダで 7〜8 時間）。
 	// Z の無い旧リンクは従来どおりローカル時刻として読む（new Date の規則）。
 	// 実時間で「今」を見ている時は t を書かない＝後で開いても「今」から始まる生きたリンク（日時を固定したい時は止めて共有）
-	const LIVE_MS = 60e3;
-	const isLive = () => speedL === 1 && Math.abs(simTime - Date.now()) < LIVE_MS;
-	const fmtUTC = ms => { const iso = new Date(ms).toISOString(); return iso.slice(17, 19) === "00" ? iso.slice(0, 16) + "Z" : iso.slice(0, 19) + "Z"; };
 	let hashTimer = null, hashWritten = "", hashAt = 0;
 	// 視点の文字列（URL のハッシュと同じ書式＝"f=moon&d=…&t=…"）。hash:true（殻）は location.hash と往復・埋め込みは view と "view" イベント
 	const viewString = () => {
 		const p = new URLSearchParams({ f: cam.focus, d: cam.dist.toPrecision(4),
-			yaw: (cam.yaw / D2R).toFixed(1), pit: (cam.pitch / D2R).toFixed(1), s: String(speedL) });
-		if (!isLive()) p.set("t", fmtUTC(simTime));
+			yaw: (cam.yaw / D2R).toFixed(1), pit: (cam.pitch / D2R).toFixed(1), s: String(clock.step) });
+		if (!clock.isLive()) p.set("t", fmtUTC(clock.time));
 		if (constOn) p.set("c", "1");
 		return p.toString().replace(/%3A/g, ":");   // フラグメントの ':' は素のままで合法＝人が読める日時に
 	};
@@ -893,15 +878,13 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	}
 	function readHash(str = hash ? location.hash : "") {
 		const p = new URLSearchParams(String(str).replace(/^#/, ""));
-		if (p.get("t")) { const t = new Date(p.get("t")).getTime(); if (Number.isFinite(t)) simTime = Math.min(T_MAX, Math.max(T_MIN, t)); }
-		else if (p.get("s") === "1") simTime = Date.now();   // 生きたリンク（t 無し＋実時間）＝開いた瞬間の「今」
+		if (p.get("t") || (p.get("s") ?? "") !== "") clock.fromParams(p);   // t＝UTC・s＝段（t 無し＋s=1＝生きたリンク＝開いた瞬間の「今」）。どちらも無い貼り替えは時刻に触らない
 		if (p.get("f") && any[p.get("f")]) cam.focus = p.get("f");
 		// 下限＝焦点天体の半径の 1.1 倍（手のドリーの下限 focusMinDist より手前＝URL の手書きで天体の中に入らない。
 		// focusMinDist は下で宣言＝ここから呼ぶと TDZ）
 		if (p.get("d")) cam.dist = Math.max(any[cam.focus].radiusAU * 1.1, Math.min(120, +p.get("d") || OVERVIEW_DIST));
 		if (p.get("yaw")) cam.yaw = +p.get("yaw") * D2R;
 		if (p.get("pit")) cam.pitch = Math.max(-88, Math.min(88, +p.get("pit"))) * D2R;
-		if (p.get("s") !== null && p.get("s") !== "") setSpeed(+p.get("s"));
 		const chipId = satById[cam.focus] ? satById[cam.focus].parent : cam.focus;
 		chipsEl.querySelectorAll("button").forEach(el => el.classList.toggle("on", el.dataset.id === chipId));
 		setConst(p.get("c") === "1");
@@ -998,8 +981,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			ArrowLeft: () => orbitBy(step, 0), ArrowRight: () => orbitBy(-step, 0), ArrowUp: () => orbitBy(0, step), ArrowDown: () => orbitBy(0, -step),
 			"+": () => setDist(cam.dist * 0.85), "=": () => setDist(cam.dist * 0.85), "-": () => setDist(cam.dist / 0.85),
 			c: () => setConst(!constOn),
-			",": () => setSpeed(speedL - 1), ".": () => setSpeed(speedL + 1), Home: () => flyTo("sun"),
-			" ": tag === "BUTTON" ? null : () => setSpeed(speedL === 0 ? lastPlayL : 0),
+			",": () => clock.slower(), ".": () => clock.faster(), Home: () => flyTo("sun"),
+			" ": tag === "BUTTON" ? null : () => clock.toggle(),
 		}[e.key];
 		if (!act) return;
 		e.preventDefault(); act(); writeHash();
@@ -1048,7 +1031,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			if (!s) continue;
 			if (Math.hypot(s.x - k.x, s.y - k.y) >= MOVE_PX) return true;
 			const rPx = Math.min(half, b.radiusAU / s.dist * pxPerRad / dpr);
-			if (rPx > 1 && Math.abs(b.rot.Wd * D2R * (simTime - k.t) / 864e5) * rPx >= MOVE_PX) return true;
+			if (rPx > 1 && Math.abs(b.rot.Wd * D2R * (clock.time - k.t) / 864e5) * rPx >= MOVE_PX) return true;
 		}
 		return false;
 	}
@@ -1058,11 +1041,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		raf = requestAnimationFrame(frame);
 		const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
 		if (glLost) return;
-		const sp = Math.sign(speedL) * SPEEDS[Math.abs(speedL)].v;
-		if (sp) {
-			simTime += sp * dt * 1000;
-			if (simTime <= T_MIN || simTime >= T_MAX) { simTime = Math.min(T_MAX, Math.max(T_MIN, simTime)); setSpeed(0); }
-		}
+		const sp = clock.speed;
+		clock.tick(dt);   // 範囲の端では時計が止まり change が表示を追わせる
 		if (!sp && !needsDraw && !flight) return;                      // 停止中で何も起きていない＝位置すら引かない
 		if (!proj) return;
 		const date = simDate();
@@ -1095,7 +1075,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		// 2) 天体球（+土星の環）。位置はCPUでカメラ相対化（RTE）・遠い天体は最小px径に半径を持ち上げ
 		const dpr = Math.min(2, devicePixelRatio || 1);
 		const screens = {};
-		for (const b of ALL) { screens[b.id] = project(P[b.id]); drawn[b.id] = { x: screens[b.id] ? screens[b.id].x : null, y: screens[b.id] ? screens[b.id].y : 0, t: simTime }; }
+		for (const b of ALL) { screens[b.id] = project(P[b.id]); drawn[b.id] = { x: screens[b.id] ? screens[b.id].x : null, y: screens[b.id] ? screens[b.id].y : 0, t: clock.time }; }
 		gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
 		gl.useProgram(sphereP.p); setCommon(sphereP, view);
 		// ユニット0＝地表テクスチャ（天体ごとに差し替え）、ユニット1＝夜の街明かり（地球の1枚）、ユニット2＝環の α（環の影用・土星の時だけ差し替え）

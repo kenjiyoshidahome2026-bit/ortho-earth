@@ -176,7 +176,7 @@ function setPlumb(plumb) {   // 真下への糸（1 Hz で動く）＝線バッ�
 }
 
 // 地球と同じフレーム・同じ cam で描く（worker の frame() が注記の後に呼ぶ）。s＝cameraState(cam, W, H)
-export function frame(cam, s, { w, h }) {
+export function frame(cam, s, { w, h }, api) {
 	if (!gl) return false;
 	gl.viewport(0, 0, w, h);
 	gl.clearColor(0, 0, 0, 0);
@@ -185,7 +185,7 @@ export function frame(cam, s, { w, h }) {
 	const dpr = cam.dpr || 1, E = s.eye, ee = E[0] * E[0] + E[1] * E[1] + E[2] * E[2];
 	const earthPx = s.focal / dpr / Math.sqrt(Math.max(ee - 1, 1e-12));   // 地球の見かけの半径（CSS px）
 	if (earthPx < MIN_EARTH_PX) return false;                              // 太陽系圏の奥＝畳む（戻れば次のカメラ移動で描く）
-	const dt = (Date.now() - t0) / 1000;
+	const dt = Math.max(-30, Math.min(30, ((api?.time ?? Date.now()) - t0) / 1000));   // api.time＝共通の時計の時刻（#42）。外挿は ±30 秒まで（sats.js の DT_MAX と同じ）
 	const mvp = new Float32Array(s.mvp), eye = new Float32Array(E);
 	const r = 0.8 + Math.min(0.8, earthPx / 1200);                         // 点の半幅（CSS px）＝寄るほど少し大きく
 	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
