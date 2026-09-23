@@ -2619,7 +2619,7 @@ map.gadget("model", async function (src, opts) {
 //   または src に層を丸ごと（source:{ type:"geojson", data }）。式は基図と同じ評価器・色の interpolate も可・既定値は MapLibre の仕様どおり。null を渡すと外す。戻り値＝stats か null（立つ面なし）
 map.gadget("extrude", async function (src, opts = {}) {
 	const c = await modelCtlGet();
-	if (src == null) { c.clearExtrude(); return null; }
+	if (src == null) { c.clearExtrude(opts.slot ?? "default"); return null; }   // slot＝addLayer の層 id（#34・既定 "default"＝ガジェット直呼びの 1 枠）
 	// MapLibre の層を丸ごと（{ type:"fill-extrusion", source:{ type:"geojson", data }, paint, filter }）＝source.data を読み、層は opts へ
 	if (src && src.type === "fill-extrusion" && !opts.paint) { const layer = src; src = layer.source?.data ?? layer.source; opts = { ...layer, ...opts }; delete opts.source; delete opts.id; }
 	let gj = src;
@@ -2836,15 +2836,15 @@ const aggGet = async () => { const m = await import("./gadgets/aggregate.js"); r
 const readPoints = async src => (typeof src === "string" || src instanceof Blob) ? (await geopbf(src, { gint: false }))?.geojson : (!src?.type && !Array.isArray(src) && src?.geojson) ? src.geojson : src;
 map.gadget("heatmap", async function (src, layer = {}) {
 	const c = await aggGet();
-	if (src == null) { c.clear("heatmap"); return null; }
+	if (src == null) { c.clear("heatmap", layer.slot ?? "default"); return null; }   // slot＝addLayer の層 id（#34）・既定 "default"＝ガジェット直呼びの 1 枠
 	if (src?.type === "heatmap") { layer = { ...src, ...layer }; src = src.source?.data ?? src.source; }
-	return c.heatmap(await readPoints(src), layer);
+	return c.heatmap(await readPoints(src), layer, layer.slot ?? "default");
 });
 map.gadget("cluster", async function (src, opts = {}) {
 	const c = await aggGet();
-	if (src == null) { c.clear("cluster"); return null; }
+	if (src == null) { c.clear("cluster", opts.slot ?? "default"); return null; }
 	if (src?.type === "geojson" && "data" in src) { const { data, cluster, type, ...rest } = src; opts = { ...rest, ...opts }; src = data; }   // MapLibre の source（cluster:true・clusterRadius・clusterMaxZoom）
-	return c.cluster(await readPoints(src), opts);
+	return c.cluster(await readPoints(src), opts, opts.slot ?? "default");
 });
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
@@ -2865,20 +2865,36 @@ map.gadget("symbols", async function (src, layer = {}) {   // 記号の層（src
 // 層の type ごとに今日の部品へ振り分ける：fill/line/circle（集約なし）＝利用者の図形（gint＋map.paint）・fill-extrusion＝押し出し・
 // heatmap＝ヒートマップ・circle/symbol（source が cluster:true）＝集約（丸＝paint・件数の文字＝text・filter で集約/単点を見分ける）・
 // symbol＝記号の層・raster＝image source（四隅）か raster source（XYZ タイル）＝画像層。source は geojson / image / raster。
-// ⚠一つずつしか持てない種類がある（利用者の図形・押し出し・ヒートマップ・集約は各 1 つ＝後から足した層が前を置き換える）。symbol と raster は複数可。
-const mlSources = new Map(), mlLayers = new Map();
+// 層はどの種類も何枚でも持てる（#34・2026-09-23）：fill/line/circle＝source ごとに gint の追加層（map.addGint＝paint/filter/feature-state/重ね順を層が持つ）・
+// 押し出し／ヒートマップ＝層 id ごとのスロット・集約＝source ごと・symbol と raster は層ごと。
+// 重ね順（moveLayer）は「同じ描き方の中」で効く（gint 同士・記号同士・模様同士）。描き方の違う層どうしの上下は描画の段で決まる
+//（下から 基図 → 画像 → gint → 押し出し/建物 → ヒートマップ → 集約 → 記号 → 模様）。
+// 層の操作は MapLibre と同名：setPaintProperty / setLayoutProperty（visibility）/ setFilter / moveLayer / getStyle / setFeatureState。
+const mlSources = new Map(), mlLayers = new Map();   // mlLayers の挿入順＝重ね順（下から）
 const srcOf = L => typeof L.source === "string" ? mlSources.get(L.source) : L.source;
 const srcId = L => typeof L.source === "string" ? L.source : L.id;
 const dataOf = sp => sp?.data ?? null;
 const hasPointCount = f => JSON.stringify(f ?? null).includes("point_count");
 const mlGen = new Map();   // "cluster:<sid>" / "gint:<sid>" → 世代（組み直しは非同期＝外した後に古い組み直しが着地して復活するのを捨てる）
 const bumpGen = k => { const g = (mlGen.get(k) || 0) + 1; mlGen.set(k, g); return g; };
-const rebuildCluster = async sid => {   // 同じ source の集約の層を一つの集約へ畳む
+const mlVisible = v => v.layer.layout?.visibility !== "none";
+const mlOrderOf = id => [...mlLayers.keys()].indexOf(id);
+const kindOf = (layer, sp) => {
+	if (layer.type === "raster") return "raster";
+	if (layer.type === "fill-extrusion") return "extrude";
+	if (layer.type === "heatmap") return "heatmap";
+	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) return "cluster";
+	if (layer.type === "symbol") return "symbol";
+	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) return "pattern";
+	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") return "gint";
+	throw new Error(`addLayer: type "${layer.type}" is not supported`);
+};
+const rebuildCluster = async sid => {   // 同じ source の集約の層を一つの集約へ畳む（見えている層だけ）
 	const gen = bumpGen("cluster:" + sid);
 	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
-	const ls = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "cluster").map(v => v.layer);
-	if (!ls.length) { aggCtl?.clear("cluster"); return null; }
-	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: sp.clusterMaxZoom ?? 14 };
+	const ls = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "cluster" && mlVisible(v)).map(v => v.layer);
+	if (!ls.length) { aggCtl?.clear("cluster", sid); return null; }
+	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: sp.clusterMaxZoom ?? 14, slot: sid };
 	for (const L of ls) {
 		if (L.type === "circle" && (L.filter == null || hasPointCount(L.filter) && !/"!"/.test(JSON.stringify(L.filter)))) opts.paint = L.paint;
 		else if (L.type === "circle") opts.unclustered = { paint: L.paint };
@@ -2888,24 +2904,43 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 	if (mlGen.get("cluster:" + sid) !== gen) return null;   // 待っている間に層が足し引きされた＝新しい方に任せる
 	return map.gadget.cluster(pts, opts);
 };
-const rebuildGint = async sid => {   // 同じ source の fill/line/circle を一つの paint に束ねる（filter は最初の層のもの）
+// fill/line/circle＝source ごとに gint の追加層 1 枚（同じ source の層の paint を一つに束ねる・filter は層ごとに and）。
+// データが同じなら setPaint だけ（fid 表の書き換え＝安い）・変わったら setData。
+const mlGint = new Map();   // sid → { h, data, pbf }
+const rebuildGint = async (sid, { dataChanged = false } = {}) => {
 	const gen = bumpGen("gint:" + sid);
 	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
-	const ls = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "gint").map(v => v.layer);
-	if (!ls.length) { gint.clearUserGint(); return null; }
-	let d = dataOf(sp); if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
-	const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
-	if (mlGen.get("gint:" + sid) !== gen) return null;
-	gint.applyGintData(pbf, sid, false, { drape: true });
+	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "gint");
+	const ls = vs.filter(mlVisible).map(v => v.layer);
+	let cur = mlGint.get(sid);
+	if (!ls.length) { if (cur) { cur.h.remove(); mlGint.delete(sid); } return null; }
+	if (!cur || dataChanged || cur.data !== dataOf(sp)) {
+		let d = dataOf(sp); const raw = d;
+		if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
+		const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
+		if (mlGen.get("gint:" + sid) !== gen) return null;
+		cur = mlGint.get(sid);
+		if (cur) { await cur.h.setData(pbf); cur.data = raw; cur.pbf = pbf; }
+		else {
+			const zs = ls.map(L => L.minzoom).filter(Number.isFinite), zx = ls.map(L => L.maxzoom).filter(Number.isFinite);
+			const h = map.addGint(pbf, { order: mlOrderOf(vs[0].layer.id), minZoom: zs.length ? Math.min(...zs) : null, maxZoom: zx.length ? Math.max(...zx) : null });
+			cur = { h, data: raw, pbf }; mlGint.set(sid, cur);
+			await h.ready;
+			if (mlGen.get("gint:" + sid) !== gen) return null;
+		}
+	}
 	const paint = Object.assign({}, ...ls.map(L => L.paint || {}));
-	await map.paint(Object.keys(paint).length ? paint : null, ls.find(L => L.filter)?.filter);
-	return pbf;
+	const fs = ls.map(L => L.filter).filter(f => f != null);
+	const filt = fs.length === 0 ? null : fs.length === 1 ? fs[0] : ["all", ...fs];
+	if (Object.keys(paint).length || filt) await cur.h.setPaint(Object.keys(paint).length ? paint : {}, filt); else await cur.h.setPaint(null);   // paint なし＝層の既定の描き方
+	cur.h.setOrder(mlOrderOf(vs[0].layer.id));
+	return cur.pbf;
 };
 // 塗り/線の模様（MapLibre の fill-pattern／line-pattern）＝記号帳の画像を敷き詰める canvas2D のオーバーレイ（pattern-2d.js）。
 // ⚠設計原則「紙の遺物を捨てる」の側＝既定では何も描かない。MapLibre の層を受ける互換の口だけ（本人 9/21「残りをお願いします」）
 let patOv = null, patOrder = 0;
 const patSent = new Set();
-const addPattern = async (layer, data) => {
+const addPattern = async (layer, data, order) => {
 	const c = await symGet(); patOv ??= map.overlay(patUrl, { name: "pattern" });
 	let d = data; if (typeof d === "string" || d instanceof Blob) d = (await geopbf(d, { gint: false }))?.geojson;
 	const feats = d?.features || (Array.isArray(d) ? d : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];
@@ -2919,44 +2954,124 @@ const addPattern = async (layer, data) => {
 		for (const rings of parts) items.push({ rings: rings.map(r => Float64Array.from(r.flat())), pattern, opacity: +evalExpr(P[fill ? "fill-opacity" : "line-opacity"] ?? 1, ctx), width: fill ? 0 : +evalExpr(P["line-width"] ?? 1, ctx) });
 	}
 	for (const name of new Set(items.map(i => i.pattern))) if (!patSent.has(name)) { const im = c.getImage(name); const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
-	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: patOrder++ });
+	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
 	return { features: items.length };
 };
-map.addSource = (id, spec) => { mlSources.set(id, spec); return map; };
-map.getSource = id => { const sp = mlSources.get(id); return sp ? { ...sp, setData: async data => { sp.data = data; for (const v of [...mlLayers.values()].filter(v => srcId(v.layer) === id)) await map.addLayer(v.layer); } } : undefined; };
-map.removeSource = id => { mlSources.delete(id); return map; };
-map.getLayer = id => mlLayers.get(id)?.layer;
-map.addLayer = async layer => {
-	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
-	const sid = srcId(layer), data = dataOf(sp);
-	let kind, r;
-	if (layer.type === "raster") {
-		kind = "raster";
-		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); r = await map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false }); }
-		else r = await map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false });
-		mlLayers.set(layer.id, { layer, kind, src: sp }); return r;
+// 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
+const mountLayer = async v => {
+	const { layer, kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
+	if (kind === "raster") {
+		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false };
+		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
+		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, ro);
 	}
-	if (layer.type === "fill-extrusion") { kind = "extrude"; mlLayers.set(layer.id, { layer, kind, src: sp }); return map.gadget.extrude(await readPoints(data), { ...layer, fit: false }); }
-	if (layer.type === "heatmap") { kind = "heatmap"; mlLayers.set(layer.id, { layer, kind, src: sp }); return map.gadget.heatmap(await readPoints(data), layer); }
-	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) { mlLayers.set(layer.id, { layer, kind: "cluster", src: sp }); return rebuildCluster(sid); }
-	if (layer.type === "symbol") { kind = "symbol"; mlLayers.set(layer.id, { layer, kind, src: sp }); return (await symGet()).addLayer(layer.id, await readPoints(data), layer); }
-	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) { mlLayers.set(layer.id, { layer, kind: "pattern", src: sp }); return addPattern(layer, data); }
-	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") { mlLayers.set(layer.id, { layer, kind: "gint", src: sp }); return rebuildGint(sid); }
-	throw new Error(`addLayer: type "${layer.type}" is not supported`);
+	if (kind === "extrude") return map.gadget.extrude(await readPoints(data), { ...layer, fit: false, slot: layer.id });
+	if (kind === "heatmap") return map.gadget.heatmap(await readPoints(data), { ...layer, slot: layer.id });
+	if (kind === "cluster") return rebuildCluster(sid);
+	if (kind === "symbol") { const c = await symGet(); const r = await c.addLayer(layer.id, await readPoints(data), layer); c.setOrder(layer.id, order); return r; }
+	if (kind === "pattern") return addPattern(layer, data, order);
+	if (kind === "gint") return rebuildGint(sid);
+};
+const unmountLayer = v => {
+	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
+	if (kind === "raster") map.raster.remove(id);
+	else if (kind === "extrude") modelCtl?.clearExtrude(id);
+	else if (kind === "heatmap") aggCtl?.clear("heatmap", id);
+	else if (kind === "symbol") symCtl?.removeLayer(id);
+	else if (kind === "cluster") return rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
+	else if (kind === "gint") return rebuildGint(sid);
+	else if (kind === "pattern") patOv?.post({ type: "removeLayer", id });
+};
+const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
+	for (const [sid, cur] of mlGint) { const first = [...mlLayers.values()].find(v => v.kind === "gint" && srcId(v.layer) === sid); if (first) cur.h.setOrder(mlOrderOf(first.layer.id)); }
+	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
+	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
+};
+map.addSource = (id, spec) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); return map; };
+map.getSource = id => {
+	const sp = mlSources.get(id); if (!sp) return undefined;
+	return { ...sp, setData: async data => {
+		sp.data = data;
+		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
+		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged: true });
+		for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
+	} };
+};
+map.removeSource = id => {
+	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
+	mlSources.delete(id); return map;
+};
+map.isSourceLoaded = id => mlSources.has(id);
+map.getLayer = id => mlLayers.get(id)?.layer;
+// beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
+map.addLayer = async (layer, beforeId) => {
+	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	const v = { layer: { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, kind: kindOf(layer, sp), src: sp };
+	if (mlLayers.has(layer.id)) { const old = mlLayers.get(layer.id); mlLayers.delete(layer.id); await unmountLayer(old); }
+	if (beforeId != null && mlLayers.has(beforeId)) {
+		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
+		ents.splice(i, 0, [layer.id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
+	} else mlLayers.set(layer.id, v);
+	const r = mlVisible(v) ? await mountLayer(v) : null;
+	if (beforeId != null) reorderLayers();
+	return r;
 };
 map.removeLayer = id => {
 	const v = mlLayers.get(id); if (!v) return map;
 	mlLayers.delete(id);
-	const sid = srcId(v.layer);
-	if (v.kind === "raster") map.raster.remove(id);
-	else if (v.kind === "extrude") modelCtl?.clearExtrude();
-	else if (v.kind === "heatmap") aggCtl?.clear("heatmap");
-	else if (v.kind === "symbol") symCtl?.removeLayer(id);
-	else if (v.kind === "cluster") rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
-	else if (v.kind === "gint") rebuildGint(sid);
-	else if (v.kind === "pattern") patOv?.post({ type: "removeLayer", id });
+	unmountLayer(v);
 	return map;
 };
+map.moveLayer = (id, beforeId) => {
+	const v = mlLayers.get(id); if (!v) return map;
+	mlLayers.delete(id);
+	if (beforeId != null && mlLayers.has(beforeId)) {
+		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
+		ents.splice(i, 0, [id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
+	} else mlLayers.set(id, v);
+	reorderLayers();
+	return map;
+};
+// 性質の変更＝登録簿の層を書き換えて描き直す（gint は fid 表の書き換えだけ＝安い・画像の不透明度は map.raster.set）
+const relayer = v => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : v.kind === "cluster" ? rebuildCluster(srcId(v.layer)) : mountLayer(v)) : null;
+map.setPaintProperty = (id, name, value) => {
+	const v = mlLayers.get(id); if (!v) throw new Error(`setPaintProperty: layer "${id}" not found`);
+	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = value;
+	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
+	relayer(v); return map;
+};
+map.getPaintProperty = (id, name) => mlLayers.get(id)?.layer.paint?.[name];
+map.setLayoutProperty = (id, name, value) => {
+	const v = mlLayers.get(id); if (!v) throw new Error(`setLayoutProperty: layer "${id}" not found`);
+	const was = mlVisible(v);
+	if (value === undefined) delete v.layer.layout[name]; else v.layer.layout[name] = value;
+	const now = mlVisible(v);
+	if (name === "visibility") { if (was && !now) unmountLayer(v); else if (!was && now) (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)); return map; }
+	relayer(v); return map;
+};
+map.getLayoutProperty = (id, name) => mlLayers.get(id)?.layer.layout?.[name];
+map.setFilter = (id, filter) => {
+	const v = mlLayers.get(id); if (!v) throw new Error(`setFilter: layer "${id}" not found`);
+	if (filter == null) delete v.layer.filter; else v.layer.filter = filter;
+	relayer(v); return map;
+};
+map.getFilter = id => mlLayers.get(id)?.layer.filter;
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) return map; v.layer.minzoom = minzoom; v.layer.maxzoom = maxzoom; if (v.kind === "gint") { const cur = mlGint.get(srcId(v.layer)); if (cur) { mlGint.delete(srcId(v.layer)); cur.h.remove(); } } relayer(v); return map; };
+// feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
+// 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
+map.setFeatureState = ({ source, id }, state) => { const cur = mlGint.get(source); if (cur && id != null) cur.h.setFeatureState(+id, state); return map; };
+map.removeFeatureState = ({ source, id } = {}, key) => {
+	const cur = mlGint.get(source); if (!cur) return map;
+	if (key != null && id != null) cur.h.setFeatureState(+id, { [key]: undefined }); else cur.h.removeFeatureState(id == null ? null : +id);
+	return map;
+};
+map.getLayers = () => [...mlLayers.values()].map(v => v.layer);
+// getStyle＝MapLibre の style の形（version 8）。layers＝基図の層（source "basemap"・読むだけ）の上に利用者の層（登録順）
+map.getStyle = () => ({
+	version: 8,
+	sources: { basemap: { type: "vector" }, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
+	layers: [...(style.layers || []).map(L => ({ ...L, source: L.source ?? "basemap" })), ...[...mlLayers.values()].map(v => ({ ...v.layer, source: srcId(v.layer) }))],
+});
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 // geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
@@ -2989,7 +3104,20 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const g = { type: "Polygon", coordinates: [[...q.corners, q.corners[0]]] };
 		if (touches(g)) { const { [IMAGE_KEY]: _img, ...props } = q.properties || {}; out.push({ type: "Feature", properties: props, geometry: g, layer: { id: q.id, type: "raster" }, source: "image" }); }
 	}
-	if (take("extrude")) for (const { f, h } of modelCtl?.extrudedFeatures || []) if (touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: "extrude", type: "fill-extrusion" }, source: "extrude", height: h });
+	for (const { f, h, slot } of [...(modelCtl?.extrudedFeatures || [])].reverse()) {   // 押し出し＝スロットごと（addLayer の層 id・ガジェット直呼びは "extrude"）・新しい方が上
+		const lid = slot === "default" ? "extrude" : slot;
+		if (take(lid) && touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: lid, type: "fill-extrusion" }, source: slot === "default" ? "extrude" : srcId(mlLayers.get(slot)?.layer ?? { id: slot }), height: h });
+	}
+	// addLayer の fill/line/circle（source ごとの gint 層）＝上の層から。点は識別（gint の identifyAt）・箱は地物ごとに当てる
+	for (const [sid, cur] of [...mlGint].sort((a, b) => (b[1].h.order ?? 0) - (a[1].h.order ?? 0))) {
+		const ls = [...mlLayers.values()].filter(v => v.kind === "gint" && srcId(v.layer) === sid && mlVisible(v)).map(v => v.layer).filter(L => take(L.id));
+		if (!ls.length) continue;
+		const pick = g => { const t0 = g?.type?.replace("Multi", ""); return ls.find(L => (L.type === "fill" && t0 === "Polygon") || (L.type === "line" && t0 === "LineString") || (L.type === "circle" && t0 === "Point")) ?? ls[0]; };
+		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
+		const fids = area.ll ? [cur.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx })].filter(v => v != null) : null;
+		const feats = fids ? fids.map(i => [i, cur.pbf.getFeature(i)]) : cur.pbf.features.map((f, i) => [i, f]).filter(([, f]) => f?.geometry && touches(f.geometry));
+		for (const [i, f] of feats) if (f) { const L = pick(f.geometry); out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: L.id, type: L.type }, source: sid }); }
+	}
 	const upbf = gint.userGint?.pbf;
 	if (upbf && take("user")) {
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
@@ -2998,9 +3126,69 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		for (const [i, f] of feats) if (f) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: "user", type: "gint" }, source: "user" });
 	}
 	if (queryCache.size > 32) queryCache.clear();
+	const baseIds = want && new Set((style.layers || []).map(L => L.id));
+	if (want && ![...want].some(id => baseIds.has(id))) return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {} }))) : out;   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ style, hidden: themes.hiddenLi(layerState, cam.zoom), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
 		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache }).catch(err => { console.warn("[query] basemap", err); return []; });
 	return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {} }))).concat(base) : out.concat(base);
+};
+// 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。
+// e＝{ type, point:{x,y}, lngLat:{lng,lat}, features, originalEvent, target: map }。当たりは queryRenderedFeatures（層を絞る＝基図の層でなければタイルを取り直さない）。
+// click はドラッグ（押して 5px 以上動いた）を除く。mousemove は rAF に畳み、最新の問い合わせだけを採る。
+const layerEvs = [];   // { ev, ids:Set, cb, inside }
+const onPlain = map.on, offPlain = map.off;
+const lngLatObj = ll => ll ? { lng: ll[0], lat: ll[1] } : null;
+const hitsFor = async (x, y, ids) => { const fs = await map.queryRenderedFeatures([x, y], { layers: [...ids] }); return fs; };
+let downAt = null, hovSeq = 0, hovRaf = 0, hovLast = null;
+canvas.addEventListener("pointerdown", e => { downAt = evXY(e); }, { signal: ac.signal });
+canvas.addEventListener("click", async e => {
+	const ls = layerEvs.filter(L => L.ev === "click"); if (!ls.length) return;
+	const [x, y] = evXY(e);
+	if (downAt && Math.hypot(x - downAt[0], y - downAt[1]) > 5) return;   // ドラッグの終わり＝クリックではない
+	const ids = new Set(ls.flatMap(L => [...L.ids]));
+	const fs = await hitsFor(x, y, ids);
+	for (const L of ls) { const mine = fs.filter(f => L.ids.has(f.layer?.id)); if (mine.length) try { L.cb({ type: "click", point: { x, y }, lngLat: lngLatObj(unprojectXY(x, y)), features: mine, originalEvent: e, target: map }); } catch (err) { console.error("[map.on click layer]", err); } }
+}, { signal: ac.signal });
+const hoverLs = () => layerEvs.filter(L => L.ev === "mousemove" || L.ev === "mouseenter" || L.ev === "mouseleave");
+const fireLeave = (L, x, y, e) => { if (!L.inside) return; L.inside = false; if (L.ev === "mouseleave") try { L.cb({ type: "mouseleave", point: { x, y }, lngLat: lngLatObj(unprojectXY(x, y)), features: [], originalEvent: e, target: map }); } catch (err) { console.error("[map.on mouseleave]", err); } };
+canvas.addEventListener("pointermove", e => {
+	if (!hoverLs().length || e.buttons) return;   // ドラッグ中は当てない（パンの邪魔をしない）
+	hovLast = e;
+	if (hovRaf) return;
+	hovRaf = requestAnimationFrame(async () => {
+		hovRaf = 0;
+		const ev0 = hovLast, [x, y] = evXY(ev0), seq = ++hovSeq, ls = hoverLs();
+		if (!ls.length) return;
+		const fs = await hitsFor(x, y, new Set(ls.flatMap(L => [...L.ids])));
+		if (seq !== hovSeq) return;   // 追い越された
+		for (const L of ls) {
+			const mine = fs.filter(f => L.ids.has(f.layer?.id));
+			const evo = type => ({ type, point: { x, y }, lngLat: lngLatObj(unprojectXY(x, y)), features: mine, originalEvent: ev0, target: map });
+			if (!mine.length) { fireLeave(L, x, y, ev0); continue; }
+			try {
+				if (L.ev === "mousemove") L.cb(evo("mousemove"));
+				else if (L.ev === "mouseenter" && !L.inside) L.cb(evo("mouseenter"));
+			} catch (err) { console.error("[map.on %s]", L.ev, err); }
+			L.inside = true;
+		}
+	});
+}, { signal: ac.signal });
+canvas.addEventListener("pointerleave", e => { hovSeq++; const [x, y] = evXY(e); for (const L of hoverLs()) fireLeave(L, x, y, e); }, { signal: ac.signal });
+map.on = (ev, a, b) => {
+	if (typeof a === "function" || b == null) return onPlain(ev, a);
+	layerEvs.push({ ev, ids: new Set(Array.isArray(a) ? a : [a]), cb: b, inside: false, key: a });
+	return map;
+};
+map.off = (ev, a, b) => {
+	if (typeof a === "function" || b == null) return offPlain(ev, a);
+	const k = JSON.stringify(a), i = layerEvs.findIndex(L => L.ev === ev && L.cb === b && JSON.stringify(L.key) === k);
+	if (i >= 0) layerEvs.splice(i, 1);
+	return map;
+};
+map.once = (ev, a, b) => {
+	if (typeof a === "function" || (a == null && b == null)) { if (!a) return new Promise(res => { const f = e => { map.off(ev, f); res(e); }; map.on(ev, f); }); const f = e => { map.off(ev, f); a(e); }; return map.on(ev, f); }
+	if (!b) return new Promise(res => { const f = e => { map.off(ev, a, f); res(e); }; map.on(ev, a, f); });
+	const f = e => { map.off(ev, a, f); b(e); }; return map.on(ev, a, f);
 };
 // ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
 const rasterDropFile = async (file, fallback = false) => {
