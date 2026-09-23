@@ -17,6 +17,7 @@
 		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
+		"@loaders.gl/i3s": "^4.4.3",
 		"@ortho-earth/core": "*",
 		"altpbf": "*",
 		"earcut": "^3.2.3",

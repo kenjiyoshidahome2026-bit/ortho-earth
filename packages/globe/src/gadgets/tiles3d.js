@@ -8,6 +8,7 @@
 // 高さ＝既定は tileset の高さのまま（絶対高さ・写真測量の街並みや点群）。地形とずれる時は heightOffset[m] で合わせるか、
 //   建物の tileset なら ground:"terrain"＝1 棟ずつ最低点で地面に接地（PLATEAU の経路と同じ）。
 // 未対応：implicit tiling（3D Tiles 1.1 の subtree）・メタデータとスタイル・楕円体表示（?ell=1）での点群。
+// I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
 import { cameraState } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 
@@ -87,6 +88,19 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		return n;
 	};
 	const kidsOf = n => n.children ??= (n.json.children || []).map(c => tileNode(c, n.M, n.base, n.set, n));
+	// ── I3S（#48）：節点＝worker が返す見出し { id, c:[lon,lat,h], r, thr(px の直径), kids, mesh }。子の見出しは要る時に worker へ（nodepages）
+	const D2R = Math.PI / 180;
+	const i3sNode = (sm, set, parent) => ({ id: ++tileSeq, set, parent, i3s: sm, sphere: { c: geo2ecef(sm.c[0] * D2R, sm.c[1] * D2R, sm.c[2]), r: sm.r }, uri: sm.mesh ? `i3s:${sm.id}` : null,
+		refine: "REPLACE", ge: 0, children: null, kidsState: "none", state: "none", ward: null, bytes: 0, pts: null, on: false, used: 0, err: 0 });
+	const i3sKids = n => {   // 揃っていれば子の配列・取りに行っている間は null
+		if (n.children) return n.children;
+		if (n.kidsState === "none") {
+			n.kidsState = "loading";
+			rpc({ kind: "i3sNodes", url: n.set.url, ids: n.i3s.kids, token: n.set.opts.token }).then(r => { if (!n.set.removed) n.children = r.nodes.map(sm => i3sNode(sm, n.set, n)); n.kidsState = "ready"; })
+				.catch(err => { n.kidsState = "failed"; console.warn("[i3s] node page", err.message); }).finally(schedule);
+		}
+		return n.kidsState === "failed" ? [] : null;
+	};
 
 	// 外部 tileset（content が .json）＝読めたらその根を子にする
 	const loadExternal = n => {
@@ -103,9 +117,10 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
-		const rq = requester ? requester.resolve(n.uri, "Tile") : { url: n.uri };
+		const rq = requester && set.kind !== "i3s" ? requester.resolve(n.uri, "Tile") : { url: n.uri };
 		const body = rq.load ? rq.load("arrayBuffer") : Promise.resolve(null);   // 独自スキーム＝main が読み口で取って本体を worker へ
-		body.then(ab => rpc({ kind: "tile3d", url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
+		body.then(ab => set.kind === "i3s" ? rpc({ kind: "i3sContent", url: set.url, nodeId: n.i3s.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
+			: rpc({ kind: "tile3d", url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
@@ -157,12 +172,26 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);
 				if (el > 1 && (c[0] * eye[0] + c[1] * eye[1] + c[2] * eye[2]) / el + r < 1 / el) return { ok: false };
-				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M };
+				return { ok: true, dist: Math.max(1e-9, dl - r) * EARTH_M, distC: Math.max(1e-9, dl) * EARTH_M };
 			};
 			const walk = (n, out) => {   // 戻り＝描くべき物が全部揃ったか
 				const v = visible(n);
 				if (!v.ok) return true;
 				n.used = frameNo;
+				if (n.i3s) {   // I3S＝境界球の画面上の直径が lodThreshold（px）を超えたら子へ（loaders.gl の i3s-lod と同じ規則）
+					const diam = 2 * n.sphere.r * fpx / v.distC;
+					if (diam < 2) return true;
+					const need = x => { if (x.state === "none") want.push({ n: x, pri: diam }); return x.state === "ready" || x.state === "failed"; };
+					const dig = n.i3s.kids.length > 0 && diam > n.i3s.thr * (set.opts.lodScale ?? 1);
+					if (!dig) { if (!n.uri) return true; const ok = need(n); if (n.state === "ready") out.push(n); return ok; }
+					const kids = i3sKids(n);
+					const mark = out.length;
+					let all = !!kids;
+					for (const k of kids || []) all = walk(k, out) && all;
+					if (all) return true;
+					if (n.uri) { need(n); if (n.state === "ready") { out.length = mark; out.push(n); return true; } }
+					return false;
+				}
 				const sse = n.ge * fpx / v.dist;
 				if (n.external) { if (n.state === "none") loadExternal(n); return n.state === "failed"; }
 				const kids = kidsOf(n);
@@ -230,6 +259,24 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, bbox: n.bbox })); },   // 検分用
 				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); },
 				setOptions: o => { Object.assign(set.opts, o); schedule(); } };
+		},
+		// I3S（#48）：url＝…/SceneServer（layers/0 を補う）か …/SceneServer/layers/N。opts＝add と同じ＋lodScale（>1 で粗く・<1 で細かく）・token
+		async addI3S(url, opts = {}) {
+			let u = String(url).replace(/\/+$/, ""); if (/\/SceneServer$/i.test(u)) u += "/layers/0";
+			const abs = new URL(u, location.href).href;
+			const info = await rpc({ kind: "i3sOpen", url: abs, token: opts.token });
+			const id = opts.id ?? `i${++seq}`;
+			if (sets.has(id)) ctl.remove(id);
+			const set = { id, kind: "i3s", url: abs, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0 }, query: [], pts: null, removed: false, hidden: false, name: info.name, copyright: info.copyright };
+			set.root = i3sNode(info.root, set, null);
+			const all = function* (n) { if (!n) return; yield n; for (const k of n.children || []) yield* all(k); };
+			set.loaded = () => [...all(set.root)].filter(n => n.state === "ready" && n.ward);
+			sets.set(id, set);
+			const sp = set.root.sphere;
+			if (opts.fit !== false && sp) { const z = Math.log2(Math.min(size().w, size().h) / (cam.dpr || dpr || 1) * 360 / (256 * Math.max(1e-6, 2.4 * sp.r / 111320))); map.flyTo(info.root.c[0], info.root.c[1], Math.max(2, Math.min(18, z)), 50); }
+			schedule();
+			return { id, name: info.name, copyright: info.copyright, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), inflight } },
+				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); }, setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
 		remove(id) {
 			const set = sets.get(id); if (!set) return;

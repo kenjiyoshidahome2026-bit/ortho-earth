@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- 実描画の検分：I3S（#48）＝ArcGIS の公開シーンレイヤ（サンフランシスコの建物・deck.gl の例と同じ）を map.addI3S で流す。
+     外部配信に依る＝手で回す（関門には入れない）。?u=<SceneServer/layers/N> で差し替え・?g=terrain で 1 棟ずつ接地 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-i3s</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const Q = new URLSearchParams(location.search), sleep = ms => new Promise(r => setTimeout(r, ms));
+const U = Q.get("u") || "https://tiles.arcgis.com/tiles/z2tnIkrLQ2BRzr6P/arcgis/rest/services/SanFrancisco_Bldgs/SceneServer/layers/0";
+try {
+	const map = await createGlobe({ target: "#map", view: Q.get("v") || "#15.5/37.7915/-122.4015/55t", chips: false, debugGlobals: true });
+	await sleep(2000);
+	const h = await map.addI3S(U, { fit: false, ground: Q.get("g") || "absolute" });
+	const t0 = performance.now(); while (performance.now() - t0 < 60000) { await sleep(1000); if (h.stats.shown > 0 && h.stats.inflight === 0 && performance.now() - t0 > 10000) break; }
+	await sleep(+(Q.get("tail") || 15000));
+	document.title = (h.stats.shown > 0 && h.stats.triangles > 0 ? "PASS " : "FAIL ") + JSON.stringify({ name: h.name, ...h.stats });
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script></body></html>

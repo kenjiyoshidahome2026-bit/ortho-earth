@@ -2736,6 +2736,8 @@ map.gadget("tiles3d", async function (url, opts = {}) {
 	return c.add(url, opts);
 });
 map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
+// I3S（ArcGIS の Indexed 3D Scene Layer・#48）＝同じ選び・同じ GPU 経路（gadgets/tiles3d.js の addI3S）。url＝…/SceneServer か …/SceneServer/layers/N
+map.addI3S = async (url, opts) => (await t3dGet()).addI3S(url, opts);
 map.Marker = Marker; map.Popup = Popup;
 // 取得の前の手入れ（#37・MapLibre 同名）：setTransformRequest(fn)＝以後の取得に効く（すでに取った基図タイルは取り直さない）・addProtocol は大域（SDK の export と同じ）
 map.setTransformRequest = fn => { requester.setTransform(fn); return map; };
@@ -2745,6 +2747,8 @@ map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, 
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;
 	if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh") || 0, fit: !location.hash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
+	const iu = q.get("i3s") ? remoteUrl(q.get("i3s"), "i3s") : null;   // ?i3s=<SceneServer の URL>（門は ?g= と共用）
+	if (iu) { const off = map.onFrame(() => { off(); map.addI3S(iu.href, { heightOffset: +q.get("t3dh") || 0, fit: !location.hash, ground: q.get("i3sground") || "absolute" }).catch(err => console.warn("[i3s] ?i3s=", err)); }); }
 }
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);

@@ -6,6 +6,7 @@
 import { decodeModel, setDecodeEnv } from "./meshdecode.js";
 import { extrudeMesh } from "./extrude.js";
 import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
+import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.js";   // I3S（#48）＝kind:"i3sOpen"/"i3sNodes"/"i3sContent"（loaders.gl の i3s は最初に使う時だけ読む）
 
 const transferOf = batches => {
 	const tr = new Set();
@@ -22,6 +23,13 @@ self.onmessage = async e => {
 			if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 			const batches = [{ mesh: r.mesh, tex: null, alphaMode: "OPAQUE", alphaCutoff: 0.5 }];
 			self.postMessage({ id, batches, mask: r.mask, stats: r.stats }, transferOf(batches));
+			return;
+		}
+		if (kind === "i3sOpen") { self.postMessage({ id, ...(await i3sOpen(e.data.url, e.data.token)) }); return; }
+		if (kind === "i3sNodes") { self.postMessage({ id, nodes: await i3sNodes(e.data.url, e.data.ids, e.data.token) }); return; }
+		if (kind === "i3sContent") {
+			const r = await i3sContent(e.data.url, e.data.nodeId, { baseH: e.data.baseH ?? 0, ground: e.data.groundMode, token: e.data.token });
+			self.postMessage({ id, batches: r.batches, points: [], stats: r.stats }, transferOf(r.batches));
 			return;
 		}
 		if (kind === "tile3d") {   // 3D Tiles のタイル＝worker が取りに行く（main は URL と変換だけ渡す）
