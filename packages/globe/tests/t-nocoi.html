@@ -28,7 +28,13 @@ try {
 	}
 
 	const { createGeopbf, geopbf } = await import("../../../packages/geopbf/src/index.js");
-	createGeopbf(location.origin + "/nope");   // Object 入力は網を使わない＝疎通しないURLでよい
+	// worker の入口はホストが渡す＝部品は自前で new Worker しない（worker 入口 1 本の作法・2026-09-22）。
+	// これを渡さないと builtinWorkers の「作らない版」が null を返し、encoder:gint が立たずに
+	// 「Cannot set properties of null」で落ちる（2026-09-24 に気づいた＝この頁は長く赤だった）。
+	// ⚠ options に変数（name: role）を入れる形は vite が静的に読めない＝/* @vite-ignore */ が要る（globe.js の hostWorker と同じ作法）。
+	// 付け忘れると worker ではなく**この inline モジュールごと** 500 になり、頁は無言で止まる（console にも出ない・2026-09-24 に踏んだ）。
+	const hostWorker = role => new Worker(new URL("@ortho-earth/globe/worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role });
+	createGeopbf(location.origin + "/nope", { workerFactory: hostWorker });   // Object 入力は網を使わない＝疎通しないURLでよい
 
 	// ── ② GeoJSON → GeoPBF → gint 復号（setGintBUF＝SAB/AB の分岐点を実際に通す）──
 	const sq = (cx, cy, d) => [[[cx - d, cy - d], [cx + d, cy - d], [cx + d, cy + d], [cx - d, cy + d], [cx - d, cy - d]]];
