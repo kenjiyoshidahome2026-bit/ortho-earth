@@ -27,5 +27,10 @@
 		"glbconv": "*",
 		"native-bucket": "*",
 		"quiet-mono": "*"
+	},
+	"scripts": {
+		"verify": "npm --prefix ../../apps/ortho-japan run verify:globe",
+		"verify:ui": "node ../../apps/ortho-japan/scripts/verify-ui.mjs --globe",
+		"verify:webgpu": "node ../../apps/ortho-japan/scripts/verify-webgpu.mjs --globe"
 	}
 }

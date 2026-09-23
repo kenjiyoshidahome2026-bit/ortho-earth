@@ -12,7 +12,12 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar", "t-model"];
-const PAGES = process.argv.length > 2 ? ALL_PAGES.filter(p => process.argv.slice(2).includes(p)) : ALL_PAGES;   // 引数＝ページ名の絞り込み（例 node scripts/verify-ui.mjs t-scene）
+// japan（地域パック・日本の頁）に依る頁＝これ以外は globe（地球儀のホスト）の関門（LAYERS.md 段階 2 S5・2026-09-23）。--globe / --japan で集合を選ぶ
+const JP_PAGES = new Set(["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene"]);   // 検索/建物/home の搭載・画像タイル台帳・台本（日本の街）
+const LAYER = process.argv.includes("--globe") ? "globe" : process.argv.includes("--japan") ? "japan" : null;
+const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
+const BY_LAYER = LAYER ? ALL_PAGES.filter(p => JP_PAGES.has(p.split("?")[0]) === (LAYER === "japan")) : ALL_PAGES;
+const PAGES = ARGS.length ? BY_LAYER.filter(p => ARGS.includes(p)) : BY_LAYER;   // 引数＝ページ名の絞り込み（例 node scripts/verify-ui.mjs t-scene）
 // t-meshfs は verify:webgpu（実時間）側：OPFS の実 I/O は virtual-time と両立しない（t-webgpu と同じ轍）。
 
 const vite = spawn("npx", ["vite", "--port", String(PORT), "--strictPort"], { cwd: APP, stdio: "ignore" });
