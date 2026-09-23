@@ -116,8 +116,10 @@ const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世
 const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
 const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
-const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
-const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
+// 建物の申告＝「台帳の在り処」と「焼きの置き場」の対。どちらも地域が持ち、ホストは中身を知らない。
+const stampBake = (sets, b) => b.bakeBase ? sets.map(s => s.bakeBase ? s : { ...s, bakeBase: b.bakeBase }) : sets;   // 台帳の各 set へ焼きの置き場を刻む（区ごとの別置き場も許す）。無宣言＝焼き無し＝生経路のみ
+const REGION_SETS = REGIONS.flatMap(r => r.buildings ? stampBake(r.buildings.sets ?? [], r.buildings) : []);   // その場で配る建物台帳（オランダ 3 件）
+const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog);   // 取得する台帳の申告（日本の 336 件）＝{ catalog, bakeBase? }
 const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
 const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
 const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
@@ -768,7 +770,7 @@ const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(locat
 const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
 const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager を起こす時だけ（wakeMesh）
-	Promise.all(REGION_CATALOG.map(name => fetch(ASSET_BASE + name).then(r => r.json()))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
+	Promise.all(REGION_CATALOG.map(b => fetch(ASSET_BASE + b.catalog).then(r => r.json()).then(list => stampBake(list, b)))).then(lists => {   // BASE_URL＝サブパス配信(/ortho-japan/)対応
 		let sets = lists.flat();
 		if (REGION_SETS.length) { sets = sets.concat(REGION_SETS); console.log(`[mesh] added ${REGION_SETS.length} set(s) declared by region ${REGIONS.map(r => r.code).join("+")}`); }
 		return sets;

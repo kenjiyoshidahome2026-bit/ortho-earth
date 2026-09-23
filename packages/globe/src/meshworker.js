@@ -500,12 +500,16 @@ const lane = new Map();   // base → "fast" | "slow"
 // 大きい区の中でも「今見ている側」から立つ。
 let latestCam = null;
 
-// ── R2 焼き（第三の入口・2026-09-07）：scripts/bake-plateau.mjs が置いた PLQ（meshq.js）を MLIT 生経路の前に引く ──
-// 置き場＝{bakeUrl}v{IDB_FMT_VER}/{slug}/（球）・…/ell/（楕円体）。無い（404）/版違い/brid・ell・wardBbox 不一致/壊れ＝黙って
+// ── R2 焼き（第三の入口・2026-09-07）：焼いた PLQ（meshq.js）を生経路の前に引く ──
+// 置き場は**地域の申告**（buildings.bakeBase → globe が set へ刻む → load メッセージの bakeBase）。宣言しない地域は
+// 焼きを引かない＝生経路のみ（オランダ 3DBAG）。2026-09-23 申告化：旧＝日本の焼きバケツを worker に直書きし、
+// clip/tilesetUrl の無い区を「PLATEAU らしい」と推量して引いていた＝エンジンが一国のデータを既定に抱えていた。
+// 置き場＝{bakeBase}v{IDB_FMT_VER}/{slug}/（球）・…/ell/（楕円体）。無い（404）/版違い/brid・ell・wardBbox 不一致/壊れ＝黙って
 // 生経路（タイル粒度＝焼けなかったタイル(unbaked)も生経路が拾う）。マニフェストは base ごとに1時間だけ記憶（否定も）＝再訪・
-// ローテで 404 を撒かない。?nobake=1 で封印・?bake=URL で置き場差し替え（ローカル検証）。
-const BAKE_URL_DEFAULT = "https://api.ortho-earth.com/bucket/GIS/plateau/";
-let bakeUrl = BAKE_URL_DEFAULT;
+// ローテで 404 を撒かない。?nobake=1 で封印・?bake=URL で置き場差し替え（ローカル検証＝宣言より優先）。
+let bakeOverride = null;   // ?bake=URL（全区に効く・宣言より優先）
+let bakeOff = false;       // ?nobake=1
+const bakeRootOf = declared => bakeOff ? null : (bakeOverride || declared || null);
 const bakeManifests = new Map();   // base → { m, ts }（m=null は否定キャッシュ）
 // bucket Worker は gzip 済み本体を Content-Encoding 無しで返す（cache.put で剥がれる＝estatworker と同じ轍）＝magic を見て自前で伸長。
 // ローカル検証（?bake=）の素のファイルはそのまま通る。
@@ -522,13 +526,13 @@ async function bakeBytes(url) {
 	return u8;
 }
 const BAKE_TTL_MS = 3600e3;
-async function bakeManifest(base, brid, wardBbox) {
-	if (!bakeUrl) return null;
+async function bakeManifest(base, brid, wardBbox, root) {
+	if (!root) return null;
 	const c = bakeManifests.get(base);
 	if (c && Date.now() - c.ts < BAKE_TTL_MS) return c.m;
 	let m = null;
 	try {
-		m = JSON.parse(new TextDecoder().decode(await bakeBytes(bakeUrl + bakeDir(base, IDB_FMT_VER, ELL) + "manifest.json")));   // bucket Worker の 404 は {data:null}＝下の検分で落ちる
+		m = JSON.parse(new TextDecoder().decode(await bakeBytes(root + bakeDir(base, IDB_FMT_VER, ELL) + "manifest.json")));   // bucket Worker の 404 は {data:null}＝下の検分で落ちる
 		const sameBox = (a, b) => (!a && !b) || (!!a && !!b && a.length === 4 && a.every((v, i) => Math.abs(v - b[i]) < 1e-9));
 		if (!m || m.ver !== IDB_FMT_VER || m.plq !== PLQ_VER || !!m.brid !== !!brid || !!m.ell !== ELL || !sameBox(m.wardBbox, wardBbox) || !Array.isArray(m.batches) || !Array.isArray(m.tiles)) {
 			if (m && m.ver) console.warn("[mesh] bake manifest ignored (version/mode mismatch)", base, { ver: m.ver, plq: m.plq, brid: m.brid, ell: m.ell });
@@ -542,7 +546,8 @@ async function bakeManifest(base, brid, wardBbox) {
 // ロード本体：葉タイル収集→カメラ近傍順ソート→バッチごとにデコード→完成次第 render worker へ直送（逐次表示）。
 // メモリ→IDB→ネットワークの3段。IDBヒット時もバッチ逐次送信＝プログレッシブ表示のまま。
 // 返り値: true=完了 / false=空データ / "cancelled"=視野離脱キャンセル（main は failed 扱いにしない）。
-async function loadMesh(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false, clip = null, tilesetUrl = null) {
+async function loadMesh(base, tiles, ward, wardBbox, camCenter, preload = false, brid = false, clip = null, tilesetUrl = null, bakeBase = null) {
+	const bakeRoot = bakeRootOf(bakeBase);   // この区の焼きの置き場（null＝焼きを持たない地域／?nobake=1）
 	if (cache.has(base)) {
 		const c = cache.get(base);
 		cache.delete(base); cache.set(base, c);   // LRU touch（最近使用へ）
@@ -659,7 +664,7 @@ async function loadMesh(base, tiles, ward, wardBbox, camCenter, preload = false,
 
 	let leaves, bake = null;
 	if (tiles) leaves = tiles.map(u => ({ uri: resolveUrl(base, u), center: null }));
-	else if ((bake = (!clip && !tilesetUrl) ? await bakeManifest(base, brid, wardBbox) : null)) {
+	else if ((bake = await bakeManifest(base, brid, wardBbox, bakeRoot))) {
 		// R2 焼きの葉一覧＝tileset 走査（スタブ→実体の直列往復）を丸ごと省く。焼けなかったタイル（unbaked）も葉に含める＝生経路が拾う
 		leaves = bake.tiles.map(s => ({ uri: bake.prefix + s, center: null }));
 		console.log("[mesh] bake manifest:", leaves.length, "tiles", bake.batches.length, "batches ←", base);
@@ -794,7 +799,7 @@ async function loadMesh(base, tiles, ward, wardBbox, camCenter, preload = false,
 			const c2 = b => b.bbox ? ((b.bbox[0] + b.bbox[2]) / 2 - cam[0]) ** 2 + ((b.bbox[1] + b.bbox[3]) / 2 - cam[1]) ** 2 : Infinity;
 			todo.sort((a, b) => c2(a) - c2(b));
 		}
-		const dir = bakeUrl + bakeDir(base, IDB_FMT_VER, ELL);
+		const dir = bakeRoot + bakeDir(base, IDB_FMT_VER, ELL);
 		const fetchOne = b => { stallTouch(ward, "bake-fetch", b.f); const t0 = performance.now(); const tm = setTimeout(() => console.warn(`[mesh] bake fetch >5s ${ward} ${b.f}`), 5000); return bakeBytes(dir + b.f).then(u8 => unpackPLQ(u8)).catch(e => { console.warn("[mesh] bake batch failed → live path", b.f, e?.message ?? e); return null; }).finally(() => { clearTimeout(tm); if (performance.now() - t0 > 5000) console.warn(`[mesh] bake fetch done after ${((performance.now() - t0) / 1000).toFixed(1)}s ${ward} ${b.f}`); }); };
 		const used = new Set();
 		// 先読み 3 本（fast）＝bucket Worker の 1 往復 ~1s（エッジ未キャッシュ時）を重ねる：港区 16 バッチが直列 1 本先読みで 20s、
@@ -878,8 +883,8 @@ self.onmessage = async (e) => {
 		if (e.data.lowMem || e.data.mid) POOL_MAX = 16 << 20;
 		initFs(e.data.noOpfs);   // バッチ本体の置き場（OPFS可否の確定は fsReady。ロード側が await して待つ）
 		if (e.data.farH > 0) FAR_MIN_H = e.data.farH;   // 遠景far-DBの高さ閾値（?farh=N・既定200m）
-		if (e.data.noBake) bakeUrl = null;                // ?nobake=1＝R2 焼きを引かない（生経路のみ・A/B と切り分け用）
-		else if (e.data.bakeUrl) bakeUrl = e.data.bakeUrl;   // ?bake=URL＝置き場差し替え（ローカル焼きの検証）
+		if (e.data.noBake) bakeOff = true;                     // ?nobake=1＝R2 焼きを引かない（生経路のみ・A/B と切り分け用）
+		else if (e.data.bakeUrl) bakeOverride = e.data.bakeUrl;   // ?bake=URL＝置き場差し替え（ローカル焼きの検証・地域の申告より優先）
 		memOn = !!e.data.mem;   // ?hud=1（旧mem=1）＝過渡バイトの報告を有効化（既定は完全無音＝計測コストゼロ）
 		if (e.data.mid) CACHE_MAX = 0;   // 非力機（内蔵GPU/低コア）＝worker内キャッシュなし＝ロード中の全量保持(keep)も同時に消える（送ったら手放す）。再訪はOPFS
 		if (e.data.lowMem) { CACHE_MAX = 0; BATCH_TILES = 8; setDecodeEnv({ tileConcurrency: 4 }); }   // 低メモリ端末＝worker内キャッシュなし（区一式の常駐がタブ落ちの下駄になる。再訪はIDB）＋バッチ8タイル＝デコード過渡・IDBレコード（1書込のcommitバースト）・送信ペイロードの粒度を半減（Kenji指定 2026-07-29「IDB書き込みの粒度を下げる」。draw call 増は LOW_MEM=同時1区で相殺）
@@ -919,7 +924,7 @@ self.onmessage = async (e) => {
 		self.postMessage({ type: "idbDeleted", base, n });
 		return;
 	}
-	const { id, base, tiles, name, wardBbox, camCenter, preload, brid, clip, tilesetUrl } = e.data;
+	const { id, base, tiles, name, wardBbox, camCenter, preload, brid, clip, tilesetUrl, bakeBase } = e.data;
 	try {
 		cancelled.delete(base);   // 新規要求＝キャンセル旗を降ろす（再訪はゼロから正規に読み直す）
 		if (!preload) lane.set(base, "fast");   // 新規の表ロードは fast lane から
@@ -927,13 +932,13 @@ self.onmessage = async (e) => {
 		let ent = inflight.get(base);
 		if (!ent) {
 			stallWatch.set(name, { t: performance.now(), stage: "start", extra: "" });
-			ent = { p: loadMesh(base, tiles, name, wardBbox, camCenter, !!preload, !!brid, clip, tilesetUrl), preload: !!preload };
+			ent = { p: loadMesh(base, tiles, name, wardBbox, camCenter, !!preload, !!brid, clip, tilesetUrl, bakeBase || null), preload: !!preload };
 			inflight.set(base, ent);
 			ent.p.finally(() => { inflight.delete(base); stallWatch.delete(name); }).catch(() => {});   // 掃除専用の枝＝拒否はここで握り潰す（本流の reject は下の await が受ける）
 		}
 		let ok = await ent.p;
 		// プレロード進行中に表示要求が合流した場合、合流先は描画へ送っていない＝完了後に改めて（キャッシュ命中＝即）送る。
-		if (ok === true && ent.preload && !preload) ok = await loadMesh(base, tiles, name, wardBbox, camCenter, false, !!brid, clip, tilesetUrl);
+		if (ok === true && ent.preload && !preload) ok = await loadMesh(base, tiles, name, wardBbox, camCenter, false, !!brid, clip, tilesetUrl, bakeBase || null);
 		// bytes＝この区のメッシュ実バイト＝main のGPU常駐バイト予算LRUの物差し。cache 命中時はその実体から、
 		// cache を持たない構成（lowMem/mid）は meshBytes の記録から返す（0を返すと main は 200MB の保守見積りに落ちる）。
 		self.postMessage({ id, ok, bytes: cache.has(base) ? batchBytes(cache.get(base).batches) : (meshBytes.get(base) || 0) });
