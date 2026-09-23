@@ -34,9 +34,10 @@ export const MAP_THEMES = {
 		// 世界パレット（?world=1 全球ハイプソ）＝ortho-core worldpal の正本（equal と共有）。未指定キーは既定（resolveWorldPal の per-key マージ）
 		worldHypso: WORLD_PAL_THEMES.dark,
 	},
-	// gsi＝地理院配色（標準地図）。style-gsi が式言語の色を対応表で地理院色へ写す。ノブも一次資料 std.json の実色。
+	// topo＝地形図（紙の地形図の顔・旧 gsi＝2026-09-24 改名）。style-gsi が式言語の色を一次資料 std.json の実色へ写す
+	// ＝配色の**出所**は地理院（相手の色）だが、テーマの**呼び名**は顔で言う（c=topo・別名 c=gsi は worldstyle の ALIAS が受ける）。
 	// hypso/distColor 省略＝標準地図は標高ティント無し・遠山は既定ブルー（明るい紙なので ui-dark 家具も付かない）。
-	gsi: {
+	topo: {
 		style: styleGsi,
 		bldColor: [1.0, 0.90, 0.75],            // 建物＝地理院の淡橙 rgb(255,230,190)
 		contourColor: [0.784, 0.627, 0.235],    // 等高線＝地理院の茶 rgb(200,160,60)
@@ -45,10 +46,10 @@ export const MAP_THEMES = {
 		facilityRGB: [0.376, 0.098, 0.525],     // 施設ラベル＝地理院の施設系注記の紫 rgb(96,25,134)
 		terrainRGB: [0.459, 0.298, 0.141],      // 地形名ラベル＝mono の茶を踏襲（等高線の茶の同族）
 		// 世界パレット＝ortho-core worldpal の正本（equal と共有）：陸は自然色のまま・海だけ地理院の水色
-		worldHypso: WORLD_PAL_THEMES.gsi,
+		worldHypso: WORLD_PAL_THEMES.topo,
 	},
 	// sepia＝暖色・古地図（Quiet Mono Sepia）。style-sepia が式言語の色を対応表で暖色へ写す。明るい紙＝ui-dark 家具なし。
-	// 地形を暖色で立てる＝contour/distColor/hypso を全部持たせる（mono/gsi は省略、dark は寒色版）＝古地図の主役は地形。
+	// 地形を暖色で立てる＝contour/distColor/hypso を全部持たせる（mono/topo は省略、dark は寒色版）＝古地図の主役は地形。
 	sepia: {
 		style: styleSepia,
 		bldColor: [0.90, 0.82, 0.67],           // 建物＝warm tan
