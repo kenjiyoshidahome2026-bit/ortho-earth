@@ -12,15 +12,15 @@
 		"preview:prod": "vite build && wrangler dev"
 	},
 	"dependencies": {
-		"@ortho-earth/core": "*",
-		"geopbf": "*",
-		"altpbf": "*",
-		"native-bucket": "*",
-		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
-		"quiet-mono": "*",
-		"ephem": "*"
+		"@ortho-earth/core": "*",
+		"@ortho-earth/ephem": "*",
+		"altpbf": "*",
+		"geopbf": "*",
+		"native-bucket": "*",
+		"quiet-mono": "*"
 	},
 	"devDependencies": {
 		"vite": "^5.0.0"

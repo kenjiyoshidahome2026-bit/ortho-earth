@@ -12,7 +12,7 @@ window.confirm = () => false;
 <script type="module">
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
-import orthoJapan from "../app.js";
+import { createGlobe } from "@ortho-earth/globe";
 import { initEditor, setLang as __geSetLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示
 await __geSetLang("ja");
 import { idbClear } from "geoedit";
@@ -31,7 +31,7 @@ const click = (x, y) => { C().dispatchEvent(new PointerEvent("pointerdown", ev(x
 try {
 	const Q = new URLSearchParams(location.search);   // ?v=#z/lat/lng[/bearing r]&a=lon,lat&b=lon,lat＝視点と対角を差し替えて本人の URL を再現できる
 	const A = (Q.get("a") || "120,27").split(",").map(Number), B = (Q.get("b") || "150,44").split(",").map(Number);
-	const map = await orthoJapan({ view: Q.get("v") || "#5/36/135", maxPitch: 0 });
+	const map = await createGlobe({ view: Q.get("v") || "#5/36/135", maxPitch: 0 });
 	await idbClear();
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);

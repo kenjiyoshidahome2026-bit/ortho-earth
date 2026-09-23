@@ -20,13 +20,17 @@ const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-c
 const changed = await new Promise(res => { const c = spawn("git", ["diff", "--name-only", "japan-deployed", "HEAD", "--", ...WATCH], { cwd: APP }); let out = "", bad = false; c.stdout.on("data", d => out += d); c.on("error", () => res(null)); c.on("close", code => res(code === 0 ? out.split("\n").filter(Boolean) : null)); });
 const dirty = await new Promise(res => { const c = spawn("git", ["status", "--porcelain", "--", ...WATCH], { cwd: APP }); let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => res(out.split("\n").filter(Boolean))); });
 const full = changed === null || changed.length > 0 || dirty.length > 0;
-const QUICK = ["t-backfill", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3", "t-import"];
-console.log(`… 関門を並行で（verify:editor${full ? "（全部＝エディタ/gint に変更あり" + (changed === null ? "・tag なし" : `・${changed.length + dirty.length} ファイル`) + "）" : "（速い 4 ページ＝エディタ/gint に変更なし）"} ‖ verify:prod）`);
-const [ed, pr] = await Promise.all([
+// 速い版の頁は 2026-09-24 に二手へ分かれた＝t-backfill／t-rectlook は packages/globe の門（頁があちらへ移った）、
+// t-import はこの殻の門。どちらも並行に回す（下の Promise.all）。
+const QUICK = ["t-import"];
+const QUICK_GLOBE = ["t-backfill", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3"];
+console.log(`… 関門を並行で（verify:editor${full ? "（全部＝エディタ/gint に変更あり" + (changed === null ? "・tag なし" : `・${changed.length + dirty.length} ファイル`) + "）" : "（速い版＝エディタ/gint に変更なし）"} ‖ globe の門 ‖ verify:prod）`);
+const [ed, gl, pr] = await Promise.all([
 	full ? run("npm", ["run", "-s", "verify:editor"], "editor") : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor"),
+	full ? run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu"], "globe") : run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...QUICK_GLOBE], "globe"),
 	run("npm", ["run", "-s", "verify:prod"], "prod"),
 ]);
-if (ed !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
+if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} globe=${gl} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
 console.log(`✓ 関門 PASS ${el()}`);
 // 配布物の掃除（dev 専用・重い置き土産）→ deploy → 実配信の検定
 const sh = (cmd) => run("sh", ["-c", cmd], "deploy");

@@ -13,7 +13,7 @@ window.confirm = () => false;
 <script type="module">
 import { createGeopbf } from "geopbf";
 createGeopbf("https://api.ortho-earth.com");
-import orthoJapan from "../app.js";
+import { createGlobe } from "@ortho-earth/globe";
 import { initEditor, setLang as __geSetLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示
 await __geSetLang("ja");
 import { idbClear } from "geoedit";   // 前のページの自動保存（同一プロファイル）を復元させない＝視点/データの上書き競合を封じる
@@ -35,7 +35,7 @@ const FC = { type: "FeatureCollection", features: [
 ] };
 
 try {
-	const map = await orthoJapan({ view: "#3/0/-90", maxPitch: 0 });
+	const map = await createGlobe({ view: "#3/0/-90", maxPitch: 0 });
 	await idbClear();
 	const editor = initEditor(map);
 	for (let i = 0; i < 200 && !editor.model; i++) await sleep(100);
