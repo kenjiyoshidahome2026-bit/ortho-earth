@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- 実描画の検分：任意の 3D Tiles を画面上の誤差で流す（#41・2026-09-23）。試料＝tests/fixtures/tiles3d（make.mjs で生成）＝東京駅の ENU の根：
+     親＝赤い板（粗い）／子＝青い箱 4 棟（1 棟は b3dm の RTC_CENTER）・緑の点群（pnts）・黄の箱 9 個（i3dm）・紫の箱（外部 tileset）。
+     ①寄ると子が全部そろい親は伏せる（REPLACE）②画素：青・黄・緑・紫が出て赤は出ない ③離れると親だけ ④remove で全部降りる。globe（地域なし）・実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-tiles3d</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (f()) return true; await sleep(250); } return false; };
+run(); async function run() { try {
+	const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", chips: false, debugGlobals: true });
+	await sleep(2500);
+	const h = await map.add3DTiles("./fixtures/tiles3d/tileset.json", { fit: false });
+	const full = await until(() => h.stats.shown >= 7);
+	ok("replace", full && h.stats.shown === 7, JSON.stringify(h.stats));
+	ok("content", h.stats.triangles >= 6 * 12 + 9 * 12 && h.stats.points === 900, `tris=${h.stats.triangles} pts=${h.stats.points}`);
+	await sleep(1500);
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const count = (img, test) => { let k = 0; for (let i = 0; i < img.data.length; i += 4) if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; return k; };
+	// GPU への登録は 1 フレーム 1 件に平準化されている＝ソフトウェア描画（headless）では揃うまで数秒かかる＝揃うまで撮り直す
+	let blue = 0, yellow = 0, purple = 0, red = 0;
+	for (let k = 0; k < 8; k++) {
+		const img = await grab();
+		blue = count(img, (r, g, b) => b > 120 && b > r * 2 && b > g * 1.6); yellow = count(img, (r, g, b) => r > 150 && g > 130 && b < 90);
+		purple = count(img, (r, g, b) => r > 80 && b > 110 && g < 70); red = count(img, (r, g, b) => r > 150 && g < 60 && b < 60);
+		if (blue > 500 && yellow > 50 && purple > 30 && red < 50) break;
+		await sleep(2500);
+	}
+	ok("pixels", blue > 500 && yellow > 50 && purple > 30 && red < 50, `blue=${blue} yellow=${yellow} purple=${purple} red=${red}`);
+	// 点群＝同一フレームのオーバーレイ（撮影 snapshot には写らない）＝オーバーレイが立ち上がったことを見る
+	ok("points", window.__overlay?.["tiles3d:" + h.id]?.stage === "ready", JSON.stringify(window.__overlay?.["tiles3d:" + h.id] ?? null));
+	if (new URLSearchParams(location.search).has("hold")) { document.title = "HOLD " + t.join(" ") + " " + JSON.stringify(h.tiles) + " backend=" + map.backend; return; }   // ?hold=1＝寄った絵のまま止める（見た目の確認用）
+	// 離れる＝親だけ（子は伏せて GPU には残る）
+	map.jumpTo({ zoom: 12.5, pitch: 0 });
+	const coarse = await until(() => h.stats.shown === 1, 10000);
+	ok("coarse", coarse, JSON.stringify(h.stats));
+	// 外す
+	h.remove();
+	await sleep(300);
+	ok("removed", h.stats.loaded === 0 && h.stats.gpuMB === 0, JSON.stringify(h.stats));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); } }
+</script>
+</body></html>

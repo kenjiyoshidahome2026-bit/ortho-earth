@@ -202,7 +202,11 @@ const PM_URL = PM_SPEC ? "pmtiles://" + new URL(PM_SPEC, new URL(import.meta.env
 // 同じ style の raster source の層＝画像層（map.raster）・geojson/image source の層＝利用者の層（map.addLayer）へ振り分ける。
 // 描けない層（fill-extrusion・線に沿うラベル・模様…）は数えて console に出す。書体（glyphs）はこの地図の文字で描く（text-font は読まない）。
 // この形で起動した地図は map.setStyle(別の style) で生き替えできる（地域の基図で起動した地図は setStyle しない＝基図の門が違う）。
-const STYLE_SPEC = opts.style ?? new URLSearchParams(location.search).get("style");
+const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と同じ＝https 限定・localhost の http は可）。opts.style は呼び手の責任
+	if (!q) return null;
+	try { const u = new URL(q, location.href); const local = u.hostname === "localhost" || u.hostname === "127.0.0.1"; if (u.protocol === "https:" || (u.protocol === "http:" && (local || u.origin === location.origin))) return u.href; } catch { /* 下で warn */ }
+	console.warn("[style] ?style= must be an https URL", q); return null;
+})(new URLSearchParams(location.search).get("style"));
 const loadExtStyle = async spec => {
 	const { style: ms, baseUrl } = await loadMapLibreStyle(spec);
 	const split = splitMapLibreStyle(ms);
@@ -2686,6 +2690,25 @@ map.gadget("stac", function (opts) {
 			(c.order === "over" ? map.raster.toggle(id, true) : map.raster.select(id)).catch(err => console.warn("[raster] ?r=", id, err));
 		} });
 	}
+}
+// ── 任意の 3D Tiles（#41・2026-09-23）＝gadgets/tiles3d.js（画面上の誤差で流す・中身は model 役の worker が解く）──
+// map.gadget.tiles3d(url, opts) / map.add3DTiles(url, opts)＝戻り値の手綱（remove / setVisible / setOptions / stats）。?tiles3d=<URL>（門は ?g= と共用）・&t3dh=<m>＝高さのずらし
+let t3dCtl = null;
+const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); return t3dCtl ??= m.createTiles3D(map, {
+	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal,
+	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },
+	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
+}); };
+map.gadget("tiles3d", async function (url, opts = {}) {
+	const c = await t3dGet();
+	if (url == null) { if (opts.id) c.remove(opts.id); else for (const id of c.ids) c.remove(id); return null; }
+	return c.add(url, opts);
+});
+map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
+{
+	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
+	const u = spec ? remoteUrl(spec, "tiles3d") : null;
+	if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh") || 0, fit: !location.hash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
 }
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);

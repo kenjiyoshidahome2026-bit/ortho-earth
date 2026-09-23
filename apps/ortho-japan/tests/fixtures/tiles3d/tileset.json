@@ -1,0 +1,203 @@
+{
+ "asset": {
+  "version": "1.0"
+ },
+ "geometricError": 400,
+ "root": {
+  "transform": [
+   -0.6458961631457825,
+   -0.7634252723309314,
+   0,
+   0,
+   0.4452866600957833,
+   -0.376734902130923,
+   0.812274955822932,
+   0,
+   -0.6201112293567171,
+   0.5246452773854418,
+   0.5832747175584193,
+   0,
+   -3959690.8025690075,
+   3350097.5004588445,
+   3699540.1246702415,
+   1
+  ],
+  "boundingVolume": {
+   "box": [
+    0,
+    0,
+    80,
+    320,
+    0,
+    0,
+    0,
+    320,
+    0,
+    0,
+    0,
+    100
+   ]
+  },
+  "geometricError": 150,
+  "refine": "REPLACE",
+  "content": {
+   "uri": "parent.b3dm"
+  },
+  "children": [
+   {
+    "boundingVolume": {
+     "box": [
+      -150,
+      150,
+      60,
+      50,
+      0,
+      0,
+      0,
+      50,
+      0,
+      0,
+      0,
+      60
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "child0.b3dm"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      150,
+      150,
+      40,
+      50,
+      0,
+      0,
+      0,
+      50,
+      0,
+      0,
+      0,
+      40
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "child1.b3dm"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      -150,
+      -150,
+      80,
+      50,
+      0,
+      0,
+      0,
+      50,
+      0,
+      0,
+      0,
+      80
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "child2.b3dm"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      150,
+      -150,
+      50,
+      50,
+      0,
+      0,
+      0,
+      50,
+      0,
+      0,
+      0,
+      50
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "child3.b3dm"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      0,
+      0,
+      5,
+      62,
+      0,
+      0,
+      0,
+      62,
+      0,
+      0,
+      0,
+      2
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "points.pnts"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      0,
+      250,
+      15,
+      215,
+      0,
+      0,
+      0,
+      15,
+      0,
+      0,
+      0,
+      15
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "inst.i3dm"
+    }
+   },
+   {
+    "boundingVolume": {
+     "box": [
+      0,
+      -280,
+      30,
+      40,
+      0,
+      0,
+      0,
+      40,
+      0,
+      0,
+      0,
+      40
+     ]
+    },
+    "geometricError": 0,
+    "content": {
+     "uri": "ext.json"
+    }
+   }
+  ]
+ }
+}

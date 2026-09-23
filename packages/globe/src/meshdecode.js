@@ -588,7 +588,10 @@ const dequant = A => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array 
 // ground＝"batch"（既定・一体で接地）／"each"（連結成分ごとに接地＝街の一区画を切り出した模型）
 // mask＝模型の足元の基図建物を伏せる（PLATEAU と同じ被覆マスク）。街の一区画を切り出した模型は、基図の白い箱と
 // 同じ建物を二重に描いて壁の絵が明滅する（本人 2026-09-21）＝模型もマスクを出して下の箱を伏せる。既定 false
-export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false } = {}) {
+// tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
+//   頂点 ECEF = L·(rtc + Y2Z·W·p) + t（仕様どおり glTF の Y-up→Z-up はノード変換の後・RTC とタイル変換の前）。
+//   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
+export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null } = {}) {
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
 	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } }, ...(baseUri ? { baseUri } : {}) });
 	let gltf;
@@ -612,8 +615,13 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	for (const r of roots) visit(r, I4, 0);
 	// 置き方＝A（3x3・ローカル Y-up → ECEF の線形部）と T（ECEF の平行移動）。頂点は ECEF = A·(Wlin·p + Wt) + T
 	const rtc = gltf.extensions?.CESIUM_RTC?.center || gltf.json?.extensions?.CESIUM_RTC?.center || null;
-	let A, T, mode;
-	if (rtc) { A = SWAP; T = rtc; mode = "rtc"; }
+	let A, T, mode, places = null;
+	if (tile) {   // 3D Tiles：置き方は呼び手のタイル変換（インスタンスごと）。glTF 内の CESIUM_RTC も b3dm の RTC_CENTER と同じ扱い
+		const r0 = tile.rtc || rtc || [0, 0, 0];
+		places = tile.places.map(({ L, t }) => { const o = m3v(L, r0); return { A: m3mul(L, SWAP), T: [o[0] + t[0], o[1] + t[1], o[2] + t[2]] }; });
+		A = places[0].A; T = places[0].T; mode = "tile";
+	}
+	else if (rtc) { A = SWAP; T = rtc; mode = "rtc"; }
 	else if (inst.some(({ W }) => { const r = Math.hypot(W[12], W[14], W[13]); return r > 6200000 && r < 6500000; })) { A = SWAP; T = [0, 0, 0]; mode = "ecef"; }
 	else {
 		if (!at) throw new Error("no anchor");   // 呼び手（gadgets/model.js）が画面中心を補うので通常は来ない
@@ -630,7 +638,9 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）
 	const groups = new Map();   // material → { segs, totalV, totalI, mat }
 	let minH = Infinity, nTri = 0, nVert = 0;
-	for (const { mesh, W } of inst) {
+	const pts = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
+	for (const pl of places || [{ A, T }]) for (const { mesh, W } of inst) {
+		const A = pl.A, T = pl.T;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
 		const lin = m3mul(A, Wlin), o = m3v(A, [W[12], W[13], W[14]]), ox = o[0] + T[0], oy = o[1] + T[1], oz = o[2] + T[2];
 		const cof = [   // 法線＝余因子（非等方スケールでも面の向きが狂わない。長さは後で正規化）
@@ -639,6 +649,18 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			lin[1] * lin[5] - lin[2] * lin[4], lin[2] * lin[3] - lin[0] * lin[5], lin[0] * lin[4] - lin[1] * lin[3]];
 		for (const pr of (mesh.primitives || [])) {
 			const mode4 = pr.mode ?? 4;
+			if (mode4 === 0 && pts) {   // 点＝経緯度・高さ・色だけ（点のオーバーレイへ）
+				const P = pr.attributes?.POSITION?.value; if (!P) continue;
+				const q = pr.attributes.POSITION.normalized ? dequant(P) : 1, n = P.length / 3;
+				const C0 = pr.attributes?.COLOR_0?.value, cN = C0 ? (C0.length / n) | 0 : 0, qc = C0 ? (pr.attributes.COLOR_0.normalized ? dequant(C0) : 1) : 1, f = baseColorOf(pr.material || null, gltf).factor;
+				for (let i = 0; i < n; i++) {
+					const px = P[i*3] * q, py = P[i*3+1] * q, pz = P[i*3+2] * q;
+					const g = ecef2geo(lin[0] * px + lin[3] * py + lin[6] * pz + ox, lin[1] * px + lin[4] * py + lin[7] * pz + oy, lin[2] * px + lin[5] * py + lin[8] * pz + oz);
+					pts.geo.push(g[0], g[1], g[2]);
+					pts.rgba.push(...[0, 1, 2].map(k => Math.max(0, Math.min(255, Math.round((C0 && cN >= 3 ? C0[i*cN+k] * qc : 1) * f[k] * 255)))), C0 && cN === 4 ? Math.round(C0[i*4+3] * qc * 255) : 255);
+				}
+				continue;
+			}
 			if (mode4 !== 4 && mode4 !== 5 && mode4 !== 6) continue;   // 三角形系だけ（点/線は建物メッシュにならない）
 			const acc = pr.attributes?.POSITION; const P = acc?.value; if (!P) continue;
 			const NRM = pr.attributes?.NORMAL?.value;
@@ -717,7 +739,8 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			g.totalV += n; g.totalI += idxSeg.length; nVert += n; nTri += idxSeg.length / 3;
 		}
 	}
-	if (!nTri) return null;
+	if (tile && tile.baseH != null) minH = tile.baseH;   // 3D Tiles＝接地しない（絶対高さ − baseH）
+	if (!nTri) return pts?.geo.length ? { batches: [], mask: null, points: pts, stats: { vertices: 0, triangles: 0, instances: inst.length, mode, points: pts.geo.length / 3 } } : null;
 	// マテリアル束ごとに後段（接地＝模型全体の最低点 minH で揃える＝束が違っても一体で沈む/浮く）。テクスチャは同じ画像を 1 回だけ
 	const imgCache = new Map();
 	const batches = [];
@@ -743,5 +766,5 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		batches.push({ mesh, tex, alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
-	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
+	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
 }

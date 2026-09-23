@@ -1,0 +1,28 @@
+{
+ "asset": {
+  "version": "1.0"
+ },
+ "geometricError": 0,
+ "root": {
+  "boundingVolume": {
+   "box": [
+    0,
+    -280,
+    30,
+    40,
+    0,
+    0,
+    0,
+    40,
+    0,
+    0,
+    0,
+    40
+   ]
+  },
+  "geometricError": 0,
+  "content": {
+   "uri": "ext-box.b3dm"
+  }
+ }
+}
