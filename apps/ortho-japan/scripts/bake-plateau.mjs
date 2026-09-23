@@ -18,8 +18,8 @@ import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setLoaderOptions } from "@loaders.gl/core";
 import draco3d from "draco3d";
-import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "../meshdecode.js";
-import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "../meshq.js";
+import { decodeBatch, setDecodeEnv, collectLeafTiles, DECODE_VER } from "@ortho-earth/globe/meshdecode.js";
+import { packPLQ, unpackPLQ, headPLQ, bakeDir, PLQ_VER } from "@ortho-earth/globe/meshq.js";
 
 const APP = dirname(dirname(fileURLToPath(import.meta.url)));
 const arg = (k, d = null) => { const a = process.argv.find(s => s.startsWith(`--${k}=`)); return a ? a.slice(k.length + 3) : (process.argv.includes(`--${k}`) ? true : d); };

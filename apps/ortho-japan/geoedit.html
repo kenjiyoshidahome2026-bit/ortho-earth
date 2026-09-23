@@ -51,7 +51,7 @@
 		// geoedit＝GeoPBF トポロジカルエディタ（旧 apps/geoedit＝独立アプリ → ortho-japan のガジェット gadgets/geoedit（9/4）→ packages/geoedit＝geoedit（npm）（MIT・9/20））。
 		// このページは器だけ：SDK二重構成（scene.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
 		// 編集に要る最小限のガジェット＋ map.gadget.geoedit()（遅延chunk）を載せる。
-		import { getLang } from "./i18n.js";
+		import { getLang } from "@ortho-earth/globe/i18n.js";
 		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "geoedit — GeoPBFエディタ"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
 		(async () => {
 			let engineP;

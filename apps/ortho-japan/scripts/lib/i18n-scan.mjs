@@ -132,11 +132,14 @@ export function listFiles(dir, out = [], root = dir, exclude = null) {
 // LITERAL_ROOTS＝アプリの外にある地域パック（@ortho-earth/jp）＝t() は呼ばないが出典・画像タイルの key を英語キーのデータとして持つ
 // ＝文字列だけを「在る」印に数える（無いと移設したキーが次の i18n:extract で退役する・2026-09-22）。opts.only（ページ別の走査）には足さない。
 export const LITERAL_ROOTS = ["../../packages/jp/src"];
-export function scanApp(appDir, ctx = {}, { exclude = null, only = null } = {}) {
-	const files = listFiles(appDir, [], appDir, exclude).filter(abs => !only || only.has(path.relative(appDir, abs))).sort().map(abs => {
-		const rel = path.relative(appDir, abs);
-		return { rel, src: fs.readFileSync(abs, "utf8") };
-	});
+// HOST＝地球儀のホスト（packages/globe/src・S4 2026-09-23）＝本体の走査に「globe/」の接頭辞で混ぜる（scripts/i18n-contexts.json・pages.json の鍵も同じ表記）
+export const HOST_REL = "../../packages/globe/src", HOST_PREFIX = "globe/";
+export const hostDir = appDir => path.join(appDir, HOST_REL);
+export const absOf = (appDir, rel) => rel.startsWith(HOST_PREFIX) ? path.join(hostDir(appDir), rel.slice(HOST_PREFIX.length)) : path.join(appDir, rel);
+export function scanApp(appDir, ctx = {}, { exclude = null, only = null, extraRoots = [{ dir: hostDir(appDir), prefix: HOST_PREFIX }] } = {}) {
+	const entries = listFiles(appDir, [], appDir, exclude).map(abs => ({ abs, rel: path.relative(appDir, abs) }));
+	for (const x of extraRoots) if (fs.existsSync(x.dir)) for (const abs of listFiles(x.dir, [], x.dir, null)) entries.push({ abs, rel: x.prefix + path.relative(x.dir, abs) });
+	const files = entries.filter(e => !only || only.has(e.rel)).sort((a, b) => a.rel < b.rel ? -1 : 1).map(e => ({ rel: e.rel, src: fs.readFileSync(e.abs, "utf8") }));
 
 	// 一周目＝辞書を全部読む。t を引数で受け取る部品（tellus-api.js orbitLabel のような注入型）は辞書を持たない
 	// ＝呼び手の辞書で訳される。だから解決は「自分の辞書 → 全体の辞書」の順に引く（file を跨ぐ ja→キーの一意性は検分する）。

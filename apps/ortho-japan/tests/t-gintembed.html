@@ -25,7 +25,7 @@ const e7 = d => Math.round(d * 1e7) >>> 0;
 
 try {
 	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
-	const worker = new Worker(new URL("../renderworker.js", import.meta.url), { type: "module" });
+	const worker = new Worker(new URL("@ortho-earth/globe/renderworker.js", import.meta.url), { type: "module" });
 	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
 	// pump：pending fetch 中は仮想時間が停止する性質で worker の実CPU時間を確保（t-gintlod と同じ）。
 	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);

@@ -43,7 +43,7 @@
 		//   エディタ本体(demo/editor.js)はサイト側チャンクのまま＝作業台はソース・舞台の地図は出荷物。
 		//   libのURLは変数経由（devのimport解析がリテラルを解決しにいく罠）・CSSはlib抽出分を本番だけ貼る。
 		import { mountSceneEditor } from "./demo/editor.js";
-		import { getLang } from "./i18n.js";
+		import { getLang } from "@ortho-earth/globe/i18n.js";
 		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "scenes エディタ — ortho-japan"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
 		(async () => {   // TLA はビルドターゲット外＝async IIFE で包む
 			let engineP;

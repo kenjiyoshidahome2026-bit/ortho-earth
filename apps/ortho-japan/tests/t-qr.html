@@ -6,7 +6,7 @@
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
 import orthoJapan from "../app.js";
-import { qrSelfTest, qrMatrix, qrEncode } from "../gadgets/qrcode.js";
+import { qrSelfTest, qrMatrix, qrEncode } from "@ortho-earth/globe/gadgets/qrcode.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
 	const map = await orthoJapan({ view: "#5/37/138" });

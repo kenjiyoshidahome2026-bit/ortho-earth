@@ -1,6 +1,6 @@
 // t-meshfs の実体：OPFS ストア（meshfs.js）を dedicated worker で実往復する
 // （createSyncAccessHandle は worker 専用＝ページ側では検証できない）。結果は文字列配列で postMessage。
-import { opfsStore, packBatch, unpackBatch } from "../meshfs.js";
+import { opfsStore, packBatch, unpackBatch } from "@ortho-earth/globe/meshfs.js";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 const mesh = (n, seed) => {

@@ -37,7 +37,7 @@ const mkLayer = (c, d, fid) => {
 try {
 	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
 	const { bakeBase, bakeTier, tierPlan } = await import("../../../packages/ortho-core/src/gl/gint/bake.js");
-	const worker = new Worker(new URL("../renderworker.js", import.meta.url), { type: "module" });
+	const worker = new Worker(new URL("@ortho-earth/globe/renderworker.js", import.meta.url), { type: "module" });
 	worker.onerror = e => { ok("worker-error:" + (e.message || "?"), false); fin(); };
 	const pump = async (p) => { let done = false; p.then(() => done = true, () => done = true);
 		for (let i = 0; !done; i++) await fetch(`./t-gintswap.html?pump=${i}`, { cache: "no-store" }).catch(() => {});

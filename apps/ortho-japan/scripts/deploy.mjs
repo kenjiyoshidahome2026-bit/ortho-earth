@@ -16,7 +16,7 @@ const run = (cmd, args, tag) => new Promise(res => {
 // エディタ関門の範囲＝前回 deploy（git tag japan-deployed）から、エディタや gint の実装が動いていれば**全部**（t-editor 61 s・t-zoomfill 60 s 込み）、
 // 動いていなければ速い 4 ページ（t-backfill/t-rectlook×2/t-import ≈ 16 s）だけ。geoedit は packages/geoedit（2026-09-20 分離）＝
 // japan の deploy でその実装が変わっていないなら、長い対話回帰を毎回回す理由がない。tag が無い（初回）＝全部。
-const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-core/src", "apps/ortho-japan/gint", "apps/ortho-japan/gadgets/anno.js", "apps/ortho-japan/gadgets/anno-draw.js", "apps/ortho-japan/tests"];
+const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-core/src", "packages/globe/src", "packages/jp/src", "apps/ortho-japan/tests"];
 const changed = await new Promise(res => { const c = spawn("git", ["diff", "--name-only", "japan-deployed", "HEAD", "--", ...WATCH], { cwd: APP }); let out = "", bad = false; c.stdout.on("data", d => out += d); c.on("error", () => res(null)); c.on("close", code => res(code === 0 ? out.split("\n").filter(Boolean) : null)); });
 const dirty = await new Promise(res => { const c = spawn("git", ["status", "--porcelain", "--", ...WATCH], { cwd: APP }); let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => res(out.split("\n").filter(Boolean))); });
 const full = changed === null || changed.length > 0 || dirty.length > 0;

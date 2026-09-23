@@ -67,7 +67,7 @@ ok(THEME_NAMES.includes("mono") && THEME_NAMES[0] === "mono", "mono が既定（
 // ⑥ テーマの表示名は辞書にある（equal 固有 or japan 共有）＝選択 UI が英語のまま残らない
 {
 	const own = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui;
-	const jp = JSON.parse(fs.readFileSync(path.join(APP, "../ortho-japan/i18n/ui.json"), "utf8")).ui;
+	const jp = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/globe/src/i18n/ui.json"), "utf8")).ui;
 	for (const name of THEME_NAMES) {
 		const label = THEMES[name].label;
 		ok(!!(own[label] || jp[label]), `${name}: 表示名 "${label}" がどちらの辞書にも無い`);

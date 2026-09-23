@@ -4,9 +4,9 @@
 // 見せ方はデータ側（tellus-api の cogOpts）: PALSAR-2 は HH/HV の偽色合成（切替でグレー）・GCOM-C SST はカラーマップ。
 // クイックルック（行のサムネイル）は COG の最粗 overview を Range 1〜2 本で描く＝サムネイル API が無くても出せる
 //（Tellus の検索応答にサムネイルが無い・AVNIR-2 の thumb.png は署名 URL 要＝どのみち 1 往復）。描けたら IDB に置く＝再訪は無通信。
-import { tr } from "./i18n.js";
-import { DATASETS, defaultRange, searchScenes, getScene, cogUrl, cogOpts, renewingFetch, orbitLabel } from "./gadgets/tellus-api.js";
-import { createFootprint } from "./gadgets/footprint.js";
+import { tr } from "@ortho-earth/globe/i18n.js";
+import { DATASETS, defaultRange, searchScenes, getScene, cogUrl, cogOpts, renewingFetch, orbitLabel } from "@ortho-earth/globe/gadgets/tellus-api.js";
+import { createFootprint } from "@ortho-earth/globe/gadgets/footprint.js";
 import { openCog, lonlatTarget } from "geopbf/cog/core";   // クイックルック＝DOM 不要経路（worker 無し・最粗 overview だけ）
 
 const t = tr();

@@ -3,7 +3,7 @@
 // 対象＝/japan/ が起動直後に読む物（国境・湖・海面下の陸・恒星・全球標高アトラス）。合計 約 6.7MB（10m 版）。
 // 名前と 10m/50m の出し分けはエンジンと同じ（gint/layers.js loadAdmin0・app.js loadLakes/loadBelowSea・sky/theater.js・terrain.js prefetchWorld）。
 // 見送る条件＝データ節約（Save-Data）・遅い回線（2g/3g 相当）。トップだけ見て帰る人に数 MB を払わせない。
-import { lowMem } from "../ortho-japan/boot/tier.js";
+import { lowMem } from "@ortho-earth/globe/boot/tier.js";   // 地球儀のホストの公開面（S4 2026-09-23）
 
 const API = "https://api.ortho-earth.com";
 

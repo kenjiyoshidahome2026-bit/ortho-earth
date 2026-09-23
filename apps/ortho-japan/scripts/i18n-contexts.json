@@ -1,19 +1,19 @@
 {
   "_note": "衝突の手当て＝同じ英語になる別々の日本語に文脈を足す（gettext の msgctxt）。表示は ' ##' より前だけ＝英語も日本語も見た目は変えない。file 単位で引き、'*' は全体。",
-  "gadgets/print.js": {
+  "globe/gadgets/print.js": {
     "北緯": "N ##latitude",
     "南緯": "S ##latitude",
     "東経": "E ##longitude",
     "西経": "W ##longitude",
     "題": "Title ##print"
   },
-  "gadgets/close.js": {
+  "globe/gadgets/close.js": {
     "閉じる (Esc)": "Close (Esc) ##map"
   },
   "demo/editor.js": {
     "作品タイトル": "Title ##work"
   },
-  "gadgets/cloud.js": {
+  "globe/gadgets/cloud.js": {
     "題名": "Title ##publish"
   }
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 記号の層の評価（gadgets/symbols-core.js）の常設検定＝MapLibre の symbol 層の layout/paint → 描く記号の列。
 // 見るもの：icon-image の式と "{name}" トークン・format・filter・symbol-sort-key の順・記号帳に無い名前（文字だけ残る）・既定値・色・ズーム域。
-import { symbolItems, textOf } from "../gadgets/symbols-core.js";
+import { symbolItems, textOf } from "@ortho-earth/globe/gadgets/symbols-core.js";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };

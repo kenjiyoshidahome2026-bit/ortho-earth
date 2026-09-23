@@ -6,11 +6,12 @@
 // 使い方: node scripts/i18n-import.mjs [code …]   （無指定＝out/tr/ にある全部）
 import fs from "node:fs";
 import path from "node:path";
+import { hostDir } from "./lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
 import { placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const UI = path.join(APP, "i18n/ui.json");
+const UI = path.join(hostDir(APP), "i18n/ui.json");   // 本体の訳の正本は地球儀のホスト（packages/globe/src）に住む（S4）
 const TR = path.join(APP, "out/tr");
 const doc = JSON.parse(fs.readFileSync(UI, "utf8"));
 const ui = doc.ui;

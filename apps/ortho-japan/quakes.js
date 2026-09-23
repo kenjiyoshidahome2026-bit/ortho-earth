@@ -19,7 +19,7 @@ import { M_SPLIT, STOPS, depthT, depthColor, lambdaOf } from "./quakes-gl.js";  
 export { depthColor };
 
 const Y_MIN = 1967;   // カタログの先頭年（USGS ComCat の網羅は 1967〜）
-import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 const fmt = n => n.toLocaleString(getLang());

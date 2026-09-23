@@ -12,12 +12,13 @@
 // 使い方: npm run i18n:extract [-- --check]   （--check＝書かずに検分だけ）
 import fs from "node:fs";
 import path from "node:path";
+import { hostDir } from "./lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
 import { CTX_SEP } from "./lib/i18n-scan.mjs";
 import { scanAll } from "./lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const UI = path.join(APP, "i18n/ui.json");
+const UI = path.join(hostDir(APP), "i18n/ui.json");   // 本体の訳の正本は地球儀のホスト（packages/globe/src）に住む（S4）
 const KEYMAP = path.join(APP, "out/i18n-keymap.json");
 const LANGS = path.join(APP, "../../packages/world/i18n/langs.json");   // 言語一覧は world と 1 本（データの共有・コードは各自）
 const check = process.argv.includes("--check");
