@@ -26,6 +26,8 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
 export { geopbf };
+import { Marker, Popup } from "./gadgets/marker.js";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
+export { Marker, Popup };
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
@@ -2705,6 +2707,7 @@ map.gadget("tiles3d", async function (url, opts = {}) {
 	return c.add(url, opts);
 });
 map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
+map.Marker = Marker; map.Popup = Popup;   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
 {
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;

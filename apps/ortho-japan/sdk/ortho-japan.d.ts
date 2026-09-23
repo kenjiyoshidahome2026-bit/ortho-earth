@@ -407,6 +407,9 @@ export interface OrthoJapanMap {
 	 *  高さ＝既定は tileset の高さのまま（写真測量・点群）。建物の tileset は ground:"terrain"＝1 棟ずつ地面へ接地。点群は同一フレームのオーバーレイ（深度は共有しない＝#47）。
 	 *  未対応＝implicit tiling・メタデータとスタイル・API キーの要る配信 */
 	add3DTiles(url: string, opts?: Tiles3DOptions): Promise<Tiles3DHandle>;
+	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
+	readonly Marker: typeof Marker;
+	readonly Popup: typeof Popup;
 	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
 	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
@@ -454,6 +457,25 @@ export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapan
 /** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。
  *  内製アプリ（world 等）はこちらを使う（LAYERS.md・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包み */
 export function createGlobe(opts?: OrthoJapanOptions): ReturnType<typeof orthoJapan>;
+/** DOM の Marker（MapLibre と同名・1.2.0〜・#38）。描くたびに地形の高さへ投影し直す・球の裏では隠す。map.Marker でも同じ */
+export interface MarkerOptions { element?: HTMLElement; color?: string; scale?: number; anchor?: "center" | "top" | "bottom" | "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right"; offset?: [number, number]; draggable?: boolean; altitude?: number }
+export class Marker {
+	constructor(opts?: MarkerOptions | HTMLElement);
+	setLngLat(ll: LonLat | { lng: number; lat: number }): this; getLngLat(): { lng: number; lat: number } | null;
+	addTo(map: OrthoJapanMap): this; remove(): this; getElement(): HTMLElement;
+	setOffset(o: [number, number]): this; setAltitude(m: number): this; setDraggable(on: boolean): this; isDraggable(): boolean;
+	setPopup(p: Popup | null): this; getPopup(): Popup | null; togglePopup(): this;
+	on(type: "dragstart" | "drag" | "dragend", cb: (e: { type: string; target: Marker }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
+}
+/** DOM の吹き出し（MapLibre と同名・#38）。setHTML は呼び手の HTML をそのまま入れる＝外来の文字列は setText */
+export interface PopupOptions { closeButton?: boolean; closeOnClick?: boolean; anchor?: "top" | "bottom" | "left" | "right"; offset?: number | [number, number]; maxWidth?: string; className?: string }
+export class Popup {
+	constructor(opts?: PopupOptions);
+	setLngLat(ll: LonLat | { lng: number; lat: number }): this; getLngLat(): { lng: number; lat: number } | null;
+	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
+	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
+	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
+}
 
 // ---- geopbf（SDK 同梱・1.0.3〜 named export）----
 export interface GeoJSONFeature { type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }
