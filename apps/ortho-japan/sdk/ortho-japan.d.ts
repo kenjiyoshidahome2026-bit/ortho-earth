@@ -216,6 +216,10 @@ export interface GintApplyOptions {
 export type RasterSpec =
 	| { url: string; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; subdomains?: string[]; tms?: boolean; headers?: Record<string, string>; name?: string }
 	| { pmtiles: string; name?: string; attribution?: string }
+	/** WMS（1.2.0〜・#45）＝GetMap を画面のタイルに割る（EPSG:3857）。url に {bbox-epsg-3857} を直に書いた XYZ 形でも可（MapLibre と同じ記法） */
+	| { wms: { url: string; layers: string; styles?: string; format?: string; transparent?: boolean; version?: "1.3.0" | "1.1.1"; params?: Record<string, string> }; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; name?: string }
+	/** WMTS（#45）＝capabilities（GetCapabilities の URL）を読むか、KVP を手で（url・layer・tileMatrixSet）。ウェブメルカトルの行列だけ描ける。REST の型紙は url に {TileMatrix}/{TileRow}/{TileCol} を書いて XYZ 形で渡してもよい */
+	| { wmts: { capabilities: string; layer?: string; style?: string; format?: string } | { url: string; layer: string; tileMatrixSet: string; style?: string; format?: string; matrixIds?: string[] }; minZoom?: number; maxZoom?: number; attribution?: string; name?: string }
 	| { file: File; table?: string; name?: string; attribution?: string }
 	| { port: MessagePort; name?: string; attribution?: string }
 	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string };
