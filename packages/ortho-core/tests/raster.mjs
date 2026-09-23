@@ -6,7 +6,7 @@
 //   4. ancestorUV：子 (z,x,y) を祖先 d 段上のテクスチャで描く部分 uv（メルカトル線形＝厳密）
 //   5. createRaster：偽 renderer＋MessagePort プロバイダで add→update→描画リスト→hideFills→set/remove の一周（fetch/ImageBitmap 不要）
 // 使い方: node packages/ortho-core/tests/raster.mjs
-import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities } from "../src/raster-src.js";
+import { expandTemplate, normalizeSpec, wmsTemplate, wmtsFromCapabilities, adjustRGBA } from "../src/raster-src.js";
 import { buildTileMesh, ancestorUV, subdivOf, createRaster } from "../src/raster.js";
 import { tileBounds, tileLocalToLonLat } from "../src/tile.js";
 
@@ -43,6 +43,21 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 <TileMatrix><ows:Identifier>L05</ows:Identifier><ScaleDenominator>8735660.375448715</ScaleDenominator></TileMatrix><TileMatrix><ows:Identifier>L06</ows:Identifier><ScaleDenominator>4367830.187724357</ScaleDenominator></TileMatrix></TileMatrixSet></Contents></Capabilities>`;
 	const c = wmtsFromCapabilities(caps, { layer: "relief" });
 	ok(c.url === "https://t.example/relief/default/wm/{TileMatrix}/{TileRow}/{TileCol}.png" && c.minZoom === 6 && c.maxZoom === 7 && c.matrixIds[6] === "L05" && c.matrixIds[7] === "L06" && c.name === "Relief", `capabilities → web-mercator set, ids by z (${JSON.stringify(c)})`);
+}
+
+// 1c. 色調整（#39・MapLibre の raster-* paint）＝色相→彩度→コントラスト→明るさの幅
+{
+	const px = () => new Uint8ClampedArray([200, 100, 50, 255]);
+	const a = adjustRGBA(px(), { saturation: -1 });
+	ok(a[0] === a[1] && a[1] === a[2] && a[3] === 255, "saturation -1 = gray, alpha kept");
+	const b = adjustRGBA(px(), { brightnessMax: 0.5 });
+	ok(b[0] === 100 && b[1] === 50, "brightness-max 0.5 halves");
+	const c = adjustRGBA(px(), { contrast: -1 });
+	ok(c[0] === 128 && c[2] === 128, "contrast -1 = mid gray");
+	const d = adjustRGBA(px(), {});
+	ok(d[0] === 200 && d[1] === 100 && d[2] === 50, "no adjust = identity");
+	const e = adjustRGBA(px(), { hueRotate: 360 });
+	ok(Math.abs(e[0] - 200) <= 1 && Math.abs(e[1] - 100) <= 1, "hue-rotate 360 = identity");
 }
 
 // 2. spec 正規化

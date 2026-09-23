@@ -145,6 +145,7 @@ export interface Gadgets {
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m）＝map.sunShadow の UI */
 	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 任意の 3D Tiles（map.add3DTiles と同じ）。null＝全部（opts.id＝その 1 つ）を外す */
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
 	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key）。null＋{id} で外す */
@@ -221,7 +222,9 @@ export interface GintApplyOptions {
 }
 
 export type RasterSpec =
-	| { url: string; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; subdomains?: string[]; tms?: boolean; headers?: Record<string, string>; name?: string }
+	| { url: string; tileSize?: number; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; subdomains?: string[]; tms?: boolean; headers?: Record<string, string>; name?: string;
+		/** 色調整（1.2.0〜・#39・MapLibre の raster-hue-rotate / -saturation / -contrast / -brightness-min / -max と同じ意味）。addLayer の raster 層は paint から自動で作る */
+		adjust?: { hueRotate?: number; saturation?: number; contrast?: number; brightnessMin?: number; brightnessMax?: number } }
 	| { pmtiles: string; name?: string; attribution?: string }
 	/** WMS（1.2.0〜・#45）＝GetMap を画面のタイルに割る（EPSG:3857）。url に {bbox-epsg-3857} を直に書いた XYZ 形でも可（MapLibre と同じ記法） */
 	| { wms: { url: string; layers: string; styles?: string; format?: string; transparent?: boolean; version?: "1.3.0" | "1.1.1"; params?: Record<string, string> }; minZoom?: number; maxZoom?: number; bbox?: Bbox; attribution?: string; name?: string }
@@ -432,6 +435,15 @@ export interface OrthoJapanMap {
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
 	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
 	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;
+	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
+	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。
+	 *  結果は地面に画像として貼る（map.raster の "viewshed"＝見える所が緑）。probe＝指定地点が見えるか（1|0）。ボタンとパネルは map.gadget.viewshed() */
+	viewshed(opts?: { observer?: LonLat; eyeH?: number; targetH?: number; radius?: number; buildings?: boolean; tilesets?: string[]; cell?: number; probe?: LonLat[] }): Promise<{ cells: number; visibleRatio: number; triangles: number; eyeZ: number; cell: number; probes: number[] }>;
+	/** 見通し線（1.2.0〜・#44）。a（視点・高さ eyeH）から b（目標・高さ targetH）が見えるか。遮る最初の点 blockAt・距離（m）・断面 profile（[距離, 地表, 視線] m）。
+	 *  地図に線を引く（source/layer "los"＝見える区間が緑・遮られた先が赤） */
+	lineOfSight(a: LonLat, b: LonLat, opts?: { eyeH?: number; targetH?: number; buildings?: boolean; tilesets?: string[]; cell?: number }): Promise<{ visible: boolean; blockAt: LonLat | null; distance: number; profile: [number, number, number][]; triangles: number }>;
+	/** 可視域の画像と見通し線を消す */
+	clearViewshed(): Promise<void>;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
 	setTerrain(terrain: { source: string | RasterDemSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;

@@ -63,6 +63,7 @@ import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";
+import { viewshed as viewshedGadget } from "./gadgets/viewshed.js";   // 可視域・見通し線（#44）＝同じ worker
 import { sunShadow as sunShadowGadget } from "./gadgets/sunshadow.js";   // 日影（#44）＝ボタン＋小さなパネル（計算は model 役の worker・sunshadow.js）   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
@@ -687,6 +688,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "terrStats") { console.log("[terr]", JSON.stringify(d.data)); return; }   // __terr()の返答＝コンソールに1行
 	if (d.type === "rasterInfo") return onRasterInfo(d.id, d.info);       // 画像タイル層：ソースの自己申告が届いた（bbox/zoom 域/出典）
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
+	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
@@ -2483,8 +2485,48 @@ map.sunShadow = async (o = {}) => {
 	await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
 	return { ...r.stats, probes: r.probes };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
 };
+// ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
+// map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）
+// map.lineOfSight(a, b, { eyeH, targetH, buildings })＝視点 a→目標 b。見えるか・遮る最初の点・断面（距離・地表・視線）。線を地図に引く（見える区間＝緑・遮られた先＝赤）
+// 地表＝render worker の地形のセル（外来 DEM の上書き込み）を升目で・建物＝地域の建物台帳（PLATEAU）か任意の 3D Tiles（日影と同じ読み方）
+const elevGridWait = new Map(); let elevGridSeq = 0;
+const elevGrid = (bbox, N) => new Promise(res => { const id = ++elevGridSeq; elevGridWait.set(id, res); wPost({ type: "elevGrid", id, bbox, N }); });
+const sunCall = (kind, opts) => new Promise((res, rej) => {
+	sunWorker ??= (() => { const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
+	const id = ++sunSeq; sunWaiting.set(id, { res, rej }); sunWorker.postMessage({ id, kind, opts });
+});
+const visArea = async (center, radius, extra, o) => {
+	const R = Math.min(5000, Math.max(50, radius)), dLat = R * 1.02 / 111320, dLon = dLat / Math.max(0.2, Math.cos(center[1] * D2R));
+	const bbox = [center[0] - dLon, center[1] - dLat, center[0] + dLon, center[1] + dLat];
+	const N = Math.max(64, Math.min(LOW_MEM ? 384 : 768, Math.round(2 * R / (o.cell ?? 2))));
+	const ground = await elevGrid(bbox, N);
+	return sunCall("viewshed", { bbox, N, ground, eyeH: o.eyeH ?? 1.6, targetH: o.targetH ?? 0, radius: R, buildings: o.buildings !== false,
+		tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), ...extra });
+};
+map.viewshed = async (o = {}) => {
+	const obs = o.observer ?? [cam.center[0], cam.center[1]];
+	const r = await visArea(obs, o.radius ?? 1000, { observer: obs, probe: o.probe || null }, o);
+	const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
+	const [w, s, e, n] = r.bbox;
+	await map.raster.add("viewshed", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "viewshed" }, { order: "over", opacity: 1, hideFills: false });
+	return { ...r.stats, probes: r.probes };
+};
+map.lineOfSight = async (a, b, o = {}) => {
+	const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2], half = Math.hypot((b[0] - a[0]) * 111320 * Math.cos(mid[1] * D2R), (b[1] - a[1]) * 111320) / 2;
+	const r = await visArea(mid, half + 60, { observer: a, los: b }, { ...o, cell: o.cell ?? Math.max(1, half / 300) });
+	const L = r.los, cut = L.blockAt;
+	const line = (c, from, to) => ({ type: "Feature", properties: { c }, geometry: { type: "LineString", coordinates: [from, to] } });
+	const data = { type: "FeatureCollection", features: cut ? [line("ok", a, cut), line("ng", cut, b)] : [line("ok", a, b)] };
+	if (map.getSource("los")) await map.getSource("los").setData(data);
+	else { map.addSource("los", { type: "geojson", data }); await map.addLayer({ id: "los", type: "line", source: "los", paint: { "line-color": ["match", ["get", "c"], "ok", "#1faa55", "#d23c3c"], "line-width": 4 } }); }
+	return { ...L, triangles: r.stats.triangles };
+};
 map.gadget("sunshadow", function (opts) {
 	return sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), signal: ac.signal, ...opts });
+});
+map.clearViewshed = async () => { map.raster.remove("viewshed"); if (map.getLayer("los")) { map.removeLayer("los"); map.removeSource("los"); } };
+map.gadget("viewshed", function (opts) {
+	return viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, signal: ac.signal, ...opts });
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
@@ -3095,13 +3137,20 @@ const addPattern = async (layer, data, order) => {
 	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
 	return { features: items.length };
 };
+// ラスタの色調整（MapLibre の raster-* paint・#39）＝今のズームで数へ（式も可）。何も無ければ null
+const rasterAdjust = P => {
+	if (!P) return null;
+	const n = (k, d) => P[k] == null ? d : +evalExpr(P[k], { zoom: cam.zoom, props: {}, geom: null, vars: {} });
+	const a = { hueRotate: n("raster-hue-rotate", 0), saturation: n("raster-saturation", 0), contrast: n("raster-contrast", 0), brightnessMin: n("raster-brightness-min", 0), brightnessMax: n("raster-brightness-max", 1) };
+	return a.hueRotate || a.saturation || a.contrast || a.brightnessMin || a.brightnessMax !== 1 ? a : null;
+};
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 const mountLayer = async v => {
 	const { layer, kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "raster") {
-		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false };
+		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
-		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, ro);
+		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust }, ro);
 	}
 	if (kind === "extrude") return map.gadget.extrude(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return map.gadget.heatmap(await readPoints(data), { ...layer, slot: layer.id });
@@ -3225,7 +3274,7 @@ const mountExtExtras = async ext => {
 		try {
 			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {} });
-			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: opNow(), hideFills: false });
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false });
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
@@ -3270,7 +3319,8 @@ map.setStyle = async spec => {
 	renderer.set("view", { land });
 	themes = mkThemes(style);
 	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
-	attrZone = null; needsDraw = true;
+	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）
+	attrZone = null; needsDraw = true; onMove();
 	await mountExtExtras(nx);
 	return map;
 };
