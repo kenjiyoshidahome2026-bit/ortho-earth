@@ -37,6 +37,13 @@ export const jishinFaultSidebarEntry = () =>
        license:'文科省利用規約(CC BY互換)', _sourceId:'jishin', attribution:'地震調査研究推進本部',
        note:'全国地震動予測地図・93断層帯の上端トレース（活断層そのものではない）' });
 
+// 気象庁＝公共データ利用規約（第1.0版）＝CC BY 4.0 互換・商用可・出典「気象庁ホームページ」
+// https://www.jma.go.jp/jma/kishou/info/coment.html → https://www.digital.go.jp/resources/open_data/public_data_license_v1.0
+export const jmaAmedasSidebarEntry = () =>
+    ({ dataset_code:'amedas', title:'アメダス観測所', file_count:1286,
+       license:'公共データ利用規約(CC BY互換)', _sourceId:'jma', attribution:'気象庁',
+       note:'雨量・気温・風向風速・日照などの地域気象観測所（座標は観測所マスタから）' });
+
 export const municSidebarEntry = () =>
     ({ dataset_code:'munic', title:'市区町村のオープンデータ', file_count:COUNTS.municSets, license:'CC BY ほか（自治体ごと）', _sourceId:'munic',
        note:`${COUNTS.munic} 自治体・地番図・防災・施設など` });

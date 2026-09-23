@@ -14,9 +14,6 @@ const AMEDAS_DS = {
     codelist: {},
 };
 
-export function jmaAmedasSidebarEntry() {
-    return { dataset_code: 'amedas', title: '気象庁 アメダス観測所', file_count: 1286, license: '気象庁', _sourceId: 'jma' };
-}
 
 let _pbf = null;
 export async function showAmedas() {
