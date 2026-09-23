@@ -30,10 +30,11 @@ const fc = { type: "FeatureCollection", features: [
 const src = await new GeoPBF().name("two").set(fc);
 
 // worker 脚本を Node で 1 回叩く：onmessage を張らせ、postMessage を捕まえる。settle しない事故を timeout で検出。
+let runSeq = 0;
 async function runWorker(modulePath, data, ms = 8000) {
 	globalThis.onmessage = null;
 	const got = new Promise(resolve => { globalThis.postMessage = (m) => resolve(m); });
-	await import(modulePath + "?v=" + Date.now());
+	await import(modulePath + "?v=" + (++runSeq));   // 連番＝同じミリ秒に 2 回叩くと Date.now では同じ URL＝キャッシュされた module で onmessage が張られなかった（2026-09-23）
 	if (typeof globalThis.onmessage !== "function") throw new Error(`${modulePath}: onmessage not installed`);
 	globalThis.onmessage({ data });
 	return Promise.race([got, new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), ms))]);
@@ -113,6 +114,39 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	const pbf2 = await new GeoPBF().set(back2.data);
 	const same = [0, 1, 2].every(i => JSON.stringify(pbf.getFeature(i)) === JSON.stringify(pbf2.getFeature(i)));
 	ok(pbf2.length === 3 && same, "gpx: 往復（decode → encode → decode）で幾何・属性が一致");
+}
+
+// ---- gpx：属性の引用符は ' も・CDATA は中身（旧＝lat='…' は 0 地物・名前が <![CDATA[…]]> のまま・2026-09-23）----
+{
+	const g = `<?xml version='1.0' encoding='UTF-8'?>
+<gpx version='1.1' creator='x' xmlns='http://www.topografix.com/GPX/1/1'>
+<wpt lat='35.1' lon='139.1'><name><![CDATA[Café & Bar <1>]]></name><desc>A &amp; <![CDATA[B&amp;C]]></desc></wpt>
+<trk><name><![CDATA[Morning Run]]></name><trkseg>
+<trkpt lat='35.2' lon='139.2'><ele>10</ele><time>2026-09-17T02:00:00Z</time></trkpt>
+<trkpt lon="139.3" lat='35.3'><ele>11</ele></trkpt>
+</trkseg></trk></gpx>`;
+	const r = await dec("gpx", new File([g], "q.gpx"));
+	const pbf = await new GeoPBF().set(r.data);
+	const w = pbf.getFeature(0), t = pbf.getFeature(1);
+	ok(pbf.length === 2 && t.geometry.coordinates.length === 2, `gpx: 単引用符の lat/lon を読む（${pbf.length} 地物・${t.geometry.coordinates.length} 点）`);
+	ok(w.properties.name === "Café & Bar <1>" && t.properties.name === "Morning Run", `gpx: CDATA は中身（${w.properties.name} / ${t.properties.name}）`);
+	ok(w.properties.desc === "A & B&amp;C", `gpx: CDATA の外だけ逃がしを戻す（${w.properties.desc}）`);
+}
+
+// ---- czml：referenceFrame INERTIAL＝標本の時刻で地球固定へ（歳差＋恒星時）。旧＝ECEF として読み経度が恒星時の分だけ回っていた（2026-09-23）----
+{
+	const { czmlToFeatures, inertialToFixed, ecefToLLH } = await import("../src/modules/czml.js");
+	const R = 6778137;
+	const lon0 = ecefToLLH(...inertialToFixed(R, 0, 0, Date.parse("2000-01-01T12:00:00Z")))[0];
+	ok(Math.abs(lon0 - 79.539) < 0.002, `czml: J2000.0 の慣性 x 軸（春分点）＝GMST 280.46° の反対＝79.539°E（${lon0.toFixed(4)}）`);
+	const lat1 = ecefToLLH(...inertialToFixed(0, 0, R, Date.parse("2026-09-23T00:00:00Z")))[1];
+	ok(Math.abs(lat1 - (90 - 0.148)) < 0.003, `czml: J2000 の極は 2026 年に歳差 θ≈0.148° だけ傾く（${lat1.toFixed(4)}）`);
+	const { features } = czmlToFeatures([{ id: "document", version: "1.0" }, { id: "sat", position: { referenceFrame: "INERTIAL", epoch: "2000-01-01T12:00:00Z", cartesian: [0, R, 0, 0, 60, R, 0, 0] } }]);
+	const c = features[0].geometry.coordinates;
+	ok(Math.abs(c[0][0] - 79.539) < 0.002 && Math.abs((c[0][0] - c[1][0]) - 0.2507) < 0.002, `czml: INERTIAL の標本は時刻ごとに回る（60 秒で西へ 0.2507°＝地球の自転）（${c.map(q => q[0].toFixed(4))}）`);
+	ok(!features[0].properties.czml?.position?.referenceFrame, "czml: 地球固定へ直したら書き戻しに INERTIAL を残さない");
+	const st = czmlToFeatures([{ id: "s", position: { referenceFrame: "INERTIAL", cartesian: [R, 0, 0] } }]).features[0];
+	ok(st.properties.czml?.position?.referenceFrame === "INERTIAL", "czml: 時刻の無い静的な INERTIAL は回せない＝referenceFrame を温存");
 }
 
 // ---- czml：Cesium CZML の往復（静的パケットは等価・sampled position は LineString + time 配列・ECEF は経緯度へ）2026-09-17 ----

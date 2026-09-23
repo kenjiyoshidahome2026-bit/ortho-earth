@@ -65,11 +65,12 @@ const outer = makeZip([{ name: "09201-0001-2026.zip", data: innerA, method: 8 },
 const outerSF = makeZip([{ name: "09201-0001-2026.zip", data: innerA, method: 8 }, { name: "09201-0002-2026.zip", data: makeZip([{ name: "09201-0002-2026.xml", data: enc.encode(xmlBsf), method: 0 }]), method: 0 }]);
 
 // ---- Worker の入口を Node で直接呼ぶ ----
+let runSeq = 0;
 async function runDecoder(modulePath, zip = outer) {
 	const messages = [];
 	globalThis.onmessage = null;
 	globalThis.postMessage = (m) => messages.push(m);
-	const mod = await import(modulePath + "?v=" + Date.now());
+	const mod = await import(modulePath + "?v=" + (++runSeq));   // 連番＝同じミリ秒に 2 回叩くと Date.now では同じ URL＝キャッシュされた module で onmessage が張られなかった（2026-09-23）
 	await globalThis.onmessage({ data: { file: new Blob([zip]), name: "09201-0608-2026", precision: 7, description: "d", license: "CC BY 4.0", attribution: "法務省" } });
 	return messages;
 }
