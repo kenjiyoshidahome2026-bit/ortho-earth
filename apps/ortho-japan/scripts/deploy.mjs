@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 本番デプロイ＝関門 2 本（verify:editor・verify:prod）を**並行**に回してから wrangler deploy → verify-live。
+// 本番デプロイ＝訳の門（verify:i18n・数秒）→ 関門 2 本（verify:editor・verify:prod）を**並行**に回してから wrangler deploy → verify-live。
 // 旧＝npm script の && 直列（editor 83 s → prod 140〜234 s → deploy → live 32 s ≈ 5〜6 分・2026-09-20 実測）。
 // 2 本はポートが別（editor 5244/9344・prod 5241/9351/9353）で干渉しない。どちらか落ちれば deploy しない。
 import { spawn } from "node:child_process";
@@ -13,6 +13,9 @@ const run = (cmd, args, tag) => new Promise(res => {
 	pipe(c.stdout, l => console.log(l)); pipe(c.stderr, l => console.error(l));
 	c.on("close", code => res(code));
 });
+// 先に訳の門（数秒）＝キーの欠け・プレースホルダ・実行時の表の焼き忘れ（⑥）。落ちたら重い関門を回さず止める
+// （2026-09-23：i18n:build の焼き忘れで本番の日本語 UI が英語で出た＝この門が deploy の経路に無かった）
+if (await run("npm", ["run", "-s", "verify:i18n"], "i18n") !== 0) { console.error(`✗ 訳の門 FAIL＝deploy しない（焼き忘れなら npm run i18n:build して commit） ${el()}`); process.exit(1); }
 // エディタ関門の範囲＝前回 deploy（git tag japan-deployed）から、エディタや gint の実装が動いていれば**全部**（t-editor 61 s・t-zoomfill 60 s 込み）、
 // 動いていなければ速い 4 ページ（t-backfill/t-rectlook×2/t-import ≈ 16 s）だけ。geoedit は packages/geoedit（2026-09-20 分離）＝
 // japan の deploy でその実装が変わっていないなら、長い対話回帰を毎回回す理由がない。tag が無い（初回）＝全部。
