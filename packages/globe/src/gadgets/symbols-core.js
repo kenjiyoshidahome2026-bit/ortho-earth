@@ -22,6 +22,7 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 		const props = f.properties || {}, ctx = { zoom, props, geom: "Point", vars: {} };
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
 		const ev = (e, d) => e == null ? d : evalExpr(e, ctx);
+		const strs = e => e == null ? null : Array.isArray(e) && e.length && e.every(x => typeof x === "string") && !["literal", "match", "case", "step", "get", "coalesce"].includes(e[0]) ? e : (v => Array.isArray(v) ? v : null)(evalExpr(e, ctx));   // 文字列の配列リテラル（["top","bottom"]）は式でない
 		const icon = Ly["icon-image"] != null ? textOf(Ly["icon-image"], ctx) : null;
 		const text = textOf(Ly["text-field"], ctx);
 		if (!icon && !text) continue;
@@ -33,6 +34,9 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 			textOverlap: !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false),
 			textColor: css(evalColor(Pt["text-color"] ?? "#000000", ctx)), haloColor: css(evalColor(Pt["text-halo-color"] ?? "rgba(0,0,0,0)", ctx)), haloWidth: +ev(Pt["text-halo-width"], 0),
 			sort: +ev(Ly["symbol-sort-key"], 0) || 0, props,
+			// #39：text-variable-anchor（候補を順に試す・text-radial-offset か text-offset の大きさで離す）・icon-text-fit（記号を文字の箱へ伸ばす）
+			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,
+			iconTextFit: ev(Ly["icon-text-fit"], "none"), iconTextFitPadding: ev(Ly["icon-text-fit-padding"], [0, 0, 0, 0]),
 		};
 		if (icon && images && !images.has(icon)) it.icon = null;   // 記号帳に無い名前＝記号は描かない（MapLibre は styleimagemissing を鳴らす）＝文字だけ残る
 		if (!it.icon && !it.text) continue;

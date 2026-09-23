@@ -3095,13 +3095,20 @@ const addPattern = async (layer, data, order) => {
 	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
 	return { features: items.length };
 };
+// ラスタの色調整（MapLibre の raster-* paint・#39）＝今のズームで数へ（式も可）。何も無ければ null
+const rasterAdjust = P => {
+	if (!P) return null;
+	const n = (k, d) => P[k] == null ? d : +evalExpr(P[k], { zoom: cam.zoom, props: {}, geom: null, vars: {} });
+	const a = { hueRotate: n("raster-hue-rotate", 0), saturation: n("raster-saturation", 0), contrast: n("raster-contrast", 0), brightnessMin: n("raster-brightness-min", 0), brightnessMax: n("raster-brightness-max", 1) };
+	return a.hueRotate || a.saturation || a.contrast || a.brightnessMin || a.brightnessMax !== 1 ? a : null;
+};
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 const mountLayer = async v => {
 	const { layer, kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "raster") {
-		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false };
+		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
-		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, ro);
+		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust }, ro);
 	}
 	if (kind === "extrude") return map.gadget.extrude(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return map.gadget.heatmap(await readPoints(data), { ...layer, slot: layer.id });
@@ -3225,7 +3232,7 @@ const mountExtExtras = async ext => {
 		try {
 			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {} });
-			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: opNow(), hideFills: false });
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false });
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }

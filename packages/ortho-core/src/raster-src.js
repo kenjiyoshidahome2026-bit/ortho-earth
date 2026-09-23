@@ -13,6 +13,7 @@
 //   { wms: { url, layers, styles?, format?, transparent?, version? } } … WMS（GetMap をタイルに割る・EPSG:3857）
 //   { wmts: { capabilities: URL, layer?, style?, format? } } … WMTS（GetCapabilities を読む）／{ wmts: { url, layer, tileMatrixSet, … } }（KVP を手で）
 //   url に {bbox-epsg-3857}（WMS）や {TileMatrix}/{TileRow}/{TileCol}（WMTS REST）を直に書いてもよい（MapLibre と同じ記法）
+//   adjust?: { hueRotate, saturation, contrast, brightnessMin, brightnessMax } … 色調整（MapLibre の raster-* paint・#39）＝どの種類にも掛かる
 //   { port: MessagePort, … }             … 外部プロバイダ（ローカル GeoPackage/MBTiles の worker・第三者の実装）。
 //        プロトコル：port ← { type:"info", info:{ tileSize, minZoom, maxZoom, bbox, attribution, name } } を最初に 1 通。
 //        要求 port → { id, z, x, y }／応答 port ← { id, bitmap: ImageBitmap|null, error?: string }（bitmap は transfer）。
@@ -115,7 +116,46 @@ async function decode(blobOrBytes, mime) {
 	catch (e) { throw new Error(`raster: image decode failed (${mime || blob.type || "unknown type"}): ${e && e.message || e}`); }
 }
 
+// ラスタの色調整（MapLibre の raster-hue-rotate / raster-saturation / raster-contrast / raster-brightness-min・max・#39）。
+// 順番も MapLibre と同じ＝色相 → 彩度 → コントラスト → 明るさの幅。復号した画像に画素でかける（シェーダは触らない＝両バックエンド同じ）。
+// adj＝{ hueRotate:度, saturation:-1..1, contrast:-1..1, brightnessMin:0..1, brightnessMax:0..1 }（既定＝何もしない）
+export function adjustRGBA(px, adj) {
+	const hr = (adj.hueRotate || 0) * Math.PI / 180, cs = Math.cos(hr), sn = Math.sin(hr);
+	// 色相の回転（CSS の hue-rotate と同じ行列）
+	const M = [0.213 + cs * 0.787 - sn * 0.213, 0.715 - cs * 0.715 - sn * 0.715, 0.072 - cs * 0.072 + sn * 0.928,
+		0.213 - cs * 0.213 + sn * 0.143, 0.715 + cs * 0.285 + sn * 0.140, 0.072 - cs * 0.072 - sn * 0.283,
+		0.213 - cs * 0.213 - sn * 0.787, 0.715 - cs * 0.715 + sn * 0.715, 0.072 + cs * 0.928 + sn * 0.072];
+	const sat = adj.saturation || 0, satF = sat > 0 ? 1 - 1 / (1.001 - sat) : -sat;   // MapLibre の式
+	const con = adj.contrast || 0, conF = con > 0 ? 1 / (1 - con) : 1 + con;
+	const bmin = adj.brightnessMin ?? 0, bmax = adj.brightnessMax ?? 1;
+	for (let i = 0; i < px.length; i += 4) {
+		let r = px[i] / 255, g = px[i + 1] / 255, b = px[i + 2] / 255;
+		if (hr) { const r2 = M[0] * r + M[1] * g + M[2] * b, g2 = M[3] * r + M[4] * g + M[5] * b, b2 = M[6] * r + M[7] * g + M[8] * b; r = r2; g = g2; b = b2; }
+		if (sat) { const avg = (r + g + b) / 3; r += (avg - r) * satF; g += (avg - g) * satF; b += (avg - b) * satF; }
+		if (con) { r = (r - 0.5) * conF + 0.5; g = (g - 0.5) * conF + 0.5; b = (b - 0.5) * conF + 0.5; }
+		r = bmin + r * (bmax - bmin); g = bmin + g * (bmax - bmin); b = bmin + b * (bmax - bmin);
+		px[i] = Math.max(0, Math.min(255, r * 255 + 0.5)); px[i + 1] = Math.max(0, Math.min(255, g * 255 + 0.5)); px[i + 2] = Math.max(0, Math.min(255, b * 255 + 0.5));
+	}
+	return px;
+}
+const needsAdjust = a => a && (a.hueRotate || a.saturation || a.contrast || (a.brightnessMin ?? 0) !== 0 || (a.brightnessMax ?? 1) !== 1);
+async function adjustBitmap(bm, adj) {
+	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d", { willReadFrequently: true });
+	g.drawImage(bm, 0, 0); bm.close?.();
+	const im = g.getImageData(0, 0, cv.width, cv.height);
+	adjustRGBA(im.data, adj);
+	g.putImageData(im, 0, 0);
+	return createImageBitmap(cv, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+}
+
 export async function createRasterSource(spec) {
+	const src = await createRasterSource0(spec);
+	if (!needsAdjust(spec?.adjust)) return src;
+	const get = src.get.bind(src);
+	src.get = async (z, x, y, signal) => { const bm = await get(z, x, y, signal); return bm ? adjustBitmap(bm, spec.adjust) : bm; };   // 色調整（#39）は復号の直後に
+	return src;
+}
+async function createRasterSource0(spec) {
 	if (spec?.wmts?.capabilities) {   // WMTS の GetCapabilities を読んで型紙・行列 id・ズーム域・名前を作る（#45）
 		const cu = spec.wmts.capabilities, r = await fetch(cu, { credentials: spec.credentials || "omit" });
 		if (!r.ok) throw new Error(`raster: WMTS capabilities HTTP ${r.status}`);
