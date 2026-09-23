@@ -7,7 +7,7 @@ import { unescXML } from "../modules/xml.js";
 //   ＝GPS ロガーの記録（ほぼ全てが trk）から時刻列が 100% 消え、再生も断面もできなかった（2026-09-17）。
 //   rte は route:true を立てて LineString にする（encoder が <rte> に戻す）。
 //   点の属性は lat/lon の並び順・改行・自己閉じ（<trkpt … />）を問わない（旧＝lat="…" lon="…" の順固定で取りこぼした）。
-//   テキストは unescXML で戻す（旧＝encoder が escXML した "A&amp;B" が往復で二重に逃げていた）。
+//   テキストは unescXML で戻す（旧＝encoder が escXML した "A&amp;B" が往復で二重に逃げていた）。CDATA は中身をそのまま（xml.js）。
 
 const TAG_RE = Object.create(null);   // タグ名ごとに 1 回だけコンパイル（g 無し＝lastIndex 状態を持たないので使い回せる）
 const tagContent = (src, tag) => {
@@ -16,7 +16,8 @@ const tagContent = (src, tag) => {
 };
 // 直下の <name> だけ＝trk の name を取るとき、中の trkpt/link に <name> があっても拾わない（trkseg より前で切る）
 const headOf = (inner, childTag) => { const i = inner.search(new RegExp(`<${childTag}\\b`, 'i')); return i < 0 ? inner : inner.slice(0, i); };
-const attr = (attrs, name) => { const m = new RegExp(`\\b${name}\\s*=\\s*"([^"]*)"`, 'i').exec(attrs); return m ? +m[1] : NaN; };
+// 属性の引用符は " と ' の両方（XML の規則）。旧＝" だけ＝lat='…' の GPX は 1 点も読めず黙って 0 地物だった（2026-09-23）
+const attr = (attrs, name) => { const m = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, 'i').exec(attrs); return m ? +(m[1] ?? m[2]) : NaN; };
 const num = s => { if (s == null || s === "") return null; const v = +s; return Number.isFinite(v) ? v : null; };
 
 // <tag lat lon …/> と <tag lat lon …>…</tag> の両方＝[attrs, inner]

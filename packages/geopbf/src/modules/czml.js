@@ -11,7 +11,8 @@
 //   幾何にした部分以外のパケット（billboard / label / point / model / path / orientation / 各 graphics のスタイル …）は
 //   属性 czml に JSON のまま抱える＝書き戻しでそのまま展開する（静的 CZML は往復で等価）。
 //   id / name / description / availability は同名の属性。packet.properties のスカラーは素の属性へ、それ以外（時系列値・
-//   予約名と衝突）は czml.properties へ。cartesian（ECEF）と cartographicRadians は WGS84 の経緯度に直す。
+//   予約名と衝突）は czml.properties へ。cartesian（ECEF）と cartographicRadians は WGS84 の経緯度に直す。referenceFrame: "INERTIAL" の
+//   cartesian は標本の時刻で地球固定へ回してから（歳差＋恒星時・inertialToFixed）。
 //   参照（"id#prop"）・幾何を持たないパケットは落とす（dropped に数える）。document パケットの clock は残さない
 //   （Cesium は clock 無しなら availability から時計を組む）。
 
@@ -19,6 +20,7 @@ const RAD = 180 / Math.PI;
 const A = 6378137, F = 1 / 298.257223563, E2 = F * (2 - F);
 
 // ECEF（m）→ [lon°, lat°, h m]（WGS84・反復 5 回＝mm 以下）
+export { inertialToFixed };
 export function ecefToLLH(x, y, z) {
 	const lon = Math.atan2(y, x), p = Math.hypot(x, y);
 	let lat = Math.atan2(z, p * (1 - E2)), N = A, h = 0;
@@ -29,6 +31,27 @@ export function ecefToLLH(x, y, z) {
 		lat = Math.atan2(z, p * (1 - E2 * N / (N + h)));
 	}
 	return [lon * RAD, lat * RAD, h];
+}
+
+// 慣性系（referenceFrame: "INERTIAL"＝ICRF/J2000）→ 地球固定（ECEF）。標本の時刻ごとに 歳差（IAU 1976：J2000 → その時刻の平均赤道）→
+// 地球の自転（グリニッジ平均恒星時 IAU-82）で回す。章動（最大 17″）と極運動は入れない（LEO で最大 ~0.5 km）。
+// 旧＝INERTIAL を見ずに ECEF として読み、恒星時の分（最大 1 周）だけ経度が回っていた（衛星の CZML の大半が INERTIAL・2026-09-23）。
+// 式は公開の IAU 定数（geopbf は MIT＝GPL の ephem は読まない）。
+const AS = Math.PI / 648000;
+function inertialToFixed(x, y, z, ms) {
+	const jd = ms / 864e5 + 2440587.5, T = (jd - 2451545.0) / 36525;
+	const zeta = (2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) * AS;
+	const zz = (2306.2181 * T + 1.09468 * T * T + 0.018203 * T ** 3) * AS;
+	const th = (2004.3109 * T - 0.42665 * T * T - 0.041833 * T ** 3) * AS;
+	// P = R3(−z)·R2(θ)·R3(−ζ)（受動回転）
+	const cz = Math.cos(zeta), sz = Math.sin(zeta), cZ = Math.cos(zz), sZ = Math.sin(zz), ct = Math.cos(th), st = Math.sin(th);
+	const x1 = cz * x - sz * y, y1 = sz * x + cz * y, z1 = z;                 // R3(−ζ)
+	const x2 = ct * x1 - st * z1, y2 = y1, z2 = st * x1 + ct * z1;          // R2(θ)
+	const x3 = cZ * x2 - sZ * y2, y3 = sZ * x2 + cZ * y2, z3 = z2;          // R3(−z)
+	let g = (-6.2e-6 * T ** 3 + 0.093104 * T * T + (876600 * 3600 + 8640184.812866) * T + 67310.54841) * (Math.PI / 43200);   // 秒 → rad（1 秒＝15″）
+	g %= 2 * Math.PI;
+	const cg = Math.cos(g), sg = Math.sin(g);
+	return [cg * x3 + sg * y3, -sg * x3 + cg * y3, z3];                    // R3(GMST)
 }
 
 const SAMPLE_KEYS = ["cartographicDegrees", "cartographicRadians", "cartesian", "cartesianVelocity"];
@@ -49,16 +72,22 @@ export function readPosition(v, tagged) {
 	const arr = v[key], dim = key === "cartesianVelocity" ? 6 : 3;
 	const stride = tagged && arr.length > dim ? dim + 1 : dim;
 	const pts = [], times = stride > dim ? [] : null;
+	// 慣性系は時刻が要る＝標本の時刻（無ければ epoch）で地球固定へ。時刻がまったく無い静的な INERTIAL だけは回せない＝そのまま（referenceFrame を温存）
+	const inertial = v.referenceFrame === "INERTIAL" && (key === "cartesian" || key === "cartesianVelocity") && (times || v.epoch);
 	for (let i = 0; i + stride <= arr.length; i += stride) {
 		const o = stride > dim ? i + 1 : i;
 		let x = +arr[o], y = +arr[o + 1], z = +arr[o + 2];
+		const t = times ? isoOf(arr[i], v.epoch) : null;
 		if (key === "cartographicRadians") x *= RAD, y *= RAD;
-		else if (key !== "cartographicDegrees") [x, y, z] = ecefToLLH(x, y, z);
+		else if (key !== "cartographicDegrees") {
+			if (inertial) [x, y, z] = inertialToFixed(x, y, z, Date.parse(t || v.epoch));
+			[x, y, z] = ecefToLLH(x, y, z);
+		}
 		pts.push([x, y, z]);
-		if (times) times.push(isoOf(arr[i], v.epoch));
+		if (times) times.push(t);
 	}
 	const meta = {};
-	for (const k in v) if (!SAMPLE_KEYS.includes(k) && k !== "epoch" && k !== "interval") meta[k] = v[k];
+	for (const k in v) if (!SAMPLE_KEYS.includes(k) && k !== "epoch" && k !== "interval" && !(inertial && k === "referenceFrame")) meta[k] = v[k];   // 地球固定へ直した＝書き戻し（経緯度）に INERTIAL を残さない
 	return { pts, times, meta };
 }
 
