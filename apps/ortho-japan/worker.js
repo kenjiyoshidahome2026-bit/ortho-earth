@@ -9,12 +9,13 @@
 // URL に ?query を足す方式は vite の静的検出（new Worker(new URL('…', import.meta.url), {静的 options})）を壊すので使わない。
 // 各 worker 脚本（renderworker.js …）は従来どおり「自分で self.onmessage を張る」まま無改修。ここは指名された脚本を読み込み、
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
+// 地域の役（e-Stat 等）は worker-roles-extra.js＝地球儀のホストは地域の worker を知らない（LAYERS.md 段階 2 S3d ④）
+import { EXTRA_ROLES } from "./worker-roles-extra.js";
 const ROLES = {
 	render:         () => import("./renderworker.js"),
 	mesh:           () => import("./meshworker.js"),
 	meshdecoder: () => import("./meshdecoder.js"),
 	gintbake:       () => import("./gintbakeworker.js"),
-	estat:          () => import("@ortho-earth/jp/estat-worker"),   // e-Stat 小地域＝日本の地域パックの部品（2026-09-23 S3）
 	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
 	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
 	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・meshdecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
@@ -24,6 +25,7 @@ const ROLES = {
 	"ortho:scene":   () => import("@ortho-earth/core/workers/scene"),     // シーンの結合
 	"altpbf:height": () => import("altpbf/worker"),                // 標高タイルの復号（main の createGetHeight・render worker の terrain）
 	"geoedit:model": () => import("geoedit/model-worker"),         // geoedit の編集モデル
+	...EXTRA_ROLES,
 };
 
 const pending = [];
