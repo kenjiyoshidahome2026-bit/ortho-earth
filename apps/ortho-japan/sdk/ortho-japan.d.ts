@@ -417,6 +417,9 @@ export interface OrthoJapanMap {
 	 *  高さ＝既定は tileset の高さのまま（写真測量・点群）。建物の tileset は ground:"terrain"＝1 棟ずつ地面へ接地。点群は同一フレームのオーバーレイ（深度は共有しない＝#47）。
 	 *  未対応＝implicit tiling・メタデータとスタイル・API キーの要る配信 */
 	add3DTiles(url: string, opts?: Tiles3DOptions): Promise<Tiles3DHandle>;
+	/** I3S（ArcGIS の Indexed 3D Scene Layer・1.2.0〜・#48）を 3D Tiles と同じ選び・同じ GPU 経路で流す。url＝…/SceneServer か …/SceneServer/layers/N（?i3s=<URL> と同じ）。
+	 *  nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。lodScale＞1 で粗く。点群と旧形式は未対応。解読は @loaders.gl/i3s（MIT） */
+	addI3S(url: string, opts?: Tiles3DOptions & { lodScale?: number; token?: string }): Promise<{ id: string; name: string | null; copyright: string | null; readonly stats: Tiles3DHandle["stats"]; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions> & { lodScale?: number }): void }>;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
 	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
