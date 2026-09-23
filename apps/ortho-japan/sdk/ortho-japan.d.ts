@@ -30,6 +30,8 @@ export interface OrthoJapanOptions {
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
 	 *  headers は画像タイル・3D Tiles・基図タイル（PMTiles 以外）に効く */
 	transformRequest?: TransformRequestFunction;
+	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ */
+	terrain?: { source: RasterDemSource; exaggeration?: number };
 	/** 地域の申告（1.2.0〜）。渡さなければ URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
 	 *  世界の陸の段彩（ハイプソ）・湖・罫線は zoomMax まで出たままになる（地域の基図が入場しないため）。 */
@@ -268,6 +270,10 @@ export type MapLibreSource =
 	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
+/** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
+ *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
+ *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
+export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number }
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;
@@ -427,6 +433,9 @@ export interface OrthoJapanMap {
 	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
 	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
+	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
+	setTerrain(terrain: { source: string | RasterDemSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;
+	getTerrain(): { source: RasterDemSource; exaggeration: 1 } | null;
 	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
 	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
 	/** 独自スキーム（"myscheme://…"）の取得を関数に任せる（大域・export の addProtocol と同じ） */
