@@ -6,6 +6,10 @@ import { t, has, setLang, norm, LANGUAGES, getLang } from "./i18n.js";
 // 言語：?lang= → ブラウザ → 英語（26 言語）。文言は data-t（キー）/ data-t-<attr> を持つ要素を貼り替えるだけ＝HTML は英語のまま焼いてある。
 // 選んだ言語（?lang= か右上の選択）はデモへのリンクへ伝搬＝www→デモの導線でも言語が保てる（LT 2026-08-24 からの作法を全リンクへ）。
 const ATTRS = ["aria-label", "alt", "title", "placeholder"];
+// クエリの書き出し＝URLSearchParams.toString() は / ? : = まで %xx にする（?d=%2Fjapan%2F…）。読める形で出す：
+// 意味を持つ & # + % と空白だけ符号化（読み側は URLSearchParams.get のままで同じ値に戻る）。
+const enc = s => encodeURIComponent(s).replace(/%(2F|3F|3A|3D|40|2C)/gi, decodeURIComponent);
+const qs = q => [...q].map(([k, v]) => enc(k) + "=" + enc(v)).join("&");
 function relabel() {
 	document.querySelectorAll("[data-t]").forEach(el => { el.textContent = t(el.dataset.t); });
 	for (const a of ATTRS) document.querySelectorAll(`[data-t-${a}]`).forEach(el => el.setAttribute(a, t(el.getAttribute(`data-t-${a}`))));
@@ -17,7 +21,7 @@ function propagate(lang) {
 	document.querySelectorAll('a[href^="/"]:not([href^="/docs"])').forEach(a => {
 		const u = new URL(a.getAttribute("href"), location.origin);
 		lang && lang !== "en" ? u.searchParams.set("lang", lang) : u.searchParams.delete("lang");
-		a.setAttribute("href", u.pathname + u.search + u.hash);
+		a.setAttribute("href", u.pathname + (u.searchParams.size ? "?" + qs(u.searchParams) : "") + u.hash);
 	});
 }
 {
@@ -33,7 +37,7 @@ function propagate(lang) {
 		const c = await setLang(sel.value);
 		relabel(); propagate(c);
 		const q = new URLSearchParams(location.search); c === "en" ? q.delete("lang") : q.set("lang", c);
-		history.replaceState(null, "", (q.size ? "?" + q : location.pathname) + location.hash);
+		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
 }
 // Section tabs (Demos / Technologies) — client-side; swaps the card panels over the ambient globe.
@@ -96,7 +100,7 @@ function hideDemo() {
 	backBtn.hidden = true;
 	document.body.classList.remove("in-demo"); globe.resume();
 }
-const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + q : location.pathname) + location.hash; };
+const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + qs(q) : location.pathname) + location.hash; };
 document.addEventListener("click", e => {
 	const a = e.target.closest?.("#panel-demos a.card");
 	if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -104,7 +108,7 @@ document.addEventListener("click", e => {
 	const path = demoPath(a.getAttribute("href")); if (!path) return;
 	e.preventDefault();
 	const q = new URLSearchParams(location.search); q.set("d", path);
-	history.pushState({ demo: path }, "", "?" + q);
+	history.pushState({ demo: path }, "", "?" + qs(q));
 	showDemo(path, a.querySelector(".card-title")?.textContent);
 });
 backBtn.addEventListener("click", () => { if (history.state?.demo) history.back(); else { history.replaceState(null, "", listUrl()); hideDemo(); } });
