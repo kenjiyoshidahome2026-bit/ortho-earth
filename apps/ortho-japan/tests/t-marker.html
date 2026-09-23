@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- UI回帰：DOM の Marker / Popup（#38・MapLibre と同名）。globe で起動し、①錨の画面位置（既定ピン＝下端中央が錨）②カメラが動くと追随
+     ③球の裏へ回ると隠れる ④setPopup＝クリックで開閉・closeOnClick ⑤ドラッグで経緯度が変わり dragend ⑥remove。実時間（描くたびの追随を見る）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-marker</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, Marker, Popup } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const near = (a, b, e) => Math.abs(a - b) <= e;
+try {
+	const map = await createGlobe({ target: "#map", view: "#8/35.68/139.77", chips: false });
+	await sleep(1500);
+	const mapR = () => map.mapEl.getBoundingClientRect();
+	const at = el => { const r = el.getBoundingClientRect(), m = mapR(); return { cx: r.left + r.width / 2 - m.left, bottom: r.bottom - m.top, top: r.top - m.top, w: r.width, h: r.height }; };
+	const mk = new Marker({ color: "#e33" }).setLngLat([139.77, 35.68]).addTo(map);
+	await sleep(300);
+	let [x, y] = map.projectLL(139.77, 35.68), a = at(mk.getElement());
+	ok("anchor", near(a.cx, x, 2) && near(a.bottom, y, 2), `pin(${a.cx.toFixed(1)},${a.bottom.toFixed(1)}) proj(${x.toFixed(1)},${y.toFixed(1)})`);
+	ok("classes", map.Marker === Marker && map.Popup === Popup);
+	// ② 追随
+	map.jumpTo({ center: [139.5, 35.5] });
+	await sleep(400);
+	[x, y] = map.projectLL(139.77, 35.68); a = at(mk.getElement());
+	ok("follow", near(a.cx, x, 2) && near(a.bottom, y, 2), `pin(${a.cx.toFixed(1)},${a.bottom.toFixed(1)}) proj(${x.toFixed(1)},${y.toFixed(1)})`);
+	// ③ 裏へ
+	map.jumpTo({ center: [-40, -30], zoom: 2 });
+	await sleep(400);
+	ok("hidden", getComputedStyle(mk.getElement()).display === "none");
+	map.jumpTo({ center: [139.77, 35.68], zoom: 8 });
+	await sleep(400);
+	ok("shown", getComputedStyle(mk.getElement()).display !== "none");
+	// ④ 吹き出し
+	const p = new Popup({ offset: 10 }).setText("東京");
+	let opened = 0, closed = 0; p.on("open", () => opened++).on("close", () => closed++);
+	mk.setPopup(p);
+	mk.getElement().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+	await sleep(300);
+	const pa = at(p.getElement()), ma = at(mk.getElement());
+	ok("popupOpen", p.isOpen() && opened === 1 && p.getElement().textContent.includes("東京") && pa.bottom <= ma.top + 1, `popBottom=${pa.bottom.toFixed(1)} pinTop=${ma.top.toFixed(1)}`);
+	map.mapEl.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: mapR().left + 50, clientY: mapR().top + 50 }));
+	await sleep(100);
+	ok("closeOnClick", !p.isOpen() && closed === 1);
+	mk.togglePopup(); await sleep(50);
+	p.getElement().querySelector(".oe-popup-close").click();
+	ok("closeButton", !p.isOpen() && closed === 2);
+	// ⑤ ドラッグ
+	mk.setDraggable(true);
+	let ended = null; mk.on("dragend", e => { ended = e.target.getLngLat(); });
+	const el = mk.getElement(), r0 = el.getBoundingClientRect();
+	const sx = r0.left + r0.width / 2, sy = r0.bottom - 2;
+	el.dispatchEvent(new PointerEvent("pointerdown", { clientX: sx, clientY: sy, pointerId: 5, bubbles: true }));
+	for (let i = 1; i <= 5; i++) el.dispatchEvent(new PointerEvent("pointermove", { clientX: sx + i * 20, clientY: sy + i * 10, pointerId: 5, bubbles: true }));
+	el.dispatchEvent(new PointerEvent("pointerup", { clientX: sx + 100, clientY: sy + 50, pointerId: 5, bubbles: true }));
+	ok("drag", !!ended && ended.lng > 139.77 && ended.lat < 35.68, ended ? `${ended.lng.toFixed(3)},${ended.lat.toFixed(3)}` : "none");
+	// ⑥ 外す
+	mk.remove();
+	ok("remove", !map.mapEl.contains(el));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
