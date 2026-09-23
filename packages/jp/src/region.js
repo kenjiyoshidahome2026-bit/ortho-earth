@@ -3,7 +3,8 @@
 // 地域宣言は「データの記述子」であってクラスではない。エンジンも altpbf も地域を知らず、
 // アプリが起動時にこの宣言を渡す（標高＝2026-09-17・建物＝同日）。
 //   dtm       … 裸地標高の申告（packages/jp/src/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
-//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・icon は建物データ管理ボタンの顔・group(set) はデータ管理モーダルの並び/見出し。
+//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・bakeBase は R2 焼き（PLQ）の置き場（無宣言＝焼き無し＝生経路のみ）・
+//               icon は建物データ管理ボタンの顔・group(set) はデータ管理モーダルの並び/見出し。
 //               sets を持つ地域はカタログを取らず、その場の配列を台帳へ足す（オランダ側を見よ）
 //   basemap   … ベクタ基図のソース記述子（null＝基図を持たない地域＝タイルを要求せず図郭外と同じ扱い）
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
@@ -34,6 +35,9 @@ export const JP_REGION = {
 	dtm: JP_DTM,
 	buildings: {
 		catalog: "plateau-sets.json",       // scripts/plateau-catalog-build.mjs が datacatalog API から生成
+		// R2 焼き（PLQ・scripts/bake-plateau.mjs が置いた GPU 直行形式）の置き場＝**この国の焼きの在り処**。
+		// 宣言しない地域は焼きを引かない（生経路のみ）＝オランダ 3DBAG と同じ扱い（2026-09-23 申告化・旧＝worker に直書き）。
+		bakeBase: "https://api.ortho-earth.com/bucket/GIS/plateau/",
 		exclude: "plateau-exclude.json",    // 区ごとの除外タイル（decode 側へ配る）
 		landmarks: "plateau-landmarks.json",// ランドマークの名札（施設チップ ON の時だけ）
 		// データ管理モーダルの並びと見出し＝市区町村コード順（base URL の "39386-bldg-…" がコード＝地理院・e-Stat と同じ並び）・先頭2桁＝都道府県で見出し
