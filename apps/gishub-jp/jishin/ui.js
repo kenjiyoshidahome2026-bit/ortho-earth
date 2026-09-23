@@ -185,7 +185,7 @@ export async function showFault() {
                 }).sort((a, b) => b.score - a.score);
                 layer.setPaint(faultPaintFor([...new Set(rows.flatMap(r => r.bands))]));
                 view.pop.clear();
-                view.pop(popHtml(rows, lon, lat, 8, grabbed), { x, y, lng: lon, lat });
+                view.pop(popHtml(rows, lon, lat, 6, grabbed), { x, y, lng: lon, lat });
             };
             map.on('click', onClick);
             return () => { map.off('click', onClick); seq++; };   // 地図を出る時に外す
