@@ -36,13 +36,13 @@ let drapedOn = false;
 const sendGintStyle = () => renderer.set("gintStyle", gintDrawOpts);
 let gintHoverTip = null;   // ホバー tip 内容 setter（init末尾で map.gadget.tip() を一度だけ搭載＝全gint層で有効）
 let lastHoverXY = null;    // 直近ホバー座標（estat が町丁目ミス＝市区町村外の時に gint ホバーへフォールバックする用）
-let estatTipOwn = false;   // 町丁目tip表示中＝gint識別ackにtipを触らせない（gintLeaveのnull-ackで消える/古いmove-ackで上書きされるレース封じ）。census経路のみ立つ＝デモ不変
+let extTipOwn = false;   // 町丁目tip表示中＝gint識別ackにtipを触らせない（gintLeaveのnull-ackで消える/古いmove-ackで上書きされるレース封じ）。census経路のみ立つ＝デモ不変
 let gintClickHandler = null;   // gintクリックの派生アプリ受け口（map.onGintClick）。未登録なら従来の console のみ
 canvas.addEventListener("pointerleave", () => {
 	wPost({ type: "gintLeave" });
 	// smallAreaHover（census2020限定）＝町丁目ホバーの太線/名前tipも掃除（ポインタが地図外へ出た時の残留防止）。
 	// デモ（フラグ無し）は従来どおり gintLeave のみ＝凍結挙動不変。
-	if (smallAreaHover) { estatTipOwn = false; renderer.set("overlayHover", null); gintHoverTip?.(null); requestDraw(); }
+	if (smallAreaHover) { extTipOwn = false; renderer.set("overlayHover", null); gintHoverTip?.(null); requestDraw(); }
 });
 // 14条地図（法務省 登記所備付地図）を球へ。デコード済み pbf を受けて球へ配線する共通処理。
 // 「座標値種別=図上測量」は測量手法のタグに過ぎず絶対位置の信頼性とは無相関と判明済み（系変換さえ合っていれば図上測量でも正確）
@@ -373,7 +373,7 @@ function addGint(pbf, opts = {}) {
 				if (nf != null) for (const cb of handlers.mouseenter) cb(f);
 				lastHovFid = nf;
 			}
-			if (tipFmt && gintHoverTip && !estatTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
+			if (tipFmt && gintHoverTip && !extTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
 		},
 		_zoomReeval: z => {   // settle 毎に呼ばれる（③）：['zoom'] を含む paint は 0.5z 動いたら再評価（restyle は安い＝§8.1）
 			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.5) h.setPaint(lastPaint, lastFilter);
@@ -755,7 +755,7 @@ return {
 	get drapedOn() { return drapedOn; },
 	get hoverTip() { return gintHoverTip; }, set hoverTip(fn) { gintHoverTip = fn; },
 	get lastHoverXY() { return lastHoverXY; }, set lastHoverXY(v) { lastHoverXY = v; },
-	get estatTipOwn() { return estatTipOwn; }, set estatTipOwn(v) { estatTipOwn = v; },
+	get extTipOwn() { return extTipOwn; }, set extTipOwn(v) { extTipOwn = v; },
 	get clickHandler() { return gintClickHandler; }, set clickHandler(fn) { gintClickHandler = fn; },
 	get worldTipOn() { return worldTipOn; }, set worldTipOn(v) { worldTipOn = v; },
 	get suppressAdmin0() { return suppressAdmin0; }, set suppressAdmin0(v) { suppressAdmin0 = v; },

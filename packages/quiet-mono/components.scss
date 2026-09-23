@@ -37,7 +37,7 @@
        各ボタンのブロックは固有の状態（.on/.busy/初期display等）だけを書く。
        この節は全ブロックより前置＝固有の上書きが同格後勝ちで自然に効く。 --- */
 #hint-btn, #plateau-btn, #palette-btn, #qr-btn, #demo-btn, #reset, #full, #cpos-btn,
-#measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn, .qm-panel-btn {
+#measure-btn, #profile-btn, #japan-btn, #home-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn, .qm-panel-btn {
 	width: 34px; height: 34px; border-radius: 5px;
 	border: 1px solid var(--qm-border); background: var(--qm-panel); cursor: pointer; padding: 0;
 	display: flex; align-items: center; justify-content: center;
@@ -746,7 +746,7 @@
        点火(.on)や検索の開閉(#search.open)は各所の高詳細度セレクタが勝つ＝壊さない。
        上辺グラデ＋inset上ハイライト＝光を受けた凸面、押すと1px沈む＝指応え。 --- */
 #hint-btn, #search #search-btn, #plateau-btn, #palette-btn, #reset, #zoom button, #full, #layers-btn, .qm-panel-btn,
-#cpos-btn, #measure-btn, #profile-btn, #japan-btn, #solar, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn, #edit-btn, #stac-btn,
+#cpos-btn, #measure-btn, #profile-btn, #japan-btn, #home-btn, #solar, #shot-btn, #print-btn, #legend-btn, #close-btn, #demo-btn, #qr-btn, #hud-btn, #edit-btn, #stac-btn,
 #chips .chip {
 	background-color: var(--qm-glass-bg);
 	background-image: var(--qm-glass-sheen);

@@ -31,7 +31,11 @@
   - S1 済：地域の選び方（URL→JP/NL）をホストから包み `orthoJapan` へ。ホスト `createGlobe` は `opts.region` しか見ない・既定の視点は世界
   - S2 済：airports.json＝地域の申告（`JP_REGION.airports`）
   - S3 済：e-Stat（overlay.js の estat 部）を jp 側へ（`packages/jp/src/estat.js`・`estat-worker.js`・`install.js`）。overlay.js は地球儀の臓器（identify／mask／hover 輪郭／`use(ext)`）だけ。ホストは**拡張面** `hostEnv`＝`{ opts, renderer, cam, size, dpr, requestDraw, overlay, spawnWorker, ownTip, hooks.hover[], t, dbg, onDestroy }` を出し、地域宣言の `install(map, hostEnv)` が `map.estat` を生やす（`map.overlay` への同名 alias は census2020 互換）。轍：install の dynamic import は verify:ui（仮想時間）で解決しない＝region.js から静的 import
-  - S4：ホスト（app.js・gadgets・gint・sky・scenes・boot・i18n・style・worker）を `packages/globe` へ物理移動。japan は薄い包み＋日本の頁
+  - S3b 済：残っていた地域の露出を申告へ。`gadget("home")`（顔・札・DOM id は `home` 宣言＝日本は列島ブロック図・"Show all of Japan"・#japan-btn／`japan` は非推奨の別名）・`extTipOwn`（拡張が tip を握る合図の一般名・旧 estatTipOwn）・`__tokyo` は jp の install が生やす
+  - S3c 済：app.js を二分＝`globe.js`（ホスト＝createGlobe・地域の import ゼロ）と `app.js`（包み＝orthoJapan・URL で JP/NL を選ぶ・SDK の公開面は据え置き）。S4 は globe.js 一式の git mv だけになる
+  - S3d 済（①〜③′）：①POI 台帳の実装は `poi.create(env)`（宣言が動的 import を握る＝ホストは @ortho-earth/jp/poi を知らない） ②出典の圏名 "jp"→"region"（attrRegionHTML） ③′建物データ管理モーダルの並び/見出し（都道府県）は `buildings.group(set)`＝meshdb.js は地域を知らない（門＝t-mesh dbGroups）
+  - S3d 残（S4 の前後どちらでも可）：③basemap の語彙（themes.js の vt_code・style-gsi.js・THEME_META の gsi・mergeChome の丁目・chips）＝`basemap` 宣言が語彙とテーマを持参する形へ（大きめ・別コミット） ④worker の入口：ホストの worker.js に `estat` 役（@ortho-earth/jp/estat-worker）が載っている＝S4 で「globe の役表＋japan の役表」に分け、ホストは `opts.worker`（役→Worker の工場）を受ける
+  - S4：ホスト（globe.js・gadgets・gint・sky・scenes・boot・i18n・style・worker）を `packages/globe` へ物理移動。japan は薄い包み＋日本の頁
   - S5：関門を globe 用（t-*）と japan 用（jp 固有）に二分
   - S6：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes／tellus／GeoPBF デモは `createGlobe`（申告なし・z<8）。models（PLATEAU LOD3）／scene／census2020 は japan 側。equal は段階 3 で色・ラベルを一本化
 - **3** equal の palette／labels を globe の worldpal／labels と一本化（world の色定数の手写しを無くす）。

@@ -1,13 +1,13 @@
-// 建物3D（PLATEAU）データ管理モーダル：全国カタログ（300市区町村）に IDB キャッシュ状況（済・容量）を重ね、
+// 建物3D データ管理モーダル：地域の台帳（日本＝PLATEAU 300 市区町村）に IDB キャッシュ状況（済・容量）を重ね、
 // プレロード（事前ダウンロード）と地区単位の削除を行う。回線の細い環境（タブレット・外出先）へ出る前に
 // 自宅で仕込み、ストレージが気になれば返す道具。DOM は open 初回に自前で組む＝main は worker 配線
 // （idbList/idbDelete/preload）とカタログの getter を渡すだけ。進捗は main の renderMeshProg から onProg で中継される。
-import { PREF } from "@ortho-earth/jp/search-gsi";
 import { tr } from "./i18n.js";
 
 const t = tr();
 
-export function createMeshDb({ getSets, idbList, idbDelete, preload, show }) {
+// groupOf(set)＝地域宣言 buildings.group（{ order（並び）, key（見出しの切れ目）, label（見出し）}・無ければ台帳順・見出しなし）
+export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null }) {
 	let root = null, listEl = null, sumEl = null, filterEl = null;
 	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
 	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
@@ -44,16 +44,17 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show }) {
 	}
 	function buildRows() {
 		rows.clear(); blocks = []; listEl.innerHTML = "";
-		// 市区町村コード順（base URL の "39386-bldg-…" がコード）＝地理院・e-Stat と同じ並び。先頭2桁＝都道府県で見出し。
-		const code = s => +(s.base.match(/\/(\d{5})-/)?.[1] || 99999);
-		const sets = [...getSets()].sort((a, b) => code(a) - code(b));
-		let curPref = -1, block = null;
+		// 並びと見出しは地域宣言 buildings.group（日本＝市区町村コード順・先頭2桁＝都道府県で見出し）。宣言が無ければ台帳順・見出しなし
+		const G = new Map(), grp = s => { let g = G.get(s); if (!g) G.set(s, g = groupOf?.(s) ?? { order: 0, key: null, label: "" }); return g; };
+		const sets = [...getSets()].sort((a, b) => grp(a).order - grp(b).order);
+		let curKey = undefined, block = null;
 		for (const set of sets) {
-			const pn = Math.floor(code(set) / 1000);
-			if (pn !== curPref) {
-				curPref = pn;
+			const key = grp(set).key;
+			if (key !== curKey || !block) {
+				curKey = key;
 				const headerEl = document.createElement("div"); headerEl.className = "pdb-pref";
-				headerEl.textContent = PREF[pn] || t("Other");
+				headerEl.textContent = grp(set).label || (key == null ? "" : t("Other"));
+				if (!headerEl.textContent) headerEl.hidden = true;
 				listEl.appendChild(headerEl);
 				blocks.push(block = { headerEl, rows: [] });
 			}
@@ -66,7 +67,7 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show }) {
 			const actEl = document.createElement("button"); actEl.className = "pdb-act";
 			actEl.addEventListener("click", () => onAct(set));
 			rowEl.append(nameEl, statusEl, drawEl, actEl); listEl.appendChild(rowEl);
-			const r = { set, pref: PREF[pn] || "", rowEl, statusEl, drawEl, actEl };
+			const r = { set, pref: grp(set).label || "", rowEl, statusEl, drawEl, actEl };
 			rows.set(set.name, r); block.rows.push(r);
 		}
 		applyFilter();

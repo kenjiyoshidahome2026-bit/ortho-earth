@@ -3,18 +3,18 @@
 // 地域宣言は「データの記述子」であってクラスではない。エンジンも altpbf も地域を知らず、
 // アプリが起動時にこの宣言を渡す（標高＝2026-09-17・建物＝同日）。
 //   dtm       … 裸地標高の申告（packages/jp/src/dtm.js が正本）。null＝焼き直した裸地が無い＝接地リフトしない
-//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・icon は建物データ管理ボタンの顔。
+//   buildings … 建物台帳の在り処。catalog は assetBase 相対の JSON（336 市区町村）・icon は建物データ管理ボタンの顔・group(set) はデータ管理モーダルの並び/見出し。
 //               sets を持つ地域はカタログを取らず、その場の配列を台帳へ足す（オランダ側を見よ）
 //   basemap   … ベクタ基図のソース記述子（null＝基図を持たない地域＝タイルを要求せず図郭外と同じ扱い）
 //   attribution … 出典（表示義務）。行ごとの [{href,key}] ＋ 末尾の加工注記。key は i18n の英語キー
 //   view      … その地域を裸で開いた時の初期視点（null＝アプリ既定＝日本）
-//   home      … 「その地域の全体へ戻る」の着地点 { view:[lon,lat,zoom] }（null＝戻りボタンを出さない）
+//   home      … 「その地域の全体へ戻る」{ view:[lon,lat,zoom], label(t() の鍵), icon(SVG), id(ボタンの DOM id) }（null＝戻りボタンを出さない）
 //   search    … 地名検索の供給元（packages/jp/src/search-gsi.js の形・null＝検索窓を出さない）
 //   poi       … 施設の点の台帳の在り処 { base, overrides, api }（null＝台帳を読まない）
 //   rail      … 路線オーバーレイの生成関数 createXxx(env)（packages/jp/src/n02.js の形・null＝作らない）
 // 後ろ 4 つは 2026-09-22 に app.js の直書きから宣言へ移した（宣言しない地域では生成もしない）。
 import { JP_DTM } from "./dtm.js";
-import { gsiSearch } from "./search-gsi.js";
+import { gsiSearch, PREF } from "./search-gsi.js";
 // 路線オーバーレイ（N02）は初めて load() された時に読む（鉄道チップ ON まで起動のバンドルに載せない・2026-09-22）。
 // 形は createN02Overlay(env) と同じ＝{ load(), loaded }（テーマ切替が loaded=false に戻して load() し直す）。
 const lazyRail = env => {
@@ -36,6 +36,8 @@ export const JP_REGION = {
 		catalog: "plateau-sets.json",       // scripts/plateau-catalog-build.mjs が datacatalog API から生成
 		exclude: "plateau-exclude.json",    // 区ごとの除外タイル（decode 側へ配る）
 		landmarks: "plateau-landmarks.json",// ランドマークの名札（施設チップ ON の時だけ）
+		// データ管理モーダルの並びと見出し＝市区町村コード順（base URL の "39386-bldg-…" がコード＝地理院・e-Stat と同じ並び）・先頭2桁＝都道府県で見出し
+		group(set) { const code = +(set.base.match(/\/(\d{5})-/)?.[1] || 99999), pn = Math.floor(code / 1000); return { order: code, key: pn, label: PREF[pn] || "" }; },
 		// 建物データ管理ボタン（map.gadget.mesh）のアイコン＝Project PLATEAU（国土交通省）公式ロゴマーク
 		//（plateau.mlit.go.jp の logo_min そのまま・色はブランド紫）。宣言しない地域は汎用の建物の形（2026-09-22 アプリから移設）。
 		icon: `<svg viewBox="0 0 20 30" width="14" height="21" fill="#463C64" aria-hidden="true">
@@ -88,7 +90,15 @@ export const JP_REGION = {
 		note: "(Created by processing these data sources)",
 	},
 	view: null,
-	home: { view: [137, 37, 6.6] },   // 列島ビュー（真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点（z6.6＝デモ初景と同値）
+	home: {   // 「日本全体へ」＝既定起動＆ home ガジェットの着地点（列島ビュー・真俯瞰・z6.6＝デモ初景と同値）。顔＝手描きの列島ブロック図（画素トレース）の塗り潰し版
+		// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下／四国=中央下。各島は原図より一回り小さく＝海峡（白い隙間）を確保。細いstroke同色＝角の丸み用
+		view: [137, 37, 6.6], label: "Show all of Japan", id: "japan-btn",   // id＝利用者 CSS が当てる公開面（quiet-mono #japan-btn）＝据え置き
+		icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" stroke="#3f4757" stroke-width=".8" stroke-linejoin="round" aria-hidden="true">
+			<rect x="17.2" y="1.6" width="5.8" height="5.2" rx="1"/>
+			<path d="M17.2 8.8 H23 V22.4 H20.1 V20.5 H18.6 V22.4 H13 V18 H6.8 V14.6 H17.2 Z"/>
+			<rect x="1" y="15" width="3.6" height="7.4" rx="1"/>
+			<rect x="6.6" y="19.8" width="4.6" height="2.6" rx="0.9"/></svg>`,
+	},
 	airports: "airports.json",
 	install: installJapan,   // 起動後に map へ足す物（e-Stat 小地域＝map.estat）。静的 import＝起動路に動的 import を置かない（仮想時間の関門は起動中の import() を解決できない・t-opts の轍 2026-09-23）。worker は従来どおり初回 loadEstat で遅延   // 低ズーム（z<13）の空港マーク台帳（scripts/airports-build.mjs・86 空港・assetBase 直下）＝タイル注記が無い帯を埋める（2026-09-23 申告化）
 	search: gsiSearch,
@@ -96,6 +106,8 @@ export const JP_REGION = {
 		api: "https://api.ortho-earth.com",                       // bucket API 基底（poiedit の書込は native-bucket がこの面へ）
 		base: "https://api.ortho-earth.com/bucket/GIS/pbf/",      // POIタイル/マニフェストのバケツ基底（自前fetch＝geopbf名前解決を通さない）
 		overrides: "poi/overrides.json",                          // 手差分の器（正典名＝uploader schema.OVR_NAME と同値・境界規約で複製）
+		// 実装の持参＝ホストは @ortho-earth/jp/poi を知らない（LAYERS.md 段階 2 S3d）。要った時（施設層 ON×z14+）に初めて読む＝起動のバンドルに載せない
+		create(env) { return import("./poi.js").then(m => m.createPoiLedger(JP_REGION.poi, env)); },
 	},
 	rail: lazyRail,
 };
