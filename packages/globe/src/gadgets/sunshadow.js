@@ -12,7 +12,7 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 	<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/></svg>`;
 const LEGEND = [["1", "#78b4ff"], ["2", "#508cf0"], ["3", "#3c5adc"], ["4", "#783cc8"], ["5", "#c82878"]];
 
-// run＝(opts) => Promise<{ image, corners, stats }>（globe が worker と画像層を持って注入）
+// run＝(opts) => Promise<{ triangles, maxHours, …, probes }>＝map.sunShadow の戻り（stats を平たく展開した形）
 export function sunShadow({ run, clear, minZoom = 15, signal } = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#sunshadow-btn")) return () => {};
@@ -47,8 +47,8 @@ export function sunShadow({ run, clear, minZoom = 15, signal } = {}) {
 			busy = true; msg(t("Computing…"));
 			try {
 				const r = await run({ mode, date, planeH: +$(".ss-h").value });
-				if (!r.stats.triangles) { msg(t("No buildings here")); return; }
-				msg(mode === "duration" ? t("Max $1 h · winter solstice 8–16 (solar time)", r.stats.maxHours) : "");
+				if (!r.triangles) { msg(t("No buildings here")); return; }
+				msg(mode === "duration" ? t("Max $1 h · winter solstice 8–16 (solar time)", r.maxHours) : "");
 				$(".ss-legend").style.display = mode === "duration" ? "" : "none";
 			} catch (err) { console.error("[sunshadow]", err); msg(String(err?.message || err)); }
 			finally { busy = false; }
