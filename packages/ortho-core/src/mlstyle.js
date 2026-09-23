@@ -177,7 +177,7 @@ export async function loadMapLibreStyle(src, { fetchFn = fetch } = {}) {
 }
 // ベクタ source の実体（タイルの URL 型紙・ズーム範囲・範囲・出典）。url が TileJSON なら取りに行く・pmtiles:// はそのまま
 export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {}) {
-	const abs = u => /^pmtiles:\/\//.test(u) ? "pmtiles://" + new URL(u.slice(10), baseUrl).href : new URL(u, baseUrl).href;
+	const abs = u => /^pmtiles:\/\//.test(u) ? "pmtiles://" + new URL(u.slice(10), baseUrl).href : /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, baseUrl).href;
 	if (sp.url && /^pmtiles:\/\//.test(sp.url)) return { pmtiles: abs(sp.url), minzoom: sp.minzoom, maxzoom: sp.maxzoom, attribution: sp.attribution ?? null };
 	let tj = sp;
 	if (!sp.tiles && sp.url) {
@@ -188,7 +188,8 @@ export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {})
 		baseUrl = u;
 	}
 	if (!tj.tiles?.length) throw new Error("vector source has no tiles");
-	return { tiles: tj.tiles.map(t => /^https?:|^pmtiles:/.test(t) ? t : new URL(t, baseUrl).href), scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 14, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null };
+	return { tiles: tj.tiles.map(t => /^[a-z][\w+.-]*:/i.test(t) ? t : new URL(t, baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")),
+		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 14, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null };   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
 }
 // タイルの URL 型紙 → (z,x,y)=>URL（{z}{x}{y}・{s}（a/b/c）・scheme:"tms"＝y 反転・{ratio}/{prefix} は外す）
 export function tileUrlOf(src) {

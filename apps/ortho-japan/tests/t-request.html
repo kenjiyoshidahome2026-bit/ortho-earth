@@ -1,0 +1,58 @@
+<!doctype html>
+<!-- 実描画の検分：取得の前の手入れ（#37・transformRequest / addProtocol・MapLibre と同名）。globe を外来 style で起動。
+     ①transformRequest＝style の架空のタイル URL を地理院の URL へ書き換える→海が style の色（マゼンタ）で描ける・呼ばれた型（Tile）を数える
+     ②addProtocol＝画像タイル（独自スキームで作った赤い画像）が球に貼れる ③3D Tiles の tileset と中身を独自スキームで流す
+     ④setStyle で基図タイルを独自スキーム（読み口が地理院から取る）へ＝水の色がシアンに替わる。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-request</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, addProtocol } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); document.title = "… " + t.join(" "); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (await f()) return true; await sleep(300); } return false; };
+const GSI = "https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/";
+const styleOf = (water, tiles) => ({ version: 8, sources: { v: { type: "vector", tiles: [tiles], minzoom: 4, maxzoom: 16 } },
+	layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }, { id: "water", type: "fill", source: "v", "source-layer": "WA", paint: { "fill-color": water } }] });
+try {
+	const seen = { Tile: 0, other: new Set() };
+	const map = await createGlobe({ target: "#map", view: "#10.5/35.5/139.85", chips: false, debugGlobals: true,
+		style: styleOf("#ff00ff", "https://tiles.invalid.example/{z}/{x}/{y}.pbf"),
+		transformRequest: (url, type) => { if (type === "Tile") seen.Tile++; else seen.other.add(type); if (url.startsWith("https://tiles.invalid.example/")) return { url: GSI + url.slice(30) }; } });
+	const shot = map.gadget.shot();
+	const grab = async () => { const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]); const bmp = await createImageBitmap(blob); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); cv.getContext("2d").drawImage(bmp, 0, 0); return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height); };
+	const share = (img, test) => { let n = 0, k = 0; for (let i = 0; i < img.data.length; i += 16) { n++; if (test(img.data[i], img.data[i + 1], img.data[i + 2])) k++; } return k / n; };
+	let mag = 0;
+	await until(async () => { mag = share(await grab(), (r, g, b) => r > 200 && g < 80 && b > 200); return mag > 0.05; }, 30000);
+	ok("transformTiles", mag > 0.05 && seen.Tile > 0, `magenta ${(mag * 100).toFixed(0)}% Tile×${seen.Tile}`);
+	// ② 画像タイル＝独自スキームで赤い 256px を返す
+	let rasterCalls = 0;
+	addProtocol("redimg", async ({ url }) => { rasterCalls++; const c = new OffscreenCanvas(256, 256), g = c.getContext("2d"); g.fillStyle = "#d00"; g.fillRect(0, 0, 256, 256); return { data: await (await c.convertToBlob({ type: "image/png" })).arrayBuffer() }; });
+	await map.raster.add("red", { url: "redimg://{z}/{x}/{y}.png", maxZoom: 18 }, { order: "over", opacity: 1, hideFills: false });
+	let red = 0;
+	await until(async () => { red = share(await grab(), (r, g, b) => r > 180 && g < 40 && b < 40); return red > 0.5; }, 30000);
+	ok("protocolRaster", red > 0.5 && rasterCalls > 0, `red ${(red * 100).toFixed(0)}% calls=${rasterCalls}`);
+	map.raster.remove("red");
+	// ③ 3D Tiles＝独自スキームで tileset と中身
+	let t3dCalls = 0;
+	addProtocol("fx", async ({ url, type }) => { t3dCalls++; const r = await fetch("./fixtures/" + url.slice(5)); return { data: type === "json" ? await r.json() : await r.arrayBuffer() }; });
+	map.jumpTo({ center: [139.7671, 35.6812], zoom: 16.6, pitch: 45 });
+	const h = await map.add3DTiles("fx://tiles3d/tileset.json", { fit: false });
+	const full = await until(() => h.stats.shown >= 7, 30000);
+	ok("protocol3DTiles", full && t3dCalls >= 9, `${JSON.stringify(h.stats)} calls=${t3dCalls}`);
+	h.remove();
+	// ④ 基図タイルを独自スキームへ（setStyle）
+	let baseCalls = 0;
+	addProtocol("gsi", async ({ url }) => { baseCalls++; const r = await fetch(GSI + url.slice(6)); return { data: r.ok ? await r.arrayBuffer() : null }; });
+	map.jumpTo({ center: [139.85, 35.5], zoom: 10.5, pitch: 0 });
+	await map.setStyle(styleOf("#00ffff", "gsi://{z}/{x}/{y}.pbf"));
+	let cyan = 0;
+	await until(async () => { cyan = share(await grab(), (r, g, b) => r < 80 && g > 200 && b > 200); return cyan > 0.05; }, 30000);
+	ok("protocolBasemap", cyan > 0.05 && baseCalls > 0, `cyan ${(cyan * 100).toFixed(0)}% calls=${baseCalls}`);
+	// ⑤ setTransformRequest で外せる
+	map.setTransformRequest(null);
+	ok("setTransformRequest", typeof map.setTransformRequest === "function" && typeof map.fetchResource === "function");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

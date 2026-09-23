@@ -28,13 +28,15 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 export { geopbf };
 import { Marker, Popup } from "./gadgets/marker.js";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
 export { Marker, Popup };
+import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
+export { addProtocol, removeProtocol };
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
@@ -103,6 +105,8 @@ const t = tr();
 //   出典・戻り先・検索・POI・鉄道が来ない＝世界データだけの地球儀（apps/world の国の地図パネル）。
 //   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 export async function createGlobe(opts = {}) {
+const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
+requester.setTransform(opts.transformRequest);
 const REGIONS = [].concat(opts.region || []).filter(Boolean);
 const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
 const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
@@ -210,9 +214,9 @@ const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と�
 	console.warn("[style] ?style= must be an https URL", q); return null;
 })(new URLSearchParams(location.search).get("style"));
 const loadExtStyle = async spec => {
-	const { style: ms, baseUrl } = await loadMapLibreStyle(spec);
+	const { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
 	const split = splitMapLibreStyle(ms);
-	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl) : null;
+	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
 	if (split.skipped.length) console.info(`[style] ${ms.name || spec}: ${split.skipped.length} layers not drawn —`, [...new Set(split.skipped.map(k => `${k.type} (${k.why})`))].join(", "));
 	return { ms, split, src, baseUrl, url: typeof spec === "string" ? baseUrl : null };
 };
@@ -962,7 +966,7 @@ function onMove() {
 // 敷かないと圏外は紙色＝l=terrain の等高線が乗ると「白い偽の陸」に見える）。z≥8・sea.minzoom(z9) ゲート共有。
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
-	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y), requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker,   // タイル/シーン worker もアプリの入口で・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
+	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y), requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -2250,6 +2254,25 @@ const rasterSyncURL = () => {
 		if (u.href !== location.href) history.replaceState(history.state, "", u.href);
 	} catch { /* 履歴 API 不可の環境＝無害 */ }
 };
+// 独自スキームの画像タイル（addProtocol・#37）＝port プロバイダの契約（raster-src.js）で main から画像を渡す：
+// info を 1 通 → 要求 { id, z, x, y } に読み口で本体を取り、ImageBitmap にして返す（transfer）。中断 { id, abort } は読み口の AbortController へ
+function serveProtocolRaster(port, tpl, spec) {
+	const acs = new Map();
+	const subs = typeof spec.subdomains === "string" ? spec.subdomains.split("") : spec.subdomains || null;
+	port.postMessage({ type: "info", info: { tileSize: spec.tileSize || 256, minZoom: spec.minZoom ?? 0, maxZoom: spec.maxZoom ?? 18, bbox: spec.bbox || null, attribution: spec.attribution || null, name: spec.name || null } });
+	port.onmessage = async e => {
+		const { id, z, x, y, abort } = e.data || {};
+		if (abort) { acs.get(id)?.abort(); acs.delete(id); return; }
+		const ac = new AbortController(); acs.set(id, ac);
+		try {
+			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
+			const ab = rq.load ? await rq.load("arrayBuffer", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
+			const bitmap = ab.byteLength ? await createImageBitmap(new Blob([ab]), { premultiplyAlpha: "none", colorSpaceConversion: "none" }) : null;
+			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
+		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
+		finally { acs.delete(id); }
+	};
+}
 map.raster = {
 	catalog: REGION_RASTERS,
 	// add(id, spec, opts)：spec＝{ url:"…/{z}/{x}/{y}.png", minZoom, maxZoom, bbox, attribution, subdomains, tms, headers }｜{ pmtiles:"…" }｜{ file: File(.gpkg/.mbtiles), table? }｜{ port: MessagePort }
@@ -2260,6 +2283,12 @@ map.raster = {
 		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
 		rasterReg.set(id, rec);
 		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
+		// 取得の前の手入れ（#37）：URL の型紙は worker が組む＝ヘッダ/credentials はソース単位で一度だけ決める。独自スキーム＝main が読み口で取って port で渡す
+		if (spec && (spec.url || spec.wms) && !spec.pmtiles && !/\.pmtiles(\?|#|$)|^pmtiles:/i.test(spec.url || "")) {
+			const tpl = spec.url || wmsTemplate(spec.wms), rq = requester.resolve(tpl, "Tile");
+			if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null }; transfer = [ch.port2]; rec.port = ch.port1; }
+			else if (rq.url !== tpl || rq.headers || rq.credentials) wireSpec = { ...spec, wms: undefined, url: rq.url, headers: rq.headers ? { ...(spec.headers || {}), ...rq.headers } : spec.headers, credentials: rq.credentials ?? spec.credentials };
+		}
 		if (spec && (spec.file || spec.image)) {   // ローカル容器／四隅で貼る画像＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
 			const w = spec.image
 				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
@@ -2281,7 +2310,7 @@ map.raster = {
 		rasterChanged();
 		return done;
 	},
-	remove(id) { const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
+	remove(id) { const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
 	set(id, o) { const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
 	list: () => [...rasterReg].map(([id, r]) => ({ id, info: r.info, spec: r.spec, opts: r.opts, error: r.error })),
 	info: id => rasterReg.get(id)?.info ?? null,
@@ -2697,7 +2726,7 @@ map.gadget("stac", function (opts) {
 // map.gadget.tiles3d(url, opts) / map.add3DTiles(url, opts)＝戻り値の手綱（remove / setVisible / setOptions / stats）。?tiles3d=<URL>（門は ?g= と共用）・&t3dh=<m>＝高さのずらし
 let t3dCtl = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); return t3dCtl ??= m.createTiles3D(map, {
-	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal,
+	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester,
 	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 }); };
@@ -2707,7 +2736,11 @@ map.gadget("tiles3d", async function (url, opts = {}) {
 	return c.add(url, opts);
 });
 map.add3DTiles = (url, opts) => map.gadget.tiles3d(url, opts);
-map.Marker = Marker; map.Popup = Popup;   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
+map.Marker = Marker; map.Popup = Popup;
+// 取得の前の手入れ（#37・MapLibre 同名）：setTransformRequest(fn)＝以後の取得に効く（すでに取った基図タイルは取り直さない）・addProtocol は大域（SDK の export と同じ）
+map.setTransformRequest = fn => { requester.setTransform(fn); return map; };
+map.addProtocol = addProtocol; map.removeProtocol = removeProtocol;
+map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, init);   // 部品（記号帳・3D Tiles）が同じ手入れで取るための口   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
 {
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;
@@ -3136,7 +3169,7 @@ const mountExtExtras = async ext => {
 		//（例：陰影図を土地被覆の下に敷く）は描かない＝上に載せると塗りを白く洗ってしまう。数えて知らせる
 		if (baseIdx >= 0 && ms.layers.findIndex(x => x.id === L.id) < baseIdx) { console.info(`[style] raster layer "${L.id}" sits under the vector fills — not drawn (imagery can only go above the basemap fills)`); continue; }
 		try {
-			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl);   // TileJSON の解決は raster も同じ
+			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {} });
 			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution }, { order: "over", opacity: opNow(), hideFills: false });
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
@@ -3240,7 +3273,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const baseIds = want && new Set((style.layers || []).map(L => L.id));
 	if (want && ![...want].some(id => baseIds.has(id))) return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {} }))) : out;   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ style, hidden: themes.hiddenLi(layerState, cam.zoom), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
-		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache }).catch(err => { console.warn("[query] basemap", err); return []; });
+		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles() }).catch(err => { console.warn("[query] basemap", err); return []; });
 	return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {} }))).concat(base) : out.concat(base);
 };
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。

@@ -54,7 +54,8 @@ function planesOf(m) {
 	return out;
 }
 
-export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = false, signal } = {}) {
+export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = false, signal, requester = null } = {}) {
+	const getJSON = async (url, type) => { const r = await (requester ? requester.fetch(url, type) : fetch(url, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };   // transformRequest / addProtocol（#37）
 	const sets = new Map();   // id → tileset
 	let seq = 0, tileSeq = 0;
 	// worker（model 役）を 2 本＝取りに行く・解くを並列に。1 本あたり同時 3 件まで
@@ -70,7 +71,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		}
 		return workers[(wi++) % workers.length];
 	};
-	const rpc = msg => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); worker().postMessage({ id, ...msg }); });
+	const rpc = (msg, transfer = []) => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); worker().postMessage({ id, ...msg }, transfer); });
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, MAX_INFLIGHT = lowMem ? 3 : 6;
 	let inflight = 0, gpuBytes = 0, rafPending = 0;
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
@@ -91,7 +92,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 	const loadExternal = n => {
 		if (n.state !== "none") return;
 		n.state = "loading"; inflight++;
-		fetch(n.uri, { credentials: "omit" }).then(r => r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))).then(j => {
+		getJSON(n.uri, "Source").then(j => {
 			n.children = [tileNode(j.root, n.M, n.uri, n.set, n)];
 			n.uri = null; n.external = false; n.state = "ready";
 		}).catch(err => { n.state = "failed"; console.warn("[tiles3d] external tileset", n.uri, err.message); })
@@ -102,7 +103,9 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
-		rpc({ kind: "tile3d", url: n.uri, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }).then(r => {
+		const rq = requester ? requester.resolve(n.uri, "Tile") : { url: n.uri };
+		const body = rq.load ? rq.load("arrayBuffer") : Promise.resolve(null);   // 独自スキーム＝main が読み口で取って本体を worker へ
+		body.then(ab => rpc({ kind: "tile3d", url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
@@ -205,10 +208,8 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 	const ctl = {
 		// url＝tileset.json。opts＝{ maxSSE:16, heightOffset:0（m・高さへの足し込み）, ground:"absolute"|"terrain"（1 棟ずつ地面へ接地）, pointSize:1.5（px）, textures:true, fit:true（寄る）}
 		async add(url, opts = {}) {
-			const abs = new URL(url, location.href);
-			const r = await fetch(abs.href, { credentials: "omit" });
-			if (!r.ok) throw new Error(`tileset HTTP ${r.status}`);
-			const j = await r.json();
+			const abs = /^[a-z][\w+.-]*:\/\//i.test(url) ? new URL(url) : new URL(url, location.href);
+			const j = await getJSON(abs.href, "Source");
 			if (!j.root) throw new Error("not a 3D Tiles tileset (no root)");
 			const id = opts.id ?? `t${++seq}`;
 			if (sets.has(id)) ctl.remove(id);

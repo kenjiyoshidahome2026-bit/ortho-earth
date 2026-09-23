@@ -6,7 +6,8 @@ import { createTileManager } from "./tilemanager.js";
 import { spawnWorker, setWorkerFactory } from "./workerFactory.js";
 import { builtinWorker } from "./builtinWorkers.js";
 
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory }) {
+// request(url, "Tile")＝取得の前の手入れ（#37）→ { url, headers?, credentials?, load?: () => Promise<ArrayBuffer> }｜null。load＝addProtocol の読み口（main で取って本体を worker へ）
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null }) {
 	if (workerFactory) setWorkerFactory(workerFactory);   // ホストの入口（役割名 "ortho:scene" / "ortho:tile" → Worker・2026-09-22）
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
@@ -54,7 +55,10 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	}
 	function workerBuildTile(t) {
 		const id = ++reqId, key = `${t.z}/${t.x}/${t.y}`, w = tileWorkers[wIdx = (wIdx + 1) % NW];
-		w.postMessage({ id, url: tileUrl(t.z, t.x, t.y), z: t.z, x: t.x, y: t.y });
+		const url = tileUrl(t.z, t.x, t.y), rq = url && request ? request(url, "Tile") : null;
+		if (rq?.load) rq.load().then(ab => { if (pending.has(id)) w.postMessage({ id, url: rq.url, z: t.z, x: t.x, y: t.y, bytes: ab }, ab?.byteLength ? [ab] : []); },
+			err => { const p = pending.get(id); if (p) { pending.delete(id); p.reject(err); } });
+		else w.postMessage({ id, url: rq?.url ?? url, z: t.z, x: t.x, y: t.y, ...(rq?.headers || rq?.credentials ? { init: { headers: rq.headers, credentials: rq.credentials } } : {}) });
 		keyToId.set(key, id);
 		return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key, w }));
 	}

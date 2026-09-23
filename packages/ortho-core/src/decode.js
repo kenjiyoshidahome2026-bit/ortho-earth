@@ -157,8 +157,10 @@ export function signedArea(c, s, e) {
 	return sum / 2;
 }
 
-export async function fetchMVT(url, signal, need) {
-	const r = await fetch(url, { signal });
+// init＝{ headers, credentials }（transformRequest の結果・#37）。bytes＝取得済みの本体（addProtocol の読み口が main で取った物）
+export async function fetchMVT(url, signal, need, init = null, bytes = null) {
+	if (bytes) return bytes.byteLength ? decodeMVT(new Uint8Array(bytes), need) : { __empty: true };   // 読み口の空＝「そこに無い」
+	const r = await fetch(url, { signal, ...(init?.headers ? { headers: init.headers } : {}), ...(init?.credentials ? { credentials: init.credentials } : {}) });
 	// 404/204＝「そこにタイルが無い」という正当なデータ（optimal_bvmap は日本域のみ＝広域ビューでは
 	// 国外・外洋のタイルが常に404）。エラーでなく空タイルとして ready 扱い＝リトライも失敗計上もしない。
 	// __empty＝図郭外の印（build 側が「標高ゲート付き全面水域」を敷く判定に使う。source-layer 名とは衝突しない）
