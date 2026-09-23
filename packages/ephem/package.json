@@ -1,10 +1,25 @@
 {
-	"name": "ephem",
-	"version": "0.0.1",
+	"name": "@ortho-earth/ephem",
+	"version": "1.0.0",
 	"license": "GPL-3.0-or-later",
-	"private": true,
 	"type": "module",
 	"description": "太陽系エフェメリス（JPL近似軌道要素1800-2050・Schlyter月理論・IAU自転）＋共通の時計（ephem/clock・#42）＋人工衛星 SGP4/SDP4（ephem/sgp4）。ortho-solar と ortho-japan の共用臓器",
+	"keywords": [
+		"ephemeris",
+		"astronomy",
+		"solar-system",
+		"sgp4",
+		"satellite",
+		"orbit",
+		"clock",
+		"ortho-earth"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/ephem"
+	},
+	"homepage": "https://www.ortho-earth.com/solar/",
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
@@ -12,6 +27,12 @@
 		"./clock": "./src/clock.js",
 		"./sun": "./src/sun.js"
 	},
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"sideEffects": false,
 	"scripts": {
 		"test": "node tests/t-ephem.mjs && node tests/t-sgp4.mjs && node tests/t-clock.mjs && node tests/t-sun.mjs"
 	}

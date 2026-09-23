@@ -10,13 +10,13 @@
 		"preview": "vite preview",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
-		"test": "node scripts/verify-i18n.mjs && npm test -w ephem",
-		"deploy": "npm run verify:i18n && npm test -w ephem && npm run i18n:build && vite build && wrangler deploy",
+		"test": "node scripts/verify-i18n.mjs && npm test -w @ortho-earth/ephem",
+		"deploy": "npm run verify:i18n && npm test -w @ortho-earth/ephem && npm run i18n:build && vite build && wrangler deploy",
 		"og": "node scripts/og-shot.mjs"
 	},
 	"dependencies": {
-		"geopbf": "*",
-		"ephem": "*"
+		"@ortho-earth/ephem": "*",
+		"geopbf": "*"
 	},
 	"devDependencies": {
 		"vite": "^5.0.0"

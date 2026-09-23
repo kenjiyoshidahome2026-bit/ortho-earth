@@ -8,8 +8,8 @@
 //  - 地球は engine の球がそのまま主役。約3px を切る z≈-4.8 からこちらの点表示が代打に立つ
 //  - 時刻は共通の時計（#42・map.clock・ephem/clock）＝地球の夜の側・星空・衛星と同じ「その時刻」（旧＝実時刻のみ・時間旅行は ortho-solar へ＝本人裁定 9/23 で外した）
 import { cameraState } from "@ortho-earth/core";
-import { BODIES, byId, bodyPos, moonGeo, orbitPointsThrough, jcT, EPS, AU_KM } from "ephem";
-import { gmstAt } from "ephem/sun";
+import { BODIES, byId, bodyPos, moonGeo, orbitPointsThrough, jcT, EPS, AU_KM } from "@ortho-earth/ephem";
+import { gmstAt } from "@ortho-earth/ephem/sun";
 
 const KM_PER_UNIT = 6371;                    // engine 単位球＝地球半径
 const AU_UNIT = AU_KM / KM_PER_UNIT;         // 1AU＝約23481単位
