@@ -51,6 +51,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.cpos({ zoom: [6.5, 99] });      // 現在地（GPS。押すと寄って点滅マーカー）＝基図の門から
 	map.gadget.measure({ zoom: [6.5, 99] });   // 距離・面積の計測（クリックで頂点・ダブルクリックで確定）＝同上
 	map.gadget.profile({ zoom: [6.5, 99] });
+	map.gadget.sunshadow({ zoom: [14, 99] });   // 日影（日影図＝冬至 8〜16 時の日影時間・その時刻の影）＝建物（PLATEAU）が立つ距離から（#44）
 	map.gadget.edit({ zoom: [2.5, 99], narrow: false });   // GeoPBF 編集（ガジェット geoedit の入口）＝z>2.5 で出現・狭画面は出さない（PC の道具）   // 断面図（クリックで経路指定→標高プロファイル）＝同上（日本のDEMが前提）
 	map.gadget.shot();        // 画面を画像で保存（3層+計測を合成・出典焼き込み）
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）

@@ -141,6 +141,8 @@ export interface Gadgets {
 	/** 点の集約（MapLibre の cluster 相当・canvas2D のオーバーレイ）。src＝点のデータか MapLibre の source（{ type:"geojson", data, cluster:true, clusterRadius, clusterMaxZoom }）。
 	 *  集約の属性＝cluster / point_count / point_count_abbreviated。丸のクリック＝ばらけるズームへ寄る。queryRenderedFeatures の点の問い合わせに "clusters"/"unclustered-point" で出る */
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
+	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m）＝map.sunShadow の UI */
+	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 任意の 3D Tiles（map.add3DTiles と同じ）。null＝全部（opts.id＝その 1 つ）を外す */
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
 	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key）。null＋{id} で外す */
@@ -420,6 +422,10 @@ export interface OrthoJapanMap {
 	/** I3S（ArcGIS の Indexed 3D Scene Layer・1.2.0〜・#48）を 3D Tiles と同じ選び・同じ GPU 経路で流す。url＝…/SceneServer か …/SceneServer/layers/N（?i3s=<URL> と同じ）。
 	 *  nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。lodScale＞1 で粗く。点群と旧形式は未対応。解読は @loaders.gl/i3s（MIT） */
 	addI3S(url: string, opts?: Tiles3DOptions & { lodScale?: number; token?: string }): Promise<{ id: string; name: string | null; copyright: string | null; readonly stats: Tiles3DHandle["stats"]; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions> & { lodScale?: number }): void }>;
+	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
+	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
+	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
+	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
 	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
