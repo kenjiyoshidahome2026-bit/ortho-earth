@@ -1,0 +1,102 @@
+<!doctype html>
+<!-- E2E回帰：MapLibre の層の口（#34・2026-09-23）＝どの種類も何枚でも・性質の変更・重ね順・層ごとのイベント・getStyle。globe（地域なし）で起動。
+     ①fill を source 2 本（gint の追加層が 2 枚）②押し出し 2 層 ③ヒートマップ 2 層（オーバーレイ 2 枚）④setPaintProperty / visibility / setFilter
+     ⑤moveLayer（gint の order）⑥層ごとの click / mouseenter / mouseleave（合成ポインタ）⑦getStyle ⑧使用中の removeSource は投げる。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mllayers</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const sq = (lon, lat, d, props) => ({ type: "Feature", properties: props, geometry: { type: "Polygon", coordinates: [[[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d], [lon - d, lat - d]]] } });
+const fc = fs => ({ type: "FeatureCollection", features: fs });
+const pts = (lon, lat, n) => fc(Array.from({ length: n }, (_, i) => ({ type: "Feature", properties: { w: 1 }, geometry: { type: "Point", coordinates: [lon + (i % 10) * 0.02, lat + Math.floor(i / 10) * 0.02] } })));
+try {
+	const map = await createGlobe({ target: "#map", view: "#7/35/137", chips: false, debugGlobals: true });
+	await sleep(3000);
+	// ① fill を source 2 本
+	map.addSource("a", { type: "geojson", data: fc([sq(136.2, 35, 0.3, { name: "A" })]) });
+	map.addSource("b", { type: "geojson", data: fc([sq(137.8, 35, 0.3, { name: "B" })]) });
+	await map.addLayer({ id: "fa", type: "fill", source: "a", paint: { "fill-color": "#e33", "fill-opacity": 0.6 } });
+	await map.addLayer({ id: "fb", type: "fill", source: "b", paint: { "fill-color": ["case", ["boolean", ["feature-state", "hover"], false], "#ff0", "#33e"], "fill-opacity": 0.6 } });
+	await sleep(1500);
+	const at = async (lon, lat, layers) => { const [x, y] = map.projectLL(lon, lat); return (await map.queryRenderedFeatures([x, y], layers ? { layers } : {})).map(f => f.layer.id); };
+	let ha = await at(136.2, 35, ["fa", "fb"]), hb = await at(137.8, 35, ["fa", "fb"]);
+	ok("twoGint", ha.includes("fa") && hb.includes("fb") && !ha.includes("fb"), `${ha}|${hb}`);
+	// ② 押し出し 2 層
+	map.addSource("ea", { type: "geojson", data: fc([sq(136.6, 34.4, 0.05, { h: 500 })]) });
+	map.addSource("eb", { type: "geojson", data: fc([sq(137.4, 34.4, 0.05, { h: 800 })]) });
+	await map.addLayer({ id: "xa", type: "fill-extrusion", source: "ea", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#c80" } });
+	await map.addLayer({ id: "xb", type: "fill-extrusion", source: "eb", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#08c" } });
+	const xa = await at(136.6, 34.4, ["xa", "xb"]), xb = await at(137.4, 34.4, ["xa", "xb"]);
+	ok("twoExtrude", xa.includes("xa") && xb.includes("xb"), `${xa}|${xb}`);
+	// ③ ヒートマップ 2 層＝オーバーレイ 2 枚
+	await map.addLayer({ id: "h1", type: "heatmap", source: { type: "geojson", data: pts(136, 36, 40) } });
+	await map.addLayer({ id: "h2", type: "heatmap", source: { type: "geojson", data: pts(138, 36, 40) } });
+	await sleep(1500);
+	const ov = window.__overlay || {};
+	ok("twoHeatmap", !!ov["heatmap:h1"] && !!ov["heatmap:h2"], Object.keys(ov).join(","));
+	// ④ 性質の変更
+	map.setPaintProperty("fa", "fill-color", "#0c0");
+	ok("paintProp", map.getPaintProperty("fa", "fill-color") === "#0c0");
+	map.setLayoutProperty("fa", "visibility", "none");
+	await sleep(800);
+	ha = await at(136.2, 35, ["fa"]);
+	ok("hidden", !ha.includes("fa"), String(ha));
+	map.setLayoutProperty("fa", "visibility", "visible");
+	await sleep(1500);
+	ha = await at(136.2, 35, ["fa"]);
+	ok("shown", ha.includes("fa"), String(ha));
+	map.setFilter("fb", ["==", ["get", "name"], "zzz"]);
+	ok("filterSet", JSON.stringify(map.getFilter("fb")).includes("zzz"));
+	map.setFilter("fb", null);
+	// ⑤ 重ね順
+	map.moveLayer("fb", "fa");
+	const ids = map.getLayers().map(L => L.id);
+	ok("moveLayer", ids.indexOf("fb") < ids.indexOf("fa"), ids.join(","));
+	// ⑥ 層ごとのイベント（合成ポインタ＝canvas に pointerdown→click・pointermove で enter/leave）
+	const c = document.getElementById("c");
+	const r = c.getBoundingClientRect();
+	const [bx, by] = map.projectLL(137.8, 35);
+	let clicked = null, entered = 0, left = 0;
+	map.on("click", "fb", e => { clicked = e; });
+	map.on("mouseenter", "fb", () => { entered++; });
+	map.on("mouseleave", "fb", () => { left++; });
+	c.dispatchEvent(new PointerEvent("pointerdown", { clientX: r.left + bx, clientY: r.top + by, bubbles: true, pointerId: 7 }));
+	c.dispatchEvent(new PointerEvent("pointerup", { clientX: r.left + bx, clientY: r.top + by, bubbles: true, pointerId: 7 }));
+	c.dispatchEvent(new MouseEvent("click", { clientX: r.left + bx, clientY: r.top + by, bubbles: true }));
+	await sleep(600);
+	ok("layerClick", clicked?.features?.[0]?.layer?.id === "fb" && clicked.features[0].properties.name === "B" && Math.abs(clicked.lngLat.lng - 137.8) < 0.05, clicked ? JSON.stringify(clicked.features.map(f => f.layer.id)) : "none");
+	c.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + bx, clientY: r.top + by, bubbles: true, pointerId: 7 }));
+	await sleep(600);
+	const [ox, oy] = map.projectLL(137.0, 36.5);
+	c.dispatchEvent(new PointerEvent("pointermove", { clientX: r.left + ox, clientY: r.top + oy, bubbles: true, pointerId: 7 }));
+	await sleep(600);
+	const outHit = await at(137.0, 36.5, ["fb"]);
+	ok("enterLeave", entered === 1 && left === 1, `enter=${entered} leave=${left} out=${outHit}`);
+	// feature-state（fb の hover 式）＝投げずに通る
+	map.setFeatureState({ source: "b", id: 0 }, { hover: true });
+	await sleep(300);
+	map.removeFeatureState({ source: "b", id: 0 });
+	ok("featureState", true);
+	// ⑦ getStyle
+	const st = map.getStyle();
+	ok("getStyle", st.version === 8 && st.layers.some(L => L.id === "fa") && st.layers.some(L => L.id === "h1") && !!st.sources.a, `${st.layers.length} layers`);
+	// ⑧ 使用中の source は外せない・層を外せば外せる
+	let threw = false; try { map.removeSource("a"); } catch { threw = true; }
+	map.removeLayer("fa");
+	let threw2 = false; try { map.removeSource("a"); } catch { threw2 = true; }
+	ok("removeSource", threw && !threw2);
+	await sleep(800);
+	ha = await at(136.2, 35);
+	ok("removed", !ha.includes("fa"), String(ha));
+	// 押し出しの片方を外しても、もう片方は残る
+	map.removeLayer("xa");
+	await sleep(300);
+	const xb2 = await at(137.4, 34.4, ["xb"]), xa2 = await at(136.6, 34.4, ["xa"]);
+	ok("extrudeSlots", xb2.includes("xb") && !xa2.includes("xa"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

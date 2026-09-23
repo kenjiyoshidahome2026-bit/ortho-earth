@@ -252,7 +252,8 @@ export type MapLibreSource =
 	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
-export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols"; expansionZoom?: number }
+export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
+export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
 export interface OrthoJapanMap {
 	// ---- 基本 ----
@@ -310,6 +311,11 @@ export interface OrthoJapanMap {
 	/** @deprecated 1.2.0〜 "mesh" を使う（同じ合図）。次の大版で撤去 */
 	on(ev: "plateau", cb: (e: MeshEvent) => void): OrthoJapanMap;
 	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
+	/** 層ごとのイベント（MapLibre 同名・1.2.0〜・#34）。layerId＝addLayer の層 id か基図の層 id（配列可）。click はドラッグを除く・mousemove は rAF に畳む */
+	on(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
+	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
+	/** 一度だけ。cb 省略＝Promise */
+	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
 	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;
 	/** 購読解除（1.0.5〜） */
@@ -359,15 +365,37 @@ export interface OrthoJapanMap {
 	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
 	loadSprite(base: string): Promise<number>;
 	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
-	 *  ⚠利用者の図形（fill/line/circle）・押し出し・ヒートマップ・集約は各 1 つ（後の層が置き換える）。symbol と raster は複数可。式は呼んだ時に評価（symbol の zoom 式は止まるたび） */
+	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝source ごとに gint の追加層・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
+	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
+	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ） */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> }) | undefined;
 	removeSource(id: string): OrthoJapanMap;
-	addLayer(layer: MapLibreLayer): Promise<unknown>;
+	isSourceLoaded(id: string): boolean;
+	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;
+	/** 利用者の層（登録順＝下から） */
+	getLayers(): MapLibreLayer[];
 	removeLayer(id: string): OrthoJapanMap;
+	/** 重ね順を変える（beforeId の下へ・省略＝一番上）。同じ描き方の中で効く */
+	moveLayer(id: string, beforeId?: string): OrthoJapanMap;
+	/** paint の性質を変える（gint の層は fid 表の書き換えだけ＝安い・raster-opacity は即時）。undefined＝既定へ */
+	setPaintProperty(id: string, name: string, value: StyleExpression | undefined): OrthoJapanMap;
+	getPaintProperty(id: string, name: string): StyleExpression | undefined;
+	/** layout の性質を変える。visibility:"none"｜"visible" で出し入れ（層は残る） */
+	setLayoutProperty(id: string, name: string, value: StyleExpression | undefined): OrthoJapanMap;
+	getLayoutProperty(id: string, name: string): StyleExpression | undefined;
+	setFilter(id: string, filter: StyleExpression | null): OrthoJapanMap;
+	getFilter(id: string): StyleExpression | undefined;
+	setLayerZoomRange(id: string, minzoom: number, maxzoom: number): OrthoJapanMap;
+	/** feature-state（MapLibre 同名）。id＝その source の地物の番号（GeoJSON の並び順）。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない */
+	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
+	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
+	/** MapLibre の style の形（version 8）。layers＝基図の層（source "basemap"・読むだけ）の上に利用者の層 */
+	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
-	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（"extrude"）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
 

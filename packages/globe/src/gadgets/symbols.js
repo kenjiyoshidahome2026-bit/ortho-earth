@@ -58,6 +58,7 @@ export function createSymbols(map, { signal } = {}) {
 			return { features: layers.get(id).items.length };
 		},
 		removeLayer(id) { if (layers.delete(id)) ov?.post({ type: "removeLayer", id }); },
+		setOrder(id, n) { const L = layers.get(id); if (!L || L.order === n) return; L.order = n; push(id); },   // 重ね順（map.moveLayer・#34）
 		get layerIds() { return [...layers.keys()]; },
 		// 画面 (x,y) の記号（問い合わせ用・当たりは記号の大きさ／文字は 12px 四方の近似）
 		symbolsAt(x, y) {
