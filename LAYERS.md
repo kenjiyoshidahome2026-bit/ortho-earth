@@ -72,6 +72,29 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   - S6 済：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes は `createGlobe({ zoomMax: 8 })`（申告なし・z<8）・GeoPBF デモは `createGlobe`（落とした地物を寄って見るので z の上限は既定）。**tellus は japan 側**（本人 9/23「tellus は japan かも」＝東京へ寄って見る画像の頁）。models（PLATEAU LOD3）／scene／census2020／gishub-jp は japan 側。equal は段階 3 で色・ラベルを一本化
 - **3 済（2026-09-23）** 世界の地図面の配色＝`packages/ortho-core/src/worldstyle.js`（`WORLD_STYLE_THEMES`＝旧 equal themes.js の表を正本に引き上げ＋`capital`・`css()`／`hex()`／`normWorldTheme`）。equal の themes.js は同じ名前で再輸出（表は持たない）・首都の点は正本の capital（world の国の地図と同じ赤）。world の worldlayers.js の色定数は正本から導出（手写し廃止）。globe は世界線（河川・海洋境界線）の色とテーマ列の名札/スウォッチを正本から引き、テーマ切替で世界線を塗り直す（gint.repaintWorldLines）。i18n の生存判定は ortho-core/src も文字列の根に含める（"Blank map" 等）。全球ハイプソは従来どおり worldpal.js
 
+## 段階 4（2026-09-24）＝門の住所：globe の門は globe が持つ
+
+**なぜ**：9/24 まで「globe の関門」は apps/ortho-japan（日本の殻）に住み、`packages/globe` の `verify` はそこへ
+委譲していた＝**一番硬い層の検定を、一番柔らかい層が宿していた**。エンジンを単体で名乗る（版を切る）なら、
+自分の門を自分で持てなければ筋が通らない。
+
+- **器**：`packages/globe/vite.config.js`（COOP/COEP を middleware で全リクエストに刻む・`worker.format="es"`・
+  builtinWorkers は「作らない版」へ）。`#extra-roles` は**差し替えない**＝globe 既定の `{}` のまま＝地域を知らない器であることの実地確認。
+- **頁**：`packages/globe/tests/*.html`（25 枚＋`t-nocoi`）。どれも**公開面 `@ortho-earth/globe` の `createGlobe`** で起動する
+  （旧＝`../app.js` 経由＝日本の包みを通っていた）。`orthoJapan` で起動していた 6 枚（t-backfill／t-anchorfill／t-rectlook／
+  t-qr／t-spotlight／t-anno）は、視点が z<6.5 の世界＝地域が効かない頁だったので `createGlobe` に直した。
+- **仕掛け**：`packages/globe/scripts/lib/ui-runner.mjs`（仮想時間／実時間・頁ごとに Chrome・ドラッグ駆動・実 GPU の旗）を
+  **japan と共有**＝走らせ方の複製を作らない。`packages/globe/scripts/verify-{ui,webgpu,nocoi}.mjs` が頁の一覧を持つ。
+- **japan に残る頁＝「日本を試料に使う検定」**（間借りではない・地域パックの検定）：①地域の機能そのもの
+  （t-gadgets／t-newgadgets／t-providers／t-raster／t-demo／t-scene／t-mesh／t-meshfs／t-bld／t-baselane）
+  ②globe の機能だが**見るものが要る**頁＝z≥6.5 の東京で基図・注記・印刷・計測・RTL・面の焼き・押し出しを画素で見る
+  （t-print／t-shot／t-measure／t-profile／t-palette-live／t-input／t-narrow／t-rtl／t-model／t-opts／t-gndfaces／
+  t-zoomfill／t-aatrans／t-gintlayers／t-extrude-drape／t-webgpu）。日本の基図が無いと画面に何も無い＝地域パックがあって初めて成立する。
+- **委譲の向きが反転**：japan の `verify:globe` は `npm --prefix ../../packages/globe run verify`／`verify:nocoi` も globe へ。
+  deploy の速い関門は二手（japan＝t-import・globe＝t-backfill/t-rectlook 2 変種）を**並行**で回す。
+- 数：globe＝UI 17＋WebGPU 9（＋nocoi 5）／japan＝UI 18＋WebGPU 14＋editor 3。
+- ortho-core に `./workers/gint` を追加（検定の worker 入口が相対で内部を掴んでいた）。
+
 ## 今の「混ざり」の目録（段階 2 の作業表）
 
 （S4 前の記録）`apps/ortho-japan/app.js`（約 3,000 行）に同居していたもの：`REGION_*`／`REGIONLESS` 41 箇所、e-Stat／N02／GSI／地理院 43 箇所、`JAPAN_VIEW`、airports.json、`gadget("japan")`（列島へ戻る）、`gadget("mesh")`（PLATEAU）、`gadget("search")`（地理院）、`gadget("poiedit")`（overlay.js の e-Stat 部は S3 で jp 側へ移設済）。

@@ -5,11 +5,11 @@
 <body>
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
-import orthoJapan from "../app.js";
+import { createGlobe } from "@ortho-earth/globe";
 import { qrSelfTest, qrMatrix, qrEncode } from "@ortho-earth/globe/gadgets/qrcode.js";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {
-	const map = await orthoJapan({ view: "#5/37/138" });
+	const map = await createGlobe({ view: "#5/37/138" });
 	// 1) エンコーダの自己テスト（GF・RS既知ベクトル・フォーマットBCH・構造）
 	ok("encoder", qrSelfTest());
 	// version 自動選定：短文=小さい版、長文=大きい版（単調増加）

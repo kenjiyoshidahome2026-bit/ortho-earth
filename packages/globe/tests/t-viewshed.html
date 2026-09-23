@@ -5,7 +5,7 @@
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-viewshed</title></head>
 <body><div id="map"></div>
 <script type="module">
-import { createGlobe } from "../app.js";
+import { createGlobe } from "@ortho-earth/globe";
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];   // ENU（m）→ 経緯度（近似）
