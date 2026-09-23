@@ -690,6 +690,7 @@ let attrZone = null, attrRegionHTML = null;   // 出典（#attr）の圏＝"regi
 // （apps/world の国の地図＝世界データだけ＝z8）。入力・飛行・共有hash・fit の全経路がこの値に従う。
 // 既定 20＝15cm/px（正射z＝緯度フリー。精度は原点相対RTEが担保）。21でも動くが余裕を持って1段残す。
 const ZOOM_MAX = Math.max(1, Math.min(20, opts.zoomMax ?? 20));
+let zoomMaxCur = ZOOM_MAX, camBounds = null;   // 実行時の寄りの上限と中心の可動域（map.setMaxZoom / setMaxBounds・#35）＝onMove が毎移動で締める（使う所より前で宣言＝TDZ の轍）
 // 地域の申告が無い器（globe 仕様）＝日本固有の圏そのものが無い＝上限より上に置いて「来ない」ことを表す。
 // 世界ハイプソ・湖・罫線はこの値まで描かれる＝ズーム上限まで世界の色のまま（2026-09-23）。
 const BASEMAP_MINZOOM = REGIONLESS ? ZOOM_MAX + 0.8 : WORLD_VT ? 6.5 : 5;
@@ -905,6 +906,7 @@ const groundRNow = () => {
 };
 
 function onMove() {
+	clampCamLimits();   // 実行時の上限・可動域（#35）＝入力・飛行・URL 復元のどの経路で動いても同じ所で締める（聞き手へ渡す前に）
 	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing }); } catch (e) { console.error("[map.on move]", e); } }
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
@@ -2054,6 +2056,96 @@ map.setZoomMin = z => {
 	needsDraw = true;
 };
 map.zoomMin = () => zoomMinCur;
+// ---- カメラの口（#35・2026-09-23・MapLibre と同名）----
+// 角は度（MapLibre と同じ）。map.view の pitch/bearing（ラジアン）とは単位が違う＝既存の flyTo(lon, lat, zoom, tiltDeg, bearingDeg) と揃えた。
+// padding＝{ top, right, bottom, left }（CSS px）か数値＝「中身の中心」を画面中心から寄せる（UI パネルに隠れる分）。setPadding の値が既定。
+// 近似の範囲：寄せはズーム先の地表の度/px で真俯瞰として解く（チルト中の奥行きの伸びは見ない＝MapLibre の厳密解より粗い）。
+let camPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+const padOf = p => p == null ? camPadding : typeof p === "number" ? { top: p, right: p, bottom: p, left: p } : { top: +p.top || 0, right: +p.right || 0, bottom: +p.bottom || 0, left: +p.left || 0 };
+const lngLatOf = c => c == null ? null : Array.isArray(c) ? [+c[0], +c[1]] : [+(c.lng ?? c.lon), +c.lat];
+// 目標（中身の中心に置きたい点）→ カメラ中心。画面の右＝(cos b, −sin b)・上＝(sin b, cos b)（東, 北）・b＝方位（時計回り）
+function padCenter([lon, lat], zoom, bearingRad, pad) {
+	const ox = (pad.left - pad.right) / 2, oy = (pad.top - pad.bottom) / 2;   // 中身の中心の画面上のずれ（右・下が正）
+	if (!ox && !oy) return [lon, lat];
+	const degPx = 360 / (WORLD_PX * Math.pow(2, zoom));
+	const e = (ox * Math.cos(bearingRad) - oy * Math.sin(bearingRad)) * degPx, n = (-ox * Math.sin(bearingRad) - oy * Math.cos(bearingRad)) * degPx;
+	return [wrapLon(lon - e / Math.max(0.05, Math.cos(lat * D2R))), Math.max(-89.9, Math.min(89.9, lat - n))];
+}
+function camTarget(o = {}) {   // MapLibre の CameraOptions → cam の単位（ラジアン）の目標
+	const zoom = o.zoom ?? cam.zoom, bearing = o.bearing != null ? o.bearing * D2R : cam.bearing, pitch = o.pitch != null ? o.pitch * D2R : cam.pitch;
+	let c = lngLatOf(o.center) ?? [cam.center[0], cam.center[1]];
+	if (o.center != null || o.padding != null) c = padCenter(c, zoom, bearing, padOf(o.padding));
+	return { lon: c[0], lat: c[1], zoom: Math.max(zoomMinCur, Math.min(zoomMaxCur, zoom)), pitch, bearing };
+}
+function clampCamLimits() {
+	if (cam.zoom > zoomMaxCur) cam.zoom = zoomMaxCur;
+	if (!camBounds) return;
+	const [w, s, e, n] = camBounds;
+	cam.center[1] = Math.max(s, Math.min(n, cam.center[1]));
+	const lon = wrapLon(cam.center[0]);
+	const inside = w <= e ? lon >= w && lon <= e : lon >= w || lon <= e;   // w>e＝±180 を跨ぐ可動域
+	if (inside) return;
+	const d = x => { const v = Math.abs(wrapLon(lon - x)); return v; };
+	cam.center[0] = d(w) <= d(e) ? w : e;
+}
+map.jumpTo = (o = {}) => { flightCtl.cancel(); const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
+map.easeTo = (o = {}) => o.animate === false ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
+// flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
+map.flyTo = (a, ...rest) => {
+	if (a == null || typeof a !== "object" || Array.isArray(a)) return flyTo(a, ...rest);
+	if (a.animate === false) { map.jumpTo(a); return Promise.resolve(); }
+	const t = camTarget(a);
+	return flyTo(t.lon, t.lat, t.zoom, t.pitch * R2D, t.bearing * R2D);   // 省略した角は今の値（MapLibre の意味論）
+};
+// bbox＝[west, south, east, north]（west>east＝±180 跨ぎ）か [[w,s],[e,n]]。options＝{ padding, maxZoom, pitch, bearing, animate, linear, duration }
+map.cameraForBounds = (bounds, o = {}) => {
+	let b = Array.isArray(bounds?.[0]) ? [bounds[0][0], bounds[0][1], bounds[1][0], bounds[1][1]] : bounds;
+	if (!b || b.length < 4 || !b.every(Number.isFinite)) return null;
+	let [w, s, e, n] = b; if (e < w) e += 360;
+	const pad = padOf(o.padding ?? camPadding);
+	const W = Math.max(1, size.w / dpr - pad.left - pad.right), H = Math.max(1, size.h / dpr - pad.top - pad.bottom);   // size は device px
+	const latC = (s + n) / 2;
+	const thX = Math.max(1e-9, (e - w) * Math.cos(latC * D2R) * D2R), thY = Math.max(1e-9, (n - s) * D2R);
+	let zoom = Math.log2(Math.min(W / thX, H / thY) / (WORLD_PX / (2 * Math.PI)));
+	zoom = Math.max(zoomMinCur, Math.min(o.maxZoom ?? zoomMaxCur, zoomMaxCur, zoom));
+	return { center: [wrapLon((w + e) / 2), latC], zoom, pitch: o.pitch ?? 0, bearing: o.bearing ?? 0, padding: pad };
+};
+map.fitBounds = (bounds, o = {}) => {
+	const c = map.cameraForBounds(bounds, o);
+	if (!c) return Promise.resolve();
+	if (o.animate === false) { map.jumpTo(c); return Promise.resolve(); }
+	return o.linear ? map.easeTo({ ...c, duration: o.duration }) : map.flyTo(c);
+};
+map.setPadding = p => { camPadding = padOf(p ?? 0); return map; };
+map.getPadding = () => ({ ...camPadding });
+map.setMaxBounds = b => {
+	if (b == null) camBounds = null;
+	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
+	onMove(); return map;
+};
+map.getMaxBounds = () => camBounds ? [...camBounds] : null;
+map.setMinZoom = z => { map.setZoomMin(z); return map; };
+map.getMinZoom = () => zoomMinCur;
+map.setMaxZoom = z => { zoomMaxCur = z == null ? ZOOM_MAX : Math.max(zoomMinCur, Math.min(ZOOM_MAX, z)); onMove(); return map; };
+map.getMaxZoom = () => zoomMaxCur;
+map.getCenter = () => ({ lng: cam.center[0], lat: cam.center[1] });
+map.getPitch = () => cam.pitch * R2D;
+map.getBearing = () => cam.bearing * R2D;
+map.setCenter = c => map.jumpTo({ center: c });
+map.setZoom = z => map.jumpTo({ zoom: z });
+map.setPitch = p => map.jumpTo({ pitch: p });
+map.setBearing = b => map.jumpTo({ bearing: b });
+map.isMoving = () => flightCtl.active || moving;
+map.stop = () => { flightCtl.cancel(); return map; };
+// 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
+map.getBounds = () => {
+	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）
+	for (const fx of [0, 0.5, 1]) for (const fy of [0, 0.5, 1]) { const ll = unprojectXY(fx * W, fy * H); if (ll) pts.push(ll); }
+	if (pts.length < 9) return null;
+	const c = cam.center[0];
+	const xs = pts.map(p => c + wrapLon(p[0] - c)), ys = pts.map(p => p[1]);
+	return [wrapLon(Math.min(...xs)), Math.min(...ys), wrapLon(Math.max(...xs)), Math.max(...ys)];
+};
 map.userPbf = () => gint.userGint?.pbf ?? null;   // 表示中のユーザー gint（ドロップ/?g=）の geopbf＝編集ガジェットへの受け渡し口（同じデータを一手で編集へ）
 map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 同一フレームのオーバーレイ（#13・2026-09-20）：レンダーワーカー内で地球・注記と同じ rAF・同じ cam で描く自前 canvas。
