@@ -28,6 +28,7 @@ const lazyRail = env => {
 
 export { JP_DTM };
 
+import { installJapan } from "./install.js";
 export const JP_REGION = {
 	code: "jp",
 	dtm: JP_DTM,
@@ -88,7 +89,8 @@ export const JP_REGION = {
 	},
 	view: null,
 	home: { view: [137, 37, 6.6] },   // 列島ビュー（真俯瞰）＝既定起動＆「日本全体」ガジェットの着地点（z6.6＝デモ初景と同値）
-	airports: "airports.json",   // 低ズーム（z<13）の空港マーク台帳（scripts/airports-build.mjs・86 空港・assetBase 直下）＝タイル注記が無い帯を埋める（2026-09-23 申告化）
+	airports: "airports.json",
+	install: installJapan,   // 起動後に map へ足す物（e-Stat 小地域＝map.estat）。静的 import＝起動路に動的 import を置かない（仮想時間の関門は起動中の import() を解決できない・t-opts の轍 2026-09-23）。worker は従来どおり初回 loadEstat で遅延   // 低ズーム（z<13）の空港マーク台帳（scripts/airports-build.mjs・86 空港・assetBase 直下）＝タイル注記が無い帯を埋める（2026-09-23 申告化）
 	search: gsiSearch,
 	poi: {
 		api: "https://api.ortho-earth.com",                       // bucket API 基底（poiedit の書込は native-bucket がこの面へ）

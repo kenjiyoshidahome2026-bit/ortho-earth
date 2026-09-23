@@ -11,7 +11,10 @@
 		"./region": "./src/region.js",
 		"./poi": "./src/poi.js",
 		"./search-gsi": "./src/search-gsi.js",
-		"./n02": "./src/n02.js"
+		"./n02": "./src/n02.js",
+		"./estat": "./src/estat.js",
+		"./estat-worker": "./src/estat-worker.js",
+		"./install": "./src/install.js"
 	},
 	"description": "日本の地域パック（地域宣言＝裸地標高・建物台帳・基図・画像タイル・出典・検索・POI台帳・路線）＝@ortho-earth/core は日本を知らない",
 	"dependencies": {
