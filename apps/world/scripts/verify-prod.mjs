@@ -49,7 +49,9 @@ execFileSync("npm", ["run", "build"], { cwd: APP, stdio: "inherit" });
 const read = promisify(readFile);
 const requests = [];
 // エンジンの偽物＝注入口 window.__orthoEngine（mappane.js）へ index.html の先頭 module script で渡す（A 裁定でエンジンは同梱＝URL では差せない）
-const ENGINE_STUB = `export default async function (opts) {
+const ENGINE_STUB = `export const createGlobe = opts => stub({ region: [], ...opts });
+export default async function (opts) { return stub(opts); }
+async function stub(opts) {
 	window.__engineOpts = opts;
 	const el = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
 	el.appendChild(document.createElement("canvas"));

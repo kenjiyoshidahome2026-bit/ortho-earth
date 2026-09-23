@@ -363,6 +363,9 @@ export interface OrthoJapanMap {
 
 /** 1行で地球儀が立ち上がる入口。await 必須 */
 export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+/** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。
+ *  内製アプリ（world 等）はこちらを使う（LAYERS.md・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包み */
+export function createGlobe(opts?: OrthoJapanOptions): ReturnType<typeof orthoJapan>;
 
 // ---- geopbf（SDK 同梱・1.0.3〜 named export）----
 export interface GeoJSONFeature { type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }

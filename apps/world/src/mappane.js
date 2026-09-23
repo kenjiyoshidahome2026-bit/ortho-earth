@@ -27,11 +27,10 @@ async function build({ lang, nation }) {
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && open) { e.stopPropagation(); hide(); } }, true);
 
 	const engine = await engineP();
-	const map = await engine.default({
+	const map = await engine.createGlobe({   // 地球儀のホスト（LAYERS.md）＝日本の申告を持たない
 		target: host,
 		lang,                      // 一覧と同じ言語で（エンジンの言語は起動時に決まる＝map.lang は読み取り専用）
 		view: "#1.6/20/0",         // 世界ビューから始めて、指された国へ飛ぶ＝「どこの国か」が動きで分かる
-		region: [],                // 地域の申告なし＝globe 仕様（日本の基図・標高・出典・POI・鉄道が来ない。本人裁定 2026-09-23）
 		zoomMax: ZMAX,             // 世界データが在る所まで＝ここまでハイプソ（陸の段彩）と湖と罫線で描く
 		mesh: false,               // 建物3D＝国の形を見る用には要らない（カタログも worker も起こさない）
 		chips: false,              // 層チップは出さない

@@ -28,6 +28,9 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
 export { geopbf };
+// 地球儀のホスト＝地域の申告なしで起動する口（LAYERS.md 段階 1・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包みという建付け
+// （段階 2 で本体が packages/globe へ移り、向きが逆になる）。region を渡せば地域を足せる（japan と同じ）。
+export const createGlobe = (opts = {}) => orthoJapan({ region: [], ...opts });
 import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
