@@ -36,6 +36,7 @@ function reg(map) {
 		for (const it of r.items) it._place(proj);
 	};
 	r.off = map.onFrame(place);
+	map.on("move", place);   // カメラが動いた瞬間にも置き直す（描画のフックは rAF 待ち＝重い時に 1 拍遅れる）
 	r.place = place;
 	registry.set(map, r);
 	return r;
