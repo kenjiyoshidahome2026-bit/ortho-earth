@@ -24,6 +24,33 @@
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
 5. 地球儀が要るアプリは `createGlobe(opts)` を使う（`orthoJapan()` は「globe＋日本の申告」の薄い包み）。
 
+## mesh（3D メッシュ）の線引き — 2026-09-23
+
+`packages/globe/src/mesh*` は **PLATEAU の実装ではない**。b3dm/Draco→ECEF→ortho 球→重複面 dedup→接地→LOD→RTE→被覆マスクの
+「大量の 3D メッシュを流す核」であり、現時点で**消費者は 4 つ**：
+
+| 消費者 | 入口 | 地域の持ち物 |
+|---|---|---|
+| PLATEAU（日本） | `meshworker` の区ロード | `packages/jp/src/region.js` の `buildings`（catalog／exclude／landmarks／bakeBase／group／icon） |
+| 3DBAG（オランダ） | 同上（同じ関数） | `apps/ortho-japan/nl/region.js` の `buildings.sets`（base／bbox／tilesetUrl／clip） |
+| 任意の 3D Tiles（#41） | `tiles3d-decode.js` → `decodeModel` | — |
+| I3S（#48）／glb 模型 | `i3s-decode.js` → `finishMesh` | — |
+
+**掟**：核は地域を知らない。地域が持つのは*データの在り処*だけ（上の表の右列）。
+`meshq.js` の地域痕跡は 0 件、他も残るのは名前だけ＝**凍結**する：IDB 名 `GIS/plateau`（利用者の端末に残る）・
+DOM id `plateau-toast`（利用者 CSS が当てる公開面）・台本の `plateau:` キー（共有 URL に残る）。改名しない。
+
+**依存の向き**：jp／nl は核を *参照しない*。両者は宣言を渡すだけで、核を使うのはホスト（globe）。
+「jp と nl が参照する共有ライブラリ」ではなく「globe が依存する 3D メッシュ核」＝切り出すなら `@ortho-earth/mesh`（`mesh`
+であって `plateau` ではない）。切る線は**純関数だけ**（meshdecode／meshq／decoder／tiles3d-decode／i3s-decode ≈ 1,600 行）＝
+worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード政策なので globe に残す（worker 入口 1 本の掟・パッケージ跨ぎの
+`new Worker(new URL())` は vite の静的検出を壊す）。**時期＝公開の版を切る時**（本人裁定 2026-09-23：まず B＝申告と文書だけ）。
+
+**2026-09-23 に直した一点（B）**：R2 焼きの置き場が worker に直書き（`BAKE_URL_DEFAULT`＝日本のバケツ）で、
+`clip`／`tilesetUrl` が無い区を「PLATEAU らしい」と推量して引いていた＝エンジンが一国のデータを既定に抱えていた。
+いまは `buildings.bakeBase` の申告＝globe が台帳の各 set に刻み、load メッセージで worker へ渡す。
+宣言しない地域は焼きを引かない（生経路のみ）。`?bake=URL` は全区に効く上書き（宣言より優先）・`?nobake=1` は封印。
+
 ## 段階（可逆）
 
 - **1（済 2026-09-23）** 文書で線を引く。`createGlobe` を export（region 省略＝地球儀）。world はそれを使う。中身は動かさない。

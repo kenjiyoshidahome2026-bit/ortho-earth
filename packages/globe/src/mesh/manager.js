@@ -182,7 +182,7 @@ function meshRetain(name, set) {   // 常駐登録＋LRU touch。予算超過は
 // コールドの山にそのまま人数分加算されるため（8GB実機では 1→2 本でも 2D 段階で落ちた実測＝上のコメント）。
 const MESH_NW = LOW_MEM ? 1 : (Math.min(MID_TIER ? 2 : MESH_MAX_ACTIVE, (navigator.hardwareConcurrency || 4) - 1) || 1);
 const meshWorkers = [], meshDecoders = [], meshPending = new Map();   // meshDecoders＝区 worker 配下のデコーダ（main が生成・所有）
-const MESH_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)[1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は worker 側の api.ortho-earth.com
+const MESH_BAKE_URL = (location.search.match(/[?&]bake=([^&]+)/) || [])[1] ? decodeURIComponent(location.search.match(/[?&]bake=([^&]+)/)[1]) : null;   // ?bake=URL＝R2 焼きの置き場差し替え（ローカル検証）・既定は地域の申告 buildings.bakeBase（無宣言＝焼き無し）
 const meshMemW = [];   // ?hud=1（旧mem=1）：worker index → {cache, live}＝HUD の「過渡」行（常駐台帳に乗らないRAM）
 let meshReqId = 0;
 let meshCamSent = 0;   // カメラ放送のスロットル（ロード中のみ~4Hz）
@@ -281,7 +281,8 @@ function workerLoadMesh(base, tiles, name, wardBbox, brid, ex = {}) {
 	// wardBbox＝区単位の被覆マスク座標系。camCenter＝バッチのカメラ近傍優先ソート（目の前から立ち始める）。
 	// brid＝橋梁モード：バッチ接地（桁が海面へ沈まない）＋両面描画（ケーブル等の開いた薄面が裏から消えない）。
 	// clip/tilesetUrl＝登録簿の任意欄（オランダ3DBAG等の「国土1枚もの」を街の矩形で切って使うため。PLATEAUは共に undefined）
-	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null });
+	// bakeBase＝R2 焼きの置き場（地域の申告 buildings.bakeBase を globe が set へ刻む・null＝焼きを持たない地域＝生経路のみ）
+	w.postMessage({ id, base, tiles, name, wardBbox, brid: !!brid, camCenter: meshSortAnchor(), clip: ex.clip || null, tilesetUrl: ex.tilesetUrl || null, bakeBase: ex.bakeBase || null });
 	return new Promise((resolve, reject) => meshPending.set(id, { resolve, reject, name }));   // name＝進捗の消灯キー
 }
 // PLATEAU 読込進捗（左下）：地区別のバッチ進捗を1行に集計。ネットワーク経路（初回訪問）だけ表示され、
@@ -445,7 +446,7 @@ function meshPreload(set) {   // プレロード＝IDBに貯めるだけ（描�
 	// レーンは fast のまま（lowMem も）。slow（並行1本＋250ms間隔）を一度試したが、港区級（数百タイル）が
 	// デモ1周かかっても終わらない実測＝「故意に遅い」。lowMem の jetsam 余裕は BATCH_TILES=16・並行4・
 	// CACHE_MAX=0・クレジット送出で既に取ってある＝先読みは普通の速度で焼き、直列1区が帯域の上限を裁く。
-	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: meshSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null });
+	w.postMessage({ id, base: set.base, name: set.name, wardBbox: set.noMask ? null : set.bbox, brid: !!set.noMask, camCenter: meshSortAnchor(), preload: true, clip: set.clip || null, tilesetUrl: set.tilesetUrl || null, bakeBase: set.bakeBase || null });
 	return new Promise((resolve, reject) => meshPending.set(id, { resolve, reject, name: set.name }))
 		.catch(() => false).finally(() => meshLoading.delete(set.name));
 }

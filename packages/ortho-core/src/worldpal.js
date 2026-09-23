@@ -1,7 +1,7 @@
 // 全球ハイプソの正準パレット＝world色の単一の出所。GL/WGSL両レンダラの uniform 既定と、
 // app 側の湖レイヤ(style-world)の塗りが全員ここから引く（海色が3箇所のリテラルで手動同期していた轍の根治）。
 // テーマは view.worldHypso に同名キーで部分上書き（palettes.js の台帳）＝未指定キー＝この既定
-// ＝mono(knob無し)は従来出力と一致・gsi の「海だけ差し替え」も per-key マージで自動成立。
+// ＝mono(knob無し)は従来出力と一致・topo の「海だけ差し替え」も per-key マージで自動成立。
 // 標高ブレークポイント(400/1300/2800/4800m)・脱彩度・snow/arid の式はテーマ対象外＝シェーダ側に残る。
 export const WORLD_PAL_DEFAULT = {
 	sea:      [0.757, 0.847, 0.891],   // #c1d8e3（GLOBE u_seaC と湖レイヤは常に同色＝面一の水面）
@@ -19,7 +19,7 @@ export const WORLD_PAL_DEFAULT = {
 // ── テーマ別の全球パレット（配色テーマ名 → WORLD_PAL_DEFAULT への部分上書き）──────────────
 // 正本はここ 1 本＝ortho-japan（palettes.js MAP_THEMES[].worldHypso）と apps/equal（themes.js）が同じ値を引く。
 // 「japan で定義した night/sepia を equal でも表現する」＝色の定義を二度書かないための引き上げ（2026-09-18 本人裁定）。
-// 未指定キーは既定のまま＝mono は knob 無し（null）＝従来出力そのもの・gsi は「海だけ差し替え」が per-key マージで成立。
+// 未指定キーは既定のまま＝mono は knob 無し（null）＝従来出力そのもの・topo は「海だけ差し替え」が per-key マージで成立。
 export const WORLD_PAL_THEMES = {
 	mono: null,   // 既定＝WORLD_PAL_DEFAULT（自然色・NE 風）
 	// dark＝夜の地球儀：海は style の海 #090c12 同族の深い青黒・陸は沈めた緑灰→暗砂→明るめの峰（「高いほど明るい」＝夜の反転則）
@@ -32,8 +32,9 @@ export const WORLD_PAL_THEMES = {
 		belowSea: [0.78, 0.88, 0.84],       // 海面下の締め＝暗い地でも読めるよう僅かに強め
 		grat: [0.55, 0.62, 0.75, 0.8],      // レチクル＝白は夜に眩しい＝沈めた青灰
 	},
-	// gsi＝地理院配色：陸は自然色のまま（キー省略＝既定）・海だけ地理院の水色 #bed2ff 系へ＝per-key マージの実証
-	gsi: { sea: [0.745, 0.824, 1.0] },
+	// topo＝地形図配色（紙の地形図の顔）：陸は自然色のまま（キー省略＝既定）・海だけ地形図の水色 #bed2ff 系へ＝per-key マージの実証。
+	// 実色の出所は日本の標準地図（std.json）だが、名前は顔で呼ぶ＝core は機関名を名乗らない（2026-09-24 改名・旧 gsi）。
+	topo: { sea: [0.745, 0.824, 1.0] },
 	// sepia＝古地図の地球儀：緑を捨て暖オリーブ→砂→焦茶→生成りの峰。海は style の海 #d6ddd7 同族
 	sepia: {
 		sea:      [0.839, 0.867, 0.843],
