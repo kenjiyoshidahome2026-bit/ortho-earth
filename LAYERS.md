@@ -43,7 +43,7 @@
     - 掟の現状：globe に残る bvmap の語彙（themes.js・style-gsi.js・mergeChome・chips）＝案 b で受け入れた負債。第二の基図が来た時に `basemap` 宣言へ
   - S5 済：関門の頁集合を二分（verify-ui.mjs／verify-webgpu.mjs の `JP_PAGES`＝japan に依る頁・`--globe`／`--japan` で選ぶ）。`npm run verify:globe`（UI 19＋WebGPU 17）／`verify:japan`。packages/globe の `npm run verify` は japan の殻で globe の集合を走らせる委譲（globe は殻＝HTML/検定頁を持たない）
   - S6 済：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes は `createGlobe({ zoomMax: 8 })`（申告なし・z<8）・GeoPBF デモは `createGlobe`（落とした地物を寄って見るので z の上限は既定）。**tellus は japan 側**（本人 9/23「tellus は japan かも」＝東京へ寄って見る画像の頁）。models（PLATEAU LOD3）／scene／census2020／gishub-jp は japan 側。equal は段階 3 で色・ラベルを一本化
-- **3** equal の palette／labels を globe の worldpal／labels と一本化（world の色定数の手写しを無くす）。
+- **3 済（2026-09-23）** 世界の地図面の配色＝`packages/ortho-core/src/worldstyle.js`（`WORLD_STYLE_THEMES`＝旧 equal themes.js の表を正本に引き上げ＋`capital`・`css()`／`hex()`／`normWorldTheme`）。equal の themes.js は同じ名前で再輸出（表は持たない）・首都の点は正本の capital（world の国の地図と同じ赤）。world の worldlayers.js の色定数は正本から導出（手写し廃止）。globe は世界線（河川・海洋境界線）の色とテーマ列の名札/スウォッチを正本から引き、テーマ切替で世界線を塗り直す（gint.repaintWorldLines）。i18n の生存判定は ortho-core/src も文字列の根に含める（"Blank map" 等）。全球ハイプソは従来どおり worldpal.js
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 

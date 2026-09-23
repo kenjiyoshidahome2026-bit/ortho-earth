@@ -131,7 +131,7 @@ export function listFiles(dir, out = [], root = dir, exclude = null) {
 // opts.exclude＝走査から外す相対パスの集合（showcase ページの辞書は別＝i18n/pages.json）。opts.only＝この集合だけ走査
 // LITERAL_ROOTS＝アプリの外にある地域パック（@ortho-earth/jp）＝t() は呼ばないが出典・画像タイルの key を英語キーのデータとして持つ
 // ＝文字列だけを「在る」印に数える（無いと移設したキーが次の i18n:extract で退役する・2026-09-22）。opts.only（ページ別の走査）には足さない。
-export const LITERAL_ROOTS = ["../../packages/jp/src"];
+export const LITERAL_ROOTS = ["../../packages/jp/src", "../../packages/ortho-core/src"];   // ortho-core＝worldstyle のテーマ名札（"Blank map" 等・段階 3）
 // HOST＝地球儀のホスト（packages/globe/src・S4 2026-09-23）＝本体の走査に「globe/」の接頭辞で混ぜる（scripts/i18n-contexts.json・pages.json の鍵も同じ表記）
 export const HOST_REL = "../../packages/globe/src", HOST_PREFIX = "globe/";
 export const hostDir = appDir => path.join(appDir, HOST_REL);

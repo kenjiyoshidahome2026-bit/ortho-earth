@@ -21,7 +21,8 @@
 		"./raster-src": "./src/raster-src.js",
 		"./workers/tile": "./src/workers/tileworker.js",
 		"./workers/scene": "./src/workers/sceneworker.js",
-		"./workers/gintbake": "./src/gl/gint/bakeworker.js"
+		"./workers/gintbake": "./src/gl/gint/bakeworker.js",
+		"./worldstyle": "./src/worldstyle.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {
