@@ -6,6 +6,8 @@
 //   ③ プレースホルダ（$1 $2 …）の顔ぶれがキーと各訳で一致（ずれは ERROR＝実行時に穴が開く）
 //   ④ 訳文に文脈標識 " ##" が混ざっていない（ERROR＝文脈は訳す対象でなく、キーを分けるための印）
 //   ⑤ 各言語の未訳件数（WARN）・使われなくなったキー（WARN）・辞書にない t() 呼び（WARN/ERROR）
+//   ⑥ 実行時が読む表（i18n/lang/*.json・langs.js・ページ辞書）が正本から焼き直されている（ERROR＝i18n:build の焼き忘れ。
+//      2026-09-23 に可視域の訳を焼き忘れ、本番の日本語 UI が英語で出た＝正本だけ直っても実行時の表が古いまま）
 //
 // 使い方: npm run verify:i18n [-- --strict]   （--strict＝未訳の WARN も落とす＝訳が揃った後の門）
 import fs from "node:fs";
@@ -14,6 +16,7 @@ import { hostDir } from "./lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
 import { placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
 import { scanAll } from "./lib/i18n-pages.mjs";
+import { staleTables } from "./lib/i18n-tables.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const strict = process.argv.includes("--strict");
@@ -60,6 +63,10 @@ for (const [key, row] of allRows) {
 if (noJa.length) E(`${noJa.length} key(s) have no ja column`, noJa);
 if (phBad.length) E(`${phBad.length} placeholder mismatch(es)`, phBad);
 if (ctxLeak.length) E(`${ctxLeak.length} translation(s) carry the context marker`, ctxLeak);
+
+// ⑥ 焼き忘れ＝正本から作った表と、書かれている表の食い違い
+const stale = staleTables(APP);
+if (stale.length) E(`${stale.length} runtime translation table(s) are stale — run: npm run i18n:build (and commit the result)`, stale.map(([f, why]) => `${path.relative(APP, f)}  (${why})`));
 
 // ⑤ 未訳・死にキー・辞書にない呼び出し
 const dead = Object.keys(ui).filter(k => !usedAnywhere(k));   // 表/配列に置かれたキーは生きている
