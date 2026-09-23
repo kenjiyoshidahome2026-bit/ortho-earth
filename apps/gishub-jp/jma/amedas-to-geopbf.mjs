@@ -38,20 +38,31 @@ const __dir = dirname(fileURLToPath(import.meta.url));
 const TABLE_URL  = 'https://www.jma.go.jp/bosai/amedas/const/amedastable.json';
 const MASTER_URL = 'https://www.jma.go.jp/jma/kishou/know/amedas/ame_master.zip';
 
-// 元号→西暦（明治以降・n 年は base+(n-1)）
+// 元号→西暦（明治以降・n 年は base+(n-1)。「元」＝元年＝1）
 const ERA = { 明: 1868, 大: 1912, 昭: 1926, 平: 1989, 令: 2019 };
+const AMEDAS_START = 1974;   // 昭和49年11月1日＝アメダス運用開始日（公式 PDF の凡例）
 const dm2deg = ([d, m]) => +(d + m / 60).toFixed(7);
 const txt = v => { const s = (v ?? '').trim(); return s && s !== '－' && s !== '-' ? s : null; };
 const numOf = v => { const n = parseFloat(txt(v)); return Number.isFinite(n) ? n : null; };
 
-// 「#昭50.4.1」「(昭50.5.29)昭52.10.24」→ 主たる日付の西暦年。括弧書き＝前の開始日は取らない
-function startYear(raw) {
-    const s = txt(raw); if (!s) return null;
-    const main = s.replace(/^\(.*?\)/, '').replace(/^#/, '');   // 括弧書きを落とし、記号を外す
-    const m = main.match(/([明大昭平令])\s*(\d+)/);
+// 観測開始年月日の記号＝公式 PDF「地域気象観測所一覧」(12) の凡例どおりに読む（2026-09-23 確認）:
+//   #                   … 降水量の観測を昭和49年11月1日から開始（＝アメダス運用開始日）
+//   (昭y.m.d)昭Y.M.D    … 括弧内＝降水量の開始日／括弧外＝気温・風向風速・日照の開始日
+//   #昭Y.M.D            … 降水量は昭和49年11月1日から・気温・風向風速・日照は Y.M.D から
+//   昭Y.M.D             … 気温・風向風速・降水量・日照をその日に開始
+// → 降水量の開始年（＝その観測所の始まり）と、気温等の開始年を分けて出す。
+function eraYear(s) {
+    const m = (s || '').match(/([明大昭平令])\s*(元|\d+)/);   // 「平元」＝元年＝1
     if (!m) return null;
-    const base = ERA[m[1]]; const n = parseInt(m[2], 10);
+    const base = ERA[m[1]]; const n = m[2] === '元' ? 1 : parseInt(m[2], 10);
     return base && Number.isFinite(n) ? base + n - 1 : null;
+}
+function startYears(raw) {
+    const s = txt(raw); if (!s) return [null, null];
+    const par = s.match(/^\((.*?)\)(.*)$/);
+    if (par) return [eraYear(par[1]), eraYear(par[2])];
+    if (s.startsWith('#')) { const rest = s.slice(1).trim(); return [AMEDAS_START, rest ? eraYear(rest) : null]; }
+    const y = eraYear(s); return [y, y];
 }
 
 function parseCsv(text) {
@@ -114,8 +125,10 @@ async function main() {
                 alt:  typeof s.alt === 'number' ? s.alt : null,
                 kind:  main ? txt(main['種類']) : null,          // 四 / 官 / 雨（公式・codelist で開く）
                 place: main ? txt(main['所在地']) : null,
-                start: main ? startYear(main['観測開始年月日']) : null,
+                start:    main ? startYears(main['観測開始年月日'])[0] : null,   // 降水量＝観測所の始まり
+                startMet: main ? startYears(main['観測開始年月日'])[1] : null,   // 気温・風向風速・日照
                 startRaw: main ? txt(main['観測開始年月日']) : null,
+                snowId:   main ? txt(main['備考1']) : null,                      // 同一敷地の積雪観測所番号
                 windH: main ? numOf(main['風速計の高さ(ｍ)']) : null,
                 tempH: main ? numOf(main['温度計の高さ(ｍ)']) : null,
                 elemNote: note,                                   // 備考2＝観測要素の例外
