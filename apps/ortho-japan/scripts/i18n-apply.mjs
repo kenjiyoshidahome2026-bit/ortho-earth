@@ -13,6 +13,7 @@
 //         node scripts/i18n-apply.mjs           （実行）
 import fs from "node:fs";
 import path from "node:path";
+import { absOf } from "./lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
 import { lex } from "./lib/i18n-scan.mjs";
 
@@ -25,7 +26,7 @@ const NEW_COMMENT = "   // UI 多言語化（英語キー＝既定値・訳は i
 
 let files = 0, subs = 0, dicts = 0, risky = [];
 for (const [rel, map] of Object.entries(keymap)) {
-	const abs = path.join(APP, rel);
+	const abs = absOf(APP, rel);   // "globe/…"＝packages/globe/src（S4）
 	const src = fs.readFileSync(abs, "utf8");
 	const { isCode, strings } = lex(src);
 	const edits = [], dictRanges = [];

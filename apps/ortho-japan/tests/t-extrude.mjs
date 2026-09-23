@@ -2,9 +2,9 @@
 // 押し出し（extrude.js＋gadgets/model.js の値の解決）の常設検定。幾何は Node で回る（earcut と finishMesh だけ）。
 // 見るもの：①高さの鍵の自動判定（height/階数×3/"12m"/min_height/色の優先）②三角形数（屋根＋壁・穴つき）
 // ③法線＝屋根は鉛直・外周の壁は外向き・穴の壁は穴の中心向き（環の巻きが CW でも CCW でも）④高さの無い面は立てない。
-import { extrudeMesh } from "../extrude.js";
-import { extrudePolys, heightOf, isMapLibreLayer } from "../gadgets/model.js";
-import { hasHeightKey } from "../extrude-keys.js";
+import { extrudeMesh } from "@ortho-earth/globe/extrude.js";
+import { extrudePolys, heightOf, isMapLibreLayer } from "@ortho-earth/globe/gadgets/model.js";
+import { hasHeightKey } from "@ortho-earth/globe/extrude-keys.js";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };

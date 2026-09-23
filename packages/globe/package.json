@@ -1,0 +1,31 @@
+{
+	"name": "@ortho-earth/globe",
+	"version": "0.0.1",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)・世界層・地域非依存ガジェット・worker の入口。地域は opts.region の申告で足す＝このパッケージは地域名を知らない（bvmap の語彙＝themes/style は本人裁定 2026-09-23 案 b で当面ここが抱える）",
+	"exports": {
+		".": "./src/globe.js",
+		"./*": "./src/*"
+	},
+	"imports": {
+		"#extra-roles": "./src/worker-roles-extra.js"
+	},
+	"dependencies": {
+		"@loaders.gl/3d-tiles": "^4.3.0",
+		"@loaders.gl/core": "^4.3.0",
+		"@loaders.gl/draco": "^4.3.0",
+		"@loaders.gl/gltf": "^4.3.0",
+		"@ortho-earth/core": "*",
+		"altpbf": "*",
+		"earcut": "^3.2.3",
+		"ephem": "*",
+		"fzstd": "^0.1.1",
+		"geoedit": "*",
+		"geopbf": "*",
+		"glbconv": "*",
+		"native-bucket": "*",
+		"quiet-mono": "*"
+	}
+}

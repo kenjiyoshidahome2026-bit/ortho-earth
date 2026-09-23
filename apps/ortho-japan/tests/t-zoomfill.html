@@ -16,7 +16,7 @@ import orthoJapan from "../app.js";
 import { initEditor, setLang as __geSetLang } from "geoedit";   // 2026-09-20 packages/geoedit へ分離（MIT）。文言はパッケージ持参＝ja を明示
 await __geSetLang("ja");
 import { idbClear } from "geoedit";
-import { composeLayersToCanvas } from "../gadgets/compose.js";
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
 import { smallCircle } from "geopbf/edit/sphere";
 
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);

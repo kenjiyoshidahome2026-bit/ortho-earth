@@ -6,9 +6,9 @@
 //   ② equal 固有＝apps/equal/i18n/lang/<code>.json（Rivers/Graticule/Choropleth/Year/Disputed…）。同じキーは②が勝つ
 // どちらも言語ごとに 1 本だけ遅延 import（英語の人に他言語の辞書を運ばせない）。将来 globe が増えたら
 // ①を共有パッケージへ引き上げる（その時に 3 者で分ける）。
-import LANGS from "../../ortho-japan/i18n/langs.js";   // 言語一覧は world が正本（japan が写しを持つ）＝ここは写しの写しを作らない
+import LANGS from "@ortho-earth/globe/i18n/langs.js";   // 言語一覧は world が正本（japan が写しを持つ）＝ここは写しの写しを作らない
 
-const SHARED = import.meta.glob("../../ortho-japan/i18n/lang/*.json");
+const SHARED = import.meta.glob("../../../packages/globe/src/i18n/lang/*.json");
 const OWN = import.meta.glob("../i18n/lang/*.json");
 const CTX = " ##";
 const CODES = new Set(LANGS.map(l => l.code));

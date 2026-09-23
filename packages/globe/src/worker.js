@@ -1,4 +1,4 @@
-// ortho-japan/worker.js ── アプリ側 worker の唯一の入口（処方③④・ortho-earth#12・2026-09-14）。
+// @ortho-earth/globe worker.js ── アプリ側 worker の唯一の入口（処方③④・ortho-earth#12・2026-09-14）。
 //
 // render / plateau / meshdecoder / gintbake / estat を別ファイルの worker として new Worker すると、vite は worker ごとに
 // 独立した rollup ビルドを回す＝loaders.gl（meshworker と meshdecoder で二重・約 360 KB）や geopbf の核・ortho-core の
@@ -9,8 +9,8 @@
 // URL に ?query を足す方式は vite の静的検出（new Worker(new URL('…', import.meta.url), {静的 options})）を壊すので使わない。
 // 各 worker 脚本（renderworker.js …）は従来どおり「自分で self.onmessage を張る」まま無改修。ここは指名された脚本を読み込み、
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
-// 地域の役（e-Stat 等）は worker-roles-extra.js＝地球儀のホストは地域の worker を知らない（LAYERS.md 段階 2 S3d ④）
-import { EXTRA_ROLES } from "./worker-roles-extra.js";
+// 地域の役（e-Stat 等）は "#extra-roles"（既定＝worker-roles-extra.js の {}・アプリの vite alias で地域の役表に差し替え）＝地球儀のホストは地域の worker を知らない（LAYERS.md 段階 2 S3d ④／S4）
+import { EXTRA_ROLES } from "#extra-roles";
 const ROLES = {
 	render:         () => import("./renderworker.js"),
 	mesh:           () => import("./meshworker.js"),

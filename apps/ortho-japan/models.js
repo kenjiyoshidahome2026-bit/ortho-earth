@@ -10,7 +10,7 @@
 // 選んだ模型は GLB／glTF(.zip) でそのまま落とせる＝このデモの芯（3D Tiles を GLB へ変換してから描いている）。?m=<id> で起動時に選ぶ（共有）。
 import { gunzip } from "geopbf/gzip";
 import { convertToFile, FORMATS } from "glbconv";   // GLB → glTF/OBJ/PLY/STL/USDZ/3D Tiles（依存ゼロの変換ライブラリ・Draco は注入口）
-import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -100,7 +100,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 	// 変換＝glbconv（依存ゼロ）。Draco の展開だけは読み手を注入する（PLATEAU と同じ loaders.gl の実体を遅延で借りる）
 	let dracoP = null;
 	const decodeDraco = async (bytes, attrIds) => {
-		dracoP ??= import("./mesh-loaders.js").then(m => ({ parse: m.loadersParse, DracoLoader: m.DracoLoader }));
+		dracoP ??= import("@ortho-earth/globe/mesh-loaders.js").then(m => ({ parse: m.loadersParse, DracoLoader: m.DracoLoader }));
 		const { parse, DracoLoader } = await dracoP;
 		return parse(bytes, DracoLoader, { draco: { attributeNameEntry: "name" } });
 	};

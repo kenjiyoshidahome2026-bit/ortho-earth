@@ -19,7 +19,7 @@ import { parseOMM, sgp4init, sgp4, gmst, temeToGeodetic, jdOf } from "ephem/sgp4
 import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）
-import { tr, setLang, getLang, loadPage } from "./i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 export const MIRROR = "https://www.ortho-earth.com/sats/active.csv";   // 専用 Worker apps/sats-mirror（CORS 開放＝開発機からも読める）

@@ -10,13 +10,15 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadPages } from "./lib/i18n-pages.mjs";
+import { hostDir } from "./lib/i18n-scan.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const ui = JSON.parse(fs.readFileSync(path.join(APP, "i18n/ui.json"), "utf8")).ui ?? {};
+const HOST = hostDir(APP);   // 本体（地球儀のホスト＝packages/globe/src）の訳＝正本 ui.json・焼き先 i18n/lang・langs.js はそこに住む（S4 2026-09-23）。頁の辞書は殻（APP）
+const ui = JSON.parse(fs.readFileSync(path.join(HOST, "i18n/ui.json"), "utf8")).ui ?? {};
 const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
-const outDir = path.join(APP, "i18n/lang");
+const outDir = path.join(HOST, "i18n/lang"), pagesDir = path.join(APP, "i18n/lang");
 fs.mkdirSync(outDir, { recursive: true });
-fs.writeFileSync(path.join(APP, "i18n/langs.js"), "// 生成物＝npm run i18n:build（正本は packages/world/i18n/langs.json）。手で編集しない。\nexport default " + JSON.stringify(langs) + ";\n");
+fs.writeFileSync(path.join(HOST, "i18n/langs.js"), "// 生成物＝npm run i18n:build（正本は packages/world/i18n/langs.json）。手で編集しない。\nexport default " + JSON.stringify(langs) + ";\n");
 
 const rows = [];
 for (const { code } of langs) {
@@ -33,7 +35,7 @@ for (const { code } of langs) {
 // showcase ページの辞書（i18n/pages/<page>.json）＝i18n/lang/<page>/<code>.json へ。SDK（本体）は運ばない＝そのページの chunk だけが読む
 const { tables } = loadPages(APP);
 for (const [page, tbl] of Object.entries(tables)) {
-	const dir = path.join(outDir, page); fs.mkdirSync(dir, { recursive: true });
+	const dir = path.join(pagesDir, page); fs.mkdirSync(dir, { recursive: true });
 	let nLangs = 0;
 	for (const { code } of langs) {
 		if (code === "en") continue;

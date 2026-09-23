@@ -36,12 +36,16 @@
   - S3d 済（①〜③′）：①POI 台帳の実装は `poi.create(env)`（宣言が動的 import を握る＝ホストは @ortho-earth/jp/poi を知らない） ②出典の圏名 "jp"→"region"（attrRegionHTML） ③′建物データ管理モーダルの並び/見出し（都道府県）は `buildings.group(set)`＝meshdb.js は地域を知らない（門＝t-mesh dbGroups）
   - S3d ④ 済：worker の入口は 1 本のまま（複製を断つ設計は据え置き）、地域の役は `worker-roles-extra.js`（今は estat）へ。S4 では globe 側の既定を `{}` にし、japan／census2020 の vite が その相対 import を @ortho-earth/jp の役表へ alias で差し替える（部品の builtinWorkers を「作らない版」へ差し替えるのと同じ作法）。ホストの各 spawn（render/mesh/gintbake/parquet/model/imagequad/rastertiles）は静的な `new Worker(new URL("./worker.js"))` のまま＝vite の静的検出を壊さない
   - S3d ③ 残（裁定待ち）：basemap の語彙＝themes.js（bvmap の vt_code 分類・CHOME/RAILTR の z 閾・layerState の鍵）・style-mono/dark/sepia/gsi.js（bvmap の層→描画規則）・mergeChome（丁目の畳み）・chips（層の切替 UI）。案 a＝`basemap` 宣言が語彙・テーマ・ラベル規則を持参し、globe は「層の鍵の集合」と「切替の口」だけを持つ／案 b＝themes/style/chips は japan の殻（UI）に残し、globe は基図なしの地球儀＝world 帯とガジェットだけ（basemap 圏の UI は地域側の責務）
-  - S4：ホスト（globe.js・gadgets・gint・sky・scenes・boot・i18n・style・worker）を `packages/globe` へ物理移動。japan は薄い包み＋日本の頁
+  - S4 済（2026-09-23・案 b＝本人裁定「themes/style/chips は当面 globe が抱える」）：ホストの閉包 132 ファイル（globe.js・gadgets 62・gint・sky・scenes・boot・mesh・demo/scene-adapter・i18n.js＋本体の訳 i18n/ui.json＋lang/<code>.json・style.scss・themes/style-*/palettes・worker 一式）を `packages/globe/src` へ git mv（相対構造そのまま）。`@ortho-earth/globe`＝exports "."（createGlobe）＋"./*"。japan の殻に残る物＝app.js（包み）・index.html/site.js・頁（quakes/sats/tellus/models/scene/geoedit）・demo（editor/scenes）・nl・i18n/pages（頁の辞書）・public・scripts・tests・sdk
+    - worker の入口は globe の worker.js 1 本。地域の役は `#extra-roles`（package.json imports・既定 {}）を japan／census2020 の vite alias が `@ortho-earth/jp/worker-roles`（estat）へ差し替える
+    - ortho-core の公開面に `./workers/gintbake` を追加（gintbakeworker.js が相対で内部を掴んでいた）
+    - i18n の道具：本体の走査は APP＋HOST（rel は "globe/…"・contexts/pages の鍵も同表記）・正本 ui.json／焼き先 lang／langs.js は HOST・頁の辞書は APP
+    - 掟の現状：globe に残る bvmap の語彙（themes.js・style-gsi.js・mergeChome・chips）＝案 b で受け入れた負債。第二の基図が来た時に `basemap` 宣言へ
   - S5：関門を globe 用（t-*）と japan 用（jp 固有）に二分
   - S6：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes／tellus／GeoPBF デモは `createGlobe`（申告なし・z<8）。models（PLATEAU LOD3）／scene／census2020 は japan 側。equal は段階 3 で色・ラベルを一本化
 - **3** equal の palette／labels を globe の worldpal／labels と一本化（world の色定数の手写しを無くす）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 
-`apps/ortho-japan/app.js`（約 3,000 行）に同居しているもの：`REGION_*`／`REGIONLESS` 41 箇所、e-Stat／N02／GSI／地理院 43 箇所、`JAPAN_VIEW`、airports.json、`gadget("japan")`（列島へ戻る）、`gadget("mesh")`（PLATEAU）、`gadget("search")`（地理院）、`gadget("poiedit")`（overlay.js の e-Stat 部は S3 で jp 側へ移設済）。
+（S4 前の記録）`apps/ortho-japan/app.js`（約 3,000 行）に同居していたもの：`REGION_*`／`REGIONLESS` 41 箇所、e-Stat／N02／GSI／地理院 43 箇所、`JAPAN_VIEW`、airports.json、`gadget("japan")`（列島へ戻る）、`gadget("mesh")`（PLATEAU）、`gadget("search")`（地理院）、`gadget("poiedit")`（overlay.js の e-Stat 部は S3 で jp 側へ移設済）。
 `gint/layers.js` には世界層（admin0／世界の線）とユーザー層と e-Stat 系が同居。

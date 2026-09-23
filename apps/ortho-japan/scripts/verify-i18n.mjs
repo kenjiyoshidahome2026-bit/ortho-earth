@@ -10,6 +10,7 @@
 // 使い方: npm run verify:i18n [-- --strict]   （--strict＝未訳の WARN も落とす＝訳が揃った後の門）
 import fs from "node:fs";
 import path from "node:path";
+import { hostDir } from "./lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
 import { placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
 import { scanAll } from "./lib/i18n-pages.mjs";
@@ -18,7 +19,7 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const strict = process.argv.includes("--strict");
 const ctx = JSON.parse(fs.readFileSync(path.join(APP, "scripts/i18n-contexts.json"), "utf8"));
 const langs = JSON.parse(fs.readFileSync(path.join(APP, "../../packages/world/i18n/langs.json"), "utf8"));
-const uiPath = path.join(APP, "i18n/ui.json");
+const uiPath = path.join(hostDir(APP), "i18n/ui.json");   // 本体の訳の正本は地球儀のホスト（packages/globe/src）に住む（S4）
 if (!fs.existsSync(uiPath)) { console.error(`ERROR  ${path.relative(APP, uiPath)} is missing — run: npm run i18n:extract`); process.exit(1); }
 const ui = JSON.parse(fs.readFileSync(uiPath, "utf8")).ui ?? {};
 // showcase ページ（i18n/pages.json）＝自分の表（i18n/pages/<page>.json）＋本体の表で引く。本体のファイルは本体の表だけ

@@ -5,12 +5,12 @@
 // ガジェット三戒に従い DOM 自給。依存は map の公開面だけ＝map.view（撮る）・map.playScenes/stopScenes（試写・scene-format.md §7）・
 //   location.hash（行ジャンプ＝URL⇄描画状態の一元化に乗る）・純関数 parseScenes/compileVias（診断）。
 // フレームは .scenes の top-level `frame:"16:9"`（任意・プレーヤーは無視＝エディタ用メタ）として保存・復元。
-import { parseScenes, compileVias } from "./scene-adapter.js";
-import { sniffScene } from "../gadgets/dropfile.js";
-import { cloudPanel } from "../gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
-import { composeLayersToCanvas } from "../gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
+import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
+import { sniffScene } from "@ortho-earth/globe/gadgets/dropfile.js";
+import { cloudPanel } from "@ortho-earth/globe/gadgets/cloud.js";   // クラウド保存（共通の器＝geoedit と同じ account Worker /me/files）
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";   // 行サムネ（生スナップの合成＝shot/cloud と同じ核）
 import { parseViewHash } from "@ortho-earth/core/viewurl";   // 行のレイヤー(l=)・配色(c=) チップ＝共有URLの正典パーサ。index.js 経由だとサイトビルドにエンジン一式（worker・WASM）が二重に出る（2026-09-14）
-import { tr } from "../i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
+import { tr } from "@ortho-earth/globe/i18n.js";   // UI 多言語化（英語キー＝既定値・訳は i18n/<lang>.json＝i18n.js）
 const t = tr();
 // 台本由来の文字列（title・視点ハッシュ）を innerHTML に入れる前の消毒＝読み込んだファイルは他人作かもしれない
 const esc = v => String(v ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));

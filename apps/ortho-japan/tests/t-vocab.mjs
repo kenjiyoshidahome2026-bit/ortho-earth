@@ -13,9 +13,9 @@
 // 使い方: node tests/t-vocab.mjs
 import { neededSourceLayers } from "@ortho-earth/core/decode";
 import { buildBuildings } from "@ortho-earth/core";
-import mono from "../style-mono.js";
-import dark from "../style-dark.js";
-import gsi from "../style-gsi.js";
+import mono from "@ortho-earth/globe/style-mono.js";
+import dark from "@ortho-earth/globe/style-dark.js";
+import gsi from "@ortho-earth/globe/style-gsi.js";
 
 let ok = 0, ng = 0;
 const eq = (name, got, want) => {

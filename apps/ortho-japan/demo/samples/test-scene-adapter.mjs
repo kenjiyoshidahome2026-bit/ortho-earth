@@ -1,8 +1,8 @@
 // 単体テスト（素のESM）：v2 書式＝行そのまま受け渡し（parseScenes）＋via 畳み込み（compileVias）＋先頭jump＋秒の素通し＋嗅ぎ分け。
 //   実行＝ node demo/samples/test-scene-adapter.mjs
 import { readFileSync } from "node:fs";
-import { parseScenes, compileVias } from "../scene-adapter.js";
-import { sniffScene } from "../../gadgets/dropfile.js";
+import { parseScenes, compileVias } from "@ortho-earth/globe/demo/scene-adapter.js";
+import { sniffScene } from "@ortho-earth/globe/gadgets/dropfile.js";
 
 let fail = 0;
 const ok = (name, cond) => { console.log((cond ? "✓" : "✗") + " " + name); if (!cond) fail++; };

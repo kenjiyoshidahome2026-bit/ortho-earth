@@ -6,7 +6,7 @@
 <script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 16); localStorage.setItem("oj.hint", "closed");</script>
 <script type="module">
 import orthoJapan from "../app.js";
-import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "../gadgets/print.js";
+import { layoutFor, zoomForScale, composePage, pdfFromCanvas, PAPERS } from "@ortho-earth/globe/gadgets/print.js";
 import { primeVerticalRadius } from "@ortho-earth/core";
 const t = [], ok = (n, c) => t.push((c ? "ok:" : "NG:") + n);
 try {

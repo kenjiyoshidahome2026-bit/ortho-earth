@@ -43,7 +43,7 @@
 		// dev は public/quakes/usgs-quakes-m2.geopbf（scripts/usgs-quakes-build.mjs で作る）。?src=URL で差し替え可。
 		(async () => {
 			// 言語（./i18n.js・英語キー・26 言語）：html の lang/dir をこの言語に。文言（title/description/パネル）は quakes.js が t() で組む＝走査器（.js だけ読む）の目に入る
-			const { setLang, getLang, isRTL } = await import("./i18n.js");
+			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
 			await setLang();
 			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
 			let engineP;

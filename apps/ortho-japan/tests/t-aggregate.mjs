@@ -2,7 +2,7 @@
 // 点の集約とヒートマップの計算部分（gadgets/aggregate-core.js）の常設検定。描画（オーバーレイ）は CDP で別に見る。
 // 見るもの：①点の読み出し（Point/MultiPoint・他は落ちる）②集約＝全段で件数が保存・粗い段ほど少ない・ばらける段 ez
 // ③MapLibre の既定の配色（step）・point_count_abbreviated ④ヒートマップの表（ズームの半径・密度の色表・heatmap-density）。
-import { pointsOf, buildClusters, clusterDraw, heatStyle, abbr } from "../gadgets/aggregate-core.js";
+import { pointsOf, buildClusters, clusterDraw, heatStyle, abbr } from "@ortho-earth/globe/gadgets/aggregate-core.js";
 
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };

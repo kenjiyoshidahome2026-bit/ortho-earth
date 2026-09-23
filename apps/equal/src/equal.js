@@ -24,7 +24,7 @@ import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
 import { loadNations, colorGraph, PRESETS, loadI18n, loadNeCities, tr } from "./nations.js";
 import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言＝英語キー・26 言語（japan の辞書に相乗り＋equal 固有）
 import { createLabels, countryLabels, cityLabels, airportLabels, F, stripJaCitySuffix } from "./labels.js";   // stripJaCitySuffix＝日本語名の「〜市」族を落とす（地名の作法は labels.js が持つ）
-import { createAnno } from "../../ortho-japan/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
+import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import { kOfLat, yOfLat } from "./equalearth.js";
 
 const API = "https://api.ortho-earth.com";
