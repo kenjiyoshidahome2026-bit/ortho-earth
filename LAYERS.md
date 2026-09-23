@@ -30,7 +30,7 @@
 - **2（進行中）** 「動作を変えない移動」を刻む：
   - S1 済：地域の選び方（URL→JP/NL）をホストから包み `orthoJapan` へ。ホスト `createGlobe` は `opts.region` しか見ない・既定の視点は世界
   - S2 済：airports.json＝地域の申告（`JP_REGION.airports`）
-  - S3：e-Stat（overlay.js の estat 部）を jp 側へ。ホストは拡張面（renderer のスロット・cam・tip・pointermove の口）だけを出す
+  - S3 済：e-Stat（overlay.js の estat 部）を jp 側へ（`packages/jp/src/estat.js`・`estat-worker.js`・`install.js`）。overlay.js は地球儀の臓器（identify／mask／hover 輪郭／`use(ext)`）だけ。ホストは**拡張面** `hostEnv`＝`{ opts, renderer, cam, size, dpr, requestDraw, overlay, spawnWorker, ownTip, hooks.hover[], t, dbg, onDestroy }` を出し、地域宣言の `install(map, hostEnv)` が `map.estat` を生やす（`map.overlay` への同名 alias は census2020 互換）。轍：install の dynamic import は verify:ui（仮想時間）で解決しない＝region.js から静的 import
   - S4：ホスト（app.js・gadgets・gint・sky・scenes・boot・i18n・style・worker）を `packages/globe` へ物理移動。japan は薄い包み＋日本の頁
   - S5：関門を globe 用（t-*）と japan 用（jp 固有）に二分
   - S6：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes／tellus／GeoPBF デモは `createGlobe`（申告なし・z<8）。models（PLATEAU LOD3）／scene／census2020 は japan 側。equal は段階 3 で色・ラベルを一本化
@@ -38,5 +38,5 @@
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 
-`apps/ortho-japan/app.js`（約 3,000 行）に同居しているもの：`REGION_*`／`REGIONLESS` 41 箇所、e-Stat／N02／GSI／地理院 43 箇所、`JAPAN_VIEW`、airports.json、`gadget("japan")`（列島へ戻る）、`gadget("mesh")`（PLATEAU）、`gadget("search")`（地理院）、`gadget("poiedit")`、`overlay.js`（e-Stat 小地域）。
+`apps/ortho-japan/app.js`（約 3,000 行）に同居しているもの：`REGION_*`／`REGIONLESS` 41 箇所、e-Stat／N02／GSI／地理院 43 箇所、`JAPAN_VIEW`、airports.json、`gadget("japan")`（列島へ戻る）、`gadget("mesh")`（PLATEAU）、`gadget("search")`（地理院）、`gadget("poiedit")`（overlay.js の e-Stat 部は S3 で jp 側へ移設済）。
 `gint/layers.js` には世界層（admin0／世界の線）とユーザー層と e-Stat 系が同居。

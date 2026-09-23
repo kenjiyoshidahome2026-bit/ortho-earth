@@ -112,6 +112,8 @@ const t = tr();
 export async function createGlobe(opts = {}) {
 const REGIONS = [].concat(opts.region || []).filter(Boolean);
 const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
+const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
+const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
 const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
@@ -1246,7 +1248,7 @@ const input = createInput({
 		// tip 持参層（筆＝moj/maff）がホバー可で載っている間は gint が主導＝町丁目tip/太線と排他（本人裁定2026-08-18）。
 		const fudeOwn = (gint.userGint?.tip && gint.interactive && gint.hover) || !!extActive;   // 追加層がカーソル保持中（§4.1 アクティブ層＝主導権）も gint が主
 		if (fudeOwn && gint.estatTipOwn) { gint.estatTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
-		if (!fudeOwn && opts.smallAreaHover && overlay.isEstatActive?.() && overlay.hoverAt(x, y)) return;
+		if (!fudeOwn && hostHooks.hover.some(h => h(x, y))) return;   // 地域パックのホバー（e-Stat の町丁目 tip＝日本の install が差す）
 		if ((gint.interactive && gint.hover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
@@ -1789,17 +1791,19 @@ function render() {
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
-const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; },
-	tip: name => {   // estat ホバー結果：町丁目ヒット＝町丁目名を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
-		if (name) {
-			gint.estatTipOwn = true;
-			gint.hoverTip?.([name]);
-			wPost({ type: "gintLeave" });   // 隣の市区町村に残った gint ホバー(太線)を消す（B→A復帰でBが光ったまま、の根治・本人報告2026-08-14）。leave は idempotent＝毎ヒットでも安価
-			return;
-		}
-		gint.estatTipOwn = false;
-		if (((gint.interactive && gint.hover) || extActive) && gint.lastHoverXY) wPost({ type: "gintMove", x: gint.lastHoverXY[0], y: gint.lastHoverXY[1] });
-	} });
+const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
+// 拡張が tip を握る合図（e-Stat のホバー結果）：ヒット＝名前を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
+const ownTip = name => {
+	if (name) {
+		gint.estatTipOwn = true;
+		gint.hoverTip?.([name]);
+		wPost({ type: "gintLeave" });   // 隣の市区町村に残った gint ホバー(太線)を消す（B→A復帰でBが光ったまま、の根治・本人報告2026-08-14）。leave は idempotent＝毎ヒットでも安価
+		return;
+	}
+	gint.estatTipOwn = false;
+	if (((gint.interactive && gint.hover) || extActive) && gint.lastHoverXY) wPost({ type: "gintMove", x: gint.lastHoverXY[0], y: gint.lastHoverXY[1] });
+};
+
 dbgHost.__loadOverlay = overlay.loadOverlay;   // geopbf 名から（全球等）
 // ?hud=1（旧mem=1）のメモリ台帳HUD 本体は下方の hudSnapshot＋gadgets/hud.js（右下・出典の上・計測器ボタンで開閉）。以下は別計器：
 // ?drawhud=1：直近フレームの描画実績を実機の画面へ。USB接続やコンソールが要らない＝端末だけで二分できる。
@@ -1857,7 +1861,6 @@ if (hudOn) import("./gadgets/hud.js").then(({ hud }) => {
 	map.gadget("hud", function (opts) { return hud.call(this, { snapshot: hudSnapshot, open: hudOpenInit, signal: ac.signal, ...opts }); });
 	map.gadget.hud();
 }).catch(e => console.error("[hud] failed to load module", e));
-dbgHost.__loadEstat = overlay.loadEstat;
 dbgHost.__tokyo = () => overlay.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域
 // 初期 overlay なし（全球 land は検証用。__tokyo() や __loadOverlay(name) で任意に）
 
@@ -1884,7 +1887,8 @@ function destroy() {
 	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
 	overlays.clear();
 	meshMgr.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
-	overlay.destroy();                           // e-Stat worker（createOverlay内で常時起動しているため忘れずに）
+	for (const f of hostDestroy) { try { f(); } catch (e) { console.warn("[region] destroy", e); } }   // 地域パックの片付け（e-Stat worker 等）
+	overlay.destroy();
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
@@ -2087,8 +2091,7 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 // 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
 // map.overlay(url)（quakes/anno）と map.overlay.loadEstat(...)（census2020）の両方が無傷。正式な別名は裁定待ち。
-Object.assign(map.overlay, overlay);
-map.estat = overlay;   // ★正式な口（2026-09-23 命名）＝e-Stat 小地域・geopbf オーバーレイ・identify の器。選択マスク／ホバー線は map.gadget.spotlight／outline が公開面
+Object.assign(map.overlay, overlay);   // globe の器（setSelectionMask/setHoverOutline/loadOverlay/clearOverlay）。e-Stat の口は日本の install が map.estat と同名に足す
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
 map.getHeight = (lon, lat) => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true })).then(h => +h || 0);   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
@@ -2990,5 +2993,9 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/14条どの経路でも効く）。
 // 見えない div＝gint interactive 層をホバーした時だけ内容が出る＝非gintの埋め込みでは無害。
 gint.hoverTip = map.gadget.tip();
+// 地域パックが起動後に足す物（e-Stat 小地域＝map.estat 等・LAYERS.md 段階 2 S3）。ホストの内部でなく拡張面（hostEnv）だけを渡す
+const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, onDestroy: f => hostDestroy.push(f) };
+for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);
+
 return map;
 }
