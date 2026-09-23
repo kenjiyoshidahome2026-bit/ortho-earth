@@ -42,7 +42,7 @@ export const jishinFaultSidebarEntry = () =>
 export const jmaAmedasSidebarEntry = () =>
     ({ dataset_code:'amedas', title:'アメダス観測所', file_count:1286,
        license:'公共データ利用規約(CC BY互換)', _sourceId:'jma', attribution:'気象庁',
-       note:'雨量・気温・風向風速・日照などの地域気象観測所（座標は観測所マスタから）' });
+       note:'四要素 688・気象官署 228・雨量 370／公式の観測所一覧と突合' });
 
 export const municSidebarEntry = () =>
     ({ dataset_code:'munic', title:'市区町村のオープンデータ', file_count:COUNTS.municSets, license:'CC BY ほか（自治体ごと）', _sourceId:'munic',
