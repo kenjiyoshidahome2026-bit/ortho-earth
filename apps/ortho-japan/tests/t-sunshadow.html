@@ -1,0 +1,33 @@
+<!doctype html>
+<!-- 実描画の検分：日影（#44）。試料＝tests/fixtures/tiles3d（東京駅の ENU の根・青い箱 4 棟ほか）。
+     ①日影図（冬至 8〜16 時・測定面 0m）：高い箱（高さ 160m・SW）の北 40m は日影、南 60m は日影ゼロ（冬の太陽は南から）
+     ②冬至の真昼：影の長さ＝100/tan(30.9°)≈167m（高さ 100m の箱＝SE・北面は y=−100）＝北面から 140m は影・180m は影でない
+     ③画像が地面に貼られる（map.raster に "sunshadow"）④ボタンとパネル（map.gadget.sunshadow）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-sunshadow</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "../app.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];   // ENU（m）→ 経緯度（近似）
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false });
+	const TS = ["./fixtures/tiles3d/tileset.json"];
+	const box = [...ll(-500, -500), ...ll(500, 500)];
+	const d = await map.sunShadow({ tilesets: TS, bbox: box, mode: "duration", planeH: 0, probe: [ll(-150, -60), ll(-150, -260), ll(150, 150)] });
+	ok("duration", d.triangles > 0 && d.steps === 17 && d.maxHours > 3, JSON.stringify(d));
+	ok("north", d.probes[0] >= 2, `north40m=${d.probes[0]}h`);
+	ok("south", d.probes[1] === 0, `south60m=${d.probes[1]}h`);
+	ok("inside", d.probes[2] >= 7.5, `inside=${d.probes[2]}h`);   // 箱の中＝一日じゅう
+	// 瞬間＝冬至の真昼（真太陽時 12 時）。decl と時刻を固定＝経度と均時差によらない
+	const i = await map.sunShadow({ tilesets: TS, bbox: box, mode: "duration", hours: [12, 12], step: 1, planeH: 0, probe: [ll(150, -100 + 140), ll(150, -100 + 180)] });
+	ok("noonLength", i.probes[0] === 1 && i.probes[1] === 0, `140m=${i.probes[0]} 180m=${i.probes[1]}`);
+	ok("image", map.raster.list().some(r => r.id === "sunshadow"));
+	map.gadget.sunshadow();
+	const btn = document.getElementById("sunshadow-btn");
+	btn.click();
+	ok("panel", !!document.querySelector(".sunshadow-panel .ss-run"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

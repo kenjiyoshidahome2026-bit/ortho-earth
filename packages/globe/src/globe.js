@@ -62,7 +62,8 @@ import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
-import { profile as profileGadget } from "./gadgets/profile-stub.js";   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
+import { profile as profileGadget } from "./gadgets/profile-stub.js";
+import { sunShadow as sunShadowGadget } from "./gadgets/sunshadow.js";   // 日影（#44）＝ボタン＋小さなパネル（計算は model 役の worker・sunshadow.js）   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
 import { home as homeGadget } from "./gadgets/home.js";   // 地域の全体へ戻る（顔と着地点は地域宣言 home が持つ）
@@ -2435,6 +2436,27 @@ map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・�
 		onBody: p => { profileBody = p; if (p && p._update) { frameHooks.add(p._update); p._update(); } },   // 抽象アクセス：本体到着後に _update を毎フレ描画へ（measure と同型）
 		...opts,
 	});
+});
+// ── 日影（#44・2026-09-23）＝建物の影を地面に描く。map.sunShadow({ mode:"duration"|"instant", date, planeH, hours, step, bbox, tilesets, probe:[[lon,lat]…] })
+//   建物＝既定は地域の建物台帳（日本＝PLATEAU）・tilesets で任意の 3D Tiles。範囲＝既定は画面に見えている所（中心から一辺 3km まで）。
+//   結果＝四隅の画像として地面に貼る（map.raster の "sunshadow"）。戻り＝stats（三角形数・最大の日影時間ほか）
+let sunWorker = null, sunSeq = 0;
+const sunWaiting = new Map();
+map.sunShadow = async (o = {}) => {
+	sunWorker ??= (() => { const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
+	let bb = o.bbox || map.getBounds() || approxViewBbox(cam);
+	const c = [cam.center[0], cam.center[1]], half = 1500 / 111320, hx = half / Math.max(0.2, Math.cos(c[1] * D2R));
+	bb = [Math.max(bb[0], c[0] - hx), Math.max(bb[1], c[1] - half), Math.min(bb[2], c[0] + hx), Math.min(bb[3], c[1] + half)];   // 一辺 3km まで
+	const opts = { mode: o.mode || "duration", date: (o.date instanceof Date ? o.date : o.date ? new Date(o.date) : new Date()).toISOString(), planeH: o.planeH ?? 4, hours: o.hours || [8, 16], step: o.step ?? 0.5, decl: o.decl, bbox: bb,
+		tilesets: (o.tilesets || []).map(u => new URL(u, location.href).href), sets: o.tilesets ? [] : (meshMgr.sets || []).map(st => ({ base: st.base, bbox: st.bbox })), maxCells: LOW_MEM ? 512 * 512 : 1024 * 1024, probe: o.probe || null };
+	const r = await new Promise((res, rej) => { const id = ++sunSeq; sunWaiting.set(id, { res, rej }); sunWorker.postMessage({ id, kind: "sunshadow", opts }); });
+	const image = await createImageBitmap(new ImageData(new Uint8ClampedArray(r.rgba.buffer), r.w, r.h));
+	const [w, s, e, n] = r.bbox;
+	await map.raster.add("sunshadow", { image, corners: [[w, n], [e, n], [e, s], [w, s]], name: "sunshadow" }, { order: "over", opacity: 1, hideFills: false });
+	return { ...r.stats, probes: r.probes };   // probes＝指定地点の日影時間（時）／瞬間は 0|1
+};
+map.gadget("sunshadow", function (opts) {
+	return sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), signal: ac.signal, ...opts });
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
