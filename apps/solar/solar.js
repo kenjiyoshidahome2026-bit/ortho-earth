@@ -16,9 +16,9 @@
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
 import { BODIES, byId, bodyPos, orientation, orbitPointsRel, moonOrbitPoints, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
-	SATELLITES, satById, satPos, satOrbitPoints } from "ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
+	SATELLITES, satById, satPos, satOrbitPoints } from "@ortho-earth/ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
-import { createClock, fmtUTC } from "ephem/clock";   // 共通の時計（#42）＝地図（globe）と同じ部品
+import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝地図（globe）と同じ部品
 
 // bucket 基盤は頁で一度（ortho-japan と同じ・読み出しキー不要）＝部品を何度作り直しても 1 回
 let geopbfReady = false;

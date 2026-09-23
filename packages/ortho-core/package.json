@@ -27,10 +27,10 @@
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {
+		"@ortho-earth/ephem": "^1.0.0",
 		"altpbf": "^1.1.0",
 		"earcut": "^3.0.1",
 		"geopbf": "^1.11.0",
-		"pmtiles": "^4.5.0",
-		"ephem": "*"
+		"pmtiles": "^4.5.0"
 	}
 }
