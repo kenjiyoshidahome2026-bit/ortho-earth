@@ -27,7 +27,13 @@
 ## 段階（可逆）
 
 - **1（済 2026-09-23）** 文書で線を引く。`createGlobe` を export（region 省略＝地球儀）。world はそれを使う。中身は動かさない。
-- **2** `app.js` を `packages/globe` へ移し、japan は薄い包み（`orthoJapan = o => createGlobe({ region: JP_REGION, …jp の部品, …o })`）。e-Stat／N02／mesh／POI／検索は jp 側へ。関門を globe 用と japan 用に二分。
+- **2（進行中）** 「動作を変えない移動」を刻む：
+  - S1 済：地域の選び方（URL→JP/NL）をホストから包み `orthoJapan` へ。ホスト `createGlobe` は `opts.region` しか見ない・既定の視点は世界
+  - S2 済：airports.json＝地域の申告（`JP_REGION.airports`）
+  - S3：e-Stat（overlay.js の estat 部）を jp 側へ。ホストは拡張面（renderer のスロット・cam・tip・pointermove の口）だけを出す
+  - S4：ホスト（app.js・gadgets・gint・sky・scenes・boot・i18n・style・worker）を `packages/globe` へ物理移動。japan は薄い包み＋日本の頁
+  - S5：関門を globe 用（t-*）と japan 用（jp 固有）に二分
+  - S6：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes／tellus／GeoPBF デモは `createGlobe`（申告なし・z<8）。models（PLATEAU LOD3）／scene／census2020 は japan 側。equal は段階 3 で色・ラベルを一本化
 - **3** equal の palette／labels を globe の worldpal／labels と一本化（world の色定数の手写しを無くす）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）

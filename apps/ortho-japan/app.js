@@ -28,9 +28,14 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
 export { geopbf };
-// 地球儀のホスト＝地域の申告なしで起動する口（LAYERS.md 段階 1・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包みという建付け
-// （段階 2 で本体が packages/globe へ移り、向きが逆になる）。region を渡せば地域を足せる（japan と同じ）。
-export const createGlobe = (opts = {}) => orthoJapan({ region: [], ...opts });
+// ★japan＝「globe＋日本の申告」の薄い包み（LAYERS.md 段階 2・2026-09-23）。地域の選び方（URL：/nl/・?nl=1・既定は日本）は
+//   ここだけが知る。ホスト（createGlobe）は opts.region しか見ない＝地域名を知らない。
+//   オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る（2026-09-17 の振る舞いのまま）。
+export default function orthoJapan(opts = {}) {
+	if (opts.region !== undefined) return createGlobe(opts);   // 申告を持参＝そのまま
+	const nlMode = nlEntry();                                    // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
+	return createGlobe({ ...opts, region: nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION] });
+}
 import { MAP_THEMES } from "./palettes.js";
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
@@ -100,18 +105,13 @@ const t = tr();
 //     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
 //   検索・操作説明はオプトインガジェット＝ map.gadget.search() / map.gadget.hint() で画面ごとに追加（v1 ortho-map の作法）
 // ============================================================================================
-export default async function orthoJapan(opts = {}) {
-// この入口で有効な地域宣言（**使う所より前で決める**＝render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
-// オランダは**日本に足す**形＝?nl=1 のまま日本へ飛べば日本の建物も出る
-// （移設 2026-09-17 でこの振る舞いは変えていない）。中身は packages/jp/src/region.js と nl/region.js が持つ。
-// opts.region＝地域宣言の差し替え口（1.2.0〜 2026-09-23）。配列でも単体でもよい。**[] や null＝宣言なし**＝
-// 基図・裸地標高・ラスタ台帳・出典・戻り先・検索・POI・鉄道が丸ごと来ない＝世界データだけの「globe 仕様」
-// （apps/world の国の地図パネル）。未指定＝従来どおり URL で決まる（/nl/・?nl=1・既定は日本）。
-const nlMode = nlEntry();                                            // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
-const nlOn = !!nlMode;
-const REGIONS = opts.region !== undefined ? [].concat(opts.region || []).filter(Boolean)
-	: nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION];
-const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（日本固有の台帳も読まない）
+// ★地球儀のホスト（LAYERS.md の globe 層）。地域は opts.region の申告だけで足す＝この関数は地域名を知らない（JP/日本/地理院を書かない）。
+//   region＝地域宣言（packages/jp の JP_REGION の形）。配列でも単体でもよい。**省略・[]・null＝申告なし**＝基図・裸地標高・ラスタ台帳・
+//   出典・戻り先・検索・POI・鉄道が来ない＝世界データだけの地球儀（apps/world の国の地図パネル）。
+//   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
+export async function createGlobe(opts = {}) {
+const REGIONS = [].concat(opts.region || []).filter(Boolean);
+const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 const REGION_SETS = REGIONS.flatMap(r => r.buildings?.sets ?? []);   // その場で配る建物台帳（オランダ 3 件）
 const REGION_CATALOG = REGIONS.map(r => r.buildings?.catalog).filter(Boolean);   // 取得する台帳（日本の 336 件）
@@ -737,7 +737,8 @@ const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager �
 // z11+ はタイル注記が✈＋名称を描くので、静的分は同名をスキップ＝二重表示なし。鉄道チップのON/OFFは filterLabels(441) がそのまま効く。
 const AIRPORT_MARK_MAXZ = 13;              // これ未満のズームで静的マークを注入
 let airportMarks = [];
-if (!REGIONLESS) fetch(ASSET_BASE + "airports.json").then(r => r.json()).then(list => {   // 日本の台帳＝地域の申告が無い器では読まない
+const REGION_AIRPORTS = REGIONS.map(r => r.airports).find(Boolean) ?? null;   // 低ズームの空港マーク台帳（地域の申告・日本＝airports.json）
+if (REGION_AIRPORTS) fetch(ASSET_BASE + REGION_AIRPORTS).then(r => r.json()).then(list => {
 	airportMarks = list.map(a => ({ text: a.name, code: 441, anchor: [a.lon, a.lat], size: 10, sort: 2, color: [0.53, 0.53, 0.5, 1], halo: [0.965, 0.965, 0.957, 1], haloW: 1.1, markOnly: true }));
 	readySig = ""; mergeReq.main.sig = "";   // 読み込めた時点でラベル再結合（要求記憶も消す＝即出し直し）
 }).catch(() => {});
@@ -1024,8 +1025,8 @@ let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳�
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
-const JAPAN_VIEW = REGION_HOME?.view ?? [137, 37, 6.6];   // 列島ビュー（真俯瞰・地域宣言 home）＝既定起動＆「日本全体」ガジェットの着地点。z6.6＝デモ初景と同値（world既定化後、z<6.5は全球ハイプソ＝白地図で始まらない。9/2本人裁定「デモの初期値に合わせる」）
-const cam = { center: [JAPAN_VIEW[0], JAPAN_VIEW[1]], zoom: JAPAN_VIEW[2], pitch: 0, bearing: 0, dpr };   // 既定＝列島ビュー（沖縄・小笠原には悪いが初手の構図優先。初訪問時のみ＝共有URL→前回ビューの順で下で復元）
+const HOME_VIEW = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
+const cam = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, dpr };   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
