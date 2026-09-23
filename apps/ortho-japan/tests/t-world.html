@@ -51,11 +51,11 @@ try {
 	ok("picker", !!picker && picker.classList.contains("open"));
 	window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
 
-	// mono→dark→gsi→mono：world でのライブ切替が生存（旧・世界層の再前置は消えたが switchTheme 経路の回帰は残す）
+	// mono→dark→topo→mono：world でのライブ切替が生存（旧・世界層の再前置は消えたが switchTheme 経路の回帰は残す）
 	await switchVia(h, picker, "dark");
 	ok("theme:dark", map.view.theme === "dark" && /c=dark/.test(map.view.hash));
-	await switchVia(h, picker, "gsi");
-	ok("theme:gsi", map.view.theme === "gsi");
+	await switchVia(h, picker, "topo");
+	ok("theme:topo", map.view.theme === "topo");
 	await switchVia(h, picker, "mono");
 	ok("theme:mono復帰", map.view.theme === "mono");
 	ok("noWorldWater:切替後", !hasWorldWater());   // switchTheme が素の theme.style を使う新常態の確認
