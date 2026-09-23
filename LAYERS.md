@@ -41,8 +41,8 @@
     - ortho-core の公開面に `./workers/gintbake` を追加（gintbakeworker.js が相対で内部を掴んでいた）
     - i18n の道具：本体の走査は APP＋HOST（rel は "globe/…"・contexts/pages の鍵も同表記）・正本 ui.json／焼き先 lang／langs.js は HOST・頁の辞書は APP
     - 掟の現状：globe に残る bvmap の語彙（themes.js・style-gsi.js・mergeChome・chips）＝案 b で受け入れた負債。第二の基図が来た時に `basemap` 宣言へ
-  - S5：関門を globe 用（t-*）と japan 用（jp 固有）に二分
-  - S6：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes／tellus／GeoPBF デモは `createGlobe`（申告なし・z<8）。models（PLATEAU LOD3）／scene／census2020 は japan 側。equal は段階 3 で色・ラベルを一本化
+  - S5 済：関門の頁集合を二分（verify-ui.mjs／verify-webgpu.mjs の `JP_PAGES`＝japan に依る頁・`--globe`／`--japan` で選ぶ）。`npm run verify:globe`（UI 19＋WebGPU 17）／`verify:japan`。packages/globe の `npm run verify` は japan の殻で globe の集合を走らせる委譲（globe は殻＝HTML/検定頁を持たない）
+  - S6 済：**世界のアプリは globe 側**（本人 2026-09-23）＝sats／quakes は `createGlobe({ zoomMax: 8 })`（申告なし・z<8）・GeoPBF デモは `createGlobe`（落とした地物を寄って見るので z の上限は既定）。**tellus は japan 側**（本人 9/23「tellus は japan かも」＝東京へ寄って見る画像の頁）。models（PLATEAU LOD3）／scene／census2020／gishub-jp は japan 側。equal は段階 3 で色・ラベルを一本化
 - **3** equal の palette／labels を globe の worldpal／labels と一本化（world の色定数の手写しを無くす）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）

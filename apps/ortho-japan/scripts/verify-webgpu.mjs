@@ -40,7 +40,11 @@ try {
 	}
 	fail = 0;
 	const ALL = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-drape?gl2=1&bottom=drape", "t-extrude-drape?gl2=1&v=%2310/36.3/137.6", "t-aatrans", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-gintlayers", "t-gintlayers?gl2=1", "t-meshfs", "t-baselane", "t-backfill", "t-anchorfill", "t-rectlook", "t-zoomfill", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster", "t-gndfaces", "t-spotlight", "t-spotlight?globe=1"];   // t-raster＝画像タイル層の WGSL 経路（配列 UBO の dynamic offset・per-tile bind group）
-	const PAGES = process.argv.length > 2 ? process.argv.slice(2) : ALL;   // 引数＝ページ名（?query 付き可＝t-rectlook の視点差し替え等）。SHOT=path で最後のページの画面を PNG に
+	// japan（地域パック）に依る頁＝これ以外は globe の関門（LAYERS.md 段階 2 S5）。--globe / --japan で集合を選ぶ（頁名の引数はそのまま）
+	const JP_PAGES = new Set(["t-meshfs", "t-baselane", "t-bld", "t-mesh", "t-raster"]);   // PLATEAU の OPFS・基図の車線・建物・台帳・画像タイル台帳
+	const LAYER = process.argv.includes("--globe") ? "globe" : process.argv.includes("--japan") ? "japan" : null;
+	const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
+	const PAGES = ARGS.length ? ARGS : LAYER ? ALL.filter(p => JP_PAGES.has(p.split("?")[0]) === (LAYER === "japan")) : ALL;   // 引数＝ページ名（?query 付き可＝t-rectlook の視点差し替え等）。SHOT=path で最後のページの画面を PNG に
 	for (const page of PAGES) {   // t-backfill＝gint 塗り扇の球体カリング（裏半球のゴースト/跨ぎ面）＝WGSL 側の実 GPU 検分   // t-aatrans＝遷移時AA（実GPUの実時間必須）。t-meshfs＝OPFS 実I/O（同期ハンドル）＝実時間必須（仮想時間はタイマー先燃えで偽陽性）。t-gintgpu は storage/テクスチャ両経路
 		const url = `http://localhost:${PORT}/japan/tests/${page.replace(/(\?|$)/, ".html$1")}`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();

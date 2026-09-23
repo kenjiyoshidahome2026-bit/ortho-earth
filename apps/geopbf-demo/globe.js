@@ -19,7 +19,7 @@ export const overviewZoom = Math.log2(Math.min(innerWidth, innerHeight) / 2 * 0.
 const frame = document.body.insertBefore(Object.assign(document.createElement("div"), { className: "globe-bg" }), document.body.firstChild);
 const host = frame.appendChild(document.createElement("div"));
 
-export const mapP = engineP.then(m => m.default({
+export const mapP = engineP.then(m => m.createGlobe({   // GeoPBF のデモ＝世界の器（地域の申告なし＝LAYERS.md 段階 2 S6）。落とした地物を寄って見るので z の上限は既定のまま
 	target: host,
 	view: /^#-?\d/.test(location.hash) ? location.hash : `#${overviewZoom.toFixed(2)}/0/0`,
 	lang: "en",
