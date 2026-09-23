@@ -12,6 +12,27 @@
 	"scripts": {
 		"test": "node tests/t-glbconv.mjs"
 	},
-	"files": ["src", "README.md", "LICENSE"],
-	"keywords": ["gltf", "glb", "obj", "ply", "stl", "usdz", "3d-tiles", "converter"]
+	"files": [
+		"src",
+		"README.md",
+		"LICENSE"
+	],
+	"keywords": [
+		"glb",
+		"gltf",
+		"obj",
+		"ply",
+		"stl",
+		"usdz",
+		"3d-tiles",
+		"converter",
+		"zero-dependency"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/glbconv"
+	},
+	"homepage": "https://www.ortho-earth.com/",
+	"sideEffects": false
 }
