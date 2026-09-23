@@ -248,7 +248,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const put = (key, v) => { const dst = PALETTE[key], c = Array.isArray(v) ? hex(v[0], v[1]) : hex(v); dst[0] = c[0]; dst[1] = c[1]; dst[2] = c[2]; dst[3] = c[3]; };
 		for (const key in PALETTE) if (T[key] !== undefined) put(key, T[key]);
 		worldPal = resolveWorldPal(T.world);
-		Object.assign(LABEL_PAL, T.labelColor, { airport: Array.isArray(T.airport) ? T.airport[0] : T.airport });   // 記号（✈）の色もテーマから
+		Object.assign(LABEL_PAL, T.labelColor, { capital: T.capital, airport: Array.isArray(T.airport) ? T.airport[0] : T.airport });   // 記号（✈）の色もテーマから
 		// 家具（計器・出典・ガラス）は **どのテーマでも黒硝子のまま**＝japan の「白抜き家具＝常時ON」（本人裁定 2026-08-05）と揃える。
 		//   実測（2026-09-18）：ui-dark を外すと #attr/#pos の下地が明るい硝子へ転ぶのに、文字色は equal の #map{color:#cdd}
 		//   （常時暗い家具を前提に書かれている）のまま＝明地に明文字で読めなくなる。テーマで動かすのは地図面と、

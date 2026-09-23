@@ -7,11 +7,13 @@
 // 初回だけ 16.5MB・以降は geopbf が IDB に持つ。
 const BASE_URL = "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-";
 
-import { gunzip, isGzip } from "geopbf/gzip";   // bucket は圧縮して置く＝読む側で解く（equal と同じ作法）
+import { gunzip, isGzip } from "geopbf/gzip";
+import { WORLD_STYLE_THEMES, css } from "@ortho-earth/core/worldstyle";   // bucket は圧縮して置く＝読む側で解く（equal と同じ作法）
 
-// 色＝equal の PALETTE / labelColor（apps/equal/src/layers.js・themes.js mono）と同じ顔＝2 つのアプリで同じ世界に見える
-const C = { admin1: "rgba(169,156,178,0.45)", admin1Fill: "rgba(169,156,178,0.14)", disputed: "rgba(154,110,144,0.28)", disputedLine: "rgba(138,95,128,0.9)",
-	road: "#d9a86c", rail: "#7d7f86", urban: "rgba(154,90,82,0.4)", city: "#2b3b57", capital: "#c8443c", halo: "rgba(255,255,255,0.88)", airport: "#6a3d9a" };
+// 色＝ortho-core worldstyle の正本（WORLD_STYLE_THEMES.mono＝equal・globe と同じ表＝2 つのアプリで同じ世界に見える・2026-09-23 段階 3）
+const T = WORLD_STYLE_THEMES.mono;
+const C = { admin1: css(T.admin1), admin1Fill: css(T.admin1, 0.14), disputed: css(T.disputed), disputedLine: css(T.disputedLine),
+	road: css(T.road), rail: css(T.rail), urban: css(T.urban, 0.4), city: T.labelColor.city, capital: T.capital, halo: T.labelColor.halo, airport: css(T.airport) };
 const LINES_Z = 5;   // 道路・鉄道を出すズーム（equal の roads/rail minZoom と同値）
 
 // 都市名（equal と同じ出所の順・言語ごと）：ja＝配信 geopbf の NAME_JA（「〜市」族を落とす）／en＝NAME_EN／

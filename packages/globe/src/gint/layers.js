@@ -10,6 +10,7 @@
 //   smallAreaHover … opts.smallAreaHover（census2020 限定の町丁目ホバー）
 //   requestDraw(), onMove(), flyTo(...), loadBelowSea(), loadLakes() … 生成後に定義される関数は app 側でラップ
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
+import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正本（段階 3・2026-09-23）
 import { WORLD_PX } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 
@@ -704,13 +705,15 @@ dbgHost.__admin0 = res => loadAdmin0(res);   // 手動リロード用
 // 河川の太さ＝scalerank の 3 段・湖の中の中心線は描かない。bucket に無ければ NE S3 の生 zip（geopbf が shp を焼く＝初回だけ重い・IDB に残る）。
 // LOW_MEM（モバイル）は読まない＝「動く・落ちない」が大前提の器に線を足さない。
 let worldLinesState = 0;   // 0=未 1=読込中 2=搭載 3=見送り
+const worldLineHandles = [];   // テーマ切替で塗り直す（色＝ortho-core worldstyle の正本・env.worldStyle）
+const repaintWorldLines = () => { const T = env.worldStyle; for (const { h, def } of worldLineHandles) h.setPaint(def.paint(T), def.filter).catch(() => {}); };
 const WORLD_LINES = [
 	{ name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
-		paint: { "line-color": "#86aecb", "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 1.2, 5, 0.9, 8, 0.6] },
+		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 1.2, 5, 0.9, 8, 0.6] }),
 		filter: ["all", ["!", ["in", "Lake Centerline", ["to-string", ["coalesce", ["get", "featurecla"], ["get", "FEATURECLA"], ""]]]],
 			["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 6]], ["zoom"]]] },
 	{ name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
-		paint: { "line-color": "rgba(143,169,187,0.85)", "line-width": 0.6 },
+		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.6 }),
 		filter: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 4]], ["zoom"]] },
 ];
 async function loadWorldLines() {
@@ -725,7 +728,8 @@ async function loadWorldLines() {
 		h.setVisible(false);            // 絞る（min_zoom）まで出さない
 		h.style({ fillColor: [0, 0, 0, 0] });
 		await h.ready;
-		await h.setPaint(def.paint, def.filter);
+		await h.setPaint(def.paint(env.worldStyle), def.filter);
+		worldLineHandles.push({ h, def });
 		h.setVisible(true);
 		console.log(`[world-lines] ${def.name}: ${pbf.fmap?.length ?? 0} features (z<${WORLD_BAND_Z})`);
 	}
@@ -756,6 +760,7 @@ return {
 	get hoverTip() { return gintHoverTip; }, set hoverTip(fn) { gintHoverTip = fn; },
 	get lastHoverXY() { return lastHoverXY; }, set lastHoverXY(v) { lastHoverXY = v; },
 	get extTipOwn() { return extTipOwn; }, set extTipOwn(v) { extTipOwn = v; },
+	repaintWorldLines,   // テーマ切替（globe.js switchTheme）＝世界線の色を正本の新テーマで引き直す
 	get clickHandler() { return gintClickHandler; }, set clickHandler(fn) { gintClickHandler = fn; },
 	get worldTipOn() { return worldTipOn; }, set worldTipOn(v) { worldTipOn = v; },
 	get suppressAdmin0() { return suppressAdmin0; }, set suppressAdmin0(v) { suppressAdmin0 = v; },

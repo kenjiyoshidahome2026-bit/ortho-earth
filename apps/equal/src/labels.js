@@ -148,7 +148,7 @@ export function cityLabels(features, nameOf, pal) {
 		const cap = +F(p, "adm0cap") === 1, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8, mz = Number.isFinite(+F(p, "min_zoom")) ? +F(p, "min_zoom") : 6;
 		const text = nameOf(p); if (!text) continue;
 		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10),
-			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: pal.city, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
+			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: cap ? (pal.capital || pal.city) : pal.city, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都＝正本の capital（world の国の地図と同じ顔・2026-09-23）   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
 	}
 	return out;
 }

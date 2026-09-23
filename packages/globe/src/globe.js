@@ -27,6 +27,7 @@ createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: tru
 // アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
 export { geopbf };
 import { MAP_THEMES } from "./palettes.js";
+import { WORLD_STYLE_THEMES } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
@@ -1066,6 +1067,7 @@ function switchTheme(name) {
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {} })) : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
+	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
 	// ★任意ノブ(等高線色/遠山/標高段彩)は「新テーマが持たなければ null」で必ず既定へ戻す＝前テーマの居座り防止。
 	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/gsi へ漏れて「山が茶色」になる。
 	renderer.set("view", { clear, land, atmo, bldColor,
@@ -1109,6 +1111,7 @@ const gint = createGintLayers({
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
+	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
 	layers: { map: extGint, get active() { return extActive; }, set active(v) { extActive = v; }, nextId: () => ++gintLayerSeq },
 	smallAreaHover: !!opts.smallAreaHover,
 	requestDraw: () => { needsDraw = true; }, onMove: () => onMove(), flyTo: (...args) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
@@ -1579,7 +1582,7 @@ document.getElementById("base-alpha")?.addEventListener("input", e => { const a 
 	const row = document.getElementById("theme-row");
 	if (row && themeFixed) row.remove();
 	else if (row) {
-		const THEME_META = { mono: ["Blank map", "#f7f7f6"], dark: ["Dark map", "#171b23"], gsi: ["GSI", "#fdfdf9"], sepia: ["Sepia", "#efe6d4"] };   // スウォッチ＝各テーマの紙色近似
+		const THEME_META = Object.fromEntries(Object.entries(WORLD_STYLE_THEMES).map(([k, T]) => [k, [T.label, T.swatch]]));   // 名札とスウォッチ（紙色）＝ortho-core worldstyle の正本（equal と同じ表・段階 3）
 		for (const name of Object.keys(MAP_THEMES)) {
 			const [label, sw] = THEME_META[name] || [name, "#ccc"];
 			const b = document.createElement("button");
