@@ -25,10 +25,13 @@ self.onmessage = async e => {
 			return;
 		}
 		if (kind === "tile3d") {   // 3D Tiles のタイル＝worker が取りに行く（main は URL と変換だけ渡す）
-			const { url, transform, baseH, groundMode } = e.data;
-			const res = await fetch(url, { credentials: "omit", signal: AbortSignal.timeout(30000) });
-			if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
-			const buf = await res.arrayBuffer();
+			const { url, transform, baseH, groundMode, headers, credentials } = e.data;
+			let buf = e.data.ab;   // 独自スキーム（addProtocol）＝main が取った本体（#37）
+			if (!buf) {
+				const res = await fetch(url, { credentials: credentials || "omit", ...(headers ? { headers } : {}), signal: AbortSignal.timeout(30000) });   // headers/credentials＝transformRequest
+				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
+				buf = await res.arrayBuffer();
+			}
 			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode });
 			if (!r) { self.postMessage({ id, batches: [], points: [], stats: { triangles: 0, points: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;

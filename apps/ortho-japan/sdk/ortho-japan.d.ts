@@ -27,6 +27,9 @@ export interface OrthoJapanOptions {
 	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer へ。
 	 *  描かない層（fill-extrusion・線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
 	style?: string | Record<string, unknown>;
+	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
+	 *  headers は画像タイル・3D Tiles・基図タイル（PMTiles 以外）に効く */
+	transformRequest?: TransformRequestFunction;
 	/** 地域の申告（1.2.0〜）。渡さなければ URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
 	 *  世界の陸の段彩（ハイプソ）・湖・罫線は zoomMax まで出たままになる（地域の基図が入場しないため）。 */
@@ -263,6 +266,9 @@ export type MapLibreSource =
 	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
+export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
+export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
+export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean }
 export interface Tiles3DHandle { id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
@@ -412,6 +418,13 @@ export interface OrthoJapanMap {
 	 *  未対応＝implicit tiling・メタデータとスタイル・API キーの要る配信 */
 	add3DTiles(url: string, opts?: Tiles3DOptions): Promise<Tiles3DHandle>;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
+	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
+	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
+	/** 独自スキーム（"myscheme://…"）の取得を関数に任せる（大域・export の addProtocol と同じ） */
+	addProtocol(scheme: string, loader: ProtocolLoader): void;
+	removeProtocol(scheme: string): void;
+	/** 同じ手入れ（transformRequest・addProtocol）で取る fetch（部品・アプリ用） */
+	fetchResource(url: string, type?: ResourceType, init?: RequestInit): Promise<Response | { ok: boolean; status: number; json(): Promise<any>; text(): Promise<string>; arrayBuffer(): Promise<ArrayBuffer>; blob(): Promise<Blob> }>;
 	readonly Marker: typeof Marker;
 	readonly Popup: typeof Popup;
 	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
@@ -462,6 +475,9 @@ export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapan
  *  内製アプリ（world 等）はこちらを使う（LAYERS.md・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包み */
 export function createGlobe(opts?: OrthoJapanOptions): ReturnType<typeof orthoJapan>;
 /** DOM の Marker（MapLibre と同名・1.2.0〜・#38）。描くたびに地形の高さへ投影し直す・球の裏では隠す。map.Marker でも同じ */
+/** 独自スキームの取得を関数に任せる（MapLibre の addProtocol と同じ形・大域）。基図タイル・画像タイル・3D Tiles・style・sprite に効く */
+export function addProtocol(scheme: string, loader: ProtocolLoader): void;
+export function removeProtocol(scheme: string): void;
 export interface MarkerOptions { element?: HTMLElement; color?: string; scale?: number; anchor?: "center" | "top" | "bottom" | "left" | "right" | "top-left" | "top-right" | "bottom-left" | "bottom-right"; offset?: [number, number]; draggable?: boolean; altitude?: number }
 export class Marker {
 	constructor(opts?: MarkerOptions | HTMLElement);

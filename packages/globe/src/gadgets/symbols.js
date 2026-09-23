@@ -14,7 +14,7 @@ export function createSymbols(map, { signal } = {}) {
 	let ov = null, order = 0;
 	const overlay = () => ov ??= map.overlay(symUrl, { name: "symbols" });
 	const toBitmap = async src => {
-		if (typeof src === "string") { const r = await fetch(src, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`); src = await r.blob(); }
+		if (typeof src === "string") { const r = await (map.fetchResource ? map.fetchResource(src, "Image") : fetch(src, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); src = await r.blob(); }
 		if (src && !(src instanceof Blob) && src.data && src.width) src = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);   // { width, height, data }（MapLibre の addImage と同じ形）
 		return createImageBitmap(src);
 	};
@@ -39,7 +39,8 @@ export function createSymbols(map, { signal } = {}) {
 		async loadSprite(base) {
 			base = String(base).replace(/\.(json|png)$/i, "");
 			const hi = (devicePixelRatio || 1) > 1;
-			const pick = async sfx => { const [j, p] = await Promise.all([fetch(`${base}${sfx}.json`, { credentials: "omit" }), fetch(`${base}${sfx}.png`, { credentials: "omit" })]); if (!j.ok || !p.ok) throw new Error(`sprite HTTP ${j.status}/${p.status}`); return [await j.json(), await createImageBitmap(await p.blob())]; };
+			const get = (u, type) => map.fetchResource ? map.fetchResource(u, type) : fetch(u, { credentials: "omit" });   // transformRequest / addProtocol（#37）
+			const pick = async sfx => { const [j, p] = await Promise.all([get(`${base}${sfx}.json`, "SpriteJSON"), get(`${base}${sfx}.png`, "SpriteImage")]); if (!j.ok || !p.ok) throw new Error(`sprite HTTP ${j.status}/${p.status}`); return [await j.json(), await createImageBitmap(await p.blob())]; };
 			const [idx, sheet] = await (hi ? pick("@2x").catch(() => pick("")) : pick(""));
 			const names = Object.keys(idx);
 			await Promise.all(names.map(async n => {

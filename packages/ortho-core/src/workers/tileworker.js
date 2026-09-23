@@ -20,14 +20,15 @@ self.onmessage = async (e) => {
 	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
 	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
-	const { id, url, z, x, y } = m;
+	const { id, url, z, x, y, init } = m, body = m.bytes;   // init＝{headers,credentials}・body＝addProtocol が main で取った本体（#37）⚠名前 bytes は下の try で転送量の let に使う（TDZ）
 	const ac = new AbortController();
 	aborts.set(id, ac);
 	try {
 		// 配信圏外（日本域外の外洋・国外）は fetch を省いて空タイル扱い＝提供側の 404 への無駄打ちを断つ。
 		// 描画は 404 と同一（fetchMVT が 404 で返すのと同じ {__empty:true}）＝下の buildEmptySeaOps が全面水域を敷く。
-		const layers = url.startsWith("pmtiles://") ? await (await pmSrc()).fetchPMTiles(url, z, x, y, ac.signal, need)   // 全球ソース（PMTiles）＝配信圏(coverage)の外でも正当
-			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need);
+		const layers = body ? await fetchMVT(url, ac.signal, need, null, body)
+			: url.startsWith("pmtiles://") ? await (await pmSrc()).fetchPMTiles(url, z, x, y, ac.signal, need)   // 全球ソース（PMTiles）＝配信圏(coverage)の外でも正当
+			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need, init);
 		const [w, , , n] = tileBounds(x, y, z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);

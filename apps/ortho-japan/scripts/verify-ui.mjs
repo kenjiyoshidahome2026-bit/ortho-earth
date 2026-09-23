@@ -11,7 +11,7 @@ import { rm } from "node:fs/promises";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5237;
 const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
-const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar", "t-model", "t-camera", "t-mllayers", "t-mlstyle", "t-tiles3d", "t-marker"];   // t-camera＝カメラの口（#35）
+const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-demo", "t-scene", "t-print", "t-qr", "t-opts", "t-input", "t-narrow", "t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-anno", "t-gintdepth", "t-rtl", "t-rtl?lang=ar", "t-model", "t-camera", "t-mllayers", "t-mlstyle", "t-tiles3d", "t-marker", "t-request"];   // t-camera＝カメラの口（#35）
 // japan（地域パック・日本の頁）に依る頁＝これ以外は globe（地球儀のホスト）の関門（LAYERS.md 段階 2 S5・2026-09-23）。--globe / --japan で集合を選ぶ
 const JP_PAGES = new Set(["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene"]);   // 検索/建物/home の搭載・画像タイル台帳・台本（日本の街）
 const LAYER = process.argv.includes("--globe") ? "globe" : process.argv.includes("--japan") ? "japan" : null;
@@ -30,11 +30,13 @@ for (let i = 0; ; i++) {   // 起動待ち＝base(/japan/)が200を返すまで�
 // 実時間で回すページ＝レンダーワーカー内の動的 import（map.overlay のモジュール）に依る検定。--virtual-time-budget 下では worker の
 // import() が永久に解決しない（2026-09-20 実測：stage=importing のまま・実時間＋同じ swiftshader なら 0.5 秒で PASS）＝WebGPU async init と同じ轍。
 // CDP で開き、<title> が PASS/FAIL になるまで実時間で待つ（最長 60 秒）。
-const REALTIME = new Set(["t-anno", "t-model", "t-raster", "t-gndfaces", "t-camera", "t-mllayers", "t-mlstyle", "t-tiles3d", "t-marker"]);   // t-camera＝easeTo/flyTo の Promise は rAF の実時間で着地（仮想時間では解決しない）   // t-gndfaces＝gint 面の地面アトラス焼き（標高の到着＝実時間）   // t-raster＝画像タイル層（MessagePort プロバイダ＝worker→worker のタイル・ラスタ PMTiles＝実時間の fetch）   // t-model＝model-worker 内の loaders.gl 動的 import（glb 直読み）
+const REALTIME = new Set(["t-anno", "t-model", "t-raster", "t-gndfaces", "t-camera", "t-mllayers", "t-mlstyle", "t-tiles3d", "t-marker", "t-request"]);   // t-camera＝easeTo/flyTo の Promise は rAF の実時間で着地（仮想時間では解決しない）   // t-gndfaces＝gint 面の地面アトラス焼き（標高の到着＝実時間）   // t-raster＝画像タイル層（MessagePort プロバイダ＝worker→worker のタイル・ラスタ PMTiles＝実時間の fetch）   // t-model＝model-worker 内の loaders.gl 動的 import（glb 直読み）
 // 実時間ページごとに Chrome を立て直す。⚠旧＝同じ CDP ポート・同じ user-data-dir を使い回し、kill の終了を待たずに次を起動していた
 // ＝次の Chrome が終了途中の古い Chrome（同じプロファイルのロック・同じポート）に取り付き、/json/new が「Could not create new page」を
 // 返して JSON.parse で検定全体が落ちた（2 本目の実時間ページ＝通しの 5 本目・2026-09-22 に変更前でも再現）。
 // 根治＝起動ごとに別ポート・別プロファイル／kill 後は exit を待つ（2 秒で SIGKILL）＋プロファイルを消す／タブが作れなければ 1 回作り直し→理由つき FAIL。
+// 実時間の枠（秒）を広げるページ＝段が多い実描画（t-request＝基図の差し替え・独自スキームの画像/3D Tiles/基図を順に）
+const LONG_PAGES = { "t-request": 180 };
 let rtSeq = 0;
 const waitExit = (proc, ms = 5000) => new Promise(res => {
 	if (proc.exitCode != null || proc.signalCode != null) return res();
@@ -68,12 +70,13 @@ async function runRealtime(url) {
 		await send("Page.enable"); await send("Runtime.enable");
 		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
 		let title = "";
-		for (let i = 0; i < 120 && !/^(PASS|FAIL)/.test(title); i++) {
+		const limitS = LONG_PAGES[url.match(/tests\/([\w-]+)\.html/)?.[1]] ?? 60;   // 長い実時間ページだけ枠を広げる
+		for (let i = 0; i < limitS * 2 && !/^(PASS|FAIL)/.test(title); i++) {
 			await new Promise(r => setTimeout(r, 500));
 			title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true }))?.result?.value || "";
 		}
 		ws.close();
-		return /^(PASS|FAIL)/.test(title) ? title : "FAIL no-title(realtime 60s): " + title;
+		return /^(PASS|FAIL)/.test(title) ? title : `FAIL no-title(realtime ${limitS}s): ` + title;
 	} catch (e) {
 		return "FAIL chrome: " + String(e?.message || e).slice(0, 120);
 	} finally {
