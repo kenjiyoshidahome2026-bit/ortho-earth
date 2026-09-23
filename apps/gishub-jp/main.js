@@ -25,6 +25,7 @@ const LAZY_VIEWS = {
     'estat':             { load: () => import('./estat/ui.js'),  fn: 'renderEstatList' },
     'amedas':            { load: () => import('./jma/ui.js'),    fn: 'showAmedas' },
     'seismic':           { load: () => import('./jishin/ui.js'), fn: 'showSeismic' },
+    'fault':             { load: () => import('./jishin/ui.js'), fn: 'showFault' },
     'nps':               { load: () => import('./nps/ui.js'),    fn: 'renderNpsView' },
     'munic':             { load: () => import('./munic/ui.js'),  fn: 'renderMunicList' },
     'census2025':        { load: () => import('./census/ui.js'), fn: 'renderCensus2025List' },
