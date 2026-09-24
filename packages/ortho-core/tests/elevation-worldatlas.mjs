@@ -2,8 +2,8 @@
 // 守るもの＝「消費側が受け取る Float32 セルは、従来の downsampleFlipped(tile, N) と同じ物（Int16 丸め ±0.5m 以内）」。
 // これが崩れると equal のハイプソと japan の R90 窓が、焼き前後で違う絵になる。
 // あわせて encode/decode の往復（altpbf 形式に乗る・range=360 の規約外オブジェクト）と、標本関数の texel 中心規約を固定する。
-import { bakeWorldAtlas, worldAtlasCell, sampleWorldAtlas, resampleTile, WORLD_ATLAS } from "../src/worldatlas.js";
-import { encode, decode } from "../src/format.js";
+import { bakeWorldAtlas, worldAtlasCell, sampleWorldAtlas, resampleTile, WORLD_ATLAS } from "../src/elevation/worldatlas.js";
+import { encode, decode } from "altpbf";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

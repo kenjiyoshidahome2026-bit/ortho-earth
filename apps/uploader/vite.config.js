@@ -11,7 +11,6 @@ export default defineConfig({
 		alias: {
 			'common': path.resolve(__dirname, '../../packages/common/src'),
 			'native-bucket': path.resolve(__dirname, '../../packages/native-bucket/src'),
-			'altpbf': path.resolve(__dirname, '../../packages/altpbf/src'),
 		}
 	},
 	optimizeDeps: {

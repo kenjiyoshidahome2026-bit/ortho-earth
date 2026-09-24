@@ -22,7 +22,7 @@ const demosHtml = () => ({
 export default defineConfig({
 	plugins: [demosHtml()],
 	optimizeDeps: {
-		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf'],
+		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf', '@ortho-earth/core'],
 	},
 	server: {
 		fs: { allow: ['../..'] },

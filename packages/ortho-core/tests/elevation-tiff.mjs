@@ -1,7 +1,7 @@
 // t-tiff: tiff2data の最小TIFFリーダ検定。
 // 実障害（8/26）＝米国域ALOS AW3D30 は行毎ストリップ（tag273 count=3600＝値欄はオフセット配列へのポインタ）で、
 // 旧実装はポインタをデータ先頭と誤読→範囲外 Int16Array で RangeError。単一/複数ストリップ両形式を合成して検定する。
-import { tiff2data } from "../src/altpbf.js";
+import { tiff2data } from "../src/elevation/loader.js";
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };

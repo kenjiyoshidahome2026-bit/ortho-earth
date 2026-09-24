@@ -1,4 +1,4 @@
-import { load, setApiUrl } from "./altpbf.js";
+import { load, setApiUrl } from "./loader.js";
 onmessage = async e => {
 	const { name, apiUrl } = e.data;
 	if (apiUrl) setApiUrl(apiUrl);

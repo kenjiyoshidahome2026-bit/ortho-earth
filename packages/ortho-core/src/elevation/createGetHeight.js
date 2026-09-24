@@ -1,6 +1,6 @@
-import { spawnWorker } from "./workerFactory.js";
-import { builtinWorker } from "./builtinWorkers.js";
-import { index_alos, encodeName, decodeName, inBbox, setApiUrl } from "./altpbf.js";
+import { spawnWorker } from "../workerFactory.js";
+import { builtinWorker } from "../builtinWorkers.js";
+import { index_alos, encodeName, decodeName, inBbox, setApiUrl, load } from "./loader.js";   // load＝worker が立たない時のその場読み（静的に＝動的 import は入口の top-level await と待ち合う・2026-09-25）
 import { Cache } from "native-bucket";
 
 // 焼き直し前の古い表層(DSM)キャッシュを失効させる判定。**どの域のどの段を裸地(DTM)へ焼き直したかは
@@ -64,7 +64,7 @@ export async function createTileLoader(opts = {}) {
 	let inline = typeof Worker === "undefined";   // worker 内に Worker コンストラクタが無い環境（古い Safari）
 	let everOk = false;                            // どれかの worker が一度でも返事をした
 	const inlineLoad = async name => {
-		try { const { load } = await import("./altpbf.js"); return await load(name); } catch { return null; }   // worker.js と同じ＝失敗は null
+		try { return await load(name); } catch { return null; }   // worker.js と同じ＝失敗は null
 	};
 	const goInline = why => {
 		if (inline) return;
@@ -76,7 +76,7 @@ export async function createTileLoader(opts = {}) {
 	const mkWorker = () => {
 		if (inline) return null;
 		let w;
-		try { w = spawnWorker("altpbf:height", () => builtinWorker("altpbf:height")); if (!w) throw new Error("no worker"); }
+		try { w = spawnWorker("ortho:height", () => builtinWorker("ortho:height")); if (!w) throw new Error("no worker"); }
 		catch (e) { goInline(String(e?.message || e)); return null; }
 		// 起動の失敗は要求より先に起きる（要求ごとの error 受け口が間に合わない＝45 秒のタイムアウト待ちになる）＝ここで即座に退避へ
 		w.onerror = e => {
@@ -155,7 +155,7 @@ export async function createGetHeight(opts = {}) {
 	const level1 = opts.level1||7, level2 = opts.level2||12;
 	const {max, min, floor} = Math;
 	let cname = null, current = null;
-	const worker = spawnWorker("altpbf:height", () => builtinWorker("altpbf:height"));
+	const worker = spawnWorker("ortho:height", () => builtinWorker("ortho:height"));
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	// o.wait=true＝他のタイル読込中でも（描画側の「到着まで 0」縮退でなく）順番を待って値を返す＝公開 API map.getHeight 用（2026-09-10）

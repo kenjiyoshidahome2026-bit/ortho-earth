@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/globe",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)・世界層・地域非依存ガジェット・worker の入口。地域は opts.region の申告で足す＝このパッケージは地域名を知らない（bvmap の語彙＝themes/style は本人裁定 2026-09-23 案 b で当面ここが抱える）",
@@ -18,22 +18,23 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@loaders.gl/i3s": "^4.4.3",
-		"@ortho-earth/core": "^1.0.0",
+		"@ortho-earth/core": "^1.1.0",
 		"@ortho-earth/ephem": "^1.0.0",
-		"altpbf": "^1.1.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
 		"geoedit": "^0.3.0",
 		"geopbf": "^1.13.1",
 		"native-bucket": "^1.0.0",
-		"quiet-mono": "^1.0.0"
+		"quiet-mono": "^1.0.0",
+		"sass": "^1.93.0"
 	},
 	"scripts": {
 		"verify": "npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
-		"verify:regionless": "node scripts/verify-regionless.mjs"
+		"verify:regionless": "node scripts/verify-regionless.mjs",
+		"verify:npm": "node scripts/verify-npm.mjs"
 	},
 	"keywords": [
 		"globe",
@@ -59,5 +60,17 @@
 		"LICENSE",
 		"README.md"
 	],
-	"sideEffects": false
+	"sideEffects": [
+		"*.css",
+		"*.scss",
+		"./src/worker.js",
+		"./src/renderworker.js",
+		"./src/meshworker.js",
+		"./src/meshdecoder.js",
+		"./src/gintbakeworker.js",
+		"./src/rastertiles-worker.js",
+		"./src/imagequad-worker.js",
+		"./src/model-worker.js",
+		"./src/gadgets/parquet-worker.js"
+	]
 }

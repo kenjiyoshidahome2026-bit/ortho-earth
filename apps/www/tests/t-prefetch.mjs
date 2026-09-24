@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { planPrefetch, shouldPrefetch } from "../prefetch.js";
-import { WORLD_ATLAS } from "altpbf/loader";
+import { WORLD_ATLAS } from "@ortho-earth/core/elevation";
 
 const ids = jobs => jobs.map(j => j.id);
 const src = p => readFileSync(new URL(`../../../${p}`, import.meta.url), "utf8");

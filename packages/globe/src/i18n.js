@@ -15,6 +15,7 @@
 //
 // 語順の掟：文単位でキー化する（単語を連結しない）。"Source: " + name のような足し算は言語によって語順が壊れる。
 import LANGS from "./i18n/langs.js";
+import LOADERS from "./i18n/lang-loaders.js";
 
 const CTX_SEP = " ##";
 const CODES = new Set(LANGS.map(l => l.code));
@@ -49,7 +50,7 @@ export async function setLang(code) {
 export async function loadLang(code) {
 	const c = norm(code) ?? "en";
 	if (c === "en" || packs[c]) return c;
-	try { packs[c] = (await import(`./i18n/lang/${c}.json`)).default; }
+	try { const load = LOADERS[c]; packs[c] = load ? (await load()).default : {}; }   // 字面の import の表（i18n/lang-loaders.js＝i18n:build が焼く）
 	catch { packs[c] = {}; }                                      // 訳が無い＝英語のまま（読めない時も同じ＝UI を止めない）
 	return c;
 }
