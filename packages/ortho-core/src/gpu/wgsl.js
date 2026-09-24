@@ -997,3 +997,70 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 	return vec4f(in.color.rgb * a, a);
 }
 `;
+
+// ── 建物の影（リアルタイム shadow map・2026-09-24）＝影を点けた時だけ使う派生シェーダ（本体は1バイトも変えない）。
+// 受け手＝本体の文字列派生＋SHADOW_WGSL(g)（g＝空いている group 番号）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
+// SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
+// 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
+// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 窓の縁フェード幅(uv))。
+const SHADOW_WGSL = g => /* wgsl */`
+struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
+@group(${g}) @binding(0) var<uniform> SH: ShadowP;
+@group(${g}) @binding(1) var shTex: texture_depth_2d;
+@group(${g}) @binding(2) var shSamp: sampler_comparison;
+fn shClip(relA: vec3f) -> vec4f { return SH.clipT + SH.mvp * vec4f(relA, 0.0); }
+fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と縁は日向へ溶かす）
+	if (sc.w <= 0.0) { return 1.0; }
+	let p = sc.xyz / sc.w;
+	let uv = vec2f(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
+	let e = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
+	if (e <= 0.0 || p.z <= 0.0 || p.z >= 1.0) { return 1.0; }
+	let d = p.z - SH.p.y;
+	var s = 0.0;
+	for (var j = -1; j <= 1; j++) {
+		for (var i = -1; i <= 1; i++) {
+			s += textureSampleCompareLevel(shTex, shSamp, uv + vec2f(f32(i), f32(j)) * SH.p.z, d);
+		}
+	}
+	return mix(1.0, s / 9.0, clamp(e / SH.p.w, 0.0, 1.0));
+}
+fn shShade(col: vec3f, sc: vec4f) -> vec3f { return col * mix(SH.p.x, 1.0, shLit(sc)); }
+`;
+export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
+	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) sc: vec4f,\n};"],
+	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.sc = shClip(relW + (F.originPt - SH.anchor.xyz));\n"],
+	["\tlet col = mix(colBase, F.fogColor, in.fog);", "\tlet col = mix(shShade(colBase, in.sc), F.fogColor, in.fog);"],
+], "TERRAIN_SH_WGSL") + SHADOW_WGSL(3);
+export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
+	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],
+	["\to.pos = p;\n\to.color = a_color;", "\to.pos = p;\n\to.sc = shClip(rel + (F.originPt - SH.anchor.xyz));\n\to.color = a_color;"],
+	["mix(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), F.fogColor, in.fog)", "mix(shShade(gndMix0(cogTexMix0(in.color.rgb, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3), in.sc), F.fogColor, in.fog)"],
+], "FILL_SH_WGSL") + SHADOW_WGSL(2);
+export const LINE_SH_WGSL = deriveWgsl(LINE_WGSL, [
+	["\t@location(6) fog: f32,\n};", "\t@location(6) fog: f32,\n\t@location(7) sc: vec4f,\n};"],
+	["\to.fog = fogOf((wa + wb) * 0.5);\n", "\to.fog = fogOf((wa + wb) * 0.5);\n\to.sc = shClip(select(relWb, relWa, corner.x < 0.5) + (F.originPt - SH.anchor.xyz));\n"],
+	["\treturn vec4f(mix(in.color.rgb, F.fogColor, in.fog) * ga, ga);", "\treturn vec4f(mix(shShade(in.color.rgb, in.sc), F.fogColor, in.fog) * ga, ga);"],
+], "LINE_SH_WGSL") + SHADOW_WGSL(2);
+export const BUILDING_SH_WGSL = deriveWgsl(BUILDING_WGSL, [
+	["\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n};", "\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n\t@location(4) sc: vec4f,\n};"],
+	["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\to.sc = shClip(relW + (F.originPt - SH.anchor.xyz));\n"],
+	["\tlet c = mix(P.p0.rgb * in.shade, F.fogColor, in.fog);", "\tlet c = mix(shShade(P.p0.rgb * in.shade, in.sc), F.fogColor, in.fog);"],
+], "BUILDING_SH_WGSL") + SHADOW_WGSL(3);
+export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
+	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) sc: vec4f,\n};"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（f32 差＝バッチ内一定の ≤0.4m）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);", "\tlet c = mix(shShade(P.p1.rgb * d, in.sc), F.fogColor, in.fog);"],
+], "MESH_SH_WGSL") + SHADOW_WGSL(3);
+export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
+	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet viewDir = normalize(A - Pt);", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet viewDir = normalize(A - Pt);"],
+], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
+// 影を落とす側（太陽からの深度だけ描く）：本体の頂点計算そのまま・対数深度だけ外す（正射影 w=1＝行列の z が線形の深度）。
+// 基図の押し出し建物は被覆マスクの discard だけ残す（PLATEAU メッシュが立つ所で二重に影を落とさない）。メッシュは頂点だけのパイプライン。
+export const BUILDING_CAST_WGSL = deriveWgsl(BUILDING_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
+	["@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n\tif (in.front < 0.0) { discard; }", "@fragment fn fs(in: BldOut) {"],
+	["\tlet c = mix(P.p0.rgb * in.shade, F.fogColor, in.fog);\n\treturn vec4f(c * P.p0.w, P.p0.w);   // ×グローバルα（クロスフェード・通常1＝不変）\n}", "}"],
+], "BUILDING_CAST_WGSL");
+export const MESH_CAST_WGSL = deriveWgsl(MESH_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n", ""],
+], "MESH_CAST_WGSL");
