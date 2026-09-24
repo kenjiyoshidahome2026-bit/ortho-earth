@@ -2,7 +2,7 @@
 // @ortho-earth/globe の npm 配布物の検定＝publish の必須ゲート（2026-09-25）。
 // 「利用者と同じ道」を通す：core と globe をこの手元の中身で npm pack → 使い捨ての Vite アプリ（最新の vite）に install →
 // Get Started の手順どおりの main.js（地球儀・自分の GeoJSON・マーカー・飛行）を **build と dev の両方**で実走させ、
-// ページ自身が PASS/FAIL を申告する。
+// ページ自身が PASS/FAIL を申告する。同じコード片を同梱の型（globe.d.ts）で tsc にもかける（1.1.1〜）。
 // 生まれた経緯：9/23 に出した 1.0.0 は利用者の手元で動かなかった（altpbf の非公開ローダを import・core の sideEffects:false で
 // worker の入口が消える・訳の表が Vite 8 で束ねられない・dev の依存の事前束ね）＝モノレポの中の関門では一つも見えない族。
 // 使い方：node packages/globe/scripts/verify-npm.mjs   （$CHROME で Chromium を指定できる）
@@ -77,7 +77,9 @@ ${code.join("\n")}
   await new Promise(r => setTimeout(r, 4000));   // worker 群（標高・gint の焼き・注記）が一巡する間
   const ja = /出典/.test(document.body.innerText);   // ?lang=ja＝訳の表が束ねられて読めたか
   const c = map.getCenter?.();
-  const checks = { layer: !!map.getLayer("cities"), marker: document.querySelectorAll("[class*=marker]").length > 0, zoom: Math.abs(map.getZoom() - 12) < 0.3, center: !!c, ja, errors: errors.length };
+  const p = map.project?.([139.77, 35.68]), q = p && map.unproject?.(p);   // 1.1.1〜 MapLibre と同じ座標変換（往復して元へ戻るか）
+  const proj = !!q && Math.abs(q.lng - 139.77) < 0.01 && Math.abs(q.lat - 35.68) < 0.01;
+  const checks = { layer: !!map.getLayer("cities"), marker: document.querySelectorAll("[class*=marker]").length > 0, zoom: Math.abs(map.getZoom() - 12) < 0.3, center: !!c, proj, ja, errors: errors.length };
   report((Object.values(checks).every(v => v === true || v === 0) ? "PASS " : "FAIL ") + JSON.stringify(checks) + (errors.length ? " " + errors.slice(0, 3).join(" | ") : ""));
 } catch (e) { report("FAIL " + (e?.stack || e)); }
 `);
@@ -85,6 +87,14 @@ console.log(FROM_NPM ? "… npm install（雛形の依存＋npm の @ortho-earth
 execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online"], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install（雛形の vite）
 execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online", ...(tarCore ? [tarCore] : []), tarGlobe], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install @ortho-earth/globe（ここだけ手元の tarball）
 const viteVer = JSON.parse(readFileSync(path.join(WORK, "node_modules/vite/package.json"), "utf8")).version;
+
+// 2b) 型：同梱の globe.d.ts で start.md のコード片（A3・A5・A6）を型検査する（1.1.1〜 型を同梱＝エディタと AI が読む物が実装と食い違っていないか）
+console.log("… tsc（start.md のコード片 × globe.d.ts）");
+writeFileSync(path.join(WORK, "typecheck.js"), `import { ${[...names].join(", ")} } from "@ortho-earth/globe";\n${code.join("\n")}\nexport {};\n`);
+try {
+	execFileSync("npx", ["-y", "-p", "typescript@5", "tsc", "--noEmit", "--allowJs", "--checkJs", "--module", "esnext", "--moduleResolution", "bundler",
+		"--target", "es2022", "--lib", "es2022,dom", "typecheck.js"], { cwd: WORK, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+} catch (e) { fail(`start.md のコード片が globe.d.ts の型に合わない：\n${String(e.stdout || e.stderr || e).slice(0, 2000)}`); }
 
 // 3) Chrome で開いて、ページの申告を待つ
 async function runPage(url, readResult) {

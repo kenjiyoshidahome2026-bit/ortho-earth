@@ -1,8 +1,6 @@
 // 地球儀のホスト（LAYERS.md の globe 層）＝createGlobe(opts)。地域（基図・標高・台帳・語彙・起動後の拡張）は opts.region の申告で足す＝このファイルは地域名を知らない。
-// 意匠：quiet-mono（トークン→部品）→ app固有 の順に import＝カスケードの序列そのまま
-import "quiet-mono/tokens.scss";
-import "quiet-mono/components.scss";
-import "./style.scss";
+// 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
+import "./globe.css";
 import {
 	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
@@ -24,7 +22,7 @@ setGeoeditWorkerFactory(hostWorker);
 createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket, prewarm: true, workerFactory: hostWorker });   // bucket 基盤（標高と同じ）。読み出しはキー不要・bucket=native-bucket注入（geopbf自体は依存ゼロ化 8/21）。prewarm＝復号レーンを先に起こす（起動直後に海岸線/湖/星を必ず解く）
 // SDK 公開面：初期化済みの geopbf を再エクスポート（2026-09-10・npm 利用者が別途 `npm i geopbf` せず、バンドラも import map も無しで
 // データを載せられる＝同梱の worker チャンクがそのまま動く）。createGeopbf は出さない＝利用者が呼び直すと上の bucket 設定ごと
-// アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は sdk/ortho-japan.d.ts。
+// アクティブインスタンスが差し替わる（同一モジュールのグローバル）ため。型は globe.d.ts。
 export { geopbf };
 import { Marker, Popup } from "./gadgets/marker.js";   // DOM の Marker / Popup（#38・MapLibre と同名）＝小さい部品なので静的
 export { Marker, Popup };
@@ -2143,6 +2141,11 @@ map.paintTable = (u32, count) => { gint.sendGintPaint({ table: u32, count }); ne
 map.fitZoomForBbox = gint.fitZoomForBbox;
 map.projectLL = projectLL;             // 経緯度→画面CSS座標[x,y,front]（DOMマーカー用・front<0=裏半球）
 map.unprojectXY = unprojectXY;         // canvasローカルCSS座標→[lon,lat]|null（onClick の x,y と同座標系。球外=null）
+// MapLibre と同じ形の座標変換（2026-09-25・AI エージェントの試走で「無い」と言われた口）。座標系は projectLL / unprojectXY と同じ＝地図の容れ物の左上原点の CSS px。
+// project は見えない所（球の裏・地平線の外）でも地平線へ寄せた位置を返す＝見えるかは projectLL の front（第 3 要素）で。unproject は球の外なら null
+const toLonLat = ll => Array.isArray(ll) ? ll : [ll.lng ?? ll.lon, ll.lat];
+map.project = ll => { const [lon, lat] = toLonLat(ll); const [x, y] = projectLL(lon, lat); return { x, y }; };
+map.unproject = p => { const [x, y] = Array.isArray(p) ? p : [p.x, p.y]; const ll = unprojectXY(x, y); return ll ? { lng: ll[0], lat: ll[1] } : null; };
 map.makeProjector = makeProjector;     // カメラ状態を1回束ねた投影関数（多点を1フレームで投影＝編集ハンドル用）
 map.ellipsoidOn = () => ellipsoidOn();   // 楕円体表示か（?ell=1）＝geoedit（npm） が「編集は完全球体」の注意書きに使う（ortho-core を直接 import させない）
 map.makeProjectorH = makeProjectorH;   // 高度付き投影（注釈の3Dピン＝チルトで立つ。annoガジェット用）

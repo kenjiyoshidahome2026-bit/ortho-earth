@@ -59,7 +59,7 @@ cpSync(path.join(APP, "LICENSE"), path.join(OUT, "LICENSE"));
 // AI開発者向けの三点セット（2026-08-20）：llms.txt（1枚正典・配信版は /japan/llms.txt）＋
 // 型定義（lib/ に同居＝エディタ/AIの補完が効く）＋ Claude Code スキル（.claude/skills/ へ置くだけで発動）
 cpSync(path.join(APP, "public/llms.txt"), path.join(OUT, "llms.txt"));
-cpSync(path.join(APP, "sdk/ortho-japan.d.ts"), path.join(OUT, "lib/ortho-japan.d.ts"));
+execFileSync(process.execPath, [path.join(APP, "scripts/build-dts.mjs"), path.join(OUT, "lib/ortho-japan.d.ts")]);   // 型＝globe.d.ts＋SDK の入口
 cpSync(path.join(APP, "sdk/verify-example.mjs"), path.join(OUT, "verify-example.mjs"));   // 実時間 CDP 検証の雛形（AI エージェント向け・依存ゼロ）
 cpSync(path.join(APP, "sdk/skill"), path.join(OUT, "skill"), { recursive: true });
 
