@@ -34,7 +34,8 @@ try {
 	// ③ ヒートマップ 2 層＝オーバーレイ 2 枚
 	await map.addLayer({ id: "h1", type: "heatmap", source: { type: "geojson", data: pts(136, 36, 40) } });
 	await map.addLayer({ id: "h2", type: "heatmap", source: { type: "geojson", data: pts(138, 36, 40) } });
-	await sleep(1500);
+	// 2 枚のオーバーレイが立つまで待つ（最大 5 秒）＝固定 1.5 秒は機械が重い時に取りこぼした（コード変更に依らず 5 回に 2 回落ちる揺れを 2026-09-24 に実測）
+	for (let i = 0; i < 50 && !((window.__overlay || {})["heatmap:h1"] && (window.__overlay || {})["heatmap:h2"]); i++) await sleep(100);
 	const ov = window.__overlay || {};
 	ok("twoHeatmap", !!ov["heatmap:h1"] && !!ov["heatmap:h2"], Object.keys(ov).join(","));
 	// ④ 性質の変更

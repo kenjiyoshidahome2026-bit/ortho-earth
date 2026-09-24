@@ -2,7 +2,7 @@
 // 150ms ごと）で安定させ、位置は毎フレーム投影＝文字は地図と一緒に滑らかに動き、明滅しない。
 // 2D 正積図なので投影は x=dλ·k(φ), y=y(φ) の 2 式だけ（球の裏側・地平線の問題がない）。
 import { yOfLat, kOfLat, pxPerUnit } from "./equalearth.js";
-import { countryLabelRule, cityLabelRule, airportLabelRule, F, stripJaCitySuffix, PLANE_PATH as PLANE_D } from "@ortho-earth/core/worldcontent";   // 注記の規則の正本（globe・world と共有）
+import { countryLabelRule, cityLabelRule, airportLabelRule, F, stripJaCitySuffix, PLANE_PATH as PLANE_D, WORLD_LABEL, labelSize } from "@ortho-earth/core/worldcontent";   // 注記の規則の正本（globe・world と共有）
 
 const FONT = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif`;
 const D2R = Math.PI / 180;
@@ -38,7 +38,7 @@ export function createLabels(canvas) {
 
 	// 衝突判定：優先順に矩形を置き、重なれば落とす（pad＝文字間の最小余白）
 	function collide(view, W, H, now) {
-		const boxes = [], next = new Map(), pad = 4;
+		const boxes = [], next = new Map(), pad = WORLD_LABEL.pad;   // 正本の空き（globe の注記と同じ）
 		const hit = (x0, y0, x1, y1) => { for (const b of boxes) if (x0 < b[2] && x1 > b[0] && y0 < b[3] && y1 > b[1]) return true; return false; };
 		for (const L of labels) {
 			if (view.zoom < L.minZoom || (L.maxZoom != null && view.zoom > L.maxZoom)) continue;
@@ -61,7 +61,10 @@ export function createLabels(canvas) {
 	function draw(view, W, H, dpr, now = performance.now()) {
 		if (canvas.width !== Math.round(W * dpr) || canvas.height !== Math.round(H * dpr)) { canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr); }
 		const key = `${view.lon.toFixed(4)},${view.lat.toFixed(4)},${view.zoom.toFixed(3)},${W},${H},${labels.length}`;
-		if (key !== lastKey && now - lastCollide > 150) { collide(view, W, H, now); lastKey = key; }
+		// 間引き中（前の判定から 150ms 以内）に一覧や視点が変わった＝判定を次へ預ける＝必ず次のフレームを要求する（下の return）。
+		// 旧＝預けたまま描画が止まり、国名の直後に都市の一覧が届くと、動かすまで都市名が出なかった（本人指摘 2026-09-24）
+		let pending = false;
+		if (key !== lastKey) { if (now - lastCollide > 150) { collide(view, W, H, now); lastKey = key; } else pending = true; }
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, W, H);
 		ctx.textBaseline = "middle"; ctx.lineJoin = "round";
@@ -101,7 +104,7 @@ export function createLabels(canvas) {
 			ctx.fillStyle = L.color; ctx.fillText(L.text, tx, y);
 		}
 		ctx.globalAlpha = 1;
-		return animating;
+		return animating || pending;
 	}
 	return { setLabels, draw, debug: () => ({ labels: labels.length, winners: [...winners.values()].map(w => w.L.kind + ":" + w.L.text) }) };
 }
@@ -109,11 +112,11 @@ export function createLabels(canvas) {
 // ── ラベルの材料 ──
 // 地図上の文字の大きさ（本人 2026-09-18「少しだけ小さく」）＝一つのノブで国名・首都・都市をまとめて縮める。
 // 0.5px 刻みに丸める＝キャンバスの字形が半端な小数でにじまない。国名 13→12 / 都市 10→9 が現物。
-export const LABEL_SCALE = 0.92;
+export const LABEL_SCALE = WORLD_LABEL.scale;   // 正本（ortho-core worldcontent）＝globe の注記と同じ縮尺
 // 文字のハロー（白枠）の太さ。3 だと字画の内側まで太って和文が潰れ気味＝少しだけ細く（本人 2026-09-18）。
 // 記号（✈）のハローも同じ考えで viewBox 比の係数を一段細める。
 export const HALO_W = 2.4;
-const S = px => Math.round(px * LABEL_SCALE * 2) / 2;
+const S = labelSize;
 
 // 国名・都市・空港の規則（出すズーム・大きさ・優先・名前の作法）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と共有）。
 // ここは equal の描き方（labels 層の項目の形・倍率 S・配色）へ写すだけ。

@@ -31,9 +31,10 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 			iconOverlap: !!ev(Ly["icon-allow-overlap"], false), iconIgnore: !!ev(Ly["icon-ignore-placement"], false),
 			color: css(evalColor(Pt["icon-color"] ?? "#000000", ctx)), opacity: +ev(Pt["icon-opacity"] ?? Pt["text-opacity"], 1),
 			text, textSize: +ev(Ly["text-size"], 16), textAnchor: ev(Ly["text-anchor"], "center"), textOffset: ev(Ly["text-offset"], [0, 0]),
-			textOverlap: !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false),
+			textOverlap: !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false), textPadding: +ev(Ly["text-padding"], 2),   // text-padding＝MapLibre の既定 2px（文字の周りの空き・重なり判定だけに効く）
 			textColor: css(evalColor(Pt["text-color"] ?? "#000000", ctx)), haloColor: css(evalColor(Pt["text-halo-color"] ?? "rgba(0,0,0,0)", ctx)), haloWidth: +ev(Pt["text-halo-width"], 0),
 			sort: +ev(Ly["symbol-sort-key"], 0) || 0, props,
+			horizon: +layer.horizon || 0,   // 拡張（MapLibre に無い）：球の縁の近くは出さない＝視線と地面のなす角の余弦の下限（0＝従来どおり全部）
 			// #39：text-variable-anchor（候補を順に試す・text-radial-offset か text-offset の大きさで離す）・icon-text-fit（記号を文字の箱へ伸ばす）
 			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,
 			iconTextFit: ev(Ly["icon-text-fit"], "none"), iconTextFitPadding: ev(Ly["icon-text-fit-padding"], [0, 0, 0, 0]),
