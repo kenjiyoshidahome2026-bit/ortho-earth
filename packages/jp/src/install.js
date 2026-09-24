@@ -1,7 +1,8 @@
 // 日本の地域パックが起動後の map に足す物（LAYERS.md 段階 2 S3・2026-09-23）。ホストの拡張面（host）だけを使う。
-//   host＝{ opts, renderer, cam, size, dpr, requestDraw, overlay(globe の選択/識別の器), spawnWorker, ownTip, hooks, t, dbg, onDestroy, unproject, cameraState }
+//   host＝{ opts, renderer, cam, size, dpr, requestDraw, overlay(globe の選択/識別の器), spawnWorker, ownTip, hooks, t, dbg, assetBase, onDestroy, unproject, cameraState }
 // 今は e-Stat 小地域（map.estat）。map.overlay.* への同名は互換（旧 9/20 までの口）。
 import { createEstat } from "./estat.js";
+import { installMojDebug } from "./moj-dbg.js";   // 法務省地図の開発用の手（静的 import＝仮想時間の検定でも解決する）
 import { unproject, cameraState } from "@ortho-earth/core";
 
 export function installJapan(map, host) {
@@ -17,5 +18,6 @@ export function installJapan(map, host) {
 	Object.assign(map.overlay, facade);   // ★互換：map.overlay.loadEstat 等（9/20 までの口）＝次の大版まで
 	host.dbg.__loadEstat = estat.loadEstat;
 	host.dbg.__tokyo = () => estat.loadEstat(Array.from({ length: 23 }, (_, i) => 13101 + i));   // 東京23区の小地域（コンソールの道具）
-	host.onDestroy(() => estat.destroy());   // e-Stat worker（立っていれば）
+	installMojDebug(map, host);
+	host.onDestroy(() => { estat.destroy(); delete host.dbg.__loadEstat; delete host.dbg.__tokyo; });   // e-Stat worker（立っていれば）・自分が生やした手は自分で片付ける
 }

@@ -9,12 +9,14 @@ import { tr } from "../i18n.js";
 const t = tr();
 // 汎用の建物の形（地域がアイコンを宣言しない時）＝34px 規格・単色（夜テーマは quiet-mono が fill を差し替える）
 const GENERIC_ICON = `<svg viewBox="0 0 20 24" width="15" height="18" fill="#463C64" aria-hidden="true"><path d="M1 23V9l7-3v17H1Zm8 0V2l10 4v17H9Zm2-15v2h2V8h-2Zm4 1v2h2V9h-2Zm-4 4v2h2v-2h-2Zm4 1v2h2v-2h-2ZM3 12v2h3v-2H3Zm0 5v2h3v-2H3Z"/></svg>`;
-export function mesh({ onOpen, signal, icon = null } = {}) {
+export function mesh({ onOpen, signal, icon = null, labels = {} } = {}) {   // labels＝地域の申告（出所の名を出す文言の i18n キー）
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#plateau-btn")) return;   // 二重搭載は無害（搭載済みのまま）
 	const mac = /Mac|iP(hone|ad|od)/.test(navigator.platform || "");
 	const btn = document.createElement("button");
-	btn.id = "plateau-btn"; btn.dataset.tip = t("Manage 3D buildings (PLATEAU) ($1)", mac ? "⌘⇧P" : "Ctrl+⇧P"); btn.setAttribute("aria-label", t("Preload and delete 3D buildings (PLATEAU)"));
+	btn.id = "plateau-btn"; const key = mac ? "⌘⇧P" : "Ctrl+⇧P";
+	btn.dataset.tip = labels.manage ? t(labels.manage, key) : t("Manage 3D buildings ($1)", key);
+	btn.setAttribute("aria-label", labels.aria ? t(labels.aria) : t("Preload and delete 3D buildings"));
 	btn.innerHTML = icon || GENERIC_ICON;
 	gadgetStack(mapEl).append(btn);   // 置き場所はスタック（搭載順＝縦の並び）
 	if (onOpen) {

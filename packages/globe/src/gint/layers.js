@@ -4,7 +4,7 @@
 // app.js の一塊（旧 1143〜1809 行）を**動作を変えずに**ここへ移した（2026-09-17・mesh/manager.js と同じ作法）。契約の整理は別コミット。
 //
 // 作法＝クラスも継承も作らない。app の状態は env で受ける：
-//   定数・道具 … canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam（生成前に定義済み）
+//   定数・道具 … canvas, mapEl, renderer, wPost, dbgHost, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam（生成前に定義済み）
 //   theme      … getter（テーマ切替で差し替わる台帳）
 //   layers     … 多層の台帳 { map(=extGint), get/set active, nextId() }＝onmessage ルーティングより先に app が宣言する（遅着メッセージの TDZ 回避）
 //   smallAreaHover … opts.smallAreaHover（census2020 限定の町丁目ホバー）
@@ -18,7 +18,7 @@ import { geopbf } from "geopbf";
 const D2R = Math.PI / 180;
 
 export function createGintLayers(env) {
-const { canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam, layers, smallAreaHover, requestDraw } = env;
+const { canvas, mapEl, renderer, wPost, dbgHost, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam, layers, smallAreaHover, requestDraw } = env;
 const extGint = layers.map;
 
 // --- gint（知性の層）：14条など突合可能なエンティティ。1canvas統合＝render worker の GL コンテキストに
@@ -113,48 +113,17 @@ function applyGintData(pbf, label, moveCamera = true, opts = {}) {
 	// ロード時の同期ベイクで地図が固まらない）。焼き上がりの onDone で sent を立てて再調停＝そこで点火。
 	cancelBake("user");
 	bakeUser();
-	// moj 等はデータ全体へ fit（初期は東京駅、moj のデータは離れた区にある）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
+	// moveCamera＝データ全体へ fit（読み込んだデータが画面の外にあっても寄る）。ドロップは呼び出し側が flyTo で寄る＝moveCamera=false。
 	if (moveCamera) { const b = fitBboxOf(pbf.unPackGint); if (b) env.flyTo((b[0] + b[2]) / 2, (b[1] + b[3]) / 2, fitZoomForBbox(b)); }   // ±180跨ぎ耐性（fitBboxOf＝v1アフリカ飛びバグの根治移植）
 	gintSlot = null;           // 内容が変わった＝再適用を強制
 	updateGintSlot();          // z≥USER_GINT_MINZ ならユーザー層を表示（z<USER_GINT_MINZ は世界海岸線のまま＝世界図の文脈）
 	env.onMove();
-	// moj筆(opts.drape)＝地形沿い境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
+	// opts.drape（筆など）＝地形沿いの境界線を自動発火（0=実標高ぴったり）。非drape層へ切替時は前の draped を消す（層と一蓮托生）。
 	if (opts.drape) standupGint(DRAPE_LIFT_M, { auto: true }); else { renderer.set("gintBld", null); drapedOn = false; requestDraw(); }
 	console.log(`[gint] ${label} loaded (minZoom=${opts.minZoom ?? "auto (from data extent; none for point-only data)"}${LOW_MEM ? `; low-memory device sleeps the layer below z${userGint.minZoom}` : ""})`);   // %s 書式は CDP 越しに展開されない＝テンプレ文字列で   // 旧文言「z<7 shows world coastline」は admin0 二層化前の名残＝通常機では z<7 でも描く
 	return pbf;
 }
 
-// moj は geopbf の name 慣習(bucket/GIS/pbf/…)でなく bucket/moj/{code}.pbf に置かれた別棚なので、
-// URL を直叩きして buffer を geopbf に食わせる（gint:true で unPackGint 生成）。
-dbgHost.__moj = async (code = "13118") => {
-	const url = `https://api.ortho-earth.com/bucket/moj/${code}.pbf`;
-	const res = await fetch(url);
-	if (!res.ok) { console.error("[moj14] fetch failed %s -> HTTP %s", url, res.status); return; }
-	let buf = await res.arrayBuffer();
-	const head = new Uint8Array(buf, 0, 2);   // bucket は gzip 圧縮で置かれる。name 慣習の load は自動 gunzip するが直叩きは生バイト＝手動で解凍。
-	if (head[0] === 0x1f && head[1] === 0x8b) buf = await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer();
-	const pbf = await geopbf(buf, { gint: true, name: `moj/${code}` });
-	applyGintData(pbf, code, true, { drape: true });   // 14条筆＝地形沿い境界線を自動発火
-};
-// 任意の File/URL（例: aigidなど第三者が公共座標系→WGS84まで変換済みのGeoJSON）を直接デコードして球へ。
-// bucket 変換パイプラインを経由せず動作検証したい時用。
-dbgHost.__mojFile = async (fileOrUrl, name = "moj/local") => {
-	const pbf = await geopbf(fileOrUrl, { gint: true, name });
-	return applyGintData(pbf, name, true, { drape: true });   // 14条筆＝地形沿い境界線を自動発火
-};
-// 動作確認用ショートカット：public/moj-local/ に置いた aigid変換済みGeoJSONをワンコマンドでロード。
-dbgHost.__sapporo = async () => {
-	const res = await fetch(ASSET_BASE + "moj-local/01101-aigid.geojson");   // moj-localはデプロイ除外＝開発専用
-	const file = new File([await res.blob()], "01101_aigid.geojson");
-	return dbgHost.__mojFile(file, "moj/01101_aigid");
-};
-// 荒川区（任意座標系のみ）を、大字/丁目名でe-Stat小地域に位置合わせしたラバーシート結果でロード。
-// 回転はシェイプ推定せず地名の対応だけで平行移動+等方スケール（現地調査の代替ではなく表示用近似）。
-dbgHost.__arakawaFit = async () => {
-	const res = await fetch(ASSET_BASE + "moj-local/13118-rubbersheet.geojson");
-	const file = new File([await res.blob()], "13118_rubbersheet.geojson");
-	return dbgHost.__mojFile(file, "moj/13118_rubbersheet");
-};
 // コロプレス塗り（gint draw spec.md）動作確認用：現在のユーザー層(gint)へ paint/filter を適用。
 // 式は main で一度だけ評価（buildFidStyle）→ fid スタイル表を worker へ＝restyle はテクスチャ更新1回。
 // 例: __paint({ 'fill-color': ['interpolate', ['linear'], ['get','R2'], 0,'#ffeeee', 5000,'#990000'] })
@@ -201,7 +170,7 @@ const DRAPE_LIFT_M = 2;
 async function standupGint(liftM = 0, { auto = false } = {}) {
 	if (liftM == null) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); if (!auto) console.log("[standup] cleared"); return; }
 	const feats = userGint?.pbf?.geojson?.features;
-	if (!feats?.length) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); if (!auto) console.warn("[standup] gint user layer not loaded = run await __sapporo() etc. first"); return; }
+	if (!feats?.length) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); if (!auto) console.warn("[standup] gint user layer not loaded = load one first (drop a file or map.applyGintData)"); return; }
 	let edges = 0;
 	for (const f of feats) {
 		const g = f?.geometry;
@@ -273,7 +242,7 @@ dbgHost.__paintOverlap = (on = true) => {
 // どの筆でもクリック → console の [gint] fid=… の偶奇と色が一致するか：赤=偶数/青=奇数なら一致、逆なら±1ズレ。
 dbgHost.__paintParity = () => {
 	const n = userGint?.pbf?.fmap?.length ?? 0;
-	if (!n) { console.warn("[paintParity] user gint layer not loaded = run await __sapporo() etc. first"); return; }
+	if (!n) { console.warn("[paintParity] user gint layer not loaded = load one first (drop a file or map.applyGintData)"); return; }
 	const u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
@@ -300,7 +269,7 @@ dbgHost.__budget = (n) => {
 async function paintGint(paint, filter = null) {
 	if (!paint) { sendGintPaint(null); requestDraw(); return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
-	if (!feats) { console.warn("[paint] user gint layer not loaded (load via __moj etc. first)"); return; }
+	if (!feats) { console.warn("[paint] user gint layer not loaded (drop a file or map.applyGintData first)"); return; }
 	const { buildFidStyle } = await import("@ortho-earth/core");
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });

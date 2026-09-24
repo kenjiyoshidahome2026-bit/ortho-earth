@@ -113,10 +113,12 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
 - **残る結び目**：
   1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。ただし `koppen-clim.png` は japan の public にも同じ物が残る（japan の頁と SDK 用）＝本当の持ち主は `packages/globe`（npm の globe にも載せ、両方の家はそこから焼く）＝globe の版を切る時に。
-  2. **globe に残る地域の語**＝許可表の「負債」（2026-09-24 時点 112 語・うち負債は次の通り。消したら `--ratchet`）：
-     鉄道層の口の名 `n02`（core の GL/GPU renderer と globe・rail へ改名は機械置換＝申告してから）／法務省地図の開発用の手（`__moj`・`__sapporo`・`__arakawaFit`＝jp の dbg へ）／
-     `#attr` の無い画面の既定の出典（shot.js）と印刷の出典（print.js）が日本の出典固定／UI 文言の「(PLATEAU)」（建物の出所の名は buildings の申告から）。
+  2. **globe に残る地域の語**＝許可表（2026-09-24 夜に 112 → 54 語）。9/24 に消した負債＝鉄道層の口 `n02` → `rail`（core の GL/GPU renderer・globe・jp の口）／
+     法務省地図の開発用の手（`__moj`・`__sapporo`・`__arakawaFit`）→ jp の `moj-dbg.js`／スクショと印刷の出典の日本固定 → 宣言（`attribution`・`basemap.printAttribution`）と圏から／
+     建物 UI の「(PLATEAU)」→ 宣言 `buildings.labels`（無ければ汎用の文言・オランダは 3DBAG なのに PLATEAU と出ていた）。
+     残る負債＝ログと計器の表示名の「PLATEAU」（globe.js・mesh/manager.js・meshdecode.js・renderworker.js）。
      凍結（利用者の端末・共有 URL に残る名）＝`ortho-japan.cam256`・`ortho-japan-edit`・`GIS/plateau`・OPFS `plateau`・`#plateau-btn`・`plateau-toast`。
+     互換・形式・案 b＝`opts.plateau` 等の旧名・`gadget("japan")`・`encoding:"gsi"`・`c=gsi`・基図の語彙（style-gsi／style-mono）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 

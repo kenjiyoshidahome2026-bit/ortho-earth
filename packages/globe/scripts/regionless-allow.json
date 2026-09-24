@@ -27,48 +27,14 @@
 		},
 		"packages/globe/src/gadgets/mesh.js": {
 			"plateau": {
-				"n": 4,
-				"why": "凍結：DOM id #plateau-btn（利用者 CSS）＋負債：ボタン説明の (PLATEAU)＝建物の出所の名は地域の申告（buildings）へ"
-			}
-		},
-		"packages/globe/src/gadgets/print.js": {
-			"gsi": {
-				"n": 1,
-				"why": "負債：印刷の出典が地理院固定＝地域の申告（基図の出典）から引く"
+				"n": 2,
+				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"
 			}
 		},
 		"packages/globe/src/gadgets/qrcode.js": {
 			"japan": {
 				"n": 4,
 				"why": "試料：QR 符号器の自己検定に使う URL 文字列"
-			}
-		},
-		"packages/globe/src/gadgets/shot.js": {
-			"gsi": {
-				"n": 1,
-				"why": "負債：#attr の無い画面の既定の出典が日本の出典＝地域の申告か世界の出典へ"
-			},
-			"mlit": {
-				"n": 1,
-				"why": "負債：同上"
-			},
-			"plateau": {
-				"n": 1,
-				"why": "負債：同上"
-			}
-		},
-		"packages/globe/src/gint/layers.js": {
-			"moj": {
-				"n": 12,
-				"why": "負債：任意座標系の実験の開発用の手（法務省地図 bucket/moj・手元の moj-local）＝jp の dbg へ移すのが筋"
-			},
-			"sapporo": {
-				"n": 3,
-				"why": "負債：同上（札幌の手元ファイル）"
-			},
-			"arakawa": {
-				"n": 1,
-				"why": "負債：同上（荒川の手元ファイル）"
 			}
 		},
 		"packages/globe/src/globe.js": {
@@ -79,26 +45,6 @@
 			"japan": {
 				"n": 2,
 				"why": "凍結：localStorage の鍵 ortho-japan.cam256（前回の視点）＋互換：gadget(\"japan\")＝home の旧名"
-			},
-			"n02": {
-				"n": 11,
-				"why": "負債：鉄道層の口の名が日本のデータ名 N02（renderer.set(\"n02\")・view.showN02＝GL/GPU の両 renderer と対）＝rail へ改名は機械置換＝本人に申告してから"
-			},
-			"arakawa": {
-				"n": 1,
-				"why": "負債：開発用の手（__arakawaFit）を片付け表で名指し"
-			},
-			"estat": {
-				"n": 1,
-				"why": "負債：jp が生やすデバッグ手 __loadEstat を片付け表で名指し"
-			},
-			"moj": {
-				"n": 2,
-				"why": "負債：開発用の手（__moj・__mojFile）を片付け表で名指し"
-			},
-			"sapporo": {
-				"n": 1,
-				"why": "負債：開発用の手（__sapporo）を片付け表で名指し"
 			}
 		},
 		"packages/globe/src/i18n/langs.js": {
@@ -117,12 +63,6 @@
 			"plateau": {
 				"n": 3,
 				"why": "凍結：DOM id plateau-toast（利用者 CSS）＋負債：ログの文言"
-			}
-		},
-		"packages/globe/src/meshdb.js": {
-			"plateau": {
-				"n": 1,
-				"why": "負債：UI 文言の (PLATEAU)＝建物の出所の名は地域の申告（buildings）から引く"
 			}
 		},
 		"packages/globe/src/meshdecode.js": {
@@ -153,12 +93,6 @@
 			"plateau": {
 				"n": 1,
 				"why": "負債：起動ログの文言"
-			}
-		},
-		"packages/globe/src/scenes/player.js": {
-			"plateau": {
-				"n": 1,
-				"why": "負債：UI 文言の (PLATEAU)＝建物の出所の名は地域の申告（buildings）から引く"
 			}
 		},
 		"packages/globe/src/style-gsi.js": {
@@ -199,18 +133,6 @@
 			"gsi": {
 				"n": 1,
 				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）"
-			}
-		},
-		"packages/ortho-core/src/gl/renderer.js": {
-			"n02": {
-				"n": 9,
-				"why": "負債：鉄道層の口の名が日本のデータ名 N02（renderer.set(\"n02\")・view.showN02＝GL/GPU の両 renderer と対）＝rail へ改名は機械置換＝本人に申告してから"
-			}
-		},
-		"packages/ortho-core/src/gpu/renderer.js": {
-			"n02": {
-				"n": 9,
-				"why": "負債：鉄道層の口の名が日本のデータ名 N02（renderer.set(\"n02\")・view.showN02＝GL/GPU の両 renderer と対）＝rail へ改名は機械置換＝本人に申告してから"
 			}
 		},
 		"packages/ortho-core/src/labels.js": {

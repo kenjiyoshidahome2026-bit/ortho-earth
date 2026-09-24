@@ -7,7 +7,7 @@ import { tr } from "./i18n.js";
 const t = tr();
 
 // groupOf(set)＝地域宣言 buildings.group（{ order（並び）, key（見出しの切れ目）, label（見出し）}・無ければ台帳順・見出しなし）
-export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null }) {
+export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null, title = null }) {   // title＝題の i18n キー（地域の申告・無ければ汎用）
 	let root = null, listEl = null, sumEl = null, filterEl = null;
 	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
 	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
@@ -20,7 +20,7 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 		root = document.createElement("div"); root.id = "pdb";
 		root.innerHTML = `
 			<div id="pdb-panel">
-				<div id="pdb-head">${t("3D buildings (PLATEAU) — data manager")}<button id="pdb-close" title="${t("Close")}">×</button></div>
+				<div id="pdb-head">${title ? t(title) : t("3D buildings — data manager")}<button id="pdb-close" title="${t("Close")}">×</button></div>
 				<div id="pdb-sub"><span id="pdb-sum">${t("Loading…")}</span><button id="pdb-purge">${t("Delete all")}</button></div>
 				<input id="pdb-filter" type="search" placeholder="${t("Filter by municipality name")}" autocomplete="off" spellcheck="false">
 				<div id="pdb-list"></div>
