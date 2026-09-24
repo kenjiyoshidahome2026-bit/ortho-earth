@@ -9,16 +9,19 @@
 //   ・cron は毎時。成功は 110 分に 1 回まで（毎時なのは、断られた回の取り直しの余地のため）
 //   ・「まだ更新されていない」の断り（実測＝HTTP 403＋本文 "GP data has not updated since your last successful download…"）
 //     ＝今回は見送り・古いミラーはそのまま（毎時 1 回＝2 時間で最大 2 回の 403＝遮断線 50 回のはるか下）
-//   ・それ以外の 200 以外（301/404/5xx・遮断の 403）＝即停止し KV に停止札 "halt" を置く。札がある間は一切取りに行かない
+//   ・一時的な 5xx（520〜526＝CelesTrak 側の Cloudflare が本体に繋がらない）＝今回は見送り。3 回続いたら停止（2026-09-24 本人裁定。
+//     9/19 の 522 一回で 5 日止まったまま古いデータを配っていた）。応答が返れば（取得・断り文）数え直し。毎時 1 回＝2 時間で最大 2 回＝遮断線 50 回のはるか下
+//   ・それ以外の 200 以外（301/404/その他の 5xx・遮断の 403）＝即停止し KV に停止札 "halt" を置く。札がある間は一切取りに行かない
 //     ＝「M2M は 200 以外を受けたら止めて人に報告せよ」。原因を確かめて `wrangler kv key delete halt` で再開
 //     （エラーを積むと IP ごとファイアウォール送り＝2 時間で 50 回）。
 const SRC = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
 const UA = "ortho-earth sats-mirror/1.0 (+https://www.ortho-earth.com/)";
 const MIN_INTERVAL_MS = 110 * 60e3;
-const K = { data: "active.csv.gz", meta: "meta", halt: "halt" };
+const K = { data: "active.csv.gz", meta: "meta", halt: "halt", transient: "transient" };
 const NOT_UPDATED = /has not updated since your last successful/i;   // CelesTrak の「2 時間に 1 回」の断り文（403 で返る）
+const TRANSIENT = st => st >= 520 && st <= 526, TRANSIENT_MAX = 3;   // 一時的な 5xx（Cloudflare の本体接続エラー）＝見送り・連続 3 回で停止
 
-// 戻り値＝何をしたか（ログとテスト用）："halted" | "fresh" | "refused" | "error" | "stored"
+// 戻り値＝何をしたか（ログとテスト用）："halted" | "fresh" | "refused" | "transient" | "error" | "stored"
 export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 	const kv = env.SATS;
 	if (await kv.get(K.halt)) { console.warn("[sats-mirror] halted — delete KV key 'halt' after checking the cause"); return "halted"; }
@@ -27,12 +30,25 @@ export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 	const res = await fetchImpl(SRC, { headers: { "User-Agent": UA } });
 	if (res.status !== 200) {
 		const body = (await res.text().catch(() => "")).slice(0, 500);
-		if (res.status === 403 && NOT_UPDATED.test(body)) { console.warn("[sats-mirror] not updated yet:", body.slice(0, 160)); return "refused"; }
+		if (res.status === 403 && NOT_UPDATED.test(body)) { await kv.delete(K.transient); console.warn("[sats-mirror] not updated yet:", body.slice(0, 160)); return "refused"; }
+		if (TRANSIENT(res.status)) {
+			const count = ((await kv.get(K.transient, "json"))?.count ?? 0) + 1;
+			if (count < TRANSIENT_MAX) {
+				await kv.put(K.transient, JSON.stringify({ count, status: res.status, at: new Date(now).toISOString() }));
+				console.warn(`[sats-mirror] HTTP ${res.status} (transient ${count}/${TRANSIENT_MAX}) — skipped, retry next hour`);
+				return "transient";
+			}
+			await kv.delete(K.transient);
+			await kv.put(K.halt, JSON.stringify({ status: res.status, at: new Date(now).toISOString(), body, note: `${TRANSIENT_MAX} transient errors in a row` }));
+			console.error(`[sats-mirror] HTTP ${res.status} ×${TRANSIENT_MAX} in a row — halted until a human deletes KV key 'halt'`);
+			return "error";
+		}
 		await kv.put(K.halt, JSON.stringify({ status: res.status, at: new Date(now).toISOString(), body }));
 		console.error("[sats-mirror] HTTP", res.status, "— halted until a human deletes KV key 'halt'");
 		return "error";
 	}
 	const text = await res.text();
+	await kv.delete(K.transient);   // 応答が返った＝一時的な失敗の数え直し
 	if (!text.startsWith("OBJECT_NAME,")) { console.warn("[sats-mirror] refused:", text.slice(0, 160)); return "refused"; }
 	const gz = await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
 	await kv.put(K.data, gz);
@@ -49,8 +65,8 @@ export async function serve(req, env) {
 	if (req.method !== "GET" && req.method !== "HEAD") return json({ error: "method not allowed" }, 405);
 	const path = new URL(req.url).pathname.replace(/^\/sats/, "");
 	if (path === "/status") {
-		const [meta, halt] = await Promise.all([env.SATS.get(K.meta, "json"), env.SATS.get(K.halt, "json")]);
-		return json({ ...(meta || {}), halted: halt || false });
+		const [meta, halt, transient] = await Promise.all([env.SATS.get(K.meta, "json"), env.SATS.get(K.halt, "json"), env.SATS.get(K.transient, "json")]);
+		return json({ ...(meta || {}), halted: halt || false, transient: transient || false });
 	}
 	if (path === "/active.csv") {
 		const [gz, meta] = await Promise.all([env.SATS.get(K.data, "arrayBuffer"), env.SATS.get(K.meta, "json")]);
