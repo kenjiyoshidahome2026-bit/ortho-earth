@@ -4,6 +4,10 @@
 
 Ortho Earth reads the open data of the Earth in your own browser — on a round globe, at true scale, with no server, no account and no install. A map engine built from scratch (WebGPU with a WebGL2 fallback) draws government vector tiles straight onto the sphere, lifts real terrain, and raises 3D cities as you zoom in. Big data is drawn from GeoParquet, the intelligence layer (identify, topology, choropleths) is Gint, and nothing is exaggerated (terrain at real scale).
 
+## Build with it
+
+- [Build with Ortho Earth](https://www.ortho-earth.com/start.md): Step-by-step recipe for putting the globe in your own page — with Vite (npm `@ortho-earth/globe`) or without a bundler (npm `@ortho-earth/japan`). Written for people and AI coding agents; every step is run by an automated test against the published packages.
+
 ## Apps
 
 <!--APPS-->
