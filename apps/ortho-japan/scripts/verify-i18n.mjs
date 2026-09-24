@@ -12,11 +12,11 @@
 // 使い方: npm run verify:i18n [-- --strict]   （--strict＝未訳の WARN も落とす＝訳が揃った後の門）
 import fs from "node:fs";
 import path from "node:path";
-import { hostDir } from "./lib/i18n-scan.mjs";
+import { hostDir } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
-import { placeholders, CTX_SEP } from "./lib/i18n-scan.mjs";
-import { scanAll } from "./lib/i18n-pages.mjs";
-import { staleTables } from "./lib/i18n-tables.mjs";
+import { placeholders, CTX_SEP } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
+import { scanAll } from "@ortho-earth/globe/scripts/lib/i18n-pages.mjs";
+import { staleTables } from "@ortho-earth/globe/scripts/lib/i18n-tables.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const strict = process.argv.includes("--strict");

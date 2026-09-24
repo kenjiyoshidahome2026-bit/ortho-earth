@@ -34,7 +34,7 @@
 		},
 		{
 			"id": "equal",
-			"href": "/japan/earth?start=equal",
+			"href": "/globe/?start=equal",
 			"group": "earth",
 			"icon": "🗺️",
 			"title": "Equal Earth",
@@ -78,7 +78,7 @@
 		},
 		{
 			"id": "quakes",
-			"href": "/japan/quakes",
+			"href": "/globe/quakes",
 			"group": "earth",
 			"icon": "🌋",
 			"title": "World earthquakes",
@@ -86,13 +86,13 @@
 			"desc": "Reads USGS earthquake data directly and shows each quake in 3D by its energy and depth. It can also play year by year or month by month.",
 			"img": "/thumbs/quakes.webp",
 			"shot": {
-				"url": "/japan/quakes#2.8/18/165",
+				"url": "/globe/quakes#2.8/18/165",
 				"wait": 18
 			}
 		},
 		{
 			"id": "sats",
-			"href": "/japan/sats",
+			"href": "/globe/sats",
 			"group": "earth",
 			"icon": "🛰️",
 			"title": "Satellites",
@@ -100,7 +100,7 @@
 			"desc": "The current positions of satellites from CelesTrak data. Click a satellite to draw its orbit in 3D.",
 			"img": "/thumbs/sats.webp",
 			"shot": {
-				"url": "/japan/sats#1.9/25/140",
+				"url": "/globe/sats#1.9/25/140",
 				"wait": 15
 			}
 		},

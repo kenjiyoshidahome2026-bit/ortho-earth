@@ -9,7 +9,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { i18nTables } from "./lib/i18n-tables.mjs";
+import { i18nTables } from "@ortho-earth/globe/scripts/lib/i18n-tables.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const { files, rows, pageRows, total } = i18nTables(APP);   // 作る中身は verify:i18n の照合と同じ関数（焼き忘れはそちらで落ちる）

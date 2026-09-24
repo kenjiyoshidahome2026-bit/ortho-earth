@@ -39,7 +39,7 @@ async function build({ lang, nation }) {
 		countryTip: false,         // 一覧側の tip と混ぜない
 		persistView: false,        // /japan/ の「前回の視点」を上書きしない（localStorage はオリジン単位）
 		keyboard: () => open,      // 矢印キーは地図を開いている間だけ（一覧の操作を奪わない）
-		assetBase: __JAPAN_ASSETS__,   // 実行時アセットは ortho-japan の public が正本（本番 /japan/・dev は /@fs で直読み）
+		assetBase: __GLOBE_ASSETS__,   // 実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/・dev は apps/ortho-globe/public を /@fs で直読み）
 	});
 	map.gadget.zoom(); map.gadget.compass(); map.gadget.shot();
 	inside = countryLayers(map, engine.geopbf);   // その国の州境・道路・鉄道・市街地（ne-cultural＝equal と同じ 2 本）

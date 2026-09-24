@@ -1,5 +1,5 @@
 # 世界の地震（USGS ComCat・M2+）の確定した過去分（archive）を配るだけの Worker（worker.js 冒頭が仕様の正本）。
-# 読み手＝ortho-japan の地震ビューア（quakes.html → quakes-worker.js・同一オリジン /quakes/*）。直近分はビューアが USGS を直接取る。
+# 読み手＝ortho-globe の地震ビューア（/globe/quakes → quakes-worker.js・同一オリジン /quakes/*）。直近分はビューアが USGS を直接取る。
 # ⚠route は "/quakes/*"（スラッシュ付き）＝"quakes*" だと www の /quakes… で始まる別アセットまで横取りする（sats-mirror と同じ轍）。
 name = "quakes-mirror"
 main = "worker.js"

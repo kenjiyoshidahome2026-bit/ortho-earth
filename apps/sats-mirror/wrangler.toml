@@ -1,5 +1,5 @@
 # 人工衛星の軌道要素（CelesTrak GP・active）の素通しミラー専用 Worker（worker.js 冒頭が仕様の正本）。
-# 読み手＝ortho-japan の衛星ガジェット（同一オリジン /sats/active.csv）。native-bucket とは無関係（本人裁定 2026-09-19）。
+# 読み手＝ortho-globe の人工衛星ビューア（/globe/sats・同一オリジン /sats/active.csv）。native-bucket とは無関係（本人裁定 2026-09-19）。
 # ⚠route は "/sats/*"（スラッシュ付き）＝"sats*" だと www の /sats… で始まる別アセットまで横取りする（japan* と同じ轍）。
 name = "sats-mirror"
 main = "worker.js"

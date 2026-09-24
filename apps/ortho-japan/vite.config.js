@@ -46,7 +46,7 @@ const asyncMainCss = {
 };
 
 export default defineConfig({
-	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。将来 /globe/ が並ぶ）。ルート相対の import/asset は base が面倒を見る。
+	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。地域なしの頁は /globe/＝apps/ortho-globe）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
 	base: "/japan/",
 	// クラウド保存（apps/account の wrangler dev :8787）＝dev も同一オリジン化＝CORS 不要（本番は route が同居）。scene.html のクラウド保存が使う
@@ -54,12 +54,11 @@ export default defineConfig({
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
-	// quakes.html＝世界の地震ビューア（/japan/quakes.html・データは apps/quakes-mirror の /quakes/*＝public/quakes は dev 専用で deploy から外す）。
-	// sats.html＝人工衛星ビューア（/japan/sats.html・quakes と対＝地上/地下。データはミラー /sats/active.csv＝apps/sats-mirror）。
+	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
 	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), earth: resolve(import.meta.dirname, "earth.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), models: resolve(import.meta.dirname, "models.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 	} },
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない

@@ -19,7 +19,7 @@ export const mapP = engineP.then(m => m.createGlobe({   // GeoPBF のデモ＝�
 	countryTip: false,         // データの tip と国名 tip を混ぜない
 	persistView: false,        // 待ち受けの自転で /japan/ の「前回の視点」（同オリジンの localStorage）を上書きしない
 	keyboard: () => document.querySelector(".demo")?.classList.contains("viewing"),   // 矢印キーは地図に入っている間だけ（待ち受け中はパネル側のもの）
-	assetBase: __JAPAN_ASSETS__,   // 実行時アセット（plateau-sets.json 等）＝本番 /japan/・dev は ortho-japan/public を /@fs で
+	assetBase: __GLOBE_ASSETS__,   // 実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/・dev は apps/ortho-globe/public を /@fs で）
 }));
 export const viewP = mapP.then(map => createGintView(map, { overviewZoom }));
 

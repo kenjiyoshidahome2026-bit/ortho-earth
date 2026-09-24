@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#0b1021}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<title>Satellites in orbit now — ortho-globe</title>
+	<meta name="description" content="About 16,000 active satellites (CelesTrak GP) propagated in your browser with SGP4 and shown in 3D around the globe in real time.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/sats">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Satellites in orbit now — ortho-globe">
+	<meta property="og:description" content="Every active satellite — about 16,000 — propagated live in your browser with SGP4 and drawn around the globe. Search by name, trace any orbit.">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/sats">
+	<meta property="og:image" content="https://www.ortho-earth.com/globe/og/sats.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Satellites in orbit now — ortho-globe">
+	<meta name="twitter:description" content="Every active satellite — about 16,000 — propagated live in your browser with SGP4 and drawn around the globe. Search by name, trace any orbit.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/og/sats.jpg">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 人工衛星ビューア＝いま軌道にいる衛星（CelesTrak GP・active 約 1.6 万機）を地球儀のまわりに実時刻で立体表示する＝地震（quakes.html＝地下）と対の「3D の地上」。
+		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を自分の束に焼いてエンジンを起こし（quakes.html と同型）、
+		// 描画と案内板は ./sats.js（遅延 chunk・GPU 描画は sats-gl.js＝レンダーワーカー内の同一フレーム）。
+		// データ＝ミラー（www.ortho-earth.com/sats/active.csv＝apps/sats-mirror・CORS 開放）→ だめなら CelesTrak 直読み。ブラウザが SGP4 で伝播する（鯖焼き無し）。
+		// ?src=URL で差し替え可（CSV・OMM 形式）。
+		(async () => {
+			// 言語（./i18n.js・英語キー・26 言語）：html の lang/dir をこの言語に。文言（title/description/パネル）は sats.js が t() で組む＝走査器（.js だけ読む）の目に入る
+			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
+			await setLang();
+			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
+			// エンジン＝地球儀のホスト @ortho-earth/globe をこの頁の束に焼く（地域の申告なし・CSS もこのチャンクに付いて来る）
+			const engineP = import("@ortho-earth/globe");
+			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
+			try {
+				const [{ createGlobe }, { mountSats, MIRROR, CELESTRAK }] = await Promise.all([engineP, import("./sats.js")]);
+				// 初期視点＝地球を少し引いて眺める（低軌道の殻と中軌道が見える距離。静止軌道はさらに引く）（共有 URL の hash があればそちら）
+				const map = await createGlobe({ target: "#map", view: location.hash || "#1.9/25/140", chips: false, zoomMax: 8,   // 世界のアプリ＝地球儀（地域の申告なし・z<8＝LAYERS.md 段階 2 S6）
+					// glOverlay＝同一フレームのオーバーレイ（人工衛星）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（本人 iPad 実機 2026-09-21）
+					mesh: false, glOverlay: true, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });   // stars/countryTip=false＝恒星と国名 tip は出さない（衛星が主役・tip が重なる）。惑星・月は残す（衛星のスケールの物差し）。地球は通常配色（quakes の暗い地下向けテーマは使わない）
+				dismissBoot();
+				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock();   // clock＝共通の時計（#42）＝早送り・巻き戻し・日時で衛星も夜の側も同じ時刻へ
+				const src = new URLSearchParams(location.search).get("src") || [MIRROR, CELESTRAK];   // 読む順＝ミラー → 本家
+				const sats = await mountSats(map, { src });
+				window.__map = map; window.__sats = sats;   // console 検証用
+			} catch (e) { console.error("[sats] startup failed", e); dismissBoot(); }
+		})();
+	</script>
+</body>
+</html>

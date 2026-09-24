@@ -1,0 +1,14 @@
+{
+	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル。正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json。本体の訳（globe の ui.json）は @ortho-earth/globe が持つ＝ここでは足さない",
+	"pages": {
+		"quakes": [
+			"quakes.js",
+			"quakes-worker.js",
+			"quakes-gl.js"
+		],
+		"sats": [
+			"sats.js",
+			"sats-gl.js"
+		]
+	}
+}
