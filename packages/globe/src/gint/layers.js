@@ -11,6 +11,7 @@
 //   requestDraw(), onMove(), flyTo(...), loadBelowSea(), loadLakes() … 生成後に定義される関数は app 側でラップ
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
 import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正本（段階 3・2026-09-23）
+import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の出しズームの正本（equal と同値）
 import { WORLD_PX } from "@ortho-earth/core";
 import { geopbf } from "geopbf";
 
@@ -480,6 +481,10 @@ const USER_GINT_MINZ = 7;
 const WORLD_BAND_Z = env.worldBandZ ?? 6.5;   // 世界帯の上限＝湖・海面下の陸が見える範囲（app.js BASEMAP_MINZOOM と同値＝地域の申告が無い器は上限まで）
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 const WORLD_ADMIN0_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
+// worldContent（世界帯に Equal Earth と同じ中身・2026-09-24）＝equal と同じ出し方：海岸線・国境は全ズーム・河川/海洋境界は z1.5 から・
+// 国境は最初から NE 10m（州境・都市の ne-cultural と同じ線＝50m との食い違いで海岸線が二重に見えない）。LOW_MEM は従来どおり 50m
+const WORLD_CONTENT = !!env.worldContent;
+const ADMIN0_MINZ_EFF = WORLD_CONTENT ? 0 : WORLD_ADMIN0_MINZ, WORLD_LINES_MINZ = WORLD_CONTENT ? WORLD_Z.worldLines : WORLD_ADMIN0_MINZ;
 const WORLD_TIP_MAXZ = 5.5;     // 国名ホバー tip の上限＝これ以上は出さない・跨いだら消す（本人裁定 2026-09-02「z>5.5で消して」＝基図接近帯は注記の領分）
 let worldTipOn = false;         // 国名 tip 表示中ラッチ＝ズームだけで跨いだ時（ホバーイベントが来ない）に消すため
 let admin0Gint = null;      // 世界の国ポリゴン(admin_0_countries)の gint ペイロード（初回ロードでキャッシュ＝再取得しない）
@@ -600,7 +605,7 @@ const admin0Duck = () => ({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
 function ensureAdmin0Layer() {
 	if (admin0Layer || !admin0Gint || !admin0Pbf) return;
 	admin0Layer = addGint(admin0Duck(),
-	{ order: -10, interactive: false, minZoom: WORLD_VT ? WORLD_ADMIN0_MINZ : null, maxZoom: 9, style: admin0DrawStyle() });
+	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: 9, style: admin0DrawStyle() });
 	admin0Vis = true;
 }
 function syncAdmin0Vis() {   // 飛行中抑制（suppressAdmin0）だけが層の表示を折る（ズーム域はエンジンが裁く）
@@ -643,7 +648,7 @@ function updateGintSlot() {
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	// admin0＝独立層（スロット外）：ロード発火・層生成・飛行抑制の同期。表示のズーム域はエンジンが裁く
-	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0("50m");
+	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0(WORLD_CONTENT && !LOW_MEM ? "10m" : "50m");
 	else if (!LOW_MEM && admin0Res === "50m" && !admin0Loading && !suppressAdmin0 && !env.flying && cam.zoom >= ADMIN0_FINE_Z && cam.zoom < ADMIN0_Z) loadAdmin0("10m");   // 国境が大きく見える帯で細密版へ
 	ensureAdmin0Layer();
 	syncAdmin0Vis();
@@ -723,7 +728,7 @@ async function loadWorldLines() {
 		let pbf = await geopbf(def.name).catch(() => null);
 		if (!pbf?.unPackGint) pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${def.dir}/${def.name}.zip`, { name: def.name }).catch(e => { console.warn("[world-lines]", def.name, e); return null; });
 		if (!pbf?.unPackGint) continue;
-		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_ADMIN0_MINZ, maxZoom: WORLD_BAND_Z, fillMaxEdges: 0 });
+		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_LINES_MINZ, maxZoom: WORLD_BAND_Z, fillMaxEdges: 0 });
 		if (!h) continue;
 		h.setVisible(false);            // 絞る（min_zoom）まで出さない
 		h.style({ fillColor: [0, 0, 0, 0] });

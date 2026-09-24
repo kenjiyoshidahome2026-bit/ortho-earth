@@ -4,52 +4,14 @@
 //   ・名前/コード/統計＝bucket GIS/world の NationDB.json（英語が基軸）＋ i18n/ja.json（日本語名＝CSV の名寄せ用）
 // 項目のラベル・単位・出所は apps/world の SORTS と同じ。
 
-import { gunzip, isGzip } from "geopbf/gzip";   // bucket は圧縮して置く＝読む側で解く（native-bucket の bucket.get と同じ作法）
-
-const BASE = "https://api.ortho-earth.com/bucket/GIS/world/";
-// 言語一覧は src/i18n.js（japan の i18n/langs.js＝world が正本）＝ここには置かない
+// 読み込み（NationDB・言語別の国名/都市名・NE の小さな都市名）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と同じ URL・同じ作法）
+export { loadNations, loadI18n, loadNeCities } from "@ortho-earth/core/worldcontent";
 // 地図の中身の語（統計名・地域名・単位）を world の ui 表で引く（無い語は英語のまま＝world のビューアと同じ縮退）。
 // 操作系の UI 文言は英語のまま＝globe と同じ基軸（本人裁定「globe は英語ベース」）
 export const tr = (i18n, s) => (s != null && i18n?.ui?.[s]) || s;
 
-// 言語別の名前テーブル（英語は不要＝null）。nations[key].name / cities[qid].name
-export async function loadI18n(lang) {
-	if (lang === "en") return null;
-	const r = await fetch(`${BASE}i18n/${lang}.json`); if (!r.ok) throw new Error(`i18n/${lang}: HTTP ${r.status}`);
-	return r.json();
-}
-
-// NE 由来の都市名（言語別・GIS/world/ne-cities/<lang>.json＝uploader「NE 都市名の多言語表」が焼く）。
-// World DB の i18n/<lang>.json が持つのは台帳の 564 都市（Wikidata ラベル＝丁寧）。残る約 6,600 の小さな都市は
-// これまで全言語で英語のままだった＝NE の 24 言語の名前列で埋める（本人 2026-09-18）。
-//   ・鍵は Wikidata QID（NE の WIKIDATAID）／中身は「英語名と違う名前だけ」＝無い＝NAME_EN へ落ちる
-//   ・en・ja は取りに行かない（en＝基軸／ja＝NAME_JA が配信 geopbf に同梱済み）＝既定の 2 言語は通信ゼロ
-//   ・th は NE に列が無い＝英語のまま
-// 失敗は null へ畳む＝地名が英語で出るだけ（地図は止めない）。
-const NE_CITY_SKIP = new Set(["en", "ja", "th"]);
-export async function loadNeCities(lang) {
-	if (NE_CITY_SKIP.has(lang)) return null;
-	try {
-		const r = await fetch(`${BASE}ne-cities/${lang}.json`); if (!r.ok) throw new Error(`HTTP ${r.status}`);
-		// bucket.put は圧縮可能なファイルを gzip して置く＝素の .json() では解けない実体が返ることがある
-		//（i18n/<lang>.json は Node の CLI が非圧縮で置いた物＝そのまま読めたので気づきにくい。実測 2026-09-18）。
-		// gzip の魔法の 2 バイトを見て要るときだけ解く＝どちらの置き方でも読める。
-		const blob = await r.blob();
-		const j = JSON.parse(await (await isGzip(blob) ? await gunzip(blob) : blob).text());
-		return j?.names || null;
-	} catch (e) { console.warn(`[equal] ne-cities/${lang}: ${e.message ?? e}（都市名は英語のまま）`); return null; }
-}
-
 // apps/world model.js REGIONS と同じ番号→名前
 export const REGION_NAMES = { 1: "Europe", 2: "Africa", 3: "Asia", 4: "North America", 5: "South America", 6: "Oceania/Antarctica" };
-
-export async function loadNations() {
-	const get = async name => { const r = await fetch(BASE + name); if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`); return r.json(); };
-	const [db, ja] = await Promise.all([get("NationDB.json"), get("i18n/ja.json").catch(() => null)]);
-	const items = db.items || db;
-	const byKey = new Map(items.map((n, i) => [n.key, i]));
-	return { items, byKey, ja: ja?.nations || {}, updated: db.updated };
-}
 
 // 統計の配列＝[最新年, 値(最新年), 値(前年), …]（null は欠測）→ { year, value } | null
 export function latest(arr) {

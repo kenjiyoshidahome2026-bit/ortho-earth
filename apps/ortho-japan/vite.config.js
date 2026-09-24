@@ -59,7 +59,7 @@ export default defineConfig({
 	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), models: resolve(import.meta.dirname, "models.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), earth: resolve(import.meta.dirname, "earth.html"), tellus: resolve(import.meta.dirname, "tellus.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), models: resolve(import.meta.dirname, "models.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 	} },
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない

@@ -2,13 +2,14 @@
 // 150ms ごと）で安定させ、位置は毎フレーム投影＝文字は地図と一緒に滑らかに動き、明滅しない。
 // 2D 正積図なので投影は x=dλ·k(φ), y=y(φ) の 2 式だけ（球の裏側・地平線の問題がない）。
 import { yOfLat, kOfLat, pxPerUnit } from "./equalearth.js";
+import { countryLabelRule, cityLabelRule, airportLabelRule, F, stripJaCitySuffix, PLANE_PATH as PLANE_D } from "@ortho-earth/core/worldcontent";   // 注記の規則の正本（globe・world と共有）
 
 const FONT = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",system-ui,sans-serif`;
 const D2R = Math.PI / 180;
 
 // 空港の記号＝ortho-japan の shields.js と同じ Material Icons "flight"（viewBox 24・上向き）。
 // 都市の丸と同じ形にしない＝交通の記号は形で区別する（本人 2026-09-18）。色は配色テーマから貰う。
-const PLANE_PATH = typeof Path2D !== "undefined" ? new Path2D("M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z") : null;
+const PLANE_PATH = typeof Path2D !== "undefined" ? new Path2D(PLANE_D) : null;
 const MARKS = { plane: { path: () => PLANE_PATH, box: 24 } };   // box＝パスの viewBox（描画時に size へ縮める）
 
 // label: { text, lon, lat, size(CSS px), minZoom, priority(小さいほど強い), kind:"country"|"capital"|"city", color, halo, dot, dotColor（点だけの色・無ければ color） }
@@ -114,58 +115,36 @@ export const LABEL_SCALE = 0.92;
 export const HALO_W = 2.4;
 const S = px => Math.round(px * LABEL_SCALE * 2) / 2;
 
-// 日本語の都市名から行政区分の接尾辞を落とす（本人 2026-09-18「〜市、〜特別市をのぞいて」）。
-// NE の NAME_JA は中国・韓国・台湾の都市に区分名が付く（北京市・ソウル特別市・釜山広域市…＝実データで 489 件）。
-// 地図の注記は地名だけで足りる。落とすのは「市」の族（特別市・広域市・直轄市・市）だけ＝都/府/県/州/区 は残す
-// （東京都・クイーンズランド州のように区分名まで含めて通称の物がある）。末尾の 1 つだけ落とす＝
-// 津市市→津市・四日市市→四日市 が正しく残り、呉市→呉・津市→津 も実データで確認済み。
-export const stripJaCitySuffix = s => {
-	const src = String(s ?? "");
-	const t = src.replace(/(特別市|広域市|直轄市|市)$/, "");
-	// 「都」は語幹が 2 文字以上の時だけ落とす（本人 2026-09-18「東京都を東京に」）。
-	// 実データの「都」終わりは 東京都・京都・成都 の 3 件だけ＝語幹 東京(2)/京(1)/成(1)＝この一線で正しく分かれる。
-	// 「市」に同じ門を付けないのは 呉市→呉・津市→津 が正しいから（語幹 1 文字でも地名として成立する）。
-	const u = /都$/.test(t) && [...t].length >= 3 ? t.slice(0, -1) : t;
-	return u || t || src;
-};
-// 国：World DB の代表点（Wikidata の座標）・面積で出すズームと文字の大きさを決める（大国＝下限から・小国＝寄ってから）
+// 国名・都市・空港の規則（出すズーム・大きさ・優先・名前の作法）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と共有）。
+// ここは equal の描き方（labels 層の項目の形・倍率 S・配色）へ写すだけ。
+export { F, stripJaCitySuffix };
 export function countryLabels(world, nameOf, pal) {
 	const out = [];
 	for (const n of world.items) {
-		if (!n.coord || !(n.area > 0)) continue;
-		const a = n.area;
-		const [minZoom, size0] = a >= 2e6 ? [-9, 13] : a >= 5e5 ? [2.3, 12] : a >= 1e5 ? [3, 11.5] : a >= 2e4 ? [3.8, 11] : a >= 2e3 ? [4.6, 10.5] : [5.4, 10];
-		const size = S(size0);
-		out.push({ text: nameOf(n), lon: n.coord[0], lat: n.coord[1], size, minZoom, priority: 1 - Math.min(0.9, Math.log10(a) / 8), kind: "country", color: pal.country, halo: pal.halo, spacing: "0.08em" });
+		const r = countryLabelRule(n); if (!r) continue;
+		out.push({ text: nameOf(n), lon: r.lon, lat: r.lat, size: S(r.size), minZoom: r.minZoom, priority: r.priority, kind: "country", color: pal.country, halo: pal.halo, spacing: "0.08em" });
 	}
 	return out;
 }
-// 都市：NE populated_places（world の base に同梱・key 付き・属性は NE の大文字）。首都＝ADM0CAP・出すズーム＝NE の MIN_ZOOM・大きさ＝SCALERANK
-export const F = (p, k) => p[k] ?? p[k.toUpperCase()] ?? p[k.toLowerCase()];
 export function cityLabels(features, nameOf, pal) {
 	const out = [];
 	for (const f of features) {
 		const p = f.properties; if (!f.geometry || f.geometry.type !== "Point") continue;
-		const cap = +F(p, "adm0cap") === 1, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8, mz = Number.isFinite(+F(p, "min_zoom")) ? +F(p, "min_zoom") : 6;
 		const text = nameOf(p); if (!text) continue;
-		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10),
-			minZoom: cap ? Math.min(mz, 3) : mz, priority: cap ? 0.2 + sr / 20 : 2 + sr / 20, kind: cap ? "capital" : "city", color: pal.city, dotColor: cap ? (pal.capital || pal.city) : undefined, halo: pal.halo, dot: cap ? 3 : 2.2 });   // 首都の点だけ正本の capital（赤・world の国の地図と同じ顔）＝首都名の文字は他の都市と同じ色（本人 2026-09-24「黒に戻して」）   // 首都は大国（面積 1e7km²・priority≈0.13）の次＝国名の方が首都を避けて上下にずれる
+		const r = cityLabelRule(p);
+		out.push({ text, lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1], size: S(r.size),
+			minZoom: r.minZoom, priority: r.priority, kind: r.cap ? "capital" : "city", color: pal.city, dotColor: r.cap ? (pal.capital || pal.city) : undefined, halo: pal.halo, dot: r.dot });   // 首都の点だけ正本の capital（赤）＝首都名の文字は他の都市と同じ色（本人 2026-09-24「黒に戻して」）
 	}
 	return out;
 }
-
-// 空港：NE populated_places と同じ作法で「記号だけ」を置く（名前は出さない＝低ズームの地図が文字で埋まらない）。
-// 出すズームは呼び出し側が渡す（本人 2026-09-18「空港の表示は z>5」）。大ハブほど先に出る（NE の scalerank）。
-export function airportLabels(features, pal, { minZoom = 5, size = 12 } = {}) {
+// 空港：記号だけ（名前は出さない）。出しズームは呼び出し側（層の markMinZoom）が上書きできる
+export function airportLabels(features, pal, { minZoom, size = 12 } = {}) {
 	const out = [];
 	for (const f of features) {
 		if (!f.geometry || f.geometry.type !== "Point") continue;
-		const p = f.properties, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8;
-		// 出しズームは一律（本人「空港の表示は z>5」）＝段階的に増やさない。混み具合は衝突判定に任せ、
-		// NE の scalerank は優先順にだけ効かせる＝大ハブが先に残り、小さな飛行場から落ちる。
+		const r = airportLabelRule(f.properties);
 		out.push({ text: "", mark: "plane", lon: f.geometry.coordinates[0], lat: f.geometry.coordinates[1],
-			size, minZoom, priority: 3 + sr / 20, kind: "airport",
-			color: pal.airport || pal.city, halo: pal.halo });
+			size, minZoom: minZoom ?? r.minZoom, priority: r.priority, kind: "airport", color: pal.airport || pal.city, halo: pal.halo });
 	}
 	return out;
 }

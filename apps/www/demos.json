@@ -34,7 +34,7 @@
 		},
 		{
 			"id": "equal",
-			"href": "/japan/?start=equal",
+			"href": "/japan/earth?start=equal",
 			"group": "earth",
 			"icon": "🗺️",
 			"title": "Equal Earth",

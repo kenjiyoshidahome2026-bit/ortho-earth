@@ -5,40 +5,26 @@
 // 全地物が properties.key（world の国キー＝NationDB の key）と properties.layer を持つ＝
 // **丸ごと 1 枚載せて式で絞る**（エンジンの addGint + setPaint(paint, filter)）。国ごとに焼き直した配信物は作らない。
 // 初回だけ 16.5MB・以降は geopbf が IDB に持つ。
-const BASE_URL = "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-";
-
-import { gunzip, isGzip } from "geopbf/gzip";
-import { WORLD_STYLE_THEMES, css } from "@ortho-earth/core/worldstyle";   // bucket は圧縮して置く＝読む側で解く（equal と同じ作法）
+import { WORLD_STYLE_THEMES, css } from "@ortho-earth/core/worldstyle";
+// 名前の順・URL・キャッシュ名・都市/空港の規則・飛行機の形＝世界帯の中身の正本（equal・globe と共有・2026-09-24 に写しを畳んだ）
+import { culturalUrl, culturalName, cityName as cityNameOf, cityLabelRule, airportLabelRule, loadI18n, loadNeCities, WORLD_Z, PLANE_PATH as PLANE } from "@ortho-earth/core/worldcontent";
 
 // 色＝ortho-core worldstyle の正本（WORLD_STYLE_THEMES.mono＝equal・globe と同じ表＝2 つのアプリで同じ世界に見える・2026-09-23 段階 3）
 const T = WORLD_STYLE_THEMES.mono;
 const C = { admin1: css(T.admin1), admin1Fill: css(T.admin1, 0.14), disputed: css(T.disputed), disputedLine: css(T.disputedLine),
 	road: css(T.road), rail: css(T.rail), urban: css(T.urban, 0.4), city: T.labelColor.city, capital: T.capital, halo: T.labelColor.halo, airport: css(T.airport) };
-const LINES_Z = 5;   // 道路・鉄道を出すズーム（equal の roads/rail minZoom と同値）
+const LINES_Z = WORLD_Z.roads;   // 道路・鉄道を出すズーム（正本＝equal・globe と同値）
 
-// 都市名（equal と同じ出所の順・言語ごと）：ja＝配信 geopbf の NAME_JA（「〜市」族を落とす）／en＝NAME_EN／
-// 他＝World DB の台帳名（i18n/<lang>.json の cities・564 都市）→ NE の言語別表（ne-cities/<lang>.json・約 6,600）→ NAME_EN
-const WORLD = "https://api.ortho-earth.com/bucket/GIS/world/";
-const stripJaCitySuffix = s => { const src = String(s ?? ""), t = src.replace(/(特別市|広域市|直轄市|市)$/, ""); const u = /都$/.test(t) && [...t].length >= 3 ? t.slice(0, -1) : t; return u || t || src; };
-const F = (p, k) => p[k] ?? p[k.toUpperCase()] ?? p[k.toLowerCase()];
-const jsonMaybeGz = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`HTTP ${r.status}`); const b = await r.blob(); return JSON.parse(await (await isGzip(b) ? await gunzip(b) : b).text()); };
-const nameTables = {};   // lang → Promise<{ db, ne }>（en・ja は表を引かない）
+// 都市名の表（言語ごと・1 ページ 1 回）＝正本の読み込み口（World DB の台帳名＋NE の言語別表）。en・ja は表を引かない
+const nameTables = {};
 const namesFor = lang => nameTables[lang] ||= (lang === "en" || lang === "ja") ? Promise.resolve({})
-	: Promise.all([jsonMaybeGz(`${WORLD}i18n/${lang}.json`).then(j => j?.cities || {}).catch(() => ({})), lang === "th" ? {} : jsonMaybeGz(`${WORLD}ne-cities/${lang}.json`).then(j => j?.names || {}).catch(() => ({}))])
-		.then(([db, ne]) => ({ db, ne }));
+	: Promise.all([loadI18n(lang).catch(() => null), loadNeCities(lang)]).then(([i18n, ne]) => ({ i18n, ne }));
 // 州の名前（NE admin_1 の name/name_en/name_ja＝base に残した列）
 const admin1Name = (p, lang) => (lang === "ja" && p.name_ja) || p.name_en || p.name || "";
-// 空港の ✈＝equal の labels.js と同じ Material Icons "flight"（viewBox 24）
-const PLANE = "M21.5 15.5v-2l-8-5v-5.5c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v5.5l-8 5v2l8-2.5v5.5l-2 1.5v1.5l3.5-1 3.5 1v-1.5l-2-1.5v-5.5l8 2.5z";
-const cityName = (p, lang, t) => {
-	if (lang === "ja") return stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name");
-	if (lang === "en") return F(p, "name_en") || F(p, "name");
-	const qid = F(p, "wikidataid");
-	return (qid && t.db?.[qid]?.name) || (qid && t.ne?.[qid]) || F(p, "name_en") || F(p, "name");
-};
+const cityName = (p, lang, t) => cityNameOf(p, lang, t.i18n, t.ne);
 
 const got = {};   // group → Promise<GeoPBF>（1 ページ 1 回）
-const fetchGroup = (geopbf, g) => got[g] ||= geopbf(BASE_URL + g + ".geopbf", { name: `ne-cultural-${g}.geopbf` })
+const fetchGroup = (geopbf, g) => got[g] ||= geopbf(culturalUrl(g), { name: culturalName(g) })
 	.catch(e => { got[g] = null; console.warn("[world] ne-cultural", g, e); return null; });
 
 // 寄り先の矩形＝国の形のうち中心の近くにある塊だけ。中心と広さは NationDB（coord・area）が持っている＝
@@ -153,9 +139,9 @@ export function countryLayers(map, geopbf) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "populated_places") continue;
 				const f = pbf.getFeature(i); if (f?.geometry?.type !== "Point") continue;
-				const cap = +F(p, "adm0cap") === 1, srv = +F(p, "scalerank"), sr = Number.isFinite(srv) ? srv : 8, mzv = +F(p, "min_zoom"), mz = Number.isFinite(mzv) ? mzv : 6;
 				const name = cityName(p, lang, t); if (!name) continue;
-				feats.push({ type: "Feature", geometry: f.geometry, properties: { name, cap, mz: cap ? Math.min(mz, 3) : mz, pri: cap ? 0.2 + sr / 20 : 2 + sr / 20, size: cap ? 11.5 : sr <= 2 ? 11 : sr <= 4 ? 10.5 : 10 } });
+				const r = cityLabelRule(p);
+				feats.push({ type: "Feature", geometry: f.geometry, properties: { name, cap: r.cap, mz: r.minZoom, pri: r.priority, size: r.size } });
 			}
 			if (!dotAdded) { dotAdded = true; await map.addImage("world-dot", dotBitmap(), { pixelRatio: 2 }); await map.addImage("world-dot-cap", dotBitmap(C.capital), { pixelRatio: 2 }); }
 			await map.gadget.symbols({ type: "FeatureCollection", features: feats }, {
@@ -200,11 +186,11 @@ export function countryLayers(map, geopbf) {
 				const p = pbf.getProperties(i) || {};
 				if (p.key !== k || p.layer !== "airports") continue;
 				const f = pbf.getFeature(i); if (f?.geometry?.type !== "Point") continue;
-				const srv = +F(p, "scalerank"); feats.push({ type: "Feature", geometry: f.geometry, properties: { sr: Number.isFinite(srv) ? srv : 8 } });
+				feats.push({ type: "Feature", geometry: f.geometry, properties: { sr: airportLabelRule(p).priority } });
 			}
 			if (!feats.length || k !== key) return;
 			if (!planeAdded) { planeAdded = true; await map.addImage("world-plane", planeBitmap(), { pixelRatio: 2 }); }
-			await map.gadget.symbols({ type: "FeatureCollection", features: feats }, { id: "world-airports", minzoom: 5,
+			await map.gadget.symbols({ type: "FeatureCollection", features: feats }, { id: "world-airports", minzoom: WORLD_Z.airport,
 				layout: { "icon-image": "world-plane", "icon-size": 0.65, "symbol-sort-key": ["get", "sr"] } });
 		},
 		/** 地点の下にある州／国（base の面を JS で当てる＝表示の絞りに依らない）。戻り＝{ key, layer, admin1 } | null */

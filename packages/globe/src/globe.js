@@ -39,7 +39,8 @@ import { createOverlay } from "./overlay.js";
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource } from "@ortho-earth/core";
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
-import { createGintLayers } from "./gint/layers.js";   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createGintLayers } from "./gint/layers.js";
+import { createWorldContent } from "./gint/worldcontent.js";   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -1132,6 +1133,7 @@ function switchTheme(name) {
 	atmo = theme.atmo; bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
 	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
+	worldContentH?.repaint();     // 世界帯の中身（州境・道路・注記…）も新テーマへ
 	// ★任意ノブ(等高線色/遠山/標高段彩)は「新テーマが持たなければ null」で必ず既定へ戻す＝前テーマの居座り防止。
 	// 条件付きspreadだと未指定キーが setView のマージで残る＝例: sepia/dark の暖茶hypso が mono/topo へ漏れて「山が茶色」になる。
 	renderer.set("view", { clear, land, atmo, bldColor,
@@ -1172,8 +1174,10 @@ renderer.set("bldFill", { li: seaLi(style, "building") });   // 建物フット�
 // ここは配線だけ：定数と道具を渡し、テーマは getter、多層の台帳（extGint / extActive / gintLayerSeq）は onmessage より先に宣言した
 // 上のものを束ねて渡す。生成後に定義される関数（flyTo / loadBelowSea / loadLakes）はラップ＝呼ぶ時に解決。外が読み書きしていた
 // 状態（hoverTip / extTipOwn / suppressAdmin0 …）は gint.* のアクセサで同名の意味のまま。
+let worldContentH = null;   // opts.worldContent の手綱（テーマ切替で塗り直す・下の install が入れる）
 const gint = createGintLayers({
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
+	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
@@ -1981,7 +1985,7 @@ function destroy() {
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
-	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__sapporo", "__shadow", "__standup", "__style", "__tileCache", "__tileStats", "__vtPool"]) delete dbgHost[k];
+	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__sapporo", "__shadow", "__standup", "__worldContent", "__style", "__tileCache", "__tileStats", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world", "ui-dark", "ui-idle");   // SDK が付けた class を全部外す（全球フェード・白抜き家具・無操作フェード）＝"as it was" を真に
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
@@ -3583,6 +3587,17 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/14条どの経路でも効く）。
 // 見えない div＝gint interactive 層をホバーした時だけ内容が出る＝非gintの埋め込みでは無害。
 gint.hoverTip = map.gadget.tip();
+// ── 世界帯の中身（opts.worldContent・2026-09-24）＝低ズーム（z<BASEMAP_MINZOOM）に Equal Earth と同じ情報：州境・係争地・市街地・道路・鉄道・
+// 湖の岸線・国名・首都/都市・空港（規則と配色は ortho-core の正本 worldcontent/worldstyle＝equal・world と共有・データも同じ bucket を同じキャッシュ名で）。
+// 本人「equal に入れた追加情報は最終的に globe に同じ情報を入れるため」＝まず日本を持たない globe（z8 まで）から。japan（z6.5〜8 は基図と重なる）は後日
+if (opts.worldContent && WORLD_VT) {
+	worldContentH = createWorldContent({ addGint: gint.addGint, geopbf, symbols: (src, layer) => map.gadget.symbols(src, layer), addImage: map.addImage,
+		getZoom: () => cam.zoom, lang: getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
+		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: () => { needsDraw = true; } });
+	map.on("settle", () => { if (!flying) worldContentH.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
+	worldContentH.update();
+	dbgHost.__worldContent = () => worldContentH.state();   // 検定窓（t-worldcontent）
+}
 // 地域パックが起動後に足す物（e-Stat 小地域＝map.estat 等・LAYERS.md 段階 2 S3）。ホストの内部でなく拡張面（hostEnv）だけを渡す
 const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, onDestroy: f => hostDestroy.push(f) };
 for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);

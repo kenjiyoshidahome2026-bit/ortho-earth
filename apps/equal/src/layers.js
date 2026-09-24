@@ -5,6 +5,7 @@
 // loadZoom＝このズーム以上で初めて取りに行く（見えない層のための通信をしない）。
 // minZoom は NE の属性（min_zoom / scalerank）を地物ごとに使う＝ズームで道路・鉄道が段階的に現れる。
 // z の定義は ortho と同一（正射スケール）＝NE の min_zoom（Web 地図の z）をそのまま使える。
+import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 出しズームの正本（globe の世界帯と同じ値）
 const rgb = (hex, a = 1) => [parseInt(hex.slice(1, 3), 16) / 255, parseInt(hex.slice(3, 5), 16) / 255, parseInt(hex.slice(5, 7), 16) / 255, a];
 const str = v => String(v ?? "").replace(/\0/g, "").trim();   // shp の DBF はナル詰め文字列がある
 const num = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
@@ -61,8 +62,8 @@ export const LAYERS = [
 	{
 		// 道路・鉄道・市街地＝world の ne-cultural（国境で切って key ごとに 1 地物・属性なし）＝world とデータを共有（本人 2026-09-18）。
 		// 属性（min_zoom）が無い＝地物ごとの出し分けはせず、一定以上の z でまとめて出す
-		id: "urban", label: "Urban areas", on: true, source: "world", group: "detail", kind: "poly", loadZoom: 4.5,
-		spec: { include: p => p.layer === "urban_areas", fill: () => 4 },
+		id: "urban", label: "Urban areas", on: true, source: "world", group: "detail", kind: "poly", loadZoom: WORLD_Z.detailLoad,
+		spec: { include: p => p.layer === "urban_areas", fill: () => WORLD_Z.urban },
 		fillColor: PALETTE.urban,
 		order: { fill: 12 },
 	},
@@ -77,13 +78,13 @@ export const LAYERS = [
 		order: { fill: 14, lines: 22 },
 	},
 	{
-		id: "rivers", label: "Rivers", on: true, water: true, ...NE("physical", "ne_10m_rivers_lake_centerlines"), kind: "line", loadZoom: 1.5,
+		id: "rivers", label: "Rivers", on: true, water: true, ...NE("physical", "ne_10m_rivers_lake_centerlines"), kind: "line", loadZoom: WORLD_Z.worldLines,
 		spec: {
 			line: p => {
 				const cla = str(f(p, "featurecla"));
 				if (cla.startsWith("Lake Centerline")) return null;   // 湖の中の中心線＝湖の塗りの下に隠れる線は描かない
 				const sr = num(f(p, "scalerank"), 8);
-				return { cls: sr <= 4 ? 0 : sr <= 7 ? 1 : 2, minZoom: num(f(p, "min_zoom"), 6) };
+				return { cls: sr <= 4 ? 0 : sr <= 7 ? 1 : 2, minZoom: num(f(p, "min_zoom"), WORLD_Z.riverDefault) };
 			},
 		},
 		lineStyles: [{ color: PALETTE.river, width: 1.2 }, { color: PALETTE.river, width: 0.9 }, { color: PALETTE.river, width: 0.6 }],
@@ -92,20 +93,20 @@ export const LAYERS = [
 	{
 		// 海洋境界線＝NE admin_0 boundary_lines_maritime_indicator（中間線・領海の指示線・221 本）。
 		// 陸の国境（countries の lineStyles）とは別物＝海の上にだけ出る細い線。NE の MIN_ZOOM を地物ごとに使う。
-		id: "maritime", label: "Maritime boundaries", on: true, ...NE("cultural", "ne_10m_admin_0_boundary_lines_maritime_indicator"), kind: "line", loadZoom: 1.5,
-		spec: { line: p => ({ cls: 0, minZoom: num(f(p, "min_zoom"), 4) }) },
+		id: "maritime", label: "Maritime boundaries", on: true, ...NE("cultural", "ne_10m_admin_0_boundary_lines_maritime_indicator"), kind: "line", loadZoom: WORLD_Z.worldLines,
+		spec: { line: p => ({ cls: 0, minZoom: num(f(p, "min_zoom"), WORLD_Z.maritimeDefault) }) },
 		lineStyles: [{ color: PALETTE.maritime, width: 0.6 }],
 		order: { lines: 58 },
 	},
 	{
-		id: "roads", label: "Roads", accent: "road", on: true, source: "world", group: "detail", kind: "line", loadZoom: 4.5,
-		spec: { line: p => p.layer === "roads" ? { cls: 0, minZoom: 5 } : null },
+		id: "roads", label: "Roads", accent: "road", on: true, source: "world", group: "detail", kind: "line", loadZoom: WORLD_Z.detailLoad,
+		spec: { line: p => p.layer === "roads" ? { cls: 0, minZoom: WORLD_Z.roads } : null },
 		lineStyles: [{ color: PALETTE.road, width: 0.8 }],
 		order: { lines: 30 },
 	},
 	{
-		id: "rail", label: "Rail", accent: "rail", on: true, source: "world", group: "detail", kind: "line", loadZoom: 4.5,
-		spec: { line: p => p.layer === "railroads" ? { cls: 0, minZoom: 5 } : null },
+		id: "rail", label: "Rail", accent: "rail", on: true, source: "world", group: "detail", kind: "line", loadZoom: WORLD_Z.detailLoad,
+		spec: { line: p => p.layer === "railroads" ? { cls: 0, minZoom: WORLD_Z.rail } : null },
 		lineStyles: [{ color: PALETTE.rail, width: 0.8 }],
 		order: { lines: 40 },
 	},
@@ -119,9 +120,10 @@ export const LAYERS = [
 		// 空港＝ラベル層に ✈（ortho-japan と同じ Material Icons "flight"）で置く＝都市の丸と形で区別する。
 		// mark:"plane" が立つ層は GL の点を描かない（main.js の draw）＝記号はラベル層の衝突判定に乗る。
 		// 出すのは z>5（本人 2026-09-18）＝loadZoom も 5 に合わせる（見えない層のために通信しない）。
-		id: "airports", label: "Airports", accent: "facility", on: true, ...NE("cultural", "ne_10m_airports"), kind: "point", loadZoom: 5,
-		mark: "plane", markMinZoom: 5,
-		spec: { point: p => ({ cls: 0, minZoom: Math.max(5, num(f(p, "scalerank"), 8) + 1) }) },
+		// 出所＝world の ne-cultural detail の airports（2026-09-24）＝道路・鉄道と同じ 1 本・globe と同じ実体（旧＝ne_10m_airports を別に取得＝同じデータの 2 つ持ち）
+		id: "airports", label: "Airports", accent: "facility", on: true, source: "world", group: "detail", kind: "point", loadZoom: WORLD_Z.airport,
+		mark: "plane", markMinZoom: WORLD_Z.airport, markLayer: "airports",
+		spec: { point: p => p.layer === "airports" ? { cls: 0, minZoom: Math.max(WORLD_Z.airport, num(f(p, "scalerank"), 8) + 1) } : null },
 		pointStyles: [{ color: PALETTE.airport, size: 7 }],
 		order: { points: 81 },
 	},
