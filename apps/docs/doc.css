@@ -102,3 +102,18 @@ tr:hover td { background: rgba(255,255,255,0.02); }
 .dc-del { background: rgba(251,191,36,0.15);  color: var(--yellow); border: 1px solid var(--yellow)44; }
 .dc-int { background: rgba(56,189,248,0.15);  color: var(--accent); border: 1px solid var(--accent)44; }
 .dc-var { background: rgba(52,211,153,0.15);  color: var(--green);  border: 1px solid var(--green)44; }
+
+/* スマホ幅（2026-09-25）：ヘッダは 2 段（上＝戻り口と現在地・下＝頁の切替を横スクロール）・本文の余白を詰める・広い表とコードは自分の中で横に流す＝頁全体は横に張り出さない */
+@media (max-width: 640px) {
+	.header-bar { flex-wrap: wrap; padding: 10px 16px; gap: 6px 10px; }
+	.header-bar .logo { font-size: 0.95rem; }
+	.header-bar .crumb-cur { font-size: 0.85rem; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.header-bar .nav-links { flex-basis: 100%; margin-left: 0; gap: 14px; overflow-x: auto; white-space: nowrap; scrollbar-width: none; padding-bottom: 2px; }
+	.header-bar .nav-links::-webkit-scrollbar { display: none; }
+	.header-bar a, .nav-cur { font-size: 0.85rem; }
+	.page { padding: 28px 16px 64px; }
+	table { display: block; overflow-x: auto; }
+	pre { padding: 14px 14px; font-size: 0.76rem; }
+	.cmap { flex-wrap: wrap; }   /* altpbf の色の段＝7 列を折り返す */
+	.cmap .cm-col { flex: 1 1 28%; }
+}
