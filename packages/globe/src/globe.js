@@ -124,7 +124,7 @@ const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog);   
 const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
 const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
 const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
-const REGION_HOME = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し
+const REGION_HOME = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し。{ view:[lon,lat,zoom], span?:[経度幅,緯度幅]（デモの終演で画面に収める全体）, label, id, icon }
 const REGION_SEARCH = REGIONS.map(r => r.search).find(Boolean) ?? null;   // 地名検索の供給元（日本＝地理院 AddressSearch）・null＝検索窓無し
 const REGION_POI = REGIONS.map(r => r.poi).find(Boolean) ?? null;      // 施設の点の台帳（日本＝POI 台帳 z14）・null＝読まない
 const REGION_RAIL = REGIONS.map(r => r.rail).find(Boolean) ?? null;    // 路線オーバーレイ（日本＝N02 新幹線）・null＝作らない
@@ -3561,10 +3561,14 @@ map.gadget("edit", function (opts) {   // 編集ボタン（左上スタック�
 	});
 });
 map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… 台本の一行=共有URLハッシュ。flyView（球面フライト）・フライト中判定・PLATEAU先読み・現テーマ名（幕替わり判定）を注入
-	const japanFit = () => {   // 終演の定位置＝日本列島が画面に収まる真俯瞰・北向き（fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）
-		const wDeg = 17.4 * 1.15, hDeg = 15.2 * 1.15;   // 列島の大づかみ [129..146.4]×[30.6..45.8]（沖縄本島は列島の画角を殺すので外＝台本の白地図と同じ構図）
+	// 終演の定位置＝地域が申告する「全体」（home.view の中心・home.span の縦横の度幅）を真俯瞰・北向きで画面に収める
+	// （fitBbox と同じ視野幅の逆解き＝縦横どちらの画面でも収まる）。span の無い地域・地球儀は既定の起動視点へ
+	const homeFit = () => {
+		const [lon, lat, zoom] = HOME_VIEW, span = REGION_HOME?.span;
+		if (!span) { flyTo(lon, lat, zoom, 0, 0); return; }
+		const wDeg = span[0] * 1.15, hDeg = span[1] * 1.15;
 		const z = Math.min(Math.log2(360 * size.w / (WORLD_PX * wDeg)), Math.log2(360 * size.h / (WORLD_PX * hDeg)));
-		flyTo(137, 37, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
+		flyTo(lon, lat, Math.max(ZOOM_MIN, Math.min(7, z)), 0, 0);
 	};
 	scenes.demoHandle = demoGadget.call(this, { flyView, fadeView: scenes.fadeViewRun, glidePath: glidePathView, flightActive: () => flightCtl.active || scenes.fadeBusy,
 		// 書き終わりの合図（自動上演の行送りゲート・裁定2026-08-12「非力機は書き終わるまで待つ」）＝可視の立ち上げ
@@ -3582,7 +3586,7 @@ map.gadget("demo", function (opts) {   // デモ（発表の台本再生）… �
 		},
 		// 静穏窓フック（裁定2026-08-12）＝書き終わり直後の一拍で「残り台本に出ない」常駐区を降ろす（上の trim 参照）
 		onQuiet: views => meshMgr.trimForScript(views),
-		prefetchViews: meshMgr.prefetch, finale: japanFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
+		prefetchViews: meshMgr.prefetch, finale: homeFit, signal: ac.signal, zoomMin: CAM_ZOOM_MIN, ...opts });   // 手綱を掴む＝ドロップ/?scene= は playScene→demoHandle.start(落とした台本, bare) で別入り口再生（▶=組み込みは壊さない）。glidePath＝via連続ドリー／fadeView＝黒挟み遷移（fadeBusy を着地待ちに乗せる）
 	return scenes.demoHandle;
 });
 // tip（カーソル追従の吹き出し）を既定搭載＝gint 層のホバー識別を指先へ。搭載はここ一箇所（dropFile/14条どの経路でも効く）。

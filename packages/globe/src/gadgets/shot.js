@@ -81,7 +81,7 @@ export function shot({ requestSnapshot, signal, btn } = {}) {
 	function save(blob) {   // デスクトップ専用（モバイルは非搭載）＝<a download> でそのまま保存
 		const url = URL.createObjectURL(blob);
 		const stamp = new Date().toISOString().slice(0, 19).replace(/[T:]/g, "-");
-		const a = document.createElement("a"); a.href = url; a.download = `ortho-japan-${stamp}.webp`;
+		const a = document.createElement("a"); a.href = url; a.download = `ortho-earth-${stamp}.webp`;   // 地域でなくサイトの名（どの家の地図でも同じ）
 		document.body.appendChild(a); a.click(); a.remove();
 		setTimeout(() => URL.revokeObjectURL(url), 4000);
 	}
