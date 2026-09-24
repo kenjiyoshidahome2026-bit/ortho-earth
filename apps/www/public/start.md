@@ -53,6 +53,7 @@ The globe runs its drawing in Web Workers that live inside the package. Vite's d
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>My globe</title>
+    <link rel="icon" href="data:,">
     <style>html, body { margin: 0; height: 100%; } #map { height: 100vh; }</style>
   </head>
   <body>
@@ -96,17 +97,20 @@ map.addSource("cities", {
 });
 await map.addLayer({ id: "cities", type: "circle", source: "cities",
   paint: { "circle-radius": 6, "circle-color": "#e4572e" } });
-
-map.on("click", "cities", e => alert(e.features[0].properties.name));
 ```
 
 `data` can also be a URL of a GeoJSON file. Layer types: `fill`, `line`, `circle`, `symbol`, `fill-extrusion`, `heatmap`, `raster`.
 Other formats (Shapefile, GeoPackage, FlatGeobuf, GeoParquet, KML, GPX …) are read with `geopbf` — `import { geopbf } from "@ortho-earth/globe"`.
 
-### A6. Markers, popups and the camera
+### A6. Clicks, popups, markers and the camera
 
 ```js
 import { createGlobe, Marker, Popup } from "@ortho-earth/globe";
+
+const popup = new Popup();
+map.on("click", "cities", e => {          // e.features, e.lngLat ({ lng, lat }), e.point ({ x, y })
+  popup.setLngLat(e.lngLat).setText(e.features[0].properties.name).addTo(map);
+});
 
 new Marker().setLngLat([139.77, 35.68])
   .setPopup(new Popup().setText("Tokyo"))
@@ -125,7 +129,7 @@ Camera: `jumpTo`, `easeTo`, `flyTo`, `fitBounds`, `getCenter`, `getZoom`. Events
 - A MapLibre `style.json`: `createGlobe({ style: url })`
 - Time: `map.clock` (night side, stars and satellites follow it)
 - Analysis: `map.sunShadow()`, `map.viewshed()`, `map.lineOfSight(a, b)`
-- Full type definitions ship with the package; the engine overview is at https://www.ortho-earth.com/docs/core.html
+- The `map` API is the same in both routes. Its TypeScript definitions ship with the SDK: `node_modules/@ortho-earth/japan/dist/lib/ortho-japan.d.ts` (install it alongside if you want them). The engine overview is at https://www.ortho-earth.com/docs/core.html
 
 ---
 
