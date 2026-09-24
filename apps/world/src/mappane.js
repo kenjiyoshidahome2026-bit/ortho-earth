@@ -1,14 +1,15 @@
 // 地図パネル＝カードの地図ボタン（world の on("map") 合図）の受け口。**殻の持ち物**であって部品の中身ではない
 // （world.js は「地図の実体は持たない＝外へ合図だけ」＝相手が地図でなくても成り立つ設計・2026-09-12 の裁定）。
-// ここが ortho-earth のエンジン（ortho-japan の SDK 配布物）を遅延 import して、その国を **スポットライト**で指す
+// ここが地球儀のホスト（@ortho-earth/globe＝地域なし）を遅延 import して、その国を **スポットライト**で指す
 // ＝周りを薄い黒で覆い、国の形だけ素の地図を残す（本人 2026-09-23）。
 // エンジンは一度だけ起動して使い回す＝2 か国目からは spotlight を差し替えるだけ（起動のやり直しをしない）。
 // エンジンは world 自身の束に焼く（本人裁定 2026-09-23「A 一択」）：dev も本番もソース直＝build 時にワークスペースの
-// ortho-japan/app.js ごと束なる（地図ボタンを押した時だけ読む遅延チャンク）。旧＝本番だけ /japan/lib/ の SDK を実行時に食い、
-// japan を出さないと進めず・出すと全消費者が同時に変わった。window.__orthoEngine＝検定の注入口（偽エンジン）。
+// @ortho-earth/globe ごと束なる（地図ボタンを押した時だけ読む遅延チャンク）。旧＝本番だけ /japan/lib/ の SDK を実行時に食い、
+// japan を出さないと進めず・出すと全消費者が同時に変わった。japan の殻（app.js）は通らない＝日本／NL の申告を束に入れない
+// （LAYERS.md 掟 5・2026-09-24）。window.__orthoEngine＝検定の注入口（偽エンジン）。
 import { countryLayers } from "./worldlayers.js";
 const ZMAX = 8;   // この地図のズーム上限＝世界データ（NE 10m・ハイプソ）が持つ所まで（本人裁定 2026-09-23）
-const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("../../ortho-japan/app.js");
+const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("@ortho-earth/globe");
 
 let paneP = null;
 

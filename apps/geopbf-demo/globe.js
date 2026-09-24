@@ -1,9 +1,9 @@
-// 背景の地球儀＝ortho-japan エンジン（gint v2）。旧＝ortho-map（v1）の orthoMap({target:body})。
+// 背景の地球儀＝地球儀のホスト @ortho-earth/globe（地域なし＝japan の殻 app.js は通らない・LAYERS.md 掟 5）。旧＝ortho-map（v1）の orthoMap({target:body})。
 // エンジンは build 時に同梱（A 裁定 2026-09-23＝内製アプリは本番で /japan/lib を実行時に食わない・census2020/world と同じ型）。
 // CSS もエンジンのチャンクに付いて来る（旧＝/japan/lib/ortho-japan.css の link は不要）。
 import { createGintView } from "common/gintView";
 
-const engineP = import("../ortho-japan/app.js");
+const engineP = import("@ortho-earth/globe");
 
 // 地球の半径＝画面短辺の 1/4（旧 v1 と同じ構図。v2 も 256px 世界＝同じ式）
 export const overviewZoom = Math.log2(Math.min(innerWidth, innerHeight) / 2 * 0.5 / 256 * Math.PI * 2);

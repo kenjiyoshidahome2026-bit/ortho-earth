@@ -6,7 +6,7 @@
 | 層 | 硬さ | 置き場 | 中身 |
 |---|---|---|---|
 | core | 硬い | `packages/ortho-core`（`@ortho-earth/core`） | 描画・カメラ・投影・gint・overlay 契約。地域を知らない |
-| globe | 硬い | 今は `apps/ortho-japan/app.js` の `createGlobe`（→ 段階 2 で `packages/globe`） | 地球儀のホスト＝起動・世界層（ハイプソ／admin0／湖／河川／海洋境界／星）・地域非依存ガジェット（spotlight／outline／symbols／anno／extrude／heatmap／cluster／model／raster／measure／shot／palette…）・SDK の型（d.ts）・i18n は英語基底・関門 |
+| globe | 硬い | `packages/globe`（`@ortho-earth/globe`） | 地球儀のホスト＝起動・世界層（ハイプソ／admin0／湖／河川／海洋境界／星）・地域非依存ガジェット（spotlight／outline／symbols／anno／extrude／heatmap／cluster／model／raster／measure／shot／palette…）・SDK の型（d.ts）・i18n は英語基底・関門 |
 | region パック | 硬め（データ） | `packages/jp`（`@ortho-earth/jp`）＋日本だけの部品 | 地域の申告（dtm／buildings／basemap／rasters／attribution／view／home／search／poi／rail）と、日本だけの部品（mesh＝PLATEAU・POI・地理院検索・N02・airports・e-Stat＝`map.estat`・jp/codes・層チップ） |
 | apps | 柔らかい | `apps/*` | 殻。`japan`＝globe＋jp パック＋日本 UI。`world`／`equal`／`census2020`／`solar`… |
 
@@ -54,7 +54,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 ## 段階（可逆）
 
 - **1（済 2026-09-23）** 文書で線を引く。`createGlobe` を export（region 省略＝地球儀）。world はそれを使う。中身は動かさない。
-- **2（進行中）** 「動作を変えない移動」を刻む：
+- **2（済 2026-09-23）** 「動作を変えない移動」を刻む：
   - S1 済：地域の選び方（URL→JP/NL）をホストから包み `orthoJapan` へ。ホスト `createGlobe` は `opts.region` しか見ない・既定の視点は世界
   - S2 済：airports.json＝地域の申告（`JP_REGION.airports`）
   - S3 済：e-Stat（overlay.js の estat 部）を jp 側へ（`packages/jp/src/estat.js`・`estat-worker.js`・`install.js`）。overlay.js は地球儀の臓器（identify／mask／hover 輪郭／`use(ext)`）だけ。ホストは**拡張面** `hostEnv`＝`{ opts, renderer, cam, size, dpr, requestDraw, overlay, spawnWorker, ownTip, hooks.hover[], t, dbg, onDestroy }` を出し、地域宣言の `install(map, hostEnv)` が `map.estat` を生やす（`map.overlay` への同名 alias は census2020 互換）。轍：install の dynamic import は verify:ui（仮想時間）で解決しない＝region.js から静的 import
@@ -94,6 +94,19 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   deploy の速い関門は二手（japan＝t-import・globe＝t-backfill/t-rectlook 2 変種）を**並行**で回す。
 - 数：globe＝UI 17＋WebGPU 9（＋nocoi 5）／japan＝UI 18＋WebGPU 14＋editor 3。
 - ortho-core に `./workers/gint` を追加（検定の worker 入口が相対で内部を掴んでいた）。
+
+## 依存の向きと入口（2026-09-24 実測）
+
+- **向き**：japan → globe → core → ephem／japan → jp → core。**globe と jp は互いを import しない**（出会うのは japan が渡す申告 `opts.region` と、ビルド時に worker の空き枠 `#extra-roles` を jp の役表へ差し替える所だけ）。
+  モノレポ全体をパッケージ単位で機械検査して**出荷物に循環なし**（輪は scripts・tests が他アプリのデータを読む所だけ）。
+- **入口**：地域なしの地球儀は `@ortho-earth/globe` から直に取る＝world（国の地図パネル）・GeoPBF デモ（9/24 に japan の殻経由から直へ＝束から日本／NL の申告が消えた）・equal（ガジェットと i18n だけ）。
+  日本／NL の申告が要るアプリは japan の殻（`apps/ortho-japan/app.js`＝`orthoJapan`）＝census2020・gishub-jp・ortho-nl。
+- **誰が何を持つか**：
+  - 世界帯の中身（国・州・都市・道路・鉄道とその名前）＝規則は core の `worldcontent.js`・データは bucket `GIS/world/`＝equal／globe／world が同じ URL・同じキャッシュ名で引く（japan は通らない）。
+  - 楕円体（`?ell=1`）＝ノブは core の `camera.js`（setEllipsoid）・**決めるのは globe.js の 1 行（URL だけ・opts には無い）**・各 worker へは globe が init で運ぶ。既定は全端末で球（2026-08-19 裁定）。
+- **残る結び目（裁定待ち）**：
+  1. **globe の家が無い**：globe だけで動く頁（earth＝Equal Earth ⇄ 3D の往復・quakes・sats）が japan の殻に住み（URL `/japan/…`）、本番では japan の SDK 束 `/japan/lib/ortho-japan.js` を実行時に読む（dev は `./app.js`）＝使わない日本／NL の申告まで読み、japan の SDK を出すと一緒に変わる。
+  2. **実行時アセットの置き場**：globe の実行時アセット（koppen-clim.png 等）は `apps/ortho-japan/public`＝`/japan/` から配る（各アプリの `assetBase`＝`__JAPAN_ASSETS__`）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 

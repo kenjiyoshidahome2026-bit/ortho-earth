@@ -12,7 +12,7 @@ const coepHeaders = () => ({
 	name: "coep-headers",
 	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
 });
-// 地図パネル（src/mappane.js）＝エンジン（ortho-japan）を遅延 import する。dev も本番も ../ortho-japan/app.js をソース直
+// 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev も本番もソース直
 // （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __JAPAN_ASSETS__ が要る＝geopbf-demo と同じ配線）。
 const JAPAN_PUBLIC = path.resolve(__dirname, '../ortho-japan/public');
 
