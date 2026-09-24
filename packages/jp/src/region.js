@@ -97,6 +97,7 @@ export const JP_REGION = {
 	home: {   // 「日本全体へ」＝既定起動＆ home ガジェットの着地点（列島ビュー・真俯瞰・z6.6＝デモ初景と同値）。顔＝手描きの列島ブロック図（画素トレース）の塗り潰し版
 		// 北海道=右上／本州=右柱＋南の足＋房の切り欠き＋左へ中国地方の帯／九州=左下／四国=中央下。各島は原図より一回り小さく＝海峡（白い隙間）を確保。細いstroke同色＝角の丸み用
 		view: [137, 37, 6.6], label: "Show all of Japan", id: "japan-btn",   // id＝利用者 CSS が当てる公開面（quiet-mono #japan-btn）＝据え置き
+		span: [17.4, 15.2],   // 全体の縦横の度幅＝デモの終演で画面に収める（列島の大づかみ [129..146.4]×[30.6..45.8]・沖縄本島は列島の画角を殺すので外＝台本の白地図と同じ構図）
 		icon: `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" stroke="#3f4757" stroke-width=".8" stroke-linejoin="round" aria-hidden="true">
 			<rect x="17.2" y="1.6" width="5.8" height="5.2" rx="1"/>
 			<path d="M17.2 8.8 H23 V22.4 H20.1 V20.5 H18.6 V22.4 H13 V18 H6.8 V14.6 H17.2 Z"/>

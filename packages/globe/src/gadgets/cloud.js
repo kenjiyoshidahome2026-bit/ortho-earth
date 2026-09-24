@@ -175,7 +175,9 @@ export function cloudPanel(container, hooks, toast) {
 		};
 		tiRow.append(titleIn, pubB);
 		panel.append(urlRow, tiRow);
-		const shareUrl = w => `${location.origin}/japan/?g=${encodeURIComponent(w.url)}${w.view || ""}`;
+		// 共有 URL＝今の頁の置き場（ディレクトリ）の入口＝その家の地図（/japan/geoedit → /japan/・/globe/quakes → /globe/）。地域の URL は書かない。hooks.shareBase で上書き可
+		const shareBase = hooks.shareBase ?? new URL("./", location.href).pathname;
+		const shareUrl = w => `${location.origin}${shareBase}?g=${encodeURIComponent(w.url)}${w.view || ""}`;
 		const wRes = await fetch("/me/works", { credentials: "same-origin" });
 		if (wRes.ok) for (const w of (await wRes.json()).works) {
 			const r = el("div", null, "row");

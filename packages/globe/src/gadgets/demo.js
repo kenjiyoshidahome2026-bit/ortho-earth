@@ -74,7 +74,7 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 // opts/start.onScene(i, scene)＝行の上映開始（フライト開始前＝エディタの行ハイライト用）／onEnd(reason)＝どの終わり方でも1発
 //   （"finished"=走破・"stopped"=Esc/▶/exit()）。台本スコープ＝載せ替えでリセット（finale と同じ流儀）。
 // 戻り値＝{start, next, prev, exit, play, pause}（テスト・プログラム駆動用）。
-// opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（app が japan-fit を注入）。Esc/▶の途中終了では呼ばない。
+// opts.finale＝台本を最後まで走り切った時だけ呼ばれる終演フック（ホストが地域の home＝全体の画角を注入）。Esc/▶の途中終了では呼ばない。
 // opts.fadeView＝フェード遷移（app が注入・任意）：黒への溶暗→切替→溶明（fade: 行・尺=travel）。無ければ fade 行は普通の飛行に落ちる。
 export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4, mobile, zoomMin = 1, lang, flyView, fadeView, glidePath, flightActive, loadingActive, onQuiet, prefetchViews, finale, signal, preload, btn: opts_btn = null, player: playerOnly = false } = {}) {
 	const mapEl = this.mapEl;
