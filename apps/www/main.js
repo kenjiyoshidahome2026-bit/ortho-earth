@@ -17,25 +17,29 @@ function relabel() {
 	const tr = document.querySelector(".motto-tr");
 	if (tr) tr.hidden = getLang() === "en" || !has(tr.dataset.t);
 }
-function propagate(lang) {
-	document.querySelectorAll('a[href^="/"]:not([href^="/docs"])').forEach(a => {
-		const u = new URL(a.getAttribute("href"), location.origin);
-		lang && lang !== "en" ? u.searchParams.set("lang", lang) : u.searchParams.delete("lang");
-		a.setAttribute("href", u.pathname + (u.searchParams.size ? "?" + qs(u.searchParams) : "") + u.hash);
-	});
-}
+// デモへ持ち回る言語（本人 2026-09-24「lang はデモページへ持ち回って」）＝www に出ている言語そのもの。
+// ブラウザの言語で選んだ時も付ける（付けないとデモ側が自分で推し量り直す）。英語は自分で選んだ時だけ付ける（ブラウザが英語なら素の URL のまま）
+let chosen = false;
+const carried = () => getLang() !== "en" || chosen ? getLang() : null;
+const withLang = href => {
+	const u = new URL(href, location.origin), l = carried();
+	l ? u.searchParams.set("lang", l) : u.searchParams.delete("lang");
+	return u.pathname + (u.searchParams.size ? "?" + qs(u.searchParams) : "") + u.hash;
+};
+const propagate = () => document.querySelectorAll('a[href^="/"]:not([href^="/docs"])').forEach(a => a.setAttribute("href", withLang(a.getAttribute("href"))));
 {
 	const asked = norm(new URLSearchParams(location.search).get("lang"));
+	chosen = !!asked;
 	await setLang(asked || norm(navigator.language) || "en");
 	relabel();
 	document.documentElement.classList.remove("i18n-wait");   // 先頭のスクリプトが隠した本文を、貼り替えが済んだ所で出す
-	if (asked) propagate(asked);
+	propagate();
 	const sel = document.querySelector("select.lang");
 	for (const l of LANGUAGES) sel.append(new Option(l.name, l.code));
 	sel.value = getLang();
 	sel.addEventListener("change", async () => {
 		const c = await setLang(sel.value);
-		relabel(); propagate(c);
+		chosen = true; relabel(); propagate();
 		const q = new URLSearchParams(location.search); c === "en" ? q.delete("lang") : q.set("lang", c);
 		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
@@ -82,18 +86,19 @@ const globe = liteGlobe(document.getElementById('mapContainer'), {
 // ・デモは同じオリジンのパスだけ（?d= に外のアドレスを入れても開かない）。
 const tpl = document.getElementById("demoFrame"), backBtn = document.querySelector("nav .back"), logo = document.querySelector("nav .logo"), popout = document.querySelector("nav .popout");
 let frame = null;
-const demoPath = p => { try { const u = new URL(p, location.origin); return u.origin === location.origin && u.pathname !== "/" ? u.pathname + u.search + u.hash : null; } catch { return null; } };
+// ?d= には lang を書かない（www 自身の ?lang= が言語の正本＝開く時に withLang で付ける）
+const demoPath = p => { try { const u = new URL(p, location.origin); u.searchParams.delete("lang"); return u.origin === location.origin && u.pathname !== "/" ? u.pathname + (u.searchParams.size ? "?" + qs(u.searchParams) : "") + u.hash : null; } catch { return null; } };
 function showDemo(path, title) {
 	if (!frame || frame.dataset.path !== path) {
 		frame?.remove();
 		frame = tpl.cloneNode(false);
 		frame.removeAttribute("id"); frame.hidden = false; frame.className = "demo-frame";
-		frame.dataset.path = path; frame.title = title || "Demo"; frame.src = path;
+		frame.dataset.path = path; frame.title = title || "Demo"; frame.src = withLang(path);   // ?d= で直接来た時も言語を付ける
 		frame.addEventListener("load", () => { try { frame.contentWindow.focus(); } catch { /* 読み込み失敗 */ } }, { once: true });   // キー操作（矢印・Esc 等）がすぐデモに届く
 		tpl.after(frame);
 	}
 	backBtn.hidden = false;
-	popout.hidden = false; popout.href = path;
+	popout.hidden = false; popout.href = withLang(path);
 	logo.setAttribute("role", "button"); logo.tabIndex = 0; logo.title = backBtn.textContent.replace("←", "").trim();   // デモの間はロゴも「戻る」
 	document.body.classList.add("in-demo"); globe.pause();
 }
@@ -120,7 +125,7 @@ const backToList = () => { if (history.state?.demo) history.back(); else { histo
 backBtn.addEventListener("click", backToList);
 // 別ウィンドウで開く（本人 2026-09-24）＝押した瞬間の iframe の中の URL（同じオリジン＝デモの中で動いた先・視点の URL 等）を開く。読めなければ開いた時のパス
 popout.addEventListener("click", () => {
-	try { const u = frame?.contentWindow?.location; if (u && u.origin === location.origin && u.pathname !== "blank") popout.href = u.pathname + u.search + u.hash; } catch { /* 読めない＝開いた時のパスのまま */ }
+	try { const u = frame?.contentWindow?.location; if (u && u.origin === location.origin && u.pathname !== "blank") popout.href = /[?&]lang=/.test(u.search) ? u.pathname + u.search + u.hash : withLang(u.pathname + u.search + u.hash); } catch { /* 読めない＝開いた時のパスのまま */ }   // デモが URL を書き換えて lang を落としていたら付け直す
 });
 logo.addEventListener("click", () => { if (frame) backToList(); });
 logo.addEventListener("keydown", e => { if (frame && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); backToList(); } });

@@ -44,10 +44,11 @@ test("見送り：Save-Data・2g/3g", () => {
 test("全球アトラスの鍵＝altpbf の WORLD_ATLAS", () => {
 	assert.equal(planPrefetch().tier1.find(j => j.id === "world-atlas").key, WORLD_ATLAS);
 });
-test("国境：globe は起動 50m・寄って 10m を読む（世界帯の中身＝worldContent は最初から 10m・LOW_MEM は 50m）", () => {
+test("国境：globe は起動 50m・寄って 10m を読む（世界帯の中身＝worldContent は z4＝州境の帯から 10m・LOW_MEM は 50m のまま）", () => {
 	const s = src("packages/globe/src/gint/layers.js");
 	assert.match(s, /ne_\$\{res\}_admin_0_countries/);
-	assert.match(s, /loadAdmin0\(WORLD_CONTENT && !LOW_MEM \? "10m" : "50m"\)/); assert.match(s, /loadAdmin0\("10m"\)/);
+	assert.match(s, /loadAdmin0\("50m"\)/); assert.match(s, /loadAdmin0\("10m"\)/);
+	assert.match(s, /WORLD_CONTENT \? WORLD_Z\.admin1 : ADMIN0_FINE_Z/);
 });
 test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", () => {
 	const s = src("packages/globe/src/globe.js");
