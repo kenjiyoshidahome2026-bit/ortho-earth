@@ -29,8 +29,10 @@ const pack = dir => {
 	const name = JSON.parse(out.slice(out.indexOf("[")))[0].filename;
 	return path.join(os.tmpdir(), name);
 };
-console.log("… npm pack（core・globe）");
-const tarCore = pack(path.join(ROOT, "packages/ortho-core")), tarGlobe = pack(GLOBE);
+// FROM_NPM=1＝pack せず npm に公開済みの版を入れる（公開した後の確かめ＝利用者が実際に受け取る物）
+const FROM_NPM = process.env.FROM_NPM === "1";
+console.log(FROM_NPM ? "… npm に公開済みの @ortho-earth/globe を使う" : "… npm pack（core・globe）");
+const tarCore = FROM_NPM ? null : pack(path.join(ROOT, "packages/ortho-core")), tarGlobe = FROM_NPM ? "@ortho-earth/globe" : pack(GLOBE);
 
 // 2) 使い捨ての消費アプリ＝Get Started の手順そのもの（vite.config.js は手順が書く 3 行＋検定の申告口）
 // A1 そのもの＝npm create vite（vanilla）で作る。最新の create-vite と、その雛形が選ぶ vite の版を通す
@@ -79,9 +81,9 @@ ${code.join("\n")}
   report((Object.values(checks).every(v => v === true || v === 0) ? "PASS " : "FAIL ") + JSON.stringify(checks) + (errors.length ? " " + errors.slice(0, 3).join(" | ") : ""));
 } catch (e) { report("FAIL " + (e?.stack || e)); }
 `);
-console.log("… npm install（雛形の依存＋手元の core・globe の tarball）");
+console.log(FROM_NPM ? "… npm install（雛形の依存＋npm の @ortho-earth/globe）" : "… npm install（雛形の依存＋手元の core・globe の tarball）");
 execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online"], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install（雛形の vite）
-execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online", tarCore, tarGlobe], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install @ortho-earth/globe（ここだけ手元の tarball）
+execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online", ...(tarCore ? [tarCore] : []), tarGlobe], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install @ortho-earth/globe（ここだけ手元の tarball）
 const viteVer = JSON.parse(readFileSync(path.join(WORK, "node_modules/vite/package.json"), "utf8")).version;
 
 // 3) Chrome で開いて、ページの申告を待つ
@@ -124,6 +126,7 @@ results.push(["dev", await runPage(`http://localhost:${DEVPORT}/?lang=ja&gl2=1`,
 dev.kill("SIGKILL");
 
 for (const [k, r] of results) console.log(`${r.startsWith("PASS") ? "ok" : "NG"}:${k}  ${r}`);
-rmSync(tarCore, { force: true }); rmSync(tarGlobe, { force: true });
-if (results.every(([, r]) => r.startsWith("PASS"))) { rmSync(BASE, { recursive: true, force: true }); console.log(`✓ @ortho-earth/globe の npm 配布物の検定 PASS（vite ${viteVer}・build と dev）`); process.exit(0); }
+if (!FROM_NPM) { rmSync(tarCore, { force: true }); rmSync(tarGlobe, { force: true }); }
+const which = FROM_NPM ? "npm の " + JSON.parse(readFileSync(path.join(WORK, "node_modules/@ortho-earth/globe/package.json"), "utf8")).version : "手元の pack";
+if (results.every(([, r]) => r.startsWith("PASS"))) { rmSync(BASE, { recursive: true, force: true }); console.log(`✓ @ortho-earth/globe の npm 配布物の検定 PASS（${which}・vite ${viteVer}・build と dev）`); process.exit(0); }
 fail(`npm 配布物の検定 FAIL（作業場所 ${WORK} を残す）`);
