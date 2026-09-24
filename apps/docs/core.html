@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ortho-earth Engine Overview</title>
+<meta name="description" content="How the ortho-earth map engine is built: @ortho-earth/core and @ortho-earth/globe, the worker pipeline, WebGPU with a WebGL2 fallback, true-scale terrain, gint vectors, 3D meshes, and the shared clock.">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+.layer-stack { display:flex; flex-direction:column; gap:4px; margin:20px 0; }
+.layer-row { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--muted); border-radius:8px; padding:12px 16px; }
+.layer-badge { font-family:var(--mono); font-size:0.68rem; font-weight:bold; padding:2px 8px; border-radius:4px; flex-shrink:0; min-width:92px; text-align:center; }
+.b-soft { background:rgba(52,211,153,0.15); color:var(--green); }
+.b-data { background:rgba(251,191,36,0.12); color:var(--yellow); }
+.b-hard { background:rgba(192,132,252,0.15); color:var(--purple); }
+.b-core { background:rgba(56,189,248,0.15); color:var(--accent); }
+.layer-name { font-weight:600; font-size:0.9rem; min-width:170px; }
+.layer-desc { font-size:0.8rem; color:var(--dim); }
+.layer-arrow { text-align:center; color:var(--dim); font-size:0.75rem; padding:2px 0; }
+@media (max-width: 640px) { .layer-row { flex-wrap:wrap; } .layer-name { min-width:0; } }
+</style>
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">@ortho-earth/core</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="geopbf.html">GeoPBF</a>
+		<a href="altpbf.html">AltPBF</a>
+		<span class="nav-cur">Engine</span>
+		<a href="gint.html">Gint</a>
+		<a href="core-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>ortho-earth Engine — Technical Overview</h1>
+<p class="lead">A map engine that draws everything on a sphere, in the browser, with no map server of its own<br>
+<span style="font-size:0.85em">
+@ortho-earth/core &middot; @ortho-earth/globe &middot; WebGPU with a WebGL2 fallback &middot; true-scale terrain &middot; worker pipeline
+</span></p>
+
+<div class="toc">
+	<div class="toc-title">Table of Contents</div>
+	<ol>
+		<li><a href="#layers">Four Layers — Hard Core, Soft Apps</a></li>
+		<li><a href="#threads">Threads and Workers</a></li>
+		<li><a href="#backend">Backends — WebGPU First, WebGL2 Always</a></li>
+		<li><a href="#camera">Camera, Projection and Zoom</a></li>
+		<li><a href="#terrain">Terrain at True Scale</a></li>
+		<li><a href="#basemap">Basemaps, Rasters and the World Band</a></li>
+		<li><a href="#gint">Gint — Vectors You Can Ask Questions</a></li>
+		<li><a href="#mesh">3D Meshes — Buildings, 3D Tiles, I3S, Models</a></li>
+		<li><a href="#time">The Sky and the Shared Clock</a></li>
+		<li><a href="#api">The Public Face</a></li>
+	</ol>
+</div>
+
+<div class="callout callout-note">
+	<div class="callout-head">History</div>
+	This page replaces the overview of <code>ortho-map</code>, the first engine (v1: d3 orthographic projection, one worker per layer, WebGL2 only).
+	v1 was retired in September 2026. Its ideas — orthographic globe, OffscreenCanvas, GeoPBF/AltPBF/Gint — carried over; the implementation did not.
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="layers">1. Four Layers — Hard Core, Soft Apps</h2>
+
+<p>
+The engine is split so that <strong>the lower a part sits, the harder it is</strong>: guarded by test gates, type definitions and versions.
+Apps on top are shells and may change freely. New work starts by naming the layer it belongs to.
+</p>
+
+<div class="layer-stack">
+	<div class="layer-row">
+		<span class="layer-badge b-soft">apps</span>
+		<span class="layer-name">apps/*</span>
+		<span class="layer-desc">shells — japan, world, equal, census2020, solar, the globe pages … each bundles the engine into its own build</span>
+	</div>
+	<div class="layer-arrow">↓ opts.region (a declaration, not code)</div>
+	<div class="layer-row">
+		<span class="layer-badge b-data">region pack</span>
+		<span class="layer-name">@ortho-earth/jp</span>
+		<span class="layer-desc">what one country knows: basemap, elevation, buildings, search, POI, attribution, home view</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-hard">host</span>
+		<span class="layer-name">@ortho-earth/globe</span>
+		<span class="layer-desc"><code>createGlobe()</code> — boot, the world band, region-free gadgets, the SDK types, the gates</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-core">core</span>
+		<span class="layer-name">@ortho-earth/core</span>
+		<span class="layer-desc">drawing, camera, projection, terrain, rasters, labels, gint, the overlay contract — knows no region</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-soft">foundation</span>
+		<span class="layer-name">geopbf · altpbf · ephem</span>
+		<span class="layer-desc">the vector format (MIT) · elevation tiles (MIT) · the clock and the sky</span>
+	</div>
+</div>
+
+<p>
+The rule that holds it together: <strong>core and globe never name a country</strong>.
+A machine gate (<code>verify:regionless</code>) counts region words in globe's code and fails if the count grows.
+The direction of imports is one-way — <code>japan → globe → core → ephem</code> and <code>japan → jp → core</code>; globe and jp never import each other.
+They meet only through the declaration that the app passes in.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="threads">2. Threads and Workers</h2>
+
+<p>
+The main thread holds the camera, input and DOM. Everything that decodes, builds or draws runs in workers.
+All workers start from <strong>one entry file</strong> (<code>worker.js</code>) and are told their role by the Worker's <code>name</code> —
+so the bundler builds one worker graph, and shared code (the GeoPBF core, loaders.gl, the shaders) exists once, not once per worker.
+</p>
+
+<div class="pipeline">
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">1</span><span class="pipe-title">main</span></div>
+		<div class="pipe-items"><span>camera · input · flight · gadgets (DOM) · the clock · sends <code>draw {cam}</code></span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">2</span><span class="pipe-title">tile workers</span></div>
+		<div class="pipe-items"><span>fetch · decode MVT · triangulate · draw lists (transferred, not copied)</span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">3</span><span class="pipe-title">scene worker</span></div>
+		<div class="pipe-items"><span>merge the visible tiles into one scene per frame set</span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">4</span><span class="pipe-title">render worker</span></div>
+		<div class="pipe-items"><span>OffscreenCanvas · terrain · rasters · gint · labels · same-frame overlays — one rAF</span></div>
+	</div>
+</div>
+
+<table>
+	<tr><th>Role</th><th>What it does</th></tr>
+	<tr><td><code>render</code></td><td>Owns the canvas. Draws globe, terrain, basemap scene, rasters, gint layers, labels and overlays in one frame with one camera.</td></tr>
+	<tr><td><code>ortho:tile</code> / <code>ortho:scene</code></td><td>Tile fetch and build / scene merge (the basemap pipeline).</td></tr>
+	<tr><td><code>mesh</code> / <code>meshdecoder</code></td><td>Streams large 3D meshes (buildings) — decode, dedup, ground, LOD, persist to OPFS/IndexedDB.</td></tr>
+	<tr><td><code>model</code></td><td>glTF/GLB, extrusions, 3D Tiles and I3S content; also sun-shadow and viewshed analysis.</td></tr>
+	<tr><td><code>gintbake</code></td><td>Bakes gint layers (LOD ranks, edges) off the render thread.</td></tr>
+	<tr><td><code>altpbf:height</code></td><td>Decodes elevation tiles.</td></tr>
+	<tr><td><code>rastertiles</code> / <code>imagequad</code></td><td>Serves raster tiles from local GeoPackage/MBTiles, or from an image pinned by four corners.</td></tr>
+	<tr><td><code>decoder:*</code> / <code>encoder:*</code></td><td>GeoPBF format conversion (dropped files, exports).</td></tr>
+</table>
+
+<p>
+A region pack can add roles (Japan adds its statistics worker) through a build-time slot, so the host never knows about them.
+Cross-origin isolation is <em>not</em> required: with it, GeoPBF buffers travel to workers without copying (SharedArrayBuffer);
+without it, they are copied once. Every feature works either way, and a gate (<code>verify:nocoi</code>) checks that.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="backend">3. Backends — WebGPU First, WebGL2 Always</h2>
+
+<p>
+The core has two renderers with the same face — <code>set</code>, <code>draw</code>, <code>dispose</code> — one on WebGPU, one on WebGL2.
+The render worker picks one at start:
+</p>
+
+<table>
+	<tr><th>Condition</th><th>Backend</th></tr>
+	<tr><td><code>?gl2=1</code></td><td>WebGL2 (manual escape hatch)</td></tr>
+	<tr><td>no <code>navigator.gpu</code></td><td>WebGL2 directly</td></tr>
+	<tr><td>Android</td><td>WebGL2 (silent black-screen faults on some mobile GPU drivers)</td></tr>
+	<tr><td>a previous WebGPU start failed in this tab</td><td>WebGL2</td></tr>
+	<tr><td>otherwise</td><td><strong>WebGPU</strong></td></tr>
+</table>
+
+<p>
+WebGPU has three safety nets: an init failure falls back to WebGL2 inside the worker; a <em>silent</em> failure
+(initialised, but nothing reaches the screen) is caught by reading back the first frame; and if no frame arrives in 20 seconds the page restarts on WebGL2.
+</p>
+
+<p>
+Two quality levers run on both backends. <strong>Transition anti-aliasing</strong>: while the camera moves, frames are drawn at 1× MSAA;
+once it has been still for about half a second, one 4× frame is drawn. <strong>Dynamic resolution</strong>: when frames get slow, the canvas
+resolution steps down, and line widths stay constant on screen.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="camera">4. Camera, Projection and Zoom</h2>
+
+<p>
+The camera is a small plain object — <code>center</code>, <code>zoom</code>, <code>pitch</code>, <code>bearing</code> — and the projection is one 4×4 matrix.
+<strong>Orthographic and perspective are one continuum</strong>: orthographic is perspective with the eye at infinite distance, so the projection is a slider, not a wall.
+</p>
+
+<ul>
+	<li><strong>Zoom means scale.</strong> The world is 256 px at z0; the same z is the same magnification everywhere. Latitude correction is not folded back into the camera.</li>
+	<li><strong>Floating point is kept honest.</strong> Absolute longitude and latitude never pass through 32-bit floats: meshes are drawn relative to a local origin (RTE), and the camera longitude is wrapped so it cannot drift across many turns of the globe.</li>
+	<li><strong>The globe is a sphere by default.</strong> A WGS84 ellipsoid is available (<code>?ell=1</code>); measurements (distance, area) always use the ellipsoid.</li>
+	<li><strong>Going underground fades to black</strong> instead of pushing the camera up — the camera is never moved behind your back.</li>
+	<li><strong>Flights</strong> (<code>flyTo</code>, <code>easeTo</code>, <code>fitBounds</code>) are plans evaluated in time; scene playback uses a virtual clock with a 35 ms step cap, so recordings on slow machines stay in sync.</li>
+</ul>
+
+<p>
+The view lives in the URL — <code>#zoom/lat/lon[/45t][/-30r][/l=…][/c=theme][/t=UTC][/s=speed]</code> — so the address bar is always a link to what you see.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="terrain">5. Terrain at True Scale</h2>
+
+<p>
+Elevation is drawn <strong>without exaggeration</strong>. The heights come from <a href="altpbf.html">AltPBF</a>: 1° cells at three resolutions,
+decoded in a worker and packed into two elevation atlases — a <strong>near</strong> atlas of fine cells around the camera, and a <strong>far</strong> atlas
+of coarse cells for the horizon. The shader reads one continuous height field from both.
+</p>
+
+<ul>
+	<li>Hillshade, hypsometric tint and distant-mountain blue are computed on the GPU from the atlas.</li>
+	<li>The basemap, rasters, vectors and buildings are all <em>draped</em> on the same field, so nothing floats or sinks.</li>
+	<li>A region can declare that its elevation is a bare-earth model (DTM), which lets buildings be grounded on it.</li>
+	<li>Any public <code>raster-dem</code> source (Terrarium, Mapbox, GSI encodings) can replace the built-in heights: <code>map.setTerrain(…)</code>.</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="basemap">6. Basemaps, Rasters and the World Band</h2>
+
+<p>
+<strong>Below about z8, the globe draws the world on its own</strong> — Natural Earth 10 m countries, lakes, rivers and maritime boundaries,
+and a hypsometric tint computed every frame from global elevation and a climate field, so no raster tiles are downloaded.
+That is honestly as far as world data can carry.
+</p>
+<p>
+<strong>Above that, a region takes over</strong> from the zoom its declaration names (Japan: z6.5, with the GSI vector basemap).
+Vector tiles go through the tile and scene workers; in tilted 3D views, a zoom-out keeps the finer tiles on screen while they still cover the ground, instead of swapping them for coarser ones.
+</p>
+<p>
+<strong>Rasters</strong> — XYZ, WMS, WMTS, PMTiles, local GeoPackage/MBTiles, or one image by four corners — are first composited into a ground atlas,
+and the terrain shader samples that atlas per pixel. That is why a raster follows the slope of a mountain instead of lying flat across it.
+External MapLibre <code>style.json</code> files are converted into the same pipeline (<code>map.setStyle</code>).
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="gint">7. Gint — Vectors You Can Ask Questions</h2>
+
+<p>
+Tiles are for drawing; <a href="gint.html">Gint</a> is for knowing. A Gint layer holds the whole geometry of a <a href="geopbf.html">GeoPBF</a> file on the GPU,
+so every feature can be picked, highlighted and joined to a table.
+</p>
+
+<ul>
+	<li><strong>Level of detail happens in the vertex shader.</strong> Each vertex carries a rank; the shader drops vertices below the rank the current zoom needs and snaps forward, so simplified shapes never open gaps.</li>
+	<li><strong>Polygons are filled with the stencil buffer</strong> (winding counts), so there is no triangulation step and shared borders stay exact.</li>
+	<li><strong>Picking is on the GPU</strong>, read back asynchronously; a JavaScript point-in-polygon fallback (smallest area wins) answers when the GPU cannot.</li>
+	<li><strong>Long edges bend with the terrain</strong>: in 3D, lines are subdivided on the GPU according to the terrain under them.</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="mesh">8. 3D Meshes — Buildings, 3D Tiles, I3S, Models</h2>
+
+<p>
+One mesh core streams every kind of 3D data. It does not know which country the buildings belong to — the region only declares where the data is.
+</p>
+
+<table>
+	<tr><th>Source</th><th>How it enters</th></tr>
+	<tr><td>City buildings (Japan's PLATEAU, the Netherlands' 3DBAG)</td><td>per-district loads declared by the region pack</td></tr>
+	<tr><td>Any 3D Tiles tileset</td><td><code>map.add3DTiles(url)</code> — screen-space-error traversal, b3dm / i3dm / pnts / cmpt / glb</td></tr>
+	<tr><td>I3S scene layers</td><td><code>map.addI3S(url)</code> — decoded with loaders.gl</td></tr>
+	<tr><td>glTF / GLB models</td><td>dropped files or <code>?g=</code> links</td></tr>
+</table>
+
+<p>
+The path is the same for all: decode (Draco included) → Earth-centred coordinates → the ortho sphere → duplicate faces removed → grounded on the terrain → LOD →
+relative-to-origin vertices → a coverage mask that hides the basemap's own flat building footprints underneath.
+Decoded districts are kept in OPFS and IndexedDB in the form the GPU eats, so a second visit goes straight from disk to the GPU.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="time">9. The Sky and the Shared Clock</h2>
+
+<p>
+Below about z5 the globe shows the sky: real stars, planets and the Moon, constellations, the ecliptic and the celestial equator, and the night side.
+Zooming out further leads into the solar system at real scale.
+</p>
+<p>
+All of it follows <strong>one clock</strong> (<code>map.clock</code>, from <code>@ortho-earth/ephem</code> — the same clock the Solar System app uses).
+It runs in real time by default, and can be paused, fast-forwarded, run backwards or set to any moment between 1800 and 2049.
+The Sun's sub-solar point and sidereal time come from the same formulas in both apps, so the night side, the stars and the satellites always agree.
+The clock is shared with the render worker as one anchor — <code>{sim, wall, rate}</code> — sent only when its state changes.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">10. The Public Face</h2>
+
+<pre><code><span class="kw">import</span> { createGlobe } <span class="kw">from</span> <span class="st">"@ortho-earth/globe"</span>;
+
+<span class="kw">const</span> map = <span class="kw">await</span> createGlobe({ target: <span class="st">"#map"</span>, view: <span class="st">"#3/20/140"</span> });
+map.flyTo({ center: [<span class="nm">139.767</span>, <span class="nm">35.681</span>], zoom: <span class="nm">14</span>, pitch: <span class="nm">60</span> });</code></pre>
+
+<table>
+	<tr><th>Area</th><th>Examples</th></tr>
+	<tr><td>Camera</td><td><code>jumpTo</code> · <code>easeTo</code> · <code>flyTo</code> · <code>fitBounds</code> · <code>cameraForBounds</code> · <code>setMaxBounds</code></td></tr>
+	<tr><td>Style and layers</td><td><code>setStyle</code> · <code>addSource</code> / <code>addLayer</code> · <code>setPaintProperty</code> · <code>setFilter</code> · <code>queryRenderedFeatures</code></td></tr>
+	<tr><td>3D and terrain</td><td><code>add3DTiles</code> · <code>addI3S</code> · <code>setTerrain</code> · extrusions · models</td></tr>
+	<tr><td>Analysis</td><td><code>sunShadow</code> · <code>viewshed</code> · <code>lineOfSight</code> · profiles · measurement</td></tr>
+	<tr><td>Time</td><td><code>map.clock</code> · <code>map.on("time")</code></td></tr>
+	<tr><td>Extending</td><td><code>map.overlay(module)</code> — your own canvas drawn in the render worker in the same frame, with the same camera and <code>api.time</code> · <code>addProtocol</code> · <code>transformRequest</code> · <code>Marker</code> / <code>Popup</code></td></tr>
+</table>
+
+<p>
+The shape of the API follows MapLibre where it can, so existing styles and habits carry over.
+Everything above is covered by gates that boot pages through the published package itself — what is tested is what you install.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/core · @ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

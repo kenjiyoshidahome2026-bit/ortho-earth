@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ortho-earth エンジン技術概要</title>
+<meta name="description" content="ortho-earth の地図エンジンの作り：@ortho-earth/core と @ortho-earth/globe、worker の流れ、WebGPU と WebGL2、実スケールの地形、gint、3D メッシュ、共通の時計。">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+<style>
+.layer-stack { display:flex; flex-direction:column; gap:4px; margin:20px 0; }
+.layer-row { display:flex; align-items:center; gap:12px; background:var(--card); border:1px solid var(--muted); border-radius:8px; padding:12px 16px; }
+.layer-badge { font-family:var(--mono); font-size:0.68rem; font-weight:bold; padding:2px 8px; border-radius:4px; flex-shrink:0; min-width:92px; text-align:center; }
+.b-soft { background:rgba(52,211,153,0.15); color:var(--green); }
+.b-data { background:rgba(251,191,36,0.12); color:var(--yellow); }
+.b-hard { background:rgba(192,132,252,0.15); color:var(--purple); }
+.b-core { background:rgba(56,189,248,0.15); color:var(--accent); }
+.layer-name { font-weight:600; font-size:0.9rem; min-width:170px; }
+.layer-desc { font-size:0.8rem; color:var(--dim); }
+.layer-arrow { text-align:center; color:var(--dim); font-size:0.75rem; padding:2px 0; }
+@media (max-width: 640px) { .layer-row { flex-wrap:wrap; } .layer-name { min-width:0; } }
+</style>
+</head>
+<body>
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">@ortho-earth/core</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="geopbf-jp.html">GeoPBF</a>
+		<a href="altpbf-jp.html">AltPBF</a>
+		<span class="nav-cur">Engine</span>
+		<a href="gint-jp.html">Gint</a>
+		<a href="core.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>ortho-earth エンジン — 技術概要</h1>
+<p class="lead">すべてを球の上に描く、ブラウザだけで動く地図エンジン（自前の地図サーバーを持たない）<br>
+<span style="font-size:0.85em">
+@ortho-earth/core &middot; @ortho-earth/globe &middot; WebGPU と WebGL2 &middot; 実スケールの地形 &middot; worker の流れ作業
+</span></p>
+
+<div class="toc">
+	<div class="toc-title">目次</div>
+	<ol>
+		<li><a href="#layers">四つの層 — コアは硬く、アプリは柔らかく</a></li>
+		<li><a href="#threads">スレッドと worker</a></li>
+		<li><a href="#backend">描画の土台 — WebGPU を先に、WebGL2 はいつでも</a></li>
+		<li><a href="#camera">カメラ・投影・ズーム</a></li>
+		<li><a href="#terrain">実スケールの地形</a></li>
+		<li><a href="#basemap">基図・画像タイル・世界帯</a></li>
+		<li><a href="#gint">Gint — 問いに答えるベクタ</a></li>
+		<li><a href="#mesh">3D メッシュ — 建物・3D Tiles・I3S・模型</a></li>
+		<li><a href="#time">空と共通の時計</a></li>
+		<li><a href="#api">公開面</a></li>
+	</ol>
+</div>
+
+<div class="callout callout-note">
+	<div class="callout-head">経緯</div>
+	このページは、最初のエンジン <code>ortho-map</code>（v1：d3 の正射投影・層ごとに worker 1 本・WebGL2 のみ）の説明を置き換えたものです。
+	v1 は 2026 年 9 月に撤去しました。正射の地球・OffscreenCanvas・GeoPBF／AltPBF／Gint という考え方は引き継ぎ、実装は引き継いでいません。
+</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="layers">1. 四つの層 — コアは硬く、アプリは柔らかく</h2>
+
+<p>
+部品は<strong>下にあるものほど硬く</strong>作っています（検定の関門・型定義・版で守る）。上のアプリは殻で、自由に変えてかまいません。
+新しい仕事は、まず「どの層か」を言ってから書きます。
+</p>
+
+<div class="layer-stack">
+	<div class="layer-row">
+		<span class="layer-badge b-soft">apps</span>
+		<span class="layer-name">apps/*</span>
+		<span class="layer-desc">殻 — japan・world・equal・census2020・solar・globe の頁 … それぞれがエンジンを自分のビルドに束ねる</span>
+	</div>
+	<div class="layer-arrow">↓ opts.region（コードではなく申告）</div>
+	<div class="layer-row">
+		<span class="layer-badge b-data">region pack</span>
+		<span class="layer-name">@ortho-earth/jp</span>
+		<span class="layer-desc">一つの国が知っていること：基図・標高・建物・検索・POI・出典・初期視点</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-hard">host</span>
+		<span class="layer-name">@ortho-earth/globe</span>
+		<span class="layer-desc"><code>createGlobe()</code> — 起動・世界帯・地域に依らないガジェット・SDK の型・関門</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-core">core</span>
+		<span class="layer-name">@ortho-earth/core</span>
+		<span class="layer-desc">描画・カメラ・投影・地形・画像タイル・注記・gint・オーバーレイの契約 — 地域を知らない</span>
+	</div>
+	<div class="layer-arrow">↓</div>
+	<div class="layer-row">
+		<span class="layer-badge b-soft">foundation</span>
+		<span class="layer-name">geopbf · altpbf · ephem</span>
+		<span class="layer-desc">ベクタの形式（MIT）・標高タイル（MIT）・時計と空</span>
+	</div>
+</div>
+
+<p>
+全体をつなぎとめる決まりは一つ：<strong>core と globe は国の名前を書かない</strong>。
+機械の関門（<code>verify:regionless</code>）が globe のコードの地域の語を数え、増えたら落とします。
+import の向きは一方通行で、<code>japan → globe → core → ephem</code> と <code>japan → jp → core</code>。globe と jp は互いを import しません。
+両者が出会うのは、アプリが渡す申告の中だけです。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="threads">2. スレッドと worker</h2>
+
+<p>
+メインスレッドが持つのはカメラ・入力・DOM だけです。解読・組み立て・描画はすべて worker で動きます。
+worker はすべて<strong>一つの入口</strong>（<code>worker.js</code>）から起動し、Worker の <code>name</code> で役割を指名します。
+そのためバンドラが作る worker のビルドは一つで、共有する部品（GeoPBF の核・loaders.gl・シェーダ）は worker の数だけ複製されません。
+</p>
+
+<div class="pipeline">
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">1</span><span class="pipe-title">main</span></div>
+		<div class="pipe-items"><span>カメラ・入力・飛行・ガジェット（DOM）・時計 · <code>draw {cam}</code> を送る</span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">2</span><span class="pipe-title">tile workers</span></div>
+		<div class="pipe-items"><span>取得・MVT の解読・三角形化・描画リスト（コピーでなく受け渡し）</span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">3</span><span class="pipe-title">scene worker</span></div>
+		<div class="pipe-items"><span>見えているタイルを一つのシーンに結合</span></div>
+	</div>
+	<div class="pipe-arrow">↓</div>
+	<div class="pipe-stage">
+		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">4</span><span class="pipe-title">render worker</span></div>
+		<div class="pipe-items"><span>OffscreenCanvas・地形・画像タイル・gint・注記・同一フレームのオーバーレイ — 一つの rAF で</span></div>
+	</div>
+</div>
+
+<table>
+	<tr><th>役割</th><th>すること</th></tr>
+	<tr><td><code>render</code></td><td>canvas の持ち主。地球・地形・基図のシーン・画像タイル・gint・注記・オーバーレイを、一つのフレーム・一つのカメラで描く</td></tr>
+	<tr><td><code>ortho:tile</code> / <code>ortho:scene</code></td><td>タイルの取得と組み立て／シーンの結合（基図の流れ作業）</td></tr>
+	<tr><td><code>mesh</code> / <code>meshdecoder</code></td><td>大量の 3D メッシュ（建物）を流す — 解読・重複除去・接地・LOD・OPFS／IndexedDB への保存</td></tr>
+	<tr><td><code>model</code></td><td>glTF/GLB・押し出し・3D Tiles と I3S の中身。日影と可視域の計算も</td></tr>
+	<tr><td><code>gintbake</code></td><td>gint の層を焼く（LOD の順位・辺）— 描画スレッドの外で</td></tr>
+	<tr><td><code>altpbf:height</code></td><td>標高タイルの解読</td></tr>
+	<tr><td><code>rastertiles</code> / <code>imagequad</code></td><td>手元の GeoPackage／MBTiles、または四隅で貼った画像から、画像タイルを配る</td></tr>
+	<tr><td><code>decoder:*</code> / <code>encoder:*</code></td><td>GeoPBF の形式変換（落としたファイル・書き出し）</td></tr>
+</table>
+
+<p>
+地域パックは、ビルド時の空き枠を通して役割を足せます（日本は統計の worker を足す）。ホストはそれを知りません。
+crossOriginIsolated は<em>必須ではありません</em>。あれば GeoPBF のバッファがコピー無しで worker へ渡り（SharedArrayBuffer）、
+無ければ一度だけコピーされます。どちらでも全機能が動くことを関門（<code>verify:nocoi</code>）で確かめています。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="backend">3. 描画の土台 — WebGPU を先に、WebGL2 はいつでも</h2>
+
+<p>
+core には同じ顔（<code>set</code>・<code>draw</code>・<code>dispose</code>）を持つ描画器が二つあります。WebGPU 版と WebGL2 版です。
+render worker が起動時にどちらかを選びます。
+</p>
+
+<table>
+	<tr><th>条件</th><th>土台</th></tr>
+	<tr><td><code>?gl2=1</code></td><td>WebGL2（手動の逃げ道）</td></tr>
+	<tr><td><code>navigator.gpu</code> が無い</td><td>WebGL2 に直行</td></tr>
+	<tr><td>Android</td><td>WebGL2（一部のモバイル GPU ドライバで、黙って画面が黒くなる不具合があるため）</td></tr>
+	<tr><td>このタブで前回 WebGPU の起動に失敗した</td><td>WebGL2</td></tr>
+	<tr><td>それ以外</td><td><strong>WebGPU</strong></td></tr>
+</table>
+
+<p>
+WebGPU には三枚の落ち網があります。初期化に失敗したら worker の中で WebGL2 へ切り替える。
+<em>黙った失敗</em>（初期化は通ったのに画面に何も出ない）は最初のフレームを読み戻して見つける。20 秒たってもフレームが来なければ WebGL2 で起動し直す。
+</p>
+
+<p>
+画質のための仕組みが二つ、両方の土台で動きます。<strong>遷移時の AA</strong>：カメラが動いている間は MSAA 1× で描き、
+約 0.5 秒止まったら 4× で一枚だけ描く。<strong>動的解像度</strong>：フレームが重くなると canvas の解像度を段階的に下げ、線の太さは画面上で変えない。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="camera">4. カメラ・投影・ズーム</h2>
+
+<p>
+カメラは小さな素のオブジェクト（<code>center</code>・<code>zoom</code>・<code>pitch</code>・<code>bearing</code>）で、投影は 4×4 の行列一つです。
+<strong>正射と透視は一続き</strong>：正射は、目を無限に遠ざけた透視です。投影は壁ではなくスライダーです。
+</p>
+
+<ul>
+	<li><strong>ズームは縮尺そのもの。</strong>z0 で世界が 256 px。同じ z はどこでも同じ倍率です。緯度による補正をカメラに戻すことはしません。</li>
+	<li><strong>浮動小数点を誤魔化さない。</strong>絶対の経緯度を 32 bit 浮動小数に通しません。メッシュは局所の原点からの相対（RTE）で描き、カメラの経度は地球を何周回しても溜まらないよう畳みます。</li>
+	<li><strong>既定は球。</strong>WGS84 の楕円体も選べます（<code>?ell=1</code>）。距離や面積の計測は常に楕円体で行います。</li>
+	<li><strong>地面の下に潜ると黒くフェードします。</strong>カメラを勝手に押し上げることはしません。</li>
+	<li><strong>飛行</strong>（<code>flyTo</code>・<code>easeTo</code>・<code>fitBounds</code>）は時間で評価する計画です。台本の再生は 1 歩 35 ms を上限とする仮想時計で進むので、遅い機械で録画してもずれません。</li>
+</ul>
+
+<p>
+視点は URL にあります — <code>#zoom/lat/lon[/45t][/-30r][/l=…][/c=テーマ][/t=UTC][/s=速さ]</code>。アドレス欄はいつでも「いま見ているもの」へのリンクです。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="terrain">5. 実スケールの地形</h2>
+
+<p>
+標高は<strong>誇張せずに</strong>描きます。高さは <a href="altpbf-jp.html">AltPBF</a> から：三つの解像度の 1° セルを worker で解読し、
+二つの標高アトラスに詰めます — カメラの周りの細かいセルの<strong>近景</strong>アトラスと、地平線までの粗いセルの<strong>遠景</strong>アトラス。
+シェーダは両方から一続きの高さの場を読みます。
+</p>
+
+<ul>
+	<li>陰影・段彩・遠山の青は、アトラスから GPU で計算します。</li>
+	<li>基図・画像タイル・ベクタ・建物はすべて同じ場に<em>ドレープ</em>されるので、浮いたり埋もれたりしません。</li>
+	<li>地域は「この標高は地表面（DTM）だ」と申告でき、その場合は建物をその上に接地させます。</li>
+	<li>公開されている <code>raster-dem</code>（Terrarium・Mapbox・地理院の形式）で、組み込みの標高を置き換えられます：<code>map.setTerrain(…)</code>。</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="basemap">6. 基図・画像タイル・世界帯</h2>
+
+<p>
+<strong>おおよそ z8 より下では、地球儀が自分で世界を描きます</strong> — Natural Earth 10 m の国・湖・川・海洋境界と、
+全球の標高と気候の場から毎フレーム計算する段彩（画像タイルは一枚もダウンロードしない）。世界のデータが担えるのは正直ここまでです。
+</p>
+<p>
+<strong>そこから上は地域が引き継ぎます</strong>。入場するズームは地域の申告が決めます（日本は z6.5 から地理院のベクタ基図）。
+ベクタタイルは tile と scene の worker を通ります。傾けた 3D の視点では、ズームアウトしても細かいタイルが地面を覆えている間は、粗いタイルに差し替えません。
+</p>
+<p>
+<strong>画像タイル</strong>（XYZ・WMS・WMTS・PMTiles・手元の GeoPackage／MBTiles・四隅で貼る一枚の画像）は、まず地面のアトラスに合成し、
+地形のシェーダがそのアトラスを画素ごとに引きます。だから画像は山の上に平らに乗るのではなく、斜面に沿います。
+MapLibre の <code>style.json</code> も同じ流れに変換して読みます（<code>map.setStyle</code>）。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="gint">7. Gint — 問いに答えるベクタ</h2>
+
+<p>
+タイルは描くため、<a href="gint-jp.html">Gint</a> は知るためにあります。Gint の層は <a href="geopbf-jp.html">GeoPBF</a> の幾何を丸ごと GPU に持つので、
+どの地物も選び・強調し・表と突き合わせられます。
+</p>
+
+<ul>
+	<li><strong>LOD は頂点シェーダの中で。</strong>頂点ごとに順位を持ち、今のズームに要る順位より下の頂点を捨てて前方へ寄せる。簡略化しても形に隙間が開きません。</li>
+	<li><strong>面はステンシルで塗る</strong>（巻き数）。三角形化の手間が無く、共有する境界がずれません。</li>
+	<li><strong>選択は GPU で</strong>、非同期に読み戻します。GPU で答えられない時は JavaScript の点in面（最小面積が勝ち）が答えます。</li>
+	<li><strong>長い辺は地形に沿って曲がる。</strong>3D では、線をその下の地形に応じて GPU で細分します。</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="mesh">8. 3D メッシュ — 建物・3D Tiles・I3S・模型</h2>
+
+<p>
+一つのメッシュの核が、あらゆる 3D データを流します。核は建物がどの国のものかを知りません。地域が申告するのはデータの在り処だけです。
+</p>
+
+<table>
+	<tr><th>データ</th><th>入り方</th></tr>
+	<tr><td>都市の建物（日本の PLATEAU・オランダの 3DBAG）</td><td>地域パックが申告する区ごとの読み込み</td></tr>
+	<tr><td>任意の 3D Tiles</td><td><code>map.add3DTiles(url)</code> — 画面上の誤差で辿る・b3dm／i3dm／pnts／cmpt／glb</td></tr>
+	<tr><td>I3S のシーンレイヤ</td><td><code>map.addI3S(url)</code> — loaders.gl で解読</td></tr>
+	<tr><td>glTF／GLB の模型</td><td>ファイルを落とす・<code>?g=</code> のリンク</td></tr>
+</table>
+
+<p>
+道はどれも同じです：解読（Draco を含む）→ 地心座標 → 正射の球 → 重複面の除去 → 地形への接地 → LOD →
+原点相対の頂点 → 基図の平らな建物の輪郭を下で隠す被覆マスク。
+解読した区は GPU がそのまま食える形で OPFS と IndexedDB に置くので、二度目はディスクから GPU へ直行します。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="time">9. 空と共通の時計</h2>
+
+<p>
+おおよそ z5 より下では空が見えます：実在の星・惑星と月・星座・黄道と天の赤道・夜の側。さらに引くと、実スケールの太陽系へ入っていきます。
+</p>
+<p>
+これらはすべて<strong>一つの時計</strong>に従います（<code>map.clock</code>・<code>@ortho-earth/ephem</code> — 太陽系アプリと同じ時計）。
+既定は実時間で、止める・早送り・巻き戻し・1800〜2049 年の任意の時刻に合わせることができます。
+太陽直下点と恒星時は両アプリで同じ式から出すので、夜の側・星・人工衛星はいつも一致します。
+時計は render worker に一つの基準 <code>{sim, wall, rate}</code> として渡り、状態が変わった時にだけ送られます。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">10. 公開面</h2>
+
+<pre><code><span class="kw">import</span> { createGlobe } <span class="kw">from</span> <span class="st">"@ortho-earth/globe"</span>;
+
+<span class="kw">const</span> map = <span class="kw">await</span> createGlobe({ target: <span class="st">"#map"</span>, view: <span class="st">"#3/20/140"</span> });
+map.flyTo({ center: [<span class="nm">139.767</span>, <span class="nm">35.681</span>], zoom: <span class="nm">14</span>, pitch: <span class="nm">60</span> });</code></pre>
+
+<table>
+	<tr><th>分野</th><th>例</th></tr>
+	<tr><td>カメラ</td><td><code>jumpTo</code> · <code>easeTo</code> · <code>flyTo</code> · <code>fitBounds</code> · <code>cameraForBounds</code> · <code>setMaxBounds</code></td></tr>
+	<tr><td>スタイルと層</td><td><code>setStyle</code> · <code>addSource</code> / <code>addLayer</code> · <code>setPaintProperty</code> · <code>setFilter</code> · <code>queryRenderedFeatures</code></td></tr>
+	<tr><td>3D と地形</td><td><code>add3DTiles</code> · <code>addI3S</code> · <code>setTerrain</code> · 押し出し · 模型</td></tr>
+	<tr><td>解析</td><td><code>sunShadow</code> · <code>viewshed</code> · <code>lineOfSight</code> · 断面 · 計測</td></tr>
+	<tr><td>時間</td><td><code>map.clock</code> · <code>map.on("time")</code></td></tr>
+	<tr><td>拡張</td><td><code>map.overlay(module)</code> — 自前の canvas を render worker の中で同じフレーム・同じカメラ・<code>api.time</code> 付きで描く · <code>addProtocol</code> · <code>transformRequest</code> · <code>Marker</code> / <code>Popup</code></td></tr>
+</table>
+
+<p>
+API の形は、できる所は MapLibre に合わせています。既存のスタイルや手癖がそのまま使えます。
+上のすべては、公開パッケージそのものから頁を起動する関門で検めています — 検めたものが、インストールするものです。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/core · @ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
