@@ -17,7 +17,8 @@
 		"altpbf": "*",
 		"d3": "^7.9.0",
 		"geopbf": "*",
-		"native-bucket": "*"
+		"native-bucket": "*",
+		"@ortho-earth/globe": "*"
 	},
 	"devDependencies": {
 		"repomix": "^1.14.0"
