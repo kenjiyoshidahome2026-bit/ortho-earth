@@ -28,10 +28,7 @@
 			"desc": "A demo that draws everything with one camera — from Japan's city data (PLATEAU) to the Solar System, from flat maps to 3D maps.",
 			"img": "/thumbs/japan-demo.webp",
 			"shot": {
-				"url": "/japan/?demo=1",
-				"wait": 10,
-				"eval": "document.getElementById('demo-play')?.getAttribute('aria-pressed')==='true' && document.getElementById('demo-play').click(); [...document.querySelectorAll('#demo-bar button[data-i]')].find(b=>/Mt\\. Fuji/.test(b.textContent))?.click()",
-				"after": 30
+				"from": "public/hero-japan-800.webp"
 			},
 			"proper": true
 		},
@@ -56,7 +53,7 @@
 			"icon": "✏️",
 			"title": "geoedit",
 			"lang": "26",
-			"desc": "Draw and fix shapes on the 3D globe, and save them as GIS data.",
+			"desc": "A map editor. Draw and fix shapes on the 3D globe, and save them as GIS data.",
 			"img": "/thumbs/geoedit.webp",
 			"shot": {
 				"wait": 12
@@ -69,7 +66,7 @@
 			"icon": "🏳️",
 			"title": "Nations of the World",
 			"lang": "26",
-			"desc": "Basic data for the countries and territories of the world, as cards — facts, flag, Wikipedia and map.",
+			"desc": "Basic data for the countries and territories of the world, as cards — facts, flag and anthem, Wikipedia and map.",
 			"img": "/thumbs/world.webp",
 			"shot": {
 				"wait": 8
@@ -102,6 +99,33 @@
 				"url": "/japan/sats#1.9/25/140",
 				"wait": 15
 			}
+		},
+		{
+			"id": "solar",
+			"href": "/solar/",
+			"group": "space",
+			"icon": "🪐",
+			"title": "ortho-solar",
+			"lang": "26",
+			"desc": "The current positions of the planets and their moons — and a replay of how they move over time.",
+			"img": "/thumbs/solar.webp",
+			"shot": {
+				"wait": 12
+			}
+		},
+		{
+			"id": "scene",
+			"href": "/japan/scene",
+			"group": "tools",
+			"icon": "🎥",
+			"title": "Make a video",
+			"desc": "Cut out scenes of the 3D map and save or play them as one continuous video.",
+			"img": "/thumbs/scene.webp",
+			"shot": {
+				"wait": 12,
+				"eval": "document.querySelector('#sc-start button[data-f=\"16:9\"]')?.click()"
+			},
+			"lang": "26"
 		},
 		{
 			"id": "geopbf",
@@ -162,10 +186,13 @@
 			"icon": "🗾",
 			"title": "ortho-japan",
 			"lang": "26",
-			"desc": "A map of Japan drawn only from public data.",
+			"desc": "A map drawn only from Japan's public data. Try out the basic features.",
 			"img": "/thumbs/japan.webp",
 			"shot": {
-				"from": "public/hero-japan-800.webp"
+				"url": "/japan/?demo=1",
+				"wait": 10,
+				"eval": "document.getElementById('demo-play')?.getAttribute('aria-pressed')==='true' && document.getElementById('demo-play').click(); [...document.querySelectorAll('#demo-bar button[data-i]')].find(b=>/Mt\\. Fuji/.test(b.textContent))?.click()",
+				"after": 30
 			}
 		},
 		{
@@ -175,7 +202,7 @@
 			"icon": "🗼",
 			"title": "GLB models",
 			"lang": "26",
-			"desc": "Tokyo Tower and other landmarks as PLATEAU LOD3 models, placed on the globe.",
+			"desc": "Landmarks such as Tokyo Tower, placed on the globe as GLB models. Download them in a range of 3D formats.",
 			"img": "/thumbs/models.webp",
 			"shot": {
 				"url": "/japan/models?m=skytree",
@@ -220,33 +247,6 @@
 			"shot": {
 				"wait": 25
 			}
-		},
-		{
-			"id": "solar",
-			"href": "/solar/",
-			"group": "space",
-			"icon": "🪐",
-			"title": "ortho-solar",
-			"lang": "26",
-			"desc": "The current positions of the planets and their moons — and a replay of how they move over time.",
-			"img": "/thumbs/solar.webp",
-			"shot": {
-				"wait": 12
-			}
-		},
-		{
-			"id": "scene",
-			"href": "/japan/scene",
-			"group": "tools",
-			"icon": "🎥",
-			"title": "Make a video",
-			"desc": "Cut out scenes of the 3D map and save or play them as one continuous video.",
-			"img": "/thumbs/scene.webp",
-			"shot": {
-				"wait": 12,
-				"eval": "document.querySelector('#sc-start button[data-f=\"16:9\"]')?.click()"
-			},
-			"lang": "26"
 		},
 		{
 			"id": "nl",

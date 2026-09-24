@@ -24,9 +24,11 @@ function card(d) {
 	// "en"＝英語のみ（本人 9/22 表）＝英語が読めない人への知らせ＝各言語へ訳して出す（日本語のみの札が英語のままなのと逆の理屈）
 	const badge = d.lang === "26" ? T("span", "card-lang all", "26 languages") : d.lang === "ja" ? `<span class="card-lang ja" translate="no">Japanese only</span>` : d.lang === "en" ? T("span", "card-lang en", "English only") : "";   // 日本語が読めない人への知らせ＝どの言語でも英語のまま
 	// frame:false＝ナビの下の iframe で開かない（中の頁が COEP を送らない＝拒まれる）＝普通の画面遷移へ
-	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}"${d.frame === false ? ` data-frame="0"` : ""}>` + thumb + badge +
+	// 並び＝題（＋言語のバッジ）→ 画像 → 説明（本人 9/24「カードの角丸があるので、タイトルを上に」＝画像の角が丸で欠けない・バッジは題の行の右端）
+	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}"${d.frame === false ? ` data-frame="0"` : ""}>` +
 		(d.icon && !d.img ? `<span class="card-icon" aria-hidden="true">${esc(d.icon)}</span>` : "") +
-		title + T("span", "card-desc", d.desc) + `<span class="card-cta" aria-hidden="true">→</span></a>`;
+		`<span class="card-head">` + title + badge + `</span>` + thumb +
+		T("span", "card-desc", d.desc) + `<span class="card-cta" aria-hidden="true">→</span></a>`;
 }
 
 export function renderDemos({ groups, demos }) {
