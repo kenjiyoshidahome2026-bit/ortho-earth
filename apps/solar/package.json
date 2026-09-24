@@ -16,7 +16,8 @@
 	},
 	"dependencies": {
 		"@ortho-earth/ephem": "*",
-		"geopbf": "*"
+		"geopbf": "*",
+		"native-bucket": "*"
 	},
 	"devDependencies": {
 		"vite": "^5.0.0"

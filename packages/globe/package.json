@@ -25,7 +25,6 @@
 		"fzstd": "^0.1.1",
 		"geoedit": "^0.3.0",
 		"geopbf": "^1.13.1",
-		"glbconv": "^0.1.0",
 		"native-bucket": "^1.0.0",
 		"quiet-mono": "^1.0.0"
 	},

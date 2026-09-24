@@ -84,7 +84,6 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@ortho-earth/core": "*",
-		"@ortho-earth/ephem": "*",
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/jp": "*",
 		"altpbf": "*",
@@ -93,7 +92,6 @@
 		"geoedit": "*",
 		"geopbf": "*",
 		"glbconv": "*",
-		"quiet-mono": "*",
 		"vite": "^5.0.0"
 	}
 }

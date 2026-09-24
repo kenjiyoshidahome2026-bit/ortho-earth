@@ -17,7 +17,8 @@
 		"geopbf": "*",
 		"native-bucket": "*",
 		"@ortho-earth/core": "*",
-		"quiet-mono": "*"
+		"quiet-mono": "*",
+		"@ortho-earth/globe": "*"
 	},
 	"devDependencies": {
 		"vite": "^5.0.0"
