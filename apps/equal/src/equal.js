@@ -23,7 +23,8 @@ import { buildChoropleth } from "./choropleth.js";
 import { decodeText, joinCSV, csvPreset, buildNationIndex } from "./csvjoin.js";
 import { loadNations, colorGraph, PRESETS, loadI18n, loadNeCities, tr } from "./nations.js";
 import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言＝英語キー・26 言語（japan の辞書に相乗り＋equal 固有）
-import { createLabels, countryLabels, cityLabels, airportLabels, F, stripJaCitySuffix } from "./labels.js";   // stripJaCitySuffix＝日本語名の「〜市」族を落とす（地名の作法は labels.js が持つ）
+import { createLabels, countryLabels, cityLabels, airportLabels } from "./labels.js";
+import { countryName as countryNameOf, cityName as cityNameOf, shortEnNames, culturalUrl, culturalName, WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の中身の正本（名前の順・URL・出しズーム＝globe・world と共有）
 import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
 import { kOfLat, yOfLat } from "./equalearth.js";
 
@@ -84,17 +85,9 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const labelsLayer = createLabels(mapEl.querySelector("#labels"));
 	const LABEL_PAL = { ...THEMES.mono.labelColor };   // テーマが中身を書き換える（rebuildLabels が読み直す）
 	let worldPal = resolveWorldPal(THEMES[settings.theme].world);   // 全球ハイプソの色＝ortho-core の正本（japan と共有）
-	const countryName = n => i18n?.nations?.[n.key]?.name || shortEn.get(n.key) || n.name?.en || n.key;
-	// 都市名の出所の順（言語ごと）：
-	//   ja＝配信 geopbf の NAME_JA（同梱済み＝通信ゼロ）→「〜市」族を落とす
-	//   en＝NAME_EN
-	//   その他＝World DB の台帳名（564 都市・Wikidata ラベル＝丁寧）→ NE の言語別表（約 6,600 の小さな都市）→ NAME_EN
-	const cityName = p => {
-		if (lang === "ja") return stripJaCitySuffix(F(p, "name_ja") || "") || F(p, "name_en") || F(p, "name");
-		if (lang === "en") return F(p, "name_en") || F(p, "name");
-		const qid = F(p, "wikidataid");
-		return (qid && i18n?.cities?.[qid]?.name) || (qid && neCities?.[qid]) || F(p, "name_en") || F(p, "name");
-	};
+	// 国名・都市名の出所の順（言語ごと）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と同じ順）
+	const countryName = n => countryNameOf(n, i18n, shortEn);
+	const cityName = p => cityNameOf(p, lang, i18n, neCities);
 	function rebuildLabels() {
 		if (!world) return;
 		const marks = [];
@@ -120,12 +113,12 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// world の ne-cultural＝bucket GIS/world/（本人裁定 2026-09-18）＝world の他の資産と同じ棚・開発も本番も同じ URL＝キャッシュも同じ鍵。
 	// 配信用に 2 本（packages/world/build/ne-cultural.js NE_GROUPS）：base＝国（起動時）・detail＝道路/鉄道/市街地（z≥5 で初めて読む）。
 	// 頂点の 7 割が detail 側＝分けることで初回の国の表示が約 1/4 に（旧＝1 本 20MB を国のために待っていた）
-	const WORLD_CULTURAL = g => `https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-${g}.geopbf`;
+	// URL とキャッシュ名＝正本 worldcontent（globe・world と同じ綴り＝同じ IDB の実体を共有）
 	const culturalP = {};
 	const getCultural = (g = "base") => culturalP[g] ??= (async () => {
 		const label = g === "base" ? "World regions" : "Roads & rail";
 		busy.add(label); updateToast();
-		try { return await geopbf(WORLD_CULTURAL(g), { name: `ne-cultural-${g}.geopbf` }); }
+		try { return await geopbf(culturalUrl(g), { name: culturalName(g) }); }
 		finally { busy.delete(label); updateToast(); }
 	})();
 	function countrySpec() {
@@ -133,7 +126,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			include: p => p.layer === "admin_1",   // 係争地の重ね（admin_0）・湖・市街地は国の面に数えない（巻き数と海岸/国境の判定を狂わせない）
 			fill: () => 0,
 			unit: p => world.byKey.get(p.key) ?? NONE,   // key は world が付与済み（ハワイの北西諸島の分離も焼き時に済み）
-			outline: (pa, refs, pb) => !pb ? { cls: 0, minZoom: 0 } : pa.key === pb.key ? { cls: 2, minZoom: 4 } : { cls: 1, minZoom: 0 },
+			outline: (pa, refs, pb) => !pb ? { cls: 0, minZoom: 0 } : pa.key === pb.key ? { cls: 2, minZoom: WORLD_Z.admin1 } : { cls: 1, minZoom: 0 },
 		};
 	}
 
@@ -152,20 +145,17 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			console.log(`[equal] ${def.id}: ${pbf.length} features (source ${def.source || def.bucket}), bake ${Math.round(performance.now() - t0)}ms`);
 			if (def.mark) {   // 記号ラベル（空港の✈）の材料＝点の位置と属性をラベル層へ渡す（GL の点は描かない）
 				const feats = [];
-				for (let i = 0; i < pbf.length; i++) { const p = pbf.getProperties(i); if (p) feats.push({ properties: p, geometry: pbf.getGeometry(i) }); }
+				for (let i = 0; i < pbf.length; i++) { const p = pbf.getProperties(i); if (p && (!def.markLayer || p.layer === def.markLayer)) feats.push({ properties: p, geometry: pbf.getGeometry(i) }); }   // markLayer＝同じ配信物に同居する層から自分の分だけ（world detail の airports）
 				markFeatures.set(def.id, feats);
 			}
 			if (L === countries) {
 				political = colorGraph(NONE, L.baked.neighbors || []); applyChoropleth();
-				cityFeatures = []; shortEn = new Map();
+				cityFeatures = [];
 				for (let i = 0; i < pbf.length; i++) {
 					const p = pbf.getProperties(i); if (!p) continue;
 					if (p.layer === "populated_places") cityFeatures.push({ properties: p, geometry: pbf.getGeometry(i) });
-					else if (p.layer === "admin_1" && p.admin && !shortEn.has(p.key)) shortEn.set(p.key, p.admin);
 				}
-				// NE の admin は主権国名＝属領（SJ→"Norway"・PR→"United States of America"）に化ける。同じ名前が複数 key に付くものは捨てる
-				{ const cnt = new Map(); for (const v of shortEn.values()) cnt.set(v, (cnt.get(v) || 0) + 1); for (const [k, v] of shortEn) if (cnt.get(v) > 1) shortEn.delete(k); }
-				shortEn.set("US", "United States");   // DB "United States of America" は地図では長い
+				shortEn = shortEnNames(pbf.length, i => pbf.getProperties(i));   // 国の短い英語名（属領が主権国名に化ける物は捨てる＝正本 worldcontent）
 				rebuildLabels();
 			}
 			L.status = "ready"; L.readyAt = performance.now();

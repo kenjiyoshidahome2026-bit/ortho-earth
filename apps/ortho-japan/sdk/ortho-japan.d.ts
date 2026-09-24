@@ -76,6 +76,10 @@ export interface OrthoJapanOptions {
 	glOverlay?: boolean;
 	/** 世界ビュー（z<5.5）のホバー国名 tip。false=出さない（自前の tip と重ねないページ向け。既定true） */
 	countryTip?: boolean;
+	/** 世界帯（低ズーム・地域の基図より手前）に Equal Earth と同じ中身を描く（1.2.1〜）：州境（z≥4）・係争地の線・湖の岸線・
+	 *  市街地（z≥4）・道路/鉄道（z≥5）・国名・首都/都市・空港 ✈（z≥5）。海岸線/国境は全ズーム・河川/海洋境界は z1.5 から。
+	 *  名前は map の言語（26 言語）。データと規則は Equal Earth と共有（Natural Earth 10m・World DB）。既定 false */
+	worldContent?: boolean;
 	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
 	assetBase?: string;
 	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない */

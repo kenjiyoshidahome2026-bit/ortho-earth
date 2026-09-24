@@ -1745,7 +1745,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
 		// 10度レチクル（v1「地図の上に重ねる」と同じ最前面・ラベルの下）。出現度は globe UBO の seaC.w に書き込み済み
-		if (!flat2d && view.graticule && globeBG && cam.zoom > 1.7 && cam.zoom < 6.5) {
+		if (!flat2d && view.graticule && globeBG && cam.zoom > 1.7 && cam.zoom < whZ) {   // 退場は世界ハイプソと同じ帯（出現度 seaC.w も whZ でフェード＝GL と同じ・旧 6.5 固定は地域の申告が無い器で z6.5〜8 の罫線を切っていた）
 			pass.setPipeline(P.grat);
 			pass.setBindGroup(0, globeBG);
 			pass.draw(3);

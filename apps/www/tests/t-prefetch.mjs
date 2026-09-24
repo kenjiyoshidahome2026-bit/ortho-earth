@@ -44,10 +44,10 @@ test("見送り：Save-Data・2g/3g", () => {
 test("全球アトラスの鍵＝altpbf の WORLD_ATLAS", () => {
 	assert.equal(planPrefetch().tier1.find(j => j.id === "world-atlas").key, WORLD_ATLAS);
 });
-test("国境：globe は起動 50m・寄って 10m を読む", () => {
+test("国境：globe は起動 50m・寄って 10m を読む（世界帯の中身＝worldContent は最初から 10m・LOW_MEM は 50m）", () => {
 	const s = src("packages/globe/src/gint/layers.js");
 	assert.match(s, /ne_\$\{res\}_admin_0_countries/);
-	assert.match(s, /loadAdmin0\("50m"\)/); assert.match(s, /loadAdmin0\("10m"\)/);
+	assert.match(s, /loadAdmin0\(WORLD_CONTENT && !LOW_MEM \? "10m" : "50m"\)/); assert.match(s, /loadAdmin0\("10m"\)/);
 });
 test("湖・海面下の陸：globe は gint:false・湖は LOW_MEM で 50m", () => {
 	const s = src("packages/globe/src/globe.js");
@@ -69,13 +69,17 @@ test("河川・海洋境界：globe（gint あり・LOW_MEM は読まない）�
 	}
 	assert.match(s, /geopbf\(def\.name\)/); assert.match(s, /worldLinesState \|\| LOW_MEM/);
 });
-test("ne-cultural：equal と world が同じ URL・同じ name で読む", () => {
+test("ne-cultural：equal・world・globe が同じ URL・同じ name で読む（正本＝ortho-core worldcontent）", () => {
 	const { tier1, tier2 } = planPrefetch({ free: 1e12 });
 	const base = tier1.find(j => j.id === "cultural-base"), detail = tier2.find(j => j.id === "cultural-detail");
 	assert.equal(base.key, "https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-base.geopbf");
 	assert.equal(detail.opts.name, "ne-cultural-detail.geopbf");
-	assert.ok(src("apps/equal/src/equal.js").includes("https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-${g}.geopbf"));
-	assert.match(src("apps/equal/src/equal.js"), /\{ name: `ne-cultural-\$\{g\}\.geopbf` \}/);
-	assert.ok(src("apps/world/src/worldlayers.js").includes('"https://api.ortho-earth.com/bucket/GIS/world/ne-cultural-"'));
-	assert.match(src("apps/world/src/worldlayers.js"), /\{ name: `ne-cultural-\$\{g\}\.geopbf` \}/);
+	const core = src("packages/ortho-core/src/worldcontent.js");   // URL と名前の正本＝先読みの鍵と同じ綴り
+	assert.ok(core.includes('WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/"'));
+	assert.ok(core.includes("culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`"));
+	assert.ok(core.includes("culturalName = g => `ne-cultural-${g}.geopbf`"));
+	for (const f of ["apps/equal/src/equal.js", "apps/world/src/worldlayers.js", "packages/globe/src/gint/worldcontent.js"]) {   // 三者とも正本の口で読む（写しを持たない）
+		assert.match(src(f), /culturalUrl\(g\), \{ name: culturalName\(g\) \}|culturalUrl\("base"\), \{ name: culturalName\("base"\) \}/, f);
+		assert.ok(!src(f).includes("bucket/GIS/world/ne-cultural-"), f + "：URL の写しを持たない");
+	}
 });
