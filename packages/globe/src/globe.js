@@ -1417,8 +1417,11 @@ function updatePos() {
 	}
 }
 const schedulePos = () => { if (!posRaf) { posRaf = true; requestAnimationFrame(updatePos); } };
-canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse = { x, y }; if (posOn()) posEl.style.display = "block"; schedulePos(); });
-canvas.addEventListener("pointerleave", () => { posMouse = null; posEl.style.display = "none"; });
+canvas.addEventListener("pointermove", e => { const [x, y] = evXY(e); posMouse = { x, y }; if (posOn()) { posEl.style.display = "block"; posEl.style.visibility = ""; } else posEl.style.display = "none"; schedulePos(); });
+// 地図の外へ出た＝見えなくするだけで場所は残す（visibility）。display:none だと左下ドックが詰まり、#pos の上に積まれた
+// バナー/凡例のボタンへ向かった瞬間にボタンが下へ逃げる→ポインタが地図へ戻る→#pos 復活→ボタンが上へ、の追いかけっこで押せない
+//（geoedit の復元バナーで実測 2026-09-24）。一度も出ていない間（初回ホバー前）と狭画面は従来どおり display:none。
+canvas.addEventListener("pointerleave", () => { posMouse = null; if (posEl.style.display === "block" && posOn()) posEl.style.visibility = "hidden"; else posEl.style.display = "none"; });
 schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時。マウス無しでも updateScale は走る）
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
