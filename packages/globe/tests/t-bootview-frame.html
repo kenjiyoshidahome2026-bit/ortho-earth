@@ -1,0 +1,15 @@
+<!doctype html>
+<!-- t-bootview の 1 ケース＝新しい文書で地球儀を起動し、起動直後のカメラを親へ返す（?view=＝opts.view・?persist=0＝persistView:false・hash はそのまま起動に使う） -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-bootview-frame</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const q = new URLSearchParams(location.search), opts = { target: "#map", chips: false };
+if (q.get("view")) opts.view = q.get("view");
+if (q.get("persist") === "0") opts.persistView = false;
+try {
+	const map = await createGlobe(opts);
+	const c = map.getCenter();
+	parent.postMessage({ lng: c.lng, lat: c.lat, z: map.getZoom() }, "*");
+} catch (e) { parent.postMessage({ error: String(e?.message || e) }, "*"); }
+</script></body></html>

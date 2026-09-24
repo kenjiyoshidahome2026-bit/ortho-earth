@@ -30,10 +30,11 @@
 		"quiet-mono": "^1.0.0"
 	},
 	"scripts": {
-		"verify": "npm run verify:ui && npm run verify:webgpu",
+		"verify": "npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
-		"verify:nocoi": "node scripts/verify-nocoi.mjs"
+		"verify:nocoi": "node scripts/verify-nocoi.mjs",
+		"verify:regionless": "node scripts/verify-regionless.mjs"
 	},
 	"keywords": [
 		"globe",
