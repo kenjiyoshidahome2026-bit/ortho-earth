@@ -1,4 +1,4 @@
-// 訳すべきキーの一覧＝index.html の data-t / data-t-<attr>（HTML の実体参照は戻す）＋ demos.json（cards.js の demoKeys）
+// 訳すべきキーの一覧＝index.html の data-t / data-t-<attr>（HTML の実体参照は戻す）＋ main.js の t("…")（JS だけで使う文言）＋ demos.json（cards.js の demoKeys）
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -8,6 +8,8 @@ const unesc = s => s.replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;
 export function uiKeys() {
 	const html = fs.readFileSync(path.join(APP, "index.html"), "utf8"), k = new Set();
 	for (const m of html.matchAll(/\bdata-t(?:-[a-z-]+)?="([^"]*)"/g)) k.add(unesc(m[1]));
+	const js = fs.readFileSync(path.join(APP, "main.js"), "utf8");
+	for (const m of js.matchAll(/\bt\("([^"\\]+)"\)/g)) k.add(m[1]);
 	return [...k];
 }
 const readDemos = () => JSON.parse(fs.readFileSync(path.join(APP, "demos.json"), "utf8"));
