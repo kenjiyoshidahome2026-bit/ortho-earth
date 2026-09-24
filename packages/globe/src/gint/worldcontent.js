@@ -71,6 +71,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			if (g === "base") await labels();
 			if (g === "detail") await airports();
 			requestDraw();
+			update();   // 読み終えた時点のズームで次の群を判定し直す（起動直後の判定が早すぎて detail を取り逃がさない）
 		} catch (e) { state[g] = 3; console.warn(`[world-content] ${g}`, e?.message ?? e); }
 	}
 
@@ -146,15 +147,16 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			layout: { "icon-image": "wc-plane", "icon-size": 0.65, "symbol-sort-key": ["get", "pri"] } });
 	}
 
+	// 見える帯に入った群だけ取りに行く（見えない層のための通信をしない）。カメラ静止・初回描画・群の読み終わりで呼ぶ
+	function update() {
+		const z = getZoom();
+		if (!(z < bandZ)) return;
+		load("base");
+		if (!lowMem) load("lakes");
+		if (z >= WORLD_Z.detailLoad) load("detail");
+	}
 	return {
-		/** カメラが止まるたび（と起動時）に呼ぶ：見える帯に入った群だけ取りに行く（見えない層のための通信をしない） */
-		update() {
-			const z = getZoom();
-			if (z >= bandZ) return;
-			load("base");
-			if (!lowMem) load("lakes");
-			if (z >= WORLD_Z.detailLoad) load("detail");
-		},
+		update,
 		/** テーマ切替＝線/面の色・記号帳・注記の色を正本から引き直す */
 		async repaint() {
 			for (const g of Object.keys(H)) H[g].setPaint(PAINT[g](T()), FILTER[g]).catch(() => {});

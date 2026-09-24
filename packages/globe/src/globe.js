@@ -3595,6 +3595,7 @@ if (opts.worldContent && WORLD_VT) {
 		getZoom: () => cam.zoom, lang: getLang(), worldStyle: () => WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono,
 		bandZ: BASEMAP_MINZOOM, lowMem: LOW_MEM, requestDraw: () => { needsDraw = true; } });
 	map.on("settle", () => { if (!flying) worldContentH.update(); });   // 止まるたび＝見える帯に入った群だけ取りに行く
+	map.on("load", () => worldContentH.update());                          // 初回の描画（起動時の視点が確定した後）でも判定＝動かさなくても detail が来る
 	worldContentH.update();
 	dbgHost.__worldContent = () => worldContentH.state();   // 検定窓（t-worldcontent）
 }
