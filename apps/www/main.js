@@ -131,3 +131,18 @@ logo.addEventListener("click", () => { if (frame) backToList(); });
 logo.addEventListener("keydown", e => { if (frame && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); backToList(); } });
 addEventListener("popstate", e => { const p = e.state?.demo ?? demoPath(new URLSearchParams(location.search).get("d") || ""); p ? showDemo(p) : hideDemo(); });
 { const d = new URLSearchParams(location.search).get("d"); const p = d && demoPath(d); if (p) showDemo(p); }
+
+// 始める：依頼文の「Copy」＝直前の pre をそのままクリップボードへ（2026-09-25）
+document.addEventListener("click", async e => {
+	const b = e.target.closest?.(".copy-btn"); if (!b) return;
+	const text = b.previousElementSibling?.textContent ?? "";
+	let ok = false;
+	try { await navigator.clipboard.writeText(text); ok = true; }
+	catch {   // クリップボード API を拒む環境（埋め込み・権限）＝選択して旧来の copy。それも駄目なら選択したまま見せる
+		const r = document.createRange(); r.selectNodeContents(b.previousElementSibling); getSelection().removeAllRanges(); getSelection().addRange(r);
+		try { ok = document.execCommand("copy"); } catch {}
+	}
+	if (!ok) return;
+	b.textContent = t("Copied");
+	setTimeout(() => { b.textContent = t("Copy"); }, 1600);
+});

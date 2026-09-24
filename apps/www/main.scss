@@ -163,19 +163,31 @@ body #demoOverlay main .grid .card .card-thumb { display: block; width: 100%; he
 	border-block: 1px solid var(--glass-border); }
 body #demoOverlay main .grid .card > :not(.card-thumb) { margin-inline: 1.15rem; }
 body #demoOverlay main .grid .card .card-cta { margin-inline-end: 1.15rem; }
-/* 始める（Get started）＝番号つきの手順カード・コードは左→右固定 */
-body #demoOverlay main .apps.start { align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }   /* minmax(0,…)＝コードの長い行に列幅を奪わせない */
-body #demoOverlay main .apps.start .card.step { min-width: 0; }
-body #demoOverlay main .apps.start .card.step:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
-body #demoOverlay main .apps.start .step-no { display: inline-flex; align-items: center; justify-content: center; width: 1.8rem; height: 1.8rem; border-radius: 50%;
-	background: var(--accent-2); color: #fff; font-weight: 800; font-size: .9rem; margin-bottom: .6rem; }
-body #demoOverlay main .apps.start pre.code { margin-top: .8rem; padding: .7rem .8rem; border-radius: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--glass-border);
-	color: #d8f5ec; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; overflow-x: auto; white-space: pre; }
-body #demoOverlay main .apps.start .doclinks { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
+/* 始める（2026-09-25 作り直し）＝段組をやめて 1 列。二つの道（コード／AI エージェント）＝番号つきの手順。コードの行は折らずに横へ流す */
+body #demoOverlay main .apps.start { display: flex; flex-direction: column; gap: 1rem; max-width: 760px; margin-inline: auto; }
+body #demoOverlay main .apps.start[hidden] { display: none; }   /* 上の display:flex が [hidden] と同じ強さ＝後に書いた方が勝つ＝明示 */
+body #demoOverlay main .apps.start .start-lead { margin: 0 0 .2rem; font-size: 1rem; font-weight: 600; color: var(--text-primary); text-align: center; }
+body #demoOverlay main .apps.start .card.path { min-width: 0; padding-inline-start: 3.6rem; position: relative; }
+body #demoOverlay main .apps.start .card.path.small { padding-inline-start: 1.5rem; }
+body #demoOverlay main .apps.start .card.path:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
+body #demoOverlay main .apps.start .path-no { position: absolute; inset-inline-start: 1.2rem; top: 1.35rem; display: inline-flex; align-items: center; justify-content: center;
+	width: 1.8rem; height: 1.8rem; border-radius: 50%; font-weight: 700; font-size: .9rem; color: #0a0a0f; background: var(--accent-color); }
+body #demoOverlay main .apps.start .card-title { margin: 0; }
+body #demoOverlay main .apps.start .steps { margin: .9rem 0 0; padding-inline-start: 1.2rem; display: flex; flex-direction: column; gap: .85rem; }
+body #demoOverlay main .apps.start .steps li { color: var(--text-primary); font-size: .92rem; line-height: 1.5; }
+body #demoOverlay main .apps.start .steps li::marker { color: var(--accent-color); font-weight: 700; }
+body #demoOverlay main .apps.start pre.code { margin: .45rem 0 0; padding: .7rem .8rem; border-radius: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--glass-border);
+	color: #d8f5ec; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; overflow-x: auto; white-space: pre; user-select: text; -webkit-user-select: text; }
+body #demoOverlay main .apps.start pre.code.prompt { white-space: pre-wrap; color: #f3e9c6; }
+body #demoOverlay main .apps.start .copy-btn { margin-top: .4rem; padding: .3rem .8rem; border-radius: 8px; font: 600 .78rem/1 inherit; cursor: pointer;
+	color: var(--accent-color); background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); }
+body #demoOverlay main .apps.start .copy-btn:hover { background: rgba(0, 255, 204, 0.16); }
+body #demoOverlay main .apps.start .path-note { margin: .9rem 0 0; font-size: .82rem; color: var(--text-secondary); }
+body #demoOverlay main .apps.start .doclinks { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: .9rem; }
 body #demoOverlay main .apps.start .doclinks a { display: inline-flex; align-items: center; padding: .35rem .8rem; border-radius: 8px; font-size: .8rem; font-weight: 600;
 	text-decoration: none; color: var(--accent-color); background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); }
 body #demoOverlay main .apps.start .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
-@media (max-width: 640px) { body #demoOverlay main .apps.start { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) { body #demoOverlay main .apps.start .card.path { padding-inline-start: 1.2rem; padding-top: 3.2rem; } body #demoOverlay main .apps.start .path-no { top: 1rem; } body #demoOverlay main .apps.start .card.path.small { padding-top: 1.2rem; } }
 /* 言語のバッジ＝題の行の右端（RTL は左端）。26 言語＝アクセント・日本語のみ＝控えめ */
 body #demoOverlay main .grid .card { position: relative; }
 body #demoOverlay main .grid .card .card-lang { flex: none; margin: 0;

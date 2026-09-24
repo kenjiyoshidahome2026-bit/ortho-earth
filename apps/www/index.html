@@ -73,57 +73,77 @@
 				<!--DEMOS-->
 				<p class="edu-note" data-t="Free to use in education, always. Ready to use as is in classrooms around the world.">Free to use in education, always. Ready to use as is in classrooms around the world.</p>
 			</div>
-			<!-- 始める：見る → 変換する → 自分のページに → 公開する（コードは訳さない） -->
+			<!-- 始める（2026-09-25 作り直し）：段組をやめて 1 列＝二つの道（コードで／AI エージェントで）を手順で。どの手順も公開済みの npm で実走させて確かめた物
+			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない -->
 			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
-				<div class="card step">
-					<span class="step-no" aria-hidden="true">1</span>
-					<span class="card-title" data-t="Look">Look</span>
-					<span class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</span>
+				<p class="start-lead" data-t="Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.">Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.</p>
+				<section class="card path">
+					<span class="path-no" aria-hidden="true">1</span>
+					<h3 class="card-title" data-t="Build with code">Build with code</h3>
+					<p class="card-desc" data-t="Vite and npm — the whole world first, then your own data on top.">Vite and npm — the whole world first, then your own data on top.</p>
+					<ol class="steps">
+						<li><span data-t="Create a project and add the globe">Create a project and add the globe</span>
+							<pre class="code" translate="no" dir="ltr"><code>npm create vite@latest my-globe -- --template vanilla --no-interactive
+cd my-globe
+npm install
+npm install @ortho-earth/globe</code></pre></li>
+						<li><span data-t="Tell Vite about the globe's workers (vite.config.js)">Tell Vite about the globe's workers (vite.config.js)</span>
+							<pre class="code" translate="no" dir="ltr"><code>export default {
+  optimizeDeps: { exclude: ["@ortho-earth/globe", "@ortho-earth/core"] },
+  worker: { format: "es" },
+};</code></pre></li>
+						<li><span data-t="Put the globe in src/main.js — index.html only needs a div with the id map">Put the globe in src/main.js — index.html only needs a div with the id map</span>
+							<pre class="code" translate="no" dir="ltr"><code>import { createGlobe } from "@ortho-earth/globe";
+
+const map = await createGlobe({ target: "#map", view: "#3/20/140" });</code></pre></li>
+						<li><span data-t="Run it">Run it</span>
+							<pre class="code" translate="no" dir="ltr"><code>npm run dev</code></pre></li>
+						<li><span data-t="Add your own data (MapLibre-style layers)">Add your own data (MapLibre-style layers)</span>
+							<pre class="code" translate="no" dir="ltr"><code>map.addSource("cities", { type: "geojson", data: { type: "FeatureCollection", features: [
+  { type: "Feature", properties: { name: "Tokyo" },
+    geometry: { type: "Point", coordinates: [139.77, 35.68] } } ] } });
+await map.addLayer({ id: "cities", type: "circle", source: "cities",
+  paint: { "circle-radius": 6, "circle-color": "#e4572e" } });</code></pre></li>
+					</ol>
+					<p class="path-note" data-t="No bundler? Copy the prebuilt SDK into your site — it is in the full recipe.">No bundler? Copy the prebuilt SDK into your site — it is in the full recipe.</p>
+					<span class="doclinks">
+						<a href="/start.md" data-t="Full recipe">Full recipe</a>
+						<a href="/docs/core.html" data-t="Docs">Docs</a>
+						<a href="https://www.npmjs.com/package/@ortho-earth/globe" translate="no">npm</a>
+					</span>
+				</section>
+				<section class="card path">
+					<span class="path-no" aria-hidden="true">2</span>
+					<h3 class="card-title" data-t="Build with an AI agent">Build with an AI agent</h3>
+					<p class="card-desc" data-t="Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.">Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.</p>
+					<ol class="steps">
+						<li><span data-t="Open your AI coding agent in an empty folder">Open your AI coding agent in an empty folder</span></li>
+						<li><span data-t="Paste a request like this">Paste a request like this</span>
+							<pre class="code prompt" translate="no" dir="ltr"><code>Read https://www.ortho-earth.com/llms.txt and follow "Build with it".
+Make me a web page with a 3D globe that shows the 10 most populous
+cities of the world as red dots. When I click a dot, show the city's
+name and population. Start the view looking at Asia.</code></pre>
+							<button type="button" class="copy-btn" data-copy="prompt" data-t="Copy">Copy</button></li>
+						<li><span data-t="It installs, writes the code and checks it in the browser. Then run npm run dev and look.">It installs, writes the code and checks it in the browser. Then run npm run dev and look.</span></li>
+					</ol>
+					<p class="path-note" data-t="Tested: an AI agent given only this request built and verified the page on its first run.">Tested: an AI agent given only this request built and verified the page on its first run.</p>
+				</section>
+				<section class="card path small">
+					<h3 class="card-title" data-t="Look">Look</h3>
+					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
 					<span class="doclinks">
 						<a href="/japan/" translate="no">ortho-japan</a>
 						<a href="/geopbf/" translate="no">GeoPBF</a>
 					</span>
-				</div>
-				<div class="card step">
-					<span class="step-no" aria-hidden="true">2</span>
-					<span class="card-title" data-t="Convert in your code">Convert in your code</span>
-					<span class="card-desc" data-t="The converter is an npm package with no runtime dependencies. It works in the browser and in Node.">The converter is an npm package with no runtime dependencies. It works in the browser and in Node.</span>
-					<pre class="code" translate="no" dir="ltr"><code>npm install geopbf
-
-import { createGeopbf } from "geopbf";
-const geopbf = createGeopbf();
-const pbf = await geopbf(file);   // Shapefile, GeoPackage, FlatGeobuf …
-const fgb = await pbf.fgbFile();  // or geojsonFile(), shapeFile() …</code></pre>
-					<span class="doclinks">
-						<a href="/docs/geopbf.html" data-t="Docs">Docs</a>
-						<a href="https://www.npmjs.com/package/geopbf" translate="no">npm</a>
-					</span>
-				</div>
-				<div class="card step">
-					<span class="step-no" aria-hidden="true">3</span>
-					<span class="card-title" data-t="Put the globe on your page">Put the globe on your page</span>
-					<span class="card-desc" data-t="Copy the SDK files to your site and add a few lines. No API key, no billing, no server of your own.">Copy the SDK files to your site and add a few lines. No API key, no billing, no server of your own.</span>
-					<pre class="code" translate="no" dir="ltr"><code>npm install @ortho-earth/japan
-
-&lt;div id="here" style="height:420px"&gt;&lt;/div&gt;
-&lt;script type="module"&gt;
-  import orthoJapan from "./lib/ortho-japan.js";
-  await orthoJapan({ target: "#here", assetBase: "./assets/" });
-&lt;/script&gt;</code></pre>
-					<span class="doclinks">
-						<a href="https://www.npmjs.com/package/@ortho-earth/japan" translate="no">npm</a>
-						<a href="https://github.com/kenjiyoshidahome2026-bit" translate="no">GitHub</a>
-					</span>
-				</div>
-				<div class="card step">
-					<span class="step-no" aria-hidden="true">4</span>
-					<span class="card-title" data-t="Publish your map">Publish your map</span>
-					<span class="card-desc" data-t="Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.">Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.</span>
+				</section>
+				<section class="card path small">
+					<h3 class="card-title" data-t="Publish your map">Publish your map</h3>
+					<p class="card-desc" data-t="Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.">Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.</p>
 					<pre class="code" translate="no" dir="ltr"><code>https://www.ortho-earth.com/japan/?g=gh:you/repo/map.geopbf</code></pre>
 					<span class="doclinks">
 						<a href="/maps/" data-t="Maps">Maps</a>
 					</span>
-				</div>
+				</section>
 			</div>
 			<div class="apps tech" id="panel-tech" role="tabpanel" aria-labelledby="tab-tech" hidden>
 				<div class="card tech-card">
