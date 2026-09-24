@@ -475,6 +475,7 @@ in float v_fog;
 in float v_h;
 out vec4 fragColor;
 void main() {
+	float mpp = fwidth(v_ll.y) * 111320.0;   // 画素の地上寸法(m)の目安＝下の低地フェード帯の上端（WGSL terrMpp と同式・経度は f32 刻みが粗いので使わない）。微分は discard より前
 	if (v_front < -0.0015) discard;   // 海抜0の接線より少し先まで許容＝地平線の先に頭を出す高山（〜9km球換算）を描く。遮蔽は深度とフォグが担う
 	if (u_farPass > 0.5) {   // 遠景パスは近窓の内側を塗らない。縁の座標一致は連続な elev()（近縁が遠層値へ溶ける）が保証
 		vec2 uvN = (v_ll - u_elevBounds.xy) / u_elevBounds.zw;
@@ -482,7 +483,9 @@ void main() {
 	}
 	// 海〜低地は地形を透明化し、海岸線は精細なベクタに委ねる。低地から滑らかに陰影を立ち上げ、
 	// 粗い標高メッシュが海岸で作る「崖」のガタつき・平野のノイズを消す。
-	float t = smoothstep(1.0, 100.0, v_h);
+	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラス）＝チルトで h·tanθ ずれた
+	// 二重像になる（京都 40m×60° で堀が 70m ずれる）。ずれが 2px 未満の高さでだけ透かす（wgsl.js TERRAIN_WGSL と同式）。
+	float t = smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), v_h);
 	if (t <= 0.0) discard;
 	// 北西光の hillshade（前方差分＝中央差分の半分のフェッチ）。
 	// 歩幅＝アトラス1texel（下限は従来の0.004°≈450m＝近景は不変）。固定歩幅はズームアウトで
@@ -499,7 +502,9 @@ void main() {
 	vec3 landC = mix(u_land, u_hypso, clamp(h0 * u_hypsoP.x, 0.0, 1.0) * u_hypsoP.y);
 	landC = mix(landC, worldHypso(h0, v_ll), u_whK);   // 全球ハイプソ（低ズーム帯）＝globe パスと同色でピッチ不変
 	// 深度は VS の applyLogDepth() が焼き済み（mesh/building と一貫。FSで書くと early-Z が死ぬ）
-	vec3 colBase = gndMix(cogTexMix(landC * shade, v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）＝不透明化した分を床と同色で埋める（wgsl.js と同式・低ズームは旧式と恒等）
+	float tS = smoothstep(1.0, 100.0, v_h);
+	vec3 colBase = gndMix(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	vec3 col = mix(colBase, u_fogColor, v_fog);
 	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;

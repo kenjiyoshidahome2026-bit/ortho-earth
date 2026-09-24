@@ -381,6 +381,9 @@ struct TerrOut {
 	@location(7) guv2: vec2f,
 	@location(8) guv3: vec2f,
 };
+// 画素の地上寸法(m)の目安＝緯度の画面微分（fwidth＝x/y 両方向の和・方位に依らず拾う）。経度は使わない：
+// 絶対経度の f32 刻み（135°で 1.7m）が深ズームの画素と同オーダー＝揺れる。緯度は 0.4m 刻み・深ズームは下限 2m に埋もれる
+fn terrMpp(ll: vec2f) -> f32 { return fwidth(ll.y) * 111320.0; }
 @vertex fn vs(@location(0) a_uv: vec2f) -> TerrOut {
 	var o: TerrOut;
 	let a_ll = F.mesh.xy + F.mesh.zw * a_uv;   // 単位格子 uv→絶対 lon/lat（頂点属性でなく uniform 窓＝窓替えで作り直さない）
@@ -406,13 +409,17 @@ struct TerrOut {
 	return o;
 }
 @fragment fn fs(in: TerrOut) -> @location(0) vec4f {
+	let mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）
 	if (in.front < -0.0015) { discard; }   // 接線より少し先まで許容＝地平線に頭を出す高山。遮蔽は深度とフォグ
 	if (F.farP.z > 0.5) {   // 遠景メッシュパス：近窓の内側は近メッシュの担当＝discard（縁の連続は elev() が保証）
 		let uvN = (in.ll - F.elevBounds.xy) / F.elevBounds.zw;
 		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) { discard; }
 	}
-	// 海〜低地は地形を透明化し海岸線は精細なベクタに委ねる（粗いメッシュの海岸の崖・平野ノイズを消す）
-	let t = smoothstep(1.0, 100.0, in.h);
+	// 海〜低地は地形を透明化し海岸線は精細なベクタに委ねる（粗いメッシュの海岸の崖・平野ノイズを消す）。
+	// 帯の上端＝画素 2 個分の標高（1〜100m）：透けた先は海抜0の球の床（同じ地面アトラスを貼る）＝チルトで
+	// h·tanθ ずれた二重像になる（京都 40m×60° で堀が 70m ずれて水色の四角が浮く）。ずれが 2px 未満の高さでだけ透かす＝
+	// 低ズーム（1px≧50m）は従来の 1〜100m のまま・寄るほど帯が縮む。gl/glsl.js TERRAIN_FS と同式。
+	let t = smoothstep(1.0, clamp(2.0 * mpp, 2.0, 100.0), in.h);
 	if (t <= 0.0) { discard; }
 	// 北西光の hillshade（前方差分）。歩幅＝アトラス1texel（下限0.004°≈R10 texel＝遠層域の歩幅としても妥当）
 	let tsz = vec2f(textureDimensions(elevTex, 0));
@@ -428,7 +435,10 @@ struct TerrOut {
 		let clim = textureSampleLevel(climTex, climSamp, climUV(in.ll), 0.0).rg;
 		landC = mix(landC, worldHypsoColor(h0, in.ll, clim, P.p2.z), P.p2.y);
 	}
-	let colBase = gndMix0(cogTexMix0(landC * shade, in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）：不透明化した分（t≧tS）を「床と同色＝陰影なし」で埋める
+	// ＝ t·X + (1−t)·床 が旧 tS·地形 + (1−tS)·床 と一致（床≈landC）。低ズーム（t＝tS）は旧式と恒等
+	let tS = smoothstep(1.0, 100.0, in.h);
+	let colBase = gndMix0(cogTexMix0(landC * mix(1.0, shade, min(tS / t, 1.0)), in.cuv), in.guv0, in.guv1, in.guv2, in.guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
 	let col = mix(colBase, F.fogColor, in.fog);
 	return vec4f(col * t * P.p2.w, t * P.p2.w);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度（p2.w）
 }
