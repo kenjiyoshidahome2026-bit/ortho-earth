@@ -30,6 +30,21 @@ function sdfTint(name, im, color) {
 	tinted.set(key, cv);
 	return cv;
 }
+// 文字幅の覚え（font＋文字列 → 幅）＝毎フレーム全候補の measureText をしない（世界帯の都市＝数千件で効く）。溢れたら丸ごと捨てる
+const widths = new Map();
+const widthOf = (font, text) => { const k = font + "\u0001" + text; let v = widths.get(k); if (v == null) { if (widths.size > 20000) widths.clear(); ctx.font = font; v = ctx.measureText(text).width; widths.set(k, v); } return v; };
+// 重なり判定の格子（置いた箱を 64px 升に登録＝候補は近くの升だけ見る）。旧＝置いた箱の全件と比べる線形＝数千件で 2 乗
+const CELL = 64;
+function makeIndex() {
+	const grid = new Map();
+	const cells = (b, fn) => { const x0 = Math.floor(b[0] / CELL), x1 = Math.floor(b[2] / CELL), y0 = Math.floor(b[1] / CELL), y1 = Math.floor(b[3] / CELL);
+		for (let cy = y0; cy <= y1; cy++) for (let cx = x0; cx <= x1; cx++) if (fn(cx * 65536 + cy)) return true; return false; };
+	return {
+		free: b => !cells(b, k => { const L = grid.get(k); return !!L && L.some(p => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]); }),
+		push: b => { cells(b, k => { let L = grid.get(k); if (!L) grid.set(k, L = []); L.push(b); return false; }); },
+	};
+}
+const pad = (b, p) => p ? [b[0] - p, b[1] - p, b[2] + p, b[3] + p] : b;   // text-padding＝判定だけ広げる（描く位置は変えない）
 const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };
 export function frame(cam, s, { w, h }, api) {
 	if (!ctx) return false;
@@ -38,12 +53,13 @@ export function frame(cam, s, { w, h }, api) {
 	if (!layers.size || !api) return false;
 	const dpr = api.dpr || 1, W = w / dpr, H = h / dpr;
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-	const placed = [];   // 置いた箱（重なり判定）
-	const free = b => !placed.some(p => b[0] < p[2] && b[2] > p[0] && b[1] < p[3] && b[3] > p[1]);
+	const idx = makeIndex(), free = idx.free;   // 置いた箱（重なり判定＝格子）
 	for (const L of [...layers.values()].sort((a, b) => a.order - b.order)) {
 		for (const it of L.items) {
 			const [x, y, f] = api.project(it.lon, it.lat);
 			if (f < 0 || x < -64 || y < -64 || x > W + 64 || y > H + 64) continue;
+			// 縁の近く（地平線の手前で斜めに潰れる所）は出さない（layer.horizon）：f＝dot(u,E)−1・|E−u|²＝|E|²−2f−1 ⇒ cos＝f／|E−u|
+			if (it.horizon > 0 && s?.eye) { const e2 = s.eye[0] * s.eye[0] + s.eye[1] * s.eye[1] + s.eye[2] * s.eye[2]; if (f / Math.sqrt(Math.max(1e-12, e2 - 2 * f - 1)) < it.horizon) continue; }
 			let ib = null, tb = null, im = null, iw = 0, ih = 0;
 			if (it.icon) im = images.get(it.icon) || null;
 			const fit = im && it.text && it.iconTextFit && it.iconTextFit !== "none" ? it.iconTextFit : null;   // icon-text-fit（#39）
@@ -54,8 +70,7 @@ export function frame(cam, s, { w, h }, api) {
 			}
 			// 文字の箱（text-variable-anchor＝候補を順に試し、空いている最初の位置・#39）
 			const textBox = anchor => {
-				ctx.font = `${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`;
-				const tw = ctx.measureText(it.text).width, th = it.textSize * 1.2, a = ANCH[anchor] || ANCH.center;
+				const tw = widthOf(`${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`, it.text), th = it.textSize * 1.2, a = ANCH[anchor] || ANCH.center;
 				let ox = it.textOffset[0], oy = it.textOffset[1];
 				if (it.textVariableAnchor) {   // 候補ごとに錨から離す向き＝錨の反対側へ（MapLibre と同じ：radial があればそれ・無ければ text-offset の大きさ）
 					const r = it.textRadialOffset ?? Math.max(Math.abs(ox), Math.abs(oy)), k = anchor.includes("-") ? Math.SQRT1_2 : 1;
@@ -75,15 +90,15 @@ export function frame(cam, s, { w, h }, api) {
 				const cands = it.textVariableAnchor?.length ? it.textVariableAnchor : [it.textAnchor];
 				for (const an of cands) {
 					const t = textBox(an), i2 = fit ? iconFor(t) : ib;
-					if (it.textOverlap || (free(t) && (!i2 || it.iconOverlap || free(i2)))) { tb = t; if (fit) ib = i2; break; }
+					if (it.textOverlap || (free(pad(t, it.textPadding)) && (!i2 || it.iconOverlap || free(i2)))) { tb = t; if (fit) ib = i2; break; }
 				}
 				if (!tb) continue;   // どの候補も置けない＝この記号は出さない
 				if (fit) { iw = ib[2] - ib[0]; ih = ib[3] - ib[1]; }
 			}
 			// 重なり（MapLibre：記号と文字は一緒に置けなければ両方出さない＝optional は扱わない）
 			if (ib && !it.iconOverlap && !free(ib)) continue;
-			if (ib && !it.iconIgnore) placed.push(ib);
-			if (tb && !it.textIgnore) placed.push(tb);
+			if (ib && !it.iconIgnore) idx.push(ib);
+			if (tb && !it.textIgnore) idx.push(pad(tb, it.textPadding));
 			ctx.globalAlpha = it.opacity ?? 1;
 			if (ib) {
 				const src = im.sdf ? sdfTint(it.icon, im, it.color || "#000") : im.bm;
@@ -91,6 +106,7 @@ export function frame(cam, s, { w, h }, api) {
 				else ctx.drawImage(src, ib[0], ib[1], iw, ih);
 			}
 			if (tb) {
+				ctx.font = `${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`;   // 幅は覚えから＝描く前に書体を必ず据える
 				ctx.textAlign = "left"; ctx.textBaseline = "top";
 				if (it.haloWidth > 0) { ctx.lineJoin = "round"; ctx.lineWidth = it.haloWidth * 2; ctx.strokeStyle = it.haloColor || "#fff"; ctx.strokeText(it.text, tb[0], tb[1] + it.textSize * 0.1); }
 				ctx.fillStyle = it.textColor || "#000"; ctx.fillText(it.text, tb[0], tb[1] + it.textSize * 0.1);

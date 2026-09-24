@@ -16,8 +16,8 @@ export const culturalName = g => `ne-cultural-${g}.geopbf`;
 // ── 出しズーム（equal の LAYERS と globe の worldContent が同じ値を読む）──
 export const WORLD_Z = {
 	admin1: 4,        // 州境（同じ国の中の境）
-	detailLoad: 4.5,  // detail（道路・鉄道・市街地・空港）を取りに行くズーム
-	urban: 4,         // 市街地の塗り（detail を読んだ後）
+	detailLoad: 5,    // detail（道路・鉄道・市街地・空港）を取りに行くズーム（本人 2026-09-24「道路・鉄道・市街地は z>5」＝見えない帯のために読まない・描かない）
+	urban: 5,         // 市街地の塗り（旧 4＝本人裁定で道路・鉄道と揃える）
 	roads: 5, rail: 5,
 	airport: 5,       // 空港の ✈（本人 2026-09-18「空港の表示は z>5」）
 	worldLines: 1.5,  // 川・海洋境界を取りに行くズーム（地物ごとの min_zoom はデータが持つ）
@@ -82,7 +82,11 @@ export function shortEnNames(n, props) {
 	return m;
 }
 
-// ── 注記の規則（大きさは CSS px の素の値＝各アプリが自分の倍率を掛ける）──
+// ── 注記の規則（大きさは CSS px の素の値。labelSize で縮尺を掛ける）──
+// 縮尺と文字の周りの空き＝equal のラベル層の値そのもの（本人 2026-09-18「少しだけ小さく」＝0.92・衝突判定の pad 4）。
+// globe の注記も同じ値で置く＝都市の密度が Equal Earth と揃う（本人 2026-09-24「都市密度は EE に合わせる」）
+export const WORLD_LABEL = { scale: 0.92, pad: 4 };
+export const labelSize = px => Math.round(px * WORLD_LABEL.scale * 2) / 2;   // 0.5px 刻み＝字形が半端な小数でにじまない
 /** 国名：代表点（NationDB coord）・面積で出すズームと大きさ（大国＝下限から・小国＝寄ってから）。null＝置かない */
 export function countryLabelRule(n) {
 	if (!n.coord || !(n.area > 0)) return null;

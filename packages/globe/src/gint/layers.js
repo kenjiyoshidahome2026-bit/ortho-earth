@@ -378,7 +378,7 @@ function addGint(pbf, opts = {}) {
 			if (tipFmt && gintHoverTip && !extTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
 		},
 		_zoomReeval: z => {   // settle 毎に呼ばれる（③）：['zoom'] を含む paint は 0.5z 動いたら再評価（restyle は安い＝§8.1）
-			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.5) h.setPaint(lastPaint, lastFilter);
+			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.25) h.setPaint(lastPaint, lastFilter);   // 0.25＝出しズームの境（z4/z5…）を跨いだら遅れずに（旧 0.5 は 4.6→5.05 のような跨ぎを取り逃がした）
 		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
 		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
@@ -388,7 +388,9 @@ function addGint(pbf, opts = {}) {
 		},
 		setPaint: async (paint, filter = lastFilter) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）。filter 省略＝現 filter 維持
 			lastPaint = paint ?? null; lastFilter = filter ?? null;
-			zoomDriven = !!paint && JSON.stringify(paint).includes('["zoom"'); lastEvalZoom = cam.zoom;
+			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
+			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
+			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom;
 			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }

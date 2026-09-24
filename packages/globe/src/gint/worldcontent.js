@@ -9,11 +9,12 @@
 //   lakes  … 湖の岸線（塗りは renderer の lakes スロット＝既存）・地物ごとの min_zoom
 // 海岸線・国境（admin0 層）と河川・海洋境界線（world lines）は gint/layers.js の既存の層＝ここでは出しズームだけ equal に揃える（呼び出し側）。
 import { css } from "@ortho-earth/core/worldstyle";
-import { WORLD_Z, culturalUrl, culturalName, loadNations, loadI18n, loadNeCities, countryName, cityName, shortEnNames, countryLabelRule, cityLabelRule, airportLabelRule, PLANE_PATH } from "@ortho-earth/core/worldcontent";
+import { WORLD_Z, WORLD_LABEL, labelSize, culturalUrl, culturalName, loadNations, loadI18n, loadNeCities, countryName, cityName, shortEnNames, countryLabelRule, cityLabelRule, airportLabelRule, PLANE_PATH } from "@ortho-earth/core/worldcontent";
 
 const LABEL_ID = "world-content-labels", AIR_ID = "world-content-airports";
 
-export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {} }) {
+export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom, lang = "en", worldStyle, bandZ, lowMem = false, requestDraw = () => {}, groups = null }) {
+	const want = g => !groups || groups.includes(g);   // groups＝読む群の限定（計測の切り分け・既定＝全部）
 	const H = {};            // group → addGint の手綱（base / detail / lakes）
 	const held = {};         // group → GeoPBF（注記の材料）
 	const state = {};        // group → 0 未 / 1 読込中 / 2 済 / 3 失敗
@@ -29,7 +30,8 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		detail: t => ({
 			"fill-color": ["case", ["==", ["get", "layer"], "urban_areas"], css(t.urban), "rgba(0,0,0,0)"],
 			"line-color": ["match", ["get", "layer"], "roads", css(t.road), "railroads", css(t.rail), "rgba(0,0,0,0)"],
-			"line-width": 0.8,
+			// 市街地の面の輪郭は描かない＝幅 0（線色の「透明」は表では 0＝「既定色を使う」と同じ値になり、既定色の外枠が出ていた・本人指摘）
+			"line-width": ["match", ["get", "layer"], ["roads", "railroads"], 0.8, 0],
 		}),
 		lakes: t => ({ "line-color": css(t.lakeShore), "line-width": 0.6 }),
 	};
@@ -59,8 +61,11 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			held[g] = pbf;
 			// moveBudget/outlineZoom＝移動中も地物ごとの塗り・線を保つ（admin0 と同じ・既定だと移動中は単色のベタ塗りに落ち、湖まで市街地色になる）
 			// fillColor 透明＝層の単色塗り（既定のオレンジ）を消し、地物ごとの塗り（setPaint）だけ残す。style は丸ごと置き換え＝1 回で渡す
-			const h = addGint(pbf, { order: ORDER[g], interactive: false, maxZoom: bandZ, fillMaxEdges: g === "detail" ? undefined : 0,
-				style: { moveBudget: Infinity, outlineZoom: 0, fillColor: [0, 0, 0, 0] } });
+			// detail＝z5 未満は層ごと描かない（道路・鉄道・市街地は z>5＝本人裁定・見えない帯で GPU を使わない）
+			const h = addGint(pbf, { order: ORDER[g], interactive: false, maxZoom: bandZ, minZoom: g === "detail" ? WORLD_Z.roads : null, fillMaxEdges: g === "detail" ? undefined : 0,
+				// 動かしている間の予算：州境・道路/鉄道/市街地は 4 万辺を超えたら簡略（州境＝外周の海岸線だけ・detail＝描かない）＝止まれば全部（実測：
+				// 欧州 z5.5・dpr2 の連続パンで detail が gint の GPU を約 +20ms・base が約 +10ms＝既定 25 万辺では簡略に落ちなかった）。湖の岸線は軽い＝常に
+				style: { moveBudget: g === "lakes" ? Infinity : 40_000, outlineZoom: 0, fillColor: [0, 0, 0, 0] } });
 			if (!h) throw new Error("addGint unavailable");
 			h.setVisible(false);            // 絞る（出しズーム）まで出さない＝焼き上がり直後の 1 枚で全件が既定色で閃かない
 			await h.ready;
@@ -98,7 +103,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		for (const nation of nm.world.items) {
 			const r = countryLabelRule(nation); if (!r) continue;
 			feats.push({ type: "Feature", geometry: { type: "Point", coordinates: [r.lon, r.lat] },
-				properties: { name: countryName(nation, nm.i18n, shortEn), kind: "country", mz: r.minZoom, pri: r.priority, size: r.size } });
+				properties: { name: countryName(nation, nm.i18n, shortEn), kind: "country", mz: r.minZoom, pri: r.priority, size: labelSize(r.size) } });
 		}
 		for (let i = 0; i < n; i++) {
 			const p = pbf.getProperties(i);
@@ -106,7 +111,8 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			const f = pbf.getFeature(i); if (f?.geometry?.type !== "Point") continue;
 			const name = cityName(p, lang, nm.i18n, nm.ne); if (!name) continue;
 			const r = cityLabelRule(p);
-			feats.push({ type: "Feature", geometry: f.geometry, properties: { name, kind: r.cap ? "capital" : "city", mz: r.minZoom, pri: r.priority, size: r.size } });
+			const size = labelSize(r.size);
+			feats.push({ type: "Feature", geometry: f.geometry, properties: { name, kind: r.cap ? "capital" : "city", mz: r.minZoom, pri: r.priority, size, off: (r.dot + 3) / size } });   // off＝点から文字までの空き（equal の dot+3px を em で）
 		}
 		labelsOn = true;
 		await symbols({ type: "FeatureCollection", features: feats }, labelLayer());
@@ -115,16 +121,21 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		const t = T(), L = t.labelColor;
 		return {
 			id: LABEL_ID, maxzoom: bandZ,
+			horizon: 0.35,   // 球の縁の近く（視線と地面が 70° 超で斜めに潰れる所）の注記は出さない（本人 2026-09-24「地球の外枠に近い都市名は不要」）
 			filter: ["<=", ["get", "mz"], ["zoom"]],   // 出しズーム（止まるたびに評価し直される）
 			layout: {
 				"icon-image": ["match", ["get", "kind"], "capital", "wc-dot-cap", "city", "wc-dot", ""],
 				"icon-size": ["match", ["get", "kind"], "capital", 1.3, 0.75],
+				// 重なり判定は文字の箱だけ（equal と同じ＝点は数えない）＝都市の密度が Equal Earth と揃う
+				"icon-allow-overlap": true, "icon-ignore-placement": true,
 				"symbol-sort-key": ["get", "pri"],
 				"text-field": ["get", "name"], "text-size": ["get", "size"],
-				// 国名＝点の真上に置き、衝突したら上下へずらす（equal と同じ所作）・都市＝点の右
+				"text-padding": WORLD_LABEL.pad,   // 文字の周りの空き＝equal のラベル層と同じ正本の値
+				// 国名＝点の真上に置き、衝突したら上下へ行の高さの 1.3 倍ずらす（equal と同じ所作）・都市＝点の右（equal の dot+3px）
 				"text-anchor": ["case", ["==", ["get", "kind"], "country"], "center", "left"],
-				"text-offset": ["case", ["==", ["get", "kind"], "country"], ["literal", [0, 0]], ["literal", [0.55, 0]]],
-				"text-variable-anchor": ["case", ["==", ["get", "kind"], "country"], ["literal", ["center", "top", "bottom"]], ["literal", ["left"]]],
+				"text-offset": ["case", ["==", ["get", "kind"], "country"], ["literal", [0, 0]], ["literal", [0, 0]]],
+				"text-variable-anchor": ["case", ["==", ["get", "kind"], "country"], ["literal", ["center", "bottom", "top"]], ["literal", ["left"]]],
+				"text-radial-offset": ["case", ["==", ["get", "kind"], "country"], 1.56, ["get", "off"]],
 			},
 			paint: {
 				"text-color": ["case", ["==", ["get", "kind"], "country"], L.country, L.city],
@@ -143,7 +154,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			feats.push({ type: "Feature", geometry: f.geometry, properties: { pri: airportLabelRule(p).priority } });
 		}
 		if (!feats.length) return;
-		await symbols({ type: "FeatureCollection", features: feats }, { id: AIR_ID, minzoom: WORLD_Z.airport, maxzoom: bandZ,
+		await symbols({ type: "FeatureCollection", features: feats }, { id: AIR_ID, minzoom: WORLD_Z.airport, maxzoom: bandZ, horizon: 0.35,
 			layout: { "icon-image": "wc-plane", "icon-size": 0.65, "symbol-sort-key": ["get", "pri"] } });
 	}
 
@@ -151,9 +162,9 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 	function update() {
 		const z = getZoom();
 		if (!(z < bandZ)) return;
-		load("base");
-		if (!lowMem) load("lakes");
-		if (z >= WORLD_Z.detailLoad) load("detail");
+		if (want("base")) load("base");
+		if (!lowMem && want("lakes")) load("lakes");
+		if (z >= WORLD_Z.detailLoad && want("detail")) load("detail");
 	}
 	return {
 		update,
