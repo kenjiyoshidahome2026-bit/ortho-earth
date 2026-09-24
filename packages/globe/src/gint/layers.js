@@ -484,7 +484,7 @@ const WORLD_BAND_Z = env.worldBandZ ?? 6.5;   // 世界帯の上限＝湖・海�
 const ADMIN0_Z = 9;         // 世界海岸線の表示・ロード上限＝これ未満で出す（maxZoom9 と対）
 const WORLD_ADMIN0_MINZ = 2.5;   // world 時の coast 下限＝これ未満は線なしの純粋な地球（本人裁定 2026-09-01）
 // worldContent（世界帯に Equal Earth と同じ中身・2026-09-24）＝equal と同じ出し方：海岸線・国境は全ズーム・河川/海洋境界は z1.5 から・
-// 国境は最初から NE 10m（州境・都市の ne-cultural と同じ線＝50m との食い違いで海岸線が二重に見えない）。LOW_MEM は従来どおり 50m
+// 国境は起動 50m（軽い）→ 州境が出る z4 で NE 10m（州境・都市の ne-cultural と同じ線＝海岸線が二重に見えない）。LOW_MEM は従来どおり 50m
 const WORLD_CONTENT = !!env.worldContent;
 const ADMIN0_MINZ_EFF = WORLD_CONTENT ? 0 : WORLD_ADMIN0_MINZ, WORLD_LINES_MINZ = WORLD_CONTENT ? WORLD_Z.worldLines : WORLD_ADMIN0_MINZ;
 const WORLD_TIP_MAXZ = 5.5;     // 国名ホバー tip の上限＝これ以上は出さない・跨いだら消す（本人裁定 2026-09-02「z>5.5で消して」＝基図接近帯は注記の領分）
@@ -650,8 +650,9 @@ function updateGintSlot() {
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	// admin0＝独立層（スロット外）：ロード発火・層生成・飛行抑制の同期。表示のズーム域はエンジンが裁く
-	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0(WORLD_CONTENT && !LOW_MEM ? "10m" : "50m");
-	else if (!LOW_MEM && admin0Res === "50m" && !admin0Loading && !suppressAdmin0 && !env.flying && cam.zoom >= ADMIN0_FINE_Z && cam.zoom < ADMIN0_Z) loadAdmin0("10m");   // 国境が大きく見える帯で細密版へ
+	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0("50m");
+	// 細密版（10m）へ上げるズーム：worldContent は州境（NE 10m・z≥4）が出る所＝海岸線が州境と同じ線になる（z<4 は 50m＝軽い・本人「z<5 は EE 同様軽く」）
+	else if (!LOW_MEM && admin0Res === "50m" && !admin0Loading && !suppressAdmin0 && !env.flying && cam.zoom >= (WORLD_CONTENT ? WORLD_Z.admin1 : ADMIN0_FINE_Z) && cam.zoom < ADMIN0_Z) loadAdmin0("10m");   // 国境が大きく見える帯で細密版へ
 	ensureAdmin0Layer();
 	syncAdmin0Vis();
 	// LOW_MEM＝user 層が非表示帯（z<minZoom）の間は束を眠らせない＝破棄（iOS jetsam 対策・旧 admin0 スロット

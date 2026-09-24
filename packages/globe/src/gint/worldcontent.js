@@ -8,7 +8,7 @@
 //   detail … 市街地の塗り（z≥4）・道路・鉄道（z≥5）・空港の ✈（z≥5）＝z≥4.5 で初めて読む
 //   lakes  … 湖の岸線（塗りは renderer の lakes スロット＝既存）・地物ごとの min_zoom
 // 海岸線・国境（admin0 層）と河川・海洋境界線（world lines）は gint/layers.js の既存の層＝ここでは出しズームだけ equal に揃える（呼び出し側）。
-import { css } from "@ortho-earth/core/worldstyle";
+import { css, hex } from "@ortho-earth/core/worldstyle";
 import { WORLD_Z, WORLD_LABEL, labelSize, culturalUrl, culturalName, loadNations, loadI18n, loadNeCities, countryName, cityName, shortEnNames, countryLabelRule, cityLabelRule, airportLabelRule, PLANE_PATH } from "@ortho-earth/core/worldcontent";
 
 const LABEL_ID = "world-content-labels", AIR_ID = "world-content-airports";
@@ -44,6 +44,18 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			["all", ["==", ["get", "layer"], "railroads"], [">=", ["zoom"], WORLD_Z.rail]]],
 		lakes: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 0]], ["zoom"]],
 	};
+	// 層の描画スタイル。styleTable＝地物ごとの表が効かない時（動かしている間の簡略表示＝外周の線だけ）の色：
+	// style0＝面の辺・style1＝折れ線。既定のまま（#FF6B35）だと簡略表示で市街地の外周がオレンジに出た（本人指摘 2026-09-24）＝
+	// detail は透明（簡略中は描かない）・州境の群は海岸線の色（簡略中に残るのは外周＝海岸線）・湖は岸線の色
+	const rgba = v => Array.isArray(v) ? hex(v[0], v[1]) : hex(v);
+	const styleOf = (g, t) => {
+		const tb = new Float32Array(256 * 4);
+		const c = g === "base" ? rgba(t.coast) : g === "lakes" ? rgba(t.lakeShore) : [0, 0, 0, 0];
+		tb.set(c, 0); tb.set(c, 4);
+		// 動かしている間の予算：州境・道路/鉄道/市街地は 4 万辺を超えたら簡略（州境＝外周の海岸線だけ・detail＝描かない）＝止まれば全部（実測：
+		// 欧州 z5.5・dpr2 の連続パンで detail が gint の GPU を約 +20ms・base が約 +10ms＝既定 25 万辺では簡略に落ちなかった）。湖の岸線は軽い＝常に
+		return { styleTable: tb, lineWidth: 0.75, moveBudget: g === "lakes" ? Infinity : 40_000, outlineZoom: 0, fillColor: [0, 0, 0, 0] };
+	};
 	// 層の順＝admin0（海岸線・国境 -10）の下に州境、その下に市街地/道路（塗りと線の上下は gint の中で面→線）
 	const ORDER = { base: -11, detail: -12, lakes: -9 };
 	const SRC = {
@@ -62,10 +74,10 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			// moveBudget/outlineZoom＝移動中も地物ごとの塗り・線を保つ（admin0 と同じ・既定だと移動中は単色のベタ塗りに落ち、湖まで市街地色になる）
 			// fillColor 透明＝層の単色塗り（既定のオレンジ）を消し、地物ごとの塗り（setPaint）だけ残す。style は丸ごと置き換え＝1 回で渡す
 			// detail＝z5 未満は層ごと描かない（道路・鉄道・市街地は z>5＝本人裁定・見えない帯で GPU を使わない）
-			const h = addGint(pbf, { order: ORDER[g], interactive: false, maxZoom: bandZ, minZoom: g === "detail" ? WORLD_Z.roads : null, fillMaxEdges: g === "detail" ? undefined : 0,
-				// 動かしている間の予算：州境・道路/鉄道/市街地は 4 万辺を超えたら簡略（州境＝外周の海岸線だけ・detail＝描かない）＝止まれば全部（実測：
-				// 欧州 z5.5・dpr2 の連続パンで detail が gint の GPU を約 +20ms・base が約 +10ms＝既定 25 万辺では簡略に落ちなかった）。湖の岸線は軽い＝常に
-				style: { moveBudget: g === "lakes" ? Infinity : 40_000, outlineZoom: 0, fillColor: [0, 0, 0, 0] } });
+			// 層ごとの出しズーム（未満は描かない＝GPU を使わない）：detail＝z5（道路・鉄道・市街地は z>5）・base＝z4（州境が出る所・本人「z<5 は EE 同様軽く」＝
+			// 旧は z<4 でも全州の輪郭を処理していた）。係争地の線も z4 から
+			const h = addGint(pbf, { order: ORDER[g], interactive: false, maxZoom: g === "detail" ? Math.min(bandZ, WORLD_Z.detailMax) : bandZ, minZoom: g === "detail" ? WORLD_Z.roads : g === "base" ? WORLD_Z.admin1 : null, fillMaxEdges: g === "detail" ? undefined : 0,
+				style: styleOf(g, T()) });
 			if (!h) throw new Error("addGint unavailable");
 			h.setVisible(false);            // 絞る（出しズーム）まで出さない＝焼き上がり直後の 1 枚で全件が既定色で閃かない
 			await h.ready;
@@ -170,7 +182,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 		update,
 		/** テーマ切替＝線/面の色・記号帳・注記の色を正本から引き直す */
 		async repaint() {
-			for (const g of Object.keys(H)) H[g].setPaint(PAINT[g](T()), FILTER[g]).catch(() => {});
+			for (const g of Object.keys(H)) { H[g].style?.(styleOf(g, T())); H[g].setPaint(PAINT[g](T()), FILTER[g]).catch(() => {}); }
 			if (imagesAdded) await images();
 			if (labelsOn) await labels();
 			if (held.detail) await airports();
