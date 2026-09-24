@@ -42,6 +42,18 @@ ok("halted → no fetch", (await mirror(env, T0 + 300 * 60e3, reply(200, CSV))) 
 ok("mirror still served while halted", (await get("/active.csv")).status === 200);
 store.delete("halt");
 ok("human clears halt → resumes", (await mirror(env, T0 + 360 * 60e3, reply(200, CSV))) === "stored");
+// 一時的な 5xx（520〜526）＝見送り・3 回続いたら停止・応答が返れば数え直し（本人裁定 2026-09-24）
+ok("522 once = transient, no halt", (await mirror(env, T0 + 480 * 60e3, reply(522, "error code: 522"))) === "transient" && !store.has("halt"));
+ok("522 twice = transient (count 2)", (await mirror(env, T0 + 540 * 60e3, reply(522, "error code: 522"))) === "transient" && JSON.parse(store.get("transient")).count === 2);
+ok("status shows transient", (await (await get("/status")).json()).transient?.count === 2);
+ok("success resets the count", (await mirror(env, T0 + 600 * 60e3, reply(200, CSV))) === "stored" && !store.has("transient"));
+ok("520–526 ×3 in a row → halt", (await mirror(env, T0 + 720 * 60e3, reply(523, ""))) === "transient" && (await mirror(env, T0 + 780 * 60e3, reply(524, ""))) === "transient"
+	&& (await mirror(env, T0 + 840 * 60e3, reply(522, ""))) === "error" && store.has("halt") && !store.has("transient"));
+store.delete("halt");
+ok("500 (outside 520–526) → halt at once", (await mirror(env, T0 + 900 * 60e3, reply(500, "Internal Server Error"))) === "error" && store.has("halt"));
+store.delete("halt");
+await mirror(env, T0 + 960 * 60e3, reply(522, ""));
+ok("403 not-updated also resets the count", (await mirror(env, T0 + 1020 * 60e3, reply(403, "GP data has not updated since your last successful download"))) === "refused" && !store.has("transient"));
 ok("unknown path → 404", (await get("/x")).status === 404);
 ok("POST → 405", (await serve(new Request("https://www.ortho-earth.com/sats/active.csv", { method: "POST" }), env)).status === 405);
 process.stdout.write(fail ? `\n${fail} FAILED\n` : "\nall ok\n");
