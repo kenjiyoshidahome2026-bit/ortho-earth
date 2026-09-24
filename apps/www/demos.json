@@ -56,7 +56,10 @@
 			"desc": "A map editor. Draw and fix shapes on the 3D globe, and save them as GIS data.",
 			"img": "/thumbs/geoedit.webp",
 			"shot": {
-				"wait": 12
+				"url": "/japan/geoedit#16.8/35.6845/139.7629",
+				"wait": 14,
+				"eval": "(async () => { const ed = window.__editor, map = window.__map; if (!ed || !map) return; await ed.loadFC({\"type\":\"FeatureCollection\",\"features\":[{\"type\":\"Feature\",\"properties\":{\"name\":\"East Gardens\",\"@fill\":\"rgba(76,175,80,.38)\",\"@stroke\":\"#2e7d32\",\"@width\":3},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[139.7542,35.6872],[139.7598,35.6881],[139.7616,35.6853],[139.7592,35.6824],[139.7549,35.6831],[139.7542,35.6872]]]}},{\"type\":\"Feature\",\"properties\":{\"name\":\"Block\",\"@fill\":\"rgba(255,152,0,.40)\",\"@stroke\":\"#e65100\",\"@width\":2},\"geometry\":{\"type\":\"Polygon\",\"coordinates\":[[[139.7638,35.6848],[139.7662,35.6852],[139.7667,35.6829],[139.7642,35.6825],[139.7638,35.6848]]]}},{\"type\":\"Feature\",\"properties\":{\"name\":\"Route\",\"@stroke\":\"#1565c0\",\"@width\":6,\"@end\":\"arrow\"},\"geometry\":{\"type\":\"LineString\",\"coordinates\":[[139.7668,35.6813],[139.7644,35.6818],[139.7626,35.6823],[139.7612,35.6834],[139.7603,35.6843]]}},{\"type\":\"Feature\",\"properties\":{\"name\":\"Tokyo Station\",\"@shape\":\"pin\",\"@fill\":\"#d32f2f\",\"@size\":30},\"geometry\":{\"type\":\"Point\",\"coordinates\":[139.7671,35.6812]}},{\"type\":\"Feature\",\"properties\":{\"name\":\"Gate\",\"@shape\":\"star\",\"@fill\":\"#f9a825\",\"@size\":26},\"geometry\":{\"type\":\"Point\",\"coordinates\":[139.7619,35.6857]}},{\"type\":\"Feature\",\"properties\":{\"@text\":\"Marunouchi\",\"@size\":20,\"@fill\":\"#263238\"},\"geometry\":{\"type\":\"Point\",\"coordinates\":[139.7652,35.6801]}}]}, { fly: false }); await new Promise(r => setTimeout(r, 1500)); const p = map.projectLL(139.7580, 35.6856), c = document.getElementById('c'); const ev = t => new PointerEvent(t, { bubbles: true, cancelable: true, clientX: p[0], clientY: p[1], pointerId: 1, button: 0, pointerType: 'mouse' }); c.dispatchEvent(ev('pointerdown')); c.dispatchEvent(ev('pointerup')); })()",
+				"after": 4
 			}
 		},
 		{
