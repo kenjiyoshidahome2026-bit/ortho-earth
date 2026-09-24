@@ -2,7 +2,7 @@ import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 import { resolve } from 'node:path';
 
-// 地球儀＝ortho-japan エンジン（gint v2）＝dev も本番も ../ortho-japan/app.js をソース直 import＝同梱（A 裁定 2026-09-23・external 無し）。
+// 地球儀＝@ortho-earth/globe（地域なしのホスト）＝dev も本番もソース直 import＝同梱（A 裁定 2026-09-23・external 無し）。
 // 実行時アセット（plateau-sets.json 等）は ortho-japan の public が正本：本番＝/japan/（japan Worker が配る）・dev＝/@fs で直読み。
 const ROOT = resolve(import.meta.dirname, '../..');
 const JAPAN_PUBLIC = resolve(import.meta.dirname, '../ortho-japan/public');
