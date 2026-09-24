@@ -60,6 +60,14 @@
 				engineP = import("./app.js");
 			}
 			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
+			// ?start=equal＝Equal Earth から始める入口：起動画面を Equal Earth の最初の 1 枚が重なるまで残す＝下の 3D を一瞬も見せない
+			//（本人 2026-09-24「最初にチラッと見える 3D はどうにかならない？」）。合図＝iframe の equal:frame（重ね始め）＋重なり切る 0.3s。保険 15 秒
+			const START_EQUAL = new URLSearchParams(location.search).get("start") === "equal";
+			if (START_EQUAL) {
+				const onFrame = e => { if (e.data?.type !== "equal:frame") return; removeEventListener("message", onFrame); setTimeout(dismissBoot, 350); };
+				addEventListener("message", onFrame);
+				setTimeout(dismissBoot, 15000);
+			}
 			try {
 				const { createGlobe } = await engineP;
 				const map = await createGlobe({ target: "#map", view: location.hash || "#1.6/20/138", chips: false, zoomMax: 8,   // 日本を持たない地球儀（z<8＝世界データの範囲）
@@ -67,11 +75,11 @@
 					persistView: false,   // /japan/ の「前回の視点」を上書きしない（localStorage はオリジン単位＝world の地図パネルと同じ作法）
 					instruments: ["pos", "attr", "scale"], urlHash: true, assetBase: import.meta.env.BASE_URL,   // pos＝緯度経度（左下＝EE・japan と同じ置き場所）
 					debugGlobals: /[?&]debug=1/.test(location.search) });   // ?debug=1＝検証窓（__cam・__worldContent…）
-				dismissBoot();
+				if (!START_EQUAL) dismissBoot();
 				map.gadget.equal();   // 唯一のアイコン＝Equal Earth へ（球のフレームから開き、閉じると同じ視点の球へ戻る）
 				const setMenu = map.gadget.contextmenu();
 				setMenu((c, defaults) => [...defaults, map.gadget.equalHere()]);   // 右クリック＝この地点を中心に Equal Earth へ
-				if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });
+				if (START_EQUAL) map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });
 				window.__map = map;   // console 検証用
 			} catch (e) { console.error("[earth] startup failed", e); dismissBoot(); }
 		})();
