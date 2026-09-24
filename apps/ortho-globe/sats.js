@@ -1,4 +1,4 @@
-// 人工衛星（いま軌道にいる衛星＝CelesTrak GP・active 約 1.6 万機）を ortho-japan の地球儀のまわりに実時刻で立体表示する（sats.html から遅延 import）。
+// 人工衛星（いま軌道にいる衛星＝CelesTrak GP・active 約 1.6 万機）を地球儀（@ortho-earth/globe）のまわりに共通の時計の時刻で立体表示する（sats.html から遅延 import）。
 // 地震（quakes.js＝地下）と対の「3D の地上」＝同じ器・同じ骨格：器＝sats.html／UI と伝播と pick＝ここ／GPU 描画＝sats-gl.js（レンダーワーカー内・同一フレーム）。
 //
 // データ：CelesTrak の GP（米宇宙軍の公開カタログの再配布・OMM の CSV）。active 一本だけ取り、分類は名前（Starlink）と軌道の形（高度帯・離心率）で手元で付ける。
@@ -16,6 +16,7 @@
 // エンジンとの接点は公開面だけ：map.overlay（同一フレームのオーバーレイ・#13）・map.cam＋ ortho-core の cameraState（pick と札の投影）・onFrame（札の追従）・mapEl。
 import { cameraState, ellipsoidOn, worldRadiusM } from "@ortho-earth/core";
 import { parseOMM, sgp4init, sgp4, gmst, temeToGeodetic, jdOf } from "@ortho-earth/ephem/sgp4";
+import { sunSubpoint } from "@ortho-earth/ephem/sun";   // 太陽直下点＝日照と地球の影（夜の側と同じ正本）
 import { gunzip } from "geopbf/gzip";
 import glUrl from "./sats-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く（⚠?worker&url は殻になる・quakes と同じ轍）＝モジュールは依存ゼロが掟
 import { CATS, CAT_NONE, MIN_EARTH_PX } from "./sats-gl.js";   // 分類の表は同じ物（正本は sats-gl.js）
@@ -28,6 +29,9 @@ const CACHE = "ortho-sats-v1", CACHE_KEY = CELESTRAK, FRESH_MS = 30 * 60e3;
 const PROP_MS = 1000, TAG_MS = 100, PATH_MS = 15000, PROP_TICK = 250, DT_MAX = 30;   // PROP_TICK＝伝播の見回り（実 ms）・DT_MAX＝直線外挿の上限（秒・時計の早送り中の飛び出し止め）   // 全機の伝播間隔／札の追従間隔／選択衛星の軌道の引き直し
 const STATIONS = new Map([[25544, "ISS"], [48274, "Tiangong"]]);   // 有人の宇宙ステーション（NORAD 番号→表示名）＝常に名前つき
 const DEFAULT_PICK = 25544;
+// 時刻の正直さ（2026-09-24 本人裁定）：軌道要素（元期）から NEAR_D 日より離れた時刻は「位置は近似」と明示・FAR_D 日より先は元期±FAR_D で止める
+// （その時刻の位置は分からない＝今の軌道で並べた目安）。打ち上げ前（OBJECT_ID の年）の衛星は出さない
+const NEAR_D = 3, FAR_D = 30, DAY_MS = 864e5, FAR_MS = FAR_D * DAY_MS;
 const PATH_N = 240;                         // 選択衛星の軌道の標本数（前後半周）
 const OMEGA = 7.2921159e-5;                 // 地球自転（rad/s）＝TEME→ECEF の速度の補正
 const D2R = Math.PI / 180;
@@ -41,7 +45,7 @@ const cssColor = c => `rgb(${c.join(",")})`;
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/sats/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/sats.json）も足す
-	document.title = t("Satellites in orbit now — ortho-japan");   // 器（sats.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
+	document.title = t("Satellites in orbit now — ortho-globe");   // 器（sats.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("About 16,000 active satellites (CelesTrak GP) propagated in your browser with SGP4 and shown in 3D around the globe in real time."));
 	const mapEl = map.mapEl;
 	const ac = new AbortController(), signal = ac.signal;
@@ -50,6 +54,16 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	const EARTH_M = worldRadiusM();
 	const RAX = ellipsoidOn() ? 1 - F : 1;
 	const K = 1000 / EARTH_M, KY = K / RAX;
+	// 衛星（ECEF km）→ ワールド。球（既定）＝測地の緯度・経度・高さで置く＝地図と同じ置き方（経緯度をそのまま球の緯度に置く）
+	// ＝衛星は地図の直下点の真上・真下への糸は球の法線（旧＝地心の向きに置いていた＝測地緯度の直下点とずれ、糸が斜めだった・中緯度の ISS で約 20 km）。
+	// 楕円体（?ell=1）＝β ワールドは ECEF を a で割った形（y だけ b/a で割る）＝そのままで厳密
+	const toWorld = (r, g, X, Y, Z) => {
+		if (RAX !== 1) return [X * K, Z * KY, Y * K];
+		const ll = temeToGeodetic(r, g), q = surf(ll.lon, ll.lat), k = 1 + ll.h * 1000 / EARTH_M;
+		return [q[0] * k, q[1] * k, q[2] * k];
+	};
+	const sunDirOf = ms => { const [lon, dec] = sunSubpoint(ms), c = Math.cos(dec); return [c * Math.cos(lon), Math.sin(dec), c * Math.sin(lon)]; };   // 太陽の向き（ワールドの軸）
+	const inShadow = (x, y, z, u) => { const d = x * u[0] + y * u[1] + z * u[2]; return d < 0 && x * x + y * y + z * z - d * d < 1; };   // 地球の影（円柱＝半影は無視・sats-gl.js と同じ式）
 	const surf = (lon, lat) => {   // 経緯度 → β 単位球の地表点（quakes-worker の toGpu と同式）
 		const a = lon * D2R, b = lat * D2R;
 		let sb = Math.sin(b), cb = Math.cos(b);
@@ -65,6 +79,8 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	let S = [], cat = null, names = [], norad = null;   // 衛星（sgp4init 済み）と分類（Float32＝GPU の属性そのもの）・名前・NORAD 番号
 	let Wp = null, Wv = null, ok = null, tProp = 0;     // 直近の伝播（β ワールド・位置と速度/秒）と時刻(ms)
 	let pick = -1, pathAt = 0, dataAt = 0, catDirty = false;
+	let catBase = null, epochMs = null, launchY = null, sunNow = [1, 0, 0];   // 本来の分類（打ち上げ前で隠した後の戻し先）・各衛星の元期(ms)・打ち上げ年・今の太陽の向き
+	const effTime = (i, now) => Math.max(epochMs[i] - FAR_MS, Math.min(epochMs[i] + FAR_MS, now));   // 伝播に使う時刻＝元期±FAR_D に収める（その先は止める）
 	const n = () => S.length;
 	// その時刻＝共通の時計（#42・map.clock）。早送り・巻き戻し・日時の指定で衛星も同じ時刻へ（無ければ実時刻）
 	const simNow = () => map.clock ? map.clock.time : Date.now();
@@ -138,6 +154,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 .sats-panel .sel b{font-size:14px}
 .sats-panel .sel .m{color:#b9c3d6;font-variant-numeric:tabular-nums}
 .sats-panel .note{color:#8793aa;font-size:10.5px;margin-top:8px;line-height:1.5}
+.sats-panel .honest{color:#ffd479;font-size:11px;line-height:1.45;margin-top:4px}
 .sats-tag{position:absolute;z-index:29;pointer-events:none;transform:translate(8px,-50%);padding:1px 7px;border-radius:6px;
  background:rgba(12,17,32,.86);color:#fff;border:1px solid rgba(255,255,255,.18);font:600 11px/1.6 "Noto Sans JP","Hiragino Sans",system-ui,sans-serif;white-space:nowrap}
 .sats-tag.pick{border-color:rgba(255,255,255,.45)}
@@ -147,13 +164,13 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 </style>
 <div class="head"><h1>${t("Satellites in orbit now")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
 <div class="sub" data-k="sub">${t("Orbital data: CelesTrak (NORAD GP) · $1", "")}</div>
-<div class="row"><div data-k="status" class="stat">${t("Loading orbits…")}</div></div>
+<div class="row"><div data-k="status" class="stat">${t("Loading orbits…")}</div><div data-k="honest" class="honest" style="display:none"></div></div>
 <div class="body">
 <input class="q" data-k="q" type="search" autocomplete="off" spellcheck="false" placeholder="${t("Search satellites (name or NORAD ID)")}" aria-label="${t("Search satellites (name or NORAD ID)")}">
 <div class="hits" data-k="hits"></div>
 <div class="row" data-k="cats"></div>
 <div class="sel" data-k="sel" style="display:none"></div>
-<div class="note">${t("Click a dot to see its orbit")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>
+<div class="note">${t("Click a dot to see its orbit")}<br>${t("Faint dots are in Earth's shadow")}<br>${t("Tilt (right-drag / two fingers) to see altitude in 3D.")}</div>
 </div>`;
 	(panelHost || mapEl).appendChild(panel);
 	const $ = k => panel.querySelector(`[data-k="${k}"]`);
@@ -191,7 +208,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	};
 	const goTo = i => {   // 選択＋直下点を画面中央へ（ズームはそのまま）
 		setPick(i);
-		const jd = jdOf(simNow()), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
+		const jd = jdOf(effTime(i, simNow())), p = sgp4(S[i], (jd - S[i].jdEpoch) * 1440);
 		if (p && map.flyTo) { const ll = temeToGeodetic(p.r, gmst(jd)); map.flyTo(ll.lon, ll.lat, map.getZoom ? map.getZoom() : map.cam.zoom); }
 	};
 	$("q").addEventListener("input", renderHits);
@@ -208,12 +225,13 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		if (pick < 0 || !n()) { el.style.display = "none"; selKey = ""; return; }
 		el.style.display = "";
 		if (!ok[pick]) { if (selKey !== "x" + pick) { selKey = "x" + pick; el.innerHTML = `<b>${esc(names[pick])}</b>`; } return; }
-		const now = simNow(), jd = jdOf(now), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);
+		const jd = jdOf(effTime(pick, simNow())), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);
 		if (!p) return;
 		const h = temeToGeodetic(p.r, gmst(jd)).h, v = Math.hypot(p.v[0], p.v[1], p.v[2]);
-		const key = `${pick}|${Math.round(h)}|${v.toFixed(2)}`;
+		const [wx, wy, wz] = nowPos(pick), dark = inShadow(wx, wy, wz, sunNow);   // 点と同じ位置で日照を判定（GPU の暗い点と一致）
+		const key = `${pick}|${Math.round(h)}|${v.toFixed(2)}|${dark}`;
 		if (key === selKey) return; selKey = key;
-		el.innerHTML = `<b>${esc(names[pick])}</b><div class="m">${t("Altitude $1 km · speed $2 km/s", fmt(Math.round(h)), v.toFixed(2))}</div>`;
+		el.innerHTML = `<b>${esc(names[pick])}</b><div class="m">${t("Altitude $1 km · speed $2 km/s", fmt(Math.round(h)), v.toFixed(2))}</div><div class="m">${dark ? t("In Earth's shadow") : t("In sunlight")}</div>`;
 	};
 
 	// ── 札（宇宙ステーション＋選択衛星の名前）＝点の右に貼る DOM。位置は前フレームの cam＋今の外挿位置 ──
@@ -290,7 +308,7 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	}
 	const postMarks = () => {
 		const st = []; norad.forEach((id, i) => { if (STATIONS.has(id)) st.push(i); });
-		ov.post({ type: "marks", stations: Uint32Array.from(st), pick: pick >= 0 && !STATIONS.has(norad[pick]) ? Uint32Array.of(pick) : new Uint32Array(0) });
+		ov.post({ type: "marks", stations: Uint32Array.from(st), pick: pick >= 0 && !STATIONS.has(norad[pick]) ? Uint32Array.of(pick) : new Uint32Array(0), sel: pick });   // sel＝真下への糸を引く衛星（宇宙ステーションでも）
 	};
 
 	// ── データ ──
@@ -343,13 +361,15 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 	let propTimer = 0, tagTimer = 0;   // 伝播（1 Hz）と札の追従（10 Hz）のタイマー＝destroy で止める
 	const loaded = (async () => {
 		const text = await fetchCsv();
-		const rows = parseCsv(text), sats = [], cats = [], nm = [], ids = [];
+		const rows = parseCsv(text), sats = [], cats = [], nm = [], ids = [], ly = [];
 		for (const o of rows) {
 			let s; try { s = sgp4init(parseOMM(o)); } catch { continue; }
 			if (s.error) continue;
 			sats.push(s); cats.push(classify(o)); nm.push(o.OBJECT_NAME); ids.push(+o.NORAD_CAT_ID);
+			ly.push(+String(o.OBJECT_ID || "").slice(0, 4) || 0);   // 国際標識（例 1998-067A）の頭＝打ち上げ年（読めない＝0＝いつでも出す）
 		}
-		S = sats; cat = Float32Array.from(cats); names = nm; norad = Int32Array.from(ids);
+		S = sats; cat = Float32Array.from(cats); catBase = Float32Array.from(cats); names = nm; norad = Int32Array.from(ids);
+		launchY = Int16Array.from(ly); epochMs = Float64Array.from(sats, x => (x.jdEpoch - 2440587.5) * DAY_MS);
 		const nowMs = Date.now();   // 最新の元期＝この要素の新しさ（取得時刻より正直）。未来の元期（打ち上げ予定の名目要素等・実測 2 日先）は除く
 		dataAt = S.reduce((m, s) => { const e = (s.jdEpoch - 2440587.5) * 864e5; return e <= nowMs && e > m ? e : m; }, 0);
 		const N = S.length;
@@ -358,7 +378,6 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 		catDirty = true;
 		propagateAll(simNow());
 		buildCats(); setSub(); postMarks(); showSel(); refreshTags();
-		setStatus(t("Showing $1 ##count", `<b>${fmt(N)}</b>`));
 		renderHits();   // 読み込み前に打った文字があれば今引く
 		// 時計の時刻で 1 秒ぶん進んだら伝播し直す（実時間＝従来どおり 1 Hz／早送り＝PROP_TICK ごと＝外挿は ±DT_MAX で頭打ち＝低軌道が接線へ飛び出さない）
 		propTimer = setInterval(() => { const now = simNow(); if (Math.abs(now - tProp) >= PROP_MS) propagateAll(now); }, PROP_TICK);
@@ -372,47 +391,68 @@ export async function mountSats(map, { src = [MIRROR, CELESTRAK], panelHost } = 
 
 	// ── 伝播（1 Hz）＝TEME → ECEF（GMST で回す・速度は自転を差し引く）→ β ワールド → GPU へ写しを送る ──
 	function propagateAll(now) {
-		const N = n(), jd = jdOf(now), g = gmst(jd), c = Math.cos(g), sn = Math.sin(g);
+		const N = n(), jdN = jdOf(now), gN = gmst(jdN), yr = new Date(now).getUTCFullYear();
 		const pos = new Float32Array(N * 3), vel = new Float32Array(N * 3);
+		let shown = 0, unlaunched = 0;
 		for (let i = 0; i < N; i++) {
-			const s = S[i], p = sgp4(s, (jd - s.jdEpoch) * 1440);
-			if (!p) { ok[i] = 0; if (cat[i] !== CAT_NONE) { cat[i] = CAT_NONE; catDirty = true; } pos[i * 3] = pos[i * 3 + 1] = pos[i * 3 + 2] = NaN; continue; }
-			ok[i] = 1;
+			const s = S[i];
+			const born = !(launchY[i] > yr);   // 打ち上げ前（OBJECT_ID の年＝年の粒度）は出さない
+			if (!born) unlaunched++;
+			const tE = effTime(i, now), still = tE !== now;   // 元期±FAR_D の外＝そこで止める（位置は分からない＝今の軌道で並べた目安）
+			const jd = still ? jdOf(tE) : jdN, g = still ? gmst(jd) : gN;
+			const p = born ? sgp4(s, (jd - s.jdEpoch) * 1440) : null;
+			const want = p ? catBase[i] : CAT_NONE;
+			if (cat[i] !== want) { cat[i] = want; catDirty = true; }
+			if (!p) { ok[i] = 0; pos[i * 3] = pos[i * 3 + 1] = pos[i * 3 + 2] = NaN; continue; }
+			ok[i] = 1; shown++;
+			const c = Math.cos(g), sn = Math.sin(g);
 			const X = p.r[0] * c + p.r[1] * sn, Y = -p.r[0] * sn + p.r[1] * c, Z = p.r[2];   // ECEF km
+			const w = toWorld(p.r, g, X, Y, Z);
+			Wp[i * 3] = pos[i * 3] = w[0]; Wp[i * 3 + 1] = pos[i * 3 + 1] = w[1]; Wp[i * 3 + 2] = pos[i * 3 + 2] = w[2];
+			if (still) { Wv[i * 3] = Wv[i * 3 + 1] = Wv[i * 3 + 2] = 0; continue; }   // 止めた衛星は外挿しない（vel は 0 のまま）
 			const vx = p.v[0] * c + p.v[1] * sn + OMEGA * Y, vy = -p.v[0] * sn + p.v[1] * c - OMEGA * X, vz = p.v[2];   // ECEF km/s（v − ω×r）
-			Wp[i * 3] = pos[i * 3] = X * K; Wp[i * 3 + 1] = pos[i * 3 + 1] = Z * KY; Wp[i * 3 + 2] = pos[i * 3 + 2] = Y * K;   // ECEF(X,Y,Z)→engine 軸（y＝北極・z＝東経 90°）
+			// 外挿用の速さ＝ECEF のまま（球の置き方との差は 1 秒で数十 m＝次の伝播で消える）
 			Wv[i * 3] = vel[i * 3] = vx * K; Wv[i * 3 + 1] = vel[i * 3 + 1] = vz * KY; Wv[i * 3 + 2] = vel[i * 3 + 2] = vy * K;
 		}
-		tProp = now;
-		const msg = { type: "sats", n: N, pos, vel, t0: now }, transfer = [pos.buffer, vel.buffer];
-		if (catDirty) { msg.cat = cat.slice(); transfer.push(msg.cat.buffer); catDirty = false; }
-		if (pick >= 0 && ok[pick]) msg.plumb = plumbOf(now, g);
+		tProp = now; sunNow = sunDirOf(now);
+		const msg = { type: "sats", n: N, pos, vel, t0: now, sun: sunNow }, transfer = [pos.buffer, vel.buffer];
+		if (catDirty) { msg.cat = cat.slice(); transfer.push(msg.cat.buffer); catDirty = false; buildCats(); }
 		ov.post(msg, transfer);
+		report(now, shown, unlaunched);
 		if (pick >= 0 && Math.abs(now - pathAt) > PATH_MS) buildPath(now);
 	}
-	function plumbOf(now, g) {   // 真下への糸＝衛星の今の位置 → 直下の地表点
-		const jd = jdOf(now), p = sgp4(S[pick], (jd - S[pick].jdEpoch) * 1440);
-		if (!p) return null;
-		const ll = temeToGeodetic(p.r, g), q = surf(ll.lon, ll.lat), w = nowPos(pick, now);
-		return Float32Array.of(w[0], w[1], w[2], q[0], q[1], q[2]);
+	// 件数と時刻の正直さの札（変わった時だけ書く）：打ち上げ前を隠している／元期から NEAR_D 日より離れた＝近似／FAR_D 日より先＝分からない（止めた）
+	let reportKey = "";
+	function report(now, shown, unlaunched) {
+		const yr = new Date(now).getUTCFullYear(), gapD = dataAt ? Math.abs(now - dataAt) / DAY_MS : 0;
+		const level = gapD > FAR_D ? 2 : gapD > NEAR_D ? 1 : 0;
+		const key = `${shown}|${unlaunched ? yr : ""}|${level}`;
+		if (key === reportKey) return; reportKey = key;
+		setStatus(t("Showing $1 ##count", `<b>${fmt(shown)}</b>`));
+		const lines = [];
+		if (unlaunched) lines.push(t("Only satellites launched by $1 that are still active today", yr));
+		if (level === 2) lines.push(t("Positions at this time are unknown — shown on today's orbits as a guide"));
+		else if (level === 1) lines.push(t("Positions are approximate — the orbit data is from $1", new Date(dataAt).toLocaleDateString(getLang(), { year: "numeric", month: "short", day: "numeric" })));
+		$("honest").innerHTML = lines.map(esc).join("<br>");
+		$("honest").style.display = lines.length ? "" : "none";
 	}
-	function buildPath(now) {   // 選択衛星の前後半周（最長 1 日）＝地球固定での通り道（自転込み）＋地上軌跡
+	function buildPath(now) {   // 選択衛星の前後半周（最長 1 日）＝地球固定での通り道（自転込み）＋地上軌跡。止めた衛星は止めた時刻を中心に
 		pathAt = now;
 		if (pick < 0 || !ok[pick]) { ov.post({ type: "path", space: null }); return; }
-		const s = S[pick], period = Math.min(1440, 2 * Math.PI / s.no);
+		const s = S[pick], period = Math.min(1440, 2 * Math.PI / s.no), tC = effTime(pick, now);
 		const space = [], ground = [];
 		for (let k = 0; k <= PATH_N; k++) {
-			const jd = jdOf(now) + ((k / PATH_N - 0.5) * period) / 1440;
+			const jd = jdOf(tC) + ((k / PATH_N - 0.5) * period) / 1440;
 			const p = sgp4(s, (jd - s.jdEpoch) * 1440);
 			if (!p) continue;
 			const g = gmst(jd), c = Math.cos(g), sn = Math.sin(g);
 			const X = p.r[0] * c + p.r[1] * sn, Y = -p.r[0] * sn + p.r[1] * c, Z = p.r[2];
-			space.push(X * K, Z * KY, Y * K);
+			space.push(...toWorld(p.r, g, X, Y, Z));   // 点と同じ置き方（球＝測地の緯度・経度・高さ）
 			const ll = temeToGeodetic(p.r, g); ground.push(...surf(ll.lon, ll.lat));
 		}
 		const col = STATIONS.has(norad[pick]) ? [1, 1, 1] : CATS[cat[pick]].color.map(v => v / 255);
-		const sp = Float32Array.from(space), gr = Float32Array.from(ground), pl = plumbOf(now, gmst(jdOf(now))) || new Float32Array(0);
-		ov.post({ type: "path", space: sp, ground: gr, plumb: pl, color: col }, [sp.buffer, gr.buffer, pl.buffer]);
+		const sp = Float32Array.from(space), gr = Float32Array.from(ground);
+		ov.post({ type: "path", space: sp, ground: gr, color: col }, [sp.buffer, gr.buffer]);   // 真下への糸は GPU が毎フレーム引く（点と同じ外挿）
 	}
 
 	return {

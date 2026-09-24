@@ -11,6 +11,8 @@
 //   隠れ   … 視線と地球の交差で決める＝地平線の向こうでも高く上がった衛星は地球の縁の外に見える
 //   畳み   … 地球の見かけの半径が MIN_EARTH_PX 未満（太陽系圏の奥）＝点が地球に団子＝描かない
 //   選択   … 軌道（前後半周＝自転込みの通り道・明）・地上軌跡（淡）・真下への糸。宇宙ステーションと選択衛星は白縁の丸（名前は main の札）
+//   糸     … 毎フレーム、点と同じ外挿（位置＋速度×u_dt）の先から球の法線で地表へ（main は位置を測地の緯度・経度・高さで置く＝法線の足が直下点）
+//   日照   … 地球の影（円柱＝半影は無視）の中の点は暗く薄く（太陽の向き u_sun は main が共通の時計の時刻で ephem/sun から）
 //   動き   … 衛星は止まらない＝描き終えたら IDLE_MS 後に host.requestDraw()（静止中は 10 fps・カメラが動けば毎フレーム）
 // 契約（app.js の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size) → 続きが要れば true / destroy()
 
@@ -53,7 +55,10 @@ uniform float u_vis[${CATS.length}];
 uniform vec3 u_col[${CATS.length}];
 uniform float u_alpha;
 uniform float u_white;       // 1＝白で塗る（宇宙ステーションの丸）
+uniform vec3 u_sun;          // 太陽の向き（ワールドの軸・単位ベクトル）
+uniform float u_shade;       // 1＝地球の影を暗く描く
 out vec4 v_col;
+bool inShadow(vec3 p) { float d = dot(p, u_sun); return d < 0.0 && dot(p, p) - d * d < 1.0; }   // 地球の影（円柱）
 void main() {
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
 	int c = int(a_cat + 0.5);
@@ -62,7 +67,10 @@ void main() {
 	vec4 cc = u_mvp * vec4(p, 1.0);
 	if (cc.w <= 1e-6 || behindEarth(p)) { gl_Position = off; gl_PointSize = 0.0; return; }
 	gl_PointSize = u_size;
-	v_col = vec4(u_white > 0.5 ? vec3(1.0) : u_col[c], u_alpha);
+	vec3 col = u_white > 0.5 ? vec3(1.0) : u_col[c];
+	float a = u_alpha;
+	if (u_shade > 0.5 && inShadow(p)) { col *= u_white > 0.5 ? 0.6 : 0.45; a *= u_white > 0.5 ? 1.0 : 0.55; }   // 影の中＝暗く薄く（白縁の丸は色だけ落とす＝見失わない）
+	v_col = vec4(col, a);
 	gl_Position = vec4(cc.xy, 0.0, cc.w);   // z は使わない（near/far で切られない・点同士の前後も見ない）
 }`;
 
@@ -125,7 +133,8 @@ let gl = null, host = null, point = null, line = null;
 let n = 0, t0 = 0, posBuf = null, velBuf = null, catBuf = null, vao = null;
 let markBuf = null, markStations = 0, markPick = 0;           // 白縁の丸＝要素インデックス（先頭 markStations 個＝宇宙ステーション・続く markPick 個＝選択）
 let lineBuf = null, lineVao = null;                           // 選択衛星の線＝{ space, ground, plumb } を 1 本のバッファに並べる
-let lines = null;                                             // { space:[off,count], ground:[off,count], plumb:[off,count], color:[r,g,b] }
+let lines = null;                                             // { space:[off,count], ground:[off,count], plumb:[off,2], color:[r,g,b] }
+let lastPos = null, lastVel = null, sel = -1, sun = null;     // 真下への糸＝選択衛星の位置と速度（CPU の写し）・日照＝太陽の向き
 let vis = CATS.map(() => 1), idleT = 0;
 
 export function init(canvas, opts = {}, h = null) {
@@ -151,28 +160,29 @@ export function init(canvas, opts = {}, h = null) {
 export function message(d) {
 	if (!gl) return;
 	if (d.type === "sats") {            // 伝播の結果（1 Hz）＝位置・速度・分類（cat は分類が変わらないなら省略可）
-		n = d.n; t0 = d.t0;
+		n = d.n; t0 = d.t0; lastPos = d.pos; lastVel = d.vel; sun = d.sun || null;
 		gl.bindBuffer(gl.ARRAY_BUFFER, posBuf); gl.bufferData(gl.ARRAY_BUFFER, d.pos, gl.DYNAMIC_DRAW);
 		gl.bindBuffer(gl.ARRAY_BUFFER, velBuf); gl.bufferData(gl.ARRAY_BUFFER, d.vel, gl.DYNAMIC_DRAW);
 		if (d.cat) { gl.bindBuffer(gl.ARRAY_BUFFER, catBuf); gl.bufferData(gl.ARRAY_BUFFER, d.cat, gl.STATIC_DRAW); }
-		if (d.plumb) setPlumb(d.plumb);
 	} else if (d.type === "state") { if (d.vis) vis = d.vis.map(v => v ? 1 : 0); }
 	else if (d.type === "marks") {      // 白縁の丸＝{ stations: Uint32Array, pick: Uint32Array }
 		const idx = new Uint32Array([...(d.stations || []), ...(d.pick || [])]);
-		markStations = (d.stations || []).length; markPick = (d.pick || []).length;
+		markStations = (d.stations || []).length; markPick = (d.pick || []).length; sel = d.sel ?? -1;
 		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, markBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.DYNAMIC_DRAW);
 	} else if (d.type === "path") {     // 選択衛星の軌道＝{ space, ground, plumb, color } か null（消す）
 		if (!d.space) { lines = null; return; }
-		const space = d.space, ground = d.ground || new Float32Array(0), plumb = d.plumb || new Float32Array(0);
-		const all = new Float32Array(space.length + ground.length + plumb.length);
-		all.set(space, 0); all.set(ground, space.length); all.set(plumb, space.length + ground.length);
-		lines = { space: [0, space.length / 3], ground: [space.length / 3, ground.length / 3], plumb: [(space.length + ground.length) / 3, plumb.length / 3], color: d.color || [1, 1, 1] };
+		const space = d.space, ground = d.ground || new Float32Array(0);
+		const all = new Float32Array(space.length + ground.length + 6);   // 末尾 2 点＝真下への糸（frame が毎フレーム書く）
+		all.set(space, 0); all.set(ground, space.length);
+		lines = { space: [0, space.length / 3], ground: [space.length / 3, ground.length / 3], plumb: [(space.length + ground.length) / 3, 2], color: d.color || [1, 1, 1] };
 		gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf); gl.bufferData(gl.ARRAY_BUFFER, all, gl.DYNAMIC_DRAW);
 	} else if (d.type === "clear") { n = 0; lines = null; markStations = markPick = 0; }
 }
-function setPlumb(plumb) {   // 真下への糸（1 Hz で動く）＝線バッファの末尾 2 点だけ差し替え
-	if (!lines || lines.plumb[1] !== 2) return;
-	gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf); gl.bufferSubData(gl.ARRAY_BUFFER, lines.plumb[0] * 12, plumb);
+// 真下への糸＝点と同じ外挿の先 → 球の法線で地表（単位球）へ。点を出していない衛星（打ち上げ前・伝播失敗＝NaN）は引かない
+function plumbAt(dt) {
+	if (sel < 0 || !lastPos || sel >= n) return null;
+	const i = sel * 3, x = lastPos[i] + lastVel[i] * dt, y = lastPos[i + 1] + lastVel[i + 1] * dt, z = lastPos[i + 2] + lastVel[i + 2] * dt, r = Math.hypot(x, y, z);
+	return Number.isFinite(r) && r > 1 ? Float32Array.of(x, y, z, x / r, y / r, z / r) : null;
 }
 
 // 地球と同じフレーム・同じ cam で描く（worker の frame() が注記の後に呼ぶ）。s＝cameraState(cam, W, H)
@@ -198,6 +208,7 @@ export function frame(cam, s, { w, h }, api) {
 	gl.uniform1fv(point.u.u_vis, new Float32Array(vis));
 	gl.uniform3fv(point.u.u_col, new Float32Array(CATS.flatMap(c => c.color.map(v => v / 255))));
 	gl.uniform1f(point.u.u_size, 2 * r * dpr); gl.uniform1f(point.u.u_alpha, 0.8); gl.uniform1f(point.u.u_white, 0); gl.uniform1f(point.u.u_round, 0);
+	gl.uniform3fv(point.u.u_sun, new Float32Array(sun || [1, 0, 0])); gl.uniform1f(point.u.u_shade, sun ? 1 : 0);
 	gl.bindVertexArray(vao);
 	gl.drawArrays(gl.POINTS, 0, n);
 
@@ -210,7 +221,8 @@ export function frame(cam, s, { w, h }, api) {
 		if (lines.ground[1] > 1) { gl.uniform1f(line.u.u_ground, 1); gl.uniform4f(line.u.u_lcol, cr, cg, cb, 0.35); gl.drawArrays(gl.LINE_STRIP, lines.ground[0], lines.ground[1]); }   // 地上軌跡
 		gl.uniform1f(line.u.u_ground, 0);
 		if (lines.space[1] > 1) { gl.uniform4f(line.u.u_lcol, cr, cg, cb, 0.85); gl.drawArrays(gl.LINE_STRIP, lines.space[0], lines.space[1]); }   // 宙の通り道
-		if (lines.plumb[1] === 2) { gl.uniform4f(line.u.u_lcol, cr, cg, cb, 0.5); gl.drawArrays(gl.LINES, lines.plumb[0], 2); }                    // 真下への糸
+		const pl = plumbAt(dt);   // 真下への糸（毎フレーム＝点と一緒に動く）
+		if (pl) { gl.bindBuffer(gl.ARRAY_BUFFER, lineBuf); gl.bufferSubData(gl.ARRAY_BUFFER, lines.plumb[0] * 12, pl); gl.uniform4f(line.u.u_lcol, cr, cg, cb, 0.5); gl.drawArrays(gl.LINES, lines.plumb[0], 2); }
 		gl.bindVertexArray(vao);
 	}
 
@@ -234,5 +246,5 @@ export function destroy() {
 	gl.deleteVertexArray(vao); gl.deleteVertexArray(lineVao);
 	gl.deleteProgram(point.p); gl.deleteProgram(line.p);
 	gl.getExtension("WEBGL_lose_context")?.loseContext();
-	gl = null; host = null; n = 0; lines = null;
+	gl = null; host = null; n = 0; lines = null; lastPos = lastVel = sun = null; sel = -1;
 }

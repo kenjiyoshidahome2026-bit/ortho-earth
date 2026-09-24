@@ -1,4 +1,4 @@
-// 世界の地震（USGS ComCat・1967〜・M2+）を ortho-japan の地球儀に立体表示する（quakes.html から遅延 import）。
+// 世界の地震（USGS ComCat・1967〜・M2+）を地球儀（@ortho-earth/globe）に立体表示する（quakes.html から遅延 import）。
 //
 // 表現の決め事
 //   位置   … 震源＝震央 [経度, 緯度] から深さぶん地球の内側。地球（globe）を半透明にして地中を透かして見せる
@@ -29,7 +29,7 @@ const fmtTime = (ms, offH = 0) => { const d = new Date(ms + offH * 3600000); ret
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountQuakes(map, { src, panelHost } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/quakes/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/quakes.json）も足す
-	document.title = t("World earthquakes — ortho-japan");   // 器（quakes.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
+	document.title = t("World earthquakes — ortho-globe");   // 器（quakes.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("USGS earthquake catalog (1967–, M2+, about 1.5 million events) shown in 3D on the globe by hypocenter depth and energy."));
 	const mapEl = map.mapEl;
 
