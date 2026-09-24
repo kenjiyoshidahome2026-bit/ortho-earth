@@ -7,7 +7,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 // パレット（3円の重なり）グリフ（本体 palette.js と同一＝スタブがボタンを作る担当）。線色は本線インク直書き＝夜節が自動反転。
-const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" aria-hidden="true">
+const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" aria-hidden="true">
 	<circle cx="12" cy="9" r="5"/><circle cx="9" cy="15" r="5"/><circle cx="15" cy="15" r="5"/></svg>`;
 
 const idle = fn => (window.requestIdleCallback || (cb => setTimeout(() => cb(), 400)))(fn);   // 先読みは「暇な時に」＝初期描画を邪魔しない

@@ -35,7 +35,11 @@
 /* --- 34px規格（角ボタンの共通骨格 2026-09-03 統合）：寸法・骨格・svg はここ1か所。
        材質（ガラス）は末尾の「ガラスの仕上げ」節、夜は tokens の ui-dark 節が担う＝
        各ボタンのブロックは固有の状態（.on/.busy/初期display等）だけを書く。
-       この節は全ブロックより前置＝固有の上書きが同格後勝ちで自然に効く。 --- */
+       この節は全ブロックより前置＝固有の上書きが同格後勝ちで自然に効く。
+       ★新しいボタンを足す時（2026-09-24 裁定）：下の id 列挙に足さず、ボタンに class="qm-panel-btn" を付ける
+       （寸法・ガラス・.on＝明パネル反転が一式で乗る）。アイコンは viewBox 24・width/height 18・線は stroke-width 1.8・
+       色 #3f4757（夜の明インク化はこの色を鍵に効く）。付け忘れると素のブラウザボタン（34×27・黒枠）で並びが崩れる
+       ＝t-gadgets（apps/ortho-japan/tests）が左上スタックの全ボタンの寸法を検める。 --- */
 #hint-btn, #plateau-btn, #palette-btn, #qr-btn, #demo-btn, #reset, #full, #cpos-btn,
 #measure-btn, #profile-btn, #japan-btn, #home-btn, #solar, #shot-btn, #print-btn, #hud-btn, #close-btn, #edit-btn, #stac-btn, .qm-panel-btn {
 	width: 34px; height: 34px; border-radius: 5px;
@@ -285,7 +289,7 @@
 		/* 塗り（地色・照り・縁・hover）はここに書かない：#chips 入れ子＝id2つの特異度が共通ガラス規格
 		   （末尾のボタン一覧＝id1つ）に勝ってしまい、オフ地だけ白パネルになった実測 2026-09-02（本人指摘
 		   「z>5のオフの色がおかしい」）。寸法と .on 反転だけ持ち、待機の見た目は隣のボタン群と同じ出所に委ねる */
-		width: 34px; height: 34px; border-radius: 5px; border: 1px solid var(--qm-border); cursor: pointer; padding: 0;
+		width: 34px; height: 34px; border-radius: 5px; border-width: 1px; border-style: solid; cursor: pointer; padding: 0;   /* 縁の色も書かない（shorthand の色がガラスの縁に勝っていた＝表示ボタンだけ縁が濃かった 2026-09-24） */
 		display: flex; align-items: center; justify-content: center;
 		svg { display: block; }
 		&.on { background-color: rgba(235, 240, 248, .92); border-color: rgba(255, 255, 255, .6);   /* 開＝明パネル反転（全帯共通の極性） */

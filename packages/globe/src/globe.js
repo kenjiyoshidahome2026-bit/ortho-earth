@@ -1284,10 +1284,16 @@ resize();
 let measureClick = null;   // 測距モード中だけ非null＝クリックを測距へ奪う（識別・星座トグルより先）
 let profileClick = null;   // 断面図の経路指定中だけ非null＝同上（ガジェット毎に1スロット＝相互に潰さない）
 let poiClick = null;       // POI台帳編集のarmed中だけ非null＝同上
-// 計測⇄断面図は排他（後から点けた方が勝ち＝クリックの行き先が常に一意・本人裁定2026-08-27）。
-// 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：setClick(非null)＝モードON の瞬間に相方の stop() を呼ぶ。
-// 本体ハンドルは onBody で到着（スタブ経由の遅延 import 後）＝未ロードの相方は必然的にOFF＝何もしなくてよい。
+// 道具の排他（後から開いた方が勝つ）：計測・断面図・日影・可視域・操作方法カードは同時に一つだけ
+// ＝クリックの行き先が常に一意・左下のパネルが重ならない（計測⇄断面図 本人裁定2026-08-27 → 2026-09-24 に仲間を拡張）。
+// 配線は登録側＝ここ（ガジェット同士は独立の掟＝相互を知らない）：開いた瞬間に toolOpen(名) → 他の全員の close を呼ぶ。
+// close は「開いていなければ何もしない」こと・toolOpen を呼び返さないこと（再入しない）。新しい道具は toolClose へ登録し onOpen を渡す。
+// 計測/断面図の本体ハンドルは onBody で到着（スタブ経由の遅延 import 後）＝未ロードの相方は必然的にOFF＝何もしなくてよい。
 let measureBody = null, profileBody = null;
+const toolClose = new Map();   // 名 → close()
+const toolOpen = name => { for (const [k, f] of toolClose) if (k !== name) { try { f(); } catch (e) { console.warn("[tool] close", k, e); } } };
+toolClose.set("measure", () => measureBody?.stop?.());
+toolClose.set("profile", () => profileBody?.stop?.());
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
@@ -2438,7 +2444,9 @@ map.gadget("search", function (opts) {   // 地名・住所検索 … map.gadget
 	return searchGadget.call(this, { provider: REGION_SEARCH, signal: ac.signal, ...opts });
 });
 map.gadget("hint", function (opts) {   // 操作説明カード … map.gadget.hint() → { open, close }。キー(?)用に signal を注入
-	return hintGadget.call(this, { signal: ac.signal, ...opts });
+	const h = hintGadget.call(this, { signal: ac.signal, onOpen: () => toolOpen("hint"), ...opts });
+	if (h) toolClose.set("hint", () => h.close(false));   // 道具に場所を譲る＝記憶には書かない（次の起動で初見の人にはまた開く）
+	return h;
 });
 map.gadget("compass", function (opts) {   // コンパス兼リセット … 内部の手綱（フライト中断・onMove）はここで注入
 	const update = compassGadget.call(this, { cancelFlight: () => flightCtl.cancel(), onMove, signal: ac.signal, ...opts });
@@ -2488,7 +2496,7 @@ map.gadget("legend", function (opts) { return legendGadget.call(this, opts); });
 map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影/逆投影とクリック横取りの手綱を注入。本体は初回クリック/Mで import()＝frame hook は onBody で本体到着後に配線
 	return measureGadget.call(this, {
 		makeProjector, unprojectXY, signal: ac.signal,
-		setClick: fn => { measureClick = fn; fn && profileBody?.stop?.(); },   // 計測ON＝断面図OFF（排他）
+		setClick: fn => { measureClick = fn; fn && toolOpen("measure"); },   // 計測ON＝他の道具OFF（排他）
 		requestDraw: () => { needsDraw = true; },
 		onBody: m => { measureBody = m; if (m && m._update) { frameHooks.add(m._update); m._update(); } },   // 抽象アクセス：本体(measure.js)到着後に _update を毎フレ描画へ（frameHooks は core 側）
 		...opts,
@@ -2497,7 +2505,7 @@ map.gadget("measure", function (opts) {   // 距離・面積の計測 … 投影
 map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・クリック横取り・標高サンプラを注入。本体は初回クリックで import()
 	return profileGadget.call(this, {
 		makeProjector, unprojectXY, signal: ac.signal,
-		setClick: fn => { profileClick = fn; fn && measureBody?.stop?.(); },   // 断面図ON＝計測OFF（排他）
+		setClick: fn => { profileClick = fn; fn && toolOpen("profile"); },   // 断面図ON＝他の道具OFF（排他）
 		// 標高サンプラ＝zoom=99 固定で最良解像度（日本=R01 DEM10B 10m・海外=ALOS/GEBCOへ自動フォールバック）。
 		// getHeightP 経由＝ローダ未着でも待って照会（map.getHeight の「未着=0m」縮退はグラフには不適）。
 		sampleHeight: (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => (f ? f(lon, lat, 99) : 0))).then(h => +h || 0),   // 外来の DEM（#36）が先
@@ -2570,12 +2578,16 @@ map.lineOfSight = async (a, b, o = {}) => {
 	return { ...L, triangles: r.stats.triangles };
 };
 map.gadget("sunshadow", function (opts) {
-	return sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => renderBackend === "webgpu", signal: ac.signal, ...opts });
+	const h = sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => renderBackend === "webgpu", onOpen: () => toolOpen("sunshadow"), signal: ac.signal, ...opts });
+	if (h?.close) toolClose.set("sunshadow", h.close);
+	return h;
 });
 map.clearViewshed = async () => { map.raster.remove("viewshed"); if (map.getLayer("los")) { map.removeLayer("los"); map.removeSource("los"); } };
 map.gadget("clock", function (opts) { return clockGadget.call(this, { signal: ac.signal, ...opts }); });
 map.gadget("viewshed", function (opts) {
-	return viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, signal: ac.signal, ...opts });
+	const h = viewshedGadget.call(this, { run: { viewshed: o => map.viewshed(o), lineOfSight: (a, b, o) => map.lineOfSight(a, b, o), clear: () => map.clearViewshed() }, onOpen: () => toolOpen("viewshed"), signal: ac.signal, ...opts });
+	if (h?.close) toolClose.set("viewshed", h.close);
+	return h;
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
 	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });

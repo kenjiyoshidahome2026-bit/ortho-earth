@@ -14,11 +14,11 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 const LEGEND = [["1", "#78b4ff"], ["2", "#508cf0"], ["3", "#3c5adc"], ["4", "#783cc8"], ["5", "#c82878"]];
 
 // run＝(opts) => Promise<{ triangles, maxHours, …, probes }>＝map.sunShadow の戻り（stats を平たく展開した形）
-export function sunShadow({ run, clear, live, canLive = () => true, minZoom = 15, signal } = {}) {
+export function sunShadow({ run, clear, live, canLive = () => true, onOpen, minZoom = 15, signal } = {}) {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」＝他の道具を閉じる）
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#sunshadow-btn")) return () => {};
 	const btn = document.createElement("button");
-	btn.id = "sunshadow-btn"; btn.dataset.tip = t("Sun & shadow"); btn.setAttribute("aria-label", t("Sun & shadow"));
+	btn.id = "sunshadow-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Sun & shadow"); btn.setAttribute("aria-label", t("Sun & shadow"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 	let panel = null, busy = false;
@@ -71,11 +71,19 @@ export function sunShadow({ run, clear, live, canLive = () => true, minZoom = 15
 			finally { busy = false; }
 		});
 	};
-	btn.addEventListener("click", () => {
-		if (!panel) build(); else panel.hidden = !panel.hidden;
-		btn.classList.toggle("on", !panel.hidden);
-		if (live && panel.querySelector("input[name=ssmode]:checked")?.value === "live") panel.hidden ? live({ on: false }) : panel.querySelector(".ss-slide").dispatchEvent(new Event("input"));   // 閉じたら影も消す・開き直したら戻す
-	});
+	const liveMode = () => live && panel?.querySelector("input[name=ssmode]:checked")?.value === "live";
+	const open = () => {
+		if (!panel) build(); else panel.hidden = false;
+		btn.classList.add("on"); onOpen?.();
+		if (liveMode()) panel.querySelector(".ss-slide").dispatchEvent(new Event("input"));   // 開き直したらリアルタイムの影も戻す
+		return panel;
+	};
+	const close = () => {   // 閉じる＝パネルを畳みリアルタイムの影も消す（貼った日影図の画像は「消す」まで残す）
+		if (!panel || panel.hidden) return;
+		panel.hidden = true; btn.classList.remove("on");
+		if (liveMode()) live({ on: false });
+	};
+	btn.addEventListener("click", () => (panel && !panel.hidden ? close() : open()));
 	signal?.addEventListener("abort", () => { panel?.remove(); btn.remove(); }, { once: true });
-	return Object.assign(() => {}, { open: () => { if (!panel) build(); panel.hidden = false; return panel; } });
+	return Object.assign(() => {}, { open, close });
 }

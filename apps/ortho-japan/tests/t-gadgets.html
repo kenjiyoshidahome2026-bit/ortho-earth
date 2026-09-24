@@ -37,5 +37,25 @@ ok("aria1", chip.getAttribute("aria-pressed") === "true" && chip.classList.conta
 window.__cam(139.76, 35.68, 12, 45, 30);
 await new Promise(r => setTimeout(r, 300));
 ok("compass3d", getComputedStyle(document.getElementById("reset")).display !== "none" && Math.round(R("reset").y) === 98 && Math.round(R("plateau-btn").y) === 142);   // +44＝chips最上段分
+// 34px 規格（2026-09-24）：左上スタックの全ボタンが 34×34・左端が揃う（qm-panel-btn の付け忘れ＝素のボタン 34×27 黒枠の回帰封じ）
+map.gadget.measure(); map.gadget.profile(); map.gadget.sunshadow(); map.gadget.viewshed(); map.gadget.raster?.(); map.gadget.qr?.();
+await new Promise(r => setTimeout(r, 300));
+const btns = [...document.getElementById("gadgets").children].filter(e => getComputedStyle(e).display !== "none")
+	.map(e => e.matches("button") ? e : e.querySelector("button")).filter(Boolean);
+const bad = btns.filter(b => { const r = b.getBoundingClientRect(); return Math.round(r.width) !== 34 || Math.round(r.height) !== 34 || Math.round(r.left) !== Math.round(btns[0].getBoundingClientRect().left); });
+ok(`btn34(${btns.length}${bad.length ? ":" + bad.map(b => b.id).join("/") : ""})`, btns.length >= 8 && !bad.length);
+// 道具の排他（2026-09-24）：日影・可視域・操作方法カード・計測は同時に一つだけ（後から開いた方が勝つ）
+const shown = sel => { const e = document.querySelector(sel); return !!e && !e.hidden && getComputedStyle(e).display !== "none"; };
+document.getElementById("sunshadow-btn").click();
+ok("ex:sun", shown(".sunshadow-panel"));
+document.getElementById("viewshed-btn").click();
+ok("ex:vs>sun", shown(".viewshed-panel") && !shown(".sunshadow-panel") && !document.getElementById("sunshadow-btn").classList.contains("on"));
+document.getElementById("hint-btn").click();
+ok("ex:hint>vs", shown("#hint") && !shown(".viewshed-panel"));
+document.getElementById("measure-btn").click();
+for (let i = 0; i < 50 && !document.getElementById("map").classList.contains("measuring"); i++) await new Promise(r => setTimeout(r, 100));   // 本体は遅延 import
+ok("ex:measure>hint", document.getElementById("map").classList.contains("measuring") && !shown("#hint"));
+document.getElementById("sunshadow-btn").click();
+ok("ex:sun>measure", shown(".sunshadow-panel") && !document.getElementById("map").classList.contains("measuring"));
 document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.length;
 </script></body></html>
