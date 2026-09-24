@@ -47,16 +47,16 @@
 				"why": "凍結：localStorage の鍵 ortho-japan.cam256（前回の視点）＋互換：gadget(\"japan\")＝home の旧名"
 			}
 		},
-		"packages/globe/src/i18n/langs.js": {
-			"日本": {
-				"n": 1,
-				"why": "言語名「日本語」（langs.json から焼いた生成物）"
-			}
-		},
 		"packages/globe/src/i18n.js": {
 			"jp": {
 				"n": 1,
 				"why": "言語コードの別名 jp→ja"
+			}
+		},
+		"packages/globe/src/i18n/langs.js": {
+			"日本": {
+				"n": 1,
+				"why": "言語名「日本語」（langs.json から焼いた生成物）"
 			}
 		},
 		"packages/globe/src/mesh/manager.js": {
@@ -133,6 +133,12 @@
 			"gsi": {
 				"n": 1,
 				"why": "形式名：標高タイルの符号化 encoding:\"gsi\"（線の上の形式＝LAYERS の据え置き）"
+			}
+		},
+		"packages/ortho-core/src/elevation/loader.js": {
+			"jp": {
+				"n": 2,
+				"why": "形式：データの在り処＝JAXA の全球 DSM（ALOS AW3D30）の URL（ドメイン eorc.jaxa.jp と経路 /jp/）＝全球のデータで地域の知識ではない（2026-09-25 に altpbf から core へ移設）"
 			}
 		},
 		"packages/ortho-core/src/labels.js": {

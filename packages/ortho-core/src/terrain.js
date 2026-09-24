@@ -4,7 +4,7 @@
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
 import { downsampleFlipped } from "./elevation.js";
-import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "altpbf/loader";
+import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.js";
 import { createDemSource } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 
 // 申告された裸地標高(DTM)域と、リフト窓の重なりを取る（[lng0,lat0,spanLng,spanLat]・重なり無し=null）。

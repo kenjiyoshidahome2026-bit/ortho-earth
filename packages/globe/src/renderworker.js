@@ -7,10 +7,10 @@
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
 import { createTerrain } from "@ortho-earth/core/terrain";
-import { setWorkerFactory as setAltWorkerFactory } from "altpbf/loader";
-// terrain の標高ローダ（altpbf）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
-// 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→altpbf がその場実行へ退避
-setAltWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
+import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
+// terrain の標高ローダ（core の elevation）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
+// 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
+setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, cameraState, project } from "@ortho-earth/core/camera";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻

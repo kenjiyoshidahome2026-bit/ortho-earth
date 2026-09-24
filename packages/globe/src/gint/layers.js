@@ -12,7 +12,8 @@
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
 import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正本（段階 3・2026-09-23）
 import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の出しズームの正本（equal と同値）
-import { WORLD_PX } from "@ortho-earth/core";
+import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
+// 利用者の入口が top-level await の最中に await import(core) すると、束ねた後は入口の chunk の評価待ちで互いに待ち合う（addLayer が永久に返らない）
 import { geopbf } from "geopbf";
 
 const D2R = Math.PI / 180;
@@ -181,7 +182,6 @@ async function standupGint(liftM = 0, { auto = false } = {}) {
 		if (edges > DRAPE_MAX_EDGES) break;
 	}
 	if (edges > DRAPE_MAX_EDGES) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); console.warn("[standup] ⚠ edges %d > limit %d = skipping terrain drape (huge layer). raise DRAPE_MAX_EDGES to allow", edges, DRAPE_MAX_EDGES); return; }
-	const { buildDrapedGeometry } = await import("@ortho-earth/core");
 	const b = userGint.pbf.unPackGint.bbox;                       // 表示CRS(経緯度)の bbox＝RTE の origin に使う
 	const origin = [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];
 	// CRS サニティ：geojson の座標が bbox(経緯度)から大きく外れていたら局所座標系＝線だけズレる（gint表示は変換済で正しい）
@@ -270,7 +270,6 @@ async function paintGint(paint, filter = null) {
 	if (!paint) { sendGintPaint(null); requestDraw(); return; }
 	const feats = gintFidFeatures();   // fid 整列（.geojson は詰めズレするため使わない）
 	if (!feats) { console.warn("[paint] user gint layer not loaded (drop a file or map.applyGintData first)"); return; }
-	const { buildFidStyle } = await import("@ortho-earth/core");
 	const { u32, count } = buildFidStyle(paint, feats, { filter, zoom: cam.zoom });
 	sendGintPaint({ table: u32, count });
 	requestDraw();
@@ -312,7 +311,6 @@ function addGint(pbf, opts = {}) {
 	};
 	const refreshLabels = async () => {
 		if (!labelOpt?.field) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
-		const { evalExpr } = await import("@ortho-earth/core");
 		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list = [];
 		for (let i = 0; i < n; i++) {
 			if (lastTable && !(lastTable[i * 4 + 2] & 1)) continue;   // filter 連動＝fid 表の visible ビット（bit0）を尊重（paint/filter 未設定＝全通し）
@@ -363,7 +361,6 @@ function addGint(pbf, opts = {}) {
 			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { buildFidStyle } = await import("@ortho-earth/core");
 			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates });
 			lastTable = u32;
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);

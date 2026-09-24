@@ -7,7 +7,7 @@
 //   カスピ海本体は NE admin_0 が最初から刳り抜いている（陸マスク外）＝何もしなくて正しい。
 // アルゴリズム本体は belowsea-core.js（純関数＝node 検定可能）。ここは I/O（admin0/R90 取得と geopbf 保存）だけ。
 import { geopbf } from "geopbf";
-import { createTileLoader } from "altpbf/loader";
+import { createTileLoader } from "@ortho-earth/core/elevation";
 import { bakeTile } from "./belowsea-core.js";
 
 const THRESH_M = -1;     // これ以下を「海面下」とする(m)。0 だと R90 の量子化ゆらぎで海抜0の大平野を拾う

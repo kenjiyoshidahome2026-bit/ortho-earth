@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "1.0.0",
+	"version": "1.1.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"main": "src/index.js",
@@ -23,7 +23,9 @@
 		"./workers/gintbake": "./src/gl/gint/bakeworker.js",
 		"./workers/gint": "./src/gl/gint/worker.js",
 		"./worldstyle": "./src/worldstyle.js",
-		"./worldcontent": "./src/worldcontent.js"
+		"./worldcontent": "./src/worldcontent.js",
+		"./elevation": "./src/elevation/index.js",
+		"./workers/elevation": "./src/elevation/worker.js"
 	},
 	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
 	"dependencies": {
@@ -31,7 +33,8 @@
 		"altpbf": "^1.1.0",
 		"earcut": "^3.0.1",
 		"geopbf": "^1.11.0",
-		"pmtiles": "^4.5.0"
+		"pmtiles": "^4.5.0",
+		"native-bucket": "^1.0.0"
 	},
 	"keywords": [
 		"map",
@@ -60,6 +63,7 @@
 		"./src/workers/tileworker.js",
 		"./src/workers/sceneworker.js",
 		"./src/gl/gint/bakeworker.js",
-		"./src/gl/gint/worker.js"
+		"./src/gl/gint/worker.js",
+		"./src/elevation/worker.js"
 	]
 }

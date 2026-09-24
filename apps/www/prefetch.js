@@ -90,7 +90,7 @@ export async function prefetchWorldData(nav = navigator) {
 	const free = est?.quota != null ? est.quota - (est.usage ?? 0) : null;
 	const plan = planPrefetch({ low, effectiveType: nav.connection?.effectiveType ?? null, free });
 	const [{ createGeopbf }, { nativeBucket, Cache }, { createTileLoader }] = await Promise.all([
-		import("geopbf"), import("native-bucket"), import("altpbf/loader"),
+		import("geopbf"), import("native-bucket"), import("@ortho-earth/core/elevation"),
 	]);
 	const geopbf = createGeopbf(API, { bucket: nativeBucket });
 	const has = await presence(Cache);

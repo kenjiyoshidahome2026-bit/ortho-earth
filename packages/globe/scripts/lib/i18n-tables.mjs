@@ -23,6 +23,11 @@ export function i18nTables(APP) {
 		files.set(file, body + "\n");
 		rows.push([code, keys.length, Buffer.byteLength(body)]);
 	}
+	// 言語ごとの読み口＝字面の import を並べる（2026-09-25）。旧＝import(`./i18n/lang/${c}.json`)（字面でない）は Vite 8 が node_modules の中で束ねず、
+	// npm の globe を使う人のビルドで訳が 404 になった＝どのバンドラでも拾える形に焼く
+	const withTable = rows.filter(r => r[1] > 0).map(r => r[0]);
+	files.set(path.join(HOST, "i18n/lang-loaders.js"), "// 生成物＝npm run i18n:build。手で編集しない。言語コード → その言語の表を読む関数（字面の import＝どのバンドラでも束ねられる）\nexport default {\n"
+		+ withTable.map(c => `\t${JSON.stringify(c)}: () => import(${JSON.stringify(`./lang/${c}.json`)}),\n`).join("") + "};\n");
 	// showcase ページの辞書（i18n/pages/<page>.json）＝i18n/lang/<page>/<code>.json へ。SDK（本体）は運ばない＝そのページの chunk だけが読む
 	const { tables } = loadPages(APP);
 	for (const [page, tbl] of Object.entries(tables)) {

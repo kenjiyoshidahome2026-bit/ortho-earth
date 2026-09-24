@@ -1,12 +1,12 @@
-// ALTPBF ローダ層（workspace 専用＝npm 非同梱・入口は "altpbf/loader"）。
-// フォーマット本体（encode/decode/名前規約/altpbf2png）は ./format.js＝npm 公開面。
+// 標高タイルのローダ（@ortho-earth/core/elevation・2026-09-25 に altpbf から移設＝本人裁定「ローダを core に移す」）。
+// 形式（encode/decode/名前規約/altpbf2png）は altpbf（MIT）。ここはエンジン側の結線＝取得（bucket・JAXA）と IndexedDB の保存。
 // ここは私有インフラ結線＝native-bucket（R2バケツ・IDBキャッシュ・JAXA CORS proxy）。地域の知識は持たない（2026-09-17）。
 // 兄弟モジュール（worker/createGetHeight/gebco）の輸入面を保つため、フォーマット関数はここから再輸出する。
-import { L3 } from "common";
+const L3 = n => String(n).padStart(3, "0");   // 旧 common の L3（桁揃え）＝ここでしか使わない
 import { nativeBucket } from "native-bucket";
-import { encode, decode, encodeName, decodeName } from "./format.js";
+import { encode, decode, encodeName, decodeName } from "altpbf";
 import { WORLD_ATLAS } from "./worldatlas.js";
-export { encode, decode, encodeName, decodeName, altpbf2png } from "./format.js";
+export { encode, decode, encodeName, decodeName, altpbf2png } from "altpbf";
 
 let _nb = null;
 export function setApiUrl(url) { _nb = nativeBucket(url); }

@@ -23,7 +23,7 @@ const ROLES = {
 	// 部品の worker（2026-09-22・標準の作法＝各部品の setWorkerFactory / 役割名 → この入口）。geopbf の役割（decoder:/encoder:/geopbf:）は下の正規表現
 	"ortho:tile":    () => import("@ortho-earth/core/workers/tile"),      // タイルの取得・解読・三角形化（createPipeline の workerFactory）
 	"ortho:scene":   () => import("@ortho-earth/core/workers/scene"),     // シーンの結合
-	"altpbf:height": () => import("altpbf/worker"),                // 標高タイルの復号（main の createGetHeight・render worker の terrain）
+	"ortho:height":  () => import("@ortho-earth/core/workers/elevation"),                // 標高タイルの復号（main の createGetHeight・render worker の terrain）
 	"geoedit:model": () => import("geoedit/model-worker"),         // geoedit の編集モデル
 	...EXTRA_ROLES,
 };

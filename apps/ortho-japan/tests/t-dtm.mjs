@@ -7,7 +7,7 @@
 // 申告を外に出した後も、日本の申告を渡せば**以前と同じ答え**になることを固定する。
 //
 // 使い方: node tests/t-dtm.mjs
-import { staleDSM } from "altpbf/loader";
+import { staleDSM } from "@ortho-earth/core/elevation";
 import { clipToDTM } from "@ortho-earth/core/terrain";
 import { JP_DTM } from "@ortho-earth/jp/dtm";
 

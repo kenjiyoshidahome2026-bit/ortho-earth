@@ -3,7 +3,7 @@
 // 8 枚 52MB の取得＋復号 8 回＋再標本化 8 回が、3.25MB 1 本＋復号 1 回に（実測 2026-09-18）。無ければ従来の 8 枚経路へ自動退避（絵は同じ）。
 // 再標本化の規約は packages/altpbf/src/worldatlas.js（downsampleFlipped と同一・Node 検定 t-worldatlas.mjs）。
 // 焼き直す時（GEBCO の年替わり等）：R90 を先に「create GEBCO」で更新 → WORLD_ATLAS の版（末尾 _n）を上げてからこのボタン。
-import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, bakeWorldAtlas, encode, decode, sampleWorldAtlas } from "altpbf/loader";
+import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, bakeWorldAtlas, encode, decode, sampleWorldAtlas } from "@ortho-earth/core/elevation";
 
 const CELLS = [[-180, -90], [-90, -90], [0, -90], [90, -90], [-180, 0], [-90, 0], [0, 0], [90, 0]];   // [west, south]
 // 焼き上がりの検札点（読み戻し→復号→標本値が常識の範囲か）：エベレスト近傍・死海（-420..0 は保持）・太平洋（深海は規約で 0）・東京

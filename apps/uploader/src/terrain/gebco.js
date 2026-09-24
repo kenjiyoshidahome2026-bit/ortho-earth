@@ -1,6 +1,6 @@
 import { Cache } from "native-bucket";
 import { thenEach, comma, L2, L3 } from "common";
-import { encode, decode, encodeName, getNB } from "./altpbf.js";
+import { encode, decode, encodeName, getNB } from "@ortho-earth/core/elevation";
 import { fromBlob } from 'geotiff';
 
 // GEBCO — https://www.gebco.net/data-products/gridded-bathymetry-data
