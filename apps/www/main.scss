@@ -1,6 +1,7 @@
 :root {
 	--bg-color: #0a0a0f; --text-primary: #fff; --text-secondary: #ccc; --accent-color: #00ffcc;
 	--glass-bg: rgba(10, 10, 15, 0.6); --glass-border: rgba(255, 255, 255, 0.1);
+	--card-bg: rgba(22, 33, 54, 0.72);   /* カードの地＝少し青みのある黒（本人 9/24「完全黒は少しきつい」）。ナビ・フッタは --glass-bg のまま */
 	--accent-glow: rgba(0, 255, 204, 0.4);
 	/* Second accent — a vivid azure blue. Warms up the white/green palette; anchors the Demos/Technologies tabs. */
 	--accent-2: #3178c6; --accent-2-glow: rgba(49, 120, 198, 0.5); --accent-2-tint: rgba(49, 120, 198, 0.16);
@@ -33,12 +34,13 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 			.title { font-size: clamp(2.6rem, 8vw, 5.6rem); font-weight: 900; line-height: 1.05; letter-spacing: -.01em; margin-bottom: 1rem; }   // キャッチ＝ページの顔（本人 9/22「もっと大きく」）
 			.highlight { color: var(--accent-color); text-shadow: 0 0 30px var(--accent-glow); }
 			.tagline { font-size: clamp(0.95rem, 2vw, 1.15rem); color: var(--text-secondary);
-				margin-bottom: 1.75rem; line-height: 1.6; max-width: 640px; }
+				margin-bottom: 1.75rem; line-height: 1.6; max-width: 640px;
+				white-space: pre-line; }   // 訳の中の改行（\n）をそのまま折る（ja＝「…3D地球儀です。」で改行・本人 9/24）
 			.apps { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem;
 				width: 100%; max-width: 900px; margin-bottom: 2rem;
 				.card { display: flex; flex-direction: column; text-align: start;
 					padding: 1.5rem 1.6rem; border-radius: 16px; text-decoration: none; color: var(--text-primary);
-					background: var(--glass-bg); border: 1px solid var(--glass-border);
+					background: var(--card-bg); border: 1px solid var(--glass-border);
 					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
 					transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
 					&:hover { transform: translateY(-4px); border-color: var(--accent-color); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
@@ -88,7 +90,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 /* Section tabs (Demos / Technologies) + Technologies cards.
    Full selectors so they beat the base `button` / `.card` rules that sit under the body{} nest. */
 body #demoOverlay main .tabs { display: inline-flex; gap: .3rem; margin-bottom: 1.75rem; padding: .35rem;
-	border-radius: 999px; background: var(--glass-bg); border: 1px solid var(--glass-border);
+	border-radius: 999px; background: var(--card-bg); border: 1px solid var(--glass-border);   /* カードと同じ青みの黒（本人 9/24） */
 	backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
 body #demoOverlay main .tabs .tab { padding: .7rem 2rem; border-radius: 999px; border: none; background: transparent;
 	color: var(--text-secondary); font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: none;
@@ -136,6 +138,8 @@ body #demoOverlay main .tagline { margin-top: 1rem; }
 body #demoOverlay main #panel-demos { display: block; }
 body #demoOverlay main #panel-demos[hidden] { display: none; }
 body #demoOverlay main #panel-demos .card.featured { margin-bottom: 1.4rem; }
+// ギャラリーの最後の一行（本人 2026-09-24「教育での利用はいつでも自由です。世界中の教室で、そのまま使えます。」）
+body #demoOverlay main .apps .edu-note { grid-column: 1 / -1; margin: 1.2rem auto .2rem; text-align: center; color: var(--text-secondary); font-size: .95rem; line-height: 1.6; }
 body #demoOverlay main .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: .9rem; }
 body #demoOverlay main .grid .card { padding: 1.15rem 1.25rem 1rem; }
 body #demoOverlay main .grid .card[hidden] { display: none; }
@@ -155,9 +159,12 @@ body #demoOverlay main .apps.tech .tech-lead { grid-column: 1 / -1; font-size: 1
 	body #demoOverlay nav .links select.lang { max-width: 6.5rem; margin-inline-start: .6rem; }
 	body #demoOverlay main .grid { grid-template-columns: 1fr; }
 }
-/* デモの画像（全カード・9/22 本人「全てのデモに画像を」）＝カード上端いっぱい・16:10 */
+/* デモの画像（全カード・9/22 本人「全てのデモに画像を」）＝カードの幅いっぱい・16:10。題はその上（9/24「角丸があるので、タイトルを上に」）＝画像の角は丸で欠けない */
 body #demoOverlay main .grid .card { padding: 0 0 1rem; overflow: hidden; }
-body #demoOverlay main .grid .card .card-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: #0d0d12; margin-bottom: .8rem; border-bottom: 1px solid var(--glass-border); }
+body #demoOverlay main .grid .card .card-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; padding-block: .85rem .7rem; }
+body #demoOverlay main .grid .card .card-head .card-title { margin: 0; min-width: 0; }
+body #demoOverlay main .grid .card .card-thumb { display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover; background: #111a2b; margin-bottom: .8rem;
+	border-block: 1px solid var(--glass-border); }
 body #demoOverlay main .grid .card > :not(.card-thumb) { margin-inline: 1.15rem; }
 body #demoOverlay main .grid .card .card-cta { margin-inline-end: 1.15rem; }
 /* 始める（Get started）＝番号つきの手順カード・コードは左→右固定 */
@@ -173,9 +180,9 @@ body #demoOverlay main .apps.start .doclinks a { display: inline-flex; align-ite
 	text-decoration: none; color: var(--accent-color); background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); }
 body #demoOverlay main .apps.start .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
 @media (max-width: 640px) { body #demoOverlay main .apps.start { grid-template-columns: minmax(0, 1fr); } }
-/* 言語のバッジ＝画像の右上（RTL は左上）。26 言語＝アクセント・日本語のみ＝控えめ */
+/* 言語のバッジ＝題の行の右端（RTL は左端）。26 言語＝アクセント・日本語のみ＝控えめ */
 body #demoOverlay main .grid .card { position: relative; }
-body #demoOverlay main .grid .card .card-lang { position: absolute; top: .6rem; inset-inline-end: .6rem; margin: 0; z-index: 2;
+body #demoOverlay main .grid .card .card-lang { flex: none; margin: 0;
 	padding: .2rem .55rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
 	background: rgba(10, 10, 15, .78); border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 body #demoOverlay main .grid .card .card-lang.all { color: var(--accent-color); border-color: rgba(0, 255, 204, .55); }
@@ -190,10 +197,30 @@ body #demoOverlay nav .back { display: inline-flex; align-items: center; gap: .3
 	&:hover { filter: brightness(1.1); }
 	&[hidden] { display: none; }
 }
+// 狭い画面のデモ中＝「戻る」は矢印だけ（文字は読み上げ用に残す）＝ロゴと言語の間に収める（ロゴも「戻る」なので迷わない）
+@media (max-width: 640px) {
+	body #demoOverlay nav .brand { gap: .5rem; }
+	body #demoOverlay nav .back { padding: .35rem .7rem; }
+	body #demoOverlay nav .back [data-t="Back"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
+// 別ウィンドウで開く（デモの間だけ・「戻る」の右）＝「戻る」より控えめな枠だけのボタン
+body #demoOverlay nav .popout { display: inline-flex; align-items: center; gap: .35rem; padding: .4rem .85rem; border-radius: 999px;
+	border: 1px solid var(--glass-border); color: var(--text-secondary); text-decoration: none; font-size: .9rem; font-weight: 600; white-space: nowrap;
+	&:hover { color: var(--text-primary); border-color: var(--accent-color); }
+	&[hidden] { display: none; }
+}
+body #demoOverlay nav .logo { white-space: nowrap; }
+@media (max-width: 640px) { body.in-demo #demoOverlay nav .links a { display: none; } }   // 狭い画面のデモ中＝X・GitHub を伏せて「戻る」「別ウィンドウ」と言語を収める   // ボタンが並んでもロゴは 1 行のまま
+@media (max-width: 1000px) {   // 中くらいの幅から「別ウィンドウで開く」は矢印の絵だけ（名前は title と読み上げに残る）
+	body #demoOverlay nav .popout { padding: .4rem .6rem; }
+	body #demoOverlay nav .popout [data-t] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+}
 body #demoOverlay iframe.demo-frame { flex: 1; width: 100%; min-height: 0; border: 0; display: block; background: #000; }
 body #demoOverlay #demoFrame { display: none; }   // 雛形（main.js が複製して使う＝開くたびに新しい iframe＝履歴を汚さない）
 body.in-demo {
 	#mapContainer { visibility: hidden; }
 	#demoOverlay main, #demoOverlay footer { display: none; }
 	#demoOverlay nav { padding-block: .7rem; }   // デモの面を広く
+	#demoOverlay nav .logo { cursor: pointer; }   // デモの間はロゴも「戻る」（main.js）
+	#demoOverlay nav .logo:hover { color: var(--text-primary); }
 }

@@ -6,8 +6,11 @@
 		"dev": "vite",
 		"build": "node scripts/verify-i18n.mjs && vite build",
 		"preview": "vite preview",
+		"test": "node --test tests/t-prefetch.mjs tests/t-demos-csv.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"demos:export": "node scripts/demos-csv.mjs export",
+		"demos:import": "node scripts/demos-csv.mjs import && node scripts/i18n-build.mjs && node scripts/verify-i18n.mjs",
 		"thumbs": "node scripts/thumbs.mjs"
 	},
 	"dependencies": {

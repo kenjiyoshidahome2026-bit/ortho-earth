@@ -40,7 +40,7 @@ function propagate(lang) {
 		history.replaceState(null, "", (q.size ? "?" + qs(q) : location.pathname) + location.hash);
 	});
 }
-// Section tabs (Demos / Technologies) — client-side; swaps the card panels over the ambient globe.
+// Section tabs (Gallery / Get started / Technologies・Gallery の中身は id "demos" のまま) — client-side; swaps the card panels over the ambient globe.
 // Wired early so they respond before the globe finishes loading. #technologies deep-links the Tech tab.
 const HASH = { start: "#get-started", tech: "#technologies" };
 function selectTab(name) {
@@ -61,15 +61,15 @@ d3.select(".logo").html(`${await (await fetch("/favicon.svg")).text() }Ortho Ear
 // Ambient auto-rotating globe behind the overlay (background only — no interactive demo mode).
 // 背景＝軽い地球（88KB の webp を正射投影の球に貼って回すだけ・globe-lite.js）。エンジン（ortho-japan SDK＋世界データ約 8MB）は
 // 背景には載せない＝名刺 QR から来た携帯でもすぐ回る（2026-09-21 本人裁定「軽い webp を読み込んで、くるくる回せばいい」）。
-// デモ（/japan/）の初回に要る世界データは、地球が出てページの読み込みが済み手が空いてから背後で IDB に入れる（prefetch.js）
-// ＝同オリジンの /japan/ が IDB から立つ。データ節約・遅い回線では見送る。
+// 各アプリ（/japan/・/equal/・/world/…）がほぼ必ず読む世界データは、地球が出てページの読み込みが済み手が空いてから背後で IDB に入れる（prefetch.js）
+// ＝同オリジンのアプリが IDB から立つ。データ節約・遅い回線では見送る・デモの iframe を開いている間は止まる。
 const whenIdle = cb => (window.requestIdleCallback ? requestIdleCallback(cb, { timeout: 3000 }) : setTimeout(cb, 500));
 const afterLoad = cb => document.readyState === "complete" ? cb() : addEventListener("load", cb, { once: true });
 const globe = liteGlobe(document.getElementById('mapContainer'), {
 	src: "/earth-lite.webp",
 	onFirstFrame: () => afterLoad(() => whenIdle(async () => {
-		const { shouldPrefetch, prefetchJapanWorld } = await import("./prefetch.js");
-		if (shouldPrefetch()) prefetchJapanWorld().catch(e => console.warn("[prefetch]", e));
+		const { shouldPrefetch, prefetchWorldData } = await import("./prefetch.js");
+		if (shouldPrefetch()) prefetchWorldData().catch(e => console.warn("[prefetch]", e));
 		else console.info("[prefetch] skipped (save-data or slow connection)");
 	})),
 });
@@ -80,7 +80,7 @@ const globe = liteGlobe(document.getElementById('mapContainer'), {
 // ・iframe は開くたびに雛形（#demoFrame）から新しく作り、閉じたら取り除く＝src の差し替えで履歴に段が積まれない（戻るが一回で済む）。
 // ・ナビの「戻る」＝自分で積んだ段なら history.back、直接開いた時は一覧へ置き換え。デモの間は背景の地球を止める（GPU を取り合わない）。
 // ・デモは同じオリジンのパスだけ（?d= に外のアドレスを入れても開かない）。
-const tpl = document.getElementById("demoFrame"), backBtn = document.querySelector("nav .back");
+const tpl = document.getElementById("demoFrame"), backBtn = document.querySelector("nav .back"), logo = document.querySelector("nav .logo"), popout = document.querySelector("nav .popout");
 let frame = null;
 const demoPath = p => { try { const u = new URL(p, location.origin); return u.origin === location.origin && u.pathname !== "/" ? u.pathname + u.search + u.hash : null; } catch { return null; } };
 function showDemo(path, title) {
@@ -93,11 +93,15 @@ function showDemo(path, title) {
 		tpl.after(frame);
 	}
 	backBtn.hidden = false;
+	popout.hidden = false; popout.href = path;
+	logo.setAttribute("role", "button"); logo.tabIndex = 0; logo.title = backBtn.textContent.replace("←", "").trim();   // デモの間はロゴも「戻る」
 	document.body.classList.add("in-demo"); globe.pause();
 }
 function hideDemo() {
 	frame?.remove(); frame = null;   // デモの GPU とメモリを返す
 	backBtn.hidden = true;
+	popout.hidden = true;
+	logo.removeAttribute("role"); logo.removeAttribute("tabindex"); logo.removeAttribute("title");
 	document.body.classList.remove("in-demo"); globe.resume();
 }
 const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + qs(q) : location.pathname) + location.hash; };
@@ -111,6 +115,14 @@ document.addEventListener("click", e => {
 	history.pushState({ demo: path }, "", "?" + qs(q));
 	showDemo(path, a.querySelector(".card-title")?.textContent);
 });
-backBtn.addEventListener("click", () => { if (history.state?.demo) history.back(); else { history.replaceState(null, "", listUrl()); hideDemo(); } });
+// 戻る＝ナビの「戻る」ボタンとロゴ（Ortho Earth）の両方（本人 2026-09-24「ロゴを押しても戻る」）。ロゴは一覧を見ている間は何もしない
+const backToList = () => { if (history.state?.demo) history.back(); else { history.replaceState(null, "", listUrl()); hideDemo(); } };
+backBtn.addEventListener("click", backToList);
+// 別ウィンドウで開く（本人 2026-09-24）＝押した瞬間の iframe の中の URL（同じオリジン＝デモの中で動いた先・視点の URL 等）を開く。読めなければ開いた時のパス
+popout.addEventListener("click", () => {
+	try { const u = frame?.contentWindow?.location; if (u && u.origin === location.origin && u.pathname !== "blank") popout.href = u.pathname + u.search + u.hash; } catch { /* 読めない＝開いた時のパスのまま */ }
+});
+logo.addEventListener("click", () => { if (frame) backToList(); });
+logo.addEventListener("keydown", e => { if (frame && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); backToList(); } });
 addEventListener("popstate", e => { const p = e.state?.demo ?? demoPath(new URLSearchParams(location.search).get("d") || ""); p ? showDemo(p) : hideDemo(); });
 { const d = new URLSearchParams(location.search).get("d"); const p = d && demoPath(d); if (p) showDemo(p); }

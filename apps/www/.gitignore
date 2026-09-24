@@ -1,0 +1,2 @@
+# デモの文言の編集用の写し（npm run demos:export で作る・正本は demos.json と i18n/ui.json）
+demos.csv
