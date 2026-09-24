@@ -19,6 +19,8 @@
 ## 掟
 
 1. **globe と core に地域名を書かない**（JP・日本・地理院・GSI を core/globe のコードに置かない）。地域は宣言（`opts.region`）とパックで足す。
+   **機械の門（2026-09-24）**：`packages/globe` の `verify:regionless`＝コードと文字列（コメントは除く）の地域の語をファイルごとに数える爪車。
+   許可表 `packages/globe/scripts/regionless-allow.json`（凍結・互換・負債の別と理由つき）を超えたら落ち、減ったら `--ratchet` で枠を下げる（上げない）。globe の `verify` と japan の deploy の頭で回る。
 2. **消費者は公開面（`sdk/ortho-japan.d.ts`）だけを使う**。`map.estat` のような地域の口は japan の拡張面であって globe の口ではない。`dbgHost`／`__*` はアプリから触らない。
 3. **内製アプリはエンジンを自分の束に焼く**（本番だけ `/japan/lib/` を実行時に食う二重構成はしない）。japan を出さなくても各アプリが自分の deploy で進み、japan を出しても他が変わらない。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
@@ -111,7 +113,10 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
 - **残る結び目**：
   1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。ただし `koppen-clim.png` は japan の public にも同じ物が残る（japan の頁と SDK 用）＝本当の持ち主は `packages/globe`（npm の globe にも載せ、両方の家はそこから焼く）＝globe の版を切る時に。
-  2. **globe に残る japan の名**：前回の視点の localStorage の鍵 `ortho-japan.cam256`（利用者の端末に残る＝凍結。IDB の `GIS/plateau` と同じ扱い）。
+  2. **globe に残る地域の語**＝許可表の「負債」（2026-09-24 時点 112 語・うち負債は次の通り。消したら `--ratchet`）：
+     鉄道層の口の名 `n02`（core の GL/GPU renderer と globe・rail へ改名は機械置換＝申告してから）／法務省地図の開発用の手（`__moj`・`__sapporo`・`__arakawaFit`＝jp の dbg へ）／
+     `#attr` の無い画面の既定の出典（shot.js）と印刷の出典（print.js）が日本の出典固定／UI 文言の「(PLATEAU)」（建物の出所の名は buildings の申告から）。
+     凍結（利用者の端末・共有 URL に残る名）＝`ortho-japan.cam256`・`ortho-japan-edit`・`GIS/plateau`・OPFS `plateau`・`#plateau-btn`・`plateau-toast`。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 

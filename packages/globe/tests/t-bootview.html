@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- UI回帰：起動視点の優先度（2026-09-24）＝URL ハッシュ／opts.view ＞ 前回の視点（localStorage）＞ 既定。
+     9/23 の #42（共通の時計）で前回の視点の else が時計の if に繋がり、t= の無い共有 URL が再訪者の前回の視点に上書きされた（本番まで出た）＝その退行の網。
+     各ケースは別の iframe（新しい文書＝起動のやり直し）。同じオリジン＝localStorage は共有＝ケースごとに前回の視点（ヨーロッパ z4）を仕込み直す。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}iframe{width:640px;height:400px;border:0}</style><title>t-bootview</title></head>
+<body>
+<script type="module">
+const KEY = "ortho-japan.cam256";   // globe.js の CAM_KEY（凍結名＝利用者の端末に残る）
+const SAVED = { center: [10, 50], zoom: 4, pitch: 0, bearing: 0 };
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const near = (a, b, e) => Math.abs(a - b) <= e;
+const at = (v, z, lat, lng) => v && !v.error && near(v.z, z, 0.01) && near(v.lat, lat, 0.01) && near(v.lng, lng, 0.01);
+const fmt = v => !v ? "timeout" : v.error ? v.error : `${v.z.toFixed(2)}/${v.lat.toFixed(2)}/${v.lng.toFixed(2)}`;
+const boot = (query, hash = "") => new Promise(resolve => {
+	localStorage.setItem(KEY, JSON.stringify(SAVED));
+	const f = document.createElement("iframe");
+	const done = v => { clearTimeout(timer); removeEventListener("message", on); f.remove(); resolve(v); };
+	const on = e => { if (e.source === f.contentWindow) done(e.data); };
+	const timer = setTimeout(() => done(null), 60000);
+	addEventListener("message", on);
+	f.src = `t-bootview-frame.html?${query}${hash}`;
+	document.body.append(f);
+});
+try {
+	let v = await boot("", "#8/35.68/139.76");                          // ① 共有 URL（t= なし）＝退行の本丸
+	ok("hash", at(v, 8, 35.68, 139.76), fmt(v));
+	v = await boot("", "#8/35.68/139.76/t=2026-01-01T00:00:00Z");        // ② 共有 URL（t= あり）＝時計の枝
+	ok("hashTime", at(v, 8, 35.68, 139.76), fmt(v));
+	v = await boot("view=%236/-33.9/151.2");                             // ③ opts.view（頁の既定の視点）も前回の視点に勝つ
+	ok("optsView", at(v, 6, -33.9, 151.2), fmt(v));
+	v = await boot("");                                                  // ④ 何も無ければ前回の続き（再訪＝前回の視点から）
+	ok("resume", at(v, 4, 50, 10), fmt(v));
+	v = await boot("persist=0");                                         // ⑤ persistView:false＝前回の視点を読まない
+	ok("noPersist", v && !v.error && !at(v, 4, 50, 10), fmt(v));
+} catch (e) { t.push(`NG:exception(${String(e?.message || e).slice(0, 80)})`); }
+localStorage.removeItem(KEY);
+document.title = (t.every(s => s.startsWith("ok")) ? "PASS " : "FAIL ") + t.join(" ");
+</script></body></html>
