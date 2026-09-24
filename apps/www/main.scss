@@ -102,14 +102,10 @@ body #demoOverlay main .tabs .tab.is-active:hover { transform: none; color: #fff
 body #demoOverlay main .apps.tech { align-items: start; }
 body #demoOverlay main .apps.tech .card.tech-card:hover { transform: none; border-color: var(--glass-border); box-shadow: none; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks { display: flex; flex-wrap: wrap; gap: .5rem; margin-top: 1rem; }
-body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos { margin-top: .5rem; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks a { display: inline-flex; align-items: center; padding: .35rem .8rem;
 	border-radius: 8px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent-color);
 	background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); transition: background .15s ease; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
-/* "Interactive demos" links (Morton / Dynamic LOD / GPU Stencil) — blue pills to set them apart from the doc links. */
-body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a { color: var(--accent-2-bright); background: rgba(91, 159, 224, 0.10); border-color: rgba(91, 159, 224, 0.30); }
-body #demoOverlay main .apps.tech .card.tech-card .doclinks.demos a:hover { background: rgba(91, 159, 224, 0.18); }
 body #demoOverlay main .apps.tech .tech-note { grid-column: 1 / -1; text-align: center; margin: .25rem 0 0; font-size: .85rem; color: var(--text-secondary); }
 body #demoOverlay main .apps.tech .tech-note a { color: var(--accent-color); text-decoration: none; }
 body #demoOverlay main .apps.tech .tech-note a:hover { text-decoration: underline; }
