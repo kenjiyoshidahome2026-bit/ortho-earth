@@ -18,7 +18,7 @@ export function clockGadget({ signal } = {}) {
 	const map = this, mapEl = this.mapEl, clock = map.clock;
 	if (!clock || mapEl.querySelector("#clock-btn")) return () => {};
 	const btn = document.createElement("button");
-	btn.id = "clock-btn"; btn.dataset.tip = t("Time"); btn.setAttribute("aria-label", t("Time"));
+	btn.id = "clock-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Time"); btn.setAttribute("aria-label", t("Time"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 	let bar = null, editing = false, shown = "", uiAt = 0, wantOpen = false;

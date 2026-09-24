@@ -9,7 +9,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 // QRらしいグリフ（3隅ファインダ＋数個のモジュール）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同流儀）。
-const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="#3f4757" aria-hidden="true">
+const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="#3f4757" aria-hidden="true">
 	<path d="M3 3h7v7H3V3zm2 2v3h3V5H5z"/><path d="M14 3h7v7h-7V3zm2 2v3h3V5h-3z"/><path d="M3 14h7v7H3v-7zm2 2v3h3v-3H5z"/>
 	<rect x="14" y="14" width="2" height="2"/><rect x="19" y="14" width="2" height="2"/><rect x="17" y="17" width="2" height="2"/><rect x="14" y="19" width="2" height="2"/><rect x="19" y="19" width="2" height="2"/></svg>`;
 

@@ -10,7 +10,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 // 画像グリフ（額縁＋山＋太陽＝写真/ラスタ）。積層の菱形は表示チップの #layers-btn と被るので使わない。線色は本線インク直書き＝夜節が自動反転。
-const ICON = `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="#3f4757" stroke-width="1.6" stroke-linejoin="round" aria-hidden="true">
+const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
 	<rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="M3.5 17 L9 11 L13 15 L15.5 12.5 L20.5 17.5"/><circle cx="16" cy="9" r="1.6"/></svg>`;
 
 export function raster({ raster, catalog = [], signal } = {}) {

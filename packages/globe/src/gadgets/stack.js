@@ -1,6 +1,11 @@
 // ガジェットスタック：オプトインガジェットの容れ物（左上・意匠は quiet-mono #gadgets）。
 // 搭載した順＝縦の並び。display:none のガジェットは flex の流れから抜ける＝下のガジェットが上へ詰まる（上詰め）。
 // 初回の搭載で自作＝ガジェットを一つも載せない画面には存在しない。
+// ★ここへボタンを積む時の約束（2026-09-24 裁定・並びが崩れた実例＝日影/可視域が素のボタンのまま出ていた）：
+//   btn.className = "qm-panel-btn"（34px 角・ガラス・.on＝明パネル反転が一式）＋ btn.type = "button"。
+//   アイコンは <svg viewBox="0 0 24 24" width="18" height="18" … stroke="#3f4757" stroke-width="1.8">（塗りの記号は fill="#3f4757"）。
+//   地図のクリックや左下のパネルを握る道具は globe.js の「道具の排他」に onOpen/close で参加させる（同時に一つだけ）。
+//   検定＝apps/ortho-japan/tests/t-gadgets.html（スタックの全ボタンが 34×34・左端が揃う）。
 export function gadgetStack(mapEl) {
 	let st = mapEl.querySelector("#gadgets");
 	if (!st) { st = document.createElement("div"); st.id = "gadgets"; mapEl.append(st); }

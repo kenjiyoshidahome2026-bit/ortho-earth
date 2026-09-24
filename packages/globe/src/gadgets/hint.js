@@ -4,7 +4,7 @@ import { gadgetStack } from "./stack.js";
 import { keyBusy } from "./keys.js";
 import { tr } from "../i18n.js";
 const t = tr();
-export function hint({ signal } = {}) {
+export function hint({ signal, onOpen } = {}) {   // onOpen＝カードを開いた瞬間の合図（globe の「道具の排他」＝計測・日影などを閉じる）
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#hint")) return;   // 二重搭載は無害（搭載済みのまま）
 	const card = document.createElement("div");
@@ -41,6 +41,7 @@ export function hint({ signal } = {}) {
 	// 挙動：初見には最初から開いておく＝操作方法は第一印象の一部（出し惜しみしない）。
 	// ×で畳んだ選択は記憶＝二度目からは「?」だけの静かな起動。旧・6秒自動表示は廃止（新しい概念に入る時、古いものは捨てる）。
 	function setHint(open, remember = true) {
+		if (open && card.style.display === "none") onOpen?.();
 		card.style.display = open ? "" : "none";
 		btn.style.display = open ? "none" : "flex";
 		if (remember) try { localStorage.setItem("oj.hint", open ? "" : "closed"); } catch { /* private mode 等 */ }
@@ -56,5 +57,6 @@ export function hint({ signal } = {}) {
 		if (keyBusy(mapEl)) return;
 		e.preventDefault(); setHint(card.style.display === "none");   // 閉→開／開→閉
 	}, { signal });
-	return { open: () => setHint(true), close: () => setHint(false) };   // 呼び出し側の手綱（プログラムから開閉）
+	// 呼び出し側の手綱（プログラムから開閉）。close(false)＝記憶に書かずに畳む（道具に場所を譲っただけ＝本人が閉じたのではない）
+	return { open: () => setHint(true), close: (remember = true) => setHint(false, remember) };
 }

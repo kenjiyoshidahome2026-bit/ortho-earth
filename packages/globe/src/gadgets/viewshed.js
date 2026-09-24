@@ -12,11 +12,11 @@ const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke
 	<path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>`;
 
 // run＝{ viewshed(o), lineOfSight(a, b, o), clear() }（globe が注入）
-export function viewshed({ run, minZoom = 14, signal } = {}) {
+export function viewshed({ run, onOpen, minZoom = 14, signal } = {}) {   // onOpen＝開いた瞬間の合図（globe の「道具の排他」）
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#viewshed-btn")) return () => {};
 	const btn = document.createElement("button");
-	btn.id = "viewshed-btn"; btn.dataset.tip = t("Visibility"); btn.setAttribute("aria-label", t("Visibility"));
+	btn.id = "viewshed-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Visibility"); btn.setAttribute("aria-label", t("Visibility"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
 	let panel = null, busy = false, first = null;
@@ -61,11 +61,9 @@ export function viewshed({ run, minZoom = 14, signal } = {}) {
 		};
 		panel._arm = () => { map.setEditClick(onClick); mapEl.style.cursor = "crosshair"; prompt(); };
 	};
-	btn.addEventListener("click", () => {
-		if (!panel) build(); else panel.hidden = !panel.hidden;
-		btn.classList.toggle("on", !panel.hidden);
-		panel.hidden ? release() : panel._arm();
-	});
+	const open = () => { if (!panel) build(); panel.hidden = false; btn.classList.add("on"); onOpen?.(); panel._arm(); return panel; };
+	const close = () => { if (!panel || panel.hidden) return; panel.hidden = true; btn.classList.remove("on"); release(); };   // 結果（地面の画像・線）は「消す」まで残す
+	btn.addEventListener("click", () => (panel && !panel.hidden ? close() : open()));
 	signal?.addEventListener("abort", () => { release(); panel?.remove(); btn.remove(); }, { once: true });
-	return Object.assign(() => {}, { open: () => { if (!panel) build(); panel.hidden = false; btn.classList.add("on"); panel._arm(); return panel; } });
+	return Object.assign(() => {}, { open, close });
 }
