@@ -34,7 +34,7 @@
 		},
 		{
 			"id": "equal",
-			"href": "/equal/",
+			"href": "/japan/?start=equal",
 			"group": "earth",
 			"icon": "🗺️",
 			"title": "Equal Earth",
@@ -42,6 +42,7 @@
 			"desc": "A scrolling Equal Earth world map with choropleths. Right-click any point to turn it into a 3D globe centered there.",
 			"img": "/thumbs/equal.webp",
 			"shot": {
+				"url": "/equal/",
 				"wait": 10
 			},
 			"proper": true
