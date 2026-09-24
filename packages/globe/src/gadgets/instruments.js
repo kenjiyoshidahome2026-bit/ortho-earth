@@ -7,6 +7,12 @@ import { tr } from "../i18n.js";
 import { dockStack } from "./stack.js";
 const t = tr();
 const KEYS = ["log", "pos", "scale", "attr"];
+// 出典の組み立て＝地域宣言の attribution（{ lines:[[{href,key|text}…]…], note } の列）→ HTML。#attr の中身と、#attr の無い画面での
+// shot の焼き込み（globe が圏ごとに組む）の共通の源。末尾は加工注記＋© を必ず付ける（地域に依らない）
+const A = (href, label) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
+const renderAttribution = at => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
+	+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
+export const attributionHTML = (attribution = []) => attribution.map(renderAttribution).join("<br>");
 export function mountInstruments(mapEl, keys = true, attribution = []) {
 	if (Array.isArray(keys))   // typo は黙って0個になる＝開発時の迷子防止に一声
 		for (const k of keys) if (!KEYS.includes(k)) console.warn(`[instruments] unknown key "${k}" (valid: ${KEYS.join(", ")})`);
@@ -41,10 +47,7 @@ export function mountInstruments(mapEl, keys = true, attribution = []) {
 		// 表示義務以前に嘘になる（3DBAG は CC BY 4.0＝表示が義務）。2026-09-17 に宣言へ移設。
 		// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準＝宣言側が行で分ける。#attr の
 		// text-wrap:balance は超狭幅の保険。末尾は加工注記＋© を必ず付ける（地域に依らない）。
-		const A = (href, label) => href ? `<a href="${href}" target="_blank" rel="noopener">${label}</a>` : label;
-		const render = at => at.lines.map((line, i) => (i ? "" : t("Sources: ")) + line.map(x => A(x.href, x.key ? t(x.key) : x.text)).join("・")).join("<br>")
-			+ `<br>${t(at.note)}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
-		attr.innerHTML = attribution.map(render).join("<br>");
+		attr.innerHTML = attributionHTML(attribution);
 		els.push(attr);
 	} else document.querySelector("#attr[data-boot]")?.remove();   // 出典を出さない構成＝静的版も残さない（埋め込み側の出典明記義務は README どおり）
 	mapEl.append(...els);

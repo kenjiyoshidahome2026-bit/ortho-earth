@@ -13,10 +13,7 @@ import { WORLD_PX, primeVerticalRadius } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
 const t = tr();
 
-// 印刷の出典＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない
-// （elevScaleEff=0）。標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで
-// 出典は基図一行に集約（PLATEAU/AW3D30 の陰影・立体は紙面に出ないので表記不要）。
-const PRINT_ATTR = ["Source: adapted from GSI optimized vector tiles (experimental)"];
+// 印刷の出典＝ホストが渡す（地域の基図の申告 basemap.printAttribution・無ければ今の圏の出典）＝globe は地域の出典を持たない
 
 export const PAPERS = { a4: [210, 297], a3: [297, 420] };            // [短辺, 長辺] mm
 const SCALES = [2500, 5000, 10000, 25000, 50000, 100000, 250000];    // 1:S
@@ -221,7 +218,7 @@ export async function pdfFromCanvas(canvas, Wmm, Hmm) {
 	return new Blob(chunks, { type: "application/pdf" });
 }
 
-export function print({ capture, signal, btn } = {}) {
+export function print({ capture, signal, btn, attribution = null } = {}) {
 	const mapEl = this.mapEl, cam = this.cam;   // cam＝縮尺の緯度評価（zoomForScale の N(φ)）に使う
 	const font = (getComputedStyle(document.documentElement).getPropertyValue("--qm-font") || "system-ui").trim();
 
@@ -301,7 +298,7 @@ export function print({ capture, signal, btn } = {}) {
 	// 紙面の組み直し（撮影済みの切り出しから）：題の打ち直し・出典はここで反映＝再撮影なしで速い
 	async function recompose() {
 		if (!lastShot) return;
-		lastPage = composePage({ ...lastShot, font, attr: PRINT_ATTR.map(a => t(a)), title: titleIn.value.trim() });
+		lastPage = composePage({ ...lastShot, font, attr: attribution ? attribution() : [], title: titleIn.value.trim() });
 		const blob = await lastPage.convertToBlob({ type: "image/png" });
 		if (prevUrl) URL.revokeObjectURL(prevUrl);
 		prevUrl = URL.createObjectURL(blob); img.src = prevUrl;

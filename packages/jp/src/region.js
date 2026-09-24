@@ -35,6 +35,8 @@ export const JP_REGION = {
 	dtm: JP_DTM,
 	buildings: {
 		catalog: "plateau-sets.json",       // scripts/plateau-catalog-build.mjs が datacatalog API から生成
+		// UI の文言（i18n の英語キー）＝建物データの出所の名（PLATEAU）を出す版。宣言しない地域は globe の汎用の文言（出所の名なし）
+		labels: { manage: "Manage 3D buildings (PLATEAU) ($1)", aria: "Preload and delete 3D buildings (PLATEAU)", manager: "3D buildings (PLATEAU) — data manager", city: "3D city (PLATEAU)" },
 		// R2 焼き（PLQ・scripts/bake-plateau.mjs が置いた GPU 直行形式）の置き場＝**この国の焼きの在り処**。
 		// 宣言しない地域は焼きを引かない（生経路のみ）＝オランダ 3DBAG と同じ扱い（2026-09-23 申告化・旧＝worker に直書き）。
 		bakeBase: "https://api.ortho-earth.com/bucket/GIS/plateau/",
@@ -62,6 +64,9 @@ export const JP_REGION = {
 		tileMinZoom: null,                      // null＝アプリの既定（日本の基図を出す圏）に従う
 		lodFloor: { minViewZoom: 9, z: 8 },
 		minZ: undefined,
+		// 印刷の出典（i18n の英語キー）＝地理院ベクトルタイルの一行のみ。真俯瞰(pitch0)は建物3D・地形サーフェスを描かない（elevScaleEff=0）。
+		// 標高(AW3D30)は等高線のベクタ線としてだけ写る＝地理院の等高線と同じ位置づけで出典は基図一行に集約（PLATEAU/AW3D30 の陰影・立体は紙面に出ないので表記不要）
+		printAttribution: "Source: adapted from GSI optimized vector tiles (experimental)",
 	},
 	// 画像タイル（メルカトル XYZ ラスタ）のカタログ＝この国が持つ公共のサーバーレス源（本人裁定 2026-09-21：地理院を持つ・
 	// Google 直/Bing 代理/8192 下地画像は捨てる）。エンジンはカタログを知らない（外から定義できる口の一つ＝地域パック）。

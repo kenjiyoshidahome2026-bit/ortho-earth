@@ -12,18 +12,14 @@ import { composeLayersToCanvas } from "./compose.js";   // 層重ねの実体は
 import { tr } from "../i18n.js";
 const t = tr();
 
-// 出典の既定文（instruments.js の #attr と同義＝#attr が無い画面でもライセンス表記を残す）。
-const DEFAULT_ATTR = [
-	"Source: GSI optimized vector tiles (experimental)",
-	"MLIT PLATEAU / JAXA AW3D30 (created by processing these data)"];
-
-// 出典の文面（#attr があればその文面／無ければ既定）＝shot の焼き込みと print の下帯で共用。
-export function attrLines(mapEl) {
+// 出典の文面（#attr があればその文面／無ければホストが渡す今の圏の出典＝地域の申告から組んだ物）。globe は地域の出典を持たない
+export function attrLines(mapEl, fallback = null) {
 	const el = mapEl.querySelector("#attr");
-	return (el && el.innerText.trim() ? el.innerText : DEFAULT_ATTR.map(s => t(s)).join("\n")).split(/\n/).map(s => s.trim()).filter(Boolean);
+	if (el && el.innerText.trim()) return el.innerText.split(/\n/).map(s => s.trim()).filter(Boolean);
+	return fallback ? fallback() : [];
 }
 
-export function shot({ requestSnapshot, signal, btn } = {}) {
+export function shot({ requestSnapshot, signal, btn, attribution = null } = {}) {
 	const mapEl = this.mapEl;
 	// モバイル（タッチ端末）はボタンごと出さない＝端末標準のスクリーンショットに委ねる（家具を増やさない）。
 	if (window.matchMedia("(pointer: coarse)").matches) return;
@@ -66,7 +62,7 @@ export function shot({ requestSnapshot, signal, btn } = {}) {
 	}
 
 	function drawAttr(ctx, W, H) {   // 右下に出典を焼き込む（文面は attrLines＝printの下帯と共用）。白文字＋暗い帯で可読性を担保
-		const lines = attrLines(mapEl);
+		const lines = attrLines(mapEl, attribution);
 		const dpr = W / mapEl.clientWidth || 1;   // canvas は device px＝表示px比で文字を拡大
 		const fs = Math.round(11 * dpr), pad = Math.round(6 * dpr), lh = Math.round(fs * 1.4), gap = Math.round(8 * dpr);
 		ctx.font = `${fs}px system-ui, sans-serif`; ctx.textAlign = "right"; ctx.textBaseline = "bottom";

@@ -558,7 +558,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 1, resource: v }, { binding: 2, resource: elevSampler }, { binding: 3, resource: fv }] });
 	}
 	// overlay スロット：{ fanBuf, fanCount, lineBufs?, lineCount, origin, fill, minZoom }
-	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
+	let overlay = null, overlayHi = null, overlayHover = null, rail = [];   // overlayHover＝ホバー中の地物境界を太線で（選択マスク overlayHi とは別スロット＝両立）
 	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く塗り専用スロット。whK フェード連動
 	let lakes = null;   // 湖（NE lakes・?world=1）＝wdepr 直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
 	const wdParamCPU = new Float32Array(PARAM_SLOT / 4);
@@ -585,7 +585,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		if (overlayHi) overlayHi.mask = !!(isMask && fill.mask);
 	}
 	function setOverlayHover(s) { disposeOverlay(overlayHover); overlayHover = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 塗り透明＝境界線のみ（太線はシーン側の lineWidth）
-	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	function setRail(scenes) { for (const o of rail) disposeOverlay(o); rail = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	function setWdepr(s) { disposeOverlay(wdepr); wdepr = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算＝fill 不使用）
 	function setLakes(s) { disposeOverlay(lakes); lakes = s ? buildOverlaySlot(s, [0, 0, 0, 0]) : null; }   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色＝drawLakes が毎フレ書く）
 	// wdepr の発行（draw() がタイル前・whK>0 の時だけ呼ぶ）：stencil fan（WD_SLOT の Frame/DrawP）→
@@ -662,7 +662,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 呼び出し側 draw() が Frame を書く（packFrame の scene origin 版）＝ここは stencil-then-cover＋線の発行だけ。
 	function drawOverlay(pass, st, packF, zoom) {
 		const scenes = [];
-		if (view.showN02 !== false) for (const o of n02) if (o && zoom >= o.minZoom) scenes.push(o);
+		if (view.showRail !== false) for (const o of rail) if (o && zoom >= o.minZoom) scenes.push(o);
 		if (overlay) scenes.push(overlay);
 		if (overlayHi) scenes.push(overlayHi);
 		if (overlayHover) scenes.push(overlayHover);   // 最後＝ホバー境界を最前面に（マスクの上）
@@ -1966,7 +1966,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "overlay":   setOverlay(data, prop); break;    // prop=fillColor（任意）
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "overlayHover": setOverlayHover(data); break;
-			case "n02":       setN02(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "rail":      setRail(data); break;               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "wdepr":     setWdepr(data); break;             // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は cover が画素単位で計算）
 			case "lakes":     setLakes(data); break;             // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
@@ -2004,7 +2004,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
 		skyBuf.destroy(); skyLineBuf.destroy();
 		ovFrameBuf.destroy(); ovParamBuf.destroy(); emptyMaskParamBuf.destroy();
-		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); disposeGintBld();
+		disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); disposeGintBld();
 		for (const b of [stars, planets, constel, ecliptic, celeq]) if (b) b.buf.destroy();
 		for (const p of meshes.values()) { p.vbo.destroy(); p.nbo.destroy(); p.ibo.destroy(); p.uvbo?.destroy(); p.cbo?.destroy(); p.tex?.destroy(); }
 		meshes.clear();

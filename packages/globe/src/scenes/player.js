@@ -11,7 +11,7 @@ import { tr } from "../i18n.js";
 const t = tr();
 
 export function createScenePlayer(env) {
-const { mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed } = env;
+const { mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed, bldLabels = {} } = env;
 
 let demoHandle = null;
 let sceneBusy = false, sceneRun = 0;   // sceneBusy＝上映ライフサイクル中（準備〜走破〜終幕括弧）／sceneRun＝世代トークン：stopScenes が進めると準備中の再生は静かに降りる
@@ -206,7 +206,7 @@ function sceneLoading(state) {
 	const parts = [...meshMgr.progress.values()].map(p =>
 		p.total ? t("$1 $2/$3 tiles", p.name, p.done, p.total) : t("$1 scanning catalog $2…", p.name, p.scan ?? 0));
 	if (env.elevBusy) parts.push(t("terrain tiles"));
-	slSub.textContent = parts.join("・") || t("3D city (PLATEAU)");
+	slSub.textContent = parts.join("・") || (bldLabels.city ? t(bldLabels.city) : t("3D city"));   // 文言＝地域の申告（出所の名）・無ければ汎用
 	const { done = 0, total = 0 } = state;
 	if (state.phase === "gpu") {   // 読み切った後の最終段＝IDB→GPU 常駐へ立ち切る待ち（開幕の直前）
 		slFill.style.width = "100%";

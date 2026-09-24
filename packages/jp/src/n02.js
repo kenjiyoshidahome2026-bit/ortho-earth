@@ -90,7 +90,7 @@ async function loadN02() {
 		sOuter.minZoom = sCore.minZoom = 7.5;   // 全国ビュー(z〜6)ではビーズ不要＝広域(z7.5+)から。路線の線は z≥5（基図と同ゲート）
 		scenes.push(sOuter, sCore);
 	}
-	renderer.set("n02", scenes);
+	renderer.set("rail", scenes);   // core の路線の口（地域に依らない名）
 	requestDraw();
 	console.log("[N02] shinkansen drawn");
 }

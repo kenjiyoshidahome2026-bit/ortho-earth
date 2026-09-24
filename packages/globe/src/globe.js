@@ -46,6 +46,7 @@ import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）�
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
+import { attributionHTML } from "./gadgets/instruments.js";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
 import { search as searchGadget } from "./gadgets/searchbox.js";
 import { hint as hintGadget } from "./gadgets/hint.js";
@@ -124,6 +125,7 @@ const REGION_CATALOG = REGIONS.map(r => r.buildings).filter(b => b?.catalog);   
 const REGION_EXCLUDE = REGIONS.map(r => r.buildings?.exclude).filter(Boolean);   // 除外タイル表
 const REGION_LANDMARK = REGIONS.map(r => r.buildings?.landmarks).filter(Boolean);   // ランドマークの名札
 const REGION_ATTR = REGIONS.map(r => r.attribution).filter(Boolean);   // 出典（表示義務）＝入口ごとに差し替わる
+const REGION_PRINT_ATTR = REGIONS.map(r => r.basemap?.printAttribution).filter(Boolean);   // 印刷の出典（i18n の英語キー）＝基図の申告。無ければ今の圏の出典
 const REGION_HOME = REGIONS.map(r => r.home).find(Boolean) ?? null;    // 「全体へ戻る」の着地点（日本＝列島ビュー）・null＝戻りボタン無し。{ view:[lon,lat,zoom], span?:[経度幅,緯度幅]（デモの終演で画面に収める全体）, label, id, icon }
 const REGION_SEARCH = REGIONS.map(r => r.search).find(Boolean) ?? null;   // 地名検索の供給元（日本＝地理院 AddressSearch）・null＝検索窓無し
 const REGION_POI = REGIONS.map(r => r.poi).find(Boolean) ?? null;      // 施設の点の台帳（日本＝POI 台帳 z14）・null＝読まない
@@ -734,6 +736,30 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
 let attrZone = null, attrRegionHTML = null;   // 出典（#attr）の圏＝"region"（地域の基図圏）|"world"|"sky"（render() が z 跨ぎで一枚を差し替え＝各ズーム統合 2026-09-03）
+// 出典の圏（z で決まる）と、その圏の出典の HTML＝#attr の中身と、#attr の無い画面（instruments に "attr" を出さない構成）で
+// shot／print が焼く出典の共通の源。地域の文面は宣言（REGION_ATTR）から＝globe は地域の出典を持たない（2026-09-24・旧＝shot に日本の出典を直書き）
+const attrZoneNow = () => cam.zoom < STARSKY_Z ? "sky" : (WORLD_VT && cam.zoom < BASEMAP_MINZOOM) ? "world" : "region";
+function attrHTMLOf(zone) {
+	const A = (url, label) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
+	// 世界の出典束：world=NE(国界・湖)+GEBCO+気候Beck／?world=0=NE海岸線+GEBCO（気候場なし）
+	const worldSrc = A("https://www.naturalearthdata.com/", "Natural Earth") + "・" + A("https://www.gebco.net/", "GEBCO")
+		+ (WORLD_VT ? "・" + A("https://www.gloh2o.org/koppen/", "Beck et al. (CC BY)") : "");
+	const tail = `<br>${t("(processed from each source)")}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
+	// ?pm= の基図は他人のデータ＝地理院の出典を出したままにしない（義務以前に嘘。2026-09-03 の
+	// 「日本のデータを出していない画面に地理院を並べない」と同じ筋）。宣言が無いアーカイブは
+	// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。門が 0 まで開く＝world/sky 圏でも
+	// アーカイブは描かれている＝そちらにも併記する（球のハイプソの出典と両方が要る）。
+	const pmSrc = BASE_SOURCE.url ? (BASE_SOURCE.attrHTML || new URL(BASE_SOURCE.url.replace("pmtiles://", "")).host) : null;
+	// 画像タイル層（ラスタ基図/重ね）の出典＝各層の自己申告（消毒済み）を 1 行足す。基図の線・注記は従来どおり（地理院）＝その出典も残す
+	const rasterSrc = rasterAttrHTML();
+	const rasTail = rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "";
+	// 出典は文単位で組む（"出典：" + 名前 の足し算は言語で語順が壊れる＝i18n.js の掟）。$1 に列を差す
+	const head = pmSrc ? pmSrc + "・" : "";
+	return zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : (attrRegionHTML ?? attributionHTML(REGION_ATTR)) + rasTail))
+		: zone === "world" ? t("Source: $1", head + worldSrc) + rasTail + tail
+		: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + rasTail + tail;   // sky＝星図が先頭（星空劇場の主役）
+}
+const attrTextNow = () => { const d = document.createElement("div"); d.innerHTML = attrHTMLOf(attrZoneNow()).replace(/<br\s*\/?>/gi, "\n"); return d.textContent.split("\n").map(x => x.trim()).filter(Boolean); };
 // 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
 // （本人裁定 2026-08-31「下地ができたので日本固有はz>6.5でいい」）。標高はz5.5からR10（terrain.js・
 // 旧6.5＝9/2裁定でハイプソ帯の海岸ギザ根治）＝GSI入場前にハイプソが精細化して受け渡す。
@@ -770,6 +796,7 @@ let moving = false, settleT = null;
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
 if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opts.mesh (same meaning)');   // 旧名（1.1.0 まで）＝次の大版まで別名で受ける
 const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+const REGION_BLD_LABELS = REGIONS.map(r => r.buildings?.labels).find(Boolean) ?? {};   // 建物 UI の文言（i18n キー）＝出所の名を出す地域の申告（日本＝PLATEAU）・無ければ汎用
 const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
 const loadMeshCatalog = () => !meshOn ? null :   // 呼ばれるのは manager を起こす時だけ（wakeMesh）
@@ -852,6 +879,7 @@ const meshEnv = {
 	footPoint: () => cam.pitch > 0.35 ? unprojectXY(size.w / dpr / 2, size.h / dpr * 0.98) : null,
 	viewBbox: approxViewBbox, playingNow: () => scenes.playingNow(), flyTo: (...args) => flyTo(...args),
 	groupOf: REGIONS.map(r => r.buildings?.group).find(Boolean) ?? null,   // データ管理モーダルの見出し・並び（日本＝都道府県）＝地域の申告
+	bldLabels: REGION_BLD_LABELS,   // データ管理モーダルの題（地域の申告・無ければ汎用）
 };
 let meshReal = null, meshWake = null, meshGone = false, meshTap = null;
 const MESH_NO_PROGRESS = new Map();
@@ -1151,18 +1179,18 @@ function switchTheme(name) {
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
 	gint.admin0Layer?.style(gint.admin0DrawStyle());   // admin0 独立層＝新テーマの coastLine で塗り直し（色の居座り根治）
-	if (layerState.rail && n02?.loaded) { n02.loaded = false; n02.load(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
+	if (layerState.rail && railOverlay?.loaded) { railOverlay.loaded = false; railOverlay.load(); }   // N02新幹線の芯(land色)を新テーマで引き直す（データは温間）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
-renderer.set("view", { clear, land, atmo, bldColor, showN02: false,
+renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
 	...(theme.hypso && { hypso: theme.hypso }),
 	// 全球ハイプソ（?world=1）＝球/地形シェーダの標高×気候 cross-blend。clim＝気候場テクスチャ
 	// （Köppen-Geiger/Beck et al. CC-BY を 720x360 に焼き縮め・public 資産）。theme.worldHypso で色ノブ上書き可。
-	// null 明示＝居座り防止の流儀。showN02＝N02交通(新幹線等)の表示。鉄道チップで切替
+	// null 明示＝居座り防止の流儀。showRail＝路線（地域の申告 rail・日本＝N02 の新幹線等）の表示。鉄道チップで切替
 	graticule: WORLD_VT,   // 10度レチクル（v1 geoGraticule10 の移植・本人指名 2026-09-01）＝シェーダ計算（z帯はレンダラ側）
 	worldHypsoZ: BASEMAP_MINZOOM,   // 世界の色（ハイプソ・湖・罫線）が退場するズーム＝地域の基図が入場する所と同値
 	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
@@ -1245,7 +1273,7 @@ clock.on("change", () => {
 });
 if (!clock.isLive()) sendClock();   // 起動時に過去/未来の t= か opts.time が来ていた
 // --- 路線オーバーレイ＝地域宣言 rail（日本＝packages/jp/src/n02.js の N02 新幹線・路線＋駅のビーズ・鉄道チップで点灯）。宣言しない地域＝null。land＝紙色はテーマで差し替わる＝getter。
-const n02 = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
+const railOverlay = REGION_RAIL?.({ renderer, get land() { return land; }, BASEMAP_MINZOOM, requestDraw: () => { needsDraw = true; } });
 // デバッグ用カメラジャンプ：__cam(lon, lat, zoom, pitchDeg, bearingDeg)。検証スクリプトやコンソールから任意視点へ。
 dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingDeg = cam.bearing * R2D) => {
 	cam.center = [lon, lat]; cam.zoom = zoom; cam.pitch = pitchDeg * D2R; cam.bearing = bearingDeg * D2R;
@@ -1651,7 +1679,7 @@ function setLayer(k, on) {
 	layerState[k] = !!on;
 	const b = document.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
-	if (k === "rail") { renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02?.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
+	if (k === "rail") { renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
 	if (k === "terrain") applyTerrain();   // 地形＝等高線・測量点標高・水系も一緒に点火
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
@@ -1685,7 +1713,7 @@ document.getElementById("base-alpha")?.addEventListener("input", e => { const a 
 }
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
 document.querySelectorAll(".chip[data-k]").forEach(syncChip);
-if (layerState.rail) { renderer.set("view", { showN02: true }); n02?.load(); }
+if (layerState.rail) { renderer.set("view", { showRail: true }); railOverlay?.load(); }
 if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
 
@@ -1709,7 +1737,7 @@ function applyViewLayers(v) {
 	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
 	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
-	renderer.set("view", { showN02: layerState.rail }); if (layerState.rail) n02?.load();
+	renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load();
 	if (layerState.facility) loadLandmarks();
 	applyTerrain();
 }
@@ -1818,30 +1846,13 @@ function render() {
 	//   sky（z<5 星空圏）＝星図 d3-celestial を加えた世界版（旧 #sky-attr 別要素＋CSS隠しの二重機構を廃止）
 	// shot の焼き込み（attrLines＝#attr の文面共用）も自動で圏に追随＝宇宙のスクショに正しい出典が焼かれる。
 	{
-		const zone = cam.zoom < STARSKY_Z ? "sky" : (WORLD_VT && cam.zoom < BASEMAP_MINZOOM) ? "world" : "region";
+		const zone = attrZoneNow();
 		if (zone !== attrZone) {
 			attrZone = zone;
 			const attr = document.querySelector("#attr");
 			if (attr) {
 				if (attrRegionHTML == null) attrRegionHTML = attr.innerHTML;   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
-				const A = (url, label) => `<a href="${url}" target="_blank" rel="noopener">${label}</a>`;
-				// 世界の出典束：world=NE(国界・湖)+GEBCO+気候Beck／?world=0=NE海岸線+GEBCO（気候場なし）
-				const worldSrc = A("https://www.naturalearthdata.com/", "Natural Earth") + "・" + A("https://www.gebco.net/", "GEBCO")
-					+ (WORLD_VT ? "・" + A("https://www.gloh2o.org/koppen/", "Beck et al. (CC BY)") : "");
-				const tail = `<br>${t("(processed from each source)")}© 2026 ` + A("https://www.ortho-earth.com/docs/introduction.html", "Kenji Yoshida");
-				// ?pm= の基図は他人のデータ＝地理院の出典を出したままにしない（義務以前に嘘。2026-09-03 の
-				// 「日本のデータを出していない画面に地理院を並べない」と同じ筋）。宣言が無いアーカイブは
-				// 出所（ホスト名）だけでも出す＝無出典で他人の絵を出さない。門が 0 まで開く＝world/sky 圏でも
-				// アーカイブは描かれている＝そちらにも併記する（球のハイプソの出典と両方が要る）。
-				const pmSrc = BASE_SOURCE.url ? (BASE_SOURCE.attrHTML || new URL(BASE_SOURCE.url.replace("pmtiles://", "")).host) : null;
-				// 画像タイル層（ラスタ基図/重ね）の出典＝各層の自己申告（消毒済み）を 1 行足す。基図の線・注記は従来どおり（地理院）＝その出典も残す
-				const rasterSrc = rasterAttrHTML();
-				const rasTail = rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "";
-				// 出典は文単位で組む（"出典：" + 名前 の足し算は言語で語順が壊れる＝i18n.js の掟）。$1 に列を差す
-				const head = pmSrc ? pmSrc + "・" : "";
-				attr.innerHTML = zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : attrRegionHTML + rasTail))
-					: zone === "world" ? t("Source: $1", head + worldSrc) + rasTail + tail
-					: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + rasTail + tail;   // sky＝星図が先頭（星空劇場の主役）
+				attr.innerHTML = attrHTMLOf(zone);
 			}
 		}
 	}
@@ -1986,7 +1997,7 @@ function destroy() {
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
 	// 生やした名前は全て下ろす（従来は13名だけ＝取りこぼしが閉包を掴んだまま残っていた）。
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
-	for (const k of ["__arakawaFit", "__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadEstat", "__loadOverlay", "__mergeFail", "__moj", "__mojFile", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__sapporo", "__shadow", "__standup", "__worldContent", "__style", "__tileCache", "__tileStats", "__vtPool"]) delete dbgHost[k];
+	for (const k of ["__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadOverlay", "__mergeFail", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__shadow", "__standup", "__worldContent", "__style", "__tileCache", "__tileStats", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world", "ui-dark", "ui-idle");   // SDK が付けた class を全部外す（全球フェード・白抜き家具・無操作フェード）＝"as it was" を真に
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
@@ -2470,7 +2481,7 @@ map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）�
 });
 map.gadget("mesh", function (opts) {   // 建物3Dデータ管理 … モーダルを開く手綱と地域のアイコンはここで注入
 	if (!meshOn) { console.warn("[mesh] opts.mesh=false = feature disabled; gadget not mounted"); return; }
-	return meshGadget.call(this, { onOpen: meshMgr.openDb, icon: REGION_BLD_ICON, ...opts });
+	return meshGadget.call(this, { onOpen: meshMgr.openDb, icon: REGION_BLD_ICON, labels: REGION_BLD_LABELS, ...opts });
 });
 map.gadget("plateau", function (opts) { return map.gadget.mesh.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
 map.gadget("palette", function (opts) {   // 配色テーマ・ピッカー … 現在テーマ(見本から除く)と切替(switchTheme=c=差替+reload)と撮影(見本=今の視点の実写)を注入
@@ -2598,7 +2609,7 @@ map.gadget("viewshed", function (opts) {
 	return h;
 });
 map.gadget("shot", function (opts) {   // 画面保存 … worker越しの3層+measure層を合成する requestSnapshot を注入
-	return shotGadget.call(this, { requestSnapshot, signal: ac.signal, ...opts });
+	return shotGadget.call(this, { requestSnapshot, attribution: attrTextNow, signal: ac.signal, ...opts });   // attribution＝#attr の無い画面で焼く出典（今の圏）
 });
 map.gadget("qr", function (opts) {   // 共有QR … 現在の共有URL(origin+path+search+viewHash＝今の視点)を注入＝スクリーン投影→スキャンでその視点を開く＝拡散
 	// location.search を挟む＝アドレスバーの ?hud=1 等のフラグもQRに載る（スキャン先で同じ計器/条件が点く）。順は path→?query→#hash＝URLの正順。
@@ -2610,7 +2621,7 @@ map.gadget("home", function (opts) {   // 地域の全体へ戻る（真俯瞰�
 });
 map.gadget("japan", function (opts) { return map.gadget.home.call(this, opts); });   // 旧名（1.1.0 まで）＝非推奨の別名
 map.gadget("print", function (opts) {   // 印刷（平面図）… 撮影ハイジャック printCapture を注入。プレビュー→印刷/PDF。本体は初回起動時import()
-	return printGadget.call(this, { capture: printCapture, signal: ac.signal, ...opts });
+	return printGadget.call(this, { capture: printCapture, attribution: () => REGION_PRINT_ATTR.length ? REGION_PRINT_ATTR.map(k => t(k)) : attrTextNow(), signal: ac.signal, ...opts });
 });
 map.gadget("close", function (opts) {   // 閉じる×（埋め込み用）… ortho:close を飛ばすだけ＝閉じる実務は埋め込み側
 	return closeGadget.call(this, { signal: ac.signal, ...opts });
@@ -2637,7 +2648,7 @@ if (poi && /[?&]poiedit=1/.test(location.search)) poi.ready().then(() => import(
 // ── 共有シーン台本(type:"scenes")の再生 ── 落とした .scenes（または ?scene=URL）を demo プレーヤーで自動上演する（demo/scene-format.md）。
 // demo は起動時に1度マウント済み（index.html）＝その1インスタンスに load() で台本を差し替える（下の demo ラッパが手綱 demoHandle を掴む）。
 // --- シーン再生＝scenes/player.js（上映・停止・タイムライン・黒幕・フェード・待ちパネル）。ここは配線だけ＝app の状態は getter、関数はラップ。
-const scenes = createScenePlayer({ mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed,
+const scenes = createScenePlayer({ mapEl, LOW_MEM, gpuBackend, meshOn, meshMgr, flightCtl, CAM_ZOOM_MIN, themeFixed, bldLabels: REGION_BLD_LABELS,
 	get themeName() { return themeName; }, get elevBusy() { return elevBusy; },
 	onMove: () => onMove(), flyView: (...args) => flyView(...args), applyCamView: v => applyCamView(v), applyViewLayers: v => applyViewLayers(v), switchTheme: n => switchTheme(n), viewHash: () => viewHash(), saveView: () => saveView() });
 // ?scene=<URL>＝共有シーン台本の URL ロード（ドロップと同じ道＝取得→type 判定→playScene）。相対URL可（同梱サンプル等）。
@@ -3605,7 +3616,7 @@ if (opts.worldContent && WORLD_VT) {
 	dbgHost.__worldContent = () => worldContentH.state();   // 検定窓（t-worldcontent）
 }
 // 地域パックが起動後に足す物（e-Stat 小地域＝map.estat 等・LAYERS.md 段階 2 S3）。ホストの内部でなく拡張面（hostEnv）だけを渡す
-const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, onDestroy: f => hostDestroy.push(f) };
+const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, assetBase: ASSET_BASE, onDestroy: f => hostDestroy.push(f) };
 for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);
 
 return map;

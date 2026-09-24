@@ -811,7 +811,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 
 	// --- overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover 塗り＋境界線 ---
-	let overlay = null, overlayHi = null, overlayHover = null, n02 = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。n02＝交通の常駐オーバーレイ群
+	let overlay = null, overlayHi = null, overlayHover = null, rail = [];   // overlayHover＝ホバー境界の太線（選択マスク overlayHi と別スロット）。rail＝交通の常駐オーバーレイ群（地域が申告する路線）
 	let wdepr = null;   // 海面下の陸地（?world=1・全球ハイプソの一部）＝湖より先に描く専用スロット。whK フェードに連動
 	let lakes = null;   // 湖（NE lakes・?world=1）＝wdepr の直後・タイルより先に描く塗り専用スロット（色は worldPal.sea 平色）
 	function buildOverlaySlot(s, fillColor) {
@@ -837,7 +837,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	function disposeOverlay(o) { if (o) { for (const b of o.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(o.fanVao); if (o.lineVao) gl.deleteVertexArray(o.lineVao); } }
 	function setOverlay(s, fillColor) { disposeOverlay(overlay); overlay = s ? buildOverlaySlot(s, fillColor || [0.20, 0.45, 0.85, 0.32]) : null; }
 	// N02 交通の常駐オーバーレイ群を丸ごと差し替え。各要素は buildGeoJSONOverlay のシーン（線色は焼込済）。
-	function setN02(scenes) { for (const o of n02) disposeOverlay(o); n02 = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
+	function setRail(scenes) { for (const o of rail) disposeOverlay(o); rail = (scenes || []).map(s => buildOverlaySlot(s, [0, 0, 0, 0])); }
 	function setOverlayHi(s, fillColor) {   // fillColor=配列は従来の面塗り／{mask,color}は周辺マスク（外側を暗く・地物は塗らない）
 		disposeOverlay(overlayHi);
 		if (!s) { overlayHi = null; return; }
@@ -888,7 +888,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		}
 	}
 	function drawOverlay(st, dpr, land, zoom) {
-		if (view.showN02 !== false) for (const o of n02) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
+		if (view.showRail !== false) for (const o of rail) { if (zoom >= o.minZoom) drawOne(o, st, dpr, land); }   // N02 交通（新幹線/駅）＝基図の上・identify overlay の下
 		drawOne(overlay, st, dpr, land); drawOne(overlayHi, st, dpr, land); drawOne(overlayHover, st, dpr, land);   // ホバー境界は最前面
 	}
 	// 全球面ポリゴンの stencil 段（wdepr/lakes 共用）：fan を巻き数へ・球体カリング二段構え。
@@ -1559,7 +1559,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of n02) disposeOverlay(o); setGintBld(null); }
+	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1576,7 +1576,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "overlay":   setOverlay(data, prop); break;                                    // prop=fillColor(任意)
 			case "overlayHi": setOverlayHi(data, prop); break;
 			case "overlayHover": setOverlayHover(data); break;
-			case "n02":       setN02(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
+			case "rail":      setRail(data); break;                                               // data=[シーン…] 交通の常駐オーバーレイ群
 			case "wdepr":     disposeOverlay(wdepr); wdepr = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 海面下の陸地（?world=1）＝タイル前に描く塗り専用シーン（色は drawWdepr の cover が画素単位で計算＝fill 不使用）
 			case "lakes":     disposeOverlay(lakes); lakes = data ? buildOverlaySlot(data, [0, 0, 0, 0]) : null; break;   // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "elevAtlas": setElevationAtlas(data, prop); break;                             // prop=scale
