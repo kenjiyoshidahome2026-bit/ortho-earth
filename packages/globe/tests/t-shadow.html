@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- 実描画の検分：建物の影（リアルタイム shadow map・2026-09-24・WebGPU）。createRendererGPU をメインスレッドで直駆動。
+     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟。冬至の南中（太陽高度 30.9°）＝影の長さ 100/tan30.9°≈167m（真北）。
+     ①影なし（既定）＝点けていない間は影の資源も派生パイプラインも作らない・地面は素の色
+     ②影あり＝箱の北 60m・140m・170m の地面は暗く、北 190m・南 60m・東 60m は元の明るさ（影の向きと長さ：先端＝北面 10m＋167m＝177m）
+     ③消灯＝元の絵へ戻る（影の窓が立たない・地面は素の色）
+     真俯瞰（pitch 0）＝建物は描かないが影は落ちる（球の床が受ける）。⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-shadow</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];   // ENU(m)→経緯度（近似）
+	// 箱（20m 角・高さ 100m）＝世界座標（単位球）を原点相対で
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const V = []; for (const h of [0, 100]) for (const [e, n] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) V.push(...P(e, n, h));
+	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
+	r.set("meshSet", { pos: new Float32Array(V), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	const cam = { center: [LON, LAT], zoom: 16, pitch: 0, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {   // 同一タスクで drawImage（t-gintgpu と同じ作法＝present 後の空テクスチャを読まない）
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, 256, 256); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, 256, 256).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const st = cameraState(cam, 256, 256);
+	const lum = (px, e, n) => {   // 5×5 の平均輝度
+		const [lo, la] = ll(e, n), p = project(st, lo, la), x = Math.round(p[0]), y = Math.round(p[1]);
+		let s = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const i = ((y + dy) * 256 + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; }
+		return s / 25;
+	};
+	const probes = [["N60", 0, 70], ["N140", 0, 150], ["N170", 0, 170], ["N190", 0, 190], ["S60", 0, -70], ["E60", 70, 0]];
+	const off = await shot();
+	ok("影なし＝地面は一様", Math.abs(lum(off, 0, 70) - lum(off, 0, -70)) < 1);
+	// 冬至（2026-12-22）の東京の南中＝11:40 JST 頃（経度 139.7°・均時差 +1.5 分）
+	r.set("shadow", { on: true, time: Date.parse("2026-12-22T02:40:00Z"), darkness: 0.5 });
+	const on = await shot();
+	const k = Object.fromEntries(probes.map(([name, e, n]) => [name, lum(on, e, n) / Math.max(1, lum(off, e, n))]));
+	const note = Object.entries(k).map(([a, v]) => `${a}=${v.toFixed(2)}`).join(",");
+	ok(`北は影(${note})`, k.N60 < 0.7 && k.N140 < 0.7 && k.N170 < 0.7);
+	ok("北190m・南・東は日向", k.N190 > 0.95 && k.S60 > 0.95 && k.E60 > 0.95);
+	r.set("shadow", { on: false });
+	const back = await shot();
+	const d = probes.map(([, e, n]) => Math.abs(lum(back, e, n) - lum(off, e, n)));
+	ok(`消灯で元どおり(Δmax=${Math.max(...d).toFixed(1)})`, Math.max(...d) < 1);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

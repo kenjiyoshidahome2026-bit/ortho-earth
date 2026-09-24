@@ -12,7 +12,7 @@ const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VGW_PORT || 5246;
 
 // t-rectlook の 2 変種＝旧 verify:editor（japan）が引数で回していた円ツール・ズーム列の検分（頁が globe へ移ったのでここが宿す）
-const ALL_PAGES = ["t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
+const ALL_PAGES = ["t-shadow", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight"];
