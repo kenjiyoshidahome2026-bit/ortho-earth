@@ -106,6 +106,7 @@ body #demoOverlay main .apps.tech .card.tech-card .doclinks a { display: inline-
 	border-radius: 8px; font-size: .8rem; font-weight: 600; text-decoration: none; color: var(--accent-color);
 	background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); transition: background .15s ease; }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks a:hover { background: rgba(0, 255, 204, 0.16); }
+body #demoOverlay main .apps.tech .card-desc .desc-more { margin-inline-start: .3em; }   /* 二つ目の文＝空白文字を挟まない（日本語で半角空白が浮く）・欧文の語間は余白で */
 body #demoOverlay main .apps.tech .tech-note { grid-column: 1 / -1; text-align: center; margin: .25rem 0 0; font-size: .85rem; color: var(--text-secondary); }
 body #demoOverlay main .apps.tech .tech-note a { color: var(--accent-color); text-decoration: none; }
 body #demoOverlay main .apps.tech .tech-note a:hover { text-decoration: underline; }
@@ -145,7 +146,6 @@ body #demoOverlay main .grid .card .card-desc { font-size: .84rem; }
 body #demoOverlay main .grid .card .card-cta { padding-top: .6rem; align-self: flex-end; }
 [dir=rtl] body #demoOverlay main .grid .card .card-cta { transform: scaleX(-1); }
 [dir=rtl] body #demoOverlay main .grid .card .card-cta { align-self: flex-start; }
-body #demoOverlay main .apps.tech .tech-lead { grid-column: 1 / -1; font-size: 1rem; color: var(--text-primary); font-weight: 600; margin-bottom: .2rem; }
 @media (max-width: 640px) {
 	body #demoOverlay nav { padding: 1rem 1rem; }
 	body #demoOverlay nav .logo { font-size: 1.1em; white-space: nowrap; }

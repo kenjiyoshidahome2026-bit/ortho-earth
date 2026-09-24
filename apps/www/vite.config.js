@@ -28,7 +28,8 @@ export default defineConfig({
 		fs: { allow: ['../..'] },
 		// 開発だけ：デモ一覧の iframe（同じオリジンのパス）を開けるよう、デモのパスを中継する＝既定は本番・JAPAN_DEV で /japan/ だけ手元へ
 		// （例：JAPAN_DEV=http://localhost:5322 npx vite ＝ apps/ortho-japan の開発サーバー）。本番は同じドメインの別 Worker が返す
-		proxy: Object.fromEntries(['/japan', '/globe', '/equal', '/world', '/solar', '/geopbf', '/gishub-jp', '/nl', '/maps', '/docs'].map(p => [p, {
+		// 鍵は正規表現＝パスの区切りで止める（素の '/globe' は前方一致で /globe-lite.js まで本番へ送り、手元のトップが素の HTML で壊れた・2026-09-25）
+		proxy: Object.fromEntries(['/japan', '/globe', '/equal', '/world', '/solar', '/geopbf', '/gishub-jp', '/nl', '/maps', '/docs'].map(p => [`^${p}(/|\\?|$)`, {
 			target: (p === '/japan' && process.env.JAPAN_DEV) || 'https://www.ortho-earth.com', changeOrigin: true, secure: true,
 		}])),
 		headers: {
