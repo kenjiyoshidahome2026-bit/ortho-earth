@@ -1091,17 +1091,18 @@ const bootView = parseViewHash(opts.view || location.hash || REGIONS.map(r => r.
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
 if (bootView) applyCamView(bootView);
+else if (opts.persistView !== false) try {   // 前回ビューは URL／opts.view が無い時だけ（優先度＝URL ハッシュ > 前回ビュー > 既定）
+	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
+	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
+		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
+} catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 // ── 共通の時計（#42・2026-09-23）＝ephem/clock（solar と同じ部品）。既定＝実時間（Date.now に張り付く）。
 // 起動の優先度＝URL の t=/s=（共有リンク）> opts.time（Date｜ISO 文字列｜ms）> 実時間。状態が変わった時だけ worker へ基準を送る（下の sky の後で結線）
 const clock = createClock();
 const clockParamsOf = v => { const p = new URLSearchParams(); if (v.time) p.set("t", v.time); if (v.speed != null) p.set("s", String(v.speed)); return p; };
 if (opts.time != null) clock.setTime(opts.time instanceof Date ? opts.time.getTime() : typeof opts.time === "string" ? Date.parse(opts.time) : +opts.time);
+// ⚠ここに前回ビューの else を繋がない（2026-09-23 #42 で時計の if に繋がり、t= の無い共有 URL が前回ビューに上書きされていた＝9/24 根治）
 if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(clockParamsOf(bootView));
-else if (opts.persistView !== false) try {
-	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
-	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
-		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
-} catch { /* 壊れた保存値は無視して既定の世界ビュー */ }
 // opts.persistView=false＝前回ビューを読まない・書かない。localStorage はオリジン単位＝同じドメインの別ページ
 // （www トップの背景・gishub の待ち受け）で回した視点が /japan/ の「前回の続き」を上書きするのを防ぐ（2026-09-21）
 const saveCam = () => { if (opts.persistView === false) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
