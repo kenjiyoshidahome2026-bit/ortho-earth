@@ -1,5 +1,7 @@
-// ortho-japan SDK 型定義（公開面のみ・手書きの正典）。実装＝apps/ortho-japan/app.js。
-// AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt）とセットで配布する。
+// @ortho-earth/globe の型定義（公開面のみ・手書きの正典）。実装＝packages/globe/src/globe.js（createGlobe が返す map）。
+// SDK（@ortho-earth/japan）の lib/ortho-japan.d.ts はこのファイル＋ SDK の入口（default orthoJapan）を build 時に継いだ物（apps/ortho-japan/scripts/build-dts.mjs・2026-09-25）。
+// 名前の OrthoJapan* は SDK 以来の型名＝互換のため残す（globe の名前は末尾の GlobeMap / GlobeOptions）。
+// AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
 // gint系（applyGintData等）は現行v1の単一スロット口＝将来 map.addGint()（v2）で置換予定。
 // 消費側は必ず薄いモジュール1枚に封じること（gint draw spec §10.2）。
 
@@ -307,7 +309,8 @@ export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean }
 export interface Tiles3DHandle { id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
-export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
+/** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
+export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
 export interface OrthoJapanMap {
 	// ---- 基本 ----
@@ -388,6 +391,11 @@ export interface OrthoJapanMap {
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;
+	/** 経緯度→画面の点（MapLibre と同名・1.1.1〜）。座標系は projectLL と同じ（地図の容れ物の左上原点の CSS px）。
+	 *  見えない所（球の裏・地平線の外）も地平線へ寄せた位置を返す＝見えるかどうかは projectLL の front で */
+	project(lngLat: LonLat | { lng: number; lat: number }): { x: number; y: number };
+	/** 画面の点→経緯度（MapLibre と同名・1.1.1〜）。球の外（宇宙）は null */
+	unproject(point: [x: number, y: number] | { x: number; y: number }): { lng: number; lat: number } | null;
 	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用・海面基準） */
 	makeProjector(): (lon: number, lat: number) => [x: number, y: number, front: number];
 	/** 地形込みの投影。標高は 100m 格子のメモから引く＝**その地点の初回は 0（海面）で、非同期に取得して次フレームから乗る**（毎フレーム呼ぶ
@@ -511,7 +519,7 @@ export interface OrthoJapanMap {
 	 */
 	onGintClick(fn: (fid: number, props: Record<string, unknown>, lnglat: LonLat) => void): void;
 	/** fid整列のproperties配列（式評価・表直書きの入力。.geojsonは詰めズレするので使わない） */
-	gintFeatures(): Array<{ properties: Record<string, unknown>; geometry: { type: string } | null }> | null;   // geometry は type のみ（座標なし・1.0.5〜。以前は null）
+	gintFeatures(): Array<{ properties: Record<string, any>; geometry: { type: string } | null }> | null;   // geometry は type のみ（座標なし・1.0.5〜。以前は null）
 	/**
 	 * Mapbox 風 paint 式で fid スタイル表を組む（null=解除）。評価は呼び出し時に一度だけ（zoom 追随は再呼び）。
 	 * 式の演算子サブセット：get has ! all any == != > >= < <= in match step case let var interpolate coalesce
@@ -533,11 +541,12 @@ export interface OrthoJapanMap {
 	standupGint(liftM: number | null): Promise<void> | void;
 }
 
-/** 1行で地球儀が立ち上がる入口。await 必須 */
-export default function orthoJapan(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
-/** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。
- *  内製アプリ（world 等）はこちらを使う（LAYERS.md・2026-09-23）。orthoJapan は「globe＋日本の申告」の薄い包み */
-export function createGlobe(opts?: OrthoJapanOptions): ReturnType<typeof orthoJapan>;
+/** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。await 必須。
+ *  SDK の orthoJapan は「globe＋日本の申告」の薄い包み（LAYERS.md・2026-09-23） */
+export function createGlobe(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+/** globe の名前（中身は OrthoJapanMap / OrthoJapanOptions と同じ） */
+export type GlobeMap = OrthoJapanMap;
+export type GlobeOptions = OrthoJapanOptions;
 /** DOM の Marker（MapLibre と同名・1.2.0〜・#38）。描くたびに地形の高さへ投影し直す・球の裏では隠す。map.Marker でも同じ */
 /** 独自スキームの取得を関数に任せる（MapLibre の addProtocol と同じ形・大域）。基図タイル・画像タイル・3D Tiles・style・sprite に効く */
 export function addProtocol(scheme: string, loader: ProtocolLoader): void;
@@ -562,7 +571,7 @@ export class Popup {
 }
 
 // ---- geopbf（SDK 同梱・1.0.3〜 named export）----
-export interface GeoJSONFeature { type: "Feature"; properties: Record<string, unknown>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }
+export interface GeoJSONFeature { type: "Feature"; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }
 export interface GeoJSONFeatureCollection { type: "FeatureCollection"; features: GeoJSONFeature[];[k: string]: unknown }
 export type GeopbfInput = File | Blob | ArrayBuffer | string | GeoJSONFeatureCollection | GeoJSONFeature | object;
 export interface GeopbfOptions {

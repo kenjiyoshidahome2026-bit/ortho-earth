@@ -69,7 +69,7 @@
 		"verify:nocoi": "npm --prefix ../../packages/globe run verify:nocoi",
 		"verify:elevburst": "node scripts/verify-elevburst.mjs",
 		"verify:livedecode": "node scripts/verify-livedecode.mjs",
-		"build:lib": "vite build --config vite.lib.config.js && cp sdk/ortho-japan.d.ts dist/lib/",
+		"build:lib": "vite build --config vite.lib.config.js && node scripts/build-dts.mjs dist/lib/ortho-japan.d.ts",
 		"verify:lib": "node scripts/verify-lib.mjs",
 		"measure:lib": "node scripts/measure-lib.mjs",
 		"pack:sdk": "node scripts/pack-sdk.mjs",

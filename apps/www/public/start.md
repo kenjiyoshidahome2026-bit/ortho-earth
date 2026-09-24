@@ -129,7 +129,9 @@ Camera: `jumpTo`, `easeTo`, `flyTo`, `fitBounds`, `getCenter`, `getZoom`. Events
 - A MapLibre `style.json`: `createGlobe({ style: url })`
 - Time: `map.clock` (night side, stars and satellites follow it)
 - Analysis: `map.sunShadow()`, `map.viewshed()`, `map.lineOfSight(a, b)`
-- The `map` API is the same in both routes. Its TypeScript definitions ship with the SDK: `node_modules/@ortho-earth/japan/dist/lib/ortho-japan.d.ts` (install it alongside if you want them). The engine overview is at https://www.ortho-earth.com/docs/core.html
+- Screen ⇄ map: `map.project([lng, lat])` → `{ x, y }`, `map.unproject([x, y])` → `{ lng, lat }` (or `null` off the globe)
+- The country name that follows the mouse at low zoom: `createGlobe({ countryTip: false })` turns it off
+- TypeScript definitions ship with the package (`@ortho-earth/globe/globe.d.ts`) — your editor picks them up by itself. The `map` API is the same in both routes. The engine overview is at https://www.ortho-earth.com/docs/core.html
 
 ---
 
