@@ -55,5 +55,10 @@
 		"LICENSE",
 		"README.md"
 	],
-	"sideEffects": false
+	"sideEffects": [
+		"./src/workers/tileworker.js",
+		"./src/workers/sceneworker.js",
+		"./src/gl/gint/bakeworker.js",
+		"./src/gl/gint/worker.js"
+	]
 }

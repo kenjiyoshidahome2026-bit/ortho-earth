@@ -56,6 +56,15 @@ for (const f of ["japan/lib/ortho-japan.js", "japan/lib/ortho-japan.css", "japan
 	if (!existsSync(path.join(SITE, f))) fail(`${f} が無い（build:prod の複写漏れ）`);
 }
 console.log("ok:lib（ortho-japan.js/.css/.d.ts・llms.txt 同梱）");
+// ②b worker の役が中身を持つ（2026-09-24）：package.json の "sideEffects": false が副作用だけの import（gintbakeworker.js →
+// @ortho-earth/core/workers/gintbake）を木揺すりで捨て、gintbake の chunk が消えた＝geoedit の図形が描けない（本番だけ・dev は無事）。
+// 役の脚本は「自分で onmessage を張る」だけ＝chunk に onmessage が無ければ空振り
+for (const role of ["gintbakeworker"]) {
+	const dir = path.join(SITE, "japan/lib/assets"), f = readdirSync(dir).find(n => n.startsWith(role + "-") && n.endsWith(".js"));
+	if (!f) fail(`lib/assets に ${role} の chunk が無い（sideEffects の宣言で脚本が捨てられた疑い＝ortho-core の package.json を確認）`);
+	if (!readFileSync(path.join(dir, f), "utf8").includes("onmessage")) fail(`${f} に onmessage が無い（役の脚本が空＝sideEffects の宣言を確認）`);
+}
+console.log("ok:roles（gintbake の脚本が中身を持つ）");
 
 // ③ 実走：素の静的サーバ（COOP/COEP＝本番 deploy-worker と同じ頭・SAB経路も点火）
 //    request 台帳＝DOMに出ない故障（worker 404＝黒地図）を捕まえる。base:"/" 事故（2026-08-20）＝
