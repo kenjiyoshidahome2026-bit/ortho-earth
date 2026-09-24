@@ -72,10 +72,13 @@ test("訳を直す・空にする＝その言語だけ変わる（空＝訳な�
 	for (const c of langs.filter(c => !["en", "ja", "fr"].includes(c))) assert.equal(r.ui[d.desc][c], ui[d.desc][c], c);   // 他の言語はそのまま
 	assert.equal(r.report.changedTr, 2);
 });
-test("固有名詞の題の訳は無視・知らない id と空の英語は誤り", () => {
+test("固有名詞の題＝訳は任意（入れた言語だけ訳が付く・空は英語名のまま）・知らない id と空の英語は誤り", () => {
+	assert.equal(parseCSV(toCSV(demos, ui, langs, ["ja"])).find(r => r[0] === "solar" && r[1] === "title")[3], "太陽系");   // 訳のある固有名詞の題は書き出しにも出る
 	let csv = edit(toCSV(demos, ui, langs), "equal", "title", "ja", "イコール");
 	let r = applyCSV(csv, demos, ui, langs);
-	assert.equal(r.report.ignored.length, 1); assert.equal(r.ui["Equal Earth"], ui["Equal Earth"]);
+	assert.deepEqual(r.ui["Equal Earth"], { ja: "イコール" }); assert.equal(r.report.changedTr, 1);
+	r = applyCSV(edit(toCSV(demos, ui, langs), "solar", "title", "ja", ""), demos, ui, langs);
+	assert.equal(r.ui["ortho-solar"], undefined);   // 空にした＝訳なし＝英語名のまま
 	csv = edit(toCSV(demos, ui, langs), "world", "title", "en", "");
 	assert.equal(applyCSV(csv, demos, ui, langs).report.errors.length, 1);
 	csv = toCSV(demos, ui, langs).replace("\r\nworld,", "\r\nnope,");
