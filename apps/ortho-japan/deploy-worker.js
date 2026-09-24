@@ -6,6 +6,12 @@
 //   つまりここは「自前配信を速くする最適化」であって、SDK として第三者ページへ埋め込む条件ではない。
 // dev（vite.config.js の middleware）と同一条件を本番にも刻む＝環境差ゼロ。
 // run_worker_first（wrangler.toml）で全リクエストがここを通る＝worker の import graph 隅々までヘッダが乗る。
+// 旧 /japan/… → /globe/…（apps/ortho-globe）。.html 付きの旧形も受ける
+const MOVED_TO_GLOBE = {
+	"/japan/earth": "/globe/", "/japan/earth.html": "/globe/",
+	"/japan/quakes": "/globe/quakes", "/japan/quakes.html": "/globe/quakes",
+	"/japan/sats": "/globe/sats", "/japan/sats.html": "/globe/sats",
+};
 export default {
 	async fetch(req, env) {
 		const url = new URL(req.url);
@@ -13,6 +19,9 @@ export default {
 		if (url.pathname === "/" || url.pathname === "") return Response.redirect(url.origin + "/japan/", 302);
 		if (url.pathname === "/japan") return Response.redirect(url.origin + "/japan/", 301);
 		// 旧URL（初日だけ公開されていた /ortho-japan/…）は /japan/… へ恒久転送＝リンク切れゼロ。
+		// 地域の申告を持たない頁は globe の家へ（2026-09-24）＝旧 URL（www のカード・共有リンク・QR）を 301 で送る。query は運ぶ（?start=equal 等）・hash はブラウザが運ぶ
+		const moved = MOVED_TO_GLOBE[url.pathname];
+		if (moved) return Response.redirect(url.origin + moved + url.search, 301);
 		if (url.pathname === "/ortho-japan" || url.pathname.startsWith("/ortho-japan/"))
 			return Response.redirect(url.origin + "/japan" + url.pathname.slice("/ortho-japan".length) + url.search, 301);
 		const res = await env.ASSETS.fetch(req);

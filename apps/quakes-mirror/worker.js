@@ -1,5 +1,5 @@
 // 世界の地震（USGS ANSS ComCat・M2+）の確定した過去分（archive）を配るだけの Worker。
-// 2026-09-19 本人裁定：直近分は取り込まない＝ビューア（apps/ortho-japan/quakes-worker.js）がブラウザから USGS FDSN を直接取り、
+// 2026-09-19 本人裁定：直近分は取り込まない＝ビューア（apps/ortho-globe/quakes-worker.js）がブラウザから USGS FDSN を直接取り、
 //   月ごとに GeoPBF へ焼いて IDB に置く（「直接取りに行くのが ortho 流」）。cron と CSV 置き場（recent/）は同日に撤去した。
 // 形：R2（binding QUAKES）
 //   archive.geopbf … 確定した過去分（手元で焼いて置く。下の手順）

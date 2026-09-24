@@ -1,0 +1,16 @@
+# ortho-globe＝地球儀（@ortho-earth/globe）の家＝地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）。
+# 本番＝www.ortho-earth.com/globe/（下の route）。旧 /japan/earth・/japan/quakes・/japan/sats は japan の Worker が 301 でここへ送る。
+# route は "/globe/*" と "/globe" に限る（"/globe*" だと www の同じ頭の名前まで横取りする＝/japan* の 404 の轍）。
+name = "ortho-globe"
+main = "deploy-worker.js"
+compatibility_date = "2025-06-01"
+workers_dev = true   # *.workers.dev の予備URL（検証用）。本番は下の route
+routes = [
+	{ pattern = "www.ortho-earth.com/globe/*", zone_name = "ortho-earth.com" },
+	{ pattern = "www.ortho-earth.com/globe", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
+binding = "ASSETS"
+run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む

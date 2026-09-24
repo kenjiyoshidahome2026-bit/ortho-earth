@@ -12,10 +12,10 @@
 // 使い方: npm run i18n:extract [-- --check]   （--check＝書かずに検分だけ）
 import fs from "node:fs";
 import path from "node:path";
-import { hostDir } from "./lib/i18n-scan.mjs";
+import { hostDir } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
-import { CTX_SEP } from "./lib/i18n-scan.mjs";
-import { scanAll } from "./lib/i18n-pages.mjs";
+import { CTX_SEP } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
+import { scanAll } from "@ortho-earth/globe/scripts/lib/i18n-pages.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const UI = path.join(hostDir(APP), "i18n/ui.json");   // 本体の訳の正本は地球儀のホスト（packages/globe/src）に住む（S4）

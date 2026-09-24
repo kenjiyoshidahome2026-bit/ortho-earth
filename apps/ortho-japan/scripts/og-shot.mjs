@@ -14,13 +14,11 @@ const BASE = process.env.OG_BASE || "http://localhost:5188/japan";
 const PORT = 9493;
 // ready＝この式が真になったら撮れる（データが載った合図）。view＝撮る視点（URL ハッシュ）
 const PAGES = {
-	quakes:  { url: "/quakes.html",   view: "#2.3/18/165",         ready: "window.__quakes && window.__quakes.count > 1000", wait: 9000 },
-	sats:    { url: "/sats.html",     view: "#1.4/25/140",         ready: "window.__sats && window.__sats.count > 1000", wait: 9000 },
 	models:  { url: "/models.html", view: "", pick: "tokyo-tower", ready: "window.__models && window.__models.stats", wait: 10000 },
 	tellus:  { url: "/tellus.html",   view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 14000 },
 	geoedit: { url: "/geoedit.html",  view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 12000 },
 };
-const HIDE = `for (const s of ["#sky-clock",".quakes-panel",".sats-panel",".models-panel",".quakes-clock","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
+const HIDE = `for (const s of ["#sky-clock",".models-panel","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
 	document.querySelectorAll(s).forEach(e => e.style.display = "none");
 document.querySelectorAll(".sats-tag,.quakes-tag,.sats-tip,.quakes-info").forEach(e => e.style.display = "none");
 const app = document.getElementById("app"); if (app) app.style.gridTemplateColumns = "1fr";   // Tellus＝左の案内板を伏せたら地図を全幅へ（格子が 352px の列を残す）

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // quakes-mirror の検定＝偽 R2＋偽 USGS（合成 CSV）。USGS へは一度も触れない。
 //   配信：空は 503 → archive.geopbf / archive.json / status → CORS → ETag 一致で 304 → 知らない道は 404 → POST は 405
-//   読み手：apps/ortho-japan/quakes-worker.js に archive（GeoPBF）＋USGS 直取り（偽 USGS）を渡し、月ごとに届いて件数が合うこと・USGS 落ちは archive だけで出す
+//   読み手：apps/ortho-globe/quakes-worker.js に archive（GeoPBF）＋USGS 直取り（偽 USGS）を渡し、月ごとに届いて件数が合うこと・USGS 落ちは archive だけで出す
 //   node apps/quakes-mirror/tests/t-quakes.mjs
 import { serve } from "../worker.js";
 import { buildGeoPBF, parseCsvTexts } from "../usgs.js";
@@ -77,7 +77,7 @@ globalThis.fetch = async u => {
 	if (u.startsWith("https://earthquake.usgs.gov/")) { usgsCalls++; return usgsDown ? new Response("down", { status: 503 }) : fakeUsgs(u); }
 	return serve(new Request(new URL(u, "https://www.ortho-earth.com/")), env);
 };
-await import("../../ortho-japan/quakes-worker.js");
+await import("../../ortho-globe/quakes-worker.js");
 const NOW = Date.UTC(2026, 8, 19, 7, 0);   // 2026-09-19 07:00＝6 月〜8 月＋9 月途中
 const view = srcs => new Promise(res => {
 	const parts = [], last = [];

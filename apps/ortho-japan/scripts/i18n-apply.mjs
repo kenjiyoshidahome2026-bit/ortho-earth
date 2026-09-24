@@ -13,9 +13,9 @@
 //         node scripts/i18n-apply.mjs           （実行）
 import fs from "node:fs";
 import path from "node:path";
-import { absOf } from "./lib/i18n-scan.mjs";
+import { absOf } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
 import { fileURLToPath } from "node:url";
-import { lex } from "./lib/i18n-scan.mjs";
+import { lex } from "@ortho-earth/globe/scripts/lib/i18n-scan.mjs";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const check = process.argv.includes("--check");

@@ -3,7 +3,7 @@
 // 本体の表を束ねる他のアプリ（nl・census2020・world・equal）の deploy の先頭で走らせる＝japan を出さずに他を出しても焼き忘れが本番へ行かない。
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { staleTables } from "./lib/i18n-tables.mjs";
+import { staleTables } from "@ortho-earth/globe/scripts/lib/i18n-tables.mjs";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const stale = staleTables(APP);
 if (stale.length) {

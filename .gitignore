@@ -34,8 +34,8 @@ apps/gishub-jp/scripts/catalog.json
 
 # USGS 地震カタログの月別 CSV キャッシュ（scripts/usgs-quakes-build.mjs）
 .cache/
-# 地震ビューア（apps/ortho-japan/quakes.html）のデータ＝scripts/usgs-quakes-build.mjs で再生成できる（25MB）
-apps/ortho-japan/public/quakes/*.geopbf
+# 地震ビューア（apps/ortho-globe/quakes.html）の dev 用データ＝scripts/usgs-quakes-build.mjs で再生成できる（25MB）
+apps/ortho-globe/public/quakes/*.geopbf
 # USGS 地震データ本体（scripts/usgs-quakes-build.mjs で再生成できる・25MB）
 /usgs-quakes-*.geopbf
 /usgs-quakes-*.geopbf.json

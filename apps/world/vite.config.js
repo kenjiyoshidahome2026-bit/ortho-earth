@@ -13,12 +13,12 @@ const coepHeaders = () => ({
 	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
 });
 // 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev も本番もソース直
-// （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __JAPAN_ASSETS__ が要る＝geopbf-demo と同じ配線）。
-const JAPAN_PUBLIC = path.resolve(__dirname, '../ortho-japan/public');
+// （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __GLOBE_ASSETS__ が要る＝geopbf-demo と同じ配線）。
+const GLOBE_PUBLIC = path.resolve(__dirname, '../ortho-globe/public');   // 地球儀の実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/）
 
 export default defineConfig(({ command }) => ({
 	plugins: [wasm(), coepHeaders()],
-	define: { __JAPAN_ASSETS__: JSON.stringify(command === 'serve' ? `/world/@fs${JAPAN_PUBLIC}/` : '/japan/') },
+	define: { __GLOBE_ASSETS__: JSON.stringify(command === 'serve' ? `/world/@fs${GLOBE_PUBLIC}/` : '/globe/') },
 	base: '/world/',   // 公開パス＝ortho-earth.com/world/（gishub と同じ配置）
 	resolve: {
 		alias: {

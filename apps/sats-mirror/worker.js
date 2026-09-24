@@ -2,7 +2,7 @@
 // なぜ：CelesTrak は同じグループを同一 IP から 2 時間に 1 回しか返さない（間は HTTP 200 の断り文）＝学校・会社のように IP を
 //   共有する教室では、ブラウザ直読みだと 2 人目以降が初回から読めない。ここが 2 時間に 1 回だけ取って KV に置き、皆はここを読む。
 //   CelesTrak 利用ポリシー（celestrak.org/usage-policy.php）の「更新（2 時間）ごとに 1 回だけ取る」にもこの方が沿う。
-// 形：加工しない（CSV のまま gzip で置くだけ＝鯖焼きではない）。読み手は apps/ortho-japan/gadgets/sats.js。
+// 形：加工しない（CSV のまま gzip で置くだけ＝鯖焼きではない）。読み手は apps/ortho-globe/sats.js（/globe/sats）。
 //   GET /sats/active.csv   CSV（gzip 配信・CORS 開放）。まだ一度も取れていなければ 503
 //   GET /sats/status       { fetchedAt, rows, bytes, halted }（見張り用）
 // 掟（同ポリシー）：

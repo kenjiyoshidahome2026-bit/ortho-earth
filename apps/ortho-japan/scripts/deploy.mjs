@@ -37,7 +37,7 @@ if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=
 console.log(`✓ 関門 PASS ${el()}`);
 // 配布物の掃除（dev 専用・重い置き土産）→ deploy → 実配信の検定
 const sh = (cmd) => run("sh", ["-c", cmd], "deploy");
-if (await sh("rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json dist/site/japan/quakes && find dist/site -name .DS_Store -delete") !== 0) process.exit(1);
+if (await sh("rm -rf dist/site/japan/moj-local dist/site/japan/plateau-names.json && find dist/site -name .DS_Store -delete") !== 0) process.exit(1);
 if (await run("npx", ["wrangler", "deploy"], "wrangler") !== 0) { console.error("✗ wrangler deploy FAIL"); process.exit(1); }
 // verify-live＝アップロード直後は一過性の fetch 失敗が出ることがある（3 回中 2 回・2026-09-19）＝一度だけ待って再試行
 let live = await run("node", ["scripts/verify-live.mjs"], "live");

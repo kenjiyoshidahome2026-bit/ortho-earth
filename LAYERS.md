@@ -99,14 +99,19 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 
 - **向き**：japan → globe → core → ephem／japan → jp → core。**globe と jp は互いを import しない**（出会うのは japan が渡す申告 `opts.region` と、ビルド時に worker の空き枠 `#extra-roles` を jp の役表へ差し替える所だけ）。
   モノレポ全体をパッケージ単位で機械検査して**出荷物に循環なし**（輪は scripts・tests が他アプリのデータを読む所だけ）。
-- **入口**：地域なしの地球儀は `@ortho-earth/globe` から直に取る＝world（国の地図パネル）・GeoPBF デモ（9/24 に japan の殻経由から直へ＝束から日本／NL の申告が消えた）・equal（ガジェットと i18n だけ）。
+- **入口**：地域なしの地球儀は `@ortho-earth/globe` から直に取る＝ortho-globe（下の「globe の家」）・world（国の地図パネル）・GeoPBF デモ（9/24 に japan の殻経由から直へ＝束から日本／NL の申告が消えた）・equal（ガジェットと i18n だけ）。
   日本／NL の申告が要るアプリは japan の殻（`apps/ortho-japan/app.js`＝`orthoJapan`）＝census2020・gishub-jp・ortho-nl。
 - **誰が何を持つか**：
   - 世界帯の中身（国・州・都市・道路・鉄道とその名前）＝規則は core の `worldcontent.js`・データは bucket `GIS/world/`＝equal／globe／world が同じ URL・同じキャッシュ名で引く（japan は通らない）。
   - 楕円体（`?ell=1`）＝ノブは core の `camera.js`（setEllipsoid）・**決めるのは globe.js の 1 行（URL だけ・opts には無い）**・各 worker へは globe が init で運ぶ。既定は全端末で球（2026-08-19 裁定）。
-- **残る結び目（裁定待ち）**：
-  1. **globe の家が無い**：globe だけで動く頁（earth＝Equal Earth ⇄ 3D の往復・quakes・sats）が japan の殻に住み（URL `/japan/…`）、本番では japan の SDK 束 `/japan/lib/ortho-japan.js` を実行時に読む（dev は `./app.js`）＝使わない日本／NL の申告まで読み、japan の SDK を出すと一緒に変わる。
-  2. **実行時アセットの置き場**：globe の実行時アセット（koppen-clim.png 等）は `apps/ortho-japan/public`＝`/japan/` から配る（各アプリの `assetBase`＝`__JAPAN_ASSETS__`）。
+  - UI の訳の道具（走査器・頁の辞書・表の焼き＝`i18n-scan`／`i18n-pages`／`i18n-tables`）＝globe の `scripts/lib`（本体の訳の持ち主）。japan と ortho-globe が共有する。地域パックの文字列の在り処（japan なら `packages/jp/src`）は殻が `i18n/pages.json` の `literalRoots` で申告する。
+- **globe の家（2026-09-24・本人裁定「B」「/globe/」）**：地域の申告を持たない頁は `apps/ortho-globe`（`www.ortho-earth.com/globe/`・自前の Worker）に住む＝
+  `/globe/`（Globe ⇄ Equal Earth の往復）・`/globe/quakes`（世界の地震）・`/globe/sats`（人工衛星）。各頁は `@ortho-earth/globe` を自分の束に焼く（japan の SDK も app.js も読まない）。
+  旧 `/japan/earth`・`/japan/quakes`・`/japan/sats` は japan の Worker が 301 で送る（query は運ぶ）。頁の辞書（quakes／sats）と OG 画像も一緒に移した。
+  この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
+- **残る結び目**：
+  1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。ただし `koppen-clim.png` は japan の public にも同じ物が残る（japan の頁と SDK 用）＝本当の持ち主は `packages/globe`（npm の globe にも載せ、両方の家はそこから焼く）＝globe の版を切る時に。
+  2. **globe に残る japan の名**：前回の視点の localStorage の鍵 `ortho-japan.cam256`（利用者の端末に残る＝凍結。IDB の `GIS/plateau` と同じ扱い）。
 
 ## 今の「混ざり」の目録（段階 2 の作業表）
 
