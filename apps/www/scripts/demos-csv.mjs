@@ -11,15 +11,15 @@
 //   ・英語（en 列）を直す＝demos.json の文言と ui.json のキーが一緒に変わる（訳は新しいキーへ引っ越す。頁の他所でも使うキーなら写す）
 //   ・訳の列を直す＝ui.json の訳が変わる。**空のセル＝その言語は訳なし（英語で出る）**
 //   ・英語だけ直して訳を直さなかった行は「訳が古いかも」と報告する
-//   ・note が「proper」の題＝固有名詞（訳さない）＝訳の列は無視する
+//   ・note が「proper」の題＝固有名詞＝訳は任意（空＝英語名のまま・入れた言語だけその訳で出る。本人 9/24「ortho-solar → 太陽系」等）
 //   ・demo と field は変えない（行の足し引き・デモの追加は demos.json で。追加したら export し直す）
 //   ・行の順＝カードの並び（行を入れ替えると Gallery の並びが変わる）。空行は読み飛ばす
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { isProper } from "../cards.js";   // 固有名詞の題（訳は任意）の判定＝カードと同じもの
 
 const FIELDS = ["title", "desc"];
-const isProper = d => d.proper || /^[a-z0-9]|^GeoPBF$/.test(d.title);   // cards.js と同じ判定（固有名詞＝訳さない題）
 
 // ── CSV（RFC 4180：" で囲む・"" で " ・セル内の改行可）──
 const cell = v => { const s = String(v ?? ""); return /[",\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -47,7 +47,7 @@ export function toCSV({ demos }, ui, langs, pick = null) {
 	const out = [["demo", "field", ...(note ? ["note"] : []), "en", ...others]];   // 先頭列は "demo"（"id" はインドネシア語の列名と衝突する）
 	for (const d of demos) for (const f of FIELDS) {
 		const en = d[f] ?? "", proper = f === "title" && isProper(d);
-		out.push([d.id, f, ...(note ? [proper ? "proper" : ""] : []), en, ...others.map(c => proper ? "" : ui[en]?.[c] ?? "")]);
+		out.push([d.id, f, ...(note ? [proper ? "proper" : ""] : []), en, ...others.map(c => ui[en]?.[c] ?? "")]);
 	}
 	return "﻿" + out.map(r => r.map(cell).join(",")).join("\r\n") + "\r\n";
 }
@@ -77,11 +77,10 @@ export function applyCSV(text, demosDoc, uiIn, langs, pageKeys = []) {
 	}
 	const col = Object.fromEntries(head.map((h, i) => [h.trim(), i]));
 	for (const h of ["demo", "field"]) if (!(h in col)) throw new Error(`CSV: "${h}" 列がありません`);
-	const others = langs.filter(c => c !== "en" && c in col);
 	const doc = structuredClone(demosDoc);
 	let ui = structuredClone(uiIn);
 	const byId = new Map(doc.demos.map(d => [d.id, d]));
-	const report = { changedEn: [], changedTr: 0, stale: [], ignored: [], errors: pre };
+	const report = { changedEn: [], changedTr: 0, stale: [], errors: pre };
 	const seen = new Set();
 	// キーの付け替え（並び順を保つ）
 	const rename = (from, to) => { ui = Object.fromEntries(Object.entries(ui).map(([k, v]) => [k === from ? to : k, v])); };
@@ -93,13 +92,11 @@ export function applyCSV(text, demosDoc, uiIn, langs, pageKeys = []) {
 		seen.add(at);
 		const oldEn = d[f] ?? "", en = "en" in col ? (r[col.en] ?? "").trim() : oldEn;   // en 列が無い CSV＝英語は変えない
 		if (!en) { report.errors.push(`${at}: 英語（en）が空です`); continue; }
-		const proper = f === "title" && (d.proper || /^[a-z0-9]|^GeoPBF$/.test(en));
 		if (en !== oldEn) {
 			d[f] = en; report.changedEn.push(`${at}: "${oldEn}" → "${en}"`);
 			const stillUsed = pageKeys.includes(oldEn) || doc.demos.some(x => FIELDS.some(g => x[g] === oldEn));
 			if (ui[oldEn] && !ui[en]) stillUsed ? (ui[en] = { ...ui[oldEn] }) : rename(oldEn, en);
 		}
-		if (proper) { if (others.some(c => (r[col[c]] ?? "").trim())) report.ignored.push(`${at}: 固有名詞の題＝訳の列は使いません`); continue; }
 		const prev = ui[en] ?? {}, next = {};
 		for (const c of langs.filter(c => c !== "en")) {   // 並びは言語表どおり（CSV に無い列は元の値を残す）
 			const v = c in col ? (r[col[c]] ?? "").trim() : prev[c] ?? "";
@@ -148,7 +145,6 @@ const main = async () => {
 	if (report.errors.some(e => !/CSV に行がありません/.test(e))) { console.error("何も書き換えていません（上の行を直して、もう一度 import）"); process.exit(1); }
 	for (const s of report.changedEn) console.log("英語  " + s);
 	for (const s of report.stale) console.warn("⚠ " + s);
-	for (const s of report.ignored) console.warn("⚠ " + s);
 	fs.writeFileSync(P.demos, JSON.stringify(nd, null, "\t") + "\n");
 	fs.writeFileSync(P.ui, JSON.stringify({ ...uiDoc, ui }, null, "\t") + "\n");
 	console.log(`demos.json・i18n/ui.json を更新：英語 ${report.changedEn.length} 件・訳 ${report.changedTr} セル${report.reordered ? "・並びを CSV の順に" : ""}`);

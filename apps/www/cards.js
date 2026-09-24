@@ -3,6 +3,8 @@
 // 文言は英語のまま焼き、data-t（訳のキー）を残す＝実行時に i18n が貼り替える（訳が無ければ英語のまま）。
 const esc = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 const T = (tag, cls, text, extra = "") => `<${tag} class="${cls}" data-t="${esc(text)}"${extra}>${esc(text)}</${tag}>`;
+// 固有名詞の題（ortho-solar・GeoPBF 等／proper:true＝Equal Earth 等）＝訳は任意（demos-csv.mjs も同じ判定）
+export const isProper = d => !!d.proper || /^[a-z0-9]|^GeoPBF$/.test(d.title);
 
 function card(d) {
 	const noT = ` translate="no"`;
@@ -15,14 +17,15 @@ function card(d) {
 			`<span class="card-title"${noT}>${esc(d.title)}</span>` + T("span", "card-desc", d.desc) +
 			T("span", "card-cta", `${d.cta ?? "Open"} →`) + `</span></a>`;
 	}
-	// 固有名詞（ortho-equal 等）は訳さない＝英語の普通名詞の題（World earthquakes 等）だけ data-t
-	const proper = d.proper || /^[a-z0-9]|^GeoPBF$/.test(d.title);   // proper:true＝固有名詞（Equal Earth 等）＝訳さない
-	const title = proper ? `<span class="card-title"${noT}>${esc(d.title)}</span>` : T("span", "card-title", d.title);
+	// 英語の普通名詞の題（World earthquakes 等）＝訳す。固有名詞の題（ortho-solar 等）＝訳は任意＝既定は英語名のまま・ui.json に訳がある言語だけ訳
+	// （本人 9/24 日本語の頁で「ortho-solar → 太陽系」「census2020 → 国勢調査2020」「ortho-japan → 日本地図」「japan(demo) → 日本地図（デモ）」）
+	const title = T("span", "card-title", d.title, isProper(d) ? noT : "");
 	// 画像＝全デモに 1 枚（/thumbs/<id>.webp・640×400）。先頭の数枚だけ即時（初画面に入る）・残りは lazy＝Lighthouse の LCP を汚さない
 	const thumb = d.img ? `<img class="card-thumb" src="${esc(d.img)}" width="640" height="400" alt="" decoding="async"${d.eager ? ` fetchpriority="high"` : ` loading="lazy"`} />` : "";
 	// 言語のバッジ（本人 9/22「26 言語、Japanese only をバッジで」）＝lang: "26"（26 言語の UI）| "ja"（日本語のみ）
 	// "en"＝英語のみ（本人 9/22 表）＝英語が読めない人への知らせ＝各言語へ訳して出す（日本語のみの札が英語のままなのと逆の理屈）
-	const badge = d.lang === "26" ? T("span", "card-lang all", "26 languages") : d.lang === "ja" ? `<span class="card-lang ja" translate="no">Japanese only</span>` : d.lang === "en" ? T("span", "card-lang en", "English only") : "";   // 日本語が読めない人への知らせ＝どの言語でも英語のまま
+	// 日本語の頁では「日本語」「英語」とだけ書く（本人 9/24「Japanese only → 日本語・英語のみ → 英語」）
+	const badge = d.lang === "26" ? T("span", "card-lang all", "26 languages") : d.lang === "ja" ? T("span", "card-lang ja", "Japanese only", noT) : d.lang === "en" ? T("span", "card-lang en", "English only") : "";   // 日本語が読めない人への知らせ＝日本語の頁の外では英語のまま（訳は ja だけ）
 	// frame:false＝ナビの下の iframe で開かない（中の頁が COEP を送らない＝拒まれる）＝普通の画面遷移へ
 	// 並び＝題（＋言語のバッジ）→ 画像 → 説明（本人 9/24「カードの角丸があるので、タイトルを上に」＝画像の角が丸で欠けない・バッジは題の行の右端）
 	return `<a class="card" href="${esc(d.href)}" data-group="${esc(d.group)}"${d.frame === false ? ` data-frame="0"` : ""}>` +
@@ -44,7 +47,13 @@ export function demoKeys({ groups, demos }) {
 	for (const d of demos) {
 		k.add(d.desc);
 		if (d.featured) { d.eyebrow && k.add(d.eyebrow); k.add(`${d.cta ?? "Open"} →`); d.img?.alt && k.add(d.img.alt); }
-		else if (!d.proper && !/^[a-z0-9]|^GeoPBF$/.test(d.title)) k.add(d.title);
+		else if (!isProper(d)) k.add(d.title);
 	}
+	return [...k];
+}
+// 訳が任意の文言（門は欠けを咎めない）＝固有名詞の題・「Japanese only」（ja だけ訳す）
+export function optionalKeys({ demos }) {
+	const k = new Set(demos.filter(d => !d.featured && isProper(d)).map(d => d.title));
+	if (demos.some(d => d.lang === "ja")) k.add("Japanese only");
 	return [...k];
 }
