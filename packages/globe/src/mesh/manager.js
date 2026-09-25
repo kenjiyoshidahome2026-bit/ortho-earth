@@ -129,9 +129,6 @@ const meshResident = new Map();         // GPUにVAOが乗っている地区（�
 const meshLoading = new Set();          // fetch/デコード中の地区名（二重発火防止）
 const meshAutoLoading = new Map();      // autoMesh 発のロード中地区：name → set。視界確定時の退避対象（手動/プレロードは含めない）
 const meshCancelling = new Set();       // 遠方離脱→キャンセル送信済みの地区名。bldCap から除外＋再訪は promote で即再開（un-cancel）。部分はIDBに残る
-const meshDemoted = new Set();          // 近距離の視界外→slow lane（在庫化）中の地区名。完走して IDB＋非表示常駐へ＝さりげない仕込み。再訪は promote で fast 復帰
-const meshFastT = new Map();            // name → fast レーン入場時刻。fast枠ローテーション（下）の物差し
-const MESH_ROTATE_MS = 60e3;            // （旧）fast枠の占有タイムスライス＝待ち行列制（9/8）で不使用
 // ── 同時ロード数と待ち行列（本人指定 2026-09-08「最大読み取り数は 3・後は待ち行列。スコープから外れたら途中までを保存して即座に打ち切り」）──
 // R2 焼き（第三の入口）で 1 区が数秒になり、旧・slow レーン在庫化（視界外でも読み続ける）と fast 枠ローテーションは不要になった。
 // 視界外＝即キャンセル（部分は worker が逐次 IDB/OPFS 保存済＝再訪は続きから）。枠待ちの区は「待ち行列」＝枠が空いた瞬間の
@@ -422,7 +419,7 @@ async function runPrefetch(wanted, how, onProgress) {   // 戻り値＝対象区
 		// 【9/8 緩和】R2 焼きで先読みは Draco 無し・数 MB＝飛行/移動/標高読込を柵にしない（行送りゲート 6s 化でデモはほぼ常に
 		// 飛行か標高読込＝旧柵では先読みが一度も回らず「先読みが全く無くなった」本人報告）。譲るのは可視区のロード中だけ。
 		// LOW_MEM は標高タイル（R01 近傍 9 枚のデコードバースト）との帯域/IDB 取り合いを避けて elevBusy も待つ。
-		const visibleBusy = () => (LOW_MEM && env.elevBusy) || [...meshAutoLoading.keys()].some(n => !meshCancelling.has(n) && !meshDemoted.has(n));
+		const visibleBusy = () => (LOW_MEM && env.elevBusy) || [...meshAutoLoading.keys()].some(n => !meshCancelling.has(n));
 		let wi = 0;
 		const pump = async () => {
 			for (;;) {
@@ -682,7 +679,7 @@ function autoMesh(settled = false) {
 			})
 			.catch(e => { meshFailed.set(h.name, { perm: false, ts: performance.now() }); console.warn("[mesh] load failed, skipping (retry in 60s):", h.name, e.message || e); })   // 一時＝バックオフ
 			.finally(() => {
-				meshLoading.delete(h.name); meshAutoLoading.delete(h.name); meshCancelling.delete(h.name); meshDemoted.delete(h.name); meshFastT.delete(h.name); meshRestarted.delete(h.name);
+				meshLoading.delete(h.name); meshAutoLoading.delete(h.name); meshCancelling.delete(h.name); meshRestarted.delete(h.name);
 				// 枠が空いた瞬間に再選抜（静止シーン中はonMoveが来ない＝これが無いと3区目以降が
 				// 次のカメラ操作まで立たない）。failed/cancelled はそれぞれのガードが再発火を止める。
 				if (!env.moving) autoMesh(true);
@@ -781,7 +778,7 @@ return {
 	setExcludeMap, setProgressTap: fn => { sceneProgTap = fn; }, terminate,
 	get sets() { return SETS; }, progress: meshProg,
 	isActive: name => meshActive.has(name), isDead: meshDead,
-	visibleLoading: () => [...meshAutoLoading.keys()].filter(n => !meshDemoted.has(n) && !meshCancelling.has(n)),   // 「これから見える区」＝demote/cancel 中は載せない
+	visibleLoading: () => [...meshAutoLoading.keys()].filter(n => !meshCancelling.has(n)),   // 「これから見える区」＝cancel 中は載せない（旧 slow レーン在庫化＝demote は待ち行列制 9/8 で廃止）
 	memStats, openDb: meshDb.open,
 };
 }
