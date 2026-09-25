@@ -742,5 +742,7 @@ return {
 	get admin0Layer() { return admin0Layer; },
 	get admin0Vis() { return admin0Vis; },
 	get admin0Pbf() { return admin0Pbf; },
+	// map.destroy の後片付け：bake worker を止め、焼いている最中の分は捨てる（2026-09-25・従来は残った）
+	destroy() { for (const p of bakePending.values()) p.cancelled = true; bakePending.clear(); if (bakeWorker) bakeWorker.terminate(); bakeWorker = false; },
 };
 }
