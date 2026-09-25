@@ -41,9 +41,14 @@ const getbbox = r => {
 };
 const includes = (b, pt) => !(b[0] > pt[0] || b[2] < pt[0] || b[1] > pt[1] || b[3] < pt[1]);
 const contains = (ring, pt) => pointInRing(pt[0], pt[1], ring);
+// 空欄は null（2026-09-25・B8）：旧は空白の N 欄が 0、空白の D 欄と "00000000" が 1970-01-01（Invalid Date→NaN→0）、未設定の L（? や空白）が false になった。
+// 数の欄の "*"（桁あふれの印）・読めない値も null。L は Y/T/N/F だけを真偽に
+const dbfNum = v => { v = v.replace(/\x00/g, "").trim(); if (!v || /^\*+$/.test(v)) return null; const n = +v; return Number.isFinite(n) ? n : null; };
+const dbfDate = v => { const m = v.replace(/\x00/g, "").trim().match(/^(\d{4})(\d{2})(\d{2})$/); if (!m || +m[1] === 0 || +m[2] === 0 || +m[3] === 0) return null;
+	const d = new Date(`${m[1]}-${m[2]}-${m[3]}`); return isNaN(d) ? null : d; };
 const DBF_PARSE = {
-	B: v => +v.trim(), F: v => +v.trim(), N: v => +v.trim(),
-	L: v => /^[yt]$/i.test(v), D: v => new Date(v.replace(/(....)(..)(..)/, "$1-$2-$3")),
+	B: dbfNum, F: dbfNum, N: dbfNum,
+	L: v => /^[yt]$/i.test(v) ? true : /^[nf]$/i.test(v) ? false : null, D: dbfDate,
 	C: v => { v = v.trim().replace(/\x00/g, ""); return v.length ? v : null; }
 };
 class DBF {

@@ -144,7 +144,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
  //   const LDID = encoding == "sjis"? 0x13:0;
 	const LDID = encoding == "sjis" ? 0x13 : 0x4B; // 0x4B is the conventional code for UTF-8
 	const yyyymmdd = d => { const L2 = d=>(d > 9? "":"0")+d;
-		return d.getFullYear() + L2(d.getMonth()) + L2(d.getDate());
+		return d.getFullYear() + L2(d.getMonth() + 1) + L2(d.getDate());   // getMonth は 0 始まり（旧＝+1 が無く 1 か月ずれ・1 月は "00" で読めなかった・B8）
 	};
 	const sizes = Object.entries({fieldCount, recordSize, fileBytes, headerBytes, recordBytes}).map(t=>t.join(":")).join(", ");
 	console.log(`DBF (${name + '.dbf'}) : ${sizes}\n => Fields : ${fields.map(t=>t.name).join(", ")}`);
@@ -162,10 +162,12 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	props.forEach(rec => { DBF.writeUint8(0x20);
 		fields.forEach(({name, type, length, precision}) =>{
 			const fill = (s,length) => { while(s.length < length) s += " "; return s; };
-			let value = rec[name]; if (value===undefined) return DBF.skip(length);
+			let value = rec[name];
+			// 値なし（undefined/null・日付として無効）は空白で埋める＝DBF の空欄（旧＝undefined は 0x00 のまま、null は toFixed/getMonth で落ちた・B8）
+			if (value == null || (type === 'D' && !(value instanceof Date && !isNaN(value))) || (type === 'N' && !Number.isFinite(+value))) return DBF.writeBuffer(encoder(" ".repeat(length)), length);
 			switch (type) {
 			case 'L': DBF.writeUint8(!!value ? 84 : 70); break;
-			case 'N': const numStr = value.toFixed(precision).padStart(length, " ");
+			case 'N': const numStr = (+value).toFixed(precision).padStart(length, " ");
 				DBF.writeBuffer(encoder(numStr)); break;
 			case 'D': DBF.writeBuffer(encoder(yyyymmdd(value)), length); break;
 			case 'C': 
