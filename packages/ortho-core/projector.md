@@ -89,6 +89,9 @@ WebGPU の 3 写し）。**最後の d3 残滓**＝`geopbf/src/extension/identif
 `mod.frame(cam, cameraState(cam, w, h), {w,h})`（`renderworker.js:31-42`）。消費者 `quakes-gl.js:52-74,247-291` は
 `u_mvp/u_eye/u_focal` を手で詰め、絶対単位球座標を `u_mvp*vec4(a_pos,1)` で素朴に回し、`gl.frontFace(CW)` で
 「mvp は x 反転」の知識を抱えている。RTE も楕円体も知らない＝球規模の点なので今は困らないが、契約としては生。
+（2026-09-25 追記・#47）frame の第 4 引数 api に `clipH`（点の clip 座標＝w で深度を比べる）と `depth`（シーンの深度＝
+`@ortho-earth/core/depthout` の `DEPTH_GLSL` を FS に貼って `sceneOcclusion(uv, w)`）が足された。申し出たオーバーレイだけ
+（`opts.depth` か init の戻り値 `{ depth: true }`）・LOW_MEM では作らない。3.2 の `logCoef` はこの `api.depth.logCoef` が先に外へ出た形。
 
 ## 3. 叩き台：Projector 契約
 

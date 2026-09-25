@@ -7,12 +7,15 @@ import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
+import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
+// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。u_logCoef・gintCtx・深度の書き出し（#47）が同じ値を使う
+const logCoefOf = st => { const limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); return 2.0 / Math.log2(limb * 1.15 + st.camDist + 1.0); };
 export function createRenderer(canvas, rOpts = {}) {
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
 	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true });
@@ -1000,8 +1003,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
-		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
-		gl.uniform1f(loc(gl, prog, "u_logCoef"), 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0));
+		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
@@ -1018,6 +1020,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
+		lastLogCoef = logCoefOf(st);   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
 		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
 		// 画面を覆ってから静止時にパッと晴れる（不自然）。ローパスなら両方向とも霞が滑らかに動く。
@@ -1306,9 +1309,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
 		// 基図の線と同じ高さ・同じ深度空間で地形に参加（尾根の向こうは隠線＝淡破線）。それ以外は null＝最前面。
 		if (terrainDepth) {
-			const _lb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 			gintCtx = { terrainDepth: true,
-				logCoef: 2.0 / Math.log2(_lb * 1.15 + st.camDist + 1.0),
+				logCoef: lastLogCoef,
 				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
 				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
 				meshQ: mq, meshG: mq ? terrain.G : 0,   // 案A: gint も描画メッシュ面へ量子化
@@ -1566,7 +1568,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); }
+	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
@@ -1609,8 +1611,17 @@ export function createRenderer(canvas, rOpts = {}) {
 	// md/mdMax は renderworker が scene worker へ「multi_draw モードで動け」を通知するための能力表明
 	// gintCtx＝直近 draw の gint 深度統合コンテキスト（renderworker が gint パスへ渡す）
 	// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）。msaa=0＝canvas antialias:true はブラウザ暗黙確保（HUD 注記）
-	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes });
-	return { gl, set, draw, dispose, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
+	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
+	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
+	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
+	let dOut = null, lastLogCoef = 0;
+	function depthOut(on) {
+		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
+		if (!dOut) dOut = createDepthOutGL(gl, canvas);
+		const d = dOut;
+		return { begin: d.begin, abort: d.abort, end: () => { const f = d.end(); return f ? { ...f, logCoef: lastLogCoef } : null; } };
+	}
+	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook, dbg: () => (dbgC ? { ...dbgC, raster: gnd.rasterOn ? gnd.tiles : 0, fillsIn: gnd.fillsIn, gndFaces: gnd.fillsIn ? gnd.faces : 0 } : null) };   // raster＝直近合成でアトラスへ描いたタイル数・fillsIn＝塗りがアトラス側   // 画像タイル層（raster.js の renderer 契約）
 }
 

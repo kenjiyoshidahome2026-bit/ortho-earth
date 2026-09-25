@@ -339,6 +339,35 @@ export type StyleExpression = unknown[] | number | string | boolean;
 export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean;
 	/** 床の高さ[m]＝その高さの平面に浮かせる（1.2.0〜・高さはその平面から測る）。"drape"＝地形に沿わせる。無指定＝広い面（統計）は 2000m の平面・建物らしい小さい面は接地 */
 	bottom?: number | "drape" }
+/** 同一フレームのオーバーレイ（map.overlay）の frame(cam, camState, size, api) の api（worker 内で渡る） */
+export interface OverlayFrameApi {
+	/** 経緯度 → [x, y（CSS px）, front（<0＝裏側）]（地形リフト込み） */
+	project(lon: number, lat: number): [x: number, y: number, front: number];
+	/** 地表から hM メートル持ち上げた点の投影 */
+	projectH(lon: number, lat: number, hM?: number): [x: number, y: number, front: number];
+	/** projectH と同じ点の clip 座標（camState.mvp・クランプなし）。w＝目からの奥行き＝シーンの深度と比べる尺度（1.2.0〜・#47） */
+	clipH(lon: number, lat: number, hM?: number): [x: number, y: number, z: number, w: number];
+	dpr: number; W: number; H: number;
+	time: number; clock: { sim: number; wall: number; rate: number } | null;
+	/** シーンの深度（1.2.0〜・#47）。申し出たオーバーレイがある時だけ・LOW_MEM では null */
+	depth: OverlayDepth | null;
+}
+/** シーンの深度（1.2.0〜・#47）。本体が描き終えたフレームの深度（地形＝傾けた時・ビル・メッシュ・押し出し・gint の建物）を RGBA8 に詰めた物。
+ *  海面の球は深度を書かない＝地平線の向こうは従来どおり front<0 で隠す。詰め方＝対数深度 d＝log2(1+w)·logCoef/2 を 24bit（R が上位）・d=1＝何も無い。
+ *  行は下から（GL の窓座標と同じ）＝uv＝gl_FragCoord.xy / 自分の描画面の大きさ で引く。大きさ（w,h）は本体の描画解像度（動的解像度の縮小込み）。
+ *  1 フレーム 1 回のコピー（GL2＝readPixels／WebGPU＝ImageBitmap）が要る＝GPU の完了を待つ。使うのは要る時だけ。 */
+export interface OverlayDepth {
+	w: number; h: number;
+	/** 深度の尺度＝2/log2(far+1)（GLSL の u_sceneLogCoef） */
+	logCoef: number;
+	backend: "webgl2" | "webgpu";
+	/** FS に貼る GLSL（#version・precision の後）。sceneDepthAt(uv)・depthOfW(w)・sceneOcclusion(uv, w)（1＝本体の物の陰・0＝見える）。捨てる（discard）か薄めるかはオーバーレイの自由 */
+	glsl: string;
+	/** このフレームの深度をその gl のテクスチャとして返す（同じフレームで二度上げない・gl の束縛と unpack の状態は戻す） */
+	texture(gl: WebGL2RenderingContext): WebGLTexture;
+	/** glsl の uniform を埋める（prog は useProgram 済み）。unit＝使うテクスチャユニット（既定 7）・eps＝許し（深度の単位・既定 2e-6） */
+	bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit?: number, eps?: number): void;
+}
 /** MapLibre の fill-extrusion 層をそのまま（extrude の第 2 引数、または source つきで第 1 引数に）。意味・既定値は MapLibre の仕様どおり（height/base 0・color "#000000"・opacity 1）。
  *  式は呼んだ時に一度評価（["zoom"] はその時のズーム）。color の interpolate は色として補間。legacy filter（["==","key",v] の旧式）は非対応＝現代式で */
 export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "base" | "color"> {
@@ -478,7 +507,9 @@ export interface OrthoJapanMap {
 	requestDraw(): void;
 	/** 同一フレームのオーバーレイ：レンダーワーカー内で地球・注記と同じフレーム・同じカメラで描く自前 canvas（main の onFrame は 1〜2 フレーム先行する）。
 	 *  url＝worker が import() する依存ゼロのモジュール { init(canvas, opts), message(data), frame(cam, camState, {w,h}, api) → boolean, destroy() }。
-	 *  api＝{ project, projectH, dpr, W, H, time（共通の時計の時刻 ms・1.2.0〜・#42）, clock（{sim,wall,rate}｜null＝実時刻） }。
+	 *  api＝OverlayFrameApi＝{ project, projectH, clipH, dpr, W, H, time（共通の時計の時刻 ms・1.2.0〜・#42）, clock（{sim,wall,rate}｜null＝実時刻）, depth }。
+	 *  シーンの深度（1.2.0〜・#47）：opts.depth:true か init の戻り値 { depth: true } で申し出たオーバーレイがある時だけ本体が作り、api.depth に載る（OverlayDepth）。
+	 *  init の第 3 引数 host に depthGLSL（FS に貼る GLSL）。省メモリ端末（LOW_MEM）・作れない環境では api.depth＝null（従来どおり＝隠れ無し）。
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
 	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
