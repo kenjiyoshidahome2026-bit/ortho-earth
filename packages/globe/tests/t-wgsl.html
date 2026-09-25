@@ -1,0 +1,34 @@
+<!doctype html>
+<!-- WGSL の全モジュールがコンパイルを通る（#46 段 0・2026-09-26）。core/gpu の wgsl.js・gintwgsl.js が export する文字列を 1 本ずつ
+     createShaderModule → getCompilationInfo で検める＝派生（deriveWgsl・toStorageWGSL）の継ぎ目や Frame の詰め順の食い違いを、絵の読み戻しが
+     できない環境（ソフトウェア WebGPU・CI）でも捕まえる門。実 GPU の絵の検分（t-light・t-shadow）の手前の関門。⚠実時間専用（verify-webgpu.mjs）。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-wgsl</title></head>
+<body>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const adapter = await navigator.gpu.requestAdapter();
+	const device = await adapter.requestDevice();
+	const W = await import("../../../packages/ortho-core/src/gpu/wgsl.js");
+	const G = await import("../../../packages/ortho-core/src/gpu/gintwgsl.js");
+	const mods = [];
+	for (const [k, v] of Object.entries(W)) if (typeof v === "string" && k.endsWith("_WGSL")) mods.push([k, v]);
+	for (const [k, v] of Object.entries(G)) if (typeof v === "string" && k.endsWith("_WGSL")) { mods.push([k, v]); if (typeof G.toStorageWGSL === "function" && /GINT_(LINE|POINT|STENCIL)/.test(k)) mods.push([k + "(storage)", G.toStorageWGSL(v)]); }
+	let n = 0;
+	for (const [k, code] of mods) {
+		const m = device.createShaderModule({ code });
+		const info = await m.getCompilationInfo();
+		const errs = (info.messages || []).filter(x => x.type === "error").map(x => `${x.lineNum}:${x.linePos} ${x.message}`);
+		if (errs.length) ok(`${k}: ${errs.slice(0, 2).join(" / ")}`, false); else n++;
+	}
+	ok(`${n}/${mods.length} modules compile`, n === mods.length && mods.length >= 20);
+	ok("Frame に sun がある（段 0）", /sun: vec4f/.test(W.MESH_WGSL) && /srgbEncode/.test(W.MESH_TEX_WGSL));
+	device.destroy();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

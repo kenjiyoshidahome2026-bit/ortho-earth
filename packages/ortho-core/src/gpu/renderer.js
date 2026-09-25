@@ -26,7 +26,7 @@ import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオ
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 108;     // 432B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3 vec4f 含む）
+const FRAME_F32 = 112;     // 448B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -147,6 +147,9 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// カメラ遷移中は draw(opts.aa===false) で 1x 直描きへ落とし、静止フレームだけ SAMPLES(4x) で一枚描く
 	//（静止時詳細化と同じ思想。動きの最中のエッジは見えない＝実測で動的解像度の降段も消える）。
 	const SAMPLES = rOpts.msaa1 ? 1 : 4;   // 品質段（静止フレームの段数）。msaa1＝常時1x（従来どおり）
+	// 描画の質の旗（#46・2026-09-26）＝globe の opts.render と ?fx= を boot/tier.js renderFx が裁いた結果（LOW_MEM・GL2 は全部 false）。
+	// 段 0 は旗を運ぶだけ＝段 1（atmosphere）・段 2（pbr）・段 3（ao）が順に読む。無指定＝全部 false＝従来の絵。
+	const FX = { atmosphere: false, pbr: false, ao: false, ...(rOpts.fx || {}) };
 	const DEPTH = "depth24plus-stencil8";   // stencil は gint（winding 塗り）が同一アタッチメントで使う（renderer 自身は不使用＝既定 keep で不干渉）
 	const target = { format, blend: BLEND };
 	const VF = GPUShaderStage.VERTEX | GPUShaderStage.FRAGMENT;
@@ -414,6 +417,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 影なしのフレームは従来と同じパイプライン・bind group・パスのまま（影響ゼロの約束）＝消したら資源を返す（パイプラインは再点灯用に保持）。
 	// 流れ：太陽の正射影（shadow.js）で建物（基図の押し出し＋メッシュ）の深度を描く別パス → 受け手（地形・球の床・塗り・線・建物・メッシュ）の派生 FS が比べて暗くする。
 	let shadow = { on: false };
+	const sunF = new Float32Array([0, 1, 0, 1]);   // Frame.sun（#46 段 0）＝draw() が共通の時計から毎フレーム詰める（方向 xyz＋昼の度合い w）
 	let sh = null;
 	const SH_N = rOpts.lowMem ? 1024 : 2048;   // 深度テクスチャの一辺（2048²×4B＝16MB・点けている間だけ）
 	const SH_BLD_BUFS = [
@@ -974,18 +978,20 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		device.queue.submit([enc.finish()]);
 	}
-	const whiteTex = device.createTexture({ size: [1, 1], format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+	// 模型のテクスチャは rgba8unorm で持ち（mips の生成は今までどおり表示空間）、標本化は rgba8unorm-srgb ビュー＝FS が受けるのはリニア（#46 段 0・出口で srgbEncode）
+	const SRGB_VIEW = { format: "rgba8unorm-srgb" };
+	const whiteTex = device.createTexture({ size: [1, 1], format: "rgba8unorm", viewFormats: ["rgba8unorm-srgb"], usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	device.queue.writeTexture({ texture: whiteTex }, new Uint8Array([255, 255, 255, 255]), { bytesPerRow: 4 }, [1, 1]);
-	const whiteBG = device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: whiteTex.createView() }] });
+	const whiteBG = device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: whiteTex.createView(SRGB_VIEW) }] });
 	function meshTexture(t) {   // ImageBitmap か {rgba,w,h} → { tex, bg }。glTF の uv 原点＝画像左上＝copyExternalImageToTexture と一致
 		if (!t) return { tex: null, bg: whiteBG };
 		const w = t.bitmap ? t.bitmap.width : t.w, h = t.bitmap ? t.bitmap.height : t.h;
 		const levels = 1 + Math.floor(Math.log2(Math.max(w, h)));
-		const tex = device.createTexture({ size: [w, h], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
+		const tex = device.createTexture({ size: [w, h], mipLevelCount: levels, format: "rgba8unorm", viewFormats: ["rgba8unorm-srgb"], usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
 		if (t.bitmap) device.queue.copyExternalImageToTexture({ source: t.bitmap }, { texture: tex }, [w, h]);
 		else device.queue.writeTexture({ texture: tex }, t.rgba, { bytesPerRow: w * 4, rowsPerImage: h }, [w, h]);
 		if (levels > 1) genMips(tex, levels);
-		return { tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: tex.createView() }] }) };
+		return { tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: texSampler }, { binding: 1, resource: tex.createView(SRGB_VIEW) }] }) };
 	}
 	// ── 地面アトラス（RTT ドレープ・2026-09-21）＝ラスタ基図 → ベクタ塗り（3D 時）→ ラスタ重ね を 3 段窓（近/中/遠）へ合成し、地形・球・塗りの
 	// FS が gndMix0 で画素標本化する（gl/renderer.js と対）。合成は鍵（窓・ラスタ rev・シーン rev・ゲート）が変わった時だけ＝別エンコーダで
@@ -1373,6 +1379,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (mesh) { f[88] = (mesh[0] - W) / sLon; f[89] = (mesh[1] - S) / sLat; f[90] = mesh[2] / sLon; f[91] = mesh[3] / sLat; }
 			else { f[88] = (origin[0] - W) / sLon; f[89] = (origin[1] - S) / sLat; f[90] = 1 / sLon; f[91] = 1 / sLat; }
 		} else { f[88] = 0; f[89] = 0; f[90] = 0; f[91] = 0; }
+		f[108] = sunF[0]; f[109] = sunF[1]; f[110] = sunF[2]; f[111] = sunF[3];   // 太陽（#46 段 0）＝全スロット共通
 		// 地面アトラス（近/中/遠）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
 		for (let k = 0; k < 4; k++) {
 			const i = 92 + k * 4, a = k < gnd.n ? gnd.w[k] : null;
@@ -1523,6 +1530,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const hideBldFill = bldFill.li >= 0 && (cam.pitch || 0) >= 0.02;
 		const dpr = cam.dpr || 1;
 		const mainOrigin = scenes.main.origin || [0, 0];
+		// 太陽（#46 段 0）：共通の時計の太陽方向（地球固定）と、シーン原点での昼の度合い（高度 −6°→+6°＝市民薄明の幅で 0→1）。
+		// 影の shadow.time は影だけの時刻＝ここは時計に従う（面の照明は「その時刻の空」に合わせる・段 2）。
+		{ const sv = sunVector(clockNow(view.clock)), o3 = lonlatTo3D(mainOrigin[0], mainOrigin[1]);
+			const alt = (sv[0] * o3[0] + sv[1] * o3[1] + sv[2] * o3[2]) / Math.hypot(o3[0], o3[1], o3[2]);   // sin(太陽高度)
+			const t = Math.max(0, Math.min(1, (alt + 0.1045) / 0.209));   // sin(6°)=0.1045
+			sunF[0] = sv[0]; sunF[1] = sv[1]; sunF[2] = sv[2]; sunF[3] = t * t * (3 - 2 * t); }
 		rasterFlushFree();      // 前フレームは submit 済み＝退避されたタイルテクスチャをここで実際に破棄
 		// 地面アトラス（RTT ドレープ）：窓と鍵を確定（packFrame が窓の係数を読む）→ Frame 書込 → 合成（別エンコーダ・main パスより先に submit）
 		const slotsG = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
@@ -2067,6 +2080,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
+		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 }),
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
