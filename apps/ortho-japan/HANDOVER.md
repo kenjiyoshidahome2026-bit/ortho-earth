@@ -38,6 +38,7 @@
 ## 5. 実時間の頁が単独では通るのに連続実行で落ちる
 
 一度は単独で回してから疑う。そのうえで次を確かめる（2026-09-25 追記）：
+
 - **置き去りの headless Chrome**（`pgrep -fl headless=new`）。runner は CDP の port を Chrome に選ばせるようにした（ui-runner）が、
   他のスクリプトは決め打ちの port を使うものがある。
 - **外部の揺れのせいにしない**：外部を手元の資料に替えて回数を取る。globe の t-request の「揺れ」は、起動直後に古い fallback scene が
