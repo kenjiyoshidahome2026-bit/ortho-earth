@@ -10,6 +10,7 @@ import { download } from "common";
 import { decodeZIP, Cache, gzip } from "native-bucket";
 import { DIRE, DBS, FLAG, SOUND, GEOMS, CULTURAL, makeDB, RIVERS, RANGES } from "./db.js";
 import { createGeometryPNG } from "./createGeometryPNG.js";
+import { cleanSVG } from "./svgclean.js";   // 国旗 SVG の無害化（S7・旧＝TODO のまま素通し）
 import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
 import { buildAll } from "../../../../packages/world/build/index.js";
@@ -18,8 +19,6 @@ import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC, spl
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
 
-// TODO: 旧 FlagSVG.clean の移植待ち＝それまでは素通し（svg はそのまま保存）
-const cleanSVG = async file => file;
 
 export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	const bucket = await Bucket(DIRE);   // 疎通不能時は null（native-bucket の仕様）
@@ -155,7 +154,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	const svgs = async file => (await decodeZIP(file)).filter(t => t.name.match(/\.svg$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
 	async function route(file) {
 		const name = file.name.normalize('NFC');
-		if (name == `${FLAG}.zip`) { const files = await svgs(file); await db.saveFlagDB(files); return q.success(`${FLAG}: 保存（${files.length} 旗）`); }
+		if (name == `${FLAG}.zip`) { const files = await Promise.all((await svgs(file)).map(cleanSVG)); await db.saveFlagDB(files); return q.success(`${FLAG}: 保存（${files.length} 旗）`); }   // zip の旗も一枚差しと同じく無害化（S7）
 		if (name == `${SOUND}.zip`) {
 			const files = (await decodeZIP(file)).filter(t => t.name.match(/\.mp3$/) && !t.name.match(/^\./)).sort((p, q) => p.name > q.name ? 1 : -1);
 			await db.saveSoundDB(files); return q.success(`${SOUND}: 保存（${files.length} 音源）`);
