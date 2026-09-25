@@ -38,6 +38,9 @@
 		},
 		"Stars behind a building or the Skytree are hidden by the scene depth (#47). Tilt and orbit to see it.": {
 			"ja": "ビルやスカイツリーの陰の星はシーンの深度（#47）で隠れる。傾けて回して確かめて。"
+		},
+		"Stop": {
+			"ja": "止める"
 		}
 	}
 }
