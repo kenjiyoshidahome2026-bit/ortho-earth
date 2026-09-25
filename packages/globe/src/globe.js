@@ -115,6 +115,9 @@ const REGIONS = [].concat(opts.region || []).filter(Boolean);
 const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
 const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
 const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
+// 本体の遅く生まれる持ち物（日影・gint の焼き・ラスタの提供側・parquet・標高の問い合わせの worker）の片付け（2026-09-25）。
+// destroy() より後ろで宣言される let/const を destroy から直に触ると、起動途中の destroy で TDZ に落ちる＝生まれた所で登録する
+const ownDestroy = [];
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
 // 建物の申告＝「台帳の在り処」と「焼きの置き場」の対。どちらも地域が持ち、ホストは中身を知らない。
 const stampBake = (sets, b) => b.bakeBase ? sets.map(s => s.bakeBase ? s : { ...s, bakeBase: b.bakeBase }) : sets;   // 台帳の各 set へ焼きの置き場を刻む（区ごとの別置き場も許す）。無宣言＝焼き無し＝生経路のみ
@@ -1214,6 +1217,7 @@ const gint = createGintLayers({
 	requestDraw: () => { needsDraw = true; }, onMove: () => onMove(), flyTo: (...args) => flyTo(...args), loadBelowSea: () => { if (!flying) loadBelowSea(); }, loadLakes: () => { if (!flying) loadLakes(); },   // 飛行の通過点で重い層を発火させない（着地の onMove で再評価）
 	get flying() { return flying; },   // 国境の細密版（10m）も飛行の通過点では読まない
 });
+ownDestroy.push(() => gint.destroy());   // gint の bake worker
 // --- 海面下の陸地（?world=1・全球ハイプソの一部）--------------------------------------------
 // bucket の below_sea_land（uploader「below-sea land」ボタンで焼成＝admin0 陸マスク∧GEBCO≤-1m のシードを
 // e≤3m の低平地へ成長させたポリゴン）を塗り専用シーンとしてエンジンの wdepr スロットへ。
@@ -1407,7 +1411,8 @@ const posCells = [...posEl.querySelectorAll("td")];   // [経度, 緯度, 標高
 let posMouse = null, posElev = null, posElevId = 0, posElevAt = 0, posRaf = false, getHeight = null;
 setAltApiUrl("https://api.ortho-earth.com");
 const getHeightP = createGetHeight({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM, onend: () => { posElevAt = 0; schedulePos(); updateUnderground(true); } });   // タイル到着＝地中判定も取り直す（静止中に届いた分）   // Promiseも保持＝断面図はローダ到着を待って照会（起動直後でも0mに化けない）
-getHeightP.then(f => { getHeight = f; updateUnderground(true); });   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
+getHeightP.then(f => { getHeight = f; updateUnderground(true); });
+ownDestroy.push(() => getHeightP.then(f => f.terminate?.()));   // ローダ準備完了＝最初のサンプル（共有URLで地中に着地した起動を拾う）
 // 距離スケール（真俯瞰=2Dのみ）：ortho-map Accessories draw_scale() と同じ1-2-5系列。
 // d256m＝256px当たりの実距離[m]。当アプリも256px世界(2026-07-26統一)＝本家と同じ zoom がそのまま使える。
 // px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
@@ -1991,6 +1996,7 @@ function destroy() {
 	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
 	overlays.clear();
 	meshMgr.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
+	for (const f of ownDestroy) { try { f(); } catch (e) { console.warn("[destroy]", e); } }     // 日影・gint の焼き・ラスタ・parquet・標高の worker
 	for (const f of hostDestroy) { try { f(); } catch (e) { console.warn("[region] destroy", e); } }   // 地域パックの片付け（e-Stat worker 等）
 	overlay.destroy();
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
@@ -2319,6 +2325,7 @@ map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリ�
 // カタログ（地域パック rasters＝外から定義）と ?r= の同期。外から定義できる口＝三つ：地域パック（REGION.rasters）／
 // URL（?xyz= ?pm= ?r=）／公開 API（map.raster.add＝自前契約の URL テンプレ・ラスタ PMTiles・MessagePort プロバイダ）。
 const rasterReg = new Map();   // id → { spec, opts, info, error, worker, attrHTML, _res, _rej }
+ownDestroy.push(() => { for (const r of rasterReg.values()) { r.worker?.terminate(); r.port?.close(); r._rej?.(new Error("destroyed")); } rasterReg.clear(); });   // 提供側 worker（main 所有）
 const rasterCbs = new Set();
 const rasterStatWait = new Map(); let rasterStatSeq = 0;
 const rasterChanged = () => { attrZone = null; needsDraw = true; for (const cb of rasterCbs) { try { cb(); } catch (e) { console.error("[raster] onChange", e); } } };
@@ -2541,6 +2548,7 @@ map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・�
 //   結果＝四隅の画像として地面に貼る（map.raster の "sunshadow"）。戻り＝stats（三角形数・最大の日影時間ほか）
 let sunWorker = null, sunSeq = 0;
 const sunWaiting = new Map();
+ownDestroy.push(() => { sunWorker?.terminate(); sunWorker = null; for (const p of sunWaiting.values()) p.rej(new Error("destroyed")); sunWaiting.clear(); });
 map.sunShadow = async (o = {}) => {
 	sunWorker ??= (() => { const w = new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "model" }); w.onmessage = e => { const p = sunWaiting.get(e.data.id); if (!p) return; sunWaiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); }; return w; })();
 	let bb = o.bbox || map.getBounds() || approxViewBbox(cam);
@@ -2724,6 +2732,7 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 // 閾値以下は従来の全量経路（INTAKE geoparquet → fromGeoParquet → gint）。本人裁定 2026-09-20：8MB・属性は列のまま。
 const PARQUET_STREAM_BYTES = 8e6;
 let parquetCtl = null;
+ownDestroy.push(() => { parquetCtl?.destroy(); parquetCtl = null; });
 const parquetView = async (src, name) => {
 	annoCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null;
 	const m = await import("./gadgets/parquet-view.js");
