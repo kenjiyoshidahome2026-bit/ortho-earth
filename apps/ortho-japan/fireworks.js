@@ -8,7 +8,7 @@ import { tr, setLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文�
 const t = tr();
 
 export const SITE = { lon: 139.8065, lat: 35.7195 };   // 桜橋のすぐ下流（隅田川）
-const VIEW = { lon: 139.8085, lat: 35.7155, zoom: 15.6, tilt: 62, bearing: 8 };   // 南から北へ（スカイツリーが手前）
+const VIEW = { lon: 139.8092, lat: 35.7138, zoom: 15.4, tilt: 63, bearing: 340 };   // 南南東から＝スカイツリー（発射地点の南南東 1.1 km）が花火の手前に立つ
 
 export async function mountFireworks(map, { panelHost, quiet = false, fly = true } = {}) {   // quiet＝最初の 1 発を上げない・fly=false＝視点へ飛ばない（検定）
 	await setLang(); await loadPage(c => import(`./i18n/lang/fireworks/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む
