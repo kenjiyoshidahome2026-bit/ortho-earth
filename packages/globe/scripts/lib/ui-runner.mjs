@@ -37,7 +37,8 @@ export const REALGPU = ["--enable-unsafe-webgpu"];
 // 実時間 1 頁＝1 Chrome（別ポート・別プロファイル・kill の exit を待つ）。戻り＝document.title（PASS…／FAIL…）。
 // drag:true＝ページが window.__dragGo を立てている間だけ実マウスの pointermove を流す（入力→rAF のフレーム内順序は
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
-export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, cdpBase = 9600, shot = null } = {}) {
+// backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
+export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, cdpBase = 9600, shot = null, backends = null } = {}) {
 	const CDP = cdpBase + ((process.pid * 7 + seq * 13) % 200), dir = `/tmp/${profilePrefix}-${process.pid}-${seq}`;
 	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, ...flags,
 		"--no-first-run", `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
@@ -59,7 +60,14 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
 		let id = 0; const pending = new Map();
 		const send = (m, p = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p })); setTimeout(() => { if (pending.has(i)) { pending.delete(i); res(null); } }, 5000); });
-		ws.onmessage = ev => { const m = JSON.parse(ev.data); if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); } };
+		ws.onmessage = ev => {
+			const m = JSON.parse(ev.data);
+			if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
+			else if (backends && m.method === "Runtime.consoleAPICalled") {
+				const b = /^\[boot\] frame1 received backend=(\w+)/.exec(m.params?.args?.[0]?.value || "")?.[1];
+				if (b) backends.push(b);
+			}
+		};
 		await send("Page.enable"); await send("Runtime.enable");
 		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
 		let title = "";
@@ -97,15 +105,30 @@ export const runVirtual = url => new Promise(res => execFile(CHROME,
 	(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));
 
 // 頁の列を順に回して PASS/FAIL を出す。urlOf(page,query) は呼ぶ側の器が決める。
-export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, cdpBase, shotLast = process.env.SHOT || null }) {
+// base＝全頁に付ける既定の query。既定の gl2=1 は SwiftShader の門（verify-ui・nocoi）向け＝WebGPU の門は "lang=ja" を渡す。
+// expectBackend＝"webgpu" を渡すと実時間の頁で backend を検める（T1・2026-09-25。旧＝runner が全頁に gl2=1 を付けており、
+//   verify:webgpu の createGlobe/app.js 頁の多くが黙って WebGL2 で走っていた＝WebGPU 経路の回帰を見ていなかった）：
+//   ・gl2=1 の無い頁は起動ログの backend が全部 webgpu、gl2=1 の頁は全部 webgl2（GL2 変種が本当に GL2 かも見る）
+//   ・noBoot の頁（地球儀を起こさない＝createRenderer 直叩き・OPFS 等）は起動ログを求めない
+//   ・どの頁も表題に skip／スキップ（WebGPU 不在で素通りする印）があれば FAIL
+export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, cdpBase, shotLast = process.env.SHOT || null,
+	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set() }) {
 	let fail = 0, seq = 0;
 	for (const p of pages) {
 		const [page, extra = ""] = p.split("?");
-		const q = new URLSearchParams("gl2=1&lang=ja");
+		const q = new URLSearchParams(base);
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
 		const url = urlOf(page, q.toString());
-		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), ...(cdpBase ? { cdpBase } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
-		const title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url);
+		const backends = expectBackend && realtime.has(page) ? [] : null;
+		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), ...(cdpBase ? { cdpBase } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
+		let title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url);
+		if (backends && title.startsWith("PASS")) {
+			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;
+			const seen = [...new Set(backends)].join("+") || "なし";
+			if (/skip|スキップ/i.test(title)) title = `FAIL 素通り（backend=${seen}）: ` + title.replace(/^PASS ?/, "");
+			else if (!noBoot.has(page) && (!backends.length || backends.some(b => b !== want))) title = `FAIL backend=${seen}（期待 ${want}）: ` + title.replace(/^PASS ?/, "");
+			else if (backends.length) title = title.replace(/^PASS ?/, `PASS [${seen}] `);
+		}
 		const pass = title.startsWith("PASS");
 		if (!pass) fail++;
 		console.log(`${pass ? "PASS" : "FAIL"}  ${p.padEnd(pad)} ${title.replace(/^(PASS|FAIL) ?/, "")}`);

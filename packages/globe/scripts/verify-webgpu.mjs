@@ -2,7 +2,9 @@
 // 地球儀ホスト（packages/globe）の WebGPU 検定＝実 GPU・実時間（2026-09-24・LAYERS.md 段階 4）。
 // 仮想時間に載せない理由：WebGPU の async init（adapter/device の GPU IPC）と仮想時計は両立しない
 // ——頁側の時計が先に燃え尽き、worker の rAF が凍った後に device が届く＝「実機では健全なのに CI だけ
-// frame1 が来ない」偽陽性になる（2026-08-01 実測）。WebGPU の無い環境では WebGL2 に落ちて PASS。
+// frame1 が来ない」偽陽性になる（2026-08-01 実測）。
+// backend は runner が起動ログで検める（T1・2026-09-25）＝WebGPU の無い環境・GL2 へ落ちた起動は FAIL（旧＝runner が
+// 全頁に gl2=1 を付けていて createGlobe の 4 頁は WebGL2 で走り、WebGPU 不在の skip も PASS に数えていた）。
 // 頁ごとに Chrome を立て直すのは ui-runner の作法と同じ（前の頁の IDB/GPU を次へ漏らさない・9/24 の轍）。
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,6 +26,7 @@ const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-gintgpu", "t-gintmulti"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
 });
 stop();
