@@ -20,8 +20,5 @@
 		"quiet-mono": "*",
 		"@ortho-earth/japan": "*",
 		"gishub-jp": "*"
-	},
-	"devDependencies": {
-		"vite": "^5.0.0"
 	}
 }

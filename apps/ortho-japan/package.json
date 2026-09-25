@@ -91,7 +91,6 @@
 		"fzstd": "^0.1.1",
 		"geoedit": "*",
 		"geopbf": "*",
-		"glbconv": "*",
-		"vite": "^5.0.0"
+		"glbconv": "*"
 	}
 }
