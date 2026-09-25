@@ -14,7 +14,7 @@
 		"summary": "repomix --style markdown --output project_summary.md",
 		"dev:world": "npm run dev -w ortho-world",
 		"test:mirrors": "node apps/quakes-mirror/tests/t-quakes.mjs && node apps/sats-mirror/tests/t-mirror.mjs",
-		"test": "npm test -s -w @ortho-earth/core && npm test -s -w geopbf && npm test -s -w altpbf && npm test -s -w @ortho-earth/ephem && npm test -s -w space-data && npm test -s -w glbconv && npm test -s -w @ortho-earth/japan && npm test -s -w ortho-equal && npm test -s -w solar && npm test -s -w account && npm test -s -w www && npm run -s test:proxy -w native-bucket && npm run -s test:tellus -w native-bucket && npm run -s verify:regionless -w @ortho-earth/globe && npm run -s test:mirrors"
+		"test": "npm test -s -w @ortho-earth/core && npm test -s -w geopbf && npm test -s -w altpbf && npm test -s -w @ortho-earth/ephem && npm test -s -w space-data && npm test -s -w glbconv && npm test -s -w @ortho-earth/japan && npm test -s -w ortho-equal && npm test -s -w solar && npm test -s -w account && npm test -s -w www && npm run -s test:proxy -w native-bucket && npm run -s test:tellus -w native-bucket && npm run -s test:bucket -w native-bucket && npm run -s verify:regionless -w @ortho-earth/globe && npm run -s test:mirrors"
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",

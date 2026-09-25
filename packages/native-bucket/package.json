@@ -41,6 +41,7 @@
 		"summary": "repomix --style markdown --output project_summary.md",
 		"test:proxy": "node tests/t-proxy.mjs",
 		"test:tellus": "node tests/t-tellus.mjs",
+		"test:bucket": "node tests/t-bucket.mjs",
 		"mirror": "node scripts/mirror.mjs"
 	},
 	"sideEffects": false,
