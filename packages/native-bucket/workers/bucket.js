@@ -5,9 +5,12 @@ export async function bucket(request, bucket, ctx, env = {}) {
 	const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
 	const cache = caches.default;
 	// 書いた・消した後はこの道の GET キャッシュを捨てる（B18・旧＝s-maxage=3600 の間、古い本体を返し続けた）。
+	// ⚠ 本番の実測（2026-09-25・SJC）＝同じ拠点でも効かない回がある（3 回中 1 回だけ効いた・delete は "deleted" を返しても次の GET が HIT）＝best effort。
+	//   確実にするには s-maxage を縮めるか、GET で R2 の ETag を照合する（未決）。結果は tail で見える（[bucket] purge …）
 	// ⚠ Cache API はデータセンター単位＝消えるのは書き込みを受けた拠点の分だけ。他拠点は s-maxage（1 時間）で自然に切れる
 	//   （全拠点を即時に消すにはゾーンの purge API＝API トークンが要る）。?v= 等の query 付きの版も別の鍵＝消えない
-	const purge = () => ctx?.waitUntil?.(cache.delete(new Request(url.origin + url.pathname, { method: "GET" })).catch(() => false));
+	const purge = () => ctx?.waitUntil?.(cache.delete(new Request(url.origin + url.pathname, { method: "GET" }))
+		.then(ok => console.log(`[bucket] purge ${url.pathname} ${ok ? "deleted" : "not-cached"}`), e => console.warn(`[bucket] purge ${url.pathname} failed`, e?.message)));
 	if (request.method === "GET") {
 		const res = await cache.match(request); if (res) return res;
 	} 
