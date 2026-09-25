@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- 実描画の検分：同一フレームのオーバーレイへシーンの深度（#47）。試料＝東京駅（139.7671/35.6812）に 100m 角×高さ 300m の押し出し 1 棟、
+     北向き（bearing 0）に 60° 傾けて見る。オーバーレイ（fixtures/depth/probe-depth-overlay.js）が点を描き、FS の sceneOcclusion で色を分けて自分の画素を読む。
+     ①申し出ないオーバーレイ＝api.depth は null（本体は深度を作らない）・点は全部見える
+     ②申し出たオーバーレイ＝api.depth が来る（backend は本体と同じ）。画面上で棟の中腹と同じ高さに来る 2 点のうち、
+       棟の北（向こう）600m の点は隠れ・棟の南（手前）150m の点は見える。棟の上（屋上 300m の上の 450m）の点は見える
+     ③?lowmem=1（deviceMemory=2 に見せる＝LOW_MEM）＝申し出ても深度は作らない（今の挙動）・点は全部見える
+     実時間（overlay の import は仮想時間で解決しない）。GL2（verify:ui・gl2=1）と WebGPU（verify:webgpu）の両方で回す。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-overlaydepth</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const LOWMEM = Q.get("lowmem") === "1";
+const WAIT = +Q.get("wait") || 30000;   // 報告を待つ上限（ms）。ソフトウェア GPU では 1 フレームが数十秒＝?wait=300000 で延ばす
+if (LOWMEM) Object.defineProperty(Navigator.prototype, "deviceMemory", { get: () => 2, configurable: true });   // globe.js の LOW_MEM は import の時に決まる＝その前に
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];   // ENU（m）→ 経緯度（近似）
+try {
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+	const sq = [ll(-50, -50), ll(50, -50), ll(50, 50), ll(-50, 50), ll(-50, -50)];
+	const st = await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#888888", fit: false, mask: false });
+	ok("extrude", !!st && st.polygons === 1, JSON.stringify(st));
+	await sleep(1500);
+	// 画面上で棟の中腹（中心・高さ 150m）と同じ縦位置に来る高さを、北（向こう）と南（手前）の点で探す（高さを上げると画面の上へ動く）。
+	// 北の点は視線の延長＝地面より下に来る（地面は深度を書かない＝隠すのは棟だけ）
+	const P = map.makeProjectorH();
+	const [, by] = P(LON, LAT, 150);
+	// 北と南の点は東西に 25m ずらす（同じ画素に重ねると後から描いた点が前の点を塗り潰して読めない）。どちらも棟（東西 ±50m）の陰の幅の中
+	const hAt = (e, n) => { const [lo, la] = ll(e, n); let a = -2000, b = 4000; for (let i = 0; i < 50; i++) { const m = (a + b) / 2; if (P(lo, la, m)[1] > by) a = m; else b = m; } return [lo, la, (a + b) / 2]; };
+	const behind = hAt(25, 600), front = hAt(-25, -150), above = [LON, LAT, 450];
+	const pts = [behind, front, above];
+	const run = async (name, opts) => {
+		let got = null;
+		const ov = map.overlay(new URL("./fixtures/depth/probe-depth-overlay.js", location.href).href, { name, opts });
+		ov.onmessage = d => { got = d; };
+		ov.post({ pts });
+		// 申し出た直後の数フレームは深度の作り始め（WebGPU は深度テクスチャの作り直し）＝落ち着いた後の報告を見る
+		await until(() => got, WAIT); await sleep(800);
+		const r = got; ov.remove(); await sleep(300);
+		return r;
+	};
+	const gpu = !/[?&]gl2=1/.test(location.search);
+	const none = await run("probe-norequest", { noRequest: true });
+	ok("noRequest.depthNull", none && none.depth === null, JSON.stringify(none));
+	ok("noRequest.allVisible", none && none.res.every(s => s === "vis"), JSON.stringify(none?.res));
+	const got = await run("probe-depth", {});
+	if (LOWMEM) {
+		ok("lowmem.depthNull", got && got.depth === null, JSON.stringify(got));
+		ok("lowmem.allVisible", got && got.res.every(s => s === "vis"), JSON.stringify(got?.res));
+	} else {
+		ok("depth", got && got.depth && got.depth.w > 0 && got.depth.h > 0 && got.depth.logCoef > 0, JSON.stringify(got?.depth));
+		ok("backend", got?.depth?.backend === (gpu ? "webgpu" : "webgl2"), got?.depth?.backend);
+		ok("behindHidden", got?.res?.[0] === "hid", JSON.stringify(got?.res) + " raw=" + JSON.stringify(got?.raw) + " mine=" + JSON.stringify(got?.mine) + " behind=" + JSON.stringify(behind.map(v => +v.toFixed(5))));
+		ok("frontVisible", got?.res?.[1] === "vis", JSON.stringify(got?.res) + " front=" + JSON.stringify(front.map(v => +v.toFixed(5))));
+		ok("aboveVisible", got?.res?.[2] === "vis", JSON.stringify(got?.res));
+		ok("clearIsOne", got?.raw?.[2] === 1, "raw above=" + got?.raw?.[2]);   // 棟の上＝空（何も書かれていない）＝クリア値 1 がそのまま届く
+		// 申し出が去った後も本体の絵は壊れない（GL2＝FBO を畳んで既定フレームバッファへ直に戻る）：棟の中腹が灰色のまま
+		const img = await createImageBitmap(await map.gadget.shot().composite());
+		const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d");
+		g.drawImage(img, 0, 0);
+		const [bx] = P(LON, LAT, 150), k = img.width / 960, px = g.getImageData(Math.round(bx * k), Math.round(by * k), 1, 1).data;
+		ok("afterRemove.drawn", px[3] >= 250 && Math.abs(px[0] - px[2]) < 40 && px[0] > 40, `rgba=${[...px]}`);
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

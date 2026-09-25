@@ -17,7 +17,8 @@ const PORT = +process.env.VGW_PORT || 5246;
 const ALL_PAGES = ["t-shadow", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
-	"t-spotlight", "t-linedeco"];   // t-linedeco＝基図の line-offset を WGSL でも（#49）
+	"t-spotlight", "t-linedeco",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
+	"t-overlaydepth", "t-overlaydepth?lowmem=1"];   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 

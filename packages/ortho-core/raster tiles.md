@@ -108,7 +108,7 @@ console-dump の `WAIT` は秒。
 | `terrain.js`：render worker 内で自前 fetch（altpbf）→アトラス cell を `texSubImage2D` | **render worker 常駐モジュールの前例**。ラスタ層も同じ置き場 |
 | 標高アトラス cell 管理（stage／commit ダブルバッファ） | テクスチャ配列のスロット管理の型 |
 | 模型テクスチャ（`plateauTexture`：mips＋異方性 8） | タイルテクスチャの設定はこれと同じ |
-| 同一フレーム overlay（`map.overlay`） | 別 OffscreenCanvas・深度無し・ラベル直下＝**基図には不可**。「写真を最前面に」用途なら可だが本計画では使わない |
+| 同一フレーム overlay（`map.overlay`） | 別 OffscreenCanvas・ラベル直下（シーンの深度は申し出た時だけ読める＝#47・書けはしない）＝**基図には不可**。「写真を最前面に」用途なら可だが本計画では使わない |
 
 ### 1.3 PMTiles と geopbf の現在地
 - `pmtiles-src.js`：`fetchPMTiles`→`decodeMVT` 固定。Range プローブ（206/200 自動判別）・アーカイブ毎の索引キャッシュ・`pmtilesInfo`（bbox/zoom 域/vector_layers/attribution/name）。**tileType は読んでいない**。

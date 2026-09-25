@@ -117,14 +117,22 @@ export function cameraState(cam, W, H) {
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal };
 }
 
+// 経緯度＋動径 → 世界座標（単位球）。標高変位（ラベルを地形に乗せる）：球＝動径倍。楕円体＝測地法線に沿って持ち上げる（動径だと富士級で
+// 水平に十数mズレ＝シェーダの地形変位（同じ測地法線）とラベルの足が合わなくなる）。
+function liftedPos(u, lon, lat, radius) {
+	return radius === 1 ? u
+		: R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius]
+		: (m => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
+}
+// 経緯度＋動径 → clip 座標 [x, y, z, w]（state.mvp・クランプなし）。w＝目からの奥行き＝シーンの深度（#47）と比べる尺度
+export function projectClip(state, lon, lat, radius = 1) {
+	const w = liftedPos(lonlatTo3D(lon, lat), lon, lat, radius);
+	return mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
+}
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
 export function project(state, lon, lat, radius = 1) {
 	const u = lonlatTo3D(lon, lat);
-	// 標高変位（ラベルを地形に乗せる）：球＝動径倍。楕円体＝測地法線に沿って持ち上げる（動径だと富士級で
-	// 水平に十数mズレ＝シェーダの地形変位（同じ測地法線）とラベルの足が合わなくなる）。
-	const w = radius === 1 ? u
-		: R_AX === 1 ? [u[0] * radius, u[1] * radius, u[2] * radius]
-		: (m => [u[0] + (radius - 1) * m[0], u[1] + (radius - 1) * m[1], u[2] + (radius - 1) * m[2]])(ellNormal3D(lon, lat));
+	const w = liftedPos(u, lon, lat, radius);
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 	const frontHemi = mat.dot(u, state.eye) - 1;                     // >0 手前半球（基準球方向で判定）
 	if (c[3] <= 1e-6 || frontHemi < 0) {

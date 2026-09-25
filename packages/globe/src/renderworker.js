@@ -12,7 +12,8 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, cameraState, project } from "@ortho-earth/core/camera";
+import { setEllipsoid, cameraState, project, projectClip } from "@ortho-earth/core/camera";
+import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
 
@@ -24,23 +25,38 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 // frame(cam, s, size, api)：api＝{ project(lon,lat)→[x,y,f], projectH(lon,lat,hM), dpr, W, H（CSS px）}＝main の makeProjector/makeProjectorH と同じ
 //   規約（地形リフト＝pitch フェード×標高×elevBase・座標は CSS px・f<0＝裏側）。標高は worker の terrain から同期で引ける（main は非同期メモだった）
 //   api.time＝共通の時計のその時刻（ms・UTC エポック・#42）＝衛星などはこれで位置を出す（Date.now() を直に読まない）。api.clock＝基準 {sim,wall,rate}（rate＝実 1ms あたりのシミュレート ms・0＝停止）
+//   api.depth（#47）＝シーンの深度（地形・ビル・メッシュ）。申し出たオーバーレイがある時だけ本体が作る（opts.depth:true か init の戻り値 { depth:true }）。
+//   { w, h, logCoef, backend, glsl, texture(gl), bind(gl, prog, unit?, eps?) }｜null（申し出前・LOW_MEM・作れない環境）。
+//   api.clipH(lon,lat,hM)＝projectH と同じ点の clip 座標 [x,y,z,w]（s.mvp・地形リフト込み）＝CPU で置く点（ピン等）の w を得る口
+//   GLSL（host.depthGLSL＝api.depth.glsl＝@ortho-earth/core/depthout の DEPTH_GLSL）を FS に貼り、sceneOcclusion(gl_FragCoord.xy/描画面, gl_Position.w) で比べる。
+//   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map();
+let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
+let dOutH = null, depthSeq = 0;   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
+// 書き出しが begin/end で落ちた＝以後このセッションでは作らない（毎フレーム落ちて地図ごと止まる形を断つ）。GL2 の読み替えは abort で素へ戻す
+function depthOff(e) {
+	console.warn("[render] depthOut failed (overlay depth off):", e?.message || e);
+	try { dOutH?.abort(); renderer?.depthOut?.(false); } catch { /* 畳む途中の失敗は無害 */ }
+	dOutH = null; depthOk = false;
+}
+const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
 let clockA = null, clockSet = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
 const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequad: () => import("./gadgets/imagequad-draw.js") };   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m) {
-	const o = { canvas: m.canvas, mod: null, queue: [] };
+	const o = { canvas: m.canvas, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name, o);
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
-	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }) };
+	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	(m.builtin ? (BUILTIN_OVERLAYS[m.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${m.builtin}"`))) : import(/* @vite-ignore */ m.url)).then(mod => {
 		if (!overlays.has(m.name)) return;   // 待っている間に外された
 		stage("imported");
-		mod.init(o.canvas, m.opts || {}, host);
+		const ret = mod.init(o.canvas, m.opts || {}, host);
+		if (ret && typeof ret === "object" && ret.depth) o.depth = true;   // init の戻り値で深度を申し出る（#47）
 		o.mod = mod;
 		for (const d of o.queue) mod.message(d);
 		o.queue = [];
@@ -48,9 +64,10 @@ function overlayAdd(m) {
 		dirty = true; armRaf();
 	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); stage("failed", { error: String(err?.message || err) }); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
 }
-function overlayFrame(camNow) {
+function overlayFrame(camNow, depthFrame) {
 	if (!overlays.size) return false;
 	let more = false, s = null, api = null;
+	const depth = depthFrame ? makeDepthApi(depthFrame, ++depthSeq) : null;
 	for (const [name, o] of overlays) {
 		if (!o.mod) continue;
 		try {
@@ -61,7 +78,8 @@ function overlayFrame(camNow) {
 				const pt = Math.max(0, Math.min(1, ((camNow.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
 				const lift = pf > 0 && terrain ? (lon, lat) => (terrain.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon, lat, hM) => { const [x, y, f] = project(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase); return [x / dpr, y / dpr, f]; };
-				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA };
+				const clipH = (lon, lat, hM) => projectClip(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
+				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth };
 			}
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
@@ -247,6 +265,7 @@ const dispatch = e => {
 			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
+			depthOk = !m.lowMem;   // LOW_MEM＝深度を作らない（#47・Air3 jetsam の型＝FBO/ImageBitmap の上乗せを持ち込まない）
 			if (m.stay) {
 				setInterval(() => postMessage({ type: "beat", n: frameTicks, pump: pumpTicks, dirty, hasCam: !!cam, hasRenderer: !!renderer, drawMsgN, sentFrame1, pongD, pongC, loopN, sceneMsgN, relayRecvN, pongB, bootStage, iqLen: initQueue ? initQueue.length : -1 }), 1000);
 				setTimeout(() => { if (initQueue) { console.error("[render] initQueue stuck for 15s = force-releasing (diagnostic)"); const q = initQueue; initQueue = null; bootStage += "→force-released(" + q.length + ")"; for (const qm of q) dispatch({ data: qm }); } }, 15000);
@@ -379,6 +398,7 @@ const dispatch = e => {
 			if (raster) { raster.destroy(); raster = null; }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
+			dOutH = null;   // 深度の書き出し口は renderer.dispose が畳んだ
 			break;
 	}
 };
@@ -632,10 +652,20 @@ function frame() {
 			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS);
 			let dOpts = noBld ? { ...opts, noBld: 1 } : opts;
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
+			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
+			const dWant = depthOk && !!renderer.depthOut && overlayWantsDepth();
+			if (dWant !== !!dOutH) {
+				try { dOutH = renderer.depthOut(dWant); if (dWant && !dOutH) depthOff("unavailable"); }   // null＝この環境では作れない＝以後申し出ても作らない
+				catch (e) { depthOff(e); }
+			}
+			let dBegun = false;
+			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
 			tqSpan("map", () => { fogAnim = renderer.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
+			let depthFrame = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
+			if (dBegun) { try { depthFrame = dOutH.end(); } catch (e) { depthOff(e); } }
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
@@ -654,7 +684,8 @@ function frame() {
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
-			const ovMore = overlayFrame(cam);                        // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）
+			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
+			depthFrame?.bitmap?.close();                             // WebGPU の ImageBitmap＝全オーバーレイが上げ終えた＝返す
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
@@ -679,6 +710,7 @@ function frame() {
 		}
 		if (glRef && !sentCtxLost && glRef.isContextLost()) { sentCtxLost = true; postMessage({ type: "contextlost" }); }   // GPU喪失＝mainが立て直す
 	} catch (e) {
+		dOutH?.abort();   // 深度の書き出し中（GL2 の FBO 読み替え）に落ちた＝画面の束縛を素へ戻す
 		console.error("[render] frame exception (frame dropped, continuing)", e?.message, e?.stack);
 		// 初回だけ main へ通報＝モバイル等で worker コンソールが見づらい環境の一次診断（window.__drawErr に残る）。
 		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
