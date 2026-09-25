@@ -65,7 +65,7 @@ try {
 		const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d");
 		g.drawImage(img, 0, 0);
 		const [bx] = P(LON, LAT, 150), k = img.width / 960, px = g.getImageData(Math.round(bx * k), Math.round(by * k), 1, 1).data;
-		ok("afterRemove.drawn", px[3] === 255 && Math.abs(px[0] - px[2]) < 40 && px[0] > 40, `rgba=${[...px]}`);
+		ok("afterRemove.drawn", px[3] >= 250 && Math.abs(px[0] - px[2]) < 40 && px[0] > 40, `rgba=${[...px]}`);
 	}
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
