@@ -79,7 +79,7 @@ admin1 に形の無い係争主体（B20 北キプロス・B28 SADR・B30 ソマ
 B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX は形が無いので出力しない。
 1 km 未満の短い海上の外れは海岸線の丸めとみなして隣の key に繋ぐ。
 
-**配信（Kenji 2026-09-18）**: `bucket GIS/world/ne-cultural.geopbf`（＋要約 `ne-cultural.json`）に置く＝`apps/equal`（Equal Earth の全球図）が国・道路・鉄道・市街地に読む。
+**配信（Kenji 2026-09-18・のち 2 分割）**: `bucket GIS/world/ne-cultural-base.geopbf`（admin_1・admin_0・populated_places）と `ne-cultural-detail.geopbf`（roads・railroads・urban_areas・lakes・routes・airports）＋要約 `ne-cultural.json` に置く（分け方の正本は build/ne-cultural.js の NE_GROUPS）＝`apps/equal`（Equal Earth の全球図）が国・道路・鉄道・市街地に読む。
 切り分けの本体は `build/ne-cultural.js`＝**Node CLI（`scripts/ne-cultural.mjs`）とブラウザ（uploader）で同一コード**（出力の生バイトは一致を実測）。作り直したら:
 - ブラウザ: uploader の「国別DB (world)」節 → **「NE Cultural 生成→保存」**（NE 10m を raw.githubusercontent から読んで切り、検札して bucket へ置く＝これが正規の手順）
 - ローカル確認: `npm run ne:cultural -w world-data`（`out/` に書くだけ・bucket は触らない）
@@ -103,7 +103,7 @@ B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX �
 - 閾値（NE featurecla → 分類・scalerank 上限）: Range/mtn 4・Plateau 4・Desert 4・Pen/cape 4・Island 4・Island group 3・Geoarea 2・Plain/Lowland 3・Delta/Basin/Valley/Isthmus/Wetlands ほぼ全部・海域＝sea 5／gulf・bay 4／strait 5・湖 3・山（elevation points）3・岬 3・塩原（playas）1・川＝QID ごとの最小 scalerank 4（5 は手動層で名指し）。南極は主要なもの以外除外
 - 手動層 `seed/terrains-manual.json`: 閾値外の追加（8000m 峰・各国の象徴的な山・有名湖・海溝/海嶺・海峡・運河・氷床・2026-09-15 の穴埋め＝峠 12・滝 14・礁 7・氷河/氷帽/棚氷 23・塩原 6）、僻地の除外、分類の上書き、形状の結合、手書き軸線、NE の壊れた QID の読み替え（alias）、位置条件付きの読み替え（alias_geo＝米国コロラド川）、NE の形を使わない QID（noshape＝形状台帳では Wikidata の位置の点だけ。Cordillera Blanca は NE の同名ポリゴンが北部アンデス西縁全体を覆う誤り・2026-09-15）
 - 途中で名前が変わる川は有名な名前の項目に上流区間を merge で結合して全長を取る（ナイル←白ナイル・カゲラ、長江←金沙江・通天河・沱沱河、ライン←ワール/レク/ネーデルライン/エイセル、西江←南盤江/紅水河/黔江/潯江 など）。結合先は単独では収蔵しない
-- 形状: 川＝`rivers.geojson`（NE の線分を wikidataid で束ねた MultiLineString・小数 4 桁）、山脈＝`range.geojson`（NE ポリゴンから geom.js で軸線＋幅。9/15 から格子の測地距離の等値帯で中央を辿る方式＝約 120 km 間隔・3〜40 点・弧や鉤に追従。表示側で spline＋ポリゴン化）。NE に無い川（信濃川・パラグアイ川など）は形状なし＝warn
+- 形状: 川＝`rivers.geojson`（NE の線分を wikidataid で束ねた MultiLineString・小数 4 桁）、山脈＝`range.geojson`（NE ポリゴンから geom.js で軸線＋幅。9/15 から格子の測地距離の等値帯で中央を辿る方式＝約 120 km 間隔・3〜40 点・弧や鉤に追従。表示側で spline＋ポリゴン化）。NE に線が無い川（信濃川・パラグアイ川・フーグリ川・イグアス川）は seed/terrains.csv の手書きの軸線（source=seed）＝下の「絵として収録」の段と同じ（2026-09-25 に記述を統一）
 - **形状台帳 `out/ne-physical.geopbf`**（NE Physical・`node scripts/ne-physical.mjs`・`npm run ne:physical -w world-data`・2026-09-15）: 912 件全部に形を結んだ 1 本の GeoPBF（混在ジオメトリ・precision 5・1.3 MB）。
   結び方＝wikidataid（alias で正規化）＋ne_extra で NE 6 データセット（regions/marine/lakes の面・rivers の線・elevation/points の点）を引く。川・運河は線 > 面（河口の marine 面より線）、他は面 > 線 > 点。
   NE に形が無いもの（と noshape）→seed の lon/lat（NE 代表点）→Wikidata P625（`.cache/wikidata-p625.json`）の点。山脈は NE 面に加えて軸線（手書き > 自動）を `shape=axis` の別地物で持つ。手書き軸線（ペナイン・コルドバ）は Catmull-Rom で約 120 km 間隔に再標本化して自動軸線と密度を揃える。アペニンは NE の APPENNINI ポリゴン（wikidataid は Appennino Ligure）を merge で束ねて自動軸線に（9/15）。
@@ -115,6 +115,6 @@ B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX �
   プレート（plate・主要 16 枚）: 面は PB2002（Bird 2003）の "~PB2002:記号" を merge で結ぶ。位置＝面の頂点平均。全 52 枚と境界線（種別 OSR/OTF/OCB/CRB/CTF/CCB/SUB）は `scripts/plates.mjs` → `out/plates.geopbf`。
   気候（`scripts/koppen.mjs` → `out/climate-koppen.geopbf`）: Beck et al. 2023（CC BY 4.0）の 1991–2020・0.1° ラスタを区分ごとの面に（30 区分＝1 地物ずつ・属性 id/code/group/name/color・塗りは group）。境界セル辺を環に繋ぐ方式＝隣接区分と辺を共有（面積検算でセル数と完全一致）。TIFF は geopbf の COG 読み口で読む。
   地理線 `out/ne-physical-lines.geopbf`（⑤ 2026-09-15）: 赤道・回帰線・極圏は黄道傾斜角 ε（IAU 2006・2026 年評価）から計算（NE v5.1.2 は北回帰線 23.50°/南 −23.56° と不揃い）、日付変更線は NE。属性 name / kind / lat / epoch / wikidataid。
-  NE に線が無い川＝Hooghly・Iguazu・Paraguay・Shinano は Wikidata の点のまま（NE 10m の範囲外＝他の出所が要る）。NE が短い川（Han 50 km・St. Lawrence 106 km・Huai・Liao・Tarim…）は NE の描き方の限界としてそのまま
+  NE に線が無い川＝Hooghly・Iguazu・Paraguay・Shinano は seed の手書きの軸線で描く（旧＝Wikidata の点のまま・今は seed/terrains.csv に 5〜8 点の軸線）。NE が短い川（Han 50 km・St. Lawrence 106 km・Huai・Liao・Tarim…）は NE の描き方の限界としてそのまま
   内訳（9/15）: 面 570・線 151・点 191（うち Wikidata 位置のみ 116）・軸線 85。rivers.geojson / range.geojson はこの台帳に吸収できる（build 側の撤去はビューアが台帳を読むようになってから）
 - 分類（35）: continent plate ocean current region shield sea bay strait reef island islands peninsula cape isthmus range peak volcano pass plateau plain basin valley desert saltflat delta wetland ice lake river waterfall canal trench ridge pole
