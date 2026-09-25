@@ -19,8 +19,5 @@
 		"@ortho-earth/ephem": "*",
 		"@ortho-earth/globe": "*",
 		"geopbf": "*"
-	},
-	"devDependencies": {
-		"vite": "^5.0.0"
 	}
 }
