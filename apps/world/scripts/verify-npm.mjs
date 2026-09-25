@@ -57,7 +57,7 @@ writeFileSync(path.join(WORK, "package.json"), JSON.stringify({ name: "consumer"
 writeFileSync(path.join(WORK, "index.html"), `<!DOCTYPE html><html><head><meta charset="utf-8"><title>consumer</title>
 <style>html,body{margin:0;height:100%;background:#123}#box{position:absolute;left:10px;top:10px;width:900px;height:600px}</style>
 </head><body><div id="box"></div><script type="module" src="/src/main.js"></script></body></html>`);
-// 消費側は **top-level await を使わない**書き方にする（vite の既定 target は es2020＝TLA を許さない）。
+// 消費側は **top-level await を使わない**書き方にする（vite 6 以前の既定 target は es2020＝TLA を許さない）。
 // ここで .then() を通しておけば「普通の設定の普通のアプリ」で動くことの証明になる。
 writeFileSync(path.join(WORK, "src/main.js"), `import world from "ortho-world";
 import "ortho-world/ortho-world.css";
@@ -68,7 +68,7 @@ world({ target: "#box", lang: "en" }).then(w => {
 });
 `);
 console.log("… npm install（tarball＋vite）");
-execFileSync("npm", ["install", tarball, "vite@^6", "--no-audit", "--no-fund", "--silent"], { cwd: WORK, stdio: "inherit" });
+execFileSync("npm", ["install", tarball, "vite@^8","--no-audit", "--no-fund", "--silent"], { cwd: WORK, stdio: "inherit" });
 console.log("… vite build（消費者バンドラ実通し）");
 execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: WORK, stdio: "inherit" });
 
