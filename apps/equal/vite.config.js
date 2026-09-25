@@ -14,11 +14,17 @@ const coiHeaders = server => {   // 戻り値なし（configureServer の戻り�
 };
 const crossOriginIsolation = { name: "cross-origin-isolation", configureServer: coiHeaders, configurePreviewServer: coiHeaders };
 
+// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・world／ortho-nl と同じ＝globe を束ねる vite 8 アプリの決まり）。
+// 既定 on だと実行時ヘルパ __exportAll の共通チャンクが動的エントリに合流し、worker がヘルパ欲しさに無関係の重いチャンク
+// （nl では mesh-loaders＋basis-loader 220KB）を静的 import する。equal は今は 3D を含まず無症状だが、入った時に踏まないよう先に。
+// worker は別ビルド＝build と worker の両方に要る。experimental の口＝rolldown を上げたら確かめ直す。
+const noChunkOptimization = { experimental: { chunkOptimization: false } };
+
 // base './'＝どのパスにマウントしても動く相対参照（solar と同じ型）。
 export default defineConfig({
 	plugins: [crossOriginIsolation],
 	base: "./",
-	build: { outDir: "dist/site/equal", emptyOutDir: true, target: "es2022" },   // target＝トップレベル await を許す（起動時に UI の訳を揃える）
-	worker: { format: "es" },   // geopbf は module worker 連鎖＝既定 iife だとビルドが落ちる（ortho-japan と同じ轍）
+	build: { outDir: "dist/site/equal", emptyOutDir: true, target: "es2022", rolldownOptions: noChunkOptimization },   // target＝トップレベル await を許す（起動時に UI の訳を揃える）
+	worker: { format: "es", rolldownOptions: noChunkOptimization },   // geopbf は module worker 連鎖＝既定 iife だとビルドが落ちる（ortho-japan と同じ轍）
 	server: { port: 5198 },
 });
