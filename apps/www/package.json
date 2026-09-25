@@ -4,9 +4,9 @@
 	"license": "GPL-3.0-or-later",
 	"scripts": {
 		"dev": "vite",
-		"build": "node scripts/verify-i18n.mjs && vite build",
+		"build": "node scripts/verify-i18n.mjs && node --test tests/t-start-sync.mjs && vite build",
 		"preview": "vite preview",
-		"test": "node --test tests/t-prefetch.mjs tests/t-demos-csv.mjs",
+		"test": "node --test tests/t-prefetch.mjs tests/t-demos-csv.mjs tests/t-start-sync.mjs",
 		"i18n:build": "node scripts/i18n-build.mjs",
 		"verify:i18n": "node scripts/verify-i18n.mjs",
 		"demos:export": "node scripts/demos-csv.mjs export",

@@ -73,7 +73,7 @@
 				<!--DEMOS-->
 				<p class="edu-note" data-t="Free to use in education, always. Ready to use as is in classrooms around the world.">Free to use in education, always. Ready to use as is in classrooms around the world.</p>
 			</div>
-			<!-- 始める（2026-09-25 作り直し）：段組をやめて 1 列＝二つの道（コードで／AI エージェントで）を手順で。どの手順も公開済みの npm で実走させて確かめた物
+			<!-- 始める（2026-09-25 作り直し・同日に手順を start.md と一字一句そろえた＝tests/t-start-sync.mjs が門）：段組をやめて 1 列＝二つの道（コードで／AI エージェントで）を手順で。どの手順も公開済みの npm で実走させて確かめた物
 			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない -->
 			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
 				<p class="start-lead" data-t="Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.">Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.</p>
@@ -92,16 +92,39 @@ npm install @ortho-earth/globe</code></pre></li>
   optimizeDeps: { exclude: ["@ortho-earth/globe", "@ortho-earth/core"] },
   worker: { format: "es" },
 };</code></pre></li>
-						<li><span data-t="Put the globe in src/main.js — index.html only needs a div with the id map">Put the globe in src/main.js — index.html only needs a div with the id map</span>
+						<li><span data-t="Replace index.html and src/main.js">Replace index.html and src/main.js</span>
+							<span class="file" translate="no" dir="ltr">index.html</span>
+							<pre class="code" translate="no" dir="ltr"><code>&lt;!doctype html&gt;
+&lt;html&gt;
+  &lt;head&gt;
+    &lt;meta charset="utf-8"&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1"&gt;
+    &lt;title&gt;My globe&lt;/title&gt;
+    &lt;link rel="icon" href="data:,"&gt;
+    &lt;style&gt;html, body { margin: 0; height: 100%; } #map { height: 100vh; }&lt;/style&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div id="map"&gt;&lt;/div&gt;
+    &lt;script type="module" src="/src/main.js"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;</code></pre>
+							<span class="file" translate="no" dir="ltr">src/main.js</span>
 							<pre class="code" translate="no" dir="ltr"><code>import { createGlobe } from "@ortho-earth/globe";
 
-const map = await createGlobe({ target: "#map", view: "#3/20/140" });</code></pre></li>
-						<li><span data-t="Run it">Run it</span>
+const map = await createGlobe({ target: "#map", view: "#3/20/140" });   // "#zoom/lat/lon"</code></pre></li>
+						<li><span data-t="Run it and open the address it prints — the Earth appears with its night side, stars and country borders">Run it and open the address it prints — the Earth appears with its night side, stars and country borders</span>
 							<pre class="code" translate="no" dir="ltr"><code>npm run dev</code></pre></li>
-						<li><span data-t="Add your own data (MapLibre-style layers)">Add your own data (MapLibre-style layers)</span>
-							<pre class="code" translate="no" dir="ltr"><code>map.addSource("cities", { type: "geojson", data: { type: "FeatureCollection", features: [
-  { type: "Feature", properties: { name: "Tokyo" },
-    geometry: { type: "Point", coordinates: [139.77, 35.68] } } ] } });
+						<li><span data-t="Add your own data at the end of src/main.js (MapLibre-style layers)">Add your own data at the end of src/main.js (MapLibre-style layers)</span>
+							<pre class="code" translate="no" dir="ltr"><code>map.addSource("cities", {
+  type: "geojson",
+  data: {
+    type: "FeatureCollection",
+    features: [
+      { type: "Feature", properties: { name: "Tokyo" }, geometry: { type: "Point", coordinates: [139.77, 35.68] } },
+      { type: "Feature", properties: { name: "Seoul" }, geometry: { type: "Point", coordinates: [126.98, 37.57] } },
+    ],
+  },
+});
 await map.addLayer({ id: "cities", type: "circle", source: "cities",
   paint: { "circle-radius": 6, "circle-color": "#e4572e" } });</code></pre></li>
 					</ol>
