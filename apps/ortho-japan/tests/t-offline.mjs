@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // オフラインパック（#40）の純関数の常設検定：①タイル列挙（bbox×z・被覆で切る）②枚数＝列の長さ ③標高のセル名（altpbf の綴り）
 // ④見積り ⑤実行器（並列・飛ばし・失敗・中断）
-import { tilesFor, tileCount, demCells, demNames, estimateBytes, runFetches, bboxIntersects, fmtMB } from "@ortho-earth/globe/offline-pack.js";
+import { tilesFor, tileCount, demCells, demNames, estimateBytes, runFetches, bboxIntersects, fmtMB, splitBbox, tplOf } from "@ortho-earth/globe/offline-pack.js";
 import { encodeName } from "altpbf";
 
 let ok = 0, ng = 0;
@@ -20,6 +20,9 @@ t("標高：跨ぐ範囲＝2×2", demCells([139.5, 35.5, 140.5, 36.5], 1).length
 t("標高：南西半球の綴り", demCells([-70.5, -33.5, -70.4, -33.4], 1)[0] === "R01S034W071" && encodeName(-71, -34, 1) === "R01S034W071");
 t("標高：z<9 は R10 だけ・z≥9 で R01 も", demNames(TOKYO, 8).length === 1 && demNames(TOKYO, 9).length === 2);
 t("見積り：標本の平均×枚数／標本なしは既定", estimateBytes(10, [1000, 3000]) === 20000 && estimateBytes(4, []) === 4 * 24 * 1024);
+t("±180 を跨ぐ範囲＝2 つに分けて数える", splitBbox([179, 30, -179, 31]).length === 2 && tileCount([179, 30, -179, 31], 8, 8) === tileCount([179, 30, 180, 31], 8, 8) + tileCount([-180, 30, -179, 31], 8, 8) && tileCount([179, 30, -179, 31], 8, 8) > 0);
+t("緯度は ±85.05 に切る（y が範囲外にならない）", tilesFor([0, 80, 1, 89.9], 4, 4).every(([z, x, y]) => y >= 0 && y < 16) && splitBbox([0, -89, 1, 89])[0][1] === -85.0511);
+t("tileUrl → 型紙", tplOf((z, x, y) => `https://a.example/xyz/${z}/${x}/${y}.pbf`) === "https://a.example/xyz/{z}/{x}/{y}.pbf" && tplOf((z, x, y) => `https://b.example/t?z=${z}&x=${x}&y=${y}&v=27`) === "https://b.example/t?z={z}&x={x}&y={y}&v=27");
 t("bbox の交差", bboxIntersects([0, 0, 1, 1], [0.5, 0.5, 2, 2]) && !bboxIntersects([0, 0, 1, 1], [1, 1, 2, 2]));
 t("fmtMB", fmtMB(1.5e9) === "1.50 GB" && fmtMB(2.5e6) === "2.5 MB" && fmtMB(3000) === "3 KB");
 

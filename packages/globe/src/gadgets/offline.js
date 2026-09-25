@@ -8,7 +8,8 @@
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
 import { Cache } from "native-bucket";
-import { PACK_CACHE, tilesFor, tileCount, demNames, estimateBytes, bboxIntersects, fmtMB, runFetches } from "../offline-pack.js";
+import { expandTemplate } from "@ortho-earth/core/raster-src";   // {z}/{x}/{y}・{s}・{-y}/tms の展開＝エンジンと同じ URL を作る
+import { PACK_CACHE, tilesFor, tileCount, demNames, estimateBytes, bboxIntersects, fmtMB, runFetches, tplOf } from "../offline-pack.js";
 const t = tr();
 
 const ICON = `<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#3f4757" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -19,33 +20,38 @@ const DEM_BYTES = { R10: 6e6, R01: 3e6 };   // 見積り用の 1 セルあたり
 export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = {}) {
 	const map = this, mapEl = this.mapEl;
 	if (mapEl.querySelector("#offline-btn")) return () => {};
+	if (!sources?.basemap?.tileUrl) return () => {};   // XYZ の基図が無い（PMTiles・基図なし）＝載せない
 	const btn = document.createElement("button");
 	btn.id = "offline-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Offline pack"); btn.setAttribute("aria-label", t("Offline pack"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
-	const ledgerP = Cache("GIS/pack").catch(() => null);
-	const cacheP = typeof caches !== "undefined" ? caches.open(PACK_CACHE).catch(() => null) : Promise.resolve(null);
+	// 台帳（IDB GIS/pack）と Cache Storage は開いた時に初めて開く（起動時に GIS の版を上げに行かない）。失敗＝次の機会にもう一度
+	let ledgerH = null, cacheH = null;
+	const ledger = async () => ledgerH ??= await Cache("GIS/pack").catch(() => null);
+	const store = async () => cacheH ??= typeof caches !== "undefined" ? await caches.open(PACK_CACHE).catch(() => null) : null;
+	const swNotify = () => { try { navigator.serviceWorker?.controller?.postMessage({ type: "oj-pack" }); } catch { /* SW なし */ } };   // SW の「パックがあるか」を取り直させる
 	let panel = null, ac = null, est = null, estSeq = 0;
 
-	// パックの中身（URL 列）＝台帳の記録から作り直せる（URL は持たない）
+	// パックの中身（URL 列）＝台帳の記録から作り直す（型紙と被覆は記録に残す＝後で基図が変わっても同じ URL）
 	const urlsOf = p => {
 		const out = [];
-		for (const [z, x, y] of tilesFor(p.bbox, p.zmin, p.zmax, sources.basemap.coverage)) out.push(sources.basemap.tileUrl(z, x, y));
-		for (const r of p.rasters || []) for (const [z, x, y] of tilesFor(p.bbox, Math.max(r.minZoom ?? 0, p.zmin), Math.min(r.maxZoom ?? 22, p.zmax))) out.push(rasterUrl(r.url, z, x, y));
+		for (const [z, x, y] of tilesFor(p.bbox, p.zmin, p.zmax, p.cov)) out.push(expandTemplate(p.tpl, z, x, y));
+		for (const r of p.rasters || []) for (const [z, x, y] of tilesFor(p.bbox, Math.max(r.minZoom ?? 0, p.zmin), Math.min(r.maxZoom ?? 22, p.zmax))) out.push(expandTemplate(r.url, z, x, y, r.subdomains, r.tms));
 		return out;
 	};
-	const rasterUrl = (tpl, z, x, y) => tpl.split("{z}").join(String(z)).split("{x}").join(String(x)).split("{y}").join(String(y)).split("{-y}").join(String((1 << z) - 1 - y)).replace("{s}", "a");
+	const keyOf = p => JSON.stringify([p.bbox, p.zmin, p.zmax, p.tpl, (p.rasters || []).map(r => r.id)]);   // 同じ計画＝同じパック（もう一度＝続きから）
 	const planOf = () => {   // 今のパネルの入力から計画
 		const $ = s => panel.querySelector(s);
 		const bbox = bounds(); if (!bbox) return null;
 		const zmax = +$(".of-z").value, zmin = Math.max(sources.basemap.minZ ?? 4, 4);
 		const rasters = $(".of-ras")?.checked ? sources.rasters.list() : [];
 		const meshSets = sources.mesh && $(".of-mesh")?.checked ? sources.mesh.sets().filter(s => bboxIntersects(s.bbox, bbox)).map(s => s.name) : [];
-		return { bbox: bbox.map(v => +v.toFixed(4)), zmin, zmax, rasters: rasters.map(r => ({ id: r.id, url: r.url, minZoom: r.minZoom, maxZoom: r.maxZoom })), mesh: meshSets, dem: sources.dem ? demNames(bbox, zmax) : [] };
+		return { bbox: bbox.map(v => +v.toFixed(4)), zmin, zmax, tpl: tplOf(sources.basemap.tileUrl), cov: sources.basemap.coverage || null, rasters: rasters.map(r => ({ id: r.id, url: r.url, minZoom: r.minZoom, maxZoom: r.maxZoom, subdomains: r.subdomains || null, tms: !!r.tms })), mesh: meshSets, dem: sources.dem ? demNames(bbox, zmax) : [] };
 	};
 	// 見積り＝基図は zmax の標本 6 枚を実測して外挿・標高は定数・建物は区の数だけ
 	const estimate = async () => {
 		const $ = s => panel.querySelector(s), seq = ++estSeq, plan = planOf();
+		est = null; $(".of-run").disabled = true;   // 古い見積りで作らない（見積り中・範囲が取れない間は押せない）
 		if (!plan) { $(".of-est").textContent = t("Move the map so the whole view is on the globe"); return; }
 		const tiles = tileCount(plan.bbox, plan.zmin, plan.zmax, sources.basemap.coverage);
 		let rasTiles = 0; for (const r of plan.rasters) rasTiles += tileCount(plan.bbox, Math.max(r.minZoom ?? 0, plan.zmin), Math.min(r.maxZoom ?? 22, plan.zmax));
@@ -66,7 +72,7 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 		$(".of-run").disabled = tooBig || tiles + rasTiles === 0;
 	};
 	const listPacks = async () => {
-		const $ = s => panel.querySelector(s), led = await ledgerP;
+		const $ = s => panel.querySelector(s), led = await ledger();
 		const keys = led ? await led() : [], rows = [];
 		for (const k of keys) { const p = await led(k); if (p) rows.push(p); }
 		rows.sort((a, b) => b.ts - a.ts);
@@ -76,23 +82,31 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 	};
 	const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 	const delPack = async id => {
-		const led = await ledgerP, cache = await cacheP; if (!led) return;
+		const led = await ledger(), cache = await store(); if (!led) return;
 		const p = await led(id); if (!p) return;
-		if (cache) {   // 他のパックが使う URL は残す
+		if (cache) {   // 他のパックが使う URL は残す。消すのは Cache に実際にある物だけ・64 件ずつ並列
 			const keep = new Set();
 			for (const k of await led()) if (k !== id) { const q = await led(k); if (q) for (const u of urlsOf(q)) keep.add(u); }
-			for (const u of urlsOf(p)) if (!keep.has(u)) await cache.delete(u);
+			const have = new Set((await cache.keys()).map(r => r.url));
+			const del = urlsOf(p).filter(u => have.has(u) && !keep.has(u));
+			for (let i = 0; i < del.length; i += 64) await Promise.all(del.slice(i, i + 64).map(u => cache.delete(u)));
 		}
 		await led(id, null);
+		if (!(await led()).length && typeof caches !== "undefined") { cacheH = null; await caches.delete(PACK_CACHE).catch(() => {}); }   // 最後の 1 つ＝置き場ごと消す（SW の照会が止まる）
+		swNotify();
 		listPacks();
 	};
 	const run = async () => {
 		if (ac || !est) return;
-		const $ = s => panel.querySelector(s), plan = est.plan, cache = await cacheP, led = await ledgerP;
+		const $ = s => panel.querySelector(s), plan = est.plan, cache = await store(), led = await ledger();
 		ac = new AbortController();
 		$(".of-run").style.display = "none"; $(".of-stop").style.display = "";
-		const id = "p" + Date.now().toString(36), name = $(".of-name").value.trim() || defaultName(plan.bbox);
-		const rec = { id, name, bbox: plan.bbox, zmin: plan.zmin, zmax: plan.zmax, rasters: plan.rasters, mesh: plan.mesh, dem: plan.dem, tiles: est.tiles, bytes: 0, ts: Date.now(), done: false };
+		// 同じ計画のパックが台帳にあれば続き（記録を引き継ぎ・容量は足す）。無ければ新規
+		let rec = null;
+		if (led) for (const k of await led()) { const q = await led(k); if (q && keyOf(q) === keyOf(plan)) { rec = q; break; } }
+		if (!rec) rec = { id: "p" + Date.now().toString(36), name: $(".of-name").value.trim() || defaultName(plan.bbox), bbox: plan.bbox, zmin: plan.zmin, zmax: plan.zmax, tpl: plan.tpl, cov: plan.cov, rasters: plan.rasters, mesh: plan.mesh, dem: plan.dem, tiles: est.tiles, bytes: 0, ts: Date.now(), done: false };
+		else { rec.mesh = plan.mesh; rec.dem = plan.dem; rec.ts = Date.now(); rec.done = false; }
+		const id = rec.id;
 		if (led) await led(id, rec);
 		const prog = (label, p) => { $(".of-prog").textContent = `${label} ${p.done}/${p.total}${p.bytes ? " · " + fmtMB(p.bytes) : ""}${p.failed ? " · " + t("$1 failed", p.failed) : ""}`; $(".of-bar").style.width = (p.total ? 100 * p.done / p.total : 0) + "%"; };
 		try {
@@ -100,7 +114,7 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 			const urls = urlsOf(plan);
 			const r1 = await runFetches(urls, {
 				has: async u => !!(cache && await cache.match(u)),
-				fetchOne: async (u, sig) => { const res = await fetch(u, { signal: sig }); if (!cache) return res.ok ? (await res.arrayBuffer()).byteLength : 0; if (res.status === 206 || (!res.ok && res.status !== 404 && res.status !== 204)) return -1; const b = res.ok ? +(res.headers.get("content-length") || 0) : 0; await cache.put(u, res); return b; },   // 404/204＝空タイルとして残す（オフラインでも「無い」が分かる）
+				fetchOne: async (u, sig) => { const res = await fetch(u, { signal: sig }); if (!cache) return res.ok ? (await res.arrayBuffer()).byteLength : 0; if (res.status === 206 || (!res.ok && res.status !== 404 && res.status !== 204)) return -1; const b = res.ok ? (await res.clone().arrayBuffer()).byteLength : 0; await cache.put(u, res); return b; },   // 404/204＝空タイルとして残す（オフラインでも「無い」が分かる）。大きさは中身で数える（Content-Length は他オリジンだと読めない）
 				onProgress: p => prog(t("Map tiles"), p), signal: ac.signal, concurrency: 6,
 			});
 			rec.bytes += r1.bytes;
@@ -115,6 +129,7 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 			$(".of-prog").textContent = r1.aborted ? t("Stopped (run again to resume)") : r1.failed ? t("Done with $1 failed (run again to retry)", r1.failed) : t("Done. This area now opens offline.");
 		} catch (e) { $(".of-prog").textContent = String(e?.message || e); }
 		if (led) await led(id, rec);
+		swNotify();
 		ac = null; $(".of-run").style.display = ""; $(".of-stop").style.display = "none";
 		listPacks();
 	};
@@ -148,5 +163,5 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 	const open = async () => { if (!panel) build(); panel.style.display = ""; btn.classList.add("on"); btn.setAttribute("aria-pressed", "true"); onOpen?.(); listPacks(); if (sources.mesh?.warm) await sources.mesh.warm(); estimate(); };
 	const close = () => { if (panel) panel.style.display = "none"; btn.classList.remove("on"); btn.setAttribute("aria-pressed", "false"); };
 	btn.addEventListener("click", () => panel && panel.style.display !== "none" ? close() : open(), { signal });
-	return { open, close, estimate: async () => { if (!panel) build(); await estimate(); return est; }, run, list: async () => { const led = await ledgerP; if (!led) return []; const out = []; for (const k of await led()) { const p = await led(k); if (p) out.push(p); } return out.sort((a, b) => b.ts - a.ts); }, delete: delPack, get busy() { return !!ac; } };
+	return { open, close, estimate: async () => { if (!panel) build(); await estimate(); return est; }, run, list: async () => { const led = await ledger(); if (!led) return []; const out = []; for (const k of await led()) { const p = await led(k); if (p) out.push(p); } return out.sort((a, b) => b.ts - a.ts); }, delete: delPack, get busy() { return !!ac; } };
 }
