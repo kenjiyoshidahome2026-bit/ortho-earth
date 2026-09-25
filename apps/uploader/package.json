@@ -16,8 +16,5 @@
 		"geopbf": "*",
 		"geotiff": "^3.0.5",
 		"native-bucket": "*"
-	},
-	"devDependencies": {
-		"vite": "^8.3.1"
 	}
 }
