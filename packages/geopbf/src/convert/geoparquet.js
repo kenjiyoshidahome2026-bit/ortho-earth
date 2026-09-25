@@ -97,7 +97,9 @@ const CRS84 = { "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
 
 // 属性列の推定: GeoPBF の keys（"a.b" 平坦化済み）× 全行の値の型
 function inferColumns(pbf, keep = null) {
-	const rows = pbf.props ?? pbf.propertiesTable.slice(1), keys = pbf.keys;
+	// propertiesTable＝未復号の行を埋めてから返す。pbf.props は遅延の器（worker 経由の読み＝skipProps は全部 undefined）＝
+	// 旧 `pbf.props ?? …` は空の器を掴んで属性列が空・一部だけ触った行しか書かれなかった（B4・2026-09-25）
+	const rows = pbf.propertiesTable.slice(1), keys = pbf.keys;
 	const cols = [];
 	keys.forEach((key, ki) => {
 		if (keep && !keep(key)) return;
@@ -215,7 +217,7 @@ export async function toGeoParquet(pbf, opts = {}) {
 	const props = inferColumns(pbf, attrFilter(opts));
 	// ── 列を並べ替え順に転置して連続配列へ（行→列の 1 回の走査。ライタが行毎に perm を引いて行配列を辿る間接参照を消す）
 	const tt = now();
-	const N = pbf.length, rows = pbf.props ?? pbf.propertiesTable.slice(1);
+	const N = pbf.length, rows = pbf.propertiesTable.slice(1);   // 上の inferColumns と同じ（遅延の器を直に読まない）
 	const colVals = props.map(() => new Array(N)), wkbS = new Array(N), bboxS = withBbox ? [new Array(N), new Array(N), new Array(N), new Array(N)] : null;
 	for (let i = 0; i < N; i++) {
 		const j = perm ? perm[i] : i, row = rows[j], g = wkb[j];
