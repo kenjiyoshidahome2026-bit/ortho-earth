@@ -3,7 +3,7 @@
 //   旧 v1（type:"sceneCollection"）の transition/defaults・hold:0 連続の束ね規約・camera.keys 互換・秒⇄ms 変換はすべて撤去。
 //   時間の単位は台本もオプションも全部「秒」（hold/slideHold/travel）＝ms 化は demo.js の内側だけ。
 // 言語：台本側に言語指定は無い（旧 top-level lang は撤去 2026-08-08）＝既定で見せたい言語を title にそのまま書く。
-//   他言語は行の言語兄弟（en:/jp:…）で足し、選ぶのは視聴者の ?lang=（demo の scene[lang] ?? title）。
+//   他言語は行の言語兄弟（en:/ja:…）で足し、選ぶのは視聴者の ?lang=（demo の scene[lang] ?? title）。
 // issues＝任意の診断コレクタ（エディタ用・scene-format.md §7）：渡すと {row, code, msg} を push し console.warn しない
 //   ＝行内エラー表示は呼び出し側の仕事。code＝"empty-row" | "leading-via" | "orphan-via"。row＝0起点の行番号。
 
