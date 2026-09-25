@@ -30,3 +30,18 @@ ALLOWED_DOMAINS = "www.ortho-earth.com,ortho-earth.com,kenjiyoshidahome2026-bit.
 # sekai-hub.com / hdr.undp.org＝国別DB（uploader world 節）の統計ソース（2026-08-31 追加。
 #   dev の uploader は同一オリジン経由で Origin が付かず、Fetch のキー配線が無い旧クライアントも居るため①に載せる）
 PROXY_ALLOWED_HOSTS = "e-stat.go.jp,mlit.go.jp,gsi.go.jp,maff.go.jp,geospatial.jp,env.go.jp,jma.go.jp,jishin.go.jp,japanpost.jp,jaxa.jp,naturalearthdata.com,naturalearth.s3.amazonaws.com,census.gov,wikipedia.org,wikidata.org,wikimedia.org,dap.ceda.ac.uk,gebco.net,sekai-hub.com,hdr.undp.org"
+
+# 回数上限（案 1・2026-09-25）＝Origin だけを根拠に通す分を IP ごとに数える（Origin は curl で偽れる＝実質の歯止め）。
+#   PROXY_RL ：/proxy の許可表（PROXY_ALLOWED_HOSTS）外のホスト＝任意 URL を開く・Tellus の署名 URL の Range 読み
+#   TELLUS_RL：/tellus＝Tellus トークンの枠を守る
+# 鍵（X-API-Key）持ちと許可表のホストは数えない。超えたら 429（Retry-After: 60）。拠点ごとの概算・period は 10 か 60 だけ。
+# binding が無い環境（wrangler dev・ミラーの自前 deploy）は素通し（workers/proxy.js の overLimit）。
+[[ratelimits]]
+name = "PROXY_RL"
+namespace_id = "1001"
+simple = { limit = 1200, period = 60 }
+
+[[ratelimits]]
+name = "TELLUS_RL"
+namespace_id = "1002"
+simple = { limit = 120, period = 60 }

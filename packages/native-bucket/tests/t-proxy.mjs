@@ -136,6 +136,40 @@ await t("★未設定なら未信頼は全て弾く", async () =>
 await t("未設定でも信頼済みは通る", async () =>
 	eq((await call("https://www.e-stat.go.jp/x", { origin: "https://www.ortho-earth.com", env: { ALLOWED_DOMAINS: ENV.ALLOWED_DOMAINS } })).status, 200, "status"));
 
+console.log("── 回数上限（案 1：Origin だけで通る分を IP ごとに数える）");
+// 偽の limiter：limit 回目までは success、以降は false。数えた key も記録する
+const fakeRL = (limit) => { const seen = []; return { seen, limit: async ({ key }) => { seen.push(key); return { success: seen.length <= limit }; } }; };
+const callIP = (target, opts = {}) => {
+	calls = [];
+	const u = new URL(`${PROXY_ORIGIN}/proxy/`); u.searchParams.set("url", target);
+	const headers = new Headers({ "CF-Connecting-IP": "203.0.113.7" });
+	if (opts.origin) headers.set("Origin", opts.origin);
+	if (opts.key) headers.set("X-API-Key", opts.key);
+	return proxy(new Request(u, { headers }), opts.env);
+};
+await t("★許可表外ホストへ Origin だけで通る分は上限を超えると 429・上流へ出ない", async () => {
+	const rl = fakeRL(2), env = { ...ENV, PROXY_RL: rl };
+	for (let i = 0; i < 2; i++) eq((await callIP("https://example.com/x", { origin: "https://www.ortho-earth.com", env })).status, 200, `${i + 1} 回目`);
+	const res = await callIP("https://example.com/x", { origin: "https://www.ortho-earth.com", env });
+	eq(res.status, 429, "3 回目"); eq(res.headers.get("Retry-After"), "60", "Retry-After"); eq(calls.length, 0, "上流呼び出し");
+	eq(rl.seen[0], "203.0.113.7", "IP で数える");
+});
+await t("許可表のホストは数えない（Origin 無しでも有りでも）", async () => {
+	const rl = fakeRL(0), env = { ...ENV, PROXY_RL: rl };
+	eq((await callIP("https://www.e-stat.go.jp/x", { env })).status, 200, "Origin 無し");
+	eq((await callIP("https://www.e-stat.go.jp/x", { origin: "https://www.ortho-earth.com", env })).status, 200, "Origin 有り");
+	eq(rl.seen.length, 0, "数えた回数");
+});
+await t("鍵持ちは数えない", async () => {
+	const rl = fakeRL(0), env = { ...ENV, PROXY_RL: rl };
+	eq((await callIP("https://example.com/x", { key: "secret-key", env })).status, 200, "status"); eq(rl.seen.length, 0, "数えた回数");
+});
+await t("limiter が無い・壊れている時は素通し（取れなくする事故を作らない）", async () => {
+	eq((await callIP("https://example.com/x", { origin: "https://www.ortho-earth.com", env: ENV })).status, 200, "binding 無し");
+	const broken = { limit: async () => { throw new Error("down"); } };
+	eq((await callIP("https://example.com/x", { origin: "https://www.ortho-earth.com", env: { ...ENV, PROXY_RL: broken } })).status, 200, "故障");
+});
+
 console.log("── 入口（workers/index.js）の CORS と応答ヘッダ");
 const W_ENV = { ...ENV, ALLOWED_DOMAINS: "www.ortho-earth.com,ortho-earth.com,localhost:5173," };   // 末尾カンマ＝空の項目も混ぜる
 const preflight = (origin, reqMethod = "POST") => worker.fetch(new Request(`${PROXY_ORIGIN}/bucket/x`, {
