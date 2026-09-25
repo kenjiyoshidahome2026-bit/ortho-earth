@@ -502,7 +502,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)
+	const globeBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+atmP（#46 段 1）
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG = null;   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
@@ -1587,7 +1587,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(48);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）
+			const g = new Float32Array(64);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）
 			g.set(st.invMvp, 0);
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
@@ -1600,6 +1600,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			g[36] = far.bounds[0]; g[37] = far.bounds[1]; g[38] = far.bounds[2]; g[39] = far.bounds[3];   // far床（世界帯z<8=R90全球固定窓）
 			g[40] = far.has; g[41] = elev.edgeFade || 0;   // farP=(hasFar, 近窓縁フェード幅deg, 0, 0)
 			g[44] = view.globeAlpha ?? 1;   // misc.x＝球体の不透明度（globe/wdepr/terrain(p2.w)/湖/夜面に一括）
+			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
+			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
+			g[52] = view.atmSun ?? 20; g[53] = view.atmExposure ?? 1; g[54] = view.atmGround ?? 0.5; g[55] = 0;   // 太陽の強さ・露出・床の空気遠近の強さ（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
@@ -2025,6 +2028,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
+			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
 			case "scene":   setScene(data, prop); break;
 			case "elevAtlas": setElevationAtlas(data, prop); break;

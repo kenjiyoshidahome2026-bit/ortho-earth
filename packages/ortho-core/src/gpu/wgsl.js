@@ -775,6 +775,8 @@ struct Globe {
 	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
 	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
+	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
+	atmP: vec4f,         // (太陽の強さ, 露出, 球の床の空気遠近の強さ 0..1＝地理の読みやすさのため既定は半分, 0)
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -812,6 +814,76 @@ fn gElevAt(ll: vec2f) -> f32 {
 	}
 	return mix(gElevFar(ll), textureSampleLevel(gElevTex, gSamp, uv, 0.0).r, fade);
 }
+// ── 大気散乱（#46 段 1・2026-09-26）＝Rayleigh＋Mie の単散乱・Nishita 流のレイマーチ。単位＝地球半径（1.0）。誇張しない＝実寸の殻と実測の係数。
+// 視線 ATM_N 段・各段から太陽への透過は ATM_NS 段。太陽の方向は G.sun.xyz（地球固定）。露出＝1−exp(−L×露出)・出口で sRGB 符号化。
+// 点ける度合い G.sun.w＝0 なら呼ばれない（従来のリム光と霞）。fsWdepr も同じ関数＝球の床と画素一致。
+const ATM_RT: f32 = 1.0157;                          // 大気の上端 ≈ 100 km
+const ATM_HR: f32 = 0.001256;                        // Rayleigh のスケール高 8 km
+const ATM_HM: f32 = 0.000188;                        // Mie 1.2 km
+const ATM_BR: vec3f = vec3f(36.9, 86.0, 210.9);      // Rayleigh 散乱係数（5.8/13.5/33.1 e-6 /m × 6371 km）
+const ATM_BM: f32 = 133.8;                           // Mie 散乱（21e-6 /m）
+const ATM_BME: f32 = 147.2;                          // Mie 消散（散乱×1.1）
+const ATM_G: f32 = 0.76;                             // Mie の非対称
+const ATM_N: i32 = 8;
+const ATM_NS: i32 = 3;
+struct AtmR { L: vec3f, T: vec3f };
+// 球（半径 r）と半直線 o+t·d（d は単位）の交点 (t0,t1)。交わらなければ (-1,-1)
+fn atmShell(o: vec3f, d: vec3f, r: f32) -> vec2f {
+	let b = dot(o, d); let c = dot(o, o) - r * r; let h = b * b - c;
+	if (h < 0.0) { return vec2f(-1.0); }
+	let sq = sqrt(h);
+	return vec2f(-b - sq, -b + sq);
+}
+fn atmDensity(p: vec3f) -> vec2f { let h = max(length(p) - 1.0, 0.0); return vec2f(exp(-h / ATM_HR), exp(-h / ATM_HM)); }
+// p から太陽の方向へ上端までの光学的厚み（Rayleigh, Mie）。地球に遮られれば ∞ 扱い
+fn atmOptSun(p: vec3f, s: vec3f) -> vec2f {
+	let b = dot(p, s);
+	if (b < 0.0 && dot(p, p) - b * b < 1.0) { return vec2f(1e9); }   // 最接近が前方かつ球の中＝地球の影
+	let sh = atmShell(p, s, ATM_RT);
+	let ds = max(sh.y, 0.0) / f32(ATM_NS);
+	var od = vec2f(0.0);
+	for (var i = 0; i < ATM_NS; i++) { od += atmDensity(p + s * (ds * (f32(i) + 0.5))) * ds; }
+	return od;
+}
+// o+t·d の t∈[t0,t1] を積分。戻り＝散乱光 L（リニア・放射輝度）と透過率 T（rgb）
+fn atmScatter(o: vec3f, d: vec3f, t0: f32, t1: f32, s: vec3f) -> AtmR {
+	let mu = dot(d, s);
+	let phR = 3.0 / (16.0 * 3.14159265) * (1.0 + mu * mu);
+	let g2 = ATM_G * ATM_G;
+	let phM = 3.0 / (8.0 * 3.14159265) * (1.0 - g2) * (1.0 + mu * mu) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * ATM_G * mu, 1.5));
+	let ds = (t1 - t0) / f32(ATM_N);
+	var odV = vec2f(0.0); var sumR = vec3f(0.0); var sumM = vec3f(0.0);
+	for (var i = 0; i < ATM_N; i++) {
+		let p = o + d * (t0 + ds * (f32(i) + 0.5));
+		let dn = atmDensity(p) * ds;
+		odV += dn;
+		let od = odV + atmOptSun(p, s);
+		let tr = exp(-(ATM_BR * od.x + vec3f(ATM_BME * od.y)));
+		sumR += tr * dn.x; sumM += tr * dn.y;
+	}
+	var r: AtmR;
+	r.L = (sumR * ATM_BR * phR + sumM * ATM_BM * phM) * G.atmP.x;
+	r.T = exp(-(ATM_BR * odV.x + vec3f(ATM_BME * odV.y)));
+	return r;
+}
+fn atmTone(L: vec3f) -> vec3f { return srgbEncodeG(vec3f(1.0) - exp(-L * G.atmP.y)); }
+fn srgbEncodeG(c: vec3f) -> vec3f { let x = max(c, vec3f(0.0)); return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308)); }
+fn srgbDecodeG(c: vec3f) -> vec3f { let x = max(c, vec3f(0.0)); return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045)); }
+// 球に当たった画素の空気遠近＝base（表示空間）を透過率で減らし散乱光を足す（リニアで合成し戻す）。k＝点ける度合い（従来の霞と混ぜる）
+fn atmGround(base: vec3f, A: vec3f, Pt: vec3f, viewDir: vec3f, k: f32) -> vec3f {
+	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
+	let haze = pow(1.0 - ndv, 3.0);
+	let old = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
+	if (k <= 0.0) { return old; }
+	let dn = normalize(Pt - A);
+	let sh = atmShell(A, dn, ATM_RT);
+	let t0 = max(sh.x, 0.0); let t1 = length(Pt - A);
+	let r = atmScatter(A, dn, t0, t1, G.sun.xyz);
+	let kg = G.atmP.z;   // 床の空気遠近の強さ（宇宙から見た陸の青い霞は物理どおりだと段彩が読みにくい＝既定は半分・view.atmGround で調整）
+	let lin = srgbDecodeG(base) * mix(vec3f(1.0), r.T, kg) + r.L * kg;
+	let phys = srgbEncodeG(vec3f(1.0) - exp(-lin * G.atmP.y));
+	return mix(old, phys, k);
+}
 struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> GOut {
 	var o: GOut;
@@ -835,10 +907,23 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		if (tstar > 0.0) { m = sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0)); }
 		var g = 1.0 - smoothstep(1.0, 1.09, m);
 		g = g * (1.0 - smoothstep(0.0, 0.55, dot(normalize(d), A / lenA)));
-		if (g <= 0.0) { discard; }
 		let limbCol = mix(G.land.rgb, G.atmo.rgb, G.atmo.a * 0.9);
-		let a = g * g * mix(G.atmo.a, 1.0, g);
-		return vec4f(mix(G.atmo.rgb, limbCol, g) * a, a);   // premultiplied
+		let oa = g * g * mix(G.atmo.a, 1.0, g);
+		let old = vec4f(mix(G.atmo.rgb, limbCol, g) * oa, oa);   // premultiplied（従来のリム光）
+		let k = G.sun.w;
+		if (k <= 0.0) { if (g <= 0.0) { discard; } return old; }
+		// 大気散乱（#46 段 1）：大気殻を通る区間だけ積分。殻の外＝宇宙＝discard（星がそのまま）。星は透過率のぶん透ける（α＝1−平均透過率）
+		let dn = normalize(d);
+		let sh = atmShell(A, dn, ATM_RT);
+		var phys = vec4f(0.0);
+		if (sh.y > 0.0) {
+			let r = atmScatter(A, dn, max(sh.x, 0.0), sh.y, G.sun.xyz);
+			let a = clamp(1.0 - (r.T.x + r.T.y + r.T.z) / 3.0, 0.0, 1.0);
+			phys = vec4f(atmTone(r.L), a);
+		}
+		let o = mix(old, phys, k);
+		if (o.a <= 0.002) { discard; }
+		return o;
 	}
 	let Pt = A + t * d;
 	var base = G.land.rgb;
@@ -887,10 +972,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
-	let viewDir = normalize(A - Pt);
-	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
-	let haze = pow(1.0 - ndv, 3.0);
-	let col = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
+	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	return vec4f(col * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 }
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側を「landK=1 強制のハイプソ本体」で塗る＝
@@ -923,10 +1005,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ＝乾燥帯でも読める（gl WDEPR_FS と同式）
 	hyp = mix(hyp, hyp * WP.belowSea.rgb, clamp(-e / 60.0, 0.0, 1.0));
 	let base = mix(G.land.rgb, hyp, G.whP.x);
-	let viewDir = normalize(A - Pt);
-	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
-	let haze = pow(1.0 - ndv, 3.0);
-	return vec4f(mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9) * G.misc.x, G.misc.x);   // 球体の不透明度に従う
+	return vec4f(atmGround(base, A, Pt, normalize(A - Pt), G.sun.w) * G.misc.x, G.misc.x);   // 球体の不透明度に従う・空気遠近は globe fs と同じ関数（画素一致）
 }
 // 10度レチクル（v1 ortho-map geoGraticule10/Canvas2D の移植・gl GRAT_FS と対）：レイ→球→測地経緯度→
 // 10°格子への画素距離を fwidth で解析AA（≈0.7px 白細線）。度距離の上限ゲート＝極（経線収束）と atan 継ぎ目で
@@ -1073,7 +1152,7 @@ export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);", "\tlet c = mix(shShade(P.p1.rgb * d, in.sc), F.fogColor, in.fog);"],
 ], "MESH_SH_WGSL") + SHADOW_WGSL(3);
 export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
-	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet viewDir = normalize(A - Pt);", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet viewDir = normalize(A - Pt);"],
+	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet col = atmGround(", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround("],
 ], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
 // 影を落とす側（太陽からの深度だけ描く）：本体の頂点計算そのまま・対数深度だけ外す（正射影 w=1＝行列の z が線形の深度）。
 // 基図の押し出し建物は被覆マスクの discard だけ残す（PLATEAU メッシュが立つ所で二重に影を落とさない）。メッシュは頂点だけのパイプライン。
