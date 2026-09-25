@@ -178,6 +178,7 @@ body #demoOverlay main .apps.start .steps li { color: var(--text-primary); font-
 body #demoOverlay main .apps.start .steps li::marker { color: var(--accent-color); font-weight: 700; }
 body #demoOverlay main .apps.start pre.code { margin: .45rem 0 0; padding: .7rem .8rem; border-radius: 8px; background: rgba(0,0,0,.55); border: 1px solid var(--glass-border);
 	color: #d8f5ec; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; text-align: left; overflow-x: auto; white-space: pre; user-select: text; -webkit-user-select: text; }
+body #demoOverlay main .apps.start .steps .file { display: block; width: fit-content; margin: .6rem 0 -.2rem; font: 600 11px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text-secondary); }   /* 手順の中のファイル名（index.html／src/main.js）＝どの片がどのファイルか */
 body #demoOverlay main .apps.start pre.code.prompt { white-space: pre-wrap; color: #f3e9c6; }
 body #demoOverlay main .apps.start .copy-btn { margin-top: .4rem; padding: .3rem .8rem; border-radius: 8px; font: 600 .78rem/1 inherit; cursor: pointer;
 	color: var(--accent-color); background: rgba(0, 255, 204, 0.08); border: 1px solid rgba(0, 255, 204, 0.25); }
