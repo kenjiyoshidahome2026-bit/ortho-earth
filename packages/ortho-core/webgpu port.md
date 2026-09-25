@@ -28,7 +28,7 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
   面=stencil fan(FRONT+1/BACK-1)→cover(NOTEQUAL 0→zero)・線=LINE_WGSL 流用。`OVERLAY_WGSL`。
 - snapshot 基図読み出し＝COPY_SRC 付き canvas を flush 直後に copyTextureToBuffer+mapAsync（GL readPixels 相当）。
   top-down（compose flip:false）・Mac は BGRA→RGBA swizzle。shot/print ガジェットが両バックエンドで撮れる。
-- idfill(コロプレス)＝winding 和 ID 蓄積（rg16float・加算 blend・R=Σ±(fid+1)/G=Σ±1）→解決(R/G で fid 復元→
+- idfill(コロプレス)＝winding 和 ID 蓄積（rg32float＝float32-blendable がある時・無ければ rg16float へ縮退＝大きな fid で穴の恐れ・加算 blend・R=Σ±(fid+1)/G=Σ±1）→解決(R/G で fid 復元→
   スタイル表→色)。`GINT_STENCIL_WGSL` vsId/fsId＋`GINT_IDRESOLVE_WGSL`。rg16float はコア blendable＝
   fidStyleCount≤2047(市区町村1919)で足りる（超過/paint 無し/fillOff は単色 stencil フォールバック）。
 
@@ -98,7 +98,7 @@ placeholder 画素チェック→失敗時 WebGL2 自動着地）・?stay=1 の�
 - **クリップ z**：GL [-1,1] → WebGPU [0,1]。対数深度は `z01 = 0.5·log2(1+w)·coef` を直接書く
   （GL の window 深度と同値＝深度互換）。wgsl.js `logDepthZ`。
 - **smoothstep 逆順引数**：GLSL は黙認・WGSL は未定義動作明記＝`1-smoothstep(正順)` へ等価書換（globe）。
-- **uniform**：per-draw の gl.uniform* → 1フレーム1回の UBO 書込。Frame は 512B×4スロット
+- **uniform**：per-draw の gl.uniform* → 1フレーム1回の UBO 書込。Frame は 512B×5スロット（base/main/terrain/bld/terrainFar）
   （base/main/terrain/bld＝origin と fog の違いをスロットで表現＝GL の setCommonUniforms＋per-program
   上書きの写し）。per-draw の小物（seaGate/lift/exactDepth/色ノブ）は DrawP＝役割別6スロットの静的
   bind group（dynamic offset 不要）。詰め順は renderer.js `packFrame`/`packParams` と wgsl.js が対。

@@ -3,6 +3,10 @@
 対象は gint v2（ortho-core）の**描画定義＝APIインターフェース**。ワイヤ書式（GeoPBF）には一切触れない。
 v1（ortho-map gint）は現状のまま仕様として存続し、本仕様とは混ざらない。
 
+**実装状況（2026-09-25）**：§4 の多層（`map.addGint`＝層ごとのハンドル・`activate`・`queryAll`・`setPaint`/`setFilter`/`setData`/`setOrder`/`setLabel`・
+feature-state）は **2026-09-09 に実装済み**（packages/globe/src/gint/layers.js・WebGPU/GL2 両方・型は globe.d.ts の GintLayerHandle）。
+v1 の単一スロット口（applyGintData 等）は併存＝§10 の線引きはそのまま有効。以下の「次バージョンへ」は 8/19 時点の裁定の記録。
+
 **実装は次バージョンへ（裁定 2026-08-19）**。現行の単一スロット実装の都合がこの仕様へ逆流しないための
 線引きは **§10**（何を昇格させてはならないか・layer 単位にすべき属性・合成の位置づけ）。着手する時はそこから読む。
 
