@@ -89,7 +89,7 @@ ok(model.applyCmd({ op: "del", eid: 1 }) === null, "props 以外の op は受け
 const out = await model.toPbf();
 ok(out._precision === src._precision, "precision 継承");
 ok(out.length === 5, "全フィーチャ複写");
-ok(out.getProperties(1)["@fill"] === "rgb(51,85,170)" && out.getProperties(1).memo === "hello", "変更属性が新値（COLOR型正規化込み）");
+ok(out.getProperties(1)["@fill"] === "#3355aa" && out.getProperties(1).memo === "hello", "変更属性が新値（#hex は書いたとおり＝COLOR 型に変えない・B6 2026-09-25）");
 ok(eq(out.getProperties(0), src.getProperties(0)), "無変更フィーチャの属性は原値と一致");
 let geomSame = true;
 for (let i = 0; i < 5; i++) if (!eq(qDeep(out.getGeometry(i).coordinates), qDeep(src.getGeometry(i).coordinates))) geomSame = false;
