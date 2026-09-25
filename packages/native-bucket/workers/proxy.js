@@ -7,6 +7,7 @@
 //  ② 呼び出し元が信頼できる … Origin が ALLOWED_DOMAINS に一致、または X-API-Key が env.API_KEY と一致
 //     → 転送先は任意（GIS-HUB の「任意URLを貼って開く」・Node のバッチスクリプトがここ）
 //  GET/HEAD 以外（PUT/DELETE/POST）は転送先に関わらず X-API-Key だけが通す（Origin は偽れる＝2026-09-25）
+//  ②を Origin だけで通る分（許可表外ホスト）は IP ごとの回数上限 PROXY_RL に掛ける（Origin は偽れる＝案 1・2026-09-25）
 // どちらも通らなければ 403。PROXY_ALLOWED_HOSTS 未設定＝①が空＝②だけが通る（安全側の既定）。
 //
 // リダイレクトは自前で追う（redirect:"manual"）。allowlist のホストが 302 で任意の先へ飛ばせると
@@ -59,6 +60,17 @@ export const keyMatches = (req, env = {}) => {
 	return d === 0;
 };
 
+// 回数上限（案 1・2026-09-25）＝Origin だけを根拠に通す分（/proxy の許可表外ホスト・/tellus）を IP ごとに数える。
+// Origin は偽れる＝ここが実質の歯止め。鍵持ちと許可表のホストは数えない。limiter（Workers Rate Limiting の binding）が
+// 無い環境（wrangler dev・ミラーの自前 deploy）と limiter の故障時は素通し＝回数上限のせいで取れなくなる事故を作らない。
+export const overLimit = async (limiter, req) => {
+	if (!limiter?.limit) return false;
+	try { return !(await limiter.limit({ key: req.headers.get("CF-Connecting-IP") || "unknown" })).success; }
+	catch { return false; }
+};
+export const tooMany = () => new Response(JSON.stringify({ error: "rate limited（しばらく待つか X-API-Key を添えること）" }),
+	{ status: 429, headers: { "Content-Type": "application/json", "Retry-After": "60", "X-Proxy-Deny": "1" } });
+
 // 信頼された呼び出し元＝Origin 一致（ブラウザの頁）または API キー一致（Node バッチ）。
 // /proxy の門②（GET/HEAD）と /tellus（tellus.js）が共用。非 GET の中継は keyMatches だけで判定する（proxy() 内）。
 export const isTrusted = (req, env = {}) => originAllowed(req, env) || keyMatches(req, env);
@@ -92,6 +104,8 @@ export async function proxy(req, env = {}) {
 	// Origin は curl で偽れるので非 GET の根拠にしない（2026-09-25・偽 Origin で任意ホストへの PUT/DELETE が通っていた）
 	const method = req.method;
 	if (method !== "GET" && method !== "HEAD" && !keyMatches(req, env)) return deny(`method not allowed: ${method}（非 GET の中継は X-API-Key が要る）`);
+	// 許可表外のホストへ Origin だけで通る分は回数を数える（入口の転送先で判定＝リダイレクト先は数え直さない）
+	if (!keyMatches(req, env) && !hostMatches(first.url.hostname.toLowerCase(), allowedHosts) && await overLimit(env.PROXY_RL, req)) return tooMany();
 
 	// リダイレクトを1ホップずつ検問しながら追う
 	const followed = async (startUrl, init) => {

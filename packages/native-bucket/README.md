@@ -101,6 +101,8 @@ const { Fetch, Bucket, Cache } = nativeBucket("https://your-worker.workers.dev/"
 
 Methods other than `GET`/`HEAD` (`PUT`, `DELETE`, `POST`) are forwarded **only with a matching `X-API-Key`**, whatever the target. `Origin` marks a browser page, not an authenticated caller: non-browser clients can send any `Origin`.
 
+Requests that pass gate 2 on `Origin` alone (a target host not on `PROXY_ALLOWED_HOSTS`, no key) are counted per client IP by the optional `PROXY_RL` rate-limit binding; `/tellus` is counted by `TELLUS_RL`. Over the limit the Worker answers `429` with `Retry-After: 60`. Callers with `X-API-Key` and allow-listed hosts are never counted, and without the bindings nothing is limited (see `[[ratelimits]]` in `wrangler.toml`).
+
 Otherwise `403`. **If `PROXY_ALLOWED_HOSTS` is unset, only gate 2 opens** — a deployment with no configuration forwards nothing to anonymous callers.
 
 ```toml

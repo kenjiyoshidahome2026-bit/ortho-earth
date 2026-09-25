@@ -36,6 +36,15 @@ await t("未信頼 Origin は 403 + X-Proxy-Deny・上流は呼ばない", async
 await t("Origin 無し + X-API-Key 一致は通る", async () => { eq((await call("/tellus/datasets/", { origin: "", key: "secret-key" })).status, 200, "status"); });
 await t("TELLUS_TOKEN 未設定は 503", async () => { eq((await call("/tellus/datasets/", { env: { ...ENV, TELLUS_TOKEN: "" } })).status, 503, "status"); });
 
+await t("★回数上限を超えると 429・上流は呼ばない（鍵持ちは数えない）", async () => {
+	const seen = []; const TELLUS_RL = { limit: async ({ key }) => { seen.push(key); return { success: seen.length <= 1 }; } };
+	eq((await call("/tellus/datasets/", { env: { ...ENV, TELLUS_RL } })).status, 200, "1 回目");
+	const r = await call("/tellus/datasets/", { env: { ...ENV, TELLUS_RL } });
+	eq(r.status, 429, "2 回目"); eq(calls.length, 0, "上流呼び出し");
+	eq((await call("/tellus/datasets/", { origin: "", key: "secret-key", env: { ...ENV, TELLUS_RL } })).status, 200, "鍵持ち");
+	eq(seen.length, 2, "鍵持ちは数えていない");
+});
+
 console.log("── 白リストと Bearer 付与");
 await t("GET /datasets/ は上流へ Bearer 付きで転送・?page_size= も保つ", async () => {
 	const r = await call("/tellus/datasets/?page_size=100");

@@ -12,7 +12,7 @@
 //   POST /tellus/datasets/{ds}/data/{id}/files/{n}/download-url/    署名 URL 発行
 //   GET  /tellus/webcog?dataset={ds}&data={id}                      files→「*_webcog.tif」（Tellus 表示用 COG）→download-url を一発
 //                                                                   → {download_url, name, size_bytes, expires_in}
-import { isTrusted } from "./proxy.js";
+import { isTrusted, keyMatches, overLimit, tooMany } from "./proxy.js";
 
 const UPSTREAM = "https://www.tellusxdp.com/api/traveler/v1";
 const UUID = "[0-9a-fA-F-]{36}";
@@ -32,6 +32,8 @@ const deny = (msg, status = 403) => json({ error: msg }, status, { "X-Proxy-Deny
 
 export async function tellus(req, env = {}) {
 	if (!isTrusted(req, env)) return deny("untrusted caller（許可された Origin から呼ぶか X-API-Key を添えること）");
+	// Origin は偽れる＝Tellus トークンの枠を他人に使わせない歯止めは IP ごとの回数上限（鍵持ちは数えない・2026-09-25）
+	if (!keyMatches(req, env) && await overLimit(env.TELLUS_RL, req)) return tooMany();
 	if (!env.TELLUS_TOKEN) return json({ error: "TELLUS_TOKEN not configured" }, 503);
 	const url = new URL(req.url);
 	const sub = url.pathname.replace(/^\/tellus/, "") || "/";
