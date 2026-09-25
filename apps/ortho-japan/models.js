@@ -88,7 +88,7 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 	$("list").addEventListener("click", e => { const b = e.target.closest(".card"); if (b) show(b.dataset.id); });
 
 	// ── 表示 ──
-	let cur = null, ctl = null, seq = 0, glbBytes = null;
+	let cur = null, ctl = null, seq = 0, glb = null;   // glb＝{ id, bytes }＝どの模型のバイト列かを結ぶ（B13・旧＝glbBytes 単独＝切替後も前の模型が新しい名前で落ちた）
 	// ── ダウンロード（このデモの芯＝「3D Tiles を glb に変換してから描いている」ので、その glb をそのまま渡せる）──
 	// GLB ＝描いているバイト列そのもの。glTF ＝同じ中身を仕様どおり .gltf（JSON）＋ .bin（バイナリ）へ分けて zip に。
 	// 画像は bufferView 参照のまま .bin に載る＝外部ファイルは増えない（glTF 2.0 の正式な形）。
@@ -126,11 +126,11 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 		el.querySelector(".dl").addEventListener("click", async e => {
 			const link = e.target.closest("a[data-f]"); if (!link) return;
 			e.preventDefault();
-			if (!glbBytes) return;
+			if (glb?.id !== m.id) return;   // 読み込み中・失敗＝まだこの模型のバイト列が無い
 			const was = link.textContent;
 			link.setAttribute("aria-disabled", "true"); link.textContent = "…";
 			try {
-				const out = await convertToFile(glbBytes, link.dataset.f, { name: m.id, decodeDraco, transcodeImage });
+				const out = await convertToFile(glb.bytes, link.dataset.f, { name: m.id, decodeDraco, transcodeImage });
 				saveAs(new Blob([out.bytes], { type: out.type }), out.name);
 			} catch (err) { console.error("[models] convert failed", link.dataset.f, err); setStatus(t("Failed to load: $1", String(err?.message || err)), true); }
 			finally { link.removeAttribute("aria-disabled"); link.textContent = was; }
@@ -145,9 +145,11 @@ export async function mountModels(map, { catalog, panelHost } = {}) {
 			if (!r.ok) throw new Error(`HTTP ${r.status}`);
 			const blob = await gunzip(await r.blob());
 			if (my !== seq) return;
-			glbBytes = new Uint8Array(await blob.arrayBuffer());   // ダウンロード用に持っておく（描画にも同じ物を渡す）
+			const bytes = new Uint8Array(await blob.arrayBuffer());
+			if (my !== seq) return;
+			glb = { id: m.id, bytes };   // ダウンロード用に持っておく（描画にも同じ物を渡す）
 			// ground="each"＝建物ごとに接地（PLATEAU の一区画＝高台の城が浮かない）。台帳で ground:"batch" と書けば一体接地へ
-			const c = await map.gadget.model(new File([glbBytes], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
+			const c = await map.gadget.model(new File([bytes], m.id + ".glb", { type: "model/gltf-binary" }), { at: [m.lon, m.lat], fit: false, ground: m.ground || "each", mask: m.mask !== false });   // mask＝足元の基図建物を伏せる（壁の明滅を断つ）
 			if (my !== seq) return;   // 途中で別の模型が選ばれた＝後勝ち（ガジェットは単一スロット）
 			ctl = c; setStatus("");
 		} catch (e) {
