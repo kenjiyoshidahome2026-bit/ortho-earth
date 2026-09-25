@@ -82,10 +82,33 @@ export function crsFromWKT(wkt, opts = {}) {
 		const inv = tmInverse({ a, f, k0: P("scale_factor", "Scale factor at natural origin") ?? 1, lat0: P("latitude_of_origin", "Latitude of natural origin", "latitude_of_center") ?? 0, lon0: P("central_meridian", "Longitude of natural origin", "longitude_of_center") ?? 0, fe: (P("false_easting") ?? 0) * toM, fn: (P("false_northing") ?? 0) * toM });   // 原点移動も投影の単位（フィート等）で書かれている。旧測地系なら元の楕円体（Bessel 等）で逆変換してから測地系変換
 		return wrap(([x, y]) => inv(x * toM, y * toM));
 	}
-	if (/mercator_auxiliary_sphere|pseudo_?mercator|popular_visualisation|mercator_1sp/i.test(method) && Math.abs(P("central_meridian", "Longitude of natural origin") ?? 0) < 1e-9) {
-		return wrap(([x, y]) => [x * toM / R * D, (2 * Math.atan(Math.exp(y * toM / R)) - Math.PI / 2) * D]);
+	// メルカトル（2026-09-25・B9c）：球（Web メルカトル＝EPSG:3857・Esri 102100）と楕円体（Mercator 1SP/2SP＝EPSG:3395 等）を分ける。
+	// 旧＝楕円体のメルカトルも球の式で逆変換（緯度 35° で約 −20 km）し、中央子午線 0 以外・縮尺係数・原点移動を扱わなかった
+	const m = method.replace(/[\s()]+/g, "_").replace(/_+$/, "");
+	const pseudo = /mercator_auxiliary_sphere|pseudo_?mercator|popular_visualisation/i.test(m);
+	if (pseudo || /^mercator(_1sp|_2sp|_variant_[ab])?$/i.test(m)) {
+		const lon0 = P("central_meridian", "Longitude of natural origin", "longitude_of_origin") ?? 0;
+		const fe = (P("false_easting") ?? 0) * toM, fn = (P("false_northing") ?? 0) * toM;
+		if (pseudo) return wrap(([x, y]) => [(x * toM - fe) / R * D + lon0, (2 * Math.atan(Math.exp((y * toM - fn) / R)) - Math.PI / 2) * D]);
+		const phi1 = P("standard_parallel_1", "Latitude of 1st standard parallel");
+		const inv = mercInverse({ a, f, k0: P("scale_factor", "Scale factor at natural origin") ?? 1, phi1, lon0, fe, fn });
+		return wrap(([x, y]) => inv(x * toM, y * toM));
 	}
 	return { kind: "other", label: `${label} (${method || "projection ?"})`, name };
+}
+
+/** 楕円体のメルカトル（EPSG 9804 variant A／9805 variant B）の逆変換。x=東距 y=北距（m）→ [lon, lat]（度）。
+ *  variant B（2SP）は標準緯線 phi1（度）から縮尺係数を出す。緯度は共形緯度からの級数（EPSG Guidance Note 7-2 と同じ）。 */
+export function mercInverse({ a, f, k0 = 1, phi1, lon0 = 0, fe = 0, fn = 0 }) {
+	const e2 = 2 * f - f * f, e4 = e2 * e2, e6 = e4 * e2, e8 = e6 * e2;
+	if (phi1 != null) { const s = Math.sin(phi1 / D); k0 = Math.cos(phi1 / D) / Math.sqrt(1 - e2 * s * s); }
+	return (x, y) => {
+		const t = Math.exp((fn - y) / (a * k0)), chi = Math.PI / 2 - 2 * Math.atan(t);
+		const phi = chi + (e2 / 2 + 5 * e4 / 24 + e6 / 12 + 13 * e8 / 360) * Math.sin(2 * chi)
+			+ (7 * e4 / 48 + 29 * e6 / 240 + 811 * e8 / 11520) * Math.sin(4 * chi)
+			+ (7 * e6 / 120 + 81 * e8 / 1120) * Math.sin(6 * chi) + (4279 * e8 / 161280) * Math.sin(8 * chi);
+		return [((x - fe) / (a * k0)) * D + lon0, phi * D];
+	};
 }
 
 /** 横メルカトル（Krüger 級数・GSI「平面直角座標→緯度経度」と同じ式）の逆変換。x=東距 y=北距（m）→ [lon, lat]（度）。 */
