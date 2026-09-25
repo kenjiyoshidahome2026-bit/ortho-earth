@@ -880,8 +880,9 @@ fn atmGround(base: vec3f, A: vec3f, Pt: vec3f, viewDir: vec3f, k: f32) -> vec3f 
 	let t0 = max(sh.x, 0.0); let t1 = length(Pt - A);
 	let r = atmScatter(A, dn, t0, t1, G.sun.xyz);
 	let kg = G.atmP.z;   // 床の空気遠近の強さ（宇宙から見た陸の青い霞は物理どおりだと段彩が読みにくい＝既定は半分・view.atmGround で調整）
-	let lin = srgbDecodeG(base) * mix(vec3f(1.0), r.T, kg) + r.L * kg;
-	let phys = srgbEncodeG(vec3f(1.0) - exp(-lin * G.atmP.y));
+	// 露出のトーン（1−exp）は散乱光だけに掛ける＝地の色（表示用の段彩）は透過率で減らすだけ（トーンまで掛けると 0.91→0.6 に潰れる・2026-09-26 実機）
+	let lin = srgbDecodeG(base) * mix(vec3f(1.0), r.T, kg) + (vec3f(1.0) - exp(-r.L * G.atmP.y)) * kg;
+	let phys = srgbEncodeG(min(lin, vec3f(1.0)));
 	return mix(old, phys, k);
 }
 struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
