@@ -183,6 +183,36 @@ function buildCompBboxes(polyStream, arcMeta) {
 	return new Uint32Array(out);
 }
 
+// 入れ子配列（polygon/polyline）→ stream・隣接・bbox 台帳を組み直す＝clean.js が弧を切り直した後に呼ぶ（2026-09-25）。
+// 旧＝clean は入れ子配列と arcBuffer/arcMeta だけ書き換え、描画・識別・repack が読む stream は古い弧番号のまま＝面が壊れた GintBUF になった。
+// 隣接は wasm topology.rs「7. neighbor stream」と同じ規則（面の弧共有・fid は弧番号順の初出順・隣接リストは昇順）。
+export function rebuildStreams(d) {
+	const polygon = d.polygon ?? [], polyline = d.polyline ?? [];
+	const ps = [], ls = [];
+	for (const [fid, comps] of polygon) for (const rings of comps) { ps.push(fid, rings.length); for (const r of rings) { ps.push(r.length); for (const a of r) ps.push(a); } }
+	for (const [fid, sets] of polyline) { ls.push(fid, sets.length); for (const set of sets) { ls.push(set.length); for (const a of set) ls.push(a); } }
+	const owners = Array.from({ length: d.arcCount }, () => []);
+	for (const [fid, comps] of polygon) for (const rings of comps) for (const r of rings) for (const a of r) owners[a < 0 ? ~a : a].push(fid);
+	const order = [], nbMap = new Map();
+	for (const ids of owners) {
+		if (ids.length < 2) continue;
+		for (const id of ids) {
+			let nb = nbMap.get(id); if (!nb) { nbMap.set(id, nb = new Set()); order.push(id); }
+			for (const t of ids) if (t !== id) nb.add(t);
+		}
+	}
+	const ns = [], neighbors = [];
+	for (const fid of order) { const nb = [...nbMap.get(fid)].sort((a, b) => a - b); ns.push(fid, nb.length, ...nb); neighbors[fid] = nb; }
+	d.polyStream = ps.length ? new Int32Array(ps) : null;
+	d.lineStream = ls.length ? new Int32Array(ls) : null;
+	d.neighborStream = ns.length ? new Int32Array(ns) : null;
+	d.neighbors = order.length ? neighbors : null;
+	d.polyBboxByFid = buildFeatureBboxes(d.polyStream, d.arcMeta);
+	d.lineBboxByFid = buildFeatureBboxes(d.lineStream, d.arcMeta);
+	d.polyCompBbox  = buildCompBboxes(d.polyStream, d.arcMeta);
+	return d;
+}
+
 // ── Stream ↔ JS array conversion (backward compatibility for topojson.js / clean.js) ──────────────────
 function streamToPolygon(polyStream) {
 	if (!polyStream || !polyStream.length) return null;

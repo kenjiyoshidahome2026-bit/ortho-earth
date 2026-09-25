@@ -1,11 +1,14 @@
 import { gint } from "./gint.js";
+import { rebuildStreams, unPackGintBuffer, repackGintBuffer } from "./topology.js";
 
 export function cleanTopology(gintData, options = {}) {
 	if (!gintData || !gintData.arcBuffer) return;
+	if (options === true) options = {};
 	const snapDistSq = options.snapDistSq || 125;
 	const gridUnit   = options.gridUnit   || 8; // align to the L2 grid (8 units)
 	const maxPasses  = options.maxPasses  || 4;
 
+	let changed = false;
 	for (let pass = 0; pass < maxPasses; pass++) {
 		const { arcBuffer, arcMeta, polygon, polyline } = gintData;
 		const intersections =
@@ -13,8 +16,20 @@ export function cleanTopology(gintData, options = {}) {
 			?? _detectJS(arcBuffer, arcMeta, gintData.arcCount, snapDistSq, gridUnit);
 
 		if (!intersections || intersections.size === 0) break;
-		_apply(gintData, arcBuffer, arcMeta, polygon, polyline, intersections, gridUnit);
+		// 面だけ・線だけのデータは片方が null（旧＝null.map で落ち、worker が null を返して clean が黙って抜けた・2026-09-25）
+		_apply(gintData, arcBuffer, arcMeta, polygon ?? [], polyline ?? [], intersections, gridUnit);
+		changed = true;
 	}
+	// 弧を切り直したら stream・隣接・bbox 台帳も新しい弧番号で組み直す（repack と描画・識別が読むのはこちら）
+	if (changed) rebuildStreams(gintData);
+}
+
+// GintBUF → clean → GintBUF（encoder/gint Worker と、Worker 不成立時の gint() の予備経路が使う）
+export function cleanGintBuffer(buf, options = {}) {
+	const d = unPackGintBuffer(buf);
+	if (!d) return buf;
+	cleanTopology(d, options);
+	return repackGintBuffer(d);
 }
 
 // JS fallback (used when WASM is not yet initialized).

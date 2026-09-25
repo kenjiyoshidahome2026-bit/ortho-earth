@@ -12,6 +12,7 @@ const DECODERS = new Set(["fgb", "gint", "gml", "gpkg", "gdb", "parquet", "csv",
 const ENCODERS = new Set(["czml", "fgb", "geojson", "geopbf", "gint", "gml", "gpx", "kmz", "preview", "profile", "shape", "topojson"]);
 
 import { topology } from "./extension/topology.js";
+import { cleanGintBuffer } from "./extension/clean.js";
 import { gint } from "./extension/gint.js";
 import { topo2geo } from "./modules/topo2geo.js";
 import { gunzip, isGzip } from "./modules/gzip.js";
@@ -92,13 +93,14 @@ export function createGeopbf(apiBase, options = {}) {
         };
         const pbf = await _geopbf(data);
         if (pbf) {
-            await pbf.gint({gint: opts.gint});
+            await pbf.gint({ gint: opts.gint, clean: opts.clean });   // clean は docs の geopbf(input, { clean }) の口（旧＝渡っておらず効かなかった・2026-09-25）
             console.log(`[geopbf] 📥 ${pbf.name()} (${pbf.size.toLocaleString("en-US")} bytes) ${(performance.now()-dt).toFixed(2)} msec`);
             // _staleGint＝キャッシュのGINTが版検札で弾かれた印。上の gint() が再焼き済み＝ここで上書き保存して自己修復完了
             //（これが無いと旧v1が居座り、毎回「Failed to unpack … 旧キャッシュ」＋全量再エンコードを払い続ける。2026-08-20実地）。
             if (pbf._staleGint) console.warn(`[geopbf] ${pbf.name()}: rebaking old GINT cache and overwriting (this warning disappears from next time)`);
             // 0 件の結果は保存しない（旧 fgb デコーダの 0 件を IDB が覚えて、直した後も「Failed to load」を返し続けた・2026-09-22）
-            if (!pbf.length) { /* 保存しない */ }
+            // clean 済みの GINT も保存しない＝同じ URL/File を clean なしで読んだ時に clean 済みが返らないように
+            if (!pbf.length || opts.clean) { /* 保存しない */ }
             else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
@@ -277,9 +279,9 @@ const methods = {
     async gint(opts = {}) { if (opts.gint === false) return this;
         if (!this.unPackGint) {
             let buf = await encoder(this, "gint", opts);
-            if (!buf) { await gint.initialize(); buf = topology(this); }
+            if (!buf) { await gint.initialize(); buf = topology(this); if (opts.clean) buf = cleanGintBuffer(buf, opts.clean); }   // Worker 不成立の予備でも clean を落とさない
             await this.setGintBUF(buf);
-        }
+        } else if (opts.clean) this.cleanTopology(opts.clean);   // 焼き済み（キャッシュ由来・先の gint()）にも clean を掛ける
         if (!this.unPackGint) throw new Error("Failed to encode Gint buffer.");
         return this;
     },
