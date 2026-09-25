@@ -2,6 +2,7 @@
 //   node packages/native-bucket/tests/t-proxy.mjs
 // 門の仕様は workers/proxy.js の冒頭コメントが正本。ここは「そのとおりに閉まっているか」を数える。
 import { proxy } from "../workers/proxy.js";
+import worker from "../workers/index.js";
 
 const ENV = {
 	ALLOWED_DOMAINS: "www.ortho-earth.com,ortho-earth.com,localhost:5173",
@@ -87,6 +88,19 @@ await t("★未信頼の POST は弾く（許可ホストでも）", async () =>
 	eq((await call("https://www.e-stat.go.jp/x", { method: "POST" })).status, 403, "status"));
 await t("信頼済みの POST は通る", async () =>
 	eq((await call("https://www.e-stat.go.jp/x", { method: "POST", key: "secret-key" })).status, 200, "status"));
+// Origin は curl で自由に付けられる＝非 GET の根拠にしない（2026-09-25 検証で偽 Origin の PUT/DELETE が任意ホストへ通っていた）
+for (const method of ["PUT", "DELETE", "POST"])
+	await t(`★許可 Origin だけの ${method} は弾く（鍵が要る）`, async () => {
+		const res = await call("https://example.com/x", { method, origin: "https://www.ortho-earth.com" });
+		eq(res.status, 403, "status");
+		eq(calls.length, 0, "上流へ fetch していない");
+	});
+await t("★誤った API キーの PUT は弾く", async () =>
+	eq((await call("https://example.com/x", { method: "PUT", key: "secret-keX" })).status, 403, "status"));
+await t("API キーの PUT は任意ホストへ通る（Node バッチ）", async () =>
+	eq((await call("https://example.com/x", { method: "PUT", key: "secret-key" })).status, 200, "status"));
+await t("★API_KEY 未設定なら空キーでも通らない", async () =>
+	eq((await call("https://www.e-stat.go.jp/x", { method: "POST", key: "", env: { ...ENV, API_KEY: "" } })).status, 403, "status"));
 
 console.log("── リダイレクト（allowlist を跨がせない）");
 await t("★許可ホスト→未許可ホストの 302 を弾く", async () => {
@@ -121,6 +135,32 @@ await t("★未設定なら未信頼は全て弾く", async () =>
 	eq((await call("https://www.e-stat.go.jp/x", { env: { ALLOWED_DOMAINS: ENV.ALLOWED_DOMAINS } })).status, 403, "status"));
 await t("未設定でも信頼済みは通る", async () =>
 	eq((await call("https://www.e-stat.go.jp/x", { origin: "https://www.ortho-earth.com", env: { ALLOWED_DOMAINS: ENV.ALLOWED_DOMAINS } })).status, 200, "status"));
+
+console.log("── 入口（workers/index.js）の CORS と応答ヘッダ");
+const W_ENV = { ...ENV, ALLOWED_DOMAINS: "www.ortho-earth.com,ortho-earth.com,localhost:5173," };   // 末尾カンマ＝空の項目も混ぜる
+const preflight = (origin, reqMethod = "POST") => worker.fetch(new Request(`${PROXY_ORIGIN}/bucket/x`, {
+	method: "OPTIONS", headers: { Origin: origin, "Access-Control-Request-Method": reqMethod } }), W_ENV, {});
+await t("許可 Origin の POST プリフライトは ACAO を返す", async () =>
+	eq((await preflight("https://www.ortho-earth.com")).headers.get("Access-Control-Allow-Origin"), "https://www.ortho-earth.com", "ACAO"));
+await t("ポート付きの許可 Origin（dev）も ACAO を返す", async () =>
+	eq((await preflight("http://localhost:5173")).headers.get("Access-Control-Allow-Origin"), "http://localhost:5173", "ACAO"));
+for (const bad of ["https://www.ortho-earth.com.evil.com", "https://evilortho-earth.com", "https://evil.com", "null"])
+	await t(`★${bad} には ACAO を返さない（空の項目があっても）`, async () =>
+		eq((await preflight(bad)).headers.get("Access-Control-Allow-Origin"), null, "ACAO"));
+await t("GET のプリフライトは従来どおり *", async () =>
+	eq((await preflight("https://evil.com", "GET")).headers.get("Access-Control-Allow-Origin"), "*", "ACAO"));
+await t("★/proxy の応答は nosniff・CSP sandbox 付き、上流の Set-Cookie を捨てる", async () => {
+	const saved = globalThis.fetch;
+	globalThis.fetch = async () => new Response("<script>x</script>", { status: 200, headers: { "content-type": "text/html", "set-cookie": "a=b" } });
+	try {
+		const u = `${PROXY_ORIGIN}/proxy/?url=${encodeURIComponent("https://www.e-stat.go.jp/x.html")}`;
+		const res = await worker.fetch(new Request(u), W_ENV, {});
+		eq(res.status, 200, "status");
+		eq(res.headers.get("X-Content-Type-Options"), "nosniff", "nosniff");
+		eq(/^sandbox/.test(res.headers.get("Content-Security-Policy") || ""), true, "CSP sandbox");
+		eq(res.headers.get("set-cookie"), null, "Set-Cookie");
+	} finally { globalThis.fetch = saved; }
+});
 
 console.log(`\n${fail ? "❌" : "✅"} pass=${pass} fail=${fail}`);
 process.exit(fail ? 1 : 0);
