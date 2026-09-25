@@ -2,10 +2,12 @@
 // 依存ゼロの純関数＝Node ハーネス（tests/geodesic.mjs）でそのまま検証できる。
 // - 距離 geodesicDistance: Vincenty 逆解（収束時 0.5mm 級）。近対蹠（≈179.4°超＝日本域の計測ではまず出ない）
 //   だけ収束しないので authalic 球の haversine へ退避（誤差 <0.6%・有限値を返すことを優先）。
-// - 面積 geodesicArea: authalic（等積）緯度の正弦 q(φ)/q_p に写した球面過剰の線積分
-//   （Chamberlain–Duquette＝measure.js 旧式と同形）× R_A²。緯度依存の系統誤差（球比 最大0.5%）を吸収する。
-//   経緯線に沿う矩形では楕円体帯面積と厳密一致（tests で数値積分と突合）。辺形状（測地線 vs 大円）の差は
-//   二次＝数百km級の辺でも計測用途で無視できる。
+// - 面積 geodesicArea: 緯度を authalic（等積）緯度 β＝asin(q(φ)/q_p) に写し、半径 R_A の球の上で
+//   辺を大円とした球面過剰（辺ごとに tan(E/2)＝tan(Δλ/2)(t1+t2)/(1+t1·t2)、t＝tan(β/2)）の厳密和 × R_A²。
+//   緯度依存の系統誤差（球比 最大0.5%）を吸収し、辺は計測の弧（measure.js の gcPoints＝大円）と同じ形。
+//   GeographicLib（WGS84 の測地線多角形）との差：東京–大阪–札幌で 0.011%、100km の三角形で 0.00016%。
+//   旧式（Chamberlain–Duquette の台形＝辺を (λ, sinβ) 平面の直線とみなす）は辺が長いほど系統的に小さく、
+//   東京–大阪–札幌で −7.4%、100km の三角形で −0.37% だった（2026-09-25 交代）。
 // - 曲率半径 N/M: 卯酉線 N(φ)＝東西の m/px 換算（スケールバー・印刷縮尺）、子午線 M(φ)＝南北。
 //   東西と南北で最大0.5%違う（φ=35°: N≈6385.2km・M≈6356.4km）＝バーは横置き＝東西の N を使う。
 const D2R = Math.PI / 180;
@@ -21,6 +23,8 @@ function qOf(sinLat) {
 }
 const QP = qOf(1);
 export const AUTHALIC_R = A * Math.sqrt(QP / 2);        // ≈ 6371007.18 m（面積等価球の半径）
+// authalic 緯度 β（rad）：楕円体の面積を R_A の球へ正積に写す緯度（β(±90°)＝±π/2）。
+function authalicLat(latDeg) { return Math.asin(Math.max(-1, Math.min(1, qOf(Math.sin(latDeg * D2R)) / QP))); }
 
 // 卯酉線曲率半径 N(φ)：東西方向の「1radの地心経度差×cosφ が何mか」の芯。スケールバー・印刷縮尺用。
 export function primeVerticalRadius(latDeg) {
@@ -67,8 +71,9 @@ export function geodesicDistance(p1, p2) {
 	return 2 * AUTHALIC_R * Math.asin(Math.min(1, Math.sqrt(h)));
 }
 
-// 楕円体の多角形面積 m²：閉リング（[lon,lat] の配列・末尾の重複閉点は有っても無くても可）。
-// authalic 正弦での線積分＝measure.js 旧式（球）と同形なので antimeridian の扱い（dλ を [-π,π] へ）も同じ。
+// 楕円体の多角形面積 m²：閉リング（[lon,lat] の配列・末尾の重複閉点は有っても無くても可）。辺は大円（authalic 球の上）。
+// 各辺の寄与＝Δλ（南極から測る帯の項）＋赤道と辺の間の球面過剰。Δλ を [-π,π] へ畳む（antimeridian 跨ぎ）。
+// 極を囲むリングは南極側の面積が出るので、全球 4πR_A² との小さい方を返す（半球を超える多角形は扱わない）。
 export function geodesicArea(ring) {
 	if (ring.length < 3) return 0;
 	let sum = 0;
@@ -76,7 +81,9 @@ export function geodesicArea(ring) {
 		const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
 		let dl = (p2[0] - p1[0]) * D2R;
 		if (dl > Math.PI) dl -= 2 * Math.PI; else if (dl < -Math.PI) dl += 2 * Math.PI;
-		sum += dl * (2 + qOf(Math.sin(p1[1] * D2R)) / QP + qOf(Math.sin(p2[1] * D2R)) / QP);
+		const t1 = Math.tan(authalicLat(p1[1]) / 2), t2 = Math.tan(authalicLat(p2[1]) / 2);
+		sum += dl + 2 * Math.atan2(Math.sin(dl / 2) * (t1 + t2), Math.cos(dl / 2) * (1 + t1 * t2));
 	}
-	return Math.abs(sum) * AUTHALIC_R * AUTHALIC_R / 2;
+	const a = Math.abs(sum) * AUTHALIC_R * AUTHALIC_R, whole = 4 * Math.PI * AUTHALIC_R * AUTHALIC_R;
+	return Math.min(a, whole - a);
 }
