@@ -13,7 +13,7 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VUI_PORT || 5237;
 
 const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene",
-	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-print", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model"];
+	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-print", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world"];
 const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model"]);   // render worker 内の動的 import／実描画の到着に依る頁
 const LONG = {};
 

@@ -12,7 +12,8 @@
 		"build:all": "npm run build -w www && npm run build -w geopbf-demo && npm run build -w gishub-jp && npm run build -w ortho-world && rm -rf apps/www/dist/docs && cp -r apps/docs apps/www/dist/docs && rm -rf apps/www/dist/geopbf && cp -r apps/geopbf-demo/dist apps/www/dist/geopbf && rm -rf apps/www/dist/gishub-jp && cp -r apps/gishub-jp/dist apps/www/dist/gishub-jp && rm -rf apps/www/dist/world && cp -r apps/world/dist apps/www/dist/world && find apps/www/dist -name '*.map' -delete",
 		"preview:all": "npm run preview -w www",
 		"summary": "repomix --style markdown --output project_summary.md",
-		"dev:world": "npm run dev -w ortho-world"
+		"dev:world": "npm run dev -w ortho-world",
+		"test:mirrors": "node apps/quakes-mirror/tests/t-quakes.mjs && node apps/sats-mirror/tests/t-mirror.mjs"
 	},
 	"dependencies": {
 		"html2canvas": "^1.4.1",

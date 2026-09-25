@@ -1,6 +1,6 @@
 // ランドマーク名札の掟を実ソース・実データで確かめる Node ハーネス（ネットワーク不要）。
 //   node tests/t-landmarks.mjs
-// 高さの梯子（landmarkMinH）は app.js から切り出して評価する＝写経した複製を試験しない（t-chome.mjs と同じ方式）。
+// 高さの梯子（landmarkMinH）は packages/globe/src/globe.js から切り出して評価する＝写経した複製を試験しない（t-chome.mjs と同じ方式）。
 // 台帳（public/plateau-landmarks.json）は突合結果（plateau-names-out/merged/）と突き合わせて、
 // 「タイル注記に同名がある棟(d2)を名札に混ぜていない」ことを確認する＝二重表示の再発を焼いた時点で捕まえる。
 import { readFileSync, existsSync, readdirSync } from "node:fs";
@@ -8,9 +8,9 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const src = readFileSync(join(HERE, "../app.js"), "utf8");
+const src = readFileSync(join(HERE, "../../../packages/globe/src/globe.js"), "utf8");
 const from = src.indexOf("const LANDMARK_CODE"), to = src.indexOf("let landmarks = null");
-if (from < 0 || to < 0 || to < from) { console.error("app.js から梯子を切り出せない（実装が移動した？）"); process.exit(1); }
+if (from < 0 || to < 0 || to < from) { console.error("globe.js から梯子を切り出せない（実装が移動した？）"); process.exit(1); }
 const { landmarkMinH, LANDMARK_LADDER, LANDMARK_CODE } =
 	new Function(src.slice(from, to) + "\nreturn { landmarkMinH, LANDMARK_LADDER, LANDMARK_CODE };")();
 

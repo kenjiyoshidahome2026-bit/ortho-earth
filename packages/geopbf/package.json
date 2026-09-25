@@ -104,7 +104,8 @@
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-imagequad.mjs && node tests/edit/t-spline.mjs && node tests/edit/t-sphere.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
 		"summary": "repomix --style markdown --output project_summary.md",
 		"verify:npm": "node scripts/verify-npm.mjs",
-		"verify:all": "npm test && npm run verify:gpu && npm run verify:npm",
+		"verify:pages": "node scripts/verify-pages.mjs",
+		"verify:all": "npm test && npm run verify:gpu && npm run verify:pages && npm run verify:npm",
 		"mirror": "git -C ../.. subtree split --prefix=packages/geopbf -b geopbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/geopbf.git geopbf-mirror:main --force && git -C ../.. branch -D geopbf-mirror"
 	},
 	"devDependencies": {
