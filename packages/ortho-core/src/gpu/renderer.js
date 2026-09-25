@@ -22,6 +22,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL } from "./wgsl.js";
 import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
+import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -1412,14 +1413,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// MSAA カラー＋深度ターゲット（canvas 寸法に追随・sampleCount 毎＝遷移時AA）。resolve 先は毎フレーム getCurrentTexture。
 	// 1x（遷移フレーム／?msaa=0）はカラーを作らない＝全パスが canvas の current texture へ直描き（resolve 自体が消える）。
 	// 1x/4x 両方が生きる（遷移⇄静止で行き来）＝両方保持。追加費用は 1x 深度1枚（W×H×4B）のみ。
-	const tgtBySc = new Map();   // sampleCount → { tex, depth, view, depthView, w, h }
+	const tgtBySc = new Map();   // sampleCount → { tex, depth, view, depthView, w, h, read }
+	let depthRead = false;       // 深度の書き出し（#47）の申し出中＝深度テクスチャを読める形で作る
 	function targets(W, H, sc) {
 		let t = tgtBySc.get(sc);
-		if (!t || t.w !== W || t.h !== H) {
+		if (!t || t.w !== W || t.h !== H || t.read !== depthRead) {   // read＝深度の書き出し（#47）の申し出で TEXTURE_BINDING を足す／外す＝作り直し
 			if (t) { t.tex?.destroy(); t.depth.destroy(); }
 			const tex = sc > 1 ? device.createTexture({ size: [W, H], sampleCount: sc, format, usage: GPUTextureUsage.RENDER_ATTACHMENT }) : null;
-			const depth = device.createTexture({ size: [W, H], sampleCount: sc, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT });
-			t = { tex, depth, view: tex ? tex.createView() : null, depthView: depth.createView(), w: W, h: H };
+			const depth = device.createTexture({ size: [W, H], sampleCount: sc, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT | (depthRead ? GPUTextureUsage.TEXTURE_BINDING : 0) });
+			t = { tex, depth, view: tex ? tex.createView() : null, depthView: depth.createView(), w: W, h: H, read: depthRead };
 			tgtBySc.set(sc, t);
 			memMsaa = 0;   // color(bgra8・1xは直描き=0)+depth24plus-stencil8 ≈ 各4B/sample（生存セットの合算）
 			for (const [c, x] of tgtBySc) memMsaa += x.w * x.h * c * ((c > 1 ? 4 : 0) + 4);
@@ -1884,6 +1886,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.draw(3);
 		}
 		pass.end();
+		lastDepth = t.read ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
 		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
 		// elevView は安定参照（rebuildBG0 で1回生成）＝gint 側の bind group キャッシュが毎フレーム破れない。
@@ -1941,6 +1944,27 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				for (const tg in sums) tq.ready.push({ tag: tg, ms: sums[tg] });
 			}).catch(() => { st.busy = false; });
 		}, 0); }
+	}
+	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { bitmap, w, h, logCoef }, abort() }／depthOut(false)＝畳む。
+	// begin＝深度テクスチャを読める形に（draw の前に呼ぶ＝同じフレームの targets が作り直す）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
+	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
+	let dOut = null, lastDepth = null, dOutFailed = false;
+	function depthOut(on) {
+		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } if (depthRead) { depthRead = false; lastDepth = null; } return null; }
+		if (!dOut) {
+			try { dOut = createDepthOutGPU(device); }
+			catch (e) { dOutFailed = true; console.warn("[gpu] depthOut unavailable:", e?.message || e); return null; }
+		}
+		return {
+			begin: () => { depthRead = true; return true; },
+			abort: () => {},
+			end: () => {
+				const d = lastDepth; lastDepth = null;
+				if (!d || !dOut) return null;
+				try { return { bitmap: dOut.encode(d), w: d.w, h: d.h, logCoef: d.logCoef }; }
+				catch (e) { dOutFailed = true; console.warn("[gpu] depthOut failed (disabled):", e?.message || e); depthOut(false); return null; }
+			},
+		};
 	}
 	// 回収済み GPU 時間の引き取り口（renderworker の tqPoll から）。未対応=null＝呼び出し側が壁時計へフォールバック
 	function tqTake() {
@@ -2031,6 +2055,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (farTexObj) { farTexObj.destroy(); farTexObj = null; }
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }
 		dummyTex.destroy();
+		if (dOut) { dOut.dispose(); dOut = null; }
 		for (const t of tgtBySc.values()) { t.tex?.destroy(); t.depth.destroy(); }
 		tgtBySc.clear();
 		device.destroy();
@@ -2043,7 +2068,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes }),
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 }),
+		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）
 }
