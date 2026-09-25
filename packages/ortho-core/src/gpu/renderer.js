@@ -5,7 +5,7 @@
 // 未搭載（set は握り潰し・描画は素通し）：建物メッシュ・overlay(stencil)・星空/夜面・gint。
 //
 // WebGL 版との設計差：
-// ・uniform は 1 フレーム 1 回の UBO 書込：Frame（512B×4スロット＝base/main/terrain/bld。origin と fog の違いを
+// ・uniform は 1 フレーム 1 回の UBO 書込：Frame（512B×5スロット＝base/main/terrain/bld/terrainFar。origin と fog の違いを
 //   スロットで表現＝GL の setCommonUniforms＋per-program 上書きの写し）＋DrawP（役割別 6 スロット＝seaGate/lift/色ノブ）。
 // ・深度は depth24plus を常設し、パイプライン変種で GL の enable/disable/depthMask を表現
 //   （fill/line: off / test-only、terrain: write+polygonOffset≒depthBias、building: test+write）。

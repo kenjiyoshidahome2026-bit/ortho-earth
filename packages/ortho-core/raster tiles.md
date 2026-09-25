@@ -12,7 +12,7 @@ v1（packages/ortho-map）の機能でまだ v2 に無かった「ラスタタ�
   `buildTileMesh`（(z,y,n) 共有・n=16/24/32）・描画リスト＝`renderer.setRasterDraws`）／`src/pmtiles-src.js`（`tileType`・`fetchPMTilesRaw`・ラスタは
   ベクタ配管の門で空タイル）。**テクスチャは配列でなくタイル 1 枚 1 テクスチャ**（v1 と同じ・per-draw のバインド＝枚数 100〜300 で十分軽い。配列化は後日の最適化）。
 - **GL2**：`RASTER_VS`＝`FILL_VS` の derive（a_uv・u_tileOff・u_uvT）・`RASTER_FS`＝標本化＋霧・unit10。**WebGPU**：`RASTER_WGSL`＝`FILL_WGSL` の deriveWgsl・
-  group(2)=per-tile UBO（dynamic offset・MAX_RAS=800）・group(3)=bglPlTex 流用・Frame スロット `raster`（origin=cam.center）。
+  group(2)=per-tile UBO（dynamic offset・MAX_RAS=1200（src/gpu/renderer.js））・group(3)=bglPlTex 流用・Frame スロット `raster`（origin=cam.center）。
 - **描画位置**：`under`＝地形パス直後・海面下/湖/等高線/塗りの前（山岳ビューは塗りと同じ「地形深度でテストだけ」）／`over`＝塗りの後・**最初の線の前**に一度
   （classic/multi_draw 両経路・線が無い画面は塗りの後）。`hideFills`（under 既定）＝両経路の fill op を skip＝線と注記は残る。
 - **render worker**：`createRaster` を terrain と同じく常駐・毎 frame `raster.update(glCam, W, H, { groundR })`・set cmd `rasterAdd/rasterRemove/rasterSet`・
