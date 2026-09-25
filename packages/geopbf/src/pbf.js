@@ -5,7 +5,7 @@ import { dissolve } from "./extension/dissolve.js";
 import { topojson, neighbors, mesh, merge } from "./extension/topojson.js";
 import { identify, identifyAt, contain } from "./extension/identify.js";
 import { simplified } from "./extension/simplify.js";
-import { unPackGintBuffer, attachLazyStreams } from "./extension/topology.js";
+import { unPackGintBuffer, repackGintBuffer, attachLazyStreams } from "./extension/topology.js";
 import { cleanTopology } from "./extension/clean.js";
 import { precision } from "./extension/precision.js";
 import { runInWorker } from "./modules/workerPool.js";
@@ -41,7 +41,15 @@ GeoPBF.setPrototype("identifyAt", function (lng, lat, options) { return identify
 GeoPBF.setPrototype("contain", function ([lng, lat]) { return contain(this, lng, lat); });
 
 GeoPBF.setPrototype("simplified", function (minRank) { return simplified(this, minRank); });   // VWランク間引きFC（描画でなく専用データ焼き用）
-GeoPBF.setPrototype("cleanTopology", function(options) { cleanTopology(this.unPackGint, options); return this; });
+// 入れ子配列・stream だけでなく、描画と保存が読む GintBUF（_gintBuffer）も作り直す（2026-09-25・旧は GintBUF が古いまま）
+GeoPBF.setPrototype("cleanTopology", function(options) {
+	if (!this.unPackGint) return this;
+	cleanTopology(this.unPackGint, options);
+	const buf = repackGintBuffer(this.unPackGint);
+	if (typeof SharedArrayBuffer !== "undefined") { this._gintBuffer = new SharedArrayBuffer(buf.byteLength); new Uint8Array(this._gintBuffer).set(new Uint8Array(buf)); }
+	else this._gintBuffer = buf;
+	return this;
+});
 // 引数なし＝同期の読み取り（pbf-base の precision() と同じ・CLI/Node からも素直に読める）。引数あり＝再エンコードして新インスタンスを返す（Promise）。
 GeoPBF.setPrototype("precision", function (s) { return s === undefined ? this._precision : precision(this, s); });
 
