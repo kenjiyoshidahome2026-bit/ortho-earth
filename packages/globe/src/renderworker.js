@@ -210,7 +210,15 @@ function finishInit(m) {
 			if (d.type === "relayCtl") { relayRecvN++; dispatch({ data: d.msg }); return; }   // iOS轍の中継路＝制御を同じディスパッチャへ（initQueue順序保証も共通）
 			// multi_draw 系（grow/up/dl）は FIFO＝dl（draw list）が up（タイルブロック転送）を追い越すと
 			// 未転送レンジを描いてゴミが出る。fallback の scene は従来どおり slot 毎に最新だけ。
-			if (d.type === "up" || d.type === "grow" || d.type === "dl") mdInbox.push(d);
+			if (d.type === "up" || d.type === "grow" || d.type === "dl") {
+				mdInbox.push(d);
+				// 同じ slot の未適用 fallback scene は dl より古い（同一ポートの FIFO）＝捨てる。scene worker は mode（下）が
+				// 届くまで fallback の scene を送る＝起動直後は scene→dl の順に来得る。両方が同じフレームに溜まると
+				// drainUploads が dl（新）→ scene（旧）の順に当てて古い scene が勝ち、dl の ack（dlApplied）で main は
+				// 「載った」と信じたまま＝静止中は永久に欠けた基図（2026-09-25・T3。worker が詰まると出る＝SwiftShader の
+				// snapshot readPixels で 3/4 再現・実機でも起動直後の長いフレームで起こり得る）
+				if (d.type === "dl") sceneInbox.delete(d.slot);
+			}
 			else sceneInbox.set(d.slot, d.scene);        // 貯めるだけ＝適用は drainUploads（1件/フレーム・slotごと最新だけ＝ズーム中の中間版は上げずに捨てる）
 			dirty = true;
 		};
