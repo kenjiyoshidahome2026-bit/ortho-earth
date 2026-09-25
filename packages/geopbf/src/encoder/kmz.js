@@ -34,9 +34,25 @@ onmessage = async (e) => {
 			// Coordinates in KML are longitude,latitude,altitude.
 			const pos = pt => `${pt[0]},${pt[1]},0`;
 			const posList = r => r.map(pos).join(" ");
+			// 幾何（2026-09-25・B9）：Multi 系と GeometryCollection は KML の MultiGeometry で（旧＝幾何なしの Placemark になった）
+			const polyKML = (c, ind) => `${ind}<Polygon>\n` + c.map((r, j) => {
+				const t = j === 0 ? "outerBoundaryIs" : "innerBoundaryIs";
+				return `${ind}  <${t}><LinearRing><coordinates>${posList(r)}</coordinates></LinearRing></${t}>\n`;
+			}).join("") + `${ind}</Polygon>\n`;
+			const geomKML = (g, ind) => {
+				if (!g) return "";
+				const { type, coordinates: c } = g;
+				if (type === "Point") return `${ind}<Point><coordinates>${pos(c)}</coordinates></Point>\n`;
+				if (type === "LineString") return `${ind}<LineString><coordinates>${posList(c)}</coordinates></LineString>\n`;
+				if (type === "Polygon") return polyKML(c, ind);
+				const parts = type === "MultiPoint" ? c.map(p => ({ type: "Point", coordinates: p }))
+					: type === "MultiLineString" ? c.map(l => ({ type: "LineString", coordinates: l }))
+					: type === "MultiPolygon" ? c.map(pg => ({ type: "Polygon", coordinates: pg }))
+					: type === "GeometryCollection" ? g.geometries : null;
+				return parts ? `${ind}<MultiGeometry>\n${parts.map(m => geomKML(m, ind + "  ")).join("")}${ind}</MultiGeometry>\n` : "";
+			};
 			for (let i = 0, len = pbf.length; i < len; i++) {
 				const f = pbf.getFeature(i);
-				const { type, coordinates: c } = f.geometry;
 				const { color, fillOpacity, iconData, iconName } = f.properties;
 
 				kml = `  <Placemark>\n    <name>${escXML(f.id ?? i)}</name>\n`;
@@ -57,22 +73,15 @@ onmessage = async (e) => {
 
 				kml += `    <ExtendedData>\n`;
 				for (const [k, v] of Object.entries(f.properties)) {
-					if (v !== null && typeof v !== 'object' && !['iconData', 'iconName'].includes(k)) {
-						kml += `      <Data name="${escXML(k)}"><value>${escXML(v)}</value></Data>\n`;
-					}
+					if (['iconData', 'iconName'].includes(k)) continue;
+					// Date は ISO 8601・入れ子（object/配列）は JSON 文字列（旧＝落ちた・2026-09-25・B9）。バイナリは書かない
+					const text = v == null || (typeof Blob !== "undefined" && v instanceof Blob) || ArrayBuffer.isView(v) ? null
+						: v instanceof Date ? v.toISOString() : typeof v === "object" ? JSON.stringify(v) : String(v);
+					if (text !== null) kml += `      <Data name="${escXML(k)}"><value>${escXML(text)}</value></Data>\n`;
 				}
 				kml += `    </ExtendedData>\n`;
 
-				if (type === "Point") kml += `    <Point><coordinates>${pos(c)}</coordinates></Point>\n`;
-				else if (type === "LineString") kml += `    <LineString><coordinates>${posList(c)}</coordinates></LineString>\n`;
-				else if (type === "Polygon") {
-					kml += `    <Polygon>\n`;
-					c.forEach((r, j) => {
-						const t = j === 0 ? "outerBoundaryIs" : "innerBoundaryIs";
-						kml += `      <${t}><LinearRing><coordinates>${posList(r)}</coordinates></LinearRing></${t}>\n`;
-					});
-					kml += `    </Polygon>\n`;
-				}
+				kml += geomKML(f.geometry, "    ");
 				kml += `  </Placemark>\n`;
 				await writer.write(enc.encode(kml));
 			}

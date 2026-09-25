@@ -5,7 +5,27 @@ import { getBbox } from "../extension/spatial.js";
 const MAGIC = new Uint8Array([0x66, 0x67, 0x62, 0x03, 0x66, 0x67, 0x62, 0x00]);
 // Conforms to the official FlatGeobuf GeometryType enum.
 const GeometryType = { Unknown: 0, Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 };
-const ColumnType = { Bool: 0, Int: 5, Double: 10, String: 11, Json: 12, DateTime: 14 };
+const ColumnType = { Bool: 2, Int: 5, Double: 10, String: 11, Json: 12, DateTime: 13, Binary: 14 };   // 公式の ColumnType（旧 Bool:0/DateTime:14 は誤り・未使用だった）
+
+// 列の計画（2026-09-25・B9）：keys は入れ子の親（"nest"）と平坦化した子（"nest.x"）の両方を持つ＝子は親の値に含まれるので出さず、
+// 親は Json 列（JSON 文字列）。Date だけの列は DateTime 列（ISO 8601）。ほかは従来どおり String。バイナリ（Blob/ImageData）は書かない。
+// 旧＝子の列は getFeature の入れ子から引けず空、親は "[object Object]"、Date は地方時の toString で書かれた
+const isBinary = v => (typeof Blob !== "undefined" && v instanceof Blob) || (typeof ImageData !== "undefined" && v instanceof ImageData) || ArrayBuffer.isView(v) || v instanceof ArrayBuffer;
+function planColumns(pbf) {
+	const set = new Set(pbf.keys);
+	const cols = pbf.keys.filter(k => !(k.includes(".") && set.has(k.slice(0, k.indexOf("."))))).map(name => ({ name, obj: false, date: 0, other: 0 }));
+	for (let i = 0, n = pbf.length; i < n; i++) {
+		const p = pbf.getProperties(i);
+		for (const c of cols) {
+			const v = p[c.name];
+			if (v == null || isBinary(v)) continue;
+			if (v instanceof Date) c.date++; else if (typeof v === "object") c.obj = true; else c.other++;
+		}
+	}
+	return cols.map(c => ({ name: c.name, type: c.obj ? ColumnType.Json : c.date && !c.other ? ColumnType.DateTime : ColumnType.String }));
+}
+const cellText = (v, type) => type === ColumnType.Json ? JSON.stringify(v instanceof Date ? v.toISOString() : v)
+	: v instanceof Date ? v.toISOString() : String(v);
 
 // Standard FlatBuffers wire-format builder (back-fill construction).
 // Ported subset of the official flatbuffers.Builder; all offsets are distance-from-end.
@@ -146,19 +166,18 @@ class FlatBufferBuilder {
 }
 
 // Official FlatGeobuf Header schema: name=0, envelope=1, geometry_type=2, columns=7, features_count=8, index_node_size=9.
-function buildFGBHeader(pbf) {
-	const keys = pbf.keys;
+function buildFGBHeader(pbf, columns) {
 	getBbox(pbf);   // bbox を先に確定（pbf.js の GeoPBF なら prototype 経由でも同じ。extension 関数は自己完結に直した）
 	const bbox = pbf._bbox;
 	const builder = new FlatBufferBuilder();
 
 	// Child elements (table references) must be built before the parent table's startObject.
 	const columnOffsets = [];
-	for (let i = 0; i < keys.length; i++) {
-		const nameOff = builder.createString(keys[i]);
+	for (const { name, type } of columns) {
+		const nameOff = builder.createString(name);
 		builder.startObject(2);                    // Column: name=0, type=1
 		builder.addFieldOffset(0, nameOff);        // name
-		builder.addFieldInt8(1, ColumnType.String);// all columns encoded as String
+		builder.addFieldInt8(1, type);             // String／Json（入れ子）／DateTime（planColumns）
 		columnOffsets.push(builder.endObject());
 	}
 	const columnsOff = builder.createOffsetVector(columnOffsets);
@@ -180,16 +199,16 @@ function buildFGBHeader(pbf) {
 	return builder.asUint8Array();
 }
 
-function encodeFGBFeature(f, keys) {
+function encodeFGBFeature(f, columns) {
 	const builder = new FlatBufferBuilder();
 
 	// 1. Properties binary (FGB KeyValue stream: [u16 colIdx][u32 len][bytes]...).
 	const propBytes = [];
 	const encoder = new TextEncoder();
-	keys.forEach((key, index) => {
-		const val = f.properties[key];
-		if (val !== undefined && val !== null) {
-			const buf = encoder.encode(String(val));
+	columns.forEach(({ name, type }, index) => {
+		const val = f.properties[name];
+		if (val !== undefined && val !== null && !isBinary(val)) {
+			const buf = encoder.encode(cellText(val, type));
 			const header = new Uint8Array(6);
 			const view = new DataView(header.buffer);
 			view.setUint16(0, index, true);
@@ -282,13 +301,13 @@ onmessage = async (e) => {
 		(async () => {
 			await writer.write(MAGIC);
 
-			const header = buildFGBHeader(pbf);
+			const columns = planColumns(pbf);
+			const header = buildFGBHeader(pbf, columns);
 			await writer.write(header);
 
-			const keys = pbf.keys;
 			for (let i = 0, len = pbf.length; i < len; i++) {
 				const f = pbf.getFeature(i);
-				const featureBin = encodeFGBFeature(f, keys);
+				const featureBin = encodeFGBFeature(f, columns);
 				await writer.write(featureBin);
 			}
 
