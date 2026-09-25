@@ -21,7 +21,7 @@
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS } from "../gl/gint/state.js";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
-import { checkZoomRange, SUB_NB } from "../gl/gint/utility.js";
+import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn } from "../camera.js";
@@ -640,10 +640,11 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
-	function packGP(role, { width = 0, widthAdd = 0, radius = 0, hidden = 0, dpr = null, activeId = -1, pass = 0, color = null } = {}) {
+	function packGP(role, { width = 0, widthAdd = 0, radius = 0, hidden = 0, dpr = null, fidW = 0, activeId = -1, pass = 0, color = null } = {}) {
 		const o = role * (GP_SLOT >> 2);
 		gpF[o] = width; gpF[o + 1] = widthAdd; gpF[o + 2] = radius; gpF[o + 3] = dpr ?? hidden;   // a.w＝線ロール hidden / 点ロール dpr（表の 1/4px 半径→device px）
-		gpI[o + 4] = activeId; gpI[o + 5] = pass; gpI[o + 6] = 0; gpI[o + 7] = 0;
+		gpI[o + 4] = activeId; gpI[o + 5] = pass; gpI[o + 7] = 0;
+		if (fidW) gpF[o + 6] = fidW; else gpI[o + 6] = 0;   // b.z＝表の line-width の倍率（f32 のビットを i32 欄に＝WGSL が bitcast・0＝1）
 		if (color) { gpF[o + 8] = color[0]; gpF[o + 9] = color[1]; gpF[o + 10] = color[2]; gpF[o + 11] = color[3]; }
 		else { gpF[o + 8] = gpF[o + 9] = gpF[o + 10] = gpF[o + 11] = 0; }
 	}
@@ -778,9 +779,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		const lw = data.lineWidth ?? 1.0;
 		packGP(ROLE.stencil, {});
 		packGP(ROLE.fill, { color: fc });
-		packGP(ROLE.line, { width: lw, activeId: aId, pass: 0 });
-		packGP(ROLE.lineHidden, { width: lw, activeId: aId, pass: 0, hidden: 1 });
-		packGP(ROLE.hilite, { width: lw + 2.0, widthAdd: 2.0, radius: data.hiliteWidth || 0, activeId: aId, pass: 1, color: data.hiliteColor });   // radius欄でホバー全幅(device px)を運ぶ＝指定時は shader が lw を上書き（overlay 町丁目線と一致）。hiliteColor＝ホバー線色（未指定＝素の線色を不透明）
+		packGP(ROLE.line, { width: lw, activeId: aId, pass: 0, fidW: V.dpr });   // fidW＝表の line-width（CSS px）→ device px（U1）
+		packGP(ROLE.lineHidden, { width: lw, activeId: aId, pass: 0, hidden: 1, fidW: V.dpr });
+		packGP(ROLE.hilite, { width: lw + 2.0, widthAdd: 2.0, radius: data.hiliteWidth || 0, activeId: aId, pass: 1, color: data.hiliteColor, fidW: V.dpr });   // radius欄でホバー全幅(device px)を運ぶ＝指定時は shader が lw を上書き（overlay 町丁目線と一致）。hiliteColor＝ホバー線色（未指定＝素の線色を不透明）
 		packGP(ROLE.maskStencil, { activeId: aId });
 		packGP(ROLE.maskFill, { color: data.maskColor ?? DEF_MASK });
 		packGP(ROLE.point, { radius: data.ptRadius ?? 1.5, activeId: -1, dpr: V.dpr });
@@ -1013,7 +1014,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				featureId = findPolygon(
 					L.gintData.arcBuffer, L.gintData.arcMeta, L.gintData.polyStream,
 					Math.round((geo[0] + 180) * SE), Math.round((geo[1] + 90) * SE),
-					L.polyBboxByFid, V.lastViewBbox,
+					L.polyBboxByFid, V.lastViewBbox, fidVisible(L),   // filter で隠した面はホバーしない（GL と同じ・§4.5）
 				);
 			}
 		}
@@ -1091,6 +1092,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			set: (d, k) => set(L, d, k), setSlot: k => setSlot(L, k), setBaked: (p, k) => setBaked(L, p, k),
 			style: d => style(L, d), setVisible: v => setVisible(L, v), paint: d => paint(L, d),
 			stats: () => statsFor(L),
+			range: () => ({ minZoom: L.minZoom ?? null, maxZoom: L.maxZoom ?? null }),   // 実描画レンジ（データ導出×指定）＝main の照会が「見えている層」を判定する物差し（ack で返す）
 			activate: () => { if (act !== L) { act = L; activeId = -1; } },
 			setOrder: n => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
 				const i = layers.indexOf(L);

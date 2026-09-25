@@ -81,11 +81,12 @@ const JSHIS = 'https://www.j-shis.bosai.go.jp/map/api/fltsearch'
             + '?format=json&mode=C&version=Y2024&case=AVR&period=P_T30&epsg=4612';
 
 const C_FAULT = '#4FB3C4', C_HIT = '#FFC24B', C_DIM = '#2C4650';
-const FAULT_PAINT = { 'line-color': C_FAULT, 'line-width': 1.1 };
+// line-width は CSS px（2026-09-26 に Gint の表の幅の単位を直した＝旧 device px の値の半分で同じ見た目）
+const FAULT_PAINT = { 'line-color': C_FAULT, 'line-width': 0.55 };
 const faultPaintFor = bands => bands.length
     ? { 'line-color': ['match', ['get', 'band'], bands, C_HIT, C_DIM],
-        'line-width': ['match', ['get', 'band'], bands, 2.6, 0.7] }
-    : { 'line-color': C_DIM, 'line-width': 0.7 };
+        'line-width': ['match', ['get', 'band'], bands, 1.3, 0.35] }
+    : { 'line-color': C_DIM, 'line-width': 0.35 };
 
 const FAULT_LEGEND =
     `<div style="font-size:12px;font-weight:600;margin-bottom:4px">震源断層モデル</div>` +

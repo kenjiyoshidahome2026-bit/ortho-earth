@@ -6,6 +6,7 @@
 
 import { MOVE_THROTTLE_MS } from './state.js';
 import { findPolygon } from 'geopbf/identify';
+import { fidVisible } from './utility.js';
 import { drawOverlay } from './passes.js';
 import { unproject } from '../../camera.js';
 
@@ -76,7 +77,7 @@ function finishIdentify(s, px, data) {
 				s.gintData.arcBuffer, s.gintData.arcMeta, s.gintData.polyStream,
 				Math.round((geo[0] + 180) * SE),
 				Math.round((geo[1] +  90) * SE),
-				s.polyBboxByFid, s.lastViewBbox
+				s.polyBboxByFid, s.lastViewBbox, fidVisible(s)
 			);
 		}
 	}
