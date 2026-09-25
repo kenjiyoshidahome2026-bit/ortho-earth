@@ -114,5 +114,5 @@ function defaultColorMap(n, flag = false) {
 		n < 200 ? [170, 220, 240, 255] :
 		n < 2000 ? [100, 180, 210, 255] :
 		n < 6000 ? [40, 100, 150, 255] : [20, 50, 100, 255];
-	return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(n);
+	return n > 0 ? Altitude(n) : flag ? [0, 0, 0, 0] : Depth(-n);   // 深さは正の数で段を引く（旧＝負のまま渡して常に n<200＝海が全部同じ色・B9d・2026-09-25）
 }
