@@ -41,6 +41,7 @@
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
 		"verify:nocoi": "node scripts/verify-nocoi.mjs",
+		"verify:net": "node scripts/verify-net.mjs",
 		"verify:regionless": "node scripts/verify-regionless.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs"
 	},

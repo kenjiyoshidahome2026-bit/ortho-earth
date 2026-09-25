@@ -2,7 +2,9 @@
 <!-- 実描画の検分：取得の前の手入れ（#37・transformRequest / addProtocol・MapLibre と同名）。globe を外来 style で起動。
      ①transformRequest＝style の架空のタイル URL を地理院の URL へ書き換える→海が style の色（マゼンタ）で描ける・呼ばれた型（Tile）を数える
      ②addProtocol＝画像タイル（独自スキームで作った赤い画像）が球に貼れる ③3D Tiles の tileset と中身を独自スキームで流す
-     ④setStyle で基図タイルを独自スキーム（読み口が地理院から取る）へ＝水の色がシアンに替わる。実時間。 -->
+     ④setStyle で基図タイルを独自スキーム（読み口が地理院から取る）へ＝水の色がシアンに替わる。実時間。
+     タイルは tests/fixtures/optbv（地理院 optimal_bvmap の WA・Anno 層だけを抜いた 35 枚＝scripts/bake-optbv-fixture.mjs）＝外部に出ない
+     （旧＝cyberjapandata を実取得・回線と先方の都合で揺れた・T3 2026-09-25）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-request</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -11,7 +13,7 @@ const t = [];
 const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); document.title = "… " + t.join(" "); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (await f()) return true; await sleep(300); } return false; };
-const GSI = "https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/";
+const GSI = new URL("./fixtures/optbv/", location.href).href;   // 地理院タイルの手元写し（transformRequest・addProtocol の行き先）
 const styleOf = (water, tiles) => ({ version: 8, sources: { v: { type: "vector", tiles: [tiles], minzoom: 4, maxzoom: 16 } },
 	layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }, { id: "water", type: "fill", source: "v", "source-layer": "WA", paint: { "fill-color": water } }] });
 try {
