@@ -19,5 +19,8 @@
 		"@ortho-earth/core": "*",
 		"quiet-mono": "*",
 		"@ortho-earth/globe": "*"
+	},
+	"devDependencies": {
+		"vite": "^8.3.1"
 	}
 }
