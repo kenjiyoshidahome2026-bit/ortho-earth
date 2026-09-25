@@ -4,6 +4,10 @@ export async function bucket(request, bucket, ctx, env = {}) {
 	const url = new URL(request.url);
 	const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
 	const cache = caches.default;
+	// 書いた・消した後はこの道の GET キャッシュを捨てる（B18・旧＝s-maxage=3600 の間、古い本体を返し続けた）。
+	// ⚠ Cache API はデータセンター単位＝消えるのは書き込みを受けた拠点の分だけ。他拠点は s-maxage（1 時間）で自然に切れる
+	//   （全拠点を即時に消すにはゾーンの purge API＝API トークンが要る）。?v= 等の query 付きの版も別の鍵＝消えない
+	const purge = () => ctx?.waitUntil?.(cache.delete(new Request(url.origin + url.pathname, { method: "GET" })).catch(() => false));
 	if (request.method === "GET") {
 		const res = await cache.match(request); if (res) return res;
 	} 
@@ -64,6 +68,7 @@ export async function bucket(request, bucket, ctx, env = {}) {
 				const contentType = request.headers.get("X-Metadata-Type") || "application/octet-stream";
 				const contentEncoding = request.headers.get("X-Content-Encoding");
 				await bucket.put(path, request.body, { httpMetadata: { contentType, contentEncoding } });
+				purge();
 				return new Response(JSON.stringify({ data: "ok" }));
 			}
 			if (action === "mp-create") { // マルチパートアップロード: 開始
@@ -84,10 +89,12 @@ export async function bucket(request, bucket, ctx, env = {}) {
 				const { uploadId, parts } = await request.json();
 				const upload = bucket.resumeMultipartUpload(path, uploadId);
 				await upload.complete(parts.sort((a, b) => a.partNumber - b.partNumber));
+				purge();
 				return new Response(JSON.stringify({ data: "ok" }));
 			}
 			if (action === "del") { // 削除処理
 				await bucket.delete(path);
+				purge();
 				return new Response(JSON.stringify({ data: "ok" }));
 			}
 		}
