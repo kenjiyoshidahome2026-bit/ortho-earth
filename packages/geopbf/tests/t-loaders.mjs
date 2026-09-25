@@ -35,6 +35,8 @@ const base = `http://127.0.0.1:${server.address().port}`;
 // ---- parse(buffer) 経路 -----------------------------------------------------
 const fc = await parse(synth.slice().buffer, GeoPBFLoader);
 ok(fc.type === "FeatureCollection" && fc.features.length === 1, "parse(buffer) → FeatureCollection");
+const pkgVersion = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8")).version;
+ok(GeoPBFLoader.version === pkgVersion, `GeoPBFLoader.version は package.json と同じ（${GeoPBFLoader.version} / ${pkgVersion}＝ずれたら src/loaders.js を直す）`);
 ok(fc.features[0].properties.date === new Date(1700000000000).toISOString(), "既定でサニタイズ（Date→ISO）");
 ok(fc.geopbfMeta?.name === "synth" && fc.geopbfMeta?.attribution === "test-attribution" && fc.geopbfMeta?.minZoom === 5,
 	`geopbfMeta 添付 (name=${fc.geopbfMeta?.name})`);
