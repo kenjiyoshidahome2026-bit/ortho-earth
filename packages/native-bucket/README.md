@@ -170,7 +170,7 @@ console.log(`Received: `, json);
 
 ### 🪣 `Bucket(directory, options)`
 
-High-level interface for Cloudflare R2. Features automatic Gzip detection and parallelized Multipart uploads for files >5MB.
+High-level interface for Cloudflare R2. Features automatic Gzip detection and Multipart uploads for files of 50 MB or more (5 MB parts, sent one after another).
 
 | Parameter | Type | Description |
 | :--- | :---: | :--- |
@@ -190,11 +190,10 @@ const file = await storage.get("test.txt");
 // get meta information from the File. (size, ETag etc.)
 const meta = await storage.meta("test.txt");
 
-// Rename file
-await storage.move("test.txt", "text.old.txt");
+// Rename: there is no move(). get() the file and put() it under the new name, then del() the old one.
 
 // delete file
-await storage.del("text.old.txt");
+await storage.del("test.txt");
 
 // List items in the directory
 const list = await storage.list();
