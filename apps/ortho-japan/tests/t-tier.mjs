@@ -1,7 +1,7 @@
 // 起動時の裁き（boot/tier.js）の検定＝navigator と location だけで決まる純関数を Node で回す。
 // 台帳＝packages/ortho-core/fallback-ladder.md（ノブを変えたらこちらも）。実機の事故から採った例＝Windows i7/HD Graphics（2026-08-03）・
 // 8GB Android（LOW_MEM 素通り）・Apple M1（既定のまま）・16 コア（HI）・swiftshader（headless の検定機）。
-import { lowMem, classifyTier, deadMap } from "@ortho-earth/globe/boot/tier.js";
+import { lowMem, classifyTier, deadMap, renderFx } from "@ortho-earth/globe/boot/tier.js";
 let n = 0, bad = 0;
 const ok = (name, c, x = "") => { n++; if (!c) bad++; console.log(`${c ? "✓" : "✗"} ${name}${x ? ` (${x})` : ""}`); };
 const nav = (o = {}) => ({ hardwareConcurrency: 8, maxTouchPoints: 0, ...o });
@@ -49,6 +49,15 @@ ok("?mid=1 → Apple でも MID 真", tier({ search: "?a=1&mid=1", gpuRenderer: 
 ok("?hi=0 → 16 コアでも HI 偽", tier({ search: "?hi=0", nav: nav({ hardwareConcurrency: 16 }) }).HI_TIER === false);
 ok("?hi=1 → 4 コアでも HI 真（MID と両立）", (() => { const t = tier({ search: "?hi=1", nav: nav({ hardwareConcurrency: 4 }) }); return t.HI_TIER === true && t.MID_TIER === true; })());
 ok("?mid=1 は MID を立て HI を折る（HI は !MID_TIER 条件）", (() => { const t = tier({ search: "?mid=1", nav: nav({ hardwareConcurrency: 16 }) }); return t.MID_TIER === true && t.HI_TIER === false; })());
+
+// renderFx（#46）＝描画の質の旗：既定は WebGPU×非 LOW_MEM で on・LOW_MEM／GL2 は off・opts.render で個別 off・?fx= が勝つ
+const fx = (o) => renderFx({ render: null, search: "", LOW_MEM: false, gpuBackend: true, ...o });
+ok("renderFx: WebGPU×非 LOW_MEM → 全部 on", (() => { const f = fx({}); return f.atmosphere && f.pbr && f.ao; })());
+ok("renderFx: LOW_MEM → 全部 off", (() => { const f = fx({ LOW_MEM: true }); return !f.atmosphere && !f.pbr && !f.ao; })());
+ok("renderFx: GL2 → 全部 off", (() => { const f = fx({ gpuBackend: false }); return !f.atmosphere && !f.pbr && !f.ao; })());
+ok("renderFx: opts.render.ao:false → ao だけ off", (() => { const f = fx({ render: { ao: false } }); return f.atmosphere && f.pbr && !f.ao; })());
+ok("renderFx: ?fx=pbr は LOW_MEM でも pbr だけ on", (() => { const f = fx({ LOW_MEM: true, search: "?fx=pbr" }); return !f.atmosphere && f.pbr && !f.ao; })());
+ok("renderFx: ?fx=noatmosphere,ao は opts より強い", (() => { const f = fx({ render: { ao: false }, search: "?a=1&fx=noatmosphere,ao" }); return !f.atmosphere && f.pbr && f.ao; })());
 
 // deadMap＝どんな連鎖も無害に空転
 const d = deadMap();

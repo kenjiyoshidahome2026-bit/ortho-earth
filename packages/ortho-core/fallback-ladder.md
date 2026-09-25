@@ -122,6 +122,9 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
   動的解像度の降段も実測で消える（ぼやけ対策を兼ねる）。パイプラインは sampleCount 焼き込み＝1x/4x セット取替
   （renderer/gint とも遅延生成キャッシュ）。ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。
   GL2 は context 生成時 antialias 固定＝対象外。LOW_MEM は従来どおり既定 1x（変化なし）
+- **描画の質の旗（#46・2026-09-26）**：`opts.render { atmosphere, pbr, ao }`＝大気散乱・PBR と環境光・AO。既定＝**WebGPU かつ非 LOW_MEM で on**・
+  LOW_MEM は off（予算を壊さない）・GL2 は持たない（#44 と同じ裁定）。裁くのは `boot/tier.js renderFx`（純関数・t-tier）＝
+  `?fx=pbr,ao` 強制 on（LOW_MEM／GL2 の A/B）・`?fx=noao` 強制 off・URL が opts に勝つ。段 0 は旗を運ぶだけ（絵は不変）＝段 1〜3 が順に読む。
 
 ## 7. 計器（全部 URL フラグ・本番搭載）
 
@@ -131,7 +134,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | `?drawhud=1` | 描画実績（塗り枚数・退場フラグ・fade・PLバッチ）＝**USB 不要の実機計器**。塗り0=赤字＝CPU側、枚数ありで黒=GPU側の二分 |
 | `?stay=1` | 起動診断 HUD（frame1・配達カウンタ・boot 里程標。フォールバックせず留まる閲覧モード） |
 | `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint・aa=直近フレームの段数 1/4）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
-| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` |
+| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` `?fx=<name>,no<name>`（#46） |
 
 ## 8. 残リスク（監視項目）
 

@@ -39,6 +39,7 @@ struct Frame {
 	gnd1: vec4f,       // 同・中窓
 	gnd2: vec4f,       // 同・遠窓
 	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
+	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -139,6 +140,16 @@ fn fogOf(w: vec3f) -> f32 {
 // クリップ z ← 対数深度（WebGPU z01）。GL 版 applyLogDepth の window 深度と同値
 fn logDepthZ(w: f32) -> f32 {
 	return log2(max(1.0 + w, 1e-6)) * F.params.z * 0.5 * w;
+}
+// sRGB ⇄ リニア（#46 段 0）。模型の baseColor は rgba8unorm-srgb ビューで読む＝標本化の時点でリニア。照明の計算はリニアで、出口で符号化する。
+// 出力面は素の bgra8/rgba8（sRGB ビューにしない＝基図・地形・建物は今までどおり表示空間の値をそのまま書く）。
+fn srgbEncode(c: vec3f) -> vec3f {
+	let x = max(c, vec3f(0.0));
+	return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
+}
+fn srgbDecode(c: vec3f) -> vec3f {
+	let x = max(c, vec3f(0.0));
+	return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
 }
 // 標高サンプラ（アトラス範囲内なら高さm・外は0）。窓の縁の edgeFade 込み＝glsl.js ELEV と同式。
 // textureSampleLevel＝頂点/フラグメント両ステージで合法（暗黙 LOD 不要。mip 無し＝GL の texture() と同値）
@@ -565,7 +576,14 @@ struct PlOut {
 	// 裏面カリング。cullBack=B.meshOrigin.w
 	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
 	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
-	let L = normalize(vec3f(-0.35, 0.85, 0.30));   // 斜め上の光＝屋根が立つ
+	// 光の向き＝接地の局所系（上＝その画素の動径・東・北）で固定（#46 段 0・2026-09-26）。旧＝地球固定の定数 (-0.35,0.85,0.30)＝
+	// 置いた経度で当たる面が変わっていた（東京では北寄り・仰角 64° の光＝その向きを局所系で写した値が下の 0.44/0.90）。
+	// 段 2 で太陽（F.sun）＋環境光へ寄せる（本人裁定）。gl/glsl.js は据え置き（WebGPU だけ）。
+	let up = normalize(F.eye - in.toEye);   // = 画素の絶対位置の向き（toEye = eye − pos）
+	let e0 = cross(vec3f(0.0, 1.0, 0.0), up);
+	let east = select(normalize(e0), vec3f(1.0, 0.0, 0.0), dot(e0, e0) < 1e-12);   // 極では退化＝任意の水平
+	let north = cross(up, east);
+	let L = normalize(north * 0.44 + up * 0.90);   // 斜め上の光＝屋根が立つ
 	let d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);   // 基図建物の屋根1.0/壁0.76に合わせる
 	let c = mix(P.p1.rgb * d, F.fogColor, in.fog);
 	return vec4f(c, 1.0);
@@ -942,7 +960,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 `;
 
 // テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝MESH_WGSL からの文字列派生（本体は不変・gl/glsl.js MESH_TEX_* と同じ考え）。
-// 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0)、group(3)＝サンプラ＋テクスチャ。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
+// 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0＝glTF の規約どおりリニア)、group(3)＝サンプラ＋テクスチャ（rgba8unorm-srgb ビュー＝標本はリニア・出口で srgbEncode・#46 段 0）。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
 const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
@@ -950,7 +968,7 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
 	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n"],
-	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
+	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(srgbEncode(tx.rgb) * d, F.fogColor, in.fog);   // tx はリニア（srgb ビュー）＝出口で符号化。陰影 d は表示空間で掛ける＝段 0 は絵を変えない（段 2 でリニアの照明へ）\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
 
 
