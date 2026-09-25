@@ -14,14 +14,17 @@
 //   ・それ以外の 200 以外（301/404/その他の 5xx・遮断の 403）＝即停止し KV に停止札 "halt" を置く。札がある間は一切取りに行かない
 //     ＝「M2M は 200 以外を受けたら止めて人に報告せよ」。原因を確かめて `wrangler kv key delete halt` で再開
 //     （エラーを積むと IP ごとファイアウォール送り＝2 時間で 50 回）。
+//   ・200 なのに CSV でない本文（断り文以外＝仕様変更・障害の頁）＝見送り。3 回続いたら停止（B19・2026-09-25。旧＝毎回 "refused" で
+//     見送るだけ＝止まらず毎時取り続け、古いミラーを黙って配り続けた）。断り文（NOT_UPDATED）は数えない
 const SRC = "https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=csv";
 const UA = "ortho-earth sats-mirror/1.0 (+https://www.ortho-earth.com/)";
 const MIN_INTERVAL_MS = 110 * 60e3;
-const K = { data: "active.csv.gz", meta: "meta", halt: "halt", transient: "transient" };
+const K = { data: "active.csv.gz", meta: "meta", halt: "halt", transient: "transient", odd: "odd" };
 const NOT_UPDATED = /has not updated since your last successful/i;   // CelesTrak の「2 時間に 1 回」の断り文（403 で返る）
 const TRANSIENT = st => st >= 520 && st <= 526, TRANSIENT_MAX = 3;   // 一時的な 5xx（Cloudflare の本体接続エラー）＝見送り・連続 3 回で停止
+const ODD_MAX = 3;   // 200 で CSV でない本文（断り文以外）＝見送り・連続 3 回で停止
 
-// 戻り値＝何をしたか（ログとテスト用）："halted" | "fresh" | "refused" | "transient" | "error" | "stored"
+// 戻り値＝何をしたか（ログとテスト用）："halted" | "fresh" | "refused" | "transient" | "odd" | "error" | "stored"
 export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 	const kv = env.SATS;
 	if (await kv.get(K.halt)) { console.warn("[sats-mirror] halted — delete KV key 'halt' after checking the cause"); return "halted"; }
@@ -49,7 +52,20 @@ export async function mirror(env, now = Date.now(), fetchImpl = fetch) {
 	}
 	const text = await res.text();
 	await kv.delete(K.transient);   // 応答が返った＝一時的な失敗の数え直し
-	if (!text.startsWith("OBJECT_NAME,")) { console.warn("[sats-mirror] refused:", text.slice(0, 160)); return "refused"; }
+	if (!text.startsWith("OBJECT_NAME,")) {
+		if (NOT_UPDATED.test(text)) { await kv.delete(K.odd); console.warn("[sats-mirror] refused:", text.slice(0, 160)); return "refused"; }
+		const count = ((await kv.get(K.odd, "json"))?.count ?? 0) + 1, body = text.slice(0, 500);
+		if (count < ODD_MAX) {
+			await kv.put(K.odd, JSON.stringify({ count, at: new Date(now).toISOString(), body }));
+			console.warn(`[sats-mirror] HTTP 200 but not CSV (${count}/${ODD_MAX}) — skipped:`, body.slice(0, 160));
+			return "odd";
+		}
+		await kv.delete(K.odd);
+		await kv.put(K.halt, JSON.stringify({ status: 200, at: new Date(now).toISOString(), body, note: `${ODD_MAX} non-CSV bodies in a row` }));
+		console.error(`[sats-mirror] HTTP 200 non-CSV ×${ODD_MAX} in a row — halted until a human deletes KV key 'halt'`);
+		return "error";
+	}
+	await kv.delete(K.odd);
 	const gz = await new Response(new Blob([text]).stream().pipeThrough(new CompressionStream("gzip"))).arrayBuffer();
 	await kv.put(K.data, gz);
 	await kv.put(K.meta, JSON.stringify({ fetchedAt: now, rows: text.split("\n").filter(Boolean).length - 1, bytes: gz.byteLength }));   // 本体の後に書く＝meta が指す本体は必ずある
@@ -65,8 +81,8 @@ export async function serve(req, env) {
 	if (req.method !== "GET" && req.method !== "HEAD") return json({ error: "method not allowed" }, 405);
 	const path = new URL(req.url).pathname.replace(/^\/sats/, "");
 	if (path === "/status") {
-		const [meta, halt, transient] = await Promise.all([env.SATS.get(K.meta, "json"), env.SATS.get(K.halt, "json"), env.SATS.get(K.transient, "json")]);
-		return json({ ...(meta || {}), halted: halt || false, transient: transient || false });
+		const [meta, halt, transient, odd] = await Promise.all([env.SATS.get(K.meta, "json"), env.SATS.get(K.halt, "json"), env.SATS.get(K.transient, "json"), env.SATS.get(K.odd, "json")]);
+		return json({ ...(meta || {}), halted: halt || false, transient: transient || false, odd: odd || false });
 	}
 	if (path === "/active.csv") {
 		const [gz, meta] = await Promise.all([env.SATS.get(K.data, "arrayBuffer"), env.SATS.get(K.meta, "json")]);

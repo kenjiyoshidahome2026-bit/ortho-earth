@@ -54,6 +54,14 @@ ok("500 (outside 520–526) → halt at once", (await mirror(env, T0 + 900 * 60e
 store.delete("halt");
 await mirror(env, T0 + 960 * 60e3, reply(522, ""));
 ok("403 not-updated also resets the count", (await mirror(env, T0 + 1020 * 60e3, reply(403, "GP data has not updated since your last successful download"))) === "refused" && !store.has("transient"));
+// B19：200 なのに CSV でない本文（断り文以外）＝見送り・3 回続いたら停止（旧＝毎回 refused で止まらなかった）
+const HTML = "<!doctype html><title>Maintenance</title>";
+const mirrorBefore = store.get("active.csv.gz");
+ok("200 non-CSV (not a refusal) once = odd, keeps mirror", (await mirror(env, T0 + 1080 * 60e3, reply(200, HTML))) === "odd" && !store.has("halt") && store.get("active.csv.gz") === mirrorBefore && JSON.parse(store.get("odd")).count === 1);
+ok("200 refusal text resets the odd count", (await mirror(env, T0 + 1140 * 60e3, reply(200, "GP data has not updated since your last successful download"))) === "refused" && !store.has("odd"));
+ok("200 non-CSV ×3 in a row → halt", (await mirror(env, T0 + 1200 * 60e3, reply(200, HTML))) === "odd" && (await mirror(env, T0 + 1260 * 60e3, reply(200, HTML))) === "odd"
+	&& (await mirror(env, T0 + 1320 * 60e3, reply(200, HTML))) === "error" && store.has("halt") && !store.has("odd"));
+ok("status shows halted (non-CSV)", /non-CSV/.test((await (await get("/status")).json()).halted?.note || ""));
 ok("unknown path → 404", (await get("/x")).status === 404);
 ok("POST → 405", (await serve(new Request("https://www.ortho-earth.com/sats/active.csv", { method: "POST" }), env)).status === 405);
 process.stdout.write(fail ? `\n${fail} FAILED\n` : "\nall ok\n");
