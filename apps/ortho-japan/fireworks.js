@@ -3,7 +3,7 @@
 // 発射地点＝隅田川（桜橋の下流・隅田川花火大会の第一会場のあたり）。視点は南から北を見る＝東京スカイツリー（634 m）が花火の手前に立つ。
 import { worldRadiusM } from "@ortho-earth/core";
 import glUrl from "./fireworks-gl.js?url";   // worker が import() する URL＝vite はこのファイルをそのまま置く
-import { SHELLS, COLORS } from "./fireworks-gl.js";   // 玉の表（正本は fireworks-gl.js）
+import { SHELLS, COLORS, KINDS } from "./fireworks-gl.js";   // 玉の表（正本は fireworks-gl.js）
 import { tr, setLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
@@ -18,14 +18,15 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 	const ov = map.overlay(glUrl, { name: "fireworks", opts: { earthM: EARTH_M, depth: true } });
 	ov.post({ type: "site", lon: SITE.lon, lat: SITE.lat });
 
-	const st = { go: 10, auto: false, color: -1 };
+	const st = { go: 10, auto: false, color: -1, kind: "kiku" };
+	const KIND_LABEL = { kiku: t("Chrysanthemum"), botan: t("Peony"), yanagi: t("Willow"), henka: t("Colour change") };
 	let autoT = 0, count = 0;
 	const launch = (go = st.go) => {
 		const dx = (Math.random() - 0.5) * 60, dy = (Math.random() - 0.5) * 30;   // 台船の並び＝少しばらける
-		ov.post({ type: "launch", go, color: st.color >= 0 ? st.color : undefined, now: map.clock.time, dx, dy });
+		ov.post({ type: "launch", go, kind: st.kind, color: st.color >= 0 ? st.color : undefined, now: map.clock.time, dx, dy });
 		count++; upd();
 	};
-	const autoTick = () => { if (!st.auto) return; launch(SHELLS[(Math.random() * SHELLS.length) | 0].go); autoT = setTimeout(autoTick, 900 + Math.random() * 1800); };
+	const autoTick = () => { if (!st.auto) return; const k = st.kind; st.kind = KINDS[(Math.random() * KINDS.length) | 0].key; launch(SHELLS[(Math.random() * SHELLS.length) | 0].go); st.kind = k; autoT = setTimeout(autoTick, 900 + Math.random() * 1800); };   // 連発＝号数も種類もおまかせ
 
 	// ── パネル（quakes/sats と同じ意匠＝暗いガラス）──
 	const panel = document.createElement("div");
@@ -50,6 +51,7 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 <h1>${t("Fireworks over Sumida")}</h1>
 <div class="sub">${t("Real size. A 10-inch shell opens about 320 m wide at 330 m up.")}</div>
 <div class="row shells"><label>${t("Shell")}</label>${SHELLS.map(s => `<button data-go="${s.go}" class="${s.go === st.go ? "on" : ""}">${t("$1-go", s.go)}<br><small>⌀${s.diam} m</small></button>`).join("")}</div>
+<div class="row kinds"><label>${t("Type")}</label>${KINDS.map(k => `<button data-kind="${k.key}" class="${k.key === st.kind ? "on" : ""}">${KIND_LABEL[k.key]}</button>`).join("")}</div>
 <div class="row colors"><label>${t("Colour")}</label><button class="sw on" data-c="-1" title="${t("Random")}" style="background:conic-gradient(#f55,#fd5,#5e6,#5af,#f5f,#f55)"></button>${COLORS.map((c, i) => `<button class="sw" data-c="${i}" style="background:rgb(${c.map(v => Math.round(v * 255)).join(",")})"></button>`).join("")}</div>
 <div class="row"><button class="big launch">${t("Launch")}</button><button class="auto">${t("Auto")}</button><button class="clear">${t("Clear")}</button></div>
 <div class="row"><button class="view">${t("Back to the river")}</button></div>
@@ -57,6 +59,7 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 	(panelHost || map.mapEl).appendChild(panel);
 	const upd = () => { panel.querySelector(".cnt").textContent = String(count); };
 	panel.querySelector(".shells").addEventListener("click", e => { const b = e.target.closest("button[data-go]"); if (!b) return; st.go = +b.dataset.go; for (const x of panel.querySelectorAll(".shells button")) x.classList.toggle("on", x === b); launch(); });
+	panel.querySelector(".kinds").addEventListener("click", e => { const b = e.target.closest("button[data-kind]"); if (!b) return; st.kind = b.dataset.kind; for (const x of panel.querySelectorAll(".kinds button")) x.classList.toggle("on", x === b); launch(); });
 	panel.querySelector(".colors").addEventListener("click", e => { const b = e.target.closest("button[data-c]"); if (!b) return; st.color = +b.dataset.c; for (const x of panel.querySelectorAll(".colors button")) x.classList.toggle("on", x === b); });
 	panel.querySelector(".launch").addEventListener("click", () => launch());
 	const autoBtn = panel.querySelector(".auto");
