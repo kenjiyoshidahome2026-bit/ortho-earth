@@ -59,8 +59,10 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 	panel.querySelector(".shells").addEventListener("click", e => { const b = e.target.closest("button[data-go]"); if (!b) return; st.go = +b.dataset.go; for (const x of panel.querySelectorAll(".shells button")) x.classList.toggle("on", x === b); launch(); });
 	panel.querySelector(".colors").addEventListener("click", e => { const b = e.target.closest("button[data-c]"); if (!b) return; st.color = +b.dataset.c; for (const x of panel.querySelectorAll(".colors button")) x.classList.toggle("on", x === b); });
 	panel.querySelector(".launch").addEventListener("click", () => launch());
-	panel.querySelector(".auto").addEventListener("click", e => { st.auto = !st.auto; e.currentTarget.classList.toggle("on", st.auto); clearTimeout(autoT); if (st.auto) autoTick(); });
-	panel.querySelector(".clear").addEventListener("click", () => { ov.post({ type: "clear" }); });
+	const autoBtn = panel.querySelector(".auto");
+	const setAuto = on => { st.auto = on; autoBtn.classList.toggle("on", on); autoBtn.textContent = on ? t("Stop") : t("Auto"); clearTimeout(autoT); if (on) autoTick(); };   // 連発中は「止める」
+	autoBtn.addEventListener("click", () => setAuto(!st.auto));
+	panel.querySelector(".clear").addEventListener("click", () => { setAuto(false); ov.post({ type: "clear" }); });   // 消す＝連発も止める
 	panel.querySelector(".view").addEventListener("click", () => map.flyTo(VIEW.lon, VIEW.lat, VIEW.zoom, VIEW.tilt, VIEW.bearing));
 	// 地図のクリック＝その場所から 1 発（発射地点は変えない＝台船は川の上）
 	const onKey = e => { if (e.key === " " && !e.target.closest("input,textarea,button")) { e.preventDefault(); launch(); } };
@@ -73,6 +75,6 @@ export async function mountFireworks(map, { panelHost, quiet = false, fly = true
 	return {
 		launch, site: SITE, view: VIEW, overlay: ov,
 		get count() { return count; },
-		destroy() { clearTimeout(autoT); st.auto = false; window.removeEventListener("keydown", onKey); panel.remove(); ov.remove(); },
+		destroy() { setAuto(false); window.removeEventListener("keydown", onKey); panel.remove(); ov.remove(); },
 	};
 }
