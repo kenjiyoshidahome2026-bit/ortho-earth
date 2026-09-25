@@ -74,11 +74,11 @@ Yes. Paste any publicly accessible HTTPS URL into the input box — no catalog e
 
 **Q: What is GeoPBF?**
 
-GIS-HUB's internal binary format (Protocol Buffers + spatial index). It stores geometry and attributes in a compact, indexed form that supports spatial queries without decoding the entire file. Download your loaded data as `.gpbf` to reload it instantly on your next visit — no re-fetch, no re-decode.
+GIS-HUB's internal binary format (Protocol Buffers with shared arcs and quantized coordinates). It stores geometry and attributes compactly. The file carries **no spatial index**: it is decoded whole, and the Morton-order coordinates used for identify and level of detail are built in memory at load time. For reading only part of a large dataset, use GeoParquet. Download your loaded data as `.geopbf` to reload it instantly on your next visit — no re-fetch, no re-decode.
 
 **Q: Why does GIS-HUB use GeoPBF internally instead of GeoJSON?**
 
-GeoJSON is a text format — verbose, slow to parse, and blocks the main thread at scale. GeoPBF is roughly 1/10th the size, binary-decoded off the main thread via Web Workers, and natively supports spatial indexing for fast identify and LOD queries. See the [GeoPBF Technical Overview](geopbf.html) for details.
+GeoJSON is a text format — verbose, slow to parse, and blocks the main thread at scale. GeoPBF is roughly 1/10th the size, binary-decoded off the main thread via Web Workers, and after loading it builds Morton-order (gint) coordinates in memory for fast identify and level-of-detail drawing (nothing index-like is stored in the file). See the [GeoPBF Technical Overview](geopbf.html) for details.
 
 ---
 
@@ -86,8 +86,8 @@ GeoJSON is a text format — verbose, slow to parse, and blocks the main thread 
 
 **Q: Does GIS-HUB support Web Mercator (EPSG:3857)?**
 
-Shapefiles that include a `.prj` file declaring EPSG:3857 are **automatically reprojected to WGS84** on load — no manual conversion needed. For other projected coordinate systems (JGD2011, UTM, etc.), a warning is displayed; pre-convert to WGS84 (EPSG:4326) using GDAL or QGIS before loading. The Ortho-Map viewer uses orthographic projection (3D globe) only; flat Web Mercator tile maps are not supported as a display mode.
+Shapefiles, GeoPackage and FileGDB are **reprojected to WGS84 on load** from their `.prj` / CRS: geographic systems (WGS84, JGD2011, ETRS89, NAD83, …) as they are, Transverse Mercator (the Japanese plane rectangular zones I–XIX, UTM, Gauss–Krüger), Web Mercator and Mercator, and the old Tokyo datum (to JGD2000/JGD2011). Other projections (for example Lambert conformal conic) show a warning; convert those to WGS84 (EPSG:4326) with GDAL first.
 
 **Q: Is there a command-line tool (CLI) for batch conversion?**
 
-Not yet. GIS-HUB currently runs as a browser-only application. The conversion engine is architected with Node.js compatibility in mind, and a CLI tool is planned for a future release. In the meantime, [GDAL (ogr2ogr)](https://gdal.org/) is a well-supported open-source option for batch format conversion.
+Yes. The conversion engine is published on npm as `geopbf` and ships a CLI: `npx geopbf enc in.geojson out.geopbf`, `npx geopbf parquet …`, and more (`npx geopbf --help` lists every command). The browser app and the CLI share the same code.
