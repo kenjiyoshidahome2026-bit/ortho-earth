@@ -1474,6 +1474,13 @@ const flyTo = (lon, lat, zoom, tiltDeg, bearingDeg) => {
 	if (gint.suppressAdmin0) gint.updateGintSlot();   // 既に coast がスロットに載っていれば離陸前に降ろす
 	return flightCtl.flyTo(lon, lat, zoom, tiltDeg, bearingDeg);
 };
+// 同一フレームのオーバーレイの実画素（検定用・t-linedeco）＝{ type:"probe" } に { type:"pixels", w, h, data } で答えるモジュール（pattern-2d・imagequad-draw・anno-draw）
+dbgHost.__ovPixels = name => new Promise(res => {
+	const h = overlays.get(name); if (!h) return res(null);
+	const id = "px" + Math.random(), prev = h.onmessage, tm = setTimeout(() => { h.onmessage = prev; res(null); }, 5000);
+	h.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); h.onmessage = prev; res(d); } else prev?.(d); };
+	h.post({ type: "probe", id });
+});
 dbgHost.__fly = flyTo;   // デバッグ/検証用（__cam の飛行版）
 
 // テーマ・チップ状態：静かな白黒の土台は常に全部見えている。チップは主題の「文字の表示」
@@ -2378,13 +2385,22 @@ function serveProtocolRaster(port, tpl, spec) {
 		finally { acs.delete(id); }
 	};
 }
+// 四隅の動画（#49）＝覆いのオーバーレイ（imagequad の組み込み・注記の下）へ毎コマ差し替え。動画を使うまで chunk も overlay も作らない
+let videoCtl = null;
+const videoGet = async () => videoCtl ??= (await import("./gadgets/videoquad.js")).createVideoQuads({ overlay: () => map.overlay({ builtin: "imagequad" }, { name: "videoquad" }), maxSide: LOW_MEM ? 1024 : 2048 });
+ownDestroy.push(() => videoCtl?.clear());
 map.raster = {
 	catalog: REGION_RASTERS,
 	// add(id, spec, opts)：spec＝{ url:"…/{z}/{x}/{y}.png", minZoom, maxZoom, bbox, attribution, subdomains, tms, headers }｜{ pmtiles:"…" }｜{ file: File(.gpkg/.mbtiles), table? }｜{ port: MessagePort }
 	//                     ｜{ image: Blob|ImageBitmap, corners: [[lon,lat]×4 左上→右上→右下→左下], name? }（四隅で貼る＝MapLibre の image source 相当・2026-09-21）
+	//                     ｜{ video: HTMLVideoElement|URL|[URL…], corners }（四隅の動画＝MapLibre の video source 相当・#49）＝地面に焼かず覆う（基図の上・注記の下）。戻り＝{ getVideo, play, pause, seek, setCoordinates }
 	//                     opts＝{ order:"under"|"over", opacity, visible, hideFills（under 既定 true）, minZoom, maxZoom（表示域） }。戻り＝ソースの自己申告（info）
 	async add(id, spec, o = {}) {
-		if (rasterReg.has(id)) map.raster.remove(id);
+		if (rasterReg.has(id) || videoCtl?.get(id)) map.raster.remove(id);
+		if (spec?.video) {   // 四隅の動画＝毎コマ差し替える覆いの口（gadgets/videoquad.js・遅延 chunk）
+			const v = spec.video, isEl = typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement;
+			return (await videoGet()).add(id, { video: isEl ? v : null, urls: isEl ? null : v, corners: spec.corners, opacity: o.opacity ?? 1 });
+		}
 		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
 		rasterReg.set(id, rec);
 		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
@@ -2415,8 +2431,8 @@ map.raster = {
 		rasterChanged();
 		return done;
 	},
-	remove(id) { const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
-	set(id, o) { const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
+	remove(id) { if (videoCtl?.remove(id)) { needsDraw = true; return true; } const rec = rasterReg.get(id); if (!rec) return false; rasterReg.delete(id); rec.worker?.terminate(); rec.port?.close(); rec._rej?.(new Error("removed")); wPost({ type: "set", cmd: "rasterRemove", prop: id }); rasterChanged(); return true; },
+	set(id, o) { if (videoCtl?.get(id)) return o.opacity != null ? videoCtl.setOpacity(id, o.opacity) : true; const rec = rasterReg.get(id); if (!rec) return false; Object.assign(rec.opts, o); wPost({ type: "set", cmd: "rasterSet", prop: id, data: o }); rasterChanged(); return true; },
 	list: () => [...rasterReg].map(([id, r]) => ({ id, info: r.info, spec: r.spec, opts: r.opts, error: r.error })),
 	info: id => rasterReg.get(id)?.info ?? null,
 	stats: () => new Promise(res => { const sid = ++rasterStatSeq; rasterStatWait.set(sid, res); wPost({ type: "rasterStats", id: sid }); setTimeout(() => { if (rasterStatWait.delete(sid)) res(null); }, 5000); }),
@@ -3159,6 +3175,7 @@ const kindOf = (layer, sp) => {
 	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) return "cluster";
 	if (layer.type === "symbol") return "symbol";
 	if ((layer.type === "fill" && layer.paint?.["fill-pattern"] != null) || (layer.type === "line" && layer.paint?.["line-pattern"] != null)) return "pattern";
+	if (layer.type === "line" && (layer.paint?.["line-gradient"] != null || (layer.paint?.["line-offset"] ?? 0) !== 0)) return "pattern";   // 線の飾り（#49）＝同じ canvas2D の口（数の 0 は gint のまま）
 	if (layer.type === "fill" || layer.type === "line" || layer.type === "circle") return "gint";
 	throw new Error(`addLayer: type "${layer.type}" is not supported`);
 };
@@ -3210,23 +3227,53 @@ const rebuildGint = async (sid, { dataChanged = false } = {}) => {
 	return cur.pbf;
 };
 // 塗り/線の模様（MapLibre の fill-pattern／line-pattern）＝記号帳の画像を敷き詰める canvas2D のオーバーレイ（pattern-2d.js）。
+// 線の飾り（line-gradient／line-offset・#49）も同じ口＝gint の線は地物ごと一色・ずらしなし。
 // ⚠設計原則「紙の遺物を捨てる」の側＝既定では何も描かない。MapLibre の層を受ける互換の口だけ（本人 9/21「残りをお願いします」）
 let patOv = null, patOrder = 0;
 const patSent = new Set();
+const GRAD_N = 64;   // line-gradient の見本の数（進み 0..1 を等分）
+const cssRGBA = v => { const [r, g, b, a] = parseRGBA(v); return `rgba(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)},${a})`; };
+// line-progress（MapLibre の lineMetrics）＝線の頭からの長さの割合。長さはメルカトルの平面で測る（MapLibre のタイル座標と同じ尺）
+const lineProgress = r => {
+	const n = r.length >> 1, pr = new Float32Array(n), my = lat => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360)) * 180 / Math.PI;
+	let acc = 0;
+	for (let i = 1; i < n; i++) { acc += Math.hypot(r[i * 2] - r[i * 2 - 2], my(r[i * 2 + 1]) - my(r[i * 2 - 1])); pr[i] = acc; }
+	if (acc > 0) for (let i = 1; i < n; i++) pr[i] /= acc;
+	return pr;
+};
 const addPattern = async (layer, data, order) => {
-	const c = await symGet(); patOv ??= map.overlay(patUrl, { name: "pattern" });
+	const P0 = layer.paint || {}, needSym = P0["fill-pattern"] != null || P0["line-pattern"] != null;
+	const c = needSym ? await symGet() : null; patOv ??= map.overlay(patUrl, { name: "pattern" });
 	let d = data; if (typeof d === "string" || d instanceof Blob) d = (await geopbf(d, { gint: false }))?.geojson;
-	const feats = d?.features || (Array.isArray(d) ? d : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];
+	const feats = d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
 		const ctx = { zoom: cam.zoom, props: f.properties || {}, geom: g.type.replace("Multi", ""), vars: {} };
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
-		const pattern = evalExpr(P[fill ? "fill-pattern" : "line-pattern"], ctx);
-		if (!pattern || !c.getImage(pattern)) continue;
+		const patProp = P[fill ? "fill-pattern" : "line-pattern"];
+		const pattern = patProp != null ? evalExpr(patProp, ctx) : null;
+		if (patProp != null && (!pattern || !c.getImage(pattern))) continue;
 		const parts = fill ? (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []) : (g.type === "LineString" ? [[g.coordinates]] : g.type === "MultiLineString" ? g.coordinates.map(l => [l]) : []);
-		for (const rings of parts) items.push({ rings: rings.map(r => Float64Array.from(r.flat())), pattern, opacity: +evalExpr(P[fill ? "fill-opacity" : "line-opacity"] ?? 1, ctx), width: fill ? 0 : +evalExpr(P["line-width"] ?? 1, ctx) });
+		const it0 = { pattern, opacity: +evalExpr(P[fill ? "fill-opacity" : "line-opacity"] ?? 1, ctx), width: fill ? 0 : +evalExpr(P["line-width"] ?? 1, ctx) };
+		if (!fill) {
+			if (!pattern) it0.color = cssRGBA(evalExpr(P["line-color"] ?? "#000", ctx));
+			const off = P["line-offset"] != null ? +evalExpr(P["line-offset"], ctx) : 0;
+			if (off && isFinite(off)) it0.offset = off;
+			const dash = P["line-dasharray"] != null ? evalExpr(P["line-dasharray"], ctx) : null;
+			if (Array.isArray(dash) && dash.length && dash.every(v => typeof v === "number" && v >= 0) && dash.some(v => v > 0)) it0.dash = dash;
+			if (P["line-gradient"] != null && !pattern) {   // 見本＝進みを等分して式を評価（["line-progress"] は ctx.vars から引かれる）
+				const lut = [];
+				for (let j = 0; j <= GRAD_N; j++) { ctx.vars = { "line-progress": j / GRAD_N }; lut.push(cssRGBA(evalExpr(P["line-gradient"], ctx))); }
+				ctx.vars = {};
+				it0.grad = { lut };
+			}
+		}
+		for (const rings of parts) {
+			const rr = rings.map(r => Float64Array.from(r.flat()));
+			items.push(it0.grad ? { ...it0, rings: rr, grad: { lut: it0.grad.lut, prog: rr.map(lineProgress) } } : { ...it0, rings: rr });
+		}
 	}
-	for (const name of new Set(items.map(i => i.pattern))) if (!patSent.has(name)) { const im = c.getImage(name); const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
+	for (const name of new Set(items.map(i => i.pattern).filter(Boolean))) if (!patSent.has(name)) { const im = c.getImage(name); const bm = await createImageBitmap(im.bitmap); patOv.post({ type: "image", name, bitmap: bm, pixelRatio: im.pixelRatio }, [bm]); patSent.add(name); }
 	patOv.post({ type: "layer", id: layer.id, kind: fill ? "fill" : "line", items, order: order ?? patOrder++ });
 	return { features: items.length };
 };
@@ -3243,6 +3290,7 @@ const mountLayer = async v => {
 	if (kind === "raster") {
 		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
+		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
 		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust }, ro);
 	}
 	if (kind === "extrude") return map.gadget.extrude(await readPoints(data), { ...layer, fit: false, slot: layer.id });
@@ -3270,6 +3318,10 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 map.addSource = (id, spec) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); return map; };
 map.getSource = id => {
 	const sp = mlSources.get(id); if (!sp) return undefined;
+	if (sp.type === "video") {   // MapLibre の VideoSource の顔（#49）＝この source を使う最初の層の動画
+		const v = [...mlLayers.values()].find(x => srcId(x.layer) === id && x.kind === "raster"), h = v ? videoCtl?.get(v.layer.id) : null;
+		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
+	}
 	return { ...sp, setData: async data => {
 		sp.data = data;
 		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
@@ -3318,6 +3370,8 @@ map.setPaintProperty = (id, name, value) => {
 	const v = mlLayers.get(id); if (!v) throw new Error(`setPaintProperty: layer "${id}" not found`);
 	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = value;
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
+	const k = kindOf(v.layer, v.src);   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
+	if (k !== v.kind) { if (mlVisible(v)) { const old = { ...v }; v.kind = k; Promise.resolve(unmountLayer(old)).then(() => mlLayers.get(id) === v && mlVisible(v) && mountLayer(v)); } else v.kind = k; return map; }
 	relayer(v); return map;
 };
 map.getPaintProperty = (id, name) => mlLayers.get(id)?.layer.paint?.[name];
@@ -3382,7 +3436,7 @@ const mountExtExtras = async ext => {
 	}
 	for (const L of ext.split.geojson) {
 		try {
-			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; map.addSource(L.source, sp); extExtras.sources.push(L.source); }
+			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); map.addSource(L.source, sp); extExtras.sources.push(L.source); }
 			await map.addLayer(L); extExtras.layers.push(L.id);
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}

@@ -20,6 +20,10 @@ export function createRenderer(canvas, rOpts = {}) {
 
 	const fillProg = program(gl, FILL_VS, FILL_FS);
 	const lineProg = program(gl, LINE_VS, LINE_FS);
+	// line-offset（#49）の属性を持たない VAO は既定値で描く＝既定値は位置ごとの大域状態（他の頂点属性の vertexAttrib4f と位置を
+	// 共有し得る）＝線を描く直前に 0 を置き直す
+	const lineOffLoc = gl.getAttribLocation(lineProg, "a_off");
+	const lineOffZero = () => { if (lineOffLoc >= 0) gl.vertexAttrib3f(lineOffLoc, 0, 0, 0); };
 	const globeProg = program(gl, GLOBE_VS, GLOBE_FS);
 	const wdCoverProg = program(gl, GLOBE_VS, WDEPR_FS);   // 海面下の陸地の cover＝landK=1 強制のハイプソ本体（フルスクリーン・stencil≠0 のみ）
 	const gratProg = program(gl, GLOBE_VS, GRAT_FS);       // 10度レチクル（v1 geoGraticule10 移植・フルスクリーン計算）
@@ -551,15 +555,16 @@ export function createRenderer(canvas, rOpts = {}) {
 			} else {
 				if (!L.half.length) continue;
 				const vao = gl.createVertexArray();
-				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half);
+				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half), bOff = L.off ? buffer(gl, L.off) : null;
 				gl.bindVertexArray(vao);
 				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
 				attrib(gl, lineProg, "a_p1", bP1, 2, 1);
 				attrib(gl, lineProg, "a_p2", bP2, 2, 1);
 				attrib(gl, lineProg, "a_color", bCol, 4, 1, L.col instanceof Uint8Array);
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
+				if (bOff) attrib(gl, lineProg, "a_off", bOff, 3, 1);   // line-offset を持つ層だけ＝[off, tS, tE]（無い層は既定値 0）
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", vao, count: L.half.length, bufs: [bP1, bP2, bCol, bHalf] });
+				draws.push({ kind: "line", vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });
 			}
 		}
 		let bld = null;
@@ -884,6 +889,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			setCommonUniforms(lineProg, st, o.origin, land);
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（境界線が明滅・消失する件の根治）
 			gl.uniform1f(loc(gl, lineProg, "u_dpr"), dpr);
+			lineOffZero();
 			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
 		}
 	}
@@ -1357,6 +1363,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin); setGndScene(fillProg, scene.origin);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
+			lineOffZero();
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {

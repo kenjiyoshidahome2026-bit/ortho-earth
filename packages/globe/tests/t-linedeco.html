@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- 実描画の検分：線の重い部分と動画（#49・2026-09-25）。globe（地域なし）を opts.style で起動（タイルは t-mlstyle と同じ内側の fixtures/optbv）。
+     ①基図の line-offset（core の線シェーダ＝GL2 classic/multi_draw・WebGPU）：水域（WA）の輪郭を赤い線で描き、
+       ＝z16 の fixture（皇居のお濠。z10 の河川は細すぎて ±8px では両岸が入り乱れる）。
+       (a) 0 と +8px で赤の画素がほとんど重ならない（動いた）(b) 水の塗りを線の上に被せると、+8（右＝MVT の外周は時計回り＝内側）は
+       塗りに隠れて −8（外側）より赤が少ない（向き）
+     ②geojson の line-gradient（canvas2D の口）：東向きの線の頭は赤・尻は青
+     ③geojson の line-offset（同）：東向きの線に +15px＝画面の下（右）へずれて描かれ、元の位置には無い
+     ④四隅の動画（map.raster.add の { video }）：canvas の captureStream を貼る→四隅の中が動画の色・setCoordinates で動く・remove で消える
+     ⑤MapLibre の video source（addSource／addLayer・urls）：MediaRecorder で焼いた webm を貼る・getSource().getVideo() が動画要素
+     オーバーレイの画素は worker の canvas（transfer 済み）＝dbgHost.__ovPixels(name) で取り寄せる。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-linedeco</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const styleOf = (off, cover = false) => ({
+	version: 8, name: "t-linedeco",
+	sources: { gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
+	layers: [
+		{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+		{ id: "shore", type: "line", source: "gsi", "source-layer": "WA", paint: { "line-color": "#ff0000", "line-width": 2, "line-offset": off } },
+		...(cover ? [{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": "#3060c0" } }] : []),
+	],
+});
+try {
+	const map = await createGlobe({ target: "#map", view: "#16.2/35.681/139.765", chips: false, debugGlobals: true, style: styleOf(0) });   // ①＝z16 の fixture（皇居のお濠＝太い水域）
+	const shot = map.gadget.shot();
+	const grab = async () => {
+		const blob = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const bmp = await createImageBitmap(blob);
+		const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height });
+		cv.getContext("2d").drawImage(bmp, 0, 0);
+		return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height);
+	};
+	const redMask = img => { const m = new Uint8Array(img.width * img.height); let n = 0; for (let i = 0; i < m.length; i++) { const r = img.data[i * 4], g = img.data[i * 4 + 1], b = img.data[i * 4 + 2]; if (r > 190 && g < 90 && b < 90) { m[i] = 1; n++; } } return { m, n }; };
+	// ① 基図の line-offset
+	await sleep(9000);
+	const A = redMask(await grab());
+	const restyle = async st => { await map.setStyle(st); await sleep(6000); return redMask(await grab()); };
+	const B = await restyle(styleOf(8));
+	let both = 0; for (let i = 0; i < A.m.length; i++) if (A.m[i] && B.m[i]) both++;
+	const ov = both / Math.max(1, Math.min(A.n, B.n));
+	ok("basemapOffsetMoved", A.n > 1500 && B.n > 1500 && ov < 0.25, `red ${A.n}/${B.n} overlap ${(ov * 100).toFixed(0)}%`);
+	const R = await restyle(styleOf(8, true)), L = await restyle(styleOf(-8, true));
+	ok("basemapOffsetSide", L.n > 1500 && R.n < L.n * 0.3, `right(inside) ${R.n} left(outside) ${L.n}`);
+	map.jumpTo({ center: [139.85, 35.5], zoom: 10.5 });   // ②〜⑤＝東京湾の広さ
+	await sleep(2000);
+
+	// オーバーレイの画素（CSS px → canvas px）
+	const W = document.getElementById("map").clientWidth;
+	const probe = async name => { const p = await window.__ovPixels(name); return p && !p.error ? p : null; };
+	const at = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+	// オーバーレイの最初の描画は worker の import 次第＝決め打ちの待ちにしない（着くまで見る）
+	const until = async (name, test, ms = 10000) => { let v = null; for (const t0 = performance.now(); performance.now() - t0 < ms; await sleep(250)) { v = await probe(name); if (v && test(v)) break; } return v; };
+	const near = (p, x, y, test, r = 2) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(at(p, x + dx, y + dy))) return true; return false; };
+
+	// ② line-gradient（lineMetrics の geojson）
+	map.addSource("g", { type: "geojson", lineMetrics: true, data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[139.62, 35.52], [139.85, 35.52], [140.08, 35.52]] } } });
+	await map.addLayer({ id: "grad", type: "line", source: "g", paint: { "line-width": 10, "line-gradient": ["interpolate", ["linear"], ["line-progress"], 0, "#ff0000", 1, "#0000ff"] } });
+	// ③ line-offset（geojson・東向き＋15＝画面の下）
+	map.addSource("o", { type: "geojson", data: { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: [[139.62, 35.58], [140.08, 35.58]] } } });
+	await map.addLayer({ id: "off", type: "line", source: "o", paint: { "line-width": 4, "line-color": "#00ff00", "line-offset": 15 } });
+	const [gx0, gy0] = map.projectLL(139.63, 35.52);
+	const P = await until("pattern", v => at(v, gx0, gy0)[3] > 200);
+	ok("patternPixels", !!P, P ? `${P.w}x${P.h}` : "none");
+	if (P) {
+		const [x0, y0] = map.projectLL(139.63, 35.52), [x1, y1] = map.projectLL(140.07, 35.52);
+		const c0 = at(P, x0, y0), c1 = at(P, x1, y1);
+		ok("gradHead", c0[3] > 200 && c0[0] > 180 && c0[2] < 90, c0.join());
+		ok("gradTail", c1[3] > 200 && c1[2] > 180 && c1[0] < 90, c1.join());
+		const [mx, my] = map.projectLL(139.85, 35.58), green = c => c[3] > 200 && c[1] > 180 && c[0] < 90;
+		ok("offsetMoved", near(P, mx, my + 15, green) && !near(P, mx, my, green), `at+15=${at(P, mx, my + 15).join()} at0=${at(P, mx, my).join()}`);
+	}
+	// setPaintProperty で line-offset を外す＝gint の線へ戻り、canvas の口からは消える
+	map.setPaintProperty("off", "line-offset", undefined);
+	await sleep(1500);
+	const P2 = await probe("pattern");
+	if (P2) { const [mx, my] = map.projectLL(139.85, 35.58); ok("offsetBackToGint", !near(P2, mx, my + 15, c => c[3] > 200 && c[1] > 180 && c[0] < 90), at(P2, mx, my + 15).join()); }
+	map.removeLayer("grad"); map.removeLayer("off");
+
+	// ④ 四隅の動画（要素を渡す）
+	const cv = Object.assign(document.createElement("canvas"), { width: 64, height: 64 });
+	const cx = cv.getContext("2d");
+	const paint = col => { cx.fillStyle = col; cx.fillRect(0, 0, 64, 64); };
+	paint("#ff00ff");
+	const ticker = setInterval(() => paint("#ff00ff"), 50);   // captureStream は描いた時にコマを出す
+	const el = Object.assign(document.createElement("video"), { muted: true, playsInline: true, srcObject: cv.captureStream(20) });
+	await el.play();
+	const quad = [[139.70, 35.47], [139.80, 35.47], [139.80, 35.40], [139.70, 35.40]];
+	const h = await map.raster.add("vid", { video: el, corners: quad });
+	ok("videoHandle", typeof h?.getVideo === "function" && h.getVideo() === el);
+	const mag = c => c[3] > 200 && c[0] > 190 && c[1] < 90 && c[2] > 190;
+	const [qx, qy] = map.projectLL(139.75, 35.435);
+	let V = await until("videoquad", v => mag(at(v, qx, qy)));
+	ok("videoDrawn", !!V && mag(at(V, qx, qy)), V ? at(V, qx, qy).join() : "none");
+	h.setCoordinates(quad.map(([lo, la]) => [lo + 0.2, la]));
+	await sleep(800);
+	V = await probe("videoquad");
+	const [qx2, qy2] = map.projectLL(139.95, 35.435);
+	ok("videoMoved", !!V && mag(at(V, qx2, qy2)) && !mag(at(V, qx, qy)), V ? `${at(V, qx2, qy2).join()} / ${at(V, qx, qy).join()}` : "none");
+	map.raster.remove("vid");
+	await sleep(500);
+	V = await probe("videoquad");
+	ok("videoRemoved", !!V && !mag(at(V, qx2, qy2)), V ? at(V, qx2, qy2).join() : "none");
+	clearInterval(ticker);
+
+	// ⑤ MapLibre の video source（urls＝MediaRecorder で焼いた緑の webm）
+	const cv2 = Object.assign(document.createElement("canvas"), { width: 64, height: 64 }), cx2 = cv2.getContext("2d");
+	const tick2 = setInterval(() => { cx2.fillStyle = "#00ff00"; cx2.fillRect(0, 0, 64, 64); }, 40);
+	const rec = new MediaRecorder(cv2.captureStream(25), { mimeType: "video/webm" }), chunks = [];
+	rec.ondataavailable = e => chunks.push(e.data);
+	const stopped = new Promise(r => rec.onstop = r);
+	rec.start(); await sleep(1200); rec.stop(); await stopped; clearInterval(tick2);
+	const url = URL.createObjectURL(new Blob(chunks, { type: "video/webm" }));
+	map.addSource("vs", { type: "video", urls: [url], coordinates: quad });
+	await map.addLayer({ id: "vl", type: "raster", source: "vs" });
+	const grn = c => c[3] > 200 && c[1] > 180 && c[0] < 90 && c[2] < 90;
+	V = await until("videoquad", v => grn(at(v, qx, qy)));
+	const src = map.getSource("vs");
+	ok("videoSource", src?.getVideo?.() instanceof HTMLVideoElement, String(src?.getVideo?.()));
+	ok("videoSourceDrawn", !!V && grn(at(V, qx, qy)), V ? at(V, qx, qy).join() : "none");
+	map.removeLayer("vl");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + t.join(" ") + " " + (e && e.stack || e); }
+</script>
+</body></html>

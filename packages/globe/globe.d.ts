@@ -311,11 +311,17 @@ export type RasterSpec =
 	| { wmts: { capabilities: string; layer?: string; style?: string; format?: string } | { url: string; layer: string; tileMatrixSet: string; style?: string; format?: string; matrixIds?: string[] }; minZoom?: number; maxZoom?: number; attribution?: string; name?: string }
 	| { file: File; table?: string; name?: string; attribution?: string }
 	| { port: MessagePort; name?: string; attribution?: string }
-	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string };
+	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string }
+	/** 四隅で貼る動画（MapLibre の video source 相当・#49）。video＝動画要素（呼び手が持つ）か URL（の列）＝muted・loop・playsinline で自動再生。
+	 *  地面に焼かず毎コマ覆う（基図と gint の上・注記の下）＝地形の遮蔽は無い。add の戻り値は VideoHandle */
+	| { video: HTMLVideoElement | string | string[]; corners: [LonLat, LonLat, LonLat, LonLat] };
+/** 四隅の動画の手綱（MapLibre の VideoSource と同じ名前）。setCoordinates＝四隅を差し替え（止まっていても動く） */
+export interface VideoHandle { getVideo(): HTMLVideoElement; play(): Promise<void>; pause(): void; seek(seconds: number): void; setCoordinates(corners: [LonLat, LonLat, LonLat, LonLat]): VideoHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number }
 export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean }
 export interface RasterAPI {
-	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典） */
+	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典）。{ video } は VideoHandle */
+	add(id: string, spec: Extract<RasterSpec, { video: unknown }>, opts?: RasterOptions): Promise<VideoHandle>;
 	add(id: string, spec: RasterSpec, opts?: RasterOptions): Promise<RasterInfo>;
 	remove(id: string): boolean;
 	/** 表示の変更（不透明度・重ね順・表示/非表示） */
@@ -349,6 +355,8 @@ export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: numbe
 export type MapLibreSource =
 	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
+	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
+	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
@@ -493,12 +501,14 @@ export interface OrthoJapanMap {
 	listImages(): string[];
 	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
 	loadSprite(base: string): Promise<number>;
-	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
+	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/video/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
+	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は canvas2D の口で描く（#49・gint の線は一色・ずらしなし＝地形の遮蔽は無い）。
+	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
 	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝source ごとに gint の追加層・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ） */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
-	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> }) | undefined;
+	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> } & Partial<VideoHandle>) | undefined;
 	removeSource(id: string): OrthoJapanMap;
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;

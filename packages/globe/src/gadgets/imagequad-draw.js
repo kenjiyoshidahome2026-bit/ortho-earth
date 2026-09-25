@@ -7,11 +7,18 @@ import { drawImageQuad } from "geopbf/edit/imagequad";
 
 let ctx = null;
 const quads = new Map();   // id → { bm, corners, opacity }
-export function init(canvas) { ctx = canvas.getContext("2d"); }
-// data＝{ type:"set", id, bitmap, corners, opacity } | { type:"opacity", id, opacity } | { type:"remove", id } | { type:"clear" }
+let host = null;
+export function init(canvas, _opts, h) { ctx = canvas.getContext("2d"); host = h || null; }
+// data＝{ type:"set", id, bitmap, corners, opacity } | { type:"opacity", id, opacity } | { type:"corners", id, corners } | { type:"remove", id } | { type:"clear" }
 export function message(d) {
+	if (d.type === "probe") {   // 検定用＝今の画素を main へ（dbgHost.__ovPixels・t-linedeco）
+		try { const im = ctx.getImageData(0, 0, ctx.canvas.width, ctx.canvas.height); host?.post({ type: "pixels", id: d.id, w: im.width, h: im.height, data: im.data }); }
+		catch (e) { host?.post({ type: "pixels", id: d.id, error: String(e?.message || e) }); }
+		return;
+	}
 	if (d.type === "set") { quads.get(d.id)?.bm?.close?.(); quads.set(d.id, { bm: d.bitmap, corners: d.corners, opacity: d.opacity ?? 1 }); }
 	else if (d.type === "opacity") { const q = quads.get(d.id); if (q) q.opacity = d.opacity; }
+	else if (d.type === "corners") { const q = quads.get(d.id); if (q) q.corners = d.corners; }   // 動画（#49）の setCoordinates＝止まっていても動かす
 	else if (d.type === "remove") { quads.get(d.id)?.bm?.close?.(); quads.delete(d.id); }
 	else if (d.type === "clear") { for (const q of quads.values()) q.bm?.close?.(); quads.clear(); }
 }

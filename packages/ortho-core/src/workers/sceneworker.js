@@ -91,6 +91,7 @@ function dropRec(key) {   // res からの除去（evict / 同キー再着）。
 // （float は bit をそのまま uint 格納＝RGBA32F の NaN 正規化を回避）、建物は 24B interleave。
 const F1 = new Float32Array(1), U1 = new Uint32Array(F1.buffer);
 const fbits = x => (F1[0] = x, U1[0]);
+const snorm16 = v => Math.round(Math.max(-1, Math.min(1, v)) * 32767) & 0xffff;   // GLSL unpackSnorm2x16 の対（下位 16bit＝x）
 function ensureUploaded(key) {
 	let rec = md.res.get(key);
 	if (rec) return rec;
@@ -135,6 +136,10 @@ function ensureUploaded(key) {
 				seg[o + 2] = fbits(op.P2[i * 2]); seg[o + 3] = fbits(op.P2[i * 2 + 1]);
 				seg[o + 4] = (op.col[i * 4] | (op.col[i * 4 + 1] << 8) | (op.col[i * 4 + 2] << 16) | (op.col[i * 4 + 3] << 24)) >>> 0;
 				seg[o + 5] = fbits(op.half[i]);
+				if (op.off) {   // line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
+					seg[o + 6] = fbits(op.off[i * 3]);
+					seg[o + 7] = (snorm16(op.off[i * 3 + 1] * 0.5) | (snorm16(op.off[i * 3 + 2] * 0.5) << 16)) >>> 0;
+				}
 			}
 			rec.subs.push({ li: op.li, kind: "line", segOff: rec.ls.off + sc, segN: n });
 			sc += n;
@@ -278,7 +283,7 @@ function collectSceneBuffers(scene) {
 	const bufs = [];
 	for (const L of scene.layers) {
 		if (L.kind === "fill") bufs.push(L.pos.buffer, L.col.buffer, L.idx.buffer);
-		else bufs.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer);
+		else { bufs.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer); if (L.off) bufs.push(L.off.buffer); }
 	}
 	if (scene.buildings) bufs.push(scene.buildings.pos.buffer, scene.buildings.shade.buffer, scene.buildings.anchor.buffer);
 	return bufs;
