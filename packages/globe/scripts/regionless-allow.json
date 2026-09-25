@@ -25,6 +25,12 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
+		"packages/globe/src/gadgets/demo.js": {
+			"jp": {
+				"n": 1,
+				"why": "互換：旧い台本の言語の鍵 jp:（ja の旧綴り）を ja の別名として読む＝利用者の .scenes に残り得る（B12・2026-09-25）"
+			}
+		},
 		"packages/globe/src/gadgets/editdoc.js": {
 			"japan": {
 				"n": 1,
