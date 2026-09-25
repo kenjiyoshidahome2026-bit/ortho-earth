@@ -87,7 +87,7 @@ export async function nlftpSelectDataset(code) {
         const data = await fetchDataset(code);
         renderDetail(data);
     } catch (e) {
-        ctx.setDetailHtml(`<div class="error-msg">エラー: ${e.message}</div>`);
+        ctx.setDetailHtml(`<div class="error-msg">エラー: ${escHtml(e?.message ?? e)}</div>`);   // 例外の文言も外から来る（取得先の応答）＝エスケープ（S6）
     }
 }
 
@@ -227,18 +227,18 @@ function _renderFiles(ds) {
     const meshCodes = [...new Set(allFiles.filter(f => f.location_code && f.scope?.includes('メッシュ')).map(f => f.location_code))].sort();
 
     const yearOpts = ['all', ...years].map(y =>
-        `<option value="${y}">${y === 'all' ? '年度: すべて' : y}</option>`).join('');
+        `<option value="${escHtml(y)}">${y === 'all' ? '年度: すべて' : escHtml(y)}</option>`).join('');   // 年度・形式・県・メッシュもカタログ（スクレイプ）由来＝エスケープ（S6）
     const fmtOpts  = ['all', ...formats].map(f =>
-        `<option value="${f}">${f === 'all' ? '形式: すべて' : f.toUpperCase()}</option>`).join('');
+        `<option value="${escHtml(f)}">${f === 'all' ? '形式: すべて' : escHtml(String(f).toUpperCase())}</option>`).join('');
     const prefOpts = prefCodes.length ? `
         <select class="file-filter" id="ff-pref">
             <option value="all">都道府県: すべて</option>
-            ${prefCodes.map(c => `<option value="${c}">${PREFS[String(c).padStart(2,'0')] || c}</option>`).join('')}
+            ${prefCodes.map(c => `<option value="${escHtml(c)}">${escHtml(PREFS[String(c).padStart(2,'0')] || c)}</option>`).join('')}
         </select>` : '';
     const meshOpts = meshCodes.length ? `
         <select class="file-filter" id="ff-mesh">
             <option value="all">メッシュ: すべて</option>
-            ${meshCodes.map(c => `<option value="${escHtml(c)}">${c}</option>`).join('')}
+            ${meshCodes.map(c => `<option value="${escHtml(c)}">${escHtml(c)}</option>`).join('')}
         </select>` : '';
 
     return `
@@ -331,7 +331,7 @@ function _fileEntry(f, ds) {
         name,
         description: desc,
         target:      f.target,
-        link:        ds.page_url,
+        link:        /^https?:\/\//i.test(ds.page_url || '') ? ds.page_url : '',   // 詳細の見出しと同じ門（javascript: 等を渡さない・S6）
         attribution: (ds._source || {}).attribution || '',
         license:     ds.license,
         ...(f.format === 'moj' ? { format: 'moj' } : {}),
