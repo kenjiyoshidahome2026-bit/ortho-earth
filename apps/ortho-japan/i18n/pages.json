@@ -7,6 +7,9 @@
 	"pages": {
 		"models": [
 			"models.js"
+		],
+		"fireworks": [
+			"fireworks.js"
 		]
 	}
 }
