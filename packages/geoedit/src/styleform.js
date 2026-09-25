@@ -187,8 +187,9 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 	//      任意画像を使いたい時だけ「画像」へドロップ（@icon に File 直格納）。----
 	// パレットは全図形を canvas で単色描画＝塗り面積を大体そろえ、絵文字/SVG混在の不揃いを解消（drawShape 共用）。
 	const PALETTE_INK = "#cdd6e6";
+	let shapeRowEl = null;   // 図形パレットの行＝画像を落とした時に選択を外すため imageRow からも引く（B14・旧＝symbolRow の局所 ds を参照して ReferenceError）
 	const symbolRow = () => {
-		const ds = row(t("Shape"));
+		const ds = shapeRowEl = row(t("Shape"));
 		for (const s of SHAPE_NAMES) {
 			const b = document.createElement("button");
 			b.className = "ge-shape-btn"; b.title = s;
@@ -218,7 +219,7 @@ export function styleForm(host, { geomType, variant, get, set: setRaw }, signal)
 			// data-URI 方式（base64+33%・多点で重複）は先代zip形式の悪癖の再演＝廃止（本人裁定 8/20）
 			set({ "@icon": f, "@shape": "" }, true);
 			zone.textContent = `✓ ${f.name}`;
-			mark(ds, null);
+			if (shapeRowEl) mark(shapeRowEl, null);   // 画像＝図形の選択は外す（図形の行が無い形なら何もしない）
 		}, { signal });
 		dz.append(zone);
 	};
