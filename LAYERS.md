@@ -115,7 +115,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   旧 `/japan/earth`・`/japan/quakes`・`/japan/sats` は japan の Worker が 301 で送る（query は運ぶ）。頁の辞書（quakes／sats）と OG 画像も一緒に移した。
   この家の頁は `persistView: false`（同じオリジンの /japan/ が残した「前回の視点」を読まない・書かない）。
 - **残る結び目**：
-  1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。ただし `koppen-clim.png` は japan の public にも同じ物が残る（japan の頁と SDK 用）＝本当の持ち主は `packages/globe`（npm の globe にも載せ、両方の家はそこから焼く）＝globe の版を切る時に。
+  1. **実行時アセットの持ち主**：地域なしの消費者（ortho-globe・world・GeoPBF デモ）は globe の家（`/globe/`）から読む（`__GLOBE_ASSETS__`）。`koppen-clim.png` の正本は `packages/globe/src/assets/`（npm の globe にも載る）＝japan・ortho-globe・equal の public はそこへのシンボリックリンク（2026-09-25・vite の build は実体を書き出し・dev も配る）。
   2. **globe に残る地域の語**＝許可表（2026-09-24 夜に 112 → 54 語）。9/24 に消した負債＝鉄道層の口 `n02` → `rail`（core の GL/GPU renderer・globe・jp の口）／
      法務省地図の開発用の手（`__moj`・`__sapporo`・`__arakawaFit`）→ jp の `moj-dbg.js`／スクショと印刷の出典の日本固定 → 宣言（`attribution`・`basemap.printAttribution`）と圏から／
      建物 UI の「(PLATEAU)」→ 宣言 `buildings.labels`（無ければ汎用の文言・オランダは 3DBAG なのに PLATEAU と出ていた）。

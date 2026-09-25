@@ -1,6 +1,6 @@
 // 全球ハイプソの材料＝japan と同じ出所：
 //   標高＝altpbf の R90（90° セル×8＝全球・GEBCO/ALOS 系・IDB キャッシュ）＝ortho-core terrain.js の「世界帯 R90 固定窓 4×2」と同じ窓
-//   気候場＝koppen-clim.png（Köppen-Geiger / Beck et al. CC BY を 720×360 へ焼き縮め・japan public と同一ファイル）
+//   気候場＝koppen-clim.png（Köppen-Geiger / Beck et al. CC BY を 720×360 へ焼き縮め・正本は packages/globe/src/assets/koppen-clim.png＝各アプリの public はそこへのシンボリックリンク）
 // 等経緯度 1 枚のアトラス（行0=南）へ再標本化してレンダラへ渡す。
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell } from "@ortho-earth/core/elevation";
 
