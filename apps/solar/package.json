@@ -18,5 +18,8 @@
 		"@ortho-earth/ephem": "*",
 		"geopbf": "*",
 		"native-bucket": "*"
+	},
+	"devDependencies": {
+		"vite": "^8.3.1"
 	}
 }
