@@ -1,19 +1,12 @@
 import { defineConfig } from "vite";
 import { resolve, dirname } from "node:path";
 import { readFile } from "node:fs/promises";
-import { transform } from "esbuild";
 
-// lib×ES では vite が esbuild/terser とも whitespace minify を強制スキップする（v5.4 実装確認・下流バンドラ向け
-// PURE 注釈保持の思想）。本ライブラリは事前ビルド一枚岩＝下流の木刈り効果は無く、本番 /japan/lib の app が
-// 627KB raw で配られるパース代の方が高い（Lighthouse mobile 実測 2026-08-21）。renderChunk(post) で空白だけ
-// 追い minify＝識別子/構文は vite の esbuild が済ませた後・rollup が sourcemap を合成＝map の正しさは保たれる。
-const forceMinifyWhitespace = {
-	name: "force-minify-whitespace",
-	renderChunk: {
-		order: "post",
-		handler: (code) => transform(code, { minifyWhitespace: true, sourcemap: true, charset: "utf8" }),
-	},
-};
+// lib×ES では vite が whitespace minify を外す（下流バンドラ向け PURE 注釈保持の思想）。本ライブラリは事前ビルド一枚岩＝
+// 下流の木刈り効果は無く、本番 /japan/lib の app が 627KB raw で配られるパース代の方が高い（Lighthouse mobile 実測 2026-08-21）。
+// vite 5 までは renderChunk(post) で esbuild の空白 minify を追い掛けていたが、vite 8 は minify を rolldown の出力段
+// （renderChunk より後）で {compress, mangle, codegen:false} として掛け直す＝追い minify を刷り直して無効にする（2026-09-25 実測）。
+// ＝下の output.minify:true で rolldown に空白まで任せる（JS 総量 3.26→3.19MB・gzip 1.300→1.266MB＝vite 5 の追い minify 版より小）。
 
 // .wasm を base64 で JS に埋めない（処方①・#12）。vite 5 の lib モードは資産を大きさに関わらず必ず inline する
 // （shouldInline: `if (config.build.lib) return true`）ため、wasm-pack glue の `new URL('gint_wasm_bg.wasm', import.meta.url)`
@@ -68,7 +61,7 @@ const urlAsFile = {
 //  - worker は ES module 形式固定（vite 既定の iife は worker 内 code-splitting を弾く＝サイトビルドと同じ理由）
 //  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（fallback-ladder.md §3.5・verify:nocoi で実測）
 export default defineConfig({
-	plugins: [urlAsFile, wasmAsFile, forceMinifyWhitespace],
+	plugins: [urlAsFile, wasmAsFile],
 	build: {
 		outDir: "dist/lib",
 		emptyOutDir: true,
@@ -80,7 +73,10 @@ export default defineConfig({
 			fileName: () => "ortho-japan.js",
 		},
 		rollupOptions: {
+			// rolldown（vite 8）のチャンク最適化を切る＝サイト側 vite.config.js と同じ理由（mesh-loaders の静的 import）。worker にも同じ物
+			experimental: { chunkOptimization: false },
 			output: {
+				minify: true,   // 空白まで rolldown に縮めさせる（lib×ES の既定 codegen:false を上書き＝上の冒頭の注）
 				assetFileNames: (info) => (info.names?.[0] || info.name || "").endsWith(".css")
 					? "ortho-japan.css" : "assets/[name]-[hash][extname]",
 				chunkFileNames: "assets/[name]-[hash].js",
@@ -94,13 +90,14 @@ export default defineConfig({
 	//   （本体は index.html が登録する＝スタンドアロン専用の作法。ライブラリ経路は一切登録しない）。
 	// 利用者へ渡すアセットは apps/ortho-japan/public/ からアプリ側で配る（README の assetBase 節）。
 	publicDir: false,
-	// worker の別ビルドには `plugins` が効かない（vite 5：build では worker.plugins のみ）＝.wasm 実体化と空白 minify を両方ここにも挿す。
-	// 空白 minify を worker に入れ忘れていた実測（2026-09-14）：renderworker 6,380 行・meshworker 11,377 行のまま配っていた。
+	// worker の別ビルドには `plugins` が効かない（build では worker.plugins のみ・vite 8 も同じ）＝.wasm 実体化をここにも挿す。
+	// 空白 minify は vite 8 では worker 側（lib 扱いでない）が既定で縮める＝追い minify は不要（renderworker 6 行・meshworker 1 行を実測）。
+	// 旧：vite 5 で空白 minify を worker に入れ忘れていた実測（2026-09-14）：renderworker 6,380 行・meshworker 11,377 行のまま配っていた。
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
 	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
 		{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") }] },   // 地域の worker 役（e-Stat）＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
-	worker: { format: "es", plugins: () => [wasmAsFile, forceMinifyWhitespace] },
+	worker: { format: "es", plugins: () => [wasmAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
 	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
 	//   （2026-08-20 本番事故の真因。www の SPA フォールバックが HTML を 200 で返し、module worker の

@@ -23,10 +23,12 @@ export default defineConfig({
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
 		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html") },
+		// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・japan と同じ）＝worker が実行時ヘルパ欲しさに mesh-loaders を静的 import する罠。worker にも同じ物
+		experimental: { chunkOptimization: false },
 	} },
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法）。
 	// #extra-roles は差し替えない＝globe 既定の {}（地域の worker 役なし）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") }] },
-	worker: { format: "es" },
+	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
 	plugins: [crossOriginIsolation],
 });
