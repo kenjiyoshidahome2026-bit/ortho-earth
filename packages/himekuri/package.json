@@ -38,6 +38,6 @@
 		"mirror": "git -C ../.. subtree split --prefix=packages/himekuri -b himekuri-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/himekuri.git himekuri-mirror:main --force && git -C ../.. branch -D himekuri-mirror"
 	},
 	"devDependencies": {
-		"vite": "^6.4.3"
+		"vite": "^8.3.1"
 	}
 }
