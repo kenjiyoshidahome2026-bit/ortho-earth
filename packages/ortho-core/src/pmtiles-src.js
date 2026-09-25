@@ -13,7 +13,15 @@ const infos = new Map();      // archive url → Promise<info>（ヘッダ/metad
 
 export const isPMTiles = url => url.startsWith(PREFIX);
 const srcOf = url => url.startsWith(PREFIX) ? url.slice(PREFIX.length) : url;
-const archiveOf = src => { let pm = archives.get(src); if (!pm) { pm = openArchive(src); archives.set(src, pm); } return pm; };
+// 失敗は覚えっぱなしにしない（2026-09-25）：一時的な失敗（オフライン・5xx）でその archive がセッション中ずっと死んでいた。
+// pmtiles.js も失敗したヘッダの Promise を自分のキャッシュに抱える＝インスタンスごと捨てて作り直す。
+// 失敗直後の要求はしばらく同じ失敗を返す（RETRY_MS）＝タイル毎に再取得の嵐を起こさない。
+const RETRY_MS = 5000;
+const forgetLater = (map, key, p, also) => p.catch(() => setTimeout(() => {
+	if (map.get(key) !== p) return;
+	map.delete(key); also?.();
+}, RETRY_MS));
+const archiveOf = src => { let pm = archives.get(src); if (!pm) { pm = openArchive(src); archives.set(src, pm); forgetLater(archives, src, pm); } return pm; };
 
 // Range 対応の自動判別：1バイトのレンジプローブが 206 ならレンジ直読（従来）、200＝全量返し
 // （Cloudflare Workers Assets が Range を無視する実測 2026-09-01）ならその応答の全量を丸呑みして
@@ -62,6 +70,7 @@ export function pmtilesInfo(url) {
 			};
 		})();
 		infos.set(src, info);
+		forgetLater(infos, src, info, () => archives.delete(src));   // ヘッダの失敗は archive ごと作り直す
 	}
 	return info;
 }
