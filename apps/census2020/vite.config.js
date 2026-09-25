@@ -36,6 +36,10 @@ const asyncMainCss = {
 // 第二の public（public-extra/）：vite の publicDir は一つだけ＝共有棚（../ortho-japan/public）に census の
 // 重量データ（9MB CSV 等）を混ぜないための合流口。dev は base 下で直配信、build は outDir へ丸コピー。
 const extraDir = resolve(import.meta.dirname, "public-extra");
+// 借り物（2026-09-25）：小地域 CSV（各 9MB）は gishub-jp の public/census が正本＝同一ファイルを二重に抱えない。
+// 配信上の道（/japan/census2020/census/<name>）は従来どおり＝dev は正本から直配信・build は outDir へ写す
+const SHARED = { dir: resolve(import.meta.dirname, "../gishub-jp/public/census"), at: "/census/", files: ["2015-small.csv", "2020-small.csv"] };
+const sharedFile = rel => rel.startsWith(SHARED.at) && SHARED.files.includes(rel.slice(SHARED.at.length)) ? join(SHARED.dir, rel.slice(SHARED.at.length)) : null;
 const MIME = { ".csv": "text/csv; charset=utf-8", ".json": "application/json; charset=utf-8", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml" };
 const extraPublic = {
 	name: "extra-public",
@@ -43,15 +47,18 @@ const extraPublic = {
 		server.middlewares.use((req, res, next) => {
 			const p = decodeURIComponent((req.url || "").split("?")[0]);
 			if (!p.startsWith("/japan/census2020/")) return next();
-			const file = normalize(join(extraDir, p.slice("/japan/census2020".length)));
-			if (!file.startsWith(extraDir) || !existsSync(file) || !statSync(file).isFile()) return next();
+			const rel = p.slice("/japan/census2020".length);
+			const own = normalize(join(extraDir, rel)), file = own.startsWith(extraDir) && existsSync(own) && statSync(own).isFile() ? own : sharedFile(rel);
+			if (!file || !existsSync(file)) return next();
 			res.setHeader("Content-Type", MIME[file.slice(file.lastIndexOf("."))] || "application/octet-stream");
 			createReadStream(file).pipe(res);
 		});
 	},
 	closeBundle() {
 		const out = resolve(import.meta.dirname, "dist/site/japan/census2020");
-		if (existsSync(out)) cpSync(extraDir, out, { recursive: true });
+		if (!existsSync(out)) return;
+		cpSync(extraDir, out, { recursive: true });
+		for (const f of SHARED.files) cpSync(join(SHARED.dir, f), join(out, SHARED.at, f));
 	},
 };
 
