@@ -776,7 +776,7 @@ struct Globe {
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
 	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
 	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
-	atmP: vec4f,         // (太陽の強さ, 露出, 球の床の空気遠近の強さ 0..1＝地理の読みやすさのため既定は半分, 0)
+	atmP: vec4f,         // (太陽の強さ, 露出, 球の床の空気遠近の強さ 0..1＝地理の読みやすさのため既定は半分, 帯の幅 k＝殻を k 倍に広げ係数を 1/k＝色は物理のまま)
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -817,12 +817,16 @@ fn gElevAt(ll: vec2f) -> f32 {
 // ── 大気散乱（#46 段 1・2026-09-26）＝Rayleigh＋Mie の単散乱・Nishita 流のレイマーチ。単位＝地球半径（1.0）。誇張しない＝実寸の殻と実測の係数。
 // 視線 ATM_N 段・各段から太陽への透過は ATM_NS 段。太陽の方向は G.sun.xyz（地球固定）。露出＝1−exp(−L×露出)・出口で sRGB 符号化。
 // 点ける度合い G.sun.w＝0 なら呼ばれない（従来のリム光と霞）。fsWdepr も同じ関数＝球の床と画素一致。
-const ATM_RT: f32 = 1.0157;                          // 大気の上端 ≈ 100 km
-const ATM_HR: f32 = 0.001256;                        // Rayleigh のスケール高 8 km
-const ATM_HM: f32 = 0.000188;                        // Mie 1.2 km
-const ATM_BR: vec3f = vec3f(36.9, 86.0, 210.9);      // Rayleigh 散乱係数（5.8/13.5/33.1 e-6 /m × 6371 km）
-const ATM_BM: f32 = 133.8;                           // Mie 散乱（21e-6 /m）
-const ATM_BME: f32 = 147.2;                          // Mie 消散（散乱×1.1）
+// 帯の幅 k＝G.atmP.w（本人裁定 2026-09-26＝4）：殻の上端とスケール高を k 倍・散乱係数を 1/k＝光学的厚みは不変＝色と明るさは物理のまま、帯の幅だけ k 倍
+//（実寸 100 km は z2 で 1〜2px＝「寂しい」。k=4 で 6〜8px・旧リム光 1.09R は k≈6 相当）
+const ATM_RT0: f32 = 0.0157;                         // 大気の上端 ≈ 100 km（半径比）
+const ATM_HR0: f32 = 0.001256;                       // Rayleigh のスケール高 8 km
+const ATM_HM0: f32 = 0.000188;                       // Mie 1.2 km
+const ATM_BR0: vec3f = vec3f(36.9, 86.0, 210.9);     // Rayleigh 散乱係数（5.8/13.5/33.1 e-6 /m × 6371 km）
+const ATM_BM0: f32 = 133.8;                          // Mie 散乱（21e-6 /m）
+const ATM_BME0: f32 = 147.2;                         // Mie 消散（散乱×1.1）
+fn atmK() -> f32 { return max(G.atmP.w, 1.0); }
+fn atmRt() -> f32 { return 1.0 + ATM_RT0 * atmK(); }
 const ATM_G: f32 = 0.76;                             // Mie の非対称
 const ATM_N: i32 = 8;
 const ATM_NS: i32 = 3;
@@ -834,12 +838,12 @@ fn atmShell(o: vec3f, d: vec3f, r: f32) -> vec2f {
 	let sq = sqrt(h);
 	return vec2f(-b - sq, -b + sq);
 }
-fn atmDensity(p: vec3f) -> vec2f { let h = max(length(p) - 1.0, 0.0); return vec2f(exp(-h / ATM_HR), exp(-h / ATM_HM)); }
+fn atmDensity(p: vec3f) -> vec2f { let h = max(length(p) - 1.0, 0.0) / atmK(); return vec2f(exp(-h / ATM_HR0), exp(-h / ATM_HM0)); }
 // p から太陽の方向へ上端までの光学的厚み（Rayleigh, Mie）。地球に遮られれば ∞ 扱い
 fn atmOptSun(p: vec3f, s: vec3f) -> vec2f {
 	let b = dot(p, s);
 	if (b < 0.0 && dot(p, p) - b * b < 1.0) { return vec2f(1e9); }   // 最接近が前方かつ球の中＝地球の影
-	let sh = atmShell(p, s, ATM_RT);
+	let sh = atmShell(p, s, atmRt());
 	let ds = max(sh.y, 0.0) / f32(ATM_NS);
 	var od = vec2f(0.0);
 	for (var i = 0; i < ATM_NS; i++) { od += atmDensity(p + s * (ds * (f32(i) + 0.5))) * ds; }
@@ -852,18 +856,19 @@ fn atmScatter(o: vec3f, d: vec3f, t0: f32, t1: f32, s: vec3f) -> AtmR {
 	let g2 = ATM_G * ATM_G;
 	let phM = 3.0 / (8.0 * 3.14159265) * (1.0 - g2) * (1.0 + mu * mu) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * ATM_G * mu, 1.5));
 	let ds = (t1 - t0) / f32(ATM_N);
+	let BR = ATM_BR0 / atmK(); let BM = ATM_BM0 / atmK(); let BME = ATM_BME0 / atmK();
 	var odV = vec2f(0.0); var sumR = vec3f(0.0); var sumM = vec3f(0.0);
 	for (var i = 0; i < ATM_N; i++) {
 		let p = o + d * (t0 + ds * (f32(i) + 0.5));
 		let dn = atmDensity(p) * ds;
 		odV += dn;
 		let od = odV + atmOptSun(p, s);
-		let tr = exp(-(ATM_BR * od.x + vec3f(ATM_BME * od.y)));
+		let tr = exp(-(BR * od.x + vec3f(BME * od.y)));
 		sumR += tr * dn.x; sumM += tr * dn.y;
 	}
 	var r: AtmR;
-	r.L = (sumR * ATM_BR * phR + sumM * ATM_BM * phM) * G.atmP.x;
-	r.T = exp(-(ATM_BR * odV.x + vec3f(ATM_BME * odV.y)));
+	r.L = (sumR * BR * phR + sumM * BM * phM) * G.atmP.x;
+	r.T = exp(-(BR * odV.x + vec3f(BME * odV.y)));
 	return r;
 }
 fn atmTone(L: vec3f) -> vec3f { return srgbEncodeG(vec3f(1.0) - exp(-L * G.atmP.y)); }
@@ -876,7 +881,7 @@ fn atmGround(base: vec3f, A: vec3f, Pt: vec3f, viewDir: vec3f, k: f32) -> vec3f 
 	let old = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
 	if (k <= 0.0) { return old; }
 	let dn = normalize(Pt - A);
-	let sh = atmShell(A, dn, ATM_RT);
+	let sh = atmShell(A, dn, atmRt());
 	let t0 = max(sh.x, 0.0); let t1 = length(Pt - A);
 	let r = atmScatter(A, dn, t0, t1, G.sun.xyz);
 	let kg = G.atmP.z;   // 床の空気遠近の強さ（宇宙から見た陸の青い霞は物理どおりだと段彩が読みにくい＝既定は半分・view.atmGround で調整）
@@ -915,7 +920,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		if (k <= 0.0) { if (g <= 0.0) { discard; } return old; }
 		// 大気散乱（#46 段 1）：大気殻を通る区間だけ積分。殻の外＝宇宙＝discard（星がそのまま）。星は透過率のぶん透ける（α＝1−平均透過率）
 		let dn = normalize(d);
-		let sh = atmShell(A, dn, ATM_RT);
+		let sh = atmShell(A, dn, atmRt());
 		var phys = vec4f(0.0);
 		if (sh.y > 0.0) {
 			let r = atmScatter(A, dn, max(sh.x, 0.0), sh.y, G.sun.xyz);
