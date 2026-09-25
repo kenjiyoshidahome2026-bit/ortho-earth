@@ -93,6 +93,22 @@ try {
 	const red1 = count(a8, "red"), cyan1 = count(a8, "cyan");
 	ok(`2層同フレーム(赤=${red1} シアン=${cyan1})`, red1 > 400 && cyan1 > 60);
 
+	// ── ②b 表の line-width は CSS px＝style.lineWidth と同じ単位（dpr 2 で検める・U1・2026-09-26。旧＝表だけ device px で半分の太さ）──
+	{
+		const cam2 = { ...cam, dpr: 2 };
+		post({ type: "draw", cam: cam2, opts: { noTerrain: true } });
+		const w1 = count(new Uint8Array((await snapshot()).base), "cyan");   // 既定の描き方 lineWidth 3（CSS px）
+		const tb = new Uint32Array(10 * 4);
+		for (let i = 0; i < 10; i++) tb[i * 4 + 2] = ((24 << 24) | (6 << 8) | 1) >>> 0;   // 表の line-width 3（1/8 刻み）・線色 α0＝既定色
+		post({ type: "set", cmd: "gintStyle", layer: "B", data: { lineWidth: 1 } });   // 既定の幅は細く＝表の幅が効いている事の区別
+		post({ type: "set", cmd: "gintPaint", layer: "B", data: { table: tb, count: 10 } });
+		post({ type: "draw", cam: cam2, opts: { noTerrain: true } });
+		const w2 = count(new Uint8Array((await snapshot()).base), "cyan");
+		ok(`表の line-width は CSS px(dpr2 既定=${w1} 表=${w2})`, w1 > 60 && Math.abs(w2 - w1) < w1 * 0.2);
+		post({ type: "set", cmd: "gintPaint", layer: "B", data: null });
+		post({ type: "set", cmd: "gintStyle", layer: "B", data: { lineWidth: 3 } });
+	}
+
 	// ── ③ 層別表示（B 消灯＝A は無傷）──
 	post({ type: "set", cmd: "gintVis", layer: "B", data: false });
 	post({ type: "draw", cam, opts: { noTerrain: true } });

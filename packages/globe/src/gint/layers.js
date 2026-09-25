@@ -154,7 +154,7 @@ dbgHost.__paintFid = (...fids) => {
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintFid] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
-	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1; }
+	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1; }   // 幅 0.5 CSS px（表の幅は CSS px）
 	for (const f of fids) if (f >= 0 && f < n) u32[f * 4] = 0xcc0000cc;
 	sendGintPaint({ table: u32, count: n });
 	requestDraw();
@@ -233,7 +233,7 @@ dbgHost.__paintOverlap = (on = true) => {
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintOverlap] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
-	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
+	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
 	sendGintPaint({ table: u32, count: n, overlap: true });
 	requestDraw();
 	console.log("[paintOverlap] auditing %d parcels: magenta=overlap of distinct parcels / orange=duplicate registration of same parcel / cyan=winding contradiction", n);
@@ -246,7 +246,7 @@ dbgHost.__paintParity = () => {
 	const u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
-		u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;
+		u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1;
 	}
 	sendGintPaint({ table: u32, count: n });
 	requestDraw();
@@ -707,11 +707,11 @@ const worldLineHandles = [];   // テーマ切替で塗り直す（色＝ortho-c
 const repaintWorldLines = () => { const T = env.worldStyle; for (const { h, def } of worldLineHandles) h.setPaint(def.paint(T), def.filter).catch(() => {}); };
 const WORLD_LINES = [
 	{ name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
-		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 1.2, 5, 0.9, 8, 0.6] }),
+		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 0.6, 5, 0.45, 8, 0.3] }),   // CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		filter: ["all", ["!", ["in", "Lake Centerline", ["to-string", ["coalesce", ["get", "featurecla"], ["get", "FEATURECLA"], ""]]]],
 			["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 6]], ["zoom"]]] },
 	{ name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
-		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.6 }),
+		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.3 }),
 		filter: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 4]], ["zoom"]] },
 ];
 async function loadWorldLines() {

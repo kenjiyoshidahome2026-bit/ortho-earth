@@ -324,9 +324,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 	const ML_PAINT = {   // 旧・合成スタックの塗り表と同色（alpha は hex8: 0.5=80/0.42=6b/0.9=e6/0.18=2e）
 		a33: { "fill-color": ["match", ["get", "kbn"], 2, "#c0392b80", "#d9a4416b"], "line-width": 0 },
 		a31: { "fill-color": ["match", ["get", "rank"], 6, "#08519c80", 5, "#2171b580", 4, "#4292c680", 3, "#6baed680", 2, "#9ecae180", "#c6dbef80"], "line-width": 0 },
-		moj: { "line-color": "#ff8c26e6", "line-width": 1 },
+		moj: { "line-color": "#ff8c26e6", "line-width": 0.5 },   // line-width は CSS px（2026-09-26 に単位を直した＝旧 1 device px と同じ見た目＝0.5）
 		maff: { "line-color": ["match", ["get", "land_type"], 100, "#2fae52e6", "#b0731fe6"],
-			"fill-color": ["match", ["get", "land_type"], 100, "#2fae522e", "#b0731f2e"], "line-width": 1 },
+			"fill-color": ["match", ["get", "land_type"], 100, "#2fae522e", "#b0731f2e"], "line-width": 0.5 },
 	};
 	const mlLayers = new Map();     // lkey → { h, key }（lkey: a33 / a31:max / a31:plan / moj / maff）
 	const mlPbfCache = new Map();   // `${code}/${lkey}` → pbf（セッション内＝fcCache と同格。geopbf の URL/IDB キャッシュは別途効く）

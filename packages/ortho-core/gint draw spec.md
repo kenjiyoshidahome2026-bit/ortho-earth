@@ -215,7 +215,7 @@ paint か filter の JSON に `["zoom"` を含む層は、**settle ごとに |Δ
 | `fill-opacity` | 0〜1 | ○ | R の α に掛ける | |
 | `line-color` | 色 | ○ | G（RGBA8） | 点以外が使う。**α=0 は既定色（styleTable）に戻る**＝消えない。消すのは width 0 |
 | `line-opacity` | 0〜1 | ○ | G の α に掛ける | G 欄は線と点で共有＝点の色にも掛かる |
-| `line-width` | 数 | ○ | B 上位 u8（1/8 刻み・0〜31.875） | 0＝線を描かない。⚠ 単位＝**デバイス画素**（×dpr されない。既定の `style.lineWidth` は CSS px＝U1） |
+| `line-width` | 数 | ○ | B 上位 u8（1/8 刻み・0〜31.875） | 0＝線を描かない。単位＝**CSS px**（描く時に ×dpr＝`style.lineWidth`・`circle-radius`・基図・MapLibre と同じ・2026-09-26 に直した＝U1） |
 | `circle-color` | 色 | ○ | G | Point/MultiPoint は circle-color 優先→無ければ line-color（2026-09-11）。α=0 は既定色 #FF6B35 |
 | `circle-radius` | 数 | ○ | B 第 3 バイト（1/4 刻み・0〜63.75） | ×dpr＝CSS px。0＝点を描かない |
 | `visibility` | — | 層単位 | — | `setVisible`／MapLibre 形は `layout.visibility` |
@@ -262,7 +262,7 @@ Gint の評価文脈に `id` は無い（`["id"]`＝undefined）。契約に足�
 
 - RGBA32UI・1 texel / fid・幅 `min(4096, TEX_ARC_W)`：`R=塗り色 G=線/点の色 B=width(1/8)<<24 | dash<<16 | radius(1/4)<<8 | flags A=予備`
 - flags bit0 = visible（filter の実体）。他は予備
-- width は**正味のスタイル幅だけ**を焼く。パス都合の増分（アクティブの強調 +2 px・pick の余白 12 px×dpr）は uniform で足し、表に混ぜない
+- width は**正味のスタイル幅だけ**を焼く（1/8 CSS px・描く時に ×dpr）。パス都合の増分（アクティブの強調 +2 device px・pick の余白 12 px×dpr）は uniform で足し、表に混ぜない
 - width=0＝線を描かない（VS で棄却）／radius=0＝点を描かない。線色・点色の α=0＝既定色（§5）
 - 更新は同寸なら `texSubImage2D`（WebGPU は `writeTexture`）1 回。メタ・tier・幾何に触れることを**仕様として禁止**。context lost 用に CPU 側の写しを保持
 - 規模：16 B/fid＝1,919 市区町村で 31 KB／100 万 feature で 16 MB
@@ -447,7 +447,7 @@ Gint の式（`deriveOutlineZoom` の 40.74＝256/(2π)・`precisionMax = floor(
 | 1 | 式の範囲 | §6.1 の契約の集合（＝d.ts の一覧）。評価器の残りは契約外 | 7/25 初期集合 → 9/9 concat/to-string/feature-state → 9/23 #33 評価器の拡張（基図用）→ 9/26 本人裁定「一周＋契約の式表」 |
 | 2 | zoom × data-driven | settle ごとの自動再評価（ズームが 0.25 段以上動いて止まった時・filter も）。毎フレームの補間は無し | 7/25「非対応・逃げ道＝呼び直し」→ 9/9 自動化（0.5）→ 9/24 filter も・0.25 |
 | 3 | 拡張機能の下限 | ID 塗りは float の加算 blend（§7.2 の梯子）。無ければ stencil 単色。クラス別 OR への降格は作らない | 7/25「二段の退避→クラス別 OR」→ 実装は stencil 単色 |
-| 4 | line-width の分解能 | u8×1/8（0〜31.875）。単位は U1 | 7/25 確定 |
+| 4 | line-width の分解能 | u8×1/8（0〜31.875）・**CSS px**（描く時に ×dpr） | 7/25 確定・単位は 9/26（U1） |
 | 5 | API の動詞 | MapLibre 同名（setPaint/setFilter/setData/setFeatureState/on/query）＋層の手綱（activate/setOrder/setVisible/setLabel/style/remove） | 7/25 → 9/9 |
 | 6 | 被覆の宣言 | `overlap` 属性は**作らない**。重なりは解決パスが常に扱う＝事前プローブ不要 | 7/25「overlap:'auto'＝初回プローブ→IDB」→ 9/15 後勝ちで不要に |
 | 7 | 重複 × 連続式 | **エラーにしない**＝後勝ち（fid の大きい方）＋上が見えなければ剥がす（2 重まで厳密） | 7/25「仕様エラー」→ 9/15 本人報告（エディタの重なりで塗りが消える・偶然整数なら第三者の色）で後勝ちへ |
@@ -533,7 +533,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 
 | # | 何が | 今の挙動 | 案 |
 | :--- | :--- | :--- | :--- |
-| U1 | `line-width` の単位 | paint の幅は**デバイス画素**（×dpr されない）。`style.lineWidth` と `circle-radius` は CSS px | ×dpr に揃える。⚠ 既存アプリの線（census2020・世界の線など）が高 dpr 端末で太る＝見た目の再調律とセット |
+| ~~U1~~ | `line-width` の単位 | **解決 2026-09-26**：表の幅も CSS px（GL＝`u_fid_wscale`・WebGPU＝GP の `b.z` に f32 のビット）。既存アプリの値は半分にして dpr 2 の見た目を保った（本人裁定「今の見た目を保つ」）＝census2020・gishub-jp・world・世界の線・parquet・診断プローブ。geoedit の `@width` は利用者のデータ＝そのまま（再生側の anno は元から CSS px＝エディタと再生の太さが揃った） | — |
 | ~~U2~~ | interactive:false の追加 | **解決 2026-09-26**：足す前のアクティブ層が持ったまま（GL エンジンにも既定層へ返す activate を足した） | — |
 | ~~U3~~ | 隠した地物とホバー・照会 | **解決 2026-09-26**：ホバーも query/queryAll も filter を尊重（geopbf の accept・§4.5） | — |
 | ~~U4~~ | 照会に内部層・消した層 | **解決 2026-09-26**：内部層（`_internal`）・消した層・ズーム域の外は queryAll/hits に出ない。interactive:false は入る（census2020 の重ね合わせ照会のため） | — |
@@ -560,4 +560,4 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - **2026-09-24** filter の `["zoom"]` も再評価・閾値 0.25
 - **2026-09-26** **1.0**：実装に合わせて全面改稿（Issue #10）。公開の線（本人裁定）・draft からの差（§4.10）・実測（§8）・検定（§11）・未決の一覧（§12-B）
 - **2026-09-26** 1.0 の後の直し（本人「2,3,1」）：U2＝interactive:false の追加でカーソルが動かない／U3・U4＝照会の意味（§4.5 の表・geopbf の accept・エンジンが ack で実レンジを返す・地球儀の内部層を照会から外す）／
-  MapLibre 形の層の出しズームを MapLibre の既定に／d.ts の型（U11）。U12・U13 を未決に足した
+  MapLibre 形の層の出しズームを MapLibre の既定に／d.ts の型（U11）。U12・U13 を未決に足した／U1＝表の line-width を CSS px に（既存アプリは半分にして見た目を保つ）

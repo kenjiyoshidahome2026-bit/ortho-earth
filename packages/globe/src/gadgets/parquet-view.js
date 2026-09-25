@@ -84,7 +84,7 @@ export async function createParquetView(map, src, { name, budgetBytes = 64e6, co
 		const r = range(); if (!r) return null;
 		const [lo, hi] = r, stops = RAMP.flatMap((c, i) => [lo + (hi - lo) * i / (RAMP.length - 1), c]);
 		const expr = hi > lo ? ["interpolate", ["linear"], ["get", color], ...stops] : RAMP[2];
-		return { "fill-color": expr, "fill-opacity": 0.55, "line-color": expr, "line-opacity": 0.9, "line-width": 1 };
+		return { "fill-color": expr, "fill-opacity": 0.55, "line-color": expr, "line-opacity": 0.9, "line-width": 0.5 };   // CSS px（2026-09-26・旧 1 device px と同じ見た目）
 	};
 	const rgbaFor = vals => {
 		const r = range(), out = new Uint8Array(vals.length * 4);
