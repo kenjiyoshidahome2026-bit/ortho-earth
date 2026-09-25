@@ -51,9 +51,29 @@ function bandAreaNumeric(lat1, lat2, dLonDeg) {
 	}
 	return s * h * D2R / 3 * dLonDeg * D2R;
 }
-const rect = geodesicArea([[139, 35], [140, 35], [140, 36], [139, 36]]);
+// 辺は大円なので、緯線に沿う縁は細かく刻んで渡す（1000 分割＝弦と緯線の差は 1e-9 級）。
+const parallelEdge = (lon1, lon2, lat, n = 1000) => Array.from({ length: n + 1 }, (_, i) => [lon1 + (lon2 - lon1) * i / n, lat]);
+const rectDense = [...parallelEdge(139, 140, 35), ...parallelEdge(140, 139, 36)];
+const rectD = geodesicArea(rectDense);
 const rectRef = bandAreaNumeric(35, 36, 1);
-ok(near(rect, rectRef, rectRef * 1e-9), `1°×1°@35N = ${(rect / 1e6).toFixed(3)} km²（数値積分 ${(rectRef / 1e6).toFixed(3)}）`);
+ok(near(rectD, rectRef, rectRef * 1e-9), `1°×1°@35N（緯線の縁）= ${(rectD / 1e6).toFixed(3)} km²（数値積分 ${(rectRef / 1e6).toFixed(3)}）`);
+const rect = geodesicArea([[139, 35], [140, 35], [140, 36], [139, 36]]);
+// GeographicLib 2.1（Geodesic.WGS84.Polygon＝辺は楕円体の測地線）の値と突合。辺の長い多角形ほど旧式（台形＝辺を
+// (λ, sinβ) 平面の直線とみなす）は小さく出た（東京–大阪–札幌 −7.4%・100km −0.37%）。いまは authalic 球の大円＝残差は下の許容内。
+const GLIB = [
+	['1km 三角形', [[139.7, 35.6], [139.71, 35.6], [139.705, 35.608]], 402158.238137722, 1e-6],
+	['100km 三角形', [[139.7, 35.6], [140.7, 35.6], [140.2, 36.4]], 4016750319.65979, 1e-5],
+	['東京–大阪–札幌', [[139.767, 35.681], [135.5, 34.733], [141.35, 43.069]], 154582991207.1892, 2e-4],
+	['日本の外接矩形', [[122, 24], [146, 24], [146, 46], [122, 46]], 5315618407529.872, 1e-4],
+	['日付変更線を跨ぐ', [[179, -17], [-179, -17], [-179, -15], [179, -15]], 47378519562.5437, 1e-5],
+	['高緯度の三角形', [[10, 70], [40, 70], [25, 80]], 594715092082.668, 1e-4],
+	['北極を囲む', [[0, 80], [90, 80], [180, 80], [-90, 80]], 2507270031169.875, 2e-4],
+	['大三角形（赤道–50N）', [[0, 0], [60, 0], [30, 50]], 20131885870822.164, 1e-3],
+];
+for (const [name, ring, ref, tol] of GLIB) {
+	const a = geodesicArea(ring);
+	ok(near(a, ref, ref * tol), `${name} = ${(a / 1e6).toFixed(3)} km²（GeographicLib ${(ref / 1e6).toFixed(3)}・差 ${((a / ref - 1) * 100).toExponential(1)}%）`);
+}
 // 球（R=6371008.8＝旧 measure.js）との比較＝楕円体化の向き：dA=M·N·cosφ で M は赤道最小・極大。
 // 赤道帯は球より狭く、高緯度帯は広い（総面積は R_A で保存）。日本（φ≈35°）はほぼ交差点＝面積補正は微小。
 const sphRectAt = lat1 => {   // 旧式そのまま（1°×1°）
