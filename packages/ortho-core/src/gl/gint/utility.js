@@ -649,6 +649,16 @@ export function deriveOutlineZoom(polyBboxByFid, targetPx = 8) {
 }
 
 // arcMeta bbox から minZoom/maxZoom を導き検証。maxZoom は precision の分解能上限で hard-clamp。
+// filter（fid 表の visible ビット）で隠した地物を識別から外す述語＝findPolygon / identifyAt の accept（2026-09-26・gint draw spec §4.5）。
+// 線と点は GPU の pick が既に visible を見ている＝ホバーで効くのは面（JS の findPolygon）。s＝_fidStyleData を持つ層の状態（GL/WebGPU 共通）。
+// 表が無い層（paint 未設定）は null＝全部通す。表の外の fid（setData 直後の旧い表）も通す
+export function fidVisible(s) {
+	const d = s?._fidStyleData;
+	if (!d?.u32) return null;
+	const u = d.u32, n = d.count;
+	return fid => fid >= n || (u[fid * 4 + 2] & 1) !== 0;
+}
+
 export function checkZoomRange({ arcMeta, minZoom, maxZoom, precision = 6 }) {
 	const precisionMax = Math.floor(0.491 + precision * 3.322);
 	const requestedMax = maxZoom ?? precisionMax;

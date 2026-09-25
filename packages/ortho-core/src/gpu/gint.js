@@ -21,7 +21,7 @@
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS } from "../gl/gint/state.js";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
-import { checkZoomRange, SUB_NB } from "../gl/gint/utility.js";
+import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn } from "../camera.js";
@@ -1013,7 +1013,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				featureId = findPolygon(
 					L.gintData.arcBuffer, L.gintData.arcMeta, L.gintData.polyStream,
 					Math.round((geo[0] + 180) * SE), Math.round((geo[1] + 90) * SE),
-					L.polyBboxByFid, V.lastViewBbox,
+					L.polyBboxByFid, V.lastViewBbox, fidVisible(L),   // filter で隠した面はホバーしない（GL と同じ・§4.5）
 				);
 			}
 		}
@@ -1091,6 +1091,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			set: (d, k) => set(L, d, k), setSlot: k => setSlot(L, k), setBaked: (p, k) => setBaked(L, p, k),
 			style: d => style(L, d), setVisible: v => setVisible(L, v), paint: d => paint(L, d),
 			stats: () => statsFor(L),
+			range: () => ({ minZoom: L.minZoom ?? null, maxZoom: L.maxZoom ?? null }),   // 実描画レンジ（データ導出×指定）＝main の照会が「見えている層」を判定する物差し（ack で返す）
 			activate: () => { if (act !== L) { act = L; activeId = -1; } },
 			setOrder: n => {   // 実行時の重ね順変更（moveLayer 相当）＝安定位置へ差し直し
 				const i = layers.indexOf(L);

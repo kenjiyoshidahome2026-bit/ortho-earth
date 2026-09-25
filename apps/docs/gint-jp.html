@@ -156,6 +156,10 @@ layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.propertie
 <code>gint: true</code> は GPU が描く形も作ります。トポロジの符号化器（WebAssembly・worker で動く）が、共有する境界をすべて一本の共有する弧にします。
 結果は IndexedDB に残るので、次の訪問では符号化を飛ばします。<code>geopbf</code> は <code>@ortho-earth/globe</code> からも export されているので、別のパッケージは要りません。
 </p>
+<p>
+properties がまったく同じ地物は、一つの地物 — <code>fid</code> が一つのマルチパートの地物 — になります。色も強調も答えも一緒です。
+分けておきたいなら、<code>id</code> のような地物ごとに違う属性を持たせてください。
+</p>
 
 <h3>2.2 足す</h3>
 <p>
@@ -209,7 +213,7 @@ GPU は描きながらその表を読むだけで、フレームごとに式を�
 <code>setFilter(式)</code> は、式が偽になる地物をすべて隠します。<code>setFilter(null)</code> で全部を戻します。
 paint と同じく一度だけ評価され、同じ表に書かれます — 作り直しはしません。
 隠した地物は描かれず、塗りにも加わらないので、下にあるものの塗りを乱しません（§5）。
-データには残っています：<code>layer.query</code> と <code>map.queryAll</code> は見つけますし、隠した面の上のホバーも見つけます。
+ホバーと問いからも外れます。隠した地物が無いものとして、ポインタの下の次の地物が答えになります。
 </p>
 <p>
 絞り込みは paint と同じ表に住みます。最初の <code>setPaint</code> より前に渡した絞り込みは預かられ、<code>setPaint</code> と一緒に効きます。
@@ -219,8 +223,8 @@ paint と同じく一度だけ評価され、同じ表に書かれます — 作
 <h3>2.5 問う</h3>
 <p>
 カーソルを持つ層は一度に一枚です。ホバー・tip・強調・<code>layer.on("click")</code> はその層のものです。
-interactive な層を足すとその層がカーソルを持ち、<code>layer.activate()</code> で移せます。<code>interactive: false</code> で足した層はカーソルを取りません。
-ただ今のところ、そういう層を足すと、それまでカーソルを持っていた層からもカーソルが外れます — 足した後に、持たせたい層で <code>activate()</code> を呼んでください。
+interactive な層を足すとその層がカーソルを持ち、<code>layer.activate()</code> で移せます。<code>interactive: false</code> で足した層はカーソルを取りません —
+それまでカーソルを持っていた層が持ったままです。
 ホバーは連続（32 ms ごとの選択）なので一枚に絞り、選択は一回で済ませます。クリックは稀なので、全部の層に問えます。
 線だけの層（面も点も無い）は、まだホバーに答えません。<code>map.on("click")</code> か <code>query</code> で問ってください。
 </p>
@@ -234,13 +238,18 @@ map.on(<span class="st">"click"</span>, ({ lngLat, hits }) =&gt; {   <span class
 });</code></pre>
 <p>
 <code>fid</code> は地物の、その層の中での番号です — 二つの層のどちらにも 7 番がある — ので、必ず層と組にして持ってください。
-<code>hits</code> には、地球儀が自分で足した層（国の輪郭など）も入ることがあります。<code>hit.layer</code> を自分の手綱と比べてください。
 </p>
 <p>
 <code>layer.query(lngLat)</code> と <code>map.queryAll(lngLat)</code> は、GPU を往復せず JavaScript ですぐに答えます。
 50 m 以内の点、次に 30 m 以内の線、次にその位置を含むいちばん小さい面を探します — 市の中の区をクリックすれば区が返ります。
-答えは絵からではなくデータから出ます。絞り込みや表示の有無で答えは変わりません。
+絞り込みで隠した地物は飛ばします。
 </p>
+<ul>
+	<li><strong><code>map.queryAll</code> と <code>map.on("click")</code> は、いま見えている物に答えます。</strong><code>setVisible(false)</code> で消した層や、ズームの範囲の外の層は入りません。
+	<code>interactive: false</code> で足した層は入ります — クリック一つで「この筆は危険区域の中でもある」と分かります。
+	地球儀が自分で描く層（国の輪郭など）は出てきません。</li>
+	<li><strong><code>layer.query</code> は、その層にわざわざ問う口です。</strong>層を消していても、ズームの範囲の外でも答えます。</li>
+</ul>
 
 <h3>2.6 手綱のほかの動詞</h3>
 <ul>
@@ -305,8 +314,7 @@ fill.push(<span class="st">"rgba(0,0,0,0)"</span>);                       <span 
 <span class="kw">await</span> zones.setPaint({
   <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"to-number"</span>, [<span class="st">"get"</span>, <span class="st">"A33_002"</span>]], <span class="nm">2</span>, <span class="st">"#c0392b80"</span>, <span class="st">"#d9a4416b"</span>],
   <span class="st">"line-width"</span>: <span class="nm">0</span>,                                 <span class="cm">// 塗りだけ・輪郭なし</span>
-});
-parcels.activate();                                   <span class="cm">// カーソルは筆のまま</span>
+});                                                   <span class="cm">// interactive: false — カーソルは筆のまま</span>
 
 map.on(<span class="st">"click"</span>, ({ hits }) =&gt; {
   <span class="kw">const</span> parcel = hits.find(h =&gt; h.layer === parcels);
@@ -357,7 +365,7 @@ Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いませ�
 	<li><strong>地物ごとの色</strong>（階級区分図）：二つの地物が重なる所では、データの中で後の方 — <code>fid</code> の大きい方 — が勝ちます。
 	その地物が透明か絞り込みで隠れていれば、下のものが見えます。二つの重なりまでは厳密で、三つ以上が積み重なる所の結果は保証しません。</li>
 	<li><strong>隠した地物は塗りに加わりません。</strong>市区町村と、それを含む大きな面が一つのデータに混ざっているなら、塗らない方の階層を絞り込みで外せば、残りはきれいに塗れます。</li>
-	<li><strong>問い</strong>には、その点を含むいちばん小さい面が返ります。</li>
+	<li><strong>問い</strong>には、その点を含み、絞り込みで隠れていない、いちばん小さい面が返ります。</li>
 </ul>
 <div class="callout callout-key">
 	<div class="callout-head">品質が見えるようになる</div>
@@ -384,7 +392,7 @@ Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いませ�
 	<li><strong><code>pbf</code></strong>（GeoPBF）：<code>geopbf(input, { gint: true })</code> の結果。</li>
 	<li><strong><code>options.order</code></strong>（Number）：重ね順。小さいほど下。既定＝足した順。</li>
 	<li><strong><code>options.minZoom</code> / <code>options.maxZoom</code></strong>（Number）：この層を描くズームの範囲。既定＝<code>minZoom</code> はデータの広さから（狭い範囲ほど高いズームから）、<code>maxZoom</code> は座標の精度から。</li>
-	<li><strong><code>options.interactive</code></strong>（Boolean）：<code>false</code>＝カーソルを取らない。既定 <code>true</code>。</li>
+	<li><strong><code>options.interactive</code></strong>（Boolean）：<code>false</code>＝カーソルを取らない（持っている層が持ったまま）。<code>map.on("click")</code> と <code>queryAll</code> には答える。既定 <code>true</code>。</li>
 	<li><strong><code>options.tip</code></strong>（Boolean | Function）：<code>true</code>＝全属性を「キー: 値」で出す tip。関数 <code>properties → string[]</code> なら自分の行を書く。既定＝tip なし。</li>
 	<li><strong><code>options.label</code></strong>（Object）：<code>{ field, size, color, halo, haloW, minZoom, maxZoom }</code> — <code>setLabel</code> を参照。</li>
 	<li><strong><code>options.style</code></strong>（Object）：paint なしの見た目 — <code>{ fillColor: [r, g, b, a], lineWidth, ptRadius }</code>・色は 0〜1。</li>
@@ -443,10 +451,10 @@ Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いませ�
 <p>カーソル（ホバー・tip・強調・<code>layer.on("click")</code>）をこの層に渡します。</p>
 
 <h4 class="sig">layer.query([lng, lat]) → { fid, properties } | null</h4>
-<p>同期・JavaScript。50 m 以内の点、なければ 30 m 以内の線、なければその位置を含むいちばん小さい面。interactive かどうかに関わらずどの層でも効き、絞り込みと表示の有無は見ません。</p>
+<p>同期・JavaScript。50 m 以内の点、なければ 30 m 以内の線、なければその位置を含むいちばん小さい面。絞り込みで隠した地物は飛ばします。interactive かどうかに関わらず、層を消していても、ズームの範囲の外でも答えます。</p>
 
 <h4 class="sig">map.queryAll([lng, lat]) → [{ layer, fid, feature }]</h4>
-<p>すべての Gint の層に <code>layer.query</code> を、上の層から。<code>feature</code> は <code>{ fid, properties }</code>。地球儀が自分で足した層も含みます。</p>
+<p>いま見えている — 表示中で、ズームの範囲の中の — すべての Gint の層に <code>layer.query</code> を、上の層から。<code>feature</code> は <code>{ fid, properties }</code>。地球儀が自分で描く層（国の輪郭など）は含みません。</p>
 
 <h4 class="sig">map.on("click", ({ lngLat, hits }) => …)</h4>
 <p>地球の上のクリックのたびに、<code>hits</code>＝<code>map.queryAll(lngLat)</code> で呼ばれます。ほかに <code>map.on("move" | "settle" | "load", …)</code> と <code>map.off(type, callback)</code>。<code>"load"</code> は地図が描き終わっていればすぐ呼ばれます。</p>
@@ -457,6 +465,7 @@ Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いませ�
 MapLibre のコードがそのまま動き、<code>setPaintProperty</code>・<code>setLayoutProperty</code>（<code>visibility</code>）・<code>setFilter</code>・<code>moveLayer</code>・
 <code>setFeatureState({ source, id }, state)</code>・<code>queryRenderedFeatures</code>・<code>map.on("click", layerId, …)</code> がすべて効きます。
 一つの source の層は<strong>一枚</strong>の Gint の層になります：paint は混ぜ合わされ、filter は <code>all</code> でつながります。
+ズームの範囲は MapLibre に従い、<code>minzoom</code> の無い層はズーム 0 から描きます。
 </p>
 <p>
 以前からの一枚きりの口（<code>applyGintData</code>・<code>paint</code>・<code>paintTable</code>・<code>onGintClick</code>）は、既存のアプリのために残しています。新しいコードは <code>addGint</code> を使ってください。

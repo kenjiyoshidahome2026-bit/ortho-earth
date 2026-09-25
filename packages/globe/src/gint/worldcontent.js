@@ -77,7 +77,7 @@ export function createWorldContent({ addGint, geopbf, symbols, addImage, getZoom
 			// 層ごとの出しズーム（未満は描かない＝GPU を使わない）：detail＝z5（道路・鉄道・市街地は z>5）・base＝z4（州境が出る所・本人「z<5 は EE 同様軽く」＝
 			// 旧は z<4 でも全州の輪郭を処理していた）。係争地の線も z4 から
 			const h = addGint(pbf, { order: ORDER[g], interactive: false, maxZoom: g === "detail" ? Math.min(bandZ, WORLD_Z.detailMax) : bandZ, minZoom: g === "detail" ? WORLD_Z.roads : g === "base" ? WORLD_Z.admin1 : null, fillMaxEdges: g === "detail" ? undefined : 0,
-				style: styleOf(g, T()) });
+				style: styleOf(g, T()), _internal: true });   // _internal＝地球儀の内部層＝利用者の照会（queryAll・map.on('click')）に出さない
 			if (!h) throw new Error("addGint unavailable");
 			h.setVisible(false);            // 絞る（出しズーム）まで出さない＝焼き上がり直後の 1 枚で全件が既定色で閃かない
 			await h.ready;

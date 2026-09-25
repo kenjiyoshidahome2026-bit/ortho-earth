@@ -157,6 +157,10 @@ layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.propertie
 <code>gint: true</code> also builds the form the GPU draws: the topology encoder (WebAssembly, in a worker) turns every shared border into one shared arc.
 The result is kept in IndexedDB, so the next visit skips the encoder. <code>geopbf</code> is re-exported by <code>@ortho-earth/globe</code>; you do not need a second package.
 </p>
+<p>
+Features whose properties are exactly the same become one feature — a multi-part feature with one <code>fid</code>. They are coloured, highlighted and answered together.
+If you need them apart, give each one its own property, such as an <code>id</code>.
+</p>
 
 <h3>2.2 Add</h3>
 <p>
@@ -211,7 +215,7 @@ Lines and points share one colour slot per feature, so <code>line-opacity</code>
 <code>setFilter(expression)</code> hides every feature for which the expression is false; <code>setFilter(null)</code> shows them all again.
 Like paint, the filter is evaluated once and written into the same table — nothing is rebuilt.
 A hidden feature is not drawn, and it takes no part in the fill, so it cannot spoil the fill of what lies under it (§5).
-It is still in the data: <code>layer.query</code> and <code>map.queryAll</code> find it, and so does hover over a hidden polygon.
+It also drops out of hover and of questions: the answer is the next feature under the pointer, as if the hidden one were not there.
 </p>
 <p>
 The filter lives in the same table as the paint. A filter given before the first <code>setPaint</code> is kept and applied with it;
@@ -221,8 +225,8 @@ The filter lives in the same table as the paint. A filter given before the first
 <h3>2.5 Ask</h3>
 <p>
 One layer holds the cursor at a time: hover, the tip, the highlight and <code>layer.on("click")</code> belong to it.
-Adding an interactive layer gives it the cursor, <code>layer.activate()</code> moves it, and a layer added with <code>interactive: false</code> never takes it.
-For now, adding such a layer also releases the cursor from the layer that held it — call <code>activate()</code> on the layer you want afterwards.
+Adding an interactive layer gives it the cursor, <code>layer.activate()</code> moves it, and a layer added with <code>interactive: false</code> never takes it —
+the layer that held the cursor keeps it.
 Hover is continuous — a pick every 32 ms — so it stays on one layer and costs one pick. A click is rare, so it can afford to ask every layer.
 A layer of lines only (no polygons, no points) does not answer hover yet; ask it through <code>map.on("click")</code> or <code>query</code>.
 </p>
@@ -236,13 +240,18 @@ map.on(<span class="st">"click"</span>, ({ lngLat, hits }) =&gt; {   <span class
 });</code></pre>
 <p>
 A <code>fid</code> is the index of a feature inside its own layer — two layers both have a feature 7 — so keep it together with its layer.
-<code>hits</code> can include layers the globe adds by itself, such as the country outlines: compare <code>hit.layer</code> with your own handles.
 </p>
 <p>
 <code>layer.query(lngLat)</code> and <code>map.queryAll(lngLat)</code> answer at once, in JavaScript, with no round trip to the GPU.
 They look for a point within 50 m, then a line within 30 m, then the smallest polygon that contains the position — a click on a ward inside a city returns the ward.
-They answer from the data, not from the picture: the filter and the visibility do not change the answer.
+Features hidden by the filter are skipped.
 </p>
+<ul>
+	<li><strong><code>map.queryAll</code> and <code>map.on("click")</code> answer what is shown now.</strong> A layer switched off with <code>setVisible(false)</code>, or outside its zoom range, is left out.
+	Layers added with <code>interactive: false</code> are included — a click can tell you that a parcel is also inside a hazard zone.
+	The layers the globe draws for itself, such as the country outlines, never appear.</li>
+	<li><strong><code>layer.query</code> asks one layer on purpose.</strong> It answers even when the layer is switched off or outside its zoom range.</li>
+</ul>
 
 <h3>2.6 More on the handle</h3>
 <ul>
@@ -309,8 +318,7 @@ Put a hazard layer under the parcels. The parcels hold the cursor; a click reach
 <span class="kw">await</span> zones.setPaint({
   <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"to-number"</span>, [<span class="st">"get"</span>, <span class="st">"A33_002"</span>]], <span class="nm">2</span>, <span class="st">"#c0392b80"</span>, <span class="st">"#d9a4416b"</span>],
   <span class="st">"line-width"</span>: <span class="nm">0</span>,                                 <span class="cm">// fill only, no outline</span>
-});
-parcels.activate();                                   <span class="cm">// the cursor stays on the parcels</span>
+});                                                   <span class="cm">// interactive: false — the cursor stays on the parcels</span>
 
 map.on(<span class="st">"click"</span>, ({ hits }) =&gt; {
   <span class="kw">const</span> parcel = hits.find(h =&gt; h.layer === parcels);
@@ -363,7 +371,7 @@ Gint fills by the nonzero winding rule — the even-odd rule is never used — s
 	If that one is transparent or filtered out, the one below shows through. This is exact where two features overlap; where three or more pile up, the result is not guaranteed.</li>
 	<li><strong>Filtered features take no part in the fill.</strong> When a dataset mixes levels — municipalities together with the larger polygons that contain them —
 	filter out the level you are not painting, and the rest fills cleanly.</li>
-	<li><strong>Questions</strong> return the smallest polygon that contains the point.</li>
+	<li><strong>Questions</strong> return the smallest polygon that contains the point and is not hidden by the filter.</li>
 </ul>
 <div class="callout callout-key">
 	<div class="callout-head">Quality becomes visible</div>
@@ -390,7 +398,7 @@ into multi-polygons — the fill cost is the same.
 	<li><strong><code>pbf</code></strong> (GeoPBF): from <code>geopbf(input, { gint: true })</code>.</li>
 	<li><strong><code>options.order</code></strong> (Number): stacking order, smaller is lower. Default: the order of addition.</li>
 	<li><strong><code>options.minZoom</code> / <code>options.maxZoom</code></strong> (Number): the zoom range of this layer. Default: <code>minZoom</code> from the size of the data (a small area starts at a higher zoom); <code>maxZoom</code> from the coordinate precision.</li>
-	<li><strong><code>options.interactive</code></strong> (Boolean): <code>false</code> = never takes the cursor. Default <code>true</code>.</li>
+	<li><strong><code>options.interactive</code></strong> (Boolean): <code>false</code> = never takes the cursor; the layer that holds it keeps it. Such a layer still answers <code>map.on("click")</code> and <code>queryAll</code>. Default <code>true</code>.</li>
 	<li><strong><code>options.tip</code></strong> (Boolean | Function): <code>true</code> = a tip with every property as “key: value”; a function <code>properties → string[]</code> writes your own lines. Default: no tip.</li>
 	<li><strong><code>options.label</code></strong> (Object): <code>{ field, size, color, halo, haloW, minZoom, maxZoom }</code> — see <code>setLabel</code>.</li>
 	<li><strong><code>options.style</code></strong> (Object): the look without paint — <code>{ fillColor: [r, g, b, a], lineWidth, ptRadius }</code>, colours 0–1.</li>
@@ -449,10 +457,10 @@ into multi-polygons — the fill cost is the same.
 <p>Gives the cursor (hover, tip, highlight, <code>layer.on("click")</code>) to this layer.</p>
 
 <h4 class="sig">layer.query([lng, lat]) → { fid, properties } | null</h4>
-<p>Synchronous, in JavaScript. A point within 50 m, else a line within 30 m, else the smallest polygon containing the position. Works for every layer, interactive or not; ignores the filter and the visibility.</p>
+<p>Synchronous, in JavaScript. A point within 50 m, else a line within 30 m, else the smallest polygon containing the position. Features hidden by the filter are skipped. Answers for any layer, interactive or not, even when it is switched off or outside its zoom range.</p>
 
 <h4 class="sig">map.queryAll([lng, lat]) → [{ layer, fid, feature }]</h4>
-<p><code>layer.query</code> on every Gint layer, top layer first. <code>feature</code> is <code>{ fid, properties }</code>. Includes layers the globe adds by itself.</p>
+<p><code>layer.query</code> on every Gint layer that is shown now — switched on and inside its zoom range — top layer first. <code>feature</code> is <code>{ fid, properties }</code>. The globe's own layers (country outlines and the like) are not included.</p>
 
 <h4 class="sig">map.on("click", ({ lngLat, hits }) => …)</h4>
 <p>Every click on the globe, with <code>hits</code> = <code>map.queryAll(lngLat)</code>. Also <code>map.on("move" | "settle" | "load", …)</code> and <code>map.off(type, callback)</code>; <code>"load"</code> fires at once if the map is already drawn.</p>
@@ -463,6 +471,7 @@ into multi-polygons — the fill cost is the same.
 so MapLibre code runs as it is: <code>setPaintProperty</code>, <code>setLayoutProperty</code> (<code>visibility</code>), <code>setFilter</code>, <code>moveLayer</code>,
 <code>setFeatureState({ source, id }, state)</code>, <code>queryRenderedFeatures</code> and <code>map.on("click", layerId, …)</code> all work on it.
 The layers of one source become <strong>one</strong> Gint layer: their paints are merged, and their filters are joined with <code>all</code>.
+Zoom ranges follow MapLibre: without <code>minzoom</code> a layer is drawn from zoom 0.
 </p>
 <p>
 The older single-layer methods (<code>applyGintData</code>, <code>paint</code>, <code>paintTable</code>, <code>onGintClick</code>) remain for existing apps. New code should use <code>addGint</code>.

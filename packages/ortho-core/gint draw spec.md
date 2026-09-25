@@ -78,7 +78,7 @@ map.on('move' | 'settle' | 'load', cb); map.off(ev, cb)                     // l
 | :--- | :--- | :--- | :--- |
 | `order` | number | 追加順 | 重ね順（小さいほど下）。GL＝`order ?? ++seq` の安定挿入 |
 | `minZoom` / `maxZoom` | number | データから | 未指定の minZoom＝arc の bbox 最大辺から `floor(log2(360/maxDim))`（狭域ほど高い）・maxZoom＝精度から `floor(0.491 + 3.322·precision)`（`checkZoomRange`） |
-| `interactive` | boolean | true | false＝カーソルを取らない（§4.4 の ⚠ も読む） |
+| `interactive` | boolean | true | false＝カーソルを取らない（持ち主はそのまま）。照会（queryAll・map.on('click')）には入る |
 | `tip` | boolean / fn | 無し | true＝`key: value` の全属性・fn＝`props → string[]`（null・空＝出さない）・ホバー tip は全層で 1 つ（`gintHoverTip`） |
 | `label` | object | 無し | §4.6 |
 | `style` | GintDrawStyle | 既定色 | paint なしの見た目。`fillColor [r,g,b,a]`（0〜1）・`lineWidth`（CSS px）・`ptRadius`・`styleTable`（styleId 0＝面の辺・1＝線）・`dashTable`・`moveBudget`・`outlineZoom` |
@@ -110,7 +110,8 @@ map.on('move' | 'settle' | 'load', cb); map.off(ev, cb)                     // l
 
 ### 4.3 地図の側
 
-- `map.queryAll(ll)`：全ての追加層に `query` を、手前から（order 降順・同値は新しい方が先）。末尾に単一スロットのユーザー層を `layer: null` で足す（§10 の橋渡し）
+- `map.queryAll(ll)`：**いま見えている**追加層（`_shown`＝setVisible・ズーム域・焼き着地済み・地球儀の内部層でない）に `query` を、手前から（order 降順・同値は新しい方が先）。
+  末尾に単一スロットのユーザー層を `layer: null` で足す（§10 の橋渡し・その paint 表の visible ビットを filter として尊重）
 - `map.on('click', cb)`：地球の上のクリックごとに `{ lngLat: [lng, lat], hits: queryAll(lngLat) }`（hits は空もある）。球の外・測距/断面/台帳編集/編集アプリのクリック横取り中は呼ばない
 - `map.on('move' | 'settle' | 'load')`・`map.off`：draft の約束（旧 §10.5-3）どおり 2026-09-09 に実装。`settle`＝カメラ静止（onMove の 150 ms 無音）
 - 層 id つきの `map.on('click', layerId, cb)` は MapLibre 形の入口の物（§4.9）
@@ -123,26 +124,37 @@ map.on('move' | 'settle' | 'load', cb); map.off(ev, cb)                     // l
 | :--- | :---: | :---: | :---: |
 | hover / tip / ハイライト | — | — | ○ |
 | `layer.on('click')` | — | — | ○ |
-| `map.on('click')` の hits | ○（⚠ U4） | ○ | ○ |
+| `map.on('click')` の hits | ○ | ○ | ○ |
 | `layer.query` / `map.queryAll` | ○ | ○ | ○ |
 
 **なぜ hover だけ絞るか＝コスト構造が違う**。hover は連続（`MOVE_THROTTLE_MS`＝32 ms・先頭と末尾の 2 回）で、安さと曖昧さゼロが要る——tip は 1 つしか出せない。
 click は稀＝層数に比例した照会を払える。実装上も大きい：**連続経路が常に 1 層なら pick の的は 1 枚**でよく、`activeId`・`moveTimer`・`lastMX/lastMY` もエンジンに据え置ける（§7.9）。
 
 - **既定のアクティブ**＝最後に `addGint` した interactive な層。`activate()` で移す
-- ⚠ `interactive:false` の層を足すと、main はゲートを null にし、エンジンは既定スロットを activate する＝**それまでアクティブだった層もカーソルを失う**（U2）。
-  世界帯の内部層（worldContent・世界の線）は後から足されるので、利用者の層のホバーが途中で止まり得る。説明書は「足した後に activate() を」と書いた
+- `interactive:false` の層を足しても、**足す前のアクティブ層がカーソルを持ったまま**（main のゲートも、エンジンの `act` も `gintActivate(前の層)` で戻す・2026-09-26＝U2 解決）。
+  前が居なければ既定層（WebGL2 エンジンにも既定層へ返す `activate()` を足した＝旧は no-op で、エンジンのカーソルが non-interactive の層に残っていた）
+- 照会の表の「内部層」＝地球儀が自分で足す層（admin0・世界の線・worldContent＝非公開の印 `_internal`）は、interactive に関わらず照会に出ない（§4.5）
 - ⚠ アクティブ層を `remove()` すると main のゲートは null＝activate か新しい interactive 層まで、どの追加層もホバーしない（draft の「残る interactive 層の最後へ落ちる」は WebGPU エンジン内部の `act` だけ＝U6）
 - ⚠ `layer.on('click')` はアクティブ層だけに届く（click は直近のホバー識別の結果を運ぶ）。draft の表は非アクティブの interactive 層にも ○ だった（U5）。層をまたぐクリックは `map.on('click')` が担う
 - **戻り値の形**：hover はアクティブ層が確定＝`fid` で足りる。**層をまたぐ経路（`queryAll` / `map.on('click')`）は必ず `{ layer, fid }` の対**＝fid は層内の添字で、層をまたいで衝突する
 - MapLibre の `queryRenderedFeatures` は全層から返す＝この規約は**意識的な逸脱**（§1 非目標）。GIS デスクトップ（QGIS/ArcGIS）の「アクティブレイヤ」＝利用者が既に持っている概念に寄せた
 
-### 4.5 照会の意味 ── データから答える
+### 4.5 照会の意味（2026-09-26 に確定＝U3/U4 解決）
 
-- `layer.query(ll)`＝`pbf.identifyAt(lng, lat)`（geopbf・描画レス識別）：**50 m 以内の点 → 30 m 以内の線 → その位置を含む面（smallest-wins）**の順で最初の 1 件。距離はメートル固定（ズーム非依存）
-- 答えは**データから**出る：filter（visible ビット）・`setVisible`・ズーム域・`interactive` を見ない。census2020 は「消灯層＝query は当たるが無視」を呼び手で裁いている
+| 口 | 答える物 | filter | setVisible・ズーム域 | interactive:false | 地球儀の内部層 |
+| :--- | :--- | :---: | :---: | :---: | :---: |
+| ホバー（エンジン） | アクティブ層の、ポインタの下の地物 | 尊重（隠した面に当たらない） | 描いていなければ識別しない（`_inRange`） | 取らない | 取らない |
+| `layer.query(ll)` | **その層の地物**（わざわざ問う口） | 尊重 | 見ない（消していても・範囲外でも答える） | 答える | —（利用者は手綱を持たない） |
+| `map.queryAll(ll)` / `map.on('click')` | **いま見えている物** | 尊重 | 見えている層だけ | 入る（筆×警戒区域の重ね合わせ照会） | 出さない |
+| `queryRenderedFeatures`（MapLibre 形の層） | 描かれている物 | 尊重 | layout.visibility・ズーム域 | — | 出さない |
+
+- 実体＝`pbf.identifyAt(lng, lat, { accept })`（geopbf・描画レス識別）：**50 m 以内の点 → 30 m 以内の線 → その位置を含む面（smallest-wins）**の順で、`accept(fid)` が偽の地物は**無いものとして次の候補**を探す（geopbf 2026-09-26・`findPolygon` の 8 番目の引数も同じ）。距離はメートル固定（ズーム非依存）
+- `accept`＝層の直近の fid 表の visible ビット（表が無い＝paint 未設定＝全部通す・表の外の fid も通す）。エンジンのホバーは `fidVisible(層の状態)`（`gl/gint/utility.js`・両土台共通）
+- 「見えている」＝main の `_shown(z)`＝`setVisible` の台帳 ∧ 焼き着地済み ∧ `z ∈ [max(エンジンの minZoom, style.minZoom), min(エンジンの maxZoom, style.maxZoom)]`（エンジンの `zoomInRange` と同じ積）。
+  エンジンの実レンジ（データからの自動導出を含む）は焼きの ack（`gintAck` の `minZoom/maxZoom`）で main へ返る
 - smallest-wins の実体：`findPolygon` は polyStream を全走査して**最後に当たった物**を返す。polyStream の成分は重み（`sqrt(|面積|/2) + 周長/4`）の降順に並ぶ（geopbf topology.rs）＝最後＝最小
-- ホバー（エンジン側）は別経路：GPU の pick 的（線と点）→ 画素が 0 の時だけ `findPolygon`＝**線と点が面より先**。`findPolygon` は visible を知らない＝**隠した面にもホバーが当たる**（U3）
+- ホバーの経路：GPU の pick 的（線と点・visible ビットを見る）→ 画素が 0 の時だけ `findPolygon`（accept つき）＝**線と点が面より先**
+- **properties が完全に同じ地物は 1 つの fid**：geopbf の JSON/Shapefile デコーダは同一属性の地物を併合（`dissolve`）し、`topologyFullWasm` も properties で fid を束ねる＝同じ実体として塗り・強調・答えが一緒（U12 も読む）
 
 ### 4.6 ラベル（text-field 相当・2026-09-09）
 
@@ -168,6 +180,8 @@ paint か filter の JSON に `["zoom"` を含む層は、**settle ごとに |Δ
 `map.addSource(id, { type: 'geojson', data })`＋`map.addLayer({ type: 'fill' | 'line' | 'circle', … })` は、**source ごとに Gint の追加層 1 枚**を作る（globe.js `rebuildGint`）：
 
 - 同じ source の層の paint は `Object.assign` で**混ぜ**、filter は層ごとに `all` で**結ぶ**（⚠ MapLibre は層ごと＝U7）
+- 出しズーム＝**MapLibre の既定**：`minzoom` の無い層は z0 から・`maxzoom` の無い層は上限なし（同じ source の層は和）。
+  旧（〜2026-09-25）は minzoom 無し＝null＝Gint の自動導出（狭い範囲のデータは z9 等から）で、MapLibre の層が引くと消えたまま照会だけ当たっていた
 - `setPaintProperty` / `setLayoutProperty(visibility)` / `setFilter` / `moveLayer` / `setLayerZoomRange`＝登録簿を書き換えて `setPaint`（fid 表だけ）か `setData`
 - `map.setFeatureState({ source, id }, state)`＝`id`＝その source の地物番号（GeoJSON の並び＝fid）→ 層の `setFeatureState`
 - `queryRenderedFeatures` と `map.on('click' | 'mousemove' | 'mouseenter' | 'mouseleave', layerId, cb)` はこれらの層に当たる（`identifyAt` に画素の許容を渡す）
@@ -252,8 +266,8 @@ Gint の評価文脈に `id` は無い（`["id"]`＝undefined）。契約に足�
 - width=0＝線を描かない（VS で棄却）／radius=0＝点を描かない。線色・点色の α=0＝既定色（§5）
 - 更新は同寸なら `texSubImage2D`（WebGPU は `writeTexture`）1 回。メタ・tier・幾何に触れることを**仕様として禁止**。context lost 用に CPU 側の写しを保持
 - 規模：16 B/fid＝1,919 市区町村で 31 KB／100 万 feature で 16 MB
-- **visible ビットを見る所**：線の描画と強調・線の pick・点の描画と pick・ID 塗りの蓄積と解決・ラベル。
-  **見ない所**：stencil 単色の塗り（`VS_STENCIL` は表を読まない）・JS の `findPolygon`（ホバーの面・照会）・ホバーのマスク（U3）
+- **visible ビットを見る所**：線の描画と強調・線の pick・点の描画と pick・ID 塗りの蓄積と解決・ラベル・`findPolygon`／`identifyAt`（`accept`＝ホバーの面と照会・2026-09-26）。
+  **見ない所**：stencil 単色の塗り（`VS_STENCIL` は表を読まない＝ID 塗りが使えない時の縮退で隠した面も単色で塗る＝U13）
 
 ### 7.2 塗りの機構
 
@@ -343,7 +357,7 @@ fid が上限を超える層は地物ごとの塗りを失う。回避は「同�
 
 ### 7.7 識別（pick と findPolygon）
 
-- GPU の pick 的：RGBA8（fid+1 を 24 bit）。**線（styleId 1 の辺）と点だけ**を描く。画素が 0 の時だけ `findPolygon`（JS）＝線と点が面より先
+- GPU の pick 的：RGBA8（fid+1 を 24 bit）。**線（styleId 1 の辺）と点だけ**を描く。画素が 0 の時だけ `findPolygon`（JS・`fidVisible` の accept つき）＝線と点が面より先
 - 的は **settle で・アクティブ層だけ**作る。面も点も無い層（線だけ）は作らない＝ホバーしない（U8）
 - 読み戻しは非同期：GL＝PBO＋フェンス／WebGPU＝`copyTextureToBuffer`＋`mapAsync`
 - ホバーの間引き `MOVE_THROTTLE_MS=32`（先頭＋末尾）。pick の余白 `12×dpr`（線＝幅＋余白・点＝`max(ptRadius, 余白/2)`・fid 別の幅は pick では見ない）
@@ -371,7 +385,8 @@ fid が上限を超える層は地物ごとの塗りを失う。回避は「同�
 - WebGL2：`addLayer` は `Object.create(s)`＋`emptySlot()`＝GL 基盤・ビュー・運動の状態はプロトタイプ委譲で、第 1 ブロックだけ自前。臓器は状態を第一引数で受ける
 - 重ね順：GL＝`order<0` → 既定スロット → `order≥0`。WebGPU＝既定層も `addLayer` 由来で order 1 ⚠ order 0 の層は GL では既定スロットの上・WebGPU では下（U10）
 - worker の口：`gintAdd`（ack の error `"no-multilayer"`＝addLayer を持たないエンジン）・`gintRemove`・`gintActivate`・`gintOrder`・`gintPaint`・`gintStyle`・`gintVis`・`gintLabels`・`gintBaked`（層指名）。
-  identify/click の返信は `layer` を持つ＝main が手綱へ配る。bake worker 経由の焼き（`bakeAndSend`）は失敗時に同期経路へ落ちる
+  identify/click の返信は `layer` を持つ＝main が手綱へ配る。ロードの ack（`gint`/`gintBaked`）は層の実レンジ `minZoom/maxZoom` を運ぶ（層の手綱の `range()`・§4.5）。
+  `gintActivate` の layer 無し＝既定層へ（両土台）。bake worker 経由の焼き（`bakeAndSend`）は失敗時に同期経路へ落ちる
 
 ### 7.10 事前計算の 3 層原則
 
@@ -441,6 +456,7 @@ Gint の式（`deriveOutlineZoom` の 40.74＝256/(2π)・`precisionMax = floor(
 | 10 | 多層の器 | 第 1 ブロックだけ層ごと・GPU 基盤と識別/カーソルは据え置き（§7.9） | 8/19 → 9/9 |
 | 11 | 3D の面 | 地形ありは地面アトラスへ焼く（RTT）＝画面は線と点 | 9/21 |
 | 12 | 公開の線 | 外向き＝一周＋契約の式表・診断プローブは内部 | 9/26 本人裁定 |
+| 13 | 照会とカーソル | §4.5 の表：query＝その層の地物×filter／queryAll・hits＝見えている層×filter・内部層を除く・interactive:false は入る／ホバーは隠した面に当たらない／interactive:false の追加でカーソルは動かない／MapLibre 形の層は MapLibre の出しズーム既定 | 9/26 本人「2,3 を直す」（U2・U3・U4） |
 
 ## 10. 単一スロットの口との境界 ── 多層の API を汚さないための線引き
 
@@ -483,7 +499,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 
 | 頁 | 門 | 守るもの |
 | :--- | :--- | :--- |
-| `apps/ortho-japan/tests/t-gintlayers.html` | japan `verify:webgpu`（`t-gintlayers` と `?gl2=1` の**両土台**） | `map.addGint` の一周 22 項目：on('load')・ready・setPaint・ホバー往復＋層 tip＋mouseenter/leave・query・queryAll（`{layer,fid}`）・setFilter・setData・setOrder・setLabel・式の text-field・feature-state・ラベルの filter 連動・map.on('click') の hits・admin0 層・on('move')・remove |
+| `apps/ortho-japan/tests/t-gintlayers.html` | japan `verify:webgpu`（`t-gintlayers` と `?gl2=1` の**両土台**） | `map.addGint` の一周：on('load')・ready・setPaint・ホバー往復＋層 tip＋mouseenter/leave・query・queryAll（`{layer,fid}`）・setFilter・setData・setOrder・setLabel・式の text-field・feature-state・ラベルの filter 連動・map.on('click') の hits・admin0 層・on('move')・remove。**2026-09-26 追加**＝interactive:false の層を足してもホバーが生きる（U2）・query は filter を尊重・隠した層／ズーム域の外は queryAll に出ない・隠した面にホバーしない（U3）・地球儀の内部層は queryAll に出ない（U4）＝修正前のコードでは両土台とも落ちることを確認済み |
 | `packages/globe/tests/t-gintmulti.html` | globe `verify:webgpu` | WebGPU 多層 11 項目：同フレーム 2 層・層別スタイル（UBO 検札）・層別表示・層またぎ pick・重ね順・setOrder・remove・dispose |
 | `packages/globe/tests/t-gintmultigl.html` | globe `verify:ui` | WebGL2 多層の worker プロトコル 10 項目（ラベルと order の画素を含む） |
 | `packages/globe/tests/t-gintgpu.html` | globe `verify:webgpu`（`?gintsb=0` も） | 17 項目：stencil 塗り・storage 経路・線の GPU pick・面の JS pick・tier・overlay・readback・ドレープ・点の fid スタイル・**ID 塗りのコロプレス** |
@@ -494,6 +510,8 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | `apps/ortho-japan/tests/t-gndfaces.html` | japan `verify:ui`・`verify:webgpu` | 地面アトラスの面（`setPaint` の ID 塗りがアトラスへ焼かれる）9 項目 |
 | `packages/ortho-core/tests/gint-expr.mjs` | ルートの `npm test`（ortho-core の test） | **§6.1 の契約の演算子すべて**が fid 表まで届く・§6.2 の評価規約（=== の比較・欠けた値・throw しない・入れ子の色の補間）・§7.1 の詰め方（幅 1/8・半径 1/4・visible・点の色・opacity・dash-id 0）・色の書式＝20 項目（2026-09-26・説明書の「約束する範囲」の裏打ち） |
 | node：`gint-bake` `gint-drape` `gint-jitter` `gint-lod` `gint-seam`（ortho-core）・`t-anchors.mjs`（geopbf） | ルートの `npm test` | 焼き・ドレープ・周期・度アンカー |
+| `packages/geopbf/tests/t-identify-accept.mjs` | geopbf の `test` | `identifyAt`/`findPolygon` の accept＝外すたびに次の候補（点→線→小さい面→大きい面→null）・bbox 台帳が無くても効く（9 項目・2026-09-26） |
+| `packages/globe/tests/t-mllayers.html` | globe `verify:ui` | MapLibre 形の層（2 source の fill・押し出し・ヒートマップ・性質・重ね順・層ごとのイベント・getStyle）＝照会が「描かれている物」になった後も通る（出しズームの既定を MapLibre に揃えた） |
 | `apps/ortho-japan/tests/t-gintsbperf.html` | **門ではない**（`bench-gintsb.mjs` だけ） | storage/テクスチャの計測 |
 
 契約の式を足す時は、d.ts の一覧・説明書 §4 の表・`gint-expr.mjs` を同じコミットで揃える。
@@ -516,16 +534,18 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | # | 何が | 今の挙動 | 案 |
 | :--- | :--- | :--- | :--- |
 | U1 | `line-width` の単位 | paint の幅は**デバイス画素**（×dpr されない）。`style.lineWidth` と `circle-radius` は CSS px | ×dpr に揃える。⚠ 既存アプリの線（census2020・世界の線など）が高 dpr 端末で太る＝見た目の再調律とセット |
-| U2 | interactive:false の追加 | それまでのアクティブ層もカーソルを失う（main が null・エンジンは既定スロットを activate）。世界帯の内部層の遅延追加でも起きる | 足す前のアクティブを保つ（layers.js の数行・t-gintlayers に検定を足す） |
-| U3 | 隠した地物とホバー | 隠した**面**にホバーが当たる（findPolygon が visible を知らない）。線と点は当たらない | ホバーの findPolygon に visible を渡す。照会（query）はデータの答えのまま |
-| U4 | 照会に内部層 | `queryAll`/`map.on('click')` の hits に admin0・世界の線・worldContent が混ざる（interactive:false も filter も見ない） | 内部層を照会から外す（印か interactive の尊重） |
+| ~~U2~~ | interactive:false の追加 | **解決 2026-09-26**：足す前のアクティブ層が持ったまま（GL エンジンにも既定層へ返す activate を足した） | — |
+| ~~U3~~ | 隠した地物とホバー・照会 | **解決 2026-09-26**：ホバーも query/queryAll も filter を尊重（geopbf の accept・§4.5） | — |
+| ~~U4~~ | 照会に内部層・消した層 | **解決 2026-09-26**：内部層（`_internal`）・消した層・ズーム域の外は queryAll/hits に出ない。interactive:false は入る（census2020 の重ね合わせ照会のため） | — |
 | U5 | `layer.on('click')` | アクティブ層だけ | 現状を仕様にする（層またぎは map.on('click')） |
 | U6 | アクティブ層の remove | main のゲートが null | 残る interactive 層の最後へ落とす（draft の意図） |
 | U7 | MapLibre 形の filter | 同じ source の層の filter が `all` で結ばれる | 層ごとの filter を別の Gint 層に分ける／現状を明記のまま |
 | U8 | 線だけの層 | pick の的を作らない＝ホバーしない | 線だけの層にも的を作る |
 | U9 | 予算で飛ばした非アクティブ層 | 静止時に自前でフレームを要求しない | drawn の復帰を全層へ |
 | U10 | order 0 | GL＝既定スロットの上・WebGPU＝下 | 既定層の order を揃える |
-| U11 | d.ts のずれ | `label.field` が `string` だけ（実装は式・関数も）・`map.on('click')` の hits の型に `feature` が無い | d.ts を実装に合わせる（型だけ・版上げで届く） |
+| ~~U11~~ | d.ts のずれ | **解決 2026-09-26**：`label.field`＝式・関数・文字列／`label.sort`＝number／`map.on('click')` の hits に `layer: GintLayerHandle \| null` と `feature`（型だけ・版上げで npm に届く） | — |
+| U12 | fid の束ね方の鍵 | geopbf `topologyFullWasm` は properties を `join("\|")` で束ねる＝`dissolve` が 9/25 に直した「1 と "1"・"" と null を同じ地物に」を GintBUF の fid でまだ起こす（併合されずに残った別の地物が同じ fid を指す） | `dissolve` と同じ型つきの鍵（valKey）に揃える（geopbf・版上げ） |
+| U13 | 縮退した塗りと filter | ID 塗りが使えない時（能力なし・fid 上限超え・移動中の安表現・3D の窓）の stencil 単色は fid 表を読まない＝隠した面も単色で塗る | stencil 扇の VS で visible ビットを見る（表がある時だけ） |
 
 ## 13. 変更履歴
 
@@ -539,3 +559,5 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - **2026-09-23** 評価器の拡張（#33・基図の外来 style.json）・MapLibre 形の入口（#34）
 - **2026-09-24** filter の `["zoom"]` も再評価・閾値 0.25
 - **2026-09-26** **1.0**：実装に合わせて全面改稿（Issue #10）。公開の線（本人裁定）・draft からの差（§4.10）・実測（§8）・検定（§11）・未決の一覧（§12-B）
+- **2026-09-26** 1.0 の後の直し（本人「2,3,1」）：U2＝interactive:false の追加でカーソルが動かない／U3・U4＝照会の意味（§4.5 の表・geopbf の accept・エンジンが ack で実レンジを返す・地球儀の内部層を照会から外す）／
+  MapLibre 形の層の出しズームを MapLibre の既定に／d.ts の型（U11）。U12・U13 を未決に足した
