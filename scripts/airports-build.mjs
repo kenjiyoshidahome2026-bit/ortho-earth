@@ -2,7 +2,7 @@
 // Anno vt_code 441（空港名）は z11 以上のタイルにしか無い＝低ズームで空港マークを出すための座標台帳を作る。
 // z8 で陸タイル（RdCL あり）に絞り込み → 配下の z11 タイル(64個/親)を走査 → 「〜空港/〜飛行場」を収集。
 // 使い方: node scripts/airports-build.mjs
-import { fetchMVT, lonLatToTile, tileLocalToLonLat } from "ortho-japan";
+import { fetchMVT, lonLatToTile, tileLocalToLonLat } from "@ortho-earth/core";   // 旧 "ortho-japan"（改名前のパッケージ名）で import が解決できなかった
 import { writeFileSync } from "fs";
 
 const OUT = "apps/ortho-japan/public/airports.json";
