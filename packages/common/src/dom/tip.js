@@ -1,4 +1,4 @@
-// common/dom の tip / pop ── common/d3/tip-pop.js の native 版（挙動は同じ）。
+// common/dom の tip / pop ── 旧 common/d3/tip-pop.js（d3 版・2026-09-25 に削除）の native 版。
 // import するだけで Sel.prototype に .tip() / .pop() が生える（v1 の tip-pop.js と同じ流儀）。
 import { Sel, sel } from "./index.js";
 import { isFunction } from "../utility.js";
