@@ -414,7 +414,8 @@ export interface OrthoJapanMap {
 	setOpacity(o: { base?: number; globe?: number }): void;
 	/** クリック横取りスロット（編集アプリ用。gint の onGintClick より優先）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */
 	setEditClick(fn: ((x: number, y: number) => void) | null): void;
-	/** 標高 m（GSI DEM10B / AW3D30 のタイルを api.ortho-earth.com 経由で取得・粗い格子＝鋭い山頂は低めに出る）。
+	/** 標高 m（GSI DEM10B / AW3D30 のタイルを api.ortho-earth.com 経由で取得）。格子は今のズームで決まる＝z<7 は R90・z<12 は R10（約 460m＝鋭い山頂は低めに出る）・
+	 *  z≥12 は R01（10m＝日本は DEM10B・海外は AW3D30）。2026-09-25 の修正より前の版は z≥12 でも R10 に落ちていた（富士山頂 3567m 等）。
 	 *  1.0.4〜ローダ着荷（数秒）を待って返す（初期化失敗は reject）。1.0.3 以前は未着の間 0 を返す＝>0 になるまで再照会 */
 	getHeight(lon: number, lat: number): Promise<number>;
 	fitZoomForBbox(bbox: Bbox): number;
