@@ -10,7 +10,7 @@ import { createGeopbf, geopbf } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
-import { createGetHeight, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
+import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
 // 部品の worker（geopbf の変換・解析・COG・タイル書き出し／エンジンのタイル・シーン／エンジンの標高／geoedit の編集モデル）も
 // アプリの入口 1 本（worker.js）で走らせる＝共有部品（geopbf の核など）を render/estat 等と共有（2026-09-22・標準の作法）。
@@ -66,6 +66,7 @@ import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シー�
 import { profile as profileGadget } from "./gadgets/profile-stub.js";
 import { clockGadget } from "./gadgets/clock.js";   // 時計の操作盤（#42）＝map.clock の ◀◀ ▶ ▶▶・日時・今
 import { viewshed as viewshedGadget } from "./gadgets/viewshed.js";   // 可視域・見通し線（#44）＝同じ worker
+import { offline as offlineGadget } from "./gadgets/offline.js";   // オフラインパック（#40）＝範囲とズーム上限を決めて先に取る（配るのは殻の SW）
 import { sunShadow as sunShadowGadget } from "./gadgets/sunshadow.js";   // 日影（#44）＝ボタン＋小さなパネル（計算は model 役の worker・sunshadow.js）   // 玄関スタブ＝ボタン常駐、本体(profile.js＝断面図：経路指定+標高サンプル+グラフ)は初回クリックで import()
 import { shot as shotGadget } from "./gadgets/shot-stub.js";   // 玄関スタブ＝デスクトップのみボタン常駐、本体(shot.js＝層合成/webp/出典焼込)は初回クリック/⌘Sで import()。モバイルは stub が即return＝本体も fetch されない
 import { qr as qrGadget } from "./gadgets/qr-stub.js";   // 玄関スタブ＝ボタンだけ常駐、本体(qr.js＋自作QRエンコーダ qrcode.js 14KB)は初回クリックで import()＝初期バンドルから隔離
@@ -2624,6 +2625,20 @@ map.lineOfSight = async (a, b, o = {}) => {
 	else { map.addSource("los", { type: "geojson", data }); await map.addLayer({ id: "los", type: "line", source: "los", paint: { "line-color": ["match", ["get", "c"], "ok", "#1faa55", "#d23c3c"], "line-width": 4 } }); }
 	return { ...L, triangles: r.stats.triangles };
 };
+// オフラインパック（#40）：地域の申告（基図・標高・建物・ラスタ）を読んだ結果だけを渡す＝gadget は地域を知らない。
+// 標高は core のローダ（IDB GIS/alt）を要る時に一度だけ作る。建物は meshMgr（起こしてから台帳を読む）
+let offlineDem = null;
+map.gadget("offline", function (opts) {
+	const sources = {
+		basemap: { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) },
+		dem: noTerr || EXT ? null : { byName: async n => (offlineDem ??= await createTileLoader({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM })).byName(n) },
+		rasters: { list: () => map.raster.list().filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22 })) },
+		mesh: meshOn ? { warm: () => wakeMesh(), sets: () => meshMgr.sets, prefetch: (names, onProg) => meshMgr.prefetch([], names, onProg) } : null,
+	};
+	const h = offlineGadget.call(this, { sources, bounds: () => map.getBounds(), onOpen: () => toolOpen("offline"), signal: ac.signal, ...opts });
+	if (h?.close) toolClose.set("offline", h.close);
+	return h;
+});
 map.gadget("sunshadow", function (opts) {
 	const h = sunShadowGadget.call(this, { run: o => map.sunShadow(o), clear: () => map.raster.remove("sunshadow"), live: o => map.setShadows(o), canLive: () => renderBackend === "webgpu", onOpen: () => toolOpen("sunshadow"), signal: ac.signal, ...opts });
 	if (h?.close) toolClose.set("sunshadow", h.close);

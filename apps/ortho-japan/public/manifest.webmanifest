@@ -1,0 +1,13 @@
+{
+	"name": "ortho-japan — 3D globe of Japan",
+	"short_name": "ortho-japan",
+	"start_url": "/japan/",
+	"scope": "/japan/",
+	"display": "standalone",
+	"background_color": "#0b1021",
+	"theme_color": "#0b1021",
+	"icons": [
+		{ "src": "/japan/apple-touch-icon.png", "sizes": "180x180", "type": "image/png" },
+		{ "src": "/japan/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+	]
+}
