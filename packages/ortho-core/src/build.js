@@ -9,6 +9,13 @@ import { tileLocalToLonLat } from "./tile.js";
 import { polygons, signedArea } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
 import { SEA_FB_BASE } from "./scene.js";
 
+// line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
+export function dashPattern(v) {
+	if (!Array.isArray(v) || !v.length || v.some(x => typeof x !== "number" || !(x >= 0) || !isFinite(x))) return null;
+	const p = v.length & 1 ? v.concat(v) : v;
+	return p.reduce((a, b) => a + b, 0) > 0 ? p : null;
+}
+
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
 export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c => c) {
@@ -70,10 +77,12 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col), idx: pos.length >> 1 <= 65535 ? new Uint16Array(idx) : new Uint32Array(idx) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
-			// line-dasharray [線, 間隔]（px・タイル基準ズームでの見かけ）：走行距離の位相を保って線分を刻む。
+			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
-			const dashArr = L.paint?.["line-dasharray"];
-			const du = dashArr ? dashArr[0] * extent / 256 : 0, gu = dashArr ? dashArr[1] * extent / 256 : 0, period = du + gu;
+			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
+			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
+			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
+			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {} }));
 			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type;
@@ -95,18 +104,19 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				let ls = 0;
 				for (let r = 0; r < ends.length; r++) {
 					const le = ends[r];
-					if (dashArr) {
-						let phase = 0;   // 頂点をまたいで位相を継続＝角でダッシュが割れない
+					if (dashPat) {
+						const k = (L.dashInLineWidths ? w : 1) * extent / 256;   // 模様の 1 単位＝タイル単位
+						let pi = 0, rem = dashPat[0] * k;   // 模様の何番目か（偶数＝線・奇数＝間）とその残り。頂点をまたいで継続＝角でダッシュが割れない
 						for (let i = ls; i + 3 < le; i += 2) {   // 線分＝点(i)→点(i+2)
 							const Ax = coords[i], Ay = coords[i + 1];
 							const dx = coords[i + 2] - Ax, dy = coords[i + 3] - Ay, len = Math.hypot(dx, dy);
 							if (!len) continue;
 							let pos = 0;
 							while (pos < len - 1e-9) {
-								const inDash = phase < du;
-								const take = Math.min(inDash ? du - phase : period - phase, len - pos);
-								if (inDash) emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len));
-								pos += take; phase += take; if (phase >= period - 1e-9) phase = 0;
+								const take = Math.min(rem, len - pos);
+								if (!(pi & 1) && take > 0) emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len));
+								pos += take; rem -= take;
+								if (rem <= 1e-9) { pi = (pi + 1) % dashPat.length; rem = dashPat[pi] * k; }
 							}
 						}
 						ls = le; continue;
