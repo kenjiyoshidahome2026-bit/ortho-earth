@@ -63,7 +63,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	const setMenu = map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	setMenu((c, defaults) => map.getZoom() < 5 ? [...defaults, map.gadget.equalHere()] : defaults);   // 地球全体の距離では「この地点を中心に全球図へ」を足す
 	map.gadget.dropFile();    // GISファイルのD&D取り込み（geopbfが食う全形式→GeoPBF化→gintへ描画・識別）
-	const demoH = map.gadget.demo({ lazy: () => import("./demo/scenes.js").then(m => ({ ...m.default, lang: new URLSearchParams(location.search).get("lang") })) });   // ▶だけ先に出し、台本と本体は押した時に読む（2026-09-22＝起動の転送から約 9KB 外す）   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
+	const demoH = map.gadget.demo({ lazy: () => import("./demo/scenes.js").then(m => m.default) });   // ▶だけ先に出し、台本と本体は押した時に読む（2026-09-22＝起動の転送から約 9KB 外す）   // デモ上演（▶→Space=次・BS=戻る・クリッカー(PageUp/Down)対応・Esc終了）。台本もエンジンも起動バンドル外＝▶は僅かに遅れて出るが起動を汚さない。作法は demo/scenes.js 冒頭。?lang=jp＝タイトル日本語（既定＝title英語・en基準）
 	// ?demo=1＝起動したらそのまま組み込みデモを上演（www の「japan-demo」カードの行き先・2026-09-22）。初描画（load）を待って ▶ と同じ入口を押す
 	// ▶ は上演を始めるだけ（デスクトップは場面送りが手動）＝続けて自動上演（▷）も入れる＝押さなくても流れる
 	if (new URLSearchParams(location.search).get("demo") === "1") {

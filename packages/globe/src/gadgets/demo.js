@@ -41,7 +41,7 @@
 import { gadgetStack } from "./stack.js";
 import { isTypingTarget } from "./keys.js";
 import { compileVias } from "../demo/scene-adapter.js";   // via 行（通過点）→ 着点シーンの path:[{view,travel}…] への畳み込み（純関数・台本受領時に必ず通す）
-import { tr } from "../i18n.js";
+import { tr, getLang } from "../i18n.js";
 const t = tr();
 
 // ▶（上演開始）。線色は本線インク直書き＝quiet-mono の夜節が自動反転（palette と同じ流儀）。
@@ -57,8 +57,8 @@ const isImg = s => /\.(svg|png|jpe?g|webp|gif|avif)([?#]|$)/i.test(s) || /^(data
 //   via=通過点（連続ドリー・compileVias が着点の path に畳む＝シーンに数えない）／travel=その点に到達するまでの区間尺[秒]／
 //   pre=入場の見せ玉：まず pre の画へ飛び、着地から1秒後に view を遷移なしで重ねる（同座標で l= だけ点ける演出）／
 //   slide=画像URLか生テキスト／caption=自動上演の静止中に画面上部へ出す字幕（無ければ title 代用）／
-//   言語＝en基準・拡張可能：title は英語が正、シーンに言語コードのフィールド（jp:/en:…）を足すと opts.lang で切替。
-//   opts.lang＝表示言語（例 "jp"。?lang= から index.html が渡す）：タイトル・字幕・一覧が scene[lang] ?? title で解決／
+//   言語＝en基準・拡張可能：title は英語が正、シーンに言語コードのフィールド（ja:/en:…）を足すと opts.lang で切替。
+//   opts.lang＝表示言語（例 "ja"。省略＝画面の言語 getLang()＝?lang= か端末の言語）。旧い台本の jp: は ja の別名として読む（B12）：タイトル・字幕・一覧が scene[lang] ?? title で解決／
 //   mobile=Δz：縦長画面（縦>横）でだけシーンの z に足す差分（例 -1.2＝一段引く）。
 //   横パノラマ構図の左右切り落とし対策＝中心・チルト・方位はそのまま、ズームだけ動かす＝台本は1枚のまま。
 // opts.mobile＝Δz の台本全体の既定（全シーンに効く）。シーン毎の mobile が勝つ＝mobile: 0 でそのシーンだけ無効化。
@@ -124,8 +124,9 @@ export function demo({ scenes, slide: slideOn = true, hold = 5.5, slideHold = 4,
 	// c= 付きシーンへのジャンプも show()→flyView 経由＝生き替え（reload無し）がそのまま効く。
 	const list = document.createElement("div");
 	list.id = "demo-list";
-	// 言語解決：scene[lang]（jp:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
-	const T = s => s?.[lang] ?? s?.title ?? "";
+	// 言語解決：scene[lang]（ja:/en:… の言語フィールド）→ 無ければ title（en基準）。タイトル・字幕・一覧の3か所共通
+	// ja は旧綴り jp: も読む（B12・2026-09-25：台本は jp: なのに ?lang=ja で引いていた＝日本語の題名が一度も出ていなかった）
+	const T = s => s?.[lang || getLang()] ?? ((lang || getLang()) === "ja" ? s?.jp : undefined) ?? s?.title ?? "";
 	const sceneLabel = s => T(s) || (s.slide && !s.view && !s.glide && !s.fade ? t("(slide)") : (s.view ?? s.glide ?? s.fade ?? t("(untitled)")));
 	list.innerHTML = scenes.map((s, i) => `<button data-i="${i}">${i + 1}. ${esc(sceneLabel(s))}</button>`).join("");
 	bar.append(list);
