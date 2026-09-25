@@ -39,5 +39,7 @@ export default defineConfig(({ command }) => ({
 		proxy: { '/api': { target: 'https://api.ortho-earth.com', changeOrigin: true, rewrite: p => p.replace(/^\/api/, '') } }
 	},
 	worker: { format: 'es', rolldownOptions: noChunkOptimization },
-	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true, rolldownOptions: noChunkOptimization }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）。エンジンは同梱（external 無し）
+	// cssTarget＝vite 8 の既定（baseline-widely-available）の実体。無いと cssTarget も esnext になり、lightningcss が
+	// -webkit-backdrop-filter を「不要な接頭辞」として消す＝iOS 17 以前の Safari でガラスのぼかしが消える（2026-09-25 実測・www と同じ）
+	build: { sourcemap: true, target: 'esnext', cssTarget: ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4'], outDir: 'dist/site/world', emptyOutDir: true, rolldownOptions: noChunkOptimization }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）。エンジンは同梱（external 無し）
 }));
