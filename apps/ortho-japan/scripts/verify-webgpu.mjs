@@ -3,6 +3,7 @@
 // （2026-09-24・LAYERS.md 段階 4）。ここに残るのは日本を試料に使う頁＝PLATEAU の OPFS・建物・基図の車線・
 // 台帳・押し出しのドレープ・東京の gint 層など「日本のデータが無いと見るものが無い」検分。
 // 仮想時間に載せない理由と、頁ごとに Chrome を立て直す作法は packages/globe/scripts/verify-webgpu.mjs と同じ。
+// backend の検め（gl2=1 の無い頁は webgpu・ある頁は webgl2）も同じ＝runner の expectBackend（T1・2026-09-25）。
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startVite, runPages, REALGPU } from "@ortho-earth/globe/scripts/lib/ui-runner.mjs";
@@ -21,6 +22,7 @@ const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
 	flags: REALGPU, drag: true, profilePrefix: "oj-webgpu", cdpBase: +process.env.VWG_CDP || 9535, pad: 18,
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-meshfs"]),   // noBoot＝地球儀を起こさない（OPFS の頁）
 	urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}`,
 });
 stop();
