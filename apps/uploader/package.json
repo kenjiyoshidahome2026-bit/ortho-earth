@@ -10,14 +10,14 @@
 		"landmarks": "node scripts/plateau-landmarks.mjs"
 	},
 	"dependencies": {
+		"@ortho-earth/core": "*",
 		"altpbf": "*",
 		"common": "*",
 		"geopbf": "*",
 		"geotiff": "^3.0.5",
-		"native-bucket": "*",
-		"@ortho-earth/core": "*"
+		"native-bucket": "*"
 	},
 	"devDependencies": {
-		"vite": "^6.0.0"
+		"vite": "^8.3.1"
 	}
 }
