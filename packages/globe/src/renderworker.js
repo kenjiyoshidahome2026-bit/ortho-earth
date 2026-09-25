@@ -32,12 +32,12 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 //   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map();
 let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
-let dOutOn = false, dOutH = null, depthSeq = 0;   // 本体の深度の書き出し口（renderer.depthOut）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
+let dOutH = null, depthSeq = 0;   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
 // 書き出しが begin/end で落ちた＝以後このセッションでは作らない（毎フレーム落ちて地図ごと止まる形を断つ）。GL2 の読み替えは abort で素へ戻す
 function depthOff(e) {
 	console.warn("[render] depthOut failed (overlay depth off):", e?.message || e);
 	try { dOutH?.abort(); renderer?.depthOut?.(false); } catch { /* 畳む途中の失敗は無害 */ }
-	dOutH = null; dOutOn = false; depthOk = false;
+	dOutH = null; depthOk = false;
 }
 const overlayWantsDepth = () => { for (const o of overlays.values()) if (o.mod && o.depth) return true; return false; };
 let clockA = null, clockSet = null;   // 共通の時計の基準（#42）。null＝実時刻。renderer の view.clock（夜の側・星）と overlay の api.time の出所。clockSet＝renderer へ渡し済みの基準（起動前に届いても描画の直前に渡る）
@@ -398,7 +398,7 @@ const dispatch = e => {
 			if (raster) { raster.destroy(); raster = null; }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
-			dOutH = null; dOutOn = false;   // 深度の書き出し口は renderer.dispose が畳んだ
+			dOutH = null;   // 深度の書き出し口は renderer.dispose が畳んだ
 			break;
 	}
 };
@@ -654,12 +654,12 @@ function frame() {
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
 			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
 			const dWant = depthOk && !!renderer.depthOut && overlayWantsDepth();
-			if (dWant !== dOutOn) {
-				try { dOutH = renderer.depthOut(dWant); dOutOn = dWant && !!dOutH; }
+			if (dWant !== !!dOutH) {
+				try { dOutH = renderer.depthOut(dWant); if (dWant && !dOutH) depthOff("unavailable"); }   // null＝この環境では作れない＝以後申し出ても作らない
 				catch (e) { depthOff(e); }
 			}
 			let dBegun = false;
-			if (dOutOn && dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+			if (dOutH) { try { dBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
 			tqSpan("map", () => { fogAnim = renderer.draw(glCam, dOpts); });   // cameraState=mvp生成 + GL描画（軽い）。true=フォグ追従が収束中
 			const pfT1 = perfOn ? performance.now() : 0;
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）

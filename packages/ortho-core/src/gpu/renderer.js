@@ -1956,7 +1956,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			catch (e) { dOutFailed = true; console.warn("[gpu] depthOut unavailable:", e?.message || e); return null; }
 		}
 		return {
-			begin: () => { depthRead = true; return true; },
+			begin: () => { if (dOutFailed || !dOut) throw new Error("depthOut disabled"); depthRead = true; return true; },   // 落ちた後の口＝投げる（renderworker が畳む）
 			abort: () => {},
 			end: () => {
 				const d = lastDepth; lastDepth = null;
