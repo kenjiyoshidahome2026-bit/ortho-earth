@@ -51,7 +51,7 @@ function collectBuffers(dl, buildings) {
 	const bufs = [];
 	for (const op of dl.ops) {
 		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
-		else bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer);
+		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); }
 	}
 	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
 	return bufs;

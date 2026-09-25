@@ -51,7 +51,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// dl+建物の typed array 実バイト（main保持の既定パス用。worker パスは tileworker が bytes を報告）。
 	function dlBytes(dl, buildings) {
 		let b = 0;
-		for (const op of dl.ops) b += op.kind === "fill" ? op.pos.byteLength + op.col.byteLength + op.idx.byteLength : op.P1.byteLength + op.P2.byteLength + op.col.byteLength + op.half.byteLength;
+		for (const op of dl.ops) b += op.kind === "fill" ? op.pos.byteLength + op.col.byteLength + op.idx.byteLength : op.P1.byteLength + op.P2.byteLength + op.col.byteLength + op.half.byteLength + (op.off ? op.off.byteLength : 0);
 		if (buildings) b += buildings.pos.byteLength + buildings.shade.byteLength + buildings.anchor.byteLength;
 		return b;
 	}
@@ -212,7 +212,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			for (const op of c.dl.ops) {
 				if (hidden.has(op.li)) continue;
 				let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
-				if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else e.lineN += op.half.length;
+				if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; }
 			}
 		}
 		const buf = new Map();
@@ -220,7 +220,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
 			buf.set(li, e.kind === "fill"
 				? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), pi: 0, ci: 0, ii: 0 }
-				: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), pi: 0, ci: 0, hi: 0 });
+				: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0
 		}
 		for (const { ox, oy, ops } of tileOps) {
 			for (const op of ops) {
@@ -235,13 +235,14 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 					const P1 = op.P1, P2 = op.P2; let pi = m.pi;
 					for (let i = 0; i < P1.length; i += 2) { m.P1[pi] = P1[i] + ox; m.P1[pi + 1] = P1[i + 1] + oy; m.P2[pi] = P2[i] + ox; m.P2[pi + 1] = P2[i + 1] + oy; pi += 2; } m.pi = pi;
 					m.col.set(op.col, m.ci); m.ci += op.col.length;
+					if (m.off && op.off) m.off.set(op.off, m.hi * 3);
 					m.half.set(op.half, m.hi); m.hi += op.half.length;
 				}
 			}
 		}
 		const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
 			? { kind: "fill", pos: m.pos, col: m.col, idx: m.idx }
-			: { kind: "line", P1: m.P1, P2: m.P2, col: m.col, half: m.half });
+			: { kind: "line", P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}) });
 
 		// 建物（3D押し出し）を全タイルから結合。pos は xy を原点へ再ベース、z(高さ)はそのまま。
 		let bN = 0;

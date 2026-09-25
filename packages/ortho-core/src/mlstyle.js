@@ -151,7 +151,7 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 	const base = [], raster = [], geojson = [], skipped = [];
 	for (const L0 of style.layers || []) {
 		const L1 = convertLayer(L0), sp = sources[L1.source];
-		if (sp?.type === "geojson" || sp?.type === "image") { geojson.push(L1); continue; }
+		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L1); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
 		const L = shiftLayerZoom(L1, zoomOffset);
 		if (L.type === "background") { base.push(L); continue; }
 		if (sp?.type === "raster") { raster.push(L); continue; }

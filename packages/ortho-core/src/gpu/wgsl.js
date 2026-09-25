@@ -240,7 +240,7 @@ fn fillColor(in: FillOut) -> vec4f {
 `;
 
 // 線（capsule SDF・インスタンス6頂点）。LINE_VS/LINE_FS の移植：標高ドレープ（端点毎 df）＋接地リフト(P.p0.y)。
-// corner=(end 0/1, side ±1) は頂点ステップ、p1/p2/color/half はインスタンスステップ。
+// corner=(end 0/1, side ±1) は頂点ステップ、p1/p2/color/half/off はインスタンスステップ。
 export const LINE_WGSL = /* wgsl */`
 ${FRAME}
 struct LineOut {
@@ -260,7 +260,7 @@ fn toScreen(c: vec4f) -> vec2f {
 @vertex fn vs(
 	@location(0) corner: vec2f,
 	@location(1) p1: vec2f, @location(2) p2: vec2f,
-	@location(3) col: vec4f, @location(4) halfPx: f32,
+	@location(3) col: vec4f, @location(4) halfPx: f32, @location(5) offT: vec3f,
 ) -> LineOut {
 	var o: LineOut;
 	let la1 = F.origin + p1; let la2 = F.origin + p2;   // elev 参照用の絶対（粗くて可）
@@ -279,11 +279,14 @@ fn toScreen(c: vec4f) -> vec2f {
 	if (ca.w <= 0.0 || cb.w <= 0.0) {        // カメラ背後（var o はゼロ初期化済）
 		o.front = -1.0; o.pos = vec4f(2.0, 2.0, 2.0, 1.0); return o;
 	}
-	let sa = toScreen(ca); let sb = toScreen(cb);
+	var sa = toScreen(ca); var sb = toScreen(cb);
 	let d = sb - sa; let len = length(d);
 	var dirS = vec2f(1.0, 0.0);
 	if (len > 1e-6) { dirS = d / len; }
-	let perp = vec2f(-dirS.y, dirS.x);
+	let perp = vec2f(-dirS.y, dirS.x);   // 画面は y 下向き＝進行方向の右
+	// line-offset（#49・glsl.js LINE_MAIN と同式）：端点を perp＋dir×t だけ（t＝角の継ぎ）
+	let offPx = offT.x * F.params.w;
+	sa += (perp + dirS * offT.y) * offPx; sb += (perp + dirS * offT.z) * offPx;
 	let hw = halfPx * F.params.w + 1.0;      // +1px の AA/丸端余白
 	var base = sb; var capSign = 1.0;
 	if (corner.x < 0.5) { base = sa; capSign = -1.0; }

@@ -4,7 +4,7 @@
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
-		"test": "node tests/dasharray.mjs && node tests/mlstyle.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs"
+		"test": "node tests/dasharray.mjs && node tests/lineoffset.mjs && node tests/mlstyle.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs"
 	},
 	"main": "src/index.js",
 	"exports": {

@@ -10,10 +10,44 @@ import { polygons, signedArea } from "./decode.js";   // フラットgeom({coord
 import { SEA_FB_BASE } from "./scene.js";
 
 // line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
+const NO_SLIDES = [[], []];
 export function dashPattern(v) {
 	if (!Array.isArray(v) || !v.length || v.some(x => typeof x !== "number" || !(x >= 0) || !isFinite(x))) return null;
 	const p = v.length & 1 ? v.concat(v) : v;
 	return p.reduce((a, b) => a + b, 0) > 0 ? p : null;
+}
+
+// line-offset の角の継ぎ（#49）：線分ごとに「始点・終点を線分の向きへ何倍ずらすか」（t）を頂点のマイターから求める。
+// 頂点のマイター m＝(n0+n1)/(1+n0·n1)（n＝右の単位法線・|m|＝1/cos(θ/2)）。線分の座標系で m＝n＋d·t（m·n＝1）＝t＝m·d。
+// シェーダは端点を off×(perp＋dir×t) だけ動かす＝隣の線分の端点と同じ所に着く（線分ごとの法線だけでずらすと、細かく折れる
+// 海岸線・川が点々に散る＝2026-09-25 実描画で確認）。タイル座標（メルカトル＝等角・y 下向き＝画面と同じ向き）で測る。
+// 端（閉じていない線の頭と尻）は 0・閉じた環は一周つなぐ・折り返し（180°）は 0・マイターの限界＝|t|≤1（それを超える鋭角は隙間/重なり）。
+// 戻り＝[tS, tE]（線分 k＝点 k→k+1 の始点と終点の t）。長さ 0 の線分は隣の向きを借りる
+export function miterSlides(coords, ls, le) {
+	const n = (le - ls) >> 1, ns = Math.max(0, n - 1), tS = new Float32Array(ns), tE = new Float32Array(ns);
+	if (ns < 1) return [tS, tE];
+	const dx = new Float64Array(ns), dy = new Float64Array(ns);
+	let has = false;
+	for (let k = 0; k < ns; k++) {
+		const i = ls + k * 2, ex = coords[i + 2] - coords[i], ey = coords[i + 3] - coords[i + 1], l = Math.hypot(ex, ey);
+		if (l > 0) { dx[k] = ex / l; dy[k] = ey / l; has = true; } else dx[k] = NaN;
+	}
+	if (!has) return [tS, tE];
+	for (let k = 0; k < ns; k++) if (isNaN(dx[k])) { let j = k - 1; while (j >= 0 && isNaN(dx[j])) j--; if (j < 0) { j = k + 1; while (isNaN(dx[j])) j++; } dx[k] = dx[j]; dy[k] = dy[j]; }
+	const closed = n >= 4 && coords[ls] === coords[le - 2] && coords[ls + 1] === coords[le - 1];
+	const lim = v => v > 1 ? 1 : v < -1 ? -1 : v;   // 限界＝|t|≤1（90° まで継ぐ）。それより鋭い角は継ぎを諦める（2 まで許すと画素級のぎざぎざで棘が出た）
+	// 頂点 v（0..n-1）で入る線分 a・出る線分 b のマイターを線分 k の向きで測る
+	const tAt = (a, b, k) => {
+		const n0x = -dy[a], n0y = dx[a], n1x = -dy[b], n1y = dx[b], den = 1 + n0x * n1x + n0y * n1y;
+		if (den < 1e-6) return 0;
+		return lim(((n0x + n1x) * dx[k] + (n0y + n1y) * dy[k]) / den);
+	};
+	for (let k = 0; k < ns; k++) {
+		const prev = k > 0 ? k - 1 : closed ? ns - 1 : -1, next = k < ns - 1 ? k + 1 : closed ? 0 : -1;
+		tS[k] = prev < 0 ? 0 : tAt(prev, k, k);
+		tE[k] = next < 0 ? 0 : tAt(k, next, k);
+	}
+	return [tS, tE];
 }
 
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
@@ -77,6 +111,10 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col), idx: pos.length >> 1 <= 65535 ? new Uint16Array(idx) : new Uint32Array(idx) });
 		} else { // line
 			const P1 = [], P2 = [], col = [], half = [];
+			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
+			// ずらしは頂点シェーダが画面空間で掛ける＝ここは線分ごとに [off, tS, tE]（角の継ぎ＝miterSlides）を添えるだけ。
+			// 層が持つ時だけ配列を作る（無い層は 0 バイト）
+			const offExpr = L.paint?.["line-offset"], off = offExpr != null ? [] : null;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
@@ -93,17 +131,21 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
-				const emit = (ax, ay, bx, by) => {
+				let ow = 0;
+				if (off) { ow = +evalExpr(offExpr, ctx); if (!isFinite(ow)) ow = 0; }
+				const emit = (ax, ay, bx, by, ta, tb) => {
 					llInto(ax, ay, extent, sc, 0); const alon = sc[0], alat = sc[1];
 					llInto(bx, by, extent, sc, 0);
 					P1.push(alon, alat); P2.push(sc[0], sc[1]);
 					col.push(cr, cg, cb, ca); half.push(hw);
+					if (off) off.push(ow, ta, tb);
 				};
 				// フラットgeom：coords([x,y,…]) を ends の区切りで線/リング毎に走査（添字直読み＝Point中間なし）
 				const { coords, ends } = f.geom;
 				let ls = 0;
 				for (let r = 0; r < ends.length; r++) {
 					const le = ends[r];
+					const [tS, tE] = ow ? miterSlides(coords, ls, le) : NO_SLIDES;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
 					if (dashPat) {
 						const k = (L.dashInLineWidths ? w : 1) * extent / 256;   // 模様の 1 単位＝タイル単位
 						let pi = 0, rem = dashPat[0] * k;   // 模様の何番目か（偶数＝線・奇数＝間）とその残り。頂点をまたいで継続＝角でダッシュが割れない
@@ -114,7 +156,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 							let pos = 0;
 							while (pos < len - 1e-9) {
 								const take = Math.min(rem, len - pos);
-								if (!(pi & 1) && take > 0) emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len));
+								if (!(pi & 1) && take > 0) { const k = (i - ls) >> 1; emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len), pos === 0 ? tS[k] ?? 0 : 0, pos + take >= len - 1e-9 ? tE[k] ?? 0 : 0); }
 								pos += take; rem -= take;
 								if (rem <= 1e-9) { pi = (pi + 1) % dashPat.length; rem = dashPat[pi] * k; }
 							}
@@ -135,13 +177,18 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 							llInto(Ax + dx * t, Ay + dy * t, extent, sc, 0);
 							P1.push(pLon, pLat); P2.push(sc[0], sc[1]);
 							col.push(cr, cg, cb, ca); half.push(hw);
+							if (off) { const k = (i - ls - 2) >> 1; off.push(ow, s === 1 ? tS[k] ?? 0 : 0, s === steps ? tE[k] ?? 0 : 0); }   // 細分の途中は直線＝0
 							pLon = sc[0]; pLat = sc[1];
 						}
 					}
 					ls = le;
 				}
 			}
-			if (half.length) ops.push({ kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) });
+			if (half.length) {
+				const op = { kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) };
+				if (off && off.some((v, i) => i % 3 === 0 && v)) op.off = new Float32Array(off);   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない
+				ops.push(op);
+			}
 		}
 	}
 	return { ops };

@@ -983,7 +983,7 @@ void main() {
 // capsule 方式：両端をスクリーン空間へ投影して定px幅・丸端で描く。透視でも幅が一定。
 // 本体は classic（インスタンス属性）と multi_draw（テクスチャpull）で共用＝式の乖離を構造的に防ぐ。
 // 変種側が用意するローカル: o(シーン原点+タイル原点差 deg), p1/p2(原点相対 lon/lat), corner(end 0/1, side ±1),
-// hw0(半幅 CSS px), col0(rgba)。
+// hw0(半幅 CSS px), off0(line-offset＝x:CSS px・右が正, y/z:始点/終点を線分の向きへ x×t 滑らせる＝角の継ぎ), col0(rgba)。
 const LINE_VARY = /* glsl */`
 uniform float u_lift;   // 接地リフト(m)。都市帯（深度テスト×DTM起伏）で線を地形メッシュ面の上へ逃がす（fill の u_lift と同意味論）
 flat out vec2 v_a;
@@ -1014,7 +1014,10 @@ const LINE_MAIN = /* glsl */`
 	vec2 sa = toScreen(ca), sb = toScreen(cb);
 	vec2 d = sb - sa; float len = length(d);
 	vec2 dir = len > 1e-6 ? d / len : vec2(1.0, 0.0);
-	vec2 perp = vec2(-dir.y, dir.x);
+	vec2 perp = vec2(-dir.y, dir.x);   // 画面は y 下向き＝進行方向の右
+	// line-offset（#49）：端点を画面空間で perp＋dir×t だけ動かす（t＝build.js miterSlides の角の継ぎ＝隣の線分の端点と同じ所へ）
+	float offPx = off0.x * u_dpr;
+	sa += (perp + dir * off0.y) * offPx; sb += (perp + dir * off0.z) * offPx;
 	float hw = hw0 * u_dpr + 1.0;        // +1px の AA/丸端余白
 	vec2 base = corner.x < 0.5 ? sa : sb;
 	float capSign = corner.x < 0.5 ? -1.0 : 1.0;
@@ -1034,6 +1037,7 @@ in vec2 a_p1;
 in vec2 a_p2;
 in vec2 a_corner;   // (end 0/1, side -1/+1)
 in float a_half;    // CSS px
+in vec3 a_off;      // line-offset（#49）[CSS px, tS, tE]・持たない層は属性を切る＝既定値 0
 in vec4 a_color;
 uniform float u_dpr;
 ${PROJECT}
@@ -1042,7 +1046,7 @@ ${LINE_VARY}
 void main() {
 	vec2 o = u_origin;
 	vec2 p1 = a_p1, p2 = a_p2, corner = a_corner;
-	float hw0 = a_half; vec4 col0 = a_color;
+	float hw0 = a_half; vec3 off0 = a_off; vec4 col0 = a_color;
 ${LINE_MAIN}
 }`;
 
@@ -1078,7 +1082,7 @@ export const LINE_MD_VS = `#version 300 es
 #extension GL_ANGLE_multi_draw : require
 precision highp float;
 precision highp usampler2D;
-// 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half), 0, 0]
+// 線分プール（2texel/線分）: [bits(p1.x), bits(p1.y), bits(p2.x), bits(p2.y)] [colRGBA8パック, bits(half), bits(off), snorm16×2(tS/2,tE/2)]
 uniform usampler2D u_segTex;
 uniform vec2 u_tileOff[${MD_MAX_DRAWS}];
 uniform float u_dpr;
@@ -1099,6 +1103,7 @@ void main() {
 	vec2 p2 = vec2(uintBitsToFloat(A.z), uintBitsToFloat(A.w)) + off;
 	vec4 col0 = vec4(float(B.x & 255u), float((B.x >> 8) & 255u), float((B.x >> 16) & 255u), float(B.x >> 24)) / 255.0;
 	float hw0 = uintBitsToFloat(B.y);
+	vec3 off0 = vec3(uintBitsToFloat(B.z), unpackSnorm2x16(B.w) * 2.0);
 	vec2 o = u_origin;
 ${LINE_MAIN}
 }`;

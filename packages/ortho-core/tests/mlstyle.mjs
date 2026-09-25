@@ -60,6 +60,11 @@ t("振り分け（基図・画像・利用者・描かない）", () => {
 	assert.deepEqual(r.geojson.map(L => L.id), ["gj"]);
 	assert.deepEqual(r.skipped.map(k => k.id), ["rd", "b3"]);
 });
+t("video source の層は利用者の層の口へ（#49）", () => {
+	const r = splitMapLibreStyle({ version: 8, sources: { vd: { type: "video", urls: ["a.mp4"], coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } }, layers: [{ id: "vid", type: "raster", source: "vd" }] });
+	assert.deepEqual(r.geojson.map(L => L.id), ["vid"]);
+	assert.equal(r.skipped.length, 0);
+});
 t("タイルの URL 型紙（tms・{s}）", () => {
 	assert.equal(tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}.pbf"] })(3, 1, 2), "https://a/3/1/2.pbf");
 	assert.equal(tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}.pbf"], scheme: "tms" })(3, 1, 2), "https://a/3/1/5.pbf");

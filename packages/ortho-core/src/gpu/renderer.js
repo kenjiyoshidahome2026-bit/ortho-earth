@@ -224,6 +224,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 8, stepMode: "instance", attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },   // p2
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },    // color
 		{ arrayStride: 4, stepMode: "instance", attributes: [{ shaderLocation: 4, offset: 0, format: "float32" }] },     // half(CSS px)
+		{ arrayStride: 12, stepMode: "instance", attributes: [{ shaderLocation: 5, offset: 0, format: "float32x3" }] },  // line-offset #49＝[off CSS px, tS, tE]
 	];
 	// globe は Frame 非依存＝専用レイアウト。旧 "auto" は遷移時AAのセット複製で bind group を共有できない＝明示化
 	// binding1-3＝全球ハイプソ（標高R90全球窓＋気候場）。未使用時も dummy を張る（レイアウトは常に完全充足）
@@ -572,6 +573,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			o.bP1 = makeBuf(s.P1, GPUBufferUsage.VERTEX); o.bP2 = makeBuf(s.P2, GPUBufferUsage.VERTEX);
 			o.bCol = makeBuf(u8colOv(s.lineCol), GPUBufferUsage.VERTEX); o.bHalf = makeBuf(s.lineHalf, GPUBufferUsage.VERTEX);
 			o.bufs.push(o.bP1, o.bP2, o.bCol, o.bHalf);
+			zeroOffFit(o.lineCount);   // overlay の線はずらさない＝共有の 0 列
+
 		}
 		return o;
 	}
@@ -719,10 +722,19 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			if (o.lineCount) {   // 線（境界線 / N02 の鉄道線）＝LINE_WGSL 流用
 				pass.setPipeline(P.ovLine);
 				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
-				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf);
+				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf); pass.setVertexBuffer(5, zeroOffBuf);
 				pass.draw(6, o.lineCount);
 			}
 		}
+	}
+	// line-offset（#49）を持たない線の 5 番目の頂点列＝全部 0 の共有バッファ（層ごとに 0 の配列を持たない）。
+	// インスタンス数ぶんの長さが要る＝線を組む時（符号化の外）に伸ばす。古い物は提出済みの仕事が終われば破棄される（WebGPU の destroy の約束）
+	let zeroOffBuf = null, zeroOffN = 0;
+	function zeroOffFit(n) {
+		if (n <= zeroOffN) return;
+		zeroOffBuf?.destroy();
+		zeroOffN = Math.max(n, zeroOffN * 2, 4096);
+		zeroOffBuf = device.createBuffer({ size: zeroOffN * 12, usage: GPUBufferUsage.VERTEX });   // 作りたては 0 で埋まっている
 	}
 	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
 	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
@@ -1308,7 +1320,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				if (!L.half.length) continue;
 				const bP1 = makeBuf(L.P1, GPUBufferUsage.VERTEX), bP2 = makeBuf(L.P2, GPUBufferUsage.VERTEX);
 				const bCol = makeBuf(u8col(L.col), GPUBufferUsage.VERTEX), bHalf = makeBuf(L.half, GPUBufferUsage.VERTEX);
-				draws.push({ kind: "line", li: L.li, bufs: [bP1, bP2, bCol, bHalf], bP1, bP2, bCol, bHalf, count: L.half.length });
+				const bOff = L.off ? makeBuf(L.off, GPUBufferUsage.VERTEX) : null;   // line-offset を持つ層だけ（無い層は共有の 0 列）
+				if (!bOff) zeroOffFit(L.half.length);
+				draws.push({ kind: "line", li: L.li, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf], bP1, bP2, bCol, bHalf, bOff, count: L.half.length });
 			}
 		}
 		let bld = null;
@@ -1736,6 +1750,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setVertexBuffer(2, d.bP2);
 					pass.setVertexBuffer(3, d.bCol);
 					pass.setVertexBuffer(4, d.bHalf);
+					pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
 					pass.draw(6, d.count);
 					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
 				}
