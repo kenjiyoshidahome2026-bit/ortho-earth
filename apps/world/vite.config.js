@@ -15,6 +15,11 @@ const coepHeaders = () => ({
 // 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev も本番もソース直
 // （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __GLOBE_ASSETS__ が要る＝geopbf-demo と同じ配線）。
 const GLOBE_PUBLIC = path.resolve(__dirname, '../ortho-globe/public');   // 地球儀の実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/）
+// rolldown（vite 8）のチャンク最適化を切る（2026-09-25）。既定 on だと実行時ヘルパ __exportAll の共通チャンクが動的エントリ
+// mesh-loaders に合流し、renderworker・gint・topology 等がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を静的 import する
+// ＝3D を使う前から worker ごとに読み込み・副作用（globalThis.probe）も走る。worker は別ビルド＝build と worker の両方に要る。
+// experimental の口＝rolldown を上げたら「mesh-loaders を静的 import するチャンクが無い」ことを確かめ直す。
+const noChunkOptimization = { experimental: { chunkOptimization: false } };
 
 export default defineConfig(({ command }) => ({
 	plugins: [wasm(), coepHeaders()],
@@ -33,6 +38,6 @@ export default defineConfig(({ command }) => ({
 		headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'credentialless' },
 		proxy: { '/api': { target: 'https://api.ortho-earth.com', changeOrigin: true, rewrite: p => p.replace(/^\/api/, '') } }
 	},
-	worker: { format: 'es' },
-	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）。エンジンは同梱（external 無し）
+	worker: { format: 'es', rolldownOptions: noChunkOptimization },
+	build: { sourcemap: true, target: 'esnext', outDir: 'dist/site/world', emptyOutDir: true, rolldownOptions: noChunkOptimization }   // 配信＝[assets] dist/site（route /world* が URL パスのまま引く）。エンジンは同梱（external 無し）
 }));
