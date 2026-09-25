@@ -1602,7 +1602,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			g[44] = view.globeAlpha ?? 1;   // misc.x＝球体の不透明度（globe/wdepr/terrain(p2.w)/湖/夜面に一括）
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
-			g[52] = view.atmSun ?? 20; g[53] = view.atmExposure ?? 1; g[54] = view.atmGround ?? 0.5; g[55] = 0;   // 太陽の強さ・露出・床の空気遠近の強さ（診断と調律のノブ＝公開面には出さない）
+			g[52] = view.atmSun ?? 20; g[53] = view.atmExposure ?? 1; g[54] = view.atmGround ?? 0.5; g[55] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
