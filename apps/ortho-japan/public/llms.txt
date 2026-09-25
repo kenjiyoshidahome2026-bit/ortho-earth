@@ -89,7 +89,13 @@ createGeopbf は呼ばない（export していない＝呼ぶと SDK 内部の 
 - **Blob/Fileをプロパティ値にそのまま入れられる**：エンコード時にBUFSプールへ一個書き
   （バイナリ等価は自動dedup＋deflate圧縮）、読み戻しはFile復元＋同一参照共有。アイコン等の正道
 
-現行のgint口（単一スロット・v2のmap.addGint()で置換予定＝**必ず薄いモジュール1枚に封じて使う**）:
+gint の多層口（追加・層ごとのハンドル・両バックエンド）:
+- map.addGint(pbf, {order,minZoom,maxZoom,interactive,style,label,tip,fillMaxEdges,lowFill})→handle（pbf は geopbf(…,{gint:true}) 済み・無効なら null）。
+  handle＝on('hover'|'click'|'mouseenter'|'mouseleave')・query(ll)・setPaint(paint,filter)・setFilter・setFeatureState/removeFeatureState・
+  setData(pbf)・setOrder(n)・setLabel・style・setVisible・activate・remove・ready（Promise<boolean>）。**追加であって置換ではない**
+- map.queryAll(ll)＝層をまたぐ照会（手前から）＝**{layer, fid} の対**で扱う（fid は層内添字・layer:null＝下の単一スロット層）
+
+単一スロットの gint 口（v1・呼ぶたび置換＝多層とは混ぜない・**必ず薄いモジュール1枚に封じて使う**）:
 - map.applyGintData(pbf, label, moveCamera, {style,minZoom,interactive,hover,drape,drapeFill,tip,fillMaxEdges,lowFill,onReady})
   ＝ユーザー層の搭載（呼ぶたび置換）。minZoom 未指定＝線/面（arc）を含むデータは範囲から自動（狭域は 13〜14・
   "[gint] minZoom auto-set" ログ＝**render worker のコンソール**＝ページの CDP には出ない）＝それ未満では描かれない。

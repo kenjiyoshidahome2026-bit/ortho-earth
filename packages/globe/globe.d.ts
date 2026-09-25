@@ -2,8 +2,9 @@
 // SDK（@ortho-earth/japan）の lib/ortho-japan.d.ts はこのファイル＋ SDK の入口（default orthoJapan）を build 時に継いだ物（apps/ortho-japan/scripts/build-dts.mjs・2026-09-25）。
 // 名前の OrthoJapan* は SDK 以来の型名＝互換のため残す（globe の名前は末尾の GlobeMap / GlobeOptions）。
 // AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
-// gint系（applyGintData等）は現行v1の単一スロット口＝将来 map.addGint()（v2）で置換予定。
-// 消費側は必ず薄いモジュール1枚に封じること（gint draw spec §10.2）。
+// gint は二系統：applyGintData 等＝v1 の単一スロット口（呼ぶたび置換）／map.addGint()＝多層（追加・層ごとのハンドル）。混ぜない。
+// v1 口の消費側は必ず薄いモジュール1枚に封じること（gint draw spec §10.2）。
+// 注記の「1.x.y〜」は SDK（@ortho-earth/japan）の版＝その版から使える（globe 単体の版とは別の番号・2026-09-25 時点で japan 1.2.3／globe 1.1.2）。
 
 export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
@@ -50,7 +51,8 @@ export interface OrthoJapanOptions {
 	transformRequest?: TransformRequestFunction;
 	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ */
 	terrain?: { source: RasterDemSource; exaggeration?: number };
-	/** 地域の申告（1.2.0〜）。渡さなければ URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
+	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
+	 *  SDK の orthoJapan() は URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
 	 *  世界の陸の段彩（ハイプソ）・湖・罫線は zoomMax まで出たままになる（地域の基図が入場しないため）。 */
 	region?: object | object[] | null;
@@ -159,7 +161,7 @@ export interface Gadgets {
 	 *  寄り先は一番大きい塊の外接矩形（飛び地は含めない＝本土が見える）。pad＝余白（既定 1.25）／maxZoom＝寄りの上限。 */
 	spotlight(src: string | { iso2?: string; iso3?: string; key?: string; qid?: string; ioc?: string; name?: string } | GeoJSONFeatureCollection | GeoJSONFeature | { type: string; coordinates: unknown } | null,
 		opts?: { opacity?: number; fit?: boolean; color?: [number, number, number, number]; pad?: number; maxZoom?: number }):
-		Promise<{ bbox: [number, number, number, number] | null; name: string | null; iso2: string | null; clear(): void } | null>;
+		Promise<{ bbox: [number, number, number, number] | null; clear(): void } | null>;   // 形が引けなければ null（旧記述の name/iso2 は返っていなかった）
 	/** ホバー tip 箱。戻り値＝setter（rows=文字列の配列・null で消す）。orthoJapan() が自動搭載済み＝呼ぶと同じ setter が返る */
 	/** ヒートマップ（MapLibre の heatmap 層相当・同一フレームのオーバーレイ＝WebGL2）。src＝点の GeoJSON/GeoPBF/File/URL か層を丸ごと（source つき）。
 	 *  paint の意味と既定値は MapLibre どおり（radius 30・weight 1・intensity 1・opacity 1・color は ["heatmap-density"] 0..1 の既定の青→赤）。null で外す */
@@ -216,6 +218,57 @@ export interface GintDrawStyle {
 	[k: string]: unknown;
 }
 
+/** addGint の層オプション */
+export interface GintLayerOptions {
+	/** 重ね順（小さいほど下・未指定＝追加順） */
+	order?: number;
+	/** 出しズームの範囲（層ごと） */
+	minZoom?: number; maxZoom?: number;
+	/** false＝hover/click の対象にしない（カーソルを既定層へ返す） */
+	interactive?: boolean;
+	/** 描画スタイル（applyGintData の style と同じ形） */
+	style?: GintDrawStyle;
+	/** ラベル（text-field 相当）＝基図の注記と同じ衝突・フェード */
+	label?: { field: string; size?: number; color?: string; halo?: string; haloW?: number; sort?: string; minZoom?: number; maxZoom?: number } | null;
+	/** ホバーの tip。true＝全属性を「キー: 値」で・関数＝properties→行の配列 */
+	tip?: boolean | ((properties: Record<string, any>) => string[] | null);
+	/** 塗りの辺数の上限（0＝塗らない＝輪郭だけ） */
+	fillMaxEdges?: number;
+	/** 低ズームの塗りを軽くする */
+	lowFill?: boolean;
+}
+/** addGint が返す層のハンドル（MapLibre の層＋source の動詞と同名） */
+export interface GintLayerHandle {
+	readonly id: string;
+	/** 焼き上がり（true）／失敗（false） */
+	readonly ready: Promise<boolean>;
+	order: number | null;
+	on(ev: "hover", cb: (f: { fid: number; properties: Record<string, any> | null } | null) => void): GintLayerHandle;
+	on(ev: "click", cb: (e: { fid: number; properties: Record<string, any> | null; lngLat: LonLat }) => void): GintLayerHandle;
+	on(ev: "mouseenter", cb: (f: { fid: number; properties: Record<string, any> | null }) => void): GintLayerHandle;
+	on(ev: "mouseleave", cb: (e: { fid: number }) => void): GintLayerHandle;
+	/** 明示照会（interactive に依らず効く・同期） */
+	query(lngLat: LonLat): { fid: number; properties: Record<string, any> | null } | null;
+	/** 式（MapLibre の paint と同じ語彙）を main で一度評価して fid 表に＝再構築なし。filter 省略＝今の filter のまま */
+	setPaint(paint: object | null, filter?: unknown[] | null): Promise<void>;
+	/** 表示の絞り込み（paint 未設定なら次の setPaint で効く） */
+	setFilter(filter: unknown[] | null): Promise<void>;
+	/** 一時状態（['feature-state', key] の実体）／消す（fid 省略＝全部） */
+	setFeatureState(fid: number, state: Record<string, any>): void;
+	removeFeatureState(fid?: number): void;
+	/** データ差し替え（ハンドル・イベント・paint は生きたまま）。true＝焼き上がり */
+	setData(pbf: GeoPBF, opts?: { minZoom?: number; maxZoom?: number }): Promise<boolean>;
+	/** 重ね順を実行時に変える（moveLayer 相当） */
+	setOrder(order: number): void;
+	/** ラベルの付け替え（null＝消す） */
+	setLabel(label: GintLayerOptions["label"]): Promise<unknown>;
+	/** 描画スタイルの差し替え */
+	style(style: GintDrawStyle): void;
+	setVisible(visible: boolean): void;
+	/** hover/click の対象をこの層へ */
+	activate(): void;
+	remove(): void;
+}
 /** gintユーザー層の搭載オプション（現行v1・単一スロット） */
 export interface GintApplyOptions {
 	style?: GintDrawStyle;
@@ -333,6 +386,16 @@ export interface OrthoJapanMap {
 	setMaxBounds(bounds: Bbox | [LonLat, LonLat] | null): OrthoJapanMap;
 	getMaxBounds(): Bbox | null;
 	setMinZoom(zoom: number | null): OrthoJapanMap;
+	/** ズーム床の実行時変更（setMinZoom の実体・null＝カメラの既定の床へ）。入力・飛行・共有 hash・ズームボタンが従う */
+	setZoomMin(zoom: number | null): void;
+	/** 現在のズーム床 */
+	zoomMin(): number;
+	/** チルト上限の実行時変更（**ラジアン**・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
+	setMaxPitch(rad: number | null): void;
+	/** 現在のチルト上限（ラジアン） */
+	maxPitch(): number;
+	/** 楕円体表示（?ell=1）か。計測は常に WGS84・表示は既定で球 */
+	ellipsoidOn(): boolean;
 	getMinZoom(): number;
 	/** 寄りの上限（起動時の zoomMax を超えない）。null＝起動時の上限へ */
 	setMaxZoom(zoom: number | null): OrthoJapanMap;
@@ -360,7 +423,7 @@ export interface OrthoJapanMap {
 	readonly lang: string;
 	/** 描画バックエンド（初回フレーム前は null） */
 	readonly backend: "webgpu" | "webgl2" | null;
-	/** イベント購読（戻り値＝map・解除 API は無い）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
+	/** イベント購読（戻り値＝map・解除は map.off(ev, cb)）。load＝初回フレーム（登録時に済んでいれば即呼ぶ）／move＝カメラ更新／
 	 *  mesh＝建物3D の読込合図（1.2.0〜・旧名 plateau も同じ合図を受ける）（catalog→start→done|cancelled|failed）／click＝gint 多層の照会（v2） */
 	on(ev: "load", cb: (e: {}) => void): OrthoJapanMap;
 	on(ev: "move", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number }) => void): OrthoJapanMap;
@@ -508,8 +571,28 @@ export interface OrthoJapanMap {
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
 
-	// ---- gint（現行v1の派生アプリ口＝将来v2 addGint()で置換。薄い1モジュールに封じること）----
-	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換）。pbfは gint ベイク済みであること */
+	// ---- 台本の上映・撮影（scene エディタ・公開サムネの土台）----
+	/** 台本オブジェクトを直に上映（要 demo ガジェット・既に上映中なら false）。台本の形＝demo/scene-format.md。言語は台本の ja:/en:… を画面の言語で選ぶ */
+	playScenes(scenes: object, opts?: { from?: number; quick?: boolean; lang?: string; onScene?: (i: number) => void; onEnd?: () => void }): boolean | void;
+	/** 上映を止める（準備中でも安全） */
+	stopScenes(): void;
+	/** 台本のタイムライン（再生せずに任意の秒の絵を出す＝エディタ用）。読めなければ null */
+	sceneTimeline(scenes: object): { dur: number; rows: unknown[]; at(t: number): unknown; seek(t: number): unknown; end(): void } | null;
+	/** 今の画面の生スナップショット（W×H・render＝基図＋知性層＋注記の画素）。合成は shot ガジェット／gadgets/compose.js */
+	requestSnapshot(): Promise<{ W: number; H: number; render: { base: ArrayBuffer | null; w: number; h: number; labels: ArrayBuffer | null; lw: number; lh: number; flip: boolean } }>;
+
+	// ---- gint 多層（addGint＝追加・層ごとのハンドル・両バックエンド）----
+	/** gint 層を**追加**する（置換ではない＝applyGintData の単一スロットとは別系統）。pbf は geopbf(…, { gint: true }) 済み（unPackGint 必須・無ければ null）。
+	 *  追加した層が既定でアクティブ（hover/click の対象）・interactive:false で既定層へ返す。重ね順は order（小さいほど下・未指定＝追加順） */
+	addGint(pbf: GeoPBF, opts?: GintLayerOptions): GintLayerHandle | null;
+	/** 層をまたぐ照会（手前の層から）。fid は層内の添字＝**必ず {layer, fid} の対で扱う**。layer:null＝v1 の単一スロット層 */
+	queryAll(lngLat: LonLat): Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }>;
+	/** v1 の単一スロット層を丸ごと撤去（applyGintData(null, …) と同じ・派生アプリのスロット調停用） */
+	clearUserGint(): void;
+	/** 表示中の v1 ユーザー層（ドロップ/?g=）の GeoPBF（無ければ null）＝編集への受け渡し口 */
+	userPbf(): GeoPBF | null;
+
+	// ---- gint（現行v1の派生アプリ口＝単一スロット。薄い1モジュールに封じること）----
 	/** ユーザー知性層の搭載（単一スロット＝呼ぶたび置換・null＝スロットを空に）。複数データは fid 空間で合成（各 .geojson.features に一意キーを足して 1 本に再エンコード）。pbf は gint ベイク済みであること */
 	applyGintData(pbf: GeoPBF | null, label: string, moveCamera?: boolean, opts?: GintApplyOptions): GeoPBF | null;
 	/**
