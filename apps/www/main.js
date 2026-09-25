@@ -100,14 +100,14 @@ function showDemo(path, title) {
 	backBtn.hidden = false;
 	popout.hidden = false; popout.href = withLang(path);
 	logo.setAttribute("role", "button"); logo.tabIndex = 0; logo.title = backBtn.textContent.replace("←", "").trim();   // デモの間はロゴも「戻る」
-	document.body.classList.add("in-demo"); globe.pause();
+	document.body.classList.add("in-demo"); globe?.pause();   // globe＝WebGL の無い端末では null（B11・旧＝ここで TypeError でデモが開かなかった）
 }
 function hideDemo() {
 	frame?.remove(); frame = null;   // デモの GPU とメモリを返す
 	backBtn.hidden = true;
 	popout.hidden = true;
 	logo.removeAttribute("role"); logo.removeAttribute("tabindex"); logo.removeAttribute("title");
-	document.body.classList.remove("in-demo"); globe.resume();
+	document.body.classList.remove("in-demo"); globe?.resume();
 }
 const listUrl = () => { const q = new URLSearchParams(location.search); q.delete("d"); return (q.size ? "?" + qs(q) : location.pathname) + location.hash; };
 document.addEventListener("click", e => {
