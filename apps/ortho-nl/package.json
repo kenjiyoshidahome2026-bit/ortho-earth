@@ -15,8 +15,5 @@
 		"@loaders.gl/core": "^4.3.0",
 		"@loaders.gl/draco": "^4.3.0",
 		"@ortho-earth/japan": "*"
-	},
-	"devDependencies": {
-		"vite": "^8.3.1"
 	}
 }

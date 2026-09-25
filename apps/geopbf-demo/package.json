@@ -18,8 +18,5 @@
 		"d3": "^7.9.0",
 		"@ortho-earth/globe": "*"
 	},
-	"description": "GeoPBF demo: convert GIS files in the browser (www.ortho-earth.com/geopbf/)",
-	"devDependencies": {
-		"vite": "^8.3.1"
-	}
+	"description": "GeoPBF demo: convert GIS files in the browser (www.ortho-earth.com/geopbf/)"
 }
