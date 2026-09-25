@@ -39,5 +39,7 @@ export default defineConfig({
 	},
 	worker: { format: 'es' },
 	// sourcemap: 'hidden' = .mapは出すがJS末尾に参照を書かない＝実質非公開（gishub-jpと同じ方針）
-	build: { target: 'esnext', sourcemap: 'hidden' }
+	// cssTarget＝vite 8 の既定（baseline-widely-available）の実体。無いと cssTarget も esnext になり、lightningcss が
+	// -webkit-backdrop-filter を「不要な接頭辞」として消す＝iOS 17 以前の Safari でガラスのぼかしが消える（2026-09-25 実測）
+	build: { target: 'esnext', cssTarget: ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4'], sourcemap: 'hidden' }
 });
