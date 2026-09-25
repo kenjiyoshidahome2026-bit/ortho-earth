@@ -31,6 +31,7 @@ bake.js・checkZoomRange・findPolygon。terrain・plateau ワーカーも rende
 - idfill(コロプレス)＝winding 和 ID 蓄積（rg32float＝float32-blendable がある時・無ければ rg16float へ縮退＝大きな fid で穴の恐れ・加算 blend・R=Σ±(fid+1)/G=Σ±1）→解決(R/G で fid 復元→
   スタイル表→色)。`GINT_STENCIL_WGSL` vsId/fsId＋`GINT_IDRESOLVE_WGSL`。rg16float はコア blendable＝
   fidStyleCount≤2047(市区町村1919)で足りる（超過/paint 無し/fillOff は単色 stencil フォールバック）。
+  ※2026-09-15 から **rgba32float / rgba16float**（A＝扇が触れた最大 fid+1・MAX blend＝重なりの後勝ち）。上限 fid は 2^20 / 2047。正典は gint draw spec.md §7.2
 
 検証：スクリーンショット比較（WebGL2 と目視同一）＝z13 東京平面 / 富士 z13 60° / 東京駅 z16.5 55°（建物+深度）/
 山頂等高線 / z5.5・z8.5 60° 海岸線 / 東京駅 PLATEAU / z2 世界ビュー / **z7 N02 新幹線オーバーレイ**。
