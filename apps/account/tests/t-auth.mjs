@@ -116,10 +116,10 @@ await t("同意キャンセル（?error=）はエラーページでなく ?login
 	eq(cb.status, 302, "status");
 	eq(cb.headers.get("Location"), "/geoedit/?login=denied", "Location");
 });
-await t("★return=//evil.com と絶対URLは /geoedit/ へフォールバック", async () => {
+await t("★return=//evil.com と絶対URLは /japan/geoedit へフォールバック", async () => {
 	for (const bad of ["//evil.com", "https://evil.com/x"]) {
 		const { cb } = await loginFlow(makeEnv(), { ret: bad });
-		eq(cb.headers.get("Location"), "/geoedit/", `return=${bad}`);
+		eq(cb.headers.get("Location"), "/japan/geoedit", `return=${bad}`);   // oauth.js の RETURN_FALLBACK（19f10b68 で新 URL へ）
 	}
 });
 
