@@ -7,7 +7,9 @@ export async function dissolve(pbfInstance, key = false) {
 		key = pbfInstance.keys.indexOf(key);
 		if (key < 0) key = false;
 	}
-	const keyAt = i => typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");
+	// 全属性のキーは型ごとに（2026-09-25・B7）：旧 join("|") は 1 と "1"、"" と null、["a|","b"] と ["a","|b"] を同じ地物として併合した
+	const valKey = v => v === null || v === undefined ? "n" : v instanceof Date ? "d" + v.getTime() : typeof v === "object" ? "o" + JSON.stringify(v) : (typeof v)[0] + String(v);
+	const keyAt = i => typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : JSON.stringify(pbfInstance.props[i].map(valKey));
 	// 併合ゼロの先行判定（props のみ・ジオメトリ復号なし）：全キーが一意なら dissolve は
 	// 「全地物デコード→全再エンコード→再インデックス」の空回り（実測 1.4s/57k 地物）。
 	// 地番を持つ地籍・建物・住所系は本質的に全キー一意＝ここで即帰る。重複が1つでもあれば従来経路。
@@ -23,7 +25,7 @@ export async function dissolve(pbfInstance, key = false) {
 	}
 	const propTub = new Map();
 	pbfInstance.forEach(i => {
-		const pkey = typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : pbfInstance.props[i].join("|");
+		const pkey = keyAt(i);
 		if (!propTub.has(pkey)) propTub.set(pkey, [i, [[], [], []], new Set()]);
 		const [id, a, ptSet] = propTub.get(pkey);
 		const geom = pbfInstance.getGeometry(i);
