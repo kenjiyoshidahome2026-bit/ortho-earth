@@ -97,7 +97,7 @@ export async function createTileLoader(opts = {}) {
 		if (s.busy || !s.queue.length) return;
 		s.busy = true;
 		const { name, res } = s.queue.shift();
-		const settle = obj => { if (obj && cache) cache(name, obj); s.busy = false; res(obj); pump(s); };
+		const settle = obj => { if (obj && cache) cache(name, obj).catch(() => {}); s.busy = false; res(obj); pump(s); };   // 書き込みの失敗（容量超過等）は握る＝描画は続ける
 		if (inline || !s.w) { inlineLoad(name).then(settle); return; }
 		const w = s.w;
 		let done = false, tm = 0;
@@ -159,17 +159,21 @@ export async function createGetHeight(opts = {}) {
 	worker.onerror = e => console.error("Worker Exception:", e);
 ////---------------------------------------------------------------------------------------
 	// o.wait=true＝他のタイル読込中でも（描画側の「到着まで 0」縮退でなく）順番を待って値を返す＝公開 API map.getHeight 用（2026-09-10）
-	return (lng, lat, zoom = Infinity, o = {}) => {
+	const getHeight = (lng, lat, zoom = Infinity, o = {}) => {
 		const n = (zoom < level1)? 0: (zoom < level2)? 1: 2;
 		lng += lng < -180? 360: lng > 180? -360: 0;
 		lat = max(min(lat, 89.999),-89.999);
 		return [hgt90, hgt10, hgt01][n](lng,lat, !!o.wait);
 	};
+	// map.destroy の後片付け（2026-09-25・従来は終わらせる口が無く worker がページに残った）
+	getHeight.terminate = () => { try { worker?.terminate(); } catch { /* 止まっている */ } };
+	return getHeight;
 ////---------------------------------------------------------------------------------------
 	async function load(lng, lat, range, wait = false) {
 		const name = encodeName(lng, lat, range);
 		if (cname == name) return current;
-		const obj = await cache(name); if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
+		// IDB が開けない環境は cache=null（上の縮退）・読み書きの失敗も握る＝標高取得ごと死なない（2026-09-25）
+		const obj = cache ? await cache(name).catch(() => null) : null; if (obj && obj.data && obj.width && !staleDSM(name, obj, dtm)) return obj;   // 形の検札＝Blob混入（loadTile側と同じ地雷）は worker 経路へ
 		if (isLoading) return wait && inflight ? inflight.then(() => load(lng, lat, range, wait)) : null;   // 描画側＝落とす（到着まで0）／wait＝待って再試行
 		return inflight = new Promise(res=>{
 			isLoading = performance.now();
@@ -177,8 +181,10 @@ export async function createGetHeight(opts = {}) {
 			worker.postMessage({ name, apiUrl: opts.apiUrl });
 			worker.onmessage = async e => { const obj = e.data;
 				if (obj) {
-					obj && await cache(name, obj);
-					obj && console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading).toFixed(2) } msec`);
+					// 書き込みの失敗（容量超過等）で onmessage を抜けると isLoading が立ったまま＝以後の描画側は永久に null・
+					// wait 呼び（map.getHeight）は永久に待つ（2026-09-25）＝失敗は握って先へ進む
+					if (cache) await cache(name, obj).catch(err => console.warn(`[altpbf] cache write failed: ${name}`, err));
+					console.log(`[altpbf]  📥 ${name} (${obj.width} x ${obj.height}) ${(performance.now() - isLoading).toFixed(2) } msec`);
 					cname = name; current = obj;
 				}
 				opts.onend && opts.onend(name);
@@ -211,7 +217,7 @@ export async function createGetHeight(opts = {}) {
 		return calcHeight((lng-lng0)/range, (lat-lat0)/range, v)||hgt90(lng,lat,wait);
 	}
 	async function hgt01(lng,lat,wait)  { const range = 1;
-		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng,lat)) return hgt10(lng,lat,wait);
+		const lng0 = floor(lng), lat0 = floor(lat); if (!exist(lng0,lat0)) return hgt10(lng,lat,wait);   // 索引の名は整数の南西隅（N035E139）＝小数で引くと常に外れて R10 に落ちていた（2026-09-25）
 		const v = await load(lng0, lat0, range, wait);
 		return calcHeight((lng-lng0), (lat-lat0), v)||hgt10(lng,lat,wait);
 	}
