@@ -35,21 +35,21 @@ const kmlToFeatures = (text, nameToRes) => {
 				props.iconData = res;
 			}
 		}
-		let geometry = null;
-		if (pm.includes("<Point>")) {
-			const c = pm.match(/<coordinates>(.*?)<\/coordinates>/);
-			if (c) geometry = { type: "Point", coordinates: parseCoords(c[1])[0] };
-		} else if (pm.includes("<LineString>")) {
-			const c = pm.match(/<coordinates>([\s\S]*?)<\/coordinates>/);
-			if (c) geometry = { type: "LineString", coordinates: parseCoords(c[1]) };
-		} else if (pm.includes("<Polygon>")) {
-			const outer = pm.match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
-			const inners = [...pm.matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
-			if (outer) {
-				const rings = [parseCoords(outer[1]), ...inners.map(m => parseCoords(m[1]))];
-				geometry = { type: "Polygon", coordinates: rings };
+		// Placemark の中の Point/LineString/Polygon を全部拾う＝MultiGeometry も読む（2026-09-25・B9＝encoder と対称）。
+		// 1 つ＝単体・同種が複数＝Multi*・混在＝GeometryCollection
+		const parts = [];
+		for (const m of pm.matchAll(/<(Point|LineString|Polygon)\b[^>]*>([\s\S]*?)<\/\1>/g)) {
+			if (m[1] === "Point") { const c = m[2].match(/<coordinates>([\s\S]*?)<\/coordinates>/); if (c) parts.push({ type: "Point", coordinates: parseCoords(c[1])[0] }); }
+			else if (m[1] === "LineString") { const c = m[2].match(/<coordinates>([\s\S]*?)<\/coordinates>/); if (c) parts.push({ type: "LineString", coordinates: parseCoords(c[1]) }); }
+			else {
+				const outer = m[2].match(/<outerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/outerBoundaryIs>/);
+				const inners = [...m[2].matchAll(/<innerBoundaryIs>[\s\S]*?<coordinates>([\s\S]*?)<\/coordinates>[\s\S]*?<\/innerBoundaryIs>/g)];
+				if (outer) parts.push({ type: "Polygon", coordinates: [parseCoords(outer[1]), ...inners.map(q => parseCoords(q[1]))] });
 			}
 		}
+		const geometry = parts.length === 0 ? null : parts.length === 1 ? parts[0]
+			: parts.every(g => g.type === parts[0].type) ? { type: "Multi" + parts[0].type, coordinates: parts.map(g => g.coordinates) }
+			: { type: "GeometryCollection", geometries: parts };
 		if (geometry) features.push({ type: "Feature", id, geometry, properties: props });
 	});
 	return features;

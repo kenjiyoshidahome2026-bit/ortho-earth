@@ -74,7 +74,7 @@ export function createGeopbf(apiBase, options = {}) {
             const event = `convrsion from ${type} to GeoPBF`;
             throwEvent("ConvertStart",{name, event});
             const w = DECODERS.has(type) ? spawnWorker(`decoder:${type}`, () => builtinWorker(`decoder:${type}`)) : null;   // ホストの入口が勝つ（setWorkerFactory）
-            if (!w) { resolve(null); return; }
+            if (!w) return null;   // ホストの factory が役割を断った（旧＝スコープ外の resolve で ReferenceError・B9b）
             return new Promise(resolve => {
                 w.onmessage = async e => {
                     if (e.data?.type === 'progress') {

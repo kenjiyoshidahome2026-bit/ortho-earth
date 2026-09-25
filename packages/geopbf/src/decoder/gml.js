@@ -43,31 +43,54 @@ function extractAllPosLists(gmlBlock, flip) {
 }
 
 // Parse inline geometry inside gml:geometryProperty (round-trip symmetric with the encoder output).
+// Multi 系（MultiPoint/MultiCurve/MultiSurface）と MultiGeometry も読む（2026-09-25・B9＝encoder と対称）
+const polyRings = (inner, flip) => {
+	const rings = [];
+	const extMatch = /<gml:exterior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(inner);
+	if (extMatch) rings.push(parsePosList(extMatch[1], flip));
+	const intRegex = /<gml:interior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/gi;
+	let im;
+	while ((im = intRegex.exec(inner)) !== null) rings.push(parsePosList(im[1], flip));
+	return rings;
+};
+const posOf = (text, flip) => { const nums = text.trim().split(/[\s\n\r]+/).map(Number); return flip ? [nums[1], nums[0]] : [nums[0], nums[1]]; };
+function parseGeomBlock(block, flip) {
+	const head = /<gml:(Point|LineString|Polygon|MultiPoint|MultiCurve|MultiLineString|MultiSurface|MultiPolygon|MultiGeometry)\b/i.exec(block);
+	if (!head) return null;
+	const kind = head[1].toLowerCase();
+	if (kind === "multigeometry") {
+		const geometries = [];
+		const re = /<gml:geometryMembers?>([\s\S]+?)<\/gml:geometryMembers?>/gi; let m;
+		while ((m = re.exec(block)) !== null) { const g = parseGeomBlock(m[1], flip); if (g) geometries.push(g); }
+		return geometries.length ? { type: "GeometryCollection", geometries } : null;
+	}
+	if (kind === "multipoint") {
+		const pts = [...block.matchAll(/<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/gi)].map(m => posOf(m[1], flip));
+		return pts.length ? { type: "MultiPoint", coordinates: pts } : null;
+	}
+	if (kind === "multicurve" || kind === "multilinestring") {
+		const ls = [...block.matchAll(/<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/gi)].map(m => parsePosList(m[1], flip));
+		return ls.length ? { type: "MultiLineString", coordinates: ls } : null;
+	}
+	if (kind === "multisurface" || kind === "multipolygon") {
+		const polys = [...block.matchAll(/<gml:Polygon[^>]*>([\s\S]+?)<\/gml:Polygon>/gi)].map(m => polyRings(m[1], flip)).filter(r => r.length);
+		return polys.length ? { type: "MultiPolygon", coordinates: polys } : null;
+	}
+	if (kind === "point") {
+		const posMatch = /<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/i.exec(block);
+		return posMatch ? { type: "Point", coordinates: posOf(posMatch[1], flip) } : null;
+	}
+	if (kind === "linestring") {
+		const lsMatch = /<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(block);
+		return lsMatch ? { type: "LineString", coordinates: parsePosList(lsMatch[1], flip) } : null;
+	}
+	const polyMatch = /<gml:Polygon[^>]*>([\s\S]+?)<\/gml:Polygon>/i.exec(block);
+	const rings = polyMatch ? polyRings(polyMatch[1], flip) : [];
+	return rings.length ? { type: "Polygon", coordinates: rings } : null;
+}
 function parseInlineGeometry(pm, flip) {
 	const geoPropMatch = /<gml:geometryProperty>([\s\S]+?)<\/gml:geometryProperty>/i.exec(pm);
-	if (!geoPropMatch) return null;
-	const block = geoPropMatch[1];
-	// Point
-	const posMatch = /<gml:pos[^>]*>([\s\S]+?)<\/gml:pos>/i.exec(block);
-	if (posMatch) {
-		const nums = posMatch[1].trim().split(/[\s\n\r]+/).map(Number);
-		return { type: "Point", coordinates: flip ? [nums[1], nums[0]] : [nums[0], nums[1]] };
-	}
-	// LineString
-	const lsMatch = /<gml:LineString[^>]*>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(block);
-	if (lsMatch) return { type: "LineString", coordinates: parsePosList(lsMatch[1], flip) };
-	// Polygon (exterior + zero or more interiors)
-	const polyMatch = /<gml:Polygon[^>]*>([\s\S]+?)<\/gml:Polygon>/i.exec(block);
-	if (polyMatch) {
-		const rings = [];
-		const extMatch = /<gml:exterior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/i.exec(polyMatch[1]);
-		if (extMatch) rings.push(parsePosList(extMatch[1], flip));
-		const intRegex = /<gml:interior>[\s\S]*?<gml:posList[^>]*>([\s\S]+?)<\/gml:posList>/gi;
-		let im;
-		while ((im = intRegex.exec(polyMatch[1])) !== null) rings.push(parsePosList(im[1], flip));
-		if (rings.length) return { type: "Polygon", coordinates: rings };
-	}
-	return null;
+	return geoPropMatch ? parseGeomBlock(geoPropMatch[1], flip) : null;
 }
 
 onmessage = async (e) => {
@@ -76,7 +99,7 @@ onmessage = async (e) => {
 	if (file.name.match(/\.zip$/i)) {
 		const entries = await decodeZIP(file);
 		const gmlFile = entries.find(f => f.name.match(/\.gml$/i));
-		if (!gmlFile) return;
+		if (!gmlFile) { console.error("[gml] no .gml in the zip"); postMessage(null); return; }   // 旧＝何も返さず呼び手が永久に待った（B9b）
 		gmlStr = await gmlFile.text();
 	} else {
 		gmlStr = await file.text();
@@ -122,7 +145,8 @@ onmessage = async (e) => {
 	}
 
 	// Exclude gml:/xsi:/xlink: namespace tags; also match unnamespaced tags (encoder output).
-	const attrRegex = () => /<([a-zA-Z_][a-zA-Z0-9_.]*(?::[a-zA-Z_][a-zA-Z0-9_.]*)?)>([^<]+)<\/\1>/gi;
+	// 要素名は Unicode の文字も（encoder が日本語のキーをそのまま書く・2026-09-25）
+	const attrRegex = () => /<([\p{L}_][\p{L}\p{N}_.\-]*(?::[\p{L}_][\p{L}\p{N}_.\-]*)?)>([^<]+)<\/\1>/giu;
 	const isPropTag = name => !name.match(/^(?:gml|xsi|xlink):|(?:pos|geometry|location|bound)/i);
 
 	if (featureTag) {
