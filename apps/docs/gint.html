@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gint Technical Overview</title>
-<meta name="description" content="Gint: whole vector datasets on the GPU — shared-arc topology, Visvalingam–Whyatt ranks packed into 64-bit vertex codes, level of detail in the vertex shader, stencil winding fill, and questions answered in milliseconds.">
+<title>Gint — Guide and Architecture</title>
+<meta name="description" content="Gint: whole vector datasets on the GPU. How to use it — add a layer, paint it with MapLibre expressions, filter it, ask it questions — and how it works: shared-arc topology, level of detail in the vertex shader, winding fill, picking in milliseconds.">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="doc.css">
 <style>
@@ -32,6 +32,11 @@ svg.sd{width:100%;height:100%}
 .vw-box .weight{font-family:var(--mono);font-size:0.8rem;margin-top:2px}
 .lang-switch{font-family:var(--mono);font-size:0.72rem}
 h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
+.part{font-family:var(--mono);font-size:0.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.12em;margin:64px 0 -28px}
+.toc .toc-title + ol{margin-bottom:12px}
+h4.sig{font-family:var(--mono);color:var(--yellow);font-size:0.86rem;margin:24px 0 6px;letter-spacing:0}
+.ref ul{margin:0 0 10px 20px}
+.ref li{font-size:0.9rem;color:#cbd5e1;margin:3px 0}
 </style>
 </head>
 <body>
@@ -53,7 +58,7 @@ h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 
 <div class="page">
 
-<h1>Gint — Technical Architecture</h1>
+<h1>Gint — Guide and Architecture</h1>
 <p class="lead">Geographic <strong>Int</strong>erleaved Binary Format<br>
 <span style="font-size:0.85em">
 <strong style="color:var(--accent)">int</strong>erleave (Morton bit-interleaving) ·
@@ -63,21 +68,30 @@ h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 A whole dataset on the GPU — drawn at any zoom, and able to answer questions</p>
 
 <div class="toc">
-	<div class="toc-title">Table of Contents</div>
+	<div class="toc-title">Part I — Use it</div>
 	<ol>
 		<li><a href="#why">Why Gint — Tiles Draw, Gint Knows</a></li>
+		<li><a href="#start">Your First Gint Layer</a></li>
+		<li><a href="#examples">Choropleths — Three Examples</a></li>
+		<li><a href="#expressions">Expressions — What Is Promised</a></li>
+		<li><a href="#overlap">When Data Overlaps</a></li>
+		<li><a href="#api">API Reference</a></li>
+	</ol>
+	<div class="toc-title">Part II — How it works</div>
+	<ol start="7">
 		<li><a href="#overview">Pipeline Overview</a></li>
 		<li><a href="#encoding">Encoding — Topology, Vertex Codes, Ranks</a></li>
 		<li><a href="#lod">Level of Detail in the Vertex Shader</a></li>
-		<li><a href="#fill">Filling Polygons with the Stencil</a></li>
+		<li><a href="#fill">Filling Polygons Without Triangles</a></li>
 		<li><a href="#lines">Lines and Styles</a></li>
 		<li><a href="#sphere">On a Sphere — Horizon and Antimeridian</a></li>
-		<li><a href="#terrain">In 3D — Draped on Terrain</a></li>
+		<li><a href="#terrain">In 3D — On the Terrain</a></li>
 		<li><a href="#identify">Asking Questions — Picking and Identify</a></li>
-		<li><a href="#api">Layers API</a></li>
 		<li><a href="#philosophy">Design Philosophy</a></li>
 	</ol>
 </div>
+
+<div class="part" style="margin-top:0">Part I — Use it</div>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="why">1. Why Gint — Tiles Draw, Gint Knows</h2>
@@ -95,13 +109,371 @@ A <strong>Gint layer</strong> keeps the whole geometry of a <a href="geopbf.html
 	<tr><th></th><th>Vector tiles</th><th>Gint</th></tr>
 	<tr><td>Files</td><td>one per tile per zoom</td><td>one file</td></tr>
 	<tr><td>Bytes when you zoom</td><td>new tiles</td><td><strong>+0</strong> — level of detail is chosen on the GPU</td></tr>
-	<tr><td>Polygon fill</td><td>CPU triangulation per tile</td><td>stencil winding — no triangulation</td></tr>
+	<tr><td>Polygon fill</td><td>CPU triangulation per tile</td><td>winding count — no triangulation</td></tr>
 	<tr><td>Features</td><td>cut at tile edges</td><td>whole, shared borders exact</td></tr>
+	<tr><td>Restyle</td><td>re-run the style per tile</td><td>one texture update — every feature can have its own colour</td></tr>
 	<tr><td>Questions</td><td>—</td><td>pick, identify, highlight, join to a table</td></tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="overview">2. Pipeline Overview</h2>
+<h2 id="start">2. Your First Gint Layer</h2>
+
+<p>
+Five steps: load, add, paint, filter, ask. The words come from MapLibre GL JS — paint properties, expressions, <code>setPaint</code>, <code>setFilter</code> —
+so what you already know works here. It is not a copy of MapLibre. The vocabulary is borrowed to make the first step short; the layer underneath is Gint.
+</p>
+
+<pre><code><span class="kw">import</span> { createGlobe, geopbf } <span class="kw">from</span> <span class="st">"@ortho-earth/globe"</span>;
+
+<span class="kw">const</span> map = <span class="kw">await</span> createGlobe({ target: <span class="st">"#map"</span> });
+
+<span class="cm">// 1. Load — any format geopbf reads. { gint: true } also builds the GPU form (kept in IndexedDB).</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> geopbf(<span class="st">"https://example.com/municipalities.geojson"</span>, { gint: <span class="kw">true</span> });
+
+<span class="cm">// 2. Add — a new layer on top. Nothing is replaced.</span>
+<span class="kw">const</span> layer = map.addGint(pbf, { tip: <span class="kw">true</span> });
+<span class="kw">await</span> layer.ready;                                 <span class="cm">// true when the layer is on the GPU</span>
+
+<span class="cm">// 3. Paint — MapLibre paint properties and expressions, evaluated once per feature.</span>
+<span class="kw">await</span> layer.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"interpolate"</span>, [<span class="st">"linear"</span>], [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">0</span>, <span class="st">"#fff5eb"</span>, <span class="nm">1000000</span>, <span class="st">"#7f2704"</span>],
+  <span class="st">"fill-opacity"</span>: <span class="nm">0.85</span>,
+  <span class="st">"line-color"</span>: <span class="st">"#ffffff"</span>,
+  <span class="st">"line-width"</span>: <span class="nm">0.5</span>,
+});
+
+<span class="cm">// 4. Filter — hide features. Nothing is rebuilt.</span>
+<span class="kw">await</span> layer.setFilter([<span class="st">"&gt;="</span>, [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">10000</span>]);
+
+<span class="cm">// 5. Ask.</span>
+layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.properties, e.lngLat));
+<span class="kw">const</span> hit  = layer.query([<span class="nm">139.767</span>, <span class="nm">35.681</span>]);  <span class="cm">// { fid, properties } or null</span>
+<span class="kw">const</span> hits = map.queryAll([<span class="nm">139.767</span>, <span class="nm">35.681</span>]); <span class="cm">// [{ layer, fid, feature }], top layer first</span></code></pre>
+
+<h3>2.1 Load</h3>
+<p>
+<code>geopbf(input, { gint: true })</code> takes a URL, a <code>File</code>, an <code>ArrayBuffer</code> or a GeoJSON object, in any format
+<a href="geopbf.html">GeoPBF</a> reads — GeoJSON, Shapefile, GeoPackage, FlatGeobuf, GeoParquet, KML, GPX and more.
+<code>gint: true</code> also builds the form the GPU draws: the topology encoder (WebAssembly, in a worker) turns every shared border into one shared arc.
+The result is kept in IndexedDB, so the next visit skips the encoder. <code>geopbf</code> is re-exported by <code>@ortho-earth/globe</code>; you do not need a second package.
+</p>
+
+<h3>2.2 Add</h3>
+<p>
+<code>map.addGint(pbf, options)</code> adds a layer and returns its <em>handle</em> at once. The baking — edge tables, the level-of-detail ladder,
+a box per feature — runs in a worker, so the map keeps drawing. <code>await layer.ready</code> gives <code>true</code> when the layer is on the GPU
+(<code>false</code> if it failed). <code>addGint</code> does not move the camera.
+</p>
+<p>
+Before any paint, a layer draws in its default style: polygon outlines in orange (<code>#FF6B35</code>), lines in cyan (<code>#00B4D8</code>).
+When the polygons shrink below a few pixels, the layer shows them as a solid fill instead of a mesh of lines, and switches back as you zoom in.
+Layers stack in the order you add them; the <code>order</code> option (smaller is lower) fixes the order whatever the sequence of calls.
+Any number of layers can be on the map at once, on both backends (WebGPU and WebGL2).
+</p>
+
+<h3>2.3 Paint</h3>
+<p>
+<code>setPaint(paint, filter?)</code> takes MapLibre paint properties. Each value is a constant or an expression (§4).
+The expressions are evaluated <strong>once</strong>, in JavaScript, for every feature, and the results are written into a style table — one texel per feature.
+The GPU reads that table while it draws; no expression runs per frame. A restyle is one pass over the features plus one texture update.
+The geometry is never rebuilt. For the 1,919 municipalities of Japan the table is 31 KB.
+</p>
+<table>
+	<tr><th>Property</th><th>Applies to</th><th>Value</th></tr>
+	<tr><td><code>fill-color</code></td><td>polygons</td><td>colour</td></tr>
+	<tr><td><code>fill-opacity</code></td><td>polygons</td><td>0–1, multiplies the colour's alpha</td></tr>
+	<tr><td><code>line-color</code></td><td>lines and polygon outlines</td><td>colour</td></tr>
+	<tr><td><code>line-width</code></td><td>lines and polygon outlines</td><td>device pixels, in steps of 1/8, up to 31.875 · <code>0</code> = no line</td></tr>
+	<tr><td><code>circle-color</code></td><td>points</td><td>colour</td></tr>
+	<tr><td><code>circle-radius</code></td><td>points</td><td>CSS pixels, in steps of 1/4, up to 63.75 · <code>0</code> = no point</td></tr>
+	<tr><td><code>line-opacity</code></td><td>lines, outlines and points</td><td>0–1, multiplies the line or circle colour's alpha</td></tr>
+</table>
+<p>
+Every property can be data-driven. Colours are CSS colours: <code>#rgb</code>, <code>#rgba</code>, <code>#rrggbb</code>, <code>#rrggbbaa</code>,
+<code>rgb()</code>/<code>rgba()</code> with commas, <code>hsl()</code>/<code>hsla()</code> and the CSS colour names.
+Lines and points share one colour slot per feature, so <code>line-opacity</code> also fades points.
+</p>
+<ul>
+	<li><strong>Once a layer has a paint, only <code>fill-color</code> fills its polygons.</strong> Leave it out and they are outlines at every zoom.</li>
+	<li><strong>To hide a line, set its width to 0</strong> — and a point, its radius. A fully transparent line or circle colour falls back to the default colour.</li>
+	<li><strong><code>setPaint</code> replaces the whole paint:</strong> pass every property you want, each time. <code>setPaint(null)</code> returns to the default style.
+	To change one property at a time, use the MapLibre-shaped entrance (§6.5).</li>
+</ul>
+<div class="callout callout-note">
+	<div class="callout-head">Missing values</div>
+	<p>Decide what a missing value means, and say it in the expression. A feature without the property gets no fill from <code>interpolate</code>,
+	but the lowest colour from <code>step</code>, and the fallback from <code>match</code>. Wrap the input in <code>["coalesce", ["get", "pop"], …]</code>,
+	test it with <code>["has", "pop"]</code>, or filter those features out.</p>
+</div>
+
+<h3>2.4 Filter</h3>
+<p>
+<code>setFilter(expression)</code> hides every feature for which the expression is false; <code>setFilter(null)</code> shows them all again.
+Like paint, the filter is evaluated once and written into the same table — nothing is rebuilt.
+A hidden feature is not drawn, and it takes no part in the fill, so it cannot spoil the fill of what lies under it (§5).
+It is still in the data: <code>layer.query</code> and <code>map.queryAll</code> find it, and so does hover over a hidden polygon.
+</p>
+<p>
+The filter lives in the same table as the paint. A filter given before the first <code>setPaint</code> is kept and applied with it;
+<code>setPaint(paint, filter)</code> sets both in one call.
+</p>
+
+<h3>2.5 Ask</h3>
+<p>
+One layer holds the cursor at a time: hover, the tip, the highlight and <code>layer.on("click")</code> belong to it.
+Adding an interactive layer gives it the cursor, <code>layer.activate()</code> moves it, and a layer added with <code>interactive: false</code> never takes it.
+For now, adding such a layer also releases the cursor from the layer that held it — call <code>activate()</code> on the layer you want afterwards.
+Hover is continuous — a pick every 32 ms — so it stays on one layer and costs one pick. A click is rare, so it can afford to ask every layer.
+A layer of lines only (no polygons, no points) does not answer hover yet; ask it through <code>map.on("click")</code> or <code>query</code>.
+</p>
+<pre><code>layer.on(<span class="st">"hover"</span>, f =&gt; …);        <span class="cm">// { fid, properties } or null</span>
+layer.on(<span class="st">"mouseenter"</span>, f =&gt; …);   <span class="cm">// entering a feature: { fid, properties }</span>
+layer.on(<span class="st">"mouseleave"</span>, e =&gt; …);   <span class="cm">// leaving it: { fid }</span>
+layer.on(<span class="st">"click"</span>, e =&gt; …);        <span class="cm">// { fid, properties, lngLat: [lng, lat] }</span>
+
+map.on(<span class="st">"click"</span>, ({ lngLat, hits }) =&gt; {   <span class="cm">// every Gint layer under the point, top first</span>
+  <span class="kw">for</span> (<span class="kw">const</span> { layer, fid, feature } <span class="kw">of</span> hits) …
+});</code></pre>
+<p>
+A <code>fid</code> is the index of a feature inside its own layer — two layers both have a feature 7 — so keep it together with its layer.
+<code>hits</code> can include layers the globe adds by itself, such as the country outlines: compare <code>hit.layer</code> with your own handles.
+</p>
+<p>
+<code>layer.query(lngLat)</code> and <code>map.queryAll(lngLat)</code> answer at once, in JavaScript, with no round trip to the GPU.
+They look for a point within 50 m, then a line within 30 m, then the smallest polygon that contains the position — a click on a ward inside a city returns the ward.
+They answer from the data, not from the picture: the filter and the visibility do not change the answer.
+</p>
+
+<h3>2.6 More on the handle</h3>
+<ul>
+	<li><strong>Labels.</strong> <code>label: { field: ["get", "name"], size: 13, color: "#fff", halo: "#000" }</code> in the options, or <code>setLabel(…)</code> later.
+	The labels share the collision and fading of the basemap's own labels, and follow the filter. <code>field</code> is an expression (or a function of the properties);
+	a plain string is shown as it is, on every feature.</li>
+	<li><strong>Feature state.</strong> <code>setFeatureState(fid, { selected: true })</code>, read in paint with <code>["feature-state", "selected"]</code>.
+	Many calls in one task are drawn in one frame.</li>
+	<li><strong>Zoom.</strong> <code>["zoom"]</code> in a paint or a filter is read when you set it. When the camera stops after moving a quarter of a zoom level or more,
+	the layer evaluates again by itself. The change comes at rest, not during the zoom.</li>
+	<li><strong>Data.</strong> <code>setData(pbf)</code> swaps the data; the handle, its events, the paint and the filter stay.</li>
+	<li><strong>The rest.</strong> <code>setOrder(n)</code>, <code>setVisible(bool)</code>, <code>remove()</code> — §6.</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="examples">3. Choropleths — Three Examples</h2>
+
+<h3>3.1 Municipalities, coloured from your own table</h3>
+<p>
+The values often live in a table — a census CSV, a spreadsheet — and not in the boundary file. There is no need to edit the data:
+build a <code>match</code> from the table. Two thousand labels are fine, because the expression runs once, not per frame.
+</p>
+<pre><code><span class="cm">// Your table: municipality code → value (for example population from a census CSV)</span>
+<span class="kw">const</span> values = { <span class="st">"13101"</span>: <span class="nm">66680</span>, <span class="st">"13102"</span>: <span class="nm">169179</span>, <span class="cm">/* … */</span> };
+<span class="kw">const</span> breaks = [<span class="nm">10000</span>, <span class="nm">50000</span>, <span class="nm">100000</span>, <span class="nm">300000</span>, <span class="nm">1000000</span>];
+<span class="kw">const</span> colors = [<span class="st">"#f7fbff"</span>, <span class="st">"#c6dbef"</span>, <span class="st">"#6baed6"</span>, <span class="st">"#3182bd"</span>, <span class="st">"#08519c"</span>, <span class="st">"#08306b"</span>];
+<span class="kw">const</span> classOf = v =&gt; breaks.filter(b =&gt; v &gt;= b).length;
+
+<span class="cm">// "N03_007" = the code field of Japan's national boundary data; use your own field name</span>
+<span class="kw">const</span> fill = [<span class="st">"match"</span>, [<span class="st">"to-string"</span>, [<span class="st">"get"</span>, <span class="st">"N03_007"</span>]]];
+<span class="kw">for</span> (<span class="kw">const</span> [code, v] <span class="kw">of</span> Object.entries(values)) fill.push(code, colors[classOf(v)]);
+fill.push(<span class="st">"rgba(0,0,0,0)"</span>);                       <span class="cm">// not in the table: no fill</span>
+
+<span class="kw">await</span> layer.setPaint({ <span class="st">"fill-color"</span>: fill, <span class="st">"fill-opacity"</span>: <span class="nm">0.85</span>, <span class="st">"line-color"</span>: <span class="st">"#ffffff"</span>, <span class="st">"line-width"</span>: <span class="nm">0.3</span> });</code></pre>
+<p>
+<code>match</code> compares with <code>===</code>: the text <code>"13101"</code> is not the number <code>13101</code>, so the input is passed through <code>to-string</code>.
+The number of colours does not change the cost of drawing. Every feature may have its own colour — the fill is two passes whether there are six colours or 1,919.
+</p>
+
+<h3>3.2 Parcels, by lot number</h3>
+<p>
+Japan's land registry map (登記所備付地図, published by the Ministry of Justice; <code>geopbf</code> reads its XML directly) gives each parcel a lot number,
+<code>地番</code>. In central Sapporo — 57,341 parcels — the same field also holds words: 道 (road), 河川 (river), 無地番 (no lot number),
+筆界未定地 (boundary not settled). One expression puts public land and unsettled boundaries on the map:
+</p>
+<pre><code><span class="kw">await</span> parcels.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"get"</span>, <span class="st">"地番"</span>],
+    [<span class="st">"道"</span>, <span class="st">"河川"</span>, <span class="st">"無地番"</span>], <span class="st">"#e41a1c88"</span>,  <span class="cm">// road, river, no lot number</span>
+    <span class="st">"筆界未定地"</span>, <span class="st">"#ff7f00aa"</span>,                <span class="cm">// boundary not settled</span>
+    <span class="st">"rgba(0,0,0,0)"</span>],                           <span class="cm">// every other parcel: no fill</span>
+  <span class="st">"line-color"</span>: <span class="st">"#ffffff66"</span>,
+  <span class="st">"line-width"</span>: <span class="nm">0.5</span>,
+});</code></pre>
+<p>
+A <code>match</code> label can be an array: any of its values selects the output.
+</p>
+
+<h3>3.3 Two layers — a parcel inside a hazard zone</h3>
+<p>
+Put a hazard layer under the parcels. The parcels hold the cursor; a click reaches both.
+</p>
+<pre><code><span class="cm">// Landslide warning zones (Japan's National Land Numerical Information A33). A33_002 = 2: special warning zone</span>
+<span class="kw">const</span> zones = map.addGint(<span class="kw">await</span> geopbf(zonesUrl, { gint: <span class="kw">true</span> }), { order: <span class="nm">-1</span>, interactive: <span class="kw">false</span> });
+<span class="kw">await</span> zones.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"to-number"</span>, [<span class="st">"get"</span>, <span class="st">"A33_002"</span>]], <span class="nm">2</span>, <span class="st">"#c0392b80"</span>, <span class="st">"#d9a4416b"</span>],
+  <span class="st">"line-width"</span>: <span class="nm">0</span>,                                 <span class="cm">// fill only, no outline</span>
+});
+parcels.activate();                                   <span class="cm">// the cursor stays on the parcels</span>
+
+map.on(<span class="st">"click"</span>, ({ hits }) =&gt; {
+  <span class="kw">const</span> parcel = hits.find(h =&gt; h.layer === parcels);
+  <span class="kw">const</span> zone   = hits.find(h =&gt; h.layer === zones);
+  <span class="kw">if</span> (parcel &amp;&amp; zone) console.log(parcel.feature.properties[<span class="st">"地番"</span>], <span class="st">"is in a warning zone"</span>);
+});</code></pre>
+<p>
+Turning a layer on and off is <code>setVisible</code> — nothing is baked again. The questions “which zone is this parcel in?” and
+“what is under this point?” are the reason Gint exists: the layers are data, not only pictures.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="expressions">4. Expressions — What Is Promised</h2>
+
+<p>
+The expressions are MapLibre's. The set below is promised for Gint layers: it is the set listed in the type definitions (<code>globe.d.ts</code>) and it is tested.
+The evaluator is shared with the basemap, which reads MapLibre style files, so it accepts more operators than these; the others are not promised for Gint layers.
+</p>
+<table>
+	<tr><th>Group</th><th>Operators</th></tr>
+	<tr><td>Data</td><td><code>get</code> <code>has</code> <code>feature-state</code> <code>geometry-type</code> <code>zoom</code> <code>literal</code></td></tr>
+	<tr><td>Choice</td><td><code>match</code> <code>case</code> <code>step</code> <code>coalesce</code></td></tr>
+	<tr><td>Interpolation</td><td><code>interpolate</code> — <code>["linear"]</code> and <code>["exponential", base]</code>, numbers and colours</td></tr>
+	<tr><td>Comparison and logic</td><td><code>==</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>!</code> <code>all</code> <code>any</code> <code>in</code></td></tr>
+	<tr><td>Arithmetic</td><td><code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code> <code>^</code> <code>min</code> <code>max</code></td></tr>
+	<tr><td>Types and text</td><td><code>to-number</code> <code>to-string</code> <code>concat</code></td></tr>
+	<tr><td>Variables</td><td><code>let</code> <code>var</code></td></tr>
+</table>
+<h3>4.1 Rules</h3>
+<ol style="padding-left:22px">
+	<li><strong>Once, not per frame.</strong> Expressions run when you call <code>setPaint</code> or <code>setFilter</code> (and when feature state changes). The GPU only reads the results.</li>
+	<li><strong><code>["zoom"]</code> is a snapshot.</strong> It is the zoom at evaluation time; the layer re-evaluates when the camera stops (§2.6). There is no interpolation between frames.</li>
+	<li><strong>No exceptions.</strong> When an expression fails or gives the wrong type for a feature, that feature keeps the default: no fill, a 1 px line, a 1.5 px point.
+	An operator outside the evaluator gives the default too.</li>
+	<li><strong>Strict equality.</strong> <code>==</code>, <code>!=</code> and <code>match</code> compare with <code>===</code>. Convert with <code>to-string</code> or <code>to-number</code> when the types differ.</li>
+	<li><strong><code>in</code></strong> is <code>["in", needle, haystack]</code>, where the haystack is a string or an array (<code>["literal", […]]</code>).</li>
+	<li><strong>Colours</strong> interpolate in RGB, and may be nested — an <code>interpolate</code> inside a <code>match</code> branch works.</li>
+</ol>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="overlap">5. When Data Overlaps</h2>
+
+<p>
+Real data overlaps: a prefecture polygon over its municipalities, a zone registered twice, parcels drawn over each other.
+Gint fills by the nonzero winding rule — the even-odd rule is never used — so overlaps behave in a way you can predict:
+</p>
+<ul>
+	<li><strong>One colour</strong> (no paint, or the same colour for all): the union is filled. Two copies of the same parcel fill like one; a hole covered by another feature is filled.</li>
+	<li><strong>A colour per feature</strong> (a choropleth): where two features overlap, the later one in the data — the higher <code>fid</code> — wins.
+	If that one is transparent or filtered out, the one below shows through. This is exact where two features overlap; where three or more pile up, the result is not guaranteed.</li>
+	<li><strong>Filtered features take no part in the fill.</strong> When a dataset mixes levels — municipalities together with the larger polygons that contain them —
+	filter out the level you are not painting, and the rest fills cleanly.</li>
+	<li><strong>Questions</strong> return the smallest polygon that contains the point.</li>
+</ul>
+<div class="callout callout-key">
+	<div class="callout-head">Quality becomes visible</div>
+	<p>The winding sum carries more than a colour. Read differently, it shows where two different features overlap, where one feature is registered twice,
+	and where a ring runs the wrong way. During development the engine paints exactly those pixels: on a land registry map, a question of data quality
+	that no one could see becomes a picture. This view is a development tool today, not part of the API.</p>
+</div>
+<p>
+One limit: the per-feature fill adds feature numbers in a float target. On GPUs that cannot blend 32-bit floats, the numbers are 16-bit and a layer can colour
+up to 2,047 features one by one; a larger layer loses the per-feature fill and is drawn in its plain style. If you meet this limit, merge the features that share a style
+into multi-polygons — the fill cost is the same.
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">6. API Reference</h2>
+
+<div class="ref">
+
+<h3>6.1 Adding a layer</h3>
+
+<h4 class="sig">map.addGint(pbf, options) → handle | null</h4>
+<p>Adds a Gint layer on top and returns its handle at once. Returns <code>null</code> when <code>pbf</code> has no GPU form. The layer becomes the active one unless <code>interactive</code> is false (§2.5).</p>
+<ul>
+	<li><strong><code>pbf</code></strong> (GeoPBF): from <code>geopbf(input, { gint: true })</code>.</li>
+	<li><strong><code>options.order</code></strong> (Number): stacking order, smaller is lower. Default: the order of addition.</li>
+	<li><strong><code>options.minZoom</code> / <code>options.maxZoom</code></strong> (Number): the zoom range of this layer. Default: <code>minZoom</code> from the size of the data (a small area starts at a higher zoom); <code>maxZoom</code> from the coordinate precision.</li>
+	<li><strong><code>options.interactive</code></strong> (Boolean): <code>false</code> = never takes the cursor. Default <code>true</code>.</li>
+	<li><strong><code>options.tip</code></strong> (Boolean | Function): <code>true</code> = a tip with every property as “key: value”; a function <code>properties → string[]</code> writes your own lines. Default: no tip.</li>
+	<li><strong><code>options.label</code></strong> (Object): <code>{ field, size, color, halo, haloW, minZoom, maxZoom }</code> — see <code>setLabel</code>.</li>
+	<li><strong><code>options.style</code></strong> (Object): the look without paint — <code>{ fillColor: [r, g, b, a], lineWidth, ptRadius }</code>, colours 0–1.</li>
+	<li><strong><code>options.fillMaxEdges</code></strong> (Number): the fill stops above this many edges (default 2,000,000); <code>0</code> = outlines only.</li>
+	<li><strong><code>options.lowFill</code></strong> (Boolean): when the fill is off (over <code>fillMaxEdges</code>), still draw the one-colour fill of low zoom — for very large layers.</li>
+</ul>
+
+<h4 class="sig">layer.ready → Promise&lt;boolean&gt;</h4>
+<p><code>true</code> when the layer is on the GPU, <code>false</code> if baking failed.</p>
+
+<h3>6.2 Style</h3>
+
+<h4 class="sig">await layer.setPaint(paint, filter?)</h4>
+<p>Evaluates the paint (and the filter) for every feature and sends one table to the GPU. Replaces the whole paint. <code>null</code> = the default style. Without <code>filter</code>, the current filter stays.</p>
+<ul>
+	<li><strong><code>paint</code></strong> (Object): <code>fill-color</code>, <code>fill-opacity</code>, <code>line-color</code>, <code>line-opacity</code>, <code>line-width</code>, <code>circle-color</code>, <code>circle-radius</code> (§2.3).</li>
+	<li><strong><code>filter</code></strong> (Expression | null): a boolean expression (§4).</li>
+</ul>
+
+<h4 class="sig">await layer.setFilter(filter)</h4>
+<p>Only the filter. Before the first <code>setPaint</code> it is kept and applied with it. <code>null</code> = show all.</p>
+
+<h4 class="sig">layer.setFeatureState(fid, state) · layer.removeFeatureState(fid?)</h4>
+<p>Temporary state per feature, read by <code>["feature-state", key]</code>. <code>state</code> is merged; <code>null</code> removes it. <code>removeFeatureState()</code> with no fid clears all.</p>
+
+<h4 class="sig">await layer.setLabel(label | null)</h4>
+<ul>
+	<li><strong><code>field</code></strong> (Expression | Function | String): the text — an expression such as <code>["get", "name"]</code> or <code>["concat", …]</code>, a function <code>properties → string</code>, or a fixed string.</li>
+	<li><strong><code>size</code>, <code>color</code>, <code>halo</code>, <code>haloW</code></strong>: text size (px), colour, halo colour and width.</li>
+	<li><strong><code>minZoom</code>, <code>maxZoom</code></strong>: zoom range of the labels (default: the layer's).</li>
+</ul>
+<p>Anchors: the centre of the feature's box for polygons and lines, the point for points. Hidden features have no label.</p>
+
+<h4 class="sig">layer.style(style)</h4>
+<p>Changes the look without paint (the same object as <code>options.style</code>).</p>
+
+<h3>6.3 Data, order, visibility</h3>
+
+<h4 class="sig">await layer.setData(pbf, { minZoom?, maxZoom? }) → boolean</h4>
+<p>Swaps the data. The handle, its events, the paint and the filter stay; the paint is evaluated again on the new features. Resolves <code>true</code> when the new data is on the GPU.</p>
+
+<h4 class="sig">layer.setOrder(order) · layer.setVisible(visible) · layer.remove()</h4>
+<p>Moves the layer in the stack (smaller is lower) · shows or hides it (nothing is baked again) · removes it for good. If the active layer is removed, no layer holds the cursor until you call <code>activate()</code> or add another interactive layer.</p>
+
+<h3>6.4 Events and questions</h3>
+
+<h4 class="sig">layer.on(type, callback) → layer</h4>
+<p>For the active layer only. A layer of lines only does not answer hover yet.</p>
+<ul>
+	<li><strong><code>"hover"</code></strong>: <code>{ fid, properties }</code>, or <code>null</code> when the pointer leaves the features.</li>
+	<li><strong><code>"mouseenter"</code></strong> / <strong><code>"mouseleave"</code></strong>: at the edges of a feature — <code>{ fid, properties }</code> / <code>{ fid }</code>.</li>
+	<li><strong><code>"click"</code></strong>: <code>{ fid, properties, lngLat }</code>, <code>lngLat</code> = <code>[lng, lat]</code> of the pointer.</li>
+</ul>
+
+<h4 class="sig">layer.activate()</h4>
+<p>Gives the cursor (hover, tip, highlight, <code>layer.on("click")</code>) to this layer.</p>
+
+<h4 class="sig">layer.query([lng, lat]) → { fid, properties } | null</h4>
+<p>Synchronous, in JavaScript. A point within 50 m, else a line within 30 m, else the smallest polygon containing the position. Works for every layer, interactive or not; ignores the filter and the visibility.</p>
+
+<h4 class="sig">map.queryAll([lng, lat]) → [{ layer, fid, feature }]</h4>
+<p><code>layer.query</code> on every Gint layer, top layer first. <code>feature</code> is <code>{ fid, properties }</code>. Includes layers the globe adds by itself.</p>
+
+<h4 class="sig">map.on("click", ({ lngLat, hits }) => …)</h4>
+<p>Every click on the globe, with <code>hits</code> = <code>map.queryAll(lngLat)</code>. Also <code>map.on("move" | "settle" | "load", …)</code> and <code>map.off(type, callback)</code>; <code>"load"</code> fires at once if the map is already drawn.</p>
+
+<h3>6.5 The MapLibre-shaped entrance</h3>
+<p>
+<code>map.addSource(id, { type: "geojson", data })</code> with <code>map.addLayer({ type: "fill" | "line" | "circle", … })</code> builds a Gint layer underneath,
+so MapLibre code runs as it is: <code>setPaintProperty</code>, <code>setLayoutProperty</code> (<code>visibility</code>), <code>setFilter</code>, <code>moveLayer</code>,
+<code>setFeatureState({ source, id }, state)</code>, <code>queryRenderedFeatures</code> and <code>map.on("click", layerId, …)</code> all work on it.
+The layers of one source become <strong>one</strong> Gint layer: their paints are merged, and their filters are joined with <code>all</code>.
+</p>
+<p>
+The older single-layer methods (<code>applyGintData</code>, <code>paint</code>, <code>paintTable</code>, <code>onGintClick</code>) remain for existing apps. New code should use <code>addGint</code>.
+</p>
+
+</div><!-- .ref -->
+
+<div class="part">Part II — How it works</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="overview">7. Pipeline Overview</h2>
 
 <div class="pipeline">
 	<div class="pipe-stage stage-enc">
@@ -116,14 +488,14 @@ A <strong>Gint layer</strong> keeps the whole geometry of a <a href="geopbf.html
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-gpu">
 		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">Draw — every frame</div><div class="pipe-sub">WebGPU or WebGL2 · same passes on both</div></div></div>
-		<div class="pipe-items"><span>cull · level of detail in the vertex shader · stencil fill · capsule lines · drape · pick</span></div>
+		<div class="pipe-items"><span>cull · level of detail in the vertex shader · winding fill · capsule lines · drape · pick</span></div>
 	</div>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="encoding">3. Encoding — Topology, Vertex Codes, Ranks</h2>
+<h2 id="encoding">8. Encoding — Topology, Vertex Codes, Ranks</h2>
 
-<h3>3.1 Shared arcs</h3>
+<h3>8.1 Shared arcs</h3>
 <p>
 The encoder (Rust compiled to WebAssembly, run in a worker) splits every ring and line at junctions into <strong>arcs</strong>,
 and stores each arc once. A polygon is a list of arc references — <code>[fid][nRings][arcCount][±arcIdx…]</code>, where a reversed arc is written <code>~idx</code>.
@@ -131,7 +503,7 @@ Two neighbouring municipalities share their border arc, so it is simplified iden
 Lines and a neighbour list are stored in separate streams.
 </p>
 
-<h3>3.2 The 64-bit vertex code</h3>
+<h3>8.2 The 64-bit vertex code</h3>
 <p>
 Longitude and latitude become integers — <code>ix = (lon + 180) × 10<sup>7</sup></code>, <code>iy = (lat + 90) × 10<sup>7</sup></code> (about 1 cm) —
 and their bits are <strong>interleaved (Morton order)</strong> into one 64-bit code. The code also carries the vertex's level of detail:
@@ -145,17 +517,17 @@ Long arcs get an extra L1 vertex every 1° along the great circle (a <em>degree 
 that cuts across the curve of the Earth.
 </p>
 
-<h3>3.3 Visvalingam–Whyatt rank</h3>
+<h3>8.3 Visvalingam–Whyatt rank</h3>
 <p>
 Each interior vertex is weighted by the Visvalingam–Whyatt effective area — the area of the triangle it forms with its neighbours, carried as a running maximum
 so a vertex never outranks the ones removed before it, and corrected by cos(latitude). The area becomes a 6-bit rank:
 </p>
 <div class="formula">rank = clamp( floor( 1.5 · log<sub>2</sub>(area in deg²) + 61.524 ), 0, 63 )</div>
 <p>
-The same formula, fed the ground area of one screen pixel, gives the rank the current zoom needs (§4). Rank and zoom speak the same unit.
+The same formula, fed the ground area of one screen pixel, gives the rank the current zoom needs (§9). Rank and zoom speak the same unit.
 </p>
 
-<h3>3.4 GintBUF</h3>
+<h3>8.4 GintBUF</h3>
 <p>
 The result is one buffer: a 64-byte header (magic <code>"Gint"</code>, version, counts, bbox, stream lengths), then the arc vertex codes,
 the point codes, per-arc metadata <code>[offset, length, weight, –, bbox]</code>, and the polygon, line and neighbour streams.
@@ -163,7 +535,7 @@ It is cached in IndexedDB, so a second visit skips the encoder entirely.
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lod">4. Level of Detail in the Vertex Shader</h2>
+<h2 id="lod">9. Level of Detail in the Vertex Shader</h2>
 
 <p>
 The bake step turns arcs into <strong>edges</strong> (vertex A → vertex B) in an integer texture. Each frame:
@@ -177,7 +549,7 @@ The bake step turns arcs into <strong>edges</strong> (vertex A → vertex B) in 
 Nothing is uploaded when you zoom. What changes is one uniform.
 </p>
 
-<h3>4.1 Tiers and chunks</h3>
+<h3>9.1 Tiers and chunks</h3>
 <p>
 A national dataset can have millions of edges. Two structures keep the vertex shader from touching them all:
 </p>
@@ -187,7 +559,7 @@ A national dataset can have millions of edges. Two structures keep the vertex sh
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="fill">5. Filling Polygons with the Stencil</h2>
+<h2 id="fill">10. Filling Polygons Without Triangles</h2>
 
 <p>
 Polygons are never triangulated. Each polygon's edges are drawn as a <strong>fan</strong> from a pivot — the centre of that feature's bbox — into the stencil buffer:
@@ -195,14 +567,15 @@ front-facing triangles increment, back-facing triangles decrement (<strong>nonze
 Concave shapes and holes come out right with no special cases; the fan's own overlaps cancel.
 </p>
 <ul>
-	<li><strong>Boundary meta.</strong> An arc shared by two polygons of the same fill cancels in the winding count, so it need not be drawn in the fill at all. The bake step drops arcs whose net reference is zero, so for a dense partition — parcels, districts — the fill costs roughly the length of the outer boundary, not the number of features inside it.</li>
+	<li><strong>Boundary meta.</strong> An arc shared by two polygons of the same fill cancels in the winding count, so it need not be drawn in the fill at all. The bake step drops arcs whose net reference is zero, so for a dense partition — parcels, districts — a one-colour fill costs roughly the length of the outer boundary, not the number of features inside it. The fan of this fill uses one pivot for everything, because the kept arcs of many features form mixed loops. In central Sapporo (about 370,000 edges of parcels) this took a mid-zoom frame from 20–37 ms to about 2 ms.</li>
 	<li><strong>Low zoom.</strong> When the features are smaller than a few pixels, the layer switches to a solid fill and fades back as you zoom in; while the camera moves, that switch is held a little longer so it does not flicker.</li>
-	<li><strong>Choropleth.</strong> For a map coloured by value, each fan triangle adds ±(feature id + 1) and ±1 into a float target; dividing the two recovers the id per pixel, and a style table turns it into a colour. The number of passes does not depend on the number of colours.</li>
-	<li>Fill switches itself off above 2 million edges; lines still draw.</li>
+	<li><strong>Choropleth.</strong> For a map coloured per feature, each fan triangle adds ±(feature id + 1) and ±1 into a float target; dividing the two recovers the id per pixel, and the style table turns it into a colour. The number of passes does not depend on the number of colours. A fourth channel keeps the largest id that touched the pixel, which decides overlaps (§5). This fill needs every edge: the cancelling of shared arcs works only when the two sides have the same colour.</li>
+	<li><strong>Moving camera.</strong> A frame has a budget of 250,000 edges while the camera moves. Over it, a layer draws a cheaper form — the outline, or a one-colour silhouette — and the full picture comes back when the camera stops.</li>
+	<li>Fill switches itself off above 2 million edges (<code>fillMaxEdges</code>); lines still draw.</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lines">6. Lines and Styles</h2>
+<h2 id="lines">11. Lines and Styles</h2>
 
 <p>
 Each edge is drawn as a small quad (six vertices) with a capsule signed-distance function, so lines have round joins and ends at any width without extra geometry.
@@ -211,7 +584,7 @@ restyling a map is a texture update, not a rebuild.
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="sphere">7. On a Sphere — Horizon and Antimeridian</h2>
+<h2 id="sphere">12. On a Sphere — Horizon and Antimeridian</h2>
 
 <ul>
 	<li><strong>Horizon.</strong> Vertices on the far side of the globe are projected onto the horizon circle in 3D, so a polygon that straddles the horizon keeps a closed outline and still fills correctly. Features entirely on the far side are culled by a spherical-cap test.</li>
@@ -219,40 +592,26 @@ restyling a map is a texture update, not a rebuild.
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="terrain">8. In 3D — Draped on Terrain</h2>
+<h2 id="terrain">13. In 3D — On the Terrain</h2>
 
 <ul>
-	<li>Lines and fills are draped on the same elevation field as the rest of the map.</li>
-	<li>Long edges are subdivided on the GPU according to the terrain under them (instanced draws, within a budget), so a border crossing a mountain range follows the ridges instead of cutting through them.</li>
+	<li><strong>Fills</strong> are painted into the ground texture that the terrain samples — the same one that carries raster maps — so they lie exactly on the ground, whatever its shape.</li>
+	<li><strong>Lines and points</strong> are draped on the same elevation field. Long edges are subdivided on the GPU according to the terrain under them (instanced draws, within a budget), so a border crossing a mountain range follows the ridges instead of cutting through them.</li>
 	<li>Parts hidden behind terrain are shown as a faint dashed line when the camera is still — you can see where a boundary goes behind a mountain.</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="identify">9. Asking Questions — Picking and Identify</h2>
+<h2 id="identify">14. Asking Questions — Picking and Identify</h2>
 
 <ul>
 	<li><strong>Lines and points</strong> are picked on the GPU: each is drawn with its feature id into a small target, which is read back asynchronously (a pixel buffer and fence on WebGL2, <code>copyTextureToBuffer</code> + <code>mapAsync</code> on WebGPU).</li>
-	<li><strong>Polygons</strong> are answered in JavaScript by a point-in-polygon test with bbox rejection, <em>smallest wins</em> — a click inside a ward inside a city returns the ward. About 1,900 Japanese municipalities answer in 0.5–4 ms.</li>
+	<li><strong>Polygons</strong> are answered in JavaScript by a point-in-polygon test with bbox rejection, <em>smallest wins</em> — a click inside a ward inside a city returns the ward. About 1,900 Japanese municipalities answer in 0.5–4 ms. A line or point under the pointer comes before the polygon around it.</li>
+	<li>The pick target is built when the camera stops, for the active layer only — one target, however many layers.</li>
 	<li>Hover highlights the feature (a thicker outline) and can darken everything outside it.</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="api">10. Layers API</h2>
-
-<pre><code><span class="kw">const</span> pbf = <span class="kw">await</span> geopbf(file, { gint: <span class="kw">true</span> });   <span class="cm">// GeoPBF with its GintBUF</span>
-<span class="kw">const</span> layer = map.addGint(pbf, { label: { field: <span class="st">"name"</span> } });
-<span class="kw">await</span> layer.setPaint({ <span class="st">"fill-color"</span>: <span class="st">"#e0c080"</span>, <span class="st">"line-color"</span>: <span class="st">"#806020"</span> });
-layer.setFilter([<span class="st">"&gt;"</span>, [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">100000</span>]);
-layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.properties));</code></pre>
-
-<p>
-A layer handle has <code>setPaint</code>, <code>setFilter</code>, <code>setData</code>, <code>setOrder</code>, <code>setLabel</code>, <code>setFeatureState</code>, <code>on</code>, <code>query</code> and <code>remove</code>;
-<code>map.queryAll</code> asks every layer at once. Layers added with MapLibre-style <code>addLayer</code> (fill, line, circle) are Gint layers underneath.
-Everything on this page runs on both backends — the WebGPU renderer is a port of the same passes and shares the same bake code.
-</p>
-
-<!-- ──────────────────────────────────────────────────── -->
-<h2 id="philosophy">11. Design Philosophy</h2>
+<h2 id="philosophy">15. Design Philosophy</h2>
 
 <p>
 How geographic data is represented is also a choice about which level of detail to treat as "reality."
@@ -267,6 +626,10 @@ Packing it into the vertex code itself means the data carries its own answer to 
 <p>
 Two quirks belong to globes, not flat maps: polygons crossing the antimeridian must be cut, and polygons crossing the horizon must be closed along it.
 They are the quiet surprises that separate a flat map renderer from a globe renderer.
+</p>
+<p>
+The API follows the same idea from the other side. The data stays as it is — the paint is a view of it, computed once and kept beside it.
+Borrowing MapLibre's words is not about being a copy; it is about letting what people already know carry over.
 </p>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
