@@ -36,4 +36,10 @@ ok(worst < 1e-9, `3395：往復の誤差 ${worst.toExponential(2)}°（< 1e-9°�
 	const [lo, la] = crsFromWKT(W3857).toLonLat([15540000, 4163881]);
 	ok(Math.abs(la - (2 * Math.atan(Math.exp(4163881 / a)) - Math.PI / 2) * D) < 1e-12 && Math.abs(lo - 15540000 / a * D) < 1e-12, "3857（球）は球の式のまま");
 }
+// modules/projections.js（preview の d3 風投影）の geoMercator の往復（B15・旧＝invert が 180 を引いて緯度が 90 度ずれた）
+{
+	const { geoMercator } = await import("../src/modules/projections.js");
+	const p = geoMercator(), bad = [[139.7, 35.7], [0, 0], [-70, -45]].filter(ll => { const r = p.invert(p(ll)); return Math.abs(r[0] - ll[0]) > 1e-9 || Math.abs(r[1] - ll[1]) > 1e-9; });
+	ok(!bad.length, `geoMercator の往復（ずれ ${JSON.stringify(bad)}）`);
+}
 console.log(fails ? `FAIL (${fails})` : "PASS"); process.exit(fails ? 1 : 0);

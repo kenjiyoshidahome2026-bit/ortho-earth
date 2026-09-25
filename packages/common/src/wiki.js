@@ -80,7 +80,7 @@ async function get(title, lang = "ja") {
 async function getContent(id, lang = "ja") {
 	var idb = wikiDB[lang] = wikiDB[lang] || (await Cache(["wikiDB", lang].join("/")));
 	var v = await idb(id); if (v) return parseHTML(v);
-	v = await get(id); if (!v) return console.error("fail to get data: ", id, lang)
+	v = await get(id, lang); if (!v) return console.error("fail to get data: ", id, lang)   // B17：旧＝lang を渡さず常に ja から取った
 	await idb(id, v);
 	return getContent(id, lang);
 }

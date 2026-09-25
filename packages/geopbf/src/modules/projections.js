@@ -34,7 +34,7 @@ export function geoMercator() {
 	p.invert = ([px, py]) => {
 		const x = (px - t[0]) / s;
 		const y = (t[1] - py) / s;
-		return [x / rad - r[0], 2 * atan(exp(y)) / rad - 90 / 180 * 360 - r[1]];
+		return [x / rad - r[0], 2 * atan(exp(y)) / rad - 90 - r[1]];
 	};
 	p.rotate = v => v === undefined ? r : (r = v, p);
 	p.scale = v => v === undefined ? s : (s = v, p);
