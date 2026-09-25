@@ -102,7 +102,9 @@ function convertTokens(s) {
 export function convertValue(v, prop = "") {
 	if (isFunction(v)) return convertFunction(v, prop);
 	if ((prop === "text-field" || prop === "icon-image") && typeof v === "string") return convertTokens(v);
-	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor" || prop === "line-dasharray")) return ["literal", v];
+	// 文字列の配列リテラル（フォント名・アンカー名）は式と見分けがつかない＝literal に包む。line-dasharray は数の配列＝そのままで
+	// リテラル、先頭が文字列なら式（step/interpolate/literal）＝包むと式が「中身の配列」として読まれ線ごと消えた（2026-09-25）
+	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
 	return v;
 }
 
@@ -111,6 +113,8 @@ export function convertLayer(L) {
 	const out = { ...L };
 	if (L.filter != null) out.filter = convertFilter(L.filter);
 	for (const k of ["paint", "layout"]) if (L[k]) { out[k] = {}; for (const [p, v] of Object.entries(L[k])) out[k][p] = convertValue(v, p); }
+	// MapLibre の line-dasharray は線幅の倍数。内蔵 style（style-gsi/mono）は px（タイル基準ズームの見かけ）＝build.js へ単位を申告する
+	if (out.paint?.["line-dasharray"] != null) out.dashInLineWidths = true;
 	return out;
 }
 
