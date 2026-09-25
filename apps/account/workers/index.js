@@ -39,7 +39,8 @@ export default {
 			if ((m = p.match(/^\/me\/works\/([\w-]+)\/thumb$/)) && req.method === "PUT") return await thumbPut(req, env, m[1]);
 			return err(404, "not_found", `no route: ${req.method} ${p}`);
 		} catch (e) {
-			return err(500, "internal", e.message);
+			console.error("[account]", req.method, new URL(req.url).pathname, e?.stack || e);   // 詳細は wrangler tail へ
+			return err(500, "internal", "internal error");   // 本文には内部の文言を出さない（S5）
 		}
 	},
 };
