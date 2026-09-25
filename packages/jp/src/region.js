@@ -88,13 +88,16 @@ export const JP_REGION = {
 			attribution: { href: "https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html", key: "Hazard Map Portal Site (MLIT)" } },
 	],
 	// 出典（表示義務）。1 行目＝長い正式名称を単独で／2 行目＝残りのデータ源／3 行目＝加工注記＋©。
-	// 行割りは iPhone 幅（375px・11px 字）で折り返さないことを基準にした 3 行固定。
+	// 行割りの意図＝iPhone 幅（375px・11px 字）で 3 行。実測（2026-09-25）＝国土数値情報を足す前から 375px では ja 4／en 5 行に折り返していた・足して ja 5／en 6 行。
+	// 出典の明示は利用条件＝行数より優先（縮めるなら 2 行目の項目名を短くする・長い正式名称の 1 行目は据え置き）。
 	attribution: {
 		lines: [
 			[{ href: "https://maps.gsi.go.jp/development/ichiran.html#optbv", key: "Optimized Vector Tiles (experimental), Geospatial Information Authority of Japan (GSI)" }],
 			[{ href: "https://maps.gsi.go.jp/development/ichiran.html#dem", key: "Elevation Tiles (DEM10B)" },
 			 { href: "https://www.mlit.go.jp/plateau/", key: "MLIT PLATEAU" },
-			 { href: "https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm", text: "JAXA AW3D30" }],
+			 { href: "https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm", text: "JAXA AW3D30" },
+			 // 国土数値情報＝鉄道（N02・新幹線の路線と駅）と施設（KSJ P 系列の POI）＝出典明示が利用条件（docs/poi-ledger.md §9・2026-09-25 追記）
+			 { href: "https://nlftp.mlit.go.jp/ksj/", key: "National Land Numerical Information" }],
 		],
 		note: "(Created by processing these data sources)",
 	},
