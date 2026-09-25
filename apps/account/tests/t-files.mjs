@@ -107,6 +107,15 @@ await t("ETag → If-None-Match で 304", async () => {
 	const r2 = await call(env, "/me/files/e.geopbf", { cookie: sid, headers: { "If-None-Match": etag } });
 	eq(r2.status, 304, "304");
 });
+await t("本体は同一オリジンで描かせない（nosniff・sandbox・attachment＝S4）", async () => {
+	const env = makeEnv(), sid = await mkUser(env);
+	await put(env, sid, "x.html", "<script>alert(1)</script>", { type: "text/html" });
+	const r = await call(env, "/me/files/x.html", { cookie: sid });
+	eq(r.status, 200, "200");
+	eq(r.headers.get("X-Content-Type-Options"), "nosniff", "nosniff");
+	eq(/^sandbox\b/.test(r.headers.get("Content-Security-Policy") || ""), true, "CSP sandbox");
+	eq(r.headers.get("Content-Disposition"), "attachment; filename*=UTF-8''x.html", "attachment");
+});
 await t("無いファイルは 404・DELETE は冪等 204", async () => {
 	const env = makeEnv(), sid = await mkUser(env);
 	eq((await call(env, "/me/files/nai.geopbf", { cookie: sid })).status, 404, "GET 404");
