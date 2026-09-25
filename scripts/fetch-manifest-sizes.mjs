@@ -24,7 +24,7 @@ const SURVEY     = 'A002005212020';
 const args = process.argv.slice(2);
 const doEstat = args.includes('--estat') || !args.some(a => a.startsWith('--'));
 const doMaff  = args.includes('--maff')  || !args.some(a => a.startsWith('--'));
-const CONC    = parseInt(args[args.indexOf('--concurrency') + 1] || '20');
+const CONC    = args.includes('--concurrency') ? (parseInt(args[args.indexOf('--concurrency') + 1]) || 20) : 20;   // 旧＝指定なしで indexOf が -1＋1＝0 → args[0]（--estat 等）を数に読んで NaN
 
 // ── GET でストリームサイズ計測 ──────────────────────────────────
 async function fetchSize(url, headers = {}) {
