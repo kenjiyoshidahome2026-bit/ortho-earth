@@ -158,6 +158,7 @@ export function frame(cam, s, { w, h }, api) {
 	gl.viewport(0, 0, w, h);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 	if (!site || !api?.clipH) return false;
+	if (api.project(site.lon, site.lat)[2] < 0) return shells.length + stars.length + sparks.length > 0;   // 発射地点が地球の裏＝描かない（海面の球は深度を書かない＝f<0 で隠す）。粒子が居れば次フレームも見る
 	const now = api.time ?? Date.now();
 	const n = step(now); statN = n; lastT = now;
 	if (!n) return false;
