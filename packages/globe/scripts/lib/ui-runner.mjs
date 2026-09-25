@@ -5,7 +5,7 @@
 //   ・実時間は**頁ごとに Chrome を立て直す**（別ポート・別プロファイル・kill の exit を待つ）＝前の頁の
 //     IDB/localStorage/GPU が次へ漏れない（9/24 に verify-webgpu 側で踏んだ轍と同じ手当て）
 import { spawn, execFile } from "node:child_process";
-import { rm } from "node:fs/promises";
+import { rm, readFile } from "node:fs/promises";
 
 export const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -34,17 +34,22 @@ export const SWIFTSHADER = ["--disable-gpu", "--use-angle=swiftshader", "--enabl
 // 実 GPU（WebGPU バックエンドの検分）＝WebGPU の async init は仮想時間と両立しない＝ここも実時間
 export const REALGPU = ["--enable-unsafe-webgpu"];
 
-// 実時間 1 頁＝1 Chrome（別ポート・別プロファイル・kill の exit を待つ）。戻り＝document.title（PASS…／FAIL…）。
+// 実時間 1 頁＝1 Chrome（別ポート＝Chrome が選ぶ・別プロファイル・kill の exit を待つ）。呼び手の cdpBase は旧来の名残＝無視。戻り＝document.title（PASS…／FAIL…）。
 // drag:true＝ページが window.__dragGo を立てている間だけ実マウスの pointermove を流す（入力→rAF のフレーム内順序は
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
 // backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
-export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, cdpBase = 9600, shot = null, backends = null } = {}) {
-	const CDP = cdpBase + ((process.pid * 7 + seq * 13) % 200), dir = `/tmp/${profilePrefix}-${process.pid}-${seq}`;
-	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP}`, ...flags,
+export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null } = {}) {
+	// CDP の port は Chrome 自身に空きを選ばせる（port 0 → プロファイルの DevToolsActivePort に書く）。旧＝pid と seq から
+	// 決め打ち＝置き去りの headless Chrome が同じ port に居ると、よその Chrome に繋いで頁が進まず「no-title」（2026-09-25）
+	const dir = `/tmp/${profilePrefix}-${process.pid}-${seq}`;
+	await rm(dir, { recursive: true, force: true }).catch(() => { /* 無ければよい */ });   // 前回の DevToolsActivePort を読まない
+	const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", ...flags,
 		"--no-first-run", `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
+	let CDP = 0;
 	try {
 		for (let i = 0; ; i++) {
-			try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ }
+			if (!CDP) CDP = +(await readFile(`${dir}/DevToolsActivePort`, "utf8").catch(() => "")).split("\n")[0] || 0;
+			if (CDP) { try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ } }
 			if (i > 60) return "FAIL chrome devtools が起動しない";
 			await sleep(250);
 		}
@@ -111,7 +116,7 @@ export const runVirtual = url => new Promise(res => execFile(CHROME,
 //   ・gl2=1 の無い頁は起動ログの backend が全部 webgpu、gl2=1 の頁は全部 webgl2（GL2 変種が本当に GL2 かも見る）
 //   ・noBoot の頁（地球儀を起こさない＝createRenderer 直叩き・OPFS 等）は起動ログを求めない
 //   ・どの頁も表題に skip／スキップ（WebGPU 不在で素通りする印）があれば FAIL
-export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, cdpBase, shotLast = process.env.SHOT || null,
+export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, shotLast = process.env.SHOT || null,
 	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set() }) {
 	let fail = 0, seq = 0;
 	for (const p of pages) {
@@ -120,7 +125,7 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
 		const url = urlOf(page, q.toString());
 		const backends = expectBackend && realtime.has(page) ? [] : null;
-		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), ...(cdpBase ? { cdpBase } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
+		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
 		let title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url);
 		if (backends && title.startsWith("PASS")) {
 			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;

@@ -2,7 +2,9 @@
 <!-- 実描画の検分：外来の MapLibre style で基図を描く（#33・2026-09-23）。globe（地域なし）を opts.style で起動。
      style は地理院ベクタタイル（optimal_bvmap）を指す小さな物を内側に書く＝旧式の関数（stops）・旧式フィルタ・"{name}" 記法を混ぜる。
      ①東京湾の海の画素が style の水の色（マゼンタ）②map.setStyle で水の色（シアン）に替わる ③getStyle の層と source 名
-     ④queryRenderedFeatures が基図の層 id（"water"）で引ける ⑤地域の基図で起動した地図の setStyle は投げる（は別頁の役目＝ここでは見ない）。実時間。 -->
+     ④queryRenderedFeatures が基図の層 id（"water"）で引ける ⑤地域の基図で起動した地図の setStyle は投げる（は別頁の役目＝ここでは見ない）。実時間。
+     タイルは tests/fixtures/optbv（地理院 optimal_bvmap の WA・Anno 層だけを抜いた 35 枚＝scripts/bake-optbv-fixture.mjs）＝外部に出ない
+     （旧＝cyberjapandata を実取得・回線と先方の都合で揺れた・T3 2026-09-25）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlstyle</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -12,7 +14,7 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const styleOf = water => ({
 	version: 8, name: "t-mlstyle",
-	sources: { gsi: { type: "vector", tiles: ["https://cyberjapandata.gsi.go.jp/xyz/optimal_bvmap-v1/{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
+	sources: { gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
 	layers: [
 		{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
 		{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": { stops: [[0, water], [22, water]] } } },   // 旧式の関数
