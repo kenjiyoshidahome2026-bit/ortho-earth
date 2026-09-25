@@ -13,9 +13,9 @@ const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VUI_PORT || 5237;
 
 const ALL_PAGES = ["t-gadgets", "t-newgadgets", "t-providers", "t-raster", "t-demo", "t-scene",
-	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-print", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world"];
-const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model"]);   // render worker 内の動的 import／実描画の到着に依る頁
-const LONG = {};
+	"t-gndfaces", "t-measure", "t-profile", "t-shot", "t-palette-live", "t-print", "t-opts", "t-input", "t-narrow", "t-rtl", "t-rtl?lang=ar", "t-model", "t-world", "t-fireworks"];   // t-fireworks＝打ち上げ花火（シーンの深度 #47 の見本）＝overlay の import と粒子の進み
+const REALTIME = new Set(["t-raster", "t-gndfaces", "t-model", "t-fireworks"]);   // render worker 内の動的 import／実描画の到着に依る頁
+const LONG = { "t-fireworks": 240 };   // 玉が開くまで 8 秒＋ソフトウェア描画
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p)) : ALL_PAGES;
