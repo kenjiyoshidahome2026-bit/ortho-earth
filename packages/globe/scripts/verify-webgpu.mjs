@@ -19,7 +19,7 @@ const ALL_PAGES = ["t-shadow", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
-	"t-wgsl", "t-light"];   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
+	"t-wgsl", "t-light", "t-atmo"];   // t-atmo＝大気散乱（#46 段 1）＝東（朝）のリムが西（夜）より明るい   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 
@@ -28,7 +28,7 @@ const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
-	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light", "t-atmo"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
 });
 stop();
