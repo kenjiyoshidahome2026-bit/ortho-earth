@@ -33,7 +33,7 @@ try {
 	ok("rising", a && a.shells >= 1 && a.particles > 0, JSON.stringify(a));
 	map.clock.setTime(map.clock.time + 6000); await sleep(1500);   // 8.2 s で開く
 	const b = await stats();
-	ok("burst", b && b.stars >= 300, JSON.stringify(b));
+	ok("burst", b && b.stars >= 300 && b.particles >= b.stars * 3, JSON.stringify(b));   // 星 1 つ＝頭＋残像 2 点
 	ov.post({ type: "clear" }); await sleep(1500);
 	const c = await stats();
 	ok("clear", c && c.particles === 0 && c.stars === 0, JSON.stringify(c));
