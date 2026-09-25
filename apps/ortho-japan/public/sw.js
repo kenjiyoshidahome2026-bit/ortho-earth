@@ -8,7 +8,11 @@
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
 const CACHE = "oj-assets-v4";      // v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
-const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）      // v3＝2026-09-22 の大改名（PLATEAU→mesh・遅延ロードの組み替え）で旧チャンクが全部入れ替わった＝古い掴みを一掃する
+const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
+// パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget が作る/消すたびに postMessage で取り直す
+let packOn = null;
+const hasPack = async () => packOn ??= await caches.has(PACK).catch(() => false);
+self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn = null; });      // v3＝2026-09-22 の大改名（PLATEAU→mesh・遅延ロードの組み替え）で旧チャンクが全部入れ替わった＝古い掴みを一掃する
 // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
 // content-hash 名の不変資産＝cache-first で握るプレフィックス。
 //   /japan/assets/     … サイト殻（site.js・scenes台本・scene.html エディタ）のチャンク
@@ -25,6 +29,7 @@ self.addEventListener("activate", e => e.waitUntil((async () => {
 	// 版を上げた時だけ旧キャッシュを掃く（同一版の中では未改版ハッシュが自然に再利用される＝取り直さない）。
 	const keys = await caches.keys();
 	await Promise.all(keys.filter(k => k !== CACHE && k !== PACK).map(k => caches.delete(k)));
+	packOn = null;
 	await self.clients.claim();
 })()));
 
@@ -35,8 +40,10 @@ self.addEventListener("fetch", e => {
 	// ⓪ オフラインパック（#40）＝パックに入っている URL（基図タイル・ラスタ＝クロスオリジン）だけ cache-first。無ければ素の fetch（保存しない＝
 	//    パックの外は従来どおり HTTP キャッシュ任せ）。機内モードでパックの範囲が開く仕組み。パックが 1 つも無ければ照会も一度で済む
 	if (url.origin !== location.origin) {
+		if (packOn === false) return;   // パック無し＝素通し（照会もしない）
 		e.respondWith((async () => {
-			const hit = await caches.match(req.url, { cacheName: PACK, ignoreSearch: false }).catch(() => null);
+			if (!(await hasPack())) return fetch(req);
+			const hit = await caches.match(req.url, { cacheName: PACK }).catch(() => null);
 			return hit || fetch(req);
 		})());
 		return;

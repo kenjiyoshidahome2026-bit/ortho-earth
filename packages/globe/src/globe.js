@@ -2630,9 +2630,10 @@ map.lineOfSight = async (a, b, o = {}) => {
 let offlineDem = null;
 map.gadget("offline", function (opts) {
 	const sources = {
-		basemap: { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) },
+		// XYZ の基図だけ（PMTiles・基図なしは tileUrl が型紙にならない＝gadget は載らない）
+		basemap: typeof BASE_SOURCE.tileUrl === "function" && /^https?:/.test(String(BASE_SOURCE.tileUrl(1, 0, 0) ?? "")) ? { tileUrl: BASE_SOURCE.tileUrl, coverage: BASE_SOURCE.coverage, minZ: Math.max(4, Math.floor(TILE_MINZOOM)) } : null,
 		dem: noTerr || EXT ? null : { byName: async n => (offlineDem ??= await createTileLoader({ apiUrl: "https://api.ortho-earth.com", dtm: REGION_DTM })).byName(n) },
-		rasters: { list: () => map.raster.list().filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22 })) },
+		rasters: { list: () => map.raster.list().filter(r => r.spec?.url && /\{z\}/.test(r.spec.url)).map(r => ({ id: r.id, url: r.spec.url, minZoom: r.spec.minZoom ?? r.spec.minzoom ?? 0, maxZoom: r.spec.maxZoom ?? r.spec.maxzoom ?? 22, subdomains: r.spec.subdomains || null, tms: !!r.spec.tms })) },
 		mesh: meshOn ? { warm: () => wakeMesh(), sets: () => meshMgr.sets, prefetch: (names, onProg) => meshMgr.prefetch([], names, onProg) } : null,
 	};
 	const h = offlineGadget.call(this, { sources, bounds: () => map.getBounds(), onOpen: () => toolOpen("offline"), signal: ac.signal, ...opts });

@@ -35,16 +35,20 @@ try {
 	ok("pack", packs.length === 1 && packs[0].done && packs[0].tiles === want && packs[0].bytes > 0, JSON.stringify(packs.map(p => ({ tiles: p.tiles, bytes: p.bytes, done: p.done }))));
 	ok("cached", keys.length === want, `${keys.length}/${want}`);
 	ok("row", panel.querySelectorAll(".of-row").length === 1);
-	// もう一度＝全部飛ばす（再開の形）
-	const sniff = performance.getEntriesByType("resource").length;
+	// もう一度＝同じ計画＝同じ記録に続きから（全部飛ばす・容量は変わらない・行は増えない）
+	const before = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
 	await h.estimate(); await h.run();
 	const packs2 = await h.list(), after = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
-	ok("resume", packs2.length === 2 && packs2[0].bytes === 0, JSON.stringify(packs2.map(p => p.bytes)) + ` res=${after}`);
-	// 削除＝共有 URL は残る（もう 1 つのパックが同じ範囲）→ 両方消すと空
-	await h.delete(packs2[0].id);
-	ok("deleteKeepsShared", (await cache.keys()).length === want);
-	await h.delete(packs2[1].id);
-	ok("deleteAll", (await cache.keys()).length === 0 && (await h.list()).length === 0);
+	ok("resume", packs2.length === 1 && packs2[0].id === packs[0].id && packs2[0].bytes === packs[0].bytes && packs2[0].done && after === before, JSON.stringify(packs2.map(p => p.bytes)) + ` res=${before}→${after}`);
+	// 別の範囲（重なる）のパック＝共有 URL は片方を消しても残る → 両方消すと置き場ごと空
+	map.jumpTo({ center: [139.95, 35.55], zoom: 12, pitch: 0 }); await sleep(300);   // 重なりつつ別のタイルが要る所へ
+	await h.estimate(); await h.run();
+	const packs3 = await h.list(), keys3 = (await cache.keys()).length;
+	ok("second", packs3.length === 2 && keys3 > want, `${packs3.length} packs, ${keys3} keys`);
+	await h.delete(packs3.find(p => p.id !== packs[0].id).id);
+	ok("deleteKeepsShared", (await cache.keys()).length === want, String((await cache.keys()).length));
+	await h.delete(packs[0].id);
+	ok("deleteAll", !(await caches.has(PACK_CACHE)) && (await h.list()).length === 0);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>

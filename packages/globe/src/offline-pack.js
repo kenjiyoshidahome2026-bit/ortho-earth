@@ -7,14 +7,18 @@
 // 台帳（パックの一覧）＝IDB GIS/pack（native-bucket の Cache）。再開＝もう一度走らせる（Cache にある URL は飛ばす）。
 import { lonLatToTile } from "@ortho-earth/core";
 export const PACK_CACHE = "oj-pack";   // Cache Storage の名前（sw.js の PACK と同じ・変えたら両方）
+const LAT_MAX = 85.0511;   // Web メルカトルの縁（これより外は y が範囲外になる）
 
-// bbox（[w,s,e,n]・経度は ±180 の中・跨ぎは呼び手が分ける）と z の範囲からタイル列。coverage で切る（基図の申告）
+// bbox（[w,s,e,n]）を列挙できる形に：緯度を ±85.05 に切り、±180 を跨ぐ（w>e）なら 2 つに分け、coverage（基図の申告）で切る
+export function splitBbox(bbox, coverage = null) {
+	const [w0, s0, e0, n0] = bbox, s = Math.max(-LAT_MAX, s0), n = Math.min(LAT_MAX, n0);
+	const parts = w0 > e0 ? [[w0, s, 180, n], [-180, s, e0, n]] : [[w0, s, e0, n]];
+	return parts.map(([w, s, e, n]) => coverage ? [Math.max(w, coverage[0]), Math.max(s, coverage[1]), Math.min(e, coverage[2]), Math.min(n, coverage[3])] : [w, s, e, n]).filter(([w, s, e, n]) => w < e && s < n);
+}
+// bbox と z の範囲からタイル列
 export function tilesFor(bbox, zmin, zmax, coverage = null) {
-	let [w, s, e, n] = bbox;
-	if (coverage) { w = Math.max(w, coverage[0]); s = Math.max(s, coverage[1]); e = Math.min(e, coverage[2]); n = Math.min(n, coverage[3]); }
 	const out = [];
-	if (!(w < e && s < n)) return out;
-	for (let z = zmin; z <= zmax; z++) {
+	for (const [w, s, e, n] of splitBbox(bbox, coverage)) for (let z = zmin; z <= zmax; z++) {
 		const [x0, y0] = lonLatToTile(w, n, z), [x1, y1] = lonLatToTile(e, s, z);   // 北西→(minx,miny) 南東→(maxx,maxy)
 		for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) out.push([z, x, y]);
 	}
@@ -22,15 +26,17 @@ export function tilesFor(bbox, zmin, zmax, coverage = null) {
 }
 // 枚数だけ（見積りの入口＝列を作らない）
 export function tileCount(bbox, zmin, zmax, coverage = null) {
-	let [w, s, e, n] = bbox;
-	if (coverage) { w = Math.max(w, coverage[0]); s = Math.max(s, coverage[1]); e = Math.min(e, coverage[2]); n = Math.min(n, coverage[3]); }
-	if (!(w < e && s < n)) return 0;
 	let c = 0;
-	for (let z = zmin; z <= zmax; z++) {
+	for (const [w, s, e, n] of splitBbox(bbox, coverage)) for (let z = zmin; z <= zmax; z++) {
 		const [x0, y0] = lonLatToTile(w, n, z), [x1, y1] = lonLatToTile(e, s, z);
 		c += (Math.abs(x1 - x0) + 1) * (Math.abs(y1 - y0) + 1);
 	}
 	return c;
+}
+// tileUrl(z,x,y) の関数から URL の型紙（{z}/{x}/{y}）を取り出す＝台帳に残す（後で基図が変わっても、そのパックの URL を作り直せる）
+export function tplOf(tileUrl) {
+	const u = String(tileUrl(27, 1234567, 7654321) ?? "");
+	return u.split("7654321").join("{y}").split("1234567").join("{x}").replace(/(?<![0-9])27(?![0-9])/, "{z}");
 }
 // 標高のセル名（altpbf の encodeName と同じ綴り＝R{2 桁の幅}{N|S}{lat3}{E|W}{lng3}・南西隅を幅で切り下げ）
 export function demCells(bbox, range) {
