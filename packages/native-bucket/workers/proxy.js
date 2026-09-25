@@ -6,6 +6,7 @@
 //  ① 転送先が PROXY_ALLOWED_HOSTS に載る … 誰でも GET/HEAD（カタログ・公開データの取得はここを通る）
 //  ② 呼び出し元が信頼できる … Origin が ALLOWED_DOMAINS に一致、または X-API-Key が env.API_KEY と一致
 //     → 転送先は任意（GIS-HUB の「任意URLを貼って開く」・Node のバッチスクリプトがここ）
+//  GET/HEAD 以外（PUT/DELETE/POST）は転送先に関わらず X-API-Key だけが通す（Origin は偽れる＝2026-09-25）
 // どちらも通らなければ 403。PROXY_ALLOWED_HOSTS 未設定＝①が空＝②だけが通る（安全側の既定）。
 //
 // リダイレクトは自前で追う（redirect:"manual"）。allowlist のホストが 302 で任意の先へ飛ばせると
@@ -33,19 +34,34 @@ const isInternalHost = host =>
 const deny = (msg, status = 403) =>
 	new Response(JSON.stringify({ error: msg }), { status, headers: { "Content-Type": "application/json", "X-Proxy-Deny": "1" } });
 
-// 信頼された呼び出し元＝Origin 一致（ブラウザは Origin を偽装できない）または API キー一致（Node バッチ）。
-// Origin は URL として解いてから突き合わせる（生文字列の includes だと "https://evil.com/www.ortho-earth.com"
-// 型のパスに書いただけの偽装が通る）。ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が
-// 混ざるため、host（ポート込み）と hostname（ポート無し）の両方で見る＝どちらの書き方も効く。
-// /proxy の門②と /tellus（tellus.js）が共用。
-export const isTrusted = (req, env = {}) => {
-	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",").filter(Boolean);
+// Origin が ALLOWED_DOMAINS に載るか。URL として解いてから突き合わせる（生文字列の includes だと
+// "https://evil.com/www.ortho-earth.com" 型のパスに書いただけの偽装や "www.ortho-earth.com.evil.com" が通る）。
+// ALLOWED_DOMAINS には "localhost:5173" のようなポート付きの項目が混ざるため、host（ポート込み）と
+// hostname（ポート無し）の両方で見る＝どちらの書き方も効く。空の項目（末尾カンマ等）は hostMatches が捨てる。
+// ⚠ Origin はブラウザには偽れないが curl 等は自由に付けられる＝「ブラウザから来た」の目印でしかなく認証ではない。
+// CORS の許可（index.js）と下の isTrusted が共用。
+export const originAllowed = (req, env = {}) => {
+	const allowedOrigins = (env.ALLOWED_DOMAINS || "").split(",");
 	const origin = req.headers.get("Origin") || "";
-	let originHost = "", originHostPort = "";
-	try { if (origin) { const u = new URL(origin); originHost = u.hostname.toLowerCase(); originHostPort = u.host.toLowerCase(); } } catch { /* Origin: null 等 */ }
-	return (!!originHost && (hostMatches(originHost, allowedOrigins) || hostMatches(originHostPort, allowedOrigins)))
-		|| (!!env.API_KEY && req.headers.get("X-API-Key") === env.API_KEY);
+	try {
+		if (!origin) return false;
+		const u = new URL(origin);
+		return hostMatches(u.hostname.toLowerCase(), allowedOrigins) || hostMatches(u.host.toLowerCase(), allowedOrigins);
+	} catch { return false; }   // Origin: null 等
 };
+
+// X-API-Key が env.API_KEY と一致するか（定数時間で比べる）。書き込み・非 GET の中継はこれだけが鍵（2026-09-25）。
+export const keyMatches = (req, env = {}) => {
+	const want = env.API_KEY || "", got = req.headers.get("X-API-Key") || "";
+	if (!want || got.length !== want.length) return false;
+	let d = 0;
+	for (let i = 0; i < want.length; i++) d |= want.charCodeAt(i) ^ got.charCodeAt(i);
+	return d === 0;
+};
+
+// 信頼された呼び出し元＝Origin 一致（ブラウザの頁）または API キー一致（Node バッチ）。
+// /proxy の門②（GET/HEAD）と /tellus（tellus.js）が共用。非 GET の中継は keyMatches だけで判定する（proxy() 内）。
+export const isTrusted = (req, env = {}) => originAllowed(req, env) || keyMatches(req, env);
 
 export async function proxy(req, env = {}) {
 	const url = new URL(req.url);
@@ -72,9 +88,10 @@ export async function proxy(req, env = {}) {
 
 	const first = gate(target);
 	if (!first.ok) return deny(first.why);
-	// 書き込み系は信頼された呼び出し元だけ（オープンな踏み台で PUT/DELETE を中継させない）
+	// 書き込み系は API キー持ちだけ（オープンな踏み台で PUT/DELETE を中継させない）。
+	// Origin は curl で偽れるので非 GET の根拠にしない（2026-09-25・偽 Origin で任意ホストへの PUT/DELETE が通っていた）
 	const method = req.method;
-	if (!trusted && method !== "GET" && method !== "HEAD") return deny(`method not allowed: ${method}`);
+	if (method !== "GET" && method !== "HEAD" && !keyMatches(req, env)) return deny(`method not allowed: ${method}（非 GET の中継は X-API-Key が要る）`);
 
 	// リダイレクトを1ホップずつ検問しながら追う
 	const followed = async (startUrl, init) => {

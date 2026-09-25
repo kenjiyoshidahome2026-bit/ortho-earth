@@ -1,3 +1,5 @@
+import { keyMatches } from './proxy.js';
+
 export async function bucket(request, bucket, ctx, env = {}) {
 	const url = new URL(request.url);
 	const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
@@ -52,8 +54,7 @@ export async function bucket(request, bucket, ctx, env = {}) {
 			return response;
 		}
 		 if (request.method === "POST") {
-			const clientApiKey = request.headers.get("X-API-Key");
-			if (clientApiKey !== env.API_KEY) {
+			if (!keyMatches(request, env)) {   // 定数時間で比べる（API_KEY 未設定なら誰も書けない）
 				return new Response(JSON.stringify({ error: "Unauthorized" }), { 
 					status: 401, headers: { "Content-Type": "application/json" }
 				});

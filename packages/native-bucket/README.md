@@ -97,7 +97,9 @@ const { Fetch, Bucket, Cache } = nativeBucket("https://your-worker.workers.dev/"
 `/proxy` is a public endpoint, so forwarding is gated. A request passes if **either** gate opens:
 
 1. **Target host is on the list** — `PROXY_ALLOWED_HOSTS` in `wrangler.toml` (dot-boundary suffix match: `gsi.go.jp` matches `maps.gsi.go.jp` but not `evilgsi.go.jp`). Open to anyone, `GET`/`HEAD` only.
-2. **Caller is trusted** — request `Origin` is in `ALLOWED_DOMAINS`, or `X-API-Key` matches `API_KEY`. Any target host, any method.
+2. **Caller is trusted** — request `Origin` is in `ALLOWED_DOMAINS`, or `X-API-Key` matches `API_KEY`. Any target host.
+
+Methods other than `GET`/`HEAD` (`PUT`, `DELETE`, `POST`) are forwarded **only with a matching `X-API-Key`**, whatever the target. `Origin` marks a browser page, not an authenticated caller: non-browser clients can send any `Origin`.
 
 Otherwise `403`. **If `PROXY_ALLOWED_HOSTS` is unset, only gate 2 opens** — a deployment with no configuration forwards nothing to anonymous callers.
 
@@ -231,6 +233,8 @@ Access is strictly enforced via the `ALLOWED_DOMAINS` whitelist in `wrangler.tom
 
 - **`ortho-earth.com`** matches `ortho-earth.com`, `www.ortho-earth.com`, `dev.ortho-earth.com`, etc.
 - **`localhost:5173`** allows access from your local dev-server.
+
+The list decides CORS (`Access-Control-Allow-Origin` for non-GET requests) by exact host match, and the proxy's gate 2 for `GET`/`HEAD`. Writes to the bucket always need `X-API-Key`. Responses from `/bucket`, `/proxy` and `/tellus` carry `X-Content-Type-Options: nosniff` and a `sandbox` CSP, and upstream `Set-Cookie` headers are dropped.
 
 ---
 
