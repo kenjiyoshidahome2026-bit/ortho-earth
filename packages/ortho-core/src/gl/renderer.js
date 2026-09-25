@@ -14,6 +14,8 @@ import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と�
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
+// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。u_logCoef・gintCtx・深度の書き出し（#47）が同じ値を使う
+const logCoefOf = st => { const limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); return 2.0 / Math.log2(limb * 1.15 + st.camDist + 1.0); };
 export function createRenderer(canvas, rOpts = {}) {
 	// antialias＝ブラウザ暗黙確保の MSAA（フルRetina面積で ~100MB級）。msaa1（LOW_MEM 既定・?msaa=0）＝1x 直描き。
 	const gl = canvas.getContext("webgl2", { antialias: !rOpts.msaa1, premultipliedAlpha: true, stencil: true });
@@ -1001,8 +1003,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
-		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
-		gl.uniform1f(loc(gl, prog, "u_logCoef"), 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0));
+		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
 		gl.uniform1i(loc(gl, prog, "u_elevTex"), 1);
 		gl.uniform4f(loc(gl, prog, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
 		gl.uniform1f(loc(gl, prog, "u_elevScale"), elevScaleEff);
@@ -1019,7 +1020,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		dbgC = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), zoom: +(cam.zoom || 0).toFixed(1), terrainDepth: false };   // ?drawhud=1（gpu/renderer.js dbg と同形）
 		const st = cameraState(cam, canvas.width, canvas.height);
 		st.mvp32 = Float32Array.from(st.mvp);
-		{ const L = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12)); lastLogCoef = 2.0 / Math.log2(L * 1.15 + st.camDist + 1.0); }   // 深度の書き出し（#47）が添える尺度＝u_logCoef と同式
+		lastLogCoef = logCoefOf(st);   // 深度の書き出し（#47）が添える尺度＝u_logCoef・gintCtx.logCoef と同じ物
 		// フォグ距離（遠山ブルーの帯・遠景平坦化dfの境界）は camDist へ滑らかに追従（臨界減衰）：
 		// 直結だとホイール1ノッチ毎に霞の帯が跳んでチラチラし、凍結だとズームアウトで旧距離の霞が
 		// 画面を覆ってから静止時にパッと晴れる（不自然）。ローパスなら両方向とも霞が滑らかに動く。
@@ -1308,9 +1309,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
 		// 基図の線と同じ高さ・同じ深度空間で地形に参加（尾根の向こうは隠線＝淡破線）。それ以外は null＝最前面。
 		if (terrainDepth) {
-			const _lb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 			gintCtx = { terrainDepth: true,
-				logCoef: 2.0 / Math.log2(_lb * 1.15 + st.camDist + 1.0),
+				logCoef: lastLogCoef,
 				fogFar: fogFarCap, elevTex, elevBounds: elev.bounds,
 				elevScale: elevScaleEff, hasElev: elev.has, edgeFade: elev.edgeFade || 0,
 				meshQ: mq, meshG: mq ? terrain.G : 0,   // 案A: gint も描画メッシュ面へ量子化

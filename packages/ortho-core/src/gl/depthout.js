@@ -46,6 +46,7 @@ function tex2d(gl, ifmt, w, h, fmt, type) {
 export function createDepthOutGL(gl, canvas) {
 	const samples = gl.getContextAttributes()?.antialias ? Math.min(4, gl.getParameter(gl.MAX_SAMPLES) || 0) : 0;
 	const copyProg = prog(gl, COPY_FS), encProg = prog(gl, ENC_FS);
+	const copyTexLoc = gl.getUniformLocation(copyProg, "u_tex"), encDepthLoc = gl.getUniformLocation(encProg, "u_depth");
 	const vao = gl.createVertexArray();
 	const realBind = gl.bindFramebuffer;
 	let T = null, active = false;   // T＝寸法ごとの資産一式
@@ -130,13 +131,13 @@ export function createDepthOutGL(gl, canvas) {
 		// ②色を画面へ（MSAA の既定フレームバッファへは blit できない＝全画面の三角形で写す）
 		realBind.call(gl, gl.FRAMEBUFFER, null);
 		gl.useProgram(copyProg);
-		gl.uniform1i(gl.getUniformLocation(copyProg, "u_tex"), 0);
+		gl.uniform1i(copyTexLoc, 0);
 		gl.bindTexture(gl.TEXTURE_2D, T.colorTex);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		// ③深度を RGBA8 へ詰めて読む（同期の readPixels＝申し出がある時だけの費用）
 		realBind.call(gl, gl.FRAMEBUFFER, T.enc);
 		gl.useProgram(encProg);
-		gl.uniform1i(gl.getUniformLocation(encProg, "u_depth"), 0);
+		gl.uniform1i(encDepthLoc, 0);
 		gl.bindTexture(gl.TEXTURE_2D, T.depthTex);
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
