@@ -27,7 +27,7 @@ const redirect = (location, ...cookies) => {
 };
 
 export async function login(req, env, provider) {
-	const P = PROVIDERS[provider];
+	const P = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;   // 自前の鍵だけ（S5・旧＝__proto__ で Object.prototype を引いて 500）
 	if (!P) return err(404, "not_found", `unknown provider: ${provider}`);
 	if (!P.creds(env)[0]) return err(404, "not_found", `provider not configured: ${provider}`);   // secret 未投入＝未開通（X は従量課金化で保留中）
 	const state = randB64(16), verifier = randB64(32);
@@ -44,7 +44,7 @@ export async function login(req, env, provider) {
 }
 
 export async function callback(req, env, provider) {
-	const P = PROVIDERS[provider];
+	const P = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : null;   // 自前の鍵だけ（S5・旧＝__proto__ で Object.prototype を引いて 500）
 	if (!P) return err(404, "not_found", `unknown provider: ${provider}`);
 	const url = new URL(req.url);
 	const tx = decTx(getCookie(req, env, "oauth") || "");

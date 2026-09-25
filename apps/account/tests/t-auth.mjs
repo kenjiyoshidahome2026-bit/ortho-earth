@@ -61,6 +61,22 @@ await t("google/x の authorize URL も正しい", async () => {
 });
 await t("未知プロバイダは 404", async () =>
 	eq((await call(makeEnv(), "/auth/login/facebook")).status, 404, "status"));
+await t("Object の鍵名（__proto__・constructor・toString）も 404（S5・旧＝__proto__ で 500）", async () => {
+	for (const k of ["__proto__", "constructor", "toString"]) {
+		eq((await call(makeEnv(), `/auth/login/${k}`)).status, 404, `login ${k}`);
+		eq((await call(makeEnv(), `/auth/callback/${k}?code=c&state=s`)).status, 404, `callback ${k}`);
+	}
+});
+await t("500 の本文に内部の文言を出さない（S5）", async () => {
+	const env = makeEnv();
+	env.DB = { prepare() { throw new Error("SECRET-DETAIL d1 table xyz"); } };
+	const errLog = console.error; console.error = () => {};
+	try {
+		const res = await call(env, "/me", { cookie: `${env.DEV ? "" : "__Host-"}sid=abc` });
+		eq(res.status, 500, "status");
+		eq((await res.text()).includes("SECRET-DETAIL"), false, "本文に内部の文言");
+	} finally { console.error = errLog; }
+});
 await t("secret 未投入のプロバイダも 404（X 保留中の門）", async () => {
 	const env = makeEnv();
 	delete env.X_CLIENT_ID;
