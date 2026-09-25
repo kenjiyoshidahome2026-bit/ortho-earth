@@ -6,6 +6,11 @@ import { resolve } from 'node:path';
 // 実行時アセット（koppen-clim.png 等）は globe の家（apps/ortho-globe/public）：本番＝/globe/（ortho-globe の Worker が配る）・dev＝/@fs で直読み。
 const ROOT = resolve(import.meta.dirname, '../..');
 const GLOBE_PUBLIC = resolve(import.meta.dirname, '../ortho-globe/public');
+// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・world／ortho-nl と同じ＝globe を束ねる vite 8 アプリの決まり）。
+// 既定 on だと実行時ヘルパ __exportAll の共通チャンクが動的エントリ mesh-loaders に合流し、worker がヘルパ欲しさに
+// mesh-loaders＋basis-loader（計 220KB）を静的 import する。worker は別ビルド＝build と worker の両方に要る。
+// experimental の口＝rolldown を上げたら「mesh-loaders を静的 import するチャンクが無い」ことを確かめ直す。
+const noChunkOptimization = { experimental: { chunkOptimization: false } };
 
 export default defineConfig(({ command }) => ({
 	base: '/geopbf/',
@@ -21,8 +26,8 @@ export default defineConfig(({ command }) => ({
 			'Cross-Origin-Embedder-Policy': 'credentialless'
 		}
 	},
-	worker: { format: 'es' },
+	worker: { format: 'es', rolldownOptions: noChunkOptimization },
 	// sourcemap: 'hidden' = .mapは出すがJS末尾に参照を書かない＝デプロイしても実質非公開（gishub-jpと同じ方針）
-	build: { target: 'esnext', sourcemap: 'hidden' },
+	build: { target: 'esnext', sourcemap: 'hidden', rolldownOptions: noChunkOptimization },
 	css: { preprocessorOptions: { scss: { api: 'modern-compiler' } } }
 }));
