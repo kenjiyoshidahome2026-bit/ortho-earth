@@ -14,7 +14,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 	#mapContainer { position: fixed; inset: 0; }
 	#demoOverlay { position: fixed; inset: 0;
 		transition: all 1s ease; display: flex; flex-direction: column;
-		nav, footer { background: var(--glass-bg); color: var(--text-secondary); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+		nav, footer { background: var(--glass-bg); color: var(--text-secondary); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 		nav { display: flex; justify-content: space-between; align-items: center; padding: 1.5rem 2rem;
 			border-bottom: 1px solid var(--glass-border);
 			.logo { font-size: 1.5em; font-weight: 800;
@@ -41,7 +41,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
 				.card { display: flex; flex-direction: column; text-align: start;
 					padding: 1.5rem 1.6rem; border-radius: 16px; text-decoration: none; color: var(--text-primary);
 					background: var(--card-bg); border: 1px solid var(--glass-border);
-					backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+					-webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
 					transition: transform .25s ease, border-color .25s ease, box-shadow .25s ease;
 					&:hover { transform: translateY(-4px); border-color: var(--accent-color); box-shadow: 0 10px 30px rgba(0,0,0,0.45); }
 					.card-eyebrow { font-size: .7rem; letter-spacing: .15em; text-transform: uppercase; color: var(--accent-2-bright); font-weight: 700; margin-bottom: .5rem; }
@@ -91,7 +91,7 @@ body { font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', sans-s
    Full selectors so they beat the base `button` / `.card` rules that sit under the body{} nest. */
 body #demoOverlay main .tabs { display: inline-flex; gap: .3rem; margin-bottom: 1.75rem; padding: .35rem;
 	border-radius: 999px; background: var(--card-bg); border: 1px solid var(--glass-border);   /* カードと同じ青みの黒（本人 9/24） */
-	backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+	-webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); }
 body #demoOverlay main .tabs .tab { padding: .7rem 2rem; border-radius: 999px; border: none; background: transparent;
 	color: var(--text-secondary); font-size: 1.05rem; font-weight: 600; cursor: pointer; box-shadow: none;
 	transition: color .2s ease, background .2s ease, box-shadow .2s ease; }
@@ -116,7 +116,7 @@ body #demoOverlay main .apps[hidden] { display: none; }
 body #demoOverlay main .apps .card { position: relative; }
 body #demoOverlay main .apps .card .card-badge { position: absolute; top: 1rem; right: 1rem; z-index: 3;
 	padding: .24rem .62rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .03em;
-	white-space: nowrap; border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+	white-space: nowrap; border: 1px solid; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 body #demoOverlay main .apps .card .card-badge.v2 { color: var(--accent-color); border-color: var(--accent-color); background: rgba(10, 10, 15, 0.72); }
 body #demoOverlay main .apps .card .card-badge.v1 { color: var(--text-secondary); border-color: var(--glass-border); background: rgba(10, 10, 15, 0.72); }
 body #demoOverlay main .apps.tech .card.tech-card .doclinks-label { display: block; margin-top: 1rem; font-size: .66rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text-secondary); opacity: .7; }
@@ -193,7 +193,7 @@ body #demoOverlay main .apps.start .doclinks a:hover { background: rgba(0, 255, 
 body #demoOverlay main .grid .card { position: relative; }
 body #demoOverlay main .grid .card .card-lang { flex: none; margin: 0;
 	padding: .2rem .55rem; border-radius: 999px; font-size: .68rem; font-weight: 700; letter-spacing: .02em; white-space: nowrap;
-	background: rgba(10, 10, 15, .78); border: 1px solid; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+	background: rgba(10, 10, 15, .78); border: 1px solid; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 body #demoOverlay main .grid .card .card-lang.all { color: var(--accent-color); border-color: rgba(0, 255, 204, .55); }
 body #demoOverlay main .grid .card .card-lang.ja, body #demoOverlay main .grid .card .card-lang.en { color: #ffd479; border-color: rgba(255, 212, 121, .55); }
 
