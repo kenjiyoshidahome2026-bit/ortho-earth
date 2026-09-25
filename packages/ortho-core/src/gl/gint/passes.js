@@ -110,6 +110,7 @@ function bindPivotBoundary(gl, u) {
 function bindFidStyle(s, gl, u, widthAdd = 0) {
 	gl.uniform1i(u.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
 	if (u.u_width_add) gl.uniform1f(u.u_width_add, widthAdd);
+	if (u.u_fid_wscale) gl.uniform1f(u.u_fid_wscale, s.dpr ?? 1);   // 表の line-width は CSS px（circle-radius・style.lineWidth と同じ）
 	if (!s.fidStyleTex) return;
 	gl.uniform1i(u.u_fid_style, 5);
 	gl.uniform1i(u.u_fidstyle_w, s.fidStyleW || 1);
