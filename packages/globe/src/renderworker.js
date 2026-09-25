@@ -628,7 +628,7 @@ function ensureIfMoved(c) {
 // 失敗フレームは落として次フレームへ（エラーはconsoleに出す＝原因調査可能なまま画は生き続ける）。
 function frame() {
 	lastFrameRun = performance.now(); frameTicks++;
-	let drew = false;
+	let drew = false, depthBmp = null;   // depthBmp＝WebGPU の深度の ImageBitmap（#47）＝このフレームの終わりに必ず返す
 	try {
 		drainUploads();   // 重いGPU転送（シーン/PLATEAU）の平準化＝1件/フレーム。dirty を立てる＝同フレームの下の描画で反映
 		if (dirty && renderer && cam) {
@@ -665,7 +665,7 @@ function frame() {
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			let depthFrame = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
-			if (dBegun) { try { depthFrame = dOutH.end(); } catch (e) { depthOff(e); } }
+			if (dBegun) { try { depthFrame = dOutH.end(); depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
@@ -685,7 +685,6 @@ function frame() {
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
-			depthFrame?.bitmap?.close();                             // WebGPU の ImageBitmap＝全オーバーレイが上げ終えた＝返す
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
@@ -715,7 +714,7 @@ function frame() {
 		// 初回だけ main へ通報＝モバイル等で worker コンソールが見づらい環境の一次診断（window.__drawErr に残る）。
 		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
 		if (!sentDrawErr) { sentDrawErr = true; postMessage({ type: "drawErr", msg: String(e?.message || e), stack: String(e?.stack || "").slice(0, 400) }); }
-	}
+	} finally { depthBmp?.close(); }   // WebGPU の深度の ImageBitmap＝全オーバーレイが上げ終えた（途中で落ちても）＝返す
 	tuneRes(drew);
 	const nowT = performance.now();
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）

@@ -69,6 +69,7 @@ export function createDepthOutGL(gl, canvas) {
 		realBind.call(gl, gl.FRAMEBUFFER, t.res);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.colorTex, 0);
 		gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, t.depthTex, 0);
+		const okRes = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;   // 深度ステンシルのテクスチャ添付を拒む GPU＝黙って「隠れ無し」にしない
 		if (samples > 0) {   // MSAA＝描くのは多重サンプルの renderbuffer・終わりに res（テクスチャ）へ解決
 			t.scene = gl.createFramebuffer();
 			realBind.call(gl, gl.FRAMEBUFFER, t.scene);
@@ -88,7 +89,7 @@ export function createDepthOutGL(gl, canvas) {
 		realBind.call(gl, gl.FRAMEBUFFER, null);
 		gl.bindTexture(gl.TEXTURE_2D, prevTex); gl.bindRenderbuffer(gl.RENDERBUFFER, prevRb);
 		T = t;
-		if (!ok) { freeT(); throw new Error("depthout: framebuffer incomplete"); }
+		if (!ok || !okRes) { freeT(); throw new Error("depthout: framebuffer incomplete"); }
 		// 1x 直描き時の scene（＝res）も完全か確かめる
 		realBind.call(gl, gl.FRAMEBUFFER, t.scene);
 		const ok2 = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
@@ -112,6 +113,10 @@ export function createDepthOutGL(gl, canvas) {
 		if (!active) return null;
 		active = false;
 		delete gl.bindFramebuffer;   // 自前のプロパティを外す＝プロトタイプの素の口へ戻る
+		try { return endBody(); }
+		finally { realBind.call(gl, gl.FRAMEBUFFER, null); }   // 途中で投げても画面の束縛は素へ（状態の戻しは endBody の finally）
+	}
+	function endBody() {
 		const { w: W, h: H } = T;
 		// 触る状態を控えて戻す（次のフレームの renderer/gint は既定を前提にしない書き方だが、念のため全部戻す）
 		const en = [gl.BLEND, gl.DEPTH_TEST, gl.STENCIL_TEST, gl.SCISSOR_TEST, gl.CULL_FACE].map(c => [c, gl.isEnabled(c)]);
@@ -120,6 +125,7 @@ export function createDepthOutGL(gl, canvas) {
 		const prevPack = gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING), prevVp = gl.getParameter(gl.VIEWPORT);
 		gl.activeTexture(gl.TEXTURE0);
 		const prevTex0 = gl.getParameter(gl.TEXTURE_BINDING_2D);
+		try {
 		if (T.scene !== T.res) {
 			realBind.call(gl, gl.READ_FRAMEBUFFER, T.scene); realBind.call(gl, gl.DRAW_FRAMEBUFFER, T.res);
 			gl.blitFramebuffer(0, 0, W, H, 0, 0, W, H, gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT, gl.NEAREST);
@@ -142,16 +148,17 @@ export function createDepthOutGL(gl, canvas) {
 		gl.drawArrays(gl.TRIANGLES, 0, 3);
 		gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 		gl.readPixels(0, 0, W, H, gl.RGBA, gl.UNSIGNED_BYTE, T.pixels);
-		// 戻す
-		realBind.call(gl, gl.FRAMEBUFFER, null);
-		gl.bindBuffer(gl.PIXEL_PACK_BUFFER, prevPack);
-		gl.bindTexture(gl.TEXTURE_2D, prevTex0);
-		gl.activeTexture(prevAct);
-		gl.useProgram(prevProg); gl.bindVertexArray(prevVao);
-		gl.colorMask(prevMask[0], prevMask[1], prevMask[2], prevMask[3]);
-		gl.viewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);
-		for (const [c, on] of en) if (on) gl.enable(c);
 		return { pixels: T.pixels, w: W, h: H };
+		} finally {   // 途中で投げても（コンテキスト喪失など）GL の状態は素へ
+			realBind.call(gl, gl.FRAMEBUFFER, null);
+			gl.bindBuffer(gl.PIXEL_PACK_BUFFER, prevPack);
+			gl.bindTexture(gl.TEXTURE_2D, prevTex0);
+			gl.activeTexture(prevAct);
+			gl.useProgram(prevProg); gl.bindVertexArray(prevVao);
+			gl.colorMask(prevMask[0], prevMask[1], prevMask[2], prevMask[3]);
+			gl.viewport(prevVp[0], prevVp[1], prevVp[2], prevVp[3]);
+			for (const [c, on] of en) if (on) gl.enable(c);
+		}
 	}
 	// 途中で例外が出たフレーム＝読み替えだけ外して画面を素に戻す（その 1 枚は捨てる）
 	function abort() { if (!active) return; active = false; delete gl.bindFramebuffer; realBind.call(gl, gl.FRAMEBUFFER, null); }

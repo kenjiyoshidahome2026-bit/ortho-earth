@@ -55,13 +55,13 @@ export default defineConfig({
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
-	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。
+	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。
 	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
 	// experimental.chunkOptimization:false＝rolldown（vite 8）の決まり（2026-09-25・world／ortho-nl／gishub-jp と同じ）。既定 on だと実行時ヘルパ
 	// __exportAll の共通チャンクが動的エントリ mesh-loaders に合流し、worker がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を
 	// 静的 import する。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。rolldown を上げたら静的 import が無いことを確かめ直す。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html"), fireworks: resolve(import.meta.dirname, "fireworks.html") },
 		external: ["/japan/lib/ortho-japan.js"],
 		experimental: { chunkOptimization: false },
 	} },

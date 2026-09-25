@@ -1,0 +1,55 @@
+<!doctype html>
+<!-- UI回帰：オフラインパック（#40）。基図の tileUrl を同一オリジンの小さな fixture に差し替えて（通信なし）：
+     ①ボタンとパネル ②見積り（枚数・容量）③作る＝Cache Storage（oj-pack）に URL ごと・台帳（IDB GIS/pack）に 1 件 ④もう一度＝飛ばし（再開）
+     ⑤削除＝Cache からも台帳からも消える。実時間（fetch と Cache API）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:900px;height:600px}</style><title>t-offline</title></head>
+<body><div id="map"></div>
+<script type="module">
+import orthoJapan from "../app.js";
+import { PACK_CACHE, tileCount } from "@ortho-earth/globe/offline-pack.js";
+const t = [], ok = (n, c, note = "") => t.push(`${c ? "ok" : "NG"}:${n}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	await caches.delete(PACK_CACHE);
+	const FIX = new URL("./fixtures/amedas.geopbf", location.href).href;
+	const map = await orthoJapan({ target: "#map", view: "#12/35.68/139.76", chips: false, mesh: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0 });
+	let fetched = 0;
+	const sources = { basemap: { tileUrl: (z, x, y) => `${FIX}?t=${z}/${x}/${y}`, coverage: [121, 19, 155, 46], minZ: 8 }, dem: null, rasters: { list: () => [] }, mesh: null };
+	const h = map.gadget.offline({ sources });
+	ok("button", !!document.getElementById("offline-btn"));
+	document.getElementById("offline-btn").click();
+	await sleep(500);
+	const panel = document.querySelector(".offline-panel");
+	ok("panel", !!panel && panel.style.display !== "none");
+	panel.querySelector(".of-z").value = "12"; panel.querySelector(".of-z").dispatchEvent(new Event("change"));
+	const est = await h.estimate();
+	const want = tileCount(map.getBounds(), 8, 12, [121, 19, 155, 46]);
+	ok("estimate", est && est.tiles === want && est.bytes > 0, JSON.stringify({ tiles: est?.tiles, want, bytes: est?.bytes }));
+	// 削除に備えて台帳を空に
+	for (const p of await h.list()) await h.delete(p.id);
+	await h.run();
+	const packs = await h.list();
+	const cache = await caches.open(PACK_CACHE), keys = await cache.keys();
+	ok("pack", packs.length === 1 && packs[0].done && packs[0].tiles === want && packs[0].bytes > 0, JSON.stringify(packs.map(p => ({ tiles: p.tiles, bytes: p.bytes, done: p.done }))));
+	ok("cached", keys.length === want, `${keys.length}/${want}`);
+	ok("row", panel.querySelectorAll(".of-row").length === 1);
+	// もう一度＝同じ計画＝同じ記録に続きから（全部飛ばす・容量は変わらない・行は増えない）
+	const before = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
+	await h.estimate(); await h.run();
+	const packs2 = await h.list(), after = performance.getEntriesByType("resource").filter(e => e.name.includes("amedas.geopbf?t=")).length;
+	ok("resume", packs2.length === 1 && packs2[0].id === packs[0].id && packs2[0].bytes === packs[0].bytes && packs2[0].done && after === before, JSON.stringify(packs2.map(p => p.bytes)) + ` res=${before}→${after}`);
+	// 別の範囲（重なる）のパック＝共有 URL は片方を消しても残る → 両方消すと置き場ごと空
+	map.jumpTo({ center: [139.95, 35.55], zoom: 12, pitch: 0 }); await sleep(300);   // 重なりつつ別のタイルが要る所へ
+	await h.estimate(); await h.run();
+	const packs3 = await h.list(), keys3 = (await cache.keys()).length;
+	ok("second", packs3.length === 2 && keys3 > want, `${packs3.length} packs, ${keys3} keys`);
+	await h.delete(packs3.find(p => p.id !== packs[0].id).id);
+	ok("deleteKeepsShared", (await cache.keys()).length === want, String((await cache.keys()).length));
+	await h.delete(packs[0].id);
+	ok("deleteAll", !(await caches.has(PACK_CACHE)) && (await h.list()).length === 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

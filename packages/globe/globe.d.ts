@@ -171,6 +171,10 @@ export interface Gadgets {
 	cluster(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number } | null, opts?: ClusterOptions): Promise<{ points: number; clusters: number[] } | null>;
 	/** 日影のボタンとパネル（日影図／その時刻の影・測定面 1.5/4/6.5m／リアルタイムの影＝時刻スライダー・WebGPU のみ）＝map.sunShadow・map.setShadows の UI */
 	sunshadow(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
+	/** オフラインパック（1.2.0〜・#40）：今の画面の範囲とズーム上限を決めて、基図タイル（Cache Storage "oj-pack"）・地形（IDB）・任意で建物と画像タイルを先に取る。
+	 *  配るのは殻の Service Worker（japan の public/sw.js が "oj-pack" の URL を cache-first）＝SW の無い埋め込み先では先読みだけ（HTTP キャッシュ）。
+	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) } */
+	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> };
 	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く */
 	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
