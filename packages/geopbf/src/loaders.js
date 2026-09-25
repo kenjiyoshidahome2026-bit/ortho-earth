@@ -18,7 +18,7 @@ export const GeoPBFLoader = {
 	name: "GeoPBF",
 	id: "geopbf",
 	module: "geopbf",
-	version: "1.7.0", // package.json の version と揃える（publish 時に確認）
+	version: "1.14.0", // package.json の version と揃える＝t-loaders が突き合わせる（旧＝手で揃える約束で 1.7.0 のまま 7 版ずれていた）
 	worker: false,
 	extensions: ["geopbf"],
 	mimeTypes: ["application/octet-stream", "application/x-geopbf"],
