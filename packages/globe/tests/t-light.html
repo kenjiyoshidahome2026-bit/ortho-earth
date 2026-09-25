@@ -58,7 +58,7 @@ try {
 	const walls = async (LON, LAT, key) => {
 		const b = box(LON, LAT, key, false);
 		const camS = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
-		const camN = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 180, dpr: 1 };
+		const camN = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: Math.PI, dpr: 1 };   // bearing はラジアン（180 は誤り＝rad で読まれ斜めを向いていた・結果は両都市で同じ向きなので判定は成立していた）
 		const s = b.probe(await shot(camS), camS, 0, -10, 50), n = b.probe(await shot(camN), camN, 0, 10, 50);
 		b.free();
 		return { s, n };
