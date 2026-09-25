@@ -1,10 +1,8 @@
 import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと shapeFile() が永久 hang・2026-09-14 根治）
 import { encodeZIP } from "../modules/encodeZIP.js";
+import { encodeSJIS } from "../modules/sjis.js";
 const getEncoder = async (encoding) => {
-	if (encoding === "sjis") {
-		const Encoding = (await import('https://esm.sh/encoding-japanese@2.1.0')).default;
-		return str => new Uint8Array(Encoding.convert(str, {from: 'UNICODE', to: 'SJIS', type: 'array' }));
-	}
+	if (encoding === "sjis") return encodeSJIS;   // 依存ゼロの自前表（旧＝実行時に esm.sh から encoding-japanese・B8）
 	const utf8Encoder = new TextEncoder();
 	return str => utf8Encoder.encode(str);
 };

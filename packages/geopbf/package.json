@@ -98,7 +98,7 @@
 	},
 	"scripts": {
 		"prepack": "rm -f wasm/pkg/.gitignore",
-		"test": "node tests/t-zip.mjs && node tests/t-pbf.mjs && node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && node tests/t-moj.mjs && node tests/t-antimeridian.mjs && node tests/t-anchors.mjs && node tests/t-null-island.mjs && node tests/t-skipprops.mjs && node tests/t-purifier.mjs && node tests/t-ndjson.mjs && node tests/t-spatialite.mjs && node tests/t-dxf.mjs && node tests/t-shape.mjs && node tests/t-clean.mjs && node tests/t-color.mjs && node tests/t-dissolve.mjs && node tests/t-dbf.mjs && node tests/t-roundtrip.mjs && node tests/t-mercator.mjs && npm run test:convert && npm run test:edit",
+		"test": "node tests/t-zip.mjs && node tests/t-pbf.mjs && node tests/t-maplibre.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && node tests/t-moj.mjs && node tests/t-antimeridian.mjs && node tests/t-anchors.mjs && node tests/t-null-island.mjs && node tests/t-skipprops.mjs && node tests/t-purifier.mjs && node tests/t-ndjson.mjs && node tests/t-spatialite.mjs && node tests/t-dxf.mjs && node tests/t-shape.mjs && node tests/t-clean.mjs && node tests/t-color.mjs && node tests/t-dissolve.mjs && node tests/t-dbf.mjs && node tests/t-sjis.mjs && node tests/t-roundtrip.mjs && node tests/t-mercator.mjs && npm run test:convert && npm run test:edit",
 		"test:convert": "node tests/t-encoders.mjs && node tests/t-convert.mjs && node tests/t-pmtiles.mjs && node tests/t-parquet.mjs && node tests/t-parquet-range.mjs && node tests/t-gpkg.mjs && node tests/t-fgb.mjs && node tests/t-table.mjs && node tests/t-gdb.mjs && node tests/t-datum.mjs",
 		"verify:gpu": "node scripts/verify-convert-gpu.mjs",
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-imagequad.mjs && node tests/edit/t-spline.mjs && node tests/edit/t-sphere.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
@@ -109,6 +109,7 @@
 	},
 	"devDependencies": {
 		"@loaders.gl/core": "^4.3.0",
+		"encoding-japanese": "^2.1.0",
 		"leaflet": "^1.9.4",
 		"maplibre-gl": "^5.0.0",
 		"ol": "^10.0.0",
