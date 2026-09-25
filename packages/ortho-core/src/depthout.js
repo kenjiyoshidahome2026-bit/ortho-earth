@@ -37,10 +37,9 @@ const texCache = new WeakMap();   // gl → { tex, id, w, h }（フレームを�
 const locCache = new WeakMap();   // prog → { name: location }
 const UNPACK2 = ["UNPACK_ROW_LENGTH", "UNPACK_SKIP_PIXELS", "UNPACK_SKIP_ROWS", "UNPACK_IMAGE_HEIGHT", "UNPACK_SKIP_IMAGES"];   // WebGL2 の詰め方（オーバーレイが変えていても素で上げる）
 export function makeDepthApi(f, id) {
-	const cache = texCache;
 	function texture(gl) {
-		let e = cache.get(gl);
-		if (!e) { e = { tex: gl.createTexture(), id: -1, w: 0, h: 0 }; cache.set(gl, e); }
+		let e = texCache.get(gl);
+		if (!e) { e = { tex: gl.createTexture(), id: -1, w: 0, h: 0 }; texCache.set(gl, e); }
 		if (e.id === id) return e.tex;
 		const prev = gl.getParameter(gl.TEXTURE_BINDING_2D);
 		const flip = gl.getParameter(gl.UNPACK_FLIP_Y_WEBGL), pma = gl.getParameter(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL);
@@ -50,8 +49,9 @@ export function makeDepthApi(f, id) {
 		gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false); gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
 		gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
 		for (const n of UNPACK2) gl.pixelStorei(gl[n], 0);
-		if (f.bitmap) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.bitmap);
-		else if (e.w === f.w && e.h === f.h) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.w, f.h, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels);
+		const same = e.w === f.w && e.h === f.h;   // 同じ大きさ＝上げ直し（確保し直さない）
+		if (f.bitmap) { if (same) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.bitmap); else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.bitmap); }
+		else if (same) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, f.w, f.h, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels);
 		else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.pixels);
 		if (e.id === -1) {   // 初回だけ＝NEAREST（詰めた 24bit を補間で壊さない）・端は伸ばす
 			gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
@@ -78,10 +78,4 @@ export function makeDepthApi(f, id) {
 	}
 	return { w: f.w, h: f.h, logCoef: f.logCoef, backend: f.bitmap ? "webgpu" : "webgl2", glsl: DEPTH_GLSL, texture, bind };
 }
-// 深度が無いフレーム（申し出前・LOW_MEM・起動直後）に DEPTH_GLSL を貼ったプログラムを「隠れ無し」にする
-export function unbindSceneDepth(gl, prog) { let L = locCache.get(prog); if (!L) { L = {}; locCache.set(prog, L); } gl.uniform1f("u_sceneDepthOn" in L ? L.u_sceneDepthOn : (L.u_sceneDepthOn = gl.getUniformLocation(prog, "u_sceneDepthOn")), 0); }
-
-// 深度 d ∈ [0,1] → RGBA8（検定・CPU 側の参照用）
-export function encodeDepth(d) { const v = Math.round(Math.max(0, Math.min(1, d)) * 16777215); return [(v >> 16) & 255, (v >> 8) & 255, v & 255, 255]; }
-export function decodeDepth(r, g, b) { return (r * 65536 + g * 256 + b) / 16777215; }
-export function depthOfW(w, logCoef) { return 0.5 * Math.log2(Math.max(1 + w, 1e-6)) * logCoef; }
+// 深度が無いフレーム（申し出前・LOW_MEM・作れない環境）＝オーバーレイは自分で u_sceneDepthOn を 0 にする（依存ゼロ＝この module は import できない）
