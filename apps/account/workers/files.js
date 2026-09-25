@@ -78,6 +78,11 @@ export async function fileGet(req, env, encName) {
 	if (!obj) return err(404, "not_found", "no such file");
 	const h = new Headers({ ETag: obj.httpEtag, "Cache-Control": "private, no-cache" });
 	obj.writeHttpMetadata?.(h);
+	// 本体は利用者が置いた任意のバイト列＝www と同じオリジンで HTML/SVG として描かせない（S4・2026-09-25）。
+	// fetch で読む geoedit には無関係（attachment は頁の遷移だけに効く）。旧＝保存時の Content-Type のまま返し、直接開くと同一オリジンで走った
+	h.set("X-Content-Type-Options", "nosniff");
+	h.set("Content-Security-Policy", "sandbox; default-src 'none'");
+	h.set("Content-Disposition", `attachment; filename*=UTF-8''${encodeURIComponent(name)}`);
 	if (!obj.body) return new Response(null, { status: 304, headers: h });
 	h.set("Content-Length", String(obj.size));
 	return new Response(obj.body, { status: 200, headers: h });
