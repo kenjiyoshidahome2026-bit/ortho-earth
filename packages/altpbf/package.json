@@ -1,6 +1,6 @@
 {
 	"name": "altpbf",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "ALTPBF — a tiny binary format for elevation tiles: delta-coded SVarint grids with deflate-raw, decoded straight into Int16Array (no intermediate JS arrays). The elevation backbone of ortho-earth: 8 tiles / 55 MB cover the whole planet at R90. Encode, decode, name-scheme helpers and PNG preview, all in the browser. MIT.",
 	"keywords": [
 		"elevation",
