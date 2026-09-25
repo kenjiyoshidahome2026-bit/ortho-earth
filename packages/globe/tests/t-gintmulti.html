@@ -104,6 +104,20 @@ try {
 	ok(`層別スタイル(シアン ${cyan1}→${cyan2}・赤 ${red1}→${red2})`,
 		cyan2 > cyan1 * 1.5 && Math.abs(red2 - red1) < red1 * 0.15);
 
+	// ── ②b 表の line-width は CSS px＝style.lineWidth と同じ単位（dpr 2 で検める・U1・2026-09-26。旧＝表だけ device px で半分の太さ）──
+	{
+		const cam2 = { ...cam, dpr: 2 };
+		LB.style({ lineWidth: 3 });
+		const w1 = count(await shot(cam2), "cyan");   // 既定の描き方 3 CSS px
+		const tb = new Uint32Array(10 * 4);
+		for (let i = 0; i < 10; i++) tb[i * 4 + 2] = ((24 << 24) | (6 << 8) | 1) >>> 0;   // 表の line-width 3（1/8 刻み）・線色 α0＝既定色
+		LB.style({ lineWidth: 1 });                   // 既定の幅は細く＝表の幅が効いている事の区別
+		LB.paint({ table: tb, count: 10 });
+		const w2 = count(await shot(cam2), "cyan");
+		ok(`表の line-width は CSS px(dpr2 既定=${w1} 表=${w2})`, w1 > 100 && Math.abs(w2 - w1) < w1 * 0.2);
+		LB.paint(null); LB.style({ lineWidth: 8 });   // ③以降の前提へ戻す
+	}
+
 	// ── ③ 表示切替は層別 ──
 	LB.setVisible(false);
 	a8 = await shot(cam);

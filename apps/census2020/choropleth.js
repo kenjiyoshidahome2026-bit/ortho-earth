@@ -210,11 +210,11 @@ export function initChoropleth(map, { legend } = {}) {
 			const u32 = new Uint32Array(n * 4);
 			for (let i = 0; i < n; i++) {
 				const code = codeOf(i);
-				if (!existsOf(i)) { u32[i * 4 + 2] = ((8 << 24) | (6 << 8) | 0) >>> 0; continue; }   // 不可視（上記★と同理由）
+				if (!existsOf(i)) { u32[i * 4 + 2] = ((4 << 24) | (6 << 8) | 0) >>> 0; continue; }   // 不可視（上記★と同理由）
 				const isSel = selected && code === selected;
 				u32[i * 4] = packRGBA(CAT_COLORS[catIdx(code)], FILL_A);
 				u32[i * 4 + 1] = isSel ? packRGBA("#ffffff", 0.95) : 0;
-				u32[i * 4 + 2] = (((isSel ? 20 : 8) << 24) | (6 << 8) | 1) >>> 0;
+				u32[i * 4 + 2] = (((isSel ? 10 : 4) << 24) | (6 << 8) | 1) >>> 0;
 			}
 			lastTable = u32; lastCount = n;
 			map.paintTable(u32, n);
@@ -233,11 +233,11 @@ export function initChoropleth(map, { legend } = {}) {
 			// ★値なし＝不可視(flags bit0=0)。市区町村では admin_all 20個(北海道14振興局＝"北海道"名の集約＋北方領土6村)が
 			// 該当＝重なり fid を可視にすると idfill winding が非整数化→下の市区町村まで塗りが消える(札幌が低く見えた真因)。
 			// エンジンの vsId が不可視fidを蓄積から除外＝重なりが無い物として正しく塗れる。集約層では欠損指標が不可視。
-			if (v == null) { u32[i * 4] = 0; u32[i * 4 + 1] = 0; u32[i * 4 + 2] = ((8 << 24) | (6 << 8) | 0) >>> 0; continue; }
+			if (v == null) { u32[i * 4] = 0; u32[i * 4 + 1] = 0; u32[i * 4 + 2] = ((4 << 24) | (6 << 8) | 0) >>> 0; continue; }
 			const isSel = selected && code === selected;   // 選択以外の淡色化は撤去済（白縁だけで示す）
 			u32[i * 4] = packRGBA(colors[cls(v)], FILL_A);
 			u32[i * 4 + 1] = isSel ? packRGBA("#ffffff", 0.95) : 0;
-			u32[i * 4 + 2] = (((isSel ? 20 : 8) << 24) | (6 << 8) | 1) >>> 0;   // width(1/8px)<<24 | radius<<8 | visible
+			u32[i * 4 + 2] = (((isSel ? 10 : 4) << 24) | (6 << 8) | 1) >>> 0;   // width(1/8 CSS px)<<24 | radius<<8 | visible（2026-09-26 に表の幅を CSS px に直した＝旧 8/20＝device px と同じ見た目で 4/10）
 		}
 		lastTable = u32; lastCount = n;
 		map.paintTable(u32, n);

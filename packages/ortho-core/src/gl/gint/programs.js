@@ -528,7 +528,7 @@ void main() {
 
 // 6 verts/edge: (A-)(A+)(B+)(A-)(B+)(B-)。u_pass=0: 非アクティブ, u_pass=1: アクティブのみ(最後に描き z-fight 解消)。
 // per-fid スタイル（paint 時のみ・u_has_fidstyle=1）：fid表(unit5)から visibility/line色/width を上書き。
-// width はスタイル正味（u8×1/8px）＋u_width_add（パス都合の増分＝highlight+2 等。表に混ぜない＝spec §7.1）。
+// width はスタイル正味（u8×1/8 CSS px × u_fid_wscale＝dpr）＋u_width_add（パス都合の増分＝highlight+2 device px 等。表に混ぜない＝spec §7.1）。
 const VS_RENDER = `${GLSL_VS_HEADER}
 uniform float u_line_width;
 uniform float u_dpr;
@@ -542,6 +542,7 @@ uniform usampler2D u_fid_style;    // fid スタイル表（RGBA32UI・unit5。i
 uniform int        u_fidstyle_w;
 uniform int        u_has_fidstyle;
 uniform float      u_width_add;    // パス増分（clean=0 / highlight=+2）
+uniform float      u_fid_wscale;   // 表の line-width（1/8 CSS px）→ device px＝dpr（2026-09-26・旧＝×1＝高 dpr で細く出た＝U1）
 uniform int        u_sub;          // 地形適応細分：1辺あたりのサブ区間数＝インスタンス数（1＝従来経路・細分なし）
 uniform uint       u_subSkipE7;    // メイン描画（clean・u_sub=1）が飛ばす長辺の下限スパン（e7）＝複製行のインスタンス描画が担う。0＝飛ばさない
 out vec4  v_color;
@@ -648,7 +649,7 @@ void main() {
 		if ((rec.b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 		uint w8 = (rec.b >> 24u) & 255u;
 		if (w8 == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
-		lw = float(w8) * 0.125 + u_width_add;
+		lw = float(w8) * 0.125 * u_fid_wscale + u_width_add;
 		uint lc = rec.g;
 		if ((lc & 255u) != 0u)
 			fidColor = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
@@ -940,7 +941,7 @@ export function createGintPrograms(gl) {
 	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table', 'u_hilite_color', 'u_hilite_width',
 		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
 		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
-		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add']);        // per-fid スタイル（paint）
+		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add', 'u_fid_wscale']);        // per-fid スタイル（paint）
 	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // 深度＝fetchClipDrape（面ドレープ）
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);

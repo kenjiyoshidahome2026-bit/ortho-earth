@@ -108,9 +108,9 @@ export function countryLayers(map, geopbf) {
 	// カメラ移動中に止まる設計＝面が消える。面（州の薄い色・係争地・市街地）は anno（同一フレームの canvas2D）が毎フレーム塗る＝fills()
 	const paintOf = g => g === "base"
 		? { "line-color": ["case", ["==", ["get", "layer"], "admin_0"], C.disputedLine, C.admin1],
-			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.8, 0.5] }
+			"line-width": ["case", ["==", ["get", "layer"], "admin_0"], 0.4, 0.25] }   // line-width は CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		: { "line-color": ["match", ["get", "layer"], "roads", C.road, "railroads", C.rail, "rgba(0,0,0,0)"],
-			"line-width": 0.8 };
+			"line-width": 0.4 };
 	const filterOf = g => g === "base"
 		? ["all", ["==", ["get", "key"], key], ["match", ["get", "layer"], ["admin_1", "admin_0"], true, false]]
 		: ["all", ["==", ["get", "key"], key], ["match", ["get", "layer"], ["roads", "railroads", "urban_areas"], true, false]];
