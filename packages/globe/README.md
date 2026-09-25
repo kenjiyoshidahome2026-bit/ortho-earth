@@ -30,9 +30,9 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 
 ## Verification
 
-The gates live with the code: `npm run verify:ui` (17 pages), `npm run verify:webgpu` (10 pages, real GPU; a page that
+The gates live with the code: `npm run verify:ui` (18 pages), `npm run verify:webgpu` (10 pages, real GPU; a page that
 boots on WebGL2 or skips for lack of WebGPU fails),
-`npm run verify:nocoi` (the no-`crossOriginIsolated` world). They boot pages through this package's own
+`npm run verify:nocoi` (the no-`crossOriginIsolated` world), and `npm run verify:net` (3 pages that depend on outside servers — NASA GIBS and ArcGIS — kept out of the standing gates). They boot pages through this package's own
 public face, so what is tested is what you install.
 
 ## License

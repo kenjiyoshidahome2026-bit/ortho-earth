@@ -85,7 +85,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 
 - **器**：`packages/globe/vite.config.js`（COOP/COEP を middleware で全リクエストに刻む・`worker.format="es"`・
   builtinWorkers は「作らない版」へ）。`#extra-roles` は**差し替えない**＝globe 既定の `{}` のまま＝地域を知らない器であることの実地確認。
-- **頁**：`packages/globe/tests/*.html`（25 枚＋`t-nocoi`）。どれも**公開面 `@ortho-earth/globe` の `createGlobe`** で起動する
+- **頁**：`packages/globe/tests/*.html`（2026-09-25 に 29 枚＝verify:ui 18・verify:webgpu 10・nocoi・外部依存の verify:net 3・補助の t-bootview-frame。関門の一覧は各 verify-*.mjs の ALL_PAGES が正本）。どれも**公開面 `@ortho-earth/globe` の `createGlobe`** で起動する
   （旧＝`../app.js` 経由＝日本の包みを通っていた）。`orthoJapan` で起動していた 6 枚（t-backfill／t-anchorfill／t-rectlook／
   t-qr／t-spotlight／t-anno）は、視点が z<6.5 の世界＝地域が効かない頁だったので `createGlobe` に直した。
 - **仕掛け**：`packages/globe/scripts/lib/ui-runner.mjs`（仮想時間／実時間・頁ごとに Chrome・ドラッグ駆動・実 GPU の旗）を
