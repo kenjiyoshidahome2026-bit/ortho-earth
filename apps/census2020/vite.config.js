@@ -61,7 +61,9 @@ export default defineConfig({
 	resolve: { alias: [{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") }] },   // e-Stat の worker 役＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 	server: { port: 5189, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・../gishub-jp/jp・packages）を dev で読ませる
 	// エンジンは同梱（main.js 冒頭＝A 裁定 2026-09-23）＝external 無し。worker/wasm は ortho-japan の build と同じ既定で束なる
-	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true },
-	worker: { format: "es" },
+	// experimental.chunkOptimization:false＝rolldown（vite 8）の決まり（2026-09-25・japan と同じ）。既定 on だと worker が実行時ヘルパ欲しさに
+	// mesh-loaders＋basis-loader（計 220KB）を静的 import する。worker は別ビルド＝両方に要る。rolldown を上げたら確かめ直す。
+	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true, rolldownOptions: { experimental: { chunkOptimization: false } } },
+	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
 	plugins: [crossOriginIsolation, asyncMainCss, extraPublic],
 });
