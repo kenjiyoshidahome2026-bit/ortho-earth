@@ -148,6 +148,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 			},
 			stats: () => ({ tiers: st.lodTiers?.length ?? 0, tiersDone: !!st.tiersDone, total: st.totalEdges,
 				edges: st._pfLineEdges ?? 0, subs: st._pfSubs ?? 0, tierW: st._pfTierW ?? -1 }),
+			range: () => ({ minZoom: st.minZoom ?? null, maxZoom: st.maxZoom ?? null }),   // 実描画レンジ（WebGPU と同じ口・ack で main へ）
 		};
 	}
 	// 追加層1枚の描画（draw() の層別本文＝既定層の予算/範囲判定と同型を層状態で）
@@ -510,5 +511,8 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	}
 	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
 	const bakeSig = () => `${bakeRev}|${s._isDrawing ? 1 : 0}${(s._staticN ?? 99) < 4 ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
-	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer, bakeFaces, bakeSig };
+	// 既定層へカーソルを返す（renderworker の gintActivate で layer 無し＝WebGPU の L0h.activate と対）。
+	// 旧＝GL に無く no-op＝interactive:false の層を足すとエンジンのカーソルがその層に残った（2026-09-26・U2）
+	const activate = () => { if (act !== null) { handleLeave(actSt()); act = null; } };
+	return { set, setSlot, setBaked, style, setVisible, paint, draw, drawn, move, leave, click, dispose, stats, addLayer, bakeFaces, bakeSig, activate };
 }

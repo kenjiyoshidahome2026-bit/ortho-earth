@@ -3212,8 +3212,10 @@ const rebuildGint = async (sid, { dataChanged = false } = {}) => {
 		cur = mlGint.get(sid);
 		if (cur) { await cur.h.setData(pbf); cur.data = raw; cur.pbf = pbf; }
 		else {
-			const zs = ls.map(L => L.minzoom).filter(Number.isFinite), zx = ls.map(L => L.maxzoom).filter(Number.isFinite);
-			const h = map.addGint(pbf, { order: mlOrderOf(vs[0].layer.id), minZoom: zs.length ? Math.min(...zs) : null, maxZoom: zx.length ? Math.max(...zx) : null });
+			// 出しズーム＝MapLibre の既定（minzoom 無し＝z0 から・maxzoom 無し＝上限なし）。同じ source の層は和（どれかが出す範囲は描く）。
+			// 旧＝minzoom 無しは null＝Gint の自動導出（狭い範囲のデータは z9 等から）＝MapLibre の層が引くと消え、照会だけ当たっていた（2026-09-26）
+			const zs = ls.map(L => Number.isFinite(L.minzoom) ? L.minzoom : 0), zx = ls.map(L => L.maxzoom);
+			const h = map.addGint(pbf, { order: mlOrderOf(vs[0].layer.id), minZoom: Math.min(...zs), maxZoom: zx.every(Number.isFinite) ? Math.max(...zx) : null });
 			cur = { h, data: raw, pbf }; mlGint.set(sid, cur);
 			await h.ready;
 			if (mlGen.get("gint:" + sid) !== gen) return null;
@@ -3507,21 +3509,24 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const lid = slot === "default" ? "extrude" : slot;
 		if (take(lid) && touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: lid, type: "fill-extrusion" }, source: slot === "default" ? "extrude" : srcId(mlLayers.get(slot)?.layer ?? { id: slot }), height: h });
 	}
-	// addLayer の fill/line/circle（source ごとの gint 層）＝上の層から。点は識別（gint の identifyAt）・箱は地物ごとに当てる
+	// addLayer の fill/line/circle（source ごとの gint 層）＝上の層から。点は識別（gint の identifyAt）・箱は地物ごとに当てる。
+	// 描かれている物だけ（§4.5・2026-09-26）：ズーム域の外・焼き着地前の層は飛ばし、filter で隠した地物は accept で外す（旧＝両方返した）
 	for (const [sid, cur] of [...mlGint].sort((a, b) => (b[1].h.order ?? 0) - (a[1].h.order ?? 0))) {
 		const ls = [...mlLayers.values()].filter(v => v.kind === "gint" && srcId(v.layer) === sid && mlVisible(v)).map(v => v.layer).filter(L => take(L.id));
-		if (!ls.length) continue;
+		if (!ls.length || !cur.h._shown?.(cam.zoom)) continue;
+		const acc = cur.h._accept?.() ?? null;
 		const pick = g => { const t0 = g?.type?.replace("Multi", ""); return ls.find(L => (L.type === "fill" && t0 === "Polygon") || (L.type === "line" && t0 === "LineString") || (L.type === "circle" && t0 === "Point")) ?? ls[0]; };
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
-		const fids = area.ll ? [cur.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx })].filter(v => v != null) : null;
-		const feats = fids ? fids.map(i => [i, cur.pbf.getFeature(i)]) : cur.pbf.features.map((f, i) => [i, f]).filter(([, f]) => f?.geometry && touches(f.geometry));
+		const fids = area.ll ? [cur.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null) : null;
+		const feats = fids ? fids.map(i => [i, cur.pbf.getFeature(i)]) : cur.pbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
 		for (const [i, f] of feats) if (f) { const L = pick(f.geometry); out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: L.id, type: L.type }, source: sid }); }
 	}
 	const upbf = gint.userGint?.pbf;
 	if (upbf && take("user")) {
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
-		const fids = area.ll ? [upbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx })].filter(v => v != null) : null;
-		const feats = fids ? fids.map(i => [i, upbf.getFeature(i)]) : upbf.features.map((f, i) => [i, f]).filter(([, f]) => f?.geometry && touches(f.geometry));
+		const uacc = gint.userAccept();   // 単一スロットの paint 表の visible ビット＝filter
+		const fids = area.ll ? [upbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(uacc ? { accept: uacc } : {}) })].filter(v => v != null) : null;
+		const feats = fids ? fids.map(i => [i, upbf.getFeature(i)]) : upbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!uacc || uacc(i)) && touches(f.geometry));
 		for (const [i, f] of feats) if (f) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: "user", type: "gint" }, source: "user" });
 	}
 	if (queryCache.size > 32) queryCache.clear();
