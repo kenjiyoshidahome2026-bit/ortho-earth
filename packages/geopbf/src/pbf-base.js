@@ -286,10 +286,19 @@ async function makeKeys(q) {
 	return [Object.keys(tub).sort(), await buffs.close()];
 }
 
+// 色（DATATYPE.COLOR＝4 バイト）で持つのは「読み戻すと一字一句同じ文字列になる」正規形だけ：rgb(r,g,b)・rgba(r,g,b,0.xx)（空白なし・0〜255）。
+// それ以外（#hex・空白入り・小数の rgb・#1234 等）は文字列のまま（2026-09-25・B6）。旧＝#1234/#12345/rgb(1.5,2,3) を色と誤認して
+// rgba(0,0,0,0.00) に潰し、#abcdef は rgb(171,205,239) に書き換えていた＝保存すると値が変わった。既存ファイルの読みは不変。
+function parseColor(s) {
+	let r = s.match(/^rgba\((\d{1,3}),(\d{1,3}),(\d{1,3}),([\d\.]+)\)$/);
+	const b = r ? [+r[1], +r[2], +r[3], ~~(+r[4] * 255)] : (r = s.match(/^rgb\((\d{1,3}),(\d{1,3}),(\d{1,3})\)$/)) ? [+r[1], +r[2], +r[3], 255] : null;
+	return b && b.every(v => v >= 0 && v <= 255) ? b : null;
+}
+const formatColor = a => a.length == 3 || a[3] == 255 ? `rgb(${a[0]},${a[1]},${a[2]})` : `rgba(${a[0]},${a[1]},${a[2]},${(a[3] / 255).toFixed(2)})`;
+
 function dataType(q) {
-	// 色判定は全文字列値に走る（地物数×キー数回）＝正規表現の前に先頭文字（#/r）で門前払い。判定は等価。
-	const isColor = s => { const t = s.trim(), c = t.charCodeAt(0);
-		return (c === 35 || c === 114) && (t.match(/^rgba?\s*\([0-9,\.\s]+\)$/) || t.match(/^\#[0-9a-f]{3,6}$/)); };
+	// 色判定は全文字列値に走る（地物数×キー数回）＝正規表現の前に先頭文字（r）で門前払い
+	const isColor = s => { if (s.charCodeAt(0) !== 114) return false; const b = parseColor(s); return !!b && formatColor(b) === s; };
 	if (q == null) return DATATYPE.NULL;
 	const type = typeof q;
 	if (type === "string") return isColor(q) ? DATATYPE.COLOR : DATATYPE.STRING;
@@ -318,15 +327,7 @@ function writeValue(self, q) {
 		case DATATYPE.IMAGE: return pbf.writeStringField(type, [q.width, q.height, q.id].join(":"));
 		case DATATYPE.DATE: return pbf.writeSVarintField(type, Math.round(+q / 1000));
 		case DATATYPE.BBOX: return pbf.writePackedDouble(type, q);
-		case DATATYPE.COLOR: return pbf.writeBytesField(type, color(q));
-	}
-	function color(s) {
-		s = s.replace(/\s/g, ""); var r;
-		r = s.match(/^rgba\((\d+),(\d+),(\d+),([\d\.]+)\)$/); if (r) return [+r[1], +r[2], +r[3], ~~(+r[4] * 255)];
-		r = s.match(/^rgb\((\d+),(\d+),(\d+)\)$/); if (r) return [+r[1], +r[2], +r[3], 255];
-		r = s.match(/^\#[0-9a-f]{6}$/); if (r) return [parseInt(s.substring(1, 3), 16), parseInt(s.substring(3, 5), 16), parseInt(s.substring(5, 7), 16), 255];
-		r = s.match(/^\#[0-9a-f]{3}$/); if (r) return [parseInt(s.substring(1, 2), 16) * 17, parseInt(s.substring(2, 3), 16) * 17, parseInt(s.substring(3, 4), 16) * 17, 255];
-		return [0, 0, 0, 0];
+		case DATATYPE.COLOR: return pbf.writeBytesField(type, parseColor(q));   // dataType が正規形だけを COLOR にする＝必ず解ける
 	}
 }
 
@@ -343,10 +344,9 @@ function readValue(self) {
 		case DATATYPE.IMAGE: return image(pbf.readString());
 		case DATATYPE.DATE: return new Date(pbf.readSVarint() * 1000);
 		case DATATYPE.BBOX: return new Float64Array(pbf.readPackedDouble());
-		case DATATYPE.COLOR: return color(pbf.readBytes());;
+		case DATATYPE.COLOR: return formatColor(pbf.readBytes());
 	}
 	return null;
-	function color(a) { return a.length == 3 || a[3] == 255 ? `rgb(${a[0]},${a[1]},${a[2]})` : `rgba(${a[0]},${a[1]},${a[2]},${(a[3] / 255).toFixed(2)})`; }
 	function blob(s) {
 		if (s in bin) return bin[s];
 		const [name, type, id] = s.split(":"), buf = bufs[+id];
