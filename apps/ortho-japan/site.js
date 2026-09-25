@@ -59,6 +59,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.qr();          // この視点をQRで共有（押すと中央に現在の共有URLのQR＝スクリーン投影→スキャンで拡散）
 	map.gadget.print({ zoom: [6.5, 99] });     // 平面図を印刷（縮尺・A4/A3・経緯線・外枠＝紙仕様）＝GSI基図が前提
 	map.gadget.mesh({ zoom: [6.5, 99] });   // 建物3D（PLATEAU）データ管理（公式ロゴマークのボタン）＝日本の道具
+	map.gadget.offline({ zoom: [8, 99] });  // オフラインパック（#40）＝今の画面の範囲を先に取って残す（配るのは下の SW）
 	map.gadget.stac({ zoom: [5, 99] });        // 衛星画像を探す（STAC/Earth Search→日付・雲量で選んで COG を球へ）＝世界帯から使える
 	const setMenu = map.gadget.contextmenu(); // 右クリックメニュー（既定＝この地点へ寄る／座標をコピー）
 	setMenu((c, defaults) => map.getZoom() < 5 ? [...defaults, map.gadget.equalHere()] : defaults);   // 地球全体の距離では「この地点を中心に全球図へ」を足す
@@ -80,7 +81,8 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
 });
 // サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
-// 本番httpsのみ＝localhost/headless(http)は掛けない（計測とテストを汚さない）。app.js でなくページ側に置く＝埋め込みを汚さない。
+// 本番 https と localhost（検定の頁 tests/*.html は site.js を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
 // updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。
-if (location.protocol === "https:" && "serviceWorker" in navigator)
+// localhost（http でも安全な文脈）も掛ける（2026-09-25・#40）＝オフラインパックは SW が配るので dev で確かめられる。?nosw=1 で外す
+if ((location.protocol === "https:" || location.hostname === "localhost") && !/[?&]nosw=1/.test(location.search) && "serviceWorker" in navigator)
 	addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] register failed", e)));

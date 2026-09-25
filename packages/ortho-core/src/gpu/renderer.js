@@ -1413,15 +1413,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// MSAA カラー＋深度ターゲット（canvas 寸法に追随・sampleCount 毎＝遷移時AA）。resolve 先は毎フレーム getCurrentTexture。
 	// 1x（遷移フレーム／?msaa=0）はカラーを作らない＝全パスが canvas の current texture へ直描き（resolve 自体が消える）。
 	// 1x/4x 両方が生きる（遷移⇄静止で行き来）＝両方保持。追加費用は 1x 深度1枚（W×H×4B）のみ。
-	const tgtBySc = new Map();   // sampleCount → { tex, depth, view, depthView, w, h, read }
-	let depthRead = false;       // 深度の書き出し（#47）の申し出中＝深度テクスチャを読める形で作る
+	const tgtBySc = new Map();   // sampleCount → { tex, depth, view, depthView, w, h }
 	function targets(W, H, sc) {
 		let t = tgtBySc.get(sc);
-		if (!t || t.w !== W || t.h !== H || t.read !== depthRead) {   // read＝深度の書き出し（#47）の申し出で TEXTURE_BINDING を足す／外す＝作り直し
+		if (!t || t.w !== W || t.h !== H) {
 			if (t) { t.tex?.destroy(); t.depth.destroy(); }
 			const tex = sc > 1 ? device.createTexture({ size: [W, H], sampleCount: sc, format, usage: GPUTextureUsage.RENDER_ATTACHMENT }) : null;
-			const depth = device.createTexture({ size: [W, H], sampleCount: sc, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT | (depthRead ? GPUTextureUsage.TEXTURE_BINDING : 0) });
-			t = { tex, depth, view: tex ? tex.createView() : null, depthView: depth.createView(), w: W, h: H, read: depthRead };
+			// TEXTURE_BINDING＝深度の書き出し（#47）が読む。常に付ける（費用なし）＝申し出の出入りでターゲットを作り直さない
+			const depth = device.createTexture({ size: [W, H], sampleCount: sc, format: DEPTH, usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+			t = { tex, depth, view: tex ? tex.createView() : null, depthView: depth.createView(), w: W, h: H };
 			tgtBySc.set(sc, t);
 			memMsaa = 0;   // color(bgra8・1xは直描き=0)+depth24plus-stencil8 ≈ 各4B/sample（生存セットの合算）
 			for (const [c, x] of tgtBySc) memMsaa += x.w * x.h * c * ((c > 1 ? 4 : 0) + 4);
@@ -1886,7 +1886,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.draw(3);
 		}
 		pass.end();
-		lastDepth = t.read ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝flush の後に詰める
+		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
 		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
 		// elevView は安定参照（rebuildBG0 で1回生成）＝gint 側の bind group キャッシュが毎フレーム破れない。
@@ -1946,17 +1946,17 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}, 0); }
 	}
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { bitmap, w, h, logCoef }, abort() }／depthOut(false)＝畳む。
-	// begin＝深度テクスチャを読める形に（draw の前に呼ぶ＝同じフレームの targets が作り直す）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
+	// begin＝申し出の確認だけ（深度テクスチャは常に読める形）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut = null, lastDepth = null, dOutFailed = false;
 	function depthOut(on) {
-		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } if (depthRead) { depthRead = false; lastDepth = null; } return null; }
+		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
 			try { dOut = createDepthOutGPU(device); }
 			catch (e) { dOutFailed = true; console.warn("[gpu] depthOut unavailable:", e?.message || e); return null; }
 		}
 		return {
-			begin: () => { if (dOutFailed || !dOut) throw new Error("depthOut disabled"); depthRead = true; return true; },   // 落ちた後の口＝投げる（renderworker が畳む）
+			begin: () => { if (dOutFailed || !dOut) throw new Error("depthOut disabled"); return true; },   // 落ちた後の口＝投げる（renderworker が畳む）
 			abort: () => {},
 			end: () => {
 				const d = lastDepth; lastDepth = null;

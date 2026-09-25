@@ -12473,6 +12473,114 @@
 			"fa": "بازگشت به زمان حال",
 			"ur": "موجودہ وقت پر واپس",
 			"he": "חזרה להווה"
+		},
+		"$1 building districts (size not included)": {
+			"ja": "建物 $1 区（容量は別）"
+		},
+		"$1 districts": {
+			"ja": "$1 区"
+		},
+		"$1 failed": {
+			"ja": "失敗 $1"
+		},
+		"$1 tiles, about $2": {
+			"ja": "$1 枚・約 $2"
+		},
+		"(automatic)": {
+			"ja": "（自動）"
+		},
+		"3D buildings (large)": {
+			"ja": "建物 3D（大きい）"
+		},
+		"Buildings": {
+			"ja": "建物"
+		},
+		"Buildings and terrain live in their own stores (with their own limits); deleting a pack removes only its map tiles.": {
+			"ja": "建物と地形は別の置き場（それぞれの上限あり）。パックの削除で消えるのは地図タイルだけ。"
+		},
+		"Create pack": {
+			"ja": "パックを作る"
+		},
+		"Detail up to zoom": {
+			"ja": "細かさ（ズーム上限）"
+		},
+		"Done with $1 failed (run again to retry)": {
+			"ja": "完了（失敗 $1＝もう一度で取り直し）"
+		},
+		"Done. This area now opens offline.": {
+			"ja": "完了。この範囲はオフラインでも開けます。"
+		},
+		"Estimating…": {
+			"ja": "見積り中…"
+		},
+		"Go there": {
+			"ja": "この範囲へ"
+		},
+		"Image tiles shown now": {
+			"ja": "表示中の画像タイル"
+		},
+		"Map tiles": {
+			"ja": "地図タイル"
+		},
+		"Move the map so the whole view is on the globe": {
+			"ja": "画面全体が地球に収まるように動かしてください"
+		},
+		"Name": {
+			"ja": "名前"
+		},
+		"No packs yet": {
+			"ja": "パックはまだありません"
+		},
+		"Not enough space. Lower the zoom or narrow the view.": {
+			"ja": "空きが足りません。ズームを下げるか範囲を狭めてください。"
+		},
+		"Offline pack": {
+			"ja": "オフラインパック"
+		},
+		"Re-estimate": {
+			"ja": "見積り直す"
+		},
+		"Saved packs": {
+			"ja": "保存したパック"
+		},
+		"Saves the map tiles and terrain of the current view so it opens without a connection.": {
+			"ja": "今の画面の地図タイルと地形を保存して、通信がなくても開けるようにします。"
+		},
+		"Stop": {
+			"ja": "止める",
+			"zh": "停止",
+			"ko": "정지",
+			"fr": "Arrêter",
+			"de": "Stopp",
+			"es": "Parar",
+			"pt": "Parar",
+			"it": "Ferma",
+			"nl": "Stop",
+			"pl": "Stop",
+			"ru": "Стоп",
+			"uk": "Стоп",
+			"hu": "Állj",
+			"sv": "Stopp",
+			"tr": "Durdur",
+			"el": "Στοπ",
+			"id": "Berhenti",
+			"vi": "Dừng",
+			"th": "หยุด",
+			"bn": "থামান",
+			"hi": "रोकें",
+			"ar": "إيقاف",
+			"fa": "توقف",
+			"ur": "روکیں",
+			"he": "עצור"
+		},
+		"Stopped (run again to resume)": {
+			"ja": "止めました（もう一度で続きから）"
+		},
+		"free $1": {
+			"ja": "空き $1"
+		},
+		"incomplete": {
+			"ja": "未完"
 		}
 	}
 }

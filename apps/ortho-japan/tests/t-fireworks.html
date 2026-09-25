@@ -1,0 +1,45 @@
+<!doctype html>
+<!-- 実描画の検分：打ち上げ花火（fireworks.js＋fireworks-gl.js・シーンの深度 #47 の見本）。建物 3D は切る（通信なし）＝見るのは配線：
+     ①案内板が立つ（ja）②オーバーレイが worker で ready ③打ち上げ→上昇中の粒子が居る ④頂点（8.2 s）で開く＝星が 300 以上 ⑤消す→粒子 0 ⑥破棄で案内板が消える。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:480px;height:300px}</style><title>t-fireworks</title></head>
+<body><div id="map"></div>
+<script type="module">
+// 地形は切る（?noterr=1＝globe.js が起動時に読む＝import の前に URL へ書く）：通信の無い環境でも配線だけを速く見る
+if (!/[?&]noterr=1/.test(location.search)) history.replaceState(null, "", location.pathname + location.search + (location.search ? "&" : "?") + "noterr=1");
+const { default: orthoJapan } = await import("../app.js");
+const { mountFireworks } = await import("../fireworks.js");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(200); } return null; };
+try {
+	const map = await orthoJapan({ target: "#map", view: "#14/35.716/139.807", chips: false, mesh: false, persistView: false, glOverlay: true, debugGlobals: true });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [139.807, 35.716], zoom: 15, pitch: 60 });
+	const fw = await mountFireworks(map, { quiet: true, fly: false });
+	ok("panel", document.querySelector(".fw-panel h1")?.textContent === "隅田川の花火", document.querySelector(".fw-panel h1")?.textContent);
+	const st = await until(() => window.__overlay?.fireworks?.stage === "ready" ? window.__overlay.fireworks : null, 30000);
+	ok("overlayReady", !!st, JSON.stringify(window.__overlay?.fireworks));
+	// 統計の口＝worker の overlay へ { type:"stats" } → onmessage
+	let last = null;
+	const ov = fw.overlay; ov.onmessage = d => { if (d?.type === "stats") last = d; };
+	const stats = async () => { last = null; ov.post({ type: "stats" }); return await until(() => last, 30000); };
+	map.clock.setStep(0); map.clock.setTime(Date.now());   // 時計を止めて自分で進める＝ソフトウェア描画の遅さに依らない
+	await sleep(300);
+	fw.launch(10);
+	ok("launch", fw.count === 1, String(fw.count));
+	map.clock.setTime(map.clock.time + 3000); await sleep(1500);
+	const a = await stats();
+	ok("rising", a && a.shells >= 1 && a.particles > 0, JSON.stringify(a));
+	map.clock.setTime(map.clock.time + 6000); await sleep(1500);   // 8.2 s で開く
+	const b = await stats();
+	ok("burst", b && b.stars >= 300 && b.particles >= b.stars * 3, JSON.stringify(b));   // 星 1 つ＝頭＋残像 2 点
+	ov.post({ type: "clear" }); await sleep(1500);
+	const c = await stats();
+	ok("clear", c && c.particles === 0 && c.stars === 0, JSON.stringify(c));
+	fw.destroy();
+	ok("destroy", !document.querySelector(".fw-panel"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
