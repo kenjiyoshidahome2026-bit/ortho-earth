@@ -17,7 +17,8 @@ const CAD = '地番図・地籍';
 const CAT_ORDER = [CAD, '防災', '都市計画・道路', '施設・観光', '医療・AED', 'その他'];
 const FMT_LABEL = { geojson: 'GeoJSON', kml: 'KML', kmz: 'KMZ', zip: 'Shape(zip)', gml: 'GML', gpkg: 'GPKG', fgb: 'FGB', csv: 'CSV', xlsx: 'Excel' };
 const FMT_CLASS = { geojson: 'fmt-geojson', kml: 'fmt-gml', kmz: 'fmt-gml', zip: 'fmt-shp', gml: 'fmt-gml', gpkg: 'fmt-pbf', fgb: 'fmt-pbf', csv: 'fmt-none', xlsx: 'fmt-none' };
-const pageOf = s => s.page || `https://www.geospatial.jp/ckan/dataset/${encodeURIComponent(s.id)}`;   // 横断検索の分は配布元のページ・G空間は id から
+// 横断検索の分は配布元のページ・G空間は id から。page は横断検索の収集値＝https? だけ通す（javascript: 等を href に入れない・S6）
+const pageOf = s => /^https?:\/\//i.test(s.page || "") ? s.page : `https://www.geospatial.jp/ckan/dataset/${encodeURIComponent(s.id)}`;
 
 let listSearch = '', expanded = new Set(), cadOnly = false;
 
@@ -95,7 +96,7 @@ function renderCity(e) {
 				<h2>${escHtml(PREFS[e.code.slice(0, 2)] || '')} ${escHtml(e.city)}</h2>
 				<div class="detail-meta">
 					<span class="mono">${escHtml(e.code)}</span>
-					${e.org ? `<a class="ext-link" href="https://www.geospatial.jp/ckan/organization/${escHtml(e.org)}" target="_blank" rel="noopener">G空間情報センター「${escHtml(e.orgTitle)}」→</a>` : ''}
+					${e.org ? `<a class="ext-link" href="https://www.geospatial.jp/ckan/organization/${escHtml(encodeURIComponent(e.org))}" target="_blank" rel="noopener">G空間情報センター「${escHtml(e.orgTitle)}」→</a>` : ''}
 					<span class="mono">${e.sets.length} データセット</span>
 				</div>
 				<p class="munic-note">資料を押すと配布元から読み込み、その場で GeoPBF に変換します。CSV・Excel は緯度・経度の列があるものだけ地図に描けます。配布元のリンク切れや形式の違いで開けないものもあります。</p>
