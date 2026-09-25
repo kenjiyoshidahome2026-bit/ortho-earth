@@ -7,6 +7,12 @@
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
+		"packages/globe/src/extrude-keys.js": {
+			"和文": {
+				"n": 5,
+				"why": "負債（地域）：自動押し出しの高さ・階数の列名候補に PLATEAU/日本の属性名（建物高さ・計測高さ・階数）。地域の申告（region.extrudeKeys）へ移す"
+			}
+		},
 		"packages/globe/src/gadgets/anno-draw.js": {
 			"jp": {
 				"n": 1,
@@ -31,10 +37,34 @@
 				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"
 			}
 		},
+		"packages/globe/src/gadgets/parquet-view.js": {
+			"cos35°": {
+				"n": 1,
+				"why": "負債（地域）：m/px 係数を東京の緯度 cos35° で固定。視野中心の cos(lat) に置き換える"
+			}
+		},
+		"packages/globe/src/gadgets/poiedit.js": {
+			"和文": {
+				"n": 51,
+				"why": "負債（地域）：POI 編集の分類名（観光資源・寺院・神社…＝optbv の注記分類）。日本の地域パックへ移す"
+			}
+		},
 		"packages/globe/src/gadgets/qrcode.js": {
 			"japan": {
 				"n": 4,
 				"why": "試料：QR 符号器の自己検定に使う URL 文字列"
+			}
+		},
+		"packages/globe/src/gadgets/stac.js": {
+			"tellus": {
+				"n": 4,
+				"why": "負債（地域）：STAC 読み口に Tellus（日本の衛星データ基盤）の分岐。地域の申告の provider へ移す"
+			}
+		},
+		"packages/globe/src/gadgets/tellus-api.js": {
+			"tellus": {
+				"n": 9,
+				"why": "負債（地域）：Tellus の API 読み口そのもの（/japan/tellus 専用）。地域パックへ移す"
 			}
 		},
 		"packages/globe/src/globe.js": {
@@ -45,6 +75,22 @@
 			"japan": {
 				"n": 2,
 				"why": "凍結：localStorage の鍵 ortho-japan.cam256（前回の視点）＋互換：gadget(\"japan\")＝home の旧名"
+			},
+			"chome": {
+				"n": 12,
+				"why": "負債（地域）：町丁名（optbv Anno 210/800）の畳み込み mergeChome。日本の地域パックの注記処理へ移す"
+			},
+			"cos35°": {
+				"n": 1,
+				"why": "負債（地域）：metersPerPx を東京の緯度 cos35° で固定（正射スケール化の名残）。cos(lat) にする"
+			},
+			"seirei": {
+				"n": 2,
+				"why": "負債（地域）：政令指定都市の一覧 SEIREI（区名を出す時の市名の扱い）。日本の地域パックへ移す"
+			},
+			"和文": {
+				"n": 23,
+				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）と丁目の正規化の正規表現（丁目・漢数字）。上の seirei・chome と同じ移設で消える"
 			}
 		},
 		"packages/globe/src/i18n.js": {
@@ -57,6 +103,10 @@
 			"日本": {
 				"n": 1,
 				"why": "言語名「日本語」（langs.json から焼いた生成物）"
+			},
+			"和文": {
+				"n": 2,
+				"why": "言語（地域ではない）：言語の自称（日本語・中文）＝言語切替の表示名"
 			}
 		},
 		"packages/globe/src/mesh/manager.js": {
@@ -89,10 +139,38 @@
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
 			}
 		},
+		"packages/globe/src/planets.js": {
+			"和文": {
+				"n": 8,
+				"why": "言語（地域ではない）：天体の和名（地球・水星…）。i18n 辞書へ寄せる負債"
+			}
+		},
 		"packages/globe/src/renderworker.js": {
 			"plateau": {
 				"n": 1,
 				"why": "負債：起動ログの文言"
+			}
+		},
+		"packages/globe/src/shields.js": {
+			"kokudo": {
+				"n": 2,
+				"why": "負債（地域）：国道の標識（おにぎり）の描き手 kokudoShield。日本の地域パックの記号へ移す"
+			},
+			"和文": {
+				"n": 2,
+				"why": "負債（地域）：空港・道の駅の注記名の判定（正規表現）。日本の地域パックの記号へ移す"
+			}
+		},
+		"packages/globe/src/sky/theater.js": {
+			"和文": {
+				"n": 7,
+				"why": "言語（地域ではない）：曜日の和名（日・月・火…）。i18n 辞書へ寄せる負債"
+			}
+		},
+		"packages/globe/src/solarsky.js": {
+			"和文": {
+				"n": 11,
+				"why": "言語（地域ではない）：天体の和名（太陽・水星…）。i18n 辞書へ寄せる負債"
 			}
 		},
 		"packages/globe/src/style-gsi.js": {
@@ -111,6 +189,10 @@
 			"地理院": {
 				"n": 1,
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
+			},
+			"和文": {
+				"n": 5,
+				"why": "負債（地域）：地理院配色 style そのもの（道路分類の値＝国道・都道府県道…と名前）。日本の地域パックへ移す"
 			}
 		},
 		"packages/globe/src/style-mono.js": {
@@ -121,12 +203,22 @@
 			"市区町村": {
 				"n": 2,
 				"why": "案 b（2026-09-23 本人裁定）：基図（地理院ベクトルタイル）の語彙は当面 globe が抱える＝第二の基図が来た時に basemap 宣言へ"
+			},
+			"和文": {
+				"n": 53,
+				"why": "負債（地域）：既定 style が optbv の分類値（国道・都道府県道・鉄道種別…）でフィルタ。地域の申告の style へ移す"
 			}
 		},
 		"packages/globe/src/symbols-2d.js": {
 			"jp": {
 				"n": 2,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
+			}
+		},
+		"packages/globe/src/themes.js": {
+			"chome": {
+				"n": 7,
+				"why": "負債（地域）：町丁名の出しズーム CHOME_MINZOOM・CHOME800_MINZOOM と分類コード。日本の地域パックへ移す"
 			}
 		},
 		"packages/ortho-core/src/dem-src.js": {
@@ -141,6 +233,40 @@
 				"why": "形式：データの在り処＝JAXA の全球 DSM（ALOS AW3D30）の URL（ドメイン eorc.jaxa.jp と経路 /jp/）＝全球のデータで地域の知識ではない（2026-09-25 に altpbf から core へ移設）"
 			}
 		},
+		"packages/ortho-core/src/gl/gint/textures.js": {
+			"和文": {
+				"n": 2,
+				"why": "言語（地域ではない）：開発者向けの計測ログの単位（辺）"
+			}
+		},
+		"packages/ortho-core/src/gl/glsl.js": {
+			"和文": {
+				"n": 1,
+				"why": "言語（地域ではない）：開発者向けのエラー文（mdize の置換漏れ）"
+			}
+		},
+		"packages/ortho-core/src/gl/renderer.js": {
+			"cos35°": {
+				"n": 1,
+				"why": "負債（地域）：LOD 打ち切りの m/px を東京の緯度 cos35° で固定。cos(lat) にする"
+			}
+		},
+		"packages/ortho-core/src/gpu/gintwgsl.js": {
+			"和文": {
+				"n": 1,
+				"why": "言語（地域ではない）：開発者向けのエラー文（toStorageWGSL の変換漏れ）"
+			}
+		},
+		"packages/ortho-core/src/gpu/renderer.js": {
+			"cos35°": {
+				"n": 1,
+				"why": "負債（地域）：LOD 打ち切りの m/px を東京の緯度 cos35° で固定。cos(lat) にする"
+			},
+			"和文": {
+				"n": 2,
+				"why": "言語（地域ではない）：開発者向けの GPU 検証エラーの見出し（初回フレーム検証・init検証）"
+			}
+		},
 		"packages/ortho-core/src/labels.js": {
 			"jp": {
 				"n": 1,
@@ -151,6 +277,18 @@
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
+			}
+		},
+		"packages/ortho-core/src/terrain.js": {
+			"和文": {
+				"n": 5,
+				"why": "言語（地域ではない）：標高ローダの自己申告トースト文言（初期化中…）。i18n 辞書へ寄せる負債"
+			}
+		},
+		"packages/ortho-core/src/worldcontent.js": {
+			"和文": {
+				"n": 3,
+				"why": "言語（地域ではない）：NE の都市名の和・韓・中の接尾辞（市・特別市・都）を落とす正規表現と注記＝東アジアの言語処理"
 			}
 		},
 		"packages/ortho-core/src/worldstyle.js": {

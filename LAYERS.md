@@ -21,6 +21,9 @@
 1. **globe と core に地域名を書かない**（JP・日本・地理院・GSI を core/globe のコードに置かない）。地域は宣言（`opts.region`）とパックで足す。
    **機械の門（2026-09-24）**：`packages/globe` の `verify:regionless`＝コードと文字列（コメントは除く）の地域の語をファイルごとに数える爪車。
    許可表 `packages/globe/scripts/regionless-allow.json`（凍結・互換・負債の別と理由つき）を超えたら落ち、減ったら `--ratchet` で枠を下げる（上げない）。globe の `verify` と japan の deploy の頭で回る。
+   数える物（2026-09-25 に拡張）＝英字の語（japan・gsi・plateau…）・語幹（tellus・chome・seirei・kokudo＝後ろに数字が続いても当たる）・
+   漢字の部分一致（日本・東京・地理院…）・**和文**（かな漢字を含む文字列 1 か所＝1。地域の語彙はほぼ和文で入る）・地域由来の定数（0.819＝cos35°）。
+   地域でない和文（天体の和名・診断文）も数に入る＝許可表で「言語（地域ではない）」と書き分ける。
 2. **消費者は公開面（`packages/globe/globe.d.ts`＝SDK の `lib/ortho-japan.d.ts` も同じ物）だけを使う**。`map.estat` のような地域の口は japan の拡張面であって globe の口ではない。`dbgHost`／`__*` はアプリから触らない。
 3. **内製アプリはエンジンを自分の束に焼く**（本番だけ `/japan/lib/` を実行時に食う二重構成はしない）。japan を出さなくても各アプリが自分の deploy で進み、japan を出しても他が変わらない。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。

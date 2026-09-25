@@ -4,7 +4,8 @@
 //   ・語はファイルごとに数え、許可表（regionless-allow.json）の数を超えたら ERROR（新しく入った地域の語）
 //   ・許可表より減っていたら ERROR（減った分の枠を残すと後で黙って戻せる）＝`--ratchet` で許可表を今の数へ下げる（上げはしない）
 //   ・許可表に語を足すのは手で（理由 why を書く）＝地域の語を硬い層に置くのは例外＝凍結した名・過渡の負債だけ
-// 見るのはコードと文字列（テンプレート・正規表現を含む）。コメントは見ない（経緯の記録は地域の語を含んでよい）。
+// 見るのはコードと文字列（テンプレート・正規表現を含む）と数値の綴り。コメントは見ない（経緯の記録は地域の語を含んでよい）。
+// 見る物＝WORDS（英字の語）・STEMS（語幹）・KANJI（漢字の部分一致）・和文（かな漢字を含む文字列 1 か所＝1）・MAGIC（地域由来の定数）。
 // 語の切り方＝識別子は camelCase・_・$ で割る（styleGsi→style,gsi／BindingSize は gsi にならない）・文字列は英数字以外と camelCase で割る。漢字の語は部分一致。
 // 使い方: node scripts/verify-regionless.mjs [--ratchet]
 import fs from "node:fs";
@@ -18,6 +19,13 @@ const ALLOW_FILE = path.join(PKG, "scripts/regionless-allow.json");
 // 地域の語：英字は語として（小文字で照合）・漢字は部分一致。地域パック（日本＝@ortho-earth/jp・オランダ＝ortho-nl）の固有名・データ名・機関名
 const WORDS = ["japan", "jp", "tokyo", "sapporo", "arakawa", "gsi", "plateau", "n02", "estat", "mlit", "moj", "3dbag", "pdok"];
 const KANJI = ["日本", "東京", "地理院", "国交省", "都道府県", "市区町村"];
+// 語幹（後ろに数字・語が続いても当たる＝CHOME800_MINZOOM の chome800・tellusxdp.com の tellusxdp）。日本語のローマ字と日本の配信名（T4・2026-09-25）
+const STEMS = ["tellus", "chome", "seirei", "kokudo"];
+// 和文＝かな・漢字を含む文字列（コメントを除く）は 1 か所ずつ "和文" に数える。地域の語彙（国道・政令市・丁目・寺院…）は
+// ほぼ和文で入ってくる＝語の一覧では追いつかない。地域でない和文（惑星名・診断文）も数には入る＝許可表で理由を書き分ける
+const CJK = /[\u3040-\u30fa\u30fc-\u30ff\u3400-\u9fff]/;   // ・（U+30FB）は区切りの約物＝数えない
+// 地域に由来する定数（数値リテラルの綴りで照合）。0.819＝cos35°（東京の緯度で固定した m/px 係数）
+const MAGIC = { "0.819": "cos35°" };
 
 // ── 字句：コメントを除き、コード・文字列・テンプレートの地・正規表現を切り出す（行番号つき）──
 const KW = /^(return|typeof|instanceof|in|of|new|delete|void|throw|case|do|else|yield|await)$/;
@@ -52,6 +60,11 @@ function segments(src) {
 		}
 		if (c === "{") { top.depth++; }
 		if (c === "}") { if (top.depth === 0 && st.length > 1) { st.pop(); i++; prev = "}"; continue; } top.depth--; }
+		if (/[0-9]/.test(c) || (c === "." && /[0-9]/.test(src[i + 1] || ""))) {   // 数値リテラル（MAGIC の照合用）
+			const m = /^(0[xX][\da-fA-F_]+n?|(?:\d[\d_]*)?\.?\d[\d_]*(?:[eE][+-]?\d+)?n?)/.exec(src.slice(i, i + 64));
+			const lit = m ? m[0] : c;
+			out.push({ kind: "num", text: lit, line }); prev = lit[lit.length - 1]; word = ""; i += lit.length; continue;
+		}
 		if (/[A-Za-z_$]/.test(c)) {
 			let j = i; while (j < n && /[\w$]/.test(src[j])) j++;
 			word = src.slice(i, j); out.push({ kind: "code", text: word, line }); prev = src[j - 1]; i = j; continue;
@@ -72,8 +85,12 @@ function scan() {
 	for (const root of ROOTS) for (const abs of walk(path.join(REPO, root))) {
 		const rel = path.relative(REPO, abs);
 		for (const seg of segments(fs.readFileSync(abs, "utf8"))) {
-			if (seg.kind === "template") seg.text = stripShaderComments(seg.text);
-			const hits = splitWords(seg.text).filter(w => WORDS.includes(w));
+			if (seg.kind === "num") { if (MAGIC[seg.text]) ((found[rel] ??= {})[MAGIC[seg.text]] ??= []).push(seg.line); continue; }
+			if (seg.kind === "template" || seg.kind === "string") seg.text = stripShaderComments(seg.text);   // 文字列に入れた WGSL/GLSL の注記も（T4）
+			const words = splitWords(seg.text);
+			const hits = words.filter(w => WORDS.includes(w));
+			for (const w of words) { const st = STEMS.find(x => w.startsWith(x)); if (st) hits.push(st); }
+			if (seg.kind !== "code" && CJK.test(seg.text)) hits.push("和文");
 			if (seg.kind !== "code" && /\be-stat\b/i.test(seg.text)) hits.push("estat");
 			for (const k of KANJI) { let p = seg.text.indexOf(k); while (p >= 0) { hits.push(k); p = seg.text.indexOf(k, p + k.length); } }
 			for (const w of hits) ((found[rel] ??= {})[w] ??= []).push(seg.line);
