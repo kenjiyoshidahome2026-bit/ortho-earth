@@ -4,7 +4,7 @@
 // AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
 // gint は二系統：applyGintData 等＝v1 の単一スロット口（呼ぶたび置換）／map.addGint()＝多層（追加・層ごとのハンドル）。混ぜない。
 // v1 口の消費側は必ず薄いモジュール1枚に封じること（gint draw spec §10.2）。
-// 注記の「1.x.y〜」は SDK（@ortho-earth/japan）の版＝その版から使える（globe 単体の版とは別の番号・2026-09-25 時点で japan 1.2.3／globe 1.1.2）。
+// 注記の「1.x.y〜」は SDK（@ortho-earth/japan）の版＝その版から使える（globe 単体の版とは別の番号・2026-09-26 時点で japan 1.2.3／globe 1.2.0）。
 
 export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
@@ -75,6 +75,9 @@ export interface OrthoJapanOptions {
 	maxPitch?: number;
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
+	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。既定＝WebGPU かつ低メモリ端末でない時に on。
+	 *  false で個別に切る。WebGL2・低メモリ端末では常に off（?fx=pbr で強制・?fx=noao で切る＝URL が勝つ）。段階的に実装＝旗だけ先に置く */
+	render?: { atmosphere?: boolean; pbr?: boolean; ao?: boolean };
 	/** このページは map.overlay(...) で WebGL2 のオーバーレイを重ねる、の宣言。WebKit（iPadOS/Safari）では
 	 *  本体が WebGPU だとその 2 枚目が描かれないため、宣言したページだけ WebGL2 を既定にする（?gpu=1 で破れる） */
 	glOverlay?: boolean;

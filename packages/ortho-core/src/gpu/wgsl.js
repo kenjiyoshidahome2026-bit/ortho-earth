@@ -39,6 +39,7 @@ struct Frame {
 	gnd1: vec4f,       // 同・中窓
 	gnd2: vec4f,       // 同・遠窓
 	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
+	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
 };
 @group(0) @binding(0) var<uniform> F: Frame;
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
@@ -139,6 +140,67 @@ fn fogOf(w: vec3f) -> f32 {
 // クリップ z ← 対数深度（WebGPU z01）。GL 版 applyLogDepth の window 深度と同値
 fn logDepthZ(w: f32) -> f32 {
 	return log2(max(1.0 + w, 1e-6)) * F.params.z * 0.5 * w;
+}
+// sRGB ⇄ リニア（#46 段 0）。模型の baseColor は rgba8unorm-srgb ビューで読む＝標本化の時点でリニア。照明の計算はリニアで、出口で符号化する。
+// 出力面は素の bgra8/rgba8（sRGB ビューにしない＝基図・地形・建物は今までどおり表示空間の値をそのまま書く）。
+fn srgbEncode(c: vec3f) -> vec3f {
+	let x = max(c, vec3f(0.0));
+	return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308));
+}
+fn srgbDecode(c: vec3f) -> vec3f {
+	let x = max(c, vec3f(0.0));
+	return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045));
+}
+// ── PBR の部品（#46 段 2・2026-09-26）。単位は「原点で水平な白が 1」（CPU が E_ref で正規化＝自動露出）。
+// 環境光＝空の放射輝度（段 1 と同じ散乱式・CPU で天球を積分）の SH9（照度の係数 A_l と 1/E_ref を CPU が畳み済み）＝局所系（x=東・y=北・z=上）で評価。
+// 太陽＝F.sun.xyz（地球固定）・強さ lp.rgb（透過率込み・正規化）。夜（F.sun.w→0）は段 0 の固定光（局所系・北寄り 64°）へ連続に落とす（lp.w＝固定光の重み）。
+// fill＝昼でも固定光を少し混ぜて陰の壁を読めるようにする（地図の読みやすさ・view.pbrFill・sh[0].w）。
+const PBR_PI: f32 = 3.14159265;
+fn pbrLocal(pos: vec3f) -> mat3x3f {   // 列＝東・北・上
+	let up = normalize(pos);
+	let e0 = cross(vec3f(0.0, 1.0, 0.0), up);
+	let east = select(normalize(e0), vec3f(1.0, 0.0, 0.0), dot(e0, e0) < 1e-12);
+	return mat3x3f(east, cross(up, east), up);
+}
+fn pbrSH(sh: array<vec4f, 9>, nl: vec3f) -> vec3f {   // 照度 E(n)/E_ref（実数 SH の基底・係数は CPU 側で A_l/E_ref 込み）
+	let x = nl.x; let y = nl.y; let z = nl.z;
+	return max(sh[0].xyz * 0.282095 + sh[1].xyz * (0.488603 * y) + sh[2].xyz * (0.488603 * z) + sh[3].xyz * (0.488603 * x)
+		+ sh[4].xyz * (1.092548 * x * y) + sh[5].xyz * (1.092548 * y * z) + sh[6].xyz * (0.315392 * (3.0 * z * z - 1.0))
+		+ sh[7].xyz * (1.092548 * x * z) + sh[8].xyz * (0.546274 * (x * x - y * y)), vec3f(0.0));
+}
+fn pbrFixed(nl: vec3f) -> f32 {   // 段 0 の固定光（局所系）＝屋根 0.9・陰の壁 0.62
+	return 0.62 + 0.28 * clamp(dot(nl, normalize(vec3f(0.0, 0.44, 0.90))), 0.0, 1.0);
+}
+fn pbrEnvBRDF(F0: vec3f, rough: f32, nv: f32) -> vec3f {   // Karis の解析近似（LUT 無し）
+	let r = rough * vec4f(-1.0, -0.0275, -0.572, 0.022) + vec4f(1.0, 0.0425, 1.04, -0.04);
+	let a004 = min(r.x * r.x, exp2(-9.28 * nv)) * r.x + r.y;
+	let AB = vec2f(-1.04, 1.04) * a004 + r.zw;
+	return F0 * AB.x + AB.y;
+}
+struct PbrIn { base: vec3f, n: vec3f, pos: vec3f, v: vec3f, metallic: f32, rough: f32, ao: f32, sunK: f32, lp: vec4f, fill: f32 };
+// 戻り＝リニアの放射輝度（正規化）。metallic 0・rough 1・ao 1＝拡散だけ（素の建物メッシュ）
+fn pbrShade(i: PbrIn, sh: array<vec4f, 9>) -> vec3f {
+	let M = pbrLocal(i.pos);
+	let nl3 = transpose(M) * i.n;
+	let s = F.sun.xyz;
+	let nv = max(dot(i.n, i.v), 1e-4); let nl = max(dot(i.n, s), 0.0);
+	let h = normalize(i.v + s); let nh = max(dot(i.n, h), 0.0); let vh = max(dot(i.v, h), 0.0);
+	let F0 = mix(vec3f(0.04), i.base, i.metallic);
+	let a = max(i.rough * i.rough, 0.002); let a2 = a * a;
+	let dd = nh * nh * (a2 - 1.0) + 1.0;
+	let D = a2 / (PBR_PI * dd * dd);
+	let k = (i.rough + 1.0) * (i.rough + 1.0) / 8.0;
+	let G = (nv / (nv * (1.0 - k) + k)) * (nl / (nl * (1.0 - k) + k));
+	let Fr = F0 + (vec3f(1.0) - F0) * pow(1.0 - vh, 5.0);
+	let spec = D * G * Fr / (4.0 * nv * nl + 1e-4);
+	let kd = (vec3f(1.0) - Fr) * (1.0 - i.metallic);
+	let sunE = i.lp.rgb * i.sunK;
+	let Esky = pbrSH(sh, nl3) * i.ao;
+	let r = reflect(-i.v, i.n);
+	let envSpec = pbrSH(sh, transpose(M) * r) * pbrEnvBRDF(F0, i.rough, nv) * i.ao;
+	let phys = kd * i.base * (nl * sunE + Esky) + PBR_PI * spec * nl * sunE + envSpec * (1.0 - i.metallic * 0.0);
+	let wP = (1.0 - i.fill) * (1.0 - i.lp.w);   // 物理の重み＝昼×(1−fill)。残りは固定光
+	return phys * wP + i.base * pbrFixed(nl3) * (1.0 - wP);
 }
 // 標高サンプラ（アトラス範囲内なら高さm・外は0）。窓の縁の edgeFade 込み＝glsl.js ELEV と同式。
 // textureSampleLevel＝頂点/フラグメント両ステージで合法（暗黙 LOD 不要。mip 無し＝GL の texture() と同値）
@@ -522,7 +584,8 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9> };   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+// #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
 	@builtin(position) pos: vec4f,
@@ -565,9 +628,22 @@ struct PlOut {
 	// 裏面カリング。cullBack=B.meshOrigin.w
 	if (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }
 	if (fe < 0.0) { n = -n; }   // 両面時は法線を視線側へ＝裏から見ても陰影が成立
-	let L = normalize(vec3f(-0.35, 0.85, 0.30));   // 斜め上の光＝屋根が立つ
+	// 光の向き＝接地の局所系（上＝その画素の動径・東・北）で固定（#46 段 0・2026-09-26）。旧＝地球固定の定数 (-0.35,0.85,0.30)＝
+	// 置いた経度で当たる面が変わっていた（東京では北寄り・仰角 64° の光＝その向きを局所系で写した値が下の 0.44/0.90）。
+	// 段 2 で太陽（F.sun）＋環境光へ寄せる（本人裁定）。gl/glsl.js は据え置き（WebGPU だけ）。
+	let up = normalize(F.eye - in.toEye);   // = 画素の絶対位置の向き（toEye = eye − pos）
+	let e0 = cross(vec3f(0.0, 1.0, 0.0), up);
+	let east = select(normalize(e0), vec3f(1.0, 0.0, 0.0), dot(e0, e0) < 1e-12);   // 極では退化＝任意の水平
+	let north = cross(up, east);
+	let L = normalize(north * 0.44 + up * 0.90);   // 斜め上の光＝屋根が立つ
 	let d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);   // 基図建物の屋根1.0/壁0.76に合わせる
-	let c = mix(P.p1.rgb * d, F.fogColor, in.fog);
+	let sunK = 1.0;   // 影の受け手（MESH_SH）は shLit(in.sc) に差し替える＝太陽の項だけ影が消す（環境光は残る）
+	var lit = P.p1.rgb * d;   // 従来（fx.pbr off）
+	if (B.emis.w > 0.5) {   // #46 段 2＝太陽＋空の環境光（拡散だけ・rough 1・metallic 0）。夜は固定光へ
+		var pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;
+		lit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));
+	}
+	let c = mix(lit, F.fogColor, in.fog);
 	return vec4f(c, 1.0);
 }
 `;
@@ -757,6 +833,8 @@ struct Globe {
 	farBounds: vec4f,    // far床（世界帯z<8=R90全球固定窓）の被覆＝近窓の外を受ける（タイラーのバグ根治 9/2）
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
 	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
+	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
+	atmP: vec4f,         // (太陽の強さ, 露出, 球の床の空気遠近の強さ 0..1＝地理の読みやすさのため既定は半分, 帯の幅 k＝殻を k 倍に広げ係数を 1/k＝色は物理のまま)
 };
 @group(0) @binding(0) var<uniform> G: Globe;
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
@@ -794,6 +872,82 @@ fn gElevAt(ll: vec2f) -> f32 {
 	}
 	return mix(gElevFar(ll), textureSampleLevel(gElevTex, gSamp, uv, 0.0).r, fade);
 }
+// ── 大気散乱（#46 段 1・2026-09-26）＝Rayleigh＋Mie の単散乱・Nishita 流のレイマーチ。単位＝地球半径（1.0）。誇張しない＝実寸の殻と実測の係数。
+// 視線 ATM_N 段・各段から太陽への透過は ATM_NS 段。太陽の方向は G.sun.xyz（地球固定）。露出＝1−exp(−L×露出)・出口で sRGB 符号化。
+// 点ける度合い G.sun.w＝0 なら呼ばれない（従来のリム光と霞）。fsWdepr も同じ関数＝球の床と画素一致。
+// 帯の幅 k＝G.atmP.w（本人裁定 2026-09-26＝4）：殻の上端とスケール高を k 倍・散乱係数を 1/k＝光学的厚みは不変＝色と明るさは物理のまま、帯の幅だけ k 倍
+//（実寸 100 km は z2 で 1〜2px＝「寂しい」。k=4 で 6〜8px・旧リム光 1.09R は k≈6 相当）
+const ATM_RT0: f32 = 0.0157;                         // 大気の上端 ≈ 100 km（半径比）
+const ATM_HR0: f32 = 0.001256;                       // Rayleigh のスケール高 8 km
+const ATM_HM0: f32 = 0.000188;                       // Mie 1.2 km
+const ATM_BR0: vec3f = vec3f(36.9, 86.0, 210.9);     // Rayleigh 散乱係数（5.8/13.5/33.1 e-6 /m × 6371 km）
+const ATM_BM0: f32 = 133.8;                          // Mie 散乱（21e-6 /m）
+const ATM_BME0: f32 = 147.2;                         // Mie 消散（散乱×1.1）
+fn atmK() -> f32 { return max(G.atmP.w, 1.0); }
+fn atmRt() -> f32 { return 1.0 + ATM_RT0 * atmK(); }
+const ATM_G: f32 = 0.76;                             // Mie の非対称
+const ATM_N: i32 = 8;
+const ATM_NS: i32 = 3;
+struct AtmR { L: vec3f, T: vec3f };
+// 球（半径 r）と半直線 o+t·d（d は単位）の交点 (t0,t1)。交わらなければ (-1,-1)
+fn atmShell(o: vec3f, d: vec3f, r: f32) -> vec2f {
+	let b = dot(o, d); let c = dot(o, o) - r * r; let h = b * b - c;
+	if (h < 0.0) { return vec2f(-1.0); }
+	let sq = sqrt(h);
+	return vec2f(-b - sq, -b + sq);
+}
+fn atmDensity(p: vec3f) -> vec2f { let h = max(length(p) - 1.0, 0.0) / atmK(); return vec2f(exp(-h / ATM_HR0), exp(-h / ATM_HM0)); }
+// p から太陽の方向へ上端までの光学的厚み（Rayleigh, Mie）。地球に遮られれば ∞ 扱い
+fn atmOptSun(p: vec3f, s: vec3f) -> vec2f {
+	let b = dot(p, s);
+	if (b < 0.0 && dot(p, p) - b * b < 1.0) { return vec2f(1e9); }   // 最接近が前方かつ球の中＝地球の影
+	let sh = atmShell(p, s, atmRt());
+	let ds = max(sh.y, 0.0) / f32(ATM_NS);
+	var od = vec2f(0.0);
+	for (var i = 0; i < ATM_NS; i++) { od += atmDensity(p + s * (ds * (f32(i) + 0.5))) * ds; }
+	return od;
+}
+// o+t·d の t∈[t0,t1] を積分。戻り＝散乱光 L（リニア・放射輝度）と透過率 T（rgb）
+fn atmScatter(o: vec3f, d: vec3f, t0: f32, t1: f32, s: vec3f) -> AtmR {
+	let mu = dot(d, s);
+	let phR = 3.0 / (16.0 * 3.14159265) * (1.0 + mu * mu);
+	let g2 = ATM_G * ATM_G;
+	let phM = 3.0 / (8.0 * 3.14159265) * (1.0 - g2) * (1.0 + mu * mu) / ((2.0 + g2) * pow(1.0 + g2 - 2.0 * ATM_G * mu, 1.5));
+	let ds = (t1 - t0) / f32(ATM_N);
+	let BR = ATM_BR0 / atmK(); let BM = ATM_BM0 / atmK(); let BME = ATM_BME0 / atmK();
+	var odV = vec2f(0.0); var sumR = vec3f(0.0); var sumM = vec3f(0.0);
+	for (var i = 0; i < ATM_N; i++) {
+		let p = o + d * (t0 + ds * (f32(i) + 0.5));
+		let dn = atmDensity(p) * ds;
+		odV += dn;
+		let od = odV + atmOptSun(p, s);
+		let tr = exp(-(BR * od.x + vec3f(BME * od.y)));
+		sumR += tr * dn.x; sumM += tr * dn.y;
+	}
+	var r: AtmR;
+	r.L = (sumR * BR * phR + sumM * BM * phM) * G.atmP.x;
+	r.T = exp(-(BR * odV.x + vec3f(BME * odV.y)));
+	return r;
+}
+fn atmTone(L: vec3f) -> vec3f { return srgbEncodeG(vec3f(1.0) - exp(-L * G.atmP.y)); }
+fn srgbEncodeG(c: vec3f) -> vec3f { let x = max(c, vec3f(0.0)); return select(1.055 * pow(x, vec3f(1.0 / 2.4)) - 0.055, x * 12.92, x <= vec3f(0.0031308)); }
+fn srgbDecodeG(c: vec3f) -> vec3f { let x = max(c, vec3f(0.0)); return select(pow((x + 0.055) / 1.055, vec3f(2.4)), x / 12.92, x <= vec3f(0.04045)); }
+// 球に当たった画素の空気遠近＝base（表示空間）を透過率で減らし散乱光を足す（リニアで合成し戻す）。k＝点ける度合い（従来の霞と混ぜる）
+fn atmGround(base: vec3f, A: vec3f, Pt: vec3f, viewDir: vec3f, k: f32) -> vec3f {
+	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
+	let haze = pow(1.0 - ndv, 3.0);
+	let old = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
+	if (k <= 0.0) { return old; }
+	let dn = normalize(Pt - A);
+	let sh = atmShell(A, dn, atmRt());
+	let t0 = max(sh.x, 0.0); let t1 = length(Pt - A);
+	let r = atmScatter(A, dn, t0, t1, G.sun.xyz);
+	let kg = G.atmP.z;   // 床の空気遠近の強さ（宇宙から見た陸の青い霞は物理どおりだと段彩が読みにくい＝既定は半分・view.atmGround で調整）
+	// 露出のトーン（1−exp）は散乱光だけに掛ける＝地の色（表示用の段彩）は透過率で減らすだけ（トーンまで掛けると 0.91→0.6 に潰れる・2026-09-26 実機）
+	let lin = srgbDecodeG(base) * mix(vec3f(1.0), r.T, kg) + (vec3f(1.0) - exp(-r.L * G.atmP.y)) * kg;
+	let phys = srgbEncodeG(min(lin, vec3f(1.0)));
+	return mix(old, phys, k);
+}
 struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 @vertex fn vs(@builtin(vertex_index) vi: u32) -> GOut {
 	var o: GOut;
@@ -817,10 +971,23 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		if (tstar > 0.0) { m = sqrt(max((cc + 1.0) - aDotd * aDotd / aa, 0.0)); }
 		var g = 1.0 - smoothstep(1.0, 1.09, m);
 		g = g * (1.0 - smoothstep(0.0, 0.55, dot(normalize(d), A / lenA)));
-		if (g <= 0.0) { discard; }
 		let limbCol = mix(G.land.rgb, G.atmo.rgb, G.atmo.a * 0.9);
-		let a = g * g * mix(G.atmo.a, 1.0, g);
-		return vec4f(mix(G.atmo.rgb, limbCol, g) * a, a);   // premultiplied
+		let oa = g * g * mix(G.atmo.a, 1.0, g);
+		let old = vec4f(mix(G.atmo.rgb, limbCol, g) * oa, oa);   // premultiplied（従来のリム光）
+		let k = G.sun.w;
+		if (k <= 0.0) { if (g <= 0.0) { discard; } return old; }
+		// 大気散乱（#46 段 1）：大気殻を通る区間だけ積分。殻の外＝宇宙＝discard（星がそのまま）。星は透過率のぶん透ける（α＝1−平均透過率）
+		let dn = normalize(d);
+		let sh = atmShell(A, dn, atmRt());
+		var phys = vec4f(0.0);
+		if (sh.y > 0.0) {
+			let r = atmScatter(A, dn, max(sh.x, 0.0), sh.y, G.sun.xyz);
+			let a = clamp(1.0 - (r.T.x + r.T.y + r.T.z) / 3.0, 0.0, 1.0);
+			phys = vec4f(atmTone(r.L), a);
+		}
+		let o = mix(old, phys, k);
+		if (o.a <= 0.002) { discard; }
+		return o;
 	}
 	let Pt = A + t * d;
 	var base = G.land.rgb;
@@ -869,10 +1036,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let gc = mix(mix(mix(mix(vec4f(0.0), g3, w3), g2, w2), g1, w1), g0, w0);
 		base = base * (1.0 - gc.a) + gc.rgb;
 	}
-	let viewDir = normalize(A - Pt);
-	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
-	let haze = pow(1.0 - ndv, 3.0);
-	let col = mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9);
+	let col = atmGround(base, A, Pt, normalize(A - Pt), G.sun.w);   // 空気遠近＝従来の霞か大気散乱（#46 段 1・G.sun.w）
 	return vec4f(col * G.misc.x, G.misc.x);   // 球体の不透明度（地中の震源等を透かす）
 }
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側を「landK=1 強制のハイプソ本体」で塗る＝
@@ -905,10 +1069,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	// 海面下の締め（NE流「最深帯」）：0→-60m で僅かに暗く・緑側へ＝乾燥帯でも読める（gl WDEPR_FS と同式）
 	hyp = mix(hyp, hyp * WP.belowSea.rgb, clamp(-e / 60.0, 0.0, 1.0));
 	let base = mix(G.land.rgb, hyp, G.whP.x);
-	let viewDir = normalize(A - Pt);
-	let ndv = clamp(dot(Pt, viewDir), 0.0, 1.0);
-	let haze = pow(1.0 - ndv, 3.0);
-	return vec4f(mix(base, G.atmo.rgb, haze * G.atmo.a * 0.9) * G.misc.x, G.misc.x);   // 球体の不透明度に従う
+	return vec4f(atmGround(base, A, Pt, normalize(A - Pt), G.sun.w) * G.misc.x, G.misc.x);   // 球体の不透明度に従う・空気遠近は globe fs と同じ関数（画素一致）
 }
 // 10度レチクル（v1 ortho-map geoGraticule10/Canvas2D の移植・gl GRAT_FS と対）：レイ→球→測地経緯度→
 // 10°格子への画素距離を fwidth で解析AA（≈0.7px 白細線）。度距離の上限ゲート＝極（経線収束）と atan 継ぎ目で
@@ -942,15 +1103,17 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 `;
 
 // テクスチャ/マテリアル付きの派生（glTF/GLB 直読み・2026-09-20）＝MESH_WGSL からの文字列派生（本体は不変・gl/glsl.js MESH_TEX_* と同じ考え）。
-// 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0)、group(3)＝サンプラ＋テクスチャ。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
+// 頂点に a_uv(f32x2)・a_col(unorm8x4＝baseColorFactor×COLOR_0＝glTF の規約どおりリニア)、group(3)＝サンプラ＋テクスチャ（rgba8unorm-srgb ビュー＝標本はリニア・出口で srgbEncode・#46 段 0）。色だけ「建物色」→「頂点色×テクスチャ」、α は alphaMode ごと（OPAQUE=無視・MASK=cutoff で discard・BLEND=前乗算で合成＝target の blend は既定で premultiplied）。
 const deriveWgsl = (src, pairs, label) => pairs.reduce((s, [a, b]) => { if (s.split(a).length !== 2) throw new Error(`wgsl derive(${label}): anchor missing/ambiguous: ${a.slice(0, 50)}`); return s.replace(a, b); }, src);
 export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
-	["struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };", "struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f };   // alpha.x=cutoff（これ未満は discard）alpha.y=blend（1=半透明＝α を前乗算で出力）"],
-	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n"],
+	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
-	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n"],
-	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tlet c = mix(tx.rgb * d, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
+	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
+	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
+	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
+	 "\t\t// normal map via screen-space tangents (no TANGENT attribute; degenerate = plain normal). default 1x1 (128,128,255) = identity\n\t\tlet nmv = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);\n\t\tlet dp1 = -dpx; let dp2 = -dpy;\n\t\tlet dp2p = cross(dp2, n); let dp1p = cross(n, dp1);\n\t\tlet T = dp2p * dux.x + dp1p * duy.x; let Bt = dp2p * dux.y + dp1p * duy.y;\n\t\tlet mx = max(dot(T, T), dot(Bt, Bt));\n\t\tvar nn = n;\n\t\tif (mx > 1e-20) { let im = inverseSqrt(mx); nn = normalize(T * im * nmv.x + Bt * im * nmv.y + n * max(nmv.z, 0.05)); }\n\t\tvar pi: PbrIn; pi.base = tx.rgb; pi.n = nn; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); pi.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); pi.ao = mix(1.0, oc.r, B.pbr0.w); pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh) + B.emis.rgb * em.rgb, vec3f(1.0)));   // emissive (srgb view = linear) added as is\n"],
+	["\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c, 1.0);\n}\n", "\tlet c = mix(lit, F.fogColor, in.fog);\n\treturn vec4f(c * a, a);\n}\n"],
 ], "MESH_TEX_WGSL");
 
 
@@ -1052,10 +1215,11 @@ export const BUILDING_SH_WGSL = deriveWgsl(BUILDING_WGSL, [
 export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) sc: vec4f,\n};"],
 	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（f32 差＝バッチ内一定の ≤0.4m）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
-	["\tlet c = mix(P.p1.rgb * d, F.fogColor, in.fog);", "\tlet c = mix(shShade(P.p1.rgb * d, in.sc), F.fogColor, in.fog);"],
+	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
+	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tvar lit = shShade(P.p1.rgb * d, in.sc);   // 従来（fx.pbr off）＝全体を暗く\n"],
 ], "MESH_SH_WGSL") + SHADOW_WGSL(3);
 export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
-	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet viewDir = normalize(A - Pt);", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet viewDir = normalize(A - Pt);"],
+	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet col = atmGround(", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround("],
 ], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
 // 影を落とす側（太陽からの深度だけ描く）：本体の頂点計算そのまま・対数深度だけ外す（正射影 w=1＝行列の z が線形の深度）。
 // 基図の押し出し建物は被覆マスクの discard だけ残す（PLATEAU メッシュが立つ所で二重に影を落とさない）。メッシュは頂点だけのパイプライン。

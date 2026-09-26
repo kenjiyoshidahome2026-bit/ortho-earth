@@ -282,7 +282,7 @@ const dispatch = e => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
