@@ -3,7 +3,8 @@
      既知の失敗＝tests/mlcompat-known.json の "browser"（鍵は "群:場面"）。一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。
      ?g=layers（既定）＝geojson の層の場面を 1 枚の地図に並べ、層を足す前後の基図の画素（requestSnapshot の base＝ラベル抜き）と問い合わせで判定。
        加えて分類表（src/zoomscale.js）と実行時のキー（map・map.gadget・map.raster・addGint の手綱）の突き合わせ＝台帳 R1（これは既知に入れない＝必ず通す）。
-     ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。 -->
+     ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。
+     ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -554,6 +555,60 @@ try {
 			return [green(p) && isRed(other) && gs?.hl === true && qs?.hl === true && isRed(back) && Object.keys(gs2).length === 0 && threw,
 				`hl=${p} other=${other} get=${JSON.stringify(gs)} query=${JSON.stringify(qs)} back=${back} after=${JSON.stringify(gs2)} noLayerThrows=${threw}`];
 		});
+	} else if (G === "extrude") {
+		// ── geojson の押し出し（fill-extrusion）＝問い合わせは立体（台帳 R23）・描き直しの鍵は曲線を見る（R22）。MapLibre の書き方そのまま・旗なし＝公開の口はエンジンの z ──
+		// 試料は海の上（地面＝海面＝持ち上げなし）。建物らしい大きさ＝接地（ground）。視点＝南から北を 60° 傾けて見る（手前＝南）
+		const { cameraState, project } = await import("@ortho-earth/core");
+		const C = [138.5, 32.5], MLAT = 110574, MLON = 111320 * Math.cos(C[1] * Math.PI / 180);
+		const off = (dx, dy, c = C) => [c[0] + dx / MLON, c[1] + dy / MLAT];   // m のずらし（東・北）
+		const rect = (cx, cy, hw, props, hole = 0, c = C) => {
+			const ring = (h, cw) => { const r = [[-h, -h], [h, -h], [h, h], [-h, h], [-h, -h]].map(([x, y]) => off(cx + x, cy + y, c)); return cw ? r.reverse() : r; };
+			return F({ type: "Polygon", coordinates: hole ? [ring(hw), ring(hole, true)] : [ring(hw)] }, props);
+		};
+		const map = await createGlobe({ target: "#map", view: `#17/${C[1]}/${C[0]}/60t`, chips: false, debugGlobals: true });   // debugGlobals＝window.__model（押し出しの呼び出しを数える窓）
+		await sleep(6000);
+		const el = map.mapEl;
+		const at = (dx, dy, h, c = C) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, el.clientWidth * d, el.clientHeight * d), [lon, lat] = off(dx, dy, c), [x, y] = project(st, lon, lat, 1 + h / 6371000); return [x / d, y / d]; };
+		const q = async (p, layers) => (await map.queryRenderedFeatures(p, { layers })).map(f => f.properties?.name);
+		const isRed = p => p[0] > 110 && p[1] < 90 && p[2] < 90, isBlue = p => p[2] > 110 && p[0] < 90 && p[1] < 90;
+		const pixelUntil = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = px(await snap(map), ...p); if (pred(c)) break; await sleep(1500); } return c; };
+		// N（手前・低い・青）と T（奥・高い・赤）・F（浮き・base 60）・K（中庭つき）
+		map.addSource("bx", { type: "geojson", data: fc([rect(0, -130, 30, { name: "N", h: 120 }), rect(0, 0, 30, { name: "T", h: 200 }), rect(-220, 0, 30, { name: "F", h: 100, b: 60 }), rect(220, 0, 60, { name: "K", h: 40 }, 20)]) });
+		await map.addLayer({ id: "bx", type: "fill-extrusion", source: "bx", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-base": ["coalesce", ["get", "b"], 0], "fill-extrusion-color": ["match", ["get", "name"], "T", "#ff0000", "N", "#0000ff", "#888888"] } });
+		await sleep(2000);
+		await scene("roof-hit-3d", async () => { const r = await q(at(0, 0, 200), ["bx"]); return [r[0] === "T", String(r)]; });   // 足跡だけの当て方＝屋根の点の地面は T の 350m 北＝外れる
+		await scene("above-roof-miss", async () => { const r = await q(at(0, 0, 260), ["bx"]); return [!r.includes("T"), String(r)]; });
+		await scene("wall-hit-3d", async () => { const r = await q(at(0, -30, 100), ["bx"]); return [r[0] === "T", String(r)]; });
+		await scene("depth-order-nearest-first", async () => { const r = await q(at(0, -30, 10), ["bx"]); return [r[0] === "N" && r.includes("T"), String(r)]; });   // T の南の壁の低い所＝手前の N の陰（MapLibre＝両方・近い順）
+		await scene("floating-base", async () => { const u = await q(at(-220, -30, 30), ["bx"]), w = await q(at(-220, -30, 80), ["bx"]); return [!u.includes("F") && w[0] === "F", `under=${u} wall=${w}`]; });
+		await scene("box-query-3d", async () => { const [x, y] = at(0, 0, 200); const r = (await map.queryRenderedFeatures([[x - 4, y - 4], [x + 4, y + 4]], { layers: ["bx"] })).map(f => f.properties?.name); return [r.includes("T") && !r.includes("K"), String(r)]; });
+		await scene("pixel-is-first-hit", async () => {   // 画面に見えている色＝問い合わせの先頭（当たりと描画が同じ所）
+			const roof = await pixelUntil(at(0, 0, 200), isRed), wall = await pixelUntil(at(0, -30, 100), isRed), hid = await pixelUntil(at(0, -30, 10), isBlue);
+			return [isRed(roof) && isRed(wall) && isBlue(hid), `roof=${roof} wall=${wall} occluded=${hid}`];
+		});
+		// ── 描き直しの鍵（R22）＝押し出しの呼び出しを数える。止まりの外（lo/hi）は止まっても評価し直さない・中と段は従来どおり ──
+		map.addSource("zk", { type: "geojson", data: fc([rect(0, 260, 20, { name: "Z" })]) });
+		await map.addLayer({ id: "zk", type: "fill-extrusion", source: "zk", paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 80], "fill-extrusion-color": "#00aa00" } });
+		const M = window.__model, runs = {}, orig = M.extrude;
+		M.extrude = function (src, o = {}) { runs[o.slot] = (runs[o.slot] || 0) + 1; return orig.call(this, src, o); };
+		const zoomRuns = async zs => { const r0 = runs.zk || 0; for (const z of zs) { map.jumpTo({ zoom: z }); await sleep(1500); } return (runs.zk || 0) - r0; };
+		await sleep(1000);
+		const hi = await zoomRuns([17.3, 17.6, 18, 17]), inside = await zoomRuns([15.3, 15.6]), lo = await zoomRuns([14, 13.6, 13.2]);
+		await scene("zoom-key-interp-outside-stops", () => [hi === 0 && inside === 2 && lo === 1, `hi(4 settles)=${hi} inside(2)=${inside} lo(3)=${lo}`]);
+		map.jumpTo({ zoom: 17 }); await sleep(1500);
+		map.setPaintProperty("zk", "fill-extrusion-height", ["step", ["zoom"], 20, 16, 80]); await sleep(1000);
+		const s1 = await zoomRuns([17.4, 17.8, 16.2]), s0 = await zoomRuns([15.5, 15.2, 14.8]);
+		await scene("zoom-key-step", () => [s1 === 0 && s0 === 1, `segment1(3 settles)=${s1} segment0(3)=${s0}`]);
+		M.extrude = orig;
+		// 中庭（穴）＝真上から＝穴の地面は当たらず・縁の屋根は当たる（見張り）
+		map.jumpTo({ zoom: 17, pitch: 0 }); await sleep(2500);
+		await scene("courtyard-hole", async () => { const h = await q(at(220, 0, 40), ["bx"]), r = await q(at(220 + 40, 0, 40), ["bx"]); return [!h.includes("K") && r.includes("K"), `hole=${h} rim=${r}`]; });
+		// 広い面（統計の押し出し＝床 2,000m の平面）に寄って傾ける＝面の頂点がカメラの後ろへ回っても屋根に当たる（見張り＝頂点の投影だけの当て方は外す）
+		const C2 = [140.5, 31.0];
+		map.addSource("big", { type: "geojson", data: fc([rect(0, 0, 20000, { name: "BIG", h: 500 }, 0, C2)]) });
+		await map.addLayer({ id: "big", type: "fill-extrusion", source: "big", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#aa00aa" } });
+		map.jumpTo({ center: C2, zoom: 13, pitch: 60 }); await sleep(3000);
+		await scene("large-roof-camera-inside", async () => { const r = await q([el.clientWidth / 2, el.clientHeight / 2], ["big"]); return [r.includes("BIG"), String(r)]; });
 	}
 
 	// ── 爪車 ──
