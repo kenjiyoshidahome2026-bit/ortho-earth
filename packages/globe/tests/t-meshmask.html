@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- 実描画の検分：メッシュ被覆マスクの 4 枠選抜（WebGPU・2026-09-27）。createRendererGPU をメインスレッドで直駆動。
+     試料＝東西 100m おきに 5 区（w0..w4）＝各区に基図の押し出し建物（赤い屋根 60m 角）＋屋根を丸ごと覆う被覆マスク。
+     枠は 4＝カメラ中心に近い 4 区だけが基図建物を伏せる。シーン原点は動かさずカメラだけを東西に振る：
+     ①西寄り（−40m）＝w0..w3 が伏せ・w4 だけ赤
+     ②東寄り（+40m）＝w1..w4 が伏せ・w0 だけ赤（旧＝buildMaskBG のシグネチャが区を見ず件数だけ＝古い BG が残り w4 が赤・w0 が伏せ）
+     ③西へ戻す＝①と同じ
+     ④w2 を非表示＝w2 が枠から外れ 4 区（w0,w1,w3,w4）が伏せ・w2 が赤（setMeshVis の再構築）
+     ⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-meshmask</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+	const dLon = e => e / (K * cosL), dLat = n => n / K;   // ENU(m)→経緯度差（近似）
+	const XS = [-200, -100, 0, 100, 200], HALF = 30, H = 10 / Re;   // 区の中心（東西 m）・屋根の半幅・屋根の高さ（単位球）
+	// 基図の押し出し建物＝原点相対 (dlon,dlat,h)・屋根だけ（2 三角形・cull none）。錨は区の中心
+	const pos = [], shade = [], anchor = [];
+	for (const x of XS) {
+		const q = [[x - HALF, -HALF], [x + HALF, -HALF], [x + HALF, HALF], [x - HALF, HALF]].map(([e, n]) => [dLon(e), dLat(n), H]);
+		for (const i of [0, 1, 2, 0, 2, 3]) { pos.push(...q[i]); shade.push(1); anchor.push(dLon(x), 0); }
+	}
+	r.set("scene", { origin: [LON, LAT], layers: [], buildings: { pos: new Float32Array(pos), shade: new Float32Array(shade), anchor: new Float32Array(anchor) } }, "main");
+	r.set("view", { bldColor: [1, 0, 0] });
+	// 被覆マスク＝区ごと 4×4 全セル（屋根より一回り大きい bbox）。メッシュ本体は無し（マスクだけで 4 枠選抜は走る）
+	const cells = Uint32Array.from({ length: 16 }, (_, i) => i);
+	XS.forEach((x, i) => r.set("meshSet", { ward: "w" + i, maskCells: cells, maskN: 4,
+		maskBbox: [LON + dLon(x - HALF - 5), LAT + dLat(-HALF - 5), LON + dLon(x + HALF + 5), LAT + dLat(HALF + 5)] }, `w${i}#0`));
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	// 1 視点＝同じ絵を 2 フレーム描いて 2 枚目を読む（1 枚目で BG が作られ・2 枚目はキャッシュ命中＝旧の取り違えはここで出る）
+	const shot = async e0 => {
+		const cam = { center: [LON + dLon(e0), LAT], zoom: 16, pitch: 0.05, bearing: 0, dpr: 1 };
+		let px = null;
+		for (let k = 0; k < 2; k++) {   // 同一タスクで drawImage（t-shadow と同じ作法＝present 後の空テクスチャを読まない）
+			r.draw(cam, {}); r.flush();
+			rctx.clearRect(0, 0, 256, 256); rctx.drawImage(canvas, 0, 0);
+			px = rctx.getImageData(0, 0, 256, 256).data;
+			await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		}
+		const st = cameraState(cam, 256, 256);
+		return XS.map(x => {   // 屋根中心の 5×5 の赤さ（R−(G+B)/2）＞100＝赤い屋根が見えている
+			const p = project(st, LON + dLon(x), LAT), cx = Math.round(p[0]), cy = Math.round(p[1]);
+			let s = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const i = ((cy + dy) * 256 + (cx + dx)) * 4; s += px[i] - (px[i + 1] + px[i + 2]) / 2; }
+			return s / 25 > 100 ? 1 : 0;
+		}).join("");
+	};
+	const west = await shot(-40);
+	ok(`西寄り=w4だけ見える(${west})`, west === "00001");
+	const east = await shot(40);
+	ok(`東寄り=w0だけ見える(${east})`, east === "10000");
+	const back = await shot(-40);
+	ok(`西へ戻す(${back})`, back === "00001");
+	r.set("meshVis", false, "w2");
+	const hid = await shot(-40);
+	ok(`w2非表示=w2が見える(${hid})`, hid === "00100");
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

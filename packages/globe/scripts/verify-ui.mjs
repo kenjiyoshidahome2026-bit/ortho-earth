@@ -25,7 +25,7 @@ const LONG = { "t-request": 180, "t-footprint": 120, "t-linedeco": 150, "t-dem":
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p.split("?")[0])) : ALL_PAGES;
 
-const stop = await startVite({ cwd: PKG, port: PORT, readyUrl: `http://localhost:${PORT}/tests/` });
+const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGU_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
 const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
