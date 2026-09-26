@@ -27,7 +27,9 @@ import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラ�
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 
-const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
+const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
+const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
+const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
 const FRAME_F32 = 112;     // 448B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
@@ -769,7 +771,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				pass.setPipeline(P.ovLine);
 				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf); pass.setVertexBuffer(5, zeroOffBuf);
-				pass.draw(6, o.lineCount);
+				drawLine(pass, o.lineCount);
 			}
 		}
 	}
@@ -782,8 +784,14 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		zeroOffN = Math.max(n, zeroOffN * 2, 4096);
 		zeroOffBuf = device.createBuffer({ size: zeroOffN * 12, usage: GPUBufferUsage.VERTEX });   // 作りたては 0 で埋まっている
 	}
-	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
+	// 線の角＝index の 4 頂点（perf plan P3・既定）／旧 6 頂点（?quad4=0）。線分 1 本の VS 起動 6→4（VS は両端点の elevQ を毎回引く＝3D では重い）
+	const QUAD4 = rOpts.quad4 !== false;
+	const cornerSrc = QUAD4 ? CORNERS4 : CORNERS;
+	const cornerBuf = device.createBuffer({ size: cornerSrc.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+	device.queue.writeBuffer(cornerBuf, 0, cornerSrc);
+	const lineIdxBuf = device.createBuffer({ size: LINE_IDX.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+	device.queue.writeBuffer(lineIdxBuf, 0, LINE_IDX);
+	const drawLine = (pass, count) => { if (QUAD4) { pass.setIndexBuffer(lineIdxBuf, "uint16"); pass.drawIndexed(6, count); } else pass.draw(6, count); };
 
 	// 静的 view（色・見た目）と海ゲート＝gl/renderer.js と同じ意味論
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
@@ -1854,7 +1862,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setVertexBuffer(3, d.bCol);
 					pass.setVertexBuffer(4, d.bHalf);
 					pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
-					pass.draw(6, d.count);
+					drawLine(pass, d.count);
 					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
 				}
 			}
@@ -2185,6 +2193,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
+		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0 }),

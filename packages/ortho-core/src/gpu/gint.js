@@ -25,14 +25,14 @@ import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn } from "../camera.js";
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL } from "./gintwgsl.js";
+import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, quad6WGSL } from "./gintwgsl.js";
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
 const TEX_ARC_W = 4096, TEX_META_W = 4096;   // テクスチャ経路の折り返し幅（旧 s.TEX_ARC_W/TEX_META_W）
 const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStencil: 5, maskFill: 6, point: 7, pointHi: 8, pickLine: 9, pickPoint: 10 };
 
-export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
+export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4 !== false } = {}) {   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
 	const { device, format } = host;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; requestDraw?.(); };
@@ -75,13 +75,16 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		});
 		return m;
 	};
-	const lineMod = mkMod(GINT_LINE_WGSL, "line");
+	// 線・点の VS は原本＝index の 4 頂点（P3）。?quad4=0 は quad6WGSL で旧 6 頂点へ機械変換（二重管理をしない・変換漏れは例外）
+	const QW = quad4 ? c => c : quad6WGSL;
+	const LINE_SRC = QW(GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL);
+	const lineMod = mkMod(LINE_SRC, "line");
 	const stencilMod = mkMod(GINT_STENCIL_WGSL, "stencil");
-	const pointMod = mkMod(GINT_POINT_WGSL, "point");
+	const pointMod = mkMod(POINT_SRC, "point");
 	// storage 版は原本の機械変換＝二重管理をしない（toStorageWGSL が変換漏れを例外で知らせる）
-	const lineModSB = SB ? mkMod(toStorageWGSL(GINT_LINE_WGSL), "line-sb") : null;
+	const lineModSB = SB ? mkMod(toStorageWGSL(LINE_SRC), "line-sb") : null;
 	const stencilModSB = SB ? mkMod(toStorageWGSL(GINT_STENCIL_WGSL), "stencil-sb") : null;
-	const pointModSB = SB ? mkMod(toStorageWGSL(GINT_POINT_WGSL), "point-sb") : null;
+	const pointModSB = SB ? mkMod(toStorageWGSL(POINT_SRC), "point-sb") : null;
 	// gint は straight alpha（GL blendFuncSeparate(SRC_ALPHA, 1-SA, ONE, 1-SA) と同じ）
 	const SBLEND = {
 		color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
@@ -178,6 +181,26 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 	const dummyU32 = device.createTexture({ size: [1, 1], format: "r32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummyF32 = device.createTexture({ size: [1, 1], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
 	const dummySamp = device.createSampler({ magFilter: "linear", minFilter: "linear" });
+	// ── index の 4 頂点/辺（perf plan P3・2026-09-27）──
+	// 固定パターン [4k,4k+1,4k+2, 4k,4k+2,4k+3]×QK を 1 本持ち、run は drawIndexed の baseVertex＝est×4 で位置を選ぶ（VS は vi/4 で辺・vi%4 で角）。
+	// 辺 1 本の VS 起動が 6→4 回（同じ index は post-transform cache が拾う）。VS が復号・投影・ドレープを両端点ぶん毎回やる gint では VS 律速＝直に効く。
+	// instance（地形適応細分の N と s＝firstInstance の上位 16bit）はそのまま。QK を超える run は割る（run は 16384 辺チャンクの連結＝割ってよい）。
+	// ?quad4=0＝旧 6 頂点の draw（VS も quad6WGSL の版）＝A/B と切り分けの逃げ道。
+	const QK = 1 << 17;
+	let quadIdx = null;
+	const quadIdxBuf = () => {
+		if (quadIdx) return quadIdx;
+		const a = new Uint32Array(QK * 6);
+		for (let k = 0, o = 0; k < QK; k++, o += 6) { const b = k * 4; a[o] = b; a[o + 1] = b + 1; a[o + 2] = b + 2; a[o + 3] = b; a[o + 4] = b + 2; a[o + 5] = b + 3; }
+		quadIdx = device.createBuffer({ size: a.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+		device.queue.writeBuffer(quadIdx, 0, a);
+		return quadIdx;
+	};
+	const bindQuads = pass => { if (quad4) pass.setIndexBuffer(quadIdxBuf(), "uint32"); };   // パスの頭で 1 回（stencil 扇の draw は index を見ない＝同居してよい）
+	const drawQuads = (pass, count, first, inst = 1, firstInst = 0) => {   // count 辺（点）を first から。inst/firstInst＝細分の N・s の運び方は不変
+		if (!quad4) { pass.draw(count * 6, inst, first * 6, firstInst); return; }
+		for (let e = 0; e < count; e += QK) pass.drawIndexed(Math.min(QK, count - e) * 6, inst, 0, (first + e) * 4, firstInst);
+	};
 	// idfill：ID テクスチャ（rg16float・canvas 同寸・単一サンプル）＝エンジン共有スクラッチ。
 	// 各層は「自分の idPass →直後に自分の解決」の順で符号化される＝パス実行も符号化順ゆえ共有で衝突しない。
 	// 解決 bind group は層ごと（fidStyleTex が層の物）＝idGen（idTex 作り直し世代）で失効管理。
@@ -812,6 +835,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		pass.setStencilReference(0);
 		pass.setBindGroup(1, L.paramBG[ROLE.stencil]);
 		pass.setBindGroup(3, aux);
+		bindQuads(pass);   // 線・点の index（P3）
 
 		// ② 塗り：コロプレス（idfill）＝解決パスを描画／それ以外＝stencil-then-cover 単色（境界メタ優先）
 		// occ＝面ドレープの深度統合：チルト（elevScale>0）でのみ建物 bit7 で塗りをスキップ＝真俯瞰は全塗り維持（裁定）
@@ -856,11 +880,11 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				device.queue.writeBuffer(L.gfBuf, 0, gfAB);
 			}
 			const drawRuns = () => {
-				for (const [est, cnt] of runsL) pass.draw(cnt * 6, 1, est * 6);
+				for (const [est, cnt] of runsL) drawQuads(pass, cnt, est);
 				if (plan.skipE7 > 0 && subRuns) for (let b = 0; b < SUB_NB; b++) {
 					const n = plan.N[b], Ls = subRuns[b];
 					if (n <= 1 || !Ls) continue;
-					for (const [st, cnt] of Ls) pass.draw(cnt * 6, n, st * 6, n << 16);
+					for (const [st, cnt] of Ls) drawQuads(pass, cnt, st, n, n << 16);
 				}
 			};
 			let pfEdges = 0;
@@ -879,7 +903,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 			pass.setBindGroup(0, L.frameBG[GF_LINE]);
 			pass.setBindGroup(1, L.paramBG[ROLE.point]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.ptTex, L.ptMetaTex));
-			pass.draw(L.totalPoints * 6);
+			drawQuads(pass, L.totalPoints, 0);
 		}
 		// ── ハイライト（activeId≥0＝毎フレーム inline。アクティブ層のみ。深度免除・ドレープのみ＝GL drawHighlight と同順）──
 		if (aId !== -1 && (L.arcTex || L.ptTex)) {
@@ -892,14 +916,14 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 				pass.setBindGroup(1, L.paramBG[ROLE.hilite]);
 				pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, L.metaTex));
 				const nH = drapeSubs(dep, [[0, hasRange ? eCount : L.totalEdges, L.span?.[0] ?? -1, L.span?.[1] ?? -1]])[0];   // 清描画と同じ折れ線に乗る
-				if (hasRange) pass.draw(eCount * 6, nH, eStart * 6, nH << 16);
-				else pass.draw(L.totalEdges * 6, nH, 0, nH << 16);
+				if (hasRange) drawQuads(pass, eCount, eStart, nH, nH << 16);
+				else drawQuads(pass, L.totalEdges, 0, nH, nH << 16);
 			}
 			if (L.totalPoints > 0 && L.ptTex && L.ptMetaTex) {
 				pass.setPipeline(P.point);
 				pass.setBindGroup(1, L.paramBG[ROLE.pointHi]);
 				pass.setBindGroup(2, texBG(L.sbOn, L.ptTex, L.ptMetaTex));
-				pass.draw(L.totalPoints * 6);
+				drawQuads(pass, L.totalPoints, 0);
 			}
 			const mc = data.maskColor ?? DEF_MASK;
 			if (mc[3] > 0 && hasRange && L.metaTex) {
@@ -954,18 +978,19 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		});
 		pass.setBindGroup(0, L.frameBG[GF_LINE]);
 		pass.setBindGroup(3, aux);
+		bindQuads(pass);   // 線・点の index（P3）＝pick も描画と同じ 4 頂点
 		if (L.totalEdges > 0 && L.metaTex && L.arcTex) {
 			const pkSel = pickLineTier(L, data.lodRank ?? 0, L.metaTex, L.totalEdges);
 			pass.setPipeline(L.sbOn ? pickLinePipeSB : pickLinePipe);
 			pass.setBindGroup(1, L.paramBG[ROLE.pickLine]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, pkSel.tex));
-			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]])) pass.draw(cnt * 6, 1, est * 6);
+			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]])) drawQuads(pass, cnt, est);
 		}
 		if (L.totalPoints > 0 && L.ptTex && L.ptMetaTex) {
 			pass.setPipeline(L.sbOn ? pickPointPipeSB : pickPointPipe);
 			pass.setBindGroup(1, L.paramBG[ROLE.pickPoint]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.ptTex, L.ptMetaTex));
-			pass.draw(L.totalPoints * 6);
+			drawQuads(pass, L.totalPoints, 0);
 		}
 		pass.end();
 		device.queue.submit([enc.finish()]);
@@ -1080,7 +1105,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB } = {}) {
 		dummyU32.destroy(); dummyF32.destroy();
 	}
 	function statsFor(L) {
-		return { drawn: L._pfDrawn ?? 0, fbo: L._pfFbo ?? 0, pickMs: L._pfPickMs ?? 0, sb: SB ? (L.sbOn ? 1 : 0) : -1,
+		return { drawn: L._pfDrawn ?? 0, fbo: L._pfFbo ?? 0, pickMs: L._pfPickMs ?? 0, sb: SB ? (L.sbOn ? 1 : 0) : -1, quad4: quad4 ? 1 : 0,
 			rank: L.lastDrawData?.lodRank ?? -1, tierW: L._pfTierW ?? -1, edges: L._pfLineEdges ?? 0, dbg: L._dbg ?? null, ring: (L._dbgRing ?? []).slice(-40).join(" "),
 			style: L.drawStyle ? { oz: L.drawStyle.outlineZoom, mb: L.drawStyle.moveBudget, nd: L.drawStyle.noDepth, lw: L.drawStyle.lineWidth } : null,
 			tiers: L.lodTiers?.length ?? 0, tiersDone: !!L.tiersDone, total: L.totalEdges,

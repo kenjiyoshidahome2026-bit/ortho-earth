@@ -9,7 +9,7 @@
 | Phase | 中身 | 見立て | 出口の門 |
 |---|---|---|---|
 | 0 | **計器とベースライン**（§1） | 1〜2 日 | 3 端末×3 シーンの表が §8 に埋まる |
-| 1 | 速攻 3 件＝P6 gndMix 早期 return（§4）・P1 step0 標高ループの融合＋Float16Array（§2）・P3 線 6→4 頂点（§3） | 各半日〜1 日 | 関門緑・絵一致・gpuMap/gpuGint が改善または不変 |
+| 1 | 速攻 3 件＝P6 gndMix 早期 return（§4）・P1 step0 標高ループの融合＋Float16Array（§2）・P3 線 6→4 頂点（§3）＝**2026-09-27 全て実施済**（数字は §8） | 各半日〜1 日 | 関門緑・絵一致・gpuMap/gpuGint が改善または不変 |
 | 2 | P1 step1 GPU 再標本化（§2） | 2〜3 日 | セル一致検定（CPU 参照との差 ≤ f16 ulp）・着地の引っ掛かりログがゼロ |
 | 3 | P4 地形 LOD（§5）＝`?gmax=` の天井測定で go/no-go | 3〜5 日 | 低チルトで絵一致・高チルトで差分予算内・割れ無し検定 |
 | 4 | P2 プール＋render bundle（§6）＝Phase 0 の数字で go/no-go | 1〜2 週 | classic と md の絵一致・fadede8b の轍の回帰・`?mem=1` にプール行 |
@@ -81,6 +81,33 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 **期待**：VS 律速の的で −20〜33%（フラグメント律速の太線では小）。
 **轍**：post-transform cache は「同一 instance 内の同一 index」だけ再利用＝instance 数 n の細分でも辺内の 4 頂点は 1 回ずつ。`cullMode:"none"` なので巻き向きは絵に出ないが、index の三角形順は現行と同一に保つ（検定の画素一致）。
 **次段（本計画の外）**：可視 run の arc 頂点を compute で 1 回だけ投影（12 回→1 回）。snap は VS に残し、細分のサブ端点だけ VS で投影。層あたり 12B×頂点の中間バッファ＝可視 run に限る。
+
+**実施（2026-09-27）**
+- 実装＝設計どおり両バックエンド。WebGPU：gint＝`drawIndexed(cnt*6, n, 0, est*4, n<<16)`（固定パターン u32・K=131072・run が K を超えたら割る）・基図 LINE＝4 隅＋u16 index `[0,1,2,2,1,3]`。
+  GL：`drawElements`（baseVertex が無い＝run の先頭辺は `u_vbase` uniform で運ぶ・QK 超は割る）・基図 LINE＝`drawElementsInstanced`（u8 index・各 line VAO に ELEMENT を bind）。
+  シェーダの原本は 4 頂点形＝旧 6 頂点は機械変換（`quad6WGSL`／`quad6GLSL`・変換漏れは例外）＝二重管理をしない。逃げ道 `?quad4=0`。
+- 門＝globe verify:webgpu 22/22・verify:ui 全頁・japan verify:webgpu 14/14・node test 3 系（core／globe／japan）緑。
+- **轍**：GL の `u_vbase` を DEPTH_UNIFORM_NAMES に足していた＝pick 線プログラムは SHARED しか読まない＝location undefined＝run の先頭が 0 に化けて **hover が死ぬ**（描画は uRender が DEPTH も読むので無事＝絵の門は通り、pick の門 t-gintlayers?gl2=1／t-gintmultigl だけが落ちた）。SHARED へ移して根治。
+  教訓＝uniform 名の台帳が複数ある時は「どのプログラムがどの台帳を読むか」を先に確かめる。pick の門が絵の門と独立に在るのが効いた。
+- **計測①** `bench-gintsb.mjs`（合成 2.1M 辺・同一タスク連続 submit・gint 差分 ms/フレーム・Mac apple metal-3）：
+
+  | 的 | storage（4 頂点） | quad6（旧 6 頂点） | sb/quad6 |
+  |---|---|---|---|
+  | z14 | 1.37 | 1.24 | 1.11（雑音・線は少数＝VS 律速でない） |
+  | z8 | 1.29 | 1.31 | 0.98（同上） |
+  | z3 | **16.46** | **20.49** | **0.80＝−20%**（60 万辺の VS 律速＝期待 −20〜33% の下端） |
+
+  読み＝VS 律速の的でだけ効く（見立てどおり）。フラグメント律速・少数辺の的は不変。
+- **計測②** `bench-perf.mjs --runs 3`（基図の線・gpuMap の中央値・Mac）＝A/B を順序入れ替えで 2 組（cache の順序効果を潰す）：
+
+  | シーン | 旧 6 頂点 `?quad4=0` | 4 頂点（既定） | 差 |
+  |---|---|---|---|
+  | 2D 東京 z13 | 0.70／0.70 | 0.33／0.33 | **−53%**（2 組とも同値＝基図の線が 2D の費用の半分） |
+  | 富士 z13 60° | 7.77／7.92 | 6.34／6.39 | **−19%**（3D の線 VS は両端点の elevQ 引きが重い＝6→4 がそのまま効く） |
+  | 東京駅 z16.5 55° | 9.85（cells 3）／11.12（cells 76） | 7.56（cells 3）／9.80（cells 76） | **−23%／−12%**（同じ cells 同士で比べる＝載った地形セル数で絶対値が動く） |
+
+  ⚠計測の轍＝bench-perf は「その回に載った物」（cells 列）で絶対値が揺れる＝A/B は同じ cells 同士で読む・順序を入れ替えて 2 組採る。1 回だけベンチが 36 分固まった（runRealtime の limitS 300 が効かない経路がある＝再実行で完走・原因未調査＝ベンチ台の整備項目）。
+- **結論**：P3 完了。線が費用の主役の的（2D・ドレープ線）で −20〜50%、地形支配の的で −10〜20%。gint は VS 律速の大データで −20%。次の伸びしろは「投影を辺ごとに 12 回→頂点ごとに 1 回」（上記の次段）＝本計画の外。
 
 ## 4. P6 gndMix0 の早期 return（順位 6・GL と対等化）
 
@@ -157,6 +184,9 @@ gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン�
 | Mac（apple metal-3） | 富士 z13 60° `?gmax=768` | webgpu | 5.22 | 0 | 1 | 1 | 4 / 0 | 0 / 0 | **P4 の天井＝−4.4ms（−46%）**。三角形 1/4 でこれだけ落ちる＝地形の密度が 3D の費用の半分近く |
 | Mac（apple metal-3） | 東京駅 z16.5 55° `?gmax=768` | webgpu | 6.43 | 0 | 1 | 1 | 1 / 0 | 0 / 0 | −2.0ms（−24%）。PLATEAU の街でも地形が 1/4 を占める |
 | Mac（apple metal-3） | 2D 東京 z13 `?gmax=768` | webgpu | 0.70 | 0 | 1 | 1 | 2 / 0 | 0 / 0 | 不変（地形なし）＝計器の再現性の目安 |
+| Mac（apple metal-3） | 2D 東京 z13（P3 後） | webgpu | 0.33 | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−53%**（旧 0.70・2 組一致・§3） |
+| Mac（apple metal-3） | 富士 z13 60°（P3 後） | webgpu | 6.34〜6.39 | 0 | 1 | 1 | 3 / 0 | 0 / 0 | **−19%**（旧 7.77〜7.92・§3） |
+| Mac（apple metal-3） | 東京駅 z16.5 55°（P3 後） | webgpu | 7.56（cells 3）／9.80（cells 76） | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−23%／−12%**（旧 9.85／11.12・同 cells 比較・§3） |
 
 ## 9. 別線 P5 topology の uint32 化＋dedup の typed hash／WASM（順位 5・geopbf）
 

@@ -183,13 +183,13 @@ async function bootWebGL(m) {
 	bootStage = "awaiting gl import";
 	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && err.message || err) }); return; }
-	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）
+	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, quad4: m.quad4 !== false, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
 	// gint（知性の層）＝renderer と同一コンテキストに同居。描画は frame() が renderer.draw の直後に
 	// 同じ glCam で1パス＝地図と同フレーム同カメラ（別canvas時代の「1フレーム級遅れて泳ぐ」の根治）。
-	gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; } });
+	gint = createGintLayer(glRef, { requestDraw: () => { dirty = true; }, quad4: m.quad4 !== false });
 	// timer query は perf HUD 専用から常時初期化へ＝GPU格付け（スピードビニング）の物差しに使う。
 	// 非対応環境（Safari等）は null＝格付けが立たない＝手前詳細化オフの安全側。
 	tqExt = glRef.getExtension("EXT_disjoint_timer_query_webgl2");
@@ -285,7 +285,7 @@ const dispatch = e => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, gndFast: m.gndFast !== false, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -295,7 +295,7 @@ const dispatch = e => {
 							setTimeout(() => { if (r.gpuErrors.length) postMessage({ type: "drawErr", msg: "GPU diagnostics " + r.gpuErrors.length + " issue(s): " + r.gpuErrors.slice(0, 4).join(" | "), stack: r.gpuErrors.join("\n").slice(0, 800) }); }, 2500);
 						}, 400);
 						// gint（知性の層）＝renderer の frame（開いたエンコーダ）へ自分の render pass を足す＝1canvas統合の WebGPU 形。
-						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; }, noSB: !!m.noGintSB });   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
+						if (!m.noGint) gint = createGintLayerGPU(r, { requestDraw: () => { dirty = true; }, noSB: !!m.noGintSB, quad4: m.quad4 !== false });   // ?nogint=1＝gint 層別切り（iOS診断）・?gintsb=0＝storage buffer 経路切り
 						bootStage = "gint ready";
 						console.log("[render] backend=webgpu (Phase 6: full main draw stack = basemap/elevation/terrain/depth/buildings/contours/gint/PLATEAU/stars/overlay/idfill/gintBld; only md family missing)");
 						// A/B 計測：?perf=1 で GPU 識別を1行（WebGL 経路の debug_renderer_info と対）。WebGPU は timestamp-query 未配線＝ema は壁時計で比較

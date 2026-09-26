@@ -18,6 +18,7 @@ uniform usampler2D u_arc_tex;
 uniform usampler2D u_meta_tex;
 uniform int        u_arc_w;
 uniform int        u_meta_w;
+uniform int        u_vbase;      // index の 4 頂点/辺（perf plan P3）：run の先頭辺（WebGL の drawElements に baseVertex が無い＝uniform で運ぶ。旧 6 頂点 drawArrays 時は 0）
 uniform mat4       u_mvp;        // japan の MVP（cameraState 由来）
 uniform vec3       u_eye;        // カメラ位置（単位球ワールド）＝手前/裏半球判定
 uniform vec2       u_origin;     // シーン原点 lon/lat (deg)＝Morton 中心（現状 deltaTo3D 化で未使用・documentation）
@@ -400,6 +401,7 @@ precision highp usampler2D;
 uniform usampler2D u_pt_tex;
 uniform usampler2D u_pt_meta_tex;
 uniform int        u_pt_w;
+uniform int        u_vbase;      // index の 4 頂点/点（P3）＝run の先頭（点は常に 0・QK 超で割った時だけ非 0）
 uniform mat4       u_mvp;
 uniform vec3       u_eye;
 uniform vec2       u_origin;
@@ -628,8 +630,8 @@ bool subRange(vec2 dA, vec2 dB, int s, out float ts, out float te) {
 }
 
 void main() {
-	int edge_id = gl_VertexID / 6;
-	int sub     = gl_VertexID % 6;
+	int edge_id = u_vbase + gl_VertexID / 4;   // index の 4 頂点/辺（perf plan P3）＝drawElements の index は 0..4K・run の先頭は u_vbase。旧 6 頂点は quad6GLSL（?quad4=0）
+	int sub     = gl_VertexID % 4;
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 	bool dupRow = (meta.b & 128u) != 0u;   // 複製行（長辺の細分用・メタ末尾・bake appendSubRows）＝元の辺へ引き直す（歩行・破線位相は元の辺）
 	if (dupRow) { edge_id = int(meta.b >> 8u); meta = fetchEdgeMeta(edge_id); }
@@ -667,8 +669,8 @@ void main() {
 	// 旧実装は各頂点が「自端→相手端」で dir を取っていた＝A側とB側で perp が反転し、
 	// クアッドがボウタイ（ねじれリボン）化：細線ではAAに紛れ、太線（per-fid @width）で
 	// 「片側欠け＋交差部だけ二重描画の濃い芯」として露呈（geoedit 8/20・本人「ねじれ」報告の根治）。
-	bool  useA = (sub == 0 || sub == 1 || sub == 3);
-	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+	bool  useA = sub < 2;   // 4 頂点＝0:A− 1:A+ 2:B+ 3:B−（index [0,1,2,0,2,3]＝旧 6 列 (A−)(A+)(B+)(A−)(B+)(B−) と同じ三角形・同じ向き）
+	float side = (sub == 1 || sub == 2) ? 1.0 : -1.0;
 
 	float wA, wB;                        // 端点の clip.w（対数深度用。深度オフ時は未使用）
 	vec3 pa3, pb3;
@@ -775,8 +777,8 @@ out vec4  v_color;
 out float v_zr;
 
 void main() {
-	int edge_id = gl_VertexID / 6;
-	int sub     = gl_VertexID % 6;
+	int edge_id = u_vbase + gl_VertexID / 4;   // index の 4 頂点/辺（perf plan P3）＝drawElements の index は 0..4K・run の先頭は u_vbase。旧 6 頂点は quad6GLSL（?quad4=0）
+	int sub     = gl_VertexID % 4;
 	uvec4 meta  = fetchEdgeMeta(edge_id);
 
 	// style 0 = polygon edge（JS レイキャストで識別）→ここでは捨てる。1 = polyline。
@@ -791,8 +793,8 @@ void main() {
 	uint lodA = meta.r, lodB = meta.g;
 	if (!lodSnap(lodA, lodB, edge_id)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 
-	bool  useA = (sub == 0 || sub == 1 || sub == 3);
-	float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+	bool  useA = sub < 2;   // 4 頂点＝0:A− 1:A+ 2:B+ 3:B−（index [0,1,2,0,2,3]＝旧 6 列 (A−)(A+)(B+)(A−)(B+)(B−) と同じ三角形・同じ向き）
+	float side = (sub == 1 || sub == 2) ? 1.0 : -1.0;
 
 	// 描画VSと同じ「辺の正準方向」でクアッドを張る（旧＝自端基準で perp が反転＝ボウタイ。同時修正 8/20）
 	vec3 pa3 = fetchProject(lodA);
@@ -830,10 +832,10 @@ out float v_zr;
 out vec2  v_uv;
 out vec4  v_color;
 void main() {
-	int pt_id = gl_VertexID / 6;
-	int sub   = gl_VertexID % 6;
-	float ox = (sub == 2 || sub == 4 || sub == 5) ? 1.0 : -1.0;
-	float oy = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+	int pt_id = u_vbase + gl_VertexID / 4;   // index の 4 頂点/点（P3）
+	int sub   = gl_VertexID % 4;
+	float ox = (sub == 2 || sub == 3) ? 1.0 : -1.0;   // 4 隅＝0:(−,−) 1:(−,+) 2:(+,+) 3:(+,−)（index [0,1,2,0,2,3]＝旧 6 列と同じ三角形）
+	float oy = (sub == 1 || sub == 2) ? 1.0 : -1.0;
 	vec3 p = fetchPoint(pt_id);
 	v_zr = p.z;
 	v_uv = vec2(ox, oy);
@@ -869,10 +871,10 @@ out vec4  v_color;
 flat out vec4  v_stroke;   // 縁の色（α0＝縁なし）
 flat out float v_inner;    // 塗りの半径／外径（縁の内側の境）
 void main() {
-	int pt_id = gl_VertexID / 6;
-	int sub   = gl_VertexID % 6;
-	float ox = (sub == 2 || sub == 4 || sub == 5) ? 1.0 : -1.0;
-	float oy = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;
+	int pt_id = u_vbase + gl_VertexID / 4;   // index の 4 頂点/点（P3）
+	int sub   = gl_VertexID % 4;
+	float ox = (sub == 2 || sub == 3) ? 1.0 : -1.0;   // 4 隅＝0:(−,−) 1:(−,+) 2:(+,+) 3:(+,−)（index [0,1,2,0,2,3]＝旧 6 列と同じ三角形）
+	float oy = (sub == 1 || sub == 2) ? 1.0 : -1.0;
 	vec3 p = fetchPoint(pt_id);
 	v_zr = p.z;
 	v_uv = vec2(ox, oy);
@@ -932,6 +934,7 @@ const SHARED_UNIFORM_NAMES = [
 	'u_ix_center','u_iy_center','u_lod_rank',
 	'u_ell_trig','u_ell',   // 楕円体 dβ 錨＋変位方向ゲート（球=全0=GL既定値＝従来動作）
 	'u_atlas','u_atlasOn',  // 窓座標モード（地面アトラスへの焼き込み・塗り扇のみ・既定 0）
+	'u_vbase',   // index の 4 頂点（P3）＝run の先頭辺（線・pick 線 VS。塗り扇など無いプログラムは location null＝no-op）。⚠pick 線は SHARED だけ＝ここに置く（DEPTH 側だと pick が u_vbase 無し＝run の先頭が 0 に化けて hover が死ぬ・2026-09-27 実測）
 ];
 // 深度統合（段階B）uniform 名（bindDepthUniforms が set。未設定なら全0=従来動作）。
 // 線(uRender)に加え、塗り扇(uStencil)・idfill蓄積(uId)もドレープ（fetchClipDrape）で参照する（2026-08-14）。
@@ -944,16 +947,37 @@ const PT_UNIFORM_NAMES = [
 	'u_mvp','u_eye','u_origin','u_origin_trig','u_clipT','u_origin_zr','u_viewport','u_pt_radius',
 	'u_ix_center','u_iy_center','u_ell_trig','u_ell',
 	'u_fid_style','u_fidstyle_w','u_has_fidstyle','u_dpr',   // per-fid 点スタイル（paint）＝描画/pick 両プログラム
+	'u_vbase',   // index の 4 頂点（P3）
 ];
 
-export function createGintPrograms(gl) {
-	const renderProgram      = linkProgram(gl, VS_RENDER,        FS_RENDER);
+// ── 旧 6 頂点/辺の drawArrays（?quad4=0・perf plan P3 の逃げ道）への書き換え＝gpu/gintwgsl.js quad6WGSL と対 ──
+// 原本は index の 4 頂点（u_vbase + gl_VertexID/4・%4・角 4 通り）。旧＝index 無しの 6 頂点（gl_VertexID/6・%6・角 6 通り）。二重管理をしない＝機械変換（漏れは例外）
+export function quad6GLSL(code) {
+	const R = [
+		[/u_vbase \+ gl_VertexID \/ 4;/g, "gl_VertexID / 6;"],
+		[/gl_VertexID % 4;/g, "gl_VertexID % 6;"],
+		[/bool  useA = sub < 2;/g, "bool  useA = (sub == 0 || sub == 1 || sub == 3);"],
+		[/float side = \(sub == 1 \|\| sub == 2\) \? 1\.0 : -1\.0;/g, "float side = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;"],
+		[/float ox = \(sub == 2 \|\| sub == 3\) \? 1\.0 : -1\.0;/g, "float ox = (sub == 2 || sub == 4 || sub == 5) ? 1.0 : -1.0;"],
+		[/float oy = \(sub == 1 \|\| sub == 2\) \? 1\.0 : -1\.0;/g, "float oy = (sub == 1 || sub == 2 || sub == 4) ? 1.0 : -1.0;"],
+	];
+	let out = code, hit = 0;
+	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
+	if (hit === 0 || /gl_VertexID [/%] 4;/.test(out)) throw new Error("quad6GLSL: 変換漏れ（4 頂点の目印が残っている／無い）＝原本の書式が変わった疑い");
+	return out;
+}
+// index の 4 頂点/辺（P3）の固定パターン＝[4k,4k+1,4k+2, 4k,4k+2,4k+3]×QK（u32・ELEMENT_ARRAY）。run は u_vbase＝先頭辺・QK 超は割る（passes.js drawQ）
+export const QUAD_K = 1 << 17;
+
+export function createGintPrograms(gl, { quad4 = true } = {}) {
+	const Q = quad4 ? c => c : quad6GLSL;   // ?quad4=0＝旧 6 頂点の VS（線・点・pick）
+	const renderProgram      = linkProgram(gl, Q(VS_RENDER),     FS_RENDER);
 	const stencilProgram     = linkProgram(gl, VS_STENCIL,       FS_STENCIL);
 	const fillProgram        = linkProgram(gl, VS_FILL,          FS_FILL);
 	const maskStencilProgram = linkProgram(gl, VS_STENCIL_MASK,  FS_STENCIL_MASK);
-	const pointProgram       = linkProgram(gl, VS_POINT,         FS_POINT);
-	const pickLineProgram    = linkProgram(gl, VS_PICK_LINE,     FS_PICK);
-	const pickPointProgram   = linkProgram(gl, VS_PICK_POINT,    FS_PICK_POINT);
+	const pointProgram       = linkProgram(gl, Q(VS_POINT),      FS_POINT);
+	const pickLineProgram    = linkProgram(gl, Q(VS_PICK_LINE),  FS_PICK);
+	const pickPointProgram   = linkProgram(gl, Q(VS_PICK_POINT), FS_PICK_POINT);
 
 	const uRender      = getUniforms(gl, renderProgram,      [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_dpr', 'u_active_id', 'u_pass', 'u_style_table', 'u_dash_table', 'u_hilite_color', 'u_hilite_width',
 		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
@@ -967,12 +991,23 @@ export function createGintPrograms(gl) {
 	const uPickPoint   = getUniforms(gl, pickPointProgram,   PT_UNIFORM_NAMES);
 
 	const emptyVAO = gl.createVertexArray();
+	// quadVAO（P3）＝属性なし・ELEMENT_ARRAY に固定パターン。線・点の draw はこれを bind して drawElements（stencil 扇の drawArrays も同居してよい＝index を見ない）
+	let quadVAO = null, quadIdx = null;
+	if (quad4) {
+		const a = new Uint32Array(QUAD_K * 6);
+		for (let k = 0, o = 0; k < QUAD_K; k++, o += 6) { const b = k * 4; a[o] = b; a[o + 1] = b + 1; a[o + 2] = b + 2; a[o + 3] = b; a[o + 4] = b + 2; a[o + 5] = b + 3; }
+		quadVAO = gl.createVertexArray(); quadIdx = gl.createBuffer();
+		gl.bindVertexArray(quadVAO);
+		gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, quadIdx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, a, gl.STATIC_DRAW);   // ELEMENT bind は VAO 状態
+		gl.bindVertexArray(null);
+	}
 	gl.enable(gl.BLEND);
 	gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
 	return { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
 			 pointProgram, pickLineProgram, pickPointProgram,
-			 uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO };
+			 uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO,
+			 quad4, quadVAO, quadIdx, QK: QUAD_K };
 }
 
 function compileShader(gl, type, src) {
