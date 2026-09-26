@@ -20,7 +20,7 @@ const ALL_PAGES = ["t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t
 // 実時間で回す頁＝render worker 内の動的 import（map.overlay のモジュール）や実 GPU の async init に依る検定。
 // 仮想時間（--virtual-time-budget）では worker の import() が永久に解決しない＝偽陽性（2026-09-20 実測）。
 const REALTIME = new Set(["t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco", "t-tiles3d", "t-marker", "t-request", "t-sunshadow", "t-dem", "t-viewshed", "t-clock", "t-bootview", "t-overlaydepth", "t-mlcompat", "t-mlzoom"]);
-const LONG = { "t-request": 180, "t-linedeco": 150, "t-dem": 170, "t-bootview": 240, "t-overlaydepth": 150, "t-mlcompat": 150, "t-mlzoom": 120 };   // t-bootview＝5 回起動し直す   // 段が多い実描画＝枠を広げる
+const LONG = { "t-request": 180, "t-linedeco": 150, "t-dem": 170, "t-bootview": 240, "t-overlaydepth": 150, "t-mlcompat": 300, "t-mlzoom": 120 };   // t-bootview＝5 回起動し直す   // 段が多い実描画＝枠を広げる
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p.split("?")[0])) : ALL_PAGES;

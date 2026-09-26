@@ -342,6 +342,7 @@ const dispatch = e => {
 			else if (m.cmd === "gintStyle") { gTgt(m)?.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
 			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
+			else if (m.cmd === "vtLabels") { const list = m.data?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer, list, m.data ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
 			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）

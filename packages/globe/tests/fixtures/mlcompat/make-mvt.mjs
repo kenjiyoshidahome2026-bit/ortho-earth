@@ -3,6 +3,7 @@
 // 太平洋の上（140E・30N 付近＝既定の地形は海＝0）・z14 の 4 枚が接する角を原点に、角の周りへ 6 棟：
 //   1 tall（北西・120m）／2 seam（北の縦の継ぎ目をまたぐ・40m）／3 court（南東・中庭の穴つき・50m）／4 L（南西・凹・20m）／
 //   5 hidden（北東・hide_3d＝MapLibre の例の filter で消える・80m）／6 floating（北東・宙に浮く 20→60m）
+// 段 8⑤（描く層）の試料も同じタイルへ：landuse（面・継ぎ目をまたぐ・名前つき）／road（線・継ぎ目をまたぐ）／poi（点＋name）＝建物から離れた西と南
 // 出力：vt/{z}/{x}/{y}.pbf（XYZ）・vt.pmtiles（同じタイル・圧縮なし）・vt.json（TileJSON・相対の tiles）・vt-buildings.json（棟の中心と高さ＝検定がどこを押すか）
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -31,6 +32,19 @@ const B = [
 	{ id: 5, name: "hidden", rings: [rect(150, 150, 40, 40)], props: { render_height: 80, render_min_height: 0, hide_3d: true } },
 	{ id: 6, name: "floating", rings: [rect(150, 60, 30, 30)], props: { render_height: 60, render_min_height: 20 } },
 ];
+// 描く層（段 8⑤）：面は at の反時計回り・線は点列・点は 1 点
+const LU = [
+	{ id: 101, name: "Park", rings: [rect(-350, 0, 160, 160)], props: { class: "park" } },   // 横の継ぎ目（n=0）をまたぐ
+	{ id: 102, name: "Lake", rings: [rect(0, -330, 200, 80)], props: { class: "water" } },   // 縦の継ぎ目（e=0）をまたぐ
+];
+const RD = [
+	{ id: 201, name: "Main St", line: [at(-450, -230), at(450, -230)], props: { class: "primary" } },   // 縦の継ぎ目をまたぐ
+	{ id: 202, name: "Side St", line: [at(-250, -450), at(-250, -250)], props: { class: "minor" } },
+];
+const PO = [
+	{ id: 301, name: "Cafe", pt: at(350, -40), props: { class: "cafe" } },
+	{ id: 302, name: "Shop", pt: at(-420, 330), props: { class: "shop" } },
+];
 
 // 輪をタイル座標へ（y 下向き）＋バッファの枠で切る（Sutherland–Hodgman）
 function clip(pts, lo, hi) {
@@ -48,38 +62,72 @@ function clip(pts, lo, hi) {
 	return p;
 }
 const zig = v => (v << 1) ^ (v >> 31);
-function encodeTile(z, x, y) {
-	const feats = [];
-	for (const b of B) {
+const toTile = (z, x, y) => ([lon, lat]) => [Math.round((lon2x(lon, z) - x) * E), Math.round((lat2y(lat, z) - y) * E)];
+// 線をバッファの枠で切る（線分ごと・枠の中の連なりを 1 本に）
+function clipLine(pts, lo, hi) {
+	const out = []; let cur = [];
+	const inside = p => p[0] >= lo && p[0] <= hi && p[1] >= lo && p[1] <= hi;
+	for (let i = 0; i + 1 < pts.length; i++) {
+		let [a, b] = [pts[i], pts[i + 1]], t0 = 0, t1 = 1;
+		const d = [b[0] - a[0], b[1] - a[1]];
+		let ok = true;
+		for (const [p, q] of [[-d[0], a[0] - lo], [d[0], hi - a[0]], [-d[1], a[1] - lo], [d[1], hi - a[1]]]) {
+			if (p === 0) { if (q < 0) { ok = false; break; } continue; }
+			const r = q / p;
+			if (p < 0) { if (r > t1) { ok = false; break; } if (r > t0) t0 = r; } else { if (r < t0) { ok = false; break; } if (r < t1) t1 = r; }
+		}
+		if (!ok) { if (cur.length > 1) out.push(cur); cur = []; continue; }
+		const A = [Math.round(a[0] + t0 * d[0]), Math.round(a[1] + t0 * d[1])], Bp = [Math.round(a[0] + t1 * d[0]), Math.round(a[1] + t1 * d[1])];
+		if (!cur.length) cur.push(A);
+		cur.push(Bp);
+		if (t1 < 1) { out.push(cur); cur = []; }
+	}
+	if (cur.length > 1) out.push(cur);
+	return out;
+}
+// 層ごとの地物（type 1＝点・2＝線・3＝面）→ { id, props, type, parts }（parts＝タイル座標の点列の列）
+function layerFeatures(name, z, x, y) {
+	const T = toTile(z, x, y), feats = [];
+	const polys = name === "building" ? B : name === "landuse" ? LU : null;
+	if (polys) for (const b of polys) {
 		const rings = [];
 		b.rings.forEach((r, k) => {
 			// MVT の外周＝画面（y 下向き）で時計回り＝経緯度の反時計回りをそのまま写すと y が反転して時計回りになる。穴は逆
-			let p = r.map(([lon, lat]) => [Math.round((lon2x(lon, z) - x) * E), Math.round((lat2y(lat, z) - y) * E)]);
+			let p = r.map(T);
 			p = clip(p, -BUF, E + BUF).map(([a, c]) => [Math.round(a), Math.round(c)]);
 			if (p.length >= 3) rings.push(p); else if (k === 0) rings.length = 0;
 		});
-		if (rings.length) feats.push({ b, rings });
+		if (rings.length) feats.push({ id: b.id, props: { ...b.props, name: b.name }, type: 3, parts: rings });
 	}
-	if (!feats.length) return null;
-	const keys = [], vals = [], kIdx = new Map(), vIdx = new Map();
-	const keyOf = k => { if (!kIdx.has(k)) { kIdx.set(k, keys.length); keys.push(k); } return kIdx.get(k); };
-	const valOf = v => { const s = typeof v + ":" + v; if (!vIdx.has(s)) { vIdx.set(s, vals.length); vals.push(v); } return vIdx.get(s); };
+	if (name === "road") for (const r of RD) { const parts = clipLine(r.line.map(T), -BUF, E + BUF); if (parts.length) feats.push({ id: r.id, props: { ...r.props, name: r.name }, type: 2, parts }); }
+	if (name === "poi") for (const p of PO) { const q = T(p.pt); if (q[0] >= -BUF && q[0] <= E + BUF && q[1] >= -BUF && q[1] <= E + BUF) feats.push({ id: p.id, props: { ...p.props, name: p.name }, type: 1, parts: [[q]] }); }
+	return feats;
+}
+function encodeTile(z, x, y) {
+	const layers = ["building", "landuse", "road", "poi"].map(n => [n, layerFeatures(n, z, x, y)]).filter(([, f]) => f.length);
+	if (!layers.length) return null;
 	const pbf = new Pbf();
-	pbf.writeMessage(3, (_, p) => {   // tile.layers
+	for (const [lname, feats] of layers) pbf.writeMessage(3, (_, p) => {   // tile.layers
+		const keys = [], vals = [], kIdx = new Map(), vIdx = new Map();
+		const keyOf = k => { if (!kIdx.has(k)) { kIdx.set(k, keys.length); keys.push(k); } return kIdx.get(k); };
+		const valOf = v => { const s = typeof v + ":" + v; if (!vIdx.has(s)) { vIdx.set(s, vals.length); vals.push(v); } return vIdx.get(s); };
 		p.writeVarintField(15, 2);        // version
-		p.writeStringField(1, "building");
-		for (const { b, rings } of feats) p.writeMessage(2, (__, q) => {
-			q.writeVarintField(1, b.id);
+		p.writeStringField(1, lname);
+		for (const f of feats) p.writeMessage(2, (__, q) => {
+			q.writeVarintField(1, f.id);
 			const tags = [];
-			for (const [k, v] of Object.entries({ ...b.props, name: b.name })) tags.push(keyOf(k), valOf(v));
+			for (const [k, v] of Object.entries(f.props)) tags.push(keyOf(k), valOf(v));
 			q.writePackedVarint(2, tags);
-			q.writeVarintField(3, 3);   // POLYGON
+			q.writeVarintField(3, f.type);
 			const g = []; let cx = 0, cy = 0;
-			for (const r of rings) {
+			if (f.type === 1) {
+				g.push((1 & 7) | (f.parts.length << 3));
+				for (const [[px, py]] of f.parts) { g.push(zig(px - cx), zig(py - cy)); cx = px; cy = py; }
+			} else for (const r of f.parts) {
 				g.push((1 & 7) | (1 << 3), zig(r[0][0] - cx), zig(r[0][1] - cy)); cx = r[0][0]; cy = r[0][1];
 				g.push((2 & 7) | ((r.length - 1) << 3));
 				for (let i = 1; i < r.length; i++) { g.push(zig(r[i][0] - cx), zig(r[i][1] - cy)); cx = r[i][0]; cy = r[i][1]; }
-				g.push((7 & 7) | (1 << 3));
+				if (f.type === 3) g.push((7 & 7) | (1 << 3));
 			}
 			q.writePackedVarint(4, g);
 		});
@@ -115,7 +163,7 @@ let last = 0; for (const e of ents) { varint(dir, e.id - last); last = e.id; }
 for (const e of ents) varint(dir, 1);
 for (const e of ents) varint(dir, e.length);
 ents.forEach((e, i) => varint(dir, i > 0 && e.offset === ents[i - 1].offset + ents[i - 1].length ? 0 : e.offset + 1));
-const meta = Buffer.from(JSON.stringify({ name: "t-mlcompat-vt", vector_layers: [{ id: "building", fields: { render_height: "Number", render_min_height: "Number", hide_3d: "Boolean", name: "String" } }] }));
+const meta = Buffer.from(JSON.stringify({ name: "t-mlcompat-vt", vector_layers: [{ id: "building", fields: { render_height: "Number", render_min_height: "Number", hide_3d: "Boolean", name: "String" } }, { id: "landuse", fields: { class: "String", name: "String" } }, { id: "road", fields: { class: "String", name: "String" } }, { id: "poi", fields: { class: "String", name: "String" } }] }));
 const H = Buffer.alloc(127), rootOff = 127, metaOff = rootOff + dir.length, dataOff = metaOff + meta.length;
 const bb = [at(-400, -400), at(400, 400)];
 H.write("PMTiles", 0); H[7] = 3;
@@ -127,8 +175,14 @@ H.writeInt32LE(Math.round(bb[0][0] * 1e7), 102); H.writeInt32LE(Math.round(bb[0]
 H[118] = 14; H.writeInt32LE(Math.round(C[0] * 1e7), 119); H.writeInt32LE(Math.round(C[1] * 1e7), 123);
 writeFileSync(join(HERE, "vt.pmtiles"), Buffer.concat([H, Buffer.from(dir), meta, ...ents.map(e => e.buf)]));
 
-writeFileSync(join(HERE, "vt.json"), JSON.stringify({ tilejson: "3.0.0", name: "t-mlcompat-vt", attribution: "t-mlcompat fixture tiles", tiles: ["vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14, bounds: [bb[0][0], bb[0][1], bb[1][0], bb[1][1]], vector_layers: [{ id: "building" }] }, null, "\t") + "\n");
+writeFileSync(join(HERE, "vt.json"), JSON.stringify({ tilejson: "3.0.0", name: "t-mlcompat-vt", attribution: "t-mlcompat fixture tiles", tiles: ["vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14, bounds: [bb[0][0], bb[0][1], bb[1][0], bb[1][1]], vector_layers: [{ id: "building" }, { id: "landuse" }, { id: "road" }, { id: "poi" }] }, null, "\t") + "\n");
 const centers = { corner: C, buildings: B.map(b => { const r = b.rings[0], lon = r.reduce((s, p) => s + p[0], 0) / r.length, lat = r.reduce((s, p) => s + p[1], 0) / r.length; return { id: b.id, name: b.name, center: [lon, lat], ...b.props }; }) };
 centers.buildings.find(b => b.name === "L").center = at(-165, -165);   // L の中心は欠けた所に落ちる＝腕の上を押す
+// 描く層（段 8⑤）の押す所：面の中・線の上・点
+centers.draw = {
+	park: at(-350, 0), parkEdge: at(-350 + 70, 0), lake: at(0, -330), outside: at(-350, -120),
+	main: at(-100, -230), mainOff: at(-100, -215), side: at(-250, -350),
+	cafe: PO[0].pt, shop: PO[1].pt,
+};
 writeFileSync(join(HERE, "vt-buildings.json"), JSON.stringify(centers, null, "\t") + "\n");
 console.log(`tiles ${out.map(t => `${t.z}/${t.x}/${t.y}`).join(" ")} · pmtiles ${ents.length} entries · corner ${C.map(v => v.toFixed(6))}`);
