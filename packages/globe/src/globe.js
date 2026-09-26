@@ -34,7 +34,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）
@@ -3245,39 +3245,84 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 	if (mlGen.get("cluster:" + sid) !== gen) return null;   // 待っている間に層が足し引きされた＝新しい方に任せる
 	return clusterNative(pts, opts, sid);
 };
-// fill/line/circle＝source ごとに gint の追加層 1 枚（同じ source の層の paint を一つに束ねる・filter は層ごとに and）。
-// データが同じなら setPaint だけ（fid 表の書き換え＝安い）・変わったら setData。
-const mlGint = new Map();   // sid → { h, data, pbf }
-const rebuildGint = async (sid, { dataChanged = false } = {}) => {
-	const gen = bumpGen("gint:" + sid);
-	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
-	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "gint");
-	const ls = vs.filter(mlVisible).map(drawLayerOf);
-	let cur = mlGint.get(sid);
-	if (!ls.length) { if (cur) { cur.h.remove(); mlGint.delete(sid); } return null; }
-	if (!cur || dataChanged || cur.data !== dataOf(sp)) {
-		let d = dataOf(sp); const raw = d;
-		if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
-		const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
-		if (mlGen.get("gint:" + sid) !== gen) return null;
-		cur = mlGint.get(sid);
-		if (cur) { await cur.h.setData(pbf); cur.data = raw; cur.pbf = pbf; }
-		else {
-			// 出しズーム＝MapLibre の既定（minzoom 無し＝z0 から・maxzoom 無し＝上限なし）。同じ source の層は和（どれかが出す範囲は描く）。
-			// 旧＝minzoom 無しは null＝Gint の自動導出（狭い範囲のデータは z9 等から）＝MapLibre の層が引くと消え、照会だけ当たっていた（2026-09-26）
-			const zs = ls.map(L => Number.isFinite(L.minzoom) ? L.minzoom : 0), zx = ls.map(L => L.maxzoom);
-			const h = map.addGint(pbf, { order: mlOrderOf(vs[0].layer.id), minZoom: Math.min(...zs), maxZoom: zx.every(Number.isFinite) ? Math.max(...zx) : null, origin: "ml" });   // origin＝式を MapLibre の意味で評価
-			cur = { h, data: raw, pbf }; mlGint.set(sid, cur);
-			await h.ready;
-			if (mlGen.get("gint:" + sid) !== gen) return null;
-		}
+// fill/line/circle（MapLibre 互換の段 4・約束 6）＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層（pass）へ詰める（core packMLLayers）。
+// 表は core の buildMLTable（MapLibre の意味：層の型がジオメトリを選ぶ・層ごとの filter と zoom 域・既定値）を手綱へ注入＝feature-state・settle の再評価・
+// setData の呼び直しも同じ表（台帳 R5）。重ね順は予約の帯 ML_ORDER_BASE＋pass の通し番号（order 0 は自動採番と衝突＝U10）。
+// ML の層の gint 層は interactive:false（カーソルを奪わない＝MapLibre に自動のホバーは無い・層イベントは queryRenderedFeatures が引く）。
+// 同じ source の pass はジオメトリを別々に焼いて上げる（共有なし＝台帳 R10）＝同じ型が重なった時だけ pass が増える。
+const ML_ORDER_BASE = 1000;
+const mlGintData = new Map();      // sid → { data, pbf }
+const mlPasses = new Map();        // 署名（sid|層 id…|出しズーム）→ { sid, h, holder: { pass, zs, drawn }, order, pbf }
+const mlFeatureState = new Map();  // sid → Map<fid, state>（source に住む＝pass を作り直しても残す）
+const planGint = () => {   // 全体の詰め方＝gint の層だけを登録順に見て、同じ source が続く所を 1 本にし、その中を packMLLayers
+	const runs = []; let run = null;
+	for (const v of mlLayers.values()) {
+		if (v.kind !== "gint") continue;   // 隠した層も詰め方に残す（表が効かせない＝出し入れで pass が変わらない＝焼き直さない）
+		const sid = srcId(v.layer);
+		if (!run || run.sid !== sid) runs.push(run = { sid, ls: [] });
+		run.ls.push(drawLayerOf(v));
 	}
-	const paint = Object.assign({}, ...ls.map(L => L.paint || {}));
-	const fs = ls.map(L => L.filter).filter(f => f != null);
-	const filt = fs.length === 0 ? null : fs.length === 1 ? fs[0] : ["all", ...fs];
-	if (Object.keys(paint).length || filt) await cur.h.setPaint(Object.keys(paint).length ? paint : {}, filt); else await cur.h.setPaint(null);   // paint なし＝層の既定の描き方
-	cur.h.setOrder(mlOrderOf(vs[0].layer.id));
-	return cur.pbf;
+	return runs.flatMap(r => packMLLayers(r.ls).map(pass => ({ sid: r.sid, pass })));
+};
+const gintDataOf = async (sid, force, gen) => {
+	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
+	let cur = mlGintData.get(sid);
+	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
+	let d = dataOf(sp); const raw = d;
+	if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
+	const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
+	if (mlGen.get("gint") !== gen) return null;
+	cur = { data: raw, pbf }; mlGintData.set(sid, cur);
+	return { cur, changed: true };
+};
+const zoomActiveKey = (pass, z) => pass.layers.filter(L => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom) && L.layout?.visibility !== "none").map(L => L.id).join(",");
+// 組み直し（層の足し引き・重ね順・性質・出し入れ・データ差し替え＝どれも全体の詰め方から）。同じ署名の pass は手綱を使い回して表だけ作り直す
+// 立て続けの呼び出し＝新しい方が勝つ。追い越された呼び出しは新しい方の完了を待って解決する（addLayer が描き終わる前に解決しない）
+let mlGintRun = null;
+const rebuildGint = (sidChanged = null, opts = {}) => (mlGintRun = rebuildGintNow(sidChanged, opts));
+const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) => {
+	const gen = bumpGen("gint");
+	const superseded = () => mlGintRun;   // 世代が進んでいたら新しい方の Promise を返す
+	const plan0 = planGint(), data = new Map();
+	let failOwn = null;   // 読めない source は、その source の pass だけ飛ばす（他の source を巻き添えにしない）。呼び出した source 自身なら最後に投げる
+	for (const sid of new Set(plan0.map(p => p.sid))) {
+		let r;
+		try { r = await gintDataOf(sid, dataChanged && sid === sidChanged, gen); }
+		catch (err) { console.warn(`[addLayer] source "${sid}" could not be read — its fill/line/circle layers are skipped`, err); if (sid === sidChanged) failOwn = err; mlGintData.delete(sid); continue; }
+		if (!r) return superseded();
+		data.set(sid, r);
+	}
+	const plan = plan0.filter(p => data.has(p.sid)), sids = [...data.keys()];
+	if (mlGen.get("gint") !== gen) return superseded();
+	const keep = new Set();
+	for (let i = 0; i < plan.length; i++) {
+		const { sid, pass } = plan[i], order = ML_ORDER_BASE + i, { cur, changed } = data.get(sid);
+		// 出しズーム＝MapLibre の既定（minzoom 無し＝z0 から・maxzoom 無し＝上限なし）・pass の層の和。境の内側の出し入れは表（層の zoom 域）が決める
+		const minZ = Math.min(...pass.layers.map(L => Number.isFinite(L.minzoom) ? L.minzoom : 0)), maxs = pass.layers.map(L => L.maxzoom), maxZ = maxs.every(Number.isFinite) ? Math.max(...maxs) : null;
+		const sig = `${sid}|${pass.layers.map(L => L.id).join(",")}|${minZ}|${maxZ}`;
+		keep.add(sig);
+		let e = mlPasses.get(sig);
+		if (!e) {
+			const holder = { pass, zs: zoomSensitivity(pass), drawn: null };
+			const h = map.addGint(cur.pbf, { order, minZoom: minZ, maxZoom: maxZ, origin: "ml", interactive: false, ...(pass.fill ? {} : { fillMaxEdges: 0 }),   // 塗りの層が無い＝縮退 stencil が表を見ずに塗る穴を塞ぐ（U13・R16）
+				buildTable: ({ feats, zoom, states }) => { const t = buildMLTable(holder.pass, feats, { zoom, states }); holder.drawn = t.drawn; return t; },
+				zoomKey: z => zoomActiveKey(holder.pass, z) + (holder.zs.expr ? "@" + Math.round(z * 4) / 4 : "") });
+			if (!h) continue;
+			e = { sid, h, holder, order, pbf: cur.pbf }; mlPasses.set(sig, e);
+			await h.ready;
+			if (mlGen.get("gint") !== gen) return superseded();
+			for (const [fid, st] of mlFeatureState.get(sid) || []) h.setFeatureState(fid, st);
+		} else {
+			e.holder.pass = pass; e.holder.zs = zoomSensitivity(pass);
+			if (changed || e.pbf !== cur.pbf) { await e.h.setData(cur.pbf); e.pbf = cur.pbf; }
+			if (e.order !== order) { e.h.setOrder(order); e.order = order; }
+		}
+		await e.h.setPaint({}, null);   // 表を作り直す（手綱の buildTable＝MapLibre の意味）
+	}
+	for (const [sig, e] of mlPasses) if (!keep.has(sig)) { e.h.remove(); mlPasses.delete(sig); }
+	for (const sid of [...mlGintData.keys()]) if (!sids.includes(sid)) mlGintData.delete(sid);
+	if (failOwn) throw failOwn;
+	return true;
 };
 // 塗り/線の模様（MapLibre の fill-pattern／line-pattern）＝記号帳の画像を敷き詰める canvas2D のオーバーレイ（pattern-2d.js）。
 // 線の飾り（line-gradient／line-offset・#49）も同じ口＝gint の線は地物ごと一色・ずらしなし。
@@ -3365,7 +3410,7 @@ const unmountLayer = v => {
 	else if (kind === "pattern") patOv?.post({ type: "removeLayer", id });
 };
 const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
-	for (const [sid, cur] of mlGint) { const first = [...mlLayers.values()].find(v => v.kind === "gint" && srcId(v.layer) === sid); if (first) cur.h.setOrder(mlOrderOf(first.layer.id)); }
+	if ([...mlLayers.values()].some(v => v.kind === "gint")) rebuildGint();   // gint の pass は詰め方ごと組み直す（連続の切れ目が変わる）
 	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
 };
@@ -3451,13 +3496,20 @@ map.setFilter = (id, filter) => {
 	relayer(v); return map;
 };
 map.getFilter = id => { const v = mlLayers.get(id); return echoProp(v, v?.layer.filter); };
-map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) return map; v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); if (v.kind === "gint") { const cur = mlGint.get(srcId(v.layer)); if (cur) { mlGint.delete(srcId(v.layer)); cur.h.remove(); } } relayer(v); return map; };
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) return map; v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
-map.setFeatureState = ({ source, id }, state) => { const cur = mlGint.get(source); if (cur && id != null) cur.h.setFeatureState(+id, state); return map; };
+map.setFeatureState = ({ source, id }, state) => {
+	if (id == null) return map;
+	let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
+	m.set(+id, { ...m.get(+id), ...state });
+	for (const e of mlPasses.values()) if (e.sid === source) e.h.setFeatureState(+id, state);
+	return map;
+};
 map.removeFeatureState = ({ source, id } = {}, key) => {
-	const cur = mlGint.get(source); if (!cur) return map;
-	if (key != null && id != null) cur.h.setFeatureState(+id, { [key]: undefined }); else cur.h.removeFeatureState(id == null ? null : +id);
+	const m = mlFeatureState.get(source);
+	if (m) { if (id == null) m.clear(); else if (key != null) { const st = { ...m.get(+id) }; delete st[key]; m.set(+id, st); } else m.delete(+id); }
+	for (const e of mlPasses.values()) if (e.sid !== source) continue; else if (key != null && id != null) e.h.setFeatureState(+id, { [key]: undefined }); else e.h.removeFeatureState(id == null ? null : +id);
 	return map;
 };
 map.getLayers = () => [...mlLayers.values()].map(v => echoLayer(v));
@@ -3573,17 +3625,16 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const lid = slot === "default" ? "extrude" : slot;
 		if (take(lid) && touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: lid, type: "fill-extrusion" }, source: slot === "default" ? "extrude" : srcId(mlLayers.get(slot)?.layer ?? { id: slot }), height: h });
 	}
-	// addLayer の fill/line/circle（source ごとの gint 層）＝上の層から。点は識別（gint の identifyAt）・箱は地物ごとに当てる。
-	// 描かれている物だけ（§4.5・2026-09-26）：ズーム域の外・焼き着地前の層は飛ばし、filter で隠した地物は accept で外す（旧＝両方返した）
-	for (const [sid, cur] of [...mlGint].sort((a, b) => (b[1].h.order ?? 0) - (a[1].h.order ?? 0))) {
-		const ls = [...mlLayers.values()].filter(v => v.kind === "gint" && srcId(v.layer) === sid && mlVisible(v)).map(v => v.layer).filter(L => take(L.id));
-		if (!ls.length || !cur.h._shown?.(cam.zoom)) continue;
-		const acc = cur.h._accept?.() ?? null;
-		const pick = g => { const t0 = g?.type?.replace("Multi", ""); return ls.find(L => (L.type === "fill" && t0 === "Polygon") || (L.type === "line" && t0 === "LineString") || (L.type === "circle" && t0 === "Point")) ?? ls[0]; };
+	// addLayer の fill/line/circle（gint の pass）＝上の pass から・pass の中は上の層（circle→line→fill）から。点は識別（gint の identifyAt）・箱は地物ごとに当てる。
+	// MapLibre と同じく「その層が描いている地物」を層ごとに 1 件（表を組んだ時の drawn＝層の filter・zoom 域・ジオメトリの型・描く色/幅があるか・台帳 R20）
+	for (const e of [...mlPasses.values()].sort((a, b) => b.order - a.order)) {
+		const drawn = e.holder.drawn, ls = [...e.holder.pass.layers].reverse().filter(L => take(L.id));
+		if (!ls.length || !drawn || !e.h._shown?.(cam.zoom)) continue;
+		const acc = e.h._accept?.() ?? null;
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
-		const fids = area.ll ? [cur.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null) : null;
-		const feats = fids ? fids.map(i => [i, cur.pbf.getFeature(i)]) : cur.pbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
-		for (const [i, f] of feats) if (f) { const L = pick(f.geometry); out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: L.id, type: L.type }, source: sid }); }
+		const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null) : null;
+		const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)]) : e.pbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
+		for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });
 	}
 	const upbf = gint.userGint?.pbf;
 	if (upbf && take("user")) {
