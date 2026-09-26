@@ -45,7 +45,8 @@ export interface OrthoJapanOptions {
 	 *  基図に入るのは style の中のひとつのベクタ source（XYZ・TileJSON・pmtiles://）の fill / line / 点ラベル / background。旧式フィルタ・stops 関数・"{name}" 記法は読み替える。
 	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む＝基図の層も geojson source の層も（1.3.0〜。以前は geojson の層だけエンジンの z で読んでいた）。
 	 *  層の metadata["ortho:dz"]（0＝この地図の z・1＝MapLibre の z）の申告があればそれが勝つ（getStyle が付けて返す）。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer と同じ口へ。
-	 *  描かない層（fill-extrusion・線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
+	 *  vector source の fill-extrusion（building-3d など）は 1.3.0〜 立てる（タイルごとに流す 3D 建物＝addLayer の vector source と同じ口）。
+	 *  描かない層（線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
 	style?: string | Record<string, unknown>;
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
 	 *  headers は画像タイル・3D Tiles・基図タイル（PMTiles 以外）に効く */
@@ -410,8 +411,11 @@ export type MapLibreSource =
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
 	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** url＝TileJSON（1.3.0〜 取りに行く）。既定値は MapLibre どおり tileSize 512・maxzoom 22（1.3.0〜・以前は 256/18）。タイルの型紙は {quadkey} も可 */
-	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms" };
-export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
+	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms" }
+	/** ベクタタイル（MVT・1.3.0〜）＝今は fill-extrusion の層だけが読む（fill/line/circle/symbol は名前を挙げて投げる）。url＝TileJSON か pmtiles://・tiles＝型紙（{quadkey} 可・独自スキームは addProtocol）。
+	 *  promoteId＝feature の id にする属性（文字列か source-layer ごとの object）。既定値は MapLibre どおり（minzoom 0・maxzoom 22） */
+	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string> };
+export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; "source-layer"?: string; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
 /** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
@@ -571,10 +575,15 @@ export interface OrthoJapanMap {
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ）。
 	 *  旧式フィルタ（["==","k","v"] 等）・旧式の関数（{ stops }）・"{name}" 記法は style.json と同じく読み替える（1.3.0〜・ML 形 gadget の層 object も同じ）。
-	 *  ズームの数（minzoom・maxzoom・["zoom"]）はこの地図の z（MapLibre の z＋1＝同じ縮尺）。層の metadata["ortho:dz"]:1 を付ければ MapLibre の z で書ける */
+	 *  ズームの数（minzoom・maxzoom・["zoom"]）はこの地図の z（MapLibre の z＋1＝同じ縮尺）。層の metadata["ortho:dz"]:1 を付ければ MapLibre の z で書ける。
+	 *  vector source の fill-extrusion（1.3.0〜・MVT の 3D 建物）：source は addSource の vector か基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）。
+	 *  タイルごとに流す（基図と同じ選び・MapLibre と同じ 512px の尺・子が揃うまで親を出す）・高さは実寸で地表から（どこでも地形に沿って立つ）・真上からも屋根が見える・半透明は裏面を除いて重ねる。
+	 *  ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）。filter の ["zoom"] はタイルの z（過拡大なら表示を丸めた z）。
+	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。未対応：feature-state・fill-extrusion-pattern/translate（警告して描く）・style の light */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
+	/** vector source（fill-extrusion）＝見えているタイルが今の式で組み上がって出るまで false（カメラが動いている間も false）。基図の source 名も受ける */
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;

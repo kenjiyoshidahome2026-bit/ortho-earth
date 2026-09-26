@@ -181,6 +181,18 @@
         "--strictPort"
       ],
       "port": 5193
+    },
+    {
+      "name": "globe-tests",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "packages/globe",
+        "--port",
+        "5246",
+        "--strictPort"
+      ],
+      "port": 5246
     }
   ]
 }

@@ -343,6 +343,104 @@ try {
 			const wOf = st => JSON.stringify(st.layers.find(L => L.id === "water") ?? null);
 			return [pick(s1) === pick(s3) && !h.includes("g"), `same=${pick(s1) === pick(s3)} z11.5→${h} water1=${wOf(s1)} water3=${wOf(s3)}`];
 		});
+	} else if (G === "vector") {
+		// ── vector source の fill-extrusion（段 8①）＝MapLibre の 3D 建物の書き方そのまま。試料＝fixtures/mlcompat/make-mvt.mjs（OpenMapTiles 風の building・6 棟）──
+		// 当たりは立体（屋根の高さを画面へ投影した点を押す）＝MapLibre の押し出しの当て方。地図は旗なし＝公開の口はエンジンの z（MapLibre の z＋1）
+		const { cameraState, project } = await import("@ortho-earth/core");
+		const FX = new URL("./fixtures/mlcompat/", location.href).href;
+		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner;
+		const style = {
+			version: 8, name: "t-mlcompat-vector",
+			sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 } },
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, filter: ["!=", ["get", "hide_3d"], true],   // MapLibre の例の filter（["!", ["get","hide_3d"]] は属性の無い地物で評価エラー＝偽＝MapLibre でも消える）
+					paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"], "fill-extrusion-base": ["get", "render_min_height"] } },
+			],
+		};
+		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style, debugGlobals: true });   // debugGlobals＝window.__vtx（押し出しの中の数・手で覗く窓）
+		window.__map = map; window.__R = R;   // 手で覗く窓（検定の判定には使わない）
+		const cv = document.getElementById("c");
+		// 屋根の高さの点を画面（CSS px）へ。canvas の実寸は動的解像度で縮む（816×510 など）＝地図と同じく CSS の大きさ×cam.dpr で組む
+		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / 6371000); return [x / d, y / d]; };
+		const loaded = async (sid, ms = 20000) => { const t0 = performance.now(); await sleep(400); while (performance.now() - t0 < ms) { if (map.isSourceLoaded(sid)) { await sleep(500); return true; } await sleep(200); } return false; };
+		// 画素＝描画側はメッシュを 1 フレーム 1 件ずつ受け取る（SwiftShader はフレームが遅い）＝期待の色になるまで撮り直す（最大 6 回）
+		const pixelUntil = async (b, h, pred) => { let p = null; for (let k = 0; k < 6; k++) { const img = await snap(map); p = px(img, ...at(b, h)); if (pred(p)) break; await sleep(1500); } return p; };
+		const isRed = p => p[0] > 110 && p[1] < 90 && p[2] < 90;
+		const q = async (b, h, layers) => (await map.queryRenderedFeatures(at(b, h), layers ? { layers } : {})).filter(f => f.layer?.type === "fill-extrusion");
+		const names = fs => fs.map(f => f.properties?.name).join(",");
+		Object.assign(window, { __at: at, __bOf: bOf, __q: q, __cv: cv });   // 手で覗く窓
+		const vscene = (id, fn) => scene(id, async () => { const r = await fn(); if (!r[0]) r[1] += ` ‖ z=${map.getZoom().toFixed(2)} p=${map.getPitch?.()} loaded=${map.isSourceLoaded("omt")} tiles=${JSON.stringify(window.__vtx?.stats().tiles.b3d)}`; return r; });   // 落ちた時だけ状態を注記へ
+		const layerIn = async (id, ms = 30000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (map.getLayer(id)) return true; await sleep(200); } return false; };   // style.json の層は load の後に載る
+		const ok0 = await layerIn("b3d") && await loaded("omt");
+		if (new URLSearchParams(location.search).has("hold")) await new Promise(() => {});   // hold=1＝場面を走らせずに止める（手で覗く時だけ）
+		await vscene("style-extrusion-loads", () => [ok0, `isSourceLoaded=${map.isSourceLoaded("omt")}`]);
+		await vscene("style-extrusion-roof-pixel", async () => { const p = await pixelUntil(bOf("tall"), 120, isRed); return [isRed(p), JSON.stringify(p)]; });
+		await vscene("query-roof-3d", async () => {
+			const f = (await q(bOf("tall"), 120, ["b3d"]))[0], above = await q(bOf("tall"), 200, ["b3d"]);
+			return [f?.properties?.name === "tall" && f.id === 1 && f.source === "omt" && f.sourceLayer === "building" && f.layer?.id === "b3d" && !above.some(x => x.properties?.name === "tall"), `f=${f?.properties?.name}/${f?.id}/${f?.source}/${f?.sourceLayer} above=${names(above)}`];
+		});
+		await vscene("filter-hide-3d", async () => { const a = await q(bOf("hidden"), 80, ["b3d"]), b = await q(bOf("hidden"), 0, ["b3d"]); return [!a.some(f => f.properties?.name === "hidden") && !b.some(f => f.properties?.name === "hidden"), `roof=${names(a)} ground=${names(b)}`]; });
+		await vscene("floating-base-hit", async () => { const a = await q(bOf("floating"), 40, ["b3d"]); return [a.some(f => f.properties?.name === "floating"), names(a)]; });
+		await vscene("seam-building-hit", async () => { const a = await q(bOf("seam"), 40, ["b3d"]); return [a.length >= 1 && a.every(f => f.id === 2), `n=${a.length} ids=${a.map(f => f.id)}`]; });
+		await vscene("getstyle-has-extrusion", () => { const st = map.getStyle(), L = st.layers.find(x => x.id === "b3d"); return [L?.type === "fill-extrusion" && L.source === "omt" && st.sources.omt?.type === "vector", JSON.stringify(L)?.slice(0, 90)]; });
+		await vscene("visibility-none-visible", async () => {
+			map.setLayoutProperty("b3d", "visibility", "none"); await sleep(1000);
+			const a = await q(bOf("tall"), 120, ["b3d"]), p = await pixelUntil(bOf("tall"), 120, x => !isRed(x));
+			map.setLayoutProperty("b3d", "visibility", "visible"); await loaded("omt");
+			const b = await q(bOf("tall"), 120, ["b3d"]);
+			return [!a.length && !isRed(p) && b.some(f => f.properties?.name === "tall"), `none=${names(a)} px=${p} visible=${names(b)}`];
+		});
+		// 中庭（穴）＝真上から＝穴の地面は当たらず・屋根は当たる
+		await vscene("courtyard-hole", async () => {
+			map.jumpTo({ pitch: 0 }); await loaded("omt");
+			const rimB = { center: [bOf("court").center[0] + 25 / (111320 * Math.cos(C[1] * Math.PI / 180)), bOf("court").center[1]] };
+			const hole = await q(bOf("court"), 0, ["b3d"]), rim = await q(rimB, 50, ["b3d"]);
+			map.jumpTo({ pitch: 50 }); await loaded("omt");
+			return [!hole.some(f => f.properties?.name === "court") && rim.some(f => f.properties?.name === "court"), `hole=${names(hole)} rim=${names(rim)}`];
+		});
+		// ズームの式（MapLibre の例＝伸び上がり）。公開の口はエンジンの z＝MapLibre の 15→16 はエンジンの 16→17。止まった所の高さ＝式の値
+		await vscene("zoom-interp-height", async () => {
+			map.setPaintProperty("b3d", "fill-extrusion-height", ["interpolate", ["linear"], ["zoom"], 16, 0, 17, ["get", "render_height"]]);
+			await sleep(300); await loaded("omt");
+			const half = await q(bOf("tall"), 55, ["b3d"]), overHalf = await q(bOf("tall"), 100, ["b3d"]);
+			map.jumpTo({ zoom: 17.5 }); await loaded("omt");
+			const full = await q(bOf("tall"), 115, ["b3d"]);
+			map.setPaintProperty("b3d", "fill-extrusion-height", ["get", "render_height"]); map.jumpTo({ zoom: 16.5 }); await loaded("omt");
+			return [half.some(f => f.properties?.name === "tall") && !overHalf.some(f => f.properties?.name === "tall") && full.some(f => f.properties?.name === "tall"), `z16.5 h55=${names(half)} h100=${names(overHalf)} z17.5 h115=${names(full)}`];
+		});
+		const addAndHit = async (sid, spec, id, b = bOf("L"), h = 20) => {
+			map.addSource(sid, spec);
+			await map.addLayer({ id, type: "fill-extrusion", source: sid, "source-layer": "building", paint: { "fill-extrusion-color": "#0000ff", "fill-extrusion-height": ["get", "render_height"] } });
+			const lok = await loaded(sid);
+			const a = await q(b, h, [id]), diag = a.length ? "" : ` loaded=${lok} tiles=${JSON.stringify(window.__vtx?.stats().tiles[id])}`;
+			map.removeLayer(id); map.removeSource(sid); await sleep(800);
+			const gone = await q(b, h, [id]);
+			return [a.some(f => f.properties?.name === b.name) && !gone.length, `hit=${names(a)} afterRemove=${names(gone)}${diag}`];
+		};
+		await vscene("addsource-tilejson", () => addAndHit("vt2", { type: "vector", url: FX + "vt.json" }, "b3d-2"));
+		await vscene("addsource-pmtiles", () => addAndHit("vt3", { type: "vector", url: "pmtiles://" + FX + "vt.pmtiles" }, "b3d-3"));
+		map.addProtocol("vtfix", async ({ url }) => { const r = await fetch(url.replace("vtfix://", FX + "vt/")); return { data: r.ok ? await r.arrayBuffer() : null }; });
+		await vscene("addsource-addprotocol", () => addAndHit("vt4", { type: "vector", tiles: ["vtfix://{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 }, "b3d-4"));
+		// 基図の source 名（style の vector source）へ層を足す
+		await vscene("addlayer-on-base-source", async () => {
+			await map.addLayer({ id: "b3d-base", type: "fill-extrusion", source: "omt", "source-layer": "building", paint: { "fill-extrusion-color": "#00ff00", "fill-extrusion-height": 30 } });
+			await loaded("omt");
+			const a = await q(bOf("L"), 30, ["b3d-base"]);
+			map.removeLayer("b3d-base"); await sleep(500);
+			return [a.some(f => f.properties?.name === "L"), names(a)];
+		});
+		// vector source の fill（MapLibre は描く）＝この段では名前を挙げて投げる（段 8⑤）
+		await vscene("vector-fill-error-names-source", async () => { try { await map.addLayer({ id: "vf", type: "fill", source: "omt", "source-layer": "building" }); map.removeLayer("vf"); return [false, "did not throw"]; } catch (e) { return [/vector source "omt"/.test(e.message), e.message]; } });
+		await vscene("vector-fill-draws", async () => { try { await map.addLayer({ id: "vf2", type: "fill", source: "omt", "source-layer": "building", paint: { "fill-color": "#00f" } }); map.removeLayer("vf2"); return [true, ""]; } catch (e) { return [false, e.message]; } });
+		// feature-state で色（MapLibre の定番のホバー）＝①b
+		await vscene("feature-state-color", async () => {
+			map.setPaintProperty("b3d", "fill-extrusion-color", ["case", ["boolean", ["feature-state", "hl"], false], "#00ff00", "#ff0000"]); await loaded("omt");
+			map.setFeatureState({ source: "omt", sourceLayer: "building", id: 1 }, { hl: true }); await loaded("omt");
+			const p = await pixelUntil(bOf("tall"), 120, x => x[1] > 110 && x[0] < 90);
+			map.removeFeatureState({ source: "omt", sourceLayer: "building", id: 1 }); map.setPaintProperty("b3d", "fill-extrusion-color", "#ff0000");
+			return [p[1] > 110 && p[0] < 90, JSON.stringify(p)];
+		});
 	}
 
 	// ── 爪車 ──

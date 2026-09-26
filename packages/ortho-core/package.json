@@ -18,6 +18,8 @@
 		"./geojson": "./src/geojson.js",
 		"./viewurl": "./src/viewurl.js",
 		"./decode": "./src/decode.js",
+		"./expr": "./src/expr.js",
+		"./color": "./src/color.js",
 		"./geodesic": "./src/geodesic.js",
 		"./worldpal": "./src/worldpal.js",
 		"./raster": "./src/raster.js",

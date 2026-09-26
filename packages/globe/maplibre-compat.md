@@ -46,7 +46,9 @@
 | promoteId・generateId・clusterProperties・cluster_id | 無い | 6 | **済**（id＝Feature.id→promoteId→並び順・隠しの属性で写す＝同じ属性の地物も別々・getClusterExpansionZoom） |
 | symbol を面・線に置く | 点だけ | 6 | **済**（面＝到達不能極・線＝各部分の最初の頂点＝MapLibre の点置き） |
 | 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | **済**（上書きの台帳・visibility は結合で外す・他は建て直し・重ね順は固定＝文書） |
-| vector source を addLayer で（MVT の fill-extrusion ほか） | 不可 | 8 | 未（別計画） |
+| vector source の fill-extrusion（MVT の 3D 建物・addLayer・style.json） | 不可（style.json は飛ばす・addSource vector は黙って壊れる） | 8① | **済**（gadgets/vtextrude.js・既存の経路は無改修） |
+| vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | 未（今は名前を挙げて投げる＝黙って壊れない・爪車の既知） |
+| vector の押し出しの feature-state | 無い | 8①b | 未（爪車の既知） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -60,6 +62,17 @@
 - 破線は先頭の [線, 間] の対だけ（3 要素以上の模様は近似）。
 - 基図の層の重ね順は固定（moveLayer は効かない）・利用者の層は基図の層の間に差し込めない（beforeId に基図の層 id を渡してもよい＝描画の段で決まる）。
 - 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
+- vector の押し出し（段 8①）：
+  - ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）＝止まった絵は同じ。
+  - 光は読まない（style の light・MapLibre の光の式）＝この地図の建物メッシュの陰影。壁の縦の陰影（vertical-gradient）だけ MapLibre の式を頂点色に焼く。
+  - 半透明（opacity<1）は裏面を除いて重ねる＝建物どうしが重なる所は濃くなる（MapLibre は層を 1 枚にしてから重ねる）。
+  - 地形の上：頂点ごとに地表の標高へ（屋根は斜面に沿う・MapLibre は平らな屋根）。海の上は海面（renderer と同じく負の標高は 0）。
+  - 遠景の打ち切り＝最細の z −2 より粗いタイル・48 枚（LOW_MEM 24）・予算 256MB（LOW_MEM 96MB）を超える遠い方は出さない。
+  - 基図と同じ source の押し出しはタイルを基図の配管と別に取る（HTTP キャッシュ頼み・PMTiles の範囲取得は重なり得る）。
+  - 影を落とさない（keep2d のメッシュ＝既存の押し出しと同じ）。
+  - 問い合わせ：タイルをまたぐ地物は複数返り得る（MapLibre の文書どおり）。
+  - 未対応：fill-extrusion-pattern/translate（警告して描く）。
+  - 地域の基図（日本）の自動の建物（地理院の推定×1.6）とは二重に立つ（消す口は別の段・console に案内 1 回）。
 
 ## 5. 不整合の台帳（前もって把握する物）
 
@@ -87,6 +100,23 @@
 | R20 | queryRenderedFeatures が ML と違う（filter の意味・層ごとの filter・集約の層 id） | filter は ML の出自（段 3）・層ごとに 1 件（段 4）・集約の層 id＝ML の層 id と層ごとの範囲・canvas2D の線/模様も（段 5）。cluster_id・getClusterExpansionZoom は段 6 | t-mlcompat・t-mllayers | 一部済 |
 | R21 | 基図の paint は tile z で焼く | 触らない（§4） | — | — |
 
+段 8①（vector の押し出し）で前もって把握した食い違い：
+
+| # | 食い違い | 手当て | 門 | 状態 |
+|---|---|---|---|---|
+| V1 | タイルの縁の壁・バッファの二重屋根・切った後の退化 | 枠 [0, extent] で切る・枠の上の辺は壁なし・退化は捨てる | vtextrude.mjs（縁・面積・穴・凹） | **済** |
+| V2 | LOD の切り替えで穴かダブり | 子が全部揃うまで祖先（retain）・空も「揃った」 | vtextrude.mjs（retain 5 項目） | **済** |
+| V3 | ズームの式が連続でない・止まるたびの上げ直し | 曲線の鍵（止まりの外は一定）・幾何は残して高さと色だけ | vtextrude.mjs＋爪車 zoom-interp-height | **済**（連続でないのは §4） |
+| V4 | filter の zoom の目盛り | 過拡大の z＋1（正規化した式の中で MapLibre の z に戻る） | vtextrude.mjs（境ちょうど） | **済** |
+| V5 | 基図の source を二度取る | HTTP キャッシュ頼み（§4） | — | 文書 |
+| V6 | 光・半透明の重ね | 裏面除去・縦の陰影は MapLibre の式（§4） | 実機で MapLibre 本体と並べた | 文書 |
+| V7 | 地域の基図の自動の建物と二重 | 案内 1 回・消す口は別の段 | — | 未（本人裁定） |
+| V8 | 重さ（1 フレーム 1 件の転送・頂点 28B・GL の呼び出し数・WebGPU の 512） | 予算を見た選び・枚数上限・1 タイル 1 層 1 メッシュ・main で 1 フレーム 1 件・幾何キャッシュ | 実機の数（§7） | 一部（?hud=1 の実測は次） |
+| V9〜V10 | 伏せ枠の取り合い・フライト中の詰まり | 伏せ枠は使わない・フライト中は取得と組み立てを止める（出し入れは毎回） | — | **済** |
+| V11 | 当たり（立体）・id・promoteId | worker の地物＋屋根と壁の投影 | 爪車（屋根・浮き・継ぎ目・中庭） | **済** |
+| V12 | 地形の外で埋まる | drape（どこでも地表へ）・当たりの地面は負の標高を 0 に | 実機（マンハッタン） | **済** |
+| V13〜V18 | 既定の挙動の変化・旗の目盛り・両土台・地域の語・transformRequest/独自スキーム/PMTiles・影 | SDK 注記・drawLayerOf・同じメッシュ経路・語なし・requester・§4 | 爪車（GL2/WebGPU・addProtocol・PMTiles）・regionless | **済**（影は文書） |
+
 ## 6. 門（互換の爪車ほか）
 
 - **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style`（描いて確かめる場面・globe verify:ui）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
@@ -110,4 +140,10 @@
 - [x] **段 5**（2026-09-26）：式の検査（KNOWN_OPS＝build の case と突き合わせる検定つき・unknownOps・公開の口で投げる・基図は数えて飛ばす）・旧関数の default（R19）・種類ごとの zoom（記号の出しズーム・集約の層 id と範囲・押し出しと canvas2D の線の描き直し・raster の表示窓）・canvas2D の線/模様の問い合わせ。門＝爪車 node 3 場面・browser 4 場面の行列。
 - [x] **段 6**（2026-09-26）：読めない形式＝相対 URL・TileJSON の raster・{quadkey}・raster-dem custom・複数 sprite・ML の source の既定値・feature の id（promoteId/Feature.id/並び順）・clusterProperties/cluster_id/getClusterExpansionZoom・記号を面と線に。node の既知 0・browser の既知は段 4b の 2 件だけ。
 - [x] **段 7**（2026-09-26）：基図の層を実行時に＝上書きの台帳 baseOverrides（paint/layout/filter/出しズーム/削除）→有効な style を建て直し・visibility は baseVis＝結合の添字とラベル（worker のラベルに層の添字 li）で外すだけ・テーマを越えて残し setStyle で捨てる・getLayer/get*Property/getFilter/getStyle も基図の層を返す。門＝爪車 style 群 5 場面（外来 style.json の基図）。**検定の穴**：地域の基図（日本の gsi 等）の上での上書きとテーマ切り替えを越えて残ることは門が無い（仕組みは同じ withBaseOverrides・日本のデータが要る頁は japan 側＝次に足す）。2026-09-26 に dev server（5174）で手で確認済み＝gsi の water を赤→c=dark へ切り替えても赤のまま・road の visibility none。
-- [ ] 段 8：エンジン級（着手前に別計画）
+- [x] **段 8①**（2026-09-26・branch claude/maplibre-vector-extrusion＝#66 と別の PR）：vector source の fill-extrusion＝新しいファイルだけ（`gadgets/vtextrude.js`（選ぶ・取る・置き換え・送る・予算・問い合わせ）・`vtextrude-worker.js`（役 "vtextrude"・解読・枠で切る・評価・幾何キャッシュ）・`vtmesh.js`（純関数））。既存の経路（model.js の押し出し・extrude.js・finishMesh・model-worker・renderworker・renderer・基図の配管・PLATEAU・tiles3d）は無改修。core は口を足すだけ（exports `./expr` `./color`・index に `fetchPMTilesRaw`）。
+  - 入口：kindOf（fill-extrusion × vector）・基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）・style.json の vector の押し出しを利用者の層の口へ・setStyle で付け替え・visibility は伏せるだけ・isSourceLoaded は組み上がり待ち（カメラが動いている間と組み直し待ちも false）。
+  - 門：`tests/vtextrude.mjs`（node 35 項目＝輪の分類・枠で切る・縁の壁・屋根の面積・外向きの法線・縦の陰影・置き換え・ズームの鍵・filter の zoom）＋爪車 `t-mlcompat.html?g=vector`（17 場面・GL2 と WebGPU・既知 2＝⑤ と ①b）。試料＝`tests/fixtures/mlcompat/make-mvt.mjs`（XYZ・PMTiles・TileJSON）。
+  - 実機（OpenFreeMap）：liberty の building-3d（渋谷 12 タイル・約 90MB／マンハッタン 15 タイル・58MB）・MapLibre の例「Display buildings in 3D」をコードそのまま（旗つき）で MapLibre 本体と並べて同じ絵（違いは z の緯度差と伸び上がりの連続性＝§4）。
+  - 轍：①`["!", ["get","hide_3d"]]` は属性の無い地物で MapLibre でも評価エラー＝偽（MapLibre の例は `["!=", …, true]`）②setMesh は配列を transfer＝送った後に数えると 0 ③海の上は getHeight が海底（負）＝主スレッドの projectLL はずれる（renderer は 0 に切る・別件）④動的解像度で canvas の実寸が縮む（816×510）＝検定の投影は CSS の大きさ×cam.dpr で組む。
+  - 残り：①b feature-state・⑤ 2 本目以降のベクタ source の fill/line/circle/symbol と基図の source への差し込み・地域の基図の自動の建物を消す口（本人裁定）。
+- [ ] 段 8②〜⑤：基図のアイコン・線に沿うラベル・hillshade・2 本目以降のベクタ source（着手前にそれぞれ別計画）
