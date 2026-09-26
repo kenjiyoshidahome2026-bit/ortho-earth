@@ -668,6 +668,7 @@ export interface OrthoJapanMap {
 	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
 	 *  返り値は上に描かれたものから：canvas2D の線/模様（addLayer の層 id・1.3.0〜）→記号・集約→四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層ごとに 1 件・層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  押し出しは MapLibre と同じく立体で当てる（屋根と壁・床は当てない＝傾けて屋根を押せば当たる・空を指しても高い屋根には当たる）。押し出しどうしは近い順（1.3.0〜・旧＝地面の足跡）。
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
