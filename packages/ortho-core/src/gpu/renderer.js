@@ -1592,13 +1592,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const mainOrigin = scenes.main.origin || [0, 0];
 		// 太陽（#46 段 0）：共通の時計の太陽方向（地球固定）と、シーン原点での昼の度合い（高度 −6°→+6°＝市民薄明の幅で 0→1）。
 		// 影の shadow.time は影だけの時刻＝ここは時計に従う（面の照明は「その時刻の空」に合わせる・段 2）。
-		{ const sv = sunVector(clockNow(view.clock)), o3 = lonlatTo3D(mainOrigin[0], mainOrigin[1]);
+		// 評価点＝カメラの中心（シーンの原点は無い時に (0,0) へ落ちる＝レンダラ直叩き・世界ビュー）
+		const sunAt = [cam.center[0], cam.center[1]];
+		{ const sv = sunVector(clockNow(view.clock)), o3 = lonlatTo3D(sunAt[0], sunAt[1]);
 			const alt = (sv[0] * o3[0] + sv[1] * o3[1] + sv[2] * o3[2]) / Math.hypot(o3[0], o3[1], o3[2]);   // sin(太陽高度)
 			const t = Math.max(0, Math.min(1, (alt + 0.1045) / 0.209));   // sin(6°)=0.1045
 			sunF[0] = sv[0]; sunF[1] = sv[1]; sunF[2] = sv[2]; sunF[3] = t * t * (3 - 2 * t); }
 		// 空の環境光（#46 段 2）＝鍵（太陽 1e-3・原点 0.5°・ノブ）が変われば積み直す。lp.w＝固定光の重み（夜＝1−昼の度合い）
-		const envKey = FX.pbr ? `${sunF[0].toFixed(3)},${sunF[1].toFixed(3)},${sunF[2].toFixed(3)}|${Math.round(mainOrigin[0] * 2)},${Math.round(mainOrigin[1] * 2)}|${view.atmScale ?? 4},${view.atmSun ?? 20},${view.pbrFill ?? 0.35}` : "";
-		if (envKey && envKey !== envCache.key) { envCache.key = envKey; envCache.env = skyEnvCompute([sunF[0], sunF[1], sunF[2]], lonlatTo3D(mainOrigin[0], mainOrigin[1]), { k: view.atmScale ?? 4, sunI: view.atmSun ?? 20, fill: view.pbrFill ?? 0.35 }); }
+		const envKey = FX.pbr ? `${sunF[0].toFixed(3)},${sunF[1].toFixed(3)},${sunF[2].toFixed(3)}|${Math.round(sunAt[0] * 2)},${Math.round(sunAt[1] * 2)}|${view.atmScale ?? 4},${view.atmSun ?? 20},${view.pbrFill ?? 0.35}` : "";
+		if (envKey && envKey !== envCache.key) { envCache.key = envKey; envCache.env = skyEnvCompute([sunF[0], sunF[1], sunF[2]], lonlatTo3D(sunAt[0], sunAt[1]), { k: view.atmScale ?? 4, sunI: view.atmSun ?? 20, fill: view.pbrFill ?? 0.35 }); }
 		const env = envCache.env; env.lp[3] = 1 - sunF[3];
 		rasterFlushFree();      // 前フレームは submit 済み＝退避されたタイルテクスチャをここで実際に破棄
 		// 地面アトラス（RTT ドレープ）：窓と鍵を確定（packFrame が窓の係数を読む）→ Frame 書込 → 合成（別エンコーダ・main パスより先に submit）
@@ -1975,7 +1977,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）
 		if (FX.ao && !flat2d && (cam.pitch || 0) > 0.02) {
 			ao ??= createAoGPU(device, format);
-			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), logCoef,
+			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, eye: st.eye, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), logCoef,
 				strength: view.aoStrength ?? 0.6, radiusK: view.aoRadius ?? 0.02, biasM: view.aoBias ?? 1.0 });   // 調律ノブ（公開面には出さない）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
