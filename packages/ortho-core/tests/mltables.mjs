@@ -74,3 +74,15 @@ test("隠した層（visibility none）は詰め方に残して表で効かせ�
 	assert.deepEqual(rec(t, 0), { fill: 0, line: 0x000000ff, w8: 8, r8: 0, vis: 1 });
 	assert.deepEqual(t.active, ["l"]);
 });
+test("破線（第 4 語＝[線, 間] 1/8px×線幅）と円の縁（第 4 語＝縁の色・線幅の欄＝縁の幅）・中空の円（flags bit1）", () => {
+	const [pl] = packMLLayers([L("l", "line", { paint: { "line-width": 4, "line-dasharray": [2, 1] } })]);
+	const tl = buildMLTable(pl, [LN()], { zoom: 10 });
+	assert.equal(tl.u32[3], ((64 << 16) | 32) >>> 0);   // 線 2×4px＝8px→64・間 1×4px＝4px→32
+	const [pc] = packMLLayers([L("c", "circle", { paint: { "circle-color": "#ffff00", "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 2 } })]);
+	const tc = buildMLTable(pc, [PT()], { zoom: 10 }), b = tc.u32[2];
+	assert.equal(tc.u32[3], 0xff0000ff); assert.equal(b >>> 24, 16); assert.equal((b >>> 8) & 255, 24); assert.equal(b & 3, 1);
+	const [ph] = packMLLayers([L("h", "circle", { paint: { "circle-opacity": 0, "circle-stroke-color": "#0000ff", "circle-stroke-width": 3 } })]);
+	const th = buildMLTable(ph, [PT()], { zoom: 10 });
+	assert.equal(th.u32[1], 0); assert.equal(th.u32[2] & 3, 3); assert.equal(th.u32[3], 0x0000ffff);   // 中空＝塗り無し＋見える
+	assert.deepEqual([...th.drawn.h], [1]);
+});

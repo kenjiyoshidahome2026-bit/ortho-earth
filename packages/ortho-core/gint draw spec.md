@@ -184,7 +184,8 @@ paint か filter の JSON に `["zoom"` を含む層は、**settle ごとに |Δ
 - 手綱には `buildTable`（表の組み立て）と `zoomKey`（層の zoom 域の境で settle に作り直す）を注入＝`setFilter`・feature-state・settle の再評価・`setData` の呼び直しも同じ表（ネイティブの `buildFidStyle` は使わない）
 - 重ね順は予約の帯（order 1000＋pass の通し番号）＝U10 の order 0 を踏まない。ML の Gint 層は `interactive:false`（カーソルを奪わない・層イベントは `queryRenderedFeatures`）・塗りの層が無い pass は `fillMaxEdges:0`（縮退 stencil の塗りの穴＝U13）
 - 同じ source の pass はジオメトリを別々に焼いて上げる（共有なし）＝pass が増えるのは同じ型が重なった時だけ
-- 未対応（段 4b）：`line-dasharray`（表の dash 欄の地物ごとの配線）・`circle-stroke`（表の第 4 語）・幅/半径の上限（u8：線 約 32px・点 約 64px）
+- 破線と円の縁（2026-09-26・段 4b）：表の第 4 語（A）＝線の地物は破線 [線, 間]（1/8 CSS px の u16×2・`line-dasharray`×線幅・先頭の対だけ＝3 要素以上は近似）／点の地物は縁の色 RGBA8（幅は B の線幅の欄＝点では使わない・縁は半径の外側）。flags bit1＝点の塗り無し（中空の円）。A と bit1 が 0 なら従来どおり（ネイティブの表は常に 0）
+- 残る上限：幅/半径の u8（線 約 32px・点 約 64px）
 - 出しズーム＝**MapLibre の既定**：`minzoom` の無い層は z0 から・`maxzoom` の無い層は上限なし（同じ source の層は和）。
   旧（〜2026-09-25）は minzoom 無し＝null＝Gint の自動導出（狭い範囲のデータは z9 等から）で、MapLibre の層が引くと消えたまま照会だけ当たっていた
 - `setPaintProperty` / `setLayoutProperty(visibility)` / `setFilter` / `moveLayer` / `setLayerZoomRange`＝登録簿を書き換えて全体の詰め方から組み直す（同じ署名の pass は手綱を使い回して表だけ・隠した層は詰め方に残して表で効かせない＝出し入れで焼き直さない）
@@ -266,8 +267,8 @@ Gint の評価文脈に `id` は無い（`["id"]`＝undefined）。契約に足�
 
 ### 7.1 fid スタイル表
 
-- RGBA32UI・1 texel / fid・幅 `min(4096, TEX_ARC_W)`：`R=塗り色 G=線/点の色 B=width(1/8)<<24 | dash<<16 | radius(1/4)<<8 | flags A=予備`
-- flags bit0 = visible（filter の実体）。他は予備
+- RGBA32UI・1 texel / fid・幅 `min(4096, TEX_ARC_W)`：`R=塗り色 G=線/点の色 B=width(1/8)<<24 | dash<<16 | radius(1/4)<<8 | flags A=線：破線 [線,間] 1/8px u16×2／点：縁の色 RGBA8`（A は 2026-09-26〜・0＝従来どおり）
+- flags bit0 = visible（filter の実体）・bit1 = 点の塗り無し（中空の円・2026-09-26〜）。他は予備。点の地物では B の width 欄が縁の幅（1/8 CSS px）
 - width は**正味のスタイル幅だけ**を焼く（1/8 CSS px・描く時に ×dpr）。パス都合の増分（アクティブの強調 +2 device px・pick の余白 12 px×dpr）は uniform で足し、表に混ぜない
 - width=0＝線を描かない（VS で棄却）／radius=0＝点を描かない。線色・点色の α=0＝既定色（§5）
 - 更新は同寸なら `texSubImage2D`（WebGPU は `writeTexture`）1 回。メタ・tier・幾何に触れることを**仕様として禁止**。context lost 用に CPU 側の写しを保持

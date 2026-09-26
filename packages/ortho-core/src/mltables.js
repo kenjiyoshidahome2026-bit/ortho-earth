@@ -9,7 +9,9 @@
 //   塗り＝面だけ・線＝線と面の輪郭・点＝点だけ（MapLibre の層の型の約束）。当たらない欄は描かない（塗り α0・線幅 0・半径 0）。
 //   ⚠線/点の色の α0 はエンジンでは「既定色」＝消す時は必ず幅/半径 0（台帳 R16）。値は MapLibre の既定（黒・線 1px・点 5px・不透明度 1）。
 //   式は MapLibre の出自（ctx.origin "ml"）で評価＝評価エラーはその性質の既定値。
-// 表のレコード（buildFidStyle と同じ・gint draw spec §7.1）：R＝塗り RGBA8／G＝線または点の色 RGBA8／B＝線幅 u8(1/8px)<<24 | dash<<16 | 半径 u8(1/4px)<<8 | flags／A＝0
+// 表のレコード（buildFidStyle と同じ・gint draw spec §7.1）：R＝塗り RGBA8／G＝線または点の色 RGBA8／B＝線幅 u8(1/8px)<<24 | dash<<16 | 半径 u8(1/4px)<<8 | flags／
+// A（段 4b・2026-09-26）＝線の地物：破線 [線, 間] の 1/8 CSS px u16×2（line-dasharray×線幅）／点の地物：縁の色 RGBA8（幅は B の線幅の欄＝点では使わない）。
+// flags bit1＝点の塗り無し（中空の円＝縁だけ）。0 ならエンジンは従来どおり
 import { evalExpr, truthy } from "./expr.js";
 import { parseRGBA } from "./color.js";
 
@@ -19,6 +21,7 @@ export const ML_DEFAULTS = {
 	"fill-color": "#000000", "fill-opacity": 1,
 	"line-color": "#000000", "line-width": 1, "line-opacity": 1,
 	"circle-color": "#000000", "circle-radius": 5, "circle-opacity": 1,
+	"circle-stroke-color": "#000000", "circle-stroke-width": 0, "circle-stroke-opacity": 1,
 };
 const RANK = { fill: 0, line: 1, circle: 2 };
 const hasOutline = L => L.type === "fill" && L.paint?.["fill-outline-color"] != null;
@@ -70,7 +73,7 @@ export function buildMLTable(pass, features = [], { zoom = 0, states = null } = 
 		const f = features[fid], gt = f?.geometry?.type ?? "", k = kindOf(gt);
 		const ctx = { zoom, props: f?.properties ?? {}, geom: gt, vars: {}, state: states?.get(fid), origin: "ml", id: f?.properties?.[ML_ID_KEY] ?? fid };   // ["id"]＝MapLibre の id
 		const pass_ = L => L && (L.filter == null || truthy(evalExpr(L.filter, ctx)));
-		let fill = 0, line = 0, w8 = 0, r8 = 0;
+		let fill = 0, line = 0, w8 = 0, r8 = 0, aw = 0, flags = 0;
 		if (F && k === "pg" && pass_(F)) {
 			fill = packColor(color(F, "fill-color", ctx), num(F, "fill-opacity", ctx));
 			if (pass.outline) {   // 輪郭＝fill-outline-color・1px・不透明度は塗りと同じ
@@ -82,15 +85,25 @@ export function buildMLTable(pass, features = [], { zoom = 0, states = null } = 
 		}
 		if (Ln && (k === "ln" || k === "pg") && pass_(Ln)) {
 			const c = packColor(color(Ln, "line-color", ctx), num(Ln, "line-opacity", ctx)), w = num(Ln, "line-width", ctx);
-			if (c && w > 0) { line = c; w8 = Math.max(1, clampU8(w * 8)); drawn[Ln.id][fid] = 1; }
+			if (c && w > 0) {
+				line = c; w8 = Math.max(1, clampU8(w * 8)); drawn[Ln.id][fid] = 1;
+				// 破線（MapLibre＝線幅の倍数）。先頭の [線, 間] の対だけ＝3 要素以上は近似（台帳の文書）。間 0・線 0 は実線
+				const da = Ln.paint?.["line-dasharray"] != null ? evalExpr(Ln.paint["line-dasharray"], ctx) : null;
+				if (Array.isArray(da) && da.length >= 2 && da[0] > 0 && da[1] > 0) aw = ((Math.min(65535, Math.round(da[0] * w * 8)) << 16) | Math.min(65535, Math.round(da[1] * w * 8))) >>> 0;
+			}
 		}
 		if (C && k === "pt" && pass_(C)) {
 			const c = packColor(color(C, "circle-color", ctx), num(C, "circle-opacity", ctx)), r = num(C, "circle-radius", ctx);
-			if (c && r > 0) { line = c; r8 = Math.max(1, clampU8(r * 4)); drawn[C.id][fid] = 1; }
+			const sw = num(C, "circle-stroke-width", ctx), sc = sw > 0 ? packColor(color(C, "circle-stroke-color", ctx), num(C, "circle-stroke-opacity", ctx)) : 0;
+			if (r > 0 && (c || sc)) {
+				r8 = Math.max(1, clampU8(r * 4)); drawn[C.id][fid] = 1;
+				if (c) line = c; else flags |= 2;   // 塗りが透明で縁だけ＝中空の円（色 α0 は既定色なので印で消す）
+				if (sc) { aw = sc; w8 = Math.max(1, clampU8(sw * 8)); }   // 縁（点では線幅の欄が縁の幅）
+			}
 		}
 		const vis = fill || w8 || r8 ? 1 : 0;   // 何も描かない地物は隠す（照会・ホバーにも出ない）
 		const j = fid * 4;
-		u32[j] = fill; u32[j + 1] = line; u32[j + 2] = ((w8 << 24) | (0 << 16) | (r8 << 8) | vis) >>> 0; u32[j + 3] = 0;
+		u32[j] = fill; u32[j + 1] = line; u32[j + 2] = ((w8 << 24) | (0 << 16) | (r8 << 8) | flags | vis) >>> 0; u32[j + 3] = aw;
 	}
 	return { u32, count, drawn, active: act.map(L => L.id) };
 }
