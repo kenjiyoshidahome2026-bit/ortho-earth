@@ -265,7 +265,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!rasterOn && !wantFills && !(fillsIn && groundHook)) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; gnd.faces = 0; return; }
 		const wins = groundWindows(cam, canvas.width, canvas.height);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}`;
+		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
+		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
@@ -279,7 +281,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 			if (rasterOn) drawRasterInto(a, bb, "under");
-			if (wantFills) drawFillsInto(a, st, land, slots, seaOff, baseA);
+			if (wantFills) drawFillsInto(a, st, land, baseSlots, seaOff, baseA);
+			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1);
 			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
 				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", e?.message); }
 				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
@@ -405,6 +408,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		base: { origin: [0, 0], draws: [], bld: null, md: null },
 		main: { origin: [0, 0], draws: [], bld: null, md: null },
 		overlay: { origin: [0, 0], draws: [], bld: null, md: null },
+		user: { origin: [0, 0], draws: [], bld: null, md: null },   // 利用者の vector source の塗りと線（MapLibre 互換 段 8⑤・classic だけ）＝基図の塗りと線の上。空なら slots に入らない＝今までと同じ絵
 	};
 
 	// --- multi_draw タイル常駐プール ---
@@ -1043,6 +1047,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		{
 			const fillsIn = !!(terrain && elev.has && elevScaleEff > 1e-9) && !(opts && opts.noTerrain);   // ＝terrainActive（下で再計算される同じ式）
 			const slotsG = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
+			if (sceneHasDraws(scenes.user)) slotsG.push("user");   // 利用者の vector の層（段 8⑤）＝空なら足さない（鍵も今と同じ）
 			composeGround(cam, st, view.land || [0.96, 0.96, 0.95, 1], fillsIn, slotsG);
 			gl.viewport(0, 0, canvas.width, canvas.height);   // 合成が FBO の viewport を触った
 		}
@@ -1299,6 +1304,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 周囲と質感違いで浮くのを防ぐ）。下地は代役なので skipBase より優先＝空白フレームを作らない。
 		const slots = (opts && opts.skipMain) ? ["base"]
 			: (opts && opts.skipBase) ? ["main"] : ["base", "main"];   // 静止時は下地を隠しLOD痕を消す
+		if (sceneHasDraws(scenes.user)) slots.push("user");   // 利用者の vector の層（段 8⑤）＝基図の塗りと線の後
 		// 塗りの直描きを伏せる条件：3D（地形あり）＝塗りは地面アトラスへ焼いてある（RTT ドレープ）／ラスタ基図（under・hideFills）＝裁定
 		// （線と注記は残す）。2D のラスタ重ねはアトラスに合成済み＝塗り FS が gndMix で塗りの上に載せる（線・注記はその上）
 		const rasterHide = gnd.fillsIn || !!(rasterDraws && rasterDraws.hideFills && gnd.rasterOn);
@@ -1360,16 +1366,19 @@ export function createRenderer(canvas, rOpts = {}) {
 				continue;
 			}
 			if (!scene.draws.length) continue;
+			const userSlot = slot === "user";   // 利用者の vector の層（段 8⑤）＝基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
 			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_fogFar"), fogFarCap); setCogScene(fillProg, scene.origin); setGndScene(fillProg, scene.origin);
+			if (userSlot) gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), 1);
 			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_fogFar"), fogFarCap);
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), cityLift);
+			if (userSlot) gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), 1);
 			lineOffZero();
 			let curProg = null;
 			for (const d of scene.draws) {
 				if (d.kind === "fill") {
-					if (rasterHide) continue;   // ラスタ基図＝塗りを伏せる
+					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる（利用者の層は 3D のアトラスに入った時だけ）
 					const seaFBC = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
 					if ((seaFBC || d.li === sea.li || d.li === sea.li2) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（詳細以外は描かない＝紙の海）。li2=水系点火面
 					if (hideBldFill && d.li === bldFill.li) continue;   // 3D時＝フットプリント塗りを伏せる（押し出しに委ねる）
@@ -1391,6 +1400,10 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (slot === "base") dbgC.baseLine++; else dbgC.mainLine++;
 				}
 			}
+		}
+		if (slots.indexOf("user") >= 0) {   // 利用者の層で 1 にした基図の濃さを戻す（後のパスが同じプログラムを使う）
+			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA);
+			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA);
 		}
 		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
@@ -1568,7 +1581,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (scenes[slot].bld) { for (const b of scenes[slot].bld.bufs) gl.deleteBuffer(b); gl.deleteVertexArray(scenes[slot].bld.vao); }
 		scenes[slot] = { origin: scenes[slot].origin, draws: [], bld: null, md: null };   // md シーンは参照リストだけ＝GL資源なし（プールは常駐）
 	}
-	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
+	function dispose() { for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0; disposeSlot("base"); disposeSlot("main"); disposeSlot("user"); disposeOverlay(overlay); disposeOverlay(overlayHi); disposeOverlay(overlayHover); disposeOverlay(wdepr); disposeOverlay(lakes); for (const o of rail) disposeOverlay(o); setGintBld(null); depthOut(false); }
 
 	// 汎用 set(cmd, data, prop)：ortho-map createLayers の set プロトコルに整合。将来 worker では
 	// postMessage({ type:"set", cmd, data, prop }, transferables) にそのまま載る。prop は cmd ごとに融通。
