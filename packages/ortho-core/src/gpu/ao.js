@@ -1,12 +1,12 @@
 // AO（#46 段 3・2026-09-26・WebGPU だけ）：建物の足元・谷の陰＝画面空間の環境遮蔽。main パスの後・gint の前に 3 パス足す：
-//   ①AO（半解像度 r8unorm）＝シーンの深度（対数＝logCoef で線形化）から位置と法線を復元し、半球 12 サンプル（4×4 の回転）で遮蔽を数える。
+//   ①AO（半解像度）＝シーンの深度（対数＝logCoef で線形化）から位置と法線を復元し、地平線型（4 方向×6 歩・画素ごとに回す）で接平面からの最大仰角を取る。
 //     位置は目からの相対（P_rel＝視線×距離＝f32 で m 級の精度）・標本の投影は clipEye＋mvp·(S,0)（CPU double の錨＝RTE と同じ作法）。
 //   ②ぼかし（半解像度）＝4×4・深度の重み（AO 面の GB に同梱した深度＝縁を跨がない）。深度が無い画素（GLOBE の床）は視線と単位球の交点で床を復元。
 //   ③合成＝色に乗算（blend＝dst×src・MSAA の段は本体と同じ＝4x の静止フレームも 1x の遷移フレームも同じ的へ）。中間の色面は要らない。
-// 半径は視距離の 5%（12m〜400m）＝寄れば足元・引けば谷。空（深度 1）は 1。LOW_MEM は globe が旗を落とす（作らない）。
+// 半径は視距離の 10%（20m〜400m）・画面上 4〜48px＝寄れば足元・引けば谷（机上シミュレーション：壁の手前 1.5〜5m で 0.8・30m で 0.95・60m で 1）。空（深度 1）は 1。LOW_MEM は globe が旗を落とす（作らない）。
 // 深度は 4x のとき texture_depth_multisampled_2d の sample 0（#47 depthout と同じ手）。
 export const AO_WGSL = ms => /* wgsl */`
-struct AoP { mvp: mat4x4f, invMvp: mat4x4f, clipEye: vec4f, eye: vec4f, p: vec4f, size: vec4f };   // p=(logCoef, 半径の係数, 強さ, bias m→世界)・size=(W,H,1/W,1/H)（AO 面）
+struct AoP { mvp: mat4x4f, invMvp: mat4x4f, clipEye: vec4f, eye: vec4f, p: vec4f, size: vec4f };   // eye.w＝焦点距離（AO 面の px）・p=(logCoef, 半径の係数, 強さ, 接平面の sin の下駄)・size=(W,H,1/W,1/H)（AO 面）
 @group(0) @binding(0) var<uniform> A: AoP;
 @group(0) @binding(1) var dep: ${ms ? "texture_depth_multisampled_2d" : "texture_depth_2d"};
 const M_PER_R: f32 = 1.5696e-7;   // 1m／地球半径
@@ -40,49 +40,47 @@ fn posRel(xy: vec2i, fwd: vec3f) -> vec4f {   // xyz＝目からの相対位置�
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }
-const KERNEL = array<vec3f, 12>(
-	vec3f(0.19, 0.06, 0.12), vec3f(-0.22, 0.14, 0.18), vec3f(0.08, -0.27, 0.22), vec3f(-0.11, -0.13, 0.35),
-	vec3f(0.35, 0.21, 0.30), vec3f(-0.41, -0.09, 0.28), vec3f(0.12, 0.44, 0.33), vec3f(-0.20, 0.39, 0.45),
-	vec3f(0.52, -0.31, 0.40), vec3f(-0.57, 0.22, 0.52), vec3f(0.30, -0.60, 0.58), vec3f(-0.10, 0.10, 0.85));
+// 地平線型（HBAO）：画面上の 4 方向（画素ごとに π/16 刻みで回す）× 6 歩で最大仰角（接平面からの sin）を取り、距離で減衰。
+// 半球サンプル型は壁の手前 6m で遮蔽が 1〜2 割にしかならず足元が出ない（机上シミュレーション 2026-09-26）＝壁の方向は仰角 80° 超＝ほぼ全遮蔽になる地平線型へ。
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	let xy = vec2i(pos.xy);
 	let fc = A.invMvp * vec4f(0.0, 0.0, 1.0, 1.0); let fn0 = A.invMvp * vec4f(0.0, 0.0, 0.0, 1.0);
 	let fwd = normalize(fc.xyz / fc.w - fn0.xyz / fn0.w);
 	let P = posRel(xy, fwd);
-	if (P.w < 0.0) { return vec4f(1.0); }
+	if (P.w < 0.0) { return vec4f(1.0, 1.0, 1.0, 1.0); }
 	// 法線＝隣の texel との差（手前側の差を採る＝縁で反対側へ跳ばない）
 	let Px1 = posRel(xy + vec2i(1, 0), fwd); let Px0 = posRel(xy - vec2i(1, 0), fwd);
 	let Py1 = posRel(xy + vec2i(0, 1), fwd); let Py0 = posRel(xy - vec2i(0, 1), fwd);
 	let dx = select(P.xyz - Px0.xyz, Px1.xyz - P.xyz, abs(Px1.w - P.w) < abs(Px0.w - P.w) || Px0.w < 0.0);
 	let dy = select(P.xyz - Py0.xyz, Py1.xyz - P.xyz, abs(Py1.w - P.w) < abs(Py0.w - P.w) || Py0.w < 0.0);
 	var n = cross(dx, dy);
-	if (dot(n, n) < 1e-30) { return vec4f(1.0); }
+	if (dot(n, n) < 1e-30) { return vec4f(1.0, encW(P.w), 1.0); }
 	n = normalize(n);
 	if (dot(n, P.xyz) > 0.0) { n = -n; }   // 視線に向ける
-	// 半径＝視距離の 5%（12m〜400m）・bias
-	let radius = clamp(P.w * A.p.y, 12.0 * M_PER_R, 400.0 * M_PER_R);
-	let bias = A.p.w;
-	// 接線基底＝画素ごとの回転（4×4 の交互）で縞を散らす
-	let ang = f32((xy.x & 3) * 4 + (xy.y & 3)) * 0.3927;   // 16 段
-	var t0 = vec3f(cos(ang), sin(ang), 0.37);
-	t0 = normalize(t0 - n * dot(t0, n));
-	let b0 = cross(n, t0);
+	// 半径＝視距離の 10%（20m〜400m）・画面上の半径（AO 面の px・4〜48）
+	let radius = clamp(P.w * A.p.y, 20.0 * M_PER_R, 400.0 * M_PER_R);
+	let rpx = clamp(radius / P.w * A.eye.w, 4.0, 48.0);
+	let biasS = A.p.w;   // 接平面からの sin の下駄（自己遮蔽・平面の縞を切る）
+	let ang0 = f32((xy.x & 3) * 4 + (xy.y & 3)) * 0.19635;   // π/16 刻み 16 段
+	let dim = vec2i(A.size.xy);
 	var occ = 0.0;
-	for (var i = 0; i < 12; i++) {
-		let k = KERNEL[i];
-		let S = P.xyz + n * bias + (t0 * k.x + b0 * k.y + n * k.z) * radius;
-		let c = A.clipEye + A.mvp * vec4f(S, 0.0);
-		if (c.w <= 0.0) { continue; }
-		let sn = c.xy / c.w;
-		let suv = vec2f(sn.x * 0.5 + 0.5, 0.5 - sn.y * 0.5);
-		if (suv.x < 0.0 || suv.x > 1.0 || suv.y < 0.0 || suv.y > 1.0) { continue; }
-		let sz = depthAt(vec2i(suv * A.size.xy));
-		if (sz >= 1.0) { continue; }   // 床（深度なし）は半球の下＝遮らない
-		let sw = linW(sz);
-		let dW = c.w - sw;   // 標本より手前に面がある＝遮蔽
-		if (dW > bias) { occ += smoothstep(0.0, 1.0, radius / max(abs(P.w - sw), 1e-9)); }   // 遠くの面（半径の外）は効かない＝range check
+	for (var k = 0; k < 4; k++) {
+		let a = ang0 + f32(k) * 1.5707963;
+		let dv = vec2f(cos(a), sin(a));
+		var hmax = 0.0;
+		for (var s = 1; s <= 6; s++) {
+			let q = clamp(vec2i(vec2f(xy) + 0.5 + dv * (rpx * f32(s) / 6.0)), vec2i(0), dim - vec2i(1));
+			let Q = posRel(q, fwd);
+			if (Q.w < 0.0) { continue; }
+			let D = Q.xyz - P.xyz; let l = length(D);
+			if (l < 1e-12 || l > radius) { continue; }
+			let se = dot(D, n) / l;                      // 接平面からの仰角の sin
+			let fall = 1.0 - (l * l) / (4.0 * radius * radius);   // 遠い遮蔽は弱く（R で 0.75＝壁の最良の地平線は R 付近に来るので 0 にしない）
+			hmax = max(hmax, se * fall);
+		}
+		occ += max(hmax - biasS, 0.0) / (1.0 - biasS);
 	}
-	let ao = 1.0 - A.p.z * occ / 12.0;
+	let ao = 1.0 - A.p.z * occ / 4.0;
 	return vec4f(clamp(ao, 0.0, 1.0), encW(P.w), 1.0);
 }`;
 
@@ -153,7 +151,7 @@ export function createAoGPU(device, format) {
 		texB = device.createTexture({ size: [w, h], format: "r8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
 		tw = w; th = h; bgKey = "";
 	}
-	// enc＝フレームのエンコーダ・d＝{ depthTex, samples, W, H, colorView, mvp, invMvp, clipEye, logCoef, strength, radiusK, biasM }
+	// enc＝フレームのエンコーダ・d＝{ depthTex, samples, W, H, colorView, mvp, invMvp, eye, clipEye, focal, logCoef, strength, radiusK, biasSin }
 	function encode(enc, d) {
 		ensure(d.W, d.H);
 		const ms = d.samples > 1, P = pipeFor(ms), C = compFor(d.samples);
@@ -168,8 +166,8 @@ export function createAoGPU(device, format) {
 		}
 		const u = uCPU; u.set(d.mvp, 0); u.set(d.invMvp, 16);
 		u[32] = d.clipEye[0]; u[33] = d.clipEye[1]; u[34] = d.clipEye[2]; u[35] = d.clipEye[3];
-		u[36] = d.eye[0]; u[37] = d.eye[1]; u[38] = d.eye[2]; u[39] = 0;
-		u[40] = d.logCoef; u[41] = d.radiusK; u[42] = d.strength; u[43] = d.biasM * 1.5696e-7;
+		u[36] = d.eye[0]; u[37] = d.eye[1]; u[38] = d.eye[2]; u[39] = d.focal / 2;   // 焦点距離（device px）→AO 面（半解像度）
+		u[40] = d.logCoef; u[41] = d.radiusK; u[42] = d.strength; u[43] = d.biasSin;
 		u[44] = tw; u[45] = th; u[46] = 1 / tw; u[47] = 1 / th;
 		device.queue.writeBuffer(uBuf, 0, u);
 		let pass = enc.beginRenderPass({ colorAttachments: [{ view: texA.createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });

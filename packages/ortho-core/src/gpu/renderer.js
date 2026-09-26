@@ -1977,8 +1977,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）
 		if (FX.ao && !flat2d && (cam.pitch || 0) > 0.02) {
 			ao ??= createAoGPU(device, format);
-			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, eye: st.eye, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), logCoef,
-				strength: view.aoStrength ?? 0.7, radiusK: view.aoRadius ?? 0.05, biasM: view.aoBias ?? 1.0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 5%（12〜400m）・強さ 0.7（2% / 8m / 0.6 は足元 3m で 0.97＝薄すぎた・実機 2026-09-26）
+			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, eye: st.eye, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), focal: st.focal, logCoef,
+				strength: view.aoStrength ?? 0.7, radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.7・接平面の sin の下駄 0.15（地平線型・2026-09-26）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）

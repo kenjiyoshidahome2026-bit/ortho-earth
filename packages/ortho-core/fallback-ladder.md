@@ -127,7 +127,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
   `?fx=pbr,ao` 強制 on（LOW_MEM／GL2 の A/B）・`?fx=noao` 強制 off・URL が opts に勝つ。段 0 は旗を運ぶだけ（絵は不変）＝段 1〜3 が順に読む。
   段 1（大気散乱）＝`GLOBE` パス・全球ハイプソの帯だけ・調律ノブ `view.atmScale`（帯の幅 k＝4）/`atmSun`/`atmExposure`/`atmGround`。段 2（PBR）＝模型（GGX＋法線/AO/発光テクスチャ）と
   素の建物メッシュ（拡散だけ）を太陽＋空の SH9 で照らす・夜は固定光・`view.pbrFill`（昼でも固定光を混ぜる割合＝0.35＝陰の壁の読みやすさ）。押し出し建物（法線なし）は対象外。
-  段 3（AO）＝チルトした 3D の時だけ main パスの後に 3 パス（半解像度 AO・ぼかし・色に乗算）。半解像度 r8 が 2 枚（W×H/2 B）。`view.aoStrength`（0.7）/`aoRadius`（視距離の 5%・12〜400m）/`aoBias`（1m）。
+  段 3（AO）＝チルトした 3D の時だけ main パスの後に 3 パス（半解像度 AO・ぼかし・色に乗算）。半解像度 r8 が 2 枚（W×H/2 B）。`view.aoStrength`（0.7）/`aoRadius`（視距離の 10%・20〜400m）/`aoBias`（接平面の sin の下駄 0.15）。地平線型（4 方向×6 歩）。
 
 ## 7. 計器（全部 URL フラグ・本番搭載）
 
