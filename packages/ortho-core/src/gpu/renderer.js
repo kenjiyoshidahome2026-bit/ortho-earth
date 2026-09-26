@@ -20,12 +20,16 @@ import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42�
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL } from "./wgsl.js";
+import { gndMixSlow } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換
+import { f32ToF16 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）
 import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 
-const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
+const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
+const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
+const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
 const FRAME_F32 = 112;     // 448B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
@@ -38,22 +42,7 @@ const PL_BATCH_SLOT = 256; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
 
-// f32→f16（IEEE half）。標高(m)は -500..9000 級＝half で ±0.25〜2m 精度（GL の R16F と同じ土俵）。
-// 最近接丸め・Inf/NaN→0（標高データに来ない保険）・subnormal 域(6e-5m未満)は 0 へフラッシュ。
-function f32ToF16(src) {
-	const n = src.length, out = new Uint16Array(n);
-	const u = new Uint32Array(src.buffer, src.byteOffset, n);
-	for (let i = 0; i < n; i++) {
-		const x = u[i], s = (x >>> 16) & 0x8000;
-		let e = (x >>> 23) & 0xff, m = x & 0x7fffff;
-		if (e === 0xff) { out[i] = s; continue; }
-		if (e < 113) { out[i] = s; continue; }
-		m = m + 0x1000;                                     // 半ULP加算＝最近接丸め
-		if (m & 0x800000) { m = 0; e++; }
-		out[i] = e > 142 ? (s | 0x7bff) : (s | ((e - 112) << 10) | (m >> 13));
-	}
-	return out;
-}
+// f32→f16 は ./f16.js（Float16Array の native 変換＋旧ループのフォールバック・perf plan P1 step 0）
 
 // ── 空の環境光（#46 段 2）＝段 1 と同じ散乱式（wgsl.js atmScatter の JS 写し・帯の幅 k と太陽の強さも同じ）で天球を積み、SH9（照度の係数 A_l 込み）と
 // 太陽の強さ（地表での透過率込み）を「原点で水平な白＝1」に正規化して返す（自動露出＝屋根の明るさが時刻で大きく動かない・壁との比が動く）。
@@ -151,6 +140,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	let frame1Scoped = 0;
 	const gpuErr = (where, msg) => { const t = `${where}: ${msg}`; gpuErrors.push(t); console.error("[gpu] " + t); };
 	const mkMod = (code, label) => {
+		if (rOpts.gndFast === false) code = gndMixSlow(code);   // 逃げ道（perf plan P6）＝A/B と切り分け。既定は早期 return の新順序
 		const m = device.createShaderModule({ code });
 		m.getCompilationInfo && m.getCompilationInfo().then(info => {
 			for (const x of info.messages || []) if (x.type === "error") gpuErr(`WGSL ${label}`, `${x.lineNum}:${x.linePos} ${x.message}`);
@@ -781,7 +771,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 				pass.setPipeline(P.ovLine);
 				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf); pass.setVertexBuffer(5, zeroOffBuf);
-				pass.draw(6, o.lineCount);
+				drawLine(pass, o.lineCount);
 			}
 		}
 	}
@@ -794,8 +784,14 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		zeroOffN = Math.max(n, zeroOffN * 2, 4096);
 		zeroOffBuf = device.createBuffer({ size: zeroOffN * 12, usage: GPUBufferUsage.VERTEX });   // 作りたては 0 で埋まっている
 	}
-	const cornerBuf = device.createBuffer({ size: CORNERS.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
-	device.queue.writeBuffer(cornerBuf, 0, CORNERS);
+	// 線の角＝index の 4 頂点（perf plan P3・既定）／旧 6 頂点（?quad4=0）。線分 1 本の VS 起動 6→4（VS は両端点の elevQ を毎回引く＝3D では重い）
+	const QUAD4 = rOpts.quad4 !== false;
+	const cornerSrc = QUAD4 ? CORNERS4 : CORNERS;
+	const cornerBuf = device.createBuffer({ size: cornerSrc.byteLength, usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST });
+	device.queue.writeBuffer(cornerBuf, 0, cornerSrc);
+	const lineIdxBuf = device.createBuffer({ size: LINE_IDX.byteLength, usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST });
+	device.queue.writeBuffer(lineIdxBuf, 0, LINE_IDX);
+	const drawLine = (pass, count) => { if (QUAD4) { pass.setIndexBuffer(lineIdxBuf, "uint16"); pass.drawIndexed(6, count); } else pass.draw(6, count); };
 
 	// 静的 view（色・見た目）と海ゲート＝gl/renderer.js と同じ意味論
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
@@ -934,8 +930,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const mkAtlasTex = (W, H) => device.createTexture({ size: [W, H], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });   // 生成時ゼロ初期化＝海
 	function writeCell(tex, cx, cy, data, cellRes) {
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す
+		// 計器 a（perf plan §1）：f16 変換と writeTexture 発行の時間を分けて terrain.js の upload 行へ渡す（?perf=1 の時だけ）
+		const perf = self.__perfElev, t0 = perf ? performance.now() : 0;
+		const half = f32ToF16(data);
+		const t1 = perf ? performance.now() : 0;
 		device.queue.writeTexture({ texture: tex, origin: { x: cx * cellRes, y: cy * cellRes } },
-			f32ToF16(data), { bytesPerRow: cellRes * 2 }, { width: cellRes, height: cellRes });
+			half, { bytesPerRow: cellRes * 2 }, { width: cellRes, height: cellRes });
+		if (perf) self.__perfElevLast = { f16: t1 - t0, write: performance.now() - t1 };
 	}
 	function atlasMeta(a, scale) {
 		const span = a.cellSpan || 10;
@@ -1371,6 +1372,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function setScene(s, slot = "main") {
 		if (!scenes[slot]) return;   // overlay 等の未知スロットは対象外
+		const pT0 = self.__perfScene ? performance.now() : 0;   // 計器 b（?perf=1）
 		sceneRev++;   // 地面アトラス（3D の塗り）の再合成の鍵
 		// クロスフェード：main の同一原点差し替え（ロード流入中の典型）は旧シーンを FADE_MS だけ温存し
 		// 新シーンをα昇順で重ねる＝classic merge の「ポンッ」を溶かす（モバイルのパラパラ感対策）。
@@ -1409,6 +1411,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			bld = { bufs: [bPos, bSh, bAnc], bPos, bSh, bAnc, count: s.buildings.pos.length / 3 };
 		}
 		scenes[slot] = { origin: s.origin, draws, bld, fadePrev: keepPrev, fadeT0: keepPrev ? performance.now() : 0 };
+		if (pT0) {   // 計器 b（perf plan §1）：描画スレッドでのシーン適用＝全層の createBuffer＋writeBuffer の時間と量。4ms 超は引っ掛かりとして数える（mem テレメトリの hitch.scene）
+			let bytes = 0, n = 0;
+			for (const L of s.layers || []) { if (!L) continue; n++; for (const k of ["pos", "col", "idx", "P1", "P2", "half", "off"]) if (L[k]) bytes += L[k].byteLength; }
+			if (s.buildings) bytes += s.buildings.pos.byteLength + s.buildings.shade.byteLength + s.buildings.anchor.byteLength;
+			const ms = performance.now() - pT0;
+			if (ms > 4) (self.__perfHitch ||= { elev: 0, scene: 0 }).scene++;
+			console.log(`[scene] apply ${slot} ${ms.toFixed(1)}ms ${(bytes / 1024) | 0}KB layers=${n} fade=${keepPrev ? 1 : 0}`);
+		}
 	}
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
@@ -1852,7 +1862,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setVertexBuffer(3, d.bCol);
 					pass.setVertexBuffer(4, d.bHalf);
 					pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
-					pass.draw(6, d.count);
+					drawLine(pass, d.count);
 					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
 				}
 			}
@@ -2183,6 +2193,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
+		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
 		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0 }),

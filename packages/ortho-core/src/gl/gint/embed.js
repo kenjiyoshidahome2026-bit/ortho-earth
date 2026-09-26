@@ -23,7 +23,7 @@ import { computeDrawData, zoomInRange } from './drawdata.js';
 import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
 
-export function createGintLayer(gl, { requestDraw } = {}) {
+export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
 	s.embedded = true;
 	s.requestDraw = requestDraw ?? null;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
@@ -31,7 +31,7 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 	s.gl = gl;
 	s.TEX_ARC_W  = Math.min(s.TEX_ARC_W,  gl.getParameter(gl.MAX_TEXTURE_SIZE));
 	s.TEX_META_W = Math.min(s.TEX_META_W, gl.getParameter(gl.MAX_TEXTURE_SIZE));
-	s.programs   = createGintPrograms(gl);   // 初期化時の blend 設定は renderer が毎フレーム上書きする＝無害
+	s.programs   = createGintPrograms(gl, { quad4 });   // 初期化時の blend 設定は renderer が毎フレーム上書きする＝無害
 
 	let drawStyle = null;    // main が set("gintStyle") で預ける描画スタイル（styleTable/lineWidth 等）
 	let visible = true;      // main が set("gintVis") で切替（旧 #gint canvas の display:none 相当）
