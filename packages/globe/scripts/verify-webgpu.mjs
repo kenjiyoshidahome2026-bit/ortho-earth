@@ -24,7 +24,7 @@ const ALL_PAGES = ["t-shadow", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti",
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 
-const stop = await startVite({ cwd: PKG, port: PORT, readyUrl: `http://localhost:${PORT}/tests/` });
+const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGW_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
 const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") ? 240 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）

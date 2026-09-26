@@ -20,7 +20,7 @@ const LONG = { "t-fireworks": 240 };   // 玉が開くまで 8 秒＋ソフト�
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p)) : ALL_PAGES;
 
-const stop = await startVite({ cwd: APP, port: PORT, readyUrl: `http://localhost:${PORT}/japan/` });
+const stop = await startVite({ cwd: APP, port: PORT, portEnv: "VUI_PORT", readyUrl: `http://localhost:${PORT}/japan/` });
 const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
