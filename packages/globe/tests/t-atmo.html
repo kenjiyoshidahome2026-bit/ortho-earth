@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- 実描画の検分：大気散乱（#46 段 1・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
+     z6・中心 (0,0)・400px・チルト 70° で東と西の地平線を見て、共通の時計を「太陽が東経 100° の直下（視点では地平線の 10° 下＝東の空は夜明け・西の空は夜）」に固定する。
+     ①旗なし（既定＝従来のリム光）：球の外のリム光は東西で同じ（太陽に依らない・夜面は床だけ暗くする）
+     ②fx.atmosphere（＋全球ハイプソの帯）：殻（球の縁の外 0〜3px）は東（朝）だけ光り西（夜）は宇宙のまま・床の中心の色は保たれる・GPU の検証エラー 0
+     ⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:440px;height:440px}</style><title>t-atmo</title></head>
+<body><canvas id="a" width="400" height="400"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project } = await import("../../../packages/ortho-core/src/camera.js");
+	const { sunSubpoint } = await import("../../../packages/ephem/src/sun.js");
+	// 太陽が東経 100°（±0.5°）・赤緯 ≈0 の時刻＝2026-03-20（春分）を 2 分刻みで探す。視点（経度 0）では太陽は地平線の 10° 下（薄明）＝
+	// 東の空（経度 +12°〜+30° の殻＝太陽高度 2〜20°）は夜明けで光り、西の空（−12°〜−30°）は夜。旧・東経 60° は視点で高度 30° の朝＝西の空も昼で明るい（2026-09-26 実機）
+	let T = Date.UTC(2026, 2, 20), best = 1e9;
+	for (let ms = Date.UTC(2026, 2, 20); ms < Date.UTC(2026, 2, 21); ms += 120e3) { const [lng] = sunSubpoint(ms); const e = Math.abs(lng * 180 / Math.PI - 100); if (e < best) { best = e; T = ms; } }
+	ok(`太陽＝東経 100°（誤差 ${best.toFixed(2)}°）`, best < 0.5);
+	const view = { clear: [0.03, 0.04, 0.07, 1], land: [0.96, 0.96, 0.95, 1], atmo: [0.45, 0.62, 0.95, 0.6], worldHypso: {}, worldHypsoZ: 8, clock: { sim: T, wall: Date.now(), rate: 0 } };
+	// z6・チルト 70°・東（朝の空）と西（夜の空）を向く＝地平線が画面を横切り、その上の空に殻（実寸 100 km＝この視点で 10px 級）が見える。
+	// z2 の真俯瞰では殻が 1〜2px（半径の 1.6%）＝画素で判定できない（2026-09-26 実機）
+	const N = 400, camOf = (bearing) => ({ center: [0, 0], zoom: 6, pitch: 70 * Math.PI / 180, bearing, dpr: 1 });
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (r, canvas, cam) => {   // 同一タスクで drawImage（t-shadow と同じ作法）
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const lum = (px, x, y) => { const i = (y * N + x) * 4; return (px[i] + px[i + 1] + px[i + 2]) / 3; };
+	const space = 12;   // clear (8,10,18) の平均
+	// 探針＝画面中央の列で、地平線（project の可視判定 z>0 の境を経度で二分）の y から k px 上の空
+	const horizon = (cam, sign) => {
+		const st = cameraState(cam, N, N);
+		let lo = 0, hi = 90; for (let i = 0; i < 40; i++) { const m = (lo + hi) / 2; if (project(st, sign * m, 0)[2] > 0) lo = m; else hi = m; }
+		const p = project(st, sign * (lo - 0.02), 0);
+		return { lon: lo, x: Math.round(p[0]), y: Math.round(p[1]) };
+	};
+	const camE = camOf(Math.PI / 2), camW = camOf(3 * Math.PI / 2), hE = horizon(camE, 1), hW = horizon(camW, -1);
+	ok(`探針（地平 ${hE.lon.toFixed(1)}°・東 x=${hE.x} y=${hE.y}・西 x=${hW.x} y=${hW.y}）`, Math.abs(hE.x - N / 2) < 4 && Math.abs(hW.x - N / 2) < 4 && hE.y > 40 && hE.y < N - 40 && Math.abs(hE.y - hW.y) < 3);
+	const sky = (px, h, ks) => Math.max(...ks.map(k => lum(px, h.x, h.y - k)));
+	// ① 旗なし＝従来のリム光：地平線の上 6px は東西で同じ明るさ（太陽に依らない）
+	const ca = document.getElementById("a"), ra = await createRendererGPU(ca);
+	ra.set("view", view);
+	const offE = await shot(ra, ca, camE), offW = await shot(ra, ca, camW);
+	const oE = sky(offE, hE, [6]), oW = sky(offW, hW, [6]);
+	ok(`旗なし＝旧リム光は東西で同じ（E=${oE.toFixed(1)} W=${oW.toFixed(1)}）`, Math.abs(oE - oW) < 3 && oE > space + 8);
+	// ② fx.atmosphere（実行時切替 set("fx")＝ソフトウェア WebGPU は 1 頁に adapter 1 つ＝2 台目が取れない環境がある）
+	//    ＝地平線の上 3〜12px の空は東（朝）だけ明るく、西（夜）は宇宙のまま。地面（地平線の 30px 下）の色は保たれる
+	ra.set("fx", { atmosphere: true });
+	const onE = await shot(ra, ca, camE), onW = await shot(ra, ca, camW);
+	const sE = sky(onE, hE, [3, 6, 9, 12]), sW = sky(onW, hW, [3, 6, 9, 12]);
+	ok(`散乱＝空は東（朝）だけ明るく西（夜）は宇宙（skyE=${sE.toFixed(1)} skyW=${sW.toFixed(1)}）`, sE > space + 8 && sW < space + 8);
+	const gOff = lum(offE, hE.x, hE.y + 30), gOn = lum(onE, hE.x, hE.y + 30);
+	ok(`地面の色は保たれる（off=${gOff.toFixed(1)} on=${gOn.toFixed(1)}）`, Math.abs(gOn - gOff) < 40 && gOn > 60);
+	await new Promise(res => setTimeout(res, 50));
+	ok(`GPU の検証エラーなし（${ra.gpuErrors.length}）`, ra.gpuErrors.length === 0);
+	ra.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

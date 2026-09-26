@@ -1,0 +1,83 @@
+<!doctype html>
+<!-- 実描画の検分：メッシュの光の向きと模型の色空間（#46 段 0・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
+     ①光は接地の局所系：同じ 20m 角×高さ 100m の箱を東京（139.7/35.7）とロンドン（−0.1/51.5）に置き、チルト 60° で南壁（bearing 0）と北壁（bearing 180）を見る。
+       北壁は南壁より明るく（光は北寄り・仰角 64°）、その明るさが**両都市で同じ**＝旧・地球固定の定数 L では都市ごとに違っていた。
+     ②模型の sRGB 往復：中間灰（128）のテクスチャを貼った箱の屋根（d=1.0）を真俯瞰で読むと 128 のまま＝srgb ビューで読み・出口で符号化＝絵を変えない。
+     ⚠実時間専用（verify-webgpu.mjs が回す）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-light</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g");
+	const r = await createRendererGPU(canvas);
+	const Re = 6371000, K = 111320;
+	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (cam) => {   // 同一タスクで drawImage（t-shadow と同じ作法＝present 後の空テクスチャを読まない）
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, 256, 256); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, 256, 256).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const CORNERS = [[-10, -10], [10, -10], [10, 10], [-10, 10]];
+	const FACES = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	// 箱（20m 角・高さ 100m）を LON/LAT に置く。法線は頂点ごとの外向き（角は斜め・屋根の頂点は上寄り）を ENU で作りワールド（単位球）へ回す＝
+	// renderer の規約（nrm＝ワールドの int8）。textured＝中間灰 2×2 のテクスチャ＋白の頂点色（模型の派生パイプライン）
+	const box = (LON, LAT, key, textured) => {
+		const cosL = Math.cos(LAT * Math.PI / 180), ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+		const origin = lonlatTo3D(LON, LAT);
+		const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+		const V = []; for (const h of [0, 100]) for (const [e, n] of CORNERS) V.push(...P(e, n, h));
+		const up = origin, e0 = [up[2], 0, -up[0]], le = Math.hypot(...e0), east = e0.map(v => v / le);
+		const north = [up[1] * east[2] - up[2] * east[1], up[2] * east[0] - up[0] * east[2], up[0] * east[1] - up[1] * east[0]];
+		const N = new Int8Array(32);
+		for (let i = 0; i < 8; i++) {
+			const [e, n] = CORNERS[i % 4], enu = [e > 0 ? 1 : -1, n > 0 ? 1 : -1, i < 4 ? 0 : 2];
+			const v = [0, 1, 2].map(k => enu[0] * east[k] + enu[1] * north[k] + enu[2] * up[k]), m = Math.hypot(...v);
+			for (let k = 0; k < 3; k++) N[i * 4 + k] = Math.round(v[k] / m * 127);
+		}
+		const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
+		const data = { pos: new Float32Array(V), nrm: N, idx: new Uint32Array(FACES.flat()), origin, bbox: [bw, bs, be, bn], ward: key };
+		if (textured) { data.uv = new Float32Array(16).fill(0.5); data.col = new Uint8Array(32).fill(255); data.tex = { rgba: new Uint8Array(16).fill(128), w: 2, h: 2 }; data.alphaMode = "OPAQUE"; data.keep2d = true; }   // keep2d＝真俯瞰でも描く（メッシュは既定で pitch 0 では描かない）
+		r.set("meshSet", data, key + "#0");
+		const probe = (px, cam, e, n, h) => {   // 3×3 の平均輝度（h＝高さ m）
+			const st = cameraState(cam, 256, 256), [lo, la] = ll(e, n), p = project(st, lo, la, 1 + h / Re), x = Math.round(p[0]), y = Math.round(p[1]);
+			let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * 256 + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; }
+			return s / 9;
+		};
+		return { probe, free: () => r.set("meshSet", null, key) };
+	};
+	// ①壁の明るさ＝南から見た南壁（bearing 0）と北から見た北壁（bearing 180）。壁の中心（高さ 50m）を読む
+	const walls = async (LON, LAT, key) => {
+		const b = box(LON, LAT, key, false);
+		const camS = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
+		const camN = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: Math.PI, dpr: 1 };   // bearing はラジアン（180 は誤り＝rad で読まれ斜めを向いていた・結果は両都市で同じ向きなので判定は成立していた）
+		const s = b.probe(await shot(camS), camS, 0, -10, 50), n = b.probe(await shot(camN), camN, 0, 10, 50);
+		b.free();
+		return { s, n };
+	};
+	const tk = await walls(139.7, 35.7, "tokyo"), ld = await walls(-0.1, 51.5, "london");
+	ok(`北壁は南壁より明るい（東京 S=${tk.s.toFixed(1)} N=${tk.n.toFixed(1)}）`, tk.n > tk.s * 1.1 && tk.s > 20);
+	ok(`ロンドンでも同じ明るさ（S=${ld.s.toFixed(1)} N=${ld.n.toFixed(1)}）`, Math.abs(ld.s - tk.s) < 2 && Math.abs(ld.n - tk.n) < 2);
+	// ②sRGB 往復：中間灰テクスチャの屋根を真俯瞰（keep2d）で読む＝128（±3）。屋根は d=1.0（clamp）＝テクスチャの値がそのまま出る
+	const g = box(139.7, 35.7, "grey", true);
+	const camT = { center: [139.7, 35.7], zoom: 17, pitch: 0, bearing: 0, dpr: 1 };
+	const roof = g.probe(await shot(camT), camT, 0, 0, 100);
+	g.free();
+	ok(`模型の中間灰 128 は 128 のまま（${roof.toFixed(1)}）`, Math.abs(roof - 128) <= 3);
+	ok("旗の実効値が読める（fx＝無指定は全部 off）", !!r.fx && r.fx.atmosphere === false && r.fx.pbr === false && r.fx.ao === false);
+	await new Promise(res => setTimeout(res, 50));   // WGSL の compilation info と errorScope の回収を待つ
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
