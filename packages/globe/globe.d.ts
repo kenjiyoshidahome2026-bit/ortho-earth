@@ -4,7 +4,7 @@
 // AIエージェント/エディタ補完のための共有語彙＝散文（README/llms.txt/start.md）とセットで配布する。
 // gint は二系統：applyGintData 等＝v1 の単一スロット口（呼ぶたび置換）／map.addGint()＝多層（追加・層ごとのハンドル）。混ぜない。
 // v1 口の消費側は必ず薄いモジュール1枚に封じること（gint draw spec §10.2）。
-// 注記の「1.x.y〜」は SDK（@ortho-earth/japan）の版＝その版から使える（globe 単体の版とは別の番号・2026-09-25 時点で japan 1.2.3／globe 1.1.2）。
+// 注記の「1.x.y〜」は SDK（@ortho-earth/japan）の版＝その版から使える（globe 単体の版とは別の番号・2026-09-26 時点で japan 1.2.3／globe 1.2.0）。
 
 export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
