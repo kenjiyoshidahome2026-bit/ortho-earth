@@ -45,7 +45,7 @@
 | ML 形 source の既定値（tileSize 512・maxzoom 22） | 256・18/14 | 6 | **済**（raster・raster-dem・TileJSON。?dem= と map.raster.add はネイティブの既定のまま） |
 | promoteId・generateId・clusterProperties・cluster_id | 無い | 6 | **済**（id＝Feature.id→promoteId→並び順・隠しの属性で写す＝同じ属性の地物も別々・getClusterExpansionZoom） |
 | symbol を面・線に置く | 点だけ | 6 | **済**（面＝到達不能極・線＝各部分の最初の頂点＝MapLibre の点置き） |
-| 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | 未 |
+| 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | **済**（上書きの台帳・visibility は結合で外す・他は建て直し・重ね順は固定＝文書） |
 | vector source を addLayer で（MVT の fill-extrusion ほか） | 不可 | 8 | 未（別計画） |
 
 ## 4. 文書に書く違い（意図した違い）
@@ -58,6 +58,7 @@
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
 - 線幅・点の半径の上限（表の u8：線 約 32px・点 約 64px）。
 - 破線は先頭の [線, 間] の対だけ（3 要素以上の模様は近似）。
+- 基図の層の重ね順は固定（moveLayer は効かない）・利用者の層は基図の層の間に差し込めない（beforeId に基図の層 id を渡してもよい＝描画の段で決まる）。
 - 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 
 ## 5. 不整合の台帳（前もって把握する物）
@@ -108,5 +109,5 @@
 - [x] **段 4b**（2026-09-26）：破線と円の縁＝表の第 4 語（線＝[線, 間] 1/8px u16×2・点＝縁の色）・点では線幅の欄が縁の幅・flags bit1＝塗り無し（中空の円）・縁は半径の外側・GL2（programs.js）と WGSL（gintwgsl.js）の両方で「0 なら従来どおり」。門＝core mltables.mjs・爪車 3 場面（破線・縁・中空）を両土台で。**爪車の既知は 0 件**。GPU メモリの実測は段 7 以降でまとめて。
 - [x] **段 5**（2026-09-26）：式の検査（KNOWN_OPS＝build の case と突き合わせる検定つき・unknownOps・公開の口で投げる・基図は数えて飛ばす）・旧関数の default（R19）・種類ごとの zoom（記号の出しズーム・集約の層 id と範囲・押し出しと canvas2D の線の描き直し・raster の表示窓）・canvas2D の線/模様の問い合わせ。門＝爪車 node 3 場面・browser 4 場面の行列。
 - [x] **段 6**（2026-09-26）：読めない形式＝相対 URL・TileJSON の raster・{quadkey}・raster-dem custom・複数 sprite・ML の source の既定値・feature の id（promoteId/Feature.id/並び順）・clusterProperties/cluster_id/getClusterExpansionZoom・記号を面と線に。node の既知 0・browser の既知は段 4b の 2 件だけ。
-- [ ] 段 7：基図の層を触れるように
+- [x] **段 7**（2026-09-26）：基図の層を実行時に＝上書きの台帳 baseOverrides（paint/layout/filter/出しズーム/削除）→有効な style を建て直し・visibility は baseVis＝結合の添字とラベル（worker のラベルに層の添字 li）で外すだけ・テーマを越えて残し setStyle で捨てる・getLayer/get*Property/getFilter/getStyle も基図の層を返す。門＝爪車 style 群 5 場面（外来 style.json の基図）。**検定の穴**：地域の基図（日本の gsi 等）の上での上書きとテーマ切り替えを越えて残ることは門が無い（仕組みは同じ withBaseOverrides・日本のデータが要る頁は japan 側＝次に足す）。2026-09-26 に dev server（5174）で手で確認済み＝gsi の water を赤→c=dark へ切り替えても赤のまま・road の visibility none。
 - [ ] 段 8：エンジン級（着手前に別計画）

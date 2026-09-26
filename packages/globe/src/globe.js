@@ -314,7 +314,24 @@ if (typeof opts.theme !== "object" && themeName && !MAP_THEMES[themeName] && nor
 if (typeof opts.theme !== "object" && !MAP_THEMES[themeName]) console.warn(`[theme] unknown theme "${themeName}" = starting as mono (valid: ${Object.keys(MAP_THEMES).join(", ")})`);
 let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme }   // カスタム＝mono を土台に部分上書き
 	: (MAP_THEMES[themeName] || MAP_THEMES.mono);
-let style = EXT ? extBaseStyle(EXT) : theme.style;   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
+// 基図の層への実行時の上書き（MapLibre 互換の段 7）＝id → { paint, layout, filter, minzoom, maxzoom, removed }。有効な基図 style＝元の style＋上書き。
+// 出し入れ（visibility）は別の台帳 baseVis＝結合の時に層の添字で外す安い経路（組み直さない）。テーマを切り替えても上書きは残し、setStyle では捨てる（MapLibre と同じ）
+const baseOverrides = new Map(), baseVis = new Map();
+const withBaseOverrides = st => {
+	if (!baseOverrides.size) return st;
+	const layers = [];
+	for (const L of st.layers) {
+		const o = baseOverrides.get(L.id);
+		if (!o) { layers.push(L); continue; }
+		if (o.removed) continue;
+		const L2 = { ...L };
+		for (const k of ["paint", "layout"]) if (o[k]) { L2[k] = { ...(L[k] || {}), ...o[k] }; for (const [p, v] of Object.entries(o[k])) if (v === undefined) delete L2[k][p]; }   // undefined＝その性質の既定へ（MapLibre）
+		for (const k of ["filter", "minzoom", "maxzoom"]) if (k in o) { if (o[k] == null) delete L2[k]; else L2[k] = o[k]; }
+		layers.push(L2);
+	}
+	return { ...st, layers };
+};
+let style = withBaseOverrides(EXT ? extBaseStyle(EXT) : theme.style);   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
@@ -1090,7 +1107,7 @@ if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
 	// innerHTML の直前で消毒する（docs/geopbf §11 の作法・?pm=<攻撃者URL> を踏んでも script が走らない）。
 	BASE_SOURCE.attrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
 	attrZone = null;   // 圏を無効化＝既に "region" に居ても次フレームで出典が差し替わる
-	style = withPM(theme.style);
+	style = withBaseOverrides(withPM(theme.style));
 	setPipelineStyle(style);   // 生成層込みで再ビルド
 	needsDraw = true;
 	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "global"}\n     layer -> role: ${pmRoles(info).join(" ") || "no metadata"} (ground/label are not drawn or decoded)`);
@@ -1173,7 +1190,7 @@ const saveView = () => { saveCam(); if (ownMapEl || opts.urlHash) try { history.
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	queueMicrotask(() => document.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
-	themeName = name; theme = MAP_THEMES[name]; style = withPM(theme.style);   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
+	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withPM(theme.style));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
 	atmo = theme.atmo; bldColor = theme.bldColor;
@@ -1510,6 +1527,9 @@ if (bootView?.contour && !("terrain" in fixedLayers)) layerState.terrain = true;
 Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも破れない（埋め込み主の意図が勝つ）
 let styleSig = JSON.stringify(layerState);
 let lastTileOrder = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
+// 結合で外す層の添字＝テーマの点火ゲート（チップ）∪ 基図の層の出し入れ（段 7・baseVis）
+const baseHiddenIdx = () => { const h = new Set(); if (baseVis.size) style.layers.forEach((L, i) => { if (baseVis.get(L.id) === "none") h.add(i); }); return h; };
+const hiddenAll = () => { const h = themes.hiddenLi(layerState, cam.zoom); for (const i of baseHiddenIdx()) h.add(i); return h; };
 const mkThemes = st => { const th = createThemes(st, { suppressAdmin: !!opts.hideAdminBoundary }); if (st.ext) { th.hiddenLi = () => new Set(); th.filterLabels = all => all; } return th; };   // 外来 style＝チップの点火ゲートと注記の分類（地理院の層 id・注記コード）を当てない＝style が描くと言った物を全部
 let themes = mkThemes(style);   // 分類（allowlist）は themes.js の純関数。
 dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点火ゲートの検定窓（t-palette-live＝添字ズレの回帰封じ）hideAdminBoundary＝基図の行政界(赤線)を常に隠す（派生アプリが自前境界を描く時）。⚠層添字（LI_*）は style 依存＝テーマ生き替え(switchTheme)で必ず作り直す（旧添字の hidden が「土台を隠し点火層を出す」実バグ 2026-09-09）
@@ -1575,7 +1595,7 @@ function swapScene(order) {
 			const zHist = {}; for (const o of order) zHist[o.z] = (zHist[o.z] || 0) + 1;
 			slog(`main merge request: +${[...cur].filter(k => !prev.has(k)).length} -${[...prev].filter(k => !cur.has(k)).length} / ${cur.size} tiles`, "z dist", zHist);
 		}
-		requestMerge("main", order, sceneOrigin, themes.hiddenLi(layerState, cam.zoom), sig);
+		requestMerge("main", order, sceneOrigin, hiddenAll(), sig);
 	})) return;   // 結合は scene worker（非同期）→ render worker へ直行
 	rebuildLabels(order);
 	zoomAtBuild = cam.zoom;   // readySig は ack（onMerged）で確定
@@ -1651,7 +1671,8 @@ function rebuildLabels(order) {
 	}
 	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝packages/jp/src/poi.js injectLabels
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
-	const merged = mergeChome(allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
+	const bh = baseHiddenIdx();   // 隠した基図の層のラベル（worker のラベルは層の添字 li を持つ・段 7）
+	const merged = mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
 	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	lastLabels = filtered.map(L => {
@@ -1684,7 +1705,7 @@ function swapBase(coarseOrder) {
 	const sig = coarseOrder.map(o => o.key).join("|") + "#" + styleSig;
 	if (sig === baseSig || !coarseOrder.length) return;
 	requestWithAck("base", sig, () =>
-		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], themes.hiddenLi(layerState, cam.zoom), sig));   // 下地も scene worker で結合。baseSig は ack で確定
+		requestMerge("base", coarseOrder, [cam.center[0], cam.center[1]], hiddenAll(), sig));   // 下地も scene worker で結合。baseSig は ack で確定
 }
 
 // 地形チップの GL 側副作用：等高線(真俯瞰の茶線)の表示切替と、OFF時の地形読込インジケータ消灯。
@@ -3482,7 +3503,7 @@ map.isSourceLoaded = id => mlSources.has(id);
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
-map.getLayer = id => { const v = mlLayers.get(id); return v ? echoLayer(v) : undefined; };
+map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); const B = baseLayerOf(id); return B ? echoBase(B) : undefined; };   // 基図の層も（段 7）
 // beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
 const addLayerAt = async (layer, beforeId, dz) => {
 	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
@@ -3500,13 +3521,15 @@ const addLayerAt = async (layer, beforeId, dz) => {
 };
 map.addLayer = (layer, beforeId) => addLayerAt(layer, beforeId, PUBLIC_DZ);
 map.removeLayer = id => {
-	const v = mlLayers.get(id); if (!v) return map;
+	const v = mlLayers.get(id);
+	if (!v) { if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); } return map; }   // 基図の層を外す（段 7）
 	mlLayers.delete(id);
 	unmountLayer(v);
 	return map;
 };
 map.moveLayer = (id, beforeId) => {
-	const v = mlLayers.get(id); if (!v) return map;
+	const v = mlLayers.get(id);
+	if (!v) { if (baseLayerOf(id)) console.info(`[moveLayer] "${id}" is a basemap layer — basemap layer order is fixed (draw stages: basemap → images → your layers → labels)`); return map; }
 	mlLayers.delete(id);
 	if (beforeId != null && mlLayers.has(beforeId)) {
 		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
@@ -3518,8 +3541,9 @@ map.moveLayer = (id, beforeId) => {
 // 性質の変更＝登録簿の層を書き換えて描き直す（gint は fid 表の書き換えだけ＝安い・画像の不透明度は map.raster.set）
 const relayer = v => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : v.kind === "cluster" ? rebuildCluster(srcId(v.layer)) : mountLayer(v)) : null;
 map.setPaintProperty = (id, name, value) => {
-	const v = mlLayers.get(id); if (!v) throw new Error(`setPaintProperty: layer "${id}" not found`);
+	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, paint: { [name]: value } }, "setPaintProperty");
+	if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
 	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
 	const k = kindOf(drawLayerOf(v), v.src);   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
@@ -3527,25 +3551,37 @@ map.setPaintProperty = (id, name, value) => {
 	relayer(v); return map;
 };
 const echoProp = (v, x) => v && x !== undefined ? rescaleZoomExpr(x, v.dz, PUBLIC_DZ) : x;   // 層の目盛り→呼び手の目盛り（set したものが get で戻る）
-map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); return echoProp(v, v?.layer.paint?.[name]); };
+map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id), x = B?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setLayoutProperty = (id, name, value) => {
-	const v = mlLayers.get(id); if (!v) throw new Error(`setLayoutProperty: layer "${id}" not found`);
+	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, layout: { [name]: value } }, "setLayoutProperty");
+	if (!v) {
+		const B = baseLayerOf(id); if (!B) throw new Error(`setLayoutProperty: layer "${id}" not found`);
+		if (name === "visibility") {   // 基図の層の出し入れ（段 7）＝結合で外すだけ。元の style で隠されていた層を出す時だけ組み直す
+			const now = value === "none" ? "none" : "visible";
+			if (now === "visible" && B.layout?.visibility === "none") { baseVis.delete(id); overrideBase(id, o => { o.layout = { ...(o.layout || {}), visibility: "visible" }; }); }
+			else { if (now === "none") baseVis.set(id, "none"); else baseVis.delete(id); remergeBase(); }
+			return map;
+		}
+		overrideBase(id, o => { o.layout = { ...(o.layout || {}), [name]: value === undefined ? undefined : normalizeMLLayer({ layout: { [name]: value } }, PUBLIC_DZ).layout[name] }; });
+		return map;
+	}
 	const was = mlVisible(v);
 	if (value === undefined) delete v.layer.layout[name]; else v.layer.layout[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);
 	const now = mlVisible(v);
 	if (name === "visibility") { if (was && !now) unmountLayer(v); else if (!was && now) (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)); return map; }
 	relayer(v); return map;
 };
-map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); return echoProp(v, v?.layer.layout?.[name]); };
+map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); const B = baseLayerOf(id); if (!B) return undefined; if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setFilter = (id, filter) => {
-	const v = mlLayers.get(id); if (!v) throw new Error(`setFilter: layer "${id}" not found`);
+	const v = mlLayers.get(id);
 	if (filter != null) assertMLLayer({ id, filter }, "setFilter");
+	if (!v) { if (!baseLayerOf(id)) throw new Error(`setFilter: layer "${id}" not found`); overrideBase(id, o => { o.filter = filter == null ? null : normalizeMLLayer({ filter }, PUBLIC_DZ).filter; }); return map; }   // 基図の層（段 7）
 	if (filter == null) delete v.layer.filter; else v.layer.filter = rescaleZoomExpr(filter, PUBLIC_DZ, v.dz);
 	relayer(v); return map;
 };
-map.getFilter = id => { const v = mlLayers.get(id); return echoProp(v, v?.layer.filter); };
-map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) return map; v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
+map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); return B?.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
@@ -3578,7 +3614,7 @@ map.getStyle = () => {
 		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
 		sources: { [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
-		layers: [...(style.layers || []).map(L => baseL(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid })), ...[...mlLayers.values()].map(v => ({ ...echoLayer(v, true), source: srcId(v.layer) }))],
+		layers: [...(style.layers || []).map(L => baseL(echoBase(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }))), ...[...mlLayers.values()].map(v => ({ ...echoLayer(v, true), source: srcId(v.layer) }))],
 	};
 };
 // 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
@@ -3621,11 +3657,31 @@ const unmountExtExtras = () => {
 	extExtras.raster = []; extExtras.layers = []; extExtras.sources = []; extExtras.offs = [];
 };
 if (EXT) map.on("load", () => { mountExtExtras(EXT); });
+// ── 基図の層を実行時に触る（MapLibre 互換の段 7）──────────────────────────
+// 色・filter・出しズーム・層の削除＝有効な style を組み直して worker へ（基図タイルを新しい style で建て直す＝テーマの生き替えと同じ重さ）。
+// 出し入れ（visibility）は結合で外すだけ（baseVis・安い）。値は MapLibre の入口と同じく旧書式を読み替え、公開の口の目盛りからエンジンの目盛りへ。
+const baseRawStyle = () => EXT ? extBaseStyle(EXT) : withPM(theme.style);
+const baseLayerOf = id => mlLayers.has(id) ? null : style.layers.find(L => L.id === id) ?? null;   // 利用者の層と同じ id なら利用者の層が勝つ
+function restyleBase() {
+	style = withBaseOverrides(baseRawStyle());
+	bg = style.layers.find(L => L.type === "background");
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, origin: originOfLayer(bg) }) ?? "#fff") : land;
+	renderer.set("view", { land });
+	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: seaLi(style, "building") }); }   // 層の添字（削除で動く）
+	themes = mkThemes(style);
+	setPipelineStyle(style);
+	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();
+}
+const remergeBase = () => { readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove(); };   // 出し入れ＝結合し直すだけ
+const overrideBase = (id, fn) => { const o = baseOverrides.get(id) || {}; fn(o); baseOverrides.set(id, o); restyleBase(); };
+const baseValueIn = (key, value) => value === undefined ? undefined : normalizeMLLayer({ paint: { [key]: value } }, PUBLIC_DZ).paint[key];   // 旧書式の読み替え＋目盛り（公開の口→エンジン）
+const echoBase = L => ({ ...L, ...(baseVis.get(L.id) === "none" ? { layout: { ...(L.layout || {}), visibility: "none" } } : {}) });
 // 基図の style を生き替える（外来 style で起動した地図だけ）。spec＝URL か style の object。解決は新しい style の基図が描き始めた後
 map.setStyle = async spec => {
 	if (!EXT) throw new Error("setStyle: this map uses the regional basemap — boot with opts.style (or ?style=) to switch MapLibre styles");
 	const nx = await loadExtStyle(spec);
 	unmountExtExtras();
+	baseOverrides.clear(); baseVis.clear();   // 新しい style＝基図の層の上書きは捨てる（MapLibre の setStyle と同じ）
 	EXT = nx;
 	Object.assign(BASE_SOURCE, extSourceFields(nx));
 	if (BASE_SOURCE.kind === "pmtiles") {
@@ -3717,7 +3773,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (queryCache.size > 32) queryCache.clear();
 	const baseIds = want && new Set((style.layers || []).map(L => L.id));
 	if (want && ![...want].some(id => baseIds.has(id))) return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : out;   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
-	const base = await queryTiles({ style, hidden: themes.hiddenLi(layerState, cam.zoom), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
+	const base = await queryTiles({ style, hidden: hiddenAll(), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
 		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles() }).catch(err => { console.warn("[query] basemap", err); return []; });
 	return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))).concat(base) : out.concat(base);
 };
