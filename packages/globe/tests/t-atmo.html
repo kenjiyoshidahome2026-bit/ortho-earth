@@ -56,7 +56,7 @@ try {
 	ra.set("fx", { atmosphere: true });
 	const onE = await shot(ra, ca, camE), onW = await shot(ra, ca, camW);
 	const sE = sky(onE, hE, [3, 6, 9, 12]), sW = sky(onW, hW, [3, 6, 9, 12]);
-	ok(`散乱＝空は東（朝）だけ明るく西（夜）は宇宙（skyE=${sE.toFixed(1)} skyW=${sW.toFixed(1)}）`, sE > space + 8 && sW < space + 8);
+	ok(`散乱＝空は東（朝）が明るく西（夜）は薄明の残光だけ（skyE=${sE.toFixed(1)} skyW=${sW.toFixed(1)}）`, sE > space + 8 && sW < sE * 0.3);   // k=4 で殻が 400km まで＝西にも高層の残光（実機 36）＝東の 3 割未満
 	const gOff = lum(offE, hE.x, hE.y + 30), gOn = lum(onE, hE.x, hE.y + 30);
 	ok(`地面の色は保たれる（off=${gOff.toFixed(1)} on=${gOn.toFixed(1)}）`, Math.abs(gOn - gOff) < 40 && gOn > 60);
 	await new Promise(res => setTimeout(res, 50));
