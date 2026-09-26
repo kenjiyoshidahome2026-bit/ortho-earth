@@ -10,6 +10,7 @@ import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "../../ortho-core
 import { decodeDEM } from "../../ortho-core/src/dem-src.js";
 import { expandTemplate } from "../../ortho-core/src/raster-src.js";
 import { symbolItems, poleOf } from "../src/gadgets/symbols-core.js";
+import { curveZoomKey, hitExtrusion } from "../src/extrude-ml.js";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const KNOWN = JSON.parse(fs.readFileSync(path.join(DIR, "mlcompat-known.json"), "utf8")).node;
@@ -17,6 +18,15 @@ const deq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fc = fs => ({ type: "FeatureCollection", features: fs });
 const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
 const MLc = props => ({ zoom: 10, props, geom: "Polygon", vars: {}, origin: "ml" }), NAc = props => ({ zoom: 10, props, geom: "Polygon", vars: {} });
+const evZ = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: "ml" });   // 押し出しの鍵の入力（globe.js の evalZoomIn と同じ）
+// 押し出しの当たりの試しの視点＝南から北を 40° で見下ろす平行投影（経緯度を m と見なす・画面 y は下向き）。roof＝画面の点の光線が高さ hM を通る所
+const obliqueEnv = (dep = 40 * Math.PI / 180) => {
+	const s = Math.sin(dep), c = Math.cos(dep);
+	return {
+		vtx: (lon, lat, hM) => [lon, -(lat * s + hM * c), 1000 + lat * c - hM * s],
+		roof: (x, y, hM) => { const lat = (-y - hM * c) / s; return { ll: [x, lat], w: 1000 + lat * c - hM * s }; },
+	};
+};
 
 const SCENES = {
 	// ── 記号：MapLibre は面にも線にも点置きのラベルを置く（面＝到達不能極・線＝頂点）──
@@ -103,6 +113,55 @@ const SCENES = {
 	"style-skips-unknown-op": () => {
 		const r = mlstyle.splitMapLibreStyle({ version: 8, sources: { v: { type: "vector", tiles: ["x/{z}/{x}/{y}"] } }, layers: [{ id: "a", type: "fill", source: "v", "source-layer": "w", paint: { "fill-color": ["frobnicate", 1] } }, { id: "b", type: "fill", source: "v", "source-layer": "w" }] });
 		return [r.base.map(L => L.id).join() === "b" && /frobnicate/.test(r.skipped.find(k => k.id === "a")?.why || ""), JSON.stringify(r.skipped)];
+	},
+	// ── 押し出しの描き直しの鍵（台帳 R22）：止まりの外は値が一定＝鍵も一定（MapLibre の値は変わらない＝上げ直す理由が無い）──
+	"extrude-zkey-interp-outside": () => {
+		const L = { paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, ["get", "h"]] } }, k = z => curveZoomKey(L, z, evZ);
+		return [k(10) === k(14.9) && k(10).endsWith(":lo") && k(16) === k(19.3) && k(17).endsWith(":hi"), `${k(10)} ${k(14.9)} ${k(16)} ${k(19.3)}`];
+	},
+	"extrude-zkey-interp-inside": () => {   // 中は 0.25 刻み（段 5 の規則のまま）
+		const L = { paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 80] } }, k = z => curveZoomKey(L, z, evZ);
+		return [k(15.3) !== k(15.6) && k(15.5) === k(15.55) && k(15.3) !== k(14), `${k(15.3)} ${k(15.6)} ${k(15.55)}`];
+	},
+	"extrude-zkey-step": () => {
+		const L = { paint: { "fill-extrusion-height": ["step", ["zoom"], 0, 15, 20, 17, 80] } }, k = z => curveZoomKey(L, z, evZ);
+		return [k(12) === k(14.9) && k(15) === k(16.9) && k(15) !== k(14.9) && k(17) === k(21) && k(17) !== k(16.9), `${k(12)} ${k(15)} ${k(17)}`];
+	},
+	"extrude-zkey-normalized-input": () => {   // 公開の目盛りの差（dz）を正規化した ["-",["zoom"],1] の入力でも曲線を見る（MapLibre の 15〜16＝エンジンの 16〜17）
+		const L = mlstyle.normalizeMLLayer({ id: "x", type: "fill-extrusion", source: "s", paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 80] } }, 1), k = z => curveZoomKey(L, z, evZ);
+		return [k(14) === k(16) && k(16).endsWith(":lo") && k(17) === k(20) && k(17).endsWith(":hi") && k(16.3) !== k(16.6), `${JSON.stringify(L.paint["fill-extrusion-height"][2])} ${k(16)} ${k(17)}`];
+	},
+	"extrude-zkey-nested-fallback": () => {   // ["zoom"] が一番外の曲線でない所にある＝0.25 刻み（今の規則）
+		const L = { paint: { "fill-extrusion-height": ["*", ["get", "h"], ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 1]] } }, k = z => curveZoomKey(L, z, evZ);
+		return [k(20) !== k(20.5) && k(10) !== k(10.5), `${k(20)} ${k(20.5)}`];
+	},
+	"extrude-zkey-no-zoom": () => { const L = { filter: ["has", "h"], paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#f00" } }; return [curveZoomKey(L, 10, evZ) === "" && curveZoomKey(L, 17, evZ) === "", "no zoom"]; },
+	"extrude-zkey-filter-zoom": () => { const L = { filter: [">=", ["zoom"], 15], paint: { "fill-extrusion-height": 10 } }, k = z => curveZoomKey(L, z, evZ); return [k(10) !== k(10.5), `${k(10)} ${k(10.5)}`]; },   // filter の zoom は曲線でない＝今の規則
+	// ── 押し出しの当たりは立体（台帳 R23）：屋根と壁を投影して当てる（MapLibre の fill-extrusion）。視点＝南から北を見下ろす平行投影（1 度＝1 m と見なす）──
+	"extrude-hit-roof-not-footprint": () => {
+		const env = obliqueEnv(), sq = [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]];
+		const a = hitExtrusion([sq], 0, 100, { pt: env.vtx(0, 0, 100) }, env), b = hitExtrusion([sq], 0, 100, { pt: env.vtx(0, -10, 50) }, env), c = hitExtrusion([sq], 0, 100, { pt: env.vtx(0, 0, 160) }, env);
+		return [a != null && b != null && c == null, `roof=${a} wall=${b} above=${c}`];   // 足跡だけの当て方＝屋根の点は地面では足跡の外（北へ 84m）＝外れる
+	},
+	"extrude-hit-floating-base": () => {   // base より下（足元）は当たらない・浮いた箱の壁は当たる
+		const env = obliqueEnv(), sq = [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]];
+		const under = hitExtrusion([sq], 50, 80, { pt: env.vtx(0, -10, 20) }, env), wall = hitExtrusion([sq], 50, 80, { pt: env.vtx(0, -10, 65) }, env);
+		return [under == null && wall != null, `under=${under} wall=${wall}`];
+	},
+	"extrude-hit-courtyard": () => {   // 穴（中庭）の屋根は当たらない・縁の屋根は当たる
+		const env = obliqueEnv(), ring = [[[-30, -30], [30, -30], [30, 30], [-30, 30], [-30, -30]], [[-10, -10], [-10, 10], [10, 10], [10, -10], [-10, -10]]];
+		const p = env.vtx(0, 0, 20), hole = hitExtrusion([ring], 0, 20, { pt: p }, env), rim = hitExtrusion([ring], 0, 20, { pt: env.vtx(20, 20, 20) }, env);
+		return [rim != null && (hole == null || hole > p[2] + 1), `hole=${hole} roofPlane=${p[2]} rim=${rim}`];   // 穴を覗く光線は奥の内壁に当たり得る（奥行きは屋根の面より遠い）
+	},
+	"extrude-hit-depth-order": () => {   // 手前の低い箱の屋根と奥の高い箱の南の壁を同じ光線が通る＝手前の方が近い
+		const env = obliqueEnv(), near = [[[-10, -70], [10, -70], [10, -50], [-10, -50], [-10, -70]]], far = [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]];
+		const p = env.vtx(0, -10, 5), dn = hitExtrusion([near], 0, 60, { pt: p }, env), df = hitExtrusion([far], 0, 120, { pt: p }, env);
+		return [dn != null && df != null && dn < df, `near=${dn} far=${df}`];
+	},
+	"extrude-hit-box": () => {
+		const env = obliqueEnv(), sq = [[[-10, -10], [10, -10], [10, 10], [-10, 10], [-10, -10]]], r = env.vtx(0, 0, 100);
+		const inBox = hitExtrusion([sq], 0, 100, { box: [r[0] - 2, r[1] - 2, r[0] + 2, r[1] + 2] }, env), off = hitExtrusion([sq], 0, 100, { box: [r[0] + 50, r[1] - 300, r[0] + 60, r[1] - 290] }, env);
+		return [inBox != null && off == null, `in=${inBox} off=${off}`];
 	},
 	// ── ML の層の入口は 1 本（normalizeMLLayer・二度通しても同じ＝台帳 R4）──
 	"normalize-idempotent": () => {

@@ -10,19 +10,19 @@
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, evalExpr } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
+import { hitExtrusion } from "../extrude-ml.js";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
 
 const R2D = 180 / Math.PI;
 const tileBbox = (z, x, y) => { const n = 2 ** z, lat = v => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 const hits = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: "ml" });
 const inZoom = (L, z) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
-const pip = (x, y, ring) => { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const [xi, yi] = ring[i], [xj, yj] = ring[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) c = !c; } return c; };
 const meshBytes = d => d.pos.byteLength + d.nrm.byteLength + d.idx.byteLength + d.uv.byteLength + d.col.byteLength;
 
 // desc（source の記述子・globe が作る）＝{ tileUrl:(z,x,y)=>URL|null, pmtiles: URL|null, minzoom, maxzoom, bounds:[w,s,e,n]|null, coverage:[w,s,e,n]|null, promoteId, tag（同じ source かの印） }
-// 呼び手の口：size()＝{ w, h }（device px）・projectorH()＝(lon, lat, 高さ m)→[x, y, front]（CSS px・地形の持ち上げ込み）・unprojectAt(x, y, 高さ m)→[lon, lat]|null・
-//             distanceOf(lon, lat, 高さ m)→カメラからの距離（近い順に並べる）・isFlying()
-export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, projectorH, unprojectAt, distanceOf, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
+// 呼び手の口：size()＝{ w, h }（device px）・hitEnv()＝今の視点の当たりの口（extrude-ml.js の env＝vtx/roof・地形の持ち上げ込み・奥行き＝clip の w）・
+//             unprojectAt(x, y, 高さ m)→[lon, lat]|null（候補の区間）・isFlying()
+export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
 	const MESH_BUDGET = (lowMem ? 96 : 256) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3;
 	const sources = new Map();   // sid → { sid, desc, sig, tiles: Map<key, T>, fetching }   T＝{ state: loading|ready|empty|failed, bytes, used, ac, tries, failedAt }
@@ -232,27 +232,6 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		sources.delete(sid);
 	}
-	// 屋根（高さ h の外周・穴を除く）と壁（base→h の四角）を画面へ投影して当てる。box＝箱の問い合わせ（投影した屋根の頂点が箱に入るか・箱の角が屋根に入るか）
-	function hitTest(c, proj, box, p) {
-		for (const rings of c.polys) {
-			const roof = rings.map(ring => ring.map(([lon, lat]) => proj(lon, lat, c.h)));
-			if (roof[0].some(q => q[2] < 0)) continue;
-			if (box) {
-				const [a, b] = box, x0 = Math.min(a[0], b[0]), x1 = Math.max(a[0], b[0]), y0 = Math.min(a[1], b[1]), y1 = Math.max(a[1], b[1]);
-				if (roof[0].some(([x, y]) => x >= x0 && x <= x1 && y >= y0 && y <= y1)) return true;
-				if ([[x0, y0], [x1, y0], [x1, y1], [x0, y1]].some(([x, y]) => pip(x, y, roof[0]))) return true;
-				continue;
-			}
-			if (pip(p[0], p[1], roof[0]) && !roof.slice(1).some(r => pip(p[0], p[1], r))) return true;
-			for (const ring of rings) for (let i = 0; i + 1 < ring.length; i++) {
-				const [a0, a1] = ring[i], [b0, b1] = ring[i + 1];
-				const q = [proj(a0, a1, c.base), proj(b0, b1, c.base), proj(b0, b1, c.h), proj(a0, a1, c.h)];
-				if (!q.some(v => v[2] < 0) && pip(p[0], p[1], q)) return true;
-			}
-		}
-		return false;
-	}
-
 	const ctl = {
 		// 層を足す／置き換える（layer＝正規化済み＝エンジンの目盛り・desc＝source の記述子）。同じ source 名で中身が違えば取り直す
 		set(id, layer, sid, desc) {
@@ -303,10 +282,11 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 			}
 			return true;
 		},
-		// 当たり：geometry＝[x, y]（CSS px）か [[x0,y0],[x1,y1]]。take(層 id)＝問い合わせの layers。戻り＝地物（近い順）
+		// 当たり：geometry＝[x, y]（CSS px）か [[x0,y0],[x1,y1]]。take(層 id)＝問い合わせの layers。戻り＝[{ d: 奥行き, f: 地物 }]（近い順）＝問い合わせが geojson の押し出しと一つの列に並べる
 		async query(geometry, take = () => true) {
 			const box = Array.isArray(geometry?.[0]), pts = box ? [geometry[0], [geometry[1][0], geometry[0][1]], geometry[1], [geometry[0][0], geometry[1][1]]] : [geometry];
-			const proj = projectorH(), out = [];
+			const env = hitEnv(), out = [];
+			const q = box ? { box: [Math.min(geometry[0][0], geometry[1][0]), Math.min(geometry[0][1], geometry[1][1]), Math.max(geometry[0][0], geometry[1][0]), Math.max(geometry[0][1], geometry[1][1])] } : { pt: geometry };
 			for (const [id, s] of layers) {
 				if (!s.on || !inZoom(s.layer, cam.zoom) || !take(id)) continue;
 				const shown = [...s.tiles].filter(([, lt]) => lt.on && lt.bytes);
@@ -321,16 +301,16 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 				for (const [k] of shown) { const { w: wk, i } = workerOf(`${s.sid}|${k}`); if (!byW.has(i)) byW.set(i, { wk, keys: [] }); byW.get(i).keys.push(k); }
 				const cands = (await Promise.all([...byW.values()].map(({ wk, keys }) => rpc(wk, { kind: "query", lid: id, keys, bbox: [w, so, e, no] }).then(r => r.hits)))).flat();
 				for (const c of cands) {
-					if (!hitTest(c, proj, box ? geometry : null, pts[0])) continue;
-					const r0 = c.polys[0][0], cx = r0.reduce((a, q) => a + q[0], 0) / r0.length, cy = r0.reduce((a, q) => a + q[1], 0) / r0.length;
-					out.push({ d: distanceOf ? distanceOf(cx, cy, (c.h + c.base) / 2) : 0, f: {
+					const d = hitExtrusion(c.polys, c.base, c.h, q, env);   // 屋根（光線を屋根の高さで受ける）と壁（四角を投影）・d＝当たった所の奥行き
+					if (d == null) continue;
+					out.push({ d, f: {
 						type: "Feature", ...(c.id != null ? { id: c.id } : {}), properties: c.props, state: c.id != null ? { ...(fstate.get(s.sid)?.get(fsKey(s.layer["source-layer"], c.id))?.state || {}) } : {},
 						geometry: c.polys.length === 1 ? { type: "Polygon", coordinates: c.polys[0] } : { type: "MultiPolygon", coordinates: c.polys },
 						layer: { id, type: "fill-extrusion" }, source: s.sid, sourceLayer: s.layer["source-layer"],
 					} });
 				}
 			}
-			return out.sort((a, b) => a.d - b.d).map(o => o.f);
+			return out.sort((a, b) => a.d - b.d);
 		},
 		stats() {
 			const o = {};
