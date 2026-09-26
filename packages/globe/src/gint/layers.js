@@ -168,7 +168,7 @@ dbgHost.__paintProps = (fid) => userGint?.pbf?.getFeature(fid)?.properties;
 const DRAPE_MAX_EDGES = 4000000;   // 地形沿い線化の辺数上限。moj一区は数十万〜百万級＝通す。全国級(admin_all)の暴走だけ止める安全弁
 // リフト＝地形からわずかに浮かせる高さ(m)。0だと「頂点間の直線の辺」が「頂点間で膨らむ地形面」の下に潜り、
 // チルト時に深度で地形に負けて消える（真俯瞰は地形メッシュ無効で0でも見えていた）。数mで膨らみを越えて安定。
-const DRAPE_LIFT_M = 2;
+const DRAPE_LIFT_M = 3.2;   // 実メートル。旧＝2 に建物の高さ係数 1.6 が黙って掛かり実効 3.2m だった＝係数を 1.0 にした 2026-09-27 に実効値を明示して絵を据え置き（2m へ戻すかは別途裁定）
 async function standupGint(liftM = 0, { auto = false } = {}) {
 	if (liftM == null) { renderer.set("gintBld", null); drapedOn = false; requestDraw(); if (!auto) console.log("[standup] cleared"); return; }
 	const feats = userGint?.pbf?.geojson?.features;
