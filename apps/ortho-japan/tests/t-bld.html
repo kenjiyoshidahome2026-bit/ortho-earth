@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- 実描画の検分：基図の建物（bvmap LOD1 押し出し）が z≥14 で立っているか。語彙が style の申告へ
-     移った後も立ち続けることを見る門（2026-09-17）。判定はページ内・結果は<title>。
+     移った後も立ち続けることを見る門（2026-09-17）。層 "building-extrusion"（自動の建物の出し入れ・2026-09-27）も同じ絵で見る。判定はページ内・結果は<title>。
      ⚠ verify:ui（虚時間）ではなく **verify:webgpu（実時間）** 側に載せる：描画は render worker の
      OffscreenCanvas＝main からは読めず、絵を取るには shot の snapshot 往復が要る。この往復は
      虚時間では返らない（composite timeout を実測）＝t-webgpu 一族と同じ理由。 -->
@@ -44,6 +44,31 @@ try {
 	ok("pixels", total > 0, `${bmp.width}x${bmp.height}`);
 	ok("buildings", bld > 200, `bld=${bld}`);
 	ok("map", ink > 200, `ink=${ink}`);
+	// ── 層 "building-extrusion"＝自動の建物の出し入れ（MapLibre の style の層と同じ口・2026-09-27）──
+	// 伏せる→絵が変わる（壁が消え、足元の塗りが出る）・戻す→元の絵に近い・色は変えられない（投げる）・removeLayer＝伏せて getStyle からも外す
+	mark("autobld");
+	const grab = async () => {
+		const b = await Promise.race([shot.composite(), new Promise((_, x) => setTimeout(() => x(new Error("composite timeout")), 30000))]);
+		const m = await createImageBitmap(b); cx.drawImage(m, 0, 0);
+		return cx.getImageData((bmp.width - W) >> 1, (bmp.height - H) >> 1, W, H).data;
+	};
+	const diffRatio = (a, b) => { let n = 0; for (let i = 0; i < a.length; i += 4) if (Math.max(Math.abs(a[i] - b[i]), Math.abs(a[i + 1] - b[i + 1]), Math.abs(a[i + 2] - b[i + 2])) > 24) n++; return n / (a.length / 4); };
+	const L0 = map.getLayer("building-extrusion");
+	ok("autoBldLayer", L0?.type === "fill-extrusion" && L0?.source === "basemap" && !!L0?.["source-layer"], JSON.stringify(L0)?.slice(0, 90));
+	map.setLayoutProperty("building-extrusion", "visibility", "none");
+	await new Promise(r => setTimeout(r, 3000));
+	const p1 = await grab();
+	const vis = map.getLayoutProperty("building-extrusion", "visibility"), inStyle = map.getStyle().layers.find(l => l.id === "building-extrusion")?.layout?.visibility;
+	map.setLayoutProperty("building-extrusion", "visibility", "visible");
+	await new Promise(r => setTimeout(r, 3000));
+	const p2 = await grab();
+	const dHide = diffRatio(px, p1), dBack = diffRatio(px, p2);
+	ok("autoBldHide", dHide > 0.03 && vis === "none" && inStyle === "none", `changed=${(dHide * 100).toFixed(1)}% get=${vis} style=${inStyle}`);
+	ok("autoBldBack", dBack < dHide / 3, `back=${(dBack * 100).toFixed(1)}% hide=${(dHide * 100).toFixed(1)}%`);
+	let threw = false; try { map.setPaintProperty("building-extrusion", "fill-extrusion-color", "#f00"); } catch { threw = true; }
+	ok("autoBldReadOnly", threw);
+	map.removeLayer("building-extrusion");
+	ok("autoBldRemove", !map.getLayer("building-extrusion") && !map.getStyle().layers.some(l => l.id === "building-extrusion"));
 	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + document.title.replace(/^… /, "@") + " " + (e && e.message || e); }
 </script>

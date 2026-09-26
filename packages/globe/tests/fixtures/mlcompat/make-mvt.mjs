@@ -127,7 +127,7 @@ H.writeInt32LE(Math.round(bb[0][0] * 1e7), 102); H.writeInt32LE(Math.round(bb[0]
 H[118] = 14; H.writeInt32LE(Math.round(C[0] * 1e7), 119); H.writeInt32LE(Math.round(C[1] * 1e7), 123);
 writeFileSync(join(HERE, "vt.pmtiles"), Buffer.concat([H, Buffer.from(dir), meta, ...ents.map(e => e.buf)]));
 
-writeFileSync(join(HERE, "vt.json"), JSON.stringify({ tilejson: "3.0.0", name: "t-mlcompat-vt", tiles: ["vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14, bounds: [bb[0][0], bb[0][1], bb[1][0], bb[1][1]], vector_layers: [{ id: "building" }] }, null, "\t") + "\n");
+writeFileSync(join(HERE, "vt.json"), JSON.stringify({ tilejson: "3.0.0", name: "t-mlcompat-vt", attribution: "t-mlcompat fixture tiles", tiles: ["vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14, bounds: [bb[0][0], bb[0][1], bb[1][0], bb[1][1]], vector_layers: [{ id: "building" }] }, null, "\t") + "\n");
 const centers = { corner: C, buildings: B.map(b => { const r = b.rings[0], lon = r.reduce((s, p) => s + p[0], 0) / r.length, lat = r.reduce((s, p) => s + p[1], 0) / r.length; return { id: b.id, name: b.name, center: [lon, lat], ...b.props }; }) };
 centers.buildings.find(b => b.name === "L").center = at(-165, -165);   // L の中心は欠けた所に落ちる＝腕の上を押す
 writeFileSync(join(HERE, "vt-buildings.json"), JSON.stringify(centers, null, "\t") + "\n");
