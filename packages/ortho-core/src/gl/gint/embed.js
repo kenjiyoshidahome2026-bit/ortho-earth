@@ -510,7 +510,8 @@ export function createGintLayer(gl, { requestDraw } = {}) {
 		return n;   // 焼いた層数（renderer の計器 gndFaces）
 	}
 	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
-	const bakeSig = () => `${bakeRev}|${s._isDrawing ? 1 : 0}${(s._staticN ?? 99) < 4 ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
+	// 運動ビットは passes.js の moving（_isDrawing || _staticN<4）と同じ 1 ビット（#58・gpu/gint.js と対）
+	const bakeSig = () => `${bakeRev}|${(s._isDrawing || (s._staticN ?? 99) < 4) ? 1 : 0}|${s._forceLowMove ? 1 : 0}${layers.map(L => L.st._forceLowMove ? 1 : 0).join("")}`;
 	// 既定層へカーソルを返す（renderworker の gintActivate で layer 無し＝WebGPU の L0h.activate と対）。
 	// 旧＝GL に無く no-op＝interactive:false の層を足すとエンジンのカーソルがその層に残った（2026-09-26・U2）
 	const activate = () => { if (act !== null) { handleLeave(actSt()); act = null; } };
