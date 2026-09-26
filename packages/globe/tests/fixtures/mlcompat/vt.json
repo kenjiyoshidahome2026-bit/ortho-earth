@@ -1,0 +1,20 @@
+{
+	"tilejson": "3.0.0",
+	"name": "t-mlcompat-vt",
+	"tiles": [
+		"vt/{z}/{x}/{y}.pbf"
+	],
+	"minzoom": 13,
+	"maxzoom": 14,
+	"bounds": [
+		139.98364334401361,
+		30.00841319342678,
+		139.99194259348639,
+		30.01564816729044
+	],
+	"vector_layers": [
+		{
+			"id": "building"
+		}
+	]
+}
