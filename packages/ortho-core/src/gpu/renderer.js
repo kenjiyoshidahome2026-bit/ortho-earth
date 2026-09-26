@@ -934,8 +934,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const mkAtlasTex = (W, H) => device.createTexture({ size: [W, H], format: "r16float", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });   // 生成時ゼロ初期化＝海
 	function writeCell(tex, cx, cy, data, cellRes) {
 		castRev++;   // 標高が変わる＝建物の足元（リフト）が変わる＝影の深度を描き直す
+		// 計器 a（perf plan §1）：f16 変換と writeTexture 発行の時間を分けて terrain.js の upload 行へ渡す（?perf=1 の時だけ）
+		const perf = self.__perfElev, t0 = perf ? performance.now() : 0;
+		const half = f32ToF16(data);
+		const t1 = perf ? performance.now() : 0;
 		device.queue.writeTexture({ texture: tex, origin: { x: cx * cellRes, y: cy * cellRes } },
-			f32ToF16(data), { bytesPerRow: cellRes * 2 }, { width: cellRes, height: cellRes });
+			half, { bytesPerRow: cellRes * 2 }, { width: cellRes, height: cellRes });
+		if (perf) self.__perfElevLast = { f16: t1 - t0, write: performance.now() - t1 };
 	}
 	function atlasMeta(a, scale) {
 		const span = a.cellSpan || 10;
@@ -1371,6 +1376,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function setScene(s, slot = "main") {
 		if (!scenes[slot]) return;   // overlay 等の未知スロットは対象外
+		const pT0 = self.__perfScene ? performance.now() : 0;   // 計器 b（?perf=1）
 		sceneRev++;   // 地面アトラス（3D の塗り）の再合成の鍵
 		// クロスフェード：main の同一原点差し替え（ロード流入中の典型）は旧シーンを FADE_MS だけ温存し
 		// 新シーンをα昇順で重ねる＝classic merge の「ポンッ」を溶かす（モバイルのパラパラ感対策）。
@@ -1409,6 +1415,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			bld = { bufs: [bPos, bSh, bAnc], bPos, bSh, bAnc, count: s.buildings.pos.length / 3 };
 		}
 		scenes[slot] = { origin: s.origin, draws, bld, fadePrev: keepPrev, fadeT0: keepPrev ? performance.now() : 0 };
+		if (pT0) {   // 計器 b（perf plan §1）：描画スレッドでのシーン適用＝全層の createBuffer＋writeBuffer の時間と量。4ms 超は引っ掛かりとして数える（mem テレメトリの hitch.scene）
+			let bytes = 0, n = 0;
+			for (const L of s.layers || []) { if (!L) continue; n++; for (const k of ["pos", "col", "idx", "P1", "P2", "half", "off"]) if (L[k]) bytes += L[k].byteLength; }
+			if (s.buildings) bytes += s.buildings.pos.byteLength + s.buildings.shade.byteLength + s.buildings.anchor.byteLength;
+			const ms = performance.now() - pT0;
+			if (ms > 4) (self.__perfHitch ||= { elev: 0, scene: 0 }).scene++;
+			console.log(`[scene] apply ${slot} ${ms.toFixed(1)}ms ${(bytes / 1024) | 0}KB layers=${n} fade=${keepPrev ? 1 : 0}`);
+		}
 	}
 
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。

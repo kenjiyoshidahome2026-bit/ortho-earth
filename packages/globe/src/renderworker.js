@@ -206,6 +206,7 @@ function finishInit(m) {
 	if (!m.noTerr) terrain = createTerrain({
 		renderer, requestDraw: () => { dirty = true; },
 		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
+		gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
 		dem: m.dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
 		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
 		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
@@ -241,7 +242,7 @@ function finishInit(m) {
 			dirty = true;
 		};
 		// renderer の能力表明＝scene worker のモードを確定させる（multi_draw か CPU merge フォールバックか）
-		m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax });
+		m.scenePort.postMessage({ type: "mode", md: renderer.md, maxDraws: renderer.mdMax, perf: perfOn });   // perf＝計器 b（scene worker の merge 行）
 	}
 	armRaf();                                            // worker 自前の描画ループ開始（rAF一元武装＋飢餓ポンプ併走）
 }
@@ -277,6 +278,8 @@ const dispatch = e => {
 			noBld = !!m.noBld;
 			drawHudOn = !!m.drawHud;
 			self.__perfElev = perfOn;   // renderer の標高パイプライン計器（[elev] 行）を点灯
+			self.__perfScene = perfOn;   // 計器 b（perf plan §1）＝renderer.setScene の [scene] apply 行
+			self.__perfHitch = { elev: 0, scene: 0 };   // 引っ掛かり（4ms 超）の累計＝mem テレメトリで main へ（perf 旗の有無に依らず器は置く）
 			// バックエンドの起動は両経路とも非同期（選んだ片方だけを dynamic import）＝その間のメッセージは initQueue へ
 			// 待避し順序ごと再投入。WebGPU（?gpu=1）は adapter/device 取得も非同期・失敗（非対応・adapter無し）は WebGL2 へ
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
@@ -740,7 +743,8 @@ function frame() {
 		const fps = nowT > memLast ? Math.round(hudFrames * 1000 / (nowT - memLast)) : 0;
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
-			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName });
+			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: self.__perfHitch || null });   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計＝ベンチ台（t-perfbench）が読む
 	}
 	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
 }
