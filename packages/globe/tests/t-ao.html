@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- 実描画の検分：AO（#46 段 3・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
      試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟。z17・チルト 60°・南から北を見る（南壁が正面・手前の地面は球の床）。
-     ①旗なし＝足元 3m の地面と離れた地面（40m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9）・離れた地面は変わらない
+     ①旗なし＝足元 1.5m の地面と離れた地面（40m）は同じ明るさ ②fx.ao＝足元 1.5m は離れた地面より暗い（比 < 0.9）・離れた地面は変わらない
      ③旗を戻す＝元どおり ④GPU の検証エラー 0 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-ao</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -41,16 +41,16 @@ try {
 		return s / 9;
 	};
 	const off = await shot();
-	const nearOff = lum(off, 0, -13), farOff = lum(off, 0, -40);   // 南壁の足元 3m と 30m 先の地面
+	const nearOff = lum(off, 0, -11.5), farOff = lum(off, 0, -40);   // 南壁の足元 1.5m と 30m 先の地面
 	ok(`旗なし＝足元と離れた地面は同じ（${nearOff.toFixed(1)} / ${farOff.toFixed(1)}）`, Math.abs(nearOff - farOff) < 2 && farOff > 150);
 	r.set("fx", { ao: true });
 	const on = await shot();
-	const nearOn = lum(on, 0, -13), farOn = lum(on, 0, -40);
+	const nearOn = lum(on, 0, -11.5), farOn = lum(on, 0, -40);
 	ok(`AO＝足元は暗い（${nearOn.toFixed(1)} < ${farOn.toFixed(1)}×0.9）`, nearOn < farOn * 0.9);
 	ok(`離れた地面は変わらない（${farOn.toFixed(1)} ≈ ${farOff.toFixed(1)}）`, Math.abs(farOn - farOff) < 6);
 	r.set("fx", { ao: false });
 	const back = await shot();
-	ok(`旗を戻すと元どおり（Δ=${Math.abs(lum(back, 0, -13) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -13) - nearOff) < 2);
+	ok(`旗を戻すと元どおり（Δ=${Math.abs(lum(back, 0, -11.5) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -11.5) - nearOff) < 2);
 	await new Promise(res => setTimeout(res, 50));
 	ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0);
 	r.dispose();
