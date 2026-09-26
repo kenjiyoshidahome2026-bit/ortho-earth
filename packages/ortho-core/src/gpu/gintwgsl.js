@@ -41,7 +41,7 @@ struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash �
 @group(0) @binding(1) var<uniform> S: Styles;
 struct GP {
 	a: vec4f,      // lineWidth(device px), widthAdd, ptRadius(device px), hidden(0/1)（点ロールでは w＝dpr）
-	b: vec4i,      // activeId, pass(0=clean/1=highlight), 0, 0
+	b: vec4i,      // activeId, pass(0=clean/1=highlight), 表の line-width の倍率（f32 のビット＝dpr・0＝1）, 0
 	color: vec4f,  // fill/mask 色（cover 用）
 };
 @group(1) @binding(0) var<uniform> P: GP;
@@ -426,7 +426,7 @@ struct LineOut {
 		if ((rec.b & 1u) == 0u) { return o; }
 		let w8 = (rec.b >> 24u) & 255u;
 		if (w8 == 0u) { return o; }
-		lw = f32(w8) * 0.125 + P.a.y;
+		lw = f32(w8) * 0.125 * select(1.0, bitcast<f32>(P.b.z), P.b.z != 0) + P.a.y;   // 表は 1/8 CSS px → device px（×dpr・GL の u_fid_wscale と対・U1）
 		let lc = rec.g;
 		if ((lc & 255u) != 0u) {
 			fidColor = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0;

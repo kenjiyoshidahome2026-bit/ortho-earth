@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gint 技術概要</title>
-<meta name="description" content="Gint：ベクタのデータを丸ごと GPU に — 共有する弧のトポロジ、64 bit の頂点符号に詰めた Visvalingam–Whyatt の順位、頂点シェーダの中の LOD、ステンシルの巻き数塗り、ミリ秒で答える識別。">
+<title>Gint — 使い方と仕組み</title>
+<meta name="description" content="Gint：ベクタのデータを丸ごと GPU に。使い方 — 層を足し、MapLibre の式で塗り、絞り込み、問いかける — と仕組み：共有する弧のトポロジ、頂点シェーダの中の LOD、巻き数の塗り、ミリ秒で答える識別。">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="stylesheet" href="doc.css">
 <style>
@@ -32,6 +32,11 @@ svg.sd{width:100%;height:100%}
 .vw-box .weight{font-family:var(--mono);font-size:0.8rem;margin-top:2px}
 .lang-switch{font-family:var(--mono);font-size:0.72rem}
 h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
+.part{font-family:var(--mono);font-size:0.72rem;color:var(--dim);text-transform:uppercase;letter-spacing:0.12em;margin:64px 0 -28px}
+.toc .toc-title + ol{margin-bottom:12px}
+h4.sig{font-family:var(--mono);color:var(--yellow);font-size:0.86rem;margin:24px 0 6px;letter-spacing:0}
+.ref ul{margin:0 0 10px 20px}
+.ref li{font-size:0.9rem;color:#cbd5e1;margin:3px 0}
 </style>
 </head>
 <body>
@@ -53,7 +58,7 @@ h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 
 <div class="page">
 
-<h1>Gint — 技術概要</h1>
+<h1>Gint — 使い方と仕組み</h1>
 <p class="lead">Geographic <strong>Int</strong>erleaved Binary Format<br>
 <span style="font-size:0.85em">
 <strong style="color:var(--accent)">int</strong>erleave（Morton のビット交互配置）·
@@ -63,21 +68,30 @@ h4{color:var(--dim);font-size:0.9rem;margin:16px 0 6px;font-weight:600}
 データを丸ごと GPU に — どのズームでも描け、問いに答えられる</p>
 
 <div class="toc">
-	<div class="toc-title">目次</div>
+	<div class="toc-title">Part I — 使う</div>
 	<ol>
 		<li><a href="#why">なぜ Gint か — タイルは描き、Gint は知る</a></li>
+		<li><a href="#start">はじめての Gint の層</a></li>
+		<li><a href="#examples">階級区分図 — 三つの例</a></li>
+		<li><a href="#expressions">式 — 約束する範囲</a></li>
+		<li><a href="#overlap">データが重なるとき</a></li>
+		<li><a href="#api">API リファレンス</a></li>
+	</ol>
+	<div class="toc-title">Part II — 仕組み</div>
+	<ol start="7">
 		<li><a href="#overview">流れの全体</a></li>
 		<li><a href="#encoding">符号化 — トポロジ・頂点符号・順位</a></li>
 		<li><a href="#lod">頂点シェーダの中の LOD</a></li>
-		<li><a href="#fill">ステンシルで面を塗る</a></li>
+		<li><a href="#fill">三角形に割らずに面を塗る</a></li>
 		<li><a href="#lines">線とスタイル</a></li>
 		<li><a href="#sphere">球の上で — 地平線と日付変更線</a></li>
-		<li><a href="#terrain">3D で — 地形にドレープ</a></li>
+		<li><a href="#terrain">3D で — 地形の上に</a></li>
 		<li><a href="#identify">問いに答える — 選択と識別</a></li>
-		<li><a href="#api">層の API</a></li>
 		<li><a href="#philosophy">設計思想</a></li>
 	</ol>
 </div>
+
+<div class="part" style="margin-top:0">Part I — 使う</div>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="why">1. なぜ Gint か — タイルは描き、Gint は知る</h2>
@@ -94,13 +108,375 @@ ortho-earth のエンジンには二種類のベクタの層があります。�
 	<tr><th></th><th>ベクタタイル</th><th>Gint</th></tr>
 	<tr><td>ファイル</td><td>ズームごと・タイルごとに 1 枚</td><td>1 ファイル</td></tr>
 	<tr><td>ズームした時の通信</td><td>新しいタイル</td><td><strong>+0</strong> — 詳細度は GPU が選ぶ</td></tr>
-	<tr><td>面の塗り</td><td>タイルごとに CPU で三角形化</td><td>ステンシルの巻き数 — 三角形化しない</td></tr>
+	<tr><td>面の塗り</td><td>タイルごとに CPU で三角形化</td><td>巻き数 — 三角形化しない</td></tr>
 	<tr><td>地物</td><td>タイルの縁で切れる</td><td>丸ごと・共有する境界がぴたり一致</td></tr>
+	<tr><td>塗り替え</td><td>タイルごとにスタイルをかけ直す</td><td>テクスチャ 1 枚の更新 — 地物ごとに違う色にできる</td></tr>
 	<tr><td>問い</td><td>—</td><td>選択・識別・強調・表との突き合わせ</td></tr>
 </table>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="overview">2. 流れの全体</h2>
+<h2 id="start">2. はじめての Gint の層</h2>
+
+<p>
+読み込む・足す・塗る・絞り込む・問う、の五段です。言葉は MapLibre GL JS から借りています — paint のプロパティ、式、<code>setPaint</code>、<code>setFilter</code> —
+ので、知っていることがそのまま使えます。MapLibre の写しではありません。最初の一歩を短くするために語彙を借り、下で動いているのは Gint の層です。
+</p>
+
+<pre><code><span class="kw">import</span> { createGlobe, geopbf } <span class="kw">from</span> <span class="st">"@ortho-earth/globe"</span>;
+
+<span class="kw">const</span> map = <span class="kw">await</span> createGlobe({ target: <span class="st">"#map"</span> });
+
+<span class="cm">// 1. 読み込む — geopbf が読める形式なら何でも。{ gint: true } で GPU 用の形も作る（IndexedDB に残る）</span>
+<span class="kw">const</span> pbf = <span class="kw">await</span> geopbf(<span class="st">"https://example.com/municipalities.geojson"</span>, { gint: <span class="kw">true</span> });
+
+<span class="cm">// 2. 足す — 上に層が一枚増える。何も置き換えない</span>
+<span class="kw">const</span> layer = map.addGint(pbf, { tip: <span class="kw">true</span> });
+<span class="kw">await</span> layer.ready;                                 <span class="cm">// true＝GPU に載った</span>
+
+<span class="cm">// 3. 塗る — MapLibre の paint と式。地物ごとに一度だけ評価</span>
+<span class="kw">await</span> layer.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"interpolate"</span>, [<span class="st">"linear"</span>], [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">0</span>, <span class="st">"#fff5eb"</span>, <span class="nm">1000000</span>, <span class="st">"#7f2704"</span>],
+  <span class="st">"fill-opacity"</span>: <span class="nm">0.85</span>,
+  <span class="st">"line-color"</span>: <span class="st">"#ffffff"</span>,
+  <span class="st">"line-width"</span>: <span class="nm">0.5</span>,
+});
+
+<span class="cm">// 4. 絞り込む — 地物を隠す。作り直しはしない</span>
+<span class="kw">await</span> layer.setFilter([<span class="st">"&gt;="</span>, [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">10000</span>]);
+
+<span class="cm">// 5. 問う</span>
+layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.properties, e.lngLat));
+<span class="kw">const</span> hit  = layer.query([<span class="nm">139.767</span>, <span class="nm">35.681</span>]);  <span class="cm">// { fid, properties } か null</span>
+<span class="kw">const</span> hits = map.queryAll([<span class="nm">139.767</span>, <span class="nm">35.681</span>]); <span class="cm">// [{ layer, fid, feature }]・上の層から</span></code></pre>
+
+<h3>2.1 読み込む</h3>
+<p>
+<code>geopbf(input, { gint: true })</code> は URL・<code>File</code>・<code>ArrayBuffer</code>・GeoJSON のオブジェクトを受け、
+<a href="geopbf-jp.html">GeoPBF</a> が読める形式なら何でも読みます — GeoJSON・Shapefile・GeoPackage・FlatGeobuf・GeoParquet・KML・GPX など。
+<code>gint: true</code> は GPU が描く形も作ります。トポロジの符号化器（WebAssembly・worker で動く）が、共有する境界をすべて一本の共有する弧にします。
+結果は IndexedDB に残るので、次の訪問では符号化を飛ばします。<code>geopbf</code> は <code>@ortho-earth/globe</code> からも export されているので、別のパッケージは要りません。
+</p>
+<p>
+properties がまったく同じ地物は、一つの地物 — <code>fid</code> が一つのマルチパートの地物 — になります。色も強調も答えも一緒です。
+分けておきたいなら、<code>id</code> のような地物ごとに違う属性を持たせてください。
+</p>
+
+<h3>2.2 足す</h3>
+<p>
+<code>map.addGint(pbf, options)</code> は層を足し、その<em>手綱</em>（ハンドル）をすぐ返します。焼き — 辺の表、詳細度の梯子、地物ごとの箱 — は worker で走るので、
+地図は描き続けます。<code>await layer.ready</code> は GPU に載ると <code>true</code>（失敗なら <code>false</code>）です。<code>addGint</code> はカメラを動かしません。
+</p>
+<p>
+塗る前の層は既定のスタイルで描きます。面の輪郭はオレンジ（<code>#FF6B35</code>）、線はシアン（<code>#00B4D8</code>）。
+面が数画素より小さくなると、線の網の代わりにベタ塗りで見せ、寄ると戻ります。
+層は足した順に重なります。<code>order</code>（小さいほど下）を渡せば、呼んだ順に関係なく重ね順が決まります。
+層は何枚でも同時に載せられ、両方の土台（WebGPU と WebGL2）で動きます。
+</p>
+
+<h3>2.3 塗る</h3>
+<p>
+<code>setPaint(paint, filter?)</code> は MapLibre の paint プロパティを受けます。値は定数か式（§4）です。
+式は JavaScript で地物ごとに<strong>一度だけ</strong>評価され、結果はスタイル表 — 地物 1 つにテクセル 1 つ — に書かれます。
+GPU は描きながらその表を読むだけで、フレームごとに式を走らせることはありません。塗り替えは、地物を一巡する評価とテクスチャ 1 枚の更新です。
+幾何は作り直しません。日本の 1,919 市区町村なら表は 31 KB です。
+</p>
+<table>
+	<tr><th>プロパティ</th><th>対象</th><th>値</th></tr>
+	<tr><td><code>fill-color</code></td><td>面</td><td>色</td></tr>
+	<tr><td><code>fill-opacity</code></td><td>面</td><td>0〜1・色の α に掛かる</td></tr>
+	<tr><td><code>line-color</code></td><td>線と面の輪郭</td><td>色</td></tr>
+	<tr><td><code>line-width</code></td><td>線と面の輪郭</td><td>CSS 画素・1/8 刻み・最大 31.875 · <code>0</code>＝線を描かない</td></tr>
+	<tr><td><code>circle-color</code></td><td>点</td><td>色</td></tr>
+	<tr><td><code>circle-radius</code></td><td>点</td><td>CSS 画素・1/4 刻み・最大 63.75 · <code>0</code>＝点を描かない</td></tr>
+	<tr><td><code>line-opacity</code></td><td>線・輪郭・点</td><td>0〜1・線または点の色の α に掛かる</td></tr>
+</table>
+<p>
+どのプロパティも地物ごとに変えられます（data-driven）。色は CSS の色です：<code>#rgb</code>・<code>#rgba</code>・<code>#rrggbb</code>・<code>#rrggbbaa</code>、
+カンマ区切りの <code>rgb()</code>/<code>rgba()</code>、<code>hsl()</code>/<code>hsla()</code>、CSS の色名。
+線と点は地物ごとの色の枠を 1 つ共有するので、<code>line-opacity</code> は点も薄くします。
+</p>
+<ul>
+	<li><strong>塗りを設定した層の面を塗るのは <code>fill-color</code> だけです。</strong>書かなければ、どのズームでも輪郭だけになります。</li>
+	<li><strong>線を隠すには幅を 0 に</strong> — 点は半径を 0 に。完全に透明な線や点の色は、既定の色に戻ります。</li>
+	<li><strong><code>setPaint</code> は paint を丸ごと置き換えます。</strong>欲しいプロパティは毎回すべて渡してください。<code>setPaint(null)</code> で既定のスタイルに戻ります。
+	プロパティを一つずつ変えたいときは MapLibre 形の入口（§6.5）を使います。</li>
+</ul>
+<div class="callout callout-note">
+	<div class="callout-head">欠けた値</div>
+	<p>欠けた値が何を意味するかを決めて、式に書いてください。そのプロパティを持たない地物は、<code>interpolate</code> では塗られず、
+	<code>step</code> では一番下の色に、<code>match</code> では fallback になります。入力を <code>["coalesce", ["get", "pop"], …]</code> で包むか、
+	<code>["has", "pop"]</code> で確かめるか、その地物を絞り込みで外します。</p>
+</div>
+
+<h3>2.4 絞り込む</h3>
+<p>
+<code>setFilter(式)</code> は、式が偽になる地物をすべて隠します。<code>setFilter(null)</code> で全部を戻します。
+paint と同じく一度だけ評価され、同じ表に書かれます — 作り直しはしません。
+隠した地物は描かれず、塗りにも加わらないので、下にあるものの塗りを乱しません（§5）。
+ホバーと問いからも外れます。隠した地物が無いものとして、ポインタの下の次の地物が答えになります。
+</p>
+<p>
+絞り込みは paint と同じ表に住みます。最初の <code>setPaint</code> より前に渡した絞り込みは預かられ、<code>setPaint</code> と一緒に効きます。
+<code>setPaint(paint, filter)</code> なら一度に両方を設定できます。
+</p>
+
+<h3>2.5 問う</h3>
+<p>
+カーソルを持つ層は一度に一枚です。ホバー・tip・強調・<code>layer.on("click")</code> はその層のものです。
+interactive な層を足すとその層がカーソルを持ち、<code>layer.activate()</code> で移せます。<code>interactive: false</code> で足した層はカーソルを取りません —
+それまでカーソルを持っていた層が持ったままです。
+ホバーは連続（32 ms ごとの選択）なので一枚に絞り、選択は一回で済ませます。クリックは稀なので、全部の層に問えます。
+線だけの層（面も点も無い）は、まだホバーに答えません。<code>map.on("click")</code> か <code>query</code> で問ってください。
+</p>
+<pre><code>layer.on(<span class="st">"hover"</span>, f =&gt; …);        <span class="cm">// { fid, properties } か null</span>
+layer.on(<span class="st">"mouseenter"</span>, f =&gt; …);   <span class="cm">// 地物に入った：{ fid, properties }</span>
+layer.on(<span class="st">"mouseleave"</span>, e =&gt; …);   <span class="cm">// 出た：{ fid }</span>
+layer.on(<span class="st">"click"</span>, e =&gt; …);        <span class="cm">// { fid, properties, lngLat: [lng, lat] }</span>
+
+map.on(<span class="st">"click"</span>, ({ lngLat, hits }) =&gt; {   <span class="cm">// 点の下のすべての Gint の層・上から</span>
+  <span class="kw">for</span> (<span class="kw">const</span> { layer, fid, feature } <span class="kw">of</span> hits) …
+});</code></pre>
+<p>
+<code>fid</code> は地物の、その層の中での番号です — 二つの層のどちらにも 7 番がある — ので、必ず層と組にして持ってください。
+</p>
+<p>
+<code>layer.query(lngLat)</code> と <code>map.queryAll(lngLat)</code> は、GPU を往復せず JavaScript ですぐに答えます。
+50 m 以内の点、次に 30 m 以内の線、次にその位置を含むいちばん小さい面を探します — 市の中の区をクリックすれば区が返ります。
+絞り込みで隠した地物は飛ばします。
+</p>
+<ul>
+	<li><strong><code>map.queryAll</code> と <code>map.on("click")</code> は、いま見えている物に答えます。</strong><code>setVisible(false)</code> で消した層や、ズームの範囲の外の層は入りません。
+	<code>interactive: false</code> で足した層は入ります — クリック一つで「この筆は危険区域の中でもある」と分かります。
+	地球儀が自分で描く層（国の輪郭など）は出てきません。</li>
+	<li><strong><code>layer.query</code> は、その層にわざわざ問う口です。</strong>層を消していても、ズームの範囲の外でも答えます。</li>
+</ul>
+
+<h3>2.6 手綱のほかの動詞</h3>
+<ul>
+	<li><strong>ラベル。</strong>options の <code>label: { field: ["get", "name"], size: 13, color: "#fff", halo: "#000" }</code>、または後から <code>setLabel(…)</code>。
+	基図の注記と同じ衝突とフェードを共有し、絞り込みに従います。<code>field</code> は式（または properties の関数）です。ただの文字列は、そのまますべての地物に表示されます。</li>
+	<li><strong>地物の状態。</strong><code>setFeatureState(fid, { selected: true })</code> を、paint の <code>["feature-state", "selected"]</code> で読みます。
+	同じ処理の中の何回もの呼び出しは、1 フレームにまとめて描きます。</li>
+	<li><strong>ズーム。</strong>paint や filter の <code>["zoom"]</code> は設定した時に読みます。カメラが 0.25 段以上動いて止まると、層が自分で評価し直します。
+	変わるのは止まった時で、ズームの最中ではありません。</li>
+	<li><strong>データ。</strong><code>setData(pbf)</code> でデータを差し替えます。手綱・イベント・paint・filter はそのままです。</li>
+	<li><strong>そのほか。</strong><code>setOrder(n)</code>・<code>setVisible(bool)</code>・<code>remove()</code> — §6。</li>
+</ul>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="examples">3. 階級区分図 — 三つの例</h2>
+
+<h3>3.1 市区町村を自分の表で塗る</h3>
+<p>
+値は境界のファイルではなく、表 — 国勢調査の CSV、表計算 — にあることがよくあります。データを書き換える必要はありません。
+表から <code>match</code> を組みます。ラベルが二千あっても構いません。式はフレームごとではなく、一度しか走らないからです。
+</p>
+<pre><code><span class="cm">// 自分の表：市区町村コード → 値（例：国勢調査の人口）</span>
+<span class="kw">const</span> values = { <span class="st">"13101"</span>: <span class="nm">66680</span>, <span class="st">"13102"</span>: <span class="nm">169179</span>, <span class="cm">/* … */</span> };
+<span class="kw">const</span> breaks = [<span class="nm">10000</span>, <span class="nm">50000</span>, <span class="nm">100000</span>, <span class="nm">300000</span>, <span class="nm">1000000</span>];
+<span class="kw">const</span> colors = [<span class="st">"#f7fbff"</span>, <span class="st">"#c6dbef"</span>, <span class="st">"#6baed6"</span>, <span class="st">"#3182bd"</span>, <span class="st">"#08519c"</span>, <span class="st">"#08306b"</span>];
+<span class="kw">const</span> classOf = v =&gt; breaks.filter(b =&gt; v &gt;= b).length;
+
+<span class="cm">// "N03_007"＝国土数値情報「行政区域」のコードの属性名。自分のデータの属性名に</span>
+<span class="kw">const</span> fill = [<span class="st">"match"</span>, [<span class="st">"to-string"</span>, [<span class="st">"get"</span>, <span class="st">"N03_007"</span>]]];
+<span class="kw">for</span> (<span class="kw">const</span> [code, v] <span class="kw">of</span> Object.entries(values)) fill.push(code, colors[classOf(v)]);
+fill.push(<span class="st">"rgba(0,0,0,0)"</span>);                       <span class="cm">// 表に無い：塗らない</span>
+
+<span class="kw">await</span> layer.setPaint({ <span class="st">"fill-color"</span>: fill, <span class="st">"fill-opacity"</span>: <span class="nm">0.85</span>, <span class="st">"line-color"</span>: <span class="st">"#ffffff"</span>, <span class="st">"line-width"</span>: <span class="nm">0.3</span> });</code></pre>
+<p>
+<code>match</code> は <code>===</code> で比べます。文字の <code>"13101"</code> と数の <code>13101</code> は別物なので、入力を <code>to-string</code> に通しています。
+色の数は描く手間を変えません。地物ごとに違う色でも構いません — 塗りは 6 色でも 1,919 色でも 2 パスです。
+</p>
+
+<h3>3.2 筆を地番で塗る</h3>
+<p>
+法務省の登記所備付地図（<code>geopbf</code> は XML をそのまま読めます）は、筆ごとに <code>地番</code> を持ちます。
+札幌市中央区 — 57,341 筆 — では、同じ欄に言葉も入っています：道・河川・無地番・筆界未定地。式一本で、公共用地と筆界未定地が地図に出ます。
+</p>
+<pre><code><span class="kw">await</span> parcels.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"get"</span>, <span class="st">"地番"</span>],
+    [<span class="st">"道"</span>, <span class="st">"河川"</span>, <span class="st">"無地番"</span>], <span class="st">"#e41a1c88"</span>,  <span class="cm">// 道・河川・無地番</span>
+    <span class="st">"筆界未定地"</span>, <span class="st">"#ff7f00aa"</span>,                <span class="cm">// 筆界未定地</span>
+    <span class="st">"rgba(0,0,0,0)"</span>],                           <span class="cm">// ほかの筆：塗らない</span>
+  <span class="st">"line-color"</span>: <span class="st">"#ffffff66"</span>,
+  <span class="st">"line-width"</span>: <span class="nm">0.5</span>,
+});</code></pre>
+<p>
+<code>match</code> のラベルは配列にもできます。どれか一つに当たれば、その出力になります。
+</p>
+
+<h3>3.3 二枚の層 — 危険区域の中の筆</h3>
+<p>
+筆の下に災害の層を敷きます。カーソルは筆が持ち、クリックは両方に届きます。
+</p>
+<pre><code><span class="cm">// 土砂災害警戒区域（国土数値情報 A33）。A33_002 = 2：特別警戒区域</span>
+<span class="kw">const</span> zones = map.addGint(<span class="kw">await</span> geopbf(zonesUrl, { gint: <span class="kw">true</span> }), { order: <span class="nm">-1</span>, interactive: <span class="kw">false</span> });
+<span class="kw">await</span> zones.setPaint({
+  <span class="st">"fill-color"</span>: [<span class="st">"match"</span>, [<span class="st">"to-number"</span>, [<span class="st">"get"</span>, <span class="st">"A33_002"</span>]], <span class="nm">2</span>, <span class="st">"#c0392b80"</span>, <span class="st">"#d9a4416b"</span>],
+  <span class="st">"line-width"</span>: <span class="nm">0</span>,                                 <span class="cm">// 塗りだけ・輪郭なし</span>
+});                                                   <span class="cm">// interactive: false — カーソルは筆のまま</span>
+
+map.on(<span class="st">"click"</span>, ({ hits }) =&gt; {
+  <span class="kw">const</span> parcel = hits.find(h =&gt; h.layer === parcels);
+  <span class="kw">const</span> zone   = hits.find(h =&gt; h.layer === zones);
+  <span class="kw">if</span> (parcel &amp;&amp; zone) console.log(parcel.feature.properties[<span class="st">"地番"</span>], <span class="st">"は警戒区域の中"</span>);
+});</code></pre>
+<p>
+層の表示の切り替えは <code>setVisible</code> です — 焼き直しはありません。「この筆はどの区域にあるか」「この点の下に何があるか」という問いこそ、
+Gint がある理由です。層は絵であるだけでなく、データです。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="expressions">4. 式 — 約束する範囲</h2>
+
+<p>
+式は MapLibre のものです。次の範囲を Gint の層に約束します。型定義（<code>globe.d.ts</code>）に並べた範囲で、検定で確かめています。
+評価器は、MapLibre のスタイルファイルを読む基図と共用なので、これより多くの演算子を受け付けますが、それらは Gint の層には約束しません。
+</p>
+<table>
+	<tr><th>種類</th><th>演算子</th></tr>
+	<tr><td>データ</td><td><code>get</code> <code>has</code> <code>feature-state</code> <code>geometry-type</code> <code>zoom</code> <code>literal</code></td></tr>
+	<tr><td>選ぶ</td><td><code>match</code> <code>case</code> <code>step</code> <code>coalesce</code></td></tr>
+	<tr><td>補間</td><td><code>interpolate</code> — <code>["linear"]</code> と <code>["exponential", base]</code>・数と色</td></tr>
+	<tr><td>比較と論理</td><td><code>==</code> <code>!=</code> <code>&gt;</code> <code>&gt;=</code> <code>&lt;</code> <code>&lt;=</code> <code>!</code> <code>all</code> <code>any</code> <code>in</code></td></tr>
+	<tr><td>算術</td><td><code>+</code> <code>-</code> <code>*</code> <code>/</code> <code>%</code> <code>^</code> <code>min</code> <code>max</code></td></tr>
+	<tr><td>型と文字</td><td><code>to-number</code> <code>to-string</code> <code>concat</code></td></tr>
+	<tr><td>変数</td><td><code>let</code> <code>var</code></td></tr>
+</table>
+<h3>4.1 決まり</h3>
+<ol style="padding-left:22px">
+	<li><strong>一度だけ、フレームごとではない。</strong><code>setPaint</code>・<code>setFilter</code> を呼んだ時（と地物の状態が変わった時）に走ります。GPU は結果を読むだけです。</li>
+	<li><strong><code>["zoom"]</code> は写し。</strong>評価した時のズームです。カメラが止まると層が評価し直します（§2.6）。フレームの間の補間はありません。</li>
+	<li><strong>例外を投げない。</strong>式が失敗したり型が合わなかったりした地物は既定のまま — 塗りなし・1 px の線・1.5 px の点。評価器に無い演算子も既定になります。</li>
+	<li><strong>厳密な比較。</strong><code>==</code>・<code>!=</code>・<code>match</code> は <code>===</code> で比べます。型が違うときは <code>to-string</code> や <code>to-number</code> で揃えてください。</li>
+	<li><strong><code>in</code></strong> は <code>["in", 探す値, 対象]</code>。対象は文字列か配列（<code>["literal", […]]</code>）です。</li>
+	<li><strong>色</strong>は RGB で補間し、入れ子にもできます — <code>match</code> の枝の中の <code>interpolate</code> も効きます。</li>
+</ol>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="overlap">5. データが重なるとき</h2>
+
+<p>
+実際のデータは重なります。市区町村の上の都道府県の面、二重に登録された区域、重ねて描かれた筆。
+Gint は非ゼロ巻き数の規則で塗り — 偶奇の規則は使いません — ので、重なりの結果は予測できます。
+</p>
+<ul>
+	<li><strong>一色</strong>（paint なし、または全部同じ色）：和集合が塗られます。同じ筆が二枚あっても一枚と同じに塗られ、別の地物が覆う穴は塗られます。</li>
+	<li><strong>地物ごとの色</strong>（階級区分図）：二つの地物が重なる所では、データの中で後の方 — <code>fid</code> の大きい方 — が勝ちます。
+	その地物が透明か絞り込みで隠れていれば、下のものが見えます。二つの重なりまでは厳密で、三つ以上が積み重なる所の結果は保証しません。</li>
+	<li><strong>隠した地物は塗りに加わりません。</strong>市区町村と、それを含む大きな面が一つのデータに混ざっているなら、塗らない方の階層を絞り込みで外せば、残りはきれいに塗れます。</li>
+	<li><strong>問い</strong>には、その点を含み、絞り込みで隠れていない、いちばん小さい面が返ります。</li>
+</ul>
+<div class="callout callout-key">
+	<div class="callout-head">品質が見えるようになる</div>
+	<p>巻き数の和は色以上のものを運びます。読み方を変えると、別々の地物が重なる所、一つの地物が二重に登録された所、環が逆向きに回っている所が分かります。
+	開発の場では、エンジンはちょうどその画素だけを塗ります。登記所備付地図に当てると、誰にも見えなかったデータの品質の問いが、一枚の絵になります。
+	この見せ方は今は開発用の道具で、API には含めていません。</p>
+</div>
+<p>
+制約が一つあります。地物ごとの塗りは、地物番号を浮動小数の的に足し込みます。32 bit の浮動小数を混ぜられない GPU では番号が 16 bit になり、
+一枚の層で一つずつ色を付けられる地物は 2,047 までです。それより大きい層は地物ごとの塗りを失い、層の素のスタイルで描かれます。
+この制約に当たったら、同じスタイルの地物をマルチポリゴンにまとめてください — 塗りの手間は同じです。
+</p>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="api">6. API リファレンス</h2>
+
+<div class="ref">
+
+<h3>6.1 層を足す</h3>
+
+<h4 class="sig">map.addGint(pbf, options) → 手綱 | null</h4>
+<p>Gint の層を一番上に足し、手綱をすぐ返します。<code>pbf</code> が GPU 用の形を持たなければ <code>null</code>。<code>interactive</code> が false でなければ、その層がアクティブになります（§2.5）。</p>
+<ul>
+	<li><strong><code>pbf</code></strong>（GeoPBF）：<code>geopbf(input, { gint: true })</code> の結果。</li>
+	<li><strong><code>options.order</code></strong>（Number）：重ね順。小さいほど下。既定＝足した順。</li>
+	<li><strong><code>options.minZoom</code> / <code>options.maxZoom</code></strong>（Number）：この層を描くズームの範囲。既定＝<code>minZoom</code> はデータの広さから（狭い範囲ほど高いズームから）、<code>maxZoom</code> は座標の精度から。</li>
+	<li><strong><code>options.interactive</code></strong>（Boolean）：<code>false</code>＝カーソルを取らない（持っている層が持ったまま）。<code>map.on("click")</code> と <code>queryAll</code> には答える。既定 <code>true</code>。</li>
+	<li><strong><code>options.tip</code></strong>（Boolean | Function）：<code>true</code>＝全属性を「キー: 値」で出す tip。関数 <code>properties → string[]</code> なら自分の行を書く。既定＝tip なし。</li>
+	<li><strong><code>options.label</code></strong>（Object）：<code>{ field, size, color, halo, haloW, minZoom, maxZoom }</code> — <code>setLabel</code> を参照。</li>
+	<li><strong><code>options.style</code></strong>（Object）：paint なしの見た目 — <code>{ fillColor: [r, g, b, a], lineWidth, ptRadius }</code>・色は 0〜1。</li>
+	<li><strong><code>options.fillMaxEdges</code></strong>（Number）：辺がこの数を超えると塗りを止める（既定 2,000,000）。<code>0</code>＝輪郭だけ。</li>
+	<li><strong><code>options.lowFill</code></strong>（Boolean）：塗りが止まっている時（<code>fillMaxEdges</code> 超え）も、低いズームの一色の塗りだけは描く — 非常に大きな層向け。</li>
+</ul>
+
+<h4 class="sig">layer.ready → Promise&lt;boolean&gt;</h4>
+<p>GPU に載ると <code>true</code>、焼きが失敗すると <code>false</code>。</p>
+
+<h3>6.2 スタイル</h3>
+
+<h4 class="sig">await layer.setPaint(paint, filter?)</h4>
+<p>paint（と filter）を地物ごとに評価し、表を 1 枚 GPU へ送ります。paint は丸ごと置き換え。<code>null</code>＝既定のスタイル。<code>filter</code> を省くと今の絞り込みのまま。</p>
+<ul>
+	<li><strong><code>paint</code></strong>（Object）：<code>fill-color</code>・<code>fill-opacity</code>・<code>line-color</code>・<code>line-opacity</code>・<code>line-width</code>・<code>circle-color</code>・<code>circle-radius</code>（§2.3）。</li>
+	<li><strong><code>filter</code></strong>（式 | null）：真偽の式（§4）。</li>
+</ul>
+
+<h4 class="sig">await layer.setFilter(filter)</h4>
+<p>絞り込みだけ。最初の <code>setPaint</code> より前なら預かられ、その時に効きます。<code>null</code>＝全部を見せる。</p>
+
+<h4 class="sig">layer.setFeatureState(fid, state) · layer.removeFeatureState(fid?)</h4>
+<p>地物ごとの一時的な状態。<code>["feature-state", key]</code> で読みます。<code>state</code> は混ぜ合わせ、<code>null</code> で消えます。fid を省いた <code>removeFeatureState()</code> は全部を消します。</p>
+
+<h4 class="sig">await layer.setLabel(label | null)</h4>
+<ul>
+	<li><strong><code>field</code></strong>（式 | Function | String）：文字 — <code>["get", "name"]</code> や <code>["concat", …]</code> のような式、関数 <code>properties → string</code>、または固定の文字列。</li>
+	<li><strong><code>size</code>・<code>color</code>・<code>halo</code>・<code>haloW</code></strong>：文字の大きさ（px）・色・縁取りの色と幅。</li>
+	<li><strong><code>minZoom</code>・<code>maxZoom</code></strong>：ラベルを出すズームの範囲（既定＝層の範囲）。</li>
+</ul>
+<p>錨：面と線は地物の箱の中心、点はその点。隠した地物にはラベルが付きません。</p>
+
+<h4 class="sig">layer.style(style)</h4>
+<p>paint なしの見た目を変えます（<code>options.style</code> と同じオブジェクト）。</p>
+
+<h3>6.3 データ・重ね順・表示</h3>
+
+<h4 class="sig">await layer.setData(pbf, { minZoom?, maxZoom? }) → boolean</h4>
+<p>データを差し替えます。手綱・イベント・paint・filter はそのままで、paint は新しい地物で評価し直します。新しいデータが GPU に載ると <code>true</code>。</p>
+
+<h4 class="sig">layer.setOrder(order) · layer.setVisible(visible) · layer.remove()</h4>
+<p>重ね順を変える（小さいほど下）· 見せる／隠す（焼き直しなし）· 層を取り除く。アクティブな層を取り除くと、<code>activate()</code> を呼ぶか interactive な層を足すまで、どの層もカーソルを持ちません。</p>
+
+<h3>6.4 イベントと問い</h3>
+
+<h4 class="sig">layer.on(type, callback) → layer</h4>
+<p>アクティブな層だけ。線だけの層は、まだホバーに答えません。</p>
+<ul>
+	<li><strong><code>"hover"</code></strong>：<code>{ fid, properties }</code>。地物から外れると <code>null</code>。</li>
+	<li><strong><code>"mouseenter"</code></strong> / <strong><code>"mouseleave"</code></strong>：地物の縁で — <code>{ fid, properties }</code> / <code>{ fid }</code>。</li>
+	<li><strong><code>"click"</code></strong>：<code>{ fid, properties, lngLat }</code>。<code>lngLat</code>＝ポインタの <code>[lng, lat]</code>。</li>
+</ul>
+
+<h4 class="sig">layer.activate()</h4>
+<p>カーソル（ホバー・tip・強調・<code>layer.on("click")</code>）をこの層に渡します。</p>
+
+<h4 class="sig">layer.query([lng, lat]) → { fid, properties } | null</h4>
+<p>同期・JavaScript。50 m 以内の点、なければ 30 m 以内の線、なければその位置を含むいちばん小さい面。絞り込みで隠した地物は飛ばします。interactive かどうかに関わらず、層を消していても、ズームの範囲の外でも答えます。</p>
+
+<h4 class="sig">map.queryAll([lng, lat]) → [{ layer, fid, feature }]</h4>
+<p>いま見えている — 表示中で、ズームの範囲の中の — すべての Gint の層に <code>layer.query</code> を、上の層から。<code>feature</code> は <code>{ fid, properties }</code>。地球儀が自分で描く層（国の輪郭など）は含みません。</p>
+
+<h4 class="sig">map.on("click", ({ lngLat, hits }) => …)</h4>
+<p>地球の上のクリックのたびに、<code>hits</code>＝<code>map.queryAll(lngLat)</code> で呼ばれます。ほかに <code>map.on("move" | "settle" | "load", …)</code> と <code>map.off(type, callback)</code>。<code>"load"</code> は地図が描き終わっていればすぐ呼ばれます。</p>
+
+<h3>6.5 MapLibre 形の入口</h3>
+<p>
+<code>map.addSource(id, { type: "geojson", data })</code> と <code>map.addLayer({ type: "fill" | "line" | "circle", … })</code> は、下に Gint の層を作ります。
+MapLibre のコードがそのまま動き、<code>setPaintProperty</code>・<code>setLayoutProperty</code>（<code>visibility</code>）・<code>setFilter</code>・<code>moveLayer</code>・
+<code>setFeatureState({ source, id }, state)</code>・<code>queryRenderedFeatures</code>・<code>map.on("click", layerId, …)</code> がすべて効きます。
+一つの source の層は<strong>一枚</strong>の Gint の層になります：paint は混ぜ合わされ、filter は <code>all</code> でつながります。
+ズームの範囲は MapLibre に従い、<code>minzoom</code> の無い層はズーム 0 から描きます。
+</p>
+<p>
+以前からの一枚きりの口（<code>applyGintData</code>・<code>paint</code>・<code>paintTable</code>・<code>onGintClick</code>）は、既存のアプリのために残しています。新しいコードは <code>addGint</code> を使ってください。
+</p>
+
+</div><!-- .ref -->
+
+<div class="part">Part II — 仕組み</div>
+
+<!-- ──────────────────────────────────────────────────── -->
+<h2 id="overview">7. 流れの全体</h2>
 
 <div class="pipeline">
 	<div class="pipe-stage stage-enc">
@@ -115,14 +491,14 @@ ortho-earth のエンジンには二種類のベクタの層があります。�
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage stage-gpu">
 		<div class="pipe-head"><span class="pipe-num n-gpu">3</span><div><div class="pipe-title">描画 — 毎フレーム</div><div class="pipe-sub">WebGPU か WebGL2 · 両方で同じパス</div></div></div>
-		<div class="pipe-items"><span>間引き · 頂点シェーダの中の LOD · ステンシルの塗り · カプセルの線 · ドレープ · 選択</span></div>
+		<div class="pipe-items"><span>間引き · 頂点シェーダの中の LOD · 巻き数の塗り · カプセルの線 · ドレープ · 選択</span></div>
 	</div>
 </div>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="encoding">3. 符号化 — トポロジ・頂点符号・順位</h2>
+<h2 id="encoding">8. 符号化 — トポロジ・頂点符号・順位</h2>
 
-<h3>3.1 共有する弧</h3>
+<h3>8.1 共有する弧</h3>
 <p>
 符号化器（Rust を WebAssembly にしたもの・worker で動く）は、すべての環と線を分岐点で<strong>弧</strong>に切り、弧を一本ずつ一度だけ持ちます。
 面は弧の参照の並びです — <code>[fid][環の数][弧の数][±弧番号…]</code>（逆向きの弧は <code>~番号</code>）。
@@ -130,7 +506,7 @@ ortho-earth のエンジンには二種類のベクタの層があります。�
 線と隣接の一覧は別の流れに入ります。
 </p>
 
-<h3>3.2 64 bit の頂点符号</h3>
+<h3>8.2 64 bit の頂点符号</h3>
 <p>
 経度・緯度を整数にし — <code>ix = (lon + 180) × 10<sup>7</sup></code>、<code>iy = (lat + 90) × 10<sup>7</sup></code>（約 1 cm）—
 二つのビットを<strong>交互に並べて（Morton 順）</strong>一つの 64 bit の符号にします。符号は頂点の詳細度も運びます。
@@ -143,17 +519,17 @@ ortho-earth のエンジンには二種類のベクタの層があります。�
 長い弧には大円に沿って 1° ごとに L1 の頂点（<em>錨</em>）を足します。長い辺が簡略化で弦になり、地球の丸みを横切ってしまうことはありません。
 </p>
 
-<h3>3.3 Visvalingam–Whyatt の順位</h3>
+<h3>8.3 Visvalingam–Whyatt の順位</h3>
 <p>
 途中の頂点は Visvalingam–Whyatt の実効面積（両隣と作る三角形の面積）で重みを付けます。先に消えた頂点より上に来ないよう累積最大で持ち、緯度の cos で補正します。
 その面積を 6 bit の順位にします。
 </p>
 <div class="formula">rank = clamp( floor( 1.5 · log<sub>2</sub>(面積 [度²]) + 61.524 ), 0, 63 )</div>
 <p>
-同じ式に「画面の 1 画素が覆う地面の面積」を入れると、今のズームに要る順位が出ます（§4）。順位とズームは同じ単位で話します。
+同じ式に「画面の 1 画素が覆う地面の面積」を入れると、今のズームに要る順位が出ます（§9）。順位とズームは同じ単位で話します。
 </p>
 
-<h3>3.4 GintBUF</h3>
+<h3>8.4 GintBUF</h3>
 <p>
 結果は一つのバッファです。64 byte のヘッダ（magic <code>"Gint"</code>・版・件数・bbox・流れの長さ）の後に、弧の頂点符号・点の符号・
 弧ごとのメタ <code>[開始, 長さ, 重み, –, bbox]</code>、そして面・線・隣接の流れが続きます。
@@ -161,7 +537,7 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lod">4. 頂点シェーダの中の LOD</h2>
+<h2 id="lod">9. 頂点シェーダの中の LOD</h2>
 
 <p>
 焼きの段で、弧は整数テクスチャの中の<strong>辺</strong>（頂点 A → 頂点 B）になります。毎フレーム：
@@ -175,7 +551,7 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 ズームしても何もアップロードしません。変わるのは uniform 一つです。
 </p>
 
-<h3>4.1 段と塊</h3>
+<h3>9.1 段と塊</h3>
 <p>
 全国規模のデータは数百万の辺を持ちます。頂点シェーダがそれを全部触らずに済むよう、二つの仕組みがあります。
 </p>
@@ -185,7 +561,7 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="fill">5. ステンシルで面を塗る</h2>
+<h2 id="fill">10. 三角形に割らずに面を塗る</h2>
 
 <p>
 面は三角形に割りません。面の辺を、その地物の bbox の中心を要にした<strong>扇</strong>としてステンシルに描きます。
@@ -193,14 +569,15 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 凹んだ形も穴も特別扱い無しに正しく出ます。扇どうしの重なりは打ち消し合います。
 </p>
 <ul>
-	<li><strong>境界メタ。</strong>同じ塗りの二つの面が共有する弧は、巻き数の中で打ち消し合うので、塗りには描く必要がありません。焼きの段で、参照の正味がゼロの弧を落とします。筆や小地域のように細かく敷き詰めたデータでも、塗りの手間は中の地物の数ではなく、おおよそ外周の長さで決まります。</li>
+	<li><strong>境界メタ。</strong>同じ塗りの二つの面が共有する弧は、巻き数の中で打ち消し合うので、塗りには描く必要がありません。焼きの段で、参照の正味がゼロの弧を落とします。筆や小地域のように細かく敷き詰めたデータでも、一色の塗りの手間は中の地物の数ではなく、おおよそ外周の長さで決まります。残る弧は多くの地物にまたがる輪になるので、この塗りの扇は全体で要を一つにします。札幌市中央区（筆のおよそ 37 万辺）では、中ズームの 1 フレームが 20〜37 ms から約 2 ms になりました。</li>
 	<li><strong>低いズーム。</strong>地物が数画素より小さくなると、層はベタ塗りに切り替わり、寄ると元に戻ります。カメラが動いている間は切り替えを少し長く保ち、ちらつかせません。</li>
-	<li><strong>階級区分図。</strong>値で色分けする地図では、扇の三角形ごとに ±(地物番号 + 1) と ±1 を浮動小数の的に足し込みます。二つを割ると画素ごとに地物番号が戻り、スタイル表が色に変えます。パスの数は色の数に依りません。</li>
-	<li>辺が 200 万を超えると塗りは自動で止まり、線だけ描きます。</li>
+	<li><strong>階級区分図。</strong>地物ごとに色分けする地図では、扇の三角形ごとに ±(地物番号 + 1) と ±1 を浮動小数の的に足し込みます。二つを割ると画素ごとに地物番号が戻り、スタイル表が色に変えます。パスの数は色の数に依りません。4 つ目のチャンネルがその画素に触れた最大の番号を持ち、重なりを決めます（§5）。この塗りにはすべての辺が要ります。共有する弧の打ち消しは、両側が同じ色のときにしか効かないからです。</li>
+	<li><strong>動くカメラ。</strong>カメラが動いている間、1 フレームの予算は 25 万辺です。超える層は安い形 — 輪郭だけ、または一色の影 — で描き、カメラが止まると元の絵に戻ります。</li>
+	<li>辺が 200 万を超えると塗りは自動で止まり（<code>fillMaxEdges</code>）、線だけ描きます。</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="lines">6. 線とスタイル</h2>
+<h2 id="lines">11. 線とスタイル</h2>
 
 <p>
 辺は一本ずつ小さな四角（6 頂点）として描き、カプセルの符号付き距離関数で塗ります。どの太さでも、継ぎ目と端は余分な幾何無しに丸くなります。
@@ -209,7 +586,7 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="sphere">7. 球の上で — 地平線と日付変更線</h2>
+<h2 id="sphere">12. 球の上で — 地平線と日付変更線</h2>
 
 <ul>
 	<li><strong>地平線。</strong>地球の裏側の頂点は 3D で地平線の円に投影します。地平線をまたぐ面も輪郭が閉じたまま正しく塗れます。丸ごと裏側の地物は、球冠の判定で間引きます。</li>
@@ -217,40 +594,26 @@ IndexedDB に保存するので、二度目の訪問では符号化を丸ごと�
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="terrain">8. 3D で — 地形にドレープ</h2>
+<h2 id="terrain">13. 3D で — 地形の上に</h2>
 
 <ul>
-	<li>線と塗りは、地図のほかの部分と同じ標高の場にドレープします。</li>
-	<li>長い辺は、その下の地形に応じて GPU で細分します（インスタンス描画・予算の内で）。山脈を越える境界は、山を突き抜けずに尾根に沿います。</li>
+	<li><strong>塗り</strong>は、地形が標本化する地面のテクスチャ — 画像の地図を載せるのと同じもの — に描き込みます。地面の形がどうであれ、ぴたりと地面に乗ります。</li>
+	<li><strong>線と点</strong>は同じ標高の場にドレープします。長い辺は、その下の地形に応じて GPU で細分します（インスタンス描画・予算の内で）。山脈を越える境界は、山を突き抜けずに尾根に沿います。</li>
 	<li>地形の陰に隠れた部分は、カメラが止まっている時に淡い破線で見せます — 境界が山の向こうへどう続くかが見えます。</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="identify">9. 問いに答える — 選択と識別</h2>
+<h2 id="identify">14. 問いに答える — 選択と識別</h2>
 
 <ul>
 	<li><strong>線と点</strong>は GPU で選びます。地物番号を小さな的に描き、非同期に読み戻します（WebGL2 は画素バッファとフェンス、WebGPU は <code>copyTextureToBuffer</code> + <code>mapAsync</code>）。</li>
-	<li><strong>面</strong>は JavaScript が答えます。bbox で弾いてから点in面、<em>小さい方が勝ち</em> — 市の中の区の中をクリックすれば区が返ります。日本の約 1,900 市区町村で 0.5〜4 ms。</li>
+	<li><strong>面</strong>は JavaScript が答えます。bbox で弾いてから点in面、<em>小さい方が勝ち</em> — 市の中の区の中をクリックすれば区が返ります。日本の約 1,900 市区町村で 0.5〜4 ms。ポインタの下に線や点があれば、それを囲む面より先に返ります。</li>
+	<li>選択の的はカメラが止まった時に、アクティブな層の分だけ作ります — 層が何枚あっても的は一枚です。</li>
 	<li>ホバーで地物を強調し（太い輪郭）、その外側を暗くすることもできます。</li>
 </ul>
 
 <!-- ──────────────────────────────────────────────────── -->
-<h2 id="api">10. 層の API</h2>
-
-<pre><code><span class="kw">const</span> pbf = <span class="kw">await</span> geopbf(file, { gint: <span class="kw">true</span> });   <span class="cm">// GintBUF を持つ GeoPBF</span>
-<span class="kw">const</span> layer = map.addGint(pbf, { label: { field: <span class="st">"name"</span> } });
-<span class="kw">await</span> layer.setPaint({ <span class="st">"fill-color"</span>: <span class="st">"#e0c080"</span>, <span class="st">"line-color"</span>: <span class="st">"#806020"</span> });
-layer.setFilter([<span class="st">"&gt;"</span>, [<span class="st">"get"</span>, <span class="st">"pop"</span>], <span class="nm">100000</span>]);
-layer.on(<span class="st">"click"</span>, e =&gt; console.log(e.fid, e.properties));</code></pre>
-
-<p>
-層の手綱には <code>setPaint</code>・<code>setFilter</code>・<code>setData</code>・<code>setOrder</code>・<code>setLabel</code>・<code>setFeatureState</code>・<code>on</code>・<code>query</code>・<code>remove</code> があり、
-<code>map.queryAll</code> で全部の層に一度に問えます。MapLibre 流の <code>addLayer</code>（fill・line・circle）で足した層も、中身は Gint の層です。
-このページのすべては両方の土台で動きます — WebGPU の描画器は同じパスの移植で、同じ焼きのコードを共有しています。
-</p>
-
-<!-- ──────────────────────────────────────────────────── -->
-<h2 id="philosophy">11. 設計思想</h2>
+<h2 id="philosophy">15. 設計思想</h2>
 
 <p>
 地理データをどう表すかは、どの詳細度を「現実」とみなすかの選択でもあります。
@@ -264,6 +627,10 @@ Visvalingam–Whyatt の重みは「この頂点を消すと、形がどれだ�
 <p>
 平面の地図には無く、球にだけある癖が二つあります。日付変更線をまたぐ面は切らねばならず、地平線をまたぐ面は地平線に沿って閉じねばなりません。
 平面の描画器と地球儀の描画器を分けるのは、こうした静かな驚きです。
+</p>
+<p>
+API も同じ考えを反対側から守ります。データはそのまま — 塗りはデータの見え方で、一度だけ計算して横に置いておくものです。
+MapLibre の言葉を借りるのは写しになるためではなく、人がすでに知っていることをそのまま持ち込めるようにするためです。
 </p>
 
 <div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">

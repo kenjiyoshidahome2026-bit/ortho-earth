@@ -143,8 +143,8 @@ export async function showLevel(map, agg, kind, valueOf = sumPop, { partitionIsl
 	const N = features.length, u32 = new Uint32Array(N * 4);
 	for (let i = 0; i < N; i++) {
 		const v = valueOf(groups[i]);
-		if (v == null) { u32[i * 4 + 2] = ((8 << 24) | (6 << 8) | 0) >>> 0; continue; }
-		u32[i * 4] = packRGBA(SEQ[cls(v)], 0.62); u32[i * 4 + 1] = 0; u32[i * 4 + 2] = ((10 << 24) | (6 << 8) | 1) >>> 0;
+		if (v == null) { u32[i * 4 + 2] = ((4 << 24) | (6 << 8) | 0) >>> 0; continue; }
+		u32[i * 4] = packRGBA(SEQ[cls(v)], 0.62); u32[i * 4 + 1] = 0; u32[i * 4 + 2] = ((5 << 24) | (6 << 8) | 1) >>> 0;   // 幅は 1/8 CSS px（2026-09-26・旧 10＝device px と同じ見た目で 5）
 	}
 	map.paintTable(u32, N);
 	return { pbf, features, groups };
