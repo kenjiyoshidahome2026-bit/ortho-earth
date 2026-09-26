@@ -99,11 +99,11 @@ fn cogTexMix0(col: vec3f, uv: vec2f) -> vec3f {
 @group(0) @binding(11) var gndTex3: texture_2d<f32>;
 struct GndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };   // w*=[W,S,spanLon,spanLat]・p.x=有効な窓の数（0..4・細かい順）
 fn gndMix0(col: vec3f, uv0: vec2f, uv1: vec2f, uv2: vec2f, uv3: vec2f) -> vec3f {
+	if (GD0.p.x < 0.5) { return col; }   // 地面アトラス無し＝標本化しない（perf plan P6・2026-09-27）。GD0 は var<uniform>＝一様な分岐＝以後の textureSample は合法。GL の gndMix と同順（旧＝4 本標本化してから捨てていた）
 	let c0 = textureSample(gndTex0, gndSamp, vec2f(clamp(uv0.x, 0.0, 1.0), 1.0 - clamp(uv0.y, 0.0, 1.0)));
 	let c1 = textureSample(gndTex1, gndSamp, vec2f(clamp(uv1.x, 0.0, 1.0), 1.0 - clamp(uv1.y, 0.0, 1.0)));
 	let c2 = textureSample(gndTex2, gndSamp, vec2f(clamp(uv2.x, 0.0, 1.0), 1.0 - clamp(uv2.y, 0.0, 1.0)));
 	let c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));
-	if (GD0.p.x < 0.5) { return col; }
 	// 窓の縁 4% はひとつ外の窓へクロスフェード＝解像度の段差を溶かす（gl/glsl.js gndMix と同式）
 	let w0 = gndEdge(uv0);
 	let w1 = select(0.0, gndEdge(uv1), GD0.p.x > 1.5);
@@ -283,6 +283,16 @@ fn elevQ(ll: vec2f) -> f32 {
 	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
 }
 `;
+
+// ?gndfast=0 の逃げ道（perf plan P6）＝gndMix0 を旧順序（4 本標本化してから GD0.p.x で捨てる）へ機械変換する。renderer の mkMod が rOpts.gndFast===false の時だけ通す。
+// 変換漏れ（原本の書式が変わった）は例外で知らせる＝黙って新順序のまま走らない
+const GND_FAST_HEAD = "\tif (GD0.p.x < 0.5) { return col; }   // 地面アトラス無し＝標本化しない（perf plan P6・2026-09-27）。GD0 は var<uniform>＝一様な分岐＝以後の textureSample は合法。GL の gndMix と同順（旧＝4 本標本化してから捨てていた）\n";
+const GND_SAMPLE_TAIL = "\tlet c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));\n";
+export function gndMixSlow(code) {
+	if (!code.includes("fn gndMix0(")) return code;   // FRAME を含まないモジュール（AO・深度の書き出し等）はそのまま
+	if (!code.includes(GND_FAST_HEAD) || !code.includes(GND_SAMPLE_TAIL)) throw new Error("gndMixSlow: rewrite markers missing = the gndMix0 source format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
+	return code.replace(GND_FAST_HEAD, "").replace(GND_SAMPLE_TAIL, GND_SAMPLE_TAIL + "\tif (GD0.p.x < 0.5) { return col; }\n");
+}
 
 // 塗り（earcut 三角形・premultiplied）。FILL_VS/FILL_FS の移植：図郭外フォールバック水域（seaGate＝FS標高ゲート）。
 // 直描きは 2D（地形なし）だけ＝3D の塗りは地面アトラスへ焼く（ATLAS_FILL_WGSL・2026-09-21）。かつての標高ドレープ・

@@ -11,7 +11,9 @@ import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオ�
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 
-const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)
+const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)（?quad4=0 の旧経路）
+const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一（gpu/renderer.js と対）
+const LINE_IDX = new Uint8Array([0, 1, 2, 2, 1, 3]);
 
 const DRAPE_ALL = [-180, -90, 360, 180];   // drape のバッチ＝持ち上げの範囲を全球に（DTM 保証域の外でも地形に沿わせる）
 // 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。u_logCoef・gintCtx・深度の書き出し（#47）が同じ値を使う
@@ -59,7 +61,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	const starsProg = program(gl, STARS_VS, STARS_FS);         // 星空（z<4・globeパスの下敷き）
 	const starLineProg = program(gl, STARS_VS, STARLINE_FS);   // 星座線（VS共用・gl.LINES）
 	const nightProg = program(gl, GLOBE_VS, NIGHT_FS);         // 夜面（現在時刻の太陽＝平行光源・全レイヤの上）
-	const cornerBuf = buffer(gl, CORNERS);
+	// 線の角＝index の 4 頂点（perf plan P3・既定）／旧 6 頂点（?quad4=0）。線分 1 本の VS 起動 6→4。element buffer は各 line VAO に bind（ELEMENT bind は VAO 状態）
+	const QUAD4 = rOpts.quad4 !== false;
+	const cornerBuf = buffer(gl, QUAD4 ? CORNERS4 : CORNERS);
+	let lineIdxBuf = null;
+	if (QUAD4) { lineIdxBuf = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, LINE_IDX, gl.STATIC_DRAW); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null); }
+	const drawLineInst = n => { if (QUAD4) gl.drawElementsInstanced(gl.TRIANGLES, 6, gl.UNSIGNED_BYTE, 0, n); else gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, n); };
 	const emptyVAO = gl.createVertexArray();
 	// 標高アトラスは R16F（half-float）。R32F は線形補間に OES_texture_float_linear が必須で、非対応GPU
 	// （古い4GB機など）では NEAREST に落ちて地形が市松模様になる（R01 の高密度で顕著）。R16F は WebGL2 の
@@ -564,7 +571,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				const vao = gl.createVertexArray();
 				const bP1 = buffer(gl, L.P1), bP2 = buffer(gl, L.P2), bCol = buffer(gl, L.col), bHalf = buffer(gl, L.half), bOff = L.off ? buffer(gl, L.off) : null;
 				gl.bindVertexArray(vao);
-				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
+				attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0); if (lineIdxBuf) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf);   // P3：4 隅＋6 index（VAO 状態）
 				attrib(gl, lineProg, "a_p1", bP1, 2, 1);
 				attrib(gl, lineProg, "a_p2", bP2, 2, 1);
 				attrib(gl, lineProg, "a_color", bCol, 4, 1, L.col instanceof Uint8Array);
@@ -836,7 +843,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			lineVao = gl.createVertexArray();
 			const bP1 = buffer(gl, s.P1), bP2 = buffer(gl, s.P2), bCol = buffer(gl, s.lineCol), bHalf = buffer(gl, s.lineHalf);
 			gl.bindVertexArray(lineVao);
-			attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0);
+			attrib(gl, lineProg, "a_corner", cornerBuf, 2, 0); if (lineIdxBuf) gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, lineIdxBuf);   // P3：4 隅＋6 index（VAO 状態）
 			attrib(gl, lineProg, "a_p1", bP1, 2, 1);
 			attrib(gl, lineProg, "a_p2", bP2, 2, 1);
 			attrib(gl, lineProg, "a_color", bCol, 4, 1, s.lineCol instanceof Uint8Array);
@@ -897,7 +904,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, lineProg, "u_lift"), OVERLAY_LIFT_M);   // 地形から浮かせて z-fight を断つ（境界線が明滅・消失する件の根治）
 			gl.uniform1f(loc(gl, lineProg, "u_dpr"), dpr);
 			lineOffZero();
-			gl.bindVertexArray(o.lineVao); gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, o.lineCount);
+			gl.bindVertexArray(o.lineVao); drawLineInst(o.lineCount);
 		}
 	}
 	function drawOverlay(st, dpr, land, zoom) {
@@ -1412,7 +1419,7 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					if (curProg !== lineProg) { gl.useProgram(lineProg); curProg = lineProg; }
 					gl.bindVertexArray(d.vao);
-					gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, d.count);
+					drawLineInst(d.count);
 					if (slot === "base") dbgC.baseLine++; else dbgC.mainLine++;
 				}
 			}
