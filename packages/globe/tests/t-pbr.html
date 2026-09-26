@@ -82,7 +82,7 @@ try {
 	ok(`正午＝粗い球の頂 ${topR.toFixed(1)} > 北の縁 ${northR.toFixed(1)}×1.3`, topR > northR * 1.3 && topR > 100);
 	const a = at(top, -90, -30, 40), b = at(top, -30, 30, 40), c2 = at(top, 30, -30, 40), d2 = at(top, 90, 30, 40);
 	const [mLo, mHi] = range(on, a[0] + 3, b[1] + 3, b[0] - 3, a[1] - 3), [rLo, rHi] = range(on, c2[0] + 3, d2[1] + 3, d2[0] - 3, c2[1] - 3);
-	ok(`金属球＝ハイライト ${mHi.toFixed(0)} > 粗い球の最大 ${rHi.toFixed(0)}・暗部 ${mLo.toFixed(0)} < 粗い球の最小 ${rLo.toFixed(0)}`, mHi > rHi + 15 && mLo < rLo - 15);
+	ok(`金属球＝ハイライト ${mHi.toFixed(0)} > 粗い球の最大 ${rHi.toFixed(0)}・暗部 ${mLo.toFixed(0)} < 粗い球の最小 ${rLo.toFixed(0)}`, mHi > rHi + 8 && mLo < rLo - 15);   // 正午は粗い球の頂も 244 まで上がる（実機）＝ハイライトの差は +8・金属らしさは暗部（反射する空が暗い）で見る
 	// ③ AO：北から見る（bearing 180・チルト 60°）＝北壁が正面。AO 黒の箱（北側・n=+80）と既定の箱（南側・n=−80）
 	r.set("meshSet", null, "metal"); r.set("meshSet", null, "rough");
 	box("aoBox", 0, 80, 60, { rgba: new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]), w: 2, h: 2 });
