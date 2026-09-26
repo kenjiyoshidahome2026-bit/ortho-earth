@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- 実描画の検分：AO（#46 段 3・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
+     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟。z17・チルト 60°・南から北を見る（南壁が正面・手前の地面は球の床）。
+     ①旗なし＝足元 3m の地面と離れた地面（40m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9）・離れた地面は変わらない
+     ③旗を戻す＝元どおり ④GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-ao</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g"), N = 256;
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180);
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const V = []; for (const h of [0, 100]) for (const [e, n] of [[-10, -10], [10, -10], [10, 10], [-10, 10]]) V.push(...P(e, n, h));
+	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
+	r.set("meshSet", { pos: new Float32Array(V), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.96, 0.96, 0.95, 1] });
+	const cam = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async () => {   // 同一タスクで drawImage（t-shadow と同じ作法）
+		r.draw(cam, {}); r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const st = cameraState(cam, N, N);
+	const lum = (px, e, n) => {   // 3×3 の平均輝度（地面 h=0）
+		const [lo, la] = ll(e, n), p = project(st, lo, la), x = Math.round(p[0]), y = Math.round(p[1]);
+		let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; }
+		return s / 9;
+	};
+	const off = await shot();
+	const nearOff = lum(off, 0, -13), farOff = lum(off, 0, -40);   // 南壁の足元 3m と 30m 先の地面
+	ok(`旗なし＝足元と離れた地面は同じ（${nearOff.toFixed(1)} / ${farOff.toFixed(1)}）`, Math.abs(nearOff - farOff) < 2 && farOff > 150);
+	r.set("fx", { ao: true });
+	const on = await shot();
+	const nearOn = lum(on, 0, -13), farOn = lum(on, 0, -40);
+	ok(`AO＝足元は暗い（${nearOn.toFixed(1)} < ${farOn.toFixed(1)}×0.9）`, nearOn < farOn * 0.9);
+	ok(`離れた地面は変わらない（${farOn.toFixed(1)} ≈ ${farOff.toFixed(1)}）`, Math.abs(farOn - farOff) < 6);
+	r.set("fx", { ao: false });
+	const back = await shot();
+	ok(`旗を戻すと元どおり（Δ=${Math.abs(lum(back, 0, -13) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -13) - nearOff) < 2);
+	await new Promise(res => setTimeout(res, 50));
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
