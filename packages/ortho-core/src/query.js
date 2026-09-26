@@ -5,7 +5,7 @@
 //   塗り（fill）＝点が面の中（偶奇則・穴つき）／線（line）＝線幅/2＋許容 px 以内／注記（symbol）＝点は許容 px＋8 以内・線上注記は線と同じ。
 // 返す形は MapLibre と同じ（Feature＋layer{id,type,"source-layer"}＋sourceLayer＋source）。順は上に描かれた層から。
 // 依存はエンジン内だけ（expr/decode/tile/pmtiles）＝DOM なし。
-import { evalExpr, truthy } from "./expr.js";
+import { evalExpr, truthy, originOfLayer } from "./expr.js";
 import { fetchMVT, polygons } from "./decode.js";
 import { tileLocalToLonLat } from "./tile.js";
 import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
@@ -16,7 +16,7 @@ const WORLD_PX = 256;   // 256px 世界（ortho の z の定義）＝タイル z
 
 // area＝{ ll:[lon,lat] } か { bbox:[w,s,e,n] }。order＝描いているタイル [{ key:"z/x/y", z }]。
 // hidden＝隠している style.layers の添字（Set）。tolPx＝許容（既定 3px）。layers＝層 id の絞り込み。filter＝追加の式。
-export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, signal = null, cache = null, request = null }) {   // request＝pipeline と同じ手入れ（#37）
+export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null }) {   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）
 	const want = layers ? new Set(layers) : null;
 	const [w, s, e, n] = area.bbox || [area.ll[0], area.ll[1], area.ll[0], area.ll[1]];
 	// 領域に掛かるタイル（同じ場所は最も細かい z だけ＝下地の粗い段は重ねない）
@@ -55,9 +55,9 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 			const toU = (lon, lat) => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
 			const [ux0, uy1] = toU(w, s), [ux1, uy0] = toU(e, n);
 			for (const f of src.features) {
-				const ctx = { zoom, props: f.props || {}, geom: f.type, vars: {} };
+				const ctx = { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: originOfLayer(L) };
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
-				if (filter && !truthy(evalExpr(filter, ctx))) continue;
+				if (filter && !truthy(evalExpr(filter, { ...ctx, origin: filterOrigin }))) continue;
 				let tol = tolPx;
 				if (L.type === "line") { const lw = +evalExpr(L.paint?.["line-width"] ?? 1, ctx); tol += (lw > 0 ? lw : 1) / 2; }
 				else if (L.type === "symbol" && f.type === "Point") tol += 8;

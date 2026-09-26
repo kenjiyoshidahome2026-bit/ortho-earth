@@ -7,7 +7,7 @@
 // cluster(src, opts)：{ clusterRadius:50, clusterMaxZoom:14, paint:{ circle-color/-radius/-stroke-color/-stroke-width/-opacity }（集約の丸）,
 //   text:{ color, size }, unclustered:{ paint } }。集約の属性＝{ cluster:true, point_count, point_count_abbreviated }（MapLibre と同じ名前）。
 //   クリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）。
-import { evalExpr } from "@ortho-earth/core";
+import { evalExpr, originOfLayer } from "@ortho-earth/core";
 import heatUrl from "../heatmap-gl.js?url";
 import clusterUrl from "../cluster-2d.js?url";
 
@@ -30,14 +30,15 @@ export function createAggregate(map, { signal } = {}) {
 	map.mapEl.addEventListener("click", onClick, { signal });
 	const ctl = {
 		heatmap(src, layer = {}, slot = "default") {
-			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom();
+			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom(), origin = originOfLayer(layer);
 			const pos = new Float32Array(pts.length * 3), w = new Float32Array(pts.length);
 			pts.forEach((p, i) => {
 				const lo = p.lon * D2R, la = p.lat * D2R, cl = Math.cos(la);
 				pos[i * 3] = cl * Math.cos(lo); pos[i * 3 + 1] = Math.sin(la); pos[i * 3 + 2] = cl * Math.sin(lo);
-				w[i] = Math.max(0, +evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props)) || 0);
+				const wv = evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props, origin));
+				w[i] = Math.max(0, +(wv === undefined && origin ? 1 : wv) || 0);   // ML の評価エラー＝既定 1・ネイティブは従来どおり
 			});
-			const h = ensureHeat(slot), st = heatStyle(paint, z);
+			const h = ensureHeat(slot), st = heatStyle(paint, z, origin);
 			h.post({ type: "style", ...st, minzoom: layer.minzoom ?? -99, maxzoom: layer.maxzoom ?? 99 }, [st.ramp.buffer]);
 			h.post({ type: "points", pos, w }, [pos.buffer, w.buffer]);
 			return { points: pts.length };

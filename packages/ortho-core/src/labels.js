@@ -1,6 +1,6 @@
 // ラベル抽出（投影非依存）。style の symbol層から点・横書きラベルを取り出す。
 // 描画は labels2d（Canvas2Dオーバーレイ）が担う。size/color/halo は式を評価。
-import { evalExpr, truthy } from "./expr.js";
+import { evalExpr, truthy, originOfLayer } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 
@@ -24,7 +24,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 
 		for (const f of src.features) {
 			if (f.type !== "Point") continue;
-			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {} };
+			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L) };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 			const text = String(evalExpr(lo["text-field"], ctx) ?? "").trim();
 			if (!text) continue;

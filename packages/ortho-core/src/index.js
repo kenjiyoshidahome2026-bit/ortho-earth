@@ -1,6 +1,6 @@
 // @ortho-earth/core: 球面ベクタタイル描画エンジン（MVT を正射の球面に直描き・WebGPU/GL2）。地域を知らない硬い層（LAYERS.md）。
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
-export { evalExpr, truthy } from "./expr.js";
+export { evalExpr, truthy, originOfLayer, ORIGIN_KEY } from "./expr.js";
 export { parseRGBA } from "./color.js";
 export { fetchMVT } from "./decode.js";
 export { queryTiles } from "./query.js";   // 描画結果への問い合わせ（queryRenderedFeatures 相当＝描いているタイルを取り直して今のスタイルで当てる）
