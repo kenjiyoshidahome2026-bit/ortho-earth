@@ -461,7 +461,9 @@ float dlonE7(uint a, uint b) {
 // pt_id → screen px（zr>0 手前）。
 // per-fid 点スタイル（paint 時のみ）：visible bit0=0 か radius=0 は棄却（false）。radius＝表(1/4 CSS px)×dpr、
 // 色＝G（circle色。α=0 は既定色のまま）。線 VS の per-fid 節と同じ表・同じ約束（幅0=線なし ⇔ 半径0=点なし）。
-bool fidPointStyle(int feat_id, inout float r, inout vec4 col) {
+// 円の縁（2026-09-26・MapLibre の circle-stroke）＝表の第 4 語（点の地物）が縁の色・線幅の欄（点では使わない）が縁の幅（1/8 CSS px×dpr）・
+// flags bit1＝塗り無し（中空の円）。縁は半径の外側（MapLibre と同じ）。どれも 0 なら従来どおり
+bool fidPointStyle(int feat_id, inout float r, inout vec4 col, inout vec4 scol, inout float sw) {
 	if (u_has_fidstyle != 1) return true;
 	uvec4 rec = texelFetch(u_fid_style, ivec2(feat_id % u_fidstyle_w, feat_id / u_fidstyle_w), 0);
 	if ((rec.b & 1u) == 0u) return false;
@@ -469,7 +471,10 @@ bool fidPointStyle(int feat_id, inout float r, inout vec4 col) {
 	if (r4 == 0u) return false;
 	r = float(r4) * 0.25 * u_dpr;
 	uint lc = rec.g;
-	if ((lc & 255u) != 0u) col = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
+	if ((rec.b & 2u) != 0u) col = vec4(0.0);
+	else if ((lc & 255u) != 0u) col = vec4(float(lc >> 24u), float((lc >> 16u) & 255u), float((lc >> 8u) & 255u), float(lc & 255u)) / 255.0;
+	uint w8 = (rec.b >> 24u) & 255u;
+	if (rec.a != 0u && w8 != 0u) { scol = vec4(float(rec.a >> 24u), float((rec.a >> 16u) & 255u), float((rec.a >> 8u) & 255u), float(rec.a & 255u)) / 255.0; sw = float(w8) * 0.125 * u_dpr; }
 	return true;
 }
 vec3 fetchPoint(int pt_id) {
@@ -644,8 +649,10 @@ void main() {
 	// per-fid スタイル（paint 時のみ）。visibility=filter の実体（線にも効く）・width=0=線を描かない（§7.1）。
 	float lw = u_line_width;
 	vec4  fidColor = vec4(0.0);
+	vec2  fidDash  = vec2(0.0);   // 表の第 4 語（線の地物）＝[線, 間] 1/8 CSS px の u16×2（MapLibre の line-dasharray・2026-09-26）。0＝従来の style 表
 	if (u_has_fidstyle == 1) {
 		uvec4 rec = texelFetch(u_fid_style, ivec2(int(meta.a) % u_fidstyle_w, int(meta.a) / u_fidstyle_w), 0);
+		if (rec.a != 0u) fidDash = vec2(float(rec.a >> 16u), float(rec.a & 0xFFFFu)) * 0.125 * u_fid_wscale;
 		if ((rec.b & 1u) == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
 		uint w8 = (rec.b >> 24u) & 255u;
 		if (w8 == 0u) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }
@@ -704,7 +711,7 @@ void main() {
 	int style_idx = int(meta.b & 0xFFu);
 	vec4 baseC = (fidColor.a > 0.0 ? fidColor : u_style_table[style_idx]);   // fid線色（paint）＞style_table（既定）
 	v_color = (u_pass == 1) ? (u_hilite_color.a > 0.0 ? u_hilite_color : vec4(1.0, 0.9, 0.0, 1.0)) : baseC;   // ホバー(pass1)＝hiliteColor指定色（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
-	v_dash      = u_dash_table[style_idx];
+	v_dash      = fidDash.y > 0.0 ? fidDash : u_dash_table[style_idx];
 	v_dist_base = float(meta.b >> 8u) * 0.017453292 + subOff * len;   // 累積px距離の基底（scale 非依存の相対）＋サブ区間ぶん（等長近似＝破線位相を辺内で繋ぐ）
 	v_dist = useA ? 0.0 : len;
 	v_perp  = side * halfCss * u_dpr;
@@ -832,10 +839,10 @@ void main() {
 	v_uv = vec2(ox, oy);
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	uint fid1 = texelFetch(u_pt_meta_tex, tc, 0).r + 1u;
-	float r = u_pt_radius;
-	vec4  dummy = vec4(0.0);
-	if (!fidPointStyle(int(fid1 - 1u), r, dummy)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // filter 非表示の点は pick からも外す（線と同じ）
-	r = max(r, u_pt_radius);   // pick 半径＝max(表の半径, マージン)＝見た目より広く拾う
+	float r = u_pt_radius, dsw = 0.0;
+	vec4  dummy = vec4(0.0), dsc = vec4(0.0);
+	if (!fidPointStyle(int(fid1 - 1u), r, dummy, dsc, dsw)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // filter 非表示の点は pick からも外す（線と同じ）
+	r = max(r + dsw, u_pt_radius);   // pick 半径＝max(表の半径＋縁, マージン)＝見た目より広く拾う
 	gl_Position = vec4(2.0*(p.x + ox*r)/u_viewport.x - 1.0,
 					   1.0 - 2.0*(p.y + oy*r)/u_viewport.y, 0.0, 1.0);
 	v_color = vec4(float(fid1 & 255u)/255.0, float((fid1>>8u)&255u)/255.0, float((fid1>>16u)&255u)/255.0, 1.0);
@@ -859,6 +866,8 @@ uniform int u_active_id;
 out float v_zr;
 out vec2  v_uv;
 out vec4  v_color;
+flat out vec4  v_stroke;   // 縁の色（α0＝縁なし）
+flat out float v_inner;    // 塗りの半径／外径（縁の内側の境）
 void main() {
 	int pt_id = gl_VertexID / 6;
 	int sub   = gl_VertexID % 6;
@@ -869,14 +878,17 @@ void main() {
 	v_uv = vec2(ox, oy);
 	ivec2 tc = ivec2(pt_id % u_pt_w, pt_id / u_pt_w);
 	int feat_id = int(texelFetch(u_pt_meta_tex, tc, 0).r);
-	float r = u_pt_radius;
-	vec4  col = vec4(1.0, 0.420, 0.208, 1.0);
-	if (!fidPointStyle(feat_id, r, col)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // per-fid：非表示/半径0＝棄却
+	float r = u_pt_radius, sw = 0.0;
+	vec4  col = vec4(1.0, 0.420, 0.208, 1.0), scol = vec4(0.0);
+	if (!fidPointStyle(feat_id, r, col, scol, sw)) { gl_Position = vec4(2.0, 0.0, 0.0, 1.0); return; }   // per-fid：非表示/半径0＝棄却
 	bool isActive = (feat_id == u_active_id);
 	if (isActive) r *= 1.6;
-	gl_Position = vec4(2.0*(p.x + ox*r)/u_viewport.x - 1.0,
-					   1.0 - 2.0*(p.y + oy*r)/u_viewport.y, 0.0, 1.0);
+	float R = r + sw;   // 外径＝半径＋縁（縁は外側）
+	gl_Position = vec4(2.0*(p.x + ox*R)/u_viewport.x - 1.0,
+					   1.0 - 2.0*(p.y + oy*R)/u_viewport.y, 0.0, 1.0);
 	v_color = isActive ? vec4(1.0, 0.9, 0.0, 1.0) : col;
+	v_stroke = scol;
+	v_inner = R > 0.0 ? r / R : 1.0;
 }`;
 
 const FS_POINT = `#version 300 es
@@ -884,11 +896,16 @@ precision mediump float;
 in  float v_zr;
 in  vec2  v_uv;
 in  vec4  v_color;
+flat in vec4  v_stroke;
+flat in float v_inner;
 out vec4  fragColor;
 void main() {
 	if (v_zr < 0.0)            discard;
-	if (dot(v_uv, v_uv) > 1.0) discard;
-	fragColor = v_color;
+	float d = dot(v_uv, v_uv);
+	if (d > 1.0) discard;
+	vec4 c = (v_stroke.a > 0.0 && d > v_inner * v_inner) ? v_stroke : v_color;   // 縁の輪か塗りか
+	if (c.a == 0.0) discard;   // 中空の円の内側
+	fragColor = c;
 }`;
 
 const FS_STENCIL = `#version 300 es

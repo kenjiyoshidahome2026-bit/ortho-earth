@@ -3,7 +3,7 @@
 // 投影非依存の部分だけ担当：幾何を経緯度に戻し、シーン原点からの delta(float32) と地物ごとの色/線幅を確定。
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
-import { evalExpr, truthy } from "./expr.js";
+import { evalExpr, truthy, originOfLayer } from "./expr.js";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 import { polygons, signedArea } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
@@ -74,7 +74,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 	const subLen = Math.max(1, 700 / mPerUnit);   // 700m 相当のタイル単位
 
 	for (let li = 0; li < style.layers.length; li++) {
-		const L = style.layers[li];
+		const L = style.layers[li], eo = originOfLayer(L);   // eo＝式の出自（引数 origin はシーンの原点＝別物）
 		if (L.type !== "fill" && L.type !== "line") continue;
 		if (L.layout && L.layout.visibility === "none") continue;
 		if (L.minzoom != null && z < L.minzoom) continue;
@@ -82,18 +82,18 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 		const src = layers[L["source-layer"]]; if (!src) continue;
 		const extent = src.extent;
 		// line-sort-key/fill-sort-key: 層内で昇順に並べ替え（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
-		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z);
+		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
 
 		if (L.type === "fill") {
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = [], col = [], idx = [];
-			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
-				const op = L.paint?.["fill-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
+				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
 				for (const [flat, holes] of polygons(f.geom)) {
 					const tris = earcut(flat, holes, 2);
@@ -120,13 +120,13 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
 			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
-			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {} }));
-			const ctx = { zoom: z, props: null, geom: null, vars: {} };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo }));
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
 				ctx.props = f.props; ctx.geom = f.type;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
-				const op = L.paint?.["line-opacity"]; const a = c[3] * (op != null ? evalExpr(op, ctx) : 1);
+				const op = L.paint?.["line-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
@@ -233,11 +233,11 @@ function waOnlyPartial(layers, src) {
 }
 
 // sort-key 式があれば層内の地物を昇順に並べ替える（安定ソート）。無ければ元順のまま。
-function sortFeatures(features, sortExpr, z) {
+function sortFeatures(features, sortExpr, z, eo) {
 	if (!sortExpr) return features;
 	// {f,i,k} を feature 毎に作らず、キー配列＋インデックス配列で安定ソート（GC削減）。ctx も1個使い回す。
 	const n = features.length, keys = new Array(n), idx = new Array(n);
-	const ctx = { zoom: z, props: null, geom: null, vars: {} };
+	const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };
 	for (let i = 0; i < n; i++) { const f = features[i]; ctx.props = f.props; ctx.geom = f.type; keys[i] = evalExpr(sortExpr, ctx); idx[i] = i; }
 	idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
 	const out = new Array(n);

@@ -42,6 +42,7 @@ const LARGE_BYTES = (() => { const n = +Q.get("th"); return Math.round((n > 0 ? 
 const LARGE_VERTS = (() => { const n = +Q.get("tv"); return n > 0 ? Math.round(n) : 2_000_000; })();
 
 export function initEditor(map, { adopt = true, setDropOwner = null, persist = true, data, onClose = null, dock = null, cloudPanel: hostCloud = null } = {}) {   // dock/cloudPanel＝ホストの注入（ホスト契約は README）   // adopt＝表示中のユーザーデータ（ドロップ/?g=）があればそれを編集へ取り込む／setDropOwner＝本体地図の dropFile を譲らせる手綱（app が注入）
+	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図（外側の顔）でも素の map＝エンジンの z で計算する（getZoom の 256px 世界の算式・zoomMin/setZoomMin の保存と復帰）
 	// 部品として開く（2026-09-19 本人裁定）：持ち主（japan の編集ボタン）が data＝編集中の図形（GeoPBF の ArrayBuffer・空なら null）を渡し、
 	// onClose＝ツールバー右端の「×」。× が押されたら持ち主が editor.result() で結果を受け取り、自分の図形を置き換えて destroy する。
 	// persist:false＝単独起動の自動保存（IDB geoedit/session "last"）を読みも書きもしない＝部品の編集が単独の「前回の続き」に混ざらない

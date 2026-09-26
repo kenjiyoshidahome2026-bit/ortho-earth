@@ -23,7 +23,7 @@ function evalColor(e, ctx) {
 	if (Array.isArray(e) && e[0] === "interpolate") {
 		const type = e[1], input = +evalExpr(e[2], ctx);
 		const n = (e.length - 3) >> 1;
-		if (!(n > 0) || !Number.isFinite(input)) return [0, 0, 0, 0];
+		if (!(n > 0) || !Number.isFinite(input)) return ctx.origin === "ml" ? null : [0, 0, 0, 0];   // ML＝評価エラーは既定値へ（null）・ネイティブ＝描かない（従来）
 		const stopIn = i => e[3 + i * 2];
 		const stopOut = i => evalColor(e[4 + i * 2], ctx);
 		if (input <= stopIn(0)) return stopOut(0);
@@ -66,6 +66,7 @@ export function buildFidStyle(paint = {}, features = [], opts = {}) {
 	const zoom = opts.zoom ?? 0;
 	const filter = opts.filter ?? null;
 	const states = opts.states ?? null;
+	const origin = opts.origin === "ml" ? "ml" : undefined;   // MapLibre の層（globe の ML アダプタ）＝MapLibre の意味で評価（expr.js・2026-09-26）
 	const count = features.length;
 	const u32 = new Uint32Array(count * 4);
 	const pFillC = paint["fill-color"], pFillO = paint["fill-opacity"];
@@ -73,7 +74,7 @@ export function buildFidStyle(paint = {}, features = [], opts = {}) {
 	const pWidth = paint["line-width"], pRadius = paint["circle-radius"];
 	for (let fid = 0; fid < count; fid++) {
 		const f = features[fid];
-		const ctx = { zoom, props: f?.properties ?? {}, geom: f?.geometry?.type ?? "", vars: {}, state: states?.get(fid) };
+		const ctx = { zoom, props: f?.properties ?? {}, geom: f?.geometry?.type ?? "", vars: {}, state: states?.get(fid), origin };
 		let fill = 0, line = 0, w8 = 8, r8 = 6, flags = 1;   // 既定: width 1px, radius 1.5px, visible
 		try {
 			if (filter && !truthy(evalExpr(filter, ctx))) flags = 0;
