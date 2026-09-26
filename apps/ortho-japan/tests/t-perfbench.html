@@ -51,8 +51,11 @@ try {
 		const pick = key => median(samples.map(s => +s[key] || 0));
 		const last = samples[samples.length - 1] || {};
 		out.backend = last.backend || out.backend; out.gpu = last.gpu || out.gpu;
+		// 標高セルの実測（着地〜計測窓の全体）：セル数・1 枚あたりの平均 ms（resample＋upload）・最大（perf plan P1 の前後比較の物差し＝GPU や読み込みの揺れに依らない CPU の数字）
+		const dn = (hEnd.cellN || 0) - (h0.cellN || 0), dres = (hEnd.resMs || 0) - (h0.resMs || 0), dup = (hEnd.upMs || 0) - (h0.upMs || 0);
+		const cell = { n: dn, avgMs: dn ? +((dres + dup) / dn).toFixed(2) : 0, avgResMs: dn ? +(dres / dn).toFixed(2) : 0, avgUpMs: dn ? +(dup / dn).toFixed(2) : 0, maxResMs: +((hEnd.resMax || 0)).toFixed(1), maxUpMs: +((hEnd.upMax || 0)).toFixed(1) };
 		out.scenes.push({ name: sc.name, gpuMap: +pick("gpuMap").toFixed(2), gpuGint: +pick("gpuGint").toFixed(2), frameMs: +pick("frameMs").toFixed(1), fps: pick("fps"),
-			res: last.res, aa: last.aa, hitchLoad: { elev: hLoad.elev - h0.elev, scene: hLoad.scene - h0.scene }, hitchMove: { elev: hEnd.elev - hLoad.elev, scene: hEnd.scene - hLoad.scene } });
+			res: last.res, aa: last.aa, hitchLoad: { elev: hLoad.elev - h0.elev, scene: hLoad.scene - h0.scene }, hitchMove: { elev: hEnd.elev - hLoad.elev, scene: hEnd.scene - hLoad.scene }, cell });
 	}
 	document.title = "PASS " + JSON.stringify(out);
 } catch (e) { document.title = "FAIL " + (e && e.message || e); }

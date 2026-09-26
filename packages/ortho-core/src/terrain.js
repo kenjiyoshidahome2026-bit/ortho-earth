@@ -29,7 +29,11 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	const perfT = (what, N, fn) => {
 		if (!self.__perfElev) return fn();
 		const t0 = performance.now(), r = fn(), ms = performance.now() - t0, d = what === "upload" ? self.__perfElevLast : null;
-		if (ms > 4) { (self.__perfHitch ||= { elev: 0, scene: 0 }).elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})` : ""}`); }
+		const H = (self.__perfHitch ||= { elev: 0, scene: 0 });
+		// 累計（mem テレメトリ→ベンチ台）：resample／upload の合計 ms・最大・上げたセル数＝「セル 1 枚あたりの実測 ms」を前後で比べる物差し（perf plan P1）
+		if (what === "resample") { H.resMs = (H.resMs || 0) + ms; H.resMax = Math.max(H.resMax || 0, ms); }
+		else { H.upMs = (H.upMs || 0) + ms; H.upMax = Math.max(H.upMax || 0, ms); H.cellN = (H.cellN || 0) + 1; }
+		if (ms > 4) { H.elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})` : ""}`); }
 		return r;
 	};
 	const putCell = (slot, data, cx, cy, N) => perfT("upload", N, () => renderer.set(slot, data, { cx, cy, cellRes: N }));
