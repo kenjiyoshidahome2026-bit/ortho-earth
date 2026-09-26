@@ -1,6 +1,6 @@
 {
 	"name": "native-bucket",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "native-bucket — a bridge between Cloudflare R2/Workers and browser IndexedDB for heavy binary datasets (GIS archives, ZIP, large assets): proxied Fetch with progress, R2 bucket listing/upload, persistent Cache. Browser-only. MIT.",
 	"keywords": [
 		"cloudflare",
