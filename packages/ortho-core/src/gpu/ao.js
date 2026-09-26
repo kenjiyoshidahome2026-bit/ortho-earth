@@ -1,7 +1,7 @@
 // AO（#46 段 3・2026-09-26・WebGPU だけ）：建物の足元・谷の陰＝画面空間の環境遮蔽。main パスの後・gint の前に 3 パス足す：
-//   ①AO（半解像度）＝シーンの深度（対数＝logCoef で線形化）から位置と法線を復元し、地平線型（4 方向×6 歩・画素ごとに回す）で接平面からの最大仰角を取る。
+//   ①AO（半解像度）＝シーンの深度（対数＝logCoef で線形化）から位置と法線を復元し、地平線型（8 方向×4 歩・画素ごとに回しジッタ）で接平面からの最大仰角を取る。
 //     位置は目からの相対（P_rel＝視線×距離＝f32 で m 級の精度）・標本の投影は clipEye＋mvp·(S,0)（CPU double の錨＝RTE と同じ作法）。
-//   ②ぼかし（半解像度）＝4×4・深度の重み（AO 面の GB に同梱した深度＝縁を跨がない）。深度が無い画素（GLOBE の床）は視線と単位球の交点で床を復元。
+//   ②ぼかし（半解像度）＝縦横 2 段の 7 点ガウス・深度の重み（AO 面の GB に同梱した深度＝縁を跨がない）。深度が無い画素（GLOBE の床）は視線と単位球の交点で床を復元。
 //   ③合成＝色に乗算（blend＝dst×src・MSAA の段は本体と同じ＝4x の静止フレームも 1x の遷移フレームも同じ的へ）。中間の色面は要らない。
 // 半径は視距離の 10%（20m〜400m）・画面上 4〜48px＝寄れば足元・引けば谷（机上シミュレーション：壁の手前 1.5〜5m で 0.8・30m で 0.95・60m で 1）。空（深度 1）は 1。LOW_MEM は globe が旗を落とす（作らない）。
 // 深度は 4x のとき texture_depth_multisampled_2d の sample 0（#47 depthout と同じ手）。
@@ -40,7 +40,7 @@ fn posRel(xy: vec2i, fwd: vec3f) -> vec4f {   // xyz＝目からの相対位置�
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }
-// 地平線型（HBAO）：画面上の 4 方向（画素ごとに π/16 刻みで回す）× 6 歩で最大仰角（接平面からの sin）を取り、距離で減衰。
+// 地平線型（HBAO）：画面上の 8 方向（画素ごとに回す）× 4 歩（画素ごとにジッタ）で最大仰角（接平面からの sin）を取り、距離で減衰。
 // 半球サンプル型は壁の手前 6m で遮蔽が 1〜2 割にしかならず足元が出ない（机上シミュレーション 2026-09-26）＝壁の方向は仰角 80° 超＝ほぼ全遮蔽になる地平線型へ。
 @fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	let xy = vec2i(pos.xy);
@@ -61,15 +61,19 @@ fn posRel(xy: vec2i, fwd: vec3f) -> vec4f {   // xyz＝目からの相対位置�
 	let radius = clamp(P.w * A.p.y, 20.0 * M_PER_R, 400.0 * M_PER_R);
 	let rpx = clamp(radius / P.w * A.eye.w, 4.0, 48.0);
 	let biasS = A.p.w;   // 接平面からの sin の下駄（自己遮蔽・平面の縞を切る）
-	let ang0 = f32((xy.x & 3) * 4 + (xy.y & 3)) * 0.19635;   // π/16 刻み 16 段
+	// 画素ごとの回転とジッタ＝交互勾配ノイズ（Jimenez）＝4×4 の格子より周期が見えにくい。ぼかし（縦横 7 点・深度重み）で均す
+	let fxy = vec2f(xy);
+	let nz = fract(52.9829189 * fract(0.06711056 * fxy.x + 0.00583715 * fxy.y));
+	let nz2 = fract(52.9829189 * fract(0.06711056 * fxy.y + 0.00583715 * fxy.x + 0.37));
+	let ang0 = nz * 0.7853982;   // π/4 の中で回す（8 方向）
 	let dim = vec2i(A.size.xy);
 	var occ = 0.0;
-	for (var k = 0; k < 4; k++) {
-		let a = ang0 + f32(k) * 1.5707963;
+	for (var k = 0; k < 8; k++) {
+		let a = ang0 + f32(k) * 0.7853982;
 		let dv = vec2f(cos(a), sin(a));
 		var hmax = 0.0;
-		for (var s = 1; s <= 6; s++) {
-			let q = clamp(vec2i(vec2f(xy) + 0.5 + dv * (rpx * f32(s) / 6.0)), vec2i(0), dim - vec2i(1));
+		for (var s = 0; s < 4; s++) {
+			let q = clamp(vec2i(fxy + 0.5 + dv * (rpx * (f32(s) + 0.3 + 0.7 * nz2) / 4.0)), vec2i(0), dim - vec2i(1));
 			let Q = posRel(q, fwd);
 			if (Q.w < 0.0) { continue; }
 			let D = Q.xyz - P.xyz; let l = length(D);
@@ -80,30 +84,32 @@ fn posRel(xy: vec2i, fwd: vec3f) -> vec4f {   // xyz＝目からの相対位置�
 		}
 		occ += max(hmax - biasS, 0.0) / (1.0 - biasS);
 	}
-	let ao = 1.0 - A.p.z * occ / 4.0;
+	let ao = 1.0 - A.p.z * occ / 8.0;
 	return vec4f(clamp(ao, 0.0, 1.0), encW(P.w), 1.0);
 }`;
 
-export const AO_BLUR_WGSL = /* wgsl */`
+// ぼかし＝縦横 2 段（dir＝(1,0)/(0,1)）の 7 点・ガウス×深度の重み（|Δw| が視距離の 5% を超える texel は混ぜない＝縁を跨がない）。GB の深度は運ぶ
+export const AO_BLUR_WGSL = dir => /* wgsl */`
 @group(0) @binding(0) var aoT: texture_2d<f32>;   // R=AO・GB=深度（AO パスが同梱）
 fn decW(gb: vec2f) -> f32 { let g = (gb.x * 255.0 + gb.y) / 255.0; return (exp2(g * 25.0) - 1.0) * 1.0e-5; }
+const GW = array<f32, 7>(0.071, 0.131, 0.19, 0.216, 0.19, 0.131, 0.071);
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
 	let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
 	return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }
-@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {   // 4×4・深度の重み（|Δw| が視距離の 5% を超える texel は混ぜない＝縁を跨がない）
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
 	let xy = vec2i(pos.xy);
 	let dim = vec2i(textureDimensions(aoT));
 	let c0 = textureLoad(aoT, xy, 0);
 	let w0 = decW(c0.gb); let tol = max(w0 * 0.05, 1.0e-6);
 	var s = 0.0; var wsum = 0.0;
-	for (var j = -2; j < 2; j++) { for (var i = -2; i < 2; i++) {
-		let q = clamp(xy + vec2i(i, j), vec2i(0), dim - vec2i(1));
+	for (var i = -3; i <= 3; i++) {
+		let q = clamp(xy + vec2i(${dir[0]}, ${dir[1]}) * i, vec2i(0), dim - vec2i(1));
 		let cq = textureLoad(aoT, q, 0);
-		let wq = select(0.0, 1.0, abs(decW(cq.gb) - w0) < tol);
+		let wq = GW[i + 3] * select(0.0, 1.0, abs(decW(cq.gb) - w0) < tol);
 		s += cq.r * wq; wsum += wq;
-	} }
-	return vec4f(select(c0.r, s / wsum, wsum > 0.0), 0.0, 0.0, 1.0);
+	}
+	return vec4f(select(c0.r, s / wsum, wsum > 0.0), c0.gb, 1.0);
 }`;
 
 export const AO_COMP_WGSL = /* wgsl */`
@@ -137,7 +143,7 @@ export function createAoGPU(device, format) {
 		const module = device.createShaderModule({ code });
 		return device.createRenderPipeline({ layout: device.createPipelineLayout({ bindGroupLayouts: [layout] }), vertex: { module, entryPoint: "vs" }, fragment: { module, entryPoint: "fs", targets }, primitive: { topology: "triangle-list" }, multisample: { count: sampleCount } });
 	};
-	const pipeFor = ms => { const k = ms ? "ms" : "ss"; let p = pipes.get(k); if (!p) { const l = lay(ms); p = { ao: mk(AO_WGSL(ms), l.ao, [{ format: "rgba8unorm" }]), blur: pipes.get("blur") || mk(AO_BLUR_WGSL, bglBlur, [{ format: "r8unorm" }]) }; pipes.set("blur", p.blur); pipes.set(k, p); } return p; };
+	const pipeFor = ms => { const k = ms ? "ms" : "ss"; let p = pipes.get(k); if (!p) { const l = lay(ms); p = { ao: mk(AO_WGSL(ms), l.ao, [{ format: "rgba8unorm" }]), blurH: pipes.get("blurH") || mk(AO_BLUR_WGSL([1, 0]), bglBlur, [{ format: "rgba8unorm" }]), blurV: pipes.get("blurV") || mk(AO_BLUR_WGSL([0, 1]), bglBlur, [{ format: "rgba8unorm" }]) }; pipes.set("blurH", p.blurH); pipes.set("blurV", p.blurV); pipes.set(k, p); } return p; };
 	const compFor = sc => { const k = "comp" + sc; let p = pipes.get(k); if (!p) { p = mk(AO_COMP_WGSL, bglComp, [{ format, blend: { color: { srcFactor: "zero", dstFactor: "src", operation: "add" }, alpha: { srcFactor: "zero", dstFactor: "one", operation: "add" } } }], sc); pipes.set(k, p); } return p; };
 	const uBuf = device.createBuffer({ size: 192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const uCPU = new Float32Array(48);
@@ -148,7 +154,7 @@ export function createAoGPU(device, format) {
 		if (texA && tw === w && th === h) return;
 		texA?.destroy(); texB?.destroy();
 		texA = device.createTexture({ size: [w, h], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });   // R=AO・GB=深度
-		texB = device.createTexture({ size: [w, h], format: "r8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });
+		texB = device.createTexture({ size: [w, h], format: "rgba8unorm", usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING });   // 横ぼかし（GB の深度を運ぶ）→ 縦ぼかしは texA へ戻す
 		tw = w; th = h; bgKey = "";
 	}
 	// enc＝フレームのエンコーダ・d＝{ depthTex, samples, W, H, colorView, mvp, invMvp, eye, clipEye, focal, logCoef, strength, radiusK, biasSin }
@@ -160,8 +166,9 @@ export function createAoGPU(device, format) {
 			const dv = d.depthTex.createView({ aspect: "depth-only" }), l = lay(ms);
 			bgs = { dep: d.depthTex,
 				ao: device.createBindGroup({ layout: l.ao, entries: [{ binding: 0, resource: { buffer: uBuf } }, { binding: 1, resource: dv }] }),
-				blur: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texA.createView() }] }),
-				comp: device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: texB.createView() }, { binding: 1, resource: sampler }] }) };
+				blurH: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texA.createView() }] }),
+				blurV: device.createBindGroup({ layout: bglBlur, entries: [{ binding: 0, resource: texB.createView() }] }),
+				comp: device.createBindGroup({ layout: bglComp, entries: [{ binding: 0, resource: texA.createView() }, { binding: 1, resource: sampler }] }) };
 			bgKey = key;
 		}
 		const u = uCPU; u.set(d.mvp, 0); u.set(d.invMvp, 16);
@@ -172,11 +179,13 @@ export function createAoGPU(device, format) {
 		device.queue.writeBuffer(uBuf, 0, u);
 		let pass = enc.beginRenderPass({ colorAttachments: [{ view: texA.createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
 		pass.setPipeline(P.ao); pass.setBindGroup(0, bgs.ao); pass.draw(3); pass.end();
-		pass = enc.beginRenderPass({ colorAttachments: [{ view: texB.createView(), loadOp: "clear", clearValue: { r: 1, g: 0, b: 0, a: 1 }, storeOp: "store" }] });
-		pass.setPipeline(P.blur); pass.setBindGroup(0, bgs.blur); pass.draw(3); pass.end();
+		pass = enc.beginRenderPass({ colorAttachments: [{ view: texB.createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
+		pass.setPipeline(P.blurH); pass.setBindGroup(0, bgs.blurH); pass.draw(3); pass.end();   // 横
+		pass = enc.beginRenderPass({ colorAttachments: [{ view: texA.createView(), loadOp: "clear", clearValue: { r: 1, g: 1, b: 1, a: 1 }, storeOp: "store" }] });
+		pass.setPipeline(P.blurV); pass.setBindGroup(0, bgs.blurV); pass.draw(3); pass.end();   // 縦（texA へ戻す＝合成が読む）
 		pass = enc.beginRenderPass({ colorAttachments: [{ view: d.colorView, loadOp: "load", storeOp: "store" }] });
 		pass.setPipeline(C); pass.setBindGroup(0, bgs.comp); pass.draw(3); pass.end();
 	}
 	function dispose() { texA?.destroy(); texB?.destroy(); texA = texB = null; uBuf.destroy(); pipes.clear(); }
-	return { encode, dispose, bytes: () => tw * th * 5 };
+	return { encode, dispose, bytes: () => tw * th * 8 };
 }
