@@ -1253,7 +1253,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		return n;   // 焼いた層数（renderer の計器 gndFaces）
 	}
 	// 焼き込みの署名＝renderer の合成鍵の一部（変わったら窓を焼き直す）：内容世代＋運動状態（安表現/移動中の塗り判定が変わる）
-	const bakeSig = () => `${bakeRev}|${isDrawing ? 1 : 0}${(staticN ?? 99) < 4 ? 1 : 0}|${layers.map(L => L._forceLowMove ? 1 : 0).join("")}`;
+	// 署名の運動ビットは facePlan の moving（isDrawing || staticN<4）と同じ 1 ビット（#58・2026-09-27）。旧＝isDrawing と staticN<4 の 2 ビット＝
+	// worker の rAF が同じ cam を繰り返すと isDrawing だけが瞬いて表現は同じまま署名が変わり、地面アトラスの全窓を焼き直していた
+	const bakeSig = () => `${bakeRev}|${(isDrawing || (staticN ?? 99) < 4) ? 1 : 0}|${layers.map(L => L._forceLowMove ? 1 : 0).join("")}`;
 
 	// ── 公開面：既定層への facade（従来 API と同形＝renderworker 無改造）＋ addLayer（多層の新しい口）──
 	const L0h = addLayer();
