@@ -21,6 +21,7 @@ import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と�
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL } from "./wgsl.js";
 import { gndMixSlow } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換
+import { f32ToF16 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）
 import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
@@ -39,22 +40,7 @@ const PL_BATCH_SLOT = 256; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
 
-// f32→f16（IEEE half）。標高(m)は -500..9000 級＝half で ±0.25〜2m 精度（GL の R16F と同じ土俵）。
-// 最近接丸め・Inf/NaN→0（標高データに来ない保険）・subnormal 域(6e-5m未満)は 0 へフラッシュ。
-function f32ToF16(src) {
-	const n = src.length, out = new Uint16Array(n);
-	const u = new Uint32Array(src.buffer, src.byteOffset, n);
-	for (let i = 0; i < n; i++) {
-		const x = u[i], s = (x >>> 16) & 0x8000;
-		let e = (x >>> 23) & 0xff, m = x & 0x7fffff;
-		if (e === 0xff) { out[i] = s; continue; }
-		if (e < 113) { out[i] = s; continue; }
-		m = m + 0x1000;                                     // 半ULP加算＝最近接丸め
-		if (m & 0x800000) { m = 0; e++; }
-		out[i] = e > 142 ? (s | 0x7bff) : (s | ((e - 112) << 10) | (m >> 13));
-	}
-	return out;
-}
+// f32→f16 は ./f16.js（Float16Array の native 変換＋旧ループのフォールバック・perf plan P1 step 0）
 
 // ── 空の環境光（#46 段 2）＝段 1 と同じ散乱式（wgsl.js atmScatter の JS 写し・帯の幅 k と太陽の強さも同じ）で天球を積み、SH9（照度の係数 A_l 込み）と
 // 太陽の強さ（地表での透過率込み）を「原点で水平な白＝1」に正規化して返す（自動露出＝屋根の明るさが時刻で大きく動かない・壁との比が動く）。

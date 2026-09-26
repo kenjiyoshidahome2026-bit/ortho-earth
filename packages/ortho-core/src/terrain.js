@@ -3,7 +3,7 @@
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
-import { downsampleFlipped } from "./elevation.js";
+import { downsampleFlipped, cropResample } from "./elevation.js";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.js";
 import { createDemSource } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 
@@ -189,26 +189,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const v = top + (bot - top) * ty;
 		return v < 0 ? 0 : v;
 	}
-	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化（downsampleFlipped と同じ南上げ・
-	// texel中心 (i+0.5)/N 規約＝シェーダ uv 直サンプルと一致。角合わせだと±0.5texelずれる）。
-	// 混成アトラスの遠方セル用＝R01 の大量フェッチ（1セル数秒×数十）を避けつつ遠景の起伏を出す。
-	function cropResample(tile, lng0, lat0, span, N) {
-		const { data, width: w, height: h, lng: lo, lat: la, range: r } = tile;
-		const out = new Float32Array(N * N);
-		const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
-		for (let j = 0; j < N; j++) {
-			const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * (h - 1);
-			const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
-			for (let i = 0; i < N; i++) {
-				const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * (w - 1);
-				const x0 = Math.max(0, Math.min(w - 2, gx | 0)), fx = Math.min(1, Math.max(0, gx - x0));
-				const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
-				const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
-				out[j * N + i] = v < 0 ? 0 : v;   // row0=南
-			}
-		}
-		return out;
-	}
+	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化＝cropResample（elevation.js へ移設・2026-09-27・門＝tests/elevation-resample.mjs）
 	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
 	const EDGE_FADE = r => r === 90 ? 0 : r === 10 ? 1.5 : 0.4;
 	function viewCellRange(cam, size, range, mixed) {
