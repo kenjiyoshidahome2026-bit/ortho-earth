@@ -5,6 +5,9 @@
      ②申し出たオーバーレイ＝api.depth が来る（backend は本体と同じ）。画面上で棟の中腹と同じ高さに来る 2 点のうち、
        棟の北（向こう）600m の点は隠れ・棟の南（手前）150m の点は見える。棟の上（屋上 300m の上の 450m）の点は見える
      ③?lowmem=1（deviceMemory=2 に見せる＝LOW_MEM）＝申し出ても深度は作らない（今の挙動）・点は全部見える
+     地形は止めて回す（頁が自分で noterr=1 を足す）：z16・60°・fovy 50° では画面の上端が天底から 85°・地平線は約 89°＝画面は全部地面。
+     地形は着いたら深度を書く（設計どおり）＝棟の上の点の後ろ（約 3.2km 北の地面）が d≈0.02 になり「何も無い画素」が画面から消える。
+     地形の着荷（api.ortho-earth.com の標高）と報告の競走＝WebGPU は毎回・GL2 は時々落ちていた（2026-09-27）。ここで見るのは棟の隠れと d=1 の往復＝地形の隠れは見ない。
      実時間（overlay の import は仮想時間で解決しない）。GL2（verify:ui・gl2=1）と WebGPU（verify:webgpu）の両方で回す。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-overlaydepth</title></head>
 <body><div id="map"></div>
@@ -13,6 +16,7 @@ const Q = new URLSearchParams(location.search);
 const LOWMEM = Q.get("lowmem") === "1";
 const WAIT = +Q.get("wait") || 30000;   // 報告を待つ上限（ms）。ソフトウェア GPU では 1 フレームが数十秒＝?wait=300000 で延ばす
 if (LOWMEM) Object.defineProperty(Navigator.prototype, "deviceMemory", { get: () => 2, configurable: true });   // globe.js の LOW_MEM は import の時に決まる＝その前に
+if (Q.get("noterr") !== "1") { Q.set("noterr", "1"); history.replaceState(null, "", "?" + Q + location.hash); }   // 地形を止める（冒頭の注）。noTerr は createGlobe の中で location.search から読む＝その前に。頁で足す＝verify-webgpu の頁名だけの実行でも同じ
 const { createGlobe } = await import("@ortho-earth/globe");
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
@@ -59,7 +63,7 @@ try {
 		ok("behindHidden", got?.res?.[0] === "hid", JSON.stringify(got?.res) + " raw=" + JSON.stringify(got?.raw) + " mine=" + JSON.stringify(got?.mine) + " behind=" + JSON.stringify(behind.map(v => +v.toFixed(5))));
 		ok("frontVisible", got?.res?.[1] === "vis", JSON.stringify(got?.res) + " front=" + JSON.stringify(front.map(v => +v.toFixed(5))));
 		ok("aboveVisible", got?.res?.[2] === "vis", JSON.stringify(got?.res));
-		ok("clearIsOne", got?.raw?.[2] === 1, "raw above=" + got?.raw?.[2]);   // 棟の上＝空（何も書かれていない）＝クリア値 1 がそのまま届く
+		ok("clearIsOne", got?.raw?.[2] === 1, "raw above=" + got?.raw?.[2]);   // 棟の上の点の後ろ＝海面の球（深度を書かない・地形は止めてある）＝クリア値 1 がそのまま届く（d=1 が 16777216 に丸まる轍の門）
 		// 申し出が去った後も本体の絵は壊れない（GL2＝FBO を畳んで既定フレームバッファへ直に戻る）：棟の中腹が灰色のまま
 		const img = await createImageBitmap(await map.gadget.shot().composite());
 		const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d");
