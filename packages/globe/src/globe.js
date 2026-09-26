@@ -497,9 +497,9 @@ const nogpuMark = sessionStorage.getItem("oj.nogpu");
 if (nogpuMark && nogpuN < 2) sessionStorage.removeItem("oj.nogpu");   // 一発分を消費＝次のリロードで WebGPU 再試行
 const markNoGpu = why => { sessionStorage.setItem("oj.nogpu", why); sessionStorage.setItem("oj.nogpuN", String(nogpuN + 1)); };
 const gpuBackend = !forceGl2 && "gpu" in navigator && (/[?&]gpu=1/.test(location.search) || (!IS_ANDROID && !sealGpuForOverlay && !nogpuMark && nogpuN < 2));
-// 描画の質（#46）：大気散乱（段 1）・PBR と環境光（段 2）・AO（段 3）の旗。既定＝WebGPU かつ非 LOW_MEM で on・opts.render.<name>:false で off・
-// ?fx=pbr,ao／?fx=noatmosphere で URL が勝つ（boot/tier.js renderFx＝純関数）。段 0（2026-09-26）は旗を worker の init で運ぶだけ＝絵はまだ変えない。
-const RENDER_FX = renderFx({ render: opts.render, search: location.search, LOW_MEM, gpuBackend });
+// 描画の質（#46）：大気散乱・PBR と環境光・AO の旗＝ell と同じ作法で **既定は全端末で 0**・URL の ?atmosphere=1／?pbr=1／?ao=1 で点ける（本人裁定 2026-09-26）。
+// opts.render.<name>:true は組み込みの口。WebGPU だけが読む（GL2 は実装を持たない）。boot/tier.js renderFx＝純関数。
+const RENDER_FX = renderFx({ render: opts.render, search: location.search });
 // フォールバック起因の GL2（＝WebGPU が使えるはずの環境で印により落ちている）だけチップを出す。
 // Android 既定 GL2・?gl2=1・navigator.gpu 無しの「設計どおり GL2」には出さない（ノイズにしない）。
 const gl2Fallback = !forceGl2 && "gpu" in navigator && !IS_ANDROID && !sealGpuForOverlay && !gpuBackend;   // 設計どおりの GL2（封・Android・?gl2=1）にはチップを出さない
