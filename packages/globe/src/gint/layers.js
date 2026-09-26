@@ -303,7 +303,10 @@ function addGint(pbf, opts = {}) {
 	const ready = nextAck();
 	const handlers = { hover: [], click: [], mouseenter: [], mouseleave: [] };   // mouseenter/leave＝MapLibre 同名の糖衣（hover の縁で発火）
 	let lastHovFid = null;
-	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null;   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
+	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null, lastZoomKey = null;
+	// opts.buildTable＝表の組み立ての差し替え（MapLibre の層＝mltables の buildMLTable・台帳 R5）。paint/filter の代わりにこれで表を作る
+	//（setFilter・feature-state・settle の再評価・setData の呼び直しも同じ関数＝ネイティブの buildFidStyle が上書きしない）。
+	// opts.zoomKey(z)＝その値が変わったら settle で作り直す（層の zoom 域の境・["zoom"] の式＝0.25 の閾値だけに頼らない・台帳 R16）   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
 	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
 	let lastTable = null;                // 直近の fid 表（setPaint の評価結果）＝ラベルの filter 連動が visible ビット(bit0)を読む
 	const fstates = new Map();           // fid → feature-state（['feature-state', key] の実体・maplibre 同名）
@@ -363,6 +366,7 @@ function addGint(pbf, opts = {}) {
 			if (tipFmt && gintHoverTip && !extTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
 		},
 		_zoomReeval: z => {   // settle 毎に呼ばれる（③）：['zoom'] を含む paint は 0.5z 動いたら再評価（restyle は安い＝§8.1）
+			if (opts.zoomKey) { if (lastPaint && opts.zoomKey(z) !== lastZoomKey) paintNow(lastPaint, lastFilter); return; }
 			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.25) paintNow(lastPaint, lastFilter);   // 0.25＝出しズームの境（z4/z5…）を跨いだら遅れずに（旧 0.5 は 4.6→5.05 のような跨ぎを取り逃がした）
 		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
@@ -412,11 +416,11 @@ function addGint(pbf, opts = {}) {
 			lastPaint = paint ?? null; lastFilter = filter ?? null;
 			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
 			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
-			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom;
+			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom; lastZoomKey = opts.zoomKey?.(cam.zoom) ?? null;
 			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
+			const { u32, count } = opts.buildTable ? opts.buildTable({ feats, zoom: cam.zoom, states: fstates }) : buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
 			lastTable = u32;
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);
 			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）

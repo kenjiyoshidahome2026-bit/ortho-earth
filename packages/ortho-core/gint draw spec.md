@@ -177,13 +177,19 @@ paint か filter の JSON に `["zoom"` を含む層は、**settle ごとに |Δ
 
 ### 4.9 MapLibre 形の入口（#34・2026-09-23）
 
-`map.addSource(id, { type: 'geojson', data })`＋`map.addLayer({ type: 'fill' | 'line' | 'circle', … })` は、**source ごとに Gint の追加層 1 枚**を作る（globe.js `rebuildGint`）：
+`map.addSource(id, { type: 'geojson', data })`＋`map.addLayer({ type: 'fill' | 'line' | 'circle', … })` は、**MapLibre の重ね順で連続する同じ source の層だけを 1 枚の Gint の追加層（pass）へ詰める**（2026-09-26・MapLibre 互換の段 4・globe.js `rebuildGint`＋core `mltables.js`）：
 
-- 同じ source の層の paint は `Object.assign` で**混ぜ**、filter は層ごとに `all` で**結ぶ**（⚠ MapLibre は層ごと＝U7）
+- 詰め方（`packMLLayers`）：1 枚の Gint 層は下から 塗り→線→点 の順に描く＝層の型の順（fill < line < circle）を崩さない間だけ同じ pass。同じ型の重なり（縁取りの線 2 本・同じ source のハイライト層）や順が戻る時は pass を足す（U7 は MapLibre 形の入口では解消）
+- 表（`buildMLTable`）は MapLibre の意味＝層の型がジオメトリを選ぶ（塗り＝面・線＝線と面の輪郭・点＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・fill に輪郭を付けない（`fill-outline-color` の時だけ 1px）・`circle-opacity`。消す欄は幅/半径 0（線/点の色の α0 は既定色＝§7.1）。式は MapLibre の出自で評価（評価エラー＝既定値）
+- 手綱には `buildTable`（表の組み立て）と `zoomKey`（層の zoom 域の境で settle に作り直す）を注入＝`setFilter`・feature-state・settle の再評価・`setData` の呼び直しも同じ表（ネイティブの `buildFidStyle` は使わない）
+- 重ね順は予約の帯（order 1000＋pass の通し番号）＝U10 の order 0 を踏まない。ML の Gint 層は `interactive:false`（カーソルを奪わない・層イベントは `queryRenderedFeatures`）・塗りの層が無い pass は `fillMaxEdges:0`（縮退 stencil の塗りの穴＝U13）
+- 同じ source の pass はジオメトリを別々に焼いて上げる（共有なし）＝pass が増えるのは同じ型が重なった時だけ
+- 未対応（段 4b）：`line-dasharray`（表の dash 欄の地物ごとの配線）・`circle-stroke`（表の第 4 語）・幅/半径の上限（u8：線 約 32px・点 約 64px）
 - 出しズーム＝**MapLibre の既定**：`minzoom` の無い層は z0 から・`maxzoom` の無い層は上限なし（同じ source の層は和）。
   旧（〜2026-09-25）は minzoom 無し＝null＝Gint の自動導出（狭い範囲のデータは z9 等から）で、MapLibre の層が引くと消えたまま照会だけ当たっていた
-- `setPaintProperty` / `setLayoutProperty(visibility)` / `setFilter` / `moveLayer` / `setLayerZoomRange`＝登録簿を書き換えて `setPaint`（fid 表だけ）か `setData`
-- `map.setFeatureState({ source, id }, state)`＝`id`＝その source の地物番号（GeoJSON の並び＝fid）→ 層の `setFeatureState`
+- `setPaintProperty` / `setLayoutProperty(visibility)` / `setFilter` / `moveLayer` / `setLayerZoomRange`＝登録簿を書き換えて全体の詰め方から組み直す（同じ署名の pass は手綱を使い回して表だけ・隠した層は詰め方に残して表で効かせない＝出し入れで焼き直さない）
+- `map.setFeatureState({ source, id }, state)`＝`id`＝その source の地物番号（fid）→ その source の全 pass へ（source に住む＝pass を作り直しても残る）
+- `queryRenderedFeatures` は層ごとに 1 件（表を組んだ時の「その層が描いた」印で当てる）
 - `queryRenderedFeatures` と `map.on('click' | 'mousemove' | 'mouseenter' | 'mouseleave', layerId, cb)` はこれらの層に当たる（`identifyAt` に画素の許容を渡す）
 - 重ね順＝登録簿の並びの添字（0 始まり）＝`order`。描き方の違う層どうしの上下は描画の段で決まる（基図 → 画像 → gint → 押し出し/建物 → ヒートマップ → 集約 → 記号 → 模様）
 - `fill-pattern` / `line-pattern` / `line-gradient` / `line-offset` は Gint ではなく canvas2D の模様の口（紙の遺物の側＝互換の口だけ）
@@ -539,7 +545,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | ~~U4~~ | 照会に内部層・消した層 | **解決 2026-09-26**：内部層（`_internal`）・消した層・ズーム域の外は queryAll/hits に出ない。interactive:false は入る（census2020 の重ね合わせ照会のため） | — |
 | U5 | `layer.on('click')` | アクティブ層だけ | 現状を仕様にする（層またぎは map.on('click')） |
 | U6 | アクティブ層の remove | main のゲートが null | 残る interactive 層の最後へ落とす（draft の意図） |
-| U7 | MapLibre 形の filter | 同じ source の層の filter が `all` で結ばれる | 層ごとの filter を別の Gint 層に分ける／現状を明記のまま |
+| U7 | MapLibre 形の filter | 同じ source の層の filter が `all` で結ばれる（**2026-09-26 解消**＝MapLibre 互換の段 4・§4.9） | 層ごとの filter を別の Gint 層に分ける／現状を明記のまま |
 | U8 | 線だけの層 | pick の的を作らない＝ホバーしない | 線だけの層にも的を作る |
 | U9 | 予算で飛ばした非アクティブ層 | 静止時に自前でフレームを要求しない | drawn の復帰を全層へ |
 | U10 | order 0 | GL＝既定スロットの上・WebGPU＝下 | 既定層の order を揃える |

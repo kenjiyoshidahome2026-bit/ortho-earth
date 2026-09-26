@@ -93,6 +93,11 @@ try {
 		// S9 真偽でない条件（MapLibre＝評価エラー＝filter 偽・ネイティブなら文字列は真）＝ML の意味が gint の層まで届くか（段 3）
 		map.addSource("cb", { type: "geojson", data: fc([sq(133.8, 34.2, 0.3, { flag: true }), sq(135.0, 34.2, 0.3, { flag: "yes" })]) });
 		await map.addLayer({ id: "cb-f", type: "fill", source: "cb", filter: ["case", ["get", "flag"], true, false], paint: { "fill-color": "#884400" } });
+		// S10 破線（line-dasharray＝線幅の倍数）・S11 円の縁（circle-stroke）＝段 4b（両シェーダの表の欄の配線）
+		map.addSource("dh", { type: "geojson", data: fc([F({ type: "LineString", coordinates: Array.from({ length: 81 }, (_, i) => [138.6 + i * 0.025, 34.2]) }, {})]) });   // 細かく刻む＝緯度に沿う（2 点だと大円で結ぶ）
+		await map.addLayer({ id: "dh-l", type: "line", source: "dh", paint: { "line-color": "#ffff00", "line-width": 4, "line-dasharray": [4, 4] } });
+		map.addSource("cs2", { type: "geojson", data: fc([pt(141.8, 34.2, {})]) });
+		await map.addLayer({ id: "cs2-c", type: "circle", source: "cs2", paint: { "circle-color": "#ffff00", "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
 		await sleep(3000);
 		const after = await snap(map);
 
@@ -126,6 +131,12 @@ try {
 			const [x, y] = P(135.0, 35.3), d = Math.max(...around(x, y).map(([u, v]) => diff(px(after, u, v), px(before, u, v))));
 			return [d <= 30, `Δ${d}`];
 		});
+		await scene("line-dasharray", () => {   // 線の上を 1px ずつ見て、塗られた所と塗られていない所が両方あるか（実線なら全部塗られる）
+			let on = 0, off = 0;
+			for (let lon = 139.1; lon <= 140.1; lon += 0.005) { const [x, y] = P(lon, 34.2); if (near(px(after, x, y), [255, 255, 0], 90)) on++; else if (diff(px(after, x, y), px(before, x, y)) <= 30) off++; }
+			return [on > 5 && off > 5, `on=${on} off=${off}`];
+		});
+		await scene("circle-stroke", () => { const [x, y] = P(141.8, 34.2), c = px(after, x, y), e = px(after, x + 8, y); return [near(c, [255, 255, 0]) && near(e, [255, 0, 0], 80), `center=${c} +8px=${e}`]; });
 		await scene("stops-addLayer", () => { const c = px(after, ...P(136.2, 35.3)); return [near(c, [255, 0, 0]), `center=${c}`]; });
 		await scene("legacy-filter-addLayer", async () => { const c = await at(137.5, 35.3, ["lf-f"]), d = await at(138.5, 35.3, ["lf-f"]); return [c.includes("lf-f") && !d.includes("lf-f"), `C=${c} D=${d}`]; });
 		await scene("ml-case-string-condition", async () => { const a = await at(133.8, 34.2, ["cb-f"]), b = await at(135.0, 34.2, ["cb-f"]); return [a.includes("cb-f") && !b.includes("cb-f"), `true=${a} "yes"=${b}`]; });
@@ -139,6 +150,13 @@ try {
 			await sleep(1000);
 			const h = await at(134.5, 34.2, ["rel-c"]);
 			return [h.includes("rel-c"), String(h)];
+		});
+		await scene("bad-source-isolated", async () => {   // 読めない source（上の相対 URL）が他の source の層を巻き添えにしない（段 4 の全体の組み直しで一度壊した・必ず通す）
+			map.addSource("ok2", { type: "geojson", data: fc([sq(136.4, 34.2, 0.3, {})]) });
+			await map.addLayer({ id: "ok2-f", type: "fill", source: "ok2", paint: { "fill-color": "#226622" } });
+			await sleep(1000);
+			const h = await at(136.4, 34.2, ["ok2-f"]);
+			return [h.includes("ok2-f"), String(h)];
 		});
 		await scene("raster-tilejson-url", async () => {
 			map.addSource("rt", { type: "raster", url: new URL("fixtures/mlcompat/raster.json", location.href).href, tileSize: 256 });
@@ -160,10 +178,11 @@ try {
 		});
 		await scene("unknown-op-throws", async () => {
 			map.addSource("uo", { type: "geojson", data: fc([sq(150, -30, 0.1, {})]) });
-			let threw = false;
-			try { await map.addLayer({ id: "uo-f", type: "fill", source: "uo", paint: { "fill-color": ["frobnicate", 1] } }); } catch { threw = true; }
-			if (map.getLayer("uo-f")) map.removeLayer("uo-f");
-			return [threw, threw ? "threw" : "accepted"];
+			let msg = null;
+			try { await map.addLayer({ id: "uo-f", type: "fill", source: "uo", paint: { "fill-color": ["frobnicate", 1] } }); } catch (e) { msg = String(e?.message || e); }
+			const kept = !!map.getLayer("uo-f");
+			if (kept) map.removeLayer("uo-f");
+			return [!!msg && /frobnicate/.test(msg) && !kept, msg ? `threw: ${msg}` : "accepted"];   // MapLibre＝その演算子の名を挙げて層を足さない
 		});
 	} else if (G === "style") {
 		const style = {

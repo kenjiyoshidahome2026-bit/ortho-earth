@@ -559,7 +559,9 @@ export interface OrthoJapanMap {
 	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/video/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
 	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は canvas2D の口で描く（#49・gint の線は一色・ずらしなし＝地形の遮蔽は無い）。
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
-	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝source ごとに gint の追加層・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
+	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層へ詰める（1.3.0〜）・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
+	 *  fill/line/circle は MapLibre の意味（1.3.0〜）：層の型が描くジオメトリを選ぶ（fill＝面・line＝線と面の輪郭・circle＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・
+	 *  fill に輪郭を付けない（fill-outline-color の時だけ 1px）・circle-opacity。同じ source のハイライト層・縁取りの線もそのまま描ける。未対応＝line-dasharray と circle-stroke（gint の線/点）・線幅/半径の上限（約 32px/64px）。
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ）。
 	 *  旧式フィルタ（["==","k","v"] 等）・旧式の関数（{ stops }）・"{name}" 記法は style.json と同じく読み替える（1.3.0〜・ML 形 gadget の層 object も同じ）。
