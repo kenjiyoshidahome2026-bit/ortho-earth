@@ -2,7 +2,8 @@
 <!-- 実描画の検分：外来の標高タイル（raster-dem・#36）。試料＝tests/fixtures/dem（太平洋 150.5E 30.5N に 3000m の円錐・terrarium・z10）。
      ①opts.terrain で起動 → map.getHeight が山頂 ≈3000m・中腹 ≈1500m・範囲外は既定（海＝0）
      ②描画：傾けた絵が DEM あり／なしで変わる（地形のセル R01 が上書きされている）
-     ③setTerrain(null) で外れる ④addSource(raster-dem)＋setTerrain({ source:id }) で戻る。実時間。 -->
+     ②' DOM の投影（projectLL＝Marker/pop/計測）も描いている DEM の山に乗る＝傾けた projectLL(山頂)≈海面球から 3000m 上（makeProjectorH terrain:false）
+     ③setTerrain(null) で外れる（projectLL も海面へ戻る＝標高メモが捨てられる） ④addSource(raster-dem)＋setTerrain({ source:id }) で戻る。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-dem</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -27,15 +28,28 @@ try {
 	const poll = async (want, ms) => { const t0 = performance.now(); let d; while (performance.now() - t0 < ms) { d = await grab(); if (want(d)) return d; await sleep(2000); } return d; };
 	const withDem = await poll(land, 60000);
 	ok("renderedLand", land(withDem), px(withDem, 480, 250).join(","));
+	// ②' projectLL の地形持ち上げ＝map.getHeight と同じ DEM が先（旧＝既定の標高＝海で、山頂のマーカーが海面へずれた）。標高は非同期＝到着まで 0m なので待つ
+	const lift = h => map.makeProjectorH({ terrain: false })(150.5, 30.5, h);
+	const dpx = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+	const settle = async (want, ms) => { const t0 = performance.now(); let p; while (performance.now() - t0 < ms) { p = map.projectLL(150.5, 30.5); if (want(p)) return p; await sleep(250); } return p; };
+	const onPeak = p => dpx(p, lift(3000)) < 3, onSea = p => dpx(p, lift(0)) < 3;
+	const sep = dpx(lift(3000), lift(0));   // 3000m の持ち上げが画面で見分けられる（検定が空振りしない）
+	const pk = await settle(onPeak, 20000);
+	ok("projectLL", onPeak(pk) && sep > 10, `d=${dpx(pk, lift(3000)).toFixed(1)}px sep=${sep.toFixed(1)}px`);
 	await map.setTerrain(null);
 	const g0 = await map.getHeight(150.5, 30.5);
 	ok("removed", g0 < 5 && map.getTerrain() === null, g0.toFixed(0));
+	await sleep(2000);   // 外した後の照会（既定の標高＝海＝0 に切る）が届いても海面のまま
+	const sea = map.projectLL(150.5, 30.5);
+	ok("projectLLRemoved", onSea(sea), `d=${dpx(sea, lift(0)).toFixed(1)}px`);
 	const noDem = await poll(d => !land(d), 40000);
 	ok("renderedSea", !land(noDem), px(noDem, 480, 250).join(","));
 	map.addSource("d", { type: "raster-dem", ...SRC });
 	await map.setTerrain({ source: "d", exaggeration: 1.5 });
 	const g1 = await map.getHeight(150.5, 30.5);
 	ok("setTerrainById", Math.abs(g1 - 3000) < 40, g1.toFixed(0));
+	const pk1 = await settle(onPeak, 20000);
+	ok("projectLLById", onPeak(pk1), `d=${dpx(pk1, lift(3000)).toFixed(1)}px`);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>
