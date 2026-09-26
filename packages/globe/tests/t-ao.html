@@ -1,8 +1,12 @@
 <!doctype html>
 <!-- 実描画の検分：AO（#46 段 3・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
-     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟。z17・チルト 60°・南から北を見る（南壁が正面・手前の地面は球の床）。
-     ①旗なし＝足元 3m の地面と離れた地面（60m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9・机上 0.81）・離れた地面は変わらない
-     ③旗を戻す＝元どおり ④GPU の検証エラー 0 -->
+     試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟と、東に 80m 角の平らな板（10m 格子のメッシュ＝深度の経路の地面・地形メッシュの代わり）。
+     z17・チルト 60°・南から北を見る（南壁が正面・手前の地面は球の床）。
+     ①旗なし＝足元 3m の地面と離れた地面（60m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9）・離れた球の床と板は変わらない（1.5 階調）
+     ③安定（2026-09-26 の根治の門）＝模様の位相をずらしても・ズームを 0.0005 だけ変えても AO の掛かり方がほとんど変わらない（平均 0.015% 未満）
+       実測（M 系 Mac）＝今 0.003%／0.001%・旧 0.036%／0.077%（旧は板も 7.7 階調暗くなり、足元も 227.5＝HEAD で既に赤だった）
+       （旧＝視線を f32 の invMvp から戻し、対数深度を exp2−1 で戻していた＝カメラが動くたびに縦縞とまだらが泳いだ）
+     ④旗を戻す＝元どおり ⑤GPU の検証エラー 0 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-ao</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
 <script type="module">
@@ -23,12 +27,19 @@ try {
 	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
 	const [bw, bs] = ll(-10, -10), [be, bn] = ll(10, 10);
 	r.set("meshSet", { pos: new Float32Array(V), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box" }, "box#0");
+	// 平らな板（e 60〜140・n −80〜0・高さ 0.5m・10m 格子）＝地面が深度を持つ所（実機の地形メッシュ）。三角形は小さい＝頂点補間の撓みは効かない大きさ
+	const PV = [], PI = [], G = 9;
+	for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) PV.push(...P(60 + i * 10, -80 + j * 10, 0.5));
+	for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a = j * G + i; PI.push(a, a + 1, a + G, a + 1, a + G + 1, a + G); }
+	const [pw, ps] = ll(60, -80), [pe, pn] = ll(140, 0);
+	r.set("meshSet", { pos: new Float32Array(PV), idx: new Uint32Array(PI), origin, bbox: [pw, ps, pe, pn], ward: "plate" }, "plate#0");
 	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.96, 0.96, 0.95, 1] });
 	const cam = { center: [LON, LAT], zoom: 17, pitch: 1.05, bearing: 0, dpr: 1 };
+	const camZ = { ...cam, zoom: 17.0005 };   // 絵はほぼ動かない（端で 0.1px）がカメラ行列は変わる＝数値の揺れだけを見る
 	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
 	const rctx = rd.getContext("2d", { willReadFrequently: true });
-	const shot = async () => {   // 同一タスクで drawImage（t-shadow と同じ作法）
-		r.draw(cam, {}); r.flush();
+	const shot = async (c = cam) => {   // 同一タスクで drawImage（t-shadow と同じ作法）
+		r.draw(c, {}); r.flush();
 		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
 		const px = rctx.getImageData(0, 0, N, N).data;
 		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
@@ -40,6 +51,19 @@ try {
 		let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s += (px[i] + px[i + 1] + px[i + 2]) / 3; }
 		return s / 9;
 	};
+	const PLATE = [[100, -40], [80, -20], [120, -60], [80, -60]];   // 板の内側（縁から 20m 以上）
+	const plateDelta = (a, b) => Math.max(...PLATE.map(([e, n]) => Math.abs(lum(a, e, n) - lum(b, e, n))));
+	// AO の掛かり方（on/off の輝度比）の差＝平均と 2% を超える画素の割合（空＝暗い画素は数えない）
+	const aoChange = (on0, off0, on1, off1) => {
+		let s = 0, big = 0, n = 0;
+		for (let i = 0; i < N * N * 4; i += 4) {
+			const l0 = off0[i] + off0[i + 1] + off0[i + 2], l1 = off1[i] + off1[i + 1] + off1[i + 2];
+			if (l0 < 90 || l1 < 90) continue;
+			const d = Math.abs((on0[i] + on0[i + 1] + on0[i + 2]) / l0 - (on1[i] + on1[i + 1] + on1[i + 2]) / l1);
+			s += d; n++; if (d > 0.02) big++;
+		}
+		return { mean: s / n, big: big / n };
+	};
 	const off = await shot();
 	const nearOff = lum(off, 0, -13), farOff = lum(off, 0, -60);   // 南壁の足元 3m と 50m 先の地面（1.5m は 3×3 の探針が壁の縁を拾う・40m は半径 30m の裾が届く）
 	ok(`旗なし＝足元と離れた地面は同じ（${nearOff.toFixed(1)} / ${farOff.toFixed(1)}）`, Math.abs(nearOff - farOff) < 2 && farOff > 150);
@@ -47,8 +71,19 @@ try {
 	const on = await shot();
 	const nearOn = lum(on, 0, -13), farOn = lum(on, 0, -60);
 	ok(`AO＝足元は暗い（${nearOn.toFixed(1)} < ${farOn.toFixed(1)}×0.9）`, nearOn < farOn * 0.9);
-	ok(`離れた地面は変わらない（${farOn.toFixed(1)} ≈ ${farOff.toFixed(1)}）`, Math.abs(farOn - farOff) < 6);
+	ok(`離れた球の床は変わらない（${farOn.toFixed(1)} ≈ ${farOff.toFixed(1)}）`, Math.abs(farOn - farOff) < 1.5);
+	const dPlate = plateDelta(on, off);
+	ok(`平らな板（深度の経路）は変わらない（最大 Δ=${dPlate.toFixed(2)}）`, dPlate < 1.5);
+	r.set("view", { aoPhase: 1 });
+	const onPh = await shot();
+	r.set("view", { aoPhase: 0 });
+	const ph = aoChange(on, off, onPh, off);
+	ok(`模様の位相をずらしても AO は動かない（平均 ${(ph.mean * 100).toFixed(3)}%・2% 超 ${(ph.big * 100).toFixed(2)}%）`, ph.mean < 0.00015 && ph.big < 0.005);
+	const onZ = await shot(camZ);
 	r.set("fx", { ao: false });
+	const offZ = await shot(camZ);
+	const cz = aoChange(on, off, onZ, offZ);
+	ok(`ズーム +0.0005 で AO は揺れない（平均 ${(cz.mean * 100).toFixed(3)}%・2% 超 ${(cz.big * 100).toFixed(2)}%）`, cz.mean < 0.00015 && cz.big < 0.005);
 	const back = await shot();
 	ok(`旗を戻すと元どおり（Δ=${Math.abs(lum(back, 0, -13) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -13) - nearOff) < 2);
 	await new Promise(res => setTimeout(res, 50));
