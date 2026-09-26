@@ -1,10 +1,10 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "1.3.0",
+	"version": "1.4.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
-		"test": "node tests/dasharray.mjs && node tests/lineoffset.mjs && node tests/mlstyle.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/ao-rays.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-expr.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs"
+		"test": "node tests/dasharray.mjs && node tests/lineoffset.mjs && node tests/mlstyle.mjs && node tests/mltables.mjs && node tests/pmtiles-retry.mjs && node tests/raster.mjs && node tests/elevation-tiff.mjs && node tests/elevation-worldatlas.mjs && node tests/ellipsoid.mjs && node tests/ao-rays.mjs && node tests/geodesic.mjs && node tests/gint-bake.mjs && node tests/gint-expr.mjs && node tests/gint-drape.mjs && node tests/gint-jitter.mjs && node tests/gint-lod.mjs && node tests/gint-seam.mjs"
 	},
 	"main": "src/index.js",
 	"exports": {
@@ -18,6 +18,10 @@
 		"./geojson": "./src/geojson.js",
 		"./viewurl": "./src/viewurl.js",
 		"./decode": "./src/decode.js",
+		"./expr": "./src/expr.js",
+		"./color": "./src/color.js",
+		"./build": "./src/build.js",
+		"./tilelabels": "./src/labels.js",
 		"./geodesic": "./src/geodesic.js",
 		"./worldpal": "./src/worldpal.js",
 		"./raster": "./src/raster.js",
@@ -36,7 +40,7 @@
 		"@ortho-earth/ephem": "^1.0.0",
 		"altpbf": "^1.1.1",
 		"earcut": "^3.0.1",
-		"geopbf": "^1.14.0",
+		"geopbf": "^1.15.0",
 		"pmtiles": "^4.5.0",
 		"native-bucket": "^1.0.0"
 	},

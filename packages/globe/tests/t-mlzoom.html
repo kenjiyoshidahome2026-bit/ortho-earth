@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- ズームの目盛りの旗（MapLibre 互換の台帳 maplibre-compat.md・段 2・2026-09-26）。?zs=maplibre＝旗つき／?zs=ortho＝旗なし（既定の挙動が変わらない証拠）。
+     旗つき：外側の顔が公開面の数の zoom を MapLibre の z で受け渡す（素の map＝map[RAW] はエンジンの z）・共有 hash はエンジンの z のまま・
+     連鎖と Promise とイベントの target は顔・on→off・once・層の minzoom と setter/getter・集約の expansionZoom・raster の表示窓・利用者ガジェットの this・Marker。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlzoom</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, RAW } from "@ortho-earth/globe";
+const ZS = new URLSearchParams(location.search).get("zs") || "maplibre";
+const ML = ZS === "maplibre", D = ML ? 1 : 0;   // 公開の口の z ＝ エンジンの z − D
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const near = (a, b, e = 0.02) => Math.abs(a - b) <= e;
+const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
+const fc = fs => ({ type: "FeatureCollection", features: fs });
+try {
+	const map = await createGlobe({ target: "#map", view: "#8/35.5/137.2", chips: false, ...(ML ? { zoomScale: "maplibre" } : {}) });
+	await sleep(4000);
+	const raw = map[RAW] ?? map;
+	ok("rawKey", ML ? (raw !== map && typeof raw.getZoom === "function") : map[RAW] === undefined, ML ? "facade" : "raw");
+	ok("bootZoom", near(raw.getZoom(), 8) && near(map.getZoom(), 8 - D), `pub=${map.getZoom().toFixed(2)} eng=${raw.getZoom().toFixed(2)}`);
+	ok("viewZoom", near(map.view.zoom, 8 - D) && map.view.hash.startsWith("#8"), `${map.view.zoom.toFixed(2)} ${map.view.hash}`);   // hash は文字列＝エンジンの z
+	// カメラ（連鎖は顔）
+	const r1 = map.jumpTo({ zoom: 9 });
+	ok("jumpTo", r1 === map && near(raw.getZoom(), 9 + D) && near(map.getZoom(), 9), `eng=${raw.getZoom().toFixed(2)}`);
+	ok("setZoomChain", map.setZoom(9.5) === map && near(map.getZoom(), 9.5));
+	await map.flyTo(137.2, 35.5, map.getZoom());   // 混用（sats.js の形）＝位置引数の flyTo と getZoom が同じ目盛り
+	ok("flyToGetZoom", near(map.getZoom(), 9.5, 0.05), map.getZoom().toFixed(3));
+	const sp = map.once("settle"); map.jumpTo({ zoom: 9 }); const se = await sp;
+	ok("onceSettle", near(se.zoom, 9, 0.05) && se.hash.startsWith(`#${9 + D}`), `${se.zoom?.toFixed(2)} ${se.hash}`);
+	let moves = 0; const mv = () => moves++;
+	map.on("move", mv); map.jumpTo({ zoom: 9.2 }); await sleep(300);
+	const m1 = moves; map.off("move", mv); map.jumpTo({ zoom: 9 }); await sleep(300);
+	ok("onOff", m1 >= 1 && moves === m1, `${m1}→${moves}`);
+	ok("maxZoomIO", map.setMaxZoom(15) === map && near(map.getMaxZoom(), 15) && near(raw.getMaxZoom(), 15 + D));
+	map.setMaxZoom(null);
+	ok("getMaxPitch", near(map.getMaxPitch(), 75, 0.01), map.getMaxPitch().toFixed(2));
+	// 層（minzoom は公開の目盛り）
+	map.addSource("p", { type: "geojson", data: fc([F({ type: "Point", coordinates: [137.2, 35.5] }, { n: 1 })]) });
+	await map.addLayer({ id: "pc", type: "circle", source: "p", minzoom: 10, paint: { "circle-radius": 8, "circle-color": "#f0f" } });
+	const hit = async () => { const [x, y] = map.projectLL(137.2, 35.5); return (await map.queryRenderedFeatures([x, y], { layers: ["pc"] })).map(f => f.layer.id); };
+	map.jumpTo({ zoom: 9.5 }); await sleep(1500);
+	const h1 = await hit();
+	map.jumpTo({ zoom: 10.5 }); await sleep(1500);
+	const h2 = await hit();
+	ok("layerMinzoom", !h1.includes("pc") && h2.includes("pc"), `9.5→${h1} 10.5→${h2}`);
+	const w = ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 12];
+	map.setPaintProperty("pc", "circle-radius", w);
+	ok("paintRoundtrip", JSON.stringify(map.getPaintProperty("pc", "circle-radius")) === JSON.stringify(w) && map.getLayer("pc").minzoom === 10);
+	// 層ごとのイベントの target は顔
+	let le = null; map.on("click", "pc", e => { le = e; });
+	const c = document.getElementById("c"), rc = c.getBoundingClientRect(), [px, py] = map.projectLL(137.2, 35.5);
+	c.dispatchEvent(new PointerEvent("pointerdown", { clientX: rc.left + px, clientY: rc.top + py, bubbles: true, pointerId: 7 }));
+	c.dispatchEvent(new PointerEvent("pointerup", { clientX: rc.left + px, clientY: rc.top + py, bubbles: true, pointerId: 7 }));
+	c.dispatchEvent(new MouseEvent("click", { clientX: rc.left + px, clientY: rc.top + py, bubbles: true }));
+	await sleep(700);
+	ok("layerEventTarget", le?.target === map && le.features?.[0]?.layer?.id === "pc", le ? String(le.target === map) : "none");
+	// 集約の expansionZoom（顔＝公開の目盛り・素＝エンジンの z）
+	const pts = fc(Array.from({ length: 30 }, (_, i) => F({ type: "Point", coordinates: [136 + (i % 6) * 0.01, 36.5 + Math.floor(i / 6) * 0.01] }, { i })));
+	map.addSource("cl", { type: "geojson", data: pts, cluster: true, clusterRadius: 50, clusterMaxZoom: 12 });
+	await map.addLayer({ id: "clc", type: "circle", source: "cl", filter: ["has", "point_count"], paint: { "circle-color": "#08f", "circle-radius": 14 } });
+	map.jumpTo({ center: [136.03, 36.52], zoom: 8 }); await sleep(2000);
+	const [cx, cy] = map.projectLL(136.025, 36.52);
+	const fPub = (await map.queryRenderedFeatures([cx, cy])).find(f => f.expansionZoom != null), fRaw = (await raw.queryRenderedFeatures([cx, cy])).find(f => f.expansionZoom != null);
+	ok("expansionZoom", !!fPub && !!fRaw && fPub.expansionZoom === fRaw.expansionZoom - D, fPub ? `${fPub.expansionZoom}/${fRaw.expansionZoom}` : "no cluster hit");
+	// raster の表示窓（spec の minZoom＝タイルの z は換算しない）
+	const tpl = new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}");
+	await map.raster.add("rw", { url: tpl, minZoom: 10, maxZoom: 10 }, { minZoom: 11 });
+	const ePub = map.raster.list().find(e => e.id === "rw"), eRaw = raw.raster.list().find(e => e.id === "rw");
+	ok("rasterWindow", ePub?.opts?.minZoom === 11 && eRaw?.opts?.minZoom === 11 + D && eRaw?.spec?.minZoom === 10, `${ePub?.opts?.minZoom}/${eRaw?.opts?.minZoom}`);
+	map.raster.remove("rw");
+	// 利用者のガジェットの this は顔
+	map.gadget("probe", function () { return this; });
+	ok("userGadgetThis", map.gadget.probe() === map);
+	// Marker（顔にも素にも同じ登録簿）
+	const mk = new map.Marker().setLngLat([137.2, 35.5]).addTo(map);
+	await sleep(500);
+	ok("marker", !!mk.getElement().isConnected && /translate/.test(mk.getElement().style.transform || ""), mk.getElement().style.transform);
+	mk.remove();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${ZS}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
