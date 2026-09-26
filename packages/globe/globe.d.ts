@@ -46,6 +46,7 @@ export interface OrthoJapanOptions {
 	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む＝基図の層も geojson source の層も（1.3.0〜。以前は geojson の層だけエンジンの z で読んでいた）。
 	 *  層の metadata["ortho:dz"]（0＝この地図の z・1＝MapLibre の z）の申告があればそれが勝つ（getStyle が付けて返す）。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer と同じ口へ。
 	 *  vector source の fill-extrusion（building-3d など）は 1.3.0〜 立てる（タイルごとに流す 3D 建物＝addLayer の vector source と同じ口）。
+	 *  2 本目以降の vector source の fill / line / circle / symbol と基図の source の circle も 1.3.0〜 描く（addLayer の vector source と同じ口＝基図の塗りと線の上）。
 	 *  描かない層（線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
 	style?: string | Record<string, unknown>;
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
@@ -581,12 +582,18 @@ export interface OrthoJapanMap {
 	 *  ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）。filter の ["zoom"] はタイルの z（過拡大なら表示を丸めた z）。
 	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。feature-state（setFeatureState に sourceLayer＝状態が変わった地物を含むタイルだけ組み直す・問い合わせの地物に state）も 1.3.0〜。未対応：fill-extrusion-pattern/translate（警告して描く）・style の light。
 	 *  source の出典（TileJSON の attribution・無ければホスト名）はその source を使う押し出しの層がある間、出典の欄に出る（MapLibre の AttributionControl と同じ・OSM 等は表示が利用の条件）。
+	 *  vector source の fill / line / circle / symbol（1.3.0〜）：source は addSource の vector か基図の source 名（基図の source に線や塗りを足す＝道路の強調など）。
+	 *  描く場所は基図の塗りと線の上・注記の下（注記は基図と同じ衝突の判定・利用者の注記が勝つ）＝利用者の層どうしの順（beforeId・moveLayer）は source をまたいでも正確・基図の層を指す beforeId は「基図の上」。
+	 *  3D（地形あり）では塗りは地面に焼く（基図の線の下・基図自身と同じ規則）。paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻み・MapLibre はズーム中も連続）。
+	 *  circle＝画面に向いた円（circle-pitch-alignment "map"・blur・translate は未対応）・線と面の円は頂点ごと（MapLibre と同じ）・塗りの透ける円の縁は止まった所のズームで合わせた輪。
+	 *  symbol＝点の注記（text-field）と面の注記（到達不能極）。線の上の注記・アイコンは未対応（警告）。fill-outline-color は 1px の縁。fill-pattern・line-gradient・line-blur・line-gap-width は未対応（警告して描く）。
+	 *  feature-state は状態を置くだけ（絵にはまだ効かない＝既定の見た目）。問い合わせは基図と同じ当て方（面の中・線幅・円の半径・sourceLayer・id・source）。
 	 *  地域の基図（日本）の自動の 3D 建物は層 "building-extrusion"（type fill-extrusion・source "basemap"）＝getLayer/getStyle に出る・setLayoutProperty(…, "visibility", "none") か removeLayer で伏せる
 	 *  （OSM などの押し出しへ差し替える時・伏せている間は足元の塗りがチルトでも出る・撮影/印刷も同じ・テーマを切り替えても残る）。色・filter・出しズームは変えられない（投げる） */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
-	/** vector source（fill-extrusion）＝見えているタイルが今の式で組み上がって出るまで false（カメラが動いている間も false）。基図の source 名も受ける */
+	/** vector source（fill-extrusion・fill/line/circle/symbol）＝見えているタイルが今の式で組み上がって描画側に載るまで false（カメラが動いている間も false）。基図の source 名も受ける */
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;

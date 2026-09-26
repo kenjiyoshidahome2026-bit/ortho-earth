@@ -28,11 +28,11 @@ import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だ�
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
 const FRAME_F32 = 112;     // 448B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/sun vec4f 含む）
-const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4 };   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
+const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
-const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10 };   // fade*=クロスフェード中の新シーン用（p0.w=α）
-const N_ROLES = 11;
+const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
+const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
 const PL_BATCH_SLOT = 256; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9]＝240B・#46 段 2）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
@@ -553,7 +553,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
-	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 5, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）
+	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
 	const globeBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+atmP（#46 段 1）
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
@@ -1056,9 +1056,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// main パスより先に submit → mips。raster.js の契約：rasterTex/rasterMesh/rasterFree/setRasterDraws（rd={rev,hideFills,layers}）
 	let rasterDraws = null, memRaster = 0, sceneRev = 0;
 	let rasAtlasPipe = null, atlasFillPipe = null;
-	const atlBuf = device.createBuffer({ size: RAS_SLOT * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 4×スロット 2×ゲート 2＝16 枠
+	const atlBuf = device.createBuffer({ size: RAS_SLOT * 24, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // AtlP：窓 4×スロット 3（base/main/user）×ゲート 2＝24 枠
 	const atlBG = device.createBindGroup({ layout: bglRasP, entries: [{ binding: 0, resource: { buffer: atlBuf, offset: 0, size: 32 } }] });
-	const atlCPU = new Float32Array(RAS_SLOT / 4 * 16);
+	const atlCPU = new Float32Array(RAS_SLOT / 4 * 24);
 	function rasterTex(bitmap) {
 		const w = bitmap.width, h = bitmap.height, levels = 1 + Math.floor(Math.log2(Math.max(w, h)));
 		const tex = device.createTexture({ size: [w, h], mipLevelCount: levels, format: "rgba8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST | GPUTextureUsage.RENDER_ATTACHMENT });
@@ -1106,7 +1106,9 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!rasterOn && !wantFills && !hook) { if (gnd.n) { gnd.n = 0; gnd.key = ""; gnd.tiles = 0; writeGndP(); } gndWins = null; return null; }
 		const wins = groundWindows(cam, canvas.width, canvas.height);
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + slots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}`;
+		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（gl/renderer.js と同じ）
+		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
 		if (key === gnd.key) return null;
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段
@@ -1119,11 +1121,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		gnd.n = wins.length; gnd.key = key;
 		if (rebuilt) rebuildBG0();   // アトラスの view が変わった＝bg0/globeBG を作り直す（Frame 書込より前でよい＝バッファは同じ）
 		writeGndP();
-		return { wins, rasterOn, wantFills, seaOff, baseA, cam, hook };
+		return { wins, rasterOn, wantFills, seaOff, baseA, cam, hook, userIn, baseSlots };
 	}
 	function composeGround(job, slots) {
 		if (!job) return;
-		const { wins, rasterOn, wantFills, seaOff, baseA, cam, hook } = job;
+		const { wins, rasterOn, wantFills, seaOff, baseA, cam, hook, userIn, baseSlots } = job;
 		gnd.tiles = 0; gnd.faces = 0;
 		if (!rasAtlasPipe) rasAtlasPipe = device.createRenderPipeline({ layout: rasAtlasLayout,
 			vertex: { module: rasAtlasMod, entryPoint: "vs", buffers: RASTER_BUFS },
@@ -1153,13 +1155,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				}
 			}
 			const fills = [];
-			if (wantFills) for (const slot of slots) {
+			const fillSlots = [...(wantFills ? baseSlots : []), ...(userIn ? ["user"] : [])];
+			for (const slot of fillSlots) {
 				const scene = scenes[slot]; if (!scene.draws.length) continue;
-				for (const gate of [0, 1]) {
+				const user = slot === "user";
+				for (const gate of user ? [0] : [0, 1]) {   // user の li は図郭外の水域の帯に掛からない＝ゲート 0 だけ
 					const o = m * (RAS_SLOT / 4);
 					atlCPU[o] = scene.origin[0] - a.win[0]; atlCPU[o + 1] = scene.origin[1] - a.win[1]; atlCPU[o + 2] = 1 / a.win[2]; atlCPU[o + 3] = 1 / a.win[3];
-					atlCPU[o + 4] = gate; atlCPU[o + 5] = baseA; atlCPU[o + 6] = 0; atlCPU[o + 7] = 0;
-					fills.push({ slot, gate, at: m }); m++;
+					atlCPU[o + 4] = gate; atlCPU[o + 5] = user ? 1 : baseA; atlCPU[o + 6] = 0; atlCPU[o + 7] = 0;
+					fills.push({ slot, gate, at: m, user }); m++;
 				}
 			}
 			jobs.push({ a, tiles, fills, index: i });
@@ -1183,7 +1187,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (fills.length) {
 				pass.setPipeline(atlasFillPipe);
 				pass.setBindGroup(1, paramBG[ROLE.normal]);
-				for (const { slot, gate, at } of fills) {
+				for (const { slot, gate, at, user } of fills) {
 					const scene = scenes[slot];
 					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
 					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
@@ -1191,7 +1195,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 						if (d.kind !== "fill") continue;
 						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 						if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
-						if ((seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
+						if (!user && (seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
 						if (bldFill.li >= 0 && d.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる
 						pass.setVertexBuffer(0, d.bPos); pass.setVertexBuffer(1, d.bCol);
 						if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); } else pass.draw(d.count);
@@ -1337,6 +1341,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	const scenes = {
 		base: { origin: [0, 0], draws: [], bld: null },
 		main: { origin: [0, 0], draws: [], bld: null },
+		user: { origin: [0, 0], draws: [], bld: null },   // 利用者の vector source の塗りと線（段 8⑤）＝空なら slots に入らない＝今までと同じ絵
 	};
 	let dbg = null;   // 直近フレームの描画実績（?drawhud=1 の実機計器。draw() が毎フレーム詰め替える）
 	function makeBuf(data, usage) {
@@ -1474,6 +1479,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		at(ROLE.fadeWater, [0, 0, 0, fadeK * baseA]);
 		at(ROLE.fadeSeaFb, [1, 0, 0, fadeK * baseA]);
 		at(ROLE.fadeBld, [bldColor[0], bldColor[1], bldColor[2], fadeK]);
+		at(ROLE.user, [0, cityLift, 0, 1]);   // 利用者の vector の層（段 8⑤）＝線の接地リフトは通常と同じ・濃さは 1
 		return f;
 	}
 
@@ -1605,6 +1611,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		rasterFlushFree();      // 前フレームは submit 済み＝退避されたタイルテクスチャをここで実際に破棄
 		// 地面アトラス（RTT ドレープ）：窓と鍵を確定（packFrame が窓の係数を読む）→ Frame 書込 → 合成（別エンコーダ・main パスより先に submit）
 		const slotsG = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
+		const userOn = scenes.user.draws.length > 0;   // 利用者の vector の層（段 8⑤）＝空なら足さない（鍵も Frame の書込も今と同じ）
+		if (userOn) slotsG.push("user");
 		const gndJob = prepareGround(cam, terrainActive, slotsG);
 		// Frame 4スロット：base/main=fill/line（fogFar=cap）、terrain=遠山ブルー、bld=既定fog(2.5×/14×)
 		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));
@@ -1614,6 +1622,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const farActive = terrainActive && far.has && !!farTexObj;   // 遠景メッシュパス（terrain slot と同 fog・mesh=遠窓・farPass=1）
 		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, far.bounds, 1));
 		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));   // base/main と同じ fog
 		if (shWin) {   // 影：太陽の正射影の Frame（落とす側）と ShadowP（受け手）
 			shadowRes();
 			device.queue.writeBuffer(sh.frameB, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: shWin.eye }, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
@@ -1793,6 +1802,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		dbg = { baseFill: 0, baseLine: 0, mainFill: 0, mainLine: 0, skipMain: !!(opts && opts.skipMain), skipBase: !!(opts && opts.skipBase), fadeK, terrainDepth: !!terrainDepth, zoom: +(cam.zoom || 0).toFixed(1), aa: S, get raster() { return gnd.rasterOn ? gnd.tiles : 0; }, get fillsIn() { return gnd.fillsIn; }, get gndFaces() { return gnd.fillsIn ? gnd.faces : 0; } };
 		dbg.shadow = shWin ? +(shWin.alt * 180 / Math.PI).toFixed(1) : 0;   // ?drawhud=1：影の窓が立ったか（太陽高度°・0＝影なしのフレーム）
 		const slots = (opts && opts.skipMain) ? ["base"] : (opts && opts.skipBase) ? ["main"] : ["base", "main"];
+		if (userOn) slots.push("user");   // 利用者の vector の層（段 8⑤）＝基図の塗りと線の後
 		const mainLinesOn = slots.indexOf("main") >= 0 && scenes.main.draws.length > 0;
 		const fillPipe = terrainDepth ? (R || P).fillTest : (R || P).fillOff;
 		const linePipe = terrainDepth ? (R || P).lineTest : (R || P).lineOff;
@@ -1806,9 +1816,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				: [[scene.draws, null, false]];
 			for (const [drawList,, useFade] of passes) {
 			if (!drawList.length) continue;
+			const userSlot = slot === "user";   // 基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
 			for (const d of drawList) {
 				if (d.kind === "fill") {
-					if (rasterHide) continue;   // ラスタ基図＝塗りを伏せる
+					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる
 					const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
 					const waterC = d.li === sea.li || d.li === sea.li2;
 					if ((seaFB || waterC) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（紙の海）
@@ -1816,7 +1827,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const roof = R && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
 					pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
 					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
+					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
 					if (R && !roof) pass.setBindGroup(2, sh.bg);
 					pass.setVertexBuffer(0, d.bPos);
 					pass.setVertexBuffer(1, d.bCol);
@@ -1827,7 +1838,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
 					pass.setPipeline(linePipe);
 					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
 					if (R) pass.setBindGroup(2, sh.bg);
 					pass.setVertexBuffer(0, cornerBuf);
 					pass.setVertexBuffer(1, d.bP1);
@@ -2136,7 +2147,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function dispose() {
 		frame = null; gctx = null;
 		shadowFree();
-		disposeSlot("base"); disposeSlot("main");
+		disposeSlot("base"); disposeSlot("main"); disposeSlot("user");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
 		skyBuf.destroy(); skyLineBuf.destroy();

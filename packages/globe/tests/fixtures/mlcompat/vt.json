@@ -16,6 +16,15 @@
 	"vector_layers": [
 		{
 			"id": "building"
+		},
+		{
+			"id": "landuse"
+		},
+		{
+			"id": "road"
+		},
+		{
+			"id": "poi"
 		}
 	]
 }
