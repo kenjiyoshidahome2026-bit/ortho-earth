@@ -52,7 +52,8 @@ export function miterSlides(coords, ls, le) {
 
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
-export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c => c) {
+// subLenM＝線の細分の長さ（m・既定 700＝基図）。利用者の vector の層（段 8⑤）は低ズームのタイルで細分が膨れないよう長くして渡す
+export function buildTileDrawList({ layers, z, x, y, subLenM = 700 }, style, origin, pale = c => c) {
 	const [ox, oy] = origin;
 	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
@@ -71,7 +72,7 @@ export function buildTileDrawList({ layers, z, x, y }, style, origin, pale = c =
 	// 線分細分の閾値（タイル単位）：地形にドレープする際、長い直線が尾根で折れないよう ~700m 毎に分割。
 	const [, cLat] = tileLocalToLonLat(x, y, z, 2048, 2048, 4096);
 	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
-	const subLen = Math.max(1, 700 / mPerUnit);   // 700m 相当のタイル単位
+	const subLen = Math.max(1, subLenM / mPerUnit);   // 700m（既定）相当のタイル単位
 
 	for (let li = 0; li < style.layers.length; li++) {
 		const L = style.layers[li], eo = originOfLayer(L);   // eo＝式の出自（引数 origin はシーンの原点＝別物）

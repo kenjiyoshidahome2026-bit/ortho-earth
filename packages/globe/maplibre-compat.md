@@ -47,7 +47,8 @@
 | symbol を面・線に置く | 点だけ | 6 | **済**（面＝到達不能極・線＝各部分の最初の頂点＝MapLibre の点置き） |
 | 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | **済**（上書きの台帳・visibility は結合で外す・他は建て直し・重ね順は固定＝文書） |
 | vector source の fill-extrusion（MVT の 3D 建物・addLayer・style.json） | 不可（style.json は飛ばす・addSource vector は黙って壊れる） | 8① | **済**（gadgets/vtextrude.js・既存の経路は無改修） |
-| vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | 未（今は名前を挙げて投げる＝黙って壊れない・爪車の既知） |
+| vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | **済**（2026-09-27・本人裁定「別の流れ・基図の上」＝gadgets/vtdraw.js・renderer の "user" の枠・基図の配管は無改修） |
+| vector の描く層の feature-state・基図の層の間への正確な差し込み | 無い | 8⑤b | 未（状態は置き場に残る・絵は既定＝爪車の既知 1） |
 | vector の押し出しの feature-state | 無い | 8①b | **済**（2026-09-27・sourceLayer 必須・getFeatureState・変わった地物のタイルだけ組み直す・問い合わせに state） |
 
 ## 4. 文書に書く違い（意図した違い）
@@ -75,6 +76,16 @@
   - feature-state は paint だけが読む（filter は読まない＝MapLibre と同じ）。状態が変わると、その地物を含むタイルの色と高さを組み直して上げ直す（1 棟で約 0.16 秒・実機の GPU）＝MapLibre のように即座ではない。
   - 地域の基図（日本）の自動の建物（地理院の推定×1.6）は層 "building-extrusion"＝出し入れだけ（色・filter・出しズームは変えられない＝投げる・問い合わせには出ない・PLATEAU は別の口）。
   - source の出典（TileJSON の attribution・無ければホスト名）は押し出しの層がある間だけ出典の欄に出る（基図の出典と同じ文は重ねない）。
+- vector の描く層（fill／line／circle／symbol・段 8⑤）：
+  - 描く場所は基図の塗りと線の上・注記の下（本人裁定）。利用者の層どうしの順は正確（source をまたいでも）・beforeId が基図の層を指しても「基図の上」（層の順は getStyle に残る）。
+  - 3D（地形あり）では塗りを地面に焼く（アトラス）＝基図の線の下・2D では上（基図自身も 3D では「塗りは全部線の下」）。gint（geojson の層）より下。
+  - paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻みの z で組む＝隣り合うタイルの線幅は揃う）。filter の ["zoom"] はタイルの（過拡大の）z。
+  - circle：画面に向いた円（MapLibre の既定 circle-pitch-scale "map" の遠近の縮みは無い）・circle-pitch-alignment "map"・blur・translate は未対応。塗りの透ける円の縁は止まった所のズームで合わせた輪（動いている間は地図と一緒に伸び縮みする）。
+  - symbol：点と面（到達不能極）の注記だけ（基図と同じ部品＝text-font は読まない）・線の上の注記（段 8③）・アイコン（段 8②）は警告して出さない。
+  - 線の端と継ぎは常に丸（基図と同じ）。タイルの枠で切る＝半透明の塗りに継ぎ目の濃い帯は出ない（線の丸い端だけ枠で重なる）。
+  - 未対応（警告して描く）：fill-pattern・fill-translate・line-pattern・line-gradient・line-blur・line-gap-width・line-translate。fill-outline-color は明示された時だけ 1px の縁。
+  - 基図の source の層はタイルを基図の配管と別に取る（HTTP キャッシュ頼み・押し出しとも別）。低ズームのタイルは線の細分をタイルの幅の 1/64 までに抑える（基図は 700m 固定）。
+  - feature-state は置き場に残るが絵には効かない（段 8⑤b）。問い合わせは基図と同じ当て方（面の中・線幅/2＋許し・円の半径＋縁・sourceLayer・id（promoteId）・source）。
 
 ## 5. 不整合の台帳（前もって把握する物）
 
@@ -119,11 +130,32 @@
 | V12 | 地形の外で埋まる | drape（どこでも地表へ）・当たりの地面は負の標高を 0 に | 実機（マンハッタン） | **済** |
 | V13〜V18 | 既定の挙動の変化・旗の目盛り・両土台・地域の語・transformRequest/独自スキーム/PMTiles・影 | SDK 注記・drawLayerOf・同じメッシュ経路・語なし・requester・§4 | 爪車（GL2/WebGPU・addProtocol・PMTiles）・regionless | **済**（影は文書） |
 
+段 8⑤（vector の描く層）で前もって把握した食い違い：
+
+| # | 食い違い | 手当て | 門 | 状態 |
+|---|---|---|---|---|
+| W1 | 基図との順番（beforeId が基図の層を指しても基図の上） | 本人裁定・§4・⑤b で差し込み | 爪車 vector-beforeid-base-layer | **済**（文書） |
+| W2 | 3D の塗りはアトラス＝基図の線の下（2D は上） | 基図と同じ規則・§4 | 実機（ツェルマットの森を 65° で） | 文書 |
+| W3 | 利用者の層どうしの順番 | li＝層の順の鍵（小数＝間に差し込んでも他の source は組み直さない・外した鍵は使い回さず常に隠す） | 爪車 vector-layer-order（別の source どうし・moveLayer）・vtdraw.mjs（li の順） | **済** |
+| W4 | paint のズームが連続でない | 曲線の鍵（layout も）・0.25 刻みの z で組む | vtdraw.mjs（置き換え・線幅）・爪車 | **済**（文書） |
+| W5 | filter のズーム | filterZoom（段 8①と同じ） | — | **済** |
+| W6 | circle（画面に向く・遠近の縮みなし・中空の縁） | 長さ 0 の線＝カプセル・中空は輪 | vtdraw.mjs（丸点・輪）・爪車 vector-circle-draws | **済**（文書） |
+| W7 | symbol は点と面だけ | 基図と同じ buildLabels・面は極・線と アイコンは警告 | vtdraw.mjs（極・タイルの中）・爪車 vector-symbol-label | **済**（線の上は③） |
+| W8 | タイルの縁の二重（半透明） | 枠で切る（面は Sutherland–Hodgman・線は Liang–Barsky・円と注記は中の点だけ） | vtdraw.mjs（面積の和）・実機（本初子午線の縁で色が一様） | **済** |
+| W9 | 基図の source を二度取る | HTTP キャッシュ・§4 | — | 文書 |
+| W10 | 重さ（CPU 結合で user の scene を上げ直す） | 間引き 120ms・結合 1 本ずつ・予算 128MB（LOW_MEM 48MB）・枚数上限・フライト中は取得と組み立てを止める・低ズームの細分を抑える | 実機（demotiles z2 10 枚＝7.5MB・細分を抑える前は 32MB／渋谷 OpenFreeMap 3 層 2 枚＝1.1MB） | **済**（?hud=1 の実測は次） |
+| W11 | 注記の二重（MVT のバッファ） | 点がタイルの中の物だけ | vtdraw.mjs | **済** |
+| W12 | li が基図の門（海・建物の塗り・図郭外の水域）に掛かる | 2^20 の帯 | vtdraw.mjs（帯） | **済** |
+| W13 | 問い合わせ | core queryTiles（source・promoteId・circle の分岐を足した）・解読の組ごとのキャッシュ | 爪車 vector-query（fill／line／circle） | **済** |
+| W14 | feature-state が絵に効かない | ⑤b・案内 1 回 | 爪車の既知 vector-fill-feature-state | 既知 |
+| W15 | 利用者の注記が山で浮く・沈む | render worker の vtLabels が標高を付ける（基図の applyLabels と同じ） | 目視 | **済** |
+| W16〜W18 | 両土台・地域の語・読まない paint | 同じ scene の枠（GL2/WebGPU）・語なし・警告 1 回 | 爪車を両土台で・regionless | **済** |
+
 ## 6. 門（互換の爪車ほか）
 
-- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style`（描いて確かめる場面・globe verify:ui）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
+- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector`（描いて確かめる場面・globe verify:ui／verify:webgpu は layers と vector）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
   - 一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。**場面を足すのは MapLibre と違うと分かった時**（先に場面を書いて赤を確かめる）。
-- `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）＝globe の `npm test`（ルートの `npm test` に連結）。
+- `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）・`tests/vtextrude.mjs`／`tests/vtdraw.mjs`（vector source の押し出しと描く層の純関数）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
 - **main で既存の失敗（この仕事の外）**：globe verify:webgpu の t-overlaydepth（clearIsOne・main 92420d0e で再現を確認）。t-ao は main の #61（AO の直し）で緑になった（main を取り込んだ 930b7c40 で確認）。段の門では「既存の項目が同じ値で落ちる」ことだけを確かめ、別件として切り出した。
 - 揺れの観察：t-linedeco?nomd=1 の videoMoved（段 1 の全頁で 1 回・単独では緑）／verify:ui 側の t-overlaydepth（GL2）の clearIsOne（段 2・段 6 の全頁で各 1 回・単独ではいつも緑＝webgpu 側の既存の失敗と同じ検査項目）／japan の t-print（段 4 の全頁で時間切れ 1 回・単独 2 回とも緑）。
@@ -152,4 +184,10 @@
 - [x] **段 8①b**（2026-09-27・本人「1→2」の 2・branch claude/maplibre-extrusion-feature-state）：vector の押し出しの feature-state＝setFeatureState/removeFeatureState/getFeatureState（MapLibre 同名・vector は sourceLayer 必須・置き場は globe＝層より先でも残る）・build の結果に地物の id＝状態が変わった地物を含むタイルだけ印（組み立て中なら着いた後にもう一度）・問い合わせの地物に state。
   - 轍：**描画側の反映の遅れ**＝render worker はメッシュを 1 フレーム 1 件しか載せない（SwiftShader では 1 件 1 秒超）のに main は毎フレーム送っていた＝列が溜まり、外した層の解放も後ろで待たされて「取り残し」に見えた（漏れではない）。PLATEAU と同じ専用の meshPort に替え、受け取りの印で送る量を絞る（背圧）＋isSourceLoaded は描画側に載るまで false。render worker は無改修（既存の meshPort の口）。
   - 門：爪車 feature-state-color（両土台・既知から外した）＝色・他の棟・getFeatureState・問い合わせの state・外すと戻る・sourceLayer 無しは投げる。実機：渋谷の OpenFreeMap で 1 棟の状態を変えて 0.16 秒。
-- [ ] 段 8②〜⑤：基図のアイコン・線に沿うラベル・hillshade・2 本目以降のベクタ source（着手前にそれぞれ別計画）
+- [x] **段 8⑤**（2026-09-27・本人「⑤ 2 本目以降のベクタ」＋裁定「別の流れ・基図の上」・branch claude/maplibre-vector-draw）：vector source の fill／line／circle／symbol＝新しいファイル（`gadgets/vtdraw.js`（選ぶ・取る・置き換え・結合の指図・注記・予算）・`vtdraw-worker.js`（役 "vtdraw"・解読・filter・枠で切る・core の buildTileDrawList／buildLabels）・`vtops.js`（純関数））。結合は core の scene worker をもう 1 本（md:false＝CPU 結合）・main はポートの端を持って render worker の `set("scene", …, "user")`（既存の口）へ中継するだけ。
+  - core は足し算だけ：renderer の "user" の枠（GL2・WebGPU＝空なら slots に入らない＝既存の絵もアトラスの鍵も今と同じ・基図の濃さとラスタ基図の hideFills に従わない）・exports `./build` `./tilelabels`・buildTileDrawList の `subLenM`（既定 700＝基図は今のまま）・queryTiles の `source`／`promoteId`／circle。render worker は `vtLabels` の命令を 1 つ（標高を付けて setUserLabels・gintLabels は触らない）。
+  - 入口：kindOf（vector × fill/line/circle/symbol）・基図の source 名への差し込みも同じ口・style.json の 2 本目以降の vector source の層と基図の source の circle を利用者の層の口へ（console の「描かない層」からも外す）・visibility は結合で隠すだけ・setPaintProperty/setFilter/出しズームはその source を組み直す・moveLayer は動いた層の鍵だけ振り直す・setStyle で付け替え・isSourceLoaded は結合が載るまで false。
+  - 門：`tests/vtdraw.mjs`（node 36 項目＝置き換え・枠で切る（面積の和）・円＝長さ 0 の線・極・li の帯・worker の組み立て）＋爪車 `?g=vector` に 13 場面（計 29・両土台・既知 1＝⑤b の feature-state）。試料に landuse／road／poi を足した（建物の層のバイトは不変）。
+  - 実機：MapLibre の demotiles（国の面・境界・国名）を全球ビューで・本初子午線のタイルの縁で半透明の塗りが一様・OpenFreeMap liberty の基図の source に道路の強調・POI の円・建物の半透明の塗り（渋谷）・ツェルマットを 65° で森の塗りが地形に沿う。
+  - 轍：①問い合わせのキャッシュは「解読した source-layer の組」ごと（queryTiles は要る層だけ解く＝層を絞った最初の問い合わせのタイルを別の層が読むと空）②core の線の細分（700m・1 本 24 分割まで）は z2 のタイルで 4 倍に膨れた（demotiles 32MB→7.5MB）③プレビューの枠が隠れていると rAF が止まる（選びは rAF）。
+- [ ] 段 8②〜④・⑤b：基図のアイコン・線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）

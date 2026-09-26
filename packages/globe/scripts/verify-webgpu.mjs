@@ -27,7 +27,7 @@ const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 const stop = await startVite({ cwd: PKG, port: PORT, readyUrl: `http://localhost:${PORT}/tests/` });
 const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
-	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
+	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") ? 240 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
 	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
