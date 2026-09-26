@@ -2113,25 +2113,34 @@ const map = { cam, flyTo, renderer, mapEl, destroy, clock,
 // DOMオーバーレイ（現在地マーカー/pop/計測）の標高乗せ：radius=1（標高0の球面）へ投影すると、
 // DTM開通後はチルトで「地中の位置」が投影され地面とずれる（現在地マーカーで実測。真俯瞰は放射変位＝不変）。
 // 表示中の地形変位と同式（TERR_EXAG/EARTH_M × pitchフェード＝renderer elevScaleEff と同形・cityFlatは撤去済み）。
-// 標高は getHeight を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
+// 標高は heightAt を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
+// 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
+let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
+const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();
+// 1 点の標高＝描いている地形と同じ出どころ（外来の DEM が先・無い所は既定の DTM をタイル着荷まで待つ）。map.getHeight と DOM オーバーレイの持ち上げ（elevOf）が共用
+//（旧・elevOf は既定の DTM だけを待たずに引いていた＝setTerrain の DEM ではマーカー/pop/計測/足跡がチルトで描いた地形とずれ、別タイルの読込中に引いた点は 0m のままメモに残った・2026-09-27）
+const heightAt = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
 const elevMemo = new Map();
 // ★有界化（2026-09-13）：makeProjectorH を大量点（地震 overlay 2300点×3/フレーム）で呼ぶと、未メモの点ごとに getHeight が一斉発射され
 //   renderer が SIGTRAP で落ちた（実測・エラーコード5）。同時在庫を ELEV_INFLIGHT_MAX に絞り、溢れた点は「今回は 0m」（メモに残さない＝次回また試す）。
 //   マーカー/pop の数点なら従来どおり即照会。needsDraw も 1 回に束ねる。
-const ELEV_INFLIGHT_MAX = 64; let elevInflight = 0, elevDrawPending = false;
+// elevGen＝DEM の世代（setTerrain でメモを捨てて進める＝差し替え前に出た照会の答えは新しいメモに書かない）
+const ELEV_INFLIGHT_MAX = 64; let elevInflight = 0, elevDrawPending = false, elevGen = 0;
 const elevOf = (lon, lat) => {
 	const k = Math.round(lon * 1000) + "," + Math.round(lat * 1000);
 	const hit = elevMemo.get(k);
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
-	if (!getHeight || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 溢れ＝照会しない（メモ未登録のまま）
+	if (!(demMain || getHeight) || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 出どころ未着・溢れ＝照会しない（メモ未登録のまま）
 	elevMemo.set(k, null); elevInflight++;
-	Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => { elevMemo.set(k, +h || 0); }, () => elevMemo.set(k, 0))
+	const gen = elevGen;
+	heightAt(lon, lat).then(h => { if (gen === elevGen) elevMemo.set(k, h); }, () => { if (gen === elevGen) elevMemo.set(k, 0); })
 		.then(() => { elevInflight--; if (!elevDrawPending) { elevDrawPending = true; requestAnimationFrame(() => { elevDrawPending = false; needsDraw = true; }); } });
 	return 0;
 };
+// 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
 const dispRadius = (lon, lat) => {
-	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
-	return pf > 0 ? 1 + elevOf(lon, lat) * pf * (TERR_EXAG / EARTH_M) : 1;
+	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt);   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
+	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
 };
 const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
@@ -2361,10 +2370,8 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 Object.assign(map.overlay, overlay);   // globe の器（setSelectionMask/setHoverOutline/loadOverlay/clearOverlay）。e-Stat の口は日本の install が map.estat と同名に足す
 map.onGintClick = fn => { gint.clickHandler = fn; };
 Object.defineProperty(map, "backend", { get: () => dbgHost.__backend ?? null, enumerable: true });   // "webgpu"|"webgl2"|null（frame1 前）
-// 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
-let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
-const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();
-map.getHeight = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
+// 外来の標高タイル（#36）の DEM（demMain）と 1 点の標高（heightAt）は elevOf の所＝DOM オーバーレイの持ち上げと同じ出どころ
+map.getHeight = heightAt;
 // MapLibre 同名：setTerrain({ source: id|spec, exaggeration }) / setTerrain(null)。source＝raster-dem（tiles か TileJSON の url・encoding）。
 // exaggeration は受け流す（地形は誇張しない＝本人の方針）。地形のセル（R01）と 1 点の標高の両方がこの DEM を見る
 map.setTerrain = async t => {
@@ -2377,6 +2384,7 @@ map.setTerrain = async t => {
 	demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
 		redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
 	demMain = demSpec ? createDemSource(demSpec) : null;
+	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
 	return map;
@@ -3464,8 +3472,9 @@ const rasterAdjust = P => {
 const BASE_SRC = Symbol("basemap-source");
 const baseSidNow = () => EXT?.split.vectorSource ?? "basemap";
 const baseSrcSpec = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
-// 当たりの地面＝描いている地面（renderer は負の標高を 0 に切る＝海は海面・terrain.js／renderworker の半径と同じ・?noterr=1 は持ち上げない）。dispRadius（projectLL）は切らない＝海の上ではずれる（別件）
-const vtxGround = (lon, lat) => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt); return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1; };
+// 当たりの地面＝描いている地面＝dispRadius（負の標高を 0 に切る＝renderer と同じ・2026-09-27 に projectLL と一本化）
+// ?noterr=1（地形を描かない）は dispRadius 側で持ち上げ 0＝projectLL も当たりも描く側と同じ（#77 の意図を一本化の後へ写した・2026-09-27）
+const vtxGround = dispRadius;
 // feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
 const vtxFS = new Map();
 const vtxFSKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;

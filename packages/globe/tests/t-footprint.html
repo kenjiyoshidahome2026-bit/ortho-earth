@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- UI回帰：シーンのフットプリント（gadgets/footprint.js・stac ガジェットと tellus.html が共用）。傾けて描いた枠の頂点が map.projectLL と一致する
+     ＝描いている地面に乗る（画像と視差ゼロ）。①山（富士山頂の周り）②海（140E 30N・水深は負）。
+     旧＝getHeight の標高を makeProjectorH の liftM に渡していた＝陸は地形リフトと二重に浮き、海は負の水深で沈んだ（2026-09-27）。
+     素通りの合格にしない：同じ待ち方で陸は海面の球より持ち上がり（標高のメモが届いている）、旧の置き方とは離れていることも見る。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-footprint</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+import { createFootprint } from "@ortho-earth/globe/gadgets/footprint.js";
+import { gcInterpolate } from "geopbf/edit/sphere";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+const median = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+try {
+	const map = await createGlobe({ target: "#map", view: "#8/35.36/138.73", chips: false });
+	await sleep(1500);
+	const foot = createFootprint(map);
+	// 描いた経路を記録する（枠の canvas は mapEl の最後の子・2D の文脈は同じ物が返る）
+	const ctx = map.mapEl.lastElementChild.getContext("2d");
+	let rec = [];
+	const bp = ctx.beginPath.bind(ctx), mv = ctx.moveTo.bind(ctx), lt = ctx.lineTo.bind(ctx);
+	ctx.beginPath = () => { rec = []; bp(); };
+	ctx.moveTo = (x, y) => { rec.push([x, y]); mv(x, y); };
+	ctx.lineTo = (x, y) => { rec.push([x, y]); lt(x, y); };
+	const tiltAt = async (lon, lat) => {
+		map.jumpTo({ center: [lon, lat], zoom: 13, pitch: 60, bearing: 0 });
+		const d = 0.015, ring = [[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d]];
+		const pts = [];   // footprint.js と同じ分割（辺を大円で 16 分割）
+		for (let i = 0; i < ring.length; i++) for (let k = 0; k < 16; k++) pts.push(gcInterpolate(ring[i], ring[(i + 1) % ring.length], k / 16));
+		foot.set(ring);
+		const hs = await Promise.all(pts.map(q => map.getHeight(q[0], q[1])));   // 生の標高（旧の置き方の再現用）
+		// 投影側の標高メモ（初回 0 m・在庫 64 本ずつ）が届くまで：描いた経路が 3 回続けて動かなくなるまで待つ
+		let prev = null, still = 0;
+		for (let k = 0; k < 40 && still < 3; k++) {
+			map.requestDraw(); await sleep(500);
+			still = prev && prev.length === rec.length && rec.every((p, i) => dist(p, prev[i]) < 0.01) ? still + 1 : 0;
+			prev = rec.map(p => [...p]);
+		}
+		map.requestDraw(); await sleep(300);   // 静止したカメラで 1 枚描かせてから同じカメラで比べる
+		const drawn = rec.map(p => [...p]);
+		const ll = pts.map(q => map.projectLL(q[0], q[1]));
+		const flat = map.makeProjectorH({ terrain: false }), old = map.makeProjectorH();
+		const vis = pts.map((q, i) => i).filter(i => ll[i][2] >= 0);
+		return {
+			n: vis.length, drawnN: drawn.length, h: median(hs),
+			vsLL: Math.max(...vis.map((i, j) => drawn[j] ? dist(drawn[j], ll[i]) : Infinity)),
+			lift: median(vis.map(i => dist(ll[i], flat(pts[i][0], pts[i][1], 0)))),   // 地形リフト（海面の球からの持ち上がり）
+			vsOld: median(vis.map((i, j) => dist(drawn[j], old(pts[i][0], pts[i][1], hs[i])))),   // 旧＝地形リフト＋生の標高
+		};
+	};
+	const land = await tiltAt(138.7274, 35.3606);
+	ok("landProjectLL", land.n === 64 && land.drawnN === land.n && land.vsLL < 0.5, `n=${land.n} drawn=${land.drawnN} vsLL=${land.vsLL.toFixed(2)}px`);
+	ok("landLifted", land.h > 2000 && land.lift > 20 && land.vsOld > 20, `h=${land.h.toFixed(0)} lift=${land.lift.toFixed(1)}px vsOld=${land.vsOld.toFixed(1)}px`);
+	const sea = await tiltAt(140, 30);
+	// 海面そのもの（負の標高を 0 に畳む）は projectLL（dispRadius）の約束＝ここは記すだけ（seaLift）
+	ok("seaProjectLL", sea.n === 64 && sea.drawnN === sea.n && sea.vsLL < 0.5, `n=${sea.n} drawn=${sea.drawnN} vsLL=${sea.vsLL.toFixed(2)}px seaLift=${sea.lift.toFixed(1)}px`);
+	ok("seaNotSunk", sea.h < -100 && sea.vsOld > 20, `h=${sea.h.toFixed(0)} vsOld=${sea.vsOld.toFixed(1)}px`);
+	const inked = () => { const c = ctx.canvas, a = ctx.getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 3; i < a.length; i += 4) n += a[i] > 0; return n; };
+	const before = inked();
+	foot.set(null); map.requestDraw(); await sleep(200);
+	ok("clear", before > 100 && inked() === 0, `before=${before}`);
+	foot.destroy();
+	ok("destroy", ![...map.mapEl.children].includes(ctx.canvas));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

@@ -6,6 +6,7 @@
 //     IDB/localStorage/GPU が次へ漏れない（9/24 に verify-webgpu 側で踏んだ轍と同じ手当て）
 import { spawn, execFile } from "node:child_process";
 import { rm, readFile } from "node:fs/promises";
+import net from "node:net";
 
 export const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -17,13 +18,45 @@ export const waitExit = (proc, ms = 5000) => new Promise(res => {
 	proc.once("exit", () => { clearTimeout(t1); clearTimeout(t2); res(); });
 });
 
-// vite を起こして「配れる」まで待つ。返り＝止める関数。
-export async function startVite({ cwd, port, readyUrl, env = null }) {
-	const vite = spawn("npx", ["vite", "--port", String(port), "--strictPort"], { cwd, stdio: "ignore", ...(env ? { env: { ...process.env, ...env } } : {}) });
+// 口に既に誰か居るか。vite の localhost は macOS では ::1 に立つが、よその鯖は 127.0.0.1 のことがある＝両方叩く
+const portTaken = port => Promise.all(["127.0.0.1", "::1"].map(host => new Promise(res => {
+	const s = net.connect({ port, host });
+	s.once("connect", () => { s.destroy(); res(true); });
+	s.once("error", () => res(false));
+	s.setTimeout(1000, () => { s.destroy(); res(false); });
+}))).then(r => r.some(Boolean));
+
+// 口を握っている者（lsof があれば pid と cwd＝どの checkout か）。無ければ空＝手掛かりが減るだけ
+const holderOf = port => new Promise(res => execFile("lsof", ["-nP", `-iTCP:${port}`, "-sTCP:LISTEN", "-t"], (e, out) => {
+	const pid = String(out || "").trim().split("\n")[0];
+	if (!pid) return res("");
+	execFile("lsof", ["-a", "-p", pid, "-d", "cwd", "-Fn"], (e2, o2) => {
+		const dir = /^n(.*)$/m.exec(String(o2 || ""))?.[1];
+		res(`（pid ${pid}${dir ? ` cwd ${dir}` : ""}）`);
+	});
+}));
+
+// vite を起こして「配れる」まで待つ。返り＝止める関数。portEnv＝呼び手の口の環境変数名（エラーで逃がし方を示す）。
+// 「応答が返った」だけでは自分の vite とは限らない（2026-09-27：5245 を別 worktree の vite が握っていた＝こちらの vite は
+// --strictPort で即死、fetch はよその鯖に通り、別の checkout の頁を検定して no-title）。だから
+//   ・起こす前に口が空いているかを見る（塞がっていれば握り主を名指しして止まる）
+//   ・自分の vite が "ready in" を刻むまで準備完了と見なさない（--strictPort＝この口で立った証し。同時起動の競り負けも拾う）
+//   ・起動前に落ちたら出力の末尾を添えて止まる
+export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "" }) {
+	const hint = `＝よその鯖に繋ぐと別の checkout を検定してしまう。握り主を止めるか、${portEnv || "呼び手の *_PORT"}=<空き port> で逃がす`;
+	if (await portTaken(port)) throw new Error(`port ${port} が既に使われている${await holderOf(port)}${hint}`);
+	const vite = spawn("npx", ["vite", "--port", String(port), "--strictPort"], { cwd, stdio: ["ignore", "pipe", "pipe"], ...(env ? { env: { ...process.env, ...env } } : {}) });
+	let log = "", ready = false, gone = "";
+	const eat = b => { log = (log + b).slice(-4000); ready ||= /ready in/.test(log); };   // 読み続ける＝pipe を詰まらせない（中身は捨てる）
+	vite.stdout.on("data", eat); vite.stderr.on("data", eat);
+	vite.once("exit", (code, sig) => { gone ||= sig || `exit ${code}`; });
+	vite.once("error", e => { gone ||= e.message; });
 	process.on("exit", () => vite.kill());
+	const tail = () => log.trim().split("\n").slice(-6).map(l => "  | " + l).join("\n");
 	for (let i = 0; ; i++) {
-		try { await fetch(readyUrl); break; } catch { /* まだ＝接続できない。応答さえ返れば（404 でも）器は立っている */ }
-		if (i > 60) { vite.kill(); throw new Error(`vite が起動しない（port ${port} が塞がっている？）`); }
+		if (gone) throw new Error(`vite が立つ前に落ちた（${gone}・port ${port}${await holderOf(port)}）${hint}\n${tail()}`);
+		if (ready) { try { await fetch(readyUrl); break; } catch { /* まだ＝接続できない。応答さえ返れば（404 でも）器は立っている */ } }
+		if (i > 60) { vite.kill(); throw new Error(`vite が起動しない（port ${port}・${ready ? "ready は刻んだが応答しない" : "ready を刻まない"}）\n${tail()}`); }
 		await sleep(250);
 	}
 	return () => vite.kill();
