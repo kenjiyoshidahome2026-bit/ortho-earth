@@ -6,6 +6,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const ROOT = path.resolve(APP, "..", "..");   // 変更検知の git は repo 直下で（WATCH の pathspec は repo 相対。apps/ortho-japan を cwd にすると 1 件も当たらず常に「速い版」になっていた・2026-09-27）
 const t0 = Date.now(), el = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
 const run = (cmd, args, tag) => new Promise(res => {
 	const c = spawn(cmd, args, { cwd: APP, stdio: ["ignore", "pipe", "pipe"], shell: false });
@@ -22,8 +23,8 @@ if (await run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:r
 // 動いていなければ速い 4 ページ（t-backfill/t-rectlook×2/t-import ≈ 16 s）だけ。geoedit は packages/geoedit（2026-09-20 分離）＝
 // japan の deploy でその実装が変わっていないなら、長い対話回帰を毎回回す理由がない。tag が無い（初回）＝全部。
 const WATCH = ["packages/geoedit", "packages/geopbf/src/edit", "packages/ortho-core/src", "packages/globe/src", "packages/jp/src", "apps/ortho-japan/tests"];
-const changed = await new Promise(res => { const c = spawn("git", ["diff", "--name-only", "japan-deployed", "HEAD", "--", ...WATCH], { cwd: APP }); let out = "", bad = false; c.stdout.on("data", d => out += d); c.on("error", () => res(null)); c.on("close", code => res(code === 0 ? out.split("\n").filter(Boolean) : null)); });
-const dirty = await new Promise(res => { const c = spawn("git", ["status", "--porcelain", "--", ...WATCH], { cwd: APP }); let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => res(out.split("\n").filter(Boolean))); });
+const changed = await new Promise(res => { const c = spawn("git", ["diff", "--name-only", "japan-deployed", "HEAD", "--", ...WATCH], { cwd: ROOT }); let out = "", bad = false; c.stdout.on("data", d => out += d); c.on("error", () => res(null)); c.on("close", code => res(code === 0 ? out.split("\n").filter(Boolean) : null)); });
+const dirty = await new Promise(res => { const c = spawn("git", ["status", "--porcelain", "--", ...WATCH], { cwd: ROOT }); let out = ""; c.stdout.on("data", d => out += d); c.on("close", () => res(out.split("\n").filter(Boolean))); });
 const full = changed === null || changed.length > 0 || dirty.length > 0;
 // 速い版の頁は 2026-09-24 に二手へ分かれた＝t-backfill／t-rectlook は packages/globe の門（頁があちらへ移った）、
 // t-import はこの殻の門。どちらも並行に回す（下の Promise.all）。
