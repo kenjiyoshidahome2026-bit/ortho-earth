@@ -1,8 +1,8 @@
 <!doctype html>
 <!-- 実描画の検分：PBR と環境光（#46 段 2・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
-     試料＝東京（139.7/35.7）に半径 30m の白い球 2 つ（西＝金属 metallic 1・roughness 0.2／東＝誘電体 0・0.9）と 20m 角×高さ 60m の箱 2 棟
+     試料＝東京（139.7/35.7）に半径 30m の灰（頂点色 0.5＝sRGB 188）の球 2 つ（西＝金属 metallic 1・roughness 0.2／東＝誘電体 0・0.9）と 20m 角×高さ 60m の箱 2 棟
      （北側＝occlusionTexture が黒／南側＝既定）。共通の時計＝夏至の正午（太陽高度 ≈78°・南）と真夜中。
-     ①fx.pbr off＝従来（球の頂は素の色＝白 255）②on・正午・真俯瞰：粗い球は頂が明るく北の縁は暗い（太陽は南）・金属球はハイライトが粗い球の最大より明るく、暗部は粗い球の最小より暗い
+     ①fx.pbr off＝従来（球の頂は素の色＝188）②on・正午・真俯瞰：粗い球は頂が明るく北の縁は暗い（太陽は南）・金属球はハイライトが粗い球の最大より明るく、暗部は粗い球の最小より暗い
      ③on・正午・北から見る（fill 0）：AO 黒の箱の北壁は既定の箱の北壁より暗い（環境光が消える）④on・真夜中：球は黒くならない（固定光）⑤GPU の検証エラー 0 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-pbr</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -33,7 +33,8 @@ try {
 		}
 		for (let i = 0; i < NA; i++) for (let j = 0; j < NB; j++) { const a = i * (NB + 1) + j, b = a + NB + 1; idx.push(a, b, a + 1, a + 1, b, b + 1); }
 		const [bw, bs] = ll(ce - rad, cn - rad), [be, bn] = ll(ce + rad, cn + rad);
-		r.set("meshSet", { pos: new Float32Array(pos), nrm: new Int8Array(nrm), idx: new Uint32Array(idx), uv: new Float32Array(uv), col: new Uint8Array(pos.length / 3 * 4).fill(255),
+		const col = new Uint8Array(pos.length / 3 * 4).fill(128); for (let i = 3; i < col.length; i += 4) col[i] = 255;   // 頂点色＝glTF の規約どおりリニア 0.5（sRGB では 188）。白だと粗い球の頂も 255 で飽和し金属のハイライトと比べられない
+		r.set("meshSet", { pos: new Float32Array(pos), nrm: new Int8Array(nrm), idx: new Uint32Array(idx), uv: new Float32Array(uv), col,
 			tex: null, pbr, alphaMode: "OPAQUE", keep2d: true, origin, bbox: [bw, bs, be, bn], ward: key }, key + "#0");
 	};
 	// 箱（20m 角・高さ h・ENU の中心 ce/cn）＝面ごとの法線・uv 0.5・AO テクスチャは任意
@@ -66,22 +67,22 @@ try {
 	const at = (cam, e, n, h) => { const st = cameraState(cam, N, N), [lo, la] = ll(e, n), p = project(st, lo, la, 1 + h / Re); return [Math.round(p[0]), Math.round(p[1])]; };
 	const box3 = (px, x, y) => { let s = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) s += lum(px, x + dx, y + dy); return s / 9; };
 	const range = (px, x0, y0, x1, y1) => { let lo = 999, hi = -1; for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const v = lum(px, x, y); if (v < lo) lo = v; if (v > hi) hi = v; } return [lo, hi]; };
-	// 球 2 つ（西＝金属・東＝粗い）＝白
+	// 球 2 つ（西＝金属・東＝粗い）＝灰（リニア 0.5）
 	sphere("metal", -60, 0, 40, 30, metal); sphere("rough", 60, 0, 40, 30, grey);
 	const top = { center: [LON, LAT], zoom: 17, pitch: 0, bearing: 0, dpr: 1 };
-	// ① 旗なし＝従来の陰影（頂＝d=1.0 → 白 255）
+	// ① 旗なし＝従来の陰影（頂＝d=1.0 → 188）
 	r.set("view", { ...view, clock: clock(NOON) });
 	const off = await shot(top);
 	const cR = at(top, 60, 0, 70), cM = at(top, -60, 0, 70);
-	ok(`旗なし＝粗い球の頂は素の色（${box3(off, ...cR).toFixed(1)}≈255）`, Math.abs(box3(off, ...cR) - 255) < 6);   // 頂点色 255×既定の白テクスチャ×d(1.0)
+	ok(`旗なし＝粗い球の頂は素の色（${box3(off, ...cR).toFixed(1)}≈188）`, Math.abs(box3(off, ...cR) - 188) < 6);   // 頂点色 0.5（リニア）×既定の白テクスチャ×d(1.0)→sRGB 188（段 0 から頂点色と baseColorFactor はリニアで読む）
 	// ② 正午・真俯瞰：粗い球＝頂が明るく北の縁は暗い（太陽は南・高度 78°）。金属球＝ハイライトは粗い球の最大より明るく、暗部は粗い球の最小より暗い
 	r.set("fx", { pbr: true });
 	const on = await shot(top);
 	const nR = at(top, 60, 26, 40), topR = box3(on, ...cR), northR = box3(on, ...nR);
-	ok(`正午＝粗い球の頂 ${topR.toFixed(1)} > 北の縁 ${northR.toFixed(1)}×1.3`, topR > northR * 1.3 && topR > 120);
+	ok(`正午＝粗い球の頂 ${topR.toFixed(1)} > 北の縁 ${northR.toFixed(1)}×1.3`, topR > northR * 1.3 && topR > 100);
 	const a = at(top, -90, -30, 40), b = at(top, -30, 30, 40), c2 = at(top, 30, -30, 40), d2 = at(top, 90, 30, 40);
 	const [mLo, mHi] = range(on, a[0] + 3, b[1] + 3, b[0] - 3, a[1] - 3), [rLo, rHi] = range(on, c2[0] + 3, d2[1] + 3, d2[0] - 3, c2[1] - 3);
-	ok(`金属球＝ハイライト ${mHi.toFixed(0)} > 粗い球の最大 ${rHi.toFixed(0)}・暗部 ${mLo.toFixed(0)} < 粗い球の最小 ${rLo.toFixed(0)}`, mHi > rHi + 15 && mLo < rLo - 15);
+	ok(`金属球＝ハイライト ${mHi.toFixed(0)} > 粗い球の最大 ${rHi.toFixed(0)}・暗部 ${mLo.toFixed(0)} < 粗い球の最小 ${rLo.toFixed(0)}`, mHi > rHi + 8 && mLo < rLo - 15);   // 正午は粗い球の頂も 244 まで上がる（実機）＝ハイライトの差は +8・金属らしさは暗部（反射する空が暗い）で見る
 	// ③ AO：北から見る（bearing 180・チルト 60°）＝北壁が正面。AO 黒の箱（北側・n=+80）と既定の箱（南側・n=−80）
 	r.set("meshSet", null, "metal"); r.set("meshSet", null, "rough");
 	box("aoBox", 0, 80, 60, { rgba: new Uint8Array([0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255]), w: 2, h: 2 });

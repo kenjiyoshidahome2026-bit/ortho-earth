@@ -75,8 +75,8 @@ export interface OrthoJapanOptions {
 	maxPitch?: number;
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
-	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。既定＝WebGPU かつ低メモリ端末でない時に on。
-	 *  false で個別に切る。WebGL2・低メモリ端末では常に off（?fx=pbr で強制・?fx=noao で切る＝URL が勝つ）。段階的に実装＝旗だけ先に置く */
+	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。**既定は全部 off**（ell と同じ作法）。
+	 *  true で点ける。URL の ?atmosphere=1／?pbr=1／?ao=1（0 で切る）が opts より優先。WebGPU だけ（WebGL2 は実装を持たない＝旗が立っても絵は変わらない） */
 	render?: { atmosphere?: boolean; pbr?: boolean; ao?: boolean };
 	/** このページは map.overlay(...) で WebGL2 のオーバーレイを重ねる、の宣言。WebKit（iPadOS/Safari）では
 	 *  本体が WebGPU だとその 2 枚目が描かれないため、宣言したページだけ WebGL2 を既定にする（?gpu=1 で破れる） */

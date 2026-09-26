@@ -122,11 +122,12 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
   動的解像度の降段も実測で消える（ぼやけ対策を兼ねる）。パイプラインは sampleCount 焼き込み＝1x/4x セット取替
   （renderer/gint とも遅延生成キャッシュ）。ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。
   GL2 は context 生成時 antialias 固定＝対象外。LOW_MEM は従来どおり既定 1x（変化なし）
-- **描画の質の旗（#46・2026-09-26）**：`opts.render { atmosphere, pbr, ao }`＝大気散乱・PBR と環境光・AO。既定＝**WebGPU かつ非 LOW_MEM で on**・
-  LOW_MEM は off（予算を壊さない）・GL2 は持たない（#44 と同じ裁定）。裁くのは `boot/tier.js renderFx`（純関数・t-tier）＝
-  `?fx=pbr,ao` 強制 on（LOW_MEM／GL2 の A/B）・`?fx=noao` 強制 off・URL が opts に勝つ。段 0 は旗を運ぶだけ（絵は不変）＝段 1〜3 が順に読む。
+- **描画の質の旗（#46・2026-09-26）**：大気散乱・PBR と環境光・AO＝**ell と同じ作法で既定は全端末で 0**（本人裁定 2026-09-26）。
+  URL の `?atmosphere=1`／`?pbr=1`／`?ao=1` で点ける（`=0` で切る・opts より強い）。`opts.render { atmosphere, pbr, ao }: true` は組み込みの口。
+  裁くのは `boot/tier.js renderFx`（純関数・t-tier）。WebGPU だけが読む（GL2 は実装を持たない＝旗が立っても絵は変わらない）。
   段 1（大気散乱）＝`GLOBE` パス・全球ハイプソの帯だけ・調律ノブ `view.atmScale`（帯の幅 k＝4）/`atmSun`/`atmExposure`/`atmGround`。段 2（PBR）＝模型（GGX＋法線/AO/発光テクスチャ）と
   素の建物メッシュ（拡散だけ）を太陽＋空の SH9 で照らす・夜は固定光・`view.pbrFill`（昼でも固定光を混ぜる割合＝0.35＝陰の壁の読みやすさ）。押し出し建物（法線なし）は対象外。
+  段 3（AO）＝チルトした 3D の時だけ main パスの後に 3 パス（半解像度 AO・ぼかし・色に乗算）。半解像度 r8 が 2 枚（W×H/2 B）。`view.aoStrength`（0.5）/`aoRadius`（視距離の 10%・20〜400m）/`aoBias`（接平面の sin の下駄 0.15）。地平線型（8 方向×4 歩・画素ごとに回しジッタ・縦横 7 点の深度重みぼかし）。
 
 ## 7. 計器（全部 URL フラグ・本番搭載）
 
@@ -136,7 +137,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | `?drawhud=1` | 描画実績（塗り枚数・退場フラグ・fade・PLバッチ）＝**USB 不要の実機計器**。塗り0=赤字＝CPU側、枚数ありで黒=GPU側の二分 |
 | `?stay=1` | 起動診断 HUD（frame1・配達カウンタ・boot 里程標。フォールバックせず留まる閲覧モード） |
 | `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint・aa=直近フレームの段数 1/4）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
-| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` `?fx=<name>,no<name>`（#46） |
+| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` `?atmosphere=1` `?pbr=1` `?ao=1`（#46・既定 0） |
 
 ## 8. 残リスク（監視項目）
 
