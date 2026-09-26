@@ -169,6 +169,9 @@ ema＝壁時計フレーム時間＝両バックエンド共通の物差し（We
 
 ## 次の道順
 
+※2026-09-26：性能の俯瞰と実施計画を `perf survey.md`（何がどこで重いか・序列）と `perf plan.md`（Phase・門・計測・裁定待ち）に分冊した。
+下の 1〜5 は plan の P2（プール＋render bundle）・P1（標高セル）・計器に吸収済み＝以後の更新は plan 側で。
+
 1. **性能パス B（計測で速いと出たら）**：タイルの multi_draw 後継（render bundle / drawIndexed baseVertex）＋
    timestamp-query（動的解像度・GPU格付けの物差しを WebGPU でも回復）。計測前は着手しない（measure-first）。
 3. **multi_draw の後継**：WebGPU に multiDraw は無いが、(a) `drawIndexed` に **baseVertex がある**＝
