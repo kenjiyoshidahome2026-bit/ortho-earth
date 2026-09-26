@@ -4,6 +4,8 @@
 //   marker.setPopup(popup)＝マーカーのクリックで開閉（MapLibre と同じ）。
 // 位置は描くたび（map.onFrame）に投影し直す＝地形の高さに乗る（altitude＝地表からの高さ m）・球の裏へ回ったら隠す。
 // 引出線つきの吹き出し（pop ガジェット）とは別物＝こちらは錨の真上に留まる箱。
+import { RAW } from "../zoomscale.js";
+const rawOf = map => map?.[RAW] ?? map;   // 旗つきの地図（外側の顔）でも素の map で登録・投影する（登録簿を顔と素で二重にしない・台帳 R2/R18）
 const CSS = `
 .oe-marker{position:absolute;left:0;top:0;will-change:transform;cursor:pointer;z-index:3}
 .oe-marker.oe-drag{cursor:grab;touch-action:none}
@@ -70,7 +72,7 @@ export class Marker extends Evented {
 	setAltitude(m) { this._opts.altitude = +m || 0; return this; }
 	addTo(map) {
 		this.remove();
-		this._map = map;
+		this._map = map = rawOf(map);
 		map.mapEl.append(this._el);
 		reg(map).items.add(this); reg(map).place();
 		return this;
@@ -131,7 +133,7 @@ export class Popup extends Evented {
 	isOpen() { return !!this._map; }
 	addTo(map) {
 		if (this._map) this.remove();
-		this._map = map;
+		this._map = map = rawOf(map);
 		map.mapEl.append(this._el);
 		reg(map).items.add(this); reg(map).place();
 		if (this._opts.closeOnClick) setTimeout(() => this._map && map.mapEl.addEventListener("click", this._onMapClick), 0);   // 開けたクリック自身で閉じない

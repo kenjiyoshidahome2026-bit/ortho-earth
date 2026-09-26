@@ -36,7 +36,7 @@ export const MAP_MEMBERS = {
 	view: "out",   // view.zoom だけ換算（view.hash は文字列＝エンジン z のまま・pitch/bearing はラジアンのまま）
 	getCenter: "none", setCenter: "none", getPitch: "none", setPitch: "none", getBearing: "none", setBearing: "none",
 	getBounds: "none", setMaxBounds: "none", getMaxBounds: "none", setPadding: "none", getPadding: "none",
-	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", ellipsoidOn: "none",
+	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",
@@ -100,6 +100,12 @@ export const HANDLE_MEMBERS = {
 	setPaint: "in", setFilter: "in", setData: "in", setLabel: "in", style: "in",
 	setFeatureState: "none", removeFeatureState: "none", setOrder: "none", setVisible: "none", activate: "none", remove: "none",
 };
+
+// 起動オプションの換算（createGlobe の最初に 1 回＝以後 opts を読む所・地域パックへ渡る hostEnv.opts は全部エンジンの z）。view は文字列＝換算しない
+export function bootOptsIn(opts, dz) {
+	if (!dz || opts?.zoomMax == null) return opts;
+	return { ...opts, zoomMax: zIn(opts.zoomMax, dz) };
+}
 
 // 旗を読む（未知の値は投げる＝打ち間違いを黙って既定へ落とさない）
 export function zoomScaleOf(opts) {

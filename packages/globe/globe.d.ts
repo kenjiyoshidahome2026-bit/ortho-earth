@@ -72,8 +72,18 @@ export interface OrthoJapanOptions {
 	plateau?: boolean;
 	/** UI言語（地図中の地名は対象外）。live 切替 API は無い＝変えるなら view: map.view.hash を持って destroy()→再生成 */
 	lang?: OrthoJapanLang;
-	/** チルト上限（**ラジアン**）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
+	/** チルト上限（1.3.0〜 **度**＝MapLibre と同じ。1.6 以下の値は従来のラジアンとして読む＝非推奨・console に 1 回警告）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
 	maxPitch?: number;
+	/** ズームの目盛り（1.3.0〜・MapLibre 互換）。既定 "ortho"＝この地図の z（256px 世界＝MapLibre の z＋1 が同じ縮尺）。
+	 *  "maplibre"＝公開面の「数」の zoom を MapLibre の z で受け渡す（入力 +1・出力 −1・null はそのまま）：
+	 *  カメラ（jumpTo/easeTo/flyTo（{} と位置引数）/fitBounds・cameraForBounds/getZoom/setZoom/set・getMin/MaxZoom/zoomMin・setZoomMin/fitZoomForBbox）・map.view.zoom・
+	 *  on("move"|"settle") の e.zoom・addLayer/setLayerZoomRange の minzoom/maxzoom と式の ["zoom"]・queryRenderedFeatures の filter と expansionZoom・
+	 *  ML 形 gadget（heatmap/cluster/symbols/extrude）と clusterMaxZoom・addGint/applyGintData と手綱の minZoom/maxZoom と式・map.raster の表示窓（opts）・
+	 *  ガジェットの表示帯 zoom:[a,b] と zoomMin/zoomMax/maxZoom/minZoom/view の z・opts.zoomMax。
+	 *  換算しない＝文字列（URL hash・view・view.hash）・source の tile z（raster/vector/raster-dem・map.raster.add の spec）・map.cam・overlay の cam・台本（.scenes/playScenes/sceneTimeline）。
+	 *  緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ 込み）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。
+	 *  返る map は外側の顔（Proxy）＝素の map は map[RAW]（部品はエンジンの z で読む時にこちら） */
+	zoomScale?: "ortho" | "maplibre";
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
 	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。**既定は全部 off**（ell と同じ作法）。
@@ -435,10 +445,12 @@ export interface OrthoJapanMap {
 	setZoomMin(zoom: number | null): void;
 	/** 現在のズーム床 */
 	zoomMin(): number;
-	/** チルト上限の実行時変更（**ラジアン**・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
-	setMaxPitch(rad: number | null): void;
-	/** 現在のチルト上限（ラジアン） */
+	/** チルト上限の実行時変更（1.3.0〜 **度**・1.6 以下は従来のラジアン＝非推奨・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
+	setMaxPitch(deg: number | null): void;
+	/** 現在のチルト上限（ラジアン・ortho の口） */
 	maxPitch(): number;
+	/** 現在のチルト上限（度・MapLibre 同名・1.3.0〜） */
+	getMaxPitch(): number;
 	/** 楕円体表示（?ell=1）か。計測は常に WGS84・表示は既定で球 */
 	ellipsoidOn(): boolean;
 	getMinZoom(): number;
@@ -681,6 +693,9 @@ export interface OrthoJapanMap {
 /** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。await 必須。
  *  SDK の orthoJapan は「globe＋日本の申告」の薄い包み（LAYERS.md・2026-09-23） */
 export function createGlobe(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+/** 旗 zoomScale:"maplibre" の地図（外側の顔）から素の map（エンジンの z）へ戻る鍵（1.3.0〜）。値は Symbol.for("ortho-earth.map.raw")＝import しなくても同じ鍵。
+ *  旗なしの地図では未定義＝部品は `map[RAW] ?? map` で読む */
+export const RAW: unique symbol;
 /** globe の名前（中身は OrthoJapanMap / OrthoJapanOptions と同じ） */
 export type GlobeMap = OrthoJapanMap;
 export type GlobeOptions = OrthoJapanOptions;
