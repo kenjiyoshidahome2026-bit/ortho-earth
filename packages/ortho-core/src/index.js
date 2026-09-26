@@ -1,6 +1,6 @@
 // @ortho-earth/core: 球面ベクタタイル描画エンジン（MVT を正射の球面に直描き・WebGPU/GL2）。地域を知らない硬い層（LAYERS.md）。
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
-export { evalExpr, truthy, originOfLayer, ORIGIN_KEY } from "./expr.js";
+export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps } from "./expr.js";
 export { packMLLayers, buildMLTable, zoomSensitivity, ML_DEFAULTS } from "./mltables.js";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
 export { parseRGBA } from "./color.js";
 export { fetchMVT } from "./decode.js";
@@ -31,5 +31,5 @@ export { WORLD_PAL_DEFAULT } from "./worldpal.js";
 export { pmtilesInfo, isPMTiles, isRasterTileType } from "./pmtiles-src.js";   // isRasterTileType＝?pm= のアーカイブがラスタ（png/jpeg/webp/avif）か＝画像タイル層へ回す判定   // PMTiles アーカイブの自己申告（bbox/ズーム域/層名）＝範囲制御の正本。消費者が bbox を手で持たないための口
 export { createRaster } from "./raster.js";   // 画像タイル層（メルカトル XYZ ラスタ・render worker 常駐）
 export { createRasterSource, expandTemplate, normalizeSpec, wmsTemplate, wmtsTemplate, wmtsFromCapabilities } from "./raster-src.js";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）
-export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom, shiftZoomExpr, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY } from "./mlstyle.js";   // 外来の MapLibre style.json を基図 style へ（#33）
+export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom, shiftZoomExpr, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, mlUnknownOps } from "./mlstyle.js";   // 外来の MapLibre style.json を基図 style へ（#33）
 export { createDemSource, decodeDEM, normalizeDemSpec } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）

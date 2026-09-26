@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as mlstyle from "../../ortho-core/src/mlstyle.js";
-import { evalExpr, originOfLayer } from "../../ortho-core/src/expr.js";
+import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "../../ortho-core/src/expr.js";
 import { decodeDEM } from "../../ortho-core/src/dem-src.js";
 import { expandTemplate } from "../../ortho-core/src/raster-src.js";
 import { symbolItems } from "../src/gadgets/symbols-core.js";
@@ -81,6 +81,23 @@ const SCENES = {
 		const e = ["interpolate", ["cubic-bezier", 0.42, 0, 0.58, 1], ["zoom"], 0, 0, 10, 10];
 		const mid = evalExpr(e, { ...NAc({}), zoom: 5 }), early = evalExpr(e, { ...NAc({}), zoom: 2 });
 		return [Math.abs(mid - 5) < 1e-6 && early < 2, `mid=${mid} early=${early}`];
+	},
+	// ── 式の検査（段 5）＝知らない演算子を拾う・式でない所（ラベル・補間の型・literal の中）は見ない ──
+	"op-known-matches-build": () => {
+		const src = fs.readFileSync(path.join(DIR, "../../ortho-core/src/expr.js"), "utf8"), body = src.slice(src.indexOf('function build(e, o = "native") {'));
+		const cases = new Set([...body.matchAll(/case "([^"]+)":/g)].map(m => m[1]));
+		const miss = [...cases].filter(o => !KNOWN_OPS.has(o)), extra = [...KNOWN_OPS].filter(o => !cases.has(o));
+		return [!miss.length && !extra.length, `missing=${miss} extra=${extra}`];
+	},
+	"unknownops-structure": () => {
+		const ok = unknownOps(["match", ["get", "k"], ["a", "b"], 1, "c", 2, 0]).size === 0 && unknownOps(["interpolate", ["cubic-bezier", 0, 0, 1, 1], ["zoom"], 1, 2, 3, 4]).size === 0
+			&& unknownOps(["literal", ["frob", 1]]).size === 0 && unknownOps(["let", "v", 1, ["var", "v"]]).size === 0 && unknownOps([2, 2]).size === 0;
+		const bad = [...unknownOps(["case", ["frobnicate", 1], ["within", {}], 0])];
+		return [ok && bad.includes("frobnicate") && bad.includes("within"), `bad=${bad}`];
+	},
+	"style-skips-unknown-op": () => {
+		const r = mlstyle.splitMapLibreStyle({ version: 8, sources: { v: { type: "vector", tiles: ["x/{z}/{x}/{y}"] } }, layers: [{ id: "a", type: "fill", source: "v", "source-layer": "w", paint: { "fill-color": ["frobnicate", 1] } }, { id: "b", type: "fill", source: "v", "source-layer": "w" }] });
+		return [r.base.map(L => L.id).join() === "b" && /frobnicate/.test(r.skipped.find(k => k.id === "a")?.why || ""), JSON.stringify(r.skipped)];
 	},
 	// ── ML の層の入口は 1 本（normalizeMLLayer・二度通しても同じ＝台帳 R4）──
 	"normalize-idempotent": () => {

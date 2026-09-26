@@ -48,9 +48,13 @@ export function createAggregate(map, { signal } = {}) {
 			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14 });
 			const draw = clusterDraw(pts, cl, opts);
 			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) });
-			Object.assign(c, { draw, pts, cl });
+			// 層 id と層ごとの出しズーム（MapLibre の集約の層＝丸と単点で別の層・maxzoom 排他）。無指定＝従来の名前・全ズーム
+			const ids = { clusters: opts.layerIds?.clusters ?? "clusters", unclustered: opts.layerIds?.unclustered ?? "unclustered-point" };
+			const rg = { clusters: opts.ranges?.clusters ?? [-Infinity, Infinity], unclustered: opts.ranges?.unclustered ?? [-Infinity, Infinity] };
+			Object.assign(c, { draw, pts, cl, ids, rg });
+			c.ov.post({ type: "range", clusters: rg.clusters, unclustered: rg.unclustered });
 			if (slot === "default") ctl._cl = cl;   // 検定窓（従来の 1 枠）
-			c.ov.post({ type: "levels", levels: draw.map(L => L.map(({ lon, lat, r, fill, stroke, sw, text, tc, ts, op }) => ({ lon, lat, r, fill, stroke, sw, text, tc, ts, op }))), minLevel: cl.minLevel, maxLevel: cl.maxLevel });
+			c.ov.post({ type: "levels", levels: draw.map(L => L.map(({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, i }) => ({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, u: i >= 0 ? 1 : 0 }))), minLevel: cl.minLevel, maxLevel: cl.maxLevel });   // u＝単点（unclustered）
 			return { points: pts.length, clusters: cl.levels.map(L => L.length) };
 		},
 		// 画面 (x,y) の丸（今の段）＝MapLibre の集約地物の形（properties に cluster/point_count・expansionZoom）。複数の集約＝後から足した方が上
@@ -59,10 +63,11 @@ export function createAggregate(map, { signal } = {}) {
 			for (const [slot, c] of [...cluss].reverse()) {
 				const L = c.draw[Math.max(0, Math.min(c.draw.length - 1, Math.floor(z) - c.cl.minLevel))] || [];
 				let best = null, bd = Infinity;
-				for (const d of L) { const p = map.projectLL(d.lon, d.lat); if (p[2] < 0) continue; const dd = Math.hypot(p[0] - x, p[1] - y); if (dd <= d.r + 2 && dd < bd) { bd = dd; best = d; } }
+				const inR = r => z >= r[0] && z < r[1];
+				for (const d of L) { if (!inR(d.i >= 0 ? c.rg.unclustered : c.rg.clusters)) continue; const p = map.projectLL(d.lon, d.lat); if (p[2] < 0) continue; const dd = Math.hypot(p[0] - x, p[1] - y); if (dd <= d.r + 2 && dd < bd) { bd = dd; best = d; } }
 				if (!best) continue;
 				const props = best.i >= 0 ? c.pts[best.i].props : { cluster: true, point_count: best.n, point_count_abbreviated: abbr(best.n) };
-				return { type: "Feature", properties: props, geometry: { type: "Point", coordinates: [best.lon, best.lat] }, layer: { id: best.i >= 0 ? "unclustered-point" : "clusters", type: "circle" }, source: slot === "default" ? "cluster" : slot, expansionZoom: best.ez };
+				return { type: "Feature", properties: props, geometry: { type: "Point", coordinates: [best.lon, best.lat] }, layer: { id: best.i >= 0 ? c.ids.unclustered : c.ids.clusters, type: "circle" }, source: slot === "default" ? "cluster" : slot, expansionZoom: best.ez };
 			}
 			return null;
 		},

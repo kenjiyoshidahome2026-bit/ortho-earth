@@ -59,6 +59,28 @@ export function evalExpr(e, ctx) {
 	try { return fn(ctx); } catch (err) { if (err === ML_ERR) return undefined; throw err; }
 }
 
+// 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
+export const KNOWN_OPS = new Set(["literal", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density"]);
+
+// MapLibre 形の式の検査＝知らない演算子を集める（MapLibre は addLayer でその名を挙げて層を足さない・2026-09-26 段 5）。
+// 式の位置だけを見る：literal の中・match のラベル・interpolate の補間型と停留値・step の閾値・let の名前・var・format/number-format/collator の設定は式でない。
+// 先頭が文字列でない配列（[2, 2] など）はデータ＝中を見ない
+export function unknownOps(e, out = new Set()) {
+	if (!Array.isArray(e) || typeof e[0] !== "string") return out;
+	const op = e[0], x = v => unknownOps(v, out);
+	if (!KNOWN_OPS.has(op)) out.add(op);
+	switch (op) {
+		case "literal": case "var": case "collator": return out;
+		case "match": { x(e[1]); for (let i = 3; i < e.length - 1; i += 2) x(e[i]); x(e[e.length - 1]); return out; }
+		case "interpolate": case "interpolate-hcl": case "interpolate-lab": { x(e[2]); for (let i = 4; i < e.length; i += 2) x(e[i]); return out; }
+		case "step": { x(e[1]); x(e[2]); for (let i = 4; i < e.length; i += 2) x(e[i]); return out; }
+		case "let": { for (let i = 2; i < e.length - 1; i += 2) x(e[i]); x(e[e.length - 1]); return out; }
+		case "format": { for (let i = 1; i < e.length; i++) if (!(e[i] && typeof e[i] === "object" && !Array.isArray(e[i]))) x(e[i]); return out; }
+		case "number-format": { x(e[1]); return out; }
+		default: for (let i = 1; i < e.length; i++) x(e[i]); return out;
+	}
+}
+
 // cubic-bezier の緩急（x1,y1,x2,y2）＝t（x）→ y。Newton＋二分で x を解く（CSS の cubic-bezier と同じ）
 function cubicBezier(x1, y1, x2, y2) {
 	const bx = t => 3 * x1 * t * (1 - t) ** 2 + 3 * x2 * t * t * (1 - t) + t ** 3, by = t => 3 * y1 * t * (1 - t) ** 2 + 3 * y2 * t * t * (1 - t) + t ** 3;

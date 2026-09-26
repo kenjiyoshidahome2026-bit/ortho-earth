@@ -53,7 +53,7 @@ export function createSymbols(map, { signal } = {}) {
 		},
 		// 記号の層（src＝GeoJSON・layer＝{ id, layout, paint, filter, minzoom, maxzoom }）。同じ id は置き換え
 		addLayer(id, src, layer) {
-			const zoomDep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter]));
+			const zoomDep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter])) || layer.minzoom != null || layer.maxzoom != null;   // 出しズームだけの層も止まるたびに当て直す（段 5・台帳 R17）
 			layers.set(id, { src, layer, items: [], zoomDep, order: layers.get(id)?.order ?? order++ });
 			evalLayer(id);
 			return { features: layers.get(id).items.length };
