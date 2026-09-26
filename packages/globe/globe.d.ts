@@ -562,6 +562,9 @@ export interface OrthoJapanMap {
 	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層へ詰める（1.3.0〜）・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
 	 *  fill/line/circle は MapLibre の意味（1.3.0〜）：層の型が描くジオメトリを選ぶ（fill＝面・line＝線と面の輪郭・circle＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・
 	 *  fill に輪郭を付けない（fill-outline-color の時だけ 1px）・circle-opacity。同じ source のハイライト層・縁取りの線もそのまま描ける。未対応＝line-dasharray と circle-stroke（gint の線/点）・線幅/半径の上限（約 32px/64px）。
+	 *  知らない演算子（within/distance など未対応も）を含む層は、その名を挙げて投げて足さない（1.3.0〜・MapLibre と同じ。setPaintProperty/setLayoutProperty/setFilter・ML 形 gadget も）。
+	 *  層の minzoom/maxzoom（maxzoom 排他）はどの種類でも効く（1.3.0〜）：記号は止まるたびに当て直す・押し出しと canvas2D の線（line-gradient/line-offset/模様）は止まるたびに
+	 *  ["zoom"] の式を評価し直す（0.25 刻み）・集約は丸と単点の層ごと・raster は表示窓。集約の地物の layer.id は MapLibre の層 id（以前は "clusters"/"unclustered-point"）。
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ）。
 	 *  旧式フィルタ（["==","k","v"] 等）・旧式の関数（{ stops }）・"{name}" 記法は style.json と同じく読み替える（1.3.0〜・ML 形 gadget の層 object も同じ）。
@@ -636,7 +639,7 @@ export interface OrthoJapanMap {
 	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
 	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
-	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  返り値は上に描かれたものから：canvas2D の線/模様（addLayer の層 id・1.3.0〜）→記号・集約→四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層ごとに 1 件・層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;

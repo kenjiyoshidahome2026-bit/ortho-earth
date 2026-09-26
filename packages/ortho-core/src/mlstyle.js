@@ -9,7 +9,7 @@
 // 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・circle・heatmap・線に沿うラベル・アイコン。
 // それらは基図に入れず、呼び手（globe）が「画像層」「利用者の層」へ振り分けるか、捨てて数える（splitMapLibreStyle の戻り値）。
 
-import { ORIGIN_KEY } from "./expr.js";
+import { ORIGIN_KEY, unknownOps } from "./expr.js";
 // ── ① 旧式フィルタ ───────────────────────────────────────────────
 // MapLibre の isExpressionFilter と同じ判定（両方の書き方が混ざった style もある）
 export function isExpressionFilter(f) {
@@ -66,6 +66,8 @@ function convertFunction(fn, prop) {
 	const type = fn.type || (interp ? "exponential" : "interval");
 	const lit = v => (prop === "text-field" || prop === "icon-image") && typeof v === "string" ? convertTokens(v) : Array.isArray(v) ? ["literal", v] : v;   // 段の値にも "{name}" 記法
 	const input = fn.property == null ? ["zoom"] : ["get", fn.property];
+	// 属性の関数の default＝属性が無い地物の値（MapLibre・台帳 R19）。無ければ評価エラー＝性質の既定値（ML の出自で評価）
+	const withDefault = e => fn.property != null && fn.default !== undefined ? ["case", ["has", fn.property], e, lit(fn.default)] : e;
 	if (type === "identity") return fn.default !== undefined ? ["coalesce", ["get", fn.property], lit(fn.default)] : ["get", fn.property];
 	if (!stops.length) return lit(fn.default);
 	if (type === "categorical") {
@@ -77,12 +79,12 @@ function convertFunction(fn, prop) {
 	if (type === "interval") {
 		const out = ["step", input, lit(stops[0][1])];
 		for (let i = 1; i < stops.length; i++) out.push(stops[i][0], lit(stops[i][1]));
-		return out;
+		return withDefault(out);
 	}
-	if (stops.length === 1) return lit(stops[0][1]);
+	if (stops.length === 1) return withDefault(lit(stops[0][1]));
 	const out = ["interpolate", (fn.base ?? 1) === 1 ? ["linear"] : ["exponential", fn.base], input];
 	for (const [k, v] of stops) out.push(k, lit(v));
-	return out;
+	return withDefault(out);
 }
 
 // ── ③ 文字の差し込み記法 ─────────────────────────────────────────
@@ -159,6 +161,13 @@ export function normalizeMLLayer(L, dz = 0) {
 }
 // 目盛りの付け替え（fromDz の目盛りで書かれた値 → toDz の目盛り）。setter/getter が呼び手と層の目盛りの差を埋めるのに使う
 export const rescaleZoomExpr = (e, fromDz, toDz) => shiftZoomExpr(e, fromDz - toDz);
+// 層の式の検査（旧書式を読み替えた後の filter・paint・layout）＝知らない演算子の名前の配列（空＝よし）。MapLibre は addLayer で投げて層を足さない
+export function mlUnknownOps(L) {
+	const C = convertLayer(L), out = new Set();
+	unknownOps(C.filter, out);
+	for (const k of ["paint", "layout"]) for (const v of Object.values(C[k] || {})) unknownOps(v, out);
+	return [...out];
+}
 export const rescaleZoomNum = (x, fromDz, toDz) => x == null ? x : x + fromDz - toDz;
 
 // ── 振り分け ─────────────────────────────────────────────────────
@@ -178,6 +187,8 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 		const sp = sources[L0.source];
 		// geojson / image / video の層＝利用者の層の口へ「そのまま」渡す（読み替えと目盛りの換算は受け手が normalizeMLLayer で 1 回＝dz は受け手が layerDzOf(L, zoomOffset) で決める）
 		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L0); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
+		const bad = mlUnknownOps(L0);
+		if (bad.length) { skipped.push({ id: L0.id, type: L0.type, why: `unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}` }); continue; }   // MapLibre は層を足さない
 		const L = normalizeMLLayer(L0, zoomOffset);
 		if (L.type === "background") { base.push(L); continue; }
 		if (sp?.type === "raster") { raster.push(L); continue; }

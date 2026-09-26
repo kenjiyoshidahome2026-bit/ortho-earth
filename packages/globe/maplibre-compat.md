@@ -35,10 +35,10 @@
 | 式の意味（ML 由来だけ MapLibre の意味・ネイティブは今のまま） | 全部 JS の寛容な意味 | 3 | **済**（ctx.origin・層の印 metadata["ortho:origin"]・基図の worker/問い合わせ/gint/記号/集約/押し出し/模様/画像の色調整まで） |
 | 同じ source の層（U7）・type とジオメトリ・既定値・fill の輪郭・circle-opacity | 1 枚に畳む・全ジオメトリ・既定色 | 4 | **済**（mltables・連続する層だけ詰める・予約 order 帯・層ごとの問い合わせ） |
 | line-dasharray・circle-stroke（gint の線/点） | 実線・縁なし | 4b | 未（爪車 known） |
-| 知らない演算子 | 黙って受け取る | 5 | 未（爪車 known） |
-| raster の層の minzoom/maxzoom | 無視 | 5 | 未（爪車 known） |
-| 層の種類ごとの zoom（symbol・pattern・extrude・cluster） | ばらばら | 5 | 未 |
-| 旧式の関数の default（属性の欠損） | 効かない | 5 | 未（爪車 known） |
+| 知らない演算子 | 黙って受け取る | 5 | **済**（KNOWN_OPS・unknownOps＝式の位置だけ見る・公開の口は投げる・style.json の基図は数えて飛ばす） |
+| raster の層の minzoom/maxzoom | 無視 | 5 | **済**（表示窓・maxzoom 排他） |
+| 層の種類ごとの zoom（symbol・pattern・extrude・cluster） | ばらばら | 5 | **済**（記号＝出しズームも当て直す・押し出し/canvas2D＝止まるたびに鍵を見て描き直す・集約＝層ごとの範囲と層 id・模様/canvas2D の線も問い合わせに出る） |
+| 旧式の関数の default（属性の欠損） | 効かない | 5 | **済**（["case", ["has", 属性], 式, default]） |
 | raster の url（TileJSON）を addLayer で | 型紙として使う | 6 | 未（爪車 known） |
 | geojson の data の相対 URL | バケツ名として引く | 6 | 未（爪車 known） |
 | {quadkey}・{ratio}・raster-dem custom・sprite 配列 | 無い | 6 | 未（爪車 known＝quadkey・custom） |
@@ -79,10 +79,10 @@
 | R14 | npm の版と公開順 | 本人の号令・core→globe→japan | verify:npm | — |
 | R15 | maxPitch の単位（ラジアン→度） | 1.6 超を度と読む移行・getMaxPitch（度） | t-mlzoom（getMaxPitch） | **済**（段 2） |
 | R16 | 1 枚の gint 層で部分を消す時の穴（線/点の色 α0＝既定色・縮退 stencil が表を見ない） | 幅/半径 0 に直す・fillMaxEdges:0・zoom 域の境で作り直す（zoomKey） | core mltables.mjs・t-mlcompat（両土台） | **済**（段 4） |
-| R17 | 層の種類ごとに zoom の扱いがばらばら | 段 5 | t-mlcompat の行列 | 未 |
+| R17 | 層の種類ごとに zoom の扱いがばらばら | 段 5 | t-mlcompat の行列（記号・集約・押し出し・canvas2D の線） | **済**（段 5） |
 | R18 | 公開 map を受け取る部品がエンジン z で計算（geoedit・common/gintView・anno） | 入口で `map[RAW] ?? map`（anno はガジェット＝素の this） | t-mlzoom（marker）・コードの入口 | **済**（段 2） |
-| R19 | 変換した旧関数が寛容な欠損に依存 | default へ落ちる形で包む | 爪車 node（legacy-fn-interp-default） | 門あり（known） |
-| R20 | queryRenderedFeatures が ML と違う（filter の意味・層ごとの filter・集約の層 id） | filter は ML の出自（段 3）・層ごとに 1 件（drawn の印・段 4）・集約の層 id は段 6 | t-mlcompat・t-mllayers | 一部済 |
+| R19 | 変換した旧関数が寛容な欠損に依存 | default へ落ちる形で包む | 爪車 node（legacy-fn-interp-default） | **済**（段 5） |
+| R20 | queryRenderedFeatures が ML と違う（filter の意味・層ごとの filter・集約の層 id） | filter は ML の出自（段 3）・層ごとに 1 件（段 4）・集約の層 id＝ML の層 id と層ごとの範囲・canvas2D の線/模様も（段 5）。cluster_id・getClusterExpansionZoom は段 6 | t-mlcompat・t-mllayers | 一部済 |
 | R21 | 基図の paint は tile z で焼く | 触らない（§4） | — | — |
 
 ## 6. 門（互換の爪車ほか）
@@ -105,7 +105,7 @@
 - [x] **段 3**（2026-09-26）：評価器の出自＝ctx.origin "ml" だけ MapLibre の型の約束（型の合わない比較・真偽でない条件・数でない補間の入力・外れた型の表明＝評価エラー＝undefined／get の欠損＝null／to-number・型の表明の予備）。cache は出自ごと。印は normalizeMLLayer が付ける平の性質（worker へ届く）。新演算子（at・三角関数・to-rgba・cubic-bezier・index-of の開始位置・get/has の object）は両方。isColor（color.js）。ネイティブの結果は黄金の写しで不変を確認。門＝爪車 node 13 場面・browser 2 場面（gint の case・基図の get 欠損）。
 - [x] **段 4**（2026-09-26）：fill / line / circle の約束＝core `mltables.js`（packMLLayers・buildMLTable・zoomSensitivity）・手綱の buildTable/zoomKey・全体の詰め方から組み直し（同じ署名は使い回し・隠した層も残す・立て続けは新しい方の完了を待つ・読めない source は巻き添えにしない）・予約 order 帯・interactive:false・fillMaxEdges:0・feature-state は source に住む・問い合わせは層ごと。門＝core mltables.mjs 11 項目・爪車（両土台）で 6 件が直った。
 - [ ] 段 4b：line-dasharray（表の dash 欄の地物ごとの配線・両シェーダ）・circle-stroke（表の第 4 語）・GPU メモリの実測
-- [ ] 段 5：式の残りと層の種類ごとの zoom
+- [x] **段 5**（2026-09-26）：式の検査（KNOWN_OPS＝build の case と突き合わせる検定つき・unknownOps・公開の口で投げる・基図は数えて飛ばす）・旧関数の default（R19）・種類ごとの zoom（記号の出しズーム・集約の層 id と範囲・押し出しと canvas2D の線の描き直し・raster の表示窓）・canvas2D の線/模様の問い合わせ。門＝爪車 node 3 場面・browser 4 場面の行列。
 - [ ] 段 6：読めない形式（小物）
 - [ ] 段 7：基図の層を触れるように
 - [ ] 段 8：エンジン級（着手前に別計画）

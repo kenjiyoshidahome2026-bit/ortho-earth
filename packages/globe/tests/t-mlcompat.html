@@ -184,6 +184,27 @@ try {
 			if (kept) map.removeLayer("uo-f");
 			return [!!msg && /frobnicate/.test(msg) && !kept, msg ? `threw: ${msg}` : "accepted"];   // MapLibre＝その演算子の名を挙げて層を足さない
 		});
+		// ── 層の種類ごとの zoom の約束（段 5・台帳 R17）＝minzoom で出し入れ・["zoom"] の式は止まるたびに評価し直す・問い合わせに出る ──
+		map.jumpTo({ center: [137.2, 35.9], zoom: 7 }); await sleep(1500);
+		map.addSource("zs", { type: "geojson", data: fc([pt(138.0, 36.6, { n: "S" })]) });
+		await map.addLayer({ id: "zs-s", type: "symbol", source: "zs", minzoom: 9, layout: { "text-field": ["get", "n"], "text-size": 16 } });
+		map.addSource("zc", { type: "geojson", cluster: true, data: fc(Array.from({ length: 12 }, (_, i) => pt(136.2 + (i % 4) * 0.01, 36.6 + Math.floor(i / 4) * 0.01, {}))) });
+		await map.addLayer({ id: "zc-c", type: "circle", source: "zc", maxzoom: 6, filter: ["has", "point_count"], paint: { "circle-radius": 14, "circle-color": "#08f" } });
+		map.addSource("ze", { type: "geojson", data: fc([sq(137.2, 36.6, 0.02, {})]) });
+		await map.addLayer({ id: "ze-x", type: "fill-extrusion", source: "ze", paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 7, 0, 9, 500], "fill-extrusion-color": "#c80" } });
+		map.addSource("zp", { type: "geojson", data: fc([F({ type: "LineString", coordinates: Array.from({ length: 21 }, (_, i) => [138.6 + i * 0.02, 36.6]) }, {})]) });
+		await map.addLayer({ id: "zp-l", type: "line", source: "zp", minzoom: 9, paint: { "line-color": "#f0f", "line-width": 4, "line-offset": 3 } });   // line-offset＝canvas2D の口（模様と同じ）
+		map.jumpTo({ center: [136.215, 36.61], zoom: 5 }); await sleep(2500);
+		const clusterAt = async () => { const [x, y] = map.projectLL(136.215, 36.61); return (await map.queryRenderedFeatures([x, y], { layers: ["zc-c"], tolerance: 20 })).map(f => f.layer.id); };
+		const z5c = await clusterAt();   // 範囲内（maxzoom 6 未満）＝当たる（見分ける力の確かめ）
+		map.jumpTo({ center: [137.2, 35.9], zoom: 7 }); await sleep(2500);
+		const z7 = { s: await at(138.0, 36.6, ["zs-s"]), c: (map.jumpTo({ center: [136.215, 36.61], zoom: 7 }), await sleep(1500), await clusterAt()), p: await at(138.8, 36.6, ["zp-l"]) };
+		map.jumpTo({ center: [137.6, 36.6], zoom: 9.5 }); await sleep(3000);   // settle を待つ（止まるたびの評価し直し）
+		const z95 = { s: await at(138.0, 36.6, ["zs-s"]), p: await at(138.8, 36.6, ["zp-l"]), x: (await map.queryRenderedFeatures(map.projectLL(137.2, 36.6), { layers: ["ze-x"] }))[0] };
+		await scene("symbol-minzoom", () => [!z7.s.includes("zs-s") && z95.s.includes("zs-s"), `z7=${z7.s} z9.5=${z95.s}`]);
+		await scene("cluster-layer-zoom-range", () => [z5c.includes("zc-c") && !z7.c.includes("zc-c"), `z5=${z5c} z7(maxzoom6)=${z7.c}`]);
+		await scene("extrude-zoom-expression", () => [Math.abs((z95.x?.height ?? 0) - 500) < 1, `height@9.5=${z95.x?.height}`]);
+		await scene("pattern-minzoom-and-query", () => [!z7.p.includes("zp-l") && z95.p.includes("zp-l"), `z7=${z7.p} z9.5=${z95.p}`]);
 	} else if (G === "style") {
 		const style = {
 			version: 8, name: "t-mlcompat-style",
