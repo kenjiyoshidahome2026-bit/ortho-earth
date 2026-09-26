@@ -1,6 +1,7 @@
 <!doctype html>
 <!-- UI回帰：DOM の Marker / Popup（#38・MapLibre と同名）。globe で起動し、①錨の画面位置（既定ピン＝下端中央が錨）②カメラが動くと追随
-     ③球の裏へ回ると隠れる ④setPopup＝クリックで開閉・closeOnClick ⑤ドラッグで経緯度が変わり dragend ⑥remove。実時間（描くたびの追随を見る）。 -->
+     ③球の裏へ回ると隠れる ④setPopup＝クリックで開閉・closeOnClick ⑤ドラッグで経緯度が変わり dragend ⑥remove
+     ⑦海の上で傾けても projectLL は海面（負の標高は描画と同じく 0）。実時間（描くたびの追随を見る）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-marker</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -57,6 +58,20 @@ try {
 	// ⑥ 外す
 	mk.remove();
 	ok("remove", !map.mapEl.contains(el));
+	// ⑦ 海の上で傾ける（2026-09-27）：描画は負の標高（海底）を 0 に畳む（core terrain.js・renderworker の lift）＝projectLL も海面に置く。
+	//   旧＝dispRadius が海底（140E 30N で約 −3000m）まで沈め、傾けると描いた地面より大きく下へずれた。
+	//   素通りの合格にしない：同じ待ち方で陸（富士山頂）は持ち上がる＝標高のメモが届いた上で比べている。
+	const dist = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+	const tiltAt = async (lon, lat) => {
+		map.jumpTo({ center: [lon, lat], zoom: 13, pitch: 60, bearing: 0 });
+		const h = await map.getHeight(lon, lat);
+		await sleep(300); map.projectLL(lon, lat); await sleep(1000);   // 初回の projectLL は 0m（標高照会は非同期）＝メモが届いてから測る
+		const pr = map.makeProjectorH({ terrain: false });   // 地形リフト無し＝海面の球（＋hM）
+		return { h, ll: map.projectLL(lon, lat), flat: pr(lon, lat, 0), raw: pr(lon, lat, h) };
+	};
+	const land = await tiltAt(138.7274, 35.3606), sea = await tiltAt(140, 30);
+	ok("landLift", land.h > 3000 && dist(land.ll, land.raw) < 3 && dist(land.ll, land.flat) > 30, `h=${land.h.toFixed(0)} lift=${dist(land.ll, land.flat).toFixed(1)}px vsRaw=${dist(land.ll, land.raw).toFixed(1)}px`);
+	ok("seaTilt", sea.h < -100 && dist(sea.ll, sea.flat) < 1 && dist(sea.raw, sea.flat) > 30, `h=${sea.h.toFixed(0)} vsSea=${dist(sea.ll, sea.flat).toFixed(1)}px vsRaw=${dist(sea.ll, sea.raw).toFixed(1)}px`);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>
