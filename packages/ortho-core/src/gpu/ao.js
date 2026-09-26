@@ -14,6 +14,7 @@
 //   ・対数深度の逆は exp2(x)−1 でなく expm1＝1 の近くの引き算は w を 1.2e-7（≈0.76m）刻みに量子化する＝地面の段々・まだら
 //   ・球の床は −b−√h（打ち消し）でなく c/(−b＋√h)・c＝|eye|²−1 は CPU（f64）＝床が 0.4m 級に波打たない
 
+import { viewRays as aoRays } from "../camera.js";   // 視線の基底（f64）＝camera.js が正本（#65 と共有）
 // 深度を GB の 16bit に詰める／戻す（ぼかしと合成の深度重み用・AO 面に同梱＝ぼかしは深度テクスチャを読まない）
 const ENC_W = "fn encW(w: f32) -> vec2f { let g = clamp(log2(1.0 + w * 1.0e5) / 25.0, 0.0, 1.0); let hi = floor(g * 255.0); return vec2f(hi, floor((g * 255.0 - hi) * 255.0)) / 255.0; }";
 const DEC_W = "fn decW(gb: vec2f) -> f32 { let g = (gb.x * 255.0 + gb.y) / 255.0; return (exp2(g * 25.0) - 1.0) * 1.0e-5; }";
@@ -157,13 +158,7 @@ ${AO_HEAD(ms)}
 
 // 視線の基底（f64・純関数＝Node の検定が読む）：v(ndc)＝F＋ndc.x·X＋ndc.y·Y。長さは clip w が 1 になる向き（g·v＝1・g＝mvp の w 行）＝
 // 目からの相対位置は P＝w·v（w＝clip w＝深度から戻す奥行き）。透視は ndc に対して v がアフィン＝3 点で決まる。mvp/invMvp は列優先（mat.js）。
-export function aoRays(mvp, invMvp) {
-	const M = invMvp, g = [mvp[3], mvp[7], mvp[11]];
-	const un = (x, y, z) => { const o = [0, 1, 2, 3].map(r => M[r] * x + M[4 + r] * y + M[8 + r] * z + M[12 + r]); return [o[0] / o[3], o[1] / o[3], o[2] / o[3]]; };
-	const ray = (x, y) => { const a = un(x, y, 0), b = un(x, y, 1), v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], k = g[0] * v[0] + g[1] * v[1] + g[2] * v[2]; return v.map(c => c / k); };
-	const F = ray(0, 0), X = ray(1, 0), Y = ray(0, 1);
-	return { F, X: X.map((c, i) => c - F[i]), Y: Y.map((c, i) => c - F[i]) };
-}
+export { aoRays };   // 視線の基底（f64）＝2026-09-27 から camera.js viewRays が正本（全画面レイキャスト #65 と共有）・名前は据え置き
 
 // device・format（canvas の色形式）。encode は main パスの後（同じエンコーダ）に 4 パスを積む。
 export function createAoGPU(device, format) {

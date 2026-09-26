@@ -15,10 +15,40 @@
 //   base/main … fill/line（fogFar=fogFarCap 上書き済みの値・origin はシーン毎）
 //   terrain  … 遠山ブルー（fogColor=distColor・near/far は地形専用式・origin=main と同じ）
 //   bld      … 建物（fog 既定 2.5×/14×・origin=main と同じ）
+// 全画面レイキャストの視線と球との交点（#65・2026-09-27）：視線は CPU f64 の基底（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h) で（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+const RAY = /* wgsl */`
+struct SphereHit { A: vec3f, d: vec3f, t: f32, aa: f32, bb: f32, cc: f32, disc: f32 };
+fn sphereRay(ndc: vec2f, rF: vec4f, rX: vec4f, rY: vec4f, eyeC: vec4f) -> SphereHit {
+	let d = rF.xyz + ndc.x * rX.xyz + ndc.y * rY.xyz;
+	let A = eyeC.xyz; let cc = eyeC.w;
+	let aa = dot(d, d); let bb = 2.0 * dot(A, d);
+	let disc = bb * bb - 4.0 * aa * cc;
+	var t = -1.0;
+	if (disc >= 0.0) { let q = -bb + sqrt(disc); if (q > 0.0) { t = 2.0 * cc / q; } }
+	return SphereHit(A, d, t, aa, bb, cc, disc);
+}
+// 交点の原点相対 δ（＝EO＋t·d・f32 で mm 級）から経緯度の差（deg・測地）を桁落ちなしで：O＝原点（β単位球）・rhoO＝cos β0・beta0（rad）・ell＝楕円体ゲート。
+// δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)（atan の差の恒等式＝O² の項は代数的に消える）。
+// δβ＝atan2(δy·ρO−dρ·Oy, ρP·ρO+Py·Oy)・dρ＝ρP−ρO＝s/(ρP+ρO)・s＝2(Ox·δx+Oz·δz)+δx²+δz²（ρ の差も桁落ちなし）。測地の補正は差（sin の差）で
+fn deltaLL(dl: vec3f, O: vec3f, rhoO: f32, beta0: f32, ell: f32) -> vec2f {
+	let dlon = atan2(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	let s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	let rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	let drho = s / max(rhoP + rhoO, 1e-12);
+	let dbeta = atan2(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	let b1 = beta0 + dbeta;
+	let corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2f(dlon, dbeta + corr) * 57.29577951308232;
+}
+`;
 const FRAME = /* wgsl */`
 struct Frame {
 	mvp: mat4x4f,
-	invMvp: mat4x4f,   // 等高線（フルスクリーン・レイキャスト）用に同居
+	rayF: vec4f,       // 全画面レイキャスト（#65・旧 invMvp の枠）：視線の基底（CPU f64・camera.js viewRays）v(ndc)＝F＋x·X＋y·Y。等高線が読む
+	rayX: vec4f,
+	rayY: vec4f,
+	eyeC: vec4f,       // xyz＝目の位置・w＝|E|²−1（f64）＝sphereRay の c
 	clipT: vec4f,      // mvp*[originPt,1]（CPU double）＝RTE の錨
 	trig: vec4f,       // (cosLon, sinLon, cosLat, sinLat) of origin
 	originPt: vec3f,   // lonlatTo3D(origin)
@@ -39,9 +69,12 @@ struct Frame {
 	gnd1: vec4f,       // 同・中窓
 	gnd2: vec4f,       // 同・遠窓
 	gnd3: vec4f,       // 同・4 段目（前景あり＝[前景,近,中,遠]・無し＝[近,中,遠,−]）
+	eyeO: vec4f,       // xyz＝目−originPt（f64 で引く＝原点相対の目）・w＝原点の β（rad）。等高線の交点 δ＝eyeO＋t·d（#65）
+	elevOff: vec4f,    // 等高線の標高 uv 係数（f64 前計算）：(原点の uv, 1/span)＝uv＝off＋δll·inv
 	sun: vec4f,        // 太陽（#46 段 0・2026-09-26）：xyz＝方向の単位ベクトル（地球固定・y=北極＝shadow.js sunVector と同軸）・w＝昼の度合い（原点の太陽高度 −6°→+6° の smoothstep）。夜は減光した固定光へ落とす量の鍵＝段 2 の PBR が読む。段 0 では運ぶだけ
 };
 @group(0) @binding(0) var<uniform> F: Frame;
+${RAY}
 @group(0) @binding(1) var elevTex: texture_2d<f32>;
 @group(0) @binding(2) var elevSamp: sampler;
 @group(0) @binding(3) var farElevTex: texture_2d<f32>;
@@ -667,7 +700,10 @@ struct PlOut {
 export const SKY_WGSL = /* wgsl */`
 struct Sky {
 	mvp: mat4x4f,
-	invMvp: mat4x4f,   // 夜面レイキャスト
+	rayF: vec4f,       // 夜面レイキャスト（#65・旧 invMvp の枠）：視線の基底（CPU f64）
+	rayX: vec4f,
+	rayY: vec4f,
+	eyeC: vec4f,       // xyz＝目・w＝|E|²−1
 	gmst: vec2f,       // (cos, sin) 恒星時
 	fadeSky: vec2f,    // (fade=出現α, sky=天球倍率)
 	viewport: vec2f,   // device px（星の四角形展開）
@@ -675,6 +711,7 @@ struct Sky {
 	sun: vec3f,        // 夜面の太陽方向（地球固定・単位）
 	alpha: f32,        // 夜面の濃さ
 };
+${RAY}
 @group(0) @binding(0) var<uniform> SK: Sky;
 @group(1) @binding(0) var<uniform> LC: vec4f;   // 星座線の色（per-buffer）
 fn rotY(cel: vec3f) -> vec3f {   // 天球→地球固定＝GMST の y 軸回転（STARS_VS と同式）
@@ -719,15 +756,9 @@ struct NOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	return o;
 }
 @fragment fn fsNight(in: NOut) -> @location(0) vec4f {
-	let np = SK.invMvp * vec4f(in.ndc, -1.0, 1.0);
-	let fp = SK.invMvp * vec4f(in.ndc, 1.0, 1.0);
-	let A = np.xyz / np.w; let B = fp.xyz / fp.w; let d = B - A;
-	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
-	let disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) { discard; }
-	let t = (-bb - sqrt(disc)) / (2.0 * aa);
-	if (t < 0.0) { discard; }
-	let Pt = A + t * d;
+	let h = sphereRay(in.ndc, SK.rayF, SK.rayX, SK.rayY, SK.eyeC);   // #65
+	if (h.t < 0.0) { discard; }
+	let Pt = h.A + h.t * h.d;
 	let night = smoothstep(0.08, -0.18, dot(Pt, SK.sun));   // 太陽直下から遠い半球ほど夜
 	let a = night * SK.alpha;
 	if (a <= 0.001) { discard; }
@@ -797,8 +828,7 @@ struct COut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	return o;
 }
 const R2D: f32 = 57.29577951308232;
-fn elevAt(ll: vec2f) -> f32 {   // 等高線は edgeFade 無し（GL CONTOUR_FS と同じ・uv 範囲外=0）
-	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
+fn elevAt(uv: vec2f) -> f32 {   // 等高線は edgeFade 無し（GL CONTOUR_FS と同じ・uv 範囲外=0）。uv＝原点相対（#65）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
 	return textureSampleLevel(elevTex, elevSamp, uv, 0.0).r;
 }
@@ -810,17 +840,11 @@ fn band(g: f32) -> f32 {   // iso線：整数の g で 1（fwidth で画面一�
 }
 @fragment fn fs(in: COut) -> @location(0) vec4f {
 	if (P.p1.y <= 0.002 || F.elevP.y < 0.5) { discard; }
-	let np = F.invMvp * vec4f(in.ndc, -1.0, 1.0);
-	let fp = F.invMvp * vec4f(in.ndc, 1.0, 1.0);
-	let A = np.xyz / np.w; let B = fp.xyz / fp.w; let d = B - A;
-	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
-	let disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) { discard; }
-	let t = (-bb - sqrt(disc)) / (2.0 * aa);
-	if (t < 0.0) { discard; }
-	let Pt = A + t * d;
-	let ll = vec2f(atan2(Pt.z, Pt.x) * R2D, geoLat(asin(clamp(Pt.y, -1.0, 1.0)) * R2D));   // β→測地（球=恒等）
-	let e = elevAt(ll);
+	let h = sphereRay(in.ndc, F.rayF, F.rayX, F.rayY, F.eyeC);   // #65：視線は CPU f64 の基底・交点は原点相対 δ で持つ（絶対経緯度を経ない）
+	if (h.t < 0.0) { discard; }
+	let dl = F.eyeO.xyz + h.t * h.d;
+	let dll = deltaLL(dl, F.originPt, F.trig.z, F.eyeO.w, F.ellP.x);   // 経緯度の差（deg・測地）
+	let e = elevAt(F.elevOff.xy + dll * F.elevOff.zw);
 	let landMask = smoothstep(0.5, 4.0, e);   // 海/データ無し(≈0)は等高線を出さない
 	if (landMask <= 0.0) { discard; }
 	let line = max(band(e / P.p0.w) * 0.2, band(e / P.p1.x) * 0.4);   // 主曲線ごく薄・計曲線も薄め
@@ -834,7 +858,10 @@ fn band(g: f32) -> f32 {   // iso線：整数の g で 1（fwidth で画面一�
 // smoothstep の逆順引数（GLSL 黙認・WGSL 未定義）は 1-smoothstep(正順) へ等価書換済み。
 export const GLOBE_WGSL = /* wgsl */`
 struct Globe {
-	invMvp: mat4x4f,
+	rayF: vec4f,         // 全画面レイキャスト（#65・旧 invMvp の枠）：視線の基底（CPU f64・camera.js viewRays）
+	rayX: vec4f,
+	rayY: vec4f,
+	eyeC: vec4f,         // xyz＝目の位置・w＝|E|²−1（f64）
 	land: vec4f,
 	atmo: vec4f,   // 大気色 rgb + 強さ(a)
 	elevBounds: vec4f,   // 全球ハイプソ用（R90 全球窓の被覆）
@@ -844,9 +871,19 @@ struct Globe {
 	farP: vec4f,         // (hasFar, 近窓縁フェード幅deg, 0, 0)
 	misc: vec4f,         // (globeAlpha=球体の不透明度・本人裁定 2026-09-13, 0, 0, 0)
 	sun: vec4f,          // 大気散乱（#46 段 1）：xyz＝太陽の方向（地球固定）・w＝散乱を点ける度合い（fx.atmosphere × 全球ハイプソの出現度＝0 は従来のリム光と霞）
+	anc: vec4f,          // 錨（#65）：xyz＝シーン原点の β単位球の点 O・w＝cos β0
+	anc2: vec4f,         // xy＝原点 lon/lat（deg・測地）・z＝β0（rad）
+	eyeO: vec4f,         // xyz＝目−O（f64 で引く）＝交点 δ＝eyeO＋t·d（原点相対・f32 で mm 級）
 	atmP: vec4f,         // (太陽の強さ, 露出, 球の床の空気遠近の強さ 0..1＝地理の読みやすさのため既定は半分, 帯の幅 k＝殻を k 倍に広げ係数を 1/k＝色は物理のまま)
+	cogOff: vec4f,       // 球の床の uv 係数（f64 前計算・#65）：ユーザ COG＝(原点の uv, 1/span)＝uv＝off＋δll·inv
+	gndOff0: vec4f,      // 地面アトラス（前景/近/中/遠）＝同形
+	gndOff1: vec4f,
+	gndOff2: vec4f,
+	gndOff3: vec4f,
+	elevOff: vec4f,      // 近窓の標高（海面下 fsWdepr）＝同形
 };
 @group(0) @binding(0) var<uniform> G: Globe;
+${RAY}
 // 全球ハイプソ：標高（R90全球窓）＋気候場。未着/K=0 は dummy（whP が使用をゲート）
 @group(0) @binding(1) var gElevTex: texture_2d<f32>;
 @group(0) @binding(2) var gSamp: sampler;
@@ -872,8 +909,8 @@ fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
 	return textureSampleLevel(gFarTex, gSamp, uv, 0.0).r;
 }
-fn gElevAt(ll: vec2f) -> f32 {
-	let uv = (ll - G.elevBounds.xy) / G.elevBounds.zw;
+fn gElevAt(ll: vec2f) -> f32 { return gElevUV((ll - G.elevBounds.xy) / G.elevBounds.zw, ll); }
+fn gElevUV(uv: vec2f, ll: vec2f) -> f32 {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return gElevFar(ll); }
 	var fade = 1.0;
 	if (G.farP.y > 0.0) {   // 近窓縁＝far値へ溶かす（R90全球窓=0＝従来どおり）
@@ -967,14 +1004,10 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 	return o;
 }
 @fragment fn fs(in: GOut) -> @location(0) vec4f {
-	let np = G.invMvp * vec4f(in.ndc, -1.0, 1.0);
-	let fp = G.invMvp * vec4f(in.ndc, 1.0, 1.0);
-	let A = np.xyz / np.w; let B = fp.xyz / fp.w; let d = B - A;
-	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
-	let disc = bb * bb - 4.0 * aa * cc;
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65：視線は CPU f64 の基底・交点は桁落ちなし
+	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let cc = h.cc;
 	let aDotd = bb * 0.5; let tstar = -aDotd / aa;
-	var t = -1.0;
-	if (disc >= 0.0) { t = (-bb - sqrt(disc)) / (2.0 * aa); }
+	let t = h.t;
 	if (t < 0.0) {                             // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続減衰
 		let lenA = length(A);
 		var m = lenA;
@@ -999,12 +1032,11 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		if (o.a <= 0.002) { discard; }
 		return o;
 	}
-	let Pt = A + t * d;
+	let Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）
+	let dll = deltaLL(G.eyeO.xyz + t * d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);   // 原点相対の経緯度差（deg・測地）＝uv の正本（#65）
+	let ll = G.anc2.xy + dll;                                                  // 絶対経緯度（粗くて可＝ハイプソ・気候）
 	var base = G.land.rgb;
 	if (G.whP.x > 0.001 && G.whP.y > 0.5) {   // 全球ハイプソ：標高×気候→配色＋陰影（gl/glsl.js GLOBE_FS と同式）
-		let bl = asin(clamp(Pt.y, -1.0, 1.0));   // β(rad)
-		let latD = bl * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2Dg;   // β→測地
-		let ll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, latD);
 		let e = gElevAt(ll);
 		let tsz = vec2f(textureDimensions(gElevTex, 0));
 		let dstep = G.elevBounds.w / tsz.y;
@@ -1016,24 +1048,18 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let hyp = mix(G.seaC.rgb, worldHypsoColor(e, ll, clim, G.whP.w) * shade, landK);
 		base = mix(base, hyp, G.whP.x);
 	}
-	if (GCG.p.x > 0.5) {   // ユーザ COG（低ズーム床＝m級ノイズは尺度的に不可視・深ズームは塗り(cuv)が覆う）
-		let cb = asin(clamp(Pt.y, -1.0, 1.0));
-		let clat = cb * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2Dg;
-		let cll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, clat);
-		let cuv = (cll - GCG.bbox.xy) / GCG.bbox.zw;
+	if (GCG.p.x > 0.5) {   // ユーザ COG（uv＝原点相対の係数＝f32 の絶対経緯度を経ない・#65）
+		let cuv = G.cogOff.xy + dll * G.cogOff.zw;
 		if (cuv.x >= 0.0 && cuv.x <= 1.0 && cuv.y >= 0.0 && cuv.y <= 1.0) {
 			let cc = textureSampleLevel(gCogTex, gSamp, vec2f(cuv.x, 1.0 - cuv.y), 0.0);
 			base = mix(base, cc.rgb, cc.a);
 		}
 	}
-	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）
-		let rb = asin(clamp(Pt.y, -1.0, 1.0));
-		let rlat = rb * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * rb) + 0.0000014098905530233192 * sin(4.0 * rb)) * R2Dg;
-		let rll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, rlat);
-		let u0 = (rll - GGD.w0.xy) / GGD.w0.zw;
-		let u1 = (rll - GGD.w1.xy) / GGD.w1.zw;
-		let u2 = (rll - GGD.w2.xy) / GGD.w2.zw;
-		let u3 = (rll - GGD.w3.xy) / GGD.w3.zw;
+	if (GGD.p.x > 0.5) {   // 地面アトラス（球の床）：uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
+		let u0 = G.gndOff0.xy + dll * G.gndOff0.zw;
+		let u1 = G.gndOff1.xy + dll * G.gndOff1.zw;
+		let u2 = G.gndOff2.xy + dll * G.gndOff2.zw;
+		let u3 = G.gndOff3.xy + dll * G.gndOff3.zw;
 		let d0 = min(u0, vec2f(1.0) - u0); let d1 = min(u1, vec2f(1.0) - u1); let d2 = min(u2, vec2f(1.0) - u2); let d3 = min(u3, vec2f(1.0) - u3);
 		let w0 = clamp(min(d0.x, d0.y) / 0.04, 0.0, 1.0);
 		let w1 = select(0.0, clamp(min(d1.x, d1.y) / 0.04, 0.0, 1.0), GGD.p.x > 1.5);
@@ -1054,23 +1080,20 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 //（G/gElevTex/gSamp/gClimTex）を共有し、色は globe パスの陸側と画素単位で厳密一致＝ポリゴン境界が
 // e≳4m（landK≈1）の土地に落ちれば継ぎ目が消える。α＝whP.x（whK フェード）。
 @fragment fn fsWdepr(in: GOut) -> @location(0) vec4f {
-	let np = G.invMvp * vec4f(in.ndc, -1.0, 1.0);
-	let fp = G.invMvp * vec4f(in.ndc, 1.0, 1.0);
-	let A = np.xyz / np.w; let d = fp.xyz / fp.w - A;
-	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
-	let disc = bb * bb - 4.0 * aa * cc;
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65
+	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let disc = h.disc;
 	if (disc < 0.0) { discard; }
 	let t = (-bb - sqrt(disc)) / (2.0 * aa);
 	if (t < 0.0) { discard; }
 	let Pt = A + t * d;
-	let bl = asin(clamp(Pt.y, -1.0, 1.0));
-	let latD = bl * R2Dg + G.whP.z * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2Dg;
-	let ll = vec2f(atan2(Pt.z, Pt.x) * R2Dg, latD);
-	let e = gElevAt(ll);
+	let dll = deltaLL(G.eyeO.xyz + t * d, G.anc.xyz, G.anc.w, G.anc2.z, G.whP.z);   // 原点相対（#65）
+	let ll = G.anc2.xy + dll;
+	let uv = G.elevOff.xy + dll * G.elevOff.zw;
+	let e = gElevUV(uv, ll);
 	let tsz = vec2f(textureDimensions(gElevTex, 0));
 	let dstep = G.elevBounds.w / tsz.y;
-	let hx = gElevAt(ll + vec2f(dstep, 0.0)) - e;
-	let hy = gElevAt(ll + vec2f(0.0, dstep)) - e;
+	let hx = gElevUV(uv + vec2f(dstep * G.elevOff.z, 0.0), ll + vec2f(dstep, 0.0)) - e;
+	let hy = gElevUV(uv + vec2f(0.0, dstep * G.elevOff.w), ll + vec2f(0.0, dstep)) - e;
 	let shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
 	let clim = textureSampleLevel(gClimTex, gSamp, climUV(ll), 0.0).rg;
 	// 以降は fs（globe）の末尾と厳密同式（landK=1 だけが違い）：紙とのwhK混合も大気ヘイズも同じに通し、
@@ -1086,11 +1109,8 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 // fwidth が爆発して線が面に化けるのを防ぐ。d3.geoGraticule10 と同じ約束＝±80°打切り・90°毎の経線だけ極まで。
 // 出現度＝G.seaC.w（レンダラが z帯フェード×基礎αを書く）。
 @fragment fn fsGrat(in: GOut) -> @location(0) vec4f {
-	let np = G.invMvp * vec4f(in.ndc, -1.0, 1.0);
-	let fp = G.invMvp * vec4f(in.ndc, 1.0, 1.0);
-	let A = np.xyz / np.w; let d = fp.xyz / fp.w - A;
-	let aa = dot(d, d); let bb = 2.0 * dot(A, d); let cc = dot(A, A) - 1.0;
-	let disc = bb * bb - 4.0 * aa * cc;
+	let h = sphereRay(in.ndc, G.rayF, G.rayX, G.rayY, G.eyeC);   // #65
+	let A = h.A; let d = h.d; let aa = h.aa; let bb = h.bb; let disc = h.disc;
 	if (disc < 0.0) { discard; }
 	let t = (-bb - sqrt(disc)) / (2.0 * aa);
 	if (t < 0.0) { discard; }

@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- 実描画の検分：全画面レイキャストの床（#65・2026-09-27）＝写真（ユーザ COG＝市松）を貼った球の床が、カメラの数値の摂動で揺れない。
+     レンダラを直駆動（t-ao と同じ作法・地球儀は起こさない）。?gl2=1＝GL2（createRenderer）・無印＝WebGPU（createRendererGPU）。
+     試料＝東京（139.7/35.7）の ±0.002°（約 360×440 m）に 128×128 の市松（4 px＝約 11 m の升）。地形なし＝床は球のレイキャスト（globe fs）。
+     z17.5・チルト 70°・bearing 20°＝近平面が浅く f32 の invMvp と絶対経緯度が画素単位にずれる姿勢。
+     ①市松が床に貼られている（左右半分で明暗が交互＝分散が大きい）
+     ②ズーム +0.0005（画面では 0.035% の拡大＝縁で 0.05 px・升の縁の画素値がわずかに動くだけ）で画素値が 24 階調超変わる画素は 1% 未満
+       （旧＝視線を f32 の invMvp から作り、床の経緯度を f32 の絶対値で持つ＝1〜9 画素の鋸歯が姿勢ごとに泳ぐ＝数〜十数%）
+     ③bearing +1e-4 rad（0.006°＝0.01 px）でも同じ
+     ④（WebGPU）GPU の検証エラー 0 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-globefloor</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const GL2 = /[?&]gl2=1/.test(location.search);
+try {
+	if (!GL2 && !navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const canvas = document.getElementById("g"), N = 256;
+	const r = GL2 ? (await import("../../../packages/ortho-core/src/gl/renderer.js")).createRenderer(canvas) : await (await import("../../../packages/ortho-core/src/gpu/backend.js")).createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, D = 0.002;
+	// 市松（128×128・4 px の升）＝RGBA
+	const W = 128, rgba = new Uint8Array(W * W * 4);
+	for (let j = 0; j < W; j++) for (let i = 0; i < W; i++) { const k = (((i >> 2) + (j >> 2)) & 1) ? 235 : 40, o = (j * W + i) * 4; rgba[o] = k; rgba[o + 1] = k; rgba[o + 2] = k; rgba[o + 3] = 255; }
+	r.set("cogTex", { rgba, w: W, h: W, bboxLL: [LON - D, LAT - D, LON + D, LAT + D] });
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.6, 0.6, 0.6, 1] });
+	const cam = { center: [LON, LAT], zoom: 17.5, pitch: 70 * Math.PI / 180, bearing: 20 * Math.PI / 180, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (c = cam) => {   // 同一タスクで drawImage（t-ao と同じ作法）
+		r.draw(c, {}); if (r.flush) r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const lum = (px, i) => (px[i] + px[i + 1] + px[i + 2]) / 3;
+	// 摂動で 24 階調超変わる画素の割合（空＝暗い画素は数えない）
+	const changed = (a, b) => { let n = 0, big = 0; for (let i = 0; i < N * N * 4; i += 4) { if (lum(a, i) < 20 && lum(b, i) < 20) continue; n++; if (Math.abs(lum(a, i) - lum(b, i)) > 24) big++; } return { frac: big / n, n }; };
+	const base = await shot();
+	// ①市松＝画面下半分（床）の明暗の分散が大きい・明るい升と暗い升の両方がある
+	let bright = 0, dark = 0, n = 0;
+	for (let y = 128; y < N; y++) for (let x = 0; x < N; x++) { const l = lum(base, (y * N + x) * 4); n++; if (l > 180) bright++; else if (l > 20 && l < 90) dark++; }
+	ok(`市松が床に貼られている（明 ${(bright / n * 100).toFixed(0)}%・暗 ${(dark / n * 100).toFixed(0)}%）`, bright / n > 0.2 && dark / n > 0.2);
+	const z = await shot({ ...cam, zoom: 17.5005 });
+	const cz = changed(base, z);
+	ok(`ズーム +0.0005 で床は揺れない（24 階調超＝${(cz.frac * 100).toFixed(2)}%・${cz.n} 画素）`, cz.frac < 0.01);
+	const b = await shot({ ...cam, bearing: cam.bearing + 1e-4 });
+	const cb = changed(base, b);
+	ok(`bearing +1e-4 rad で床は揺れない（24 階調超＝${(cb.frac * 100).toFixed(2)}%）`, cb.frac < 0.01);
+	const back = await shot();
+	ok(`同じカメラ＝同じ絵（${(changed(base, back).frac * 100).toFixed(2)}%）`, changed(base, back).frac === 0);
+	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0); }
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
