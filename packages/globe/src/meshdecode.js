@@ -556,15 +556,31 @@ const m3mul = (a, b) => {   // 列優先 3x3＝ a·b
 const m3v = (m, v) => [m[0]*v[0] + m[3]*v[1] + m[6]*v[2], m[1]*v[0] + m[4]*v[1] + m[7]*v[2], m[2]*v[0] + m[5]*v[1] + m[8]*v[2]];
 const SWAP = Float64Array.of(1, 0, 0, 0, 0, 1, 0, -1, 0);   // (x,y,z)→(x,−z,y)＝glTF Y-up → ECEF/ENU の Z-up（decodeBatch の軸入替と同じ）
 // ── マテリアル（2026-09-20 テクスチャ/マテリアル対応）──
-// 読むのは baseColor（factor＋texture＋COLOR_0）だけ＝陰影は PLATEAU の光（法線×固定光源）のまま。metallic/roughness/normal/emissive は読まない。
-// KHR_materials_pbrSpecularGlossiness は diffuse* を baseColor として読む。KHR_texture_transform は uv に畳む。alphaMode は MASK（alphaCutoff で抜く）と BLEND（半透明＝renderer が奥から手前に合成）をそのまま渡す。
+// baseColor（factor＋texture＋COLOR_0）に加え、#46 段 2（2026-09-26）から PBR の材質も読む：metallicRoughness（factor＋texture＝G=粗さ・B=金属）・
+// normalTexture（scale）・occlusionTexture（strength）・emissive（factor×texture×KHR_materials_emissive_strength）。描くのは WebGPU の模型パイプライン（GL2 は baseColor だけ）。
+// KHR_materials_pbrSpecularGlossiness は diffuse* を baseColor として読む（鏡面側は読まない＝粗さ 1・金属 0）。KHR_texture_transform は uv に畳む（baseColor の物を全テクスチャに使う＝
+// 別 TEXCOORD／別 transform の材質は baseColor の uv で読む＝ずれ得る・既知の限界）。alphaMode は MASK（alphaCutoff で抜く）と BLEND（半透明＝renderer が奥から手前に合成）をそのまま渡す。
+// doubleSided は読まない＝模型は従来どおり両面（巻き順の怪しい模型に穴を開けない側）。
+const texRef = (ti, gltf) => ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
 const baseColorOf = (mat, gltf) => {
 	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
 	const factor = mr?.baseColorFactor || sg?.diffuseFactor || [1, 1, 1, 1];
 	const ti = mr?.baseColorTexture || sg?.diffuseTexture || null;
-	const texture = ti ? (ti.texture || (typeof ti.index === "number" ? gltf.textures?.[ti.index] : null)) : null;   // 拡張側は postprocess が解決しない＝index で引く
+	const texture = texRef(ti, gltf);
 	const tt = ti?.extensions?.KHR_texture_transform || null;
-	return { factor, texture, texCoord: (tt?.texCoord ?? ti?.texCoord) || 0, transform: tt };
+	// uv の元＝baseColor の texCoord。baseColor にテクスチャが無い時は他の材質テクスチャ（MR→法線→AO→発光）の texCoord を使う
+	const alt = [mr?.metallicRoughnessTexture, mat?.normalTexture, mat?.occlusionTexture, mat?.emissiveTexture].find(Boolean);
+	return { factor, texture, texCoord: (tt?.texCoord ?? ti?.texCoord ?? alt?.texCoord) || 0, transform: tt };
+};
+const pbrOf = (mat, gltf) => {   // 材質の数値と 4 枚のテクスチャ参照（無ければ null＝renderer が 1×1 の既定で埋める）
+	const mr = mat?.pbrMetallicRoughness, sg = mat?.extensions?.KHR_materials_pbrSpecularGlossiness;
+	const es = mat?.extensions?.KHR_materials_emissive_strength?.emissiveStrength ?? 1, ef = mat?.emissiveFactor || [0, 0, 0];
+	return {
+		metallic: sg ? 0 : (mr?.metallicFactor ?? 1), roughness: sg ? 1 : (mr?.roughnessFactor ?? 1),
+		normalScale: mat?.normalTexture?.scale ?? 1, occlusion: mat?.occlusionTexture?.strength ?? 1,
+		emissive: [ef[0] * es, ef[1] * es, ef[2] * es],
+		texMR: sg ? null : texRef(mr?.metallicRoughnessTexture, gltf), texN: texRef(mat?.normalTexture, gltf), texOcc: texRef(mat?.occlusionTexture, gltf), texEm: texRef(mat?.emissiveTexture, gltf),
+	};
 };
 const TEX_MAX = 2048;   // これより大きい画像は縮める（GPU 常駐と転送の上限＝模型 1 体に 4k を何枚も要らない）
 async function textureOf(texture, cache) {   // 解決済み texture → {bitmap} | {rgba,w,h} | null。同じ画像を複数マテリアルが使う時は 2 回目以降を複製
@@ -763,7 +779,10 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		g.segs.length = 0;
 		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, { uv, col }, ground !== "each");   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
-		batches.push({ mesh, tex, alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
+		const pb = pbrOf(g.mat, gltf);   // #46 段 2＝材質（数値）と 4 枚のテクスチャ（無ければ null）
+		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
+		batches.push({ mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive },
+			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
 	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };

@@ -2877,7 +2877,7 @@ const modelCtlGet = async () => {
 	const m = await import("./gadgets/model.js");
 	if (modelCtl) return modelCtl;
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
-		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
+		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
 			const wDeg = Math.max(2e-5, (bb[2] - bb[0]) * 2.5), hDeg = Math.max(2e-5, (bb[3] - bb[1]) * 2.5);
@@ -2947,7 +2947,7 @@ map.gadget("stac", function (opts) {
 let t3dCtl = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); return t3dCtl ??= m.createTiles3D(map, {
 	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester,
-	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, data.tex?.bitmap, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },
+	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); needsDraw = true; },
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 }); };
 map.gadget("tiles3d", async function (url, opts = {}) {

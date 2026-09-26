@@ -125,6 +125,8 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 - **描画の質の旗（#46・2026-09-26）**：`opts.render { atmosphere, pbr, ao }`＝大気散乱・PBR と環境光・AO。既定＝**WebGPU かつ非 LOW_MEM で on**・
   LOW_MEM は off（予算を壊さない）・GL2 は持たない（#44 と同じ裁定）。裁くのは `boot/tier.js renderFx`（純関数・t-tier）＝
   `?fx=pbr,ao` 強制 on（LOW_MEM／GL2 の A/B）・`?fx=noao` 強制 off・URL が opts に勝つ。段 0 は旗を運ぶだけ（絵は不変）＝段 1〜3 が順に読む。
+  段 1（大気散乱）＝`GLOBE` パス・全球ハイプソの帯だけ・調律ノブ `view.atmScale`（帯の幅 k＝4）/`atmSun`/`atmExposure`/`atmGround`。段 2（PBR）＝模型（GGX＋法線/AO/発光テクスチャ）と
+  素の建物メッシュ（拡散だけ）を太陽＋空の SH9 で照らす・夜は固定光・`view.pbrFill`（昼でも固定光を混ぜる割合＝0.35＝陰の壁の読みやすさ）。押し出し建物（法線なし）は対象外。
 
 ## 7. 計器（全部 URL フラグ・本番搭載）
 

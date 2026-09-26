@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/globe",
-	"version": "1.1.2",
+	"version": "1.2.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "A 3D globe for the web: createGlobe() draws the whole Earth with WebGPU (WebGL2 fallback) and takes your data through a MapLibre-style API. No API key, no server of your own.",
@@ -22,7 +22,7 @@
 		"@loaders.gl/draco": "^4.3.0",
 		"@loaders.gl/gltf": "^4.3.0",
 		"@loaders.gl/i3s": "^4.4.3",
-		"@ortho-earth/core": "^1.2.0",
+		"@ortho-earth/core": "^1.3.0",
 		"@ortho-earth/ephem": "^1.0.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
