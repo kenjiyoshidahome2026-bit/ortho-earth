@@ -23,7 +23,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
-import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 3 パス足す
+import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -1974,11 +1974,13 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.draw(3);
 		}
 		pass.end();
-		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）
-		if (FX.ao && !flat2d && (cam.pitch || 0) > 0.02) {
+		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）。
+		// 入口はフェード（チルト 0.02→0.10 rad で強さ 0→1）＝真俯瞰から傾けた瞬間に建物の周りの陰がポンと点かない
+		const aoIn = Math.min(1, Math.max(0, ((cam.pitch || 0) - 0.02) / 0.08));
+		if (FX.ao && !flat2d && aoIn > 0) {
 			ao ??= createAoGPU(device, format);
-			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, eye: st.eye, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), focal: st.focal, logCoef,
-				strength: view.aoStrength ?? 0.5, radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.5・接平面の sin の下駄 0.15（地平線型・2026-09-26）
+			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, eye: st.eye, focal: st.focal, logCoef,
+				strength: (view.aoStrength ?? 0.5) * aoIn * aoIn * (3 - 2 * aoIn), radiusK: view.aoRadius ?? 0.10, biasSin: view.aoBias ?? 0.15, phase: view.aoPhase ?? 0 });   // 調律ノブ（公開面には出さない）。半径＝視距離の 10%（20〜400m）・強さ 0.5・接平面の sin の下駄 0.15（地平線型・2026-09-26）。aoPhase＝模様の位相（t-ao の安定の検定）
 		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
