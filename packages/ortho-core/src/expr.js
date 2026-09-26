@@ -16,8 +16,16 @@ const lerpAny = (y0, y1, t) => typeof y0 === "number" && typeof y1 === "number" 
 	: Array.isArray(y0) && Array.isArray(y1) && y0.length === y1.length ? y0.map((v, i) => lerpAny(v, y1[i], t))
 	: t < 0.5 ? y0 : y1;
 const TYPE_OF = v => v == null ? "null" : Array.isArray(v) ? "array" : typeof v === "object" ? "object" : typeof v;
-// 1 引数の数学関数（abs…atan）＝名前で引く表（switch の case と同じ名前だけ・動的な Math[op] を使わない＝CodeQL js/unvalidated-dynamic-method-call）
-const MATH1 = new Map([["abs", Math.abs], ["floor", Math.floor], ["ceil", Math.ceil], ["round", Math.round], ["sqrt", Math.sqrt], ["log10", Math.log10], ["log2", Math.log2], ["sin", Math.sin], ["cos", Math.cos], ["tan", Math.tan], ["asin", Math.asin], ["acos", Math.acos], ["atan", Math.atan]]);
+// 1 引数の数学関数（abs…atan）＝名前ごとに関数を直に返す（動的な Math[op] も表の引きも使わない＝CodeQL js/unvalidated-dynamic-method-call）
+const math1 = op => {
+	switch (op) {
+		case "abs": return Math.abs; case "floor": return Math.floor; case "ceil": return Math.ceil; case "round": return Math.round;
+		case "sqrt": return Math.sqrt; case "log10": return Math.log10; case "log2": return Math.log2;
+		case "sin": return Math.sin; case "cos": return Math.cos; case "tan": return Math.tan;
+		case "asin": return Math.asin; case "acos": return Math.acos; case "atan": return Math.atan;
+		default: return null;
+	}
+};
 
 export function truthy(v) {
 	return v !== false && v != null && v !== 0 && v !== "" && !(typeof v === "number" && isNaN(v));
@@ -218,7 +226,7 @@ function build(e, o = "native") {
 		case "slice": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; return ctx => { const v = a(ctx); return v == null ? v : v.slice(b(ctx), c ? c(ctx) : undefined); }; }
 		case "index-of": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; return ctx => { const h = b(ctx); return h == null ? -1 : h.indexOf(a(ctx), c ? c(ctx) : undefined); }; }   // 開始位置（2026-09-26）
 		case "abs": case "floor": case "ceil": case "round": case "sqrt": case "log10": case "log2":
-		case "sin": case "cos": case "tan": case "asin": case "acos": case "atan": { const a = compile_(e[1]), f = MATH1.get(op); if (typeof f !== "function") return () => undefined; return ctx => f(a(ctx)); }   // 三角関数（2026-09-26）・関数は名前で引く表（動的な Math[op] を使わない・呼ぶ前に関数か確かめる＝CodeQL）
+		case "sin": case "cos": case "tan": case "asin": case "acos": case "atan": { const a = compile_(e[1]), f = math1(op) || (() => undefined); return ctx => f(a(ctx)); }   // 三角関数（2026-09-26）・関数は名前ごとに直に返す（math1）
 		case "at": {   // ["at", 添字, 配列]（2026-09-26）
 			const i = compile_(e[1]), a = compile_(e[2]);
 			return ctx => { const arr = a(ctx), k = i(ctx); if (ML && (!Array.isArray(arr) || !Number.isInteger(k) || k < 0 || k >= arr.length)) mlFail(); return Array.isArray(arr) ? arr[k] : undefined; };
