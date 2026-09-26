@@ -281,6 +281,40 @@ try {
 			map.jumpTo({ zoom: 11.5 }); await sleep(2500);   // 次の場面の視点へ戻す
 			return [q.includes("water") && wet >= 2, `query=${q} wetPixels=${wet}/3${q.includes("water") ? "" : ` meta=${JSON.stringify(wl?.metadata)} direct=${direct} all=${all}`}`];
 		});
+		// ── 基図の層を実行時に触る（段 7）＝MapLibre では style の層も getLayer/setPaintProperty/setLayoutProperty/setFilter/removeLayer できる ──
+		{
+			map.jumpTo({ zoom: 10.5 }); await sleep(4000);
+			const wetAt = async () => { const img = await snap(map); return [[139.83, 35.43], [139.9, 35.36], [139.78, 35.5]].map(([lo, la]) => px(img, ...map.projectLL(lo, la))); };
+			const qWater = async () => (await map.queryRenderedFeatures(map.projectLL(139.83, 35.43), { layers: ["water"] })).map(f => f.layer.id);
+			await scene("base-getlayer", () => { const L = map.getLayer("water"); return [L?.type === "fill" && L?.["source-layer"] === "WA", JSON.stringify(L)?.slice(0, 80)]; });
+			await scene("base-visibility", async () => {
+				map.setLayoutProperty("water", "visibility", "none"); await sleep(2500);
+				const q0 = await qWater(), p0 = await wetAt(), v0 = map.getLayoutProperty("water", "visibility");
+				map.setLayoutProperty("water", "visibility", "visible"); await sleep(2500);
+				const q1 = await qWater(), p1 = await wetAt();
+				const wet = p => p.filter(c => near(c, [158, 195, 230], 50)).length;
+				return [!q0.includes("water") && wet(p0) === 0 && v0 === "none" && q1.includes("water") && wet(p1) >= 2, `none:q=${q0} wet=${wet(p0)} visible:q=${q1} wet=${wet(p1)}`];
+			});
+			await scene("base-paint", async () => {
+				map.setPaintProperty("water", "fill-color", "#ff0000"); await sleep(4000);
+				const p = await wetAt(), red = p.filter(c => near(c, [255, 0, 0], 60)).length, back = map.getPaintProperty("water", "fill-color");
+				map.setPaintProperty("water", "fill-color", "#9ec3e6"); await sleep(3000);
+				return [red >= 2 && back === "#ff0000", `red=${red} get=${back}`];
+			});
+			await scene("base-filter", async () => {
+				map.setFilter("water", ["==", ["get", "no_such_attr"], "x"]); await sleep(4000);
+				const q = await qWater();
+				map.setFilter("water", ["==", ["get", "no_such_attr"], null]); await sleep(3000);
+				const q2 = await qWater();
+				return [!q.includes("water") && q2.includes("water"), `filtered=${q} restored=${q2}`];
+			});
+			await scene("base-remove", async () => {
+				map.removeLayer("water"); await sleep(3000);
+				const q = await qWater(), has = map.getStyle().layers.some(L => L.id === "water");
+				return [!q.includes("water") && !has && !map.getLayer("water"), `q=${q} inStyle=${has}`];
+			});
+			map.jumpTo({ zoom: 11.5 }); await sleep(2500);
+		}
 		await scene("geojson-layer-minzoom-is-maplibre-z", async () => { const h = await hit(); return [!h.includes("g"), `engine z11.5 → ${h}`]; });
 		map.jumpTo({ zoom: 12.5 });   // エンジン z 12.5＝MapLibre の z 11.5＝出る
 		await sleep(2500);

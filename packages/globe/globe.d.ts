@@ -596,7 +596,9 @@ export interface OrthoJapanMap {
 	 *  queryRenderedFeatures の id も同じ。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない。属性がまったく同じ地物も別々に扱う（1.3.0〜） */
 	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
 	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
-	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"・読むだけ）の上に利用者の層。
+	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"）の上に利用者の層。
+	 *  基図の層も 1.3.0〜 getLayer/setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange/removeLayer で触れる（visibility は結合で外すだけ＝軽い・色や filter は基図タイルの建て直し）。
+	 *  基図の層の重ね順は固定（moveLayer は基図の層に効かない・beforeId に基図の層 id を渡してもよい＝利用者の層は描画の段で決まる）。上書きはテーマの切り替えを越えて残り、setStyle で消える。
 	 *  ズームの目盛りを申告して返す（1.3.0〜）：各層の metadata["ortho:dz"]（基図＝0＝この地図の z に直した物）・root の metadata["ortho:sourceDz"]（source ごと）＝setStyle(getStyle()) で二重にずれない */
 	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };
 	/** 任意の 3D Tiles を画面上の誤差で流す（1.2.0〜・#41）。url＝tileset.json（?tiles3d=<URL> と同じ）。
