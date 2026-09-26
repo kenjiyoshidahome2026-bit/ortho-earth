@@ -23,6 +23,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
+import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 3 パス足す
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一
 const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
@@ -1971,6 +1972,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.draw(3);
 		}
 		pass.end();
+		// AO（#46 段 3）＝チルトした 3D の時だけ（真俯瞰は足元も谷も無い）。main の色へ乗算＝gint の線は暗くならない（この後に描く）
+		if (FX.ao && !flat2d && (cam.pitch || 0) > 0.02) {
+			ao ??= createAoGPU(device, format);
+			ao.encode(enc, { depthTex: t.depth, samples: S, W, H, colorView, mvp: st.mvp, invMvp: st.invMvp, clipEye: mat.transform(st.mvp, [st.eye[0], st.eye[1], st.eye[2], 1]), logCoef,
+				strength: view.aoStrength ?? 0.6, radiusK: view.aoRadius ?? 0.02, biasM: view.aoBias ?? 1.0 });   // 調律ノブ（公開面には出さない）
+		} else if (ao && !FX.ao) { ao.dispose(); ao = null; }   // 旗を落としたら資源を返す
 		lastDepth = dOut ? { tex: t.depth, samples: S, w: W, h: H, logCoef } : null;   // 深度の書き出し（#47）＝申し出中だけ・flush の後に詰める
 		frame = { enc, colorView, depthView: t.depthView, w: W, h: H, samples: S };   // 1x＝colorView は canvas 直（gint も同じ的に load で重ねる）。samples＝gint がパイプラインセットを揃える（遷移時AA）
 		// gint の深度統合コンテキスト（GL renderer の gintCtx と同意味論＝terrainDepth の間だけ非null）。
@@ -2034,6 +2041,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// begin＝申し出の確認だけ（深度テクスチャは常に読める形）。end＝flush の後に 1 パスで詰めて ImageBitmap に。
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut = null, lastDepth = null, dOutFailed = false;
+	let ao = null;   // AO（#46 段 3）＝fx.ao の間だけ
 	function depthOut(on) {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
@@ -2142,6 +2150,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (elevStage) { elevStage.tex.destroy(); elevStage = null; }
 		dummyTex.destroy();
 		if (dOut) { dOut.dispose(); dOut = null; }
+		if (ao) { ao.dispose(); ao = null; }
 		for (const t of tgtBySc.values()) { t.tex?.destroy(); t.depth.destroy(); }
 		tgtBySc.clear();
 		device.destroy();
@@ -2155,7 +2164,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
 		// ?mem=1 台帳のGPU固定常駐（自前確保分の概算バイト）：標高アトラス（近/舞台裏/遠）＋地形メッシュ＋MSAAターゲット
-		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 }),
+		memEstimate: () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: memMsaa, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0, ao: ao ? ao.bytes() : 0 }),
 		depthOut,   // シーンの深度をオーバーレイへ（#47）
 		rasterTex, rasterMesh, rasterFree, setRasterDraws, setGroundHook,   // 画像タイル層（raster.js の renderer 契約・RTT ドレープ）・gint 面の焼き込みフック
 		dbg: () => dbg };   // ?drawhud=1：直近フレームの描画実績（実機の画面に出す計器）

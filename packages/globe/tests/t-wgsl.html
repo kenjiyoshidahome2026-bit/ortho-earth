@@ -17,6 +17,9 @@ try {
 	const mods = [];
 	for (const [k, v] of Object.entries(W)) if (typeof v === "string" && k.endsWith("_WGSL")) mods.push([k, v]);
 	for (const [k, v] of Object.entries(G)) if (typeof v === "string" && k.endsWith("_WGSL")) { mods.push([k, v]); if (typeof G.toStorageWGSL === "function" && /GINT_(LINE|POINT|STENCIL)/.test(k)) mods.push([k + "(storage)", G.toStorageWGSL(v)]); }
+	const AO = await import("../../../packages/ortho-core/src/gpu/ao.js");   // AO（#46 段 3）＝1x/4x の 2 変種
+	for (const ms of [false, true]) { mods.push([`AO_WGSL(${ms})`, AO.AO_WGSL(ms)]); mods.push([`AO_BLUR_WGSL(${ms})`, AO.AO_BLUR_WGSL(ms)]); }
+	mods.push(["AO_COMP_WGSL", AO.AO_COMP_WGSL]);
 	let n = 0;
 	for (const [k, code] of mods) {
 		const m = device.createShaderModule({ code });
@@ -24,7 +27,7 @@ try {
 		const errs = (info.messages || []).filter(x => x.type === "error").map(x => `${x.lineNum}:${x.linePos} ${x.message}`);
 		if (errs.length) ok(`${k}: ${errs.slice(0, 2).join(" / ")}`, false); else n++;
 	}
-	ok(`${n}/${mods.length} modules compile`, n === mods.length && mods.length >= 20);
+	ok(`${n}/${mods.length} modules compile`, n === mods.length && mods.length >= 30);
 	ok("Frame に sun がある（段 0）", /sun: vec4f/.test(W.MESH_WGSL) && /srgbEncode/.test(W.MESH_TEX_WGSL));
 	device.destroy();
 	fin();
