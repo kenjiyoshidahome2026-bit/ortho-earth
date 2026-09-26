@@ -4,7 +4,7 @@
 //   probeGL()              … WebGL2 の生存確認＋GPU 素性の文字列（判定用の使い捨てコンテキスト）
 //   fatalOverlay(mapEl, …) … 起動できない環境を白画面でなく言葉で受け止める案内
 //   deadMap()              … 起動不能時に呼び側へ返す「何もしない地図」（どんな連鎖も無害に空転する Proxy）
-//   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（opts.render × ?fx= × LOW_MEM × バックエンド）
+//   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（?pbr=1 等の URL × opts.render・既定は 0）
 // ノブを変えたら台帳（packages/ortho-core/fallback-ladder.md）も更新の規律。
 
 // 低メモリ端末判定：deviceMemory は Chrome系のみ（≤4GB＝スマホ帯）。iOS/iPadOS Safari は非対応だが
@@ -41,16 +41,12 @@ export function classifyTier({ LOW_MEM, gpuRenderer = "", search = "", nav, coar
 	return { MOBILE_UA, MID_TIER, HI_TIER };
 }
 
-// --- 描画の質の旗（#46・2026-09-26）：opts.render と ?fx= から atmosphere／pbr／ao の実効値を決める純関数（t-tier で検定） ---
-// 既定＝WebGPU かつ非 LOW_MEM で on（LOW_MEM は予算を壊さない＝off・GL2 は持たない＝off）。opts.render.<name>:false＝そのページは off。
-// ?fx=<name>[,…] で強制 on（LOW_MEM・GL2 でも＝A/B 用）・?fx=no<name> で強制 off。URL が opts に勝つ（他のノブと同じ向き）。
+// --- 描画の質の旗（#46・2026-09-26）：?pbr=1／?ao=1／?atmosphere=1 で点ける純関数（t-tier で検定）。ell と同じ作法＝既定は全端末で 0（本人裁定 2026-09-26）。
+// URL が勝つ（?pbr=0 は opts より強い）。opts.render.<name>:true＝組み込みで点ける口（既定 false）。WebGL2 は実装を持たない＝旗が立っても絵は変わらない。
 export const FX_NAMES = ["atmosphere", "pbr", "ao"];
-export function renderFx({ render = null, search = "", LOW_MEM = false, gpuBackend = false } = {}) {
-	const q = (search.match(/[?&]fx=([^&]*)/) || [])[1];
-	const on = new Set(), off = new Set();
-	for (const w of (q ? decodeURIComponent(q).split(",") : [])) { const k = w.trim().toLowerCase(); if (k.startsWith("no")) off.add(k.slice(2)); else if (k) on.add(k); }
+export function renderFx({ render = null, search = "" } = {}) {
 	const fx = {};
-	for (const n of FX_NAMES) fx[n] = on.has(n) ? true : off.has(n) ? false : (!!gpuBackend && !LOW_MEM && render?.[n] !== false);
+	for (const n of FX_NAMES) { const m = search.match(new RegExp(`[?&]${n}=([01])`)); fx[n] = m ? m[1] === "1" : render?.[n] === true; }
 	return fx;
 }
 
