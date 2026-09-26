@@ -12,9 +12,10 @@
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
 import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正本（段階 3・2026-09-23）
 import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の出しズームの正本（equal と同値）
-import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
+import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
 // 利用者の入口が top-level await の最中に await import(core) すると、束ねた後は入口の chunk の評価待ちで互いに待ち合う（addLayer が永久に返らない）
 import { geopbf } from "geopbf";
+import { zIn } from "../zoomscale.js";
 
 const D2R = Math.PI / 180;
 
@@ -286,6 +287,12 @@ dbgHost.__paint = paintGint;
 function addGint(pbf, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[addGint] invalid source (unPackGint missing) = pass geopbf(…, {gint:true})"); return null; }
 	const seq = layers.nextId(), id = "gl" + seq;
+	// 手綱の目盛り（旗つきの地図＝外側の顔 mlfacade が _dz を渡す・内部の呼び手は渡さない＝0）。作る時の opts は顔が換算済み＝ここは後から来る口だけ
+	const hdz = opts._dz ?? 0;
+	const hOrigin = opts.origin === "ml" ? "ml" : undefined;   // MapLibre の層（globe の ML アダプタが付ける）＝式を MapLibre の意味で評価
+	const zi = z => zIn(z, hdz);
+	const zx = e => e == null || !hdz ? e : shiftZoomExpr(e, hdz);
+	const zRange = o => { if (!o || typeof o !== "object" || !hdz) return o; const r = { ...o }; if (r.minZoom != null) r.minZoom = zi(r.minZoom); if (r.maxZoom != null) r.maxZoom = zi(r.maxZoom); if (Array.isArray(r.field)) r.field = zx(r.field); return r; };
 	const prevActive = layers.active;   // 足す前のカーソル＝interactive:false の層はこれを奪わない（U2・2026-09-26）
 	let g = pbf.unPackGint;
 	if (opts.fillMaxEdges != null) g.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）も通す（旧 truthy 判定は 0 を捨てていた）
@@ -296,7 +303,10 @@ function addGint(pbf, opts = {}) {
 	const ready = nextAck();
 	const handlers = { hover: [], click: [], mouseenter: [], mouseleave: [] };   // mouseenter/leave＝MapLibre 同名の糖衣（hover の縁で発火）
 	let lastHovFid = null;
-	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null;   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
+	let lastPaint = null, lastFilter = null, zoomDriven = false, lastEvalZoom = null, lastZoomKey = null;
+	// opts.buildTable＝表の組み立ての差し替え（MapLibre の層＝mltables の buildMLTable・台帳 R5）。paint/filter の代わりにこれで表を作る
+	//（setFilter・feature-state・settle の再評価・setData の呼び直しも同じ関数＝ネイティブの buildFidStyle が上書きしない）。
+	// opts.zoomKey(z)＝その値が変わったら settle で作り直す（層の zoom 域の境・["zoom"] の式＝0.25 の閾値だけに頼らない・台帳 R16）   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
 	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
 	let lastTable = null;                // 直近の fid 表（setPaint の評価結果）＝ラベルの filter 連動が visible ビット(bit0)を読む
 	const fstates = new Map();           // fid → feature-state（['feature-state', key] の実体・maplibre 同名）
@@ -356,7 +366,8 @@ function addGint(pbf, opts = {}) {
 			if (tipFmt && gintHoverTip && !extTipOwn) { const lines = f?.properties ? tipFmt(f.properties) : null; gintHoverTip(lines?.length ? lines : null); }
 		},
 		_zoomReeval: z => {   // settle 毎に呼ばれる（③）：['zoom'] を含む paint は 0.5z 動いたら再評価（restyle は安い＝§8.1）
-			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.25) h.setPaint(lastPaint, lastFilter);   // 0.25＝出しズームの境（z4/z5…）を跨いだら遅れずに（旧 0.5 は 4.6→5.05 のような跨ぎを取り逃がした）
+			if (opts.zoomKey) { if (lastPaint && opts.zoomKey(z) !== lastZoomKey) paintNow(lastPaint, lastFilter); return; }
+			if (zoomDriven && lastPaint && Math.abs(z - (lastEvalZoom ?? z)) >= 0.25) paintNow(lastPaint, lastFilter);   // 0.25＝出しズームの境（z4/z5…）を跨いだら遅れずに（旧 0.5 は 4.6→5.05 のような跨ぎを取り逃がした）
 		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
 		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
@@ -365,29 +376,17 @@ function addGint(pbf, opts = {}) {
 			const fid = pbf.identifyAt?.(ll[0], ll[1], a ? { accept: a } : undefined);
 			return fid == null ? null : { fid, properties: props(fid) };
 		},
-		setPaint: async (paint, filter = lastFilter) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）。filter 省略＝現 filter 維持
-			lastPaint = paint ?? null; lastFilter = filter ?? null;
-			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
-			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
-			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom;
-			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
-			const feats = fidFeaturesOf(pbf);
-			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates });
-			lastTable = u32;
-			renderer.set("gintPaint", { table: u32, count }, undefined, id);
-			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
-			requestDraw();
-		},
+		// 公開の口（利用者の目盛り＝旗つきの地図では MapLibre の z）。中の呼び直し（setFilter・feature-state・settle の再評価・setData）は paintNow＝換算済みを二度換算しない
+		setPaint: (paint, ...rest) => paintNow(paint && typeof paint === "object" ? Object.fromEntries(Object.entries(paint).map(([k, v]) => [k, zx(v)])) : paint, rest[0] !== undefined ? zx(rest[0]) : lastFilter),   // filter 省略（undefined）＝今の filter のまま（旧の既定引数と同じ）
 		setFeatureState: (fid, st) => {   // 一時状態（hover/選択…）＝['feature-state', key] の実体（maplibre 同名・restyle は §8.1 のとおり安い）
 			if (st == null) fstates.delete(fid);
 			else fstates.set(fid, { ...fstates.get(fid), ...st });
-			if (!h._fsQ) { h._fsQ = true; queueMicrotask(() => { h._fsQ = false; if (lastPaint) h.setPaint(lastPaint, lastFilter); }); }   // 連打（hover毎）を1フレームに束ねる
+			if (!h._fsQ) { h._fsQ = true; queueMicrotask(() => { h._fsQ = false; if (lastPaint) paintNow(lastPaint, lastFilter); }); }   // 連打（hover毎）を1フレームに束ねる
 		},
-		removeFeatureState: fid => { if (fid == null) fstates.clear(); else fstates.delete(fid); if (lastPaint) h.setPaint(lastPaint, lastFilter); },
+		removeFeatureState: fid => { if (fid == null) fstates.clear(); else fstates.delete(fid); if (lastPaint) paintNow(lastPaint, lastFilter); },
 		setFilter: f => {   // ③ 単独動詞（maplibre 同名）＝visibility ビットの再評価（paint 未設定は預かり＝次の setPaint で効く）
-			lastFilter = f ?? null;
-			if (lastPaint) return h.setPaint(lastPaint, lastFilter);
+			lastFilter = zx(f) ?? null;
+			if (lastPaint) return paintNow(lastPaint, lastFilter);
 			console.warn("[addGint] %s: setFilter takes effect after paint is set (filter kept)", id);
 			return Promise.resolve();
 		},
@@ -396,22 +395,37 @@ function addGint(pbf, opts = {}) {
 			pbf = newPbf; g = pbf.unPackGint;
 			if (opts.fillMaxEdges != null) g.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）も通す（旧 truthy 判定は 0 を捨てていた）
 			if (opts.lowFill) g.lowFill = true;
-			if (o2.minZoom !== undefined) opts.minZoom = o2.minZoom;
-			if (o2.maxZoom !== undefined) opts.maxZoom = o2.maxZoom;
+			if (o2.minZoom !== undefined) opts.minZoom = zi(o2.minZoom);
+			if (o2.maxZoom !== undefined) opts.maxZoom = zi(o2.maxZoom);
 			const p = nextAck();
 			cancelBake(id);
 			bakeAndSend(id, g, { minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null, precision: g.precision ?? null }, null, id);
-			if (lastPaint) p.then(ok2 => { if (ok2) h.setPaint(lastPaint, lastFilter); });
+			if (lastPaint) p.then(ok2 => { if (ok2) paintNow(lastPaint, lastFilter); });
 			refreshLabels();
 			return p;
 		},
 		setOrder: n => { h.order = n; renderer.set("gintOrder", n, undefined, id); requestDraw(); },   // ④ moveLayer 相当（実行時の重ね順）
-		setLabel: o => { labelOpt = o ?? null; return refreshLabels(); },   // ② text-field の付け替え（null=消す）。await で labelCount 確定
-		style: o => { styleZ = o ?? null; renderer.set("gintStyle", o, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
+		setLabel: o => { labelOpt = zRange(o) ?? null; return refreshLabels(); },   // ② text-field の付け替え（null=消す）。await で labelCount 確定
+		style: o => { const o1 = zRange(o); styleZ = o1 ?? null; renderer.set("gintStyle", o1, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
 		setVisible: v => { shown = !!v; renderer.set("gintVis", !!v, undefined, id); requestDraw(); },
 		activate: () => { layers.active = id; renderer.set("gintActivate", null, undefined, id); },
 		remove: () => { cancelBake(id); extGint.delete(id); if (layers.active === id) layers.active = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); requestDraw(); },
 	};
+	// 塗りの中身（換算済みの式を受ける）。式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）
+	async function paintNow(paint, filter) {
+			lastPaint = paint ?? null; lastFilter = filter ?? null;
+			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
+			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
+			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom; lastZoomKey = opts.zoomKey?.(cam.zoom) ?? null;
+			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
+			const feats = fidFeaturesOf(pbf);
+			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
+			const { u32, count } = opts.buildTable ? opts.buildTable({ feats, zoom: cam.zoom, states: fstates }) : buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
+			lastTable = u32;
+			renderer.set("gintPaint", { table: u32, count }, undefined, id);
+			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
+			requestDraw();
+	}
 	extGint.set(id, h);
 	renderer.set("gintAdd", { order: opts.order ?? null }, undefined, id);   // order＝重ね順（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z-order
 	// bake-ahead（①）＝メタ/tier 梯子を bake worker で焼き切って gintBaked（テクスチャ搭載のみ）＝

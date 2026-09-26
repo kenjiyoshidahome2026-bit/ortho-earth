@@ -36,7 +36,7 @@ export function createSymbols(map, { signal } = {}) {
 		getImage: name => images.get(name) || null,   // { bitmap, pixelRatio, sdf }（模様の層が使う）
 		listImages: () => [...images.keys()],
 		// sprite＝MapLibre の書式（base.json＋base.png、高解像度は base@2x.*）。戻り値＝足した名前の数
-		async loadSprite(base) {
+		async loadSprite(base, prefix = "") {   // prefix＝複数の sprite の id（MapLibre v4＝"id:名前"・default は空）
 			base = String(base).replace(/\.(json|png)$/i, "");
 			const hi = (devicePixelRatio || 1) > 1;
 			const get = (u, type) => map.fetchResource ? map.fetchResource(u, type) : fetch(u, { credentials: "omit" });   // transformRequest / addProtocol（#37）
@@ -46,14 +46,14 @@ export function createSymbols(map, { signal } = {}) {
 			await Promise.all(names.map(async n => {
 				const s = idx[n];
 				const e = { bitmap: await createImageBitmap(sheet, s.x, s.y, s.width, s.height), pixelRatio: s.pixelRatio || 1, sdf: !!s.sdf };
-				images.set(n, e); await send(n, e);
+				images.set(prefix + n, e); await send(prefix + n, e);
 			}));
 			for (const id of layers.keys()) evalLayer(id);
 			return names.length;
 		},
 		// 記号の層（src＝GeoJSON・layer＝{ id, layout, paint, filter, minzoom, maxzoom }）。同じ id は置き換え
 		addLayer(id, src, layer) {
-			const zoomDep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter]));
+			const zoomDep = /"zoom"/.test(JSON.stringify([layer.layout, layer.paint, layer.filter])) || layer.minzoom != null || layer.maxzoom != null;   // 出しズームだけの層も止まるたびに当て直す（段 5・台帳 R17）
 			layers.set(id, { src, layer, items: [], zoomDep, order: layers.get(id)?.order ?? order++ });
 			evalLayer(id);
 			return { features: layers.get(id).items.length };

@@ -1,5 +1,5 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
-import { evalExpr, truthy } from "@ortho-earth/core";
+import { evalExpr, truthy, originOfLayer } from "@ortho-earth/core";
 import { evalColor } from "./model.js";
 
 const css = q => q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${q[3] ?? 1})` : null;
@@ -11,15 +11,44 @@ export function textOf(e, ctx) {
 	const v = evalExpr(e, ctx);
 	return v == null ? "" : String(v);
 }
+// 面の到達不能極（polylabel と同じ考え方＝格子を細かくしながら「縁から一番遠い点」を探す・経緯度の平面で近似・精度は外接の 1/100・試行は 3000 まで）
+export function poleOf(rings) {
+	const outer = rings?.[0]; if (!outer?.length) return null;
+	let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+	for (const [x, y] of outer) { if (x < x0) x0 = x; if (y < y0) y0 = y; if (x > x1) x1 = x; if (y > y1) y1 = y; }
+	const w = x1 - x0, h = y1 - y0, cell = Math.min(w, h);
+	if (!(cell > 0)) return [x0, y0];
+	const prec = Math.max(w, h) / 100;
+	const seg2 = (px, py, a, b) => { let x = a[0], y = a[1], dx = b[0] - x, dy = b[1] - y; if (dx || dy) { const t = ((px - x) * dx + (py - y) * dy) / (dx * dx + dy * dy); if (t > 1) { x = b[0]; y = b[1]; } else if (t > 0) { x += dx * t; y += dy * t; } } dx = px - x; dy = py - y; return dx * dx + dy * dy; };
+	const sd = (x, y) => { let inside = false, m = Infinity; for (const r of rings) for (let i = 0, j = r.length - 1; i < r.length; j = i++) { const a = r[i], b = r[j]; if ((a[1] > y) !== (b[1] > y) && x < (b[0] - a[0]) * (y - a[1]) / (b[1] - a[1]) + a[0]) inside = !inside; m = Math.min(m, seg2(x, y, a, b)); } return (inside ? 1 : -1) * Math.sqrt(m); };
+	const mk = (x, y, hh) => { const d = sd(x, y); return { x, y, h: hh, d, max: d + hh * Math.SQRT2 }; };
+	const q = [], h2 = cell / 2;
+	for (let x = x0; x < x1; x += cell) for (let y = y0; y < y1; y += cell) q.push(mk(x + h2, y + h2, h2));
+	let best = mk((x0 + x1) / 2, (y0 + y1) / 2, 0);
+	for (let it = 0; q.length && it < 3000; it++) {
+		let k = 0; for (let i = 1; i < q.length; i++) if (q[i].max > q[k].max) k = i;
+		const c = q.splice(k, 1)[0];
+		if (c.d > best.d) best = c;
+		if (c.max - best.d <= prec) continue;
+		const hh = c.h / 2;
+		q.push(mk(c.x - hh, c.y - hh, hh), mk(c.x + hh, c.y - hh, hh), mk(c.x - hh, c.y + hh, hh), mk(c.x + hh, c.y + hh, hh));
+	}
+	return [best.x, best.y];
+}
+
 export function symbolItems(src, layer = {}, zoom = 10, images = null) {
+	const origin = originOfLayer(layer);   // MapLibre の層（normalizeMLLayer の印）＝MapLibre の意味で評価
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	if ((layer.minzoom != null && zoom < layer.minzoom) || (layer.maxzoom != null && zoom >= layer.maxzoom)) return [];
 	const Ly = layer.layout || {}, Pt = layer.paint || {}, out = [];
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
-		const pts = g.type === "Point" ? [g.coordinates] : g.type === "MultiPoint" ? g.coordinates : null;
-		if (!pts) continue;
-		const props = f.properties || {}, ctx = { zoom, props, geom: "Point", vars: {} };
+		// 錨（MapLibre の点置き）：点＝その点・線＝各部分の最初の頂点・面＝各部分の到達不能極（段 6・旧＝点だけ）
+		const pts = g.type === "Point" ? [g.coordinates] : g.type === "MultiPoint" ? g.coordinates
+			: g.type === "LineString" ? [g.coordinates[0]] : g.type === "MultiLineString" ? g.coordinates.map(l => l[0])
+			: g.type === "Polygon" ? [poleOf(g.coordinates)] : g.type === "MultiPolygon" ? g.coordinates.map(poleOf) : null;
+		if (!pts?.length || pts.some(p => !p)) continue;
+		const props = f.properties || {}, ctx = { zoom, props, geom: g.type, vars: {}, origin };
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
 		const ev = (e, d) => e == null ? d : evalExpr(e, ctx);
 		const strs = e => e == null ? null : Array.isArray(e) && e.length && e.every(x => typeof x === "string") && !["literal", "match", "case", "step", "get", "coalesce"].includes(e[0]) ? e : (v => Array.isArray(v) ? v : null)(evalExpr(e, ctx));   // 文字列の配列リテラル（["top","bottom"]）は式でない

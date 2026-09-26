@@ -43,7 +43,8 @@ export interface OrthoJapanOptions {
 	theme?: string | object;
 	/** 基図を外来の MapLibre style で描く（1.2.0〜・#33）。URL か style の object（?style=<URL> と同じ）。地域の基図・?pm= より優先。
 	 *  基図に入るのは style の中のひとつのベクタ source（XYZ・TileJSON・pmtiles://）の fill / line / 点ラベル / background。旧式フィルタ・stops 関数・"{name}" 記法は読み替える。
-	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer へ。
+	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む＝基図の層も geojson source の層も（1.3.0〜。以前は geojson の層だけエンジンの z で読んでいた）。
+	 *  層の metadata["ortho:dz"]（0＝この地図の z・1＝MapLibre の z）の申告があればそれが勝つ（getStyle が付けて返す）。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer と同じ口へ。
 	 *  描かない層（fill-extrusion・線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
 	style?: string | Record<string, unknown>;
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
@@ -71,8 +72,18 @@ export interface OrthoJapanOptions {
 	plateau?: boolean;
 	/** UI言語（地図中の地名は対象外）。live 切替 API は無い＝変えるなら view: map.view.hash を持って destroy()→再生成 */
 	lang?: OrthoJapanLang;
-	/** チルト上限（**ラジアン**）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
+	/** チルト上限（1.3.0〜 **度**＝MapLibre と同じ。1.6 以下の値は従来のラジアンとして読む＝非推奨・console に 1 回警告）。0=俯瞰固定。共有URLのt=も同上限でクランプ（既定 75°） */
 	maxPitch?: number;
+	/** ズームの目盛り（1.3.0〜・MapLibre 互換）。既定 "ortho"＝この地図の z（256px 世界＝MapLibre の z＋1 が同じ縮尺）。
+	 *  "maplibre"＝公開面の「数」の zoom を MapLibre の z で受け渡す（入力 +1・出力 −1・null はそのまま）：
+	 *  カメラ（jumpTo/easeTo/flyTo（{} と位置引数）/fitBounds・cameraForBounds/getZoom/setZoom/set・getMin/MaxZoom/zoomMin・setZoomMin/fitZoomForBbox）・map.view.zoom・
+	 *  on("move"|"settle") の e.zoom・addLayer/setLayerZoomRange の minzoom/maxzoom と式の ["zoom"]・queryRenderedFeatures の filter と expansionZoom・
+	 *  ML 形 gadget（heatmap/cluster/symbols/extrude）と clusterMaxZoom・addGint/applyGintData と手綱の minZoom/maxZoom と式・map.raster の表示窓（opts）・
+	 *  ガジェットの表示帯 zoom:[a,b] と zoomMin/zoomMax/maxZoom/minZoom/view の z・opts.zoomMax。
+	 *  換算しない＝文字列（URL hash・view・view.hash）・source の tile z（raster/vector/raster-dem・map.raster.add の spec）・map.cam・overlay の cam・台本（.scenes/playScenes/sceneTimeline）。
+	 *  緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ 込み）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。
+	 *  返る map は外側の顔（Proxy）＝素の map は map[RAW]（部品はエンジンの z で読む時にこちら） */
+	zoomScale?: "ortho" | "maplibre";
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
 	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。**既定は全部 off**（ell と同じ作法）。
@@ -341,7 +352,11 @@ export interface RasterAPI {
 	toggle(catalogId: string, on?: boolean): Promise<boolean>;
 }
 
-/** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal） */
+/** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal ほか。
+ *  1.3.0〜 at・sin/cos/tan/asin/acos/atan・to-rgba・cubic-bezier 補間・index-of の開始位置・get/has の object 引数）。
+ *  MapLibre の文書から来た式（style.json・addLayer・ML 形 gadget・queryRenderedFeatures の filter）は MapLibre の型の約束で評価する（1.3.0〜）：
+ *  型の合わない大小比較・真偽でない条件（! all any case）・数でない interpolate/step の入力・外れた型の表明は評価エラー＝filter は偽・paint は既定値。
+ *  get の欠損は null。to-number／number／string／boolean は予備の引数へ落ちる。map.paint・addGint のネイティブの式は従来の寛容な意味のまま。within/distance は未対応 */
 export type StyleExpression = unknown[] | number | string | boolean;
 export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean;
 	/** 床の高さ[m]＝その高さの平面に浮かせる（1.2.0〜・高さはその平面から測る）。"drape"＝地形に沿わせる。無指定＝広い面（統計）は 2000m の平面・建物らしい小さい面は接地 */
@@ -389,17 +404,20 @@ export interface HeatmapLayer { type: "heatmap"; id?: string; source?: { type: "
 export interface CirclePaint { "circle-color"?: StyleExpression; "circle-radius"?: StyleExpression; "circle-stroke-color"?: StyleExpression; "circle-stroke-width"?: StyleExpression; "circle-opacity"?: StyleExpression }
 export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number } }
 export type MapLibreSource =
-	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number }
+	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] } */
+	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
 	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
-	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string };
+	/** url＝TileJSON（1.3.0〜 取りに行く）。既定値は MapLibre どおり tileSize 512・maxzoom 22（1.3.0〜・以前は 256/18）。タイルの型紙は {quadkey} も可 */
+	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms" };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
 /** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
  *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
-export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number }
+/** 1.3.0〜 encoding "custom"（redFactor/greenFactor/blueFactor/baseShift）・既定値は MapLibre どおり tileSize 512・maxzoom 22（setTerrain・addSource・style の terrain。?dem= の URL は従来の 256） */
+export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number }
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;
@@ -434,10 +452,12 @@ export interface OrthoJapanMap {
 	setZoomMin(zoom: number | null): void;
 	/** 現在のズーム床 */
 	zoomMin(): number;
-	/** チルト上限の実行時変更（**ラジアン**・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
-	setMaxPitch(rad: number | null): void;
-	/** 現在のチルト上限（ラジアン） */
+	/** チルト上限の実行時変更（1.3.0〜 **度**・1.6 以下は従来のラジアン＝非推奨・null＝起動時の値へ・0＝真俯瞰固定）。超えていれば即座に上限へ寄せる */
+	setMaxPitch(deg: number | null): void;
+	/** 現在のチルト上限（ラジアン・ortho の口） */
 	maxPitch(): number;
+	/** 現在のチルト上限（度・MapLibre 同名・1.3.0〜） */
+	getMaxPitch(): number;
 	/** 楕円体表示（?ell=1）か。計測は常に WGS84・表示は既定で球 */
 	ellipsoidOn(): boolean;
 	getMinZoom(): number;
@@ -542,11 +562,18 @@ export interface OrthoJapanMap {
 	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/video/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
 	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は canvas2D の口で描く（#49・gint の線は一色・ずらしなし＝地形の遮蔽は無い）。
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
-	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝source ごとに gint の追加層・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
+	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層へ詰める（1.3.0〜）・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
+	 *  fill/line/circle は MapLibre の意味（1.3.0〜）：層の型が描くジオメトリを選ぶ（fill＝面・line＝線と面の輪郭・circle＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・
+	 *  fill に輪郭を付けない（fill-outline-color の時だけ 1px）・circle-opacity。同じ source のハイライト層・縁取りの線もそのまま描ける。line-dasharray（先頭の [線, 間] の対・線幅の倍数）・circle-stroke-color/-width/-opacity（中空の円も）も 1.3.0〜。線幅/半径の上限は約 32px/64px。
+	 *  知らない演算子（within/distance など未対応も）を含む層は、その名を挙げて投げて足さない（1.3.0〜・MapLibre と同じ。setPaintProperty/setLayoutProperty/setFilter・ML 形 gadget も）。
+	 *  層の minzoom/maxzoom（maxzoom 排他）はどの種類でも効く（1.3.0〜）：記号は止まるたびに当て直す・押し出しと canvas2D の線（line-gradient/line-offset/模様）は止まるたびに
+	 *  ["zoom"] の式を評価し直す（0.25 刻み）・集約は丸と単点の層ごと・raster は表示窓。集約の地物の layer.id は MapLibre の層 id（以前は "clusters"/"unclustered-point"）。
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
-	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ） */
+	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ）。
+	 *  旧式フィルタ（["==","k","v"] 等）・旧式の関数（{ stops }）・"{name}" 記法は style.json と同じく読み替える（1.3.0〜・ML 形 gadget の層 object も同じ）。
+	 *  ズームの数（minzoom・maxzoom・["zoom"]）はこの地図の z（MapLibre の z＋1＝同じ縮尺）。層の metadata["ortho:dz"]:1 を付ければ MapLibre の z で書ける */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
-	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> } & Partial<VideoHandle>) | undefined;
+	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
@@ -565,10 +592,14 @@ export interface OrthoJapanMap {
 	setFilter(id: string, filter: StyleExpression | null): OrthoJapanMap;
 	getFilter(id: string): StyleExpression | undefined;
 	setLayerZoomRange(id: string, minzoom: number, maxzoom: number): OrthoJapanMap;
-	/** feature-state（MapLibre 同名）。id＝その source の地物の番号（GeoJSON の並び順）。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない */
+	/** feature-state（MapLibre 同名）。id＝MapLibre の id（1.3.0〜）＝GeoJSON の Feature.id → source の promoteId の属性 → どちらも無ければ並び順（generateId と同じ・以前の意味）。
+	 *  queryRenderedFeatures の id も同じ。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない。属性がまったく同じ地物も別々に扱う（1.3.0〜） */
 	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
 	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
-	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"・読むだけ）の上に利用者の層 */
+	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"）の上に利用者の層。
+	 *  基図の層も 1.3.0〜 getLayer/setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange/removeLayer で触れる（visibility は結合で外すだけ＝軽い・色や filter は基図タイルの建て直し）。
+	 *  基図の層の重ね順は固定（moveLayer は基図の層に効かない・beforeId に基図の層 id を渡してもよい＝利用者の層は描画の段で決まる）。上書きはテーマの切り替えを越えて残り、setStyle で消える。
+	 *  ズームの目盛りを申告して返す（1.3.0〜）：各層の metadata["ortho:dz"]（基図＝0＝この地図の z に直した物）・root の metadata["ortho:sourceDz"]（source ごと）＝setStyle(getStyle()) で二重にずれない */
 	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };
 	/** 任意の 3D Tiles を画面上の誤差で流す（1.2.0〜・#41）。url＝tileset.json（?tiles3d=<URL> と同じ）。
 	 *  中身＝b3dm・i3dm・pnts（点群）・cmpt・glb/glTF（3D Tiles 1.1）・外部 tileset。refine REPLACE（子が揃うまで親）/ ADD。GPU 予算を超えたら使っていないタイルから捨てる。
@@ -614,7 +645,7 @@ export interface OrthoJapanMap {
 	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
 	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
-	 *  返り値は上に描かれたものから：四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
+	 *  返り値は上に描かれたものから：canvas2D の線/模様（addLayer の層 id・1.3.0〜）→記号・集約→四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層ごとに 1 件・層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
@@ -657,15 +688,15 @@ export interface OrthoJapanMap {
 	 * Mapbox 風 paint 式で fid スタイル表を組む（null=解除）。評価は呼び出し時に一度だけ（zoom 追随は再呼び）。
 	 * 式の演算子サブセット：get has ! all any == != > >= < <= in match step case let var interpolate coalesce
 	 * to-number to-string concat zoom geometry-type feature-state + - * / % ^ min max literal。色は #hex / rgb() / rgba()
-	 * （名前色は transparent/white/black のみ）。filter＝真偽式（偽の feature は非表示）。
+	 * （CSS の色名・hsl も可）。filter＝真偽式（偽の feature は非表示）。
 	 * 例：{ "fill-color": ["step", ["get", "pop"], "#eff3ff", 1, "#bdd7e7", 4, "#3182bd"], "fill-opacity": 0.85,
 	 *      "line-width": ["case", ["==", ["get", "id"], 13], 3.5, 0.9] }
 	 */
 	paint(paint: GintPaint | null, filter?: unknown[]): Promise<void>;
 	/**
 	 * fid→スタイル表の直書き。u32レコード=4要素/fid:
-	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
-	 * flags bit0=visible（フィーチャ単位の表示/非表示）
+	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=線：破線 (線px*8)<<16|(間px*8)／点：縁の色 RGBA8（1.3.0〜・0＝なし）。
+	 * flags bit0=visible（フィーチャ単位の表示/非表示）・bit1=点の塗り無し（中空の円・1.3.0〜）。点では width の欄が縁の幅
 	 * Point は [1]（circle 色・α=0 で既定色）と radius（1/4 CSS px・0=描かない）を使う。線は width（1/8px・0=描かない）。[3]＝予備（0）。
 	 * count＝レコード数（fid 数＝gintFeatures().length）。applyGintData() 直後に同期で呼べる（onReady を待つ必要はない）
 	 */
@@ -677,6 +708,9 @@ export interface OrthoJapanMap {
 /** 地球儀のホスト＝地域の申告なしで起動（世界データだけ・日本固有ゼロ）。region を渡せば地域を足せる。await 必須。
  *  SDK の orthoJapan は「globe＋日本の申告」の薄い包み（LAYERS.md・2026-09-23） */
 export function createGlobe(opts?: OrthoJapanOptions): Promise<OrthoJapanMap>;
+/** 旗 zoomScale:"maplibre" の地図（外側の顔）から素の map（エンジンの z）へ戻る鍵（1.3.0〜）。値は Symbol.for("ortho-earth.map.raw")＝import しなくても同じ鍵。
+ *  旗なしの地図では未定義＝部品は `map[RAW] ?? map` で読む */
+export const RAW: unique symbol;
 /** globe の名前（中身は OrthoJapanMap / OrthoJapanOptions と同じ） */
 export type GlobeMap = OrthoJapanMap;
 export type GlobeOptions = OrthoJapanOptions;
