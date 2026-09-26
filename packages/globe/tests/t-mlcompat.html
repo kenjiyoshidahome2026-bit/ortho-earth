@@ -1,0 +1,192 @@
+<!doctype html>
+<!-- 互換の爪車（描いて確かめる場面）＝MapLibre の書き方そのままで、MapLibre と同じ絵・同じ答えになるか（台帳 maplibre-compat.md・2026-09-26）。
+     既知の失敗＝tests/mlcompat-known.json の "browser"（鍵は "群:場面"）。一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。
+     ?g=layers（既定）＝geojson の層の場面を 1 枚の地図に並べ、層を足す前後の基図の画素（requestSnapshot の base＝ラベル抜き）と問い合わせで判定。
+       加えて分類表（src/zoomscale.js）と実行時のキー（map・map.gadget・map.raster・addGint の手綱）の突き合わせ＝台帳 R1（これは既知に入れない＝必ず通す）。
+     ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, geopbf } from "@ortho-earth/globe";
+import { MAP_MEMBERS, GADGET_MEMBERS, RASTER_MEMBERS, HANDLE_MEMBERS } from "../src/zoomscale.js";
+const G = new URLSearchParams(location.search).get("g") || "layers";
+const R = {};   // "群:場面" → [ok, note]
+const put = (id, ok, note = "") => { R[`${G}:${id}`] = [!!ok, String(note)]; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
+const fc = fs => ({ type: "FeatureCollection", features: fs });
+const sq = (lon, lat, d, props) => F({ type: "Polygon", coordinates: [[[lon - d, lat - d], [lon + d, lat - d], [lon + d, lat + d], [lon - d, lat + d], [lon - d, lat - d]]] }, props);
+const pt = (lon, lat, props) => F({ type: "Point", coordinates: [lon, lat] }, props);
+const ln = (a, b, props) => F({ type: "LineString", coordinates: [a, b] }, props);
+const scene = async (id, fn) => { try { const r = await fn(); put(id, r[0], r[1]); } catch (e) { put(id, false, "threw " + (e?.message || e)); } };
+
+// 基図の画素（ラベル抜き）。座標は地図の容れ物の CSS px（projectLL と同じ）
+async function snap(map) {
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render;
+	if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => {
+	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
+	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
+	return [img.data[i], img.data[i + 1], img.data[i + 2]];
+};
+const diff = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+const near = (a, c, tol = 70) => diff(a, c) <= tol;
+const around = (x, y, r = 1) => { const o = []; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) o.push([x + dx, y + dy]); return o; };
+// p が「基図 b と色 m の混ざり」で説明できるか（塗りの縁の AA）＝輪郭線のような第三の色が混ざっていないか
+const explained = (p, b, m, tol = 45) => {
+	const d = [m[0] - b[0], m[1] - b[1], m[2] - b[2]], q = [p[0] - b[0], p[1] - b[1], p[2] - b[2]];
+	const dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2] || 1;
+	const t = Math.max(0, Math.min(1, (q[0] * d[0] + q[1] * d[1] + q[2] * d[2]) / dd));
+	return Math.max(...[0, 1, 2].map(i => Math.abs(p[i] - (b[i] + t * d[i])))) <= tol;
+};
+
+try {
+	if (G === "layers") {
+		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false });
+		await sleep(7000);
+		const P = (lon, lat) => { const [x, y] = map.projectLL(lon, lat); return [x, y]; };
+		const at = async (lon, lat, layers) => { const [x, y] = P(lon, lat); return (await map.queryRenderedFeatures([x, y], layers ? { layers } : {})).map(f => f.layer.id); };
+
+		// ── R1：分類表と実行時のキー（必ず通す＝既知に入れない）──
+		{
+			const unc = [];
+			for (const k of Object.getOwnPropertyNames(map)) if (!(k in MAP_MEMBERS)) unc.push("map." + k);
+			for (const k of Object.getOwnPropertyNames(map.gadget)) if (!["length", "name", "prototype", "arguments", "caller"].includes(k) && !(k in GADGET_MEMBERS)) unc.push("gadget." + k);
+			for (const k of Object.getOwnPropertyNames(map.raster)) if (!(k in RASTER_MEMBERS)) unc.push("raster." + k);
+			const h = map.addGint(await geopbf(fc([sq(150, -30, 0.1, { a: 1 })]), { gint: true }), { interactive: false });
+			for (const k of Object.getOwnPropertyNames(h || {})) if (!k.startsWith("_") && !(k in HANDLE_MEMBERS)) unc.push("handle." + k);
+			h?.remove();
+			put("zoomscale-runtime-keys", unc.length === 0, unc.join(","));
+		}
+
+		const before = await snap(map);
+		// ── 層を並べる（1 枚の絵で判定）──
+		// S1 ハイライト層＝同じ source に filter つきの層を重ねる（MapLibre の定番）
+		map.addSource("hl", { type: "geojson", data: fc([sq(133.8, 37.2, 0.3, { name: "A" }), sq(134.8, 37.2, 0.3, { name: "B" })]) });
+		await map.addLayer({ id: "hl-base", type: "fill", source: "hl", paint: { "fill-color": "#0000ff" } });
+		await map.addLayer({ id: "hl-top", type: "fill", source: "hl", filter: ["==", ["get", "name"], "B"], paint: { "fill-color": "#ff0000" } });
+		// S2 縁取り（casing）＝同じ source に太い黒線＋細い黄線
+		map.addSource("cs", { type: "geojson", data: fc([ln([136.2, 37.2], [137.8, 37.2])]) });
+		await map.addLayer({ id: "cs-case", type: "line", source: "cs", paint: { "line-color": "#000000", "line-width": 12 } });
+		await map.addLayer({ id: "cs-in", type: "line", source: "cs", paint: { "line-color": "#ffff00", "line-width": 4 } });
+		// S3 fill の層だけ＝面は塗る・線と点は描かない・輪郭を付けない
+		map.addSource("mx", { type: "geojson", data: fc([sq(139.0, 37.2, 0.3, {}), pt(140.2, 37.2, {}), ln([139.8, 36.6], [140.6, 36.6], {})]) });
+		await map.addLayer({ id: "mx-fill", type: "fill", source: "mx", paint: { "fill-color": "#ff00ff" } });
+		// S4 circle の既定値（黒・半径 5）
+		map.addSource("cd", { type: "geojson", data: fc([pt(134.0, 35.3, {})]) });
+		await map.addLayer({ id: "cd-c", type: "circle", source: "cd" });
+		// S5 circle-opacity 0＝描かない
+		map.addSource("co", { type: "geojson", data: fc([pt(135.0, 35.3, {})]) });
+		await map.addLayer({ id: "co-c", type: "circle", source: "co", paint: { "circle-color": "#ff0000", "circle-radius": 6, "circle-opacity": 0 } });
+		// S6 旧式の関数（stops）を addLayer で
+		map.addSource("st", { type: "geojson", data: fc([sq(136.2, 35.3, 0.3, {})]) });
+		await map.addLayer({ id: "st-f", type: "fill", source: "st", paint: { "fill-color": { stops: [[0, "#ff0000"], [22, "#ff0000"]] } } });
+		// S7 旧式フィルタを addLayer で
+		map.addSource("lf", { type: "geojson", data: fc([sq(137.5, 35.3, 0.3, { name: "C" }), sq(138.5, 35.3, 0.3, { name: "D" })]) });
+		await map.addLayer({ id: "lf-f", type: "fill", source: "lf", filter: ["==", "name", "C"], paint: { "fill-color": "#00ff00" } });
+		// S8 欠損・null と比べる filter（MapLibre＝型の合わない比較は評価エラー＝偽）。欠損は JS でも偽（undefined＜1000＝false）・null は geopbf が属性ごと落とす＝欠損と同じ＝今も一致（見張り）
+		map.addSource("nc", { type: "geojson", data: fc([sq(139.5, 35.3, 0.3, { pop: 500 }), sq(140.5, 35.3, 0.3, {}), sq(141.5, 35.3, 0.3, { pop: null })]) });
+		await map.addLayer({ id: "nc-f", type: "fill", source: "nc", filter: ["<", ["get", "pop"], 1000], paint: { "fill-color": "#00ffff" } });
+		await sleep(3000);
+		const after = await snap(map);
+
+		await scene("highlight-same-source", () => {
+			const a = px(after, ...P(133.8, 37.2)), b = px(after, ...P(134.8, 37.2));
+			return [near(a, [0, 0, 255]) && near(b, [255, 0, 0]), `A=${a} B=${b}`];
+		});
+		await scene("casing-two-lines", () => {
+			const [x, y] = P(137.0, 37.2), c = px(after, x, y), e = px(after, x, y + 4);
+			return [near(c, [255, 255, 0]) && near(e, [0, 0, 0], 60), `center=${c} +4px=${e}`];
+		});
+		await scene("fill-layer-draws-only-polygons", () => {
+			const [px0, py0] = P(140.2, 37.2), [lx, ly] = P(140.2, 36.6);
+			const dPt = Math.max(...around(px0, py0).map(([x, y]) => diff(px(after, x, y), px(before, x, y))));
+			const dLn = Math.max(...around(lx, ly).map(([x, y]) => diff(px(after, x, y), px(before, x, y))));
+			return [dPt <= 30 && dLn <= 30, `point Δ${dPt} line Δ${dLn}`];
+		});
+		await scene("fill-no-outline", () => {
+			const bad = [];
+			for (const [lon, lat, ax] of [[139.0, 37.5, "y"], [139.0, 36.9, "y"], [138.7, 37.2, "x"], [139.3, 37.2, "x"]]) {
+				const [x, y] = P(lon, lat);
+				for (let o = -2; o <= 2; o++) { const q = ax === "y" ? [x, y + o] : [x + o, y]; const p = px(after, ...q), b = px(before, ...q); if (!explained(p, b, [255, 0, 255])) bad.push(`${lon},${lat}${o >= 0 ? "+" : ""}${o}:${p}`); }
+			}
+			return [bad.length === 0, bad.slice(0, 3).join(" ")];
+		});
+		await scene("circle-defaults", () => {
+			const [x, y] = P(134.0, 35.3), c = px(after, x, y), e = px(after, x + 3, y);
+			return [near(c, [0, 0, 0], 60) && near(e, [0, 0, 0], 60), `center=${c} +3px=${e}`];
+		});
+		await scene("circle-opacity", () => {
+			const [x, y] = P(135.0, 35.3), d = Math.max(...around(x, y).map(([u, v]) => diff(px(after, u, v), px(before, u, v))));
+			return [d <= 30, `Δ${d}`];
+		});
+		await scene("stops-addLayer", () => { const c = px(after, ...P(136.2, 35.3)); return [near(c, [255, 0, 0]), `center=${c}`]; });
+		await scene("legacy-filter-addLayer", async () => { const c = await at(137.5, 35.3, ["lf-f"]), d = await at(138.5, 35.3, ["lf-f"]); return [c.includes("lf-f") && !d.includes("lf-f"), `C=${c} D=${d}`]; });
+		await scene("compare-missing-filter", async () => { const e = await at(139.5, 35.3, ["nc-f"]), f = await at(140.5, 35.3, ["nc-f"]); return [e.includes("nc-f") && !f.includes("nc-f"), `pop500=${e} missing=${f}`]; });
+		await scene("compare-null-filter", async () => { const n = await at(141.5, 35.3, ["nc-f"]); return [!n.includes("nc-f"), `null=${n}`]; });
+
+		// ── 口の場面（絵を見ない）──
+		await scene("geojson-relative-url", async () => {
+			map.addSource("rel", { type: "geojson", data: "fixtures/mlcompat/pts.geojson" });
+			await Promise.race([map.addLayer({ id: "rel-c", type: "circle", source: "rel", paint: { "circle-radius": 8, "circle-color": "#ff8800" } }), sleep(8000)]);
+			await sleep(1000);
+			const h = await at(134.5, 34.2, ["rel-c"]);
+			return [h.includes("rel-c"), String(h)];
+		});
+		await scene("raster-tilejson-url", async () => {
+			map.addSource("rt", { type: "raster", url: new URL("fixtures/mlcompat/raster.json", location.href).href, tileSize: 256 });
+			await Promise.race([map.addLayer({ id: "rt-l", type: "raster", source: "rt" }), sleep(5000)]);
+			const e = map.raster.list().find(r => r.id === "rt-l");
+			return [!!e && /\{z\}/.test(e.spec?.url || "") && !/raster\.json/.test(e.spec?.url || ""), e ? e.spec?.url : "no raster entry"];
+		});
+		await scene("raster-layer-minzoom", async () => {
+			map.addSource("rz", { type: "raster", tiles: [new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}")], tileSize: 256 });
+			await Promise.race([map.addLayer({ id: "rz-l", type: "raster", source: "rz", minzoom: 12 }), sleep(5000)]);
+			const e = map.raster.list().find(r => r.id === "rz-l");
+			return [e?.opts?.minZoom === 12, e ? JSON.stringify(e.opts) : "no raster entry"];
+		});
+		await scene("unknown-op-throws", async () => {
+			map.addSource("uo", { type: "geojson", data: fc([sq(150, -30, 0.1, {})]) });
+			let threw = false;
+			try { await map.addLayer({ id: "uo-f", type: "fill", source: "uo", paint: { "fill-color": ["frobnicate", 1] } }); } catch { threw = true; }
+			if (map.getLayer("uo-f")) map.removeLayer("uo-f");
+			return [threw, threw ? "threw" : "accepted"];
+		});
+	} else if (G === "style") {
+		const style = {
+			version: 8, name: "t-mlcompat-style",
+			sources: {
+				gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 },
+				pts: { type: "geojson", data: fc([pt(139.85, 35.45, { n: 1 })]) },
+			},
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": "#9ec3e6" } },
+				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
+			],
+		};
+		// エンジン z 11.5＝MapLibre の z 10.5＝minzoom 11 の層はまだ出ない（MapLibre）
+		const map = await createGlobe({ target: "#map", view: "#11.5/35.45/139.85", chips: false, style });
+		await sleep(7000);
+		const hit = async () => { const [x, y] = map.projectLL(139.85, 35.45); return (await map.queryRenderedFeatures([x, y], { layers: ["g"] })).map(f => f.layer.id); };
+		await scene("geojson-layer-minzoom-is-maplibre-z", async () => { const h = await hit(); return [!h.includes("g"), `engine z11.5 → ${h}`]; });
+		map.jumpTo({ zoom: 12.5 });   // エンジン z 12.5＝MapLibre の z 11.5＝出る
+		await sleep(2500);
+		await scene("geojson-layer-shown-above-minzoom", async () => { const h = await hit(); return [h.includes("g"), `engine z12.5 → ${h}`]; });
+	}
+
+	// ── 爪車 ──
+	const KNOWN = (await (await fetch("./mlcompat-known.json")).json()).browser || {};
+	const known = Object.keys(KNOWN).filter(k => k.startsWith(G + ":"));
+	const unexpected = Object.entries(R).filter(([k, [ok]]) => !ok && !known.includes(k)).map(([k, [, n]]) => `${k}(${n})`);
+	const fixed = Object.entries(R).filter(([k, [ok]]) => ok && known.includes(k)).map(([k]) => k);
+	const missing = known.filter(k => !(k in R));
+	const rows = Object.entries(R).map(([k, [ok, n]]) => `${ok ? "ok" : "NG"}${known.includes(k) ? "·known" : ""}:${k.slice(G.length + 1)}${n ? `(${n})` : ""}`);
+	const pass = !unexpected.length && !fixed.length && !missing.length;
+	document.title = (pass ? "PASS " : "FAIL ") + (unexpected.length ? `unexpected:[${unexpected.join(" ")}] ` : "") + (fixed.length ? `fixed-but-listed:[${fixed.join(" ")}] ` : "") + (missing.length ? `listed-but-missing:[${missing.join(" ")}] ` : "") + rows.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

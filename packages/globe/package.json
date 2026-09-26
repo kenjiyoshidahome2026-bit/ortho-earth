@@ -37,6 +37,7 @@
 	"scripts": {
 		"build:css": "node scripts/build-css.mjs",
 		"prepack": "node scripts/build-css.mjs",
+		"test": "node tests/zoomscale.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs",
 		"verify": "node scripts/build-css.mjs --check && npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
