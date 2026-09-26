@@ -20,7 +20,7 @@ const styleOf = water => ({
 		{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": { stops: [[0, water], [22, water]] } } },   // 旧式の関数
 		{ id: "road", type: "line", source: "gsi", "source-layer": "RdCL", filter: ["!=", "vt_rdctg", "zzz"], paint: { "line-color": "#888", "line-width": { base: 1.4, stops: [[8, 0.5], [16, 3]] } } },   // 旧式フィルタ
 		{ id: "label", type: "symbol", source: "gsi", "source-layer": "Anno", layout: { "text-field": "{vt_text}", "text-size": 12 }, paint: { "text-color": "#333" } },   // 差し込み記法
-		{ id: "bld3d", type: "fill-extrusion", source: "gsi", "source-layer": "BldA", paint: { "fill-extrusion-height": 10 } },   // 描かない層（数える）
+		{ id: "bld3d", type: "fill-extrusion", source: "gsi", "source-layer": "BldA", paint: { "fill-extrusion-height": 10 } },   // vector の押し出し＝1.3.0〜 立つ（段 8①・以前は描かない層として数えた）
 	],
 });
 try {
@@ -42,9 +42,9 @@ try {
 	const [x, y] = map.projectLL(139.85, 35.45);
 	const hits = await map.queryRenderedFeatures([x, y], { layers: ["water"] });
 	ok("query", hits.some(f => f.layer.id === "water"), hits.map(f => f.layer.id).join(","));
-	// ③ getStyle＝source 名は style のまま・描かない層は基図に入らない
+	// ③ getStyle＝source 名は style のまま・vector の押し出し（段 8①）も MapLibre と同じく層として返る（基図の source 名のまま）
 	const st = map.getStyle();
-	ok("getStyle", !!st.sources.gsi && st.layers.some(L => L.id === "water" && L.source === "gsi") && !st.layers.some(L => L.id === "bld3d"), st.layers.map(L => L.id).join(","));
+	ok("getStyle", !!st.sources.gsi && st.layers.some(L => L.id === "water" && L.source === "gsi") && st.layers.some(L => L.id === "bld3d" && L.type === "fill-extrusion" && L.source === "gsi"), st.layers.map(L => L.id).join(","));
 	// ② 生き替え
 	await map.setStyle(styleOf("#00ffff"));
 	await sleep(6000);
