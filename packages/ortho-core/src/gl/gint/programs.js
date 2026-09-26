@@ -963,7 +963,7 @@ export function quad6GLSL(code) {
 	];
 	let out = code, hit = 0;
 	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
-	if (hit === 0 || /gl_VertexID [/%] 4;/.test(out)) throw new Error("quad6GLSL: 変換漏れ（4 頂点の目印が残っている／無い）＝原本の書式が変わった疑い");
+	if (hit === 0 || /gl_VertexID [/%] 4;/.test(out)) throw new Error("quad6GLSL: rewrite incomplete (4-vertex markers missing or left over) = the source shader format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
 	return out;
 }
 // index の 4 頂点/辺（P3）の固定パターン＝[4k,4k+1,4k+2, 4k,4k+2,4k+3]×QK（u32・ELEMENT_ARRAY）。run は u_vbase＝先頭辺・QK 超は割る（passes.js drawQ）
