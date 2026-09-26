@@ -16,7 +16,7 @@ const PORT = +process.env.VGN_PORT || 5247;
 const ALL_PAGES = ["t-nocoi?nocoi=1", "t-gintembed", "t-gintlod", "t-gintswap", "t-gintdepth"];
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
-const stop = await startVite({ cwd: PKG, port: PORT, readyUrl: `http://localhost:${PORT}/tests/`, env: { NOCOI: "1" } });
+const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGN_PORT", readyUrl: `http://localhost:${PORT}/tests/`, env: { NOCOI: "1" } });
 // 門前の確認＝COI ヘッダが本当に消えているか（NOCOI の効きが壊れたら以下は全部偽の緑になる）
 const h = (await fetch(`http://localhost:${PORT}/tests/t-nocoi.html`)).headers;
 if (h.get("cross-origin-embedder-policy") || h.get("cross-origin-opener-policy")) {

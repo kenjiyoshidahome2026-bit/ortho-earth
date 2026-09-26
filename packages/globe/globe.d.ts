@@ -519,7 +519,7 @@ export interface OrthoJapanMap {
 	/** 経緯度→mapEl（canvas）左上原点の CSS px（ページ座標ではない＝pointer を合成するなら getBoundingClientRect を足す）。unprojectXY と同じ座標系。
 	 *  front<0＝**見えない**（裏半球ではなく「現在のカメラ高度の地平線より外」＝チルト時は数°先でも負）。見えない点の x,y は**地平線（可視キャップの縁）へ射影クランプした位置**
 	 *  ＝塗りの経路はそのまま結んでよい（可視部＋地平線沿いで閉じる）。線は符号で切る。カメラ後方など写せない時だけ [0,0,-1]。
-	 *  front の絶対値は未正規化＝符号だけ使う。**海面基準**＝チルト時は地形に乗った描画と視差がある（地形込みは makeProjectorH） */
+	 *  front の絶対値は未正規化＝符号だけ使う。**地形込み**＝チルト時は描いている地形の標高（setTerrain の DEM が先）だけ持ち上げる＝makeProjectorH()(lon, lat, 0) と同じ点。標高の初回は 0（海面）・届いた次フレームから乗る（makeProjectorH と同じメモ） */
 	projectLL(lon: number, lat: number): [x: number, y: number, front: number];
 	/** canvasローカルCSS座標→経緯度（球外はnull。onClick/setEditClickのx,yと同座標系） */
 	unprojectXY(x: number, y: number): LonLat | null;
@@ -528,9 +528,9 @@ export interface OrthoJapanMap {
 	project(lngLat: LonLat | { lng: number; lat: number }): { x: number; y: number };
 	/** 画面の点→経緯度（MapLibre と同名・1.1.1〜）。球の外（宇宙）は null */
 	unproject(point: [x: number, y: number] | { x: number; y: number }): { lng: number; lat: number } | null;
-	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用・海面基準） */
+	/** カメラ状態を1回束ねた投影関数（多点を1フレームで投影する時用・projectLL と同じく地形込み＝点ごとに標高のメモを引く。数百点以上は makeProjectorH({ terrain: false })） */
 	makeProjector(): (lon: number, lat: number) => [x: number, y: number, front: number];
-	/** 地形込みの投影。標高は 100m 格子のメモから引く＝**その地点の初回は 0（海面）で、非同期に取得して次フレームから乗る**（毎フレーム呼ぶ
+	/** 地形込みの投影。標高は描いている地形と同じ出どころ（setTerrain の DEM が先・無い所は既定の DTM・負は 0）を 100m 格子のメモから引く＝**その地点の初回は 0（海面）で、非同期に取得して次フレームから乗る**（毎フレーム呼ぶ
 	 *  DOM マーカー用途向け。1 回きりの呼び出しには乗らない）。liftM＝地表からの追加持ち上げ m（0＝地表。標高を渡すと二重に浮く） */
 	makeProjectorH(opts?: { terrain?: boolean }): (lon: number, lat: number, liftM?: number) => [x: number, y: number, front: number];   // liftM<0＝地中。terrain:false＝地形リフト無し（海面球＋liftM）＝**数百点以上を毎フレーム投影する overlay は必ずこちら**（既定の地形リフトは点ごとに標高照会を起こす）
 	/** 描画フレーム毎フック（戻り値=解除関数）。**描画はオンデマンド＝静止中は呼ばれない**。オーバレイを載せた/更新した直後は requestDraw() で 1 フレーム点火する */
