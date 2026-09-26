@@ -1,0 +1,1 @@
+{"tilejson":"2.2.0","name":"mlcompat raster fixture","tiles":["../dem/{z}/{x}/{y}.png"],"minzoom":10,"maxzoom":10}

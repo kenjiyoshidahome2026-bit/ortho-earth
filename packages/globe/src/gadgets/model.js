@@ -10,7 +10,7 @@
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
-import { evalExpr, truthy, parseRGBA } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
+import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
 
 const MAX_BYTES = 256e6;   // 正気上限（?g= と同じ・敵入力の巨大確保よけ）
 
@@ -56,6 +56,7 @@ export function cssRGBA(c) {   // → [r,g,b（0-255）, a（0-1）] | null
 export function evalColor(e, ctx) {
 	if (Array.isArray(e) && e[0] === "interpolate") {
 		const input = evalExpr(e[2], ctx), stops = [];
+		if (ctx?.origin === "ml" && typeof input !== "number") return null;   // MapLibre の文書＝入力が数でなければ評価エラー＝既定値へ
 		for (let i = 3; i < e.length; i += 2) stops.push([e[i], e[i + 1]]);
 		if (!stops.length) return null;
 		const col = k => cssRGBA(evalExpr(stops[k][1], ctx));
@@ -83,11 +84,12 @@ function rampOf(h) {
 	return RAMP[RAMP.length - 1][1].concat(255);
 }
 // GeoJSON（Feature/FeatureCollection/features 配列）→ worker へ渡す面の列（環は度の平坦 Float64Array）
-export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null } = {}) {
+export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null, origin = undefined } = {}) {   // origin＝"ml"（MapLibre の層＝MapLibre の意味で評価）
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	const out = [];
 	const ml = isMapLibreLayer({ type, paint });
-	const opacity = ml ? Math.max(0, Math.min(1, +evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {} }))) : 1;   // MapLibre では層単位（データ駆動しない）
+	const op0 = ml ? evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {}, origin }) : 1;
+	const opacity = ml ? Math.max(0, Math.min(1, +(op0 === undefined && origin ? 1 : op0))) : 1;   // ML の評価エラー＝既定 1   // MapLibre では層単位（データ駆動しない）
 	for (let fi = 0; fi < feats.length; fi++) {
 		const f = feats[fi];
 		const g = f?.geometry; if (!g) continue;
@@ -95,7 +97,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 		if (!polys) continue;
 		const p = f.properties || {};
 		if (ml || filter) {   // MapLibre の意味（filter は真偽式・paint は式）。geometry-type は MapLibre と同じ "Polygon"（Multi も Polygon）
-			const ctx = { zoom, props: p, geom: "Polygon", vars: {} };
+			const ctx = { zoom, props: p, geom: "Polygon", vars: {}, origin };
 			if (filter != null && !truthy(evalExpr(filter, ctx))) continue;
 			if (ml) {
 				const h = +evalExpr(paint[FX.height] ?? 0, ctx) * scale, b = Math.max(0, +evalExpr(paint[FX.base] ?? 0, ctx) * scale);
@@ -159,8 +161,8 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default" } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。無指定＝広い面は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
-			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type });
+		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。無指定＝広い面は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
+			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }) });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 			const used = [...new Set(polys.map(p => p.fi))].map(fi => ({ f: feats[fi], h: polys.find(p => p.fi === fi).h }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照）
 			const blend = polys.some(p => p.rgba[3] < 255);   // fill-extrusion-opacity<1／半透明の色＝BLEND（模型と同じ派生パイプライン）

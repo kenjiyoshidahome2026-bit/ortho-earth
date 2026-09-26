@@ -16,6 +16,7 @@ const wrapLon = l => ((l + 540) % 360 + 360) % 360 - 180;
 // 待ち受けの自転（旧 v1 の autoRotate）。公開のカメラ setter は flyTo（アニメ）だけ＝map.cam を直に回して requestDraw
 // （render が毎フレーム cam を読む）。戻り値＝spin(on)。www トップの背景も使う
 export function createSpin(map, degPerSec = 4) {
+	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
 	let raf = 0, t0 = 0;
 	const step = t => {
 		const dt = Math.min(0.1, (t - t0) / 1000); t0 = t;
@@ -33,6 +34,7 @@ export function createSpin(map, degPerSec = 4) {
 }
 
 export function createGintView(map, { overviewZoom = 1.5, minZoom = 2, spinDegPerSec = 4 } = {}) {
+	map = map?.[Symbol.for("ortho-earth.map.raw")] ?? map;   // 旗つきの地図でも素の map＝エンジンの z（overviewZoom・minZoom はエンジンの z で書かれている）
 	const tip = map.gadget.tip();   // カーソル追従（エンジンが起動時に搭載済み＝同じ setter が返る）
 	const pop = map.gadget.pop();   // 地点に錨を打つ吹き出し
 	let layer = null, token = 0;
