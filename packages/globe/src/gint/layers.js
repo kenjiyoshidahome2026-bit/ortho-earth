@@ -154,7 +154,7 @@ dbgHost.__paintFid = (...fids) => {
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintFid] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
-	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1; }
+	for (let i = 0; i < n; i++) { u32[i * 4] = 0x88888830; u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1; }   // 幅 0.5 CSS px（表の幅は CSS px）
 	for (const f of fids) if (f >= 0 && f < n) u32[f * 4] = 0xcc0000cc;
 	sendGintPaint({ table: u32, count: n });
 	requestDraw();
@@ -233,7 +233,7 @@ dbgHost.__paintOverlap = (on = true) => {
 	const feats = gintFidFeatures();
 	if (!feats) { console.warn("[paintOverlap] user gint layer not loaded"); return; }
 	const n = feats.length, u32 = new Uint32Array(n * 4);
-	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
+	for (let i = 0; i < n; i++) u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1;   // 塗り透明・visible（ID経路の起動条件として表は必要）
 	sendGintPaint({ table: u32, count: n, overlap: true });
 	requestDraw();
 	console.log("[paintOverlap] auditing %d parcels: magenta=overlap of distinct parcels / orange=duplicate registration of same parcel / cyan=winding contradiction", n);
@@ -246,7 +246,7 @@ dbgHost.__paintParity = () => {
 	const u32 = new Uint32Array(n * 4);
 	for (let i = 0; i < n; i++) {
 		u32[i * 4] = (i & 1) ? 0x0044cc90 : 0xcc000090;   // 奇数=青 / 偶数=赤
-		u32[i * 4 + 2] = (8 << 24) | (6 << 8) | 1;
+		u32[i * 4 + 2] = (4 << 24) | (6 << 8) | 1;
 	}
 	sendGintPaint({ table: u32, count: n });
 	requestDraw();
@@ -281,11 +281,12 @@ dbgHost.__paint = paintGint;
 // 層の属性（minZoom/maxZoom/style）は層ごと（§10.3「スタック全体の設定」を作らない）。カーソルは常に1層（§4.1）＝
 // 追加した層が既定でアクティブ（「今載せたデータを見たい」）・activate() で移す・remove() で残る最後の層へ落ちる。
 // 両バックエンド対応（gpu/gint.js＋gl/gint/embed.js の addLayer・2026-09-09 に GL2 も整合）。
-// この段階の制約（栞に記録）: ①ベイクは render worker 同期（bakeBase）＝大きい層は bake-ahead 統合が将来課題
-// ②tip の自動表示は無し（on('hover') で受けてアプリが描く） ③query/queryAll は未実装。
+// 照会（gint draw spec §4.5・2026-09-26）：layer.query＝その層の地物（filter は効く・表示の有無は見ない）／
+// queryAll・map.on('click')＝いま見えている層だけ（setVisible・ズーム域・地球儀の内部層を除く）×filter。interactive:false の層も入る（筆×警戒区域の重ね合わせ照会）。
 function addGint(pbf, opts = {}) {
 	if (!pbf?.unPackGint) { console.error("[addGint] invalid source (unPackGint missing) = pass geopbf(…, {gint:true})"); return null; }
 	const seq = layers.nextId(), id = "gl" + seq;
+	const prevActive = layers.active;   // 足す前のカーソル＝interactive:false の層はこれを奪わない（U2・2026-09-26）
 	let g = pbf.unPackGint;
 	if (opts.fillMaxEdges != null) g.fillMaxEdges = opts.fillMaxEdges;   // 0＝塗らない（輪郭だけ）も通す（旧 truthy 判定は 0 を捨てていた）
 	if (opts.lowFill) g.lowFill = true;
@@ -299,6 +300,12 @@ function addGint(pbf, opts = {}) {
 	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
 	let lastTable = null;                // 直近の fid 表（setPaint の評価結果）＝ラベルの filter 連動が visible ビット(bit0)を読む
 	const fstates = new Map();           // fid → feature-state（['feature-state', key] の実体・maplibre 同名）
+	let shown = true;                    // setVisible の台帳（照会＝見えている層だけ）
+	let zr = null;                       // エンジンが焼きの ack で返す実描画レンジ（データ導出×指定）。null＝未着地＝まだ描いていない
+	let styleZ = opts.style ?? null;     // style の minZoom/maxZoom（レンジの上書き＝エンジンの zoomInRange と同じ積）
+	const internal = !!opts._internal;   // 地球儀が自分で足す層（admin0・世界の線・worldContent）＝照会に出さない（非公開の印）
+	// filter（fid 表の visible ビット）の述語＝照会が隠した地物を飛ばす。表が無い（paint 未設定）＝null＝全部通す・表の外の fid も通す
+	const accept = () => { const t = lastTable; if (!t) return null; return fid => { const j = fid * 4 + 2; return j >= t.length || (t[j] & 1) !== 0; }; };
 	// text-field＝§6 の式全域（evalExpr）＋文字列リテラル＋関数(props→string)。式は get/match/case/concat/to-string…
 	const evalText = (fld, pr, evalExpr, fid) => typeof fld === "function" ? fld(pr)
 		: Array.isArray(fld) ? evalExpr(fld, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, state: fstates.get(fid) })
@@ -332,7 +339,11 @@ function addGint(pbf, opts = {}) {
 	const tipFmt = opts.tip === true ? pr => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
 	const h = {
 		id, ready, order: opts.order ?? null, _seq: seq,
-		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (legacy build without addLayer)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") ackQ.shift()?.(true); },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）
+		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (legacy build without addLayer)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") { zr = { min: d.minZoom ?? null, max: d.maxZoom ?? null }; ackQ.shift()?.(true); } },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）。range を持たない旧エンジン＝null＝全ズーム
+		// いま見えているか（queryAll・queryRenderedFeatures の門）＝表示・内部層でない・焼き着地済み・ズーム域（エンジンの zoomInRange と同じ積）
+		_shown: z => shown && !internal && zr !== null
+			&& z >= Math.max(zr.min ?? 0, styleZ?.minZoom ?? 0) && z <= Math.min(zr.max ?? 22, styleZ?.maxZoom ?? 22),
+		_accept: accept,
 		_hover: d => {
 			const f = d.featureId != null ? { fid: d.featureId, properties: props(d.featureId) } : null;
 			for (const cb of handlers.hover) cb(f);
@@ -349,8 +360,9 @@ function addGint(pbf, opts = {}) {
 		},
 		_click: d => { for (const cb of handlers.click) cb({ fid: d.featureId, properties: props(d.featureId), lngLat: [d.lng, d.lat] }); },
 		on: (ev, cb) => { handlers[ev]?.push(cb); return h; },
-		query: ll => {   // 明示照会（§4＝interactive に依らず常に効く・main 同期 JS レイキャスト＝エンジン往復なし）
-			const fid = pbf.identifyAt?.(ll[0], ll[1]);
+		query: ll => {   // 明示照会（§4.5＝その層の地物：filter は効く・表示/ズーム域/interactive は見ない・main 同期 JS＝エンジン往復なし）
+			const a = accept();
+			const fid = pbf.identifyAt?.(ll[0], ll[1], a ? { accept: a } : undefined);
 			return fid == null ? null : { fid, properties: props(fid) };
 		},
 		setPaint: async (paint, filter = lastFilter) => {   // 式は main で一度だけ評価→fid 表（§3 restyle 哲学＝再構築ゼロ）。filter 省略＝現 filter 維持
@@ -395,8 +407,8 @@ function addGint(pbf, opts = {}) {
 		},
 		setOrder: n => { h.order = n; renderer.set("gintOrder", n, undefined, id); requestDraw(); },   // ④ moveLayer 相当（実行時の重ね順）
 		setLabel: o => { labelOpt = o ?? null; return refreshLabels(); },   // ② text-field の付け替え（null=消す）。await で labelCount 確定
-		style: o => { renderer.set("gintStyle", o, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
-		setVisible: v => { renderer.set("gintVis", !!v, undefined, id); requestDraw(); },
+		style: o => { styleZ = o ?? null; renderer.set("gintStyle", o, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
+		setVisible: v => { shown = !!v; renderer.set("gintVis", !!v, undefined, id); requestDraw(); },
 		activate: () => { layers.active = id; renderer.set("gintActivate", null, undefined, id); },
 		remove: () => { cancelBake(id); extGint.delete(id); if (layers.active === id) layers.active = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); requestDraw(); },
 	};
@@ -409,20 +421,32 @@ function addGint(pbf, opts = {}) {
 	if (opts.style) h.style(opts.style);
 	if (labelOpt?.field) refreshLabels();   // ② ラベル（text-field）＝基図注記と同じ衝突/フェード/標高投影
 	layers.active = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
-	if (opts.interactive === false) { layers.active = null; renderer.set("gintActivate", null, undefined, null); }   // 明示不干渉＝カーソルを既定層へ返す
+	// interactive:false＝カーソルを取らない＝足す前の持ち主へ戻す（旧＝既定層へ返した＝アクティブだった層のホバーが外れた・
+	// 世界帯の内部層の遅延追加でも起きた＝U2・2026-09-26）。持ち主が無ければ既定層（GL も engine.activate で既定層へ）
+	if (opts.interactive === false) { layers.active = prevActive; renderer.set("gintActivate", null, undefined, prevActive); }
 	requestDraw();
 	return h;
 }
 // 層をまたぐ照会（§4 queryAll）＝手前の層から（追加の逆順）。fid は層内添字＝**必ず {layer, fid} の対で返す**（§10.2）。
-// 追加層の後ろに既定スロットのユーザー層（layer:null＝v1 橋渡し）も足す＝census 型の併用期に片方が消えない。
+// いま見えている層だけ（_shown＝表示・ズーム域・内部層でない）×各層の filter（§4.5・2026-09-26。旧＝全層・filter も見ず admin0 等が混ざった＝U3/U4）。
+// 追加層の後ろに既定スロットのユーザー層（layer:null＝単一スロットの橋渡し）も足す＝census 型の併用期に片方が消えない。
+// 単一スロットの paint 表（paintTable／paint）の visible ビット＝既定スロットの filter（表の数が地物数と合う時だけ）
+function userAccept() {
+	const t = gintPaintLast?.table, n = gintPaintLast?.count, pbf = userGint?.pbf;
+	if (!t || !pbf || n !== (pbf.fmap?.length ?? -1)) return null;
+	return fid => fid >= n || (t[fid * 4 + 2] & 1) !== 0;
+}
 function queryAllGint(ll) {
 	const hits = [];
-	const front = [...extGint.values()].sort((a, b) => ((b.order ?? b._seq) - (a.order ?? a._seq)) || (b._seq - a._seq));   // 手前（上）の層から＝order 降順・同値は追加の逆順
+	const z = cam.zoom;
+	const front = [...extGint.values()].filter(h => h._shown(z))
+		.sort((a, b) => ((b.order ?? b._seq) - (a.order ?? a._seq)) || (b._seq - a._seq));   // 手前（上）の層から＝order 降順・同値は追加の逆順
 	for (const h of front) {
 		const f = h.query(ll);
 		if (f) hits.push({ layer: h, fid: f.fid, feature: f });
 	}
-	const ufid = userGint?.pbf?.identifyAt?.(ll[0], ll[1]);
+	const ua = userAccept();
+	const ufid = userGint?.pbf?.identifyAt?.(ll[0], ll[1], ua ? { accept: ua } : undefined);
 	if (ufid != null) hits.push({ layer: null, fid: ufid, feature: { fid: ufid, properties: userGint.pbf.getFeature(ufid)?.properties ?? null } });
 	return hits;
 }
@@ -573,7 +597,7 @@ const admin0Duck = () => ({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
 function ensureAdmin0Layer() {
 	if (admin0Layer || !admin0Gint || !admin0Pbf) return;
 	admin0Layer = addGint(admin0Duck(),
-	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: 9, style: admin0DrawStyle() });
+	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: 9, style: admin0DrawStyle(), _internal: true });   // _internal＝照会に出さない（国名は admin0Pbf を直に引く）
 	admin0Vis = true;
 }
 function syncAdmin0Vis() {   // 飛行中抑制（suppressAdmin0）だけが層の表示を折る（ズーム域はエンジンが裁く）
@@ -683,11 +707,11 @@ const worldLineHandles = [];   // テーマ切替で塗り直す（色＝ortho-c
 const repaintWorldLines = () => { const T = env.worldStyle; for (const { h, def } of worldLineHandles) h.setPaint(def.paint(T), def.filter).catch(() => {}); };
 const WORLD_LINES = [
 	{ name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
-		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 1.2, 5, 0.9, 8, 0.6] }),
+		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 0.6, 5, 0.45, 8, 0.3] }),   // CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		filter: ["all", ["!", ["in", "Lake Centerline", ["to-string", ["coalesce", ["get", "featurecla"], ["get", "FEATURECLA"], ""]]]],
 			["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 6]], ["zoom"]]] },
 	{ name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
-		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.6 }),
+		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.3 }),
 		filter: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 4]], ["zoom"]] },
 ];
 async function loadWorldLines() {
@@ -697,7 +721,7 @@ async function loadWorldLines() {
 		let pbf = await geopbf(def.name).catch(() => null);
 		if (!pbf?.unPackGint) pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${def.dir}/${def.name}.zip`, { name: def.name }).catch(e => { console.warn("[world-lines]", def.name, e); return null; });
 		if (!pbf?.unPackGint) continue;
-		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_LINES_MINZ, maxZoom: WORLD_BAND_Z, fillMaxEdges: 0 });
+		const h = addGint(pbf, { order: def.order, interactive: false, minZoom: WORLD_LINES_MINZ, maxZoom: WORLD_BAND_Z, fillMaxEdges: 0, _internal: true });
 		if (!h) continue;
 		h.setVisible(false);            // 絞る（min_zoom）まで出さない
 		h.style({ fillColor: [0, 0, 0, 0] });
@@ -719,7 +743,7 @@ dbgHost.__gintFix = "cullv2+skysolar 2026-09-02b";   // ビルド世代の目印
 
 return {
 	// 動詞
-	applyGintData, clearUserGint, addGint, queryAllGint, standupGint, paintGint, sendGintPaint, fitZoomForBbox, gintFidFeatures, updateGintSlot,
+	applyGintData, clearUserGint, addGint, queryAllGint, userAccept, standupGint, paintGint, sendGintPaint, fitZoomForBbox, gintFidFeatures, updateGintSlot,
 	// 世界の国の形を用意して原本を返す（スポットライト／輪郭＝国を指す口が使う・2026-09-23）。既定＝**今載っている解像度**（無ければ 50m）＝
 	// 指す口のために 10m を新たに読み込まない（旧＝既定 10m で、他国 hover のたびに 10m へ差し替わり毎フレームの gint が重くなって
 	// 動的解像度が降段した・本人指摘 2026-09-23）。細密版へは updateGintSlot の梯子（z≥7）が従来どおり上げる

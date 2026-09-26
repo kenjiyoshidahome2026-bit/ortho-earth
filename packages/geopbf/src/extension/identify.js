@@ -12,6 +12,7 @@ import { gint } from "./gint.js";
 
 // 描画レス識別の本命: proj 不要・経緯度と許容半径[m]で問い合わせる（点→線→面の順に照合）。
 // 許容半径は等方近似（1度≒111.32km）で gint 格子単位へ変換する。面は許容半径不要（内包判定）。
+// options.accept＝fid → 真偽（偽の地物は無いものとして次の候補を探す＝描画側の filter で隠した地物を識別から外す口・2026-09-26）
 export function identifyAt(self, lng, lat, options = {}) {
 	if (!self.unPackGint) return null;
 	const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyBboxByFid } = self.unPackGint;
@@ -20,17 +21,18 @@ export function identifyAt(self, lng, lat, options = {}) {
 	const toUnits = m => (m / 111320) * gint.SCALE_E;
 	const pointError = toUnits(options.point ?? 50);        // 既定: 点は半径50m
 	const polylineError = toUnits(options.polyline ?? 30);  // 既定: 線は半径30m
+	const accept = typeof options.accept === "function" ? options.accept : null;
 
 	if (pointBuffer && point && pointError > 0) {
-		const owner = findPoint(pointBuffer, point, mix, miy, pointError);
+		const owner = findPoint(pointBuffer, point, mix, miy, pointError, accept);
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && lineStream && polylineError > 0) {
-		const owner = findMortonNear(arcBuffer, arcMeta, lineStream, mix, miy, polylineError);
+		const owner = findMortonNear(arcBuffer, arcMeta, lineStream, mix, miy, polylineError, accept);
 		if (owner !== null) return owner;
 	}
 	if (arcBuffer && arcMeta && polyStream) {
-		const owner = findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid);
+		const owner = findPolygon(arcBuffer, arcMeta, polyStream, mix, miy, polyBboxByFid, null, accept);
 		if (owner !== null) return owner;
 	}
 	return null;
@@ -73,7 +75,7 @@ export function identify(self, mx, my, proj, options = {}) {
 
 // ── JS implementations ────────────────────────────────────────────────────────
 
-function findPoint(buffer, pointMeta, mix, miy, error) {
+function findPoint(buffer, pointMeta, mix, miy, error, accept = null) {
 	const errSq = error * error;
 	const xMin = Math.max(0, mix - error), xMax = mix + error;
 	const yMin = Math.max(0, miy - error), yMax = miy + error;
@@ -119,7 +121,7 @@ function findPoint(buffer, pointMeta, mix, miy, error) {
 			const [ix, iy] = gint.unpackToInt(m);
 			if (ix >= xMin && ix <= xMax && iy >= yMin && iy <= yMax) {
 				const dx = ix - mix, dy = iy - miy;
-				if (dx * dx + dy * dy <= errSq) return pointMeta[i];
+				if (dx * dx + dy * dy <= errSq && (!accept || accept(pointMeta[i]))) return pointMeta[i];
 			}
 		}
 	}
@@ -143,15 +145,17 @@ function segDistSq(px, py, ax, ay, bx, by) {
 	const t = c1 / c2, dx = wx - t * vx, dy = wy - t * vy;
 	return dx * dx + dy * dy;
 }
-function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
+function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null) {
 	const errSq = error * error;
 	let p = 0;
 	while (p < lineStream.length) {
 		const fid = lineStream[p++], numSets = lineStream[p++];
+		const ok = !accept || accept(fid);   // 外した地物＝流れは読み進めるが照合しない
 		for (let s = 0; s < numSets; s++) {
 			const arcCount = lineStream[p++];
 			for (let a = 0; a < arcCount; a++) {
 				const arcIdx = lineStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+				if (!ok) continue;
 				if (mix < meta[aid * 8 + 4] - error || miy < meta[aid * 8 + 5] - error ||
 					mix > meta[aid * 8 + 6] + error || miy > meta[aid * 8 + 7] + error) continue;   // arc bbox 早期棄却
 				const off = meta[aid * 8], len = meta[aid * 8 + 1];
@@ -170,12 +174,21 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error) {
 // 重なり・入れ子は「最小の地物」を返す（smallest-wins）。polyStream は topology() が
 // 地物weight降順（大→小）で書き出すため、全走査して最後にヒットした fid ＝最小地物。
 // 旧・先勝ちは常に外側の大物を返し、入れ子の内側（地種区分の内側ゾーン等）が選べなかった。
-export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox) {
+// accept＝fid → 真偽（偽＝無いものとして飛ばす＝隠した小さい面の下の、見えている面が返る・2026-09-26）
+export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox, accept = null) {
 	const vb = viewBbox ?? null;
 	let best = null;
 	let p = 0;
 	while (p < polyStream.length) {
 		const fid = polyStream[p];
+
+		if (accept && !accept(fid)) {
+			while (p < polyStream.length && polyStream[p] === fid) {
+				p++; const nr = polyStream[p++];
+				for (let r = 0; r < nr; r++) { const ac = polyStream[p++]; p += ac; }
+			}
+			continue;
+		}
 
 		// Early rejection using per-feature bbox.
 		if (polyBboxByFid) {

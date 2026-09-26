@@ -231,12 +231,12 @@ export interface GintLayerOptions {
 	order?: number;
 	/** 出しズームの範囲（層ごと） */
 	minZoom?: number; maxZoom?: number;
-	/** false＝hover/click の対象にしない（カーソルを既定層へ返す） */
+	/** false＝カーソル（hover・tip・強調・layer.on('click')）を取らない＝足す前のアクティブ層がそのまま持つ。map.on('click') の hits と queryAll には入る */
 	interactive?: boolean;
 	/** 描画スタイル（applyGintData の style と同じ形） */
 	style?: GintDrawStyle;
 	/** ラベル（text-field 相当）＝基図の注記と同じ衝突・フェード */
-	label?: { field: string; size?: number; color?: string; halo?: string; haloW?: number; sort?: string; minZoom?: number; maxZoom?: number } | null;
+	label?: { field: GintExpr | ((properties: Record<string, any>) => string); size?: number; color?: string; halo?: string; haloW?: number; sort?: number; minZoom?: number; maxZoom?: number } | null;
 	/** ホバーの tip。true＝全属性を「キー: 値」で・関数＝properties→行の配列 */
 	tip?: boolean | ((properties: Record<string, any>) => string[] | null);
 	/** 塗りの辺数の上限（0＝塗らない＝輪郭だけ） */
@@ -254,7 +254,7 @@ export interface GintLayerHandle {
 	on(ev: "click", cb: (e: { fid: number; properties: Record<string, any> | null; lngLat: LonLat }) => void): GintLayerHandle;
 	on(ev: "mouseenter", cb: (f: { fid: number; properties: Record<string, any> | null }) => void): GintLayerHandle;
 	on(ev: "mouseleave", cb: (e: { fid: number }) => void): GintLayerHandle;
-	/** 明示照会（interactive に依らず効く・同期） */
+	/** 明示照会（同期）：この層の地物＝filter で隠した地物は返さない。interactive・setVisible・ズーム域には依らない。50 m 以内の点 → 30 m 以内の線 → 含む面のうち最小 */
 	query(lngLat: LonLat): { fid: number; properties: Record<string, any> | null } | null;
 	/** 式（MapLibre の paint と同じ語彙）を main で一度評価して fid 表に＝再構築なし。filter 省略＝今の filter のまま */
 	setPaint(paint: object | null, filter?: unknown[] | null): Promise<void>;
@@ -474,7 +474,7 @@ export interface OrthoJapanMap {
 	on(ev: "mesh", cb: (e: MeshEvent) => void): OrthoJapanMap;
 	/** @deprecated 1.2.0〜 "mesh" を使う（同じ合図）。次の大版で撤去 */
 	on(ev: "plateau", cb: (e: MeshEvent) => void): OrthoJapanMap;
-	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: unknown; fid: number }> }) => void): OrthoJapanMap;
+	on(ev: "click", cb: (e: { lngLat: LonLat; hits: Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }> }) => void): OrthoJapanMap;
 	/** 共通の時計（1.2.0〜・#42）。ticking＝再生中の刻み（最大フレームごと）／false＝段・日時・今・範囲の端など状態の変わり目 */
 	on(ev: "time", cb: (e: { time: number; step: number; live: boolean; ticking: boolean }) => void): OrthoJapanMap;
 	/** 層ごとのイベント（MapLibre 同名・1.2.0〜・#34）。layerId＝addLayer の層 id か基図の層 id（配列可）。click はドラッグを除く・mousemove は rAF に畳む */
@@ -633,7 +633,8 @@ export interface OrthoJapanMap {
 	/** gint 層を**追加**する（置換ではない＝applyGintData の単一スロットとは別系統）。pbf は geopbf(…, { gint: true }) 済み（unPackGint 必須・無ければ null）。
 	 *  追加した層が既定でアクティブ（hover/click の対象）・interactive:false で既定層へ返す。重ね順は order（小さいほど下・未指定＝追加順） */
 	addGint(pbf: GeoPBF, opts?: GintLayerOptions): GintLayerHandle | null;
-	/** 層をまたぐ照会（手前の層から）。fid は層内の添字＝**必ず {layer, fid} の対で扱う**。layer:null＝v1 の単一スロット層 */
+	/** 層をまたぐ照会（手前の層から）＝いま見えている層だけ（setVisible・ズーム域）× 各層の filter。地球儀が自分で足す層（国の輪郭など）は含まない・interactive:false の層は含む。
+	 *  fid は層内の添字＝**必ず {layer, fid} の対で扱う**。layer:null＝単一スロットの層（applyGintData） */
 	queryAll(lngLat: LonLat): Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }>;
 	/** v1 の単一スロット層を丸ごと撤去（applyGintData(null, …) と同じ・派生アプリのスロット調停用） */
 	clearUserGint(): void;
