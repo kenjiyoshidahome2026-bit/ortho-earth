@@ -442,13 +442,19 @@ try {
 		// vector source の fill（MapLibre は描く）＝この段では名前を挙げて投げる（段 8⑤）
 		await vscene("vector-fill-error-names-source", async () => { try { await map.addLayer({ id: "vf", type: "fill", source: "omt", "source-layer": "building" }); map.removeLayer("vf"); return [false, "did not throw"]; } catch (e) { return [/vector source "omt"/.test(e.message), e.message]; } });
 		await vscene("vector-fill-draws", async () => { try { await map.addLayer({ id: "vf2", type: "fill", source: "omt", "source-layer": "building", paint: { "fill-color": "#00f" } }); map.removeLayer("vf2"); return [true, ""]; } catch (e) { return [false, e.message]; } });
-		// feature-state で色（MapLibre の定番のホバー）＝①b
+		// feature-state で色（MapLibre の定番のホバー・段 8①b）＝状態が変わった地物を含むタイルだけ組み直す。他の棟は変わらない・外すと戻る・sourceLayer 無しは投げる（MapLibre と同じ）
 		await vscene("feature-state-color", async () => {
 			map.setPaintProperty("b3d", "fill-extrusion-color", ["case", ["boolean", ["feature-state", "hl"], false], "#00ff00", "#ff0000"]); await loaded("omt");
 			map.setFeatureState({ source: "omt", sourceLayer: "building", id: 1 }, { hl: true }); await loaded("omt");
-			const p = await pixelUntil(bOf("tall"), 120, x => x[1] > 110 && x[0] < 90);
-			map.removeFeatureState({ source: "omt", sourceLayer: "building", id: 1 }); map.setPaintProperty("b3d", "fill-extrusion-color", "#ff0000");
-			return [p[1] > 110 && p[0] < 90, JSON.stringify(p)];
+			const green = x => x[1] > 110 && x[0] < 90;
+			const p = await pixelUntil(bOf("tall"), 120, green), other = await pixelUntil(bOf("seam"), 40, isRed);
+			const gs = map.getFeatureState({ source: "omt", sourceLayer: "building", id: 1 }), qs = (await q(bOf("tall"), 120, ["b3d"]))[0]?.state;
+			map.removeFeatureState({ source: "omt", sourceLayer: "building", id: 1 }); await loaded("omt");
+			const back = await pixelUntil(bOf("tall"), 120, isRed), gs2 = map.getFeatureState({ source: "omt", sourceLayer: "building", id: 1 });
+			map.setPaintProperty("b3d", "fill-extrusion-color", "#ff0000"); await loaded("omt");
+			let threw = false; try { map.setFeatureState({ source: "omt", id: 1 }, { hl: true }); } catch { threw = true; }
+			return [green(p) && isRed(other) && gs?.hl === true && qs?.hl === true && isRed(back) && Object.keys(gs2).length === 0 && threw,
+				`hl=${p} other=${other} get=${JSON.stringify(gs)} query=${JSON.stringify(qs)} back=${back} after=${JSON.stringify(gs2)} noLayerThrows=${threw}`];
 		});
 	}
 

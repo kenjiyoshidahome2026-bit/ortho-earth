@@ -14,7 +14,7 @@ const DECODED_MAX = 8;
 const geoCache = new Map();  // "lid|z/x/y" → { fkey, geos: [{ fi, xy, starts, sgn, tris, wall }], feats: [{ id, props }], styles: Map<fi, {h, base}> }
 
 const ML = "ml";
-const ctxOf = (zoom, f, id) => ({ zoom, props: f.props, geom: "Polygon", vars: {}, origin: ML, id });
+const ctxOf = (zoom, f, id, state) => ({ zoom, props: f.props, geom: "Polygon", vars: {}, origin: ML, id, state });   // state＝feature-state（paint だけ・filter には渡さない＝MapLibre と同じ）
 const num = (e, ctx, dflt) => { if (e == null) return dflt; const v = evalExpr(e, ctx); return typeof v === "number" && Number.isFinite(v) ? v : dflt; };   // ML の評価エラー＝既定値
 const color = (e, ctx) => { const v = e == null ? "#000000" : evalExpr(e, ctx); return isColor(v) ? parseRGBA(v) : [0, 0, 0, 1]; };
 const idOf = (f, promoteId, sourceLayer) => {
@@ -77,9 +77,9 @@ function build(m) {
 	const P = layer.paint || {};
 	const op = Math.max(0, Math.min(1, num(P["fill-extrusion-opacity"], { zoom: m.zoom, props: {}, geom: null, vars: {}, origin: ML }, 1)));   // 層単位（データ駆動しない＝MapLibre と同じ）
 	const grad = P["fill-extrusion-vertical-gradient"] !== false;
-	const styles = new Map();
+	const styles = new Map(), fs = m.fstate ? new Map(m.fstate) : null;
 	for (let fi = 0; fi < G.feats.length; fi++) {
-		const f = G.feats[fi], ctx = ctxOf(m.zoom, f, f.id);
+		const f = G.feats[fi], ctx = ctxOf(m.zoom, f, f.id, fs?.get(f.id));
 		const h = num(P["fill-extrusion-height"], ctx, 0), base = Math.max(0, num(P["fill-extrusion-base"], ctx, 0));
 		if (!(h > base)) continue;
 		const c = color(P["fill-extrusion-color"], ctx);
@@ -90,7 +90,7 @@ function build(m) {
 	if (!r) { self.postMessage({ id: m.id, empty: true }); return; }
 	const blend = [...styles.values()].some(s => s.rgba[3] < 255);
 	const t = r.mesh;
-	self.postMessage({ id: m.id, mesh: t, blend, stats: { ...r.stats, features: styles.size } }, [t.pos.buffer, t.nrm.buffer, t.idx.buffer, t.uv.buffer, t.col.buffer]);
+	self.postMessage({ id: m.id, mesh: t, blend, stats: { ...r.stats, features: styles.size, stated: fs ? G.feats.filter(f => fs.has(f.id)).length : 0 }, ids: m.wantIds ? [...new Set(G.feats.map(f => f.id).filter(v => v != null))] : null }, [t.pos.buffer, t.nrm.buffer, t.idx.buffer, t.uv.buffer, t.col.buffer]);   // ids＝feature-state が変わった時にどのタイルを組み直すか（main が持つ）
 }
 
 // 当たりの候補＝足元の外接矩形が bbox（経緯度）に掛かる「描いた地物」。{ lid, keys: [z/x/y…], bbox: [w,s,e,n] } → [{ key, id, props, rings（経緯度の輪の列）, h, base }]

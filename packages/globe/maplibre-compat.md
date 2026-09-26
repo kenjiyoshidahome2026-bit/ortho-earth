@@ -48,7 +48,7 @@
 | 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | **済**（上書きの台帳・visibility は結合で外す・他は建て直し・重ね順は固定＝文書） |
 | vector source の fill-extrusion（MVT の 3D 建物・addLayer・style.json） | 不可（style.json は飛ばす・addSource vector は黙って壊れる） | 8① | **済**（gadgets/vtextrude.js・既存の経路は無改修） |
 | vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | 未（今は名前を挙げて投げる＝黙って壊れない・爪車の既知） |
-| vector の押し出しの feature-state | 無い | 8①b | 未（爪車の既知） |
+| vector の押し出しの feature-state | 無い | 8①b | **済**（2026-09-27・sourceLayer 必須・getFeatureState・変わった地物のタイルだけ組み直す・問い合わせに state） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -72,6 +72,7 @@
   - 影を落とさない（keep2d のメッシュ＝既存の押し出しと同じ）。
   - 問い合わせ：タイルをまたぐ地物は複数返り得る（MapLibre の文書どおり）。
   - 未対応：fill-extrusion-pattern/translate（警告して描く）。
+  - feature-state は paint だけが読む（filter は読まない＝MapLibre と同じ）。状態が変わると、その地物を含むタイルの色と高さを組み直して上げ直す（1 棟で約 0.16 秒・実機の GPU）＝MapLibre のように即座ではない。
   - 地域の基図（日本）の自動の建物（地理院の推定×1.6）は層 "building-extrusion"＝出し入れだけ（色・filter・出しズームは変えられない＝投げる・問い合わせには出ない・PLATEAU は別の口）。
   - source の出典（TileJSON の attribution・無ければホスト名）は押し出しの層がある間だけ出典の欄に出る（基図の出典と同じ文は重ねない）。
 
@@ -112,7 +113,7 @@
 | V5 | 基図の source を二度取る | HTTP キャッシュ頼み（§4） | — | 文書 |
 | V6 | 光・半透明の重ね | 裏面除去・縦の陰影は MapLibre の式（§4） | 実機で MapLibre 本体と並べた | 文書 |
 | V7 | 地域の基図の自動の建物と二重 | 層 "building-extrusion"＝出し入れ（render worker の noBld を実行時に・撮影も同じ・伏せる間は足元の塗りをチルトでも）・案内 1 回 | japan t-bld（伏せる→43% 変わる・戻す→0%・色は投げる・removeLayer） | **済**（2026-09-27・本人「1→2」） |
-| V8 | 重さ（1 フレーム 1 件の転送・頂点 28B・GL の呼び出し数・WebGPU の 512） | 予算を見た選び・枚数上限・1 タイル 1 層 1 メッシュ・main で 1 フレーム 1 件・幾何キャッシュ | 実機の数（§7） | 一部（?hud=1 の実測は次） |
+| V8 | 重さ（1 フレーム 1 件の転送・頂点 28B・GL の呼び出し数・WebGPU の 512） | 予算を見た選び・枚数上限・1 タイル 1 層 1 メッシュ・幾何キャッシュ・**専用の meshPort で背圧**（render worker の受け取りの印＝送り中 2 件まで・isSourceLoaded は描画側に載るまで） | 実機の数（§7）・爪車（外した層の取り残しが出ない） | **済**（2026-09-27・?hud=1 の実測は次） |
 | V9〜V10 | 伏せ枠の取り合い・フライト中の詰まり | 伏せ枠は使わない・フライト中は取得と組み立てを止める（出し入れは毎回） | — | **済** |
 | V11 | 当たり（立体）・id・promoteId | worker の地物＋屋根と壁の投影 | 爪車（屋根・浮き・継ぎ目・中庭） | **済** |
 | V12 | 地形の外で埋まる | drape（どこでも地表へ）・当たりの地面は負の標高を 0 に | 実機（マンハッタン） | **済** |
@@ -148,4 +149,7 @@
   - 轍：①`["!", ["get","hide_3d"]]` は属性の無い地物で MapLibre でも評価エラー＝偽（MapLibre の例は `["!=", …, true]`）②setMesh は配列を transfer＝送った後に数えると 0 ③海の上は getHeight が海底（負）＝主スレッドの projectLL はずれる（renderer は 0 に切る・別件）④動的解像度で canvas の実寸が縮む（816×510）＝検定の投影は CSS の大きさ×cam.dpr で組む。
   - 残り：①b feature-state・⑤ 2 本目以降のベクタ source の fill/line/circle/symbol と基図の source への差し込み。
 - [x] **段 8① の続き**（2026-09-27・本人「マージを済ませてから 1→2」・branch claude/maplibre-auto-buildings-toggle）：地域の基図の自動の建物＝層 "building-extrusion"（getLayer/getStyle/setLayoutProperty の visibility/getLayoutProperty/removeLayer・他は投げる）・render worker の `noBld` を実行時に（`set` の cmd を 1 つ足す）＋撮影（snapshot）でも伏せる（旧＝画面だけの診断ノブ＝撮影には写っていた）・伏せる間は足元の塗り（bldFill）をチルトでも出す・?nobld=1 の見え方は今のまま。vector source の出典を出典の欄へ（`Source: $1`＝翻訳を増やさない）。門＝japan t-bld に 4 場面・爪車 source-attribution。実機＝日本のアプリで OpenFreeMap の 3D 建物に差し替え（東京駅前）。
+- [x] **段 8①b**（2026-09-27・本人「1→2」の 2・branch claude/maplibre-extrusion-feature-state）：vector の押し出しの feature-state＝setFeatureState/removeFeatureState/getFeatureState（MapLibre 同名・vector は sourceLayer 必須・置き場は globe＝層より先でも残る）・build の結果に地物の id＝状態が変わった地物を含むタイルだけ印（組み立て中なら着いた後にもう一度）・問い合わせの地物に state。
+  - 轍：**描画側の反映の遅れ**＝render worker はメッシュを 1 フレーム 1 件しか載せない（SwiftShader では 1 件 1 秒超）のに main は毎フレーム送っていた＝列が溜まり、外した層の解放も後ろで待たされて「取り残し」に見えた（漏れではない）。PLATEAU と同じ専用の meshPort に替え、受け取りの印で送る量を絞る（背圧）＋isSourceLoaded は描画側に載るまで false。render worker は無改修（既存の meshPort の口）。
+  - 門：爪車 feature-state-color（両土台・既知から外した）＝色・他の棟・getFeatureState・問い合わせの state・外すと戻る・sourceLayer 無しは投げる。実機：渋谷の OpenFreeMap で 1 棟の状態を変えて 0.16 秒。
 - [ ] 段 8②〜⑤：基図のアイコン・線に沿うラベル・hillshade・2 本目以降のベクタ source（着手前にそれぞれ別計画）
