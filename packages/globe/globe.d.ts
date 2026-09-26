@@ -564,7 +564,7 @@ export interface OrthoJapanMap {
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
 	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝MapLibre の重ね順で連続する同じ source の層だけを 1 枚の gint 層へ詰める（1.3.0〜）・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
 	 *  fill/line/circle は MapLibre の意味（1.3.0〜）：層の型が描くジオメトリを選ぶ（fill＝面・line＝線と面の輪郭・circle＝点）・層ごとの filter と zoom 域・MapLibre の既定値（黒・線 1px・点 5px）・
-	 *  fill に輪郭を付けない（fill-outline-color の時だけ 1px）・circle-opacity。同じ source のハイライト層・縁取りの線もそのまま描ける。未対応＝line-dasharray と circle-stroke（gint の線/点）・線幅/半径の上限（約 32px/64px）。
+	 *  fill に輪郭を付けない（fill-outline-color の時だけ 1px）・circle-opacity。同じ source のハイライト層・縁取りの線もそのまま描ける。line-dasharray（先頭の [線, 間] の対・線幅の倍数）・circle-stroke-color/-width/-opacity（中空の円も）も 1.3.0〜。線幅/半径の上限は約 32px/64px。
 	 *  知らない演算子（within/distance など未対応も）を含む層は、その名を挙げて投げて足さない（1.3.0〜・MapLibre と同じ。setPaintProperty/setLayoutProperty/setFilter・ML 形 gadget も）。
 	 *  層の minzoom/maxzoom（maxzoom 排他）はどの種類でも効く（1.3.0〜）：記号は止まるたびに当て直す・押し出しと canvas2D の線（line-gradient/line-offset/模様）は止まるたびに
 	 *  ["zoom"] の式を評価し直す（0.25 刻み）・集約は丸と単点の層ごと・raster は表示窓。集約の地物の layer.id は MapLibre の層 id（以前は "clusters"/"unclustered-point"）。
@@ -693,8 +693,8 @@ export interface OrthoJapanMap {
 	paint(paint: GintPaint | null, filter?: unknown[]): Promise<void>;
 	/**
 	 * fid→スタイル表の直書き。u32レコード=4要素/fid:
-	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=0。
-	 * flags bit0=visible（フィーチャ単位の表示/非表示）
+	 * [0]=fill RGBA8(r<<24|g<<16|b<<8|a) [1]=line/circle色 [2]=(width*8)<<24|dash<<16|(radius*4)<<8|flags [3]=線：破線 (線px*8)<<16|(間px*8)／点：縁の色 RGBA8（1.3.0〜・0＝なし）。
+	 * flags bit0=visible（フィーチャ単位の表示/非表示）・bit1=点の塗り無し（中空の円・1.3.0〜）。点では width の欄が縁の幅
 	 * Point は [1]（circle 色・α=0 で既定色）と radius（1/4 CSS px・0=描かない）を使う。線は width（1/8px・0=描かない）。[3]＝予備（0）。
 	 * count＝レコード数（fid 数＝gintFeatures().length）。applyGintData() 直後に同期で呼べる（onReady を待つ必要はない）
 	 */

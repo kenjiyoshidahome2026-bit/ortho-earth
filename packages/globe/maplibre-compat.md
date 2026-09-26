@@ -34,7 +34,7 @@
 | zoom のずらしの往復・入口の一本化（normalizeMLLayer） | 入れ子のまま育つ | 1 | **済**（畳む・metadata["ortho:dz"] で冪等・getStyle→setStyle 三往復で不変） |
 | 式の意味（ML 由来だけ MapLibre の意味・ネイティブは今のまま） | 全部 JS の寛容な意味 | 3 | **済**（ctx.origin・層の印 metadata["ortho:origin"]・基図の worker/問い合わせ/gint/記号/集約/押し出し/模様/画像の色調整まで） |
 | 同じ source の層（U7）・type とジオメトリ・既定値・fill の輪郭・circle-opacity | 1 枚に畳む・全ジオメトリ・既定色 | 4 | **済**（mltables・連続する層だけ詰める・予約 order 帯・層ごとの問い合わせ） |
-| line-dasharray・circle-stroke（gint の線/点） | 実線・縁なし | 4b | 未（爪車 known） |
+| line-dasharray・circle-stroke（gint の線/点） | 実線・縁なし | 4b | **済**（表の第 4 語を型で使い分け・bit1＝中空・両シェーダ） |
 | 知らない演算子 | 黙って受け取る | 5 | **済**（KNOWN_OPS・unknownOps＝式の位置だけ見る・公開の口は投げる・style.json の基図は数えて飛ばす） |
 | raster の層の minzoom/maxzoom | 無視 | 5 | **済**（表示窓・maxzoom 排他） |
 | 層の種類ごとの zoom（symbol・pattern・extrude・cluster） | ばらばら | 5 | **済**（記号＝出しズームも当て直す・押し出し/canvas2D＝止まるたびに鍵を見て描き直す・集約＝層ごとの範囲と層 id・模様/canvas2D の線も問い合わせに出る） |
@@ -57,6 +57,7 @@
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
 - 線幅・点の半径の上限（表の u8：線 約 32px・点 約 64px）。
+- 破線は先頭の [線, 間] の対だけ（3 要素以上の模様は近似）。
 - 描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
 
 ## 5. 不整合の台帳（前もって把握する物）
@@ -104,7 +105,7 @@
 - [x] **段 2**（2026-09-26）：旗 `zoomScale:"maplibre"`＝起動 opts の換算・外側の顔 `mlfacade.js`・手綱の `_dz`（公開の口と中の paintNow を分けた）・map.raster の表示窓・`RAW`・Marker/geoedit/gintView の入口・maxPitch の度と getMaxPitch・d.ts の旗の表。門＝`tests/mlfacade.mjs`・t-mlzoom（旗あり/なし）。
 - [x] **段 3**（2026-09-26）：評価器の出自＝ctx.origin "ml" だけ MapLibre の型の約束（型の合わない比較・真偽でない条件・数でない補間の入力・外れた型の表明＝評価エラー＝undefined／get の欠損＝null／to-number・型の表明の予備）。cache は出自ごと。印は normalizeMLLayer が付ける平の性質（worker へ届く）。新演算子（at・三角関数・to-rgba・cubic-bezier・index-of の開始位置・get/has の object）は両方。isColor（color.js）。ネイティブの結果は黄金の写しで不変を確認。門＝爪車 node 13 場面・browser 2 場面（gint の case・基図の get 欠損）。
 - [x] **段 4**（2026-09-26）：fill / line / circle の約束＝core `mltables.js`（packMLLayers・buildMLTable・zoomSensitivity）・手綱の buildTable/zoomKey・全体の詰め方から組み直し（同じ署名は使い回し・隠した層も残す・立て続けは新しい方の完了を待つ・読めない source は巻き添えにしない）・予約 order 帯・interactive:false・fillMaxEdges:0・feature-state は source に住む・問い合わせは層ごと。門＝core mltables.mjs 11 項目・爪車（両土台）で 6 件が直った。
-- [ ] 段 4b：line-dasharray（表の dash 欄の地物ごとの配線・両シェーダ）・circle-stroke（表の第 4 語）・GPU メモリの実測
+- [x] **段 4b**（2026-09-26）：破線と円の縁＝表の第 4 語（線＝[線, 間] 1/8px u16×2・点＝縁の色）・点では線幅の欄が縁の幅・flags bit1＝塗り無し（中空の円）・縁は半径の外側・GL2（programs.js）と WGSL（gintwgsl.js）の両方で「0 なら従来どおり」。門＝core mltables.mjs・爪車 3 場面（破線・縁・中空）を両土台で。**爪車の既知は 0 件**。GPU メモリの実測は段 7 以降でまとめて。
 - [x] **段 5**（2026-09-26）：式の検査（KNOWN_OPS＝build の case と突き合わせる検定つき・unknownOps・公開の口で投げる・基図は数えて飛ばす）・旧関数の default（R19）・種類ごとの zoom（記号の出しズーム・集約の層 id と範囲・押し出しと canvas2D の線の描き直し・raster の表示窓）・canvas2D の線/模様の問い合わせ。門＝爪車 node 3 場面・browser 4 場面の行列。
 - [x] **段 6**（2026-09-26）：読めない形式＝相対 URL・TileJSON の raster・{quadkey}・raster-dem custom・複数 sprite・ML の source の既定値・feature の id（promoteId/Feature.id/並び順）・clusterProperties/cluster_id/getClusterExpansionZoom・記号を面と線に。node の既知 0・browser の既知は段 4b の 2 件だけ。
 - [ ] 段 7：基図の層を触れるように

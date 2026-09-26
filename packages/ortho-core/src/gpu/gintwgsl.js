@@ -421,8 +421,10 @@ struct LineOut {
 	// per-fid スタイル（paint 時のみ）：visibility=filter・width=0=非表示・線色上書き
 	var lw = P.a.x;
 	var fidColor = vec4f(0.0);
+	var fidDash = vec2f(0.0);   // 表の第 4 語（線の地物）＝[線, 間] 1/8 CSS px の u16×2（MapLibre の line-dasharray・GL programs.js と対・2026-09-26）
 	if (F.flags.w != 0u) {
 		let rec = textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0);
+		if (rec.a != 0u) { fidDash = vec2f(f32(rec.a >> 16u), f32(rec.a & 0xFFFFu)) * 0.125 * select(1.0, bitcast<f32>(P.b.z), P.b.z != 0); }
 		if ((rec.b & 1u) == 0u) { return o; }
 		let w8 = (rec.b >> 24u) & 255u;
 		if (w8 == 0u) { return o; }
@@ -473,7 +475,7 @@ struct LineOut {
 	let baseC = select(S.style[styleIdx], fidColor, fidColor.a > 0.0);
 	// ホバー(pass1)＝P.color(hiliteColor)指定ならそれ（census=青）／未指定は黄（凍結デモの既定ハイライトを維持）
 	o.color = select(baseC, select(vec4f(1.0, 0.9, 0.0, 1.0), P.color, P.color.a > 0.0), P.b.y == 1);
-	o.dash = S.dash[styleIdx].xy;
+	o.dash = select(S.dash[styleIdx].xy, fidDash, fidDash.y > 0.0);
 	o.distBase = f32(em.b >> 8u) * 0.017453292 + subOff * len;   // ＋サブ区間ぶん（等長近似＝破線位相を辺内で繋ぐ）
 	o.dist = select(len, 0.0, useA);
 	o.halfw = lw * 0.5;
@@ -731,9 +733,10 @@ fn fetchPoint(ptId: i32) -> Pt {
 }
 // per-fid 点スタイル（paint 時のみ・GL programs.js fidPointStyle と同じ約束）：visible bit0=0 か radius=0 は棄却、
 // radius＝表(1/4 CSS px)×dpr（P.a.w）、色＝G（α=0 は既定色のまま）。
-struct PtStyle { keep: bool, r: f32, col: vec4f, hasCol: bool };
+// 円の縁（2026-09-26・GL fidPointStyle と対）＝第 4 語が縁の色・線幅の欄が縁の幅（1/8 CSS px×dpr）・flags bit1＝塗り無し（中空の円）
+struct PtStyle { keep: bool, r: f32, col: vec4f, hasCol: bool, scol: vec4f, sw: f32 };
 fn fidPointStyle(featId: i32, r0: f32) -> PtStyle {
-	var s = PtStyle(true, r0, vec4f(0.0), false);
+	var s = PtStyle(true, r0, vec4f(0.0), false, vec4f(0.0), 0.0);
 	if (F.flags.w == 0u) { return s; }
 	let rec = textureLoad(fidTex, vec2i(featId % i32(F.flags.w), featId / i32(F.flags.w)), 0);
 	if ((rec.b & 1u) == 0u) { s.keep = false; return s; }
@@ -741,7 +744,10 @@ fn fidPointStyle(featId: i32, r0: f32) -> PtStyle {
 	if (r4 == 0u) { s.keep = false; return s; }
 	s.r = f32(r4) * 0.25 * P.a.w;
 	let lc = rec.g;
-	if ((lc & 255u) != 0u) { s.col = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0; s.hasCol = true; }
+	if ((rec.b & 2u) != 0u) { s.col = vec4f(0.0); s.hasCol = true; }
+	else if ((lc & 255u) != 0u) { s.col = vec4f(f32(lc >> 24u), f32((lc >> 16u) & 255u), f32((lc >> 8u) & 255u), f32(lc & 255u)) / 255.0; s.hasCol = true; }
+	let w8 = (rec.b >> 24u) & 255u;
+	if (rec.a != 0u && w8 != 0u) { s.scol = vec4f(f32(rec.a >> 24u), f32((rec.a >> 16u) & 255u), f32((rec.a >> 8u) & 255u), f32(rec.a & 255u)) / 255.0; s.sw = f32(w8) * 0.125 * P.a.w; }
 	return s;
 }
 struct POut {
@@ -749,6 +755,8 @@ struct POut {
 	@location(0) zr: f32,
 	@location(1) uv: vec2f,
 	@location(2) color: vec4f,
+	@location(3) @interpolate(flat) stroke: vec4f,   // 縁の色（α0＝縁なし）
+	@location(4) @interpolate(flat) inner: f32,      // 塗りの半径／外径
 };
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32) -> POut {
 	var o: POut;
@@ -765,15 +773,22 @@ struct POut {
 	if (!fs.keep) { return o; }   // per-fid：非表示/半径0＝棄却（o.pos=0 の縮退）
 	let isActive = featId == P.b.x;
 	let r = select(fs.r, fs.r * 1.6, isActive);
-	o.pos = vec4f(2.0 * (p.xy.x + ox * r) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * r) / F.viewport.y, 0.0, 1.0);
+	let R = r + fs.sw;   // 外径＝半径＋縁（縁は外側）
+	o.pos = vec4f(2.0 * (p.xy.x + ox * R) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * R) / F.viewport.y, 0.0, 1.0);
 	let base = select(vec4f(1.0, 0.420, 0.208, 1.0), fs.col, fs.hasCol);
 	o.color = select(base, vec4f(1.0, 0.9, 0.0, 1.0), isActive);
+	o.stroke = fs.scol;
+	o.inner = select(1.0, r / R, R > 0.0);
 	return o;
 }
 @fragment fn fsPoint(in: POut) -> @location(0) vec4f {
 	if (in.zr < 0.0) { discard; }
-	if (dot(in.uv, in.uv) > 1.0) { discard; }
-	return in.color;
+	let d = dot(in.uv, in.uv);
+	if (d > 1.0) { discard; }
+	var c = in.color;
+	if (in.stroke.a > 0.0 && d > in.inner * in.inner) { c = in.stroke; }   // 縁の輪か塗りか
+	if (c.a == 0.0) { discard; }   // 中空の円の内側
+	return c;
 }
 @vertex fn vsPickPoint(@builtin(vertex_index) vi: u32) -> POut {
 	var o: POut;
@@ -788,7 +803,7 @@ struct POut {
 	let fid1 = textureLoad(ptMetaTex, tc, 0).r + 1u;
 	let fs = fidPointStyle(i32(fid1 - 1u), P.a.z);
 	if (!fs.keep) { return o; }   // filter 非表示の点は pick からも外す（線と同じ）
-	let r = max(fs.r, P.a.z);   // pick 半径＝max(表の半径, マージン)
+	let r = max(fs.r + fs.sw, P.a.z);   // pick 半径＝max(表の半径＋縁, マージン)
 	o.pos = vec4f(2.0 * (p.xy.x + ox * r) / F.viewport.x - 1.0, 1.0 - 2.0 * (p.xy.y + oy * r) / F.viewport.y, 0.0, 1.0);
 	o.color = vec4f(f32(fid1 & 255u) / 255.0, f32((fid1 >> 8u) & 255u) / 255.0, f32((fid1 >> 16u) & 255u) / 255.0, 1.0);
 	return o;

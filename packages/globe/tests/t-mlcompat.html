@@ -98,6 +98,8 @@ try {
 		await map.addLayer({ id: "dh-l", type: "line", source: "dh", paint: { "line-color": "#ffff00", "line-width": 4, "line-dasharray": [4, 4] } });
 		map.addSource("cs2", { type: "geojson", data: fc([pt(141.8, 34.2, {})]) });
 		await map.addLayer({ id: "cs2-c", type: "circle", source: "cs2", paint: { "circle-color": "#ffff00", "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
+		map.addSource("ch", { type: "geojson", data: fc([pt(141.8, 35.3, {})]) });   // 中空の円（塗り無し・縁だけ＝MapLibre の定番）
+		await map.addLayer({ id: "ch-c", type: "circle", source: "ch", paint: { "circle-opacity": 0, "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
 		await sleep(3000);
 		const after = await snap(map);
 
@@ -136,6 +138,7 @@ try {
 			for (let lon = 139.1; lon <= 140.1; lon += 0.005) { const [x, y] = P(lon, 34.2); if (near(px(after, x, y), [255, 255, 0], 90)) on++; else if (diff(px(after, x, y), px(before, x, y)) <= 30) off++; }
 			return [on > 5 && off > 5, `on=${on} off=${off}`];
 		});
+		await scene("circle-stroke-hollow", () => { const [x, y] = P(141.8, 35.3), c = diff(px(after, x, y), px(before, x, y)), e = px(after, x + 8, y); return [c <= 30 && near(e, [255, 0, 0], 80), `centerΔ=${c} +8px=${e}`]; });
 		await scene("circle-stroke", () => { const [x, y] = P(141.8, 34.2), c = px(after, x, y), e = px(after, x + 8, y); return [near(c, [255, 255, 0]) && near(e, [255, 0, 0], 80), `center=${c} +8px=${e}`]; });
 		await scene("stops-addLayer", () => { const c = px(after, ...P(136.2, 35.3)); return [near(c, [255, 0, 0]), `center=${c}`]; });
 		await scene("legacy-filter-addLayer", async () => { const c = await at(137.5, 35.3, ["lf-f"]), d = await at(138.5, 35.3, ["lf-f"]); return [c.includes("lf-f") && !d.includes("lf-f"), `C=${c} D=${d}`]; });
