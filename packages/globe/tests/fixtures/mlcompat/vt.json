@@ -1,6 +1,7 @@
 {
 	"tilejson": "3.0.0",
 	"name": "t-mlcompat-vt",
+	"attribution": "t-mlcompat fixture tiles",
 	"tiles": [
 		"vt/{z}/{x}/{y}.pbf"
 	],
