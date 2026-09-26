@@ -1,6 +1,6 @@
 // ラベル抽出（投影非依存）。style の symbol層から点・横書きラベルを取り出す。
 // 描画は labels2d（Canvas2Dオーバーレイ）が担う。size/color/halo は式を評価。
-import { evalExpr, truthy } from "./expr.js";
+import { evalExpr, truthy, originOfLayer } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 
@@ -14,7 +14,8 @@ export function buildLabels({ layers, z, x, y }, style) {
 	const out = [];
 	const codepoints = new Set();
 	const seen = new Set();   // 同一地物が複数層に出るため (text+anchor) で重複排除
-	for (const L of style.layers) {
+	for (let li = 0; li < style.layers.length; li++) {
+		const L = style.layers[li];
 		if (L.type !== "symbol") continue;
 		const lo = L.layout || {};
 		if (lo["text-field"] == null) continue;                 // アイコンのみは M2
@@ -24,7 +25,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 
 		for (const f of src.features) {
 			if (f.type !== "Point") continue;
-			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {} };
+			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L) };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 			const text = String(evalExpr(lo["text-field"], ctx) ?? "").trim();
 			if (!text) continue;
@@ -39,7 +40,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const haloW = num(evalExpr(L.paint?.["text-halo-width"] ?? 0, ctx), 0);
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
-			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0 });   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
+			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li });   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 		}
 	}
 	return { labels: out, codepoints, font: M1_FONT };

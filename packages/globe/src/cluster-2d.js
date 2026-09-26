@@ -3,12 +3,13 @@
 // 段の選び方＝MapLibre と同じ floor(zoom)（maxLevel より上は最後の段＝ばらした点）。地球の裏側（投影の front<0）は描かない。
 // 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size, api) / destroy()。依存ゼロ。
 
-let ctx = null, levels = [], minLevel = 0, maxLevel = 0;
+let ctx = null, levels = [], minLevel = 0, maxLevel = 0, range = { clusters: [-Infinity, Infinity], unclustered: [-Infinity, Infinity] };   // range＝層ごとの出しズーム（MapLibre の minzoom 包含・maxzoom 排他）
 export function init(canvas) { ctx = canvas.getContext("2d"); }
 // data＝{ type:"levels", minLevel, maxLevel, levels:[[{ lon, lat, r, fill, stroke, sw, text, tc, ts, op }…] …] } | { type:"clear" }
 export function message(d) {
 	if (d.type === "clear") { levels = []; return; }
 	if (d.type === "levels") { levels = d.levels; minLevel = d.minLevel; maxLevel = d.maxLevel; }
+	if (d.type === "range") range = { clusters: d.clusters, unclustered: d.unclustered };
 }
 export function frame(cam, s, { w, h }, api) {
 	if (!ctx) return false;
@@ -19,7 +20,9 @@ export function frame(cam, s, { w, h }, api) {
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	const W = w / dpr, H = h / dpr;
 	ctx.textAlign = "center"; ctx.textBaseline = "middle";
+	const z = cam.zoom || 0, inR = r => z >= r[0] && z < r[1], showC = inR(range.clusters), showU = inR(range.unclustered);
 	for (const c of L) {
+		if (!(c.u ? showU : showC)) continue;
 		const [x, y, f] = api.project(c.lon, c.lat);
 		if (f < 0 || x < -c.r || y < -c.r || x > W + c.r || y > H + c.r) continue;
 		ctx.globalAlpha = c.op ?? 1;

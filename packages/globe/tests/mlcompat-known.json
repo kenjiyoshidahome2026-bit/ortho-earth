@@ -1,0 +1,7 @@
+{
+	"_": "互換の爪車の既知の失敗（MapLibre と違う答えになる場面）。値＝直す段と理由。直ったら消す（残すと爪車が落ちる）。足すのは『MapLibre と違うと分かった場面』を検定に書いた時だけ。正典の台帳＝packages/globe/maplibre-compat.md",
+	"node": {},
+	"browser": {
+		"vector:vector-fill-feature-state": "段 8⑤b：vector source の fill/line/circle の paint の feature-state はまだ絵に効かない（状態は置き場に残る・既定の見た目）"
+	}
+}

@@ -10,7 +10,7 @@ import { createGlobe } from "@ortho-earth/globe";
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-const SRC = { tiles: ["./fixtures/dem/{z}/{x}/{y}.png"], encoding: "terrarium", minzoom: 10, maxzoom: 10, cellZoom: 10, bounds: [150, 30, 151, 31] };
+const SRC = { tiles: ["./fixtures/dem/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, minzoom: 10, maxzoom: 10, cellZoom: 10, bounds: [150, 30, 151, 31] };   // tileSize：MapLibre の raster-dem の既定は 512＝256px のタイルは明記する（MapLibre と同じ・2026-09-26）
 const lonAt = km => 150.5 + km / (111.32 * Math.cos(30.5 * Math.PI / 180));
 try {
 	const map = await createGlobe({ target: "#map", view: "#10.5/30.35/150.5/60t", chips: false, terrain: { source: SRC } });

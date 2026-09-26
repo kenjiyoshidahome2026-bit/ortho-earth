@@ -6,7 +6,11 @@ import { tileLocalToLonLat } from "./tile.js";
 import { polygons } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（build と共用）
 
 import { worldRadiusM } from "./camera.js";
-const EARTH_M = () => worldRadiusM(), EXAG = 1.6;   // 単位球スケール換算（球6371000／楕円体a＝camera.js のノブに追随）＋見栄えの誇張
+const EARTH_M = () => worldRadiusM();   // 単位球スケール換算（球6371000／楕円体a＝camera.js のノブに追随）
+// 建物の高さの係数＝1.0（誇張しない・本人裁定 2026-09-27）。旧 1.6 は 2026-07-04 の叩き台の「見栄えの誇張」で、
+// 2 日後の標高ポリシー（TERR_EXAG 1.7→1.0・地形を歪めない）に取り残されていた＝表の 9/16/34m が実際は 14.4/25.6/54.4m で立ち、
+// 影は 1.6 倍長く、PLATEAU（実高さ）との被覆の切れ目に段差が出ていた。係数として残す＝見栄えの再導入でなく A/B と実験の口。
+const EXAG = 1.0;
 const ROOF = 1.0, WALL = 0.76;             // 陰影（屋根明／壁暗）
 
 // 建物の押し出し。**どの層のどの属性が建物の種別と階層を表すかは style が申告する**（style.schema.buildings）。
@@ -88,7 +92,7 @@ export function buildExtrudedParcels(features, origin, { heightM = 4, exag = EXA
 //   線（ポリゴン境界＋LineString）＝GL_LINES で辺ごと端点2つ。点（Point）＝GL_POINTS。liftM=地形へ微上げして潜り/z-fight を避ける。
 //   全て BUILDING_VS/bldProg で描ける（点は gl_PointSize）。返り値 { lines:{pos,shade,anchor}|null, points:{…}|null }。
 const _pack = a => a.pos.length ? { pos: new Float32Array(a.pos), shade: new Float32Array(a.shade), anchor: new Float32Array(a.anchor) } : null;
-export function buildDrapedGeometry(features, origin, { liftM = 1, exag = EXAG } = {}) {
+export function buildDrapedGeometry(features, origin, { liftM = 1, exag = 1 } = {}) {   // 持ち上げは z-fight の余白＝建物の高さ係数（EXAG）に相乗りさせない（2026-09-27・呼び出し側の liftM が実メートル）
 	if (!features || !features.length) return { lines: null, points: null };
 	const [ox, oy] = origin;
 	const lift = liftM * exag / EARTH_M();                         // 微リフト（単位球スケール）＝a_pos.z。base(=自標高)へ上乗せ
