@@ -784,7 +784,7 @@ function attrHTMLOf(zone) {
 	const pmSrc = BASE_SOURCE.url ? (BASE_SOURCE.attrHTML || new URL(BASE_SOURCE.url.replace("pmtiles://", "")).host) : null;
 	// 画像タイル層（ラスタ基図/重ね）の出典＝各層の自己申告（消毒済み）を 1 行足す。基図の線・注記は従来どおり（地理院）＝その出典も残す
 	const rasterSrc = rasterAttrHTML();
-	const rasTail = rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "";
+	const rasTail = (rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "") + vtxAttrTail(pmSrc);   // ＋利用者の vector source の出典（段 8①）＝MapLibre は source の出典を自動で出す・OSM 等は表示が利用の条件
 	// 出典は文単位で組む（"出典：" + 名前 の足し算は言語で語順が壊れる＝i18n.js の掟）。$1 に列を差す
 	const head = pmSrc ? pmSrc + "・" : "";
 	return zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : (attrRegionHTML ?? attributionHTML(REGION_ATTR)) + rasTail))
@@ -1210,7 +1210,7 @@ function switchTheme(name) {
 		graticule: WORLD_VT, worldHypsoZ: BASEMAP_MINZOOM,
 		worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 	renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });
-	renderer.set("bldFill", { li: seaLi(style, "building") });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
+	renderer.set("bldFill", { li: bldFillLi(style) });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
 	themes = mkThemes(style);   // ★層添字（LI_RAILHI 等）を新テーマの層配列で焼き直す＝hidden(点火ゲート)の添字ズレ根治。
 	// 旧＝boot の style で一度だけ生成→テーマごとに層数/順が違い添字が全ズレ＝「チップOFFなのに rail-hi/road-hi/航路が点き、土台の道路網が消える」（本人報告・実機/本番でも再現・両バックエンド共通）
 	mapEl.classList.add("ui-dark");   // 白抜き家具＝常時ON（本人裁定2026-08-05）＝テーマ生き替えでも外さない（旧＝land輝度で付け外し）
@@ -1232,8 +1232,19 @@ renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
 	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 const seaLi = (st, id) => st.ext ? -1 : st.layers.findIndex(L => L.id === id);   // 外来 style＝地理院の「海は z9 から」「建物の塗りはチルトで伏せる」の門を当てない（層 id が偶然同じでも）
+// 地域の基図の自動の建物（style.schema.buildings の押し出し＝推定の高さ）＝層 "building-extrusion"（段 8① の続き・2026-09-27）。
+// MapLibre の style の層と同じ口で出し入れだけできる（setLayoutProperty の visibility・removeLayer）＝vector の押し出し（OSM など）へ差し替える時に伏せる。
+// 色・filter・出しズームは変えられない（投げる）。描き方は render worker の noBld（?nobld=1 の診断ノブを実行時に）。伏せている間は足元の塗り（building）を
+// チルトでも出す（bldFill の門を外す＝押し出しと二重にならない）。テーマを切り替えても残る（render worker の旗と下の bldFillLi）
+const AUTO_BLD = "building-extrusion";
+let autoBldHidden = false, autoBldRemoved = false;   // ?nobld=1（診断ノブ）とは切り離す＝ノブの見え方（足元の塗りの門）は今のまま
+const bldFillLi = st => autoBldHidden ? -1 : seaLi(st, "building");
+const autoBldOn = () => !autoBldRemoved && !mlLayers.has(AUTO_BLD) && !!style?.schema?.buildings;   // 利用者の層に同じ id があればそちらが勝つ
+const autoBldLayer = () => autoBldOn() ? { id: AUTO_BLD, type: "fill-extrusion", source: baseSidNow(), "source-layer": style.schema.buildings.layer, ...(autoBldHidden ? { layout: { visibility: "none" } } : {}), metadata: { "ortho:auto": true, [DZ_KEY]: 0 } } : null;
+const setAutoBld = hidden => { if (autoBldHidden === hidden) return; autoBldHidden = hidden; wPost({ type: "set", cmd: "noBld", data: hidden }); renderer.set("bldFill", { li: bldFillLi(style) }); needsDraw = true; };
+const autoBldReadOnly = what => { throw new Error(`${what}: layer "${AUTO_BLD}" is the basemap's automatic 3D buildings — only visibility can be changed (removeLayer hides it)`); };
 renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });   // li2＝水系点火面も同じ海ゲート
-renderer.set("bldFill", { li: seaLi(style, "building") });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
+renderer.set("bldFill", { li: bldFillLi(style) });   // 建物フットプリント塗り＝3D（チルト）時は伏せる（押し出しと二重表現のため）
 
 // --- gint（知性の層）＝gint/layers.js（単一スロットのユーザー層・多層 addGint・admin0 独立層・bake-ahead・地形ドレープ・fid 塗り・queryAll）。
 // ここは配線だけ：定数と道具を渡し、テーマは getter、多層の台帳（extGint / extActive / gintLayerSeq）は onmessage より先に宣言した
@@ -3460,6 +3471,9 @@ const vtxGet = async () => {
 };
 // source の記述子（vtextrude.js の desc）。基図＝外来 style の解決済みの source か地域の基図の記述子・利用者の vector source＝TileJSON/PMTiles を解いて覚える
 const vtxDescs = new Map();   // sid → Promise<desc>（利用者の source・removeSource で忘れる）
+const vtxAttrs = new Map();   // sid → 出典（消毒済み HTML・宣言が無ければホスト名＝無出典で他人のデータを出さない）＝押し出しの層がその source を使っている間だけ
+const vtxAttrTail = (skip = null) => { const a = [...new Set(vtxAttrs.values())].filter(x => x && x !== skip); return a.length ? `<br>${t("Source: $1", a.join("・"))}` : ""; };   // skip＝基図の出典と同じ文は重ねない
+const vtxAttrOf = desc => { if (desc.attribution) return sanitizeHTML(String(desc.attribution)); const u = desc.pmtiles ? desc.pmtiles.replace(/^pmtiles:\/\//, "") : desc.tileUrl?.(0, 0, 0); try { return u ? new URL(u, location.href).host : null; } catch { return null; } };
 const vtxDescOf = async (sid, sp) => {
 	if (sp?.[BASE_SRC]) {
 		if (EXT) { const s = EXT.src, ms = EXT.ms.sources[sid] || {}; return s ? { tileUrl: s.pmtiles ? null : tileUrlOf(s), pmtiles: s.pmtiles || null, minzoom: s.minzoom, maxzoom: s.maxzoom, bounds: s.bounds ?? null, promoteId: ms.promoteId ?? null, tag: JSON.stringify(s.pmtiles || s.tiles) } : null; }
@@ -3469,7 +3483,7 @@ const vtxDescOf = async (sid, sp) => {
 	let p = vtxDescs.get(sid);
 	if (!p) {
 		p = resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }).then(r => ({
-			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, tag: JSON.stringify(r.pmtiles || r.tiles),
+			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, tag: JSON.stringify(r.pmtiles || r.tiles), attribution: sp.attribution ?? r.attribution ?? null,
 		}));
 		vtxDescs.set(sid, p);
 		p.catch(() => vtxDescs.delete(sid));   // 失敗は覚えない（次の addLayer で取り直す）
@@ -3482,8 +3496,9 @@ const vtxMount = async (v, layer) => {
 	if (mlLayers.get(layer.id) !== v) return null;   // 待っている間に外された・置き換えられた
 	if (!desc) { console.warn(`[layers] "${layer.id}": source "${sid}" has no vector tiles here — nothing to extrude`); return null; }
 	for (const k of ["fill-extrusion-pattern", "fill-extrusion-translate"]) if (layer.paint?.[k] != null && !vtxWarned.has(layer.id + k)) { vtxWarned.add(layer.id + k); console.warn(`[layers] "${layer.id}": ${k} is not supported yet — drawn without it`); }
-	if (v.src?.[BASE_SRC] && !EXT && theme.style?.schema?.buildings && !vtxWarned.has("auto-bld")) { vtxWarned.add("auto-bld"); console.info(`[layers] "${layer.id}": the regional basemap also draws its own 3D buildings — they can overlap (a way to hide them is not available yet)`); }
+	if (!EXT && autoBldOn() && !autoBldHidden && !vtxWarned.has("auto-bld")) { vtxWarned.add("auto-bld"); console.info(`[layers] "${layer.id}": the regional basemap also draws its own 3D buildings — hide them with setLayoutProperty("${AUTO_BLD}", "visibility", "none")`); }
 	(await vtxGet()).set(layer.id, layer, sid, desc);
+	if (!v.src?.[BASE_SRC] && !vtxAttrs.has(sid)) { vtxAttrs.set(sid, vtxAttrOf(desc)); attrZone = null; needsDraw = true; }   // 基図の source の出典は基図の欄が持つ
 	return null;
 };
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
@@ -3516,7 +3531,7 @@ const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
-	else if (kind === "vtextrude") vtxCtl?.remove(id);
+	else if (kind === "vtextrude") { vtxCtl?.remove(id); if (![...mlLayers.values()].some(x => x !== v && x.kind === "vtextrude" && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; needsDraw = true; } }
 	else if (kind === "heatmap") aggCtl?.clear("heatmap", id);
 	else if (kind === "symbol") symCtl?.removeLayer(id);
 	else if (kind === "cluster") return rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
@@ -3556,7 +3571,7 @@ map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id)) && (vtxCtl ?
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
-map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); const B = baseLayerOf(id); return B ? echoBase(B) : undefined; };   // 基図の層も（段 7）
+map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); if (id === AUTO_BLD && autoBldOn()) return autoBldLayer(); const B = baseLayerOf(id); return B ? echoBase(B) : undefined; };   // 基図の層も（段 7）・自動の建物（building-extrusion）も
 // beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
 const addLayerAt = async (layer, beforeId, dz) => {
 	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
@@ -3575,14 +3590,14 @@ const addLayerAt = async (layer, beforeId, dz) => {
 map.addLayer = (layer, beforeId) => addLayerAt(layer, beforeId, PUBLIC_DZ);
 map.removeLayer = id => {
 	const v = mlLayers.get(id);
-	if (!v) { if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); } return map; }   // 基図の層を外す（段 7）
+	if (!v) { if (id === AUTO_BLD && autoBldOn()) { setAutoBld(true); autoBldRemoved = true; return map; } if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); } return map; }   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
 	mlLayers.delete(id);
 	unmountLayer(v);
 	return map;
 };
 map.moveLayer = (id, beforeId) => {
 	const v = mlLayers.get(id);
-	if (!v) { if (baseLayerOf(id)) console.info(`[moveLayer] "${id}" is a basemap layer — basemap layer order is fixed (draw stages: basemap → images → your layers → labels)`); return map; }
+	if (!v) { if (baseLayerOf(id) || (id === AUTO_BLD && autoBldOn())) console.info(`[moveLayer] "${id}" is a basemap layer — basemap layer order is fixed (draw stages: basemap → images → your layers → labels)`); return map; }
 	mlLayers.delete(id);
 	if (beforeId != null && mlLayers.has(beforeId)) {
 		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
@@ -3596,6 +3611,7 @@ const relayer = v => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.lay
 map.setPaintProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, paint: { [name]: value } }, "setPaintProperty");
+	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setPaintProperty");
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
 	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
@@ -3608,6 +3624,7 @@ map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return
 map.setLayoutProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, layout: { [name]: value } }, "setLayoutProperty");
+	if (!v && id === AUTO_BLD && autoBldOn()) { if (name !== "visibility") autoBldReadOnly("setLayoutProperty"); setAutoBld(value === "none"); return map; }   // 自動の建物＝出し入れだけ
 	if (!v) {
 		const B = baseLayerOf(id); if (!B) throw new Error(`setLayoutProperty: layer "${id}" not found`);
 		if (name === "visibility") {   // 基図の層の出し入れ（段 7）＝結合で外すだけ。元の style で隠されていた層を出す時だけ組み直す
@@ -3626,16 +3643,17 @@ map.setLayoutProperty = (id, name, value) => {
 	if (name === "visibility") { if (was && !now) unmountLayer(v); else if (!was && now) (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)); return map; }
 	relayer(v); return map;
 };
-map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); const B = baseLayerOf(id); if (!B) return undefined; if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); if (id === AUTO_BLD && autoBldOn()) return name === "visibility" && autoBldHidden ? "none" : undefined; const B = baseLayerOf(id); if (!B) return undefined; if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setFilter = (id, filter) => {
 	const v = mlLayers.get(id);
 	if (filter != null) assertMLLayer({ id, filter }, "setFilter");
+	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setFilter");
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setFilter: layer "${id}" not found`); overrideBase(id, o => { o.filter = filter == null ? null : normalizeMLLayer({ filter }, PUBLIC_DZ).filter; }); return map; }   // 基図の層（段 7）
 	if (filter == null) delete v.layer.filter; else v.layer.filter = rescaleZoomExpr(filter, PUBLIC_DZ, v.dz);
 	relayer(v); return map;
 };
 map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); return B?.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
-map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
@@ -3668,7 +3686,7 @@ map.getStyle = () => {
 		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
 		sources: { [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
-		layers: [...(style.layers || []).map(L => baseL(echoBase(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }))), ...[...mlLayers.values()].map(v => ({ ...echoLayer(v, true), source: srcId(v.layer) }))],
+		layers: [...(style.layers || []).map(L => baseL(echoBase(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }))), ...(autoBldOn() ? [autoBldLayer()] : []), ...[...mlLayers.values()].map(v => ({ ...echoLayer(v, true), source: srcId(v.layer) }))],
 	};
 };
 // 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
@@ -3733,7 +3751,7 @@ function restyleBase() {
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, origin: originOfLayer(bg) }) ?? "#fff") : land;
 	renderer.set("view", { land });
-	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: seaLi(style, "building") }); }   // 層の添字（削除で動く）
+	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(style) }); }   // 層の添字（削除で動く）
 	themes = mkThemes(style);
 	setPipelineStyle(style);
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();
