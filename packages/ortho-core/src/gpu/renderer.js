@@ -12,7 +12,7 @@
 // ・標高アトラスは r16float＝CPU で f32→f16 変換（GL は texImage2D がドライバ変換。WebGPU は生バイト渡し）。
 //   r16float はコアで filterable＝GL 版が R16F を選んだ理由（全デバイス線形補間）がそのまま活きる。
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
-import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn } from "../camera.js";
+import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.js";
 import { seaFbReal } from "../scene.js";
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
@@ -30,8 +30,8 @@ import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だ�
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
 const LINE_IDX = new Uint16Array([0, 1, 2, 2, 1, 3]);
-const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用320B・minUniformBufferOffsetAlignment 上限256の倍数）
-const FRAME_F32 = 112;     // 448B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/sun vec4f 含む）
+const FRAME_SLOT = 512;    // frame UBO のスロット境界（実使用480B＝FRAME_F32×4・minUniformBufferOffsetAlignment 上限256の倍数）
+const FRAME_F32 = 120;     // 480B/4（wgsl.js Frame と厳密対応。詰め順は packFrame 参照。invMvp の枠＝rayF/rayX/rayY/eyeC（#65）・末尾 mesh/farBounds/farP/ellTrig/ellP/cogP/gnd0-3/eyeO/elevOff/sun vec4f 含む）
 const SLOT = { base: 0, main: 1, terrain: 2, bld: 3, terrainFar: 4, user: 5 };   // user＝利用者の vector source の塗りと線（MapLibre 互換 段 8⑤）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）   // terrain/bld は main と同 origin・fog だけ違うスロット。terrainFar＝遠景メッシュパス（mesh=遠窓・farPass=1）
 const PARAM_SLOT = 256;    // DrawP（3×vec4=48B）のスロット境界
 const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から m 単位で浮かせる＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)と同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘2026-08-12）
@@ -545,7 +545,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
 	const frameBuf = device.createBuffer({ size: FRAME_SLOT * 6, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // 5スロット目=terrainFar（遠景メッシュパス）・6 スロット目=user（段 8⑤）
 	const paramBuf = device.createBuffer({ size: PARAM_SLOT * N_ROLES, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-	const globeBuf = device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // mat4+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+atmP（#46 段 1）
+	const globeBuf = device.createBuffer({ size: 384, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // rayF/rayX/rayY/eyeC（旧 mat4 の枠・#65）+land+atmo+elevBounds+whP+seaC+farBounds+farP+misc(globeAlpha)+sun+anc/anc2/eyeO+atmP（#46 段 1）+cogOff/gndOff0-3/elevOff（#65）＝368B
 	const worldPalBuf = device.createBuffer({ size: 160, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // WorldPal（10×vec4f・globe/terrain 両パイプラインで共有＝knob 変化時のみ書込）
 	let globeBG = null;   // rebuildGlobeBG() が生成（elev/clim テクスチャ差し替えで作り直し。明示レイアウト＝1x/4x 両セット互換）
 	const paramBG = [];   // 役割別（静的オフセット＝dynamic offset 不要）
@@ -1424,10 +1424,19 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// frame UBO の詰め物（wgsl.js Frame と厳密対応）。RTE 錨（clipT/originPt/trig）は CPU double で。
 	const frameF32 = new Float32Array(FRAME_F32);
 	let qMesh = null, qG = 0;   // 案A: fill/line slot へ配る近メッシュ窓と格子 G（draw が terrainActive で毎フレーム更新）
+	// 全画面レイキャスト（球の床・海面下・経緯線・等高線・夜面）の視線一式（#65）を f32 配列の at から 16 要素（rayF/rayX/rayY/eyeC）に詰める。
+	// 中身は camera.js sphereRayUniforms（f64・st に記憶＝フレームに一度）＝wgsl.js の RAY 節と対
+	function packRays(a, at, st) {
+		const u = sphereRayUniforms(st);
+		a[at] = u.F[0]; a[at + 1] = u.F[1]; a[at + 2] = u.F[2]; a[at + 3] = 0;
+		a[at + 4] = u.X[0]; a[at + 5] = u.X[1]; a[at + 6] = u.X[2]; a[at + 7] = 0;
+		a[at + 8] = u.Y[0]; a[at + 9] = u.Y[1]; a[at + 10] = u.Y[2]; a[at + 11] = 0;
+		a[at + 12] = u.E[0]; a[at + 13] = u.E[1]; a[at + 14] = u.E[2]; a[at + 15] = u.c;
+	}
 	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh, farPass) {
 		const f = frameF32;
 		f.set(st.mvp, 0);
-		f.set(st.invMvp, 16);
+		packRays(f, 16, st);   // 全画面レイキャストの視線一式（#65・rayF/rayX/rayY/eyeC＝旧 invMvp の枠）：等高線が読む
 		const oPt = lonlatTo3D(origin[0], origin[1]);
 		const cT = mat.transform(st.mvp, [oPt[0], oPt[1], oPt[2], 1]);
 		f[32] = cT[0]; f[33] = cT[1]; f[34] = cT[2]; f[35] = cT[3];
@@ -1460,7 +1469,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (mesh) { f[88] = (mesh[0] - W) / sLon; f[89] = (mesh[1] - S) / sLat; f[90] = mesh[2] / sLon; f[91] = mesh[3] / sLat; }
 			else { f[88] = (origin[0] - W) / sLon; f[89] = (origin[1] - S) / sLat; f[90] = 1 / sLon; f[91] = 1 / sLat; }
 		} else { f[88] = 0; f[89] = 0; f[90] = 0; f[91] = 0; }
-		f[108] = sunF[0]; f[109] = sunF[1]; f[110] = sunF[2]; f[111] = sunF[3];   // 太陽（#46 段 0）＝全スロット共通
+		{   // 等高線の交点を原点相対で持つ錨（#65）：eyeO＝目−originPt（f64）＋β0・elevOff＝近窓の uv 係数（f64）
+			const u = sphereRayUniforms(st, origin), eo = anchorUV(origin, elev.bounds);
+			f[108] = u.EO[0]; f[109] = u.EO[1]; f[110] = u.EO[2]; f[111] = u.beta0;
+			f[112] = eo[0]; f[113] = eo[1]; f[114] = eo[2]; f[115] = eo[3];
+		}
+		f[116] = sunF[0]; f[117] = sunF[1]; f[118] = sunF[2]; f[119] = sunF[3];   // 太陽（#46 段 0）＝全スロット共通
 		// 地面アトラス（近/中/遠）＝cogP と同形の係数（terrain系 slot＝a_uv 変換・fill系＝dLL 変換）
 		for (let k = 0; k < 4; k++) {
 			const i = 92 + k * 4, a = k < gnd.n ? gnd.w[k] : null;
@@ -1641,7 +1655,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5, fogFarCap, land, logCoef, dpr));   // base/main と同じ fog
 		if (shWin) {   // 影：太陽の正射影の Frame（落とす側）と ShadowP（受け手）
 			shadowRes();
-			device.queue.writeBuffer(sh.frameB, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: shWin.eye }, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+			device.queue.writeBuffer(sh.frameB, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: shWin.eye, rays: st.rays }, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
 			const oPt = lonlatTo3D(mainOrigin[0], mainOrigin[1]), cT = mat.transform(shWin.mvp, [oPt[0], oPt[1], oPt[2], 1]), u = sh.cpu;
 			u.set(shWin.mvp, 0);
 			u[16] = cT[0]; u[17] = cT[1]; u[18] = cT[2]; u[19] = cT[3];
@@ -1678,8 +1692,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			worldHypsoK, hasClim: climTexView ? 1 : 0,
 		}));
 		if (!flat2d) {
-			const g = new Float32Array(64);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）
-			g.set(st.invMvp, 0);
+			const g = new Float32Array(92);   // +farBounds/farP（far床＝タイラーのバグ根治 9/2）+misc（球体の不透明度 9/13）+sun/atmP（大気散乱 #46 段 1）+錨と uv 係数（#65）
+			packRays(g, 0, st);   // 視線の基底（#65・旧 invMvp の枠）
 			g[16] = land[0]; g[17] = land[1]; g[18] = land[2]; g[19] = land[3];
 			g[20] = atmo[0]; g[21] = atmo[1]; g[22] = atmo[2]; g[23] = atmo[3];
 			g[24] = elev.bounds[0]; g[25] = elev.bounds[1]; g[26] = elev.bounds[2]; g[27] = elev.bounds[3];   // 全球ハイプソ（R90全球窓）
@@ -1693,7 +1707,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			g[44] = view.globeAlpha ?? 1;   // misc.x＝球体の不透明度（globe/wdepr/terrain(p2.w)/湖/夜面に一括）
 			// 大気散乱（#46 段 1）：太陽の方向（段 0 の sunF）と点ける度合い＝fx.atmosphere × 全球ハイプソの出現度（紙のテーマ・基図の帯＝従来のリム光）。atmP＝太陽の強さ・露出
 			g[48] = sunF[0]; g[49] = sunF[1]; g[50] = sunF[2]; g[51] = FX.atmosphere && view.worldHypso ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;   // ハイプソと同じ帯（標高の到着は待たない＝殻の絵は標高に依らない）
-			g[52] = view.atmSun ?? 20; g[53] = view.atmExposure ?? 1; g[54] = view.atmGround ?? 0.5; g[55] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
+			{   // 錨（#65）：球の床・海面下の交点を原点相対 δ で持ち、uv は f64 前計算の (off, 1/span) で作る＝絶対経緯度（f32 で 1.4 m 刻み）を経ない
+				const u = sphereRayUniforms(st, mainOrigin);
+				g[52] = u.O[0]; g[53] = u.O[1]; g[54] = u.O[2]; g[55] = u.rho;
+				g[56] = u.ll[0]; g[57] = u.ll[1]; g[58] = u.beta0; g[59] = 0;
+				g[60] = u.EO[0]; g[61] = u.EO[1]; g[62] = u.EO[2]; g[63] = 0;
+				g.set(anchorUV(mainOrigin, cogGeo), 68);
+				for (let k = 0; k < 4; k++) g.set(anchorUV(mainOrigin, k < gnd.n ? gnd.w[k].win : null), 72 + k * 4);
+				g.set(anchorUV(mainOrigin, elev.bounds), 88);
+			}
+			g[64] = view.atmSun ?? 20; g[65] = view.atmExposure ?? 1; g[66] = view.atmGround ?? 0.5; g[67] = view.atmScale ?? 4;   // 太陽の強さ・露出・床の空気遠近の強さ・帯の幅 k（本人裁定 4）（診断と調律のノブ＝公開面には出さない）
 			device.queue.writeBuffer(globeBuf, 0, g);
 		}
 		// 星空劇場（z<5）：星/夜面共通の出現フェード（gl/renderer.js と同式）。恒星時 GMST の天球回転・太陽方位も。
@@ -1711,7 +1734,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const [sunLng, sunLat] = sunSubpoint(now);   // 夜面の太陽直下点（ephem/sun＝solar と同じ式・均時差込み）
 			const cs = Math.cos(sunLat);
 			const s = skyCPU;
-			s.set(st.mvp, 0); s.set(st.invMvp, 16);
+			s.set(st.mvp, 0); packRays(s, 16, st);   // 夜面の視線（#65・旧 invMvp の枠）
 			s[32] = Math.cos(gmst); s[33] = Math.sin(gmst);
 			s[34] = starFade; s[35] = skyK;
 			s[36] = W; s[37] = H;

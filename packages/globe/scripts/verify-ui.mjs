@@ -13,7 +13,7 @@ import { startVite, runPages } from "./lib/ui-runner.mjs";
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = +process.env.VGU_PORT || 5245;
 
-const ALL_PAGES = ["t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-gintdepth", "t-qr",
+const ALL_PAGES = ["t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t-gintdepth", "t-globefloor", "t-qr",   // t-globefloor＝写真を貼った球の床がカメラの摂動で揺れない（#65・GL2 変種）
 	"t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco?md=1", "t-linedeco?nomd=1", "t-tiles3d", "t-marker", "t-footprint", "t-request", "t-sunshadow", "t-dem", "t-viewshed", "t-clock", "t-bootview",
 	"t-overlaydepth", "t-overlaydepth?lowmem=1", "t-mlcompat?g=layers", "t-mlcompat?g=style", "t-mlcompat?g=vector", "t-mlcompat?g=extrude", "t-mlzoom?zs=maplibre", "t-mlzoom?zs=ortho"];   // t-mlcompat＝MapLibre 互換の爪車（tests/mlcompat-known.json・台帳 maplibre-compat.md）　t-overlaydepth＝オーバーレイへシーンの深度（#47）・lowmem=1＝LOW_MEM では作らない
 // t-linedeco の 2 変種＝基図の line-offset を GL2 の両経路で（md=1＝multi_draw の線分プール／nomd=1＝classic の属性・#49）
