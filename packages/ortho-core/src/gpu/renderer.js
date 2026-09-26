@@ -1005,10 +1005,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// --- 建物メッシュ（LOD2 等）（gl/renderer.js setMeshSet/setMeshVis/meshBboxVisible の移植）---
 	// meshes: key("区名#i") → { vbo(pos), nbo(normal), ibo, count, origin, bbox, ward, lodH, lodCounts, two }
-	// meshMasks: 区名 → { tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
+	// meshMasks: 区名 → { ward, rev, tex(r8unorm 被覆マスク), bbox }（基図建物 FS が uv 参照して footprint を伏せる）
+	// ward/rev＝buildMaskBG のシグネチャ（どの区のどの版か）。rev は writeTexture ごとに全体通しの連番＝作り直した区とも衝突しない
 	const meshes = new Map();
 	const meshKeep2d = () => { for (const p of meshes.values()) if (p.keep2d) return true; return false; };   // 真俯瞰でも描くバッチがあるか
 	const meshMasks = new Map();
+	let maskRevSeq = 0;
 	const meshHidden = new Set();
 	const maskSampler = device.createSampler({ magFilter: "nearest", minFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 	// 模型のテクスチャ（glb 直読み）：ミップ＝GPU 生成（レベルごとに全画面三角形でブリット）・三線形＋異方性 8・repeat。無しは白 1x1（頂点色だけ）
@@ -1222,8 +1224,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	const maskParamU = new Uint32Array(maskParamCPU), maskParamF = new Float32Array(maskParamCPU);
 	let maskBG = null, maskSig = "";
 	function buildMaskBG(active, origin) {
-		const sig = active.map(m => m.ward).join("|") + "@" + origin[0] + "," + origin[1];   // origin もシグネチャ＝シーン差し替えで off を焼き直す
-		if (maskBG && sig === maskSig) return maskBG;   // active 集合・origin 不変＝作り直さない
+		// 区と版（rev）の並び＋origin＝シグネチャ。区が入れ替わる（カメラ移動で近い 4 区が変わる）・テクスチャ/bbox の差し替え・
+		// シーン差し替え（off の焼き直し）のどれでも作り直す（旧＝m.ward が無く件数しか見ておらず、原点が同じまま 4 区が
+		// 入れ替わると古い BG が残って別の区のマスクが基図建物を伏せた・2026-09-27）
+		const sig = active.map(m => m.ward + ":" + m.rev).join("|") + "@" + origin[0] + "," + origin[1];
+		if (maskBG && sig === maskSig) return maskBG;   // active 集合・版・origin 不変＝作り直さない
 		maskSig = sig;
 		maskParamU[0] = active.length;
 		for (let i = 0; i < MAX_MESH_MASKS; i++) {
@@ -1306,13 +1311,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (!m || m.n !== N) {
 				if (m) m.tex.destroy();
 				const tex = device.createTexture({ size: [N, N], format: "r8unorm", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
-				m = { tex, view: tex.createView(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
+				m = { ward: data.ward, rev: 0, tex, view: tex.createView(), bbox: data.maskBbox, n: N, bytes: new Uint8Array(N * N) };
 				meshMasks.set(data.ward, m);
 			}
 			m.bbox = data.maskBbox;
 			if (data.maskCells) { for (let i = 0; i < data.maskCells.length; i++) { const c = data.maskCells[i]; if (c < m.bytes.length) m.bytes[c] = 255; } }
 			else for (let i = 0; i < data.mask.length && i < m.bytes.length; i++) if (data.mask[i]) m.bytes[i] = 255;   // 旧worker互換（全量OR＝単調なので破壊しない）
 			device.queue.writeTexture({ texture: m.tex }, m.bytes, { bytesPerRow: N, rowsPerImage: N }, [N, N]);
+			m.rev = ++maskRevSeq;
 			maskSig = "\0";   // 次フレーム再構築
 		}
 	}
