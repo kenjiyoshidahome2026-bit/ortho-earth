@@ -92,7 +92,7 @@
   - 一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。**場面を足すのは MapLibre と違うと分かった時**（先に場面を書いて赤を確かめる）。
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
-- **main で既存の失敗（この仕事の外・2026-09-26 に main 92420d0e で再現を確認）**：globe verify:webgpu の t-overlaydepth（clearIsOne）と t-ao（足元の暗さ）。段の門では「この 2 項目が同じ値で落ちる」ことだけを確かめ、別件として切り出した。
+- **main で既存の失敗（この仕事の外）**：globe verify:webgpu の t-overlaydepth（clearIsOne・main 92420d0e で再現を確認）。t-ao は main の #61（AO の直し）で緑になった（main を取り込んだ 930b7c40 で確認）。段の門では「既存の項目が同じ値で落ちる」ことだけを確かめ、別件として切り出した。
 - 揺れの観察：t-linedeco?nomd=1 の videoMoved（段 1 の全頁で 1 回・単独では緑）／verify:ui 側の t-overlaydepth（GL2）の clearIsOne（段 2・段 6 の全頁で各 1 回・単独ではいつも緑＝webgpu 側の既存の失敗と同じ検査項目）／japan の t-print（段 4 の全頁で時間切れ 1 回・単独 2 回とも緑）。
 
 ## 7. 段の進み
