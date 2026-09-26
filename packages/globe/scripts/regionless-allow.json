@@ -227,6 +227,16 @@
 				"why": "負債（地域）：町丁名の出しズーム CHOME_MINZOOM・CHOME800_MINZOOM と分類コード。日本の地域パックへ移す"
 			}
 		},
+		"packages/globe/src/zoomscale.js": {
+			"japan": {
+				"n": 1,
+				"why": "互換：gadget(\"japan\")＝home の旧名（公開面の旧名）を zoom の分類表に載せる義務（分類漏れ検定）"
+			},
+			"plateau": {
+				"n": 1,
+				"why": "互換：gadget(\"plateau\")＝mesh の旧名（公開面の旧名）を zoom の分類表に載せる義務（分類漏れ検定）"
+			}
+		},
 		"packages/ortho-core/src/dem-src.js": {
 			"gsi": {
 				"n": 1,
