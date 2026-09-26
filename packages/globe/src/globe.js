@@ -2079,9 +2079,11 @@ const elevOf = (lon, lat) => {
 		.then(() => { elevInflight--; if (!elevDrawPending) { elevDrawPending = true; requestAnimationFrame(() => { elevDrawPending = false; needsDraw = true; }); } });
 	return 0;
 };
+// 負の標高（海底）は 0 に畳む＝描画と同じ（core terrain.js の sampleElev・renderworker の lift）。生のまま沈めると
+// 海の上で傾けた時、投影が描いた海面より数百 px 下へずれた（2026-09-27）。生の値は HUD/断面図/map.getHeight が持つ。
 const dispRadius = (lon, lat) => {
 	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
-	return pf > 0 ? 1 + elevOf(lon, lat) * pf * (TERR_EXAG / EARTH_M) : 1;
+	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
 };
 const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
 const unprojectAt = (clientX, clientY) => { const r = canvas.getBoundingClientRect(); const st = cameraState(cam, size.w, size.h); return unproject(st, (clientX - r.left) * dpr, (clientY - r.top) * dpr); };
