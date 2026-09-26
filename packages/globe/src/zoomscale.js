@@ -19,6 +19,12 @@
 
 export const ML_DZ = 1;   // エンジン z − MapLibre z
 export const ZOOM_SCALES = ["ortho", "maplibre"];
+// 旗つきの地図（外側の顔）から素の map へ戻る鍵。部品（geoedit・common/gintView・Marker の登録簿）は入口で `map[RAW] ?? map`＝エンジンの z で読む。
+// Symbol.for＝別の包み（npm の geoedit 等）からも import なしで同じ鍵が引ける
+export const RAW = Symbol.for("ortho-earth.map.raw");
+// 数の換算（null・undefined は素通し＝「無指定」の意味を保つ）。dz＝公開の口の目盛り（旗なし 0・maplibre 1）
+export const zIn = (z, dz) => z == null || !dz ? z : z + dz;    // 公開の口 → エンジン
+export const zOut = (z, dz) => z == null || !dz ? z : z - dz;   // エンジン → 公開の口
 
 // 地図（createGlobe が返す物）の公開メンバー。実行時の Object.getOwnPropertyNames(map) と globe.d.ts の OrthoJapanMap の両方が
 // ここに載っていること（t-mlcompat と tests/zoomscale.mjs が検札する）。
@@ -65,11 +71,12 @@ export const MAP_MEMBERS = {
 };
 
 // map.gadget の各ガジェット。全ガジェット共通の表示帯 opts.zoom:[a,b] は旗なら両端 +dz（外側の顔の gadget 代理が一括で）。
-// ここは「それ以外に zoom を運ぶか」＝"none"｜"layer"（MapLibre 形の層 object）｜{ opts: [zoom を運ぶ opts のキー] }。
+// ここは「それ以外に zoom を運ぶか」＝"none"｜"layer"（MapLibre 形の層 object＝中で PUBLIC_DZ が換算）｜
+// { opts: [zoom を運ぶ opts のキー], arg?: その opts が第何引数か（既定 0）}。"view[2]"＝配列 view の 3 番目（[lon, lat, z]）。
 export const GADGET_MEMBERS = {
 	heatmap: "layer", cluster: "layer", symbols: "layer", extrude: "layer",
 	zoom: { opts: ["zoomMin", "zoomMax"] }, home: { opts: ["view[2]"] }, japan: { opts: ["view[2]"] },
-	spotlight: { opts: ["maxZoom"] }, globe: { opts: ["maxZoom"] }, viewshed: { opts: ["minZoom"] }, sunshadow: { opts: ["minZoom"] },
+	spotlight: { opts: ["maxZoom"], arg: 1 }, globe: { opts: ["maxZoom"] }, viewshed: { opts: ["minZoom"] }, sunshadow: { opts: ["minZoom"] },
 	demo: "engine",   // 台本の族（zoomMin は hash の z と比べる）
 	offline: "none",  // zmaxDefault はタイルの z
 	search: "none", compass: "none", full: "none", shot: "none", measure: "none", profile: "none", contextmenu: "none",

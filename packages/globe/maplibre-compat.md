@@ -19,15 +19,17 @@
   - ML 名の口だけを換算しない理由：`flyTo(lon, lat, map.getZoom())` のような混用（apps/ortho-globe/sats.js に実例）が旗の下で 1 段ずつずれる。
 - 換算しない（明記する例外）：source の tile z（raster/vector/raster-dem の minzoom・maxzoom・`map.raster.add` の spec）＝元々 MapLibre と同義／`map.cam`（内部の生の状態）／worker の overlay 契約の cam／台本の族（.scenes・playScenes・sceneTimeline・demo ガジェット）。
 - 約束：null・undefined は素通し（`null+1` 事故を封じる）／ML の maxzoom は排他・gint・labels2d・raster showMax は包含＝境の変換はアダプタで 1 回。
-- 換算する所は `zoomscale.js` の表と関数を使う 3 か所だけ：起動オプション・外側の顔（`mlfacade.js`＝最後の `return map` だけを包む Proxy・map と map.gadget だけを代理）・ML 形の層と source の `dz`。**内部は常に素の map**（ガジェットは `func.apply(map)`＝素）。
+- 換算の関数は 2 枚だけ：数と表＝`src/zoomscale.js`（globe）・式と層＝`ortho-core/src/mlstyle.js` の `shiftZoomExpr`・`shiftLayerZoom`・`normalizeMLLayer`・`rescaleZoomExpr`・`rescaleZoomNum`（core）。
+- 層の目盛りは `metadata["ortho:dz"]` で申告できる（getStyle が付けて返す）。source の目盛りは getStyle の root の `metadata["ortho:sourceDz"]`。
+- 換算する所は次の 3 か所だけ：起動オプション・外側の顔（`mlfacade.js`＝最後の `return map` だけを包む Proxy・map と map.gadget だけを代理）・ML 形の層と source の `dz`。**内部は常に素の map**（ガジェットは `func.apply(map)`＝素）。
 
 ## 3. 揃える物（モード無し）
 
 | 項目 | 今 | 段 | 状態 |
 |---|---|---|---|
-| addLayer の旧式フィルタ・stops・{token} | setStyle 経路だけ読み替え | 1 | 未（爪車 known） |
-| style.json の geojson の層の zoom | ずらさない（mlstyle.js:154） | 1 | 未（爪車 known） |
-| zoom のずらしの往復・入口の一本化（normalizeMLLayer） | 入れ子のまま育つ | 1 | 未（爪車 known） |
+| addLayer の旧式フィルタ・stops・{token} | setStyle 経路だけ読み替え | 1 | **済**（入口 1 本・gadget も） |
+| style.json の geojson の層の zoom | ずらさない（mlstyle.js:154） | 1 | **済**（層と source に dz 1） |
+| zoom のずらしの往復・入口の一本化（normalizeMLLayer） | 入れ子のまま育つ | 1 | **済**（畳む・metadata["ortho:dz"] で冪等・getStyle→setStyle 三往復で不変） |
 | 式の意味（ML 由来だけ MapLibre の意味・ネイティブは今のまま） | 全部 JS の寛容な意味 | 3 | 未 |
 | 同じ source の層（U7）・type とジオメトリ・既定値・fill の輪郭・circle-opacity | 1 枚に畳む・全ジオメトリ・既定色 | 4 | 未（爪車 known） |
 | 知らない演算子 | 黙って受け取る | 5 | 未（爪車 known） |
@@ -59,11 +61,11 @@
 | R1 | 旗の下で二つの z が同居・分類漏れ | 換算は zoomscale.js の表だけ | `tests/zoomscale.mjs`（d.ts）＋ t-mlcompat の実行時キー | 門あり（段 0） |
 | R2 | 素の map の漏れ・同一性（連鎖・Promise・イベント・once・off・Marker） | facade が差し替え・handler の WeakMap・once を組み直す・`map[RAW]` | t-mlzoom（段 2） | 未 |
 | R3 | 二重換算・null+1・包含/排他 | 変換は zoomscale.js の関数だけ | node 単体（段 1） | 未 |
-| R4 | 同じ ML の層が経路で違う・二度のずらし | normalizeMLLayer 一本・印・畳み・drawLayerOf | 爪車 node（shift-roundtrip・normalize-idempotent） | 門あり（known） |
+| R4 | 同じ ML の層が経路で違う・二度のずらし | normalizeMLLayer 一本・印・畳み・drawLayerOf・内部は *Native を直に呼ぶ | 爪車 node（shift-roundtrip・normalize-idempotent）＋ style:getstyle-roundtrip-stable | **済**（段 1） |
 | R5 | ML の意味がネイティブ gint へ波及・手綱が ML の表を上書き | buildFidStyle 据え置き・手綱に buildTable 注入 | gint-expr.mjs・t-gintlayers | 未 |
 | R6 | 評価器の変更が基図・内製 paint を変える・cache の出自混線 | 出自で分岐・出自は子ノードまで | `tests/expr-golden.mjs`（内蔵 style 534 件の指紋） | 門あり（段 0） |
 | R7 | GL2 と WebGPU で違う（U10） | 予約 order 帯・両土台で検定 | t-gintlayers 流 | 未 |
-| R8 | ML 層の意味の変更が内製の呼び手を変える | 呼び手を固定して人が見る | `tests/internal-callers.mjs` | 門あり（段 0） |
+| R8 | ML 層の意味の変更が内製の呼び手を変える | 呼び手を固定して人が見る・内部は native の入口（heatmapNative/clusterNative/symbolsNative/extrudeNative・addLayerAt/addSourceAt に dz を明示） | `tests/internal-callers.mjs` | 門あり（段 1 で 10→2） |
 | R9 | 文書とコードのずれ | 段ごとに文書を直す | verify:npm・t-start-sync・spec §11 | 未 |
 | R10 | gint 層が増える＝GPU メモリ | 連続する層だけ詰める・circle-stroke は表の第 4 語 | ?hud=1・LOW_MEM | 未 |
 | R11 | 共有リンクが旗で変わる | hash/view 文字列は常にエンジン z | t-mlzoom | 未 |
@@ -87,8 +89,11 @@
 
 ## 7. 段の進み
 
+版の束：段 1〜2 を 1 つの束として公開する予定（SDK @ortho-earth/japan 1.3.0・globe 1.3.0・core 1.4.0＝minor・d.ts の注記は「1.3.0〜」）。版の数は公開の時に上げる（公開は本人の号令）。
+
+
 - [x] **段 0**（2026-09-26）：台帳・互換の爪車（node 9 場面・browser 17 場面＝known 21・見張り 5）・分類表 `src/zoomscale.js`（データだけ・どこからも import しない）・黄金の写し・内製の呼び手の許可表。挙動の変更なし。
-- [ ] 段 1：ML の層の入口（normalizeMLLayer・drawLayerOf・source の dz・setter の dz 差分・style.json の geojson 層・worldcontent を symCtl 直呼びへ・getStyle の dz の印）
+- [x] **段 1**（2026-09-26）：ML の層の入口＝core `normalizeMLLayer`（読み替え＋dz＋冪等の印）・globe の登録簿に dz（層・source）・`drawLayerOf` 1 本・setter/getter は呼び手と層の目盛りの差を埋める・style.json の geojson 層と source は dz 1・問い合わせの filter も入口へ・ML 形 gadget は入口で正規化→中身（*Native）／内部の描き出し・worldcontent・見通し線は中身を直に。公開の口の目盛り `PUBLIC_DZ` は 0 のまま（旗は段 2）。式の検査（知らない演算子で投げる）は段 5。
 - [ ] 段 2：旗の顔（mlfacade・RAW・Marker と部品・maxPitch の度・raster と手綱の dz・d.ts）
 - [ ] 段 3：評価器の出自（compile の子まで・worker へ渡る平の印・新演算子は両方へ）
 - [ ] 段 4：fill / line / circle の約束（mltables・連続する層だけ詰める・予約 order 帯・U10・dash-id）

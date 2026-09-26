@@ -43,7 +43,8 @@ export interface OrthoJapanOptions {
 	theme?: string | object;
 	/** 基図を外来の MapLibre style で描く（1.2.0〜・#33）。URL か style の object（?style=<URL> と同じ）。地域の基図・?pm= より優先。
 	 *  基図に入るのは style の中のひとつのベクタ source（XYZ・TileJSON・pmtiles://）の fill / line / 点ラベル / background。旧式フィルタ・stops 関数・"{name}" 記法は読み替える。
-	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer へ。
+	 *  style のズームは MapLibre の z（この地図の z−1 が同じ縮尺）として読む＝基図の層も geojson source の層も（1.3.0〜。以前は geojson の層だけエンジンの z で読んでいた）。
+	 *  層の metadata["ortho:dz"]（0＝この地図の z・1＝MapLibre の z）の申告があればそれが勝つ（getStyle が付けて返す）。画像（raster source）の層は基図の塗りより上に書かれた物だけ重ねる・geojson source の層は map.addLayer と同じ口へ。
 	 *  描かない層（fill-extrusion・線に沿うラベル・模様・基図の塗りより下の画像）は console に数える。書体（glyphs / text-font）はこの地図の文字で描く */
 	style?: string | Record<string, unknown>;
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
@@ -544,7 +545,9 @@ export interface OrthoJapanMap {
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。
 	 *  どの種類も何枚でも持てる（1.2.0〜・#34）：fill/line/circle＝source ごとに gint の追加層・押し出し/ヒートマップ＝層ごと・集約＝source ごと。
 	 *  重ね順（beforeId・moveLayer）は同じ描き方の中で効く。描き方の違う層の上下は描画の段で決まる（下から 基図→画像→gint→押し出し→ヒートマップ→集約→記号→模様）。
-	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ） */
+	 *  式は呼んだ時に評価（symbol の zoom 式は止まるたび）。removeSource は使われている間は投げる（MapLibre と同じ）。
+	 *  旧式フィルタ（["==","k","v"] 等）・旧式の関数（{ stops }）・"{name}" 記法は style.json と同じく読み替える（1.3.0〜・ML 形 gadget の層 object も同じ）。
+	 *  ズームの数（minzoom・maxzoom・["zoom"]）はこの地図の z（MapLibre の z＋1＝同じ縮尺）。層の metadata["ortho:dz"]:1 を付ければ MapLibre の z で書ける */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void> } & Partial<VideoHandle>) | undefined;
 	removeSource(id: string): OrthoJapanMap;
@@ -568,7 +571,8 @@ export interface OrthoJapanMap {
 	/** feature-state（MapLibre 同名）。id＝その source の地物の番号（GeoJSON の並び順）。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない */
 	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
 	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
-	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"・読むだけ）の上に利用者の層 */
+	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"・読むだけ）の上に利用者の層。
+	 *  ズームの目盛りを申告して返す（1.3.0〜）：各層の metadata["ortho:dz"]（基図＝0＝この地図の z に直した物）・root の metadata["ortho:sourceDz"]（source ごと）＝setStyle(getStyle()) で二重にずれない */
 	getStyle(): { version: 8; sources: Record<string, unknown>; layers: Array<MapLibreLayer | Record<string, unknown>> };
 	/** 任意の 3D Tiles を画面上の誤差で流す（1.2.0〜・#41）。url＝tileset.json（?tiles3d=<URL> と同じ）。
 	 *  中身＝b3dm・i3dm・pnts（点群）・cmpt・glb/glTF（3D Tiles 1.1）・外部 tileset。refine REPLACE（子が揃うまで親）/ ADD。GPU 予算を超えたら使っていないタイルから捨てる。
