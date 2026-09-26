@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "1.3.0",
+	"version": "1.4.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
@@ -40,7 +40,7 @@
 		"@ortho-earth/ephem": "^1.0.0",
 		"altpbf": "^1.1.1",
 		"earcut": "^3.0.1",
-		"geopbf": "^1.14.0",
+		"geopbf": "^1.15.0",
 		"pmtiles": "^4.5.0",
 		"native-bucket": "^1.0.0"
 	},
