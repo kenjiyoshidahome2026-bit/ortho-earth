@@ -11,12 +11,14 @@
 const lon2x = (lon, z) => (lon + 180) / 360 * (1 << z);
 const lat2y = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * (1 << z); };
 
-export function decodeDEM(rgba, encoding = "terrarium") {
+// custom（MapLibre の raster-dem）＝h＝(R×redFactor＋G×greenFactor＋B×blueFactor)＋baseShift（f＝{ redFactor, greenFactor, blueFactor, baseShift }・2026-09-26）
+export function decodeDEM(rgba, encoding = "terrarium", f = null) {
 	const n = rgba.length >> 2, out = new Float32Array(n);
 	for (let i = 0; i < n; i++) {
 		const r = rgba[i * 4], g = rgba[i * 4 + 1], b = rgba[i * 4 + 2], a = rgba[i * 4 + 3];
 		if (a === 0) { out[i] = NaN; continue; }
 		if (encoding === "mapbox") out[i] = -10000 + (r * 65536 + g * 256 + b) * 0.1;
+		else if (encoding === "custom") out[i] = r * (f?.redFactor ?? 0) + g * (f?.greenFactor ?? 0) + b * (f?.blueFactor ?? 0) + (f?.baseShift ?? 0);
 		else if (encoding === "gsi") { const x = r * 65536 + g * 256 + b; out[i] = x === 8388608 ? NaN : (x < 8388608 ? x : x - 16777216) * 0.01; }
 		else out[i] = r * 256 + g + b / 256 - 32768;
 	}
@@ -26,7 +28,8 @@ export function decodeDEM(rgba, encoding = "terrarium") {
 export function normalizeDemSpec(spec) {
 	if (!spec?.tiles?.length && !spec?.url) throw new Error("dem: spec needs tiles (or url)");
 	return { tiles: spec.tiles, encoding: spec.encoding || "terrarium", tileSize: spec.tileSize || 256, minzoom: spec.minzoom ?? 0, maxzoom: spec.maxzoom ?? 14,
-		bounds: Array.isArray(spec.bounds) && spec.bounds.length === 4 ? spec.bounds.slice() : null, dtm: !!spec.dtm, cellZoom: spec.cellZoom ?? null, headers: spec.headers || null, credentials: spec.credentials || "omit" };
+		bounds: Array.isArray(spec.bounds) && spec.bounds.length === 4 ? spec.bounds.slice() : null, dtm: !!spec.dtm, cellZoom: spec.cellZoom ?? null, headers: spec.headers || null, credentials: spec.credentials || "omit",
+		redFactor: spec.redFactor ?? 1, greenFactor: spec.greenFactor ?? 1, blueFactor: spec.blueFactor ?? 1, baseShift: spec.baseShift ?? 0 };   // encoding custom の係数（MapLibre の既定 1/1/1/0）
 }
 
 export function createDemSource(spec0) {
@@ -45,7 +48,7 @@ export function createDemSource(spec0) {
 			ctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
 			if (ctx.canvas.width !== n) { ctx.canvas.width = n; ctx.canvas.height = n; }
 			ctx.clearRect(0, 0, n, n); ctx.drawImage(bmp, 0, 0); bmp.close?.();
-			return { h: decodeDEM(ctx.getImageData(0, 0, n, n).data, spec.encoding), n };
+			return { h: decodeDEM(ctx.getImageData(0, 0, n, n).data, spec.encoding, spec), n };
 		})().catch(() => null);
 		tiles.set(k, p);
 		if (tiles.size > 256) tiles.delete(tiles.keys().next().value);

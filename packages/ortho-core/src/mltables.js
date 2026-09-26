@@ -13,6 +13,8 @@
 import { evalExpr, truthy } from "./expr.js";
 import { parseRGBA } from "./color.js";
 
+// MapLibre の feature の id を焼く前に地物へ写す隠しの属性（globe の ML アダプタ・段 6）：ML_ID＝id（Feature.id／promoteId／並び順）・ML_IX＝元の並び（同じ属性の地物を 1 つの fid に束ねさせない）
+export const ML_ID_KEY = "ortho:mlid", ML_IX_KEY = "ortho:mlix";
 export const ML_DEFAULTS = {
 	"fill-color": "#000000", "fill-opacity": 1,
 	"line-color": "#000000", "line-width": 1, "line-opacity": 1,
@@ -66,7 +68,7 @@ export function buildMLTable(pass, features = [], { zoom = 0, states = null } = 
 	const F = act.includes(pass.fill) ? pass.fill : null, Ln = act.includes(pass.line) ? pass.line : null, C = act.includes(pass.circle) ? pass.circle : null;
 	for (let fid = 0; fid < count; fid++) {
 		const f = features[fid], gt = f?.geometry?.type ?? "", k = kindOf(gt);
-		const ctx = { zoom, props: f?.properties ?? {}, geom: gt, vars: {}, state: states?.get(fid), origin: "ml", id: fid };
+		const ctx = { zoom, props: f?.properties ?? {}, geom: gt, vars: {}, state: states?.get(fid), origin: "ml", id: f?.properties?.[ML_ID_KEY] ?? fid };   // ["id"]＝MapLibre の id
 		const pass_ = L => L && (L.filter == null || truthy(evalExpr(L.filter, ctx)));
 		let fill = 0, line = 0, w8 = 0, r8 = 0;
 		if (F && k === "pg" && pass_(F)) {

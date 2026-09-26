@@ -230,7 +230,7 @@ export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {})
 	}
 	if (!tj.tiles?.length) throw new Error("vector source has no tiles");
 	return { tiles: tj.tiles.map(t => /^[a-z][\w+.-]*:/i.test(t) ? t : new URL(t, baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")),
-		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 14, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null };   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
+		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 22, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null };   // maxzoom の既定＝MapLibre と同じ 22（2026-09-26・旧 14）   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
 }
 // タイルの URL 型紙 → (z,x,y)=>URL（{z}{x}{y}・{s}（a/b/c）・scheme:"tms"＝y 反転・{ratio}/{prefix} は外す）
 export function tileUrlOf(src) {
@@ -240,6 +240,8 @@ export function tileUrlOf(src) {
 	return (z, x, y) => {
 		const t = tpl[(i++) % tpl.length];
 		const yy = src.scheme === "tms" ? (1 << z) - 1 - y : y;
-		return t.replace("{z}", z).replace("{x}", x).replace("{y}", yy).replace("{s}", "abc"[(x + y) % 3]).replace("{ratio}", "").replace("{prefix}", ((x % 16).toString(16) + (y % 16).toString(16)));
+		let u = t.replace("{z}", z).replace("{x}", x).replace("{y}", yy).replace("{s}", "abc"[(x + y) % 3]).replace("{ratio}", "").replace("{prefix}", ((x % 16).toString(16) + (y % 16).toString(16)));
+		if (u.includes("{quadkey}")) { let q = ""; for (let i = z - 1; i >= 0; i--) q += ((y >> i & 1) << 1 | (x >> i & 1)); u = u.split("{quadkey}").join(q || "0"); }   // MapLibre の記法（2026-09-26）
+		return u;
 	};
 }

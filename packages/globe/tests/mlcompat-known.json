@@ -1,15 +1,7 @@
 {
 	"_": "互換の爪車の既知の失敗（MapLibre と違う答えになる場面）。値＝直す段と理由。直ったら消す（残すと爪車が落ちる）。足すのは『MapLibre と違うと分かった場面』を検定に書いた時だけ。正典の台帳＝packages/globe/maplibre-compat.md",
-	"node": {
-		"symbol-on-polygon": "段6：記号は点だけ（symbols-core.js が面を飛ばす）",
-		"symbol-on-line": "段6：記号は点だけ（線を飛ばす）",
-		"dem-custom": "段6：raster-dem の encoding custom が無い",
-		"tile-quadkey-vector": "段6：{quadkey} を展開しない",
-		"tile-quadkey-raster": "段6：{quadkey} を展開しない（こちらは {q}）"
-	},
+	"node": {},
 	"browser": {
-		"layers:geojson-relative-url": "段6：geojson の data の相対 URL をバケツ名として引く（geopbf の isURL は ^https? だけ）",
-		"layers:raster-tilejson-url": "段6：addLayer 経路で raster の url（TileJSON）を型紙として使う",
 		"layers:line-dasharray": "段4b：gint の線は破線にしない（表の dash 欄は 0 固定・両シェーダは [dash,gap] の表を style 番号で引く＝地物ごとの配線が要る）",
 		"layers:circle-stroke": "段4b：gint の点に縁が無い（表の第 4 語を両シェーダへ配線する）"
 	}

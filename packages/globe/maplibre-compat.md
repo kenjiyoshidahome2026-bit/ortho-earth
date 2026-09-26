@@ -39,12 +39,12 @@
 | raster の層の minzoom/maxzoom | 無視 | 5 | **済**（表示窓・maxzoom 排他） |
 | 層の種類ごとの zoom（symbol・pattern・extrude・cluster） | ばらばら | 5 | **済**（記号＝出しズームも当て直す・押し出し/canvas2D＝止まるたびに鍵を見て描き直す・集約＝層ごとの範囲と層 id・模様/canvas2D の線も問い合わせに出る） |
 | 旧式の関数の default（属性の欠損） | 効かない | 5 | **済**（["case", ["has", 属性], 式, default]） |
-| raster の url（TileJSON）を addLayer で | 型紙として使う | 6 | 未（爪車 known） |
-| geojson の data の相対 URL | バケツ名として引く | 6 | 未（爪車 known） |
-| {quadkey}・{ratio}・raster-dem custom・sprite 配列 | 無い | 6 | 未（爪車 known＝quadkey・custom） |
-| ML 形 source の既定値（tileSize 512・maxzoom 22） | 256・18/14 | 6 | 未 |
-| promoteId・generateId・clusterProperties・cluster_id | 無い | 6 | 未 |
-| symbol を面・線に置く | 点だけ | 6 | 未（爪車 known） |
+| raster の url（TileJSON）を addLayer で | 型紙として使う | 6 | **済** |
+| geojson の data の相対 URL | バケツ名として引く | 6 | **済**（globe 側で頁から解決・geopbf は触らない） |
+| {quadkey}・{ratio}・raster-dem custom・sprite 配列 | 無い | 6 | **済**（{ratio} は常に 1x のまま＝文書） |
+| ML 形 source の既定値（tileSize 512・maxzoom 22） | 256・18/14 | 6 | **済**（raster・raster-dem・TileJSON。?dem= と map.raster.add はネイティブの既定のまま） |
+| promoteId・generateId・clusterProperties・cluster_id | 無い | 6 | **済**（id＝Feature.id→promoteId→並び順・隠しの属性で写す＝同じ属性の地物も別々・getClusterExpansionZoom） |
+| symbol を面・線に置く | 点だけ | 6 | **済**（面＝到達不能極・線＝各部分の最初の頂点＝MapLibre の点置き） |
 | 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | 未 |
 | vector source を addLayer で（MVT の fill-extrusion ほか） | 不可 | 8 | 未（別計画） |
 
@@ -92,7 +92,7 @@
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
 - **main で既存の失敗（この仕事の外・2026-09-26 に main 92420d0e で再現を確認）**：globe verify:webgpu の t-overlaydepth（clearIsOne）と t-ao（足元の暗さ）。段の門では「この 2 項目が同じ値で落ちる」ことだけを確かめ、別件として切り出した。
-- 揺れの観察：t-linedeco?nomd=1 の videoMoved（段 1 の全頁で 1 回・単独では緑）／verify:ui 側の t-overlaydepth（GL2）の clearIsOne（段 2 の全頁で 1 回・単独 3 回とも緑）／japan の t-print（段 4 の全頁で時間切れ 1 回・単独 2 回とも緑）。
+- 揺れの観察：t-linedeco?nomd=1 の videoMoved（段 1 の全頁で 1 回・単独では緑）／verify:ui 側の t-overlaydepth（GL2）の clearIsOne（段 2・段 6 の全頁で各 1 回・単独ではいつも緑＝webgpu 側の既存の失敗と同じ検査項目）／japan の t-print（段 4 の全頁で時間切れ 1 回・単独 2 回とも緑）。
 
 ## 7. 段の進み
 
@@ -106,6 +106,6 @@
 - [x] **段 4**（2026-09-26）：fill / line / circle の約束＝core `mltables.js`（packMLLayers・buildMLTable・zoomSensitivity）・手綱の buildTable/zoomKey・全体の詰め方から組み直し（同じ署名は使い回し・隠した層も残す・立て続けは新しい方の完了を待つ・読めない source は巻き添えにしない）・予約 order 帯・interactive:false・fillMaxEdges:0・feature-state は source に住む・問い合わせは層ごと。門＝core mltables.mjs 11 項目・爪車（両土台）で 6 件が直った。
 - [ ] 段 4b：line-dasharray（表の dash 欄の地物ごとの配線・両シェーダ）・circle-stroke（表の第 4 語）・GPU メモリの実測
 - [x] **段 5**（2026-09-26）：式の検査（KNOWN_OPS＝build の case と突き合わせる検定つき・unknownOps・公開の口で投げる・基図は数えて飛ばす）・旧関数の default（R19）・種類ごとの zoom（記号の出しズーム・集約の層 id と範囲・押し出しと canvas2D の線の描き直し・raster の表示窓）・canvas2D の線/模様の問い合わせ。門＝爪車 node 3 場面・browser 4 場面の行列。
-- [ ] 段 6：読めない形式（小物）
+- [x] **段 6**（2026-09-26）：読めない形式＝相対 URL・TileJSON の raster・{quadkey}・raster-dem custom・複数 sprite・ML の source の既定値・feature の id（promoteId/Feature.id/並び順）・clusterProperties/cluster_id/getClusterExpansionZoom・記号を面と線に。node の既知 0・browser の既知は段 4b の 2 件だけ。
 - [ ] 段 7：基図の層を触れるように
 - [ ] 段 8：エンジン級（着手前に別計画）

@@ -45,13 +45,14 @@ export function createAggregate(map, { signal } = {}) {
 		},
 		cluster(src, opts = {}, slot = "default") {
 			const pts = pointsOf(src);
-			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14 });
+			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties });
 			const draw = clusterDraw(pts, cl, opts);
 			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) });
 			// 層 id と層ごとの出しズーム（MapLibre の集約の層＝丸と単点で別の層・maxzoom 排他）。無指定＝従来の名前・全ズーム
 			const ids = { clusters: opts.layerIds?.clusters ?? "clusters", unclustered: opts.layerIds?.unclustered ?? "unclustered-point" };
 			const rg = { clusters: opts.ranges?.clusters ?? [-Infinity, Infinity], unclustered: opts.ranges?.unclustered ?? [-Infinity, Infinity] };
-			Object.assign(c, { draw, pts, cl, ids, rg });
+			const byCid = new Map(); for (const L of cl.levels) for (const it of L || []) if (it.cid != null) byCid.set(it.cid, it.ez);   // cluster_id → ばらける段（getClusterExpansionZoom）
+			Object.assign(c, { draw, pts, cl, ids, rg, byCid });
 			c.ov.post({ type: "range", clusters: rg.clusters, unclustered: rg.unclustered });
 			if (slot === "default") ctl._cl = cl;   // 検定窓（従来の 1 枠）
 			c.ov.post({ type: "levels", levels: draw.map(L => L.map(({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, i }) => ({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, u: i >= 0 ? 1 : 0 }))), minLevel: cl.minLevel, maxLevel: cl.maxLevel });   // u＝単点（unclustered）
@@ -66,11 +67,13 @@ export function createAggregate(map, { signal } = {}) {
 				const inR = r => z >= r[0] && z < r[1];
 				for (const d of L) { if (!inR(d.i >= 0 ? c.rg.unclustered : c.rg.clusters)) continue; const p = map.projectLL(d.lon, d.lat); if (p[2] < 0) continue; const dd = Math.hypot(p[0] - x, p[1] - y); if (dd <= d.r + 2 && dd < bd) { bd = dd; best = d; } }
 				if (!best) continue;
-				const props = best.i >= 0 ? c.pts[best.i].props : { cluster: true, point_count: best.n, point_count_abbreviated: abbr(best.n) };
+				const props = best.i >= 0 ? c.pts[best.i].props : { cluster: true, cluster_id: best.cid, point_count: best.n, point_count_abbreviated: abbr(best.n), ...(best.agg || {}) };
 				return { type: "Feature", properties: props, geometry: { type: "Point", coordinates: [best.lon, best.lat] }, layer: { id: best.i >= 0 ? c.ids.unclustered : c.ids.clusters, type: "circle" }, source: slot === "default" ? "cluster" : slot, expansionZoom: best.ez };
 			}
 			return null;
 		},
+		// cluster_id のばらける段（エンジンの z・無ければ undefined）＝MapLibre の getClusterExpansionZoom の実体
+		expansionZoom(slot, cid) { return cluss.get(slot)?.byCid?.get(cid); },
 		// which＝"heatmap" | "cluster" | 省略（両方）・slot 省略＝その種類の全部
 		clear(which, slot) {
 			if (!which || which === "heatmap") for (const [k, h] of [...heats]) if (slot == null || k === slot) { h.remove(); heats.delete(k); }

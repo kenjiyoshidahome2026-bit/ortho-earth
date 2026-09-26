@@ -34,7 +34,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）
@@ -2335,7 +2335,8 @@ map.setTerrain = async t => {
 	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds }; }
 	if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
 	if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
-	demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize, minzoom: sp.minzoom, maxzoom: sp.maxzoom, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom } : null;   // MapLibre の raster-dem の既定 encoding は mapbox
+	demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
+		redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
 	demMain = demSpec ? createDemSource(demSpec) : null;
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
@@ -3183,7 +3184,7 @@ map.addImage = async (name, img, o) => (await symGet()).addImage(name, img, o); 
 map.removeImage = name => symCtl?.removeImage(name);
 map.hasImage = name => !!symCtl?.hasImage(name);
 map.listImages = () => symCtl?.listImages() ?? [];
-map.loadSprite = async base => (await symGet()).loadSprite(base);                          // MapLibre の sprite（base.json＋base.png・@2x）
+map.loadSprite = async (base, prefix) => (await symGet()).loadSprite(base, prefix);                          // MapLibre の sprite（base.json＋base.png・@2x）
 // 中身（native）＝層はエンジンの目盛り・ネイティブの意味で受ける（worldcontent の記号の層はここ＝MapLibre 形の入口を通らない・台帳 R8）
 const symbolsNative = async (src, layer = {}) => {
 	const c = await symGet();
@@ -3223,7 +3224,8 @@ const assertMLLayer = (L, where) => { const bad = mlUnknownOps(L); if (bad.lengt
 const srcDzOf = L => typeof L.source === "string" ? (mlSourceDz.get(L.source) ?? 0) : layerDzOf(L, 0);
 const srcOf = L => typeof L.source === "string" ? mlSources.get(L.source) : L.source;
 const srcId = L => typeof L.source === "string" ? L.source : L.id;
-const dataOf = sp => sp?.data ?? null;
+// MapLibre の geojson source の data の文字列＝URL（相対は頁から解決・段 6）。geopbf は ^https? だけを URL と見て、それ以外はバケツ名として引く
+const dataOf = sp => { const d = sp?.data ?? null; return typeof d === "string" && !/^[a-z][\w+.-]*:/i.test(d) ? new URL(d, location.href).href : d; };
 const hasPointCount = f => JSON.stringify(f ?? null).includes("point_count");
 const mlGen = new Map();   // "cluster:<sid>" / "gint:<sid>" → 世代（組み直しは非同期＝外した後に古い組み直しが着地して復活するのを捨てる）
 const bumpGen = k => { const g = (mlGen.get(k) || 0) + 1; mlGen.set(k, g); return g; };
@@ -3245,7 +3247,7 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 	const sp = mlSources.get(sid) || [...mlLayers.values()].find(v => srcId(v.layer) === sid)?.src;
 	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === sid && v.kind === "cluster" && mlVisible(v)), ls = vs.map(drawLayerOf);
 	if (!ls.length) { aggCtl?.clear("cluster", sid); return null; }
-	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: rescaleZoomNum(sp.clusterMaxZoom ?? 14, srcDzOf(vs[0].layer), 0), slot: sid, layerIds: {}, ranges: {} };   // clusterMaxZoom＝source の目盛りからエンジンの z へ
+	const opts = { clusterRadius: sp.clusterRadius ?? 50, clusterMaxZoom: rescaleZoomNum(sp.clusterMaxZoom ?? 14, srcDzOf(vs[0].layer), 0), clusterProperties: sp.clusterProperties, slot: sid, layerIds: {}, ranges: {} };   // clusterMaxZoom＝source の目盛りからエンジンの z へ
 	const zr = L => [L.minzoom ?? -Infinity, L.maxzoom ?? Infinity];   // 層の出しズーム（正規化済み＝エンジンの z・maxzoom 排他）
 	for (const L of ls) {
 		if (L.type === "circle" && (L.filter == null || hasPointCount(L.filter) && !/"!"/.test(JSON.stringify(L.filter)))) { opts.paint = L.paint; opts.layerIds.clusters = L.id; opts.ranges.clusters = zr(L); }
@@ -3281,11 +3283,22 @@ const gintDataOf = async (sid, force, gen) => {
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
 	let d = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
-	const pbf = await geopbf(d, { gint: true, name: `ml/${sid}` });
+	const pbf = await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}` });
 	if (mlGen.get("gint") !== gen) return null;
-	cur = { data: raw, pbf }; mlGintData.set(sid, cur);
+	const idToFid = new Map(), fidToId = [];
+	for (let i = 0; i < (pbf?.length ?? 0); i++) { const id = pbf.getFeature?.(i)?.properties?.[ML_ID_KEY]; fidToId[i] = id; if (id != null && !idToFid.has(id)) idToFid.set(id, i); }
+	cur = { data: raw, pbf, idToFid, fidToId }; mlGintData.set(sid, cur);
 	return { cur, changed: true };
 };
+// MapLibre の feature の id（段 6）＝Feature.id → promoteId の属性 → 並び順（generateId と同じ・MapLibre では id が無いと feature-state が効かない＝その上位）。
+// 焼く前に隠しの属性で地物へ写す（geopbf は Feature.id を持たない・同じ属性の地物を 1 つの fid に束ねる＝並びの属性で束ねさせない）
+const withMlIds = (d, sp) => {
+	const feats = d?.type === "FeatureCollection" ? d.features : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : Array.isArray(d) ? d : [];
+	const pid = typeof sp?.promoteId === "string" ? sp.promoteId : null;
+	return { type: "FeatureCollection", features: feats.map((f, i) => { const p = f?.properties || {}, id = pid != null && p[pid] != null ? p[pid] : f?.id != null ? f.id : i; return { ...f, properties: { ...p, [ML_IX_KEY]: i, [ML_ID_KEY]: id } }; }) };
+};
+const stripMl = p => { if (!p || !(ML_ID_KEY in p)) return p || {}; const { [ML_ID_KEY]: _a, [ML_IX_KEY]: _b, ...rest } = p; return rest; };
+const mlIdOf = (sid, fid) => mlGintData.get(sid)?.fidToId?.[fid];
 const zoomActiveKey = (pass, z) => pass.layers.filter(L => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom) && L.layout?.visibility !== "none").map(L => L.id).join(",");
 // 組み直し（層の足し引き・重ね順・性質・出し入れ・データ差し替え＝どれも全体の詰め方から）。同じ署名の pass は手綱を使い回して表だけ作り直す
 // 立て続けの呼び出し＝新しい方が勝つ。追い越された呼び出しは新しい方の完了を待って解決する（addLayer が描き終わる前に解決しない）
@@ -3322,10 +3335,14 @@ const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) =
 			e = { sid, h, holder, order, pbf: cur.pbf }; mlPasses.set(sig, e);
 			await h.ready;
 			if (mlGen.get("gint") !== gen) return superseded();
-			for (const [fid, st] of mlFeatureState.get(sid) || []) h.setFeatureState(fid, st);
+			for (const [mid, st] of mlFeatureState.get(sid) || []) { const fid = cur.idToFid?.get(mid); if (fid != null) h.setFeatureState(fid, st); }   // 状態は MapLibre の id で source に住む
 		} else {
 			e.holder.pass = pass; e.holder.zs = zoomSensitivity(pass);
-			if (changed || e.pbf !== cur.pbf) { await e.h.setData(cur.pbf); e.pbf = cur.pbf; }
+			if (changed || e.pbf !== cur.pbf) {
+				await e.h.setData(cur.pbf); e.pbf = cur.pbf;
+				e.h.removeFeatureState(null);   // fid が変わる＝状態は MapLibre の id から当て直す
+				for (const [mid, st] of mlFeatureState.get(sid) || []) { const fid = cur.idToFid?.get(mid); if (fid != null) e.h.setFeatureState(fid, st); }
+			}
 			if (e.order !== order) { e.h.setOrder(order); e.order = order; }
 		}
 		await e.h.setPaint({}, null);   // 表を作り直す（手綱の buildTable＝MapLibre の意味）
@@ -3410,7 +3427,11 @@ const mountLayer = async v => {
 		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
-		return map.raster.add(layer.id, { url: sp.tiles?.[0] ?? sp.url, tileSize: sp.tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust }, ro);
+		// url＝TileJSON（MapLibre）＝取りに行って tiles を得る（段 6・旧＝url を型紙として使っていた）。既定値は MapLibre の raster source（tileSize 512・maxzoom 22）
+		let rs = sp;
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme }; }
+		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
+		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
 	if (kind === "extrude") return extrudeNative(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
@@ -3445,7 +3466,8 @@ map.getSource = id => {
 		const v = [...mlLayers.values()].find(x => srcId(x.layer) === id && x.kind === "raster"), h = v ? videoCtl?.get(v.layer.id) : null;
 		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
 	}
-	return { ...sp, setData: async data => {
+	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
+	return { ...sp, ...extra, setData: async data => {
 		sp.data = data;
 		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
 		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged: true });
@@ -3526,17 +3548,22 @@ map.getFilter = id => { const v = mlLayers.get(id); return echoProp(v, v?.layer.
 map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v) return map; v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
+// feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
+const fidOfMl = (source, id) => { const m = mlGintData.get(source)?.idToFid; return m ? (m.get(id) ?? m.get(typeof id === "string" && id !== "" && !isNaN(+id) ? +id : String(id))) : undefined; };
 map.setFeatureState = ({ source, id }, state) => {
 	if (id == null) return map;
 	let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
-	m.set(+id, { ...m.get(+id), ...state });
-	for (const e of mlPasses.values()) if (e.sid === source) e.h.setFeatureState(+id, state);
+	m.set(id, { ...m.get(id), ...state });
+	const fid = fidOfMl(source, id);
+	if (fid != null) for (const e of mlPasses.values()) if (e.sid === source) e.h.setFeatureState(fid, state);
 	return map;
 };
 map.removeFeatureState = ({ source, id } = {}, key) => {
 	const m = mlFeatureState.get(source);
-	if (m) { if (id == null) m.clear(); else if (key != null) { const st = { ...m.get(+id) }; delete st[key]; m.set(+id, st); } else m.delete(+id); }
-	for (const e of mlPasses.values()) if (e.sid !== source) continue; else if (key != null && id != null) e.h.setFeatureState(+id, { [key]: undefined }); else e.h.removeFeatureState(id == null ? null : +id);
+	if (m) { if (id == null) m.clear(); else if (key != null) { const st = { ...m.get(id) }; delete st[key]; m.set(id, st); } else m.delete(id); }
+	const fid = id == null ? null : fidOfMl(source, id);
+	if (id != null && fid == null) return map;
+	for (const e of mlPasses.values()) if (e.sid !== source) continue; else if (key != null && id != null) e.h.setFeatureState(fid, { [key]: undefined }); else e.h.removeFeatureState(fid);
 	return map;
 };
 map.getLayers = () => [...mlLayers.values()].map(v => echoLayer(v));
@@ -3565,14 +3592,15 @@ const mountExtExtras = async ext => {
 		try {
 			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +(evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" }) ?? 1);   // style.json の層＝MapLibre の意味
-			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize || 256, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false });
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
 	}
 	if (ext.split.geojson.some(L => L.layout?.["icon-image"] != null) && ms.sprite) {
-		const sp = Array.isArray(ms.sprite) ? ms.sprite[0]?.url : ms.sprite;
-		if (sp) await map.loadSprite(new URL(sp, ext.baseUrl).href).catch(err => console.warn("[style] sprite", err));
+		// 複数の sprite（MapLibre v4）＝[{ id, url }]・default 以外は "id:名前"（段 6・旧＝最初の 1 本だけ）
+		const list = Array.isArray(ms.sprite) ? ms.sprite : [{ id: "default", url: ms.sprite }];
+		await Promise.all(list.filter(e => e?.url).map(e => map.loadSprite(new URL(e.url, ext.baseUrl).href, e.id && e.id !== "default" ? e.id + ":" : "").catch(err => console.warn("[style] sprite", e.id, err))));
 	}
 	if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "raster-dem") {   // style の terrain（MapLibre）＝その raster-dem を地形へ（#36）
 		const sp = { ...ms.sources[ms.terrain.source] }; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (sp.tiles) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
@@ -3676,7 +3704,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
 		const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null) : null;
 		const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)]) : e.pbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
-		for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });
+		for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 	}
 	const upbf = gint.userGint?.pbf;
 	if (upbf && take("user")) {
