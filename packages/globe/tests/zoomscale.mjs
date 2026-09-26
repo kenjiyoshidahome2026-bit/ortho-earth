@@ -40,7 +40,7 @@ const n4 = check("GintLayerHandle", HANDLE_MEMBERS, "handle");
 for (const [label, table] of [["map", MAP_MEMBERS], ["raster", RASTER_MEMBERS], ["handle", HANDLE_MEMBERS]])
 	for (const [k, v] of Object.entries(table)) if (!KINDS.has(v)) ng(`${label}.${k}: unknown kind "${v}"`);
 for (const [k, v] of Object.entries(GADGET_MEMBERS))
-	if (!(v === "none" || v === "layer" || v === "engine" || (v && Array.isArray(v.opts) && v.opts.length))) ng(`gadget.${k}: bad entry ${JSON.stringify(v)}`);
+	if (!(v === "none" || v === "layer" || v === "engine" || (v && Array.isArray(v.opts) && v.opts.length && (v.arg == null || Number.isInteger(v.arg))))) ng(`gadget.${k}: bad entry ${JSON.stringify(v)}`);
 
 // 旗の読み取り（既定 ortho・未知は投げる）
 if (zoomScaleOf({}) !== "ortho" || zoomScaleOf({ zoomScale: "maplibre" }) !== "maplibre") ng("zoomScaleOf default/maplibre");

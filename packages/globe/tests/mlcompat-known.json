@@ -6,9 +6,7 @@
 		"dem-custom": "段6：raster-dem の encoding custom が無い",
 		"tile-quadkey-vector": "段6：{quadkey} を展開しない",
 		"tile-quadkey-raster": "段6：{quadkey} を展開しない（こちらは {q}）",
-		"legacy-fn-interp-default": "段5：旧式の関数の default が属性の欠損で効かない（R19）",
-		"shift-roundtrip": "段1：zoom のずらしが入れ子のまま育つ（R4）",
-		"normalize-idempotent": "段1：normalizeMLLayer がまだ無い"
+		"legacy-fn-interp-default": "段5：旧式の関数の default が属性の欠損で効かない（R19）"
 	},
 	"browser": {
 		"layers:highlight-same-source": "段4：同じ source の層を 1 枚に畳み filter を all で結ぶ（U7）＝ハイライト層で元の層ごと消える",
@@ -17,12 +15,9 @@
 		"layers:fill-no-outline": "段4：fill だけの層に既定色の輪郭が付く（線色 α0＝style 表の既定色）",
 		"layers:circle-defaults": "段4：circle の既定値が MapLibre と違う（黒・半径 5 でなく既定色・1.5px）",
 		"layers:circle-opacity": "段4：circle-opacity を読まない（line-opacity を読む）",
-		"layers:stops-addLayer": "段1：addLayer で旧式の関数（stops）を読み替えない（setStyle 経路だけ）",
-		"layers:legacy-filter-addLayer": "段1：addLayer で旧式フィルタを読み替えない（全部消える）",
 		"layers:geojson-relative-url": "段6：geojson の data の相対 URL をバケツ名として引く（geopbf の isURL は ^https? だけ）",
 		"layers:raster-tilejson-url": "段6：addLayer 経路で raster の url（TileJSON）を型紙として使う",
 		"layers:raster-layer-minzoom": "段5：raster の層の minzoom/maxzoom を無視する（表示窓に渡さない）",
-		"layers:unknown-op-throws": "段5：知らない演算子を黙って受け取る（MapLibre は層を足さずにエラー）",
-		"style:geojson-layer-minzoom-is-maplibre-z": "段1：style.json の geojson の層だけ zoom をずらさない（mlstyle.js:154）"
+		"layers:unknown-op-throws": "段5：知らない演算子を黙って受け取る（MapLibre は層を足さずにエラー）"
 	}
 }

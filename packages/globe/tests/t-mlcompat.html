@@ -148,6 +148,12 @@ try {
 			const e = map.raster.list().find(r => r.id === "rz-l");
 			return [e?.opts?.minZoom === 12, e ? JSON.stringify(e.opts) : "no raster entry"];
 		});
+		await scene("gadget-symbols-legacy-filter", async () => {   // ML 形 gadget の層 object も入口 1 本（旧式フィルタ・{token}）
+			await map.gadget.symbols(fc([pt(142.2, 37.2, { name: "C" }), pt(142.2, 36.4, { name: "D" })]), { id: "sy", layout: { "text-field": "{name}", "text-size": 14 }, filter: ["==", "name", "C"] });
+			await sleep(1500);
+			const c = await at(142.2, 37.2, ["sy"]), d = await at(142.2, 36.4, ["sy"]);
+			return [c.includes("sy") && !d.includes("sy"), `C=${c} D=${d}`];
+		});
 		await scene("unknown-op-throws", async () => {
 			map.addSource("uo", { type: "geojson", data: fc([sq(150, -30, 0.1, {})]) });
 			let threw = false;
@@ -164,7 +170,7 @@ try {
 			},
 			layers: [
 				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
-				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": "#9ec3e6" } },
+				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },   // zoom を持つ基図の層＝往復のずれが見える
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 			],
 		};
@@ -176,6 +182,30 @@ try {
 		map.jumpTo({ zoom: 12.5 });   // エンジン z 12.5＝MapLibre の z 11.5＝出る
 		await sleep(2500);
 		await scene("geojson-layer-shown-above-minzoom", async () => { const h = await hit(); return [h.includes("g"), `engine z12.5 → ${h}`]; });
+		// 公開の口（旗なし＝エンジン z）で style.json の層を触る＝層の目盛り（MapLibre の z）との差は受け手が埋める
+		await scene("setter-scale-on-style-layer", async () => {
+			const w = ["interpolate", ["linear"], ["zoom"], 10, 2, 14, 12];
+			map.setPaintProperty("g", "circle-radius", w);
+			const back = map.getPaintProperty("g", "circle-radius");
+			map.setLayerZoomRange("g", 13, 24);   // エンジン z 13 から
+			await sleep(1500);
+			const h1 = await hit();   // 今はエンジン z 12.5＝出ない
+			map.jumpTo({ zoom: 13.5 }); await sleep(2000);
+			const h2 = await hit();   // エンジン z 13.5＝出る
+			map.setLayerZoomRange("g", 12, 24); map.jumpTo({ zoom: 12.5 }); await sleep(1500);   // 元に戻す＝MapLibre の z 11＝エンジン z 12（公開の口はエンジン z）
+			return [JSON.stringify(back) === JSON.stringify(w) && !h1.includes("g") && h2.includes("g"), `get=${JSON.stringify(back)} z12.5→${h1} z13.5→${h2}`];
+		});
+		// getStyle → setStyle の往復で層がずれない（三往復して同じ・geojson の層の出る z も同じ）
+		await scene("getstyle-roundtrip-stable", async () => {
+			const pick = st => JSON.stringify(st.layers.map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null, L.filter ?? null, L.paint ?? null]));
+			const s1 = map.getStyle(); await map.setStyle(s1); await sleep(2500);
+			const s2 = map.getStyle(); await map.setStyle(s2); await sleep(2500);
+			const s3 = map.getStyle();
+			map.jumpTo({ zoom: 11.5 }); await sleep(2000);
+			const h = await hit();
+			const wOf = st => JSON.stringify(st.layers.find(L => L.id === "water") ?? null);
+			return [pick(s1) === pick(s3) && !h.includes("g"), `same=${pick(s1) === pick(s3)} z11.5→${h} water1=${wOf(s1)} water3=${wOf(s3)}`];
+		});
 	}
 
 	// ── 爪車 ──

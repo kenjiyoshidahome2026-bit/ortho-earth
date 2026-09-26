@@ -121,27 +121,51 @@ export function convertLayer(L) {
 // ── ズームの読み替え ─────────────────────────────────────────────
 // このエンジンの z は 256px 世界（z が同じなら MapLibre より 1 段寄った縮尺＝MapLibre の z＋1 と同じ見た目）。
 // 外来 style のズーム（["zoom"]・minzoom・maxzoom）は MapLibre の z で書かれている＝dz だけずらして同じ縮尺で同じ見た目にする。
-const shiftExpr = (e, dz) => {
-	if (!Array.isArray(e)) return e;
+// dz＝「その層の数が書かれた目盛り」−「エンジンの目盛り」（MapLibre の z で書かれた層＝1・エンジンの z＝0）。
+// ["zoom"] は ["-", ["zoom"], dz] に置き換え、既に ["-", ["zoom"], k] の形なら k に畳む（二度ずらしても入れ子が育たない・0 なら ["zoom"] へ戻す）。
+export function shiftZoomExpr(e, dz) {
+	if (!Array.isArray(e) || !dz) return e;
 	if (e.length === 1 && e[0] === "zoom") return ["-", ["zoom"], dz];
+	if (e.length === 3 && e[0] === "-" && Array.isArray(e[1]) && e[1].length === 1 && e[1][0] === "zoom" && typeof e[2] === "number") {
+		const k = e[2] + dz;
+		return k === 0 ? ["zoom"] : ["-", ["zoom"], k];
+	}
 	if (e[0] === "literal") return e;
-	return e.map(x => shiftExpr(x, dz));
-};
+	return e.map(x => shiftZoomExpr(x, dz));
+}
 export function shiftLayerZoom(L, dz) {
 	if (!dz) return L;
 	const out = { ...L };
 	if (L.minzoom != null) out.minzoom = L.minzoom + dz;
 	if (L.maxzoom != null) out.maxzoom = L.maxzoom + dz;
-	if (L.filter != null) out.filter = shiftExpr(L.filter, dz);
-	for (const k of ["paint", "layout"]) if (L[k]) { out[k] = {}; for (const [p, v] of Object.entries(L[k])) out[k][p] = shiftExpr(v, dz); }
+	if (L.filter != null) out.filter = shiftZoomExpr(L.filter, dz);
+	for (const k of ["paint", "layout"]) if (L[k]) { out[k] = {}; for (const [p, v] of Object.entries(L[k])) out[k][p] = shiftZoomExpr(v, dz); }
 	return out;
 }
+
+// ── MapLibre 形の層の入口（2026-09-26・互換の台帳 maplibre-compat.md の約束 5）────────────────
+// style.json・addLayer・setPaintProperty…・ML 形 gadget の層 object は全部ここを通る＝経路ごとの読み替えを作らない。
+// 層の目盛りは metadata["ortho:dz"] で申告できる（getStyle が付けて返す＝setStyle(getStyle()) で二重にずれない）。無ければ入口の既定 dz。
+// 出力は「エンジンの目盛りに直した層」＝metadata["ortho:dz"] を 0 にして返す＝もう一度通しても何も変わらない（冪等）。
+export const DZ_KEY = "ortho:dz";
+export function layerDzOf(L, dflt = 0) {
+	const v = L?.metadata?.[DZ_KEY];
+	return typeof v === "number" && Number.isFinite(v) ? v : dflt;
+}
+export function normalizeMLLayer(L, dz = 0) {
+	const out = shiftLayerZoom(convertLayer(L), layerDzOf(L, dz));
+	return { ...out, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0 } };
+}
+// 目盛りの付け替え（fromDz の目盛りで書かれた値 → toDz の目盛り）。setter/getter が呼び手と層の目盛りの差を埋めるのに使う
+export const rescaleZoomExpr = (e, fromDz, toDz) => shiftZoomExpr(e, fromDz - toDz);
+export const rescaleZoomNum = (x, fromDz, toDz) => x == null ? x : x + fromDz - toDz;
 
 // ── 振り分け ─────────────────────────────────────────────────────
 // style を「基図に入る層（ひとつのベクタ source）」と「それ以外」へ分ける。
 // 戻り＝{ vectorSource: id|null, base: 基図の層（読み替え済み・background を含む）, raster: 画像の層, geojson: 利用者の層, skipped: [{ id, type, why }] }
 const BASE_TYPES = new Set(["fill", "line", "symbol", "background"]);
-// zoomOffset＝このエンジンの z と style の z の差（既定 1＝上の「ズームの読み替え」）。基図と画像層の層に掛ける（geojson の層は addLayer 側の決まりに任せる）
+// zoomOffset＝このエンジンの z と style の z の差（既定 1＝上の「ズームの読み替え」）。基図と画像層の層は normalizeMLLayer で換算済みにして返す。
+// geojson の層は読み替えずに返す＝受け手（globe の利用者の層）が dz＝layerDzOf(L, zoomOffset) を層に登録し、描き出す時に 1 回だけ normalizeMLLayer
 export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 	const sources = style.sources || {};
 	const vecIds = Object.keys(sources).filter(k => sources[k]?.type === "vector");
@@ -150,9 +174,10 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 	const vectorSource = vecIds.sort((a, b) => count(b) - count(a))[0] ?? null;
 	const base = [], raster = [], geojson = [], skipped = [];
 	for (const L0 of style.layers || []) {
-		const L1 = convertLayer(L0), sp = sources[L1.source];
-		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L1); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
-		const L = shiftLayerZoom(L1, zoomOffset);
+		const sp = sources[L0.source];
+		// geojson / image / video の層＝利用者の層の口へ「そのまま」渡す（読み替えと目盛りの換算は受け手が normalizeMLLayer で 1 回＝dz は受け手が layerDzOf(L, zoomOffset) で決める）
+		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L0); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
+		const L = normalizeMLLayer(L0, zoomOffset);
 		if (L.type === "background") { base.push(L); continue; }
 		if (sp?.type === "raster") { raster.push(L); continue; }
 		if (L.source !== vectorSource) { skipped.push({ id: L.id, type: L.type, why: sp ? `source "${L.source}" (${sp.type}) is not the basemap` : `source "${L.source}" missing` }); continue; }

@@ -19,7 +19,7 @@ const RE = [
 const ALLOW = {
 	"apps/world/src/worldlayers.js": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
-	"packages/globe/src/globe.js": 10,    // 見通し線の "los"・style.json の geojson 層・ML 層の描き出し（extrude/heatmap/cluster）・worldcontent の symbols
+	"packages/globe/src/globe.js": 2,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
 };
 
 const found = {};
