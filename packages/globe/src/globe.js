@@ -2124,7 +2124,9 @@ const elevOf = (lon, lat) => {
 	if (hit !== undefined) return typeof hit === "number" ? hit : 0;
 	if (!getHeight || elevInflight >= ELEV_INFLIGHT_MAX) return 0;   // 溢れ＝照会しない（メモ未登録のまま）
 	elevMemo.set(k, null); elevInflight++;
-	Promise.resolve(getHeight(lon, lat, cam.zoom)).then(h => { elevMemo.set(k, +h || 0); }, () => elevMemo.set(k, 0))
+	// wait＝他のタイル読込中は順番を待つ。無し＝読込中の照会は 0 が返り、それを本物の 0m としてメモに焼いて以後ずっと海面だった
+	//（同じフレームで数十点を初照会するフットプリント＝最初の 1 点だけ標高が乗った・2026-09-27）
+	Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })).then(h => { elevMemo.set(k, +h || 0); }, () => elevMemo.set(k, 0))
 		.then(() => { elevInflight--; if (!elevDrawPending) { elevDrawPending = true; requestAnimationFrame(() => { elevDrawPending = false; needsDraw = true; }); } });
 	return 0;
 };
