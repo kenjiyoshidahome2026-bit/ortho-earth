@@ -50,14 +50,14 @@ ok("?hi=0 → 16 コアでも HI 偽", tier({ search: "?hi=0", nav: nav({ hardwa
 ok("?hi=1 → 4 コアでも HI 真（MID と両立）", (() => { const t = tier({ search: "?hi=1", nav: nav({ hardwareConcurrency: 4 }) }); return t.HI_TIER === true && t.MID_TIER === true; })());
 ok("?mid=1 は MID を立て HI を折る（HI は !MID_TIER 条件）", (() => { const t = tier({ search: "?mid=1", nav: nav({ hardwareConcurrency: 16 }) }); return t.MID_TIER === true && t.HI_TIER === false; })());
 
-// renderFx（#46）＝描画の質の旗：既定は WebGPU×非 LOW_MEM で on・LOW_MEM／GL2 は off・opts.render で個別 off・?fx= が勝つ
-const fx = (o) => renderFx({ render: null, search: "", LOW_MEM: false, gpuBackend: true, ...o });
-ok("renderFx: WebGPU×非 LOW_MEM → 全部 on", (() => { const f = fx({}); return f.atmosphere && f.pbr && f.ao; })());
-ok("renderFx: LOW_MEM → 全部 off", (() => { const f = fx({ LOW_MEM: true }); return !f.atmosphere && !f.pbr && !f.ao; })());
-ok("renderFx: GL2 → 全部 off", (() => { const f = fx({ gpuBackend: false }); return !f.atmosphere && !f.pbr && !f.ao; })());
-ok("renderFx: opts.render.ao:false → ao だけ off", (() => { const f = fx({ render: { ao: false } }); return f.atmosphere && f.pbr && !f.ao; })());
-ok("renderFx: ?fx=pbr は LOW_MEM でも pbr だけ on", (() => { const f = fx({ LOW_MEM: true, search: "?fx=pbr" }); return !f.atmosphere && f.pbr && !f.ao; })());
-ok("renderFx: ?fx=noatmosphere,ao は opts より強い", (() => { const f = fx({ render: { ao: false }, search: "?a=1&fx=noatmosphere,ao" }); return !f.atmosphere && f.pbr && f.ao; })());
+// renderFx（#46）＝描画の質の旗：ell と同じ作法＝既定は全部 off・?pbr=1 等の URL で点ける・?pbr=0 は opts より強い・opts.render は組み込みの口
+const fx = (o) => renderFx({ render: null, search: "", ...o });
+ok("renderFx: 既定＝全部 off", (() => { const f = fx({}); return !f.atmosphere && !f.pbr && !f.ao; })());
+ok("renderFx: ?pbr=1 → pbr だけ on", (() => { const f = fx({ search: "?pbr=1" }); return !f.atmosphere && f.pbr && !f.ao; })());
+ok("renderFx: ?atmosphere=1&ao=1（他の引数の後ろでも）", (() => { const f = fx({ search: "?a=1&atmosphere=1&ao=1" }); return f.atmosphere && !f.pbr && f.ao; })());
+ok("renderFx: opts.render.ao:true → ao だけ on", (() => { const f = fx({ render: { ao: true } }); return !f.atmosphere && !f.pbr && f.ao; })());
+ok("renderFx: ?ao=0 は opts より強い", (() => { const f = fx({ render: { ao: true }, search: "?ao=0" }); return !f.ao; })());
+ok("renderFx: ?fx= は読まない（旧書式）", (() => { const f = fx({ search: "?fx=pbr" }); return !f.pbr; })());
 
 // deadMap＝どんな連鎖も無害に空転
 const d = deadMap();
