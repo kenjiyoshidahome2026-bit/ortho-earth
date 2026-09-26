@@ -218,7 +218,7 @@ function build(e, o = "native") {
 		case "slice": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; return ctx => { const v = a(ctx); return v == null ? v : v.slice(b(ctx), c ? c(ctx) : undefined); }; }
 		case "index-of": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; return ctx => { const h = b(ctx); return h == null ? -1 : h.indexOf(a(ctx), c ? c(ctx) : undefined); }; }   // 開始位置（2026-09-26）
 		case "abs": case "floor": case "ceil": case "round": case "sqrt": case "log10": case "log2":
-		case "sin": case "cos": case "tan": case "asin": case "acos": case "atan": { const a = compile_(e[1]), f = MATH1.get(op); return ctx => f(a(ctx)); }   // 三角関数（2026-09-26）・関数は名前で引く表（動的な Math[op] を使わない）
+		case "sin": case "cos": case "tan": case "asin": case "acos": case "atan": { const a = compile_(e[1]), f = MATH1.get(op); if (typeof f !== "function") return () => undefined; return ctx => f(a(ctx)); }   // 三角関数（2026-09-26）・関数は名前で引く表（動的な Math[op] を使わない・呼ぶ前に関数か確かめる＝CodeQL）
 		case "at": {   // ["at", 添字, 配列]（2026-09-26）
 			const i = compile_(e[1]), a = compile_(e[2]);
 			return ctx => { const arr = a(ctx), k = i(ctx); if (ML && (!Array.isArray(arr) || !Number.isInteger(k) || k < 0 || k >= arr.length)) mlFail(); return Array.isArray(arr) ? arr[k] : undefined; };
