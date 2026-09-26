@@ -90,6 +90,9 @@ try {
 		// S8 欠損・null と比べる filter（MapLibre＝型の合わない比較は評価エラー＝偽）。欠損は JS でも偽（undefined＜1000＝false）・null は geopbf が属性ごと落とす＝欠損と同じ＝今も一致（見張り）
 		map.addSource("nc", { type: "geojson", data: fc([sq(139.5, 35.3, 0.3, { pop: 500 }), sq(140.5, 35.3, 0.3, {}), sq(141.5, 35.3, 0.3, { pop: null })]) });
 		await map.addLayer({ id: "nc-f", type: "fill", source: "nc", filter: ["<", ["get", "pop"], 1000], paint: { "fill-color": "#00ffff" } });
+		// S9 真偽でない条件（MapLibre＝評価エラー＝filter 偽・ネイティブなら文字列は真）＝ML の意味が gint の層まで届くか（段 3）
+		map.addSource("cb", { type: "geojson", data: fc([sq(133.8, 34.2, 0.3, { flag: true }), sq(135.0, 34.2, 0.3, { flag: "yes" })]) });
+		await map.addLayer({ id: "cb-f", type: "fill", source: "cb", filter: ["case", ["get", "flag"], true, false], paint: { "fill-color": "#884400" } });
 		await sleep(3000);
 		const after = await snap(map);
 
@@ -125,6 +128,7 @@ try {
 		});
 		await scene("stops-addLayer", () => { const c = px(after, ...P(136.2, 35.3)); return [near(c, [255, 0, 0]), `center=${c}`]; });
 		await scene("legacy-filter-addLayer", async () => { const c = await at(137.5, 35.3, ["lf-f"]), d = await at(138.5, 35.3, ["lf-f"]); return [c.includes("lf-f") && !d.includes("lf-f"), `C=${c} D=${d}`]; });
+		await scene("ml-case-string-condition", async () => { const a = await at(133.8, 34.2, ["cb-f"]), b = await at(135.0, 34.2, ["cb-f"]); return [a.includes("cb-f") && !b.includes("cb-f"), `true=${a} "yes"=${b}`]; });
 		await scene("compare-missing-filter", async () => { const e = await at(139.5, 35.3, ["nc-f"]), f = await at(140.5, 35.3, ["nc-f"]); return [e.includes("nc-f") && !f.includes("nc-f"), `pop500=${e} missing=${f}`]; });
 		await scene("compare-null-filter", async () => { const n = await at(141.5, 35.3, ["nc-f"]); return [!n.includes("nc-f"), `null=${n}`]; });
 
@@ -170,7 +174,8 @@ try {
 			},
 			layers: [
 				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
-				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },   // zoom を持つ基図の層＝往復のずれが見える
+				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
+				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 			],
 		};
@@ -178,6 +183,17 @@ try {
 		const map = await createGlobe({ target: "#map", view: "#11.5/35.45/139.85", chips: false, style });
 		await sleep(7000);
 		const hit = async () => { const [x, y] = map.projectLL(139.85, 35.45); return (await map.queryRenderedFeatures([x, y], { layers: ["g"] })).map(f => f.layer.id); };
+		await scene("ml-base-filter-get-missing-null", async () => {
+			map.jumpTo({ zoom: 10.5 }); await sleep(4000);   // 試料のタイルは z7/10/13/15 だけ＝エンジン z10.5 で z10 のタイルを見る（t-mlstyle と同じ）
+			const [x, y] = map.projectLL(139.83, 35.43);
+			const q = (await map.queryRenderedFeatures([x, y], { layers: ["water"] })).map(f => f.layer.id);
+			const img = await snap(map), wet = [[139.83, 35.43], [139.9, 35.36], [139.78, 35.5]].filter(([lo, la]) => near(px(img, ...map.projectLL(lo, la)), [158, 195, 230], 50)).length;
+			const wl = map.getStyle().layers.find(L => L.id === "water"), all = (await map.queryRenderedFeatures([x, y])).map(f => f.layer.id);
+			const { evalExpr } = await import("@ortho-earth/core");
+			const direct = evalExpr(wl?.filter, { zoom: 11, props: {}, geom: "Polygon", vars: {}, origin: wl?.metadata?.["ortho:origin"] });
+			map.jumpTo({ zoom: 11.5 }); await sleep(2500);   // 次の場面の視点へ戻す
+			return [q.includes("water") && wet >= 2, `query=${q} wetPixels=${wet}/3${q.includes("water") ? "" : ` meta=${JSON.stringify(wl?.metadata)} direct=${direct} all=${all}`}`];
+		});
 		await scene("geojson-layer-minzoom-is-maplibre-z", async () => { const h = await hit(); return [!h.includes("g"), `engine z11.5 → ${h}`]; });
 		map.jumpTo({ zoom: 12.5 });   // エンジン z 12.5＝MapLibre の z 11.5＝出る
 		await sleep(2500);

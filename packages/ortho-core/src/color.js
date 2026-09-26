@@ -10,14 +10,22 @@ const hsl2rgb = (h, s, l) => { h = ((h % 360) + 360) % 360 / 360; const q = l < 
 // 戻り値は共有・凍結配列＝呼び出し側は非破壊で読むだけ（NAMED も従来から共有配列を返している前提と同じ）。
 // 凍結で万一の破壊代入を早期顕在化。distinct 色文字列は style 由来で有界＝上限不要。
 const memo = new Map();
+const BLACK = Object.freeze([0, 0, 0, 1]);
 export function parseRGBA(s) {
 	if (Array.isArray(s)) return s;
 	if (typeof s !== "string") return [0, 0, 0, 1];
 	let hit = memo.get(s);
-	if (hit !== undefined) return hit;
-	hit = Object.freeze(compute(s));
-	memo.set(s, hit);
-	return hit;
+	if (hit !== undefined) return hit ?? BLACK;
+	hit = compute(s);
+	memo.set(s, hit ? Object.freeze(hit) : null);
+	return hit ? memo.get(s) : BLACK;   // 読めない色は黒（従来どおり）
+}
+// 色として読めるか（MapLibre の to-color・型の表明用・2026-09-26）。読めない文字列は false（parseRGBA は黒に落とすので区別がつかない）
+export function isColor(s) {
+	if (Array.isArray(s)) return s.length >= 3 && s.every(v => typeof v === "number");
+	if (typeof s !== "string") return false;
+	parseRGBA(s);
+	return memo.get(s) != null;
 }
 
 function compute(s) {
@@ -32,5 +40,5 @@ function compute(s) {
 		let h = m[1]; if (h.length === 3 || h.length === 4) h = [...h].map(c => c + c).join("");
 		return [parseInt(h.slice(0, 2), 16) / 255, parseInt(h.slice(2, 4), 16) / 255, parseInt(h.slice(4, 6), 16) / 255, h.length >= 8 ? parseInt(h.slice(6, 8), 16) / 255 : 1];
 	}
-	return [0, 0, 0, 1];
+	return null;   // 読めない（parseRGBA が黒へ落とす・isColor は false）
 }

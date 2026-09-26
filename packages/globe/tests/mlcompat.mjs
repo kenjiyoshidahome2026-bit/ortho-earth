@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as mlstyle from "../../ortho-core/src/mlstyle.js";
-import { evalExpr } from "../../ortho-core/src/expr.js";
+import { evalExpr, originOfLayer } from "../../ortho-core/src/expr.js";
 import { decodeDEM } from "../../ortho-core/src/dem-src.js";
 import { expandTemplate } from "../../ortho-core/src/raster-src.js";
 import { symbolItems } from "../src/gadgets/symbols-core.js";
@@ -16,6 +16,7 @@ const KNOWN = JSON.parse(fs.readFileSync(path.join(DIR, "mlcompat-known.json"), 
 const deq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 const fc = fs => ({ type: "FeatureCollection", features: fs });
 const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
+const MLc = props => ({ zoom: 10, props, geom: "Polygon", vars: {}, origin: "ml" }), NAc = props => ({ zoom: 10, props, geom: "Polygon", vars: {} });
 
 const SCENES = {
 	// ── 記号：MapLibre は面にも線にも点置きのラベルを置く（面＝到達不能極・線＝頂点）──
@@ -57,6 +58,29 @@ const SCENES = {
 		const L = { id: "x", type: "line", minzoom: 5, paint: { "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 10, 4] } };
 		const back = mlstyle.shiftLayerZoom(mlstyle.shiftLayerZoom(L, 1), -1);
 		return [deq(back, L), JSON.stringify(back.paint["line-width"])];
+	},
+	// ── 式の意味（段 3・MapLibre の文書から来た式＝ctx.origin "ml"）──
+	"ml-compare-null": () => { const v = evalExpr(["<", ["get", "pop"], 1000], MLc({ pop: null })); return [v === undefined, `v=${v}`]; },   // 型の合わない大小比較＝評価エラー
+	"ml-get-missing-is-null": () => { const v = evalExpr(["==", ["get", "x"], null], MLc({})); return [v === true, `v=${v}`]; },
+	"ml-case-nonboolean": () => { const v = evalExpr(["case", ["get", "s"], 1, 2], MLc({ s: "abc" })); return [v === undefined, `v=${v}`]; },
+	"ml-to-number-fallback": () => { const v = evalExpr(["to-number", ["get", "x"], 7], MLc({ x: "abc" })); return [v === 7, `v=${v}`]; },
+	"ml-number-assert-fallback": () => { const v = evalExpr(["number", ["get", "x"], 5], MLc({ x: "abc" })); return [v === 5, `v=${v}`]; },
+	"ml-interpolate-input-type": () => { const v = evalExpr(["interpolate", ["linear"], ["get", "x"], 0, 0, 10, 10], MLc({ x: "a" })); return [v === undefined, `v=${v}`]; },
+	"native-compare-null-kept": () => { const v = evalExpr(["<", ["get", "pop"], 1000], NAc({ pop: null })); return [v === true, `v=${v}`]; },   // ネイティブの寛容な意味は据え置き（契約）
+	"origin-cache-isolation": () => {
+		const e = ["<", ["get", "pop"], 1000];
+		const a = evalExpr(e, MLc({ pop: null })), b = evalExpr(e, NAc({ pop: null })), c = evalExpr(e, MLc({ pop: null }));
+		return [a === undefined && b === true && c === undefined, `${a}/${b}/${c}`];
+	},
+	"origin-mark-survives-clone": () => { const L = structuredClone(mlstyle.normalizeMLLayer({ id: "a", type: "fill", source: "s" }, 0)); return [originOfLayer(L) === "ml", JSON.stringify(L.metadata)]; },   // worker へ postMessage しても残る平の印
+	// ── 足した演算子（両方の出自）──
+	"op-at": () => { const e = ["at", 1, ["literal", [5, 6, 7]]]; return [evalExpr(e, NAc({})) === 6 && evalExpr(e, MLc({})) === 6, "at"]; },
+	"op-trig": () => [evalExpr(["sin", 0], NAc({})) === 0 && evalExpr(["cos", 0], MLc({})) === 1 && Math.abs(evalExpr(["atan", 1], NAc({})) - Math.PI / 4) < 1e-12, "sin/cos/atan"],
+	"op-to-rgba": () => { const v = evalExpr(["to-rgba", "#ff0000"], MLc({})); return [deq(v, [255, 0, 0, 1]), JSON.stringify(v)]; },
+	"op-cubic-bezier": () => {
+		const e = ["interpolate", ["cubic-bezier", 0.42, 0, 0.58, 1], ["zoom"], 0, 0, 10, 10];
+		const mid = evalExpr(e, { ...NAc({}), zoom: 5 }), early = evalExpr(e, { ...NAc({}), zoom: 2 });
+		return [Math.abs(mid - 5) < 1e-6 && early < 2, `mid=${mid} early=${early}`];
 	},
 	// ── ML の層の入口は 1 本（normalizeMLLayer・二度通しても同じ＝台帳 R4）──
 	"normalize-idempotent": () => {

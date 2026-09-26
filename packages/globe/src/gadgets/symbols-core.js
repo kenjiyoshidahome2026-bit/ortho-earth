@@ -1,5 +1,5 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
-import { evalExpr, truthy } from "@ortho-earth/core";
+import { evalExpr, truthy, originOfLayer } from "@ortho-earth/core";
 import { evalColor } from "./model.js";
 
 const css = q => q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${q[3] ?? 1})` : null;
@@ -12,6 +12,7 @@ export function textOf(e, ctx) {
 	return v == null ? "" : String(v);
 }
 export function symbolItems(src, layer = {}, zoom = 10, images = null) {
+	const origin = originOfLayer(layer);   // MapLibre の層（normalizeMLLayer の印）＝MapLibre の意味で評価
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	if ((layer.minzoom != null && zoom < layer.minzoom) || (layer.maxzoom != null && zoom >= layer.maxzoom)) return [];
 	const Ly = layer.layout || {}, Pt = layer.paint || {}, out = [];
@@ -19,7 +20,7 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 		const g = f?.geometry; if (!g) continue;
 		const pts = g.type === "Point" ? [g.coordinates] : g.type === "MultiPoint" ? g.coordinates : null;
 		if (!pts) continue;
-		const props = f.properties || {}, ctx = { zoom, props, geom: "Point", vars: {} };
+		const props = f.properties || {}, ctx = { zoom, props, geom: "Point", vars: {}, origin };
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
 		const ev = (e, d) => e == null ? d : evalExpr(e, ctx);
 		const strs = e => e == null ? null : Array.isArray(e) && e.length && e.every(x => typeof x === "string") && !["literal", "match", "case", "step", "get", "coalesce"].includes(e[0]) ? e : (v => Array.isArray(v) ? v : null)(evalExpr(e, ctx));   // 文字列の配列リテラル（["top","bottom"]）は式でない

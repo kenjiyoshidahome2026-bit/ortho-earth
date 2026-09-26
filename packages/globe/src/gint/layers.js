@@ -289,6 +289,7 @@ function addGint(pbf, opts = {}) {
 	const seq = layers.nextId(), id = "gl" + seq;
 	// 手綱の目盛り（旗つきの地図＝外側の顔 mlfacade が _dz を渡す・内部の呼び手は渡さない＝0）。作る時の opts は顔が換算済み＝ここは後から来る口だけ
 	const hdz = opts._dz ?? 0;
+	const hOrigin = opts.origin === "ml" ? "ml" : undefined;   // MapLibre の層（globe の ML アダプタが付ける）＝式を MapLibre の意味で評価
 	const zi = z => zIn(z, hdz);
 	const zx = e => e == null || !hdz ? e : shiftZoomExpr(e, hdz);
 	const zRange = o => { if (!o || typeof o !== "object" || !hdz) return o; const r = { ...o }; if (r.minZoom != null) r.minZoom = zi(r.minZoom); if (r.maxZoom != null) r.maxZoom = zi(r.maxZoom); if (Array.isArray(r.field)) r.field = zx(r.field); return r; };
@@ -415,7 +416,7 @@ function addGint(pbf, opts = {}) {
 			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates });
+			const { u32, count } = buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
 			lastTable = u32;
 			renderer.set("gintPaint", { table: u32, count }, undefined, id);
 			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）

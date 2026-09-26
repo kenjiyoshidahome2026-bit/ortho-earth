@@ -9,6 +9,7 @@
 // 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・circle・heatmap・線に沿うラベル・アイコン。
 // それらは基図に入れず、呼び手（globe）が「画像層」「利用者の層」へ振り分けるか、捨てて数える（splitMapLibreStyle の戻り値）。
 
+import { ORIGIN_KEY } from "./expr.js";
 // ── ① 旧式フィルタ ───────────────────────────────────────────────
 // MapLibre の isExpressionFilter と同じ判定（両方の書き方が混ざった style もある）
 export function isExpressionFilter(f) {
@@ -154,7 +155,7 @@ export function layerDzOf(L, dflt = 0) {
 }
 export function normalizeMLLayer(L, dz = 0) {
 	const out = shiftLayerZoom(convertLayer(L), layerDzOf(L, dz));
-	return { ...out, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0 } };
+	return { ...out, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0, [ORIGIN_KEY]: "ml" } };   // 出自の印＝評価器が MapLibre の意味で評価する（expr.js・約束 4）
 }
 // 目盛りの付け替え（fromDz の目盛りで書かれた値 → toDz の目盛り）。setter/getter が呼び手と層の目盛りの差を埋めるのに使う
 export const rescaleZoomExpr = (e, fromDz, toDz) => shiftZoomExpr(e, fromDz - toDz);

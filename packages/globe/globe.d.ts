@@ -352,7 +352,11 @@ export interface RasterAPI {
 	toggle(catalogId: string, on?: boolean): Promise<boolean>;
 }
 
-/** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal） */
+/** 式（MapLibre style expression の部分集合：get has ! all any == != > >= < <= in match step case let var interpolate coalesce to-number to-string concat zoom geometry-type + - * / % ^ min max literal ほか。
+ *  1.3.0〜 at・sin/cos/tan/asin/acos/atan・to-rgba・cubic-bezier 補間・index-of の開始位置・get/has の object 引数）。
+ *  MapLibre の文書から来た式（style.json・addLayer・ML 形 gadget・queryRenderedFeatures の filter）は MapLibre の型の約束で評価する（1.3.0〜）：
+ *  型の合わない大小比較・真偽でない条件（! all any case）・数でない interpolate/step の入力・外れた型の表明は評価エラー＝filter は偽・paint は既定値。
+ *  get の欠損は null。to-number／number／string／boolean は予備の引数へ落ちる。map.paint・addGint のネイティブの式は従来の寛容な意味のまま。within/distance は未対応 */
 export type StyleExpression = unknown[] | number | string | boolean;
 export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean;
 	/** 床の高さ[m]＝その高さの平面に浮かせる（1.2.0〜・高さはその平面から測る）。"drape"＝地形に沿わせる。無指定＝広い面（統計）は 2000m の平面・建物らしい小さい面は接地 */
@@ -673,7 +677,7 @@ export interface OrthoJapanMap {
 	 * Mapbox 風 paint 式で fid スタイル表を組む（null=解除）。評価は呼び出し時に一度だけ（zoom 追随は再呼び）。
 	 * 式の演算子サブセット：get has ! all any == != > >= < <= in match step case let var interpolate coalesce
 	 * to-number to-string concat zoom geometry-type feature-state + - * / % ^ min max literal。色は #hex / rgb() / rgba()
-	 * （名前色は transparent/white/black のみ）。filter＝真偽式（偽の feature は非表示）。
+	 * （CSS の色名・hsl も可）。filter＝真偽式（偽の feature は非表示）。
 	 * 例：{ "fill-color": ["step", ["get", "pop"], "#eff3ff", 1, "#bdd7e7", 4, "#3182bd"], "fill-opacity": 0.85,
 	 *      "line-width": ["case", ["==", ["get", "id"], 13], 3.5, 0.9] }
 	 */
