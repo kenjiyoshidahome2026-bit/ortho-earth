@@ -419,6 +419,15 @@ try {
 			return [a.some(f => f.properties?.name === b.name) && !gone.length, `hit=${names(a)} afterRemove=${names(gone)}${diag}`];
 		};
 		await vscene("addsource-tilejson", () => addAndHit("vt2", { type: "vector", url: FX + "vt.json" }, "b3d-2"));
+		// source の出典（TileJSON の attribution）＝層がある間は出典の欄に出る・層と source を外すと消える（MapLibre の AttributionControl と同じ）
+		await vscene("source-attribution", async () => {
+			const has = () => (document.getElementById("attr")?.textContent || "").includes("t-mlcompat fixture tiles");
+			map.addSource("vt5", { type: "vector", url: FX + "vt.json" });
+			await map.addLayer({ id: "b3d-5", type: "fill-extrusion", source: "vt5", "source-layer": "building", paint: { "fill-extrusion-height": 10 } });
+			await sleep(1500); const on = has();
+			map.removeLayer("b3d-5"); map.removeSource("vt5"); await sleep(1500); const off = has();
+			return [on && !off, `on=${on} off=${off} attr=${(document.getElementById("attr")?.textContent || "none").slice(0, 80)}`];
+		});
 		await vscene("addsource-pmtiles", () => addAndHit("vt3", { type: "vector", url: "pmtiles://" + FX + "vt.pmtiles" }, "b3d-3"));
 		map.addProtocol("vtfix", async ({ url }) => { const r = await fetch(url.replace("vtfix://", FX + "vt/")); return { data: r.ok ? await r.arrayBuffer() : null }; });
 		await vscene("addsource-addprotocol", () => addAndHit("vt4", { type: "vector", tiles: ["vtfix://{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 }, "b3d-4"));
