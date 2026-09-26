@@ -870,6 +870,6 @@ export function quad6WGSL(code) {
 	];
 	let out = code, hit = 0;
 	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
-	if (hit === 0 || /i32\(vi\) [/%] 4;/.test(out)) throw new Error("quad6WGSL: 変換漏れ（4 頂点の目印が残っている／無い）＝原本の書式が変わった疑い");
+	if (hit === 0 || /i32\(vi\) [/%] 4;/.test(out)) throw new Error("quad6WGSL: rewrite incomplete (4-vertex markers missing or left over) = the source shader format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
 	return out;
 }

@@ -257,7 +257,7 @@ const GND_FAST_HEAD = "\tif (GD0.p.x < 0.5) { return col; }   // 地面アトラ
 const GND_SAMPLE_TAIL = "\tlet c3 = textureSample(gndTex3, gndSamp, vec2f(clamp(uv3.x, 0.0, 1.0), 1.0 - clamp(uv3.y, 0.0, 1.0)));\n";
 export function gndMixSlow(code) {
 	if (!code.includes("fn gndMix0(")) return code;   // FRAME を含まないモジュール（AO・深度の書き出し等）はそのまま
-	if (!code.includes(GND_FAST_HEAD) || !code.includes(GND_SAMPLE_TAIL)) throw new Error("gndMixSlow: 変換の目印が無い＝gndMix0 の書式が変わった疑い");
+	if (!code.includes(GND_FAST_HEAD) || !code.includes(GND_SAMPLE_TAIL)) throw new Error("gndMixSlow: rewrite markers missing = the gndMix0 source format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
 	return code.replace(GND_FAST_HEAD, "").replace(GND_SAMPLE_TAIL, GND_SAMPLE_TAIL + "\tif (GD0.p.x < 0.5) { return col; }\n");
 }
 
