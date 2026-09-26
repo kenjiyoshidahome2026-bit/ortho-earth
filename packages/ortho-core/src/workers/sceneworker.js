@@ -15,6 +15,7 @@ import { mergeTiles, coveredTiles, seaFbReal } from "../scene.js";   // index直
 const geom = new Map();   // key → { ops, buildings }
 const geomOf = k => geom.get(k) || null;
 let renderPort = null;    // render worker への直結ポート（MessageChannel の片端）
+let perfOn = false;       // 計器 b（?perf=1・renderworker の mode 通知に相乗り）
 let relayCtlN = 0;   // iOS診断：page からの relayCtl 受信数
 let failNext = false;
 
@@ -226,6 +227,7 @@ self.onmessage = (e) => {
 		renderPort.onmessage = ev => {
 			const d = ev.data;
 			if (d.type === "mode") {
+				perfOn = !!d.perf;   // 計器 b（perf plan §1）＝merge の時間と量を console へ（renderworker の ?perf=1 に相乗り）
 				md = d.md ? createMD(d.maxDraws || 128) : null;
 				console.log(`[scene] multi_draw ${md ? `enabled (tiles resident on GPU, max ${md.maxDraws} draw/call)` : "none (CPU merge fallback)"}`);
 			}
@@ -268,7 +270,13 @@ self.onmessage = (e) => {
 				md.lastRef[m.slot] = dl.refs;
 				sweepPendingFree();   // 旧 composition だけが参照していた evict 済みブロックをここで実解放
 			} else {
+				const pT0 = perfOn ? performance.now() : 0;
 				const scene = mergeTiles(m.order, geomOf, { origin: m.origin, hidden: m.hidden ? new Set(m.hidden) : null });
+				if (pT0) {   // 計器 b：結合の CPU 時間（scene worker＝見えないが到着を遅らせる）と結果の量
+					let b = 0; for (const L of scene.layers) for (const k of ["pos", "col", "idx", "P1", "P2", "half", "off"]) if (L[k]) b += L[k].byteLength;
+					if (scene.buildings) b += scene.buildings.pos.byteLength + scene.buildings.shade.byteLength + scene.buildings.anchor.byteLength;
+					console.log(`[scene] merge ${m.slot} ${(performance.now() - pT0).toFixed(1)}ms tiles=${m.order.length} layers=${scene.layers.length} ${(b / 1024) | 0}KB`);
+				}
 				// merge は同期＝結果は要求順に届く＝最後が最新（latest-wins は不要）。transfer で無コピー。
 				if (renderPort) renderPort.postMessage({ type: "scene", slot: m.slot, scene }, collectSceneBuffers(scene));
 				self.postMessage({ type: "merged", slot: m.slot, sig: m.sig });   // ack＝main が sig を確定（fallback＝適用は次フレーム）

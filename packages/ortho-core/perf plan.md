@@ -82,6 +82,8 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 ## 5. P4 地形メッシュの距離適応 LOD とチャンク刈り（順位 4）
 
 **step A（Phase 0）**：`?gmax=768` と既定を同じシーンで比べる。gpuMap の差＝地形の三角形密度が持つ費用の上限。差が 1ms 未満なら P4 は棚上げ。
+→ **実測（2026-09-27・Mac apple metal-3・§8）：富士 z13 60° で 9.59→5.22ms（−4.4ms・−46%）・東京駅 z16.5 55° で 8.45→6.43ms（−2.0ms）＝go。**
+　一律 1/4 の密度でこれだけ落ちる＝視野の遠方が微小三角形の海になっている読み（survey §3.4）が数字で裏付いた。LOD は近景の密度を保ちながら遠方を粗くする＝天井に近い所まで取れる見込み。
 
 **step B（刈りだけ・1〜2 日）**
 - index buffer をチャンク主導（16×16 チャンク・各 96×96 quad）に並べ直す＝総量は同じ 14.1M。
@@ -126,15 +128,21 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 
 ## 8. ベースライン記録欄（Phase 0 で埋める）
 
-| 端末 | シーン | backend | gpuMap ms | gpuGint ms | res | aa | 計器 a 4ms 超/分 | 計器 b 4ms 超/分 | 備考 |
+採り方＝`apps/ortho-japan` で `node scripts/bench-perf.mjs`（頁＝`tests/t-perfbench.html`・実 GPU・実時間・着地 18 秒→計測窓 9 秒はカメラを毎フレーム動かして連続描画・
+計測窓の後半で mem テレメトリの gpuMap/gpuGint（EMA・現解像度）を 3 回読んで中央値）。引っ掛かり＝計器 a/b の 4ms 超の回数（着地 18 秒／移動 9 秒）。
+gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン）＝gint の物差しは `bench-gintsb.mjs`（合成 2.1M 辺）で別に採る。frameMs は 16.7 に飽和（vsync）＝見ない。
+
+| 端末 | シーン | backend | gpuMap ms | gpuGint ms | res | aa | 計器 a 4ms 超（着地/移動） | 計器 b 4ms 超（着地/移動） | 備考 |
 |---|---|---|---|---|---|---|---|---|---|
-| Mac | 2D 東京 z13 | webgpu | | | | | | | |
-| Mac | 富士 z13 60° | webgpu | | | | | | | |
-| Mac | 東京駅 z16.5 55° | webgpu | | | | | | | |
-| Mac | t-demo 飛行 | webgpu | | | | | | | |
+| Mac（apple metal-3） | 2D 東京 z13 | webgpu | 0.72 | 0（層なし） | 1 | 1 | 1 / 0 | 0 / 0 | 2026-09-27 基準線 |
+| Mac（apple metal-3） | 富士 z13 60° | webgpu | 9.59 | 0（層なし） | 1 | 1 | 5 / 0 | 0 / 0 | 地形が支配（P4 の主戦場） |
+| Mac（apple metal-3） | 東京駅 z16.5 55° | webgpu | 8.45 | 0（層なし） | 1 | 1 | 0 / 0 | 0 / 0 | PLATEAU＋押し出し＋地形 |
+| Mac | t-demo 飛行 | webgpu | | | | | | | 未（scene player の組み込みは後段） |
 | iPhone | （同 4 行） | webgpu | | | | | | | |
 | Windows iGPU | （同 4 行） | webgpu | | | | | | | |
-| Mac | 富士 z13 60° `?gmax=768` | webgpu | | | | | | | P4 の天井 |
+| Mac（apple metal-3） | 富士 z13 60° `?gmax=768` | webgpu | 5.22 | 0 | 1 | 1 | 4 / 0 | 0 / 0 | **P4 の天井＝−4.4ms（−46%）**。三角形 1/4 でこれだけ落ちる＝地形の密度が 3D の費用の半分近く |
+| Mac（apple metal-3） | 東京駅 z16.5 55° `?gmax=768` | webgpu | 6.43 | 0 | 1 | 1 | 1 / 0 | 0 / 0 | −2.0ms（−24%）。PLATEAU の街でも地形が 1/4 を占める |
+| Mac（apple metal-3） | 2D 東京 z13 `?gmax=768` | webgpu | 0.70 | 0 | 1 | 1 | 2 / 0 | 0 / 0 | 不変（地形なし）＝計器の再現性の目安 |
 
 ## 9. 別線 P5 topology の uint32 化＋dedup の typed hash／WASM（順位 5・geopbf）
 

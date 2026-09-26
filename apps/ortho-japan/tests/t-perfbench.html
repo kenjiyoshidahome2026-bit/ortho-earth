@@ -1,0 +1,60 @@
+<!doctype html>
+<!-- 性能の基準線を採るベンチ頁（perf plan §1・Phase 0）。回帰検定ではない＝verify には載せない。scripts/bench-perf.mjs が実 GPU・実時間で回す。
+     ?perf=1（計器 a/b と GPU 実時間）＋?hud=0（mem テレメトリ＝gpuMap/gpuGint/res/aa/hitch が main へ 2Hz）を前提に、
+     計画書の 3 シーン（2D 東京 z13 平面／富士 z13 60°／東京駅 z16.5 55°＝PLATEAU 込み）を順に：着地を待つ（LOAD_MS）→ 計測窓（MEASURE_MS）はカメラを
+     毎フレーム少し動かして連続描画にする（3D は方位を回す・2D は中心を流す）→ 窓の後半で __perf を 3 回読んで中央値。
+     引っ掛かり（計器 a/b の 4ms 超）はシーン全体の累計差分。結果は <title> に "PASS {json}"（runRealtime の作法）。?gmax=768 等の旗はそのまま効く。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}</style><title>t-perfbench</title></head>
+<body>
+<script>
+localStorage.setItem("oj.hint", "closed");
+</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const Q = new URLSearchParams(location.search);
+const LOAD_MS = +Q.get("load") || 18000, MEASURE_MS = +Q.get("measure") || 9000;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const median = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
+const SCENES = [
+	{ name: "tokyo2d-z13", center: [139.76, 35.68], zoom: 13, pitch: 0, bearing: 0, spin: false },
+	{ name: "fuji-z13-60t", center: [138.7274, 35.3606], zoom: 13, pitch: 60, bearing: 0, spin: true },
+	{ name: "tokyo-sta-z16.5-55t", center: [139.7671, 35.6812], zoom: 16.5, pitch: 55, bearing: 0, spin: true },
+];
+const only = Q.get("scene");   // 1 シーンだけ回す（名前）
+try {
+	const map = await orthoJapan({ view: "#13/35.68/139.76", chips: false });
+	const perf = () => (window.__perf ? window.__perf() : null);
+	if (!perf()) throw new Error("__perf が無い（debugGlobals）か ?hud= の旗が無い（mem テレメトリ）");
+	await sleep(3000);
+	const out = { flags: location.search, backend: null, gpu: null, scenes: [] };
+	for (const sc of SCENES) {
+		if (only && sc.name !== only) continue;
+		const h0 = perf()?.hitch || { elev: 0, scene: 0 };
+		map.jumpTo({ center: sc.center, zoom: sc.zoom, pitch: sc.pitch, bearing: sc.bearing });
+		await sleep(LOAD_MS);   // タイル・標高・PLATEAU の着地
+		const hLoad = perf()?.hitch || h0;
+		// 計測窓＝連続描画（静止すると描かない＝gpuMap が更新されない）。3D は方位を毎フレーム 0.25° 回す・2D は中心を東へ流す
+		const t0 = performance.now(); let b = sc.bearing, x = sc.center[0], samples = [];
+		let raf = 0;
+		const tick = () => {
+			if (performance.now() - t0 > MEASURE_MS) return;
+			if (sc.spin) { b = (b + 0.25) % 360; map.jumpTo({ bearing: b }); }
+			else { x += 0.00004; map.jumpTo({ center: [x, sc.center[1]] }); }
+			raf = requestAnimationFrame(tick);
+		};
+		raf = requestAnimationFrame(tick);
+		await sleep(MEASURE_MS * 0.5);
+		for (let k = 0; k < 3; k++) { const p = perf(); if (p) samples.push(p); await sleep(Math.max(500, MEASURE_MS * 0.5 / 3)); }
+		cancelAnimationFrame(raf);
+		await sleep(600);
+		const hEnd = perf()?.hitch || hLoad;
+		const pick = key => median(samples.map(s => +s[key] || 0));
+		const last = samples[samples.length - 1] || {};
+		out.backend = last.backend || out.backend; out.gpu = last.gpu || out.gpu;
+		out.scenes.push({ name: sc.name, gpuMap: +pick("gpuMap").toFixed(2), gpuGint: +pick("gpuGint").toFixed(2), frameMs: +pick("frameMs").toFixed(1), fps: pick("fps"),
+			res: last.res, aa: last.aa, hitchLoad: { elev: hLoad.elev - h0.elev, scene: hLoad.scene - h0.scene }, hitchMove: { elev: hEnd.elev - hLoad.elev, scene: hEnd.scene - hLoad.scene } });
+	}
+	document.title = "PASS " + JSON.stringify(out);
+} catch (e) { document.title = "FAIL " + (e && e.message || e); }
+</script>
+</body></html>
