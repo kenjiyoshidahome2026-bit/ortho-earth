@@ -9,7 +9,7 @@ import * as mlstyle from "../../ortho-core/src/mlstyle.js";
 import { evalExpr, originOfLayer, KNOWN_OPS, unknownOps } from "../../ortho-core/src/expr.js";
 import { decodeDEM } from "../../ortho-core/src/dem-src.js";
 import { expandTemplate } from "../../ortho-core/src/raster-src.js";
-import { symbolItems } from "../src/gadgets/symbols-core.js";
+import { symbolItems, poleOf } from "../src/gadgets/symbols-core.js";
 
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const KNOWN = JSON.parse(fs.readFileSync(path.join(DIR, "mlcompat-known.json"), "utf8")).node;
@@ -23,6 +23,11 @@ const SCENES = {
 	"symbol-on-polygon": () => {
 		const it = symbolItems(fc([F({ type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] }, { n: "A" })]), { layout: { "text-field": ["get", "n"] } });
 		return [it.length === 1, `${it.length} item(s)`];
+	},
+	"symbol-polygon-pole-inside": () => {   // C の字（外接の中心は面の外）＝錨は面の内側（到達不能極）
+		const C = [[[0, 0], [3, 0], [3, 1], [1, 1], [1, 2], [3, 2], [3, 3], [0, 3], [0, 0]]];
+		const [x, y] = poleOf(C), inside = (r, px, py) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > py) !== (r[j][1] > py) && px < (r[j][0] - r[i][0]) * (py - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
+		return [inside(C[0], x, y) && x < 1, `pole=${x.toFixed(2)},${y.toFixed(2)}`];
 	},
 	"symbol-on-line": () => {
 		const it = symbolItems(fc([F({ type: "LineString", coordinates: [[0, 0], [1, 0], [2, 1]] }, { n: "L" })]), { layout: { "text-field": ["get", "n"] } });

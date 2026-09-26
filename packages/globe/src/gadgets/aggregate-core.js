@@ -35,9 +35,15 @@ export function heatStyle(paint = {}, zoomNow = 10, origin = undefined) {
 // 集約（supercluster と同じ考え方）：最も細かい段（clusterMaxZoom+1）＝ばらした点。そこから 1 段ずつ粗く、
 // 半径 clusterRadius px（その段の 256·2^z px 世界）以内の近所を重み付き重心へ束ねる（格子で近所を引く＝O(n)）。
 // ez＝その集約がばらける段（クリックで寄る先）。
-export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, minZoom = 0 } = {}) {
+export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, minZoom = 0, clusterProperties = null } = {}) {
 	const top = clusterMaxZoom + 1;
-	let items = pts.map((p, i) => ({ x: (p.lon + 180) / 360, y: mercY(p.lat), n: 1, i, ez: top }));
+	// clusterProperties（MapLibre）＝{ 名前: [畳み方, 写し方] }。写し方＝単点の属性からの式・畳み方＝"+"・"max" 等の演算子名か ["accumulated"]・["get", 名前] を使う式（段 6）
+	const cp = clusterProperties ? Object.entries(clusterProperties).map(([k, [op, mapE]]) => [k, Array.isArray(op) ? op : [op, ["var", "a"], ["var", "b"]], Array.isArray(op), mapE]) : [];
+	const ctxM = (props, vars = {}) => ({ zoom: 0, props: props || {}, geom: "Point", vars, origin: "ml" });
+	const aggOf = p => cp.length ? Object.fromEntries(cp.map(([k, , , mapE]) => [k, evalExpr(mapE, ctxM(p.props))])) : null;
+	const fold = (a, b) => { if (!a) return b; const out = { ...a }; for (const [k, redE, isExpr] of cp) out[k] = isExpr ? evalExpr(redE, ctxM({ [k]: b[k] }, { accumulated: a[k] })) : evalExpr(redE, ctxM({}, { a: a[k], b: b[k] })); return out; };
+	let nextId = 0;
+	let items = pts.map((p, i) => ({ x: (p.lon + 180) / 360, y: mercY(p.lat), n: 1, i, ez: top, agg: aggOf(p) }));
 	const levels = new Array(top - minZoom + 1);
 	levels[top - minZoom] = items;
 	for (let z = clusterMaxZoom; z >= minZoom; z--) {
@@ -48,14 +54,14 @@ export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, mi
 			if (used[k]) continue;
 			used[k] = 1;
 			const it = items[k], cx = Math.floor(it.x / r), cy = Math.floor(it.y / r);
-			let sx = it.x * it.n, sy = it.y * it.n, n = it.n, m = 1;
+			let sx = it.x * it.n, sy = it.y * it.n, n = it.n, m = 1, agg = it.agg;
 			for (let gx = cx - 1; gx <= cx + 1; gx++) for (let gy = cy - 1; gy <= cy + 1; gy++) for (const j of grid.get(key(gx, gy)) || []) {
 				if (used[j]) continue;
 				const o = items[j];
 				if (Math.hypot(o.x - it.x, o.y - it.y) > r) continue;
-				used[j] = 1; sx += o.x * o.n; sy += o.y * o.n; n += o.n; m++;
+				used[j] = 1; sx += o.x * o.n; sy += o.y * o.n; n += o.n; m++; if (cp.length) agg = fold(agg, o.agg);
 			}
-			out.push(m === 1 ? it : { x: sx / n, y: sy / n, n, ez: z + 1 });
+			out.push(m === 1 ? it : { x: sx / n, y: sy / n, n, ez: z + 1, agg, cid: nextId++ });   // cid＝cluster_id（MapLibre）
 		}
 		items = out;
 		levels[z - minZoom] = items;
@@ -77,10 +83,10 @@ export function clusterDraw(pts, cl, opts = {}) {
 		const z = cl.minLevel + li;
 		return items.map(it => {
 			const lon = it.x * 360 - 180, lat = unMercY(it.y);
-			const single = it.n === 1, props = single ? pts[it.i].props : { cluster: true, point_count: it.n, point_count_abbreviated: abbr(it.n) };
+			const single = it.n === 1, props = single ? pts[it.i].props : { cluster: true, cluster_id: it.cid, point_count: it.n, point_count_abbreviated: abbr(it.n), ...(it.agg || {}) };
 			const P = single ? up : cp, c = ctxOf(z, props, origin);
 			const e = (k, d) => evalExpr(P[k] ?? d, c);
-			return { lon, lat, n: it.n, ez: it.ez, i: single ? it.i : -1, r: +e("circle-radius", 5), fill: css(evalColor(P["circle-color"] ?? "#000", c) || [0, 0, 0, 1]),
+			return { lon, lat, n: it.n, ez: it.ez, i: single ? it.i : -1, cid: it.cid, agg: it.agg, r: +e("circle-radius", 5), fill: css(evalColor(P["circle-color"] ?? "#000", c) || [0, 0, 0, 1]),
 				stroke: css(evalColor(P["circle-stroke-color"] ?? "#000", c) || [0, 0, 0, 1]), sw: +e("circle-stroke-width", 0), op: +e("circle-opacity", 1),
 				text: single ? "" : props.point_count_abbreviated, tc: tx.color, ts: tx.size };
 		});

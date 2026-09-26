@@ -205,24 +205,68 @@ try {
 		await scene("cluster-layer-zoom-range", () => [z5c.includes("zc-c") && !z7.c.includes("zc-c"), `z5=${z5c} z7(maxzoom6)=${z7.c}`]);
 		await scene("extrude-zoom-expression", () => [Math.abs((z95.x?.height ?? 0) - 500) < 1, `height@9.5=${z95.x?.height}`]);
 		await scene("pattern-minzoom-and-query", () => [!z7.p.includes("zp-l") && z95.p.includes("zp-l"), `z7=${z7.p} z9.5=${z95.p}`]);
+		// ── MapLibre の source の約束（段 6）＝既定値・feature の id（Feature.id・promoteId）・同じ属性の地物・集約の属性 ──
+		await scene("ml-raster-default-tilesize", async () => {   // MapLibre の raster source の tileSize 既定＝512
+			map.addSource("r512", { type: "raster", tiles: [new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}")] });
+			await Promise.race([map.addLayer({ id: "r512-l", type: "raster", source: "r512" }), sleep(5000)]);
+			const e = map.raster.list().find(r => r.id === "r512-l");
+			return [e?.spec?.tileSize === 512, `tileSize=${e?.spec?.tileSize}`];
+		});
+		map.jumpTo({ center: [137.2, 36.0], zoom: 8 }); await sleep(1500);
+		map.addSource("fid", { type: "geojson", data: { type: "FeatureCollection", features: [{ ...sq(136.8, 36.0, 0.12, { n: "A" }), id: 101 }, { ...sq(137.2, 36.0, 0.12, { n: "B" }), id: 102 }] } });
+		await map.addLayer({ id: "fid-f", type: "fill", source: "fid", paint: { "fill-color": ["case", ["boolean", ["feature-state", "hl"], false], "#ff0000", "#0000ff"] } });
+		map.addSource("pid", { type: "geojson", promoteId: "code", data: fc([sq(137.6, 36.0, 0.12, { code: "X" }), sq(138.0, 36.0, 0.12, { code: "Y" })]) });
+		await map.addLayer({ id: "pid-f", type: "fill", source: "pid", paint: { "fill-color": ["case", ["boolean", ["feature-state", "hl"], false], "#ff0000", "#00aa00"] } });
+		map.addSource("dup", { type: "geojson", data: fc([sq(136.8, 35.6, 0.12, { k: 1 }), sq(137.2, 35.6, 0.12, { k: 1 })]) });   // 属性がまったく同じ 2 つ
+		await map.addLayer({ id: "dup-f", type: "fill", source: "dup", paint: { "fill-color": "#888" } });
+		await sleep(1500);
+		const qf = async (lon, lat, id) => (await map.queryRenderedFeatures(map.projectLL(lon, lat), { layers: [id] }))[0];
+		await scene("feature-id-geojson", async () => {
+			const b = await qf(137.2, 36.0, "fid-f");
+			map.setFeatureState({ source: "fid", id: 102 }, { hl: true }); await sleep(1500);
+			const img = await snap(map), pa = px(img, ...P(136.8, 36.0)), pb = px(img, ...P(137.2, 36.0));
+			return [b?.id === 102 && near(pb, [255, 0, 0]) && near(pa, [0, 0, 255]), `id=${b?.id} A=${pa} B=${pb}`];
+		});
+		await scene("feature-id-promote", async () => {
+			const y = await qf(138.0, 36.0, "pid-f");
+			map.setFeatureState({ source: "pid", id: "Y" }, { hl: true }); await sleep(1500);
+			const img = await snap(map), py = px(img, ...P(138.0, 36.0));
+			return [y?.id === "Y" && near(py, [255, 0, 0]), `id=${y?.id} Y=${py}`];
+		});
+		await scene("identical-properties-are-separate", async () => {   // geopbf は同じ属性の地物を 1 つの fid に束ねる＝MapLibre は別々
+			const a = await qf(136.8, 35.6, "dup-f"), b = await qf(137.2, 35.6, "dup-f");
+			return [a?.geometry?.type === "Polygon" && b?.geometry?.type === "Polygon" && a?.id !== b?.id, `${a?.geometry?.type}/${b?.geometry?.type} ids=${a?.id},${b?.id}`];
+		});
+		map.addSource("cp", { type: "geojson", cluster: true, clusterProperties: { total: ["+", ["get", "w"]] }, data: fc(Array.from({ length: 6 }, (_, i) => pt(137.6 + (i % 3) * 0.01, 35.6 + Math.floor(i / 3) * 0.01, { w: i + 1 }))) });
+		await map.addLayer({ id: "cp-c", type: "circle", source: "cp", filter: ["has", "point_count"], paint: { "circle-radius": 14, "circle-color": "#f80" } });
+		await sleep(2000);
+		await scene("cluster-properties-and-id", async () => {
+			const [x, y] = map.projectLL(137.61, 35.605), f = (await map.queryRenderedFeatures([x, y], { layers: ["cp-c"], tolerance: 20 }))[0];
+			const ez = f && typeof f.properties?.cluster_id === "number" ? await map.getSource("cp").getClusterExpansionZoom?.(f.properties.cluster_id) : undefined;
+			return [f?.properties?.total === 21 && typeof f?.properties?.cluster_id === "number" && typeof ez === "number", `total=${f?.properties?.total} id=${f?.properties?.cluster_id} ez=${ez}`];
+		});
 	} else if (G === "style") {
 		const style = {
 			version: 8, name: "t-mlcompat-style",
 			sources: {
 				gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 },
 				pts: { type: "geojson", data: fc([pt(139.85, 35.45, { n: 1 })]) },
+				ic: { type: "geojson", data: fc([pt(139.95, 35.5, {})]) },
 			},
+			sprite: [{ id: "default", url: new URL("fixtures/mlcompat/sprite-a", location.href).href }, { id: "alt", url: new URL("fixtures/mlcompat/sprite-b", location.href).href }],   // 複数の sprite（MapLibre v4）＝"alt:sq"
 			layers: [
 				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
 				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
 				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
+				{ id: "ic-s", type: "symbol", source: "ic", layout: { "icon-image": "alt:sq" } },
 			],
 		};
 		// エンジン z 11.5＝MapLibre の z 10.5＝minzoom 11 の層はまだ出ない（MapLibre）
 		const map = await createGlobe({ target: "#map", view: "#11.5/35.45/139.85", chips: false, style });
 		await sleep(7000);
 		const hit = async () => { const [x, y] = map.projectLL(139.85, 35.45); return (await map.queryRenderedFeatures([x, y], { layers: ["g"] })).map(f => f.layer.id); };
+		await scene("sprite-array", () => [map.hasImage("sq") && map.hasImage("alt:sq"), `sq=${map.hasImage("sq")} alt:sq=${map.hasImage("alt:sq")} all=${map.listImages().join(",")}`]);
 		await scene("ml-base-filter-get-missing-null", async () => {
 			map.jumpTo({ zoom: 10.5 }); await sleep(4000);   // 試料のタイルは z7/10/13/15 だけ＝エンジン z10.5 で z10 のタイルを見る（t-mlstyle と同じ）
 			const [x, y] = map.projectLL(139.83, 35.43);

@@ -34,7 +34,7 @@ export function expandTemplate(tpl, z, x, y, subdomains = null, tms = false, mat
 	if (s.includes("{bbox-epsg-3857}")) { const w = 2 * MERC_R / n, x0 = -MERC_R + x * w, y1 = MERC_R - y * w; s = s.split("{bbox-epsg-3857}").join(`${x0},${y1 - w},${x0 + w},${y1}`); }
 	if (s.includes("{TileMatrix}")) s = s.split("{TileMatrix}").join(matrixIds?.[z] ?? String(z)).split("{TileRow}").join(String(yy)).split("{TileCol}").join(String(x));
 	if (s.includes("{width}")) s = s.split("{width}").join(String(tileSize)).split("{height}").join(String(tileSize));
-	if (s.includes("{q}")) { let q = ""; for (let i = z - 1; i >= 0; i--) q += ((y >> i & 1) << 1 | (x >> i & 1)); s = s.split("{q}").join(q || "0"); }
+	if (s.includes("{q}") || s.includes("{quadkey}")) { let q = ""; for (let i = z - 1; i >= 0; i--) q += ((y >> i & 1) << 1 | (x >> i & 1)); s = s.split("{q}").join(q || "0").split("{quadkey}").join(q || "0"); }   // {quadkey}＝MapLibre の記法（2026-09-26）
 	s = s.split("{z}").join(String(z)).split("{x}").join(String(x)).split("{y}").join(String(yy)).split("{-y}").join(String(n - 1 - y));
 	if (s.includes("{s}")) { const subs = subdomains && subdomains.length ? subdomains : ["a", "b", "c"]; s = s.split("{s}").join(subs[(x + y) % subs.length]); }
 	return s;
@@ -50,7 +50,7 @@ export function normalizeSpec(spec) {
 	if (spec.wms) spec = { ...spec, url: wmsTemplate(spec.wms) };
 	if (spec.wmts && !spec.url) spec = { ...spec, url: wmtsTemplate(spec.wmts), matrixIds: spec.wmts.matrixIds || spec.matrixIds };
 	if (typeof spec.url !== "string" || !spec.url) throw new Error("raster: spec needs url / pmtiles / port / wms / wmts");
-	if (!/\{z\}|\{q\}|\{bbox-epsg-3857\}|\{TileMatrix\}/.test(spec.url)) throw new Error("raster: url template needs {z}/{x}/{y} (or {q} / {bbox-epsg-3857} / {TileMatrix})");
+	if (!/\{z\}|\{q\}|\{quadkey\}|\{bbox-epsg-3857\}|\{TileMatrix\}/.test(spec.url)) throw new Error("raster: url template needs {z}/{x}/{y} (or {q} / {bbox-epsg-3857} / {TileMatrix})");
 	const subs = typeof spec.subdomains === "string" ? spec.subdomains.split("") : Array.isArray(spec.subdomains) ? spec.subdomains : null;
 	return {
 		kind: "xyz", url: spec.url, subdomains: subs, tms: !!spec.tms,
