@@ -33,7 +33,7 @@ function compute(s) {
 	if (NAMED[key]) return NAMED[key];
 	let m = key.match(/^hsla?\(([^)]+)\)/);
 	if (m) { const p = m[1].split(/[,\s/]+/).filter(Boolean).map(x => parseFloat(x)); const [r, g, b] = hsl2rgb(p[0], (p[1] || 0) / 100, (p[2] || 0) / 100); const a = p[3] == null ? 1 : /%$/.test(m[1].trim().split(/[,\s/]+/).pop()) ? p[3] / 100 : p[3]; return [r, g, b, a]; }
-	m = key.match(/rgba?\(([^)]+)\)/);
+	m = key.match(/^rgba?\(([^)]+)\)/);   // 先頭に錨＝外から来る色の文字列で多項式時間にならない（CodeQL js/polynomial-redos・key は trim 済み）
 	if (m) { const p = m[1].split(",").map(x => parseFloat(x)); return [p[0] / 255, p[1] / 255, p[2] / 255, p[3] == null ? 1 : p[3]]; }
 	m = key.match(/^#([0-9a-f]{3,8})$/);
 	if (m) {

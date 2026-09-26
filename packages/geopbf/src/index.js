@@ -60,7 +60,7 @@ export function createGeopbf(apiBase, options = {}) {
         // 404→0 件を黙って返した（2026-09-10 SDK ドッグフード）。ブラウザなら location 基準で絶対 URL へ。
         if (isString(data) && /^\.{0,2}\//.test(data) && typeof location !== "undefined") data = new URL(data, location.href).href;
         const dt = performance.now();
-        const isInZip = _ => (isString(_) && _.match(/.+\.zip#.+/i));
+        const isInZip = _ => (isString(_) && /.\.zip#./i.test(_));   // 前後に 1 字ずつ＝旧 /.+\.zip#.+/ と同じ集合・線形時間（CodeQL js/polynomial-redos）
         const isPBF = _ => (_ instanceof GeoPBF);
         let eventTarget = opts.eventTarget || (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
         if (typeof CustomEvent === 'undefined' || !eventTarget?.dispatchEvent) eventTarget = null;   // Node（window/self 無し）で null を参照して落ちていた（1.8.0 tarball 検査で発見・2026-09-14）
