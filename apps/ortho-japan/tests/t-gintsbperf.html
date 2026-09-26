@@ -20,9 +20,10 @@ try {
 	if (!navigator.gpu) { document.title = "DONE webgpu-unavailable"; throw new Error("no webgpu"); }
 	const { createRendererGPU, createGintLayerGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
 	const canvas = document.getElementById("g");
-	const r = await createRendererGPU(canvas);
+	const quad4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の A/B（bench-gintsb の quad6 列）
+	const r = await createRendererGPU(canvas, { quad4 });
 	const noSB = /[?&]gintsb=0/.test(location.search);
-	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB });
+	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB, quad4 });
 	const device = r.device;
 	// GPU 完了の強制同期（queue は in-order＝最後に積んだ copy の mapAsync 完了＝先行 submit 全完了）
 	const syncSrc = device.createBuffer({ size: 4, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC });

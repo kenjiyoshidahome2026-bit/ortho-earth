@@ -401,8 +401,8 @@ struct LineOut {
 @vertex fn vsRender(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> LineOut {
 	var o: LineOut;
 	o.pos = DEGEN;
-	var edgeId = i32(vi) / 6;
-	let sub = i32(vi) % 6;
+	var edgeId = i32(vi) / 4;   // index の 4 頂点/辺（perf plan P3・2026-09-27）＝drawIndexed の baseVertex に est×4 が乗る。旧 6 頂点の draw は quad6WGSL（?quad4=0）
+	let sub = i32(vi) % 4;
 	let subN = i32(ii >> 16u); let subS = i32(ii & 0xFFFFu);   // 地形適応細分：N（firstInstance 上位16bit）と区間番号 s
 	var em = fetchEdgeMeta(edgeId);
 	let dupRow = (em.b & 128u) != 0u;   // 複製行（長辺の細分用・メタ末尾）＝元の辺へ引き直す（歩行・破線位相は元の辺）
@@ -437,8 +437,8 @@ struct LineOut {
 	if (P.b.y == 1 && P.a.z > 0.0) { lw = P.a.z; }   // ホバー(hilite)＝指定全幅(device px・radius欄で運搬)を最優先＝per-fid幅/コロプレスに左右されず overlay 町丁目線と一致
 	// クアッドは「辺の正準方向（a→b）」で tang/perp を共有（GL版 programs.js と同時修正 8/20）。
 	// 旧＝各頂点が自端基準で dir を取り A/B で perp が反転＝ボウタイ（太線のねじれ・片側欠けの根治）
-	let useA = (sub == 0 || sub == 1 || sub == 3);
-	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
+	let useA = sub < 2;   // 4 頂点＝0:A− 1:A+ 2:B+ 3:B−（index [0,1,2,0,2,3]＝旧 6 列 (A−)(A+)(B+)(A−)(B+)(B−) と同じ三角形・同じ向き）
+	let side = select(-1.0, 1.0, sub == 1 || sub == 2);
 	var pa3: Proj; var pb3: Proj;
 	var subOff = 0.0;   // 破線位相の近似基底（このサブ区間より前の区間数）
 	if (subN <= 1) {
@@ -516,16 +516,16 @@ struct PickOut {
 @vertex fn vsPickLine(@builtin(vertex_index) vi: u32) -> PickOut {
 	var o: PickOut;
 	o.pos = DEGEN;
-	let edgeId = i32(vi) / 6;
-	let sub = i32(vi) % 6;
+	let edgeId = i32(vi) / 4;   // index の 4 頂点/辺（P3・描画 VS と同じ）
+	let sub = i32(vi) % 4;
 	let em = fetchEdgeMeta(edgeId);
 	if ((em.b & 255u) == 0u) { return o; }   // ポリゴン辺＝JSレイキャスト側＝pick から除外
 	if (F.flags.w != 0u &&
 		(textureLoad(fidTex, vec2i(i32(em.a) % i32(F.flags.w), i32(em.a) / i32(F.flags.w)), 0).b & 1u) == 0u) { return o; }
 	let sn = lodSnap(em.r, em.g, edgeId);
 	if (!sn.keep) { return o; }
-	let useA = (sub == 0 || sub == 1 || sub == 3);
-	let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
+	let useA = sub < 2;   // 4 頂点＝0:A− 1:A+ 2:B+ 3:B−（index [0,1,2,0,2,3]＝旧 6 列 (A−)(A+)(B+)(A−)(B+)(B−) と同じ三角形・同じ向き）
+	let side = select(-1.0, 1.0, sub == 1 || sub == 2);
 	// 描画VSと同じ「辺の正準方向」でクアッドを張る（ボウタイ根治・同時修正 8/20）
 	let pa3 = fetchProject(sn.a);
 	let pb3 = fetchProject(sn.b);
@@ -760,10 +760,10 @@ struct POut {
 };
 @vertex fn vsPoint(@builtin(vertex_index) vi: u32) -> POut {
 	var o: POut;
-	let ptId = i32(vi) / 6;
-	let sub = i32(vi) % 6;
-	let ox = select(-1.0, 1.0, sub == 2 || sub == 4 || sub == 5);
-	let oy = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
+	let ptId = i32(vi) / 4;   // index の 4 頂点/点（P3）
+	let sub = i32(vi) % 4;
+	let ox = select(-1.0, 1.0, sub == 2 || sub == 3);   // 4 隅＝0:(−,−) 1:(−,+) 2:(+,+) 3:(+,−)（index [0,1,2,0,2,3]＝旧 6 列と同じ三角形）
+	let oy = select(-1.0, 1.0, sub == 1 || sub == 2);
 	let p = fetchPoint(ptId);
 	o.zr = p.zr;
 	o.uv = vec2f(ox, oy);
@@ -792,10 +792,10 @@ struct POut {
 }
 @vertex fn vsPickPoint(@builtin(vertex_index) vi: u32) -> POut {
 	var o: POut;
-	let ptId = i32(vi) / 6;
-	let sub = i32(vi) % 6;
-	let ox = select(-1.0, 1.0, sub == 2 || sub == 4 || sub == 5);
-	let oy = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);
+	let ptId = i32(vi) / 4;   // index の 4 頂点/点（P3）
+	let sub = i32(vi) % 4;
+	let ox = select(-1.0, 1.0, sub == 2 || sub == 3);   // 4 隅＝0:(−,−) 1:(−,+) 2:(+,+) 3:(+,−)（index [0,1,2,0,2,3]＝旧 6 列と同じ三角形）
+	let oy = select(-1.0, 1.0, sub == 1 || sub == 2);
 	let p = fetchPoint(ptId);
 	o.zr = p.zr;
 	o.uv = vec2f(ox, oy);
@@ -853,5 +853,23 @@ export function toStorageWGSL(code) {
 	// 変換漏れ＝テクスチャ宣言が消えたのに textureLoad が残る等は黙って壊れる（黒画面）＝必ず検札する
 	if (/textureLoad\((arcTex|metaTex|ptTex|ptMetaTex)/.test(out))
 		throw new Error("toStorageWGSL: 変換漏れ（textureLoad が残っている）＝原本の書式が変わった疑い");
+	return out;
+}
+
+// ── 旧 6 頂点/辺の draw（?quad4=0・perf plan P3 の逃げ道）への書き換え ────────────────────────
+// 原本は index の 4 頂点（vi/4・vi%4・角 4 通り）。旧＝index 無しの 6 頂点（vi/6・vi%6・角 6 通り＝(A−)(A+)(B+)(A−)(B+)(B−)）。
+// 二重管理をしない＝ここで機械変換する（変換漏れは例外＝黙って壊れない）。storage 版は toStorageWGSL の後でも前でもよい（触る行が違う）。
+export function quad6WGSL(code) {
+	const R = [
+		[/i32\(vi\) \/ 4;/g, "i32(vi) / 6;"],
+		[/i32\(vi\) % 4;/g, "i32(vi) % 6;"],
+		[/let useA = sub < 2;/g, "let useA = (sub == 0 || sub == 1 || sub == 3);"],
+		[/let side = select\(-1\.0, 1\.0, sub == 1 \|\| sub == 2\);/g, "let side = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);"],
+		[/let ox = select\(-1\.0, 1\.0, sub == 2 \|\| sub == 3\);/g, "let ox = select(-1.0, 1.0, sub == 2 || sub == 4 || sub == 5);"],
+		[/let oy = select\(-1\.0, 1\.0, sub == 1 \|\| sub == 2\);/g, "let oy = select(-1.0, 1.0, sub == 1 || sub == 2 || sub == 4);"],
+	];
+	let out = code, hit = 0;
+	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
+	if (hit === 0 || /i32\(vi\) [/%] 4;/.test(out)) throw new Error("quad6WGSL: 変換漏れ（4 頂点の目印が残っている／無い）＝原本の書式が変わった疑い");
 	return out;
 }

@@ -32,7 +32,8 @@ try {
 		await sleep(250);
 	}
 	fail = 0;
-	for (const [label, q] of [["storage", ""], ["texture", "?gintsb=0"]]) {
+	// 3 変種：storage（既定＝storage 経路・線は index の 4 頂点）／texture（?gintsb=0）／quad6（?quad4=0＝旧 6 頂点展開・perf plan P3 の A/B）
+	for (const [label, q] of [["storage", ""], ["texture", "?gintsb=0"], ["quad6", "?quad4=0"]]) {
 		const url = `http://localhost:${PORT}/japan/tests/t-gintsbperf.html${q}`;
 		const target = await (await fetch(`http://127.0.0.1:${CDP}/json/new?${encodeURIComponent(url)}`, { method: "PUT" })).json();
 		ws = new WebSocket(target.webSocketDebuggerUrl);
@@ -55,13 +56,14 @@ try {
 		try { ws.close(); } catch { /* 次へ */ }
 	}
 	if (!fail) {
-		console.log("scene   texture(ms)  storage(ms)  ratio  edges(tex/sb)  tierW");
+		console.log("scene   texture(ms)  storage(ms)  sb/tex  quad6(ms)  sb/quad6  edges(tex/sb)  tierW");
 		for (const k of Object.keys(results.storage)) {
-			const sbR = results.storage[k], txR = results.texture[k];
+			const sbR = results.storage[k], txR = results.texture[k], q6 = results.quad6[k];
 			const ratio = txR.gint > 0.01 ? (sbR.gint / txR.gint).toFixed(2) : "-";
-			console.log(`${k.padEnd(7)} ${String(txR.gint).padStart(10)} ${String(sbR.gint).padStart(12)}  ${String(ratio).padStart(5)}  ${txR.edges}/${sbR.edges}  ${txR.tierW}/${sbR.tierW}`);
+			const r6 = q6.gint > 0.01 ? (sbR.gint / q6.gint).toFixed(2) : "-";
+			console.log(`${k.padEnd(7)} ${String(txR.gint).padStart(10)} ${String(sbR.gint).padStart(12)}  ${String(ratio).padStart(6)}  ${String(q6.gint).padStart(9)}  ${String(r6).padStart(8)}  ${txR.edges}/${sbR.edges}  ${txR.tierW}/${sbR.tierW}`);
 		}
-		console.log("(gint=可視−非可視の差分ms/フレーム。ratio<1 ＝ storage が速い)");
+		console.log("(gint=可視−非可視の差分ms/フレーム。sb/tex<1 ＝ storage が速い・sb/quad6<1 ＝ index の 4 頂点（P3）が旧 6 頂点より速い)");
 	}
 } catch (e) {
 	console.error("FAIL bench-gintsb ", e.message);
