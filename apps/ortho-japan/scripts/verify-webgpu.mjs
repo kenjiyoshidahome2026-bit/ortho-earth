@@ -17,7 +17,7 @@ const ALL_PAGES = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-d
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 
-const stop = await startVite({ cwd: APP, port: PORT, readyUrl: `http://localhost:${PORT}/japan/` });
+const stop = await startVite({ cwd: APP, port: PORT, portEnv: "VWG_PORT", readyUrl: `http://localhost:${PORT}/japan/` });
 const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], 90])),
