@@ -155,7 +155,9 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		get name() { return cur?.name || null; },
 		clear,
 		get extruded() { return exts.get("default")?.stats ?? [...exts.values()].pop()?.stats ?? null; },
-		get extrudedFeatures() { return [...exts].flatMap(([slot, e]) => e.used.map(u => ({ ...u, slot }))); },   // [{ f: Feature, h, slot }]＝map.queryRenderedFeatures の押し出し層（新しいスロットが後ろ）
+		get extrudedFeatures() { return [...exts].flatMap(([slot, e]) => e.used.map(u => ({ ...u, slot }))); },   // [{ f: Feature, h, base, slot }]（新しいスロットが後ろ）
+		// map.queryRenderedFeatures の押し出し層（立体の当たり）＝スロットごと [{ slot, used: [{ f, h, base }], mode: "plane"|"ground"|"drape", lift: 床の平面の高さ[m] }]（新しいスロットが後ろ）
+		get extrudeSets() { return [...exts].map(([slot, e]) => ({ slot, used: e.used, mode: e.mode, lift: e.lift })); },
 		get extrudeSlots() { return [...exts.keys()]; },
 		clearExtrude,
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
@@ -164,7 +166,8 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。無指定＝広い面は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
 			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }) });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
-			const used = [...new Set(polys.map(p => p.fi))].map(fi => ({ f: feats[fi], h: polys.find(p => p.fi === fi).h }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照）
+			const first = new Map(); for (const p of polys) if (!first.has(p.fi)) first.set(p.fi, p);
+			const used = [...first].map(([fi, p]) => ({ f: feats[fi], h: p.h, base: p.base }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照・h/base は床の持ち上げ前）
 			const blend = polys.some(p => p.rgba[3] < 255);   // fill-extrusion-opacity<1／半透明の色＝BLEND（模型と同じ派生パイプライン）
 			if (!polys.length) { clearExtrude(slot); return null; }
 			const tr = []; for (const p of polys) for (const r of p.rings) tr.push(r.buffer);
@@ -184,7 +187,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			const r = await rpc({ kind: "extrude", polys, ell, mask: mask && !blend, refine: mode === "plane" ? 20000 : 1500 }, tr);   // 屋根の細分の刻み(m)＝沿わせる時は起伏に・平面は弦のたわみ（75km 角で約 240m・20km 刻みなら約 8m）を消すだけ   // 半透明は足元の基図建物を伏せない（透けて見える先が消えると不自然）
 			clearExtrude(slot);
 			const key = `extrude/${++seq}`;
-			exts.set(slot, { name: key, stats: r.stats, used });
+			exts.set(slot, { name: key, stats: r.stats, used, mode, lift: lift ?? 0 });   // mode/lift＝問い合わせの立体の当たり（描いた地面と同じ所で当てる）
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);

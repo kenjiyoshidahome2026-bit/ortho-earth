@@ -6,6 +6,7 @@
 // 出力の形は finishMesh と同じ契約（pos＝原点相対 Float32・nrm＝Int8×4（ortho 軸＝ECEF の x,z,y）・idx＝Uint32・uv＝0・col＝RGBA8・origin・bbox 度）
 // ＝メッシュ経路（setMesh）へそのまま渡る。uv は 0 でも要る（頂点色は「uv と col がある」メッシュだけが使う）。
 import earcut from "earcut";
+import { hasZoom, exprZoomKey } from "./extrude-ml.js";   // ズームの鍵は geojson の押し出しと共用（純関数）
 
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const MAX_RINGS = 500;              // MapLibre と同じ（穴の多すぎる面は小さい穴から捨てる）
@@ -203,24 +204,12 @@ export function retainTiles(wanted, ready, { minZ = 0 } = {}) {
 	return show;
 }
 
-// ズームの鍵（この経路だけ）＝paint の値が変わり得るかを曲線で見る。一番外の interpolate/step の入力が ["zoom"] 由来（正規化で ["-",["zoom"],k] もある）なら、
-// 止まりの外は "lo"/"hi"（値が一定）・中は interpolate＝0.25 刻み／step＝段の番号。["zoom"] がそれ以外の所にある時は 0.25 刻み（今の規則）。["zoom"] 無し＝""。
-// evalIn(e, z)＝入力式を zoom z で評価する関数（core evalExpr を包んで渡す＝ここは純関数のまま）
-const hasZoom = e => Array.isArray(e) && (e[0] === "zoom" || e.some(hasZoom));
+// ズームの鍵＝paint の値が変わり得るかを曲線で見る（geojson の押し出しと同じ規則＝extrude-ml.js の exprZoomKey・台帳 R22）。一番外の interpolate（-hcl/-lab も）/step の入力が
+// ["zoom"] 由来（正規化で ["-",["zoom"],k] もある）なら、止まりの外は "lo"/"hi"（値が一定）・中は interpolate＝0.25 刻み／step＝段の番号。["zoom"] がそれ以外の所にある時は
+// 0.25 刻み。["zoom"] 無し＝""。evalIn(e, z)＝入力式を zoom z で評価する関数（core evalExpr を包んで渡す＝ここは純関数のまま）
 export function paintZoomKey(paint, z, evalIn) {
 	const parts = [];
-	for (const k of Object.keys(paint || {}).sort()) {
-		const e = paint[k];
-		if (!hasZoom(e)) continue;
-		if (Array.isArray(e) && e[0] === "interpolate" && hasZoom(e[2]) && !e.slice(3).some(hasZoom)) {
-			const x = +evalIn(e[2], z), s0 = e[3], sN = e[e.length - 2];
-			parts.push(k + (x <= s0 ? ":lo" : x >= sN ? ":hi" : ":" + Math.round(z * 4) / 4));
-		} else if (Array.isArray(e) && e[0] === "step" && hasZoom(e[1]) && !e.slice(2).some(hasZoom)) {
-			const x = +evalIn(e[1], z); let seg = 0;
-			for (let i = 3; i < e.length; i += 2) if (x >= e[i]) seg++;
-			parts.push(k + ":s" + seg);
-		} else parts.push(k + ":" + Math.round(z * 4) / 4);
-	}
+	for (const k of Object.keys(paint || {}).sort()) { const s = exprZoomKey(paint[k], z, evalIn); if (s != null) parts.push(k + ":" + s); }
 	return parts.join("|");
 }
 // filter を評価する zoom（エンジンの目盛り）。MapLibre は filter をタイルの z（過拡大なら表示の丸めた z＝vector source の roundZoom）で評価する。

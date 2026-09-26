@@ -4,10 +4,11 @@ import "./globe.css";
 import {
 	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
-	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat,
+	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
 import { createGeopbf, geopbf } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
+import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
@@ -2138,7 +2139,7 @@ const elevOf = (lon, lat) => {
 };
 // 負の標高は 0 に切る＝描いている地面（renderer の標高アトラスは負を 0 に切る＝海は海面・ortho-core elevation.js／terrain.js）
 const dispRadius = (lon, lat) => {
-	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
+	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt * pt * (3 - 2 * pt);   // ?noterr=1＝地形を描かない＝持ち上げも 0（描く側と同じ・vtxGround の当たりも同じ口）
 	return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1;
 };
 const projectLL = (lon, lat) => { const st = cameraState(cam, size.w, size.h); const [sx, sy, f] = project(st, lon, lat, dispRadius(lon, lat)); return [sx / dpr, sy / dpr, f]; };
@@ -3261,9 +3262,13 @@ const mlSources = new Map(), mlLayers = new Map();   // mlLayers の挿入順＝
 const mlSourceDz = new Map();   // source id → dz（clusterMaxZoom は source に住む）
 const drawLayerOf = v => normalizeMLLayer(v.layer, v.dz);
 // 層の出しズーム（正規化済み＝エンジンの z・MapLibre の minzoom 包含・maxzoom 排他）と「作り直すべきか」の鍵（段 5・台帳 R17）。
-// 押し出し・模様（canvas2D）は一度きりの評価＝止まるたびに鍵を見て、変わったら描き直す（範囲の外は外す・["zoom"] の式は 0.25 刻み）
+// 押し出し・模様（canvas2D）は一度きりの評価＝止まるたびに鍵を見て、変わったら描き直す（範囲の外は外す・["zoom"] の式は 0.25 刻み）。
+// 押し出し（curves）は曲線を見る（台帳 R22・extrude-ml.js）＝一番外の interpolate/step の止まりの外は値が一定＝鍵も一定（全体を上げ直さない）
 const inZoomML = (L, z) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
-const zoomKeyOf = (L, z) => inZoomML(L, z) ? "in" + (JSON.stringify([L.filter ?? null, L.paint ?? null, L.layout ?? null]).includes('["zoom"') ? "@" + Math.round(z * 4) / 4 : "") : "out";
+const evalZoomIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: "ml" });
+const zoomKeyOf = (L, z, curves = false) => !inZoomML(L, z) ? "out"
+	: curves ? "in" + ((k => k ? "@" + k : "")(curveZoomKey(L, z, evalZoomIn)))
+	: "in" + (JSON.stringify([L.filter ?? null, L.paint ?? null, L.layout ?? null]).includes('["zoom"') ? "@" + Math.round(z * 4) / 4 : "");
 const mlZoomKeys = new Map();   // 層 id → 最後に描いた時の鍵
 // 式の検査（段 5）＝知らない演算子があれば MapLibre と同じく投げて層を足さない（名前を挙げる）。within/distance など未対応の演算子も同じ扱い
 const assertMLLayer = (L, where) => { const bad = mlUnknownOps(L); if (bad.length) throw new Error(`${where}: layer "${L.id ?? "?"}" uses unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}`); };
@@ -3468,6 +3473,7 @@ const BASE_SRC = Symbol("basemap-source");
 const baseSidNow = () => EXT?.split.vectorSource ?? "basemap";
 const baseSrcSpec = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
 // 当たりの地面＝描いている地面＝dispRadius（負の標高を 0 に切る＝renderer と同じ・2026-09-27 に projectLL と一本化）
+// ?noterr=1（地形を描かない）は dispRadius 側で持ち上げ 0＝projectLL も当たりも描く側と同じ（#77 の意図を一本化の後へ写した・2026-09-27）
 const vtxGround = dispRadius;
 // feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
 const vtxFS = new Map();
@@ -3485,9 +3491,8 @@ const vtxGet = async () => {
 		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey,
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean))] : []); needsDraw = true; },
 		meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
-		projectorH: () => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, vtxGround(lon, lat) + (hM || 0) / EARTH_M); return [sx / dpr, sy / dpr, f]; }; },
+		hitEnv: () => extView().envOf(vtxGround),   // 当たり＝geojson の押し出しと同じ口（屋根と壁・奥行き＝clip の w・台帳 R23）
 		unprojectAt: (x, y, hM) => { const st = cameraState(cam, size.w, size.h); return unproject(st, x * dpr, y * dpr, vtxGround(cam.center[0], cam.center[1]) + (hM || 0) / EARTH_M); },
-		distanceOf: (lon, lat, hM) => { const st = cameraState(cam, size.w, size.h), la = lat * D2R, lo = lon * D2R, r = vtxGround(lon, lat) + (hM || 0) / EARTH_M; return Math.hypot(Math.cos(la) * Math.cos(lo) * r - st.eye[0], Math.sin(la) * r - st.eye[1], Math.cos(la) * Math.sin(lo) * r - st.eye[2]); },
 	});
 };
 // source の記述子（vtextrude.js の desc）。基図＝外来 style の解決済みの source か地域の基図の記述子・利用者の vector source＝TileJSON/PMTiles を解いて覚える
@@ -3565,7 +3570,7 @@ const mountLayer = async v => {
 	if (kind === "vtextrude") return vtxMount(v, layer);
 	if (kind === "vtdraw") return vtdMount(v, layer);
 	if (kind === "extrude" || kind === "pattern") {
-		mlZoomKeys.set(layer.id, zoomKeyOf(layer, cam.zoom));
+		mlZoomKeys.set(layer.id, zoomKeyOf(layer, cam.zoom, kind === "extrude"));
 		if (!inZoomML(layer, cam.zoom)) { if (kind === "extrude") modelCtl?.clearExtrude(layer.id); else { patOv?.post({ type: "removeLayer", id: layer.id }); patItems.delete(layer.id); } return null; }
 	}
 	if (kind === "raster") {
@@ -3599,7 +3604,7 @@ const unmountLayer = v => {
 	else if (kind === "pattern") { patOv?.post({ type: "removeLayer", id }); patItems.delete(id); }
 };
 map.on("settle", () => {   // 押し出し・模様は一度きりの評価＝止まるたびに zoom の鍵を見て、変わった層だけ描き直す（段 5）
-	for (const v of mlLayers.values()) if ((v.kind === "extrude" || v.kind === "pattern") && mlVisible(v)) { const L = drawLayerOf(v); if (mlZoomKeys.get(L.id) !== zoomKeyOf(L, cam.zoom)) mountLayer(v); }
+	for (const v of mlLayers.values()) if ((v.kind === "extrude" || v.kind === "pattern") && mlVisible(v)) { const L = drawLayerOf(v); if (mlZoomKeys.get(L.id) !== zoomKeyOf(L, cam.zoom, v.kind === "extrude")) mountLayer(v); }
 });
 const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 	if ([...mlLayers.values()].some(v => v.kind === "gint")) rebuildGint();   // gint の pass は詰め方ごと組み直す（連続の切れ目が変わる）
@@ -3879,19 +3884,107 @@ map.setStyle = async spec => {
 // MapLibre と違う点＝非同期（タイルを取り直すため）。基図の層 id はスタイルの id（地域パックの style）。
 const queryCache = new Map();   // "z/x/y" → 解読済みタイル（直近 32 枚）
 const vtdQueryCache = new Map();   // "sid|source-layer の組" → Map<"z/x/y", 解読済みタイル>（vector source の描く層・段 8⑤）
+// 押し出しの当たり＝立体（MapLibre の fill-extrusion と同じく屋根と壁・台帳 R23・幾何は extrude-ml.js の hitExtrusion＝vector の押し出しと共用）。点が空（球の外）でも高い屋根には当たる。
+// 地面＝描いている地面と同じ所で当てる（model.js の mode）：plane＝床の平面（地形へ持ち上げない）・drape＝どこでも地表の標高へ・
+// ground（建物らしい面）＝renderer の接地リフトが効く所だけ（u_liftBounds の規則の写し＝ortho-core terrain.js：申告された DTM の域 ∩ R01 の窓。
+// R01＝z≥13（急チルト pitch>0.9 は z≥14）・混成窓＝急チルト×z11.5〜14 のカメラの 1° セル ±1）。標高は負を 0 に切る（海は海面＝renderer と同じ）×傾きのフェード。
+// 下ごしらえ＝地物ごとの外接球（中心＋半径）を画面へ投影して点/箱から遠い物を捨てる（数万棟でも毎回全頂点を投影しない）。近い順に並べるのは問い合わせ（vector の押し出しと一つの列＝MapLibre の 3D の並べ方）
+const extGeomOf = new WeakMap();   // used の要素 → { polys, clon, clat, cu, cm, chord }（地物の幾何は変わらない＝一度だけ）
+const extGeom = u => {
+	let s = extGeomOf.get(u); if (s) return s;
+	const g = u.f?.geometry, polys = (g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : []).filter(p => p?.[0]?.length >= 3);
+	let w = Infinity, so = Infinity, e = -Infinity, no = -Infinity;
+	for (const p of polys) for (const [lon, lat] of p[0]) { if (lon < w) w = lon; if (lon > e) e = lon; if (lat < so) so = lat; if (lat > no) no = lat; }
+	const clon = (w + e) / 2, clat = (so + no) / 2, cu = polys.length ? lonlatTo3D(clon, clat) : [0, 0, 0];
+	let chord = 0;
+	for (const p of polys) for (const [lon, lat] of p[0]) { const v = lonlatTo3D(lon, lat); chord = Math.max(chord, Math.hypot(v[0] - cu[0], v[1] - cu[1], v[2] - cu[2])); }
+	s = { polys, clon, clat, cu, cm: ELL_ON ? ellNormal3D(clon, clat) : null, chord };
+	extGeomOf.set(u, s);
+	return s;
+};
+// 今の視点の当たりの口（extrude-ml.js の env）＝geojson の押し出し（下の extrudeHits）と vector の押し出し（vtextrude の query）で共用。
+// envOf(gnd)＝地面の半径 gnd(lon, lat)（1＋持ち上げ）の上で { vtx, roof }。奥行き＝clip の w（二つの押し出しを同じ物差しで近い順に並べる）
+const extView = () => {
+	const st = cameraState(cam, size.w, size.h), M = st.mvp, E = st.eye, eyeR = Math.hypot(E[0], E[1], E[2]);
+	const W = size.w / dpr, H = size.h / dpr, k = TERR_EXAG / EARTH_M;
+	const pos = (u, m, R) => R === 1 ? u : m ? [u[0] + (R - 1) * m[0], u[1] + (R - 1) * m[1], u[2] + (R - 1) * m[2]] : [u[0] * R, u[1] * R, u[2] * R];   // core camera.js の liftedPos と同じ（楕円体は測地法線）
+	const clipOf = p => [M[0] * p[0] + M[4] * p[1] + M[8] * p[2] + M[12], M[1] * p[0] + M[5] * p[1] + M[9] * p[2] + M[13], M[3] * p[0] + M[7] * p[1] + M[11] * p[2] + M[15]];
+	const screenAt = (lon, lat, R) => {   // → [x, y, w]（CSS px・w＝奥行き）｜null（目の後ろ・球の陰）
+		const p = pos(lonlatTo3D(lon, lat), ELL_ON ? ellNormal3D(lon, lat) : null, R), [cxp, cyp, w] = clipOf(p);
+		if (!(w > 1e-9)) return null;
+		const d0 = p[0] - E[0], d1 = p[1] - E[1], d2 = p[2] - E[2], t = -(E[0] * d0 + E[1] * d1 + E[2] * d2) / (d0 * d0 + d1 * d1 + d2 * d2);
+		if (t > 0 && t < 1 && (E[0] + t * d0) ** 2 + (E[1] + t * d1) ** 2 + (E[2] + t * d2) ** 2 < 1 - 1e-9) return null;   // 目→点が海面の球をくぐる＝裏
+		return [(cxp / w * 0.5 + 0.5) * W, (1 - (cyp / w * 0.5 + 0.5)) * H, w];
+	};
+	const envOf = gnd => ({
+		vtx: (lon, lat, hM) => screenAt(lon, lat, gnd(lon, lat) + hM * k),
+		roof: (x, y, hM, lon0, lat0) => {   // 光線を屋根の高さの球で受ける（起伏＝当たった所の地面で 1 回受け直す）。目が屋根より低い＝屋根は見えない
+			let R = gnd(lon0, lat0) + hM * k;
+			for (let it = 0; it < 2; it++) {
+				if (eyeR <= R) return null;
+				const ll = unproject(st, x * dpr, y * dpr, R); if (!ll) return null;
+				const R2 = gnd(ll[0], ll[1]) + hM * k;
+				if (it === 0 && Math.abs(R2 - R) > 1e-12) { R = R2; continue; }
+				const v = screenAt(ll[0], ll[1], R);
+				return v && Math.abs(v[0] - x) < 1 && Math.abs(v[1] - y) < 1 ? { ll, w: v[2] } : null;   // 光線の上の点か（近平面が球を割った時の起点を弾く）
+			}
+			return null;
+		},
+	});
+	return { st, W, H, k, f: st.focal / dpr, pos, clipOf, envOf };
+};
+// 問い合わせの形 → extrude-ml.js の q（点＝{ pt }・箱＝{ box: [x0,y0,x1,y1] } に正規化）
+const extQ = g => typeof g[0] === "number" ? { pt: g } : { box: [Math.min(g[0][0], g[1][0]), Math.min(g[0][1], g[1][1]), Math.max(g[0][0], g[1][0]), Math.max(g[0][1], g[1][1])] };
+const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]（並べるのは問い合わせ＝vector の押し出しと一緒に）
+	const sets = modelCtl?.extrudeSets;
+	if (!sets?.length || !sets.some(s => take(s.slot === "default" ? "extrude" : s.slot))) return [];
+	const { W, H, k, f, pos, clipOf, envOf } = extView();
+	const pt0 = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt0 * pt0 * (3 - 2 * pt0);   // 地形のフェード（dispRadius・vtxGround と同じ）
+	const dtm = REGION_DTM?.bbox || (demSpec?.dtm ? demSpec.bounds : null), z = cam.zoom, pitch = cam.pitch || 0;
+	const mixed = !noMixedR01 && pitch > 0.9 && z >= 11.5 && z < 14, r01 = z >= 13 && !(pitch > 0.9 && z < 14);
+	const cx = Math.floor(cam.center[0]), cy = Math.floor(cam.center[1]);
+	const liftHere = (lon, lat) => !!dtm && lon >= dtm[0] && lon <= dtm[2] && lat >= dtm[1] && lat <= dtm[3] && (mixed ? lon >= cx - 1 && lon < cx + 2 && lat >= cy - 1 && lat < cy + 2 : r01);
+	const groundOf = mode => mode === "plane" || pf === 0 ? () => 1 : mode === "drape" ? vtxGround : (lon, lat) => liftHere(lon, lat) ? vtxGround(lon, lat) : 1;
+	const q = extQ(geometry), box = q.box;
+	const hits = [];
+	for (const { slot, used, mode, lift } of [...sets].reverse()) {   // 新しいスロットから（奥行きが同じ時の順＝従来どおり）
+		const lid = slot === "default" ? "extrude" : slot;
+		if (!take(lid)) continue;
+		const gnd = groundOf(mode), env = envOf(gnd);
+		for (let i = used.length - 1; i >= 0; i--) {
+			const u = used[i], g = extGeom(u);
+			if (!g.polys.length) continue;
+			const zb = u.base + lift, zt = u.h + lift;
+			// 外接球：中心＝面の中心の上下の中ほど・半径＝弦＋高さの半分＋起伏の遊び（地形に沿う面だけ・広い面ほど大きく）
+			const Rm = gnd(g.clon, g.clat) + (zb + zt) / 2 * k;
+			const rho = g.chord * Rm + ((zt - zb) / 2 + (mode === "plane" ? 0 : Math.min(9000, 150 + g.chord * EARTH_M) * pf)) * k;
+			const [cxp, cyp, w] = clipOf(pos(g.cu, g.cm, Rm));
+			if (w > rho) {   // 目の前＝画面の上の広がりは ρ(f+r)/(w−ρ) 以内（r＝中心の画面中央からの距離）
+				const sx = (cxp / w * 0.5 + 0.5) * W, sy = (1 - (cyp / w * 0.5 + 0.5)) * H, reach = rho * (f + Math.hypot(sx - W / 2, sy - H / 2)) / (w - rho) + 1;
+				const dx = box ? Math.max(box[0] - sx, 0, sx - box[2]) : sx - geometry[0], dy = box ? Math.max(box[1] - sy, 0, sy - box[3]) : sy - geometry[1];
+				if (dx * dx + dy * dy > reach * reach) continue;
+			}
+			const d = hitExtrusion(g.polys, zb, zt, q, env);
+			if (d != null) hits.push({ d, f: { type: "Feature", properties: u.f.properties || {}, geometry: u.f.geometry, layer: { id: lid, type: "fill-extrusion" }, source: slot === "default" ? "extrude" : srcId(mlLayers.get(slot)?.layer ?? { id: slot }), height: u.h } });
+		}
+	}
+	return hits;
+};
 map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
 	if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
 	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 3;
 	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
 	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : fs;
-	const vtxHits = vtxCtl ? vtxCtl.query(geometry || [[0, 0], [W, H]], take).catch(err => { console.warn("[query] vector extrusion", err); return []; }) : null;   // ベクタタイルの押し出し（段 8①）＝立体で当てる（屋根が空に掛かっても当たる）
+	const extHits = extrudeHits(geometry || [[0, 0], [W, H]], take);   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
+	const vtxHits = vtxCtl ? vtxCtl.query(geometry || [[0, 0], [W, H]], take).catch(err => { console.warn("[query] vector extrusion", err); return []; }) : null;   // ベクタタイルの押し出し（段 8①）＝同じ当たり（extView）
+	const ext3d = async () => [...extHits, ...(vtxHits ? await vtxHits : [])].sort((a, b) => a.d - b.d).map(h => h.f);   // 押し出しは二つの経路を一つの列に・近い順（MapLibre は 3D の地物を奥行きで並べる）
 	let area;
-	if (geometry && typeof geometry[0] === "number") { const ll = unprojectXY(geometry[0], geometry[1]); if (!ll) return vtxHits ? qf(await vtxHits) : []; area = { ll }; }
+	if (geometry && typeof geometry[0] === "number") { const ll = unprojectXY(geometry[0], geometry[1]); if (!ll) return qf(await ext3d()); area = { ll }; }
 	else {
 		const [[x0, y0], [x1, y1]] = geometry || [[0, 0], [W, H]];
 		const cs = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, (y0 + y1) / 2]].map(([x, y]) => unprojectXY(x, y)).filter(Boolean);
-		if (!cs.length) return vtxHits ? qf(await vtxHits) : [];
+		if (!cs.length) return qf(await ext3d());
 		area = { bbox: [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))] };
 	}
 	const inBox = (lon, lat) => area.bbox ? lon >= area.bbox[0] && lon <= area.bbox[2] && lat >= area.bbox[1] && lat <= area.bbox[3] : false;
@@ -3923,11 +4016,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const g = { type: "Polygon", coordinates: [[...q.corners, q.corners[0]]] };
 		if (touches(g)) { const { [IMAGE_KEY]: _img, ...props } = q.properties || {}; out.push({ type: "Feature", properties: props, geometry: g, layer: { id: q.id, type: "raster" }, source: "image" }); }
 	}
-	for (const { f, h, slot } of [...(modelCtl?.extrudedFeatures || [])].reverse()) {   // 押し出し＝スロットごと（addLayer の層 id・ガジェット直呼びは "extrude"）・新しい方が上
-		const lid = slot === "default" ? "extrude" : slot;
-		if (take(lid) && touches(f.geometry)) out.push({ type: "Feature", properties: f.properties || {}, geometry: f.geometry, layer: { id: lid, type: "fill-extrusion" }, source: slot === "default" ? "extrude" : srcId(mlLayers.get(slot)?.layer ?? { id: slot }), height: h });
-	}
-	if (vtxHits) for (const f of await vtxHits) out.push(f);   // ベクタタイルの押し出し（近い順）
+	for (const f of await ext3d()) out.push(f);   // 押し出し＝geojson（スロットごと＝addLayer の層 id・ガジェット直呼びは "extrude"）と vector を立体で当てて近い順（上の ext3d）
 	// addLayer の fill/line/circle（gint の pass）＝上の pass から・pass の中は上の層（circle→line→fill）から。点は識別（gint の identifyAt）・箱は地物ごとに当てる。
 	// MapLibre と同じく「その層が描いている地物」を層ごとに 1 件（表を組んだ時の drawn＝層の filter・zoom 域・ジオメトリの型・描く色/幅があるか・台帳 R20）
 	for (const e of [...mlPasses.values()].sort((a, b) => b.order - a.order)) {
@@ -3970,10 +4059,10 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	}
 	if (queryCache.size > 32) queryCache.clear();
 	const baseIds = want && new Set((style.layers || []).map(L => L.id));
-	if (want && ![...want].some(id => baseIds.has(id))) return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : out;   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
+	if (want && ![...want].some(id => baseIds.has(id))) return qf(out);   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ style, hidden: hiddenAll(), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
 		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles() }).catch(err => { console.warn("[query] basemap", err); return []; });
-	return qo.filter ? out.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))).concat(base) : out.concat(base);
+	return qf(out).concat(base);
 };
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。
 // e＝{ type, point:{x,y}, lngLat:{lng,lat}, features, originalEvent, target: map }。当たりは queryRenderedFeatures（層を絞る＝基図の層でなければタイルを取り直さない）。

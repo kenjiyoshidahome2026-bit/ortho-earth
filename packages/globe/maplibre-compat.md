@@ -50,6 +50,8 @@
 | vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | **済**（2026-09-27・本人裁定「別の流れ・基図の上」＝gadgets/vtdraw.js・renderer の "user" の枠・基図の配管は無改修） |
 | vector の描く層の feature-state・基図の層の間への正確な差し込み | 無い | 8⑤b | 未（状態は置き場に残る・絵は既定＝爪車の既知 1） |
 | vector の押し出しの feature-state | 無い | 8①b | **済**（2026-09-27・sourceLayer 必須・getFeatureState・変わった地物のタイルだけ組み直す・問い合わせに state） |
+| geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
+| queryRenderedFeatures の geojson の押し出し | 地面の足跡で当てる（傾けて屋根を押すと外れる） | 5b | **済**（立体＝屋根と壁・近い順・R23） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -86,6 +88,11 @@
   - 未対応（警告して描く）：fill-pattern・fill-translate・line-pattern・line-gradient・line-blur・line-gap-width・line-translate。fill-outline-color は明示された時だけ 1px の縁。
   - 基図の source の層はタイルを基図の配管と別に取る（HTTP キャッシュ頼み・押し出しとも別）。低ズームのタイルは線の細分をタイルの幅の 1/64 までに抑える（基図は 700m 固定）。
   - feature-state は置き場に残るが絵には効かない（段 8⑤b）。問い合わせは基図と同じ当て方（面の中・線幅/2＋許し・円の半径＋縁・sourceLayer・id（promoteId）・source）。
+- geojson の押し出し（段 5b）：
+  - ["zoom"] の式は止まった所で評価し直す（MapLibre はズーム中も連続）＝止まった絵は同じ。止まりの外（一番外の interpolate/step の範囲の外）では評価し直さない。
+  - 問い合わせの結果の中で押し出し（geojson と vector）は一塊（上の段の順の中の「押し出し」の位置）で、その中が近い順。MapLibre は 3D の地物を 2D の層の間へ層の順で差し込む（押し出しの層の上にある 2D の層の地物が先）＝ここは描画の段の順（§4 の上の項）。
+  - 壁は元の頂点どうしを結ぶ四角で当てる（描画は長い辺を刻む＝地形に沿わせる広い面の壁の上端は起伏の分だけずれ得る）。屋根は光線を屋根の高さで受ける＝平らな屋根は厳密。
+  - 地面：床の平面（統計の既定）は持ち上げない・drape はどこでも地表・接地（建物らしい面）は renderer の接地リフトの規則の写し（DTM の申告域 ∩ R01 の窓）。標高は届くまで 0m（projectLL と同じ）。
 
 ## 5. 不整合の台帳（前もって把握する物）
 
@@ -112,6 +119,8 @@
 | R19 | 変換した旧関数が寛容な欠損に依存 | default へ落ちる形で包む | 爪車 node（legacy-fn-interp-default） | **済**（段 5） |
 | R20 | queryRenderedFeatures が ML と違う（filter の意味・層ごとの filter・集約の層 id） | filter は ML の出自（段 3）・層ごとに 1 件（段 4）・集約の層 id＝ML の層 id と層ごとの範囲・canvas2D の線/模様も（段 5）。cluster_id・getClusterExpansionZoom は段 6 | t-mlcompat・t-mllayers | 一部済 |
 | R21 | 基図の paint は tile z で焼く | 触らない（§4） | — | — |
+| R22 | geojson の押し出しが止まるたびに全体を上げ直す（伸び上がりの式が一つでもあると、範囲の外でも 0.25 刻みごと） | 押し出しの鍵は曲線を見る（`src/extrude-ml.js` の curveZoomKey）：一番外の interpolate（-hcl/-lab も）/step の入力が ["zoom"] 由来なら止まりの外は "lo"/"hi"・中は 0.25 刻み／段の番号・それ以外の所の ["zoom"] は 0.25 刻みのまま。模様（canvas2D）の鍵は従来どおり | 爪車 node（extrude-zkey-* 7 場面）＋ t-mlcompat?g=extrude（押し出しの呼び出しを数える：範囲の外 4 回止めて 0 回・中 2 回・段） | **済**（段 5b） |
+| R23 | geojson の押し出しの問い合わせが足跡だけ（傾けると屋根・壁が当たらず、足元の地面が当たる・浮いた箱の下が当たる） | 立体（`src/extrude-ml.js` の hitExtrusion＝MapLibre の queryIntersectsFeature と同じく屋根と壁）・地物ごとの外接球で下ごしらえ・当たった所の奥行きで近い順・描いた地面と同じ所（model.js の mode） | 爪車 node（extrude-hit-* 5 場面）＋ t-mlcompat?g=extrude（屋根・壁・近い順・浮き・箱・見えている色＝先頭・中庭・目の後ろへ回る広い面）両土台 | **済**（段 5b） |
 
 段 8①（vector の押し出し）で前もって把握した食い違い：
 
@@ -126,7 +135,7 @@
 | V7 | 地域の基図の自動の建物と二重 | 層 "building-extrusion"＝出し入れ（render worker の noBld を実行時に・撮影も同じ・伏せる間は足元の塗りをチルトでも）・案内 1 回 | japan t-bld（伏せる→43% 変わる・戻す→0%・色は投げる・removeLayer） | **済**（2026-09-27・本人「1→2」） |
 | V8 | 重さ（1 フレーム 1 件の転送・頂点 28B・GL の呼び出し数・WebGPU の 512） | 予算を見た選び・枚数上限・1 タイル 1 層 1 メッシュ・幾何キャッシュ・**専用の meshPort で背圧**（render worker の受け取りの印＝送り中 2 件まで・isSourceLoaded は描画側に載るまで） | 実機の数（§7）・爪車（外した層の取り残しが出ない） | **済**（2026-09-27・?hud=1 の実測は次） |
 | V9〜V10 | 伏せ枠の取り合い・フライト中の詰まり | 伏せ枠は使わない・フライト中は取得と組み立てを止める（出し入れは毎回） | — | **済** |
-| V11 | 当たり（立体）・id・promoteId | worker の地物＋屋根と壁の投影 | 爪車（屋根・浮き・継ぎ目・中庭） | **済** |
+| V11 | 当たり（立体）・id・promoteId | worker の地物＋屋根と壁（段 5b から geojson の押し出しと同じ hitExtrusion・近い順は一つの列） | 爪車（屋根・浮き・継ぎ目・中庭） | **済** |
 | V12 | 地形の外で埋まる | drape（どこでも地表へ）・当たりの地面は負の標高を 0 に | 実機（マンハッタン） | **済** |
 | V13〜V18 | 既定の挙動の変化・旗の目盛り・両土台・地域の語・transformRequest/独自スキーム/PMTiles・影 | SDK 注記・drawLayerOf・同じメッシュ経路・語なし・requester・§4 | 爪車（GL2/WebGPU・addProtocol・PMTiles）・regionless | **済**（影は文書） |
 
@@ -153,7 +162,7 @@
 
 ## 6. 門（互換の爪車ほか）
 
-- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector`（描いて確かめる場面・globe verify:ui／verify:webgpu は layers と vector）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
+- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector|extrude`（描いて確かめる場面・globe verify:ui／verify:webgpu は layers と vector と extrude）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
   - 一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。**場面を足すのは MapLibre と違うと分かった時**（先に場面を書いて赤を確かめる）。
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）・`tests/vtextrude.mjs`／`tests/vtdraw.mjs`（vector source の押し出しと描く層の純関数）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
@@ -190,4 +199,6 @@
   - 門：`tests/vtdraw.mjs`（node 36 項目＝置き換え・枠で切る（面積の和）・円＝長さ 0 の線・極・li の帯・worker の組み立て）＋爪車 `?g=vector` に 13 場面（計 29・両土台・既知 1＝⑤b の feature-state）。試料に landuse／road／poi を足した（建物の層のバイトは不変）。
   - 実機：MapLibre の demotiles（国の面・境界・国名）を全球ビューで・本初子午線のタイルの縁で半透明の塗りが一様・OpenFreeMap liberty の基図の source に道路の強調・POI の円・建物の半透明の塗り（渋谷）・ツェルマットを 65° で森の塗りが地形に沿う。
   - 轍：①問い合わせのキャッシュは「解読した source-layer の組」ごと（queryTiles は要る層だけ解く＝層を絞った最初の問い合わせのタイルを別の層が読むと空）②core の線の細分（700m・1 本 24 分割まで）は z2 のタイルで 4 倍に膨れた（demotiles 32MB→7.5MB）③プレビューの枠が隠れていると rAF が止まる（選びは rAF）。
+- [x] **段 5b**（2026-09-27）：geojson の押し出し（model.js の経路）の 2 件＝①描き直しの鍵を曲線で（R22）②問い合わせを立体で（R23）。純関数は `src/extrude-ml.js`（node で確かめる）・globe.js は視点の口（地面・投影・外接球の下ごしらえ）だけ。model.js は立てた地物に base とスロットの地面（mode・床の高さ）を持たせた（extrudeSets）。門＝爪車 node 12 場面・t-mlcompat?g=extrude 11 場面（GL2・WebGPU。旧コードで 7 場面が赤＝足跡の当て方・0.25 刻みの鍵、見張り 4 場面は両方で緑を確かめた）。
+  - **段 8①（vector の押し出し）と一本に**（main へ入った後に揃えた）：鍵＝vtmesh.paintZoomKey は extrude-ml.js の exprZoomKey を使う（書式は同じ "名前:lo|hi|s<段>|<z>"・interpolate-hcl/-lab も曲線に）。当たり＝vtextrude の query も hitExtrusion（旧＝屋根の頂点の投影＋重心の中ほどまでの距離）・口は globe.js の extView（hitEnv＝vtxGround の地面）・query は [{ d, f }] を返し、問い合わせが geojson の押し出しと一つの列にして近い順（MapLibre と同じく 3D の地物は奥行きで並ぶ）。vtxGround は ?noterr=1 で持ち上げない（描く側と同じ）。projectorH・distanceOf の口は要らなくなったので外した。
 - [ ] 段 8②〜④・⑤b：基図のアイコン・線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
