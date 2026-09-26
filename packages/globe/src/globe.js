@@ -3461,8 +3461,8 @@ const rasterAdjust = P => {
 const BASE_SRC = Symbol("basemap-source");
 const baseSidNow = () => EXT?.split.vectorSource ?? "basemap";
 const baseSrcSpec = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
-// 当たりの地面＝描いている地面（renderer は負の標高を 0 に切る＝海は海面・terrain.js／renderworker の半径と同じ）。dispRadius（projectLL）は切らない＝海の上ではずれる（別件）
-const vtxGround = (lon, lat) => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt); return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1; };
+// 当たりの地面＝描いている地面（renderer は負の標高を 0 に切る＝海は海面・terrain.js／renderworker の半径と同じ）。dispRadius も 9/27 から同じく切る＝そのまま使う
+const vtxGround = (lon, lat) => dispRadius(lon, lat);
 // feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
 const vtxFS = new Map();
 const vtxFSKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;
