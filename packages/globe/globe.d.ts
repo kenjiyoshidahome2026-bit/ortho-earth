@@ -579,7 +579,7 @@ export interface OrthoJapanMap {
 	 *  vector source の fill-extrusion（1.3.0〜・MVT の 3D 建物）：source は addSource の vector か基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）。
 	 *  タイルごとに流す（基図と同じ選び・MapLibre と同じ 512px の尺・子が揃うまで親を出す）・高さは実寸で地表から（どこでも地形に沿って立つ）・真上からも屋根が見える・半透明は裏面を除いて重ねる。
 	 *  ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）。filter の ["zoom"] はタイルの z（過拡大なら表示を丸めた z）。
-	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。未対応：feature-state・fill-extrusion-pattern/translate（警告して描く）・style の light。
+	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。feature-state（setFeatureState に sourceLayer＝状態が変わった地物を含むタイルだけ組み直す・問い合わせの地物に state）も 1.3.0〜。未対応：fill-extrusion-pattern/translate（警告して描く）・style の light。
 	 *  source の出典（TileJSON の attribution・無ければホスト名）はその source を使う押し出しの層がある間、出典の欄に出る（MapLibre の AttributionControl と同じ・OSM 等は表示が利用の条件）。
 	 *  地域の基図（日本）の自動の 3D 建物は層 "building-extrusion"（type fill-extrusion・source "basemap"）＝getLayer/getStyle に出る・setLayoutProperty(…, "visibility", "none") か removeLayer で伏せる
 	 *  （OSM などの押し出しへ差し替える時・伏せている間は足元の塗りがチルトでも出る・撮影/印刷も同じ・テーマを切り替えても残る）。色・filter・出しズームは変えられない（投げる） */
@@ -606,8 +606,11 @@ export interface OrthoJapanMap {
 	setLayerZoomRange(id: string, minzoom: number, maxzoom: number): OrthoJapanMap;
 	/** feature-state（MapLibre 同名）。id＝MapLibre の id（1.3.0〜）＝GeoJSON の Feature.id → source の promoteId の属性 → どちらも無ければ並び順（generateId と同じ・以前の意味）。
 	 *  queryRenderedFeatures の id も同じ。効くのは fill/line/circle の paint の ["feature-state", key]。基図の地物には効かない。属性がまったく同じ地物も別々に扱う（1.3.0〜） */
-	setFeatureState(feature: { source: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
-	removeFeatureState(feature: { source: string; id?: number | string }, key?: string): OrthoJapanMap;
+	/** vector source（fill-extrusion）は sourceLayer が要る（MapLibre と同じ・1.3.0〜）＝状態が変わった地物を含むタイルだけ組み直す（paint の ["feature-state"]・filter は読まない） */
+	setFeatureState(feature: { source: string; sourceLayer?: string; id: number | string }, state: Record<string, unknown>): OrthoJapanMap;
+	removeFeatureState(feature: { source: string; sourceLayer?: string; id?: number | string }, key?: string): OrthoJapanMap;
+	/** MapLibre 同名（1.3.0〜）：その地物の今の状態（無ければ {}） */
+	getFeatureState(feature: { source: string; sourceLayer?: string; id: number | string }): Record<string, unknown>;
 	/** MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"）の上に利用者の層。
 	 *  基図の層も 1.3.0〜 getLayer/setPaintProperty/setLayoutProperty/setFilter/setLayerZoomRange/removeLayer で触れる（visibility は結合で外すだけ＝軽い・色や filter は基図タイルの建て直し）。
 	 *  基図の層の重ね順は固定（moveLayer は基図の層に効かない・beforeId に基図の層 id を渡してもよい＝利用者の層は描画の段で決まる）。上書きはテーマの切り替えを越えて残り、setStyle で消える。

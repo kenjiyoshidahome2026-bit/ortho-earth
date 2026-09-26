@@ -45,7 +45,7 @@ export const MAP_MEMBERS = {
 	addLayer: "layer", getLayer: "layer", getLayers: "layer", removeLayer: "none", moveLayer: "none",
 	setPaintProperty: "layer", getPaintProperty: "layer", setLayoutProperty: "layer", getLayoutProperty: "layer",
 	setFilter: "layer", getFilter: "layer", setLayerZoomRange: "layer",
-	setFeatureState: "none", removeFeatureState: "none", getStyle: "layer", setStyle: "layer",
+	setFeatureState: "none", removeFeatureState: "none", getFeatureState: "none", getStyle: "layer", setStyle: "layer",
 	queryRenderedFeatures: "io",   // filter の ["zoom"]（入）・集約の expansionZoom（出）
 	addImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
 	setTerrain: "none", getTerrain: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
