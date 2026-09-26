@@ -3,7 +3,7 @@
 //     位置は目からの相対（P_rel＝視線×距離＝f32 で m 級の精度）・標本の投影は clipEye＋mvp·(S,0)（CPU double の錨＝RTE と同じ作法）。
 //   ②ぼかし（半解像度）＝4×4・深度の重み（AO 面の GB に同梱した深度＝縁を跨がない）。深度が無い画素（GLOBE の床）は視線と単位球の交点で床を復元。
 //   ③合成＝色に乗算（blend＝dst×src・MSAA の段は本体と同じ＝4x の静止フレームも 1x の遷移フレームも同じ的へ）。中間の色面は要らない。
-// 半径は視距離の 2%（8m〜400m）＝寄れば足元・引けば谷。空（深度 1）は 1。LOW_MEM は globe が旗を落とす（作らない）。
+// 半径は視距離の 5%（12m〜400m）＝寄れば足元・引けば谷。空（深度 1）は 1。LOW_MEM は globe が旗を落とす（作らない）。
 // 深度は 4x のとき texture_depth_multisampled_2d の sample 0（#47 depthout と同じ手）。
 export const AO_WGSL = ms => /* wgsl */`
 struct AoP { mvp: mat4x4f, invMvp: mat4x4f, clipEye: vec4f, eye: vec4f, p: vec4f, size: vec4f };   // p=(logCoef, 半径の係数, 強さ, bias m→世界)・size=(W,H,1/W,1/H)（AO 面）
@@ -59,8 +59,8 @@ const KERNEL = array<vec3f, 12>(
 	if (dot(n, n) < 1e-30) { return vec4f(1.0); }
 	n = normalize(n);
 	if (dot(n, P.xyz) > 0.0) { n = -n; }   // 視線に向ける
-	// 半径＝視距離の 2%（8m〜400m）・bias
-	let radius = clamp(P.w * A.p.y, 8.0 * M_PER_R, 400.0 * M_PER_R);
+	// 半径＝視距離の 5%（12m〜400m）・bias
+	let radius = clamp(P.w * A.p.y, 12.0 * M_PER_R, 400.0 * M_PER_R);
 	let bias = A.p.w;
 	// 接線基底＝画素ごとの回転（4×4 の交互）で縞を散らす
 	let ang = f32((xy.x & 3) * 4 + (xy.y & 3)) * 0.3927;   // 16 段
