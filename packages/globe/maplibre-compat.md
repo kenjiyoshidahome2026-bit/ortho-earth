@@ -21,7 +21,9 @@
 - 約束：null・undefined は素通し（`null+1` 事故を封じる）／ML の maxzoom は排他・gint・labels2d・raster showMax は包含＝境の変換はアダプタで 1 回。
 - 換算の関数は 2 枚だけ：数と表＝`src/zoomscale.js`（globe）・式と層＝`ortho-core/src/mlstyle.js` の `shiftZoomExpr`・`shiftLayerZoom`・`normalizeMLLayer`・`rescaleZoomExpr`・`rescaleZoomNum`（core）。
 - 層の目盛りは `metadata["ortho:dz"]` で申告できる（getStyle が付けて返す）。source の目盛りは getStyle の root の `metadata["ortho:sourceDz"]`。
-- 換算する所は次の 3 か所だけ：起動オプション・外側の顔（`mlfacade.js`＝最後の `return map` だけを包む Proxy・map と map.gadget だけを代理）・ML 形の層と source の `dz`。**内部は常に素の map**（ガジェットは `func.apply(map)`＝素）。
+- 換算する所は次の 3 か所だけ：起動オプション（`bootOptsIn`＝createGlobe の最初）・外側の顔（`src/mlfacade.js`＝最後の `return map` だけを包む Proxy・map／map.gadget／map.raster だけを代理）・ML 形の層と source の `dz`（`PUBLIC_DZ`）。**内部は常に素の map**（ガジェットは `func.apply(map)`＝素・地域パックの install も素）。
+- **実装済み（段 2）**：旗なしは素の map をそのまま返す（Proxy も無い）。旗つきの顔は、連鎖の戻り値・Promise の解決値・層イベントの `target`・contextmenu の `c.map`・利用者ガジェットの `this` を顔に差し替え、`once` は顔の on/off の上で組む（handler は (ev, 層キー) ごとの WeakMap）。gint の手綱は包まず、addGint に `_dz` を渡して手綱の中で換算（公開の setPaint と中の paintNow を分けた＝二度換算しない）。素の map は `map[RAW]`（`Symbol.for("ortho-earth.map.raw")`）。Marker の登録簿・geoedit・common/gintView は入口で素へ戻る。
+- ⚠層の口（addLayer…・ML 形 gadget・問い合わせの filter）は**素の map でも公開の目盛り**（PUBLIC_DZ）＝内部の呼び手は addLayerAt/addSourceAt/*Native に dz を明示する（`tests/internal-callers.mjs` が見張る）。
 
 ## 3. 揃える物（モード無し）
 
@@ -49,6 +51,8 @@
 
 - z の目盛り（旗なしの既定）と緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ を含む）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。カメラに cos(lat) を戻さない既存の裁定は守る。
 - queryRenderedFeatures は非同期。
+- `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
+- チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
 - 線幅・点の半径の上限（表の u8：線 約 32px・点 約 64px）。
@@ -58,9 +62,9 @@
 
 | # | 起き得る食い違い | 手当て | 門 | 状態 |
 |---|---|---|---|---|
-| R1 | 旗の下で二つの z が同居・分類漏れ | 換算は zoomscale.js の表だけ | `tests/zoomscale.mjs`（d.ts）＋ t-mlcompat の実行時キー | 門あり（段 0） |
-| R2 | 素の map の漏れ・同一性（連鎖・Promise・イベント・once・off・Marker） | facade が差し替え・handler の WeakMap・once を組み直す・`map[RAW]` | t-mlzoom（段 2） | 未 |
-| R3 | 二重換算・null+1・包含/排他 | 変換は zoomscale.js の関数だけ | node 単体（段 1） | 未 |
+| R1 | 旗の下で二つの z が同居・分類漏れ | 換算は zoomscale.js の表だけ | `tests/zoomscale.mjs`（d.ts）＋ t-mlcompat の実行時キー＋ `tests/mlfacade.mjs`（表の in/out/io/event を顔が全部換算しているか） | **済**（段 2） |
+| R2 | 素の map の漏れ・同一性（連鎖・Promise・イベント・once・off・Marker） | facade が差し替え・handler の WeakMap・once を組み直す・`map[RAW]` | `tests/mlfacade.mjs`（70 項目）＋ t-mlzoom?zs=maplibre|ortho | **済**（段 2） |
+| R3 | 二重換算・null+1・包含/排他 | 変換は zoomscale.js の関数だけ・手綱は公開の口と中の口を分ける | `tests/mlfacade.mjs`（null 素通し・二度換算なし）。包含/排他の境は段 5 | 一部済 |
 | R4 | 同じ ML の層が経路で違う・二度のずらし | normalizeMLLayer 一本・印・畳み・drawLayerOf・内部は *Native を直に呼ぶ | 爪車 node（shift-roundtrip・normalize-idempotent）＋ style:getstyle-roundtrip-stable | **済**（段 1） |
 | R5 | ML の意味がネイティブ gint へ波及・手綱が ML の表を上書き | buildFidStyle 据え置き・手綱に buildTable 注入 | gint-expr.mjs・t-gintlayers | 未 |
 | R6 | 評価器の変更が基図・内製 paint を変える・cache の出自混線 | 出自で分岐・出自は子ノードまで | `tests/expr-golden.mjs`（内蔵 style 534 件の指紋） | 門あり（段 0） |
@@ -68,14 +72,14 @@
 | R8 | ML 層の意味の変更が内製の呼び手を変える | 呼び手を固定して人が見る・内部は native の入口（heatmapNative/clusterNative/symbolsNative/extrudeNative・addLayerAt/addSourceAt に dz を明示） | `tests/internal-callers.mjs` | 門あり（段 1 で 10→2） |
 | R9 | 文書とコードのずれ | 段ごとに文書を直す | verify:npm・t-start-sync・spec §11 | 未 |
 | R10 | gint 層が増える＝GPU メモリ | 連続する層だけ詰める・circle-stroke は表の第 4 語 | ?hud=1・LOW_MEM | 未 |
-| R11 | 共有リンクが旗で変わる | hash/view 文字列は常にエンジン z | t-mlzoom | 未 |
+| R11 | 共有リンクが旗で変わる | hash/view 文字列は常にエンジン z | t-mlzoom（viewZoom・onceSettle の hash） | **済**（段 2） |
 | R12 | 並走ブランチとの衝突 | 段ごとに小さな PR | R1 の実行時キー | — |
 | R13 | 地域の語・console の言語 | 地域名なし・英語 | verify:regionless | 門あり |
 | R14 | npm の版と公開順 | 本人の号令・core→globe→japan | verify:npm | — |
-| R15 | maxPitch の単位（ラジアン→度） | 1.6 超を度と読む移行 | t-camera | 未 |
+| R15 | maxPitch の単位（ラジアン→度） | 1.6 超を度と読む移行・getMaxPitch（度） | t-mlzoom（getMaxPitch） | **済**（段 2） |
 | R16 | 1 枚の gint 層で部分を消す時の穴（線/点の色 α0＝既定色・縮退 stencil が表を見ない） | 幅/半径 0 に直す・fillMaxEdges:0 | 両土台の画素検定 | 未 |
 | R17 | 層の種類ごとに zoom の扱いがばらばら | 段 5 | t-mlcompat の行列 | 未 |
-| R18 | 公開 map を受け取る部品がエンジン z で計算（geoedit・common/gintView・anno） | 入口で `map[RAW] ?? map` | t-mlzoom | 未 |
+| R18 | 公開 map を受け取る部品がエンジン z で計算（geoedit・common/gintView・anno） | 入口で `map[RAW] ?? map`（anno はガジェット＝素の this） | t-mlzoom（marker）・コードの入口 | **済**（段 2） |
 | R19 | 変換した旧関数が寛容な欠損に依存 | default へ落ちる形で包む | 爪車 node（legacy-fn-interp-default） | 門あり（known） |
 | R20 | queryRenderedFeatures が ML と違う（filter の意味・層ごとの filter・集約の層 id） | 段 4 | t-mlcompat | 未 |
 | R21 | 基図の paint は tile z で焼く | 触らない（§4） | — | — |
@@ -87,7 +91,7 @@
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
 - **main で既存の失敗（この仕事の外・2026-09-26 に main 92420d0e で再現を確認）**：globe verify:webgpu の t-overlaydepth（clearIsOne）と t-ao（足元の暗さ）。段の門では「この 2 項目が同じ値で落ちる」ことだけを確かめ、別件として切り出した。
-- 揺れの観察：t-linedeco?nomd=1 の videoMoved（全頁の連続実行で 1 回・単独では緑）。
+- 揺れの観察：t-linedeco?nomd=1 の videoMoved（段 1 の全頁で 1 回・単独では緑）／verify:ui 側の t-overlaydepth（GL2）の clearIsOne（段 2 の全頁で 1 回・単独 3 回とも緑）。
 
 ## 7. 段の進み
 
@@ -96,7 +100,7 @@
 
 - [x] **段 0**（2026-09-26）：台帳・互換の爪車（node 9 場面・browser 17 場面＝known 21・見張り 5）・分類表 `src/zoomscale.js`（データだけ・どこからも import しない）・黄金の写し・内製の呼び手の許可表。挙動の変更なし。
 - [x] **段 1**（2026-09-26）：ML の層の入口＝core `normalizeMLLayer`（読み替え＋dz＋冪等の印）・globe の登録簿に dz（層・source）・`drawLayerOf` 1 本・setter/getter は呼び手と層の目盛りの差を埋める・style.json の geojson 層と source は dz 1・問い合わせの filter も入口へ・ML 形 gadget は入口で正規化→中身（*Native）／内部の描き出し・worldcontent・見通し線は中身を直に。公開の口の目盛り `PUBLIC_DZ` は 0 のまま（旗は段 2）。式の検査（知らない演算子で投げる）は段 5。
-- [ ] 段 2：旗の顔（mlfacade・RAW・Marker と部品・maxPitch の度・raster と手綱の dz・d.ts）
+- [x] **段 2**（2026-09-26）：旗 `zoomScale:"maplibre"`＝起動 opts の換算・外側の顔 `mlfacade.js`・手綱の `_dz`（公開の口と中の paintNow を分けた）・map.raster の表示窓・`RAW`・Marker/geoedit/gintView の入口・maxPitch の度と getMaxPitch・d.ts の旗の表。門＝`tests/mlfacade.mjs`・t-mlzoom（旗あり/なし）。
 - [ ] 段 3：評価器の出自（compile の子まで・worker へ渡る平の印・新演算子は両方へ）
 - [ ] 段 4：fill / line / circle の約束（mltables・連続する層だけ詰める・予約 order 帯・U10・dash-id）
 - [ ] 段 5：式の残りと層の種類ごとの zoom

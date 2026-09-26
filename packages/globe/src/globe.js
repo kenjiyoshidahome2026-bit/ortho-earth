@@ -34,7 +34,10 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr } from "@ortho-earth/core";
+import { zoomScaleOf, bootOptsIn, ML_DZ } from "./zoomscale.js";
+import { createFacade } from "./mlfacade.js";
+export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
@@ -110,6 +113,10 @@ const t = tr();
 //   出典・戻り先・検索・POI・鉄道が来ない＝世界データだけの地球儀（apps/world の国の地図パネル）。
 //   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 export async function createGlobe(opts = {}) {
+// ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
+// 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
+const PUBLIC_DZ = zoomScaleOf(opts) === "maplibre" ? ML_DZ : 0;
+opts = bootOptsIn(opts, PUBLIC_DZ);
 const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
 requester.setTransform(opts.transformRequest);
 const REGIONS = [].concat(opts.region || []).filter(Boolean);
@@ -1093,7 +1100,11 @@ dbgHost.__style = () => style;   // 現在の style＝検証フック（t-world�
 
 // 透視カメラ：center(注視点lon/lat), zoom(web-mercator float), pitch/bearing(rad)
 const MAXPITCH = 75 * D2R;
-let maxPitchCur = opts.maxPitch ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
+// チルト上限の単位（1.3.0〜・台帳 R15）：MapLibre と同じ度で受ける。1.6 を超える値＝度・それ以下は従来のラジアン
+// （ラジアンの上限は 1.6 未満＝区別がつく・度で 1.6 以下は 0 以外に意味が無い・内製の呼び手は全部 0）。ラジアンは警告を 1 回
+let pitchWarned = false;
+const pitchIn = v => { if (v == null) return v; if (v > 1.6) return v * D2R; if (v > 0 && !pitchWarned) { pitchWarned = true; console.warn(`[globe] maxPitch ${v} read as radians (deprecated) — pass degrees like MapLibre (e.g. 60)`); } return v; };
+let maxPitchCur = pitchIn(opts.maxPitch) ?? MAXPITCH;   // 現在のチルト上限＝起動オプション（geoedit.html=0）を実行時に map.setMaxPitch で上書きできる（編集ガジェットの真上固定）   // 山岳ビュー(z<13)は地形が深度で自遮蔽・混成アトラスが地平線までカバー＝高チルトの根拠が揃ったので75°まで開放
 // ZOOM_MAX は上方（基図の門より前）で決めている＝BASEMAP_MINZOOM が参照する（使う所より前で決める・TDZ の轍）
 const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世界512px＝スマホ縦にも収まる。旧床2は縦画面で地球がはみ出し、モバイルΔ補正が床に潰される素だった 2026-08-02）
 // 太陽系圏（2026-08-10）：256pxの梯子を負へ延長＝ズームアウトの続きで太陽系へ（z≈-16.4で冥王星軌道が視野に収まる）。
@@ -2173,12 +2184,13 @@ map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1�
 map.setOpacity = ({ base, globe } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; renderer.set("view", v); needsDraw = true; };   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
 map.setMaxPitch = rad => {
-	maxPitchCur = rad ?? (opts.maxPitch ?? MAXPITCH);
+	maxPitchCur = pitchIn(rad) ?? (pitchIn(opts.maxPitch) ?? MAXPITCH);
 	input.setMaxPitch(maxPitchCur); flightCtl.setMaxPitch(maxPitchCur);
 	if (cam.pitch > maxPitchCur) { flightCtl.cancel(); cam.pitch = maxPitchCur; onMove(); }
 	needsDraw = true;
 };
 map.maxPitch = () => maxPitchCur;
+map.getMaxPitch = () => maxPitchCur * R2D;   // MapLibre 同名＝度（maxPitch() はラジアンのまま）
 // ズーム床の実行時変更（編集ガジェット＝z2.5・null=カメラ実床へ戻す）。入力・飛行・共有hash・ズームボタンの4経路が従う
 map.setZoomMin = z => {
 	zoomMinCur = z ?? CAM_ZOOM_MIN;
@@ -3194,8 +3206,8 @@ map.gadget("symbols", async function (src, layer = {}) {   // 記号の層（src
 const mlSources = new Map(), mlLayers = new Map();   // mlLayers の挿入順＝重ね順（下から）
 // 目盛り（互換の台帳 maplibre-compat.md・約束 1/5）：層と source は「渡されたまま」＋dz（その数が書かれた目盛り−エンジンの目盛り）を持つ。
 // 描き出す時は drawLayerOf（＝normalizeMLLayer：旧書式の読み替え＋dz の換算）を 1 回だけ通す。style.json 由来は dz 1（MapLibre の z）・
-// 公開の口は PUBLIC_DZ（段 1 では 0＝エンジンの z。段 2 の旗 zoomScale:"maplibre" で 1）。層の metadata["ortho:dz"] の申告があればそれが勝つ。
-const PUBLIC_DZ = 0;
+// 公開の口は PUBLIC_DZ（createGlobe の最初で旗から決まる＝旗なし 0・maplibre 1）。層の metadata["ortho:dz"] の申告があればそれが勝つ。
+// ⚠層の口（addLayer…）は素の map でも公開の目盛り＝内部の呼び手は addLayerAt/addSourceAt に dz を明示する（台帳 R8 の門）
 const mlSourceDz = new Map();   // source id → dz（clusterMaxZoom は source に住む）
 const drawLayerOf = v => normalizeMLLayer(v.layer, v.dz);
 const srcDzOf = L => typeof L.source === "string" ? (mlSourceDz.get(L.source) ?? 0) : layerDzOf(L, 0);
@@ -3742,5 +3754,6 @@ if (opts.worldContent && WORLD_VT) {
 const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, assetBase: ASSET_BASE, onDestroy: f => hostDestroy.push(f) };
 for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);
 
-return map;
+// 旗なし＝素の map をそのまま・旗つき＝外側の顔（公開面の数の zoom を MapLibre の z で受け渡す）。地域パック・ガジェットは上で素の map を握った
+return createFacade(map, PUBLIC_DZ, { shiftZoomExpr });
 }
