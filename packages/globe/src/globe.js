@@ -3457,11 +3457,19 @@ const baseSidNow = () => EXT?.split.vectorSource ?? "basemap";
 const baseSrcSpec = id => id === baseSidNow() ? { type: "vector", [BASE_SRC]: true } : undefined;
 // 当たりの地面＝描いている地面（renderer は負の標高を 0 に切る＝海は海面・terrain.js／renderworker の半径と同じ）。dispRadius（projectLL）は切らない＝海の上ではずれる（別件）
 const vtxGround = (lon, lat) => { const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt); return pf > 0 ? 1 + Math.max(0, elevOf(lon, lat)) * pf * (TERR_EXAG / EARTH_M) : 1; };
+// feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
+const vtxFS = new Map();
+const vtxFSKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;
+const isVecSrc = sid => mlSources.get(sid)?.type === "vector" || !!baseSrcSpec(sid);
 let vtxCtl = null;
 const vtxGet = async () => {
 	const m = await import("./gadgets/vtextrude.js");
-	return vtxCtl ??= dbgHost.__vtx = m.createVTExtrude(map, {   // __vtx＝検証窓（debugGlobals の時だけ）
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying,
+	if (vtxCtl) return vtxCtl;
+	const ch = new MessageChannel();   // 押し出し専用の送り口（PLATEAU と同じ meshPort＝render worker は適用ごとに受け取りの印を返す＝背圧と「載った」の判定）
+	wPost({ type: "meshPort", port: ch.port2 }, [ch.port2]);
+	return vtxCtl = dbgHost.__vtx = m.createVTExtrude(map, {   // __vtx＝検証窓（debugGlobals の時だけ）
+		meshPort: ch.port1, requestDraw: () => { needsDraw = true; },
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey,
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean))] : []); needsDraw = true; },
 		meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 		projectorH: () => { const st = cameraState(cam, size.w, size.h); return (lon, lat, hM) => { const [sx, sy, f] = project(st, lon, lat, vtxGround(lon, lat) + (hM || 0) / EARTH_M); return [sx / dpr, sy / dpr, f]; }; },
@@ -3658,21 +3666,42 @@ map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); 
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
 const fidOfMl = (source, id) => { const m = mlGintData.get(source)?.idToFid; return m ? (m.get(id) ?? m.get(typeof id === "string" && id !== "" && !isNaN(+id) ? +id : String(id))) : undefined; };
-map.setFeatureState = ({ source, id }, state) => {
+map.setFeatureState = ({ source, sourceLayer, id }, state) => {
 	if (id == null) return map;
+	if (isVecSrc(source)) {   // vector source（押し出し・段 8①b）＝MapLibre と同じく sourceLayer が要る
+		if (sourceLayer == null) throw new Error(`setFeatureState: sourceLayer is required for vector source "${source}"`);
+		let m = vtxFS.get(source); if (!m) vtxFS.set(source, m = new Map());
+		const k = vtxFSKey(sourceLayer, id); m.set(k, { id, state: { ...(m.get(k)?.state || {}), ...state } });
+		vtxCtl?.touchFS(source, sourceLayer, id);
+		return map;
+	}
 	let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
 	m.set(id, { ...m.get(id), ...state });
 	const fid = fidOfMl(source, id);
 	if (fid != null) for (const e of mlPasses.values()) if (e.sid === source) e.h.setFeatureState(fid, state);
 	return map;
 };
-map.removeFeatureState = ({ source, id } = {}, key) => {
+map.removeFeatureState = ({ source, sourceLayer, id } = {}, key) => {
+	if (isVecSrc(source)) {   // vector source：id 無し＝その source（sourceLayer があればその層）を全部
+		const m = vtxFS.get(source); if (!m) return map;
+		if (id == null) { for (const k of [...m.keys()]) if (sourceLayer == null || k.startsWith(sourceLayer + "\u0000")) m.delete(k); vtxCtl?.touchFS(source, sourceLayer ?? null, undefined); return map; }
+		if (sourceLayer == null) throw new Error(`removeFeatureState: sourceLayer is required for vector source "${source}"`);
+		const k = vtxFSKey(sourceLayer, id), cur = m.get(k); if (!cur) return map;
+		if (key != null) { const st = { ...cur.state }; delete st[key]; m.set(k, { id, state: st }); } else m.delete(k);
+		vtxCtl?.touchFS(source, sourceLayer, id);
+		return map;
+	}
 	const m = mlFeatureState.get(source);
 	if (m) { if (id == null) m.clear(); else if (key != null) { const st = { ...m.get(id) }; delete st[key]; m.set(id, st); } else m.delete(id); }
 	const fid = id == null ? null : fidOfMl(source, id);
 	if (id != null && fid == null) return map;
 	for (const e of mlPasses.values()) if (e.sid !== source) continue; else if (key != null && id != null) e.h.setFeatureState(fid, { [key]: undefined }); else e.h.removeFeatureState(fid);
 	return map;
+};
+// MapLibre 同名（段 8①b）：その地物の今の状態（無ければ {}）。vector source は sourceLayer が要る
+map.getFeatureState = ({ source, sourceLayer, id } = {}) => {
+	if (isVecSrc(source)) { if (sourceLayer == null) throw new Error(`getFeatureState: sourceLayer is required for vector source "${source}"`); return { ...(vtxFS.get(source)?.get(vtxFSKey(sourceLayer, id))?.state || {}) }; }
+	return { ...(mlFeatureState.get(source)?.get(id) || {}) };
 };
 map.getLayers = () => [...mlLayers.values()].map(v => echoLayer(v));
 // getStyle＝MapLibre の style の形（version 8）。layers＝基図の層（外来 style ならその source 名・地域の基図は "basemap"＝読むだけ）の上に利用者の層（登録順）
