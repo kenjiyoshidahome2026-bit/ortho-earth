@@ -9,7 +9,7 @@
 | Phase | 中身 | 見立て | 出口の門 |
 |---|---|---|---|
 | 0 | **計器とベースライン**（§1） | 1〜2 日 | 3 端末×3 シーンの表が §8 に埋まる |
-| 1 | 速攻 3 件＝P6 gndMix 早期 return（§4）・P1 step0 標高ループの融合＋Float16Array（§2）・P3 線 6→4 頂点（§3） | 各半日〜1 日 | 関門緑・絵一致・gpuMap/gpuGint が改善または不変 |
+| 1 | 速攻 3 件＝P6 gndMix 早期 return（§4）・P1 step0 標高ループの融合＋Float16Array（§2）・P3 線 6→4 頂点（§3）＝**2026-09-27 全て実施済**（数字は §8） | 各半日〜1 日 | 関門緑・絵一致・gpuMap/gpuGint が改善または不変 |
 | 2 | P1 step1 GPU 再標本化（§2） | 2〜3 日 | セル一致検定（CPU 参照との差 ≤ f16 ulp）・着地の引っ掛かりログがゼロ |
 | 3 | P4 地形 LOD（§5）＝`?gmax=` の天井測定で go/no-go | 3〜5 日 | 低チルトで絵一致・高チルトで差分予算内・割れ無し検定 |
 | 4 | P2 プール＋render bundle（§6）＝Phase 0 の数字で go/no-go | 1〜2 週 | classic と md の絵一致・fadede8b の轍の回帰・`?mem=1` にプール行 |
@@ -39,6 +39,17 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 - `downsampleFlipped` の `H()` 閉包を展開し、行ごとの `gy/y0/fy` と異常値判定を外へ。出力を直接 `Float16Array` に書けるなら 1 ループに融合（`renderer.set("elevCell")` が Uint16 も受ける）。
 - 門：既存の標高検定（`tests/elevation-worldatlas.mjs` の規約＝texel 中心・M=2・異常値 0）に CPU 参照との一致を足す。計器 a で 1 セルの ms を前後比較。
 - 期待：1 セル 15〜20ms → 5〜8ms（見立て）。まだ描画スレッドに居る＝step 1 の前段。
+- → **実装済（2026-09-27）**：`downsampleFlipped` は列の x0/fx を先に 1 回・内側は配列の直読み（閉包と毎 texel の clamp を消した・算術は同式同順＝bit 一致）。f16 は `gpu/f16.js`（Float16Array の native＋JS ループのフォールバック）。
+  Node（Mac）実測＝3600²→1024² の再標本化 6.0→2.6ms（×2.3）・f16 1.40→0.90ms（×1.6）・**セル合計 7.4→3.5ms**（ブラウザの見立て 15〜20ms は過大だった＝Mac の実測は 7ms 級）。
+  副産物＝旧 f16 ループは「半 ULP 足して切り捨て」＝タイを上へ丸めていた（3377→3378）。native は IEEE 偶数丸め（3376）＝ループも偶数丸めへ揃えた（両経路 bit 一致・GL のドライバ変換と同じ）。門＝`tests/elevation-resample.mjs`（規約の写しと bit 一致・両 f16 経路・タイ 4 例）。
+  出力を直接 Float16 に書く融合は見送り（GL 経路が Float32 を要る・step 1 の GPU 再標本化で丸ごと消える）。
+- → **浮世の前後（Mac・bench-perf・3 回中央値・変更前は stash で同じ手順）**：`cropResample` も同じ手で速くして elevation.js へ移設（bit 一致の門つき）。
+  | シーン | セル | 変更前 avg ms（res+up） | 変更後 | 最大 res/up 前→後 | 着地の引っ掛かり |
+  |---|---|---|---|---|---|
+  | 富士 z13 60°（混成＝R10 切り出し中心） | 145 | 1.30（0.90+0.40） | **0.98（0.68+0.31）＝−25%** | 11.9/4.9 → 10.1/3.9 | 5 → 3 |
+  | 東京駅 z16.5 55°（純 R01・1024²） | 4 | 15.92（12.35+3.58） | 14.68（12.15+2.53）＝−8% | 23.3/5.4 → 22.3/3.9 | 5 → 5 |
+  読み＝f16（upload）は 25〜30% 落ちた。再標本化は小さなセル（R10 切り出し）では −25% だが、**大きな R01 セルは 12ms のまま**＝Node の 6.0→2.6ms が出ない
+  ＝算術でなく**メモリ律速**（届いた直後の 3600² 級 Int16 を 2 行ずつ飛び飛びに読む＝キャッシュミス）。ここは JS のループを磨いても取れない＝**step 1（GPU 再標本化＝生タイルを writeTexture で上げて GPU に標本化させる）の根拠が立った**。
 
 **step 1（Phase 2・2〜3 日）＝GPU 再標本化**
 - 生 Int16 タイルを `r16sint` テクスチャで上げる（`writeTexture`＝JS ループ無し。bytesPerRow は `setCogTex` と同じ流儀で 256 の倍数に pad）。
@@ -71,6 +82,33 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 **轍**：post-transform cache は「同一 instance 内の同一 index」だけ再利用＝instance 数 n の細分でも辺内の 4 頂点は 1 回ずつ。`cullMode:"none"` なので巻き向きは絵に出ないが、index の三角形順は現行と同一に保つ（検定の画素一致）。
 **次段（本計画の外）**：可視 run の arc 頂点を compute で 1 回だけ投影（12 回→1 回）。snap は VS に残し、細分のサブ端点だけ VS で投影。層あたり 12B×頂点の中間バッファ＝可視 run に限る。
 
+**実施（2026-09-27）**
+- 実装＝設計どおり両バックエンド。WebGPU：gint＝`drawIndexed(cnt*6, n, 0, est*4, n<<16)`（固定パターン u32・K=131072・run が K を超えたら割る）・基図 LINE＝4 隅＋u16 index `[0,1,2,2,1,3]`。
+  GL：`drawElements`（baseVertex が無い＝run の先頭辺は `u_vbase` uniform で運ぶ・QK 超は割る）・基図 LINE＝`drawElementsInstanced`（u8 index・各 line VAO に ELEMENT を bind）。
+  シェーダの原本は 4 頂点形＝旧 6 頂点は機械変換（`quad6WGSL`／`quad6GLSL`・変換漏れは例外）＝二重管理をしない。逃げ道 `?quad4=0`。
+- 門＝globe verify:webgpu 22/22・verify:ui 全頁・japan verify:webgpu 14/14・node test 3 系（core／globe／japan）緑。
+- **轍**：GL の `u_vbase` を DEPTH_UNIFORM_NAMES に足していた＝pick 線プログラムは SHARED しか読まない＝location undefined＝run の先頭が 0 に化けて **hover が死ぬ**（描画は uRender が DEPTH も読むので無事＝絵の門は通り、pick の門 t-gintlayers?gl2=1／t-gintmultigl だけが落ちた）。SHARED へ移して根治。
+  教訓＝uniform 名の台帳が複数ある時は「どのプログラムがどの台帳を読むか」を先に確かめる。pick の門が絵の門と独立に在るのが効いた。
+- **計測①** `bench-gintsb.mjs`（合成 2.1M 辺・同一タスク連続 submit・gint 差分 ms/フレーム・Mac apple metal-3）：
+
+  | 的 | storage（4 頂点） | quad6（旧 6 頂点） | sb/quad6 |
+  |---|---|---|---|
+  | z14 | 1.37 | 1.24 | 1.11（雑音・線は少数＝VS 律速でない） |
+  | z8 | 1.29 | 1.31 | 0.98（同上） |
+  | z3 | **16.46** | **20.49** | **0.80＝−20%**（60 万辺の VS 律速＝期待 −20〜33% の下端） |
+
+  読み＝VS 律速の的でだけ効く（見立てどおり）。フラグメント律速・少数辺の的は不変。
+- **計測②** `bench-perf.mjs --runs 3`（基図の線・gpuMap の中央値・Mac）＝A/B を順序入れ替えで 2 組（cache の順序効果を潰す）：
+
+  | シーン | 旧 6 頂点 `?quad4=0` | 4 頂点（既定） | 差 |
+  |---|---|---|---|
+  | 2D 東京 z13 | 0.70／0.70 | 0.33／0.33 | **−53%**（2 組とも同値＝基図の線が 2D の費用の半分） |
+  | 富士 z13 60° | 7.77／7.92 | 6.34／6.39 | **−19%**（3D の線 VS は両端点の elevQ 引きが重い＝6→4 がそのまま効く） |
+  | 東京駅 z16.5 55° | 9.85（cells 3）／11.12（cells 76） | 7.56（cells 3）／9.80（cells 76） | **−23%／−12%**（同じ cells 同士で比べる＝載った地形セル数で絶対値が動く） |
+
+  ⚠計測の轍＝bench-perf は「その回に載った物」（cells 列）で絶対値が揺れる＝A/B は同じ cells 同士で読む・順序を入れ替えて 2 組採る。1 回だけベンチが 36 分固まった（runRealtime の limitS 300 が効かない経路がある＝再実行で完走・原因未調査＝ベンチ台の整備項目）。
+- **結論**：P3 完了。線が費用の主役の的（2D・ドレープ線）で −20〜50%、地形支配の的で −10〜20%。gint は VS 律速の大データで −20%。次の伸びしろは「投影を辺ごとに 12 回→頂点ごとに 1 回」（上記の次段）＝本計画の外。
+
 ## 4. P6 gndMix0 の早期 return（順位 6・GL と対等化）
 
 **現状**：`wgsl.js` `gndMix0` は 4 本 `textureSample` の後で `GD0.p.x<0.5` を見る。GL の `gndMix` は先頭で return。
@@ -78,10 +116,13 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 **門**：t-wgsl（全モジュールのコンパイル＝Tint が一様性を検札する・ソフトウェア WebGPU でも回る）・2D 東京 z13 の readback 一致（t-gintgpu の readback 基図）。
 **逃げ道**：`?gndfast=0`＝旧順序のモジュール文字列（deriveWgsl で 1 箇所）。Tint が万一「一様でない」と言う環境が出たら、代替＝地面アトラス有無でパイプライン変種を持つ（`pipesFor` の鍵に 1 bit）。
 **期待**：2D 平面の塗りで画素あたり 4 標本減＝iPhone の 2D パンで gpuMap が下がる（見立て 5〜15%）。
+→ **実装済（2026-09-27）**。Mac（apple metal-3）の A/B＝2D 東京 z13 で 0.70／0.70ms＝差なし（1×1 ダミー 4 本の標本化は timestamp の 100µs 量子化の下）。門＝t-wgsl 33/33・t-gintgpu 両経路 緑。効きの確認は iPhone（fill 律速）で再測。
 
 ## 5. P4 地形メッシュの距離適応 LOD とチャンク刈り（順位 4）
 
 **step A（Phase 0）**：`?gmax=768` と既定を同じシーンで比べる。gpuMap の差＝地形の三角形密度が持つ費用の上限。差が 1ms 未満なら P4 は棚上げ。
+→ **実測（2026-09-27・Mac apple metal-3・§8）：富士 z13 60° で 9.59→5.22ms（−4.4ms・−46%）・東京駅 z16.5 55° で 8.45→6.43ms（−2.0ms）＝go。**
+　一律 1/4 の密度でこれだけ落ちる＝視野の遠方が微小三角形の海になっている読み（survey §3.4）が数字で裏付いた。LOD は近景の密度を保ちながら遠方を粗くする＝天井に近い所まで取れる見込み。
 
 **step B（刈りだけ・1〜2 日）**
 - index buffer をチャンク主導（16×16 チャンク・各 96×96 quad）に並べ直す＝総量は同じ 14.1M。
@@ -126,15 +167,26 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 
 ## 8. ベースライン記録欄（Phase 0 で埋める）
 
-| 端末 | シーン | backend | gpuMap ms | gpuGint ms | res | aa | 計器 a 4ms 超/分 | 計器 b 4ms 超/分 | 備考 |
+採り方＝`apps/ortho-japan` で `node scripts/bench-perf.mjs`（頁＝`tests/t-perfbench.html`・実 GPU・実時間・着地 18 秒→計測窓 9 秒はカメラを毎フレーム動かして連続描画・
+計測窓の後半で mem テレメトリの gpuMap/gpuGint（EMA・現解像度）を 3 回読んで中央値）。引っ掛かり＝計器 a/b の 4ms 超の回数（着地 18 秒／移動 9 秒）。
+gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン）＝gint の物差しは `bench-gintsb.mjs`（合成 2.1M 辺）で別に採る。frameMs は 16.7 に飽和（vsync）＝見ない。
+
+| 端末 | シーン | backend | gpuMap ms | gpuGint ms | res | aa | 計器 a 4ms 超（着地/移動） | 計器 b 4ms 超（着地/移動） | 備考 |
 |---|---|---|---|---|---|---|---|---|---|
-| Mac | 2D 東京 z13 | webgpu | | | | | | | |
-| Mac | 富士 z13 60° | webgpu | | | | | | | |
-| Mac | 東京駅 z16.5 55° | webgpu | | | | | | | |
-| Mac | t-demo 飛行 | webgpu | | | | | | | |
+| Mac（apple metal-3） | 2D 東京 z13 | webgpu | 0.72 | 0（層なし） | 1 | 1 | 1 / 0 | 0 / 0 | 2026-09-27 基準線 |
+| Mac（apple metal-3） | 富士 z13 60° | webgpu | 9.59 | 0（層なし） | 1 | 1 | 5 / 0 | 0 / 0 | 地形が支配（P4 の主戦場） |
+| Mac（apple metal-3） | 東京駅 z16.5 55° | webgpu | 8.45 | 0（層なし） | 1 | 1 | 0 / 0 | 0 / 0 | PLATEAU＋押し出し＋地形 |
+| Mac | t-demo 飛行 | webgpu | | | | | | | 未（scene player の組み込みは後段） |
+| Mac（apple metal-3） | 富士 z13 60°（P1 step0 後） | webgpu | 8.41 | 0 | 1 | 1 | 3 / 0 | 0 / 0 | セル avg 1.30→0.98ms（§2） |
+| Mac（apple metal-3） | 東京駅 z16.5 55°（P1 step0 後） | webgpu | 9.37 | 0 | 1 | 1 | 5 / 0 | 0 / 9 | セル avg 15.9→14.7ms・**移動中のシーン適用の引っ掛かり 9〜11 回**（変更前も 11）＝P2 の go 材料（§6） |
 | iPhone | （同 4 行） | webgpu | | | | | | | |
 | Windows iGPU | （同 4 行） | webgpu | | | | | | | |
-| Mac | 富士 z13 60° `?gmax=768` | webgpu | | | | | | | P4 の天井 |
+| Mac（apple metal-3） | 富士 z13 60° `?gmax=768` | webgpu | 5.22 | 0 | 1 | 1 | 4 / 0 | 0 / 0 | **P4 の天井＝−4.4ms（−46%）**。三角形 1/4 でこれだけ落ちる＝地形の密度が 3D の費用の半分近く |
+| Mac（apple metal-3） | 東京駅 z16.5 55° `?gmax=768` | webgpu | 6.43 | 0 | 1 | 1 | 1 / 0 | 0 / 0 | −2.0ms（−24%）。PLATEAU の街でも地形が 1/4 を占める |
+| Mac（apple metal-3） | 2D 東京 z13 `?gmax=768` | webgpu | 0.70 | 0 | 1 | 1 | 2 / 0 | 0 / 0 | 不変（地形なし）＝計器の再現性の目安 |
+| Mac（apple metal-3） | 2D 東京 z13（P3 後） | webgpu | 0.33 | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−53%**（旧 0.70・2 組一致・§3） |
+| Mac（apple metal-3） | 富士 z13 60°（P3 後） | webgpu | 6.34〜6.39 | 0 | 1 | 1 | 3 / 0 | 0 / 0 | **−19%**（旧 7.77〜7.92・§3） |
+| Mac（apple metal-3） | 東京駅 z16.5 55°（P3 後） | webgpu | 7.56（cells 3）／9.80（cells 76） | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−23%／−12%**（旧 9.85／11.12・同 cells 比較・§3） |
 
 ## 9. 別線 P5 topology の uint32 化＋dedup の typed hash／WASM（順位 5・geopbf）
 

@@ -164,7 +164,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		gl.stencilMask(0xFF);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
 	}
-	gl.bindVertexArray(emptyVAO);
+	gl.bindVertexArray(programs.quadVAO || emptyVAO);   // P3：quad4＝index パターンの VAO（線・点の drawElements）・旧＝emptyVAO
 
 	// ── Stencil + Fill（stencil-then-cover）──
 	// 低ズームの既定は面＝ベタ塗り（ortho-map から移植）。style0 の色 × α0.8＝下のタイル(地形/注記)がうっすら
@@ -280,14 +280,14 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		const drawRuns = () => {
 			gl.uniform1i(uRender.u_sub, 1);
 			gl.uniform1ui(uRender.u_subSkipE7, plan.skipE7);
-			for (const [est, cnt] of runsL) gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+			for (const [est, cnt] of runsL) drawQ(gl, programs, uRender, est, cnt);
 			if (plan.skipE7 > 0 && subRuns) {
 				gl.uniform1ui(uRender.u_subSkipE7, 0);
 				for (let b = 0; b < SUB_NB; b++) {
 					const n = plan.N[b], L = subRuns[b];
 					if (n <= 1 || !L) continue;
 					gl.uniform1i(uRender.u_sub, n);
-					for (const [st, cnt] of L) gl.drawArraysInstanced(gl.TRIANGLES, st * 6, cnt * 6, n);
+					for (const [st, cnt] of L) drawQ(gl, programs, uRender, st, cnt, n);
 				}
 			}
 		};
@@ -317,10 +317,22 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		gl.useProgram(pointProgram);
 		bindPointUniforms(s, uPoint, data);
 		gl.uniform1i(uPoint.u_active_id, -1);
-		gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
+		drawQ(gl, programs, uPoint, 0, totalPoints);
 	}
 
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
+// 線・点の draw（perf plan P3・2026-09-27）：quad4＝index の 4 頂点＝drawElements（WebGL に baseVertex が無い＝run の先頭辺は u_vbase で渡す・QK 超は割る）／
+// 旧（?quad4=0）＝drawArrays の 6 頂点。inst＝地形適応細分の N（u_sub）。呼び手は quadVAO（属性なし・ELEMENT にパターン）か emptyVAO を bind 済み
+function drawQ(gl, programs, u, first, count, inst = 1) {
+	if (!programs.quad4) { if (inst > 1) gl.drawArraysInstanced(gl.TRIANGLES, first * 6, count * 6, inst); else gl.drawArrays(gl.TRIANGLES, first * 6, count * 6); return; }
+	const K = programs.QK;
+	for (let e = 0; e < count; e += K) {
+		gl.uniform1i(u.u_vbase, first + e);
+		const n = Math.min(K, count - e) * 6;
+		if (inst > 1) gl.drawElementsInstanced(gl.TRIANGLES, n, gl.UNSIGNED_INT, 0, inst); else gl.drawElements(gl.TRIANGLES, n, gl.UNSIGNED_INT, 0);
+	}
 }
 
 export function drawOverlay(s) {
@@ -349,7 +361,7 @@ export function drawHighlight(s, data) {
 
 	const { renderProgram, stencilProgram, fillProgram,
 			pointProgram, uRender, uStencil, uFill, uPoint, emptyVAO } = programs;
-	gl.bindVertexArray(emptyVAO);
+	gl.bindVertexArray(programs.quadVAO || emptyVAO);   // P3：quad4＝index パターンの VAO（線・点の drawElements）・旧＝emptyVAO
 
 	const range    = polyEdgeByFid?.get(activeId);
 	const eStart   = range?.[0] ?? null;
@@ -364,7 +376,7 @@ export function drawHighlight(s, data) {
 	const nH = drapeSubs(depH, [[0, hasRange ? eCount : totalEdges, s.span?.[0] ?? -1, s.span?.[1] ?? -1]])[0];   // 地形適応細分＝1地物を一様インスタンス（複製行は使わない）
 	gl.uniform1i(uRender.u_sub, nH);
 	gl.uniform1ui(uRender.u_subSkipE7, 0);
-	const drawH = (est, cnt) => { if (nH > 1) gl.drawArraysInstanced(gl.TRIANGLES, est * 6, cnt * 6, nH); else gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6); };
+	const drawH = (est, cnt) => drawQ(gl, programs, uRender, est, cnt, nH);
 	bindFidStyle(s, gl, uRender, 2.0);   // per-fid 幅にもハイライト増分 +2px（表には混ぜない）
 	gl.uniform1f(uRender.u_line_width,   (data.lineWidth ?? 1.0) + 2.0);
 	gl.uniform1f(uRender.u_dpr,          1.0);
@@ -385,7 +397,7 @@ export function drawHighlight(s, data) {
 		gl.useProgram(pointProgram);
 		bindPointUniforms(s, uPoint, data);
 		gl.uniform1i(uPoint.u_active_id, activeId);
-		gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
+		drawQ(gl, programs, uPoint, 0, totalPoints);
 	}
 
 	// Polygon mask：アクティブ地物の外を暗く。
@@ -422,6 +434,7 @@ export function renderPickingBuffer(s, data) {
 	const { pickLineProgram, pickPointProgram, uPickLine, uPickPoint } = programs;
 	try {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, pickFBO);
+		gl.bindVertexArray(programs.quadVAO || programs.emptyVAO);   // P3：pick も同じ VAO（直前に別の VAO が bind されていても構わない）
 		gl.clearColor(0, 0, 0, 0);
 		gl.stencilMask(0xFF);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.STENCIL_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -436,14 +449,14 @@ export function renderPickingBuffer(s, data) {
 			bindFidStyle(s, gl, uPickLine);   // filter 非表示の feature を pick からも外す
 			gl.uniform1f(uPickLine.u_line_width, (data.lineWidth ?? 1.0) + pickMargin);
 			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]]))
-				gl.drawArrays(gl.TRIANGLES, est * 6, cnt * 6);
+				drawQ(gl, programs, uPickLine, est, cnt);
 		}
 
 		if (totalPoints > 0 && ptTex && ptMetaTex) {
 			gl.useProgram(pickPointProgram);
 			bindPointUniforms(s, uPickPoint, data);
 			gl.uniform1f(uPickPoint.u_pt_radius, Math.max(data.ptRadius ?? 1.5, pickMargin * 0.5));
-			gl.drawArrays(gl.TRIANGLES, 0, totalPoints * 6);
+			drawQ(gl, programs, uPickPoint, 0, totalPoints);
 		}
 
 		gl.enable(gl.BLEND);

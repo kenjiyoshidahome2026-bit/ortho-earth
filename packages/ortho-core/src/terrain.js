@@ -3,7 +3,7 @@
 // DOM に触れない純ロジック＝ render worker（OffscreenCanvas側）からそのまま使える。読込インジケータは
 // onPending コールバックで外へ通知し、DOM を持つ側（main）が表示する。
 import { unproject, cameraState, lonlatTo3D, WORLD_PX } from "./camera.js";
-import { downsampleFlipped } from "./elevation.js";
+import { downsampleFlipped, cropResample } from "./elevation.js";
 import { createTileLoader, WORLD_ATLAS, WORLD_ATLAS_CELL, worldAtlasCell, sampleWorldAtlas } from "./elevation/index.js";
 import { createDemSource } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）＝最も細かい段（R01）のセルを上書き
 
@@ -21,8 +21,22 @@ export function clipToDTM(box, dtm) {
 // 未申告＝保証なし＝接地リフトをしない（建物は海面高に置く）。地域の知識はアプリが持つ（2026-09-17）。
 // dem＝外来の標高タイル（raster-dem の spec・#36）。R01・R10 のセルを上書きする（DEM が有効な画素だけ・無い所は altpbf の標高のまま）。
 //   dem.dtm＝true（裸地の申告）なら、地域の申告が無い所ではその範囲で接地リフトしてよい。setDem(spec|null) で生き替え。
-export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null }) {
+export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onPending, lowMem = false, noMixed = false, noFar = false, dtm = null, dem = null, gMax = null }) {   // gMax＝地形メッシュ格子の天井（?gmax=・perf plan §1 計器 c・null＝既定 1536/lowMem 1024）
 	const dtmDecl = dtm || null;
+	// 計器 a（perf plan §1・?perf=1）：セル 1 枚の再標本化（resample）と GPU への上げ（upload＝f16 変換＋writeTexture 発行）の時間。
+	// どちらも描画スレッド＝4ms 超は 1 フレーム落ちの引っ掛かり＝即 console・累計は self.__perfHitch.elev（mem テレメトリで main へ）。
+	// upload 行には renderer（WebGPU）の writeCell が残す f16／write の内訳を添える（GL は f16 変換が無い＝内訳なし）
+	const perfT = (what, N, fn) => {
+		if (!self.__perfElev) return fn();
+		const t0 = performance.now(), r = fn(), ms = performance.now() - t0, d = what === "upload" ? self.__perfElevLast : null;
+		const H = (self.__perfHitch ||= { elev: 0, scene: 0 });
+		// 累計（mem テレメトリ→ベンチ台）：resample／upload の合計 ms・最大・上げたセル数＝「セル 1 枚あたりの実測 ms」を前後で比べる物差し（perf plan P1）
+		if (what === "resample") { H.resMs = (H.resMs || 0) + ms; H.resMax = Math.max(H.resMax || 0, ms); }
+		else { H.upMs = (H.upMs || 0) + ms; H.upMax = Math.max(H.upMax || 0, ms); H.cellN = (H.cellN || 0) + 1; }
+		if (ms > 4) { H.elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})` : ""}`); }
+		return r;
+	};
+	const putCell = (slot, data, cx, cy, N) => perfT("upload", N, () => renderer.set(slot, data, { cx, cy, cellRes: N }));
 	let demSrc = dem ? createDemSource(dem) : null;
 	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
@@ -175,26 +189,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		const v = top + (bot - top) * ty;
 		return v < 0 ? 0 : v;
 	}
-	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化（downsampleFlipped と同じ南上げ・
-	// texel中心 (i+0.5)/N 規約＝シェーダ uv 直サンプルと一致。角合わせだと±0.5texelずれる）。
-	// 混成アトラスの遠方セル用＝R01 の大量フェッチ（1セル数秒×数十）を避けつつ遠景の起伏を出す。
-	function cropResample(tile, lng0, lat0, span, N) {
-		const { data, width: w, height: h, lng: lo, lat: la, range: r } = tile;
-		const out = new Float32Array(N * N);
-		const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
-		for (let j = 0; j < N; j++) {
-			const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * (h - 1);
-			const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
-			for (let i = 0; i < N; i++) {
-				const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * (w - 1);
-				const x0 = Math.max(0, Math.min(w - 2, gx | 0)), fx = Math.min(1, Math.max(0, gx - x0));
-				const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
-				const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
-				out[j * N + i] = v < 0 ? 0 : v;   // row0=南
-			}
-		}
-		return out;
-	}
+	// R10 親タイルから 1°セルを切り出して cellRes² に再標本化＝cropResample（elevation.js へ移設・2026-09-27・門＝tests/elevation-resample.mjs）
 	// 窓縁の標高フェード幅(deg)。viewCellRange の隣セル強制包含と ensure の renderer.set で共用（値ズレ防止）。
 	const EDGE_FADE = r => r === 90 ? 0 : r === 10 ? 1.5 : 0.4;
 	function viewCellRange(cam, size, range, mixed) {
@@ -363,7 +358,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 			// 頂点+index を 75MB→33.5MB（-42MB）。メッシュは GPU 固定常駐の最大項＝3GB 機の一番効く一枠。
 			// 見た目の代償＝quad が 1.5 倍粗くなるが、スマホ/タブレットの画面密度では絵の破綻はない側。
 			renderer.set(staging ? "elevAtlasStage" : "elevAtlas",
-				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: lowMem ? 1024 : 1536 }, exag / earthM);
+				{ originLng: r.originCX * range, originLat: r.originCY * range, cellsX: r.cellsX, cellsY: r.cellsY, cellRes: r.cellRes, cellSpan: range, exag, edgeFade, liftBounds, gMax: gMax || (lowMem ? 1024 : 1536) }, exag / earthM);
 			hasAtlas = true;
 			if (staging) {   // 保険：セルの一部が失敗しても4秒で必ずスワップ（古いアトラスが永久に残らない）
 				const k0 = key;
@@ -397,7 +392,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				getCell(Math.floor(cellLng / 10) * 10, Math.floor(cellLat / 10) * 10, 10).then(parent => {
 					pendingElev--; notifyPending(range);
 					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
-						renderer.set(cellSlot(), cropResample(parent, cellLng, cellLat, range, r.cellRes), { cx, cy, cellRes: r.cellRes });
+						putCell(cellSlot(), perfT("resample", r.cellRes, () => cropResample(parent, cellLng, cellLat, range, r.cellRes)), cx, cy, r.cellRes);
 						writtenCells.add(ck);
 					}
 					if (!parent && atlasKey === key) {   // 親R10失敗も未読込へ戻す（非mixed経路と同じ再挑戦則）
@@ -414,17 +409,17 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 						if (tile && atlasKey === key) {
 							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
 							writtenCells.add(ck);
-							renderer.set(cellSlot(), downsampleFlipped(tile, r.cellRes), { cx, cy, cellRes: r.cellRes }); requestDraw();
+							putCell(cellSlot(), perfT("resample", r.cellRes, () => downsampleFlipped(tile, r.cellRes)), cx, cy, r.cellRes); requestDraw();
 						}
 					});
 				}
 			} else {
 				// R90（世界 4×2 固定窓・originCX=-2/originCY=-1）＝全球アトラスの切り出し。R10/R01＝生タイル→downsampleFlipped
 				const cellP = range === 90 ? cell90(r.originCX + cx + 2, r.originCY + cy + 1, r.cellRes)
-					: getCell(cellLng, cellLat, range).then(t => t ? downsampleFlipped(t, r.cellRes) : null);
+					: getCell(cellLng, cellLat, range).then(t => t ? perfT("resample", r.cellRes, () => downsampleFlipped(t, r.cellRes)) : null);
 				cellP.then(tile => {
 					pendingElev--; notifyPending(range);
-					if (tile && atlasKey === key) { renderer.set(cellSlot(), tile, { cx, cy, cellRes: r.cellRes }); writtenCells.add(ck); }
+					if (tile && atlasKey === key) { putCell(cellSlot(), tile, cx, cy, r.cellRes); writtenCells.add(ck); }
 					// 取得失敗は「未読込」へ戻す（上限3回）＝次の ensure（カメラが動けば必ず来る）で再挑戦。
 					// 従来は窓替えまで平らなセルが直らなかった。上限は恒久欠損セル（データ無し域）への
 					// 毎移動リフェッチのスパム防止。
@@ -470,10 +465,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
 				pendingElev++; notifyPending(farSpan);
 				const farP = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
-					: getCell(cellLng, cellLat, farSpan).then(t => t ? downsampleFlipped(t, fr.cellRes) : null);
+					: getCell(cellLng, cellLat, farSpan).then(t => t ? perfT("resample", fr.cellRes, () => downsampleFlipped(t, fr.cellRes)) : null);
 				farP.then(tile => {
 					pendingElev--; notifyPending(farSpan);
-					if (tile && farKey === fkey) { renderer.set("elevCellFar", tile, { cx, cy, cellRes: fr.cellRes }); farWritten.add(ck); }
+					if (tile && farKey === fkey) { putCell("elevCellFar", tile, cx, cy, fr.cellRes); farWritten.add(ck); }
 					if (!tile && farKey === fkey) {   // 取得失敗は未読込へ戻す（上限3回）＝近窓と同じ再挑戦則
 						const n = (farFails.get(ck) || 0) + 1; farFails.set(ck, n);
 						if (n <= 3) farLoaded.delete(ck);
