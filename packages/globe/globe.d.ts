@@ -579,7 +579,10 @@ export interface OrthoJapanMap {
 	 *  vector source の fill-extrusion（1.3.0〜・MVT の 3D 建物）：source は addSource の vector か基図の source 名（外来 style＝その名前・地域の基図＝"basemap"）。
 	 *  タイルごとに流す（基図と同じ選び・MapLibre と同じ 512px の尺・子が揃うまで親を出す）・高さは実寸で地表から（どこでも地形に沿って立つ）・真上からも屋根が見える・半透明は裏面を除いて重ねる。
 	 *  ["zoom"] を含む paint（伸び上がり）は止まった所で評価し直す（MapLibre はズーム中も連続）。filter の ["zoom"] はタイルの z（過拡大なら表示を丸めた z）。
-	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。未対応：feature-state・fill-extrusion-pattern/translate（警告して描く）・style の light */
+	 *  queryRenderedFeatures は屋根と壁を画面へ投影して当てる（sourceLayer・id つき・タイルをまたぐ地物は複数返り得る）。未対応：feature-state・fill-extrusion-pattern/translate（警告して描く）・style の light。
+	 *  source の出典（TileJSON の attribution・無ければホスト名）はその source を使う押し出しの層がある間、出典の欄に出る（MapLibre の AttributionControl と同じ・OSM 等は表示が利用の条件）。
+	 *  地域の基図（日本）の自動の 3D 建物は層 "building-extrusion"（type fill-extrusion・source "basemap"）＝getLayer/getStyle に出る・setLayoutProperty(…, "visibility", "none") か removeLayer で伏せる
+	 *  （OSM などの押し出しへ差し替える時・伏せている間は足元の塗りがチルトでも出る・撮影/印刷も同じ・テーマを切り替えても残る）。色・filter・出しズームは変えられない（投げる） */
 	addSource(id: string, source: MapLibreSource): OrthoJapanMap;
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;

@@ -347,6 +347,7 @@ const dispatch = e => {
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "meshSet") meshInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
 			else if (m.cmd === "meshVis") meshInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
+			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop, m.data.spec, m.data.opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
 			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop); }
 			else if (m.cmd === "rasterSet") { raster?.set(m.prop, m.data); }   // opacity/visible/order/hideFills/minZoom/maxZoom
@@ -420,7 +421,7 @@ function snapshot(id) {
 			if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-			renderer.draw(glCam, opts);
+			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
 			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
 			labelLayer && labelLayer.draw(cam);
 		}
@@ -442,7 +443,7 @@ async function snapshotGPU(id) {
 			if (resPending) applyRes();
 			const s = RES_STEPS[resIdx];
 			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-			renderer.draw(glCam, opts);
+			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 画面と同じ（building-extrusion を伏せている時）
 			if (gint) gint.draw(glCam, renderer.gintCtx());
 			renderer.flush();
 			labelLayer && labelLayer.draw(cam);
