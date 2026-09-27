@@ -4,6 +4,7 @@
 import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
+const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
 const keyOf = L => (L.k ? L.k + "|" : "") + L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // k＝利用者層 id（層またぎのキー衝突防止）
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
@@ -30,6 +31,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		return 1 + L.elev * eScale * (1 - t * t * (3 - 2 * t));
 	};
 	const ctx = canvas.getContext("2d");
+	const hasLS = "letterSpacing" in ctx;   // 字間（Chrome 99+・無い環境は 0 扱い）
+	let curFont = "";   // ctx.font の覚え（collide/draw/textLayout で共有＝設定は変わる時だけ）
+	const setFont = f => { if (f !== curFont) { ctx.font = curFont = f; } };
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
@@ -48,7 +52,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function rebuild() {
 		const u = [];
 		for (const st of userSets.values()) if (st.visible) u.push(...st.list);
-		const all = [...u, ...labels].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+		// 優先順＝MapLibre の層（ml）は「後の層が先に置く」（層の添字 li の降順）→ 層の中は symbol-sort-key 昇順。ネイティブの層は従来どおり sort だけ（この地図の注記の設計＝sort に焼いてある）。
+		// 利用者の層（vtdraw/gint）は sort に −1e6 − 層順×1e3 を焼いてある＝常に基図より先（MapLibre の「後から足した層が勝つ」と同じ）
+		const pri = L => (L.sort ?? 0) - (L.mlp && L.li != null ? L.li * 1e3 : 0);
+		const all = [...u, ...labels].sort((a, b) => pri(a) - pri(b));
 		labelByKey = new Map(all.map(L => [keyOf(L), L]));
 		combined = all;
 		dirty = true;
@@ -81,43 +88,74 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
 	let winBox = new Map();   // key → [sx, sy, tw, h]（当選ラベルの画面上の箱＝placed() の材料・公式例の門 段 0）
-	let dbg = { zoom: null, zoomSkipped: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
+	let dbg = { zoom: null, outOfZoom: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
 		const placed = [], w = new Map(), wb = new Map();
-		dbg = { zoom: zoomV, zoomSkipped: {}, total: combined.length };
-		let font = "";
+		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length };
 		for (const L of combined) {
 			if (L.flat && !showFlat) continue;
-			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.zoomSkipped[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
+			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
 			const shield = shieldFor && shieldFor(L);
-			let tw, h;
+			// 箱＝標識ならその絵・文字なら layout（折り返し・字間・行の高さ）で組んだ行の束（textLayout）。錨からの置き方＝text-anchor/offset（variable-anchor は候補を順に試す）
+			let tw, h, tl = null;
 			if (shield) { tw = shield.w; h = shield.h; }
-			else {
-				const wk = L.size + "|" + L.text;
-				tw = widthCache.get(wk);
-				if (tw === undefined) {
-					const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; }
-					tw = ctx.measureText(L.text).width;
-					widthCache.set(wk, tw);
-					if (widthCache.size > 4096) widthCache.clear();   // 念のための上限（テキスト種は高々数千）
-				}
-				h = L.size;
+			else { tl = textLayout(L); tw = tl.w; h = tl.h; }
+			const padL = L.pad ?? pad, cands = shield ? [["center", 0, 0]] : anchorCands(L);
+			let hit = null;
+			for (const [an, ox, oy] of cands) {
+				const a = ANCH[an] || ANCH.center, x0 = sx + ox - a[0] * tw, y0 = sy + oy - a[1] * h;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
+				if (x0 + tw < 0 || x0 > Wc || y0 + h < 0 || y0 > Hc) continue;
+				const box = [x0 - padL, y0 - padL, x0 + tw + padL, y0 + h + padL];
+				if (!L.ov && placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）
+				hit = { box, x0, y0, an }; break;
 			}
-			if (sx + tw / 2 < 0 || sx - tw / 2 > Wc || sy + h / 2 < 0 || sy - h / 2 > Hc) continue;
-			const box = [sx - tw / 2 - pad, sy - h / 2 - pad, sx + tw / 2 + pad, sy + h / 2 + pad];
-			if (placed.some(b => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]))) continue;
-			placed.push(box); w.set(keyOf(L), L); wb.set(keyOf(L), [sx, sy, tw, h]);
+			if (!hit) continue;
+			if (!L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
+			w.set(keyOf(L), L); wb.set(keyOf(L), [sx, sy, tw, h, hit.x0 - sx, hit.y0 - sy, tl, hit.an]);   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
 		}
 		winners = w; winBox = wb;
+	}
+	// 錨の候補＝[anchor, 画面 x の足し, y の足し]。text-offset は em（size 倍）。variable-anchor＝候補ごとに錨の反対側へ離す（radial-offset か offset の大きさ・MapLibre と同じ・symbols-2d と同式）
+	function anchorCands(L) {
+		const size = L.size || 12, off = L.off || [0, 0];
+		if (L.va?.length) {
+			const r = (L.ro ?? Math.max(Math.abs(off[0]), Math.abs(off[1]))) * size;
+			return L.va.map(an => { const k = an.includes("-") ? Math.SQRT1_2 : 1; return [an, (an.includes("left") ? r : an.includes("right") ? -r : 0) * k, (an.startsWith("top") ? r : an.startsWith("bottom") ? -r : 0) * k]; });
+		}
+		return [[L.an || "center", off[0] * size, off[1] * size]];
+	}
+	// 文字の行の束（折り返し＝text-max-width（em）・"\n"＝改行・字間＝letter-spacing（em）・行の高さ＝line-height（em））。key で覚える（measureText は高い）
+	function textLayout(L) {
+		const size = L.size || 12, ls = L.ls || 0, lh = L.lh || 1, mw = L.mw ?? 0;   // layout を持たないラベル（gint・旧い利用者層）＝折り返し無し・行高 1＝従来の箱
+		const wk = size + "|" + ls + "|" + mw + "|" + lh + "|" + L.text;
+		let tl = widthCache.get(wk);
+		if (tl) return tl;
+		setFont(`${size}px ${FONT_STACK}`);
+		if (hasLS) ctx.letterSpacing = ls ? `${ls * size}px` : "0px";
+		const measure = t => ctx.measureText(t).width;
+		const maxPx = mw > 0 ? mw * size : Infinity, lines = [];
+		for (const para of String(L.text).split("\n")) {
+			if (measure(para) <= maxPx || !para) { lines.push(para); continue; }
+			// 折り返し（MapLibre の考え方の近似）：空白で区切れる語は語ごと・区切れない（CJK）は字ごとに詰める。行が maxPx を超える手前で折る
+			const units = /\s/.test(para) ? para.split(/(\s+)/).filter(Boolean) : [...para];
+			let cur = "";
+			for (const u of units) { const t = cur + u; if (cur && measure(t.trimEnd()) > maxPx && !/^\s+$/.test(u)) { lines.push(cur.trimEnd()); cur = u.trimStart(); } else cur = t; }
+			if (cur.trim()) lines.push(cur.trimEnd());
+		}
+		const ws = lines.map(measure), w = Math.max(0, ...ws), h = Math.max(1, lines.length) * lh * size;
+		tl = { lines, ws, w, h, size, ls, lh };
+		widthCache.set(wk, tl);
+		if (widthCache.size > 4096) widthCache.clear();   // 念のための上限（テキスト種は高々数千）
+		return tl;
 	}
 	// 置いたラベル（直近の衝突判定の当選集合）＝{ text, lon, lat, x, y（CSS px・中心）, w, h, size, li（基図の層の添字）, set（利用者層の id） }。
 	// 公式例の門 段 0（文字を測る）＝本物の queryRenderedFeatures の symbol と突き合わせる材料。描いた物の申告＝描画は変えない
 	function placed() {
 		const out = [];
-		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0], y: b[1], w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null }); }
+		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0] + b[4] + b[2] / 2, y: b[1] + b[5] + b[3] / 2, w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null }); }   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）
 		return out;
 	}
 
@@ -136,11 +174,12 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
+		curFont = "";   // 前のフレームの末尾（星空の注記・標識）が ctx.font を触っている＝覚えを捨てて据え直す
 
 		const fNear = st.camDist * 2, fFar = st.camDist * 9, eye = st.eye;   // 距離フェード（フォグ連動）
 		const distOp = (lon, lat) => { const v = lonlatTo3D(lon, lat); const d = Math.hypot(v[0] - eye[0], v[1] - eye[1], v[2] - eye[2]); return 1 - Math.min(1, Math.max(0, (d - fNear) / (fFar - fNear))); };
 
-		let animating = false, font = "";
+		let animating = false;
 		const keys = new Set([...winners.keys(), ...fades.keys()]);
 		for (const k of keys) {
 			const L = winners.get(k) || labelByKey.get(k);
@@ -151,7 +190,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			fades.set(k, op);
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));   // ライブ投影（標高込み）
 			if (front < 0) continue;
-			const o = op * distOp(L.anchor[0], L.anchor[1]);
+			const o = op * distOp(L.anchor[0], L.anchor[1]) * (L.op ?? 1);
 			if (o <= 0.01) continue;
 			const sx = Math.round(dx / dpr), sy = Math.round(dy / dpr);
 			const shield = shieldFor && shieldFor(L);
@@ -161,9 +200,21 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				ctx.globalAlpha = 1;
 				continue;
 			}
-			const f = `${L.size}px ${FONT_STACK}`; if (f !== font) { ctx.font = font = f; }
-			if (L.haloW > 0) { ctx.strokeStyle = css(L.halo, o); ctx.lineWidth = L.haloW * 2; ctx.strokeText(L.text, sx, sy); }
-			ctx.fillStyle = css(L.color, o); ctx.fillText(L.text, sx, sy);
+			const b = winBox.get(k), tl = b?.[6] ?? textLayout(L);
+			setFont(`${L.size}px ${FONT_STACK}`);   // textLayout が別の書体を据えた後でも、この行の描画は自分の大きさで
+			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
+			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央
+			const x0 = b ? sx + b[4] : sx - tl.w / 2, y0 = b ? sy + b[5] : sy - tl.h / 2;
+			const just = L.just === "auto" ? ((b?.[7] || L.an || "center").includes("left") ? "left" : (b?.[7] || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
+			ctx.textAlign = just === "left" ? "left" : just === "right" ? "right" : "center"; ctx.textBaseline = "middle";
+			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
+			if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
+			for (let i = 0; i < tl.lines.length; i++) {
+				const ly = y0 + (i + 0.5) * tl.lh * tl.size;
+				if (L.haloW > 0) { ctx.strokeStyle = css(L.halo, o); ctx.lineWidth = L.haloW * 2; ctx.strokeText(tl.lines[i], ax, ly); }
+				ctx.fillStyle = css(L.color, o); ctx.fillText(tl.lines[i], ax, ly);
+			}
+			ctx.shadowBlur = 0;
 		}
 		drawSky(st, cam, Wc, Hc, dpr);
 		return animating;
