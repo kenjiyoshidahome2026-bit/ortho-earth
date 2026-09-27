@@ -7,6 +7,7 @@ import { GeoPBF } from "geopbf/pbf-base";
 import Pbf from "geopbf/pbf";
 import { spatialOrder } from "geopbf/spatial-order";
 import { flatBuilder, K } from "../flat.js";
+import { shareStats } from "../share.js";
 
 const { TAGS } = GeoPBF;
 const isGzip = u8 => u8.length > 2 && u8[0] === 0x1f && u8[1] === 0x8b;
@@ -94,13 +95,15 @@ export const GEOPBF_SOURCE = {
 		for (let i = 0; i < sample; i++) { let r; try { pbf.getProperties(i); r = pbf.props[i]; } catch { continue; } if (!r) continue; for (let k = 0; k < keys.length; k++) { const v = r[k]; if (v == null) continue; kinds[k] |= typeof v === "number" ? 1 : 2; } }
 		const columns = keys.map((k, i) => ({ name: k, numeric: kinds[i] === 1 }));
 		const TN = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
-		const meta = { name: pbf.name?.() || name, rows: n, chunks, columns, range: {}, bbox: gb, types: [...types].map(t => TN[t]), precision: pbf.precision(), size: u8.byteLength, kind: "geopbf" };
+		const meta = { name: pbf.name?.() || name, rows: n, chunks, columns, range: {}, bbox: gb, types: [...types].map(t => TN[t]), precision: pbf.precision(), size: u8.byteLength, kind: "geopbf", share: null };
+		let flat0 = null;   // 先頭チャンクのフラット幾何（共有の物差しに読んだ分＝最初の readGeometry(0) で使い切る）
 		const rowOf = (row) => { let r = pbf.props[row]; if (r === undefined) { pbf.getProperties(row); r = pbf.props[row]; } return r; };
 		const rangeCache = new Map();
-		return {
+		const reader = {
 			meta,
 			select(bbox) { const out = []; for (let g = 0; g < chunks.length; g++) { const b = chunks[g].bbox; if (!bbox || (b[0] <= bbox[2] && b[2] >= bbox[0] && b[1] <= bbox[3] && b[3] >= bbox[1])) out.push(g); } return out; },
 			readGeometry(g) {
+				if (g === 0 && flat0) { const f = flat0; flat0 = null; return f; }
 				const list = lists[g], fb = flatBuilder(Math.max(1024, cverts[g]));
 				let kindNow = -1;
 				const onPart = kind => { if (kind !== K.POINT) fb.beginPart(kind); kindNow = kind; };
@@ -127,5 +130,7 @@ export const GEOPBF_SOURCE = {
 			metrics: () => null,
 			close() { try { pbf.destroy(); } catch { /* 二重 close */ } },
 		};
+		if (chunks.length) { flat0 = reader.readGeometry(0); meta.share = shareStats(flat0); }   // 共有の物差し（振り分けの規則が見る）＝先頭チャンクを標本に
+		return reader;
 	},
 };

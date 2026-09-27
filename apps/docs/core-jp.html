@@ -267,8 +267,9 @@ Gint の強さは、最初の 1 枚の前に一周の下ごしらえ（共有弧
 （<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues/90">#90</a>）。<code>map.addColumnar(src)</code> は GeoParquet の row group、
 または空間順に切った GeoPBF のチャンクを worker で GPU 向けの配列（チャンク原点相対の単位球 xyz・earcut の三角形・格子に丸めた 2〜3 段の LOD）に詰め、
 地球と同じフレームのオーバーレイで描きます。属性は列のまま。paint と filter（Gint と同じ語彙）は worker が列から Gint と同じ fid 表に評価するので、
-色替えで幾何は作り直しません。落とした <code>.parquet</code> は常にこの道、<code>.geopbf</code> は <code>columnarBytes</code>（4 MB）を超えたらこの道です。
-共有境界は 2 回描かれ、塗りは地形に沿わず、編集は Gint に戻します。
+色替えで幾何は作り直しません。落とした <code>.parquet</code> は常にこの道、<code>.geopbf</code>／<code>.fgb</code> は <code>columnarBytes</code>（4 MB）を超えたらこの道です。ただし読み手が先頭チャンクで測る
+<code>meta.share</code> が「長い共有弧の塗り分け」（admin1・行政地図）を示す時は、それを得意とする Gint に残します。塗りは頂点ごとに地形に沿い、シーンの深度で隠れます。
+共有境界は 2 回描かれ、編集は Gint に戻します。
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->

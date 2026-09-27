@@ -18,7 +18,7 @@ const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]]
 try {
 	const { createGlobe } = await import("@ortho-earth/globe");
 	const { geopbf } = await import("geopbf");
-	const map = await createGlobe({ target: "#map", view: `#13/${LAT}/${LON}`, chips: false, persistView: false, mesh: false });
+	const map = await createGlobe({ target: "#map", view: `#13/${LAT}/${LON}`, chips: false, persistView: false, mesh: false, debugGlobals: true });   // debugGlobals＝__loadUserFile／__columnar（route の検分）
 	await new Promise(r => map.on("load", r));
 	await sleep(500);
 	const dpr = window.devicePixelRatio || 1;
@@ -120,6 +120,55 @@ try {
 		const before = hp.loaded; await hp.setColor("v"); await sleep(600);
 		ok("parquet.setColor", hp.color === "v" && hp.loaded === before);
 		hp.remove();
+	} else if (MODE === "route") {
+		// ── 振り分けの規則：大きさの門を越えても「弧の共有が多い塗り分け（行政界風）」は gint・筆風は列チャンク層（?columnar= 無し・columnarBytes は既定 4MB）
+		const mk = async (name, feats) => { const p = await geopbf({ type: "FeatureCollection", features: feats }, { gint: false, name }); return new File([p.arrayBuffer], name); };
+		const drop = async file => { window.__columnar = null; const r = await window.__loadUserFile(file, { fit: false }); await sleep(300); return { r, columnar: !!window.__columnar, gint: !!map.userPbf() }; };
+		// 行政界風＝縦に並んだ 24 枚の帯（隣と長い共有弧・1 帯 4.4 万頂点）＝約 5MB・共有率 ≈ 0.5
+		const admin = []; { const M = 44000; for (let k = 0; k < 24; k++) { const y0 = LAT - 0.5 + k * 0.04, y1 = y0 + 0.04, ring = []; for (let i = 0; i <= M; i++) ring.push([LON - 0.5 + i / M, y0 + Math.sin(i / 40) * 0.003]); for (let i = M; i >= 0; i--) ring.push([LON - 0.5 + i / M, y1 + Math.sin(i / 40) * 0.003]); ring.push(ring[0]); admin.push({ type: "Feature", properties: { id: k }, geometry: { type: "Polygon", coordinates: [ring] } }); } }
+		const fA = await mk("admin-like.geopbf", admin);
+		const a = await drop(fA);
+		ok("admin-like → gint", fA.size > 4e6 && !a.columnar && a.gint, `size=${(fA.size / 1e6).toFixed(1)}MB columnar=${a.columnar} gint=${a.gint}`);
+		map.clearUserGint();
+		// 筆風＝小さな 8 角形 × 10 万（約 5.7MB・共有は多いが弧が短い）
+		const parcels = []; { const N = 100000, side = Math.ceil(Math.sqrt(N)), step = 0.0008; for (let i = 0; i < N; i++) { const cx = LON - side * step / 2 + (i % side) * step, cy = LAT - side * step / 2 + Math.floor(i / side) * step, r = step * 0.5, ring = []; for (let k = 0; k < 8; k++) ring.push([cx + r * Math.cos(k * Math.PI / 4), cy + r * Math.sin(k * Math.PI / 4)]); ring.push(ring[0]); parcels.push({ type: "Feature", properties: { id: i }, geometry: { type: "Polygon", coordinates: [ring] } }); } }
+		const fP = await mk("parcels.geopbf", parcels);
+		const b = await drop(fP);
+		ok("parcels → columnar", fP.size > 4e6 && b.columnar && !b.gint, `size=${(fP.size / 1e6).toFixed(1)}MB columnar=${b.columnar} gint=${b.gint} share=${JSON.stringify(window.__columnar?.meta?.share)}`);
+		window.__columnar?.remove();
+		// 小さな GeoPBF（門の下）＝gint
+		const fS = await mk("small.geopbf", parcels.slice(0, 500));
+		const c = await drop(fS);
+		ok("small → gint", !c.columnar && c.gint, `size=${fS.size} columnar=${c.columnar} gint=${c.gint}`);
+		map.clearUserGint();
+	} else if (MODE === "depth") {
+		// ── シーンの深度（#47）と地形ドレープの口：東京駅に 100m 角×300m の押し出しを立て、60° に傾け、列チャンク層の面を棟の北（向こう）と南（手前）に置く
+		//   depth=true（既定）＝向こうの面は棟に隠れる・手前は見える。depth:false＝両方見える。api.terrainOn/liftScale が来ている（drape の口）
+		const K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
+		map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+		const sqm = (e, n, s) => [ll(e - s, n - s), ll(e + s, n - s), ll(e + s, n + s), ll(e - s, n + s), ll(e - s, n - s)];
+		const st = await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sqm(0, 0, 50)] } }, { color: "#888888", fit: false, mask: false });
+		ok("extrude", !!st && st.polygons === 1, JSON.stringify(st));
+		await sleep(1200);
+		const fc = { type: "FeatureCollection", features: [
+			{ type: "Feature", properties: { id: 0, side: "behind" }, geometry: { type: "Polygon", coordinates: [sqm(0, 400, 40)] } },
+			{ type: "Feature", properties: { id: 1, side: "front" }, geometry: { type: "Polygon", coordinates: [sqm(0, -220, 40)] } }] };
+		const pbf = await geopbf(fc, { gint: false, name: "depth" });
+		const run = async (depth) => {
+			const h = await map.addColumnar(pbf, { fit: false, paint: PAINT, depth });
+			await h.ready; await until(() => h.loaded > 0 ? h : null, 30000); await sleep(1500);
+			const img = await readOv(h), pr = map.makeProjector();
+			const at = ll2 => { const [x, y] = pr(ll2[0], ll2[1]); return isRed(img.at(x * img.k, y * img.k)); };
+			const res = { behind: at(ll(0, 400)), front: at(ll(0, -220)), info: img.info };
+			h.remove(); await sleep(300); return res;
+		};
+		const on = await run(true);
+		ok("depth.on.frontVisible", on.front, JSON.stringify(on));
+		ok("depth.on.behindHidden", !on.behind, JSON.stringify(on));
+		ok("depth.on.declared", on.info?.depth === true, JSON.stringify(on.info));
+		const off = await run(false);
+		ok("depth.off.bothVisible", off.front && off.behind, JSON.stringify(off));
+		ok("depth.off.declared", off.info?.depth === false, JSON.stringify(off.info));
 	} else if (MODE === "perf") {
 		// ── 段 0 の物差し：筆風の小さな面 N 枚（8 角形）＝同じ GeoPBF のバイト列から gint と列チャンク層
 		const N = +Q.get("n") || 20000, KIND = Q.get("kind") || "parcels", side = Math.ceil(Math.sqrt(N)), step = KIND === "points" ? 0.0002 : 0.0008;

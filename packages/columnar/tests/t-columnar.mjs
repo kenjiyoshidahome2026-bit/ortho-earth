@@ -17,6 +17,10 @@ import { tableFor, paintColumns, DEFAULT_PAINT } from "../src/style.js";
 import { GEOPBF_SOURCE } from "../src/sources/geopbf.js";
 import { GEOPARQUET_SOURCE } from "../src/sources/geoparquet.js";
 import { registerColumnarSource, findColumnarSource } from "../src/sources/registry.js";
+import { FGB_SOURCE } from "../src/sources/fgb.js";
+import { shareStats, gintPreferred } from "../src/share.js";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { buildFidStyle } from "@ortho-earth/core/fidstyle";
 
 let n = 0;
@@ -215,5 +219,43 @@ await t("registry: extension and magic bytes", () => {
 	assert.equal(findColumnarSource({ name: "", head: new Uint8Array([0x1f, 0x8b, 8]) }).name, "geopbf");
 	assert.equal(findColumnarSource({ name: "x.shp" }), null);
 	assert.equal(findColumnarSource({ name: "x.shp", hint: "geopbf" }).name, "geopbf");
+});
+// ── ⑦ 弧の共有の物差し（振り分けの規則）
+await t("shareStats: admin-like (long shared arcs) → gint; parcels/lines/points → columnar", async () => {
+	// 行政界風＝隣り合う 2 つの大きな面が長い共有弧を持つ（1 面 200 頂点・共有 100）
+	const arc = []; for (let i = 0; i <= 100; i++) arc.push([139 + i * 0.001, 35 + Math.sin(i / 7) * 0.002]);
+	const left = [...arc, [139.1, 34.9], [139.0, 34.9], arc[0]], right = [...arc.slice().reverse(), [139.0, 35.1], [139.1, 35.1], arc[100]];
+	const fbA = flatBuilder(); addGeoJSON(fbA, 0, { type: "Polygon", coordinates: [left] }); addGeoJSON(fbA, 1, { type: "Polygon", coordinates: [right] });
+	const A = shareStats(fbA.finish());
+	assert.ok(A.ratio > 0.45 && A.meanVertices > 100, JSON.stringify(A));
+	assert.equal(gintPreferred(A, 10e6), true); assert.equal(gintPreferred(A, 100e6), false, "too big for gint");
+	// 筆風＝小さな四角の格子（共有は多いが弧が短い）
+	const fbP = flatBuilder(); for (let i = 0; i < 100; i++) addGeoJSON(fbP, i, { type: "Polygon", coordinates: [sq(140 + (i % 10) * 0.01, 36 + Math.floor(i / 10) * 0.01, 0.01)] });
+	const P = shareStats(fbP.finish());
+	assert.ok(P.ratio > 0.3 && P.meanVertices === 4, JSON.stringify(P));
+	assert.equal(gintPreferred(P, 10e6), false);
+	// 線と点＝共有なし
+	const fbL = flatBuilder(); for (let i = 0; i < 5; i++) addGeoJSON(fbL, i, feats[3].geometry); addGeoJSON(fbL, 9, feats[5].geometry);
+	const L = shareStats(fbL.finish()); assert.ok(L.ratio > 0.7 && L.meanVertices === 3, JSON.stringify(L));   // 同じ線を 5 回＝共有だが短い
+	assert.equal(gintPreferred(L, 1e6), false);
+	assert.equal(gintPreferred(null, 1e6), false);
+	// 読み手の meta.share（GeoPBF・GeoParquet とも先頭チャンクの標本）
+	assert.ok(rp.meta.share && rp.meta.share.vertices > 0, JSON.stringify(rp.meta.share));
+	assert.ok(rq.meta.share && rq.meta.share.vertices > 0, JSON.stringify(rq.meta.share));
+	const f0 = await rp.readGeometry(0); assert.ok(f0.n > 0, "flat0 is served then rebuilt");
+	const f0b = await rp.readGeometry(0); assert.equal(f0b.n, f0.n);
+});
+// ── ⑧ FlatGeobuf の読み手（geopbf/fgb 経由・公式 countries.fgb）
+await t("fgb reader: countries.fgb → chunks (delegates to the geopbf reader)", async () => {
+	const u8 = new Uint8Array(readFileSync(fileURLToPath(new URL("../../geopbf/tests/fixtures/fgb/countries.fgb", import.meta.url))));
+	assert.equal(findColumnarSource({ name: "x.fgb" })?.name, undefined, "not registered yet");
+	registerColumnarSource(FGB_SOURCE);
+	assert.equal(findColumnarSource({ name: "x.fgb" }).name, "fgb");
+	assert.equal(findColumnarSource({ name: "", head: u8.subarray(0, 8) }).name, "fgb");
+	const r = await FGB_SOURCE.open(u8, { name: "countries.fgb" });
+	assert.equal(r.meta.kind, "fgb"); assert.ok(r.meta.rows >= 100, "rows " + r.meta.rows);
+	assert.ok(r.meta.share && r.meta.share.meanVertices > 40, JSON.stringify(r.meta.share));
+	const f = await r.readGeometry(0); assert.ok(f.n > 0 && f.xy.length > 0);
+	const cols = await r.readColumns(0, r.meta.columns.slice(0, 1).map(c => c.name), f.rows); assert.equal(Object.keys(cols).length, 1);
 });
 console.log(`columnar: ${n} passed`);

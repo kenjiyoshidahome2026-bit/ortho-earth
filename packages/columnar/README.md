@@ -28,8 +28,16 @@ h.on("click", e => console.log(e.row, e.properties));
 h.remove();
 ```
 
-In the ortho-earth apps a dropped `.parquet` always takes this path, and a `.geopbf` takes it
-above `opts.columnarBytes` (default 4 MB; `?columnar=1|0` forces it).
+In the ortho-earth apps a dropped `.parquet` always takes this path, and a `.geopbf` / `.fgb` takes it
+above `opts.columnarBytes` (default 4 MB; `?columnar=1|0` forces it) — **unless the data looks like a
+choropleth with long shared arcs** (admin1, administrative maps). Every reader measures `meta.share` on its
+first chunk (`ratio` = vertices already seen in another feature, `meanVertices` per feature); the default rule
+(`gintPreferred`: ratio ≥ 0.3 and ≥ 40 vertices per feature, ≤ 64 MB) sends those to Gint, whose winding fill,
+single-drawn shared borders and continuous LOD suit them. `createGlobe({ columnarRule })` replaces the rule.
+
+By default the layer **drapes** on the terrain (per-vertex elevation from the render worker's terrain, lifted
+when the view is tilted, resampled 60 k vertices per frame as tiles arrive) and is **occluded by the scene depth**
+(mountains, buildings; `depth: false` to disable, LOW_MEM devices never build the depth).
 
 ## What a chunk is
 
@@ -65,9 +73,12 @@ registerColumnarSource({
 ```
 
 Built in: `geoparquet` (own Parquet reader from `geopbf/parquet`: footer, statistics pruning,
-Range requests, none/snappy/gzip, zstd via `fzstd` on demand) and `geopbf` (in-memory: one
+Range requests, none/snappy/gzip, zstd via `fzstd` on demand), `geopbf` (in-memory: one
 scan of wire integers for bboxes, STR spatial order from `geopbf/spatial-order`, cut by
-feature/vertex count). Workers register readers through the `#columnar-sources` package import;
+feature/vertex count) and `fgb` (FlatGeobuf, whole-file through `geopbf/fgb` then the `geopbf`
+reader; Range reads through the packed Hilbert R-tree are not done yet). GeoArrow-encoded
+GeoParquet is not read (the own Parquet reader has no nested list columns); a `parquet-wasm`
+reader can be registered by an app. Workers register readers through the `#columnar-sources` package import;
 an app that adds readers points that alias at its own module (functions cannot be posted).
 
 ## Trade-offs vs Gint
@@ -78,7 +89,7 @@ an app that adds readers points that alias at its own module (functions cannot b
 | Shared borders | drawn once | drawn twice |
 | Overlapping fills | winding union | later on top |
 | LOD | continuous (VW rank) | 2–3 steps |
-| Terrain | draped | on the ellipsoid (phase 5) |
+| Terrain | draped (GPU subdivision) | draped per vertex (`drape: true`), scene-depth occlusion |
 | Editing / topology | yes | switch to Gint when needed |
 
 ## Measured (phase 0 yardstick)

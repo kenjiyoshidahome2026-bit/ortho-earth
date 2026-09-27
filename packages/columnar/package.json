@@ -16,7 +16,9 @@
 		"./sources": "./src/sources/registry.js",
 		"./sources/builtin": "./src/sources/builtin.js",
 		"./sources/geopbf": "./src/sources/geopbf.js",
-		"./sources/geoparquet": "./src/sources/geoparquet.js"
+		"./sources/geoparquet": "./src/sources/geoparquet.js",
+		"./sources/fgb": "./src/sources/fgb.js",
+		"./share": "./src/share.js"
 	},
 	"imports": {
 		"#columnar-sources": "./src/sources/builtin.js"

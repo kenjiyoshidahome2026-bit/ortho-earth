@@ -7,4 +7,5 @@ export { createColumnarView, setWorkerFactory } from "./view.js";
 export { registerColumnarSource, listColumnarSources, findColumnarSource } from "./sources/registry.js";
 export { buildChunk, LOD_ZOOMS } from "./chunk.js";
 export { DEFAULT_PAINT } from "./style.js";
-export const COLUMNAR_EXT = /\.(geopbf|parquet|geoparquet)$/i;
+export { shareStats, gintPreferred } from "./share.js";
+export const COLUMNAR_EXT = /\.(geopbf|parquet|geoparquet|fgb)$/i;
