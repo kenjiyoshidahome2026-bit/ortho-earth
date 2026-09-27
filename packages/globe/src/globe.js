@@ -2095,7 +2095,7 @@ dbgHost.__placed = () => new Promise(res => {
 });
 dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
 	const sid = ++placedSeq;
-	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.zoomSkipped || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, zoomSkipped: sk, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
 });
