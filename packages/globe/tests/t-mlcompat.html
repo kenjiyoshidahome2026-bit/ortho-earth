@@ -349,7 +349,7 @@ try {
 			],
 		};
 		// エンジン z 11.5＝MapLibre の z 10.5＝minzoom 11 の層はまだ出ない（MapLibre）
-		const map = await createGlobe({ target: "#map", view: "#11.5/35.45/139.85", chips: false, style });
+		const map = await createGlobe({ target: "#map", view: "#11.5/35.45/139.85", chips: false, style, debugGlobals: true });   // debugGlobals＝__idleWhy（raster-only-style-idle の切り分け）
 		await sleep(7000);
 		const hit = async () => { const [x, y] = map.projectLL(139.85, 35.45); return (await map.queryRenderedFeatures([x, y], { layers: ["g"] })).map(f => f.layer.id); };
 		await scene("sprite-array", () => [map.hasImage("sq") && map.hasImage("alt:sq"), `sq=${map.hasImage("sq")} alt:sq=${map.hasImage("alt:sq")} all=${map.listImages().join(",")}`]);
@@ -448,6 +448,21 @@ try {
 			const h = await hit();
 			const wOf = st => JSON.stringify(st.layers.find(L => L.id === "water") ?? null);
 			return [pick(s1) === pick(s3) && !h.includes("g"), `same=${pick(s1) === pick(s3)} z11.5→${h} water1=${wOf(s1)} water3=${wOf(s3)}`];
+		});
+		// vector の基図が無い style（画像層だけ）でも idle が来る・style の raster source を isSourceLoaded が受ける（1.5.1〜）。
+		// 旧＝覆う基図が無いので coverOk が永遠に false＝idle が来ず、公式例の hillshade/raster は 10 秒の timeout で撮られていた
+		await scene("raster-only-style-idle", async () => {
+			const keep = map.getStyle();
+			const tiles = new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}");
+			let idleAt = -1, armed = true; const t0 = performance.now(); map.on("idle", () => { if (armed && idleAt < 0) idleAt = performance.now() - t0; });
+			map.jumpTo({ center: [150.5, 30.5], zoom: 8, pitch: 0 });
+			await map.setStyle({ version: 8, sources: { rz: { type: "raster", tiles: [tiles], tileSize: 256, maxzoom: 10 } }, layers: [{ id: "rl", type: "raster", source: "rz" }] });
+			const l0 = map.isSourceLoaded("rz");
+			while (idleAt < 0 && performance.now() - t0 < 8000) await sleep(100);
+			armed = false;
+			const l1 = map.isSourceLoaded("rz"), why = window.__idleWhy?.(), rst = await map.raster.stats();
+			await map.setStyle(keep); await sleep(2500); map.jumpTo({ center: [137.2, 35.9], zoom: 7, pitch: 0 }); await sleep(1500);
+			return [idleAt >= 0 && l1 === true, `idle@${idleAt.toFixed(0)}ms loaded=${l0}→${l1} why=${JSON.stringify(why)} raster=${JSON.stringify(rst?.layers)} inflight=${rst?.inflight}`];
 		});
 	} else if (G === "vector") {
 		// ── vector source の fill-extrusion（段 8①）＝MapLibre の 3D 建物の書き方そのまま。試料＝fixtures/mlcompat/make-mvt.mjs（OpenMapTiles 風の building・6 棟）──
