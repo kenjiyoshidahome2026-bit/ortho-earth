@@ -1677,7 +1677,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.disable(gl.DEPTH_TEST);
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：時計の時刻の太陽直下点（ephem/sun＝solar と同じ式・均時差込み。
 		// 旧＝v1 nightJSON の赤緯正弦近似＋UTC 時刻→経度）を平行光源に、夜半球を夜紺で減光。地図の全レイヤの上に重ねる。
-		if (worldFade > 0) {
+		// view.night＝false で描かない（MapLibre の口から起こした地図・公式例の門 段 2＝既定は描く）
+		if (worldFade > 0 && view.night !== false) {
 			const [sunLng, sunLat] = sunSubpoint(clockNow(view.clock));
 			const cs = Math.cos(sunLat);
 			gl.useProgram(nightProg);

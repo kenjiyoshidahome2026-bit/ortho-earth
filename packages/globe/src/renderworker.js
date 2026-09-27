@@ -200,20 +200,25 @@ async function bootWebGL(m) {
 	hudGpuName = String(glRef.getParameter(dbg ? dbg.UNMASKED_RENDERER_WEBGL : glRef.RENDERER) || "");   // ?hud=1 状態盤に出すGPU名（perfログとも共有・落ちの端末特定に使う）
 	if (perfOn) console.log(`[perf] backend=webgl2 gpu="${hudGpuName}" timerQuery=${!!tqExt}`);
 }
+// 標高アトラスの部品（init の材料と DEM から）。起動時か、terrain:false の地図に初めて DEM が来た時（terrLazyInit）に作る
+let terrLazyInit = null;
+const makeTerrain = (m, dem) => createTerrain({
+	renderer, requestDraw: () => { dirty = true; },
+	exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
+	gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
+	dem: dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
+	dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
+	onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
+});
 // バックエンド確定後の共通仕上げ：標高(terrain)＋scene worker 直結ポート＋能力表明＋描画ループ開始。
 function finishInit(m) {
 	// 標高アトラス：fetch(altpbf自前worker)・視野→セル範囲計算・ダウンサンプルまで全部ここで完結させ、
 	// main には触れさせない（postMessage/main側CPUを丸ごと排除）。DOM(読込インジケータ)だけ main へ通知。
 	// terrain モジュールは renderer.set 契約のみ＝バックエンド非依存（webgpu Phase 2 で elev* を実装済み）。
 	// ?noterr=1 ＝標高を丸ごと停止する A/B 計測ノブ（terrain=null＝以後の全参照が null ガードで平面へ）。
-	if (!m.noTerr) terrain = createTerrain({
-		renderer, requestDraw: () => { dirty = true; },
-		exag: m.terrainExag, earthM: m.earthM, apiUrl: m.apiUrl, lowMem: !!m.lowMem, noMixed: !!m.noMixed, noFar: !!m.noFarTerr,
-		gMax: m.gmax || null,   // 計器 c（perf plan §1）＝?gmax=N＝地形メッシュ格子の天井（P4 の上限見積り）
-		dem: m.dem || null,   // 外来の標高タイル（raster-dem・#36）＝R01 のセルを上書き（main の map.setTerrain・?dem=）
-		dtm: m.dtm || null,   // 裸地標高(DTM)の申告＝main が packages/jp/src/dtm.js から渡す（接地リフトと失効判定の根拠）
-		onPending: (count, range, stat) => postMessage({ type: "elevPending", count, range, stat }),   // stat＝ローダ状態の自己申告（沈黙死の可視化）
-	});
+	// opts.terrain:false（terrLazy・公式例の門 段 2）＝ここでは作らず、main の setTerrain の DEM が来た時に作る（MapLibre と同じ「setTerrain まで平ら」）
+	if (!m.noTerr) terrain = makeTerrain(m, m.dem);
+	else if (m.terrLazy) terrLazyInit = m;
 	// 全球の床（WORLD_ATLAS＝焼き済み 1 本 3.25MB・初回のみ＝以後IDB常備）を起動の山が過ぎた頃に先読み＝
 	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 	// アトラスが無い時の退避（R90 8枚・55MB）は terrain 側＝低メモリ端末はそこで見送る（デモ序盤の裏でデコードの山を作らない）。
@@ -364,7 +369,10 @@ const dispatch = e => {
 				for (let i = mdInbox.length - 1; i >= 0; i--) if (mdInbox[i].type === "dl" && mdInbox[i].slot === m.prop) mdInbox.splice(i, 1);
 				sceneInbox.set(m.prop, m.data);
 			}
-			else if (m.cmd === "dem") { terrain?.setDem(m.data || null); }        // 外来の標高タイルの生き替え（#36）
+			else if (m.cmd === "dem") {   // 外来の標高タイルの生き替え（#36）。terrain:false の地図は初めての DEM で地形を作る（外す時は作った地形の DEM を外す＝既定の標高に戻る・台帳 §4）
+				if (!terrain && terrLazyInit && m.data) { terrain = makeTerrain(terrLazyInit, m.data); terrLazyInit = null; dirty = true; armRaf(); }
+				else terrain?.setDem(m.data || null);
+			}
 			else if (m.cmd === "clock") { clockA = m.data; dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す

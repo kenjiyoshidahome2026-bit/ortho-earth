@@ -104,6 +104,8 @@ const t = tr();
 //   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は非推奨の別名（mesh が優先）
 //   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
+//   opts.sky／opts.night＝星空劇場と太陽系圏／低ズームの夜面（true=[既定]／false=持たない・描かない＝MapLibre の口 src/maplibre/ の既定）
+//   opts.terrain＝false：setTerrain まで平ら（既定の標高を取らない＝MapLibre と同じ意味）。{ source, exaggeration }＝外来の標高タイル
 //   opts.countryTip＝世界ビュー(z<5.5)のホバー国名 tip（true=[既定]／false=出さない＝自前の tip と重ねない器）
 //   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
 //     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
@@ -558,7 +560,10 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] gpu=1 requested but WebGPU unavailable (no navigator.gpu, or gl2=1 also set) = starting as WebGL2");
 if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${nogpuMark || "accumulated" }, count ${nogpuN}${nogpuN >= 2 ? " = pinned for this tab" : " = retry on next reload"})`);
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
-const noTerr = /[?&]noterr=1/.test(location.search);
+// opts.terrain＝false：MapLibre と同じ「setTerrain まで平ら」（公式例の門 段 2・2026-09-27）＝既定の標高を取らない・描かない。
+// setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
+const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
+let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
@@ -581,7 +586,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -626,7 +631,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [] };   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [] };   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -756,6 +761,7 @@ renderWorker.onmessage = e => {
 };
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
+let coverOk = true;   // 最後の render で「基図が視野を隙間なく覆い、その枠がそのまま載っている」（idle の材料・公式例の門 段 2）
 let renderBackend = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
@@ -1148,7 +1154,7 @@ const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世�
 // 旧・飛行系だけ床1の保守的縫い目は撤去＝呼び出し側は皆 z≥3 か Math.max 済みで、床1に頼る呼び出しは無いのを検分済み）。
 // ?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）＝その時は飛行床も従来の1へ戻る。
 const SOLAR_ZOOM_MIN = -17;
-const solarOff = new URLSearchParams(location.search).has("nosolar");
+const solarOff = new URLSearchParams(location.search).has("nosolar") || opts.sky === false;   // opts.sky＝false（MapLibre の口）＝太陽系圏も持たない
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
 let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
 let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
@@ -1237,6 +1243,7 @@ function switchTheme(name) {
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
 renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
+	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
@@ -1328,7 +1335,7 @@ async function loadLakes() {
 dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
-const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, now: () => clock.time, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, now: () => clock.time, stars: opts.stars, sky: opts.sky, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
 // 時計の状態が変わった（段・日時・今へ戻る・範囲の端で停止・URL の読み込み）＝worker へ基準・空と惑星・URL・map.on("time")
 let clockSentAt = 0;
 function sendClock() { clockSentAt = performance.now(); wPost({ type: "set", cmd: "clock", data: clock.isLive() ? null : clock.anchor() }); }
@@ -1897,7 +1904,7 @@ function render() {
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
 	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
-	if (!basemap) { lastTileOrder = []; lastSkipBase = false; }
+	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
 		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
@@ -1905,7 +1912,7 @@ function render() {
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
 		skipBase = tu.covered && merged;
-		lastSkipBase = skipBase;   // onMove（入力直結の draw）が同じ値を送る＝worker へ届く opts がフレームごとに交互にならない（#58）
+		lastSkipBase = skipBase; coverOk = skipBase;   // onMove（入力直結の draw）が同じ値を送る＝worker へ届く opts がフレームごとに交互にならない（#58）
 		dbgHost.__cover = { covered: tu.covered, merged, ready: o.length, sel: tu.sel, moving };   // 検証/切り分け用：なぜ base が落ちた/落ちないか
 	}
 	// terrainGate: 標高アトラスの再構築（窓選定108unproject＋staging＋セルfetch）は重い＝移動中は一切行わず、
@@ -2051,7 +2058,22 @@ function frame() {
 		for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: false, ticking: true }); } catch (e) { console.error("[map.on time]", e); } }
 	}
 	if (needsDraw) { needsDraw = false; render(); }
+	if (mapOn.idle.length) checkIdle(nowT);
 	requestAnimationFrame(frame);
+}
+// idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
+// 標高と建物の読み込みが無い・利用者の source が揃った、が 100ms 続いたら 1 回。忙しくなったら次の静けさでまた 1 回（MapLibre と同じ）。
+// 起動直後も（カメラを動かさなくても）来る＝settle（onMove の後だけ）とは別の合図
+let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
+function checkIdle(now) {
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && coverOk && !elevBusy && !meshMgr.visibleLoading().length
+		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id));
+	if (!quiet) { idleState = 0; return; }
+	if (idleState === 0) { idleState = 1; idleSince = now; return; }
+	if (idleState === 1 && now - idleSince >= 100) {
+		idleState = 2;
+		for (const cb of [...mapOn.idle]) { try { cb({}); } catch (e) { console.error("[map.on idle]", e); } }
+	}
 }
 requestAnimationFrame(frame);
 
@@ -2399,6 +2421,7 @@ map.setTerrain = async t => {
 		redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
 	demMain = demSpec ? createDemSource(demSpec) : null;
 	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
+	if (terrLazy && demSpec) noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
 	return map;

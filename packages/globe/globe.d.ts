@@ -52,8 +52,12 @@ export interface OrthoJapanOptions {
 	/** 取得の前の手入れ（1.2.0〜・#37・MapLibre と同名）。基図タイル・3D Tiles・style/TileJSON・sprite は取得ごと、画像タイルはソースごと（型紙で一度）に呼ぶ。
 	 *  headers は画像タイル・3D Tiles・基図タイル（PMTiles 以外）に効く */
 	transformRequest?: TransformRequestFunction;
-	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ */
-	terrain?: { source: RasterDemSource; exaggeration?: number };
+	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ。
+	 *  false（1.4.0〜）＝MapLibre と同じ「setTerrain まで平ら」＝この地図の既定の標高を取らない・描かない。setTerrain の DEM で地形が立つ
+	 *  （その後の setTerrain(null) は DEM を外すだけ＝既定の標高の地形に戻る）。?noterr=1 は従来どおり丸ごと停止 */
+	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
+	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	night?: boolean;
 	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
 	 *  SDK の orthoJapan() は URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
@@ -88,6 +92,8 @@ export interface OrthoJapanOptions {
 	zoomScale?: "ortho" | "maplibre";
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
+	/** 星空劇場（恒星・惑星・月・星座）と太陽系圏。false＝丸ごと持たない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	sky?: boolean;
 	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。**既定は全部 off**（ell と同じ作法）。
 	 *  true で点ける。URL の ?atmosphere=1／?pbr=1／?ao=1（0 で切る）が opts より優先。WebGPU だけ（WebGL2 は実装を持たない＝旗が立っても絵は変わらない） */
 	render?: { atmosphere?: boolean; pbr?: boolean; ao?: boolean };
@@ -578,6 +584,9 @@ export interface OrthoJapanMap {
 	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
+	/** 描き終わり（MapLibre 同名・1.4.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
+	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
+	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
 	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;
 	/** 購読解除（1.0.5〜） */
