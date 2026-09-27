@@ -761,6 +761,12 @@ export interface OrthoJapanMap {
 	/** source の地物（MapLibre 同名・同期・1.4.0〜）。集約（cluster）の source＝今の段の丸と単点で画面の内側（余白 1/4）に居る物（properties に cluster/cluster_id/point_count）／
 	 *  geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝こちらは上位互換）／vector の source は未対応（[]・警告） */
 	querySourceFeatures(sourceId: string, opts?: { filter?: StyleExpression; sourceLayer?: string }): RenderedFeature[];
+	/** MapLibre の custom 層（addLayer({ type:"custom", onAdd, render, renderingMode })・1.4.0〜）の onAdd/render に渡す map（既定＝この map・MapLibre の口が自分を差す）。
+	 *  custom 層は main の透明な WebGL2 canvas（注記の下）に描く＝地図と深度を共有しない（模型は建物・地形に隠れない）。行列（args.defaultProjectionData.mainMatrix）は
+	 *  中心で局所線形化したメルカトル→クリップ（Float64Array）＝狭い範囲（模型・3D Tiles）は画素の内で合う・大陸大の図形は球との差の分だけ違う。globe の variant は無い */
+	setCustomLayerHost(host: object | null): OrthoJapanMap;
+	/** custom 層の canvas（層が 1 つでも足された後・無ければ null） */
+	getCustomLayerCanvas(): HTMLCanvasElement | null;
 
 	// ---- 台本の上映・撮影（scene エディタ・公開サムネの土台）----
 	/** 台本オブジェクトを直に上映（要 demo ガジェット・既に上映中なら false）。台本の形＝demo/scene-format.md。言語は台本の ja:/en:… を画面の言語で選ぶ */

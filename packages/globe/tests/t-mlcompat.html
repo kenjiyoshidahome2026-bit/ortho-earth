@@ -273,6 +273,40 @@ try {
 			map.jumpTo({ center: [35.9, 137.2].reverse(), zoom: 7, pitch: 0 }); await sleep(2000);
 			return [nw - se > 15 && Math.abs(se - b1) > 10 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false, `NW=${nw.toFixed(0)} SE=${se.toFixed(0)} before=${b0.toFixed(0)}/${b1.toFixed(0)} removed=${a1.toFixed(0)}`];
 		});
+		// ── custom 層（MapLibre の CustomLayerInterface・4 巡目）＝main の WebGL2 canvas に mainMatrix（メルカトル→クリップ）で描く。中心の周りの小さな四角＝中心は赤・外は元のまま・外すと戻る ──
+		await scene("custom-layer", async () => {
+			const cx = 137.2, cy = 35.9, [px0, py0] = P(cx, cy), [qx, qy] = P(cx + 0.6, cy);
+			const before = await snap(map), b0 = px(before, px0, py0), b1 = px(before, qx, qy);
+			const mx = lng => (180 + lng) / 360, my = lat => (180 - 180 / Math.PI * Math.log(Math.tan(Math.PI / 4 + lat * Math.PI / 360))) / 360;
+			const d = 0.25, verts = [[cx - d, cy - d], [cx + d, cy - d], [cx + d, cy + d], [cx - d, cy - d], [cx + d, cy + d], [cx - d, cy + d]].flatMap(([lo, la]) => [mx(lo), my(la)]);
+			let calls = 0, gotArgs = null;
+			const layer = { id: "cust", type: "custom", renderingMode: "2d",
+				onAdd(m, gl) {
+					this.host = m;
+					const vs = gl.createShader(gl.VERTEX_SHADER); gl.shaderSource(vs, "#version 300 es\nuniform mat4 u_m; in vec2 a; void main(){ gl_Position = u_m * vec4(a, 0.0, 1.0); }"); gl.compileShader(vs);
+					const fs = gl.createShader(gl.FRAGMENT_SHADER); gl.shaderSource(fs, "#version 300 es\nout highp vec4 o; void main(){ o = vec4(1.0, 0.0, 0.0, 1.0); }"); gl.compileShader(fs);
+					this.prog = gl.createProgram(); gl.attachShader(this.prog, vs); gl.attachShader(this.prog, fs); gl.linkProgram(this.prog);
+					this.buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, this.buf); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(verts), gl.STATIC_DRAW);
+					this.a = gl.getAttribLocation(this.prog, "a"); this.u = gl.getUniformLocation(this.prog, "u_m");
+				},
+				render(gl, args) {
+					calls++; gotArgs = args;
+					gl.useProgram(this.prog); gl.uniformMatrix4fv(this.u, false, Float32Array.from(args.defaultProjectionData.mainMatrix));
+					gl.bindBuffer(gl.ARRAY_BUFFER, this.buf); gl.enableVertexAttribArray(this.a); gl.vertexAttribPointer(this.a, 2, gl.FLOAT, false, 0, 0);
+					gl.drawArrays(gl.TRIANGLES, 0, 6);
+					// 描いた直後にこの canvas の画素を読む（preserveDrawingBuffer なし＝フレームの後では読めない）。gl の y は下から
+					const W = gl.drawingBufferWidth, H = gl.drawingBufferHeight, sx = W / 960, rd = (x, y) => { const p = new Uint8Array(4); gl.readPixels(Math.round(x * sx), H - 1 - Math.round(y * sx), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, p); return [...p]; };
+					this.px = { center: rd(px0, py0), outside: rd(qx, qy) };
+				} };
+			await map.addLayer(layer);
+			await sleep(1000); map.requestDraw(); await sleep(800);
+			const c0 = layer.px?.center ?? [], c1 = layer.px?.outside ?? [], cv = map.getCustomLayerCanvas();
+			const inStyle = map.getStyle().layers.some(L => L.id === "cust"), has = !!map.getLayer("cust");
+			const pd = gotArgs?.getProjectionData?.({ tileID: { z: 1, x: 1, y: 0 } });
+			map.removeLayer("cust"); const n0 = calls; map.requestDraw(); await sleep(600);
+			return [calls > 0 && layer.host === map && c0[0] > 200 && c0[1] < 60 && c0[3] > 200 && c1[3] < 30 && calls === n0 && !inStyle && has && !!cv && gotArgs?.defaultProjectionData?.mainMatrix?.length === 16 && pd?.mainMatrix?.length === 16 && pd.tileMercatorCoords[0] === 0.5,
+				`calls=${calls} center=${c0} outside=${c1} stoppedAfterRemove=${calls === n0} inStyle=${inStyle} getLayer=${has} host=${layer.host === map} canvas=${!!cv}`];
+		});
 		// ── 問い合わせの許し（公式例の門 §8 B）＝MapLibre と同じ当たり：線は線幅の半分・円は半径＋縁・既定の許し 0（旧＝3px を足して線に余計に当たった）──
 		{
 			await map.addSource("tol", { type: "geojson", data: fc([{ type: "Feature", properties: { k: "l" }, geometry: { type: "LineString", coordinates: [[134.5, 37.3], [135.3, 37.3]] } }, pt(134.0, 37.3, { k: "c" })]) });

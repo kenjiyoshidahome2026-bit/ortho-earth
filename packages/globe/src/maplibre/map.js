@@ -263,7 +263,11 @@ export class Map {
 	getSource(id) { return ask(this, "getSource", [id]); }
 	isSourceLoaded(id) { return !!ask(this, "isSourceLoaded", [id], { before: false }); }
 	addLayer(layer, before) {
-		if (layer?.type === "custom") { unsupported(this, "addLayer type custom (CustomLayerInterface — this map does not hand out its WebGL context)"); return this; }
+		if (layer?.type === "custom") {   // CustomLayerInterface＝エンジンの main の WebGL2 canvas に描く（onAdd/render の map はこの口＝setCustomLayerHost）
+			const st = S.get(this); if (!st.customHost) { st.customHost = true; ask(this, "setCustomLayerHost", [this]); }
+			if (layer.renderingMode === "3d") unsupported(this, "custom layer depth shared with the map (3d models are drawn above the map)", "cosmetic");
+			ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this;
+		}
 		const sid = typeof layer?.source === "string" ? layer.source : layer?.id;
 		ask(this, "addLayer", before != null ? [layer, before] : [layer], { then: () => sid && this._sourceLoaded(sid) }); return this;
 	}
@@ -312,7 +316,9 @@ export class Map {
 	getContainer() { return S.get(this).container; }
 	getCanvasContainer() { return S.get(this).container; }
 	getCanvas() {
-		const st = S.get(this), c = st.container.querySelector("canvas#c");
+		const st = S.get(this), cg = st.engine?.getCustomLayerCanvas?.();
+		if (cg) return cg;   // custom 層がある地図＝その WebGL2 canvas（three.js の new WebGLRenderer({ canvas: map.getCanvas(), context: gl }) が同じ canvas と文脈を受け取る）
+		const c = st.container.querySelector("canvas#c");
 		if (c) return c;
 		unsupported(this, "getCanvas before the map is ready");
 		return (st.placeholder ??= document.createElement("canvas"));

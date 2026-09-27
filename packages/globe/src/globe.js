@@ -43,7 +43,8 @@ import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割�
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
 import { createWorldContent } from "./gint/worldcontent.js";
-import { createHillshadeProvider } from "./hillshade.js";   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createHillshadeProvider } from "./hillshade.js";
+import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -3381,6 +3382,7 @@ const mlVisible = v => v.layer.layout?.visibility !== "none";
 const mlOrderOf = id => [...mlLayers.keys()].indexOf(id);
 const kindOf = (layer, sp) => {
 	if (layer.type === "raster") return "raster";
+	if (layer.type === "custom") return "custom";   // source を持たない（CustomLayerInterface）
 	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
 	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
 	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported yet — vector sources feed fill / line / circle / symbol / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
@@ -3683,6 +3685,7 @@ const mountLayer = async v => {
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
+	if (kind === "custom") { customGet().add(v.layer, order); return null; }   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
 	if (kind === "hillshade") {   // raster-dem のタイルから陰影の画像タイルを作る port プロバイダ（hillshade.js）→画像タイル層（基図の上・注記の下）
 		const ro = { order: "over", opacity: 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
@@ -3705,6 +3708,7 @@ const mountLayer = async v => {
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
+	else if (kind === "custom") customCtl?.remove(id);
 	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
@@ -3723,7 +3727,13 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
 	vtdCtl?.setOrder(vtdOrder());   // vector の描く層（段 8⑤）＝順の鍵（増えている間は組み直さない）
+	for (const v of mlLayers.values()) if (v.kind === "custom") customCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 };
+// MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
+let customCtl = null, customHost = null;
+const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), get hostMap() { return customHost ?? map; } });
+map.setCustomLayerHost = h => { customHost = h; return map; };
+map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
 map.addSource = (id, spec) => addSourceAt(id, spec, PUBLIC_DZ);
 map.getSource = id => {
@@ -3779,9 +3789,10 @@ map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); i
 const addLayerAt = async (layer, beforeId, dz) => {
 	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
 	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
-	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	if (layer?.type === "custom" && typeof layer.render !== "function") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method`);
 	assertMLLayer(layer, "addLayer");
-	const v = { layer: { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };
+	const v = { layer: layer?.type === "custom" ? layer : { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
 	v.kind = kindOf(drawLayerOf(v), sp);
 	if (mlLayers.has(layer.id)) { const old = mlLayers.get(layer.id); mlLayers.delete(layer.id); await unmountLayer(old); }
 	if (beforeId != null && mlLayers.has(beforeId)) {
@@ -3948,6 +3959,7 @@ map.getStyle = () => {
 	} else list = [...(style.layers || []).map(baseEcho), ...(autoBldOn() ? [autoBldLayer()] : [])];
 	for (const v of mlLayers.values()) {
 		if (EXT && extraIds.has(v.layer.id)) continue;
+		if (v.kind === "custom") continue;   // MapLibre の getStyle は custom 層を書き出さない（serialize が飛ばす）＝同じ
 		const i = v.before != null ? list.findIndex(L => L.id === v.before) : -1;
 		if (i >= 0) list.splice(i, 0, userEcho(v)); else list.push(userEcho(v));
 	}
