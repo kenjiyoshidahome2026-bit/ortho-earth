@@ -26,14 +26,14 @@ try {
 	if (!fail && runs.length) {
 		const med = a => { const s = [...a].sort((x, y) => x - y); return s[s.length >> 1]; };
 		console.log(`backend=${runs[0].backend} gpu="${runs[0].gpu}" flags="${FLAGS}" runs=${runs.length}`);
-		console.log("scene                 gpuMap  gpuGint  frameMs  fps   res   aa  hitch(load e/s)  hitch(move e/s)  cells  cell avg ms (res+up)  max(res/up)");
+		console.log("scene                 gpuMap  gpuGint  frameMs  fps   res   aa  hitch(load e/s)  hitch(move e/s)  cells  cell avg ms (res+up)  max(res/up)  terr near/far");
 		for (let i = 0; i < runs[0].scenes.length; i++) {
 			const col = k => med(runs.map(r => +r.scenes[i][k] || 0));
 			const cellCol = k => med(runs.map(r => +(r.scenes[i].cell?.[k]) || 0));
 			const s = runs[runs.length - 1].scenes[i];
-			console.log(`${s.name.padEnd(21)} ${col("gpuMap").toFixed(2).padStart(6)}  ${col("gpuGint").toFixed(2).padStart(7)}  ${col("frameMs").toFixed(1).padStart(7)}  ${String(col("fps")).padStart(3)}  ${String(s.res).padStart(4)}  ${String(s.aa).padStart(2)}  ${String(s.hitchLoad.elev + "/" + s.hitchLoad.scene).padStart(15)}  ${String(s.hitchMove.elev + "/" + s.hitchMove.scene).padStart(15)}  ${String(cellCol("n")).padStart(5)}  ${(cellCol("avgMs").toFixed(2) + " (" + cellCol("avgResMs").toFixed(2) + "+" + cellCol("avgUpMs").toFixed(2) + ")").padStart(20)}  ${(cellCol("maxResMs").toFixed(1) + "/" + cellCol("maxUpMs").toFixed(1)).padStart(11)}`);
+			console.log(`${s.name.padEnd(21)} ${col("gpuMap").toFixed(2).padStart(6)}  ${col("gpuGint").toFixed(2).padStart(7)}  ${col("frameMs").toFixed(1).padStart(7)}  ${String(col("fps")).padStart(3)}  ${String(s.res).padStart(4)}  ${String(s.aa).padStart(2)}  ${String(s.hitchLoad.elev + "/" + s.hitchLoad.scene).padStart(15)}  ${String(s.hitchMove.elev + "/" + s.hitchMove.scene).padStart(15)}  ${String(cellCol("n")).padStart(5)}  ${(cellCol("avgMs").toFixed(2) + " (" + cellCol("avgResMs").toFixed(2) + "+" + cellCol("avgUpMs").toFixed(2) + ")").padStart(20)}  ${(cellCol("maxResMs").toFixed(1) + "/" + cellCol("maxUpMs").toFixed(1)).padStart(11)}  ${(s.terr ? `${s.terr.near.drawn}/${s.terr.near.of} ${s.terr.far.drawn}/${s.terr.far.of}` : "-").padStart(13)}`);
 		}
-		console.log("(cell avg ms＝標高セル 1 枚の再標本化＋GPU への上げ・描画スレッドの CPU 時間＝P1 の前後比較の物差し。gpuMap/gpuGint＝timestamp-query の EMA・hitch＝4ms 超の回数)");
+		console.log("(cell avg ms＝標高セル 1 枚の再標本化＋GPU への上げ・描画スレッドの CPU 時間＝P1 の前後比較の物差し。gpuMap/gpuGint＝timestamp-query の EMA・hitch＝4ms 超の回数・terr＝地形チャンクの描いた数/総数（近窓 遠窓・P4）)");
 	}
 } finally { stop(); }
 process.exit(fail);

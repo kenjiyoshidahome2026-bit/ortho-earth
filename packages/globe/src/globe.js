@@ -482,8 +482,8 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
-let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, backend: memBackend, gpu: memGpuName });
+let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch = null, memTerr = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
+dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName });
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -561,6 +561,8 @@ const noTerr = /[?&]noterr=1/.test(location.search);
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
+const CPUELEV = /[?&]cpuelev=1/.test(location.search);   // perf plan P1 step 1 の逃げ道＝1 で標高セルの再標本化を従来の CPU（描画スレッドの JS ループ）に（既定＝GPU・WebGPU のみ）
+const TERRLOD = !/[?&]terrlod=0/.test(location.search);   // perf plan P4 の逃げ道＝0 で地形メッシュのチャンク刈りを止める（全量 1 draw＝従来）
 // ?farterr=0 ＝遠景地形層（深ズーム×チルトの R10 第2アトラス＝ズームインしても遠方の山が消えない一般則）を
 // 無効化する逃げ道。コスト＝GPU 10-16MB＋遠景メッシュ2度描き（チルト深ズーム時のみ）。
 const noFarTerr = /[?&]farterr=0/.test(location.search);
@@ -578,7 +580,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -740,7 +742,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -1297,6 +1299,7 @@ async function loadBelowSea() {
 // デバッグ手：任意 FC を wdepr へ直載せ（焼き差し替え前の見た目確認。null で解除）
 dbgHost.__terr = () => wPost({ type: "terrStats" });   // 標高アトラスの内部状態を worker から吸い出してコンソールへ（dev診断）
 dbgHost.__wdepr = fc => { renderer.set("wdepr", fc ? buildGeoJSONOverlay(fc.features || fc, [0, 0], { lines: false, ranges: true }) : null); needsDraw = true; };
+dbgHost.__rset = (cmd, data, prop) => { renderer.set(cmd, data, prop); needsDraw = true; };   // 検定手：renderer.set を直接（例 "terrLod"＝地形チャンク刈りの A/B・t-terrcull）
 
 // --- 湖（?world=1・Natural Earth lakes）-----------------------------------------------------
 // 旧・Protomaps 世界タイルの world-water 層（OSM/ODbL・湖だけ消費）の置き換え（2026-09-03 本人裁定「B案」）：

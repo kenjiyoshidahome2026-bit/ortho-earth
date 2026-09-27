@@ -106,6 +106,10 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 				if (b) backends.push(b);
 			}
 		};
+		// タブが死ぬ（GPU プロセス落ち・OOM）と WebSocket が閉じ、以後の send は全部 5 秒のタイムアウト＝limitS×2 回で最悪 55 分「固まる」（bench-perf で 2 回実測 2026-09-27）
+		// ＝閉じたら即 FAIL・待ちは壁時計 limitS で必ず切る
+		let wsDead = false;
+		ws.onclose = () => { wsDead = true; }; ws.onerror = () => { wsDead = true; };
 		await send("Page.enable"); await send("Runtime.enable");
 		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
 		let title = "";
@@ -121,7 +125,10 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 			}
 			if (down) await at("mouseReleased", 400, 300, { buttons: 0 });
 		})().catch(() => { /* ページ終了で evaluate が失敗するのは正常 */ });
-		for (let i = 0; i < limitS * 2 && !/^(PASS|FAIL)/.test(title); i++) {
+		const tWall = Date.now();
+		while (!/^(PASS|FAIL)/.test(title)) {
+			if (wsDead) { title = "FAIL chrome: WebSocket closed（タブが死んだ＝GPU プロセス落ち/OOM の疑い）"; break; }
+			if (Date.now() - tWall > limitS * 1000) break;   // 壁時計で切る（send のタイムアウトが積み重なっても limitS 秒で出る）
 			await sleep(500);
 			title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true }))?.result?.value || "";
 		}

@@ -1,0 +1,101 @@
+<!doctype html>
+<!-- t-elevcell: 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）が CPU 経路（elevation.js downsampleFlipped／cropResample・
+     elevation/worldatlas.js worldAtlasCell）と同じセルを焼く門。合成タイル（坂＋波＋海底の負値＋巨大値＋縁の -9999 fill）を
+     記述子で renderer に渡し、readElevCell で読み戻して CPU 参照（f16 丸め後）と突き合わせる＝|Δ| ≤ f16 1ulp。
+     ?cpuelev=1＝逃げ道（記述子を renderer が CPU で焼く）＝参照と bit 一致（Δ=0）。
+     near（elevCell）・stage（elevCellStage→commit）・far（elevCellFar）の 3 アトラス、Int16／Float32／奇数個 Int16（4B 詰め物）／型が想定外（Int32＝CPU 退避）を見る。⚠実時間専用（verify-webgpu.mjs）。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-elevcell</title></head>
+<body>
+<canvas id="c" width="64" height="64"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu && !/[?&]gl2=1/.test(location.search)) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const cpu = /[?&]cpuelev=1/.test(location.search), gl2 = /[?&]gl2=1/.test(location.search);
+	const { downsampleFlipped, cropResample } = await import("../../ortho-core/src/elevation.js");
+	const { worldAtlasCell } = await import("../../ortho-core/src/elevation/worldatlas.js");
+	const { f32ToF16, f16ToF32 } = await import("../../ortho-core/src/gpu/f16.js");
+	// gl2=1＝WebGL2 レンダラ（R16F の描き込み＝EXT_color_buffer_float・無い環境は CPU 退避＝厳密一致で通る）
+	const r = gl2 ? (await import("../../ortho-core/src/gl/renderer.js")).createRenderer(document.getElementById("c"), { cpuElev: cpu })
+		: await (await import("../../ortho-core/src/gpu/backend.js")).createRendererGPU(document.getElementById("c"), { cpuElev: cpu });
+	ok(`gpuResample=${r.gpuResample}（cpuelev=${cpu ? 1 : 0}・${gl2 ? "webgl2" : "webgpu"}）`, gl2 ? (cpu ? r.gpuResample === false : typeof r.gpuResample === "boolean") : r.gpuResample === !cpu);
+	if (gl2 && !cpu && !r.gpuResample) console.log("[t] EXT_color_buffer_float なし＝CPU 退避の検定になる");
+
+	// ── 合成タイル（北上げ格納・y=0 が北）：坂＋波＋海底（負値）＋巨大値（>9000）＋縁 2px の -9999 fill（読まれてはいけない）──
+	let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+	const field = (x, y, w, h) => {
+		let v = 1800 * Math.sin(x / 37) * Math.cos(y / 29) + (x - y) * 0.7 + 150 * rnd();
+		if ((x * 7 + y * 13) % 97 === 0) v = -4000 - 900 * rnd();   // 海底
+		if ((x * 3 + y * 5) % 211 === 0) v = 12000;                  // 巨大値（異常値→0）
+		if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2) v = -9999;   // ALOS 型の縁 fill
+		return v;
+	};
+	const synth = (Arr, w, h, lng, lat, range, frac = 0) => {
+		const data = new Arr(w * h);
+		for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = field(x, y, w, h); data[y * w + x] = frac ? v + 0.37 * Math.sin(x + y) : Math.round(v); }
+		return { data, width: w, height: h, lng, lat, range };
+	};
+	// 全球アトラス（row0=北・4×2 セル・幅 = 4C）：worldAtlasCell の k×k 箱平均の的
+	const synthAtlas = (C) => { const w = 4 * C, h = 2 * C, data = new Int16Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data[y * w + x] = Math.round(2500 * Math.sin(x / 11) * Math.cos(y / 7) + (x % 5) * 40 - 300 * (((x + y) % 9) === 0)); return { data, width: w, height: h }; };
+
+	// 比較：参照（Float32）を f16 に丸めた値と GPU の読み戻し（f16→f32）の差 ≤ f16 1ulp（GPU は f32 算術・JS は f64＝丸めの境目で 1ulp 揺れ得る）。CPU 退避＝Δ 厳密 0
+	const cmp = (name, gpu, ref, exact) => {
+		if (!gpu) { ok(`${name}: 読み戻し null`, false); return; }
+		const r16 = f32ToF16(ref);
+		let bad = 0, maxd = 0, at = -1; const samples = [];
+		for (let i = 0; i < ref.length; i++) {
+			const rf = f16ToF32(r16[i]), d = Math.abs(gpu[i] - rf);
+			// 許容＝f16 1ulp か 1cm の大きい方：GPU は f32 算術（数千 m の差の積＝1e-4m 級の丸め）＝数 m 級の値で 1ulp・1〜3m 級の値で数 mm（f16 の目は 1mm）
+			const ulp = Math.max(2 ** (Math.floor(Math.log2(Math.max(Math.abs(rf), 1e-3))) - 10), 0.01);
+			if (exact ? d !== 0 : d > ulp + 1e-3) { bad++; if (samples.length < 3) samples.push(`i=${i} ref=${ref[i].toFixed(3)} ref16=${rf} gpu=${gpu[i]}`); }
+			if (d > maxd) { maxd = d; at = i; }
+		}
+		ok(`${name}: 不一致 ${bad}/${ref.length}・最大Δ ${maxd.toFixed(4)}m${at >= 0 ? `（i=${at} ref=${ref[at].toFixed(2)}）` : ""}${exact ? "・厳密" : ""}${samples.length ? " [" + samples.join(" | ") + "]" : ""}`, bad === 0);
+	};
+	const exact = cpu || !r.gpuResample;   // 逃げ道（と拡張なし）＝CPU で焼く＝参照と同じ関数＝bit 一致
+
+	// ① near アトラス 2×1@400（R10 窓の体）：Int16 1200²＝down（縁 clamp）＋同じ親から crop（1° 切り出し）
+	const A = synth(Int16Array, 1200, 1200, 130, 30, 10);
+	r.set("elevAtlas", { originLng: 130, originLat: 30, cellsX: 2, cellsY: 1, cellRes: 400, cellSpan: 10, exag: 1, edgeFade: 0 }, 1 / 6371000);
+	r.set("elevCell", { tile: A, mode: "down" }, { cx: 0, cy: 0, cellRes: 400 });
+	r.set("elevCell", { tile: A, mode: "crop", lng0: 131, lat0: 32, span: 1 }, { cx: 1, cy: 0, cellRes: 400 });
+	cmp("near down Int16 1200²→400²（cell 0,0）", await r.readElevCell("near", 0, 0, 400), downsampleFlipped(A, 400), exact);
+	cmp("near crop Int16 1200²→1°×400²（cell 1,0・同じ生タイル＝LRU ヒット）", await r.readElevCell("near", 1, 0, 400), cropResample(A, 131, 32, 1, 400), exact);
+	// ② Float32（DEM 合成後の体・小数あり）＝同じセルへ上書き
+	const B = synth(Float32Array, 601, 601, 131, 32, 1, 1);
+	r.set("elevCell", { tile: B, mode: "down" }, { cx: 0, cy: 0, cellRes: 400 });
+	cmp("near down Float32 601²→400²（上書き）", await r.readElevCell("near", 0, 0, 400), downsampleFlipped(B, 400), exact);
+	cmp("near cell 1,0 は無傷", await r.readElevCell("near", 1, 0, 400), cropResample(A, 131, 32, 1, 400), exact);
+	// ③ stage → commit（ダブルバッファ）：2×1@256
+	r.set("elevAtlasStage", { originLng: 131, originLat: 32, cellsX: 2, cellsY: 1, cellRes: 256, cellSpan: 1, exag: 1, edgeFade: 0.4 }, 1 / 6371000);
+	r.set("elevCellStage", { tile: B, mode: "down" }, { cx: 1, cy: 0, cellRes: 256 });
+	cmp("stage down Float32→256²（cell 1,0）", await r.readElevCell("stage", 1, 0, 256), downsampleFlipped(B, 256), exact);
+	r.set("elevAtlasCommit");
+	cmp("commit 後の near＝stage の中身", await r.readElevCell("near", 1, 0, 256), downsampleFlipped(B, 256), exact);
+	// ④ far アトラス 4×2@64（世界帯の床）：全球アトラスの箱平均 k=2（C=128）と k=1（C=64）・奇数個 Int16（301²＝4B 詰め物）・型が想定外（Int32＝CPU 退避＝厳密一致）
+	const W2 = synthAtlas(128);
+	r.set("elevAtlasFar", { originLng: -180, originLat: -90, cellsX: 4, cellsY: 2, cellRes: 64, cellSpan: 90, edgeFade: 0 });
+	r.set("elevCellFar", { atlas: W2, mode: "world", cx: 1, cy: 0 }, { cx: 1, cy: 0, cellRes: 64 });
+	r.set("elevCellFar", { atlas: W2, mode: "world", cx: 3, cy: 1 }, { cx: 3, cy: 1, cellRes: 64 });
+	cmp("far world k=2（cell 1,0）", await r.readElevCell("far", 1, 0, 64), worldAtlasCell(W2, 1, 0, 64), exact);
+	cmp("far world k=2（cell 3,1）", await r.readElevCell("far", 3, 1, 64), worldAtlasCell(W2, 3, 1, 64), exact);
+	const W1 = synthAtlas(64);
+	r.set("elevAtlasFar", { originLng: -180, originLat: -90, cellsX: 4, cellsY: 2, cellRes: 64, cellSpan: 90, edgeFade: 0 });
+	r.set("elevCellFar", { atlas: W1, mode: "world", cx: 2, cy: 1 }, { cx: 2, cy: 1, cellRes: 64 });
+	cmp("far world k=1（cell 2,1）", await r.readElevCell("far", 2, 1, 64), worldAtlasCell(W1, 2, 1, 64), exact);
+	const O = synth(Int16Array, 301, 301, 0, 0, 90);
+	r.set("elevCellFar", { tile: O, mode: "down" }, { cx: 0, cy: 0, cellRes: 64 });
+	cmp("far down 奇数個 Int16 301²→64²（4B 詰め物）", await r.readElevCell("far", 0, 0, 64), downsampleFlipped(O, 64), exact);
+	const X = { data: Int32Array.from(A.data), width: A.width, height: A.height, lng: A.lng, lat: A.lat, range: A.range };
+	r.set("elevCellFar", { tile: X, mode: "down" }, { cx: 1, cy: 1, cellRes: 64 });
+	cmp("far down Int32（型が想定外＝CPU 退避）", await r.readElevCell("far", 1, 1, 64), downsampleFlipped(X, 64), true);
+	r.set("elevAtlasFarOff");
+	ok("far 撤収後の読み戻し＝null", (await r.readElevCell("far", 0, 0, 64)) === null);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

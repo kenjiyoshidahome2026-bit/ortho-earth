@@ -183,7 +183,7 @@ async function bootWebGL(m) {
 	bootStage = "awaiting gl import";
 	try { ({ createRenderer, createGintLayer } = await import("@ortho-earth/core/gl")); }
 	catch (err) { postMessage({ type: "glfail", error: "gl backend import failed: " + String(err && err.message || err) }); return; }
-	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, quad4: m.quad4 !== false, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
+	try { renderer = createRenderer(canvas, { noMD: !!m.noMultiDraw, msaa1: !!m.msaa1, lowMem: !!m.lowMem, quad4: m.quad4 !== false, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }); }   // lowMem＝地面アトラスの寸法（1024²／2048²）・quad4＝線の 4 頂点（perf plan P3・?quad4=0 で旧）
 	catch (err) { postMessage({ type: "glfail", error: String(err && err.message || err) }); return; }
 	console.log(`[render] multi_draw ${renderer.md ? "enabled (tiles GPU-resident)" : "absent (CPU merge fallback)"}`);
 	glRef = canvas.getContext("webgl2");                 // 同一コンテキストが返る＝isContextLost() の監視用
@@ -285,7 +285,7 @@ const dispatch = e => {
 			// フォールバック。WebGL2 は ortho-core/gl の import のみが非同期（従来は同期起動だった・2026-09-14）。
 			initQueue = []; bootStage = "awaiting import";
 			(m.gpu ? import("@ortho-earth/core/gpu")
-					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
+					.then(({ createRendererGPU, createGintLayerGPU }) => createRendererGPU(canvas, { noTQ: !!m.noTQ, noFade: !!m.noFade, msaa1: !!m.msaa1, lowMem: !!m.lowMem, fx: m.fx || null, gndFast: m.gndFast !== false, quad4: m.quad4 !== false, cpuElev: !!m.cpuElev, terrLod: m.terrLod !== false, requestDraw: () => { dirty = true; armRaf(); } }).then(r => {
 						renderer = r; backendName = "webgpu"; bootStage = "renderer ready"; hudGpuName = String(r.gpuInfo || "");   // ?hud=1 状態盤のGPU名
 						aaDyn = !m.msaa1 && !m.msaa4;   // 遷移時AA（?msaa=0＝常時1x／?msaa=1＝常時4x のときは固定＝無効）
 						// iOS Safari 診断：gint のパイプライン生成も検証スコープで包み、frame1 後にまとめて main へ転写
@@ -744,7 +744,7 @@ function frame() {
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
-			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: self.__perfHitch || null });   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計＝ベンチ台（t-perfbench）が読む
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: self.__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null });   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
 }

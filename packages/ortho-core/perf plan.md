@@ -10,8 +10,8 @@
 |---|---|---|---|
 | 0 | **計器とベースライン**（§1） | 1〜2 日 | 3 端末×3 シーンの表が §8 に埋まる |
 | 1 | 速攻 3 件＝P6 gndMix 早期 return（§4）・P1 step0 標高ループの融合＋Float16Array（§2）・P3 線 6→4 頂点（§3）＝**2026-09-27 全て実施済**（数字は §8） | 各半日〜1 日 | 関門緑・絵一致・gpuMap/gpuGint が改善または不変 |
-| 2 | P1 step1 GPU 再標本化（§2） | 2〜3 日 | セル一致検定（CPU 参照との差 ≤ f16 ulp）・着地の引っ掛かりログがゼロ |
-| 3 | P4 地形 LOD（§5）＝`?gmax=` の天井測定で go/no-go | 3〜5 日 | 低チルトで絵一致・高チルトで差分予算内・割れ無し検定 |
+| 2 | P1 step1 GPU 再標本化（§2）＝**2026-09-27 実施済**（t-elevcell 緑・引っ掛かり 0） | 2〜3 日 | セル一致検定（CPU 参照との差 ≤ f16 ulp）・着地の引っ掛かりログがゼロ |
+| 3 | P4 地形 LOD（§5）＝`?gmax=` の天井測定で go/no-go → **step B（刈り）2026-09-27 実施済**（富士 −51%）・step C は裁定待ち | 3〜5 日 | 低チルトで絵一致・高チルトで差分予算内・割れ無し検定 |
 | 4 | P2 プール＋render bundle（§6）＝Phase 0 の数字で go/no-go | 1〜2 週 | classic と md の絵一致・fadede8b の轍の回帰・`?mem=1` にプール行 |
 | 5 | P7 パス統合（§7）＝iPhone の計測で継ぎ目が見える時だけ | 2〜3 日 | 絵一致・?perf=1 で分離が保たれる |
 | 別線 | P5 topology の uint32 化（§9・geopbf パッケージ） | 1 週 | 出力の byte 一致・既存 t-* 緑・A〜D の内訳が半減 |
@@ -62,6 +62,24 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
   t-extrude-drape／t-gintdepth（japan）＝ドレープが動いていないこと。実機の着地で計器 a がゼロ行。
 - 轍：`writeCell` の `castRev++`（影の深度の失効）は GPU 経路でも同じ場所で立てる。アトラスの `TEXTURE_BINDING|COPY_DST|RENDER_ATTACHMENT` 同居は WebGPU で合法（同一パスで読み書きしなければよい）。
 - **裁定**：step 1 を GPU で行くか、標高 worker へ再標本化を寄せる（生タイル LRU も worker へ移す・memcpy 往復無し）か。推奨＝GPU（ループが両バックエンドから消える・worker 案は LRU の引っ越しが大工事）。
+- → **step 1 実装（2026-09-27・本人「P1→P4 で」＝推奨の GPU 案で着手・WebGPU 側）**
+  - 設計の変更点（上の見立てから）：生タイルは **texture でなく storage buffer**（`writeTexture` は bytesPerRow 256B 整列＝3600×2B=7200B は割れず再パックの JS コピーが要る。storage buffer は `writeBuffer` 1 発＝memcpy のみ）。
+    Int16 は u32 に 2 texel（`extractBits` で符号拡張）・Float32（外来 DEM を合成したセル）は bitcast＝同じシェーダ。1 タイル 1 回の上げ（LRU 64MB／lowMem 16MB・tile オブジェクトが鍵）＝混成窓で同じ親 R10 から 64 セルを切る時は 1 回。
+  - 標本位置は **u32 の整数分数で厳密に**（gx = (Ax + Bx·(2i+1)) / Dx・商＝x0・余り/Dx＝fx）。f32 で gx を作ると 3600 texel で 1e-4 texel ずれ＝急斜面や異常値の隣で cm 級の差が出た（門で捕まえた）。
+    切り出し（crop）の幾何が整数で書けない時だけ f32 の一般形（mode 3）。全球アトラスの箱平均（worldAtlasCell）も同じパスの mode 1。
+  - 口＝terrain.js は `renderer.gpuResample` を見て **生タイルの記述子** `{tile, mode:"down"}`／`{tile, mode:"crop", lng0, lat0, span}`／`{atlas, mode:"world", cx, cy}` を `elevCell*` に渡す。renderer 側で焼く・CPU 退避（型が想定外・`?cpuelev=1`）も renderer（同じ elevation.js の関数）＝絵は同じ。
+    GL も同日に同式で実装（`gl/glsl.js ELEV_RESAMPLE_FS(kind)`＝R16I／R32F の生タイルテクスチャ・R16F アトラスを FBO の的に・`EXT_color_buffer_float` が無い環境は `gpuResample=false`＝従来の Float32 経路）＝両バックエンド 1:1。門＝t-elevcell?gl2=1（verify:ui）。
+  - 門＝**t-elevcell**（globe verify:webgpu・near/stage→commit/far の 3 アトラス・Int16／Float32／奇数個 Int16（4B 詰め物）／Int32（CPU 退避）／箱平均 k=1,2）：GPU 対 CPU 参照 |Δ| ≤ max(f16 1ulp, 1cm)（実測の最大Δ＝2.0m@2098m＝1ulp）・`?cpuelev=1` は bit 一致。t-wgsl（34 モジュール）緑。
+  - 残る費用＝生タイルの `writeBuffer`（R01 3600² Int16＝26MB の memcpy 1 回／タイル）と、セル毎の uniform 書込＋render pass 1 本（0.1ms 級）。
+  - **計測（Mac・bench-perf・3 回中央値・`?terrlod=0` で P4 を切って P1 だけの差）**：描画スレッドの「セル 1 枚」の CPU 時間（resample＋upload）と 4ms 超の引っ掛かり。
+
+    | シーン | セル | 従来 `?cpuelev=1`（res+up） | GPU 再標本化 | 最大 up | 着地の引っ掛かり（elev） |
+    |---|---|---|---|---|---|
+    | 2D 東京 z13（R01 1 セル） | 1 | 5.04ms（3.64+1.38） | **0.58ms（0+0.58）＝−88%** | 4.8 → 2.2ms | 1 → **0** |
+    | 富士 z13 60°（混成・R10 切り出し 143 セル） | 143 | 0.99ms（0.68+0.30） | **0.14ms＝−86%** | 10.9 → 2.9ms | 4 → **0** |
+    | 東京駅 z16.5 55°（純 R01） | 3〜76 | 4.47ms（3.08+1.37） | **0.34ms＝−92%** | 10.9 → 2.9ms | 0 → 0 |
+
+    読み＝描画スレッドの標高ループは消えた（resample 0）。残り 0.1〜0.6ms＝生タイルの `writeBuffer`（memcpy）と pass の発行。**4ms 超の引っ掛かりがゼロ**＝P1 の出口の門（§0 Phase 2）を満たす。gpuMap は不変（地形の絵は同じ）。
 
 ## 3. P3 線の 6 頂点を index で 4 頂点に（順位 3）
 
@@ -129,6 +147,26 @@ P4 は `?gmax=` 1 本で上限が分かるので、その数字で規模を決�
 - 毎フレーム CPU が 256 チャンクの AABB（標高は保守的に 0〜4000m）を投影し、視錐台の外を描かない。遠景パスは近窓に完全に含まれるチャンクを丸ごと飛ばす（FS の discard より前で消える）。
 - draw は可視チャンク数（≤256）の `drawIndexed`＝CPU 0.3ms 級。GL も同じ index 並びで `drawElements` の範囲指定。
 
+→ **step B 実装（2026-09-27・両バックエンド共通の純関数 `terrainlod.js`）**
+- index を 16×16 チャンク主導へ（`buildChunkIndex`）：三角形の分割（a-c-b / b-c-d）と巻きは従来と同一・並びだけチャンク毎に連続＝絵は不変（門＝`tests/terrain-lod.mjs` が三角形の多重集合の同一を検める）。頂点（uv 格子）は不変＝G が変わる時だけ作り直す規約もそのまま。
+- 毎フレーム `visibleChunkRuns`：各チャンクの箱（経緯度×半径 [1, 1+9000m·scale]）を 10 標本点（4 隅・辺の中点・中心・カメラ直下点の箱への clamp）で判定。
+  ①地平線＝TERRAIN FS の `front < −0.0015 → discard` を頂点側で先取り（全標本点が閾値以下（箱の大きさぶんの余裕込み）＝描いても全画素が捨てられる）②全点がカメラ背後（w≤0）③全点が同じ視錐台面の外（1.02 の余裕）。背後と前方の混在は描く（保守側）。
+  可視チャンクの連続区間を併合して `drawIndexed(count, 1, first)`／`drawElements(…, first×4)`。近窓と遠窓（terrainFar）は別々に判定。逃げ道 `?terrlod=0`（全量 1 draw＝従来）。
+- 物差し＝mem テレメトリ `terr.near/far = {drawn, of}`（renderworker→t-perfbench）。机上（Node）＝z13 60° の 8° 混成窓で可視 25/256・全球窓は 128/256（半球）・真俯瞰 z6 の 10° 窓は 256/256。
+- **計測（Mac・bench-perf・3 回中央値・`?cpuelev=1` で P1 を切って P4 だけの差）**：gpuMap（timestamp-query・現解像度）。
+
+  | シーン | 全量 `?terrlod=0` | チャンク刈り | 差 | 参考：`?gmax=768` の天井（三角形 1/4） |
+  |---|---|---|---|---|
+  | 2D 東京 z13 | 0.32 | 0.31 | 不変（地形なし） | 0.70（P3 前）→ 不変 |
+  | 富士 z13 60° | 7.18 | **3.55** | **−51%** | 5.22（−46%） |
+  | 東京駅 z16.5 55° | 9.69 | **6.54** | **−33%** | 6.43（−24%） |
+
+  読み＝刈りだけで `gmax=768`（格子を 1/4 に粗くする）の天井を超えた＝60° チルトの費用の半分は「画面外・地平線の向こうの頂点」だった。絵は不変（三角形の集合が同一・描かないのは全画素 discard か画面外のチャンクだけ）。
+  **P1＋P4 両方**（既定）＝富士 7.18→3.50ms（−51%）・東京駅 9.69→6.08ms（−37%）・引っ掛かり 0。
+- **絵の門＝t-terrcull（japan verify:webgpu・WebGPU と ?gl2=1）**：富士 z13 60° で着地後、刈りあり→全量→刈りあり→全量の 4 枚を `map.requestSnapshot` で撮り隣り合う対を比較＝**差 0 px**（両バックエンド）。
+  同時に mem テレメトリ `terr`＝near **19/256**・far **14/256**＝60° チルトでは頂点の 9 割強が画面外か地平線の向こうだった（`?gmax=768` の「三角形 1/4」より深い）。
+  実行時切替＝`renderer.set("terrLod", bool)`（検定手 `__rset`）。
+
 **step C（段・2〜3 日）**
 - チャンクごとに段 L∈{0,1,2}（頂点の間引き 1/1・1/2・1/4）を投影セル寸で選ぶ（目安＝1 セル ≥ 2px）。段ごとの index 列をチャンク主導で持つ＝+33% の index メモリ。
 - 縫い目＝CDLOD 流：per-chunk uniform（PLATEAU バッチと同じ dynamic offset UBO）に (L, 隣接 4 方の L) を運び、VS が境界頂点の uv を粗い側の格子へスナップして
@@ -187,6 +225,9 @@ gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン�
 | Mac（apple metal-3） | 2D 東京 z13（P3 後） | webgpu | 0.33 | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−53%**（旧 0.70・2 組一致・§3） |
 | Mac（apple metal-3） | 富士 z13 60°（P3 後） | webgpu | 6.34〜6.39 | 0 | 1 | 1 | 3 / 0 | 0 / 0 | **−19%**（旧 7.77〜7.92・§3） |
 | Mac（apple metal-3） | 東京駅 z16.5 55°（P3 後） | webgpu | 7.56（cells 3）／9.80（cells 76） | 0 | 1 | 1 | 0 / 0 | 0 / 0 | **−23%／−12%**（旧 9.85／11.12・同 cells 比較・§3） |
+| Mac（apple metal-3） | 2D 東京 z13（P1 step1＋P4 step B 後＝既定） | webgpu | 0.31 | 0 | 1 | 1 | **0 / 0** | 0 / 0 | セル avg 5.04→0.63ms（§2）。地形なし＝gpuMap 不変 |
+| Mac（apple metal-3） | 富士 z13 60°（P1 step1＋P4 step B 後＝既定） | webgpu | **3.50** | 0 | 1 | 1 | **0 / 0** | 0 / 0 | 全量 7.18 → 刈り −51%（§5）・セル avg 0.99→0.21ms・引っ掛かり 4→0（§2） |
+| Mac（apple metal-3） | 東京駅 z16.5 55°（P1 step1＋P4 step B 後＝既定） | webgpu | **6.08** | 0 | 1 | 1 | **0 / 0** | 0 / 0 | 全量 9.69 → 刈り −37%・セル avg 4.47→0.56ms |
 
 ## 9. 別線 P5 topology の uint32 化＋dedup の typed hash／WASM（順位 5・geopbf）
 
@@ -210,9 +251,11 @@ gpuGint が 0＝そのシーンに gint の層が無い（japan の 3 シーン�
 
 | # | 項目 | 選択肢 | 推奨 |
 |---|---|---|---|
-| 1 | P1 step1 | GPU 再標本化／標高 worker へ寄せる | GPU |
+| 1 | P1 step1 | GPU 再標本化／標高 worker へ寄せる | GPU → **2026-09-27 GPU で実施済**（両バックエンド・§2） |
 | 2 | P2 | LOW_MEM を classic のまま／全端末プール | classic のまま |
 | 3 | P2 | 初版で fade を落とす／タイル単位 α を最初から | 落とす |
-| 4 | P4 | 刈りだけ／段まで | step A の数字で |
+| 4 | P4 | 刈りだけ／段まで | step A の数字で → **step B（刈り）実施済**・段は #7 |
 | 5 | P7 | 計測時以外の map/gint 分離を失う | 継ぎ目 1ms 未満なら棚上げ |
 | 6 | P5 | 着手時期・JS typed hash で止めるか Rust まで | バグ収束後・JS で測ってから |
+| 7 | P4 step C | 距離適応の段（stride 1/2/4＋境界スナップ）へ進むか、step B（刈り）で止めるか | **B で止めるを推奨**＝刈りだけで富士 −51%・東京駅 −37%（`gmax=768` の天井超え）。段は線・塗りの elevQ 格子との不整合（遠方の隠線化）の危険を持ち込む＝残る費用（可視 19 チャンク）に対して割に合わない |
+| 8 | P1 GL 経路 | EXT_color_buffer_float が無い GL2 端末は CPU 経路のまま（gpuResample=false） | そのまま（旧機の逃げ道・絵は同じ）。実機で ext の有無を HUD に出すかは任意 |
