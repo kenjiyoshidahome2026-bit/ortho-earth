@@ -4,7 +4,7 @@
 	"refLabel": "r6",
 	"levels": {
 		"3d-terrain": 2,
-		"add-3d-terrain-from-quantized-mesh-tiles": 1,
+		"add-3d-terrain-from-quantized-mesh-tiles": 2,
 		"add-3d-tiles-using-threejs": 1,
 		"add-a-3d-model-to-globe-using-threejs": 1,
 		"add-a-3d-model-using-threejs": 1,
@@ -120,7 +120,7 @@
 		"set-center-point-above-ground": 2,
 		"set-pitch-and-bearing": 3,
 		"show-polygon-information-on-click": 3,
-		"sky-fog-terrain": 1,
+		"sky-fog-terrain": 2,
 		"slowly-fly-to-a-location": 2,
 		"style-labels-with-font-faces": 3,
 		"style-labels-with-local-fonts": 3,
