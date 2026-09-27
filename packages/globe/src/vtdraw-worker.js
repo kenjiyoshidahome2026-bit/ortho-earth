@@ -4,14 +4,16 @@
 //   core の buildTileDrawList（fill／line・基図と同じ部品）・circle は長さ 0 の線（カプセルの丸点）・symbol は core の buildLabels。
 // op の li は利用者の層の帯（vtops.liOf）＝main が core の scene worker（CPU 結合）へそのまま渡す。worker は core の index を読まない（循環 worker の轍）。
 // 生バイトの出し入れは main が決める（予算と LRU は main）＝ここは言われた物を持つだけ。無い時は miss を返す（main が取り直す）。
-import { decodeMVT } from "@ortho-earth/core/decode";
+// タイルの形式（enc＝"mvt"｜"mlt"・#88）は put のたびに main が添える（XYZ＝source の encoding・PMTiles＝ヘッダの tileType）。
+// 解読は同期（build の中）なので、遅延読み込みの形式は put の時に loadTileFormat を済ませてから預かる（main は put の返事を待っている）。
+import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { buildTileDrawList } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
 import { liOf, substituteZoom, clipFillGeom, clipLineGeom, verticesOf, dotsGeom, ringGeom, unitsPerPx, labelPointsOf } from "./vtops.js";
 
-const raw = new Map();   // "sid|z/x/y" → Uint8Array（MVT）
+const raw = new Map();   // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
 const R2D = 180 / Math.PI;
 const tileNW = (z, x, y) => { const n = 2 ** z; return [x / n * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)))]; };   // タイルの原点（core の tileworker と同じ＝北西の角）
 const idOf = (f, promoteId, sl) => { const k = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sl]; return k != null ? f.props?.[k] : f.id; };
@@ -21,7 +23,13 @@ const alphaOf = (e, ctx) => { const v = e == null ? "#000000" : evalExpr(e, ctx)
 self.onmessage = e => {
 	const m = e.data;
 	try {
-		if (m.kind === "put") { raw.set(`${m.sid}|${m.key}`, m.ab ? new Uint8Array(m.ab) : new Uint8Array(0)); self.postMessage({ id: m.id, ok: true }); return; }
+		if (m.kind === "put") {
+			const enc = m.enc || "mvt", buf = m.ab ? new Uint8Array(m.ab) : new Uint8Array(0);
+			if (tileFormatReady(enc)) { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); return; }   // 手元にある形式（mvt・読み込み済みの mlt）＝同期
+			loadTileFormat(enc).then(() => { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); },   // 最初の 1 枚だけ解読器を待つ（未登録なら decodeTile が空を返す）
+				err => self.postMessage({ id: m.id, error: err?.message || String(err) }));
+			return;
+		}
 		if (m.kind === "drop") { raw.delete(`${m.sid}|${m.key}`); return; }   // 生バイトを捨てる（main の LRU）
 		if (m.kind === "build") { build(m); return; }
 		self.postMessage({ id: m.id, error: `unknown kind ${m.kind}` });
@@ -31,10 +39,10 @@ self.onmessage = e => {
 // { sid, key, z, x, y, layers: [{ id, layer（正規化済み＝エンジンの目盛り）, key（層の順の鍵） }], fz（filter の zoom）, pz（paint／layout の zoom）, promoteId }
 function build(m) {
 	const { sid, key, z, x, y, fz, pz, promoteId } = m;
-	const buf = raw.get(`${sid}|${key}`);
-	if (!buf) { self.postMessage({ id: m.id, miss: true }); return; }
+	const R = raw.get(`${sid}|${key}`);
+	if (!R) { self.postMessage({ id: m.id, miss: true }); return; }
 	const need = new Set(m.layers.map(l => l.layer["source-layer"]).filter(Boolean));
-	const data = buf.byteLength ? decodeMVT(buf, need) : {};
+	const data = R.buf.byteLength ? decodeTile(R.buf, need, R.enc) : {};
 	const origin = tileNW(z, x, y), ops = [], labels = {}, warn = [];
 	// 線の細分＝基図と同じ 700m（地形に沿わせる）。低ズームのタイル（z2 で 1 枚 1 万 km）では 700m だと 1 本が 24 分割に膨れる＝タイルの幅の 1/64 より細かくしない
 	const subLenM = Math.max(700, 40075016.686 * Math.cos((origin[1] + tileNW(z, x, y + 1)[1]) / 2 / R2D) / 2 ** z / 64);

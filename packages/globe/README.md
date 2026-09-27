@@ -1,6 +1,6 @@
 # @ortho-earth/globe
 
-A 3D globe for the browser: real terrain at true scale, vector basemaps, 3D buildings, 3D Tiles / I3S,
+A 3D globe for the browser: real terrain at true scale, vector basemaps (MVT, and MLT with `@ortho-earth/tile-formats`), 3D buildings, 3D Tiles / I3S,
 rasters (XYZ · WMS · WMTS · PMTiles), labels, and a MapLibre-shaped API — with **no map server of your
 own**. It reads public data directly and keeps what it decoded in the browser.
 

@@ -4,7 +4,9 @@
 // 流すだけ＝下流（build/merge/描画）は bvmap と完全同型。アーカイブごとに1インスタンス＝ヘッダ/
 // ディレクトリのキャッシュを worker 内で使い回す（タイル毎の索引再取得はしない）。
 // pmtiles 本体は動的 import＝pmtiles:// を実際に使う構成（?world=1 等）でだけチャンクが落ちる。
-import { decodeMVT } from "./decode.js";
+// タイルの形式はアーカイブのヘッダ（tileType＝1 mvt／6 mlt）が決める＝登録簿（tileformat.js）の pmtilesType から名前を引き、decodeTile へ渡す（#88）
+import { decodeTile, loadTileFormat } from "./decode.js";
+import { tileFormatOfPmtilesType } from "./tileformat.js";
 import { tileOutsideCoverage } from "./tile.js";
 
 const PREFIX = "pmtiles://";
@@ -64,9 +66,9 @@ export function pmtilesInfo(url) {
 				layers: Array.isArray(md?.vector_layers) ? md.vector_layers.map(l => l.id).filter(Boolean) : [],
 				attribution: md?.attribution || null,
 				name: md?.name || null,
-				// タイルの種別＝ヘッダの自己申告（pmtiles.js TileType）。"mvt" 以外＝ラスタ（png/jpeg/webp/avif）＝画像タイル層の領分。
-				// ベクタ配管（fetchPMTiles）はラスタのアーカイブを decodeMVT に流さず空タイルで返す（下の門）。
-				tileType: TILE_TYPE[h.tileType] || "unknown",
+				// タイルの種別＝ヘッダの自己申告（pmtiles.js TileType）。ベクタ（mvt／mlt）は登録簿の名前・ラスタ（png/jpeg/webp/avif）＝画像タイル層の領分。
+				// ベクタ配管（fetchPMTiles）はラスタのアーカイブを解読器に流さず空タイルで返す（下の門）。
+				tileType: tileTypeName(h.tileType),
 			};
 		})();
 		infos.set(src, info);
@@ -80,13 +82,16 @@ export async function fetchPMTiles(url, z, x, y, signal, need) {
 	// 範囲の門＝アーカイブ自身のヘッダ。索引を歩く前に落とす（ズーム域外・bbox 外は「そこに無い」が正しい答え）。
 	// 索引ミスでも致命ではないが、日本域アーカイブを全球ビューで開くと毎フレーム無駄な走査が出るため門で止める。
 	const info = await pmtilesInfo(url);
-	if (isRasterTileType(info.tileType)) return { __empty: true };   // ラスタのアーカイブ＝ベクタ配管の領分でない（画像タイル層 raster.js が読む）＝decodeMVT に画像を流さない
+	if (isRasterTileType(info.tileType)) return { __empty: true };   // ラスタのアーカイブ＝ベクタ配管の領分でない（画像タイル層 raster.js が読む）＝解読器に画像を流さない
 	if (z < info.minZoom || z > info.maxZoom) return { __empty: true };
 	if (tileOutsideCoverage(x, y, z, info.bbox)) return { __empty: true };
 	const t = await (await archiveOf(src)).getZxy(z, x, y, signal);
 	// 索引に無い＝正当な「そこにタイルが無い」（HTTP 404 と同じ扱い＝空タイルとして ready）
 	if (!t || !t.data || !t.data.byteLength) return { __empty: true };
-	return decodeMVT(new Uint8Array(t.data), need);
+	// 形式＝ヘッダの申告。tileType 0（unknown）は従来どおり MVT として読む（種別を書かない古いアーカイブ）。未登録の形式（mlt のプラグイン無し）＝decodeTile が一度だけ警告して空
+	const enc = info.tileType === "unknown" ? "mvt" : info.tileType;
+	await loadTileFormat(enc);
+	return decodeTile(new Uint8Array(t.data), need, enc);
 }
 
 // ラスタ PMTiles の生タイル（画像のバイト列＝png/jpeg/webp/avif そのまま・pmtiles.js がタイル圧縮を解く）。
@@ -102,7 +107,10 @@ export async function fetchPMTilesRaw(url, z, x, y, signal) {
 	return new Uint8Array(t.data);
 }
 
-// pmtiles.js TileType（ヘッダ 1 バイト）→ 名前。0=unknown 1=mvt 2=png 3=jpeg 4=webp 5=avif（6=mlt はベクタの別形式＝未対応＝unknown 扱い）
-const TILE_TYPE = { 0: "unknown", 1: "mvt", 2: "png", 3: "jpeg", 4: "webp", 5: "avif" };
+// pmtiles.js TileType（ヘッダ 1 バイト）→ 名前。0=unknown 1=mvt 2=png 3=jpeg 4=webp 5=avif 6=mlt。
+// ベクタの名前は登録簿（pmtilesType）から引く＝プラグインが増えれば表を触らずに増える。既知だが未登録（mlt のプラグイン無し）でも名前は返す
+// ＝decodeTile の「未登録」の警告が形式名で言える。
+const RASTER_TYPE = { 2: "png", 3: "jpeg", 4: "webp", 5: "avif" }, KNOWN_VECTOR_TYPE = { 1: "mvt", 6: "mlt" };
+const tileTypeName = code => tileFormatOfPmtilesType(code) ?? RASTER_TYPE[code] ?? KNOWN_VECTOR_TYPE[code] ?? "unknown";
 export const RASTER_MIME = { png: "image/png", jpeg: "image/jpeg", webp: "image/webp", avif: "image/avif" };
 export const isRasterTileType = t => t === "png" || t === "jpeg" || t === "webp" || t === "avif";

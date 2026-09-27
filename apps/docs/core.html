@@ -132,7 +132,7 @@ so the bundler builds one worker graph, and shared code (the GeoPBF core, loader
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage">
 		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">2</span><span class="pipe-title">tile workers</span></div>
-		<div class="pipe-items"><span>fetch · decode MVT · triangulate · draw lists (transferred, not copied)</span></div>
+		<div class="pipe-items"><span>fetch · decode MVT / MLT · triangulate · draw lists (transferred, not copied)</span></div>
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage">
@@ -239,6 +239,9 @@ That is honestly as far as world data can carry.
 <p>
 <strong>Above that, a region takes over</strong> from the zoom its declaration names (Japan: z6.5, with the GSI vector basemap).
 Vector tiles go through the tile and scene workers; in tilted 3D views, a zoom-out keeps the finer tiles on screen while they still cover the ground, instead of swapping them for coarser ones.
+Tile formats are plugins on one registry: MVT is built in, and MLT (MapLibre Tile) comes from <code>@ortho-earth/tile-formats</code>,
+enabled at build time by aliasing <code>#tile-formats</code> to its register module — the decoder loads on the first MLT tile, so a map that
+never meets one pays nothing. A vector source says <code>"encoding": "mlt"</code> as in MapLibre; a PMTiles archive is recognised by its header.
 </p>
 <p>
 <strong>Rasters</strong> — XYZ, WMS, WMTS, PMTiles, local GeoPackage/MBTiles, or one image by four corners — are first composited into a ground atlas,

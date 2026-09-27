@@ -18,6 +18,7 @@
 		"@ortho-earth/core": "*",
 		"@ortho-earth/ephem": "*",
 		"@ortho-earth/globe": "*",
+		"@ortho-earth/tile-formats": "*",
 		"geopbf": "*"
 	}
 }

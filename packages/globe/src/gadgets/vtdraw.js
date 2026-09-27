@@ -7,7 +7,7 @@
 //         返った scene を呼び手（globe）が render worker の "user" の枠へ中継する（main は transfer で渡すだけ）。結合は 1 本ずつ・間引き・フライト中も出し入れは続く。
 //   注記＝層ごとに、出しているタイルの注記の和を呼び手へ（render worker が標高を付けて基図の注記と同じ衝突へ）。
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
-import { selectLOD, fetchPMTilesRaw, pmtilesInfo, evalExpr } from "@ortho-earth/core";
+import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
 
@@ -98,8 +98,8 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, requeste
 		src.tiles.set(key, T); src.fetching++;
 		const { desc } = src, { w } = workerOf(`${src.sid}|${key}`);
 		(async () => {
-			let ab = null;
-			if (desc.pmtiles) { const u = await fetchPMTilesRaw(desc.pmtiles, t.z, t.x, t.y, T.ac.signal); ab = u ? u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) : null; }
+			let ab = null, enc = desc.encoding || "mvt";   // タイルの形式（#88）：XYZ＝source の encoding・PMTiles＝アーカイブのヘッダ（tileType）
+			if (desc.pmtiles) { const info = await pmtilesInfo(desc.pmtiles); enc = info.tileType === "unknown" ? "mvt" : info.tileType; const u = await fetchPMTilesRaw(desc.pmtiles, t.z, t.x, t.y, T.ac.signal); ab = u ? u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) : null; }
 			else {
 				const url = desc.tileUrl?.(t.z, t.x, t.y);
 				if (url) {
@@ -113,7 +113,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, requeste
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab }, [ab]);
+			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -263,7 +263,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, requeste
 				sources.set(sid, src);
 				const d = src.desc;
 				if (d.pmtiles) pmtilesInfo(d.pmtiles).then(info => {
-					if (info.tileType !== "mvt") { console.warn(`[vtdraw] source "${sid}": PMTiles tile type "${info.tileType}" is not MVT — nothing to draw`); d.pmtiles = null; d.tileUrl = () => null; }
+					if (isRasterTileType(info.tileType)) { console.warn(`[vtdraw] source "${sid}": PMTiles tile type "${info.tileType}" is raster — nothing to draw (use a raster layer)`); d.pmtiles = null; d.tileUrl = () => null; }   // ベクタ（mvt／mlt）はヘッダの形式で解く（#88）＝未登録の形式は decodeTile が一度だけ警告して空
 					d.minzoom ??= info.minZoom; d.maxzoom ??= info.maxZoom; d.bounds ??= info.bbox ?? null; schedule();
 				}).catch(err => console.warn(`[vtdraw] source "${sid}": cannot read PMTiles`, err?.message || err));
 			}

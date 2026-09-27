@@ -16,7 +16,7 @@ const WORLD_PX = 256;   // 256px 世界（ortho の z の定義）＝タイル z
 
 // area＝{ ll:[lon,lat] } か { bbox:[w,s,e,n] }。order＝描いているタイル [{ key:"z/x/y", z }]。
 // hidden＝隠している style.layers の添字（Set）。tolPx＝許容（既定 3px）。layers＝層 id の絞り込み。filter＝追加の式。
-export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null }) {   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）
+export async function queryTiles({ style, hidden = null, order = [], tileUrl, zoom, area, tolPx = 3, layers = null, filter = null, filterOrigin = "ml", signal = null, cache = null, request = null, source = "basemap", promoteId = null, encoding = "mvt" }) {   // filterOrigin＝問い合わせの filter の出自（queryRenderedFeatures＝MapLibre の口）   // request＝pipeline と同じ手入れ（#37）   // encoding＝タイルの形式（mvt｜mlt・PMTiles はヘッダが決める・#88）
 	const want = layers ? new Set(layers) : null;
 	const [w, s, e, n] = area.bbox || [area.ll[0], area.ll[1], area.ll[0], area.ll[1]];
 	// 領域に掛かるタイル（同じ場所は最も細かい z だけ＝下地の粗い段は重ねない）
@@ -38,8 +38,8 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 		if (!data) {
 			const rq = request && !isPMTiles(url) ? request(url, "Tile") : null;
 			data = isPMTiles(url) ? await fetchPMTiles(url, t.z, t.x, t.y, signal, need)
-				: rq?.load ? await fetchMVT(rq.url, signal, need, null, await rq.load())
-				: await fetchMVT(rq?.url ?? url, signal, need, rq ? { headers: rq.headers, credentials: rq.credentials } : null);
+				: rq?.load ? await fetchMVT(rq.url, signal, need, null, await rq.load(), encoding)
+				: await fetchMVT(rq?.url ?? url, signal, need, rq ? { headers: rq.headers, credentials: rq.credentials } : null, null, encoding);
 			cache?.set(t.key, data);
 		}
 		if (!data || data.__empty) continue;
