@@ -8,7 +8,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey）を見て、変わった層だけ出ているタイルから組み直す（幾何は worker に残す＝高さと色だけ）。
 //   メッシュ＝1 タイル・1 層・1 本（名前 vtx:<層 id>:<z/x/y>#0）・drape（どこでも地表の標高へ）・keep2d（真上からも屋根）・伏せ枠なし・半透明は BLEND。
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
-import { selectLOD, fetchPMTilesRaw, pmtilesInfo, evalExpr } from "@ortho-earth/core";
+import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { hitExtrusion } from "../extrude-ml.js";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
 
@@ -103,8 +103,8 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 		src.tiles.set(key, T); src.fetching++;
 		const { desc } = src, { w } = workerOf(`${src.sid}|${key}`);
 		(async () => {
-			let ab = null;
-			if (desc.pmtiles) { const u = await fetchPMTilesRaw(desc.pmtiles, t.z, t.x, t.y, T.ac.signal); ab = u ? u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) : null; }
+			let ab = null, enc = desc.encoding || "mvt";   // タイルの形式（#88）：XYZ＝source の encoding・PMTiles＝アーカイブのヘッダ（tileType）
+			if (desc.pmtiles) { const info = await pmtilesInfo(desc.pmtiles); enc = info.tileType === "unknown" ? "mvt" : info.tileType; const u = await fetchPMTilesRaw(desc.pmtiles, t.z, t.x, t.y, T.ac.signal); ab = u ? u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) : null; }
 			else {
 				const url = desc.tileUrl?.(t.z, t.x, t.y);
 				if (url) {
@@ -118,7 +118,7 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab }, [ab]);
+			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -242,7 +242,7 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 				sources.set(sid, src);
 				const d = src.desc;
 				if (d.pmtiles) pmtilesInfo(d.pmtiles).then(info => {
-					if (info.tileType !== "mvt") { console.warn(`[vtextrude] source "${sid}": PMTiles tile type "${info.tileType}" is not MVT — nothing to extrude`); d.pmtiles = null; d.tileUrl = () => null; }
+					if (isRasterTileType(info.tileType)) { console.warn(`[vtextrude] source "${sid}": PMTiles tile type "${info.tileType}" is raster — nothing to extrude`); d.pmtiles = null; d.tileUrl = () => null; }   // ベクタ（mvt／mlt）はヘッダの形式で解く（#88）
 					d.minzoom ??= info.minZoom; d.maxzoom ??= info.maxZoom; d.bounds ??= info.bbox ?? null; schedule();
 				}).catch(err => console.warn(`[vtextrude] source "${sid}": cannot read PMTiles`, err?.message || err));
 			}

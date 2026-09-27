@@ -31,6 +31,7 @@
 		"native-bucket": "^1.0.0"
 	},
 	"devDependencies": {
+		"@ortho-earth/tile-formats": "*",
 		"quiet-mono": "^1.0.0",
 		"sass": "^1.93.0"
 	},
