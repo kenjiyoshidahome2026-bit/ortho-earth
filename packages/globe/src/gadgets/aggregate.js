@@ -72,6 +72,17 @@ export function createAggregate(map, { signal } = {}) {
 			}
 			return null;
 		},
+		// 今の段の丸と単点で画面の内側（余白 W/4）に居る物＝MapLibre の querySourceFeatures（集約の source）の答え。W/H＝容れ物の CSS px
+		sourceFeatures(slot, W, H) {
+			const c = cluss.get(slot); if (!c) return [];
+			const z = map.getZoom(), L = c.draw[Math.max(0, Math.min(c.draw.length - 1, Math.floor(z) - c.cl.minLevel))] || [], mx = W / 4, my = H / 4, out = [];
+			for (const d of L) {
+				const p = map.projectLL(d.lon, d.lat); if (p[2] < 0 || p[0] < -mx || p[1] < -my || p[0] > W + mx || p[1] > H + my) continue;
+				const props = d.i >= 0 ? c.pts[d.i].props : { cluster: true, cluster_id: d.cid, point_count: d.n, point_count_abbreviated: abbr(d.n), ...(d.agg || {}) };
+				out.push({ type: "Feature", id: d.i >= 0 ? undefined : d.cid, properties: props, geometry: { type: "Point", coordinates: [d.lon, d.lat] }, layer: { id: d.i >= 0 ? c.ids.unclustered : c.ids.clusters, type: "circle" } });
+			}
+			return out;
+		},
 		// cluster_id のばらける段（エンジンの z・無ければ undefined）＝MapLibre の getClusterExpansionZoom の実体
 		expansionZoom(slot, cid) { return cluss.get(slot)?.byCid?.get(cid); },
 		// which＝"heatmap" | "cluster" | 省略（両方）・slot 省略＝その種類の全部

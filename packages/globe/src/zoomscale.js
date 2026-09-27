@@ -47,6 +47,7 @@ export const MAP_MEMBERS = {
 	setFilter: "layer", getFilter: "layer", setLayerZoomRange: "layer",
 	setFeatureState: "none", removeFeatureState: "none", getFeatureState: "none", getStyle: "layer", setStyle: "layer",
 	queryRenderedFeatures: "io",   // filter の ["zoom"]（入）・集約の expansionZoom（出）
+	querySourceFeatures: "none",   // source の地物（集約の丸・geojson の全部）。filter の ["zoom"] は queryRenderedFeatures の filter と同じく中で公開の目盛りから換算（顔は触らない）
 	addImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
 	setTerrain: "none", getTerrain: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
 	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none",

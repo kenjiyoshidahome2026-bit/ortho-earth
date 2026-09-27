@@ -42,7 +42,8 @@ export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）�
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
-import { createWorldContent } from "./gint/worldcontent.js";   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createWorldContent } from "./gint/worldcontent.js";
+import { createHillshadeProvider } from "./hillshade.js";   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -3374,6 +3375,7 @@ const mlVisible = v => v.layer.layout?.visibility !== "none";
 const mlOrderOf = id => [...mlLayers.keys()].indexOf(id);
 const kindOf = (layer, sp) => {
 	if (layer.type === "raster") return "raster";
+	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
 	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
 	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported yet — vector sources feed fill / line / circle / symbol / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
@@ -3675,6 +3677,18 @@ const mountLayer = async v => {
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
+	if (kind === "hillshade") {   // raster-dem のタイルから陰影の画像タイルを作る port プロバイダ（hillshade.js）→画像タイル層（基図の上・注記の下）
+		const ro = { order: "over", opacity: 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
+		let ds = sp;
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution }; }
+		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定
+		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" });
+		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
+		v.hs?.close();
+		v.hs = createHillshadeProvider({ dem: ds, paint, fetchFn: (u, init) => requester.fetch(u, "Tile", init), name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`) });
+		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
+		return map.raster.add(layer.id, { port: v.hs.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
+	}
 	if (kind === "extrude") return extrudeNative(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
 	if (kind === "cluster") return rebuildCluster(sid);
@@ -3685,6 +3699,7 @@ const mountLayer = async v => {
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
+	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
 	else if (kind === "vtdraw") { vtdCtl?.remove(id); vecAttrDrop(v, sid); }
@@ -3783,6 +3798,7 @@ map.removeLayer = id => {
 	}   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
 	mlLayers.delete(id);
 	unmountLayer(v);
+	if (extExtras.layers.includes(id)) extNotes.set(id, { removed: true });   // style 由来の層を外した＝getStyle の「その他の層」として復活させない（§8 A）
 	return map;
 };
 map.moveLayer = (id, beforeId) => {
@@ -3976,7 +3992,7 @@ const mountExtExtras = async ext => {
 	}
 	for (const L of ext.split.geojson) {
 		try {
-			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source); }
+			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source); }
 			await addLayerAt(L, undefined, 1); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
@@ -4047,6 +4063,17 @@ map.setStyle = async (spec, o = {}) => {
 	}
 	await mountExtExtras(nx);
 	return map;
+};
+// source の地物（MapLibre の querySourceFeatures・同期・公式例の門 3 巡目）：集約の source＝今の段の丸と単点（画面の内側＋余白）＝properties に cluster/cluster_id/point_count・
+// geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝おおよそ見えている所＋余白・こちらは全部＝上位互換）。vector の source は空（未対応・記録）
+map.querySourceFeatures = (sid, qo = {}) => {
+	const sp = mlSources.get(sid); if (!sp) return [];
+	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : fs;
+	if (sp.type === "vector") { console.warn(`[querySourceFeatures] vector source "${sid}" is not supported yet (returns [])`); return []; }
+	if (sp.cluster && aggCtl && [...mlLayers.values()].some(v => srcId(v.layer) === sid && v.kind === "cluster")) return qf(aggCtl.sourceFeatures(sid, size.w / dpr, size.h / dpr).map(f => ({ ...f, source: sid })));
+	const d = sp.data; if (!d || typeof d !== "object") return [];
+	const fs = d.type === "FeatureCollection" ? d.features : d.type === "Feature" ? [d] : [];
+	return qf(fs.map((f, i) => ({ type: "Feature", id: f.id ?? mlIdOf(sid, i) ?? i, properties: f.properties || {}, geometry: f.geometry, source: sid })));
 };
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
 // geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 0＝MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側。拡張＝足す px） }。

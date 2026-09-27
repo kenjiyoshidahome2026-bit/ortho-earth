@@ -755,6 +755,9 @@ export interface OrthoJapanMap {
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
+	/** source の地物（MapLibre 同名・同期・1.4.0〜）。集約（cluster）の source＝今の段の丸と単点で画面の内側（余白 1/4）に居る物（properties に cluster/cluster_id/point_count）／
+	 *  geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝こちらは上位互換）／vector の source は未対応（[]・警告） */
+	querySourceFeatures(sourceId: string, opts?: { filter?: StyleExpression; sourceLayer?: string }): RenderedFeature[];
 
 	// ---- 台本の上映・撮影（scene エディタ・公開サムネの土台）----
 	/** 台本オブジェクトを直に上映（要 demo ガジェット・既に上映中なら false）。台本の形＝demo/scene-format.md。言語は台本の ja:/en:… を画面の言語で選ぶ */
