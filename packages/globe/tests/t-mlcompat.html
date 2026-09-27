@@ -249,19 +249,34 @@ try {
 			const ez = f && typeof f.properties?.cluster_id === "number" ? await map.getSource("cp").getClusterExpansionZoom?.(f.properties.cluster_id) : undefined;
 			return [f?.properties?.total === 21 && typeof f?.properties?.cluster_id === "number" && typeof ez === "number", `total=${f?.properties?.total} id=${f?.properties?.cluster_id} ez=${ez}`];
 		});
+		// ── 問い合わせの許し（公式例の門 §8 B）＝MapLibre と同じ当たり：線は線幅の半分・円は半径＋縁・既定の許し 0（旧＝3px を足して線に余計に当たった）──
+		{
+			await map.addSource("tol", { type: "geojson", data: fc([{ type: "Feature", properties: { k: "l" }, geometry: { type: "LineString", coordinates: [[134.5, 37.3], [135.3, 37.3]] } }, pt(134.0, 37.3, { k: "c" })]) });
+			await map.addLayer({ id: "tol-l", type: "line", source: "tol", filter: ["==", ["geometry-type"], "LineString"], paint: { "line-width": 6, "line-color": "#0a0" } });
+			await map.addLayer({ id: "tol-c", type: "circle", source: "tol", filter: ["==", ["geometry-type"], "Point"], paint: { "circle-radius": 8, "circle-color": "#0a0" } });
+			await sleep(3000);
+			const hitAt = async (x, y, id, tol) => (await map.queryRenderedFeatures([x, y], { layers: [id], ...(tol != null ? { tolerance: tol } : {}) })).length > 0;
+			const [lx, ly] = P(134.9, 37.3), [cx, cy] = P(134.0, 37.3);
+			await scene("query-line-half-width", async () => { const r = [await hitAt(lx, ly, "tol-l"), await hitAt(lx, ly + 2, "tol-l"), await hitAt(lx, ly + 6, "tol-l"), await hitAt(lx, ly + 6, "tol-l", 6)]; return [r.join() === "true,true,false,true", `on/+2px/+6px/+6px(tol6)=${r}`]; });
+			await scene("query-circle-radius", async () => { const r = [await hitAt(cx + 6, cy, "tol-c"), await hitAt(cx + 12, cy, "tol-c"), await hitAt(cx + 12, cy, "tol-c", 6)]; return [r.join() === "true,false,true", `+6px/+12px/+12px(tol6)=${r}`]; });
+			map.removeLayer("tol-l"); map.removeLayer("tol-c"); map.removeSource("tol");
+		}
 	} else if (G === "style") {
 		const style = {
 			version: 8, name: "t-mlcompat-style",
 			sources: {
 				gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 },
+				dem: { type: "raster-dem", tiles: [new URL("./fixtures/dem/", location.href).href + "{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, maxzoom: 10 },   // 描かない hillshade の source（§8 A）
 				pts: { type: "geojson", data: fc([pt(139.85, 35.45, { n: 1 })]) },
 				ic: { type: "geojson", data: fc([pt(139.95, 35.5, {})]) },
 			},
 			sprite: [{ id: "default", url: new URL("fixtures/mlcompat/sprite-a", location.href).href }, { id: "alt", url: new URL("fixtures/mlcompat/sprite-b", location.href).href }],   // 複数の sprite（MapLibre v4）＝"alt:sq"
 			layers: [
 				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "hs", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.5 } },   // 描かない層（§8 A）＝getStyle には元の順で居る
 				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
 				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
+				{ id: "rd-lbl", type: "symbol", source: "gsi", "source-layer": "RdCL", layout: { "symbol-placement": "line", "text-field": "{name}" } },   // 線に沿う注記＝描かない層（§8 A）
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 				{ id: "ic-s", type: "symbol", source: "ic", layout: { "icon-image": "alt:sq" } },
 			],
@@ -271,6 +286,29 @@ try {
 		await sleep(7000);
 		const hit = async () => { const [x, y] = map.projectLL(139.85, 35.45); return (await map.queryRenderedFeatures([x, y], { layers: ["g"] })).map(f => f.layer.id); };
 		await scene("sprite-array", () => [map.hasImage("sq") && map.hasImage("alt:sq"), `sq=${map.hasImage("sq")} alt:sq=${map.hasImage("alt:sq")} all=${map.listImages().join(",")}`]);
+		// ── getStyle は style の全ての層を元の順で（描かない層も・§8 A）＝MapLibre の getStyle と同じ答え ──
+		await scene("getstyle-all-layers-in-order", () => {
+			const ls = map.getStyle().layers, ids = ls.map(L => L.id).join(","), und = ls.filter(L => L.metadata?.["ortho:drawn"] === false).map(L => L.id).join(",");
+			return [ids === "bg,hs,water,rd-lbl,g,ic-s" && und === "hs,rd-lbl", `ids=${ids} undrawn=${und}`];
+		});
+		await scene("undrawn-layer-get-set", () => {
+			const r = [];
+			r.push(map.getLayer("rd-lbl")?.type === "symbol");
+			try { map.setLayoutProperty("rd-lbl", "visibility", "none"); map.setPaintProperty("hs", "hillshade-exaggeration", 0.3); map.setFilter("rd-lbl", ["==", ["get", "k"], 1]); map.setLayerZoomRange("rd-lbl", 5, 12); r.push(true); } catch (e) { r.push(String(e.message)); }
+			r.push(map.getLayoutProperty("rd-lbl", "visibility") === "none", map.getPaintProperty("hs", "hillshade-exaggeration") === 0.3, JSON.stringify(map.getFilter("rd-lbl")) === JSON.stringify(["==", ["get", "k"], 1]));
+			r.push(map.getStyle().layers.find(L => L.id === "rd-lbl")?.layout?.visibility === "none");
+			map.removeLayer("hs");
+			r.push(!map.getLayer("hs") && !map.getStyle().layers.some(L => L.id === "hs"));
+			return [r.every(v => v === true), `get/set/getLayout/getPaint/getFilter/inStyle/removed=${r.join("/")}`];
+		});
+		await scene("addlayer-before-style-layer", async () => {
+			await map.addLayer({ id: "u-before", type: "circle", source: "pts", paint: { "circle-radius": 3 } }, "water");
+			const a = map.getStyle().layers.map(L => L.id); const ia = a.indexOf("u-before"), iw = a.indexOf("water");
+			map.moveLayer("u-before");
+			const b = map.getStyle().layers.map(L => L.id);
+			map.removeLayer("u-before");
+			return [ia >= 0 && ia === iw - 1 && b[b.length - 1] === "u-before", `before=${a.join(",")} moved=${b.join(",")}`];
+		});
 		await scene("ml-base-filter-get-missing-null", async () => {
 			map.jumpTo({ zoom: 10.5 }); await sleep(4000);   // 試料のタイルは z7/10/13/15 だけ＝エンジン z10.5 で z10 のタイルを見る（t-mlstyle と同じ）
 			const [x, y] = map.projectLL(139.83, 35.43);

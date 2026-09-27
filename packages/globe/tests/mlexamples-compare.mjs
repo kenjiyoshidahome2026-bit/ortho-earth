@@ -104,6 +104,8 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const un = grade(R, rec({ unsupported: ["setSky() (semantic)", "option maplibreLogo (cosmetic)"] }));
 	ok("grade 意味の unsupported は 1 止まり・見た目は塞がない", un.level === 1 && un.blockers.join() === "unsupported: setSky()" && un.unsupported.cosmetic[0] === "option maplibreLogo");
 	const ly = grade(R, rec({ layers: [{ id: "bg" }] }));
+	const ee = grade(R, rec({ consoleErrors: ['[mlshim] addLayer: addLayer: source "x" not found'] }));
+	ok("grade 通訳が捕まえたエンジンのエラーは段 2 を塞ぐ", ee.level === 1 && ee.blockers.includes('engine error: addLayer: source "…" not found'), JSON.stringify(ee.blockers));
 	ok("grade 層の違い＝1・順位表は抜けた型ごと", ly.level === 1 && ly.blockers.includes("getStyle lacks ? layers"), JSON.stringify(ly.blockers));
 	const cols = Array(10).fill([100, 100, 100]); cols[8] = cols[9] = [250, 0, 0];
 	const pic = grade(R, rec({ colors: cols }));

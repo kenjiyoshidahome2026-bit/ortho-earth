@@ -57,7 +57,8 @@
 ## 4. 文書に書く違い（意図した違い）
 
 - z の目盛り（旗なしの既定）と緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ を含む）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。カメラに cos(lat) を戻さない既存の裁定は守る。
-- queryRenderedFeatures は非同期。
+- queryRenderedFeatures は非同期。当たり方は MapLibre と同じ（2026-09-27・§8 B：線は線幅の半分＋|ずらし|・円は半径＋縁・面は内側・既定の許し 0）。`tolerance`（足す px）は拡張。GeoJSON（gint）の線の当たりは南北に 1/cos(緯度) だけ広い（識別が度の空間の円＝東西を取りこぼさない側に寄せた・点は画面の距離で締め直す）。単一スロットの user 層（内製）は従来の 3px。
+- getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
 - チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
@@ -244,3 +245,11 @@
   - 足りない口の順位表（上位）：getStyle が symbol の層を落とす 110／問い合わせが線に余計に当たる 83（エンジンの既定の許し 3px・MapLibre は線幅ちょうど）／getStyle が raster の層を落とす 23／面を取りこぼす 20／カメラ 18／面に余計に当たる 14／getStyle が hillshade の層を落とす 9／通訳の穴（GeoJSONSource.updateData・ImageSource.updateImage・touchZoomRotate.disableRotation）各 1
   - 読み：**動くことはほぼ並んだ（132/137）。答えは getStyle の一覧と問い合わせの許しの 2 点で塞がれ、絵は半分が同じ**。直す順は順位表の上から（別計画）。
   - 問い合わせの鍵から id を外した：OpenMapTiles の地物の id はタイルのズームごとに違う＝タイルの詳しさの選び方で変わる（答えの差ではない）。id の無い GeoJSON にこちらが並び順の id を返す差は残る（MapLibre は undefined）
+- **順位表の 1・2 位の直し（2026-09-27 本人「1・2位の直しを計画して進めて」）**：
+  - **A. getStyle は描かない層も返す**（外来 style の地図だけ・地域の基図は今のまま）：
+    - A1 `getStyle().layers`＝元の style の順（描く基図の層・画像として載せた raster・style の vector/geojson の層・**描かない層**＝線に沿う注記・アイコン・hillshade・塗りより下の raster・知らない型）。描かない層は `metadata["ortho:drawn"]:false` を付ける。利用者の層は beforeId の層の前・無ければ末尾。
+    - A2 `getLayer`・`get*Property`・`getFilter` が描かない層も返す。A3 `set*Property`・`setFilter`・`setLayerZoomRange`・`removeLayer` は描かない層でも投げない（記録だけ＝getStyle に出る・絵は変わらない）。画像の raster の visibility は画像層の出し入れへ。
+    - A4 `addLayer`／`moveLayer` の beforeId が style の層を指す時は `before` を記録（描く段は今のまま「基図の上」＝§4）＝getStyle の順が MapLibre と同じ。
+  - **B. 問い合わせの許しは既定 0**（MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側）：`tolerance` は拡張として残す。GeoJSON（gint）の線と点は線幅の半分・円の半径＋縁を足して当てる（旧＝許し 3px と点の +6px だけ）。単一スロットの user 層（内製）は従来の 3px。内製アプリは問い合わせも層の事象も使っていない（grep で確かめた）。
+  - **C. 採点**：通訳が捕まえたエンジンのエラー（`[mlshim] <口>:`＝MapLibre なら投げない所でエンジンが投げた）を段 2 の塞ぎに数える（o2 で 20 本＝custom 層の addLayer 12・知らない演算子 3 など・これまで数えていなかった）。
+  - **D. 門を回し直して点数を比べる**（本物 r6 × こちら o3）。門＝t-mlcompat（style 群に A の場面・layers 群に B の場面）・t-mllayers・t-mlstyle・globe verify。
