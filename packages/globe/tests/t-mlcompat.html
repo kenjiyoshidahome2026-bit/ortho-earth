@@ -619,9 +619,50 @@ try {
 			const b0 = await until("vs", n => n > 0);                                   // 利用者の層（上の vs）：出ている
 			map.setLayerZoomRange("vs", 17, 24); const b1 = await until("vs", n => n === 0);     // z 15.5 ＜ 17 ＝ 消える
 			map.setLayerZoomRange("vs", 0, 24); const b2 = await until("vs", n => n > 0);       // 戻す
-			const dbg = await window.__placedDebug?.(), sl = map.getStyle().layers.find(L => L.id === "poi-lbl");
-			return [a0 === 0 && a1 > 0 && a2 === 0 && b0 > 0 && b1 === 0 && b2 > 0, `base poi-lbl ${a0}→${a1}→${a2} · user vs ${b0}→${b1}→${b2} dbg=${JSON.stringify(dbg)} style=${JSON.stringify(sl)}`];
+			const okv = a0 === 0 && a1 > 0 && a2 === 0 && b0 > 0 && b1 === 0 && b2 > 0;
+			const dbg = okv ? "" : ` dbg=${JSON.stringify(await window.__placedDebug?.())} style=${JSON.stringify(map.getStyle().layers.find(L => L.id === "poi-lbl"))}`;   // 落ちた時だけ（表題に "zoomSkipped" が載ると runner の素通り判定（/skip/）に引っかかる）
+			return [okv, `base poi-lbl ${a0}→${a1}→${a2} · user vs ${b0}→${b1}→${b2}${dbg}`];
 		});
+		// ── symbol の layout（段 1）＝基図/vector の注記経路（labels.js→labels2d）が MapLibre の配置を読む。__placed の箱（中心 x,y・w,h）で検分。vs は伏せて場を空ける ──
+		{
+			const placedOf = async id => (await window.__placed()).filter(L => L.layer === id);
+			const untilN = async (id, pred) => { let p = []; for (let k = 0; k < 20; k++) { await sleep(300); p = await placedOf(id); if (pred(p.length)) break; } return p; };
+			const sym = (id, layout, extra = {}) => map.addLayer({ id, type: "symbol", source: "omt", "source-layer": "poi", layout: { "text-field": ["get", "name"], "text-size": 16, ...layout }, paint: { "text-color": "#000" }, ...extra });
+			const drop = async (...ids) => { for (const id of ids) if (map.getLayer(id)) map.removeLayer(id); await sleep(400); };
+			map.setLayoutProperty("vs", "visibility", "none"); await sleep(500);
+			const [cx, cy] = atG(D.cafe);
+			await vscene("symbol-text-anchor-offset", async () => {   // anchor top・offset [0,1]（em）＝箱の上辺が錨の 16px 下・中心は +16+h/2（h＝1.2×16）
+				await sym("an1", { "text-anchor": "top", "text-offset": [0, 1] });
+				const p = await untilN("an1", n => n > 0), c = p.find(q => Math.abs(q.x - cx) < 4);
+				const want = cy + 16 + (c?.h ?? 19.2) / 2;
+				await drop("an1");
+				return [!!c && Math.abs(c.y - want) < 3 && Math.abs(c.h - 19.2) < 2, `cafe=(${cx.toFixed(0)},${cy.toFixed(0)}) box=${c ? `(${c.x.toFixed(0)},${c.y.toFixed(0)}) w${c.w.toFixed(0)} h${c.h.toFixed(1)}` : "none"} wantY=${want.toFixed(0)}`];
+			});
+			await vscene("symbol-text-wrap", async () => {   // text-max-width 4（em）＝語で折り返す＝箱が 2 行以上（h ≥ 2×1.2×14）・max-width 0＝1 行
+				await sym("wr", { "text-size": 14, "text-field": ["concat", ["get", "name"], " is a very long label"], "text-max-width": 4 });
+				const a = (await untilN("wr", n => n > 0)).find(q => Math.abs(q.x - cx) < 40); await drop("wr");
+				await sym("nw", { "text-size": 14, "text-field": ["concat", ["get", "name"], " is a very long label"], "text-max-width": 0 });
+				const b = (await untilN("nw", n => n > 0)).find(q => Math.abs(q.x - cx) < 4); await drop("nw");
+				return [!!a && !!b && a.h >= 2 * 1.2 * 14 - 1 && Math.abs(b.h - 1.2 * 14) < 2 && a.w < b.w, `wrapped=${a ? `w${a.w.toFixed(0)} h${a.h.toFixed(1)}` : "none"} single=${b ? `w${b.w.toFixed(0)} h${b.h.toFixed(1)}` : "none"}`];
+			});
+			await vscene("symbol-later-layer-wins-and-allow-overlap", async () => {   // 同じ点に 2 層＝後の層が先に置く（MapLibre）＝o2 が 2 点とも・o1 は 0。o1 に allow-overlap＝両方
+				await sym("o1", {}); await sym("o2", { "text-field": ["concat", ["get", "name"], "2"] });
+				const o2 = await untilN("o2", n => n >= 2), o1 = await placedOf("o1");
+				map.setLayoutProperty("o1", "text-allow-overlap", true);
+				const o1b = await untilN("o1", n => n >= 2), o2b = await placedOf("o2");
+				await drop("o1", "o2");
+				return [o2.length === 2 && o1.length === 0 && o1b.length === 2 && o2b.length === 2, `o2=${o2.length} o1=${o1.length} → allow-overlap o1=${o1b.length} o2=${o2b.length}`];
+			});
+			await vscene("symbol-text-padding", async () => {   // 錨の左右に接する 2 つの箱（anchor right／left）＝padding 2（既定）では重なって片方だけ・padding 0 なら両方
+				await sym("p1", { "text-anchor": "right" }); await sym("p2", { "text-anchor": "left", "text-field": ["concat", ["get", "name"], "!"] });
+				const p2 = await untilN("p2", n => n >= 2), p1 = await placedOf("p1");
+				map.setLayoutProperty("p1", "text-padding", 0); map.setLayoutProperty("p2", "text-padding", 0);
+				const p1b = await untilN("p1", n => n >= 2), p2b = await placedOf("p2");
+				await drop("p1", "p2");
+				return [p2.length === 2 && p1.length === 0 && p1b.length === 2 && p2b.length === 2, `pad2: p2=${p2.length} p1=${p1.length} → pad0: p1=${p1b.length} p2=${p2b.length}`];
+			});
+			map.setLayoutProperty("vs", "visibility", "visible"); await sleep(400);
+		}
 		await vscene("vector-query", async () => {
 			const a = await hitIds(D.park, "vf"), b = await hitIds(D.main, "vl"), c = await hitIds(D.cafe, "vc");
 			return [a.includes("vf/101/landuse/omt/Park") && b.includes("vl/201/road/omt/Main St") && c.includes("vc/301/poi/omt/Cafe"), `fill=${a} line=${b} circle=${c}`];
