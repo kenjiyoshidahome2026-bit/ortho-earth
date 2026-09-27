@@ -101,6 +101,8 @@ function convertTokens(s) {
 	return parts.length === 1 ? parts[0] : ["concat", ...parts];
 }
 
+const ANCHORS = new Set(["center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]);
+const isAnchorOffsets = v => Array.isArray(v) && v.length >= 2 && v.length % 2 === 0 && v.every((x, i) => i % 2 === 0 ? ANCHORS.has(x) : Array.isArray(x) && x.length === 2 && x.every(Number.isFinite));
 // 値一つを式へ（関数・差し込み記法・文字列から始まる配列リテラル）
 export function convertValue(v, prop = "") {
 	if (isFunction(v)) return convertFunction(v, prop);
@@ -108,6 +110,8 @@ export function convertValue(v, prop = "") {
 	// 文字列の配列リテラル（フォント名・アンカー名）は式と見分けがつかない＝literal に包む。line-dasharray は数の配列＝そのままで
 	// リテラル、先頭が文字列なら式（step/interpolate/literal）＝包むと式が「中身の配列」として読まれ線ごと消えた（2026-09-25）
 	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
+	// text-variable-anchor-offset のリテラル＝["top", [0, 1], "bottom", [0, -1]]（アンカー名と 2 数の組の並び）。式（match/step…）と読み違えて「知らない演算子 top」で層を落としていた（公式例の門 2 巡目）
+	if (prop === "text-variable-anchor-offset" && isAnchorOffsets(v)) return ["literal", v];
 	return v;
 }
 

@@ -239,8 +239,10 @@ const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と�
 // 基図の source の circle（基図は円を描かない）。基図の source の fill／line／点ラベルは基図が描く（今まで通り）
 const VT_DRAW = new Set(["fill", "line", "circle", "symbol"]);
 const vtRouted = (L, ms, baseSid) => ms.sources?.[L.source]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle")));
-const loadExtStyle = async spec => {
-	const { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
+const loadExtStyle = async (spec, transformStyle = null) => {
+	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
+	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
+	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) ?? ms;
 	const split = splitMapLibreStyle(ms);
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
 	const isVtx = k => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
@@ -2480,8 +2482,14 @@ function serveProtocolRaster(port, tpl, spec) {
 		const ac = new AbortController(); acs.set(id, ac);
 		try {
 			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
-			const ab = rq.load ? await rq.load("arrayBuffer", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
-			const bitmap = ab.byteLength ? await createImageBitmap(new Blob([ab]), { premultiplyAlpha: "none", colorSpaceConversion: "none" }) : null;
+			// 独自スキームは MapLibre と同じく type:"image" で頼む（maplibre-cog-protocol は "image" だけを受ける・公式例の門 2 巡目）。返りは画像・ImageBitmap・ImageData・Blob・ArrayBuffer のどれでも
+			const d = rq.load ? await rq.load("image", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
+			const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
+			const bitmap = d == null ? null
+				: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
+				: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) ? await createImageBitmap(d, bmOpts)
+				: d instanceof Blob ? await createImageBitmap(d, bmOpts)
+				: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
 			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
 		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
 		finally { acs.delete(id); }
@@ -3697,12 +3705,37 @@ map.getSource = id => {
 		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
-	return { ...sp, ...extra, setData: async data => {
-		sp.data = data;
+	const remount = async (dataChanged = true) => {   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
 		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
-		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged: true });
+		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged });
 		for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
-	} };
+	};
+	const self = { ...sp, ...extra, setData: async data => { sp.data = data; await remount(); } };
+	// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
+	if (sp.type === "geojson") self.updateData = async diff => {
+		const d = sp.data;
+		if (!d || typeof d !== "object") throw new Error(`updateData: source "${id}" data is not an object (a URL source cannot take a diff)`);
+		const fc = d.type === "FeatureCollection" ? d : { type: "FeatureCollection", features: d.type === "Feature" ? [d] : [] };
+		const pk = sp.promoteId == null ? null : typeof sp.promoteId === "string" ? sp.promoteId : Object.values(sp.promoteId)[0];
+		const idOf = f => f.id ?? (pk != null ? f.properties?.[pk] : undefined);
+		let fs = diff?.removeAll ? [] : [...fc.features];
+		if (diff?.remove?.length) { const rm = new Set(diff.remove); fs = fs.filter(f => !rm.has(idOf(f))); }
+		for (const u of diff?.update || []) {
+			const i = fs.findIndex(f => idOf(f) === u.id); if (i < 0) continue;
+			const f = { ...fs[i], properties: u.removeAllProperties ? {} : { ...(fs[i].properties || {}) } };
+			for (const k of u.removeProperties || []) delete f.properties[k];
+			for (const { key, value } of u.addOrUpdateProperties || []) f.properties[key] = value;
+			if (u.newGeometry) f.geometry = u.newGeometry;
+			fs[i] = f;
+		}
+		if (diff?.add?.length) { const add = new Set(diff.add.map(idOf)); fs = fs.filter(f => !add.has(idOf(f))).concat(diff.add); }
+		sp.data = { ...fc, features: fs }; await remount();
+	};
+	if (sp.type === "image") {
+		self.updateImage = o => { if (o?.url) sp.url = o.url; if (o?.coordinates) sp.coordinates = o.coordinates; remount(false); return self; };
+		self.setCoordinates = c => { sp.coordinates = c; remount(false); return self; };
+	}
+	return self;
 };
 map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
@@ -3715,6 +3748,8 @@ const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || laye
 map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); if (id === AUTO_BLD && autoBldOn()) return autoBldLayer(); const B = baseLayerOf(id); if (B) return echoBase(B); const X = extOtherOf(id); return X ? echoOther(X) : undefined; };   // 基図の層も（段 7）・自動の建物（building-extrusion）も
 // beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
 const addLayerAt = async (layer, beforeId, dz) => {
+	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
+	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
 	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
 	assertMLLayer(layer, "addLayer");
 	const v = { layer: { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };
@@ -3888,6 +3923,7 @@ map.getStyle = () => {
 	}
 	return {
 		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
+		...(EXT ? Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => EXT.ms[k] != null).map(k => [k, EXT.ms[k]])) : {}),   // style の根の視点（MapLibre の getStyle と同じ・style.json の目盛り＝MapLibre の z）
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
 		sources: { ...(EXT ? EXT.ms.sources : {}), [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
 		layers: list,
@@ -3977,9 +4013,9 @@ const overrideBase = (id, fn) => { const o = baseOverrides.get(id) || {}; fn(o);
 const baseValueIn = (key, value) => value === undefined ? undefined : normalizeMLLayer({ paint: { [key]: value } }, PUBLIC_DZ).paint[key];   // 旧書式の読み替え＋目盛り（公開の口→エンジン）
 const echoBase = L => ({ ...L, ...(baseVis.get(L.id) === "none" ? { layout: { ...(L.layout || {}), visibility: "none" } } : {}) });
 // 基図の style を生き替える（外来 style で起動した地図だけ）。spec＝URL か style の object。解決は新しい style の基図が描き始めた後
-map.setStyle = async spec => {
+map.setStyle = async (spec, o = {}) => {
 	if (!EXT) throw new Error("setStyle: this map uses the regional basemap — boot with opts.style (or ?style=) to switch MapLibre styles");
-	const nx = await loadExtStyle(spec);
+	const nx = await loadExtStyle(spec, o?.transformStyle);
 	unmountExtExtras();
 	const oldBaseSid = baseSidNow();
 	baseOverrides.clear(); baseVis.clear(); extNotes.clear();   // 新しい style＝基図の層の上書き（その他の層の記録も）は捨てる（MapLibre の setStyle と同じ）
