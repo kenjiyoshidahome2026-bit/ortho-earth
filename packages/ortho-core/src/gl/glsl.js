@@ -1206,3 +1206,59 @@ void main() {
 	if (a <= 0.003) discard;
 	fragColor = vec4(v_color.rgb * a, a);   // premultiplied
 }`;
+
+// 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝gpu/wgsl.js ELEV_RESAMPLE_WGSL と同式（elevation.js downsampleFlipped／cropResample・worldatlas.js worldAtlasCell の写し）。
+// 生タイルは整数テクスチャ（R16I・Int16）か浮動小数テクスチャ（R32F・Float32）＝サンプラ型で 2 本のプログラム（ELEV_RESAMPLE_FS(kind)）。
+// 標本位置は uint の整数分数（gx = (Ax + Bx·(2i+1)) / Dx）＝JS の f64 と同じ位置。出力＝R16F アトラス（EXT_color_buffer_float）のセル矩形へ 3 頂点 1 発。
+export const ELEV_RESAMPLE_VS = `#version 300 es
+void main() { gl_Position = vec4(float(int(uint(gl_VertexID) & 1u) * 4 - 1), float(int(uint(gl_VertexID) >> 1u) * 4 - 1), 0.0, 1.0); }`;
+export const ELEV_RESAMPLE_FS = kind => `#version 300 es
+precision highp float; precision highp int; precision highp isampler2D; precision highp sampler2D;
+uniform ${kind === 0 ? "isampler2D" : "sampler2D"} u_raw;   // 生タイル（row0＝北・texel(x,y)＝data[y*w+x]）
+uniform uvec4 u_dim;   // w, h, kind, mode(0=down 1=box 2=crop 3=float)
+uniform vec4  u_a;     // mode 3: ax, bx, ay, by
+uniform vec4  u_lo;    // mode 3: gx∈[x,y]・gy∈[z,w]
+uniform uvec4 u_o;     // ox, oy（セル原点 texel）, N, k
+uniform uvec4 u_box;   // mode 1: AW, rowN0, col0, 0
+uniform uvec4 u_ix;    // mode 0/2: Ax, Bx, Dx, 0
+uniform uvec4 u_iy;    // mode 0/2: Ay, By, Dy, 0
+out vec4 fragColor;
+float rdRaw(uint idx) { ivec2 p = ivec2(int(idx % u_dim.x), int(idx / u_dim.x)); return ${kind === 0 ? "float(texelFetch(u_raw, p, 0).r)" : "texelFetch(u_raw, p, 0).r"}; }
+float rd(uint idx) { float v = rdRaw(idx); if (!(v >= -420.0 && v <= 9000.0)) return 0.0; return v; }
+void main() {
+	uint i = uint(gl_FragCoord.x) - u_o.x; uint j = uint(gl_FragCoord.y) - u_o.y;
+	uint w = u_dim.x; uint h = u_dim.y; uint mode = u_dim.w;
+	float v;
+	if (mode == 1u) {
+		uint k = u_o.w; uint C = u_o.z * k;
+		uint srcRow = u_box.y + (C - 1u - j * k);
+		float sum = 0.0;
+		for (uint jj = 0u; jj < k; jj++) { uint s = (srcRow - jj) * u_box.x + u_box.z + i * k; for (uint ii = 0u; ii < k; ii++) sum += rdRaw(s + ii); }
+		v = sum / float(k * k);
+	} else {
+		uint x0; float fx; uint y0; float fy;
+		if (mode == 3u) {
+			float gx = clamp(u_a.x + u_a.y * (float(i) + 0.5), u_lo.x, u_lo.y);
+			float gy = clamp(u_a.z + u_a.w * (float(j) + 0.5), u_lo.z, u_lo.w);
+			x0 = uint(clamp(floor(gx), 0.0, float(w - 2u))); fx = clamp(gx - float(x0), 0.0, 1.0);
+			y0 = uint(clamp(floor(gy), 0.0, float(h - 2u))); fy = clamp(gy - float(y0), 0.0, 1.0);
+		} else {
+			uint nx = u_ix.x + u_ix.y * (2u * i + 1u); uint qx = nx / u_ix.z; uint rx = nx - qx * u_ix.z;
+			uint ny = u_iy.x + u_iy.y * (2u * j + 1u); uint qy = ny / u_iy.z; uint ry = ny - qy * u_iy.z;
+			x0 = qx; fx = float(rx) / float(u_ix.z); y0 = qy; fy = float(ry) / float(u_iy.z);
+			if (mode == 0u) {
+				uint M = 2u;
+				if (qx < M) { x0 = M; fx = 0.0; } else if (qx > w - 1u - M || (qx == w - 1u - M && rx > 0u)) { x0 = w - 1u - M; fx = 0.0; }
+				if (qy < M) { y0 = M; fy = 0.0; } else if (qy > h - 1u - M || (qy == h - 1u - M && ry > 0u)) { y0 = h - 1u - M; fy = 0.0; }
+			} else {
+				if (qx > w - 2u) { x0 = w - 2u; fx = 1.0; }
+				if (qy > h - 2u) { y0 = h - 2u; fy = 1.0; }
+			}
+		}
+		uint r0 = (h - 1u - y0) * w; uint r1 = r0 - w;
+		float a = rd(r0 + x0); float b = rd(r0 + x0 + 1u); float c = rd(r1 + x0); float d = rd(r1 + x0 + 1u);
+		float t = a + (b - a) * fx;
+		v = t + ((c + (d - c) * fx) - t) * fy;
+	}
+	fragColor = vec4(max(v, 0.0), 0.0, 0.0, 1.0);
+}`;

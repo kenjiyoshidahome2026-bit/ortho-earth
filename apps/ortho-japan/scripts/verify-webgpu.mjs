@@ -13,7 +13,8 @@ const PORT = +process.env.VWG_PORT || 5238;
 
 const ALL_PAGES = ["t-webgpu", "t-extrude-drape?gl2=1&bottom=4000", "t-extrude-drape?gl2=1&bottom=drape", "t-extrude-drape?gl2=1&v=%2310/36.3/137.6",
 	"t-aatrans", "t-gintlayers", "t-gintlayers?gl2=1", "t-zoomfill", "t-gndfaces",
-	"t-meshfs", "t-baselane", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster"];
+	"t-meshfs", "t-baselane", "t-bld?gl2=1", "t-mesh?gl2=1&loadmax=1", "t-raster",
+	"t-terrcull?hud=0", "t-terrcull?hud=0&gl2=1"];   // hud=0＝mem テレメトリ（terr の数）を main へ   // 地形チャンク刈り（perf plan P4 step B）＝刈りあり/全量の絵が同一（両バックエンド）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 
