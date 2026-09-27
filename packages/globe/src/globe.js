@@ -3310,7 +3310,14 @@ map.gadget("cluster", async function (src, opts = {}) {
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
 const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal }); };
-map.addImage = async (name, img, o) => (await symGet()).addImage(name, img, o);           // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
+// 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
+// こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
+const pendingImages = new Set();
+map.addImage = (name, img, o) => {   // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
+	const p = (async () => (await symGet()).addImage(name, img, o))();
+	pendingImages.add(p); p.catch(() => {}).finally(() => pendingImages.delete(p));
+	return p;
+};
 map.removeImage = name => symCtl?.removeImage(name);
 map.hasImage = name => !!symCtl?.hasImage(name);
 map.listImages = () => symCtl?.listImages() ?? [];
@@ -3649,6 +3656,7 @@ const vtdMount = async (v, layer) => {
 const vecAttrDrop = (v, sid) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; needsDraw = true; } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 const mountLayer = async v => {
+	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "vtextrude") return vtxMount(v, layer);
 	if (kind === "vtdraw") return vtdMount(v, layer);

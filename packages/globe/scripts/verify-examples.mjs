@@ -45,7 +45,7 @@ const STATE = `(() => { const X = window.__mlx; if (!X) return null; const m = X
 	return { maps: X.maps.length, load: t("load"), styleLoad: t("style.load"), idle: t("idle"), ml, now: Math.round(performance.now()), rect }; })()`;
 // 写しの間は DOM の上物（操作部品・Marker・Popup）を隠す＝canvas だけを比べる
 const HIDE = { ref: ".maplibregl-control-container,.maplibregl-marker,.maplibregl-popup{visibility:hidden!important}",
-	ortho: "#map > :not(canvas#c):not(canvas#labels){visibility:hidden!important}" };   // こちら＝容れ物（エンジンが id を map に揃える）の canvas 2 枚だけ残す
+	ortho: "#map > :not(canvas){visibility:hidden!important}" };   // こちら＝容れ物（エンジンが id を map に揃える）の canvas は全部残す（#c・#labels・重ね描きの .overlay-gl＝記号・ヒートマップ・集約）。旧＝#c と #labels だけ残して重ね描きまで隠していた（2 巡目で発見）
 const hideJs = (side, on) => `(() => { let s = document.getElementById("__mlx_hide"); if (!s) { s = document.createElement("style"); s.id = "__mlx_hide"; document.head.appendChild(s); } s.textContent = ${on ? JSON.stringify(HIDE[side] || "") : '""'}; })()`;
 // 本物の答え：16×10 の格子（縁 48px を除く）→unproject（|lat|≤85.051・project で戻る点だけ ok）→問い合わせ。層・カメラ・範囲・Marker の位置
 const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.getContainer().getBoundingClientRect();
@@ -104,7 +104,8 @@ const PROBE = { ref: () => PROBE_REF, ortho: PROBE_ORTHO };
 async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 	const outDir = path.join(ROOT, "runs", label, side);
 	fs.mkdirSync(outDir, { recursive: true });
-	const url = `http://localhost:${PORT}/${side}/test/examples/${ex.name}.html${side === "ortho" && gl2 ? "?gl2=1" : ""}`;
+	const q = side === "ortho" ? [gl2 && "gl2=1", has("--mllat") && "mllat=1"].filter(Boolean).join("&") : "";   // --mllat＝実験（ortho-entry の起動の視点に緯度の縮尺）
+	const url = `http://localhost:${PORT}/${side}/test/examples/${ex.name}.html${q ? "?" + q : ""}`;
 	const rec = { name: ex.name, side, url, exceptions: [], consoleErrors: [], consoleWarnings: [], unsupported: [], workerErrors: [] };
 	const store = createNetStore({ dir: path.join(ROOT, "net"), assetsDir: path.join(CACHE, "assets"), mode });
 	const t0 = Date.now();
