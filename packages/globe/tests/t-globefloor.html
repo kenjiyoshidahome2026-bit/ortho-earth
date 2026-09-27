@@ -4,9 +4,9 @@
      試料＝東京（139.7/35.7）の ±0.002°（約 360×440 m）に 128×128 の市松（4 px＝約 11 m の升）。地形なし＝床は球のレイキャスト（globe fs）。
      z17.5・チルト 70°・bearing 20°＝近平面が浅く f32 の invMvp と絶対経緯度が画素単位にずれる姿勢。
      ①市松が床に貼られている（左右半分で明暗が交互＝分散が大きい）
-     ②ズーム +0.0005（画面では 0.035% の拡大＝縁で 0.05 px・升の縁の画素値がわずかに動くだけ）で画素値が 24 階調超変わる画素は 1% 未満
+     ②ズーム +0.0005（画面では 0.035% の拡大＝縁で 0.05 px・升の縁の画素値がわずかに動くだけ）で画素値が 24 階調超変わる画素は 3% 未満（実 GPU 実測 1.23%・SwiftShader 0.79%）
        （旧＝視線を f32 の invMvp から作り、床の経緯度を f32 の絶対値で持つ＝1〜9 画素の鋸歯が姿勢ごとに泳ぐ＝数〜十数%）
-     ③bearing +1e-4 rad（0.006°＝0.01 px）でも同じ
+     ③bearing +1e-4 rad（0.006°＝0.01 px）でも同じ（1.5% 未満・実測 0.36%）。⚠仮想時間（--dump-dom）では rAF が進まず無題＝verify:ui は REALTIME に登録
      ④（WebGPU）GPU の検証エラー 0 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-globefloor</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -43,12 +43,15 @@ try {
 	let bright = 0, dark = 0, n = 0;
 	for (let y = 128; y < N; y++) for (let x = 0; x < N; x++) { const l = lum(base, (y * N + x) * 4); n++; if (l > 180) bright++; else if (l > 20 && l < 90) dark++; }
 	ok(`市松が床に貼られている（明 ${(bright / n * 100).toFixed(0)}%・暗 ${(dark / n * 100).toFixed(0)}%）`, bright / n > 0.2 && dark / n > 0.2);
-	const z = await shot({ ...cam, zoom: 17.5005 });
+	// 摂動の幅は ?dz=／?db= で変えられる（診断用）。閾値＝実 GPU（Metal）の実測 1.23%／0.36%（2026-09-27・素の main で再現）を踏まえ 3%／1.5%＝
+	// 旧コード（f32 の invMvp・絶対経緯度）の 50%／48% とは桁で離れる。1% は SwiftShader の 0.79% を見て置いた値＝実 GPU では升の縁の sub-pixel 移動（0.05 px）だけで超える
+	const Q = new URLSearchParams(location.search), dz = +(Q.get("dz") || 0.0005), db = +(Q.get("db") || 1e-4);
+	const z = await shot({ ...cam, zoom: cam.zoom + dz });
 	const cz = changed(base, z);
-	ok(`ズーム +0.0005 で床は揺れない（24 階調超＝${(cz.frac * 100).toFixed(2)}%・${cz.n} 画素）`, cz.frac < 0.01);
-	const b = await shot({ ...cam, bearing: cam.bearing + 1e-4 });
+	ok(`ズーム +${dz} で床は揺れない（24 階調超＝${(cz.frac * 100).toFixed(2)}%・${cz.n} 画素）`, cz.frac < 0.03);
+	const b = await shot({ ...cam, bearing: cam.bearing + db });
 	const cb = changed(base, b);
-	ok(`bearing +1e-4 rad で床は揺れない（24 階調超＝${(cb.frac * 100).toFixed(2)}%）`, cb.frac < 0.01);
+	ok(`bearing +${db} rad で床は揺れない（24 階調超＝${(cb.frac * 100).toFixed(2)}%）`, cb.frac < 0.015);
 	const back = await shot();
 	ok(`同じカメラ＝同じ絵（${(changed(base, back).frac * 100).toFixed(2)}%）`, changed(base, back).frac === 0);
 	if (!GL2) { await new Promise(res => setTimeout(res, 50)); ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0); }
