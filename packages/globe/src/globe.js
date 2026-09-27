@@ -36,9 +36,9 @@ import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY } from "@ortho-earth/core";
-import { zoomScaleOf, bootOptsIn, ML_DZ } from "./zoomscale.js";
+import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
-export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）
+export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
@@ -119,7 +119,10 @@ const t = tr();
 export async function createGlobe(opts = {}) {
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
-const PUBLIC_DZ = zoomScaleOf(opts) === "maplibre" ? ML_DZ : 0;
+// "mercator"＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の緯度・zoomscale.js の mercatorDz）＝MapLibre のメルカトルの縮尺に合わせる。外来 style の目盛り STYLE_DZ も同じ（style.json は MapLibre の z）
+const ZOOM_SCALE = zoomScaleOf(opts);
+const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || location.hash)?.lat ?? 0) : 0;
+const STYLE_DZ = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
 opts = bootOptsIn(opts, PUBLIC_DZ);
 const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
 requester.setTransform(opts.transformRequest);
@@ -244,7 +247,7 @@ const loadExtStyle = async (spec, transformStyle = null) => {
 	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
 	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
 	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) ?? ms;
-	const split = splitMapLibreStyle(ms);
+	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
 	const isVtx = k => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
 	const skipped = split.skipped.filter(k => !isVtx(k));
@@ -3821,7 +3824,7 @@ map.setPaintProperty = (id, name, value) => {
 	if (value !== undefined) assertMLLayer({ id, paint: { [name]: value } }, "setPaintProperty");
 	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setPaintProperty");
 	if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は不透明度が効く
-		noteOther(id, n => { if (value === undefined) delete n.paint[name]; else n.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, 1); });
+		noteOther(id, n => { if (value === undefined) delete n.paint[name]; else n.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
 		if (isExtImage(id) && name === "raster-opacity") map.raster.set(id, { opacity: typeof value === "number" ? value : 1 });
 		return map;
 	}
@@ -3833,13 +3836,13 @@ map.setPaintProperty = (id, name, value) => {
 	relayer(v); return map;
 };
 const echoProp = (v, x) => v && x !== undefined ? rescaleZoomExpr(x, v.dz, PUBLIC_DZ) : x;   // 層の目盛り→呼び手の目盛り（set したものが get で戻る）
-map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 1, PUBLIC_DZ); } const x = B.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } const x = B.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setLayoutProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, layout: { [name]: value } }, "setLayoutProperty");
 	if (!v && id === AUTO_BLD && autoBldOn()) { if (name !== "visibility") autoBldReadOnly("setLayoutProperty"); setAutoBld(value === "none"); return map; }   // 自動の建物＝出し入れだけ
 	if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は出し入れが効く
-		noteOther(id, n => { if (value === undefined) delete n.layout[name]; else n.layout[name] = rescaleZoomExpr(value, PUBLIC_DZ, 1); });
+		noteOther(id, n => { if (value === undefined) delete n.layout[name]; else n.layout[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
 		if (isExtImage(id) && name === "visibility") map.raster.set(id, { visible: value !== "none" });
 		return map;
 	}
@@ -3862,18 +3865,18 @@ map.setLayoutProperty = (id, name, value) => {
 	if (name === "visibility") { if (was && !now) unmountLayer(v); else if (!was && now) (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)); return map; }
 	relayer(v); return map;
 };
-map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); if (id === AUTO_BLD && autoBldOn()) return name === "visibility" && autoBldHidden ? "none" : undefined; const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 1, PUBLIC_DZ); } if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); if (id === AUTO_BLD && autoBldOn()) return name === "visibility" && autoBldHidden ? "none" : undefined; const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setFilter = (id, filter) => {
 	const v = mlLayers.get(id);
 	if (filter != null) assertMLLayer({ id, filter }, "setFilter");
 	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setFilter");
-	if (!v && !baseLayerOf(id) && extOtherOf(id)) { noteOther(id, n => { if (filter == null) delete n.filter; else n.filter = rescaleZoomExpr(filter, PUBLIC_DZ, 1); }); return map; }   // その他の層（§8 A）＝記録だけ
+	if (!v && !baseLayerOf(id) && extOtherOf(id)) { noteOther(id, n => { if (filter == null) delete n.filter; else n.filter = rescaleZoomExpr(filter, PUBLIC_DZ, STYLE_DZ); }); return map; }   // その他の層（§8 A）＝記録だけ
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setFilter: layer "${id}" not found`); overrideBase(id, o => { o.filter = filter == null ? null : normalizeMLLayer({ filter }, PUBLIC_DZ).filter; }); return map; }   // 基図の層（段 7）
 	if (filter == null) delete v.layer.filter; else v.layer.filter = rescaleZoomExpr(filter, PUBLIC_DZ, v.dz);
 	relayer(v); return map;
 };
-map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); if (!B) { const X = extOtherOf(id); return X?.filter == null ? undefined : rescaleZoomExpr(X.filter, 1, PUBLIC_DZ); } return B.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
-map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); else if (extOtherOf(id)) noteOther(id, n => { n.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 1); n.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 1); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
+map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); if (!B) { const X = extOtherOf(id); return X?.filter == null ? undefined : rescaleZoomExpr(X.filter, STYLE_DZ, PUBLIC_DZ); } return B.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); else if (extOtherOf(id)) noteOther(id, n => { n.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, STYLE_DZ); n.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, STYLE_DZ); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
@@ -3985,15 +3988,15 @@ const mountExtExtras = async ext => {
 				const sp = { ...ms.sources[L.source] };
 				if (sp.url && !/^[a-z][\w+.-]*:\/\//i.test(sp.url.replace(/^pmtiles:\/\//, ""))) sp.url = /^pmtiles:\/\//.test(sp.url) ? "pmtiles://" + new URL(sp.url.slice(10), ext.baseUrl).href : new URL(sp.url, ext.baseUrl).href;
 				if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
-				addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source);
+				addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? STYLE_DZ); extExtras.sources.push(L.source);
 			}
-			await addLayerAt(L, undefined, 1); extExtras.layers.push(L.id);
+			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
 	for (const L of ext.split.geojson) {
 		try {
-			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source); }
-			await addLayerAt(L, undefined, 1); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
+			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? STYLE_DZ); extExtras.sources.push(L.source); }
+			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
 };
@@ -4020,7 +4023,7 @@ const extOtherOf = id => {
 	return n ?? EXT.ms.layers.find(L => L.id === id) ?? null;
 };
 const isExtImage = id => extExtras.raster.includes(id);
-const echoOther = L => ({ ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: L.metadata?.[DZ_KEY] ?? 1, ...(isExtImage(L.id) ? {} : { "ortho:drawn": false }) } });
+const echoOther = L => ({ ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: L.metadata?.[DZ_KEY] ?? STYLE_DZ, ...(isExtImage(L.id) ? {} : { "ortho:drawn": false }) } });
 const noteOther = (id, fn) => { const L = extOtherOf(id); const n = { ...L, paint: { ...(L.paint || {}) }, layout: { ...(L.layout || {}) } }; fn(n); extNotes.set(id, n); return n; };
 function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());

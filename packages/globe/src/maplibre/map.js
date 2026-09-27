@@ -5,7 +5,7 @@
 //   ・起動は既定で MapLibre の見え方（本人裁定 4）：夜面・星空・世界の海岸線・自前の地形なし（地形は setTerrain／style の terrain の時だけ）・z は MapLibre の目盛り
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
-import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup } from "../globe.js";
+import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup, mercatorDz } from "../globe.js";
 import { LngLat, LngLatBounds } from "./geo.js";
 import { unsupported } from "./report.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "./util.js";
@@ -132,7 +132,8 @@ export class Map {
 		if (options.interactive === false) unsupported(self, "option interactive: false", "cosmetic");
 		if (options.renderWorldCopies === false) unsupported(self, "option renderWorldCopies: false (the globe has no world copies)", "cosmetic");
 		const o = {
-			target: container, view: viewOf(st.init), zoomScale: "maplibre",
+			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
+			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
 			night: false, sky: false, coastline: false, terrain: false, chips: false, countryTip: false, persistView: false,
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
