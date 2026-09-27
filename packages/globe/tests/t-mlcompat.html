@@ -261,7 +261,8 @@ try {
 		});
 		// ── hillshade の層（MapLibre の 2D の陰影・3 巡目）＝raster-dem（試料の円錐）から陰影の画像タイル。光は 335°（北北西）＝北西の斜面が明るく南東が暗い ──
 		await scene("hillshade-layer", async () => {
-			map.jumpTo({ center: [150.5, 30.5], zoom: 10.5, pitch: 0 }); await sleep(2500);
+			map.jumpTo({ center: [150.5, 30.5], zoom: 10.5, pitch: 0 });
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(300);   // 「前」の写しは基図が載ってから（固定 2.5 秒は並行負荷で早すぎた＝before の色が違って removed の比べが落ちる）
 			const before = await snap(map), pNW = P(150.45, 30.55), pSE = P(150.55, 30.45);
 			const lum = c => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
 			await map.addSource("hsd", { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 });
@@ -660,6 +661,22 @@ try {
 				const p1b = await untilN("p1", n => n >= 2), p2b = await placedOf("p2");
 				await drop("p1", "p2");
 				return [p2.length === 2 && p1.length === 0 && p1b.length === 2 && p2b.length === 2, `pad2: p2=${p2.length} p1=${p1.length} → pad0: p1=${p1b.length} p2=${p2b.length}`];
+			});
+			await vscene("symbol-text-font", async () => {   // text-font（段 2）＝"Noto Sans Bold"→ weight 700・"Noto Sans Italic"→ italic・family は先頭に据わり既定の束が後ろに続く。太字の箱は同じ文字の標準より広い
+				await sym("f1", { "text-font": ["Noto Sans Bold"] });
+				const a = (await untilN("f1", n => n > 0)).find(q => Math.abs(q.x - cx) < 40); await drop("f1");
+				await sym("f2", { "text-font": ["Noto Sans Italic", "Open Sans Regular"] });
+				const b = (await untilN("f2", n => n > 0)).find(q => Math.abs(q.x - cx) < 40); await drop("f2");
+				await sym("f3", {});
+				const c = (await untilN("f3", n => n > 0)).find(q => Math.abs(q.x - cx) < 40); await drop("f3");
+				const okA = !!a && /^700 16px "Noto Sans",/.test(a.font), okB = !!b && /^italic 16px "Noto Sans","Open Sans",/.test(b.font), okC = !!c && /^16px "Noto Sans JP"/.test(c.font);
+				return [okA && okB && okC && a.w >= c.w, `bold=${a?.font?.slice(0, 30)} w${a?.w?.toFixed(0)} · italic=${b?.font?.slice(0, 44)} · plain=${c?.font?.slice(0, 24)} w${c?.w?.toFixed(0)}`];
+			});
+			await vscene("add-font-face-api", async () => {   // Web フォントを差す口＝関数・無い URL は HTTP の理由で reject（投げっ放しにしない）・ArrayBuffer も受ける（壊れた束＝main の FontFace が reject）
+				let e1 = null, e2 = null;
+				try { await map.addFontFace("Nope Sans", "./fixtures/no-such-font.woff2"); } catch (e) { e1 = String(e?.message || e); }
+				try { await map.addFontFace("Broken Sans", new Uint8Array([1, 2, 3, 4]).buffer, { weight: "700" }); } catch (e) { e2 = String(e?.message || e); }
+				return [typeof map.addFontFace === "function" && /HTTP 404/.test(e1 || "") && !!e2, `404=${e1} broken=${(e2 || "").slice(0, 60)}`];
 			});
 			map.setLayoutProperty("vs", "visibility", "visible"); await sleep(400);
 		}

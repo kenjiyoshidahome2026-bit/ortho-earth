@@ -302,3 +302,8 @@
   - 結果（o20s・低い 28 例）：hit 771→**927**・rich-text 39→57・言語切替 37→49・cog 51→64・jump 20→31・fallback 31→45・locate 45→56。下がった段なし。
   - 近似（記録）：layout の式はタイルの z で評価（worker は地図の z を持たない）＝demotiles の text-transform stops [0 uppercase・2 none] が z2 の絵で uppercase になる（タイルが z1 の時）。`format` は文字を連結するだけ（区間ごとの font-scale／色は段 2 の書体と一緒に）。geojson の symbol（symbols-2d）は別経路のまま（同じ意味論・統合は残件）。
   - **結果（o21・全 139）**：hit **1765→2045／2418（73→85%）**・インク 1996/2175・0.6 未満 **14→10**・同じ絵 63（下がった例なし）。残りの低い例＝global-state（演算子）・stretchable image・geojson-line／buildings-in-3d（基図のアイコン＋POI＝段 3）・game-like-controls・nominatim。update-geojson-polygons の 5→0 は setData で動く例＝撮る時刻の差（文字が "5.0"→"Zoom: 5" に変わる）＝物差しの外。
+- **段 2（2026-09-28・claude/text-stage-2）＝書体**：`text-font`（フォントスタック名の列）を **CSS の family／weight／style へ写す**（`ortho-core/src/fontstack.js`＝末尾の語 Bold/Semibold/Light/Italic… を weight/style に・残りを family に・複数の名前は family の列・Condensed 等の幅の語は捨てる）。基図/vector（labels.js→labels2d）と geojson（symbols-core→symbols-2d）の両経路で据える。無い書体はブラウザが落とす＝末尾にエンジンの既定の束（Noto Sans JP…＝CJK の質）。ネイティブ層は従来の束のまま。
+  - **Web フォントを差す口**＝`map.addFontFace(family, source, descriptors)`（1.5.2〜）＝main（DOM）と render worker（注記・記号・集約の canvas＝`self.fonts`）の両方に同じ FontFace を載せる。URL は先に取れるか確かめて HTTP の理由で reject。`style.glyphs`（glyph PBF）は読まない（裁定 (b)）。
+  - 検定：`fontstack.mjs`（node）・t-mlcompat g=vector `symbol-text-font`（700／italic／family の順・太字は広い）・`add-font-face-api`。`__placed` は据えた font を返す。
+  - 見送り（記録）：`format` の区間ごとの text-font／font-scale（連結のまま）・text-font の名前の重複解決（"Noto Sans Regular" と "Noto Sans Bold" を同じ family の別 weight として同時に読む＝descriptors で載せれば効く）。
+  - 結果（o22s・低い 28 例＋Web フォントの例 3 本）：hit は段 1 と同じ（±1＝太字の幅の分）＝**書体は位置と有無の物差しを動かさない**（意図どおり：段 0 の裁定＝文字は形でなく位置と有無で測る）。style-labels-with-web-fonts／local-fonts／font-faces は 段 3 のまま。
