@@ -91,7 +91,8 @@ export function diffRuns(a, b, { tolColor = 24, tolCam = 1e-6 } = {}) {
 // （細い線に載った 5×5 の中央値は 1 点だけ外れ得る＝add-a-geojson-line 5/6 は目で見て同じ絵）。比べられる点が 30% 未満＝絵は比べない。問い合わせ ≥0.9
 // 問い合わせ ≥0.85：許し 0 で MapLibre と同じ式にしても、線の縁の 0.5px 未満の量子化（画面→タイル単位の丸め）で 1 割前後の点が食い違う
 // （fit-to-the-bounds 142/160・display-a-popup 121/160・change-a-layers-color 143/160＝0.89〜0.75・許しを 0.25/0.5 にすると余計な当たりが増えて悪化＝実測 2026-09-27）
-export const THRESH = { colorTol: 40, addedMin: 0.85, baseMin: 0.8, queryMin: 0.85, minComparable: 0.3, smallN: 6, smallMiss: 1 };
+export const THRESH = { colorTol: 40, addedMin: 0.85, baseMin: 0.8, queryMin: 0.85, minComparable: 0.3, smallN: 6, smallMiss: 1,
+	textMin: 0.6, textGate: false, textTol: 16, inkTol: 24, inkMin: 4 };   // 文字（段 0＝測るだけ・textGate:true で段 2 の条件に）：本物が置いた点の記号の hit 率・錨の周り ±24×±10px の差分画素
 // 一致率の判定（少ない標本の 1 点はずれを許す）
 export const passRatio = (ok, n, min, T = THRESH) => !n || ok / n >= min || (n <= T.smallN && n - ok <= T.smallMiss);
 const BAD_END = new Set(["no-map", "crash", "harness-error"]);
@@ -148,6 +149,40 @@ export function queryMatch(R, O) {
 	return { n, ok, extra, missing };
 }
 
+// 文字のインク（段 0）：文字あり／文字なしの写しの差分が、点（本物の記号の錨＝こちらの画面座標）の周りの箱にあるか。boxes＝[x,y]|null の列・戻り＝true/false/null の列
+export function inkHits(imgA, imgB, points, { hw = 24, hh = 10, tol = THRESH.inkTol, min = THRESH.inkMin } = {}) {
+	if (!imgA || !imgB || imgA.w !== imgB.w || imgA.h !== imgB.h) return points.map(() => null);   // decodePng の形＝{ w, h, rgba }
+	const W = imgA.w, H = imgA.h, a = imgA.rgba, b = imgB.rgba;
+	return points.map(p => {
+		if (!p) return null;
+		const x0 = Math.max(0, Math.round(p[0] - hw)), x1 = Math.min(W - 1, Math.round(p[0] + hw)), y0 = Math.max(0, Math.round(p[1] - hh)), y1 = Math.min(H - 1, Math.round(p[1] + hh));
+		let n = 0;
+		for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) { const i = (y * W + x) * 4; if (Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2]) > tol) { if (++n >= min) return true; } }
+		return false;
+	});
+}
+// 文字の突き合わせ（段 0）：本物が置いた点の記号（R.symbols・線/面は line に数えるだけ）を、こちらの画面へ写した位置（O.refSym）の近くに、
+// こちらが同じ層のラベル/記号（O.placed）を置いたか（hit）。こちらだけが置いた物（extra）・錨の周りのインク（O.ink）も数える。文字の中身は比べない（同じ地物＝同じ式）
+export function textMatch(R, O, T = THRESH) {
+	const out = { n: 0, hit: 0, extra: 0, placedN: 0, ink: 0, inkN: 0, line: 0, layers: {} };
+	const syms = (R?.symbols || []).filter(sy => !sy.error), placed = O?.placed || [], rs = O?.refSym || [], ink = O?.ink || [];
+	if (!syms.length) return out;
+	const W = O?.container?.W ?? Infinity, H = O?.container?.H ?? Infinity;
+	const used = new Set();
+	syms.forEach((sy, i) => {
+		if (sy.lng == null || sy.placement !== "point") { out.line++; return; }   // 線沿い・面の記号＝位置が無い（段 4 で測る）
+		const p = rs[i]; if (!p?.ok) return;   // こちらでは裏か画面の外
+		out.n++;
+		const L = out.layers[sy.layer] ??= { n: 0, hit: 0 }; L.n++;
+		let best = -1, bd = Infinity;
+		placed.forEach((q, k) => { if (used.has(k) || q.layer !== sy.layer) return; const d = Math.hypot(q.x - p.x, q.y - p.y); if (d <= Math.max(T.textTol, (q.w || 0) / 2 + (q.h || 0)) && d < bd) { bd = d; best = k; } });
+		if (best >= 0) { used.add(best); out.hit++; L.hit++; }
+		if (ink[i] != null) { out.inkN++; if (ink[i]) out.ink++; }
+	});
+	const layersR = new Set(syms.map(sy => sy.layer));
+	for (const [k, q] of placed.entries()) { if (q.x < 0 || q.y < 0 || q.x >= W || q.y >= H) continue; out.placedN++; if (!used.has(k) && layersR.has(q.layer)) out.extra++; }   // 本物にもある層で、こちらだけが置いた物
+	return out;
+}
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
 export function grade(R, O, T = THRESH) {
 	const out = { level: 0, refLevel: 0, reasons: [], blockers: [], unsupported: splitUnsupported(O?.unsupported) };
@@ -183,6 +218,8 @@ export function grade(R, O, T = THRESH) {
 		for (const t of q.missing) out.blockers.push(`query: missed ${t} hits`);
 		if (!q.extra.size && !q.missing.size) out.blockers.push("query answers differ");
 	}
+	const tx = out.text = textMatch(R, O, T);
+	if (T.textGate && tx.n >= 5 && tx.hit / tx.n < T.textMin) { why.push(`text ${tx.hit}/${tx.n}`); out.blockers.push("text: labels not placed where MapLibre placed them"); }
 	if ((R.markers?.length || 0) !== (O.markers?.length || 0)) { why.push(`markers ${R.markers?.length || 0}/${O.markers?.length || 0}`); out.blockers.push("markers differ"); }
 	if ((R.popups?.length || 0) !== (O.popups?.length || 0)) { why.push(`popups ${R.popups?.length || 0}/${O.popups?.length || 0}`); out.blockers.push("popups differ"); }
 	// MapLibre のメルカトルは「世界の高さが画面を満たす」までしかズームアウトしない（600px で z≈0.23・中心も緯度 0 へ寄る）。

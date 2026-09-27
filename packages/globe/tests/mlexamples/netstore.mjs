@@ -24,6 +24,8 @@ export const normUrl = url => {
 	try {
 		const u = new URL(url);
 		for (const [k, v] of [...u.searchParams]) if (k === "_t" || k === "nocache" || /^\d{10,13}$/.test(v)) u.searchParams.delete(k);
+		// 浮動小数の末尾の揺れ（WMS の bbox＝MapLibre がタイルから計算する m 単位の座標＝走るたびに最下位桁が変わる）＝小数 7 桁以上の数は 3 桁に丸めて鍵にする（r7 で 12 枚が外れた・2026-09-28）
+		for (const [k, v] of [...u.searchParams]) if (/\d\.\d{7,}/.test(v)) u.searchParams.set(k, v.replace(/-?\d+\.\d{7,}(?:e[-+]?\d+)?/g, m => (+m).toFixed(3)));
 		return u.toString();
 	} catch { return url; }
 };

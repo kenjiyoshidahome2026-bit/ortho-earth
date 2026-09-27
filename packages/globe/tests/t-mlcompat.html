@@ -479,6 +479,7 @@ try {
 				{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, filter: ["!=", ["get", "hide_3d"], true],   // MapLibre の例の filter（["!", ["get","hide_3d"]] は属性の無い地物で評価エラー＝偽＝MapLibre でも消える）
 					paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"], "fill-extrusion-base": ["get", "render_min_height"] } },
 				{ id: "x-road", type: "line", source: "extra", "source-layer": "road", filter: ["==", ["get", "class"], "minor"], paint: { "line-color": "#ff8800", "line-width": 6 } },
+				{ id: "poi-lbl", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, layout: { "text-field": ["get", "name"], "text-size": 14 } },   // 基図の symbol 層（labels.js の経路）＝minzoom 16（ML）＞この頁の z（ML 15.5）＝既定では出ない（下の symbol-layer-zoom-range が範囲を動かす）
 			],
 		};
 		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style, debugGlobals: true });   // debugGlobals＝window.__vtx（押し出しの中の数・手で覗く窓）
@@ -604,6 +605,22 @@ try {
 			await loaded("omt");
 			let n1 = 0; for (let k = 0; k < 8 && n1 <= n0 + 20; k++) { await sleep(1000); n1 = await labelInk(D.shop); }
 			return [n1 > n0 + 20, `ink before=${n0} after=${n1}`];
+		});
+		// symbol 層の zoom 域（layer.minzoom ≤ 地図の z < layer.maxzoom）＝基図の symbol 層（labels.js→labels2d の minZ/maxZ）と利用者の層（vtdraw の meta）の両方で、置いたラベル（__placed）が出たり消えたりする。
+		// 旧＝基図の symbol 層は zoom 域を見ていなかった（公式例の門 段 0：OpenFreeMap の label_state（minzoom 5）が z3 に 53 個出て city 名を押し出していた・2026-09-28）
+		await vscene("symbol-layer-zoom-range", async () => {
+			const cnt = async id => (await window.__placed()).filter(L => L.layer === id).length;
+			const until = async (id, pred) => { let n = -1; for (let k = 0; k < 20; k++) { await sleep(300); n = await cnt(id); if (pred(n)) break; } return n; };
+			map.setLayoutProperty("vs", "visibility", "none"); await sleep(600);        // 上の vs（同じ点・同じ文字）を伏せる＝居ると衝突で基図の poi-lbl が置けない（MapLibre も同じ・重ねは許さない）
+			const a0 = await cnt("poi-lbl");                                             // 基図の層：minzoom 16 ＞ z 15.5 ＝ 出ない
+			map.setLayerZoomRange("poi-lbl", 0, 24); const a1 = await until("poi-lbl", n => n > 0);   // 範囲に入れる＝出る
+			map.setLayerZoomRange("poi-lbl", 17, 24); const a2 = await until("poi-lbl", n => n === 0);  // 公開の口の z（エンジン z＝この頁は旗なし＝ML＋1）で 17 ＞ 16.5 ＝ 消える（style の minzoom 16 は ML の z＝エンジン 17 と同じ範囲）
+			map.setLayoutProperty("vs", "visibility", "visible");
+			const b0 = await until("vs", n => n > 0);                                   // 利用者の層（上の vs）：出ている
+			map.setLayerZoomRange("vs", 17, 24); const b1 = await until("vs", n => n === 0);     // z 15.5 ＜ 17 ＝ 消える
+			map.setLayerZoomRange("vs", 0, 24); const b2 = await until("vs", n => n > 0);       // 戻す
+			const dbg = await window.__placedDebug?.(), sl = map.getStyle().layers.find(L => L.id === "poi-lbl");
+			return [a0 === 0 && a1 > 0 && a2 === 0 && b0 > 0 && b1 === 0 && b2 > 0, `base poi-lbl ${a0}→${a1}→${a2} · user vs ${b0}→${b1}→${b2} dbg=${JSON.stringify(dbg)} style=${JSON.stringify(sl)}`];
 		});
 		await vscene("vector-query", async () => {
 			const a = await hitIds(D.park, "vf"), b = await hitIds(D.main, "vl"), c = await hitIds(D.cafe, "vc");
