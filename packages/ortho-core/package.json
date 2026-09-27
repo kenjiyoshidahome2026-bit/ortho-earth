@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "1.4.0",
+	"version": "1.5.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
@@ -23,6 +23,7 @@
 		"./viewurl": "./src/viewurl.js",
 		"./decode": "./src/decode.js",
 		"./expr": "./src/expr.js",
+		"./fidstyle": "./src/gl/gint/style.js",
 		"./color": "./src/color.js",
 		"./build": "./src/build.js",
 		"./tilelabels": "./src/labels.js",

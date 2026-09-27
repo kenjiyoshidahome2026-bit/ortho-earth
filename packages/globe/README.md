@@ -20,6 +20,8 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **Camera**: `jumpTo` / `easeTo` / `flyTo` / `fitBounds` / `cameraForBounds` / padding / `setMaxBounds`
 - **Layers**: external MapLibre `style.json` (`setStyle`), `setPaintProperty` / `setLayoutProperty` /
   `setFilter` / `moveLayer` / per-layer events, `queryRenderedFeatures`-equivalent
+- **Vectors**: Gint layers (`map.addGint`: topology, GPU picking, draping) and, for big GeoPBF / GeoParquet
+  files you only look at, column chunks (`map.addColumnar`: no topology pass, first frame after read + pack)
 - **3D**: extrusions, glTF/GLB models, any 3D Tiles tileset (`map.add3DTiles`), I3S (`map.addI3S`)
 - **Terrain**: built-in elevation, or your own `raster-dem` source (`map.setTerrain`)
 - **Analysis**: sun shadow / shadow-hours, viewshed, line of sight, profiles, measurement

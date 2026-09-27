@@ -124,7 +124,7 @@ const REGIONS = [].concat(opts.region || []).filter(Boolean);
 const REGIONLESS = !REGIONS.length;   // 地域の申告が一つも無い＝世界データだけで描く（地域の台帳も読まない）
 const hostHooks = { hover: [] };   // 地域パックが差す口（hover(x,y)→true＝処理した）＝拡張面（region.install が使う・S3）
 const hostDestroy = [];            // 地域パックの片付け（map.destroy が呼ぶ）
-// 本体の遅く生まれる持ち物（日影・gint の焼き・ラスタの提供側・parquet・標高の問い合わせの worker）の片付け（2026-09-25）。
+// 本体の遅く生まれる持ち物（日影・gint の焼き・ラスタの提供側・列チャンク層・標高の問い合わせの worker）の片付け（2026-09-25）。
 // destroy() より後ろで宣言される let/const を destroy から直に触ると、起動途中の destroy で TDZ に落ちる＝生まれた所で登録する
 const ownDestroy = [];
 const REGION_DTM = REGIONS.find(r => r.dtm)?.dtm ?? null;            // 裸地標高の申告（今は日本だけが持つ）
@@ -2071,7 +2071,7 @@ function destroy() {
 	for (const h of overlays.values()) h.el.remove();   // 同一フレームのオーバーレイ canvas（worker は上で terminate 済み）
 	overlays.clear();
 	meshMgr.terminate();                         // PLATEAU worker・デコーダ（main 所有）・見張りタイマー
-	for (const f of ownDestroy) { try { f(); } catch (e) { console.warn("[destroy]", e); } }     // 日影・gint の焼き・ラスタ・parquet・標高の worker
+	for (const f of ownDestroy) { try { f(); } catch (e) { console.warn("[destroy]", e); } }     // 日影・gint の焼き・ラスタ・列チャンク層・標高の worker
 	for (const f of hostDestroy) { try { f(); } catch (e) { console.warn("[region] destroy", e); } }   // 地域パックの片付け（e-Stat worker 等）
 	overlay.destroy();
 	// デバッグ手はこのインスタンスの閉包を掴んだまま＝GCの錨になるので窓から下ろす
@@ -2814,11 +2814,13 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 		try {
 			const name = decodeURIComponent(u.pathname.split("/").pop() || "") || "map.geopbf";
 			let pbf;
-			if (/\.(parquet|geoparquet)$/i.test(u.pathname)) {   // GeoParquet＝footer だけ読んで大きさで振り分け（Range 非対応 host は全量が既に手元＝従来経路）
-				const { openParquet } = await import("geopbf/parquet");
-				const pq = await openParquet(u.href);
-				if (pq.source.size > PARQUET_STREAM_BYTES && !pq.source.wholeFile) { await parquetView(u.href, name); pbf = { length: parquetCtl?.rows }; }
-				else pbf = await loadUserFile(new File([await pq.source.read(0, pq.source.size)], name));
+			if (/\.(parquet|geoparquet)$/i.test(u.pathname) && columnarOn(Infinity)) {   // GeoParquet＝列チャンク層が URL のまま開く（footer → 視野の row group だけ Range・#90）
+				pbf = await columnarView(u.href, name, { fit: !themeBootV, probe: columnarProbe(0) });
+				if (!pbf) {   // 規則が gint と言った（塗り分け）＝全量を取って従来の道（64MB まで）
+					const r = await fetch(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`);
+					if (+r.headers.get("content-length") > 64e6) throw new Error("too large for gint");
+					pbf = await loadUserFile(new File([await r.blob()], name), { fit: !themeBootV, gint: true });
+				}
 			} else {
 				const r = await fetch(u, { credentials: "omit" });
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
@@ -2837,23 +2839,40 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 		} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
 	})();
 }
-// GeoParquet の視野追従（部分読み）＝閾値を超えるファイルは全量変換せず、視野の row group だけ Range で読んで描く（本体は遅延chunk）。
-// 閾値以下は従来の全量経路（INTAKE geoparquet → fromGeoParquet → gint）。本人裁定 2026-09-20：8MB・属性は列のまま。
-const PARQUET_STREAM_BYTES = 8e6;
-let parquetCtl = null;
-ownDestroy.push(() => { parquetCtl?.destroy(); parquetCtl = null; });
-const parquetView = async (src, name) => {
-	annoCtl?.clear(); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null;
-	const m = await import("./gadgets/parquet-view.js");
+// 列チャンク層（@ortho-earth/columnar・#90）＝GeoPBF と GeoParquet を gint を通さず描く（読み→詰め替え→GPU 直行・最初の 1 枚が速い）。
+// GeoParquet は大きさに依らず常にこちら（旧 8MB の分かれ道は無し）。GeoPBF は大きさで自動＝COLUMNAR_BYTES を超えたら列チャンク層・以下は gint
+//（位相・識別の精度・ドレープ・編集はそのまま）。?columnar=1|0 で強制／opts.columnarBytes で閾値。編集ボタンは編集の時だけ gint（geoedit）へ載せ替える。
+// 本体（worker の読み手・オーバーレイ）は動的 import＝GeoParquet や大きな GeoPBF を受けた時だけ降りてくる（起動の束には 0 バイト）。
+// 段 0 の物差し（scripts/perf-columnar.mjs・headless SwiftShader・2026-09-27＝相対比較用）：最初の 1 枚まで gint→列チャンク
+//   20k 筆 1.5MB：457→75ms・60k 筆 4.4MB：1174→70ms・150k 筆 11MB：1257→98ms・100 万点 32MB：1307→255ms＝列チャンクは大きさに依らず 0.1 秒級。
+//   境目は 1.5MB より下。4MB は「gint の位相・ドレープ・精密な識別・編集を小さなファイルには残す」側の落とし所（本人裁定で動かす口＝opts.columnarBytes）
+const COLUMNAR_BYTES = opts.columnarBytes ?? 4e6;
+const columnarQ = () => new URLSearchParams(location.search).get("columnar");   // ?columnar=1＝常に列チャンク層／0＝常に gint
+const columnarOn = bytes => { const q = columnarQ(); return q === "1" ? true : q === "0" ? false : bytes > COLUMNAR_BYTES; };
+// 大きさの門を越えても「弧の共有が多い塗り分けデータ（admin1・行政地図）は gint」（本人 2026-09-27）＝読み手の走査が返す share（先頭チャンクの標本：
+// 別の feature に既に出た頂点の割合・1 feature あたりの頂点数）で決める。既定＝share.ratio ≥ 0.3 かつ 頂点数 ≥ 40（長い共有弧）かつ 64MB 以下なら gint。
+// opts.columnarRule(meta, bytes) → true＝列チャンク層 で差し替え可（meta.share が物差し）
+const columnarProbe = bytes => meta => columnarQ() === "1" ? true : opts.columnarRule ? !!opts.columnarRule(meta, bytes) : !(meta.share && meta.share.ratio >= 0.3 && meta.share.meanVertices >= 40 && bytes <= 64e6);
+let columnarCtl = null;
+ownDestroy.push(() => { columnarCtl?.remove(); columnarCtl = null; });
+const columnarView = async (src, name, o = {}) => {
+	annoCtl?.clear(); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null;
+	const m = await import("@ortho-earth/columnar");
 	const color = new URLSearchParams(location.search).get("color");   // ?color=<数値列>＝色分けの初期列（状況表示の select でも替えられる）
-	try { parquetCtl = await m.createParquetView(map, src, { name, color, signal: ac.signal }); }
-	catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝小さいファイルの経路（INTAKE geoparquet）と同じ文言で言い換える
-		console.error("[parquet] view failed", name, err);
+	try { columnarCtl = await m.createColumnarView(map, src, { name, color, signal: ac.signal, t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, perf: !!opts.perf || new URLSearchParams(location.search).get("perf") === "1", ...o }); }
+	catch (err) {   // 文面は gadget の t()（トーストへ）。zstd＝ブラウザに解凍器が無い時の言い換え
+		console.error("[columnar] view failed", name, err);
 		if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
 		throw err;
 	}
-	dbgHost.__parquet = parquetCtl;   // dev の検証窓（loaded/deferred/pq）
-	return { length: parquetCtl.rows };   // dropFile のトースト用（地物数の代わりに行数）
+	if (!columnarCtl) return null;   // probe（振り分けの規則）が断った＝呼び手が gint の道へ
+	dbgHost.__columnar = dbgHost.__parquet = columnarCtl;   // dev の検証窓（loaded/deferred/stats・旧名 __parquet も残す）
+	return { length: columnarCtl.rows, columnar: columnarCtl };   // dropFile のトースト用（地物数の代わりに行数）
+};
+// 公開の口（1.4.0〜）：map.addColumnar(src, opts) → 列チャンク層の手綱（setPaint/setFilter/setVisible/query/on/remove）。src＝URL・File・ArrayBuffer・GeoPBF
+map.addColumnar = async (src, o = {}) => {
+	const m = await import("@ortho-earth/columnar");
+	return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 };
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
@@ -3101,40 +3120,58 @@ const INTAKE = [
 		},
 	},
 	{
-		name: "geoparquet-view",   // 閾値を超える GeoParquet＝全量変換せず視野追従（gadgets/parquet-view.js・2026-09-20 Phase B）。File は slice で Range 同等
-		test: f => /\.(parquet|geoparquet)$/i.test(f.name) && f.size > PARQUET_STREAM_BYTES,
-		draw: async file => parquetView(file, file.name),
+		name: "geoparquet-columnar",   // GeoParquet＝大きさに依らず列チャンク層（@ortho-earth/columnar・#90）。File は slice で Range 同等。?columnar=0・ctx.gint・規則が gint（塗り分け）なら下の gint 経路へ
+		test: (f, ctx) => /\.(parquet|geoparquet)$/i.test(f.name) && !ctx?.gint && columnarOn(Infinity),
+		draw: async (file, ctx) => { const r = await columnarView(file, file.name, { fit: ctx?.fit !== false, probe: columnarProbe(file.size) }); return r ?? mainRoad(await parquetToGeopbf(file), ctx); },
 	},
 	{
-		name: "geoparquet",
+		name: "geopbf-columnar",   // 大きな GeoPBF（COLUMNAR_BYTES 超）＝列チャンク層（#90）。編集ボタン用に「今の図形」は素の GeoPBF のまま預ける（押した時だけ geoedit が gint へ）
+		test: (f, ctx) => /\.geopbf(\.gz)?$/i.test(f.name) && !ctx?.gint && columnarOn(f.size),
+		draw: async (file, ctx) => {
+			const buf = await file.arrayBuffer();
+			const r = await columnarView(buf.slice(0), file.name, { fit: ctx?.fit !== false, probe: columnarProbe(file.size) });
+			if (!r) return mainRoad(file, ctx);   // 規則が gint と言った（弧の共有が多い塗り分け）
+			editDocHook?.({ arrayBuffer: buf }, file.name, ctx?.persist);
+			return r;
+		},
+	},
+	{
+		name: "fgb-columnar",   // FlatGeobuf＝大きい時は列チャンク層（geopbf/fgb 経由の全量読み・#90 段 5）。以下は従来（geopbf の変換 → gint）
+		test: (f, ctx) => /\.fgb$/i.test(f.name) && !ctx?.gint && columnarOn(f.size),
+		draw: async (file, ctx) => { const r = await columnarView(file, file.name, { fit: ctx?.fit !== false, probe: columnarProbe(file.size) }); return r ?? mainRoad(file, ctx); },
+	},
+	{
+		name: "geoparquet",   // ?columnar=0・規則が gint の時＝従来の全量変換（fromGeoParquet → gint）
 		test: f => /\.(parquet|geoparquet)$/i.test(f.name),
 		// 本体は動的 import＝.parquet を受けた時だけチャンクが降りる（初期バンドルは不変・ガジェットの遅延ロードと同じ規律）。
 		// 内部圧縮は none/snappy/gzip を自前で読む。zstd はブラウザに実装が無い（DecompressionStream("zstd") は未実装）＝
 		// fzstd を注入して読む（2026-09-22）。それでも読めない時の素のエラーは読み手を惑わすので包み直す。
-		convert: async file => {
-			const [{ fromGeoParquet }, { setZstdDecoder }] = await Promise.all([import("geopbf/geoparquet"), import("geopbf/parquet")]);
-			setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));   // zstd の列＝fzstd（当たった時だけ読み込む・geopbf は依存ゼロのまま＝注入）
-			const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
-				if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
-				throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
-			});
-			const s = r.stats;
-			if (s?.skipped?.length) console.warn("[dropFile] parquet: skipped columns", s.skipped.map(k => `${k.name}(${k.reason})`).join(" "));
-			console.info(`[dropFile] parquet -> GeoPBF  ${s?.features ?? "?"} features, ${s?.vertices ?? "?"} vertices, ${s?.columns?.length ?? "?"} columns, CRS ${s?.crs ?? "?"}, writer ${s?.created || "?"}`);
-			return new File([r.pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
-		},
+		convert: file => parquetToGeopbf(file),
 	},
 ];
+// GeoParquet → GeoPBF の File（従来の全量変換・gint の道）＝INTAKE の geoparquet 行と、列チャンク層が「gint 向き」と言った時の合流に共用
+const parquetToGeopbf = async file => {
+	const [{ fromGeoParquet }, { setZstdDecoder }] = await Promise.all([import("geopbf/geoparquet"), import("geopbf/parquet")]);
+	setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));   // zstd の列＝fzstd（当たった時だけ読み込む・geopbf は依存ゼロのまま＝注入）
+	const r = await fromGeoParquet(new Uint8Array(await file.arrayBuffer())).catch(err => {
+		if (/zstd/i.test(err?.message || "")) throw new Error(tr()("zstd-compressed GeoParquet cannot be read in a browser (re-write it with gzip or snappy)."));
+		throw err;   // それ以外（CRS 不一致・幾何列なし等）は geopbf の文面が既に具体的＝そのまま上げてトーストへ
+	});
+	const s = r.stats;
+	if (s?.skipped?.length) console.warn("[dropFile] parquet: skipped columns", s.skipped.map(k => `${k.name}(${k.reason})`).join(" "));
+	console.info(`[dropFile] parquet -> GeoPBF  ${s?.features ?? "?"} features, ${s?.vertices ?? "?"} vertices, ${s?.columns?.length ?? "?"} columns, CRS ${s?.crs ?? "?"}, writer ${s?.created || "?"}`);
+	return new File([r.pbf.arrayBuffer], file.name.replace(/\.[^.]+$/, ".geopbf"));
+};
 
 // 落とされた/URL で渡された1件を載せる。表で振り分け→（変換行なら）GeoPBF 本道。
 // 本道＝geopbf(gint 焼き) → @スタイル付きなら anno（canvas2D 再生）／それ以外は gint スロット → bbox へ fit。
 // fit＝読んだ図形へ寄る（ドロップ/?g=）。編集から戻した図形・起動時の復元は寄らない（今の視点のまま置き換える）。
 // editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
 let editDocHook = null;
-const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
+const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等・gint:true＝列チャンク層を使わない）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
 	for (const fmt of INTAKE) {
-		if (!fmt.test(file)) continue;
-		if (fmt.draw) return fmt.draw(file, { fit, ...ctx });
+		if (!fmt.test(file, ctx)) continue;
+		if (fmt.draw) return fmt.draw(file, { fit, persist, ...ctx });
 		file = await fmt.convert(file, ctx);   // 変換行＝本道へ合流（以降の扱いは素の .geopbf と同一）
 		break;
 	}
@@ -4150,7 +4187,7 @@ const rasterDropFile = async (file, fallback = false) => {
 	}
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); parquetCtl?.destroy(); parquetCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）

@@ -43,12 +43,6 @@
 				"why": "凍結：DOM id #plateau-btn（利用者 CSS が当てる公開面）"
 			}
 		},
-		"packages/globe/src/gadgets/parquet-view.js": {
-			"cos35°": {
-				"n": 1,
-				"why": "負債（地域）：m/px 係数を東京の緯度 cos35° で固定。視野中心の cos(lat) に置き換える"
-			}
-		},
 		"packages/globe/src/gadgets/poiedit.js": {
 			"和文": {
 				"n": 51,
