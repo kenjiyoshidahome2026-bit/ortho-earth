@@ -5,12 +5,14 @@
 // 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size, api) / destroy()。依存ゼロ。
 
 let ctx = null, images = new Map(), layers = new Map(), tinted = new Map();
+let lastPlaced = [];   // 直近のフレームで置いた記号＝{ layer, text, icon, lon, lat, x, y, w, h }（公式例の門 段 0＝文字を測る材料。描画は変えない）
+export function placed() { return lastPlaced; }
 export function init(canvas) { ctx = canvas.getContext("2d"); }
 // data＝{ type:"image", name, bitmap, pixelRatio, sdf } | { type:"removeImage", name } | { type:"layer", id, items:[…], order } | { type:"removeLayer", id }
 export function message(d) {
 	if (d.type === "image") { images.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, sdf: !!d.sdf }); for (const k of [...tinted.keys()]) if (k.startsWith(d.name + "|")) tinted.delete(k); }
 	else if (d.type === "removeImage") images.delete(d.name);
-	else if (d.type === "layer") layers.set(d.id, { items: d.items, order: d.order ?? 0 });
+	else if (d.type === "layer") layers.set(d.id, { id: d.id, items: d.items, order: d.order ?? 0 });
 	else if (d.type === "removeLayer") layers.delete(d.id);
 }
 // SDF を色で焼く（縁 0.75・なめらか幅 0.1）
@@ -54,6 +56,7 @@ export function frame(cam, s, { w, h }, api) {
 	const dpr = api.dpr || 1, W = w / dpr, H = h / dpr;
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	const idx = makeIndex(), free = idx.free;   // 置いた箱（重なり判定＝格子）
+	const placedNow = [];
 	for (const L of [...layers.values()].sort((a, b) => a.order - b.order)) {
 		for (const it of L.items) {
 			const [x, y, f] = api.project(it.lon, it.lat);
@@ -99,6 +102,7 @@ export function frame(cam, s, { w, h }, api) {
 			if (ib && !it.iconOverlap && !free(ib)) continue;
 			if (ib && !it.iconIgnore) idx.push(ib);
 			if (tb && !it.textIgnore) idx.push(pad(tb, it.textPadding));
+			{ const b = tb || ib; placedNow.push({ layer: L.id, text: it.text || null, icon: it.icon || null, lon: it.lon, lat: it.lat, x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1] }); }
 			ctx.globalAlpha = it.opacity ?? 1;
 			if (ib) {
 				const src = im.sdf ? sdfTint(it.icon, im, it.color || "#000") : im.bm;
@@ -114,6 +118,7 @@ export function frame(cam, s, { w, h }, api) {
 		}
 	}
 	ctx.globalAlpha = 1;
+	lastPlaced = placedNow;
 	return false;
 }
 export function destroy() { ctx = null; images.clear(); layers.clear(); tinted.clear(); }

@@ -20,6 +20,9 @@ export function buildLabels({ layers, z, x, y }, style) {
 		const lo = L.layout || {};
 		if (lo["text-field"] == null) continue;                 // アイコンのみは M2
 		if ((lo["symbol-placement"] || "point") !== "point") continue;   // 線ラベルは M2
+		// 層の zoom 域（MapLibre の layer.minzoom ≤ 地図の z < layer.maxzoom）＝ラベルに style の z で焼き込み（minZ/maxZ）、描く側（labels2d の collide）が地図の z で裁く。
+		// タイルの z で裁くと粗いタイルの時に全滅する（demotiles の countries-label＝o16s で 46→0）。旧＝見ていなかった＝OpenFreeMap の label_state（minzoom 5）が z3 で 53 個出て city 名を押し出していた（2026-09-28）
+		const minZ = L.minzoom ?? null, maxZ = L.maxzoom != null ? L.maxzoom - 1e-6 : null;   // maxzoom は排他
 		// M1.2: 縦書き層も一旦「横書き」で描く（全ラベル可視化）。正しい縦書きは M2。
 		const src = layers[L["source-layer"]]; if (!src) continue;
 
@@ -40,7 +43,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const haloW = num(evalExpr(L.paint?.["text-halo-width"] ?? 0, ctx), 0);
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
-			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li });   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
+			out.push({ anchor: [lon, lat], text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ });   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 		}
 	}
 	return { labels: out, codepoints, font: M1_FONT };

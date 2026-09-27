@@ -25,7 +25,7 @@ export function buildReport({ rows, summary, ranking, thresh, refLabel, orthoLab
 <p class="muted">${esc(r.title)}</p>
 ${g.reasons.length ? `<ul class="why">${g.reasons.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 ${u.semantic.length || u.cosmetic.length ? `<p class="unsup">${u.semantic.map(x => `<code class="sem">${esc(x)}</code>`).join(" ")} ${u.cosmetic.map(x => `<code class="cos">${esc(x)}</code>`).join(" ")}</p>` : ""}
-${cm ? `<p class="muted">色：足した層 ${cm.added.ok}/${cm.added.n} · 基図 ${cm.base.ok}/${cm.base.n} · 比べられる点 ${cm.comparable}/${cm.total}${g.query ? ` · 問い合わせ ${g.query.ok}/${g.query.n}` : ""}</p>` : ""}
+${cm ? `<p class="muted">色：足した層 ${cm.added.ok}/${cm.added.n} · 基図 ${cm.base.ok}/${cm.base.n} · 比べられる点 ${cm.comparable}/${cm.total}${g.query ? ` · 問い合わせ ${g.query.ok}/${g.query.n}` : ""}${g.text?.n ? ` · 文字 ${g.text.hit}/${g.text.n}（インク ${g.text.ink}/${g.text.inkN}・こちらだけ ${g.text.extra}${g.text.line ? `・線沿い ${g.text.line}` : ""}）` : ""}</p>` : ""}
 <div class="pair">${img("ref", refLabel, r.R, cm?.marks)}${img("ortho", orthoLabel, r.O, cm?.marks)}</div>
 </article>`;
 	};
