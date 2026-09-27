@@ -110,6 +110,11 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const cols = Array(10).fill([100, 100, 100]); cols[8] = cols[9] = [250, 0, 0];
 	const pic = grade(R, rec({ colors: cols }));
 	ok("grade 足した層の色が違う＝2", pic.level === 2 && pic.blockers.includes("added layers look different"), JSON.stringify(pic.reasons));
+	const few = rec({ added: ["route"], probes: [...probes(8, [{ layer: "bg" }]), ...probes(5, [{ layer: "route" }])], colors: Array(13).fill([100, 100, 100]) });
+	const fewO = rec({ added: ["route"], probes: few.probes, colors: [...Array(12).fill([100, 100, 100]), [250, 0, 0]] });
+	ok("grade 足した層の標本が少ない時は 1 点のはずれを許す（4/5＝3）", grade(few, fewO).level === 3);
+	const fewO2 = rec({ added: ["route"], probes: few.probes, colors: [...Array(11).fill([100, 100, 100]), [250, 0, 0], [250, 0, 0]] });
+	ok("grade 2 点はずれは許さない（3/5＝2）", grade(few, fewO2).level === 2);
 	ok("grade 動く例は 2 まで（本物も 2）", grade(rec({ end: "animated" }), rec({ end: "animated" })).level === 2 && grade(rec({ end: "animated" }), rec()).refLevel === 2);
 	ok("grade MapLibre のズームの下限（世界の高さ）に本物が居る時はカメラを比べない", grade(rec({ container: { H: 600 }, camera: { lng: 0, lat: 0, zoom: Math.log2(600 / 512), bearing: 0, pitch: 0 } }), rec({ camera: { lng: 40, lat: 30, zoom: 0, bearing: 0, pitch: 0 } })).level === 3);
 	ok("grade 緯度の差のズームは許す（北緯 60°）", grade(rec({ camera: { lng: 0, lat: 60, zoom: 5, bearing: 0, pitch: 0 } }), rec({ camera: { lng: 0, lat: 60, zoom: 5.9, bearing: 0, pitch: 0 } })).level === 3);

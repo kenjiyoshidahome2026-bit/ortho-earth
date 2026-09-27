@@ -123,6 +123,9 @@ export async function createGlobe(opts = {}) {
 const ZOOM_SCALE = zoomScaleOf(opts);
 const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || location.hash)?.lat ?? 0) : 0;
 const STYLE_DZ = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
+// タイルの z は MapLibre と同じに（mercator）：カメラが緯度の分だけ寄っても、選ぶタイルの z は MapLibre の z のまま（MapLibre は floor(zoom) のタイルを引き伸ばす）＝
+// 分割の閾（画面 px）を 2^(dz−1) 倍する。基図（tiles.update）と vector source（vtextrude/vtdraw）の選びに掛ける。⚠これが無いと一段細かいタイルを選び、問い合わせの答え（地物の集合）が MapLibre と違う（o8 で 43→30）
+const TILE_BIAS = ZOOM_SCALE === "mercator" ? 2 ** (PUBLIC_DZ - ML_DZ) : 1;
 opts = bootOptsIn(opts, PUBLIC_DZ);
 const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
 requester.setTransform(opts.transformRequest);
@@ -1914,7 +1917,7 @@ function render() {
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
@@ -2515,7 +2518,7 @@ map.raster = {
 			const v = spec.video, isEl = typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement;
 			return (await videoGet()).add(id, { video: isEl ? v : null, urls: isEl ? null : v, corners: spec.corners, opacity: o.opacity ?? 1 });
 		}
-		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
+		const rec = { spec, opts: { tileBias: TILE_BIAS, ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };   // tileBias＝目盛り "mercator" で画像タイルの z も MapLibre と同じに
 		rasterReg.set(id, rec);
 		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
 		// 取得の前の手入れ（#37）：URL の型紙は worker が組む＝ヘッダ/credentials はソース単位で一度だけ決める。独自スキーム＝main が読み口で取って port で渡す
@@ -3583,7 +3586,7 @@ const vtxGet = async () => {
 	wPost({ type: "meshPort", port: ch.port2 }, [ch.port2]);
 	return vtxCtl = dbgHost.__vtx = m.createVTExtrude(map, {   // __vtx＝検証窓（debugGlobals の時だけ）
 		meshPort: ch.port1, requestDraw: () => { needsDraw = true; },
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey,
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey, tileBias: TILE_BIAS,
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean))] : []); needsDraw = true; },
 		meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 		hitEnv: () => extView().envOf(vtxGround),   // 当たり＝geojson の押し出しと同じ口（屋根と壁・奥行き＝clip の w・台帳 R23）
@@ -3633,7 +3636,7 @@ const vtdGet = async () => {
 	if (vtdCtl) return vtdCtl;
 	ownDestroy.push(() => vtdCtl?.destroy());   // 組み役・結合役の worker・リスナー（map.destroy）
 	return vtdCtl = dbgHost.__vtd = m.createVTDraw(map, {   // __vtd＝検証窓（debugGlobals の時だけ）
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; },
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS,
 		sendScene: (scene, transfer) => { wPost({ type: "set", cmd: "scene", data: scene, prop: "user" }, transfer); needsDraw = true; },
 		sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); needsDraw = true; },
 	});

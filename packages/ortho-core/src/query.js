@@ -59,7 +59,11 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				if (filter && !truthy(evalExpr(filter, { ...ctx, origin: filterOrigin }))) continue;
 				let tol = tolPx;
-				if (L.type === "line") { const lw = +evalExpr(L.paint?.["line-width"] ?? 1, ctx); tol += (lw > 0 ? lw : 1) / 2; }
+				if (L.type === "line") {   // MapLibre と同じ幅（getLineWidth）：隙間があれば 隙間＋2×幅・幅 0 の線は当たらない（旧＝0 を 1px と見て余計に当たった・2026-09-27）
+					const lw = +evalExpr(L.paint?.["line-width"] ?? 1, ctx) || 0, gw = +evalExpr(L.paint?.["line-gap-width"] ?? 0, ctx) || 0, w = gw > 0 ? gw + 2 * lw : lw;
+					if (w <= 0 && tolPx <= 0) continue;
+					tol += Math.max(0, w) / 2;
+				}
 				else if (L.type === "symbol" && f.type === "Point") tol += 8;
 				else if (L.type === "circle") { const r = +evalExpr(L.paint?.["circle-radius"] ?? 5, ctx), sw = +evalExpr(L.paint?.["circle-stroke-width"] ?? 0, ctx); tol += (r > 0 ? r : 0) + (sw > 0 ? sw : 0); }   // 円＝半径＋縁の中
 				if (!hit(f, L.type, ux0, uy0, ux1, uy1, tol / pxPerU, !!area.bbox)) continue;

@@ -20,7 +20,7 @@ const latZoom = o => {
 };
 export class Map extends shim.Map {
 	constructor(o = {}) {
-		super({ ...latZoom(o), ortho: { time: FIXED_TIME, ...o.ortho } });
+		super({ ...latZoom(o), ortho: { time: FIXED_TIME, debugGlobals: true, ...o.ortho } });   // debugGlobals＝切り分けの窓（__lastOrder 等）を検定の包みだけ開く
 		const i = X.maps.push(this) - 1;
 		for (const k of ["load", "style.load", "idle"]) this.on(k, () => X.ev.push([i, k, Math.round(performance.now())]));
 		this.on("error", e => X.errors.push([i, String(e?.error?.message || e?.error || e?.message || e)]));

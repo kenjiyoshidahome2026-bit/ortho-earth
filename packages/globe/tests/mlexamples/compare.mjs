@@ -87,7 +87,13 @@ export function diffRuns(a, b, { tolColor = 24, tolCam = 1e-6 } = {}) {
 
 // ── 段 4：本物（ref）とこちら（ortho）の突き合わせ＝段 0〜3 ──
 // 閾値の初期値（段 5 で本人が見比べ帳を見て決める）：色の許し（RGB の距離）・足した層の点／基図の点の一致率・問い合わせの一致率・比べられる点の下限
-export const THRESH = { colorTol: 40, addedMin: 0.85, baseMin: 0.8, queryMin: 0.9, minComparable: 0.3 };
+// 段 5 の目合わせ（2026-09-27・o7/o8 の見比べ帳で決めた）：色の許し 40・基図の点 ≥0.8・足した層の点 ≥0.85 ただし標本が少ない層（≤6 点）は 1 点のはずれを許す
+// （細い線に載った 5×5 の中央値は 1 点だけ外れ得る＝add-a-geojson-line 5/6 は目で見て同じ絵）。比べられる点が 30% 未満＝絵は比べない。問い合わせ ≥0.9
+// 問い合わせ ≥0.85：許し 0 で MapLibre と同じ式にしても、線の縁の 0.5px 未満の量子化（画面→タイル単位の丸め）で 1 割前後の点が食い違う
+// （fit-to-the-bounds 142/160・display-a-popup 121/160・change-a-layers-color 143/160＝0.89〜0.75・許しを 0.25/0.5 にすると余計な当たりが増えて悪化＝実測 2026-09-27）
+export const THRESH = { colorTol: 40, addedMin: 0.85, baseMin: 0.8, queryMin: 0.85, minComparable: 0.3, smallN: 6, smallMiss: 1 };
+// 一致率の判定（少ない標本の 1 点はずれを許す）
+export const passRatio = (ok, n, min, T = THRESH) => !n || ok / n >= min || (n <= T.smallN && n - ok <= T.smallMiss);
 const BAD_END = new Set(["no-map", "crash", "harness-error"]);
 const STILL_END = new Set(["stable"]);   // 絵を比べるのは両側とも止まって撮れた例だけ（animated/moving/timeout は段 2 まで）
 
@@ -192,16 +198,16 @@ export function grade(R, O, T = THRESH) {
 	const cm = out.color = colorMatch(R, O, T);
 	// 絵だけの一致（段 2 の答えに依らない副の数＝描く力そのもの）：両側とも止まって撮れ・比べられる点が足りて・色が閾値を越える
 	out.pictureOnly = STILL_END.has(R.end) && STILL_END.has(O.end) && cm.comparable >= T.minComparable * cm.total
-		&& (cm.added.n ? cm.added.ok / cm.added.n : 1) >= T.addedMin && (cm.base.n ? cm.base.ok / cm.base.n : 1) >= T.baseMin;
+		&& passRatio(cm.added.ok, cm.added.n, T.addedMin, T) && passRatio(cm.base.ok, cm.base.n, T.baseMin, T);
 	if (why.length) { out.reasons.push(...why); return out; }
 	out.level = 2;
 	// 段 3＝同じ絵
 	if (out.refLevel < 3 || !STILL_END.has(O.end)) { out.reasons.push(`picture not compared (${R.end}/${O.end})`); if (out.refLevel === 3) out.blockers.push(`picture never settled (${O.end})`); return out; }
 	if (cm.comparable < T.minComparable * cm.total) { out.reasons.push(`picture not comparable (${cm.comparable}/${cm.total} probes)`); out.level = Math.min(out.level, 2); out.refLevel = 2; return out; }
-	const ra = cm.added.n ? cm.added.ok / cm.added.n : 1, rb = cm.base.n ? cm.base.ok / cm.base.n : 1;
-	if (ra < T.addedMin) { out.reasons.push(`added layers ${cm.added.ok}/${cm.added.n}`); out.blockers.push("added layers look different"); }
-	if (rb < T.baseMin) { out.reasons.push(`basemap ${cm.base.ok}/${cm.base.n}`); out.blockers.push("basemap looks different"); }
-	if (ra >= T.addedMin && rb >= T.baseMin) out.level = 3;
+	const okA = passRatio(cm.added.ok, cm.added.n, T.addedMin, T), okB = passRatio(cm.base.ok, cm.base.n, T.baseMin, T);
+	if (!okA) { out.reasons.push(`added layers ${cm.added.ok}/${cm.added.n}`); out.blockers.push("added layers look different"); }
+	if (!okB) { out.reasons.push(`basemap ${cm.base.ok}/${cm.base.n}`); out.blockers.push("basemap looks different"); }
+	if (okA && okB) out.level = 3;
 	return out;
 }
 // 例外の文を束ねる（URL・数・引用の中身を伏せて同じ原因を 1 行に）
