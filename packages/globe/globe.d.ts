@@ -90,8 +90,11 @@ export interface OrthoJapanOptions {
 	 *  ガジェットの表示帯 zoom:[a,b] と zoomMin/zoomMax/maxZoom/minZoom/view の z・opts.zoomMax。
 	 *  換算しない＝文字列（URL hash・view・view.hash）・source の tile z（raster/vector/raster-dem・map.raster.add の spec）・map.cam・overlay の cam・台本（.scenes/playScenes/sceneTimeline）。
 	 *  緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ 込み）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。
+	 *  "mercator"（1.4.0〜）＝その緯度の差まで合わせる：dz＝1＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。数の zoom は全部この dz で往復＝
+	 *  style の式（線幅・出しズーム）は MapLibre の z で評価され、カメラだけ緯度の分だけ寄る・タイルの z も MapLibre と同じ（基図・vector・画像）＝同じ MapLibre のコードで同じ絵。
+	 *  φ0 から南北に離れるほど MapLibre との差が戻る（MapLibre は中心の移動に連れて縮尺が変わる・こちらは変えない）。MapLibre の口（src/maplibre）の既定。
 	 *  返る map は外側の顔（Proxy）＝素の map は map[RAW]（部品はエンジンの z で読む時にこちら） */
-	zoomScale?: "ortho" | "maplibre";
+	zoomScale?: "ortho" | "maplibre" | "mercator";
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
 	/** 星空劇場（恒星・惑星・月・星座）と太陽系圏。false＝丸ごと持たない（1.4.0〜・MapLibre の口の既定）。既定 true */

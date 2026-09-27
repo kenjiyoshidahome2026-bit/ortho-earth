@@ -7,7 +7,8 @@
 <script type="module">
 import { createGlobe, RAW } from "@ortho-earth/globe";
 const ZS = new URLSearchParams(location.search).get("zs") || "maplibre";
-const ML = ZS === "maplibre", D = ML ? 1 : 0;   // 公開の口の z ＝ エンジンの z − D
+// 公開の口の z ＝ エンジンの z − D。mercator＝1＋log2(sec φ0)（φ0＝起動の視点の緯度 35.5°＝1.0895・公式例の門 §8）
+const ML = ZS !== "ortho", D = ZS === "mercator" ? 1 + Math.log2(1 / Math.cos(35.5 * Math.PI / 180)) : ML ? 1 : 0;
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -15,7 +16,7 @@ const near = (a, b, e = 0.02) => Math.abs(a - b) <= e;
 const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
 const fc = fs => ({ type: "FeatureCollection", features: fs });
 try {
-	const map = await createGlobe({ target: "#map", view: "#8/35.5/137.2", chips: false, ...(ML ? { zoomScale: "maplibre" } : {}) });
+	const map = await createGlobe({ target: "#map", view: "#8/35.5/137.2", chips: false, ...(ML ? { zoomScale: ZS } : {}) });
 	await sleep(4000);
 	const raw = map[RAW] ?? map;
 	ok("rawKey", ML ? (raw !== map && typeof raw.getZoom === "function") : map[RAW] === undefined, ML ? "facade" : "raw");
@@ -28,7 +29,7 @@ try {
 	await map.flyTo(137.2, 35.5, map.getZoom());   // 混用（sats.js の形）＝位置引数の flyTo と getZoom が同じ目盛り
 	ok("flyToGetZoom", near(map.getZoom(), 9.5, 0.05), map.getZoom().toFixed(3));
 	const sp = map.once("settle"); map.jumpTo({ zoom: 9 }); const se = await sp;
-	ok("onceSettle", near(se.zoom, 9, 0.05) && se.hash.startsWith(`#${9 + D}`), `${se.zoom?.toFixed(2)} ${se.hash}`);
+	ok("onceSettle", near(se.zoom, 9, 0.05) && near(+se.hash.slice(1).split("/")[0], 9 + D, 0.011), `${se.zoom?.toFixed(2)} ${se.hash}`);   // hash はエンジンの z（小数 2 桁）
 	let moves = 0; const mv = () => moves++;
 	map.on("move", mv); map.jumpTo({ zoom: 9.2 }); await sleep(300);
 	const m1 = moves; map.off("move", mv); map.jumpTo({ zoom: 9 }); await sleep(300);
@@ -63,12 +64,12 @@ try {
 	map.jumpTo({ center: [136.03, 36.52], zoom: 8 }); await sleep(2000);
 	const [cx, cy] = map.projectLL(136.025, 36.52);
 	const fPub = (await map.queryRenderedFeatures([cx, cy])).find(f => f.expansionZoom != null), fRaw = (await raw.queryRenderedFeatures([cx, cy])).find(f => f.expansionZoom != null);
-	ok("expansionZoom", !!fPub && !!fRaw && fPub.expansionZoom === fRaw.expansionZoom - D, fPub ? `${fPub.expansionZoom}/${fRaw.expansionZoom}` : "no cluster hit");
+	ok("expansionZoom", !!fPub && !!fRaw && near(fPub.expansionZoom, fRaw.expansionZoom - D, 1e-6), fPub ? `${fPub.expansionZoom}/${fRaw.expansionZoom}` : "no cluster hit");
 	// raster の表示窓（spec の minZoom＝タイルの z は換算しない）
 	const tpl = new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}");
 	await map.raster.add("rw", { url: tpl, minZoom: 10, maxZoom: 10 }, { minZoom: 11 });
 	const ePub = map.raster.list().find(e => e.id === "rw"), eRaw = raw.raster.list().find(e => e.id === "rw");
-	ok("rasterWindow", ePub?.opts?.minZoom === 11 && eRaw?.opts?.minZoom === 11 + D && eRaw?.spec?.minZoom === 10, `${ePub?.opts?.minZoom}/${eRaw?.opts?.minZoom}`);
+	ok("rasterWindow", ePub?.opts?.minZoom === 11 && near(eRaw?.opts?.minZoom, 11 + D, 1e-6) && eRaw?.spec?.minZoom === 10, `${ePub?.opts?.minZoom}/${eRaw?.opts?.minZoom}`);
 	map.raster.remove("rw");
 	// 利用者のガジェットの this は顔
 	map.gadget("probe", function () { return this; });

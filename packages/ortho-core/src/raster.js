@@ -128,7 +128,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		// 可視集合そのものが予算を超えるなら一段粗く（tilePx を上げる＝分割を早く止める）：退避は「今描いている物」を触れない
 		// ので、可視集合を予算内に収めるのは選抜の責任（LOW_MEM 24MB＝写真 256²+mips≈350KB×68 枚）。層が複数なら分け合う。
 		const perTile = src.tileSize * src.tileSize * 4 * 4 / 3, share = BUDGET * 0.7 / Math.max(1, layers.size);
-		let tilePx = src.tileSize * 1.1, sel = null;   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）
+		let tilePx = src.tileSize * 1.1 * (L.tileBias || 1), sel = null;   // 256px タイル＝画面上 ≈282px を超えたら分割（bvmap 512px の 560 と同じ比率）。tileBias＝mercator の目盛り
 		for (let step = 0; step < 4; step++) {
 			sel = selectLOD(cam, W, H, { minZ: Math.max(0, src.minZoom), maxZ: src.maxZoom, tilePx, sticky: step ? null : L.sticky, groundR: opts?.groundR ?? 1 });
 			if (sel.length * perTile <= share) break;
@@ -256,6 +256,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			opacity: Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity)) : 1,
 			visible: opts.visible !== false,
 			hideFills: opts.hideFills !== undefined ? !!opts.hideFills : opts.order !== "over",   // 基図（under）は塗りを伏せる（裁定：線と注記は残す）
+			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias > 0 ? opts.tileBias : 1,   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
 			showMin: -Infinity, showMax: Infinity, cache: new Map(), queue: [], sticky: null, draws: [], dirty: true, camKey: "", selN: 0, warned: false,
 		};
 		layers.set(id, L);
