@@ -166,9 +166,10 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	function updateLayer(L, cam, W, H, opts) {
 		L.fresh = false;
 		const src = L.source, sel = selectFor(L, cam, W, H, opts);
-		const keep = new Set();
+		const keep = new Set(), pushed = new Set();   // pushed＝この巡で要求列に入れた鍵（祖先の連鎖と retry の拾い直しで二重に入れない）
 		const c = cam.center;
 		L.queue.length = 0;
+		const enqueue = (k, z, x, y, dist) => { if (pushed.has(k)) return; pushed.add(k); L.queue.push({ key: k, z, x, y, dist }); };
 		for (const t of sel) {
 			const k = keyOf(t.z, t.x, t.y);
 			keep.add(k);
@@ -180,7 +181,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			} else if (e.status === "retry") e.status = "queued";
 			e.seen = clock;
 			const [w, s, ea, n] = tileBounds(t.x, t.y, t.z), dist = Math.hypot((w + ea) / 2 - c[0], (s + n) / 2 - c[1]);
-			if (e.status === "queued") L.queue.push({ key: k, z: t.z, x: t.x, y: t.y, dist });
+			if (e.status === "queued") enqueue(k, t.z, t.x, t.y, dist);
 			else if (e.status === "empty") {
 				// 無い（404/索引外）＝v1 base.js と同じく祖先で埋める：連鎖の最初の「未知」の祖先を要求（ready/取得中に当たれば止まる）
 				let z = t.z, x = t.x, y = t.y;
@@ -191,16 +192,21 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 						const aq = { status: "queued", z, x, y, tex: null, bytes: 0, seen: clock, tries: 0 };
 						if (tileOutsideCoverage(x, y, z, src.bbox)) aq.status = "empty";
 						L.cache.set(ak, aq); keep.add(ak);
-						if (aq.status === "queued") L.queue.push({ key: ak, z, x, y, dist: dist + d });   // 同距離なら子を先に
+						if (aq.status === "queued") enqueue(ak, z, x, y, dist + d);   // 同距離なら子を先に
 						break;
 					}
+					// まだ取りに行っていない祖先（前の巡で queued にしたが並列の絞り＝移動中 2 本で取り残された・失敗して retry）＝要求列に戻す。
+					// 旧＝「empty でなければ break」で放置＝queue は巡ごとに空にするので二度と要求されず、未着が永遠に残り idle が来ない（2026-09-28・公式例の門で発見）
+					if (ae.status === "queued" || ae.status === "retry") { ae.status = "queued"; keep.add(ak); enqueue(ak, z, x, y, dist + d); break; }
 					if (ae.status !== "empty") break;
 				}
 			}
 		}
-		L.queue.sort((a, b) => a.dist - b.dist);
 		// 祖先（フォールバック候補）も「最近見えた」扱い＝LRU で先に消えて穴にならない
 		for (const t of sel) { let z = t.z, x = t.x, y = t.y; for (let d = 1; d <= MAX_UP && z > 0; d++) { z--; x >>= 1; y >>= 1; const e = L.cache.get(keyOf(z, x, y)); if (e) { e.seen = clock; keep.add(keyOf(z, x, y)); } } }
+		// 取得に失敗して retry になった祖先＝上の祖先の連鎖は「empty でない」所で止まるので、ここで拾って要求列へ戻す（旧＝放置＝穴が残り・未着 1 が永遠に消えず idle が来ない・2026-09-28）
+		for (const [k, e] of L.cache) if ((e.status === "retry" || e.status === "queued") && keep.has(k) && !pushed.has(k)) { e.status = "queued"; const [w, s_, ea, n] = tileBounds(e.x, e.y, e.z); enqueue(k, e.z, e.x, e.y, Math.hypot((w + ea) / 2 - c[0], (s_ + n) / 2 - c[1]) + 1); }
+		L.queue.sort((a, b) => a.dist - b.dist);
 		for (const [k, e] of L.cache) if (e.status === "loading" && !keep.has(k)) { e.ac?.abort(); }   // 視野外は fetch ごと中断（catch が cache から消す）
 		for (const [k, e] of L.cache) if (e.status === "queued" && !keep.has(k)) L.cache.delete(k);
 		pump();

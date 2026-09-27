@@ -156,6 +156,40 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	ok(st.layers[0].empty > 0 && st.layers[0].ready > 0, `stats: empty=${st.layers[0].empty} ready=${st.layers[0].ready}`);
 	ok(raster.bytes() > 0 && R.tex > 0 && R.mesh > 0, "bytes/textures/meshes accounted");
 	// set：visible=false → 描画リストから消える（テクスチャは保持）
+	// 6. 祖先の取得失敗（retry）＝選抜タイルは無い（null）・祖先 z−1 は 1 回だけ失敗して次は返る → 再要求されて未着 0・描画リストに祖先の部分 uv が載る
+	{
+		const ch3 = new MessageChannel(); let failed = 0, selZ = null;
+		ch3.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; selZ ??= q.z;   // 最初の要求＝選抜の z（要求列は選抜タイルが先）
+			if (q.z === selZ) return ch3.port1.postMessage({ id: q.id, bitmap: null });
+			if (q.z === selZ - 1 && !failed++) return ch3.port1.postMessage({ id: q.id, bitmap: null, error: "boom" });
+			ch3.port1.postMessage({ id: q.id, bitmap: { width: 256, height: 256 } }); };
+		ch3.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 9, bbox: null, name: "flaky" } });   // maxZoom 9＝z12 のカメラでも選抜は全部 z9（祖先 z8 は選抜に居ない＝純粋なフォールバック）
+		const raster3 = createRaster({ renderer: R, requestDraw: () => {}, post: () => {} });
+		await raster3.add("f", { port: ch3.port2 }, { order: "over" });
+		const cam3 = { ...cam, zoom: 12.3 };
+		const tick3 = async () => { raster3.update(cam3, 800, 600); await new Promise(r => setTimeout(r, 30)); };
+		for (let i = 0; i < 60; i++) await tick3();   // 約 1.8 秒＝失敗→400ms 後の retry→再要求→到着 を跨ぐ（未着 0 で止めると retry の前に抜けてしまう）
+		const st3 = raster3.stats().layers[0];
+		ok(failed >= 1, `ancestor failed once (${failed} selZ=${selZ})`);
+		ok(raster3.pending().total === 0, `pending: failed ancestor is re-queued and settles to 0 (${JSON.stringify(raster3.pending())} error=${st3.error})`);
+		ok(R.last && R.last.layers[0].draws.length > 0 && R.last.layers[0].draws.some(d => d.uvT[2] < 1), `draws include the recovered ancestor's partial uv (${R.last?.layers[0]?.draws.length ?? 0})`);
+		raster3.destroy();
+	}
+	// 7. 移動中の絞り（並列 2）で取り残された祖先＝次の巡で要求列に戻る（旧＝queued のまま放置＝未着が永遠に残る・inflight 0）
+	{
+		const ch4 = new MessageChannel(); let selZ = null;
+		ch4.port1.onmessage = ev => { const q = ev.data; if (q.abort) return; selZ ??= q.z;
+			setTimeout(() => ch4.port1.postMessage(q.z === selZ ? { id: q.id, bitmap: null } : { id: q.id, bitmap: { width: 256, height: 256 } }), 20); };   // 遅れて返る＝絞りが効く
+		ch4.port1.postMessage({ type: "info", info: { tileSize: 256, minZoom: 0, maxZoom: 8, bbox: null, name: "throttled" } });   // 選抜＝z8 の多数（祖先 z7 が何枚も居る＝取り残しが出る条件）
+		const raster4 = createRaster({ renderer: R, requestDraw: () => {}, post: () => {} });
+		await raster4.add("m", { port: ch4.port2 }, { order: "over" });
+		const cam4 = { ...cam, zoom: 9.3 };
+		for (let i = 0; i < 60; i++) { raster4.update(cam4, 800, 600, { moving: true }); await new Promise(r => setTimeout(r, 30)); }   // ずっと移動中＝並列 2 のまま
+		const st4 = raster4.stats().layers[0];
+		ok(raster4.pending().total === 0, `pending: ancestors left behind by the moving throttle are re-queued and settle to 0 (${JSON.stringify(raster4.pending())} loading=${st4.loading} inflight=${raster4.stats().inflight} selected=${st4.selected} empty=${st4.empty} ready=${st4.ready})`);
+		ok(R.last && R.last.layers[0].draws.length > 0, `draws present after throttled loading (${R.last?.layers[0]?.draws.length ?? 0})`);
+		raster4.destroy();
+	}
 	raster.set("t", { visible: false }); raster.update(cam, 800, 600);
 	ok(R.last === null, "visible:false → no draws");
 	ok(raster.pending().total === 0, "pending: hidden layer counts 0");

@@ -2077,10 +2077,14 @@ function frame() {
 // idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
 // 標高と建物と画像タイル層（raster/hillshade/image/video＝rasterPendTotal）の読み込みが無い・利用者の source が揃った、が 100ms 続いたら 1 回。忙しくなったら次の静けさでまた 1 回（MapLibre と同じ）。
 // 起動直後も（カメラを動かさなくても）来る＝settle（onMove の後だけ）とは別の合図
+const noVecBase = () => !!EXT && !EXT.split.vectorSource;   // 外来 style に vector の基図が無い（画像層だけ・空の style）＝基図の覆いは idle の条件にならない（覆う物が無い＝coverOk は永遠に false）
 let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
+// 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
+dbgHost.__idleWhy = () => ({ mapLoaded, moving, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
+	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
 function checkIdle(now) {
-	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && coverOk && !elevBusy && !meshMgr.visibleLoading().length && !rasterPendTotal
-		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id));
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
+		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
 	if (idleState === 1 && now - idleSince >= 100) {
@@ -3784,8 +3788,14 @@ map.removeSource = id => {
 	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
 };
 // 画像タイル層の source（raster/raster-dem→hillshade/image/video）＝その source を使う見えている層が、開く途中（mounting＝TileJSON/画像の取得・worker が開くまで）か未着（rasterPend）なら false
-const rasterSrcLoaded = sid => { for (const [lid, v] of mlLayers) if ((v.kind === "raster" || v.kind === "hillshade") && srcId(v.layer) === sid && mlVisible(v) && (v.mounting || rasterPend.get(lid) > 0)) return false; return true; };
-map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id)) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true) && rasterSrcLoaded(id);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
+const rasterSrcLoaded = sid => {
+	for (const [lid, v] of mlLayers) if ((v.kind === "raster" || v.kind === "hillshade") && srcId(v.layer) === sid && mlVisible(v) && (v.mounting || rasterPend.get(lid) > 0)) return false;
+	if (EXT) for (const lid of extExtras.raster) if (EXT.ms.layers.find(L => L.id === lid)?.source === sid && rasterPend.get(lid) > 0) return false;   // 外来 style の画像層（mountExtExtras）
+	return true;
+};
+// 外来 style の source（vector の基図・画像層・地形の raster-dem）も受ける＝画像層は mountExtExtras の途中（extExtras.mounting）と未着を見る
+const extSrcKnown = id => !!EXT?.ms.sources?.[id];
+map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id) || extSrcKnown(id)) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true) && rasterSrcLoaded(id) && !(extSrcKnown(id) && extExtras.mounting);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
@@ -3977,8 +3987,9 @@ map.getStyle = () => {
 	};
 };
 // 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
-const extExtras = { raster: [], layers: [], sources: [], offs: [] };
-const mountExtExtras = async ext => {
+const extExtras = { raster: [], layers: [], sources: [], offs: [], mounting: 0 };   // mounting＝振り分けの途中（isSourceLoaded / idle は待つ）
+const mountExtExtras = async ext => { extExtras.mounting++; try { return await mountExtExtrasRaw(ext); } finally { extExtras.mounting--; } };
+const mountExtExtrasRaw = async ext => {
 	const ms = ext.ms, baseIdx = ms.layers.findIndex(L => L.source === ext.split.vectorSource && L.type !== "background");
 	for (const L of ext.split.raster) {
 		// 画像層は基図の塗りの「上」にしか合成できない（地面アトラスで塗りの後に重ねる）。style で基図の塗りより前（下）に書かれた画像
