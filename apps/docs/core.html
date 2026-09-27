@@ -271,7 +271,9 @@ Gint's strengths cost a full pass before the first frame: shared arcs, ranks, de
 GeoParquet row groups, or a GeoPBF cut into spatial chunks, are packed in a worker straight into GPU arrays (unit-sphere xyz relative to a chunk origin,
 earcut triangles, 2–3 grid-snapped LODs) and drawn by a same-frame overlay. Attributes stay columns; paint and filter (the Gint vocabulary) are evaluated
 in the worker into the same fid table Gint uses, so recolouring never rebuilds geometry. A dropped <code>.parquet</code> always takes this road;
-a <code>.geopbf</code> does above <code>columnarBytes</code> (4 MB). Shared borders are drawn twice, fills do not follow the terrain, and editing hands the data back to Gint.
+a <code>.geopbf</code> or <code>.fgb</code> does above <code>columnarBytes</code> (4 MB) — unless the reader's first chunk looks like a choropleth with long shared arcs
+(<code>meta.share</code>: admin1, administrative maps), which Gint draws better and keeps. The layer drapes on the terrain per vertex and is hidden by the scene depth;
+shared borders are drawn twice, and editing hands the data back to Gint.
 </p>
 
 <!-- ──────────────────────────────────────────────────── -->

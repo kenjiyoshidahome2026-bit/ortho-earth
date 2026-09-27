@@ -4,6 +4,7 @@
 // 点だけのファイルは bbox 覆域列（＝点の座標）から直に（WKB を解かない）。zstd の列は fzstd を当たった時だけ注入。
 import { openParquet, setZstdDecoder } from "geopbf/parquet";
 import { flatBuilder, addWkb } from "../flat.js";
+import { shareStats } from "../share.js";
 
 setZstdDecoder(async u8 => (await import("fzstd")).decompress(u8));
 
@@ -35,12 +36,14 @@ export const GEOPARQUET_SOURCE = {
 			return { bbox: ok ? [s[cov.xmin].min, s[cov.ymin].min, s[cov.xmax].max, s[cov.ymax].max] : null, rows: rg.numRows, bytes: rg.bytes };
 		});
 		const pointOnly = g.types.length > 0 && g.types.every(x => x === "Point"), multiPt = g.types.some(x => x !== "Point");
-		const meta = { name: pq.keyValue["geopbf:name"] ?? name, rows: pq.numRows, chunks, columns: columns.map(c => ({ name: c.name, numeric: c.numeric })), range, bbox: g.bbox && g.bbox.length === 4 ? g.bbox : null, types: g.types, crs, precision: pq.keyValue["geopbf:precision"] ? +pq.keyValue["geopbf:precision"] : null, size: pq.source.size, etag: pq.source.etag, wholeFile: pq.source.wholeFile, kind: "geoparquet" };
+		const meta = { name: pq.keyValue["geopbf:name"] ?? name, rows: pq.numRows, chunks, columns: columns.map(c => ({ name: c.name, numeric: c.numeric })), range, bbox: g.bbox && g.bbox.length === 4 ? g.bbox : null, types: g.types, crs, precision: pq.keyValue["geopbf:precision"] ? +pq.keyValue["geopbf:precision"] : null, size: pq.source.size, etag: pq.source.etag, wholeFile: pq.source.wholeFile, kind: "geoparquet", share: null };
 		const attrsCache = new Map();
-		return {
+		let flat0 = null;
+		const reader = {
 			meta,
 			select(bbox) { return pq.select({ bbox }).groups; },
 			async readGeometry(gi) {
+				if (gi === 0 && flat0) { const f = flat0; flat0 = null; return f; }
 				const fb = flatBuilder(4096);
 				if (pointOnly && cov && !multiPt) {   // 点の bbox＝座標そのもの＝WKB を解かない
 					const m = await pq.readRowGroup(gi, { columns: [cov.xmin, cov.ymin] }), x = m.get(cov.xmin), y = m.get(cov.ymin);
@@ -76,5 +79,7 @@ export const GEOPARQUET_SOURCE = {
 			metrics: () => pq.source.metrics ?? null,
 			close() { attrsCache.clear(); },
 		};
+		if (chunks.length && !pointOnly) { flat0 = await reader.readGeometry(0); meta.share = shareStats(flat0); }   // 共有の物差し（振り分けの規則が見る）＝row group 0 を標本に（読んだ分は最初の readGeometry(0) で使う）
+		return reader;
 	},
 };

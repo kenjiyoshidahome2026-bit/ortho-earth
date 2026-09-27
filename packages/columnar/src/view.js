@@ -38,6 +38,7 @@ export async function createColumnarView(map, src, opts = {}) {
 	const hint = opts.source ?? (src && typeof src === "object" && src.arrayBuffer instanceof ArrayBuffer ? "geopbf" : null);   // GeoPBF オブジェクト＝名指し
 	try { ({ meta } = await rpc({ type: "open", src: wsrc, name, rAx, hint, chunkFeatures: opts.chunkFeatures, chunkVertices: opts.chunkVertices, lods: opts.lods, origin: opts.origin }, transfer)); }
 	catch (err) { worker.terminate(); throw err; }
+	if (opts.probe && !opts.probe(meta)) { worker.terminate(); return null; }   // 振り分けの規則（globe＝「弧の共有が多い塗り分けは gint」）＝この源はこの層で描かない
 	name = meta.name || name || "layer";
 	const total = meta.chunks.length, sizeBytes = meta.size || 0;
 	const numericCols = meta.columns.filter(c => c.numeric).map(c => c.name);
@@ -69,7 +70,7 @@ export async function createColumnarView(map, src, opts = {}) {
 
 	const drawUrl = opts.drawUrl ?? new URL("./draw-gl.js", import.meta.url).href;
 	const ovName = opts.overlayName ?? `columnar-${++seqView}`;
-	const ov = map.overlay(drawUrl, { name: ovName, opts: { perf: !!opts.perf } });
+	const ov = map.overlay(drawUrl, { name: ovName, opts: { perf: !!opts.perf, drape: opts.drape !== false, depth: opts.depth !== false, rAx } });   // drape＝地形に沿わせる（頂点の標高を worker の地形から）・depth＝シーンの深度で隠す（#47）
 	const stats = { frameMs: null, chunksDrawn: 0, errors: [] };
 	const probes = new Map(); let probeSeq = 0;   // pixels()（検定用）の待ち行列
 	ov.onmessage = d => {

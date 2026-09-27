@@ -115,6 +115,9 @@ export interface OrthoJapanOptions {
 	/** 落とした／?g= の .geopbf をこのバイト数を超えたら列チャンク層（addColumnar・gint を通さない）で描く（1.4.0〜・#90）。以下は gint（位相・ドレープ・編集）。
 	 *  既定 4e6。GeoParquet は大きさに依らず常に列チャンク層。URL の ?columnar=1|0 が勝つ */
 	columnarBytes?: number;
+	/** 大きさの門を越えた後の振り分け（#90）。true＝列チャンク層・false＝gint。省略＝「弧の共有が多い塗り分け（meta.share.ratio ≥ 0.3 かつ 1 地物 40 頂点以上・64MB 以下）は gint」
+	 *  meta.share＝読み手が先頭チャンクを標本に測る { ratio（別の地物に既に出た頂点の割合）, meanVertices, features, vertices } */
+	columnarRule?: (meta: ColumnarLayerHandle["meta"], bytes: number) => boolean;
 }
 
 /** addColumnar の層オプション（1.4.0〜・#90） */
@@ -144,13 +147,21 @@ export interface ColumnarLayerOptions {
 	lods?: number[];
 	/** frame の CPU ms を stats.frameMs に（計測用） */
 	perf?: boolean;
+	/** 地形に沿わせる（頂点ごとの標高を地形から引いて持ち上げる・傾けた時だけ・既定 true） */
+	drape?: boolean;
+	/** シーンの深度（地形・建物・メッシュ）の陰を捨てる（#47・既定 true・LOW_MEM では本体が深度を作らない＝効かない） */
+	depth?: boolean;
+	/** 源を開いた直後の振り分け（false を返すと層を作らず null を返す＝globe の columnarRule の実体） */
+	probe?: (meta: ColumnarLayerHandle["meta"]) => boolean;
 }
 /** addColumnar が返す層のハンドル＝GintLayerHandle の部分集合（同じ名前・同じ意味）。query は worker 往復＝Promise */
 export interface ColumnarLayerHandle {
 	readonly id: string;
 	/** 最初の視野の読み込みが終わった（true） */
 	readonly ready: Promise<boolean>;
-	readonly meta: { name: string; rows: number; source: string; chunks: Array<{ bbox: Bbox | null; rows: number; bytes: number }>; columns: Array<{ name: string; numeric: boolean }>; bbox: Bbox | null; types: string[]; size?: number };
+	readonly meta: { name: string; rows: number; source: string; chunks: Array<{ bbox: Bbox | null; rows: number; bytes: number }>; columns: Array<{ name: string; numeric: boolean }>; bbox: Bbox | null; types: string[]; size?: number;
+		/** 弧の共有の物差し（先頭チャンクの標本・点だけの源は null） */
+		share: { ratio: number; meanVertices: number; features: number; vertices: number } | null };
 	readonly rows: number; readonly loaded: number; readonly deferred: number; readonly cached: number; readonly pointOnly: boolean;
 	/** 最初のチャンクがオーバーレイへ渡るまで（open からの ms） */
 	readonly firstFrameMs: number;
@@ -750,7 +761,7 @@ export interface OrthoJapanMap {
 	/** 列チャンク層（1.4.0〜・#90）＝GeoPBF／GeoParquet を **gint を通さず** 描く（位相・Morton・VW を作らない＝最初の 1 枚が「読み＋詰め替え」だけ）。
 	 *  src＝GeoParquet の URL（footer → 視野の row group だけ Range）／File・GeoPBF の File／ArrayBuffer／geopbf() の戻り。本体は動的 import＝使わない頁には 0 バイト。
 	 *  失うもの＝共有境界は 2 回描く・重なった面は後勝ち・LOD は 2〜3 段・地形には沿わない（楕円体の上）。編集や位相が要る時は gint（addGint）へ */
-	addColumnar(src: string | File | Blob | ArrayBuffer | GeoPBF, opts?: ColumnarLayerOptions): Promise<ColumnarLayerHandle>;   // ⚠ zoomScale:"maplibre" でも paint の ["zoom"] はエンジン z（換算は未対応）
+	addColumnar(src: string | File | Blob | ArrayBuffer | GeoPBF, opts?: ColumnarLayerOptions): Promise<ColumnarLayerHandle | null>;   // null＝opts.probe が断った。⚠ zoomScale:"maplibre" でも paint の ["zoom"] はエンジン z（換算は未対応）
 	/** 層をまたぐ照会（手前の層から）＝いま見えている層だけ（setVisible・ズーム域）× 各層の filter。地球儀が自分で足す層（国の輪郭など）は含まない・interactive:false の層は含む。
 	 *  fid は層内の添字＝**必ず {layer, fid} の対で扱う**。layer:null＝単一スロットの層（applyGintData） */
 	queryAll(lngLat: LonLat): Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }>;
