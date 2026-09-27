@@ -148,13 +148,13 @@ export class Map {
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
 			if (options.bounds) eng.fitBounds(boundsArr(options.bounds), { ...options.fitBoundsOptions, animate: false });
 			await eng.once("load");
-			// 視点を options に書かない地図は style の根の center/zoom/bearing/pitch（MapLibre と同じ・style.json は MapLibre の z）
-			const sty = (() => { try { return eng.getStyle(); } catch { return null; } })(), cam = {};
-			if (options.center == null && sty?.center) cam.center = sty.center;
-			if (options.zoom == null && sty?.zoom != null) cam.zoom = sty.zoom;
-			if (options.bearing == null && sty?.bearing != null) cam.bearing = sty.bearing;
-			if (options.pitch == null && sty?.pitch != null) cam.pitch = sty.pitch;
-			if (Object.keys(cam).length && !options.bounds) eng.jumpTo(cam);
+			// 視点をコンストラクタで 1 つも変えていない地図だけ style の根の center/zoom/bearing/pitch（MapLibre 6.11.2 と同じ＝transform.unmodified の時だけ
+			// style.load で jumpTo・既定値と同じ値を書いたのは変えていない扱い・bounds は変えた扱い）。style.json は MapLibre の z
+			const c0 = options.center == null ? null : LngLat.convert(options.center);
+			const unmodified = !options.bounds && (c0 == null || (c0.lng === 0 && c0.lat === 0)) && !options.zoom && !options.bearing && !options.pitch;
+			const sty = unmodified ? (() => { try { return eng.getStyle(); } catch { return null; } })() : null;
+			const cam = Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => sty?.[k] != null).map(k => [k, sty[k]]));
+			if (Object.keys(cam).length) eng.jumpTo(cam);
 			st.loaded = true;
 			for (const f of st.queue.splice(0)) f();
 			emit(self, "styledata", { dataType: "style" }); emit(self, "data", { dataType: "style" });

@@ -10,9 +10,17 @@ import { engineOf, whenEngine } from "../../src/maplibre/map.js";
 const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [], added: [] });
 const FIXED_TIME = "2026-03-20T12:00:00Z";
 
+// 実験（?mllat=1・走らせ台の --mllat）＝起動の視点のズームに中心緯度の log2(sec φ) を足す＝MapLibre のメルカトル等価の縮尺に合わせたら何本上がるかを数えるだけ。
+// 製品の口（src/maplibre/）には入れない（z の目盛りの緯度の差は台帳 §4＝本人裁定の領分）。flyTo 等の途中の視点は直さない＝起動の絵だけの見積り
+const ML_LAT = new URLSearchParams(location.search).get("mllat") === "1";
+const latZoom = o => {
+	if (!ML_LAT || o.zoom == null || o.center == null) return o;
+	const lat = Array.isArray(o.center) ? o.center[1] : o.center.lat;
+	return { ...o, zoom: o.zoom + Math.log2(1 / Math.max(0.05, Math.cos(lat * Math.PI / 180))) };
+};
 export class Map extends shim.Map {
 	constructor(o = {}) {
-		super({ ...o, ortho: { time: FIXED_TIME, ...o.ortho } });
+		super({ ...latZoom(o), ortho: { time: FIXED_TIME, ...o.ortho } });
 		const i = X.maps.push(this) - 1;
 		for (const k of ["load", "style.load", "idle"]) this.on(k, () => X.ev.push([i, k, Math.round(performance.now())]));
 		this.on("error", e => X.errors.push([i, String(e?.error?.message || e?.error || e?.message || e)]));
