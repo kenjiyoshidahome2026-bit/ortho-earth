@@ -264,6 +264,16 @@ so every feature can be picked, highlighted and joined to a table.
 	<li><strong>Long edges bend with the terrain</strong>: in 3D, lines are subdivided on the GPU according to the terrain under them.</li>
 </ul>
 
+<h3 id="columnar">7.1 Column chunks — drawing without the topology pass</h3>
+<p>
+Gint's strengths cost a full pass before the first frame: shared arcs, ranks, degree anchors, a bake. For files you only want to <em>look at</em>,
+<code>map.addColumnar(src)</code> takes the other road (<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues/90">#90</a>):
+GeoParquet row groups, or a GeoPBF cut into spatial chunks, are packed in a worker straight into GPU arrays (unit-sphere xyz relative to a chunk origin,
+earcut triangles, 2–3 grid-snapped LODs) and drawn by a same-frame overlay. Attributes stay columns; paint and filter (the Gint vocabulary) are evaluated
+in the worker into the same fid table Gint uses, so recolouring never rebuilds geometry. A dropped <code>.parquet</code> always takes this road;
+a <code>.geopbf</code> does above <code>columnarBytes</code> (4 MB). Shared borders are drawn twice, fills do not follow the terrain, and editing hands the data back to Gint.
+</p>
+
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="mesh">8. 3D Meshes — Buildings, 3D Tiles, I3S, Models</h2>
 

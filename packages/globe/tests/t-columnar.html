@@ -1,0 +1,171 @@
+<!doctype html>
+<!-- 実描画の検分：列チャンク層（@ortho-earth/columnar・#90）＝GeoPBF と GeoParquet を gint を通さず描く。
+     g=same（既定）：同じデータ（面＝穴あり・線・点）を gint（map.addGint）と列チャンク層（map.addColumnar）で同じ paint で描き、
+       同じ標本点（面の内側・穴の中・線の上・点）の「当たり／外れ」が一致する。列チャンク層の画素は paint の色そのもの（premultiplied を戻して）。
+       setFilter で 1 枚だけ隠す・query が行を返す・setVisible・remove。GeoParquet（toGeoParquet → File）も同じ標本で同じ当たり。
+     g=perf：段 0 の物差し＝筆風の小さな面 N 枚（?n=・既定 20000）を同じ GeoPBF から gint と列チャンク層で載せ、最初の 1 枚までの時間・
+       オーバーレイの frame の CPU ms・JS ヒープを title に出す。判定＝列チャンク層の最初の 1 枚が gint より速い。
+     実時間（render worker が draw-gl.js を URL で import する＝仮想時間では解決しない）。GL2（verify:ui）と WebGPU（verify:webgpu）の両方で回す。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-columnar</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search), MODE = Q.get("g") || "same";
+const t = [], ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.76, LAT = 35.68;
+const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]];
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const { geopbf } = await import("geopbf");
+	const map = await createGlobe({ target: "#map", view: `#13/${LAT}/${LON}`, chips: false, persistView: false, mesh: false });
+	await new Promise(r => map.on("load", r));
+	await sleep(500);
+	const dpr = window.devicePixelRatio || 1;
+	const readShot = async () => { const img = await createImageBitmap(await map.gadget.shot().composite()); const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d"); g.drawImage(img, 0, 0); return { w: img.width, h: img.height, at: (x, y) => g.getImageData(Math.round(x), Math.round(y), 1, 1).data, k: img.width / 800 }; };
+	// オーバーレイの画素（readPixels＝下が先・premultiplied）→ 上が先の非 premultiplied
+	const readOv = async (h) => { const px = await h.pixels(); if (!px?.data) throw new Error("no pixels " + JSON.stringify(px)); return { w: px.w, h: px.h, k: px.w / 800, info: px.info, at: (x, y) => { const X = Math.round(x), Y = px.h - 1 - Math.round(y), i = (Y * px.w + X) * 4, a = px.data[i + 3]; return a ? [px.data[i] * 255 / a, px.data[i + 1] * 255 / a, px.data[i + 2] * 255 / a, a] : [0, 0, 0, 0]; } }; };
+	const PAINT = { "fill-color": "#ff0000", "fill-opacity": 1, "line-color": "#0000ff", "line-width": 3, "circle-color": "#00ff00", "circle-radius": 6 };
+	const isRed = c => c[3] > 200 && c[0] > 160 && c[1] < 110 && c[2] < 110, isBlue = c => c[3] > 200 && c[2] > 160 && c[0] < 110 && c[1] < 110, isGreen = c => c[3] > 200 && c[1] > 160 && c[0] < 110 && c[2] < 110;
+
+	if (MODE === "same") {
+		// ── 試料：面 12 枚（3 枚は穴あき）・線 4 本・点 6（z13 の画面＝約 0.14°×0.1°）
+		const feats = []; let id = 0;
+		const add = (geometry, props = {}) => feats.push({ type: "Feature", properties: { id: id++, ...props }, geometry });
+		const S = 0.006;
+		for (let i = 0; i < 12; i++) { const x = LON - 0.055 + (i % 6) * 0.018, y = LAT - 0.028 + Math.floor(i / 6) * 0.03; add({ type: "Polygon", coordinates: i % 4 === 0 ? [sq(x, y, S), sq(x + S * 0.35, y + S * 0.35, S * 0.3)] : [sq(x, y, S)] }, { kind: "poly", v: i }); }
+		for (let i = 0; i < 4; i++) { const y = LAT + 0.02 + i * 0.006; add({ type: "LineString", coordinates: [[LON - 0.05, y], [LON - 0.02, y + 0.002], [LON + 0.01, y]] }, { kind: "line", v: 100 + i }); }
+		for (let i = 0; i < 6; i++) add({ type: "Point", coordinates: [LON + 0.03 + (i % 3) * 0.012, LAT + 0.015 + Math.floor(i / 3) * 0.012] }, { kind: "pt", v: 200 + i });
+		const fc = { type: "FeatureCollection", features: feats };
+		const pbf = await geopbf(fc, { gint: true, name: "t/columnar" });
+		ok("decode", !!pbf?.unPackGint && pbf.length === feats.length, pbf?.length);
+		// 標本点（経緯度）と期待（色の種類）
+		const samples = [];
+		for (let i = 0; i < 12; i++) { const g = feats[i].geometry.coordinates; const x = g[0][0][0], y = g[0][0][1]; samples.push({ name: `poly${i}`, ll: [x + S * 0.15, y + S * 0.15], want: "red", row: i }); if (g[1]) samples.push({ name: `hole${i}`, ll: [x + S * 0.5, y + S * 0.5], want: "none" }); }
+		for (let i = 12; i < 16; i++) { const c = feats[i].geometry.coordinates; samples.push({ name: `line${i}`, ll: [(c[0][0] + c[1][0]) / 2, (c[0][1] + c[1][1]) / 2], want: "blue" }); }
+		for (let i = 16; i < 22; i++) samples.push({ name: `pt${i}`, ll: feats[i].geometry.coordinates, want: "green" });
+		samples.push({ name: "empty", ll: [LON + 0.06, LAT - 0.035], want: "none" });
+		const pr = map.makeProjector();
+		const classify = c => isRed(c) ? "red" : isBlue(c) ? "blue" : isGreen(c) ? "green" : "none";
+		const sampleAll = img => samples.map(s => { const [x, y] = pr(s.ll[0], s.ll[1]); return classify(img.at(x * img.k, y * img.k)); });
+
+		// ── A) gint
+		const hg = map.addGint(pbf, { order: 40, interactive: false });
+		await hg.ready; await hg.setPaint(PAINT); await sleep(1200);
+		const gintRes = sampleAll(await readShot());
+		hg.remove(); await sleep(400);
+		ok("gint.samples", gintRes.every((r, i) => r === samples[i].want), gintRes.map((r, i) => r === samples[i].want ? "" : `${samples[i].name}:${r}`).filter(Boolean).join(",") || "all match");
+
+		// ── B) 列チャンク層（GeoPBF）
+		const T0 = performance.now();
+		const hc = await map.addColumnar(pbf, { fit: false, paint: PAINT });
+		ok("columnar.open", !!hc && hc.meta.rows === feats.length && hc.meta.source === "geopbf", JSON.stringify({ rows: hc?.meta?.rows, chunks: hc?.meta?.chunks?.length, src: hc?.meta?.source }));
+		await hc.ready;
+		const first = await until(() => hc.loaded > 0 ? hc : null, 30000);
+		ok("columnar.loaded", !!first, `loaded=${hc.loaded} firstFrame=${hc.firstFrameMs?.toFixed?.(0)}ms total=${(performance.now() - T0).toFixed(0)}ms`);
+		await sleep(1500);
+		let img = await readOv(hc);
+		const colRes = sampleAll(img);
+		ok("columnar.samples", colRes.every((r, i) => r === samples[i].want), colRes.map((r, i) => r === samples[i].want ? "" : `${samples[i].name}:${r}`).filter(Boolean).join(",") || "all match");
+		ok("same as gint", colRes.every((r, i) => r === gintRes[i]));
+		// 色そのもの（premultiplied を戻して paint の値）
+		{ const [x, y] = pr(samples[0].ll[0], samples[0].ll[1]); const c = img.at(x * img.k, y * img.k); ok("fill color exact", Math.abs(c[0] - 255) <= 2 && c[1] <= 2 && c[2] <= 2 && c[3] === 255, c.map(v => Math.round(v)).join(",")); }
+		// ── query（worker の識別）
+		const P3 = samples.find(s => s.name === "poly3"), P0 = samples[0];
+		const q = await hc.query(P3.ll);
+		ok("query.polygon", q && q.row === 3 && q.properties?.kind === "poly" && q.properties?.id === 3, JSON.stringify(q && { row: q.row, id: q.properties?.id }));
+		const qh = await hc.query(samples.find(s => s.name === "hole0").ll);
+		ok("query.hole", !qh, JSON.stringify(qh && { row: qh.row }));
+		const qp = await hc.query(samples.find(s => s.name === "pt16").ll);
+		ok("query.point", qp && qp.properties?.kind === "pt", JSON.stringify(qp && qp.properties));
+		// ── setFilter：poly3 だけ隠す＝表の差し替えだけ（幾何はそのまま）
+		await hc.setFilter(["!=", ["get", "id"], 3]); await sleep(600);
+		img = await readOv(hc);
+		{ const [x, y] = pr(P3.ll[0], P3.ll[1]); const [x2, y2] = pr(P0.ll[0], P0.ll[1]); ok("setFilter", classify(img.at(x * img.k, y * img.k)) === "none" && classify(img.at(x2 * img.k, y2 * img.k)) === "red"); }
+		const qf = await hc.query(P3.ll);
+		ok("query.after-filter", qf && qf.row === 3, "query sees filtered rows (like gint layer.query)");
+		await hc.setFilter(null);
+		// ── setPaint：色替え＝表だけ
+		await hc.setPaint({ ...PAINT, "fill-color": "#00ff00" }); await sleep(600);
+		img = await readOv(hc);
+		{ const [x, y] = pr(samples[0].ll[0], samples[0].ll[1]); ok("setPaint", classify(img.at(x * img.k, y * img.k)) === "green"); }
+		await hc.setPaint(PAINT);
+		// ── setVisible
+		hc.setVisible(false); await sleep(500); img = await readOv(hc);
+		ok("setVisible(false)", sampleAll(img).every(r => r === "none"));
+		hc.setVisible(true); await sleep(500); img = await readOv(hc);
+		ok("setVisible(true)", sampleAll(img).every((r, i) => r === samples[i].want));
+		hc.remove();
+		ok("remove", !document.querySelector(`canvas[data-overlay="${hc.id}"]`));
+
+		// ── C) GeoParquet（toGeoParquet → File → 同じ標本）
+		const { toGeoParquet } = await import("geopbf/geoparquet");
+		const { buffer } = await toGeoParquet(pbf, { gpu: false, codec: "gzip", rowGroupSize: 8 });
+		const file = new File([buffer], "t.parquet");
+		const hp = await map.addColumnar(file, { fit: false, paint: PAINT });
+		ok("parquet.open", hp.meta.source === "geoparquet" && hp.meta.rows === feats.length && hp.meta.chunks.length === Math.ceil(feats.length / 8), JSON.stringify({ rows: hp.meta.rows, chunks: hp.meta.chunks.length }));
+		await hp.ready; await until(() => hp.loaded === hp.meta.chunks.length ? hp : null, 30000); await sleep(1200);
+		const pqImg = await readOv(hp), pqRes = sampleAll(pqImg);
+		{ const probe = []; for (const i of [12, 13, 14, 15]) { const cc = feats[i].geometry.coordinates; let pat = ""; for (let k = 0; k < 2; k++) for (const f of [0.1, 0.3, 0.5, 0.7, 0.9]) { const ll = [cc[k][0] + (cc[k + 1][0] - cc[k][0]) * f, cc[k][1] + (cc[k + 1][1] - cc[k][1]) * f], [x, y] = pr(ll[0], ll[1]); pat += isBlue(pqImg.at(x * pqImg.k, y * pqImg.k)) ? "#" : "."; } probe.push(`L${i}:${pat}`); }
+		  let blue = 0; for (let yy = 0; yy < pqImg.h; yy++) for (let xx = 0; xx < pqImg.w; xx += 4) if (isBlue(pqImg.at(xx, yy))) blue++;
+		  ok("parquet.line probe", true, probe.join(" ") + ` blue=${blue} errors=${JSON.stringify(hp.stats.errors)} info=${JSON.stringify(pqImg.info)}`); }
+		// 1 チャンク（row group 64）でも同じか
+		{ const { buffer: b1 } = await toGeoParquet(pbf, { gpu: false, codec: "gzip", rowGroupSize: 64 }); const h1 = await map.addColumnar(new File([b1], "t1.parquet"), { fit: false, paint: PAINT }); await h1.ready; await until(() => h1.loaded === 1 ? h1 : null, 30000); await sleep(1000); const im1 = await readOv(h1); const res1 = sampleAll(im1); ok("parquet.1chunk", res1.every((r, i) => r === samples[i].want), res1.map((r, i) => r === samples[i].want ? "" : `${samples[i].name}:${r}`).filter(Boolean).join(",") || "all match"); h1.remove(); }
+		const P5 = samples.find(s => s.name === "poly5"), H4 = samples.find(s => s.name === "hole4");
+		const qq = await hp.query(P5.ll);
+		ok("parquet.query", qq && qq.properties?.id === 5, JSON.stringify(qq && qq.properties));
+		const qh4 = await hp.query(H4.ll);
+		ok("parquet.query.hole", !qh4, JSON.stringify(qh4 && qh4.properties));
+		// 色分け（数値列）＝表だけ差し替え・幾何はそのまま（loaded の数が変わらない）
+		const before = hp.loaded; await hp.setColor("v"); await sleep(600);
+		ok("parquet.setColor", hp.color === "v" && hp.loaded === before);
+		hp.remove();
+	} else if (MODE === "perf") {
+		// ── 段 0 の物差し：筆風の小さな面 N 枚（8 角形）＝同じ GeoPBF のバイト列から gint と列チャンク層
+		const N = +Q.get("n") || 20000, KIND = Q.get("kind") || "parcels", side = Math.ceil(Math.sqrt(N)), step = KIND === "points" ? 0.0002 : 0.0008;
+		const feats = new Array(N);
+		for (let i = 0; i < N; i++) {
+			const cx = LON - side * step / 2 + (i % side) * step, cy = LAT - side * step / 2 + Math.floor(i / side) * step;
+			if (KIND === "points") { feats[i] = { type: "Feature", properties: { id: i, v: (i * 7919) % 1000 }, geometry: { type: "Point", coordinates: [cx, cy] } }; continue; }
+			const r = step * 0.42, ring = []; for (let k = 0; k < 8; k++) ring.push([cx + r * Math.cos(k * Math.PI / 4), cy + r * Math.sin(k * Math.PI / 4)]); ring.push(ring[0]);
+			feats[i] = { type: "Feature", properties: { id: i, v: (i * 7919) % 1000, name: "p" + i }, geometry: { type: "Polygon", coordinates: [ring] } };
+		}
+		const pbf0 = await geopbf({ type: "FeatureCollection", features: feats }, { gint: false, name: "perf" });
+		const buf = pbf0.arrayBuffer;
+		const heap = () => performance.memory ? Math.round(performance.memory.usedJSHeapSize / 1e6) : -1;
+		const H0 = heap();
+		// gint：geopbf(buffer, {gint:true})（GintBUF＝共有弧・VW・度アンカー）→ addGint → 焼き上がり
+		const tg0 = performance.now();
+		const pbf = await geopbf(buf.slice(0), { gint: true, name: "perf" });
+		const tg1 = performance.now();
+		const hg = map.addGint(pbf, { order: 40, interactive: false });
+		await hg.ready; await hg.setPaint(PAINT);
+		const tg2 = performance.now();
+		await sleep(800);
+		const Hg = heap();
+		hg.remove(); await sleep(500);
+		// 列チャンク層：同じバイト列 → 最初のチャンクがオーバーレイへ
+		const tc0 = performance.now();
+		const hc = await map.addColumnar(buf.slice(0), { fit: false, paint: PAINT, perf: true });
+		const tc1 = performance.now();
+		await until(() => hc.loaded > 0 ? hc : null, 60000);
+		const tc2 = tc1 + hc.firstFrameMs;   // open からの経過（view が計る＝ポーリングの粒度に依らない）
+		await until(() => hc.loaded === hc.meta.chunks.length && !hc.deferred ? hc : null, 120000);
+		const tc3 = performance.now();
+		// frame の CPU ms（オーバーレイ）＝描き直しを 40 回起こして平均を取る（描くのは dirty の時だけ）
+		for (let i = 0; i < 150 && hc.stats.frameMs == null; i++) { map.jumpTo({ center: [LON + (i % 2) * 1e-5, LAT] }); await sleep(100); }   // ソフトウェア GPU は 1 フレームが秒単位＝3 フレーム分は待つ
+		const Hc = heap();
+		const px = await Promise.race([hc.pixels(), sleep(30000).then(() => null)]);   // ソフトウェア GPU は 1 フレームが秒単位
+		let drawn = 0; if (px?.data) for (let i = 3; i < px.data.length; i += 4) if (px.data[i]) drawn++;
+		const L0 = [...hc.layers.values()][0];
+		const r = { n: N, kind: KIND, drawnPx: drawn, info: px?.info, errors: hc.stats.errors, chunk0: L0 && { ms: Math.round(L0.ms), read: Math.round(L0.msRead), build: Math.round(L0.msBuild) }, bytesMB: +(buf.byteLength / 1e6).toFixed(2), gintEncodeMs: Math.round(tg1 - tg0), gintFirstMs: Math.round(tg2 - tg0), colOpenMs: Math.round(tc1 - tc0), colFirstMs: Math.round(tc2 - tc0), colAllMs: Math.round(tc3 - tc0), chunks: hc.meta.chunks.length, loaded: hc.loaded, overlayFrameMs: hc.stats.frameMs == null ? null : +hc.stats.frameMs.toFixed(2), heapMB: { base: H0, gint: Hg, columnar: Hc } };
+		window.__perf = r;
+		console.log("[t-columnar perf]", JSON.stringify(r));
+		ok("columnar first frame < gint first frame", r.colFirstMs < r.gintFirstMs, JSON.stringify(r));
+		ok("all chunks loaded", hc.loaded === hc.meta.chunks.length && hc.meta.rows === N);
+		hc.remove();
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

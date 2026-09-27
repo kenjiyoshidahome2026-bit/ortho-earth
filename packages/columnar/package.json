@@ -1,0 +1,62 @@
+{
+	"name": "@ortho-earth/columnar",
+	"version": "0.1.0",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"description": "Column-chunk layer for @ortho-earth/globe: draws GeoPBF and GeoParquet without the Gint topology pass — spatial chunks (row groups) go worker → GPU as flat arrays, the first frame waits only for read + pack. Pluggable readers (GeoParquet with Range reads, in-memory GeoPBF).",
+	"main": "src/index.js",
+	"exports": {
+		".": "./src/index.js",
+		"./worker": "./src/worker.js",
+		"./draw": "./src/draw-gl.js",
+		"./chunk": "./src/chunk.js",
+		"./flat": "./src/flat.js",
+		"./style": "./src/style.js",
+		"./identify": "./src/identify.js",
+		"./sources": "./src/sources/registry.js",
+		"./sources/builtin": "./src/sources/builtin.js",
+		"./sources/geopbf": "./src/sources/geopbf.js",
+		"./sources/geoparquet": "./src/sources/geoparquet.js"
+	},
+	"imports": {
+		"#columnar-sources": "./src/sources/builtin.js"
+	},
+	"sideEffects": [
+		"./src/worker.js",
+		"./src/sources/builtin.js"
+	],
+	"scripts": {
+		"test": "node tests/t-columnar.mjs"
+	},
+	"dependencies": {
+		"earcut": "^3.2.3",
+		"fzstd": "^0.1.1",
+		"geopbf": "^1.16.0"
+	},
+	"peerDependencies": {
+		"@ortho-earth/core": "^1.4.0"
+	},
+	"devDependencies": {
+		"@ortho-earth/core": "*"
+	},
+	"keywords": [
+		"geoparquet",
+		"geopbf",
+		"parquet",
+		"columnar",
+		"globe",
+		"webgl",
+		"ortho-earth"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git",
+		"directory": "packages/columnar"
+	},
+	"homepage": "https://www.ortho-earth.com/",
+	"files": [
+		"src",
+		"LICENSE",
+		"README.md"
+	]
+}
