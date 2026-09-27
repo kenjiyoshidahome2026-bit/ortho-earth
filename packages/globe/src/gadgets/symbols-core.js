@@ -1,5 +1,5 @@
 // 記号の層の評価（MapLibre の symbol 層の layout/paint → 描く記号の列）。DOM なし＝検定 t-symbols が直接読む。
-import { evalExpr, truthy, originOfLayer } from "@ortho-earth/core";
+import { evalExpr, truthy, originOfLayer, parseFontStack, fontCss } from "@ortho-earth/core";
 import { evalColor } from "./model.js";
 
 const css = q => q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${q[3] ?? 1})` : null;
@@ -63,6 +63,7 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 			textOverlap: !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false), textPadding: +ev(Ly["text-padding"], 2),   // text-padding＝MapLibre の既定 2px（文字の周りの空き・重なり判定だけに効く）
 			textColor: css(evalColor(Pt["text-color"] ?? "#000000", ctx)), haloColor: css(evalColor(Pt["text-halo-color"] ?? "rgba(0,0,0,0)", ctx)), haloWidth: +ev(Pt["text-halo-width"], 0),
 			sort: +ev(Ly["symbol-sort-key"], 0) || 0, props,
+			fnt: Ly["text-font"] != null ? parseFontStack(ev(Ly["text-font"], null)) : null,   // 書体（段 2）＝text-font → family/weight/style（symbols-2d が fontCss で据える）
 			horizon: +layer.horizon || 0,   // 拡張（MapLibre に無い）：球の縁の近くは出さない＝視線と地面のなす角の余弦の下限（0＝従来どおり全部）
 			// #39：text-variable-anchor（候補を順に試す・text-radial-offset か text-offset の大きさで離す）・icon-text-fit（記号を文字の箱へ伸ばす）
 			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,
