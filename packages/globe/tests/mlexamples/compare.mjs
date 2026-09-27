@@ -152,7 +152,11 @@ export function grade(R, O, T = THRESH) {
 	if (lr.length !== lo.length || lr.some((v, i) => v !== lo[i])) {
 		const miss = lr.filter(id => !lo.includes(id)), extra = lo.filter(id => !lr.includes(id));
 		why.push(`layers (missing ${miss.length}: ${miss.slice(0, 4).join(",")}${miss.length > 4 ? "…" : ""} / extra ${extra.length}${!miss.length && !extra.length ? " / order" : ""})`);
-		out.blockers.push("layers differ");
+		// 順位表は抜けた層の型ごと（getStyle が描かない層を落とす＝型で原因が分かれる）・足された層・順番
+		const typeOf = id => (R.layers.find(l => l.id === id)?.type ?? "?");
+		for (const t of new Set(miss.map(typeOf))) out.blockers.push(`getStyle lacks ${t} layers`);
+		if (extra.length) out.blockers.push("getStyle has extra layers");
+		if (!miss.length && !extra.length) out.blockers.push("layer order differs");
 	}
 	const q = out.query = queryMatch(R, O);
 	if (q.n && q.ok / q.n < T.queryMin) { why.push(`query ${q.ok}/${q.n}`); out.blockers.push("query answers differ"); }

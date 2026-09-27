@@ -19,7 +19,14 @@ const MIME = { ".json": "application/json", ".geojson": "application/json", ".pn
 
 // 録る応答＝成功（2xx）・転送（3xx）・決まった断り（401/403＝鍵が要る・404＝タイルが無い）。429・5xx は一時の都合＝録らない
 export const KEEP = status => (status >= 200 && status < 400) || status === 401 || status === 403 || status === 404;
-export const normUrl = url => { try { const u = new URL(url); u.searchParams.delete("_t"); return u.toString(); } catch { return url; } };
+// 走るたびに変わる取得の印（native-bucket の _t=・エンジンの v=<時刻>・nocache=<時刻>）は鍵から外す＝値が時刻の形（10〜13 桁の数）か名前が _t/nocache
+export const normUrl = url => {
+	try {
+		const u = new URL(url);
+		for (const [k, v] of [...u.searchParams]) if (k === "_t" || k === "nocache" || /^\d{10,13}$/.test(v)) u.searchParams.delete(k);
+		return u.toString();
+	} catch { return url; }
+};
 export const keyOf = (method, url, range) => crypto.createHash("sha1").update(`${method} ${normUrl(url)} ${range || ""}`).digest("hex");
 
 const header = (h, name) => { for (const [k, v] of Object.entries(h || {})) if (k.toLowerCase() === name) return v; return undefined; };

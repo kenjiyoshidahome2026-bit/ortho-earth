@@ -58,6 +58,8 @@ export interface OrthoJapanOptions {
 	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
 	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.4.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
+	/** 世界の海岸線（Natural Earth admin0 の線・z<9・どの基図の上にも重ねる）。false＝持たない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	coastline?: boolean;
 	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
 	 *  SDK の orthoJapan() は URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
 	 *  基図・裸地標高・ラスタ台帳・出典・戻り先・地名検索・施設・鉄道が丸ごと来ない＝世界データだけで描く「globe 仕様」。
