@@ -20,7 +20,7 @@ const ALL_PAGES = ["t-shadow", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", 
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
-	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao",
+	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
 	"t-mlcompat?g=layers", "t-mlcompat?g=vector", "t-mlcompat?g=extrude"];   // MapLibre 互換の爪車（fill/line/circle の表・pass の重ね順）を WebGPU でも（台帳 R7）   // t-atmo＝大気散乱（#46 段 1）・t-pbr＝PBR と環境光（段 2）・t-ao＝AO（段 3）   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
@@ -31,7 +31,7 @@ const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
 	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") ? 240 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
-	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-meshmask", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-elevcell"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
+	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-meshmask", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-elevcell"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,
 });
 stop();

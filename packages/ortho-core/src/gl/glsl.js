@@ -567,7 +567,26 @@ void main() {
 
 export const GLOBE_FS = `#version 300 es
 precision highp float;
-uniform mat4 u_invMvp;
+// 全画面レイキャスト（#65・2026-09-27）：視線の基底は CPU f64（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h)（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+uniform vec3 u_rayF, u_rayX, u_rayY, u_rayE;
+uniform float u_rayC;
+uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
+uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
+vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
+float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+// δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
+vec2 deltaLL(vec3 dl, float ell) {
+	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
 uniform vec4 u_land;
 uniform vec4 u_atmo;   // 大気色 rgb + 強さ(a)
 // 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
@@ -594,8 +613,7 @@ float elevFar(vec2 ll) {
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
-float elevAt(vec2 ll) {
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {
@@ -604,23 +622,22 @@ float elevAt(vec2 ll) {
 	}
 	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
+float elevAt(vec2 ll) { return elevUV((ll - u_elevBounds.xy) / u_elevBounds.zw, ll); }
 ${WORLD_HYPSO}
 ${COG}
 ${GND}
-uniform vec4 u_gndBbox0;   // 地面アトラス（前景/近/中/遠）[west,south,spanLon,spanLat] 絶対deg（球の床）
-uniform vec4 u_gndBbox1;
-uniform vec4 u_gndBbox2;
-uniform vec4 u_gndBbox3;
-uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
+uniform vec4 u_cogOff;    // 球の床の COG uv 係数（f64 前計算・#65）＝(原点の uv, 1/span)：uv＝off＋δll·inv（旧＝絶対経緯度→uv を廃止）
+uniform vec4 u_gndOff0;   // 地面アトラス（前景/近/中/遠）＝同形
+uniform vec4 u_gndOff1;
+uniform vec4 u_gndOff2;
+uniform vec4 u_gndOff3;
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
-	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
-	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
-	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
-	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
 	float aDotd = bb * 0.5, tstar = -aDotd / aa;
-	float t = disc >= 0.0 ? (-bb - sqrt(disc)) / (2.0 * aa) : -1.0;
+	float t = sphereT(bb, disc);   // 近い根を桁落ちなしで（disc<0 か後ろ向き＝−1）
 	if (t < 0.0) {                                 // 前方に球ヒット無し＝空：地平の霞から宇宙へ連続に減衰
 		// ここには2種の光線が来る：(a)球ミス(disc<0)、(b)延長線は背後の地球に当たるが前方は素通り(t<0)。
 		// 旧実装は両方 discard 系＝高チルト・低高度で「見上げ境界」「背後ヒット円錐」が画面を横切り、
@@ -639,12 +656,11 @@ void main() {
 		fragColor = vec4(mix(u_atmo.rgb, limbCol, g) * a, a);   // premultiplied
 		return;
 	}
-	vec3 P = A + t * d;                            // 面上の点（単位球＝法線）
+	vec3 P = A + t * d;                            // 面上の点（単位球＝法線）＝絶対（霞・粗い用途）
+	vec2 dll = deltaLL(u_rayEO + t * d, u_ell);   // 原点相対の経緯度差（deg・測地）＝uv の正本（#65）
+	vec2 ll = u_rayLL.xy + dll;                    // 絶対経緯度（粗くて可＝ハイプソ・気候）
 	vec3 base = u_land.rgb;
 	if (u_whK > 0.001 && u_hasElev > 0.5) {        // 全球ハイプソ：標高→配色＋陰影（NEラスタの計算版）
-		float bl = asin(clamp(P.y, -1.0, 1.0));    // β(rad)
-		float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;   // β→測地（CONTOUR_FS と同式）
-		vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);
 		float e = elevAt(ll);
 		// hillshade：1テクセル差分・NW光（TERRAIN_FS と同族）。R90 テクセル≈20km なので係数は桁で弱める
 		float dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
@@ -658,18 +674,11 @@ void main() {
 		vec3 hyp = mix(u_seaC, worldHypso(e, ll) * shade, landK);
 		base = mix(base, hyp, u_whK);
 	}
-	if (u_hasCog > 0.5) {   // ユーザ COG＝基球でも羽織る（地形パスは低地 t フェードで穴が開くためここが床）。
-		// ここだけ絶対経緯度→uv（u_cogBbox）＝低ズーム専用の床で m 級ノイズは尺度的に不可視・深ズームは塗り(v_cuv)が覆う
-		float cb = asin(clamp(P.y, -1.0, 1.0));
-		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
-		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
-		base = cogTexMix(base, (cll - u_cogBbox.xy) / u_cogBbox.zw);
+	if (u_hasCog > 0.5) {   // ユーザ COG＝基球でも羽織る（地形パスは低地 t フェードで穴が開くためここが床）。uv＝原点相対の係数（#65）
+		base = cogTexMix(base, u_cogOff.xy + dll * u_cogOff.zw);
 	}
-	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。絶対経緯度→uv
-		float cb = asin(clamp(P.y, -1.0, 1.0));
-		float clat = cb * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * cb) + 0.0000014098905530233192 * sin(4.0 * cb)) * R2D;
-		vec2 cll = vec2(atan(P.z, P.x) * R2D, clat);
-		base = gndMix(base, (cll - u_gndBbox0.xy) / u_gndBbox0.zw, (cll - u_gndBbox1.xy) / u_gndBbox1.zw, (cll - u_gndBbox2.xy) / u_gndBbox2.zw, (cll - u_gndBbox3.xy) / u_gndBbox3.zw);
+	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
+		base = gndMix(base, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
@@ -685,7 +694,26 @@ void main() {
 // レイ→球→測地緯度→elevAt→shade は GLOBE_FS と同式（色が画素単位で厳密に一致することが本体）。
 export const WDEPR_FS = `#version 300 es
 precision highp float;
-uniform mat4 u_invMvp;
+// 全画面レイキャスト（#65・2026-09-27）：視線の基底は CPU f64（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h)（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+uniform vec3 u_rayF, u_rayX, u_rayY, u_rayE;
+uniform float u_rayC;
+uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
+uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
+vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
+float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+// δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
+vec2 deltaLL(vec3 dl, float ell) {
+	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
 uniform vec4 u_land;
 uniform vec4 u_atmo;
 uniform vec3 u_whDeep;   // 海面下の締め（乗算ティント既定 [0.84,0.92,0.82]＝worldpal.js）。globe側の式には非関与
@@ -708,8 +736,7 @@ float elevFar(vec2 ll) {
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
-float elevAt(vec2 ll) {
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {
@@ -718,27 +745,25 @@ float elevAt(vec2 ll) {
 	}
 	return mix(elevFar(ll), texture(u_elevTex, uv).r, fade);
 }
+float elevAt(vec2 ll) { return elevUV((ll - u_elevBounds.xy) / u_elevBounds.zw, ll); }
 ${WORLD_HYPSO}
 ${COG}
-uniform vec4 u_cogBbox;   // [west,south,spanLon,spanLat] 絶対deg（globe の低ズーム床専用）
+uniform vec4 u_elevOff;   // 近窓の標高 uv 係数（f64 前計算・#65）＝(原点の uv, 1/span)
 uniform float u_globeAlpha;   // 球体の不透明度（表示パネル「基図」を globe/terrain まで拡張＝本人裁定 2026-09-13。1=不透明・premultiplied なので rgb にも掛ける）
 void main() {
-	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
-	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
-	vec3 A = np.xyz / np.w, d = fp.xyz / fp.w - A;
-	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) discard;
-	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	float t = sphereT(bb, disc);   // 球ミス・後ろ向き＝−1
 	if (t < 0.0) discard;
 	vec3 P = A + t * d;
-	float bl = asin(clamp(P.y, -1.0, 1.0));
-	float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;
-	vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);
-	float e = elevAt(ll);
+	vec2 dll = deltaLL(u_rayEO + t * d, u_ell);   // 原点相対（#65）
+	vec2 ll = u_rayLL.xy + dll;
+	vec2 uv = u_elevOff.xy + dll * u_elevOff.zw;
+	float e = elevUV(uv, ll);
 	float dstep = u_elevBounds.w / float(textureSize(u_elevTex, 0).y);
-	float hx = elevAt(ll + vec2(dstep, 0.0)) - e;
-	float hy = elevAt(ll + vec2(0.0, dstep)) - e;
+	float hx = elevUV(uv + vec2(dstep * u_elevOff.z, 0.0), ll + vec2(dstep, 0.0)) - e;
+	float hy = elevUV(uv + vec2(0.0, dstep * u_elevOff.w), ll + vec2(0.0, dstep)) - e;
 	float shade = clamp(0.86 + (-hx + hy) * 0.00013, 0.62, 1.08);
 	// 以降は GLOBE_FS の末尾と厳密同式（landK=1 だけが違い）：紙とのwhK混合も大気ヘイズも同じに通し、
 	// α=1 の不透明で置く＝ポリゴン境界の e≳4m では画素値が globe と bit 一致し縁が完全に消える。
@@ -759,7 +784,26 @@ void main() {
 // d3.geoGraticule10 と同じ約束：経線/緯線とも ±80° で打ち切り・90° 毎の経線だけ極まで届く。
 export const GRAT_FS = `#version 300 es
 precision highp float;
-uniform mat4 u_invMvp;
+// 全画面レイキャスト（#65・2026-09-27）：視線の基底は CPU f64（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h)（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+uniform vec3 u_rayF, u_rayX, u_rayY, u_rayE;
+uniform float u_rayC;
+uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
+uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
+vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
+float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+// δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
+vec2 deltaLL(vec3 dl, float ell) {
+	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
 uniform float u_ell;
 uniform float u_alpha;   // 出現度（ズーム帯フェード×基礎アルファ）。0=不可視（呼び側でドロー自体を省略）
 uniform vec4 u_gratC;    // レチクル色 rgb＋α係数（テーマノブ grat。既定 [1,1,1,1]＝従来の白）
@@ -767,13 +811,10 @@ in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
 void main() {
-	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
-	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
-	vec3 A = np.xyz / np.w, d = fp.xyz / fp.w - A;
-	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) discard;
-	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	float t = sphereT(bb, disc);   // 球ミス・後ろ向き＝−1
 	if (t < 0.0) discard;
 	vec3 P = A + t * d;
 	float bl = asin(clamp(P.y, -1.0, 1.0));
@@ -838,19 +879,35 @@ void main() { fragColor = vec4(v_col.rgb * v_col.a, v_col.a); }`;
 // 全レイヤ描画後に重ねる＝陸・海・陰影がまとめて夜に沈む（v1 が地図の上に夜多角形を塗ったのと同じ）。
 export const NIGHT_FS = `#version 300 es
 precision highp float;
-uniform mat4 u_invMvp;
+// 全画面レイキャスト（#65・2026-09-27）：視線の基底は CPU f64（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h)（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+uniform vec3 u_rayF, u_rayX, u_rayY, u_rayE;
+uniform float u_rayC;
+uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
+uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
+vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
+float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+// δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
+vec2 deltaLL(vec3 dl, float ell) {
+	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
 uniform vec3 u_sun;     // 太陽方向（地球固定・単位ベクトル）
 uniform float u_alpha;  // 夜面の濃さ（星空と同じ z4→3.5 フェード込み）
 in vec2 v_ndc;
 out vec4 fragColor;
 void main() {
-	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
-	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
-	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
-	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) discard;
-	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	float t = sphereT(bb, disc);   // 球ミス・後ろ向き＝−1
 	if (t < 0.0) discard;
 	vec3 P = A + t * d;
 	float night = smoothstep(0.08, -0.18, dot(P, u_sun));
@@ -864,7 +921,26 @@ void main() {
 // 寂しい地域(山/田舎)に土地の表情を与える＝どの場所も等しく描かれる（公平感）。ベクタの下に敷き、道路/区界は上に乗る。
 export const CONTOUR_FS = `#version 300 es
 precision highp float;
-uniform mat4 u_invMvp;
+// 全画面レイキャスト（#65・2026-09-27）：視線の基底は CPU f64（camera.js viewRays）＝invMvp（f32）の積和をしない。
+// 交点は近い根を t＝2c/(−b＋√h)（c＝|E|²−1 は CPU f64）＝桁落ちなし。後ろ向き（q≤0）＝t<0。A＝目・d＝視線（clip w＝1 の長さ）
+uniform vec3 u_rayF, u_rayX, u_rayY, u_rayE;
+uniform float u_rayC;
+uniform vec3 u_rayO, u_rayEO;   // 錨：シーン原点の β単位球の点 O・目−O（f64 で引く）＝交点 δ＝u_rayEO＋t·d（原点相対・f32 で mm 級）
+uniform vec4 u_rayLL;           // (原点 lon, lat（deg・測地）, β0（rad）, cos β0)
+vec3 rayDir(vec2 ndc) { return u_rayF + ndc.x * u_rayX + ndc.y * u_rayY; }
+float sphereT(float bb, float disc) { if (disc < 0.0) return -1.0; float q = -bb + sqrt(disc); return q > 0.0 ? 2.0 * u_rayC / q : -1.0; }
+// δ から経緯度の差（deg・測地）を桁落ちなしで（wgsl.js deltaLL と同式）：δlon＝atan2(δz·Ox−δx·Oz, ρO²+δx·Ox+δz·Oz)・δβ は ρ の差も s/(ρP+ρO) で
+vec2 deltaLL(vec3 dl, float ell) {
+	vec3 O = u_rayO; float rhoO = u_rayLL.w, beta0 = u_rayLL.z;
+	float dlon = atan(dl.z * O.x - dl.x * O.z, rhoO * rhoO + dl.x * O.x + dl.z * O.z);
+	float s = 2.0 * (O.x * dl.x + O.z * dl.z) + dl.x * dl.x + dl.z * dl.z;
+	float rhoP = sqrt(max(rhoO * rhoO + s, 0.0));
+	float drho = s / max(rhoP + rhoO, 1e-12);
+	float dbeta = atan(dl.y * rhoO - drho * O.y, rhoP * rhoO + (O.y + dl.y) * O.y);
+	float b1 = beta0 + dbeta;
+	float corr = ell * (0.0016792203863837047 * (sin(2.0 * b1) - sin(2.0 * beta0)) + 0.0000014098905530233192 * (sin(4.0 * b1) - sin(4.0 * beta0)));
+	return vec2(dlon, dbeta + corr) * 57.29577951308232;
+}
 uniform sampler2D u_elevTex;
 uniform vec4 u_elevBounds;   // originLng, originLat, spanLng, spanLat（deg）
 uniform float u_hasElev;     // 0/1
@@ -876,8 +952,8 @@ uniform float u_ell;         // 1=楕円体（レイ交点の asin=β → 測地
 in vec2 v_ndc;
 out vec4 fragColor;
 const float R2D = 57.29577951308232;
-float elevAt(vec2 ll) {
-	vec2 uv = (ll - u_elevBounds.xy) / u_elevBounds.zw;
+uniform vec4 u_elevOff;      // 標高 uv 係数（f64 前計算・#65）＝(原点の uv, 1/span)：uv＝off＋δll·inv
+float elevAt(vec2 uv) {      // uv＝原点相対で作る（絶対経緯度を経ない）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_elevTex, uv).r;
 }
@@ -891,19 +967,13 @@ float band(float g) {                                   // iso線：整数の g 
 }
 void main() {
 	if (u_alpha <= 0.002 || u_hasElev < 0.5) discard;
-	vec4 np = u_invMvp * vec4(v_ndc, -1.0, 1.0);
-	vec4 fp = u_invMvp * vec4(v_ndc, 1.0, 1.0);
-	vec3 A = np.xyz / np.w, B = fp.xyz / fp.w, d = B - A;
-	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = dot(A, A) - 1.0;
+	vec3 A = u_rayE, d = rayDir(v_ndc);   // #65：視線は CPU f64 の基底
+	float aa = dot(d, d), bb = 2.0 * dot(A, d), cc = u_rayC;
 	float disc = bb * bb - 4.0 * aa * cc;
-	if (disc < 0.0) discard;                            // 球ミス
-	float t = (-bb - sqrt(disc)) / (2.0 * aa);
+	float t = sphereT(bb, disc);   // 球ミス・後ろ向き＝−1
 	if (t < 0.0) discard;
-	vec3 P = A + t * d;                                 // 単位球（β球）上の点
-	float bl = asin(clamp(P.y, -1.0, 1.0));            // β(rad)
-	float latD = bl * R2D + u_ell * (0.0016792203863837047 * sin(2.0 * bl) + 0.0000014098905530233192 * sin(4.0 * bl)) * R2D;   // β→測地（glsl geoLat と同式）
-	vec2 ll = vec2(atan(P.z, P.x) * R2D, latD);         // lon,lat(deg・測地)
-	float e = elevAt(ll);
+	vec2 dll = deltaLL(u_rayEO + t * d, u_ell);         // 交点＝原点相対 δ → 経緯度の差（deg・測地）（#65）
+	float e = elevAt(u_elevOff.xy + dll * u_elevOff.zw);
 	float landMask = smoothstep(0.5, 4.0, e);           // 海/データ無し(≈0)は等高線を出さない
 	if (landMask <= 0.0) discard;
 	float line = max(band(e / u_interval) * 0.2, band(e / u_major) * 0.4);   // さらに淡く（主曲線ごく薄・計曲線も薄め）

@@ -117,6 +117,33 @@ export function cameraState(cam, W, H) {
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal };
 }
 
+// 視線の基底（f64・純関数）：v(ndc)＝F＋ndc.x·X＋ndc.y·Y＝目から出る視線。長さは clip w が 1 になる向き（g·v＝1・g＝mvp の w 行）＝
+// 目からの相対位置は P＝w·v（w＝clip w＝深度から戻す奥行き）。透視は ndc に対して v がアフィン＝3 点で決まる。mvp/invMvp は列優先（mat.js）。
+// invMvp（f32）を GPU で積和すると近平面が浅い高ズームのチルトで視線が画素単位で揺れる（#46 の AO・#65 の球の床）＝CPU の f64 で作って uniform で渡す。
+export function viewRays(mvp, invMvp) {
+	const M = invMvp, g = [mvp[3], mvp[7], mvp[11]];
+	const un = (x, y, z) => { const o = [0, 1, 2, 3].map(r => M[r] * x + M[4 + r] * y + M[8 + r] * z + M[12 + r]); return [o[0] / o[3], o[1] / o[3], o[2] / o[3]]; };
+	const ray = (x, y) => { const a = un(x, y, 0), b = un(x, y, 1), v = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], k = g[0] * v[0] + g[1] * v[1] + g[2] * v[2]; return v.map(c => c / k); };
+	const F = ray(0, 0), X = ray(1, 0), Y = ray(0, 1);
+	return { F, X: X.map((c, i) => c - F[i]), Y: Y.map((c, i) => c - F[i]) };
+}
+// 全画面レイキャスト（球の床・海面下・経緯線・等高線・夜面）の uniform 一式（#65）：基底＋目の位置＋c＝|E|²−1（f64＝2·camDist＋camDist²。
+// f32 の |E|² から 1 を引くと桁が落ちる）。球との交点は t＝2c/(−b＋√h)（近い根を桁落ちなしで）＝GPU 側 sphereRay と対
+// origin（シーン原点 lon/lat・deg）を渡すと錨も付く：O＝lonlatTo3D(origin)（β単位球の点）・rho＝cos β0・beta0（rad）・EO＝E−O（f64 で引いて f32 へ＝
+// 目の原点相対＝小さい）。シェーダは交点を δ＝EO＋t·d（原点相対・f32 で mm 級）で持ち、δ から経緯度の差を桁落ちなしの恒等式で作る（wgsl/glsl の deltaLL）＝
+// 絶対の経緯度（f32 で 139° は 1.5e-5°＝1.4 m 刻み）を経ない。uv は anchorUV の (off, 1/span) で off＋δll·inv（頂点パスの cogP/gnd と同じ作法）
+export function sphereRayUniforms(st, origin) {
+	const r = st.rays ??= viewRays(st.mvp, st.invMvp), E = st.eye;
+	const u = { F: r.F, X: r.X, Y: r.Y, E, c: E[0] * E[0] + E[1] * E[1] + E[2] * E[2] - 1 };
+	if (origin) {
+		const O = lonlatTo3D(origin[0], origin[1]), b0 = betaOf(origin[1]) * D2R;
+		u.O = O; u.rho = Math.cos(b0); u.beta0 = b0; u.EO = [E[0] - O[0], E[1] - O[1], E[2] - O[2]]; u.ll = [origin[0], origin[1]];
+	}
+	return u;
+}
+// 窓（[west, south, spanLon, spanLat]・deg）の uv 係数＝(原点の uv, 1/span)（f64）。uv＝off＋δll·inv。窓なし＝0
+export function anchorUV(origin, win) { return win ? [(origin[0] - win[0]) / win[2], (origin[1] - win[1]) / win[3], 1 / win[2], 1 / win[3]] : [0, 0, 0, 0]; }
+
 // 経緯度＋動径 → 世界座標（単位球）。標高変位（ラベルを地形に乗せる）：球＝動径倍。楕円体＝測地法線に沿って持ち上げる（動径だと富士級で
 // 水平に十数mズレ＝シェーダの地形変位（同じ測地法線）とラベルの足が合わなくなる）。
 function liftedPos(u, lon, lat, radius) {
