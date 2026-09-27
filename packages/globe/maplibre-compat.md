@@ -277,4 +277,5 @@
   - **querySourceFeatures**（同期・MapLibre 同名）：集約の source＝今の段の丸と単点（画面の内側＋余白 1/4）・geojson＝全部（上位互換）・vector＝[]（未対応・警告）。HTML の集約の例（Marker を丸の位置に置く）が動く。
   - 直し：removeLayer した style 由来の層を getStyle の「その他の層」として復活させない／型紙の `%7B` を読む（`new URL().href` で括弧が化ける）。
   - 門：t-mlcompat の layers 群に hillshade-layer（北西の斜面が明るく南東が暗い・外すと戻る）と query-source-features。GL2・WebGPU 全緑。
+  - **3 巡目の結果（o7・下がった例なし）**：0 動かない 1／1 動く 45／2 同じ答え 43／3 同じ絵 48・絵だけ見れば同じ 65/121。4 巡の推移：同じ絵 0→45→48→48・同じ答え 1→33→41→43。hillshade の例は白から本物と同じ滑らかな陰影になったが、同じ z でこちらは緯度で粗いタイル（z9 対 z10）を使い exaggeration の式が変わる＝平均の明るさが 150 対 177＝「同じ絵」には届かない（z の定義の裁定待ちの側）。残る順位表は全部その緯度の差か、エンジンに無い機能（custom 層 10・動く画像 2・無い画像の後付け 2）。
   - 見送り（記録）：styleimagemissing／setMissingStyleImageResolver（無い画像を後から足す）・動く画像（StyleImageInterface の render）・calculateCameraOptionsFromTo・custom 層（WebGL の文脈を渡さない）・color-relief 層・MapLibre のズームの下限より引く例（z −2）・世界全図の例＝メルカトルが画面を埋めるのに球は小さく写る（意図した差）。
