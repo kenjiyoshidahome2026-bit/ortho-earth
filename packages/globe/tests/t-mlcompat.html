@@ -249,6 +249,30 @@ try {
 			const ez = f && typeof f.properties?.cluster_id === "number" ? await map.getSource("cp").getClusterExpansionZoom?.(f.properties.cluster_id) : undefined;
 			return [f?.properties?.total === 21 && typeof f?.properties?.cluster_id === "number" && typeof ez === "number", `total=${f?.properties?.total} id=${f?.properties?.cluster_id} ez=${ez}`];
 		});
+		// ── querySourceFeatures（MapLibre 同名・同期・3 巡目）＝集約の source は今の段の丸（cluster/cluster_id/point_count）・geojson は全部 ──
+		await scene("query-source-features", async () => {
+			const cl = map.querySourceFeatures("cp"), c0 = cl.find(f => f.properties?.cluster);
+			await map.addSource("qsf", { type: "geojson", data: fc([pt(130.1, 33.1, { k: 1 }), pt(130.2, 33.2, { k: 2 }), pt(130.3, 33.3, { k: 3 })]) });
+			await map.addLayer({ id: "qsf-c", type: "circle", source: "qsf" });
+			const g = map.querySourceFeatures("qsf"), gf = map.querySourceFeatures("qsf", { filter: [">=", ["get", "k"], 2] });
+			map.removeLayer("qsf-c"); map.removeSource("qsf");
+			return [cl.length > 0 && !!c0 && typeof c0.properties.point_count === "number" && g.length === 3 && gf.length === 2, `clusters=${cl.length} first=${JSON.stringify(c0?.properties)?.slice(0, 60)} geojson=${g.length} filtered=${gf.length}`];
+		});
+		// ── hillshade の層（MapLibre の 2D の陰影・3 巡目）＝raster-dem（試料の円錐）から陰影の画像タイル。光は 335°（北北西）＝北西の斜面が明るく南東が暗い ──
+		await scene("hillshade-layer", async () => {
+			map.jumpTo({ center: [150.5, 30.5], zoom: 10.5, pitch: 0 }); await sleep(2500);
+			const before = await snap(map), pNW = P(150.45, 30.55), pSE = P(150.55, 30.45);
+			const lum = c => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
+			await map.addSource("hsd", { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 });
+			await map.addLayer({ id: "hs", type: "hillshade", source: "hsd", paint: { "hillshade-exaggeration": 0.6 } });
+			let nw = 0, se = 0, b0 = lum(px(before, ...pNW)), b1 = lum(px(before, ...pSE));
+			for (let i = 0; i < 12; i++) { await sleep(1500); const img = await snap(map); nw = lum(px(img, ...pNW)); se = lum(px(img, ...pSE)); if (nw - se > 15 && Math.abs(se - b1) > 10) break; }
+			const drawnStyle = map.getStyle().layers.find(L => L.id === "hs");
+			map.removeLayer("hs"); map.removeSource("hsd"); await sleep(1500);
+			const after = await snap(map), a1 = lum(px(after, ...pSE));
+			map.jumpTo({ center: [35.9, 137.2].reverse(), zoom: 7, pitch: 0 }); await sleep(2000);
+			return [nw - se > 15 && Math.abs(se - b1) > 10 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false, `NW=${nw.toFixed(0)} SE=${se.toFixed(0)} before=${b0.toFixed(0)}/${b1.toFixed(0)} removed=${a1.toFixed(0)}`];
+		});
 		// ── 問い合わせの許し（公式例の門 §8 B）＝MapLibre と同じ当たり：線は線幅の半分・円は半径＋縁・既定の許し 0（旧＝3px を足して線に余計に当たった）──
 		{
 			await map.addSource("tol", { type: "geojson", data: fc([{ type: "Feature", properties: { k: "l" }, geometry: { type: "LineString", coordinates: [[134.5, 37.3], [135.3, 37.3]] } }, pt(134.0, 37.3, { k: "c" })]) });
@@ -289,7 +313,7 @@ try {
 		// ── getStyle は style の全ての層を元の順で（描かない層も・§8 A）＝MapLibre の getStyle と同じ答え ──
 		await scene("getstyle-all-layers-in-order", () => {
 			const ls = map.getStyle().layers, ids = ls.map(L => L.id).join(","), und = ls.filter(L => L.metadata?.["ortho:drawn"] === false).map(L => L.id).join(",");
-			return [ids === "bg,hs,water,rd-lbl,g,ic-s" && und === "hs,rd-lbl", `ids=${ids} undrawn=${und}`];
+			return [ids === "bg,hs,water,rd-lbl,g,ic-s" && und === "rd-lbl", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から描く層
 		});
 		await scene("undrawn-layer-get-set", () => {
 			const r = [];

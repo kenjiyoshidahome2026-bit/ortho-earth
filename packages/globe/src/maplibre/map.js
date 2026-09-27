@@ -278,7 +278,7 @@ export class Map {
 	getFeatureState(f) { return ask(this, "getFeatureState", [f]); }
 	// 問い合わせ＝この地図は非同期（台帳 §4）＝MapLibre の同期の答えは返せない。空で返し、差として記録する（通訳で隠さない）
 	queryRenderedFeatures() { unsupported(this, "queryRenderedFeatures (synchronous result)"); return []; }
-	querySourceFeatures() { unsupported(this, "querySourceFeatures"); return []; }
+	querySourceFeatures(id, o) { return ask(this, "querySourceFeatures", [id, o], { before: [] }) ?? []; }   // 同期（集約の丸・geojson の地物）
 	queryTerrainElevation() { unsupported(this, "queryTerrainElevation (synchronous result)"); return null; }
 	setTerrain(t) { ask(this, "setTerrain", [t]); return this; }
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
