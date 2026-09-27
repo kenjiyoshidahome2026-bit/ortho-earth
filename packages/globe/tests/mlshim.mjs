@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { LngLat, LngLatBounds, MercatorCoordinate } from "../src/maplibre/geo.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.js";
+import { mercatorDz } from "../src/zoomscale.js";
 import { unsupported } from "../src/maplibre/report.js";
 import { parseViewHash } from "../../ortho-core/src/viewurl.js";
 
@@ -49,7 +50,9 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 // ── 純粋な変換 ──
 {
 	const v = parseViewHash(viewOf({ center: new LngLat(139.5, 35.25), zoom: 6, pitch: 45, bearing: -30 }));
-	ok("viewOf＝エンジンの z（MapLibre の z＋1）・緯度が先・度", near(v.zoom, 7) && v.lat === 35.25 && v.lon === 139.5 && near(v.pitch, 45 * Math.PI / 180) && near(v.bearing, -30 * Math.PI / 180));
+	ok("viewOf＝エンジンの z（MapLibre の z＋dz）・緯度が先・度", near(v.zoom, 7) && v.lat === 35.25 && v.lon === 139.5 && near(v.pitch, 45 * Math.PI / 180) && near(v.bearing, -30 * Math.PI / 180));
+	const vm = parseViewHash(viewOf({ center: new LngLat(0, 60), zoom: 6, pitch: 0, bearing: 0 }, mercatorDz(60)));
+	ok("viewOf の mercator＝北緯 60° で +2（log2 sec 60°＝1）", near(vm.zoom, 8, 1e-6), vm.zoom.toFixed(4));
 	ok("lngArr", JSON.stringify(lngArr(new LngLat(1, 2))) === "[1,2]" && JSON.stringify(lngArr({ lon: 1, lat: 2 })) === "[1,2]");
 	ok("boundsArr（LngLatBounds・[w,s,e,n]・[[w,s],[e,n]]）", [new LngLatBounds([1, 2], [3, 4]), [1, 2, 3, 4], [[1, 2], [3, 4]]].every(b => JSON.stringify(boundsArr(b)) === "[[1,2],[3,4]]"));
 	const co = camOpts({ center: new LngLat(5, 6), zoom: 3 });

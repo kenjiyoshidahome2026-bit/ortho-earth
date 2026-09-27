@@ -4,5 +4,5 @@ import { LngLat, LngLatBounds } from "./geo.js";
 export const lngArr = ll => { const v = LngLat.convert(ll); return [v.lng, v.lat]; };
 export const boundsArr = b => { const v = LngLatBounds.convert(b); return [[v.getWest(), v.getSouth()], [v.getEast(), v.getNorth()]]; };
 export const camOpts = o => (o && o.center != null ? { ...o, center: lngArr(o.center) } : { ...o });
-// 起動の視点＝エンジンの view 文字列（#z/lat/lon/<度>t/<度>r・**エンジンの z**＝MapLibre の z＋1＝台帳 §2 の ML_DZ）
-export const viewOf = i => `#${(i.zoom + 1).toFixed(5)}/${i.center.lat}/${i.center.lng}/${i.pitch}t/${i.bearing}r`;
+// 起動の視点＝エンジンの view 文字列（#z/lat/lon/<度>t/<度>r・**エンジンの z**＝MapLibre の z＋dz）。dz＝目盛りの差（"mercator"＝mercatorDz(緯度)・"maplibre"＝1）
+export const viewOf = (i, dz = 1) => `#${(i.zoom + dz).toFixed(5)}/${i.center.lat}/${i.center.lng}/${i.pitch}t/${i.bearing}r`;

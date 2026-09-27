@@ -18,7 +18,12 @@
 //   "engine" zoom の数を運ぶがエンジン z のまま（文書に明記する例外）
 
 export const ML_DZ = 1;   // エンジン z − MapLibre z
-export const ZOOM_SCALES = ["ortho", "maplibre"];
+// "mercator"（公式例の門 §8・2026-09-27）＝MapLibre のメルカトルの縮尺に合わせる目盛り＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。
+// この地図は「同じ z＝同じ倍率（256px 世界）」、MapLibre は同じ z でも緯度で縮尺が変わる（sec φ）＝ワシントン 38.9° で 0.36 段・北緯 47° で 0.55 段。
+// 数の zoom は全部この dz で往復＝style の式（線幅・出しズーム）は MapLibre の z のまま評価され、カメラだけ緯度の分だけ寄る＝「同じ MapLibre のコードで同じ絵」。
+// 端＝φ0 で固定＝そこから南北に離れるほど MapLibre との差が戻る（MapLibre は中心の移動に連れて縮尺が変わる＝こちらは変えない）。source の tile z は換算しない
+export const ZOOM_SCALES = ["ortho", "maplibre", "mercator"];
+export const mercatorDz = lat => ML_DZ + Math.log2(1 / Math.max(0.05, Math.cos((lat || 0) * Math.PI / 180)));
 // 旗つきの地図（外側の顔）から素の map へ戻る鍵。部品（geoedit・common/gintView・Marker の登録簿）は入口で `map[RAW] ?? map`＝エンジンの z で読む。
 // Symbol.for＝別の包み（npm の geoedit 等）からも import なしで同じ鍵が引ける
 export const RAW = Symbol.for("ortho-earth.map.raw");
