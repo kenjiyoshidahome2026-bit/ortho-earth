@@ -57,7 +57,8 @@
 ## 4. 文書に書く違い（意図した違い）
 
 - z の目盛り（旗なしの既定）と緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ を含む）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。カメラに cos(lat) を戻さない既存の裁定は守る。
-- queryRenderedFeatures は非同期。
+- queryRenderedFeatures は非同期。当たり方は MapLibre と同じ（2026-09-27・§8 B：線は線幅の半分＋|ずらし|・円は半径＋縁・面は内側・既定の許し 0）。`tolerance`（足す px）は拡張。GeoJSON（gint）の線の当たりは南北に 1/cos(緯度) だけ広い（識別が度の空間の円＝東西を取りこぼさない側に寄せた・点は画面の距離で締め直す）。単一スロットの user 層（内製）は従来の 3px。
+- getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
 - チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
@@ -163,7 +164,7 @@
 
 ## 6. 門（互換の爪車ほか）
 
-- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector|extrude`（描いて確かめる場面・globe verify:ui／verify:webgpu は layers と vector と extrude）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
+- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector|extrude|mlt`（描いて確かめる場面・globe verify:ui は 5 群すべて／verify:webgpu は style 以外）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
   - 一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。**場面を足すのは MapLibre と違うと分かった時**（先に場面を書いて赤を確かめる）。
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）・`tests/vtextrude.mjs`／`tests/vtdraw.mjs`（vector source の押し出しと描く層の純関数）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
@@ -203,3 +204,89 @@
 - [x] **段 5b**（2026-09-27）：geojson の押し出し（model.js の経路）の 2 件＝①描き直しの鍵を曲線で（R22）②問い合わせを立体で（R23）。純関数は `src/extrude-ml.js`（node で確かめる）・globe.js は視点の口（地面・投影・外接球の下ごしらえ）だけ。model.js は立てた地物に base とスロットの地面（mode・床の高さ）を持たせた（extrudeSets）。門＝爪車 node 12 場面・t-mlcompat?g=extrude 11 場面（GL2・WebGPU。旧コードで 7 場面が赤＝足跡の当て方・0.25 刻みの鍵、見張り 4 場面は両方で緑を確かめた）。
   - **段 8①（vector の押し出し）と一本に**（main へ入った後に揃えた）：鍵＝vtmesh.paintZoomKey は extrude-ml.js の exprZoomKey を使う（書式は同じ "名前:lo|hi|s<段>|<z>"・interpolate-hcl/-lab も曲線に）。当たり＝vtextrude の query も hitExtrusion（旧＝屋根の頂点の投影＋重心の中ほどまでの距離）・口は globe.js の extView（hitEnv＝vtxGround の地面）・query は [{ d, f }] を返し、問い合わせが geojson の押し出しと一つの列にして近い順（MapLibre と同じく 3D の地物は奥行きで並ぶ）。vtxGround は ?noterr=1 で持ち上げない（描く側と同じ）。projectorH・distanceOf の口は要らなくなったので外した。
 - [ ] 段 8②〜④・⑤b：基図のアイコン・線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
+
+## 8. 公式例の門（2026-09-27 起票）
+
+- **なぜ**：§6 の爪車は**自分で書いた場面**を**自分で決めた期待色**と比べる＝分母を自分で選んでいる。外から来た分母＝MapLibre 公式の例で「同じコードで同じ絵」を数える。
+- **形**：MapLibre GL JS の公式例（`test/examples/*.html`・BSD-3-Clause）は全部 `import * as maplibregl from '../../dist/maplibre-gl-dev.mjs'`＝**その道に本物か通訳を置くだけ**で差し替える（例の本文は一文字も変えない）。本物とこちらを同じ録りの網で走らせ、比べる。
+- **段**（こちらの段は本物の段を超えない・本物が落ちる例は分母の外）：
+  - 0 動かない（load に届かない・起動で例外・既定の基図に落ちた・何も描かない）
+  - 1 動く（load に届き、捕まらない例外が無い）
+  - 2 同じ答え（意味の unsupported 0・層の id と順・標本点の問い合わせの集合・見えている範囲・Marker/Popup の位置）
+  - 3 同じ絵（地理で合わせた色の標本＝本物の `unproject`→こちらの `projectLL`・「例が足した層に当たる点」と「基図の点」を別々に）
+- **出る物**：段ごとの本数（全体と「鍵も外部ライブラリも custom も無い」例の 2 本立て）・**足りない口の順位表**（口 → 落としている例の数）・見比べ帳（手元だけ）。
+- **本人の裁定（2026-09-27）**：
+  1. 通訳（`maplibregl` の名前空間）は**製品の口**として `src/maplibre/` に置く（npm 公開と d.ts は点数を見てから）。
+  2. 網は**録り置きして再生**（`<repo>/.cache/mlexamples/net/`・`--record` で録り直し）。
+  3. `verify:examples` は**手で／節目に**回す（常設の `verify` の外＝`verify:net` と同じ扱い）。
+  4. MapLibre の口から起こした地図は**夜面・星空・自前の地形を出さない**（地形は setTerrain／style の terrain の時だけ）。旗で on にできる。内製アプリの既定は今のまま。
+- **約束（通訳だけ）**：通訳はエンジンに機能を足さない。同じ働きがあれば言い換え、無ければ投げずに `[mlshim] unsupported: <口>` を記録して何もしない（見た目／意味に分ける）。通訳で辻褄を合わせない＝点数を正直に保つ。エンジンの足し算は `idle` 事象と起動オプション `night`／`sky`／`terrain:false`（既定は不変）だけ。
+- **目録**（`tests/mlexamples/corpus.mjs`・`corpus.json`）：MapLibre GL JS **6.11.2**（`acb7b722`）・例 139・素材 30・本物の dist 14（`npm pack`＝lock を触らない）。取り置き＝`<repo>/.cache/mlexamples/6.11.2/`（sha256 で照合・壊れていれば取り直す）。
+  - 見立て（正規表現・走らせる前の予想）：鍵も外部ライブラリも custom も無い 111／外部ライブラリ 23／custom 9／API キー 3／import map 6／globe 10／terrain 11／入力待ち 43／動き 12／乱数・日付 6／位置情報 1／地図 2 枚以上 1。
+- **走らせ方**（`npm run verify:examples`＝`scripts/verify-examples.mjs`）：
+  - 器＝`tests/mlexamples/vite.config.mjs`（root は globe のまま）。`/{ref,ortho}/test/examples/*.html` は取り置きの**バイトをそのまま**（vite の HTML 変換を通さない＝import map の例も壊れない）。`/ref/dist/_real/**`＝本物の dist を静的に・`/ref/dist/maplibre-gl-dev.mjs`＝Map を継ぐ包み・`/ref/**` は COOP/COEP を外す。`/ortho/dist/maplibre-gl-dev.mjs`＝`tests/mlexamples/ortho-entry.js`（通訳を再公開し Map を継ぐ・時計を止める・pinRes）。
+  - 例ごとに Chrome（`scripts/lib/cdp.mjs`＝runRealtime から切り出した部品）・800×600・dpr 1・実 GPU・UA は普通の Chrome・Math.random に種・位置情報は固定。
+  - **描き終わり**＝load（事象／`map.loaded()`／style.load から 15 秒）→その側の `idle`（来なければ load から 10 秒）→取得が 1 秒止まる→canvas だけの写しが 500ms 空けて 2 回同じ。動き続ける例は `moving`（取得が止まっても写しが 4 秒違う）・`animated`（見立て＝load から 6 秒）。上限 45 秒。
+  - **網**（`tests/mlexamples/netstore.mjs`）：頁の session の `Fetch.enable`（`https://*`）で 頁・専用 worker・入れ子の worker・module worker・blob worker・preflight まで全部捕まる（2026-09-27 の試し・worker の session には Fetch が無い）。録るのは Chrome 自身（continueRequest(interceptResponse)→getResponseBody）＝Node の fetch は ows.terrestris.de に繋がらなかった。鍵＝method＋URL（走るたびに変わる印＝`_t=`・`nocache=`・値が 10〜13 桁の時刻の項を除く＝エンジンの `v=<時刻>` も）＋Range・再生の Range は 206。**録る応答は 2xx/3xx/401/403/404 だけ**（429 を録ると再生でも「多すぎる」が返り、MapLibre の load が来ない＝踏んだ）。録る走りは `--jobs 1`（相手の鯖に優しく）。
+  - **標本**：本物の 16×10 の格子（縁 48px を除く）→`unproject`（|lat|≤85.051・project で戻る点）→こちらの `projectLL`（front>0・画面の内側・unproject で標本の間隔の 1/4 以内に戻る点）。⚠ `projectLL` の front は「高さ／半径」の量＝高ズームでは見えている点でも 1e-4 程度（閾値 0.05 を置いて高ズームの例の標本を全部落とした＝最初の走り o1 の轍）。問い合わせは点ごと（こちらは非同期）。例が `addLayer` した層は両側の包みが記録（`added`）。
+  - 揺れ（本物どうし・同じ録りの再生 2 回）：139 本中 125 本は答えも色も同じ（r3/r4）。残りは動く例と、録りの初回だけ時間切れの地形の例。
+- **エンジンの足し算**（段 2・既定は不変）：`map.on("idle")`（動いていない・飛んでいない・描き直し待ち無し・基図が覆って載った・標高と建物と利用者の source の読み込み無し、が 100ms 続いたら 1 回・起動直後も来る）／`night:false`／`sky:false`（星空劇場と太陽系圏）／`coastline:false`（世界の海岸線＝NE admin0 の gint 層・z<9・どの基図の上にも重なっていた＝最初の走りで見つけた・裁定 4 と同じ種類＝MapLibre の口の既定に足した）／`terrain:false`（setTerrain まで平ら＝render worker は DEM が来た時に地形を作る・その後の setTerrain(null) は DEM を外すだけ＝既定の標高に戻る）。門＝`t-mlboot?v=default|ml`（両土台）。
+- **通訳**（段 3・`src/maplibre/`）：`Map`（同期のコンストラクタ→裏で createGlobe・準備までの呼び出しは列・事象の言い換え＝move→zoom/rotate/pitch と start/end・settle→moveend・素の DOM の事象は容れ物から・層の事象はエンジンの口）・`Marker`/`Popup`・`LngLat`/`LngLatBounds`/`MercatorCoordinate`（MapLibre の実装どおり＝西＞東の contains も同じ答え）・操作部品（MapLibre の CSS の class 名）。無い口は `[mlshim] unsupported: <口> (semantic|cosmetic)` を 1 回。`queryRenderedFeatures` は同期で返せない＝空で返して記録（隠さない）。2 枚目の Map は何もしない実体。検定＝`tests/mlshim.mjs`（import は ../globe.js と同じ家だけ・RAW 無し）。
+- **採点**（段 4・`tests/mlexamples/compare.mjs` の `grade`）：本物が落ちる例＝分母の外。こちらの段は本物を超えない（止まって撮れた例は 3 まで・動く例は 2 まで）。段 2＝意味の unsupported 0・層の id と順・問い合わせの集合（symbol を除く）≥0.9・Marker/Popup の数・カメラ（緯度の差 |log2 cos φ|＋0.1 は許す）。段 3＝色の一致（RGB 距離 ≤40）が足した層の点 ≥0.85・基図の点 ≥0.8（比べられる点が 30% 未満なら段 2 止まり）。閾値は段 5 で本人が見比べ帳（`<repo>/.cache/mlexamples/report/<label>/index.html`）を見て決める。
+- **進み**：
+  - [x] 段 0（2026-09-27）：この節・目録。エンジン無改修。
+  - [x] 段 1（2026-09-27）：走らせ台と本物（網の試し→録り置き・描き終わりの判定・本物どうしの揺れ 125/139 が同じ）
+  - [x] 段 2（2026-09-27）：エンジンの足し算（`idle`・`night`／`sky`／`terrain:false`・`t-mlboot`）
+  - [x] 段 3（2026-09-27）：通訳（`src/maplibre/`）
+  - [x] 段 4（2026-09-27）：採点・見比べ帳・順位表（`--grade`）
+  - [ ] 段 5 目合わせ（閾値は本人の目で）と爪車（`tests/mlexamples/known.json`）
+- **最初の点数**（2026-09-27・本物 r6 × こちら o2・初期の閾値・WebGPU 実 GPU）：分母 137（本物も落ちる 2＝地図 3 枚の例・deck.gl の鍵）
+  - 0 動かない 4／1 動く 132／2 同じ答え 1／3 同じ絵 0。**絵だけ見れば同じ（段 2 に依らない）62/120**（両側とも止まって撮れた例）
+  - 足りない口の順位表（上位）：getStyle が symbol の層を落とす 110／問い合わせが線に余計に当たる 83（エンジンの既定の許し 3px・MapLibre は線幅ちょうど）／getStyle が raster の層を落とす 23／面を取りこぼす 20／カメラ 18／面に余計に当たる 14／getStyle が hillshade の層を落とす 9／通訳の穴（GeoJSONSource.updateData・ImageSource.updateImage・touchZoomRotate.disableRotation）各 1
+  - 読み：**動くことはほぼ並んだ（132/137）。答えは getStyle の一覧と問い合わせの許しの 2 点で塞がれ、絵は半分が同じ**。直す順は順位表の上から（別計画）。
+  - 問い合わせの鍵から id を外した：OpenMapTiles の地物の id はタイルのズームごとに違う＝タイルの詳しさの選び方で変わる（答えの差ではない）。id の無い GeoJSON にこちらが並び順の id を返す差は残る（MapLibre は undefined）
+- **順位表の 1・2 位の直し（2026-09-27 本人「1・2位の直しを計画して進めて」）**：
+  - **A. getStyle は描かない層も返す**（外来 style の地図だけ・地域の基図は今のまま）：
+    - A1 `getStyle().layers`＝元の style の順（描く基図の層・画像として載せた raster・style の vector/geojson の層・**描かない層**＝線に沿う注記・アイコン・hillshade・塗りより下の raster・知らない型）。描かない層は `metadata["ortho:drawn"]:false` を付ける。利用者の層は beforeId の層の前・無ければ末尾。
+    - A2 `getLayer`・`get*Property`・`getFilter` が描かない層も返す。A3 `set*Property`・`setFilter`・`setLayerZoomRange`・`removeLayer` は描かない層でも投げない（記録だけ＝getStyle に出る・絵は変わらない）。画像の raster の visibility は画像層の出し入れへ。
+    - A4 `addLayer`／`moveLayer` の beforeId が style の層を指す時は `before` を記録（描く段は今のまま「基図の上」＝§4）＝getStyle の順が MapLibre と同じ。
+  - **B. 問い合わせの許しは既定 0**（MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側）：`tolerance` は拡張として残す。GeoJSON（gint）の線と点は線幅の半分・円の半径＋縁を足して当てる（旧＝許し 3px と点の +6px だけ）。単一スロットの user 層（内製）は従来の 3px。内製アプリは問い合わせも層の事象も使っていない（grep で確かめた）。
+  - **C. 採点**：通訳が捕まえたエンジンのエラー（`[mlshim] <口>:`＝MapLibre なら投げない所でエンジンが投げた）を段 2 の塞ぎに数える（o2 で 20 本＝custom 層の addLayer 12・知らない演算子 3 など・これまで数えていなかった）。
+  - **D. 門を回し直して点数を比べる**（本物 r6 × こちら o3）。門＝t-mlcompat（style 群に A の場面・layers 群に B の場面）・t-mllayers・t-mlstyle・globe verify。
+  - **結果（2026-09-27・同じ物差し＝C を入れた採点で o2 を付け直して比べた）**：分母 137・下がった例なし
+    | 段 | 直す前（o2） | 直した後（o3） |
+    |---|---|---|
+    | 0 動かない | 4 | 4 |
+    | 1 動く | 132 | 55 |
+    | 2 同じ答え | 1 | 33 |
+    | 3 同じ絵 | 0 | **45** |
+    | 鍵・外部ライブラリ・custom 無しの例で同じ絵 | 0/111 | **43/111** |
+  - 次の順位表（上位）：カメラ 18／線に余計に当たる 18／足した層の色 15／基図の色 14／面を取りこぼす 14／線を取りこぼす 14／custom 層の addLayer（source 無し）11／面に余計に当たる 10。getStyle の残り＝style 無しで作って setStyle する 2 例（エンジンは起動時の style が要る＝通訳は空の style で起こせば済む）・知らない演算子で足せなかった層・custom 層。
+  - 轍：identifyAt は許しの半径を度の空間の円で探す＝この地図（同じ z＝同じ倍率）では東西が cos(緯度) で縮む（旧来の +6px と許し 3px で隠れていた）。
+- **2 巡目（2026-09-27 本人「もう一回、改良しながら回して」）**：
+  - エンジン（MapLibre 同名の口を足す・既定の挙動は不変）：GeoJSONSource.updateData・ImageSource.updateImage／setCoordinates・getStyle の根の視点・setStyle の transformStyle・addLayer の source に object＝層の id で source を足す・独自の protocol へ頼む型を資源で選ぶ（JSON＝"json"・画像タイル＝"image"）・足している途中の画像を待ってから層を載せる（MapLibre の addImage は同期）。core：text-variable-anchor-offset のリテラルを式と読まない。
+  - 通訳：style 無しの Map は空の style で起こす・style の根の視点は「コンストラクタで視点を変えていない時だけ」（MapLibre の transform.unmodified）・custom 層は unsupported として記録・操作ハンドラはどの口も受ける。
+  - 採点：MapLibre のメルカトルのズームの下限（世界の高さ＝600px で z0.2288）に本物が居る時はカメラを比べない。
+  - 走らせ台の不具合：こちらの写しで重ね描きの canvas（.overlay-gl＝記号・ヒートマップ・集約）まで隠していた＝絵の一致が低く出ていた。canvas は全部残す形へ。
+  - **残る差の正体**：問い合わせと色だけで止まる例（o3 で 39 本）の 36 本が |緯度|≥35°＝**同じズームの数でも縮尺が緯度で違う**（§4 の緯度の差・ワシントン 38.9° でこちらが 1.29 倍広い＝同じ px の道路が地面では太い・タイルの詳しさも粗い）。実験の旗 `--mllat`（検定の包みだけ・起動の視点に log2(sec φ)）で「合わせたら何本上がるか」を数える。
+  - **2 巡目の結果（o5・下がった例なし）**：0 動かない 1／1 動く 47／2 同じ答え 41／3 同じ絵 48（素の例 46/111）・絵だけ見れば同じ 65/121。3 巡の推移：同じ絵 0→45→48・同じ答え 1→33→41・動かない 4→4→1。
+  - **緯度の縮尺の実験（o5lat）は悪くなった**（同じ絵 48→30）：カメラのズームを log2(sec φ) 上げると、こちらでは style の式（線幅・出しズーム・filter の zoom）も上げたズームの数で評価される（ワシントン 38.9° で 11.15 のはずが 11.51）。MapLibre は**ズームの数（style の評価）はそのまま・縮尺だけが緯度で変わる**。こちらは「同じ z＝同じ倍率＝同じ style」＝縮尺だけ合わせることはできない。揃えるなら「style を評価するズーム」と「カメラの縮尺」を切り離す（中心緯度で style の z を log2(sec φ) 下げる等）＝z の定義に踏み込む＝本人裁定の領分。
+  - 次の順位表（o5）：基図の色 23／足した層の色 15／線に余計 13／面・線の取りこぼし 12・12／面に余計 11／custom 層 10／カメラ 7。
+- **3 巡目（2026-09-27 本人「いいですね、もう一度」）**：
+  - **hillshade の層**（`src/hillshade.js`）：この地図の陰影は傾けた時の地形面だけ（真俯瞰は平面）＝MapLibre の hillshade（真俯瞰でも陰影の画像）が無く、北緯 47° の地形の例（10 本）の基図が白かった。MapLibre の式（hillshade_prepare＋fragment・standard）を画素で写し、raster-dem のタイルから陰影の画像タイルを作る **port プロバイダ**（画像タイル層の契約）として載せる＝エンジンの描く経路は無改修。端の勾配は隣のタイル・緯度の縮み・色 3 種・exaggeration。addLayer と外来 style の両方（getStyle では描く層）。他の method（basic/combined/igor/multidirectional）は standard で描く（警告）。
+  - **querySourceFeatures**（同期・MapLibre 同名）：集約の source＝今の段の丸と単点（画面の内側＋余白 1/4）・geojson＝全部（上位互換）・vector＝[]（未対応・警告）。HTML の集約の例（Marker を丸の位置に置く）が動く。
+  - 直し：removeLayer した style 由来の層を getStyle の「その他の層」として復活させない／型紙の `%7B` を読む（`new URL().href` で括弧が化ける）。
+  - 門：t-mlcompat の layers 群に hillshade-layer（北西の斜面が明るく南東が暗い・外すと戻る）と query-source-features。GL2・WebGPU 全緑。
+  - **3 巡目の結果（o7・下がった例なし）**：0 動かない 1／1 動く 45／2 同じ答え 43／3 同じ絵 48・絵だけ見れば同じ 65/121。4 巡の推移：同じ絵 0→45→48→48・同じ答え 1→33→41→43。hillshade の例は白から本物と同じ滑らかな陰影になったが、同じ z でこちらは緯度で粗いタイル（z9 対 z10）を使い exaggeration の式が変わる＝平均の明るさが 150 対 177＝「同じ絵」には届かない（z の定義の裁定待ちの側）。残る順位表は全部その緯度の差か、エンジンに無い機能（custom 層 10・動く画像 2・無い画像の後付け 2）。
+- **z の定義と段 5 の閾値（2026-09-27 本人「z の定義と段 5 の閾値の目合わせを詰めて」）**：
+  - **目盛り "mercator"**（`zoomScale:"mercator"`・MapLibre の口の既定）＝dz＝1＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。数の zoom は全部この dz で往復＝**style の式は MapLibre の z で評価され、カメラだけ緯度の分だけ寄る**。前回の実験（カメラだけ上げる）が悪化した正体＝style も一緒に上がっていた。
+    - **タイルの z も MapLibre と同じに**（TILE_BIAS＝分割の閾を 2^(dz−1) 倍＝基図・vector source・画像タイル）。⚠これが無いと一段細かいタイルを選び、問い合わせの答え（地物の集合）が MapLibre と違う（o8 で同じ答え 43→30）。
+    - 端＝φ0 で固定＝南北に離れるほど MapLibre との差が戻る（MapLibre は中心の移動に連れて縮尺が変わる・こちらは変えない）。"maplibre"（一律 +1）は残す（内製・URL・.scenes は "ortho" のまま無傷）。
+    - 集約の段（clusterMaxZoom）は整数へ丸める（小数の dz で new Array が投げた）。
+  - **問い合わせの幅**＝MapLibre の getLineWidth（隙間があれば 隙間＋2×幅・幅 0 の線は当たらない＝旧は 0 を 1px と見て余計に当たった）。残る食い違い＝線の縁の 0.5px 未満（画面→タイル単位の量子化）＝許し 0 が最善（0.25/0.5 は余計な当たりが増えて悪化・実測 3 例）。
+  - **段 5 の閾値（決めた）**：色の許し 40（RGB 距離）／基図の点 ≥0.8／足した層の点 ≥0.85・ただし標本 ≤6 点は 1 点のはずれを許す（細い線の 5×5 中央値は 1 点外れ得る＝add-a-geojson-line 5/6 は目で見て同じ絵）／問い合わせ ≥0.85（上の量子化＝同じ式でも 0.89〜0.75）／比べられる点 <30%＝絵は比べない。世界全図の例（メルカトルが画面を埋め、球は小さく写る）は基図の一致が 0.6〜0.8 に留まる＝意図した差＝段 2 止まりでよい。
+  - **結果（o10・"mercator"＋幅の直し＋段 5 の閾値）**：0 動かない 1／1 動く 47／2 同じ答え 34／3 同じ絵 **55**（素の例 51/111）・絵だけ見れば同じ **77/120**。5 巡の推移＝同じ絵 0→45→48→48→55・段 2 以上 1→78→89→91→89。上がった 9（fly-to・fit-a-map・時間スライダー・ベクタタイル・全画面…）・下がった 4（勾配の線 2・3D 建物 2＝密な線の所で問い合わせの一致が 0.79＝量子化の 0.5px に多くの点が掛かる＝旧の目盛りでは縮尺の差が偶然に隠していた）＝目盛りが変わった＝新しい基準として known.json を書き換えた。
+- **custom 層（2026-09-28 本人「custom 層やってみますか？」）**＝`src/gadgets/customgl.js`：MapLibre の CustomLayerInterface（onAdd/render/onRemove・renderingMode）を **main の透明な WebGL2 canvas**（注記の下）で受け、`args.defaultProjectionData.mainMatrix`（メルカトル [0..1]・z はメルカトル単位 → クリップ・**Float64Array**）を毎フレーム渡す。行列＝この地図の mvp × [メルカトル → 東北上 [m] → 単位球]（起動の中心で局所線形化）。`getProjectionData({tileID})`（タイル 0..8192 → メルカトル）・`shaderData`（mercator の prelude＝projectTile）も。MapLibre の口は `setCustomLayerHost(this)` で onAdd/render の map を自分に・`getCanvas()` はこの canvas（three.js の `new WebGLRenderer({ canvas: map.getCanvas(), context: gl })` が同じ canvas と文脈を受ける）。getStyle は custom 層を書き出さない（MapLibre の serialize と同じ）。
+  - **限界（文書）**：この地図の描画は worker（OffscreenCanvas）＝地図と同じ GL の文脈も深度も渡せない＝模型は建物・地形に隠れない（常に上）。行列は中心の局所線形化＝狭い範囲（模型・3D Tiles・z≥8）は画素の内で合い、大陸大の図形（z3 の三角形）は球との差の分だけ違う。globe の variant（球の prelude・`applyGlobeMatrix`）は無い＝mercator の variant として答える。
+  - 結果（o11・下がった例なし）：0 動かない 1／1 動く 38／2 同じ答え 36／3 同じ絵 **62**（素の例 51/111）・絵だけ見れば同じ 77/121。custom 層の例 10 本＝同じ絵 7（three.js の模型 3・babylon・純 WebGL の三角形・globe の単純な層・360° 写真）・同じ答え 2（3D Tiles・タイルの層）・残り 1 は別の口（queryTerrainElevation の同期）。6 巡の推移＝同じ絵 0→45→48→48→55→62。
+  - 見送り（記録）：styleimagemissing／setMissingStyleImageResolver（無い画像を後から足す）・動く画像（StyleImageInterface の render）・calculateCameraOptionsFromTo・custom 層（WebGL の文脈を渡さない）・color-relief 層・MapLibre のズームの下限より引く例（z −2）・世界全図の例＝メルカトルが画面を埋めるのに球は小さく写る（意図した差）。

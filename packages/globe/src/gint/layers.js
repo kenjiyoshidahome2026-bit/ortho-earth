@@ -609,7 +609,7 @@ const admin0Duck = () => ({ unPackGint: admin0Gint, fmap: admin0Pbf.fmap,
 	getProperties: i => admin0Pbf.getProperties(i), getFeature: f => admin0Pbf.getFeature(f),
 	identifyAt: (...a) => admin0Pbf.identifyAt(...a) });
 function ensureAdmin0Layer() {
-	if (admin0Layer || !admin0Gint || !admin0Pbf) return;
+	if (admin0Layer || !admin0Gint || !admin0Pbf || env.coastline === false) return;   // opts.coastline＝false（MapLibre の口・公式例の門）＝世界の海岸線の層を持たない
 	admin0Layer = addGint(admin0Duck(),
 	{ order: -10, interactive: false, minZoom: WORLD_VT ? ADMIN0_MINZ_EFF : null, maxZoom: 9, style: admin0DrawStyle(), _internal: true });   // _internal＝照会に出さない（国名は admin0Pbf を直に引く）
 	admin0Vis = true;
@@ -654,7 +654,8 @@ function updateGintSlot() {
 	if (worldTipOn && cam.zoom >= WORLD_TIP_MAXZ) { gintHoverTip?.(null); worldTipOn = false; }
 	if (noGint) return;   // ?nogint=1＝admin0 ロードもスロット適用もしない（gint パスは空データ＝実質ゼロコスト）
 	// admin0＝独立層（スロット外）：ロード発火・層生成・飛行抑制の同期。表示のズーム域はエンジンが裁く
-	if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0("50m");
+	if (env.coastline === false) { /* 海岸線を持たない地図＝読まない（下の user スロットの調停は続ける） */ }
+	else if (cam.zoom < ADMIN0_Z && !admin0Loading && !admin0Gint && !suppressAdmin0) loadAdmin0("50m");
 	// 細密版（10m）へ上げるズーム：worldContent は州境（NE 10m・z≥4）が出る所＝海岸線が州境と同じ線になる（z<4 は 50m＝軽い・本人「z<5 は EE 同様軽く」）
 	else if (!LOW_MEM && admin0Res === "50m" && !admin0Loading && !suppressAdmin0 && !env.flying && cam.zoom >= (WORLD_CONTENT ? WORLD_Z.admin1 : ADMIN0_FINE_Z) && cam.zoom < ADMIN0_Z) loadAdmin0("10m");   // 国境が大きく見える帯で細密版へ
 	ensureAdmin0Layer();

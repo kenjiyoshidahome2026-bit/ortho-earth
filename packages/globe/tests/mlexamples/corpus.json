@@ -1,0 +1,5110 @@
+{
+	"maplibre": {
+		"version": "6.11.2",
+		"tag": "v6.11.2",
+		"commit": "acb7b722f6a752ac1a2ba98cf83006c83dc4fafa",
+		"repo": "maplibre/maplibre-gl-js",
+		"npm": {
+			"integrity": "sha512-Xh06pxoipjX/Ad1sUPGhiNh9go9naCNGZZ1IJm3sIeqK1kYGuMaMDSTIGDQ2igOLfVyukJU7kvEOA089VO7Z7g==",
+			"shasum": "25f1266666c16f6b935cabccba554c238a3cf394"
+		}
+	},
+	"examples": [
+		{
+			"name": "3d-terrain",
+			"sha256": "3d68b6a23971a12edacc785fa94d5f3b606d5147d9a585285eb28c20fd51bd96",
+			"bytes": 2681,
+			"title": "3D Terrain",
+			"description": "Go beyond hillshade and show elevation in actual 3D.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"a.tile.openstreetmap.org",
+				"tiles.mapterhorn.com"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"NavigationControl",
+				"TerrainControl"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "add-3d-terrain-from-quantized-mesh-tiles",
+			"sha256": "e622e4523fd7157776f18d2852ebd9204009f45d2778c2d41fc7b8cc9fe630b9",
+			"bytes": 2795,
+			"title": "Add 3D terrain from quantized-mesh tiles",
+			"description": "Use 3D Tiles quantized-mesh terrain as a raster-dem source via the maplibre-gl-3dtiles-terrain plugin, then drape an OpenStreetMap basemap and hillshade with map.setTerrain().",
+			"category": "Terrain & Hillshade",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"3d.geo.admin.ch",
+				"tile.openstreetmap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/@here/quantized-mesh-decoder@1.2.8/src/index.js",
+				"https://unpkg.com/maplibre-gl-3dtiles-terrain@0.1.0/src/index.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"setTerrain"
+			]
+		},
+		{
+			"name": "add-3d-tiles-using-threejs",
+			"sha256": "36f18e13a498cb54ec7d52e1c0938ec18a88c07cda7069f91e2d372d64bb2752",
+			"bytes": 8920,
+			"title": "Add 3D tiles using three.js",
+			"description": "Use a custom style layer with three.js to add 3D tiles to the map.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"pelican-public.s3.amazonaws.com",
+				"tiles.openfreemap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"3d-tiles-renderer=https://cdn.jsdelivr.net/npm/3d-tiles-renderer@0.4.21/build/index.three.js",
+				"three/examples/jsm/=https://cdn.jsdelivr.net/npm/three@0.183.0/examples/jsm/",
+				"three=https://cdn.jsdelivr.net/npm/three@0.183.0/build/three.module.js"
+			],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"jumpTo",
+				"once"
+			]
+		},
+		{
+			"name": "add-a-3d-model-to-globe-using-threejs",
+			"sha256": "b342763961c24925d0b7e3fd2fd3ce195713ba991a297ce90ca7ddfc642ea4fb",
+			"bytes": 7483,
+			"title": "Add a 3D model to globe using three.js",
+			"description": "Use a custom style layer with three.js to add a 3D model to a globe.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [
+				"three/addons/=https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+				"three=https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+			],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"getCanvas",
+				"getProjection",
+				"on",
+				"setProjection",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "add-a-3d-model-using-threejs",
+			"sha256": "83d7137db251438d292aa8728c633705b43791a44885eb1c6a6bb1d2d874e4db",
+			"bytes": 5592,
+			"title": "Add a 3D model using three.js",
+			"description": "Use a custom style layer with three.js to add a 3D model to the map.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [
+				"three/addons/=https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+				"three=https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+			],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"getCanvas",
+				"on",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "add-a-3d-model-with-babylonjs",
+			"sha256": "de6954bf3cc1edd4af4c291491f9f89c1e349bde3f9eba1bdc9bfe557e2f4475",
+			"bytes": 5953,
+			"title": "Add a 3D model with babylon.js",
+			"description": "Use a custom style layer with babylon.js to add a 3D model to the map.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"doc.babylonjs.com",
+				"maplibre.org",
+				"tiles.openfreemap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/babylonjs-loaders@5.42.2/babylonjs.loaders.min.js",
+				"https://unpkg.com/babylonjs@5.42.2/babylon.js"
+			],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"on",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "add-a-3d-model-with-shadow-using-threejs",
+			"sha256": "1c8096d1bd18250e6f1ba875639a96f33a76c9acd234ccbf31ad0c66db8b8d5a",
+			"bytes": 6303,
+			"title": "Add a 3D model with shadow using three.js",
+			"description": "Use a custom style layer with three.js to add a 3D model with shadow to the map.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [
+				"three/addons/=https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+				"three=https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+			],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"getCanvas",
+				"on",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "add-a-canvas-source",
+			"sha256": "5585df25df197c80eee06e5140d54575986e696bcf27f0213cf759079d7bd70b",
+			"bytes": 3308,
+			"title": "Add a canvas source",
+			"description": "Add a canvas source to the map.",
+			"category": "Raster & Imagery",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"javascript.tutorials24x7.com"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-cog-raster-source",
+			"sha256": "e2211bfd35fd76de5c53e30b39c042fc461a6e5d4ded59f561800416e3af4834",
+			"bytes": 1455,
+			"title": "Add a COG raster source",
+			"description": "Add an external Cloud Optimized Geotiff (COG) as source.",
+			"category": "Raster & Imagery",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/@geomatico/maplibre-cog-protocol@0.5.0/dist/index.js"
+			],
+			"classes": [
+				"Map",
+				"addProtocol"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-color-relief-layer",
+			"sha256": "ca0e1c463d2da1bdfbaaf49d5504b3acd122e4b01c953e71d2a09a0944ce9d4d",
+			"bytes": 2705,
+			"title": "Add a color relief layer",
+			"description": "Add a color relief layer.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-a-custom-layer-with-tiles-to-a-globe",
+			"sha256": "3d14848ec7f7fc18424abdb12f32fe1cc64727c958d8a0152381eba1bd1ede39",
+			"bytes": 11381,
+			"title": "Add a custom layer with tiles to a globe",
+			"description": "Use custom layer to display arbitrary tiles drawn with a custom WebGL shader on a globe.",
+			"category": "Globe",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": true,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"createTileMesh"
+			],
+			"methods": [
+				"addLayer",
+				"getProjection",
+				"on",
+				"setProjection"
+			]
+		},
+		{
+			"name": "add-a-custom-style-layer",
+			"sha256": "ffe135fe0d6434226d46ae7575979014d5fa1551b4d3ceedf14ccb4d7fd58c50",
+			"bytes": 4486,
+			"title": "Add a custom style layer",
+			"description": "Use a custom style layer to render custom WebGL content.",
+			"category": "Layer Styling",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": true,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-default-marker",
+			"sha256": "006465ac0a2b12fcb072b345b7729b17e5f9c83b8e8339cdc08049c0859e9080",
+			"bytes": 1037,
+			"title": "Add a default marker",
+			"description": "Add a default marker to the map.",
+			"category": "Markers",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-a-generated-icon-to-the-map",
+			"sha256": "916d1d85685a8eeb3e5457fa545421a679dbf3cefb764a424c8151336c2884aa",
+			"bytes": 2301,
+			"title": "Add a generated icon to the map",
+			"description": "Add an icon to the map that was generated at runtime.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-geojson-line",
+			"sha256": "5232832c7cad7250ca47df24df7ecb8b053e2d3d58ea1cb9860fa3374be8d09d",
+			"bytes": 3101,
+			"title": "Add a GeoJSON line",
+			"description": "Add a GeoJSON line to a map using addSource, then style it using addLayer’s paint properties.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-geojson-polygon",
+			"sha256": "dbc400b140f7c32b861cc21cd1c20c7c53b76dd21b65c69fa19fc2f2b22a3548",
+			"bytes": 2899,
+			"title": "Add a GeoJSON polygon",
+			"description": "Style a polygon with the fill layer type.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-hillshade-layer",
+			"sha256": "274ffacff863c987e2bc26e1259c52855f93288bd81cb0dcfa9f27c70d4a6928",
+			"bytes": 1899,
+			"title": "Add a hillshade layer",
+			"description": "Add a simple hillshade layer.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-a-multidirectional-hillshade-layer",
+			"sha256": "6174fd0c93e3f016022cd92b9987e20af64eb85c245af979dea17581e3fc3676",
+			"bytes": 1951,
+			"title": "Add a multidirectional hillshade layer",
+			"description": "Add a hillshade layer with multiple illumination sources.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-a-new-layer-below-labels",
+			"sha256": "f3cf1d162b852d3ae3ea6ced5829687ff34aa5389db6126a205b1f628bf45053",
+			"bytes": 2453,
+			"title": "Add a new layer below labels",
+			"description": "Use the second argument of addLayer to add a layer below labels.",
+			"category": "Layer Styling",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"d2ad6b4ur7yvpq.cloudfront.net",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getStyle",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-pattern-to-a-polygon",
+			"sha256": "2470b984ee334b35aa72db11cce861dbb6cb886a09f90167df3e083b1c1865cc",
+			"bytes": 2037,
+			"title": "Add a pattern to a polygon",
+			"description": "Use fill-pattern to draw a polygon from a repeating image pattern.",
+			"category": "Layer Styling",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"upload.wikimedia.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-raster-tile-source",
+			"sha256": "80b8d54abb42aa3f3fb462b645db67d0d117432b3bae0335db3074608dd0fbd7",
+			"bytes": 1597,
+			"title": "Add a raster tile source",
+			"description": "Add a third-party raster source to the map.",
+			"category": "Raster & Imagery",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tile.openstreetmap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-a-simple-custom-layer-on-a-globe",
+			"sha256": "f4e58766df4515f0b0a315238d73673f64251f222551a0b4ffe172920267a843",
+			"bytes": 9642,
+			"title": "Add a simple custom layer on a globe",
+			"description": "Use a custom layer to draw simple WebGL content on a globe.",
+			"category": "Globe",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": true,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"getProjection",
+				"on",
+				"setProjection"
+			]
+		},
+		{
+			"name": "add-a-stretchable-image-to-the-map",
+			"sha256": "66175d2aa97e695ea041bd0cbd0593073442147cd024456116a68a9fde02f9a9",
+			"bytes": 5445,
+			"title": "Add a stretchable image to the map",
+			"description": "Use a stretchable image as a background for text.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-vector-tile-source",
+			"sha256": "9c73bce3573269f7ed9805b424d40f50794a6de87ef50a871f31833c220e8503",
+			"bytes": 1997,
+			"title": "Add a vector tile source",
+			"description": "Add a vector source to a map.",
+			"category": "Vector & GeoJSON",
+			"plain": false,
+			"flags": {
+				"needsKey": true,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"api.maptiler.com",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-video",
+			"sha256": "35a5d09a3c332b219d6fc79f7acf3173ff5b9710de3043d4c7dde63cf4c8148e",
+			"bytes": 2505,
+			"title": "Add a video",
+			"description": "Display a video on top of a satellite raster baselayer.",
+			"category": "Raster & Imagery",
+			"plain": false,
+			"flags": {
+				"needsKey": true,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"api.maptiler.com",
+				"static-assets.mapbox.com"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-a-wms-source",
+			"sha256": "ec2660d7b28976845f187cf893e007211e8de43343cd1105343107af1f400e22",
+			"bytes": 1795,
+			"title": "Add a WMS source",
+			"description": "Add an external Web Map Service raster layer to the map using addSource",
+			"category": "Raster & Imagery",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"ows.terrestris.de"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-an-animated-icon-to-the-map",
+			"sha256": "8b1f4a6892353ab1e14b38091ff6d568bef312d7b615ef3fd3aefae052ca66db",
+			"bytes": 4113,
+			"title": "Add an animated icon to the map",
+			"description": "Add an animated icon to the map that was generated at runtime with the Canvas API. If performance is important, consider using a [plugin](https://maplibre.org/maplibre-gl-js/docs/plugins/) that draws the icon directly on the GPU via `StyleImageWebGLData`.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"on",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "add-an-icon-to-the-map",
+			"sha256": "d50677fbd9d8d6b7a38ba0e2ca05c29ef0b512548a8b5254c194167b33a71d01",
+			"bytes": 1803,
+			"title": "Add an icon to the map",
+			"description": "Add an icon to the map from an external URL and use it in a symbol layer.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"upload.wikimedia.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "add-contour-lines",
+			"sha256": "53836424a91c39458ed17515ab93616757372c0de72101d15439996ef802eed2",
+			"bytes": 4430,
+			"title": "Add Contour Lines",
+			"description": "Add contour lines to your map from a raster-dem source.",
+			"category": "Terrain & Hillshade",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/maplibre-contour@0.0.5/dist/index.min.js"
+			],
+			"classes": [
+				"Map",
+				"addProtocol"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-custom-icons-with-markers",
+			"sha256": "f321f1833462e3d2a17c930adc6db7b5ec7095ad7b4ee3869b917f639ba1415b",
+			"bytes": 3000,
+			"title": "Add custom icons with Markers",
+			"description": "Add custom marker icons to your map.",
+			"category": "Markers",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"picsum.photos"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": []
+		},
+		{
+			"name": "add-live-realtime-data",
+			"sha256": "a10edaa0b210c4ceff4f75d519a138d4a21faf5eac871dc34b2c977e6e15e25f",
+			"bytes": 2504,
+			"title": "Add live realtime data",
+			"description": "Use realtime GeoJSON data streams to move a symbol on your map.",
+			"category": "Live & Realtime Data",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org",
+				"www.random.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"flyTo",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "add-multiple-geometries-from-one-geojson-source",
+			"sha256": "ace0b4ee21acd8a91fd8e52bfcde7feca93dd5f78ae8915b79b9d5449cb332cb",
+			"bytes": 4055,
+			"title": "Add multiple geometries from one GeoJSON source",
+			"description": "Add a polygon and circle layer from the same GeoJSON source.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "adding-3d-models-using-threejs-on-terrain",
+			"sha256": "ce07848bb2ab7dabf69ce05665d4fec6cb4017503b250fdc683b8d263c7a6ed0",
+			"bytes": 9423,
+			"title": "Adding 3D models using three.js on terrain",
+			"description": "Use a custom style layer with three.js to add 3D models to a map with 3d terrain.",
+			"category": "3D Models & Buildings",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": true,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"maplibre.org",
+				"tiles.mapterhorn.com"
+			],
+			"libs": [
+				"three/addons/=https://cdn.jsdelivr.net/npm/three@0.169.0/examples/jsm/",
+				"three=https://cdn.jsdelivr.net/npm/three@0.169.0/build/three.module.js"
+			],
+			"classes": [
+				"LngLat",
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"addLayer",
+				"getCanvas",
+				"once",
+				"queryTerrainElevation",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "animate-a-line",
+			"sha256": "6f81185e351cf61ebc0d8d7a3146339e3c7ab08590294a0b966996fdfb33b3e2",
+			"bytes": 4231,
+			"title": "Animate a line",
+			"description": "Animate a line by updating a GeoJSON source on each frame.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "animate-a-marker",
+			"sha256": "a1381c2e9e86586e83ffe28d064fc5be3dc3ded3112729ac281cc968a07ba653",
+			"bytes": 1611,
+			"title": "Animate a marker",
+			"description": "Animate the position of a marker by updating its location on each frame.",
+			"category": "Markers",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": []
+		},
+		{
+			"name": "animate-a-point-along-a-route",
+			"sha256": "70266655b0b38ac1a6bdf198118230e6316c8f6966013fc7697233fcc41ebd65",
+			"bytes": 6188,
+			"title": "Animate a point along a route",
+			"description": "Use Turf to smoothly animate a point along the distance of a line.",
+			"category": "Camera & Animation",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org",
+				"www.unpkg.com"
+			],
+			"libs": [
+				"https://www.unpkg.com/turf@2.0.0/turf.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "animate-a-point",
+			"sha256": "667e4321c0b26dcfcb674efd260fff773dd1ccdbbfc06a6ae453fb4dcb5bbb95",
+			"bytes": 2073,
+			"title": "Animate a point",
+			"description": "Animate the position of a point by updating a GeoJSON source on each frame.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "animate-a-series-of-images",
+			"sha256": "5b8b75cc93f5b77051e34c6750d5dfdcfe46a286859eb9c68069cdf098facd81",
+			"bytes": 1881,
+			"title": "Animate a series of images",
+			"description": "Use a series of image sources to create an animation.",
+			"category": "Raster & Imagery",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "animate-an-icon-on-the-gpu",
+			"sha256": "b25afdf43fc6790f1f020ca20534f2485fed870899f22a47b62b6b8b8a1f7d85",
+			"bytes": 4315,
+			"title": "Animate an icon on the GPU",
+			"description": "Draw an animated icon straight into the icon atlas with WebGL, without moving its pixels through the CPU. Writing WebGL by hand is hard to get right, consider using a [plugin](https://maplibre.org/maplibre-gl-js/docs/plugins/) that implements `StyleImageWebGLData` for you.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"on",
+				"triggerRepaint"
+			]
+		},
+		{
+			"name": "animate-map-camera-around-a-point",
+			"sha256": "9a6b0d5dabda905e328062f31dff4bdd2f4e2b62b3d95f90d6c9c325863f0bbe",
+			"bytes": 1719,
+			"title": "Animate map camera around a point",
+			"description": "Animate the map camera around a point.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"getStyle",
+				"on",
+				"removeLayer",
+				"rotateTo"
+			]
+		},
+		{
+			"name": "animate-symbol-to-follow-the-mouse",
+			"sha256": "ecfcba76f6e3dadef4176c4b4bc6fca8ac964e5e77bcd7799c2fe55ebcaca98a",
+			"bytes": 2009,
+			"title": "Animate symbol to follow the mouse",
+			"description": "Animate symbol to follow the mouse.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"GlobeControl",
+				"Map"
+			],
+			"methods": [
+				"addControl",
+				"addLayer",
+				"addSource",
+				"getSource",
+				"on"
+			]
+		},
+		{
+			"name": "attach-a-popup-to-a-marker-instance",
+			"sha256": "9ec4460f2c74f22d08e97d3e97f566b5f36fbb7a5153edd51a8a4e89ee982b4e",
+			"bytes": 1717,
+			"title": "Attach a popup to a marker instance",
+			"description": "Attach a popup to a marker and display it on click.",
+			"category": "Popups",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker",
+				"Popup"
+			],
+			"methods": []
+		},
+		{
+			"name": "center-the-map-on-a-clicked-symbol",
+			"sha256": "866196f2fcc600d97baabfc3e5ab929325b2cb94a7bd5182ad6aa1f969b6cb8b",
+			"bytes": 3536,
+			"title": "Center the map on a clicked symbol",
+			"description": "Use events and flyTo to center the map on a symbol.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"flyTo",
+				"getCanvas",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "change-a-layers-color-with-buttons",
+			"sha256": "a52ecab32f1963e150ff0047fee97251c84f8f2e463eaeac71e29605574303ad",
+			"bytes": 3259,
+			"title": "Change a layer's color with buttons",
+			"description": "Use setPaintProperty to change a layer",
+			"category": "Layer Styling",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"setPaintProperty"
+			]
+		},
+		{
+			"name": "change-a-maps-language",
+			"sha256": "c96edab3424331ba53772a80b81313a5e4cdca2a4bcbeabcb3f194085ad5d3ec",
+			"bytes": 2527,
+			"title": "Change a map's language",
+			"description": "Use setLayoutProperty to switch languages dynamically.",
+			"category": "Internationalization",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"setLayoutProperty"
+			]
+		},
+		{
+			"name": "change-building-color-based-on-zoom-level",
+			"sha256": "fb52af8722cb0b4728a3421731581a7061edaa6077a4d06fde5a888caf206cae",
+			"bytes": 2064,
+			"title": "Change building color based on zoom level",
+			"description": "Use the interpolate expression to ease-in the building layer and smoothly fade from one color to the next.",
+			"category": "Expressions",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"setPaintProperty",
+				"zoomTo"
+			]
+		},
+		{
+			"name": "change-the-case-of-labels",
+			"sha256": "f9881b6808868b0b936201a4f0508275bbd327bcf88b2dbccc670d0aa390a678",
+			"bytes": 1973,
+			"title": "Change the case of labels",
+			"description": "Use the upcase and downcase expressions to change the case of labels.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"opendata.cityofboise.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "change-the-default-position-for-attribution",
+			"sha256": "6129d89a86f5a55a548a01b7a8b4b1d20d1b5737c77895bb91b225727b33403b",
+			"bytes": 1048,
+			"title": "Change the default position for attribution",
+			"description": "Place attribution in the top-left position when initializing a map.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"AttributionControl",
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "check-if-webgl-is-supported",
+			"sha256": "3598fa631d84b291d0584a3304baf2680767385ee62064140737012acc43b7d1",
+			"bytes": 1695,
+			"title": "Check if WebGL is supported",
+			"description": "Check for WebGL browser support.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"GPUInitializationError",
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "cooperative-gestures",
+			"sha256": "8936e7456968eab284cc6a1d4e560401baef015aa373b00ce03e929340c80afe",
+			"bytes": 1012,
+			"title": "Cooperative gestures",
+			"description": "Enable cooperative gestures. See how it behaves in fullscreen mode.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"FullscreenControl",
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "create-a-draggable-marker",
+			"sha256": "b27a5f671e4f703cd0fd2b6b41be0ae709b7566b9418bc284d64062790074c4a",
+			"bytes": 3550,
+			"title": "Create a draggable Marker",
+			"description": "Drag a marker with the pointer or the keyboard, and make a custom marker element keyboard accessible.",
+			"category": "Markers",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": [
+				"project",
+				"unproject"
+			]
+		},
+		{
+			"name": "create-a-draggable-point",
+			"sha256": "52e014aab91e42feeb668189562a90f07eaa188af3ee7b4f094e51682a6b1795",
+			"bytes": 3951,
+			"title": "Create a draggable point",
+			"description": "Drag the point to a new location on a map and populate its coordinates in a display.",
+			"category": "Markers",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getCanvasContainer",
+				"getSource",
+				"off",
+				"on",
+				"once",
+				"setPaintProperty"
+			]
+		},
+		{
+			"name": "create-a-gradient-dashed-line-using-an-expression",
+			"sha256": "b2aa1a2155c109e4743fe6eee070ad95b860200241ef3f35685ea713c94cb4a5",
+			"bytes": 3576,
+			"title": "Create a gradient dashed line using an expression",
+			"description": "Use the line-gradient and line-dasharray paint properties together to create a dashed line with gradient colors.",
+			"category": "Expressions",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "create-a-gradient-line-using-an-expression",
+			"sha256": "966d818bd113a7e227c05c0951af302767903f6f98bca12f805866ff79d37d75",
+			"bytes": 3449,
+			"title": "Create a gradient line using an expression",
+			"description": "Use the line-gradient paint property and an expression to visualize distance from the starting point of a line.",
+			"category": "Expressions",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "create-a-heatmap-layer-on-a-globe-with-terrain-elevation",
+			"sha256": "0b11088307243c7c79751df469e3075f58e0cf71fe6a18ff8bb25db0d190da6e",
+			"bytes": 8155,
+			"title": "Create a Heatmap layer on a globe with terrain elevation",
+			"description": "Create a Heatmap layer on a globe with terrain elevation.",
+			"category": "Globe",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"tiles.mapterhorn.com",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"GlobeControl",
+				"Map",
+				"NavigationControl",
+				"TerrainControl"
+			],
+			"methods": [
+				"addControl",
+				"addLayer",
+				"addSource",
+				"on",
+				"setStyle"
+			]
+		},
+		{
+			"name": "create-a-heatmap-layer",
+			"sha256": "7a57d726189c11643bd02afb9d7832e66e18bc53cddc4766690ea84d3195a613",
+			"bytes": 5725,
+			"title": "Create a heatmap layer",
+			"description": "Visualize earthquake frequency by location using a heatmap layer.",
+			"category": "Heatmaps & Clusters",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "create-a-hover-effect",
+			"sha256": "e7d648703d74b73768f0e9ed6fbcb21d5d62f992d3050ed84717e33821cf3d85",
+			"bytes": 3180,
+			"title": "Create a hover effect",
+			"description": "Use events and feature states to create a per feature hover effect.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"setFeatureState"
+			]
+		},
+		{
+			"name": "create-a-time-slider",
+			"sha256": "a55f92d9104eccf490f17a030be9677cf430dc135370f8b62fbe3c777a05e05f",
+			"bytes": 5974,
+			"title": "Create a time slider",
+			"description": "Visualize earthquakes with a range slider.",
+			"category": "Data Visualization",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"d3js.org",
+				"demotiles.maplibre.org",
+				"earthquake.usgs.gov",
+				"maplibre.org",
+				"www.usgs.gov"
+			],
+			"libs": [
+				"https://d3js.org/d3.v3.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"setFilter"
+			]
+		},
+		{
+			"name": "create-and-style-clusters",
+			"sha256": "573a4a69fa7d61dfd9c49b5d0e578bc80d4a6e30d0adc0278da57680390c7404",
+			"bytes": 5595,
+			"title": "Create and style clusters",
+			"description": "Use MapLibre GL JS",
+			"category": "Heatmaps & Clusters",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Popup"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"easeTo",
+				"getCanvas",
+				"getSource",
+				"on",
+				"queryRenderedFeatures"
+			]
+		},
+		{
+			"name": "create-deckgl-layer-using-rest-api",
+			"sha256": "e7e0328f0bf5bfafb80a796df9eb3bd4329010a9e73a6473f077f4c2bd9ff072",
+			"bytes": 3977,
+			"title": "Create deck.gl layer using REST API",
+			"description": "Create a deck.gl layer as an overlay from a REST API.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"data.iledefrance.fr",
+				"tiles.openfreemap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/deck.gl@8.9.33/dist.min.js"
+			],
+			"classes": [
+				"Map",
+				"NavigationControl",
+				"Popup"
+			],
+			"methods": [
+				"addControl",
+				"on"
+			]
+		},
+		{
+			"name": "customize-camera-animations",
+			"sha256": "533e80b11ac3f0d7efa1ab3551f9222092311ac6c4c242f6295bdb7fdd5a78c6",
+			"bytes": 9329,
+			"title": "Customize camera animations",
+			"description": "Customize camera animations using AnimationOptions.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"flyTo",
+				"getSource",
+				"on",
+				"setLayoutProperty"
+			]
+		},
+		{
+			"name": "customize-the-map-transform-constrain",
+			"sha256": "0697a6f76fbe856de5e39bddecf59fcd8e6e5ac1e71b2ec12ed037e553c4352d",
+			"bytes": 1699,
+			"title": "Customize the map transform constrain",
+			"description": "Customize the constrain callback of the map transform. For example, to allow users to underzoom and overpan the bounds.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"a.tile.openstreetmap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "disable-map-rotation",
+			"sha256": "3281d94d6f467926ed10346f5ab546873f3462a30a342a650d74509fbf9eddba",
+			"bytes": 1215,
+			"title": "Disable map rotation",
+			"description": "Prevent users from rotating a map.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "disable-scroll-zoom",
+			"sha256": "4e279710c1be7d5a249ac29f97fb482332174c3761d503b3cc3ae8b728dda78c",
+			"bytes": 1030,
+			"title": "Disable scroll zoom",
+			"description": "Prevent scroll from zooming a map.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-globe-with-a-fill-extrusion-layer",
+			"sha256": "d84b7130b68d091c4512bb224b3038c6a946c873393f1c936556ed65fe12d80b",
+			"bytes": 3816,
+			"title": "Display a globe with a fill extrusion layer",
+			"description": "Display a globe with a fill extrusion layer.",
+			"category": "Globe",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"GlobeControl",
+				"Map"
+			],
+			"methods": [
+				"addControl",
+				"addLayer",
+				"addSource",
+				"on",
+				"setProjection"
+			]
+		},
+		{
+			"name": "display-a-globe-with-a-vector-map",
+			"sha256": "fcddd7a8a957fcce8f30b9f0022a4f34374373459c7fce3f2b545bd0e5f58f48",
+			"bytes": 1063,
+			"title": "Display a globe with a vector map",
+			"description": "Display a globe with a vector map.",
+			"category": "Globe",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"setProjection"
+			]
+		},
+		{
+			"name": "display-a-globe-with-an-atmosphere",
+			"sha256": "f0215142948738b72539360e1391ddff920313536877c059a631f4a590ed4bd2",
+			"bytes": 1909,
+			"title": "Display a globe with an atmosphere",
+			"description": "Display a globe with an atmosphere.",
+			"category": "Globe",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.maps.eox.at"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-hybrid-satellite-map-with-terrain-elevation",
+			"sha256": "7ba7917334a690b6c91eb9ab0923dd97c1a7e7a537444f25778f831088a43aac",
+			"bytes": 3518,
+			"title": "Display a hybrid satellite map with terrain elevation",
+			"description": "Display a hybrid satellite map with terrain elevation.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.maps.eox.at",
+				"tiles.mapterhorn.com",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"GlobeControl",
+				"Map",
+				"NavigationControl",
+				"TerrainControl"
+			],
+			"methods": [
+				"addControl",
+				"setStyle"
+			]
+		},
+		{
+			"name": "display-a-map-with-mlt",
+			"sha256": "f23d191d7030bf767ea9d8972e21014a001a4fcab1ded97b313317299a086b81",
+			"bytes": 1172,
+			"title": "Display a map with MLT",
+			"description": "Initialize a map in an HTML element with MapLibre GL JS. This example is using a style that uses MLT (MapLibre Tiles). The example is very similar to the regular one except the tiles are in a different encoding.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-map",
+			"sha256": "34a9b7de39f8ada8162b4716aa56910a0f18c01cae1051aba7a91dfecc6b7fdb",
+			"bytes": 1044,
+			"title": "Display a map",
+			"description": "Initialize a map in an HTML element with MapLibre GL JS.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-non-interactive-map",
+			"sha256": "00bed61c6bab4caa70a526776a0e47789d606e3951838427191fd3f8a037e964",
+			"bytes": 1124,
+			"title": "Display a non-interactive map",
+			"description": "Disable interactivity to create a static map.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-popup-on-click",
+			"sha256": "11a2c6ba288b4f8dbc6988aa39cc392eba1e8f99edea202690def6897bc67443",
+			"bytes": 10242,
+			"title": "Display a popup on click",
+			"description": "When a user clicks a symbol, show a popup containing more information.",
+			"category": "Popups",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"ballstonarts-craftsmarket.blogspot.com",
+				"dandiesandquaintrelles.com",
+				"godsilla.bandcamp.com",
+				"madmens5finale.eventbrite.com",
+				"tallulaeatbar.ticketleap.com",
+				"tiles.openfreemap.org",
+				"www.blackcatdc.com",
+				"www.capitalpride.org",
+				"www.exitclov.com",
+				"www.mtpleasantdc.com",
+				"www.muhsinah.com",
+				"www.thearlingtonplayers.org",
+				"www.truckeroodc.com"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Popup"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getCanvas",
+				"on"
+			]
+		},
+		{
+			"name": "display-a-popup-on-hover",
+			"sha256": "3dff42be63a2540f6ef4ab7f086b8f02cf6b9954bd62b739ffae7163cdc38633",
+			"bytes": 9308,
+			"title": "Display a popup on hover",
+			"description": "When a user hovers over a custom marker, show a popup containing more information.",
+			"category": "Popups",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Popup"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"getCanvas",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "display-a-popup",
+			"sha256": "26cd65e25bf09d4b6b068a77e4662ad1dd26ad06d0b9edf46aec96740c789242",
+			"bytes": 1060,
+			"title": "Display a popup",
+			"description": "Add a popup to the map.",
+			"category": "Popups",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Popup"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-a-remote-svg-symbol",
+			"sha256": "6b61342229f54965710b0dcb2f580e5d6d78f9ecff2f8ddb52906202143a59ef",
+			"bytes": 2339,
+			"title": "Display a remote SVG symbol",
+			"description": "Uses a missing style image resolver to load a remote image and use it.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"on",
+				"setMissingStyleImageResolver"
+			]
+		},
+		{
+			"name": "display-a-satellite-map",
+			"sha256": "3b64d19735a86bde6f336412c15db0874e20eced6ea04e840b6ab6643ab97a93",
+			"bytes": 1429,
+			"title": "Display a satellite map",
+			"description": "Display a satellite raster baselayer.",
+			"category": "Getting Started",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.maps.eox.at"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "display-and-style-rich-text-labels",
+			"sha256": "6ca4849e5b1c68a38c7d94b2f20db267d98d71a818a67f06f1d4abcfb523fb9d",
+			"bytes": 1646,
+			"title": "Display and style rich text labels",
+			"description": "Use the format expression to display country labels in both English and in the local language.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"setLayoutProperty"
+			]
+		},
+		{
+			"name": "display-buildings-in-3d",
+			"sha256": "f725126802f3c184bf3d15e04a6a1f2310929aafb76d07f247a8649cedc13c9b",
+			"bytes": 2687,
+			"title": "Display buildings in 3D",
+			"description": "Use extrusions to display buildings",
+			"category": "3D Models & Buildings",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getStyle",
+				"on"
+			]
+		},
+		{
+			"name": "display-html-clusters-with-custom-properties",
+			"sha256": "bac50436e04c76185767e11f81d324aea4d823cbeae76e496fc39eea12352258",
+			"bytes": 8245,
+			"title": "Display HTML clusters with custom properties",
+			"description": "Extend clustering with HTML markers and custom property expressions. ",
+			"category": "Heatmaps & Clusters",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker",
+				"NavigationControl"
+			],
+			"methods": [
+				"addControl",
+				"addLayer",
+				"addSource",
+				"on",
+				"querySourceFeatures"
+			]
+		},
+		{
+			"name": "display-line-that-crosses-180th-meridian",
+			"sha256": "4d92c591b879f4d52dba7453a7923efaa65aab99ff8d5d686ac4124a90a6bcd5",
+			"bytes": 3569,
+			"title": "Display line that crosses 180th meridian",
+			"description": "Draw a line across the 180th meridian using a GeoJSON source.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"on"
+			]
+		},
+		{
+			"name": "display-map-navigation-controls",
+			"sha256": "cc2ce295a08b3d99aec1b0a61c07a2ab2535cae41408db4416ec5aa4dcea04f5",
+			"bytes": 1334,
+			"title": "Display map navigation controls",
+			"description": "Add zoom and rotation controls to the map.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"NavigationControl"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "display-performance-metrics",
+			"sha256": "60687d896ff153cbd1836d7138b987919fa32ac96d2680b8bc284afe78a98ec9",
+			"bytes": 2100,
+			"title": "Display Performance Metrics",
+			"description": "Measure map performance using built-in events.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"once"
+			]
+		},
+		{
+			"name": "draw-a-circle",
+			"sha256": "989347ec037571a81ca9191e6c24b71a27b8f66d53469f0d969b515a302c7e26",
+			"bytes": 2651,
+			"title": "Draw a Circle",
+			"description": "Draw a radius to approximate a location with Turf.js",
+			"category": "Data Visualization",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"tile.openstreetmap.org",
+				"turfjs.org"
+			],
+			"libs": [
+				"https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "draw-geojson-points",
+			"sha256": "42e4ded1573bcb2d28b99f15d141a855df6fef596be0e3c2a7d13214c9e0cecf",
+			"bytes": 6675,
+			"title": "Draw GeoJSON points",
+			"description": "Draw points from a GeoJSON collection to a map.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"loadImage",
+				"on"
+			]
+		},
+		{
+			"name": "draw-geometries-with-terra-draw",
+			"sha256": "fa9d9f692b2b5369e004e78dac12f482a053e2fcc28626a5424fe2ad04502471",
+			"bytes": 2001,
+			"title": "Draw geometries with terra-draw",
+			"description": "Use maplibre-gl-terradraw to draw a geometry in various forms such as point, line or polygon on your map.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"tiles.openfreemap.org"
+			],
+			"libs": [
+				"https://cdn.jsdelivr.net/npm/@watergis/maplibre-gl-terradraw@1.0.1/dist/maplibre-gl-terradraw.umd.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "draw-polygon-with-mapbox-gl-draw",
+			"sha256": "d118832a8376473fb11e70dce1e8769a03d0a60cbbfa84772dcbe9bc5d6fb294",
+			"bytes": 8505,
+			"title": "Draw polygon with mapbox-gl-draw",
+			"description": "Use mapbox-gl-draw to draw a polygon and Turf.js to calculate its area in square meters.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"esm.sh",
+				"github.com",
+				"tiles.openfreemap.org",
+				"www.unpkg.com"
+			],
+			"libs": [
+				"https://esm.sh/@turf/turf@7.1.0",
+				"https://www.unpkg.com/@mapbox/mapbox-gl-draw@1.5.0/dist/mapbox-gl-draw.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addControl",
+				"on"
+			]
+		},
+		{
+			"name": "elevate-symbols-above-the-terrain",
+			"sha256": "038e92460662df1d83131a9e909f7d8ad3649051ead22fe9fab60102f434ed65",
+			"bytes": 3403,
+			"title": "Elevate symbols above the terrain",
+			"description": "Use the symbol-height-offset property to float icons and text above the ground in 3D.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"a.tile.openstreetmap.org",
+				"demotiles.maplibre.org",
+				"tiles.mapterhorn.com"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"NavigationControl"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "enter-a-360-photosphere",
+			"sha256": "5f1782a3beaf4716d1d0f5321ed3208e7a7b561fd918a1e5f71a2f3f3348d145",
+			"bytes": 4683,
+			"title": "Enter a 360° photosphere",
+			"description": "Click a marker to smoothly enter an immersive 360° photosphere at a fixed point, blended with the live map; exit to return to normal navigation.",
+			"category": "Camera & Animation",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": true,
+				"maps": 1
+			},
+			"hosts": [
+				"commons.wikimedia.org",
+				"maplibre.org",
+				"tile.openstreetmap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"maplibre-gl-photosphere=https://unpkg.com/maplibre-gl-photosphere@0.1.0/src/index.js"
+			],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": []
+		},
+		{
+			"name": "extrude-polygons-for-3d-indoor-mapping",
+			"sha256": "96fa9850595cb5201e8690ac81de8f5da15f881d7f379184f6043d2e6c767587",
+			"bytes": 3160,
+			"title": "Extrude polygons for 3D indoor mapping",
+			"description": "Create a 3D indoor map with the fill-extrude-height paint property.",
+			"category": "3D Models & Buildings",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"gist.github.com",
+				"maplibre.org",
+				"tile.openstreetmap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "fill-extrusion-rounded-corners",
+			"sha256": "40be44dc2c789292e9dd91b8df70027e37002aeadc31bc4d9d0f1be8facdbb55",
+			"bytes": 4622,
+			"title": "Fill extrusion rounded corners",
+			"description": "Use fill-extrusion-rounded-corner-distance to round the corners of extruded polygons.",
+			"category": "3D Models & Buildings",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"getStyle",
+				"on",
+				"setLayoutProperty",
+				"setPaintProperty"
+			]
+		},
+		{
+			"name": "filter-layer-symbols-using-global-state",
+			"sha256": "48621fb7790a46391c3f8f64d64eb15c4dd3c4da957bb667ccc2ae6aee5d0065",
+			"bytes": 3187,
+			"title": "Filter layer symbols using global state",
+			"description": "Filter a layer symbols based on user input using setGlobalStateProperty().",
+			"category": "Filtering",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"setGlobalStateProperty"
+			]
+		},
+		{
+			"name": "filter-symbols-by-text-input",
+			"sha256": "c0a7fad22ac36687c15ad985f5c1a253ed4f9724edcfe952f17e6c5548bcb582",
+			"bytes": 5839,
+			"title": "Filter symbols by text input",
+			"description": "Filter symbols by icon name by typing in a text input.",
+			"category": "Filtering",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getLayer",
+				"on",
+				"setLayoutProperty"
+			]
+		},
+		{
+			"name": "filter-symbols-by-toggling-a-list",
+			"sha256": "b0f76b7290055e58516267a3ed7238fc9253a7218a020f7f824614d57d3aa60e",
+			"bytes": 6173,
+			"title": "Filter symbols by toggling a list",
+			"description": "Filter a set of symbols based on a property value in the data.",
+			"category": "Filtering",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getLayer",
+				"on",
+				"setLayoutProperty"
+			]
+		},
+		{
+			"name": "filter-within-a-layer",
+			"sha256": "4e2da166f4633233b24011657ba69d2814df7586a3ebeb223c1aab60eb5d87dd",
+			"bytes": 6593,
+			"title": "Filter within a Layer",
+			"description": "Filter a layer based on user input using setFilter().",
+			"category": "Filtering",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"setFilter"
+			]
+		},
+		{
+			"name": "fit-a-map-to-a-bounding-box",
+			"sha256": "2af88bcce37591951ee9212a25d6070a76e68b7eb5c5c2bb28311aa43965b060",
+			"bytes": 1540,
+			"title": "Fit a map to a bounding box",
+			"description": "Fit the map to a specific area, regardless of the pixel size of the map.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"fitBounds"
+			]
+		},
+		{
+			"name": "fit-to-the-bounds-of-a-linestring",
+			"sha256": "e0b29358bf8c25be9db95c18e44511bcd090fd848b1bf00f8fddd3b859118838",
+			"bytes": 4099,
+			"title": "Fit to the bounds of a LineString",
+			"description": "Get the bounds of a LineString.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"LngLatBounds",
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"fitBounds",
+				"on"
+			]
+		},
+		{
+			"name": "fly-to-a-location-based-on-scroll-position",
+			"sha256": "20724085934ad4d4662898fee8842930c5d1068891573471e483978bbc749de6",
+			"bytes": 8373,
+			"title": "Fly to a location based on scroll position",
+			"description": "Scroll down through the story and the map will fly to the chapter",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org",
+				"www.gutenberg.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"flyTo"
+			]
+		},
+		{
+			"name": "fly-to-a-location",
+			"sha256": "27fb974cd62e3ab74c448492f6046c0917e3e96ef3024ff39ac3fe4254be6601",
+			"bytes": 1821,
+			"title": "Fly to a location",
+			"description": "Use flyTo to smoothly interpolate between locations.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"flyTo"
+			]
+		},
+		{
+			"name": "generate-and-add-a-missing-icon-to-the-map",
+			"sha256": "a24765be9b10c7a379b76f3296cf561a3be57e7e6be2f157849bef3fec535ad3",
+			"bytes": 3459,
+			"title": "Generate and add a missing icon to the map",
+			"description": "Dynamically generate a missing icon at runtime and add it to the map.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addImage",
+				"addLayer",
+				"addSource",
+				"on",
+				"setMissingStyleImageResolver"
+			]
+		},
+		{
+			"name": "geocode-with-nominatim",
+			"sha256": "ca495fe107d808ff8bc58525d9be1489d7b341e8805307346f3253994db640db",
+			"bytes": 3021,
+			"title": "Geocode with Nominatim",
+			"description": "Geocode with Nominatim and the maplibre-gl-geocoder plugin.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"nominatim.openstreetmap.org",
+				"tiles.openfreemap.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/@maplibre/maplibre-gl-geocoder@1.5.0/dist/maplibre-gl-geocoder.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "get-coordinates-of-the-mouse-pointer",
+			"sha256": "e93d2a609ba40def0db994c7abbdbe74dc6281f25e71cc377f15a8be9b456a81",
+			"bytes": 1799,
+			"title": "Get coordinates of the mouse pointer",
+			"description": "Show mouse position on hover with pixel and latitude and longitude coordinates.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on"
+			]
+		},
+		{
+			"name": "get-features-under-the-mouse-pointer",
+			"sha256": "9c0efe0417a2ab5d5affc267e06ff7f17e8c5e381417fd21476eb74f6c808e8b",
+			"bytes": 2078,
+			"title": "Get features under the mouse pointer",
+			"description": "Use queryRenderedFeatures to show properties of hovered-over map elements.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"queryRenderedFeatures"
+			]
+		},
+		{
+			"name": "hash-routing",
+			"sha256": "4f937446a30b85624053a7d43dbdc622db461b4e93eac01da33bac66a6b1ffa3",
+			"bytes": 1564,
+			"title": "Hash routing",
+			"description": "Keep the viewport state in the url with hash routing.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "jump-to-a-series-of-locations",
+			"sha256": "925175572efb699267d9b52267c87905e872e87b124800dbdd178a743a7b846e",
+			"bytes": 2703,
+			"title": "Jump to a series of locations",
+			"description": "Use the jumpTo function to showcase multiple locations.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"jumpTo",
+				"on"
+			]
+		},
+		{
+			"name": "level-of-detail-control",
+			"sha256": "dad795a912dad3f95e2a89bda0276ae72c71da00cfb6892fbdc4fbc6c1312a6f",
+			"bytes": 3021,
+			"title": "Level of Detail Control",
+			"description": "Modify how Level of Detail behaves at high pitch angles.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"on",
+				"setSourceTileLodParams"
+			]
+		},
+		{
+			"name": "locale-switching",
+			"sha256": "3aa006c68a1a9caaf3ec40814dced6fcd01a716aaec5b3da720baa3583a9c853",
+			"bytes": 1467,
+			"title": "Locale switching",
+			"description": "Show how localization can be applied manually to UI elements. Hover over a control to see the translated tooltip.",
+			"category": "Internationalization",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"FullscreenControl",
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "locate-the-user",
+			"sha256": "08972a6429ff6e22e401feb5cf616a5a8c26e67e0150e0e46f3a8e9ac7528525",
+			"bytes": 1288,
+			"title": "Locate the user",
+			"description": "Geolocate the user and then track their current location on the map using the GeolocateControl.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": true,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"GeolocateControl",
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "measure-distances",
+			"sha256": "bf2c4cc5e2994950ef0b8f1b28b3491d381bd140e4488e46a99e81623e828a4b",
+			"bytes": 5098,
+			"title": "Measure distances",
+			"description": "Click points on a map to create lines that measure distanced using turf.length.",
+			"category": "Data Visualization",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"tiles.openfreemap.org"
+			],
+			"libs": [
+				"https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getCanvas",
+				"getSource",
+				"on",
+				"queryRenderedFeatures"
+			]
+		},
+		{
+			"name": "navigate-the-map-with-game-like-controls",
+			"sha256": "7a710e17a4b05a1b8043e2cb14771416fad769428c826521b68a82675e641879",
+			"bytes": 2348,
+			"title": "Navigate the map with game-like controls",
+			"description": "Use the keyboard",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"easeTo",
+				"getBearing",
+				"getCanvas",
+				"on",
+				"panBy"
+			]
+		},
+		{
+			"name": "offset-the-vanishing-point-using-padding",
+			"sha256": "1b94f6ade0d69c74775b9b2b9904c8e1aeb268110c2b290b2148002c2eb8115c",
+			"bytes": 4403,
+			"title": "Offset the vanishing point using padding",
+			"description": "Offset the center or vanishing point of the map to reduce distortion when floating elements are displayed over the map.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Marker"
+			],
+			"methods": [
+				"easeTo",
+				"on"
+			]
+		},
+		{
+			"name": "pmtiles-source-and-protocol",
+			"sha256": "e6721317a4327a6f47b9946be189cef99ff4f203e585b72f3bf343eb457c4c57",
+			"bytes": 2967,
+			"title": "PMTiles source and protocol",
+			"description": "Uses the PMTiles plugin and protocol to present a map.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"openstreetmap.org",
+				"pmtiles.io",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/pmtiles@3.2.0/dist/pmtiles.js"
+			],
+			"classes": [
+				"Map",
+				"addProtocol"
+			],
+			"methods": []
+		},
+		{
+			"name": "render-world-copies",
+			"sha256": "23b370ff38dd3c8674d5aa127ae006d9376406383fc3ffc00c010b678b4c2162",
+			"bytes": 1983,
+			"title": "Render world copies",
+			"description": "Toggle between rendering a single world and multiple copies of the world using setRenderWorldCopies.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"getCenter",
+				"panTo",
+				"setRenderWorldCopies"
+			]
+		},
+		{
+			"name": "restrict-map-panning-to-an-area",
+			"sha256": "e563aad99826d5d10b98de90784df79da14f82b8014644e40a8362da676bcf12",
+			"bytes": 1212,
+			"title": "Restrict map panning to an area",
+			"description": "Prevent a map from being panned to a different place by setting maxBounds.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "select-features-with-boxzoomend-callback",
+			"sha256": "6f87ba6ba41c34f502201c00197fb89a9289fe06c259af09345d66e8a1a62ea1",
+			"bytes": 3243,
+			"title": "Select features with boxZoomEnd callback",
+			"description": "Use the boxZoomEnd callback to select features with Shift-drag instead of fitting the map to the dragged box.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getLayer",
+				"on",
+				"setFilter"
+			]
+		},
+		{
+			"name": "set-center-point-above-ground",
+			"sha256": "59aebf3e2ae76429cac20338bc791ac5425fea4cb7e644481bdc4b98cc0d673d",
+			"bytes": 2254,
+			"title": "Set center point above ground",
+			"description": "Set the center point above ground level.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "set-pitch-and-bearing",
+			"sha256": "dae1deb3c084cf01f4cfa7ad457c408a7c03ddc2b33b689bbf3ab65282e86eab",
+			"bytes": 1081,
+			"title": "Set pitch and bearing",
+			"description": "Initialize a map with pitch and bearing camera options.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "show-polygon-information-on-click",
+			"sha256": "51b267af5fdf97b8bff32202fe17b878efa0b73945cd7c8bc3853012b86608fc",
+			"bytes": 2466,
+			"title": "Show polygon information on click",
+			"description": "When a user clicks a polygon, show a popup containing more information.",
+			"category": "Events & Queries",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"d2ad6b4ur7yvpq.cloudfront.net",
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"Popup"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getCanvas",
+				"on"
+			]
+		},
+		{
+			"name": "sky-fog-terrain",
+			"sha256": "f8ee29cb9ff77720f093a12227989508532ae72a8616329aff00d51ef025baeb",
+			"bytes": 5676,
+			"title": "Sky, Fog, Terrain",
+			"description": "Allows changing the sky, fog and horizon color and blends.",
+			"category": "Terrain & Hillshade",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": true,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"a.tile.openstreetmap.org",
+				"tiles.mapterhorn.com"
+			],
+			"libs": [],
+			"classes": [
+				"GlobeControl",
+				"Map",
+				"NavigationControl",
+				"TerrainControl"
+			],
+			"methods": [
+				"addControl",
+				"on",
+				"setSky"
+			]
+		},
+		{
+			"name": "slowly-fly-to-a-location",
+			"sha256": "ae704dc474299d462f4c17a2321514dc8e83976c6b99a46f2c5e595ed01d6b0a",
+			"bytes": 2602,
+			"title": "Slowly fly to a location",
+			"description": "Use flyTo with flyOptions to slowly zoom to a location.",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"flyTo"
+			]
+		},
+		{
+			"name": "style-labels-with-font-faces",
+			"sha256": "22ebd3bc1fe6bf07266946cb1a64a65a5bc21a8c69e4e395b435a2000b238fa8",
+			"bytes": 5440,
+			"title": "Style labels with font faces",
+			"description": "Point your style at the font files used to draw its text labels. The font-faces property names a font file per text-font name, optionally narrowed to a unicode-range, so a style can cover scripts its glyphs server does not. Anything the browser can render text with may be used, and it is understood by Android and iOS as well. Here Georgian and Armenian labels come from font files while the Latin ones still come from the glyphs URL.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"cdn.jsdelivr.net",
+				"demotiles.maplibre.org",
+				"tiles.maps.eox.at"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "style-labels-with-local-fonts",
+			"sha256": "cc5449b5eadf40c9c577d9f5e94a169cb7e34e96056a0263cc46d02dbff70754",
+			"bytes": 3394,
+			"title": "Style labels with local fonts",
+			"description": "Apply local fonts to your style’s text labels. This option is suitable if you don’t need every user to see exactly the same font, or if you want to avoid relying on a third-party content delivery network (CDN). For maximum compatibility, the text-font property should include fonts commonly found on multiple platforms.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.maps.eox.at"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "style-labels-with-web-fonts",
+			"sha256": "6a18e6b6498fa92ee3986968c6da8c705e6e7e607aa1c653b579ec7a9030055d",
+			"bytes": 3880,
+			"title": "Style labels with Web fonts",
+			"description": "Apply Web fonts to your style’s text labels. Unlike signed distance field (SDF) glyph sets, Web fonts are available from a variety of providers, or your can make your own using popular tools. This option is suitable for fonts that are only available through a third-party content delivery network (CDN) for technical or legal reasons, as well as fonts that are incompatible with SDF, such as variable fonts. For compatibility with Android and iOS applications, specify equivalent fonts in the style’s font-faces property.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"fonts.googleapis.com",
+				"fonts.gstatic.com",
+				"tiles.maps.eox.at"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "style-lines-with-a-data-driven-property",
+			"sha256": "1e89baa697310fb568f3b003dc2e5bae90bdf545db0ed1dcae384eefe34ab7cf",
+			"bytes": 4809,
+			"title": "Style lines with a data-driven property",
+			"description": "Create a visualization with a data expression for line-color.",
+			"category": "Expressions",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "sync-movement-of-multiple-maps",
+			"sha256": "bc2bf29d61929f4aa690eba27b813f89fdab45e0b2abb203366a7abd74dd8579",
+			"bytes": 1756,
+			"title": "Sync movement of multiple maps",
+			"description": "Synchronize MapLibre GL JS maps with the sync-move plugin.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 3
+			},
+			"hosts": [
+				"basemaps.cartocdn.com",
+				"demotiles.maplibre.org",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/@mapbox/mapbox-gl-sync-move@0.3.1"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "toggle-deckgl-layer",
+			"sha256": "1c607cbbdfd13c8daf198250764a64db642654d4344d3c538aa5d9cda54a59b1",
+			"bytes": 5861,
+			"title": "Toggle deck.gl layer",
+			"description": "Toggle deck.gl layer using maplibre.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": true,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maps.clockworkmicro.com",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://unpkg.com/deck.gl@8.9.33/dist.min.js"
+			],
+			"classes": [
+				"Map",
+				"NavigationControl",
+				"Popup"
+			],
+			"methods": [
+				"addControl",
+				"on",
+				"removeControl"
+			]
+		},
+		{
+			"name": "toggle-interactions",
+			"sha256": "82787b5a96f12662580aa0265c26b1d3db5c8a017a0eac75cc010a509d07ac62",
+			"bytes": 3265,
+			"title": "Toggle interactions",
+			"description": "Enable or disable UI handlers on a map.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "update-a-feature-in-realtime",
+			"sha256": "9502605cb2953d790ca270e0e11e95350ce71cb249dc17584d3a427cb2be0507",
+			"bytes": 2960,
+			"title": "Update a feature in realtime",
+			"description": "Change an existing feature on your map in real-time by updating its data.",
+			"category": "Live & Realtime Data",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"d3js.org",
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [
+				"https://d3js.org/d3.v3.min.js"
+			],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"jumpTo",
+				"on",
+				"panTo",
+				"setPitch"
+			]
+		},
+		{
+			"name": "update-geojson-polygons",
+			"sha256": "a84e234c3915857b93c5ddfcff1fbf2aaf9b70e5f60e2a147cd0cef1d4a81c42",
+			"bytes": 4009,
+			"title": "Update GeoJSON polygons",
+			"description": "Update GeoJSON polygons using updateable GeoJSONVT",
+			"category": "Live & Realtime Data",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": false,
+				"random": true,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"getSource",
+				"getZoom",
+				"on"
+			]
+		},
+		{
+			"name": "use-a-fallback-image",
+			"sha256": "ebd5187285c0e0ba0e4b2c8b3bb8bd2536261126a7ebfb4850f948fc6c040abd",
+			"bytes": 3071,
+			"title": "Use a fallback image",
+			"description": "Use a coalesce expression to display another image when a requested image is not available.",
+			"category": "Icons & Symbols",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "use-addprotocol-to-transform-feature-properties",
+			"sha256": "596886ec99164bd90eaf7ee1362e8a48c598babf90eb9b10df295b15810f8f46",
+			"bytes": 2981,
+			"title": "Use addProtocol to Transform Feature Properties",
+			"description": "Reverse country names with addProtocol in plain JavaScript.",
+			"category": "Plugins & Integrations",
+			"plain": false,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": true,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org",
+				"esm.run",
+				"unpkg.com"
+			],
+			"libs": [
+				"https://esm.run/@mapbox/vector-tile@2.0.3/index.js",
+				"https://esm.run/vt-pbf@3.1.3/index.js",
+				"https://unpkg.com/pbf@4.0.1/index.js"
+			],
+			"classes": [
+				"Map",
+				"addProtocol"
+			],
+			"methods": [
+				"setTransformRequest"
+			]
+		},
+		{
+			"name": "use-locally-generated-ideographs",
+			"sha256": "39896e006bbd5878238da903a958c7ad0af4a73c50c6574fca8adb0f9fd7a242",
+			"bytes": 1244,
+			"title": "Use locally generated ideographs",
+			"description": "Set localIdeographFontFamily to override the font used for displaying CJK (Chinese, Japanese and Korean) characters, ignoring the map style. This setting must be a CSS font rule specifying fallbacks of on-device fonts. Set localIdeographFontFamily to false to use server-provided fonts, which is much slower.",
+			"category": "Internationalization",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": []
+		},
+		{
+			"name": "variable-label-placement-with-offset",
+			"sha256": "0084b57120f3f0509e295a40ae986d5d653387461b793e7a8d7026bd0846f358",
+			"bytes": 4263,
+			"title": "Variable label placement with offset",
+			"description": "Use text-variable-anchor-offset to allow high priority labels to shift position to stay on the map.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"rotateTo"
+			]
+		},
+		{
+			"name": "variable-label-placement",
+			"sha256": "86ca5b7954c840cbd4e408ff84c78251379141cbb5043d2dcdc64eb688622e70",
+			"bytes": 4246,
+			"title": "Variable label placement",
+			"description": "Use text-variable-anchor to allow high priority labels to shift position to stay on the map.",
+			"category": "Labels & Fonts",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on",
+				"rotateTo"
+			]
+		},
+		{
+			"name": "view-a-fullscreen-map",
+			"sha256": "68fa6f67a4bd521a3973d0ace851df262326358192b3ac32f98482de945e0584",
+			"bytes": 1181,
+			"title": "View a fullscreen map",
+			"description": "Toggle between current view and fullscreen mode. Does not work on iPhones because a pseudo-fullscreen is used, and the code is embedded in an iframe, which prevents the map from scaling.",
+			"category": "Controls & Gestures",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"FullscreenControl",
+				"Map"
+			],
+			"methods": [
+				"addControl"
+			]
+		},
+		{
+			"name": "view-local-geojson-experimental",
+			"sha256": "c416f4da7005f1f3d943f36b6dde5395f31c0e09630a5f3bbddf6339e9cdc74b",
+			"bytes": 2797,
+			"title": "View local GeoJSON (experimental)",
+			"description": "View local GeoJSON with experimental File System Access API.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource"
+			]
+		},
+		{
+			"name": "view-local-geojson",
+			"sha256": "10bfbddee8c7f944f025e6330e9e49e14b7aa26b319b9d2f8c56a6289ace5b7b",
+			"bytes": 2349,
+			"title": "View local GeoJSON",
+			"description": "View local GeoJSON without server upload.",
+			"category": "Vector & GeoJSON",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource"
+			]
+		},
+		{
+			"name": "visualize-population-density",
+			"sha256": "17076087bee6c9d15f0b4a2b2227e83fc5b612a855314641b4e8b8dfb0342fcb",
+			"bytes": 2635,
+			"title": "Visualize population density",
+			"description": "Use a variable binding expression to calculate and display population density.",
+			"category": "Data Visualization",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": false,
+				"interactive": false,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"maplibre.org",
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"addLayer",
+				"addSource",
+				"on"
+			]
+		},
+		{
+			"name": "walk-around-a-map-in-first-person",
+			"sha256": "584d59cfde4d368292bc74e5f66775a4555fdac6edbf82515ab31948936a3ba4",
+			"bytes": 4117,
+			"title": "Walk around a map in first person",
+			"description": "Drive an eye-height, level first-person camera over 3D buildings with the keyboard or on-screen buttons",
+			"category": "Camera & Animation",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": false,
+				"terrain": false,
+				"animated": true,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"tiles.openfreemap.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map",
+				"MercatorCoordinate"
+			],
+			"methods": [
+				"calculateCameraOptionsFromTo",
+				"jumpTo"
+			]
+		},
+		{
+			"name": "zoom-and-planet-size-relation-on-globe",
+			"sha256": "b039c8967ccb8eaddda5be65853d701002a14bbfada57d3e0dd2573cef83c4ee",
+			"bytes": 3160,
+			"title": "Zoom and planet size relation on globe",
+			"description": "Explanation of zoom and planet size relation under globe projection and how to account for it when changing the map center and zoom by some delta.",
+			"category": "Globe",
+			"plain": true,
+			"flags": {
+				"needsKey": false,
+				"thirdParty": false,
+				"custom": false,
+				"globe": true,
+				"terrain": false,
+				"animated": false,
+				"interactive": true,
+				"random": false,
+				"geolocation": false,
+				"importmap": false,
+				"maps": 1
+			},
+			"hosts": [
+				"demotiles.maplibre.org"
+			],
+			"libs": [],
+			"classes": [
+				"Map"
+			],
+			"methods": [
+				"flyTo",
+				"getCenter",
+				"getZoom",
+				"on",
+				"setProjection"
+			]
+		}
+	],
+	"assets": [
+		{
+			"path": "34M_17/34M_17.bin",
+			"sha256": "35adb05fd65b39e70111cba2419a87f5626ca3e6a7f56aeaf31db528b8648fe6",
+			"bytes": 3102600
+		},
+		{
+			"path": "34M_17/34M_17.gltf",
+			"sha256": "070c36deb46362acca4215393ca99ff19b22156559e86a05707056dfad1d96a4",
+			"bytes": 49261
+		},
+		{
+			"path": "34M_17/base_AO.png",
+			"sha256": "37159c1e27749cc52de92621a64309f923c397c329553f63be85a95217a336af",
+			"bytes": 207970
+		},
+		{
+			"path": "34M_17/frame_AO.png",
+			"sha256": "48488a75d043c87e40decade12da4fd27925b472f85d8cb81680dd36665dead9",
+			"bytes": 708177
+		},
+		{
+			"path": "34M_17/stairs_plt_AO.png",
+			"sha256": "b517ff92973f814ab526c076c67ef34b0e0f2e6ffda3abf218d349aad25a9897",
+			"bytes": 791264
+		},
+		{
+			"path": "34M_17/truss_2_AO.png",
+			"sha256": "5ef75cd19afe3b3e29aea067660c37f4dac6c83c42868a2a791bb0f9665d7850",
+			"bytes": 716163
+		},
+		{
+			"path": "34M_17/truss_dish_AO.jpg",
+			"sha256": "293b37b64881808472d6a8974d3a03ddfc1bedf600f4ddf7d5915280a201f12a",
+			"bytes": 253448
+		},
+		{
+			"path": "34M_17/wheels_AO.png",
+			"sha256": "2b741c16268fdc1dd6bf95b461595c0cd24aaacde92d130f2d60eb210c336c4f",
+			"bytes": 111575
+		},
+		{
+			"path": "boise.geojson",
+			"sha256": "6d746505b30afb5903f3d53a5b4941d90bc3bdcdf04129050d95ce3ce66323af",
+			"bytes": 3407
+		},
+		{
+			"path": "cog.tif",
+			"sha256": "595da39141994a8024e419d9e2ed798eab7b03a038eb329a4fefe9ca32f6b9b7",
+			"bytes": 665956
+		},
+		{
+			"path": "custom_marker.png",
+			"sha256": "55f818b26e49cdf19b6edec15b8b5a2eef3ff3287710b5cc635eb23fbf151705",
+			"bytes": 1172
+		},
+		{
+			"path": "earthquakes.geojson",
+			"sha256": "309837956f52df2c17e2d2782638be2a097f1a02c750f3f2974d51741763a330",
+			"bytes": 1239737
+		},
+		{
+			"path": "enter-a-360-photosphere-panorama.jpg",
+			"sha256": "570ebc7fb51a0531f91a41246a00d52ef9a63e4d4befb0d7e353d2012972ebdf",
+			"bytes": 330306
+		},
+		{
+			"path": "funicolares-and-funivias-como.json",
+			"sha256": "9a90e0c94191c501f3eb8a4078a72fb78eed523d453301b03fdf607f3086c52d",
+			"bytes": 2504
+		},
+		{
+			"path": "hike.geojson",
+			"sha256": "1c84d0f903dc4d651dc11d1b9e130289252ccd68fa2f182a0fc652c2dddd4b73",
+			"bytes": 462111
+		},
+		{
+			"path": "indoor-3d-map.geojson",
+			"sha256": "7266696577b301c15dbf6aa09a8a6b1e7de691f699d2c092be8749781cba153b",
+			"bytes": 25910
+		},
+		{
+			"path": "logo.svg",
+			"sha256": "f3d783d52de6d705308662c08ebd66e353999308821104fc9dcbbfc65602b80c",
+			"bytes": 3056
+		},
+		{
+			"path": "osgeo-logo.png",
+			"sha256": "3f5b44dae19699f1ac6bae5012e93d3d3fac6956027f43ad8d86ea4cd16a4426",
+			"bytes": 1591
+		},
+		{
+			"path": "popup.png",
+			"sha256": "b1c27f31165d022b557a2a0174a19ca5c1359ceaff4038056cd2811e8519299d",
+			"bytes": 1677
+		},
+		{
+			"path": "popup_debug.png",
+			"sha256": "4e77ae12fc64c1360efd8d8a47c2190ac4b3f1b4354c4e6aa6fc4a6e1f74c6e0",
+			"bytes": 1915
+		},
+		{
+			"path": "radar.gif",
+			"sha256": "a2681f6a1f3cd028cce148736aed8b4f5ca7dd4ee15f5a56b2ea6c58a4c375ef",
+			"bytes": 14325
+		},
+		{
+			"path": "radar0.gif",
+			"sha256": "ace8d54d4631d997648378b7b5603948cff385a2db579ba7547b355981549a3f",
+			"bytes": 16727
+		},
+		{
+			"path": "radar1.gif",
+			"sha256": "93473e4856ccbec98e1137eaf2794c1db0001647ad9f2f25de21eeb682113743",
+			"bytes": 17298
+		},
+		{
+			"path": "radar2.gif",
+			"sha256": "9b995c3c6f81738b25b596cc0b24463349fc7cb1f9445985aa700a4c6a6297db",
+			"bytes": 17580
+		},
+		{
+			"path": "radar3.gif",
+			"sha256": "be70ebf75a5290e6ef3cfd1823d57511e18f8457b34ca14ad7fb5fc23202d5c6",
+			"bytes": 17741
+		},
+		{
+			"path": "radar4.gif",
+			"sha256": "88d5a2291e785260253dc6d5cb507bde417d48ee91bd190194ffaaed1f6a097a",
+			"bytes": 17231
+		},
+		{
+			"path": "rwanda-provinces.geojson",
+			"sha256": "2a26c5b210d8b392f5ef025ab51e388e9e07348fd59394820723affa70c8cf46",
+			"bytes": 75936
+		},
+		{
+			"path": "significant-earthquakes-2015.geojson",
+			"sha256": "adab32f0ca8610e155461f963c0d4aced8e85eb1288f3ec469b320242260fe13",
+			"bytes": 132670
+		},
+		{
+			"path": "us_states.geojson",
+			"sha256": "7ed671b49a12c7bc3b444f05edafd247e6b641c087edc7a559da7ce3e3201878",
+			"bytes": 81071
+		},
+		{
+			"path": "washington-monument.jpg",
+			"sha256": "42628795eb04fc7619cff4cd5f9554b6bf89a1cf588ab9e57af68bc23c00b40b",
+			"bytes": 32653
+		}
+	],
+	"dist": [
+		{
+			"path": "maplibre-gl-dev.mjs",
+			"sha256": "7130a437f22ca690f1fa1b5a19f00e0f388aeb4035fff8b24bf9b5baa73f96f5",
+			"bytes": 1249287
+		},
+		{
+			"path": "maplibre-gl-dev.mjs.map",
+			"sha256": "b6d1356c1017b18671ad45e6ad2248dffc83e514987eb2011f3b345ce4834ae2",
+			"bytes": 2642826
+		},
+		{
+			"path": "maplibre-gl-shared-dev.mjs",
+			"sha256": "e69aba5bb50bac9bb2604e61a97a136c2637fc9be4b8091cc65fca0cdd73dfc6",
+			"bytes": 1208682
+		},
+		{
+			"path": "maplibre-gl-shared-dev.mjs.map",
+			"sha256": "33f90198bc003ab41bd8bda75772baf5b9dff67c72bbb9a78c0118a3751f96f6",
+			"bytes": 2760618
+		},
+		{
+			"path": "maplibre-gl-shared.mjs",
+			"sha256": "76b5f55bdee928c65d592684aaff2b913d50b6b17b0ec6334e88b09b6aa47960",
+			"bytes": 515924
+		},
+		{
+			"path": "maplibre-gl-shared.mjs.map",
+			"sha256": "f6590c5a9a62671dd051adc24f1efd80904fb04676a3cd037005025de50ec7ff",
+			"bytes": 2513131
+		},
+		{
+			"path": "maplibre-gl-worker-dev.mjs",
+			"sha256": "038458e57fe7466ef18e3411e869f6d5559f07248a342caf85fa85a8cd1f703f",
+			"bytes": 38220
+		},
+		{
+			"path": "maplibre-gl-worker-dev.mjs.map",
+			"sha256": "11016984ee4a50667dfe162c0f50f4595b1378f0548c5d5229f6dbcd0b6c07b9",
+			"bytes": 84486
+		},
+		{
+			"path": "maplibre-gl-worker.mjs",
+			"sha256": "01ad197aa7f4cec258a890febd71b7515e96309881b036a7095befc01a45296e",
+			"bytes": 19133
+		},
+		{
+			"path": "maplibre-gl-worker.mjs.map",
+			"sha256": "d3539cdbbd2d1cbadb3a3dcc3560c363960ebbd9bf98697ad17bd644e4cec25e",
+			"bytes": 86064
+		},
+		{
+			"path": "maplibre-gl.css",
+			"sha256": "d8617d8421930e3fc6185365400e788c374c1a5d9fbe87999998c0bc14a202d3",
+			"bytes": 83310
+		},
+		{
+			"path": "maplibre-gl.d.ts",
+			"sha256": "e10b37a144bfbfb38a0a189bc8b9369a352dedd232c124061df286fd93b0d514",
+			"bytes": 694584
+		},
+		{
+			"path": "maplibre-gl.mjs",
+			"sha256": "3f55566295583644617fe17d008a36c580414b8c71dd2e1fcff1309de6fdee5d",
+			"bytes": 590228
+		},
+		{
+			"path": "maplibre-gl.mjs.map",
+			"sha256": "97802176664923e552d8c0bf5a69fc0e825ef3b1f9e41581446d67dd2ef4f3a2",
+			"bytes": 2636878
+		}
+	],
+	"counts": {
+		"examples": 139,
+		"plain": 111,
+		"terrain": 11,
+		"thirdParty": 23,
+		"custom": 9,
+		"importmap": 6,
+		"globe": 10,
+		"interactive": 43,
+		"animated": 12,
+		"random": 6,
+		"needsKey": 3,
+		"geolocation": 1,
+		"maps": 1
+	}
+}

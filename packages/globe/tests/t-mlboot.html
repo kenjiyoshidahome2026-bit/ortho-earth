@@ -1,0 +1,103 @@
+<!doctype html>
+<!-- 実描画の検分：公式例の門（台帳 §8）段 2 のエンジンの足し算＝idle 事象・起動オプション night／sky／terrain:false。1 頁 1 地図＝2 変種。
+     ?v=default（既定＝今と同じ）：①idle が動かさなくても 1 回来る・静かな間は重ねて来ない・動いた後にまた来る ②夜面がある（夜の海が昼の海より暗い）・海岸線がある ③星が出る（宇宙の隅に明るい点）
+     ?v=ml（MapLibre の口の既定＝night:false・sky:false・coastline:false・terrain:false）：①同じ ②夜の海と昼の海が同じ明るさ・球が一様（海岸線なし） ③宇宙の隅に明るい点が無い
+       ④terrain:false＝傾けても平ら（円錐の DEM の山頂が海のまま）→ setTerrain(DEM) で地形が立つ（山頂が陸の色・projectLL が持ち上がる）。
+     時計は固定（2026-03-20T12:00Z＝春分の正午 UTC＝太陽は経度 0 の真上＝経度 −50 は昼・−130 は夜）。試料 DEM＝tests/fixtures/dem（t-dem と同じ）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlboot</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const V = new URLSearchParams(location.search).get("v") || "default", ML = V === "ml";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const SRC = { tiles: ["./fixtures/dem/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, minzoom: 10, maxzoom: 10, cellZoom: 10, bounds: [150, 30, 151, 31] };
+try {
+	const map = await createGlobe({ target: "#map", view: "#2.5/-45/-90", chips: false, instruments: false, countryTip: false, persistView: false, debugGlobals: true,
+		time: "2026-03-20T12:00:00Z", ...(ML ? { night: false, sky: false, coastline: false, terrain: false } : {}) });
+	await map.once("load");
+	// ① idle：動かさなくても来る・静かな間は重ねて来ない・動いた後にまた来る
+	let idleN = 0; map.on("idle", () => { idleN++; });
+	const waitIdle = async (n, ms) => { const t0 = performance.now(); while (idleN < n && performance.now() - t0 < ms) await sleep(100); return idleN >= n; };
+	ok("idleBoot", await waitIdle(1, 30000), `n=${idleN}`);
+	await sleep(2000);
+	ok("idleOnce", idleN === 1, `n=${idleN}`);
+	map.jumpTo({ center: [-80, -40] });
+	ok("idleAfterMove", await waitIdle(2, 30000), `n=${idleN}`);
+	map.jumpTo({ center: [-90, -45] });
+	await waitIdle(3, 30000);
+
+	// 切り分け用（?stop=<段>・SHOT で写す）＝判定に使った合成の写しを頁の上に貼って止める
+	const stopHere = (name, g) => {
+		if (new URLSearchParams(location.search).get("stop") !== name) return;
+		const cv = Object.assign(document.createElement("canvas"), { width: g.w, height: g.d.length / 4 / g.w });
+		cv.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(g.d), g.w), 0, 0);
+		cv.style.cssText = "position:fixed;left:0;top:0;z-index:99999;width:960px;height:600px"; document.body.appendChild(cv);
+		throw `stop at ${name}`;
+	};
+	const shot = map.gadget.shot();
+	const grab = async () => { const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]); const bmp = await createImageBitmap(blob); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); cv.getContext("2d").drawImage(bmp, 0, 0); return { d: cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width }; };
+	const lum = (g, x, y) => { let s = 0, n = 0; for (let j = -2; j <= 2; j++) for (let i = -2; i <= 2; i++) { const k = ((Math.round(y) + j) * g.w + Math.round(x) + i) * 4; s += 0.299 * g.d[k] + 0.587 * g.d[k + 1] + 0.114 * g.d[k + 2]; n++; } return s / n; };
+	// ② 夜面：昼の海（−50,−45）と夜の海（−130,−45）の明るさ
+	const [dx, dy, df] = map.projectLL(-50, -45), [nx, ny, nf] = map.projectLL(-130, -45);
+	ok("probesVisible", df > 0 && nf > 0, `${df.toFixed(2)} ${nf.toFixed(2)}`);
+	let g = await grab();
+	const day = lum(g, dx, dy), night = lum(g, nx, ny);
+	if (ML) ok("noNight", Math.abs(day - night) < 12, `day ${day.toFixed(0)} night ${night.toFixed(0)}`);
+	else ok("night", day - night > 20, `day ${day.toFixed(0)} night ${night.toFixed(0)}`);
+	// 海岸線（世界の admin0 の gint 層）：層があるかを切り分けの窓 __a0（debugGlobals）で見る。絵では数えない＝style の無い地図の低ズームは
+	// 世界帯（経緯線・河川・湖）が出る＝線の画素が海岸線だけとは限らない（公式例は必ず style を読む＝世界帯は出ない）
+	let a0 = null;
+	for (const t0 = performance.now(); performance.now() - t0 < (ML ? 6000 : 30000);) { a0 = window.__a0?.(); if (!ML && a0?.layer) break; await sleep(500); }
+	stopHere("coast", g);
+	if (ML) ok("noCoastline", a0 && !a0.layer, JSON.stringify(a0));
+	else ok("coastline", !!a0?.layer, JSON.stringify(a0));
+	// ③ 星空：宇宙の左の二隅（球から遠い 180×120）で、隅の地の明るさ（中央値）から 40 以上外れた画素＝星・惑星の点（空の地の色はテーマで違う）。
+	//   星表は読み込みに時間がかかる＝既定は出るまで撮り直す
+	let brightWhy = "";
+	const brightInCorners = g => {
+		let c = 0; const why = [];
+		for (const [x0, y0] of [[0, 0], [0, 480]]) {   // 右上＝時計の日付の表示（opts.time で時計を止めると出る）・右下＝撮影の合成が焼く出典の文字＝数えない
+			const L = [];
+			for (let y = y0; y < y0 + 120; y++) for (let x = x0; x < x0 + 180; x++) { const k = (y * g.w + x) * 4; L.push(0.299 * g.d[k] + 0.587 * g.d[k + 1] + 0.114 * g.d[k + 2]); }
+			const m = [...L].sort((a, b) => a - b)[L.length >> 1];
+			let n = 0; for (const v of L) if (Math.abs(v - m) > 40) n++;
+			c += n; why.push(`${x0},${y0}:m${m.toFixed(0)}/n${n}`);
+		}
+		brightWhy = why.join(" ");
+		return c;
+	};
+	map.jumpTo({ center: [-90, -45], zoom: 1.2 });
+	await sleep(1500);
+	let stars = 0;
+	for (let i = 0, t0 = performance.now(); performance.now() - t0 < (ML ? 8000 : 40000); i++) { g = await grab(); stars = brightInCorners(g); if (!ML && stars >= 3) break; await sleep(1000); }
+	if (ML) ok("noSky", stars === 0, `bright ${stars} ${brightWhy}`);
+	else ok("sky", stars >= 3, `bright ${stars} ${brightWhy}`);
+	stopHere("sky", g);
+	// ④ terrain:false＝setTerrain まで平ら（ml だけ）
+	if (ML) {
+		map.jumpTo({ center: [150.5, 30.35], zoom: 10.5, pitch: 60 });   // 旗なし＝エンジンの z（t-dem の #10.5/30.35/150.5/60t と同じ視点）
+		const lift = () => { const p0 = map.makeProjectorH({ terrain: false }), [bx, by] = p0(150.5, 30.5, 0), [ex, ey] = p0(150.5, 30.5, 3000), [x, y, f] = map.projectLL(150.5, 30.5); return { got: Math.hypot(x - bx, y - by), want: Math.hypot(ex - bx, ey - by), err: Math.hypot(x - ex, y - ey), front: f }; };
+		// terrain:false の地図は標高の色分けも無い（球は一様）＝「陸の色」では見られない。setTerrain の前後で変わった画素の割合で見る
+		const changed = (a, b) => { let n = 0, m = 0; for (let k = 0; k < a.length; k += 16) { m++; const la = 0.299 * a[k] + 0.587 * a[k + 1] + 0.114 * a[k + 2], lb = 0.299 * b[k] + 0.587 * b[k + 1] + 0.114 * b[k + 2]; if (Math.abs(la - lb) > 20) n++; } return n / m; };
+		await sleep(4000);
+		const before = (await grab()).d;
+		await sleep(2000);
+		const before2 = (await grab()).d;
+		const still = changed(before, before2);
+		ok("flatBeforeSetTerrain", map.getTerrain() === null && still < 0.002, `still ${(still * 100).toFixed(2)}%`);
+		const l0 = lift();
+		ok("noLiftBeforeSetTerrain", l0.got < l0.want * 0.05, `${l0.got.toFixed(1)}/${l0.want.toFixed(1)}px`);
+		await map.setTerrain({ source: SRC });
+		let frac = 0;
+		for (const t0 = performance.now(); performance.now() - t0 < 60000;) { frac = changed(before, (await grab()).d); if (frac > 0.01) break; await sleep(2000); }
+		ok("terrainAfterSetTerrain", frac > 0.01, `changed ${(frac * 100).toFixed(1)}%`);
+		let l1 = lift();
+		for (const t0 = performance.now(); performance.now() - t0 < 20000 && !(l1.front > 0 && l1.err < l1.want * 0.1); await sleep(100)) l1 = lift();
+		ok("liftAfterSetTerrain", l1.front > 0 && l1.err < l1.want * 0.1, `${l1.got.toFixed(1)}/${l1.want.toFixed(1)}px err ${l1.err.toFixed(1)}`);
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

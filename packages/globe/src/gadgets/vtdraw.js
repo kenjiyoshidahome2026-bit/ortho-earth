@@ -21,7 +21,7 @@ const opsBuffers = ops => { const b = []; for (const op of ops) for (const a of 
 const SUBS = [0, 1, 2];
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false } = {}) {
+export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false } = {}) {
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120;
 	const sources = new Map();   // sid → { sid, desc, sig, gen, zsig, pz, tiles: Map<key, T>, built: Map<key, B>, fetching, show: Set<key> }
@@ -74,7 +74,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, requeste
 	// ── 選び（段 8①と同じ）──
 	function wantedOf(src) {
 		const { desc } = src, { w, h } = size();
-		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr });
+		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr * tileBias });   // tileBias＝目盛り "mercator" でタイルの z を MapLibre と同じに（globe.js の TILE_BIAS）
 		const area = desc.bounds || desc.coverage;
 		if (area) ts = ts.filter(t => hits(tileBbox(t.z, t.x, t.y), area));
 		if (!ts.length) return [];

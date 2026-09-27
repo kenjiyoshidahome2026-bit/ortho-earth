@@ -46,7 +46,8 @@ for (const [k, v] of Object.entries(GADGET_MEMBERS))
 if (zoomScaleOf({}) !== "ortho" || zoomScaleOf({ zoomScale: "maplibre" }) !== "maplibre") ng("zoomScaleOf default/maplibre");
 let threw = false; try { zoomScaleOf({ zoomScale: "mapbox" }); } catch { threw = true; }
 if (!threw) ng("zoomScaleOf must throw on an unknown scale");
-if (ZOOM_SCALES.length !== 2) ng("ZOOM_SCALES");
+if (ZOOM_SCALES.length !== 3) ng("ZOOM_SCALES");
+{ const { mercatorDz } = await import("../src/zoomscale.js"); if (Math.abs(mercatorDz(0) - 1) > 1e-9 || Math.abs(mercatorDz(60) - 2) > 1e-9 || Math.abs(mercatorDz(38.9) - 1.3614) > 1e-3) ng("mercatorDz"); }
 
 console.log(bad ? `zoomscale: ${bad} problem(s)` : `✓ zoomscale PASS（d.ts map ${n1}・gadget ${n2}・raster ${n3}・handle ${n4} 件が分類済み）`);
 process.exit(bad ? 1 : 0);

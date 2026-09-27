@@ -34,7 +34,8 @@ const ensureSkyMod = () => (_skyLoad ??= Promise.all([import("../planets.js"), l
 }));
 let starsArmed = true;
 // opts.stars=false（人工衛星ページ）＝恒星だけ読まない。惑星・月・星座・太陽系圏はそのまま（月と軌道は衛星のスケールの物差し＝本人 2026-09-20）
-function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; if (env.stars !== false) loadStars(); ensureSkyMod().then(startPlanets); } }
+// opts.sky=false（MapLibre の口・公式例の門 段 2）＝星空劇場を丸ごと持たない（恒星・惑星・月・星座を読まない＝描く物が無い）
+function ensureStars() { if (starsArmed && cam.zoom < STARSKY_Z) { starsArmed = false; if (env.sky === false) return; if (env.stars !== false) loadStars(); ensureSkyMod().then(startPlanets); } }
 // 惑星（実位置・低精度ケプラー＝planets.js）：星と同じ点バッファ形式で常設。名前は注記トグル(skyLabels)側。
 // 位置は10分毎に再計算（最速の水星でも0.03°/10分＝表示上は静止と同じだが、開きっぱなしの夜に正直でいる）。
 let planetTimer = null, planetLabels = [], planetT = 0;   // planetT＝最後に位置を出した時計の時刻

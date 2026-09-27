@@ -193,6 +193,20 @@
         "--strictPort"
       ],
       "port": 5246
+    },
+    {
+      "name": "mlexamples-report",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "5299",
+        "--bind",
+        "127.0.0.1",
+        "--directory",
+        ".cache/mlexamples"
+      ],
+      "port": 5299
     }
   ]
 }
