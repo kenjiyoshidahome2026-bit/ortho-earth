@@ -131,7 +131,7 @@ worker はすべて<strong>一つの入口</strong>（<code>worker.js</code>）�
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage">
 		<div class="pipe-head"><span class="pipe-num" style="background:var(--accent);color:#0b1220">2</span><span class="pipe-title">tile workers</span></div>
-		<div class="pipe-items"><span>取得・MVT の解読・三角形化・描画リスト（コピーでなく受け渡し）</span></div>
+		<div class="pipe-items"><span>取得・MVT／MLT の解読・三角形化・描画リスト（コピーでなく受け渡し）</span></div>
 	</div>
 	<div class="pipe-arrow">↓</div>
 	<div class="pipe-stage">
@@ -236,6 +236,9 @@ WebGPU には三枚の落ち網があります。初期化に失敗したら wor
 <p>
 <strong>そこから上は地域が引き継ぎます</strong>。入場するズームは地域の申告が決めます（日本は z6.5 から地理院のベクタ基図）。
 ベクタタイルは tile と scene の worker を通ります。傾けた 3D の視点では、ズームアウトしても細かいタイルが地面を覆えている間は、粗いタイルに差し替えません。
+タイルの形式は一つの登録簿に載るプラグインです。MVT は同梱、MLT（MapLibre Tile）は <code>@ortho-earth/tile-formats</code> が持ち、
+ビルド時に <code>#tile-formats</code> をその登録モジュールへ alias すると使えます。解読器は最初の MLT タイルで読まれるので、MLT に出会わない地図は何も払いません。
+vector source は MapLibre と同じく <code>"encoding": "mlt"</code> と書き、PMTiles はヘッダで形式が分かります。
 </p>
 <p>
 <strong>画像タイル</strong>（XYZ・WMS・WMTS・PMTiles・手元の GeoPackage／MBTiles・四隅で貼る一枚の画像）は、まず地面のアトラスに合成し、

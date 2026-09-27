@@ -261,6 +261,7 @@ const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { ty
 const extSourceFields = ext => {   // BASE_SOURCE の中身（setStyle でも同じ形で差し替える）
 	const s = ext.src;
 	return { kind: s?.pmtiles ? "pmtiles" : "style", url: s?.pmtiles || s?.tiles?.[0] || ext.url || null, tileUrl: s ? tileUrlOf(s) : () => null,
+		encoding: s?.encoding || "mvt",   // タイルの形式（style の vector source の "encoding"＝mvt｜mlt・#88）。PMTiles はアーカイブのヘッダが決める
 		coverage: null, tileMinZoom: 0, lodFloor: null, minZ: Math.max(0, s?.minzoom ?? 0), info: s && !s.pmtiles ? { maxZoom: s.maxzoom ?? 14, minZoom: s.minzoom ?? 0 } : null,
 		attrHTML: s?.attribution ? sanitizeHTML(String(s.attribution)) : null };
 };
@@ -1063,6 +1064,7 @@ function onMove() {
 if (!style.ext) style.emptySea = "water";   // 外来 style＝空タイルに水を敷かない（誰の「水」か分からない）
 const { relayCtl: pipelineRelay, tiles, requestMerge, setStyle: setPipelineStyle, destroy: destroyPipeline } = createPipeline({
 	style, tileUrl: (z, x, y) => BASE_SOURCE.tileUrl(z, x, y), requestDraw: () => { needsDraw = true; }, scenePort: sceneChan.port1, onTile, ell: ELL_ON, workerFactory: hostWorker, request: requester.forTiles(),   // タイル/シーン worker もアプリの入口で・request＝transformRequest/addProtocol（#37）・tileUrl は関数で包む＝map.setStyle で基図の置き場を差し替えられる
+	encoding: () => BASE_SOURCE.encoding || "mvt",   // 基図タイルの形式（mvt｜mlt・#88）＝tileUrl と同じく関数で包む（setStyle で置き場と一緒に替わる）
 	coverage: BASE_SOURCE.coverage,   // 記述子が持つ（GSI=日本域 bbox／PMTiles=null＝アーカイブの自己申告に任せる）
 
 	// LOD下限＝タイルz8（sea gate と同じ閾値）：optbv は z8 から海が全面WA（沖合タイル=WA一枚50B級）、z7以下は
@@ -3514,14 +3516,14 @@ const vtxAttrTail = (skip = null) => { const a = [...new Set(vtxAttrs.values())]
 const vtxAttrOf = desc => { if (desc.attribution && String(desc.attribution).trim()) return sanitizeHTML(String(desc.attribution)); const u = desc.pmtiles ? desc.pmtiles.replace(/^pmtiles:\/\//, "") : desc.tileUrl?.(0, 0, 0); try { return u ? new URL(u, location.href).host : null; } catch { return null; } };   // 空白だけの宣言（demotiles の " "）＝宣言なしと同じ＝ホスト名
 const vtxDescOf = async (sid, sp) => {
 	if (sp?.[BASE_SRC]) {
-		if (EXT) { const s = EXT.src, ms = EXT.ms.sources[sid] || {}; return s ? { tileUrl: s.pmtiles ? null : tileUrlOf(s), pmtiles: s.pmtiles || null, minzoom: s.minzoom, maxzoom: s.maxzoom, bounds: s.bounds ?? null, promoteId: ms.promoteId ?? null, tag: JSON.stringify(s.pmtiles || s.tiles) } : null; }
+		if (EXT) { const s = EXT.src, ms = EXT.ms.sources[sid] || {}; return s ? { tileUrl: s.pmtiles ? null : tileUrlOf(s), pmtiles: s.pmtiles || null, minzoom: s.minzoom, maxzoom: s.maxzoom, bounds: s.bounds ?? null, promoteId: ms.promoteId ?? null, encoding: s.encoding || "mvt", tag: JSON.stringify(s.pmtiles || s.tiles) + "|" + (s.encoding || "mvt") } : null; }
 		if (BASE_SOURCE.kind === "none") return null;
-		return { tileUrl: BASE_SOURCE.kind === "pmtiles" ? null : BASE_SOURCE.tileUrl, pmtiles: BASE_SOURCE.kind === "pmtiles" ? BASE_SOURCE.url : null, minzoom: BASE_SOURCE.minZ ?? 4, maxzoom: BASE_SOURCE.info?.maxZoom ?? 16, coverage: BASE_SOURCE.coverage, promoteId: null, tag: "basemap:" + BASE_SOURCE.kind + ":" + (BASE_SOURCE.url || "") };
+		return { tileUrl: BASE_SOURCE.kind === "pmtiles" ? null : BASE_SOURCE.tileUrl, pmtiles: BASE_SOURCE.kind === "pmtiles" ? BASE_SOURCE.url : null, minzoom: BASE_SOURCE.minZ ?? 4, maxzoom: BASE_SOURCE.info?.maxZoom ?? 16, coverage: BASE_SOURCE.coverage, promoteId: null, encoding: BASE_SOURCE.encoding || "mvt", tag: "basemap:" + BASE_SOURCE.kind + ":" + (BASE_SOURCE.url || "") };
 	}
 	let p = vtxDescs.get(sid);
 	if (!p) {
 		p = resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }).then(r => ({
-			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, tag: JSON.stringify(r.pmtiles || r.tiles), attribution: sp.attribution ?? r.attribution ?? null,
+			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, encoding: r.encoding || "mvt", tag: JSON.stringify(r.pmtiles || r.tiles) + "|" + (r.encoding || "mvt"), attribution: sp.attribution ?? r.attribution ?? null,   // encoding＝タイルの形式（mvt｜mlt・#88）
 		}));
 		vtxDescs.set(sid, p);
 		p.catch(() => vtxDescs.delete(sid));   // 失敗は覚えない（次の addLayer で取り直す）
@@ -4061,7 +4063,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 			const order = vtdCtl.shownTiles(sid); if (!order.length) return;
 			const ck = sid + "|" + [...new Set(ls.map(L => L["source-layer"]))].sort().join(",");   // 解読した source-layer の組ごと（queryTiles は要る層だけ解いて覚える）
 			let cache = vtdQueryCache.get(ck); if (!cache) vtdQueryCache.set(ck, cache = new Map()); if (cache.size > 32) cache.clear();
-			const fs = await queryTiles({ style: { layers: ls }, order, tileUrl: d.pmtiles ? () => d.pmtiles : d.tileUrl, zoom: cam.zoom, area, tolPx, layers: qo.layers || null, filter: qo.filter || null, cache, request: requester.forTiles(), source: sid, promoteId: d.promoteId ?? null })
+			const fs = await queryTiles({ style: { layers: ls }, order, tileUrl: d.pmtiles ? () => d.pmtiles : d.tileUrl, zoom: cam.zoom, area, tolPx, layers: qo.layers || null, filter: qo.filter || null, cache, request: requester.forTiles(), source: sid, promoteId: d.promoteId ?? null, encoding: d.encoding || "mvt" })
 				.catch(err => { console.warn("[query] vector source", sid, err); return []; });
 			const rank = new Map(vtdOrder().map((id, i) => [id, i]));
 			for (const f of fs) hitsV.push([rank.get(f.layer.id) ?? 0, f]);
@@ -4073,7 +4075,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const baseIds = want && new Set((style.layers || []).map(L => L.id));
 	if (want && ![...want].some(id => baseIds.has(id))) return qf(out);   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ style, hidden: hiddenAll(), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
-		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles() }).catch(err => { console.warn("[query] basemap", err); return []; });
+		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; });   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
 	return qf(out).concat(base);
 };
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。

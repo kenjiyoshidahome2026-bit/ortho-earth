@@ -609,6 +609,71 @@ try {
 		await map.addLayer({ id: "big", type: "fill-extrusion", source: "big", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#aa00aa" } });
 		map.jumpTo({ center: C2, zoom: 13, pitch: 60 }); await sleep(3000);
 		await scene("large-roof-camera-inside", async () => { const r = await q([el.clientWidth / 2, el.clientHeight / 2], ["big"]); return [r.includes("BIG"), String(r)]; });
+	} else if (G === "mlt") {
+		// ── MLT（MapLibre Tile・#88）＝同じ場所・同じ style で、MVT の源と MLT の源を切り替えて同じ絵・同じ答えになるか。試料＝fixtures/mlcompat/make-mlt.mjs（vt/ の MVT を MLT へ）。
+		//    MLT の源は 3 通り：XYZ の .mlt（"encoding":"mlt"）・TileJSON 経由（2 本目の source）・PMTiles（tileType 6＝ヘッダで決まる・申告なし）。
+		//    通す経路は 4 つ：基図の配管（style の fill＝core の tileworker）・押し出し（vtextrude）・描く層（vtdraw）・問い合わせ（queryTiles＝main で解く）。
+		//    器（packages/globe/vite.config.js）は "#tile-formats" を @ortho-earth/tile-formats/register へ alias＝解読器は最初の MLT タイルで動的 import。
+		const { cameraState, project } = await import("@ortho-earth/core");
+		const FX = new URL("./fixtures/mlcompat/", location.href).href;
+		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner, D = VB.draw;
+		const styleOf = mlt => ({
+			version: 8, name: "t-mlcompat-" + (mlt ? "mlt" : "mvt"),
+			sources: { omt: { type: "vector", tiles: [FX + (mlt ? "vt-mlt/{z}/{x}/{y}.mlt" : "vt/{z}/{x}/{y}.pbf")], minzoom: 13, maxzoom: 14, ...(mlt ? { encoding: "mlt" } : {}) },
+				extra: { type: "vector", url: FX + (mlt ? "vt-mlt.json" : "vt.json"), ...(mlt ? { encoding: "mlt" } : {}) } },
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "park", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } },   // 基図の配管（core の tileworker）が描く
+				{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, filter: ["!=", ["get", "hide_3d"], true],
+					paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"], "fill-extrusion-base": ["get", "render_min_height"] } },
+				{ id: "x-road", type: "line", source: "extra", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], paint: { "line-color": "#ff00ff", "line-width": 6 } },   // 2 本目の source＝描く層（vtdraw）
+			],
+		});
+		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style: styleOf(false), debugGlobals: true });
+		window.__map = map; window.__R = R;
+		const cv = document.getElementById("c");
+		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / 6371000); return [x / d, y / d]; };
+		const atG = ll => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, ll[0], ll[1], 1); return [x / d, y / d]; };
+		const loaded = async (sid, ms = 20000) => { const t0 = performance.now(); await sleep(400); while (performance.now() - t0 < ms) { if (map.isSourceLoaded(sid)) { await sleep(500); return true; } await sleep(200); } return false; };
+		const layerIn = async (id, ms = 30000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (map.getLayer(id)) return true; await sleep(200); } return false; };
+		const pixelUntil = async (b, h, pred) => { let p = null; for (let k = 0; k < 8; k++) { const img = await snap(map); p = px(img, ...at(b, h)); if (pred(p)) break; await sleep(1200); } return p; };
+		const gUntil = async (ll, pred, dx = 0, dy = 0) => { let p = null; for (let k = 0; k < 8; k++) { const img = await snap(map); const [x, y] = atG(ll); p = px(img, x + dx, y + dy); if (pred(p)) break; await sleep(1200); } return p; };
+		const isRed = p => p[0] > 110 && p[1] < 90 && p[2] < 90, isBlue = p => p[2] > 150 && p[0] < 90 && p[1] < 90, isMag = p => p[0] > 150 && p[2] > 150 && p[1] < 90, isCyan = p => p[1] > 150 && p[2] > 150 && p[0] < 90;
+		const hitIds = async (pt, id) => (await map.queryRenderedFeatures(pt, { layers: [id] })).map(f => `${f.layer?.id}/${f.id}/${f.sourceLayer}/${f.source}/${f.properties?.name}/${f.properties?.class ?? f.properties?.render_height}`).sort();
+		// 同じ場所の画素と答え（傾けて屋根・真上から地面）
+		const probe = async () => {
+			map.jumpTo({ pitch: 50 }); await loaded("omt");
+			const roof = await pixelUntil(bOf("tall"), 120, isRed), qRoof = await hitIds(at(bOf("tall"), 120), "b3d"), qCourtHole = await hitIds(at(bOf("court"), 0), "b3d");
+			map.jumpTo({ pitch: 0 }); await loaded("omt"); await loaded("extra");
+			const park = await gUntil(D.park, isBlue), outside = await gUntil(D.outside, p => !isBlue(p)), road = await gUntil(D.main, isMag), roadOff = await gUntil(D.mainOff, p => !isMag(p));
+			const qPark = await hitIds(atG(D.park), "park"), qOutside = await hitIds(atG(D.outside), "park"), qRoad = await hitIds(atG(D.main), "x-road");
+			return { roof, park, outside, road, roadOff, q: { qRoof, qCourtHole, qPark, qOutside, qRoad } };
+		};
+		const ok0 = await layerIn("b3d") && await loaded("omt") && await loaded("extra");
+		const A = await probe();
+		await scene("mvt-baseline-draws", () => [ok0 && isRed(A.roof) && isBlue(A.park) && !isBlue(A.outside) && isMag(A.road) && !isMag(A.roadOff), `roof=${A.roof} park=${A.park} outside=${A.outside} road=${A.road} off=${A.roadOff}`]);
+		await scene("mvt-baseline-query", () => [A.q.qRoof.some(s => s.startsWith("b3d/1/building/omt/tall")) && A.q.qPark.some(s => s.startsWith("park/101/landuse/omt/Park")) && A.q.qRoad.some(s => s.startsWith("x-road/201/road/extra/Main St")) && !A.q.qOutside.length, JSON.stringify(A.q)]);
+		// ── MLT の源へ（同じ層・同じ場所）──
+		let switched = true;
+		try { await map.setStyle(styleOf(true)); } catch (e) { switched = false; put("mlt-setstyle", false, "threw " + (e?.message || e)); }
+		const ok1 = switched && await layerIn("b3d") && await loaded("omt") && await loaded("extra");
+		const B = ok1 ? await probe() : null;
+		await scene("mlt-style-loads", () => [ok1, `switched=${switched} b3d=${!!map.getLayer("b3d")} loaded=${map.isSourceLoaded("omt")}/${map.isSourceLoaded("extra")} encoding=${map.getStyle().sources.omt?.encoding}`]);
+		await scene("mlt-base-pipeline-fill", () => [B && isBlue(B.park) && !isBlue(B.outside), B && `park=${B.park} outside=${B.outside}`]);   // core の tileworker（encoding mlt）
+		await scene("mlt-extrusion-roof", () => [B && isRed(B.roof), B && `roof=${B.roof}`]);   // vtextrude（put の enc）
+		await scene("mlt-second-source-line", () => [B && isMag(B.road) && !isMag(B.roadOff), B && `road=${B.road} off=${B.roadOff}`]);   // vtdraw（TileJSON 経由・encoding mlt）
+		await scene("mlt-same-pixels-as-mvt", () => { if (!B) return [false, "no MLT probe"]; const d = k => diff(A[k], B[k]); return [d("roof") <= 24 && d("park") <= 24 && d("road") <= 24 && d("outside") <= 24, `Δroof=${d("roof")} Δpark=${d("park")} Δroad=${d("road")} Δoutside=${d("outside")}`]; });
+		await scene("mlt-same-query-as-mvt", () => [B && JSON.stringify(A.q) === JSON.stringify(B.q), B && `mvt=${JSON.stringify(A.q)} mlt=${JSON.stringify(B.q)}`]);   // queryTiles（main で mlt を解く）・押し出しの当たり・中庭は穴
+		await scene("mlt-getstyle-keeps-encoding", () => { const st = map.getStyle(); return [st.sources.omt?.encoding === "mlt" && st.sources.extra?.encoding === "mlt", JSON.stringify([st.sources.omt?.encoding, st.sources.extra?.encoding])]; });
+		// PMTiles（tileType 6）＝申告なしでヘッダから mlt と分かる（addSource → 描く層 vtdraw）
+		await scene("mlt-pmtiles-tiletype-6", async () => {
+			map.addSource("vtm", { type: "vector", url: "pmtiles://" + FX + "vt-mlt.pmtiles" });
+			await map.addLayer({ id: "vm", type: "fill", source: "vtm", "source-layer": "landuse", filter: ["==", ["get", "class"], "water"], paint: { "fill-color": "#00ffff" } });
+			const lok = await loaded("vtm"), p = await gUntil(D.lake, isCyan), q = await hitIds(atG(D.lake), "vm");
+			map.removeLayer("vm"); map.removeSource("vtm"); await loaded("omt");
+			const gone = await gUntil(D.lake, x => !isCyan(x));
+			return [lok && isCyan(p) && q.some(s => s.startsWith("vm/102/landuse/vtm/Lake")) && !isCyan(gone), `loaded=${lok} px=${p} q=${q} removed=${gone}`];
+		});
 	}
 
 	// ── 爪車 ──
