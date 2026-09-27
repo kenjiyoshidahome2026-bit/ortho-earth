@@ -111,6 +111,7 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const pic = grade(R, rec({ colors: cols }));
 	ok("grade 足した層の色が違う＝2", pic.level === 2 && pic.blockers.includes("added layers look different"), JSON.stringify(pic.reasons));
 	ok("grade 動く例は 2 まで（本物も 2）", grade(rec({ end: "animated" }), rec({ end: "animated" })).level === 2 && grade(rec({ end: "animated" }), rec()).refLevel === 2);
+	ok("grade MapLibre のズームの下限（世界の高さ）に本物が居る時はカメラを比べない", grade(rec({ container: { H: 600 }, camera: { lng: 0, lat: 0, zoom: Math.log2(600 / 512), bearing: 0, pitch: 0 } }), rec({ camera: { lng: 40, lat: 30, zoom: 0, bearing: 0, pitch: 0 } })).level === 3);
 	ok("grade 緯度の差のズームは許す（北緯 60°）", grade(rec({ camera: { lng: 0, lat: 60, zoom: 5, bearing: 0, pitch: 0 } }), rec({ camera: { lng: 0, lat: 60, zoom: 5.9, bearing: 0, pitch: 0 } })).level === 3);
 	const rk = rankBlockers([{ name: "a", level: 1, refLevel: 3, blockers: ["x", "x", "y"] }, { name: "b", level: 0, refLevel: 3, blockers: ["x"] }, { name: "c", level: 3, refLevel: 3, blockers: ["z"] }]);
 	ok("rankBlockers 1 例 1 回・多い順・届いた例は数えない", rk.length === 2 && rk[0].blocker === "x" && rk[0].n === 2 && rk[1].n === 1);

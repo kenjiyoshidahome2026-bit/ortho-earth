@@ -179,7 +179,11 @@ export function grade(R, O, T = THRESH) {
 	}
 	if ((R.markers?.length || 0) !== (O.markers?.length || 0)) { why.push(`markers ${R.markers?.length || 0}/${O.markers?.length || 0}`); out.blockers.push("markers differ"); }
 	if ((R.popups?.length || 0) !== (O.popups?.length || 0)) { why.push(`popups ${R.popups?.length || 0}/${O.popups?.length || 0}`); out.blockers.push("popups differ"); }
-	if (R.camera && O.camera) {
+	// MapLibre のメルカトルは「世界の高さが画面を満たす」までしかズームアウトしない（600px で z≈0.23・中心も緯度 0 へ寄る）。
+	// 本物がちょうどその下限に居て、こちらが同じかそれより引いている時はカメラを比べない（球にその下限は無い＝意図した違い）
+	const mlMinZ = R.container?.H ? Math.log2(R.container.H / 512) : null;
+	const clampedML = mlMinZ != null && R.camera && O.camera && Math.abs(R.camera.zoom - mlMinZ) < 0.01 && O.camera.zoom <= R.camera.zoom + 0.01;
+	if (R.camera && O.camera && !clampedML) {
 		const lat = R.camera.lat, zTol = 0.1 + Math.abs(Math.log2(Math.max(0.05, Math.cos(lat * Math.PI / 180))));   // 緯度の差（台帳 §4）は許す
 		const span = R.bounds ? hav({ lng: R.bounds[0][0], lat }, { lng: R.bounds[1][0], lat }) : 0;
 		const d = hav(R.camera, O.camera);

@@ -121,7 +121,10 @@ export class Map {
 			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
-		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, { enable() {}, disable() { unsupported(self, `${h}.disable()`, "cosmetic"); }, isEnabled: () => true, isActive: () => false }]));
+		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝どの口も受ける。止める系は見た目の記録（操作の手触り＝最初の絵は変わらない）
+		const handler = h => new Proxy({ isEnabled: () => true, isActive: () => false }, { get: (o, k) => k in o ? o[k] : typeof k !== "string" ? undefined
+			: (...a) => { if (/^disable/.test(k)) unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, handler(h)]));
 		if (liveMaps++ > 0) { st.inert = true; unsupported(self, "second Map on the page (one map per page)"); return self; }
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
@@ -131,7 +134,7 @@ export class Map {
 			target: container, view: viewOf(st.init), zoomScale: "maplibre",
 			night: false, sky: false, coastline: false, terrain: false, chips: false, countryTip: false, persistView: false,
 			instruments: options.attributionControl === false ? false : ["attr"],
-			...(options.style != null && { style: options.style }),
+			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
 			...(options.maxPitch != null && { maxPitch: options.maxPitch }),
 			...(options.transformRequest && { transformRequest: options.transformRequest }),
@@ -145,6 +148,13 @@ export class Map {
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
 			if (options.bounds) eng.fitBounds(boundsArr(options.bounds), { ...options.fitBoundsOptions, animate: false });
 			await eng.once("load");
+			// 視点を options に書かない地図は style の根の center/zoom/bearing/pitch（MapLibre と同じ・style.json は MapLibre の z）
+			const sty = (() => { try { return eng.getStyle(); } catch { return null; } })(), cam = {};
+			if (options.center == null && sty?.center) cam.center = sty.center;
+			if (options.zoom == null && sty?.zoom != null) cam.zoom = sty.zoom;
+			if (options.bearing == null && sty?.bearing != null) cam.bearing = sty.bearing;
+			if (options.pitch == null && sty?.pitch != null) cam.pitch = sty.pitch;
+			if (Object.keys(cam).length && !options.bounds) eng.jumpTo(cam);
 			st.loaded = true;
 			for (const f of st.queue.splice(0)) f();
 			emit(self, "styledata", { dataType: "style" }); emit(self, "data", { dataType: "style" });
@@ -248,7 +258,10 @@ export class Map {
 	removeSource(id) { S.get(this).sources.delete(id); ask(this, "removeSource", [id]); return this; }
 	getSource(id) { return ask(this, "getSource", [id]); }
 	isSourceLoaded(id) { return !!ask(this, "isSourceLoaded", [id], { before: false }); }
-	addLayer(layer, before) { ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this; }
+	addLayer(layer, before) {
+		if (layer?.type === "custom") { unsupported(this, "addLayer type custom (CustomLayerInterface — this map does not hand out its WebGL context)"); return this; }
+		ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this;
+	}
 	removeLayer(id) { ask(this, "removeLayer", [id]); return this; }
 	getLayer(id) { return ask(this, "getLayer", [id]); }
 	getLayersOrder() { return (this.getStyle()?.layers || []).map(l => l.id); }

@@ -2,6 +2,7 @@
 //   transformRequest(url, resourceType) → { url?, headers?, credentials? } | undefined   … opts.transformRequest / map.setTransformRequest
 //   addProtocol(scheme, loader) / removeProtocol(scheme)                               … "myscheme://…" の取得を呼び手の関数に任せる
 //     loader({ url, type: "arrayBuffer"|"json"|"image"|"string", headers }, abortController) → Promise<{ data }>（MapLibre v4 以降の形）
+//     type は MapLibre と同じく資源で選ぶ：style・TileJSON・sprite の JSON＝"json"・画像タイル＝"image"・ベクタタイルほか＝"arrayBuffer"
 // resourceType は MapLibre と同じ語彙：Style / Source（TileJSON・tileset.json）/ Tile / SpriteJSON / SpriteImage / Image / Unknown。
 // 関数は worker へ渡せない＝URL を main で組む取得（基図タイル・3D Tiles・style・sprite）はここで判定して、結果（ヘッダか取得済みの本体）を渡す。
 // 画像タイルは URL を worker が組む＝ヘッダは「ソースの型紙」で一度だけ決め、独自スキームは port プロバイダで main から画像を渡す（globe.js の map.raster）。
@@ -37,6 +38,13 @@ export function createRequester() {
 		async fetch(url, type = "Unknown", init = {}) {
 			const r = self.resolve(url, type);
 			if (r.load) {
+				// 頼む型は MapLibre と同じく資源で選ぶ：style・TileJSON・sprite の JSON＝"json"（maplibre-cog-protocol などは型で答え方を変える・"arrayBuffer" は断る）
+				if (/^(Style|Source|SpriteJSON)$/.test(type)) {
+					const d = await r.load("json");
+					const obj = typeof d === "string" ? JSON.parse(d) : d instanceof ArrayBuffer || ArrayBuffer.isView(d) ? JSON.parse(new TextDecoder().decode(d)) : d;
+					const txt = JSON.stringify(obj);
+					return { ok: true, status: 200, url: r.url, json: async () => obj, text: async () => txt, arrayBuffer: async () => new TextEncoder().encode(txt).buffer, blob: async () => new Blob([txt]) };
+				}
 				const ab = await r.load("arrayBuffer");
 				return { ok: true, status: 200, url: r.url, arrayBuffer: async () => ab, text: async () => new TextDecoder().decode(ab), json: async () => JSON.parse(new TextDecoder().decode(ab)), blob: async () => new Blob([ab]) };
 			}
