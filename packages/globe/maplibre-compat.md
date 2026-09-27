@@ -163,7 +163,7 @@
 
 ## 6. 門（互換の爪車ほか）
 
-- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector|extrude`（描いて確かめる場面・globe verify:ui／verify:webgpu は layers と vector と extrude）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
+- **互換の爪車**：`tests/mlcompat.mjs`（node の場面）＋ `tests/t-mlcompat.html?g=layers|style|vector|extrude|mlt`（描いて確かめる場面・globe verify:ui は 5 群すべて／verify:webgpu は style 以外）。既知の失敗＝`tests/mlcompat-known.json`（値＝直す段と理由）。
   - 一覧に無い失敗＝落ちる（退行）／一覧にあるのに通った＝落ちる（直ったので外す）。**場面を足すのは MapLibre と違うと分かった時**（先に場面を書いて赤を確かめる）。
 - `tests/zoomscale.mjs`（分類漏れ）・`tests/internal-callers.mjs`（内製の呼び手）・`tests/expr-golden.mjs`（評価器の黄金の写し）・`tests/vtextrude.mjs`／`tests/vtdraw.mjs`（vector source の押し出しと描く層の純関数）＝globe の `npm test`（ルートの `npm test` に連結）。
 - 段の終わりの門：ルート `npm test`・globe `verify`（regionless＋ui＋webgpu）・japan `verify:japan`・census build。worktree は `npm ci` してから。
@@ -203,3 +203,29 @@
 - [x] **段 5b**（2026-09-27）：geojson の押し出し（model.js の経路）の 2 件＝①描き直しの鍵を曲線で（R22）②問い合わせを立体で（R23）。純関数は `src/extrude-ml.js`（node で確かめる）・globe.js は視点の口（地面・投影・外接球の下ごしらえ）だけ。model.js は立てた地物に base とスロットの地面（mode・床の高さ）を持たせた（extrudeSets）。門＝爪車 node 12 場面・t-mlcompat?g=extrude 11 場面（GL2・WebGPU。旧コードで 7 場面が赤＝足跡の当て方・0.25 刻みの鍵、見張り 4 場面は両方で緑を確かめた）。
   - **段 8①（vector の押し出し）と一本に**（main へ入った後に揃えた）：鍵＝vtmesh.paintZoomKey は extrude-ml.js の exprZoomKey を使う（書式は同じ "名前:lo|hi|s<段>|<z>"・interpolate-hcl/-lab も曲線に）。当たり＝vtextrude の query も hitExtrusion（旧＝屋根の頂点の投影＋重心の中ほどまでの距離）・口は globe.js の extView（hitEnv＝vtxGround の地面）・query は [{ d, f }] を返し、問い合わせが geojson の押し出しと一つの列にして近い順（MapLibre と同じく 3D の地物は奥行きで並ぶ）。vtxGround は ?noterr=1 で持ち上げない（描く側と同じ）。projectorH・distanceOf の口は要らなくなったので外した。
 - [ ] 段 8②〜④・⑤b：基図のアイコン・線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
+
+## 8. 公式例の門（2026-09-27 起票）
+
+- **なぜ**：§6 の爪車は**自分で書いた場面**を**自分で決めた期待色**と比べる＝分母を自分で選んでいる。外から来た分母＝MapLibre 公式の例で「同じコードで同じ絵」を数える。
+- **形**：MapLibre GL JS の公式例（`test/examples/*.html`・BSD-3-Clause）は全部 `import * as maplibregl from '../../dist/maplibre-gl-dev.mjs'`＝**その道に本物か通訳を置くだけ**で差し替える（例の本文は一文字も変えない）。本物とこちらを同じ録りの網で走らせ、比べる。
+- **段**（こちらの段は本物の段を超えない・本物が落ちる例は分母の外）：
+  - 0 動かない（load に届かない・起動で例外・既定の基図に落ちた・何も描かない）
+  - 1 動く（load に届き、捕まらない例外が無い）
+  - 2 同じ答え（意味の unsupported 0・層の id と順・標本点の問い合わせの集合・見えている範囲・Marker/Popup の位置）
+  - 3 同じ絵（地理で合わせた色の標本＝本物の `unproject`→こちらの `projectLL`・「例が足した層に当たる点」と「基図の点」を別々に）
+- **出る物**：段ごとの本数（全体と「鍵も外部ライブラリも custom も無い」例の 2 本立て）・**足りない口の順位表**（口 → 落としている例の数）・見比べ帳（手元だけ）。
+- **本人の裁定（2026-09-27）**：
+  1. 通訳（`maplibregl` の名前空間）は**製品の口**として `src/maplibre/` に置く（npm 公開と d.ts は点数を見てから）。
+  2. 網は**録り置きして再生**（`<repo>/.cache/mlexamples/net/`・`--record` で録り直し）。
+  3. `verify:examples` は**手で／節目に**回す（常設の `verify` の外＝`verify:net` と同じ扱い）。
+  4. MapLibre の口から起こした地図は**夜面・星空・自前の地形を出さない**（地形は setTerrain／style の terrain の時だけ）。旗で on にできる。内製アプリの既定は今のまま。
+- **約束（通訳だけ）**：通訳はエンジンに機能を足さない。同じ働きがあれば言い換え、無ければ投げずに `[mlshim] unsupported: <口>` を記録して何もしない（見た目／意味に分ける）。通訳で辻褄を合わせない＝点数を正直に保つ。エンジンの足し算は `idle` 事象と起動オプション `night`／`sky`／`terrain:false`（既定は不変）だけ。
+- **目録**（`tests/mlexamples/corpus.mjs`・`corpus.json`）：MapLibre GL JS **6.11.2**（`acb7b722`）・例 139・素材 30・本物の dist 14（`npm pack`＝lock を触らない）。取り置き＝`<repo>/.cache/mlexamples/6.11.2/`（sha256 で照合・壊れていれば取り直す）。
+  - 見立て（正規表現・走らせる前の予想）：鍵も外部ライブラリも custom も無い 111／外部ライブラリ 23／custom 9／API キー 3／import map 6／globe 10／terrain 11／入力待ち 43／動き 12／乱数・日付 6／位置情報 1／地図 2 枚以上 1。
+- **進み**：
+  - [x] 段 0（2026-09-27）：この節・目録。エンジン無改修。
+  - [ ] 段 1 走らせ台と本物（vite の配り・網の録り置き・描き終わりの判定・本物を 2 回回して揺れを見る）
+  - [ ] 段 2 エンジンの足し算（`idle`・`night`／`sky`／`terrain:false`・`t-mlboot`）
+  - [ ] 段 3 通訳（`src/maplibre/`）
+  - [ ] 段 4 採点と見比べ帳・順位表
+  - [ ] 段 5 目合わせ（θ は本人の目で）と爪車（`tests/mlexamples/known.json`）・最初の点数をここに書く
