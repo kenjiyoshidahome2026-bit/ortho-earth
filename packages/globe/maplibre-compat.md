@@ -307,3 +307,23 @@
   - 検定：`fontstack.mjs`（node）・t-mlcompat g=vector `symbol-text-font`（700／italic／family の順・太字は広い）・`add-font-face-api`。`__placed` は据えた font を返す。
   - 見送り（記録）：`format` の区間ごとの text-font／font-scale（連結のまま）・text-font の名前の重複解決（"Noto Sans Regular" と "Noto Sans Bold" を同じ family の別 weight として同時に読む＝descriptors で載せれば効く）。
   - 結果（o22s・低い 28 例＋Web フォントの例 3 本）：hit は段 1 と同じ（±1＝太字の幅の分）＝**書体は位置と有無の物差しを動かさない**（意図どおり：段 0 の裁定＝文字は形でなく位置と有無で測る）。style-labels-with-web-fonts／local-fonts／font-faces は 段 3 のまま。
+
+### 8.x 再開の手引き（2026-09-28 夜・別の機械から続ける時に読む所）
+**ここまで**：#97 idle×画像タイル層／#98 段 0（文字を測る）／#99 段 1（layout）／#100 段 2（書体）＝全部 main。文字の物差し（本物 r7 × こちら）＝hit 61→85%・0.6 未満 26→10・同じ絵 63。deploy／npm publish は**未**（core 1.6.1・globe 1.5.1・japan 1.5.1 は版だけ上げ済＝publish するなら `addFontFace` を含めて globe 1.5.2 に上げてから）。
+
+**この文書が正典**：機械ごとの記憶（Claude の memory）は同期されない。判断・数字・轍は §8 に全部ある。次の人（自分）は「§8 の段 3 から」で始められる。
+
+**次＝段 3（基図のアイコン＝台帳 §8 の段 8②と同じ）**：
+1. sprite は今 geojson の symbol に icon-image がある時だけ読む（`src/globe.js` `mountExtExtras` の `ext.split.geojson.some(icon-image)`）→ 基図の symbol 層（`ext.split.base`）にも icon-image があれば読む。
+2. 記号帳（名前→ImageBitmap・pixelRatio・sdf）を render worker の注記 canvas（`labels2d`）へ渡す口（`renderer.set("labelImages", …)` か symbols overlay と同じ `image` 通信）。
+3. `labels.js`：icon-image（式を評価）・icon-size／anchor／offset・icon-allow-overlap／ignore-placement・icon-optional／text-optional・icon-text-fit（＋padding）をラベルに焼く（`layoutOf` に足す）。M2 の「アイコンだけの層は skip」を外す。
+4. `labels2d`：箱＝icon と text の合成（symbols-2d の `textBox`／`iconFor`／SDF の色焼き `sdfTint` と同じ意味論）。ここで **symbols-2d と共通の部品**（箱・候補・描画）を ortho-core へ切り出せば 2 経路が 1 本になる（段 1 の残件）。
+5. 検定＝t-mlcompat g=vector に `symbol-icon-*`（記号帳は fixtures/mlcompat/sprite-a）＋門 o23（icon+text 0.49／icon 0.41 が上がるか＝`grades.json` の text.layers を poi_* で見る）。
+
+**段 4（線沿い）・段 5（向き）**は §8「文字を測る」の計画どおり。線沿いは `symbols` の `placement:"line"` の数（714）が分母＝位置の物差しは別途（本物の記号は線の幾何しか返さない＝錨の画面位置が無い）。
+
+**道具**：
+- 門：`npm run verify:examples -- --side ortho --ref r7 --label oNN`（採点まで）／`--only a,b`（部分）／`--grade --ref r7 --ortho oNN [--update]`／見比べ帳 `.cache/mlexamples/report/oNN/index.html`（launch.json `mlexamples-report`）。**`.cache/mlexamples/`（網の録り置き `net/`・本物 `runs/r7/`）は機械ごと**＝無い機械では `--side ref --label r7 --record-missing`（網に出る・139 本・10〜20 分）を先に。r6 以前の本物の記録には `symbols` が無い（段 0 以降は r7 以降を使う）。
+- 切り分け：`node tests/mlexamples/probe.mjs <例> '<式>' [秒]`（例の頁で式を評価＝`__placed()`／`__placedDebug()`／`__idleWhy()`／`__labelsMain()`）／`node scripts/probe-page.mjs <group> '<式>' [秒]`（t-mlcompat の頁）。
+- 関門：`npm test`（globe・core）・`npm run verify:regionless`・`VGU_PORT=52xx npm run verify:ui`・`VGW_PORT=52xx npm run verify:webgpu`。**並行させない**（t-mlcompat の色の標本・hillshade の「前」の写しが負荷で揺れる）。worktree は `npm ci` から。
+- 轍（今日）：runner の素通り判定は表題の /skip/＝場面の文言に "zoomSkipped" 等を載せない／`map.xxx =` は `const map` より後／`setLayerZoomRange` の引数は公開の z（旗なし＝ML＋1）／`decodePng` は `{w,h,rgba}`／関門の出力を `cut` で切ると場面の理由が消える。
