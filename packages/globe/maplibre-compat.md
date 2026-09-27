@@ -272,3 +272,9 @@
   - **2 巡目の結果（o5・下がった例なし）**：0 動かない 1／1 動く 47／2 同じ答え 41／3 同じ絵 48（素の例 46/111）・絵だけ見れば同じ 65/121。3 巡の推移：同じ絵 0→45→48・同じ答え 1→33→41・動かない 4→4→1。
   - **緯度の縮尺の実験（o5lat）は悪くなった**（同じ絵 48→30）：カメラのズームを log2(sec φ) 上げると、こちらでは style の式（線幅・出しズーム・filter の zoom）も上げたズームの数で評価される（ワシントン 38.9° で 11.15 のはずが 11.51）。MapLibre は**ズームの数（style の評価）はそのまま・縮尺だけが緯度で変わる**。こちらは「同じ z＝同じ倍率＝同じ style」＝縮尺だけ合わせることはできない。揃えるなら「style を評価するズーム」と「カメラの縮尺」を切り離す（中心緯度で style の z を log2(sec φ) 下げる等）＝z の定義に踏み込む＝本人裁定の領分。
   - 次の順位表（o5）：基図の色 23／足した層の色 15／線に余計 13／面・線の取りこぼし 12・12／面に余計 11／custom 層 10／カメラ 7。
+- **3 巡目（2026-09-27 本人「いいですね、もう一度」）**：
+  - **hillshade の層**（`src/hillshade.js`）：この地図の陰影は傾けた時の地形面だけ（真俯瞰は平面）＝MapLibre の hillshade（真俯瞰でも陰影の画像）が無く、北緯 47° の地形の例（10 本）の基図が白かった。MapLibre の式（hillshade_prepare＋fragment・standard）を画素で写し、raster-dem のタイルから陰影の画像タイルを作る **port プロバイダ**（画像タイル層の契約）として載せる＝エンジンの描く経路は無改修。端の勾配は隣のタイル・緯度の縮み・色 3 種・exaggeration。addLayer と外来 style の両方（getStyle では描く層）。他の method（basic/combined/igor/multidirectional）は standard で描く（警告）。
+  - **querySourceFeatures**（同期・MapLibre 同名）：集約の source＝今の段の丸と単点（画面の内側＋余白 1/4）・geojson＝全部（上位互換）・vector＝[]（未対応・警告）。HTML の集約の例（Marker を丸の位置に置く）が動く。
+  - 直し：removeLayer した style 由来の層を getStyle の「その他の層」として復活させない／型紙の `%7B` を読む（`new URL().href` で括弧が化ける）。
+  - 門：t-mlcompat の layers 群に hillshade-layer（北西の斜面が明るく南東が暗い・外すと戻る）と query-source-features。GL2・WebGPU 全緑。
+  - 見送り（記録）：styleimagemissing／setMissingStyleImageResolver（無い画像を後から足す）・動く画像（StyleImageInterface の render）・calculateCameraOptionsFromTo・custom 層（WebGL の文脈を渡さない）・color-relief 層・MapLibre のズームの下限より引く例（z −2）・世界全図の例＝メルカトルが画面を埋めるのに球は小さく写る（意図した差）。
