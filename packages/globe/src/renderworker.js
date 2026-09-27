@@ -28,6 +28,7 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 //   api.depth（#47）＝シーンの深度（地形・ビル・メッシュ）。申し出たオーバーレイがある時だけ本体が作る（opts.depth:true か init の戻り値 { depth:true }）。
 //   { w, h, logCoef, backend, glsl, texture(gl), bind(gl, prog, unit?, eps?) }｜null（申し出前・LOW_MEM・作れない環境）。
 //   api.clipH(lon,lat,hM)＝projectH と同じ点の clip 座標 [x,y,z,w]（s.mvp・地形リフト込み）＝CPU で置く点（ピン等）の w を得る口
+//   api.elevM(lon,lat)＝生の標高（m）・api.liftScale＝1m あたりの持ち上げ（pitch フェード込み）・api.terrainOn＝GPU 側で頂点を自分で持ち上げるオーバーレイ用（列チャンク層・#90）
 //   GLSL（host.depthGLSL＝api.depth.glsl＝@ortho-earth/core/depthout の DEPTH_GLSL）を FS に貼り、sceneOcclusion(gl_FragCoord.xy/描画面, gl_Position.w) で比べる。
 //   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map();
@@ -79,7 +80,9 @@ function overlayFrame(camNow, depthFrame) {
 				const lift = pf > 0 && terrain ? (lon, lat) => (terrain.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon, lat, hM) => { const [x, y, f] = project(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase); return [x / dpr, y / dpr, f]; };
 				const clipH = (lon, lat, hM) => projectClip(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
-				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth };
+				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
+				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
+					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain };
 			}
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }

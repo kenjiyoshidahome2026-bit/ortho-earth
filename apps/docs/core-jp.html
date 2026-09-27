@@ -261,6 +261,17 @@ MapLibre の <code>style.json</code> も同じ流れに変換して読みます�
 	<li><strong>長い辺は地形に沿って曲がる。</strong>3D では、線をその下の地形に応じて GPU で細分します。</li>
 </ul>
 
+<h3 id="columnar">7.1 列チャンク — 位相を作らずに描く</h3>
+<p>
+Gint の強さは、最初の 1 枚の前に一周の下ごしらえ（共有弧・順位・度アンカー・焼き）を払って得ています。<em>見るだけ</em>のファイルには別の道があります
+（<a href="https://github.com/kenjiyoshidahome2026-bit/ortho-earth/issues/90">#90</a>）。<code>map.addColumnar(src)</code> は GeoParquet の row group、
+または空間順に切った GeoPBF のチャンクを worker で GPU 向けの配列（チャンク原点相対の単位球 xyz・earcut の三角形・格子に丸めた 2〜3 段の LOD）に詰め、
+地球と同じフレームのオーバーレイで描きます。属性は列のまま。paint と filter（Gint と同じ語彙）は worker が列から Gint と同じ fid 表に評価するので、
+色替えで幾何は作り直しません。落とした <code>.parquet</code> は常にこの道、<code>.geopbf</code>／<code>.fgb</code> は <code>columnarBytes</code>（4 MB）を超えたらこの道です。ただし読み手が先頭チャンクで測る
+<code>meta.share</code> が「長い共有弧の塗り分け」（admin1・行政地図）を示す時は、それを得意とする Gint に残します。塗りは頂点ごとに地形に沿い、シーンの深度で隠れます。
+共有境界は 2 回描かれ、編集は Gint に戻します。
+</p>
+
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="mesh">8. 3D メッシュ — 建物・3D Tiles・I3S・模型</h2>
 
