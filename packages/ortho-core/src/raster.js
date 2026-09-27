@@ -63,6 +63,23 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
 	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
 	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", texSeq = 0;
+	let lastPendSig = "";   // rasterPending の前回の申告（変わった時だけ main へ）
+	// 未着の申告（idle / isSourceLoaded の材料・2026-09-28）＝層ごとに「開いている途中＝1」「開いた直後で一度も選抜していない＝1」「見えている選抜の未着（queued/loading/retry）の枚数」。
+	// 見えていない層（visible:false・表示域の外）は 0。合計が変わった時だけ post（main の checkIdle と isSourceLoaded が読む）
+	function pendingOf(L) {
+		if (!L.source || L.fresh) return 1;
+		if (!L.inView) return 0;
+		let n = 0;
+		for (const e of L.cache.values()) if (e.status === "queued" || e.status === "loading" || e.status === "retry") n++;
+		return n;
+	}
+	function pending() { const layers_ = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_ }; }
+	function reportPending() {
+		const p = pending(), sig = Object.entries(p.layers).map(([k, n]) => k + ":" + n).join(",");
+		if (sig === lastPendSig) return;
+		lastPendSig = sig;
+		say({ type: "rasterPending", total: p.total, layers: p.layers });
+	}
 	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
 	function meshFor(z, y) {
@@ -147,6 +164,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	// 選抜タイルを在庫へ（未着は取得列へ）・視野外の取得は中断・予算超過は LRU 退避・描画リストを組む
 	function updateLayer(L, cam, W, H, opts) {
+		L.fresh = false;
 		const src = L.source, sel = selectFor(L, cam, W, H, opts);
 		const keep = new Set();
 		const c = cam.center;
@@ -215,7 +233,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 
 	// 毎フレーム（render worker の frame から。カメラ不変・在庫不変なら選抜は走らない）
 	function update(cam, W, H, opts) {
-		if (!layers.size) return;
+		if (!layers.size) { reportPending(); return; }
 		clock++;
 		const wasMoving = moving; moving = !!opts?.moving;
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
@@ -223,9 +241,10 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		let changed = false;
 		const rd = { rev: 0, hideFills: false, layers: [] };
 		for (const L of layers.values()) {
-			if (!L.source || !L.visible) { if (L.draws.length) { L.draws = []; changed = true; } continue; }
+			if (!L.source || !L.visible) { L.inView = false; L.fresh = false; if (L.draws.length) { L.draws = []; changed = true; } continue; }   // fresh を落とす＝伏せた層は未着に数えない
 			const inRange = cam.zoom >= L.showMin && cam.zoom <= L.showMax;
-			if (!inRange) { if (L.draws.length) { L.draws = []; changed = true; } continue; }
+			if (!inRange) { L.inView = false; L.fresh = false; if (L.draws.length) { L.draws = []; changed = true; } continue; }
+			L.inView = true;
 			if (L.camKey !== key || L.dirty) { L.camKey = key; L.dirty = false; updateLayer(L, cam, W, H, opts); changed = true; }
 			else {
 				// 原点は cam.center＝カメラ不変なら off も不変（camKey が同じ＝center 同じ）
@@ -245,6 +264,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			rd.rev = rev;
 		} else lastSig = "";
 		renderer.setRasterDraws(rd.layers.length ? rd : null);
+		reportPending();
 		return changed;
 	}
 
@@ -258,8 +278,10 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			hideFills: opts.hideFills !== undefined ? !!opts.hideFills : opts.order !== "over",   // 基図（under）は塗りを伏せる（裁定：線と注記は残す）
 			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias > 0 ? opts.tileBias : 1,   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
 			showMin: -Infinity, showMax: Infinity, cache: new Map(), queue: [], sticky: null, draws: [], dirty: true, camKey: "", selN: 0, warned: false,
+			fresh: false, inView: false,   // fresh＝開いた直後（最初の選抜まで未着 1 と数える）・inView＝直近の update で見えていた（pendingOf）
 		};
 		layers.set(id, L);
+		reportPending();   // 開いている途中＝未着 1
 		try {
 			const src = await createRasterSource(spec);
 			if (!layers.has(id) || layers.get(id) !== L) { src.close(); throw new Error("removed while opening"); }
@@ -268,12 +290,14 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			L.showMax = Number.isFinite(opts.maxZoom) ? opts.maxZoom : Infinity;
 			const info = { id, kind: src.kind, tileSize: src.tileSize, minZoom: src.minZoom, maxZoom: src.maxZoom, bbox: src.bbox, attribution: src.attribution, name: src.name, tileType: src.tileType || null, order: L.order, opacity: L.opacity, hideFills: L.hideFills };
 			L.info = info;
-			L.dirty = true; requestDraw && requestDraw();
+			L.fresh = true; L.dirty = true; requestDraw && requestDraw();
+			reportPending();   // rasterInfo より先に届く＝main は「開けた」を知る時すでに未着を知っている
 			say({ type: "rasterInfo", id, info });
 			return info;
 		} catch (err) {
 			L.error = String(err && err.message || err);
 			if (layers.get(id) === L) layers.delete(id);
+			reportPending();
 			say({ type: "rasterError", id, error: L.error });
 			throw err;
 		}
@@ -286,6 +310,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		L.source?.close?.();
 		layers.delete(id);
 		if (!layers.size) renderer.setRasterDraws(null);
+		reportPending();
 		requestDraw && requestDraw();
 		return true;
 	}
@@ -314,5 +339,5 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		for (const m of meshes.values()) renderer.rasterFree(m.h);
 		meshes.clear(); meshBytes = 0;
 	}
-	return { add, remove, set, update, stats, destroy, bytes: () => texBytes + meshBytes, has: id => layers.has(id), list: () => [...layers.keys()] };
+	return { add, remove, set, update, stats, pending, destroy, bytes: () => texBytes + meshBytes, has: id => layers.has(id), list: () => [...layers.keys()] };   // pending＝未着の申告（rasterPending と同じ形・検定と計器）
 }

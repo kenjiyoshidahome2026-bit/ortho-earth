@@ -127,13 +127,23 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 		rasterMesh: m => { R.mesh++; return { kind: "mesh", bytes: m.pos.byteLength, count: m.idx.length }; },
 		rasterFree: () => { R.freed++; }, setRasterDraws: rd => { R.last = rd; } };
 	let draws = 0;
-	const raster = createRaster({ renderer: R, requestDraw: () => { draws++; }, lowMem: false, post: () => {} });
-	const info = await raster.add("t", { port: ch.port2 }, { order: "under" });
+	const posted = [];
+	const raster = createRaster({ renderer: R, requestDraw: () => { draws++; }, lowMem: false, post: m => { if (m.type === "rasterPending") posted.push(m); } });
+	ok(raster.pending().total === 0, "pending: nothing before add");
+	const addP = raster.add("t", { port: ch.port2 }, { order: "under" });
+	ok(raster.pending().total === 1 && raster.pending().layers.t === 1, "pending: opening layer counts 1");
+	const info = await addP;
+	ok(raster.pending().total === 1 && posted.length >= 1 && posted[posted.length - 1].total === 1, `pending: fresh (opened, not yet selected) counts 1 and was posted (${posted.length} posts)`);
 	ok(info.kind === "port" && info.maxZoom === 12 && info.attribution === "fake attr" && info.hideFills === true, "add → info from provider (under → hideFills)");
 	const cam = { center: [139.7, 35.7], zoom: 10.3, pitch: 0, bearing: 0, dpr: 1 };
 	const tick = async () => { raster.update(cam, 800, 600); await new Promise(r => setTimeout(r, 30)); };
+	raster.update(cam, 800, 600);
+	ok(raster.pending().total > 1 && raster.pending().layers.t === raster.pending().total, `pending: after first select = queued tiles (${raster.pending().total})`);
 	for (let i = 0; i < 40 && !(R.last && R.last.layers[0]?.draws.length); i++) await tick();
 	await tick(); await tick();
+	for (let i = 0; i < 40 && raster.pending().total; i++) await tick();
+	ok(raster.pending().total === 0 && posted[posted.length - 1].total === 0, `pending: all arrived → 0 and posted 0 (last post total=${posted[posted.length - 1]?.total})`);
+	{ const n = posted.length; raster.update(cam, 800, 600); ok(posted.length === n, "pending: unchanged → not re-posted"); }
 	const st = raster.stats();
 	ok(R.last && R.last.layers.length === 1 && R.last.layers[0].draws.length > 0, `draw list populated (${R.last?.layers[0]?.draws.length ?? 0} draws, ready=${st.layers[0]?.ready})`);
 	ok(R.last.hideFills === true && R.last.layers[0].order === "under", "hideFills propagated for under layer");
@@ -148,6 +158,7 @@ ok(expandTemplate("https://h/{q}.jpg", 0, 0, 0) === "https://h/0.jpg", "quadkey 
 	// set：visible=false → 描画リストから消える（テクスチャは保持）
 	raster.set("t", { visible: false }); raster.update(cam, 800, 600);
 	ok(R.last === null, "visible:false → no draws");
+	ok(raster.pending().total === 0, "pending: hidden layer counts 0");
 	raster.set("t", { visible: true, opacity: 0.5, order: "over" }); raster.update(cam, 800, 600);
 	ok(R.last && R.last.layers[0].order === "over" && near(R.last.layers[0].opacity, 0.5) && R.last.hideFills === false, "set order/opacity → over layer does not hide fills");
 	// 合成順：重ね（over）が先に追加されていても、後から足した基図（under）が先に並ぶ（基図が重ねを覆わない）

@@ -172,7 +172,8 @@ try {
 			map.addSource("rz", { type: "raster", tiles: [new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}")], tileSize: 256 });
 			await Promise.race([map.addLayer({ id: "rz-l", type: "raster", source: "rz", minzoom: 12 }), sleep(5000)]);
 			const e = map.raster.list().find(r => r.id === "rz-l");
-			return [e?.opts?.minZoom === 12, e ? JSON.stringify(e.opts) : "no raster entry"];
+			const t0 = performance.now(); while (!map.isSourceLoaded("rz") && performance.now() - t0 < 3000) await sleep(50);   // 表示域の外（z7 < minzoom 12）＝取る物が無い＝開けた次のフレームで loaded
+			return [e?.opts?.minZoom === 12 && map.isSourceLoaded("rz"), (e ? JSON.stringify(e.opts) : "no raster entry") + ` loaded=${map.isSourceLoaded("rz")}@${(performance.now() - t0).toFixed(0)}ms`];
 		});
 		await scene("gadget-symbols-legacy-filter", async () => {   // ML 形 gadget の層 object も入口 1 本（旧式フィルタ・{token}）
 			await map.gadget.symbols(fc([pt(142.2, 37.2, { name: "C" }), pt(142.2, 36.4, { name: "D" })]), { id: "sy", layout: { "text-field": "{name}", "text-size": 14 }, filter: ["==", "name", "C"] });
@@ -264,14 +265,22 @@ try {
 			const before = await snap(map), pNW = P(150.45, 30.55), pSE = P(150.55, 30.45);
 			const lum = c => 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2];
 			await map.addSource("hsd", { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 });
-			await map.addLayer({ id: "hs", type: "hillshade", source: "hsd", paint: { "hillshade-exaggeration": 0.6 } });
-			let nw = 0, se = 0, b0 = lum(px(before, ...pNW)), b1 = lum(px(before, ...pSE));
-			for (let i = 0; i < 12; i++) { await sleep(1500); const img = await snap(map); nw = lum(px(img, ...pNW)); se = lum(px(img, ...pSE)); if (nw - se > 15 && Math.abs(se - b1) > 10) break; }
+			// isSourceLoaded / idle は画像タイルの未着も見る（1.5.1〜）：addLayer が返った直後は false（開いた直後・未着）→ 見えている陰影タイルが全部載ったら true。
+			// idle は loaded になるまで来ない＝最初の idle の時点で isSourceLoaded が true。絵の検分は loaded になった瞬間の 1 枚で行う（旧＝1.5 秒×12 回の総当たり）
+			let idleLoaded = null, armed = true; map.on("idle", () => { if (armed && idleLoaded === null) idleLoaded = map.isSourceLoaded("hsd"); });
+			const addP = map.addLayer({ id: "hs", type: "hillshade", source: "hsd", paint: { "hillshade-exaggeration": 0.6 } });
+			const l0 = map.isSourceLoaded("hsd"); await addP; const l1 = map.isSourceLoaded("hsd");
+			const t0 = performance.now(); while (!map.isSourceLoaded("hsd") && performance.now() - t0 < 20000) await sleep(100);
+			const tLoaded = performance.now() - t0; await sleep(250);
+			const img = await snap(map); let nw = lum(px(img, ...pNW)), se = lum(px(img, ...pSE)); const b0 = lum(px(before, ...pNW)), b1 = lum(px(before, ...pSE));
+			const t1 = performance.now(); while (idleLoaded === null && performance.now() - t1 < 5000) await sleep(100);
+			armed = false;
 			const drawnStyle = map.getStyle().layers.find(L => L.id === "hs");
 			map.removeLayer("hs"); map.removeSource("hsd"); await sleep(1500);
 			const after = await snap(map), a1 = lum(px(after, ...pSE));
 			map.jumpTo({ center: [35.9, 137.2].reverse(), zoom: 7, pitch: 0 }); await sleep(2000);
-			return [nw - se > 15 && Math.abs(se - b1) > 10 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false, `NW=${nw.toFixed(0)} SE=${se.toFixed(0)} before=${b0.toFixed(0)}/${b1.toFixed(0)} removed=${a1.toFixed(0)}`];
+			return [nw - se > 15 && Math.abs(se - b1) > 10 && Math.abs(a1 - b1) < 8 && drawnStyle?.metadata?.["ortho:drawn"] !== false && !l0 && !l1 && tLoaded < 20000 && idleLoaded === true && map.isSourceLoaded("hsd") === false,   // removeSource 後＝source が無い＝false（MapLibre と同じ）
+				`NW=${nw.toFixed(0)} SE=${se.toFixed(0)} before=${b0.toFixed(0)}/${b1.toFixed(0)} removed=${a1.toFixed(0)} loaded=${l0}/${l1}→true@${tLoaded.toFixed(0)}ms idleLoaded=${idleLoaded} afterRemove=${map.isSourceLoaded("hsd")}`];
 		});
 		// ── custom 層（MapLibre の CustomLayerInterface・4 巡目）＝main の WebGL2 canvas に mainMatrix（メルカトル→クリップ）で描く。中心の周りの小さな四角＝中心は赤・外は元のまま・外すと戻る ──
 		await scene("custom-layer", async () => {

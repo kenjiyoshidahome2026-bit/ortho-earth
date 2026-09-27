@@ -223,7 +223,7 @@ function finishInit(m) {
 	// 低ズームの地球ぐるぐるで陰影が最初から途切れない（z1-4を塗る前提の仕込み）。
 	// アトラスが無い時の退避（R90 8枚・55MB）は terrain 側＝低メモリ端末はそこで見送る（デモ序盤の裏でデコードの山を作らない）。
 	if (terrain) setTimeout(() => terrain.prefetchWorld(), 6000);
-	// 画像タイル層＝renderer の契約（rasterTex/rasterMesh/setRasterDraws）だけで動く＝バックエンド非依存。main へは rasterInfo/rasterError を通知
+	// 画像タイル層＝renderer の契約（rasterTex/rasterMesh/setRasterDraws）だけで動く＝バックエンド非依存。main へは rasterInfo/rasterError/rasterPending（未着）を通知
 	raster = createRaster({ renderer, requestDraw: () => { dirty = true; armRaf(); }, lowMem: !!m.lowMem, post: msg => postMessage(msg) });
 	// gint の面（3D）＝地面アトラスへ焼く（RTT ドレープ統合・2026-09-21）。gint は後から差し替わり得る（context lost）＝変数を都度読む
 	if (renderer.setGroundHook) renderer.setGroundHook((cam, t) => gint?.bakeFaces ? gint.bakeFaces(cam, t) : 0, () => gint?.bakeSig ? gint.bakeSig() : "");   // 戻り値＝焼いた層数（drawhud gndFaces）

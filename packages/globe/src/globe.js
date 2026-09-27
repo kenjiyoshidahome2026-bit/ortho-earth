@@ -758,6 +758,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
@@ -772,6 +773,7 @@ renderWorker.onmessage = e => {
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
 let coverOk = true;   // 最後の render で「基図が視野を隙間なく覆い、その枠がそのまま載っている」（idle の材料・公式例の門 段 2）
+const rasterPend = new Map(); let rasterPendTotal = 0;   // 画像タイル層（raster/hillshade/image/video）の未着＝raster.js の rasterPending（開く途中・見えている選抜の queued/loading）。idle は合計 0 を待ち、isSourceLoaded は source を使う層の分を見る（2026-09-28・門では hillshade の例が 10 秒の timeout で撮られていた）
 let renderBackend = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
@@ -2073,11 +2075,11 @@ function frame() {
 	requestAnimationFrame(frame);
 }
 // idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
-// 標高と建物の読み込みが無い・利用者の source が揃った、が 100ms 続いたら 1 回。忙しくなったら次の静けさでまた 1 回（MapLibre と同じ）。
+// 標高と建物と画像タイル層（raster/hillshade/image/video＝rasterPendTotal）の読み込みが無い・利用者の source が揃った、が 100ms 続いたら 1 回。忙しくなったら次の静けさでまた 1 回（MapLibre と同じ）。
 // 起動直後も（カメラを動かさなくても）来る＝settle（onMove の後だけ）とは別の合図
 let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
 function checkIdle(now) {
-	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && coverOk && !elevBusy && !meshMgr.visibleLoading().length
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && coverOk && !elevBusy && !meshMgr.visibleLoading().length && !rasterPendTotal
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id));
 	if (!quiet) { idleState = 0; return; }
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
@@ -3665,7 +3667,8 @@ const vtdMount = async (v, layer) => {
 };
 const vecAttrDrop = (v, sid) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; needsDraw = true; } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
-const mountLayer = async v => {
+const mountLayer = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
+const mountLayerRaw = async v => {
 	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "vtextrude") return vtxMount(v, layer);
@@ -3780,7 +3783,9 @@ map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
 	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
 };
-map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id)) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
+// 画像タイル層の source（raster/raster-dem→hillshade/image/video）＝その source を使う見えている層が、開く途中（mounting＝TileJSON/画像の取得・worker が開くまで）か未着（rasterPend）なら false
+const rasterSrcLoaded = sid => { for (const [lid, v] of mlLayers) if ((v.kind === "raster" || v.kind === "hillshade") && srcId(v.layer) === sid && mlVisible(v) && (v.mounting || rasterPend.get(lid) > 0)) return false; return true; };
+map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id)) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true) && rasterSrcLoaded(id);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
