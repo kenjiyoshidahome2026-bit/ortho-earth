@@ -75,7 +75,9 @@ function classify(name, src) {
 	for (const m of src.matchAll(/\bimport\(\s*["'](https?:\/\/[^"']+)["']/g)) libs.add(m[1]);
 	const im = src.match(/<script[^>]*type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/i);
 	if (im) { try { for (const [k, v] of Object.entries(JSON.parse(im[1]).imports || {})) if (k !== "maplibre-gl") libs.add(`${k}=${v}`); } catch { libs.add("importmap(unparsed)"); } }
-	const code = src.replace(/<!--[\s\S]*?-->/g, "");
+	// 註釈（<!-- -->）を除いた本文で見立てる（分類のためだけ＝HTML の消毒ではない）。入れ子・分割を残さないよう変わらなくなるまで剥ぐ（CodeQL js/incomplete-multi-character-sanitization）
+	let code = src, prev;
+	do { prev = code; code = code.replace(/<!--[\s\S]*?-->/g, ""); } while (code !== prev);
 	const flags = {
 		needsKey: /get_your_own|[?&](?:key|api_key|apikey|access_token)=|x-api-key/i.test(code),
 		thirdParty: libs.size > 0,
