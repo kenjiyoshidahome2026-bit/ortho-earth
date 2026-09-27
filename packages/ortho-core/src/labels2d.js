@@ -2,6 +2,7 @@
 // 衝突判定（どのラベルを出すか）は間引き（recollideMs毎）で安定化し、描画位置は毎フレーム・ライブ投影。
 // これで文字は地図と一緒に滑らかに動きつつ、当選集合が安定して明滅しない。距離フェードでフォグと連動。
 import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
+import { fontCss } from "./fontstack.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
@@ -34,6 +35,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	const hasLS = "letterSpacing" in ctx;   // 字間（Chrome 99+・無い環境は 0 扱い）
 	let curFont = "";   // ctx.font の覚え（collide/draw/textLayout で共有＝設定は変わる時だけ）
 	const setFont = f => { if (f !== curFont) { ctx.font = curFont = f; } };
+	const fontOf = (L, size) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
@@ -130,10 +132,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// 文字の行の束（折り返し＝text-max-width（em）・"\n"＝改行・字間＝letter-spacing（em）・行の高さ＝line-height（em））。key で覚える（measureText は高い）
 	function textLayout(L) {
 		const size = L.size || 12, ls = L.ls || 0, lh = L.lh || 1, mw = L.mw ?? 0;   // layout を持たないラベル（gint・旧い利用者層）＝折り返し無し・行高 1＝従来の箱
-		const wk = size + "|" + ls + "|" + mw + "|" + lh + "|" + L.text;
+		const font = fontOf(L, size), wk = font + "|" + ls + "|" + mw + "|" + lh + "|" + L.text;
 		let tl = widthCache.get(wk);
 		if (tl) return tl;
-		setFont(`${size}px ${FONT_STACK}`);
+		setFont(font);
 		if (hasLS) ctx.letterSpacing = ls ? `${ls * size}px` : "0px";
 		const measure = t => ctx.measureText(t).width;
 		const maxPx = mw > 0 ? mw * size : Infinity, lines = [];
@@ -146,7 +148,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (cur.trim()) lines.push(cur.trimEnd());
 		}
 		const ws = lines.map(measure), w = Math.max(0, ...ws), h = Math.max(1, lines.length) * lh * size;
-		tl = { lines, ws, w, h, size, ls, lh };
+		tl = { lines, ws, w, h, size, ls, lh, font };
 		widthCache.set(wk, tl);
 		if (widthCache.size > 4096) widthCache.clear();   // 念のための上限（テキスト種は高々数千）
 		return tl;
@@ -155,7 +157,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// 公式例の門 段 0（文字を測る）＝本物の queryRenderedFeatures の symbol と突き合わせる材料。描いた物の申告＝描画は変えない
 	function placed() {
 		const out = [];
-		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0] + b[4] + b[2] / 2, y: b[1] + b[5] + b[3] / 2, w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null }); }   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）
+		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0] + b[4] + b[2] / 2, y: b[1] + b[5] + b[3] / 2, w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b[6]?.font ?? null }); }   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
 		return out;
 	}
 
@@ -201,7 +203,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				continue;
 			}
 			const b = winBox.get(k), tl = b?.[6] ?? textLayout(L);
-			setFont(`${L.size}px ${FONT_STACK}`);   // textLayout が別の書体を据えた後でも、この行の描画は自分の大きさで
+			setFont(tl.font || fontOf(L, L.size));   // textLayout が別の書体を据えた後でも、この行の描画は自分の書体で
 			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
 			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央
 			const x0 = b ? sx + b[4] : sx - tl.w / 2, y0 = b ? sy + b[5] : sy - tl.h / 2;
@@ -305,5 +307,6 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	function placedDebug() { return dbg; }
-	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear, placed, placedDebug };
+	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
+	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear, placed, placedDebug, clearFontCache };
 }

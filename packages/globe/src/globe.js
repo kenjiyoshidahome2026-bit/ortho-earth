@@ -2087,8 +2087,8 @@ dbgHost.__placed = () => new Promise(res => {
 	const sid = ++placedSeq;
 	placedWait.set(sid, d => {
 		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
-		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h })),
-			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h }))]);
+		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),
+			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
 	});
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res([]); }, 5000);
@@ -3807,6 +3807,19 @@ map.getSource = id => {
 map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
 	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
+};
+// Web フォントを差す口（段 2）：text-font の family がブラウザに無い時、利用者が書体を持ち込む。main（DOM の注記・popup）と render worker（注記 canvas・記号・集約）の両方に同じ FontFace を載せる。
+// source＝URL 文字列（"url(…)" を付けても付けなくても）か ArrayBuffer。descriptors＝weight/style（MapLibre の名前で "Noto Sans Bold" を引くなら weight "700" で載せる）。戻り＝両方の読み込みの Promise
+map.addFontFace = async (family, source, descriptors = {}) => {
+	if (typeof family !== "string" || !family.trim()) throw new Error("addFontFace: family is required");
+	const src = typeof source === "string" ? (/^\s*url\(/.test(source) ? source : `url(${JSON.stringify(new URL(source, location.href).href)})`) : source;
+	if (typeof source === "string") { const r = await fetch(new URL(source, location.href).href, { credentials: "omit" }); if (!r.ok) throw new Error(`addFontFace: HTTP ${r.status} for ${source}`); }   // 先に取れるか確かめる（worker の失敗は黙る）
+	const buf = typeof source === "string" ? null : source;
+	const mainP = (async () => { if (typeof FontFace !== "function" || !document.fonts) return false; const ff = new FontFace(family, buf ?? src, descriptors); await ff.load(); document.fonts.add(ff); return true; })();
+	wPost({ type: "fontFace", family, source: buf ? buf.slice(0) : src, descriptors }, buf ? [] : undefined);
+	await mainP;
+	needsDraw = true;
+	return map;
 };
 // 画像タイル層の source（raster/raster-dem→hillshade/image/video）＝その source を使う見えている層が、開く途中（mounting＝TileJSON/画像の取得・worker が開くまで）か未着（rasterPend）なら false
 const rasterSrcLoaded = sid => {
