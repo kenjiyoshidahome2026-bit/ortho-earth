@@ -46,7 +46,8 @@ const STATE = `(() => { const X = window.__mlx; if (!X) return null; const m = X
 // 写しの間は DOM の上物（操作部品・Marker・Popup）を隠す＝canvas だけを比べる
 const HIDE = { ref: ".maplibregl-control-container,.maplibregl-marker,.maplibregl-popup{visibility:hidden!important}",
 	ortho: "#map > :not(canvas){visibility:hidden!important}" };   // こちら＝容れ物（エンジンが id を map に揃える）の canvas は全部残す（#c・#labels・重ね描きの .overlay-gl＝記号・ヒートマップ・集約）。旧＝#c と #labels だけ残して重ね描きまで隠していた（2 巡目で発見）
-const hideJs = (side, on) => `(() => { let s = document.getElementById("__mlx_hide"); if (!s) { s = document.createElement("style"); s.id = "__mlx_hide"; document.head.appendChild(s); } s.textContent = ${on ? JSON.stringify(HIDE[side] || "") : '""'}; })()`;
+// 頁に差す関数（文字列を組み立てない＝値は Runtime.callFunctionOn の引数で渡す・CodeQL js/bad-code-sanitization）
+const HIDE_FN = `function (css) { let s = document.getElementById("__mlx_hide"); if (!s) { s = document.createElement("style"); s.id = "__mlx_hide"; document.head.appendChild(s); } s.textContent = css; }`;
 // 本物の答え：16×10 の格子（縁 48px を除く）→unproject（|lat|≤85.051・project で戻る点だけ ok）→問い合わせ。層・カメラ・範囲・Marker の位置
 const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.getContainer().getBoundingClientRect();
 	const Wc = r.width, Hc = r.height, M = 48, NX = 16, NY = 10, probes = [];
@@ -147,6 +148,13 @@ async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 		await on("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
 		await on("Page.navigate", { url });
 		const evalv = async expr => (await cdp.send("Runtime.evaluate", { expression: expr, returnByValue: true, awaitPromise: true }, { session: page, timeoutMs: 15000 }))?.result?.value;
+		// 関数を頁で呼ぶ（引数は値で渡す＝コードの文字列に埋め込まない）。this＝window
+		let winId = null;
+		const callFn = async (fnSrc, args) => {
+			winId ??= (await cdp.send("Runtime.evaluate", { expression: "window" }, { session: page }))?.result?.objectId ?? null;
+			if (!winId) return undefined;
+			return (await cdp.send("Runtime.callFunctionOn", { functionDeclaration: fnSrc, objectId: winId, arguments: args.map(value => ({ value })), returnByValue: true, awaitPromise: true }, { session: page, timeoutMs: 15000 }))?.result?.value;
+		};
 		const shotOf = async (rect, clip = true) => {
 			const r = await cdp.send("Page.captureScreenshot", { format: "png", ...(clip && rect ? { clip: { x: rect.left, y: rect.top, width: rect.W, height: rect.H, scale: 1 } } : {}) }, { session: page, timeoutMs: 20000 });
 			return r?.data ? Buffer.from(r.data, "base64") : null;
@@ -165,7 +173,7 @@ async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 			if (!st?.maps && el > NOMAP_S) { rec.end = "no-map"; break; }
 			if (el > CAP_S) { rec.end = "timeout"; break; }
 			if (!loadAt || !st?.rect) continue;
-			if (!hidden) { await evalv(hideJs(side, true)); hidden = true; }
+			if (!hidden) { await callFn(HIDE_FN, [HIDE[side] || ""]); hidden = true; }
 			if (ex.flags.animated) { if (Date.now() - loadAt > ANIM_S * 1000) { last = await shotOf(st.rect); rec.end = "animated"; break; } continue; }
 			// 撮るのはその側の idle（MapLibre の idle／こちらの idle）が来てから。来ない例は load から 10 秒で下の判定だけに（取得の隙に早撮りしない・r1/r2 の揺れの正体）
 			if (st.idle == null && Date.now() - loadAt < IDLE_WAIT_S * 1000) continue;
@@ -187,7 +195,7 @@ async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 				fs.writeFileSync(path.join(outDir, `${ex.name}.canvas.png`), last);
 				try { rec.colors = probeColors(decodePng(last), rec.probes || []); } catch (e) { rec.colorError = e.message; }
 			}
-			await evalv(hideJs(side, false));
+			await callFn(HIDE_FN, [""]);
 			const full = await shotOf(null, false);
 			if (full) fs.writeFileSync(path.join(outDir, `${ex.name}.full.png`), full);
 		}
