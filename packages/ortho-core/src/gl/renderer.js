@@ -3,11 +3,11 @@
 // fill = earcut三角形、line = capsule(SDF)。scene.layers は style層順（painter's algorithm）。
 import { FILL_VS, FILL_FS, LINE_VS, LINE_FS, GLOBE_VS, GLOBE_FS, WDEPR_FS, GRAT_FS, BUILDING_VS, BUILDING_FS, TERRAIN_VS, TERRAIN_FS, STENCIL_VS, STENCIL_FS, COVER_FS, MESH_VS, MESH_FS, MESH_TEX_VS, MESH_TEX_FS, CONTOUR_FS, STARS_VS, STARS_FS, STARLINE_FS, NIGHT_FS, FILL_MD_VS, LINE_MD_VS, BUILDING_MD_VS, MD_MAX_DRAWS, RASTER_ATLAS_VS, RASTER_ATLAS_FS, ATLAS_FILL_VS, ATLAS_FILL_MD_VS, ATLAS_FILL_FS } from "./glsl.js";
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ）
-import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn } from "../camera.js";
+import { cameraState, project, lonlatTo3D, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
 import { buildChunkIndex, visibleChunkRuns } from "../terrainlod.js";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B・WebGPU と同じ純関数）
 import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.js";   // 標高セルの GPU 再標本化（perf plan P1 step 1・WebGPU と同式）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
-import { worldAtlasCell } from "../elevation/worldatlas.js";   // betaOf/ellipsoidOn＝setCommonUniforms の楕円体錨（WGS84化でGL2側だけimport漏れ＝GL2全描画が毎フレームReferenceErrorの実バグを2026-08-12修正）
+import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
 import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
@@ -326,8 +326,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!gnd.n) return;
 		for (let i = 0; i < gnd.n; i++) { const [W, S, sLon, sLat] = gnd.w[i].win; gl.uniform4f(loc(gl, terrainProg, "u_gndMesh" + i), (mh[0] - W) / sLon, (mh[1] - S) / sLat, mh[2] / sLon, mh[3] / sLat); }
 	}
-	function setGndGlobe(prog) {
-		for (let i = 0; i < 4; i++) { const a = i < gnd.n ? gnd.w[i] : null; gl.uniform4f(loc(gl, prog, "u_gndBbox" + i), a ? a.win[0] : 0, a ? a.win[1] : 0, a ? a.win[2] : 1, a ? a.win[3] : 1); }
+	function setGndGlobe(prog) {   // 球の床の uv 係数＝原点相対（#65・anchorUV の f64 前計算）
+		for (let i = 0; i < 4; i++) setUV4(prog, "u_gndOff" + i, i < gnd.n ? gnd.w[i].win : null);
 	}
 	// 気候場のサンプラ結線（globe/terrain 両プログラム共用）。⚠サンプラは常に有効unitへ向ける
 	// （未設定＝unit0の整数テクスチャを掴んでドロー全体が死ぬ轍と同族）。unit12＝空き（他パス未使用）。
@@ -1043,12 +1043,13 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!o || !o.fanCount) return;
 		stencilWorldFan(o, st, land);
 		gl.useProgram(wdCoverProg);
-		gl.uniformMatrix4fv(loc(gl, wdCoverProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+		setRayUniforms(wdCoverProg, st);   // #65：視線の基底（f64）＋目＋c
 		const atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];   // draw() の既定と同値＝globe と同じ紙/大気で厳密同色
 		gl.uniform4f(loc(gl, wdCoverProg, "u_land"), land[0], land[1], land[2], land[3]);
 		gl.uniform4f(loc(gl, wdCoverProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
 		gl.uniform1i(loc(gl, wdCoverProg, "u_elevTex"), 1);   // unit1＝直前に elevTex を必ずバインド済み（globe パスと同じ轍対策の共通バインド）
 		gl.uniform4f(loc(gl, wdCoverProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+		setUV4(wdCoverProg, "u_elevOff", elev.bounds);   // 近窓の uv 係数（#65・原点相対）
 		gl.uniform1f(loc(gl, wdCoverProg, "u_elevEdgeFade"), elev.edgeFade || 0);
 		gl.uniform1i(loc(gl, wdCoverProg, "u_farElevTex"), 8);   // far床＝globe と同式（bit一致の掟）
 		gl.uniform4f(loc(gl, wdCoverProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
@@ -1084,6 +1085,20 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.disable(gl.STENCIL_TEST);
 	}
 
+	// 全画面レイキャスト（球の床・海面下・経緯線・等高線・夜面）の視線一式（#65）：camera.js sphereRayUniforms＝f64 で作って渡す（glsl.js の RAY 節と対）
+	// 錨＝シーン原点（交点は原点相対 δ で持ち、uv は anchorUV の f64 係数＝絶対経緯度を経ない）
+	function setRayUniforms(prog, st) {
+		const u = sphereRayUniforms(st, scenes.main.origin || [0, 0]);
+		gl.uniform3f(loc(gl, prog, "u_rayF"), u.F[0], u.F[1], u.F[2]);
+		gl.uniform3f(loc(gl, prog, "u_rayX"), u.X[0], u.X[1], u.X[2]);
+		gl.uniform3f(loc(gl, prog, "u_rayY"), u.Y[0], u.Y[1], u.Y[2]);
+		gl.uniform3f(loc(gl, prog, "u_rayE"), u.E[0], u.E[1], u.E[2]);
+		gl.uniform1f(loc(gl, prog, "u_rayC"), u.c);
+		gl.uniform3f(loc(gl, prog, "u_rayO"), u.O[0], u.O[1], u.O[2]);
+		gl.uniform3f(loc(gl, prog, "u_rayEO"), u.EO[0], u.EO[1], u.EO[2]);
+		gl.uniform4f(loc(gl, prog, "u_rayLL"), u.ll[0], u.ll[1], u.beta0, u.rho);
+	}
+	const setUV4 = (prog, name, win) => { const a = anchorUV(scenes.main.origin || [0, 0], win); gl.uniform4f(loc(gl, prog, name), a[0], a[1], a[2], a[3]); };
 	function setCommonUniforms(prog, st, origin, fog) {
 		gl.useProgram(prog);
 		gl.uniformMatrix4fv(loc(gl, prog, "u_mvp"), false, st.mvp32);
@@ -1219,7 +1234,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 球体本体：land基色を縁(リム)まで敷く（宇宙を背に丸い地球）。2D高速パス時は clear で代替＝省略。
 		if (!flat2d) {
 			gl.useProgram(globeProg);
-			gl.uniformMatrix4fv(loc(gl, globeProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+			setRayUniforms(globeProg, st);   // #65：視線の基底（f64）＋目＋c
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
 			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
@@ -1249,7 +1264,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				bindClim(globeProg);
 			}
 			bindCog(globeProg);   // ユーザ COG（has=0 でもサンプラは unit9 へ＝轍対策）
-			gl.uniform4f(loc(gl, globeProg, "u_cogBbox"), cogSt.bbox[0], cogSt.bbox[1], cogSt.bbox[2], cogSt.bbox[3]);
+			setUV4(globeProg, "u_cogOff", cogSt.has ? cogSt.bbox : null);   // 球の床の uv 係数（#65・原点相対）
 			bindGnd(globeProg); setGndGlobe(globeProg);   // 地面アトラス＝基球の床（真俯瞰 2D の下地・地形の低地フェードの穴）
 			gl.bindVertexArray(emptyVAO);
 			gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -1362,9 +1377,10 @@ export function createRenderer(canvas, rOpts = {}) {
 			const cAlpha = (elev.has && !(opts && opts.noTerrain) && view.showContour === true && !rasterBase) ? (1 - ps * ps * (3 - 2 * ps)) * zf : 0;
 			if (cAlpha > 0.003 && cam.zoom >= 9) {
 				gl.useProgram(contourProg);
-				gl.uniformMatrix4fv(loc(gl, contourProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+				setRayUniforms(contourProg, st);   // #65：視線の基底（f64）＋目＋c
 				gl.uniform1i(loc(gl, contourProg, "u_elevTex"), 1);
 				gl.uniform4f(loc(gl, contourProg, "u_elevBounds"), elev.bounds[0], elev.bounds[1], elev.bounds[2], elev.bounds[3]);
+				setUV4(contourProg, "u_elevOff", elev.bounds);   // 標高 uv 係数（#65・原点相対）
 				gl.uniform1f(loc(gl, contourProg, "u_hasElev"), elev.has);
 				const iv = cam.zoom >= 15 ? 15 : cam.zoom >= 12 ? 30 : 60;   // 寄るほど細かい間隔(m)
 				gl.uniform1f(loc(gl, contourProg, "u_ell"), ellipsoidOn() ? 1 : 0);   // レイ交点 β→測地の復元ゲート
@@ -1513,7 +1529,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const gratA = Math.max(0, Math.min(1, ((cam.zoom || 0) - 1.7) / 0.5)) * Math.max(0, Math.min(1, ((view.worldHypsoZ ?? 6.5) - (cam.zoom || 0)) / 0.5)) * 0.5;   // 罫線もハイプソと同じ帯で退場
 			if (gratA > 0.003) {
 				gl.useProgram(gratProg);
-				gl.uniformMatrix4fv(loc(gl, gratProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+				setRayUniforms(gratProg, st);   // #65：視線の基底（f64）＋目＋c
 				gl.uniform1f(loc(gl, gratProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 				gl.uniform1f(loc(gl, gratProg, "u_alpha"), gratA);
 				gl.uniform4f(loc(gl, gratProg, "u_gratC"), ...worldPal().grat);   // テーマのレチクル色（既定=白）
@@ -1665,7 +1681,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const [sunLng, sunLat] = sunSubpoint(clockNow(view.clock));
 			const cs = Math.cos(sunLat);
 			gl.useProgram(nightProg);
-			gl.uniformMatrix4fv(loc(gl, nightProg, "u_invMvp"), false, Float32Array.from(st.invMvp));
+			setRayUniforms(nightProg, st);   // #65：視線の基底（f64）＋目＋c
 			gl.uniform3f(loc(gl, nightProg, "u_sun"), cs * Math.cos(sunLng), Math.sin(sunLat), cs * Math.sin(sunLng));
 			gl.uniform1f(loc(gl, nightProg, "u_alpha"), 0.5 * worldFade * globeA);   // v1 の夜面 50% × 出現フェード × 球体の不透明度
 			gl.bindVertexArray(emptyVAO);
