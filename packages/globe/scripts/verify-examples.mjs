@@ -226,6 +226,7 @@ function compareRuns(la, lb, side) {
 
 // ── 採点（段 4）＋爪車（段 5）：本物 runs/<ref> とこちら runs/<ortho> を突き合わせ、見比べ帳と順位表を出し、known.json と比べる ──
 const KNOWN = path.join(PKG, "tests/mlexamples/known.json");
+const STILL = r => r.R?.end === "stable" && r.O?.end === "stable";
 function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	const corpus = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/corpus.json"), "utf8"));
 	const read = (label, s, n) => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, "runs", label, s, `${n}.json`), "utf8")); } catch { return null; } };
@@ -236,11 +237,13 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	const LV = ["0 動かない", "1 動く", "2 同じ答え", "3 同じ絵"], levels = Object.fromEntries([...LV, "分母の外"].map(k => [k, 0]));
 	for (const r of rows) levels[r.grade.level == null ? "分母の外" : LV[r.grade.level]]++;
 	const inDen = rows.filter(r => r.grade.level != null), plain = inDen.filter(r => r.plain);
-	const summary = { levels, n: inDen.length, plainN: plain.length, plain3: plain.filter(r => r.grade.level === 3).length };
+	const summary = { levels, n: inDen.length, plainN: plain.length, plain3: plain.filter(r => r.grade.level === 3).length,
+		pictureOnly: inDen.filter(r => r.grade.pictureOnly).length, pictureN: inDen.filter(r => r.grade.color && r.grade.pictureOnly !== undefined && STILL(r)).length };
 	const ranking = rankBlockers(rows.map(r => r.grade));
 	console.log(`\n採点：本物 ${refLabel} × こちら ${orthoLabel}（${rows.length} 本・分母 ${summary.n}）`);
 	for (const [k, v] of Object.entries(levels)) console.log(`  ${k.padEnd(10)} ${v}`);
 	console.log(`  鍵・外部ライブラリ・custom 無しの例で同じ絵：${summary.plain3}/${summary.plainN}`);
+	console.log(`  絵だけ見れば同じ（段 2 に依らない）：${summary.pictureOnly}/${summary.pictureN}（両側とも止まって撮れた例）`);
 	console.log("\n足りない口の順位表（上位 15）：");
 	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
 	const dir = path.join(ROOT, "report", orthoLabel);
