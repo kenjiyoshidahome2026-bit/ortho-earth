@@ -36,6 +36,10 @@ function sdfTint(name, im, color) {
 const widths = new Map();
 const widthOf = (font, text) => { const k = font + "\u0001" + text; let v = widths.get(k); if (v == null) { if (widths.size > 20000) widths.clear(); ctx.font = font; v = ctx.measureText(text).width; widths.set(k, v); } return v; };
 // 重なり判定の格子（置いた箱を 64px 升に登録＝候補は近くの升だけ見る）。旧＝置いた箱の全件と比べる線形＝数千件で 2 乗
+// 書体＝text-font（fnt）があれば fontCss（family/weight/style＋既定の束）・無ければ従来（500・Noto Sans JP）
+const FALLBACK = '"Noto Sans JP",system-ui,sans-serif';
+const fontCss = (f, size, fallback) => `${f?.st && f.st !== "normal" ? f.st + " " : ""}${f?.w && f.w !== 400 ? f.w + " " : ""}${size}px ${f?.fam?.length ? f.fam.map(x => `"${x.replace(/"/g, "")}"`).join(",") + "," : ""}${fallback}`;   // ortho-core/fontstack.js と同式（overlay は依存ゼロ）
+const fontOf = it => it.fnt ? fontCss(it.fnt, it.textSize, FALLBACK) : `${it.textWeight || 500} ${it.textSize}px ${it.textFont || FALLBACK}`;
 const CELL = 64;
 function makeIndex() {
 	const grid = new Map();
@@ -73,7 +77,7 @@ export function frame(cam, s, { w, h }, api) {
 			}
 			// 文字の箱（text-variable-anchor＝候補を順に試し、空いている最初の位置・#39）
 			const textBox = anchor => {
-				const tw = widthOf(`${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`, it.text), th = it.textSize * 1.2, a = ANCH[anchor] || ANCH.center;
+				const tw = widthOf(fontOf(it), it.text), th = it.textSize * 1.2, a = ANCH[anchor] || ANCH.center;
 				let ox = it.textOffset[0], oy = it.textOffset[1];
 				if (it.textVariableAnchor) {   // 候補ごとに錨から離す向き＝錨の反対側へ（MapLibre と同じ：radial があればそれ・無ければ text-offset の大きさ）
 					const r = it.textRadialOffset ?? Math.max(Math.abs(ox), Math.abs(oy)), k = anchor.includes("-") ? Math.SQRT1_2 : 1;
@@ -102,7 +106,7 @@ export function frame(cam, s, { w, h }, api) {
 			if (ib && !it.iconOverlap && !free(ib)) continue;
 			if (ib && !it.iconIgnore) idx.push(ib);
 			if (tb && !it.textIgnore) idx.push(pad(tb, it.textPadding));
-			{ const b = tb || ib; placedNow.push({ layer: L.id, text: it.text || null, icon: it.icon || null, lon: it.lon, lat: it.lat, x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1] }); }
+			{ const b = tb || ib; placedNow.push({ layer: L.id, text: it.text || null, icon: it.icon || null, lon: it.lon, lat: it.lat, x: (b[0] + b[2]) / 2, y: (b[1] + b[3]) / 2, w: b[2] - b[0], h: b[3] - b[1], font: tb ? fontOf(it) : null }); }
 			ctx.globalAlpha = it.opacity ?? 1;
 			if (ib) {
 				const src = im.sdf ? sdfTint(it.icon, im, it.color || "#000") : im.bm;
@@ -110,7 +114,7 @@ export function frame(cam, s, { w, h }, api) {
 				else ctx.drawImage(src, ib[0], ib[1], iw, ih);
 			}
 			if (tb) {
-				ctx.font = `${it.textWeight || 500} ${it.textSize}px ${it.textFont || '"Noto Sans JP",system-ui,sans-serif'}`;   // 幅は覚えから＝描く前に書体を必ず据える
+				ctx.font = fontOf(it);   // 幅は覚えから＝描く前に書体を必ず据える（text-font → family/weight/style・無ければ従来の 500 と既定の束）
 				ctx.textAlign = "left"; ctx.textBaseline = "top";
 				if (it.haloWidth > 0) { ctx.lineJoin = "round"; ctx.lineWidth = it.haloWidth * 2; ctx.strokeStyle = it.haloColor || "#fff"; ctx.strokeText(it.text, tb[0], tb[1] + it.textSize * 0.1); }
 				ctx.fillStyle = it.textColor || "#000"; ctx.fillText(it.text, tb[0], tb[1] + it.textSize * 0.1);

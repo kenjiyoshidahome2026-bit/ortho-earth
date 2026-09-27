@@ -323,6 +323,9 @@ const dispatch = e => {
 						bootStage = "queue released(" + (q ? q.length : 0) + ")";
 					});
 			break;
+		case "fontFace":   // Web フォント（main の map.addFontFace）＝この worker の canvas（注記・記号・集約）で使えるようにする。self.fonts が無い環境（古い WebKit）は黙って既定の束
+			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family, m.source, m.descriptors || {}); await ff.load(); self.fonts.add(ff); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, err?.message || err); } })();
+			break;
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
 		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); dirty = true; armRaf(); } break; }
 		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }

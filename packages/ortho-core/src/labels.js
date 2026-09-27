@@ -3,6 +3,7 @@
 import { evalExpr, truthy, originOfLayer } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
+import { parseFontStack } from "./fontstack.js";
 
 const M1_FONT = "NotoSansJP-Regular";
 
@@ -22,6 +23,7 @@ function layoutOf(L, lo, ctx, ml) {
 		just: String(ev(lo["text-justify"], "center")), pad: num(ev(lo["text-padding"], ml ? 2 : 5), ml ? 2 : 5), mlp: ml,
 		ov: !!ev(lo["text-allow-overlap"], false), ig: !!ev(lo["text-ignore-placement"], false),
 		op: num(ev(L.paint?.["text-opacity"], 1), 1), blur: num(ev(L.paint?.["text-halo-blur"], 0), 0),
+		...(ml && lo["text-font"] != null ? (f => f ? { fnt: f } : {})(parseFontStack(ev(lo["text-font"], null))) : {}),   // 書体（段 2）＝MapLibre 由来の層だけ（ネイティブは既定の束）
 		...(vaList?.length ? { va: vaList, ro: lo["text-radial-offset"] != null ? num(ev(lo["text-radial-offset"], 0), 0) : null } : {}),
 	};
 	return { rec, transform: String(ev(lo["text-transform"], "none")) };

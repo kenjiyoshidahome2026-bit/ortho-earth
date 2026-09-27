@@ -645,6 +645,9 @@ export interface OrthoJapanMap {
 	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
 	raster: RasterAPI;
 	/** 記号帳（MapLibre の addImage 相当）。img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}。sdf＝icon-color で塗れる記号 */
+	/** Web フォントを差す（1.5.2〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
+	 *  main（DOM）と描画 worker（注記・記号・集約の canvas）の両方に同じ FontFace を載せる。source＝URL か ArrayBuffer・descriptors＝weight/style 等。glyph PBF（style.glyphs）は読まない */
+	addFontFace(family: string, source: string | ArrayBuffer, descriptors?: { weight?: string; style?: string; stretch?: string; unicodeRange?: string }): Promise<OrthoJapanMap>;
 	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;
 	removeImage(name: string): void;
 	hasImage(name: string): boolean;
