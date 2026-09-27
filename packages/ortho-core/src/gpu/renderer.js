@@ -2122,8 +2122,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 		}
 		// 夜面（星空劇場と同じ z<4 ゲート・同じフェード）：現在時刻の太陽を平行光源に夜半球を夜紺で減光。
-		// 基図の全レイヤの上に重ねる（この後の gint 海岸線パスは loadOp:load で夜面の上に描く＝GL と同順）。
-		if (worldFade > 0) {
+		// 基図の全レイヤの上に重ねる（この後の gint 海岸線パスは loadOp:load で夜面の上に描く＝GL と同順）。view.night＝false で描かない（GL と同じ）
+		if (worldFade > 0 && view.night !== false) {
 			pass.setPipeline(P.night);
 			pass.setBindGroup(0, skyBG);
 			pass.draw(3);
