@@ -214,6 +214,22 @@
 			}
 		},
 		{
+			"id": "fireworks",
+			"href": "/japan/fireworks",
+			"group": "japan",
+			"icon": "🎆",
+			"title": "Fireworks over Sumida",
+			"lang": "26",
+			"desc": "Full-scale fireworks (a 10-inch shell opens 320 m wide at 330 m) launched over the Sumida River, hidden by the buildings and Tokyo Skytree in front of them.",
+			"img": "/thumbs/fireworks.webp",
+			"shot": {
+				"url": "/japan/fireworks",
+				"wait": 26,
+				"eval": "document.querySelector('.fw-panel').style.display='none'; if (window.__fw) { window.__fw.launch(40); window.__fw.launch(20) }",
+				"after": 13.2
+			}
+		},
+		{
 			"id": "maps",
 			"href": "/japan/?r=gsi-photo&hud=1#13.01/35.33664/138.66888/74t/-18r",
 			"group": "tools",
