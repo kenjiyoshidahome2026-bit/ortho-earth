@@ -19,7 +19,7 @@ const ALL_PAGES = ["t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t
 // t-linedeco の 2 変種＝基図の line-offset を GL2 の両経路で（md=1＝multi_draw の線分プール／nomd=1＝classic の属性・#49）
 // 実時間で回す頁＝render worker 内の動的 import（map.overlay のモジュール）や実 GPU の async init に依る検定。
 // 仮想時間（--virtual-time-budget）では worker の import() が永久に解決しない＝偽陽性（2026-09-20 実測）。
-const REALTIME = new Set(["t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco", "t-tiles3d", "t-marker", "t-footprint", "t-request", "t-sunshadow", "t-dem", "t-viewshed", "t-clock", "t-bootview", "t-overlaydepth", "t-mlcompat", "t-mlzoom", "t-elevcell"]);   // t-elevcell＝実 GPU の R16F FBO（SwiftShader でも回るが実時間で）
+const REALTIME = new Set(["t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco", "t-tiles3d", "t-marker", "t-footprint", "t-request", "t-sunshadow", "t-dem", "t-viewshed", "t-clock", "t-bootview", "t-overlaydepth", "t-mlcompat", "t-mlzoom", "t-elevcell", "t-globefloor"]);   // t-elevcell＝実 GPU の R16F FBO（SwiftShader でも回るが実時間で）・t-globefloor＝rAF 待ちが仮想時間では進まず無題（#86 の GL2 変種・2026-09-27）
 const LONG = { "t-request": 180, "t-footprint": 120, "t-linedeco": 150, "t-dem": 170, "t-bootview": 240, "t-overlaydepth": 150, "t-mlcompat": 300, "t-mlzoom": 120 };   // t-bootview＝5 回起動し直す   // 段が多い実描画＝枠を広げる
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
