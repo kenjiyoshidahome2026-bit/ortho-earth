@@ -27,3 +27,11 @@ export function f32ToF16Loop(src) {
 	}
 	return out;
 }
+
+// f16→f32（1 値）＝検定の読み戻し（readElevCell）用。subnormal・Inf・NaN も IEEE どおり
+export function f16ToF32(h) {
+	const s = (h & 0x8000) ? -1 : 1, e = (h >> 10) & 0x1f, m = h & 0x3ff;
+	if (e === 0) return s * m * 2 ** -24;
+	if (e === 31) return m ? NaN : s * Infinity;
+	return s * (1 + m / 1024) * 2 ** (e - 15);
+}

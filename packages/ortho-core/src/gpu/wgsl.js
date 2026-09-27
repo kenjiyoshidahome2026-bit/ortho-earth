@@ -1261,3 +1261,73 @@ export const BUILDING_CAST_WGSL = deriveWgsl(BUILDING_WGSL, [
 export const MESH_CAST_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n", ""],
 ], "MESH_CAST_WGSL");
+
+// 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝elevation.js downsampleFlipped／cropResample・elevation/worldatlas.js worldAtlasCell と同式。
+// 生タイル（Int16＝u32 に 2 texel・Float32＝bitcast）は storage buffer（writeTexture の 256B 行整列を避ける＝再パック無し・1 タイル 1 回の上げで何セルでも切り出せる）。
+// 出力＝アトラス（r16float）のセル矩形へ fullscreen 三角形 1 発（viewport/scissor＝セル）。行は南上げ（row0=南）＝CPU 経路と同じ配置。
+// mode 0＝downsampleFlipped・2＝cropResample：標本位置 gx = (Ax + Bx·(2i+1)) / Dx を u32 の整数で厳密に（商＝x0・余り/Dx＝fx）＝JS の f64 と同じ位置
+//（f32 で gx を作ると 3600 texel で 1e-4 texel ずれ＝急斜面や異常値の隣で cm 級の差が出た）。mode 0 は [M, w−1−M] に clamp（縁 2px の fill を読まない）・mode 2 は x0∈[0, w−2]・fx∈[0,1]。
+// mode 3＝浮動小数の一般形（切り出しの幾何が整数で書けない時の退避）。mode 1＝箱平均（全球アトラスの切り出し＝k×k の和 / k²・異常値の篩なし）。
+// 異常値（<−420／>9000／NaN）→0 は補間モードだけ（CPU と同じ）。出力は負値→0。
+export const ELEV_RESAMPLE_WGSL = /* wgsl */`
+struct RP {
+	dim: vec4u,   // w, h, kind(0=Int16 1=Float32), mode(0=down 1=box 2=crop 3=float)
+	a: vec4f,     // mode 3: ax, bx, ay, by（gx = ax + bx·(i+0.5)）
+	lo: vec4f,    // mode 3: gx∈[x,y]・gy∈[z,w]
+	o: vec4u,     // ox, oy（セル原点 texel）, N, k
+	box: vec4u,   // mode 1: AW, rowN0, col0, 0
+	ix: vec4u,    // mode 0/2: Ax, Bx, Dx, 0
+	iy: vec4u,    // mode 0/2: Ay, By, Dy, 0
+};
+@group(0) @binding(0) var<uniform> R: RP;
+@group(0) @binding(1) var<storage, read> raw: array<u32>;
+fn rdRaw(idx: u32) -> f32 {
+	if (R.dim.z == 0u) { return f32(extractBits(bitcast<i32>(raw[idx >> 1u]), (idx & 1u) * 16u, 16u)); }
+	return bitcast<f32>(raw[idx]);
+}
+fn rd(idx: u32) -> f32 {
+	let v = rdRaw(idx);
+	if (!(v >= -420.0 && v <= 9000.0)) { return 0.0; }   // 異常値（int16 巨大値／-9999／NaN）は 0
+	return v;
+}
+@vertex fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
+	return vec4f(f32(i32(vi & 1u) * 4 - 1), f32(i32(vi >> 1u) * 4 - 1), 0.0, 1.0);   // (-1,-1) (3,-1) (-1,3)
+}
+@fragment fn fs(@builtin(position) pos: vec4f) -> @location(0) vec4f {
+	let i = u32(pos.x) - R.o.x; let j = u32(pos.y) - R.o.y;   // セル内 (列, 南からの行)
+	let w = R.dim.x; let h = R.dim.y; let mode = R.dim.w;
+	var v: f32;
+	if (mode == 1u) {
+		let k = R.o.w; let C = R.o.z * k;
+		let srcRow = R.box.y + (C - 1u - j * k);
+		var sum = 0.0;
+		for (var jj = 0u; jj < k; jj++) { let s = (srcRow - jj) * R.box.x + R.box.z + i * k; for (var ii = 0u; ii < k; ii++) { sum += rdRaw(s + ii); } }
+		v = sum / f32(k * k);
+	} else {
+		var x0: u32; var fx: f32; var y0: u32; var fy: f32;
+		if (mode == 3u) {
+			let gx = clamp(R.a.x + R.a.y * (f32(i) + 0.5), R.lo.x, R.lo.y);
+			let gy = clamp(R.a.z + R.a.w * (f32(j) + 0.5), R.lo.z, R.lo.w);
+			x0 = u32(clamp(floor(gx), 0.0, f32(w - 2u))); fx = clamp(gx - f32(x0), 0.0, 1.0);
+			y0 = u32(clamp(floor(gy), 0.0, f32(h - 2u))); fy = clamp(gy - f32(y0), 0.0, 1.0);
+		} else {
+			let nx = R.ix.x + R.ix.y * (2u * i + 1u); let qx = nx / R.ix.z; let rx = nx - qx * R.ix.z;
+			let ny = R.iy.x + R.iy.y * (2u * j + 1u); let qy = ny / R.iy.z; let ry = ny - qy * R.iy.z;
+			x0 = qx; fx = f32(rx) / f32(R.ix.z); y0 = qy; fy = f32(ry) / f32(R.iy.z);
+			if (mode == 0u) {   // downsampleFlipped：gx を [M, w−1−M] に clamp
+				let M = 2u;
+				if (qx < M) { x0 = M; fx = 0.0; } else if (qx > w - 1u - M || (qx == w - 1u - M && rx > 0u)) { x0 = w - 1u - M; fx = 0.0; }
+				if (qy < M) { y0 = M; fy = 0.0; } else if (qy > h - 1u - M || (qy == h - 1u - M && ry > 0u)) { y0 = h - 1u - M; fy = 0.0; }
+			} else {            // cropResample：x0 = clamp(floor, 0, w−2)・fx = clamp(gx − x0, 0, 1)
+				if (qx > w - 2u) { x0 = w - 2u; fx = 1.0; }
+				if (qy > h - 2u) { y0 = h - 2u; fy = 1.0; }
+			}
+		}
+		let r0 = (h - 1u - y0) * w; let r1 = r0 - w;   // データ行（北上げ）：y0 の行と 1 行北
+		let a = rd(r0 + x0); let b = rd(r0 + x0 + 1u); let c = rd(r1 + x0); let d = rd(r1 + x0 + 1u);
+		let t = a + (b - a) * fx;
+		v = t + ((c + (d - c) * fx) - t) * fy;
+	}
+	return vec4f(max(v, 0.0), 0.0, 0.0, 1.0);
+}
+`;

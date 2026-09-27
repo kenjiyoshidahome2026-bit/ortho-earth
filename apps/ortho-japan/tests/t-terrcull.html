@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- t-terrcull: 地形チャンク刈り（perf plan P4 step B・2026-09-27）が絵を変えない門。富士 z13 60°（混成窓＝可視チャンクは 1/10 級）で着地後、
+     刈りあり（既定）→ __rset("terrLod", false)（全量 1 draw）→ 刈りあり の 3 枚を map.requestSnapshot で撮り、A（刈り）と B（全量）の画素差を数える。
+     期待＝同一（三角形の集合が同一・描かないのは全画素 discard か画面外のチャンクだけ）。A→A2（刈り→刈り）の差＝時間変化（タイル到着・注記）の物差し＝A/B の差はその 2 倍以内。
+     あわせて mem テレメトリの terr（描いたチャンク数/総数）で「刈りが本当に効いている（drawn < of）」ことを見る。?gl2=1＝WebGL2 の同じ門。⚠実時間専用（verify-webgpu.mjs）。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-terrcull</title>
+<style>html,body{margin:0;height:100%}</style></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const map = await orthoJapan({ view: "#13/35.3606/138.7274", chips: false });
+	await sleep(2000);
+	map.jumpTo({ center: [138.7274, 35.3606], zoom: 13, pitch: 60, bearing: 0 });
+	await sleep(+new URLSearchParams(location.search).get("load") || 18000);   // タイル・標高（混成窓 R10 切り出し＋近傍 R01）の着地
+	const shot = async () => { const s = await map.requestSnapshot(); return { px: new Uint8Array(s.render.base), w: s.render.w, h: s.render.h }; };
+	const diff = (a, b) => { let n = 0; for (let i = 0; i < a.px.length; i += 4) if (Math.abs(a.px[i] - b.px[i]) > 8 || Math.abs(a.px[i + 1] - b.px[i + 1]) > 8 || Math.abs(a.px[i + 2] - b.px[i + 2]) > 8) n++; return n; };
+	await shot();   // 温め（初回の描き直しの揺れを吸う）
+	const A = await shot();
+	ok(`snapshot ${A.w}x${A.h}`, A.w > 100 && A.h > 100 && A.px.length === A.w * A.h * 4);
+	window.__rset("terrLod", false); await sleep(1200);
+	const B = await shot();
+	window.__rset("terrLod", true); await sleep(1200);
+	const A2 = await shot();
+	window.__rset("terrLod", false); await sleep(1200);
+	const B2 = await shot();
+	const tot = A.w * A.h, pc = n => (100 * n / tot).toFixed(3) + "%";
+	const dAB = diff(A, B), dBA2 = diff(B, A2), dA2B2 = diff(A2, B2), dAA2 = diff(A, A2);
+	// 隣り合う 2 対（全量→刈り・刈り→全量）が同一なら刈りは絵を変えていない。A→B だけの差はタイル/注記の到着（時間変化）＝A→A2 と同程度なら無罪
+	ok(`全量→刈り（B→A2）${dBA2} px（${pc(dBA2)}）・刈り→全量（A2→B2）${dA2B2} px（${pc(dA2B2)}）`, dBA2 <= tot * 0.001 && dA2B2 <= tot * 0.001);
+	ok(`参考：A→B ${dAB} px（${pc(dAB)}）・A→A2（時間変化）${dAA2} px（${pc(dAA2)}）`, true);
+	window.__rset("terrLod", true); await sleep(1500);   // 刈りありへ戻して 1 フレーム描かせ、2Hz の mem テレメトリ（terr）が届くのを待つ
+	const p = window.__perf?.();
+	ok(`terr near=${JSON.stringify(p?.terr?.near)} far=${JSON.stringify(p?.terr?.far)}（刈りが効いている＝drawn < of）`, p?.terr?.near?.of === 256 && p.terr.near.drawn > 0 && p.terr.near.drawn < 200);
+	const ink = (() => { let n = 0; for (let i = 0; i < A.px.length; i += 4) if (A.px[i] < 235 || A.px[i + 1] < 235 || A.px[i + 2] < 235) n++; return n; })();
+	ok(`絵がある（非白 ${(100 * ink / tot).toFixed(1)}%）`, ink > tot * 0.2);
+	fin();
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
