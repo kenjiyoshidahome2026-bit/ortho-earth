@@ -18,13 +18,14 @@ const MIME = { ".html": "text/html; charset=utf-8", ".mjs": "text/javascript", "
 // 本物の包み：名前空間は本物のまま・Map だけ継ぐ（明示の export は export * より勝つ）
 const REF_WRAPPER = `export * from "./_real/maplibre-gl-dev.mjs";
 import * as real from "./_real/maplibre-gl-dev.mjs";
-const X = (window.__mlx ||= { side: "ref", maps: [], ev: [], errors: [] });
+const X = (window.__mlx ||= { side: "ref", maps: [], ev: [], errors: [], added: [] });
 export class Map extends real.Map {
 	constructor(o) {
 		super(o); const i = X.maps.push(this) - 1;
 		for (const k of ["load", "style.load", "idle"]) this.on(k, () => X.ev.push([i, k, Math.round(performance.now())]));
 		this.on("error", e => X.errors.push([i, String(e?.error?.message || e?.error || e?.message || e)]));
 	}
+	addLayer(l, b) { if (l?.id) X.added.push(l.id); return super.addLayer(l, b); }   // 例が足した層（採点で「足した層に当たる点」を分ける）
 }
 `;
 

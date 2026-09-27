@@ -13,6 +13,7 @@
 //   node scripts/verify-examples.mjs --side ref --label r2                    （再生だけで回す）
 //   node scripts/verify-examples.mjs --compare r1 r2 --side ref               （2 回の走りの揺れ）
 //   node scripts/verify-examples.mjs --side ortho --ref r6 --label o1           （こちら＝本物の記録 r6 の標本点で比べる）
+//   node scripts/verify-examples.mjs --grade --ref r6 --ortho o1 [--update]    （採点・見比べ帳・順位表・known.json の爪車）
 //   他：--only a,b（例の名前）・--jobs N（並行・既定 3）・--record（全部取り直す）・--gl2（こちらを WebGL2 で）
 import fs from "node:fs";
 import path from "node:path";
@@ -21,7 +22,8 @@ import { startVite } from "./lib/ui-runner.mjs";
 import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
 import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
-import { decodePng, probeColors, diffRuns } from "../tests/mlexamples/compare.mjs";
+import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH } from "../tests/mlexamples/compare.mjs";
+import { buildReport } from "../tests/mlexamples/report.mjs";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(CACHE, "..");   // <repo>/.cache/mlexamples
@@ -66,7 +68,7 @@ const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.g
 		sources: Object.keys(st?.sources || {}),
 		markers: [...document.querySelectorAll(".maplibregl-marker")].map(mk),
 		popups: [...document.querySelectorAll(".maplibregl-popup")].map(mk),
-		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), probes }; })()`;
+		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })()`;
 // こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ（front≤0.05＝裏・地平線・大気の縁は比べない）→問い合わせ（非同期）。
 // 本物の記録が無い例は自分の格子（unproject）で取る（絵の比べはできない）
 const PROBE_ORTHO = refProbes => `(async (REF) => { const X = window.__mlx, m = X.maps[0], eng = X.engines?.[0]; const r = m.getContainer().getBoundingClientRect();
@@ -88,7 +90,7 @@ const PROBE_ORTHO = refProbes => `(async (REF) => { const X = window.__mlx, m = 
 		sources: Object.keys(st?.sources || {}),
 		markers: [...document.querySelectorAll(".oe-marker")].map(mk),
 		popups: [...document.querySelectorAll(".oe-popup")].map(mk),
-		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), probes }; })(${JSON.stringify(refProbes)})`;
+		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })(${JSON.stringify(refProbes)})`;
 const PROBE = { ref: () => PROBE_REF, ortho: PROBE_ORTHO };
 
 async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
@@ -214,8 +216,54 @@ function compareRuns(la, lb, side) {
 	console.log(`記録：${path.relative(process.cwd(), out)}`);
 }
 
+// ── 採点（段 4）＋爪車（段 5）：本物 runs/<ref> とこちら runs/<ortho> を突き合わせ、見比べ帳と順位表を出し、known.json と比べる ──
+const KNOWN = path.join(PKG, "tests/mlexamples/known.json");
+function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
+	const corpus = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/corpus.json"), "utf8"));
+	const read = (label, s, n) => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, "runs", label, s, `${n}.json`), "utf8")); } catch { return null; } };
+	const rows = corpus.examples.map(ex => {
+		const R = read(refLabel, "ref", ex.name), O = read(orthoLabel, "ortho", ex.name);
+		return { name: ex.name, title: ex.title, category: ex.category, plain: ex.plain, R, O, grade: { ...grade(R, O), name: ex.name } };
+	}).filter(r => r.O);   // こちらを回した例だけ（--only の走りも採点できる）
+	const LV = ["0 動かない", "1 動く", "2 同じ答え", "3 同じ絵"], levels = Object.fromEntries([...LV, "分母の外"].map(k => [k, 0]));
+	for (const r of rows) levels[r.grade.level == null ? "分母の外" : LV[r.grade.level]]++;
+	const inDen = rows.filter(r => r.grade.level != null), plain = inDen.filter(r => r.plain);
+	const summary = { levels, n: inDen.length, plainN: plain.length, plain3: plain.filter(r => r.grade.level === 3).length };
+	const ranking = rankBlockers(rows.map(r => r.grade));
+	console.log(`\n採点：本物 ${refLabel} × こちら ${orthoLabel}（${rows.length} 本・分母 ${summary.n}）`);
+	for (const [k, v] of Object.entries(levels)) console.log(`  ${k.padEnd(10)} ${v}`);
+	console.log(`  鍵・外部ライブラリ・custom 無しの例で同じ絵：${summary.plain3}/${summary.plainN}`);
+	console.log("\n足りない口の順位表（上位 15）：");
+	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
+	const dir = path.join(ROOT, "report", orthoLabel);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16) }));
+	fs.writeFileSync(path.join(dir, "grades.json"), JSON.stringify({ refLabel, orthoLabel, summary, ranking, grades: rows.map(r => ({ name: r.name, ...r.grade, color: undefined })) }, null, 1));
+	console.log(`\n見比べ帳：${path.relative(process.cwd(), path.join(dir, "index.html"))}`);
+	// 爪車：段が下がった例＝落ちる／上がった例＝--update で書き換える（実 GPU 1 回では落とさない）
+	const now = Object.fromEntries(rows.map(r => [r.name, r.grade.level]));
+	const known = fs.existsSync(KNOWN) ? JSON.parse(fs.readFileSync(KNOWN, "utf8")) : null;
+	if (update || !known) {
+		const all = { ...(known?.levels || {}), ...now };
+		fs.writeFileSync(KNOWN, JSON.stringify({ _: "公式例の門の爪車（台帳 §8）＝例ごとの今の段（null＝本物も落ちる＝分母の外）。下がったら落ちる・上がったら --update で書き換える", maplibre: corpus.maplibre.version, refLabel, levels: Object.fromEntries(Object.entries(all).sort()) }, null, "\t") + "\n");
+		console.log(known ? "known.json を書き換えた" : "known.json を作った（最初の点数）");
+		return 0;
+	}
+	const down = [], up = [];
+	for (const [n, l] of Object.entries(now)) {
+		if (!(n in known.levels)) continue;
+		const k = known.levels[n];
+		if ((l ?? -1) < (k ?? -1)) down.push(`${n} ${k}→${l}`); else if ((l ?? -1) > (k ?? -1)) up.push(`${n} ${k}→${l}`);
+	}
+	if (up.length) console.log(`\n上がった（--update で known.json へ）：${up.join("・")}`);
+	if (down.length) { console.log(`\n✗ 下がった：${down.join("・")}`); return 1; }
+	console.log("\n✓ known.json どおり（下がった例なし）");
+	return 0;
+}
+
 const side = opt("--side", "ref");
 if (has("--compare")) { const i = argv.indexOf("--compare"); compareRuns(argv[i + 1], argv[i + 2], side); process.exit(0); }
+if (has("--grade")) process.exit(gradeRuns(opt("--ref"), opt("--ortho"), { update: has("--update") }));
 
 const corpus = await ensureCorpus();
 const mode = has("--record") ? "record" : has("--record-missing") ? "record-missing" : "replay";
@@ -244,3 +292,4 @@ try {
 } finally {
 	stop();
 }
+if (sides.includes("ortho") && opt("--ref")) process.exitCode = gradeRuns(opt("--ref"), label, { update: has("--update") });

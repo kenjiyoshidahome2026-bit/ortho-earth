@@ -7,7 +7,7 @@ export * from "../../src/maplibre/index.js";
 import * as shim from "../../src/maplibre/index.js";
 import { engineOf, whenEngine } from "../../src/maplibre/map.js";
 
-const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [] });
+const X = (window.__mlx ||= { side: "ortho", maps: [], ev: [], errors: [], engines: [], added: [] });
 const FIXED_TIME = "2026-03-20T12:00:00Z";
 
 export class Map extends shim.Map {
@@ -18,4 +18,5 @@ export class Map extends shim.Map {
 		this.on("error", e => X.errors.push([i, String(e?.error?.message || e?.error || e?.message || e)]));
 		whenEngine(this).then(eng => { if (!eng) return; X.engines[i] = engineOf(this); eng.pinRes?.(true); });
 	}
+	addLayer(l, b) { if (l?.id) X.added.push(l.id); return super.addLayer(l, b); }   // 例が足した層（本物の包みと同じ）
 }

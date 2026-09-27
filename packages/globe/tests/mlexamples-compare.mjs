@@ -1,7 +1,7 @@
 // 公式例の門（台帳 §8）の比べる部品 tests/mlexamples/compare.mjs の検定（node・網なし・Chrome なし）。
 // PNG の読み（5 種のフィルタ×色の型）・標本の中央値・問い合わせの集合・2 回の走りの揺れの判定。
 import zlib from "node:zlib";
-import { decodePng, sampleMedian, colorDist, featSet, diffRuns, probeColors } from "./mlexamples/compare.mjs";
+import { decodePng, sampleMedian, colorDist, featSet, diffRuns, probeColors, grade, rankBlockers, splitUnsupported, normError } from "./mlexamples/compare.mjs";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -88,6 +88,30 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const k = structuredClone(base); k.camera.zoom = 3.01;
 	ok("diffRuns カメラの違い", diffRuns(base, k).reasons.includes("camera"));
 	ok("diffRuns 地図が無い同士は揺れない", diffRuns({ map: false }, { map: false }).stable);
+}
+
+// 段の判定（段 4）
+{
+	const probes = (n, feats = []) => Array.from({ length: n }, (_, i) => ({ x: i, y: i, lng: i, lat: 0, ok: true, feats }));
+	const rec = (o = {}) => ({ end: "stable", map: true, loadVia: "event", exceptions: [], consoleErrors: [], unsupported: [], layers: [{ id: "bg" }, { id: "route" }],
+		camera: { lng: 0, lat: 0, zoom: 3, bearing: 0, pitch: 0 }, bounds: [[-10, -5], [10, 5]], markers: [], popups: [], added: ["route"],
+		probes: [...probes(8, [{ layer: "bg" }]), ...probes(2, [{ layer: "route" }])], colors: Array(10).fill([100, 100, 100]), ...o });
+	const R = rec();
+	ok("grade 全部合えば 3", grade(R, rec()).level === 3);
+	ok("grade 本物が落ちる＝分母の外", grade(rec({ exceptions: ["boom"] }), rec()).level === null);
+	const ex = grade(R, rec({ exceptions: ["TypeError: map.foo is not a function"] }));
+	ok("grade こちらの例外＝0・順位表の鍵は伏せ字", ex.level === 0 && ex.blockers[0] === "exception: TypeError: map.foo is not a function");
+	const un = grade(R, rec({ unsupported: ["setSky() (semantic)", "option maplibreLogo (cosmetic)"] }));
+	ok("grade 意味の unsupported は 1 止まり・見た目は塞がない", un.level === 1 && un.blockers.join() === "unsupported: setSky()" && un.unsupported.cosmetic[0] === "option maplibreLogo");
+	ok("grade 層の違い＝1", grade(R, rec({ layers: [{ id: "bg" }] })).level === 1);
+	const cols = Array(10).fill([100, 100, 100]); cols[8] = cols[9] = [250, 0, 0];
+	const pic = grade(R, rec({ colors: cols }));
+	ok("grade 足した層の色が違う＝2", pic.level === 2 && pic.blockers.includes("added layers look different"), JSON.stringify(pic.reasons));
+	ok("grade 動く例は 2 まで（本物も 2）", grade(rec({ end: "animated" }), rec({ end: "animated" })).level === 2 && grade(rec({ end: "animated" }), rec()).refLevel === 2);
+	ok("grade 緯度の差のズームは許す（北緯 60°）", grade(rec({ camera: { lng: 0, lat: 60, zoom: 5, bearing: 0, pitch: 0 } }), rec({ camera: { lng: 0, lat: 60, zoom: 5.9, bearing: 0, pitch: 0 } })).level === 3);
+	const rk = rankBlockers([{ name: "a", level: 1, refLevel: 3, blockers: ["x", "x", "y"] }, { name: "b", level: 0, refLevel: 3, blockers: ["x"] }, { name: "c", level: 3, refLevel: 3, blockers: ["z"] }]);
+	ok("rankBlockers 1 例 1 回・多い順・届いた例は数えない", rk.length === 2 && rk[0].blocker === "x" && rk[0].n === 2 && rk[1].n === 1);
+	ok("splitUnsupported・normError", splitUnsupported(["a (cosmetic)", "b"]).semantic[0] === "b" && normError("x 'abc' 12 https://a.b/c") === "x '…' N <url>");
 }
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlexamples-compare 全 PASS");

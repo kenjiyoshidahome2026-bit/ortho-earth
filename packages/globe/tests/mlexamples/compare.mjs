@@ -83,3 +83,108 @@ export function diffRuns(a, b, { tolColor = 24, tolCam = 1e-6 } = {}) {
 	if (over) reasons.push(`color(${over}/${d.length} > ${tolColor})`);
 	return { stable: !reasons.length, reasons, maxDist: Math.round(maxDist), p95: Math.round(p95) };
 }
+
+// ── 段 4：本物（ref）とこちら（ortho）の突き合わせ＝段 0〜3 ──
+// 閾値の初期値（段 5 で本人が見比べ帳を見て決める）：色の許し（RGB の距離）・足した層の点／基図の点の一致率・問い合わせの一致率・比べられる点の下限
+export const THRESH = { colorTol: 40, addedMin: 0.85, baseMin: 0.8, queryMin: 0.9, minComparable: 0.3 };
+const BAD_END = new Set(["no-map", "crash", "harness-error"]);
+const STILL_END = new Set(["stable"]);   // 絵を比べるのは両側とも止まって撮れた例だけ（animated/moving/timeout は段 2 まで）
+
+// 「動く」か（段 1 の条件）。戻り＝理由（null＝動く）
+export function runsWhy(rec) {
+	if (!rec) return "no record";
+	if (BAD_END.has(rec.end)) return rec.end;
+	if (!rec.map) return "no map";
+	if (!rec.loadVia) return "no load";
+	if (rec.exceptions?.length) return `exception: ${rec.exceptions[0]}`;
+	if (rec.consoleErrors?.some(e => /\[style\] cannot load/.test(e))) return "style fell back to the default basemap";
+	return null;
+}
+// unsupported の記録 "口 (kind)" → { semantic, cosmetic }
+export function splitUnsupported(list) {
+	const out = { semantic: [], cosmetic: [] };
+	for (const u of list || []) { const m = /^(.*) \((semantic|cosmetic)\)$/.exec(u); (m?.[2] === "cosmetic" ? out.cosmetic : out.semantic).push(m ? m[1] : u); }
+	return out;
+}
+const hav = (a, b) => { const R = 6371008.8, d = Math.PI / 180, x = Math.sin((b.lat - a.lat) * d / 2) ** 2 + Math.cos(a.lat * d) * Math.cos(b.lat * d) * Math.sin((b.lng - a.lng) * d / 2) ** 2; return 2 * R * Math.asin(Math.min(1, Math.sqrt(x))); };
+
+// 色の一致を「足した層に当たる点」と「基図の点」に分けて数える（両側とも比べられる点だけ）
+export function colorMatch(R, O, T = THRESH) {
+	const added = new Set(R.added || []), g = { added: { n: 0, ok: 0 }, base: { n: 0, ok: 0 } };
+	let comparable = 0;
+	const n = Math.min(R.probes?.length || 0, O.probes?.length || 0), marks = [];
+	for (let i = 0; i < n; i++) {
+		const rp = R.probes[i], op = O.probes[i], rc = R.colors?.[i], oc = O.colors?.[i];
+		if (!rp?.ok || !op?.ok || !rc || !oc) { marks.push(null); continue; }
+		comparable++;
+		const grp = rp.feats?.some(f => added.has(f.layer)) ? g.added : g.base, hit = colorDist(rc, oc) <= T.colorTol;
+		grp.n++; if (hit) grp.ok++;
+		marks.push({ hit, added: grp === g.added });
+	}
+	return { ...g, comparable, total: n, marks };
+}
+// 問い合わせの集合の一致（symbol を除く・両側とも比べられる点だけ）
+export function queryMatch(R, O) {
+	let n = 0, ok = 0;
+	const m = Math.min(R.probes?.length || 0, O.probes?.length || 0);
+	for (let i = 0; i < m; i++) {
+		if (!R.probes[i]?.ok || !O.probes[i]?.ok) continue;
+		n++;
+		const a = featSet(R.probes[i].feats), b = featSet(O.probes[i].feats);
+		if (a.length === b.length && a.every((v, k) => v === b[k])) ok++;
+	}
+	return { n, ok };
+}
+
+// 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
+export function grade(R, O, T = THRESH) {
+	const out = { level: 0, refLevel: 0, reasons: [], blockers: [], unsupported: splitUnsupported(O?.unsupported) };
+	const rw = runsWhy(R);
+	if (rw) { out.level = null; out.refWhy = rw; return out; }
+	out.refLevel = STILL_END.has(R.end) ? 3 : 2;
+	const ow = runsWhy(O);
+	if (ow) { out.reasons.push(ow); out.blockers.push(ow.startsWith("exception: ") ? `exception: ${normError(ow.slice(11))}` : ow); return out; }
+	out.level = 1;
+	// 段 2＝同じ答え
+	const why = [];
+	if (out.unsupported.semantic.length) { why.push(`unsupported: ${out.unsupported.semantic.join(", ")}`); out.blockers.push(...out.unsupported.semantic.map(u => `unsupported: ${u}`)); }
+	const lr = (R.layers || []).map(l => l.id), lo = (O.layers || []).map(l => l.id);
+	if (lr.length !== lo.length || lr.some((v, i) => v !== lo[i])) {
+		const miss = lr.filter(id => !lo.includes(id)), extra = lo.filter(id => !lr.includes(id));
+		why.push(`layers (missing ${miss.length}: ${miss.slice(0, 4).join(",")}${miss.length > 4 ? "…" : ""} / extra ${extra.length}${!miss.length && !extra.length ? " / order" : ""})`);
+		out.blockers.push("layers differ");
+	}
+	const q = out.query = queryMatch(R, O);
+	if (q.n && q.ok / q.n < T.queryMin) { why.push(`query ${q.ok}/${q.n}`); out.blockers.push("query answers differ"); }
+	if ((R.markers?.length || 0) !== (O.markers?.length || 0)) { why.push(`markers ${R.markers?.length || 0}/${O.markers?.length || 0}`); out.blockers.push("markers differ"); }
+	if ((R.popups?.length || 0) !== (O.popups?.length || 0)) { why.push(`popups ${R.popups?.length || 0}/${O.popups?.length || 0}`); out.blockers.push("popups differ"); }
+	if (R.camera && O.camera) {
+		const lat = R.camera.lat, zTol = 0.1 + Math.abs(Math.log2(Math.max(0.05, Math.cos(lat * Math.PI / 180))));   // 緯度の差（台帳 §4）は許す
+		const span = R.bounds ? hav({ lng: R.bounds[0][0], lat }, { lng: R.bounds[1][0], lat }) : 0;
+		const d = hav(R.camera, O.camera);
+		if (Math.abs(R.camera.zoom - O.camera.zoom) > zTol || (span && d > 0.02 * span)) { why.push(`camera (Δz ${(O.camera.zoom - R.camera.zoom).toFixed(2)} · Δc ${Math.round(d)}m)`); out.blockers.push("camera differs"); }
+	}
+	const cm = out.color = colorMatch(R, O, T);
+	if (why.length) { out.reasons.push(...why); return out; }
+	out.level = 2;
+	// 段 3＝同じ絵
+	if (out.refLevel < 3 || !STILL_END.has(O.end)) { out.reasons.push(`picture not compared (${R.end}/${O.end})`); if (out.refLevel === 3) out.blockers.push(`picture never settled (${O.end})`); return out; }
+	if (cm.comparable < T.minComparable * cm.total) { out.reasons.push(`picture not comparable (${cm.comparable}/${cm.total} probes)`); out.level = Math.min(out.level, 2); out.refLevel = 2; return out; }
+	const ra = cm.added.n ? cm.added.ok / cm.added.n : 1, rb = cm.base.n ? cm.base.ok / cm.base.n : 1;
+	if (ra < T.addedMin) { out.reasons.push(`added layers ${cm.added.ok}/${cm.added.n}`); out.blockers.push("added layers look different"); }
+	if (rb < T.baseMin) { out.reasons.push(`basemap ${cm.base.ok}/${cm.base.n}`); out.blockers.push("basemap looks different"); }
+	if (ra >= T.addedMin && rb >= T.baseMin) out.level = 3;
+	return out;
+}
+// 例外の文を束ねる（URL・数・引用の中身を伏せて同じ原因を 1 行に）
+export const normError = e => String(e).replace(/https?:\/\/\S+/g, "<url>").replace(/(['"`])[^'"`]{1,80}\1/g, "$1…$1").replace(/\d+(\.\d+)?/g, "N").slice(0, 140);
+
+// 足りない口の順位表＝こちらの段が本物の段より低い例の「塞いでいる物」を数える（1 例 1 回）
+export function rankBlockers(graded) {
+	const c = new Map();
+	for (const g of graded) {
+		if (g.level == null || g.level >= g.refLevel) continue;
+		for (const b of new Set(g.blockers)) { const e = c.get(b) || { blocker: b, n: 0, examples: [] }; e.n++; e.examples.push(g.name); c.set(b, e); }
+	}
+	return [...c.values()].sort((a, b) => b.n - a.n || a.blocker.localeCompare(b.blocker));
+}
