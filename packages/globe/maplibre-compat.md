@@ -222,10 +222,20 @@
 - **約束（通訳だけ）**：通訳はエンジンに機能を足さない。同じ働きがあれば言い換え、無ければ投げずに `[mlshim] unsupported: <口>` を記録して何もしない（見た目／意味に分ける）。通訳で辻褄を合わせない＝点数を正直に保つ。エンジンの足し算は `idle` 事象と起動オプション `night`／`sky`／`terrain:false`（既定は不変）だけ。
 - **目録**（`tests/mlexamples/corpus.mjs`・`corpus.json`）：MapLibre GL JS **6.11.2**（`acb7b722`）・例 139・素材 30・本物の dist 14（`npm pack`＝lock を触らない）。取り置き＝`<repo>/.cache/mlexamples/6.11.2/`（sha256 で照合・壊れていれば取り直す）。
   - 見立て（正規表現・走らせる前の予想）：鍵も外部ライブラリも custom も無い 111／外部ライブラリ 23／custom 9／API キー 3／import map 6／globe 10／terrain 11／入力待ち 43／動き 12／乱数・日付 6／位置情報 1／地図 2 枚以上 1。
+- **走らせ方**（`npm run verify:examples`＝`scripts/verify-examples.mjs`）：
+  - 器＝`tests/mlexamples/vite.config.mjs`（root は globe のまま）。`/{ref,ortho}/test/examples/*.html` は取り置きの**バイトをそのまま**（vite の HTML 変換を通さない＝import map の例も壊れない）。`/ref/dist/_real/**`＝本物の dist を静的に・`/ref/dist/maplibre-gl-dev.mjs`＝Map を継ぐ包み・`/ref/**` は COOP/COEP を外す。`/ortho/dist/maplibre-gl-dev.mjs`＝`tests/mlexamples/ortho-entry.js`（通訳を再公開し Map を継ぐ・時計を止める・pinRes）。
+  - 例ごとに Chrome（`scripts/lib/cdp.mjs`＝runRealtime から切り出した部品）・800×600・dpr 1・実 GPU・UA は普通の Chrome・Math.random に種・位置情報は固定。
+  - **描き終わり**＝load（事象／`map.loaded()`／style.load から 15 秒）→その側の `idle`（来なければ load から 10 秒）→取得が 1 秒止まる→canvas だけの写しが 500ms 空けて 2 回同じ。動き続ける例は `moving`（取得が止まっても写しが 4 秒違う）・`animated`（見立て＝load から 6 秒）。上限 45 秒。
+  - **網**（`tests/mlexamples/netstore.mjs`）：頁の session の `Fetch.enable`（`https://*`）で 頁・専用 worker・入れ子の worker・module worker・blob worker・preflight まで全部捕まる（2026-09-27 の試し・worker の session には Fetch が無い）。録るのは Chrome 自身（continueRequest(interceptResponse)→getResponseBody）＝Node の fetch は ows.terrestris.de に繋がらなかった。鍵＝method＋URL（`_t=` を除く）＋Range・再生の Range は 206。**録る応答は 2xx/3xx/401/403/404 だけ**（429 を録ると再生でも「多すぎる」が返り、MapLibre の load が来ない＝踏んだ）。録る走りは `--jobs 1`（相手の鯖に優しく）。
+  - **標本**：本物の 16×10 の格子（縁 48px を除く）→`unproject`（|lat|≤85.051・project で戻る点）→こちらの `projectLL`（front>0.05）。問い合わせは点ごと（こちらは非同期）。例が `addLayer` した層は両側の包みが記録（`added`）。
+  - 揺れ（本物どうし・同じ録りの再生 2 回）：139 本中 125 本は答えも色も同じ（r3/r4）。残りは動く例と、録りの初回だけ時間切れの地形の例。
+- **エンジンの足し算**（段 2・既定は不変）：`map.on("idle")`（動いていない・飛んでいない・描き直し待ち無し・基図が覆って載った・標高と建物と利用者の source の読み込み無し、が 100ms 続いたら 1 回・起動直後も来る）／`night:false`／`sky:false`（星空劇場と太陽系圏）／`terrain:false`（setTerrain まで平ら＝render worker は DEM が来た時に地形を作る・その後の setTerrain(null) は DEM を外すだけ＝既定の標高に戻る）。門＝`t-mlboot?v=default|ml`（両土台）。
+- **通訳**（段 3・`src/maplibre/`）：`Map`（同期のコンストラクタ→裏で createGlobe・準備までの呼び出しは列・事象の言い換え＝move→zoom/rotate/pitch と start/end・settle→moveend・素の DOM の事象は容れ物から・層の事象はエンジンの口）・`Marker`/`Popup`・`LngLat`/`LngLatBounds`/`MercatorCoordinate`（MapLibre の実装どおり＝西＞東の contains も同じ答え）・操作部品（MapLibre の CSS の class 名）。無い口は `[mlshim] unsupported: <口> (semantic|cosmetic)` を 1 回。`queryRenderedFeatures` は同期で返せない＝空で返して記録（隠さない）。2 枚目の Map は何もしない実体。検定＝`tests/mlshim.mjs`（import は ../globe.js と同じ家だけ・RAW 無し）。
+- **採点**（段 4・`tests/mlexamples/compare.mjs` の `grade`）：本物が落ちる例＝分母の外。こちらの段は本物を超えない（止まって撮れた例は 3 まで・動く例は 2 まで）。段 2＝意味の unsupported 0・層の id と順・問い合わせの集合（symbol を除く）≥0.9・Marker/Popup の数・カメラ（緯度の差 |log2 cos φ|＋0.1 は許す）。段 3＝色の一致（RGB 距離 ≤40）が足した層の点 ≥0.85・基図の点 ≥0.8（比べられる点が 30% 未満なら段 2 止まり）。閾値は段 5 で本人が見比べ帳（`<repo>/.cache/mlexamples/report/<label>/index.html`）を見て決める。
 - **進み**：
   - [x] 段 0（2026-09-27）：この節・目録。エンジン無改修。
-  - [ ] 段 1 走らせ台と本物（vite の配り・網の録り置き・描き終わりの判定・本物を 2 回回して揺れを見る）
-  - [ ] 段 2 エンジンの足し算（`idle`・`night`／`sky`／`terrain:false`・`t-mlboot`）
-  - [ ] 段 3 通訳（`src/maplibre/`）
-  - [ ] 段 4 採点と見比べ帳・順位表
-  - [ ] 段 5 目合わせ（θ は本人の目で）と爪車（`tests/mlexamples/known.json`）・最初の点数をここに書く
+  - [x] 段 1（2026-09-27）：走らせ台と本物（網の試し→録り置き・描き終わりの判定・本物どうしの揺れ 125/139 が同じ）
+  - [x] 段 2（2026-09-27）：エンジンの足し算（`idle`・`night`／`sky`／`terrain:false`・`t-mlboot`）
+  - [x] 段 3（2026-09-27）：通訳（`src/maplibre/`）
+  - [x] 段 4（2026-09-27）：採点・見比べ帳・順位表（`--grade`）
+  - [ ] 段 5 目合わせ（閾値は本人の目で）と爪車（`tests/mlexamples/known.json`）・最初の点数をここに書く
