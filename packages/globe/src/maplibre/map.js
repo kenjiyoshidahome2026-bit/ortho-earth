@@ -2,7 +2,7 @@
 // 約束（通訳だけ・台帳 §8）：
 //   ・エンジンに機能を足さない。同じ働きがあれば言い換え、無ければ投げずに記録して何もしない（report.js の unsupported）＝点数を正直に保つ
 //   ・呼ぶのは ../globe.js の公開面だけ（RAW を使わない）・エンジンの map に鍵を生やさない（状態は WeakMap）
-//   ・起動は既定で MapLibre の見え方（本人裁定 4）：夜面・星空・自前の地形なし（地形は setTerrain／style の terrain の時だけ）・z は MapLibre の目盛り
+//   ・起動は既定で MapLibre の見え方（本人裁定 4）：夜面・星空・世界の海岸線・自前の地形なし（地形は setTerrain／style の terrain の時だけ）・z は MapLibre の目盛り
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
 import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup } from "../globe.js";
@@ -129,7 +129,7 @@ export class Map {
 		if (options.renderWorldCopies === false) unsupported(self, "option renderWorldCopies: false (the globe has no world copies)", "cosmetic");
 		const o = {
 			target: container, view: viewOf(st.init), zoomScale: "maplibre",
-			night: false, sky: false, terrain: false, chips: false, countryTip: false, persistView: false,
+			night: false, sky: false, coastline: false, terrain: false, chips: false, countryTip: false, persistView: false,
 			instruments: options.attributionControl === false ? false : ["attr"],
 			...(options.style != null && { style: options.style }),
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),

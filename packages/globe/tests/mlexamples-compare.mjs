@@ -103,7 +103,8 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	ok("grade こちらの例外＝0・順位表の鍵は伏せ字", ex.level === 0 && ex.blockers[0] === "exception: TypeError: map.foo is not a function");
 	const un = grade(R, rec({ unsupported: ["setSky() (semantic)", "option maplibreLogo (cosmetic)"] }));
 	ok("grade 意味の unsupported は 1 止まり・見た目は塞がない", un.level === 1 && un.blockers.join() === "unsupported: setSky()" && un.unsupported.cosmetic[0] === "option maplibreLogo");
-	ok("grade 層の違い＝1", grade(R, rec({ layers: [{ id: "bg" }] })).level === 1);
+	const ly = grade(R, rec({ layers: [{ id: "bg" }] }));
+	ok("grade 層の違い＝1・順位表は抜けた型ごと", ly.level === 1 && ly.blockers.includes("getStyle lacks ? layers"), JSON.stringify(ly.blockers));
 	const cols = Array(10).fill([100, 100, 100]); cols[8] = cols[9] = [250, 0, 0];
 	const pic = grade(R, rec({ colors: cols }));
 	ok("grade 足した層の色が違う＝2", pic.level === 2 && pic.blockers.includes("added layers look different"), JSON.stringify(pic.reasons));

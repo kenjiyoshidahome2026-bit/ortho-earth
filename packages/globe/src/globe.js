@@ -104,7 +104,7 @@ const t = tr();
 //   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は非推奨の別名（mesh が優先）
 //   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
-//   opts.sky／opts.night＝星空劇場と太陽系圏／低ズームの夜面（true=[既定]／false=持たない・描かない＝MapLibre の口 src/maplibre/ の既定）
+//   opts.sky／opts.night／opts.coastline＝星空劇場と太陽系圏／低ズームの夜面／世界の海岸線（true=[既定]／false=持たない・描かない＝MapLibre の口 src/maplibre/ の既定）
 //   opts.terrain＝false：setTerrain まで平ら（既定の標高を取らない＝MapLibre と同じ意味）。{ source, exaggeration }＝外来の標高タイル
 //   opts.countryTip＝世界ビュー(z<5.5)のホバー国名 tip（true=[既定]／false=出さない＝自前の tip と重ねない器）
 //   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
@@ -1278,6 +1278,7 @@ let worldContentH = null;   // opts.worldContent の手綱（テーマ切替で�
 const gint = createGintLayers({
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
 	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
+	coastline: opts.coastline,   // false＝世界の海岸線（NE admin0 の gint 層・z<9）を持たない（MapLibre の口・公式例の門 段 2）
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）

@@ -69,14 +69,22 @@ const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.g
 		markers: [...document.querySelectorAll(".maplibregl-marker")].map(mk),
 		popups: [...document.querySelectorAll(".maplibregl-popup")].map(mk),
 		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })()`;
-// こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ（front≤0.05＝裏・地平線・大気の縁は比べない）→問い合わせ（非同期）。
+// こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ→問い合わせ（非同期）。比べる点＝front>0（裏でない）・画面の内側・
+// unproject で同じ場所へ戻る（標本の間隔の 1/4 以内＝地平線に寄せられた点・大気の縁を除く）。front は高さ／半径の量＝高ズームでは 1e-4 程度でも表（閾値を置かない）
 // 本物の記録が無い例は自分の格子（unproject）で取る（絵の比べはできない）
 const PROBE_ORTHO = refProbes => `(async (REF) => { const X = window.__mlx, m = X.maps[0], eng = X.engines?.[0]; const r = m.getContainer().getBoundingClientRect();
 	const Wc = r.width, Hc = r.height, M = 48, NX = 16, NY = 10, probes = [];
 	const grid = REF || Array.from({ length: NX * NY }, (_, k) => { const i = k % NX, j = (k / NX) | 0; const x = M + (Wc - 2 * M) * (i + 0.5) / NX, y = M + (Hc - 2 * M) * (j + 0.5) / NY; const ll = m.unproject([x, y]); return { lng: ll?.lng ?? null, lat: ll?.lat ?? null, ok: !!ll }; });
+	const hav = (a, b) => { const d = Math.PI / 180, s = Math.sin((b.lat - a.lat) * d / 2) ** 2 + Math.cos(a.lat * d) * Math.cos(b.lat * d) * Math.sin((b.lng - a.lng) * d / 2) ** 2; return 12742017.6 * Math.asin(Math.min(1, Math.sqrt(s))); };
+	const okPts = grid.filter(p => p.ok && p.lng != null);
+	let step = Infinity; for (let k = 1; k < grid.length; k++) if (grid[k].ok && grid[k - 1].ok && grid[k].lng != null && grid[k - 1].lng != null) step = Math.min(step, hav(grid[k], grid[k - 1]));   // 隣り合う標本の間隔（最小）
 	for (const p of grid) {
 		let x = null, y = null, front = -1, ok = false, feats = [];
-		if (eng && p.ok && p.lng != null) { [x, y, front] = eng.projectLL(p.lng, p.lat); ok = front > 0.05 && x >= 0 && y >= 0 && x < Wc && y < Hc; }
+		if (eng && p.ok && p.lng != null) {
+			[x, y, front] = eng.projectLL(p.lng, p.lat);
+			ok = front > 0 && x >= 0 && y >= 0 && x < Wc && y < Hc;
+			if (ok) { const back = eng.unproject([x, y]); ok = !!back && (!(step < Infinity) || hav(back, p) <= step / 4); }
+		}
 		if (ok) { try { feats = (await eng.queryRenderedFeatures([x, y])).map(f => ({ layer: f.layer?.id, type: f.layer?.type, source: f.source, sourceLayer: f.sourceLayer ?? null, id: f.id ?? null })); } catch (e) { feats = [{ error: String(e.message) }]; } }
 		probes.push({ x, y, lng: p.lng, lat: p.lat, ok, front, feats });
 	}
