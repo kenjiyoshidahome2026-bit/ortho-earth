@@ -154,6 +154,12 @@ export function grade(R, O, T = THRESH) {
 	// 段 2＝同じ答え
 	const why = [];
 	if (out.unsupported.semantic.length) { why.push(`unsupported: ${out.unsupported.semantic.join(", ")}`); out.blockers.push(...out.unsupported.semantic.map(u => `unsupported: ${u}`)); }
+	// 通訳が捕まえたエンジンのエラー（MapLibre なら投げない所でエンジンが投げた＝通訳は error 事象に替えて例を走らせ続ける）＝段 2 を塞ぐ（§8 C）
+	const engErr = (O.consoleErrors || []).map(e => /^\[mlshim\] ([\w.]+):\s*([\s\S]*)$/.exec(e)).filter(Boolean);
+	if (engErr.length) {
+		why.push(`engine errors: ${[...new Set(engErr.map(m => m[1]))].join(", ")}`);
+		for (const m of engErr) out.blockers.push(`engine error: ${m[1]}: ${normError(m[2].replace(new RegExp(`^${m[1]}: `), ""))}`);
+	}
 	const lr = (R.layers || []).map(l => l.id), lo = (O.layers || []).map(l => l.id);
 	if (lr.length !== lo.length || lr.some((v, i) => v !== lo[i])) {
 		const miss = lr.filter(id => !lo.includes(id)), extra = lo.filter(id => !lr.includes(id));

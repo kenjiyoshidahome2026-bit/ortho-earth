@@ -496,6 +496,7 @@ export type MapLibreSource =
 	 *  encoding＝タイルの形式（MapLibre と同じ "mvt"（既定）｜"mlt"＝MapLibre Tile・1.4.0〜）。"mlt" はプラグイン @ortho-earth/tile-formats を "#tile-formats" に alias したビルドで描ける（無ければ空＋警告 1 回）。PMTiles はヘッダの tileType が決める */
 	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string>; encoding?: "mvt" | "mlt" };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; "source-layer"?: string; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
+/** tolerance＝足す px（拡張・1.4.0〜既定 0＝MapLibre と同じ：線は線幅の半分・円は半径＋縁・面は内側。〜1.3 は 3） */
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
 /** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
