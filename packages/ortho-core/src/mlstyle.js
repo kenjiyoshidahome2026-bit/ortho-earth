@@ -102,6 +102,7 @@ function convertTokens(s) {
 }
 
 const ANCHORS = new Set(["center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]);
+const KNOWN_OPS_FOR_LITERAL = new Set(["literal", "get", "has", "case", "match", "step", "interpolate", "let", "var", "to-color", "rgb", "rgba", "hsl", "hsla", "concat", "coalesce", "zoom"]);   // 色の名前と見分ける（式の頭になり得る語）
 const isAnchorOffsets = v => Array.isArray(v) && v.length >= 2 && v.length % 2 === 0 && v.every((x, i) => i % 2 === 0 ? ANCHORS.has(x) : Array.isArray(x) && x.length === 2 && x.every(Number.isFinite));
 // 値一つを式へ（関数・差し込み記法・文字列から始まる配列リテラル）
 export function convertValue(v, prop = "") {
@@ -112,6 +113,8 @@ export function convertValue(v, prop = "") {
 	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
 	// text-variable-anchor-offset のリテラル＝["top", [0, 1], "bottom", [0, -1]]（アンカー名と 2 数の組の並び）。式（match/step…）と読み違えて「知らない演算子 top」で層を落としていた（公式例の門 2 巡目）
 	if (prop === "text-variable-anchor-offset" && isAnchorOffsets(v)) return ["literal", v];
+	// hillshade の multidirectional＝色・向きの配列（["#FF4000", "#FFFF00", …]・[270, 315, 0, 45]）＝式ではない（先頭が色の文字列＝「知らない演算子 #FF4000」で層を落としていた）
+	if (/^hillshade-/.test(prop) && Array.isArray(v) && v.length && v.every(x => typeof x === "number" || (typeof x === "string" && /^(#|rgb|hsl|[a-z]+$)/i.test(x) && !KNOWN_OPS_FOR_LITERAL.has(x)))) return ["literal", v];
 	return v;
 }
 

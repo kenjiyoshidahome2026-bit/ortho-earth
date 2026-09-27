@@ -23,13 +23,14 @@ export function cssColor(c, d = [0, 0, 0, 1]) {
 
 // paint（評価済みの数と色）→ 計算に使う形
 export function hillshadeParams(paint = {}, evalNum = x => x) {
-	const num = (k, d) => { const v = paint[k]; if (v == null) return d; const n = +evalNum(v); return Number.isFinite(n) ? n : d; };
+	const first = v => Array.isArray(v) && v.length && (typeof v[0] === "number" || (typeof v[0] === "string" && !/^[a-z-]+$/.test(v[0]) || v.length > 1 && typeof v[1] === "string" && /^#/.test(v[1]))) ? v[0] : v;   // multidirectional の配列（色・向き）＝最初の光だけで描く（standard）
+	const num = (k, d) => { const v = first(paint[k]); if (v == null) return d; const n = +evalNum(v); return Number.isFinite(n) ? n : d; };
 	return {
 		exaggeration: Math.max(0, Math.min(1, num("hillshade-exaggeration", 0.5))),
 		direction: num("hillshade-illumination-direction", 335),
-		shadow: cssColor(paint["hillshade-shadow-color"], [0, 0, 0, 1]),
-		highlight: cssColor(paint["hillshade-highlight-color"], [1, 1, 1, 1]),
-		accent: cssColor(paint["hillshade-accent-color"], [0, 0, 0, 1]),
+		shadow: cssColor(first(paint["hillshade-shadow-color"]), [0, 0, 0, 1]),
+		highlight: cssColor(first(paint["hillshade-highlight-color"]), [1, 1, 1, 1]),
+		accent: cssColor(first(paint["hillshade-accent-color"]), [0, 0, 0, 1]),
 		method: paint["hillshade-method"] ?? "standard",
 	};
 }
@@ -80,7 +81,7 @@ const tileLat = (y, z) => { const t = PI - 2 * PI * y / (1 << z); return 180 / P
 
 // port プロバイダ。dem＝raster-dem の spec（tiles 済み）・paint＝評価済み・fetchFn＝取得（requester）。戻り＝{ port（render worker へ transfer）, setPaint, close }
 export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null }) {
-	const spec = normalizeDemSpec(dem), n = spec.tileSize;
+	const spec = normalizeDemSpec(dem), nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
 	let p = hillshadeParams(paint);
 	if (p.method !== "standard") warn?.(`hillshade-method "${p.method}" is drawn as "standard"`);
 	const ch = new MessageChannel(), port = ch.port1;
@@ -99,24 +100,27 @@ export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) =
 			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
 			if (!r.ok) return null;
 			const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+			const n = bmp.width;
 			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
-			dctx.clearRect(0, 0, n, n); dctx.drawImage(bmp, 0, 0, n, n); bmp.close?.();
-			return decodeDEM(dctx.getImageData(0, 0, n, n).data, spec.encoding, spec);
+			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }
+			dctx.clearRect(0, 0, n, n); dctx.drawImage(bmp, 0, 0); bmp.close?.();
+			return { h: decodeDEM(dctx.getImageData(0, 0, n, n).data, spec.encoding, spec), n };
 		})().catch(() => null);
 		tiles.set(k, pr);
 		if (tiles.size > 128) tiles.delete(tiles.keys().next().value);
 		return pr;
 	};
-	port.postMessage({ type: "info", info: { tileSize: n, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
+	port.postMessage({ type: "info", info: { tileSize: nDecl, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
 	port.onmessage = async e => {
 		const { id, z, x, y, abort } = e.data || {};
 		if (abort) { acs.delete(id); return; }
 		acs.set(id, true); stats.req++; stats.last = `${z}/${x}/${y}`; (stats.zs ??= {})[z] = (stats.zs[z] || 0) + 1;
 		try {
-			const [h, hN, hS, hE, hW] = await Promise.all([tile(z, x, y), tile(z, x, y - 1), tile(z, x, y + 1), tile(z, x + 1, y), tile(z, x - 1, y)]);
+			const [t, tN, tS, tE, tW] = await Promise.all([tile(z, x, y), tile(z, x, y - 1), tile(z, x, y + 1), tile(z, x + 1, y), tile(z, x - 1, y)]);
 			if (!acs.has(id)) return;   // 中断された
-			if (!h) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
-			const rgba = shadeTile({ h, n, hN, hS, hE, hW, z, lat0: tileLat(y, z), lat1: tileLat(y + 1, z), p });
+			if (!t) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
+			const n = t.n, nb = q => (q && q.n === n ? q.h : null);   // 隣は同じ実寸の物だけ（違えば端を伸ばす）
+			const rgba = shadeTile({ h: t.h, n, hN: nb(tN), hS: nb(tS), hE: nb(tE), hW: nb(tW), z, lat0: tileLat(y, z), lat1: tileLat(y + 1, z), p });
 			const bitmap = await createImageBitmap(new ImageData(rgba, n, n), { premultiplyAlpha: "none" });
 			stats.ok++; port.postMessage({ id, bitmap }, [bitmap]);
 		} catch (err) { stats.err++; stats.lastErr = String(err?.message || err); port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }

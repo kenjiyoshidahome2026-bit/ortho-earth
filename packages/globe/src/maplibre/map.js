@@ -38,13 +38,14 @@ function emit(self, type, props = {}) {
 const fail = (self, name, e) => { console.error(`[mlshim] ${name}:`, e?.message ?? e); emit(self, "error", { error: e instanceof Error ? e : new Error(String(e)) }); };
 
 // エンジンへ渡す。準備前は列に溜めて before を返す。Promise を返す口は待たずに this（失敗は error 事象）
-function ask(self, name, args, { before, conv } = {}) {
+function ask(self, name, args, { before, conv, then } = {}) {
 	const st = S.get(self);
 	if (st.inert) return before;
 	const run = () => {
 		let r;
 		try { r = st.engine[name](...args); } catch (e) { fail(self, name, e); return before; }
-		if (r && typeof r.then === "function") { r.catch(e => fail(self, name, e)); return self; }
+		if (r && typeof r.then === "function") { r.then(() => then?.(), e => fail(self, name, e)); return self; }
+		then?.();
 		return conv ? conv(r) : r;
 	};
 	if (st.engine && st.loaded) return run();
@@ -254,13 +255,16 @@ export class Map {
 	isStyleLoaded() { return S.get(this).loaded; }
 	loaded() { const st = S.get(this); return st.loaded && st.idle && !st.engine?.isMoving(); }
 	areTilesLoaded() { return S.get(this).idle; }
-	addSource(id, src) { S.get(this).sources.add(id); ask(this, "addSource", [id, src]); return this; }
+	// source の中身が載った合図（MapLibre の sourcedata/data・isSourceLoaded）＝source を足した時・その source の層が載った時・idle の時
+	_sourceLoaded(id) { emit(this, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "content" }); emit(this, "data", { dataType: "source", sourceId: id, isSourceLoaded: true }); }
+	addSource(id, src) { S.get(this).sources.add(id); ask(this, "addSource", [id, src], { then: () => this._sourceLoaded(id) }); return this; }
 	removeSource(id) { S.get(this).sources.delete(id); ask(this, "removeSource", [id]); return this; }
 	getSource(id) { return ask(this, "getSource", [id]); }
 	isSourceLoaded(id) { return !!ask(this, "isSourceLoaded", [id], { before: false }); }
 	addLayer(layer, before) {
 		if (layer?.type === "custom") { unsupported(this, "addLayer type custom (CustomLayerInterface — this map does not hand out its WebGL context)"); return this; }
-		ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this;
+		const sid = typeof layer?.source === "string" ? layer.source : layer?.id;
+		ask(this, "addLayer", before != null ? [layer, before] : [layer], { then: () => sid && this._sourceLoaded(sid) }); return this;
 	}
 	removeLayer(id) { ask(this, "removeLayer", [id]); return this; }
 	getLayer(id) { return ask(this, "getLayer", [id]); }
@@ -282,6 +286,8 @@ export class Map {
 	queryTerrainElevation() { unsupported(this, "queryTerrainElevation (synchronous result)"); return null; }
 	setTerrain(t) { ask(this, "setTerrain", [t]); return this; }
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
+	setSky(sky) { unsupported(this, `setSky (this map draws its own atmosphere)`, "cosmetic"); S.get(this).sky = sky; return this; }   // 空の色＝見た目（球の外・標本の外）
+	getSky() { return S.get(this).sky ?? {}; }
 	setProjection(p) { if ((p?.type ?? p) !== "globe") unsupported(this, `setProjection(${JSON.stringify(p?.type ?? p)}) (this map is always a globe)`); return this; }
 	getProjection() { return { type: "globe" }; }
 	setTransformRequest(fn) { ask(this, "setTransformRequest", [fn]); return this; }
