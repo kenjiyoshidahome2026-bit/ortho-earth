@@ -112,6 +112,65 @@ export interface OrthoJapanOptions {
 	time?: Date | string | number;
 	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
 	debugGlobals?: boolean;
+	/** 落とした／?g= の .geopbf をこのバイト数を超えたら列チャンク層（addColumnar・gint を通さない）で描く（1.4.0〜・#90）。以下は gint（位相・ドレープ・編集）。
+	 *  既定 4e6。GeoParquet は大きさに依らず常に列チャンク層。URL の ?columnar=1|0 が勝つ */
+	columnarBytes?: number;
+}
+
+/** addColumnar の層オプション（1.4.0〜・#90） */
+export interface ColumnarLayerOptions {
+	/** 表示名（状況表示・console）。省略＝ファイル名／GeoPBF の name */
+	name?: string;
+	/** paint（gint と同じ語彙＝GintLayerHandle.setPaint と同じ・fill-color/fill-opacity/line-color/line-opacity/line-width/circle-color/circle-radius）。省略＝既定の見た目（面 #FF6B35・線 #00B4D8） */
+	paint?: object | null;
+	filter?: unknown[] | null;
+	/** 数値列で 5 段の色分け（viridis の要約）。paint があればそちらが勝つ */
+	color?: string | null;
+	/** 常駐の予算（バイト・チャンクの圧縮／ワイヤのバイト数で数える・既定 64e6）。超えた分は「ズームインで残り N」 */
+	budgetBytes?: number;
+	/** データ全体へ寄る（既定 true） */
+	fit?: boolean;
+	/** 状況表示（読み込み状況＋色分けの select）を出す（map.addColumnar の既定 false・ドロップ／?g= は true） */
+	status?: boolean;
+	/** ホバー／クリック（tip・on('hover'|'click')）を取る（既定 true） */
+	interactive?: boolean;
+	/** ホバーの tip。false＝出さない・関数＝properties→行の配列 */
+	tip?: boolean | ((properties: Record<string, any>) => string[] | null);
+	/** 読み手の名指し（"geoparquet"|"geopbf"|登録した名）。省略＝拡張子と先頭バイトで選ぶ */
+	source?: string;
+	/** チャンクの切り方（GeoPBF）。既定 8192 feature／40 万頂点 */
+	chunkFeatures?: number; chunkVertices?: number;
+	/** LOD の段（zoom・既定 [12, 9, 6]） */
+	lods?: number[];
+	/** frame の CPU ms を stats.frameMs に（計測用） */
+	perf?: boolean;
+}
+/** addColumnar が返す層のハンドル＝GintLayerHandle の部分集合（同じ名前・同じ意味）。query は worker 往復＝Promise */
+export interface ColumnarLayerHandle {
+	readonly id: string;
+	/** 最初の視野の読み込みが終わった（true） */
+	readonly ready: Promise<boolean>;
+	readonly meta: { name: string; rows: number; source: string; chunks: Array<{ bbox: Bbox | null; rows: number; bytes: number }>; columns: Array<{ name: string; numeric: boolean }>; bbox: Bbox | null; types: string[]; size?: number };
+	readonly rows: number; readonly loaded: number; readonly deferred: number; readonly cached: number; readonly pointOnly: boolean;
+	/** 最初のチャンクがオーバーレイへ渡るまで（open からの ms） */
+	readonly firstFrameMs: number;
+	readonly stats: { frameMs: number | null; chunksDrawn: number };
+	readonly visible: boolean;
+	readonly color: string | null;
+	setColor(column: string | null): Promise<void>;
+	/** 式は worker で列のまま評価→fid 表だけ差し替え（幾何は作り直さない）。filter 省略＝今の filter のまま */
+	setPaint(paint: object | null, filter?: unknown[] | null): Promise<void>;
+	setFilter(filter: unknown[] | null): Promise<void>;
+	setVisible(visible: boolean): void;
+	/** 明示照会（worker）：50 m 以内の点 → 30 m 以内の線 → 含む面のうち最小。filter で隠した地物も返す（gint の layer.query と同じ）。row＝元の行（GeoPBF なら fid） */
+	query(lngLat: LonLat): Promise<{ fid: number; row: number; properties: Record<string, any> } | null>;
+	on(ev: "hover", cb: (f: { fid: number; properties: Record<string, any> } | null) => void): ColumnarLayerHandle;
+	on(ev: "click", cb: (e: { fid: number; row: number; properties: Record<string, any>; lngLat: LonLat }) => void): ColumnarLayerHandle;
+	on(ev: "mouseenter", cb: (f: { fid: number; properties: Record<string, any> }) => void): ColumnarLayerHandle;
+	on(ev: "mouseleave", cb: (e: { fid: number }) => void): ColumnarLayerHandle;
+	/** 視野の読み直し（settle で自動） */
+	refresh(): Promise<void>;
+	remove(): void;
 }
 
 /** map.on("mesh")（1.2.0〜・旧名 "plateau"）の合図。catalog＝一覧取得（count=収録自治体数）／start＝区の読込開始／done＝完了（描画済み）／cancelled＝視野離脱で中止／failed＝読めない */
@@ -688,6 +747,10 @@ export interface OrthoJapanMap {
 	/** gint 層を**追加**する（置換ではない＝applyGintData の単一スロットとは別系統）。pbf は geopbf(…, { gint: true }) 済み（unPackGint 必須・無ければ null）。
 	 *  追加した層が既定でアクティブ（hover/click の対象）・interactive:false で既定層へ返す。重ね順は order（小さいほど下・未指定＝追加順） */
 	addGint(pbf: GeoPBF, opts?: GintLayerOptions): GintLayerHandle | null;
+	/** 列チャンク層（1.4.0〜・#90）＝GeoPBF／GeoParquet を **gint を通さず** 描く（位相・Morton・VW を作らない＝最初の 1 枚が「読み＋詰め替え」だけ）。
+	 *  src＝GeoParquet の URL（footer → 視野の row group だけ Range）／File・GeoPBF の File／ArrayBuffer／geopbf() の戻り。本体は動的 import＝使わない頁には 0 バイト。
+	 *  失うもの＝共有境界は 2 回描く・重なった面は後勝ち・LOD は 2〜3 段・地形には沿わない（楕円体の上）。編集や位相が要る時は gint（addGint）へ */
+	addColumnar(src: string | File | Blob | ArrayBuffer | GeoPBF, opts?: ColumnarLayerOptions): Promise<ColumnarLayerHandle>;   // ⚠ zoomScale:"maplibre" でも paint の ["zoom"] はエンジン z（換算は未対応）
 	/** 層をまたぐ照会（手前の層から）＝いま見えている層だけ（setVisible・ズーム域）× 各層の filter。地球儀が自分で足す層（国の輪郭など）は含まない・interactive:false の層は含む。
 	 *  fid は層内の添字＝**必ず {layer, fid} の対で扱う**。layer:null＝単一スロットの層（applyGintData） */
 	queryAll(lngLat: LonLat): Array<{ layer: GintLayerHandle | null; fid: number; feature: { fid: number; properties: Record<string, any> | null } }>;

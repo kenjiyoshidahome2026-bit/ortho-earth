@@ -53,6 +53,7 @@ export const MAP_MEMBERS = {
 	Marker: "none", Popup: "none",
 	// gint（ネイティブ）
 	addGint: "in", applyGintData: "in", paint: "in", paintTable: "none", queryAll: "none", clearUserGint: "none",
+	addColumnar: "none",   // 列チャンク層（#90）＝paint の ["zoom"] と LOD の段はエンジン z（旗つきの地図で MapLibre の z に換算するのは今後の宿題＝d.ts に明記）
 	userPbf: "none", gintFeatures: "none", onGintClick: "none", standupGint: "none",
 	// 画像タイル・ガジェット
 	raster: "raster", gadget: "gadget",
