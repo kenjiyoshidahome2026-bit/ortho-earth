@@ -19,7 +19,7 @@ npm i @ortho-earth/core
 | `./gpu` · `./gl` | the two backends (WebGPU / WebGL2) |
 | `./camera` · `./viewurl` | `cameraState`/`project`/`unproject`, the `#z/lat/lon` hash grammar |
 | `./terrain` · `./raster` · `./raster-src` | elevation atlases, XYZ/WMS/WMTS/PMTiles raster layers |
-| `./decode` · `./geodesic` · `./geojson` | MVT decode, Vincenty distance/area, GeoJSON → overlay |
+| `./decode` · `./tileformat` · `./geodesic` · `./geojson` | MVT decode and the tile-format registry (MLT via [`@ortho-earth/tile-formats`](../tile-formats)), Vincenty distance/area, GeoJSON → overlay |
 | `./worldstyle` · `./worldpal` | the map-face palettes (`mono` / `dark` / `topo` / `sepia`) |
 | `./workers/*` | worker entries (tile, scene, gint, gint bake) |
 

@@ -27,8 +27,9 @@ export default defineConfig({
 		experimental: { chunkOptimization: false },
 	} },
 	// 部品（geopbf・ortho-core・altpbf）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js を「作らない版」へ（japan と同じ作法）。
-	// #extra-roles は差し替えない＝globe 既定の {}（地域の worker 役なし）
-	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") }] },
+	// #extra-roles は差し替えない＝globe 既定の {}（地域の worker 役なし）。#tile-formats＝MLT（MapLibre Tile）のプラグインを載せる（#88・形式は地域ではない）
+	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
+		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") }] },
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
 	plugins: [crossOriginIsolation],
 });

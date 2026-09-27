@@ -7,7 +7,9 @@ import { spawnWorker, setWorkerFactory } from "./workerFactory.js";
 import { builtinWorker } from "./builtinWorkers.js";
 
 // request(url, "Tile")＝取得の前の手入れ（#37）→ { url, headers?, credentials?, load?: () => Promise<ArrayBuffer> }｜null。load＝addProtocol の読み口（main で取って本体を worker へ）
-export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null }) {
+// encoding＝基図タイルの形式（"mvt"｜"mlt"・文字列か () => 文字列＝setStyle で基図の置き場と一緒に替わる・既定 mvt・#88）。tile worker へ init／setStyle で運ぶ
+export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerged, onTile, lodFloor, memBudgetMB, coverage, ell, minZ, workerFactory, request = null, encoding = "mvt" }) {
+	const encodingNow = () => (typeof encoding === "function" ? encoding() : encoding) || "mvt";
 	if (workerFactory) setWorkerFactory(workerFactory);   // ホストの入口（役割名 "ortho:scene" / "ortho:tile" → Worker・2026-09-22）
 	// scene worker：タイル geometry を保持し結合(merge)も担う。結合結果は main を経由せず
 	// render worker へ直結ポートで送る（下の connect）＝main は geometry を一切知らない。
@@ -50,7 +52,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
 		};
-		w.postMessage({ type: "init", style, coverage, ell });   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）
+		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow() });   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式
 		tileWorkers.push(w);
 	}
 	function workerBuildTile(t) {
@@ -85,7 +87,8 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	// fetchMVT のIDB/HTTP温間キャッシュ命中で速い）。scene worker の geom/GPU常駐は tiles.reset の onEvict で
 	// 同時解放＝ピーク約1倍（次テーマの先組みはしない＝GPUメモリ2倍を避ける）。
 	function setStyle(newStyle) {
-		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle });
+		const enc = encodingNow();   // 外来 style の差し替え（map.setStyle）で基図の置き場と形式が一緒に替わる
+		for (const w of tileWorkers) w.postMessage({ type: "setStyle", style: newStyle, encoding: enc });
 		tiles.reset();
 	}
 	// 後片付け：worker を全て terminate（SPA等で地図を剥がす時＝アプリ側 map.destroy() から）。

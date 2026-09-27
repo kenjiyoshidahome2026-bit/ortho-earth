@@ -216,10 +216,11 @@ export async function loadMapLibreStyle(src, { fetchFn = fetch } = {}) {
 	if (!style || !Array.isArray(style.layers)) throw new Error("not a MapLibre style (no layers)");
 	return { style, baseUrl };
 }
-// ベクタ source の実体（タイルの URL 型紙・ズーム範囲・範囲・出典）。url が TileJSON なら取りに行く・pmtiles:// はそのまま
+// ベクタ source の実体（タイルの URL 型紙・ズーム範囲・範囲・出典・形式）。url が TileJSON なら取りに行く・pmtiles:// はそのまま。
+// encoding＝タイルの形式（MapLibre の vector source と同じ語＝"mvt"（既定）｜"mlt"・#88）。PMTiles はアーカイブのヘッダ（tileType）が決めるので申告は参考まで
 export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {}) {
 	const abs = u => /^pmtiles:\/\//.test(u) ? "pmtiles://" + new URL(u.slice(10), baseUrl).href : /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, baseUrl).href;
-	if (sp.url && /^pmtiles:\/\//.test(sp.url)) return { pmtiles: abs(sp.url), minzoom: sp.minzoom, maxzoom: sp.maxzoom, attribution: sp.attribution ?? null };
+	if (sp.url && /^pmtiles:\/\//.test(sp.url)) return { pmtiles: abs(sp.url), minzoom: sp.minzoom, maxzoom: sp.maxzoom, attribution: sp.attribution ?? null, encoding: sp.encoding || "mvt" };
 	let tj = sp;
 	if (!sp.tiles && sp.url) {
 		if (/^mapbox:/.test(sp.url)) throw new Error("mapbox:// sources need a Mapbox access token (not supported)");
@@ -230,7 +231,7 @@ export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {})
 	}
 	if (!tj.tiles?.length) throw new Error("vector source has no tiles");
 	return { tiles: tj.tiles.map(t => /^[a-z][\w+.-]*:/i.test(t) ? t : new URL(t, baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")),
-		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 22, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null };   // maxzoom の既定＝MapLibre と同じ 22（2026-09-26・旧 14）   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
+		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 22, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null, encoding: tj.encoding || "mvt" };   // maxzoom の既定＝MapLibre と同じ 22（2026-09-26・旧 14）   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
 }
 // タイルの URL 型紙 → (z,x,y)=>URL（{z}{x}{y}・{s}（a/b/c）・scheme:"tms"＝y 反転・{ratio}/{prefix} は外す）
 export function tileUrlOf(src) {

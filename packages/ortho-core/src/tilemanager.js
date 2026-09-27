@@ -17,7 +17,8 @@ const EMPTY = new Set();
 // 海の色がズーム段間で揃う（沖合の z8 タイルは全面WA一枚=50B級なので枚数が増えても実質タダ）。
 // minZ＝タイルzの床（既定4＝bvmap の配信下限）。全球ソース（PMTiles等・z0から配信）を混ぜるアプリは 0 を渡す
 // ＝ズームアウトで選抜・下地・毛布・祖先フォールバックが z0 まで降りる（既定4なら従来挙動と完全同一）。
-export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage, minZ = 4 }) {
+// encoding＝タイルの形式（"mvt"｜"mlt"・文字列か () => 文字列・既定 mvt・#88）＝main で解く既定経路（defaultBuildTile）だけが読む（worker 経路は pipeline が init で運ぶ）
+export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage, minZ = 4, encoding = "mvt" }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z, bytes, seen }
 
 	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
@@ -36,7 +37,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 配信圏外は fetch を省き空タイル(=404と同じ全面水域)扱い＝外洋・国外への無駄な 404 を断つ（worker 経路 tileworker.js と同処置）
 		const url = tileUrl(t.z, t.x, t.y);
 		const layers = isPMTiles(url) ? await fetchPMTiles(url, t.z, t.x, t.y, undefined, need)   // 全球ソース（PMTiles）＝coverage 対象外
-			: tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(url, undefined, need);
+			: tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(url, undefined, need, null, null, (typeof encoding === "function" ? encoding() : encoding) || "mvt");
 		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
 		const origin = [w, n];
 		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);

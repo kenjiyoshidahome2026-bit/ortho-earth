@@ -3,12 +3,13 @@
 // 幾何は層×タイルで残す＝paint が変わっただけ（ズームの式・setPaintProperty）なら高さと色を付け直すだけ（earcut をやり直さない）。filter が変わった時だけ作り直す。
 // 式は core の評価器を MapLibre の出自（origin "ml"）で＝基図・geojson の層と同じ意味。worker は core の index を読まない（循環 worker の轍＝tileworker.js の注記）。
 // 生バイトの出し入れは main が決める（予算と LRU は main）＝ここは言われた物を持つだけ。無い時は miss を返す（main が取り直す）。
-import { decodeMVT } from "@ortho-earth/core/decode";
+// タイルの形式（enc＝"mvt"｜"mlt"・#88）は put のたびに main が添える。解読は同期（layerOf）＝遅延読み込みの形式は put の時に済ませる（vtdraw-worker と同じ）
+import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { classifyRings, tessellatePolygon, buildMesh, tileToLonLat } from "./vtmesh.js";
 
-const raw = new Map();       // "sid|z/x/y" → Uint8Array（MVT）
+const raw = new Map();       // "sid|z/x/y" → { buf: Uint8Array（生タイル）, enc: 形式 }
 const decoded = new Map();   // "sid|z/x/y|source-layer" → 解読済みの層（小さな LRU＝同じタイルを複数の層が使う時だけ効く）
 const DECODED_MAX = 8;
 const geoCache = new Map();  // "lid|z/x/y" → { fkey, geos: [{ fi, xy, starts, sgn, tris, wall }], feats: [{ id, props }], styles: Map<fi, {h, base}> }
@@ -26,9 +27,9 @@ function layerOf(sid, key, sourceLayer) {
 	const dk = `${sid}|${key}|${sourceLayer}`;
 	let L = decoded.get(dk);
 	if (L) { decoded.delete(dk); decoded.set(dk, L); return L; }
-	const buf = raw.get(`${sid}|${key}`);
-	if (!buf) return undefined;
-	L = buf.byteLength ? (decodeMVT(buf, new Set([sourceLayer]))[sourceLayer] ?? null) : null;
+	const R = raw.get(`${sid}|${key}`);
+	if (!R) return undefined;
+	L = R.buf.byteLength ? (decodeTile(R.buf, new Set([sourceLayer]), R.enc)[sourceLayer] ?? null) : null;
 	decoded.set(dk, L);
 	while (decoded.size > DECODED_MAX) decoded.delete(decoded.keys().next().value);
 	return L;
@@ -37,7 +38,13 @@ function layerOf(sid, key, sourceLayer) {
 self.onmessage = e => {
 	const m = e.data;
 	try {
-		if (m.kind === "put") { raw.set(`${m.sid}|${m.key}`, m.ab ? new Uint8Array(m.ab) : new Uint8Array(0)); self.postMessage({ id: m.id, ok: true }); return; }
+		if (m.kind === "put") {
+			const enc = m.enc || "mvt", buf = m.ab ? new Uint8Array(m.ab) : new Uint8Array(0);
+			if (tileFormatReady(enc)) { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); return; }   // 手元にある形式（mvt・読み込み済みの mlt）＝同期
+			loadTileFormat(enc).then(() => { raw.set(`${m.sid}|${m.key}`, { buf, enc }); self.postMessage({ id: m.id, ok: true }); },   // 最初の 1 枚だけ解読器を待つ
+				err => self.postMessage({ id: m.id, error: err?.message || String(err) }));
+			return;
+		}
 		if (m.kind === "drop") {   // 生バイトを捨てる（main の LRU）
 			raw.delete(`${m.sid}|${m.key}`);
 			for (const k of [...decoded.keys()]) if (k.startsWith(`${m.sid}|${m.key}|`)) decoded.delete(k);

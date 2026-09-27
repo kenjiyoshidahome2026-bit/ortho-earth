@@ -87,6 +87,7 @@
 		"@ortho-earth/core": "*",
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/jp": "*",
+		"@ortho-earth/tile-formats": "*",
 		"adm-zip": "^0.5.18",
 		"altpbf": "*",
 		"draco3d": "^1.5.7",

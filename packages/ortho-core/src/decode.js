@@ -4,7 +4,12 @@
 // 旧 @mapbox/vector-tile の loadGeometry() は毎頂点 {x,y} Point オブジェクトを生成し、消費側(build/buildings)が
 // また flat 配列へ詰め直していた＝二度手間+GC圧。フラット直行でこの中間表現ごと消す。
 // ClosePath はリング先頭点の複製を追記（loadGeometry 互換＝リングは閉じて返る）。
+// 形式の差し込み口（#88）：MVT はここで自分を登録簿（tileformat.js）へ登録し、他の形式（MLT）は "#tile-formats"（package.json の imports・
+// 既定＝何も足さない）をアプリの vite alias が差し替えて登録する。呼び出し元は decodeTile(bytes, need, encoding) だけを呼ぶ。
+import "#tile-formats";
 import Pbf from "geopbf/pbf";
+import { registerTileFormat, loadTileFormat, decodeTile, tileFormatReady } from "./tileformat.js";
+export { decodeTile, loadTileFormat, registerTileFormat, tileFormatReady };
 
 const GEOM_TYPE = { 1: "Point", 2: "LineString", 3: "Polygon" };
 
@@ -157,14 +162,20 @@ export function signedArea(c, s, e) {
 	return sum / 2;
 }
 
-// init＝{ headers, credentials }（transformRequest の結果・#37）。bytes＝取得済みの本体（addProtocol の読み口が main で取った物）
-export async function fetchMVT(url, signal, need, init = null, bytes = null) {
-	if (bytes) return bytes.byteLength ? decodeMVT(new Uint8Array(bytes), need) : { __empty: true };   // 読み口の空＝「そこに無い」
+// MVT＝既定の形式（PMTiles の tileType 1）。登録は decode.js を読んだ realm（main／各 worker）ごとに済む
+registerTileFormat({ name: "mvt", pmtilesType: 1, decode: decodeMVT });
+
+// init＝{ headers, credentials }（transformRequest の結果・#37）。bytes＝取得済みの本体（addProtocol の読み口が main で取った物）。
+// encoding＝タイルの形式（style の vector source の "encoding"・既定 "mvt"・#88）＝遅延読み込みの形式はここで待ってから同期に解く
+export async function fetchMVT(url, signal, need, init = null, bytes = null, encoding = "mvt") {
+	if (bytes) { await loadTileFormat(encoding); return bytes.byteLength ? decodeTile(new Uint8Array(bytes), need, encoding) : { __empty: true }; }   // 読み口の空＝「そこに無い」
 	const r = await fetch(url, { signal, ...(init?.headers ? { headers: init.headers } : {}), ...(init?.credentials ? { credentials: init.credentials } : {}) });
 	// 404/204＝「そこにタイルが無い」という正当なデータ（optimal_bvmap は日本域のみ＝広域ビューでは
 	// 国外・外洋のタイルが常に404）。エラーでなく空タイルとして ready 扱い＝リトライも失敗計上もしない。
 	// __empty＝図郭外の印（build 側が「標高ゲート付き全面水域」を敷く判定に使う。source-layer 名とは衝突しない）
 	if (r.status === 404 || r.status === 204) return { __empty: true };
-	if (!r.ok) throw new Error(`MVT HTTP ${r.status} ${url}`);
-	return decodeMVT(new Uint8Array(await r.arrayBuffer()), need);
+	if (!r.ok) throw new Error(`${encoding.toUpperCase()} HTTP ${r.status} ${url}`);
+	const buf = await r.arrayBuffer();
+	await loadTileFormat(encoding);
+	return decodeTile(new Uint8Array(buf), need, encoding);
 }
