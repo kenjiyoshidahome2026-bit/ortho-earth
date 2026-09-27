@@ -238,4 +238,9 @@
   - [x] 段 2（2026-09-27）：エンジンの足し算（`idle`・`night`／`sky`／`terrain:false`・`t-mlboot`）
   - [x] 段 3（2026-09-27）：通訳（`src/maplibre/`）
   - [x] 段 4（2026-09-27）：採点・見比べ帳・順位表（`--grade`）
-  - [ ] 段 5 目合わせ（閾値は本人の目で）と爪車（`tests/mlexamples/known.json`）・最初の点数をここに書く
+  - [ ] 段 5 目合わせ（閾値は本人の目で）と爪車（`tests/mlexamples/known.json`）
+- **最初の点数**（2026-09-27・本物 r6 × こちら o2・初期の閾値・WebGPU 実 GPU）：分母 137（本物も落ちる 2＝地図 3 枚の例・deck.gl の鍵）
+  - 0 動かない 4／1 動く 132／2 同じ答え 1／3 同じ絵 0。**絵だけ見れば同じ（段 2 に依らない）62/120**（両側とも止まって撮れた例）
+  - 足りない口の順位表（上位）：getStyle が symbol の層を落とす 110／問い合わせが線に余計に当たる 83（エンジンの既定の許し 3px・MapLibre は線幅ちょうど）／getStyle が raster の層を落とす 23／面を取りこぼす 20／カメラ 18／面に余計に当たる 14／getStyle が hillshade の層を落とす 9／通訳の穴（GeoJSONSource.updateData・ImageSource.updateImage・touchZoomRotate.disableRotation）各 1
+  - 読み：**動くことはほぼ並んだ（132/137）。答えは getStyle の一覧と問い合わせの許しの 2 点で塞がれ、絵は半分が同じ**。直す順は順位表の上から（別計画）。
+  - 問い合わせの鍵から id を外した：OpenMapTiles の地物の id はタイルのズームごとに違う＝タイルの詳しさの選び方で変わる（答えの差ではない）。id の無い GeoJSON にこちらが並び順の id を返す差は残る（MapLibre は undefined）

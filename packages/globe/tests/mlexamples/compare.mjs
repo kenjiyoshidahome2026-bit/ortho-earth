@@ -57,8 +57,9 @@ export const colorDist = (a, b) => (a && b) ? Math.hypot(a[0] - b[0], a[1] - b[1
 // 標本点ごとの色（probes＝[{x,y,…}]・x,y は容れ物の左上原点の CSS px＝canvas だけの写しと同じ座標）
 export const probeColors = (img, probes, r = 2) => probes.map(p => sampleMedian(img, p.x, p.y, r));
 
-// 問い合わせの集合の鍵（層・source・source-layer・id）。symbol の層は注記の衝突で揺れる＝外す（段 2 の判定と同じ）
-export const featKey = f => `${f.layer}|${f.source ?? ""}|${f.sourceLayer ?? ""}|${f.id ?? ""}`;
+// 問い合わせの集合の鍵（層・source・source-layer）。symbol の層は注記の衝突で揺れる＝外す（段 2 の判定と同じ）。
+// id は鍵に入れない：OpenMapTiles の地物の id はタイルのズームごとに違う＝タイルの詳しさの選び方（緯度の差）で変わる＝答えの差ではない（最初の走り o2 で 72＋35＋24 点）
+export const featKey = f => `${f.layer}|${f.source ?? ""}|${f.sourceLayer ?? ""}`;
 export const featSet = (feats, { dropSymbol = true } = {}) => [...new Set((feats || []).filter(f => !(dropSymbol && f.type === "symbol")).map(featKey))].sort();
 const sameArr = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
@@ -124,16 +125,21 @@ export function colorMatch(R, O, T = THRESH) {
 	return { ...g, comparable, total: n, marks };
 }
 // 問い合わせの集合の一致（symbol を除く・両側とも比べられる点だけ）
+// 違った点では、どの型の層に余計に当たった／取りこぼしたかも数える（順位表の粒度）
 export function queryMatch(R, O) {
 	let n = 0, ok = 0;
+	const extra = new Set(), missing = new Set();
 	const m = Math.min(R.probes?.length || 0, O.probes?.length || 0);
 	for (let i = 0; i < m; i++) {
 		if (!R.probes[i]?.ok || !O.probes[i]?.ok) continue;
 		n++;
 		const a = featSet(R.probes[i].feats), b = featSet(O.probes[i].feats);
-		if (a.length === b.length && a.every((v, k) => v === b[k])) ok++;
+		if (a.length === b.length && a.every((v, k) => v === b[k])) { ok++; continue; }
+		const typeOf = (fs, key) => fs.find(f => featKey(f) === key)?.type ?? "?";
+		for (const k of b) if (!a.includes(k)) extra.add(typeOf(O.probes[i].feats, k));
+		for (const k of a) if (!b.includes(k)) missing.add(typeOf(R.probes[i].feats, k));
 	}
-	return { n, ok };
+	return { n, ok, extra, missing };
 }
 
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
@@ -159,7 +165,12 @@ export function grade(R, O, T = THRESH) {
 		if (!miss.length && !extra.length) out.blockers.push("layer order differs");
 	}
 	const q = out.query = queryMatch(R, O);
-	if (q.n && q.ok / q.n < T.queryMin) { why.push(`query ${q.ok}/${q.n}`); out.blockers.push("query answers differ"); }
+	if (q.n && q.ok / q.n < T.queryMin) {
+		why.push(`query ${q.ok}/${q.n}${q.extra.size ? ` · extra ${[...q.extra].join(",")}` : ""}${q.missing.size ? ` · missing ${[...q.missing].join(",")}` : ""}`);
+		for (const t of q.extra) out.blockers.push(`query: extra ${t} hits`);
+		for (const t of q.missing) out.blockers.push(`query: missed ${t} hits`);
+		if (!q.extra.size && !q.missing.size) out.blockers.push("query answers differ");
+	}
 	if ((R.markers?.length || 0) !== (O.markers?.length || 0)) { why.push(`markers ${R.markers?.length || 0}/${O.markers?.length || 0}`); out.blockers.push("markers differ"); }
 	if ((R.popups?.length || 0) !== (O.popups?.length || 0)) { why.push(`popups ${R.popups?.length || 0}/${O.popups?.length || 0}`); out.blockers.push("popups differ"); }
 	if (R.camera && O.camera) {
@@ -169,6 +180,9 @@ export function grade(R, O, T = THRESH) {
 		if (Math.abs(R.camera.zoom - O.camera.zoom) > zTol || (span && d > 0.02 * span)) { why.push(`camera (Δz ${(O.camera.zoom - R.camera.zoom).toFixed(2)} · Δc ${Math.round(d)}m)`); out.blockers.push("camera differs"); }
 	}
 	const cm = out.color = colorMatch(R, O, T);
+	// 絵だけの一致（段 2 の答えに依らない副の数＝描く力そのもの）：両側とも止まって撮れ・比べられる点が足りて・色が閾値を越える
+	out.pictureOnly = STILL_END.has(R.end) && STILL_END.has(O.end) && cm.comparable >= T.minComparable * cm.total
+		&& (cm.added.n ? cm.added.ok / cm.added.n : 1) >= T.addedMin && (cm.base.n ? cm.base.ok / cm.base.n : 1) >= T.baseMin;
 	if (why.length) { out.reasons.push(...why); return out; }
 	out.level = 2;
 	// 段 3＝同じ絵
