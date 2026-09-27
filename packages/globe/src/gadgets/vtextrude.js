@@ -22,7 +22,7 @@ const meshBytes = d => d.pos.byteLength + d.nrm.byteLength + d.idx.byteLength + 
 // desc（source の記述子・globe が作る）＝{ tileUrl:(z,x,y)=>URL|null, pmtiles: URL|null, minzoom, maxzoom, bounds:[w,s,e,n]|null, coverage:[w,s,e,n]|null, promoteId, tag（同じ source かの印） }
 // 呼び手の口：size()＝{ w, h }（device px）・hitEnv()＝今の視点の当たりの口（extrude-ml.js の env＝vtx/roof・地形の持ち上げ込み・奥行き＝clip の w）・
 //             unprojectAt(x, y, 高さ m)→[lon, lat]|null（候補の区間）・isFlying()
-export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
+export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
 	const MESH_BUDGET = (lowMem ? 96 : 256) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3;
 	const sources = new Map();   // sid → { sid, desc, sig, tiles: Map<key, T>, fetching }   T＝{ state: loading|ready|empty|failed, bytes, used, ac, tries, failedAt }
@@ -73,7 +73,7 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, reque
 	// ── 選び ──
 	function wantedOf(src) {
 		const { desc } = src, { w, h } = size();
-		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr });
+		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr * tileBias });   // tileBias＝目盛り "mercator" でタイルの z を MapLibre と同じに（globe.js の TILE_BIAS）
 		const area = desc.bounds || desc.coverage;
 		if (area) ts = ts.filter(t => hits(tileBbox(t.z, t.x, t.y), area));
 		if (!ts.length) return [];

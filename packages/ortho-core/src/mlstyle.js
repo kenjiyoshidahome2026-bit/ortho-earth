@@ -101,6 +101,9 @@ function convertTokens(s) {
 	return parts.length === 1 ? parts[0] : ["concat", ...parts];
 }
 
+const ANCHORS = new Set(["center", "left", "right", "top", "bottom", "top-left", "top-right", "bottom-left", "bottom-right"]);
+const KNOWN_OPS_FOR_LITERAL = new Set(["literal", "get", "has", "case", "match", "step", "interpolate", "let", "var", "to-color", "rgb", "rgba", "hsl", "hsla", "concat", "coalesce", "zoom"]);   // 色の名前と見分ける（式の頭になり得る語）
+const isAnchorOffsets = v => Array.isArray(v) && v.length >= 2 && v.length % 2 === 0 && v.every((x, i) => i % 2 === 0 ? ANCHORS.has(x) : Array.isArray(x) && x.length === 2 && x.every(Number.isFinite));
 // 値一つを式へ（関数・差し込み記法・文字列から始まる配列リテラル）
 export function convertValue(v, prop = "") {
 	if (isFunction(v)) return convertFunction(v, prop);
@@ -108,6 +111,10 @@ export function convertValue(v, prop = "") {
 	// 文字列の配列リテラル（フォント名・アンカー名）は式と見分けがつかない＝literal に包む。line-dasharray は数の配列＝そのままで
 	// リテラル、先頭が文字列なら式（step/interpolate/literal）＝包むと式が「中身の配列」として読まれ線ごと消えた（2026-09-25）
 	if (Array.isArray(v) && v.length && typeof v[0] === "string" && (prop === "text-font" || prop === "text-variable-anchor")) return ["literal", v];
+	// text-variable-anchor-offset のリテラル＝["top", [0, 1], "bottom", [0, -1]]（アンカー名と 2 数の組の並び）。式（match/step…）と読み違えて「知らない演算子 top」で層を落としていた（公式例の門 2 巡目）
+	if (prop === "text-variable-anchor-offset" && isAnchorOffsets(v)) return ["literal", v];
+	// hillshade の multidirectional＝色・向きの配列（["#FF4000", "#FFFF00", …]・[270, 315, 0, 45]）＝式ではない（先頭が色の文字列＝「知らない演算子 #FF4000」で層を落としていた）
+	if (/^hillshade-/.test(prop) && Array.isArray(v) && v.length && v.every(x => typeof x === "number" || (typeof x === "string" && /^(#|rgb|hsl|[a-z]+$)/i.test(x) && !KNOWN_OPS_FOR_LITERAL.has(x)))) return ["literal", v];
 	return v;
 }
 
@@ -187,6 +194,7 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 		const sp = sources[L0.source];
 		// geojson / image / video の層＝利用者の層の口へ「そのまま」渡す（読み替えと目盛りの換算は受け手が normalizeMLLayer で 1 回＝dz は受け手が layerDzOf(L, zoomOffset) で決める）
 		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L0); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
+		if (L0.type === "hillshade" && sp?.type === "raster-dem") { geojson.push(L0); continue; }   // hillshade＝利用者の層の口（globe の hillshade.js＝陰影の画像タイル・公式例の門 3 巡目）
 		const bad = mlUnknownOps(L0);
 		if (bad.length) { skipped.push({ id: L0.id, type: L0.type, why: `unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}` }); continue; }   // MapLibre は層を足さない
 		const L = normalizeMLLayer(L0, zoomOffset);

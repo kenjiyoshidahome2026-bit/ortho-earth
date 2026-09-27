@@ -5,18 +5,11 @@
 //   ・実時間は**頁ごとに Chrome を立て直す**（別ポート・別プロファイル・kill の exit を待つ）＝前の頁の
 //     IDB/localStorage/GPU が次へ漏れない（9/24 に verify-webgpu 側で踏んだ轍と同じ手当て）
 import { spawn, execFile } from "node:child_process";
-import { rm, readFile } from "node:fs/promises";
 import net from "node:net";
+import { CHROME, SWIFTSHADER, REALGPU, waitExit, launchChrome, newTab, connect } from "./cdp.mjs";
 
-export const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+export { CHROME, SWIFTSHADER, REALGPU, waitExit };   // 2026-09-27 に cdp.mjs へ移した＝ここからも従来どおり取れる
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-
-export const waitExit = (proc, ms = 5000) => new Promise(res => {
-	if (proc.exitCode != null || proc.signalCode != null) return res();
-	const t1 = setTimeout(() => { try { proc.kill("SIGKILL"); } catch { /* もう居ない */ } }, 2000);
-	const t2 = setTimeout(res, ms);
-	proc.once("exit", () => { clearTimeout(t1); clearTimeout(t2); res(); });
-});
 
 // 口に既に誰か居るか。vite の localhost は macOS では ::1 に立つが、よその鯖は 127.0.0.1 のことがある＝両方叩く
 const portTaken = port => Promise.all(["127.0.0.1", "::1"].map(host => new Promise(res => {
@@ -42,10 +35,10 @@ const holderOf = port => new Promise(res => execFile("lsof", ["-nP", `-iTCP:${po
 //   ・起こす前に口が空いているかを見る（塞がっていれば握り主を名指しして止まる）
 //   ・自分の vite が "ready in" を刻むまで準備完了と見なさない（--strictPort＝この口で立った証し。同時起動の競り負けも拾う）
 //   ・起動前に落ちたら出力の末尾を添えて止まる
-export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "" }) {
+export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "", args = [] }) {   // args＝vite へ足す引数（例：["--config", 別の設定]）
 	const hint = `＝よその鯖に繋ぐと別の checkout を検定してしまう。握り主を止めるか、${portEnv || "呼び手の *_PORT"}=<空き port> で逃がす`;
 	if (await portTaken(port)) throw new Error(`port ${port} が既に使われている${await holderOf(port)}${hint}`);
-	const vite = spawn("npx", ["vite", "--port", String(port), "--strictPort"], { cwd, stdio: ["ignore", "pipe", "pipe"], ...(env ? { env: { ...process.env, ...env } } : {}) });
+	const vite = spawn("npx", ["vite", "--port", String(port), "--strictPort", ...args], { cwd, stdio: ["ignore", "pipe", "pipe"], ...(env ? { env: { ...process.env, ...env } } : {}) });
 	let log = "", ready = false, gone = "";
 	const eat = b => { log = (log + b).slice(-4000); ready ||= /ready in/.test(log); };   // 読み続ける＝pipe を詰まらせない（中身は捨てる）
 	vite.stdout.on("data", eat); vite.stderr.on("data", eat);
@@ -62,54 +55,26 @@ export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "" 
 	return () => vite.kill();
 }
 
-// ソフトウェア GL（仮想時間と両立しない頁）＝既定の旗
-export const SWIFTSHADER = ["--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
-// 実 GPU（WebGPU バックエンドの検分）＝WebGPU の async init は仮想時間と両立しない＝ここも実時間
-export const REALGPU = ["--enable-unsafe-webgpu"];
-
 // 実時間 1 頁＝1 Chrome（別ポート＝Chrome が選ぶ・別プロファイル・kill の exit を待つ）。呼び手の cdpBase は旧来の名残＝無視。戻り＝document.title（PASS…／FAIL…）。
 // drag:true＝ページが window.__dragGo を立てている間だけ実マウスの pointermove を流す（入力→rAF のフレーム内順序は
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
 // backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
 export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null } = {}) {
-	// CDP の port は Chrome 自身に空きを選ばせる（port 0 → プロファイルの DevToolsActivePort に書く）。旧＝pid と seq から
-	// 決め打ち＝置き去りの headless Chrome が同じ port に居ると、よその Chrome に繋いで頁が進まず「no-title」（2026-09-25）
-	const dir = `/tmp/${profilePrefix}-${process.pid}-${seq}`;
-	await rm(dir, { recursive: true, force: true }).catch(() => { /* 無ければよい */ });   // 前回の DevToolsActivePort を読まない
-	const chrome = spawn(CHROME, ["--headless=new", "--remote-debugging-port=0", ...flags,
-		"--no-first-run", `--user-data-dir=${dir}`, "about:blank"], { stdio: "ignore" });
-	let CDP = 0;
+	// Chrome の起動・タブ・WebSocket は cdp.mjs（port は Chrome が選ぶ・頁ごとに別プロファイル・kill の exit を待つ）
+	let ch = null;
 	try {
-		for (let i = 0; ; i++) {
-			if (!CDP) CDP = +(await readFile(`${dir}/DevToolsActivePort`, "utf8").catch(() => "")).split("\n")[0] || 0;
-			if (CDP) { try { await (await fetch(`http://127.0.0.1:${CDP}/json/version`)).json(); break; } catch { /* まだ */ } }
-			if (i > 60) return "FAIL chrome devtools が起動しない";
-			await sleep(250);
-		}
-		let target = null, why = "";
-		for (let k = 0; k < 2 && !target; k++) {   // タブ作成＝失敗は本文を理由にして 1 回だけ作り直す（JSON.parse で落とさない）
-			const r = await fetch(`http://127.0.0.1:${CDP}/json/new?about:blank`, { method: "PUT" }).catch(e => ({ ok: false, text: async () => String(e.message) }));
-			const body = await r.text();
-			try { if (r.ok) target = JSON.parse(body); else why = body; } catch { why = body; }
-			if (!target) await sleep(500);
-		}
-		if (!target?.webSocketDebuggerUrl) return "FAIL chrome: タブを作れない（" + String(why).slice(0, 80) + "）";
-		const ws = new WebSocket(target.webSocketDebuggerUrl);
-		await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-		let id = 0; const pending = new Map();
-		const send = (m, p = {}) => new Promise(res => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method: m, params: p })); setTimeout(() => { if (pending.has(i)) { pending.delete(i); res(null); } }, 5000); });
-		ws.onmessage = ev => {
-			const m = JSON.parse(ev.data);
-			if (m.id && pending.has(m.id)) { pending.get(m.id)(m.result); pending.delete(m.id); }
-			else if (backends && m.method === "Runtime.consoleAPICalled") {
-				const b = /^\[boot\] frame1 received backend=(\w+)/.exec(m.params?.args?.[0]?.value || "")?.[1];
-				if (b) backends.push(b);
-			}
-		};
+		try { ch = await launchChrome({ flags, profilePrefix, seq }); } catch (e) { return "FAIL " + e.message; }
+		let target;
+		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
+		const cdp = await connect(target.webSocketDebuggerUrl);
+		const send = (m, p = {}) => cdp.send(m, p);   // 結果（時間切れ 5 秒・切断は null）
+		if (backends) cdp.on(m => {
+			if (m.method !== "Runtime.consoleAPICalled") return;
+			const b = /^\[boot\] frame1 received backend=(\w+)/.exec(m.params?.args?.[0]?.value || "")?.[1];
+			if (b) backends.push(b);
+		});
 		// タブが死ぬ（GPU プロセス落ち・OOM）と WebSocket が閉じ、以後の send は全部 5 秒のタイムアウト＝limitS×2 回で最悪 55 分「固まる」（bench-perf で 2 回実測 2026-09-27）
 		// ＝閉じたら即 FAIL・待ちは壁時計 limitS で必ず切る
-		let wsDead = false;
-		ws.onclose = () => { wsDead = true; }; ws.onerror = () => { wsDead = true; };
 		await send("Page.enable"); await send("Runtime.enable");
 		await send("Page.navigate", { url });   // json/new の url は効かない個体がある＝明示遷移（CDP 台の轍）
 		let title = "";
@@ -127,19 +92,18 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 		})().catch(() => { /* ページ終了で evaluate が失敗するのは正常 */ });
 		const tWall = Date.now();
 		while (!/^(PASS|FAIL)/.test(title)) {
-			if (wsDead) { title = "FAIL chrome: WebSocket closed（タブが死んだ＝GPU プロセス落ち/OOM の疑い）"; break; }
+			if (cdp.dead()) { title = "FAIL chrome: WebSocket closed（タブが死んだ＝GPU プロセス落ち/OOM の疑い）"; break; }
 			if (Date.now() - tWall > limitS * 1000) break;   // 壁時計で切る（send のタイムアウトが積み重なっても limitS 秒で出る）
 			await sleep(500);
 			title = (await send("Runtime.evaluate", { expression: "document.title", returnByValue: true }))?.result?.value || "";
 		}
 		if (shot) { const r = await send("Page.captureScreenshot", { format: "png" }); if (r?.data) (await import("node:fs")).writeFileSync(shot, Buffer.from(r.data, "base64")); }
-		ws.close();
+		cdp.close();
 		return /^(PASS|FAIL)/.test(title) ? title : `FAIL no-title(realtime ${limitS}s): ` + title;
 	} catch (e) {
 		return "FAIL chrome: " + String(e?.message || e).slice(0, 120);
 	} finally {
-		chrome.kill(); await waitExit(chrome);
-		await rm(dir, { recursive: true, force: true }).catch(() => { /* 掃除失敗は無害 */ });
+		if (ch) await ch.close();
 	}
 }
 

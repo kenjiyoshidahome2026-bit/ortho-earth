@@ -36,13 +36,15 @@ import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
 import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY } from "@ortho-earth/core";
-import { zoomScaleOf, bootOptsIn, ML_DZ } from "./zoomscale.js";
+import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
-export { RAW } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）
+export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
 import { pmLayers, pmRoles } from "./style-pm.js";   // ?pm= の層名→役割→描画規則（静的import＝?pm= を使わない構成でも数百バイト）
 import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが宣言する出典 HTML は非信頼入力＝出力境界で消毒   // tile/scene worker のスポーンごとエンジン側
 import { createGintLayers } from "./gint/layers.js";
-import { createWorldContent } from "./gint/worldcontent.js";   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
+import { createWorldContent } from "./gint/worldcontent.js";
+import { createHillshadeProvider } from "./hillshade.js";
+import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
@@ -104,6 +106,8 @@ const t = tr();
 //   opts.mesh＝建物3D（建物メッシュ）機能スイッチ（true=[既定]／false=カタログ・worker・自動ロード・ガジェットごと停止）。旧名 opts.plateau は非推奨の別名（mesh が優先）
 //   opts.maxPitch＝チルト上限rad（0=俯瞰固定。geoedit等の編集アプリ用。未記述=既定MAXPITCH＝従来どおり）
 //   opts.stars＝恒星（stars.6）のスイッチ（true=[既定]／false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり＝人工衛星ページ用）
+//   opts.sky／opts.night／opts.coastline＝星空劇場と太陽系圏／低ズームの夜面／世界の海岸線（true=[既定]／false=持たない・描かない＝MapLibre の口 src/maplibre/ の既定）
+//   opts.terrain＝false：setTerrain まで平ら（既定の標高を取らない＝MapLibre と同じ意味）。{ source, exaggeration }＝外来の標高タイル
 //   opts.countryTip＝世界ビュー(z<5.5)のホバー国名 tip（true=[既定]／false=出さない＝自前の tip と重ねない器）
 //   opts.theme＝配色テーマの固定（"dark"等の台帳名＝焼き付け・URLに書かない／台帳と同形のオブジェクト＝カスタムテーマ）。
 //     未記述＝共有URLの c=<name> で選択（既定 mono＝白地図。台帳は palettes.js）
@@ -116,7 +120,13 @@ const t = tr();
 export async function createGlobe(opts = {}) {
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
-const PUBLIC_DZ = zoomScaleOf(opts) === "maplibre" ? ML_DZ : 0;
+// "mercator"＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の緯度・zoomscale.js の mercatorDz）＝MapLibre のメルカトルの縮尺に合わせる。外来 style の目盛り STYLE_DZ も同じ（style.json は MapLibre の z）
+const ZOOM_SCALE = zoomScaleOf(opts);
+const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || location.hash)?.lat ?? 0) : 0;
+const STYLE_DZ = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
+// タイルの z は MapLibre と同じに（mercator）：カメラが緯度の分だけ寄っても、選ぶタイルの z は MapLibre の z のまま（MapLibre は floor(zoom) のタイルを引き伸ばす）＝
+// 分割の閾（画面 px）を 2^(dz−1) 倍する。基図（tiles.update）と vector source（vtextrude/vtdraw）の選びに掛ける。⚠これが無いと一段細かいタイルを選び、問い合わせの答え（地物の集合）が MapLibre と違う（o8 で 43→30）
+const TILE_BIAS = ZOOM_SCALE === "mercator" ? 2 ** (PUBLIC_DZ - ML_DZ) : 1;
 opts = bootOptsIn(opts, PUBLIC_DZ);
 const requester = createRequester();   // 取得の前の手入れ（#37）＝opts.transformRequest／map.setTransformRequest・独自スキームは addProtocol（大域）
 requester.setTransform(opts.transformRequest);
@@ -237,9 +247,11 @@ const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と�
 // 基図の source の circle（基図は円を描かない）。基図の source の fill／line／点ラベルは基図が描く（今まで通り）
 const VT_DRAW = new Set(["fill", "line", "circle", "symbol"]);
 const vtRouted = (L, ms, baseSid) => ms.sources?.[L.source]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle")));
-const loadExtStyle = async spec => {
-	const { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
-	const split = splitMapLibreStyle(ms);
+const loadExtStyle = async (spec, transformStyle = null) => {
+	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
+	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
+	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) ?? ms;
+	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
 	const isVtx = k => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
 	const skipped = split.skipped.filter(k => !isVtx(k));
@@ -558,7 +570,10 @@ const diagHud = /[?&]stay=1/.test(location.search) ? (() => {
 if (/[?&]gpu=1/.test(location.search) && !gpuBackend) console.warn("[boot] gpu=1 requested but WebGPU unavailable (no navigator.gpu, or gl2=1 also set) = starting as WebGL2");
 if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${nogpuMark || "accumulated" }, count ${nogpuN}${nogpuN >= 2 ? " = pinned for this tab" : " = retry on next reload"})`);
 // ?noterr=1 ＝標高（アトラス・地形メッシュ・タイルLRU）を丸ごと停止する A/B 計測ノブ（?nogint=1 と同格）。
-const noTerr = /[?&]noterr=1/.test(location.search);
+// opts.terrain＝false：MapLibre と同じ「setTerrain まで平ら」（公式例の門 段 2・2026-09-27）＝既定の標高を取らない・描かない。
+// setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
+const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
+let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
@@ -581,7 +596,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -626,7 +641,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [] };   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [] };   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -756,6 +771,7 @@ renderWorker.onmessage = e => {
 };
 
 let needsDraw = true, readySig = "", lastLabels = [], sceneOrigin = null;
+let coverOk = true;   // 最後の render で「基図が視野を隙間なく覆い、その枠がそのまま載っている」（idle の材料・公式例の門 段 2）
 let renderBackend = null;   // 初描画で確定（"webgpu"／"webgl2"）。建物の影は WebGPU だけ（GL2＝フォールバックは影をかけない仕様）
 // mainDesired＝「今この視点で載っているべき main の sig」（swapScene が毎回更新。request の dedupe とは独立）。
 // base(粗い下地)の退場判定に使う：readySig がこれに追いつく＝穴なしが確定するまで下地を敷いたままにする。
@@ -1148,7 +1164,7 @@ const ZOOM_MIN = 1;          // 床1＝地球全体を余白つきで（z1=世�
 // 旧・飛行系だけ床1の保守的縫い目は撤去＝呼び出し側は皆 z≥3 か Math.max 済みで、床1に頼る呼び出しは無いのを検分済み）。
 // ?nosolar=1 で圏ごと停止（?nofar 等と同じ逃げ道の作法）＝その時は飛行床も従来の1へ戻る。
 const SOLAR_ZOOM_MIN = -17;
-const solarOff = new URLSearchParams(location.search).has("nosolar");
+const solarOff = new URLSearchParams(location.search).has("nosolar") || opts.sky === false;   // opts.sky＝false（MapLibre の口）＝太陽系圏も持たない
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
 let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
 let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
@@ -1237,6 +1253,7 @@ function switchTheme(name) {
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
 renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
+	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
 	...(theme.distColor && { distColor: theme.distColor }),
@@ -1271,6 +1288,7 @@ let worldContentH = null;   // opts.worldContent の手綱（テーマ切替で�
 const gint = createGintLayers({
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
 	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
+	coastline: opts.coastline,   // false＝世界の海岸線（NE admin0 の gint 層・z<9）を持たない（MapLibre の口・公式例の門 段 2）
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
 	get worldStyle() { return WORLD_STYLE_THEMES[themeName] || WORLD_STYLE_THEMES.mono; },   // 世界線（河川・海洋境界線）の色＝ortho-core worldstyle の正本（段階 3）
@@ -1328,7 +1346,7 @@ async function loadLakes() {
 dbgHost.__lakes = () => lakesState;   // 検証フック（t-world）：0=未 1=着手 2=搭載済
 
 // --- 星空劇場＝sky/theater.js（星・惑星・月・星座・黄道/天の赤道・日時計・太陽系圏との交代）。ここは配線だけ。
-const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, now: () => clock.time, stars: opts.stars, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
+const sky = createSkyTheater({ mapEl, renderer, dpr, cam, STARSKY_Z, solarOff, now: () => clock.time, stars: opts.stars, sky: opts.sky, get printHold() { return printHold; }, saveView: () => saveView(), requestDraw: () => { needsDraw = true; } });
 // 時計の状態が変わった（段・日時・今へ戻る・範囲の端で停止・URL の読み込み）＝worker へ基準・空と惑星・URL・map.on("time")
 let clockSentAt = 0;
 function sendClock() { clockSentAt = performance.now(); wPost({ type: "set", cmd: "clock", data: clock.isLive() ? null : clock.anchor() }); }
@@ -1897,15 +1915,15 @@ function render() {
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
 	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
-	if (!basemap) { lastTileOrder = []; lastSkipBase = false; }
+	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
 	if (basemap) {
 		sampleGroundElev();   // 中心の地面標高を追随（非同期・~100m格子メモ）＝groundR の材料
-		tu = tiles.update(cam, size.w, size.h, { tilePx: (moving || !gpuFast || !idleCalm) ? undefined : IDLE_TILE_PX, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
+		tu = tiles.update(cam, size.w, size.h, { tilePx: ((moving || !gpuFast || !idleCalm) ? 560 : IDLE_TILE_PX) * TILE_BIAS, groundR: groundRNow(), keepFine: keepFineNow(), maxZ: BASE_SOURCE.info ? BASE_SOURCE.info.maxZoom : undefined });   // maxZ＝PMTiles 基図のときアーカイブの maxZoom で分割を止める（それ以上は最細段を引き伸ばす＝空タイル要求を作らない）   // tilePx＝「本当の静止」（settle+550ms）だけ主層を一段細かく（手前の詳細化・GPU格付け fast 限定・undefined=既定560）。groundR＝地形リフト球（チルト×高標高地の手前くさび欠け根治）。keepFine＝ズームアウトの子孫代打（3D限定）。calm が needsDraw を立て、細タイルの ready は requestDraw で連鎖再描画
 		lastTileOrder = tu.order;   // 描いている基図タイル＝map.queryRenderedFeatures の問い合わせ先
 		const o = tu.order, tailNow = "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);   // tailNow＝swapScene の署名末尾と同式
 		const merged = !!readySig && readyKeys !== null && readyTail === tailNow && readyKeys.size === o.length && o.every(t => readyKeys.has(t.key));
 		skipBase = tu.covered && merged;
-		lastSkipBase = skipBase;   // onMove（入力直結の draw）が同じ値を送る＝worker へ届く opts がフレームごとに交互にならない（#58）
+		lastSkipBase = skipBase; coverOk = skipBase;   // onMove（入力直結の draw）が同じ値を送る＝worker へ届く opts がフレームごとに交互にならない（#58）
 		dbgHost.__cover = { covered: tu.covered, merged, ready: o.length, sel: tu.sel, moving };   // 検証/切り分け用：なぜ base が落ちた/落ちないか
 	}
 	// terrainGate: 標高アトラスの再構築（窓選定108unproject＋staging＋セルfetch）は重い＝移動中は一切行わず、
@@ -2051,7 +2069,22 @@ function frame() {
 		for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: false, ticking: true }); } catch (e) { console.error("[map.on time]", e); } }
 	}
 	if (needsDraw) { needsDraw = false; render(); }
+	if (mapOn.idle.length) checkIdle(nowT);
 	requestAnimationFrame(frame);
+}
+// idle（MapLibre 同名・公式例の門 段 2・2026-09-27）＝動いていない・飛んでいない・描き直し待ちが無い・基図が覆って載っている・
+// 標高と建物の読み込みが無い・利用者の source が揃った、が 100ms 続いたら 1 回。忙しくなったら次の静けさでまた 1 回（MapLibre と同じ）。
+// 起動直後も（カメラを動かさなくても）来る＝settle（onMove の後だけ）とは別の合図
+let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
+function checkIdle(now) {
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && coverOk && !elevBusy && !meshMgr.visibleLoading().length
+		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id));
+	if (!quiet) { idleState = 0; return; }
+	if (idleState === 0) { idleState = 1; idleSince = now; return; }
+	if (idleState === 1 && now - idleSince >= 100) {
+		idleState = 2;
+		for (const cb of [...mapOn.idle]) { try { cb({}); } catch (e) { console.error("[map.on idle]", e); } }
+	}
 }
 requestAnimationFrame(frame);
 
@@ -2399,6 +2432,7 @@ map.setTerrain = async t => {
 		redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
 	demMain = demSpec ? createDemSource(demSpec) : null;
 	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
+	if (terrLazy && demSpec) noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
 	return map;
@@ -2456,8 +2490,14 @@ function serveProtocolRaster(port, tpl, spec) {
 		const ac = new AbortController(); acs.set(id, ac);
 		try {
 			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
-			const ab = rq.load ? await rq.load("arrayBuffer", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
-			const bitmap = ab.byteLength ? await createImageBitmap(new Blob([ab]), { premultiplyAlpha: "none", colorSpaceConversion: "none" }) : null;
+			// 独自スキームは MapLibre と同じく type:"image" で頼む（maplibre-cog-protocol は "image" だけを受ける・公式例の門 2 巡目）。返りは画像・ImageBitmap・ImageData・Blob・ArrayBuffer のどれでも
+			const d = rq.load ? await rq.load("image", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
+			const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
+			const bitmap = d == null ? null
+				: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
+				: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) ? await createImageBitmap(d, bmOpts)
+				: d instanceof Blob ? await createImageBitmap(d, bmOpts)
+				: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
 			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
 		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
 		finally { acs.delete(id); }
@@ -2479,7 +2519,7 @@ map.raster = {
 			const v = spec.video, isEl = typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement;
 			return (await videoGet()).add(id, { video: isEl ? v : null, urls: isEl ? null : v, corners: spec.corners, opacity: o.opacity ?? 1 });
 		}
-		const rec = { spec, opts: { ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };
+		const rec = { spec, opts: { tileBias: TILE_BIAS, ...o }, info: null, error: null, worker: null, attrHTML: null, _res: null, _rej: null };   // tileBias＝目盛り "mercator" で画像タイルの z も MapLibre と同じに
 		rasterReg.set(id, rec);
 		let wireSpec = spec, transfer = spec && spec.port ? [spec.port] : [];   // 外部プロバイダ（MessagePort）＝そのまま render worker へ transfer
 		// 取得の前の手入れ（#37）：URL の型紙は worker が組む＝ヘッダ/credentials はソース単位で一度だけ決める。独自スキーム＝main が読み口で取って port で渡す
@@ -3278,7 +3318,14 @@ map.gadget("cluster", async function (src, opts = {}) {
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
 const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal }); };
-map.addImage = async (name, img, o) => (await symGet()).addImage(name, img, o);           // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
+// 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
+// こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
+const pendingImages = new Set();
+map.addImage = (name, img, o) => {   // img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}・o＝{ pixelRatio, sdf }
+	const p = (async () => (await symGet()).addImage(name, img, o))();
+	pendingImages.add(p); p.catch(() => {}).finally(() => pendingImages.delete(p));
+	return p;
+};
 map.removeImage = name => symCtl?.removeImage(name);
 map.hasImage = name => !!symCtl?.hasImage(name);
 map.listImages = () => symCtl?.listImages() ?? [];
@@ -3335,6 +3382,8 @@ const mlVisible = v => v.layer.layout?.visibility !== "none";
 const mlOrderOf = id => [...mlLayers.keys()].indexOf(id);
 const kindOf = (layer, sp) => {
 	if (layer.type === "raster") return "raster";
+	if (layer.type === "custom") return "custom";   // source を持たない（CustomLayerInterface）
+	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
 	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
 	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported yet — vector sources feed fill / line / circle / symbol / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
@@ -3539,7 +3588,7 @@ const vtxGet = async () => {
 	wPost({ type: "meshPort", port: ch.port2 }, [ch.port2]);
 	return vtxCtl = dbgHost.__vtx = m.createVTExtrude(map, {   // __vtx＝検証窓（debugGlobals の時だけ）
 		meshPort: ch.port1, requestDraw: () => { needsDraw = true; },
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey,
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey, tileBias: TILE_BIAS,
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer].filter(Boolean))] : []); needsDraw = true; },
 		meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 		hitEnv: () => extView().envOf(vtxGround),   // 当たり＝geojson の押し出しと同じ口（屋根と壁・奥行き＝clip の w・台帳 R23）
@@ -3589,7 +3638,7 @@ const vtdGet = async () => {
 	if (vtdCtl) return vtdCtl;
 	ownDestroy.push(() => vtdCtl?.destroy());   // 組み役・結合役の worker・リスナー（map.destroy）
 	return vtdCtl = dbgHost.__vtd = m.createVTDraw(map, {   // __vtd＝検証窓（debugGlobals の時だけ）
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; },
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS,
 		sendScene: (scene, transfer) => { wPost({ type: "set", cmd: "scene", data: scene, prop: "user" }, transfer); needsDraw = true; },
 		sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); needsDraw = true; },
 	});
@@ -3617,6 +3666,7 @@ const vtdMount = async (v, layer) => {
 const vecAttrDrop = (v, sid) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; needsDraw = true; } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
 const mountLayer = async v => {
+	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
 	if (kind === "vtextrude") return vtxMount(v, layer);
 	if (kind === "vtdraw") return vtdMount(v, layer);
@@ -3635,6 +3685,19 @@ const mountLayer = async v => {
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
+	if (kind === "custom") { customGet().add(v.layer, order); return null; }   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
+	if (kind === "hillshade") {   // raster-dem のタイルから陰影の画像タイルを作る port プロバイダ（hillshade.js）→画像タイル層（基図の上・注記の下）
+		const ro = { order: "over", opacity: 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
+		let ds = sp;
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution }; }
+		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
+		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" });
+		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
+		v.hs?.close();
+		v.hs = createHillshadeProvider({ dem: ds, paint, fetchFn: (u, init) => requester.fetch(u, "Tile", init), name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`) });
+		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
+		return map.raster.add(layer.id, { port: v.hs.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
+	}
 	if (kind === "extrude") return extrudeNative(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
 	if (kind === "cluster") return rebuildCluster(sid);
@@ -3645,6 +3708,8 @@ const mountLayer = async v => {
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
+	else if (kind === "custom") customCtl?.remove(id);
+	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
 	else if (kind === "vtdraw") { vtdCtl?.remove(id); vecAttrDrop(v, sid); }
@@ -3662,7 +3727,13 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
 	vtdCtl?.setOrder(vtdOrder());   // vector の描く層（段 8⑤）＝順の鍵（増えている間は組み直さない）
+	for (const v of mlLayers.values()) if (v.kind === "custom") customCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
 };
+// MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
+let customCtl = null, customHost = null;
+const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), get hostMap() { return customHost ?? map; } });
+map.setCustomLayerHost = h => { customHost = h; return map; };
+map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
 map.addSource = (id, spec) => addSourceAt(id, spec, PUBLIC_DZ);
 map.getSource = id => {
@@ -3673,12 +3744,37 @@ map.getSource = id => {
 		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
-	return { ...sp, ...extra, setData: async data => {
-		sp.data = data;
+	const remount = async (dataChanged = true) => {   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
 		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
-		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged: true });
+		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged });
 		for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
-	} };
+	};
+	const self = { ...sp, ...extra, setData: async data => { sp.data = data; await remount(); } };
+	// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
+	if (sp.type === "geojson") self.updateData = async diff => {
+		const d = sp.data;
+		if (!d || typeof d !== "object") throw new Error(`updateData: source "${id}" data is not an object (a URL source cannot take a diff)`);
+		const fc = d.type === "FeatureCollection" ? d : { type: "FeatureCollection", features: d.type === "Feature" ? [d] : [] };
+		const pk = sp.promoteId == null ? null : typeof sp.promoteId === "string" ? sp.promoteId : Object.values(sp.promoteId)[0];
+		const idOf = f => f.id ?? (pk != null ? f.properties?.[pk] : undefined);
+		let fs = diff?.removeAll ? [] : [...fc.features];
+		if (diff?.remove?.length) { const rm = new Set(diff.remove); fs = fs.filter(f => !rm.has(idOf(f))); }
+		for (const u of diff?.update || []) {
+			const i = fs.findIndex(f => idOf(f) === u.id); if (i < 0) continue;
+			const f = { ...fs[i], properties: u.removeAllProperties ? {} : { ...(fs[i].properties || {}) } };
+			for (const k of u.removeProperties || []) delete f.properties[k];
+			for (const { key, value } of u.addOrUpdateProperties || []) f.properties[key] = value;
+			if (u.newGeometry) f.geometry = u.newGeometry;
+			fs[i] = f;
+		}
+		if (diff?.add?.length) { const add = new Set(diff.add.map(idOf)); fs = fs.filter(f => !add.has(idOf(f))).concat(diff.add); }
+		sp.data = { ...fc, features: fs }; await remount();
+	};
+	if (sp.type === "image") {
+		self.updateImage = o => { if (o?.url) sp.url = o.url; if (o?.coordinates) sp.coordinates = o.coordinates; remount(false); return self; };
+		self.setCoordinates = c => { sp.coordinates = c; remount(false); return self; };
+	}
+	return self;
 };
 map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
@@ -3688,18 +3784,22 @@ map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id)) && (vtxCtl ?
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
-map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); if (id === AUTO_BLD && autoBldOn()) return autoBldLayer(); const B = baseLayerOf(id); return B ? echoBase(B) : undefined; };   // 基図の層も（段 7）・自動の建物（building-extrusion）も
+map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); if (id === AUTO_BLD && autoBldOn()) return autoBldLayer(); const B = baseLayerOf(id); if (B) return echoBase(B); const X = extOtherOf(id); return X ? echoOther(X) : undefined; };   // 基図の層も（段 7）・自動の建物（building-extrusion）も
 // beforeId＝その層の下に差し込む（MapLibre と同じ）。同じ id の層は置き換え
 const addLayerAt = async (layer, beforeId, dz) => {
-	const sp = srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
+	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
+	const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
+	if (layer?.type === "custom" && typeof layer.render !== "function") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method`);
 	assertMLLayer(layer, "addLayer");
-	const v = { layer: { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };
+	const v = { layer: layer?.type === "custom" ? layer : { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
 	v.kind = kindOf(drawLayerOf(v), sp);
 	if (mlLayers.has(layer.id)) { const old = mlLayers.get(layer.id); mlLayers.delete(layer.id); await unmountLayer(old); }
 	if (beforeId != null && mlLayers.has(beforeId)) {
 		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
 		ents.splice(i, 0, [layer.id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
 	} else mlLayers.set(layer.id, v);
+	if (beforeId != null && beforeId !== layer.id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId))) v.before = beforeId;   // getStyle の順（§8 A4）＝どの層の前か。style の層の前でも描く段は基図の上（§4）
 	const r = mlVisible(v) ? await mountLayer(v) : null;
 	if (beforeId != null) reorderLayers();
 	return r;
@@ -3707,9 +3807,15 @@ const addLayerAt = async (layer, beforeId, dz) => {
 map.addLayer = (layer, beforeId) => addLayerAt(layer, beforeId, PUBLIC_DZ);
 map.removeLayer = id => {
 	const v = mlLayers.get(id);
-	if (!v) { if (id === AUTO_BLD && autoBldOn()) { setAutoBld(true); autoBldRemoved = true; return map; } if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); } return map; }   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
+	if (!v) {
+		if (id === AUTO_BLD && autoBldOn()) { setAutoBld(true); autoBldRemoved = true; return map; }
+		if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); }
+		else if (extOtherOf(id)) { if (isExtImage(id)) { map.raster.remove(id); extExtras.raster = extExtras.raster.filter(x => x !== id); } extNotes.set(id, { removed: true }); }   // その他の層（§8 A）
+		return map;
+	}   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
 	mlLayers.delete(id);
 	unmountLayer(v);
+	if (extExtras.layers.includes(id)) extNotes.set(id, { removed: true });   // style 由来の層を外した＝getStyle の「その他の層」として復活させない（§8 A）
 	return map;
 };
 map.moveLayer = (id, beforeId) => {
@@ -3720,6 +3826,7 @@ map.moveLayer = (id, beforeId) => {
 		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
 		ents.splice(i, 0, [id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
 	} else mlLayers.set(id, v);
+	v.before = beforeId != null && beforeId !== id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId)) ? beforeId : null;   // getStyle の順（§8 A4）
 	if (v.kind === "vtdraw") vtdCtl?.setOrder(vtdOrder(), id);   // 動いた層だけ鍵を振り直す（その source を組み直す）
 	reorderLayers();
 	return map;
@@ -3730,6 +3837,11 @@ map.setPaintProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, paint: { [name]: value } }, "setPaintProperty");
 	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setPaintProperty");
+	if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は不透明度が効く
+		noteOther(id, n => { if (value === undefined) delete n.paint[name]; else n.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
+		if (isExtImage(id) && name === "raster-opacity") map.raster.set(id, { opacity: typeof value === "number" ? value : 1 });
+		return map;
+	}
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
 	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
@@ -3738,11 +3850,16 @@ map.setPaintProperty = (id, name, value) => {
 	relayer(v); return map;
 };
 const echoProp = (v, x) => v && x !== undefined ? rescaleZoomExpr(x, v.dz, PUBLIC_DZ) : x;   // 層の目盛り→呼び手の目盛り（set したものが get で戻る）
-map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id), x = B?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } const x = B.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setLayoutProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, layout: { [name]: value } }, "setLayoutProperty");
 	if (!v && id === AUTO_BLD && autoBldOn()) { if (name !== "visibility") autoBldReadOnly("setLayoutProperty"); setAutoBld(value === "none"); return map; }   // 自動の建物＝出し入れだけ
+	if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は出し入れが効く
+		noteOther(id, n => { if (value === undefined) delete n.layout[name]; else n.layout[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
+		if (isExtImage(id) && name === "visibility") map.raster.set(id, { visible: value !== "none" });
+		return map;
+	}
 	if (!v) {
 		const B = baseLayerOf(id); if (!B) throw new Error(`setLayoutProperty: layer "${id}" not found`);
 		if (name === "visibility") {   // 基図の層の出し入れ（段 7）＝結合で外すだけ。元の style で隠されていた層を出す時だけ組み直す
@@ -3762,17 +3879,18 @@ map.setLayoutProperty = (id, name, value) => {
 	if (name === "visibility") { if (was && !now) unmountLayer(v); else if (!was && now) (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : mountLayer(v)); return map; }
 	relayer(v); return map;
 };
-map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); if (id === AUTO_BLD && autoBldOn()) return name === "visibility" && autoBldHidden ? "none" : undefined; const B = baseLayerOf(id); if (!B) return undefined; if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getLayoutProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.layout?.[name]); if (id === AUTO_BLD && autoBldOn()) return name === "visibility" && autoBldHidden ? "none" : undefined; const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } if (name === "visibility" && baseVis.get(id) === "none") return "none"; const x = B.layout?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setFilter = (id, filter) => {
 	const v = mlLayers.get(id);
 	if (filter != null) assertMLLayer({ id, filter }, "setFilter");
 	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setFilter");
+	if (!v && !baseLayerOf(id) && extOtherOf(id)) { noteOther(id, n => { if (filter == null) delete n.filter; else n.filter = rescaleZoomExpr(filter, PUBLIC_DZ, STYLE_DZ); }); return map; }   // その他の層（§8 A）＝記録だけ
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setFilter: layer "${id}" not found`); overrideBase(id, o => { o.filter = filter == null ? null : normalizeMLLayer({ filter }, PUBLIC_DZ).filter; }); return map; }   // 基図の層（段 7）
 	if (filter == null) delete v.layer.filter; else v.layer.filter = rescaleZoomExpr(filter, PUBLIC_DZ, v.dz);
 	relayer(v); return map;
 };
-map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); return B?.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
-map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
+map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); if (!B) { const X = extOtherOf(id); return X?.filter == null ? undefined : rescaleZoomExpr(X.filter, STYLE_DZ, PUBLIC_DZ); } return B.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
+map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); else if (extOtherOf(id)) noteOther(id, n => { n.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, STYLE_DZ); n.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, STYLE_DZ); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
 // 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
@@ -3820,13 +3938,37 @@ map.getStyle = () => {
 	const baseSid = EXT?.split.vectorSource ?? "basemap";
 	const baseSrc = EXT ? EXT.ms.sources[baseSid] : { type: "vector" };
 	// 目盛りの申告（setStyle(getStyle()) で二重にずれない）：基図の層＝エンジンの目盛りに直した物（metadata["ortho:dz"]:0）・利用者の層＝echoLayer・
-	// source の目盛り＝root の metadata["ortho:sourceDz"]（source には metadata の欄が無い＝MapLibre の検査を汚さない）
+	// その他の層（描かない層・画像の raster）＝style.json の目盛りのまま（dz 1）・source の目盛り＝root の metadata["ortho:sourceDz"]（source には metadata の欄が無い＝MapLibre の検査を汚さない）
 	const baseL = L => L.metadata?.[DZ_KEY] != null ? L : { ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: 0 } };
+	const baseEcho = L => baseL(echoBase(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }));
+	const userEcho = v => ({ ...echoLayer(v, true), source: srcId(v.layer) });
+	// 並べ方（公式例の門 §8 A1）：外来 style＝元の style の順（基図の層・画像の raster・style の vector/geojson の層・描かない層＝MapLibre の getStyle と同じ全ての層）／
+	// 地域の基図＝基図の層 → 自動の建物。利用者の層は beforeId が style の層を指せばその前・無ければ末尾（登録順）＝描く段は §4 のまま
+	const extraIds = new Set(extExtras.layers);
+	let list;
+	if (EXT) {
+		const byId = new Map(style.layers.map(L => [L.id, L]));
+		list = [];
+		for (const L0 of EXT.ms.layers) {
+			const v = mlLayers.get(L0.id);
+			if (v && extraIds.has(L0.id)) { list.push(userEcho(v)); continue; }
+			const B = byId.get(L0.id); if (B) { list.push(baseEcho(B)); byId.delete(L0.id); continue; }
+			const X = extOtherOf(L0.id); if (X) list.push(echoOther(X));
+		}
+		for (const B of byId.values()) list.push(baseEcho(B));   // 元の style に無い基図の層（念のため末尾）
+	} else list = [...(style.layers || []).map(baseEcho), ...(autoBldOn() ? [autoBldLayer()] : [])];
+	for (const v of mlLayers.values()) {
+		if (EXT && extraIds.has(v.layer.id)) continue;
+		if (v.kind === "custom") continue;   // MapLibre の getStyle は custom 層を書き出さない（serialize が飛ばす）＝同じ
+		const i = v.before != null ? list.findIndex(L => L.id === v.before) : -1;
+		if (i >= 0) list.splice(i, 0, userEcho(v)); else list.push(userEcho(v));
+	}
 	return {
 		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
+		...(EXT ? Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => EXT.ms[k] != null).map(k => [k, EXT.ms[k]])) : {}),   // style の根の視点（MapLibre の getStyle と同じ・style.json の目盛り＝MapLibre の z）
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
-		sources: { [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
-		layers: [...(style.layers || []).map(L => baseL(echoBase(L.type === "background" ? { ...L } : { ...L, source: L.source ?? baseSid }))), ...(autoBldOn() ? [autoBldLayer()] : []), ...[...mlLayers.values()].map(v => ({ ...echoLayer(v, true), source: srcId(v.layer) }))],
+		sources: { ...(EXT ? EXT.ms.sources : {}), [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
+		layers: list,
 	};
 };
 // 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
@@ -3861,15 +4003,15 @@ const mountExtExtras = async ext => {
 				const sp = { ...ms.sources[L.source] };
 				if (sp.url && !/^[a-z][\w+.-]*:\/\//i.test(sp.url.replace(/^pmtiles:\/\//, ""))) sp.url = /^pmtiles:\/\//.test(sp.url) ? "pmtiles://" + new URL(sp.url.slice(10), ext.baseUrl).href : new URL(sp.url, ext.baseUrl).href;
 				if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
-				addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source);
+				addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? STYLE_DZ); extExtras.sources.push(L.source);
 			}
-			await addLayerAt(L, undefined, 1); extExtras.layers.push(L.id);
+			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
 	for (const L of ext.split.geojson) {
 		try {
-			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? 1); extExtras.sources.push(L.source); }
-			await addLayerAt(L, undefined, 1); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
+			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? STYLE_DZ); extExtras.sources.push(L.source); }
+			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
 };
@@ -3886,6 +4028,18 @@ if (EXT) map.on("load", () => { mountExtExtras(EXT); });
 // 出し入れ（visibility）は結合で外すだけ（baseVis・安い）。値は MapLibre の入口と同じく旧書式を読み替え、公開の口の目盛りからエンジンの目盛りへ。
 const baseRawStyle = () => EXT ? extBaseStyle(EXT) : withPM(theme.style);
 const baseLayerOf = id => mlLayers.has(id) ? null : style.layers.find(L => L.id === id) ?? null;   // 利用者の層と同じ id なら利用者の層が勝つ
+// 外来 style の「その他の層」＝基図にも利用者の層にも居ない層（画像として載せた raster・描かない層＝線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）。
+// MapLibre の getStyle／getLayer は style の全ての層を返す＝こちらも返し、set 系は投げずに記録だけ（絵は変わらない・画像の raster は出し入れと不透明度だけ効く）＝公式例の門 §8 A。
+// 値は style.json の目盛り（MapLibre の z＝dz 1）のまま持つ。setStyle で捨てる
+const extNotes = new Map();   // id → 今の姿（set 系の記録）｜{ removed: true }
+const extOtherOf = id => {
+	if (!EXT || mlLayers.has(id) || style.layers.some(L => L.id === id) || baseOverrides.get(id)?.removed) return null;
+	const n = extNotes.get(id); if (n?.removed) return null;
+	return n ?? EXT.ms.layers.find(L => L.id === id) ?? null;
+};
+const isExtImage = id => extExtras.raster.includes(id);
+const echoOther = L => ({ ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: L.metadata?.[DZ_KEY] ?? STYLE_DZ, ...(isExtImage(L.id) ? {} : { "ortho:drawn": false }) } });
+const noteOther = (id, fn) => { const L = extOtherOf(id); const n = { ...L, paint: { ...(L.paint || {}) }, layout: { ...(L.layout || {}) } }; fn(n); extNotes.set(id, n); return n; };
 function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());
 	bg = style.layers.find(L => L.type === "background");
@@ -3901,12 +4055,12 @@ const overrideBase = (id, fn) => { const o = baseOverrides.get(id) || {}; fn(o);
 const baseValueIn = (key, value) => value === undefined ? undefined : normalizeMLLayer({ paint: { [key]: value } }, PUBLIC_DZ).paint[key];   // 旧書式の読み替え＋目盛り（公開の口→エンジン）
 const echoBase = L => ({ ...L, ...(baseVis.get(L.id) === "none" ? { layout: { ...(L.layout || {}), visibility: "none" } } : {}) });
 // 基図の style を生き替える（外来 style で起動した地図だけ）。spec＝URL か style の object。解決は新しい style の基図が描き始めた後
-map.setStyle = async spec => {
+map.setStyle = async (spec, o = {}) => {
 	if (!EXT) throw new Error("setStyle: this map uses the regional basemap — boot with opts.style (or ?style=) to switch MapLibre styles");
-	const nx = await loadExtStyle(spec);
+	const nx = await loadExtStyle(spec, o?.transformStyle);
 	unmountExtExtras();
 	const oldBaseSid = baseSidNow();
-	baseOverrides.clear(); baseVis.clear();   // 新しい style＝基図の層の上書きは捨てる（MapLibre の setStyle と同じ）
+	baseOverrides.clear(); baseVis.clear(); extNotes.clear();   // 新しい style＝基図の層の上書き（その他の層の記録も）は捨てる（MapLibre の setStyle と同じ）
 	EXT = nx;
 	Object.assign(BASE_SOURCE, extSourceFields(nx));
 	if (BASE_SOURCE.kind === "pmtiles") {
@@ -3928,8 +4082,19 @@ map.setStyle = async spec => {
 	await mountExtExtras(nx);
 	return map;
 };
+// source の地物（MapLibre の querySourceFeatures・同期・公式例の門 3 巡目）：集約の source＝今の段の丸と単点（画面の内側＋余白）＝properties に cluster/cluster_id/point_count・
+// geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝おおよそ見えている所＋余白・こちらは全部＝上位互換）。vector の source は空（未対応・記録）
+map.querySourceFeatures = (sid, qo = {}) => {
+	const sp = mlSources.get(sid); if (!sp) return [];
+	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : fs;
+	if (sp.type === "vector") { console.warn(`[querySourceFeatures] vector source "${sid}" is not supported yet (returns [])`); return []; }
+	if (sp.cluster && aggCtl && [...mlLayers.values()].some(v => srcId(v.layer) === sid && v.kind === "cluster")) return qf(aggCtl.sourceFeatures(sid, size.w / dpr, size.h / dpr).map(f => ({ ...f, source: sid })));
+	const d = sp.data; if (!d || typeof d !== "object") return [];
+	const fs = d.type === "FeatureCollection" ? d.features : d.type === "Feature" ? [d] : [];
+	return qf(fs.map((f, i) => ({ type: "Feature", id: f.id ?? mlIdOf(sid, i) ?? i, properties: f.properties || {}, geometry: f.geometry, source: sid })));
+};
 // ── 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当・2026-09-21）──────────────────────────
-// geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 3） }。
+// geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。opts＝{ layers:[id…], filter: 式, tolerance: px（既定 0＝MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側。拡張＝足す px） }。
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
 // その上に載せたもの＝集約（"clusters"/"unclustered-point"・点の問い合わせだけ）・画像（id "img:<n>"・raster）・押し出し（"extrude"・fill-extrusion）・利用者の図形（"user"・gint の識別＝許容は m 換算）。
 // MapLibre と違う点＝非同期（タイルを取り直すため）。基図の層 id はスタイルの id（地域パックの style）。
@@ -4024,7 +4189,8 @@ const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]
 map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
 	if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
-	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 3;
+	// 許し（公式例の門 §8 B・2026-09-27）＝既定 0（MapLibre と同じ・旧 3px は線に余計に当たっていた＝83 例）。単一スロットの user 層（内製・線幅を持たない）だけ従来の 3px
+	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
 	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
 	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, origin: "ml" }))) : fs;
 	const extHits = extrudeHits(geometry || [[0, 0], [W, H]], take);   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
@@ -4074,8 +4240,25 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const drawn = e.holder.drawn, ls = [...e.holder.pass.layers].reverse().filter(L => take(L.id));
 		if (!ls.length || !drawn || !e.h._shown?.(cam.zoom)) continue;
 		const acc = e.h._accept?.() ?? null;
-		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
-		const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null) : null;
+		// この地図の m/px は緯度に依らない（同じ z＝同じ倍率）。identifyAt は許しの半径 m を「1 度＝111.32km」の等方で度へ直す＝度の空間の円＝
+		// 画面では東西が cos(緯度) だけ縮む（北緯 37° で 9px が 7.2px・旧来の +6px と許し 3px で隠れていた）。cos で割った半径を渡して東西を取りこぼさず
+		//（南北は 1/cos だけ広い）、点は画面の距離で締め直す（下）＝MapLibre と同じ円
+		const mPerPx = 40075016.686 / (WORLD_PX * 2 ** cam.zoom) / Math.max(0.05, Math.cos(pt[1] * D2R));
+		// 当たりの幅＝その pass の層が描いている幅（MapLibre と同じ＝線は線幅の半分＋|ずらし|・円は半径＋縁）＋許し（旧＝許しと点の +6px だけ＝線幅を見ていなかった）
+		const pz = { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" }, num = (x, d) => { const v = x == null ? d : typeof x === "number" ? x : +(evalExpr(x, pz) ?? d); return Number.isFinite(v) ? v : d; };
+		let lineHalf = 0, ptR = 0;
+		for (const L of ls) {
+			const pp = L.paint || {};
+			if (L.type === "line") lineHalf = Math.max(lineHalf, num(pp["line-width"], 1) / 2 + Math.abs(num(pp["line-offset"], 0)));
+			else if (L.type === "circle") ptR = Math.max(ptR, num(pp["circle-radius"], 5) + num(pp["circle-stroke-width"], 0));
+		}
+		const near = i => {   // 点の候補は画面の距離で（半径＋縁＋許し）
+			const g = e.pbf.getFeature(i)?.geometry;
+			if (g?.type !== "Point" || !geometry || typeof geometry[0] !== "number") return true;
+			const [px, py, pf] = map.projectLL(g.coordinates[0], g.coordinates[1]);
+			return pf > 0 && Math.hypot(px - geometry[0], py - geometry[1]) <= ptR + tolPx + 0.5;
+		};
+		const fids = area.ll ? [e.pbf.identifyAt(pt[0], pt[1], { point: (ptR + tolPx + 1) * mPerPx, polyline: (lineHalf + tolPx) * mPerPx, ...(acc ? { accept: acc } : {}) })].filter(v => v != null && near(v)) : null;   // 点は 1px の余裕（gint の格子）→画面の距離で締める
 		const feats = fids ? fids.map(i => [i, e.pbf.getFeature(i)]) : e.pbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!acc || acc(i)) && touches(f.geometry));
 		for (const [i, f] of feats) if (f) for (const L of ls) if (drawn[L.id]?.[i]) out.push({ type: "Feature", id: mlIdOf(e.sid, i) ?? i, properties: stripMl(f.properties), geometry: f.geometry, layer: { id: L.id, type: L.type }, source: e.sid });   // id＝MapLibre の id
 	}
@@ -4083,7 +4266,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (upbf && take("user")) {
 		const mPerPx = 40075016.686 * Math.cos(pt[1] * D2R) / (WORLD_PX * 2 ** cam.zoom);
 		const uacc = gint.userAccept();   // 単一スロットの paint 表の visible ビット＝filter
-		const fids = area.ll ? [upbf.identifyAt(pt[0], pt[1], { point: (tolPx + 6) * mPerPx, polyline: tolPx * mPerPx, ...(uacc ? { accept: uacc } : {}) })].filter(v => v != null) : null;
+		const fids = area.ll ? [upbf.identifyAt(pt[0], pt[1], { point: (tolUser + 6) * mPerPx, polyline: tolUser * mPerPx, ...(uacc ? { accept: uacc } : {}) })].filter(v => v != null) : null;
 		const feats = fids ? fids.map(i => [i, upbf.getFeature(i)]) : upbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!uacc || uacc(i)) && touches(f.geometry));
 		for (const [i, f] of feats) if (f) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: "user", type: "gint" }, source: "user" });
 	}

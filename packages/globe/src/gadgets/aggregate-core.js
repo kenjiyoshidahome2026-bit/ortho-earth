@@ -36,6 +36,7 @@ export function heatStyle(paint = {}, zoomNow = 10, origin = undefined) {
 // 半径 clusterRadius px（その段の 256·2^z px 世界）以内の近所を重み付き重心へ束ねる（格子で近所を引く＝O(n)）。
 // ez＝その集約がばらける段（クリックで寄る先）。
 export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, minZoom = 0, clusterProperties = null } = {}) {
+	clusterMaxZoom = Math.round(clusterMaxZoom); minZoom = Math.floor(minZoom);   // 段は整数（目盛り "mercator" の dz は小数＝14→15.36 で new Array が投げた・2026-09-27）
 	const top = clusterMaxZoom + 1;
 	// clusterProperties（MapLibre）＝{ 名前: [畳み方, 写し方] }。写し方＝単点の属性からの式・畳み方＝"+"・"max" 等の演算子名か ["accumulated"]・["get", 名前] を使う式（段 6）
 	const cp = clusterProperties ? Object.entries(clusterProperties).map(([k, [op, mapE]]) => [k, Array.isArray(op) ? op : [op, ["var", "a"], ["var", "b"]], Array.isArray(op), mapE]) : [];
