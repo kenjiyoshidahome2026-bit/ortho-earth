@@ -33,10 +33,16 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		// 累計（mem テレメトリ→ベンチ台）：resample／upload の合計 ms・最大・上げたセル数＝「セル 1 枚あたりの実測 ms」を前後で比べる物差し（perf plan P1）
 		if (what === "resample") { H.resMs = (H.resMs || 0) + ms; H.resMax = Math.max(H.resMax || 0, ms); }
 		else { H.upMs = (H.upMs || 0) + ms; H.upMax = Math.max(H.upMax || 0, ms); H.cellN = (H.cellN || 0) + 1; }
-		if (ms > 4) { H.elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})` : ""}`); }
+		if (ms > 4) { H.elev++; console.log(`[elev] ${what} N=${N} ${ms.toFixed(1)}ms${d ? (d.gpu ? ` (gpu raw ${(d.raw / 1048576).toFixed(1)}MB)` : ` (f16 ${d.f16.toFixed(1)} write ${d.write.toFixed(1)})`) : ""}`); }
 		return r;
 	};
 	const putCell = (slot, data, cx, cy, N) => perfT("upload", N, () => renderer.set(slot, data, { cx, cy, cellRes: N }));
+	// GPU 再標本化（perf plan P1 step 1・2026-09-27）：renderer が gpuResample を掲げる（WebGPU・?cpuelev=1 でない）なら生タイルの記述子を渡し、
+	// 再標本化＋f16 変換を GPU で（描画スレッドの N² ループが消える）。無ければ従来＝ここで Float32 セルを作って上げる（GL・逃げ道）。
+	// 記述子の CPU 退避（型が想定外など）は renderer 側＝同じ式（elevation.js）＝絵は同じ。
+	const gpuRs = !!renderer.gpuResample;
+	const rsDown = (tile, N) => gpuRs ? { tile, mode: "down" } : perfT("resample", N, () => downsampleFlipped(tile, N));
+	const rsCrop = (tile, lng0, lat0, span, N) => gpuRs ? { tile, mode: "crop", lng0, lat0, span } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N));
 	let demSrc = dem ? createDemSource(dem) : null;
 	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);
 	console.log(`[terrain] DTM declared: ${dtmBounds ? dtmBounds.join(",") + " (" + (dtmDecl?.brand ?? "dem") + ")" : "none (no ground lift)"}`);
@@ -161,9 +167,9 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// R90 セル（cx 0..3 西から・cy 0..1 南から）を N² Float32（row0=南）で。アトラス優先・無ければ生 R90＋downsampleFlipped（従来経路）
 	async function cell90(cx, cy, N) {
 		const a = await getWorldAtlas();
-		if (a && WORLD_ATLAS_CELL % N === 0) return worldAtlasCell(a, cx, cy, N);
+		if (a && WORLD_ATLAS_CELL % N === 0) return gpuRs ? { atlas: a, mode: "world", cx, cy } : worldAtlasCell(a, cx, cy, N);   // GPU＝箱平均をシェーダで（P1 step 1）
 		const tile = await getCell(-180 + cx * 90, -90 + cy * 90, 90);
-		return tile ? downsampleFlipped(tile, N) : null;
+		return tile ? rsDown(tile, N) : null;
 	}
 	// 全球の先読み＝アトラス 1 本（16MB）。無ければ従来の R90 8 枚（lowMem は 117MB＝従来どおり見送り＝オンデマンド）
 	const prefetchWorld = () => getWorldAtlas().then(a => { if (!a && !lowMem) for (const lng of [-180, -90, 0, 90]) for (const lat of [-90, 0]) getCell(lng, lat, 90); });
@@ -392,7 +398,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				getCell(Math.floor(cellLng / 10) * 10, Math.floor(cellLat / 10) * 10, 10).then(parent => {
 					pendingElev--; notifyPending(range);
 					if (parent && atlasKey === key && !(loadedCells.has(ck + "hi"))) {
-						putCell(cellSlot(), perfT("resample", r.cellRes, () => cropResample(parent, cellLng, cellLat, range, r.cellRes)), cx, cy, r.cellRes);
+						putCell(cellSlot(), rsCrop(parent, cellLng, cellLat, range, r.cellRes), cx, cy, r.cellRes);
 						writtenCells.add(ck);
 					}
 					if (!parent && atlasKey === key) {   // 親R10失敗も未読込へ戻す（非mixed経路と同じ再挑戦則）
@@ -409,14 +415,14 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 						if (tile && atlasKey === key) {
 							loadedCells.add(ck + "hi");   // 以降 R10 切り出しで上書きさせない
 							writtenCells.add(ck);
-							putCell(cellSlot(), perfT("resample", r.cellRes, () => downsampleFlipped(tile, r.cellRes)), cx, cy, r.cellRes); requestDraw();
+							putCell(cellSlot(), rsDown(tile, r.cellRes), cx, cy, r.cellRes); requestDraw();
 						}
 					});
 				}
 			} else {
 				// R90（世界 4×2 固定窓・originCX=-2/originCY=-1）＝全球アトラスの切り出し。R10/R01＝生タイル→downsampleFlipped
 				const cellP = range === 90 ? cell90(r.originCX + cx + 2, r.originCY + cy + 1, r.cellRes)
-					: getCell(cellLng, cellLat, range).then(t => t ? perfT("resample", r.cellRes, () => downsampleFlipped(t, r.cellRes)) : null);
+					: getCell(cellLng, cellLat, range).then(t => t ? rsDown(t, r.cellRes) : null);
 				cellP.then(tile => {
 					pendingElev--; notifyPending(range);
 					if (tile && atlasKey === key) { putCell(cellSlot(), tile, cx, cy, r.cellRes); writtenCells.add(ck); }
@@ -465,7 +471,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 				const cellLng = (fr.originCX + cx) * farSpan, cellLat = (fr.originCY + cy) * farSpan;
 				pendingElev++; notifyPending(farSpan);
 				const farP = farSpan === 90 ? cell90(fr.originCX + cx + 2, fr.originCY + cy + 1, fr.cellRes)   // 世界帯の床＝全球アトラス
-					: getCell(cellLng, cellLat, farSpan).then(t => t ? perfT("resample", fr.cellRes, () => downsampleFlipped(t, fr.cellRes)) : null);
+					: getCell(cellLng, cellLat, farSpan).then(t => t ? rsDown(t, fr.cellRes) : null);
 				farP.then(tile => {
 					pendingElev--; notifyPending(farSpan);
 					if (tile && farKey === fkey) { putCell("elevCellFar", tile, cx, cy, fr.cellRes); farWritten.add(ck); }
