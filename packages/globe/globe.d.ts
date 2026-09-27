@@ -53,12 +53,12 @@ export interface OrthoJapanOptions {
 	 *  headers は画像タイル・3D Tiles・基図タイル（PMTiles 以外）に効く */
 	transformRequest?: TransformRequestFunction;
 	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ。
-	 *  false（1.4.0〜）＝MapLibre と同じ「setTerrain まで平ら」＝この地図の既定の標高を取らない・描かない。setTerrain の DEM で地形が立つ
+	 *  false（1.5.0〜）＝MapLibre と同じ「setTerrain まで平ら」＝この地図の既定の標高を取らない・描かない。setTerrain の DEM で地形が立つ
 	 *  （その後の setTerrain(null) は DEM を外すだけ＝既定の標高の地形に戻る）。?noterr=1 は従来どおり丸ごと停止 */
 	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
-	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
-	/** 世界の海岸線（Natural Earth admin0 の線・z<9・どの基図の上にも重ねる）。false＝持たない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	/** 世界の海岸線（Natural Earth admin0 の線・z<9・どの基図の上にも重ねる）。false＝持たない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	coastline?: boolean;
 	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
 	 *  SDK の orthoJapan() は URL で決まる（既定＝日本・/nl/＝オランダ）。**[] や null＝申告なし**＝
@@ -90,14 +90,14 @@ export interface OrthoJapanOptions {
 	 *  ガジェットの表示帯 zoom:[a,b] と zoomMin/zoomMax/maxZoom/minZoom/view の z・opts.zoomMax。
 	 *  換算しない＝文字列（URL hash・view・view.hash）・source の tile z（raster/vector/raster-dem・map.raster.add の spec）・map.cam・overlay の cam・台本（.scenes/playScenes/sceneTimeline）。
 	 *  緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ 込み）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。
-	 *  "mercator"（1.4.0〜）＝その緯度の差まで合わせる：dz＝1＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。数の zoom は全部この dz で往復＝
+	 *  "mercator"（1.5.0〜）＝その緯度の差まで合わせる：dz＝1＋log2(sec φ0)（φ0＝起動の視点の中心緯度・地図ごとに固定）。数の zoom は全部この dz で往復＝
 	 *  style の式（線幅・出しズーム）は MapLibre の z で評価され、カメラだけ緯度の分だけ寄る・タイルの z も MapLibre と同じ（基図・vector・画像）＝同じ MapLibre のコードで同じ絵。
 	 *  φ0 から南北に離れるほど MapLibre との差が戻る（MapLibre は中心の移動に連れて縮尺が変わる・こちらは変えない）。MapLibre の口（src/maplibre）の既定。
 	 *  返る map は外側の顔（Proxy）＝素の map は map[RAW]（部品はエンジンの z で読む時にこちら） */
 	zoomScale?: "ortho" | "maplibre" | "mercator";
 	/** 恒星（stars.6）。false=恒星だけ描かない。惑星・月・星座・太陽系圏は従来どおり（既定true） */
 	stars?: boolean;
-	/** 星空劇場（恒星・惑星・月・星座）と太陽系圏。false＝丸ごと持たない（1.4.0〜・MapLibre の口の既定）。既定 true */
+	/** 星空劇場（恒星・惑星・月・星座）と太陽系圏。false＝丸ごと持たない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	sky?: boolean;
 	/** 描画の質（1.2.0〜・#46）：大気散乱（atmosphere）・glTF の PBR と環境光（pbr）・AO（ao）。**既定は全部 off**（ell と同じ作法）。
 	 *  true で点ける。URL の ?atmosphere=1／?pbr=1／?ao=1（0 で切る）が opts より優先。WebGPU だけ（WebGL2 は実装を持たない＝旗が立っても絵は変わらない） */
@@ -499,7 +499,7 @@ export type MapLibreSource =
 	 *  encoding＝タイルの形式（MapLibre と同じ "mvt"（既定）｜"mlt"＝MapLibre Tile・1.4.0〜）。"mlt" はプラグイン @ortho-earth/tile-formats を "#tile-formats" に alias したビルドで描ける（無ければ空＋警告 1 回）。PMTiles はヘッダの tileType が決める */
 	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string>; encoding?: "mvt" | "mlt" };
 export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; "source-layer"?: string; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
-/** tolerance＝足す px（拡張・1.4.0〜既定 0＝MapLibre と同じ：線は線幅の半分・円は半径＋縁・面は内側。〜1.3 は 3） */
+/** tolerance＝足す px（拡張・1.5.0〜既定 0＝MapLibre と同じ：線は線幅の半分・円は半径＋縁・面は内側。〜1.3 は 3） */
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
 /** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
@@ -590,7 +590,7 @@ export interface OrthoJapanMap {
 	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
-	/** 描き終わり（MapLibre 同名・1.4.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
+	/** 描き終わり（MapLibre 同名・1.5.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
 	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
@@ -758,10 +758,10 @@ export interface OrthoJapanMap {
 	 *  layers に基図の層が無ければ基図のタイルは取り直さない（層ごとのイベントが軽い）。
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
-	/** source の地物（MapLibre 同名・同期・1.4.0〜）。集約（cluster）の source＝今の段の丸と単点で画面の内側（余白 1/4）に居る物（properties に cluster/cluster_id/point_count）／
+	/** source の地物（MapLibre 同名・同期・1.5.0〜）。集約（cluster）の source＝今の段の丸と単点で画面の内側（余白 1/4）に居る物（properties に cluster/cluster_id/point_count）／
 	 *  geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝こちらは上位互換）／vector の source は未対応（[]・警告） */
 	querySourceFeatures(sourceId: string, opts?: { filter?: StyleExpression; sourceLayer?: string }): RenderedFeature[];
-	/** MapLibre の custom 層（addLayer({ type:"custom", onAdd, render, renderingMode })・1.4.0〜）の onAdd/render に渡す map（既定＝この map・MapLibre の口が自分を差す）。
+	/** MapLibre の custom 層（addLayer({ type:"custom", onAdd, render, renderingMode })・1.5.0〜）の onAdd/render に渡す map（既定＝この map・MapLibre の口が自分を差す）。
 	 *  custom 層は main の透明な WebGL2 canvas（注記の下）に描く＝地図と深度を共有しない（模型は建物・地形に隠れない）。行列（args.defaultProjectionData.mainMatrix）は
 	 *  中心で局所線形化したメルカトル→クリップ（Float64Array）＝狭い範囲（模型・3D Tiles）は画素の内で合う・大陸大の図形は球との差の分だけ違う。globe の variant は無い */
 	setCustomLayerHost(host: object | null): OrthoJapanMap;
