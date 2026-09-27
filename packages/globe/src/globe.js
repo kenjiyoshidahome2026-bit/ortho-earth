@@ -758,6 +758,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "rasterError") return onRasterError(d.id, d.error);   // 同・開けなかった/取得が続けて失敗
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
@@ -2079,6 +2080,26 @@ function frame() {
 // 起動直後も（カメラを動かさなくても）来る＝settle（onMove の後だけ）とは別の合図
 const noVecBase = () => !!EXT && !EXT.split.vectorSource;   // 外来 style に vector の基図が無い（画像層だけ・空の style）＝基図の覆いは idle の条件にならない（覆う物が無い＝coverOk は永遠に false）
 let idleState = 0, idleSince = 0;   // 0＝忙しい・1＝静けさの候補・2＝知らせ済み
+// 診断の窓（debugGlobals）＝置いたラベル（基図・vector・gint＝labels2d の当選集合）と記号（symbols overlay）を層 id 付きで返す＝公式例の門 段 0（文字を測る）。
+// 基図のラベルは li（style の層の添字）→ id・vector の描く層は "vt:<id>"・gint は層 id。x,y＝CSS px（中心）・w,h＝箱
+const placedWait = new Map(); let placedSeq = 0;
+dbgHost.__placed = () => new Promise(res => {
+	const sid = ++placedSeq;
+	placedWait.set(sid, d => {
+		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
+		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h })),
+			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h }))]);
+	});
+	wPost({ type: "labelsPlaced", id: sid });
+	setTimeout(() => { if (placedWait.delete(sid)) res([]); }, 5000);
+});
+dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
+	const sid = ++placedSeq;
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.zoomSkipped || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, zoomSkipped: sk, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });
+	wPost({ type: "labelsPlaced", id: sid });
+	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
+});
+dbgHost.__labelsMain = () => { const by = {}; for (const L of lastLabels) { const k = L.li != null ? (style.layers[L.li]?.id ?? "li" + L.li) : "?"; by[k] = (by[k] || 0) + 1; } return { n: lastLabels.length, by, styleSymbols: style.layers.filter(L => L.type === "symbol").map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null]) }; };   // 診断（debugGlobals）＝main が worker へ送った基図ラベルの数（層 id ごと）と style の symbol 層の zoom 域
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
 dbgHost.__idleWhy = () => ({ mapLoaded, moving, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
@@ -3410,7 +3431,7 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 	for (const L of ls) {
 		if (L.type === "circle" && (L.filter == null || hasPointCount(L.filter) && !/"!"/.test(JSON.stringify(L.filter)))) { opts.paint = L.paint; opts.layerIds.clusters = L.id; opts.ranges.clusters = zr(L); }
 		else if (L.type === "circle") { opts.unclustered = { paint: L.paint }; opts.layerIds.unclustered = L.id; opts.ranges.unclustered = zr(L); }
-		else if (L.type === "symbol") opts.text = { color: typeof L.paint?.["text-color"] === "string" ? L.paint["text-color"] : undefined, size: typeof L.layout?.["text-size"] === "number" ? L.layout["text-size"] : undefined };
+		else if (L.type === "symbol") { opts.text = { color: typeof L.paint?.["text-color"] === "string" ? L.paint["text-color"] : undefined, size: typeof L.layout?.["text-size"] === "number" ? L.layout["text-size"] : undefined }; opts.layerIds.text = L.id; }   // text＝件数の文字の層 id（置いた記号の申告＝__placed）
 	}
 	const pts = await readPoints(dataOf(sp));
 	if (mlGen.get("cluster:" + sid) !== gen) return null;   // 待っている間に層が足し引きされた＝新しい方に任せる

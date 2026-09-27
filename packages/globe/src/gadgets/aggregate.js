@@ -55,7 +55,7 @@ export function createAggregate(map, { signal } = {}) {
 			Object.assign(c, { draw, pts, cl, ids, rg, byCid });
 			c.ov.post({ type: "range", clusters: rg.clusters, unclustered: rg.unclustered });
 			if (slot === "default") ctl._cl = cl;   // 検定窓（従来の 1 枠）
-			c.ov.post({ type: "levels", levels: draw.map(L => L.map(({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, i }) => ({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, u: i >= 0 ? 1 : 0 }))), minLevel: cl.minLevel, maxLevel: cl.maxLevel });   // u＝単点（unclustered）
+			c.ov.post({ type: "levels", textLayer: opts.layerIds?.text ?? null, levels: draw.map(L => L.map(({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, i }) => ({ lon, lat, r, fill, stroke, sw, text, tc, ts, op, u: i >= 0 ? 1 : 0 }))), minLevel: cl.minLevel, maxLevel: cl.maxLevel });   // u＝単点（unclustered）
 			return { points: pts.length, clusters: cl.levels.map(L => L.length) };
 		},
 		// 画面 (x,y) の丸（今の段）＝MapLibre の集約地物の形（properties に cluster/point_count・expansionZoom）。複数の集約＝後から足した方が上

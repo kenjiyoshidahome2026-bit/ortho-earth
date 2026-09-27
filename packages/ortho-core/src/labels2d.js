@@ -80,12 +80,15 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
+	let winBox = new Map();   // key → [sx, sy, tw, h]（当選ラベルの画面上の箱＝placed() の材料・公式例の門 段 0）
+	let dbg = { zoom: null, zoomSkipped: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
-		const placed = [], w = new Map();
+		const placed = [], w = new Map(), wb = new Map();
+		dbg = { zoom: zoomV, zoomSkipped: {}, total: combined.length };
 		let font = "";
 		for (const L of combined) {
 			if (L.flat && !showFlat) continue;
-			if ((L.minZ != null && zoomV < L.minZ) || (L.maxZ != null && zoomV > L.maxZ)) continue;   // 利用者層＝層の zoom 域で裁く   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
+			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.zoomSkipped[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
@@ -106,9 +109,16 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (sx + tw / 2 < 0 || sx - tw / 2 > Wc || sy + h / 2 < 0 || sy - h / 2 > Hc) continue;
 			const box = [sx - tw / 2 - pad, sy - h / 2 - pad, sx + tw / 2 + pad, sy + h / 2 + pad];
 			if (placed.some(b => !(box[2] < b[0] || box[0] > b[2] || box[3] < b[1] || box[1] > b[3]))) continue;
-			placed.push(box); w.set(keyOf(L), L);
+			placed.push(box); w.set(keyOf(L), L); wb.set(keyOf(L), [sx, sy, tw, h]);
 		}
-		winners = w;
+		winners = w; winBox = wb;
+	}
+	// 置いたラベル（直近の衝突判定の当選集合）＝{ text, lon, lat, x, y（CSS px・中心）, w, h, size, li（基図の層の添字）, set（利用者層の id） }。
+	// 公式例の門 段 0（文字を測る）＝本物の queryRenderedFeatures の symbol と突き合わせる材料。描いた物の申告＝描画は変えない
+	function placed() {
+		const out = [];
+		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0], y: b[1], w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null }); }
+		return out;
 	}
 
 	// 戻り値: フェード継続中か（true なら次フレーム継続）。
@@ -243,5 +253,6 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		}
 	}
 
-	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear };
+	function placedDebug() { return dbg; }
+	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear, placed, placedDebug };
 }

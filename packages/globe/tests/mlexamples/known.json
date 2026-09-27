@@ -1,7 +1,7 @@
 {
 	"_": "公式例の門の爪車（台帳 §8）＝例ごとの今の段（null＝本物も落ちる＝分母の外）。下がったら落ちる・上がったら --update で書き換える",
 	"maplibre": "6.11.2",
-	"refLabel": "r6",
+	"refLabel": "r7",
 	"levels": {
 		"3d-terrain": 2,
 		"add-3d-terrain-from-quantized-mesh-tiles": 2,
@@ -110,7 +110,7 @@
 		"level-of-detail-control": 1,
 		"locale-switching": 3,
 		"locate-the-user": 3,
-		"measure-distances": 2,
+		"measure-distances": 3,
 		"navigate-the-map-with-game-like-controls": 1,
 		"offset-the-vanishing-point-using-padding": 1,
 		"pmtiles-source-and-protocol": 1,

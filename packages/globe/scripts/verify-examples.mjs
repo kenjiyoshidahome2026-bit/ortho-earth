@@ -22,7 +22,7 @@ import { startVite } from "./lib/ui-runner.mjs";
 import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
 import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
-import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH } from "../tests/mlexamples/compare.mjs";
+import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
 import { buildReport } from "../tests/mlexamples/report.mjs";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -47,6 +47,8 @@ const STATE = `(() => { const X = window.__mlx; if (!X) return null; const m = X
 const HIDE = { ref: ".maplibregl-control-container,.maplibregl-marker,.maplibregl-popup{visibility:hidden!important}",
 	ortho: "#map > :not(canvas){visibility:hidden!important}" };   // こちら＝容れ物（エンジンが id を map に揃える）の canvas は全部残す（#c・#labels・重ね描きの .overlay-gl＝記号・ヒートマップ・集約）。旧＝#c と #labels だけ残して重ね描きまで隠していた（2 巡目で発見）
 // 頁に差す関数（文字列を組み立てない＝値は Runtime.callFunctionOn の引数で渡す・CodeQL js/bad-code-sanitization）
+// 文字を消した写し（こちらだけ）＝注記の canvas と記号の重ね描きを隠す→本物の記号の錨の周りに「文字のインク」があるかを差分で見る（段 0＝文字を測る）
+const HIDE_TEXT = { ortho: `${HIDE.ortho}#labels,.overlay-gl[data-overlay="symbols"]{visibility:hidden!important}` };
 const HIDE_FN = `function (css) { let s = document.getElementById("__mlx_hide"); if (!s) { s = document.createElement("style"); s.id = "__mlx_hide"; document.head.appendChild(s); } s.textContent = css; }`;
 // 本物の答え：16×10 の格子（縁 48px を除く）→unproject（|lat|≤85.051・project で戻る点だけ ok）→問い合わせ。層・カメラ・範囲・Marker の位置
 const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.getContainer().getBoundingClientRect();
@@ -69,11 +71,23 @@ const PROBE_REF = `(() => { const X = window.__mlx, m = X.maps[0]; const r = m.g
 		sources: Object.keys(st?.sources || {}),
 		markers: [...document.querySelectorAll(".maplibregl-marker")].map(mk),
 		popups: [...document.querySelectorAll(".maplibregl-popup")].map(mk),
+		// 置かれた記号（symbol 層の queryRenderedFeatures＝衝突で置けた物だけ返る）＝文字の「同じ答え」の材料（段 0）。点＝錨の画面位置・線/面＝位置なし（線沿いは段 4）
+		symbols: (() => { try {
+			const ids = (st?.layers || []).filter(l => l.type === "symbol").map(l => l.id); if (!ids.length) return [];
+			const seen = new Set(), out = [];
+			for (const f of m.queryRenderedFeatures({ layers: ids })) {
+				const g = f.geometry, lo = f.layer?.layout || {}; let lng = null, lat = null, x = null, y = null;
+				if (g?.type === "Point") { [lng, lat] = g.coordinates; const p = m.project([lng, lat]); x = p.x; y = p.y; }
+				const key = f.layer.id + "|" + (lng == null ? JSON.stringify(f.properties).slice(0, 120) : lng.toFixed(6) + "," + lat.toFixed(6));
+				if (seen.has(key)) continue; seen.add(key);
+				out.push({ layer: f.layer.id, geom: g?.type ?? null, placement: lo["symbol-placement"] || "point", text: lo["text-field"] != null, icon: lo["icon-image"] != null, lng, lat, x, y });
+			}
+			return out; } catch (e) { return [{ error: String(e.message) }]; } })(),
 		loaded: m.loaded(), mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })()`;
 // こちらの答え：本物の標本点（経緯度）をこちらの projectLL で画面へ→問い合わせ（非同期）。比べる点＝front>0（裏でない）・画面の内側・
 // unproject で同じ場所へ戻る（標本の間隔の 1/4 以内＝地平線に寄せられた点・大気の縁を除く）。front は高さ／半径の量＝高ズームでは 1e-4 程度でも表（閾値を置かない）
 // 本物の記録が無い例は自分の格子（unproject）で取る（絵の比べはできない）
-const PROBE_ORTHO = refProbes => `(async (REF) => { const X = window.__mlx, m = X.maps[0], eng = X.engines?.[0]; const r = m.getContainer().getBoundingClientRect();
+const PROBE_ORTHO = (refProbes, refSymbols = null) => `(async (REF, REFSYM) => { const X = window.__mlx, m = X.maps[0], eng = X.engines?.[0]; const r = m.getContainer().getBoundingClientRect();
 	const Wc = r.width, Hc = r.height, M = 48, NX = 16, NY = 10, probes = [];
 	const grid = REF || Array.from({ length: NX * NY }, (_, k) => { const i = k % NX, j = (k / NX) | 0; const x = M + (Wc - 2 * M) * (i + 0.5) / NX, y = M + (Hc - 2 * M) * (j + 0.5) / NY; const ll = m.unproject([x, y]); return { lng: ll?.lng ?? null, lat: ll?.lat ?? null, ok: !!ll }; });
 	const hav = (a, b) => { const d = Math.PI / 180, s = Math.sin((b.lat - a.lat) * d / 2) ** 2 + Math.cos(a.lat * d) * Math.cos(b.lat * d) * Math.sin((b.lng - a.lng) * d / 2) ** 2; return 12742017.6 * Math.asin(Math.min(1, Math.sqrt(s))); };
@@ -99,7 +113,10 @@ const PROBE_ORTHO = refProbes => `(async (REF) => { const X = window.__mlx, m = 
 		sources: Object.keys(st?.sources || {}),
 		markers: [...document.querySelectorAll(".oe-marker")].map(mk),
 		popups: [...document.querySelectorAll(".oe-popup")].map(mk),
-		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })(${JSON.stringify(refProbes)})`;
+		// 文字（段 0）：本物の記号の錨をこちらの画面へ（projectLL＝表なら front>0）＋こちらが置いたラベル/記号（debugGlobals の __placed＝層 id・中心・箱）
+		refSym: (REFSYM || []).map(sy => { if (!eng || sy.lng == null) return null; const [x, y, front] = eng.projectLL(sy.lng, sy.lat); return { x, y, front, ok: front > 0 && x >= 0 && y >= 0 && x < Wc && y < Hc }; }),
+		placed: await (async () => { try { return (await window.__placed?.()) ?? []; } catch { return []; } })(),
+		loaded: m.loaded(), backend: eng?.backend ?? null, mapErrors: X.errors.slice(0, 20).map(e => [e[0], String(e[1]).slice(0, 300)]), mapErrorCount: X.errors.length, ev: X.ev.slice(0, 50), added: [...new Set(X.added || [])], probes }; })(${JSON.stringify(refProbes)}, ${JSON.stringify(refSymbols)})`;
 const PROBE = { ref: () => PROBE_REF, ortho: PROBE_ORTHO };
 
 async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
@@ -189,11 +206,18 @@ async function runExample(ex, side, { seq, label, mode, gl2, refLabel }) {
 		if (rec.map && !cdp.dead()) {
 			if (!last && st?.rect) last = await shotOf(st.rect);
 			const refRec = side === "ortho" ? (() => { try { return JSON.parse(fs.readFileSync(path.join(ROOT, "runs", refLabel, "ref", `${ex.name}.json`), "utf8")); } catch { return null; } })() : null;
-			const probe = await evalv(PROBE[side](refRec?.probes?.map(p => ({ lng: p.lng, lat: p.lat, ok: p.ok })) ?? null));
+			const refSyms = refRec?.symbols?.filter(sy => !sy.error).map(sy => ({ lng: sy.lng, lat: sy.lat })) ?? null;
+			const probe = await evalv(PROBE[side](refRec?.probes?.map(p => ({ lng: p.lng, lat: p.lat, ok: p.ok })) ?? null, refSyms));
 			Object.assign(rec, probe || { probeError: true });
 			if (last) {
 				fs.writeFileSync(path.join(outDir, `${ex.name}.canvas.png`), last);
 				try { rec.colors = probeColors(decodePng(last), rec.probes || []); } catch (e) { rec.colorError = e.message; }
+				// 文字のインク（こちらだけ・止まって撮れた時）＝注記と記号を隠した写しとの差分が、本物の記号の錨の周りにあるか
+				if (side === "ortho" && HIDE_TEXT[side] && rec.end === "stable" && rec.refSym?.some(Boolean)) {
+					await callFn(HIDE_FN, [HIDE_TEXT[side]]); await sleep(150);
+					const noText = await shotOf(st.rect);
+					if (noText) { fs.writeFileSync(path.join(outDir, `${ex.name}.notext.png`), noText); try { rec.ink = inkHits(decodePng(last), decodePng(noText), rec.refSym.map(sy => sy?.ok ? [sy.x, sy.y] : null)); } catch (e) { rec.inkError = e.message; } }
+				}
 			}
 			await callFn(HIDE_FN, [""]);
 			const full = await shotOf(null, false);
@@ -235,6 +259,7 @@ function compareRuns(la, lb, side) {
 
 // ── 採点（段 4）＋爪車（段 5）：本物 runs/<ref> とこちら runs/<ortho> を突き合わせ、見比べ帳と順位表を出し、known.json と比べる ──
 const KNOWN = path.join(PKG, "tests/mlexamples/known.json");
+const T_TEXT_N = 5;   // 文字の比率を見る最小の個数（少ない例は揺れる）
 const STILL = r => r.R?.end === "stable" && r.O?.end === "stable";
 function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	const corpus = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/corpus.json"), "utf8"));
@@ -253,6 +278,11 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	for (const [k, v] of Object.entries(levels)) console.log(`  ${k.padEnd(10)} ${v}`);
 	console.log(`  鍵・外部ライブラリ・custom 無しの例で同じ絵：${summary.plain3}/${summary.plainN}`);
 	console.log(`  絵だけ見れば同じ（段 2 に依らない）：${summary.pictureOnly}/${summary.pictureN}（両側とも止まって撮れた例）`);
+	// 文字（段 0）：本物が置いた点の記号のうち、こちらも同じ層の記号/ラベルを近くに置いた数（hit）・錨の周りにインクがある数（ink）・こちらだけが置いた数（extra）・本物の線沿い（line＝段 4 の分母）
+	const tx = rows.map(r => r.grade.text).filter(t => t && t.n);
+	summary.text = { examples: tx.length, n: tx.reduce((a, t) => a + t.n, 0), hit: tx.reduce((a, t) => a + t.hit, 0), ink: tx.reduce((a, t) => a + t.ink, 0), inkN: tx.reduce((a, t) => a + t.inkN, 0), extra: tx.reduce((a, t) => a + t.extra, 0), line: rows.reduce((a, r) => a + (r.grade.text?.line || 0), 0),
+		low: rows.filter(r => r.grade.text && r.grade.text.n >= T_TEXT_N && r.grade.text.hit / r.grade.text.n < THRESH.textMin).map(r => r.name) };
+	console.log(`  文字（点の記号 ${summary.text.examples} 例・${summary.text.n} 個）：同じ層を近くに置いた ${summary.text.hit}・インクあり ${summary.text.ink}/${summary.text.inkN}・こちらだけ ${summary.text.extra}・本物の線沿い ${summary.text.line}（測るだけ＝段は動かさない・閾 ${THRESH.textMin}/${T_TEXT_N} 個以上で下回る例 ${summary.text.low.length}）`);
 	console.log("\n足りない口の順位表（上位 15）：");
 	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
 	const dir = path.join(ROOT, "report", orthoLabel);

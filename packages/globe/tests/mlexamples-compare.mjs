@@ -1,7 +1,7 @@
 // 公式例の門（台帳 §8）の比べる部品 tests/mlexamples/compare.mjs の検定（node・網なし・Chrome なし）。
 // PNG の読み（5 種のフィルタ×色の型）・標本の中央値・問い合わせの集合・2 回の走りの揺れの判定。
 import zlib from "node:zlib";
-import { decodePng, sampleMedian, colorDist, featSet, diffRuns, probeColors, grade, rankBlockers, splitUnsupported, normError } from "./mlexamples/compare.mjs";
+import { decodePng, sampleMedian, colorDist, featSet, diffRuns, probeColors, grade, rankBlockers, splitUnsupported, normError, textMatch, inkHits, THRESH } from "./mlexamples/compare.mjs";
 
 let fail = 0;
 const ok = (name, cond, note = "") => { if (!cond) fail++; console.log(`${cond ? "PASS" : "FAIL"}  ${name}${note ? "  " + note : ""}`); };
@@ -121,6 +121,48 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	const rk = rankBlockers([{ name: "a", level: 1, refLevel: 3, blockers: ["x", "x", "y"] }, { name: "b", level: 0, refLevel: 3, blockers: ["x"] }, { name: "c", level: 3, refLevel: 3, blockers: ["z"] }]);
 	ok("rankBlockers 1 例 1 回・多い順・届いた例は数えない", rk.length === 2 && rk[0].blocker === "x" && rk[0].n === 2 && rk[1].n === 1);
 	ok("splitUnsupported・normError", splitUnsupported(["a (cosmetic)", "b"]).semantic[0] === "b" && normError("x 'abc' 12 https://a.b/c") === "x '…' N <url>");
+}
+
+
+// 文字（段 0）：本物が置いた点の記号 vs こちらの置いたラベル（層 id＋近さ）・線沿いは line・裏の点は分母の外・こちらだけの物は extra
+{
+	const R = { symbols: [
+		{ layer: "city", placement: "point", geom: "Point", lng: 10, lat: 10, x: 100, y: 100 },
+		{ layer: "city", placement: "point", geom: "Point", lng: 11, lat: 11, x: 200, y: 100 },
+		{ layer: "city", placement: "point", geom: "Point", lng: 12, lat: 12, x: 300, y: 100 },
+		{ layer: "road", placement: "line", geom: "LineString", lng: null, lat: null, x: null, y: null },
+		{ layer: "city", placement: "point", geom: "Point", lng: 13, lat: 13, x: 400, y: 100 } ] };
+	const O = { container: { W: 800, H: 600 },
+		refSym: [{ x: 100, y: 100, front: 1, ok: true }, { x: 200, y: 100, front: 1, ok: true }, { x: 300, y: 100, front: 1, ok: true }, null, { x: 400, y: 100, front: -1, ok: false }],
+		placed: [
+			{ layer: "city", text: "A", x: 104, y: 98, w: 30, h: 12 },        // 近い＝hit
+			{ layer: "city", text: "B", x: 200, y: 140, w: 30, h: 12 },       // 40px 下＝許し（16 か w/2+h=27）を超える＝miss
+			{ layer: "town", text: "Z", x: 300, y: 100, w: 30, h: 12 },       // 層が違う＝hit にならず・本物に無い層＝extra にも数えない
+			{ layer: "city", text: "C", x: 600, y: 300, w: 30, h: 12 },       // 本物に無い＝extra
+			{ layer: "city", text: "D", x: 900, y: 100, w: 30, h: 12 } ],     // 画面の外＝数えない
+		ink: [true, false, null, null, null] };
+	const t = textMatch(R, O);
+	ok("textMatch n（表の点だけ）", t.n === 3, JSON.stringify(t));
+	ok("textMatch hit", t.hit === 1);
+	ok("textMatch line", t.line === 1);
+	ok("textMatch extra（同じ層でこちらだけ・画面の内）", t.extra === 2 && t.placedN === 4);
+	ok("textMatch ink", t.ink === 1 && t.inkN === 2);
+	ok("textMatch layers", t.layers.city.n === 3 && t.layers.city.hit === 1);
+	ok("textMatch 無し", textMatch({ symbols: [] }, O).n === 0 && textMatch(null, null).n === 0);
+	const base = { end: "stable", map: true, loadVia: "event", probes: [], layers: [], markers: [], popups: [] };   // grade の入口（runsWhy）を通る最小の記録
+	ok("grade は text を持ち・既定では段を動かさない", (() => { const g = grade({ ...base, symbols: R.symbols }, { ...base, ...O }); return g.text?.n === 3 && !g.reasons.some(r => /^text/.test(r)); })());
+	ok("textGate で段 2 の条件に", (() => { const g = grade({ ...base, symbols: [...R.symbols, ...R.symbols] }, { ...base, ...O, refSym: [...O.refSym, ...O.refSym], ink: [] }, { ...THRESH, textGate: true }); return g.reasons.some(r => /^text/.test(r)) && g.blockers.some(b => /^text/.test(b)); })());
+}
+// インク：文字あり／なしの差分＝点の周りの箱に閾を超える画素が min 個以上あれば true・箱の外の差分は拾わない・寸法違いは null
+{
+	const W = 120, H = 60, mk = f => ({ w: W, h: H, rgba: Uint8Array.from({ length: W * H * 4 }, (_, i) => { const px = (i / 4) | 0, x = px % W, y = (px / W) | 0, c = i % 4; return c === 3 ? 255 : f(x, y); }) });   // decodePng と同じ形
+	const plain = mk(() => 200), inked = mk((x, y) => (x >= 30 && x <= 45 && y === 20) ? 0 : 200);   // 16 画素の横線＝x30..45, y20
+	const r = inkHits(inked, plain, [[36, 22], [100, 40], null]);
+	ok("inkHits 近くに文字＝true", r[0] === true, JSON.stringify(r));
+	ok("inkHits 遠い＝false", r[1] === false);
+	ok("inkHits null の点＝null", r[2] === null);
+	ok("inkHits 寸法違い＝null", inkHits(inked, { w: 1, h: 1, rgba: new Uint8Array(4) }, [[1, 1]])[0] === null);
+	ok("inkHits 本物の PNG の形（decodePng）で動く", (() => { const img = decodePng(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64")); return inkHits(img, img, [[0, 0]])[0] === false; })());
 }
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlexamples-compare 全 PASS");
