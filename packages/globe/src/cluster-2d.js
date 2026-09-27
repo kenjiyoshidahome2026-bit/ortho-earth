@@ -3,12 +3,14 @@
 // 段の選び方＝MapLibre と同じ floor(zoom)（maxLevel より上は最後の段＝ばらした点）。地球の裏側（投影の front<0）は描かない。
 // 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size, api) / destroy()。依存ゼロ。
 
-let ctx = null, levels = [], minLevel = 0, maxLevel = 0, range = { clusters: [-Infinity, Infinity], unclustered: [-Infinity, Infinity] };   // range＝層ごとの出しズーム（MapLibre の minzoom 包含・maxzoom 排他）
+let ctx = null, levels = [], minLevel = 0, maxLevel = 0, range = { clusters: [-Infinity, Infinity], unclustered: [-Infinity, Infinity] };
+let textLayer = null, lastPlaced = [];   // 件数の文字の層 id・直近フレームで描いた文字＝{ layer, text, lon, lat, x, y, w, h }（公式例の門 段 0＝文字を測る材料）
+export function placed() { return lastPlaced; }   // range＝層ごとの出しズーム（MapLibre の minzoom 包含・maxzoom 排他）
 export function init(canvas) { ctx = canvas.getContext("2d"); }
 // data＝{ type:"levels", minLevel, maxLevel, levels:[[{ lon, lat, r, fill, stroke, sw, text, tc, ts, op }…] …] } | { type:"clear" }
 export function message(d) {
 	if (d.type === "clear") { levels = []; return; }
-	if (d.type === "levels") { levels = d.levels; minLevel = d.minLevel; maxLevel = d.maxLevel; }
+	if (d.type === "levels") { levels = d.levels; minLevel = d.minLevel; maxLevel = d.maxLevel; textLayer = d.textLayer ?? null; }
 	if (d.type === "range") range = { clusters: d.clusters, unclustered: d.unclustered };
 }
 export function frame(cam, s, { w, h }, api) {
@@ -20,6 +22,7 @@ export function frame(cam, s, { w, h }, api) {
 	ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 	const W = w / dpr, H = h / dpr;
 	ctx.textAlign = "center"; ctx.textBaseline = "middle";
+	const placedNow = [];
 	const z = cam.zoom || 0, inR = r => z >= r[0] && z < r[1], showC = inR(range.clusters), showU = inR(range.unclustered);
 	for (const c of L) {
 		if (!(c.u ? showU : showC)) continue;
@@ -29,9 +32,10 @@ export function frame(cam, s, { w, h }, api) {
 		ctx.beginPath(); ctx.arc(x, y, c.r, 0, Math.PI * 2);
 		ctx.fillStyle = c.fill; ctx.fill();
 		if (c.sw > 0) { ctx.lineWidth = c.sw; ctx.strokeStyle = c.stroke; ctx.stroke(); }
-		if (c.text) { ctx.font = `600 ${c.ts || 12}px "Noto Sans JP",system-ui,sans-serif`; ctx.fillStyle = c.tc || "#222"; ctx.fillText(c.text, x, y + 0.5); }
+		if (c.text) { ctx.font = `600 ${c.ts || 12}px "Noto Sans JP",system-ui,sans-serif`; ctx.fillStyle = c.tc || "#222"; ctx.fillText(c.text, x, y + 0.5); placedNow.push({ layer: textLayer, text: String(c.text), icon: null, lon: c.lon, lat: c.lat, x, y, w: c.r * 2, h: c.ts || 12 }); }
 	}
 	ctx.globalAlpha = 1;
+	lastPlaced = placedNow;
 	return false;
 }
 export function destroy() { ctx = null; levels = []; }

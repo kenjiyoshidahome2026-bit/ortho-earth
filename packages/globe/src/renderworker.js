@@ -385,6 +385,7 @@ const dispatch = e => {
 		case "pongC": pongC++; break;   // stay診断：main→worker ctrlPort の配達実証
 		case "terrStats": postMessage({ type: "terrStats", data: terrain?.debug?.() ?? null }); break;   // __terr()＝標高アトラス内部状態の遠隔診断（dev実地用）
 		case "rasterStats": postMessage({ type: "rasterStats", id: m.id, data: raster?.stats() ?? null }); break;
+		case "labelsPlaced": postMessage({ type: "labelsPlaced", id: m.id, data: { labels: labelLayer?.placed?.() ?? [], symbols: [...overlays.values()].flatMap(o => o.mod?.placed?.() ?? []), debug: labelLayer?.placedDebug?.() ?? null } }); break;   // 置いたラベル/記号（labels2d＋placed() を持つ重ね描き＝symbols・cluster）＝公式例の門 段 0・debugGlobals の __placed   // 置いたラベル/記号（公式例の門 段 0＝文字を測る・debugGlobals の __placed）
 		case "elevGrid": (async () => {   // 標高の升目（可視域・見通し線＝#44）。範囲の R01 セルを先に読み（外来 DEM の上書き込み）、画素の中心で標本化。row0＝北
 			const [w, s, e, n] = m.bbox, N = m.N, out = new Float32Array(N * N);
 			if (terrain) { const cs = []; for (let y = Math.floor(s); y <= Math.floor(n); y++) for (let x = Math.floor(w); x <= Math.floor(e); x++) cs.push(terrain.prefetch(x, y, 1).catch(() => null)); await Promise.all(cs); }
