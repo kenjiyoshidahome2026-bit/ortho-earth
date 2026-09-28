@@ -513,6 +513,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	}
 	let sh0mods = null;   // 派生シェーダのモジュール（初点灯で一度だけ・消灯後も再利用）
 	let castRev = 0;      // 影を落とす側の中身の版（メッシュ・標高・表示区が変わるたび+1）＝同じ窓・同じ中身なら深度パスを省く
+	// 影の計器（#112 段 0）＝点けた後だけ積む。passes/skipped＝深度パスを描いた／省いた回数・last＝直近に描いた窓と落とした物・active＝このフレームに窓が立ったか
+	const shStat = { passes: 0, skipped: 0, active: false, last: null };
 	function shadowFree() { if (!sh) return; sh.tex.destroy(); sh.pBuf.destroy(); sh.frameB.destroy(); sh.batch.destroy(); sh = null; }
 	function shadowPipes(sc) {   // 受け手の派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点/深度/ブレンド
 		let p = sh.pipes.get(sc); if (p) return p;
@@ -1639,9 +1641,18 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const bld0 = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		// 窓（行列）・中身の版・標高リフト・マスク・建物シーンが前回と同じ＝深度テクスチャはそのまま使える（静止中は影のコストほぼ 0）
 		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}`;
-		if (sh.castKey === key && sh.castBld === bld0) return;
+		if (sh.castKey === key && sh.castBld === bld0) { shStat.skipped++; return; }
 		sh.castKey = key; sh.castBld = bld0;
-		const sp = enc.beginRenderPass({ colorAttachments: [], depthStencilAttachment: { view: sh.view, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store" } });
+		const spDesc = { colorAttachments: [], depthStencilAttachment: { view: sh.view, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store" }, timestampWrites: passTS("shadow") };   // GPU 実時間＝tag "shadow"（#112 段 0）
+		let sp;
+		try { sp = enc.beginRenderPass(spDesc); }
+		catch (err) {   // timestampWrites 非対応の環境＝main パスと同じく TQ を畳んで無計測で続行
+			if (!tq) throw err;
+			tqOff(err);
+			delete spDesc.timestampWrites;
+			sp = enc.beginRenderPass(spDesc);
+		}
+		const cnt = { bldTris: 0, meshBatches: 0, meshTris: 0 };
 		const bg0s = shadowBG0();
 		const bld = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		if (bld) {
@@ -1654,6 +1665,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			sp.setBindGroup(2, buildMaskBG(act, scenes.main.origin || [0, 0]));   // main パスと同じ鍵＝キャッシュ命中
 			sp.setVertexBuffer(0, bld.bPos); sp.setVertexBuffer(1, bld.bSh); sp.setVertexBuffer(2, bld.bAnc);
 			sp.draw(bld.count);
+			cnt.bldTris = bld.count / 3;
 		}
 		if (meshes.size) {
 			const reachM = win.texelM * SH_N * 0.5 * 1.5 + Math.min(300 / Math.tan(win.alt), 3000);   // 窓の半幅×1.5＋高層の影の長さ
@@ -1681,10 +1693,14 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					sp.setVertexBuffer(0, p.vbo); sp.setVertexBuffer(1, p.nbo);
 					sp.setIndexBuffer(p.ibo, "uint32");
 					sp.drawIndexed(p.count);
+					cnt.meshTris += p.count / 3;
 				}
+				cnt.meshBatches = list.length;
 			}
 		}
 		sp.end();
+		shStat.passes++;
+		shStat.last = { N: SH_N, halfM: win.texelM * SH_N / 2, texelM: win.texelM, altDeg: win.alt * 180 / Math.PI, mvp: Array.from(win.mvp), ...cnt };
 	}
 	// frame＝開いたコマンドエンコーダ＋描画の的（gint が自分の render pass を足す口）。flush() で resolve→submit。
 	let frame = null, gctx = null;
@@ -1853,6 +1869,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!frame1Scoped) { frame1Scoped = 1; device.pushErrorScope("validation"); }   // 初回フレーム全体を包む（pop は flush）
 		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
 		const R = shWin ? shadowPipes(S) : null;   // 受け手の派生パイプライン（影のフレームだけ）
+		if (shadow.on) shStat.active = !!shWin;
 		if (shWin) encodeShadowCasters(enc, shWin, cam, opts);
 		// 1x（遷移フレーム／?msaa=0）＝canvas の current texture へ直描き。以降の全パス（gint 含む）が同じ view に
 		// load で重ね、flush() の resolve パスは丸ごと消える＝MSAA store/load/resolve がフレームから消滅する。
@@ -2325,6 +2342,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },
+		shadowStats: () => shadow.on ? { on: true, active: shStat.active, passes: shStat.passes, skipped: shStat.skipped, ...(shStat.last || {}) } : null,   // 影の計器（#112 段 0・?hud=1 のテレメトリ）＝消している間は null
 		samples: SAMPLES,   // 品質段（静止フレームの段数）。フレーム毎の実段数は frameInfo().samples（遷移時AA＝遷移中1x）
 		quad4: QUAD4,   // 線・点＝index の 4 頂点（perf plan P3）。gint（createGintLayerGPU）の既定がこれに揃う
 		fx: FX,   // 描画の質の旗（#46）＝atmosphere/pbr/ao の実効値（計器・検定が読む）
