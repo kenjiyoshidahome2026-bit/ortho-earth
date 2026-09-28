@@ -164,13 +164,17 @@ export function inkHits(imgA, imgB, points, { hw = 24, hh = 10, tol = THRESH.ink
 // 文字の突き合わせ（段 0）：本物が置いた点の記号（R.symbols・線/面は line に数えるだけ）を、こちらの画面へ写した位置（O.refSym）の近くに、
 // こちらが同じ層のラベル/記号（O.placed）を置いたか（hit）。こちらだけが置いた物（extra）・錨の周りのインク（O.ink）も数える。文字の中身は比べない（同じ地物＝同じ式）
 export function textMatch(R, O, T = THRESH) {
-	const out = { n: 0, hit: 0, extra: 0, placedN: 0, ink: 0, inkN: 0, line: 0, layers: {} };
+	const out = { n: 0, hit: 0, extra: 0, placedN: 0, ink: 0, inkN: 0, line: 0, lineHit: 0, linePlaced: 0, layers: {}, lineLayers: {} };
 	const syms = (R?.symbols || []).filter(sy => !sy.error), placed = O?.placed || [], rs = O?.refSym || [], ink = O?.ink || [];
 	if (!syms.length) return out;
 	const W = O?.container?.W ?? Infinity, H = O?.container?.H ?? Infinity;
 	const used = new Set();
+	// 線沿い（段 4）＝本物は線の記号の位置を返さない（線の幾何だけ）＝層ごとの本数で測る：lineHit＝層ごとの min(本物, こちら) の和・linePlaced＝こちらの線の注記（画面の中）
+	const lineRef = {}, lineOurs = {};
+	for (const sy of syms) if (sy.placement === "line" || sy.placement === "line-center") lineRef[sy.layer] = (lineRef[sy.layer] || 0) + 1;
+	for (const q of placed) if (lineRef[q.layer] && !(q.x < 0 || q.y < 0 || q.x >= W || q.y >= H)) { lineOurs[q.layer] = (lineOurs[q.layer] || 0) + 1; out.linePlaced++; }   // 本物が線に置く層に、こちらが置いた物（線に沿う字も、錨に回さず置いた盾も）
 	syms.forEach((sy, i) => {
-		if (sy.lng == null || sy.placement !== "point") { out.line++; return; }   // 線沿い・面の記号＝位置が無い（段 4 で測る）
+		if (sy.lng == null || sy.placement !== "point") { out.line++; return; }   // 線沿い・面の記号＝位置が無い
 		const p = rs[i]; if (!p?.ok) return;   // こちらでは裏か画面の外
 		out.n++;
 		const L = out.layers[sy.layer] ??= { n: 0, hit: 0 }; L.n++;
@@ -179,8 +183,9 @@ export function textMatch(R, O, T = THRESH) {
 		if (best >= 0) { used.add(best); out.hit++; L.hit++; }
 		if (ink[i] != null) { out.inkN++; if (ink[i]) out.ink++; }
 	});
-	const layersR = new Set(syms.map(sy => sy.layer));
-	for (const [k, q] of placed.entries()) { if (q.x < 0 || q.y < 0 || q.x >= W || q.y >= H) continue; out.placedN++; if (!used.has(k) && layersR.has(q.layer)) out.extra++; }   // 本物にもある層で、こちらだけが置いた物
+	for (const [k, n] of Object.entries(lineRef)) { const m = lineOurs[k] || 0; out.lineLayers[k] = { n, ours: m }; out.lineHit += Math.min(n, m); }
+	const layersR = new Set(syms.filter(sy => sy.placement === "point").map(sy => sy.layer));
+	for (const [k, q] of placed.entries()) { if (q.line || lineRef[q.layer] || q.x < 0 || q.y < 0 || q.x >= W || q.y >= H) continue; out.placedN++; if (!used.has(k) && layersR.has(q.layer)) out.extra++; }   // 本物にもある層で、こちらだけが置いた物（線の注記は本数で別に測る）
 	return out;
 }
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）

@@ -344,7 +344,8 @@ try {
 				{ id: "hs", type: "hillshade", source: "dem", paint: { "hillshade-exaggeration": 0.5 } },   // 描かない層（§8 A）＝getStyle には元の順で居る
 				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
 				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
-				{ id: "rd-lbl", type: "symbol", source: "gsi", "source-layer": "RdCL", layout: { "symbol-placement": "line", "text-field": "{name}" } },   // 線に沿う注記＝描かない層（§8 A）
+				{ id: "rd-lbl", type: "symbol", source: "gsi", "source-layer": "RdCL", layout: { "symbol-placement": "line", "text-field": "{name}" } },   // 線に沿う注記＝段 4 から描く層
+				{ id: "hm", type: "heatmap", source: "gsi", "source-layer": "WA" },   // 描かない層（§8 A＝基図では描けない型）
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 				{ id: "ic-s", type: "symbol", source: "ic", layout: { "icon-image": "alt:sq" } },
 			],
@@ -357,14 +358,14 @@ try {
 		// ── getStyle は style の全ての層を元の順で（描かない層も・§8 A）＝MapLibre の getStyle と同じ答え ──
 		await scene("getstyle-all-layers-in-order", () => {
 			const ls = map.getStyle().layers, ids = ls.map(L => L.id).join(","), und = ls.filter(L => L.metadata?.["ortho:drawn"] === false).map(L => L.id).join(",");
-			return [ids === "bg,hs,water,rd-lbl,g,ic-s" && und === "rd-lbl", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から描く層
+			return [ids === "bg,hs,water,rd-lbl,hm,g,ic-s" && und === "hm", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から・rd-lbl（線に沿う注記）は段 4 から描く層
 		});
 		await scene("undrawn-layer-get-set", () => {
 			const r = [];
-			r.push(map.getLayer("rd-lbl")?.type === "symbol");
-			try { map.setLayoutProperty("rd-lbl", "visibility", "none"); map.setPaintProperty("hs", "hillshade-exaggeration", 0.3); map.setFilter("rd-lbl", ["==", ["get", "k"], 1]); map.setLayerZoomRange("rd-lbl", 5, 12); r.push(true); } catch (e) { r.push(String(e.message)); }
-			r.push(map.getLayoutProperty("rd-lbl", "visibility") === "none", map.getPaintProperty("hs", "hillshade-exaggeration") === 0.3, JSON.stringify(map.getFilter("rd-lbl")) === JSON.stringify(["==", ["get", "k"], 1]));
-			r.push(map.getStyle().layers.find(L => L.id === "rd-lbl")?.layout?.visibility === "none");
+			r.push(map.getLayer("hm")?.type === "heatmap");
+			try { map.setLayoutProperty("hm", "visibility", "none"); map.setPaintProperty("hs", "hillshade-exaggeration", 0.3); map.setFilter("hm", ["==", ["get", "k"], 1]); map.setLayerZoomRange("hm", 5, 12); r.push(true); } catch (e) { r.push(String(e.message)); }
+			r.push(map.getLayoutProperty("hm", "visibility") === "none", map.getPaintProperty("hs", "hillshade-exaggeration") === 0.3, JSON.stringify(map.getFilter("hm")) === JSON.stringify(["==", ["get", "k"], 1]));
+			r.push(map.getStyle().layers.find(L => L.id === "hm")?.layout?.visibility === "none");
 			map.removeLayer("hs");
 			r.push(!map.getLayer("hs") && !map.getStyle().layers.some(L => L.id === "hs"));
 			return [r.every(v => v === true), `get/set/getLayout/getPaint/getFilter/inStyle/removed=${r.join("/")}`];
@@ -483,6 +484,7 @@ try {
 				{ id: "x-road", type: "line", source: "extra", "source-layer": "road", filter: ["==", ["get", "class"], "minor"], paint: { "line-color": "#ff8800", "line-width": 6 } },
 				{ id: "poi-lbl", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, layout: { "text-field": ["get", "name"], "text-size": 14 } },   // 基図の symbol 層（labels.js の経路）＝minzoom 16（ML）＞この頁の z（ML 15.5）＝既定では出ない（下の symbol-layer-zoom-range が範囲を動かす）
 				{ id: "poi-ico", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, layout: { "icon-image": "sq" } },   // 基図の記号だけの層（段 3）＝同じく既定では出ない（symbol-icon-base-layer が範囲を動かす）
+				{ id: "road-lbl", type: "symbol", source: "omt", "source-layer": "road", minzoom: 16, filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 14 } },   // 基図の線に沿う注記（段 4）＝同じく既定では出ない
 			],
 		};
 		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style, debugGlobals: true });   // debugGlobals＝window.__vtx（押し出しの中の数・手で覗く窓）
@@ -709,6 +711,32 @@ try {
 				map.setLayoutProperty("oa", "text-optional", false); map.setLayoutProperty("oa", "icon-optional", true); const a2 = await untilN("oa", n => n === 0);
 				await drop("oa", "ob");
 				return [a0.length === 0 && a1.length >= 2 && a1.every(q => q.icon === "sq" && q.text == null) && a2.length === 0, `default=${a0.length} text-optional=${a1.length}(${a1.map(q => `${q.icon}/${q.text}`).join(",")}) icon-optional=${a2.length}`];
+			});
+			// ── 線に沿う注記（段 4）＝Main St（東西の直線・class primary）に symbol-placement line。__placed の line／x,y（錨の字の位置）／w（字送りの和）で検分。基図の層（style の road-lbl＝tile worker）と vector の層（addLayer＝vtdraw）の両経路 ──
+			const [mx, my] = atG(D.main);
+			await vscene("symbol-line-base-layer", async () => {   // 基図の層：範囲に入れると Main St の注記が線の上（y≒道路の y）に置かれる・注記の canvas に道路沿いのインク
+				map.setLayerZoomRange("road-lbl", 0, 24);
+				const p = await untilN("road-lbl", n => n > 0), c = p.find(q => q.line && q.text === "Main St" && Math.abs(q.y - my) < 6);
+				let ink = 0; for (let k = 0; k < 8 && ink < 20 && c; k++) { await sleep(600); ink = await labelInk([c.lon, c.lat], 12); }   // インク＝置いた注記の錨（symbol-spacing 250px＝2 つの候補のどちらかだけ残る）
+				map.setLayerZoomRange("road-lbl", 16, 24); await untilN("road-lbl", n => n === 0);
+				return [!!c && c.w > 30 && Math.abs(c.h - 14) < 1 && p.every(q => q.line) && ink >= 20, `placed=${p.length} ${c ? `x=${c.x.toFixed(0)} y=${c.y.toFixed(0)} w=${c.w.toFixed(0)} h=${c.h}` : "none"} road y=${my.toFixed(0)} ink=${ink}`];
+			});
+			await vscene("symbol-line-offset-and-center", async () => {   // vector の層：text-offset [0, 1]（em）＝線と直角に 16px 下・line-center＝線の中心に 1 つずつ（タイルの枠で切った部分ごと）
+				await map.addLayer({ id: "ln1", type: "symbol", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 16, "text-offset": [0, 1] }, paint: { "text-color": "#000" } });
+				const a = (await untilN("ln1", n => n > 0)).filter(q => q.line); await drop("ln1");
+				await map.addLayer({ id: "ln2", type: "symbol", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line-center", "text-field": ["get", "name"], "text-size": 16 }, paint: { "text-color": "#000" } });
+				const b = (await untilN("ln2", n => n > 0)).filter(q => q.line); await drop("ln2");
+				const okA = a.length > 0 && a.every(q => Math.abs(q.y - (my + 16)) < 4), okB = b.length >= 1 && b.length <= 2 && b.every(q => Math.abs(q.y - my) < 4);
+				return [okA && okB, `offset: n=${a.length} y=${a.map(q => q.y.toFixed(0))} (want ${(my + 16).toFixed(0)}) · center: n=${b.length} y=${b.map(q => q.y.toFixed(0))} x=${b.map(q => q.x.toFixed(0))}`];
+			});
+			await vscene("symbol-line-icon-and-shield", async () => {   // 線の記号（icon-rotate 45＝箱は 16×(cos45＋sin45)≒22.6）と、回さず置く盾（text/icon-rotation-alignment viewport＝line false・記号と文字が錨に）
+				await map.addLayer({ id: "li1", type: "symbol", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line", "icon-image": "sq", "icon-rotate": 45 } });
+				const a = (await untilN("li1", n => n > 0)).filter(q => q.line); await drop("li1");
+				await map.addLayer({ id: "li2", type: "symbol", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line", "icon-image": "sq", "text-field": ["get", "name"], "text-size": 12, "text-rotation-alignment": "viewport", "icon-rotation-alignment": "viewport", "icon-text-fit": "both" }, paint: { "text-color": "#000" } });
+				const b = await untilN("li2", n => n > 0); await drop("li2");
+				const okA = a.length > 0 && a.every(q => q.icon === "sq" && q.text == null && Math.abs(q.ibox[2] - 22.6) < 1.5 && Math.abs(q.y - my) < 3);
+				const okB = b.length > 0 && b.every(q => !q.line && q.icon === "sq" && q.text === "Main St" && Math.abs(q.y - my) < 3 && Math.abs(q.ibox[2] - q.w) < 1.5);   // icon-text-fit both・余白 0＝記号の箱は文字の箱
+				return [okA && okB, `icon: n=${a.length} ${a[0] ? `ibox=${a[0].ibox.map(v => v.toFixed(1))} y=${a[0].y.toFixed(0)}` : ""} · shield: n=${b.length} ${b[0] ? `line=${b[0].line} icon=${b[0].icon} text=${b[0].text} w=${b[0].w.toFixed(0)} ibox=${b[0].ibox?.map(v => v.toFixed(1))}` : ""} road y=${my.toFixed(0)}`];
 			});
 			await vscene("add-font-face-api", async () => {   // Web フォントを差す口＝関数・無い URL は HTTP の理由で reject（投げっ放しにしない）・ArrayBuffer も受ける（壊れた束＝main の FontFace が reject）
 				let e1 = null, e2 = null;
