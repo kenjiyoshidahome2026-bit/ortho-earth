@@ -104,9 +104,9 @@ function build(m) {
 			run({ ...base, paint: { "line-color": P["circle-color"] ?? "#000000", "line-width": ["*", 2, r], "line-opacity": P["circle-opacity"] ?? 1 } }, dots, 2);
 			features += dots.length;
 		} else if (L.type === "symbol") {
-			if ((L.layout["symbol-placement"] ?? "point") !== "point") { warn.push("symbol-placement"); continue; }   // 線の上の注記＝段 8③
-			const pts = [];
-			for (const f of feats) for (const [px, py] of labelPointsOf(f, E)) pts.push({ type: "Point", id: f.id, props: f.props, geom: { coords: [px, py], ends: [2] } });
+			const place = L.layout["symbol-placement"] ?? "point", pts = [];
+			if (place === "line" || place === "line-center") { for (const f of feats) if (f.type === "LineString") { const g = f.geom && clipLineGeom(f.geom, E); if (g?.coords?.length) pts.push({ ...f, geom: g }); } }   // 線に沿う注記（段 4）＝枠で切った線（隣のタイルと二重にしない）を core の buildLabels（錨と折れ線）へ
+			else for (const f of feats) for (const [px, py] of labelPointsOf(f, E)) pts.push({ type: "Point", id: f.id, props: f.props, geom: { coords: [px, py], ends: [2] } });
 			if (!pts.length) continue;
 			const { labels: ls } = buildLabels({ layers: { [sl]: { extent: E, features: pts } }, z, x, y }, { layers: [L], schema: null });
 			for (const lb of ls) { lb.sort = -1e6 - okey * 1e3 + (lb.sort || 0); delete lb.li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（MapLibre と同じ）

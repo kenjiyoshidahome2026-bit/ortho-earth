@@ -6,7 +6,7 @@
 //   ③ 文字の差し込み記法（"{name}"・"{name:latin}"）→ concat
 // 読み替えは純関数（worker にも main にも置ける）。取得（fetch）は loadMapLibreStyle に分けた。
 //
-// 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・circle・heatmap・線に沿うラベル・アイコン。
+// 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・circle・heatmap（線に沿うラベルは段 4・アイコンは段 3 から基図で描く）。
 // それらは基図に入れず、呼び手（globe）が「画像層」「利用者の層」へ振り分けるか、捨てて数える（splitMapLibreStyle の戻り値）。
 
 import { ORIGIN_KEY, unknownOps } from "./expr.js";
@@ -202,7 +202,7 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 		if (sp?.type === "raster") { raster.push(L); continue; }
 		if (L.source !== vectorSource) { skipped.push({ id: L.id, type: L.type, why: sp ? `source "${L.source}" (${sp.type}) is not the basemap` : `source "${L.source}" missing` }); continue; }
 		if (!BASE_TYPES.has(L.type)) { skipped.push({ id: L.id, type: L.type, why: "not drawn in the basemap" }); continue; }
-		if (L.type === "symbol" && (L.layout?.["symbol-placement"] ?? "point") !== "point") { skipped.push({ id: L.id, type: L.type, why: "line labels" }); continue; }
+		// 線に沿う注記（symbol-placement line/line-center）も基図へ（段 4・旧＝"line labels" として描かない層）
 		if (L.type === "fill" && L.paint?.["fill-pattern"] != null) { skipped.push({ id: L.id, type: L.type, why: "fill-pattern" }); continue; }
 		base.push(L);
 	}

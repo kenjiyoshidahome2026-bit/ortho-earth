@@ -358,6 +358,7 @@ const dispatch = e => {
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
 			else if (m.cmd === "vtLabels") { const list = m.data?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer, list, m.data ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
 			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
+			else if (m.cmd === "labelImage") { if (m.data?.bitmap) labelLayer?.setImage(m.data.name, m.data); else labelLayer?.removeImage(m.data?.name); }   // 記号帳の写し（addImage / sprite）＝基図と vector の symbol 層の icon-image（段 3）。bitmap null＝外す
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "meshSet") meshInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
@@ -375,6 +376,7 @@ const dispatch = e => {
 			else if (m.cmd === "dem") {   // 外来の標高タイルの生き替え（#36）。terrain:false の地図は初めての DEM で地形を作る（外す時は作った地形の DEM を外す＝既定の標高に戻る・台帳 §4）
 				if (!terrain && terrLazyInit && m.data) { terrain = makeTerrain(terrLazyInit, m.data); terrLazyInit = null; dirty = true; armRaf(); }
 				else terrain?.setDem(m.data || null);
+				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
 			else if (m.cmd === "clock") { clockA = m.data; dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
