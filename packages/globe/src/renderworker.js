@@ -12,7 +12,7 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, cameraState, project, projectClip } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
@@ -82,7 +82,8 @@ function overlayFrame(camNow, depthFrame) {
 				const clipH = (lon, lat, hM) => projectClip(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
 				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
 				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
-					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain };
+					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain,
+					rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1 };   // 楕円体表示の b/a（#43）＝自前で位置を組むオーバーレイは tanβ＝rAx·tanφ の β 単位球に置く（camState.mvp が S を畳む）。球＝1
 			}
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }

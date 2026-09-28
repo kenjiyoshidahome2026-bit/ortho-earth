@@ -16,10 +16,32 @@ const transferOf = batches => {
 	return [...tr];
 };
 
+// 楕円体の状態（meshdecode のモジュール状態＝finishMesh・geoWorld が読む）は worker 全体で 1 つ（#43・2026-09-28）。
+// 仕事は await（取得・画像の復号）を挟んで並行に進む＝違うモードの仕事が同時に走ると、後から来た方が状態を書き換えて先の方の置き方が変わる
+// （楕円体の 3D Tiles のタイルを解いている間に日影の計算＝球 が割り込む→どちらかが約 10km ずれる）。
+// 関所＝同じモードの仕事は並行のまま・違うモードは前の仕事が全部抜けるまで待つ。先着順（頭が違うモードなら後ろの同じモードも待つ＝飢えない）。
+const gate = { cur: false, inflight: 0, q: [] };
+const pump = () => {
+	while (gate.q.length && (gate.inflight === 0 || gate.q[0].ell === gate.cur)) {
+		const r = gate.q.shift();
+		if (gate.inflight === 0) { gate.cur = r.ell; setDecodeEnv({ ell: r.ell }); }
+		gate.inflight++; r.go();
+	}
+};
+const enter = ell => new Promise(go => { gate.q.push({ ell, go }); pump(); });
+const leave = () => { gate.inflight--; pump(); };
+// 仕事の種類 → 楕円体のモード（null＝メッシュを置かない＝関所を通らない）。日影・可視域は球で解いて球の式で経緯度へ戻す＝常に球
+const modeOf = d => d.kind === "sunshadow" || d.kind === "viewshed" ? false : d.kind === "i3sOpen" || d.kind === "i3sNodes" ? null : !!d.ell;
+
 self.onmessage = async e => {
+	const mode = modeOf(e.data);
+	if (mode === null) return work(e);
+	await enter(mode);
+	try { await work(e); } finally { leave(); }
+};
+async function work(e) {
 	const { id, kind, ab, at, heading, scale, baseUri, ell, textures, ground, mask, polys } = e.data;
 	try {
-		setDecodeEnv({ ell: !!ell });   // 楕円体表示（?ell=1）は後段（finishMesh の RTE）が見る＝app と揃える
 		if (kind === "extrude") {
 			const r = extrudeMesh(polys, { mask: mask !== false, refine: e.data.refine ?? 1500 });   // refine＝屋根の細分の刻み(m)（沿わせる=1500・平面=20000）
 			if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
@@ -55,4 +77,4 @@ self.onmessage = async e => {
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats }, transferOf(r.batches));
 	} catch (err) { self.postMessage({ id, error: err?.message || String(err) }); }
-};
+}

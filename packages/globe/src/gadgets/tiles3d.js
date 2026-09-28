@@ -7,12 +7,13 @@
 //   GPU に上げたタイルは表示を切り替えるだけで残し（meshVis）、予算（既定 512MB・LOW_MEM 160MB）を超えたら使っていない物から捨てる。
 // 高さ＝既定は tileset の高さのまま（絶対高さ・写真測量の街並みや点群）。地形とずれる時は heightOffset[m] で合わせるか、
 //   建物の tileset なら ground:"terrain"＝1 棟ずつ最低点で地面に接地（PLATEAU の経路と同じ）。
-// 未対応：implicit tiling（3D Tiles 1.1 の subtree）・メタデータとスタイル・楕円体表示（?ell=1）での点群。
+// 未対応：implicit tiling（3D Tiles 1.1 の subtree）・メタデータとスタイル。
+// 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
-import { cameraState } from "@ortho-earth/core";
+import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 
-const EARTH_M = 6371000;
+const RAX = 1 - 1 / 298.257223563;   // b/a（楕円体表示の世界＝β 単位球 × S＝diag(1, b/a, 1)・S は mvp が畳む）
 const R2D = 180 / Math.PI;
 const I4 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 const m4mul = (a, b) => { const o = new Array(16); for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) o[c*4+r] = a[r]*b[c*4] + a[4+r]*b[c*4+1] + a[8+r]*b[c*4+2] + a[12+r]*b[c*4+3]; return o; };
@@ -26,8 +27,14 @@ function ecef2geo(x, y, z) {   // meshdecode と同じ（Newton 2 回）
 	return [lon, lat, h];
 }
 function geo2ecef(lon, lat, h) { const a = 6378137, e2 = 0.00669437999014, s = Math.sin(lat), N = a / Math.sqrt(1 - e2 * s * s); return [(N + h) * Math.cos(lat) * Math.cos(lon), (N + h) * Math.cos(lat) * Math.sin(lon), (N * (1 - e2) + h) * s]; }
-// ECEF → この地図の世界座標（単位球・メッシュの finishMesh と同じ軸）
-const worldOf = (e, baseH) => { const [lon, lat, h] = ecef2geo(e[0], e[1], e[2]), r = 1 + (h - baseH) / EARTH_M, cb = Math.cos(lat); return [cb * Math.cos(lon) * r, Math.sin(lat) * r, cb * Math.sin(lon) * r]; };
+// ECEF → この地図の世界座標（メッシュの finishMesh と同じ軸・同じ式）。ell＝楕円体表示＝β 単位球の面点＋測地法線の β空間像に沿うリフト（#43）。
+//   EW＝世界単位の m（球 6371000・楕円体 a）。球の枝は従来の式のまま（ビット同値）。
+const worldOf = (e, baseH, ell, EW) => {
+	const [lon, lat, h] = ecef2geo(e[0], e[1], e[2]), cb = Math.cos(lat);
+	if (!ell) { const r = 1 + (h - baseH) / EW; return [cb * Math.cos(lon) * r, Math.sin(lat) * r, cb * Math.sin(lon) * r]; }
+	const sp = Math.sin(lat), hr = (h - baseH) / EW, w = Math.hypot(cb, RAX * sp), horiz = cb / w + hr * cb;
+	return [horiz * Math.cos(lon), RAX * sp / w + hr * sp / RAX, horiz * Math.sin(lon)];
+};
 
 // 境界体積 → ECEF の球 { c, r }
 function sphereOf(bv, M) {
@@ -55,7 +62,8 @@ function planesOf(m) {
 	return out;
 }
 
-export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = false, signal, requester = null } = {}) {
+export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = false, signal, requester = null, ell = ellipsoidOn() } = {}) {
+	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	const getJSON = async (url, type) => { const r = await (requester ? requester.fetch(url, type) : fetch(url, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };   // transformRequest / addProtocol（#37）
 	const sets = new Map();   // id → tileset
 	let seq = 0, tileSeq = 0;
@@ -119,8 +127,8 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		const onGround = set.opts.ground === "terrain";
 		const rq = requester && set.kind !== "i3s" ? requester.resolve(n.uri, "Tile") : { url: n.uri };
 		const body = rq.load ? rq.load("arrayBuffer") : Promise.resolve(null);   // 独自スキーム＝main が読み口で取って本体を worker へ
-		body.then(ab => set.kind === "i3s" ? rpc({ kind: "i3sContent", url: set.url, nodeId: n.i3s.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
-			: rpc({ kind: "tile3d", url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
+		body.then(ab => set.kind === "i3s" ? rpc({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
+			: rpc({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
@@ -167,7 +175,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 			const baseH = -set.opts.heightOffset, maxSSE = set.opts.maxSSE ?? (lowMem ? 24 : 16);
 			const visible = n => {
 				if (!n.sphere) return { ok: true, dist: 1 };
-				const c = worldOf(n.sphere.c, baseH), r = n.sphere.r / EARTH_M;
+				const c = worldOf(n.sphere.c, baseH, ell, EARTH_M), r = n.sphere.r / EARTH_M;
 				for (const p of planes) if (p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] < -r) return { ok: false };
 				// 地平線の向こう（球の裏側）＝地平面（接点の面 dot(X,E)=1）より向こうに境界球ごと居る
 				const d = [c[0] - eye[0], c[1] - eye[1], c[2] - eye[2]], dl = len(d), el = len(eye);

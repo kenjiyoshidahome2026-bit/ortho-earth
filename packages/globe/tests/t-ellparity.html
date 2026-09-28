@@ -8,6 +8,8 @@
      地形は切る（terrain:false＝海面の球）＝標高の持ち上げと切り離して、座標の式だけを見る。I3S は試料が網の外にしか無いので入れていない。
      既知の失敗＝tests/ell-known.json（"ell0"／"ell1" の節・鍵 "場面:機能"・値＝直す段）。一覧に無い失敗＝落ちる（退行）／
      一覧にあるのに通った＝落ちる（直ったので外す）／一覧にあるのに走らなかった＝落ちる。
+     g=scan：画像の四隅を緯度 0〜70° に置き、z15 真俯瞰で南北のずれを測る（地形なし＝海面の球の床に貼る経路）。GL2 の床が楕円体の印を
+       z≳6.3 で渡していなかった（原点から遠いほどずれる・北緯 60° で約 450m）のを捕まえた走査＝東京の場面だけでは原点が近くて見えない。
      g=cache：列チャンク層の IDB キャッシュ（鍵＝URL＋サイズ）が球と楕円体を跨いで使い回されないか。同じプロファイルで
        ①?ell 無し（球）で tests/fixtures/ell/square.parquet（GeoParquet＝URL のまま読める＝キャッシュに入る）を読む（キャッシュに入る）→ ②?ell=1 で読み直す。②の位置を測る。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-ellparity</title></head>
@@ -114,6 +116,23 @@ try {
 		}
 		const ks = await colKeys();
 		rec("cache:hit", hc.cached > 0, `cached=${hc.cached} loaded=${hc.loaded} keys1=${Q.get("k1")} keys2=${ks.length} ${ks.map(k => k.replace(/^.*\//, "")).join(",")}`);   // ②がキャッシュから読んだこと（読まなかったら位置の検めは空振り）
+	} else if (G === "scan") {
+		// ── 緯度の走査（画像の四隅・地形なし）＝場所は東へずらして置く（前の場面の原点から遠い所を通る）
+		const ycv = Object.assign(document.createElement("canvas"), { width: 16, height: 16 }), yg = ycv.getContext("2d"); yg.fillStyle = "#ffff00"; yg.fillRect(0, 0, 16, 16);
+		const ybmp = await createImageBitmap(ycv);
+		const LATS = [0, 20, 35.7, 45, 50, 55, 60, 65, 70], at = lat => [10 + lat, lat];
+		for (const lat of LATS) { const q = square(at(lat), SIDE); await map.raster.add("ell-scan-" + lat, { image: ybmp, corners: [q[3], q[2], q[1], q[0]] }); }
+		for (const lat of LATS) {
+			step("scan " + lat);
+			map.jumpTo({ center: at(lat), zoom: 15, pitch: 0, bearing: 0 });
+			await sleep(1500);
+			for (let a = 0; a < 6; a++) {
+				const img = await grabShot(map), want = map.makeProjectorH({ terrain: false })(...at(lat), 0);
+				judge(`scan:lat${lat}`, centroid(img, want, 30, isYellow), want, 2, 20, img, isYellow);
+				if (R[`scan:lat${lat}`][0]) break;
+				await sleep(1500);
+			}
+		}
 	} else {
 		step("add features");
 		// ── 機能を二つの場所に置く（一度だけ）

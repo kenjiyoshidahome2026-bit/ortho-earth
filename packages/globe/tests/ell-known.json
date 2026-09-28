@@ -2,14 +2,6 @@
 	"_": "楕円体の測る台（t-ellparity・#43）の既知の失敗。節＝ell0（球）／ell1（楕円体）＋描画系だけの節 ell1@gl2・ell1@webgpu・鍵＝\"場面:機能\"・値＝直す段と理由。直ったら消す（残すと爪車が落ちる）。足すのは『楕円体でずれると分かった機能』を台に書いた時だけ。計画＝Issue #43 のコメント（段 0 の基準線＝2026-09-28・GL2（SwiftShader）と WebGPU（実 GPU）で測定）",
 	"ell0": {},
 	"ell1": {
-		"tokyo:heat": "段 1b：heatmap の点を球の式で単位球へ置いている（gadgets/aggregate.js:36-37）＝楕円体で約 10km 北＝画面のどこにも無い",
-		"tokyo55:heat": "段 1b：同上（傾き 55°）",
-		"north60:heat": "段 1b：同上（北緯 60°）",
-		"tiles3d:triangles": "段 1a：3D Tiles の rpc が ell を送らない（gadgets/tiles3d.js:123）→ model-worker の球の枝＝画面のどこにも無い",
-		"tiles3d:points": "段 1a：点群は球の式と 6371000（tiles3d-decode.js:8,63-64）＝画面のどこにも無い",
 		"cache:hit": "別件（段 1c の前提）：列チャンク層のキャッシュが一度も書かれない＝chunkBuffers で主へ移譲した rows/types/points を cache.set が複製できず DataCloneError（cache.js の run が握りつぶす）。直すと cache:columnar が落ちる（鍵に rAx が無い＝段 1c）"
-	},
-	"ell1@gl2": {
-		"north60:image": "段 1（原因は未調査）：GL2 だけ。画像の四隅（map.raster.add { image, corners }）が北緯 60° で南へ 187px（z15 で約 450m）ずれる。東京では合う・球では北緯 60° でも合う・WebGPU では楕円体でも合う＝GL2 の地面アトラスの貼り方の側"
 	}
 }
