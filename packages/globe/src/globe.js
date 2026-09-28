@@ -35,7 +35,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, getGlobalState, usesGlobalState } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
@@ -253,6 +253,8 @@ const loadExtStyle = async (spec, transformStyle = null) => {
 	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
 	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
 	if (typeof transformStyle === "function") ms = transformStyle(EXT ? map.getStyle() : undefined, structuredClone(ms)) ?? ms;
+	// style の root の state（MapLibre v5：{ 鍵: { default } }）＝global-state の既定値。新しい style は状態を入れ替える（MapLibre の setStyle と同じ）
+	if (ms.state && typeof ms.state === "object") setGlobalState(Object.fromEntries(Object.entries(ms.state).map(([k, d]) => [k, d && typeof d === "object" && "default" in d ? d.default : null])));
 	const split = splitMapLibreStyle(ms, { zoomOffset: STYLE_DZ });
 	const src = split.vectorSource ? await resolveVectorSource(ms.sources[split.vectorSource], baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }) : null;
 	const isVtx = k => { const L = (ms.layers || []).find(x => x.id === k.id); return !!L && vtRouted(L, ms, split.vectorSource); };   // vector の押し出し・2 本目以降の vector の描く層＝利用者の層の口で描く（段 8①・8⑤・mountExtExtras）
@@ -271,7 +273,7 @@ const DEM0 = (() => {
 })();
 let EXT = null;
 if (STYLE_SPEC) { try { EXT = await loadExtStyle(STYLE_SPEC); } catch (err) { console.error("[style] cannot load the style — falling back to the default basemap", err); } }
-const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true });
+const extBaseStyle = ext => ({ version: 8, name: ext.ms.name, sources: { v: { type: "vector" } }, layers: ext.split.base, ext: true, globalState: getGlobalState() });   // globalState＝tile worker の式の状態（setGlobalStateProperty で restyleBase が載せ直す）
 const extSourceFields = ext => {   // BASE_SOURCE の中身（setStyle でも同じ形で差し替える）
 	const s = ext.src;
 	return { kind: s?.pmtiles ? "pmtiles" : "style", url: s?.pmtiles || s?.tiles?.[0] || ext.url || null, tileUrl: s ? tileUrlOf(s) : () => null,
@@ -3836,6 +3838,23 @@ map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
 	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
 };
+// global-state（MapLibre v5 同名・記号の残件③・2026-09-28）：式の ["global-state", 鍵] が読む地図全体の状態。変えたらそれを読む層だけ評価し直す。
+// geojson の fill/line/circle＝gint の表を作り直す（main の buildMLTable）・記号/集約/模様/押し出し＝relayer（main）・vector の描く層/押し出し＝版を上げて組み直す（worker へ gs）・基図の層＝restyleBase（tile worker へ globalState）
+map.setGlobalStateProperty = (key, value) => {
+	if (typeof key !== "string") throw new Error("setGlobalStateProperty: key must be a string");
+	setGlobalState({ ...getGlobalState(), [key]: value === undefined ? null : value });
+	const uses = L => usesGlobalState([L?.filter, L?.layout, L?.paint]);
+	for (const e of mlPasses.values()) if (e.holder?.pass?.layers?.some(uses)) e.h.setPaint({}, null);
+	for (const v of mlLayers.values()) {
+		if (v.kind === "gint" || v.kind === "custom" || !uses(drawLayerOf(v)) || !mlVisible(v)) continue;
+		if (v.kind === "vtdraw" || v.kind === "vtextrude") v.layer = { ...v.layer, metadata: { ...(v.layer.metadata || {}), "ortho:gs": (v.layer.metadata?.["ortho:gs"] ?? 0) + 1 } };   // 組み立ての署名を変える（worker は build の gs で評価）
+		relayer(v);
+	}
+	if (EXT && style.layers.some(uses)) restyleBase();
+	needsDraw = true;
+	return map;
+};
+map.getGlobalState = () => getGlobalState();
 // Web フォントを差す口（段 2）：text-font の family がブラウザに無い時、利用者が書体を持ち込む。main（DOM の注記・popup）と render worker（注記 canvas・記号・集約）の両方に同じ FontFace を載せる。
 // source＝URL 文字列（"url(…)" を付けても付けなくても）か ArrayBuffer。descriptors＝weight/style（MapLibre の名前で "Noto Sans Bold" を引くなら weight "700" で載せる）。戻り＝両方の読み込みの Promise
 map.addFontFace = async (family, source, descriptors = {}) => {
@@ -4121,6 +4140,7 @@ const echoOther = L => ({ ...L, metadata: { ...(L.metadata || {}), [DZ_KEY]: L.m
 const noteOther = (id, fn) => { const L = extOtherOf(id); const n = { ...L, paint: { ...(L.paint || {}) }, layout: { ...(L.layout || {}) } }; fn(n); extNotes.set(id, n); return n; };
 function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());
+	if (EXT) style.globalState = getGlobalState();   // tile worker の global-state（基図の層の filter/layout）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, origin: originOfLayer(bg) }) ?? "#fff") : land;
 	renderer.set("view", { land });

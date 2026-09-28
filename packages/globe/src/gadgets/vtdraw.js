@@ -7,7 +7,7 @@
 //         返った scene を呼び手（globe）が render worker の "user" の枠へ中継する（main は transfer で渡すだけ）。結合は 1 本ずつ・間引き・フライト中も出し入れは続く。
 //   注記＝層ごとに、出しているタイルの注記の和を呼び手へ（render worker が標高を付けて基図の注記と同じ衝突へ）。
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
-import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
+import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
 
@@ -128,7 +128,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 		const key = tileKey(t), gen = src.gen, zsig = src.zsig, fz = fzOf(src, t.z), pz = src.pz, sid = src.sid;
 		B.building = true; building++;
 		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key }));
-		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null }).then(r => {
+		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null }).then(r => {
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.ver++;

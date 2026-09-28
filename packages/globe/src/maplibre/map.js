@@ -282,6 +282,8 @@ export class Map {
 	setLayoutProperty(id, k, v, o) { ask(this, "setLayoutProperty", [id, k, v, o]); return this; }
 	getLayoutProperty(id, k) { return ask(this, "getLayoutProperty", [id, k]); }
 	setFilter(id, f, o) { ask(this, "setFilter", [id, f, o]); return this; }
+	setGlobalStateProperty(k, v) { ask(this, "setGlobalStateProperty", [k, v]); return this; }   // global-state（記号の残件③）
+	getGlobalState() { return ask(this, "getGlobalState", []) ?? {}; }
 	getFilter(id) { return ask(this, "getFilter", [id]); }
 	setLayerZoomRange(id, a, b) { ask(this, "setLayerZoomRange", [id, a, b]); return this; }
 	setFeatureState(f, s) { ask(this, "setFeatureState", [f, s]); return this; }
