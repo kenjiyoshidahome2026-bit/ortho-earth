@@ -641,7 +641,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [] };   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [] };   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -759,6 +759,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
@@ -1619,7 +1620,8 @@ let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
 	+ (cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM && airportMarks.length ? "A" : "")
 	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
-	+ (poi && layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ (poi && layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "")   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ "Z" + Math.floor(cam.zoom);   // 整数の z を跨いだら作り直す＝rebuildLabels が層の出しズーム（minZ/maxZ）で外した注記を、次の整数 z で拾い直す（2026-09-28）
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -1725,7 +1727,10 @@ function rebuildLabels(order) {
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const bh = baseHiddenIdx();   // 隠した基図の層のラベル（worker のラベルは層の添字 li を持つ・段 7）
 	const merged = mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
-	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
+	// 層の出しズームの外の注記は送らない（labels.js が焼いた minZ/maxZ＝エンジンの z）＝この整数 z の間（labelGate の "Z"）に出る可能性のある物だけ。
+	// 旧＝全部送って描く側が zoom 域で捨てていた＝OpenFreeMap の poi_r20（minzoom 18）が z15 で 15753 個＝送るのも 150ms ごとの衝突判定の走査も重かった（2026-09-28）
+	const zf = Math.floor(cam.zoom), inZ = L => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
+	const filtered = themes.filterLabels(merged.filter(inZ), layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	lastLabels = filtered.map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
@@ -2095,7 +2100,7 @@ dbgHost.__placed = () => new Promise(res => {
 });
 dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
 	const sid = ++placedSeq;
-	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; const pt = {}; for (const [k, v] of Object.entries(g.pt || {})) pt[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, pt, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; const nm = k => /^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k, pt = {}, lineBy = {}; for (const [k, v] of Object.entries(g.pt || {})) pt[nm(k)] = v; for (const [k, v] of Object.entries(g.lineBy || {})) lineBy[nm(k)] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, lineBy, pt, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
 });
@@ -3344,10 +3349,16 @@ map.gadget("cluster", async function (src, opts = {}) {
 });
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
+const missingImgs = new Set();   // styleimagemissing を鳴らした名前（名前ごとに 1 回＝MapLibre と同じ）
+function imageMissing(name) {
+	if (!name || missingImgs.has(name) || symCtl?.hasImage(name)) return;
+	missingImgs.add(name);
+	for (const cb of [...mapOn.styleimagemissing]) { try { cb({ id: name }); } catch (e) { console.error("[map.on styleimagemissing]", e); } }
+}
 // 記号帳の写しは render worker の注記層（labels2d）にも届ける＝基図と vector source の symbol 層の icon-image（段 3）。ImageBitmap は写して転送（main の記号帳はそのまま）
 const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal,
 	onImage: (name, e) => createImageBitmap(e.bitmap).then(bm => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf } }, [bm]); needsDraw = true; }).catch(err => console.warn("[symbols] image to labels", name, err)),
-	onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); needsDraw = true; } }); };
+	onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); needsDraw = true; }, onMissing: imageMissing }); };
 // 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
 // こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
 const pendingImages = new Set();

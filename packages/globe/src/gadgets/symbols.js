@@ -9,7 +9,8 @@ import { symbolItems } from "./symbols-core.js";
 import symUrl from "../symbols-2d.js?url";
 
 // onImage(name, e)／onImageRemoved(name)＝記号帳の写しの届け先（globe＝render worker の注記層 labels2d・基図/vector の symbol 層の icon-image が引く・段 3）
-export function createSymbols(map, { signal, onImage = null, onImageRemoved = null } = {}) {
+// onMissing(name)＝記号帳に無い名前（styleimagemissing）
+export function createSymbols(map, { signal, onImage = null, onImageRemoved = null, onMissing = null } = {}) {
 	const images = new Map();   // name → { bitmap, pixelRatio, sdf }
 	const layers = new Map();   // id → { src, layer, items, zoomDep }
 	let ov = null, order = 0;
@@ -21,7 +22,7 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 	};
 	const send = (name, e) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf }, [bm])); };
 	const push = id => { const L = layers.get(id); if (!L) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
-	const evalLayer = id => { const L = layers.get(id); if (!L) return; L.items = symbolItems(L.src, L.layer, map.getZoom(), images); push(id); };
+	const evalLayer = id => { const L = layers.get(id); if (!L) return; const miss = new Set(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };
 	map.on("settle", onSettle);   // ["zoom"] を含む層は止まるたびに評価し直す（map.on は map を返す＝解除は map.off）
 	const ctl = {
@@ -29,7 +30,7 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 			const e = { bitmap: await toBitmap(src), pixelRatio, sdf };
 			images.set(name, e);
 			await send(name, e);
-			for (const [id, L] of layers) if (JSON.stringify(L.layer.layout || {}).includes(name)) evalLayer(id);   // その名前を待っていた層
+			for (const [id, L] of layers) if (L.missing?.has(name) || JSON.stringify(L.layer.layout || {}).includes(name)) evalLayer(id);   // その名前を待っていた層（式で組んだ名前は missing で）
 			return e;
 		},
 		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); onImageRemoved?.(name); },

@@ -706,6 +706,7 @@ function frame() {
 			// skipMain（ズームアウトで古い詳細シーンを退場）中は文字も一緒に退場＝clear()でフェード状態ごと流す。
 			// 新しい段の merge で戻る時はフェードインから始まる＝可逆な退場。
 			const animating = labelLayer && (opts?.skipMain ? (labelLayer.clear(), false) : labelLayer.draw(cam));    // ラベルも同じ cam で（＝完全同期）
+			{ const mi = labelLayer?.takeMissing?.(); if (mi) postMessage({ type: "labelImageMissing", names: mi }); }   // 記号帳に無い名前＝main が styleimagemissing を鳴らす（1 回だけ）
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
