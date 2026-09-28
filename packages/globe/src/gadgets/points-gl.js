@@ -5,6 +5,7 @@
 //           origin＝pos の原点（原点相対＝RTE・3D Tiles の点群 #41）＝絶対座標を float32 に通さない（寄ると 0.4m 級のガタつき）。
 //           mvp×平行移動(origin) は倍精度で掛けてから float32 へ＝原点付近の精度が桁で戻る
 //           ／{ type:"remove", q }／{ type:"vis", q, on }（表示だけ切替）／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
+//           検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
 // ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く。
 const VS = `#version 300 es
 precision highp float;
@@ -45,6 +46,8 @@ void main() {
 let gl = null, prog = null, uni = {}, maxPt = 1;
 const layers = new Map();   // q → { n, buf, cbuf, vao, perPoint }
 let style = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
+let host = null;
+const probes = [];
 
 function compile(vs, fs) {
 	const mk = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
@@ -53,7 +56,8 @@ function compile(vs, fs) {
 	const u = {}; for (let i = 0, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS); i < n; i++) { const nm = gl.getActiveUniform(p, i).name; u[nm] = gl.getUniformLocation(p, nm); }
 	return { p, u };
 }
-export function init(canvas) {
+export function init(canvas, _opts, h) {
+	host = h || null;
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (points overlay)");
 	({ p: prog, u: uni } = compile(VS, FS));
@@ -61,6 +65,7 @@ export function init(canvas) {
 }
 const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); if (L.cbuf) gl.deleteBuffer(L.cbuf); gl.deleteVertexArray(L.vao); };
 export function message(d) {
+	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 	if (!gl) return;
 	if (d.type === "layer") {
 		drop(layers.get(d.q));
@@ -76,7 +81,19 @@ export function message(d) {
 	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
 	else if (d.type === "style") { style = { ...style, ...d }; }
 }
-export function frame(cam, s, { w, h }) {
+// 検定用の画素（dbgHost.__ovPixels・t-ellparity）＝probe を受けたら、次の frame で描いた直後に readPixels して host へ（columnar の draw-gl と同じ口・premultiplied RGBA・下が先）
+function answerProbes(w, h) {
+	if (!probes.length) return;
+	const ids = probes.splice(0);
+	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+}
+export function frame(cam, s, size) {
+	const r = draw(cam, s, size);
+	if (gl) answerProbes(size.w, size.h);
+	return r;
+}
+function draw(cam, s, { w, h }) {
 	if (!gl) return false;
 	gl.viewport(0, 0, w, h);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
