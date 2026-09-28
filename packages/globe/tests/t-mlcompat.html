@@ -738,6 +738,31 @@ try {
 				const okB = b.length > 0 && b.every(q => !q.line && q.icon === "sq" && q.text === "Main St" && Math.abs(q.y - my) < 3 && Math.abs(q.ibox[2] - q.w) < 1.5);   // icon-text-fit both・余白 0＝記号の箱は文字の箱
 				return [okA && okB, `icon: n=${a.length} ${a[0] ? `ibox=${a[0].ibox.map(v => v.toFixed(1))} y=${a[0].y.toFixed(0)}` : ""} · shield: n=${b.length} ${b[0] ? `line=${b[0].line} icon=${b[0].icon} text=${b[0].text} w=${b[0].w.toFixed(0)} ibox=${b[0].ibox?.map(v => v.toFixed(1))}` : ""} road y=${my.toFixed(0)}`];
 			});
+			// ── 向き（段 5）＝text-rotate・rotation-alignment map（bearing に追随）・pitch-alignment map（傾けた地面に寝る）。__placed の w/h＝画面の箱（transform 込み） ──
+			const boxAt = (p, x, y, tol = 4) => p.find(q => Math.abs(q.x - x) < tol && Math.abs(q.y - y) < tol), fmt = q => q ? `${q.w.toFixed(1)}x${q.h.toFixed(1)}` : "none";
+			await vscene("symbol-text-rotate", async () => {   // text-rotate 90＝箱の w/h が入れ替わる
+				await sym("r0", {}); const a = boxAt(await untilN("r0", n => n > 0), cx, cy); await drop("r0");
+				await sym("r1", { "text-rotate": 90 }); const b = boxAt(await untilN("r1", n => n > 0), cx, cy); await drop("r1");
+				return [!!a && !!b && Math.abs(b.w - a.h) < 1.5 && Math.abs(b.h - a.w) < 1.5, `plain=${fmt(a)} rot90=${fmt(b)}`];
+			});
+			await vscene("symbol-rotation-alignment-map", async () => {   // bearing 90＝map なら箱が縦（w/h 入れ替わり）・viewport（既定）なら横のまま
+				map.jumpTo({ bearing: 90 }); await sleep(800);
+				const [rx, ry] = atG(D.cafe);
+				await sym("ra0", {}); const a = boxAt(await untilN("ra0", n => n > 0), rx, ry); await drop("ra0");
+				await sym("ra1", { "text-rotation-alignment": "map" }); const b = boxAt(await untilN("ra1", n => n > 0), rx, ry); await drop("ra1");
+				map.jumpTo({ bearing: 0 }); await sleep(800);
+				return [!!a && !!b && a.w > a.h && b.h > b.w && Math.abs(b.h - a.w) < 1.5, `viewport=${fmt(a)} map=${fmt(b)} at=(${rx.toFixed(0)},${ry.toFixed(0)})`];
+			});
+			await vscene("symbol-pitch-alignment-map", async () => {   // pitch 60＝map なら箱の高さが縮む（地面に寝る・幅は同じ）・viewport（既定）は変わらない。線の注記（既定＝map）も字の高さが縮む
+				map.jumpTo({ pitch: 60 }); await sleep(1000);
+				const [px0, py0] = atG(D.cafe);
+				await sym("pa0", {}); const a = boxAt(await untilN("pa0", n => n > 0), px0, py0); await drop("pa0");
+				await sym("pa1", { "text-pitch-alignment": "map" }); const b = boxAt(await untilN("pa1", n => n > 0), px0, py0); await drop("pa1");
+				await map.addLayer({ id: "pl", type: "symbol", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 16 }, paint: { "text-color": "#000" } });
+				const c = (await untilN("pl", n => n > 0)).filter(q => q.line)[0]; await drop("pl");
+				map.jumpTo({ pitch: 0 }); await sleep(800);
+				return [!!a && !!b && !!c && Math.abs(a.h - 19.2) < 2 && b.h < a.h * 0.75 && Math.abs(b.w - a.w) < a.w * 0.15 && c.h < 16 * 0.85, `viewport=${fmt(a)} map=${fmt(b)} line=${fmt(c)}`];
+			});
 			await vscene("add-font-face-api", async () => {   // Web フォントを差す口＝関数・無い URL は HTTP の理由で reject（投げっ放しにしない）・ArrayBuffer も受ける（壊れた束＝main の FontFace が reject）
 				let e1 = null, e2 = null;
 				try { await map.addFontFace("Nope Sans", "./fixtures/no-such-font.woff2"); } catch (e) { e1 = String(e?.message || e); }

@@ -12,6 +12,7 @@ const num = (v, d) => (typeof v === "number" && !isNaN(v)) ? v : d;
 // 配置の layout（MapLibre の symbol の layout＝段 1・2026-09-28）＝labels2d が箱を作る材料。式は評価してから運ぶ（worker は式を持たない）。
 // text-anchor/offset/radial-offset/variable-anchor・max-width（em・折り返し）・letter-spacing（em）・line-height（em）・justify・transform・padding（px・重なり判定だけ）・
 // allow-overlap／ignore-placement・text-opacity・halo-blur。既定＝MapLibre（padding 2・max-width 10・line-height 1.2）。ネイティブ層（origin ml でない）は padding 5＝従来の間合い
+// 向き（段 5・2026-09-28）＝text-rotate・text/icon-rotation-alignment・text/icon-pitch-alignment を焼く（描く側 labels2d の orient が地面の基底から transform を組む）
 // 線に沿う注記（段 4・2026-09-28）＝symbol-placement "line"／"line-center"：タイルで錨（symbol-spacing 間隔＝px×extent/512・中心）と、錨の前後の折れ線（経緯度・文字の長さ分の窓）を焼く。
 // 字を線に沿わせる・max-angle・keep-upright・字ごとの衝突は描く側（labels2d）。線の記号（icon）は出さない・面の輪郭には置かない（記録）
 // アイコン（段 3・2026-09-28）＝icon-image は名前だけ運ぶ（記号帳は labels2d が持つ＝sprite が後から届いても名前で引く）。icon-size/-anchor/-offset（px×size）/-rotate/-padding/
@@ -25,8 +26,9 @@ function iconOf(L, lo, ctx) {
 		isz: num(ev(lo["icon-size"], 1), 1), ian: ANCHORS.has(an) ? an : "center", ioff: Array.isArray(off) && off.length === 2 ? [num(off[0], 0), num(off[1], 0)] : [0, 0],
 		irot: num(ev(lo["icon-rotate"], 0), 0), ipad: num(ev(lo["icon-padding"], 2), 2),
 		iov: !!ev(lo["icon-allow-overlap"], false), iig: !!ev(lo["icon-ignore-placement"], false), iopt: !!ev(lo["icon-optional"], false), topt: !!ev(lo["text-optional"], false),
-		iop: num(ev(L.paint?.["icon-opacity"], 1), 1), ira: String(ev(lo["icon-rotation-alignment"], "auto")),   // ira＝線の記号を線の向きに回す（auto/map）か画面に正立（viewport）か
+		iop: num(ev(L.paint?.["icon-opacity"], 1), 1), ira: String(ev(lo["icon-rotation-alignment"], "auto")),   // ira＝線の記号を線の向きに回す（auto/map）か画面に正立（viewport）か・点では map＝地図の回転に追随
 	};
+	const ipa = String(ev(lo["icon-pitch-alignment"], "auto")); if (ipa !== "auto") rec.ipa = ipa;   // icon-pitch-alignment（段 5）
 	if (FITS.has(fit) && fit !== "none") { rec.ifit = fit; rec.ifp = Array.isArray(fp) && fp.length === 4 ? fp.map(v => num(v, 0)) : [0, 0, 0, 0]; }
 	if (L.paint?.["icon-color"] != null) rec.icol = parseRGBA(evalExpr(L.paint["icon-color"], ctx));   // SDF の記号を塗る色（無ければ #000＝labels2d の既定）
 	return rec;
@@ -72,6 +74,9 @@ function layoutOf(L, lo, ctx, ml) {
 		...(ml && lo["text-font"] != null ? (f => f ? { fnt: f } : {})(parseFontStack(ev(lo["text-font"], null))) : {}),   // 書体（段 2）＝MapLibre 由来の層だけ（ネイティブは既定の束）
 		...(vaList?.length ? { va: vaList, ro: lo["text-radial-offset"] != null ? num(ev(lo["text-radial-offset"], 0), 0) : null } : {}),
 	};
+	// 向き（段 5）＝text-rotate（度・時計回り）・text-rotation-alignment（map＝地図の回転に追随／viewport＝画面／viewport-glyph＝線の上で字だけ正立）・text-pitch-alignment（map＝傾けた地面に寝かせる）。既定（auto・0）は焼かない
+	const rot = num(ev(lo["text-rotate"], 0), 0), ra = String(ev(lo["text-rotation-alignment"], "auto")), pa = String(ev(lo["text-pitch-alignment"], "auto"));
+	if (rot) rec.rot = rot; if (ra !== "auto") rec.ra = ra; if (pa !== "auto") rec.pa = pa;
 	return { rec, transform: String(ev(lo["text-transform"], "none")) };
 }
 // style の symbol層から点・横書きラベルを抽出。anchor は絶対経緯度[lon,lat]（タイル跨ぎ共通原点）。
