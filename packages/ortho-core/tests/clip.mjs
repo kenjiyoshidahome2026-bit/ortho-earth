@@ -4,9 +4,11 @@
 //   2. 中点で鉛直（高さを変えても面からの距離が変わらない）＝球と楕円体の両方
 //   3. packClip の K（f64 で引いてから f32）＋原点相対の位置（f32）で出した距離が、f64 の直の距離と mm で合う（東京駅・z17 の画面の範囲）
 //   4. 日付変更線を跨ぐ 2 点も短い方の中点で鉛直・面の枚数は 6 枚まで
+//   5. 段 1：水平面（下を残す／上を残す・中心から 1 km で浮くのは 8 cm 程度）・箱（向きを回しても辺までの距離が幾何と合う・6 枚）・URL の書き方（?clip=）
 // 使い方: node packages/ortho-core/tests/clip.mjs
 import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.js";
-import { clipPlaneVertical, clipPlanes, packClip, clipDistanceM, CLIP_MAX } from "../src/clip.js";
+import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.js";
+import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, CLIP_MAX } from "../src/clip.js";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -34,7 +36,8 @@ for (const ell of [false, true]) {
 		const u = lonlatTo3D(lon, lat), m = ellNormal3D(lon, lat), k = h / Re;
 		const rel = [f(u[0] + m[0] * k - O[0]), f(u[1] + m[1] * k - O[1]), f(u[2] + m[2] * k - O[2])];   // シェーダの relW（f32）
 		const dGpu = f(f(f(U[0] * rel[0]) + f(U[1] * rel[1])) + f(U[2] * rel[2])) + U[3];
-		worst = Math.max(worst, Math.abs(dGpu * Re - clipDistanceM(P, lon, lat, h)));
+		const X = [u[0] + m[0] * k, u[1] + m[1] * k, u[2] + m[2] * k], dRef = P[0][0] * X[0] + P[0][1] * X[1] + P[0][2] * X[2] - P[0][3];   // 同じ β の距離を f64 で
+		worst = Math.max(worst, Math.abs(dGpu - dRef) * Re);
 	}
 	ok(worst < 0.01, `原点相対 f32 の距離が f64 と合う（最大の差 ${(worst * 1000).toFixed(2)} mm・±1km・高さ 0〜300m）`);
 }
@@ -47,6 +50,34 @@ const many = clipPlanes({ vertical: Array.from({ length: 9 }, (_, i) => [[139 + 
 ok(many.length === CLIP_MAX, `面は ${CLIP_MAX} 枚まで`);
 const U0 = packClip([], [1, 0, 0]);
 ok(U0.every(v => v === 0), "面 0 枚＝uniform は全部 0（p.x＝0）");
+
+console.log("― 段 1：水平面・箱・URL ―");
+for (const ell of [false, true]) {
+	setEllipsoid(ell);
+	const at = [139.7, 35.7], D = 180 / Math.PI, Rm = ell ? meridionalRadius(at[1]) : worldRadiusM(), Rn = (ell ? primeVerticalRadius(at[1]) : worldRadiusM()) * Math.cos(at[1] / D);
+	const ll = (e, n) => [at[0] + e / Rn * D, at[1] + n / Rm * D];   // ENU(m)→経緯度（楕円体は子午線・卯酉線の曲率半径）
+	const H = [clipPlaneHorizontal(at, 30)];
+	ok(Math.abs(clipDistanceM(H, ...at, 10) - 20) < 1e-3 && Math.abs(clipDistanceM(H, ...at, 45) + 15) < 1e-3, `${ell ? "楕円体" : "球"}：水平面 30m は下を残す（10m＝+20・45m＝−15）`);
+	const Ha = [clipPlaneHorizontal(at, 30, "above")];
+	ok(clipDistanceM(Ha, ...at, 45) > 14.99 && clipDistanceM(Ha, ...at, 10) < -19.99, "above は上を残す");
+	const sag = clipDistanceM(H, ...ll(1000, 0), 30);
+	ok(sag > 0 && sag < 0.12, `平面なので 1 km 先では地表の 30m より ${(sag * 100).toFixed(1)} cm 上に来る（接平面の垂れ）`);
+	const B = clipBox({ center: at, size: [100, 200], h: [0, 50], bearing: 30 }), t = 30 * Math.PI / 180;
+	ok(B.length === 6, "箱は 6 枚");
+	let worst = 0;
+	for (const [e, n, h] of [[0, 0, 25], [40, 0, 25], [60, 0, 25], [0, 90, 25], [0, 110, 25], [0, 0, -5], [0, 0, 55], [-30, -70, 5]]) {
+		const r = e * Math.cos(t) - n * Math.sin(t), f = n * Math.cos(t) + e * Math.sin(t);   // 回した軸での位置
+		const want = Math.min(50 - Math.abs(r), 100 - Math.abs(f), h, 50 - h);
+		worst = Math.max(worst, Math.abs(clipDistanceM(B, ...ll(e, n), h) - want));
+	}
+	ok(worst < 0.1, `箱（北から 30° 回す）の内外と辺までの距離が幾何と合う（最大の差 ${(worst * 100).toFixed(1)} cm）`);
+}
+setEllipsoid(false);
+const q = parseClipParam("139.7,35.6,139.8,35.6;h:139.7,35.7,30;box:139.7,35.7,100,200,0,50,30;xx:1,2");
+ok(q && q.vertical.length === 1 && q.horizontal[0].h === 30 && q.horizontal[0].keep === "below" && q.box.size[1] === 200 && q.box.h[1] === 50 && q.box.bearing === 30, "URL の書き方：鉛直・水平・箱（読めない項は捨てる）");
+ok(parseClipParam("h:139.7,35.7,30,above").horizontal[0].keep === "above" && parseClipParam("box:139.7,35.7,100,200").box.h === undefined, "above と箱の既定の高さ");
+ok(parseClipParam("") === null && parseClipParam("a,b") === null, "読めなければ null");
+ok(clipPlanes({ param: "box:139.7,35.7,100,200" }).length === 6 && clipPlanes({ param: "box:139.7,35.7,100,200", vertical: [[[139, 35], [140, 35]]] }).length === 6, "param も面にする・7 枚目は捨てる");
 
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }
 console.log("PASS clip");
