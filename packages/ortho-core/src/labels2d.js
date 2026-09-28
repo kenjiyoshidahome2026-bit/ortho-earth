@@ -1,13 +1,14 @@
 // ラベルを Canvas2D オーバーレイで描く（GL幾何の上に重ねる最前面レイヤ）。
 // 衝突判定（どのラベルを出すか）は間引き（recollideMs毎）で安定化し、描画位置は毎フレーム・ライブ投影。
 // これで文字は地図と一緒に滑らかに動きつつ、当選集合が安定して明滅しない。距離フェードでフォグと連動。
+// 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
 import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
 import { fontCss } from "./fontstack.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
-const keyOf = L => (L.k ? L.k + "|" : "") + L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // k＝利用者層 id（層またぎのキー衝突防止）
+const keyOf = L => (L.k ? L.k + "|" : "") + L.text + (L.icon ? "\u0001" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // k＝利用者層 id（層またぎのキー衝突防止）・icon＝記号だけのラベル（text ""）の区別
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 // shieldFor(L) → { img:CanvasImageSource, w, h }（CSS px）を返すとテキストの代わりにその絵を描く。
@@ -36,6 +37,32 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	let curFont = "";   // ctx.font の覚え（collide/draw/textLayout で共有＝設定は変わる時だけ）
 	const setFont = f => { if (f !== curFont) { ctx.font = curFont = f; } };
 	const fontOf = (L, size) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
+	// 記号帳（段 3・2026-09-28）＝名前 → { bm: ImageBitmap, pr: pixelRatio, sdf }。main の記号帳（addImage / sprite）の写し＝届いた時に衝突判定をやり直す（名前だけ持って待っていたラベルが出る）
+	// SDF の記号は icon-color で塗る（縁 0.7〜0.8＝symbols-2d と同式・名前×色で一度だけ焼いて覚える）
+	const images = new Map(), tinted = new Map();
+	function setImage(name, { bitmap, pixelRatio = 1, sdf = false }) { images.set(name, { bm: bitmap, pr: pixelRatio || 1, sdf: !!sdf }); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); dirty = true; }
+	function removeImage(name) { images.delete(name); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); dirty = true; }
+	function sdfTint(name, im, color) {
+		const key = name + "|" + color;
+		let c = tinted.get(key);
+		if (c) return c;
+		const w = im.bm.width, h = im.bm.height, cv = new OffscreenCanvas(w, h), g = cv.getContext("2d");
+		g.drawImage(im.bm, 0, 0);
+		const px = g.getImageData(0, 0, w, h), a = px.data;
+		g.fillStyle = color; g.fillRect(0, 0, 1, 1); const [r, gg, b, al] = g.getImageData(0, 0, 1, 1).data;
+		for (let i = 0; i < a.length; i += 4) { const d = a[i + 3] / 255, t = Math.max(0, Math.min(1, (d - 0.7) / 0.1)), sm = t * t * (3 - 2 * t); a[i] = r; a[i + 1] = gg; a[i + 2] = b; a[i + 3] = Math.round(sm * al); }
+		g.putImageData(px, 0, 0);
+		tinted.set(key, cv);
+		return cv;
+	}
+	const iconImg = L => (L.icon && images.get(L.icon)) || null;   // 記号帳に無い名前＝記号は描かない（MapLibre は styleimagemissing を鳴らす）＝文字だけ残る
+	// 記号の自然な箱（icon-size 倍・icon-anchor／icon-offset（px×size）で錨に置く）＝[x0, y0, w, h]（錨からの相対）
+	const iconBox = (L, im) => { const sz = L.isz ?? 1, w = im.bm.width / im.pr * sz, h = im.bm.height / im.pr * sz, a = ANCH[L.ian] || ANCH.center, off = L.ioff || [0, 0]; return [off[0] * sz - a[0] * w, off[1] * sz - a[1] * h, w, h]; };
+	// icon-text-fit＝文字の箱（相対 [x0,y0,w,h]）＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ・もう片方は自然の大きさで中央）
+	const iconFit = (L, im, t) => { const [pt, pr, pb, pl] = L.ifp || [0, 0, 0, 0], sz = L.isz ?? 1, nw = im.bm.width / im.pr * sz, nh = im.bm.height / im.pr * sz, cx = t[0] + t[2] / 2, cy = t[1] + t[3] / 2, fit = L.ifit;
+		const x0 = fit === "height" ? cx - nw / 2 : t[0] - pl, x1 = fit === "height" ? cx + nw / 2 : t[0] + t[2] + pr, y0 = fit === "width" ? cy - nh / 2 : t[1] - pt, y1 = fit === "width" ? cy + nh / 2 : t[1] + t[3] + pb; return [x0, y0, x1 - x0, y1 - y0]; };
+	const overlaps = (placed, box) => placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）
+	const grow = (b, p) => [b[0] - p, b[1] - p, b[2] + p, b[3] + p];
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
@@ -72,6 +99,8 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		});
 		rebuild();
 	}
+	// 標高の付け直し（DEM が後から届いた・生き替わった時＝render worker が呼ぶ）：基図と利用者層の全ラベルに fn(L) の標高を入れ、衝突判定をやり直す
+	function setElev(fn) { for (const L of labels) L.elev = fn(L); for (const st of userSets.values()) for (const L of st.list) L.elev = fn(L); dirty = true; }
 	function setUserVisible(id, v) {
 		const st = userSets.get(id);
 		if (st && st.visible !== !!v) { st.visible = !!v; rebuild(); }
@@ -89,7 +118,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
-	let winBox = new Map();   // key → [sx, sy, tw, h]（当選ラベルの画面上の箱＝placed() の材料・公式例の門 段 0）
+	let winBox = new Map();   // key → { sx, sy, tw, h, dx, dy, tl, an, txt, ib }（当選ラベルの画面上の箱＝placed() と draw の材料・公式例の門 段 0）。txt＝文字を置いた・ib＝置いた記号の箱 [dx, dy, w, h]（錨からの相対）
 	let dbg = { zoom: null, outOfZoom: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
 		const placed = [], w = new Map(), wb = new Map();
@@ -100,23 +129,36 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));
 			if (front < 0) continue;
 			const sx = dx / dpr, sy = dy / dpr;
-			const shield = shieldFor && shieldFor(L);
+			const shield = shieldFor && shieldFor(L), im = iconImg(L), hasText = !!shield || !!(L.text && String(L.text).length);
+			if (!hasText && !im) continue;   // 記号だけのラベルで記号帳にまだ無い＝出さない（届いたら setImage が dirty にする）
 			// 箱＝標識ならその絵・文字なら layout（折り返し・字間・行の高さ）で組んだ行の束（textLayout）。錨からの置き方＝text-anchor/offset（variable-anchor は候補を順に試す）
-			let tw, h, tl = null;
+			let tw = 0, h = 0, tl = null;
 			if (shield) { tw = shield.w; h = shield.h; }
-			else { tl = textLayout(L); tw = tl.w; h = tl.h; }
-			const padL = L.pad ?? pad, cands = shield ? [["center", 0, 0]] : anchorCands(L);
+			else if (hasText) { tl = textLayout(L); tw = tl.w; h = tl.h; }
+			const padL = L.pad ?? pad, ipad = L.ipad ?? 2;
+			// 記号と文字の裁き（MapLibre の placement と同じ）：既定＝両方置けなければ両方出さない。text-optional＝記号だけでも出す・icon-optional＝文字だけでも出す
+			const iconAlone = L.topt || !hasText, textAlone = L.iopt || !im;
+			const judge = (tOK, iOK) => !textAlone && !iconAlone ? [tOK && iOK, tOK && iOK] : !textAlone ? [tOK && iOK, iOK] : !iconAlone ? [tOK, iOK && tOK] : [tOK, iOK];   // → [文字を置く, 記号を置く]
+			const nat = im ? iconBox(L, im) : null;   // 記号の自然な箱（fit しない時＝候補に依らない）
+			const iOKof = ib => !im || L.iov || !overlaps(placed, grow([sx + ib[0], sy + ib[1], sx + ib[0] + ib[2], sy + ib[1] + ib[3]], ipad));
 			let hit = null;
-			for (const [an, ox, oy] of cands) {
-				const a = ANCH[an] || ANCH.center, x0 = sx + ox - a[0] * tw, y0 = sy + oy - a[1] * h;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
-				if (x0 + tw < 0 || x0 > Wc || y0 + h < 0 || y0 > Hc) continue;
-				const box = [x0 - padL, y0 - padL, x0 + tw + padL, y0 + h + padL];
-				if (!L.ov && placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1])) continue;   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）
-				hit = { box, x0, y0, an }; break;
-			}
+			if (hasText) {
+				const cands = shield ? [["center", 0, 0]] : anchorCands(L);
+				for (const [an, ox, oy] of cands) {
+					const a = ANCH[an] || ANCH.center, x0 = sx + ox - a[0] * tw, y0 = sy + oy - a[1] * h;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
+					if (x0 + tw < 0 || x0 > Wc || y0 + h < 0 || y0 > Hc) continue;
+					const box = [x0 - padL, y0 - padL, x0 + tw + padL, y0 + h + padL];
+					const ib = im ? (L.ifit ? iconFit(L, im, [x0 - sx, y0 - sy, tw, h]) : nat) : null;
+					const [pt, pi] = judge(L.ov || !overlaps(placed, box), iOKof(ib));
+					if (!pt) continue;   // 文字が置けない候補＝次の候補（variable-anchor）
+					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null }; break;
+				}
+				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
+			} else { const [, pi] = judge(false, iOKof(nat)); if (pi && !(sx + nat[0] + nat[2] < 0 || sx + nat[0] > Wc || sy + nat[1] + nat[3] < 0 || sy + nat[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
 			if (!hit) continue;
-			if (!L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
-			w.set(keyOf(L), L); wb.set(keyOf(L), [sx, sy, tw, h, hit.x0 - sx, hit.y0 - sy, tl, hit.an]);   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
+			if (hit.txt && !L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
+			if (hit.ib && !L.iig) placed.push(grow([sx + hit.ib[0], sy + hit.ib[1], sx + hit.ib[0] + hit.ib[2], sy + hit.ib[1] + hit.ib[3]], ipad));
+			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
 		}
 		winners = w; winBox = wb;
 	}
@@ -155,9 +197,15 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 	// 置いたラベル（直近の衝突判定の当選集合）＝{ text, lon, lat, x, y（CSS px・中心）, w, h, size, li（基図の層の添字）, set（利用者層の id） }。
 	// 公式例の門 段 0（文字を測る）＝本物の queryRenderedFeatures の symbol と突き合わせる材料。描いた物の申告＝描画は変えない
+	// 記号（段 3）＝icon（置いた記号の名前・置けなかった／無い＝null）・ibox＝[中心 x, 中心 y, w, h]。文字を置いていないラベル（記号だけ）は text null・x,y,w,h＝記号の箱
 	function placed() {
 		const out = [];
-		for (const [k, L] of winners) { const b = winBox.get(k); if (!b) continue; out.push({ text: L.text, lon: L.anchor[0], lat: L.anchor[1], x: b[0] + b[4] + b[2] / 2, y: b[1] + b[5] + b[3] / 2, w: b[2], h: b[3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b[6]?.font ?? null }); }   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
+		for (const [k, L] of winners) {
+			const b = winBox.get(k); if (!b) continue;
+			const ibox = b.ib ? [b.sx + b.ib[0] + b.ib[2] / 2, b.sy + b.ib[1] + b.ib[3] / 2, b.ib[2], b.ib[3]] : null;
+			const bx = b.txt ? [b.sx + b.dx + b.tw / 2, b.sy + b.dy + b.h / 2, b.tw, b.h] : ibox;
+			out.push({ text: b.txt ? L.text : null, icon: b.ib ? L.icon : null, ibox, lon: L.anchor[0], lat: L.anchor[1], x: bx[0], y: bx[1], w: bx[2], h: bx[3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b.txt ? (b.tl?.font ?? null) : null });   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
+		}
 		return out;
 	}
 
@@ -202,12 +250,25 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				ctx.globalAlpha = 1;
 				continue;
 			}
-			const b = winBox.get(k), tl = b?.[6] ?? textLayout(L);
+			const b = winBox.get(k);
+			// 記号（段 3）＝当選の箱（fit 済み）・フェードアウト中は自然な箱。SDF は icon-color で焼いた写し・icon-rotate は箱の中心で回す・icon-opacity
+			const im = iconImg(L), ib = b ? b.ib : (im ? iconBox(L, im) : null);
+			if (im && ib) {
+				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm, oi = op * distOp(L.anchor[0], L.anchor[1]) * (L.iop ?? 1);
+				if (oi > 0.01) {
+					ctx.globalAlpha = oi;
+					if (L.irot) { ctx.save(); ctx.translate(sx + ib[0] + ib[2] / 2, sy + ib[1] + ib[3] / 2); ctx.rotate(L.irot * Math.PI / 180); ctx.drawImage(src, -ib[2] / 2, -ib[3] / 2, ib[2], ib[3]); ctx.restore(); }
+					else ctx.drawImage(src, sx + ib[0], sy + ib[1], ib[2], ib[3]);
+					ctx.globalAlpha = 1;
+				}
+			}
+			if (!(L.text && String(L.text).length) || (b && !b.txt)) continue;   // 文字が無い・置かなかった（text-optional）
+			const tl = b?.tl ?? textLayout(L);
 			setFont(tl.font || fontOf(L, L.size));   // textLayout が別の書体を据えた後でも、この行の描画は自分の書体で
 			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
 			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央
-			const x0 = b ? sx + b[4] : sx - tl.w / 2, y0 = b ? sy + b[5] : sy - tl.h / 2;
-			const just = L.just === "auto" ? ((b?.[7] || L.an || "center").includes("left") ? "left" : (b?.[7] || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
+			const x0 = b ? sx + b.dx : sx - tl.w / 2, y0 = b ? sy + b.dy : sy - tl.h / 2;
+			const just = L.just === "auto" ? ((b?.an || L.an || "center").includes("left") ? "left" : (b?.an || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
 			ctx.textAlign = just === "left" ? "left" : just === "right" ? "right" : "center"; ctx.textBaseline = "middle";
 			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
 			if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
@@ -308,5 +369,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
-	return { setLabels, setUserLabels, setUserVisible, setSky, setMoon, draw, clear, placed, placedDebug, clearFontCache };
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, draw, clear, placed, placedDebug, clearFontCache };
 }

@@ -2087,7 +2087,7 @@ dbgHost.__placed = () => new Promise(res => {
 	const sid = ++placedSeq;
 	placedWait.set(sid, d => {
 		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
-		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),
+		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: L.icon ?? null, ibox: L.ibox ?? null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),   // icon/ibox＝置いた記号（段 3）
 			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
 	});
 	wPost({ type: "labelsPlaced", id: sid });
@@ -3344,7 +3344,10 @@ map.gadget("cluster", async function (src, opts = {}) {
 });
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
-const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal }); };
+// 記号帳の写しは render worker の注記層（labels2d）にも届ける＝基図と vector source の symbol 層の icon-image（段 3）。ImageBitmap は写して転送（main の記号帳はそのまま）
+const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal,
+	onImage: (name, e) => createImageBitmap(e.bitmap).then(bm => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf } }, [bm]); needsDraw = true; }).catch(err => console.warn("[symbols] image to labels", name, err)),
+	onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); needsDraw = true; } }); };
 // 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
 // こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
 const pendingImages = new Set();
@@ -3671,7 +3674,7 @@ const vtdGet = async () => {
 	});
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-gap-width", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: ["icon-image"] };
+const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-gap-width", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v, layer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
@@ -4037,14 +4040,15 @@ const mountExtExtrasRaw = async ext => {
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
 	}
-	if (ext.split.geojson.some(L => L.layout?.["icon-image"] != null) && ms.sprite) {
-		// 複数の sprite（MapLibre v4）＝[{ id, url }]・default 以外は "id:名前"（段 6・旧＝最初の 1 本だけ）
-		const list = Array.isArray(ms.sprite) ? ms.sprite : [{ id: "default", url: ms.sprite }];
-		await Promise.all(list.filter(e => e?.url).map(e => map.loadSprite(new URL(e.url, ext.baseUrl).href, e.id && e.id !== "default" ? e.id + ":" : "").catch(err => console.warn("[style] sprite", e.id, err))));
-	}
+	// 地形は sprite より先（sprite は大きいと数秒＝その間に注記が地形より先に届く。render worker は DEM の生き替わりで注記の標高を付け直すが、順も元のまま）
 	if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "raster-dem") {   // style の terrain（MapLibre）＝その raster-dem を地形へ（#36）
 		const sp = { ...ms.sources[ms.terrain.source] }; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (sp.tiles) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
 		await map.setTerrain({ source: sp, exaggeration: ms.terrain.exaggeration }).catch(err => console.warn("[style] terrain", err));
+	}
+	if (ms.sprite && ms.layers.some(L => L.type === "symbol" && L.layout?.["icon-image"] != null)) {   // どの経路の symbol 層でも（geojson・基図・vector source＝段 3）記号を使うなら sprite を読む（旧＝geojson の層だけ）
+		// 複数の sprite（MapLibre v4）＝[{ id, url }]・default 以外は "id:名前"（段 6・旧＝最初の 1 本だけ）
+		const list = Array.isArray(ms.sprite) ? ms.sprite : [{ id: "default", url: ms.sprite }];
+		await Promise.all(list.filter(e => e?.url).map(e => map.loadSprite(new URL(e.url, ext.baseUrl).href, e.id && e.id !== "default" ? e.id + ":" : "").catch(err => console.warn("[style] sprite", e.id, err))));
 	}
 	// vector source の fill-extrusion（段 8①）＝利用者の層の口（dz 1）。基図と同じ source はその名前のまま（srcOf が基図の記述子を返す）・別の vector source は source を足す（相対 URL は style の置き場から）
 	for (const L of ms.layers.filter(L => vtRouted(L, ms, ext.split.vectorSource))) {   // ＋2 本目以降の vector source の描く層・基図の source の circle（段 8⑤）

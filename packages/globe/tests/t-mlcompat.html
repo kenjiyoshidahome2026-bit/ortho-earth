@@ -475,12 +475,14 @@ try {
 			version: 8, name: "t-mlcompat-vector",
 			sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 },
 				extra: { type: "vector", url: FX + "vt.json" } },   // 2 本目の vector source（段 8⑤）＝層の数が同じ＝先に書いた omt が基図
+			sprite: FX + "sprite-a",   // 記号帳（段 3）＝赤い 16×16 の "sq"（基図の symbol 層 poi-ico と vector の層の icon-image が引く）
 			layers: [
 				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
 				{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, filter: ["!=", ["get", "hide_3d"], true],   // MapLibre の例の filter（["!", ["get","hide_3d"]] は属性の無い地物で評価エラー＝偽＝MapLibre でも消える）
 					paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"], "fill-extrusion-base": ["get", "render_min_height"] } },
 				{ id: "x-road", type: "line", source: "extra", "source-layer": "road", filter: ["==", ["get", "class"], "minor"], paint: { "line-color": "#ff8800", "line-width": 6 } },
 				{ id: "poi-lbl", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, layout: { "text-field": ["get", "name"], "text-size": 14 } },   // 基図の symbol 層（labels.js の経路）＝minzoom 16（ML）＞この頁の z（ML 15.5）＝既定では出ない（下の symbol-layer-zoom-range が範囲を動かす）
+				{ id: "poi-ico", type: "symbol", source: "omt", "source-layer": "poi", minzoom: 16, layout: { "icon-image": "sq" } },   // 基図の記号だけの層（段 3）＝同じく既定では出ない（symbol-icon-base-layer が範囲を動かす）
 			],
 		};
 		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style, debugGlobals: true });   // debugGlobals＝window.__vtx（押し出しの中の数・手で覗く窓）
@@ -671,6 +673,42 @@ try {
 				const c = (await untilN("f3", n => n > 0)).find(q => Math.abs(q.x - cx) < 40); await drop("f3");
 				const okA = !!a && /^700 16px "Noto Sans",/.test(a.font), okB = !!b && /^italic 16px "Noto Sans","Open Sans",/.test(b.font), okC = !!c && /^16px "Noto Sans JP"/.test(c.font);
 				return [okA && okB && okC && a.w >= c.w, `bold=${a?.font?.slice(0, 30)} w${a?.w?.toFixed(0)} · italic=${b?.font?.slice(0, 44)} · plain=${c?.font?.slice(0, 24)} w${c?.w?.toFixed(0)}`];
+			});
+			// ── 記号（段 3）＝icon-image を基図の層（style の poi-ico＝labels.js の経路）と vector の層で。記号帳＝style の sprite（fixtures/mlcompat/sprite-a＝赤い 16×16 "sq"）→ render worker の注記層（labels2d）。__placed の icon／ibox で検分 ──
+			const symi = (id, layout, paint = {}) => map.addLayer({ id, type: "symbol", source: "omt", "source-layer": "poi", layout: { "icon-image": "sq", ...layout }, paint });
+			const inkRed = async (ll, r = 12) => {   // 注記の canvas の赤い画素（記号のインク）
+				const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return -1;
+				const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(ll);
+				let n = 0;
+				for (let yy = Math.max(0, Math.round((y - r) * R0.lh / H)); yy < Math.min(R0.lh, Math.round((y + r) * R0.lh / H)); yy++)
+					for (let xx = Math.max(0, Math.round((x - r) * R0.lw / W)); xx < Math.min(R0.lw, Math.round((x + r) * R0.lw / W)); xx++) { const i = (yy * R0.lw + xx) * 4; if (L[i + 3] > 200 && L[i] > 200 && L[i + 1] < 80 && L[i + 2] < 80) n++; }
+				return n;
+			};
+			await vscene("symbol-icon-base-layer", async () => {   // 基図の symbol 層（icon-image だけ）＝sprite を読んで記号だけのラベルを置く（箱 16×16・文字は null）・注記の canvas に赤いインク
+				map.setLayerZoomRange("poi-ico", 0, 24);
+				const p = await untilN("poi-ico", n => n > 0), c = p.find(q => Math.abs(q.x - cx) < 4 && Math.abs(q.y - cy) < 4);
+				let ink = 0; for (let k = 0; k < 8 && ink < 20; k++) { await sleep(600); ink = await inkRed(D.cafe); }
+				map.setLayerZoomRange("poi-ico", 16, 24); await untilN("poi-ico", n => n === 0);
+				return [!!c && c.icon === "sq" && c.text == null && Math.abs(c.w - 16) < 1 && Math.abs(c.h - 16) < 1 && ink >= 20, `placed=${p.length} box=${c ? `(${c.x.toFixed(0)},${c.y.toFixed(0)}) ${c.w}x${c.h} icon=${c.icon} text=${c.text}` : "none"} ink=${ink} images=${map.listImages()}`];
+			});
+			await vscene("symbol-icon-anchor-offset-size", async () => {   // vector の層・icon-size 2・icon-anchor top・icon-offset [0,5]（px×size）＝箱 32×32・上辺が錨の 10px 下＝中心 y＝cy+26
+				await symi("ia", { "icon-size": 2, "icon-anchor": "top", "icon-offset": [0, 5] });
+				const c = (await untilN("ia", n => n > 0)).find(q => Math.abs(q.x - cx) < 4); await drop("ia");
+				return [!!c && !!c.ibox && Math.abs(c.ibox[2] - 32) < 1 && Math.abs(c.ibox[3] - 32) < 1 && Math.abs(c.y - (cy + 26)) < 2, `cafe=(${cx.toFixed(0)},${cy.toFixed(0)}) ibox=${c?.ibox ? c.ibox.map(v => v.toFixed(0)) : "none"}`];
+			});
+			await vscene("symbol-icon-text-fit", async () => {   // icon-text-fit both＋padding [2,4,2,4]（上・右・下・左）＝記号の箱は文字の箱＋左右 4・上下 2
+				await symi("if", { "text-field": ["get", "name"], "text-size": 16, "icon-text-fit": "both", "icon-text-fit-padding": [2, 4, 2, 4] });
+				const c = (await untilN("if", n => n > 0)).find(q => Math.abs(q.x - cx) < 4); await drop("if");
+				return [!!c && !!c.ibox && Math.abs(c.ibox[2] - (c.w + 8)) < 1.5 && Math.abs(c.ibox[3] - (c.h + 4)) < 1.5 && c.icon === "sq" && !!c.text, `text=${c ? `${c.w.toFixed(0)}x${c.h.toFixed(1)}` : "none"} ibox=${c?.ibox?.map(v => v.toFixed(1))}`];
+			});
+			await vscene("symbol-icon-text-optional", async () => {   // 記号＋文字の層 oa の文字の箱を、後から足した文字だけの層 ob（先に置く）が塞ぐ：既定＝両方出さない（0）・text-optional＝記号だけ（icon あり・text null）・icon-optional だけ＝文字が置けないので 0（MapLibre の placement と同じ）
+				await symi("oa", { "text-field": ["get", "name"], "text-size": 16, "text-anchor": "left", "text-offset": [1, 0] });
+				await sym("ob", { "text-anchor": "left", "text-offset": [1, 0] });
+				await untilN("ob", n => n >= 2); const a0 = await placedOf("oa");
+				map.setLayoutProperty("oa", "text-optional", true); const a1 = await untilN("oa", n => n >= 2);
+				map.setLayoutProperty("oa", "text-optional", false); map.setLayoutProperty("oa", "icon-optional", true); const a2 = await untilN("oa", n => n === 0);
+				await drop("oa", "ob");
+				return [a0.length === 0 && a1.length >= 2 && a1.every(q => q.icon === "sq" && q.text == null) && a2.length === 0, `default=${a0.length} text-optional=${a1.length}(${a1.map(q => `${q.icon}/${q.text}`).join(",")}) icon-optional=${a2.length}`];
 			});
 			await vscene("add-font-face-api", async () => {   // Web フォントを差す口＝関数・無い URL は HTTP の理由で reject（投げっ放しにしない）・ArrayBuffer も受ける（壊れた束＝main の FontFace が reject）
 				let e1 = null, e2 = null;

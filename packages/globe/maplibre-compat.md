@@ -85,7 +85,7 @@
   - 3D（地形あり）では塗りを地面に焼く（アトラス）＝基図の線の下・2D では上（基図自身も 3D では「塗りは全部線の下」）。gint（geojson の層）より下。
   - paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻みの z で組む＝隣り合うタイルの線幅は揃う）。filter の ["zoom"] はタイルの（過拡大の）z。
   - circle：画面に向いた円（MapLibre の既定 circle-pitch-scale "map" の遠近の縮みは無い）・circle-pitch-alignment "map"・blur・translate は未対応。塗りの透ける円の縁は止まった所のズームで合わせた輪（動いている間は地図と一緒に伸び縮みする）。
-  - symbol：点と面（到達不能極）の注記だけ（基図と同じ部品＝text-font は読まない）・線の上の注記（段 8③）・アイコン（段 8②）は警告して出さない。
+  - symbol：点と面（到達不能極）の注記（基図と同じ部品＝text-font は段 2 から読む）・記号（icon-image）は段 3 から基図と同じ注記層で（sprite／addImage の記号帳・icon-size/-anchor/-offset/-rotate/-padding/-allow-overlap/-ignore-placement/-optional・text-optional・icon-text-fit・icon-color（SDF）・icon-opacity）。線の上の注記（段 8③）は警告して出さない。
   - 線の端と継ぎは常に丸（基図と同じ）。タイルの枠で切る＝半透明の塗りに継ぎ目の濃い帯は出ない（線の丸い端だけ枠で重なる）。
   - 未対応（警告して描く）：fill-pattern・fill-translate・line-pattern・line-gradient・line-blur・line-gap-width・line-translate。fill-outline-color は明示された時だけ 1px の縁。
   - 基図の source の層はタイルを基図の配管と別に取る（HTTP キャッシュ頼み・押し出しとも別）。低ズームのタイルは線の細分をタイルの幅の 1/64 までに抑える（基図は 700m 固定）。
@@ -151,7 +151,7 @@
 | W4 | paint のズームが連続でない | 曲線の鍵（layout も）・0.25 刻みの z で組む | vtdraw.mjs（置き換え・線幅）・爪車 | **済**（文書） |
 | W5 | filter のズーム | filterZoom（段 8①と同じ） | — | **済** |
 | W6 | circle（画面に向く・遠近の縮みなし・中空の縁） | 長さ 0 の線＝カプセル・中空は輪 | vtdraw.mjs（丸点・輪）・爪車 vector-circle-draws | **済**（文書） |
-| W7 | symbol は点と面だけ | 基図と同じ buildLabels・面は極・線と アイコンは警告 | vtdraw.mjs（極・タイルの中）・爪車 vector-symbol-label | **済**（線の上は③） |
+| W7 | symbol は点と面だけ | 基図と同じ buildLabels・面は極・記号は段 3 から（同じ注記層）・線は警告 | vtdraw.mjs（極・タイルの中）・爪車 vector-symbol-label・symbol-icon-*（段 3） | **済**（線の上は③） |
 | W8 | タイルの縁の二重（半透明） | 枠で切る（面は Sutherland–Hodgman・線は Liang–Barsky・円と注記は中の点だけ） | vtdraw.mjs（面積の和）・実機（本初子午線の縁で色が一様） | **済** |
 | W9 | 基図の source を二度取る | HTTP キャッシュ・§4 | — | 文書 |
 | W10 | 重さ（CPU 結合で user の scene を上げ直す） | 間引き 120ms・結合 1 本ずつ・予算 128MB（LOW_MEM 48MB）・枚数上限・フライト中は取得と組み立てを止める・低ズームの細分を抑える | 実機（demotiles z2 10 枚＝7.5MB・細分を抑える前は 32MB／渋谷 OpenFreeMap 3 層 2 枚＝1.1MB） | **済**（?hud=1 の実測は次） |
@@ -203,7 +203,8 @@
   - 轍：①問い合わせのキャッシュは「解読した source-layer の組」ごと（queryTiles は要る層だけ解く＝層を絞った最初の問い合わせのタイルを別の層が読むと空）②core の線の細分（700m・1 本 24 分割まで）は z2 のタイルで 4 倍に膨れた（demotiles 32MB→7.5MB）③プレビューの枠が隠れていると rAF が止まる（選びは rAF）。
 - [x] **段 5b**（2026-09-27）：geojson の押し出し（model.js の経路）の 2 件＝①描き直しの鍵を曲線で（R22）②問い合わせを立体で（R23）。純関数は `src/extrude-ml.js`（node で確かめる）・globe.js は視点の口（地面・投影・外接球の下ごしらえ）だけ。model.js は立てた地物に base とスロットの地面（mode・床の高さ）を持たせた（extrudeSets）。門＝爪車 node 12 場面・t-mlcompat?g=extrude 11 場面（GL2・WebGPU。旧コードで 7 場面が赤＝足跡の当て方・0.25 刻みの鍵、見張り 4 場面は両方で緑を確かめた）。
   - **段 8①（vector の押し出し）と一本に**（main へ入った後に揃えた）：鍵＝vtmesh.paintZoomKey は extrude-ml.js の exprZoomKey を使う（書式は同じ "名前:lo|hi|s<段>|<z>"・interpolate-hcl/-lab も曲線に）。当たり＝vtextrude の query も hitExtrusion（旧＝屋根の頂点の投影＋重心の中ほどまでの距離）・口は globe.js の extView（hitEnv＝vtxGround の地面）・query は [{ d, f }] を返し、問い合わせが geojson の押し出しと一つの列にして近い順（MapLibre と同じく 3D の地物は奥行きで並ぶ）。vtxGround は ?noterr=1 で持ち上げない（描く側と同じ）。projectorH・distanceOf の口は要らなくなったので外した。
-- [ ] 段 8②〜④・⑤b：基図のアイコン・線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
+- [x] **段 8②＝文字を測るの段 3**（2026-09-28・claude/text-stage-3）：基図と vector source の symbol 層の記号（icon-image）＝§8 の段 3 に記録。
+- [ ] 段 8③〜④・⑤b：線に沿うラベル・hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
 
 ## 8. 公式例の門（2026-09-27 起票）
 
@@ -308,12 +309,24 @@
   - 見送り（記録）：`format` の区間ごとの text-font／font-scale（連結のまま）・text-font の名前の重複解決（"Noto Sans Regular" と "Noto Sans Bold" を同じ family の別 weight として同時に読む＝descriptors で載せれば効く）。
   - 結果（o22s・低い 28 例＋Web フォントの例 3 本）：hit は段 1 と同じ（±1＝太字の幅の分）＝**書体は位置と有無の物差しを動かさない**（意図どおり：段 0 の裁定＝文字は形でなく位置と有無で測る）。style-labels-with-web-fonts／local-fonts／font-faces は 段 3 のまま。
 
+- **段 3（2026-09-28・claude/text-stage-3）＝基図のアイコン**：記号帳を render worker の注記層（`labels2d`）にも写す＝main の記号帳（`gadgets/symbols.js`＝addImage／loadSprite）が `onImage`／`onImageRemoved` で globe に知らせ、globe が `set("labelImage", { name, bitmap, pixelRatio, sdf })`（ImageBitmap の写しを転送・null＝外す）。style の sprite は **どの経路の symbol 層でも icon-image があれば読む**（旧＝geojson の層だけ）。
+  - `labels.js`（core）：`icon-image` を評価して**名前だけ**焼く（`icon`・記号帳は描く側が持つ＝sprite が後から届いても名前で引ける）＋ icon-size（`isz`）／-anchor（`ian`）／-offset（`ioff`＝px×size）／-rotate（`irot`）／-padding（`ipad` 既定 2）／-allow-overlap（`iov`）／-ignore-placement（`iig`）／-optional（`iopt`）・text-optional（`topt`）・icon-text-fit（`ifit`・none は焼かない）＋padding（`ifp`）・icon-color（`icol`・SDF）・icon-opacity（`iop`）。文字の無い層（icon-image だけ）もラベルになる（text ""）。重複排除の鍵に icon を足した（同じ点の文字と記号は別のラベル）。
+  - `labels2d.js`（core）：`setImage`／`removeImage`（届いたら衝突判定をやり直す）・箱＝自然（size 倍・anchor／offset）か icon-text-fit（文字の箱＋上右下左の余白・width/height は片方だけ）・**裁き＝MapLibre の placement と同じ**（既定＝文字と記号のどちらかが置けなければ両方出さない／text-optional＝記号だけでも／icon-optional＝文字だけでも）・variable-anchor の候補ごとに記号（fit）も動く・icon-padding は判定だけ・記号帳に無い名前＝記号を描かず文字だけ（MapLibre の styleimagemissing 相当＝事象は鳴らさない）・SDF は icon-color で焼いて名前×色で覚える（symbols-2d と同式）・icon-rotate は箱の中心で・icon-opacity。`placed()` に `icon`（置いた記号の名前）と `ibox`（[中心 x, 中心 y, w, h]）・文字を置かなかったラベルは text null。当選の箱は配列から object（`{ sx, sy, tw, h, dx, dy, tl, an, txt, ib }`）へ。
+  - globe：`__placed` に icon／ibox・VTD_UNSUPPORTED の symbol から icon-image を外した・render worker の `set` に `labelImage` を 1 つ。
+  - 検定：core `tests/labels.mjs`（node＝焼く性質・出ない層）・t-mlcompat g=vector に `symbol-icon-base-layer`（style の層＝labels.js の経路・sprite・赤いインク）／`symbol-icon-anchor-offset-size`／`symbol-icon-text-fit`／`symbol-icon-text-optional`（既定 0・text-optional で記号だけ・icon-optional だけは 0）。試料＝style に `sprite: fixtures/mlcompat/sprite-a`＋基図の層 `poi-ico`。
+  - 見送り（記録）：symbols-2d（geojson の記号）との部品の共通化（箱・候補・描画）＝overlay は依存ゼロの契約＝写しのまま／`styleimagemissing` 事象／icon-halo-*／icon-translate／icon-rotation-alignment／text-variable-anchor-offset の記号側。
+  - **結果（o23・この機械＝自宅・r7 は録り直し）**：記号つきの層が当たるようになった＝poi_r1 0/3→3/3・5/13→11/13・11/15→15/15・1/3→3/3／places 0/8→8/8／poi-theatre・bar・music・bicycle 0→全／airport 0/1→1/1／drone・water-name-other 0→1。全体＝hit 1720/2139（80%）・0.6 未満 10・同じ絵 55。
+  - **機械差の切り分け（轍）**：この機械の r7 は事務所の r7 と別の記録（timeout の例・網の取りこぼしが違う）＝known.json との「下がった」16 例は**変更なしでも同じ**（`git stash` して同じ r7 に対し o22m を回すと 14 例が同じ顔ぶれ・「query: missed fill/line」＝衛星タイルや AW3D30 が replay に無く失敗→被覆が揃わない）。**別の機械で門を回す時は、まず変更なしで oNNm を取り、oNN と例ごとに突き合わせる**（levels と text.hit/n・layers）。o22m→o23 で下がった display-a-hybrid-satellite-map-with-terrain-elevation（26→15）は probe で変更あり／なしとも 14/3＝環境の揺れ。o23 の no-map 3 例も再走で 2 に戻った（揺れ）。known.json は**更新しない**（この機械の r7 で書くと事務所の基準を壊す）。
+  - ついでの根治：注記が地形より先に届くと標高 0 のまま置かれる（DEM の生き替わりで付け直さなかった）＝labels2d に `setElev`・render worker の "dem" で基図と利用者層の注記へ標高を付け直す。mountExtExtras は terrain を sprite より先に（sprite は大きいと数秒）。
+  - main の既存の失敗（この仕事の外・origin/main 803a35bd・自宅の機械）：globe `tests/expr-golden.mjs` が road-face／road-hi-face の line-width で 6 件落ちる（style-*.js の変更に黄金の写しが追随していない）／t-mlcompat g=layers の fill-layer-draws-only-polygons（point Δ96 line Δ105）・fill-no-outline・circle-opacity が GL2・WebGPU とも同じ値で落ちる。**どちらも変更を stash しても同じ**＝段 3 の門では「同じ値で落ちる」ことだけ確かめた。他＝g=style／vector／extrude／mlt（GL2）と g=vector（WebGPU）は全部緑・core と globe の node 検定は expr-golden 以外緑。
 ### 8.x 再開の手引き（2026-09-28 夜・別の機械から続ける時に読む所）
-**ここまで**：#97 idle×画像タイル層／#98 段 0（文字を測る）／#99 段 1（layout）／#100 段 2（書体）＝全部 main。文字の物差し（本物 r7 × こちら）＝hit 61→85%・0.6 未満 26→10・同じ絵 63。deploy／npm publish は**未**（core 1.6.1・globe 1.5.1・japan 1.5.1 は版だけ上げ済＝publish するなら `addFontFace` を含めて globe 1.5.2 に上げてから）。
+**ここまで**：#97 idle×画像タイル層／#98 段 0（文字を測る）／#99 段 1（layout）／#100 段 2（書体）＝全部 main。**段 3（基図のアイコン）＝2026-09-28 自宅で実装（branch claude/text-stage-3・上の「段 3」に記録）**。文字の物差し（本物 r7 × こちら）＝hit 61→85%・0.6 未満 26→10・同じ絵 63。deploy／npm publish は**未**（core 1.6.1・globe 1.5.1・japan 1.5.1 は版だけ上げ済＝publish するなら `addFontFace` を含めて globe 1.5.2 に上げてから）。
 
 **この文書が正典**：機械ごとの記憶（Claude の memory）は同期されない。判断・数字・轍は §8 に全部ある。次の人（自分）は「§8 の段 3 から」で始められる。
 
-**次＝段 3（基図のアイコン＝台帳 §8 の段 8②と同じ）**：
+**次＝段 4（線沿い）**＝§8「文字を測る」の計画どおり（分母＝本物の `symbols` の `placement:"line"` 706〜714・位置の物差しは別途）。その前に段 3 の残件を拾うなら：symbols-2d との部品の共通化・`styleimagemissing`・icon-halo・icon-translate・icon-rotation-alignment。
+
+**済＝段 3（基図のアイコン＝台帳 §8 の段 8②と同じ）**（当時の計画・実装は上の「段 3」）：
 1. sprite は今 geojson の symbol に icon-image がある時だけ読む（`src/globe.js` `mountExtExtras` の `ext.split.geojson.some(icon-image)`）→ 基図の symbol 層（`ext.split.base`）にも icon-image があれば読む。
 2. 記号帳（名前→ImageBitmap・pixelRatio・sdf）を render worker の注記 canvas（`labels2d`）へ渡す口（`renderer.set("labelImages", …)` か symbols overlay と同じ `image` 通信）。
 3. `labels.js`：icon-image（式を評価）・icon-size／anchor／offset・icon-allow-overlap／ignore-placement・icon-optional／text-optional・icon-text-fit（＋padding）をラベルに焼く（`layoutOf` に足す）。M2 の「アイコンだけの層は skip」を外す。

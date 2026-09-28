@@ -8,7 +8,8 @@
 import { symbolItems } from "./symbols-core.js";
 import symUrl from "../symbols-2d.js?url";
 
-export function createSymbols(map, { signal } = {}) {
+// onImage(name, e)／onImageRemoved(name)＝記号帳の写しの届け先（globe＝render worker の注記層 labels2d・基図/vector の symbol 層の icon-image が引く・段 3）
+export function createSymbols(map, { signal, onImage = null, onImageRemoved = null } = {}) {
 	const images = new Map();   // name → { bitmap, pixelRatio, sdf }
 	const layers = new Map();   // id → { src, layer, items, zoomDep }
 	let ov = null, order = 0;
@@ -18,7 +19,7 @@ export function createSymbols(map, { signal } = {}) {
 		if (src && !(src instanceof Blob) && src.data && src.width) src = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);   // { width, height, data }（MapLibre の addImage と同じ形）
 		return createImageBitmap(src);
 	};
-	const send = (name, e) => createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf }, [bm]));
+	const send = (name, e) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf }, [bm])); };
 	const push = id => { const L = layers.get(id); if (!L) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
 	const evalLayer = id => { const L = layers.get(id); if (!L) return; L.items = symbolItems(L.src, L.layer, map.getZoom(), images); push(id); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };
@@ -31,7 +32,7 @@ export function createSymbols(map, { signal } = {}) {
 			for (const [id, L] of layers) if (JSON.stringify(L.layer.layout || {}).includes(name)) evalLayer(id);   // その名前を待っていた層
 			return e;
 		},
-		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); },
+		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); onImageRemoved?.(name); },
 		hasImage: name => images.has(name),
 		getImage: name => images.get(name) || null,   // { bitmap, pixelRatio, sdf }（模様の層が使う）
 		listImages: () => [...images.keys()],
