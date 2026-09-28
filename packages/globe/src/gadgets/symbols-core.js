@@ -38,7 +38,7 @@ export function poleOf(rings) {
 
 export function symbolItems(src, layer = {}, zoom = 10, images = null, missing = null) {   // missing＝記号帳に無い名前を集める Set（styleimagemissing）
 	const origin = originOfLayer(layer);   // MapLibre の層（normalizeMLLayer の印）＝MapLibre の意味で評価
-	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
+	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.type && src?.coordinates ? [{ type: "Feature", properties: {}, geometry: src }] : src?.features || [];   // 素の Geometry も（MapLibre の geojson source は受ける）
 	if ((layer.minzoom != null && zoom < layer.minzoom) || (layer.maxzoom != null && zoom >= layer.maxzoom)) return [];
 	const Ly = layer.layout || {}, Pt = layer.paint || {}, out = [];
 	for (const f of feats) {
@@ -53,17 +53,19 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null, missing =
 		const ev = (e, d) => e == null ? d : evalExpr(e, ctx);
 		const strs = e => e == null ? null : Array.isArray(e) && e.length && e.every(x => typeof x === "string") && !["literal", "match", "case", "step", "get", "coalesce"].includes(e[0]) ? e : (v => Array.isArray(v) ? v : null)(evalExpr(e, ctx));   // 文字列の配列リテラル（["top","bottom"]）は式でない
 		const icon = Ly["icon-image"] != null ? textOf(Ly["icon-image"], ctx) : null;
-		const text = textOf(Ly["text-field"], ctx);
+		const tt = Ly["text-transform"] != null ? String(ev(Ly["text-transform"], "none")) : "none", t0 = textOf(Ly["text-field"], ctx), text = tt === "uppercase" ? t0.toUpperCase() : tt === "lowercase" ? t0.toLowerCase() : t0;   // text-transform
 		if (!icon && !text) continue;
 		const it = {
 			icon: icon || null, size: +ev(Ly["icon-size"], 1), rotate: +ev(Ly["icon-rotate"], 0), anchor: ev(Ly["icon-anchor"], "center"), offset: ev(Ly["icon-offset"], [0, 0]),
-			iconOverlap: !!ev(Ly["icon-allow-overlap"], false), iconIgnore: !!ev(Ly["icon-ignore-placement"], false),
+			iconOverlap: Ly["icon-overlap"] != null ? String(ev(Ly["icon-overlap"], "never")) !== "never" : !!ev(Ly["icon-allow-overlap"], false), iconIgnore: !!ev(Ly["icon-ignore-placement"], false),   // icon/text-overlap（MapLibre 新）が allow-overlap に勝つ・cooperative は always 扱い（近似）
 			color: css(evalColor(Pt["icon-color"] ?? "#000000", ctx)), opacity: +ev(Pt["icon-opacity"] ?? Pt["text-opacity"], 1),
 			text, textSize: +ev(Ly["text-size"], 16), textAnchor: ev(Ly["text-anchor"], "center"), textOffset: ev(Ly["text-offset"], [0, 0]),
-			textOverlap: !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false), textPadding: +ev(Ly["text-padding"], 2),   // text-padding＝MapLibre の既定 2px（文字の周りの空き・重なり判定だけに効く）
+			textOverlap: Ly["text-overlap"] != null ? String(ev(Ly["text-overlap"], "never")) !== "never" : !!ev(Ly["text-allow-overlap"], false), textIgnore: !!ev(Ly["text-ignore-placement"], false), textPadding: +ev(Ly["text-padding"], 2),   // text-padding＝MapLibre の既定 2px（文字の周りの空き・重なり判定だけに効く）
 			textColor: css(evalColor(Pt["text-color"] ?? "#000000", ctx)), haloColor: css(evalColor(Pt["text-halo-color"] ?? "rgba(0,0,0,0)", ctx)), haloWidth: +ev(Pt["text-halo-width"], 0),
 			sort: +ev(Ly["symbol-sort-key"], 0) || 0, props,
-			fnt: Ly["text-font"] != null ? parseFontStack(ev(Ly["text-font"], null)) : null,   // 書体（段 2）＝text-font → family/weight/style（symbols-2d が fontCss で据える）
+			fnt: Ly["text-font"] != null ? parseFontStack(ev(Ly["text-font"], null)) : null,
+			// 文字の組み（段 1 と同じ意味＝symbols-2d の layoutText）：折り返し（em・MapLibre 由来の層は既定 10・ネイティブは 0＝従来どおり 1 行）・行の高さ・字間・justify
+			textMaxWidth: +ev(Ly["text-max-width"], origin === "ml" ? 10 : 0) || 0, textLineHeight: +ev(Ly["text-line-height"], 1.2) || 1.2, textLetterSpacing: +ev(Ly["text-letter-spacing"], 0) || 0, textJustify: ev(Ly["text-justify"], origin === "ml" ? "center" : "left"),   // 書体（段 2）＝text-font → family/weight/style（symbols-2d が fontCss で据える）
 			horizon: +layer.horizon || 0,   // 拡張（MapLibre に無い）：球の縁の近くは出さない＝視線と地面のなす角の余弦の下限（0＝従来どおり全部）
 			// #39：text-variable-anchor（候補を順に試す・text-radial-offset か text-offset の大きさで離す）・icon-text-fit（記号を文字の箱へ伸ばす）
 			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,

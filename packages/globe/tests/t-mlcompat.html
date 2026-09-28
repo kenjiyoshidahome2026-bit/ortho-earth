@@ -774,6 +774,47 @@ try {
 				map.jumpTo({ pitch: 0 }); await sleep(800);
 				return [!!a && !!b && !!c && Math.abs(a.h - 19.2) < 2 && b.h < a.h * 0.75 && Math.abs(b.w - a.w) < a.w * 0.15 && c.h < 16 * 0.85, `viewport=${fmt(a)} map=${fmt(b)} line=${fmt(c)}`];
 			});
+			// ── 伸びる記号（stretchX／stretchY／content）・geojson の記号の文字の組み（改行・折り返し）・text/icon-overlap ──
+			const stretchImg = () => { const w = 30, h = 20, d = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y * w + x) * 4, inner = x >= 10 && x < 20 && y >= 5 && y < 15; d[i] = inner ? 0 : 255; d[i + 1] = inner ? 255 : 0; d[i + 2] = 0; d[i + 3] = 255; } return new ImageData(d, w, h); };
+			const gjAt = (id, props, dy = 0) => { map.addSource(id, { type: "geojson", data: fc([pt(D.cafe[0], D.cafe[1] + dy, props)]) }); };
+			await vscene("symbol-stretch-fit", async () => {   // 30×20・伸びる区間 x[10,20] y[5,15]・content＝その区間＝icon-text-fit both（余白 0）で記号の箱＝文字の箱＋伸びない縁（左右 10・上下 5）。vector（labels2d）と geojson（symbols-2d）の両方
+				await map.addImage("st9", stretchImg(), { stretchX: [[10, 20]], stretchY: [[5, 15]], content: [10, 5, 20, 15] });
+				const lay = { "icon-image": "st9", "text-field": "Stretch me", "text-size": 14, "icon-text-fit": "both" };
+				await map.addLayer({ id: "sf1", type: "symbol", source: "omt", "source-layer": "poi", layout: lay, paint: { "text-color": "#000" } });
+				const a = (await untilN("sf1", n => n > 0)).find(q => Math.abs(q.x - cx) < 4); await drop("sf1");
+				gjAt("gsf", {}); await map.addLayer({ id: "sf2", type: "symbol", source: "gsf", layout: lay, paint: { "text-color": "#000" } });
+				const b = (await untilN("sf2", n => n > 0))[0]; await drop("sf2"); map.removeSource("gsf"); map.removeImage("st9");
+				const ok = q => !!q?.ibox && Math.abs(q.ibox[2] - (q.w + 20)) < 1.5 && Math.abs(q.ibox[3] - (q.h + 10)) < 1.5 && Math.abs(q.ibox[0] - q.x) < 1.5 && Math.abs(q.ibox[1] - q.y) < 1.5;
+				return [ok(a) && ok(b), `vector text=${a ? `${a.w.toFixed(1)}x${a.h.toFixed(1)}` : "none"} ibox=${a?.ibox?.map(v => v.toFixed(1))} · geojson text=${b ? `${b.w.toFixed(1)}x${b.h.toFixed(1)}` : "none"} ibox=${b?.ibox?.map(v => v.toFixed(1))}`];
+			});
+			await vscene("symbol-geojson-newline-and-wrap", async () => {   // geojson の記号（symbols-2d）：\n＝3 行（h＝3×1.2×16）・MapLibre の既定 max-width 10em で長い文字は折れる・max-width 0＝1 行
+				const one = async (id, layout) => { gjAt("g" + id, {}); await map.addLayer({ id, type: "symbol", source: "g" + id, layout: { "text-size": 16, ...layout }, paint: { "text-color": "#000" } }); const q = (await untilN(id, n => n > 0))[0]; await drop(id); map.removeSource("g" + id); return q; };
+				const a = await one("nl", { "text-field": "Line 1\nLine 2\nLine 3" });
+				const b = await one("wr1", { "text-field": "a rather long label that wraps" });
+				const c = await one("wr0", { "text-field": "a rather long label that wraps", "text-max-width": 0 });
+				return [!!a && Math.abs(a.h - 3 * 1.2 * 16) < 1 && !!b && b.h >= 2 * 1.2 * 16 - 1 && b.w <= 10 * 16 + 1 && !!c && Math.abs(c.h - 1.2 * 16) < 1 && c.w > b.w, `newline=${a ? `${a.w.toFixed(0)}x${a.h.toFixed(1)}` : "none"} wrap=${b ? `${b.w.toFixed(0)}x${b.h.toFixed(1)}` : "none"} nowrap=${c ? `${c.w.toFixed(0)}x${c.h.toFixed(1)}` : "none"}`];
+			});
+			await vscene("symbol-text-overlap-always", async () => {   // text-overlap "always"（MapLibre 新）＝allow-overlap と同じ：同じ点に 2 層＝後の層だけ → 前の層に always で両方
+				await sym("ta1", {}); await sym("ta2", { "text-field": ["concat", ["get", "name"], "2"] });
+				const n0 = (await untilN("ta2", n => n >= 2), await placedOf("ta1")).length;
+				map.setLayoutProperty("ta1", "text-overlap", "always");
+				const n1 = (await untilN("ta1", n => n >= 2)).length;
+				await drop("ta1", "ta2");
+				return [n0 === 0 && n1 === 2, `before=${n0} always=${n1}`];
+			});
+			await vscene("update-image-repaints", async () => {   // map.updateImage（MapLibre 同名・動く記号の口）＝画素だけ差し替える：注記の canvas の色が赤→緑に変わり、置いた箱は変わらない
+				const sq = rgb => new ImageData(new Uint8ClampedArray(16 * 16 * 4).map((_, i) => i % 4 === 3 ? 255 : rgb[i % 4]), 16, 16);
+				const colorAt = async () => { const s0 = await map.requestSnapshot(), R0 = s0.render; if (!R0?.labels) return null; const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(D.cafe), i = (Math.round(y * R0.lh / H) * R0.lw + Math.round(x * R0.lw / W)) * 4; return [L[i], L[i + 1], L[i + 2], L[i + 3]]; };
+				await map.addImage("upd", sq([255, 0, 0]));
+				await map.addLayer({ id: "up1", type: "symbol", source: "omt", "source-layer": "poi", layout: { "icon-image": "upd" } });
+				const a = (await untilN("up1", n => n > 0)).find(q => Math.abs(q.x - cx) < 4);
+				let c0 = null; for (let k = 0; k < 8; k++) { await sleep(400); c0 = await colorAt(); if (c0 && c0[0] > 200 && c0[1] < 60) break; }
+				await map.updateImage("upd", sq([0, 255, 0]));
+				let c1 = null; for (let k = 0; k < 8; k++) { await sleep(400); c1 = await colorAt(); if (c1 && c1[1] > 200 && c1[0] < 60) break; }
+				const b = (await placedOf("up1")).find(q => Math.abs(q.x - cx) < 4);
+				await drop("up1"); map.removeImage("upd");
+				return [!!a && !!b && c0?.[0] > 200 && c0?.[1] < 60 && c1?.[1] > 200 && c1?.[0] < 60 && a.w === b.w && a.x === b.x, `before=${c0} after=${c1} box ${a?.w}→${b?.w}`];
+			});
 			await vscene("styleimagemissing-event", async () => {   // 記号帳に無い名前＝styleimagemissing（{ id }）が名前ごとに 1 回鳴る・聞き手が addImage すると出る。基図/vector の経路（labels2d）と geojson の経路（symbols）の両方
 				const got = [], onMiss = e => { got.push(e.id); if (/^nope-/.test(e.id)) map.addImage(e.id, new ImageData(new Uint8ClampedArray(16 * 16 * 4).fill(255), 16, 16)); };
 				map.on("styleimagemissing", onMiss);

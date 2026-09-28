@@ -2103,7 +2103,7 @@ dbgHost.__placed = () => new Promise(res => {
 	placedWait.set(sid, d => {
 		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
 		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: L.icon ?? null, ibox: L.ibox ?? null, line: !!L.line, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),   // icon/ibox＝置いた記号（段 3）
-			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
+			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, ibox: S.ibox ?? null, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
 	});
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res([]); }, 5000);
@@ -3367,7 +3367,7 @@ function imageMissing(name) {
 }
 // 記号帳の写しは render worker の注記層（labels2d）にも届ける＝基図と vector source の symbol 層の icon-image（段 3）。ImageBitmap は写して転送（main の記号帳はそのまま）
 const symGet = async () => { const m = await import("./gadgets/symbols.js"); return symCtl ??= m.createSymbols(map, { signal: ac.signal,
-	onImage: (name, e) => createImageBitmap(e.bitmap).then(bm => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf } }, [bm]); needsDraw = true; }).catch(err => console.warn("[symbols] image to labels", name, err)),
+	onImage: (name, e) => createImageBitmap(e.bitmap).then(bm => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null } }, [bm]); needsDraw = true; }).catch(err => console.warn("[symbols] image to labels", name, err)),
 	onImageRemoved: name => { wPost({ type: "set", cmd: "labelImage", data: { name, bitmap: null } }); needsDraw = true; }, onMissing: imageMissing }); };
 // 足している途中の画像（公式例の門 2 巡目）＝MapLibre の addImage は同期＝直後の addLayer（fill-pattern・icon-image）がその画像を使える。
 // こちらは画像の変換で非同期＝層を載せる前（mountLayer の頭）に待つ（途中の画像が無ければ何も待たない）
@@ -3378,6 +3378,10 @@ map.addImage = (name, img, o) => {   // img＝ImageBitmap/HTMLImageElement/Blob/
 	return p;
 };
 map.removeImage = name => symCtl?.removeImage(name);
+map.updateImage = async (name, img) => {   // 画素だけ差し替える（MapLibre 同名・動く記号）＝層を評価し直さない。足している途中の画像は待つ（待たずに「無い名前」として足すと pixelRatio が落ちる）
+	if (pendingImages.size) await Promise.allSettled([...pendingImages]);
+	return symCtl?.hasImage(name) ? symCtl.updateImage(name, img) : map.addImage(name, img);
+};
 map.hasImage = name => !!symCtl?.hasImage(name);
 map.listImages = () => symCtl?.listImages() ?? [];
 map.loadSprite = async (base, prefix) => (await symGet()).loadSprite(base, prefix);                          // MapLibre の sprite（base.json＋base.png・@2x）
