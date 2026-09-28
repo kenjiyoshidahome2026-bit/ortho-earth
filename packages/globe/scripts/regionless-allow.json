@@ -211,7 +211,7 @@
 		},
 		"packages/globe/src/symbols-2d.js": {
 			"jp": {
-				"n": 2,
+				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
 			}
 		},
