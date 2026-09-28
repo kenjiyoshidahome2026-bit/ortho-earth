@@ -1199,14 +1199,14 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 // 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。
 // SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
 // 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
-// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 窓の縁フェード幅(uv))。
+// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 縁のフェードが始まる半径（窓の半幅に対する比）)。
 const SHADOW_WGSL = (g, b0 = 0) => /* wgsl */`
 struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
 @group(${g}) @binding(${b0}) var<uniform> SH: ShadowP;
 @group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d;
 @group(${g}) @binding(${b0 + 2}) var shSamp: sampler_comparison;
 fn shClip(relA: vec3f) -> vec4f { return SH.clipT + SH.mvp * vec4f(relA, 0.0); }
-fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と縁は日向へ溶かす）
+fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外は日向・縁は中心からの距離で丸く日向へ溶かす）
 	if (sc.w <= 0.0) { return 1.0; }
 	let p = sc.xyz / sc.w;
 	let uv = vec2f(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
@@ -1219,7 +1219,9 @@ fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と
 			s += textureSampleCompareLevel(shTex, shSamp, uv + vec2f(f32(i), f32(j)) * SH.p.z, d);
 		}
 	}
-	return mix(1.0, s / 9.0, clamp(e / SH.p.w, 0.0, 1.0));
+	// 縁のフェード（#112 段 3）＝窓の中心からの距離（[−1,1]² の半径）で SH.p.w から 1 へ丸く薄める＝矩形の縁の直線を出さない
+	//（旧＝縁から 6% の帯。傾けた遠景では帯が数 px に潰れ、影がまっすぐ途切れる線に見えた＝富士で確認）
+	return mix(1.0, s / 9.0, 1.0 - smoothstep(SH.p.w, 1.0, length(p.xy)));
 }
 fn shShade(col: vec3f, sc: vec4f) -> vec3f { return col * mix(SH.p.x, 1.0, shLit(sc)); }
 `;

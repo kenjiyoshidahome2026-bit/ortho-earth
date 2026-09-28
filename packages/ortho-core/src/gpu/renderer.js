@@ -25,7 +25,7 @@ import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換�
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.js";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
-import { sunVector, shadowWindow, shadowHalfM, shadowBias } from "../shadow.js";   // 建物の影（点けた時だけ）
+import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.js";   // 建物の影（点けた時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
@@ -466,6 +466,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const envCache = { key: "", env: { sh: new Float32Array(36), lp: new Float32Array([0, 0, 0, 1]) } };   // 空の環境光（#46 段 2）＝fx.pbr off は全 0＋固定光の重み 1（PB に入るだけで読まれない）
 	let sh = null;
 	const SH_N = rOpts.lowMem ? 1024 : 2048;   // 深度テクスチャの一辺（2048²×4B＝16MB・点けている間だけ）
+	const SH_FADE_R0 = 0.7;   // 縁のフェードが始まる半径（窓の半幅に対する比・#112 段 3）＝真俯瞰の画面の四隅（窓の 0.67）は薄めない
 	const SH_BLD_BUFS = [
 		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "float32" }] },
@@ -1696,14 +1697,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			cnt.bldTris = bld.count / 3;
 		}
 		if (meshes.size) {
-			const reachM = win.texelM * SH_N * 0.5 * 1.5 + Math.min(300 / Math.tan(win.alt), 3000);   // 窓の半幅×1.5＋高層の影の長さ
-			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), list = [];
+			const list = [];
 			for (const p of meshes.values()) {
 				if (list.length >= MAX_PL_BATCH) break;
 				if (meshHidden.has(p.ward) || p.noCast || p.blend) continue;
-				const bb = p.bbox;
-				const dx = Math.max(bb[0] - cam.center[0], 0, cam.center[0] - bb[2]) * 111320 * cosLat, dy = Math.max(bb[1] - cam.center[1], 0, cam.center[1] - bb[3]) * 111320;
-				if (dx * dx + dy * dy > reachM * reachM) continue;
+				if (!bboxInShadowWindow(win.mvp, p.bbox, SH_CAST_HMAX_M)) continue;   // 窓の矩形に太陽方向で投げて掛からない束は落とさない（#112 段 3・旧＝窓の半幅×1.5＋影の長さの円）
 				const slot = list.length, o = slot * (PL_BATCH_SLOT / 4), b = sh.batchCPU;
 				const cM = mat.transform(win.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);
 				b[o] = p.origin[0]; b[o + 1] = p.origin[1]; b[o + 2] = p.origin[2]; b[o + 3] = 0;
@@ -1811,7 +1809,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			u.set(shWin.mvp, 0);
 			u[16] = cT[0]; u[17] = cT[1]; u[18] = cT[2]; u[19] = cT[3];
 			u[20] = oPt[0]; u[21] = oPt[1]; u[22] = oPt[2]; u[23] = 0;   // Frame.originPt と同じ f32 丸め（main スロットで差が厳密 0）
-			u[24] = shadow.darkness ?? 0.66; u[25] = shadowBias(shWin); u[26] = 1 / SH_N; u[27] = 0.06;
+			u[24] = shadow.darkness ?? 0.66; u[25] = shadowBias(shWin); u[26] = 1 / SH_N; u[27] = SH_FADE_R0;
 			device.queue.writeBuffer(sh.pBuf, 0, u);
 		}
 		composeGround(gndJob, slotsG);   // 鍵が変わった時だけ（Frame 書込の後＝塗りの焼き込みが bg0[slot] の origin を読む）
