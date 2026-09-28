@@ -7,6 +7,8 @@
      ④模型（uv と頂点色を持つメッシュ＝MESH_TEX＝模型・3D Tiles・I3S・押し出しの経路・#112 段 1）も影を受ける：箱の北に 0.5m 浮かせた
        不透明の板（北 120〜200m）と半透明の板（BLEND・α0.59・北 40〜100m・東へ 40m まで）＝影の中は暗く・先端の外（北 190m）と東 30m は元の明るさ。消灯で元どおり
      ⑤keep2d のメッシュ（模型の経路の箱・東 100m）は castShadow:true と申告した時だけ影を落とす（#112 段 1＝統計の柱は申告しない＝落とさない）
+     ⑥模型の MASK（切り抜き）は α で抜いて落とす（#112 段 4）：高さ 50m に浮かせた板（西 60〜20m）の西半分は不透明・東半分は透明（α 0）＝
+       影（北へ 50/tan31°≈83m）は西半分の下だけ暗く・東半分の下は日向（頂点だけの落とす側では板全体が四角い影になった）
      真俯瞰（pitch 0）＝建物は描かないが影は落ちる（球の床が受ける）。⚠実時間専用（verify-webgpu.mjs が回す）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-shadow</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -100,6 +102,19 @@ try {
 	const noteK = kp.map(q => `${q[0]}:${kr(noCastK, q).toFixed(2)}→${kr(castK, q).toFixed(2)}`).join(",");
 	ok(`keep2d は申告しないと落とさない(${noteK})`, kp.every(q => kr(noCastK, q) > 0.95));
 	ok("castShadow:true で落とす", kp.every(q => kr(castK, q) < 0.7));
+	// ⑥ MASK の板（2×1 のテクスチャ＝左 α255・右 α0・alphaCutoff 0.5）
+	const mV = [], mN = [], mUV = [], mC = [];
+	for (const [e, n, u] of [[-60, -20, 0], [-20, -20, 1], [-20, 20, 1], [-60, 20, 0]]) { mV.push(...P(e, n, 50)); mN.push(up[0], up[1], up[2], 0); mUV.push(u, 0.5); mC.push(255, 255, 255, 255); }
+	const [mw, ms] = ll(-60, -20), [me, mn] = ll(-20, 20);
+	const mp = [["M_opaque", -50, 83], ["M_clear", -30, 83]];
+	r.set("meshSet", { pos: new Float32Array(mV), nrm: new Int8Array(mN), uv: new Float32Array(mUV), col: new Uint8Array(mC), idx: new Uint32Array([0, 1, 2, 0, 2, 3]), origin, bbox: [mw, ms, me, mn], ward: "mslab", keep2d: true, castShadow: true, noLift: true, twoSided: true,
+		alphaMode: "MASK", alphaCutoff: 0.5, tex: { rgba: new Uint8Array([230, 230, 230, 255, 230, 230, 230, 0]), w: 2, h: 1 } }, "mslab#0");
+	const offM = await shot();
+	r.set("shadow", { on: true, time: Date.parse("2026-12-22T02:40:00Z"), darkness: 0.5 });
+	const onM = await shot();
+	r.set("shadow", { on: false });
+	const km = Object.fromEntries(mp.map(([name, e, n]) => [name, lum(onM, e, n) / Math.max(1, lum(offM, e, n))]));
+	ok(`MASK は α で抜いて落とす(${Object.entries(km).map(([a, v]) => `${a}=${v.toFixed(2)}`).join(",")})`, km.M_opaque < 0.7 && km.M_clear > 0.95);
 	r.dispose();
 	fin();
 	}
