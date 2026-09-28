@@ -469,7 +469,7 @@ try {
 	} else if (G === "vector") {
 		// ── vector source の fill-extrusion（段 8①）＝MapLibre の 3D 建物の書き方そのまま。試料＝fixtures/mlcompat/make-mvt.mjs（OpenMapTiles 風の building・6 棟）──
 		// 当たりは立体（屋根の高さを画面へ投影した点を押す）＝MapLibre の押し出しの当て方。地図は旗なし＝公開の口はエンジンの z（MapLibre の z＋1）
-		const { cameraState, project } = await import("@ortho-earth/core");
+		const { cameraState, project, worldRadiusM } = await import("@ortho-earth/core");   // worldRadiusM＝今の世界の半径（球 6371000・楕円体 a＝#43）
 		const FX = new URL("./fixtures/mlcompat/", location.href).href;
 		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner;
 		const style = {
@@ -491,7 +491,7 @@ try {
 		window.__map = map; window.__R = R;   // 手で覗く窓（検定の判定には使わない）
 		const cv = document.getElementById("c");
 		// 屋根の高さの点を画面（CSS px）へ。canvas の実寸は動的解像度で縮む（816×510 など）＝地図と同じく CSS の大きさ×cam.dpr で組む
-		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / 6371000); return [x / d, y / d]; };
+		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / worldRadiusM()); return [x / d, y / d]; };
 		const loaded = async (sid, ms = 20000) => { const t0 = performance.now(); await sleep(400); while (performance.now() - t0 < ms) { if (map.isSourceLoaded(sid)) { await sleep(500); return true; } await sleep(200); } return false; };
 		// 画素＝描画側はメッシュを 1 フレーム 1 件ずつ受け取る（SwiftShader はフレームが遅い）＝期待の色になるまで撮り直す（最大 6 回）
 		const pixelUntil = async (b, h, pred) => { let p = null; for (let k = 0; k < 6; k++) { const img = await snap(map); p = px(img, ...at(b, h)); if (pred(p)) break; await sleep(1500); } return p; };
@@ -865,7 +865,7 @@ try {
 	} else if (G === "extrude") {
 		// ── geojson の押し出し（fill-extrusion）＝問い合わせは立体（台帳 R23）・描き直しの鍵は曲線を見る（R22）。MapLibre の書き方そのまま・旗なし＝公開の口はエンジンの z ──
 		// 試料は海の上（地面＝海面＝持ち上げなし）。建物らしい大きさ＝接地（ground）。視点＝南から北を 60° 傾けて見る（手前＝南）
-		const { cameraState, project } = await import("@ortho-earth/core");
+		const { cameraState, project, worldRadiusM } = await import("@ortho-earth/core");   // worldRadiusM＝今の世界の半径（球 6371000・楕円体 a＝#43）
 		const C = [138.5, 32.5], MLAT = 110574, MLON = 111320 * Math.cos(C[1] * Math.PI / 180);
 		const off = (dx, dy, c = C) => [c[0] + dx / MLON, c[1] + dy / MLAT];   // m のずらし（東・北）
 		const rect = (cx, cy, hw, props, hole = 0, c = C) => {
@@ -875,7 +875,7 @@ try {
 		const map = await createGlobe({ target: "#map", view: `#17/${C[1]}/${C[0]}/60t`, chips: false, debugGlobals: true });   // debugGlobals＝window.__model（押し出しの呼び出しを数える窓）
 		await sleep(6000);
 		const el = map.mapEl;
-		const at = (dx, dy, h, c = C) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, el.clientWidth * d, el.clientHeight * d), [lon, lat] = off(dx, dy, c), [x, y] = project(st, lon, lat, 1 + h / 6371000); return [x / d, y / d]; };
+		const at = (dx, dy, h, c = C) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, el.clientWidth * d, el.clientHeight * d), [lon, lat] = off(dx, dy, c), [x, y] = project(st, lon, lat, 1 + h / worldRadiusM()); return [x / d, y / d]; };
 		const q = async (p, layers) => (await map.queryRenderedFeatures(p, { layers })).map(f => f.properties?.name);
 		const isRed = p => p[0] > 110 && p[1] < 90 && p[2] < 90, isBlue = p => p[2] > 110 && p[0] < 90 && p[1] < 90;
 		const pixelUntil = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = px(await snap(map), ...p); if (pred(c)) break; await sleep(1500); } return c; };
@@ -921,7 +921,7 @@ try {
 		//    MLT の源は 3 通り：XYZ の .mlt（"encoding":"mlt"）・TileJSON 経由（2 本目の source）・PMTiles（tileType 6＝ヘッダで決まる・申告なし）。
 		//    通す経路は 4 つ：基図の配管（style の fill＝core の tileworker）・押し出し（vtextrude）・描く層（vtdraw）・問い合わせ（queryTiles＝main で解く）。
 		//    器（packages/globe/vite.config.js）は "#tile-formats" を @ortho-earth/tile-formats/register へ alias＝解読器は最初の MLT タイルで動的 import。
-		const { cameraState, project } = await import("@ortho-earth/core");
+		const { cameraState, project, worldRadiusM } = await import("@ortho-earth/core");   // worldRadiusM＝今の世界の半径（球 6371000・楕円体 a＝#43）
 		const FX = new URL("./fixtures/mlcompat/", location.href).href;
 		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner, D = VB.draw;
 		const styleOf = mlt => ({
@@ -939,7 +939,7 @@ try {
 		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}/50t`, chips: false, style: styleOf(false), debugGlobals: true });
 		window.__map = map; window.__R = R;
 		const cv = document.getElementById("c");
-		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / 6371000); return [x / d, y / d]; };
+		const at = (b, h) => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, b.center[0], b.center[1], 1 + h / worldRadiusM()); return [x / d, y / d]; };
 		const atG = ll => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, ll[0], ll[1], 1); return [x / d, y / d]; };
 		const loaded = async (sid, ms = 20000) => { const t0 = performance.now(); await sleep(400); while (performance.now() - t0 < ms) { if (map.isSourceLoaded(sid)) { await sleep(500); return true; } await sleep(200); } return false; };
 		const layerIn = async (id, ms = 30000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (map.getLayer(id)) return true; await sleep(200); } return false; };
