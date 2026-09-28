@@ -7,11 +7,11 @@
 // cluster(src, opts)：{ clusterRadius:50, clusterMaxZoom:14, paint:{ circle-color/-radius/-stroke-color/-stroke-width/-opacity }（集約の丸）,
 //   text:{ color, size }, unclustered:{ paint } }。集約の属性＝{ cluster:true, point_count, point_count_abbreviated }（MapLibre と同じ名前）。
 //   クリック＝その集約がばらけるズームへ寄る（MapLibre の getClusterExpansionZoom の定番）。
-import { evalExpr, originOfLayer } from "@ortho-earth/core";
+import { evalExpr, originOfLayer, lonlatTo3D } from "@ortho-earth/core";
 import heatUrl from "../heatmap-gl.js?url";
 import clusterUrl from "../cluster-2d.js?url";
 
-import { D2R, ctxOf, abbr, pointsOf, heatStyle, buildClusters, clusterDraw } from "./aggregate-core.js";   // 計算部分（検定 t-aggregate が直接読む）
+import { ctxOf, abbr, pointsOf, heatStyle, buildClusters, clusterDraw } from "./aggregate-core.js";   // 計算部分（検定 t-aggregate が直接読む）
 
 export function createAggregate(map, { signal } = {}) {
 	// slot（層の名前）ごとに 1 枚のオーバーレイ（#34・2026-09-23）＝map.addLayer の heatmap／集約は層 id（集約は source id）ごと・並べられる。
@@ -33,8 +33,8 @@ export function createAggregate(map, { signal } = {}) {
 			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom(), origin = originOfLayer(layer);
 			const pos = new Float32Array(pts.length * 3), w = new Float32Array(pts.length);
 			pts.forEach((p, i) => {
-				const lo = p.lon * D2R, la = p.lat * D2R, cl = Math.cos(la);
-				pos[i * 3] = cl * Math.cos(lo); pos[i * 3 + 1] = Math.sin(la); pos[i * 3 + 2] = cl * Math.sin(lo);
+				const u = lonlatTo3D(p.lon, p.lat);   // β 単位球（楕円体の世界＝#43・球ではビット同値）。旧＝測地緯度をそのまま単位球へ＝楕円体で約 10km 北
+				pos[i * 3] = u[0]; pos[i * 3 + 1] = u[1]; pos[i * 3 + 2] = u[2];
 				const wv = evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props, origin));
 				w[i] = Math.max(0, +(wv === undefined && origin ? 1 : wv) || 0);   // ML の評価エラー＝既定 1・ネイティブは従来どおり
 			});

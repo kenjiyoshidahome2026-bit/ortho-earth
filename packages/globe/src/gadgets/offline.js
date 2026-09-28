@@ -31,6 +31,10 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 	const store = async () => cacheH ??= typeof caches !== "undefined" ? await caches.open(PACK_CACHE).catch(() => null) : null;
 	const swNotify = () => { try { navigator.serviceWorker?.controller?.postMessage({ type: "oj-pack" }); } catch { /* SW なし */ } };   // SW の「パックがあるか」を取り直させる
 	let panel = null, ac = null, est = null, estSeq = 0;
+	// 建物（PLATEAU 等）は表示のモード（球／楕円体）ごとに別の鍵で置かれる（meshworker の #ell）＝パックに作った時のモードを記録し、
+	// 今のモードと違えば「作り直しで取り直す」と出す（#43・2026-09-28）。記録の無い古いパック＝球（それまでは全員が球）
+	const ellNow = () => !!map.ellipsoidOn?.();
+	const otherMode = p => !!p.mesh?.length && !!p.ell !== ellNow();
 
 	// パックの中身（URL 列）＝台帳の記録から作り直す（型紙と被覆は記録に残す＝後で基図が変わっても同じ URL）
 	const urlsOf = p => {
@@ -76,7 +80,7 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 		const keys = led ? await led() : [], rows = [];
 		for (const k of keys) { const p = await led(k); if (p) rows.push(p); }
 		rows.sort((a, b) => b.ts - a.ts);
-		$(".of-list").innerHTML = rows.length ? rows.map(p => `<div class="of-row" data-id="${p.id}" style="display:flex;gap:6px;align-items:center;margin-top:4px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}<br><small style="opacity:.7">z≤${p.zmax} · ${fmtMB(p.bytes)}${p.done ? "" : " · " + t("incomplete")}${p.mesh?.length ? " · " + t("$1 districts", p.mesh.length) : ""}</small></span><button type="button" class="qm-btn of-go" data-tip="${t("Go there")}">⌖</button><button type="button" class="qm-btn of-del">${t("Delete")}</button></div>`).join("") : `<div style="opacity:.7">${t("No packs yet")}</div>`;
+		$(".of-list").innerHTML = rows.length ? rows.map(p => `<div class="of-row" data-id="${p.id}" style="display:flex;gap:6px;align-items:center;margin-top:4px"><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(p.name)}<br><small style="opacity:.7">z≤${p.zmax} · ${fmtMB(p.bytes)}${p.done ? "" : " · " + t("incomplete")}${p.mesh?.length ? " · " + t("$1 districts", p.mesh.length) : ""}${otherMode(p) ? " · " + t("buildings saved for the other display mode (create again to refetch)") : ""}</small></span><button type="button" class="qm-btn of-go" data-tip="${t("Go there")}">⌖</button><button type="button" class="qm-btn of-del">${t("Delete")}</button></div>`).join("") : `<div style="opacity:.7">${t("No packs yet")}</div>`;
 		$(".of-list").querySelectorAll(".of-del").forEach(b => b.addEventListener("click", () => delPack(b.closest(".of-row").dataset.id)));
 		$(".of-list").querySelectorAll(".of-go").forEach(b => b.addEventListener("click", () => { const p = rows.find(x => x.id === b.closest(".of-row").dataset.id); if (p) map.fitBounds(p.bbox, { animate: true }); }));
 	};
@@ -104,8 +108,8 @@ export function offline({ sources, bounds, onOpen, signal, zmaxDefault = 15 } = 
 		// 同じ計画のパックが台帳にあれば続き（記録を引き継ぎ・容量は足す）。無ければ新規
 		let rec = null;
 		if (led) for (const k of await led()) { const q = await led(k); if (q && keyOf(q) === keyOf(plan)) { rec = q; break; } }
-		if (!rec) rec = { id: "p" + Date.now().toString(36), name: $(".of-name").value.trim() || defaultName(plan.bbox), bbox: plan.bbox, zmin: plan.zmin, zmax: plan.zmax, tpl: plan.tpl, cov: plan.cov, rasters: plan.rasters, mesh: plan.mesh, dem: plan.dem, tiles: est.tiles, bytes: 0, ts: Date.now(), done: false };
-		else { rec.mesh = plan.mesh; rec.dem = plan.dem; rec.ts = Date.now(); rec.done = false; }
+		if (!rec) rec = { id: "p" + Date.now().toString(36), name: $(".of-name").value.trim() || defaultName(plan.bbox), bbox: plan.bbox, zmin: plan.zmin, zmax: plan.zmax, tpl: plan.tpl, cov: plan.cov, rasters: plan.rasters, mesh: plan.mesh, ell: ellNow(), dem: plan.dem, tiles: est.tiles, bytes: 0, ts: Date.now(), done: false };
+		else { rec.mesh = plan.mesh; rec.dem = plan.dem; rec.ell = ellNow(); rec.ts = Date.now(); rec.done = false; }   // 続き＝建物は今のモードで取り直す
 		const id = rec.id;
 		if (led) await led(id, rec);
 		const prog = (label, p) => { $(".of-prog").textContent = `${label} ${p.done}/${p.total}${p.bytes ? " · " + fmtMB(p.bytes) : ""}${p.failed ? " · " + t("$1 failed", p.failed) : ""}`; $(".of-bar").style.width = (p.total ? 100 * p.done / p.total : 0) + "%"; };

@@ -201,7 +201,7 @@ WebGPU には三枚の落ち網があります。初期化に失敗したら wor
 <ul>
 	<li><strong>ズームは縮尺そのもの。</strong>z0 で世界が 256 px。同じ z はどこでも同じ倍率です。緯度による補正をカメラに戻すことはしません。</li>
 	<li><strong>浮動小数点を誤魔化さない。</strong>絶対の経緯度を 32 bit 浮動小数に通しません。メッシュは局所の原点からの相対（RTE）で描き、カメラの経度は地球を何周回しても溜まらないよう畳みます。</li>
-	<li><strong>既定は球。</strong>WGS84 の楕円体も選べます（<code>?ell=1</code>）。距離や面積の計測は常に楕円体で行います。</li>
+	<li><strong>表示の形は、通常のデスクトップでは WGS84 の楕円体、</strong>低メモリの端末や非力な機体（スマホ・内蔵 GPU）では球です。<code>ellipsoid</code> の設定や <code>?ell=1</code>／<code>?ell=0</code> で変えられます。距離や面積の計測は常に楕円体で行います。</li>
 	<li><strong>地面の下に潜ると黒くフェードします。</strong>カメラを勝手に押し上げることはしません。</li>
 	<li><strong>飛行</strong>（<code>flyTo</code>・<code>easeTo</code>・<code>fitBounds</code>）は時間で評価する計画です。台本の再生は 1 歩 35 ms を上限とする仮想時計で進むので、遅い機械で録画してもずれません。</li>
 </ul>

@@ -1,7 +1,7 @@
 # fallback ladder — バックエンド選択・端末ティア・jetsam 防衛の台帳
 
 「どの環境で・何が・どう落ちて・どこへ着地するか」の正典。**ノブの値や判定を変えたらこの台帳も更新する**。
-姉妹編：`webgpu port.md`（WebGPU 移植の設計・轍）。最終更新 2026-08-19（§3.5 追加）。
+姉妹編：`webgpu port.md`（WebGPU 移植の設計・轍）。最終更新 2026-09-29（§6 リアルタイムの影）。
 
 ## 1. バックエンド選択（app.js `gpuBackend`）
 
@@ -91,6 +91,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | worker内RAMキャッシュ `CACHE_MAX` | 0 | 0 | **1区**（8/3 に 2→1） | OPFS 二層化以前の遺物＝三重化（RAM cache×GPU常駐×OPFS）の解消。⚠cache を持つ構成はロード中 `keep[]` が区全量を積む＝コールドピークの主因 |
 | バッチ/並行fetch | 8枚/4本 | 32/8 | 32/8 | lowMem＝IDB commit バースト・送信粒度も半減 |
 | タイル予算 `?tbudget` | 24MB | auto | auto | |
+| 表示の世界の形（#43・9/28 本人裁定 B） | 球 | 球 | **WGS84 楕円体** | boot/tier.js `ellipsoidMode`＝URL（`?ell=1`／`?ell=0`）› `opts.ellipsoid` › 自動。計測は全ティアで常に WGS84。楕円体は GPU 約1割の固定費・PLATEAU は `#ell` の別鍵（R2 に全区の楕円体の焼きあり） |
 | 消灯線 `PLATEAU_OFF_Z` | 15（=AUTO_Z） | 14 | 14 | **z≤14 は実メッシュも遠景箱も出さない**（本人裁定 9/8「潔く」）。`?pazoff=N`。保持のヒステリシスは 14〜15 の 1 段だけ・常駐（VRAM）は触らない |
 
 過渡の防波堤（ティア共通）：
@@ -135,6 +136,10 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
   門＝`tests/globe-rays.mjs`（旧式は z17.5 で 9 画素・新式 0.003 画素・deltaLL は 1 mm 以内）と t-globefloor（両バックエンド・市松の床がズーム 0.0005／bearing 1e-4 で 24 階調超の画素 1% 未満・旧 50%）。
   既知の限界：本体の対数深度は頂点だけで書く（frag_depth なし）＝大きな三角形の内側は深度が画面上で直線補間される。z19 級の超近景で地形の格子（数十 m）の内側が撓み、斜めの薄い陰の帯が出ることがある（景色に張り付く・揺れはしない）。
 
+- **リアルタイムの影（`map.setShadows`・#112・2026-09-29）**：**WebGPU 専用**＝GL2 は持たない（9/24 裁定を 9/29 に維持・Android は全機 GL2＝影なし・WebGPU が来たら自然に出る）。
+  点けている間だけ資源（深度 2048²＝16MB・LOW_MEM は 1024²＝4MB）・消すと返す（描画に一切関与しない）。窓は 1 枚（カスケードは入れない＝9/29 裁定・傾けた遠景の約 2 割は影なし・縁は丸く薄める）。
+  落とす＝地形・押し出し・メッシュ・模型（MASK は α で抜く・BLEND と統計の柱は落とさない）／受ける＝gint の線・注記・オーバーレイ以外。影の間は地形の陰影の光を太陽の方位へ。
+  費用（Apple M 系・60°・東京駅）＝深度パス z15 1.9〜2.3ms・z17 2.6〜3.4ms（パンと時刻の再生の時だけ・静止と回転は使い回し）。計器＝`?hud=1` の shadow 行・`?perf=1` の `gpuShadow`・`apps/ortho-japan/scripts/bench-shadow.mjs`
 ## 7. 計器（全部 URL フラグ・本番搭載）
 
 | フラグ | 見えるもの |
@@ -143,7 +148,7 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 | `?drawhud=1` | 描画実績（塗り枚数・退場フラグ・fade・PLバッチ）＝**USB 不要の実機計器**。塗り0=赤字＝CPU側、枚数ありで黒=GPU側の二分 |
 | `?stay=1` | 起動診断 HUD（frame1・配達カウンタ・boot 里程標。フォールバックせず留まる閲覧モード） |
 | `?perf=1` | フレーム内訳（ema・gpuMap/gpuGint・aa=直近フレームの段数 1/4）＋GPU 識別。⚠ema は 60fps 機で 16.7ms 飽和＝差が出ない |
-| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` `?atmosphere=1` `?pbr=1` `?ao=1`（#46・既定 0） |
+| 層別切り | `?nomd` `?nogint` `?noterr` `?nofade` `?msaa=0/1` `?ell=1/0` `?notq` `?noopfs` `?nor01` `?relay` `?mid=0/1` `?maxact=N` `?tbudget=N` `?atmosphere=1` `?pbr=1` `?ao=1`（#46・既定 0） |
 
 ## 8. 残リスク（監視項目）
 
