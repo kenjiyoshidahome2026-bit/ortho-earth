@@ -36,7 +36,7 @@ export function poleOf(rings) {
 	return [best.x, best.y];
 }
 
-export function symbolItems(src, layer = {}, zoom = 10, images = null) {
+export function symbolItems(src, layer = {}, zoom = 10, images = null, missing = null) {   // missing＝記号帳に無い名前を集める Set（styleimagemissing）
 	const origin = originOfLayer(layer);   // MapLibre の層（normalizeMLLayer の印）＝MapLibre の意味で評価
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	if ((layer.minzoom != null && zoom < layer.minzoom) || (layer.maxzoom != null && zoom >= layer.maxzoom)) return [];
@@ -69,7 +69,7 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null) {
 			textVariableAnchor: strs(Ly["text-variable-anchor"]), textRadialOffset: Ly["text-radial-offset"] != null ? +ev(Ly["text-radial-offset"], 0) : null,
 			iconTextFit: ev(Ly["icon-text-fit"], "none"), iconTextFitPadding: ev(Ly["icon-text-fit-padding"], [0, 0, 0, 0]),
 		};
-		if (icon && images && !images.has(icon)) it.icon = null;   // 記号帳に無い名前＝記号は描かない（MapLibre は styleimagemissing を鳴らす）＝文字だけ残る
+		if (icon && images && !images.has(icon)) { missing?.add(icon); it.icon = null; }   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
 		if (!it.icon && !it.text) continue;
 		for (const c of pts) out.push({ ...it, lon: c[0], lat: c[1] });
 	}
