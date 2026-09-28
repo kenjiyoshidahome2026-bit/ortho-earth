@@ -1,0 +1,95 @@
+<!doctype html>
+<!-- 実描画の検分：断面とクリッピング平面（#111 段 0・2026-09-29・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
+     試料＝東京（139.7/35.7）の ±0.1° に高さ 60m の平らな台地（合成 DEM・段彩で赤）＋中心に 80m 角×高さ 40m の箱メッシュ（青・両面・地形へ持ち上げ）。
+     カメラ＝z16・チルト 50°・北向き。球の床（海抜 0）は灰色。
+     ①切らない（既定）＝切る資源も派生パイプラインも作らない。{on:true} でも面が 0 枚なら同じ絵（bit 一致）
+     ②東向きの面（中心の北 22m）で南（手前）を残す：手前の台地と箱の南の壁は元の絵と同じ・北 300m の床の点は台地が消えて床の灰色（地形を描かない絵と同じ）・
+       箱の屋根は面の南だけ残り北は抜ける
+     ③西向きの面（同じ線）で北（奥）を残す：手前の台地が消えて床が覗く（段 0 の観察＝蓋は段 2）・北 300m の台地は残る
+     ④消す＝元の絵へ戻る（bit 一致）　⑤GPU の検証エラー 0。⚠実時間専用（verify-webgpu.mjs が回す） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-clip</title></head>
+<body><canvas id="g" width="256" height="256"></canvas>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { createRendererGPU } = await import("../../../packages/ortho-core/src/gpu/backend.js");
+	const { cameraState, project, lonlatTo3D } = await import("../../../packages/ortho-core/src/camera.js");
+	const canvas = document.getElementById("g"), N = 256;
+	const r = await createRendererGPU(canvas);
+	const LON = 139.7, LAT = 35.7, Re = 6371000, K = 111320, cosL = Math.cos(LAT * Math.PI / 180), HT = 60;
+	const ll = (e, n) => [LON + e / (K * cosL), LAT + n / K];   // ENU(m)→経緯度（近似）
+	r.set("view", { clear: [0.03, 0.04, 0.07, 1], land: [0.6, 0.6, 0.6, 1], bldColor: [0.1, 0.25, 0.95], hypso: { color: [0.95, 0.1, 0.1], amount: 1, max: 50 } });
+	// 台地（1 セル 256²・±0.1°・一様に 60m）
+	const CR = 256;
+	r.set("elevAtlas", { originLng: LON - 0.1, originLat: LAT - 0.1, cellsX: 1, cellsY: 1, cellRes: CR, cellSpan: 0.2, exag: 1, edgeFade: 0 }, 1 / Re);
+	r.set("elevCell", new Float32Array(CR * CR).fill(HT), { cx: 0, cy: 0, cellRes: CR });
+	// 箱（80m 角・高さ 40m）＝原点相対の単位球座標・drape＝地形（60m）へ持ち上げる・両面
+	const origin = lonlatTo3D(LON, LAT);
+	const P = (e, n, h) => { const [lo, la] = ll(e, n), p = lonlatTo3D(lo, la), s = 1 + h / Re; return [p[0] * s - origin[0], p[1] * s - origin[1], p[2] * s - origin[2]]; };
+	const up = origin.map(v => Math.round(v * 127));
+	const V = [], NR = []; for (const h of [0, 40]) for (const [e, n] of [[-40, -40], [40, -40], [40, 40], [-40, 40]]) { V.push(...P(e, n, h)); NR.push(up[0], up[1], up[2], 0); }
+	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
+	const [bw, bs] = ll(-40, -40), [be, bn] = ll(40, 40);
+	r.set("meshSet", { pos: new Float32Array(V), nrm: new Int8Array(NR), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box", drape: true, twoSided: true }, "box#0");
+	const cam = { center: [LON, LAT], zoom: 16, pitch: 50 * Math.PI / 180, bearing: 0, dpr: 1 };
+	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
+	const rctx = rd.getContext("2d", { willReadFrequently: true });
+	const shot = async (opts = {}) => {   // 同一タスクで drawImage（t-shadow と同じ作法）
+		r.draw(cam, opts); r.flush();
+		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
+		const px = rctx.getImageData(0, 0, N, N).data;
+		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
+		return px;
+	};
+	const st = cameraState(cam, N, N);
+	const at = (e, n, h) => { const [lo, la] = ll(e, n), p = project(st, lo, la, 1 + h / Re); return [Math.round(p[0]), Math.round(p[1])]; };
+	const rgb = (px, [x, y]) => { let s = [0, 0, 0]; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s[0] += px[i]; s[1] += px[i + 1]; s[2] += px[i + 2]; } return s.map(v => v / 9); };
+	const dist = (a, b) => Math.max(...a.map((v, i) => Math.abs(v - b[i])));
+	const same = (a, b) => { let d = 0; for (let i = 0; i < a.length; i++) d = Math.max(d, Math.abs(a[i] - b[i])); return d; };
+	const fmt = c => c.map(v => v.toFixed(0)).join("/");
+	const red = c => c[0] > c[1] + 60 && c[0] > c[2] + 60, blue = c => c[2] > c[0] + 60;
+	// 探り点（画面の位置は射影の高さ込み）
+	const S150 = at(0, -150, HT), N300f = at(0, 300, 0), N300t = at(0, 300, HT);
+	const roofS = at(0, -25, HT + 40), roofN = at(0, 35, HT + 40);
+	const a = [LON - 0.01, LAT + 22 / K], b = [LON + 0.01, LAT + 22 / K];   // 中心の北 22m を東西に
+
+	// ① 切らない＝元の絵・面 0 枚でも同じ
+	const A = await shot();
+	ok(`元の絵：手前の台地は赤(${fmt(rgb(A, S150))})・箱の屋根は青(${fmt(rgb(A, roofS))}/${fmt(rgb(A, roofN))})`, red(rgb(A, S150)) && blue(rgb(A, roofS)) && blue(rgb(A, roofN)));
+	r.set("clip", { on: true });
+	const A0 = await shot();
+	ok(`面 0 枚は元の絵と bit 一致(Δ=${same(A, A0)})`, same(A, A0) === 0);
+	r.set("clip", { on: false });
+	// 地形も箱も無い絵（床だけ）＝切った先に見えるはずの物
+	r.set("meshVis", false, "box");
+	const Cf = await shot({ noTerrain: true });
+	r.set("meshVis", true, "box");
+	ok(`床は灰色(${fmt(rgb(Cf, N300f))})`, !red(rgb(Cf, N300f)) && !blue(rgb(Cf, N300f)));
+
+	// ② 南（手前）を残す
+	r.set("clip", { on: true, vertical: [[a, b]] });
+	const B = await shot();
+	ok(`手前の台地は元のまま(Δ=${dist(rgb(A, S150), rgb(B, S150)).toFixed(1)})`, dist(rgb(A, S150), rgb(B, S150)) < 2);
+	ok(`北 300m は台地が消えて床(${fmt(rgb(A, N300f))}→${fmt(rgb(B, N300f))}・床だけ ${fmt(rgb(Cf, N300f))})`, red(rgb(A, N300f)) && dist(rgb(B, N300f), rgb(Cf, N300f)) < 3);
+	ok(`箱の屋根：南は残る(${fmt(rgb(B, roofS))})・北は抜ける(${fmt(rgb(B, roofN))})`, blue(rgb(B, roofS)) && dist(rgb(A, roofS), rgb(B, roofS)) < 2 && !blue(rgb(B, roofN)));
+
+	// ③ 北（奥）を残す＝手前の台地が消えて床が覗く
+	r.set("clip", { on: true, vertical: [[b, a]] });
+	const B2 = await shot();
+	ok(`奥を残す：手前は床(${fmt(rgb(B2, S150))})・北 300m の台地は残る(${fmt(rgb(B2, N300t))})`, !red(rgb(B2, S150)) && red(rgb(B2, N300t)) && dist(rgb(A, N300t), rgb(B2, N300t)) < 2);
+
+	// ④ 消す＝元どおり
+	r.set("clip", { on: false });
+	const back = await shot();
+	ok(`消して元どおり(Δ=${same(A, back)})`, same(A, back) === 0);
+	await new Promise(res => setTimeout(res, 50));
+	ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? "：" + r.gpuErrors[0] : ""}）`, r.gpuErrors.length === 0);
+	r.dispose();
+	fin();
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
