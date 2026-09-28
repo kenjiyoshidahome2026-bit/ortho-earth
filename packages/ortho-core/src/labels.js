@@ -38,12 +38,12 @@ function iconOf(L, lo, ctx) {
 // 候補は文字が線に収まる範囲（first ≤ d ≤ len−half）だけ・錨はタイルの中だけ（隣のタイルのバッファと二重に出さない）。symbol-spacing（画面 px）は描く側（labels2d）が同じ文字の群に課す＝表示 z に追随
 function lineAnchors(g, extent, { step, half, first, win }) {
 	const c = g.coords, ends = g.ends?.length ? g.ends : [c.length], out = [];
-	let s = 0;
+	let s = 0, pi = 0;
 	for (const e of ends) {
-		const n = (e - s) / 2; if (n < 2) { s = e; continue; }
+		const n = (e - s) / 2; if (n < 2) { s = e; pi++; continue; }
 		const cum = new Float64Array(n); let len = 0;
 		for (let i = 1; i < n; i++) { const dx = c[s + i * 2] - c[s + i * 2 - 2], dy = c[s + i * 2 + 1] - c[s + i * 2 - 1]; len += Math.hypot(dx, dy); cum[i] = len; }
-		if (len <= 0) { s = e; continue; }
+		if (len <= 0) { s = e; pi++; continue; }
 		const at = d => { let i = 1; while (i < n - 1 && cum[i] < d) i++; const t = (d - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [c[s + i * 2 - 2] + (c[s + i * 2] - c[s + i * 2 - 2]) * t, c[s + i * 2 - 1] + (c[s + i * 2 + 1] - c[s + i * 2 - 1]) * t, i]; };
 		const ds = [];
 		if (step > 0) { for (let d = first; d <= len - half; d += step) ds.push(d); }
@@ -55,9 +55,10 @@ function lineAnchors(g, extent, { step, half, first, win }) {
 			const path = [bx, by]; for (let i = bi; i < ai; i++) path.push(c[s + i * 2], c[s + i * 2 + 1]);
 			const aidx = path.length / 2; path.push(ax, ay);
 			for (let i = ai; i < ei; i++) path.push(c[s + i * 2], c[s + i * 2 + 1]); path.push(ex, ey);
-			out.push({ px: ax, py: ay, path, ai: aidx });
+			out.push({ px: ax, py: ay, path, ai: aidx, part: pi });
 		}
 		s = e;
+		pi++;
 	}
 	return out;
 }
@@ -98,7 +99,9 @@ export function buildLabels({ layers, z, x, y }, style) {
 		const src = layers[L["source-layer"]]; if (!src) continue;
 		const ml = originOfLayer(L) === "ml";   // MapLibre の文書から来た層＝padding の既定 2（MapLibre）・ネイティブの層＝従来の 5（この地図の注記の間合い）
 
+		let fi = 0;
 		for (const f of src.features) {
+			fi++;
 			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L) };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
 			const place = String(evalExpr(placeE, ctx) ?? "point"), onLine = place === "line" || place === "line-center";   // 線に沿う注記（段 4）
 			if (onLine ? f.type !== "LineString" : f.type === "Polygon") continue;   // 線の注記は線だけ（面の輪郭は置かない・記録）。点の注記＝点と、線の各部分の先頭の頂点（MapLibre の点置き＝低 z の道路の盾）
@@ -118,7 +121,7 @@ export function buildLabels({ layers, z, x, y }, style) {
 			for (const sp of spots) {
 			const px = sp.px, py = sp.py;
 			const [lon, lat] = tileLocalToLonLat(x, y, z, px, py, src.extent);
-			const dkey = text + "\u0001" + icon + "@" + Math.round(px) + "," + Math.round(py);
+			const dkey = (ml ? li + "\u0001" : "") + text + "\u0001" + icon + "@" + Math.round(px) + "," + Math.round(py);   // MapLibre 由来の層は層ごとに（同じ点・同じ文字でも別の層なら両方置いて後の層が勝つ＝poi_transit が poi_r1 に消されていた）・ネイティブは従来どおり層またぎで 1 つ
 			if (seen.has(dkey)) continue; seen.add(dkey);
 			const color = parseRGBA(evalExpr(L.paint?.["text-color"] ?? "#000", ctx));
 			const halo = parseRGBA(evalExpr(L.paint?.["text-halo-color"] ?? "rgba(255,255,255,1)", ctx));
@@ -126,7 +129,8 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const sort = num(evalExpr(lo["symbol-sort-key"] ?? 0, ctx), 0);
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
 			const lay = layoutOf(L, lo, ctx, ml);
-			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
+			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
+			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
 			out.push({ anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line });   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 			}
 		}

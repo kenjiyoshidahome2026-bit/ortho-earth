@@ -209,7 +209,8 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	let dbg = { zoom: null, outOfZoom: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
 		const placed = [], w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
-		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 } };   // line＝線の注記の落ちた理由（診断）
+		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }, pt: {} };   // line＝線の注記の落ちた理由・pt＝点の注記の層ごとの結果（診断）
+		const ptDbg = (L, k) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; };
 		for (const L of combined) {
 			if (L.flat && !showFlat) continue;
 			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
@@ -224,7 +225,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				if (ll.icon) { const ic = ll.icon, ip = L.ipad ?? 2; boxes.push([ic.x - ic.bw / 2 - ip, ic.y - ic.bh / 2 - ip, ic.x + ic.bw / 2 + ip, ic.y + ic.bh / 2 + ip]); }   // 記号の箱（icon-padding）＝文字と一緒に裁く（両方置けなければ出さない）
 				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; continue; }
 				if (!L.ov && boxes.some(b => overlaps(placed, b))) { dl.overlap++; continue; }
-				const grp = L.sp ? (L.k ?? "b" + L.li) + "\u0001" + L.text : null, ga = grp ? lineGrp.get(grp) : null;
+				const grp = L.sp ? (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text) : null, ga = grp ? lineGrp.get(grp) : null;   // 群＝1 本の線（lg）・無ければ文字
 				if (ga && ga.some(p => Math.hypot(p[0] - ll.x, p[1] - ll.y) < L.sp)) { dl.spacing++; continue; }   // symbol-spacing＝同じ文字の線の注記は画面 px でこの間隔より近くに置かない（候補はタイルが細かく焼く＝表示 z に追随）
 				if (grp) { if (ga) ga.push([ll.x, ll.y]); else lineGrp.set(grp, [[ll.x, ll.y]]); }
 				if (!L.ig) for (const b of boxes) placed.push(b);
@@ -233,7 +234,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				continue;
 			}
 			const shield = shieldFor && shieldFor(L), im = iconImg(L), hasText = !!shield || !!(L.text && String(L.text).length);
-			if (!hasText && !im) continue;   // 記号だけのラベルで記号帳にまだ無い＝出さない（届いたら setImage が dirty にする）
+			if (!hasText && !im) { ptDbg(L, "noimg"); continue; }   // 記号だけのラベルで記号帳にまだ無い＝出さない（届いたら setImage が dirty にする）
 			// 箱＝標識ならその絵・文字なら layout（折り返し・字間・行の高さ）で組んだ行の束（textLayout）。錨からの置き方＝text-anchor/offset（variable-anchor は候補を順に試す）
 			let tw = 0, h = 0, tl = null;
 			if (shield) { tw = shield.w; h = shield.h; }
@@ -246,7 +247,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const judge = (tOK, iOK) => !textAlone && !iconAlone ? [tOK && iOK, tOK && iOK] : !textAlone ? [tOK && iOK, iOK] : !iconAlone ? [tOK, iOK && tOK] : [tOK, iOK];   // → [文字を置く, 記号を置く]
 			const nat = im ? iconBox(L, im) : null;   // 記号の自然な箱（fit しない時＝候補に依らない）
 			const iOKof = ib => !im || L.iov || !overlaps(placed, grow(tb(Ti, ib[0], ib[1], ib[2], ib[3]), ipad));
-			let hit = null;
+			let hit = null, lastWhy = "off";
 			if (hasText) {
 				const cands = shield ? [["center", 0, 0]] : anchorCands(L);
 				for (const [an, ox, oy] of cands) {
@@ -255,18 +256,19 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 					if (bb[2] < 0 || bb[0] > Wc || bb[3] < 0 || bb[1] > Hc) continue;
 					const box = grow(bb, padL);
 					const ib = im ? (L.ifit ? iconFit(L, im, [x0 - sx, y0 - sy, tw, h]) : nat) : null;
-					const [pt, pi] = judge(L.ov || !overlaps(placed, box), iOKof(ib));
-					if (!pt) continue;   // 文字が置けない候補＝次の候補（variable-anchor）
+					const tOK = L.ov || !overlaps(placed, box), iOK = iOKof(ib), [pt, pi] = judge(tOK, iOK);
+					if (!pt) { lastWhy = !tOK ? "text" : !iOK ? "icon" : "text"; continue; }   // 文字が置けない候補＝次の候補（variable-anchor）
 					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null, bb: [bb[2] - bb[0], bb[3] - bb[1]] }; break;
 				}
 				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
 			} else { const [, pi] = judge(false, iOKof(nat)), nb = tb(Ti, nat[0], nat[1], nat[2], nat[3]); if (pi && !(nb[2] < 0 || nb[0] > Wc || nb[3] < 0 || nb[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
-			if (!hit) continue;
+			if (!hit) { ptDbg(L, hasText ? lastWhy : "icon"); continue; }
 			if (L.sp) {   // 線の錨に回さず置く注記（text-rotation-alignment viewport＝道路の盾）＝symbol-spacing を同じ群に課す
-				const grp = (L.k ?? "b" + L.li) + "\u0001" + L.text + "\u0001" + (L.icon || ""), ga = lineGrp.get(grp);
-				if (ga && ga.some(p => Math.hypot(p[0] - sx, p[1] - sy) < L.sp)) continue;
+				const grp = (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text + "\u0001" + (L.icon || "")), ga = lineGrp.get(grp);
+				if (ga && ga.some(p => Math.hypot(p[0] - sx, p[1] - sy) < L.sp)) { ptDbg(L, "spacing"); continue; }
 				if (ga) ga.push([sx, sy]); else lineGrp.set(grp, [[sx, sy]]);
 			}
+			ptDbg(L, "ok");
 			if (hit.txt && !L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
 			if (hit.ib && !L.iig) placed.push(grow(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3]), ipad));
 			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib, bb: hit.bb ?? null, ibb: hit.ib ? (q => [q[2] - q[0], q[3] - q[1]])(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3])) : null });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
