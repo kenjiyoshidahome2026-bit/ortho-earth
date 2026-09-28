@@ -1619,7 +1619,8 @@ let lastLabelGate = "";
 const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= CHOME800_MINZOOM ? 1 : 0)
 	+ (cam.zoom < AIRPORT_MARK_MAXZ && cam.zoom >= BASEMAP_MINZOOM && airportMarks.length ? "A" : "")
 	+ (landmarks && layerState.facility ? "L" + landmarkMinH(cam.zoom) : "")   // 高さ梯子の段を跨いだらラベルだけ作り直す
-	+ (poi && layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "");   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ (poi && layerState.facility && cam.zoom >= 14 ? "P" + poi.ver + "z" + Math.floor(cam.zoom * 2) : "")   // POI台帳＝タイル到着(poiVer)・半ズーム(rank解禁)で作り直す
+	+ "Z" + Math.floor(cam.zoom);   // 整数の z を跨いだら作り直す＝rebuildLabels が層の出しズーム（minZ/maxZ）で外した注記を、次の整数 z で拾い直す（2026-09-28）
 // ?swaplog=1＝「書き直し」イベントの計器：main merge（タイル集合の増減つき）・ラベル再構築・base差し替えを
 // 時刻つきで出す。ズームアウトのポップがどのイベントと同時刻かで犯人を特定する切り分け用。
 const swapLog = /[?&]swaplog=1/.test(location.search);
@@ -1725,7 +1726,10 @@ function rebuildLabels(order) {
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const bh = baseHiddenIdx();   // 隠した基図の層のラベル（worker のラベルは層の添字 li を持つ・段 7）
 	const merged = mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
-	const filtered = themes.filterLabels(merged, layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
+	// 層の出しズームの外の注記は送らない（labels.js が焼いた minZ/maxZ＝エンジンの z）＝この整数 z の間（labelGate の "Z"）に出る可能性のある物だけ。
+	// 旧＝全部送って描く側が zoom 域で捨てていた＝OpenFreeMap の poi_r20（minzoom 18）が z15 で 15753 個＝送るのも 150ms ごとの衝突判定の走査も重かった（2026-09-28）
+	const zf = Math.floor(cam.zoom), inZ = L => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
+	const filtered = themes.filterLabels(merged.filter(inZ), layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
 	lastLabels = filtered.map(L => {
 		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
