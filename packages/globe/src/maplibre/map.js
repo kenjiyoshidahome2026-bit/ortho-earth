@@ -136,6 +136,7 @@ export class Map {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
 			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
 			night: false, sky: false, coastline: false, terrain: false, chips: false, countryTip: false, persistView: false,
+			ellipsoid: false,   // 表示の形は球に固定（#43・2026-09-28 本人裁定）＝MapLibre の地球儀と同じ（楕円体はデスクトップの既定だが、ここは「同じ絵」が物差し）。options.ortho.ellipsoid で変えられる・?ell=1 は URL が勝つ
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
