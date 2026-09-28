@@ -281,8 +281,9 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	// 文字（段 0）：本物が置いた点の記号のうち、こちらも同じ層の記号/ラベルを近くに置いた数（hit）・錨の周りにインクがある数（ink）・こちらだけが置いた数（extra）・本物の線沿い（line＝段 4 の分母）
 	const tx = rows.map(r => r.grade.text).filter(t => t && t.n);
 	summary.text = { examples: tx.length, n: tx.reduce((a, t) => a + t.n, 0), hit: tx.reduce((a, t) => a + t.hit, 0), ink: tx.reduce((a, t) => a + t.ink, 0), inkN: tx.reduce((a, t) => a + t.inkN, 0), extra: tx.reduce((a, t) => a + t.extra, 0), line: rows.reduce((a, r) => a + (r.grade.text?.line || 0), 0),
+		lineHit: rows.reduce((a, r) => a + (r.grade.text?.lineHit || 0), 0), linePlaced: rows.reduce((a, r) => a + (r.grade.text?.linePlaced || 0), 0),   // 線沿い（段 4）＝層ごとの本数の min の和・こちらの本数
 		low: rows.filter(r => r.grade.text && r.grade.text.n >= T_TEXT_N && r.grade.text.hit / r.grade.text.n < THRESH.textMin).map(r => r.name) };
-	console.log(`  文字（点の記号 ${summary.text.examples} 例・${summary.text.n} 個）：同じ層を近くに置いた ${summary.text.hit}・インクあり ${summary.text.ink}/${summary.text.inkN}・こちらだけ ${summary.text.extra}・本物の線沿い ${summary.text.line}（測るだけ＝段は動かさない・閾 ${THRESH.textMin}/${T_TEXT_N} 個以上で下回る例 ${summary.text.low.length}）`);
+	console.log(`  文字（点の記号 ${summary.text.examples} 例・${summary.text.n} 個）：同じ層を近くに置いた ${summary.text.hit}・インクあり ${summary.text.ink}/${summary.text.inkN}・こちらだけ ${summary.text.extra}・線沿い 本物 ${summary.text.line}／こちら ${summary.text.linePlaced}／層ごとの重なり ${summary.text.lineHit}（測るだけ＝段は動かさない・閾 ${THRESH.textMin}/${T_TEXT_N} 個以上で下回る例 ${summary.text.low.length}）`);
 	console.log("\n足りない口の順位表（上位 15）：");
 	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
 	const dir = path.join(ROOT, "report", orthoLabel);

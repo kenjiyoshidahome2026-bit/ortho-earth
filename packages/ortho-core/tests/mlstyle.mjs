@@ -55,10 +55,10 @@ t("振り分け（基図・画像・利用者・描かない）", () => {
 			{ id: "rd", type: "symbol", source: "v", "source-layer": "road", layout: { "symbol-placement": "line", "text-field": "{name}" } },
 			{ id: "b3", type: "fill-extrusion", source: "v", "source-layer": "building" }, { id: "gj", type: "circle", source: "g" }] });
 	assert.equal(r.vectorSource, "v");
-	assert.deepEqual(r.base.map(L => L.id), ["bg", "w"]);
+	assert.deepEqual(r.base.map(L => L.id), ["bg", "w", "rd"]);   // 線に沿う注記も基図（段 4）
 	assert.deepEqual(r.raster.map(L => L.id), ["rel"]);
 	assert.deepEqual(r.geojson.map(L => L.id), ["gj"]);
-	assert.deepEqual(r.skipped.map(k => k.id), ["rd", "b3"]);
+	assert.deepEqual(r.skipped.map(k => k.id), ["b3"]);
 });
 t("video source の層は利用者の層の口へ（#49）", () => {
 	const r = splitMapLibreStyle({ version: 8, sources: { vd: { type: "video", urls: ["a.mp4"], coordinates: [[0, 1], [1, 1], [1, 0], [0, 0]] } }, layers: [{ id: "vid", type: "raster", source: "vd" }] });

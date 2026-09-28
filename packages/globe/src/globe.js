@@ -2087,7 +2087,7 @@ dbgHost.__placed = () => new Promise(res => {
 	const sid = ++placedSeq;
 	placedWait.set(sid, d => {
 		const layerOf = L => L.set != null ? String(L.set).replace(/^vt:/, "") : L.li != null ? (style.layers[L.li]?.id ?? null) : null;
-		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: L.icon ?? null, ibox: L.ibox ?? null, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),   // icon/ibox＝置いた記号（段 3）
+		res([...(d?.labels ?? []).map(L => ({ kind: "label", layer: layerOf(L), text: L.text, icon: L.icon ?? null, ibox: L.ibox ?? null, line: !!L.line, lon: L.lon, lat: L.lat, x: L.x, y: L.y, w: L.w, h: L.h, font: L.font ?? null })),   // icon/ibox＝置いた記号（段 3）
 			...(d?.symbols ?? []).map(S => ({ kind: "symbol", layer: S.layer, text: S.text, icon: S.icon, lon: S.lon, lat: S.lat, x: S.x, y: S.y, w: S.w, h: S.h, font: S.font ?? null }))]);   // font＝据えた書体（段 2 の検定）
 	});
 	wPost({ type: "labelsPlaced", id: sid });
@@ -2095,7 +2095,7 @@ dbgHost.__placed = () => new Promise(res => {
 });
 dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
 	const sid = ++placedSeq;
-	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
 });
