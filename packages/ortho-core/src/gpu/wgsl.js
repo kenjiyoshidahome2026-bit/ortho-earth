@@ -1275,6 +1275,16 @@ export const BUILDING_CAST_WGSL = deriveWgsl(BUILDING_WGSL, [
 export const MESH_CAST_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n", ""],
 ], "MESH_CAST_WGSL");
+// 模型の MASK（葉などの切り抜き・alphaCutoff）の落とす側（#112 段 4）＝模型の頂点計算そのまま・対数深度だけ外す＋α で抜く FS（本体の `tx.a < B.alpha.x` と同じ判定）。
+// 葉が四角い影になっていた（頂点だけのパイプラインは α を見ない）。BLEND の模型は落とさない（本人裁定）
+export const MESH_TEX_CAST_WGSL = deriveWgsl(MESH_TEX_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n", ""],
+], "MESH_TEX_CAST_WGSL") + `
+@fragment fn fsCast(in: PlOut) {
+	let a = textureSample(texT, texS, in.uv).a * in.col.a;
+	if (a < B.alpha.x) { discard; }
+}
+`;
 // 地形も影を落とす（#112 段 2・影の窓の中だけ）＝本体の頂点計算そのまま（同じ窓・同じ距離フェード＝画面の地形と同じ形）・対数深度だけ外す。頂点だけのパイプライン
 export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
