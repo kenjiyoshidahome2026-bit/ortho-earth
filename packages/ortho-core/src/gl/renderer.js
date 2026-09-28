@@ -1245,6 +1245,9 @@ export function createRenderer(canvas, rOpts = {}) {
 			// float sampler が掴み、globe ドロー全体が GL_INVALID_OPERATION で死ぬ（＝海が宇宙の黒に抜ける。
 			// 下方の共通バインドと同じ轍。z>5.2 で実際に被弾 2026-08-30）。unit1 は elevTex か null（incomplete=黒で無害）。
 			gl.uniform1f(loc(gl, globeProg, "u_whK"), worldHypsoK);
+			// 楕円体の印は毎回（#43・2026-09-28）：床の uv（deltaLL の β→測地の補正）も読む。旧＝下の worldHypsoK>0 の枝の中だけ＝z≳6.3 で既定 0（球）のまま＝
+			// 画像タイル層・COG を床に貼ると原点から遠いほどずれた（北緯 60° z15 で南へ約 450m・t-ellparity?ell=1）。球＝0＝従来と同値
+			gl.uniform1f(loc(gl, globeProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 			gl.uniform1i(loc(gl, globeProg, "u_elevTex"), 1);
 			gl.uniform1i(loc(gl, globeProg, "u_climTex"), 12);   // 気候場サンプラも常時 unit12（K=0でも。unit0整数テクスチャの轍）
 			gl.uniform1i(loc(gl, globeProg, "u_farElevTex"), 8);   // far床サンプラも常時 unit8（K=0でも）。従来は flat2d(z≥9真俯瞰)で globe 自体が
@@ -1256,7 +1259,6 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform4f(loc(gl, globeProg, "u_farBounds"), far.bounds[0], far.bounds[1], far.bounds[2], far.bounds[3]);
 				gl.uniform1f(loc(gl, globeProg, "u_hasFar"), far.has);
 				gl.uniform1f(loc(gl, globeProg, "u_hasElev"), 1);
-				gl.uniform1f(loc(gl, globeProg, "u_ell"), ellipsoidOn() ? 1 : 0);
 				const sc = worldPal().sea;   // 正準パレット（worldpal.js 既定＝NE流の淡青・knobで差し替え可）
 				gl.uniform3f(loc(gl, globeProg, "u_seaC"), sc[0], sc[1], sc[2]);
 				bindWorldPal(globeProg);

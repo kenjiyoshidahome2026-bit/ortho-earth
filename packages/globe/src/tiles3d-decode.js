@@ -3,9 +3,8 @@
 // 置き方は仕様どおり：頂点 ECEF = タイル変換 · (RTC + Y-up→Z-up · glTF のノード変換 · p)。
 // 三角形は meshdecode の decodeModel（PLATEAU・模型と同じ後段＝テクスチャ/マテリアル/両面）へ、点は経緯度に直して
 // 点のオーバーレイ（gadgets/points-gl.js・原点相対）の形で返す。高さは接地しない＝絶対高さ（楕円体高）−baseH をそのまま持つ。
-import { decodeModel, ecef2geo } from "./meshdecode.js";
+import { decodeModel, ecef2geo, geoWorld, earthW } from "./meshdecode.js";
 
-const EARTH_M = 6371000;
 const td = new TextDecoder();
 const magicOf = (ab, off = 0) => td.decode(new Uint8Array(ab, off, 4));
 const jsonAt = (ab, off, len) => len ? JSON.parse(td.decode(new Uint8Array(ab, off, len)).replace(/\0+$/, "").trim() || "{}") : {};
@@ -53,15 +52,16 @@ function decodePnts(ab, M, baseH) {
 	return pointsOut({ geo, rgba }, baseH);
 }
 
-// 点（経緯度 rad・楕円体高）→ 単位球の原点相対 float32（points-gl の layer に渡す形）
+// 点（経緯度 rad・楕円体高）→ 世界座標の原点相対 float32（points-gl の layer に渡す形）。置き方は建物メッシュと同じ式（geoWorld＝楕円体なら β 単位球・#43）
 function pointsOut(p, baseH) {
 	const geo = p.geo instanceof Float64Array ? p.geo : Float64Array.from(p.geo), n = geo.length / 3;
 	if (!n) return null;
 	const w = new Float64Array(n * 3);
 	let ox = 0, oy = 0, oz = 0;
+	const EW = earthW(), q = [0, 0, 0];
 	for (let i = 0; i < n; i++) {
-		const lon = geo[i*3], lat = geo[i*3+1], r = 1 + (geo[i*3+2] - baseH) / EARTH_M, cb = Math.cos(lat);
-		w[i*3] = cb * Math.cos(lon) * r; w[i*3+1] = Math.sin(lat) * r; w[i*3+2] = cb * Math.sin(lon) * r;
+		geoWorld(geo[i*3], geo[i*3+1], (geo[i*3+2] - baseH) / EW, q);
+		w[i*3] = q[0]; w[i*3+1] = q[1]; w[i*3+2] = q[2];
 		ox += w[i*3]; oy += w[i*3+1]; oz += w[i*3+2];
 	}
 	const origin = [ox / n, oy / n, oz / n], pos = new Float32Array(n * 3);

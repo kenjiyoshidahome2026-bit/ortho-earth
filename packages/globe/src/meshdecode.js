@@ -332,6 +332,16 @@ export async function decodeBatch(base, leaves, wardMask, wardBbox, onTile = nul
 // 本体は decodeBatch の末尾からの「動作を変えない移動」（引数＝元のローカル変数そのまま）。
 // groundBatch＝接地の単位：true＝バッチ最低点で一体（橋梁・単体の模型）／false＝連結成分ごと（街の一区画＝斜面や
 // 高台の建物が浮かない。PLATEAU LOD3 を切り出した名所模型はこちら・2026-09-21 大阪城/岐阜城/松江城が浮いた）
+// 経緯度（rad）＋相対高さ hr（m/世界単位）→ 世界座標（finishMesh の頂点と同じ式・#43）。点群（tiles3d-decode の pointsOut）が使う。
+//   球＝単位球×(1+hr)／楕円体＝β単位球の面点 u(β) ＋ 測地法線の β空間像に沿うリフト（S は renderer の mvp が畳む）。
+export const earthW = () => EARTH_W;
+export function geoWorld(lon, lat, hr, out) {
+	const cb = Math.cos(lat), sp = Math.sin(lat);
+	if (!ELL) { const r = 1 + hr; out[0] = cb*Math.cos(lon)*r; out[1] = sp*r; out[2] = cb*Math.sin(lon)*r; return out; }
+	const w = Math.hypot(cb, ELL_RAX * sp), horiz = cb / w + hr * cb;
+	out[0] = horiz * Math.cos(lon); out[1] = ELL_RAX * sp / w + hr * sp / ELL_RAX; out[2] = horiz * Math.sin(lon);
+	return out;
+}
 export function finishMesh(geo, outNrm, rawIdx, minH, wardMask, wardBbox, brid, extra = null, groundBatch = brid) {   // extra＝{uv,col}（模型）＝頂点属性を素通し・溶接しない
 	const totalI = rawIdx.length;
 	// 重複三角形（double-sided/coincident 面）除去＝マダラ(z-fight)の元を断つ。頂点位置(丸め)の3つ組で判定＝巻き順・頂点共有に非依存。
