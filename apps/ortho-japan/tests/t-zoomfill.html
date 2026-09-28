@@ -43,7 +43,9 @@ try {
 	await editor.commitNow();
 	const eids = [...editor.model.feats.keys()];
 	const mapEl = document.getElementById("map");
-	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas(s); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
+	// 画素は gint が写る基図 GL の 1 枚で見る（注記の 2D 層は重ねない）＝注記の段 4（d4ef0856・点の注記を線の各部分の先頭にも）から
+	// 基図の「東京都」（Anno の配置線の先頭＝139.692,35.606）が z9〜10 で circS の中心に載り、注記の画素を「塗り無し」と読んでいた（2026-09-28）
+	const shot = async () => { const s = await map.requestSnapshot(); const c = composeLayersToCanvas({ ...s, render: { ...s.render, labels: null } }); return { ctx: c.getContext("2d"), sx: c.width / mapEl.clientWidth, sy: c.height / mapEl.clientHeight }; };
 	const onScreen = (lng, lat) => { const p = map.projectLL(lng, lat); return !!p && p[2] >= 0 && p[0] > 4 && p[1] > 4 && p[0] < mapEl.clientWidth - 4 && p[1] < mapEl.clientHeight - 4; };
 	const px = (S, lng, lat) => { const p = map.projectLL(lng, lat); if (!p || p[2] < 0) return null; const d = S.ctx.getImageData(Math.round(p[0] * S.sx), Math.round(p[1] * S.sy), 1, 1).data; return [d[0], d[1], d[2]]; };
 	const magenta = c => !!c && c[0] > 150 && c[2] > 150 && c[1] < 110;
