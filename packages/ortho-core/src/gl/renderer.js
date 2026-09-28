@@ -1738,6 +1738,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
 			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
+			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
 		}
 	}

@@ -1290,6 +1290,34 @@ export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
 ], "TERRAIN_CAST_WGSL");
 
+// ── 断面とクリッピング平面（#111 段 0・2026-09-29）＝切っている時だけ使う派生シェーダ（影と同じ約束＝本体は 1 バイトも変えない・WebGPU 専用）。
+// 面＝CL.pl[i]＝(n.xyz, K)・距離 d＝n·rel + K（rel＝main 原点からの相対位置・K＝n·originPt − c を CPU f64 で＝clip.js packClip）。全部の面で d ≥ 0 の所だけ残す（交わり＝箱）。
+// 距離は VS で頂点ごとに出して補間（面は平面＝三角形の中で線形＝FS で厳密）・discard は FS の微分より後（一様制御フロー）。
+// 置き場は影と同じく「空いている group の binding b0 から」＝段 2 で影と重ねる時は影の束縛の後ろへ並べる。
+const CLIP_WGSL = (g, b0 = 0) => /* wgsl */`
+struct ClipP { pl: array<vec4f, 6>, p: vec4f };   // p.x＝面の枚数（clip.js CLIP_MAX と対）
+@group(${g}) @binding(${b0}) var<uniform> CL: ClipP;
+fn clipDist(rel: vec3f) -> f32 {
+	var d = 1e30;
+	let n = u32(CL.p.x);
+	for (var i = 0u; i < n; i++) { d = min(d, dot(CL.pl[i].xyz, rel) + CL.pl[i].w); }
+	return d;
+}
+`;
+export const TERRAIN_CLIP_WGSL = deriveWgsl(TERRAIN_WGSL, [
+	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) cd: f32,\n};"],
+	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.cd = clipDist(relW);\n"],
+	["\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n", "\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n\tif (in.cd < 0.0) { discard; }\n"],
+], "TERRAIN_CLIP_WGSL") + CLIP_WGSL(3);
+// 建物メッシュ（素の LOD2）：バッチ原点は PB の空き 16B（offset 240・clipO）に「バッチ原点 − main 原点」（CPU f64 の差＝f32 でも mm 級）。
+// B.meshOrigin（f32 の絶対位置）から引くと 0.4m 甘い＝切り口が揺れる（影の受け手が許した甘さを持ち込まない）
+export const MESH_CLIP_WGSL = deriveWgsl(MESH_WGSL, [
+	["sh: array<vec4f, 9> };", "sh: array<vec4f, 9>, clipO: vec4f };"],
+	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) cd: f32,\n};"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.cd = clipDist(B.clipO.xyz + lp);\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tif (in.cd < 0.0) { discard; }\n"],
+], "MESH_CLIP_WGSL") + CLIP_WGSL(3);
+
 // 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝elevation.js downsampleFlipped／cropResample・elevation/worldatlas.js worldAtlasCell と同式。
 // 生タイル（Int16＝u32 に 2 texel・Float32＝bitcast）は storage buffer（writeTexture の 256B 行整列を避ける＝再パック無し・1 タイル 1 回の上げで何セルでも切り出せる）。
 // 出力＝アトラス（r16float）のセル矩形へ fullscreen 三角形 1 発（viewport/scissor＝セル）。行は南上げ（row0=南）＝CPU 経路と同じ配置。

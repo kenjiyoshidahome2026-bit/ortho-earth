@@ -19,13 +19,15 @@ import * as mat from "../mat.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
-	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL } from "./wgsl.js";
+	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL,
+	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL } from "./wgsl.js";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.js";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.js";   // 建物の影（点けた時だけ）
+import { clipPlanes, packClip, CLIP_MAX } from "../clip.js";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
@@ -565,6 +567,36 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			{ binding: 6, resource: dummyView }, { binding: 7, resource: dummyView }, { binding: 8, resource: dummyView },
 			{ binding: 9, resource: { buffer: gndPBuf } }, { binding: 10, resource: rasSampler }, { binding: 11, resource: dummyView },
 		] }));
+	}
+
+	// ── 断面とクリッピング平面（#111 段 0・2026-09-29）。set("clip",{on, vertical?, planes?}) の間だけ、ここの資源・派生シェーダ・パイプラインを作って使う。
+	// 切らないフレームは従来と同じパイプライン・bind group のまま（影と同じ約束）＝消したら資源を返す（モジュールは再点灯用に保持）。
+	// 段 0＝地形（近・遠）と素の建物メッシュだけ・面の記述は clip.js（毎フレーム面を作り直す＝楕円体の切替にも追従・高々 6 枚）。
+	// 影と同時の時は、地形と建物メッシュは切る方を優先する（どちらも group(3) を使う＝重ねるのは段 2）
+	let clip = { on: false };
+	let cl = null, cl0mods = null;
+	function clipRes() {
+		if (cl) return cl;
+		const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
+		const buf = device.createBuffer({ size: (CLIP_MAX + 1) * 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		cl0mods ??= { terr: mkMod(TERRAIN_CLIP_WGSL, "terrainClip"), mesh: mkMod(MESH_CLIP_WGSL, "meshClip") };
+		const lay = a => device.createPipelineLayout({ bindGroupLayouts: a });
+		cl = { bgl, buf, bg: device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: buf } }] }),
+			lay: { terr: lay([bgl0, bgl1, bglClim, bgl]), mesh: lay([bgl0, bgl1, bglPlBatch, bgl]) }, pipes: new Map(), cpu: new Float32Array((CLIP_MAX + 1) * 4) };
+		return cl;
+	}
+	function clipFree() { if (!cl) return; cl.buf.destroy(); cl = null; }
+	function clipPipes(sc) {   // 派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes の terrain／mesh と同じ頂点・深度・ブレンド
+		let p = cl.pipes.get(sc); if (p) return p;
+		const ms = { count: sc }, m = cl0mods, L = cl.lay;
+		const pipe = (mod, bufs, ds, lay) => device.createRenderPipeline({ layout: lay, vertex: { module: mod, entryPoint: "vs", buffers: bufs },
+			fragment: { module: mod, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list", cullMode: "none" }, depthStencil: ds, multisample: ms });
+		p = {
+			terrain: pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
+			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh),
+		};
+		cl.pipes.set(sc, p);
+		return p;
 	}
 
 	// UBO：Frame 4スロット / DrawP N_ROLESスロット / globe 専用 / mesh per-batch（dynamic offset）
@@ -1820,6 +1852,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			u[24] = shadow.darkness ?? 0.66; u[25] = shadowBias(shWin); u[26] = 1 / SH_N; u[27] = SH_FADE_R0;
 			device.queue.writeBuffer(sh.pBuf, 0, u);
 		}
+		// 断面（#111 段 0）：面は main 原点からの相対（K を f64 で）＝地形（terrain/terrainFar は main と同じ原点）と建物メッシュ（バッチ原点との差は PB の clipO）
+		const clipPl = clip.on ? clipPlanes(clip) : null;
+		const clipOPt = clipPl && clipPl.length ? lonlatTo3D(mainOrigin[0], mainOrigin[1]) : null;
+		if (clipOPt) { clipRes(); device.queue.writeBuffer(cl.buf, 0, packClip(clipPl, clipOPt, cl.cpu)); }
 		composeGround(gndJob, slotsG);   // 鍵が変わった時だけ（Frame 書込の後＝塗りの焼き込みが bg0[slot] の origin を読む）
 		// 等高線：真俯瞰でだけ茶の等高線（gl/renderer.js と同式のフェード・間隔）
 		const ps = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.01) / 0.05));
@@ -1905,6 +1941,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!frame1Scoped) { frame1Scoped = 1; device.pushErrorScope("validation"); }   // 初回フレーム全体を包む（pop は flush）
 		if (tq) { tq.idx = 0; tq.spans.length = 0; }   // フレーム開始＝計測枠をリセット（draw→gint→flush で1周）
 		const R = shWin ? shadowPipes(S) : null;   // 受け手の派生パイプライン（影のフレームだけ）
+		const C = clipOPt ? clipPipes(S) : null;   // 断面の派生パイプライン（切っているフレームだけ・#111 段 0）
 		if (shadow.on) shStat.active = !!shWin;
 		if (shWin) encodeShadowCasters(enc, shWin, cam, opts, terrainActive);
 		// 1x（遷移フレーム／?msaa=0）＝canvas の current texture へ直描き。以降の全パス（gint 含む）が同じ view に
@@ -1961,11 +1998,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 地形サーフェス（標高変位＋hillshade）。深度を書く＝尾根の向こうの基図・建物が隠れる
 		if (terrainActive) {
-			pass.setPipeline(R ? R.terrain : P.terrain);
+			pass.setPipeline(C ? C.terrain : R ? R.terrain : P.terrain);
 			pass.setBindGroup(0, bg0.terrain);
 			pass.setBindGroup(1, paramBG[ROLE.terrain]);
 			pass.setBindGroup(2, climBG);   // 気候場（全球ハイプソ）。未着は dummy（p2.z=0 で不使用）
-			if (R) pass.setBindGroup(3, sh.bg);
+			if (C) pass.setBindGroup(3, cl.bg); else if (R) pass.setBindGroup(3, sh.bg);
 			pass.setVertexBuffer(0, terrain.vbo);
 			pass.setIndexBuffer(terrain.ibo, "uint32");
 			for (const [f0, n] of nearRuns) pass.drawIndexed(n, 1, f0);   // 可視チャンクの区間だけ（P4 step B）
@@ -2147,6 +2184,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU[o + 16] = pb ? pb.emissive[0] : 0; plBatchCPU[o + 17] = pb ? pb.emissive[1] : 0; plBatchCPU[o + 18] = pb ? pb.emissive[2] : 0; plBatchCPU[o + 19] = FX.pbr ? 1 : 0;
 				plBatchCPU.set(env.lp, o + 20);
 				plBatchCPU.set(env.sh, o + 24);
+				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
 			}
 			dbg.pl = draws.length;   // ?drawhud=1：メッシュの可視バッチ数（「建物は出ているのに紙が無い」の裏取り）
@@ -2154,7 +2192,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
 				// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
 				const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
-				const meshPipe = R ? R.mesh : P.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）
+				const meshPipe = C ? C.mesh : R ? R.mesh : P.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）・断面の間は断面の派生（#111 段 0・group(3)）
 				const lists = [[meshPipe, draws.filter(d => !d.p.textured)], [R ? R.meshTex : P.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [R ? R.meshTexBlend : P.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
 				for (const [pipeline, list] of lists) {
 					const tx = pipeline !== meshPipe;
@@ -2162,7 +2200,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
 					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
-					if (R && !tx) pass.setBindGroup(3, sh.bg);
+					if (C && !tx) pass.setBindGroup(3, cl.bg); else if (R && !tx) pass.setBindGroup(3, sh.bg);
 					for (const { p, count, slot } of list) {
 						pass.setBindGroup(2, R && tx ? sh.plShBG : plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform（影の間の模型は影の束縛と同居の group）
 						pass.setVertexBuffer(0, p.vbo);
@@ -2317,6 +2355,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
+			case "clip":    clip = data && data.on !== false ? { on: true, vertical: data.vertical || [], planes: data.planes || [] } : { on: false }; if (!clip.on) clipFree(); break;   // 断面（#111 段 0・{on, vertical:[[a,b]…], planes:[[nx,ny,nz,c]…]}）＝消して資源を返す
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
 			case "scene":   setScene(data, prop); break;
@@ -2344,7 +2383,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 	function dispose() {
 		frame = null; gctx = null;
-		shadowFree();
+		shadowFree(); clipFree();
 		disposeSlot("base"); disposeSlot("main"); disposeSlot("user");
 		frameBuf.destroy(); paramBuf.destroy(); globeBuf.destroy(); cornerBuf.destroy();
 		plBatchBuf.destroy(); maskParamBuf.destroy(); rasBuf.destroy(); atlBuf.destroy(); gndPBuf.destroy(); rasterFlushFree(); for (let i = 0; i < 4; i++) { gndFree1(gnd.w[i]); gnd.w[i] = null; } gnd.n = 0;
