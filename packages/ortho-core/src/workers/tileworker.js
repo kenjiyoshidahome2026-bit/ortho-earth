@@ -3,6 +3,7 @@
 // abort: 高速パンで視野から外れたタイルは fetch ごと中断（帯域とデコードCPUを空ける）。
 // index.js（全部入り）でなく実装ファイル直参照：index は pipeline（worker生成）を含むため、
 // worker から index を引くと vite が「循環worker」と誤認してビルドが落ちる
+import { setGlobalState } from "../expr.js";   // style.globalState（main の setGlobalStateProperty）＝基図の filter/layout の global-state
 import { fetchMVT, neededSourceLayers } from "../decode.js";
 // PMTiles の読み口は pmtiles:// の源が来た時だけ読む（動的 import＝GSI 等の XYZ だけの起動では worker に乗せない・2026-09-22）
 const pmSrc = () => import("../pmtiles-src.js");
@@ -17,6 +18,7 @@ const aborts = new Map();   // id → AbortController（in-flight のみ保持�
 
 self.onmessage = async (e) => {
 	const m = e.data;
+	if (m.type === "init" || m.type === "setStyle") setGlobalState(m.style?.globalState);
 	if (m.type === "init") { style = m.style; need = neededSourceLayers(style); coverage = m.coverage || null; encoding = m.encoding || "mvt"; setEllipsoid(!!m.ell); return; }   // ell＝buildings の世界単位（m→単位）を a 基準へ
 	if (m.type === "setStyle") { style = m.style; need = neededSourceLayers(style); if (m.encoding) encoding = m.encoding; return; }   // 配色テーマ生き替え＝色を焼き直す新style。以降のビルドは新styleで（coverage は据置）。setStyle で基図の置き場が替わる時は形式も一緒に来る
 	if (m.type === "abort") { const a = aborts.get(m.id); if (a) a.abort(); return; }
