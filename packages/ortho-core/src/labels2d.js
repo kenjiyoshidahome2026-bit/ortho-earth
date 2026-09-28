@@ -1,6 +1,7 @@
 // ラベルを Canvas2D オーバーレイで描く（GL幾何の上に重ねる最前面レイヤ）。
 // 衝突判定（どのラベルを出すか）は間引き（recollideMs毎）で安定化し、描画位置は毎フレーム・ライブ投影。
 // これで文字は地図と一緒に滑らかに動きつつ、当選集合が安定して明滅しない。距離フェードでフォグと連動。
+// 向き（段 5）＝text-rotate・rotation-alignment map・pitch-alignment map＝錨での地面の基底から transform を組む（orient）。線の字は上向きを地面の直角へ。
 // 線に沿う注記（symbol-placement line・段 4）も同じ経路＝折れ線を毎フレーム投影して字を線に沿わせる（lineLayout）・字ごとの箱で衝突。
 // 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
 import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
@@ -64,6 +65,29 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const x0 = fit === "height" ? cx - nw / 2 : t[0] - pl, x1 = fit === "height" ? cx + nw / 2 : t[0] + t[2] + pr, y0 = fit === "width" ? cy - nh / 2 : t[1] - pt, y1 = fit === "width" ? cy + nh / 2 : t[1] + t[3] + pb; return [x0, y0, x1 - x0, y1 - y0]; };
 	const overlaps = (placed, box) => placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）
 	const grow = (b, p) => [b[0] - p, b[1] - p, b[2] + p, b[3] + p];
+	// ── 向き（段 5・2026-09-28）＝錨での「地面の基底」：東と南へ画面 20px 相当だけ進めた点を投影した画面ベクトル（列＝東・南＝画面の利き手と同じ）。地図の回転（bearing）・傾き（pitch＝直角方向の縮み）・遠近が入る
+	const groundBasis = (st, lon, lat, r, sx, sy, dpr, zoom) => {
+		const d = 20 * 360 / (256 * Math.pow(2, zoom ?? 10)), dl = d * Math.max(0.05, Math.cos(lat * Math.PI / 180));
+		const e = project(st, lon + d, lat, r), so = project(st, lon, Math.max(-89, lat - dl), r);
+		if (e[2] < 0 || so[2] < 0) return null;
+		return { a: (e[0] / dpr - sx) / 20, b: (e[1] / dpr - sy) / 20, c: (so[0] / dpr - sx) / 20, d: (so[1] / dpr - sy) / 20 };
+	};
+	const sigMax = M => { const S = M.a * M.a + M.b * M.b + M.c * M.c + M.d * M.d, D = Math.abs(M.a * M.d - M.b * M.c); return Math.sqrt((S + Math.sqrt(Math.max(0, S * S - 4 * D * D))) / 2); };
+	const mul = (m, n) => ({ a: m.a * n.a + m.c * n.b, b: m.b * n.a + m.d * n.b, c: m.a * n.c + m.c * n.d, d: m.b * n.c + m.d * n.d });
+	const rotM = t => ({ a: Math.cos(t), b: Math.sin(t), c: -Math.sin(t), d: Math.cos(t) });
+	// 点の注記の transform（錨を原点）：rotation-alignment map＝東の向きへ回す・pitch-alignment map＝地面の基底（一番伸びている向きを 1 に正規化＝傾けた直角方向が縮む）・text-rotate＝その上で回す。何も無ければ null
+	function orient(st, lon, lat, r, sx, sy, dpr, zoom, ra, pa, rot) {
+		if (pa === "auto") pa = ra;
+		const th = (rot || 0) * Math.PI / 180;
+		if (ra !== "map" && pa !== "map") return th ? rotM(th) : null;
+		const M = groundBasis(st, lon, lat, r, sx, sy, dpr, zoom); if (!M) return th ? rotM(th) : null;
+		if (pa === "map") { const k = sigMax(M) || 1, T = { a: M.a / k, b: M.b / k, c: M.c / k, d: M.d / k }; return th ? mul(T, rotM(th)) : T; }
+		return rotM(Math.atan2(M.b, M.a) + th);   // rotation map・pitch viewport＝回すだけ
+	}
+	// transform した矩形（原点 (ox,oy)・左上 (lx,ly)・幅 w 高 h）を囲む画面の箱
+	const aabb = (T, ox, oy, lx, ly, w, h) => { let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity; for (const [px, py] of [[lx, ly], [lx + w, ly], [lx, ly + h], [lx + w, ly + h]]) { const x = ox + T.a * px + T.c * py, y = oy + T.b * px + T.d * py; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; } return [x0, y0, x1, y1]; };
+	const textT = (L, st, r, sx, sy, dpr, zoom) => (L.rot || L.ra === "map" || L.pa === "map") ? orient(st, L.anchor[0], L.anchor[1], r, sx, sy, dpr, zoom, L.ra === "map" ? "map" : "viewport", L.pa ?? "auto", L.rot) : null;   // 点＝auto は viewport
+	const iconT = (L, st, r, sx, sy, dpr, zoom) => (L.ira === "map" || L.ipa === "map") ? orient(st, L.anchor[0], L.anchor[1], r, sx, sy, dpr, zoom, L.ira === "map" ? "map" : "viewport", L.ipa ?? "auto", L.irot) : null;   // 記号＝map の時だけ錨を原点に transform（それ以外の icon-rotate は箱の中心で回す＝従来）
 	// ── 線に沿う注記（段 4・2026-09-28）＝折れ線（経緯度・labels.js の path）を画面（CSS px）へ投影し、錨（path[ai]）を中心に字を 1 字ずつ線の上へ置く。
 	// null＝置けない（裏側・窓に収まらない・隣の字との角が text-max-angle を超える）。keep-upright＝並びが右から左になる時は逆から並べる（字は常に正立）。
 	// text-offset の y＝線と直角の向き（em）。字送りは measureText（font×字で覚える）＋letter-spacing。毎フレーム投影し直す（点の注記と同じくライブ）
@@ -71,7 +95,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	const advOf = (font, ch) => { const k = font + "\u0001" + ch; let v = advCache.get(k); if (v == null) { if (advCache.size > 8192) advCache.clear(); setFont(font); if (hasLS) ctx.letterSpacing = "0px"; v = ctx.measureText(ch).width; advCache.set(k, v); } return v; };
 	// 記号（icon）は錨に置く＝線の向きに回す（icon-rotation-alignment auto/map＋icon-rotate）か正立（viewport）。文字が無い層（road_oneway の矢印）は記号だけ
 	let nullWhy = "", fitDbg = null, angDbg = null;   // 診断＝lineLayout が null を返した理由（placedDebug の line）
-	function lineLayout(L, st, dpr, r) {
+	function lineLayout(L, st, dpr, r, zoom) {
 		const P = L.path, n = P.length >> 1; if (n < 2) { nullWhy = "empty"; return null; }
 		const im = iconImg(L), chars = L.text ? [...String(L.text)] : [];
 		if (!chars.length && !im) { nullWhy = "empty"; return null; }
@@ -107,6 +131,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			q += adv[k];
 		}
 		if (rev) g.reverse();
+		// 字の transform（段 5）：pitch-alignment map（既定）＝字の上向きを「地面で線と直角」の向きへ（傾けると字が地面に寝る）。viewport＝画面で直角（回すだけ）。rotation-alignment viewport-glyph＝字は正立のまま線に沿って並ぶ
+		const paMap = L.ra !== "viewport-glyph" && (L.pa ?? "auto") !== "viewport", M = paMap && g.length ? groundBasis(st, P[ai * 2], P[ai * 2 + 1], r, m[0], m[1], dpr, zoom) : null, det = M ? M.a * M.d - M.b * M.c : 0;
+		for (const c of g) {
+			if (L.ra === "viewport-glyph") { c.a = 0; c.t = null; continue; }
+			if (M && Math.abs(det) > 1e-9) { const dx = Math.cos(c.a), dy = Math.sin(c.a), gx = (M.d * dx - M.c * dy) / det, gy = (-M.b * dx + M.a * dy) / det, px = -gy, py = gx; c.t = { a: dx, b: dy, c: M.a * px + M.c * py, d: M.b * px + M.d * py }; }   // 地面の向き d_g＝M⁻¹d_s・直角 p_g＝rot90(d_g)・画面へ M
+			else c.t = rotM(c.a);
+		}
 		let icon = null;
 		if (im) { const sz = L.isz ?? 1, iw = im.bm.width / im.pr * sz, ih = im.bm.height / im.pr * sz, a0 = chord(Math.max(0, s0 - iw / 2), Math.min(total, s0 + iw / 2)), a = (L.ira === "viewport" ? 0 : (rev ? a0 + Math.PI : a0)) + (L.irot || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a)); icon = { x: m[0], y: m[1], a, w: iw, h: ih, bw: iw * c + ih * sn, bh: iw * sn + ih * c }; }   // bw/bh＝回した記号を囲む箱
 		const ang = prev ?? m[2];
@@ -180,8 +211,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const sx = dx / dpr, sy = dy / dpr;
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
 				const dl = dbg.line; dl.n++;
-				const ll = lineLayout(L, st, dpr, rad); if (!ll) { dl.layout++; dl[nullWhy] = (dl[nullWhy] || 0) + 1; if (nullWhy === "fit" && !dl.fitEg) dl.fitEg = fitDbg; if (angDbg && !dl.angEg) dl.angEg = angDbg; continue; }
-				const padL = L.pad ?? pad, boxes = ll.g.map(c => [c.x - c.w / 2 - padL, c.y - ll.h / 2 - padL, c.x + c.w / 2 + padL, c.y + ll.h / 2 + padL]);
+				const ll = lineLayout(L, st, dpr, rad, zoomV); if (!ll) { dl.layout++; dl[nullWhy] = (dl[nullWhy] || 0) + 1; if (nullWhy === "fit" && !dl.fitEg) dl.fitEg = fitDbg; if (angDbg && !dl.angEg) dl.angEg = angDbg; continue; }
+				const padL = L.pad ?? pad, boxes = ll.g.map(c => grow(c.t ? aabb(c.t, c.x, c.y, -c.w / 2, -ll.h / 2, c.w, ll.h) : [c.x - c.w / 2, c.y - ll.h / 2, c.x + c.w / 2, c.y + ll.h / 2], padL));
+				let bb = null; for (const b of boxes) bb = bb ? [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])] : b.slice();   // 全部の字を囲む箱（placed の w/h）
 				if (ll.icon) { const ic = ll.icon, ip = L.ipad ?? 2; boxes.push([ic.x - ic.bw / 2 - ip, ic.y - ic.bh / 2 - ip, ic.x + ic.bw / 2 + ip, ic.y + ic.bh / 2 + ip]); }   // 記号の箱（icon-padding）＝文字と一緒に裁く（両方置けなければ出さない）
 				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; continue; }
 				if (!L.ov && boxes.some(b => overlaps(placed, b))) { dl.overlap++; continue; }
@@ -190,7 +222,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				if (grp) { if (ga) ga.push([ll.x, ll.y]); else lineGrp.set(grp, [[ll.x, ll.y]]); }
 				if (!L.ig) for (const b of boxes) placed.push(b);
 				dl.ok++;
-				w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw: ll.w, h: ll.h, dx: ll.x - sx - ll.w / 2, dy: ll.y - sy - ll.h / 2, tl: null, an: "center", txt: ll.g.length > 0, ib: null, ln: ll });
+				w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw: ll.w, h: ll.h, dx: ll.x - sx - ll.w / 2, dy: ll.y - sy - ll.h / 2, tl: null, an: "center", txt: ll.g.length > 0, ib: null, ln: ll, bb: bb ? [bb[2] - bb[0] - 2 * padL, bb[3] - bb[1] - 2 * padL] : null });
 				continue;
 			}
 			const shield = shieldFor && shieldFor(L), im = iconImg(L), hasText = !!shield || !!(L.text && String(L.text).length);
@@ -200,25 +232,28 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (shield) { tw = shield.w; h = shield.h; }
 			else if (hasText) { tl = textLayout(L); tw = tl.w; h = tl.h; }
 			const padL = L.pad ?? pad, ipad = L.ipad ?? 2;
+			const T = textT(L, st, rad, sx, sy, dpr, zoomV), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, zoomV) ?? T) : null;   // 向き（段 5）＝文字の transform・記号は自分の map 指定があればそれ・無ければ文字と同じ
+			const tb = (Tm, lx, ly, w, h) => Tm ? aabb(Tm, sx, sy, lx, ly, w, h) : [sx + lx, sy + ly, sx + lx + w, sy + ly + h];   // 錨からの箱 → 画面の箱（transform 込み）
 			// 記号と文字の裁き（MapLibre の placement と同じ）：既定＝両方置けなければ両方出さない。text-optional＝記号だけでも出す・icon-optional＝文字だけでも出す
 			const iconAlone = L.topt || !hasText, textAlone = L.iopt || !im;
 			const judge = (tOK, iOK) => !textAlone && !iconAlone ? [tOK && iOK, tOK && iOK] : !textAlone ? [tOK && iOK, iOK] : !iconAlone ? [tOK, iOK && tOK] : [tOK, iOK];   // → [文字を置く, 記号を置く]
 			const nat = im ? iconBox(L, im) : null;   // 記号の自然な箱（fit しない時＝候補に依らない）
-			const iOKof = ib => !im || L.iov || !overlaps(placed, grow([sx + ib[0], sy + ib[1], sx + ib[0] + ib[2], sy + ib[1] + ib[3]], ipad));
+			const iOKof = ib => !im || L.iov || !overlaps(placed, grow(tb(Ti, ib[0], ib[1], ib[2], ib[3]), ipad));
 			let hit = null;
 			if (hasText) {
 				const cands = shield ? [["center", 0, 0]] : anchorCands(L);
 				for (const [an, ox, oy] of cands) {
-					const a = ANCH[an] || ANCH.center, x0 = sx + ox - a[0] * tw, y0 = sy + oy - a[1] * h;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
-					if (x0 + tw < 0 || x0 > Wc || y0 + h < 0 || y0 > Hc) continue;
-					const box = [x0 - padL, y0 - padL, x0 + tw + padL, y0 + h + padL];
+					const a = ANCH[an] || ANCH.center, lx0 = ox - a[0] * tw, ly0 = oy - a[1] * h, x0 = sx + lx0, y0 = sy + ly0;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
+					const bb = tb(T, lx0, ly0, tw, h);
+					if (bb[2] < 0 || bb[0] > Wc || bb[3] < 0 || bb[1] > Hc) continue;
+					const box = grow(bb, padL);
 					const ib = im ? (L.ifit ? iconFit(L, im, [x0 - sx, y0 - sy, tw, h]) : nat) : null;
 					const [pt, pi] = judge(L.ov || !overlaps(placed, box), iOKof(ib));
 					if (!pt) continue;   // 文字が置けない候補＝次の候補（variable-anchor）
-					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null }; break;
+					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null, bb: [bb[2] - bb[0], bb[3] - bb[1]] }; break;
 				}
 				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
-			} else { const [, pi] = judge(false, iOKof(nat)); if (pi && !(sx + nat[0] + nat[2] < 0 || sx + nat[0] > Wc || sy + nat[1] + nat[3] < 0 || sy + nat[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
+			} else { const [, pi] = judge(false, iOKof(nat)), nb = tb(Ti, nat[0], nat[1], nat[2], nat[3]); if (pi && !(nb[2] < 0 || nb[0] > Wc || nb[3] < 0 || nb[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
 			if (!hit) continue;
 			if (L.sp) {   // 線の錨に回さず置く注記（text-rotation-alignment viewport＝道路の盾）＝symbol-spacing を同じ群に課す
 				const grp = (L.k ?? "b" + L.li) + "\u0001" + L.text + "\u0001" + (L.icon || ""), ga = lineGrp.get(grp);
@@ -226,8 +261,8 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				if (ga) ga.push([sx, sy]); else lineGrp.set(grp, [[sx, sy]]);
 			}
 			if (hit.txt && !L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
-			if (hit.ib && !L.iig) placed.push(grow([sx + hit.ib[0], sy + hit.ib[1], sx + hit.ib[0] + hit.ib[2], sy + hit.ib[1] + hit.ib[3]], ipad));
-			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
+			if (hit.ib && !L.iig) placed.push(grow(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3]), ipad));
+			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib, bb: hit.bb ?? null, ibb: hit.ib ? (q => [q[2] - q[0], q[3] - q[1]])(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3])) : null });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
 		}
 		winners = w; winBox = wb;
 	}
@@ -271,8 +306,8 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const out = [];
 		for (const [k, L] of winners) {
 			const b = winBox.get(k); if (!b) continue;
-			const ibox = b.ib ? [b.sx + b.ib[0] + b.ib[2] / 2, b.sy + b.ib[1] + b.ib[3] / 2, b.ib[2], b.ib[3]] : b.ln?.icon ? [b.ln.icon.x, b.ln.icon.y, b.ln.icon.bw, b.ln.icon.bh] : null;
-			const bx = b.txt ? [b.sx + b.dx + b.tw / 2, b.sy + b.dy + b.h / 2, b.tw, b.h] : ibox;
+			const ibox = b.ib ? [b.sx + b.ib[0] + b.ib[2] / 2, b.sy + b.ib[1] + b.ib[3] / 2, ...(b.ibb ?? [b.ib[2], b.ib[3]])] : b.ln?.icon ? [b.ln.icon.x, b.ln.icon.y, b.ln.icon.bw, b.ln.icon.bh] : null;
+			const bx = b.txt ? [b.sx + b.dx + b.tw / 2, b.sy + b.dy + b.h / 2, ...(b.bb ?? [b.tw, b.h])] : ibox;   // w,h＝画面の箱（向きの transform 込み・段 5）
 			out.push({ text: b.txt ? L.text : null, icon: (b.ib || b.ln?.icon) ? L.icon : null, ibox, line: !!b.ln, lon: L.anchor[0], lat: L.anchor[1], x: bx[0], y: bx[1], w: bx[2], h: bx[3], size: L.size, li: L.li ?? null, set: L.k ?? null, font: b.txt ? (b.tl?.font ?? b.ln?.font ?? null) : null });   // line＝線に沿う注記（x,y＝錨の字の位置・w＝字送りの和）   // x,y＝箱の中心（錨＋dx,dy＋w/2,h/2）・font＝据えた書体（検定）
 		}
 		return out;
@@ -321,7 +356,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			}
 			const b = winBox.get(k);
 			if (L.lp) {   // 線に沿う注記（段 4）＝毎フレーム投影し直して字ごとに回して描く（フェードアウト中も同じ）。裏へ回った・角が急＝描かない
-				const ll = lineLayout(L, st, dpr, radiusOf(L, eScale, st, fogF)); if (!ll) continue;
+				const ll = lineLayout(L, st, dpr, radiusOf(L, eScale, st, fogF), cam.zoom); if (!ll) continue;
 				if (ll.icon) {   // 線の記号＝錨で線の向きに回す（viewport なら正立）・SDF は icon-color
 					const im = iconImg(L), ic = ll.icon, oi = op * distOp(L.anchor[0], L.anchor[1]) * (L.iop ?? 1);
 					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
@@ -332,7 +367,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
 				const halo = L.haloW > 0 ? css(L.halo, o) : null, fill = css(L.color, o);
 				for (const c of ll.g) {
-					ctx.save(); ctx.translate(c.x, c.y); ctx.rotate(c.a);
+					ctx.save(); ctx.translate(c.x, c.y); if (c.t) ctx.transform(c.t.a, c.t.b, c.t.c, c.t.d, 0, 0); else ctx.rotate(c.a);
 					if (halo) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(c.ch, 0, 0); }
 					ctx.fillStyle = fill; ctx.fillText(c.ch, 0, 0);
 					ctx.restore();
@@ -342,11 +377,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			}
 			// 記号（段 3）＝当選の箱（fit 済み）・フェードアウト中は自然な箱。SDF は icon-color で焼いた写し・icon-rotate は箱の中心で回す・icon-opacity
 			const im = iconImg(L), ib = b ? b.ib : (im ? iconBox(L, im) : null);
+			const rad = radiusOf(L, eScale, st, fogF), T = textT(L, st, rad, sx, sy, dpr, cam.zoom), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）
 			if (im && ib) {
 				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm, oi = op * distOp(L.anchor[0], L.anchor[1]) * (L.iop ?? 1);
 				if (oi > 0.01) {
 					ctx.globalAlpha = oi;
-					if (L.irot) { ctx.save(); ctx.translate(sx + ib[0] + ib[2] / 2, sy + ib[1] + ib[3] / 2); ctx.rotate(L.irot * Math.PI / 180); ctx.drawImage(src, -ib[2] / 2, -ib[3] / 2, ib[2], ib[3]); ctx.restore(); }
+					if (Ti) { ctx.save(); ctx.translate(sx, sy); ctx.transform(Ti.a, Ti.b, Ti.c, Ti.d, 0, 0); ctx.drawImage(src, ib[0], ib[1], ib[2], ib[3]); ctx.restore(); }   // 錨を原点に transform（map の向き・傾き）
+					else if (L.irot) { ctx.save(); ctx.translate(sx + ib[0] + ib[2] / 2, sy + ib[1] + ib[3] / 2); ctx.rotate(L.irot * Math.PI / 180); ctx.drawImage(src, -ib[2] / 2, -ib[3] / 2, ib[2], ib[3]); ctx.restore(); }
 					else ctx.drawImage(src, sx + ib[0], sy + ib[1], ib[2], ib[3]);
 					ctx.globalAlpha = 1;
 				}
@@ -355,8 +392,10 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const tl = b?.tl ?? textLayout(L);
 			setFont(tl.font || fontOf(L, L.size));   // textLayout が別の書体を据えた後でも、この行の描画は自分の書体で
 			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
-			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央
-			const x0 = b ? sx + b.dx : sx - tl.w / 2, y0 = b ? sy + b.dy : sy - tl.h / 2;
+			// 箱の左上＝ライブ投影の錨＋衝突判定の時の相対位置（winBox の dx,dy）。フェードアウト中（当選集合に無い）は最後の箱の位置＝無ければ中央。向きの transform があれば錨を原点に描く（段 5）
+			const ox = T ? 0 : sx, oy = T ? 0 : sy;
+			if (T) { ctx.save(); ctx.translate(sx, sy); ctx.transform(T.a, T.b, T.c, T.d, 0, 0); }
+			const x0 = b ? ox + b.dx : ox - tl.w / 2, y0 = b ? oy + b.dy : oy - tl.h / 2;
 			const just = L.just === "auto" ? ((b?.an || L.an || "center").includes("left") ? "left" : (b?.an || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
 			ctx.textAlign = just === "left" ? "left" : just === "right" ? "right" : "center"; ctx.textBaseline = "middle";
 			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
@@ -367,6 +406,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				ctx.fillStyle = css(L.color, o); ctx.fillText(tl.lines[i], ax, ly);
 			}
 			ctx.shadowBlur = 0;
+			if (T) ctx.restore();
 		}
 		drawSky(st, cam, Wc, Hc, dpr);
 		return animating;
