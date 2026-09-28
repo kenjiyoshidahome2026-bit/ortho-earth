@@ -144,23 +144,30 @@ try {
 	} else if (MODE === "depth") {
 		// ── シーンの深度（#47）と地形ドレープの口：東京駅に 100m 角×300m の押し出しを立て、60° に傾け、列チャンク層の面を棟の北（向こう）と南（手前）に置く
 		//   depth=true（既定）＝向こうの面は棟に隠れる・手前は見える。depth:false＝両方見える。api.terrainOn/liftScale が来ている（drape の口）
+		//   待つのは時間でなく idle（標高タイルの読み込み無し・描き直し待ち無し・基図が載った）。列チャンク層は載った最初のフレームで
+		//   面の頂点の標高を引き、引き直しは 2 秒毎（描く時だけ）＝その間に地形が着くと面は標高 0 のまま地形（深度を書く）の下に沈み、手前も
+		//   向こうも隠れる。旧＝固定の sleep(1200)＋sleep(1500) の後に読んでいた＝チャンクは傾けてから約 1.3 秒で載り、地形は回線しだいで
+		//   その 0.02〜1.8 秒後に着く＝着くのが読む前の 1.5 秒に入ると落ちた（2026-09-29 実測・単独 8 回中 2 回・t-shadow-terrain の後 4 回中 2 回。
+		//   前の頁は着く時刻を少しずらすだけ）
 		const K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
 		map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
 		const sqm = (e, n, s) => [ll(e - s, n - s), ll(e + s, n - s), ll(e + s, n + s), ll(e - s, n + s), ll(e - s, n - s)];
 		const st = await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sqm(0, 0, 50)] } }, { color: "#888888", fit: false, mask: false });
 		ok("extrude", !!st && st.polygons === 1, JSON.stringify(st));
-		await sleep(1200);
+		{ const t0 = performance.now(), idle = await Promise.race([map.once("idle").then(() => true), sleep(30000).then(() => false)]);
+		  ok("idle", idle, `${Math.round(performance.now() - t0)}ms` + (idle ? "" : " " + JSON.stringify(window.__idleWhy?.()))); }   // 地形の標高と棟が載り切った
 		const fc = { type: "FeatureCollection", features: [
 			{ type: "Feature", properties: { id: 0, side: "behind" }, geometry: { type: "Polygon", coordinates: [sqm(0, 400, 40)] } },
 			{ type: "Feature", properties: { id: 1, side: "front" }, geometry: { type: "Polygon", coordinates: [sqm(0, -220, 40)] } }] };
 		const pbf = await geopbf(fc, { gint: false, name: "depth" });
 		const run = async (depth) => {
 			const h = await map.addColumnar(pbf, { fit: false, paint: PAINT, depth });
-			await h.ready; await until(() => h.loaded > 0 ? h : null, 30000); await sleep(1500);
+			await h.ready; await until(() => h.loaded > 0 ? h : null, 30000);
+			// チャンクは loaded と同時に worker へ送られている＝後から送る probe のフレームは面を描き、最初の標高を（着き切った）地形から引く
 			const img = await readOv(h), pr = map.makeProjector();
 			const at = ll2 => { const [x, y] = pr(ll2[0], ll2[1]); return isRed(img.at(x * img.k, y * img.k)); };
 			const res = { behind: at(ll(0, 400)), front: at(ll(0, -220)), info: img.info };
-			h.remove(); await sleep(300); return res;
+			h.remove(); return res;
 		};
 		const on = await run(true);
 		ok("depth.on.frontVisible", on.front, JSON.stringify(on));
