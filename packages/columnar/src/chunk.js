@@ -224,6 +224,11 @@ export function chunkBuffers(c) {
 	out.push(...levelBuffers(c.levels));
 	return [...new Set(out)];
 }
+// 写し＝chunkBuffers が渡す buffer を全部自前に持つ（transfer の後も worker 側で読める・IDB の構造化複製が通る）。fbbox/origin/bbox は渡さないので共有
+export const copyLevel = L => ({ zoom: L.zoom, verts: L.verts, lines: L.lines ? { pos: L.lines.pos.slice(), feat: L.lines.feat.slice() } : null, fills: L.fills ? { pos: L.fills.pos.slice(), index: L.fills.index.slice(), feat: L.fills.feat.slice() } : null });
+export function copyChunk(c) {
+	return { ...c, rows: c.rows.slice(), types: c.types.slice(), points: c.points ? { pos: c.points.pos.slice(), feat: c.points.feat.slice() } : null, levels: c.levels.map(copyLevel) };
+}
 export function levelBuffers(levels) {
 	const out = [];
 	for (const L of levels) { if (L.lines) out.push(L.lines.pos.buffer, L.lines.feat.buffer); if (L.fills) out.push(L.fills.pos.buffer, L.fills.index.buffer, L.fills.feat.buffer); }

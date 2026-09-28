@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/columnar",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "Column-chunk layer for @ortho-earth/globe: draws GeoPBF and GeoParquet without the Gint topology pass — spatial chunks (row groups) go worker → GPU as flat arrays, the first frame waits only for read + pack. Pluggable readers (GeoParquet with Range reads, in-memory GeoPBF).",
