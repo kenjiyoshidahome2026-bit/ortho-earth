@@ -330,12 +330,17 @@
   - 過拡大の近似：候補の間隔と最初の余白はタイル z の目盛り（表示 z を知らない）＝短い部分は「線が文字長の半分以上なら中心に 1 つ」（収まりは描く側が画面の字送りで裁く）。深い過拡大では候補が疎になる（記録・MapLibre は過拡大のタイルごとに組み直す）。
   - 近似（記録）：symbol-spacing の候補間隔と最初の余白はタイル z の目盛り・text-pitch-alignment は viewport（字は画面に正立・傾けても潰れない＝段 5）・line-center は枠で切った部分ごと（vtdraw）／バッファ込みの部分ごと（基図）・線の記号と文字は両方置けなければ出さない（optional は読まない）・面の輪郭・geojson（symbols-2d）の線置きは未対応。
   - 結果（自宅の r7・o23→o26）：線沿い＝本物 706／こちら 261→430→**471**／層ごとの重なり 196→310→**350**。点の hit 1720→1728（変わらず＝線の注記が点の注記を押しのけていない）。contour-labels 0→42（本物 11）・highway-name-major 22/23・road_shield_us（盾）0→10（本物 7）。**最終 o27＝本物 706／こちら 583／重なり 435（62%）**・点の hit 1725（不変）・同じ絵 54。まだ 0 の層（本物 5 以上）＝geolines-label（30）・highway-name-major（5）＝次に拾う（geolines-label＝MapLibre の例 "geolines" の線の注記＝要調査・highway-name-major 5＝1 例の取りこぼし）。o25 で 0 だった盾（highway-shield・road_shield_us）と矢印（road_oneway）は o27 で数えられている。known.json は未更新（機械差）。
+- **段 5（2026-09-28・claude/text-stage-5）＝向き**：`text-rotate`・`text-rotation-alignment`（map＝地図の回転に追随／viewport／viewport-glyph＝線の上で字だけ正立）・`text-pitch-alignment`（map＝傾けた地面に寝かせる）・`icon-rotation-alignment`／`icon-pitch-alignment`（点の記号も map なら地面に）。labels.js は既定（auto・0）を焼かない（`rot`・`ra`・`pa`・`ipa`）。
+  - `labels2d.js`：**錨での地面の基底**（`groundBasis`＝東と南へ画面 20px 相当だけ進めた点を投影した画面ベクトル＝bearing・pitch の縮み・遠近が入る）から Canvas の transform を組む（`orient`）＝pitch map は基底を一番伸びている向き（σmax）で正規化（傾けた直角方向だけ縮む・距離で大きさは変えない＝近くの注記が巨大化しない）・rotation map＋pitch viewport は東の向きへ回すだけ・text-rotate はその上で回す。点の注記は錨を原点に transform して描き、衝突の箱は transform した矩形を囲む箱（`aabb`）。記号は自分の map 指定があればそれ・無ければ文字と同じ transform（icon-rotate だけなら従来どおり箱の中心で回す）。線の字は上向きを「地面で線と直角」（M⁻¹ で地面の向きを取り rot90 して M で画面へ）＝既定（auto→map）で傾けると字が地面に寝る。viewport-glyph＝字は正立のまま線に沿って並ぶ。`placed()` の w/h＝画面の箱（transform 込み）。
+  - 検定：core `labels.mjs`（焼く性質）・t-mlcompat g=vector `symbol-text-rotate`（w/h 入れ替わり）／`symbol-rotation-alignment-map`（bearing 90 で縦）／`symbol-pitch-alignment-map`（pitch 60 で高さが縮む・線の字も）。
+  - 近似（記録）：pitch map の大きさは距離で変えない（MapLibre は遠近で縮む）・地面の基底は錨 1 点（線の注記も錨の基底を全部の字に）・icon-rotate だけの記号の衝突箱は回さない・text-rotate は線の注記には効かせない。
+  - 結果（o28）：点の hit 1724／2139（不変）・線沿い 本物 706／こちら 570／重なり 427（o27 と同じ水準）・同じ絵 54＝**向きは位置と有無の物差しを動かさない**（意図どおり・段 2 の書体と同じ）。効き目は傾けた絵と回した絵（実機で見る物）。
 ### 8.x 再開の手引き（2026-09-28 夜・別の機械から続ける時に読む所）
 **ここまで**：#97 idle×画像タイル層／#98 段 0（文字を測る）／#99 段 1（layout）／#100 段 2（書体）＝全部 main。**段 3（基図のアイコン）＝2026-09-28 自宅で実装（branch claude/text-stage-3・上の「段 3」に記録）**。文字の物差し（本物 r7 × こちら）＝hit 61→85%・0.6 未満 26→10・同じ絵 63。deploy／npm publish は**未**（core 1.6.1・globe 1.5.1・japan 1.5.1 は版だけ上げ済＝publish するなら `addFontFace` を含めて globe 1.5.2 に上げてから）。
 
 **この文書が正典**：機械ごとの記憶（Claude の memory）は同期されない。判断・数字・轍は §8 に全部ある。次の人（自分）は「§8 の段 3 から」で始められる。
 
-**段 4（線沿い）＝2026-09-28 自宅で実装（branch claude/text-stage-4・上の「段 4」に記録）**。**次＝段 5（向き）**＝text-rotation-alignment／text-pitch-alignment／text-rotate（線の注記は pitch "map" で傾けた地面に寝かせる）。段 3・4 の残件＝symbols-2d との部品の共通化・`styleimagemissing`・icon-halo・icon-translate・線の記号・面の輪郭の注記。
+**段 4（線沿い）＝PR #103・段 5（向き）＝2026-09-28 自宅で実装（branch claude/text-stage-5・上の「段 5」に記録）＝文字を測る計画 0〜5 は一巡**。**次**＝残件を門の順位表から拾う：geolines-label 0/30（線の注記・要調査）・symbols-2d（geojson の記号）との部品の共通化と線置き・`styleimagemissing`・icon-halo・icon-translate・面の輪郭の注記・過拡大で候補が疎（線）・`format` の区間ごとの書体。
 
 **済＝段 3（基図のアイコン＝台帳 §8 の段 8②と同じ）**（当時の計画・実装は上の「段 3」）：
 1. sprite は今 geojson の symbol に icon-image がある時だけ読む（`src/globe.js` `mountExtExtras` の `ext.split.geojson.some(icon-image)`）→ 基図の symbol 層（`ext.split.base`）にも icon-image があれば読む。
