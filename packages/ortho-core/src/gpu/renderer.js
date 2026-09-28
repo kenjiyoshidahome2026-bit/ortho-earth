@@ -19,7 +19,7 @@ import * as mat from "../mat.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
-	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL } from "./wgsl.js";
+	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL } from "./wgsl.js";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
@@ -475,6 +475,10 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		{ arrayStride: 12, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x3" }] },
 		{ arrayStride: 4, attributes: [{ shaderLocation: 1, offset: 0, format: "snorm8x4" }] },
 	];
+	const SH_TEX_BUFS = [...SH_MESH_BUFS,   // 模型の受け手（#112 段 1）＝本体 meshTex と同じ頂点（uv・頂点色）
+		{ arrayStride: 8, attributes: [{ shaderLocation: 2, offset: 0, format: "float32x2" }] },
+		{ arrayStride: 4, attributes: [{ shaderLocation: 3, offset: 0, format: "unorm8x4" }] },
+	];
 	function shadowRes() {
 		if (sh) return sh;
 		const bgl = device.createBindGroupLayout({ entries: [
@@ -490,16 +494,24 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const samp = device.createSampler({ compare: "less-equal", magFilter: "linear", minFilter: "linear", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });
 		const mods = sh0mods || (sh0mods = {
 			terr: mkMod(TERRAIN_SH_WGSL, "terrainSh"), fill: mkMod(FILL_SH_WGSL, "fillSh"), line: mkMod(LINE_SH_WGSL, "lineSh"),
-			bld: mkMod(BUILDING_SH_WGSL, "buildingSh"), mesh: mkMod(MESH_SH_WGSL, "meshSh"), globe: mkMod(GLOBE_SH_WGSL, "globeSh"),
+			bld: mkMod(BUILDING_SH_WGSL, "buildingSh"), mesh: mkMod(MESH_SH_WGSL, "meshSh"), meshTex: mkMod(MESH_TEX_SH_WGSL, "meshTexSh"), globe: mkMod(GLOBE_SH_WGSL, "globeSh"),
 			bldCast: mkMod(BUILDING_CAST_WGSL, "buildingCast"), meshCast: mkMod(MESH_CAST_WGSL, "meshCast"),
 		});
 		const lay = a => device.createPipelineLayout({ bindGroupLayouts: a });
+		// 模型の受け手の group(2)＝バッチごとの PB（binding 0・dynamic offset）＋影（binding 1〜3）＝group(3) はテクスチャで埋まっている（#112 段 1）
+		const bglPlSh = device.createBindGroupLayout({ entries: [
+			{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } },
+			{ binding: 1, visibility: VF, buffer: {} },
+			{ binding: 2, visibility: GPUShaderStage.FRAGMENT, texture: { sampleType: "depth" } },
+			{ binding: 3, visibility: GPUShaderStage.FRAGMENT, sampler: { type: "comparison" } },
+		] });
 		const dsCast = { format: "depth32float", depthWriteEnabled: true, depthCompare: "less", depthBiasSlopeScale: 1.5 };
 		sh = {
 			bgl, tex, view, pBuf, frameB, batch, samp,
 			bg: device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: { buffer: pBuf } }, { binding: 1, resource: view }, { binding: 2, resource: samp }] }),
 			batchBG: device.createBindGroup({ layout: bglPlBatch, entries: [{ binding: 0, resource: { buffer: batch, offset: 0, size: PL_BATCH_SLOT } }] }),   // PB は 240B（#46 段 2＝sh[9] 込み）
-			lay: { terr: lay([bgl0, bgl1, bglClim, bgl]), fill: lay([bgl0, bgl1, bgl]), bld: lay([bgl0, bgl1, bglMask, bgl]), mesh: lay([bgl0, bgl1, bglPlBatch, bgl]), globe: lay([bglGlobe, bgl]) },
+			plShBG: device.createBindGroup({ layout: bglPlSh, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: { buffer: pBuf } }, { binding: 2, resource: view }, { binding: 3, resource: samp }] }),   // 模型の受け手＝本体と同じ PB（plBatchBuf）＋影
+			lay: { terr: lay([bgl0, bgl1, bglClim, bgl]), fill: lay([bgl0, bgl1, bgl]), bld: lay([bgl0, bgl1, bglMask, bgl]), mesh: lay([bgl0, bgl1, bglPlBatch, bgl]), meshTex: lay([bgl0, bgl1, bglPlSh, bglPlTex5]), globe: lay([bglGlobe, bgl]) },
 			cast: {
 				bld: device.createRenderPipeline({ layout: bldLayout, vertex: { module: mods.bldCast, entryPoint: "vs", buffers: SH_BLD_BUFS },
 					fragment: { module: mods.bldCast, entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: dsCast }),
@@ -527,6 +539,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			terrain: pipe(m.terr, [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }], dsTerrain, L.terr),
 			bld: pipe(m.bld, SH_BLD_BUFS, dsWriteBld, L.bld),
 			mesh: pipe(m.mesh, SH_MESH_BUFS, dsWriteBld, L.mesh),
+			meshTex: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBld, L.meshTex),          // 模型・3D Tiles・I3S・押し出し（#112 段 1）
+			meshTexBlend: pipe(m.meshTex, SH_TEX_BUFS, dsWriteBldNoZ, L.meshTex),  // その半透明（BLEND）＝同じ派生・深度書き込み無し
 			globe: device.createRenderPipeline({ layout: L.globe, vertex: { module: m.globe, entryPoint: "vs" },
 				fragment: { module: m.globe, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms }),
 		};
@@ -1403,7 +1417,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d });   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
+				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true) });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
 		// 旧・全量スナップショット差し替えはマスクがメッシュに先行し「基図は伏せたのに建物メッシュが無い」
@@ -1636,7 +1651,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	}
 
 	// 影を落とす側のパス（太陽の正射影で深度だけ）：基図の押し出し建物（main シーン・被覆マスクで PLATEAU の所は伏せる）＋建物メッシュ
-	//（非表示の区・統計の押し出し keep2d・半透明の模型は落とさない）。窓の外のバッチは粗い距離判定で飛ばす。真俯瞰でも描く＝平面の地面に影。
+	//（非表示の区・noCast＝統計の柱や出元が申告しない keep2d・半透明の模型は落とさない）。窓の外のバッチは粗い距離判定で飛ばす。真俯瞰でも描く＝平面の地面に影。
 	function encodeShadowCasters(enc, win, cam, opts) {
 		const bld0 = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		// 窓（行列）・中身の版・標高リフト・マスク・建物シーンが前回と同じ＝深度テクスチャはそのまま使える（静止中は影のコストほぼ 0）
@@ -1672,7 +1687,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const cosLat = Math.cos((cam.center[1] || 0) * Math.PI / 180), list = [];
 			for (const p of meshes.values()) {
 				if (list.length >= MAX_PL_BATCH) break;
-				if (meshHidden.has(p.ward) || p.keep2d || p.blend) continue;
+				if (meshHidden.has(p.ward) || p.noCast || p.blend) continue;
 				const bb = p.bbox;
 				const dx = Math.max(bb[0] - cam.center[0], 0, cam.center[0] - bb[2]) * 111320 * cosLat, dy = Math.max(bb[1] - cam.center[1], 0, cam.center[1] - bb[3]) * 111320;
 				if (dx * dx + dy * dy > reachM * reachM) continue;
@@ -2118,8 +2133,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				device.queue.writeBuffer(plBatchBuf, 0, plBatchCPU.buffer, 0, draws.length * PL_BATCH_SLOT);
 				// 描く順＝素の建物メッシュ → 模型（不透明/MASK）→ 模型（BLEND＝半透明・奥から手前＝バッチ重心とカメラの距離・深度書き込み無し）
 				const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
-				const meshPipe = R ? R.mesh : P.mesh;   // 影の間は素の建物メッシュだけ受け手（模型は従来どおり）
-				const lists = [[meshPipe, draws.filter(d => !d.p.textured)], [P.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [P.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
+				const meshPipe = R ? R.mesh : P.mesh;   // 影の間は派生の受け手（素の建物メッシュ＝group(3)・模型＝group(2) に PB と同居・#112 段 1）
+				const lists = [[meshPipe, draws.filter(d => !d.p.textured)], [R ? R.meshTex : P.meshTex, draws.filter(d => d.p.textured && !d.p.blend)], [R ? R.meshTexBlend : P.meshTexBlend, draws.filter(d => d.p.blend).sort((x, y) => d2(y.p) - d2(x.p))]];
 				for (const [pipeline, list] of lists) {
 					const tx = pipeline !== meshPipe;
 					if (!list.length) continue;
@@ -2128,7 +2143,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
 					if (R && !tx) pass.setBindGroup(3, sh.bg);
 					for (const { p, count, slot } of list) {
-						pass.setBindGroup(2, plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform
+						pass.setBindGroup(2, R && tx ? sh.plShBG : plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform（影の間の模型は影の束縛と同居の group）
 						pass.setVertexBuffer(0, p.vbo);
 						pass.setVertexBuffer(1, p.nbo);
 						if (tx) { pass.setVertexBuffer(2, p.uvbo); pass.setVertexBuffer(3, p.cbo); pass.setBindGroup(3, p.texBG); }

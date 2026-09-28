@@ -4,6 +4,9 @@
      ①影なし（既定）＝点けていない間は影の資源も派生パイプラインも作らない・地面は素の色
      ②影あり＝箱の北 60m・140m・170m の地面は暗く、北 190m・南 60m・東 60m は元の明るさ（影の向きと長さ：先端＝北面 10m＋167m＝177m）
      ③消灯＝元の絵へ戻る（影の窓が立たない・地面は素の色）
+     ④模型（uv と頂点色を持つメッシュ＝MESH_TEX＝模型・3D Tiles・I3S・押し出しの経路・#112 段 1）も影を受ける：箱の北に 0.5m 浮かせた
+       不透明の板（北 120〜200m）と半透明の板（BLEND・α0.59・北 40〜100m・東へ 40m まで）＝影の中は暗く・先端の外（北 190m）と東 30m は元の明るさ。消灯で元どおり
+     ⑤keep2d のメッシュ（模型の経路の箱・東 100m）は castShadow:true と申告した時だけ影を落とす（#112 段 1＝統計の柱は申告しない＝落とさない）
      真俯瞰（pitch 0）＝建物は描かないが影は落ちる（球の床が受ける）。⚠実時間専用（verify-webgpu.mjs が回す）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-shadow</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -56,6 +59,47 @@ try {
 	const back = await shot();
 	const d = probes.map(([, e, n]) => Math.abs(lum(back, e, n) - lum(off, e, n)));
 	ok(`消灯で元どおり(Δmax=${Math.max(...d).toFixed(1)})`, Math.max(...d) < 1);
+	// ④ 模型の受け手（#112 段 1）＝keep2d（真俯瞰でも描く）・noLift・両面・テクスチャ無し（既定の白×頂点色）
+	const up = (() => { const o = lonlatTo3D(LON, LAT), l = Math.hypot(o[0], o[1], o[2]); return o.map(v => Math.round(v / l * 127)); })();
+	const slab = (key, e0, e1, n0, n1, a, mode) => {
+		const V = [], N = [], UV = [], C = [];
+		for (const [e, n] of [[e0, n0], [e1, n0], [e1, n1], [e0, n1]]) { V.push(...P(e, n, 0.5)); N.push(up[0], up[1], up[2], 0); UV.push(0, 0); C.push(230, 230, 230, a); }
+		const [w, s0] = ll(e0, n0), [e2, n2] = ll(e1, n1);
+		r.set("meshSet", { pos: new Float32Array(V), nrm: new Int8Array(N), uv: new Float32Array(UV), col: new Uint8Array(C), idx: new Uint32Array([0, 1, 2, 0, 2, 3]), origin, bbox: [w, s0, e2, n2], ward: key, keep2d: true, noLift: true, twoSided: true, alphaMode: mode }, key + "#0");
+	};
+	slab("slabO", -15, 15, 120, 200, 255, "OPAQUE");
+	slab("slabB", -15, 40, 40, 100, 150, "BLEND");
+	const offQ = await shot();
+	r.set("shadow", { on: true, time: Date.parse("2026-12-22T02:40:00Z"), darkness: 0.5 });
+	const onQ = await shot();
+	const qp = [["O140", 0, 140], ["O170", 0, 170], ["O190", 0, 190], ["B70", 0, 70], ["B70E", 30, 70]];
+	const kq = Object.fromEntries(qp.map(([name, e, n]) => [name, lum(onQ, e, n) / Math.max(1, lum(offQ, e, n))]));
+	const noteQ = Object.entries(kq).map(([a, v]) => `${a}=${v.toFixed(2)}`).join(",");
+	ok(`模型（不透明）も影を受ける(${noteQ})`, kq.O140 < 0.7 && kq.O170 < 0.7 && kq.O190 > 0.95);
+	ok("模型（半透明）も影を受ける", kq.B70 < 0.7 && kq.B70E > 0.95);   // 受けないと下の地面の影だけ透けて 0.8 前後
+	r.set("shadow", { on: false });
+	const backQ = await shot();
+	const dq = qp.map(([, e, n]) => Math.abs(lum(backQ, e, n) - lum(offQ, e, n)));
+	ok(`模型も消灯で元どおり(Δmax=${Math.max(...dq).toFixed(1)})`, Math.max(...dq) < 1);
+	// ⑤ keep2d の箱（東 100m・20m 角・高さ 100m）＝castShadow の申告で落とす／落とさない
+	const kbox = cast => {
+		const V2 = [], N2 = [], UV2 = [], C2 = [];
+		for (const h of [0, 100]) for (const [e, n] of [[90, -10], [110, -10], [110, 10], [90, 10]]) { V2.push(...P(e, n, h)); N2.push(up[0], up[1], up[2], 0); UV2.push(0, 0); C2.push(230, 230, 230, 255); }
+		const [w, s0] = ll(90, -10), [e2, n2] = ll(110, 10);
+		r.set("meshSet", { pos: new Float32Array(V2), nrm: new Int8Array(N2), uv: new Float32Array(UV2), col: new Uint8Array(C2), idx: new Uint32Array(F.flat()), origin, bbox: [w, s0, e2, n2], ward: "kbox", keep2d: true, noLift: true, twoSided: true, alphaMode: "OPAQUE", ...(cast ? { castShadow: true } : {}) }, "kbox#0");
+	};
+	const kp = [["K70", 100, 70], ["K150", 100, 150]];
+	kbox(false);
+	const offK = await shot();
+	r.set("shadow", { on: true, time: Date.parse("2026-12-22T02:40:00Z"), darkness: 0.5 });
+	const noCastK = await shot();
+	kbox(true);
+	const castK = await shot();
+	r.set("shadow", { on: false });
+	const kr = (px, [, e, n]) => lum(px, e, n) / Math.max(1, lum(offK, e, n));
+	const noteK = kp.map(q => `${q[0]}:${kr(noCastK, q).toFixed(2)}→${kr(castK, q).toFixed(2)}`).join(",");
+	ok(`keep2d は申告しないと落とさない(${noteK})`, kp.every(q => kr(noCastK, q) > 0.95));
+	ok("castShadow:true で落とす", kp.every(q => kr(castK, q) < 0.7));
 	r.dispose();
 	fin();
 	}
