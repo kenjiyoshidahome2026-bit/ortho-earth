@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/core",
-	"version": "1.6.1",
+	"version": "1.8.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {

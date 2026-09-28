@@ -32,8 +32,11 @@ export function shadowWindow(sun, center, halfM, N) {
 	const R = halfM / Re;                          // 窓の半幅（単位球）
 	const texel = 2 * R / N;
 	const cx = Math.round(dot(C, r) / texel) * texel, cy = Math.round(dot(C, u) / texel) * texel;
-	// 奥行き：窓の中の地面（±R）と建物・山（上 4000m 程度）が必ず入る幅。正射影なので広くても精度はほぼ落ちない（depth32float）
-	const zh = R + 5000 / Re, z0 = dot(C, f) - zh, Z = 2 * zh;
+	// 奥行き：窓の中の地面と建物・山（上 5000m 程度）が必ず入る幅。正射影なので広くても精度はほぼ落ちない（depth32float）。
+	// 窓の地面の足は太陽の方位に 1/sin(高度) 倍伸び、その両端の深さの差は ±R·cot(高度)＝低い太陽ほど深い（#112 段 3）。
+	// 旧＝±(R＋5km) 固定＝高度 10° では方位に沿って約 11km 先から深度が範囲を外れて「日向」になり、影がまっすぐ途切れた（富士で確認）
+	const cosAlt = Math.sqrt(Math.max(0, 1 - sinAlt * sinAlt));
+	const zh = R * Math.max(1, cosAlt / sinAlt) + 5000 / Re, z0 = dot(C, f) - zh, Z = 2 * zh;
 	const m = new Float64Array(16);
 	// 行0＝(dot(P,r)−cx)/R・行1＝(dot(P,u)−cy)/R・行2＝(dot(P,f)−z0)/Z・行3＝(0,0,0,1)
 	m[0] = r[0] / R; m[4] = r[1] / R; m[8] = r[2] / R; m[12] = -cx / R;
@@ -55,6 +58,24 @@ export function shadowHalfM(zoom, lat, W, H, dpr) {
 export function shadowBias(win) {
 	const slope = Math.min(1 / Math.tan(win.alt), 6);
 	return (0.25 + win.texelM * slope * 0.75) / win.zRangeM;
+}
+
+// 落とす側の刈り（#112 段 3）：経緯度の箱 bbox＝[w,s,e,n] × 高さ [0, hMaxM] を窓の行列（shadowWindow の mvp・列優先 f64）で投げ、
+// 全点が [−1,1]² の同じ外側なら false＝その束の影は窓の中に落ちない（正射影＝窓に投げて入る物しか窓の中を暗くできない）。
+// 標本点＝4 隅＋辺の中点＋中心 × 高さ 2 段・余白 2%（束は区の大きさ＝数 km まで＝球の膨らみは余白に収まる）
+export const SH_CAST_HMAX_M = 700;   // 落とす側の高さの上限（m）＝最も高い建物（634m）＋余裕。高すぎると刈りが甘いだけ
+export function bboxInShadowWindow(mvp, bbox, hMaxM = SH_CAST_HMAX_M) {
+	const [w, s, e, n] = bbox, lm = (w + e) / 2, bm = (s + n) / 2, m = mvp, M = 1.02, Re = worldRadiusM();
+	let outL = true, outR = true, outB = true, outT = true;
+	for (const [lo, la] of [[w, s], [e, s], [w, n], [e, n], [lm, s], [lm, n], [w, bm], [e, bm], [lm, bm]]) {
+		const u = lonlatTo3D(lo, la);
+		for (const h of [0, hMaxM]) {
+			const k = 1 + h / Re, X = u[0] * k, Y = u[1] * k, Z = u[2] * k;
+			const x = m[0] * X + m[4] * Y + m[8] * Z + m[12], y = m[1] * X + m[5] * Y + m[9] * Z + m[13];
+			if (x >= -M) outL = false; if (x <= M) outR = false; if (y >= -M) outB = false; if (y <= M) outT = false;
+		}
+	}
+	return !(outL || outR || outB || outT);
 }
 
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];

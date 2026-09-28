@@ -222,6 +222,7 @@
   2. 網は**録り置きして再生**（`<repo>/.cache/mlexamples/net/`・`--record` で録り直し）。
   3. `verify:examples` は**手で／節目に**回す（常設の `verify` の外＝`verify:net` と同じ扱い）。
   4. MapLibre の口から起こした地図は**夜面・星空・自前の地形を出さない**（地形は setTerrain／style の terrain の時だけ）。旗で on にできる。内製アプリの既定は今のまま。
+     - **表示の形は球**（2026-09-28 本人裁定・#43）：楕円体は通常・HI のデスクトップの既定になったが、MapLibre の地球儀は球＝「同じ絵」が物差しの口は `ellipsoid: false` で起こす。`options.ortho.ellipsoid` で変えられる・URL の `?ell=1` が勝つ。
 - **約束（通訳だけ）**：通訳はエンジンに機能を足さない。同じ働きがあれば言い換え、無ければ投げずに `[mlshim] unsupported: <口>` を記録して何もしない（見た目／意味に分ける）。通訳で辻褄を合わせない＝点数を正直に保つ。エンジンの足し算は `idle` 事象と起動オプション `night`／`sky`／`terrain:false`（既定は不変）だけ。
 - **目録**（`tests/mlexamples/corpus.mjs`・`corpus.json`）：MapLibre GL JS **6.11.2**（`acb7b722`）・例 139・素材 30・本物の dist 14（`npm pack`＝lock を触らない）。取り置き＝`<repo>/.cache/mlexamples/6.11.2/`（sha256 で照合・壊れていれば取り直す）。
   - 見立て（正規表現・走らせる前の予想）：鍵も外部ライブラリも custom も無い 111／外部ライブラリ 23／custom 9／API キー 3／import map 6／globe 10／terrain 11／入力待ち 43／動き 12／乱数・日付 6／位置情報 1／地図 2 枚以上 1。

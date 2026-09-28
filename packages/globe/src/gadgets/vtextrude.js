@@ -141,7 +141,7 @@ export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, tileB
 			lt.zkey = zkey; lt.fz = fz;
 			if (r.empty) { dropMesh(lt); lt.state = "empty"; lt.hMax = 0; lt.nFeat = 0; lt.ids = null; return; }
 			lt.hMax = r.stats.hMax; lt.nFeat = r.stats.features; lt.ids = r.ids ? new Set(r.ids) : null; lt.stated = r.stats.stated || 0;
-			uploads.push({ id, key, gen, lt, data: { ...r.mesh, ward: lt.ward, drape: true, keep2d: true, tex: null, alphaMode: r.blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: null, maskN: 0 } });
+			uploads.push({ id, key, gen, lt, data: { ...r.mesh, ward: lt.ward, drape: true, keep2d: true, castShadow: true, tex: null, alphaMode: r.blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: null, maskN: 0 } });
 			pump();
 		}).catch(err => { lt.state = lt.bytes ? "ready" : "failed"; console.warn("[vtextrude] build", id, key, err.message); })
 			.finally(() => { lt.building = false; building--; schedule(); });
