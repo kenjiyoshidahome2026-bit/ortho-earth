@@ -301,13 +301,63 @@ export class Map {
 
 	// ── 画像 ──
 	addImage(id, img, o) {
-		if (img && typeof img.render === "function") unsupported(this, "addImage (animated StyleImageInterface)");
+		if (img && (typeof img.render === "function" || typeof img.data?.renderWithWebGL === "function")) return this._addAnimated(id, img, o);
 		ask(this, "addImage", [id, img?.data && img.width ? { width: img.width, height: img.height, data: img.data } : img, o]);
 		return this;
 	}
+	updateImage(id, img) { ask(this, "updateImage", [id, img?.data && img.width ? { width: img.width, height: img.height, data: img.data } : img]); return this; }
+	// 動く記号（StyleImageInterface）＝MapLibre と同じく onAdd → 毎フレーム render()（true＝変わった）→ 画素を差し替える（エンジンの updateImage＝層を評価し直さない）。
+	// data が画素列ならそのまま・data.renderWithWebGL なら画面外の WebGL2 に描かせて読む（行は上から＝MapLibre の atlas と同じ向き）。差し替えの途中は次のフレームを飛ばす（溜めない）
+	_addAnimated(id, img, o) {
+		const st = S.get(this), anim = st.anim ??= new globalThis.Map();   // このモジュールの Map は地図のクラス
+		this._stopAnimated(id);
+		const w = img.width, h = img.height;
+		let gl = null, tex = null, fbo = null, busy = false, first = true, raf = 0;
+		const pixels = () => {
+			const d = img.data;
+			if (typeof d?.renderWithWebGL === "function") {
+				if (!gl) {
+					const cv = typeof OffscreenCanvas === "function" ? new OffscreenCanvas(w, h) : Object.assign(document.createElement("canvas"), { width: w, height: h });
+					gl = cv.getContext("webgl2", { premultipliedAlpha: false, preserveDrawingBuffer: true });
+					if (!gl) { unsupported(this, "addImage (renderWithWebGL without WebGL2)"); return null; }
+					tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex); gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+					fbo = gl.createFramebuffer();
+				}
+				d.renderWithWebGL({ gl, texture: tex, x: 0, y: 0, width: w, height: h });
+				gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+				const out = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, out); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+				return out;
+			}
+			return d && d.length >= w * h * 4 ? d : null;
+		};
+		const push = () => {
+			const px = pixels(); if (!px) return;
+			const src = { width: w, height: h, data: px };
+			if (first) { first = false; if (st.engine && st.loaded) { busy = true; Promise.resolve(st.engine.addImage(id, src, o)).catch(e => fail(this, "addImage", e)).finally(() => { busy = false; }); } else ask(this, "addImage", [id, src, o]); return; }   // 最初の登録が済むまで差し替えない
+			const eng = st.engine; if (!eng || !st.loaded) { ask(this, "updateImage", [id, src]); return; }
+			busy = true;
+			Promise.resolve(eng.updateImage(id, src)).catch(e => fail(this, "updateImage", e)).finally(() => { busy = false; });
+		};
+		const tick = () => {
+			if (anim.get(id)?.tick !== tick) return;
+			raf = requestAnimationFrame(tick);
+			if (busy) return;
+			let changed = false;
+			try { changed = typeof img.render === "function" ? !!img.render() : false; } catch (e) { fail(this, "StyleImageInterface.render", e); }
+			if (changed) push();
+		};
+		anim.set(id, { img, tick, stop: () => { cancelAnimationFrame(raf); try { img.onRemove?.(); } catch { /* 聞き手の後片付け */ } gl?.getExtension("WEBGL_lose_context")?.loseContext(); } });
+		try { img.onAdd?.(this, id); } catch (e) { fail(this, "StyleImageInterface.onAdd", e); }
+		try { if (typeof img.render === "function") img.render(); } catch (e) { fail(this, "StyleImageInterface.render", e); }
+		push();
+		raf = requestAnimationFrame(tick);
+		return this;
+	}
+	_stopAnimated(id) { const a = S.get(this).anim?.get(id); if (a) { S.get(this).anim.delete(id); a.stop(); } }
 	hasImage(id) { return !!ask(this, "hasImage", [id], { before: false }); }
 	setMissingStyleImageResolver(fn) { this.on("styleimagemissing", e => fn(e.id)); return this; }   // MapLibre 6＝styleimagemissing の聞き手の省略形
-	removeImage(id) { ask(this, "removeImage", [id]); return this; }
+	removeImage(id) { this._stopAnimated(id); ask(this, "removeImage", [id]); return this; }
 	listImages() { return ask(this, "listImages", [], { before: [] }); }
 	async loadImage(url) {
 		const r = await fetch(url);
@@ -331,6 +381,7 @@ export class Map {
 	redraw() { this.triggerRepaint(); return this; }
 	resize() { return this; }   // 容れ物の大きさはエンジンが ResizeObserver で追う
 	remove() {
+		for (const id of [...(S.get(this).anim?.keys() ?? [])]) this._stopAnimated(id);   // 動く記号の毎フレームを止める
 		const st = S.get(this);
 		for (const c of [...st.controls.keys()]) this.removeControl(c);
 		if (!st.inert) { liveMaps--; onEngine(st, eng => eng.destroy()); }

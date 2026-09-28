@@ -20,17 +20,24 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 		if (src && !(src instanceof Blob) && src.data && src.width) src = new ImageData(new Uint8ClampedArray(src.data), src.width, src.height);   // { width, height, data }（MapLibre の addImage と同じ形）
 		return createImageBitmap(src);
 	};
-	const send = (name, e) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf }, [bm])); };
+	const send = (name, e) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null }, [bm])); };   // stretchX/Y・content＝伸びる記号
 	const push = id => { const L = layers.get(id); if (!L) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
 	const evalLayer = id => { const L = layers.get(id); if (!L) return; const miss = new Set(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };
 	map.on("settle", onSettle);   // ["zoom"] を含む層は止まるたびに評価し直す（map.on は map を返す＝解除は map.off）
 	const ctl = {
-		async addImage(name, src, { pixelRatio = 1, sdf = false } = {}) {
-			const e = { bitmap: await toBitmap(src), pixelRatio, sdf };
+		async addImage(name, src, { pixelRatio = 1, sdf = false, stretchX = null, stretchY = null, content = null } = {}) {
+			const e = { bitmap: await toBitmap(src), pixelRatio, sdf, stretchX, stretchY, content };   // 伸びる記号（MapLibre の stretchX／stretchY／content・元の px）
 			images.set(name, e);
 			await send(name, e);
 			for (const [id, L] of layers) if (L.missing?.has(name) || JSON.stringify(L.layer.layout || {}).includes(name)) evalLayer(id);   // その名前を待っていた層（式で組んだ名前は missing で）
+			return e;
+		},
+		// 画素だけ差し替える（MapLibre の updateImage・動く記号）＝層の評価し直しをしない軽い口。大きさが変わっても受ける（描く側が箱を組み直す）
+		async updateImage(name, src) {
+			const e = images.get(name); if (!e) return ctl.addImage(name, src);
+			e.bitmap = await toBitmap(src);   // 古い絵は閉じない＝render worker 宛の写し（onImage の createImageBitmap）が並行して読んでいる
+			await send(name, e);
 			return e;
 		},
 		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); onImageRemoved?.(name); },
@@ -47,7 +54,7 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 			const names = Object.keys(idx);
 			await Promise.all(names.map(async n => {
 				const s = idx[n];
-				const e = { bitmap: await createImageBitmap(sheet, s.x, s.y, s.width, s.height), pixelRatio: s.pixelRatio || 1, sdf: !!s.sdf };
+				const e = { bitmap: await createImageBitmap(sheet, s.x, s.y, s.width, s.height), pixelRatio: s.pixelRatio || 1, sdf: !!s.sdf, stretchX: s.stretchX ?? null, stretchY: s.stretchY ?? null, content: s.content ?? null };   // sprite の JSON も伸びる記号の申告を持つ
 				images.set(prefix + n, e); await send(prefix + n, e);
 			}));
 			for (const id of layers.keys()) evalLayer(id);

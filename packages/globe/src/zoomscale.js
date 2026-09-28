@@ -54,7 +54,7 @@ export const MAP_MEMBERS = {
 	queryRenderedFeatures: "io",   // filter の ["zoom"]（入）・集約の expansionZoom（出）
 	querySourceFeatures: "none",
 	setCustomLayerHost: "none", getCustomLayerCanvas: "none",   // MapLibre の custom 層（customgl.js）＝onAdd/render に渡す map と main の WebGL2 canvas   // source の地物（集約の丸・geojson の全部）。filter の ["zoom"] は queryRenderedFeatures の filter と同じく中で公開の目盛りから換算（顔は触らない）
-	addImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
+	addImage: "none", updateImage: "none", removeImage: "none", hasImage: "none", listImages: "none", loadSprite: "none",
 	addFontFace: "none",   // Web フォントを差す（段 2）
 	setTerrain: "none", getTerrain: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
 	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none",
