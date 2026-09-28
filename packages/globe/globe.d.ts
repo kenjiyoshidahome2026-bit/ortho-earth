@@ -58,6 +58,10 @@ export interface OrthoJapanOptions {
 	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
 	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
+	/** 表示の世界の形（1.6.0〜・#43）。"auto"（既定）＝通常・HI のデスクトップは WGS84 楕円体・低メモリ端末（LOW_MEM）と非力な機体（MID_TIER＝内蔵 GPU・4 コア以下・
+	 *  RAM の多いスマホ/タブレット）は球（6371 km）。true／false で固定。URL の ?ell=1／?ell=0 が opts より強い。計測は常に WGS84（表示の形に依らない）。
+	 *  同じ頁の 2 枚目以降の地図は最初の地図の形に従う（core の状態は頁に 1 つ＝違えば console に警告） */
+	ellipsoid?: boolean | "auto";
 	/** 世界の海岸線（Natural Earth admin0 の線・z<9・どの基図の上にも重ねる）。false＝持たない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	coastline?: boolean;
 	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
@@ -549,7 +553,7 @@ export interface OrthoJapanMap {
 	maxPitch(): number;
 	/** 現在のチルト上限（度・MapLibre 同名・1.3.0〜） */
 	getMaxPitch(): number;
-	/** 楕円体表示（?ell=1）か。計測は常に WGS84・表示は既定で球 */
+	/** 楕円体表示か（opts.ellipsoid・?ell=1／?ell=0・既定は通常・HI のデスクトップで true＝1.6.0〜・#43）。計測は常に WGS84（表示の形に依らない） */
 	ellipsoidOn(): boolean;
 	getMinZoom(): number;
 	/** 寄りの上限（起動時の zoomMax を超えない）。null＝起動時の上限へ */
