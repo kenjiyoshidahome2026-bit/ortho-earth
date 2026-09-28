@@ -93,7 +93,7 @@
 		"enter-a-360-photosphere": 3,
 		"extrude-polygons-for-3d-indoor-mapping": 2,
 		"fill-extrusion-rounded-corners": 1,
-		"filter-layer-symbols-using-global-state": 1,
+		"filter-layer-symbols-using-global-state": 3,
 		"filter-symbols-by-text-input": 1,
 		"filter-symbols-by-toggling-a-list": 1,
 		"filter-within-a-layer": 2,

@@ -7,7 +7,7 @@
 // タイルの形式（enc＝"mvt"｜"mlt"・#88）は put のたびに main が添える（XYZ＝source の encoding・PMTiles＝ヘッダの tileType）。
 // 解読は同期（build の中）なので、遅延読み込みの形式は put の時に loadTileFormat を済ませてから預かる（main は put の返事を待っている）。
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
-import { evalExpr, truthy } from "@ortho-earth/core/expr";
+import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
 import { parseRGBA, isColor } from "@ortho-earth/core/color";
 import { buildTileDrawList } from "@ortho-earth/core/build";
 import { buildLabels } from "@ortho-earth/core/tilelabels";
@@ -31,7 +31,7 @@ self.onmessage = e => {
 			return;
 		}
 		if (m.kind === "drop") { raw.delete(`${m.sid}|${m.key}`); return; }   // 生バイトを捨てる（main の LRU）
-		if (m.kind === "build") { build(m); return; }
+		if (m.kind === "build") { if (m.gs) setGlobalState(m.gs); build(m); return; }   // gs＝main の global-state（層の filter/layout の ["global-state", k]）
 		self.postMessage({ id: m.id, error: `unknown kind ${m.kind}` });
 	} catch (err) { self.postMessage({ id: m.id, error: err?.message || String(err) }); }
 };

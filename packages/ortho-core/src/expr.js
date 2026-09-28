@@ -49,6 +49,13 @@ export const originOfCtx = ctx => ctx?.origin === "ml" ? "ml" : "native";
 export const ORIGIN_KEY = "ortho:origin";
 export const originOfLayer = L => L?.metadata?.[ORIGIN_KEY] === "ml" ? "ml" : undefined;
 
+// global-state（MapLibre v5 の setGlobalStateProperty・記号の残件③・2026-09-28）＝このモジュール（＝このスレッド）の状態。
+// main と各 worker はそれぞれ持つ＝main が変えたら worker へ送る（tile worker は style.globalState・vtdraw は build の gs）。無い鍵は null（MapLibre と同じ）
+let GS = Object.create(null);
+export function setGlobalState(obj) { GS = Object.assign(Object.create(null), obj || {}); }
+export const getGlobalState = () => ({ ...GS });
+export const usesGlobalState = x => x != null && JSON.stringify(x).includes('"global-state"');   // 層（filter/layout/paint）が global-state を読むか＝変わった時に評価し直す層を選ぶ
+
 // 式 e を fn(ctx)=>value にコンパイル。リテラル（非配列 or 先頭が文字列でない＝タプル）は定数関数。
 function compile(e, o = "native") {
 	if (!Array.isArray(e) || typeof e[0] !== "string") return () => e;
@@ -70,7 +77,7 @@ export function evalExpr(e, ctx) {
 }
 
 // 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
-export const KNOWN_OPS = new Set(["literal", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density"]);
+export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density"]);
 
 // MapLibre 形の式の検査＝知らない演算子を集める（MapLibre は addLayer でその名を挙げて層を足さない・2026-09-26 段 5）。
 // 式の位置だけを見る：literal の中・match のラベル・interpolate の補間型と停留値・step の閾値・let の名前・var・format/number-format/collator の設定は式でない。
@@ -135,6 +142,7 @@ function build(e, o = "native") {
 		}
 		case "geometry-type": return ctx => ctx.geom;
 		case "zoom": return ctx => ctx.zoom;
+		case "global-state": { const k = e[1]; return () => (typeof k === "string" && k in GS ? GS[k] : null); }   // 鍵は文字列の定数（MapLibre と同じ）
 		case "match": {
 			const vf = compile_(e[1]), labs = [], outs = [];
 			for (let i = 2; i < e.length - 1; i += 2) { labs.push(e[i]); outs.push(compile_(e[i + 1])); }
