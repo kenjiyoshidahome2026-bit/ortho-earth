@@ -57,7 +57,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		tinted.set(key, cv);
 		return cv;
 	}
-	const iconImg = L => (L.icon && images.get(L.icon)) || null;   // 記号帳に無い名前＝記号は描かない（MapLibre は styleimagemissing を鳴らす）＝文字だけ残る
+	const missing = new Set(), reported = new Set();   // 記号帳に無い名前（styleimagemissing の材料）＝takeMissing で 1 回だけ渡す
+	const iconImg = L => { if (!L.icon) return null; const im = images.get(L.icon); if (!im && !reported.has(L.icon)) missing.add(L.icon); return im || null; };   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
+	function takeMissing() { if (!missing.size) return null; const out = [...missing]; for (const n of out) reported.add(n); missing.clear(); return out; }
 	// 記号の自然な箱（icon-size 倍・icon-anchor／icon-offset（px×size）で錨に置く）＝[x0, y0, w, h]（錨からの相対）
 	const iconBox = (L, im) => { const sz = L.isz ?? 1, w = im.bm.width / im.pr * sz, h = im.bm.height / im.pr * sz, a = ANCH[L.ian] || ANCH.center, off = L.ioff || [0, 0]; return [off[0] * sz - a[0] * w, off[1] * sz - a[1] * h, w, h]; };
 	// icon-text-fit＝文字の箱（相対 [x0,y0,w,h]）＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ・もう片方は自然の大きさで中央）
@@ -507,5 +509,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, draw, clear, placed, placedDebug, clearFontCache };
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
 }
