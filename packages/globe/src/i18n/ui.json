@@ -12582,6 +12582,33 @@
 		"incomplete": {
 			"ja": "未完"
 		},
+		"buildings saved for the other display mode (create again to refetch)": {
+			"ja": "建物は別の表示のモードで保存（作り直すと取り直します）",
+			"zh": "建筑按另一种显示模式保存（重新创建即可重新获取）",
+			"ko": "건물은 다른 표시 모드로 저장됨(다시 만들면 새로 받습니다)",
+			"fr": "bâtiments enregistrés pour l’autre mode d’affichage (recréez le pack pour les récupérer)",
+			"de": "Gebäude für den anderen Anzeigemodus gespeichert (erneut erstellen, um sie neu zu laden)",
+			"es": "edificios guardados para el otro modo de visualización (vuelva a crear el paquete para descargarlos)",
+			"pt": "edifícios guardados para o outro modo de visualização (crie o pacote de novo para os obter)",
+			"it": "edifici salvati per l’altra modalità di visualizzazione (ricrea il pacchetto per scaricarli di nuovo)",
+			"nl": "gebouwen opgeslagen voor de andere weergavemodus (maak het pakket opnieuw om ze op te halen)",
+			"pl": "budynki zapisane dla innego trybu wyświetlania (utwórz pakiet ponownie, aby je pobrać)",
+			"ru": "здания сохранены для другого режима отображения (создайте пакет заново, чтобы загрузить их)",
+			"uk": "будівлі збережено для іншого режиму відображення (створіть пакет знову, щоб завантажити їх)",
+			"hu": "az épületek a másik megjelenítési módhoz vannak mentve (hozza létre újra a csomagot a letöltéshez)",
+			"sv": "byggnader sparade för det andra visningsläget (skapa paketet igen för att hämta dem)",
+			"tr": "binalar diğer görüntüleme kipi için kaydedildi (yeniden indirmek için paketi tekrar oluşturun)",
+			"el": "τα κτίρια αποθηκεύτηκαν για την άλλη λειτουργία προβολής (δημιουργήστε ξανά το πακέτο για να τα λάβετε)",
+			"id": "bangunan disimpan untuk mode tampilan lain (buat ulang paket untuk mengunduhnya lagi)",
+			"vi": "công trình được lưu cho chế độ hiển thị khác (tạo lại gói để tải lại)",
+			"th": "อาคารถูกบันทึกไว้สำหรับโหมดการแสดงผลอื่น (สร้างแพ็กใหม่เพื่อดาวน์โหลดอีกครั้ง)",
+			"bn": "ভবনগুলি অন্য প্রদর্শন মোডের জন্য সংরক্ষিত (আবার আনতে প্যাকটি পুনরায় তৈরি করুন)",
+			"hi": "इमारतें दूसरे प्रदर्शन मोड के लिए सहेजी गई हैं (फिर से लाने के लिए पैक दोबारा बनाएँ)",
+			"ar": "المباني محفوظة لوضع العرض الآخر (أنشئ الحزمة من جديد لإعادة تنزيلها)",
+			"fa": "ساختمان‌ها برای حالت نمایش دیگر ذخیره شده‌اند (برای دریافت دوباره، بسته را دوباره بسازید)",
+			"ur": "عمارتیں دوسرے ڈسپلے موڈ کے لیے محفوظ ہیں (دوبارہ لانے کے لیے پیک پھر سے بنائیں)",
+			"he": "המבנים נשמרו למצב התצוגה האחר (צרו את החבילה מחדש כדי להוריד אותם שוב)"
+		},
 		"$1: $2/$3 chunks · $4 MB of $5 MB": {
 			"ja": "$1：$2/$3 チャンク・$4 MB / $5 MB"
 		}
