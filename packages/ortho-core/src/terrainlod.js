@@ -70,3 +70,28 @@ export function visibleChunkRuns(chunks, mesh, st, elevScale, stats = null) {
 	if (stats) { stats.drawn = drawn; stats.of = chunks.length; }
 	return runs;
 }
+
+// 影の深度パス（#112 段 2）で地形のチャンクを刈る＝影の窓（太陽の正射影 mvp・列優先 f64・shadow.js shadowWindow）の [−1,1]² に
+// 投げた足が掛かるチャンクだけ。正射影の影では、窓の中の地面を暗くできるのは太陽方向に投げて窓に入る物だけ＝刈っても影の形は厳密に同じ。
+// 標本点＝4 隅＋辺の中点＋中心 × 半径 [1, rMax]（chunkVisible と同じ）。全点が同じ外側（x<−m・x>m・y<−m・y>m）なら刈る。m＝1.05（標本の間の膨らみ）
+export function shadowChunkRuns(chunks, mesh, mvp, rMax, stats = null) {
+	const [oLng, oLat, sLng, sLat] = mesh, m = mvp, M = 1.05;
+	const runs = []; let cur = null, drawn = 0;
+	for (const c of chunks) {
+		const l0 = oLng + sLng * c.u0, l1 = oLng + sLng * c.u1, b0 = oLat + sLat * c.v0, b1 = oLat + sLat * c.v1, lm = (l0 + l1) / 2, bm = (b0 + b1) / 2;
+		let outL = true, outR = true, outB = true, outT = true;
+		for (const [lo, la] of [[l0, b0], [l1, b0], [l0, b1], [l1, b1], [lm, b0], [lm, b1], [l0, bm], [l1, bm], [lm, bm]]) {
+			const u = lonlatTo3D(lo, la);
+			for (const r of [1, rMax]) {
+				const X = u[0] * r, Y = u[1] * r, Z = u[2] * r;
+				const x = m[0] * X + m[4] * Y + m[8] * Z + m[12], y = m[1] * X + m[5] * Y + m[9] * Z + m[13];
+				if (x >= -M) outL = false; if (x <= M) outR = false; if (y >= -M) outB = false; if (y <= M) outT = false;
+			}
+		}
+		if (outL || outR || outB || outT) continue;
+		drawn++;
+		if (cur && cur[0] + cur[1] === c.first) cur[1] += c.count; else runs.push(cur = [c.first, c.count]);
+	}
+	if (stats) { stats.drawn = drawn; stats.of = chunks.length; }
+	return runs;
+}
