@@ -1290,15 +1290,16 @@ export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
 ], "TERRAIN_CAST_WGSL");
 
-// ── 断面とクリッピング平面（#111 段 0〜1・2026-09-29）＝切っている時だけ使う派生シェーダ（影と同じ約束＝本体は 1 バイトも変えない・WebGPU 専用）。
-// 面＝CL.pl[i]＝(n.xyz, K)・距離 d＝n·rel + K（rel＝main 原点からの相対位置・K＝n·originPt − c を CPU f64 で＝clip.js packClip）。全部の面で d ≥ 0 の所だけ残す（交わり＝箱）。
+// ── 断面とクリッピング平面（#111 段 0〜2・2026-09-29）＝切っている時だけ使う派生シェーダ（影と同じ約束＝本体は 1 バイトも変えない・WebGPU 専用）。
+// 面＝CL.pl[i]＝(n.xyz, K)・距離 d＝n·rel + K（rel＝その描画の原点からの相対位置・K＝n·originPt − c を CPU f64 で＝clip.js packClip）。全部の面で d ≥ 0 の所だけ残す（交わり＝箱）。
 // 距離は VS で頂点ごと・**面ごとに**出して補間（1 枚の距離は三角形の中で線形＝FS で厳密）・最小は FS で取る（頂点で最小を取って補間すると、
 // 両端が箱の外にある大きな三角形は中身ごと消える＝基図の屋根 2 枚で踏んだ）。使わない面は 1e30。discard は FS の微分より後（一様制御フロー）。
-// 置き場は影と同じく「空いている group の binding b0 から」＝段 2 で影と重ねる時は影の束縛の後ろへ並べる。
+// 段 2：CL に蓋と縁の帯（capT＝地形の蓋の色・capB＝建物の疑似の蓋の色（w＝点ける）・edgeC＝帯の色・p.y＝帯の幅 CSS px）。
+// 置き場は「空いている group の binding b0 から」＝影と重ねる時は影の束縛の後ろ（b0＝3・模型は 4）。
 const CLIP_WGSL = (g, b0 = 0) => /* wgsl */`
-struct ClipP { pl: array<vec4f, 6>, p: vec4f };   // p.x＝面の枚数（clip.js CLIP_MAX と対）
+struct ClipP { pl: array<vec4f, 6>, p: vec4f, capT: vec4f, capB: vec4f, edgeC: vec4f };   // p.x＝面の枚数（clip.js CLIP_MAX と対）・p.y＝縁の帯の幅（CSS px・0＝無し）
 @group(${g}) @binding(${b0}) var<uniform> CL: ClipP;
-fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床）＝全部の面の最小
+fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床・蓋）＝全部の面の最小
 	var d = 1e30;
 	let n = u32(CL.p.x);
 	for (var i = 0u; i < n; i++) { d = min(d, dot(CL.pl[i].xyz, rel) + CL.pl[i].w); }
@@ -1307,49 +1308,158 @@ fn clipDist(rel: vec3f) -> f32 {   // 画素で位置が分かる時（球の床
 fn clipD(rel: vec3f, i: u32) -> f32 { if (i < u32(CL.p.x)) { return dot(CL.pl[i].xyz, rel) + CL.pl[i].w; } return 1e30; }
 fn clipA(rel: vec3f) -> vec4f { return vec4f(clipD(rel, 0u), clipD(rel, 1u), clipD(rel, 2u), clipD(rel, 3u)); }   // 面 0〜3 の距離（頂点）
 fn clipB(rel: vec3f) -> vec2f { return vec2f(clipD(rel, 4u), clipD(rel, 5u)); }                                   // 面 4〜5
-fn clipOut(a: vec4f, b: vec2f) -> bool { return min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)) < 0.0; }   // 画素で最小＝どれかの面の外
+fn clipMin(a: vec4f, b: vec2f) -> f32 { return min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)); }          // 画素で最小（負＝どれかの面の外）
+fn clipOut(a: vec4f, b: vec2f) -> bool { return clipMin(a, b) < 0.0; }
 `;
-export const TERRAIN_CLIP_WGSL = deriveWgsl(TERRAIN_WGSL, [
-	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) cdA: vec4f,\n\t@location(10) cdB: vec2f,\n};"],
-	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.cdA = clipA(relW); o.cdB = clipB(relW);\n"],
-	["\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n", "\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "TERRAIN_CLIP_WGSL") + CLIP_WGSL(3);
-// 建物メッシュ（素の LOD2）：バッチ原点は PB の空き 16B（offset 240・clipO）に「バッチ原点 − main 原点」（CPU f64 の差＝f32 でも mm 級）。
-// B.meshOrigin（f32 の絶対位置）から引くと 0.4m 甘い＝切り口が揺れる（影の受け手が許した甘さを持ち込まない）
-export const MESH_CLIP_WGSL = deriveWgsl(MESH_WGSL, [
-	["sh: array<vec4f, 9> };", "sh: array<vec4f, 9>, clipO: vec4f };"],
-	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) cdA: vec4f,\n\t@location(5) cdB: vec2f,\n};"],
-	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.cdA = clipA(B.clipO.xyz + lp); o.cdB = clipB(B.clipO.xyz + lp);\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
-	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "MESH_CLIP_WGSL") + CLIP_WGSL(3);
-// ── 段 1（2026-09-29）：球の床・基図の塗りと線・基図の押し出し建物・模型にも同じ面を効かせる（どれも本体の文字列派生・影と同じく本体は不変）。
-// 原点は描画ごと：塗り・線＝そのシーンの原点（base/main/user）・建物/床/模型＝main。K は原点ごとに CPU f64 で作る（renderer が原点ごとの束縛を選ぶ）
-export const FILL_CLIP_WGSL = deriveWgsl(FILL_WGSL, [
-	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) cdA: vec4f,\n\t@location(11) cdB: vec2f,\n};"],
-	["\to.pos = p;\n\to.color = a_color;", "\to.pos = p;\n\to.cdA = clipA(rel); o.cdB = clipB(rel);\n\to.color = a_color;"],
-	["@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "FILL_CLIP_WGSL") + CLIP_WGSL(2);
-export const LINE_CLIP_WGSL = deriveWgsl(LINE_WGSL, [
-	["\t@location(6) fog: f32,\n};", "\t@location(6) fog: f32,\n\t@location(7) cdA: vec4f,\n\t@location(8) cdB: vec2f,\n};"],
-	["\to.fog = fogOf((wa + wb) * 0.5);\n", "\to.fog = fogOf((wa + wb) * 0.5);\n\tlet cpos = select(relWb, relWa, corner.x < 0.5);\n\to.cdA = clipA(cpos); o.cdB = clipB(cpos);   // 端点ごと＝線分に沿って線形（幅の張り出しは同じ値）\n"],
-	["@fragment fn fs(in: LineOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: LineOut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "LINE_CLIP_WGSL") + CLIP_WGSL(2);
-export const BUILDING_CLIP_WGSL = deriveWgsl(BUILDING_WGSL, [
-	["\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n};", "\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n\t@location(4) cdA: vec4f,\n\t@location(5) cdB: vec2f,\n};"],
-	["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\to.cdA = clipA(relW); o.cdB = clipB(relW);\n"],
-	["@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "BUILDING_CLIP_WGSL") + CLIP_WGSL(3);
-// 球の床（海抜 0・海面を含む）：交点の原点相対 δ＝eyeO＋t·d（#65・f32 で mm 級）で測る＝空と大気のリムは切らない
-export const GLOBE_CLIP_WGSL = deriveWgsl(GLOBE_WGSL, [
-	["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) { discard; }\n"],
-], "GLOBE_CLIP_WGSL") + CLIP_WGSL(1);
-// 模型・3D Tiles・I3S・押し出し（MESH_TEX）：group 4 枚を使い切る＝面は group(2) の binding 1（PB と同居・影と同じ置き方）。バッチ原点の差は PB の clipO
-export const MESH_TEX_CLIP_WGSL = deriveWgsl(MESH_TEX_WGSL, [
-	["sh: array<vec4f, 9> };", "sh: array<vec4f, 9>, clipO: vec4f };"],
-	["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(6) cdA: vec4f,\n\t@location(7) cdB: vec2f,\n};"],
-	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.cdA = clipA(B.clipO.xyz + lp); o.cdB = clipB(B.clipO.xyz + lp);\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
-	["\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n", "\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
-], "MESH_TEX_CLIP_WGSL") + CLIP_WGSL(2, 1);
+// 切る派生を本体から作る（影の派生 *_SH_WGSL からも同じ差分で作れる＝影と重ねる版）。kind ごとの差分の表：
+// ・struct には cdA/cdB を足す（場所は影の sc と重ならない番号）・VS で面ごとの距離・FS の頭で discard（＋縁の帯・建物の疑似の蓋）
+// 同じ段で錨が 2 通りある所（建物メッシュの VS＝本体と影の派生で書き方が違う）は、先に見つかった方を使う
+const deriveAlt = (src, steps, label) => steps.reduce((s, alts) => {
+	for (const [a, b] of alts) { const k = s.split(a).length; if (k === 2) return s.replace(a, b); if (k > 2) throw new Error(`wgsl derive(${label}): anchor ambiguous: ${a.slice(0, 50)}`); }
+	throw new Error(`wgsl derive(${label}): anchor missing: ${alts[0][0].slice(0, 50)}`);
+}, src);
+const CD = (at, loc) => [[at, `${at}\t@location(${loc}) cdA: vec4f,\n\t@location(${loc + 1}) cdB: vec2f,\n`]];
+const CD_SET = rel => `o.cdA = clipA(${rel}); o.cdB = clipB(${rel});`;
+// 縁の帯（地形・建物・模型）＝画素で最小の距離がその画面微分の p.y 倍（CSS px×dpr）より小さい所を帯の色に。微分は discard より前
+const EDGE_HEAD = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tif (CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw) { return vec4f(CL.edgeC.rgb, 1.0); }\n";
+const EDGE_FLAG = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tlet edgeOn = CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw;\n";   // 帯を最後に塗る版（地形）
+const DISCARD = "\tif (clipOut(in.cdA, in.cdB)) { discard; }\n";
+const MESH_VS = [
+	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", `\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n", `\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],   // 影の派生（lp は既にある）
+];
+const PB_CLIPO = [["sh: array<vec4f, 9> };", "sh: array<vec4f, 9>, clipO: vec4f };"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）
+// 建物の疑似の蓋（閉じた建物＝裏面を捨てる物だけ）：切っている間は裏面を蓋の色で塗る＝切り口から中を覗くと断面に見える（両面のデータ＝上屋・橋は今のまま）
+const MESH_CAP = [["\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }\n", "\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { if (CL.capB.w > 0.5) { return vec4f(CL.capB.rgb, 1.0); } discard; }\n"]];
+const CLIP_STEPS = {
+	terr: [CD("\t@location(8) guv3: vec2f,\n", 10),
+		[["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
+		[["\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n", "\tlet mpp = terrMpp(in.ll);   // 画素の地上寸法(m)＝下の低地フェード帯の上端。微分は discard より前（一様制御フロー）\n" + EDGE_FLAG]],
+		// 地形は帯の早期 return を最後へ（この後に地面アトラスの textureSample＝暗黙の微分がある＝一様制御フローの外で呼べない）
+		[["\treturn vec4f(col * t * P.p2.w, t * P.p2.w);", "\tif (edgeOn) { return vec4f(CL.edgeC.rgb, 1.0); }\n\treturn vec4f(col * t * P.p2.w, t * P.p2.w);"]]],
+	mesh: [PB_CLIPO, CD("\t@location(3) fog: f32,\n", 5), MESH_VS,
+		[["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n" + EDGE_HEAD]], MESH_CAP],
+	meshTex: [PB_CLIPO, CD("\t@location(5) col: vec4f,\n", 7), MESH_VS,
+		[["\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n", "\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n" + EDGE_HEAD]], MESH_CAP],
+	fill: [CD("\t@location(9) guv3: vec2f,\n", 11),
+		[["\to.color = a_color;", `\t${CD_SET("rel")}\n\to.color = a_color;`]],
+		[["@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: FillOut) -> @location(0) vec4f {\n" + DISCARD]]],
+	line: [CD("\t@location(6) fog: f32,\n", 8),
+		[["\to.fog = fogOf((wa + wb) * 0.5);\n", `\to.fog = fogOf((wa + wb) * 0.5);\n\tlet cpos = select(relWb, relWa, corner.x < 0.5);   // 端点ごと＝線分に沿って線形（幅の張り出しは同じ値）\n\t${CD_SET("cpos")}\n`]],
+		[["@fragment fn fs(in: LineOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: LineOut) -> @location(0) vec4f {\n" + DISCARD]]],
+	bld: [CD("\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n", 5),
+		[["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
+		[["@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: BldOut) -> @location(0) vec4f {\n" + EDGE_HEAD]]],   // 基図の押し出し建物は面の向きが揃っていない（リングの向き・earcut 任せ）＝疑似の蓋は付けず帯だけ
+	// 球の床（海抜 0・海面を含む）：交点の原点相対 δ＝eyeO＋t·d（#65・f32 で mm 級）で測る＝空と大気のリムは切らない
+	globe: [[["\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n", "\tlet Pt = A + t * d;                                                       // 絶対（霞・大気・低ズームの粗い用途）\n\tif (clipDist(G.eyeO.xyz + t * d) < 0.0) { discard; }\n"]]],
+	// 影の深度パス（落とす側）＝切った形で落とす。頂点だけのパイプラインには FS（fsClip）を足す
+	terrCast: [CD("\t@location(8) guv3: vec2f,\n", 10),
+		[["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]]],
+	meshCast: [PB_CLIPO, CD("\t@location(3) fog: f32,\n", 5), MESH_VS],
+	meshTexCast: [PB_CLIPO, CD("\t@location(5) col: vec4f,\n", 7), MESH_VS, [["@fragment fn fsCast(in: PlOut) {\n", "@fragment fn fsCast(in: PlOut) {\n" + DISCARD]]],
+	bldCast: [CD("\t@location(3) ll: vec2f,   // 絶対 lon/lat＝被覆マスクの uv 参照\n", 5),
+		[["\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n", `\tlet relW = rel + h * liftDir(F.origin + a_pos.xy, dir);   // 楕円体＝測地法線\n\t${CD_SET("relW")}\n`]],
+		[["@fragment fn fs(in: BldOut) {", "@fragment fn fs(in: BldOut) {\n" + DISCARD]]],
+};
+const clipDerive = (src, kind, label, g, b0 = 0, tail = "") => deriveAlt(src, CLIP_STEPS[kind], label) + CLIP_WGSL(g, b0) + tail;
+// 切るだけ（段 0〜1）
+export const TERRAIN_CLIP_WGSL = clipDerive(TERRAIN_WGSL, "terr", "TERRAIN_CLIP_WGSL", 3);
+export const MESH_CLIP_WGSL = clipDerive(MESH_WGSL, "mesh", "MESH_CLIP_WGSL", 3);
+export const MESH_TEX_CLIP_WGSL = clipDerive(MESH_TEX_WGSL, "meshTex", "MESH_TEX_CLIP_WGSL", 2, 1);   // group 4 枚を使い切る＝group(2) の binding 1（PB と同居）
+export const FILL_CLIP_WGSL = clipDerive(FILL_WGSL, "fill", "FILL_CLIP_WGSL", 2);
+export const LINE_CLIP_WGSL = clipDerive(LINE_WGSL, "line", "LINE_CLIP_WGSL", 2);
+export const BUILDING_CLIP_WGSL = clipDerive(BUILDING_WGSL, "bld", "BUILDING_CLIP_WGSL", 3);
+export const GLOBE_CLIP_WGSL = clipDerive(GLOBE_WGSL, "globe", "GLOBE_CLIP_WGSL", 1);
+// 影と重ねる（段 2）＝影の受け手の派生にさらに面を足す（面の束縛は影の後ろ＝binding 3・模型は 4）
+export const TERRAIN_SH_CLIP_WGSL = clipDerive(TERRAIN_SH_WGSL, "terr", "TERRAIN_SH_CLIP_WGSL", 3, 3);
+export const MESH_SH_CLIP_WGSL = clipDerive(MESH_SH_WGSL, "mesh", "MESH_SH_CLIP_WGSL", 3, 3);
+export const MESH_TEX_SH_CLIP_WGSL = clipDerive(MESH_TEX_SH_WGSL, "meshTex", "MESH_TEX_SH_CLIP_WGSL", 2, 4);
+export const FILL_SH_CLIP_WGSL = clipDerive(FILL_SH_WGSL, "fill", "FILL_SH_CLIP_WGSL", 2, 3);
+export const LINE_SH_CLIP_WGSL = clipDerive(LINE_SH_WGSL, "line", "LINE_SH_CLIP_WGSL", 2, 3);
+export const BUILDING_SH_CLIP_WGSL = clipDerive(BUILDING_SH_WGSL, "bld", "BUILDING_SH_CLIP_WGSL", 3, 3);
+export const GLOBE_SH_CLIP_WGSL = clipDerive(GLOBE_SH_WGSL, "globe", "GLOBE_SH_CLIP_WGSL", 1, 3);
+// 影の深度パスも切った形で（段 2）：地形は group(1)・基図の建物と建物メッシュは group(3)・模型は group(2) の binding 1
+export const TERRAIN_CAST_CLIP_WGSL = clipDerive(TERRAIN_CAST_WGSL, "terrCast", "TERRAIN_CAST_CLIP_WGSL", 1, 0, `
+@fragment fn fsClip(in: TerrOut) { if (clipOut(in.cdA, in.cdB)) { discard; } }
+`);
+export const MESH_CAST_CLIP_WGSL = clipDerive(MESH_CAST_WGSL, "meshCast", "MESH_CAST_CLIP_WGSL", 3, 0, `
+@fragment fn fsClip(in: PlOut) { if (clipOut(in.cdA, in.cdB)) { discard; } }
+`);
+export const MESH_TEX_CAST_CLIP_WGSL = clipDerive(MESH_TEX_CAST_WGSL, "meshTexCast", "MESH_TEX_CAST_CLIP_WGSL", 2, 1);
+export const BUILDING_CAST_CLIP_WGSL = clipDerive(BUILDING_CAST_WGSL, "bldCast", "BUILDING_CAST_CLIP_WGSL", 3);
+
+// 地形の蓋（段 2・本人裁定＝鉛直面は縦の幕・水平面は板）：面ごとに、その面の上の大きな四角を 1 枚（instance＝面の番号）。
+// FS で画素の点 X（原点相対）の「足」（測地法線に沿って地表へ下ろした点の経緯度）と高さ z を出し、床（海抜 0）≤ z ≤ 地表 の所だけ塗る＝地面の中の断面。
+// 地表の高さは地形メッシュと同じ折れ線面（格子頂点で elev×距離フェード・同じ対角 a-c-b / b-c-d）＝地形の切り口と画素で合う。
+// 格子の位置は原点相対（CP.g＝(原点の格子座標, 格子/度) を CPU f64 で）＝絶対経緯度（f32 で 1.4 m 刻み）を経ない。
+// 四角は大きい（窓の対角ほど・隅は目の後ろにも回る）＝深度は画素ごとに書く（frag_depth＝対数深度は頂点だけで書くと大きな三角形が撓む・#62）。
+// 他の面の外は捨てる（箱の角）。近窓（terrain スロット）と遠窓（terrainFar・近窓の内側は捨てる）の 2 回＝地形と同じ分担。
+export const CLIP_CAP_WGSL = /* wgsl */`
+${FRAME}
+${CLIP_WGSL(1, 0)}
+struct CapP { g: vec4f, h: vec4f, q: array<vec4f, 18> };   // g＝(原点の格子座標 xy, 格子/度 xy)・h＝(G−1, 遠窓の回, 0, 0)・q[i*3..]＝面 i の四角（中心の原点相対 xyz, 軸 A, 軸 B）
+@group(1) @binding(1) var<uniform> CP: CapP;
+struct CapOut { @builtin(position) pos: vec4f, @location(0) x: vec3f, @location(1) @interpolate(flat) pi: u32 };
+@vertex fn vs(@builtin(vertex_index) vi: u32, @builtin(instance_index) ii: u32) -> CapOut {
+	var o: CapOut;
+	var cs = array<vec2f, 6>(vec2f(-1.0, -1.0), vec2f(1.0, -1.0), vec2f(-1.0, 1.0), vec2f(-1.0, 1.0), vec2f(1.0, -1.0), vec2f(1.0, 1.0));
+	let c = cs[vi];
+	let X = CP.q[ii * 3u].xyz + c.x * CP.q[ii * 3u + 1u].xyz + c.y * CP.q[ii * 3u + 2u].xyz;
+	var p = F.clipT + F.mvp * vec4f(X, 0.0);
+	p.z = 0.5 * p.w;   // 深度は FS で画素ごとに書く＝頂点の z はクリップ（0≤z≤w＝目の面 w=0 で正しく切る）のためだけ。対数深度を頂点に書くと、目の後ろへ回った隅（w<0）で z が壊れ、見えている部分まで切り落とされた
+	o.pos = p; o.x = X; o.pi = ii;
+	return o;
+}
+fn capDf(dll: vec2f) -> f32 {   // 地形の頂点と同じ距離フェード（遠景の平ら化）
+	let dir = F.originPt + deltaToRel(dll);
+	return 1.0 - smoothstep(F.params.y * 0.8, F.params.y * 2.0, distance(F.eye, dir));
+}
+fn capVert(gi: vec2f) -> f32 {   // 格子頂点 gi の高さ（地形の VS と同じ：絶対経緯度＝窓の原点＋窓の幅×uv）
+	let N = CP.h.x;
+	let ll = F.mesh.xy + F.mesh.zw * (gi / N);
+	return elev(ll) * capDf(ll - F.origin);
+}
+struct CapFrag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+@fragment fn fs(in: CapOut) -> CapFrag {
+	let X = in.x;
+	// 他の面の外（箱の角）
+	let n = u32(CL.p.x);
+	for (var i = 0u; i < n; i++) { if (i != in.pi && dot(CL.pl[i].xyz, X) + CL.pl[i].w < 0.0) { discard; } }
+	// 足と高さ：動径の足から始めて、測地法線に沿って 2 回詰める（楕円体の法線は動径から最大 0.19° 開く）
+	let O = F.originPt; let rho = length(O.xz);
+	var dll = deltaLL(X, O, rho, F.eyeO.w, F.ellP.x);
+	var z = 0.0;
+	for (var k = 0; k < 2; k++) {
+		let u = deltaToRel(dll);
+		let L = liftDir(F.origin + dll, O + u);
+		z = dot(X - u, L) / dot(L, L);
+		dll = deltaLL(X - z * L, O, rho, F.eyeO.w, F.ellP.x);
+	}
+	let zm = z / max(F.elevP.x, 1e-30);
+	if (zm < 0.0) { discard; }   // 床（海抜 0）より下＝地面の外
+	if (dot(O + deltaToRel(dll), F.eye) - 1.0 < -0.0015) { discard; }   // 地平線の向こう（地形と同じ）
+	// 窓の分担：近窓の回＝窓の外を捨てる／遠窓の回＝近窓（標高アトラス）の内側を捨てる
+	let N = CP.h.x;
+	let gc = CP.g.xy + dll * CP.g.zw;
+	if (CP.h.y > 0.5) {
+		let uvN = (F.origin + dll - F.elevBounds.xy) / F.elevBounds.zw;
+		if (uvN.x >= 0.0 && uvN.x <= 1.0 && uvN.y >= 0.0 && uvN.y <= 1.0) { discard; }
+	}
+	if (gc.x < 0.0 || gc.y < 0.0 || gc.x > N || gc.y > N) { discard; }
+	// 地表の高さ＝地形メッシュと同じ三角形
+	let g = min(gc, vec2f(N - 1e-4));
+	let gi = floor(g); let gf = g - gi;
+	var ht: f32;
+	if (gf.x + gf.y < 1.0) { let h00 = capVert(gi); ht = h00 + gf.x * (capVert(gi + vec2f(1.0, 0.0)) - h00) + gf.y * (capVert(gi + vec2f(0.0, 1.0)) - h00); }
+	else { let h11 = capVert(gi + vec2f(1.0)); ht = h11 + (1.0 - gf.x) * (capVert(gi + vec2f(0.0, 1.0)) - h11) + (1.0 - gf.y) * (capVert(gi + vec2f(1.0, 0.0)) - h11); }
+	if (zm > ht) { discard; }   // 地表より上＝空
+	var out: CapFrag;
+	out.c = vec4f(mix(CL.capT.rgb, F.fogColor, fogOf(O + X)), 1.0);
+	let pc = F.clipT + F.mvp * vec4f(X, 0.0);
+	out.d = logDepthZ(pc.w) / pc.w;
+	return out;
+}
+`;
 
 // 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝elevation.js downsampleFlipped／cropResample・elevation/worldatlas.js worldAtlasCell と同式。
 // 生タイル（Int16＝u32 に 2 texel・Float32＝bitcast）は storage buffer（writeTexture の 256B 行整列を避ける＝再パック無し・1 タイル 1 回の上げで何セルでも切り出せる）。
