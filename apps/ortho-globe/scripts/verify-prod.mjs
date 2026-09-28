@@ -4,7 +4,7 @@
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない
-//   ② 実走: 3 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats）＝地球儀が立ち、地震・衛星はデータが載る
+//   ② 実走: 5 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds）＝地球儀が立ち、地震・衛星・雲はデータが載る
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -94,6 +94,7 @@ const PAGES = [
 	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && !!document.querySelector('iframe[src*="/equal/"]')`, ms: 60000 },
 	{ name: "quakes", url: "/globe/quakes", ready: `${BOOTED} && window.__quakes && window.__quakes.count > 1000`, ms: 120000 },
 	{ name: "sats", url: "/globe/sats", ready: `${BOOTED} && window.__sats && window.__sats.count > 1000`, ms: 60000 },
+	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 120000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {
 	const p = await open(ORIGIN + pg.url);

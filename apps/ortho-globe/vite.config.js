@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 //   /globe/        … Globe ⇄ Equal Earth の往復（index.html）
 //   /globe/quakes  … 世界の地震（データ＝apps/quakes-mirror の /quakes/*）
 //   /globe/sats    … 人工衛星（データ＝apps/sats-mirror の /sats/active.csv）
+//   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
 // エンジンは各頁の束に焼く（A 裁定 2026-09-23＝実行時に /japan/lib を食わない）。japan の殻（app.js）も jp パックも通らない。
 // COOP/COEP（credentialless）＝gint の SharedArrayBuffer（ゼロコピー）の点火条件。server.headers では worker のサブ import に
 // 届かないので middleware で全リクエストに刻む（japan と同じ標準解）。本番は deploy-worker.js が同じ 2 ヘッダを刻む。
@@ -22,7 +23,7 @@ export default defineConfig({
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html") },
 		// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・japan と同じ）＝worker が実行時ヘルパ欲しさに mesh-loaders を静的 import する罠。worker にも同じ物
 		experimental: { chunkOptimization: false },
 	} },
