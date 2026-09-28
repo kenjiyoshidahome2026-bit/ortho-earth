@@ -46,7 +46,7 @@ const explained = (p, b, m, tol = 45) => {
 
 try {
 	if (G === "layers") {
-		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false });
+		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false, debugGlobals: true });   // debugGlobals＝__placed（global-state-filter の記号の数え方）
 		await sleep(7000);
 		const P = (lon, lat) => { const [x, y] = map.projectLL(lon, lat); return [x, y]; };
 		const at = async (lon, lat, layers) => { const [x, y] = P(lon, lat); return (await map.queryRenderedFeatures([x, y], layers ? { layers } : {})).map(f => f.layer.id); };
@@ -167,6 +167,23 @@ try {
 			await Promise.race([map.addLayer({ id: "rt-l", type: "raster", source: "rt" }), sleep(5000)]);
 			const e = map.raster.list().find(r => r.id === "rt-l");
 			return [!!e && /\{z\}/.test(e.spec?.url || "") && !/raster\.json/.test(e.spec?.url || ""), e ? e.spec?.url : "no raster entry"];
+		});
+		// global-state（MapLibre v5・記号の残件③）＝公式例 filter-layer-symbols-using-global-state の形そのまま（geojson の記号＋円・filter に ["global-state", "type"]）。
+		// 状態を変えると、それを読む層だけ評価し直す：円＝gint の表（main）・記号＝symbols（main）。空＝全部・"a"＝a だけ・"b"＝b だけ
+		await scene("global-state-filter", async () => {
+			const F0 = ["case", ["==", ["to-string", ["global-state", "type"]], ""], true, ["==", ["get", "type"], ["global-state", "type"]]];
+			map.addSource("gs", { type: "geojson", data: fc([pt(141.0, 36.0, { type: "a", name: "A" }), pt(141.6, 36.0, { type: "b", name: "B" })]) });
+			await map.addLayer({ id: "gs-c", type: "circle", source: "gs", filter: F0, paint: { "circle-radius": 7, "circle-color": "#000" } });
+			await map.addLayer({ id: "gs-s", type: "symbol", source: "gs", filter: F0, layout: { "text-field": ["get", "name"], "text-offset": [0, 1], "text-anchor": "top" } });
+			const symbolsOf = async id => (await window.__placed()).filter(q => q.layer === id);
+			const snapIds = async () => { await sleep(900); const c = [(await at(141.0, 36.0, ["gs-c"])).length, (await at(141.6, 36.0, ["gs-c"])).length].join(""); const sy = (await symbolsOf("gs-s")).map(x => x.text).sort().join(""); return c + "/" + sy; };
+			const r0 = await snapIds();                                   // 状態なし（null→to-string ""）＝全部
+			map.setGlobalStateProperty("type", "a"); const r1 = await snapIds();
+			map.setGlobalStateProperty("type", "b"); const r2 = await snapIds();
+			map.setGlobalStateProperty("type", ""); const r3 = await snapIds();
+			const g = JSON.stringify(map.getGlobalState());
+			map.removeLayer("gs-s"); map.removeLayer("gs-c"); map.removeSource("gs");
+			return [r0 === "11/AB" && r1 === "10/A" && r2 === "01/B" && r3 === "11/AB" && g === '{"type":""}', `none=${r0} a=${r1} b=${r2} empty=${r3} state=${g}`];
 		});
 		await scene("raster-layer-minzoom", async () => {
 			map.addSource("rz", { type: "raster", tiles: [new URL("fixtures/dem/{z}/{x}/{y}.png", location.href).href.replace(/%7B/g, "{").replace(/%7D/g, "}")], tileSize: 256 });
@@ -676,6 +693,17 @@ try {
 				const p1b = await untilN("p1", n => n >= 2), p2b = await placedOf("p2");
 				await drop("p1", "p2");
 				return [p2.length === 2 && p1.length === 0 && p1b.length === 2 && p2b.length === 2, `pad2: p2=${p2.length} p1=${p1.length} → pad0: p1=${p1b.length} p2=${p2b.length}`];
+			});
+			await vscene("global-state-vector", async () => {   // vector の描く層（vtdraw＝worker で評価）も global-state で切り替わる＝build の gs・版を上げて組み直す
+				await sym("gsv", { "text-field": ["get", "name"] }, { filter: ["any", ["==", ["to-string", ["global-state", "cls"]], ""], ["==", ["get", "class"], ["global-state", "cls"]]] });
+				const names = async () => (await placedOf("gsv")).map(q => q.text).sort().join(",");
+				const until = async want => { let n = ""; for (let k = 0; k < 20; k++) { await sleep(300); n = await names(); if (n === want) break; } return n; };
+				const a = await until("Cafe,Shop");
+				map.setGlobalStateProperty("cls", "cafe"); const b = await until("Cafe");
+				map.setGlobalStateProperty("cls", "shop"); const c = await until("Shop");
+				map.setGlobalStateProperty("cls", ""); const d = await until("Cafe,Shop");
+				await drop("gsv");
+				return [a === "Cafe,Shop" && b === "Cafe" && c === "Shop" && d === "Cafe,Shop", `none=${a} cafe=${b} shop=${c} empty=${d}`];
 			});
 			await vscene("symbol-text-font", async () => {   // text-font（段 2）＝"Noto Sans Bold"→ weight 700・"Noto Sans Italic"→ italic・family は先頭に据わり既定の束が後ろに続く。太字の箱は同じ文字の標準より広い
 				await sym("f1", { "text-font": ["Noto Sans Bold"] });
