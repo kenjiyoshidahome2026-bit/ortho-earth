@@ -99,11 +99,16 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const P = L.path, n = P.length >> 1; if (n < 2) { nullWhy = "empty"; return null; }
 		const im = iconImg(L), chars = L.text ? [...String(L.text)] : [];
 		if (!chars.length && !im) { nullWhy = "empty"; return null; }
-		// 投影（重なる点＝長さ 0 の線分は捨てる＝錨が頂点と一致した時に角度が跳んで max-angle で落ちていた）。s0＝錨の弧長
-		const xs = [], ys = [], cum = [], ai = Math.min(L.ai ?? 0, n - 1);
+		// 投影＝錨を含む「表側の連続区間」だけ使う（全球ビューの赤道など＝窓の端が地球の裏に届いても錨の周りは置ける・旧＝裏の頂点が 1 つでもあれば丸ごと却下）。
+		// 重なる点＝長さ 0 の線分は捨てる（錨が頂点と一致した時に角度が跳んで max-angle で落ちていた）。s0＝錨の弧長
+		const ai = Math.min(L.ai ?? 0, n - 1), pr = new Array(n);
+		for (let i = 0; i < n; i++) pr[i] = project(st, P[i * 2], P[i * 2 + 1], r);
+		if (pr[ai][2] < 0) { nullWhy = "back"; return null; }
+		let lo = ai, hi = ai; while (lo > 0 && pr[lo - 1][2] >= 0) lo--; while (hi < n - 1 && pr[hi + 1][2] >= 0) hi++;
+		const xs = [], ys = [], cum = [];
 		let s0 = 0;
-		for (let i = 0; i < n; i++) {
-			const [dx, dy, f] = project(st, P[i * 2], P[i * 2 + 1], r); if (f < 0) { nullWhy = "back"; return null; }
+		for (let i = lo; i <= hi; i++) {
+			const [dx, dy] = pr[i];
 			const x = dx / dpr, y = dy / dpr, k = xs.length;
 			if (k && Math.hypot(x - xs[k - 1], y - ys[k - 1]) < 1e-3) { if (i === ai) s0 = cum[k - 1]; continue; }
 			xs.push(x); ys.push(y); cum.push(k ? cum[k - 1] + Math.hypot(x - xs[k - 1], y - ys[k - 1]) : 0);
@@ -113,7 +118,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const total = cum[m_n - 1]; if (!(total > 0)) { nullWhy = "empty"; return null; }
 		const size = L.size || 12, font = fontOf(L, size), ls = (L.ls || 0) * size;
 		const adv = chars.map(ch => advOf(font, ch) + ls), W = chars.length ? adv.reduce((a, b) => a + b, 0) - ls : 0;
-		if (s0 - W / 2 < 0 || s0 + W / 2 > total) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total)]; return null; }   // 窓（labels.js が焼いた前後の長さ）に収まらない
+		// 錨の弧長 s0 は、文字が窓（labels.js が焼いた前後の長さ・地球の縁で切れた分も）に収まる範囲へ寄せる（旧＝錨に固定＝縁の近くや短い窓で「fit」で落ちた。候補はタイルの目盛りで疎＝寄せて拾う。symbol-spacing は寄せた後の位置で裁く）
+		if (W > total) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
+		s0 = Math.min(Math.max(s0, W / 2), total - W / 2);
 		const at = q => { let i = 1; while (i < m_n - 1 && cum[i] < q) i++; const t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
 		const m = at(s0);
 		let rev = false;
