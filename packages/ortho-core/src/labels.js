@@ -25,7 +25,7 @@ function iconOf(L, lo, ctx) {
 	const rec = {
 		isz: num(ev(lo["icon-size"], 1), 1), ian: ANCHORS.has(an) ? an : "center", ioff: Array.isArray(off) && off.length === 2 ? [num(off[0], 0), num(off[1], 0)] : [0, 0],
 		irot: num(ev(lo["icon-rotate"], 0), 0), ipad: num(ev(lo["icon-padding"], 2), 2),
-		iov: !!ev(lo["icon-allow-overlap"], false), iig: !!ev(lo["icon-ignore-placement"], false), iopt: !!ev(lo["icon-optional"], false), topt: !!ev(lo["text-optional"], false),
+		iov: lo["icon-overlap"] != null ? String(ev(lo["icon-overlap"], "never")) !== "never" : !!ev(lo["icon-allow-overlap"], false), iig: !!ev(lo["icon-ignore-placement"], false), iopt: !!ev(lo["icon-optional"], false), topt: !!ev(lo["text-optional"], false),
 		iop: num(ev(L.paint?.["icon-opacity"], 1), 1), ira: String(ev(lo["icon-rotation-alignment"], "auto")),   // ira＝線の記号を線の向きに回す（auto/map）か画面に正立（viewport）か・点では map＝地図の回転に追随
 	};
 	const ipa = String(ev(lo["icon-pitch-alignment"], "auto")); if (ipa !== "auto") rec.ipa = ipa;   // icon-pitch-alignment（段 5）
@@ -70,7 +70,7 @@ function layoutOf(L, lo, ctx, ml) {
 		an: ANCHORS.has(anchor) ? anchor : "center", off: Array.isArray(off) && off.length === 2 ? [num(off[0], 0), num(off[1], 0)] : [0, 0],
 		mw: num(ev(lo["text-max-width"], ml ? 10 : 0), ml ? 10 : 0), ls: num(ev(lo["text-letter-spacing"], 0), 0), lh: num(ev(lo["text-line-height"], ml ? 1.2 : 1), ml ? 1.2 : 1),   // ネイティブ層＝折り返し無し・行高 1（従来の箱）
 		just: String(ev(lo["text-justify"], "center")), pad: num(ev(lo["text-padding"], ml ? 2 : 5), ml ? 2 : 5), mlp: ml,
-		ov: !!ev(lo["text-allow-overlap"], false), ig: !!ev(lo["text-ignore-placement"], false),
+		ov: lo["text-overlap"] != null ? String(ev(lo["text-overlap"], "never")) !== "never" : !!ev(lo["text-allow-overlap"], false), ig: !!ev(lo["text-ignore-placement"], false),   // text-overlap（MapLibre 新）が allow-overlap に勝つ・cooperative は always 扱い（近似）
 		op: num(ev(L.paint?.["text-opacity"], 1), 1), blur: num(ev(L.paint?.["text-halo-blur"], 0), 0),
 		...(ml && lo["text-font"] != null ? (f => f ? { fnt: f } : {})(parseFontStack(ev(lo["text-font"], null))) : {}),   // 書体（段 2）＝MapLibre 由来の層だけ（ネイティブは既定の束）
 		...(vaList?.length ? { va: vaList, ro: lo["text-radial-offset"] != null ? num(ev(lo["text-radial-offset"], 0), 0) : null } : {}),
