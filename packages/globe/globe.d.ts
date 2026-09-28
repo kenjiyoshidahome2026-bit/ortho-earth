@@ -598,7 +598,7 @@ export interface OrthoJapanMap {
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
 	/** 描き終わり（MapLibre 同名・1.5.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
-	 *  画像タイル層（raster/hillshade/image/video・map.raster も）の未着も待つ（1.5.1〜。それまでは画像が降っている途中で来た）。
+	 *  画像タイル層（raster/hillshade/image/video・map.raster も）の未着も待つ（1.6.0〜。それまでは画像が降っている途中で来た）。
 	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
@@ -652,7 +652,7 @@ export interface OrthoJapanMap {
 	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
 	raster: RasterAPI;
 	/** 記号帳（MapLibre の addImage 相当）。img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}。sdf＝icon-color で塗れる記号 */
-	/** Web フォントを差す（1.5.2〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
+	/** Web フォントを差す（1.6.0〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
 	 *  main（DOM）と描画 worker（注記・記号・集約の canvas）の両方に同じ FontFace を載せる。source＝URL か ArrayBuffer・descriptors＝weight/style 等。glyph PBF（style.glyphs）は読まない */
 	addFontFace(family: string, source: string | ArrayBuffer, descriptors?: { weight?: string; style?: string; stretch?: string; unicodeRange?: string }): Promise<OrthoJapanMap>;
 	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;
@@ -683,7 +683,7 @@ export interface OrthoJapanMap {
 	 *  描く場所は基図の塗りと線の上・注記の下（注記は基図と同じ衝突の判定・利用者の注記が勝つ）＝利用者の層どうしの順（beforeId・moveLayer）は source をまたいでも正確・基図の層を指す beforeId は「基図の上」。
 	 *  3D（地形あり）では塗りは地面に焼く（基図の線の下・基図自身と同じ規則）。paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻み・MapLibre はズーム中も連続）。
 	 *  circle＝画面に向いた円（circle-pitch-alignment "map"・blur・translate は未対応）・線と面の円は頂点ごと（MapLibre と同じ）・塗りの透ける円の縁は止まった所のズームで合わせた輪。
-	 *  symbol＝点の注記（text-field）と面の注記（到達不能極）。記号（icon-image＝style の sprite か addImage・icon-size/-anchor/-offset/-rotate/-padding/-allow-overlap/-ignore-placement/-optional・text-optional・icon-text-fit（＋padding）・icon-color（SDF）・icon-opacity）は基図の symbol 層と同じ注記層で文字と一緒に裁く（1.5.2〜）。線に沿う注記（symbol-placement "line"／"line-center"・symbol-spacing・text-max-angle・text-keep-upright・text-offset の直角成分）も 1.5.2〜（字を 1 字ずつ線に沿わせる・線の記号（icon-rotation-alignment map＝線の向き）も・面の輪郭は未対応）。向き＝text-rotate・text/icon-rotation-alignment（map＝地図の回転に追随・viewport-glyph）・text/icon-pitch-alignment（map＝傾けた地面に寝かせる・線の注記の既定）も 1.5.2〜。記号帳に無い名前は map.on("styleimagemissing", e => e.id) で名前ごとに 1 回知らせる（聞き手が addImage すれば出る・MapLibre 同名）。fill-outline-color は 1px の縁。fill-pattern・line-gradient・line-blur・line-gap-width は未対応（警告して描く）。
+	 *  symbol＝点の注記（text-field）と面の注記（到達不能極）。記号（icon-image＝style の sprite か addImage・icon-size/-anchor/-offset/-rotate/-padding/-allow-overlap/-ignore-placement/-optional・text-optional・icon-text-fit（＋padding）・icon-color（SDF）・icon-opacity）は基図の symbol 層と同じ注記層で文字と一緒に裁く（1.6.0〜）。線に沿う注記（symbol-placement "line"／"line-center"・symbol-spacing・text-max-angle・text-keep-upright・text-offset の直角成分）も 1.6.0〜（字を 1 字ずつ線に沿わせる・線の記号（icon-rotation-alignment map＝線の向き）も・面の輪郭は未対応）。向き＝text-rotate・text/icon-rotation-alignment（map＝地図の回転に追随・viewport-glyph）・text/icon-pitch-alignment（map＝傾けた地面に寝かせる・線の注記の既定）も 1.6.0〜。記号帳に無い名前は map.on("styleimagemissing", e => e.id) で名前ごとに 1 回知らせる（聞き手が addImage すれば出る・MapLibre 同名）。fill-outline-color は 1px の縁。fill-pattern・line-gradient・line-blur・line-gap-width は未対応（警告して描く）。
 	 *  feature-state は状態を置くだけ（絵にはまだ効かない＝既定の見た目）。問い合わせは基図と同じ当て方（面の中・線幅・円の半径・sourceLayer・id・source）。
 	 *  地域の基図（日本）の自動の 3D 建物は層 "building-extrusion"（type fill-extrusion・source "basemap"）＝getLayer/getStyle に出る・setLayoutProperty(…, "visibility", "none") か removeLayer で伏せる
 	 *  （OSM などの押し出しへ差し替える時・伏せている間は足元の塗りがチルトでも出る・撮影/印刷も同じ・テーマを切り替えても残る）。色・filter・出しズームは変えられない（投げる） */
@@ -691,7 +691,7 @@ export interface OrthoJapanMap {
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
 	/** vector source（fill-extrusion・fill/line/circle/symbol）＝見えているタイルが今の式で組み上がって描画側に載るまで false（カメラが動いている間も false）。基図の source 名も受ける。
-	 *  raster/raster-dem（hillshade）/image/video の source（1.5.1〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
+	 *  raster/raster-dem（hillshade）/image/video の source（1.6.0〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;
