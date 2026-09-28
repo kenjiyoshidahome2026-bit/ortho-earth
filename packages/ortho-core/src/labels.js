@@ -47,7 +47,7 @@ function lineAnchors(g, extent, { step, half, first, win }) {
 		const at = d => { let i = 1; while (i < n - 1 && cum[i] < d) i++; const t = (d - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [c[s + i * 2 - 2] + (c[s + i * 2] - c[s + i * 2 - 2]) * t, c[s + i * 2 - 1] + (c[s + i * 2 + 1] - c[s + i * 2 - 1]) * t, i]; };
 		const ds = [];
 		if (step > 0) { for (let d = first; d <= len - half; d += step) ds.push(d); }
-		if (!ds.length && len >= half) ds.push(len / 2);   // 最初の錨の余白（2 字分）が取れない短い部分（枠で切った線・過拡大）＝中心に 1 つ（収まるかは描く側が画面の字送りで裁く＝過拡大では見積もりより短い。MapLibre は過拡大のタイルで間隔が縮む＝その近似）
+		if (!ds.length && len >= half / 2) ds.push(len / 2);   // 最初の錨の余白が取れない短い部分（枠で切った線・過拡大）＝文字の 1/4 以上なら中心に 1 つ（収まるかは描く側が画面の字送りで裁く＝過拡大 2〜3 倍では見積もりの 1/2〜1/3 で収まる。MapLibre は過拡大のタイルで間隔が縮む＝その近似・2026-09-28 highway-name-minor 11/24 の手当て）
 		for (const d of ds) {
 			const [ax, ay, ai] = at(d);
 			if (ax < 0 || ay < 0 || ax >= extent || ay >= extent) continue;
@@ -113,9 +113,9 @@ export function buildLabels({ layers, z, x, y }, style) {
 			const size = num(evalExpr(lo["text-size"] ?? 16, ctx), 16);
 			// 線の錨に「回さず」置く＝text-rotation-alignment viewport（記号だけなら icon-rotation-alignment viewport）＝道路の盾（road_shield_us）。点の注記として錨に置く（記号も文字も回さない・spacing だけ課す）
 			const upright = onLine && String(evalExpr(text ? traE : (lo["icon-rotation-alignment"] ?? "auto"), ctx) ?? "auto") === "viewport";
-			// 線の錨：px→タイル単位は extent/256（このエンジンのタイルは 256px 世界＝タイル z＝エンジン z で 16 単位/px。MapLibre の 512px タイル z と同じ地面）。文字の長さは字数×size×0.7 の見積もり（本物の幅は描く側・記号だけなら 16px×icon-size）。候補の間隔＝max(文字の長さ/2, spacing/4)（曲がった線でも真っ直ぐな所を拾えるよう密に・spacing は描く側）・最初＝文字の半分＋2 字分（MapLibre）・窓＝文字の長さ＋余白
+			// 線の錨：px→タイル単位は extent/256（このエンジンのタイルは 256px 世界＝タイル z＝エンジン z で 16 単位/px。MapLibre の 512px タイル z と同じ地面）。文字の長さは字数×size×0.7 の見積もり（本物の幅は描く側・記号だけなら 16px×icon-size）。候補の間隔＝max(文字の長さ/2, spacing/4)（曲がった線でも真っ直ぐな所を拾えるよう密に・spacing は描く側）・最初＝文字の半分＋1 字分（MapLibre は 2 字分＝過拡大で厳しすぎるので 1 字）・窓＝文字の長さ＋余白
 			const upp = src.extent / 256, tlen = Math.max(text.length * size * 0.7, text ? 0 : 16 * num(evalExpr(lo["icon-size"] ?? 1, ctx), 1)) * upp, spacingPx = place === "line" ? Math.max(1, num(evalExpr(lo["symbol-spacing"] ?? 250, ctx), 250)) : 0;
-			const spots = onLine ? lineAnchors(g, src.extent, { step: place === "line" ? Math.max(tlen / 2, spacingPx * upp / 4) : 0, half: tlen / 2, first: tlen / 2 + size * 2 * upp, win: tlen * 0.75 + size * 2 * upp })
+			const spots = onLine ? lineAnchors(g, src.extent, { step: place === "line" ? Math.max(tlen / 2, spacingPx * upp / 4) : 0, half: tlen / 2, first: tlen / 2 + size * upp, win: tlen * 0.75 + size * 2 * upp })
 				: f.type === "LineString" ? (() => { const o = [], c = g.coords, ends = g.ends?.length ? g.ends : [c.length]; let st = 0; for (const e of ends) { if (e - st >= 4 && c[st] >= 0 && c[st + 1] >= 0 && c[st] < src.extent && c[st + 1] < src.extent) o.push({ px: c[st], py: c[st + 1] }); st = e; } return o; })()   // 線の各部分の先頭（タイルの中だけ）
 				: [{ px: g.coords[0], py: g.coords[1] }];
 			for (const sp of spots) {
