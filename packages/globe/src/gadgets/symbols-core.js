@@ -38,7 +38,7 @@ export function poleOf(rings) {
 
 export function symbolItems(src, layer = {}, zoom = 10, images = null, missing = null) {   // missing＝記号帳に無い名前を集める Set（styleimagemissing）
 	const origin = originOfLayer(layer);   // MapLibre の層（normalizeMLLayer の印）＝MapLibre の意味で評価
-	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
+	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.type && src?.coordinates ? [{ type: "Feature", properties: {}, geometry: src }] : src?.features || [];   // 素の Geometry も（MapLibre の geojson source は受ける）
 	if ((layer.minzoom != null && zoom < layer.minzoom) || (layer.maxzoom != null && zoom >= layer.maxzoom)) return [];
 	const Ly = layer.layout || {}, Pt = layer.paint || {}, out = [];
 	for (const f of feats) {

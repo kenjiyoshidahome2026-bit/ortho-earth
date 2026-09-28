@@ -3368,6 +3368,10 @@ map.addImage = (name, img, o) => {   // img＝ImageBitmap/HTMLImageElement/Blob/
 	return p;
 };
 map.removeImage = name => symCtl?.removeImage(name);
+map.updateImage = async (name, img) => {   // 画素だけ差し替える（MapLibre 同名・動く記号）＝層を評価し直さない。足している途中の画像は待つ（待たずに「無い名前」として足すと pixelRatio が落ちる）
+	if (pendingImages.size) await Promise.allSettled([...pendingImages]);
+	return symCtl?.hasImage(name) ? symCtl.updateImage(name, img) : map.addImage(name, img);
+};
 map.hasImage = name => !!symCtl?.hasImage(name);
 map.listImages = () => symCtl?.listImages() ?? [];
 map.loadSprite = async (base, prefix) => (await symGet()).loadSprite(base, prefix);                          // MapLibre の sprite（base.json＋base.png・@2x）

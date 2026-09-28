@@ -774,6 +774,19 @@ try {
 				map.jumpTo({ pitch: 0 }); await sleep(800);
 				return [!!a && !!b && !!c && Math.abs(a.h - 19.2) < 2 && b.h < a.h * 0.75 && Math.abs(b.w - a.w) < a.w * 0.15 && c.h < 16 * 0.85, `viewport=${fmt(a)} map=${fmt(b)} line=${fmt(c)}`];
 			});
+			await vscene("update-image-repaints", async () => {   // map.updateImage（MapLibre 同名・動く記号の口）＝画素だけ差し替える：注記の canvas の色が赤→緑に変わり、置いた箱は変わらない
+				const sq = rgb => new ImageData(new Uint8ClampedArray(16 * 16 * 4).map((_, i) => i % 4 === 3 ? 255 : rgb[i % 4]), 16, 16);
+				const colorAt = async () => { const s0 = await map.requestSnapshot(), R0 = s0.render; if (!R0?.labels) return null; const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(D.cafe), i = (Math.round(y * R0.lh / H) * R0.lw + Math.round(x * R0.lw / W)) * 4; return [L[i], L[i + 1], L[i + 2], L[i + 3]]; };
+				await map.addImage("upd", sq([255, 0, 0]));
+				await map.addLayer({ id: "up1", type: "symbol", source: "omt", "source-layer": "poi", layout: { "icon-image": "upd" } });
+				const a = (await untilN("up1", n => n > 0)).find(q => Math.abs(q.x - cx) < 4);
+				let c0 = null; for (let k = 0; k < 8; k++) { await sleep(400); c0 = await colorAt(); if (c0 && c0[0] > 200 && c0[1] < 60) break; }
+				await map.updateImage("upd", sq([0, 255, 0]));
+				let c1 = null; for (let k = 0; k < 8; k++) { await sleep(400); c1 = await colorAt(); if (c1 && c1[1] > 200 && c1[0] < 60) break; }
+				const b = (await placedOf("up1")).find(q => Math.abs(q.x - cx) < 4);
+				await drop("up1"); map.removeImage("upd");
+				return [!!a && !!b && c0?.[0] > 200 && c0?.[1] < 60 && c1?.[1] > 200 && c1?.[0] < 60 && a.w === b.w && a.x === b.x, `before=${c0} after=${c1} box ${a?.w}→${b?.w}`];
+			});
 			await vscene("styleimagemissing-event", async () => {   // 記号帳に無い名前＝styleimagemissing（{ id }）が名前ごとに 1 回鳴る・聞き手が addImage すると出る。基図/vector の経路（labels2d）と geojson の経路（symbols）の両方
 				const got = [], onMiss = e => { got.push(e.id); if (/^nope-/.test(e.id)) map.addImage(e.id, new ImageData(new Uint8ClampedArray(16 * 16 * 4).fill(255), 16, 16)); };
 				map.on("styleimagemissing", onMiss);

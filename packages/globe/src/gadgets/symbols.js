@@ -33,6 +33,13 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 			for (const [id, L] of layers) if (L.missing?.has(name) || JSON.stringify(L.layer.layout || {}).includes(name)) evalLayer(id);   // その名前を待っていた層（式で組んだ名前は missing で）
 			return e;
 		},
+		// 画素だけ差し替える（MapLibre の updateImage・動く記号）＝層の評価し直しをしない軽い口。大きさが変わっても受ける（描く側が箱を組み直す）
+		async updateImage(name, src) {
+			const e = images.get(name); if (!e) return ctl.addImage(name, src);
+			e.bitmap = await toBitmap(src);   // 古い絵は閉じない＝render worker 宛の写し（onImage の createImageBitmap）が並行して読んでいる
+			await send(name, e);
+			return e;
+		},
 		removeImage(name) { images.delete(name); ov?.post({ type: "removeImage", name }); onImageRemoved?.(name); },
 		hasImage: name => images.has(name),
 		getImage: name => images.get(name) || null,   // { bitmap, pixelRatio, sdf }（模様の層が使う）
