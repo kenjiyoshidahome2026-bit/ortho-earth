@@ -11,12 +11,12 @@
 //        { id, type:"unload", g }／{ id, type:"metrics" }／{ id, type:"close" }
 import "#columnar-sources";
 import { findColumnarSource } from "./sources/registry.js";
-import { buildChunk, buildLevels, chunkBuffers, levelBuffers, chunkBytes, LOD_ZOOMS } from "./chunk.js";
+import { buildChunk, buildLevels, chunkBuffers, levelBuffers, copyChunk, LOD_ZOOMS } from "./chunk.js";
 import { tableFor, paintColumns } from "./style.js";
 import { identifyIn } from "./identify.js";
-import { cache, cacheKey } from "./cache.js";
+import { cache, cacheKey, cacheRecord, buildTag } from "./cache.js";
 
-let reader = null, meta = null, rAx = 1, lods = LOD_ZOOMS, cacheBase = null, origin = undefined;
+let reader = null, meta = null, rAx = 1, lods = LOD_ZOOMS, cacheBase = null, tag = "", origin = undefined;
 const loaded = new Map();   // g → { flat, chunk（fbbox/rows/types/n だけ参照）, cols: Map(name → 値[]) }
 
 const headOf = async src => {
@@ -37,6 +37,7 @@ async function open(d) {
 	reader = await def.open(d.src, { name, chunkFeatures: d.chunkFeatures, chunkVertices: d.chunkVertices });
 	meta = { ...reader.meta, source: def.name };
 	cacheBase = d.cacheBase ?? (typeof d.src === "string" ? `${d.src}|${meta.etag || meta.size || ""}` : null);
+	tag = buildTag({ rAx, lods, chunkFeatures: d.chunkFeatures, chunkVertices: d.chunkVertices });   // 球で焼いた物を楕円体で出さない（#43）
 	if (cacheBase) cache.prune();
 	return meta;
 }
@@ -53,9 +54,8 @@ async function tableOf(g, paint, filter, zoom) {
 	return tableFor({ paint, filter, zoom, cols, types: L.flat.types, n: L.flat.n, origin });
 }
 let lazyQ = Promise.resolve();
-const copyLevel = L => ({ zoom: L.zoom, verts: L.verts, lines: L.lines ? { pos: L.lines.pos.slice(), feat: L.lines.feat.slice() } : null, fills: L.fills ? { pos: L.fills.pos.slice(), index: L.fills.index.slice(), feat: L.fills.feat.slice() } : null });
 async function chunk(d) {
-	const t0 = performance.now(), key = cacheKey(cacheBase, d.g);
+	const t0 = performance.now(), key = cacheKey(cacheBase, d.g, tag);
 	let hit = await cache.get(key), c, flat, cached = false, tRead = 0, tBuild = 0;
 	if (hit?.chunk && hit?.flat) { c = hit.chunk; flat = hit.flat; cached = true; }
 	else {
@@ -68,16 +68,19 @@ async function chunk(d) {
 	const L0 = { flat, fbbox: c.fbbox, cols: new Map(), chunk: c, gen: (loaded.get(d.g)?.gen ?? 0) + 1 };
 	loaded.set(d.g, L0);
 	const table = await tableOf(d.g, d.paint ?? null, d.filter ?? null, d.zoom ?? 0);
-	if (c.pending) {   // 残りの段は返した後で（main は先に描く）。作れたら levels を流し、揃った所で IDB へ（URL の源だけ＝先に返す段は写しを取っておく）
-		const first = key ? c.levels.map(copyLevel) : null, gen = L0.gen;
+	// IDB へ置く分（URL の源だけ）は transfer の前に写す＝chunkBuffers が rows/types/points/段の buffer を main へ渡すと worker 側は detach し、
+	// それを指したままの put は構造化複製で DataCloneError（run が握り潰す＝一度も書けていなかった）
+	const snap = key && !cached ? copyChunk(c) : null;
+	if (c.pending) {   // 残りの段は返した後で（main は先に描く）。作れたら levels を流し、揃った所で IDB へ
+		const gen = L0.gen;
 		lazyQ = lazyQ.then(async () => {
 			await new Promise(r => setTimeout(r, 0));
 			const L = loaded.get(d.g); if (!L || L.gen !== gen) return;
 			const added = buildLevels(flat, c, { rAx, lods });
-			if (key) await cache.set(key, { chunk: { ...c, levels: [...first, ...added].sort((a, b) => b.zoom - a.zoom), pending: false }, flat, bytesTotal: chunkBytes(c) + flat.xy.byteLength });   // ★transfer より前に（put の複製は呼んだ時）
+			if (snap) await cache.set(key, cacheRecord(snap, added, flat));   // ★added の transfer より前に（put の複製は呼んだ時）
 			if (added.length) self.postMessage({ type: "levels", g: d.g, levels: added }, levelBuffers(added));
 		}).catch(err => console.warn("[columnar] levels", d.g, err?.message || err));
-	}
+	} else if (snap) cache.set(key, cacheRecord(snap, [], flat));   // zoom なしの呼び出し＝全段そろっている
 	const out = { chunk: c, table, cached, ms: performance.now() - t0, msRead: tRead, msBuild: tBuild };
 	return { out, transfer: [...chunkBuffers(c), table.buffer] };
 }

@@ -10,8 +10,10 @@
      一覧にあるのに通った＝落ちる（直ったので外す）／一覧にあるのに走らなかった＝落ちる。
      g=scan：画像の四隅を緯度 0〜70° に置き、z15 真俯瞰で南北のずれを測る（地形なし＝海面の球の床に貼る経路）。GL2 の床が楕円体の印を
        z≳6.3 で渡していなかった（原点から遠いほどずれる・北緯 60° で約 450m）のを捕まえた走査＝東京の場面だけでは原点が近くて見えない。
-     g=cache：列チャンク層の IDB キャッシュ（鍵＝URL＋サイズ）が球と楕円体を跨いで使い回されないか。同じプロファイルで
-       ①?ell 無し（球）で tests/fixtures/ell/square.parquet（GeoParquet＝URL のまま読める＝キャッシュに入る）を読む（キャッシュに入る）→ ②?ell=1 で読み直す。②の位置を測る。実時間。 -->
+     g=cache：列チャンク層の IDB キャッシュ（鍵＝URL＋サイズ＋作り方（rAx・LOD 段・切り方））が球と楕円体を跨いで使い回されないか。同じプロファイルで
+       ①?ell 無し（球）で tests/fixtures/ell/square.parquet（GeoParquet＝URL のまま読める＝キャッシュに入る）を読む（IDB を空にしてから・書かれるまで待つ）→
+       ②?ell=1 で読み直す＝①の物を使わない（cache:sep）・位置（cache:columnar）・自分の分を書く → ③?ell=1 でもう一度＝②の物を読む（cache:hit）・位置（cache:columnar-hit）。
+       ②の結果は URL（r2）で③へ運ぶ。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-ellparity</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -82,6 +84,9 @@ const SIDE = 60, EXH = 6;   // 四角の一辺（m）・押し出しの高さ（
 const pos = (site, item) => off(SITES[site], ...AT[item]);
 
 try {
+	if (G === "cache" && PHASE === 1 && !Q.has("ell")) {   // ①は球と決め打ち（実 GPU は ?ell 無しだと楕円体が既定＝#43 段 3）
+		const q = new URLSearchParams(location.search); q.set("ell", "0"); location.replace(location.pathname + "?" + q); await new Promise(() => { });
+	}
 	step("boot");
 	const map = await createGlobe({ target: "#map", view: `#15/${SITES.tokyo[1]}/${SITES.tokyo[0]}`, chips: false, persistView: false, mesh: false, terrain: false, night: false, debugGlobals: true });
 	step("load");
@@ -91,31 +96,44 @@ try {
 	const mapR = () => map.mapEl.getBoundingClientRect();
 
 	if (G === "cache") {
-		// ── 列チャンク層のキャッシュ：①球で読んでキャッシュに入れる → ②楕円体で読み直して位置を測る
+		// ── 列チャンク層のキャッシュ：①球で読んで書く → ②楕円体で読み直す（①を使わない・自分の分を書く） → ③楕円体でもう一度（②を読む）
 		const url = new URL("./fixtures/ell/square.parquet", location.href).href;
 		const center = off(SITES.tokyo, 150, 100);
+		const next = (phase, extra) => { const q = new URLSearchParams(location.search); q.set("ell", "1"); q.set("phase", String(phase + 1)); for (const [k, v] of Object.entries(extra)) q.set(k, v); location.replace(location.pathname + "?" + q); return new Promise(() => { }); };
+		if (PHASE === 1) {
+			if (ELL || map.ellipsoidOn()) throw new Error("g=cache の段 1 は球で走らせる（ellipsoidOn=" + map.ellipsoidOn() + "）");
+			await new Promise(r => { const rq = indexedDB.deleteDatabase("ortho-columnar"); rq.onsuccess = rq.onerror = rq.onblocked = r; });   // 前の走りの残り（楕円体の分）で②が当たらないように
+		}
 		const hc = await map.addColumnar(url, { fit: false, paint: { "fill-color": "#00ffff", "fill-opacity": 1 } });
 		await hc.ready;
 		const loaded = await until(() => hc.loaded > 0, 30000);
+		if (!loaded) throw new Error(`段 ${PHASE}：列チャンク層が読めない`);
+		const before = Q.get("k" + (PHASE - 1)) ?? "0";
+		const written = async () => (await until(async () => { const ks = await colKeys(); return ks.length > +before ? ks : null; }, 15000)) || await colKeys();   // IDB への書き込み（読み込みの後で）を待つ
 		if (PHASE === 1) {
-			if (ELL) throw new Error("g=cache の段 1 は球（?ell 無し）で走らせる");
-			if (!loaded) throw new Error("段 1：列チャンク層が読めない");
-			await until(async () => (await colKeys()).length > 0, 15000);   // キャッシュへの書き込み（IDB）を待つ
-			const q = new URLSearchParams(location.search); q.set("ell", "1"); q.set("phase", "2"); q.set("k1", String((await colKeys()).length));
-			location.replace(location.pathname + "?" + q);
-			await new Promise(() => { });
+			const ks = await written();
+			if (!(ks.length > 0)) throw new Error("段 1：キャッシュに書かれない（" + ks.join(",") + "）");
+			await next(1, { k1: String(ks.length) });
 		}
 		await sleep(1500);
-		let got = { n: 0 };
-		for (let a = 0; a < 6; a++) {
-			const img = fromGL(await hc.pixels()), want = map.projectLL(...center);
-			got = centroid(img, want, 40, isCyan);
-			judge("cache:columnar", got, [...want, 1], 2, 20, img, isCyan);
-			if (R["cache:columnar"][0]) break;
-			await sleep(1500);
+		const measure = async key => {
+			for (let a = 0; a < 6; a++) {
+				const img = fromGL(await hc.pixels()), want = map.projectLL(...center);
+				judge(key, centroid(img, want, 40, isCyan), [...want, 1], 2, 20, img, isCyan);
+				if (R[key][0]) break;
+				await sleep(1500);
+			}
+		};
+		if (PHASE === 2) {
+			rec("cache:sep", hc.cached === 0 && +before > 0, `cached=${hc.cached} keys1=${before}`);   // ①（球）の物が IDB にあって、それを使わなかった
+			await measure("cache:columnar");
+			const ks = await written();
+			rec("cache:write", ks.length > +before, `keys1=${before} keys2=${ks.length} ${ks.map(k => k.replace(/^.*\//, "")).join(",")}`);   // 楕円体の分が別の鍵で書かれた
+			await next(2, { k2: String(ks.length), r2: JSON.stringify(R) });
 		}
-		const ks = await colKeys();
-		rec("cache:hit", hc.cached > 0, `cached=${hc.cached} loaded=${hc.loaded} keys1=${Q.get("k1")} keys2=${ks.length} ${ks.map(k => k.replace(/^.*\//, "")).join(",")}`);   // ②がキャッシュから読んだこと（読まなかったら位置の検めは空振り）
+		for (const [k, v] of Object.entries(JSON.parse(Q.get("r2") || "{}"))) if (!(k in R)) R[k] = v;   // ②の結果（boot:mode は③の物を残す）
+		rec("cache:hit", hc.cached > 0, `cached=${hc.cached} loaded=${hc.loaded} keys2=${Q.get("k2")}`);   // ③は②の物を読んだ（読まなかったら次の位置の検めは空振り）
+		await measure("cache:columnar-hit");
 	} else if (G === "scan") {
 		// ── 緯度の走査（画像の四隅・地形なし）＝場所は東へずらして置く（前の場面の原点から遠い所を通る）
 		const ycv = Object.assign(document.createElement("canvas"), { width: 16, height: 16 }), yg = ycv.getContext("2d"); yg.fillStyle = "#ffff00"; yg.fillRect(0, 0, 16, 16);
