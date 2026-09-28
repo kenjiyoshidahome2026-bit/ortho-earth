@@ -44,6 +44,13 @@ assert.equal(rc.length, 1, "line-center は 1 つ"); assert.equal(rc[0].lp, 1); 
 assert.ok(rl.length >= 6 && rl.length <= 8, "候補の錨は文字の半分ごと（タイルの中だけ）: " + rl.length);
 
 assert.equal(rl[0].ma, 30); assert.equal(rl[0].ku, false); assert.equal(rl[0].sp, 100, "symbol-spacing（px）は描く側が課す"); assert.equal(rc[0].sp, undefined);
+assert.ok(rl.every(L => L.lg === rl[0].lg) && /^14\/100\/200\/0\/1\/0$/.test(rl[0].lg), "spacing の群＝1 本の線: " + rl[0].lg);
+// MapLibre 由来の層は同じ点・同じ文字・同じ記号でも層ごとに（後の層が勝つ）＝ネイティブは層またぎで 1 つ
+const mlL = (id, extra = {}) => ({ id, type: "symbol", "source-layer": "poi", metadata: { "ortho:origin": "ml" }, layout: { "text-field": ["get", "name"], "icon-image": "bus", ...extra } });
+const dup = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, { layers: [mlL("a"), mlL("b")] }).labels;
+assert.equal(dup.length, 2, "ML の層＝両方");
+const dupN = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, { layers: [{ id: "a", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] } }, { id: "b", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] } }] }).labels;
+assert.equal(dupN.length, 1, "ネイティブの層＝1 つ");
 for (const L of rl) { assert.ok(L.path instanceof Float64Array && L.path.length >= 4); assert.ok(L.ai >= 0 && L.ai * 2 < L.path.length); assert.equal(L.path[L.ai * 2], L.anchor[0]); assert.equal(L.path[L.ai * 2 + 1], L.anchor[1]); assert.ok(L.icon === undefined); }
 const xs = rl.map(L => L.anchor[0]); assert.ok(xs.every((v, i) => i === 0 || v > xs[i - 1]), "錨は線に沿って並ぶ");
 // 短い線（文字は収まるが最初の余白が取れない）＝中心に 1 つ
