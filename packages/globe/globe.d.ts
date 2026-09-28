@@ -516,6 +516,23 @@ export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "t
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;
+/** 断面の切り方（map.setClipping・1.8.0〜・#111） */
+export interface ClipOptions {
+	/** 鉛直面＝2 点 a→b を通る（a→b に向かって右側を残す） */
+	vertical?: [LonLat, LonLat][];
+	/** 水平面＝at の接平面を高さ h（m）に（keep "below"＝既定） */
+	horizontal?: { at: LonLat; h: number; keep?: "below" | "above" }[];
+	/** 箱の内側を残す（size＝[東西, 南北] m・h＝[底, 天] m・既定 [-500, 9000]・bearing＝度） */
+	box?: { center: LonLat; size?: [number, number]; h?: [number, number]; bearing?: number };
+	/** 単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す） */
+	planes?: [number, number, number, number][];
+	/** URL の ?clip= と同じ書き方の文字列 */
+	param?: string;
+	/** false＝蓋なし（地形の土の色の幕・板と建物の疑似の蓋）・色は { terrain: [r,g,b], building: [r,g,b] }（0..1） */
+	cap?: false | { terrain?: [number, number, number]; building?: [number, number, number] };
+	/** false＝縁の帯なし・{ width（CSS px・既定 2）, color（[r,g,b] 0..1・既定 橙） } */
+	edge?: false | { width?: number; color?: [number, number, number] };
+}
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean }
 export interface Tiles3DHandle { id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
@@ -741,6 +758,17 @@ export interface OrthoJapanMap {
 	 *  （傾けた遠景は影なし）。true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。
 	 *  z13 以上・太陽が地平線の上（2° 以上）の時だけ。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
 	setShadows(opts?: boolean | { on?: boolean; time?: Date | number | string; darkness?: number }): void;
+	/** 断面とクリッピング平面（1.8.0〜・#111）。建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane に当たる）。面は全部の交わり（残るのは全部の面の内側）・6 枚まで。
+	 *  vertical＝2 点 a→b（[lon, lat]）を通る鉛直面＝**a→b に向かって右側を残す**・horizontal＝高さ h（m）の水平面（その地点の接平面・keep "below"＝既定で下を残す／"above"）・
+	 *  box＝箱の内側を残す（center・size＝[東西の幅, 南北の奥行き] m・h＝[底, 天] m・bearing＝奥行きの向き 度）・planes＝単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す・上級者向け）。
+	 *  切れる物＝地形（切り口に土の色の蓋＝鉛直面は縦の幕・水平面は板）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は裏面を蓋の色で塗る疑似の蓋）・
+	 *  模型／3D Tiles／I3S・gint の線と点と塗り・外部ベクタ（map.overlay の塗りと線）・注記・同一フレームのオーバーレイ（frame の api.clip＝面と距離の関数）。
+	 *  切り口には縁の帯（既定 2px の橙・edge:false で消す／{ width, color }）。cap:false で蓋なし。影（setShadows）は切った形で落ちる。
+	 *  識別・ホバー・queryRenderedFeatures も切られた側を返さない（押し出しは足元が全部切られた物だけ外す）。日影図・可視域・見通し線は切らない（実物で測る）。
+	 *  false で消す（消している間は描画に一切関与しない）。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影と同じ扱い）。URL の ?clip=（lon1,lat1,lon2,lat2／h:lon,lat,高さ[,above]／box:lon,lat,幅,奥行き[,底,天[,向き]]・; で重ねる） */
+	setClipping(opts?: false | ClipOptions): void;
+	/** 今の切り方（setClipping に渡した物の写し）・切っていなければ null（1.8.0〜・#111） */
+	getClipping(): ClipOptions | null;
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。
 	 *  結果は地面に画像として貼る（map.raster の "viewshed"＝見える所が緑）。probe＝指定地点が見えるか（1|0）。ボタンとパネルは map.gadget.viewshed() */

@@ -22,7 +22,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL,
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
-	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL } from "./wgsl.js";
+	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.js";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
@@ -579,7 +579,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const CLIP_SLOTS = ["main", "base", "user"], CLIP_SLOT_B = 256;   // uniform のオフセット境界（ClipP＝160B）
 	const CAP_SLOT_B = 512;   // 地形の蓋の CapP（320B）＝近窓・遠窓の 2 スロット
 	let clip = { on: false };
-	let cl = null, cl0mods = null;
+	let cl = null, cl0mods = null, clipFrame = null, clipS = SAMPLES;   // clipS＝このフレームの MSAA 段（オーバーレイの派生パイプライン）
 	function clipRes() {
 		if (cl) return cl;
 		const bgl = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
@@ -603,7 +603,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const bglCap = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }, { binding: 1, visibility: VF, buffer: {} }] });
 		const lay = a => device.createPipelineLayout({ bindGroupLayouts: a });
 		const slotRes = i => ({ buffer: buf, offset: i * CLIP_SLOT_B, size: CLIP_F32 * 4 });
-		cl = { bgl, buf, capBuf, bglShCl, bglPlShCl, bglPlCl, slotRes,
+		// オーバーレイ（段 3）＝原点ごとの K を dynamic offset で（MAX_OV スロット）
+		const bglClDyn = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: { hasDynamicOffset: true } }] });
+		const ovBuf = device.createBuffer({ size: CLIP_SLOT_B * MAX_OV, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		cl = { bgl, buf, capBuf, bglShCl, bglPlShCl, bglPlCl, slotRes, ovBuf, ovCPU: new Float32Array(CLIP_SLOT_B / 4 * MAX_OV), pipesOv: new Map(),
+			ovBG: device.createBindGroup({ layout: bglClDyn, entries: [{ binding: 0, resource: { buffer: ovBuf, offset: 0, size: CLIP_F32 * 4 } }] }),
+			layOv: lay([bglOvFrame, bglOvParam, bglClDyn]),
 			bg: Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: slotRes(i) }] })])),
 			plBG: device.createBindGroup({ layout: bglPlCl, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: slotRes(0) }] }),
 			capBG: [0, 1].map(k => device.createBindGroup({ layout: bglCap, entries: [{ binding: 0, resource: slotRes(0) }, { binding: 1, resource: { buffer: capBuf, offset: k * CAP_SLOT_B, size: 320 } }] })),
@@ -616,7 +621,18 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			cpu: new Float32Array(CLIP_SLOT_B / 4 * CLIP_SLOTS.length), capCPU: new Float32Array(CAP_SLOT_B / 4 * 2) };
 		return cl;
 	}
-	function clipFree() { if (!cl) return; cl.buf.destroy(); cl.capBuf.destroy(); cl = null; }
+	function clipFree() { if (!cl) return; cl.buf.destroy(); cl.capBuf.destroy(); cl.ovBuf.destroy(); cl = null; }
+	function clipOvPipes(sc) {   // オーバーレイの覆う（塗り・周辺マスク）と線＝切る派生（段 3）
+		let p = cl.pipesOv.get(sc); if (p) return p;
+		const ms = { count: sc }, m = (cl0mods.ov ??= mkMod(OVERLAY_CLIP_WGSL, "overlayClip"));
+		const cover = ds => device.createRenderPipeline({ layout: cl.layOv, vertex: { module: m, entryPoint: "vsCover" },
+			fragment: { module: m, entryPoint: "fsCover", targets: [target] }, primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: ms });
+		p = { ovCover: cover(dsOvCover), ovMaskCover: cover(dsOvMaskCover),
+			ovLine: device.createRenderPipeline({ layout: cl.layOv, vertex: { module: cl0mods.line, entryPoint: "vs", buffers: LINE_BUFS },
+				fragment: { module: cl0mods.line, entryPoint: "fs", targets: [target] }, primitive: { topology: "triangle-list" }, depthStencil: dsOff, multisample: ms }) };
+		cl.pipesOv.set(sc, p);
+		return p;
+	}
 	// 派生パイプライン（sampleCount 毎・遅延）＝本体 buildPipes と同じ頂点・深度・ブレンド。mods＝切るだけ／影＋面・L＝その束縛
 	function clipPipeSet(sc, m, L) {
 		const ms = { count: sc };
@@ -883,6 +899,14 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			ovParamCPU[po + 4] = o.fill[0]; ovParamCPU[po + 5] = o.fill[1]; ovParamCPU[po + 6] = o.fill[2]; ovParamCPU[po + 7] = o.fill[3];   // p1=塗り色
 		}
 		device.queue.writeBuffer(ovParamBuf, 0, ovParamCPU.buffer, 0, n * PARAM_SLOT);
+		// 断面（#111 段 3）＝覆う（塗り・マスク）と線を切る派生へ。面の K はオーバーレイの原点ごと
+		const OC = clipFrame ? clipOvPipes(clipS) : null;
+		if (OC) {
+			const sty = clipStyle(clip);
+			for (let i = 0; i < n; i++) { const o = scenes[i].origin; packClip(clipFrame.planes, lonlatTo3D(o[0], o[1]), cl.ovCPU.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), sty); }
+			device.queue.writeBuffer(cl.ovBuf, 0, cl.ovCPU.buffer, 0, n * CLIP_SLOT_B);
+		}
+		const ovClipBG = i => { if (OC) pass.setBindGroup(2, cl.ovBG, [i * CLIP_SLOT_B]); };
 		pass.setStencilReference(0);
 		for (let i = 0; i < n; i++) {
 			const o = scenes[i], fOff = i * FRAME_SLOT, pOff = i * PARAM_SLOT;
@@ -906,21 +930,22 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					if (runN) pass.draw(runN, 1, run0);
 				} else pass.draw(o.fanCount);
 				if (o.mask) {   // 周辺マスク＝外側を暗く塗り→内側stencilを0へ後始末（gint/次スロットのため）
-					pass.setPipeline(P.ovMaskCover);
-					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+					pass.setPipeline(OC ? OC.ovMaskCover : P.ovMaskCover);
+					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]); ovClipBG(i);
 					pass.draw(3);
 					pass.setPipeline(P.ovZero);
 					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
 					pass.draw(3);
 				} else {
-					pass.setPipeline(P.ovCover);
-					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+					pass.setPipeline(OC ? OC.ovCover : P.ovCover);
+					pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]); ovClipBG(i);
 					pass.draw(3);
+					if (OC) { pass.setPipeline(P.ovZero); pass.draw(3); }   // 切って捨てた画素は巻き数が残る（覆うパスが 0 へ戻せない）＝ゼロ書きで後始末
 				}
 			}
 			if (o.lineCount) {   // 線（境界線 / N02 の鉄道線）＝LINE_WGSL 流用
-				pass.setPipeline(P.ovLine);
-				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]);
+				pass.setPipeline(OC ? OC.ovLine : P.ovLine);
+				pass.setBindGroup(0, ovFrameBG, [fOff]); pass.setBindGroup(1, ovParamBG, [pOff]); ovClipBG(i);
 				pass.setVertexBuffer(0, cornerBuf); pass.setVertexBuffer(1, o.bP1); pass.setVertexBuffer(2, o.bP2); pass.setVertexBuffer(3, o.bCol); pass.setVertexBuffer(4, o.bHalf); pass.setVertexBuffer(5, zeroOffBuf);
 				drawLine(pass, o.lineCount);
 			}
@@ -1876,7 +1901,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 遷移時AA：opts.aa===false（renderworker がカメラ遷移・アニメ継続中に指定）＝このフレームは 1x 直描き。
 		// 既定（未指定＝snapshot/print 含む）＝SAMPLES（品質段）。パイプラインとターゲットをセットごと取替。
 		const S = opts && opts.aa === false ? 1 : SAMPLES;
-		P = pipesFor(S);
+		P = pipesFor(S); clipS = S;
 		const st = cameraState(cam, W, H);
 		// フォグ距離の臨界減衰追従（gl/renderer.js draw と同式・同閾値）
 		if (!fogDist) fogDist = st.camDist;
@@ -1955,6 +1980,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 断面（#111）：面は描画の原点からの相対（K を f64 で）。main＝地形（terrain/terrainFar も main と同じ原点）・建物・球の床・メッシュと模型（バッチ原点との差は PB の clipO）／
 		// base・user＝そのシーンの原点（基図と利用者の層の塗りと線）
 		const clipOPt = clipPl && clipPl.length ? lonlatTo3D(mainOrigin[0], mainOrigin[1]) : null;
+		clipFrame = clipOPt ? { planes: clipPl, st } : null;   // gint（#111 段 3）＝host.clipInfo() で面とカメラ（全画面レイ）を読む
 		if (clipOPt) {
 			clipRes();
 			const sty = clipStyle(clip);
@@ -2532,7 +2558,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	device.popErrorScope().then(e => { if (e) gpuErr("init検証", e.message); }).catch(() => {});
 	// device/format/frameInfo/flush＝gint（createGintLayerGPU）のホスト面：開いたフレームに render pass を足す口。
 	// passTS("gint")＝gint が自分のパスに GPU タイマを打つ口。tqTake/hasTQ＝renderworker の計測回収。
-	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
+	return { set, draw, flush, readback, dispose, md: false, mdMax: 0, gintCtx: () => gctx, clipInfo: () => clipFrame, backend: "webgpu", lost: device.lost, maxTex: device.limits.maxTextureDimension2D,
 		gpuResample, readElevCell,   // 標高セルの GPU 再標本化（perf plan P1 step 1）：terrain.js が記述子を渡す合図／検定の読み戻し
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
 		device, format, gpuInfo, frameInfo: () => frame, passTS, tqTake, gpuErrors, get hasTQ() { return !!tq; },

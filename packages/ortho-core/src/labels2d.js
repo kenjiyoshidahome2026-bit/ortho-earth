@@ -4,7 +4,8 @@
 // 向き（段 5）＝text-rotate・rotation-alignment map・pitch-alignment map＝錨での地面の基底から transform を組む（orient）。線の字は上向きを地面の直角へ。
 // 線に沿う注記（symbol-placement line・段 4）も同じ経路＝折れ線を毎フレーム投影して字を線に沿わせる（lineLayout）・字ごとの箱で衝突。
 // 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
-import { cameraState, project, unproject, lonlatTo3D } from "./camera.js";
+import { cameraState, project, unproject, lonlatTo3D, worldRadiusM } from "./camera.js";
+import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
 import { fontCss } from "./fontstack.js";
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
@@ -198,6 +199,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// cel＝天球単位ベクトル（RA/Dec焼き込み・アプリが供給）。null＝非表示（星座線のトグルと同期）。
 	let sky = null;
 	function setSky(data) { sky = data; }
+	// 断面（#111 段 3）：面（clip.js clipPlanes の列・null＝切らない）。錨（標高の持ち上げ込み）が切られた側の注記は当選集合に入れない
+	let clipPl = null;
+	function setClip(planes) { clipPl = planes && planes.length ? planes : null; dirty = true; }
 	// 月＝満ち欠けの円盤（注記トグルと独立＝天体なので常設）。{ cel, sunCel, k }＝方向・太陽方向・輝面比。
 	let moon = null;
 	function setMoon(data) { moon = data; }
@@ -217,6 +221,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (L.flat && !showFlat) continue;
 			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const rad = radiusOf(L, eScale, st, fogF), [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], rad);
+			if (clipPl && clipDistanceM(clipPl, L.anchor[0], L.anchor[1], (rad - 1) * worldRadiusM()) < 0) continue;   // 断面で切られた側（#111 段 3）
 			if (front < 0) { if (!L.lp) ptDbg(L, "back", [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
 			const sx = dx / dpr, sy = dy / dpr;
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
@@ -510,5 +515,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
 }

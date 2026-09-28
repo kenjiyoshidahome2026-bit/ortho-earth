@@ -1388,6 +1388,33 @@ export const MESH_CAST_CLIP_WGSL = clipDerive(MESH_CAST_WGSL, "meshCast", "MESH_
 export const MESH_TEX_CAST_CLIP_WGSL = clipDerive(MESH_TEX_CAST_WGSL, "meshTexCast", "MESH_TEX_CAST_CLIP_WGSL", 2, 1);
 export const BUILDING_CAST_CLIP_WGSL = clipDerive(BUILDING_CAST_WGSL, "bldCast", "BUILDING_CAST_CLIP_WGSL", 3);
 
+// オーバーレイ（外部ベクタの塗り・周辺マスク・段 3）＝覆うパスで画素ごとに切る（扇の画素は地表の点でない＝扇では切れない）。
+// 画素の視線を海抜 0 の球に当て、その地点の地表の高さ（塗りと同じ elevQ＋リフト）の球へ 2 回詰める＝ドレープした塗りの点。
+// 面は group(2)（オーバーレイの原点ごとの K＝dynamic offset）。線は LINE_CLIP_WGSL をそのまま使う
+export const OVERLAY_CLIP_WGSL = deriveAlt(OVERLAY_WGSL, [
+	[["@fragment fn fsCover(in: CoOut) -> @location(0) vec4f {\n", "@fragment fn fsCover(in: CoOut) -> @location(0) vec4f {\n\tif (ovClipped(in.pos.xy)) { discard; }\n"]],
+], "OVERLAY_CLIP_WGSL") + CLIP_WGSL(2) + /* wgsl */`
+fn ovClipped(px: vec2f) -> bool {
+	let ndc = vec2f(px.x / F.viewport.x * 2.0 - 1.0, 1.0 - px.y / F.viewport.y * 2.0);
+	let d = F.rayF.xyz + ndc.x * F.rayX.xyz + ndc.y * F.rayY.xyz;
+	let aa = dot(d, d); let bb = 2.0 * dot(F.eyeC.xyz, d);
+	let O = F.originPt; let rho = length(O.xz);
+	var hW = 0.0;   // 球の半径の上乗せ（単位球）＝地表の高さ
+	var rel = vec3f(0.0);
+	for (var k = 0; k < 3; k++) {
+		let cc = F.eyeC.w - (2.0 * hW + hW * hW);   // |E|² − (1+h)²（|E|²−1 は CPU f64）
+		let disc = bb * bb - 4.0 * aa * cc;
+		if (disc < 0.0) { return true; }
+		let q = -bb + sqrt(disc);
+		if (q <= 0.0) { return true; }
+		rel = F.eyeO.xyz + (2.0 * cc / q) * d;
+		let dll = deltaLL(rel, O, rho, F.eyeO.w, F.ellP.x);
+		hW = (elevQ(F.origin + dll) + P.p0.y) * F.elevP.x;
+	}
+	return clipDist(rel) < 0.0;
+}
+`;
+
 // 地形の蓋（段 2・本人裁定＝鉛直面は縦の幕・水平面は板）：面ごとに、その面の上の大きな四角を 1 枚（instance＝面の番号）。
 // FS で画素の点 X（原点相対）の「足」（測地法線に沿って地表へ下ろした点の経緯度）と高さ z を出し、床（海抜 0）≤ z ≤ 地表 の所だけ塗る＝地面の中の断面。
 // 地表の高さは地形メッシュと同じ折れ線面（格子頂点で elev×距離フェード・同じ対角 a-c-b / b-c-d）＝地形の切り口と画素で合う。

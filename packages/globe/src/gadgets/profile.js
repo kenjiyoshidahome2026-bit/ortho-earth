@@ -6,7 +6,7 @@
 //   海外は ALOS/GEBCO へ自動フォールバック）。サンプル間隔は10m床・120〜1000点（総距離に応じ可変）。
 // 幾何：頂点は経緯度で持ち線は大圏弧で球に追従（measure と同流儀）。距離は WGS84（geodesicDistance）＝数字だけ楕円体。
 // グラフ：縦軸基準（最低標高/0m）切替・縦横比（縦誇張）表示・ホバーで地図上に対応点マーカー・PNG/GeoJSON保存。
-// 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal。
+// 注入（登録側）：makeProjector・unprojectXY・setClick（クリック横取り）・sampleHeight・signal・cut／canCut（3D で切る＝#111・WebGPU の時だけ）。
 import { gadgetStack } from "./stack.js";
 import { geodesicDistance } from "@ortho-earth/core";
 import { tr } from "../i18n.js";
@@ -16,7 +16,7 @@ const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 const LINE = "#c9691e", DOT = "#fff", W = 2, R_VERT = 4;   // 経路＝橙（計測の暗赤と区別・グラフの塗りと同族）
 const FILL_CH = "rgba(235,153,85,.5)", LINE_CH = "#c9691e";   // グラフの塗り/線（地理院の断面図に寄せた橙）
 
-export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, signal, btn } = {}) {
+export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, signal, btn, cut = null, canCut = () => false } = {}) {
 	const mapEl = this.mapEl;
 	if (mapEl.querySelector("#profile-lines")) return () => {};   // 二重搭載は無害
 	const dpr = window.devicePixelRatio || 1;
@@ -48,6 +48,8 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 			</span>
 			<button class="pf-act pf-save">${t("Save graph")}</button>
 			<button class="pf-act pf-route">${t("Save route")}</button>
+			<button class="pf-act pf-cut" hidden>${t("Cut in 3D")}</button>
+			<button class="pf-act pf-flip" hidden>${t("Flip side")}</button>
 			<button class="panel-close" aria-label="${t("Close")}">✕</button>
 		</div>
 		<canvas class="pf-chart"></canvas>`;
@@ -60,6 +62,13 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 	let hoverI = -1;   // グラフのホバー位置（サンプル添字）＝地図上マーカーと連動
 
 	btn.addEventListener("click", () => (active ? stop() : start()));
+	// 3D で切る（#111）＝経路の両端を通る鉛直面で地図を切る（既定はカメラの側を外す＝切り口がこちらを向く）。反対側を残す＝向きを返す。WebGPU の時だけ出す
+	let cutOn = false, cutFlip = false;
+	const cutBtn = panel.querySelector(".pf-cut"), flipBtn = panel.querySelector(".pf-flip");
+	const applyCut = () => { if (!cut) return; if (cutOn && verts.length >= 2) cut(verts[0], verts[verts.length - 1], cutFlip); else cut(null); cutBtn.textContent = cutOn ? t("Remove cut") : t("Cut in 3D"); flipBtn.hidden = !cutOn; };
+	cutBtn.addEventListener("click", () => { cutOn = !cutOn; cutFlip = false; applyCut(); });
+	flipBtn.addEventListener("click", () => { cutFlip = !cutFlip; applyCut(); });
+	const showCut = () => { cutBtn.hidden = !(cut && canCut() && finished && verts.length >= 2); if (cutBtn.hidden && cutOn) { cutOn = false; applyCut(); } };
 	panel.querySelector(".panel-close").addEventListener("click", closePanel);
 	panel.querySelectorAll(".pf-base input").forEach(r => r.addEventListener("change", renderChart));
 	panel.querySelector(".pf-save").addEventListener("click", () => chart.toBlob(b => b && download(b, "profile.png")));
@@ -84,19 +93,21 @@ export function profile({ makeProjector, unprojectXY, setClick, sampleHeight, si
 		setClick(addVertex); draw();
 	}
 	function stop() {
+		if (cutOn) { cutOn = false; applyCut(); }   // 道具を閉じたら切り口も消す
 		active = false; verts = []; cursorLL = null; finished = false; runId++;
 		btn.classList.remove("on"); mapEl.classList.remove("profiling");
 		closePanel(); setClick(null); draw();
 	}
 	function addVertex(x, y) {   // x,y＝canvasローカルCSS座標（input.onClick と同座標系）
 		const ll = unprojectXY(x, y); if (!ll) return;   // 宇宙（球外）クリックは無視
-		if (finished) { verts = []; finished = false; runId++; closePanel(); }   // 確定後の最初のクリック＝新しい経路
+		if (finished) { verts = []; finished = false; runId++; closePanel(); showCut(); }   // 確定後の最初のクリック＝新しい経路（前の切り口は消す）
 		verts.push(ll); draw();
 	}
 	function finish() {   // ダブルクリックの二打目（重複頂点）を落として確定→サンプル開始
 		if (verts.length >= 1) verts.pop();
 		finished = true; cursorLL = null;
 		if (verts.length >= 2) sample();
+		showCut();   // 確定した経路（2 点以上）＝「3D で切る」を出す（WebGPU の時だけ）
 		draw();
 	}
 
