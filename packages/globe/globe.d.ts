@@ -456,6 +456,9 @@ export interface OverlayFrameApi {
 	time: number; clock: { sim: number; wall: number; rate: number } | null;
 	/** シーンの深度（1.2.0〜・#47）。申し出たオーバーレイがある時だけ・LOW_MEM では null */
 	depth: OverlayDepth | null;
+	/** 楕円体表示の b/a（#43）。球＝1・楕円体＝1−1/298.257223563。自前で経緯度から位置を組むオーバーレイは、測地緯度 φ を
+	 *  β（tanβ＝rAx·tanφ）に直した単位球の点に置く（camState.mvp が S＝diag(1, rAx, 1) を畳む）。project／projectH を使う物は気にしなくてよい */
+	rAx: number;
 }
 /** シーンの深度（1.2.0〜・#47）。本体が描き終えたフレームの深度（地形＝傾けた時・ビル・メッシュ・押し出し・gint の建物）を RGBA8 に詰めた物。
  *  海面の球は深度を書かない＝地平線の向こうは従来どおり front<0 で隠す。詰め方＝対数深度 d＝log2(1+w)·logCoef/2 を 24bit（R が上位）・d=1＝何も無い。

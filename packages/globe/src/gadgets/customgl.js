@@ -7,7 +7,7 @@
 //   ・行列は Float64Array で渡す（three.js は f64 で模型の行列と掛けてから f32 に落とす＝高ズームでも震えない。f32 で渡すと z18 で 10px 級の震え）
 // 契約（MapLibre の CustomLayerInterface）：onAdd(map, gl)・prerender?(gl, args)・render(gl, args)・onRemove?(map, gl)・renderingMode "2d"|"3d"。
 // map.triggerRepaint()（＝requestDraw）で次のフレームにまた render が呼ばれる（動く層）。
-import { cameraState, lonlatTo3D } from "@ortho-earth/core";
+import { cameraState, lonlatTo3D, ellipsoidOn } from "@ortho-earth/core";
 
 const PI = Math.PI, D2R = PI / 180, EARTH_R_ML = 6371008.8;   // MapLibre の地球の半径（MercatorCoordinate と同じ）
 const mercX = lng => (180 + lng) / 360;
@@ -48,8 +48,10 @@ export function createCustomGL(env) {
 	function makeArgs() {
 		const s = size(), st = cameraState(cam, s.w, s.h);
 		const [lon, lat] = cam.center, a = lon * D2R, b = lat * D2R;
-		const T = lonlatTo3D(lon, lat);                                                        // 中心（単位球）
-		const E = [-Math.sin(a), 0, Math.cos(a)], N = [-Math.sin(b) * Math.cos(a), Math.cos(b), -Math.sin(b) * Math.sin(a)], U = [Math.cos(b) * Math.cos(a), Math.sin(b), Math.cos(b) * Math.sin(a)];
+		const T = lonlatTo3D(lon, lat);                                                        // 中心（単位球・楕円体なら β 単位球）
+		// 東・北・上（測地）の β 空間像＝S⁻¹·n（楕円体表示＝y だけ 1/rAx・#43）。球（rAx＝1）は従来の式と同値
+		const rAx = ellipsoidOn() ? 1 - 1 / 298.257223563 : 1;
+		const E = [-Math.sin(a), 0, Math.cos(a)], N = [-Math.sin(b) * Math.cos(a), Math.cos(b) / rAx, -Math.sin(b) * Math.sin(a)], U = [Math.cos(b) * Math.cos(a), Math.sin(b) / rAx, Math.cos(b) * Math.sin(a)];
 		const K = 2 * PI * EARTH_R_ML * Math.cos(b) / earthM;                                  // メルカトル 1 単位 → 単位球の長さ（中心緯度・等角＝東西南北同じ）
 		const x0 = mercX(lon), y0 = mercY(lat);
 		// 列優先：col0＝x（東）・col1＝y（南＝メルカトルの y は下向き）・col2＝z（上）・col3＝平行移動（x0,y0 を中心へ）
