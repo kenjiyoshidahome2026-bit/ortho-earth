@@ -132,7 +132,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.ver++;
-			for (const k of r.warn || []) warnOnce(`${sid}:${k}`, `[vtdraw] source "${sid}": symbol-placement other than "point" is not drawn yet (line labels come later)`);
+			for (const k of r.warn || []) warnOnce(`${sid}:${k}`, `[vtdraw] source "${sid}": ${k} is not supported yet on vector sources`);
 			const mk = mkey(sid, key);
 			if (r.ops.length) { mergerW().w.postMessage({ type: "tile", key: mk, ops: r.ops, buildings: null }, opsBuffers(r.ops)); B.ops = true; B.bytes = r.bytes; B.origin = r.origin; B.z = t.z; }
 			else { if (B.ops) mergerW().w.postMessage({ type: "evict", keys: [mk] }); B.ops = false; B.bytes = 0; }
