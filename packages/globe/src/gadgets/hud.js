@@ -101,6 +101,8 @@ export function hud(opts = {}) {
 			row("backend", beName(s.backend) + beNote, "val") +
 			row("FPS", s.fps ?? "–") +
 			row("frame", `${(s.frameMs || 0).toFixed(1)} ms` + note(`(×${(s.res ?? 1).toFixed(2)})`)) +   // フレーム時間と動的解像度を1行に
+			(s.shadow ? row("shadow", s.shadow.active ? `${(s.shadow.gpuMs || 0).toFixed(2)} ms` + note(s.shadow.halfM ? `${s.shadow.N}² · ${(s.shadow.halfM * 2 / 1000).toFixed(1)} km · ${s.shadow.texelM.toFixed(1)} m/texel` : "") : "off" + note("(z<13 or sun down)")) +
+				(s.shadow.halfM ? det(`casters: buildings ${Math.round(s.shadow.bldTris || 0).toLocaleString()} tris · meshes ${s.shadow.meshBatches || 0} (${Math.round(s.shadow.meshTris || 0).toLocaleString()} tris) · passes ${s.shadow.passes} drawn / ${s.shadow.skipped} reused`) : "") : "") +   // 影の深度パス（#112 段 0）＝GPU 時間（描いたパスの EMA）・窓・落とした物・描いた/使い回した回数
 			sec("Memory · MB") +
 			row("tiles", `${mb(s.tiles.bytes)} / ${mb(s.tiles.budget)}`) +
 			row("terrain", mb(s.terrain)) +
