@@ -733,9 +733,13 @@ export interface OrthoJapanMap {
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
 	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
 	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;
-	/** 建物のリアルタイムの影（1.2.1〜）。描画の中で太陽から建物（基図の押し出し＋PLATEAU 等のメッシュ）の深度を描き、地面・建物に影を落とす（shadow map）。
-	 *  true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。z13 以上・太陽が地平線の上の時だけ。
-	 *  **WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
+	/** リアルタイムの影（1.2.1〜・1.7.0 で範囲を広げた＝#112）。描画の中で太陽から深度を描き（shadow map）、影を落とす。
+	 *  落とす物＝地形（1.7.0〜）・基図の押し出し・PLATEAU 等のメッシュ・glb の模型・3D Tiles・I3S・押し出し（map.gadget.extrude／fill-extrusion の層）。
+	 *  模型の MASK（葉などの切り抜き）は α で抜いて落とす。半透明（BLEND）の模型と、統計の柱（市区町村のような広い面の押し出し）は落とさない。
+	 *  受ける物＝地面（地形・球の床）・塗り・線・建物・メッシュ・模型・3D Tiles・I3S・押し出し（不透明と半透明）。gint の線・注記・オーバーレイは受けない。
+	 *  影の間は地形の陰影の光も太陽の方位に合わせる（強さは従来と同じ）。影の窓は 1 枚＝画面の中心のまわり（半幅 120m〜6km）で、縁は丸く薄める
+	 *  （傾けた遠景は影なし）。true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。
+	 *  z13 以上・太陽が地平線の上（2° 以上）の時だけ。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
 	setShadows(opts?: boolean | { on?: boolean; time?: Date | number | string; darkness?: number }): void;
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。

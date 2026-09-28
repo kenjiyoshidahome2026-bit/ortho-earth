@@ -19,7 +19,7 @@ import * as mat from "../mat.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
 import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_WGSL, MESH_WGSL, MESH_TEX_WGSL, SKY_WGSL, OVERLAY_WGSL, RASTER_ATLAS_WGSL, ATLAS_FILL_WGSL,
-	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, TERRAIN_CAST_WGSL } from "./wgsl.js";
+	TERRAIN_SH_WGSL, FILL_SH_WGSL, LINE_SH_WGSL, BUILDING_SH_WGSL, MESH_SH_WGSL, MESH_TEX_SH_WGSL, GLOBE_SH_WGSL, BUILDING_CAST_WGSL, MESH_CAST_WGSL, MESH_TEX_CAST_WGSL, TERRAIN_CAST_WGSL } from "./wgsl.js";
 import { gndMixSlow, ELEV_RESAMPLE_WGSL } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
@@ -497,7 +497,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		const mods = sh0mods || (sh0mods = {
 			terr: mkMod(TERRAIN_SH_WGSL, "terrainSh"), fill: mkMod(FILL_SH_WGSL, "fillSh"), line: mkMod(LINE_SH_WGSL, "lineSh"),
 			bld: mkMod(BUILDING_SH_WGSL, "buildingSh"), mesh: mkMod(MESH_SH_WGSL, "meshSh"), meshTex: mkMod(MESH_TEX_SH_WGSL, "meshTexSh"), globe: mkMod(GLOBE_SH_WGSL, "globeSh"),
-			bldCast: mkMod(BUILDING_CAST_WGSL, "buildingCast"), meshCast: mkMod(MESH_CAST_WGSL, "meshCast"), terrCast: mkMod(TERRAIN_CAST_WGSL, "terrainCast"),
+			bldCast: mkMod(BUILDING_CAST_WGSL, "buildingCast"), meshCast: mkMod(MESH_CAST_WGSL, "meshCast"), meshTexCast: mkMod(MESH_TEX_CAST_WGSL, "meshTexCast"), terrCast: mkMod(TERRAIN_CAST_WGSL, "terrainCast"),
 		});
 		const lay = a => device.createPipelineLayout({ bindGroupLayouts: a });
 		// 模型の受け手の group(2)＝バッチごとの PB（binding 0・dynamic offset）＋影（binding 1〜3）＝group(3) はテクスチャで埋まっている（#112 段 1）
@@ -519,6 +519,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 					fragment: { module: mods.bldCast, entryPoint: "fs", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: dsCast }),
 				mesh: device.createRenderPipeline({ layout: plLayout, vertex: { module: mods.meshCast, entryPoint: "vs", buffers: SH_MESH_BUFS },
 					primitive: { topology: "triangle-list" }, depthStencil: dsCast }),
+				meshTex: device.createRenderPipeline({ layout: plTexLayout, vertex: { module: mods.meshTexCast, entryPoint: "vs", buffers: SH_TEX_BUFS },
+					fragment: { module: mods.meshTexCast, entryPoint: "fsCast", targets: [] }, primitive: { topology: "triangle-list" }, depthStencil: dsCast }),   // 模型の MASK（#112 段 4）＝α で抜く
 				terr: device.createRenderPipeline({ layout: lay([bgl0]), vertex: { module: mods.terrCast, entryPoint: "vs", buffers: [{ arrayStride: 8, attributes: [{ shaderLocation: 0, offset: 0, format: "float32x2" }] }] },
 					primitive: { topology: "triangle-list" }, depthStencil: dsCast }),   // 地形（#112 段 2）＝頂点は group(0)（Frame・標高）だけ読む
 			},
@@ -1706,20 +1708,26 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const cM = mat.transform(win.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);
 				b[o] = p.origin[0]; b[o + 1] = p.origin[1]; b[o + 2] = p.origin[2]; b[o + 3] = 0;
 				b[o + 4] = cM[0]; b[o + 5] = cM[1]; b[o + 6] = cM[2]; b[o + 7] = cM[3];
-				b[o + 8] = -1; b[o + 9] = 0; b[o + 10] = p.noLift ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
-				list.push({ p, slot });
+				const mask = p.textured && p.cut > 0;   // 模型の MASK（葉など）＝α で抜く落とす側（#112 段 4）
+				b[o + 8] = mask ? p.cut : -1; b[o + 9] = 0; b[o + 10] = p.noLift ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
+				list.push({ p, slot, mask });
 			}
 			if (list.length) {
 				device.queue.writeBuffer(sh.batch, 0, sh.batchCPU.buffer, 0, list.length * PL_BATCH_SLOT);
-				sp.setPipeline(sh.cast.mesh);
-				sp.setBindGroup(0, bg0s);
-				sp.setBindGroup(1, paramBG[ROLE.mesh]);
-				for (const { p, slot } of list) {
-					sp.setBindGroup(2, sh.batchBG, [slot * PL_BATCH_SLOT]);
-					sp.setVertexBuffer(0, p.vbo); sp.setVertexBuffer(1, p.nbo);
-					sp.setIndexBuffer(p.ibo, "uint32");
-					sp.drawIndexed(p.count);
-					cnt.meshTris += p.count / 3;
+				for (const tex of [false, true]) {   // 頂点だけ（建物・不透明の模型）→ α で抜く（MASK の模型）
+					const part = list.filter(e => e.mask === tex);
+					if (!part.length) continue;
+					sp.setPipeline(tex ? sh.cast.meshTex : sh.cast.mesh);
+					sp.setBindGroup(0, bg0s);
+					sp.setBindGroup(1, paramBG[ROLE.mesh]);
+					for (const { p, slot } of part) {
+						sp.setBindGroup(2, sh.batchBG, [slot * PL_BATCH_SLOT]);
+						sp.setVertexBuffer(0, p.vbo); sp.setVertexBuffer(1, p.nbo);
+						if (tex) { sp.setVertexBuffer(2, p.uvbo); sp.setVertexBuffer(3, p.cbo); sp.setBindGroup(3, p.texBG); }
+						sp.setIndexBuffer(p.ibo, "uint32");
+						sp.drawIndexed(p.count);
+						cnt.meshTris += p.count / 3;
+					}
 				}
 				cnt.meshBatches = list.length;
 			}
