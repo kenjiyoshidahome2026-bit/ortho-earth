@@ -61,4 +61,12 @@ assert.equal(z9.length, 1, "z9＝point＝線の先頭の頂点に盾 1 つ（Map
 const sh = z14.filter(L => L.li === 0), ow = z14.filter(L => L.li === 1);
 assert.ok(sh.length >= 2, "z14＝line＝盾の錨: " + sh.length); assert.equal(sh[0].lp, undefined, "viewport＝回さない＝点として"); assert.equal(sh[0].sp, 200); assert.equal(sh[0].icon, "us-interstate_2"); assert.equal(sh[0].ira, "viewport"); assert.equal(sh[0].text, "I 80");
 assert.ok(ow.length >= 5, "矢印の錨: " + ow.length); assert.equal(ow[0].lp, 1); assert.equal(ow[0].icon, "oneway"); assert.equal(ow[0].irot, 90); assert.equal(ow[0].ira, "map"); assert.equal(ow[0].text, "");
-console.log("labels.mjs: ok (", labels.length, "+", ll.length, "+", sl.length, "+", z14.length, "labels )");
+// 向き（段 5）＝text-rotate・rotation/pitch-alignment・icon-pitch-alignment を焼く（既定＝auto/0 は焼かない）
+const ost = { layers: [
+	{ id: "o1", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"], "text-rotate": 30, "text-rotation-alignment": "map", "text-pitch-alignment": "viewport", "icon-image": "sq", "icon-rotation-alignment": "map", "icon-pitch-alignment": "map" } },
+	{ id: "o0", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] } },
+] };
+const ol = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, ost).labels, o1 = ol.find(L => L.li === 0), o0 = ol.find(L => L.li === 1);
+assert.equal(o1.rot, 30); assert.equal(o1.ra, "map"); assert.equal(o1.pa, "viewport"); assert.equal(o1.ira, "map"); assert.equal(o1.ipa, "map");
+assert.equal(o0.rot, undefined); assert.equal(o0.ra, undefined); assert.equal(o0.pa, undefined);
+console.log("labels.mjs: ok (", labels.length, "+", ll.length, "+", sl.length, "+", z14.length, "+", ol.length, "labels )");
