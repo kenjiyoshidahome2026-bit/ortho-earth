@@ -58,6 +58,10 @@ export interface OrthoJapanOptions {
 	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
 	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
+	/** 表示の世界の形（1.6.0〜・#43）。"auto"（既定）＝通常・HI のデスクトップは WGS84 楕円体・低メモリ端末（LOW_MEM）と非力な機体（MID_TIER＝内蔵 GPU・4 コア以下・
+	 *  RAM の多いスマホ/タブレット）は球（6371 km）。true／false で固定。URL の ?ell=1／?ell=0 が opts より強い。計測は常に WGS84（表示の形に依らない）。
+	 *  同じ頁の 2 枚目以降の地図は最初の地図の形に従う（core の状態は頁に 1 つ＝違えば console に警告） */
+	ellipsoid?: boolean | "auto";
 	/** 世界の海岸線（Natural Earth admin0 の線・z<9・どの基図の上にも重ねる）。false＝持たない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	coastline?: boolean;
 	/** 地域の申告（1.2.0〜）。省略時は入口で違う：**createGlobe() は申告なし**（globe は地域名を知らない）／
@@ -456,6 +460,9 @@ export interface OverlayFrameApi {
 	time: number; clock: { sim: number; wall: number; rate: number } | null;
 	/** シーンの深度（1.2.0〜・#47）。申し出たオーバーレイがある時だけ・LOW_MEM では null */
 	depth: OverlayDepth | null;
+	/** 楕円体表示の b/a（#43）。球＝1・楕円体＝1−1/298.257223563。自前で経緯度から位置を組むオーバーレイは、測地緯度 φ を
+	 *  β（tanβ＝rAx·tanφ）に直した単位球の点に置く（camState.mvp が S＝diag(1, rAx, 1) を畳む）。project／projectH を使う物は気にしなくてよい */
+	rAx: number;
 }
 /** シーンの深度（1.2.0〜・#47）。本体が描き終えたフレームの深度（地形＝傾けた時・ビル・メッシュ・押し出し・gint の建物）を RGBA8 に詰めた物。
  *  海面の球は深度を書かない＝地平線の向こうは従来どおり front<0 で隠す。詰め方＝対数深度 d＝log2(1+w)·logCoef/2 を 24bit（R が上位）・d=1＝何も無い。
@@ -546,7 +553,7 @@ export interface OrthoJapanMap {
 	maxPitch(): number;
 	/** 現在のチルト上限（度・MapLibre 同名・1.3.0〜） */
 	getMaxPitch(): number;
-	/** 楕円体表示（?ell=1）か。計測は常に WGS84・表示は既定で球 */
+	/** 楕円体表示か（opts.ellipsoid・?ell=1／?ell=0・既定は通常・HI のデスクトップで true＝1.6.0〜・#43）。計測は常に WGS84（表示の形に依らない） */
 	ellipsoidOn(): boolean;
 	getMinZoom(): number;
 	/** 寄りの上限（起動時の zoomMax を超えない）。null＝起動時の上限へ */
@@ -591,7 +598,7 @@ export interface OrthoJapanMap {
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
 	/** 描き終わり（MapLibre 同名・1.5.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
-	 *  画像タイル層（raster/hillshade/image/video・map.raster も）の未着も待つ（1.5.1〜。それまでは画像が降っている途中で来た）。
+	 *  画像タイル層（raster/hillshade/image/video・map.raster も）の未着も待つ（1.6.0〜。それまでは画像が降っている途中で来た）。
 	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
@@ -645,12 +652,12 @@ export interface OrthoJapanMap {
 	 *  四隅の順＝左上→右上→右下→左下（[lon,lat]）＝射影変換で貼る（台形も歪まない）。geoedit の @image（4 頂点の面）と同じ表し方。戻り値＝ソースの自己申告 */
 	raster: RasterAPI;
 	/** 記号帳（MapLibre の addImage 相当）。img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}。sdf＝icon-color で塗れる記号 */
-	/** Web フォントを差す（1.5.2〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
+	/** Web フォントを差す（1.6.0〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
 	 *  main（DOM）と描画 worker（注記・記号・集約の canvas）の両方に同じ FontFace を載せる。source＝URL か ArrayBuffer・descriptors＝weight/style 等。glyph PBF（style.glyphs）は読まない */
 	addFontFace(family: string, source: string | ArrayBuffer, descriptors?: { weight?: string; style?: string; stretch?: string; unicodeRange?: string }): Promise<OrthoJapanMap>;
 	addImage(name: string, img: ImageBitmap | HTMLImageElement | HTMLCanvasElement | Blob | string | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }, opts?: { pixelRatio?: number; sdf?: boolean }): Promise<unknown>;
 	removeImage(name: string): void;
-	/** 画素だけ差し替える（MapLibre 同名・1.5.2〜）＝層を評価し直さない（動く記号を毎フレーム差し替える口）。無い名前は addImage と同じ */
+	/** 画素だけ差し替える（MapLibre 同名・1.7.0〜）＝層を評価し直さない（動く記号を毎フレーム差し替える口）。無い名前は addImage と同じ */
 	updateImage(name: string, image: ImageBitmap | HTMLImageElement | HTMLCanvasElement | ImageData | { width: number; height: number; data: Uint8Array | Uint8ClampedArray }): Promise<unknown>;
 	hasImage(name: string): boolean;
 	listImages(): string[];
@@ -678,7 +685,7 @@ export interface OrthoJapanMap {
 	 *  描く場所は基図の塗りと線の上・注記の下（注記は基図と同じ衝突の判定・利用者の注記が勝つ）＝利用者の層どうしの順（beforeId・moveLayer）は source をまたいでも正確・基図の層を指す beforeId は「基図の上」。
 	 *  3D（地形あり）では塗りは地面に焼く（基図の線の下・基図自身と同じ規則）。paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻み・MapLibre はズーム中も連続）。
 	 *  circle＝画面に向いた円（circle-pitch-alignment "map"・blur・translate は未対応）・線と面の円は頂点ごと（MapLibre と同じ）・塗りの透ける円の縁は止まった所のズームで合わせた輪。
-	 *  symbol＝点の注記（text-field）と面の注記（到達不能極）。記号（icon-image＝style の sprite か addImage・icon-size/-anchor/-offset/-rotate/-padding/-allow-overlap/-ignore-placement/-optional・text-optional・icon-text-fit（＋padding）・icon-color（SDF）・icon-opacity）は基図の symbol 層と同じ注記層で文字と一緒に裁く（1.5.2〜）。線に沿う注記（symbol-placement "line"／"line-center"・symbol-spacing・text-max-angle・text-keep-upright・text-offset の直角成分）も 1.5.2〜（字を 1 字ずつ線に沿わせる・線の記号（icon-rotation-alignment map＝線の向き）も・面の輪郭は未対応）。向き＝text-rotate・text/icon-rotation-alignment（map＝地図の回転に追随・viewport-glyph）・text/icon-pitch-alignment（map＝傾けた地面に寝かせる・線の注記の既定）も 1.5.2〜。記号帳に無い名前は map.on("styleimagemissing", e => e.id) で名前ごとに 1 回知らせる（聞き手が addImage すれば出る・MapLibre 同名）。画素だけの差し替えは map.updateImage(name, img)（1.5.2〜・層を評価し直さない＝動く記号）。fill-outline-color は 1px の縁。fill-pattern・line-gradient・line-blur・line-gap-width は未対応（警告して描く）。
+	 *  symbol＝点の注記（text-field）と面の注記（到達不能極）。記号（icon-image＝style の sprite か addImage・icon-size/-anchor/-offset/-rotate/-padding/-allow-overlap/-ignore-placement/-optional・text-optional・icon-text-fit（＋padding）・icon-color（SDF）・icon-opacity）は基図の symbol 層と同じ注記層で文字と一緒に裁く（1.6.0〜）。線に沿う注記（symbol-placement "line"／"line-center"・symbol-spacing・text-max-angle・text-keep-upright・text-offset の直角成分）も 1.6.0〜（字を 1 字ずつ線に沿わせる・線の記号（icon-rotation-alignment map＝線の向き）も・面の輪郭は未対応）。向き＝text-rotate・text/icon-rotation-alignment（map＝地図の回転に追随・viewport-glyph）・text/icon-pitch-alignment（map＝傾けた地面に寝かせる・線の注記の既定）も 1.6.0〜。記号帳に無い名前は map.on("styleimagemissing", e => e.id) で名前ごとに 1 回知らせる（聞き手が addImage すれば出る・MapLibre 同名）。画素だけの差し替えは map.updateImage(name, img)（1.7.0〜・層を評価し直さない＝動く記号）。fill-outline-color は 1px の縁。fill-pattern・line-gradient・line-blur・line-gap-width は未対応（警告して描く）。
 	 *  feature-state は状態を置くだけ（絵にはまだ効かない＝既定の見た目）。問い合わせは基図と同じ当て方（面の中・線幅・円の半径・sourceLayer・id・source）。
 	 *  地域の基図（日本）の自動の 3D 建物は層 "building-extrusion"（type fill-extrusion・source "basemap"）＝getLayer/getStyle に出る・setLayoutProperty(…, "visibility", "none") か removeLayer で伏せる
 	 *  （OSM などの押し出しへ差し替える時・伏せている間は足元の塗りがチルトでも出る・撮影/印刷も同じ・テーマを切り替えても残る）。色・filter・出しズームは変えられない（投げる） */
@@ -686,7 +693,7 @@ export interface OrthoJapanMap {
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
 	/** vector source（fill-extrusion・fill/line/circle/symbol）＝見えているタイルが今の式で組み上がって描画側に載るまで false（カメラが動いている間も false）。基図の source 名も受ける。
-	 *  raster/raster-dem（hillshade）/image/video の source（1.5.1〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
+	 *  raster/raster-dem（hillshade）/image/video の source（1.6.0〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;
@@ -728,9 +735,13 @@ export interface OrthoJapanMap {
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
 	 *  probe＝指定地点の日影時間（時・instant は 0|1）。ボタンとパネルは map.gadget.sunshadow() */
 	sunShadow(opts?: { mode?: "duration" | "instant"; date?: Date | string; planeH?: number; hours?: [number, number]; step?: number; decl?: number; bbox?: Bbox; tilesets?: string[]; probe?: LonLat[] }): Promise<{ triangles: number; tiles: number; steps: number; maxHours: number; decl: number; planeH: number; mode: string; probes: number[] }>;
-	/** 建物のリアルタイムの影（1.2.1〜）。描画の中で太陽から建物（基図の押し出し＋PLATEAU 等のメッシュ）の深度を描き、地面・建物に影を落とす（shadow map）。
-	 *  true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。z13 以上・太陽が地平線の上の時だけ。
-	 *  **WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
+	/** リアルタイムの影（1.2.1〜・1.7.0 で範囲を広げた＝#112）。描画の中で太陽から深度を描き（shadow map）、影を落とす。
+	 *  落とす物＝地形（1.7.0〜）・基図の押し出し・PLATEAU 等のメッシュ・glb の模型・3D Tiles・I3S・押し出し（map.gadget.extrude／fill-extrusion の層）。
+	 *  模型の MASK（葉などの切り抜き）は α で抜いて落とす。半透明（BLEND）の模型と、統計の柱（市区町村のような広い面の押し出し）は落とさない。
+	 *  受ける物＝地面（地形・球の床）・塗り・線・建物・メッシュ・模型・3D Tiles・I3S・押し出し（不透明と半透明）。gint の線・注記・オーバーレイは受けない。
+	 *  影の間は地形の陰影の光も太陽の方位に合わせる（強さは従来と同じ）。影の窓は 1 枚＝画面の中心のまわり（半幅 120m〜6km）で、縁は丸く薄める
+	 *  （傾けた遠景は影なし）。true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。
+	 *  z13 以上・太陽が地平線の上（2° 以上）の時だけ。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
 	setShadows(opts?: boolean | { on?: boolean; time?: Date | number | string; darkness?: number }): void;
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。

@@ -188,7 +188,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			clearExtrude(slot);
 			const key = `extrude/${++seq}`;
 			exts.set(slot, { name: key, stats: r.stats, used, mode, lift: lift ?? 0 });   // mode/lift＝問い合わせの立体の当たり（描いた地面と同じ所で当てる）
-			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
+			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, noLift: mode === "plane", drape: mode === "drape", keep2d: true, castShadow: buildingLike, ward: key, tex: null, alphaMode: blend ? "BLEND" : "OPAQUE", alphaCutoff: 0.5, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));
 			console.info(`[extrude] ${r.stats.polygons} polygons, ${r.stats.triangles} tris`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;

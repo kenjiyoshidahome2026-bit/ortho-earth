@@ -12,7 +12,7 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 // 同じ入口（worker.js）＝vite は自己参照を self.location.href に畳む。入れ子 worker が無い環境では Worker が投げ→ローダがその場実行へ退避
 setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
-import { setEllipsoid, cameraState, project, projectClip } from "@ortho-earth/core/camera";
+import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
@@ -82,7 +82,8 @@ function overlayFrame(camNow, depthFrame) {
 				const clipH = (lon, lat, hM) => projectClip(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
 				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
 				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
-					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain };
+					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain,
+					rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1 };   // 楕円体表示の b/a（#43）＝自前で位置を組むオーバーレイは tanβ＝rAx·tanφ の β 単位球に置く（camState.mvp が S を畳む）。球＝1
 			}
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
@@ -165,6 +166,7 @@ function tqFeed(tag, ms) {
 	if (tag === "gint") {
 		gintEmaRaw = gintEmaRaw ? gintEmaRaw + (ms - gintEmaRaw) * (ms > gintEmaRaw ? 0.3 : 0.1) : ms;
 	}
+	if (tag === "shadow") shadowEmaRaw = shadowEmaRaw ? shadowEmaRaw + (ms - shadowEmaRaw) * (ms > shadowEmaRaw ? 0.3 : 0.1) : ms;
 	if (tag === "map") {
 		const s = RES_STEPS[resIdx], msFull = ms / (s * s);
 		gpuEmaRaw = gpuEmaRaw ? gpuEmaRaw + (ms - gpuEmaRaw) * (ms > gpuEmaRaw ? 0.3 : 0.1) : ms;
@@ -493,6 +495,7 @@ let baseW = 0, baseH = 0, resIdx = 0;
 let resPinned = false;   // 録画中（scene エディタ）＝動的解像度を res=1 に固定（映像に縮み絵を混ぜない・"pinRes" メッセージ）
 let gpuFast = false, gpuFastStreak = 0, gpuEma = 0;   // GPU格付け（tqPollの純GPU時間・res²正規化）＝静止時の手前詳細化の可否をmainへ通知
 let gpuEmaRaw = 0, gintEmaRaw = 0;   // 現解像度での素のGPU時間EMA（map/gint別）＝動的解像度の物差しは合計
+let shadowEmaRaw = 0;   // 影の深度パス（#112 段 0）の GPU 時間 EMA＝描いたパスだけで更新（省いたフレームは積まない）。計器だけ＝動的解像度の物差しには入れない
 // （正規化しない＝「今の絵の実コスト」。gint を足すのが肝＝球ビューのデモ飛行は gint海岸線 ≫ map で、
 //   map単独だと総GPUが予算超過でも降段せず「スムーズな動きがなくなった」＝実機フルスクリーンで顕在化）
 const RES_STEPS = [1, 0.85, 0.7, 0.55];
@@ -698,7 +701,7 @@ function frame() {
 					const gg = tqN.gint ? (tqSum.gint / tqN.gint).toFixed(2) : "-";
 					const gs = gint ? gint.stats() : { drawn: 0, fbo: 0, pickMs: 0, rank: -1, tierW: -1, edges: 0, tiers: 0, tiersDone: false, total: 0 };
 					// backend＋ema（壁時計＝両BE比較可）を先頭へ＝?perf=1 の A/B はこの ema を並べる。gpuMap/gpuGint は WebGL のみ（timer query）
-					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
+					console.log(`[perf] backend=${backendName} ema=${emaMs.toFixed(1)}ms f=${pfN} map=${(pfMap / pfN).toFixed(2)}ms gint=${(pfGint / pfN).toFixed(2)}ms gpuMap=${gm}ms gpuGint=${gg}ms${renderer?.shadowStats?.() ? ` gpuShadow=${shadowEmaRaw.toFixed(2)}ms` : ""} res=${RES_STEPS[resIdx]} aa=${aaDyn ? lastAA : "-"} err=${glErr} drawn=${gs.drawn} fbo=${gs.fbo} pick=${gs.pickMs.toFixed(0)}ms rank=${gs.rank} tierW=${gs.tierW} edges=${gs.edges}/${gs.total} tiers=${gs.tiers}${gs.tiersDone ? "✓" : "…"} runs=${gs.runs}/${gs.chunks} vb=${gs.vb ? gs.vb.join(",") : "null"}`);
 					pfLast = pfT2; pfN = 0; pfMap = 0; pfGint = 0;
 					tqSum.map = tqSum.gint = tqN.map = tqN.gint = 0;
 				}
@@ -762,7 +765,8 @@ function frame() {
 		hudFrames = 0; memLast = nowT;
 		postMessage({ type: "mem", terrain: terrain?.bytes?.() || 0, heap: performance.memory?.usedJSHeapSize || 0, gpu: renderer?.memEstimate?.() || null, raster: raster?.bytes?.() || 0,
 			fps, frameMs: emaMs, res: RES_STEPS[resIdx], backend: backendName, gpuName: hudGpuName,
-			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: self.__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null });   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
+			gpuMap: gpuEmaRaw, gpuGint: gintEmaRaw, aa: lastAA, hitch: self.__perfHitch || null, terr: renderer?.terrStats ? renderer.terrStats() : null,
+			gpuShadow: shadowEmaRaw, shadow: renderer?.shadowStats ? renderer.shadowStats() : null });   // 影の深度パス（#112 段 0）＝GPU 時間 EMA と窓・落とした物・描いた/省いた回数（消している間は null）   // perf plan Phase 0：GPU 実時間の EMA（現解像度）・直近の AA 段・引っ掛かり累計・地形チャンクの刈り（P4）＝ベンチ台（t-perfbench）が読む
 	}
 	if (cam) armRaf();   // cam未着の間は rAF を寝かせる（dirtyはcam不在だと消費されず立ちっぱなし＝条件に使えない）。ポンプ10Hzが駆動し、message配給の窓を開ける（iOS飢餓仮説の治癒）
 }

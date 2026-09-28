@@ -203,7 +203,7 @@ The camera is a small plain object — <code>center</code>, <code>zoom</code>, <
 <ul>
 	<li><strong>Zoom means scale.</strong> The world is 256 px at z0; the same z is the same magnification everywhere. Latitude correction is not folded back into the camera.</li>
 	<li><strong>Floating point is kept honest.</strong> Absolute longitude and latitude never pass through 32-bit floats: meshes are drawn relative to a local origin (RTE), and the camera longitude is wrapped so it cannot drift across many turns of the globe.</li>
-	<li><strong>The globe is a sphere by default.</strong> A WGS84 ellipsoid is available (<code>?ell=1</code>); measurements (distance, area) always use the ellipsoid.</li>
+	<li><strong>The globe is drawn as the WGS84 ellipsoid on ordinary desktops</strong> and as a sphere on low-memory and lower-tier devices (phones, integrated GPUs). Override it with the <code>ellipsoid</code> option or <code>?ell=1</code> / <code>?ell=0</code>. Measurements (distance, area) always use the ellipsoid.</li>
 	<li><strong>Going underground fades to black</strong> instead of pushing the camera up — the camera is never moved behind your back.</li>
 	<li><strong>Flights</strong> (<code>flyTo</code>, <code>easeTo</code>, <code>fitBounds</code>) are plans evaluated in time; scene playback uses a virtual clock with a 35 ms step cap, so recordings on slow machines stay in sync.</li>
 </ul>

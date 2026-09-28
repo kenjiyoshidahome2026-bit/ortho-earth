@@ -59,7 +59,8 @@ export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "",
 // drag:true＝ページが window.__dragGo を立てている間だけ実マウスの pointermove を流す（入力→rAF のフレーム内順序は
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
 // backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
-export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null } = {}) {
+// worlds：配列を渡すと起動ログ "[geo] world=…" から "ellipsoid"／"sphere" を積む（runPages の世界の検め・#43 段 0）。
+export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null, worlds = null } = {}) {
 	// Chrome の起動・タブ・WebSocket は cdp.mjs（port は Chrome が選ぶ・頁ごとに別プロファイル・kill の exit を待つ）
 	let ch = null;
 	try {
@@ -68,10 +69,13 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
 		const cdp = await connect(target.webSocketDebuggerUrl);
 		const send = (m, p = {}) => cdp.send(m, p);   // 結果（時間切れ 5 秒・切断は null）
-		if (backends) cdp.on(m => {
+		if (backends || worlds) cdp.on(m => {
 			if (m.method !== "Runtime.consoleAPICalled") return;
-			const b = /^\[boot\] frame1 received backend=(\w+)/.exec(m.params?.args?.[0]?.value || "")?.[1];
-			if (b) backends.push(b);
+			const line = m.params?.args?.[0]?.value || "";
+			const b = /^\[boot\] frame1 received backend=(\w+)/.exec(line)?.[1];
+			if (b && backends) backends.push(b);
+			const w = /^\[geo\] world=(\S+)/.exec(line)?.[1];
+			if (w && worlds) worlds.push(/^WGS84/.test(w) ? "ellipsoid" : "sphere");
 		});
 		// タブが死ぬ（GPU プロセス落ち・OOM）と WebSocket が閉じ、以後の send は全部 5 秒のタイムアウト＝limitS×2 回で最悪 55 分「固まる」（bench-perf で 2 回実測 2026-09-27）
 		// ＝閉じたら即 FAIL・待ちは壁時計 limitS で必ず切る
@@ -129,7 +133,9 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
 		const url = urlOf(page, q.toString());
 		const backends = expectBackend && realtime.has(page) ? [] : null;
-		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
+		// 世界の検め（#43）：頁の URL に ell= があれば、起動ログの世界（[geo] world=）が全部それに合うこと。頁の中で読み直す頁（t-ellparity?g=cache）は ell を付けない
+		const wantWorld = realtime.has(page) && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
+		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
 		let title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url);
 		if (backends && title.startsWith("PASS")) {
 			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;
@@ -137,6 +143,11 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 			if (/skip|スキップ/i.test(title)) title = `FAIL 素通り（backend=${seen}）: ` + title.replace(/^PASS ?/, "");
 			else if (!noBoot.has(page) && (!backends.length || backends.some(b => b !== want))) title = `FAIL backend=${seen}（期待 ${want}）: ` + title.replace(/^PASS ?/, "");
 			else if (backends.length) title = title.replace(/^PASS ?/, `PASS [${seen}] `);
+		}
+		if (worlds && title.startsWith("PASS")) {
+			const seen = [...new Set(worlds)].join("+") || "なし";
+			if (!worlds.length || worlds.some(w => w !== wantWorld)) title = `FAIL world=${seen}（期待 ${wantWorld}）: ` + title.replace(/^PASS ?/, "");
+			else title = title.replace(/^PASS ?/, `PASS [${seen}] `);
 		}
 		const pass = title.startsWith("PASS");
 		if (!pass) fail++;

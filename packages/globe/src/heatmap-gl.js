@@ -2,10 +2,13 @@
 // main（gadgets/aggregate.js）が点の列（単位球ワールド xyz・重み）と、ズームごとの半径/強さの表・色表（heatmap-density 0..1 → RGBA）を渡す。
 // 描き方は MapLibre と同じ二段：①密度＝各点のガウス核（weight×intensity×GAUSS_COEF×exp(−½·3²·d²)）を浮動小数の窓へ加算
 // ②密度 0..1 を色表で引いて不透明度を掛けて画面へ。地球の裏側の点は足さない（視点側の半球だけ）。
-// 契約（app.js の map.overlay）：init(canvas) / message(data) / frame(cam, camState, size) / destroy()。依存ゼロ（worker が URL で import()）。
+// 契約（app.js の map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size) / destroy()。依存ゼロ（worker が URL で import()）。
+// 検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
 
 let gl = null, dens = null, prog = null, colorProg = null, vao = null, quad = null, rampTex = null;
 let n = 0, posBuf = null, wBuf = null, st = { radius: [30], intensity: [1], opacity: 1, zStep: 0.5 }, fmt = null;
+let host = null;
+const probes = [];
 
 const VS = `#version 300 es
 precision highp float;
@@ -53,7 +56,8 @@ function compile(vs, fs) {
 	const u = {}; for (const k of ["u_mvp", "u_eye", "u_px", "u_radius", "u_intensity", "u_d", "u_ramp", "u_opacity"]) u[k] = gl.getUniformLocation(p, k);
 	return { p, u };
 }
-export function init(canvas) {
+export function init(canvas, _opts, h) {
+	host = h || null;
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: false, alpha: true, depth: false });
 	// 密度の窓＝半精度浮動小数（描けない GPU は RGBA8＝量子化するが見た目は近い）
 	fmt = gl.getExtension("EXT_color_buffer_float") || gl.getExtension("EXT_color_buffer_half_float") ? { i: gl.R16F, f: gl.RED, t: gl.HALF_FLOAT } : { i: gl.RGBA8, f: gl.RGBA, t: gl.UNSIGNED_BYTE };
@@ -72,6 +76,7 @@ function setRamp(rgba) {
 }
 // data＝{ type:"points", pos: Float32Array(xyz), w: Float32Array } | { type:"style", radius:[px…], intensity:[…], zStep, opacity, ramp: Uint8Array(1024) } | { type:"clear" }
 export function message(d) {
+	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 	if (!gl) return;
 	if (d.type === "clear") { n = 0; return; }
 	if (d.type === "points") {
@@ -88,7 +93,19 @@ export function message(d) {
 	if (d.type === "style") { st = { ...st, ...d }; if (d.ramp) setRamp(d.ramp); }
 }
 const byZoom = (tab, z) => { const k = z / st.zStep, i = Math.max(0, Math.min(tab.length - 1, Math.floor(k))), j = Math.min(tab.length - 1, i + 1), t = Math.max(0, Math.min(1, k - i)); return tab[i] + (tab[j] - tab[i]) * t; };
-export function frame(cam, s, { w, h }) {
+// 検定用の画素（dbgHost.__ovPixels・t-ellparity）＝probe を受けたら、次の frame で描いた直後に readPixels して host へ（columnar の draw-gl と同じ口・premultiplied RGBA・下が先）
+function answerProbes(w, h) {
+	if (!probes.length) return;
+	const ids = probes.splice(0);
+	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
+	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
+}
+export function frame(cam, s, size) {
+	const r = draw(cam, s, size);
+	if (gl) answerProbes(size.w, size.h);
+	return r;
+}
+function draw(cam, s, { w, h }) {
 	if (!gl) return false;
 	gl.viewport(0, 0, w, h);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);

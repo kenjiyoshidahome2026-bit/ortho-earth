@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- 実描画の検分：地形が落とす影と、影の間の陰影の光（#112 段 2・WebGPU）。試料＝tests/fixtures/dem-ridge（標高 200m の台地に高さ 1000m・斜面 68° の尾根 2 本）。
+     ①東西の尾根（緯度 30.50・経度 150.45〜150.55）・冬至の南中（太陽 36°・真南）＝影を点けると尾根の北の台地（北 1.1km）は暗い。
+       北 2.5km と、尾根の東の端（150.55E）より外（150.56E・北 1.1km）は変わらない（台地は平ら＝陰影は影の有無で変わらない＝暗さは地形が落とした影だけ。
+       影の長さ≈1000/tan36°≈1.4km＝頂の北縁 0.3km から北 1.7km まで）。北から南を向いて見る（南から見ると北の台地は尾根の陰に隠れる）
+     ②南北の尾根（経度 150.50）・冬至の 15 時（太陽は南西）＝影の間は陰影の光が太陽に従う＝西の斜面が東の斜面より明るい
+       （影なしの北西の固定光では逆＝東の斜面が明るい）
+     ③消灯で元どおり。⚠実時間・WebGPU だけ（verify-webgpu.mjs）。GL2 は影を持たない（本人裁定）＝スキップ扱いの PASS -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-shadow-terrain</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const SRC = { tiles: ["./fixtures/dem-ridge/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, minzoom: 12, maxzoom: 12, cellZoom: 12, bounds: [150.4, 30.44, 150.6, 30.62] };
+const MY = 111320, MX = MY * Math.cos(30.5 * Math.PI / 180);
+const at = (lon, lat, eM, nM) => [lon + eM / MX, lat + nM / MY];
+try {
+	const map = await createGlobe({ target: "#map", view: "#14/30.505/150.5/50t", chips: false, night: false, persistView: false, terrain: { source: SRC } });
+	await new Promise(r => map.on("load", r));
+	if (map.backend !== "webgpu") { ok("webgpu-unavailable→スキップ扱いPASS", true); throw "skip"; }
+	const hTop = await map.getHeight(150.5, 30.5), hPl = await map.getHeight(150.5, 30.52);
+	ok("dem", Math.abs(hTop - 1200) < 60 && Math.abs(hPl - 200) < 20, `${hTop.toFixed(0)}/${hPl.toFixed(0)}`);
+	const shot = map.gadget.shot();
+	const grab = async () => { const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]); const bmp = await createImageBitmap(blob); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); const g = cv.getContext("2d"); g.drawImage(bmp, 0, 0); return { d: g.getImageData(0, 0, bmp.width, bmp.height).data, w: bmp.width, k: bmp.width / 960 }; };
+	const lum = (S, [lon, lat]) => {   // 5×5 の平均輝度（画面の外・裏は NaN）
+		const p = map.projectLL(lon, lat); if (!p || !(p[2] > 0)) return NaN;
+		const x = Math.round(p[0] * S.k), y = Math.round(p[1] * S.k); if (x < 3 || y < 3 || x > S.w - 4 || y > 600 * S.k - 4) return NaN;
+		let s = 0; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) { const i = ((y + dy) * S.w + (x + dx)) * 4; s += (S.d[i] + S.d[i + 1] + S.d[i + 2]) / 3; }
+		return s / 25;
+	};
+	// 地形の組み上がりを待つ＝尾根の頂が持ち上がって見える（projectLL が標高を載せる）まで
+	const settle = async () => { await sleep(1500); for (let i = 0; i < 40; i++) { const p0 = map.makeProjectorH({ terrain: false }), a = p0(150.5, 30.5, 0), b = map.projectLL(150.5, 30.5); if (b && Math.abs(b[1] - a[1]) > 20) break; await sleep(500); } await sleep(2500); };
+	await settle();
+	// ① 東西の尾根が北の台地へ落とす影（冬至の南中 01:56Z＝150.5E の南中）。北から南を向く
+	map.jumpTo({ center: at(150.53, 30.5, 0, 1500), zoom: 14, pitch: 50, bearing: 180 });
+	await settle();
+	const P1 = { N11: at(150.5, 30.5, 0, 1100), N25: at(150.5, 30.5, 0, 2500), N11E: at(150.56, 30.5, 0, 1100) };
+	map.setShadows(false); await sleep(1500);
+	const off1 = await grab();
+	map.setShadows({ on: true, time: "2026-12-22T01:56:00Z", darkness: 0.5 }); await sleep(2500);
+	const on1 = await grab();
+	const k1 = Object.fromEntries(Object.entries(P1).map(([n, ll]) => [n, lum(on1, ll) / Math.max(1, lum(off1, ll))]));
+	const note1 = Object.entries(k1).map(([a, v]) => `${a}=${v.toFixed(2)}`).join(",");
+	ok(`尾根の北の台地は影(${note1})`, k1.N11 < 0.75);
+	ok("北 2.5km・尾根の東の外は変わらない", k1.N25 > 0.93 && k1.N25 < 1.07 && k1.N11E > 0.93 && k1.N11E < 1.07);
+	// ② 南北の尾根の斜面＝冬至の 15 時（05:00Z・太陽は南西）
+	map.jumpTo({ center: [150.5, 30.567], zoom: 14, pitch: 50, bearing: 0 });
+	map.setShadows(false); await settle();
+	const P2 = { W: at(150.5, 30.567, -500, 0), E: at(150.5, 30.567, 500, 0) };
+	const off2 = await grab();
+	map.setShadows({ on: true, time: "2026-12-22T05:00:00Z", darkness: 0.5 }); await sleep(2500);
+	const on2 = await grab();
+	const rOff = lum(off2, P2.W) / Math.max(1, lum(off2, P2.E)), rOn = lum(on2, P2.W) / Math.max(1, lum(on2, P2.E));
+	ok(`影の間の陰影は太陽に従う(西/東 影なし=${rOff.toFixed(2)} 影あり=${rOn.toFixed(2)})`, rOn > 1.3 && rOff < 1.0);
+	// ③ 消灯で元どおり
+	map.setShadows(false); await sleep(2000);
+	const back = await grab();
+	const dd = Object.values(P2).map(ll => Math.abs(lum(back, ll) - lum(off2, ll)));
+	ok(`消灯で元どおり(Δmax=${Math.max(...dd).toFixed(1)})`, Math.max(...dd) < 2);
+} catch (e) { if (e !== "skip") t.push("NG:" + (e && e.stack || e)); }
+document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>

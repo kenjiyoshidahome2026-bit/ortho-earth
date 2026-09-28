@@ -48,7 +48,7 @@ import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
-import { lowMem, classifyTier, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
+import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
 import { mountGadgets } from "./gadgets/mount.js";
 import { attributionHTML } from "./gadgets/instruments.js";   // 地域宣言の出典→HTML（#attr と、#attr の無い画面の焼き込みで共用）
 import { dockStack } from "./gadgets/stack.js";   // 左下ドック（座標計器・読込トーストの容れ物＝重なりの構造的排除）
@@ -117,6 +117,8 @@ const t = tr();
 //   region＝地域宣言（packages/jp の JP_REGION の形）。配列でも単体でもよい。**省略・[]・null＝申告なし**＝基図・裸地標高・ラスタ台帳・
 //   出典・戻り先・検索・POI・鉄道が来ない＝世界データだけの地球儀（apps/world の国の地図パネル）。
 //   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
+// 同じ頁の地図が決めた世界の形（#43）＝core の setEllipsoid はモジュール状態＝頁に 1 つ。2 枚目以降は最初の決定に従う（違えば警告）
+let ELL_PAGE = null;
 export async function createGlobe(opts = {}) {
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
@@ -363,28 +365,6 @@ const logEl = orDetached(document.getElementById("log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM = lowMem(navigator);
-// ── 世界の形（現在：全端末＝球6371kmが既定・?ell=1で表示もWGS84楕円体。計測は常時WGS84＝段階A無条件）──
-// 楕円体（段階B 2026-08-11）＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core camera.js の
-// setEllipsoid・ELL 時は世界単位＝a）。決定はこの1点のみ＝worker 文脈（render/plateau/tile）へは各 init の
-// ell: で搬送（モジュール状態のため必須）。PLATEAU キャッシュは meta.ell 印で世代分離＝モードを往復すると
-// 全区焼き直しになるため、フラグ2本とも開発時の切り分け専用（常用しない）。
-// 裁定の歴史：
-//  ①既定化（2026-08-11 本人「見た目では全く区別つかない・ell=1をデフォルトに」＝?gpu=1→既定化と同じ道）。
-//  ②実機事故（同日）：①の世代分離が全端末で一斉発火＝焼き済み PLATEAU 全区無効→「再訪＝直読み」の堀を失い、
-//    全区の再DL+再デコード＋60秒ローテ先読みが重なって iPad Air3(3GB) が jetsam ループ
-//    （基図はマスクで伏せ済み×メッシュ未着＝「ビルが消えた」絵）。
-//  ③★凍結（同日 本人「モバイルは現状維持。動く・落ちないが大前提」＝発表 8/24 LT 前）：LOW_MEM は球に
-//    据え置き＝焼き済み資産・挙動とも改修前とビット同値。将来のモバイル楕円体は別途の裁定
-//    （その時はキャッシュ移行＝球焼き→β変換復元とセット）。
-//  ④★表示は球へ戻し（2026-08-19 本人「表示は球・計測はWGS84。ell=1で表示もWGS84」）：?perf=1 実測で
-//    楕円体表示が GPU 約1割の固定費（dβ 補正＝楕円体ONでは毎頂点の定価・wgsl.js dBeta）と判明。一方で
-//    視覚差は扁平率 0.34%・局所異方性 ≤0.5%＝知覚限界以下、層間は同一写像＝ズレ厳密ゼロ、計測の正しさは
-//    段階A（Vincenty/authalic・無条件）が担う＝表示の楕円体は絵に寄与しない。モバイル恒久球（③）とも
-//    世界の形が揃う。⚠この切替でデスクトップの焼き済み PLATEAU は世代交代（meta.ell 印）＝初回のみ再焼き。
-const ELL_ON = /[?&]ell=1/.test(location.search);
-console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "sphere 6371km (?ell=1 renders WGS84 too; measurement always WGS84)"}`);   // 実機切り分けの計器（スクショのコンソールで世界が判る）
-setEllipsoid(ELL_ON);
-const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 
 // --- 初見が死なない：起動できない環境・壊れた環境を白画面でなく言葉で受け止める（boot/tier.js fatalOverlay / deadMap）---
 const fatalOverlay = (title, detail, reload) => showFatal(mapEl, title, detail, reload ? t("Reload") : null);   // reload=true で「再読み込み」ボタン付き
@@ -421,6 +401,35 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 const { MID_TIER, HI_TIER } = classifyTier({ LOW_MEM, gpuRenderer, search: location.search, nav: navigator, coarse: () => matchMedia("(pointer: coarse)").matches });
 if (MID_TIER) console.log(`[boot] mid-tier device = PLATEAU to safe side (gpu="${gpuRenderer || "unknown"}" cores=${navigator.hardwareConcurrency || "?"})`);
 if (HI_TIER) console.log(`[boot] hi-tier device = PLATEAU wide lanes (cores=${navigator.hardwareConcurrency}, bldCap=3, tileConc=16, decPool)`);
+// ── 世界の形（現在＝通常・HI のデスクトップは WGS84 楕円体・LOW_MEM と MID_TIER は球・?ell=1／?ell=0・opts.ellipsoid で上書き。計測は常時WGS84＝段階A無条件）──
+// 楕円体（段階B 2026-08-11）＝WGS84 を「β（更成緯度）単位球×S」に分解して立てる（ortho-core camera.js の
+// setEllipsoid・ELL 時は世界単位＝a）。決定はこの1点のみ＝worker 文脈（render/plateau/tile）へは各 init の
+// ell: で搬送（モジュール状態のため必須）。PLATEAU キャッシュは meta.ell 印で世代分離＝モードを往復すると
+// 全区焼き直しになるため、フラグ2本とも開発時の切り分け専用（常用しない）。
+// 裁定の歴史：
+//  ①既定化（2026-08-11 本人「見た目では全く区別つかない・ell=1をデフォルトに」＝?gpu=1→既定化と同じ道）。
+//  ②実機事故（同日）：①の世代分離が全端末で一斉発火＝焼き済み PLATEAU 全区無効→「再訪＝直読み」の堀を失い、
+//    全区の再DL+再デコード＋60秒ローテ先読みが重なって iPad Air3(3GB) が jetsam ループ
+//    （基図はマスクで伏せ済み×メッシュ未着＝「ビルが消えた」絵）。
+//  ③★凍結（同日 本人「モバイルは現状維持。動く・落ちないが大前提」＝発表 8/24 LT 前）：LOW_MEM は球に
+//    据え置き＝焼き済み資産・挙動とも改修前とビット同値。将来のモバイル楕円体は別途の裁定
+//    （その時はキャッシュ移行＝球焼き→β変換復元とセット）。
+//  ④★表示は球へ戻し（2026-08-19 本人「表示は球・計測はWGS84。ell=1で表示もWGS84」）：?perf=1 実測で
+//    楕円体表示が GPU 約1割の固定費（dβ 補正＝楕円体ONでは毎頂点の定価・wgsl.js dBeta）と判明。一方で
+//    視覚差は扁平率 0.34%・局所異方性 ≤0.5%＝知覚限界以下、層間は同一写像＝ズレ厳密ゼロ、計測の正しさは
+//    段階A（Vincenty/authalic・無条件）が担う＝表示の楕円体は絵に寄与しない。モバイル恒久球（③）とも
+//    世界の形が揃う。⚠この切替でデスクトップの焼き済み PLATEAU は世代交代（meta.ell 印）＝初回のみ再焼き。
+//  ⑤★通常・HI のデスクトップで楕円体を既定に（2026-09-28 本人「LOW_MEM 以外は適用できるように」・MID_TIER も球＝裁定 B・#43）：
+//    段 0＝測る台（tests/t-ellparity）・段 1＝楕円体で落ちていた物（3D Tiles・heatmap・GL2 の床…）を直した上で。決定＝boot/tier.js ellipsoidMode
+//    （URL › opts.ellipsoid › 自動）。PLATEAU の楕円体の焼きは R2 に全区そろい（段 2）＝初回は R2 から取り直すだけ。GPU 約1割の固定費は承知の上。
+//    格付け（classifyTier の MID_TIER）が要る＝決定はこの下（旧＝LOW_MEM の直後・URL だけ）
+const ellDec = ellipsoidMode({ opt: opts.ellipsoid ?? "auto", search: location.search, LOW_MEM, MID_TIER });
+if (ELL_PAGE && ELL_PAGE.ell !== ellDec.ell) console.warn(`[geo] this page already renders the ${ELL_PAGE.ell ? "ellipsoid" : "sphere"} (${ELL_PAGE.why}); this map follows it instead of ${ellDec.why}`);
+ELL_PAGE ??= ellDec;
+const ELL_ON = ELL_PAGE.ell;
+console.log(`[geo] world=${ELL_ON ? "WGS84 ellipsoid (beta-sphere x S)" : "sphere 6371km"} (${ELL_PAGE.why}; ?ell=1 / ?ell=0 to override; measurement always WGS84)`);   // 実機切り分けの計器（スクショのコンソールで世界が判る・走らせ台 ui-runner が読む）
+setEllipsoid(ELL_ON);
+const EARTH_M = worldRadiusM(), TERR_EXAG = 1.0;   // m→世界単位の換算半径は camera.js が正本（球6371000/楕円体a）。標高は実スケール（誇張しない＝地形を歪めない）。ラベル・地形・建物で共有
 // 通信断トースト：offline イベント＋タイル連続失敗で表示、回復（online/タイル成功）で消える。地図は粗い下地で生き続ける。
 const netEl = document.createElement("div");
 netEl.id = "net-toast";   // スタイルは style.css
@@ -495,8 +504,8 @@ const hudOn = !!hudParam, hudOpenInit = hudParam?.[1] === "1";   // hudOn＝ボ�
 const drawHud = /[?&]drawhud=1/.test(location.search);
 let memTerrain = 0, memHeap = 0, memGpu = null, memRaster = 0;   // render worker から届く terrain LRU バイト・JS ヒープ・GPU固定常駐概算（?hud=1 時のみ更新）
 let memFps = 0, memFrameMs = 0, memRes = 1, memBackend = null, memGpuName = "";   // 同テレメトリの描画実測＝FPS・frame ms・動的解像度・backend(webgpu/webgl2)・GPU名
-let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch = null, memTerr = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
-dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName });
+let memGpuMap = 0, memGpuGint = 0, memAa = 0, memHitch = null, memTerr = null, memGpuShadow = 0, memShadow = null;   // 同テレメトリ（perf plan Phase 0）＝GPU 実時間の EMA・AA 段・引っ掛かり累計・地形チャンクの刈り（P4）。ベンチ台（t-perfbench）が dbgHost.__perf で読む
+dbgHost.__perf = () => ({ fps: memFps, frameMs: memFrameMs, res: memRes, gpuMap: memGpuMap, gpuGint: memGpuGint, aa: memAa, hitch: memHitch, terr: memTerr, backend: memBackend, gpu: memGpuName, gpuShadow: memGpuShadow, shadow: memShadow });   // gpuShadow/shadow＝影の深度パス（#112 段 0・t-shadowbench）
 // 混成R01近景（高チルト山岳の細かい起伏）は全端末で既定ON（lowMem含む）。旧・lowMemはR10止まり（富士3Dのjetsam対策80170b8）
 // だったが、標高アトラスR16F化（GPU半減）＋iOS 4GB実機で peak 84MB・完走を実測して安全確認済み。
 // ?nor01=1 ＝過渡デコードで落ちる端末が出た時の逃げ道（無効化＝全面R10へ）。
@@ -761,7 +770,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
-	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
+	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
 	if (d.type === "drawhud") { showDrawHud(d); return; }                                   // ?drawhud=1：直近フレームの描画実績を画面へ（実機計器）
 	if (d.type !== "elevPending") return;
 	const { count, range, stat } = d;
@@ -2043,6 +2052,7 @@ function hudSnapshot() {
 	const nc = navigator.connection || {};
 	return {
 		backend: dbgHost.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
+		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
 			ram: navigator.deviceMemory || null, cores: navigator.hardwareConcurrency || null,
@@ -3116,7 +3126,7 @@ map.gadget("stac", function (opts) {
 // map.gadget.tiles3d(url, opts) / map.add3DTiles(url, opts)＝戻り値の手綱（remove / setVisible / setOptions / stats）。?tiles3d=<URL>（門は ?g= と共用）・&t3dh=<m>＝高さのずらし
 let t3dCtl = null;
 const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); return t3dCtl ??= m.createTiles3D(map, {
-	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester,
+	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
 	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); needsDraw = true; },
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 }); };

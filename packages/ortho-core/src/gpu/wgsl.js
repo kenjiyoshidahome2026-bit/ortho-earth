@@ -1195,17 +1195,18 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 `;
 
 // ── 建物の影（リアルタイム shadow map・2026-09-24）＝影を点けた時だけ使う派生シェーダ（本体は1バイトも変えない）。
-// 受け手＝本体の文字列派生＋SHADOW_WGSL(g)（g＝空いている group 番号）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
+// 受け手＝本体の文字列派生＋SHADOW_WGSL(g, b0)（g＝空いている group 番号・b0＝その group の最初の binding）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
+// 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。
 // SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
 // 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
-// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 窓の縁フェード幅(uv))。
-const SHADOW_WGSL = g => /* wgsl */`
+// SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 縁のフェードが始まる半径（窓の半幅に対する比）)。
+const SHADOW_WGSL = (g, b0 = 0) => /* wgsl */`
 struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
-@group(${g}) @binding(0) var<uniform> SH: ShadowP;
-@group(${g}) @binding(1) var shTex: texture_depth_2d;
-@group(${g}) @binding(2) var shSamp: sampler_comparison;
+@group(${g}) @binding(${b0}) var<uniform> SH: ShadowP;
+@group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d;
+@group(${g}) @binding(${b0 + 2}) var shSamp: sampler_comparison;
 fn shClip(relA: vec3f) -> vec4f { return SH.clipT + SH.mvp * vec4f(relA, 0.0); }
-fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と縁は日向へ溶かす）
+fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外は日向・縁は中心からの距離で丸く日向へ溶かす）
 	if (sc.w <= 0.0) { return 1.0; }
 	let p = sc.xyz / sc.w;
 	let uv = vec2f(p.x * 0.5 + 0.5, 0.5 - p.y * 0.5);
@@ -1218,7 +1219,9 @@ fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と
 			s += textureSampleCompareLevel(shTex, shSamp, uv + vec2f(f32(i), f32(j)) * SH.p.z, d);
 		}
 	}
-	return mix(1.0, s / 9.0, clamp(e / SH.p.w, 0.0, 1.0));
+	// 縁のフェード（#112 段 3）＝窓の中心からの距離（[−1,1]² の半径）で SH.p.w から 1 へ丸く薄める＝矩形の縁の直線を出さない
+	//（旧＝縁から 6% の帯。傾けた遠景では帯が数 px に潰れ、影がまっすぐ途切れる線に見えた＝富士で確認）
+	return mix(1.0, s / 9.0, 1.0 - smoothstep(SH.p.w, 1.0, length(p.xy)));
 }
 fn shShade(col: vec3f, sc: vec4f) -> vec3f { return col * mix(SH.p.x, 1.0, shLit(sc)); }
 `;
@@ -1226,6 +1229,10 @@ export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) sc: vec4f,\n};"],
 	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.sc = shClip(relW + (F.originPt - SH.anchor.xyz));\n"],
 	["\tlet col = mix(colBase, F.fogColor, in.fog);", "\tlet col = mix(shShade(colBase, in.sc), F.fogColor, in.fog);"],
+	// 影の間の陰影（#112 段 2・本人裁定）＝北西の固定光でなく影と同じ太陽の方位（SH.mvp の 3 行目＝光の進む向き/Z＝shadow.time にも従う）。
+	// 強さは従来と同じ（勾配 1 あたり 0.44＝旧式 (−hx+hy)·0.0007 を歩幅 ≈445m で換算）＝平地は 0.82・向きだけ太陽へ回す。太陽の高度では強めない
+	//（ランバートを平地で割ると低い太陽で日向の斜面が全部 1.15 に飽和し、窓の外の遠い山がまだらになった＝富士で確認）。日の当たらない斜面は地形の影が暗くする
+	["\tlet shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tlet shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
 ], "TERRAIN_SH_WGSL") + SHADOW_WGSL(3);
 export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],
@@ -1248,6 +1255,13 @@ export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tvar lit = shShade(P.p1.rgb * d, in.sc);   // 従来（fx.pbr off）＝全体を暗く\n"],
 ], "MESH_SH_WGSL") + SHADOW_WGSL(3);
+// 模型・3D Tiles・I3S・押し出し（uv と頂点色を持つメッシュ＝MESH_TEX）の受け手（#112 段 1）。影の束縛は group(2) の binding 1〜3（PB と同居）
+export const MESH_TEX_SH_WGSL = deriveWgsl(MESH_TEX_WGSL, [
+	["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(6) sc: vec4f,\n};"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（MESH_SH と同じ）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
+	["\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）", "\tvar lit = shShade(srgbEncode(tx.rgb) * d, in.sc);   // 従来（fx.pbr off）"],
+], "MESH_TEX_SH_WGSL") + SHADOW_WGSL(2, 1);
 export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
 	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet col = atmGround(", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround("],
 ], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
@@ -1261,6 +1275,20 @@ export const BUILDING_CAST_WGSL = deriveWgsl(BUILDING_WGSL, [
 export const MESH_CAST_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n", ""],
 ], "MESH_CAST_WGSL");
+// 模型の MASK（葉などの切り抜き・alphaCutoff）の落とす側（#112 段 4）＝模型の頂点計算そのまま・対数深度だけ外す＋α で抜く FS（本体の `tx.a < B.alpha.x` と同じ判定）。
+// 葉が四角い影になっていた（頂点だけのパイプラインは α を見ない）。BLEND の模型は落とさない（本人裁定）
+export const MESH_TEX_CAST_WGSL = deriveWgsl(MESH_TEX_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n", ""],
+], "MESH_TEX_CAST_WGSL") + `
+@fragment fn fsCast(in: PlOut) {
+	let a = textureSample(texT, texS, in.uv).a * in.col.a;
+	if (a < B.alpha.x) { discard; }
+}
+`;
+// 地形も影を落とす（#112 段 2・影の窓の中だけ）＝本体の頂点計算そのまま（同じ窓・同じ距離フェード＝画面の地形と同じ形）・対数深度だけ外す。頂点だけのパイプライン
+export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
+], "TERRAIN_CAST_WGSL");
 
 // 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝elevation.js downsampleFlipped／cropResample・elevation/worldatlas.js worldAtlasCell と同式。
 // 生タイル（Int16＝u32 に 2 texel・Float32＝bitcast）は storage buffer（writeTexture の 256B 行整列を避ける＝再パック無し・1 タイル 1 回の上げで何セルでも切り出せる）。
