@@ -1227,6 +1227,10 @@ export const TERRAIN_SH_WGSL = deriveWgsl(TERRAIN_WGSL, [
 	["\t@location(8) guv3: vec2f,\n};", "\t@location(8) guv3: vec2f,\n\t@location(9) sc: vec4f,\n};"],
 	["\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n", "\tlet relW = rel + (h * F.elevP.x) * liftDir(a_ll, dir);   // 楕円体＝測地法線\n\to.sc = shClip(relW + (F.originPt - SH.anchor.xyz));\n"],
 	["\tlet col = mix(colBase, F.fogColor, in.fog);", "\tlet col = mix(shShade(colBase, in.sc), F.fogColor, in.fog);"],
+	// 影の間の陰影（#112 段 2・本人裁定）＝北西の固定光でなく影と同じ太陽の方位（SH.mvp の 3 行目＝光の進む向き/Z＝shadow.time にも従う）。
+	// 強さは従来と同じ（勾配 1 あたり 0.44＝旧式 (−hx+hy)·0.0007 を歩幅 ≈445m で換算）＝平地は 0.82・向きだけ太陽へ回す。太陽の高度では強めない
+	//（ランバートを平地で割ると低い太陽で日向の斜面が全部 1.15 に飽和し、窓の外の遠い山がまだらになった＝富士で確認）。日の当たらない斜面は地形の影が暗くする
+	["\tlet shade = clamp(0.82 + (-hx + hy) * 0.0007, 0.45, 1.15);", "\tlet sdir = -normalize(vec3f(SH.mvp[0].z, SH.mvp[1].z, SH.mvp[2].z));\n\tlet lr = in.ll * 0.017453292519943295;\n\tlet cl = cos(lr.y); let sl = sin(lr.y); let co = cos(lr.x); let so = sin(lr.x);\n\tlet sH = vec2f(dot(sdir, vec3f(-so, 0.0, co)), dot(sdir, vec3f(-sl * co, cl, -sl * so)));   // 太陽の方位（東・北）\n\tlet aH = sH / max(length(sH), 1e-6);\n\tlet gEN = vec2f(hx / (d * 111320.0 * max(cl, 0.01)), hy / (d * 111320.0));   // 勾配（東・北・m/m）\n\tlet shade = clamp(0.82 - 0.44 * dot(gEN, aH), 0.45, 1.15);"],
 ], "TERRAIN_SH_WGSL") + SHADOW_WGSL(3);
 export const FILL_SH_WGSL = deriveWgsl(FILL_WGSL, [
 	["\t@location(9) guv3: vec2f,\n};", "\t@location(9) guv3: vec2f,\n\t@location(10) sc: vec4f,\n};"],
@@ -1269,6 +1273,10 @@ export const BUILDING_CAST_WGSL = deriveWgsl(BUILDING_WGSL, [
 export const MESH_CAST_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tp.z = logDepthZ(p.w);\n", ""],
 ], "MESH_CAST_WGSL");
+// 地形も影を落とす（#112 段 2・影の窓の中だけ）＝本体の頂点計算そのまま（同じ窓・同じ距離フェード＝画面の地形と同じ形）・対数深度だけ外す。頂点だけのパイプライン
+export const TERRAIN_CAST_WGSL = deriveWgsl(TERRAIN_WGSL, [
+	["\tp.z = logDepthZ(p.w);\n\to.pos = p;", "\to.pos = p;"],
+], "TERRAIN_CAST_WGSL");
 
 // 標高セルの GPU 再標本化（perf plan P1 step 1・2026-09-27）＝elevation.js downsampleFlipped／cropResample・elevation/worldatlas.js worldAtlasCell と同式。
 // 生タイル（Int16＝u32 に 2 texel・Float32＝bitcast）は storage buffer（writeTexture の 256B 行整列を避ける＝再パック無し・1 タイル 1 回の上げで何セルでも切り出せる）。

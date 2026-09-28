@@ -74,7 +74,7 @@ try {
 				row.gpuShadow = mode === "pan" || mode === "time" ? pick("gpuShadow") : null;   // rotate は描き直さない＝EMA は前の値のまま
 				row.drawn = (s1?.passes || 0) - (s0?.passes || 0); row.reused = (s1?.skipped || 0) - (s0?.skipped || 0);
 				row.active = !!s1?.active;
-				if (s1?.halfM) Object.assign(row, { N: s1.N, windowKm: +(s1.halfM * 2 / 1000).toFixed(2), texelM: +s1.texelM.toFixed(2), altDeg: +s1.altDeg.toFixed(1), bldTris: Math.round(s1.bldTris), meshBatches: s1.meshBatches, meshTris: Math.round(s1.meshTris) });
+				if (s1?.halfM) Object.assign(row, { N: s1.N, windowKm: +(s1.halfM * 2 / 1000).toFixed(2), texelM: +s1.texelM.toFixed(2), altDeg: +s1.altDeg.toFixed(1), terrTris: Math.round(s1.terrTris || 0), bldTris: Math.round(s1.bldTris), meshBatches: s1.meshBatches, meshTris: Math.round(s1.meshTris) });
 				if (mode === "rotate") row.cover = coverage(s1?.mvp || null);
 			}
 			out.rows.push(row);

@@ -27,11 +27,11 @@ try {
 		const med = a => { const s = a.filter(v => v != null).sort((x, y) => x - y); return s.length ? s[s.length >> 1] : null; };
 		const r0 = runs[runs.length - 1];
 		console.log(`backend=${r0.backend} gpu="${r0.gpu}" viewport=${r0.viewport.join("×")} t=${r0.t} flags="${FLAGS}" runs=${runs.length}`);
-		console.log("pos    mode    gpuMap  aa res   gpuShadow  fps  drawn/reused  window km  m/texel  sun°  bld tris  meshes (tris)      cover (in/far km)");
+		console.log("pos    mode    gpuMap  aa res   gpuShadow  fps  drawn/reused  window km  m/texel  sun°  terr tris  bld tris  meshes (tris)      cover (in/far km)");
 		for (let i = 0; i < r0.rows.length; i++) {
 			const col = k => med(runs.map(r => r.rows[i][k]));
 			const s = r0.rows[i], f = (v, d = 2) => v == null ? "-" : (+v).toFixed(d);
-			console.log(`${s.pos.padEnd(6)} ${s.mode.padEnd(6)} ${f(col("gpuMap")).padStart(7)}  ${String(s.aa ?? "-").padStart(2)} ${f(s.res, 2).padStart(4)}  ${f(col("gpuShadow")).padStart(9)}  ${String(col("fps") ?? "-").padStart(3)}  ${(s.mode === "off" ? "-" : `${col("drawn")}/${col("reused")}`).padStart(12)}  ${f(s.windowKm).padStart(9)}  ${f(s.texelM).padStart(7)}  ${f(s.altDeg, 1).padStart(4)}  ${String(s.bldTris ?? "-").padStart(8)}  ${(s.meshBatches == null ? "-" : `${s.meshBatches} (${s.meshTris})`).padStart(17)}  ${(s.cover ? `${s.cover.inside} / ${s.cover.farKm}` : "").padStart(16)}`);
+			console.log(`${s.pos.padEnd(6)} ${s.mode.padEnd(6)} ${f(col("gpuMap")).padStart(7)}  ${String(s.aa ?? "-").padStart(2)} ${f(s.res, 2).padStart(4)}  ${f(col("gpuShadow")).padStart(9)}  ${String(col("fps") ?? "-").padStart(3)}  ${(s.mode === "off" ? "-" : `${col("drawn")}/${col("reused")}`).padStart(12)}  ${f(s.windowKm).padStart(9)}  ${f(s.texelM).padStart(7)}  ${f(s.altDeg, 1).padStart(4)}  ${String(s.terrTris ?? "-").padStart(9)}  ${String(s.bldTris ?? "-").padStart(8)}  ${(s.meshBatches == null ? "-" : `${s.meshBatches} (${s.meshTris})`).padStart(17)}  ${(s.cover ? `${s.cover.inside} / ${s.cover.farKm}` : "").padStart(16)}`);
 		}
 		console.log("(gpuMap＝本体パス（影の受け手の派生 FS 込み）・gpuShadow＝深度パス（描いたパスだけの EMA）・drawn/reused＝深度パスを描いた/使い回した回数（計測窓の間）・cover＝画面の地面のうち影の窓に入る割合 / 見えている地面の最遠）");
 	}
