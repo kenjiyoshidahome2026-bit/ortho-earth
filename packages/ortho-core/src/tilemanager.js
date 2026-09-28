@@ -277,7 +277,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			const c = cache.get(key);
 			if (!c || c.status !== "ready") continue;
 			for (const L of c.labels) {
-				const dk = L.text + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);
+				const dk = (L.mlp ? L.li + "|" : "") + L.text + (L.icon ? "#" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // MapLibre 由来の層は層ごと（同じ点・同じ文字でも別の層なら両方＝poi_transit が poi_r1 に消されていた・2026-09-28）・記号だけの注記は記号名で
 				if (seen.has(dk)) continue; seen.add(dk); out.push(L);
 			}
 		}
