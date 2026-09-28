@@ -1195,15 +1195,16 @@ struct AFOut { @builtin(position) pos: vec4f, @location(0) color: vec4f, @locati
 `;
 
 // ── 建物の影（リアルタイム shadow map・2026-09-24）＝影を点けた時だけ使う派生シェーダ（本体は1バイトも変えない）。
-// 受け手＝本体の文字列派生＋SHADOW_WGSL(g)（g＝空いている group 番号）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
+// 受け手＝本体の文字列派生＋SHADOW_WGSL(g, b0)（g＝空いている group 番号・b0＝その group の最初の binding）。影なしの描画は従来の本体パイプラインのまま＝影響ゼロ。
+// 模型は group 4 枚を使い切る＝影は group(2)（バッチごとの PB が binding 0）の binding 1〜3 に同居させる（#112 段 1・#111 の面も同じ置き方で使い回す）。
 // SH.mvp/clipT＝太陽の正射影（shadow.js shadowWindow・CPU f64）。SH.anchor＝main 原点の単位球点（Frame.originPt と同じ f32 値）＝
 // 受け手は「自分の Frame 原点からの相対位置 + (F.originPt − SH.anchor)」を渡す（main スロットでは差が厳密に 0）。
 // SH.p＝(影の明るさ, 深度の余白, 1texel(uv), 窓の縁フェード幅(uv))。
-const SHADOW_WGSL = g => /* wgsl */`
+const SHADOW_WGSL = (g, b0 = 0) => /* wgsl */`
 struct ShadowP { mvp: mat4x4f, clipT: vec4f, anchor: vec4f, p: vec4f };
-@group(${g}) @binding(0) var<uniform> SH: ShadowP;
-@group(${g}) @binding(1) var shTex: texture_depth_2d;
-@group(${g}) @binding(2) var shSamp: sampler_comparison;
+@group(${g}) @binding(${b0}) var<uniform> SH: ShadowP;
+@group(${g}) @binding(${b0 + 1}) var shTex: texture_depth_2d;
+@group(${g}) @binding(${b0 + 2}) var shSamp: sampler_comparison;
 fn shClip(relA: vec3f) -> vec4f { return SH.clipT + SH.mvp * vec4f(relA, 0.0); }
 fn shLit(sc: vec4f) -> f32 {   // 1＝日向・0＝影（3×3 PCF・窓の外と縁は日向へ溶かす）
 	if (sc.w <= 0.0) { return 1.0; }
@@ -1248,6 +1249,13 @@ export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
 	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tvar lit = shShade(P.p1.rgb * d, in.sc);   // 従来（fx.pbr off）＝全体を暗く\n"],
 ], "MESH_SH_WGSL") + SHADOW_WGSL(3);
+// 模型・3D Tiles・I3S・押し出し（uv と頂点色を持つメッシュ＝MESH_TEX）の受け手（#112 段 1）。影の束縛は group(2) の binding 1〜3（PB と同居）
+export const MESH_TEX_SH_WGSL = deriveWgsl(MESH_TEX_WGSL, [
+	["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(6) sc: vec4f,\n};"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（MESH_SH と同じ）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
+	["\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）", "\tvar lit = shShade(srgbEncode(tx.rgb) * d, in.sc);   // 従来（fx.pbr off）"],
+], "MESH_TEX_SH_WGSL") + SHADOW_WGSL(2, 1);
 export const GLOBE_SH_WGSL = deriveWgsl(GLOBE_WGSL, [
 	["\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tlet col = atmGround(", "\t\tbase = base * (1.0 - gc.a) + gc.rgb;\n\t}\n\tbase = shShade(base, shClip(Pt - SH.anchor.xyz));   // 球の床（海抜0）＝低地と真俯瞰の地面\n\tlet col = atmGround("],
 ], "GLOBE_SH_WGSL") + SHADOW_WGSL(1);
