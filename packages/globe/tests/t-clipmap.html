@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- 実描画の検分：断面とクリッピング平面の公開面（#111 段 3・2026-09-29・WebGPU）＝地図を起動して map.setClipping を叩く。
+     試料＝東京駅（139.7671/35.6812）の geojson：西 150m と東 150m に四角（fill・色違い）と注記（symbol「WEST」「EAST」）。真俯瞰 z16。
+     面＝中心の南北（北→南＝西を残す）。
+     ①map.getClipping は渡した物の写し・切る前は両方の注記が置かれる
+     ②切ると東の注記は置かれない（WEST は残る）・東の四角の画素は消える（西は元のまま）
+     ③queryRenderedFeatures：東の四角の点は返さない・西は返す
+     ④外部ベクタの覆うパス（spotlight の周辺マスク）は切られた東側に掛からない（掛かるのは西の外側だけ）
+     ⑤false で消す＝東の注記が戻る・getClipping は null（シェーダの検証は t-wgsl・t-clip・t-clipgint）。⚠実時間（verify-webgpu.mjs） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-clipmap</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
+const sq = (e, n, h) => [[ll(e - h, n - h), ll(e + h, n - h), ll(e + h, n + h), ll(e - h, n + h), ll(e - h, n - h)]];
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false, debugGlobals: true });   // debugGlobals＝__placed（置いた注記）
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 0, bearing: 0 });
+	const W = { type: "Feature", properties: { name: "WEST", c: "#20a040" }, geometry: { type: "Polygon", coordinates: sq(-150, 100, 50) } };
+	const E = { type: "Feature", properties: { name: "EAST", c: "#2040d0" }, geometry: { type: "Polygon", coordinates: sq(150, 100, 50) } };
+	const PW = { type: "Feature", properties: { name: "WEST" }, geometry: { type: "Point", coordinates: ll(-150, -80) } };
+	const PE = { type: "Feature", properties: { name: "EAST" }, geometry: { type: "Point", coordinates: ll(150, -80) } };
+	map.addSource("clipt", { type: "geojson", data: { type: "FeatureCollection", features: [W, E, PW, PE] } });
+	map.addLayer({ id: "sq", type: "fill", source: "clipt", filter: ["==", ["geometry-type"], "Polygon"], paint: { "fill-color": ["get", "c"], "fill-opacity": 1 } });
+	map.addLayer({ id: "lb", type: "symbol", source: "clipt", filter: ["==", ["geometry-type"], "Point"], layout: { "text-field": ["get", "name"], "text-size": 16 } });
+	const idle = () => new Promise(r => { map.once("idle", r); map.triggerRepaint?.(); });
+	const settle = async () => { await sleep(300); await Promise.race([idle(), sleep(8000)]); await sleep(400); };
+	await settle();
+	const names = async () => new Set((await window.__placed()).filter(p => p.kind === "label" || p.kind === "symbol").map(p => p.text));
+	const snap = async () => {   // 描画の生スナップ（基図の画素・RGBA・flip＝行が下から）→ 画素を読む関数
+		const s = await map.requestSnapshot(), r = s.render, d = new Uint8Array(r.base), w = r.w, h = r.h, k = w / 960;
+		return (px, py) => { const x = Math.round(px * k), y0 = Math.round(py * k), y = r.flip ? h - 1 - y0 : y0, i = (y * w + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+	};
+	const at = (e, n) => { const p = map.projectLL(...ll(e, n)); return [p[0], p[1]]; };
+	const fmt = c => c.map(v => v.toFixed(0)).join("/");
+	const near = (a, b, tol = 12) => a.every((v, i) => Math.abs(v - b[i]) <= tol);
+	const green = c => c[1] > c[0] + 60 && c[1] > c[2] + 40, blue = c => c[2] > c[0] + 80;
+
+	const n0 = await names();
+	const s0 = await snap(), qW = at(-150, 100), qE = at(150, 100);
+	ok("①切る前は両方の注記", n0.has("WEST") && n0.has("EAST"), [...n0].filter(s => /EAST|WEST/.test(s)).join(","));
+	ok("①四角は西が緑・東が青", green(s0(...qW)) && blue(s0(...qE)), `${fmt(s0(...qW))} ${fmt(s0(...qE))}`);
+	const spec = { vertical: [[[LON, LAT + 1], [LON, LAT - 1]]] };
+	map.setClipping(spec);
+	ok("①getClipping は写し", JSON.stringify(map.getClipping()?.vertical) === JSON.stringify(spec.vertical));
+	await settle();
+	const n1 = await names(), s1 = await snap();
+	ok("②東の注記は置かれない・西は残る", n1.has("WEST") && !n1.has("EAST"), [...n1].filter(s => /EAST|WEST/.test(s)).join(","));
+	ok("②東の四角は消え・西は元のまま", !blue(s1(...qE)) && near(s1(...qW), s0(...qW)), `${fmt(s1(...qW))} ${fmt(s1(...qE))}`);
+	const qfW = (await map.queryRenderedFeatures(qW, { layers: ["sq"] })).map(f => f.properties?.name);
+	const qfE = (await map.queryRenderedFeatures(qE, { layers: ["sq"] })).map(f => f.properties?.name);
+	ok("③queryRenderedFeatures：西は返し・東は返さない", qfW.includes("WEST") && !qfE.length, `W=${qfW} E=${qfE}`);
+	// ④ 周辺マスク（spotlight＝西の四角の外を暗く）：切られた東側は暗くならない（背景のまま）・西の外側は暗くなる
+	const qWo = at(-150, -200), qEo = at(150, -200);
+	const b4 = await snap();
+	const sp = await map.gadget.spotlight(W, { fit: false, opacity: 0.6 });
+	await settle();
+	const a4 = await snap();
+	ok("④マスクは西の外だけ暗く・切られた東は変わらない", near(a4(...qEo), b4(...qEo), 3) && a4(...qWo)[0] + a4(...qWo)[1] + a4(...qWo)[2] < b4(...qWo)[0] + b4(...qWo)[1] + b4(...qWo)[2] - 60,
+		`西の外 ${fmt(b4(...qWo))}→${fmt(a4(...qWo))} 東 ${fmt(b4(...qEo))}→${fmt(a4(...qEo))}`);
+	sp?.clear();
+	// ⑤ 消す
+	map.setClipping(false);
+	await settle();
+	const n5 = await names();
+	ok("⑤消すと東の注記が戻る・getClipping は null", n5.has("EAST") && map.getClipping() === null);
+} catch (e) { t.push("NG:例外(" + (e && e.stack || e) + ")"); }
+document.title = (t.some(s => s.startsWith("NG")) ? "FAIL " : "PASS ") + t.join(" ");
+</script>
+</body></html>

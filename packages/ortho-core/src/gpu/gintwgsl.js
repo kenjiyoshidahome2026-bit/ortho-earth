@@ -873,3 +873,74 @@ export function quad6WGSL(code) {
 	if (hit === 0 || /i32\(vi\) [/%] 4;/.test(out)) throw new Error("quad6WGSL: rewrite incomplete (4-vertex markers missing or left over) = the source shader format changed");   // runtime 文字列は英語（verify:regionless の和文の爪車）
 	return out;
 }
+
+// ── 断面とクリッピング平面（#111 段 3・2026-09-29）＝切っている時だけ使う派生（本体は不変）。
+// gint は bind group を 4 枚とも使い切っている＝面と視線の基底は GF の末尾（スロット 512B の空き＝float 80〜127）に載せる。
+// 派生の GF だけがその欄を宣言する（素の GF は 320B のまま＝同じ buffer を読んでも何も変わらない）。K＝n·(gint の原点) − c（CPU f64・gint.js packClipGF）。
+// 線＝端点ごとにドレープ後の位置（relW）で面ごとの距離を運び画素で最小（renderer と同じ作法）・点＝原点相対の位置・
+// 塗り（扇の cover）と ID 塗りの解決＝画素から全画面レイで海抜 0 の球の交点を作って測る（扇の画素は地表の点でない）。3D の塗りは地面アトラス側＝地形の派生で切れている
+const GINT_CLIP_FIELDS = "\tclipPl: array<vec4f, 6>,   // 面（xyz＝法線・w＝K）＝#111 段 3\n\tclipP: vec4f,              // x＝面の枚数\n\trayF: vec4f, rayX: vec4f, rayY: vec4f, eyeC: vec4f, eyeO: vec4f,   // 全画面レイ（renderer と同じ視線の基底・eyeO＝目−gint 原点）\n";
+const GINT_CLIP_FN = (U) => /* wgsl */`
+fn clipD(rel: vec3f, i: u32) -> f32 { if (i < u32(${U}.clipP.x)) { return dot(${U}.clipPl[i].xyz, rel) + ${U}.clipPl[i].w; } return 1e30; }
+fn clipA(rel: vec3f) -> vec4f { return vec4f(clipD(rel, 0u), clipD(rel, 1u), clipD(rel, 2u), clipD(rel, 3u)); }
+fn clipB(rel: vec3f) -> vec2f { return vec2f(clipD(rel, 4u), clipD(rel, 5u)); }
+fn clipOut(a: vec4f, b: vec2f) -> bool { return min(min(min(a.x, a.y), min(a.z, a.w)), min(b.x, b.y)) < 0.0; }
+fn clipPx(px: vec2f, vp: vec2f) -> bool {   // 画素 px（device）の視線が球（海抜 0）に当たる点が切られているか（当たらない＝切る）
+	let ndc = vec2f(px.x / vp.x * 2.0 - 1.0, 1.0 - px.y / vp.y * 2.0);
+	let d = ${U}.rayF.xyz + ndc.x * ${U}.rayX.xyz + ndc.y * ${U}.rayY.xyz;
+	let A = ${U}.eyeC.xyz; let cc = ${U}.eyeC.w;
+	let aa = dot(d, d); let bb = 2.0 * dot(A, d);
+	let disc = bb * bb - 4.0 * aa * cc;
+	if (disc < 0.0) { return true; }
+	let q = -bb + sqrt(disc);
+	if (q <= 0.0) { return true; }
+	let t = 2.0 * cc / q;
+	let rel = ${U}.eyeO.xyz + t * d;
+	let n = u32(${U}.clipP.x);
+	for (var i = 0u; i < n; i++) { if (dot(${U}.clipPl[i].xyz, rel) + ${U}.clipPl[i].w < 0.0) { return true; } }
+	return false;
+}
+`;
+const gDerive = (src, pairs, label) => pairs.reduce((s, [a, b, all]) => {
+	const k = s.split(a).length - 1;
+	if (all ? k < 1 : k !== 1) throw new Error(`gint clip derive(${label}): anchor ${k ? "ambiguous" : "missing"}: ${a.slice(0, 50)}`);
+	return all ? s.split(a).join(b) : s.replace(a, b);
+}, src);
+const GF_CLIP = ["};\n@group(0) @binding(0) var<uniform> F: GF;", GINT_CLIP_FIELDS + "};\n@group(0) @binding(0) var<uniform> F: GF;"];
+export function gintClipWGSL(src, kind) {
+	if (kind === "line") return gDerive(src, [GF_CLIP,
+		["\t@location(8) @interpolate(flat) eb: vec2f,\n};", "\t@location(8) @interpolate(flat) eb: vec2f,\n\t@location(9) cdA: vec4f,\n\t@location(10) cdB: vec2f,\n};"],
+		["\tvar pa3: Proj; var pb3: Proj;\n", "\tvar pa3: Proj; var pb3: Proj;\n\tvar cwA = vec3f(0.0); var cwB = vec3f(0.0);   // 端点のドレープ後の位置（面の距離）\n"],
+		["\t\tpa3 = projectDrape(sn.a);   // 従来経路（2D/地形なし）\n\t\tpb3 = projectDrape(sn.b);\n", "\t\tlet dAc = decodeDLL(sn.a); let dBc = decodeDLL(sn.b);\n\t\tlet rAc = deltaToRel(dAc.x, dAc.y); let rBc = deltaToRel(dBc.x, dBc.y);\n\t\tcwA = drapeRelW(rAc, dAc); cwB = drapeRelW(rBc, dBc);\n\t\tpa3 = projectRel(rAc, cwA);   // 従来経路（2D/地形なし）＝projectDrape と同式\n\t\tpb3 = projectRel(rBc, cwB);\n"],
+		["\t\tpa3 = projectRel(r0, drapeRelW(r0, mix(dA, dB, sr.ts)));", "\t\tcwA = drapeRelW(r0, mix(dA, dB, sr.ts)); cwB = drapeRelW(r1, mix(dA, dB, sr.te));\n\t\tpa3 = projectRel(r0, cwA);"],
+		["\t\tpb3 = projectRel(r1, drapeRelW(r1, mix(dA, dB, sr.te)));", "\t\tpb3 = projectRel(r1, cwB);"],
+		["\to.halfw = lw * 0.5;\n\treturn o;\n}", "\to.halfw = lw * 0.5;\n\tlet cpos = select(cwB, cwA, useA);\n\to.cdA = clipA(cpos); o.cdB = clipB(cpos);\n\treturn o;\n}"],
+		["\tlet aaW = max(fwidth(dcap), 1e-3);\n", "\tlet aaW = max(fwidth(dcap), 1e-3);\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
+		// 拾い（1 画素の読み戻し）＝同じ面で切る（ドレープ無しの位置＝pick の投影と同じ）
+		["\t@location(1) zr: f32,\n};\n@vertex fn vsPickLine", "\t@location(1) zr: f32,\n\t@location(2) cdA: vec4f,\n\t@location(3) cdB: vec2f,\n};\n@vertex fn vsPickLine"],
+		["\tlet pa3 = fetchProject(sn.a);\n\tlet pb3 = fetchProject(sn.b);\n", "\tlet pa3 = fetchProject(sn.a);\n\tlet pb3 = fetchProject(sn.b);\n\tlet cp = select(decodeRel(sn.b), decodeRel(sn.a), useA);\n\to.cdA = clipA(cp); o.cdB = clipB(cp);\n"],
+		["@fragment fn fsPick(in: PickOut) -> @location(0) vec4f {\n", "@fragment fn fsPick(in: PickOut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
+	], "line") + GINT_CLIP_FN("F");
+	if (kind === "stencil") return gDerive(src, [GF_CLIP,
+		["@fragment fn fsFill(in: FOut) -> @location(0) vec4f { return P.color; }", "@fragment fn fsFill(in: FOut) -> @location(0) vec4f {\n\tif (clipPx(in.pos.xy, F.viewport)) { discard; }\n\treturn P.color;\n}"],
+	], "stencil") + GINT_CLIP_FN("F");
+	if (kind === "point") return gDerive(src, [GF_CLIP,
+		["struct Pt { xy: vec2f, zr: f32 };", "struct Pt { xy: vec2f, zr: f32, rel: vec3f };"],
+		["\tif (clip.w <= 0.0) { return Pt(F.viewport * 0.5, -1.0); }", "\tif (clip.w <= 0.0) { return Pt(F.viewport * 0.5, -1.0, rel); }"],
+		["\treturn Pt(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr);", "\treturn Pt(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr, rel);"],
+		["\t@location(4) @interpolate(flat) inner: f32,      // 塗りの半径／外径\n};", "\t@location(4) @interpolate(flat) inner: f32,      // 塗りの半径／外径\n\t@location(5) @interpolate(flat) cdA: vec4f,\n\t@location(6) @interpolate(flat) cdB: vec2f,\n};"],
+		["\tlet p = fetchPoint(ptId);\n", "\tlet p = fetchPoint(ptId);\n\to.cdA = clipA(p.rel); o.cdB = clipB(p.rel);\n", true],
+		["@fragment fn fsPoint(in: POut) -> @location(0) vec4f {\n", "@fragment fn fsPoint(in: POut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
+		["@fragment fn fsPickPoint(in: POut) -> @location(0) vec4f {\n", "@fragment fn fsPickPoint(in: POut) -> @location(0) vec4f {\n\tif (clipOut(in.cdA, in.cdB)) { discard; }\n"],
+	], "point") + GINT_CLIP_FN("F");
+	if (kind === "resolve") return gDerive(src, [
+		["@group(0) @binding(2) var<uniform> R: vec4u;   // (fid_w, fid_count, overlap, 0)", `struct RC {\n\tr: vec4u,   // (fid_w, fid_count, overlap, 0)＝素の R\n${GINT_CLIP_FIELDS}\tvp: vec4f,   // xy＝画面（device px）\n};\n@group(0) @binding(2) var<uniform> RC0: RC;`],
+		["@fragment fn fs(in: FOut) -> @location(0) vec4f {\n", "@fragment fn fs(in: FOut) -> @location(0) vec4f {\n\tif (clipPx(in.pos.xy, RC0.vp.xy)) { discard; }\n"],
+		["R.z", "RC0.r.z", true], ["R.y", "RC0.r.y", true], ["R.x", "RC0.r.x", true],
+	], "resolve") + GINT_CLIP_FN("RC0");
+	throw new Error("gintClipWGSL: unknown kind " + kind);
+}
+export const GINT_LINE_CLIP_WGSL = gintClipWGSL(GINT_LINE_WGSL, "line");
+export const GINT_STENCIL_CLIP_WGSL = gintClipWGSL(GINT_STENCIL_WGSL, "stencil");
+export const GINT_POINT_CLIP_WGSL = gintClipWGSL(GINT_POINT_WGSL, "point");
+export const GINT_IDRESOLVE_CLIP_WGSL = gintClipWGSL(GINT_IDRESOLVE_WGSL, "resolve");

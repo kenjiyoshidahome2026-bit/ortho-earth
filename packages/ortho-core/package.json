@@ -18,6 +18,7 @@
 		"./labels": "./src/labels2d.js",
 		"./terrain": "./src/terrain.js",
 		"./camera": "./src/camera.js",
+		"./clip": "./src/clip.js",
 		"./depthout": "./src/depthout.js",
 		"./geojson": "./src/geojson.js",
 		"./viewurl": "./src/viewurl.js",
