@@ -628,6 +628,17 @@ try {
 			const dbg = okv ? "" : ` dbg=${JSON.stringify(await window.__placedDebug?.())} style=${JSON.stringify(map.getStyle().layers.find(L => L.id === "poi-lbl"))}`;   // 落ちた時だけ（表題に "zoomSkipped" が載ると runner の素通り判定（/skip/）に引っかかる）
 			return [okv, `base poi-lbl ${a0}→${a1}→${a2} · user vs ${b0}→${b1}→${b2}${dbg}`];
 		});
+		// 出しズームの外の注記は main が送らない（整数 z の門で拾い直す・2026-09-28）：poi-lbl を z19〜 にして z16.5 では 0・restyle なしにズームだけで z19.3 へ＝出る・戻す＝消える
+		await vscene("symbol-zoom-gate-crossing", async () => {
+			const cnt = async id => (await window.__placed()).filter(L => L.layer === id).length;
+			const until = async (id, pred) => { let n = -1; for (let k = 0; k < 25; k++) { await sleep(300); n = await cnt(id); if (pred(n)) break; } return n; };
+			map.setLayoutProperty("vs", "visibility", "none"); map.setLayerZoomRange("poi-lbl", 19, 24); map.setLayerZoomRange("poi-ico", 23, 24); await sleep(800);   // poi-ico（minzoom 16）は z19 で同じ点に記号を置き文字を押しのける＝外す
+			const a0 = await cnt("poi-lbl");
+			map.jumpTo({ center: D.cafe, zoom: 19.3 }); const a1 = await until("poi-lbl", n => n > 0);   // cafe を中心に（角 C のまま寄ると点が画面の外）
+			map.jumpTo({ center: [C[0], C[1]], zoom: 16.5 }); const a2 = await until("poi-lbl", n => n === 0);
+			map.setLayerZoomRange("poi-lbl", 16, 24); map.setLayerZoomRange("poi-ico", 16, 24); map.setLayoutProperty("vs", "visibility", "visible"); await sleep(600);
+			return [a0 === 0 && a1 > 0 && a2 === 0, `z16.5 ${a0} → z19.3 ${a1} → z16.5 ${a2}`];
+		});
 		// ── symbol の layout（段 1）＝基図/vector の注記経路（labels.js→labels2d）が MapLibre の配置を読む。__placed の箱（中心 x,y・w,h）で検分。vs は伏せて場を空ける ──
 		{
 			const placedOf = async id => (await window.__placed()).filter(L => L.layer === id);
