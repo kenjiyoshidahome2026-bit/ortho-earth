@@ -480,7 +480,9 @@ export function initEditor(map, { adopt = true, setDropOwner = null, persist = t
 		bar.syncTool(next);
 	};
 	ed.setTool = setTool;
-	if (map.ellipsoidOn?.()) toast(t("Editing assumes a perfect sphere (ell=0); it differs slightly from the ?ell=1 ellipsoid view"));   // 幾何は球面（大円・回転・小円）＝楕円体表示（?ell=1）では告知だけ
+	// 幾何は球面（大円・回転・小円）＝楕円体表示では告知だけ。楕円体はデスクトップの既定（#43・2026-09-28）＝開くたびに出さず、このブラウザで 1 回だけ
+	//（localStorage が使えない環境＝毎回出る＝従来と同じ）
+	if (map.ellipsoidOn?.()) { let seen = false; try { seen = localStorage.getItem("geoedit.sphereNote") === "1"; localStorage.setItem("geoedit.sphereNote", "1"); } catch { /* 使えない＝毎回 */ } if (!seen) toast(t("Editing uses a perfect sphere, so shapes can differ very slightly from the ellipsoid view")); }
 	const getPbf = () => st.model && (st.model.large ? st.model.toPbf() : layer.exportPbf(st.model));   // 書き出し/クラウド共通の口（大規模＝ストリーム置換複写：幾何はバイト複写・属性だけ再エンコード）
 	const bar = initToolbar(toolbarEl, {
 		setTool, undo, redo,

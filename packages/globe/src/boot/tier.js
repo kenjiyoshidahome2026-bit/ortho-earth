@@ -4,6 +4,7 @@
 //   probeGL()              … WebGL2 の生存確認＋GPU 素性の文字列（判定用の使い捨てコンテキスト）
 //   fatalOverlay(mapEl, …) … 起動できない環境を白画面でなく言葉で受け止める案内
 //   deadMap()              … 起動不能時に呼び側へ返す「何もしない地図」（どんな連鎖も無害に空転する Proxy）
+//   ellipsoidMode({…})     … 表示の世界の形（#43）＝楕円体か球か（URL › opts.ellipsoid › 自動＝通常・HI のデスクトップだけ楕円体）
 //   renderFx({…})          … 描画の質の旗（#46）＝atmosphere／pbr／ao の実効値（?pbr=1 等の URL × opts.render・既定は 0）
 // ノブを変えたら台帳（packages/ortho-core/fallback-ladder.md）も更新の規律。
 
@@ -39,6 +40,18 @@ export function classifyTier({ LOW_MEM, gpuRenderer = "", search = "", nav, coar
 		/swiftshader|llvmpipe|basic render/i.test(gpuRenderer)));               // ソフトウェアラスタ＝論外に非力
 	const HI_TIER = /[?&]hi=1/.test(search) || (!/[?&]hi=0/.test(search) && !LOW_MEM && !MID_TIER && (nav.hardwareConcurrency || 0) >= 12);
 	return { MOBILE_UA, MID_TIER, HI_TIER };
+}
+
+// --- 表示の世界の形（#43・2026-09-28 本人裁定）：通常・HI のデスクトップは WGS84 楕円体、LOW_MEM と MID_TIER（非力なデスクトップ・
+// RAM の多いスマホ/タブレット＝MOBILE_UA）は球。計測は常に WGS84（段階A）＝ここは表示だけ。純関数（t-tier で検定）。
+// 優先＝URL（?ell=1 で楕円体・?ell=0 で球＝逃げ道）→ opts.ellipsoid（true/false）→ "auto"（上の方針）。
+// 戻り＝{ ell, why }（why＝起動ログ "[geo] world=…" に添える理由）。
+export function ellipsoidMode({ opt = "auto", search = "", LOW_MEM = false, MID_TIER = false } = {}) {
+	const m = search.match(/[?&]ell=([01])(?![0-9])/);
+	if (m) return { ell: m[1] === "1", why: `url ?ell=${m[1]}` };
+	if (opt === true || opt === false) return { ell: opt, why: `opts.ellipsoid=${opt}` };
+	const ell = !LOW_MEM && !MID_TIER;
+	return { ell, why: ell ? "auto: desktop" : LOW_MEM ? "auto: low-memory device" : "auto: mid-tier device" };
 }
 
 // --- 描画の質の旗（#46・2026-09-26）：?pbr=1／?ao=1／?atmosphere=1 で点ける純関数（t-tier で検定）。ell と同じ作法＝既定は全端末で 0（本人裁定 2026-09-26）。

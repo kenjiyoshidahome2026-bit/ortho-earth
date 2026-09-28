@@ -11,7 +11,8 @@ import { GeoPBF } from "geopbf/pbf-base";
 import { toGeoParquet } from "geopbf/geoparquet";
 import { parseWkb } from "geopbf/parquet";
 import { flatBuilder, addGeoJSON, addWkb, K, T } from "../src/flat.js";
-import { buildChunk, unwrapAntimeridian, cellOfZoom, LOD_ZOOMS, toXYZ } from "../src/chunk.js";
+import { buildChunk, buildLevels, unwrapAntimeridian, cellOfZoom, LOD_ZOOMS, toXYZ, chunkBuffers, levelBuffers, copyChunk } from "../src/chunk.js";
+import { cacheKey, cacheRecord, buildTag } from "../src/cache.js";
 import { identifyIn } from "../src/identify.js";
 import { tableFor, paintColumns, DEFAULT_PAINT } from "../src/style.js";
 import { GEOPBF_SOURCE } from "../src/sources/geopbf.js";
@@ -257,5 +258,32 @@ await t("fgb reader: countries.fgb → chunks (delegates to the geopbf reader)",
 	assert.ok(r.meta.share && r.meta.share.meanVertices > 40, JSON.stringify(r.meta.share));
 	const f = await r.readGeometry(0); assert.ok(f.n > 0 && f.xy.length > 0);
 	const cols = await r.readColumns(0, r.meta.columns.slice(0, 1).map(c => c.name), f.rows); assert.equal(Object.keys(cols).length, 1);
+});
+// ── ⑨ IDB の 1 件（worker の chunk() と同じ順）：main へ transfer した後でも構造化複製が通る・鍵に作り方
+await t("cache: the record survives the transfer to main (was DataCloneError); key carries rAx/lods", () => {
+	const fb = flatBuilder(); for (const r of [0, 1, 3, 5, 6]) addGeoJSON(fb, r, feats[r].geometry);
+	const flat = fb.finish(), c = buildChunk(flat, { g: 3, zoom: 5 });   // zoom 5 → 段 6 だけ先に（pending）
+	assert.ok(c.pending && c.points && c.levels.length === 1 && c.levels[0].zoom === 6, "first level " + c.levels.map(L => L.zoom));
+	const snap = copyChunk(c);
+	structuredClone(c, { transfer: chunkBuffers(c) });   // main へ渡した＝worker 側は detach
+	assert.equal(c.rows.byteLength, 0, "rows detached");
+	assert.throws(() => structuredClone({ ...c }), /DataCloneError|detached/i, "the old record ({ ...c } after transfer) cannot be put");
+	const added = buildLevels(flat, c, {});
+	const rec = cacheRecord(snap, added, flat), back = structuredClone(rec);   // put の複製＝呼んだ時
+	structuredClone(added, { transfer: levelBuffers(added) });   // その後で段を main へ渡しても写しは無傷
+	assert.equal(back.chunk.pending, false);
+	assert.deepEqual(Array.from(back.chunk.rows), Array.from(flat.rows));
+	assert.equal(back.chunk.points.pos.length, 3 * 3, "3 points (point + multipoint)");
+	assert.deepEqual(back.chunk.levels.map(L => L.zoom), [Infinity, 6]);
+	for (const L of back.chunk.levels) assert.ok(L.lines.pos.length > 0 && L.fills.index.length > 0, "level " + L.zoom + " has data");
+	assert.ok(rec.bytesTotal > flat.xy.byteLength);
+	// 鍵：球（rAx=1）で焼いた物を楕円体で出さない・LOD 段の違いも別物・URL の無い源は置かない
+	const ell = 6356752.314245 / 6378137, base = "https://x/a.parquet|etag";
+	const kS = cacheKey(base, 3, buildTag({ rAx: 1, lods: LOD_ZOOMS })), kE = cacheKey(base, 3, buildTag({ rAx: ell, lods: LOD_ZOOMS }));
+	assert.notEqual(kS, kE);
+	assert.equal(kS, cacheKey(base, 3, buildTag({ rAx: 1, lods: [...LOD_ZOOMS] })), "same build → same key");
+	assert.notEqual(kS, cacheKey(base, 3, buildTag({ rAx: 1, lods: [12, 9] })));
+	assert.notEqual(kS, cacheKey(base, 3, buildTag({ rAx: 1, lods: LOD_ZOOMS, chunkFeatures: 16 })));
+	assert.equal(cacheKey(null, 3, buildTag({})), null);
 });
 console.log(`columnar: ${n} passed`);
