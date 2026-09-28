@@ -42,7 +42,12 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// 記号帳（段 3・2026-09-28）＝名前 → { bm: ImageBitmap, pr: pixelRatio, sdf }。main の記号帳（addImage / sprite）の写し＝届いた時に衝突判定をやり直す（名前だけ持って待っていたラベルが出る）
 	// SDF の記号は icon-color で塗る（縁 0.7〜0.8＝symbols-2d と同式・名前×色で一度だけ焼いて覚える）
 	const images = new Map(), tinted = new Map();
-	function setImage(name, { bitmap, pixelRatio = 1, sdf = false }) { images.set(name, { bm: bitmap, pr: pixelRatio || 1, sdf: !!sdf }); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); dirty = true; }
+	function setImage(name, { bitmap, pixelRatio = 1, sdf = false }) {
+		const prev = images.get(name), pr = pixelRatio || 1;
+		images.set(name, { bm: bitmap, pr, sdf: !!sdf }); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k);
+		if (!prev || prev.bm.width !== bitmap.width || prev.bm.height !== bitmap.height || prev.pr !== pr) dirty = true;   // 箱が変わる時だけ衝突判定をやり直す（動く記号＝毎フレームの差し替えで全件の再衝突をしない）
+		prev?.bm?.close?.();
+	}
 	function removeImage(name) { images.delete(name); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); dirty = true; }
 	function sdfTint(name, im, color) {
 		const key = name + "|" + color;
