@@ -2,7 +2,7 @@
 	"name": "ortho-globe",
 	"version": "0.0.1",
 	"private": true,
-	"description": "The globe's own pages, with no region: Globe ⇄ Equal Earth, world earthquakes and satellites. Served at www.ortho-earth.com/globe/.",
+	"description": "The globe's own pages, with no region: Globe ⇄ Equal Earth, world earthquakes, satellites and clouds. Served at www.ortho-earth.com/globe/.",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"scripts": {
