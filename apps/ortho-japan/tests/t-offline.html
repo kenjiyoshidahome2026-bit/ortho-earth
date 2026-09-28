@@ -1,12 +1,15 @@
 <!doctype html>
 <!-- UI回帰：オフラインパック（#40）。基図の tileUrl を同一オリジンの小さな fixture に差し替えて（通信なし）：
      ①ボタンとパネル ②見積り（枚数・容量）③作る＝Cache Storage（oj-pack）に URL ごと・台帳（IDB GIS/pack）に 1 件 ④もう一度＝飛ばし（再開）
-     ⑤削除＝Cache からも台帳からも消える。実時間（fetch と Cache API）。 -->
+     ⑤削除＝Cache からも台帳からも消える。
+     ⑥建物を含むパック（#43）＝作った時の表示のモード（球／楕円体）を記録・台帳の記録が今のモードと違えば行に「作り直すと取り直す」・
+       もう一度作ると今のモードで取り直して消える（建物の口は偽物＝呼ばれた区を数えるだけ）。?ell=1 でも回す。実時間（fetch と Cache API）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:900px;height:600px}</style><title>t-offline</title></head>
 <body><div id="map"></div>
 <script type="module">
 import orthoJapan from "../app.js";
 import { PACK_CACHE, tileCount } from "@ortho-earth/globe/offline-pack.js";
+import { Cache } from "native-bucket";
 const t = [], ok = (n, c, note = "") => t.push(`${c ? "ok" : "NG"}:${n}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {
@@ -16,7 +19,9 @@ try {
 	await new Promise(r => map.on("load", r));
 	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0 });
 	let fetched = 0;
-	const sources = { basemap: { tileUrl: (z, x, y) => `${FIX}?t=${z}/${x}/${y}`, coverage: [121, 19, 155, 46], minZ: 8 }, dem: null, rasters: { list: () => [] }, mesh: null };
+	const meshCalls = [];   // ⑥ 建物の口（偽物）＝区の名前を数えるだけ。既定は「建物」のチェックが外れている＝①〜⑤には効かない
+	const sources = { basemap: { tileUrl: (z, x, y) => `${FIX}?t=${z}/${x}/${y}`, coverage: [121, 19, 155, 46], minZ: 8 }, dem: null, rasters: { list: () => [] },
+		mesh: { sets: () => [{ name: "t-fake-ward", bbox: [139, 35, 141, 36.5] }], prefetch: async (names, cb) => { meshCalls.push([...names]); cb?.(names.length, names.length); } } };
 	const h = map.gadget.offline({ sources });
 	ok("button", !!document.getElementById("offline-btn"));
 	document.getElementById("offline-btn").click();
@@ -49,6 +54,23 @@ try {
 	ok("deleteKeepsShared", (await cache.keys()).length === want, String((await cache.keys()).length));
 	await h.delete(packs[0].id);
 	ok("deleteAll", !(await caches.has(PACK_CACHE)) && (await h.list()).length === 0);
+	// ⑥ 建物を含むパック＝作った時の表示のモードを記録（#43）
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0 }); await sleep(300);
+	panel.querySelector(".of-mesh").checked = true;
+	await h.estimate(); await h.run();
+	const ELL = map.ellipsoidOn(), [pm] = await h.list();
+	ok("meshPack", pm && pm.mesh?.length === 1 && meshCalls.length === 1 && !!pm.ell === ELL, JSON.stringify({ mesh: pm?.mesh, ell: pm?.ell, ELL, calls: meshCalls.length }));
+	const note = () => [...panel.querySelectorAll(".of-row")].map(r => r.textContent).join("|");
+	const OTHER = /別の表示のモード/;   // ja の訳（走らせ台は lang=ja）
+	ok("sameModeNoNote", !OTHER.test(note()), note());
+	const led = await Cache("GIS/pack"), rec = await led(pm.id);
+	rec.ell = !ELL; await led(pm.id, rec);   // 反対のモードで作ったことにする（球で作って楕円体へ切り替わった端末の再現）
+	h.close(); await h.open(); await sleep(200);
+	ok("otherModeNote", OTHER.test(note()), note());
+	await h.estimate(); await h.run();   // もう一度＝今のモードで建物を取り直す
+	const [pm2] = await h.list();
+	ok("refetchClearsNote", !!pm2.ell === ELL && meshCalls.length === 2 && !OTHER.test(note()), JSON.stringify({ ell: pm2?.ell, calls: meshCalls.length }) + " " + note());
+	await h.delete(pm.id);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>
