@@ -8,6 +8,7 @@ Served at `www.ortho-earth.com/globe/` by this app's own Worker.
 | Globe ⇄ Equal Earth | `/globe/` (`?start=equal` opens on the Equal Earth side) | bucket `GIS/world/` (rules: `@ortho-earth/core/worldcontent`) |
 | World earthquakes | `/globe/quakes` | `/quakes/*` (`apps/quakes-mirror`) + USGS FDSN, fetched by the browser |
 | Satellites | `/globe/sats` | `/sats/active.csv` (`apps/sats-mirror`), CelesTrak as fallback |
+| Clouds | `/globe/clouds` (`?vol=0` flat shell · `?lv=2..5` detail · `?perf=1` GPU time) | Geostationary infrared read by the browser: NASA GIBS WMTS (Himawari, GOES-West, GOES-East) + EUMETSAT EUMETView WMS (Meteosat 0°, Meteosat IODC) — no mirror |
 
 Each page bundles `@ortho-earth/globe` itself. It never loads the Japan SDK (`/japan/lib/`) or the Japan shell (`apps/ortho-japan/app.js`),
 so nothing Japan-specific is shipped here. The old URLs `/japan/earth`, `/japan/quakes` and `/japan/sats` are redirected here (301) by the Japan Worker.
