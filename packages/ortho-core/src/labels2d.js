@@ -57,7 +57,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		tinted.set(key, cv);
 		return cv;
 	}
-	const iconImg = L => (L.icon && images.get(L.icon)) || null;   // 記号帳に無い名前＝記号は描かない（MapLibre は styleimagemissing を鳴らす）＝文字だけ残る
+	const missing = new Set(), reported = new Set();   // 記号帳に無い名前（styleimagemissing の材料）＝takeMissing で 1 回だけ渡す
+	const iconImg = L => { if (!L.icon) return null; const im = images.get(L.icon); if (!im && !reported.has(L.icon)) missing.add(L.icon); return im || null; };   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
+	function takeMissing() { if (!missing.size) return null; const out = [...missing]; for (const n of out) reported.add(n); missing.clear(); return out; }
 	// 記号の自然な箱（icon-size 倍・icon-anchor／icon-offset（px×size）で錨に置く）＝[x0, y0, w, h]（錨からの相対）
 	const iconBox = (L, im) => { const sz = L.isz ?? 1, w = im.bm.width / im.pr * sz, h = im.bm.height / im.pr * sz, a = ANCH[L.ian] || ANCH.center, off = L.ioff || [0, 0]; return [off[0] * sz - a[0] * w, off[1] * sz - a[1] * h, w, h]; };
 	// icon-text-fit＝文字の箱（相対 [x0,y0,w,h]）＋余白（上・右・下・左 px）へ伸ばす（width/height は片方だけ・もう片方は自然の大きさで中央）
@@ -210,26 +212,27 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
 		const placed = [], w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
 		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }, pt: {} };   // line＝線の注記の落ちた理由・pt＝点の注記の層ごとの結果（診断）
-		const ptDbg = (L, k) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; };
+		const ptDbg = (L, k, eg) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, back: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; if (eg && !e[k + "Eg"]) e[k + "Eg"] = eg; };
 		for (const L of combined) {
 			if (L.flat && !showFlat) continue;
 			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const rad = radiusOf(L, eScale, st, fogF), [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], rad);
-			if (front < 0) continue;
+			if (front < 0) { if (!L.lp) ptDbg(L, "back", [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
 			const sx = dx / dpr, sy = dy / dpr;
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
 				const dl = dbg.line; dl.n++;
-				const ll = lineLayout(L, st, dpr, rad, zoomV); if (!ll) { dl.layout++; dl[nullWhy] = (dl[nullWhy] || 0) + 1; if (nullWhy === "fit" && !dl.fitEg) dl.fitEg = fitDbg; if (angDbg && !dl.angEg) dl.angEg = angDbg; continue; }
+				const lb = (dbg.lineBy ??= {})[L.k ?? ("li" + L.li)] ??= { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }; lb.n++;   // 層ごと（診断）
+				const ll = lineLayout(L, st, dpr, rad, zoomV); if (!ll) { dl.layout++; lb.layout++; dl[nullWhy] = (dl[nullWhy] || 0) + 1; if (nullWhy === "fit" && !dl.fitEg) dl.fitEg = fitDbg; if (angDbg && !dl.angEg) dl.angEg = angDbg; continue; }
 				const padL = L.pad ?? pad, boxes = ll.g.map(c => grow(c.t ? aabb(c.t, c.x, c.y, -c.w / 2, -ll.h / 2, c.w, ll.h) : [c.x - c.w / 2, c.y - ll.h / 2, c.x + c.w / 2, c.y + ll.h / 2], padL));
 				let bb = null; for (const b of boxes) bb = bb ? [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])] : b.slice();   // 全部の字を囲む箱（placed の w/h）
 				if (ll.icon) { const ic = ll.icon, ip = L.ipad ?? 2; boxes.push([ic.x - ic.bw / 2 - ip, ic.y - ic.bh / 2 - ip, ic.x + ic.bw / 2 + ip, ic.y + ic.bh / 2 + ip]); }   // 記号の箱（icon-padding）＝文字と一緒に裁く（両方置けなければ出さない）
-				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; continue; }
-				if (!L.ov && boxes.some(b => overlaps(placed, b))) { dl.overlap++; continue; }
+				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; lb.off++; continue; }
+				if (!L.ov && boxes.some(b => overlaps(placed, b))) { dl.overlap++; lb.overlap++; continue; }
 				const grp = L.sp ? (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text) : null, ga = grp ? lineGrp.get(grp) : null;   // 群＝1 本の線（lg）・無ければ文字
-				if (ga && ga.some(p => Math.hypot(p[0] - ll.x, p[1] - ll.y) < L.sp)) { dl.spacing++; continue; }   // symbol-spacing＝同じ文字の線の注記は画面 px でこの間隔より近くに置かない（候補はタイルが細かく焼く＝表示 z に追随）
+				if (ga && ga.some(p => Math.hypot(p[0] - ll.x, p[1] - ll.y) < L.sp)) { dl.spacing++; lb.spacing++; continue; }   // symbol-spacing＝同じ文字の線の注記は画面 px でこの間隔より近くに置かない（候補はタイルが細かく焼く＝表示 z に追随）
 				if (grp) { if (ga) ga.push([ll.x, ll.y]); else lineGrp.set(grp, [[ll.x, ll.y]]); }
 				if (!L.ig) for (const b of boxes) placed.push(b);
-				dl.ok++;
+				dl.ok++; lb.ok++;
 				w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw: ll.w, h: ll.h, dx: ll.x - sx - ll.w / 2, dy: ll.y - sy - ll.h / 2, tl: null, an: "center", txt: ll.g.length > 0, ib: null, ln: ll, bb: bb ? [bb[2] - bb[0] - 2 * padL, bb[3] - bb[1] - 2 * padL] : null });
 				continue;
 			}
@@ -262,7 +265,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				}
 				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
 			} else { const [, pi] = judge(false, iOKof(nat)), nb = tb(Ti, nat[0], nat[1], nat[2], nat[3]); if (pi && !(nb[2] < 0 || nb[0] > Wc || nb[3] < 0 || nb[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
-			if (!hit) { ptDbg(L, hasText ? lastWhy : "icon"); continue; }
+			if (!hit) { ptDbg(L, hasText ? lastWhy : "icon", [String(L.text).slice(0, 20), Math.round(sx), Math.round(sy), Math.round(tw), Math.round(h), Math.round(Wc), Math.round(Hc)]); continue; }
 			if (L.sp) {   // 線の錨に回さず置く注記（text-rotation-alignment viewport＝道路の盾）＝symbol-spacing を同じ群に課す
 				const grp = (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text + "\u0001" + (L.icon || "")), ga = lineGrp.get(grp);
 				if (ga && ga.some(p => Math.hypot(p[0] - sx, p[1] - sy) < L.sp)) { ptDbg(L, "spacing"); continue; }
@@ -507,5 +510,5 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 
 	function placedDebug() { return dbg; }
 	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, draw, clear, placed, placedDebug, clearFontCache };
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setMoon, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
 }

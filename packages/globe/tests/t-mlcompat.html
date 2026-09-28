@@ -628,6 +628,17 @@ try {
 			const dbg = okv ? "" : ` dbg=${JSON.stringify(await window.__placedDebug?.())} style=${JSON.stringify(map.getStyle().layers.find(L => L.id === "poi-lbl"))}`;   // 落ちた時だけ（表題に "zoomSkipped" が載ると runner の素通り判定（/skip/）に引っかかる）
 			return [okv, `base poi-lbl ${a0}→${a1}→${a2} · user vs ${b0}→${b1}→${b2}${dbg}`];
 		});
+		// 出しズームの外の注記は main が送らない（整数 z の門で拾い直す・2026-09-28）：poi-lbl を z19〜 にして z16.5 では 0・restyle なしにズームだけで z19.3 へ＝出る・戻す＝消える
+		await vscene("symbol-zoom-gate-crossing", async () => {
+			const cnt = async id => (await window.__placed()).filter(L => L.layer === id).length;
+			const until = async (id, pred) => { let n = -1; for (let k = 0; k < 25; k++) { await sleep(300); n = await cnt(id); if (pred(n)) break; } return n; };
+			map.setLayoutProperty("vs", "visibility", "none"); map.setLayerZoomRange("poi-lbl", 19, 24); map.setLayerZoomRange("poi-ico", 23, 24); await sleep(800);   // poi-ico（minzoom 16）は z19 で同じ点に記号を置き文字を押しのける＝外す
+			const a0 = await cnt("poi-lbl");
+			map.jumpTo({ center: D.cafe, zoom: 19.3 }); const a1 = await until("poi-lbl", n => n > 0);   // cafe を中心に（角 C のまま寄ると点が画面の外）
+			map.jumpTo({ center: [C[0], C[1]], zoom: 16.5 }); const a2 = await until("poi-lbl", n => n === 0);
+			map.setLayerZoomRange("poi-lbl", 16, 24); map.setLayerZoomRange("poi-ico", 16, 24); map.setLayoutProperty("vs", "visibility", "visible"); await sleep(600);
+			return [a0 === 0 && a1 > 0 && a2 === 0, `z16.5 ${a0} → z19.3 ${a1} → z16.5 ${a2}`];
+		});
 		// ── symbol の layout（段 1）＝基図/vector の注記経路（labels.js→labels2d）が MapLibre の配置を読む。__placed の箱（中心 x,y・w,h）で検分。vs は伏せて場を空ける ──
 		{
 			const placedOf = async id => (await window.__placed()).filter(L => L.layer === id);
@@ -762,6 +773,16 @@ try {
 				const c = (await untilN("pl", n => n > 0)).filter(q => q.line)[0]; await drop("pl");
 				map.jumpTo({ pitch: 0 }); await sleep(800);
 				return [!!a && !!b && !!c && Math.abs(a.h - 19.2) < 2 && b.h < a.h * 0.75 && Math.abs(b.w - a.w) < a.w * 0.15 && c.h < 16 * 0.85, `viewport=${fmt(a)} map=${fmt(b)} line=${fmt(c)}`];
+			});
+			await vscene("styleimagemissing-event", async () => {   // 記号帳に無い名前＝styleimagemissing（{ id }）が名前ごとに 1 回鳴る・聞き手が addImage すると出る。基図/vector の経路（labels2d）と geojson の経路（symbols）の両方
+				const got = [], onMiss = e => { got.push(e.id); if (/^nope-/.test(e.id)) map.addImage(e.id, new ImageData(new Uint8ClampedArray(16 * 16 * 4).fill(255), 16, 16)); };
+				map.on("styleimagemissing", onMiss);
+				await map.addLayer({ id: "mi1", type: "symbol", source: "omt", "source-layer": "poi", layout: { "icon-image": "nope-a" } });
+				const a = await untilN("mi1", n => n > 0);
+				map.addSource("gjm", { type: "geojson", data: fc([pt(D.cafe[0], D.cafe[1] + 0.0012, {})]) }); await map.addLayer({ id: "mi2", type: "symbol", source: "gjm", layout: { "icon-image": "nope-b" } });
+				const b = await untilN("mi2", n => n > 0);
+				await drop("mi1", "mi2"); map.removeSource("gjm"); map.off("styleimagemissing", onMiss); map.removeImage("nope-a"); map.removeImage("nope-b");
+				return [a.length > 0 && a.every(q => q.icon === "nope-a") && b.length > 0 && b.every(q => q.icon === "nope-b") && got.filter(x => x === "nope-a").length === 1 && got.filter(x => x === "nope-b").length === 1, `events=${got} placed a=${a.length} b=${b.length}`];
 			});
 			await vscene("add-font-face-api", async () => {   // Web フォントを差す口＝関数・無い URL は HTTP の理由で reject（投げっ放しにしない）・ArrayBuffer も受ける（壊れた束＝main の FontFace が reject）
 				let e1 = null, e2 = null;
