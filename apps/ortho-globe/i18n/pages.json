@@ -9,6 +9,10 @@
 		"sats": [
 			"sats.js",
 			"sats-gl.js"
+		],
+		"clouds": [
+			"clouds.js",
+			"clouds-gl.js"
 		]
 	}
 }

@@ -207,6 +207,21 @@
         ".cache/mlexamples"
       ],
       "port": 5299
+    },
+    {
+      "name": "ortho-globe",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev",
+        "-w",
+        "ortho-globe",
+        "--",
+        "--port",
+        "5186",
+        "--strictPort"
+      ],
+      "port": 5186
     }
   ]
 }
