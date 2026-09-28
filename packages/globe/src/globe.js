@@ -2095,7 +2095,7 @@ dbgHost.__placed = () => new Promise(res => {
 });
 dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判定の地図 z と zoom 域で外した数（li→層 id）
 	const sid = ++placedSeq;
-	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
+	placedWait.set(sid, d => { const g = d?.debug; if (!g) return res(null); const sk = {}; for (const [k, v] of Object.entries(g.outOfZoom || {})) sk[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; const pt = {}; for (const [k, v] of Object.entries(g.pt || {})) pt[/^li\d+$/.test(k) ? (style.layers[+k.slice(2)]?.id ?? k) : k] = v; res({ zoom: g.zoom, total: g.total, outOfZoom: sk, line: g.line ?? null, pt, engineZoom: cam.zoom, styleDz: STYLE_DZ }); });   // line＝線の注記の落ちた理由（段 4）
 	wPost({ type: "labelsPlaced", id: sid });
 	setTimeout(() => { if (placedWait.delete(sid)) res(null); }, 5000);
 });
