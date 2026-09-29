@@ -1,6 +1,8 @@
 // ガジェット：時計（#42・2026-09-23）＝共通の時計（map.clock＝ephem/clock・ortho-solar と同じ部品）の操作盤。
 // ボタン（時計）で下端に時間バーを出す＝◀◀（遅く・押し続けると逆再生）／▶・❚❚／▶▶（速く）・速さの表示・日時の入力・「今」。
 // 並びと記号は solar の時間バーと同じ（再生の三つ組は RTL でも鏡像にしない＝dir="ltr"）。
+// 時計に範囲がある時（map.clock.setRange＝CZML・GPX を読んだ時など・#124）だけ、下の段に区間のつまみ（開始・つまみ・終了）を出す＝つまみで区間の中を行き来し、
+// 再生中はつまみが時刻を追う。日時の入力の最小・最大も区間に合わせる。範囲が無い時の見た目は今のまま。
 // 時計が実時間でない（過去・未来・止めた・早送り）時は、開いていなくてもバーを出す（起動時・後から今を離れた時）＝共有リンクで開いた人に「今ではない」を見せる。
 import { gadgetStack } from "./stack.js";
 import { tr } from "../i18n.js";
@@ -13,6 +15,9 @@ const speedLabel = k => ({ "Paused": t("Paused"), "Real time": t("Real time"), "
 	"6 hours/s": t("6 hours/s"), "1 day/s": t("1 day/s"), "10 days/s": t("10 days/s"), "1 month/s": t("1 month/s"), "1 year/s": t("1 year/s") })[k] ?? t(k);
 const pad = n => String(n).padStart(2, "0");
 const fmtLocal = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+// 区間の端の表示＝区間が 2 日より短ければ「月-日 時:分」・長ければ「年-月-日」（手元の時刻）
+const fmtEnd = (ms, span) => { const s = fmtLocal(ms); return span < 2 * 864e5 ? s.slice(5).replace("T", " ") : s.slice(0, 10); };
+const RANGE_STEPS = 1000;   // つまみの刻み
 
 export function clockGadget({ signal } = {}) {
 	const map = this, mapEl = this.mapEl, clock = map.clock;
@@ -21,7 +26,7 @@ export function clockGadget({ signal } = {}) {
 	btn.id = "clock-btn"; btn.className = "qm-panel-btn"; btn.type = "button"; btn.dataset.tip = t("Time"); btn.setAttribute("aria-label", t("Time"));
 	btn.innerHTML = ICON;
 	gadgetStack(mapEl).append(btn);
-	let bar = null, editing = false, shown = "", uiAt = 0, wantOpen = false;
+	let bar = null, editing = false, shown = "", uiAt = 0, wantOpen = false, dragging = false, rangeKey = "";
 	const build = () => {
 		bar = document.createElement("div");
 		bar.className = "qm-panel clock-bar";
@@ -33,7 +38,11 @@ export function clockGadget({ signal } = {}) {
 				<button type="button" class="ck-faster" style="${b}" title="${t("Faster")}">▶▶</button></span>
 			<span class="ck-speed" style="min-width:6.5em;text-align:center;opacity:.85"></span>
 			<input class="ck-dt" type="datetime-local" min="1800-01-01T00:00" max="2049-12-31T23:59" step="60" title="${t("Set date & time (valid 1800–2050)")}" style="font:inherit">
-			<button type="button" class="ck-now" style="${b}" title="${t("Back to the present")}">${t("Now")}</button>`;
+			<button type="button" class="ck-now" style="${b}" title="${t("Back to the present")}">${t("Now")}</button>
+			<span class="ck-range-row" dir="ltr" style="display:none;flex-basis:100%;align-items:center;gap:6px;font-size:.85em">
+				<span class="ck-r0" style="opacity:.8;white-space:nowrap"></span>
+				<input class="ck-range" type="range" min="0" max="${RANGE_STEPS}" step="1" title="${t("Move through the data's time range")}" aria-label="${t("Move through the data's time range")}" style="flex:1;min-width:120px">
+				<span class="ck-r1" style="opacity:.8;white-space:nowrap"></span></span>`;
 		mapEl.append(bar);
 		const $ = s => bar.querySelector(s), dt = $(".ck-dt");
 		$(".ck-slower").onclick = () => clock.slower();
@@ -43,6 +52,11 @@ export function clockGadget({ signal } = {}) {
 		dt.addEventListener("focus", () => editing = true);
 		dt.addEventListener("blur", () => editing = false);
 		dt.addEventListener("change", () => { const v = new Date(dt.value).getTime(); if (Number.isFinite(v)) clock.setTime(v); });
+		const rg = $(".ck-range");   // 区間のつまみ＝動かした所の時刻へ（掴んでいる間は時計に追わせない）
+		rg.addEventListener("pointerdown", () => dragging = true);
+		rg.addEventListener("pointerup", () => dragging = false);
+		rg.addEventListener("input", () => { const [r0, r1] = clock.range; clock.setTime(r0 + (r1 - r0) * (+rg.value / RANGE_STEPS)); });
+		rg.addEventListener("change", () => dragging = false);
 		sync(true);
 	};
 	// 表示を時計に追わせる（段・日時）。再生中は最大 4 回/秒
@@ -52,6 +66,14 @@ export function clockGadget({ signal } = {}) {
 		bar.querySelector(".ck-speed").textContent = clock.label(speedLabel);
 		bar.querySelector(".ck-play").textContent = clock.playing ? "❚❚" : "▶";
 		const v = fmtLocal(clock.time), dt = bar.querySelector(".ck-dt");
+		// 区間（範囲がある時だけ）＝端の表示・日時の入力の最小／最大・つまみの位置
+		const row = bar.querySelector(".ck-range-row"), has = clock.rangeMode != null, [r0, r1] = clock.range, key = has ? `${r0}/${r1}` : "";
+		if (key !== rangeKey) {
+			rangeKey = key; row.style.display = has ? "flex" : "none";
+			if (has) { bar.querySelector(".ck-r0").textContent = fmtEnd(r0, r1 - r0); bar.querySelector(".ck-r1").textContent = fmtEnd(r1, r1 - r0); }
+			dt.min = has ? fmtLocal(r0) : "1800-01-01T00:00"; dt.max = has ? fmtLocal(r1) : "2049-12-31T23:59";
+		}
+		if (has && !dragging) bar.querySelector(".ck-range").value = String(Math.round(Math.min(1, Math.max(0, (clock.time - r0) / (r1 - r0))) * RANGE_STEPS));
 		if (!editing && v !== shown) dt.value = shown = v;
 		btn.classList.toggle("off-now", !clock.isLive());   // 「今ではない」の印（ボタン）
 	}
