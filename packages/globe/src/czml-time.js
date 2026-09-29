@@ -116,3 +116,44 @@ export function pathTimes(tr, ms, { lead = null, trail = null, resolution = 60 }
 	out.push(b);
 	return [...new Set(out)].sort((u, v) => u - v);
 }
+
+// ── 見た目（#113 段 3）＝CZML の point / billboard / label / path を描く側の形に揃える（時刻で変わる値は描く時に引く）──
+// 時刻付きの真偽（show）：真偽・{ boolean }・区間ごと [{ interval, boolean }]（区間の外は dflt）
+export function boolAt(v, ms, dflt = true) {
+	if (v == null) return dflt;
+	if (typeof v === "boolean") return v;
+	if (Array.isArray(v)) { for (const q of v) { const iv = parseIntervals(q?.interval); if (!iv || inIntervals(iv, ms)) return boolAt(q, ms, dflt); } return false; }   // 区間の並び＝どれにも入らない時刻は出さない（Cesium の TimeIntervalCollectionProperty）
+	return typeof v.boolean === "boolean" ? v.boolean : dflt;
+}
+// 色：{ rgba: [0..255] }・{ rgbaf: [0..1] }・{ color: … }（material の solidColor 等）→ CSS。時刻付きの列は最初の標本
+export function colorOf(c, dflt = null) {
+	if (c == null) return dflt;
+	if (Array.isArray(c)) return colorOf(c[0], dflt);
+	if (typeof c !== "object") return dflt;
+	if (c.color) return colorOf(c.color, dflt);
+	if (c.solidColor) return colorOf(c.solidColor, dflt);
+	if (c.polylineOutline) return colorOf(c.polylineOutline, dflt);
+	const q = Array.isArray(c.rgba) ? (c.rgba.length > 4 ? c.rgba.slice(1, 5) : c.rgba).map((v, i) => i < 3 ? v : v / 255) : Array.isArray(c.rgbaf) ? (c.rgbaf.length > 4 ? c.rgbaf.slice(1, 5) : c.rgbaf).map((v, i) => i < 3 ? v * 255 : v) : null;
+	return q ? `rgba(${Math.round(q[0])},${Math.round(q[1])},${Math.round(q[2])},${+(q[3] ?? 1).toFixed(3)})` : dflt;
+}
+const offsetOf = v => Array.isArray(v?.cartesian2) ? [+v.cartesian2[0] || 0, +v.cartesian2[1] || 0] : [0, 0];
+const fontPx = f => { const m = /(\d+(?:\.\d+)?)\s*(pt|px)/.exec(String(f || "")); return m ? (m[2] === "pt" ? +m[1] * 4 / 3 : +m[1]) : 14; };
+const textOf = v => typeof v === "string" ? v : typeof v?.string === "string" ? v.string : Array.isArray(v) ? textOf(v[0]) : null;
+const imageOf = v => typeof v === "string" ? v : typeof v?.uri === "string" ? v.uri : Array.isArray(v) ? imageOf(v[0]) : null;
+// 地物 → { point, image, label, path }（null＝描かない）。見た目の指定が無い（GPX など）＝点＋今までの軌跡・名前の札（本人裁定＝GPX も同じ再生）
+export function styleOf(f) {
+	const pr = f?.properties || {}, cz = pr.czml && typeof pr.czml === "object" ? pr.czml : null;
+	if (!cz || !(cz.point || cz.billboard || cz.label || cz.path)) {
+		return { point: { size: 8, color: "rgba(255,127,14,1)", outline: "rgba(255,255,255,0.9)", outlineWidth: 1.5, show: true }, image: null,
+			label: pr.name ? { text: String(pr.name), color: "rgba(255,255,255,1)", px: 13, offset: [10, 0], align: "left", show: true } : null,
+			path: { show: true, width: 2, color: "rgba(255,127,14,0.8)", lead: 0, trail: null, resolution: 60 } };
+	}
+	const pt = cz.point, bb = cz.billboard, lb = cz.label, ph = cz.path;
+	return {
+		point: pt ? { size: +pt.pixelSize || 1, color: colorOf(pt.color, "rgba(255,255,255,1)"), outline: colorOf(pt.outlineColor, null), outlineWidth: +pt.outlineWidth || 0, show: pt.show ?? true } : null,
+		image: bb && imageOf(bb.image) ? { src: imageOf(bb.image), scale: +bb.scale || 1, offset: offsetOf(bb.pixelOffset), show: bb.show ?? true } : null,
+		label: lb && textOf(lb.text) != null ? { text: textOf(lb.text), color: colorOf(lb.fillColor, "rgba(255,255,255,1)"), outline: colorOf(lb.outlineColor, "rgba(0,0,0,1)"), px: fontPx(lb.font) * (+lb.scale || 1),
+			offset: offsetOf(lb.pixelOffset), align: String(lb.horizontalOrigin || "CENTER").toLowerCase(), show: lb.show ?? true } : null,
+		path: ph ? { show: ph.show ?? true, width: +ph.width || 1, color: colorOf(ph.material, "rgba(255,255,255,1)"), lead: ph.leadTime ?? null, trail: ph.trailTime ?? null, resolution: ph.resolution ?? 60 } : null,
+	};
+}

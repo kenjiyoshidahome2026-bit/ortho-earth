@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- CZML の時刻再生の描画（#113 段 3）＝render worker の組み込みオーバーレイ czml（gadgets/czml-draw.js）を直接叩く（main 側の配線は段 4）。
+     試料＝fixtures/czml（dateline.czml＝±180° を跨ぐ機体 A［赤・線形・出ている区間 2 つ・尾 30 分・札］と船 B［青・LAGRANGE］／simple.czml＝衛星［billboard の画像］）。
+     地物は geopbf で読み（±180° の切断まで通す）、czml-time.js の trackOf/styleOf で組み、overlay に渡す。時計は止めて時刻を置く（共通の時計）。
+     画素は worker の canvas＝dbgHost.__ovPixels("czml")（透明の上に描く＝アルファで見る）。位置の物差し＝map.makeProjectorH（地形なし・高さ込み）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-czml-draw</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe, geopbf } from "@ortho-earth/globe";
+import { trackOf, styleOf, positionAt, ecefToLlh } from "../src/czml-time.js";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const map = await createGlobe({ target: "#map", view: "#5/34/179", chips: false, debugGlobals: true });
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(10000)]);
+	const ov = map.overlay({ builtin: "czml" }, { name: "czml" });
+	const load = async f => ((await geopbf(new URL(`./fixtures/czml/${f}`, location.href).href, { gint: false }))?.geojson?.features || []);
+	const build = fs => fs.map(f => { const tr = trackOf(f); return tr && { ...tr, style: styleOf(f) }; }).filter(Boolean);
+	const dl = build(await load("dateline.czml"));
+	ok("tracks", dl.length === 2 && dl.some(x => x.id === "Flight/A") && dl.some(x => x.id === "Ship/B"), dl.map(x => x.id).join(","));
+	ov.post({ type: "tracks", tracks: dl });
+	const T = s => Date.parse("2026-01-01T00:00:00Z") + s * 1000;
+	const pj = () => map.makeProjectorH({ terrain: false });
+	const whereAt = (id, ms, list = dl) => { const q = positionAt(list.find(x => x.id === id), ms); if (!q) return null; const [lon, lat, h] = ecefToLlh(...q), [x, y, f] = pj()(lon, lat, h); return f > 0 ? [x, y] : null; };
+	const grab = async () => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels("czml"); if (p && !p.error) return p; await sleep(250); } return null; };
+	const W = document.getElementById("map").clientWidth;
+	const at = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+	const near = (p, x, y, test, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(at(p, x + dx, y + dy))) return true; return false; };
+	const red = c => c[3] > 150 && c[0] > 180 && c[1] < 80 && c[2] < 80, blue = c => c[3] > 150 && c[2] > 180 && c[0] < 80, ink = c => c[3] > 60;
+	const setT = async ms => { map.clock.setTime(ms).setStep(0); await sleep(700); };
+	// ① 00:40＝機体 A は出ている＝赤い点・尾（30 分前の位置も赤）・札（点の右）
+	await setT(T(2400));
+	let P = await grab(), a = whereAt("Flight/A", T(2400)), tail = whereAt("Flight/A", T(1500));
+	ok("pointDrawn", !!P && !!a && near(P, a[0], a[1], red), a && P ? at(P, ...a).join(",") : "none");
+	ok("tailDrawn", !!P && !!tail && near(P, tail[0], tail[1], red, 2), tail && P ? at(P, ...tail).join(",") : "none");
+	ok("labelDrawn", !!P && !!a && near(P, a[0] + 30, a[1], ink, 6), "right of the point");
+	map.jumpTo({ center: [-176.7, -20], zoom: 5, pitch: 0 }); await sleep(900);   // 船は南緯 20°＝視点を寄せる
+	P = await grab(); const b = whereAt("Ship/B", T(2400));
+	ok("shipDrawn", !!P && !!b && near(P, b[0], b[1], blue), b && P ? at(P, ...b).join(",") : "none");
+	map.jumpTo({ center: [179, 34], zoom: 5, pitch: 0 }); await sleep(900);
+	// ② 00:55＝出ている区間の外＝消える（船は出ている）
+	await setT(T(3300));
+	P = await grab(); a = whereAt("Flight/A", T(3300));
+	ok("hiddenOutsideAvailability", !!P && !!a && !near(P, a[0], a[1], red, 4), a && P ? at(P, ...a).join(",") : "none");
+	// ③ 時刻を進める＝点が動く（01:30 の位置に赤・00:40 の位置には点が無い＝尾は 01:00 からに切れる）
+	await setT(T(5400));
+	P = await grab(); const a2 = whereAt("Flight/A", T(5400)), a0 = whereAt("Flight/A", T(2400));
+	ok("moves", !!P && !!a2 && near(P, a2[0], a2[1], red) && !!a0 && !near(P, a0[0], a0[1], red, 2), a2 && a0 ? `${a2.map(Math.round)} ← ${a0.map(Math.round)}` : "none");
+	// ④ 衛星（simple.czml）＝billboard の画像（data URI）が真上から見ると出る・地球の裏側では隠れる
+	const sat = build(await load("simple.czml"));
+	ov.post({ type: "tracks", tracks: sat });
+	const ms = Date.parse("2012-03-15T10:30:00Z"), iss = sat.find(x => x.id === "Satellite/ISS");
+	const [slon, slat] = ecefToLlh(...positionAt(iss, ms));
+	map.jumpTo({ center: [slon, slat], zoom: 2.5, pitch: 0 }); await setT(ms);
+	P = await grab(); const s1 = whereAt("Satellite/ISS", ms, sat);
+	ok("billboardDrawn", !!P && !!s1 && near(P, s1[0], s1[1], ink, 4), s1 && P ? at(P, ...s1).join(",") : "none");
+	map.jumpTo({ center: [slon + 180, -slat], zoom: 2.5, pitch: 0 }); await sleep(900);
+	P = await grab();
+	const back = pj()(slon, slat, 400000), inkAll = P ? (() => { let n = 0; for (let i = 3; i < P.data.length; i += 4) if (P.data[i] > 60) n++; return n; })() : -1;
+	ok("hiddenBehindEarth", !!P && back[2] <= 0 ? true : !!P && !near(P, back[0], back[1], ink, 4), `ink px ${inkAll}`);
+	ov.post({ type: "clear" }); await sleep(600);
+	P = await grab();
+	let left = 0; if (P) for (let i = 3; i < P.data.length; i += 4) if (P.data[i] > 0) left++;
+	ok("cleared", !!P && left === 0, `${left} px`);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
