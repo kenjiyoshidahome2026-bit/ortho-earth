@@ -53,6 +53,7 @@
 | MLT（MapLibre Tile）の vector source（`"encoding":"mlt"`・PMTiles tileType 6） | 未対応（unknown＝空） | #88 | **済**（2026-09-27・core の登録簿 `tileformat.js`＝MVT も同じ差し込み口・プラグイン `@ortho-earth/tile-formats`＝`#tile-formats` の alias・解読器は最初の MLT タイルで動的 import・爪車 `t-mlcompat?g=mlt`＝MVT と同じ絵と答え） |
 | geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
 | queryRenderedFeatures の geojson の押し出し | 地面の足跡で当てる（傾けて屋根を押すと外れる） | 5b | **済**（立体＝屋根と壁・近い順・R23） |
+| color-relief の層（`["elevation"]` で段彩） | 無い（style は知らない演算子で層を落とす・addLayer は投げる） | #114 | 未（段 0＝場面と既知 11：node 6・g=relief 5） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -357,6 +358,11 @@
   - 結果：公式例 **filter-layer-symbols-using-global-state 段 1→3**（同じ絵・文字 5/5・unsupported なし）。検定＝t-mlcompat g=layers **`global-state-filter`**（公式例の形そのまま＝geojson の円＋記号・空/a/b/空）・g=vector **`global-state-vector`**（vtdraw＝worker で評価）＝GL2/WebGPU 緑。
   - 門 o42（全 139・本物 r7）＝0 動かない 1／動く 34／同じ答え 39／同じ絵 63・上がった＝filter-layer-symbols-using-global-state 1→3。下がった jump-to-a-series-of-locations 3→1 は**揺れ**（読み込み後 2 秒ごとに 10 秒カメラを跳ばす例＝撮る時刻で絵が変わる・global-state は使っていない）＝単独で 2 回回して 2 回とも 3（o43s1/o43s2）。known.json は上がった 1 本だけ手で反映（`--update` は揺れも書き込むので使わない）。
   - 物差しの限界（記録）：この例の文字は text-offset [0,1]・anchor top＝錨の 1em 下に描く＝インクの箱（錨の ±24×±10px）の外＝ink 0/5（hit は 5/5）。インクの箱を text-offset で寄せるのは次の物差しの改良。
+- **color-relief（#114・2026-09-29 段 0）＝本物 6.11.2 の振る舞いを dist で読んだ**（`ColorReliefStyleLayer._createColorRamp`・`colorRelief` のシェーダ）：
+  - 色の段は **`interpolate` の時だけ**＝段の標高（labels）で色を評価して 1×N のテクスチャへ（事前乗算）・画素は DEM の標高で段を二分探索し、隣の 2 段の間を **LINEAR の標本で線形**＝曲線（exponential・cubic-bezier）も色空間（hcl・lab）も段の間は線形になる。
+  - `step`・`match`・定数色は Interpolate でない＝段の表が空→**[0: 透明]＝全部透明**（裁定「本物に合わせる」）。範囲の外は CLAMP_TO_EDGE＝**端の色**。段は最大 MAX_TEXTURE_SIZE（超えたら間引き）・段の標高は DEM の符号に詰める（terrarium なら 1/256 m 刻み）。
+  - `color-relief-opacity`（既定 1・遷移あり）は色に掛ける・`resampling`（linear／nearest）は DEM の標本。source は raster-dem 必須（検証で落とす）。
+  - 検定（段 0）：node `mlcompat.mjs` の `elevation-op`・`style-color-relief-routed`・`color-relief-ramp-*`（段の表の口＝globe `src/colorrelief.js` の `reliefRamp`／`reliefAt`＝事前乗算の 0〜1）・t-mlcompat `?g=relief`（style で起動・円錐の頂＝赤・中腹＝紫・裾＝青・step は透明・不透明度 0.5・外す・addLayer）。全部既知（段 1＝core・段 2＝globe）。
 ### 8.x 再開の手引き（2026-09-28 夜・別の機械から続ける時に読む所）
 **最新（2026-09-29 朝・自宅）＝ここから読む**：
 - main＝文字の段 0〜5・注記の残件①〜⑤（#98〜#106）＋他の流れ（#112 影・#43 楕円体・版上げ core 1.8.0／globe 1.7.0＝**globe 1.7.0 は未公開**＝npm の最新は 1.6.0）。

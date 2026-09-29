@@ -163,6 +163,38 @@ const SCENES = {
 		const inBox = hitExtrusion([sq], 0, 100, { box: [r[0] - 2, r[1] - 2, r[0] + 2, r[1] + 2] }, env), off = hitExtrusion([sq], 0, 100, { box: [r[0] + 50, r[1] - 300, r[0] + 60, r[1] - 290] }, env);
 		return [inBox != null && off == null, `in=${inBox} off=${off}`];
 	},
+	// ── 標高の段彩（color-relief・#114）＝MapLibre 6.11.2 の意味：色の段は interpolate の時だけ（段の標高で色を引き、段の間は事前乗算の RGB で線形）・
+	//    範囲の外は端の色・step／match／定数は透明（段の表が空）。段の表は globe の colorrelief.js（reliefRamp → reliefAt＝事前乗算の 0〜1）──
+	"elevation-op": () => {
+		const e = ["interpolate", ["linear"], ["elevation"], 0, "#000", 1000, "#fff"], z = ["interpolate", ["linear"], ["zoom"], 0, "#000", 1000, "#fff"];
+		const v = evalExpr(e, { ...MLc({}), vars: { elevation: 500 } }), w = evalExpr(z, { ...MLc({}), zoom: 500 });
+		return [unknownOps(e).size === 0 && v != null && v === w, `elevation 500 → ${v}（zoom 500 → ${w}）unknown=${[...unknownOps(e)]}`];
+	},
+	"style-color-relief-routed": () => {   // style の color-relief の層は hillshade と同じく利用者の層の口へ（落とさない）
+		const r = mlstyle.splitMapLibreStyle({ version: 8, sources: { d: { type: "raster-dem", tiles: ["x/{z}/{x}/{y}.png"] } },
+			layers: [{ id: "cr", type: "color-relief", source: "d", paint: { "color-relief-color": ["interpolate", ["linear"], ["elevation"], 0, "#00f", 3000, "#f00"] } }] });
+		return [r.geojson.some(L => L.id === "cr") && !r.skipped.length, `geojson=${r.geojson.map(L => L.id)} skipped=${JSON.stringify(r.skipped)}`];
+	},
+	"color-relief-ramp-interpolate": async () => {   // 段の間は事前乗算の線形：青（不透明）と半透明の赤の中間＝(0.25, 0, 0.5, 0.75)
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const R = reliefRamp(["interpolate", ["linear"], ["elevation"], 0, "#0000ff", 1000, "rgba(255,0,0,0.5)"]), c = reliefAt(R, 500);
+		return [deq(c.map(v => +v.toFixed(3)), [0.25, 0, 0.5, 0.75]), `500m → ${c.map(v => v.toFixed(3))}`];
+	},
+	"color-relief-ramp-clamp": async () => {   // 範囲の外は端の色
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const R = reliefRamp(["interpolate", ["linear"], ["elevation"], 100, "#0000ff", 1000, "#ff0000"]), lo = reliefAt(R, -50), hi = reliefAt(R, 9000);
+		return [deq(lo, [0, 0, 1, 1]) && deq(hi, [1, 0, 0, 1]), `−50m → ${lo} 9000m → ${hi}`];
+	},
+	"color-relief-ramp-curve-is-linear": async () => {   // exponential でも段の間は線形（色は段の標高でだけ引く＝6.11.2）
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const R = reliefRamp(["interpolate", ["exponential", 4], ["elevation"], 0, "#000000", 1000, "#ffffff"]), c = reliefAt(R, 500);
+		return [Math.abs(c[0] - 0.5) < 0.01 && c[3] === 1, `500m → ${c.map(v => v.toFixed(3))}`];
+	},
+	"color-relief-step-transparent": async () => {   // step・定数色は段の表が空＝透明（6.11.2）
+		const { reliefRamp, reliefAt } = await import("../src/colorrelief.js");
+		const a = reliefAt(reliefRamp(["step", ["elevation"], "#0000ff", 1000, "#ff0000"]), 1500), b = reliefAt(reliefRamp("#ff0000"), 1500);
+		return [a[3] === 0 && b[3] === 0, `step → ${a} constant → ${b}`];
+	},
 	// ── ML の層の入口は 1 本（normalizeMLLayer・二度通しても同じ＝台帳 R4）──
 	"normalize-idempotent": () => {
 		if (typeof mlstyle.normalizeMLLayer !== "function") return [false, "normalizeMLLayer missing"];
@@ -175,7 +207,7 @@ const SCENES = {
 let unexpected = [], fixed = [], okN = 0;
 for (const [id, fn] of Object.entries(SCENES)) {
 	let ok, note;
-	try { [ok, note] = fn(); } catch (e) { ok = false; note = "threw " + (e?.message || e); }
+	try { [ok, note] = await fn(); } catch (e) { ok = false; note = "threw " + (e?.message || e); }
 	if (ok) okN++;
 	const known = id in KNOWN;
 	if (!ok && !known) unexpected.push(`${id}(${note})`);

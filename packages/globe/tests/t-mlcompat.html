@@ -4,6 +4,7 @@
      ?g=layers（既定）＝geojson の層の場面を 1 枚の地図に並べ、層を足す前後の基図の画素（requestSnapshot の base＝ラベル抜き）と問い合わせで判定。
        加えて分類表（src/zoomscale.js）と実行時のキー（map・map.gadget・map.raster・addGint の手綱）の突き合わせ＝台帳 R1（これは既知に入れない＝必ず通す）。
      ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。
+     ?g=relief＝標高の段彩（color-relief・#114）＝style で起動・試料 fixtures/dem の円錐に段の色・step は透明・不透明度・外す・addLayer。実時間。
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -1049,6 +1050,48 @@ try {
 			map.removeLayer("vm"); map.removeSource("vtm"); await loaded("omt");
 			const gone = await gUntil(D.lake, x => !isCyan(x));
 			return [lok && isCyan(p) && q.some(s => s.startsWith("vm/102/landuse/vtm/Lake")) && !isCyan(gone), `loaded=${lok} px=${p} q=${q} removed=${gone}`];
+		});
+	} else if (G === "relief") {
+		// ── 標高の段彩（color-relief・#114）＝MapLibre 6.11.2 と同じ意味：色の段は interpolate の時だけ（段の標高で色を引き、段の間は事前乗算の線形）・範囲の外は端の色・
+		//    step は透明・color-relief-opacity は色に掛ける。試料＝fixtures/dem の円錐（150.5E 30.5N・3000m・半径 0.3°・周りは 0m）。style で起動（地形にはしない＝平らな地面に塗る）──
+		const DEM = { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 };
+		const RAMP = ["interpolate", ["linear"], ["elevation"], 0, "#0000ff", 3000, "#ff0000"];
+		const style = { version: 8, sources: { dem: DEM }, layers: [{ id: "cr", type: "color-relief", source: "dem", paint: { "color-relief-color": RAMP } }] };
+		const map = await createGlobe({ target: "#map", view: "#10.5/30.5/150.5", chips: false, style });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(10000)]); await sleep(500);   // WebGPU は起動直後の requestSnapshot が返らない（別件で直す）＝最初の写しは落ち着いてから
+		const P = (lon, lat) => map.projectLL(lon, lat);
+		const PEAK = P(150.5, 30.5), MID = P(150.5, 30.65), FOOT = P(150.5, 30.9);   // 頂 3000m・北へ 0.15°＝1500m・北へ 0.4°＝0m（円錐の外・試料の中）
+		const until = async (want, ms = 20000) => { const t0 = performance.now(); let img; while (performance.now() - t0 < ms) { img = await snap(map); if (want(img)) return img; await sleep(400); } return img; };
+		const RED = [255, 0, 0], BLUE = [0, 0, 255], PURPLE = [128, 0, 128];
+		const drawn = img => near(px(img, ...PEAK), RED, 40) && near(px(img, ...FOOT), BLUE, 40);
+		const A = await until(drawn, 30000);
+		await scene("style-color-relief-draws", () => {
+			const L = map.getStyle().layers.find(x => x.id === "cr");
+			return [drawn(A) && near(px(A, ...MID), PURPLE, 40) && L?.type === "color-relief" && L?.metadata?.["ortho:drawn"] !== false,
+				`peak=${px(A, ...PEAK)} mid=${px(A, ...MID)} foot=${px(A, ...FOOT)} layer=${L?.type} drawn=${L?.metadata?.["ortho:drawn"]}`];
+		});
+		// step は透明（6.11.2）→ 不透明度 0.5 → 外す。「外した後」の色（下の地図）を物差しにする
+		let S = null, O = null, U = null, gone = null, err = "";
+		try {
+			map.setPaintProperty("cr", "color-relief-color", ["step", ["elevation"], "#00ff00", 1000, "#ffff00"]);
+			S = await until(img => !near(px(img, ...PEAK), RED, 40), 15000);
+			map.setPaintProperty("cr", "color-relief-color", RAMP); map.setPaintProperty("cr", "color-relief-opacity", 0.5);
+			await until(img => !near(px(img, ...PEAK), RED, 40) && !near(px(img, ...PEAK), px(S, ...PEAK), 20), 15000); await sleep(600);
+			O = await snap(map);
+			map.removeLayer("cr"); gone = map.getStyle().layers.some(x => x.id === "cr");
+			U = await until(img => !near(px(img, ...PEAK), px(O, ...PEAK), 10), 15000);
+		} catch (e) { err = " threw " + (e?.message || e); }   // 各場面の注に載せる（場面は増やさない＝爪車の鍵を固定）
+		const u = U ? px(U, ...PEAK) : null;
+		await scene("color-relief-step-transparent", () => [!!S && !!U && near(px(S, ...PEAK), u, 12) && near(px(S, ...FOOT), px(U, ...FOOT), 12), `step peak=${S && px(S, ...PEAK)} foot=${S && px(S, ...FOOT)} under=${u}${err}`]);
+		await scene("color-relief-opacity", () => { if (!O || !U) return [false, "no pixels" + err]; const o = px(O, ...PEAK), want = [0, 1, 2].map(i => (RED[i] + u[i]) / 2); return [near(o, want, 30), `opacity 0.5 peak=${o} want≈${want.map(Math.round)}`]; });
+		await scene("color-relief-removed", () => [!!U && !near(u, RED, 60) && gone === false, `after remove peak=${u} inStyle=${gone}${err}`]);
+		// addLayer（利用者の層）でも同じ：足した直後は isSourceLoaded＝false・載ったら true・色の段どおり
+		await scene("color-relief-addlayer", async () => {
+			const addP = map.addLayer({ id: "cr2", type: "color-relief", source: "dem", paint: { "color-relief-color": ["interpolate", ["linear"], ["elevation"], 0, "#000000", 3000, "#00ff00"] } });
+			const l0 = map.isSourceLoaded("dem"); await addP;
+			const t0 = performance.now(); while (!map.isSourceLoaded("dem") && performance.now() - t0 < 20000) await sleep(100);
+			const img = await until(im => near(px(im, ...PEAK), [0, 255, 0], 40), 15000), p = px(img, ...PEAK), m = px(img, ...MID);
+			return [near(p, [0, 255, 0], 40) && near(m, [0, 128, 0], 40) && !l0 && map.isSourceLoaded("dem"), `peak=${p} mid=${m} loaded=${l0}→${map.isSourceLoaded("dem")}`];
 		});
 	}
 
