@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- 2 枚の地図をスワイプで比べる（#173 段 5・Compare＝maplibre-gl-compare と同じ形）。2 枚の容れ物は #wrap の中で重ねる（公式の例と同じ CSS）。
+     既定（縦・createGlobe の地図）：
+       ① つまみが中央（currentPosition＝幅の半分）・左は before・右は after が当たる（elementFromPoint＝clip-path で切った側は下へ抜ける）
+       ② カメラは連動（before を動かすと after も）
+       ③ setSlider・つまみのドラッグ＝離した時に slideend（currentPosition）
+       ④ remove＝つまみが消え、切り抜きと連動が解ける（地図は残る）
+     ?v=h：横（orientation "horizontal"）＋mousemove＝カーソルの縦位置につまみが付く・上は before・下は after
+     ?v=ml：MapLibre 互換の Map 2 枚（@ortho-earth/globe/maplibre）＋同じ入口の Compare＝2 枚目も不活性でなく立つ・連動する -->
+<html lang="ja"><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#0b1021}
+#wrap { position: relative; width: 800px; height: 400px; }
+.m { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style><title>t-compare</title></head>
+<body><div id="wrap"><div id="before" class="m"></div><div id="after" class="m"></div></div>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "v";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const near = (a, b, e) => Math.abs(a - b) <= e;
+const wrap = document.getElementById("wrap"), elA = document.getElementById("before"), elB = document.getElementById("after");
+const W = 800, H = 400, R = () => wrap.getBoundingClientRect();
+const side = (x, y) => { const r = R(), el = document.elementFromPoint(r.left + x, r.top + y); return elA.contains(el) ? "A" : elB.contains(el) ? "B" : el?.className || el?.tagName || "none"; };
+try {
+	let A, B, Compare;
+	if (V === "ml") {
+		const ml = await import("@ortho-earth/globe/maplibre");
+		Compare = ml.Compare;
+		A = new ml.Map({ container: "before", center: [139, 35], zoom: 4 });
+		B = new ml.Map({ container: "after", center: [139, 35], zoom: 4 });
+		const loaded = m => Promise.race([new Promise(r => m.once("load", () => r(true))), sleep(30000).then(() => false)]);
+		const [la, lb] = await Promise.all([loaded(A), loaded(B)]);
+		ok("bothLoad", la && lb && !!elA.querySelector("canvas") && !!elB.querySelector("canvas"), `${la}/${lb}`);
+	} else {
+		const g = await import("@ortho-earth/globe");
+		Compare = g.Compare;
+		const base = { chips: false, persistView: false };
+		[A, B] = await Promise.all([g.createGlobe({ ...base, target: elA, view: "#5/35/139" }), g.createGlobe({ ...base, target: elB, view: "#5/35/139", theme: "dark" })]);
+		const loaded = m => Promise.race([m.once("load").then(() => true), sleep(30000).then(() => false)]);
+		const [la, lb] = await Promise.all([loaded(A), loaded(B)]);
+		ok("bothLoad", la && lb, `${la}/${lb}`);
+	}
+	const horizontal = V === "h";
+	const c = new Compare(A, B, "#wrap", horizontal ? { orientation: "horizontal", mousemove: true } : {});
+	const ctl = wrap.querySelector(".maplibregl-compare"), swiper = ctl?.querySelector(horizontal ? ".compare-swiper-horizontal" : ".compare-swiper-vertical");
+	ok("swiper", !!ctl && !!swiper && near(c.currentPosition, horizontal ? H / 2 : W / 2, 0.5), `pos=${c.currentPosition}`);
+	if (horizontal) {
+		ok("sidesH", side(400, 100) === "A" && side(400, 300) === "B", `${side(400, 100)}/${side(400, 300)}`);
+		const r = R();
+		elB.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: r.left + 400, clientY: r.top + 100 }));
+		ok("mousemove", near(c.currentPosition, 100, 0.5) && side(400, 60) === "A" && side(400, 140) === "B", `pos=${c.currentPosition} ${side(400, 60)}/${side(400, 140)}`);
+	} else {
+		ok("sides", side(200, 200) === "A" && side(600, 200) === "B", `${side(200, 200)}/${side(600, 200)}`);
+		// 連動
+		A.jumpTo({ center: [135.5, 34.7], zoom: 8, bearing: 15, pitch: 20 });
+		const ca = A.getCenter(), cb = B.getCenter();
+		ok("synced", near(ca.lng, cb.lng, 1e-6) && near(ca.lat, cb.lat, 1e-6) && near(A.getZoom(), B.getZoom(), 1e-6) && near(A.getBearing(), B.getBearing(), 1e-6), `A=${ca.lng.toFixed(3)} B=${cb.lng.toFixed(3)} zA=${A.getZoom()} zB=${B.getZoom()}`);
+		// setSlider
+		c.setSlider(200);
+		ok("setSlider", near(c.currentPosition, 200, 0.5) && side(150, 200) === "A" && side(300, 200) === "B", `pos=${c.currentPosition} ${side(150, 200)}/${side(300, 200)}`);
+		// つまみのドラッグ→slideend
+		let ended = null; const onEnd = e => { ended = e.currentPosition; }; c.on("slideend", onEnd);
+		const r = R(), sr = swiper.getBoundingClientRect();
+		swiper.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: sr.left + sr.width / 2, clientY: sr.top + sr.height / 2 }));
+		window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + 600, clientY: r.top + 200 }));
+		window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: r.left + 600, clientY: r.top + 200 }));
+		ok("drag", near(c.currentPosition, 600, 0.5) && ended === c.currentPosition && side(550, 200) === "A" && side(650, 200) === "B", `pos=${c.currentPosition} end=${ended}`);
+		c.off("slideend", onEnd);
+		// remove
+		c.remove();
+		const bLng = B.getCenter().lng;
+		A.jumpTo({ center: [2.35, 48.85], zoom: 9 });
+		ok("remove", !wrap.querySelector(".maplibregl-compare") && elA.style.clipPath === "" && elB.style.clipPath === "" && near(B.getCenter().lng, bLng, 1e-9) && side(200, 200) === "B", `ctl=${!!wrap.querySelector(".maplibregl-compare")} B=${B.getCenter().lng.toFixed(3)} top=${side(200, 200)}`);
+	}
+	if (V === "ml") { A.remove(); B.remove(); } else { A.destroy(); B.destroy(); }
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
