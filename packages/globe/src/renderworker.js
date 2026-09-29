@@ -328,6 +328,7 @@ const dispatch = e => {
 					.then(() => {
 						bootStage = "pre-finishInit";
 						if (renderer) finishInit(m);
+						else { snapDead = true; snapFlush(); }   // 起動失敗（glfail）＝預かった撮影へ null で返す
 						bootStage = "finishInit done";
 						const q = initQueue; initQueue = null;
 						if (q) for (const qm of q) dispatch({ data: qm });   // 待避分を順序どおり再投入
@@ -435,6 +436,7 @@ const dispatch = e => {
 			if (raster) { raster.destroy(); raster = null; }
 			if (renderer && renderer.dispose) renderer.dispose();
 			renderer = null;
+			snapDead = true; snapFlush();   // 預かった撮影へ null で返す（以後の依頼も即 null）
 			dOutH = null;   // 深度の書き出し口は renderer.dispose が畳んだ
 			break;
 	}
@@ -450,17 +452,33 @@ function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま�
 	const lw = labelCanvas.width, lh = labelCanvas.height;
 	return { labels: new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer), lw, lh };
 }
+// 撮影の依頼には必ず返事する（main の requestSnapshot を宙吊りにしない）。renderer と cam が揃い最初の実描画（frame1）が
+// 済むまでは snapWait に預け、frame() の末尾でまとめて撮る（旧＝await createGlobe 直後の撮影は、WebGPU では最初の draw＝cam が
+// まだ届いておらず黙って捨てられ promise が永久に残った・GL2 は cam 無しのまま空の canvas を読んでいた）。撮れない時（例外・
+// destroy・起動失敗・SNAP_WAIT_MS 待っても初描画が来ない）は base:null で返す＝呼び出し側（shot・検定）は render.base 欠けを扱う。
+const SNAP_WAIT_MS = 15000;
+let snapWait = [], snapDead = false;   // snapDead＝もう描けない（起動失敗・destroy）＝待たせず即 null
+const snapNull = id => postMessage({ type: "snapshot", id, base: null, w: 0, h: 0, labels: null, lw: 0, lh: 0, flip: false });
+function snapFlush() {   // 預かり分を撮る（frame1 の後）／描けないと分かった時は null で返す
+	const q = snapWait; snapWait = [];
+	for (const id of q) (snapDead ? snapNull : snapshot)(id);
+}
 function snapshot(id) {
-	if (!glRef && renderer?.readback) { snapshotGPU(id); return; }   // WebGPU＝非同期 readback 経路
+	if (snapDead) { snapNull(id); return; }
+	if (!renderer || !cam || !sentFrame1) {
+		snapWait.push(id);
+		setTimeout(() => { const i = snapWait.indexOf(id); if (i >= 0) { snapWait.splice(i, 1); console.warn("[render] snapshot: no first frame in time = empty reply"); snapNull(id); } }, SNAP_WAIT_MS);
+		if (cam) armRaf();
+		return;
+	}
+	if (!glRef && renderer.readback) { snapshotGPU(id); return; }   // WebGPU＝非同期 readback 経路
 	try {
-		if (renderer && cam) {
-			if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
-			const s = RES_STEPS[resIdx];
-			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
-			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
-			labelLayer && labelLayer.draw(cam);
-		}
+		if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
+		const s = RES_STEPS[resIdx];
+		const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+		renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
+		if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		labelLayer && labelLayer.draw(cam);
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
 		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip:true で main が戻す。
 		const gl = glRef, w = canvas.width, h = canvas.height;
@@ -470,25 +488,23 @@ function snapshot(id) {
 		const { labels, lw, lh } = readLabels();
 		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
 		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true }, transfer);
-	} catch (e) { console.error("[render] snapshot exception", e?.message, e?.stack); }
+	} catch (e) { console.error("[render] snapshot exception", e?.message, e?.stack); snapNull(id); }
 }
 // WebGPU snapshot：draw→gint→flush→readback（copyTextureToBuffer+mapAsync）＝top-down（flip:false）。RGBA へ swizzle 済み。
-async function snapshotGPU(id) {
+async function snapshotGPU(id) {   // 呼び手（snapshot）が renderer/cam/frame1 を確かめ済み
 	try {
-		if (renderer && cam) {
-			if (resPending) applyRes();
-			const s = RES_STEPS[resIdx];
-			const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 画面と同じ（building-extrusion を伏せている時）
-			if (gint) gint.draw(glCam, renderer.gintCtx());
-			renderer.flush();
-			labelLayer && labelLayer.draw(cam);
-			const rb = await renderer.readback();   // { base:ArrayBuffer(RGBA), w, h }
-			const { labels, lw, lh } = readLabels();
-			const transfer = []; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
-			postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false }, transfer);
-		}
-	} catch (e) { console.error("[render] snapshotGPU exception", e?.message, e?.stack); }
+		if (resPending) applyRes();
+		const s = RES_STEPS[resIdx];
+		const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
+		renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 画面と同じ（building-extrusion を伏せている時）
+		if (gint) gint.draw(glCam, renderer.gintCtx());
+		renderer.flush();
+		labelLayer && labelLayer.draw(cam);
+		const rb = await renderer.readback();   // { base:ArrayBuffer(RGBA), w, h }
+		const { labels, lw, lh } = readLabels();
+		const transfer = []; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false }, transfer);
+	} catch (e) { console.error("[render] snapshotGPU exception", e?.message, e?.stack); snapNull(id); }
 }
 
 // ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。
@@ -754,6 +770,7 @@ function frame() {
 		// 毎フレーム失敗系（例：バックエンド固有の非対応）は frame1 が来ない＝この通報が唯一の手掛かりになる。
 		if (!sentDrawErr) { sentDrawErr = true; postMessage({ type: "drawErr", msg: String(e?.message || e), stack: String(e?.stack || "").slice(0, 400) }); }
 	} finally { depthBmp?.close(); }   // WebGPU の深度の ImageBitmap＝全オーバーレイが上げ終えた（途中で落ちても）＝返す
+	if (snapWait.length && sentFrame1 && renderer && cam) snapFlush();   // 起動直後に預かった撮影＝最初の実描画の後に撮る
 	tuneRes(drew);
 	const nowT = performance.now();
 	if (drew) { lastDrewT = nowT; hudFrames++; }   // hudFrames＝?hud=1 の FPS 用（この窓で実際に描いた枚数）
