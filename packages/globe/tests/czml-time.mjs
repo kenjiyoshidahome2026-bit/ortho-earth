@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { czmlToFeatures } from "../../geopbf/src/modules/czml.js";
 import { GeoPBF } from "../../geopbf/src/pbf-base.js";
-import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt } from "../src/czml-time.js";
+import { trackOf, positionAt, availableAt, visibleAt, llhToEcef, pathTimes, numberAt, styleOf, boolAt, colorOf } from "../src/czml-time.js";
 globalThis.ImageData ??= class ImageData {};
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures/czml");
@@ -73,6 +73,17 @@ console.log("― GPX（線形・±180° を跨ぐ）―");
 	const i = pts.findIndex(q => q[0] < 0), a = llhToEcef(pts[i - 1][0], pts[i - 1][1], pts[i - 1][2]), b = llhToEcef(pts[i][0], pts[i][1], pts[i][2]);
 	const mid = positionAt(tr, (Date.parse(pts[i - 1][3]) + Date.parse(pts[i][3])) / 2);
 	ok(dist(mid, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2]) < 1e-6, "跨ぐ辺の真ん中＝ECEF の弦の真ん中（線形）");
+}
+
+console.log("― 見た目（styleOf・段 3）―");
+{
+	const cz = JSON.parse(fs.readFileSync(path.join(DIR, "simple.czml"), "utf8"));
+	const { features } = czmlToFeatures(cz), iss = features.find(f => f.properties.id === "Satellite/ISS"), st = styleOf(iss);
+	ok(st.image?.src.startsWith("data:image/png") && st.image.scale === 1.5 && st.label.text === "ISS" && st.label.align === "left" && Math.abs(st.label.px - 11 * 4 / 3) < 1e-9 && st.label.color === "rgba(255,0,255,1)", `billboard（data URI・scale）・label（11pt→${st.label.px.toFixed(2)}px・LEFT・色）`);
+	ok(st.path && st.path.color === "rgba(255,0,255,1)" && st.path.resolution === 120 && Array.isArray(st.path.lead) && boolAt(st.path.show, Date.parse("2012-03-15T12:00:00Z")) && !boolAt(st.path.show, Date.parse("2012-03-17T00:00:00Z")), "path（material の色・resolution・時刻付きの leadTime・show の区間）");
+	const g = styleOf({ type: "Feature", geometry: { type: "LineString", coordinates: [] }, properties: { name: "walk", time: [] } });
+	ok(g.point && g.path?.lead === 0 && g.path.trail === null && g.label?.text === "walk", "見た目の指定が無い（GPX）＝点＋今までの軌跡＋名前の札");
+	ok(colorOf({ rgbaf: [1, 0.5, 0, 0.5] }) === "rgba(255,128,0,0.5)" && colorOf({ solidColor: { color: { rgba: [0, 255, 0, 255] } } }) === "rgba(0,255,0,1)", "色（rgbaf・material の solidColor）");
 }
 
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }

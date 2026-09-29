@@ -95,7 +95,8 @@
      12,
      0
     ]
-   }
+   },
+   "horizontalOrigin": "LEFT"
   },
   "path": {
    "width": 2,
