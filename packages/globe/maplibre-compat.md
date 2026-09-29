@@ -159,7 +159,7 @@
 | W11 | 注記の二重（MVT のバッファ） | 点がタイルの中の物だけ | vtdraw.mjs | **済** |
 | W12 | li が基図の門（海・建物の塗り・図郭外の水域）に掛かる | 2^20 の帯 | vtdraw.mjs（帯） | **済** |
 | W13 | 問い合わせ | core queryTiles（source・promoteId・circle の分岐を足した）・解読の組ごとのキャッシュ | 爪車 vector-query（fill／line／circle） | **済** |
-| W14 | feature-state が絵に効かない | ⑤b・案内 1 回 | 爪車の既知 vector-fill-feature-state | 既知 |
+| W14 | feature-state が絵に効かない | ⑤b（#109）・案内 1 回 | 爪車の既知 5 場面（vector-{fill,line,circle,symbol}-feature-state・vector-feature-state-query＝#109 段 0 で場面を先に） | 既知 |
 | W15 | 利用者の注記が山で浮く・沈む | render worker の vtLabels が標高を付ける（基図の applyLabels と同じ） | 目視 | **済** |
 | W16〜W18 | 両土台・地域の語・読まない paint | 同じ scene の枠（GL2/WebGPU）・語なし・警告 1 回 | 爪車を両土台で・regionless | **済** |
 
