@@ -67,7 +67,7 @@ export const MAP_MEMBERS = {
 	// 画像タイル・ガジェット
 	raster: "raster", gadget: "gadget",
 	// 3D・解析
-	add3DTiles: "none", addI3S: "none", getHeight: "none", sunShadow: "none", setShadows: "none",
+	add3DTiles: "none", addI3S: "none", getHeight: "none", sunShadow: "none", setShadows: "none", setClipping: "none", getClipping: "none",
 	viewshed: "none", lineOfSight: "none", clearViewshed: "none",
 	// 投影・フレーム・描画
 	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", makeProjector: "none", makeProjectorH: "none",

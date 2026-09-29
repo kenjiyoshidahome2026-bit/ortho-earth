@@ -24,8 +24,10 @@ import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/dra
 import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
-import { unproject, betaOf, ellipsoidOn } from "../camera.js";
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, quad6WGSL } from "./gintwgsl.js";
+import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
+import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
+import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, quad6WGSL,
+	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.js";
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
@@ -117,6 +119,24 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	// pick は 1x 固定＝pipeSets の外だが、group(2) のレイアウトはパイプラインと bind group で一致必須＝storage 版も対で持つ
 	const pickLinePipeSB = SB ? pipe(lineModSB, "vsPickLine", "fsPick", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null;
 	const pickPointPipeSB = SB ? pipe(pointModSB, "vsPickPoint", "fsPickPoint", { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", lay: layoutSB }) : null;
+	// ── 断面とクリッピング平面（#111 段 3）＝切っている時だけの派生（gintwgsl.js gintClipWGSL・素のパイプラインは不変）。
+	// 面は host.clipInfo()（renderer が毎フレーム {planes, st}／切らない時 null）＝GF の末尾へ gint の原点で詰める（packGF）。地面アトラスへ焼く経路は素のまま（地形の派生で切れる）
+	const clipInfo = () => host.clipInfo?.() || null;
+	let clipM = null;
+	const clipMods = () => clipM ??= (() => {
+		const Ls = QW(GINT_LINE_CLIP_WGSL), Ps = QW(GINT_POINT_CLIP_WGSL);
+		return { line: mkMod(Ls, "line-clip"), stencil: mkMod(GINT_STENCIL_CLIP_WGSL, "stencil-clip"), point: mkMod(Ps, "point-clip"),
+			lineSB: SB ? mkMod(toStorageWGSL(Ls), "line-clip-sb") : null, stencilSB: SB ? mkMod(toStorageWGSL(GINT_STENCIL_CLIP_WGSL), "stencil-clip-sb") : null,
+			pointSB: SB ? mkMod(toStorageWGSL(Ps), "point-clip-sb") : null, resolve: mkMod(GINT_IDRESOLVE_CLIP_WGSL, "idresolve-clip") };
+	})();
+	const pickClip = {};
+	const pickPipesFor = (sb, clip) => {   // 拾い（1x・rgba8）＝素か切る派生
+		if (!clip) return sb ? [pickLinePipeSB, pickPointPipeSB] : [pickLinePipe, pickPointPipe];
+		const k = sb ? "b" : "t";
+		if (!pickClip[k]) { const m = clipMods(), o = { ds: null, blend: undefined, samples: 1, fmt: "rgba8unorm", ...(sb ? { lay: layoutSB } : {}) };
+			pickClip[k] = [pipe(sb ? m.lineSB : m.line, "vsPickLine", "fsPick", o), pipe(sb ? m.pointSB : m.point, "vsPickPoint", "fsPickPoint", o)]; }
+		return pickClip[k];
+	};
 	// コロプレス ID 塗り（idfill.js）：① winding 和を ID テクスチャへ加算蓄積（fan 幾何・単一サンプル・深度なし）
 	// ② 解決＝ID 画素→fid→スタイル表→色を main パスへ。
 	// ★蓄積は fid+1 の winding 和＝市区町村1919個では fid+1 最大1920＋加算途中和が半精度(rg16float)の整数正確域
@@ -140,10 +160,10 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		{ binding: 2, visibility: GPUShaderStage.FRAGMENT, buffer: {} },                                      // R uniform
 	] });
 	const idResolveLayout = device.createPipelineLayout({ bindGroupLayouts: [bglIdResolve] });
-	const mkIdResolve = (ds, sc) => device.createRenderPipeline({
+	const mkIdResolve = (ds, sc, mod = idResolveMod) => device.createRenderPipeline({
 		layout: idResolveLayout,
-		vertex: { module: idResolveMod, entryPoint: "vs" },
-		fragment: { module: idResolveMod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
+		vertex: { module: mod, entryPoint: "vs" },
+		fragment: { module: mod, entryPoint: "fs", targets: [{ format, blend: SBLEND }] },
 		primitive: { topology: "triangle-list" }, depthStencil: ds, multisample: { count: sc },   // main パスへ描く＝renderer のフレーム段数に追随
 	});
 	// ドレープ塗り時（Occ）＝建物 bit7 が立つ画素をスキップ（ref 0・equal・readMask 0x80＝(v&0x80)==0 のみ塗る）
@@ -152,7 +172,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	// 静止4x）に multisample count を揃える＝焼き込みゆえセット取替。sampleCount 毎に遅延生成・恒久キャッシュ。
 	// pick 系（別パス・rgba8・非MSAA）と idAccum（rg16/32float 蓄積）は従来どおり 1x 固定＝セット外。
 	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
-	const buildPipes = (sc, sb) => { const [lm, sm, pm, lay] = sb ? [lineModSB, stencilModSB, pointModSB, layoutSB] : [lineMod, stencilMod, pointMod, layout]; return ({
+	const buildPipes = (sc, sb, clip) => { const cm = clip ? clipMods() : null;   // clip＝断面の派生（#111 段 3）
+		const [lm, sm, pm, lay] = sb ? (cm ? [cm.lineSB, cm.stencilSB, cm.pointSB, layoutSB] : [lineModSB, stencilModSB, pointModSB, layoutSB]) : (cm ? [cm.line, cm.stencil, cm.point, layout] : [lineMod, stencilMod, pointMod, layout]);
+		const rm = cm ? cm.resolve : idResolveMod; return ({
 		stencilFan: pipe(sm, "vsStencil", "fsNull", { ds: stFan, blend: undefined, writeMask: 0, samples: sc, lay }),
 		cover: pipe(sm, "vsFull", "fsFill", { ds: stCoverNE, samples: sc, lay }),
 		coverEq: pipe(sm, "vsFull", "fsFill", { ds: stCoverEQ, samples: sc, lay }),
@@ -162,12 +184,12 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		lineTest: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "less-equal" }, samples: sc, lay }),
 		lineHidden: pipe(lm, "vsRender", "fsRender", { ds: { ...keepDS, depthCompare: "greater" }, samples: sc, lay }),
 		point: pipe(pm, "vsPoint", "fsPoint", { samples: sc, lay }),
-		idResolve: mkIdResolve(keepDS, sc),
-		idResolveOcc: mkIdResolve(stIdOcc, sc),
+		idResolve: mkIdResolve(keepDS, sc, rm),
+		idResolveOcc: mkIdResolve(stIdOcc, sc, rm),
 	}); };
 	const pipeSets = new Map();
 	// キーは (storage か) × MSAA 段＝層ごとに経路が変わっても互いのキャッシュを潰さない
-	const pipesFor = (sc, sb) => { const k = `${sb ? "b" : "t"}#${sc}`; let p = pipeSets.get(k); if (!p) { p = buildPipes(sc, sb); pipeSets.set(k, p); } return p; };
+	const pipesFor = (sc, sb, clip = false) => { const k = `${sb ? "b" : "t"}#${sc}${clip ? "#c" : ""}`; let p = pipeSets.get(k); if (!p) { p = buildPipes(sc, sb, clip); pipeSets.set(k, p); } return p; };   // #c＝断面の派生
 	pipesFor(host.samples || 4, false);
 	if (SB) pipesFor(host.samples || 4, true);   // 品質段は生成時に先行コンパイル（renderworker の gint init検証スコープで検札）。1x は初の遷移フレームで遅延生成
 
@@ -436,7 +458,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 			gfBuf: device.createBuffer({ size: GF_SLOT * 4, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
 			gpBuf: device.createBuffer({ size: GP_SLOT * 11, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
 			styleBuf: device.createBuffer({ size: 8192, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
-			idRBuf: device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),
+			idRBuf: device.createBuffer({ size: 256, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST }),   // 素＝R（16B）・断面の派生＝RC（224B・#111 段 3）
 		};
 		L.frameBG = [0, GF_SLOT, GF_SLOT * 2, GF_SLOT * 3].map(off => device.createBindGroup({ layout: bglFrame, entries: [
 			{ binding: 0, resource: { buffer: L.gfBuf, offset: off, size: GF_SLOT } },
@@ -659,7 +681,18 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		gfF[o + 64] = mq?.[0] ?? 0; gfF[o + 65] = mq?.[1] ?? 0; gfF[o + 66] = mq?.[2] ?? 1; gfF[o + 67] = mq?.[3] ?? 1;
 		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;
 		gfF[o + 72] = atlas ? atlas.off[0] : 0; gfF[o + 73] = atlas ? atlas.off[1] : 0; gfF[o + 74] = atlas ? atlas.inv[0] : 1; gfF[o + 75] = atlas ? atlas.inv[1] : 1;
-		gfF[o + 76] = atlas ? 1 : 0; gfF[o + 77] = 0; gfF[o + 78] = 0; gfF[o + 79] = 0;   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
+		gfF[o + 76] = atlas ? 1 : 0; gfF[o + 77] = 0; gfF[o + 78] = 0; gfF[o + 79] = 0;
+		const ci = clipInfo();   // 断面（#111 段 3）＝派生の GF だけが読む末尾（float 80〜127）
+		if (ci) packClip(gfF, o + 80, d.origin, ci);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
+	}
+	// 面と全画面レイを f に詰める（base から：clipPl 24・clipP 4・rayF/X/Y・eyeC・eyeO＝GF の末尾と ID 塗りの解決 RC で同じ並び）。K＝n·(gint の原点) − c を f64 で
+	function packClip(f, base, origin, ci) {
+		const O = lonlatTo3D(origin[0], origin[1]), n = Math.min(ci.planes.length, 6);
+		f.fill(0, base, base + 48);
+		for (let i = 0; i < n; i++) { const [x, y, z, c] = ci.planes[i]; f[base + i * 4] = x; f[base + i * 4 + 1] = y; f[base + i * 4 + 2] = z; f[base + i * 4 + 3] = x * O[0] + y * O[1] + z * O[2] - c; }
+		f[base + 24] = n;
+		const u = sphereRayUniforms(ci.st, origin);
+		f.set([...u.F, 0, ...u.X, 0, ...u.Y, 0, ...u.E, u.c, ...u.EO, 0], base + 28);
 	}
 	const gpAB = new ArrayBuffer(GP_SLOT * 11);
 	const gpF = new Float32Array(gpAB), gpI = new Int32Array(gpAB);
@@ -768,7 +801,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	}
 	function renderScene(L, data, fr, ctx) {
 		const dep = data.depth;
-		const P = pipesFor(fr.samples || host.samples || 4, L.sbOn);   // 遷移時AA＝renderer のフレーム段数にセットごと追随
+		const P = pipesFor(fr.samples || host.samples || 4, L.sbOn, !!clipInfo());   // 遷移時AA＝renderer のフレーム段数にセットごと追随・断面の間は派生のセット
 		// UBO を先に確定（queue.writeBuffer は submit 前に順序どおり適用される。書き先は層の buffer＝他層と衝突しない）
 		packGF(L, GF_LINE * GF_SLOT, data, data.lodRank ?? 0);
 		packGF(L, GF_FILL * GF_SLOT, data, 0);                     // 塗り stencil＝全密度（rank0）
@@ -815,6 +848,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		// ① ID 蓄積パス（main パスより前・fr.enc の別 render pass）＝winding 和を rg16float へ。基準メタ・rank0・pivot 有効
 		if (idFill) {
 			idRCPU[0] = L.fidStyleW || 1; idRCPU[1] = L.fidStyleCount; idRCPU[2] = L.idOverlapMode ? 1 : 0; idRCPU[3] = 0;
+			const ci = clipInfo();   // 断面（#111 段 3）＝解決の派生が読む（RC：r の後ろに面と全画面レイ・画面の大きさ）
+			if (ci) { packClip(idRF, 4, data.origin, ci); idRF[52] = V.width; idRF[53] = V.height; }
 			device.queue.writeBuffer(L.idRBuf, 0, idRCPU);
 			const idPass = fr.enc.beginRenderPass({ timestampWrites: host.passTS?.("gint"), colorAttachments: [{ view: idTexView, loadOp: "clear", clearValue: { r: 0, g: 0, b: 0, a: 0 }, storeOp: "store" }] });
 			idPass.setPipeline(L.sbOn ? idAccumPipeSB : idAccumPipe);
@@ -943,7 +978,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		}
 		pass.end();
 	}
-	const idRCPU = new Uint32Array(4);
+	const idRAB = new ArrayBuffer(256), idRCPU = new Uint32Array(idRAB), idRF = new Float32Array(idRAB);   // 素は先頭 16B（R）・断面の派生は 224B（RC）
 
 	// ── settle（picking buffer 構築）＝非MSAA rgba8 テクスチャへ別パス。pick は1枚＝アクティブ層のみ（§4.1）──
 	function drawn() {
@@ -981,13 +1016,13 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		bindQuads(pass);   // 線・点の index（P3）＝pick も描画と同じ 4 頂点
 		if (L.totalEdges > 0 && L.metaTex && L.arcTex) {
 			const pkSel = pickLineTier(L, data.lodRank ?? 0, L.metaTex, L.totalEdges);
-			pass.setPipeline(L.sbOn ? pickLinePipeSB : pickLinePipe);
+			pass.setPipeline(pickPipesFor(L.sbOn, !!clipInfo())[0]);
 			pass.setBindGroup(1, L.paramBG[ROLE.pickLine]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.arcTex, pkSel.tex));
 			for (const [est, cnt] of (pkSel.runs ?? [[0, pkSel.count]])) drawQuads(pass, cnt, est);
 		}
 		if (L.totalPoints > 0 && L.ptTex && L.ptMetaTex) {
-			pass.setPipeline(L.sbOn ? pickPointPipeSB : pickPointPipe);
+			pass.setPipeline(pickPipesFor(L.sbOn, !!clipInfo())[1]);
 			pass.setBindGroup(1, L.paramBG[ROLE.pickPoint]);
 			pass.setBindGroup(2, texBG(L.sbOn, L.ptTex, L.ptMetaTex));
 			drawQuads(pass, L.totalPoints, 0);
@@ -1034,7 +1069,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		let featureId = fid1 === 0 ? null : fid1 - 1;
 		if (fid1 === 0 && L.gintData?.polyStream && V.cam) {
 			const geo = unproject(V.cam, data.x * V.dpr, data.y * V.dpr);
-			if (geo) {
+			const ci = clipInfo();
+			if (geo && !(ci && clipDistanceM(ci.planes, geo[0], geo[1], 0) < 0)) {   // 断面で切られた側の面は当てない（#111 段 3・塗りの当たりは海抜 0 の点）
 				const SE = 1e7;
 				featureId = findPolygon(
 					L.gintData.arcBuffer, L.gintData.arcMeta, L.gintData.polyStream,
