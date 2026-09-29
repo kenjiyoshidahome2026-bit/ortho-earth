@@ -192,6 +192,7 @@ export function textMatch(R, O, T = THRESH) {
 }
 // 本物の写しが例の狙いを写せていない例＝分母の外（本物が「落ちる」のとは別＝走らせ台で本物が描けない）。手で確かめて理由を書く（2026-09-30）
 export const REF_BROKEN = {
+	"toggle-deckgl-layer": "the example's style URL (clockworkmicro) is behind an API key locked to the Referer https://maplibre.org/ — 401 from this rig for both sides (real MapLibre never reaches load); ours falls back to the default basemap and the deck.gl overlay draws",
 	"add-a-3d-model-with-babylonjs": "real MapLibre draws nothing here: babylon issues 32 draw calls per frame but GL_INVALID_OPERATION (1282) follows and no pixel changes (materials/effects ready, matrices in view) — MapLibre×babylon interop in this rig; ours draws the two dishes",
 };
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
