@@ -6,7 +6,8 @@
      ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。
      ?g=relief＝標高の段彩（color-relief・#114）＝style で起動・試料 fixtures/dem の円錐に段の色・step は透明・不透明度・外す・addLayer。実時間。
      ?g=before＝基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図の層を指す時の描く順（vector の描く層・2D と 3D）・style の 2 本目の source の層は style の順。実時間。
-     ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。 -->
+     ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。
+     ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -1249,6 +1250,21 @@ try {
 			map.removeLayer("hs3"); map.removeLayer("cr3");
 			return [n.size > 0 && dup === 0 && drawnNow, `urls=${n.size} fetchedTwice=${dup} drawn=${drawnNow}`];
 		});
+	} else if (G === "cover") {
+		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
+		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。
+		//    試料 optbv は z7/10/13/15 だけ（東京の z13 は 2 枚）＝公開 13.6 は MapLibre なら 13・旧は 14（無いタイル＝答えが空）。ちょうど 10 は換算の誤差で 9 にしない（旧 viewOf の toFixed(5) の轍）。
+		//    画面全体の問い合わせで返る基図の地物の tile（"z/x/y"）で見る
+		const C = [139.775, 35.69], D = 1 + Math.log2(1 / Math.cos(C[1] * Math.PI / 180));
+		const style = { version: 8, sources: { gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf"], minzoom: 4, maxzoom: 16 } },
+			layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }, { id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": "#9ec3e6" } }] };
+		const map = await createGlobe({ target: "#map", view: `#${13.6 + D}/${C[1]}/${C[0]}`, zoomScale: "mercator", chips: false, style });
+		const settle = async () => { await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(1500); };   // 静止時の手前詳細化（settle＋550ms）まで待つ
+		const tilesOf = async () => [...new Set((await map.queryRenderedFeatures([[0, 0], [960, 600]], { layers: ["water"] })).map(f => f.tile).filter(Boolean))].sort();
+		await settle();
+		await scene("base-tile-z-floor", async () => { const ks = await tilesOf(); return [ks.length > 0 && ks.every(k => k.startsWith("13/")), `zoom=${map.getZoom().toFixed(3)} tiles=${ks.join(",") || "none"}`]; });
+		map.jumpTo({ zoom: 10 }); await settle();
+		await scene("base-tile-z-integer", async () => { const ks = await tilesOf(); return [ks.length > 0 && ks.every(k => k.startsWith("10/")), `zoom=${map.getZoom()} tiles=${ks.join(",") || "none"}`]; });
 	}
 
 	// ── 爪車 ──
