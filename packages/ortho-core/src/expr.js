@@ -77,7 +77,7 @@ export function evalExpr(e, ctx) {
 }
 
 // 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
-export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density"]);
+export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation"]);
 
 // MapLibre 形の式の検査＝知らない演算子を集める（MapLibre は addLayer でその名を挙げて層を足さない・2026-09-26 段 5）。
 // 式の位置だけを見る：literal の中・match のラベル・interpolate の補間型と停留値・step の閾値・let の名前・var・format/number-format/collator の設定は式でない。
@@ -255,7 +255,7 @@ function build(e, o = "native") {
 		case "is-supported-script": return () => true;
 		case "resolved-locale": return () => (typeof navigator !== "undefined" && navigator.language) || "en";
 		case "collator": return () => null;
-		case "accumulated": case "line-progress": case "heatmap-density": return ctx => ctx.vars?.[op] ?? 0;
+		case "accumulated": case "line-progress": case "heatmap-density": case "elevation": return ctx => ctx.vars?.[op] ?? 0;   // elevation＝color-relief の段の標高（m・#114）
 		default: (globalThis.__orthovtUnknownOps ||= new Set()).add(op); return () => undefined;
 	}
 }

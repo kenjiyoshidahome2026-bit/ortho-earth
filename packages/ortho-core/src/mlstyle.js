@@ -6,7 +6,7 @@
 //   ③ 文字の差し込み記法（"{name}"・"{name:latin}"）→ concat
 // 読み替えは純関数（worker にも main にも置ける）。取得（fetch）は loadMapLibreStyle に分けた。
 //
-// 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・circle・heatmap（線に沿うラベルは段 4・アイコンは段 3 から基図で描く）。
+// 描けない物（このエンジンの基図の外）＝fill-extrusion・raster・hillshade・color-relief・circle・heatmap（線に沿うラベルは段 4・アイコンは段 3 から基図で描く）。
 // それらは基図に入れず、呼び手（globe）が「画像層」「利用者の層」へ振り分けるか、捨てて数える（splitMapLibreStyle の戻り値）。
 
 import { ORIGIN_KEY, unknownOps } from "./expr.js";
@@ -194,7 +194,7 @@ export function splitMapLibreStyle(style, { zoomOffset = 1 } = {}) {
 		const sp = sources[L0.source];
 		// geojson / image / video の層＝利用者の層の口へ「そのまま」渡す（読み替えと目盛りの換算は受け手が normalizeMLLayer で 1 回＝dz は受け手が layerDzOf(L, zoomOffset) で決める）
 		if (sp?.type === "geojson" || sp?.type === "image" || sp?.type === "video") { geojson.push(L0); continue; }   // video＝四隅の動画（#49）も利用者の層の口へ
-		if (L0.type === "hillshade" && sp?.type === "raster-dem") { geojson.push(L0); continue; }   // hillshade＝利用者の層の口（globe の hillshade.js＝陰影の画像タイル・公式例の門 3 巡目）
+		if ((L0.type === "hillshade" || L0.type === "color-relief") && sp?.type === "raster-dem") { geojson.push(L0); continue; }   // hillshade・color-relief（#114）＝利用者の層の口（globe が raster-dem から画像タイルを作る・公式例の門 3 巡目）
 		const bad = mlUnknownOps(L0);
 		if (bad.length) { skipped.push({ id: L0.id, type: L0.type, why: `unknown expression operator ${bad.map(o => `"${o}"`).join(", ")}` }); continue; }   // MapLibre は層を足さない
 		const L = normalizeMLLayer(L0, zoomOffset);
