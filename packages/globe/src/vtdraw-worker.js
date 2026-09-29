@@ -46,7 +46,9 @@ function build(m) {
 	const R = raw.get(`${sid}|${key}`);
 	if (!R) { self.postMessage({ id: m.id, miss: true }); return; }
 	const need = new Set(m.layers.map(l => l.layer["source-layer"]).filter(Boolean));
+	const t0 = performance.now();   // 計器（#109 段 4・?hud=1）＝解読と組み立ての時間を返す
 	const data = R.buf.byteLength ? decodeTile(R.buf, need, R.enc) : {};
+	const t1 = performance.now();
 	const origin = tileNW(z, x, y), ops = [], labels = {}, warn = [], ids = {};   // ids＝{ source-layer: Set<id> }（feature-state を読む層の地物・読む層が無ければ null で返す）
 	// 線の細分＝基図と同じ 700m（地形に沿わせる）。低ズームのタイル（z2 で 1 枚 1 万 km）では 700m だと 1 本が 24 分割に膨れる＝タイルの幅の 1/64 より細かくしない
 	const subLenM = Math.max(700, 40075016.686 * Math.cos((origin[1] + tileNW(z, x, y + 1)[1]) / 2 / R2D) / 2 ** z / 64);
@@ -124,5 +126,5 @@ function build(m) {
 	let bytes = 0;
 	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off]) if (a) { transfer.push(a.buffer); bytes += a.byteLength; }
 	const idl = Object.keys(ids).length ? Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, [...v]])) : null;
-	self.postMessage({ id: m.id, origin, ops, labels, bytes, stats: { features, ops: ops.length }, warn, ids: idl }, transfer);
+	self.postMessage({ id: m.id, origin, ops, labels, bytes, stats: { features, ops: ops.length, decodeMs: t1 - t0, buildMs: performance.now() - t1 }, warn, ids: idl }, transfer);
 }

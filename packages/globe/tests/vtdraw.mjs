@@ -179,6 +179,8 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	ctl.setOrder(["ff", "fc", "pl"]);
 	const settled = () => until(() => ctl.loaded("s"));
 	ok("main-fs-first-load", await settled(), JSON.stringify(ctl.stats().sources));
+	const keyOf = id => ctl.stats().layers[id]?.key;   // #123：層の op の li の範囲（描画器の差し込みの表の鍵）＝鍵の副番号 0〜2
+	ok("main-li-range", JSON.stringify(ctl.liRange("fc")) === JSON.stringify([liOf(keyOf("fc"), 0), liOf(keyOf("fc"), 2)]) && ctl.liRange("ff")[1] < ctl.liRange("fc")[0] && ctl.liRange("nope") === null, JSON.stringify([ctl.liRange("ff"), ctl.liRange("fc")]));
 	const built = () => ctl.stats().sources[0].built;
 	ok("main-fs-ids-kept", built().filter(b => /:ids\d+/.test(b)).length === 4, built().join(" "));
 	// 公園（101）は西の列の上下 2 枚だけ＝その 2 枚だけ組み直す・添える状態はその地物だけ
@@ -187,6 +189,8 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	const dirty = built().filter(b => b.includes("!")).length;
 	ok("main-fs-dirty-then-loaded", dirty === 2 && !ctl.loaded("s") && await settled(), `dirty=${dirty} ${built().join(" ")}`);
 	ok("main-fs-rebuild-only-containing", builds.length === 2 && builds.every(b => JSON.stringify(b.fs) === '{"landuse":[[101,{"hl":true}]]}'), JSON.stringify(builds.map(b => [b.key, b.fs])));
+	const tmg = ctl.timing();   // 計器（段 4）＝状態を変えてから描く側へ渡すまで・組み立ての往復が刻まれる
+	ok("main-fs-timing", typeof tmg.fsMs === "number" && tmg.fsMs >= 0 && !tmg.pending && tmg.builds >= 6 && tmg.rttMs >= tmg.buildMs && tmg.shown === 4, JSON.stringify(tmg));
 	// 含まない地物・読む層の無い source-layer＝組み直さない
 	builds.length = 0; ctl.touchFS("s", "poi", 999); ctl.touchFS("s", "road", 201);
 	await new Promise(r => setTimeout(r, 30));
