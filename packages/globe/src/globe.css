@@ -2,8 +2,10 @@
 @charset "UTF-8";
 /* Quiet Mono — 意匠の憲法（デザイントークン）。
    ortho系地図アプリ（japan / 将来のglobe…）はデータも配管も独立だが、顔はこの一冊で揃える。
-   変数は #map スコープ＝任意のページに埋め込んでもホート側と衝突しない。 */
-#map {
+   変数は容れ物スコープ＝任意のページに埋め込んでもホート側と衝突しない。
+   容れ物＝:is(.qm, #map)（2026-09-30・#173 段 1）：.qm はエンジンが付ける印＝id に依らず 1 頁に地図を複数置ける。
+   特異度は :is の中の最大＝id 1 個＝#map 時代と同じ（重なりの勝ち負けは変わらない）。 */
+:is(.qm, #map) {
   /* 紙とインク（無彩色の階調） */
   --qm-paper: #f6f6f4; /* 紙色（致命面・地図の地色と同系） */
   --qm-ink: #2b3b57; /* 強調インク（見出し・活性・フォーカス枠） */
@@ -69,7 +71,7 @@
        化粧節・チップ・計器はトークン参照のままセレクタ無改造で一斉に黒硝子に転ぶ。
        白ソリッド面（検索リスト・モーダル・右クリックメニュー＝読む物）は昼のまま＝そこは紙が主役。
        sheen-dim は元々「暗地用の照り」＝夜もそのまま。点火(.on)のアクセント色ガラスも夜地で映えるのでそのまま。 */
-#map.ui-dark {
+:is(.qm, #map).ui-dark {
   --qm-glass-bg: rgba(15, 20, 30, .48); /* 地は黒硝子（寒色は保つ＝quiet-mono の同族） */
   --qm-glass-sheen: linear-gradient(180deg, /* 照りは白を大幅に絞る＝夜の受光面は月明かり程度 */
   	rgba(255,255,255,.20), rgba(255,255,255,.07) 46%, rgba(255,255,255,0) 54%, rgba(255,255,255,.05));
@@ -93,7 +95,11 @@
      例外＝中央寄せ（left: 50% + translateX(-50%)）と左右対称の飾り（縮尺バーの両端）は方向に依らない＝物理のままでよい。
      検定は ortho-japan の tests/t-rtl.html（LTR は座標が動かないこと・RTL は入れ替わること）。 */
 /* --- 舞台 --- */
-/* ★この意匠キットは #map の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
+/* 容れ物＝:is(.qm, #map)（2026-09-30・#173 段 1）。.qm はエンジン（createGlobe／equal）が付ける印＝容れ物の id に依らない
+   ＝1 頁に地図を複数置ける。#map は従来の頁の互換。特異度は :is の中の最大＝id 1 個＝#map 時代と同じ
+   （重なりの勝ち負けは変わらない）。寸法だけは :where(.qm, #map)＝特異度 0（下の節）。
+   新しい規則で容れ物に当てる時も #map と書かず :is(.qm, #map) と書く（geoedit・census2020・equal・globe も同じ）。 */
+/* ★この意匠キットは容れ物（#map）の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
    html/body への指定はホストのレイアウトを乗っ取る。かつて開幕用に body{visibility:visible} を置いていたが、
    かつて開幕用に body{visibility:visible} を置いていた（index.html が body を隠して待つ作法の相方）が、
    本体は #boot オーバーレイ方式へ移って body を隠さなくなったので撤去した。
@@ -105,13 +111,13 @@
 /* position も同じ理由で特異度ゼロ（2026-09-29）：MapLibre の定番「#map { position:absolute; top:0; bottom:0; width:100% }」が
    id セレクタどうしの後勝ちで relative に化け、top/bottom が効かず高さ 0 になった（公式例 display-performance-metrics が起動しなかった）。
    MapLibre も relative はクラス（.maplibregl-map）＝利用者の id 指定が勝つ。子（#c ほか）の基準は absolute/fixed でも同じく立つ */
-:where(#map) {
+:where(.qm, #map) {
   position: relative;
   width: 100%;
   height: 100%;
 }
 
-#map {
+:is(.qm, #map) {
   overflow: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%; /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
@@ -586,93 +592,93 @@
 /* --- 夜家具（#map.ui-dark）：紙(land)が暗い配色テーマでアプリが輝度判定で付与。下辺の計器・出典・スケール・
        トーストだけ黒硝子へ転がす（値は #sky-attr＝星空劇場の黒硝子と同族＝夜の額装を揃える）。
        上辺のボタン/チップ/検索は白硝子のまま＝白の照り(sheen)が受光面を作るので暗地でも読める。 --- */
-#map.ui-dark #pos, #map.ui-dark #attr {
+:is(.qm, #map).ui-dark #pos, :is(.qm, #map).ui-dark #attr {
   background-color: rgba(10, 14, 22, 0.55);
   border-color: rgba(255, 255, 255, 0.22);
   box-shadow: 0 1px 1px rgba(0, 0, 0, 0.25), 0 3px 10px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
-#map.ui-dark #pos th {
+:is(.qm, #map).ui-dark #pos th {
   color: rgba(225, 232, 242, 0.92);
   border-bottom-color: rgba(255, 255, 255, 0.14);
 }
-#map.ui-dark { /* 常時白抜きでラベル(th)が数値(td)比で沈む→同色へ（本人指摘2026-08-05・階層は 10/13px の字幅差で保つ） */ }
-#map.ui-dark #pos td {
+:is(.qm, #map).ui-dark { /* 常時白抜きでラベル(th)が数値(td)比で沈む→同色へ（本人指摘2026-08-05・階層は 10/13px の字幅差で保つ） */ }
+:is(.qm, #map).ui-dark #pos td {
   color: rgba(225, 232, 242, 0.92);
 }
-#map.ui-dark #attr {
+:is(.qm, #map).ui-dark #attr {
   color: rgba(225, 232, 242, 0.92);
 }
-#map.ui-dark #attr a {
+:is(.qm, #map).ui-dark #attr a {
   color: rgba(225, 232, 242, 0.92);
 }
-#map.ui-dark { /* 常時白抜き＝出典も白へ（本人指摘2026-08-05・下辺の計器(#pos)と同じ明るさに統一） */ }
-#map.ui-dark #scale {
+:is(.qm, #map).ui-dark { /* 常時白抜き＝出典も白へ（本人指摘2026-08-05・下辺の計器(#pos)と同じ明るさに統一） */ }
+:is(.qm, #map).ui-dark #scale {
   color: rgba(225, 232, 242, 0.9);
 }
-#map.ui-dark #scale #scale-txt {
+:is(.qm, #map).ui-dark #scale #scale-txt {
   text-shadow: 0 0 3px rgba(0, 0, 0, 0.85);
 }
-#map.ui-dark { /* ハローも夜色に（白のままだと灰色に滲む） */ }
-#map.ui-dark #elev-toast, #map.ui-dark #plateau-toast {
+:is(.qm, #map).ui-dark { /* ハローも夜色に（白のままだと灰色に滲む） */ }
+:is(.qm, #map).ui-dark #elev-toast, :is(.qm, #map).ui-dark #plateau-toast {
   color: rgba(215, 224, 238, 0.9);
   background: rgba(16, 21, 30, 0.78);
 }
-#map.ui-dark {
+:is(.qm, #map).ui-dark {
   /* ボタン・チップのインク：ガラス原料は tokens.scss の夜節が差し替え済み＝ここは文字とアイコンの線/塗りだけ。
      SVGは属性直書き（stroke/fill）＝属性は詳細度0でCSSが勝つ。属性はルート<svg>にも各要素にもあるため両対応で拾う：
      本線(#3f4757)・インク(#2b3b57)→明インク、脇線(#9aa0ac)→中間灰。赤(コンパス針#c00)・白は夜も不変＝触らない。 */
 }
-#map.ui-dark #chips .chip {
+:is(.qm, #map).ui-dark #chips .chip {
   color: rgba(210, 220, 235, 0.9);
 }
-#map.ui-dark #zoom button {
+:is(.qm, #map).ui-dark #zoom button {
   color: rgba(225, 232, 242, 0.95);
 }
-#map.ui-dark #hint-btn {
+:is(.qm, #map).ui-dark #hint-btn {
   color: rgba(222, 230, 242, 0.95);
 }
-#map.ui-dark { /* 「?」はテキスト＝SVG属性経路に乗らないので個別に */ }
-#map.ui-dark #plateau-btn svg {
+:is(.qm, #map).ui-dark { /* 「?」はテキスト＝SVG属性経路に乗らないので個別に */ }
+:is(.qm, #map).ui-dark #plateau-btn svg {
   fill: rgba(222, 230, 242, 0.95);
 }
-#map.ui-dark { /* 公式ロゴ紫(#463C64)も夜は明インクの単色版＝黒硝子に沈まない */ }
-#map.ui-dark :is(svg, svg *):is([stroke="#3f4757"], [stroke="#2b3b57"]) {
+:is(.qm, #map).ui-dark { /* 公式ロゴ紫(#463C64)も夜は明インクの単色版＝黒硝子に沈まない */ }
+:is(.qm, #map).ui-dark :is(svg, svg *):is([stroke="#3f4757"], [stroke="#2b3b57"]) {
   stroke: rgba(222, 230, 242, 0.95);
 }
-#map.ui-dark :is(svg, svg *):is([fill="#3f4757"], [fill="#2b3b57"]) {
+:is(.qm, #map).ui-dark :is(svg, svg *):is([fill="#3f4757"], [fill="#2b3b57"]) {
   fill: rgba(222, 230, 242, 0.95);
 }
-#map.ui-dark :is(svg, svg *)[stroke="#9aa0ac"] {
+:is(.qm, #map).ui-dark :is(svg, svg *)[stroke="#9aa0ac"] {
   stroke: rgba(150, 162, 180, 0.88);
 }
-#map.ui-dark #cpos-btn.on svg {
+:is(.qm, #map).ui-dark #cpos-btn.on svg {
   stroke: #fff;
 }
-#map.ui-dark { /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */ }
-#map.ui-dark #layers-btn.on svg path, #map.ui-dark .qm-panel-btn.on svg path {
+:is(.qm, #map).ui-dark { /* 点火＝白反転は夜も維持（上の明インクより詳細度で勝たせる再掲） */ }
+:is(.qm, #map).ui-dark #layers-btn.on svg path, :is(.qm, #map).ui-dark .qm-panel-btn.on svg path {
   stroke: #3f4757;
 }
-#map.ui-dark { /* 表示パネルは開=明パネル+墨菱形＝夜の明インク化より詳細度で勝たせる再掲 */ }
-#map.ui-dark .qm-panel-btn.on svg rect {
+:is(.qm, #map).ui-dark { /* 表示パネルは開=明パネル+墨菱形＝夜の明インク化より詳細度で勝たせる再掲 */ }
+:is(.qm, #map).ui-dark .qm-panel-btn.on svg rect {
   fill: #3f4757;
 }
-#map.ui-dark { /* 塗りの記号（主題＝凡例の帯）も同じ極性で墨へ */
+:is(.qm, #map).ui-dark { /* 塗りの記号（主題＝凡例の帯）も同じ極性で墨へ */
   /* 住所入力：入力欄も黒硝子＝開いた虫めがね（明インク）がそのまま生きる。読む物ではあるが地図の上に
      浮く一行の道具＝夜の額装に合わせる（候補リストは白ソリッドのまま＝腰を据えて読む物） */
 }
-#map.ui-dark #search #search-in {
+:is(.qm, #map).ui-dark #search #search-in {
   background: rgba(15, 20, 30, 0.55);
   color: rgba(228, 234, 244, 0.95);
   border-color: rgba(255, 255, 255, 0.28);
 }
-#map.ui-dark #search #search-in::placeholder {
+:is(.qm, #map).ui-dark #search #search-in::placeholder {
   color: rgba(150, 162, 180, 0.8);
 }
-#map.ui-dark #search #search-in:focus {
+:is(.qm, #map).ui-dark #search #search-in:focus {
   border-color: rgba(255, 255, 255, 0.6);
   background: rgba(12, 16, 24, 0.82);
 }
-#map.ui-dark {
+:is(.qm, #map).ui-dark {
   /* #tip は基準スタイル（gishub 同一の黒0.75）が夜もそのまま成立＝ここでの再化粧なし */
 }
 
@@ -1341,11 +1347,11 @@
        z-index は使わない＝::after は自ボタンの子（DOM順で親の上に乗る）。aria-label は各ボタンに別途残す（読み上げ用）＝data-tip は目で読む層だけ。
        ::after の錨は「出す時だけ」relative＝隣接ボーダー共有（チップ/ズームの capsule）の重なり順を平時は崩さない。
        #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 --- */
-#map [data-tip]:hover, #map [data-tip]:focus-visible {
+:is(.qm, #map) [data-tip]:hover, :is(.qm, #map) [data-tip]:focus-visible {
   position: relative;
 }
 
-#map [data-tip]::after {
+:is(.qm, #map) [data-tip]::after {
   content: attr(data-tip);
   position: absolute;
   white-space: nowrap;
@@ -1361,12 +1367,12 @@
   transition: opacity 0.14s ease; /* ポンと出さない＝フェード（家具の所作と揃える） */
 }
 
-#map [data-tip]:hover::after, #map [data-tip]:focus-visible::after {
+:is(.qm, #map) [data-tip]:hover::after, :is(.qm, #map) [data-tip]:focus-visible::after {
   opacity: 1;
 }
 
 @media (pointer: coarse) {
-  #map [data-tip]::after {
+  :is(.qm, #map) [data-tip]::after {
     display: none;
   }
 } /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
@@ -1677,7 +1683,7 @@
   cursor: default;
 }
 
-#map.measuring #c, #map.profiling #c {
+:is(.qm, #map).measuring #c, :is(.qm, #map).profiling #c {
   cursor: crosshair;
 } /* 計測・断面図の経路指定中は照準カーソル（掴み手をやめる） */
 #measure-readout, #profile-readout {
@@ -1712,7 +1718,7 @@
 /* --- 閉じる×（埋め込み用）：右上の額縁の金具＝スタック不参加（骨格は34px規格） --- */
 /* ⚠#map を前置＝詳細度 (2,0,0)。#map [data-tip]:hover { position: relative }（吹き出しの錨）に負けると、
    ホバーした瞬間に×が左上へ飛び→カーソルが外れて戻る、の点滅で押せなかった（2026-09-22）。absolute も ::after の錨になる */
-#map #close-btn {
+:is(.qm, #map) #close-btn {
   position: absolute;
   top: 10px;
   inset-inline-end: 10px;
@@ -2039,11 +2045,11 @@
    退場するのは紙の計器だけ：#scale/#hint/#log。#pos（座標テーブル）は全z表示（本人裁定 2026-09-03）。
    #attr（出典）も全z表示＝文面はアプリ側が3圏（基図/世界帯/星空）で差し替える（旧 #sky-attr 廃止・同 09-03）。
    点火/消灯はアプリ側（ortho-japan render()＝z<STARSKY_Z で .world 付与）。 */
-#map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+:is(.qm, #map) :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
   transition: opacity 0.6s ease;
 }
 
-#map.world :is(#hint, #log, #scale) {
+:is(.qm, #map).world :is(#hint, #log, #scale) {
   opacity: 0;
   pointer-events: none;
 }
@@ -2054,15 +2060,15 @@
    ②#attr＝上演中も GSI タイルは描かれる＝出典は消さない。
    操縦バー（#demo-bar）ごと非表示＝スライド送りは自動上演（狭画面の▶開始＝即 play）が担う。 */
 @media (max-width: 480px) {
-  #map.demo-live :is(#chips, #search-list, #hint, #log, #pos, #scale),
-  #map.demo-live #gadgets > :not(#demo-btn) {
+  :is(.qm, #map).demo-live :is(#chips, #search-list, #hint, #log, #pos, #scale),
+  :is(.qm, #map).demo-live #gadgets > :not(#demo-btn) {
     opacity: 0;
     pointer-events: none;
   }
-  #map.demo-live #demo-bar {
+  :is(.qm, #map).demo-live #demo-bar {
     display: none !important;
   } /* .on/.playing より強く＝バーは一切出さない */
-  #map.demo-live #demo-btn {
+  :is(.qm, #map).demo-live #demo-btn {
     order: -1;
   } /* 独りになったら最上段へ（他は opacity:0 で席だけ残るため） */
 }
@@ -2082,12 +2088,12 @@
   color: rgba(250, 252, 255, 0.92); /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
 
-#map.world #sky-clock {
+:is(.qm, #map).world #sky-clock {
   opacity: 1;
 }
 
 /* 埋め込みで×（#close-btn＝右上 10px・34px 角）が載っている時は、時計を×の左へ寄せる（重なって×が押しづらかった 2026-09-22） */
-#map:has(#close-btn) #sky-clock {
+:is(.qm, #map):has(#close-btn) #sky-clock {
   inset-inline-end: 56px;
   top: calc(17px + env(safe-area-inset-top, 0px));
 }
@@ -2099,7 +2105,7 @@
     top: calc(10px + env(safe-area-inset-top, 0px));
     inset-inline-end: 10px;
   }
-  #map:has(#close-btn) #sky-clock {
+  :is(.qm, #map):has(#close-btn) #sky-clock {
     inset-inline-end: 52px;
     top: calc(19px + env(safe-area-inset-top, 0px));
   }
@@ -2168,7 +2174,7 @@
    ページそのものの体裁（margin/height/overflow/背景）は各 index.html の critical style が持つ＝
    スタンドアロンの時だけ効き、任意の div へ埋め込んだ時はホストのレイアウトを壊さない。
    ここを html,body へ戻すと「div に埋め込める」という README の約束がその瞬間に嘘になる（轍）。 */
-#map {
+:is(.qm, #map) {
   color: #cdd;
   font: 13px/1.5 system-ui, sans-serif;
 }
@@ -2201,11 +2207,11 @@
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
    トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り。
    アイコン配列は全z共通（2026-09-03 シンプル化）＝星空圏(.world)も同じ一則＝星空はアイドルで独り占めできる。 */
-#map.ui-idle :is(#gadgets, #chips) {
+:is(.qm, #map).ui-idle :is(#gadgets, #chips) {
   opacity: 0;
 }
 
-#map.ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) {
+:is(.qm, #map).ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) {
   pointer-events: none;
 } /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */

@@ -6,7 +6,7 @@
    ページそのものの体裁（margin/height/overflow/背景）は各 index.html の critical style が持つ＝
    スタンドアロンの時だけ効き、任意の div へ埋め込んだ時はホストのレイアウトを壊さない。
    ここを html,body へ戻すと「div に埋め込める」という README の約束がその瞬間に嘘になる（轍）。 */
-#map { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
+:is(.qm, #map) { color: #cdd; font: 13px/1.5 system-ui, sans-serif; }
 
 /* 地中フェード：カメラが地表(DTM)より下に潜った時、地図(#c)・ラベル(#labels)・gint を一枚のダークグレーで覆う
    （山頂×高チルトで山体の裏を見上げる不正な絵の代替＝旧・カメラ地形クランプ廃止の相方）。app.js の
@@ -22,8 +22,8 @@
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
    トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り。
    アイコン配列は全z共通（2026-09-03 シンプル化）＝星空圏(.world)も同じ一則＝星空はアイドルで独り占めできる。 */
-#map.ui-idle :is(#gadgets, #chips) { opacity: 0; }
-#map.ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
+:is(.qm, #map).ui-idle :is(#gadgets, #chips) { opacity: 0; }
+:is(.qm, #map).ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
 
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb {
