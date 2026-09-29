@@ -135,6 +135,19 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	self.onmessage({ data: { kind: "build", id: 5, sid: "s", key: "13/7281/3379", z: 13, x: 7281, y: 3379, layers: fsLayers, fz: 14, pz: 15, promoteId: { poi: "name", landuse: "class" } } });
 	const r5 = replies.find(m => m.id === 5);
 	ok("fs-ids-promote-id", JSON.stringify(r5?.ids?.poi) === '["Cafe"]' && JSON.stringify([...(r5?.ids?.landuse || [])].sort()) === '["park","water"]', JSON.stringify(r5?.ids));
+	// ── 段 2：添えた状態が色に届く（core の stateOf）＝状態の地物だけ case の真の枝・円の縁（丸点→状態で色）・注記の文字色・読まない層は不変 ──
+	const stLayers = [
+		{ id: "sf", key: 0, layer: ml({ id: "sf", type: "fill", "source-layer": "landuse", paint: { "fill-color": hl("#00ff00", "#0000ff") } }) },
+		{ id: "sc", key: 1, layer: ml({ id: "sc", type: "circle", "source-layer": "poi", paint: { "circle-color": hl("#0000ff", "#00ff00"), "circle-stroke-width": 2, "circle-stroke-color": hl("#ff0000", "#000000") } }) },
+		{ id: "ss", key: 2, layer: ml({ id: "ss", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] }, paint: { "text-color": hl("#ff0000", "#000000") } }) },
+	];
+	const cols = op => { const s = new Set(); for (let i = 0; i < op.col.length; i += 4) s.add(op.col.slice(i, i + 4).join(",")); return [...s].sort(); };
+	const st = fs => { self.onmessage({ data: { kind: "build", id: 6 + (st.n = (st.n || 0) + 1), sid: "s", key: "13/7281/3379", z: 13, x: 7281, y: 3379, layers: stLayers, fz: 14, pz: 15, promoteId: null, fs } }); const q = replies.find(m => m.id === 6 + st.n), by = new Map(); for (const op of q?.ops || []) by.set(op.li, op); return { q, by }; };
+	const s0 = st(null), s1 = st({ landuse: [[101, { hl: true }]], poi: [[301, { hl: true }]] });
+	ok("fs-fill-color", JSON.stringify(cols(s0.by.get(liOf(0, 0)))) === '["0,0,255,255"]' && JSON.stringify(cols(s1.by.get(liOf(0, 0)))) === '["0,0,255,255","0,255,0,255"]', `${cols(s0.by.get(liOf(0, 0)))} → ${cols(s1.by.get(liOf(0, 0)))}`);
+	ok("fs-circle-color-and-rim", JSON.stringify(cols(s1.by.get(liOf(1, 2)))) === '["0,0,255,255","0,255,0,255"]' && JSON.stringify(cols(s1.by.get(liOf(1, 1)))) === '["0,0,0,255","255,0,0,255"]', `dot=${cols(s1.by.get(liOf(1, 2)))} rim=${cols(s1.by.get(liOf(1, 1)))}`);
+	const lc = q => Object.fromEntries((q?.labels?.ss || []).map(L => [L.text, L.color.join(",")]));
+	ok("fs-label-color", JSON.stringify(lc(s1.q)) === '{"Cafe":"1,0,0,1","Shop":"0,0,0,1"}' && JSON.stringify(lc(s0.q)) === '{"Cafe":"0,0,0,1","Shop":"0,0,0,1"}', JSON.stringify([lc(s0.q), lc(s1.q)]));
 }
 
 // ── main（gadgets/vtdraw.js）の feature-state の配管（#109 段 1）：偽の Worker（組み役＝上の worker をそのまま・結合役＝受け取って返すだけ）・rAF＝setTimeout・試料の z14 の 4 枚 ──

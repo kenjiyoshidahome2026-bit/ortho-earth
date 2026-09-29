@@ -3767,7 +3767,6 @@ const vtdMount = async (v, layer) => {
 	if (!desc) { console.warn(`[layers] "${layer.id}": source "${sid}" has no vector tiles here — nothing to draw`); return null; }
 	for (const k of VTD_UNSUPPORTED[layer.type] || []) if ((layer.paint?.[k] ?? layer.layout?.[k]) != null && !vtxWarned.has(layer.id + k)) { vtxWarned.add(layer.id + k); console.warn(`[layers] "${layer.id}": ${k} is not supported yet on vector sources — drawn without it`); }
 	if (layer.type === "circle" && layer.paint?.["circle-pitch-alignment"] === "map" && !vtxWarned.has(layer.id + "cpa")) { vtxWarned.add(layer.id + "cpa"); console.warn(`[layers] "${layer.id}": circle-pitch-alignment "map" is not supported yet — circles face the viewer`); }
-	if (JSON.stringify(layer.paint ?? null).includes('"feature-state"') && !vtxWarned.has(layer.id + "fs")) { vtxWarned.add(layer.id + "fs"); console.info(`[layers] "${layer.id}": feature-state on vector ${layer.type} layers is not drawn yet — the default look is used`); }
 	vtdDesc.set(sid, desc);
 	const c = await vtdGet();
 	if (mlLayers.get(layer.id) !== v) return null;
