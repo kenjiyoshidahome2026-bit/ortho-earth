@@ -5,7 +5,8 @@
      ② 漏れない：印の無い div には容れ物で絞った規則（トークン・吹き出し・文字）が当たらない。
      ③ 特異度は id 1 個のまま：クラスの上書き（.x { overflow: visible }）には負けない＝#map 時代と同じ勝ち負け。
         寸法は :where＝特異度 0 のまま：頁のクラスが勝つ。
-     ④ エンジン：createGlobe が容れ物に .qm を付け、destroy で外す。預かった div に最初から付いていた .qm は外さない。 -->
+     ④ エンジン：createGlobe が容れ物に .qm を付け、destroy で外す。預かった div に最初から付いていた .qm は外さない。
+        容れ物の id は生きている間も付け替えない（#173 段 2）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>
 html,body{margin:0;background:#0b1021}
 .probe-over { overflow: visible; }   /* ③ クラスの上書き＝容れ物の overflow:hidden（id 1 個）に負ける */
@@ -52,6 +53,7 @@ try {
 	let map = await createGlobe({ target: hc, view: "#3/35/139", chips: false, persistView: false });
 	const loadC = await loaded(map);
 	const onC = hc.classList.contains("qm"), paperC = getComputedStyle(hc).getPropertyValue("--qm-paper").trim();
+	ok("idKept", hc.id === "host-c", hc.id);   // 段 2：容れ物の id は付け替えない（旧＝map へ改名）
 	map.destroy();
 	ok("engineAddsQm", loadC && onC && paperC === "#f6f6f4" && !hc.classList.contains("qm") && hc.id === "host-c", `on=${onC} paper=${paperC} after=${hc.className}|${hc.id}`);
 	const hd = document.getElementById("host-d");

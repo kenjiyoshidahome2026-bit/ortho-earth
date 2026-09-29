@@ -43,7 +43,9 @@ export interface OrthoClock {
 	on(ev: "change" | "tick", cb: (c: OrthoClock) => void): OrthoClock; off(ev: "change" | "tick", cb: (c: OrthoClock) => void): OrthoClock;
 }
 export interface OrthoJapanOptions {
-	/** 埋め込み先（セレクタ or 要素）。idは"map"へ正規化される＝サイズ指定は#idセレクタ禁止 */
+	/** 埋め込み先（セレクタ or 要素）。省略時＝頁の #map（まだ地図が載っていない物）→ 無ければ body 直下に自作（頁に #map が無ければ id="map"）。
+	 *  容れ物の id は付け替えない（#173〜＝旧は "map" へ改名）＝利用者の #id の寸法指定もそのまま効く。意匠の印として class "qm" を付け、destroy で外す。
+	 *  同じ容れ物に地図が載っている間の二重起動は例外。2 枚目以降は別の容れ物を target で渡す */
 	target?: string | HTMLElement;
 	/** 初期視点 "#zoom/lat/lon/45t/30r/l=…/c=…"（t=チルト°・r=回転°） */
 	view?: string;

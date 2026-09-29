@@ -1,0 +1,84 @@
+<!doctype html>
+<!-- 1 頁に地図 2 枚（#173 段 2・2026-09-30）。容れ物の id を付け替えず、中の家具（固定 id）は各容れ物から引く＝2 枚目が 1 枚目の家具を掴まない。
+     既定（v 無し）：target で 2 つの div（#a・#b）に起動。
+       ① 両方が描ける（load）・容れ物の id はそのまま・両方に .qm
+       ② 家具は各自（#c・#labels・#attr・#scale が容れ物の中に 1 つずつ・別物）
+       ③ カメラは独立（A を動かしても B は動かない）・縮尺の表示も各自の視点
+       ④ B を畳んでも A は生きている（家具・カメラ・射影）・B の容れ物は空で .qm も外れる
+       ⑤ 畳んだ容れ物で起動し直せる・生きている容れ物への二重起動は例外
+     ?v=default：target 無しの既定の容れ物＝1 枚目は頁の #map、2 枚目は #map を掴まず body 直下に自作（id を付けない）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#0b1021}
+#a, #b { display: inline-block; width: 480px; height: 360px; vertical-align: top; }
+#map { width: 480px; height: 360px; }
+</style><title>t-multimap</title></head>
+<body>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "two";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const loaded = m => Promise.race([m.once("load").then(() => true), sleep(30000).then(() => false)]);
+const near = (a, b, e) => Math.abs(a - b) <= e;
+const base = { chips: false, persistView: false };
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");
+	if (V === "default") {
+		document.body.insertAdjacentHTML("afterbegin", `<div id="map"></div>`);
+		const pageMap = document.getElementById("map");
+		const m1 = await createGlobe({ ...base, view: "#3/35/139" });
+		const m2 = await createGlobe({ ...base, view: "#3/48/2" });
+		const [l1, l2] = await Promise.all([loaded(m1), loaded(m2)]);
+		const el2 = m2.mapEl;
+		ok("bothLoad", l1 && l2, `${l1}/${l2}`);
+		ok("firstUsesPageMap", m1.mapEl === pageMap && pageMap.classList.contains("qm"), m1.mapEl?.id);
+		ok("secondOwnDiv", !!el2 && el2 !== pageMap && el2.parentNode === document.body && el2.id === "" && el2.classList.contains("qm"), `${el2?.id}|${el2?.className}`);
+		ok("onePageMap", document.querySelectorAll("#map").length === 1, String(document.querySelectorAll("#map").length));
+		m2.destroy(); m1.destroy();
+		ok("cleanup", !document.body.contains(el2) && pageMap.childElementCount === 0 && !pageMap.classList.contains("qm"), `${document.body.contains(el2)}|${pageMap.childElementCount}|${pageMap.className}`);
+	} else {
+		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
+		const a = document.getElementById("a"), b = document.getElementById("b");
+		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#3/35/139" }), createGlobe({ ...base, target: "#b", view: "#6/48/2" })]);
+		const [la, lb] = await Promise.all([loaded(A), loaded(B)]);
+		// ① 起動・id・印
+		ok("bothLoad", la && lb, `${la}/${lb}`);
+		ok("idsKept", a.id === "a" && b.id === "b" && a.classList.contains("qm") && b.classList.contains("qm") && !document.getElementById("map"), `${a.id}|${b.id}`);
+		// ② 家具は各自
+		const own = sel => { const x = a.querySelectorAll(sel), y = b.querySelectorAll(sel); return x.length === 1 && y.length === 1 && x[0] !== y[0]; };
+		ok("ownFurniture", ["#c", "#labels", "#underground", "#attr", "#pos", "#scale"].every(own), ["#c", "#labels", "#underground", "#attr", "#pos", "#scale"].filter(s => !own(s)).join(","));
+		// ③ カメラは独立・縮尺も各自
+		A.jumpTo({ center: [139.76, 35.68], zoom: 10, pitch: 0, bearing: 0 });
+		await sleep(600);
+		const ca = A.getCenter(), cb = B.getCenter();
+		ok("camsIndependent", near(ca.lng, 139.76, 1e-6) && near(A.getZoom(), 10, 1e-6) && near(cb.lng, 2, 1e-6) && near(cb.lat, 48, 1e-6) && near(B.getZoom(), 6, 1e-6), `A=${ca.lng.toFixed(2)},${A.getZoom()} B=${cb.lng.toFixed(2)},${cb.lat.toFixed(2)},${B.getZoom()}`);
+		const sa = a.querySelector("#scale-txt")?.textContent, sb = b.querySelector("#scale-txt")?.textContent;
+		ok("scaleEach", !!sa && !!sb && sa !== sb, `A=${sa} B=${sb}`);
+		const [ax, ay] = A.projectLL(139.76, 35.68);
+		ok("projectA", near(ax, 240, 2) && near(ay, 180, 2), `${ax.toFixed(1)},${ay.toFixed(1)}`);
+		// ⑤ 生きている容れ物への二重起動は例外
+		let threw = false;
+		try { await createGlobe({ ...base, target: "#a" }); } catch { threw = true; }
+		ok("doubleBootThrows", threw && a.querySelectorAll("#c").length === 1);
+		// ④ B を畳んでも A は生きている
+		B.destroy();
+		ok("bGone", b.childElementCount === 0 && !b.classList.contains("qm") && b.id === "b", `${b.childElementCount}|${b.className}`);
+		A.jumpTo({ center: [135.5, 34.7], zoom: 9 });
+		await sleep(600);
+		const [ax2, ay2] = A.projectLL(135.5, 34.7);
+		ok("aAlive", !!a.querySelector("#c") && near(ax2, 240, 2) && near(ay2, 180, 2) && near(A.getZoom(), 9, 1e-6), `${ax2.toFixed(1)},${ay2.toFixed(1)}`);
+		// ⑤ 畳んだ容れ物で起動し直せる
+		const B2 = await createGlobe({ ...base, target: "#b", view: "#4/-33/151" });
+		const lb2 = await loaded(B2);
+		ok("reboot", lb2 && b.querySelectorAll("#c").length === 1 && near(B2.getCenter().lng, 151, 1e-6), `${lb2}`);
+		B2.destroy(); A.destroy();
+		ok("cleanup", a.childElementCount === 0 && b.childElementCount === 0, `${a.childElementCount}|${b.childElementCount}`);
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

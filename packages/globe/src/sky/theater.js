@@ -142,7 +142,7 @@ function constelApply() {
 	const solar = !solarOff && cam.zoom < 1;
 	renderer.set("view", { showConst: show, skySolar: solar });
 	renderer.set("skyLabels", show && !solar ? skyLabels : null);
-	const sc = document.getElementById("chip-sky");   // 表示パネルの星空チップ＝点火の一本道でだけ見た目同期
+	const sc = mapEl.querySelector("#chip-sky");   // 表示パネルの星空チップ＝点火の一本道でだけ見た目同期（自分の容れ物から＝#173）
 	if (sc) { sc.classList.toggle("on", constelVisible); sc.setAttribute("aria-pressed", String(constelVisible)); }
 	requestDraw();
 }
