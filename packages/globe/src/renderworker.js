@@ -46,7 +46,7 @@ let clockA = null, clockSet = null;   // 共通の時計の基準（#42）。nul
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
-const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequad: () => import("./gadgets/imagequad-draw.js") };   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequad: () => import("./gadgets/imagequad-draw.js"), czml: () => import("./gadgets/czml-draw.js") };   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m) {
 	const o = { canvas: m.canvas, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name, o);

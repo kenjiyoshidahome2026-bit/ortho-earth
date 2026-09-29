@@ -405,5 +405,5 @@
 **道具**：
 - 門：`npm run verify:examples -- --side ortho --ref r7 --label oNN`（採点まで）／`--only a,b`（部分）／`--grade --ref r7 --ortho oNN [--update]`／見比べ帳 `.cache/mlexamples/report/oNN/index.html`（launch.json `mlexamples-report`）。**`.cache/mlexamples/`（網の録り置き `net/`・本物 `runs/r7/`）は機械ごと**＝無い機械では `--side ref --label r7 --record-missing`（網に出る・139 本・10〜20 分）を先に。r6 以前の本物の記録には `symbols` が無い（段 0 以降は r7 以降を使う）。
 - 切り分け：`node tests/mlexamples/probe.mjs <例> '<式>' [秒]`（例の頁で式を評価＝`__placed()`／`__placedDebug()`／`__idleWhy()`／`__labelsMain()`）／`node scripts/probe-page.mjs <group> '<式>' [秒]`（t-mlcompat の頁）。
-- 関門：`npm test`（globe・core）・`npm run verify:regionless`・`VGU_PORT=52xx npm run verify:ui`・`VGW_PORT=52xx npm run verify:webgpu`。**並行させない**（t-mlcompat の色の標本・hillshade の「前」の写しが負荷で揺れる）。worktree は `npm ci` から。
+- 関門：`npm test`（globe・core）・`npm run verify:regionless`・`VGU_PORT=52xx npm run verify:ui`・`VGW_PORT=52xx npm run verify:webgpu`。**verify:ui と verify:webgpu を同時に走らせない**（t-mlcompat の色の標本・hillshade の「前」の写しが負荷で揺れる）。関門の中は既定で 4 本ずつ並べる（2026-09-29・`VG_JOBS`・6 本は揺れた・1 で直列）＝verify:ui 約 4.5 分・verify:webgpu 約 2.5 分（直列の約 16 分・9 分から）。worktree は `npm ci` から。
 - 轍（今日）：runner の素通り判定は表題の /skip/＝場面の文言に "zoomSkipped" 等を載せない／`map.xxx =` は `const map` より後／`setLayerZoomRange` の引数は公開の z（旗なし＝ML＋1）／`decodePng` は `{w,h,rgba}`／関門の出力を `cut` で切ると場面の理由が消える。

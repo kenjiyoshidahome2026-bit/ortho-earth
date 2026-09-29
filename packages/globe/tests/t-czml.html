@@ -1,0 +1,65 @@
+<!doctype html>
+<!-- CZML・GPX の時刻再生（#113 段 4）＝落としたファイルと同じ一本道（dbgHost.__loadUserFile）で読む＝INTAKE の timed 行 → gadgets/czml.js → 組み込みオーバーレイ czml。
+     ①CZML の document の clock が共通の時計へ（範囲・CLAMPED・開始・速さ 60→1 min/s）②その時刻の位置に描く・時刻の無い港は本道（gint）へ
+     ③点を押すと名前の吹き出し ④GPX＝clock が無い＝Cesium の既定（データの区間・LOOP・速さ＝区間÷120）⑤別のファイルに替えると消え、範囲も外れる
+     ?g=url＝起動時の URL の t= が読み込んだ clock に勝つ（範囲は写る）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-czml</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+import { positionAt, trackOf, ecefToLlh } from "../src/czml-time.js";
+const G = new URLSearchParams(location.search).get("g") || "main";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const T = s => Date.parse("2026-01-01T00:00:00Z") + s * 1000;
+const fileOf = async name => new File([await (await fetch(`./fixtures/czml/${name}`)).text()], name);
+try {
+	const view = G === "url" ? "#5/34/179/t=2026-01-01T01:30Z/s=0" : "#5/34/179";
+	const map = await createGlobe({ target: "#map", view, chips: false, debugGlobals: true });
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(10000)]);
+	const load = async name => window.__loadUserFile(await fileOf(name), { fit: false });
+	const grab = async () => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels("czml"); if (p && !p.error) return p; await sleep(250); } return null; };
+	// 描いた物を見る時＝インクが出るまで待つ（読み込み直後は部品の chunk がまだ＝積まれた問い合わせが最初の描画より先に答える）
+	const grabInk = async () => { let p = null; for (let i = 0; i < 30; i++) { p = await grab(); if (p) for (let k = 3; k < p.data.length; k += 4) if (p.data[k] > 60) return p; await sleep(300); } return p; };
+	const W = document.getElementById("map").clientWidth;
+	const at = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+	const near = (p, x, y, test, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(at(p, x + dx, y + dy))) return true; return false; };
+	const red = c => c[3] > 150 && c[0] > 180 && c[1] < 80 && c[2] < 80;
+	const flight = async () => { const gj = await (await import("@ortho-earth/globe")).geopbf(new URL("./fixtures/czml/dateline.czml", location.href).href, { gint: false }); return trackOf(gj.geojson.features.find(f => f.properties.id === "Flight/A")); };
+	const screenOf = (tr, ms) => { const q = positionAt(tr, ms); if (!q) return null; const [lon, lat, h] = ecefToLlh(...q), [x, y, f] = map.makeProjectorH({ terrain: false })(lon, lat, h); return f > 0 ? [x, y] : null; };
+	if (G === "url") {
+		const r = await load("dateline.czml");
+		ok("urlTimeWins", map.clock.time === T(5400) && map.clock.step === 0, new Date(map.clock.time).toISOString());
+		ok("rangeStillApplied", map.clock.rangeMode === "clamped" && map.clock.range[0] === T(0) && map.clock.range[1] === T(7200), `${map.clock.rangeMode} ${map.clock.range.map(v => new Date(v).toISOString().slice(11, 16))}`);
+		ok("loaded", r?.length === 3, JSON.stringify(r));
+	} else {
+		// ① clock の写し
+		const r = await load("dateline.czml");
+		ok("loaded", r?.length === 3, JSON.stringify(r));   // 時刻付き 2＋港 1
+		ok("clockRange", map.clock.rangeMode === "clamped" && map.clock.range[0] === T(0) && map.clock.range[1] === T(7200), `${map.clock.rangeMode} ${map.clock.range.map(v => new Date(v).toISOString().slice(11, 16))}`);
+		ok("clockStartAndSpeed", map.clock.time >= T(0) && map.clock.time < T(600) && map.clock.step === 2, `${new Date(map.clock.time).toISOString().slice(11, 19)} step ${map.clock.step}`);
+		// ② その時刻の位置
+		map.clock.setTime(T(2400)).setStep(0); await sleep(800);
+		const tr = await flight(), a = screenOf(tr, T(2400)), P = await grabInk();
+		const inkBox = p => { if (!p) return "none"; let n = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1; const s = p.w / W; for (let i = 3; i < p.data.length; i += 4) if (p.data[i] > 60) { n++; const k = (i - 3) / 4, x = (k % p.w) / s, y = Math.floor(k / p.w) / s; x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y); } return `${n}px@${[x0, y0, x1, y1].map(Math.round)}`; };
+		ok("drawnAtTime", !!P && !!a && near(P, a[0], a[1], red), a && P ? `${at(P, ...a).join(",")} at ${a.map(Math.round)} ink ${inkBox(P)} ov ${JSON.stringify(window.__overlay?.czml ?? window.__overlay ?? null)?.slice(0, 160)}` : "none");
+		// ③ 押すと吹き出し（名前）
+		window.__mapClickAt(a[0], a[1]);   // 画面のクリックと同じ処理（input の onClick）
+		await sleep(600);
+		const pop = [...document.querySelectorAll(".maplibregl-popup, .oe-popup, [class*=popup]")].map(e => e.textContent).join("|");
+		ok("popup", /Flight A/.test(pop), pop.slice(0, 60) || "none");
+		// ④ GPX＝既定の時計
+		const g = await load("dateline.gpx");
+		ok("gpxLoaded", g?.length === 1, JSON.stringify(g));
+		ok("gpxClock", map.clock.rangeMode === "loop" && map.clock.range[0] === T(0) && map.clock.range[1] === T(2400) && map.clock.step === 2, `${map.clock.rangeMode} ${map.clock.range.map(v => new Date(v).toISOString().slice(11, 16))} step ${map.clock.step}`);
+		// ⑤ 別のファイル＝消える・範囲が外れる
+		await window.__loadUserFile(new File([JSON.stringify({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [179, 34] } }] })], "pt.geojson"), { fit: false });
+		await sleep(700);
+		const Q = await grab(); let inkN = 0; if (Q) for (let i = 3; i < Q.data.length; i += 4) if (Q.data[i] > 0) inkN++;
+		ok("clearedOnOtherFile", !!Q && inkN === 0 && map.clock.rangeMode === null, `${inkN} px range ${map.clock.rangeMode}`);
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

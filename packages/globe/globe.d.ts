@@ -21,7 +21,16 @@ export type OrthoJapanLang = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es" | "p
 export interface OrthoClock {
 	readonly time: number; readonly date: Date; readonly step: number;
 	/** 実 1 秒あたりのシミュレート秒（符号つき） */
-	readonly speed: number; readonly playing: boolean; readonly range: [number, number];
+	readonly speed: number; readonly playing: boolean;
+	/** 範囲があればその区間 [開始, 終了]（ms）・無ければ外の枠（1800-01-01〜2049-12-31） */
+	readonly range: [number, number];
+	/** 範囲の型（1.8.0〜・#124）："clamped"｜"loop"｜"unbounded"｜null（範囲なし） */
+	readonly rangeMode: "clamped" | "loop" | "unbounded" | null;
+	/** 範囲を写す（1.8.0〜・#124）。地図全体の時計に効く（夜の側・星・衛星も同じ範囲で動く）。mode は Cesium の ClockRange と同じ意味（CZML の名前も受ける）：
+	 *  "clamped"（CLAMPED）＝両端で止まる／"loop"（LOOP_STOP）＝順行で終わりに着いたら始まりへ戻る・逆行は始まりで止まる／"unbounded"（UNBOUNDED）＝縛らない。
+	 *  今の時刻が外なら近い端へ寄せる。URL には書かない */
+	setRange(start: number, end: number, mode?: "clamped" | "loop" | "unbounded" | "CLAMPED" | "LOOP_STOP" | "UNBOUNDED"): OrthoClock;
+	clearRange(): OrthoClock;
 	isLive(): boolean;
 	/** 速さの表示（英語の鍵を tr で訳す） */
 	label(tr?: (s: string) => string): string;
@@ -245,7 +254,11 @@ export interface Gadgets {
 	/**
 	 * GIS ファイルのドラッグ&ドロップ受け口（geopbf() が読める全形式）。受け口は mapEl のみ（ページ他所は自前）。既定＝geopbf(file)→applyGintData
 	 * （単一スロット＝最後の 1 枚が勝つ）→カメラ寄せ。onLoad(pbf,file)＝読込成功の通知（1.0.5〜）。loadFile を渡すと既定ローダを置換
-	 * （GeoPBF か .length を持つ物を返す・falsy=「読込失敗」表示）。戻り値＝{say,clear,destroy}（二重搭載時は no-op 関数）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす
+	 * （GeoPBF か .length を持つ物を返す・falsy=「読込失敗」表示）。戻り値＝{say,clear,destroy}（二重搭載時は no-op 関数）。mapEl に #dropzone/#drop-toast/#dropclear-btn を生やす。
+	 * .czml／.gpx（1.8.0〜・#113）＝時刻付きの位置（CZML の sampled position・GPX の trk の time）は共通の時計（map.clock）で再生する＝Cesium と同じ補間（ECEF・線形／LAGRANGE・
+	 * 慣性系は慣性系で補間）で、出ている区間（availability）だけ点・画像（billboard）・札（label）・尾（path）を描き、押すと名前と説明の吹き出し。
+	 * CZML の document の clock（区間・今・速さ・範囲）を時計へ写す（clock が無い／GPX＝データの区間・LOOP_STOP・速さ＝区間÷120 秒）。起動時の URL の t=／s= があればそちらが勝つ。
+	 * 時刻の無い地物は従来どおり gint。別のファイルに替えると再生は消え、写した範囲も外れる
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
@@ -277,7 +290,8 @@ export interface Gadgets {
 	 *  戻り値＝{ open, close, estimate() → { tiles, bytes, free }, run(), list(), delete(id) } */
 	offline(opts?: { zoom?: [number, number]; narrow?: boolean; zmaxDefault?: 12 | 14 | 15 | 16 }): { open(): void; close(): void; estimate(): Promise<{ tiles: number; bytes: number; free: number | null } | null>; run(): Promise<void>; list(): Promise<Array<{ id: string; name: string; bbox: Bbox; zmax: number; bytes: number; ts: number; done: boolean }>>; delete(id: string): Promise<void> };
 	viewshed(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
-	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く */
+	/** 時計の操作盤（1.2.0〜・#42）＝◀◀ ▶/❚❚ ▶▶・速さ・日時・今。時計が実時間でない時は起動時に開く。
+	 *  時計に範囲がある時（map.clock.setRange・CZML／GPX を読んだ時など）は下の段に区間の時間バー（開始・つまみ・終了）を出す＝つまみで区間の中を行き来・日時の入力も区間に限る（1.8.0〜・#124） */
 	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 任意の 3D Tiles（map.add3DTiles と同じ）。null＝全部（opts.id＝その 1 つ）を外す */
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
@@ -805,7 +819,8 @@ export interface OrthoJapanMap {
 	/** 可視域の画像と見通し線を消す */
 	clearViewshed(): Promise<void>;
 	/** 共通の時計（1.2.0〜・#42・ephem/clock＝ortho-solar と同じ部品）。夜の側・星空・惑星と月・太陽系圏・同一フレームのオーバーレイ（api.time＝衛星など）がこの時刻で描く。
-	 *  既定＝実時間。URL（ビューの hash）に t=<UTC>/s=<段> を書く（実時間なら書かない）＝共有リンクで同じ時刻が開く。操作盤は map.gadget.clock() */
+	 *  既定＝実時間。URL（ビューの hash）に t=<UTC>/s=<段> を書く（実時間なら書かない）＝共有リンクで同じ時刻が開く。操作盤は map.gadget.clock()。
+	 *  範囲と繰り返し（setRange・1.8.0〜・#124）＝CZML・GPX を読むとデータの区間が写る（#113） */
 	readonly clock: OrthoClock;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */

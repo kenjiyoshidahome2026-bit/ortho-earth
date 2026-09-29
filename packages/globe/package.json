@@ -25,11 +25,11 @@
 		"@loaders.gl/i3s": "^4.4.3",
 		"@ortho-earth/columnar": "^0.1.0",
 		"@ortho-earth/core": "^1.10.0",
-		"@ortho-earth/ephem": "^1.0.0",
+		"@ortho-earth/ephem": "^1.1.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
 		"geoedit": "^0.3.1",
-		"geopbf": "^1.15.0",
+		"geopbf": "^1.17.0",
 		"native-bucket": "^1.0.0"
 	},
 	"devDependencies": {
@@ -40,7 +40,7 @@
 	"scripts": {
 		"build:css": "node scripts/build-css.mjs",
 		"prepack": "node scripts/build-css.mjs",
-		"test": "node tests/zoomscale.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/mlshim.mjs",
+		"test": "node tests/zoomscale.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/mlshim.mjs && node tests/czml-time.mjs",
 		"verify": "node scripts/build-css.mjs --check && npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
