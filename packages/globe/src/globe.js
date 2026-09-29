@@ -3979,7 +3979,7 @@ const addLayerAt = async (layer, beforeId, dz) => {
 		const ents = [...mlLayers]; const i = ents.findIndex(([k]) => k === beforeId);
 		ents.splice(i, 0, [layer.id, v]); mlLayers.clear(); for (const [k, x] of ents) mlLayers.set(k, x);
 	} else mlLayers.set(layer.id, v);
-	if (beforeId != null && beforeId !== layer.id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId))) v.before = beforeId;   // getStyle の順（§8 A4）＝どの層の前か。style の層の前でも描く段は基図の上（§4）
+	if (beforeId != null && beforeId !== layer.id && (mlLayers.has(beforeId) || baseLayerOf(beforeId) || extOtherOf(beforeId))) v.before = beforeId;   // getStyle の順（§8 A4）＝どの層の前か。vector の描く層は描く順も（#123＝sendUserAnchors）・他の描き方は描画の段のまま（§4）
 	const r = mlVisible(v) ? await mountLayer(v) : null;
 	if (beforeId != null) reorderLayers();
 	return r;
@@ -4232,6 +4232,7 @@ const mountExtExtrasRaw = async ext => {
 			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
+	sendUserAnchors();   // style の層は style の順（#123）＝extExtras.layers が揃ってから差し込む位置を配る（層を足す時はまだ style 由来と分からない）
 };
 const unmountExtExtras = () => {
 	for (const id of extExtras.raster) map.raster.remove(id);
