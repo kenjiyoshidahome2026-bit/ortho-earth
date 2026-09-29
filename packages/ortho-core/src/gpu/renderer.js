@@ -1396,7 +1396,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（gl/renderer.js と同じ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return null;
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段
@@ -1442,18 +1442,29 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					tiles.push({ d, slot: n, order }); n++; gnd.tiles++;
 				}
 			}
-			const fills = [];
+			const fills = [], atOf = {};   // atOf[slot][gate]＝その窓の uniform の置き場（範囲で分けても同じ置き場を使う）
 			const fillSlots = [...(wantFills ? baseSlots : []), ...(userIn ? ["user"] : [])];
 			for (const slot of fillSlots) {
 				const scene = scenes[slot]; if (!scene.draws.length) continue;
 				const user = slot === "user";
+				atOf[slot] = [];
 				for (const gate of user ? [0] : [0, 1]) {   // user の li は図郭外の水域の帯に掛からない＝ゲート 0 だけ
 					const o = m * (RAS_SLOT / 4);
 					atlCPU[o] = scene.origin[0] - a.win[0]; atlCPU[o + 1] = scene.origin[1] - a.win[1]; atlCPU[o + 2] = 1 / a.win[2]; atlCPU[o + 3] = 1 / a.win[3];
 					atlCPU[o + 4] = gate; atlCPU[o + 5] = user ? 1 : baseA; atlCPU[o + 6] = 0; atlCPU[o + 7] = 0;
-					fills.push({ slot, gate, at: m, user }); m++;
+					atOf[slot][gate] = m; m++;
 				}
 			}
+			// 焼く順（#123）：基図の最後の枠（host）のゲート 0 を差し込みの境で分け、間に利用者の塗りを焼く（直描きと同じ計画）。表が空なら今と同じ順（枠ごとにゲート 0 → 1・利用者は最後）
+			const ua = userAnchorPlan(atOf.user && wantFills ? [...baseSlots].reverse().find(sl => atOf[sl]) : null);
+			for (const slot of fillSlots) {
+				if (!atOf[slot] || slot === "user") continue;
+				if (slot !== ua.host || !ua.anchors.length) { fills.push({ slot, gate: 0, at: atOf[slot][0], user: false }, { slot, gate: 1, at: atOf[slot][1], user: false }); continue; }
+				let lo = -Infinity;
+				for (const an of ua.anchors) { fills.push({ slot, gate: 0, at: atOf[slot][0], user: false, lo, hi: an }, { slot: "user", gate: 0, at: atOf.user[0], user: true, pick: d => ua.anchorOf(d.li) === an }); lo = an; }
+				fills.push({ slot, gate: 0, at: atOf[slot][0], user: false, lo, hi: Infinity }, { slot, gate: 1, at: atOf[slot][1], user: false });
+			}
+			if (atOf.user) fills.push({ slot: "user", gate: 0, at: atOf.user[0], user: true, pick: ua.host ? d => ua.anchorOf(d.li) === Infinity : null });
 			jobs.push({ a, tiles, fills, index: i });
 		}
 		if (n) device.queue.writeBuffer(rasBuf, 0, rasCPU.buffer, 0, n * RAS_SLOT);
@@ -1475,12 +1486,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (fills.length) {
 				pass.setPipeline(atlasFillPipe);
 				pass.setBindGroup(1, paramBG[ROLE.normal]);
-				for (const { slot, gate, at, user } of fills) {
+				for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
 					const scene = scenes[slot];
 					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
 					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
 					for (const d of scene.draws) {
-						if (d.kind !== "fill") continue;
+						if (d.kind !== "fill" || !(pick ? pick(d) : d.li >= lo && d.li < hi)) continue;   // 範囲・利用者の群（#123）
 						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 						if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
 						if (!user && (seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）

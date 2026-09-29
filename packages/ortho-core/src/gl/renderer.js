@@ -221,7 +221,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindVertexArray(null); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
 	}
 	// ベクタ塗り（merge 済みシーン＝3D の直描きと同じバッファ）を窓へ。ゲートは直描きと同じ（海の点火・図郭外水域・3D の足元塗り）
-	function drawFillsInto(a, st, land, slots, seaOff, baseA) {
+	// lo／hi／pick＝li の範囲・利用者の群（#123＝基図の枠を差し込みの境で分けて、間に利用者の塗りを焼く）
+	function drawFillsInto(a, st, land, slots, seaOff, baseA, lo = -Infinity, hi = Infinity, pick = null) {
+		const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
 		// ⚠標高サンプラ（水域ゲート）は unit1/8 を引く＝直前の gint パスが整数テクスチャを残していると型不一致でドロー全体が無効＝
 		// 塗りが空のアトラスになる（実際に踏んだ 2026-09-21）。draw() 本体と同じく明示的に張り直す（無ければ null＝incomplete＝黒で無害）
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
@@ -238,7 +240,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 				gl.bindVertexArray(md.fillVAO);
 				for (const e of scene.md.layers) {
-					if (e.kind !== "fill") continue;
+					if (e.kind !== "fill" || !inRange(e)) continue;
 					const seaFBM = seaFbReal(e.li) != null, waterM = e.li === sea.li || e.li === sea.li2;
 					if ((seaFBM || waterM) && seaOff) continue;
 					if (bldFill.li >= 0 && e.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる（押し出しに委ねる）
@@ -256,7 +258,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform2f(loc(gl, prog, "u_atlInv"), 1 / a.win[2], 1 / a.win[3]);
 			gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 			for (const d of scene.draws) {
-				if (d.kind !== "fill") continue;
+				if (d.kind !== "fill" || !inRange(d)) continue;
 				const seaFBC = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 				if ((seaFBC || waterC) && seaOff) continue;
 				if (bldFill.li >= 0 && d.li === bldFill.li) continue;
@@ -278,7 +280,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
@@ -292,8 +294,15 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 			if (rasterOn) drawRasterInto(a, bb, "under");
-			if (wantFills) drawFillsInto(a, st, land, baseSlots, seaOff, baseA);
-			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1);
+			// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
+			const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
+			if (wantFills) for (const sl of baseSlots) {
+				if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
+				let lo = -Infinity;
+				for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
+				drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+			}
+			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
 			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
 				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", e?.message); }
 				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
