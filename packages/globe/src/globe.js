@@ -2750,6 +2750,14 @@ map.setShadows = (o = true) => {
 	renderer.set("shadow", v); needsDraw = true; onMove();
 };
 dbgHost.__shadow = o => map.setShadows(o);   // 検証窓（t-shadow・実機の切り分け）
+// ── 断面とクリッピング平面（#111 段 0・試作＝公開面 map.setClipping は段 3）。WebGPU 専用（GL レンダラは "clip" を素通しする）。
+// ?clip=lon1,lat1,lon2,lat2[;…]＝a→b を通る鉛直面（a→b に向かって右側を残す・面は複数で交わり）。段 0 で切れるのは地形と建物メッシュだけ
+dbgHost.__clip = o => { renderer.set("clip", o); needsDraw = true; onMove(); };   // 検証窓：{on, vertical:[[a,b]…], planes:[[nx,ny,nz,c]…]}
+{
+	const q = new URLSearchParams(location.search).get("clip");
+	const cuts = q ? q.split(";").map(s => s.split(",").map(Number)).filter(v => v.length === 4 && v.every(Number.isFinite)).map(v => [[v[0], v[1]], [v[2], v[3]]]) : [];
+	if (cuts.length) { const go = () => dbgHost.__clip({ on: true, vertical: cuts }); if (mapLoaded) go(); else mapOn.load.push(go); }   // 描画 worker のレンダラが立つ前の set は落ちる＝初描画を待つ
+}
 // ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
 // map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）
 // map.lineOfSight(a, b, { eyeH, targetH, buildings })＝視点 a→目標 b。見えるか・遮る最初の点・断面（距離・地表・視線）。線を地図に引く（見える区間＝緑・遮られた先＝赤）
