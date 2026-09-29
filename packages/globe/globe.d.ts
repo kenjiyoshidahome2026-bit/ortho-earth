@@ -89,7 +89,8 @@ export interface OrthoJapanOptions {
 	chips?: boolean;
 	/** 下部計器盤。true=全部／配列=選択（"attr"を消すならページ側で出典明記の義務） */
 	instruments?: boolean | Array<"pos" | "scale" | "attr" | "log">;
-	/** 建物3D（建物メッシュ・日本では PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true・1.2.0〜） */
+	/** 建物3D（建物メッシュ・日本では PLATEAU）機能スイッチ。false=関連通信・workerごと停止（既定true・1.2.0〜）。
+	 *  省メモリ端末で頁にもう 1 枚の地図が生きている時は既定 false（#173・2 枚目の常駐メモリを抑える）＝true で入れられる */
 	mesh?: boolean;
 	/** @deprecated 1.2.0〜 mesh を使う（同じ意味・両方あれば mesh が優先）。次の大版で撤去 */
 	plateau?: boolean;
@@ -128,11 +129,15 @@ export interface OrthoJapanOptions {
 	worldContent?: boolean;
 	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
 	assetBase?: string;
-	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない */
+	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない。
+	 *  頁の URL（hash の視点・hashchange・?r=）と前回ビュー（persistView）を扱う地図は頁に 1 枚＝起動順で最初の地図（#173）。
+	 *  false＝この地図は URL の持ち主にならない（読まない・応じない・書かない）＝次に起動する地図が持ち主になれる */
 	urlHash?: boolean;
-	/** 矢印キーのカメラ操作（window で受ける）。false＝取らない／関数＝真を返す間だけ取る（背景に置く時にページのスクロールを奪わない。既定 true・1.1.0〜） */
+	/** 矢印キーのカメラ操作（window で受ける）。false＝取らない／関数＝真を返す間だけ取る（背景に置く時にページのスクロールを奪わない。既定 true・1.1.0〜）。
+	 *  頁に地図が複数ある時、キー（矢印とガジェットのショートカット）は最後に触った地図だけが拾う＝起動直後は最初の地図（#173） */
 	keyboard?: boolean | (() => boolean);
-	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜） */
+	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜）。
+	 *  頁に地図が複数ある時は URL の持ち主（urlHash）だけが扱う */
 	persistView?: boolean;
 	/** 共通の時計の起動時刻（Date｜ISO 文字列｜ms・1.2.0〜・#42）。省略＝実時間。URL の t=/s= があればそちらが勝つ */
 	time?: Date | string | number;
