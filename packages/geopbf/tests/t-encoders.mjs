@@ -169,6 +169,17 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	const times = cd.filter((_, i) => i % 4 === 0), lons = cd.filter((_, i) => i % 4 === 1);
 	ok(cd.length === 16 && times.join() === "0,600,1200,1800" && lons.map(v => +v.toFixed(6)).join() === "178,179,-179,-178", `czml: 書き戻しは元の 4 標本（縫い目の点は書かない・${times} / ${lons.map(v => +v.toFixed(3))}）`);
 }
+// ---- czml：時刻はミリ秒未満も（isoMs／isoOfMs）・慣性系から直した印は読みで付き書き戻しでは出ない（#113 段 2）----
+{
+	const { isoMs, isoOfMs, czmlToFeatures, featureToPackets, FRAME_KEY } = await import("../src/modules/czml.js");
+	const s = "2012-03-15T20:29:52.109376Z", ms = isoMs(s);
+	ok(Math.abs(ms - (Date.parse("2012-03-15T20:29:52.109Z") + 0.376)) < 1e-6 && isoOfMs(ms) === s && isoOfMs(Date.parse("2026-01-01T00:00:00Z")) === "2026-01-01T00:00:00.000Z", `czml: 時刻のミリ秒未満（${ms} ⇄ ${isoOfMs(ms)}）`);
+	const R = 6778137, { features } = czmlToFeatures([{ id: "sat", position: { referenceFrame: "INERTIAL", epoch: "2012-03-15T10:00:00Z", interpolationAlgorithm: "LAGRANGE", cartesian: [0, R, 0, 0, 37792.109376, 0, R, 0, 60000, -R, 0, 0] } }]);
+	const f = features[0];
+	ok(f.properties.czml.position[FRAME_KEY] === "INERTIAL" && f.properties.time[1] === "2012-03-15T20:29:52.109376Z", `czml: 慣性系の標本に印・時刻はマイクロ秒まで（${f.properties.time[1]}）`);
+	const pk = featureToPackets(f, 0)[0];
+	ok(!(FRAME_KEY in pk.position) && pk.position.interpolationAlgorithm === "LAGRANGE" && Math.abs(pk.position.cartographicDegrees[4] - 37792.109376) < 1e-6, `czml: 書き戻しに印は出ない・時刻の端数を保つ（${pk.position.cartographicDegrees[4]}）`);
+}
 // ---- czml：Cesium CZML の往復（静的パケットは等価・sampled position は LineString + time 配列・ECEF は経緯度へ）2026-09-17 ----
 {
 	const { ecefToLLH, featureToPackets } = await import("../src/modules/czml.js");

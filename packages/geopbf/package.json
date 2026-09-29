@@ -63,6 +63,7 @@
 		"./topology": "./src/extension/topology.js",
 		"./pbf-base": "./src/pbf-base.js",
 		"./pbf": "./src/modules/pbf.js",
+		"./czml": "./src/modules/czml.js",
 		"./cog": "./src/cog/index.js",
 		"./cog/core": "./src/cog/core.js",
 		"./convert": "./src/convert/index.js",

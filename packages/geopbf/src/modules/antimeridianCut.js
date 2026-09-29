@@ -60,7 +60,9 @@ export function antimeridianCut(points, isLine = false) {
 }
 
 // 頂点ごとの配列（attrs＝[time, ele …]・どれも点と同じ長さ）を連れて線を切る（#113 段 1・2026-09-29）＝GPX の trk・CZML の sampled position。
-// 切り方は splitPloyLine と同じ（跨ぐ辺ごとに縫い目の点を両側へ足す）。縫い目の点の値は跨ぐ辺の上で経度の割合で内挿（時刻＝ISO 文字列・数＝線形・片方が null なら null）。
+// 切り方は splitPloyLine と同じ（跨ぐ辺ごとに縫い目の点を両側へ足す）。縫い目の点の値：数（高さ）は跨ぐ辺の上で経度の割合で内挿・
+// 時刻（文字列）は null＝縫い目の点は元の標本でない（再生・書き戻しは時刻の無い点を飛ばす＝標本だけが残る）。
+// 標本がちょうど縫い目の上（±180）にあれば、その側には足さない（同じ座標が続くと書き込みが 1 点にまとめ、配列とずれる）。
 // 戻り＝{ parts: [[点…]…], attrs: [[部品ごとの配列…]（attrs[k][部品]）] }
 export function antimeridianCutLineAttrs(points, attrs) {
 	const { PI, sin, cos, atan2, abs } = Math, d2r = PI / 180;
@@ -71,12 +73,7 @@ export function antimeridianCutLineAttrs(points, attrs) {
 		const z = cos(y0 * d2r) * cos(y1 * d2r) * sin((x0 - x1) * d2r), r = (z < 0 ? -1 : 1) * atan2(x, abs(z)) / d2r;
 		return isNaN(r) ? y0 : r;
 	};
-	const lerp = (a, b, f) => {
-		if (a == null || b == null) return null;
-		if (typeof a === "number" && typeof b === "number") return a + (b - a) * f;
-		const ta = Date.parse(a), tb = Date.parse(b);
-		return Number.isFinite(ta) && Number.isFinite(tb) ? new Date(ta + (tb - ta) * f).toISOString() : null;
-	};
+	const lerp = (a, b, f) => typeof a === "number" && typeof b === "number" ? a + (b - a) * f : null;   // 数だけ内挿・時刻などは null
 	const parts = [], out = attrs.map(() => []);
 	let cur = [], curA = attrs.map(() => []);
 	for (let i = 0; i < p.length; i++) {
@@ -85,9 +82,10 @@ export function antimeridianCutLineAttrs(points, attrs) {
 			const a0 = p[i][0], b0 = p[i + 1][0], s0 = 180 * (a0 < 0 ? -1 : 1);
 			const f = (s0 - a0) / ((a0 > 0 ? b0 + 360 : b0 - 360) - a0), lat = intersect(p[i], p[i + 1]);
 			const v = attrs.map(a => lerp(a[i], a[i + 1], f));
-			cur.push([s0, lat]); v.forEach((x, k) => curA[k].push(x));
+			const onA = abs(a0) === 180, onB = abs(b0) === 180;   // 標本が縫い目の上＝その側は標本が縫い目の点を兼ねる
+			if (!onA) { cur.push([s0, lat]); v.forEach((x, k) => curA[k].push(x)); }
 			parts.push(cur); curA.forEach((a, k) => out[k].push(a));
-			cur = [[-s0, lat]]; curA = v.map(x => [x]);
+			cur = onB ? [] : [[-s0, lat]]; curA = onB ? attrs.map(() => []) : v.map(x => [x]);
 		}
 	}
 	parts.push(cur); curA.forEach((a, k) => out[k].push(a));

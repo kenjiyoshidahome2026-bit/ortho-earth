@@ -84,7 +84,23 @@ function inertialToFixed(x, y, z, ms) {
 }
 
 const SAMPLE_KEYS = ["cartographicDegrees", "cartographicRadians", "cartesian", "cartesianVelocity"];
-const isoOf = (t, epoch) => typeof t === "string" ? new Date(t).toISOString() : new Date(Date.parse(epoch || "1970-01-01T00:00:00Z") + t * 1000).toISOString();
+// ISO ⇄ ms（ミリ秒未満も＝#113 段 2）。Date は ms まで＝標本の時刻の端数（37792.109376 秒など）が落ちると、不揃いな間隔の LAGRANGE が位置の誤差を増幅する
+// （simple.czml の継ぎ目で 20 m 級）。書く時はマイクロ秒まで（端数が無ければ従来どおり .sssZ）・読む時は小数の秒を全部見る（Date.parse は ms で切る）
+export function isoMs(s) {
+	if (typeof s !== "string") return NaN;
+	const base = Date.parse(s); if (!Number.isFinite(base)) return NaN;
+	const m = /\.(\d{4,})(?:Z|[+-]\d\d:?\d\d)?$/.exec(s);
+	return m ? base + (+("0." + m[1].slice(3)) ) : base;
+}
+export function isoOfMs(ms) {
+	const whole = Math.floor(ms), us = Math.round((ms - whole) * 1000);
+	if (us === 1000) return new Date(whole + 1).toISOString();
+	const s = new Date(whole).toISOString();
+	return us ? s.slice(0, -1) + String(us).padStart(3, "0") + "Z" : s;
+}
+const isoOf = (t, epoch) => isoOfMs(typeof t === "string" ? isoMs(t) : isoMs(epoch || "1970-01-01T00:00:00Z") + t * 1000);
+// 慣性系から地球固定へ直した印（再生が慣性系へ戻して補間する＝Cesium と同じ手順・書き戻しには出さない）
+export const FRAME_KEY = "ortho:frame";
 
 // position / positions の値 → { pts: [[lon,lat,h]…], times: [iso…]|null, meta: 標本以外の指定 }。読めなければ null。
 //   tagged＝position（単数）＝配列長が 1 標本分を超えれば時刻付き（[t, x, y, z, …]）。positions（複数）は常に点の並び。
@@ -109,7 +125,7 @@ export function readPosition(v, tagged) {
 		const t = times ? isoOf(arr[i], v.epoch) : null;
 		if (key === "cartographicRadians") x *= RAD, y *= RAD;
 		else if (key !== "cartographicDegrees") {
-			if (inertial) [x, y, z] = inertialToFixed(x, y, z, Date.parse(t || v.epoch));
+			if (inertial) [x, y, z] = inertialToFixed(x, y, z, isoMs(t || v.epoch));
 			[x, y, z] = ecefToLLH(x, y, z);
 		}
 		pts.push([x, y, z]);
@@ -117,6 +133,7 @@ export function readPosition(v, tagged) {
 	}
 	const meta = {};
 	for (const k in v) if (!SAMPLE_KEYS.includes(k) && k !== "epoch" && k !== "interval" && !(inertial && k === "referenceFrame")) meta[k] = v[k];   // 地球固定へ直した＝書き戻し（経緯度）に INERTIAL を残さない
+	if (inertial && times) meta[FRAME_KEY] = "INERTIAL";   // 時刻付きの慣性系の標本＝再生は慣性系へ戻して補間する（featureToPackets は書かない）
 	return { pts, times, meta };
 }
 
@@ -218,11 +235,12 @@ export function featureToPackets(f, i) {
 		if (Object.keys(props).length) pk.properties = props;
 		return pk;
 	};
+	const posMeta = () => { const m = { ...(czml.position || {}) }; delete m[FRAME_KEY]; return m; };   // 再生の印は書かない
 	const withVisual = pk => { if (!VISUALS.some(k => pk[k] != null)) pk.point = { pixelSize: 8 }; return pk; };
 	const sub = (pk, n) => (pk.id = `${pk.id}:${n}`, pk);
 	const pointPacket = (lon, lat, h, time) => {
 		const pk = base(), t = isoStr(time);
-		pk.position = { ...(czml.position || {}), cartographicDegrees: t ? [t, lon, lat, +(h ?? 0)] : [lon, lat, +(h ?? 0)] };
+		pk.position = { ...posMeta(), cartographicDegrees: t ? [t, lon, lat, +(h ?? 0)] : [lon, lat, +(h ?? 0)] };
 		return withVisual(pk);
 	};
 	const polylinePacket = (line, ele, ...idx) => {
@@ -243,20 +261,19 @@ export function featureToPackets(f, i) {
 		if (rings.length > 1) pg.holes = { cartographicDegrees: rings.slice(1).map((r, k) => flat(openRing(r), ele, ...idx, k + 1)) };
 		pk.polygon = pg; return pk;
 	};
-	// 時刻付きの線＝動く点（GPX の trk・CZML の sampled position）。時刻の無い標本は置けないので飛ばす
+	// 時刻付きの線＝動く点（GPX の trk・CZML の sampled position）。時刻の無い標本は置けないので飛ばす（±180° の切断で足した縫い目の点＝時刻 null も・#113 段 1）
 	const sampledPacket = (segs, times, ele) => {
 		const samples = [];
 		segs.forEach((seg, s) => seg.forEach(([lon, lat], j) => {
-			if (segs.length > 1 && Math.abs(lon) === 180 && ((j === 0 && s > 0) || (j === seg.length - 1 && s < segs.length - 1))) return;   // ±180° の縫い目に足した点（切断が内挿した値）＝元の標本でない＝書かない（#113 段 1）
 			const t = isoStr(segs.length === 1 && !Array.isArray(times[0]) ? times[j] : at(times, s, j));
-			const ms = t ? Date.parse(t) : NaN; if (!Number.isFinite(ms)) return;
+			const ms = t ? isoMs(t) : NaN; if (!Number.isFinite(ms)) return;
 			const h = segs.length === 1 && !Array.isArray(ele?.[0]) ? at(ele, j) : at(ele, s, j);
 			samples.push([ms, lon, lat, +(h ?? 0)]);
 		}));
 		if (!samples.length) return null;
 		samples.sort((a, b) => a[0] - b[0]);
 		const t0 = samples[0][0], pk = base();
-		pk.position = { ...(czml.position || {}), epoch: new Date(t0).toISOString(), cartographicDegrees: samples.flatMap(([ms, lon, lat, h]) => [(ms - t0) / 1000, lon, lat, h]) };
+		pk.position = { ...posMeta(), epoch: isoOfMs(t0), cartographicDegrees: samples.flatMap(([ms, lon, lat, h]) => [(ms - t0) / 1000, lon, lat, h]) };
 		return withVisual(pk);
 	};
 	const c = g.coordinates, ele = p.ele, time = p.time;

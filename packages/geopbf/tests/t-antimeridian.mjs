@@ -93,7 +93,10 @@ const mixed = [[[179.9, 35.0], [-179.9, 35.0], [-179.9, 35.2], [179.9, 35.2], [1
 	const lens = g.coordinates.map(l => l.length);
 	ok(Array.isArray(p.time?.[0]) && p.time.map(a => a.length).join() === lens.join() && p.ele.map(a => a.length).join() === lens.join(), `time/ele は部品ごとの入れ子・点数と同じ長さ（点 ${lens} time ${p.time?.map?.(a => a.length)} ele ${p.ele?.map?.(a => a.length)}）`);
 	const seamT = p.time[0][p.time[0].length - 1], seamE = p.ele[0][p.ele[0].length - 1];
-	ok(seamT === new Date(Date.UTC(2026, 0, 1, 0, 15)).toISOString() && seamE === 200 && p.time[1][0] === seamT && p.ele[1][0] === 200, `縫い目の点＝跨ぐ辺の真ん中の時刻と高さ（${seamT} ${seamE}）`);
+	ok(seamT === null && seamE === 200 && p.time[1][0] === null && p.ele[1][0] === 200, `縫い目の点＝時刻は null（元の標本でない）・高さは跨ぐ辺の真ん中（${seamT} ${seamE}）`);
+	// 標本がちょうど ±180 の上＝その側に縫い目の点を足さない（同じ座標が続くと書き込みが 1 点にまとめ、配列とずれる）
+	const [z] = await enc([F("LineString", [[179, 0], [180, 1], [-179, 2]], { time: [t(0), t(1), t(2)] })]);
+	ok(z.geometry.coordinates.map(l => l.length).join() === z.properties.time.map(a => a.length).join() && z.properties.time[0][1] === t(1), `±180 ちょうどの標本＝縫い目の点を兼ねる・配列とずれない（点 ${z.geometry.coordinates.map(l => l.length)} time ${z.properties.time.map(a => a.length)}）`);
 	ok(p.name === "x" && p.time[0][0] === t(0) && p.time[1][p.time[1].length - 1] === t(3), "元の標本はそのまま・他の属性は無傷");
 	// 0° を先に跨いでから ±180° を跨ぐ線＝縫い目の点は跨ぐ直前の点の側（旧＝線の最初の点の符号で -180 にしていた）
 	const [h] = await enc([F("LineString", [[-10, 0], [10, 1], [179, 2], [-179, 3]])]);
