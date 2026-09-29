@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="ortho-earth tests" xmlns="http://www.topografix.com/GPX/1/1">
+<trk><name>Dateline walk</name><trkseg>
+<trkpt lat="-16.000" lon="178.000"><ele>0</ele><time>2026-01-01T00:00:00Z</time></trkpt>
+<trkpt lat="-16.100" lon="178.500"><ele>10</ele><time>2026-01-01T00:05:00Z</time></trkpt>
+<trkpt lat="-16.200" lon="179.000"><ele>20</ele><time>2026-01-01T00:10:00Z</time></trkpt>
+<trkpt lat="-16.300" lon="179.500"><ele>30</ele><time>2026-01-01T00:15:00Z</time></trkpt>
+<trkpt lat="-16.400" lon="180.000"><ele>40</ele><time>2026-01-01T00:20:00Z</time></trkpt>
+<trkpt lat="-16.500" lon="-179.500"><ele>50</ele><time>2026-01-01T00:25:00Z</time></trkpt>
+<trkpt lat="-16.600" lon="-179.000"><ele>60</ele><time>2026-01-01T00:30:00Z</time></trkpt>
+<trkpt lat="-16.700" lon="-178.500"><ele>70</ele><time>2026-01-01T00:35:00Z</time></trkpt>
+<trkpt lat="-16.800" lon="-178.000"><ele>80</ele><time>2026-01-01T00:40:00Z</time></trkpt>
+</trkseg></trk>
+</gpx>
