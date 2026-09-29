@@ -17,6 +17,7 @@
      ⑩幕の上端＝地形の切り口：東西に波打つ台地（60±40m・波長 2km）を北を残して切り、列ごとに幕の一番上の画素と、切り口（北 22m・その東の地表の高さ）の射影が 2px 以内
      ⑪建物の疑似の蓋：閉じた箱（面ごとの外向きの法線・裏面を捨てる）を東西の真ん中で切ると、切り口から見える中は蓋の色（cap:false で蓋の色は出ない）
      ⑫影と重ねる：真俯瞰・冬至の南中・箱（高さ 40m）を 20m で水平に切る＝影は北 33m までに縮み（北 50m は日向へ）、北 15m は影のまま（受け手も面の派生）
+     段 4（対象ごとの面）：⑮同じ南北の面を targets:["models"] だけにすると模型の東は切れて基図の線の東は残る／["vector"] だけなら逆（線が切れて模型が残る）・台地は両方とも残る
      ⑬消す＝元の絵へ戻る（bit 一致）　⑭GPU の検証エラー 0。⚠実時間専用（verify-webgpu.mjs が回す） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-clip</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
@@ -241,6 +242,17 @@ try {
 		r.set("elevCell", new Float32Array(CR * CR).fill(HT), { cx: 0, cy: 0, cellRes: CR });
 		for (const k of ["box", "slab"]) r.set("meshVis", true, k);
 		baseScene();
+	}
+
+	// ⑮ 対象ごとの面（段 4）＝同じ南北の面（東 100m・西を残す）を対象で絞る
+	{
+		const TE = at(140, -150, HT);   // 面の東の台地（どちらの場合も地形は切らない）
+		r.set("clip", { on: true, vertical: [[ns0, ns1]], targets: ["models"] });
+		const M = await shot();
+		r.set("clip", [{ vertical: [[ns0, ns1]], targets: ["vector"] }]);   // 配列（群の並び）でも同じ
+		const V = await shot();
+		ok(`⑮models だけ：模型の東は切れ(${fmt(rgb(M, SL_E))})・線の東は残る(${fmt(rgb(M, L_E))})・台地も残る(${fmt(rgb(M, TE))})`, !green(rgb(M, SL_E)) && dist(rgb(A1, L_E), rgb(M, L_E)) < 2 && red(rgb(M, TE)));
+		ok(`⑮vector だけ：線の東は切れ(${fmt(rgb(V, L_E))})・模型の東は残る(${fmt(rgb(V, SL_E))})・台地も残る(${fmt(rgb(V, TE))})`, !yellow(rgb(V, L_E)) && dist(rgb(A1, SL_E), rgb(V, SL_E)) < 2 && red(rgb(V, TE)));
 	}
 
 	// ⑬ 消す＝元どおり（箱で切ってから消す）

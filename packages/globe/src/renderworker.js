@@ -13,7 +13,7 @@ import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elev
 setCoreWorkerFactory(role => new Worker(new URL("./worker.js", import.meta.url), /* @vite-ignore */ { type: "module", name: role }));
 import { createRaster } from "@ortho-earth/core/raster";   // 画像タイル層（メルカトル XYZ ラスタ＝v1 base.js の後継・2026-09-21）＝terrain と同じく worker 常駐・renderer の口で GPU 資産
 import { setEllipsoid, ellipsoidOn, cameraState, project, projectClip } from "@ortho-earth/core/camera";
-import { clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
+import { normClip, clipPlanesFor, clipDistanceM, clipPackOrigin } from "@ortho-earth/core/clip";   // 断面（#111 段 3）＝注記と同一フレームのオーバーレイも切った側を出さない
 import { DEPTH_GLSL, makeDepthApi } from "@ortho-earth/core/depthout";   // シーンの深度をオーバーレイへ（#47）
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝main が状態の変わり目にだけ送る基準 {sim,wall,rate} から毎フレームの時刻
 import { shieldFor } from "./shields.js";   // 地図記号＝日本の語彙。この静的importがある限り renderworker は app の合成点
@@ -81,16 +81,18 @@ function overlayFrame(camNow, depthFrame) {
 				const lift = pf > 0 && terrain ? (lon, lat) => (terrain.sampleElev(lon, lat, camNow) || 0) * pf * elevBase : () => 0;
 				const pr = (lon, lat, hM) => {
 					const lz = lift(lon, lat), [x, y, f] = project(s, lon, lat, 1 + lz + (hM || 0) * elevBase);
-					if (clipPlW && clipDistanceM(clipPlW, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) return [x / dpr, y / dpr, -1];   // 断面で切られた側＝見えない（front<0・#111 段 3）
+					if (ovPl && clipDistanceM(ovPl, lon, lat, lz / (elevBase || 1) + (hM || 0)) < 0) return [x / dpr, y / dpr, -1];   // 断面で切られた側＝見えない（front<0・#111 段 3・面はそのオーバーレイの対象）
 					return [x / dpr, y / dpr, f];
 				};
 				const clipH = (lon, lat, hM) => projectClip(s, lon, lat, 1 + lift(lon, lat) + (hM || 0) * elevBase);   // projectH と同じ点の clip 座標（w＝深度の比較に・#47）
 				// elevM(lon,lat)＝生の標高（m・地形から同期）・liftScale＝1m あたりの持ち上げ（pitch のフェード込み＝lift と同式）・terrainOn＝地形あり。列チャンク層のドレープ（#90 段 5）が頂点ごとに引く
 				api = { project: (lon, lat) => pr(lon, lat, 0), projectH: pr, clipH, dpr, W: W / dpr, H: H / dpr, time: clockNow(clockA), clock: clockA, depth,
 					elevM: terrain ? (lon, lat) => terrain.sampleElev(lon, lat, camNow) || 0 : () => 0, liftScale: pf * elevBase, terrainOn: !!terrain,
-					rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1,
-					clip: clipPlW ? { planes: clipPlW, distM: (lon, lat, hM = 0) => clipDistanceM(clipPlW, lon, lat, hM) } : null };   // 断面（#111 段 3）＝自前で描くオーバーレイ向け（面・点の距離 m・負＝切られる）   // 楕円体表示の b/a（#43）＝自前で位置を組むオーバーレイは tanβ＝rAx·tanφ の β 単位球に置く（camState.mvp が S を畳む）。球＝1
+					rAx: ellipsoidOn() ? 1 - 1 / 298.257223563 : 1, clip: null };   // 断面（#111 段 3）＝自前で描くオーバーレイ向け（面・点の距離 m・負＝切られる）   // 楕円体表示の b/a（#43）＝自前で位置を組むオーバーレイは tanβ＝rAx·tanφ の β 単位球に置く（camState.mvp が S を畳む）。球＝1
 			}
+			// 断面（#111 段 4）＝そのオーバーレイの対象の面：記号（symbols）と集約（cluster）＝注記＝labels・それ以外（heatmap・模様・anno・地震…）＝vector
+			ovPl = /^(symbols|cluster)/.test(name) ? clipPlL : clipPlW;
+			api.clip = ovPl ? { planes: ovPl, distM: (lon, lat, hM = 0) => clipDistanceM(ovPl, lon, lat, hM), pack: origin => clipPackOrigin(ovPl, origin) } : null;   // pack(origin)＝自前の GPU シェーダ向けの uniform（WGSL の ClipP 先頭 112B＝pl[6]＋p・K はその原点）
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
 	}
@@ -102,7 +104,7 @@ let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一
 const gintLs = new Map();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
 const gTgt = m => m.layer != null ? gintLs.get(m.layer) : gint;   // gint 系 cmd の層解決（未知 id＝undefined＝黙って無視）
 self.__gintStats = () => gint?.stats?.() ?? null;   // 計器の覗き穴（CDP から worker に attach して評価＝tier/rank/edges の実測）
-let clipPlW = null;   // 断面の面（#111 段 3）＝注記・同一フレームのオーバーレイ用（レンダラは自前で持つ）
+let clipPlW = null, clipPlL = null, ovPl = null;   // 断面の面（#111）＝vector（同一フレームのオーバーレイ）・labels（注記と記号・集約のオーバーレイ）・ovPl＝今呼んでいるオーバーレイの面（レンダラは自前で持つ）
 let terrain = null, pendingLabels = null;   // pendingLabels: cam 未着で標高付与を保留した最新ラベル集合
 let raster = null;   // 画像タイル層（ortho-core/raster）：選抜・取得・在庫・描画リストを worker 内で完結（main は add/remove/set の指示だけ）
 // ?perf=1（init.perf）＝2秒毎にフレーム内訳を console へ：map/gint の CPU 発行時間・フレームEMA・JSヒープ・解像度段。
@@ -388,7 +390,10 @@ const dispatch = e => {
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
 			else if (m.cmd === "clock") { clockA = m.data; dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く
-			else if (m.cmd === "clip") { clipPlW = m.data && m.data.on !== false ? clipPlanes(m.data) : null; if (!clipPlW?.length) clipPlW = null; labelLayer?.setClip(clipPlW); renderer?.set("clip", m.data); }   // 断面（#111）＝レンダラへ＋注記と同一フレームのオーバーレイ（面は worker の楕円体の状態で作る）
+			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
+				const n = normClip(m.data), pl = t => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
+				clipPlW = pl("vector"); clipPlL = pl("labels"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
+			}   // 断面（#111）＝レンダラへ＋注記と同一フレームのオーバーレイ（面は worker の楕円体の状態で作る）
 			else if (renderer) renderer.set(m.cmd, m.data, m.prop);              // view/overlay/elev…
 			dirty = true;                                        // 内容が変わった→描き直す
 			break;

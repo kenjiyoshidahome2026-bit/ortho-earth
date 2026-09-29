@@ -516,8 +516,14 @@ export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "t
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
 export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json" | "image" | "string"; headers?: Record<string, string> }, abortController: AbortController) => Promise<{ data: ArrayBuffer | ArrayBufferView | Blob | string | object | null }>;
+/** 切る対象（map.setClipping の targets）：terrain＝地形・球の床・地形の蓋／buildings＝基図の押し出しと建物メッシュ／models＝模型・3D Tiles・I3S・押し出し／
+ *  vector＝基図と利用者の塗り・線・gint・外部ベクタ・同一フレームのオーバーレイ（heatmap・模様・anno 等＝api.clip）・地面の識別と問い合わせ／
+ *  labels＝注記（基図の注記と、symbol 層の記号・点の集約）。3D の塗りは地面に焼く＝terrain に従う */
+export type ClipTarget = "terrain" | "buildings" | "models" | "vector" | "labels";
 /** 断面の切り方（map.setClipping・1.8.0〜・#111） */
 export interface ClipOptions {
+	/** この群の面で切る対象（省略＝全部） */
+	targets?: ClipTarget[];
 	/** 鉛直面＝2 点 a→b を通る（a→b に向かって右側を残す） */
 	vertical?: [LonLat, LonLat][];
 	/** 水平面＝at の接平面を高さ h（m）に（keep "below"＝既定） */
@@ -765,10 +771,12 @@ export interface OrthoJapanMap {
 	 *  模型／3D Tiles／I3S・gint の線と点と塗り・外部ベクタ（map.overlay の塗りと線）・注記・同一フレームのオーバーレイ（frame の api.clip＝面と距離の関数）。
 	 *  切り口には縁の帯（既定 2px の橙・edge:false で消す／{ width, color }）。cap:false で蓋なし。影（setShadows）は切った形で落ちる。
 	 *  識別・ホバー・queryRenderedFeatures も切られた側を返さない（押し出しは足元が全部切られた物だけ外す）。日影図・可視域・見通し線は切らない（実物で測る）。
+	 *  対象ごとの面：配列で群を並べ、群ごとに targets（ClipTarget）を指定できる（例：[{ box, targets: ["terrain"] }, { horizontal, targets: ["buildings", "models"] }]＝地形は箱・建物は水平面）。
+	 *  対象ごとに 6 枚まで・targets 省略＝全部・蓋と縁の帯は最初に cap／edge を書いた群の値。
 	 *  false で消す（消している間は描画に一切関与しない）。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影と同じ扱い）。URL の ?clip=（lon1,lat1,lon2,lat2／h:lon,lat,高さ[,above]／box:lon,lat,幅,奥行き[,底,天[,向き]]・; で重ねる） */
-	setClipping(opts?: false | ClipOptions): void;
+	setClipping(opts?: false | ClipOptions | ClipOptions[]): void;
 	/** 今の切り方（setClipping に渡した物の写し）・切っていなければ null（1.8.0〜・#111） */
-	getClipping(): ClipOptions | null;
+	getClipping(): ClipOptions | ClipOptions[] | null;
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。
 	 *  結果は地面に画像として貼る（map.raster の "viewshed"＝見える所が緑）。probe＝指定地点が見えるか（1|0）。ボタンとパネルは map.gadget.viewshed() */
