@@ -3,7 +3,7 @@
 // 押す（or Esc）と mapEl から CustomEvent "ortho:close"（bubbles）を飛ばすだけ＝閉じる実務（モーダルを畳む・
 // destroy を呼ぶ等）は埋め込み側の領分。単体ページでは載せない＝モーダル/ライトボックスに地図を出す画面のための×。
 // 置き場所は右上（チップ列のさらに上ではなく #map 直下の後置＝スタック不参加。×は家具でなく「額縁の金具」）。
-import { modalOpen, isTypingTarget } from "./keys.js";
+import { modalOpen, isTypingTarget, isKeyOwner } from "./keys.js";
 import { tr } from "../i18n.js";
 const t = tr();
 
@@ -20,7 +20,8 @@ export function close({ signal } = {}) {
 	btn.addEventListener("click", dispatch);
 	// Esc＝×と同じ。ただし「開いている物」（印刷モーダル・PLATEAUモーダル・右クリックメニュー・測距中・入力中）が
 	// ある間は譲る＝Escはまずそれらを閉じる係（地図ごと閉じる事故を防ぐ）。モーダル/入力判定は keys.js と共有。
-	const overlayOpen = () => mapEl.classList.contains("measuring") || modalOpen(mapEl) || isTypingTarget();
+	// 頁に地図が複数ある時は、キーの持ち主（最後に触った地図）だけが閉じる（#173 段 3）
+	const overlayOpen = () => mapEl.classList.contains("measuring") || modalOpen(mapEl) || isTypingTarget() || !isKeyOwner(mapEl);
 	window.addEventListener("keydown", e => { if (e.key === "Escape" && !overlayOpen()) dispatch(); }, { signal });
 	return btn;
 }

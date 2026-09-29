@@ -6,7 +6,10 @@
        ③ カメラは独立（A を動かしても B は動かない）・縮尺の表示も各自の視点
        ④ B を畳んでも A は生きている（家具・カメラ・射影）・B の容れ物は空で .qm も外れる
        ⑤ 畳んだ容れ物で起動し直せる・生きている容れ物への二重起動は例外
-     ?v=default：target 無しの既定の容れ物＝1 枚目は頁の #map、2 枚目は #map を掴まず body 直下に自作（id を付けない）。 -->
+       ⑥ 段 3：キーは最後に触った地図だけ（矢印＝core の blocked・N＝コンパスの keyBusy）
+          URL の持ち主は最初の地図だけ（hash の手編集に応じる・前回ビューを書く）・省メモリでない端末は 2 枚とも建物 3D
+     ?v=default：target 無しの既定の容れ物＝1 枚目は頁の #map、2 枚目は #map を掴まず body 直下に自作（id を付けない）。
+     ?v=lowmem：省メモリ端末（deviceMemory=2）＝2 枚目は建物 3D を既定で切る（ガジェットが載らない）・mesh:true で入る。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>
 html,body{margin:0;background:#0b1021}
 #a, #b { display: inline-block; width: 480px; height: 360px; vertical-align: top; }
@@ -15,6 +18,7 @@ html,body{margin:0;background:#0b1021}
 <body>
 <script type="module">
 const V = new URLSearchParams(location.search).get("v") || "two";
+if (V === "lowmem") Object.defineProperty(Navigator.prototype, "deviceMemory", { get: () => 2, configurable: true });   // LOW_MEM は import の時に決まる＝その前に
 const t = [], errs = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -22,10 +26,25 @@ addEventListener("error", e => errs.push(String(e.message || e)));
 addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
 const loaded = m => Promise.race([m.once("load").then(() => true), sleep(30000).then(() => false)]);
 const near = (a, b, e) => Math.abs(a - b) <= e;
+const until = async (fn, ms = 4000) => { for (let i = 0; i < ms / 50 && !fn(); i++) await sleep(50); return fn(); };   // 並べて走らせた負荷でも揺れない＝条件が満ちるまで待つ
 const base = { chips: false, persistView: false };
 try {
 	const { createGlobe } = await import("@ortho-earth/globe");
-	if (V === "default") {
+	if (V === "lowmem") {
+		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div><div id="c2" style="width:320px;height:240px"></div>`);
+		const A = await createGlobe({ ...base, target: "#a", view: "#3/35/139" });
+		const B = await createGlobe({ ...base, target: "#b", view: "#3/48/2" });
+		await Promise.all([loaded(A), loaded(B)]);
+		A.gadget.mesh(); B.gadget.mesh();
+		ok("firstHasMesh", !!document.querySelector("#a #plateau-btn"));
+		ok("secondNoMesh", !document.querySelector("#b #plateau-btn"));
+		B.destroy();
+		const C = await createGlobe({ ...base, target: "#c2", view: "#3/48/2", mesh: true });
+		await loaded(C);
+		C.gadget.mesh();
+		ok("optInMesh", !!document.querySelector("#c2 #plateau-btn"));
+		C.destroy(); A.destroy();
+	} else if (V === "default") {
 		document.body.insertAdjacentHTML("afterbegin", `<div id="map"></div>`);
 		const pageMap = document.getElementById("map");
 		const m1 = await createGlobe({ ...base, view: "#3/35/139" });
@@ -41,7 +60,9 @@ try {
 	} else {
 		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
 		const a = document.getElementById("a"), b = document.getElementById("b");
-		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#3/35/139" }), createGlobe({ ...base, target: "#b", view: "#6/48/2" })]);
+		const CAM_KEY = "ortho-japan.cam256";
+		try { localStorage.removeItem(CAM_KEY); } catch {}
+		const [A, B] = await Promise.all([createGlobe({ ...base, persistView: true, target: "#a", view: "#3/35/139" }), createGlobe({ ...base, persistView: true, target: "#b", view: "#6/48/2" })]);
 		const [la, lb] = await Promise.all([loaded(A), loaded(B)]);
 		// ① 起動・id・印
 		ok("bothLoad", la && lb, `${la}/${lb}`);
@@ -58,6 +79,53 @@ try {
 		ok("scaleEach", !!sa && !!sb && sa !== sb, `A=${sa} B=${sb}`);
 		const [ax, ay] = A.projectLL(139.76, 35.68);
 		ok("projectA", near(ax, 240, 2) && near(ay, 180, 2), `${ax.toFixed(1)},${ay.toFixed(1)}`);
+		// ⑥ 段 3：キーの持ち主＝最後に触った地図（矢印は core input の blocked・N はコンパスの keyBusy）
+		const touch = el => el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));   // 容れ物への押下＝持ち主の切り替え（#c の掴みは起きない）
+		// 押している間だけ動く（rAF）＝負荷で遅いコマでも「どちらかが動くまで」最大 2 秒押す（並べて走らせた時に 400ms では 1 コマも回らなかった）
+		const arrow = async () => {
+			const a1 = A.getCenter().lng, b1 = B.getCenter().lng;
+			window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+			for (let i = 0; i < 40 && A.getCenter().lng === a1 && B.getCenter().lng === b1; i++) await sleep(50);
+			await sleep(150);
+			window.dispatchEvent(new KeyboardEvent("keyup", { key: "ArrowRight", bubbles: true })); await sleep(300);
+		};
+		touch(a);
+		let a0 = A.getCenter().lng, b0 = B.getCenter().lng;
+		await arrow();
+		ok("arrowOwnerA", A.getCenter().lng !== a0 && B.getCenter().lng === b0, `A ${a0.toFixed(3)}→${A.getCenter().lng.toFixed(3)} B ${b0.toFixed(3)}→${B.getCenter().lng.toFixed(3)}`);
+		touch(b);
+		a0 = A.getCenter().lng; b0 = B.getCenter().lng;
+		await arrow();
+		ok("arrowOwnerB", A.getCenter().lng === a0 && B.getCenter().lng !== b0, `A ${a0.toFixed(3)}→${A.getCenter().lng.toFixed(3)} B ${b0.toFixed(3)}→${B.getCenter().lng.toFixed(3)}`);
+		A.gadget.compass(); B.gadget.compass();
+		A.setBearing(30); B.setBearing(30);
+		touch(b);
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "n", bubbles: true }));
+		await until(() => near(B.getBearing(), 0, 0.5));   // 北向きのアニメーション（rAF）が終わるまで
+		await sleep(300);
+		ok("gadgetKeyOwner", near(B.getBearing(), 0, 0.5) && near(A.getBearing(), 30, 0.5), `A=${A.getBearing().toFixed(1)} B=${B.getBearing().toFixed(1)}`);
+		// URL の持ち主＝最初の地図（A）：hash の手編集に応じるのは A だけ
+		const bc = B.getCenter();
+		location.hash = "#5/10/20";
+		await until(() => near(A.getCenter().lng, 20, 1e-6));
+		await sleep(300);
+		const ac2 = A.getCenter(), bc2 = B.getCenter();
+		ok("hashOwnerA", near(ac2.lng, 20, 1e-6) && near(ac2.lat, 10, 1e-6) && near(bc2.lng, bc.lng, 1e-9) && near(bc2.lat, bc.lat, 1e-9), `A=${ac2.lng.toFixed(2)},${ac2.lat.toFixed(2)} B=${bc2.lng.toFixed(2)},${bc2.lat.toFixed(2)}`);
+		history.replaceState(null, "", location.pathname + location.search);
+		// 前回ビュー（localStorage）を書くのも A だけ
+		B.jumpTo({ center: [151.2, -33.9], zoom: 7 });
+		await sleep(1500);   // B の静止（settle）を十分に過ぎるまで＝書くなら書いている
+		let saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
+		const bWrote = !!saved && near(saved.center[0], 151.2, 1e-6);
+		A.jumpTo({ center: [-74.0, 40.7], zoom: 8 });
+		await until(() => near(JSON.parse(localStorage.getItem(CAM_KEY) || "null")?.center?.[0] ?? 0, -74.0, 1e-6));   // 保存は静止（settle）の後
+		saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
+		ok("persistOwnerA", !bWrote && !!saved && near(saved.center[0], -74.0, 1e-6), JSON.stringify(saved?.center));
+		try { localStorage.removeItem(CAM_KEY); } catch {}
+		A.jumpTo({ center: [139.76, 35.68], zoom: 10, pitch: 0, bearing: 0 });
+		// 省メモリでない端末＝2 枚とも建物 3D（ガジェットが載る）
+		A.gadget.mesh(); B.gadget.mesh();
+		ok("meshBoth", !!a.querySelector("#plateau-btn") && !!b.querySelector("#plateau-btn"));
 		// ⑤ 生きている容れ物への二重起動は例外
 		let threw = false;
 		try { await createGlobe({ ...base, target: "#a" }); } catch { threw = true; }
@@ -65,7 +133,7 @@ try {
 		// ④ B を畳んでも A は生きている
 		B.destroy();
 		ok("bGone", b.childElementCount === 0 && !b.classList.contains("qm") && b.id === "b", `${b.childElementCount}|${b.className}`);
-		A.jumpTo({ center: [135.5, 34.7], zoom: 9 });
+		A.jumpTo({ center: [135.5, 34.7], zoom: 9, pitch: 0, bearing: 0 });
 		await sleep(600);
 		const [ax2, ay2] = A.projectLL(135.5, 34.7);
 		ok("aAlive", !!a.querySelector("#c") && near(ax2, 240, 2) && near(ay2, 180, 2) && near(A.getZoom(), 9, 1e-6), `${ax2.toFixed(1)},${ay2.toFixed(1)}`);
