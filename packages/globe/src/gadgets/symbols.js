@@ -22,7 +22,7 @@ export function createSymbols(map, { signal, onImage = null, onImageRemoved = nu
 	};
 	const send = (name, e) => { onImage?.(name, e); return createImageBitmap(e.bitmap).then(bm => overlay().post({ type: "image", name, bitmap: bm, pixelRatio: e.pixelRatio, sdf: e.sdf, stretchX: e.stretchX ?? null, stretchY: e.stretchY ?? null, content: e.content ?? null }, [bm])); };   // stretchX/Y・content＝伸びる記号
 	const push = id => { const L = layers.get(id); if (!L) return; overlay().post({ type: "layer", id, items: L.items, order: L.order }); };
-	const evalLayer = id => { const L = layers.get(id); if (!L) return; const miss = new Set(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
+	const evalLayer = id => { const L = layers.get(id); if (!L) return; const miss = new Set(); L.items = symbolItems(L.src, L.layer, map.getZoom(), images, miss, map.getGlobalState?.()); L.missing = miss; push(id); for (const n of miss) onMissing?.(n); };
 	const onSettle = () => { for (const [id, L] of layers) if (L.zoomDep) evalLayer(id); };
 	map.on("settle", onSettle);   // ["zoom"] を含む層は止まるたびに評価し直す（map.on は map を返す＝解除は map.off）
 	const ctl = {
