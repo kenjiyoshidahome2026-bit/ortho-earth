@@ -3691,6 +3691,7 @@ const vtxGround = dispRadius;
 // feature-state（vector source・MapLibre と同じく sourceLayer が要る）の置き場＝sid → Map<"sourceLayer\0型:id", { id, state }>。層より先に置かれても残る（押し出しの部品は読むだけ）
 const vtxFS = new Map();
 const vtxFSKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;
+const vtxStateOf = (sid, sl, id) => ({ ...(id == null || sl == null ? null : vtxFS.get(sid)?.get(vtxFSKey(sl, id))?.state) });   // 問い合わせの地物の state（MapLibre と同じく無ければ {}・#109 段 3）
 const isVecSrc = sid => mlSources.get(sid)?.type === "vector" || !!baseSrcSpec(sid);
 let vtxCtl = null;
 const vtxGet = async () => {
@@ -4466,7 +4467,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 			const fs = await queryTiles({ style: { layers: ls }, order, tileUrl: d.pmtiles ? () => d.pmtiles : d.tileUrl, zoom: cam.zoom, area, tolPx, layers: qo.layers || null, filter: qo.filter || null, cache, request: requester.forTiles(), source: sid, promoteId: d.promoteId ?? null, encoding: d.encoding || "mvt" })
 				.catch(err => { console.warn("[query] vector source", sid, err); return []; });
 			const rank = new Map(vtdOrder().map((id, i) => [id, i]));
-			for (const f of fs) hitsV.push([rank.get(f.layer.id) ?? 0, f]);
+			for (const f of fs) { f.state = vtxStateOf(sid, f.sourceLayer, f.id); hitsV.push([rank.get(f.layer.id) ?? 0, f]); }   // state＝押し出しと同じ置き場（#109 段 3）
 		}));
 		hitsV.sort((a, b) => b[0] - a[0]);   // 安定＝同じ層の中は queryTiles の順
 		for (const [, f] of hitsV) { delete f.tile; out.push(f); }
@@ -4476,6 +4477,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (want && ![...want].some(id => baseIds.has(id))) return qf(out);   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ style, hidden: hiddenAll(), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
 		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; });   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
+	for (const f of base) f.state = vtxStateOf(f.source, f.sourceLayer, f.id);   // 基図の地物にも state（絵には効かない＝基図の配管は状態を読まない・MapLibre と同じ形の答え・#109 段 3）
 	return qf(out).concat(base);
 };
 // 断面（#111）＝問い合わせも切った側を外す：点の問い合わせで地面が切られていれば立体の地物（押し出し）だけ・それ以外は形が全部切られた地物を外す
