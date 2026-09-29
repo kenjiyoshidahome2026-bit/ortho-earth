@@ -1,0 +1,59 @@
+{
+ "tilejson": "2.1.0",
+ "format": "quantized-mesh-1.0",
+ "version": "1.0.0",
+ "scheme": "tms",
+ "projection": "EPSG:4326",
+ "tiles": [
+  "{z}/{x}/{y}.terrain?v={version}"
+ ],
+ "minzoom": 0,
+ "maxzoom": 10,
+ "bounds": [
+  150,
+  30,
+  151,
+  31
+ ],
+ "available": [
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [],
+  [
+   {
+    "startX": 234,
+    "startY": 85,
+    "endX": 235,
+    "endY": 86
+   }
+  ],
+  [
+   {
+    "startX": 469,
+    "startY": 170,
+    "endX": 470,
+    "endY": 172
+   }
+  ],
+  [
+   {
+    "startX": 938,
+    "startY": 341,
+    "endX": 941,
+    "endY": 344
+   }
+  ],
+  [
+   {
+    "startX": 1877,
+    "startY": 682,
+    "endX": 1883,
+    "endY": 688
+   }
+  ]
+ ]
+}
