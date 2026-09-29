@@ -1,0 +1,29 @@
+<!doctype html>
+<!-- 起動直後の撮影：await createGlobe の直後に requestSnapshot（待たずに）＝必ず返事が来て、絵（render.base）が付くこと。
+     旧＝WebGPU では renderer/cam が揃う前に届いた snapshot に worker が何も返さず、promise が永久に宙吊り（GL2 は無事・~3 秒後なら撮れた）。
+     ?v=style＝外来 style で起動した地図でも同じ。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-snapearly</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); document.title = "… " + t.join(" "); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const withTimeout = (p, ms) => Promise.race([p, sleep(ms).then(() => "timeout")]);
+const STYLE = { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] };
+try {
+	const v = new URLSearchParams(location.search).get("v") || "default";
+	const map = await createGlobe({ target: "#map", view: "#3/35/135", chips: false, ...(v === "style" ? { style: STYLE } : {}) });
+	const t0 = performance.now();
+	const s = await withTimeout(map.requestSnapshot(), 8000);   // 待たずに撮る＝起動直後の worker に当てる
+	const ms = Math.round(performance.now() - t0);
+	ok("resolved", s !== "timeout", `${ms}ms`);
+	const r = s !== "timeout" ? s.render : null;
+	ok("base", !!(r && r.base && r.w > 0 && r.h > 0 && r.base.byteLength === r.w * r.h * 4), r ? `${r.w}x${r.h}` : "no render");
+	// 続けてもう一枚（起動後の普通の撮影も壊れていない）
+	const s2 = await withTimeout(map.requestSnapshot(), 8000);
+	ok("second", s2 !== "timeout" && !!s2.render?.base);
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
