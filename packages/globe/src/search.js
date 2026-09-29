@@ -1,10 +1,31 @@
-// 地名検索の窓：UIは Quiet Mono の作法（白の静かな箱、候補は下に）。ヒット→ onGo(lon, lat, zoom, tilt) を呼ぶだけ＝
-// 飛び方（球面フライト）は呼び出し側の領分。何をどこへ問い合わせるか（API・前処理・着地ズーム）は地域宣言の供給元
-// （日本＝packages/jp/src/search-gsi.js の地理院 AddressSearch）＝窓は国を知らない（2026-09-22 分離）。
+// 地名検索の窓：UIは Quiet Mono の作法（白の静かな箱、候補は下に）。ヒット→ onResult(hit) と onGo(lon, lat, zoom, tilt) を呼ぶだけ＝
+// 飛び方（球面フライト）は呼び出し側の領分。何をどこへ問い合わせるか（API・前処理・着地ズーム）は供給元
+// （日本＝packages/jp/src/search-gsi.js の地理院 AddressSearch・世界＝worldsearch.js・外の geocoder＝geocoder.js）＝窓は国を知らない（2026-09-22 分離）。
+//
+// 供給元の契約（#175 で広げた・今の形は無改修で動く）：
+//   { histKey?, query(q, signal) → Promise<hit[]>, viewFor?(title) → { zoom, tilt? } }
+//   hit ＝ { title, note?, lon, lat, bbox?, zoom?, tilt?, kind?, id? }
+//     着地の決め方（先に在る物が勝つ）：hit.zoom ＞ hit.bbox（範囲に寄る＝fit）＞ provider.viewFor(title) ＞ 既定 z12
+//   供給元は配列でもよい＝並べた順に候補を積む（地域 → 世界 → 外の geocoder）。どれかが落ちても他の候補は出す。
+// 履歴（行った場所）は着地を覚える＝{ title, note, lon, lat, zoom?, tilt?, bbox?, kind?, id? }（旧い履歴＝zoom 無しは viewFor で）。
 import { tr } from "./i18n.js";
 const t = tr();
 
-export function createSearch({ provider, onGo, signal, root = document }) {   // provider＝地域宣言の検索供給元（packages/jp/src/search-gsi.js の形）・signal＝map.destroy() で document リスナーを束ごと外すため
+const LIMIT = 10, MIN_EACH = 3;   // 候補の総数・後ろの供給元に残す最低の枠（地域が 8 件返しても世界の 3 件は見える）
+const DEFAULT_ZOOM = 12;
+// 供給元ごとの候補 → 1 本（前の供給元が先・後ろの供給元にも最低 MIN_EACH 件の席を残す）
+export function mergeHits(lists, limit = LIMIT, minEach = MIN_EACH) {
+	const out = [];
+	lists.forEach((hits, k) => {
+		const reserve = lists.slice(k + 1).reduce((s, h) => s + Math.min(h.length, minEach), 0);
+		out.push(...hits.slice(0, Math.max(0, limit - out.length - reserve)));
+	});
+	return out;
+}
+const histId = c => c.id || `${c.title}|${(+c.lon).toFixed(3)}|${(+c.lat).toFixed(3)}`;
+
+export function createSearch({ provider, onGo, onResult, fit, signal, root = document, histKey }) {   // provider＝供給元（1 つか配列）・fit(bbox)→{ lon, lat, zoom }（範囲に寄る倍率＝地図の cameraForBounds）・signal＝map.destroy() で document リスナーを束ごと外すため
+	const providers = [].concat(provider || []).filter(Boolean);
 	// root＝地図の容れ物（#173）＝頁に地図が複数でも自分の窓を掴む（document.getElementById は頁で最初の物）
 	const box = root.querySelector("#search");
 	const btn = root.querySelector("#search-btn");
@@ -13,12 +34,17 @@ export function createSearch({ provider, onGo, signal, root = document }) {   //
 	let items = [], sel = -1, ac = null, timer = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
 	// 検索履歴（オートコンプリート）：飛んだ地点だけを保存＝「検索した」でなく「行った」場所。入力が空の時に出す。
-	const HIST_KEY = provider.histKey, HIST_MAX = 8;
+	// 鍵＝明示 → 最初に鍵を持つ供給元（地域＝利用者の履歴を引き継ぐ）→ 既定
+	const HIST_KEY = histKey || providers.find(p => p.histKey)?.histKey || "ortho.searches", HIST_MAX = 8;
 	const loadHist = () => { try { return JSON.parse(localStorage.getItem(HIST_KEY) || "[]"); } catch { return []; } };
-	const saveHist = c => {
+	const saveHist = (c, v) => {
 		try {
-			const h = loadHist().filter(x => x.title !== c.title);
-			h.unshift({ title: c.title, note: c.note || "", lon: c.lon, lat: c.lat });
+			const id = histId(c), h = loadHist().filter(x => histId(x) !== id && !(x.title === c.title && !x.id && x.zoom == null));   // 旧い履歴（倍率なし）の同名も入れ替える
+			const e = { title: c.title, note: c.note || "", lon: c.lon, lat: c.lat };
+			if (c.bbox) e.bbox = c.bbox; else { e.zoom = v.zoom; if (v.tilt != null) e.tilt = v.tilt; }   // 範囲は次も寄り直す（画面の大きさが変わっても収まる）・点は着いた倍率
+			if (c.kind) e.kind = c.kind;
+			if (c.id) e.id = c.id;
+			h.unshift(e);
 			localStorage.setItem(HIST_KEY, JSON.stringify(h.slice(0, HIST_MAX)));
 		} catch { /* private mode 等 */ }
 	};
@@ -35,9 +61,12 @@ export function createSearch({ provider, onGo, signal, root = document }) {   //
 
 	async function query(q) {
 		ac?.abort(); ac = new AbortController();
-		try {
-			render(await provider.query(q, ac.signal));
-		} catch (e) { if (e.name !== "AbortError") render(null); }   // 通信断も言葉で（白画面同様、黙らない）
+		const sig = ac.signal;
+		const res = await Promise.allSettled(providers.map(p => Promise.resolve().then(() => p.query(q, sig)).then(hs => (hs || []).map(h => ({ ...h, src: p })))));
+		if (sig.aborted) return;
+		const ok = res.filter(r => r.status === "fulfilled");
+		for (const r of res) if (r.status === "rejected" && r.reason?.name !== "AbortError") console.warn("[search] provider failed", r.reason);
+		render(ok.length ? mergeHits(ok.map(r => r.value)) : null);   // 全部落ちた＝通信断も言葉で（白画面同様、黙らない）・一部なら出せる物を出す
 	}
 
 	// 候補リストは #map 直下の動的要素（ガジェットスタックの外＝下段のガジェットより上に描く）。
@@ -67,14 +96,29 @@ export function createSearch({ provider, onGo, signal, root = document }) {   //
 		list.style.display = "block";
 	}
 
-	function go(i) {
-		const c = items[i]; if (!c) return;
-		saveHist(c);   // 行った場所だけ履歴へ（次回のオートコンプリート候補）
+	async function go(i) {
+		let c = items[i]; if (!c) return;
 		input.value = "";   // 飛んだら入力欄は空に戻す＝行き先は履歴（最近の検索）に居るので消えても迷子にならない
 		close(); input.blur();
 		box.classList.remove("open");   // 飛んだら畳む＝フライトの見せ場と着地の地図を広く
-		const v = provider.viewFor(c.title);
-		onGo(c.lon, c.lat, v.zoom, v.tilt);
+		if (c.resolve) {   // 座標は選んだ時に引く候補（geocoderApi.getSuggestions → searchByPlaceId）
+			const r = await c.resolve().catch(e => { console.warn("[search] resolve failed", e); return null; });
+			if (!r) return;
+			c = { ...r, title: c.title || r.title, note: c.note || r.note, src: c.src };
+		}
+		const v = viewOf(c);
+		saveHist(c, v);   // 行った場所だけ履歴へ（次回のオートコンプリート候補）＝着いた倍率ごと
+		const { src, resolve, ...hit } = c;
+		onResult?.(hit);   // 選んだ候補（公式の "result" 事象と同じ中身の置き場）
+		onGo(v.lon, v.lat, v.zoom, v.tilt);
+	}
+	// 着地：hit.zoom ＞ hit.bbox（fit）＞ 供給元の viewFor(title)（履歴＝どの供給元か分からない→鍵を持つ最初の供給元）＞ 既定
+	function viewOf(c) {
+		if (c.zoom != null) return { lon: c.lon, lat: c.lat, zoom: c.zoom, tilt: c.tilt };
+		if (c.bbox && fit) { const f = fit(c.bbox); if (f) return { lon: f.lon, lat: f.lat, zoom: f.zoom, tilt: c.tilt }; }
+		const p = c.src || providers.find(x => x.viewFor);
+		const v = p?.viewFor?.(c.title) || { zoom: DEFAULT_ZOOM };
+		return { lon: c.lon, lat: c.lat, zoom: v.zoom, tilt: v.tilt };
 	}
 
 	const highlight = () => [...list.children].forEach((d, i) => { d.classList.toggle("sel", i === sel); if (d.getAttribute("role") === "option") d.setAttribute("aria-selected", String(i === sel)); });
