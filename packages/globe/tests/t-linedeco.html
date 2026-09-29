@@ -53,8 +53,8 @@ try {
 	const W = document.getElementById("map").clientWidth;
 	const probe = async name => { const p = await window.__ovPixels(name); return p && !p.error ? p : null; };
 	const at = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
-	// オーバーレイの最初の描画は worker の import 次第＝決め打ちの待ちにしない（着くまで見る）
-	const until = async (name, test, ms = 10000) => { let v = null; for (const t0 = performance.now(); performance.now() - t0 < ms; await sleep(250)) { v = await probe(name); if (v && test(v)) break; } return v; };
+	// オーバーレイの最初の描画は worker の import 次第＝決め打ちの待ちにしない（着くまで見る）。上限 30 秒＝関門を並べた負荷で import が 10 秒を超えた（2026-09-29・判定の色は同じ）
+	const until = async (name, test, ms = 30000) => { let v = null; for (const t0 = performance.now(); performance.now() - t0 < ms; await sleep(250)) { v = await probe(name); if (v && test(v)) break; } return v; };
 	const near = (p, x, y, test, r = 2) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(at(p, x + dx, y + dy))) return true; return false; };
 
 	// ② line-gradient（lineMetrics の geojson）
