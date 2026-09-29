@@ -127,7 +127,7 @@ export class Map {
 		const handler = h => new Proxy({ isEnabled: () => true, isActive: () => false }, { get: (o, k) => k in o ? o[k] : typeof k !== "string" ? undefined
 			: (...a) => { if (/^disable/.test(k)) unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
 		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, handler(h)]));
-		if (liveMaps++ > 0) { st.inert = true; unsupported(self, "second Map on the page (one map per page)"); return self; }
+		if (liveMaps++ > 1) { liveMaps--; st.inert = true; unsupported(self, "third Map on the page (at most two live maps)"); return self; }   // 1 頁に 2 枚まで（#173・本人裁定 上限 2）
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
 		if (options.interactive === false) unsupported(self, "option interactive: false", "cosmetic");

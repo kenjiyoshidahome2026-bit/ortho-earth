@@ -950,6 +950,19 @@ export class Popup {
 	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
 }
+/** 2 枚の地図を左右（上下）スワイプで比べる（MapLibre 公式 maplibre-gl-compare と同じ形・#173）。before＝つまみの左（上）・after＝右（下）を見せる。
+ *  2 枚の容れ物は同じ場所に重ねて置く（利用者の CSS）。カメラは連動する（どちらを動かしても追う）。container＝つまみを置く要素（セレクタ可）。
+ *  1 頁に生きている地図は 2 枚まで。createGlobe の地図でも MapLibre 互換の Map（@ortho-earth/globe/maplibre）でもよい */
+export class Compare {
+	constructor(before: OrthoJapanMap | { getContainer(): HTMLElement }, after: OrthoJapanMap | { getContainer(): HTMLElement }, container: string | HTMLElement, options?: { orientation?: "vertical" | "horizontal"; mousemove?: boolean });
+	/** つまみの位置（容れ物の左端／上端から px） */
+	readonly currentPosition: number;
+	setSlider(x: number): void;
+	on(type: "slideend", fn: (e: { currentPosition: number }) => void): this;
+	off(type: "slideend", fn: (e: { currentPosition: number }) => void): this;
+	/** つまみを外し、切り抜きと連動を解く（地図は残る） */
+	remove(): void;
+}
 
 // ---- geopbf（SDK 同梱・1.0.3〜 named export）----
 export interface GeoJSONFeature { type: "Feature"; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null;[k: string]: unknown }

@@ -29,6 +29,7 @@ import { Marker, Popup } from "./gadgets/marker.js";   // DOM の Marker / Popup
 export { Marker, Popup };
 import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };
+export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比べる（maplibre-gl-compare と同じ形・#173）
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { normClip, clipPlanesFor, clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
