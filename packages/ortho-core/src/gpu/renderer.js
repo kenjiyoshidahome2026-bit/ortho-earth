@@ -987,6 +987,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return wpal;
 	};
 	let sea = { li: -1, minzoom: Infinity };
+	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
+	let userAnchor = { ranges: [], rev: 0 };
 	let bldFill = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
@@ -2510,6 +2512,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
+			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）
 			case "scene":   setScene(data, prop); break;
 			case "elevAtlas": setElevationAtlas(data, prop); break;
 			case "elevCell": setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;
