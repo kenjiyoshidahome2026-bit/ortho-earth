@@ -81,7 +81,8 @@ function layoutOf(L, lo, ctx, ml) {
 	return { rec, transform: String(ev(lo["text-transform"], "none")) };
 }
 // style の symbol層から点・横書きラベルを抽出。anchor は絶対経緯度[lon,lat]（タイル跨ぎ共通原点）。
-export function buildLabels({ layers, z, x, y }, style) {
+// stateOf＝地物 → その feature-state（#109・省略可＝build.js と同じ口）。filter の後に ctx へ＝paint（text-color・halo・text-opacity・icon-color…）が読む。基図は渡さない
+export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 	const codeKey = style.schema && style.schema.labelCode;   // 注記の分類コードの属性名＝style の申告（themes の絞り込みと路線記号がこれを見る）
 	const out = [];
 	const codepoints = new Set();
@@ -102,10 +103,11 @@ export function buildLabels({ layers, z, x, y }, style) {
 		let fi = 0;
 		for (const f of src.features) {
 			fi++;
-			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L) };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
+			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L), state: undefined };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
 			const place = String(evalExpr(placeE, ctx) ?? "point"), onLine = place === "line" || place === "line-center";   // 線に沿う注記（段 4）
 			if (onLine ? f.type !== "LineString" : f.type === "Polygon") continue;   // 線の注記は線だけ（面の輪郭は置かない・記録）。点の注記＝点と、線の各部分の先頭の頂点（MapLibre の点置き＝低 z の道路の盾）
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
+			if (stateOf) ctx.state = stateOf(f);   // filter の後（#109）
 			const text = lo["text-field"] == null ? "" : String(evalExpr(lo["text-field"], ctx) ?? "").trim();
 			const icon = lo["icon-image"] == null ? "" : String(evalExpr(lo["icon-image"], ctx) ?? "").trim();   // 記号の名前（["image", …] は名前をそのまま返す・"{tok}" は mlstyle が式にしてある）
 			if (!text && !icon) continue;

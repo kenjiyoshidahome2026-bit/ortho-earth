@@ -987,6 +987,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		return wpal;
 	};
 	let sea = { li: -1, minzoom: Infinity };
+	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
+	let userAnchor = { ranges: [], rev: 0 };
+	// 描画ごとの差し込みの計画（GL の userAnchorPlan と同じ）：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順）・anchorOf(user の li)＝境か Infinity
+	const userAnchorPlan = host => {
+		const R = userAnchor.ranges;
+		const anchorOf = li => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
+		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
+		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
+	};
 	let bldFill = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
@@ -1387,7 +1396,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（gl/renderer.js と同じ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${hook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return null;
 		let rebuilt = false;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段
@@ -1433,18 +1442,29 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					tiles.push({ d, slot: n, order }); n++; gnd.tiles++;
 				}
 			}
-			const fills = [];
+			const fills = [], atOf = {};   // atOf[slot][gate]＝その窓の uniform の置き場（範囲で分けても同じ置き場を使う）
 			const fillSlots = [...(wantFills ? baseSlots : []), ...(userIn ? ["user"] : [])];
 			for (const slot of fillSlots) {
 				const scene = scenes[slot]; if (!scene.draws.length) continue;
 				const user = slot === "user";
+				atOf[slot] = [];
 				for (const gate of user ? [0] : [0, 1]) {   // user の li は図郭外の水域の帯に掛からない＝ゲート 0 だけ
 					const o = m * (RAS_SLOT / 4);
 					atlCPU[o] = scene.origin[0] - a.win[0]; atlCPU[o + 1] = scene.origin[1] - a.win[1]; atlCPU[o + 2] = 1 / a.win[2]; atlCPU[o + 3] = 1 / a.win[3];
 					atlCPU[o + 4] = gate; atlCPU[o + 5] = user ? 1 : baseA; atlCPU[o + 6] = 0; atlCPU[o + 7] = 0;
-					fills.push({ slot, gate, at: m, user }); m++;
+					atOf[slot][gate] = m; m++;
 				}
 			}
+			// 焼く順（#123）：基図の最後の枠（host）のゲート 0 を差し込みの境で分け、間に利用者の塗りを焼く（直描きと同じ計画）。表が空なら今と同じ順（枠ごとにゲート 0 → 1・利用者は最後）
+			const ua = userAnchorPlan(atOf.user && wantFills ? [...baseSlots].reverse().find(sl => atOf[sl]) : null);
+			for (const slot of fillSlots) {
+				if (!atOf[slot] || slot === "user") continue;
+				if (slot !== ua.host || !ua.anchors.length) { fills.push({ slot, gate: 0, at: atOf[slot][0], user: false }, { slot, gate: 1, at: atOf[slot][1], user: false }); continue; }
+				let lo = -Infinity;
+				for (const an of ua.anchors) { fills.push({ slot, gate: 0, at: atOf[slot][0], user: false, lo, hi: an }, { slot: "user", gate: 0, at: atOf.user[0], user: true, pick: d => ua.anchorOf(d.li) === an }); lo = an; }
+				fills.push({ slot, gate: 0, at: atOf[slot][0], user: false, lo, hi: Infinity }, { slot, gate: 1, at: atOf[slot][1], user: false });
+			}
+			if (atOf.user) fills.push({ slot: "user", gate: 0, at: atOf.user[0], user: true, pick: ua.host ? d => ua.anchorOf(d.li) === Infinity : null });
 			jobs.push({ a, tiles, fills, index: i });
 		}
 		if (n) device.queue.writeBuffer(rasBuf, 0, rasCPU.buffer, 0, n * RAS_SLOT);
@@ -1466,12 +1486,12 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (fills.length) {
 				pass.setPipeline(atlasFillPipe);
 				pass.setBindGroup(1, paramBG[ROLE.normal]);
-				for (const { slot, gate, at, user } of fills) {
+				for (const { slot, gate, at, user, lo = -Infinity, hi = Infinity, pick = null } of fills) {
 					const scene = scenes[slot];
 					pass.setBindGroup(0, bg0Atl[slot]);   // アトラス自身を読まない版（同期スコープの衝突回避）
 					pass.setBindGroup(2, atlBG, [at * RAS_SLOT]);
 					for (const d of scene.draws) {
-						if (d.kind !== "fill") continue;
+						if (d.kind !== "fill" || !(pick ? pick(d) : d.li >= lo && d.li < hi)) continue;   // 範囲・利用者の群（#123）
 						const seaFB = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 						if ((seaFB ? 1 : 0) !== gate) continue;   // ゲート別に 2 周（uniform は dynamic offset＝ドロー毎の書換不要）
 						if (!user && (seaFB || waterC) && seaOff) continue;   // 海の点火ゲート（直描きと同じ）
@@ -2193,49 +2213,61 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const linePipe = terrainDepth ? PX.lineTest : PX.lineOff;
 		// 塗りの直描きを伏せる条件：3D（地形あり）＝塗りは地面アトラスへ焼いてある（RTT ドレープ）／ラスタ基図（under・hideFills）＝裁定（線と注記は残す）
 		const rasterHide = gnd.fillsIn || !!(rasterDraws && rasterDraws.hideFills && gnd.rasterOn);
+		// 1 項を描く（#123 で枠を差し込みの境で分けるため関数に切り出した・中身は従来のまま）。bind group は項ごとに張る＝枠をまたいで順を入れ替えられる
+		const drawOne = (slot, d, useFade) => {
+			const userSlot = slot === "user";   // 基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
+			if (d.kind === "fill") {
+				if (userSlot ? gnd.fillsIn : rasterHide) return;   // ラスタ基図＝塗りを伏せる
+				const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
+				const waterC = d.li === sea.li || d.li === sea.li2;
+				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
+				if (hideBldFill && d.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
+				const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
+				pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
+				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setVertexBuffer(0, d.bPos);
+				pass.setVertexBuffer(1, d.bCol);
+				if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
+				else pass.draw(d.count);
+				if (slot === "base") dbg.baseFill++; else dbg.mainFill++;
+			} else {
+				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
+				pass.setPipeline(linePipe);
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+				if (grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setVertexBuffer(0, cornerBuf);
+				pass.setVertexBuffer(1, d.bP1);
+				pass.setVertexBuffer(2, d.bP2);
+				pass.setVertexBuffer(3, d.bCol);
+				pass.setVertexBuffer(4, d.bHalf);
+				pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
+				drawLine(pass, d.count);
+				if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
+			}
+		};
+		const runSlot = (slot, list, useFade, lo, hi, pick = null) => { for (const d of list) if (pick ? pick(d) : d.li >= lo && d.li < hi) drawOne(slot, d, useFade); };
+		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の最後のパス（フェード中は新しいシーン）の li ≥ anchor の項の前に描く。
+		// 表に無い物・基図の枠が無い時は今どおり最後（旧シーンのパスは全部を先に敷く＝差し込んだ層の上の基図の層は旧シーンでも上）
+		const ua = userAnchorPlan(userOn ? [...slots].reverse().find(sl => sl !== "user" && scenes[sl].draws.length) : null);
+		let uaDone = false;
 		for (const slot of slots) {
+			if (slot === "user") { runSlot("user", scenes.user.draws, false, -Infinity, Infinity, uaDone ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
 			const scene = scenes[slot];
 			// フェード中の main＝旧シーン（通常ロール・α1）を先に敷き、新シーンを fade ロール（α=fadeK）で重ねる
 			const passes = (slot === "main" && fading)
-				? [[scene.fadePrev.draws, scene.fadePrev.bldIgnored, false], [scene.draws, null, true]]
-				: [[scene.draws, null, false]];
-			for (const [drawList,, useFade] of passes) {
-			if (!drawList.length) continue;
-			const userSlot = slot === "user";   // 基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
-			for (const d of drawList) {
-				if (d.kind === "fill") {
-					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる
-					const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
-					const waterC = d.li === sea.li || d.li === sea.li2;
-					if ((seaFB || waterC) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（紙の海）
-					if (hideBldFill && d.li === bldFill.li) continue;            // 3D時＝フットプリント塗りを伏せる
-					const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
-					pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
-					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
-					if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
-					pass.setVertexBuffer(0, d.bPos);
-					pass.setVertexBuffer(1, d.bCol);
-					if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
-					else pass.draw(d.count);
-					if (slot === "base") dbg.baseFill++; else dbg.mainFill++;
-				} else {
-					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
-					pass.setPipeline(linePipe);
-					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
-					if (grp(slot)) pass.setBindGroup(2, grp(slot));
-					pass.setVertexBuffer(0, cornerBuf);
-					pass.setVertexBuffer(1, d.bP1);
-					pass.setVertexBuffer(2, d.bP2);
-					pass.setVertexBuffer(3, d.bCol);
-					pass.setVertexBuffer(4, d.bHalf);
-					pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
-					drawLine(pass, d.count);
-					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
-				}
-			}
-			}
+				? [[scene.fadePrev.draws, false], [scene.draws, true]]
+				: [[scene.draws, false]];
+			passes.forEach(([drawList, useFade], pi) => {
+				if (!drawList.length) return;
+				if (slot !== ua.host || pi !== passes.length - 1 || !ua.anchors.length) { runSlot(slot, drawList, useFade, -Infinity, Infinity); return; }
+				let lo = -Infinity;
+				for (const a of ua.anchors) { runSlot(slot, drawList, useFade, lo, a); runSlot("user", scenes.user.draws, false, 0, 0, d => ua.anchorOf(d.li) === a); lo = a; }
+				runSlot(slot, drawList, useFade, lo, Infinity);
+				uaDone = true;
+			});
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
@@ -2510,6 +2542,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
+			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）
 			case "scene":   setScene(data, prop); break;
 			case "elevAtlas": setElevationAtlas(data, prop); break;
 			case "elevCell": setElevationCell(prop.cx, prop.cy, data, prop.cellRes); break;

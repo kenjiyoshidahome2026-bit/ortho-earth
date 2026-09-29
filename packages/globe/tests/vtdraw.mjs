@@ -1,5 +1,5 @@
 // vector source の描く層（段 8⑤・src/vtops.js と src/vtdraw-worker.js）の単体検定：ズームの置き換え・枠で切る（バッファの二重なし）・円＝長さ 0 の線・
-// 注記の点（極・タイルの中だけ）・li の帯（基図の門に掛からない）・worker の組み立て（試料のタイルで fill／line／circle／symbol）。
+// 注記の点（極・タイルの中だけ）・li の帯（基図の門に掛からない）・worker の組み立て（試料のタイルで fill／line／circle／symbol）・feature-state の配管（#109＝worker の ids・main の touchFS）。
 // 実描画は t-mlcompat.html?g=vector。使い方：node packages/globe/tests/vtdraw.mjs
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -120,6 +120,89 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	ok("worker-fill-in-tile", inside);
 	self.onmessage({ data: { kind: "build", id: 3, sid: "s", key: "13/7281/9999", z: 13, x: 7281, y: 9999, layers, fz: 14, pz: 15 } });
 	ok("worker-miss", replies.find(m => m.id === 3)?.miss === true);
+	// ── feature-state（#109 段 1）：paint が feature-state を読む層だけ、タイルの地物の id を source-layer ごとに返す（filter の後・promoteId）＝main が組み直すタイルを選ぶ ──
+	const hl = (on, off) => ["case", ["boolean", ["feature-state", "hl"], false], on, off];
+	const fsLayers = [
+		{ id: "ff", key: 0, layer: ml({ id: "ff", type: "fill", "source-layer": "landuse", paint: { "fill-color": hl("#00ff00", "#0000ff") } }) },
+		{ id: "fc", key: 1, layer: ml({ id: "fc", type: "circle", "source-layer": "poi", filter: ["==", ["get", "class"], "cafe"], paint: { "circle-color": hl("#0000ff", "#00ff00") } }) },
+		{ id: "pl", key: 2, layer: ml({ id: "pl", type: "line", "source-layer": "road", paint: { "line-color": "#ff00ff" } }) },   // 読まない層＝id を返さない
+	];
+	ok("fs-ids-none-without-state-layers", r && r.ids === null, JSON.stringify(r?.ids));
+	self.onmessage({ data: { kind: "build", id: 4, sid: "s", key: "13/7281/3379", z: 13, x: 7281, y: 3379, layers: fsLayers, fz: 14, pz: 15, promoteId: null } });
+	const r4 = replies.find(m => m.id === 4);
+	ok("fs-ids-per-source-layer", r4?.ids && JSON.stringify(Object.keys(r4.ids).sort()) === '["landuse","poi"]', JSON.stringify(r4?.ids));
+	ok("fs-ids-after-filter", JSON.stringify(r4?.ids?.poi) === "[301]" && JSON.stringify([...(r4?.ids?.landuse || [])].sort()) === "[101,102]", JSON.stringify(r4?.ids));
+	self.onmessage({ data: { kind: "build", id: 5, sid: "s", key: "13/7281/3379", z: 13, x: 7281, y: 3379, layers: fsLayers, fz: 14, pz: 15, promoteId: { poi: "name", landuse: "class" } } });
+	const r5 = replies.find(m => m.id === 5);
+	ok("fs-ids-promote-id", JSON.stringify(r5?.ids?.poi) === '["Cafe"]' && JSON.stringify([...(r5?.ids?.landuse || [])].sort()) === '["park","water"]', JSON.stringify(r5?.ids));
+	// ── 段 2：添えた状態が色に届く（core の stateOf）＝状態の地物だけ case の真の枝・円の縁（丸点→状態で色）・注記の文字色・読まない層は不変 ──
+	const stLayers = [
+		{ id: "sf", key: 0, layer: ml({ id: "sf", type: "fill", "source-layer": "landuse", paint: { "fill-color": hl("#00ff00", "#0000ff") } }) },
+		{ id: "sc", key: 1, layer: ml({ id: "sc", type: "circle", "source-layer": "poi", paint: { "circle-color": hl("#0000ff", "#00ff00"), "circle-stroke-width": 2, "circle-stroke-color": hl("#ff0000", "#000000") } }) },
+		{ id: "ss", key: 2, layer: ml({ id: "ss", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] }, paint: { "text-color": hl("#ff0000", "#000000") } }) },
+	];
+	const cols = op => { const s = new Set(); for (let i = 0; i < op.col.length; i += 4) s.add(op.col.slice(i, i + 4).join(",")); return [...s].sort(); };
+	const st = fs => { self.onmessage({ data: { kind: "build", id: 6 + (st.n = (st.n || 0) + 1), sid: "s", key: "13/7281/3379", z: 13, x: 7281, y: 3379, layers: stLayers, fz: 14, pz: 15, promoteId: null, fs } }); const q = replies.find(m => m.id === 6 + st.n), by = new Map(); for (const op of q?.ops || []) by.set(op.li, op); return { q, by }; };
+	const s0 = st(null), s1 = st({ landuse: [[101, { hl: true }]], poi: [[301, { hl: true }]] });
+	ok("fs-fill-color", JSON.stringify(cols(s0.by.get(liOf(0, 0)))) === '["0,0,255,255"]' && JSON.stringify(cols(s1.by.get(liOf(0, 0)))) === '["0,0,255,255","0,255,0,255"]', `${cols(s0.by.get(liOf(0, 0)))} → ${cols(s1.by.get(liOf(0, 0)))}`);
+	ok("fs-circle-color-and-rim", JSON.stringify(cols(s1.by.get(liOf(1, 2)))) === '["0,0,255,255","0,255,0,255"]' && JSON.stringify(cols(s1.by.get(liOf(1, 1)))) === '["0,0,0,255","255,0,0,255"]', `dot=${cols(s1.by.get(liOf(1, 2)))} rim=${cols(s1.by.get(liOf(1, 1)))}`);
+	const lc = q => Object.fromEntries((q?.labels?.ss || []).map(L => [L.text, L.color.join(",")]));
+	ok("fs-label-color", JSON.stringify(lc(s1.q)) === '{"Cafe":"1,0,0,1","Shop":"0,0,0,1"}' && JSON.stringify(lc(s0.q)) === '{"Cafe":"0,0,0,1","Shop":"0,0,0,1"}', JSON.stringify([lc(s0.q), lc(s1.q)]));
+}
+
+// ── main（gadgets/vtdraw.js）の feature-state の配管（#109 段 1）：偽の Worker（組み役＝上の worker をそのまま・結合役＝受け取って返すだけ）・rAF＝setTimeout・試料の z14 の 4 枚 ──
+{
+	const { createVTDraw } = await import("../src/gadgets/vtdraw.js");
+	const workerOnmessage = self.onmessage, builds = [];
+	const until = async (pred, ms = 5000) => { const t0 = Date.now(); while (Date.now() - t0 < ms) { if (pred()) return true; await new Promise(r => setTimeout(r, 5)); } return false; };
+	globalThis.requestAnimationFrame = cb => setTimeout(cb, 0);
+	globalThis.Worker = class {
+		constructor(_url, { name }) { this.name = name; }
+		postMessage(m) {
+			if (this.name === "vtdraw") { if (m.kind === "build") builds.push(m); setTimeout(() => { self.postMessage = r => this.onmessage?.({ data: r }); workerOnmessage({ data: m }); }, 0); return; }
+			if (m.type === "connect") { this.port = m.port; return; }   // 結合役（ortho:scene）
+			if (m.type === "merge") setTimeout(() => { this.port.postMessage({ type: "scene", scene: { layers: [] } }); this.onmessage?.({ data: { type: "merged" } }); }, 0);
+		}
+		terminate() {}
+	};
+	const tileBytes = key => { try { const b = readFileSync(fileURLToPath(new URL(`./fixtures/mlcompat/vt/${key}.pbf`, import.meta.url))); return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength); } catch { return null; } };
+	const VB = JSON.parse(readFileSync(fileURLToPath(new URL("./fixtures/mlcompat/vt-buildings.json", import.meta.url)), "utf8"));
+	const fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`;
+	const cam = { center: VB.corner, zoom: 16.5, pitch: 0, bearing: 0 };
+	const ctl = createVTDraw({ on() {}, off() {} }, { cam, size: () => ({ w: 960, h: 600 }), fstate, fsKey, sendScene() {}, sendLabels() {},
+		requester: { resolve: url => ({ load: async () => tileBytes(url) }) } });
+	const desc = { tileUrl: (z, x, y) => `${z}/${x}/${y}`, minzoom: 13, maxzoom: 14 };
+	const ml = L => normalizeMLLayer({ source: "s", ...L }, 1), hl = (on, off) => ["case", ["boolean", ["feature-state", "hl"], false], on, off];
+	ctl.set("ff", ml({ id: "ff", type: "fill", "source-layer": "landuse", paint: { "fill-color": hl("#00ff00", "#0000ff") } }), "s", desc);
+	ctl.set("fc", ml({ id: "fc", type: "circle", "source-layer": "poi", paint: { "circle-color": hl("#0000ff", "#00ff00") } }), "s", desc);
+	ctl.set("pl", ml({ id: "pl", type: "line", "source-layer": "road", paint: { "line-color": "#ff00ff" } }), "s", desc);   // 読まない層
+	ctl.setOrder(["ff", "fc", "pl"]);
+	const settled = () => until(() => ctl.loaded("s"));
+	ok("main-fs-first-load", await settled(), JSON.stringify(ctl.stats().sources));
+	const keyOf = id => ctl.stats().layers[id]?.key;   // #123：層の op の li の範囲（描画器の差し込みの表の鍵）＝鍵の副番号 0〜2
+	ok("main-li-range", JSON.stringify(ctl.liRange("fc")) === JSON.stringify([liOf(keyOf("fc"), 0), liOf(keyOf("fc"), 2)]) && ctl.liRange("ff")[1] < ctl.liRange("fc")[0] && ctl.liRange("nope") === null, JSON.stringify([ctl.liRange("ff"), ctl.liRange("fc")]));
+	const built = () => ctl.stats().sources[0].built;
+	ok("main-fs-ids-kept", built().filter(b => /:ids\d+/.test(b)).length === 4, built().join(" "));
+	// 公園（101）は西の列の上下 2 枚だけ＝その 2 枚だけ組み直す・添える状態はその地物だけ
+	fstate.set("s", new Map([[fsKey("landuse", 101), { id: 101, state: { hl: true } }]]));
+	builds.length = 0; ctl.touchFS("s", "landuse", 101);
+	const dirty = built().filter(b => b.includes("!")).length;
+	ok("main-fs-dirty-then-loaded", dirty === 2 && !ctl.loaded("s") && await settled(), `dirty=${dirty} ${built().join(" ")}`);
+	ok("main-fs-rebuild-only-containing", builds.length === 2 && builds.every(b => JSON.stringify(b.fs) === '{"landuse":[[101,{"hl":true}]]}'), JSON.stringify(builds.map(b => [b.key, b.fs])));
+	const tmg = ctl.timing();   // 計器（段 4）＝状態を変えてから描く側へ渡すまで・組み立ての往復が刻まれる
+	ok("main-fs-timing", typeof tmg.fsMs === "number" && tmg.fsMs >= 0 && !tmg.pending && tmg.builds >= 6 && tmg.rttMs >= tmg.buildMs && tmg.shown === 4, JSON.stringify(tmg));
+	// 含まない地物・読む層の無い source-layer＝組み直さない
+	builds.length = 0; ctl.touchFS("s", "poi", 999); ctl.touchFS("s", "road", 201);
+	await new Promise(r => setTimeout(r, 30));
+	ok("main-fs-no-rebuild-for-others", builds.length === 0 && ctl.loaded("s"), builds.map(b => b.key).join());
+	// 全部（id 無し）＝読んだ全タイルを組み直す・添える状態は各タイルが含む地物の分だけ（含まないタイルは null）
+	fstate.get("s").set(fsKey("poi", 301), { id: 301, state: { hl: true } });
+	builds.length = 0; ctl.touchFS("s", null, undefined);
+	await settled();
+	const byKey = Object.fromEntries(builds.map(b => [b.key, b.fs])), parkTiles = new Set(Object.entries(byKey).filter(([, v]) => v?.landuse).map(([k]) => k));
+	const onlyPlaced = Object.values(byKey).every(v => Object.entries(v || {}).every(([sl, list]) => list.every(([id]) => (sl === "landuse" && id === 101) || (sl === "poi" && id === 301))));
+	ok("main-fs-touch-all-per-tile-states", builds.length === 4 && onlyPlaced && parkTiles.size === 2 && Object.values(byKey).some(v => v?.poi) && Object.values(byKey).some(v => v === null), JSON.stringify(byKey));
+	ctl.destroy();
 }
 
 console.log(`vtdraw: ${n - bad}/${n} ok`);
