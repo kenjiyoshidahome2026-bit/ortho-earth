@@ -187,6 +187,8 @@ const areaOf = g => { let a = 0, s = 0; for (const e of g.ends) { let t = 0; for
 	const dirty = built().filter(b => b.includes("!")).length;
 	ok("main-fs-dirty-then-loaded", dirty === 2 && !ctl.loaded("s") && await settled(), `dirty=${dirty} ${built().join(" ")}`);
 	ok("main-fs-rebuild-only-containing", builds.length === 2 && builds.every(b => JSON.stringify(b.fs) === '{"landuse":[[101,{"hl":true}]]}'), JSON.stringify(builds.map(b => [b.key, b.fs])));
+	const tmg = ctl.timing();   // 計器（段 4）＝状態を変えてから描く側へ渡すまで・組み立ての往復が刻まれる
+	ok("main-fs-timing", typeof tmg.fsMs === "number" && tmg.fsMs >= 0 && !tmg.pending && tmg.builds >= 6 && tmg.rttMs >= tmg.buildMs && tmg.shown === 4, JSON.stringify(tmg));
 	// 含まない地物・読む層の無い source-layer＝組み直さない
 	builds.length = 0; ctl.touchFS("s", "poi", 999); ctl.touchFS("s", "road", 201);
 	await new Promise(r => setTimeout(r, 30));

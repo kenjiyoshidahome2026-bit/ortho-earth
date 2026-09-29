@@ -2064,6 +2064,7 @@ function hudSnapshot() {
 	return {
 		backend: dbgHost.__backend || memBackend, gpuName: memGpuName, fps: memFps, frameMs: memFrameMs, res: memRes,
 		shadow: memShadow ? { ...memShadow, gpuMs: memGpuShadow } : null,   // 影の深度パス（#112 段 0）
+		vt: vtdCtl?.timing?.() ?? null,   // vector の描く層（#109 段 4）＝組み立て・結合・feature-state の反映の直近の時間
 		zoom: cam?.zoom ?? 0, pitch: cam?.pitch ?? 0, bearing: cam?.bearing ?? 0,
 		device: {   // navigator/画面＝どの端末が落ちたかの特定（RAMは4GB級/8GB級の判別、DPR×viewport＝フレームバッファのGPU圧）
 			ram: navigator.deviceMemory || null, cores: navigator.hardwareConcurrency || null,
