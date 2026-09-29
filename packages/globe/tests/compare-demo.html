@@ -1,0 +1,18 @@
+<!doctype html>
+<!-- 見本（検定の台帳には載せない）：Compare（#173）＝同じ視点を 2 つの配色で比べる。左＝既定（mono）・右＝夜（dark）。つまみを左右へ。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>compare-demo</title><style>
+html,body{margin:0;height:100%;background:#0b1021}
+#wrap { position: relative; width: 100%; height: 100%; }
+.m { position: absolute; top: 0; bottom: 0; width: 100%; }
+</style></head>
+<body><div id="wrap"><div id="before" class="m"></div><div id="after" class="m"></div></div>
+<script type="module">
+import { createGlobe, Compare } from "@ortho-earth/globe";
+const view = location.hash || "#4.2/36/138";
+const [A, B] = await Promise.all([
+	createGlobe({ target: "#before", view, chips: false }),
+	createGlobe({ target: "#after", view, chips: false, theme: "dark" }),
+]);
+window.compare = new Compare(A, B, "#wrap");
+</script>
+</body></html>

@@ -132,7 +132,7 @@ map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェ�
 - `window` を汚さない（`__cam` 等のデバッグ手は `target` 指定時は生えない。欲しければ `debugGlobals: true`）
 - `destroy()` でホストは元通り（子要素は空・id は返却・ページの体裁は不変）
 
-制約は下の「制約」節のとおり **1ページ1地図**（id 家具規格）。複数インスタンスは非対応。
+1 頁に地図は **2 枚まで** 置ける（2 枚目以降は `target` で別の div を渡す）。2 枚を重ねてスワイプで比べる口は `Compare`（MapLibre の maplibre-gl-compare と同じ形）。
 
 ## 開発
 
@@ -158,7 +158,7 @@ UIまわりを改修したら `npm run verify:ui`（要ローカルChrome）。�
 
 ## 制約
 
-- **1ページ1地図**：家具規格（`#map` `#search` 等の id 契約）のため、複数インスタンスは非対応。
+- **1 頁に地図 2 枚まで**：キーは最後に触った地図・頁の URL（hash の視点）と前回ビューは最初の地図だけが扱う。省メモリ端末の 2 枚目は建物 3D を既定で切る（`mesh: true` で入る）。
 - 動作要件：WebGL2 ＋ OffscreenCanvas（Chrome / Edge / Firefox / Safari 17+）。非対応環境では言葉で案内して止まる。
 
 ## ライセンス

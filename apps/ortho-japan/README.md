@@ -88,7 +88,7 @@ Verified mechanically on every build (`verify:lib`):
 
 **COOP/COEP not required.** `crossOriginIsolated` only enables a SharedArrayBuffer fast path; without it the engine falls back to one extra copy and produces identical results.
 
-**One map per page** (fixed element-id contract). Requirements: WebGL2 + OffscreenCanvas (Chrome / Edge / Firefox / Safari 17+). Unsupported browsers get a polite text explanation instead of a blank page.
+**Up to two maps per page** (pass a different `target` div for the second; `Compare` swipes between them, same shape as maplibre-gl-compare). Keys go to the map you last touched; the page URL and the saved view belong to the first map. Requirements: WebGL2 + OffscreenCanvas (Chrome / Edge / Firefox / Safari 17+). Unsupported browsers get a polite text explanation instead of a blank page.
 
 ## Attribution (required)
 
