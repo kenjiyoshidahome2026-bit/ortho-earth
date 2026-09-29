@@ -16,7 +16,6 @@ import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
 const R2D = 180 / Math.PI;
 const tileBbox = (z, x, y) => { const n = 2 ** z, lat = v => R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * v / n))); return [x / n * 360 - 180, lat(y + 1), (x + 1) / n * 360 - 180, lat(y)]; };
 const hits = (a, b) => !(a[2] < b[0] || a[0] > b[2] || a[3] < b[1] || a[1] > b[3]);
-const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, origin: "ml" });
 const inZoom = (L, z) => (L.minzoom == null || z >= L.minzoom) && (L.maxzoom == null || z < L.maxzoom);
 const sceneBuffers = s => { const b = []; for (const L of s.layers) { if (L.kind === "fill") b.push(L.pos.buffer, L.col.buffer, L.idx.buffer); else { b.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer); if (L.off) b.push(L.off.buffer); } } return b; };
 const opsBuffers = ops => { const b = []; for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off]) if (a) b.push(a.buffer); return b; };
@@ -25,7 +24,8 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
+export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
+const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
 	const sources = new Map();   // sid → { sid, desc, sig, gen, zsig, pz, tiles: Map<key, T>, built: Map<key, B>, fetching, show: Set<key> }
@@ -150,7 +150,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
 		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key }));
-		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
+		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;

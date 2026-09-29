@@ -708,7 +708,7 @@ export interface OrthoJapanMap {
 	/** 記号帳（MapLibre の addImage 相当）。img＝ImageBitmap/HTMLImageElement/Blob/URL/{width,height,data}。sdf＝icon-color で塗れる記号 */
 	/** global-state（MapLibre v5 同名・1.7.0〜）：式の ["global-state", key] が読む地図全体の状態を変える。それを読む層（filter/layout/paint）だけ評価し直す。style の root の state（{ key: { default } }）が既定値 */
 	setGlobalStateProperty(key: string, value: unknown): OrthoJapanMap;
-	/** global-state の今の値（写し） */
+	/** global-state の今の値（写し）。状態は地図ごと（#173＝頁に地図が複数あっても互いに効かない） */
 	getGlobalState(): Record<string, unknown>;
 	/** Web フォントを差す（1.6.0〜・段 2）：style の text-font の family（"Noto Sans Bold"→family "Noto Sans"・weight 700）がブラウザに無い時に持ち込む。
 	 *  main（DOM）と描画 worker（注記・記号・集約の canvas）の両方に同じ FontFace を載せる。source＝URL か ArrayBuffer・descriptors＝weight/style 等。glyph PBF（style.glyphs）は読まない */

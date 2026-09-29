@@ -30,23 +30,23 @@ export function createAggregate(map, { signal } = {}) {
 	map.mapEl.addEventListener("click", onClick, { signal });
 	const ctl = {
 		heatmap(src, layer = {}, slot = "default") {
-			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom(), origin = originOfLayer(layer);
+			const pts = pointsOf(src), paint = layer.paint || {}, z = map.getZoom(), origin = originOfLayer(layer), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
 			const pos = new Float32Array(pts.length * 3), w = new Float32Array(pts.length);
 			pts.forEach((p, i) => {
 				const u = lonlatTo3D(p.lon, p.lat);   // β 単位球（楕円体の世界＝#43・球ではビット同値）。旧＝測地緯度をそのまま単位球へ＝楕円体で約 10km 北
 				pos[i * 3] = u[0]; pos[i * 3 + 1] = u[1]; pos[i * 3 + 2] = u[2];
-				const wv = evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props, origin));
+				const wv = evalExpr(paint["heatmap-weight"] ?? 1, ctxOf(z, p.props, origin, gs));
 				w[i] = Math.max(0, +(wv === undefined && origin ? 1 : wv) || 0);   // ML の評価エラー＝既定 1・ネイティブは従来どおり
 			});
-			const h = ensureHeat(slot), st = heatStyle(paint, z, origin);
+			const h = ensureHeat(slot), st = heatStyle(paint, z, origin, gs);
 			h.post({ type: "style", ...st, minzoom: layer.minzoom ?? -99, maxzoom: layer.maxzoom ?? 99 }, [st.ramp.buffer]);
 			h.post({ type: "points", pos, w }, [pos.buffer, w.buffer]);
 			return { points: pts.length };
 		},
 		cluster(src, opts = {}, slot = "default") {
-			const pts = pointsOf(src);
-			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties });
-			const draw = clusterDraw(pts, cl, opts);
+			const pts = pointsOf(src), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
+			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties, gs });
+			const draw = clusterDraw(pts, cl, { ...opts, gs });
 			let c = cluss.get(slot); if (!c) cluss.set(slot, c = { ov: map.overlay(clusterUrl, { name: ovName("cluster", slot) }) });
 			// 層 id と層ごとの出しズーム（MapLibre の集約の層＝丸と単点で別の層・maxzoom 排他）。無指定＝従来の名前・全ズーム
 			const ids = { clusters: opts.layerIds?.clusters ?? "clusters", unclustered: opts.layerIds?.unclustered ?? "unclustered-point" };

@@ -84,11 +84,11 @@ function rampOf(h) {
 	return RAMP[RAMP.length - 1][1].concat(255);
 }
 // GeoJSON（Feature/FeatureCollection/features 配列）→ worker へ渡す面の列（環は度の平坦 Float64Array）
-export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null, origin = undefined } = {}) {   // origin＝"ml"（MapLibre の層＝MapLibre の意味で評価）
+export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null, origin = undefined, gs = undefined } = {}) {   // gs＝地図の global-state（#173 段 3b）・origin＝"ml"（MapLibre の層＝MapLibre の意味で評価）
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	const out = [];
 	const ml = isMapLibreLayer({ type, paint });
-	const op0 = ml ? evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {}, origin }) : 1;
+	const op0 = ml ? evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {}, gs, origin }) : 1;
 	const opacity = ml ? Math.max(0, Math.min(1, +(op0 === undefined && origin ? 1 : op0))) : 1;   // ML の評価エラー＝既定 1   // MapLibre では層単位（データ駆動しない）
 	for (let fi = 0; fi < feats.length; fi++) {
 		const f = feats[fi];
@@ -97,7 +97,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 		if (!polys) continue;
 		const p = f.properties || {};
 		if (ml || filter) {   // MapLibre の意味（filter は真偽式・paint は式）。geometry-type は MapLibre と同じ "Polygon"（Multi も Polygon）
-			const ctx = { zoom, props: p, geom: "Polygon", vars: {}, origin };
+			const ctx = { zoom, props: p, geom: "Polygon", vars: {}, gs, origin };
 			if (filter != null && !truthy(evalExpr(filter, ctx))) continue;
 			if (ml) {
 				const h = +evalExpr(paint[FX.height] ?? 0, ctx) * scale, b = Math.max(0, +evalExpr(paint[FX.base] ?? 0, ctx) * scale);
@@ -164,7 +164,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
 		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。無指定＝広い面は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）。無指定＝広い面は地形に沿わせる（drape）・建物らしい面は従来どおり接地   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
-			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }) });
+			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }), gs: map.getGlobalState?.() });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 			const first = new Map(); for (const p of polys) if (!first.has(p.fi)) first.set(p.fi, p);
 			const used = [...first].map(([fi, p]) => ({ f: feats[fi], h: p.h, base: p.base }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照・h/base は床の持ち上げ前）

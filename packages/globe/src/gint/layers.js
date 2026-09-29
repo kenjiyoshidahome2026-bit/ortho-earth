@@ -318,7 +318,7 @@ function addGint(pbf, opts = {}) {
 	const accept = () => { const t = lastTable; if (!t) return null; return fid => { const j = fid * 4 + 2; return j >= t.length || (t[j] & 1) !== 0; }; };
 	// text-field＝§6 の式全域（evalExpr）＋文字列リテラル＋関数(props→string)。式は get/match/case/concat/to-string…
 	const evalText = (fld, pr, evalExpr, fid) => typeof fld === "function" ? fld(pr)
-		: Array.isArray(fld) ? evalExpr(fld, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, state: fstates.get(fid) })
+		: Array.isArray(fld) ? evalExpr(fld, { zoom: cam.zoom, props: pr ?? {}, geom: "", vars: {}, gs: env.gs?.(), state: fstates.get(fid) })   // gs＝地図の global-state（#173 段 3b）
 		: typeof fld === "string" ? fld : null;
 	const anchorOf = fid => {   // ラベル錨＝面/線は bbox 中心（gint整数→経緯度）・点は geometry 直参照
 		const bb = g.polyBboxByFid?.get(fid) ?? g.lineBboxByFid?.get(fid);
