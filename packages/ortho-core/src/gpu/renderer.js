@@ -23,7 +23,7 @@ import { FILL_WGSL, LINE_WGSL, GLOBE_WGSL, TERRAIN_WGSL, BUILDING_WGSL, CONTOUR_
 	TERRAIN_CLIP_WGSL, MESH_CLIP_WGSL, MESH_TEX_CLIP_WGSL, FILL_CLIP_WGSL, LINE_CLIP_WGSL, BUILDING_CLIP_WGSL, GLOBE_CLIP_WGSL,
 	TERRAIN_SH_CLIP_WGSL, MESH_SH_CLIP_WGSL, MESH_TEX_SH_CLIP_WGSL, FILL_SH_CLIP_WGSL, LINE_SH_CLIP_WGSL, BUILDING_SH_CLIP_WGSL, GLOBE_SH_CLIP_WGSL,
 	TERRAIN_CAST_CLIP_WGSL, MESH_CAST_CLIP_WGSL, MESH_TEX_CAST_CLIP_WGSL, BUILDING_CAST_CLIP_WGSL, CLIP_CAP_WGSL, OVERLAY_CLIP_WGSL } from "./wgsl.js";
-import { gndMixSlow, ELEV_RESAMPLE_WGSL } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
+import { gndMixSlow, ELEV_RESAMPLE_WGSL, fragDepthWgsl } from "./wgsl.js";   // ?gndfast=0（perf plan P6 の逃げ道）＝gndMix0 を旧順序へ機械変換／標高セルの GPU 再標本化（P1 step 1）
 import { f32ToF16, f16ToF32 } from "./f16.js";   // 標高セルの f16 変換（Float16Array の native 変換・perf plan P1 step 0）・読み戻し（検定）
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高セルの CPU 退避経路（?cpuelev=1・生タイルの型が想定外）＝GPU 再標本化と同式の正本
 import { worldAtlasCell } from "../elevation/worldatlas.js";
@@ -146,8 +146,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const gpuErrors = [];
 	let frame1Scoped = 0;
 	const gpuErr = (where, msg) => { const t = `${where}: ${msg}`; gpuErrors.push(t); console.error("[gpu] " + t); };
+	// 深度を画素で書く本パス（#62）＝地形・押し出し建物・メッシュ・模型の main／影の受け手／断面の派生。影を落とす側（Cast）と深度を書かない層は対象外
+	const FD_LABELS = new Set(["terrain", "building", "mesh", "meshTex", "terrainSh", "buildingSh", "meshSh", "meshTexSh", "terrainClip", "buildingClip", "meshClip", "meshTexClip", "terrainShClip", "buildingShClip", "meshShClip", "meshTexShClip"]);
+	const fragDepthOn = rOpts.fragDepth !== false;   // ?fd=0 の逃げ道
 	const mkMod = (code, label) => {
 		if (rOpts.gndFast === false) code = gndMixSlow(code);   // 逃げ道（perf plan P6）＝A/B と切り分け。既定は早期 return の新順序
+		if (fragDepthOn && FD_LABELS.has(label)) code = fragDepthWgsl(code, label);
 		const m = device.createShaderModule({ code });
 		m.getCompilationInfo && m.getCompilationInfo().then(info => {
 			for (const x of info.messages || []) if (x.type === "error") gpuErr(`WGSL ${label}`, `${x.lineNum}:${x.linePos} ${x.message}`);
