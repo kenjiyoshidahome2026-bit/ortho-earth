@@ -15,7 +15,7 @@ const PORT = +process.env.VGW_PORT || 5246;
 
 // t-meshmask＝メッシュ被覆マスクの 4 枠選抜（原点そのままカメラだけ動いて近い 4 区が入れ替わる＝BG の作り直し）
 // t-rectlook の 2 変種＝旧 verify:editor（japan）が引数で回していた円ツール・ズーム列の検分（頁が globe へ移ったのでここが宿す）
-const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
+const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
 	"t-spotlight", "t-linedeco",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
@@ -32,7 +32,7 @@ const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGW_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
 const fail = await runPages({
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 全頁が実時間
-	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") ? 240 : p.startsWith("t-mlboot") ? 180 : p.startsWith("t-ellparity") ? 300 : p.startsWith("t-shadow-terrain") ? 150 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
+	long: Object.fromEntries(PAGES.map(p => [p.split("?")[0], p.startsWith("t-mlcompat") ? 240 : p.startsWith("t-mlboot") ? 180 : p.startsWith("t-ellparity") ? 300 : p.startsWith("t-shadow-terrain") ? 150 : p.startsWith("t-qmesh") ? 200 : 90])),   // t-mlcompat＝場面が多い（段 8⑤）
 	flags: REALGPU, drag: true, profilePrefix: "og-webgpu", cdpBase: +process.env.VGW_CDP || 9335, pad: 18,
 	base: "lang=ja", expectBackend: "webgpu", noBoot: new Set(["t-shadow", "t-clip", "t-clipgint", "t-meshmask", "t-gintgpu", "t-gintmulti", "t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor", "t-elevcell"]),   // noBoot＝createRenderer 直叩き（地球儀を起こさない）
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,

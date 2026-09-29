@@ -8,6 +8,7 @@
 //   height(lon, lat)   … 1 点の標高＝DEM の最大ズームのタイルを直に読む（建物の接地・断面図・計測・日影に効く＝「より細かい」の本体）。
 // 無効値（海・範囲外・取れなかったタイル）は NaN。呼び手（terrain）は NaN の所だけ既定の標高を残す。
 // worker でも main でも動く（fetch・createImageBitmap・OffscreenCanvas のみ）。
+import { createQmeshSource } from "./qmesh-src.js";   // quantized-mesh（#110）＝同じ 4 つの口のソース（type:"quantized-mesh" で振り分け）
 const lon2x = (lon, z) => (lon + 180) / 360 * (1 << z);
 const lat2y = (lat, z) => { const s = Math.sin(lat * Math.PI / 180); return (0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)) * (1 << z); };
 
@@ -33,6 +34,7 @@ export function normalizeDemSpec(spec) {
 }
 
 export function createDemSource(spec0) {
+	if (spec0?.type === "quantized-mesh") return createQmeshSource(spec0);   // Cesium の地形（layer.json＋.terrain・#110）
 	const spec = normalizeDemSpec(spec0);
 	const tiles = new Map();   // "z/x/y" → Promise<{ h: Float32Array, n }|null>（直近 256 枚）
 	let ctx = null;

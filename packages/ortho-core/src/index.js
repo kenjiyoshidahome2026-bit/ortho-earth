@@ -34,3 +34,5 @@ export { createRaster } from "./raster.js";   // 画像タイル層（メルカ�
 export { createRasterSource, expandTemplate, normalizeSpec, wmsTemplate, wmtsTemplate, wmtsFromCapabilities } from "./raster-src.js";   // z/x/y→ImageBitmap のプロバイダ契約（xyz/pmtiles/port）
 export { splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, convertLayer, convertFilter, convertValue, isExpressionFilter, shiftLayerZoom, shiftZoomExpr, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, mlUnknownOps } from "./mlstyle.js";   // 外来の MapLibre style.json を基図 style へ（#33）
 export { createDemSource, decodeDEM, normalizeDemSpec } from "./dem-src.js";   // 外来の標高タイル（raster-dem・#36）
+export { decodeQuantizedMesh, parseLayerJson as parseQuantizedMeshLayer } from "./qmesh.js";   // quantized-mesh の解読（#110）
+export { loadGeoid, geoidHeight } from "./geoid.js";   // ジオイド高（EGM96 30 分・楕円体高 → 標高）

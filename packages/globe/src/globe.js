@@ -264,12 +264,15 @@ const loadExtStyle = async (spec, transformStyle = null) => {
 	return { ms, split, src, baseUrl, url: typeof spec === "string" ? baseUrl : null };
 };
 // 外来の標高タイル（raster-dem・#36）：opts.terrain＝{ source: raster-dem の spec, exaggeration } ／ ?dem=<XYZ の型紙>&demenc=terrarium|mapbox|gsi&demmax=<z>&demdtm=1
+// quantized-mesh（#110）＝{ type:"quantized-mesh", url:"…/layer.json" | ion:{ assetId, accessToken }, heights, heightOffset, … }＝相対の url は頁基準で絶対に
+const qmSpecOf = sp => ({ ...sp, ...(sp.url ? { url: new URL(sp.url, location.href).href } : {}) });
 const DEM0 = (() => {
 	const absT = sp => ({ ...sp, tiles: (sp.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) });   // 相対の型紙は頁基準（render worker で解決させない）
-	if (opts.terrain?.source && typeof opts.terrain.source === "object") return absT(opts.terrain.source);
+	if (opts.terrain?.source && typeof opts.terrain.source === "object") return opts.terrain.source.type === "quantized-mesh" ? qmSpecOf(opts.terrain.source) : absT(opts.terrain.source);
 	const q = new URLSearchParams(location.search), u = q.get("dem");
 	if (!u) return null;
-	try { const x = new URL(u, location.href); if (x.protocol !== "https:" && !(x.protocol === "http:" && (x.hostname === "localhost" || x.origin === location.origin))) throw 0; return { tiles: [x.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")], encoding: q.get("demenc") || "terrarium", maxzoom: +q.get("demmax") || 14, dtm: q.get("demdtm") === "1" }; }
+	try { const x = new URL(u, location.href); if (x.protocol !== "https:" && !(x.protocol === "http:" && (x.hostname === "localhost" || x.origin === location.origin))) throw 0; if (q.get("demenc") === "quantized-mesh" || /\/layer\.json$/.test(x.pathname)) return { type: "quantized-mesh", url: x.href, heights: q.get("demheights") === "orthometric" ? "orthometric" : "ellipsoidal", dtm: q.get("demdtm") === "1" };   // ?dem=<layer.json>＝quantized-mesh（#110）・demheights=orthometric＝標高で配る物（swisstopo）
+	return { tiles: [x.href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")], encoding: q.get("demenc") || "terrarium", maxzoom: +q.get("demmax") || 14, dtm: q.get("demdtm") === "1" }; }
 	catch { console.warn("[dem] ?dem= must be an https URL template", u); return null; }
 })();
 let EXT = null;
@@ -2473,18 +2476,23 @@ map.setTerrain = async t => {
 	let sp = t?.source ?? null;
 	if (typeof sp === "string") sp = mlSources.get(sp) ?? EXT?.ms.sources?.[sp] ?? null;
 	if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
+	if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
 	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds }; }
 	if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
 	if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
-	demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
+	const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
 		redFactor: sp.redFactor, greenFactor: sp.greenFactor, blueFactor: sp.blueFactor, baseShift: sp.baseShift } : null;   // MapLibre の raster-dem の既定＝tileSize 512・maxzoom 22・encoding custom の係数（段 6）   // MapLibre の raster-dem の既定 encoding は mapbox
+	return setDem(demSpec);
+};
+function setDem(spec) {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
+	demSpec = spec;
 	demMain = demSpec ? createDemSource(demSpec) : null;
 	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
 	if (terrLazy && demSpec) noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
 	return map;
-};
+}
 map.getTerrain = () => demSpec ? { source: demSpec, exaggeration: 1 } : null;   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 // ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
@@ -4130,7 +4138,10 @@ const mountExtExtrasRaw = async ext => {
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
 	}
 	// 地形は sprite より先（sprite は大きいと数秒＝その間に注記が地形より先に届く。render worker は DEM の生き替わりで注記の標高を付け直すが、順も元のまま）
-	if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "raster-dem") {   // style の terrain（MapLibre）＝その raster-dem を地形へ（#36）
+	if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "quantized-mesh") {   // style の terrain＝quantized-mesh の source（この地図の拡張・#110）
+		const sp = { ...ms.sources[ms.terrain.source] }; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href;
+		await map.setTerrain({ source: sp }).catch(err => console.warn("[style] terrain", err));
+	} else if (ms.terrain?.source && ms.sources?.[ms.terrain.source]?.type === "raster-dem") {   // style の terrain（MapLibre）＝その raster-dem を地形へ（#36）
 		const sp = { ...ms.sources[ms.terrain.source] }; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (sp.tiles) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
 		await map.setTerrain({ source: sp, exaggeration: ms.terrain.exaggeration }).catch(err => console.warn("[style] terrain", err));
 	}
