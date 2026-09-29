@@ -50,7 +50,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	// 預かった div を生きている間だけ #map にする（quiet-mono の家具規格＝#map の中の #gadgets/#dock/#c…・japan の SDK と同じ作法）。
 	// destroy で id/class/dir を返す＝同じ頁で地図は 1 つ（家具規格の前提）
 	const mapEl = host, prevId = host.id, prevClass = host.className;
-	mapEl.id = "map"; mapEl.classList.add("ui-dark");
+	mapEl.id = "map"; mapEl.classList.add("ui-dark", "qm");   // .qm＝quiet-mono の容れ物の印（意匠は :is(.qm, #map) で当たる・#173）
 	mapEl.insertAdjacentHTML("beforeend", `<canvas id="c"></canvas><canvas id="labels"></canvas>`);
 	mapEl.dir = isRTL() ? "rtl" : "ltr";   // RTL（アラビア・ヘブライ・ペルシア・ウルドゥー）＝quiet-mono の論理プロパティで家具が鏡像になる
 	const canvas = mapEl.querySelector("#c");

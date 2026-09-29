@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- 意匠の容れ物＝:is(.qm, #map)（#173 段 1・2026-09-30）。1 頁に地図を複数置く前提として、quiet-mono の家具が
+     容れ物の id（#map）に依らず、エンジンが付ける印 .qm で当たることを確かめる。
+     ① 双子：id="map" の容れ物と class="qm" だけの容れ物で、トークン・夜のガラス・34px 規格・吹き出し・文字色が同じ。
+     ② 漏れない：印の無い div には容れ物で絞った規則（トークン・吹き出し・文字）が当たらない。
+     ③ 特異度は id 1 個のまま：クラスの上書き（.x { overflow: visible }）には負けない＝#map 時代と同じ勝ち負け。
+        寸法は :where＝特異度 0 のまま：頁のクラスが勝つ。
+     ④ エンジン：createGlobe が容れ物に .qm を付け、destroy で外す。預かった div に最初から付いていた .qm は外さない。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>
+html,body{margin:0;background:#0b1021}
+.probe-over { overflow: visible; }   /* ③ クラスの上書き＝容れ物の overflow:hidden（id 1 個）に負ける */
+.probe-size { height: 77px; }        /* ③ 寸法は :where＝特異度 0＝頁のクラスが勝つ */
+#host-c, #host-d { width: 640px; height: 400px; }
+</style><title>t-qm</title></head>
+<body>
+<div id="host-c"></div>
+<div id="host-d" class="qm"></div>
+<div id="probes"></div>
+<script type="module">
+import "../src/globe.css";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const furniture = `<div id="gadgets"><button class="qm-panel-btn" data-tip="tip"></button></div><div id="pos">0</div>`;
+const probe = (attrs) => { const d = document.createElement("div"); for (const [k, v] of Object.entries(attrs)) d.setAttribute(k, v); d.innerHTML = furniture; document.getElementById("probes").appendChild(d); return d; };
+const look = el => {
+	const cs = getComputedStyle(el), btn = el.querySelector(".qm-panel-btn");
+	const bs = getComputedStyle(btn), after = getComputedStyle(btn, "::after");
+	return { paper: cs.getPropertyValue("--qm-paper").trim(), glass: cs.getPropertyValue("--qm-glass-bg").trim(), overflow: cs.overflow,
+		position: cs.position, color: cs.color, font: cs.fontSize, btn: `${bs.width}x${bs.height}`, tip: after.content };
+};
+try {
+	// ① 双子（id と class）＋ ② 印なし
+	const byId = probe({ id: "map" }), byClass = probe({ class: "qm" }), bare = probe({ id: "bare" });
+	const a = look(byId), b = look(byClass), n = look(bare);
+	ok("twinDay", JSON.stringify(a) === JSON.stringify(b) && a.paper === "#f6f6f4" && a.btn === "34pxx34px" && a.tip === '"tip"' && a.font === "13px", `id=${JSON.stringify(a)} class=${JSON.stringify(b)}`);
+	byId.classList.add("ui-dark"); byClass.classList.add("ui-dark");
+	const ad = look(byId), bd = look(byClass);
+	ok("twinDark", ad.glass === bd.glass && ad.glass !== a.glass && ad.glass.replace(/\s/g, "").startsWith("rgba(15,20,30"), `id=${ad.glass} class=${bd.glass}`);
+	ok("noLeak", n.paper === "" && n.overflow === "visible" && n.tip === "none" && n.font !== "13px", JSON.stringify(n));   // 容れ物で絞った規則（トークン・吹き出し・文字）だけを見る＝.qm-panel-btn 等の素の id/クラスの規則は元から容れ物の外でも当たる
+	// ③ 特異度：クラスの上書きには負ける（id 1 個）・寸法は頁のクラスが勝つ（:where＝0）
+	byClass.classList.add("probe-over", "probe-size"); byId.classList.add("probe-over", "probe-size");
+	ok("specificity", getComputedStyle(byClass).overflow === "hidden" && getComputedStyle(byId).overflow === "hidden", `${getComputedStyle(byClass).overflow}/${getComputedStyle(byId).overflow}`);
+	ok("sizeYields", byClass.getBoundingClientRect().height === 77 && byId.getBoundingClientRect().height === 77, `${byClass.getBoundingClientRect().height}/${byId.getBoundingClientRect().height}`);
+	document.getElementById("probes").remove();   // 双子の id="map" を残すと、エンジン内の getElementById("map")（段 2 で撤去）が双子を掴む
+	// ④ エンジン：.qm を付けて destroy で外す（預かった div に元からあった .qm は残す）
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const hc = document.getElementById("host-c");
+	const sleep = ms => new Promise(r => setTimeout(r, ms));
+	const loaded = m => Promise.race([m.once("load").then(() => true), sleep(25000).then(() => false)]);   // 描いてから畳む（frame1 の backend を走らせ台が検める）
+	let map = await createGlobe({ target: hc, view: "#3/35/139", chips: false, persistView: false });
+	const loadC = await loaded(map);
+	const onC = hc.classList.contains("qm"), paperC = getComputedStyle(hc).getPropertyValue("--qm-paper").trim();
+	map.destroy();
+	ok("engineAddsQm", loadC && onC && paperC === "#f6f6f4" && !hc.classList.contains("qm") && hc.id === "host-c", `on=${onC} paper=${paperC} after=${hc.className}|${hc.id}`);
+	const hd = document.getElementById("host-d");
+	map = await createGlobe({ target: hd, view: "#3/35/139", chips: false, persistView: false });
+	const loadD = await loaded(map);
+	map.destroy();
+	ok("keepHostQm", loadD && hd.classList.contains("qm") && hd.id === "host-d", `${hd.className}|${hd.id}`);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
