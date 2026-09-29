@@ -8,7 +8,7 @@
 // 使い方: node packages/ortho-core/tests/clip.mjs
 import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.js";
 import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.js";
-import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, CLIP_MAX } from "../src/clip.js";
+import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX } from "../src/clip.js";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -49,7 +49,11 @@ ok(clipPlaneVertical([139, 35], [139, 35]) === null, "同じ 2 点は面にな�
 const many = clipPlanes({ vertical: Array.from({ length: 9 }, (_, i) => [[139 + i * 0.01, 35], [139 + i * 0.01 + 0.001, 35.001]]) });
 ok(many.length === CLIP_MAX, `面は ${CLIP_MAX} 枚まで`);
 const U0 = packClip([], [1, 0, 0]);
-ok(U0.every(v => v === 0), "面 0 枚＝uniform は全部 0（p.x＝0）");
+ok(U0.subarray(0, CLIP_MAX * 4 + 1).every(v => v === 0), "面 0 枚＝面の欄は全部 0（p.x＝0）");
+const US = packClip([], [1, 0, 0], undefined, clipStyle({ cap: false, edge: { width: 3, color: [1, 0, 0] } }));
+ok(US[CLIP_MAX * 4 + 1] === 3 && US[CLIP_MAX * 4 + 7] === 0 && US[CLIP_MAX * 4 + 11] === 0 && US[CLIP_MAX * 4 + 12] === 1, "段 2：帯の幅と色・蓋を消す（cap:false）");
+const UD = packClip([], [1, 0, 0]);
+ok(UD[CLIP_MAX * 4 + 1] === CLIP_STYLE.edgeWidth && UD[CLIP_MAX * 4 + 7] === 1 && UD[CLIP_MAX * 4 + 11] === 1 && UD.length === CLIP_F32, "既定＝帯 2 px・蓋あり・160B");
 
 console.log("― 段 1：水平面・箱・URL ―");
 for (const ell of [false, true]) {
