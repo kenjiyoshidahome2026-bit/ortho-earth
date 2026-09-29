@@ -23,11 +23,12 @@ import { readFile, readFileSync, readdirSync, existsSync, statSync } from "node:
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SITE = path.join(APP, "dist/site");
 const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（本番は ortho-globe の Worker が /globe/engine/ で配る）
-const PORT = 5241, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const PORT = 5241, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 

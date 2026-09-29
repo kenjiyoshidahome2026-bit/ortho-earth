@@ -5,10 +5,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 const APP = new URL("..", import.meta.url).pathname;
 const url = process.argv[2] ?? "http://localhost:5199/?lang=en#t=2032-06-01T09%3A00&f=saturn&d=0.0024&yaw=-62.5&pit=52&s=0";
 const out = process.argv[3] ?? APP + "public/ogp.jpg";
-const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", ["--headless=new", "--remote-debugging-port=9471", "--window-size=1200,630",
+const chrome = spawn(await resolveChrome(), ["--headless=new", "--remote-debugging-port=9471", "--window-size=1200,630",
 	"--use-angle=metal", "--ignore-gpu-blocklist", "--hide-scrollbars", "--force-device-scale-factor=1", "--user-data-dir=" + os.tmpdir() + "/ortho-solar-og", "about:blank"], { stdio: "ignore" });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 try {

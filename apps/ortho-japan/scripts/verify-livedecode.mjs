@@ -19,10 +19,11 @@ import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5251, CDP = 9339;
-const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = await resolveChrome();
 const VIEW = process.env.VIEW || "#15/26.2124/127.6809/45t";   // 那覇市＝焼きが無くても 502 タイル・40 秒級で完走する規模
 const LIMIT_MS = 150000;
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".wasm": "application/wasm", ".png": "image/png" };
