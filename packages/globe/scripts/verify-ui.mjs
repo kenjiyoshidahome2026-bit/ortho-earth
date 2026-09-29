@@ -18,17 +18,18 @@ const ALL_PAGES = ["t-gintlod", "t-gintembed", "t-gintmultigl", "t-gintswap", "t
 	"t-overlaydepth", "t-overlaydepth?lowmem=1", "t-mlcompat?g=layers", "t-mlcompat?g=style", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt", "t-mlzoom?zs=maplibre", "t-mlzoom?zs=ortho", "t-mlzoom?zs=mercator", "t-columnar?g=same", "t-columnar?g=perf", "t-columnar?g=route", "t-columnar?g=depth",
 	"t-ellparity?ell=0", "t-ellparity?ell=1", "t-ellparity?g=cache", "t-ellparity?g=scan&ell=1",
 	"t-marker?ell=1", "t-anno?ell=1", "t-columnar?g=same&ell=1", "t-mlcompat?g=extrude&ell=1", "t-overlaydepth?ell=1", "t-sunshadow?ell=1",
-	"t-snapearly?v=default", "t-snapearly?v=style"];   // t-snapearly＝await createGlobe 直後の requestSnapshot が必ず絵付きで返る（起動直後の撮影が宙吊りにならない）   // 楕円体でも通る既存の頁（#43 段 0 の基準線・走らせ台が起動ログの世界を検める）   // t-ellparity＝楕円体の測る台（#43 段 0）＝各機能の描いた位置と projectLL の差を球と楕円体の両方で・既知の失敗は tests/ell-known.json・g=cache＝列チャンク層のキャッシュが球と楕円体を跨がないか   // t-columnar＝列チャンク層（#90）＝gint と同じ絵・GeoParquet・段 0 の物差し   // t-mlcompat＝MapLibre 互換の爪車（tests/mlcompat-known.json・台帳 maplibre-compat.md）・g=mlt＝MVT と MLT で同じ絵（#88）　t-overlaydepth＝オーバーレイへシーンの深度（#47）・lowmem=1＝LOW_MEM では作らない
+	"t-snapearly?v=default", "t-snapearly?v=style", "t-czml-draw", "t-czml", "t-czml?g=url"];   // t-czml-draw＝CZML の時刻再生の描画（#113 段 3）   // t-snapearly＝await createGlobe 直後の requestSnapshot が必ず絵付きで返る（起動直後の撮影が宙吊りにならない）   // 楕円体でも通る既存の頁（#43 段 0 の基準線・走らせ台が起動ログの世界を検める）   // t-ellparity＝楕円体の測る台（#43 段 0）＝各機能の描いた位置と projectLL の差を球と楕円体の両方で・既知の失敗は tests/ell-known.json・g=cache＝列チャンク層のキャッシュが球と楕円体を跨がないか   // t-columnar＝列チャンク層（#90）＝gint と同じ絵・GeoParquet・段 0 の物差し   // t-mlcompat＝MapLibre 互換の爪車（tests/mlcompat-known.json・台帳 maplibre-compat.md）・g=mlt＝MVT と MLT で同じ絵（#88）　t-overlaydepth＝オーバーレイへシーンの深度（#47）・lowmem=1＝LOW_MEM では作らない
 // t-linedeco の 2 変種＝基図の line-offset を GL2 の両経路で（md=1＝multi_draw の線分プール／nomd=1＝classic の属性・#49）
 // 実時間で回す頁＝render worker 内の動的 import（map.overlay のモジュール）や実 GPU の async init に依る検定。
 // 仮想時間（--virtual-time-budget）では worker の import() が永久に解決しない＝偽陽性（2026-09-20 実測）。
-const REALTIME = new Set(["t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco", "t-tiles3d", "t-marker", "t-footprint", "t-request", "t-sunshadow", "t-dem", "t-qmesh", "t-viewshed", "t-clock", "t-bootview", "t-overlaydepth", "t-mlcompat", "t-mlzoom", "t-elevcell", "t-globefloor", "t-columnar", "t-mlboot", "t-ellparity", "t-snapearly"]);   // t-elevcell＝実 GPU の R16F FBO（SwiftShader でも回るが実時間で）・t-globefloor＝rAF 待ちが仮想時間では進まず無題（#86 の GL2 変種・2026-09-27）
+const REALTIME = new Set(["t-czml-draw", "t-czml", "t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-linedeco", "t-tiles3d", "t-marker", "t-footprint", "t-request", "t-sunshadow", "t-dem", "t-qmesh", "t-viewshed", "t-clock", "t-bootview", "t-overlaydepth", "t-mlcompat", "t-mlzoom", "t-elevcell", "t-globefloor", "t-columnar", "t-mlboot", "t-ellparity", "t-snapearly"]);   // t-elevcell＝実 GPU の R16F FBO（SwiftShader でも回るが実時間で）・t-globefloor＝rAF 待ちが仮想時間では進まず無題（#86 の GL2 変種・2026-09-27）
 const LONG = { "t-request": 180, "t-footprint": 120, "t-linedeco": 150, "t-dem": 170, "t-qmesh": 200, "t-bootview": 240, "t-overlaydepth": 150, "t-mlcompat": 300, "t-mlzoom": 120, "t-columnar": 240, "t-mlboot": 180, "t-ellparity": 300 };   // t-bootview＝5 回起動し直す   // 段が多い実描画＝枠を広げる
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
-const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p.split("?")[0])) : ALL_PAGES;
+const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p) || ARGS.includes(p.split("?")[0])) : ALL_PAGES;   // 頁名（t-mlcompat）か変種ごと（t-mlcompat?g=relief）
 
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGU_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
-const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
+const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（2026-09-29・6 本は負荷で揺れた）・VG_JOBS=1 で直列
+	 urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
