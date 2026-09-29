@@ -4,6 +4,9 @@
 //   実時間 … step 1 で「今」を見ている間（isLive）＝時刻は Date.now() に張り付く（積算の誤差でずれない）。URL には t を書かない＝後で開いても「今」
 // URL の形（solar の hash と同じ）：t＝UTC（末尾 Z）・s＝段。t 無し＋s=1（または s 無し）＝実時間。
 // worker への渡し方＝anchor()＝{ sim, wall, rate }（状態が変わった時だけ送る）。受け手は clockNow(anchor)＝sim + rate×(Date.now()−wall) で毎フレーム引く。
+// 範囲（#124・2026-09-29）＝setRange(start, end, mode)：データの区間（CZML の clock など）を地図全体の時計に写す。mode は Cesium の ClockRange と同じ意味：
+//   "clamped"（CLAMPED）＝両端で止まる／"loop"（LOOP_STOP）＝順行で終わりに着いたら始まりへ戻る・逆行で始まりに着いたら止まる／
+//   "unbounded"（UNBOUNDED）＝縛らない（区間は時間バーの目安だけ）。clearRange() で外す（外の枠 [min, max] はいつも効く）。URL には書かない（データを読めばまた写る）
 export const CLOCK_MIN = Date.UTC(1800, 0, 1), CLOCK_MAX = Date.UTC(2049, 11, 31);
 // label/neg は英語＝辞書のキー。neg＝逆行時だけ言い方が変わる段（実時間→1秒/秒）
 export const CLOCK_SPEEDS = [
@@ -20,9 +23,13 @@ export const clockNow = (a, w = Date.now()) => a ? a.sim + a.rate * (w - a.wall)
 export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, step = 1, now = () => Date.now() } = {}) {
 	const N = CLOCK_SPEEDS.length - 1;
 	let t = time ?? now(), st = 1, lastPlay = 5, follow = time == null;   // follow＝実時間に張り付いている（now() を読む）
+	let win = null;   // 範囲 { start, end, mode }｜null
 	const fns = new Map();
 	const emit = (ev, v) => { for (const f of fns.get(ev) || []) try { f(v); } catch (err) { console.error("[clock]", err); } };
-	const clamp = v => Math.min(max, Math.max(min, v));
+	const binds = () => win && win.mode !== "unbounded";   // 範囲が時刻を縛るか
+	const lo = () => binds() ? Math.max(min, win.start) : min, hi = () => binds() ? Math.min(max, win.end) : max;
+	const clamp = v => Math.min(hi(), Math.max(lo(), v));
+	const MODES = { clamped: "clamped", CLAMPED: "clamped", loop: "loop", LOOP_STOP: "loop", unbounded: "unbounded", UNBOUNDED: "unbounded" };
 	const rate = () => Math.sign(st) * CLOCK_SPEEDS[Math.abs(st)].v;
 	const self = {
 		get time() { return follow ? now() : t; },
@@ -30,7 +37,18 @@ export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, ste
 		get step() { return st; },
 		get speed() { return rate(); },   // 実 1 秒あたりのシミュレート秒（符号つき）
 		get playing() { return st !== 0; },
-		get range() { return [min, max]; },
+		get range() { return win ? [win.start, win.end] : [min, max]; },   // 範囲があればその区間（時間バーの両端）・無ければ外の枠
+		get rangeMode() { return win ? win.mode : null; },
+		// 範囲を写す（start < end・ms）。今の時刻が外なら端へ寄せる（実時間の張り付きは中に居る時だけ続く）
+		setRange(start, end, mode = "clamped") {
+			const a = +start, b = +end, m = MODES[mode];
+			if (!Number.isFinite(a) || !Number.isFinite(b) || !(a < b) || !m) throw new Error(`clock.setRange: need start < end (ms) and mode clamped|loop|unbounded (got ${start}, ${end}, ${mode})`);
+			win = { start: Math.max(min, a), end: Math.min(max, b), mode: m };
+			if (follow && binds()) { const n = now(); if (n < lo() || n > hi()) { follow = false; t = clamp(n); } }
+			else if (!follow) t = clamp(t);
+			emit("change", self); return self;
+		},
+		clearRange() { if (win) { win = null; emit("change", self); } return self; },
 		isLive: () => follow || (st === 1 && Math.abs(t - now()) < LIVE_MS),
 		label(tr = s => s) { const m = CLOCK_SPEEDS[Math.abs(st)], s = tr(st < 0 ? (m.neg || m.label) : m.label); return st < 0 ? "−" + s : s; },
 		setTime(ms) { const v = +ms; if (!Number.isFinite(v)) return self; t = clamp(v); follow = false; emit("change", self); return self; },
@@ -45,13 +63,17 @@ export function createClock({ min = CLOCK_MIN, max = CLOCK_MAX, time = null, ste
 		faster: () => self.setStep(st + 1),
 		toggle: () => self.setStep(st === 0 ? lastPlay : 0),
 		live() { follow = true; t = now(); st = 1; lastPlay = Math.max(lastPlay, 1); emit("change", self); return self; },   // 「今」ボタン
-		// 実 dt 秒だけ進める（呼び手の rAF から）。範囲の端に着いたら止める。戻り値＝時刻が動いたか
+		// 実 dt 秒だけ進める（呼び手の rAF から）。範囲の端に着いたら止める（loop の順行は始まりへ戻る）。戻り値＝時刻が動いたか
 		tick(dt) {
-			if (follow) return st !== 0;
+			if (follow) {   // 実時間の張り付き＝縛る範囲の外へ出たら張り付きを離して端の扱いへ
+				if (!binds()) return st !== 0;
+				const n = now(); if (n >= lo() && n <= hi()) return st !== 0;
+				follow = false; t = n;
+			}
 			const r = rate(); if (!r || !(dt > 0)) return false;
 			const v = t + r * dt * 1000;
-			t = clamp(v);
-			if (t !== v) { st = 0; emit("change", self); }
+			if (win?.mode === "loop" && r > 0 && v > hi()) { const L = hi() - lo(); t = lo() + ((v - lo()) % L); emit("change", self); }   // 始まりへ戻る（anchor を送り直す）
+			else { t = clamp(v); if (t !== v) { st = 0; emit("change", self); } }
 			emit("tick", self);
 			return true;
 		},
