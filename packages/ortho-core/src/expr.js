@@ -51,6 +51,7 @@ export const originOfLayer = L => L?.metadata?.[ORIGIN_KEY] === "ml" ? "ml" : un
 
 // global-state（MapLibre v5 の setGlobalStateProperty・記号の残件③・2026-09-28）＝このモジュール（＝このスレッド）の状態。
 // main と各 worker はそれぞれ持つ＝main が変えたら worker へ送る（tile worker は style.globalState・vtdraw は build の gs）。無い鍵は null（MapLibre と同じ）
+// 頁に地図が複数ある時（#173 段 3b）は、評価の ctx.gs（その地図の状態）がこのスレッドの状態より優先＝main の評価は呼び手が地図の gs を渡す
 let GS = Object.create(null);
 export function setGlobalState(obj) { GS = Object.assign(Object.create(null), obj || {}); }
 export const getGlobalState = () => ({ ...GS });
@@ -142,7 +143,7 @@ function build(e, o = "native") {
 		}
 		case "geometry-type": return ctx => ctx.geom;
 		case "zoom": return ctx => ctx.zoom;
-		case "global-state": { const k = e[1]; return () => (typeof k === "string" && k in GS ? GS[k] : null); }   // 鍵は文字列の定数（MapLibre と同じ）
+		case "global-state": { const k = e[1]; return ctx => { const g = ctx?.gs ?? GS; return typeof k === "string" && k in g ? g[k] : null; }; }   // 鍵は文字列の定数（MapLibre と同じ）。ctx.gs＝呼び手の地図の global-state（頁に地図が複数・#173）＝無ければこのスレッドの状態
 		case "match": {
 			const vf = compile_(e[1]), labs = [], outs = [];
 			for (let i = 2; i < e.length - 1; i += 2) { labs.push(e[i]); outs.push(compile_(e[i + 1])); }
