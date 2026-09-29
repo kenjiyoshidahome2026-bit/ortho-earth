@@ -22,7 +22,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
-	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt",
+	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=before", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt",
 	"t-columnar?g=same", "t-columnar?g=depth",
 	"t-mlboot?v=default", "t-mlboot?v=ml",
 	"t-snapearly?v=default", "t-snapearly?v=style",   // 起動直後の撮影＝旧 WebGPU は cam 未着の snapshot を黙って捨て promise が宙吊り
