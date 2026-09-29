@@ -38,7 +38,7 @@ A working sample ships in the zip (`example/index.html`): serve the unzipped fol
 
 | option | default | description |
 |---|---|---|
-| `target` | auto | Where to embed (selector or element). The container's id is normalized to `map` while the map lives there and returned on `destroy()` |
+| `target` | auto | Where to embed (selector or element). Default: the page's `#map` (if no map lives there yet), else a new `<div>` under `body`. The container's id is left as is; the engine adds the class `qm` (the design kit's marker) and removes it on `destroy()` |
 | `view` | last view | Initial view `"#zoom/lat/lon/45t/30r/l=place.rail/c=dark"` (t = tilt°, r = rotation°, l = layers, c = theme) |
 | `theme` | `"mono"` | Fixed color theme: `"mono"` (blank map), `"dark"`, `"gsi"` (official GSI map colors), `"sepia"`, or a custom theme object. Unset = selectable via the shared-URL `c=` token |
 | `layers` | — | Pin layers on/off: `place`, `terrain`, `rail`, `road`, `facility`. `true` = always on, `false` = always off (both hide the toggle chip); unset = user-toggleable |

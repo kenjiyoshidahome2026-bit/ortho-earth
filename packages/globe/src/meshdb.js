@@ -7,7 +7,7 @@ import { tr } from "./i18n.js";
 const t = tr();
 
 // groupOf(set)＝地域宣言 buildings.group（{ order（並び）, key（見出しの切れ目）, label（見出し）}・無ければ台帳順・見出しなし）
-export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null, title = null }) {   // title＝題の i18n キー（地域の申告・無ければ汎用）
+export function createMeshDb({ getSets, idbList, idbDelete, preload, show, groupOf = null, title = null, host = null }) {   // host＝地図の容れ物（#173）   // title＝題の i18n キー（地域の申告・無ければ汎用）
 	let root = null, listEl = null, sumEl = null, filterEl = null;
 	const rows = new Map();      // name → { set, pref, rowEl, statusEl, actEl }
 	let blocks = [];             // 都道府県ブロック：{ headerEl, rows: [row…] }（絞り込みで空になった見出しは隠す）
@@ -25,7 +25,7 @@ export function createMeshDb({ getSets, idbList, idbDelete, preload, show, group
 				<input id="pdb-filter" type="search" placeholder="${t("Filter by municipality name")}" autocomplete="off" spellcheck="false">
 				<div id="pdb-list"></div>
 			</div>`;
-		(document.getElementById("map") || document.body).appendChild(root);   // #map 配下＝埋め込み時もモーダルが地図領域に収まる
+		(host || document.body).appendChild(root);   // 地図の容れ物の配下＝埋め込み時もモーダルが地図領域に収まる（頁に地図が複数でも自分の容れ物）
 		listEl = root.querySelector("#pdb-list"); sumEl = root.querySelector("#pdb-sum"); filterEl = root.querySelector("#pdb-filter");
 		root.addEventListener("pointerdown", e => { if (e.target === root) close(); });   // 背景クリックで閉じる
 		root.querySelector("#pdb-close").addEventListener("click", close);

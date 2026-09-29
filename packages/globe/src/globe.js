@@ -122,6 +122,8 @@ const t = tr();
 //   有効な地域宣言は**使う所より前で決める**（render worker の init が最初の利用者・TDZ の轍 2026-09-17）。
 // 同じ頁の地図が決めた世界の形（#43）＝core の setEllipsoid はモジュール状態＝頁に 1 つ。2 枚目以降は最初の決定に従う（違えば警告）
 let ELL_PAGE = null;
+// 地図が載っている容れ物（頁に 1 つの台帳・#173 段 2）＝target 無しの既定（頁の #map）を 2 枚目が掴まない・同じ容れ物への二重起動を止める
+const LIVE_CONTAINERS = new WeakSet();
 export async function createGlobe(opts = {}) {
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
@@ -161,13 +163,15 @@ const REGION_POI = REGIONS.map(r => r.poi).find(Boolean) ?? null;      // 施設
 const REGION_RAIL = REGIONS.map(r => r.rail).find(Boolean) ?? null;    // 路線オーバーレイ（日本＝N02 新幹線）・null＝作らない
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
 await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即返り・他言語は 1 本取る）
-// 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
-// 意匠（quiet-mono）は :is(.qm, #map) で当たる（#173 段 1・2026-09-30）＝容れ物に .qm を付ければ id に依らず家具が立つ。
-// 特異度は id 1 個ぶんのまま（:is は中の最大）＝重なりの勝ち負けは #map 時代と同じ。
-// ※ 容れ物の id を map へ正規化する下の改名は、固定 id の撤去（#173 段 2）までは残す。.qm を外して id も
-//   外すと容れ物が無スタイル＝0サイズ化して射影が退化する（2026-07 の回帰の轍）。
-let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
-	|| document.getElementById("map");
+// 起動の容れ物：target指定（selector/要素）→ 無ければ頁の #map（まだ地図が載っていない物）→ それも無ければbody直下に自作。
+// 1 枚の頁は今までどおり <div id="map"> が既定。2 枚目以降は target で別の div を渡す（#173・2026-09-30 本人裁定）。
+// 容れ物の id は付け替えない（旧＝map へ改名＝2 枚目で id が重なる）。意匠（quiet-mono）は :is(.qm, #map) で当たり、
+// .qm はエンジンが付ける印＝利用者はクラスを書かない。中の家具は固定 id（#c・#pos…）のまま＝探す時は必ず mapEl から
+// （document.getElementById は頁で最初の物＝1 枚目の家具を掴む）。
+const targetEl = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
+if (targetEl && LIVE_CONTAINERS.has(targetEl)) throw new Error("createGlobe: the target already holds a live map — destroy() it first");
+const pageMapEl = document.getElementById("map");
+let mapEl = targetEl || (pageMapEl && !LIVE_CONTAINERS.has(pageMapEl) ? pageMapEl : null);
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
 // 容れ物を自作した＝このページを預かった＝ビューポート全面を取りに行く。寸法は html/body へ
 // **inline で**入れる（スタイルシートからは一切書かない＝埋め込み時は発火しようがない・destroy で元に戻す）。
@@ -179,20 +183,13 @@ const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消
 const pageStyle = { html: null, body: null };
 if (ownMapEl) {
 	mapEl = document.body.appendChild(document.createElement("div"));
+	if (!pageMapEl) mapEl.id = "map";   // 頁に #map が無い時の自作＝#map（1 枚の頁の既定の名前・利用者の CSS/JS が当てられる）
 	const root = document.documentElement;
 	pageStyle.html = root.style.cssText; pageStyle.body = document.body.style.cssText;
 	root.style.height = "100%";
 	Object.assign(document.body.style, { height: "100%", margin: "0", overflow: "hidden" });
 }
-const mapElPrevId = mapEl.id;   // 預かった div の元の id＝destroy で返す（#here が消えたままにしない）
-// ★家具規格の代償：預かった div の id を map へ改名する＝ホストが「その id」でCSSを書いていた場合、
-//   その指定は改名の瞬間に外れる（寸法を id で与えていると #map{height:100%} が親無しで 0 になり地図が消える）。
-//   黙って0サイズにするのが最悪なので、借りる時に一度だけ言う。寸法はクラスか inline style で与えてもらう。
-if (mapElPrevId && mapElPrevId !== "map")
-	console.warn(`[globe] borrowing container id "${mapElPrevId}" -> "map" (furniture standard). `
-		+ `CSS targeting #${mapElPrevId} will no longer apply = give dimensions via class or inline style. `
-		+ `destroy() restores the id.`);
-mapEl.id = "map";
+LIVE_CONTAINERS.add(mapEl);
 const mapElHadQm = mapEl.classList.contains("qm");   // 預かった div に最初から付いていた .qm は destroy で外さない
 mapEl.classList.add("qm");   // 意匠（quiet-mono）の容れ物の印＝エンジンが付ける（利用者は書かない）
 // 言語と書字方向は容れ物に付ける（html/body には触れない＝埋め込み先の領分）。dir=rtl で
@@ -374,9 +371,9 @@ let style = withBaseOverrides(EXT ? extBaseStyle(EXT) : theme.style);   // 外�
 mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
-const canvas = document.getElementById("c");
-const labelCanvas = document.getElementById("labels");
-const logEl = orDetached(document.getElementById("log"));
+const canvas = mapEl.querySelector("#c");
+const labelCanvas = mapEl.querySelector("#labels");
+const logEl = orDetached(mapEl.querySelector("#log"));
 // 低メモリ端末判定（boot/tier.js lowMem＝≤4GB のスマホ帯・iOS はタッチで一律）。renderWorker（R10キャッシュ縮小）と
 // plateau worker（キャッシュ0・バッチ縮小）の両方に配るため、worker生成より前＝ここで定義。
 const LOW_MEM = lowMem(navigator);
@@ -395,7 +392,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		fatalOverlay(t("This map cannot be displayed in your browser"),
 			t("This 3D globe is drawn with WebGL2 and OffscreenCanvas. Please try the latest Chrome / Edge / Firefox, or Safari 17 or later."));
 		console.warn("[boot] unsupported: offscreencanvas = quiet exit (guidance overlay shown)");
-		return deadMap();
+		LIVE_CONTAINERS.delete(mapEl); return deadMap();   // 起動しなかった＝容れ物は空き（同じ容れ物で起動し直せる）
 	}
 	if (!probeGL()) {
 		const waiting = fatalOverlay(t("Waiting for the GPU to respond…"),
@@ -407,7 +404,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 			fatalOverlay(t("Cannot start 3D rendering"),
 				t("Your browser is supported, but the GPU (WebGL2) is not responding. Quit the browser completely and reopen it, or check that hardware acceleration is enabled in the settings."), true);
 			console.warn("[boot] webgl2 unavailable after 10s retry (hardware acceleration off?) = quiet exit (guidance overlay shown)");
-			return deadMap();
+			LIVE_CONTAINERS.delete(mapEl); return deadMap();   // 起動しなかった＝容れ物は空き
 		}
 	}
 }
@@ -702,7 +699,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "overlayStage") { (dbgHost.__overlay ??= {})[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
 		clearTimeout(bootT); bootT = null; renderBackend = dbgHost.__backend = d.backend || "webgl2"; sessionStorage.removeItem("oj.ctxlost");   // 初描画成功＝自動リロード回数もリセット。__backend＝スモークテスト用（webgl2/webgpu）
-		document.getElementById("fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
+		mapEl.querySelector("#fatal")?.remove();   // 遅い回線でウォッチドッグ(10s)が先に出た後の遅着 frame1＝案内を畳む（地図は生きているのに被さったまま＝「何も出ない」の正体・モバイル実測 2026-08-02）
 		console.log(`[boot] frame1 received backend=${dbgHost.__backend}`);
 		if (!mapLoaded) { mapLoaded = true; for (const cb of mapOn.load) { try { cb({}); } catch (e) { console.error("[map.on load]", e); } } }
 		diagHud && diagHud("frame1", `received ✓ backend=${dbgHost.__backend}`);
@@ -1262,7 +1259,7 @@ const saveView = () => { saveCam(); if (ownMapEl || opts.urlHash) try { history.
 // 再ビルド必須（setPipelineStyle が evict→新styleビルド＝GPU入れ替え＝ピーク約1倍）。一瞬の貼り直しは許容（fade不要）。
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
-	queueMicrotask(() => document.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
+	queueMicrotask(() => mapEl.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
 	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withPM(theme.style));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
@@ -1507,7 +1504,7 @@ if (!window.matchMedia("(pointer: coarse)").matches) {
 	let idleT = 0;
 	const overUI = () => { const h = mapEl.querySelector(":hover"); return !!(h && (h.closest("#gadgets") || h.closest("#chips"))); };
 	const searchOpen = () => !!mapEl.querySelector("#search.open");
-	const panelOpen = () => { const p = document.getElementById("layers-panel"); return !!(p && !p.hidden); };   // 表示パネル展開中＝選んでいる最中に足元が消えない
+	const panelOpen = () => { const p = mapEl.querySelector("#layers-panel"); return !!(p && !p.hidden); };   // 表示パネル展開中＝選んでいる最中に足元が消えない
 	const hideUI = () => { if (overUI() || searchOpen() || panelOpen()) { idleT = setTimeout(hideUI, IDLE_MS); return; } mapEl.classList.add("ui-idle"); };   // 操作中は消さず再武装
 	const wakeUI = () => { mapEl.classList.remove("ui-idle"); clearTimeout(idleT); idleT = setTimeout(hideUI, IDLE_MS); };
 	mapEl.addEventListener("mousemove", wakeUI, { signal: ac.signal, passive: true });
@@ -1523,7 +1520,7 @@ const evXY = input.evXY;   // 座標読み取り（計器）も同じローカ�
 // 標高は altpbf の getHeight（ortho-earth 本体と同じ点サンプラ）＝必要タイルをその場でオンデマンド取得
 // （R90/R10/R01 をズームで自動選択・IDB は地形アトラスと共有）。render worker のアトラス照会だと
 // 未ロード地帯が0mになる劣化版だった。onend＝タイル到着でゲートを開けて再照会（マウス静止中でも値が確定）。
-const posEl = orDetached(document.getElementById("pos"));
+const posEl = orDetached(mapEl.querySelector("#pos"));
 const hasPos = posEl.isConnected;   // 座標表示なし（instrumentsで"pos"非搭載）＝標高照会も止める（見えない計器のためのfetchをしない）
 // 狭画面＝座標テーブルなし（境界はCSSの掟と同値）。回転や窓リサイズで跨ぐため毎回評価＝posOn が表示と標高fetchの両方を裁く。
 const narrowMq = window.matchMedia("(max-width: 480px)");
@@ -1540,7 +1537,7 @@ ownDestroy.push(() => getHeightP.then(f => f.terminate?.()));   // ローダ準�
 // px↔角度 は正射図法ゆえ緯度非依存のまま。m換算だけ WGS84 の東西曲率半径 N(φ)（バーは横置き＝東西）で
 // 緯度依存に（2026-08-11・段階A）：旧・固定 6372000 は N(35°)=6385.2km 比 -0.2%、高緯度ほどずれた。
 // 南北は M(φ)＝N と最大0.5%違うが、バー1本に2値は出せない＝横置きの素直（正確な計測は M ガジェットの Vincenty）。
-const scaleEl = orDetached(document.getElementById("scale")), scaleTxt = orDetached(document.getElementById("scale-txt")), scaleBar = orDetached(document.getElementById("scale-bar"));
+const scaleEl = orDetached(mapEl.querySelector("#scale")), scaleTxt = orDetached(mapEl.querySelector("#scale-txt")), scaleBar = orDetached(mapEl.querySelector("#scale-bar"));
 const comma = s => String(s).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 function updateScale() {
 	if ((cam.pitch || 0) > 0.005) { scaleEl.style.display = "none"; return; }
@@ -1818,7 +1815,7 @@ const syncChip = b => { const on = !!layerState[b.dataset.k]; b.classList.toggle
 function setLayer(k, on) {
 	if (!!layerState[k] === !!on) return;   // 既にその状態＝no-op（副作用も焚かない）
 	layerState[k] = !!on;
-	const b = document.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
+	const b = mapEl.querySelector(`.chip[data-k="${k}"]`); if (b) syncChip(b);   // チップ不在（chips:false等）でも状態は成立
 	styleSig = JSON.stringify(layerState); readySig = ""; needsDraw = true;
 	if (k === "rail") { renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load(); }   // 鉄道ON＝N02新幹線も表示＋初回fetch
 	if (k === "facility" && layerState.facility) loadLandmarks();   // 施設ON＝PLATEAUランドマーク台帳も初回fetch
@@ -1826,18 +1823,18 @@ function setLayer(k, on) {
 	saveView();   // レイヤ状態も共有URLの一部＝即書き戻す
 }
 // チップ操作：状態を反転し、styleSig を更新して即再結合（再取得なし・一瞬）。
-document.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
+mapEl.querySelectorAll(".chip").forEach(b => b.addEventListener("click", () => {
 	const k = b.dataset.k; if (!k) return;   // data-k 無し＝UIトグル（数字など）は別ハンドラ
 	setLayer(k, !layerState[k]);
 }));
 // 星空チップ（表示パネル内）＝旧・全球ビューの画面クリックから移設。見た目同期は constelApply 側（点火の一本道）
-document.getElementById("chip-sky")?.addEventListener("click", () => sky.toggleConstellations().then(saveView));
+mapEl.querySelector("#chip-sky")?.addEventListener("click", () => sky.toggleConstellations().then(saveView));
 // 基図の濃さスライダー（表示パネル）＝fill/line の α を両バックエンド一括で（COG/オーバーレイを主役にする時に引く）
-document.getElementById("base-alpha")?.addEventListener("input", e => { const a = (+e.target.value) / 100; renderer.set("view", { baseAlpha: a, globeAlpha: a }); needsDraw = true; });   // 2026-09-13 本人裁定＝球体（globe/terrain）まで一緒に引く（地中の震源等を透かす）
+mapEl.querySelector("#base-alpha")?.addEventListener("input", e => { const a = (+e.target.value) / 100; renderer.set("view", { baseAlpha: a, globeAlpha: a }); needsDraw = true; });   // 2026-09-13 本人裁定＝球体（globe/terrain）まで一緒に引く（地中の震源等を透かす）
 // テーマ列（表示パネル内）＝palette ガジェットの即決版（ライブ見本はガジェットの領分・こちらは名前+紙色スウォッチ）。
 // themeFixed（opts.theme 焼き付け）は列ごと出さない。現在テーマの点火同期は switchTheme 側。
 {
-	const row = document.getElementById("theme-row");
+	const row = mapEl.querySelector("#theme-row");
 	if (row && themeFixed) row.remove();
 	else if (row) {
 		const THEME_META = Object.fromEntries(Object.entries(WORLD_STYLE_THEMES).map(([k, T]) => [k, [T.label, T.swatch]]));   // 名札とスウォッチ（紙色）＝ortho-core worldstyle の正本（equal と同じ表・段階 3）
@@ -1853,7 +1850,7 @@ document.getElementById("base-alpha")?.addEventListener("input", e => { const a 
 	}
 }
 // 起動時の初期同期（共有URL復元＋opts.layersの固定を含む）：チップの見た目と rail/terrain 副作用を layerState に合わせる（既定どおりなら実質 no-op）
-document.querySelectorAll(".chip[data-k]").forEach(syncChip);
+mapEl.querySelectorAll(".chip[data-k]").forEach(syncChip);
 if (layerState.rail) { renderer.set("view", { showRail: true }); railOverlay?.load(); }
 if (layerState.facility) loadLandmarks();   // 起動時に共有URL(l=facility)や opts.layers で施設ONなら台帳も取りに行く
 renderer.set("view", { showContour: layerState.terrain });
@@ -1876,7 +1873,7 @@ function applyViewLayers(v) {
 	if (v.layers) { const urlSet = new Set(v.layers.map(normLayerKey)); for (const k of FREE_LAYER_KEYS) layerState[k] = urlSet.has(k); }
 	if (v.layers) sky.applyConstellations(v.layers.includes(SKY_LAYER));   // 星座ON/OFFも反映
 	if (v.contour && !("terrain" in fixedLayers)) layerState.terrain = true;   // 旧URLの c＝地形チップに読み替え（後方互換）
-	document.querySelectorAll(".chip[data-k]").forEach(syncChip);
+	mapEl.querySelectorAll(".chip[data-k]").forEach(syncChip);
 	styleSig = JSON.stringify(layerState); readySig = "";
 	renderer.set("view", { showRail: layerState.rail }); if (layerState.rail) railOverlay?.load();
 	if (layerState.facility) loadLandmarks();
@@ -1991,7 +1988,7 @@ function render() {
 		const zone = attrZoneNow();
 		if (zone !== attrZone) {
 			attrZone = zone;
-			const attr = document.querySelector("#attr");
+			const attr = mapEl.querySelector("#attr");
 			if (attr) {
 				if (attrRegionHTML == null) attrRegionHTML = attr.innerHTML;   // 地域版（起動時の静的な出典）を初回に退避（復帰用）
 				attr.innerHTML = attrHTMLOf(zone);
@@ -2028,7 +2025,7 @@ function render() {
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
-const overlay = createOverlay({ renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; } });
+const overlay = createOverlay({ renderer, cam, size, dpr, mapEl, requestDraw: () => { needsDraw = true; } });
 // 拡張が tip を握る合図（e-Stat のホバー結果）：ヒット＝名前を tip へ／ミス(市区町村外)＝gint ホバーへフォールバック（他市区町村の tip/リンク）
 const ownTip = name => {
 	if (name) {
@@ -2187,7 +2184,8 @@ function destroy() {
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
 		document.body.style.cssText = pageStyle.body ?? "";
-	} else mapEl.id = mapElPrevId;   // 預かった div の id は返す（家具規格で map へ改名していた分の後始末）
+	}
+	LIVE_CONTAINERS.delete(mapEl);   // 容れ物は空き＝同じ div で起動し直せる（預かった div の id は借りた時から触っていない）
 	mapEl.lang = mapElPrevLang; mapEl.dir = mapElPrevDir;   // 言語/書字方向も借りる前へ返す
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
@@ -2986,7 +2984,7 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 				pbf = await loadUserFile(new File([await r.blob()], name), { ...modelAt(), fit: !themeBootV });   // URL に視点（#…）があればそれが勝つ＝寄せない（共有した傾き・画角を保つ・2026-09-21）
 			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
-			const attr = document.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
+			const attr = mapEl.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
 			if (attr && !attr.querySelector(".g-src")) {
 				const line = document.createElement("div");
 				line.className = "g-src";

@@ -25,7 +25,7 @@ export function search(opts = {}) {
 	list.id = "search-list";
 	list.setAttribute("role", "listbox"); list.setAttribute("aria-label", t("Search suggestions"));
 	mapEl.append(list);
-	createSearch({ provider: opts.provider, onGo: opts.onGo || this.flyTo, signal: opts.signal });   // 飛び方は本体の領分（opts.onGoで差し替え可）。signal＝destroy時のリスナー解除
+	createSearch({ provider: opts.provider, onGo: opts.onGo || this.flyTo, signal: opts.signal, root: mapEl });   // 飛び方は本体の領分（opts.onGoで差し替え可）。signal＝destroy時のリスナー解除
 	// /＝検索窓へフォーカス（GitHub/YouTube と同じ所作）。入力欄フォーカス中は素通し＝/ をそのまま打てる・
 	// Firefox のクイック検索も preventDefault で抑止。既存文字は選択して即上書きできる状態に。
 	window.addEventListener("keydown", e => {

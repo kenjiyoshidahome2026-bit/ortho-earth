@@ -8,9 +8,10 @@
 	html { background: #ffeedd; }
 	body { margin: 24px; color: #223344; font: 16px/1.6 Georgia, serif; }   /* ← 地図に触られたら負け */
 	#tall { height: 2000px; }                                              /* ← ページはスクロールできるべき */
-	/* ★寸法は id でなくクラスで与える：アプリは容れ物の id を "map" へ借りる＝#here 指定は外れる。
-	   これが SDK 利用者の作法（README にも書く）。 */
+	/* 寸法はクラスで与える（SDK 利用者の作法）。容れ物の id は付け替えない（#173〜＝旧は "map" へ改名して #here 指定が外れた）
+	   ＝ホストの #here の指定もそのまま効く（下の角丸で確かめる）。 */
 	.map-box { width: 480px; height: 320px; border: 2px solid #223344; }   /* ← 地図はこの箱の中だけ */
+	#here { border-radius: 6px; }                                          /* ← id の指定が起動後も効く */
 </style></head>
 <body>
 <h1>host page</h1>
@@ -21,7 +22,7 @@ const t = [], ok = (n, c, extra = "") => t.push((c ? "ok:" : "NG:") + n + (extra
 const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
 const cs = (el, p) => getComputedStyle(el).getPropertyValue(p);
 
-// 預かってもらう箱は参照で握る：アプリは家具規格で id を "map" へ改名するので getElementById("here") は消える
+// 預かってもらう箱（id は付け替えられない＝起動後も getElementById("here") で引ける）
 const hostEl = document.getElementById("here");
 // 埋め込み前のホストの体裁を控える
 const before = {
@@ -60,11 +61,12 @@ try {
 
 	// ── ② 地図は預かった箱の中だけ（はみ出さない・全画面を乗っ取らない）──
 	const box = hostEl.getBoundingClientRect();
-	const mp = document.getElementById("map").getBoundingClientRect();
-	ok("sameEl", document.getElementById("map") === hostEl);   // 預かった div がそのまま舞台（差し込みでも複製でもない）
+	const mp = hostEl.getBoundingClientRect();
+	ok("sameEl", document.getElementById("here") === hostEl && hostEl.classList.contains("qm") && !!hostEl.querySelector(":scope > #c") && !document.getElementById("map"));   // 預かった div がそのまま舞台（差し込みでも複製でもない・id はそのまま・意匠の印 .qm）
+	ok("hostIdCss", cs(hostEl, "border-top-left-radius") === "6px", cs(hostEl, "border-top-left-radius"));   // ホストの #here 指定が効いている
 	ok("boxed", Math.abs(mp.width - box.width) < 5 && Math.abs(mp.height - box.height) < 5, `${Math.round(mp.width)}x${Math.round(mp.height)}`);
-	ok("notFixed", cs(document.getElementById("map"), "position") !== "fixed");
-	const cv = document.getElementById("c");
+	ok("notFixed", cs(hostEl, "position") !== "fixed");
+	const cv = hostEl.querySelector("#c");
 	ok("canvas", cv && cv.width > 0 && cv.height > 0, cv ? `${cv.width}x${cv.height}` : "none");
 
 	// ── ③ ホストの window を汚さない（debugGlobals は target 指定で既定オフ）──
@@ -75,7 +77,7 @@ try {
 	map.destroy();
 	await new Promise(r => setTimeout(r, 200));
 	ok("destroy", hostEl.children.length === 0, `children=${hostEl.children.length}`);
-	ok("idReturned", hostEl.id === "here", hostEl.id);   // 家具規格で借りた id を返している
+	ok("idReturned", hostEl.id === "here" && !hostEl.classList.contains("qm"), `${hostEl.id}|${hostEl.className}`);   // id は触っていない・付けた印 .qm は外す
 	ok("hostIntact", cs(document.body, "margin-top") === before.bodyMargin && cs(document.documentElement, "background-color") === before.htmlBg);
 } catch (e) { ok("boot:" + (e && e.message || e), false); }
 fin();
