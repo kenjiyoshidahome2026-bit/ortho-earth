@@ -62,6 +62,8 @@ Only what you call gets mounted; call order = top-to-bottom placement.
 
 ```js
 map.gadget.search();    // place/address search (GSI API, no key)
+// add { world: true } for countries, states, cities and natural features worldwide in 26 languages (no server; index read on first search),
+// or bring your own geocoder with the maplibre-gl-geocoder options: { geocoderApi: { forwardGeocode }, localGeocoder, limit, countries, … }
 map.gadget.compass();   // compass + reset (appears only in 3D)
 map.gadget.zoom();      // zoom +/- buttons
 map.gadget.palette();   // theme switcher with live previews

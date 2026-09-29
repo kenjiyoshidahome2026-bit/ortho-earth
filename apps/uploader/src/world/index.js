@@ -15,6 +15,7 @@ import { makeEnv } from "../../../../packages/world/build/env.js";
 import { loadSeed, SEED_FILES } from "../../../../packages/world/build/seed.js";
 import { buildAll } from "../../../../packages/world/build/index.js";
 import { buildNeCultural, NE_TAG, NE_LAYERS, NE_SOURCES, neURL, SINGLE_DESC, splitGroups, groupDesc, cityNameTables, NE_CITY_LANGS } from "../../../../packages/world/build/ne-cultural.js";
+import { buildSearchIndex } from "../../../../packages/world/build/search.js";
 // seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
@@ -125,6 +126,33 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		return `${out.keyed} 都市 × ${NE_CITY_LANGS.length} 言語`;
 	}
 
+	// ── 世界の地名検索の索引（#175）＝GIS/world/search/base.json ＋ search/<lang>.json（25 言語）──
+	// 焼きの本体は packages/world/build/search.js（Node CLI scripts/search-index.mjs と同一コード）。材料＝棚の NationDB・CityDB・TerrainDB・i18n
+	// ＋NE の admin_1・populated_places（key の割当は ne-cultural と同じ関数）・admin_0_countries（国の略称・別名）。
+	// globe の検索窓（worldsearch.js）が初めて開いた時に base と今の言語の 1 本だけを読む＝起動の重さは変えない。gzip で置く（読む側は魔法の 2 バイトで解く）。
+	async function buildSearch() {
+		const ne = async name => {
+			q.log(`取得 ${name} …`);
+			const r = await fetch(neURL(name));
+			if (!r.ok) throw new Error(`${name}: HTTP ${r.status}`);
+			return (await r.json()).features;
+		};
+		const { all } = await buildNeCultural(seed, { ne, log: s => q.log(s), warn: s => console.warn(s) }, { layers: ["admin_1", "populated_places"] });
+		const langs = seed.langs.filter(l => l !== "en");
+		const [nations, cities, terrains, admin0, ...tables] = await Promise.all([db.loadJSON("NationDB"), db.loadJSON("CityDB"), db.loadJSON("TerrainDB"), ne("ne_10m_admin_0_countries"), ...langs.map(l => db.loadJSON(`i18n/${l}`))]);
+		const { base, tables: out, report } = buildSearchIndex({
+			features: all, nations, cities, terrains, i18n: Object.fromEntries(langs.map((l, i) => [l, tables[i]])), categories: seed.ui.categories, admin0, langs: seed.langs,
+			source: `Natural Earth 10m ${NE_TAG} (public domain) + ortho-earth World DB (CC BY-SA 4.0)`,
+		});
+		if (report.countries < seed.nations.length * 0.9 || report.cities < 5000) throw new Error(`件数が少なすぎる＝保存しない: ${JSON.stringify(report)}`);
+		const put = async (name, obj) => { const gz = await gzip(new Blob([JSON.stringify(obj)])); await bucket.put(new File([gz], `search/${name}.json`, { type: "application/json" })); return gz.size; };
+		q.log(`search/base.json: ${base.n} 件・${(await put("base", base) / 1024).toFixed(0)}KB (gzip)`);
+		const sizes = []; for (const [l, t] of Object.entries(out)) sizes.push(`${l}:${(await put(l, t) / 1024).toFixed(0)}`);
+		q.log(`search/<lang>.json (KB gzip): ${sizes.join(" ")}`);
+		q.log(JSON.stringify(report));
+		return `${base.n} 件 × ${Object.keys(out).length + 1} 言語`;
+	}
+
 	CMD.append("h2").text("国別DB (world)");
 	CMD.append("button").text(`一覧 (${DIRE})`).on("click", async () => {
 		q.clear(); q.title(`一覧 (${DIRE})`);
@@ -133,6 +161,7 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 	CMD.append("button").text("全部作る（seed → Wikidata/統計 API → 全 DB + i18n を保存）").on("click", run("build", buildAndSave));
 	CMD.append("button").text(`NE Cultural 生成→保存（${CULTURAL}.geopbf・国/道路/鉄道/市街地を key ごとに切る）`).on("click", run("ne-cultural", buildCultural));
 	CMD.append("button").text(`NE 都市名の多言語表（ne-cities/<lang>.json・${NE_CITY_LANGS.length} 言語）`).on("click", run("ne-cities", buildCityNames));
+	CMD.append("button").text("世界の地名検索の索引（search/base.json＋<lang>.json・#175）").on("click", run("search", buildSearch));
 	CMD.append("button").text("geoPNG作成(createGeometryPNG)").on("click", run("createGeometryPNG", () => createGeometryPNG({ db }, q)));
 	CMD.append("button").text(`${FLAG}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${FLAG}.zip`), `${FLAG}.zip`));
 	CMD.append("button").text(`${SOUND}.zip ダウンロード`).on("click", async () => download(await bucket.get(`${SOUND}.zip`), `${SOUND}.zip`));
@@ -173,6 +202,6 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 		q.log(`${name}: 対象外（DB は「全部作る」で seed から組み立てる）`);
 	}
 	// console から直接叩けるように（uploader は作業台）
-	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave, buildCultural, buildCityNames });
+	Object.assign(window, { worldBucket: bucket, worldDB: db, worldSeed: seed, worldEnv: env, buildAll: () => buildAll(seed, env), buildAndSave, buildCultural, buildCityNames, buildSearch });
 	return db;
 }
