@@ -14,15 +14,17 @@ function dots(rec, marks, W, H) {
 	return `<svg class="dots" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${c}</svg>`;
 }
 
-export function buildReport({ rows, summary, ranking, thresh, refLabel, orthoLabel, when }) {
+export function buildReport({ rows, summary, ranking, thresh, refLabel, orthoLabel, when, notes = {} }) {
 	const card = r => {
+		const note = notes[r.name];
 		const g = r.grade, lvl = g.level == null ? "分母の外" : LEVEL[g.level], ref = g.level == null ? `本物も落ちる：${g.refWhy}` : `本物は ${LEVEL[g.refLevel]} まで`;
 		const W = r.R?.container?.W || 800, H = r.R?.container?.H || 600;
 		const img = (side, label, rec, marks) => `<figure><div class="shot"><img loading="lazy" src="../../runs/${label}/${side}/${esc(r.name)}.full.png" alt="">${dots(rec, marks, W, H)}</div><figcaption>${side === "ref" ? "本物 MapLibre 6.11.2" : "こちら（MapLibre の口）"} · ${esc(rec?.end ?? "-")}</figcaption></figure>`;
 		const cm = g.color, u = g.unsupported;
-		return `<article class="card" data-level="${g.level ?? "x"}" data-behind="${g.level != null && g.level < g.refLevel ? 1 : 0}" data-cat="${esc(r.category)}">
-<header><h2>${esc(r.name)}</h2><span class="lv lv${g.level ?? "x"}">${esc(lvl)}</span><span class="muted">${esc(ref)} · ${esc(r.category)}</span></header>
+		return `<article class="card" data-level="${g.level ?? "x"}" data-behind="${g.level != null && g.level < g.refLevel ? 1 : 0}" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}">
+<header><h2 id="${esc(r.name)}">${esc(r.name)}</h2><span class="lv lv${g.level ?? "x"}">${esc(lvl)}</span><span class="muted">${esc(ref)} · ${esc(r.category)}</span></header>
 <p class="muted">${esc(r.title)}</p>
+${note ? `<p class="note">${esc(note)}</p>` : ""}
 ${g.reasons.length ? `<ul class="why">${g.reasons.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 ${u.semantic.length || u.cosmetic.length ? `<p class="unsup">${u.semantic.map(x => `<code class="sem">${esc(x)}</code>`).join(" ")} ${u.cosmetic.map(x => `<code class="cos">${esc(x)}</code>`).join(" ")}</p>` : ""}
 ${cm ? `<p class="muted">色：足した層 ${cm.added.ok}/${cm.added.n} · 基図 ${cm.base.ok}/${cm.base.n} · 比べられる点 ${cm.comparable}/${cm.total}${g.query ? ` · 問い合わせ ${g.query.ok}/${g.query.n}` : ""}${g.text?.n ? ` · 文字 ${g.text.hit}/${g.text.n}（インク ${g.text.ink}/${g.text.inkN}・こちらだけ ${g.text.extra}${g.text.line ? `・線沿い ${g.text.line}` : ""}）` : ""}</p>` : ""}
@@ -45,6 +47,7 @@ nav{position:sticky;top:0;background:var(--bg);padding:8px 0;z-index:2;display:f
 nav button{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer} nav button.on{outline:2px solid var(--l2)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin:12px 0}
 .card header{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap}
+.note{background:#fff7e0;border-left:4px solid #d08a1c;padding:6px 10px;border-radius:4px;color:var(--fg)} @media (prefers-color-scheme:dark){.note{background:#2b2414}}
 .lv{font-weight:600;border-radius:4px;padding:0 6px;color:#fff} .lv0{background:var(--l0)} .lv1{background:var(--l1)} .lv2{background:var(--l2)} .lv3{background:var(--l3)} .lvx{background:var(--muted)}
 .why{margin:6px 0;padding-left:20px} code{font-size:12px;border-radius:3px;padding:0 4px} code.sem{background:#f3d9d9;color:#7a1f1f} code.cos{background:#e6e4de;color:#555}
 .pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:10px}
@@ -53,15 +56,17 @@ figure{margin:0} .shot{position:relative;aspect-ratio:4/3;background:#000} .shot
 <h1>公式例の門 見比べ帳</h1>
 <p class="muted">本物 runs/${esc(refLabel)} · こちら runs/${esc(orthoLabel)} · ${esc(when)} · 閾値 色の許し ${thresh.colorTol}・足した層 ${thresh.addedMin}・基図 ${thresh.baseMin}・問い合わせ ${thresh.queryMin}</p>
 <div class="stats">${lvRow}<div class="stat"><b>${summary.plain3}/${summary.plainN}</b><span>同じ絵（鍵・外部ライブラリ・custom 無しの例）</span></div><div class="stat"><b>${summary.pictureOnly}/${summary.pictureN}</b><span>絵だけ見れば同じ（段 2 に依らない）</span></div></div>
+<h2>問題のある例とコメント</h2>
+<table><tr><th>例</th><th>段</th><th>コメント</th></tr>${rows.filter(r => notes[r.name]).map(r => `<tr><td><a href="#${esc(r.name)}">${esc(r.name)}</a></td><td class="n">${r.grade.level == null ? "外" : r.grade.level}</td><td>${esc(notes[r.name])}</td></tr>`).join("")}</table>
 <h2>足りない口の順位表（こちらの段が本物より低い例を塞いでいる物）</h2>
 <table><tr><th>塞いでいる物</th><th>例の数</th><th>例</th></tr>${ranking.slice(0, 40).map(b => `<tr><td>${esc(b.blocker)}</td><td class="n">${b.n}</td><td class="muted">${esc(b.examples.slice(0, 6).join(", "))}${b.examples.length > 6 ? " …" : ""}</td></tr>`).join("")}</table>
-<nav><button data-f="all" class="on">全部</button><button data-f="behind">本物より低い</button>${[0, 1, 2, 3].map(l => `<button data-f="l${l}">${LEVEL[l]}</button>`).join("")}<button data-f="lx">分母の外</button></nav>
+<nav><button data-f="all" class="on">全部</button><button data-f="behind">本物より低い</button><button data-f="note">コメントあり</button>${[0, 1, 2, 3].map(l => `<button data-f="l${l}">${LEVEL[l]}</button>`).join("")}<button data-f="lx">分母の外</button></nav>
 ${rows.map(card).join("\n")}
 </main><script>
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => {
 	document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
 	const f = b.dataset.f;
-	for (const c of document.querySelectorAll(".card")) c.hidden = !(f === "all" || (f === "behind" && c.dataset.behind === "1") || f === "l" + c.dataset.level);
+	for (const c of document.querySelectorAll(".card")) c.hidden = !(f === "all" || (f === "behind" && c.dataset.behind === "1") || (f === "note" && c.dataset.note === "1") || f === "l" + c.dataset.level);
 };
 </script></body></html>`;
 }
