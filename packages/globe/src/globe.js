@@ -614,6 +614,16 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
 const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
 let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+// 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
+// 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
+const CENTER_ELEV = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;
+let centerElevFixed = Number.isFinite(CENTER_ELEV) ? CENTER_ELEV : null;
+function syncCenterAlt() {
+	if (CENTER_ELEV === undefined && centerElevFixed == null) return;
+	if (CENTER_ELEV === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
+	const v = CENTER_ELEV === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
+	if ((cam.centerAlt || 0) !== v) { cam.centerAlt = v; needsDraw = true; }
+}
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
@@ -1078,15 +1088,18 @@ function commitUnderground() {
 //（実測: 草津1200m・z15.8・チルト52°で画面左下1/3が空白。Node被覆シミュで海面欠け0/リフト欠け48%）。
 // 表示中の地形変位と同式（renderer elevScaleEff と同じ pitch フェード）で半径を作る＝真俯瞰は1（従来通り）。
 // 標高は getHeight の非同期サンプル＝到着まで0（海面挙動）、到着時 needsDraw で選抜し直し＝自己回復。
-let groundElevM = 0, geBusy = false, geKey = "";
+let groundElevM = 0, geBusy = false, geKey = "", geGen = 0;
 function sampleGroundElev() {
-	if (!getHeight || geBusy) return;
+	if ((!getHeight && !demMain) || geBusy) return;
 	const k = Math.round(cam.center[0] * 1000) + "," + Math.round(cam.center[1] * 1000);   // ~100m格子＝微パンで照会を積まない
 	if (k === geKey) return;
 	geBusy = true;
-	Promise.resolve(getHeight(cam.center[0], cam.center[1], cam.zoom))
-		.then(h => { geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; needsDraw = true; } })
-		.catch(() => { geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
+	// 世代＝DEM の差し替え（setDem）で古い照会の答えを捨てる・3 秒で答えが無ければ手を放す（答えの来ない照会で geBusy が立ちっぱなし＝以後一度も引き直さない事故の柵・2026-09-30）
+	const gen = ++geGen, timer = setTimeout(() => { if (gen === geGen) geBusy = false; }, 3000);
+	// 外来の DEM（setTerrain・style の terrain）がある地図は描いている地形と同じ出どころ（heightAt＝外来が先・無い所は既定）。旧＝既定の DTM だけ＝mapterhorn の山で 0m（注視点の高さが効かない・2026-09-30）
+	Promise.resolve(demMain ? heightAt(cam.center[0], cam.center[1]) : getHeight(cam.center[0], cam.center[1], cam.zoom))
+		.then(h => { clearTimeout(timer); if (gen !== geGen) return; geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; needsDraw = true; } })
+		.catch(() => { clearTimeout(timer); if (gen === geGen) geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
 }
 // MapLibre の目盛りの時のタイルの z（ML_COVER）＝selectLOD の zOf。tileSize＝source のタイルの大きさ・round＝raster（roundZoom）。内製の目盛りは null＝従来の閾
 function mlZoomOf(tileSize = 512, round = false) {
@@ -1309,7 +1322,7 @@ function switchTheme(name) {
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
-renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
+renderer.set("view", { clear, land, atmo, bldColor, showRail: false, ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
@@ -1978,6 +1991,7 @@ function render() {
 	// ⚠ 描画命令（下の renderer.draw）の位置は動かさない：この下に基図の門（z<BASEMAP_MINZOOM）の早期 return が
 	// あり、命令をその後ろへ動かすと世界帯で描画要求が一度も出ず frame1 が来ない（前回の t-anno 不安定の正体）。
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
+	syncCenterAlt();   // 注視点の高さ（MapLibre の目盛り＝地形の上の中心点）を cam へ＝この下の描画・選抜・投影が同じカメラを見る
 	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
@@ -2165,10 +2179,10 @@ dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判
 });
 dbgHost.__labelsMain = () => { const by = {}; for (const L of lastLabels) { const k = L.li != null ? (style.layers[L.li]?.id ?? "li" + L.li) : "?"; by[k] = (by[k] || 0) + 1; } return { n: lastLabels.length, by, styleSymbols: style.layers.filter(L => L.type === "symbol").map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null]) }; };   // 診断（debugGlobals）＝main が worker へ送った基図ラベルの数（層 id ごと）と style の symbol 層の zoom 域
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
-dbgHost.__idleWhy = () => ({ mapLoaded, moving, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
+dbgHost.__idleWhy = () => ({ mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
 function checkIdle(now) {
-	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(CENTER_ELEV === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
@@ -2256,7 +2270,7 @@ const map = { cam, flyTo, renderer, mapEl, destroy, clock,
 // 標高は heightAt を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
 // 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
 let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
-const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();
+const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();   // z の当たり＝今の視点の MapLibre の z（512px のタイル）＝maxzoom 22 の source でも見えている段から引く（無ければ親へ）
 // 1 点の標高＝描いている地形と同じ出どころ（外来の DEM が先・無い所は既定の DTM をタイル着荷まで待つ）。map.getHeight と DOM オーバーレイの持ち上げ（elevOf）が共用
 //（旧・elevOf は既定の DTM だけを待たずに引いていた＝setTerrain の DEM ではマーカー/pop/計測/足跡がチルトで描いた地形とずれ、別タイルの読込中に引いた点は 0m のままメモに残った・2026-09-27）
 const heightAt = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
@@ -2419,7 +2433,7 @@ function clampCamLimits() {
 	const d = x => { const v = Math.abs(wrapLon(lon - x)); return v; };
 	cam.center[0] = d(w) <= d(e) ? w : e;
 }
-map.jumpTo = (o = {}) => { flightCtl.cancel(); const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
+map.jumpTo = (o = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
 map.easeTo = (o = {}) => o.animate === false ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
 // flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
 map.flyTo = (a, ...rest) => {
@@ -2529,6 +2543,7 @@ map.setTerrain = async t => {
 function setDem(spec) {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
 	demSpec = spec;
 	demMain = demSpec ? createDemSource(demSpec) : null;
+	geGen++; geBusy = false; geKey = "";   // 中心の地面の高さも新しい DEM で引き直す（古い照会の答えは捨てる）
 	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
 	if (terrLazy && demSpec) noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
