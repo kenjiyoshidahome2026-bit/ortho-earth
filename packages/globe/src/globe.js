@@ -37,7 +37,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
@@ -72,6 +72,7 @@ import { pop as popGadget } from "./gadgets/pop.js";
 import { explain as explainGadget } from "./gadgets/explain.js";
 import { legend as legendGadget } from "./gadgets/legend.js";
 import { measure as measureGadget } from "./gadgets/measure-stub.js";
+import { inspect as inspectGadget } from "./gadgets/inspect-stub.js";   // 検査表示（maplibre-gl-inspect 相当・#174）の玄関スタブ＝ボタン常駐、本体(inspect.js)は初回クリックで import()
 import { stac as stacGadget } from "./gadgets/stac-stub.js";   // 衛星シーン検索の玄関スタブ（本体 stac.js は初回クリックで遅延）   // 玄関スタブ＝ボタン+Mキー常駐、本体(measure.js＝球面測地/専用canvas)は初回クリック/Mで import()
 import { profile as profileGadget } from "./gadgets/profile-stub.js";
 import { clockGadget } from "./gadgets/clock.js";   // 時計の操作盤（#42）＝map.clock の ◀◀ ▶ ▶▶・日時・今
@@ -366,6 +367,9 @@ let theme = typeof opts.theme === "object" ? { ...MAP_THEMES.mono, ...opts.theme
 // 基図の層への実行時の上書き（MapLibre 互換の段 7）＝id → { paint, layout, filter, minzoom, maxzoom, removed }。有効な基図 style＝元の style＋上書き。
 // 出し入れ（visibility）は別の台帳 baseVis＝結合の時に層の添字で外す安い経路（組み直さない）。テーマを切り替えても上書きは残し、setStyle では捨てる（MapLibre と同じ）
 const baseOverrides = new Map(), baseVis = new Map();
+// 検査表示（#174）の間＝基図の全層を結合から外す（baseHiddenIdx・焼き直さない・注記も出さない）。利用者の基図の出し入れ（baseVis）はそのまま＝戻すと元の絵
+let inspectHide = false;
+let inspectReapply = () => {};   // テーマ・基図の style を替えた後に検査表示の下地（陸の色・世界の帯）を掛け直す（inspectView が差す）
 const withBaseOverrides = st => {
 	if (!baseOverrides.size) return st;
 	const layers = [];
@@ -1299,6 +1303,7 @@ function switchTheme(name) {
 		// clim 再送は無害（両レンダラとも取得済みキャッシュで no-op）。boot（下方の初期 set("view")）と同形
 		graticule: WORLD_VT, worldHypsoZ: BASEMAP_MINZOOM,
 		worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
+	inspectReapply();   // 検査表示の間（#174）＝陸の色と世界の帯の退場をテーマの値で上書きしない
 	renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 });
 	renderer.set("bldFill", { li: bldFillLi(style) });   // 建物塗りの層添字も新styleへ（sea と同じ「li はテーマ依存」の流儀）
 	themes = mkThemes(style);   // ★層添字（LI_RAILHI 等）を新テーマの層配列で焼き直す＝hidden(点火ゲート)の添字ズレ根治。
@@ -1500,11 +1505,11 @@ const input = createInput({
 		const fudeOwn = (gint.userGint?.tip && gint.interactive && gint.hover) || !!extActive;   // 追加層がカーソル保持中（§4.1 アクティブ層＝主導権）も gint が主
 		if (fudeOwn && gint.extTipOwn) { gint.extTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
 		const cutH = clipCutXY(x, y);   // 断面で切られた側（#111）＝地域パックのホバーと国名 tip を出さない
-		if (!fudeOwn && !cutH && hostHooks.hover.some(h => h(x, y))) return;   // 地域パックのホバー（e-Stat の町丁目 tip＝日本の install が差す）
+		if (!fudeOwn && !cutH && !inspectHide && hostHooks.hover.some(h => h(x, y))) return;   // 地域パックのホバー（e-Stat の町丁目 tip＝日本の install が差す）・検査表示の間は出さない（#174）
 		if ((gint.interactive && gint.hover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
-		const a0TipOn = opts.countryTip !== false && gint.admin0Layer && gint.admin0Vis && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
+		const a0TipOn = opts.countryTip !== false && gint.admin0Layer && gint.admin0Vis && !gint.internalHidden && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
 		if (a0TipOn && gint.admin0Pbf && gint.hoverTip && !fudeOwn) {
 			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
 			if (cam.zoom >= gint.WORLD_TIP_MAXZ) { if (gint.worldTipOn) { gint.hoverTip(null); gint.worldTipOn = false; } return; }
@@ -1638,7 +1643,7 @@ Object.assign(layerState, fixedLayers);   // 固定は最後＝共有URLでも�
 let styleSig = JSON.stringify(layerState);
 let lastTileOrder = [];   // 直近フレームで描いた基図タイル [{ key:"z/x/y", z }]（map.queryRenderedFeatures）
 // 結合で外す層の添字＝テーマの点火ゲート（チップ）∪ 基図の層の出し入れ（段 7・baseVis）
-const baseHiddenIdx = () => { const h = new Set(); if (baseVis.size) style.layers.forEach((L, i) => { if (baseVis.get(L.id) === "none") h.add(i); }); return h; };
+const baseHiddenIdx = () => { const h = new Set(); if (inspectHide) style.layers.forEach((L, i) => h.add(i)); else if (baseVis.size) style.layers.forEach((L, i) => { if (baseVis.get(L.id) === "none") h.add(i); }); return h; };
 const hiddenAll = () => { const h = themes.hiddenLi(layerState, cam.zoom); for (const i of baseHiddenIdx()) h.add(i); return h; };
 const mkThemes = st => { const th = createThemes(st, { suppressAdmin: !!opts.hideAdminBoundary }); if (st.ext) { th.hiddenLi = () => new Set(); th.filterLabels = all => all; } return th; };   // 外来 style＝チップの点火ゲートと注記の分類（地理院の層 id・注記コード）を当てない＝style が描くと言った物を全部
 let themes = mkThemes(style);   // 分類（allowlist）は themes.js の純関数。
@@ -1783,7 +1788,7 @@ function rebuildLabels(order) {
 	// POI台帳（施設チップON・z14+）：rank 解禁・案A dedup・権威位置の上書き＝packages/jp/src/poi.js injectLabels
 	if (poi && layerState.facility && cam.zoom >= 14) poi.injectLabels(allLabels, { zoom: cam.zoom, ink: facInk(), landmarkCode: LANDMARK_CODE });
 	const bh = baseHiddenIdx();   // 隠した基図の層のラベル（worker のラベルは層の添字 li を持つ・段 7）
-	const merged = mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ
+	const merged = inspectHide ? [] : mergeChome(bh.size ? allLabels.filter(L => L.li == null || !bh.has(L.li)) : allLabels, cam.zoom);   // 町丁名の二系統(210/800)を（N）表記ひとつへ畳んでから allowlist へ（検査表示の間は基図の注記を出さない＝層の添字を持たない台帳の注記も）
 	// 層の出しズームの外の注記は送らない（labels.js が焼いた minZ/maxZ＝エンジンの z）＝この整数 z の間（labelGate の "Z"）に出る可能性のある物だけ。
 	// 旧＝全部送って描く側が zoom 域で捨てていた＝OpenFreeMap の poi_r20（minzoom 18）が z15 で 15753 個＝送るのも 150ms ごとの衝突判定の走査も重かった（2026-09-28）
 	const zf = Math.floor(cam.zoom), inZ = L => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
@@ -3784,6 +3789,7 @@ const vtxDescOf = async (sid, sp) => {
 	if (!p) {
 		p = resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }).then(r => ({
 			tileUrl: r.pmtiles ? null : tileUrlOf(r), pmtiles: r.pmtiles || null, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds ?? null, promoteId: sp.promoteId ?? null, encoding: r.encoding || "mvt", tag: JSON.stringify(r.pmtiles || r.tiles) + "|" + (r.encoding || "mvt"), attribution: sp.attribution ?? r.attribution ?? null,   // encoding＝タイルの形式（mvt｜mlt・#88）
+			vectorLayers: r.vectorLayers ?? null,   // TileJSON の層の一覧（検査表示 #174 の台帳）
 		}));
 		vtxDescs.set(sid, p);
 		p.catch(() => vtxDescs.delete(sid));   // 失敗は覚えない（次の addLayer で取り直す）
@@ -4323,6 +4329,7 @@ function restyleBase() {
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
 	renderer.set("view", { land });
+	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(style) }); }   // 層の添字（削除で動く）
 	themes = mkThemes(style);
 	setPipelineStyle(style);
@@ -4349,6 +4356,7 @@ map.setStyle = async (spec, o = {}) => {
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
 	renderer.set("view", { land });
+	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	themes = mkThemes(style);
 	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）
@@ -4376,7 +4384,15 @@ map.querySourceFeatures = (sid, qo = {}) => {
 // 返り値＝Promise<Feature[]>（上に描かれたものから）。基図は ortho-core の queryTiles（描いているタイルを取り直して今のスタイルで当てる）。
 // その上に載せたもの＝集約（"clusters"/"unclustered-point"・点の問い合わせだけ）・画像（id "img:<n>"・raster）・押し出し（"extrude"・fill-extrusion）・利用者の図形（"user"・gint の識別＝許容は m 換算）。
 // MapLibre と違う点＝非同期（タイルを取り直すため）。基図の層 id はスタイルの id（地域パックの style）。
-const queryCache = new Map();   // "z/x/y" → 解読済みタイル（直近 32 枚）
+// 基図の解読の控え＝読む source-layer の組と置き場ごと（#174 段 5・旧＝"z/x/y" だけが鍵＝style を替えて読む層が増えても、別の置き場へ替えても古い解読を返した）。
+// 鍵が変われば前の控えは捨てる（組は 1 つずつしか使わない）。中身は "z/x/y" → 解読済みタイル（直近 32 枚）
+const queryCache = new Map();
+const baseQueryCache = () => {
+	const k = baseSidNow() + "|" + (BASE_SOURCE.url ?? BASE_SOURCE.kind) + "|" + [...new Set((style.layers || []).map(L => L["source-layer"]).filter(Boolean))].sort().join(",");
+	let c = queryCache.get(k); if (!c) { queryCache.clear(); queryCache.set(k, c = new Map()); }
+	if (c.size > 32) c.clear();
+	return c;
+};
 const vtdQueryCache = new Map();   // "sid|source-layer の組" → Map<"z/x/y", 解読済みタイル>（vector source の描く層・段 8⑤）
 // 押し出しの当たり＝立体（MapLibre の fill-extrusion と同じく屋根と壁・台帳 R23・幾何は extrude-ml.js の hitExtrusion＝vector の押し出しと共用）。点が空（球の外）でも高い屋根には当たる。
 // 地面＝描いている地面と同じ所で当てる（model.js の mode）：plane＝床の平面（地形へ持ち上げない）・drape＝どこでも地表の標高へ・
@@ -4487,7 +4503,29 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const pt = area.ll || [(area.bbox[0] + area.bbox[2]) / 2, (area.bbox[1] + area.bbox[3]) / 2];
 	const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
 	const inPolyGeom = (g, x, y) => (g.type === "Polygon" ? [g.coordinates] : g.type === "MultiPolygon" ? g.coordinates : []).some(p => inRing(p[0], x, y) && !p.slice(1).some(h => inRing(h, x, y)));
-	const touches = g => area.ll ? inPolyGeom(g, pt[0], pt[1]) : JSON.stringify(g.coordinates).match(/-?\d+\.?\d*,-?\d+\.?\d*/g)?.some(s => { const [x, y] = s.split(",").map(Number); return inBox(x, y); });
+	// 箱の当たり＝MapLibre と同じく「箱と交わる」地物（面は箱が丸ごと中に入っても当たる・線は箱を横切れば当たる）。旧＝頂点が箱に入る物だけ
+	//（#174・検査表示の札＝selectThreshold の箱が geojson の面の中で何も返さなかった）
+	const segInBox = (a, b) => {   // 線分と箱（Liang–Barsky）
+		const bb = area.bbox, dx = b[0] - a[0], dy = b[1] - a[1]; let t0 = 0, t1 = 1;
+		for (const [p, q] of [[-dx, a[0] - bb[0]], [dx, bb[2] - a[0]], [-dy, a[1] - bb[1]], [dy, bb[3] - a[1]]]) {
+			if (p === 0) { if (q < 0) return false; continue; }
+			const r = q / p; if (p < 0) { if (r > t1) return false; if (r > t0) t0 = r; } else { if (r < t0) return false; if (r < t1) t1 = r; }
+		}
+		return true;
+	};
+	const lineHits = cs => cs.length === 1 ? inBox(cs[0][0], cs[0][1]) : cs.some((c, i) => i > 0 && segInBox(cs[i - 1], c));
+	const boxTouches = g => {
+		switch (g?.type) {
+			case "Point": return inBox(g.coordinates[0], g.coordinates[1]);
+			case "MultiPoint": return g.coordinates.some(c => inBox(c[0], c[1]));
+			case "LineString": return lineHits(g.coordinates);
+			case "MultiLineString": return g.coordinates.some(lineHits);
+			case "Polygon": case "MultiPolygon": return (g.type === "Polygon" ? [g.coordinates] : g.coordinates).some(p => p.some(lineHits)) || inPolyGeom(g, pt[0], pt[1]);   // 輪が箱を横切る｜箱の中心が面の中（箱が面に丸ごと入る）
+			case "GeometryCollection": return (g.geometries || []).some(boxTouches);
+			default: return false;
+		}
+	};
+	const touches = g => area.ll ? inPolyGeom(g, pt[0], pt[1]) : boxTouches(g);
 	const out = [];
 	// 模様・線の飾り（canvas2D の口＝描画の段の一番上・段 5）＝点は画面の px で当てる（面＝内側・線＝線分からの距離 ≤ 幅/2＋|ずらし|＋許し）・箱は外接の重なり
 	const segDist = (x, y, a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / L2)) : 0; return Math.hypot(x - a[0] - t * dx, y - a[1] - t * dy); };
@@ -4570,11 +4608,10 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		hitsV.sort((a, b) => b[0] - a[0]);   // 安定＝同じ層の中は queryTiles の順
 		for (const [, f] of hitsV) { delete f.tile; out.push(f); }
 	}
-	if (queryCache.size > 32) queryCache.clear();
 	const baseIds = want && new Set((style.layers || []).map(L => L.id));
 	if (want && ![...want].some(id => baseIds.has(id))) return qf(out);   // 基図の層を頼んでいない＝タイルを取り直さない（層ごとのイベントの hover を軽く）
 	const base = await queryTiles({ gs: MAP_GS, style, hidden: hiddenAll(), order: lastTileOrder, tileUrl: BASE_SOURCE.tileUrl, zoom: cam.zoom, area, tolPx,
-		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; });   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
+		layers: qo.layers || null, filter: qo.filter || null, cache: baseQueryCache(), request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; });   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
 	for (const f of base) f.state = vtxStateOf(f.source, f.sourceLayer, f.id);   // 基図の地物にも state（絵には効かない＝基図の配管は状態を読まない・MapLibre と同じ形の答え・#109 段 3）
 	return qf(out).concat(base);
 };
@@ -4646,6 +4683,93 @@ map.once = (ev, a, b) => {
 	if (!b) return new Promise(res => { const f = e => { map.off(ev, a, f); res(e); }; map.on(ev, a, f); });
 	const f = e => { map.off(ev, a, f); b(e); }; return map.on(ev, a, f);
 };
+// ── 検査表示（maplibre-gl-inspect 相当・#174）＝ベクタタイルの全 source-layer を層ごとの色で描き、カーソルの下の地物の属性を出す ──────────
+// ここは地図の内側の 2 つだけ（本体の UI・札・色・層の出し入れは gadgets/inspect.js＝遅延 chunk）：
+//   ① 層の台帳（段 2）＝source ごとの source-layer 一覧。出所の順：TileJSON の vector_layers → PMTiles の metadata → どちらも無ければ画面の中心のタイルを
+//      解いて層名を集める（地域の基図＝style が使わない層も・本人裁定 2026-09-30「タイルの全層」）。解いて集めた分は視点が変わるたびに足す（z で層が変わる）。
+//      出すのは vector と geojson の source だけ＝世界の帯（z<6.5 の Natural Earth＝gint の内部層）は出さない（本人裁定＝maplibre-gl-inspect と同じ範囲）
+//   ② 下地（段 3）＝基図の全層・自動の建物・注記・世界の帯（内部層・世界の色）・利用者の他の層・画像タイル層を伏せ、陸を背景色に。
+//      どれも「結合から外す／表示の旗／view の値」だけ＝基図を焼き直さない（restyleBase は使わない）。控えて、戻すと元の絵
+const inspectFound = new Map();   // sid → Map<層名, { id, fields }>（タイルを解いて集めた分＝足すだけ）
+const inspectTried = new Map();   // sid → Set<"z/x/y">（解いたタイル＝同じ所は取り直さない）
+const inspectTileLayers = async (sid, desc, isBase) => {   // 画面の中心のタイルを 1 枚解いて層名を集める（全層＝need なし）
+	const c = cam.center, lon = ((c[0] + 540) % 360) - 180, lat = Math.max(-85, Math.min(85, c[1]));
+	// どのタイルか＝いま描いているタイル（基図＝lastTileOrder・vector の描く層＝その source の出しているタイル）のうち中心を含む一番細かい物。まだ描いていなければ今のズームの 1 つ上（512px のタイル）
+	let t = null;
+	for (const o of (isBase ? lastTileOrder : vtdCtl?.shownTiles(sid)) || []) { const [tz, tx, ty] = o.key.split("/").map(Number), [cx, cy] = lonLatToTile(lon, lat, tz); if (cx === tx && cy === ty && (!t || tz > t[0])) t = [tz, tx, ty]; }
+	if (!t) { const tz = Math.max(desc.minzoom ?? 0, 0, Math.min(desc.maxzoom ?? 22, Math.floor(cam.zoom) - 1)); t = [tz, ...lonLatToTile(lon, lat, tz)]; }
+	const [z, x, y] = t, key = `${z}/${x}/${y}`;
+	const tried = inspectTried.get(sid) ?? new Set(); inspectTried.set(sid, tried);
+	if (tried.has(key)) return; tried.add(key);
+	let data = null;
+	try {
+		if (desc.pmtiles) {
+			const b = await fetchPMTilesRaw(desc.pmtiles, z, x, y), info = b ? await pmtilesInfo(desc.pmtiles) : null;
+			if (b && info && !isRasterTileType(info.tileType)) { await loadTileFormat(info.tileType); data = decodeTile(b, null, info.tileType); }
+		} else {
+			const url = desc.tileUrl?.(z, x, y); if (!url) return;
+			const rq = requester.forTiles()(url, "Tile");
+			data = rq?.load ? await fetchMVT(rq.url, null, null, null, await rq.load(), desc.encoding || "mvt")
+				: await fetchMVT(rq?.url ?? url, null, null, rq ? { headers: rq.headers, credentials: rq.credentials } : null, null, desc.encoding || "mvt");
+		}
+	} catch (err) { tried.delete(key); console.warn(`[inspect] cannot read tile ${key} of "${sid}"`, err); return; }
+	const m = inspectFound.get(sid) ?? new Map(); inspectFound.set(sid, m);
+	for (const [name, L] of Object.entries(data || {})) {
+		if (name === "__empty" || m.has(name)) continue;
+		const fields = {}; for (const f of (L?.features || []).slice(0, 64)) for (const k of Object.keys(f.props || {})) fields[k] ??= "";   // 属性の名前（型は申告が無い＝空）
+		m.set(name, { id: name, fields });
+	}
+};
+const inspectSources = async () => {   // → [{ id, type:"vector"|"geojson", layers:[{ id, fields, minzoom?, maxzoom? }]|null, from:"tilejson"|"pmtiles"|"tiles"|null }]（出す順＝基図→足した順）
+	const base = BASE_SOURCE.kind !== "none" && !mlSources.has(baseSidNow()) ? baseSidNow() : null;
+	const ids = [...(base ? [base] : []), ...[...mlSources].filter(([, sp]) => sp?.type === "vector" || sp?.type === "geojson").map(([id]) => id)];
+	const out = await Promise.all(ids.map(async sid => {
+		const sp = sid === base ? baseSrcSpec(sid) : mlSources.get(sid);
+		if (sp.type === "geojson") return { id: sid, type: "geojson", layers: null, from: null };
+		const desc = await vtxDescOf(sid, sp).catch(err => { console.warn(`[inspect] source "${sid}"`, err); return null; });
+		if (!desc) return null;
+		let vl = (sid === base ? EXT?.src?.vectorLayers : desc.vectorLayers) ?? null, from = vl?.length ? "tilejson" : null;
+		if (!vl?.length && desc.pmtiles) { vl = (await pmtilesInfo(desc.pmtiles).catch(() => null))?.vectorLayers ?? null; from = vl?.length ? "pmtiles" : null; }
+		if (!vl?.length) { await inspectTileLayers(sid, desc, sid === base); vl = [...(inspectFound.get(sid)?.values() ?? [])]; from = "tiles"; }
+		return { id: sid, type: "vector", layers: vl, from };
+	}));
+	return out.filter(Boolean);
+};
+let inspectSaved = null;   // 伏せる前の姿（自動の建物・利用者の層の表示・画像タイル層の表示）
+const inspectView = {
+	get on() { return inspectHide; },
+	// on＝伏せる（background＝陸の色）。何度呼んでも控えは最初の 1 回（背景色だけ替わる）
+	set(on, { background = "#fff" } = {}) {
+		if (on) {
+			const bgc = parseRGBA(background) ?? [1, 1, 1, 1];
+			inspectReapply = () => renderer.set("view", { land: bgc, worldHypsoZ: 0, graticule: false, night: false });   // 世界の色（ハイプソ・湖・海面下・罫線）は退場ズーム 0＝外来 style と同じ・夜面なし
+			if (!inspectHide) {
+				inspectHide = true;
+				const layers = [], rasters = [];
+				for (const [id, v] of [...mlLayers]) if (v.kind !== "custom" && mlVisible(v)) { layers.push(id); map.setLayoutProperty(id, "visibility", "none"); }   // 利用者の層（外来 style の vector/geojson/画像の層も）。custom 層は layout を持たない＝そのまま
+				for (const r of map.raster.list()) if (!mlLayers.has(r.id) && r.opts?.visible !== false) { rasters.push(r.id); map.raster.set(r.id, { visible: false }); }   // 画像タイル層（地域の写真・外来 style の画像・日影…）
+				inspectSaved = { autoBld: autoBldHidden, layers, rasters };
+				setAutoBld(true);
+				gint.setInternalHidden(true); gint.hoverTip?.(null); gint.worldTipOn = false;
+				remergeBase();
+			}
+			inspectReapply();
+		} else if (inspectHide) {
+			inspectHide = false; inspectReapply = () => {};
+			const sv = inspectSaved; inspectSaved = null;
+			setAutoBld(sv.autoBld);
+			gint.setInternalHidden(false);
+			renderer.set("view", { land, worldHypsoZ: BASEMAP_MINZOOM, graticule: WORLD_VT, night: opts.night !== false });   // 起動の値（boot の set("view") と同じ）・陸は今のテーマの色
+			for (const id of sv.rasters) map.raster.set(id, { visible: true });
+			for (const id of sv.layers) if (mlLayers.has(id)) map.setLayoutProperty(id, "visibility", "visible");
+			remergeBase();
+		}
+		needsDraw = true;
+	},
+};
+map.gadget("inspect", function (opts) {   // 検査表示 … 層の台帳と下地の切り替え・座標の変換を注入。本体（inspect.js）は初回に import()＝初期バンドルから隔離
+	return inspectGadget.call(this, { signal: ac.signal, ...opts, listSources: inspectSources, view: inspectView, canvas, evXY });   // 内側の口は利用者の opts より後＝上書きさせない（opts.sources＝公式の「明示の層」とは別名）
+});
 // ローカル容器（.gpkg/.mbtiles）の画像タイル＝"drop" 層として基図に（塗りは伏せる）。fallback＝タイル表が無ければ false（呼び手がベクタ本道へ）
 const rasterDropFile = async (file, fallback = false) => {
 	annoCtl?.clear(); cogCtl?.clear();

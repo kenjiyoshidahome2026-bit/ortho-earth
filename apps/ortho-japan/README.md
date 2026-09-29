@@ -74,6 +74,7 @@ map.gadget.mesh();      // 3D building data manager (preload / delete) — old n
 map.gadget.contextmenu();
 map.gadget.dropFile();  // drag & drop GIS files (GeoJSON/Shapefile/KML/GPX/FGB/GML/GeoParquet/COG/glTF-GLB…)
 map.gadget.hint();      // gesture help card
+map.gadget.inspect();   // inspect the vector tiles: every source-layer in its own color, attributes on hover (same options as maplibre-gl-inspect; MapLibre-style maps: map.addControl(new MaplibreInspect()))
 map.gadget("myGadget", function () { /* this = map */ });   // your own
 ```
 
