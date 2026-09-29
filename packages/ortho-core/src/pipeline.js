@@ -47,7 +47,8 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			const p = pending.get(e.data.id); if (!p) return; pending.delete(e.data.id);
 			if (keyToId.get(p.key) === e.data.id) keyToId.delete(p.key);
 			// 成否を外へ通知（abort=視野外中断は失敗に数えない）＝main が「通信断トースト」の判断材料にする
-			if (onTile && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
+			// 取得先の無いタイル（noUrl＝外来 style にベクタの基図が無い＝画像タイルだけ等）は通信の失敗に数えない（2026-09-29・公式例 3d-terrain で「地図データの取得に失敗」が誤って出た）
+			if (onTile && !p.noUrl && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
 			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
@@ -62,7 +63,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			err => { const p = pending.get(id); if (p) { pending.delete(id); p.reject(err); } });
 		else w.postMessage({ id, url: rq?.url ?? url, z: t.z, x: t.x, y: t.y, ...(rq?.headers || rq?.credentials ? { init: { headers: rq.headers, credentials: rq.credentials } } : {}) });
 		keyToId.set(key, id);
-		return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key, w }));
+		return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key, w, noUrl: !url }));
 	}
 	// 視野から外れた in-flight タイルの中断（tilemanager が update 毎に呼ぶ）。
 	// main側の pending を即 "aborted" で解決＝呼び出し元(ensure)がエントリを消して再訪時に再取得可能にする。

@@ -84,7 +84,7 @@
 		"display-html-clusters-with-custom-properties": 1,
 		"display-line-that-crosses-180th-meridian": 2,
 		"display-map-navigation-controls": 3,
-		"display-performance-metrics": 0,
+		"display-performance-metrics": 3,
 		"draw-a-circle": 1,
 		"draw-geojson-points": 2,
 		"draw-geometries-with-terra-draw": 1,
