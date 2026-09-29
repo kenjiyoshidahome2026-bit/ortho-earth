@@ -16,7 +16,8 @@ import { cameraState, unproject, project, lonlatTo3D } from "./camera.js";
 // 地面が海面球より画面下まで映り込む＝海面基準の被覆は手前のくさび形が欠けて紙色になる（2026-08-03根治）。
 // 被覆は海面球との**和集合**で取る（サンプル・可視判定とも両球）＝リフト球は「手前の映り込み」を足すだけで、
 // 遠景は海面基準のまま守られる。中心標高が遠景より高い時（山上→谷）でも旧選抜の上位集合＝欠けの退行がない。
-export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1 } = {}) {
+// zOf＝(z, x, y) → そのタイルで望む z（MapLibre の選び方＝mlcover.mlTileZoomOf）。渡すと画面の大きさの閾（tilePx・sticky・floorZ）は使わず「z が望む z に届くまで割る」＝MapLibre の coveringTiles と同じ規則。可視判定はこのまま
+export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid = 10, sticky = null, stickyRatio = 0.8, floorZ = 0, floorRatio = 0.45, groundR = 1, zOf = null } = {}) {
 	const st = cameraState(cam, W, H);
 	const samples = [];
 	for (let iy = 0; iy <= grid; iy++) for (let ix = 0; ix <= grid; ix++) {
@@ -44,7 +45,7 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 		if (!m.visible) continue;                   // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(t.z + "/" + t.x + "/" + t.y) ? tilePx * stickyRatio : tilePx;
-		if (t.z < maxZ && m.size > th) {
+		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : m.size > th)) {
 			const z = t.z + 1, x = t.x * 2, y = t.y * 2;
 			stack.push({ z, x, y }, { z, x: x + 1, y }, { z, x, y: y + 1 }, { z, x: x + 1, y: y + 1 });
 		} else out.push(t);
