@@ -1,0 +1,54 @@
+<!doctype html>
+<!-- CZML の正解表（#113 段 0）＝CesiumJS 1.145.0（jsDelivr）に試料の CZML を読ませ、固定時刻の位置（地球固定・経緯度と高さ）と「出ているか」を答えさせる。
+     ?bake=1＝答えを window.__ref に置くだけ（scripts/bake-czml-ref.mjs が fixtures/czml/ref.json に焼く）。
+     既定＝焼いた ref.json と今の Cesium の答えを突き合わせる（verify:net＝外部に依る・常設の関門には入れない）。
+     慣性系（INERTIAL）の標本は Transforms.preloadIcrfFixed で ICRF→地球固定を使わせる（読めないと Cesium は TEME の近似へ落ちる＝焼かない）。
+     Cesium の既定の地球回転パラメータは無し（UT1＝UTC・極運動なし）＝この地図と同じ前提。 -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-czml-ref</title>
+<script>window.CESIUM_BASE_URL = "https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium/";</script>
+<script src="https://cdn.jsdelivr.net/npm/cesium@1.145.0/Build/Cesium/Cesium.js" crossorigin="anonymous"></script>
+</head><body>
+<script type="module">
+const BAKE = new URLSearchParams(location.search).has("bake");
+const FILES = ["simple.czml", "dateline.czml"];
+const STEP_S = { "simple.czml": 211, "dateline.czml": 97 };   // 標本の間隔と揃わない刻み（標本の時刻ちょうどだけを見ない）
+try {
+	const C = window.Cesium;
+	if (!C) throw new Error("Cesium did not load");
+	const out = { cesium: C.VERSION, files: {} };
+	for (const f of FILES) {
+		const ds = await C.CzmlDataSource.load(new URL(`./fixtures/czml/${f}`, location.href).href);
+		const ck = ds.clock, start = ck.startTime, stop = ck.stopTime, span = C.JulianDate.secondsDifference(stop, start);
+		const icrf = await C.Transforms.preloadIcrfFixed(new C.TimeInterval({ start, stop })).then(() => !!C.Transforms.computeIcrfToFixedMatrix(start)).catch(() => false);
+		if (!icrf) throw new Error(`${f}: ICRF→fixed data did not load`);
+		const file = { clock: { start: C.JulianDate.toIso8601(start), stop: C.JulianDate.toIso8601(stop), current: C.JulianDate.toIso8601(ck.currentTime), multiplier: ck.multiplier, range: ["UNBOUNDED", "CLAMPED", "LOOP_STOP"][ck.clockRange] }, entities: {} };
+		for (const e of ds.entities.values) {
+			if (!e.position) continue;
+			const rows = [];
+			for (let s = 0; s <= span; s += STEP_S[f]) {
+				const t = C.JulianDate.addSeconds(start, s, new C.JulianDate());
+				const p = e.position.getValueInReferenceFrame(t, C.ReferenceFrame.FIXED);
+				const avail = e.isAvailable(t);
+				if (!p) { rows.push([s, null, null, null, avail]); continue; }
+				const g = C.Cartographic.fromCartesian(p);
+				rows.push([s, +C.Math.toDegrees(g.longitude).toFixed(9), +C.Math.toDegrees(g.latitude).toFixed(9), +g.height.toFixed(4), avail]);
+			}
+			file.entities[e.id] = rows;
+		}
+		out.files[f] = file;
+	}
+	if (BAKE) { window.__ref = out; document.title = "PASS baked " + Object.entries(out.files).map(([f, v]) => `${f}:${Object.keys(v.entities).length}`).join(" "); }
+	else {
+		const ref = await (await fetch("./fixtures/czml/ref.json")).json();
+		let worst = 0, n = 0, bad = [];
+		for (const [f, v] of Object.entries(ref.files)) for (const [id, rows] of Object.entries(v.entities)) rows.forEach((r, i) => {
+			const q = out.files[f]?.entities[id]?.[i]; n++;
+			if (!q || q[4] !== r[4] || (r[1] == null) !== (q[1] == null)) { bad.push(`${f}:${id}@${r[0]}`); return; }
+			if (r[1] != null) worst = Math.max(worst, Math.abs(q[1] - r[1]), Math.abs(q[2] - r[2]));
+		});
+		const ok = !bad.length && worst < 1e-7;
+		document.title = (ok ? "PASS " : "FAIL ") + `Cesium ${out.cesium}（焼いた ${ref.cesium}）・${n} 標本・最大の差 ${worst.toExponential(1)}°${bad.length ? " 食い違い " + bad.slice(0, 5).join(",") : ""}`;
+	}
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
