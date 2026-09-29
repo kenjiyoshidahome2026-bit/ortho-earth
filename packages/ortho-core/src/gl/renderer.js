@@ -372,6 +372,8 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
+	let userAnchor = { ranges: [], rev: 0 };
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
@@ -1708,7 +1710,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
-			case "bldFill":   bldFill = { ...bldFill, ...data }; break;                          // data={li} 建物フットプリント塗り（3D時に伏せる）
+			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
+			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "gintBld":   setGintBld(data); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）
