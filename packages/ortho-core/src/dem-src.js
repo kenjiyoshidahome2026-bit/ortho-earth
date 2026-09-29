@@ -70,12 +70,17 @@ export function createDemSource(spec0) {
 	return {
 		spec,
 		covers: (lng0, lat0, range = 1) => inBounds(lng0, lat0, lng0 + range, lat0 + range),
-		// 1 点＝最大ズームのタイルから
-		async height(lon, lat) {
+		// 1 点＝zHint（今の視点のタイルの z・無ければ最大ズーム）のタイルから。無い（404）なら親へ上がる＝maxzoom の申告が無い source（既定 22）で最大ズームを直に引いて 404 を積まない（2026-09-30）
+		async height(lon, lat, zHint = null) {
 			if (!inBounds(lon, lat, lon, lat)) return NaN;
-			const z = spec.maxzoom, fx = lon2x(lon, z), fy = lat2y(lat, z);
-			const t = await tile(z, ((Math.floor(fx) % (1 << z)) + (1 << z)) % (1 << z), Math.floor(fy));
-			return sampleSync(() => t, z, fx, fy);
+			let z = Math.max(spec.minzoom, Math.min(spec.maxzoom, Number.isFinite(zHint) ? Math.floor(zHint) : spec.maxzoom));
+			for (; z >= spec.minzoom; z--) {
+				const fx = lon2x(lon, z), fy = lat2y(lat, z);
+				const t = await tile(z, ((Math.floor(fx) % (1 << z)) + (1 << z)) % (1 << z), Math.floor(fy));
+				if (t) return sampleSync(() => t, z, fx, fy);
+				if (z === spec.minzoom) break;
+			}
+			return NaN;
 		},
 		// セル（R01＝1°・R10＝10°）＝N×N の格子点（既定 N＝1025）。z＝セルの画素に見合う最小のズーム（R01 は cellZoom で固定可）。
 		// 取りに行くのは DEM の範囲（bounds）と重なるタイルだけ＝局所の細かい DEM でも 10° セルが膨れない

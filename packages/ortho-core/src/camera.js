@@ -74,10 +74,14 @@ export function cameraState(cam, W, H) {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
 	const [lon, lat] = center;
 	const Tb = lonlatTo3D(lon, lat);                                // β単位球上の注視点
-	const T = R_AX === 1 ? Tb : [Tb[0], R_AX * Tb[1], Tb[2]];       // world（楕円体面）＝S·u(β)。球では同一
+	const T0 = R_AX === 1 ? Tb : [Tb[0], R_AX * Tb[1], Tb[2]];      // world（楕円体面）＝S·u(β)。球では同一
 	const a = lon * D2R, b = lat * D2R, cb = Math.cos(b);
 	// 面法線＝測地法線（楕円体の「上」＝測地緯度の定義そのもの）。球では従来の動径と同式＝ビット同値。
 	const nrm = [cb * Math.cos(a), Math.sin(b), cb * Math.sin(a)];
+	// 注視点の高さ cam.centerAlt［m］（無指定＝0＝従来とビット同値）：注視点を測地法線に沿って持ち上げ、そこから camDist だけ離れた所にカメラを置く
+	// ＝MapLibre の transform.elevation（centerClampedToGround＝地形の上の中心点からズームを測る・2026-09-30）。ズーム↔距離の式は変えない
+	const alt = cam.centerAlt || 0;
+	const T = alt ? mat.add(T0, mat.scale(nrm, alt / worldRadiusM())) : T0;
 	const north = mat.norm([-Math.sin(b) * Math.cos(a), Math.cos(b), -Math.sin(b) * Math.sin(a)]);
 	const east = [-Math.sin(a), 0, Math.cos(a)];
 	const fwdH = mat.norm(mat.add(mat.scale(north, Math.cos(bearing)), mat.scale(east, Math.sin(bearing))));
