@@ -25,7 +25,7 @@
 		"@loaders.gl/i3s": "^4.4.3",
 		"@ortho-earth/columnar": "^0.1.0",
 		"@ortho-earth/core": "^1.9.0",
-		"@ortho-earth/ephem": "^1.0.0",
+		"@ortho-earth/ephem": "^1.1.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
 		"geoedit": "^0.3.1",
