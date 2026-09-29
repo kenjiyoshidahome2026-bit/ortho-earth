@@ -117,7 +117,10 @@ export const runVirtual = url => new Promise(res => execFile(CHROME,
 	{ timeout: 90000, maxBuffer: 64 * 1024 * 1024 },
 	(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));
 
-// 頁の列を順に回して PASS/FAIL を出す。urlOf(page,query) は呼ぶ側の器が決める。
+// 頁の列を回して PASS/FAIL を出す。urlOf(page,query) は呼ぶ側の器が決める。
+// jobs＝同時に回す頁の数（既定＝環境変数 VG_JOBS か 1）。頁ごとに別の Chrome・別プロファイル・Chrome が選ぶ CDP の口＝並べても互いに漏れない。
+//   serial＝並べると負荷で揺れる頁（色の標本・時間の測り）＝並べた分が終わってから 1 本ずつ回す（検定は緩めない）。
+//   出力は頁の並び順のまま（終わった順ではない）・各行に掛かった秒数・最後に壁時計と遅い頁。
 // base＝全頁に付ける既定の query。既定の gl2=1 は SwiftShader の門（verify-ui・nocoi）向け＝WebGPU の門は "lang=ja" を渡す。
 // expectBackend＝"webgpu" を渡すと実時間の頁で backend を検める（T1・2026-09-25。旧＝runner が全頁に gl2=1 を付けており、
 //   verify:webgpu の createGlobe/app.js 頁の多くが黙って WebGL2 で走っていた＝WebGPU 経路の回帰を見ていなかった）：
@@ -125,9 +128,11 @@ export const runVirtual = url => new Promise(res => execFile(CHROME,
 //   ・noBoot の頁（地球儀を起こさない＝createRenderer 直叩き・OPFS 等）は起動ログを求めない
 //   ・どの頁も表題に skip／スキップ（WebGPU 不在で素通りする印）があれば FAIL
 export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, shotLast = process.env.SHOT || null,
-	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set() }) {
-	let fail = 0, seq = 0;
-	for (const p of pages) {
+	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set(), jobs = +process.env.VG_JOBS || 1, serial = new Set() }) {
+	let seq = 0;
+	const t0 = Date.now();
+	const one = async p => {
+		const tp = Date.now();
 		const [page, extra = ""] = p.split("?");
 		const q = new URLSearchParams(base);
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
@@ -149,10 +154,31 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 			if (!worlds.length || worlds.some(w => w !== wantWorld)) title = `FAIL world=${seen}（期待 ${wantWorld}）: ` + title.replace(/^PASS ?/, "");
 			else title = title.replace(/^PASS ?/, `PASS [${seen}] `);
 		}
-		const pass = title.startsWith("PASS");
-		if (!pass) fail++;
-		console.log(`${pass ? "PASS" : "FAIL"}  ${p.padEnd(pad)} ${title.replace(/^(PASS|FAIL) ?/, "")}`);
-	}
+		return { title, s: (Date.now() - tp) / 1000 };
+	};
+	// 並べる頁と 1 本ずつの頁に分け、結果は元の並びの番号で持つ＝出力は並び順（前の頁が終わるまで次の行は出さない）
+	const res = new Array(pages.length);
+	let printed = 0, fail = 0;
+	const flush = () => {
+		while (printed < pages.length && res[printed]) {
+			const p = pages[printed], { title, s } = res[printed++], pass = title.startsWith("PASS");
+			if (!pass) fail++;
+			console.log(`${pass ? "PASS" : "FAIL"}  ${p.padEnd(pad)} ${title.replace(/^(PASS|FAIL) ?/, "")}  〔${s.toFixed(1)}s〕`);
+		}
+	};
+	const isSerial = p => serial.has(p) || serial.has(p.split("?")[0]);
+	const N0 = Math.max(1, jobs | 0);
+	// 並べる頁は長い物から始める（上限秒 long を目安に・同じなら元の並び）＝最後に長い頁が 1 本だけ走って待つ尻尾を短くする
+	const limitOf = i => long[pages[i].split("?")[0]] ?? 60;
+	const par = pages.map((p, i) => i).filter(i => !isSerial(pages[i])).sort((a, b) => N0 > 1 ? limitOf(b) - limitOf(a) || a - b : a - b), ser = pages.map((p, i) => i).filter(i => isSerial(pages[i]));
+	const N = Math.max(1, Math.min(N0, par.length || 1));
+	if (N > 1) console.log(`（${N} 本ずつ並べる・${ser.length ? `並べない頁 ${ser.length} 本は後で 1 本ずつ` : "並べない頁なし"}）`);
+	let k = 0;
+	await Promise.all(Array.from({ length: N }, async () => { while (k < par.length) { const i = par[k++]; res[i] = await one(pages[i]); flush(); } }));
+	for (const i of ser) { res[i] = await one(pages[i]); flush(); }
+	flush();
+	const slow = pages.map((p, i) => [p, res[i].s]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p, s]) => `${p} ${s.toFixed(0)}s`).join("・");
+	console.log(`\n壁時計 ${((Date.now() - t0) / 60000).toFixed(1)} 分（${N} 本ずつ）・遅い頁：${slow}`);
 	console.log(fail ? `\n✗ ${fail}/${pages.length} ページ失敗` : `\n✓ 全${pages.length}ページ PASS`);
 	return fail;
 }
