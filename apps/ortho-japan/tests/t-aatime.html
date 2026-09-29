@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- 実描画の検分：時計で動く間の遷移時 AA（#125・WebGPU）。東京駅 z15・60°・影あり。
+     ①静止＝品質フレーム（aa=4）②影の時刻を毎フレーム送る（map.setShadows({ time })＝カメラは静止）＝動いている扱い＝aa=1
+     ③止めて RES_SETTLE_MS（500ms）待つ＝4x の品質フレームが 1 枚＝aa=4 に戻る ④同一フレームのオーバーレイへ毎フレーム状態を流す（overlayMsg）＝aa=1・止めれば 4
+     aa は ?hud=1 の計器（__perf().aa＝直近フレームの AA 段・~2Hz）。実 GPU（WebGPU）・実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}</style><title>t-aatime</title></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x ? `(${x})` : ""));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const SITE = [139.7671, 35.6812];
+try {
+	const map = await orthoJapan({ view: `#15/${SITE[1]}/${SITE[0]}/60t`, chips: false });
+	const perf = () => (window.__perf ? window.__perf() : null);
+	if (!perf()) throw new Error("__perf が無い（debugGlobals）か ?hud=1 が無い");
+	for (let i = 0; i < 100 && !perf()?.backend; i++) await sleep(100);   // backend は mem テレメトリ（~2Hz）で届く＝空のうちに判定しない
+	await sleep(3000);
+	if (perf().backend !== "webgpu") { ok("webgpu-unavailable→スキップ扱いPASS", true, JSON.stringify(perf()) + " q=" + location.search); }
+	else {
+		// 計器の aa を窓の間ずっと集める（~2Hz）＝その間の段の分布
+		const collect = async ms => { const seen = new Set(); const t0 = performance.now(); while (performance.now() - t0 < ms) { const p = perf(); if (p && p.aa != null) seen.add(p.aa); await sleep(100); } return [...seen].sort().join(","); };
+		await sleep(1500);
+		ok("still=4", (await collect(1200)) === "4", await collect(200));
+		// ② 時刻の再生（影の時刻を毎フレーム 10 秒進める＝6 秒で約 1 時間）＝カメラは静止
+		const T0 = Date.parse("2026-03-20T01:00:00Z");
+		let tt = T0, run = true;
+		map.setShadows({ on: true, time: tt });
+		await sleep(2500);   // 影の資源を作り、初回の深度パス（動的解像度の揺れ）を過ぎる
+		const tick = () => { if (!run) return; tt += 10000; map.setShadows({ on: true, time: tt }); requestAnimationFrame(tick); };
+		requestAnimationFrame(tick);
+		await sleep(1500);
+		const during = await collect(2500);
+		ok("time-playback=1", during === "1", during);
+		run = false;
+		await sleep(1800);   // RES_SETTLE_MS を越えて品質フレームが 1 枚
+		const after = await collect(1200);
+		ok("stopped→4", after === "4", after);
+		map.setShadows(false);
+		// ④ オーバーレイへ毎フレームの状態（地震の再生の型）
+		// 点のオーバーレイ（points-gl＝frame は false を返す＝自前の続きは無い＝main が毎フレーム流す型）。probe-depth-overlay は frame が true を返し続ける（自前の続き＝衛星の型）＝止まらない
+		const ov = map.overlay(new URL("../../../packages/globe/src/gadgets/points-gl.js", import.meta.url).href, { name: "aatime" });
+		await sleep(1500);
+		let run2 = true;
+		const pos1 = () => { const a = (performance.now() % 1000) / 1000 * 2 * Math.PI, R = 6371000; return new Float32Array([Math.cos(SITE[1] * Math.PI / 180) * Math.cos(SITE[0] * Math.PI / 180) * (1 + 50 / R), Math.sin(SITE[1] * Math.PI / 180) * (1 + 50 / R + 0.00001 * Math.sin(a)), Math.cos(SITE[1] * Math.PI / 180) * Math.sin(SITE[0] * Math.PI / 180) * (1 + 50 / R)]); };
+		const tick2 = () => { if (!run2) return; const pos = pos1(); ov.post({ type: "layer", q: 0, n: 1, pos }, [pos.buffer]); requestAnimationFrame(tick2); };
+		requestAnimationFrame(tick2);
+		await sleep(1500);
+		const during2 = await collect(2500);
+		ok("overlay-stream=1", during2 === "1", during2);
+		run2 = false;
+		await sleep(1800);
+		const after2 = await collect(1200);
+		ok("overlay-stopped→4", after2 === "4", after2);
+		ov.remove();
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

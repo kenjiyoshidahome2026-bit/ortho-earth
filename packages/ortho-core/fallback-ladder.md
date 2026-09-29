@@ -119,7 +119,10 @@ GPU の素性で見る（Apple 以外の内蔵GPU は VRAM がシステム RAM �
 - 標高：R16F アトラス（GPU半減）・単位格子メッシュ（窓替え 75MB 再確保の根絶）・混成R01 全端末ON（`?nor01=1` 逃げ道）
 - 動的解像度＋GPU格付け＝gpuEmaRaw（30Hz モニタの壁時計の罠回避）。WebGPU も timestamp-query で同じ給餌口（tqFeed）
 - **遷移時AA（WebGPU 既定・2026-08-19）**：カメラ遷移・アニメ継続中は 1x 直描き（MSAA の store/load/resolve を
-  フレームから消す）、静止 500ms（RES_SETTLE_MS と同時計）で 4x 品質フレームを1枚。1x 遷移で busyMs が下がる＝
+  フレームから消す）、静止 500ms（RES_SETTLE_MS と同時計）で 4x 品質フレームを1枚。**時計で動く間も 1x（#125・2026-09-29）**＝影の時刻の送り
+  （set shadow）・時計の基準（set clock）・オーバーレイへの毎フレームの状態（overlayMsg＝地震の再生）が 500ms 以内に届いている間、
+  およびオーバーレイの続き（衛星）・時計の早送り（星空）の自前継続は「動いている」＝カメラ移動と同じ 1x。タイル到着等の set は従来どおり静止扱い（4x）。
+  影の時刻の再生で本体パスが 2 倍（gpuMap 10→21ms・38fps）になっていたのはこの穴。門＝japan t-aatime。1x 遷移で busyMs が下がる＝
   動的解像度の降段も実測で消える（ぼやけ対策を兼ねる）。パイプラインは sampleCount 焼き込み＝1x/4x セット取替
   （renderer/gint とも遅延生成キャッシュ）。ノブ＝`?msaa=0` 常時1x／`?msaa=1` 常時4x固定（旧挙動・A/B用）。
   GL2 は context 生成時 antialias 固定＝対象外。LOW_MEM は従来どおり既定 1x（変化なし）
