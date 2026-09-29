@@ -11,7 +11,8 @@
      ?v=default：target 無しの既定の容れ物＝1 枚目は頁の #map、2 枚目は #map を掴まず body 直下に自作（id を付けない）。
      ?v=lowmem：省メモリ端末（deviceMemory=2）＝2 枚目は建物 3D を既定で切る（ガジェットが載らない）・mesh:true で入る。
      ?v=gs：式の global-state は地図ごと（段 3b）＝同じ層（円＝gint・記号＝symbols・filter が ["global-state","type"]）を 2 枚に置き、
-       A は "a"・B は "b" に絞る＝A には a だけ・B には b だけが描かれ、問い合わせも各自（公式例 filter-layer-symbols-using-global-state の形）。 -->
+       A は "a"・B は "b" に絞る＝A には a だけ・B には b だけが描かれ、問い合わせも各自（公式例 filter-layer-symbols-using-global-state の形）。
+     ?v=sync：カメラ連動（段 4・src/sync.js）＝始めに揃う・どちらを動かしても追う・主の飛行は最後まで届く・往復しない・zoomΔ・解いたら追わない。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>
 html,body{margin:0;background:#0b1021}
 #a, #b { display: inline-block; width: 480px; height: 360px; vertical-align: top; }
@@ -32,7 +33,35 @@ const until = async (fn, ms = 4000) => { for (let i = 0; i < ms / 50 && !fn(); i
 const base = { chips: false, persistView: false };
 try {
 	const { createGlobe } = await import("@ortho-earth/globe");
-	if (V === "gs") {
+	if (V === "sync") {
+		const { syncMaps } = await import("../src/sync.js");
+		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
+		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#5/35/139" }), createGlobe({ ...base, target: "#b", view: "#3/48/2" })]);
+		await Promise.all([loaded(A), loaded(B)]);
+		const same = (x, y, dzz = 0) => { const c = x.getCenter(), d = y.getCenter(); return near(c.lng, d.lng, 1e-6) && near(c.lat, d.lat, 1e-6) && near(x.getZoom() + dzz, y.getZoom(), 1e-6) && near(x.getBearing(), y.getBearing(), 1e-6) && near(x.getPitch(), y.getPitch(), 1e-6); };
+		const show = M => { const c = M.getCenter(); return `${c.lng.toFixed(3)},${c.lat.toFixed(3)},z${M.getZoom().toFixed(2)},b${M.getBearing().toFixed(1)},p${M.getPitch().toFixed(1)}`; };
+		let off = syncMaps([A, B]);
+		ok("alignAtStart", same(A, B), `A=${show(A)} B=${show(B)}`);
+		let nB = 0; const cntB = () => nB++; B.on("move", cntB);
+		A.jumpTo({ center: [135.5, 34.7], zoom: 9, bearing: 20, pitch: 30 });
+		ok("aDrivesB", same(A, B) && nB === 1, `A=${show(A)} B=${show(B)} moves=${nB}`);
+		B.off("move", cntB);
+		B.jumpTo({ center: [-74.0, 40.7], zoom: 7, bearing: -10, pitch: 10 });
+		ok("bDrivesA", same(A, B) && near(A.getCenter().lng, -74.0, 1e-6), `A=${show(A)} B=${show(B)}`);
+		A.easeTo({ center: [151.2, -33.9], zoom: 8, bearing: 0, pitch: 0, duration: 900 });
+		await sleep(300);
+		const mid = same(A, B) && A.isMoving();
+		await until(() => !A.isMoving(), 5000); await sleep(100);
+		ok("flightReaches", mid && same(A, B) && near(A.getCenter().lng, 151.2, 1e-6) && near(A.getZoom(), 8, 1e-6), `mid=${mid} A=${show(A)} B=${show(B)}`);
+		off();
+		off = syncMaps([A, B], { zoomDelta: [0, -3] });
+		A.jumpTo({ center: [139.76, 35.68], zoom: 12 });
+		ok("zoomDelta", same(A, B, -3) && near(B.getZoom(), 9, 1e-6), `A=${show(A)} B=${show(B)}`);
+		off();
+		A.jumpTo({ center: [2.35, 48.85], zoom: 10 });
+		ok("unsync", !near(B.getCenter().lng, 2.35, 1e-3), `A=${show(A)} B=${show(B)}`);
+		A.destroy(); B.destroy();
+	} else if (V === "gs") {
 		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
 		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#8/36/141.3" }), createGlobe({ ...base, target: "#b", view: "#8/36/141.3" })]);
 		await Promise.all([loaded(A), loaded(B)]);
