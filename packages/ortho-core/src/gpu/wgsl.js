@@ -174,6 +174,10 @@ fn fogOf(w: vec3f) -> f32 {
 fn logDepthZ(w: f32) -> f32 {
 	return log2(max(1.0 + w, 1e-6)) * F.params.z * 0.5 * w;
 }
+// 画素ごとの深度（frag_depth・#62）＝z_ndc＝logDepthZ(w)/w＝0.5·logCoef·log2(1+w)。1+w を f32 で作ると w が 1.2e-7（≈0.76m）刻みに量子化され、
+// 画素ごとに書くと 0.76m の階段になる（AO が横縞の壁として見た＝実 GPU 2026-09-29）。log1p を級数で（AO の expm1s と対・w<0.1＝7 次・相対 1e-9）
+fn log1pS(w: f32) -> f32 { if (w < 0.1) { return w * (1.0 - w * (0.5 - w * (0.33333334 - w * (0.25 - w * (0.2 - w * (0.16666667 - w * 0.14285715)))))); } return log(1.0 + w); }
+fn fragDepthOf(w: f32) -> f32 { return log1pS(max(w, 1e-30)) * 1.4426950 * F.params.z * 0.5; }
 // sRGB ⇄ リニア（#46 段 0）。模型の baseColor は rgba8unorm-srgb ビューで読む＝標本化の時点でリニア。照明の計算はリニアで、出口で符号化する。
 // 出力面は素の bgra8/rgba8（sRGB ビューにしない＝基図・地形・建物は今までどおり表示空間の値をそのまま書く）。
 fn srgbEncode(c: vec3f) -> vec3f {
@@ -1483,7 +1487,7 @@ struct CapFrag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
 	var out: CapFrag;
 	out.c = vec4f(mix(CL.capT.rgb, F.fogColor, fogOf(O + X)), 1.0);
 	let pc = F.clipT + F.mvp * vec4f(X, 0.0);
-	out.d = logDepthZ(pc.w) / pc.w;
+	out.d = fragDepthOf(pc.w);   // 級数の log1p（#62・0.76m の階段を作らない）
 	return out;
 }
 `;
@@ -1557,3 +1561,33 @@ fn rd(idx: u32) -> f32 {
 	return vec4f(max(v, 0.0), 0.0, 0.0, 1.0);
 }
 `;
+
+// ── 深度を画素で書く（#62・2026-09-29）＝対数深度を頂点だけで書くと大きな三角形の内側が撓む（z_ndc＝log(w)/w が画面上で直線補間される・
+// 真は 1/w が直線）。超近景（z19 級）の地形の格子（数十 m）で撓みの傾きが AO の接平面の下駄に届き、斜めの薄い陰の帯になった。
+// 深度を書く本パス（地形・押し出し建物・メッシュ・模型＝main と影の受け手と断面の派生）全部で、clip w を varying に運び FS で
+// logDepthZ(w)/w を frag_depth に書く＝三角形の内側でも正確（地形の蓋 CLIP_CAP と同じ式）。**全パス揃える**のが条件＝地形だけ正確にすると
+// 他パス（頂点補間のまま）との釣り合いが崩れ、手前に別の帯が出た（実験 2026-09-29）。影を落とす側（CAST＝正射影・頂点だけ）は対象外。
+// 派生（deriveWgsl）の錨は触らない＝この変換は mkMod の直前に最後に掛ける（元の fs を fsColor に改名して包む＝return を書き換えない）。
+// 費用＝early-Z が効かない分（東京駅 z16.5・55° で gpuMap +0.4ms・山地は差なし）。逃げ道＝?fd=0（renderer の rOpts.fragDepth=false）
+export function fragDepthWgsl(src, label = "") {
+	const m = /@fragment fn fs\(in: (\w+)\) -> @location\(0\) vec4f \{/.exec(src);
+	if (!m) throw new Error(`fragDepth(${label}): fs not found`);
+	const out = m[1], st = src.indexOf(`struct ${out} {`);
+	if (st < 0) throw new Error(`fragDepth(${label}): struct ${out} not found`);
+	const close = src.indexOf("\n};", st);
+	if (close < 0) throw new Error(`fragDepth(${label}): struct ${out} not closed`);
+	let s = src.slice(0, close) + "\n\t@location(15) cw: f32,   // clip w（frag_depth 用・#62）" + src.slice(close);
+	const vsA = "\tp.z = logDepthZ(p.w);\n\to.pos = p;";
+	if (s.split(vsA).length !== 2) throw new Error(`fragDepth(${label}): vs anchor missing/ambiguous`);
+	s = s.replace(vsA, "\tp.z = logDepthZ(p.w);\n\to.pos = p; o.cw = p.w;");
+	s = s.replace(m[0], `fn fsColor(in: ${out}) -> vec4f {`);
+	return s + `
+struct ${out}Frag { @location(0) c: vec4f, @builtin(frag_depth) d: f32 };
+@fragment fn fs(in: ${out}) -> ${out}Frag {   // 色は元の fs（fsColor）・深度は画素ごとに対数深度（#62）
+	var o: ${out}Frag;
+	o.c = fsColor(in);
+	o.d = fragDepthOf(in.cw);
+	return o;
+}
+`;
+}
