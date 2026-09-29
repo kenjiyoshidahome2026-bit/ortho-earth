@@ -12692,6 +12692,33 @@
 			"fa": "نگه داشتن سمت دیگر",
 			"ur": "دوسری طرف رکھیں",
 			"he": "השאר את הצד השני"
+		},
+		"Move through the data's time range": {
+			"ja": "データの時間の区間を行き来する",
+			"zh": "在数据的时间区间内移动",
+			"ko": "데이터의 시간 구간 안에서 이동",
+			"fr": "Parcourir la plage temporelle des données",
+			"de": "Im Zeitraum der Daten bewegen",
+			"es": "Recorrer el intervalo de tiempo de los datos",
+			"pt": "Percorrer o intervalo de tempo dos dados",
+			"it": "Scorrere l'intervallo temporale dei dati",
+			"nl": "Door het tijdsbereik van de gegevens bewegen",
+			"pl": "Przesuwaj się w zakresie czasu danych",
+			"ru": "Перемещение по временному диапазону данных",
+			"uk": "Переміщення в часовому діапазоні даних",
+			"hu": "Mozgás az adatok időtartományában",
+			"sv": "Flytta inom datas tidsintervall",
+			"tr": "Verinin zaman aralığında ilerle",
+			"el": "Μετακίνηση στο χρονικό εύρος των δεδομένων",
+			"id": "Bergerak dalam rentang waktu data",
+			"vi": "Di chuyển trong khoảng thời gian của dữ liệu",
+			"th": "เลื่อนภายในช่วงเวลาของข้อมูล",
+			"bn": "ডেটার সময়সীমার মধ্যে সরান",
+			"hi": "डेटा की समय-सीमा में आगे-पीछे जाएँ",
+			"ar": "التنقّل ضمن النطاق الزمني للبيانات",
+			"fa": "جابه‌جایی در بازهٔ زمانی داده‌ها",
+			"ur": "ڈیٹا کی وقت کی حد میں آگے پیچھے جائیں",
+			"he": "מעבר בטווח הזמן של הנתונים"
 		}
 	}
 }

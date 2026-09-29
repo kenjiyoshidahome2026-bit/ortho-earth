@@ -46,6 +46,20 @@ try {
 	ok("now", map.clock.isLive() && Math.abs(map.clock.time - Date.now()) < 2000);
 	await until(() => !/\/t=/.test(location.hash), 3000);
 	ok("urlLive", !/\/t=/.test(location.hash), location.hash);
+	// 時間バー（#124）＝範囲がある時だけ区間のつまみ・つまみで区間の中を行き来・日時の入力の最小／最大も区間・範囲を外すと消える
+	const row = () => bar.querySelector(".ck-range-row"), rg = () => bar.querySelector(".ck-range");
+	ok("rangeRowHiddenByDefault", row() && row().style.display === "none", row()?.style.display);
+	const A = Date.parse("2012-03-15T10:00:00Z"), B = Date.parse("2012-03-16T10:00:00Z");
+	map.clock.setRange(A, B, "LOOP_STOP"); map.clock.setStep(0); await sleep(400);
+	ok("rangeRowShown", row().style.display === "flex" && map.clock.time === B && rg().value === "1000" && bar.querySelector(".ck-r0").textContent.length > 0, `${row().style.display} v=${rg().value} ${bar.querySelector(".ck-r0").textContent}–${bar.querySelector(".ck-r1").textContent}`);
+	rg().value = "250"; rg().dispatchEvent(new Event("input", { bubbles: true })); await sleep(300);
+	ok("sliderSetsTime", Math.abs(map.clock.time - (A + (B - A) * 0.25)) < 1000, new Date(map.clock.time).toISOString());
+	const dt = bar.querySelector(".ck-dt");
+	ok("dateInputBounded", dt.min.startsWith("2012-03-") && dt.max.startsWith("2012-03-"), `${dt.min} ~ ${dt.max}`);
+	map.clock.setTime(A + (B - A) * 0.75); await sleep(400);
+	ok("sliderFollowsClock", rg().value === "750", rg().value);
+	map.clock.clearRange(); await sleep(400);
+	ok("rangeRowHiddenAfterClear", row().style.display === "none" && dt.min === "1800-01-01T00:00", `${row().style.display} ${dt.min}`);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>
