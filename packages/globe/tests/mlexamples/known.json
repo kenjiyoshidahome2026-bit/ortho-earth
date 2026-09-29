@@ -126,7 +126,7 @@
 		"style-labels-with-local-fonts": 3,
 		"style-labels-with-web-fonts": 3,
 		"style-lines-with-a-data-driven-property": 3,
-		"sync-movement-of-multiple-maps": null,
+		"sync-movement-of-multiple-maps": 1,
 		"toggle-deckgl-layer": null,
 		"toggle-interactions": 3,
 		"update-a-feature-in-realtime": 1,

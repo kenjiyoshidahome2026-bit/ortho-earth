@@ -98,13 +98,15 @@ export const passRatio = (ok, n, min, T = THRESH) => !n || ok / n >= min || (n <
 const BAD_END = new Set(["no-map", "crash", "harness-error"]);
 const STILL_END = new Set(["stable"]);   // 絵を比べるのは両側とも止まって撮れた例だけ（animated/moving/timeout は段 2 まで）
 
-// 「動く」か（段 1 の条件）。戻り＝理由（null＝動く）
-export function runsWhy(rec) {
+// 「動く」か（段 1 の条件）。戻り＝理由（null＝動く）。shared＝両側で同じ文言の例外＝例の側の不具合（例が読む外部スクリプト等）＝どちらの落ちにも数えない
+// （2026-09-30・sync-movement-of-multiple-maps：unpkg の CommonJS のプラグインが `module is not defined` を投げるが syncMaps は先に定義済＝本物は 3 枚とも動く）
+export function runsWhy(rec, shared = null) {
 	if (!rec) return "no record";
 	if (BAD_END.has(rec.end)) return rec.end;
 	if (!rec.map) return "no map";
 	if (!rec.loadVia) return "no load";
-	if (rec.exceptions?.length) return `exception: ${rec.exceptions[0]}`;
+	const exc = (rec.exceptions || []).filter(e => !shared?.has(e));
+	if (exc.length) return `exception: ${exc[0]}`;
 	if (rec.consoleErrors?.some(e => /\[style\] cannot load/.test(e))) return "style fell back to the default basemap";
 	return null;
 }
@@ -191,10 +193,12 @@ export function textMatch(R, O, T = THRESH) {
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
 export function grade(R, O, T = THRESH) {
 	const out = { level: 0, refLevel: 0, reasons: [], blockers: [], unsupported: splitUnsupported(O?.unsupported) };
-	const rw = runsWhy(R);
+	const shared = new Set((R?.exceptions || []).filter(e => O?.exceptions?.includes(e)));
+	if (shared.size) out.sharedExceptions = [...shared];
+	const rw = runsWhy(R, shared);
 	if (rw) { out.level = null; out.refWhy = rw; return out; }
 	out.refLevel = STILL_END.has(R.end) ? 3 : 2;
-	const ow = runsWhy(O);
+	const ow = runsWhy(O, shared);
 	if (ow) { out.reasons.push(ow); out.blockers.push(ow.startsWith("exception: ") ? `exception: ${normError(ow.slice(11))}` : ow); return out; }
 	out.level = 1;
 	// 段 2＝同じ答え
