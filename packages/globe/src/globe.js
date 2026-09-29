@@ -45,6 +45,7 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createGintLayers } from "./gint/layers.js";
 import { createWorldContent } from "./gint/worldcontent.js";
 import { createHillshadeProvider } from "./hillshade.js";
+import { createColorReliefProvider } from "./colorrelief.js";   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
 import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
@@ -3494,6 +3495,7 @@ const kindOf = (layer, sp) => {
 	if (layer.type === "raster") return "raster";
 	if (layer.type === "custom") return "custom";   // source を持たない（CustomLayerInterface）
 	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
+	if (layer.type === "color-relief") { if (sp.type !== "raster-dem") throw new Error(`addLayer: color-relief layer "${layer.id}" needs a raster-dem source`); return "colorrelief"; }   // 標高の段彩（colorrelief.js・#114）
 	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
 	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported yet — vector sources feed fill / line / circle / symbol / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
@@ -3797,11 +3799,17 @@ const mountLayerRaw = async v => {
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
 	if (kind === "custom") { customGet().add(v.layer, order); return null; }   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
-	if (kind === "hillshade") {   // raster-dem のタイルから陰影の画像タイルを作る port プロバイダ（hillshade.js）→画像タイル層（基図の上・注記の下）
-		const ro = { order: "over", opacity: 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
+	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
+		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
 		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution }; }
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
+		if (kind === "colorrelief") {
+			v.cr?.close();
+			v.cr = createColorReliefProvider({ dem: ds, color: layer.paint?.["color-relief-color"], fetchFn: (u, init) => requester.fetch(u, "Tile", init), name: layer.id, attribution: ds.attribution ?? null });
+			dbgHost.__colorRelief = v.cr;   // 切り分けの窓（debugGlobals）
+			return map.raster.add(layer.id, { port: v.cr.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
+		}
 		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" });
 		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
 		v.hs?.close();
@@ -3816,11 +3824,14 @@ const mountLayerRaw = async v => {
 	if (kind === "pattern") return addPattern(layer, data, order);
 	if (kind === "gint") return rebuildGint(sid);
 };
+// color-relief-opacity（既定 1・["zoom"] の式も）＝今のズームで評価。止まるたびに見直す（下の settle）
+const reliefOpacity = L => { const x = L.paint?.["color-relief-opacity"]; if (x == null) return 1; const n = +evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" }); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
 	else if (kind === "custom") customCtl?.remove(id);
 	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; }
+	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
 	else if (kind === "vtdraw") { vtdCtl?.remove(id); vecAttrDrop(v, sid); }
@@ -3831,6 +3842,7 @@ const unmountLayer = v => {
 	else if (kind === "pattern") { patOv?.post({ type: "removeLayer", id }); patItems.delete(id); }
 };
 map.on("settle", () => {   // 押し出し・模様は一度きりの評価＝止まるたびに zoom の鍵を見て、変わった層だけ描き直す（段 5）
+	for (const v of mlLayers.values()) if (v.kind === "colorrelief" && mlVisible(v) && Array.isArray(v.layer.paint?.["color-relief-opacity"])) map.raster.set(v.layer.id, { opacity: reliefOpacity(v.layer) });
 	for (const v of mlLayers.values()) if ((v.kind === "extrude" || v.kind === "pattern") && mlVisible(v)) { const L = drawLayerOf(v); if (mlZoomKeys.get(L.id) !== zoomKeyOf(L, cam.zoom, v.kind === "extrude")) mountLayer(v); }
 });
 const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
@@ -3923,7 +3935,7 @@ map.addFontFace = async (family, source, descriptors = {}) => {
 };
 // 画像タイル層の source（raster/raster-dem→hillshade/image/video）＝その source を使う見えている層が、開く途中（mounting＝TileJSON/画像の取得・worker が開くまで）か未着（rasterPend）なら false
 const rasterSrcLoaded = sid => {
-	for (const [lid, v] of mlLayers) if ((v.kind === "raster" || v.kind === "hillshade") && srcId(v.layer) === sid && mlVisible(v) && (v.mounting || rasterPend.get(lid) > 0)) return false;
+	for (const [lid, v] of mlLayers) if ((v.kind === "raster" || v.kind === "hillshade" || v.kind === "colorrelief") && srcId(v.layer) === sid && mlVisible(v) && (v.mounting || rasterPend.get(lid) > 0)) return false;
 	if (EXT) for (const lid of extExtras.raster) if (EXT.ms.layers.find(L => L.id === lid)?.source === sid && rasterPend.get(lid) > 0) return false;   // 外来 style の画像層（mountExtExtras）
 	return true;
 };
@@ -3994,6 +4006,7 @@ map.setPaintProperty = (id, name, value) => {
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
 	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
+	if (v.kind === "colorrelief" && name === "color-relief-opacity") { map.raster.set(id, { opacity: reliefOpacity(v.layer) }); return map; }   // 不透明度はタイルを作り直さない（#114）
 	const k = kindOf(drawLayerOf(v), v.src);   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
 	if (k !== v.kind) { if (mlVisible(v)) { const old = { ...v }; v.kind = k; Promise.resolve(unmountLayer(old)).then(() => mlLayers.get(id) === v && mlVisible(v) && mountLayer(v)); } else v.kind = k; return map; }
 	relayer(v); return map;
