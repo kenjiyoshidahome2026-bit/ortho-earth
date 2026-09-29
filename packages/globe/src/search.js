@@ -4,11 +4,12 @@
 import { tr } from "./i18n.js";
 const t = tr();
 
-export function createSearch({ provider, onGo, signal }) {   // provider＝地域宣言の検索供給元（packages/jp/src/search-gsi.js の形）・signal＝map.destroy() で document リスナーを束ごと外すため
-	const box = document.getElementById("search");
-	const btn = document.getElementById("search-btn");
-	const input = document.getElementById("search-in");
-	const list = document.getElementById("search-list");
+export function createSearch({ provider, onGo, signal, root = document }) {   // provider＝地域宣言の検索供給元（packages/jp/src/search-gsi.js の形）・signal＝map.destroy() で document リスナーを束ごと外すため
+	// root＝地図の容れ物（#173）＝頁に地図が複数でも自分の窓を掴む（document.getElementById は頁で最初の物）
+	const box = root.querySelector("#search");
+	const btn = root.querySelector("#search-btn");
+	const input = root.querySelector("#search-in");
+	const list = root.querySelector("#search-list");
 	let items = [], sel = -1, ac = null, timer = null, composing = false;
 	const close = () => { list.style.display = "none"; list.innerHTML = ""; items = []; sel = -1; };
 	// 検索履歴（オートコンプリート）：飛んだ地点だけを保存＝「検索した」でなく「行った」場所。入力が空の時に出す。
@@ -42,7 +43,7 @@ export function createSearch({ provider, onGo, signal }) {   // provider＝地�
 	// 候補リストは #map 直下の動的要素（ガジェットスタックの外＝下段のガジェットより上に描く）。
 	// 表示のたびに検索箱へ位置と幅を追随させる（スタック内の段はガジェット構成で動くため座標は毎回読む）。
 	const placeList = () => {
-		const mapEl = document.getElementById("map");
+		const mapEl = root === document ? document.getElementById("map") : root;
 		const r = box.getBoundingClientRect(), m = mapEl.getBoundingClientRect();
 		list.style.left = (r.left - m.left) + "px";
 		list.style.top = (r.bottom - m.top + 4) + "px";
