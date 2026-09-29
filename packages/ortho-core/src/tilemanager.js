@@ -105,10 +105,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// tilePx＝分割閾（画面px）。静止時に小さく渡すと主層だけ一段細かく割れる＝近景ほど画面サイズが
 		// 大きい＝真っ先に閾を越えて分割＝「手前のズームが上がる」。下地/毛布は据置（先端の空白埋めは粗いまま）。
 		// 未指定(undefined)なら selectLOD 既定(560)＝移動中は従来通り重くしない。
+		// zOf＝MapLibre の目盛りの地図（mlcover.mlTileZoomOf）＝主層の z を MapLibre と同じ規則で選ぶ（tilePx は使わない）。下地・毛布は従来どおり
 		// groundR＝地形リフト球の半径（app が表示中の地形変位と同式で計算）。主層・下地・毛布の3経路とも
 		// 同じ球で選抜する＝チルト×高標高地の「手前くさび欠け」をどの層にも作らない（草津1200m根治）。
 		const groundR = opts?.groundR ?? 1;
-		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR, minZ, maxZ: opts?.maxZ ?? undefined });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）。maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分に留める）
+		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR, minZ, maxZ: opts?.maxZ ?? undefined, zOf: opts?.zOf ?? null });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）。maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分に留める）
 		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
 		stickySplit = new Set();
 		for (const t of selected) {

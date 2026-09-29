@@ -25,7 +25,7 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
+export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
 	const sources = new Map();   // sid → { sid, desc, sig, gen, zsig, pz, tiles: Map<key, T>, built: Map<key, B>, fetching, show: Set<key> }
@@ -80,7 +80,7 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 	// ── 選び（段 8①と同じ）──
 	function wantedOf(src) {
 		const { desc } = src, { w, h } = size();
-		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr * tileBias });   // tileBias＝目盛り "mercator" でタイルの z を MapLibre と同じに（globe.js の TILE_BIAS）
+		let ts = selectLOD(cam, w, h, { minZ: desc.minzoom ?? 0, maxZ: desc.maxzoom ?? 22, tilePx: TILE_PX * dpr * tileBias, zOf: zoomOf?.(desc.tileSize ?? 512) ?? null });   // zoomOf＝MapLibre の目盛りの地図でタイルの z を MapLibre の規則で（globe.js の mlZoomOf・core mlcover.js）
 		const area = desc.bounds || desc.coverage;
 		if (area) ts = ts.filter(t => hits(tileBbox(t.z, t.x, t.y), area));
 		if (!ts.length) return [];
