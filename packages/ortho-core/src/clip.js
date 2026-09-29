@@ -92,17 +92,36 @@ export function parseClipParam(q) {
 	return spec.vertical.length || spec.horizontal.length || spec.box ? spec : null;
 }
 
-// 面の uniform（ClipP＝pl[6]・p）＝pl[i]＝(n.xyz, K)・K＝n·originPt − c（f64 で引いてから f32 へ）・p.x＝枚数。
-// originPt＝その描画の原点の単位球点（lonlatTo3D・f64）＝main（地形・建物・メッシュ・球の床）／base／user（基図と利用者の層の塗りと線）
-export function packClip(planes, originPt, out = new Float32Array(CLIP_MAX * 4 + 4)) {
-	out.fill(0);
+// 蓋と縁の帯の既定（段 2）：地形の断面＝土の色・建物の疑似の蓋＝石の灰・帯＝橙 2 px（CSS px）。spec.cap＝false で蓋なし・spec.edge＝{ width, color }（width 0＝帯なし）
+export const CLIP_STYLE = { capTerrain: [0.60, 0.50, 0.38], capBuilding: [0.43, 0.46, 0.50], edgeColor: [0.93, 0.42, 0.13], edgeWidth: 2 };
+export function clipStyle(spec) {
+	const cap = spec?.cap, edge = spec?.edge;
+	return {
+		capOn: cap !== false,
+		capTerrain: (cap && cap.terrain) || CLIP_STYLE.capTerrain,
+		capBuilding: (cap && cap.building) || CLIP_STYLE.capBuilding,
+		edgeColor: (edge && edge.color) || CLIP_STYLE.edgeColor,
+		edgeWidth: edge === false ? 0 : edge && edge.width != null ? +edge.width : CLIP_STYLE.edgeWidth,
+	};
+}
+
+// 面の uniform（ClipP＝pl[6]・p・capT・capB・edgeC＝160B）＝pl[i]＝(n.xyz, K)・K＝n·originPt − c（f64 で引いてから f32 へ）・p＝(枚数, 帯の幅 px, 0, 0)。
+// capT＝地形の蓋の色（w＝点ける）・capB＝建物の疑似の蓋の色（w＝点ける）・edgeC＝帯の色。
+// originPt＝その描画の原点の単位球点（lonlatTo3D・f64）＝main（地形・建物・メッシュ・模型・球の床）／base／user（基図と利用者の層の塗りと線）
+export const CLIP_F32 = (CLIP_MAX + 4) * 4;
+export function packClip(planes, originPt, out = new Float32Array(CLIP_F32), style = clipStyle(null)) {
+	out.fill(0, 0, CLIP_F32);
 	const n = Math.min(planes.length, CLIP_MAX);
 	for (let i = 0; i < n; i++) {
 		const [x, y, z, c] = planes[i];
 		out[i * 4] = x; out[i * 4 + 1] = y; out[i * 4 + 2] = z;
 		out[i * 4 + 3] = x * originPt[0] + y * originPt[1] + z * originPt[2] - c;
 	}
-	out[CLIP_MAX * 4] = n;
+	const o = CLIP_MAX * 4;
+	out[o] = n; out[o + 1] = style.edgeWidth;
+	out.set(style.capTerrain, o + 4); out[o + 7] = style.capOn ? 1 : 0;
+	out.set(style.capBuilding, o + 8); out[o + 11] = style.capOn ? 1 : 0;
+	out.set(style.edgeColor, o + 12);
 	return out;
 }
 
