@@ -306,6 +306,13 @@ export interface Gadgets {
 	symbols(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | ({ type: "symbol" } & Omit<MapLibreLayer, "type">) | null, layer?: Partial<MapLibreLayer>): Promise<{ features: number } | null>;
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
+	/** 検査表示（MapLibre の maplibre-gl-inspect 相当・1.12.0〜・#174）。ボタン 1 つで、読み込んでいるベクタタイルの全 source-layer を層ごとの色で描き
+	 *  （面＝薄い塗り＋縁・線・点）、ホバー／クリックでカーソルの下の地物の層名と属性（$id・$type・properties）を札に出す。もう一度押すと元の地図（焼き直さない）。
+	 *  出す source＝ベクタタイル（外来 style の基図・addSource の vector・?pm= の PMTiles・地域の基図）と geojson。世界の帯（低ズームの Natural Earth）は出さない。
+	 *  層の一覧＝TileJSON の vector_layers → PMTiles の metadata → どちらも無ければ画面の中心のタイルを解いて集める（style が使わない層も・視点が止まるたびに足す）。
+	 *  検査の間は基図・利用者の層・画像タイル層・注記を伏せ、陸を backgroundColor に。検査の層の id は公式と同じ（source_sourceLayer_polygon|line|circle・geojson は source__kind）。
+	 *  MapLibre の口では `map.addControl(new MaplibreInspect({...}))`（@ortho-earth/globe/maplibre）。二重搭載（ボタンつき）は null */
+	inspect(opts?: InspectOptions): InspectHandle | null;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
 	(name: string, fn: (this: OrthoJapanMap, ...args: unknown[]) => unknown): void;
 	[name: string]: unknown;
@@ -949,6 +956,33 @@ export class Popup {
 	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
 	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
+}
+/** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
+export interface InspectOptions {
+	/** 起動時から検査表示（既定 false） */ showInspectMap?: boolean;
+	/** 左上の道具の列にボタンを出す（既定 true） */ showInspectButton?: boolean;
+	/** 検査表示で札を出す（既定 true）／ホバーで（既定 true・false＝クリックで） */ showInspectMapPopup?: boolean; showInspectMapPopupOnHover?: boolean;
+	/** 通常の地図でも札を出す（既定 false＝公式と同じ）／ホバーで（既定 true） */ showMapPopup?: boolean; showMapPopupOnHover?: boolean;
+	/** クリックで札を止める／動かす（ホバーの札の時・既定 false） */ blockHoverPopupOnClick?: boolean;
+	/** 札を引く箱の半幅（px・既定 5） */ selectThreshold?: number;
+	/** 検査表示の陸の色（既定 "#fff"） */ backgroundColor?: string;
+	/** 層の色（層名・不透明度 → CSS 色）。既定＝層名を種にした明るい色（water＝青・road＝橙・building＝暗い灰…） */ assignLayerColor?: (layerId: string, alpha: number) => string;
+	/** 札の中身（HTML の文字列か要素）。既定＝層名と $id・$type・属性の表（値は文字として入れる） */ renderPopup?: (features: RenderedFeature[]) => string | HTMLElement;
+	/** 札の問い合わせの条件（queryRenderedFeatures の opts・検査中の既定＝検査の層だけ） */ queryParameters?: QueryOptions;
+	/** 一覧に無い層を足す（{ source: [source-layer…] }） */ sources?: Record<string, string[]>;
+	/** 札の器（既定＝new Popup({ closeButton:false, closeOnClick:false })） */ popup?: Popup;
+	/** 切り替えの知らせ（true＝検査表示になった） */ toggleCallback?: (showInspectMap: boolean) => void;
+}
+/** 検査表示の層の台帳の 1 行（InspectHandle.sources）。from＝一覧の出所（tilejson｜pmtiles｜tiles＝タイルを解いて集めた｜null＝geojson） */
+export interface InspectSource { id: string; type: "vector" | "geojson"; layers: Array<{ id: string; fields: Record<string, string>; minzoom?: number; maxzoom?: number; description?: string }> | null; from: "tilejson" | "pmtiles" | "tiles" | null }
+export interface InspectHandle {
+	open(): Promise<unknown>; close(): Promise<unknown>; toggle(): Promise<unknown>;
+	/** maplibre-gl-inspect と同名（toggle と同じ） */ toggleInspector(): Promise<unknown>;
+	/** 台帳を読み直して検査の層を足す（source を足した後など） */ render(): Promise<unknown>;
+	isOpen(): boolean;
+	/** 検査の層の id（下から） */ layers(): string[];
+	/** 直近の層の台帳 */ sources(): InspectSource[];
+	destroy(): void;
 }
 /** 2 枚の地図を左右（上下）スワイプで比べる（MapLibre 公式 maplibre-gl-compare と同じ形・#173）。before＝つまみの左（上）・after＝右（下）を見せる。
  *  2 枚の容れ物は同じ場所に重ねて置く（利用者の CSS）。カメラは連動する（どちらを動かしても追う）。container＝つまみを置く要素（セレクタ可）。
