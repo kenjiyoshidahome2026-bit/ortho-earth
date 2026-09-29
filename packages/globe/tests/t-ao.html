@@ -2,7 +2,7 @@
 <!-- 実描画の検分：AO（#46 段 3・2026-09-26・WebGPU）。createRendererGPU をメインスレッドで直駆動（t-shadow と同じ作法）。
      試料＝東京（139.7/35.7）に 20m 角×高さ 100m の箱メッシュ 1 棟と、東に 80m 角の平らな板（10m 格子のメッシュ＝深度の経路の地面・地形メッシュの代わり）。
      z17・チルト 60°・南から北を見る（南壁が正面・手前の地面は球の床）。
-     ①旗なし＝足元 3m の地面と離れた地面（60m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9）・離れた球の床と板は変わらない（1.5 階調）
+     ①旗なし＝足元 3m の地面と離れた地面（60m）は同じ明るさ ②fx.ao＝足元 3m は離れた地面より暗い（比 < 0.9・既定の強さ 0.6＝#63）・離れた球の床と板は変わらない（1.5 階調）
      ③安定（2026-09-26 の根治の門）＝模様の位相をずらしても・ズームを 0.0005 だけ変えても AO の掛かり方がほとんど変わらない（平均 0.015% 未満）
        実測（M 系 Mac）＝今 0.003%／0.001%・旧 0.036%／0.077%（旧は板も 7.7 階調暗くなり、足元も 227.5＝HEAD で既に赤だった）
        （旧＝視線を f32 の invMvp から戻し、対数深度を exp2−1 で戻していた＝カメラが動くたびに縦縞とまだらが泳いだ）
@@ -86,6 +86,36 @@ try {
 	ok(`ズーム +0.0005 で AO は揺れない（平均 ${(cz.mean * 100).toFixed(3)}%・2% 超 ${(cz.big * 100).toFixed(2)}%）`, cz.mean < 0.00015 && cz.big < 0.005);
 	const back = await shot();
 	ok(`旗を戻すと元どおり（Δ=${Math.abs(lum(back, 0, -13) - nearOff).toFixed(1)}）`, Math.abs(lum(back, 0, -13) - nearOff) < 2);
+	// #62 の物差し（判定はしない＝既知の限界・fallback-ladder §6）：Issue の数字どおりの板＝格子 L m（30／45）の三角形の平らな板を張り、
+	// w≈80m・θ≈40°（z19・pitch 50°＝視線が地面をかすめる角 40°）で AO の掛かり方を測る。三角形の内側の頂点補間の撓み（傾き ≈ L·cos²θ·sinθ/w＝0.14／0.21）が
+	// 接平面の下駄（0.15）に届くと偽の陰になる。10m 格子（上の板）は同じ視点で 1.0 のはず。
+	{
+		const mkPlate = (L, key, e0, n0) => {   // 300m 角・格子 L・高さ 0.5m
+			const G = Math.round(300 / L) + 1, PV = [], PI = [];
+			for (let j = 0; j < G; j++) for (let i = 0; i < G; i++) PV.push(...P(e0 + i * L, n0 + j * L, 0.5));
+			for (let j = 0; j < G - 1; j++) for (let i = 0; i < G - 1; i++) { const a2 = j * G + i; PI.push(a2, a2 + 1, a2 + G, a2 + 1, a2 + G + 1, a2 + G); }
+			const [qw, qs] = ll(e0, n0), [qe, qn] = ll(e0 + 300, n0 + 300);
+			r.set("meshSet", { pos: new Float32Array(PV), idx: new Uint32Array(PI), origin, bbox: [qw, qs, qe, qn], ward: key }, key + "#0");
+			return [e0 + 150, n0 + 150];
+		};
+		const shotAt = async (c, on) => { r.set("fx", { ao: on }); return shot(c); };
+		const measure = async (L, key, e0, n0) => {
+			const [ce, cn] = mkPlate(L, key, e0, n0);
+			const camN = { center: ll(ce, cn - 30), zoom: 19, pitch: 0.873, bearing: 0, dpr: 1 };   // 目の高さ ≈ 53m・注視点まで 82m・かすめ角 40°
+			const stN = cameraState(camN, N, N);
+			const lumN = (px, e, n) => { const [lo, la] = ll(e, n), p = project(stN, lo, la), x = Math.round(p[0]), y = Math.round(p[1]); if (x < 1 || y < 1 || x > N - 2 || y > N - 2) return NaN; let s2 = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const i = ((y + dy) * N + (x + dx)) * 4; s2 += (px[i] + px[i + 1] + px[i + 2]) / 3; } return s2 / 9; };
+			const offN = await shotAt(camN, false), onN = await shotAt(camN, true); r.set("fx", { ao: false });
+			let sOn = 0, sOff = 0, nn = 0, worst = 1; for (let i = 0; i < N * N * 4; i += 4) { const l0 = offN[i] + offN[i + 1] + offN[i + 2]; if (l0 < 90) continue; const l1 = onN[i] + onN[i + 1] + onN[i + 2]; sOn += l1; sOff += l0; nn++; if (l1 / l0 < worst) worst = l1 / l0; }
+			const probes = [[ce, cn - 30], [ce + L / 3, cn - 30 + L / 3], [ce - L / 3, cn - 30 + L / 3], [ce, cn], [ce, cn - 60]];
+			const ratios = probes.map(([e, n]) => { const a2 = lumN(onN, e, n), b2 = lumN(offN, e, n); return Number.isFinite(a2) && Number.isFinite(b2) && b2 > 60 ? a2 / b2 : NaN; }).filter(Number.isFinite);
+			r.set("meshSet", null, key + "#0");
+			return { L, frame: sOn / sOff, worst, probes: ratios.map(v => v.toFixed(3)).join(" "), n: nn };
+		};
+		const m10 = await measure(10, "g10", -400, -400), m30 = await measure(30, "g30", -400, -400), m45 = await measure(45, "g45", -400, -400);
+		const fmt = m => `L=${m.L}m: 画面 ${m.frame.toFixed(4)}・最暗 ${m.worst.toFixed(3)}・探針 ${m.probes}`;
+		ok(`#62 の物差し（z19・かすめ角 40°・w≈80m）＝${fmt(m10)} ／ ${fmt(m30)} ／ ${fmt(m45)}＝判定なし`, true);
+		console.log("[t-ao] #62", fmt(m10), "|", fmt(m30), "|", fmt(m45));
+	}
 	await new Promise(res => setTimeout(res, 50));
 	ok(`GPU の検証エラーなし（${r.gpuErrors.length}）`, r.gpuErrors.length === 0);
 	r.dispose();
