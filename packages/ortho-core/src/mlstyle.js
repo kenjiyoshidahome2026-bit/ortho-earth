@@ -245,9 +245,8 @@ export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {})
 export function tileUrlOf(src) {
 	if (src.pmtiles) return () => src.pmtiles;
 	const tpl = src.tiles;
-	let i = 0;
 	return (z, x, y) => {
-		const t = tpl[(i++) % tpl.length];
+		const t = tpl[(x + y) % tpl.length];   // 型紙が複数＝MapLibre の tile_id url() と同じ選び方（同じタイルはいつも同じ URL＝HTTP キャッシュが効く・2026-09-30・旧＝呼んだ順に回す）
 		const yy = src.scheme === "tms" ? (1 << z) - 1 - y : y;
 		let u = t.replace("{z}", z).replace("{x}", x).replace("{y}", yy).replace("{s}", "abc"[(x + y) % 3]).replace("{ratio}", "").replace("{prefix}", ((x % 16).toString(16) + (y % 16).toString(16)));
 		if (u.includes("{quadkey}")) { let q = ""; for (let i = z - 1; i >= 0; i--) q += ((y >> i & 1) << 1 | (x >> i & 1)); u = u.split("{quadkey}").join(q || "0"); }   // MapLibre の記法（2026-09-26）
