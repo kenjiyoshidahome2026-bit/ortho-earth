@@ -5,7 +5,8 @@
 // op の li は利用者の層の帯（vtops.liOf）＝main が core の scene worker（CPU 結合）へそのまま渡す。worker は core の index を読まない（循環 worker の轍）。
 // 生バイトの出し入れは main が決める（予算と LRU は main）＝ここは言われた物を持つだけ。無い時は miss を返す（main が取り直す）。
 // タイルの形式（enc＝"mvt"｜"mlt"・#88）は put のたびに main が添える（XYZ＝source の encoding・PMTiles＝ヘッダの tileType）。
-// feature-state（#109）＝paint が ["feature-state"] を読む層だけ：そのタイルの地物の id を source-layer ごとに返す（main が「どのタイルを組み直すか」に使う）。
+// feature-state（#109）＝paint が ["feature-state"] を読む層だけ：main が添えた状態（fs＝{ source-layer: [[id, state], …] }）を core の組み立て（buildTileDrawList・buildLabels の stateOf）へ。
+//   そのタイルの地物の id を source-layer ごとに返す（main が「どのタイルを組み直すか」に使う）。
 // 解読は同期（build の中）なので、遅延読み込みの形式は put の時に loadTileFormat を済ませてから預かる（main は put の返事を待っている）。
 import { decodeTile, loadTileFormat, tileFormatReady } from "@ortho-earth/core/decode";
 import { evalExpr, truthy, setGlobalState } from "@ortho-earth/core/expr";
@@ -38,9 +39,10 @@ self.onmessage = e => {
 	} catch (err) { self.postMessage({ id: m.id, error: err?.message || String(err) }); }
 };
 
-// { sid, key, z, x, y, layers: [{ id, layer（正規化済み＝エンジンの目盛り）, key（層の順の鍵） }], fz（filter の zoom）, pz（paint／layout の zoom）, promoteId }
+// { sid, key, z, x, y, layers: [{ id, layer（正規化済み＝エンジンの目盛り）, key（層の順の鍵） }], fz（filter の zoom）, pz（paint／layout の zoom）, promoteId, fs（feature-state・無ければ null） }
 function build(m) {
 	const { sid, key, z, x, y, fz, pz, promoteId } = m;
+	const fsm = m.fs ? new Map(Object.entries(m.fs).map(([sl, list]) => [sl, new Map(list)])) : null;   // source-layer → Map<id, state>
 	const R = raw.get(`${sid}|${key}`);
 	if (!R) { self.postMessage({ id: m.id, miss: true }); return; }
 	const need = new Set(m.layers.map(l => l.layer["source-layer"]).filter(Boolean));
@@ -58,11 +60,12 @@ function build(m) {
 		const feats = L0.filter == null ? src.features : src.features.filter(f => { fctx.props = f.props; fctx.geom = f.type; fctx.id = idOf(f, promoteId, sl); return truthy(evalExpr(L0.filter, fctx)); });
 		if (!feats.length) continue;
 		if (fsIds) for (const f of feats) { const v = idOf(f, promoteId, sl); if (v != null) fsIds.add(v); }
+		const SM = fsIds ? fsm?.get(sl) : null, stateOf = SM?.size ? f => SM.get(idOf(f, promoteId, sl)) : null;   // 地物 → 状態（読む層で、状態が置かれている時だけ）
 		const L = { ...L0, filter: undefined, minzoom: undefined, maxzoom: undefined, paint: substituteZoom(L0.paint || {}, pz), layout: { ...substituteZoom(L0.layout || {}, pz), visibility: "visible" } };   // 層の出しズームと出し入れは main（結合の hidden）
 		const P = L.paint, pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml" };
 		const run = (lyr, fs, sub) => {   // core の組み立て（層 1 枚の小さな style）→ li を利用者の帯へ
 			if (!fs.length) return;
-			const dl = buildTileDrawList({ layers: { [sl]: { extent: E, features: fs } }, z, x, y, subLenM }, { layers: [lyr] }, origin);
+			const dl = buildTileDrawList({ layers: { [sl]: { extent: E, features: fs } }, z, x, y, subLenM, stateOf }, { layers: [lyr] }, origin);
 			for (const op of dl.ops) { op.li = liOf(okey, sub); op.id = id; ops.push(op); }
 		};
 		if (L.type === "fill") {
@@ -90,10 +93,10 @@ function build(m) {
 			// 円＝長さ 0 の線（カプセルの丸点・半径＝線幅の半分）。縁（stroke）は半径＋縁の太さの丸点を下に置く（li の副番号 1）。
 			// 塗りが透ける円の縁は丸点だと中が縁の色になる＝止まった所のズームで合わせた輪（24 角形）で描く
 			const r = P["circle-radius"] ?? 5, sw = P["circle-stroke-width"] ?? 0;
-			const dots = [], rimDots = [], rings = [], upx = unitsPerPx(E, z, pz), ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml" };
+			const dots = [], rimDots = [], rings = [], upx = unitsPerPx(E, z, pz), ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined };
 			for (const f of feats) {
 				const v = verticesOf(f, E); if (!v.length) continue;
-				ctx.props = f.props; ctx.geom = f.type;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f);   // 縁の太さ・透け（丸点か輪か）も状態で変わり得る
 				dots.push({ ...f, type: "LineString", geom: dotsGeom(v) });
 				const w = num(sw, ctx, 0); if (!(w > 0)) continue;
 				const a = alphaOf(P["circle-color"], ctx) * num(P["circle-opacity"] ?? 1, ctx, 1);
@@ -111,7 +114,7 @@ function build(m) {
 			if (place === "line" || place === "line-center") { for (const f of feats) if (f.type === "LineString") { const g = f.geom && clipLineGeom(f.geom, E); if (g?.coords?.length) pts.push({ ...f, geom: g }); } }   // 線に沿う注記（段 4）＝枠で切った線（隣のタイルと二重にしない）を core の buildLabels（錨と折れ線）へ
 			else for (const f of feats) for (const [px, py] of labelPointsOf(f, E)) pts.push({ type: "Point", id: f.id, props: f.props, geom: { coords: [px, py], ends: [2] } });
 			if (!pts.length) continue;
-			const { labels: ls } = buildLabels({ layers: { [sl]: { extent: E, features: pts } }, z, x, y }, { layers: [L], schema: null });
+			const { labels: ls } = buildLabels({ layers: { [sl]: { extent: E, features: pts } }, z, x, y, stateOf }, { layers: [L], schema: null });
 			for (const lb of ls) { lb.sort = -1e6 - okey * 1e3 + (lb.sort || 0); delete lb.li; }   // 利用者の注記が基図に勝つ・上の層ほど先に置く（MapLibre と同じ）
 			if (ls.length) labels[id] = ls;
 			features += pts.length;
