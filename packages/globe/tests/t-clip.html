@@ -3,10 +3,16 @@
      試料＝東京（139.7/35.7）の ±0.1° に高さ 60m の平らな台地（合成 DEM・段彩で赤）＋中心に 80m 角×高さ 40m の箱メッシュ（青・両面・地形へ持ち上げ）。
      カメラ＝z16・チルト 50°・北向き。球の床（海抜 0）は灰色。
      ①切らない（既定）＝切る資源も派生パイプラインも作らない。{on:true} でも面が 0 枚なら同じ絵（bit 一致）
-     ②東向きの面（中心の北 22m）で南（手前）を残す：手前の台地と箱の南の壁は元の絵と同じ・北 300m の床の点は台地が消えて床の灰色（地形を描かない絵と同じ）・
+     ②東向きの面（中心の北 22m）で南（手前）を残す：手前の台地と箱の南の壁は元の絵と同じ・北 300m の床の点は台地も床も消えて背景色（段 1 から床も切る）・
        箱の屋根は面の南だけ残り北は抜ける
-     ③西向きの面（同じ線）で北（奥）を残す：手前の台地が消えて床が覗く（段 0 の観察＝蓋は段 2）・北 300m の台地は残る
-     ④消す＝元の絵へ戻る（bit 一致）　⑤GPU の検証エラー 0。⚠実時間専用（verify-webgpu.mjs が回す） -->
+     ③西向きの面（同じ線）で北（奥）を残す：手前の台地も床も消えて背景色（蓋は段 2）・北 300m の台地は残る
+     段 1（面は 6 枚まで・球の床・基図の塗りと線と押し出し建物・模型も切る）：
+     ⑤南北の鉛直面（東 100m・西を残す）：模型の板（緑・東 70〜130m）と基図の線（黄・南 220m）は面の西だけ残る
+     ⑥箱（基図の建物の中心に幅 30m・奥行き 200m・高さ 0〜200m）：建物の屋根は箱の中だけ残る・箱の外の台地と床は消えて背景色（床も切る）。
+       屋根は幅 60m の 2 枚の三角形＝頂点は全部箱の外＝面ごとの距離を補間して画素で最小を取らないと、中身ごと消える（最初の実装で踏んだ）
+     ⑦水平面 30m：下を残す＝台地（60m）と箱が消えて床の灰色だけ／上を残す＝床が消えて背景色・台地は残る
+     ⑧真俯瞰（地形なし＝塗りは直に描く）：基図の塗り（橙）も面の西だけ残る・切った先は背景色
+     ⑨消す＝元の絵へ戻る（bit 一致）　⑩GPU の検証エラー 0。⚠実時間専用（verify-webgpu.mjs が回す） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;width:320px;height:320px}</style><title>t-clip</title></head>
 <body><canvas id="g" width="256" height="256"></canvas>
 <script type="module">
@@ -34,11 +40,32 @@ try {
 	const F = [[0, 1, 2], [0, 2, 3], [4, 6, 5], [4, 7, 6], [0, 4, 5], [0, 5, 1], [1, 5, 6], [1, 6, 2], [2, 6, 7], [2, 7, 3], [3, 7, 4], [3, 4, 0]];
 	const [bw, bs] = ll(-40, -40), [be, bn] = ll(40, 40);
 	r.set("meshSet", { pos: new Float32Array(V), nrm: new Int8Array(NR), idx: new Uint32Array(F.flat()), origin, bbox: [bw, bs, be, bn], ward: "box", drape: true, twoSided: true }, "box#0");
+	// 段 1 の試料：模型の板（MESH_TEX＝uv と頂点色・緑・東 70〜130m・台地へ持ち上げ＋0.5m）
+	{
+		const V2 = [], N2 = [], UV2 = [], C2 = [];
+		for (const [e, n] of [[70, -30], [130, -30], [130, 30], [70, 30]]) { V2.push(...P(e, n, 0.5)); N2.push(up[0], up[1], up[2], 0); UV2.push(0, 0); C2.push(40, 200, 60, 255); }
+		const [w2, s2] = ll(70, -30), [e2, n2] = ll(130, 30);
+		r.set("meshSet", { pos: new Float32Array(V2), nrm: new Int8Array(N2), uv: new Float32Array(UV2), col: new Uint8Array(C2), idx: new Uint32Array([0, 1, 2, 0, 2, 3]), origin, bbox: [w2, s2, e2, n2], ward: "slab", drape: true, twoSided: true, alphaMode: "OPAQUE" }, "slab#0");
+	}
+	// 基図のシーン（原点＝中心）：線（黄・南 220m を東西 ±150m・半幅 3px）・塗り（橙・南 180〜260m・3D では地面へ焼く）・押し出し建物の屋根（西 70〜130m・高さ 40m）
+	{
+		const dLL = (e, n) => { const [lo, la] = ll(e, n); return [lo - LON, la - LAT]; };
+		const fq = [dLL(-150, -260), dLL(150, -260), dLL(150, -180), dLL(-150, -180)];
+		const fpos = [], fcol = [];
+		for (const i of [0, 1, 2, 0, 2, 3]) { fpos.push(...fq[i]); fcol.push(0.95, 0.55, 0.1, 1); }
+		const bpos = [], bsh = [], banc = [];
+		const bq = [[-130, -30], [-70, -30], [-70, 30], [-130, 30]].map(([e, n]) => [...dLL(e, n), 40 / Re]);
+		for (const i of [0, 1, 2, 0, 2, 3]) { bpos.push(...bq[i]); bsh.push(1); banc.push(...dLL(-100, 0)); }
+		r.set("scene", { origin: [LON, LAT], layers: [
+			{ kind: "fill", li: 900, pos: new Float32Array(fpos), col: new Float32Array(fcol) },
+			{ kind: "line", li: 901, P1: new Float32Array(dLL(-150, -220)), P2: new Float32Array(dLL(150, -220)), col: new Float32Array([0.95, 0.9, 0.1, 1]), half: new Float32Array([3]) },
+		], buildings: { pos: new Float32Array(bpos), shade: new Float32Array(bsh), anchor: new Float32Array(banc) } }, "main");
+	}
 	const cam = { center: [LON, LAT], zoom: 16, pitch: 50 * Math.PI / 180, bearing: 0, dpr: 1 };
 	const rd = document.createElement("canvas"); rd.width = N; rd.height = N;
 	const rctx = rd.getContext("2d", { willReadFrequently: true });
-	const shot = async (opts = {}) => {   // 同一タスクで drawImage（t-shadow と同じ作法）
-		r.draw(cam, opts); r.flush();
+	const shot = async (opts = {}, c = cam) => {   // 同一タスクで drawImage（t-shadow と同じ作法）
+		r.draw(c, opts); r.flush();
 		rctx.clearRect(0, 0, N, N); rctx.drawImage(canvas, 0, 0);
 		const px = rctx.getImageData(0, 0, N, N).data;
 		await new Promise(res => requestAnimationFrame(() => setTimeout(res, 10)));
@@ -73,18 +100,56 @@ try {
 	r.set("clip", { on: true, vertical: [[a, b]] });
 	const B = await shot();
 	ok(`手前の台地は元のまま(Δ=${dist(rgb(A, S150), rgb(B, S150)).toFixed(1)})`, dist(rgb(A, S150), rgb(B, S150)) < 2);
-	ok(`北 300m は台地が消えて床(${fmt(rgb(A, N300f))}→${fmt(rgb(B, N300f))}・床だけ ${fmt(rgb(Cf, N300f))})`, red(rgb(A, N300f)) && dist(rgb(B, N300f), rgb(Cf, N300f)) < 3);
+	ok(`北 300m は台地も床も消えて背景色(${fmt(rgb(A, N300f))}→${fmt(rgb(B, N300f))})`, red(rgb(A, N300f)) && Math.max(...rgb(B, N300f)) < 40);
 	ok(`箱の屋根：南は残る(${fmt(rgb(B, roofS))})・北は抜ける(${fmt(rgb(B, roofN))})`, blue(rgb(B, roofS)) && dist(rgb(A, roofS), rgb(B, roofS)) < 2 && !blue(rgb(B, roofN)));
 
 	// ③ 北（奥）を残す＝手前の台地が消えて床が覗く
 	r.set("clip", { on: true, vertical: [[b, a]] });
 	const B2 = await shot();
-	ok(`奥を残す：手前は床(${fmt(rgb(B2, S150))})・北 300m の台地は残る(${fmt(rgb(B2, N300t))})`, !red(rgb(B2, S150)) && red(rgb(B2, N300t)) && dist(rgb(A, N300t), rgb(B2, N300t)) < 2);
+	ok(`奥を残す：手前は台地も床も消えて背景色(${fmt(rgb(B2, S150))})・北 300m の台地は残る(${fmt(rgb(B2, N300t))})`, Math.max(...rgb(B2, S150)) < 40 && red(rgb(B2, N300t)) && dist(rgb(A, N300t), rgb(B2, N300t)) < 2);
 
-	// ④ 消す＝元どおり
+	const green = c => c[1] > c[0] + 60 && c[1] > c[2] + 60, yellow = c => c[0] > 150 && c[1] > 150 && c[2] < 110, orange = c => c[0] > 150 && c[1] > 80 && c[1] < 190 && c[2] < 90;
+	const dark = c => Math.max(...c) < 40;   // 背景色（0.03/0.04/0.07）＝床も切れた
+	const L_W = at(-60, -220, HT), L_E = at(140, -220, HT), SL_W = at(85, 0, HT + 0.5), SL_E = at(125, 0, HT + 0.5), BLD = at(-100, 0, HT + 40), BLD_W = at(-122, 0, HT + 40);
+	r.set("clip", { on: false });
+	const A1 = await shot();
+	ok(`段 1 の試料：線は黄(${fmt(rgb(A1, L_W))}/${fmt(rgb(A1, L_E))})・模型の板は緑(${fmt(rgb(A1, SL_W))}/${fmt(rgb(A1, SL_E))})・基図の建物は青(${fmt(rgb(A1, BLD))}/${fmt(rgb(A1, BLD_W))})`,
+		yellow(rgb(A1, L_W)) && yellow(rgb(A1, L_E)) && green(rgb(A1, SL_W)) && green(rgb(A1, SL_E)) && blue(rgb(A1, BLD)) && blue(rgb(A1, BLD_W)));
+	// ⑤ 南北の鉛直面（東 100m を北→南＝西を残す）
+	const [ns0, ns1] = [ll(100, 2000), ll(100, -2000)];
+	r.set("clip", { on: true, vertical: [[ns0, ns1]] });
+	const B5 = await shot();
+	ok(`⑤模型：西は残る(${fmt(rgb(B5, SL_W))})・東は切れる(${fmt(rgb(B5, SL_E))})`, dist(rgb(A1, SL_W), rgb(B5, SL_W)) < 2 && !green(rgb(B5, SL_E)));
+	ok(`⑤基図の線：西は残る(${fmt(rgb(B5, L_W))})・東は切れる(${fmt(rgb(B5, L_E))})`, dist(rgb(A1, L_W), rgb(B5, L_W)) < 2 && !yellow(rgb(B5, L_E)));
+	// ⑥ 箱（基図の建物の中心・幅 30m＝西 115〜85m・奥行き 200m・高さ 0〜200m）
+	r.set("clip", { on: true, box: { center: ll(-100, 0), size: [30, 200], h: [0, 200] } });
+	const B6 = await shot();
+	ok(`⑥箱：建物は箱の中だけ(${fmt(rgb(B6, BLD))}→外 ${fmt(rgb(B6, BLD_W))})`, dist(rgb(A1, BLD), rgb(B6, BLD)) < 2 && !blue(rgb(B6, BLD_W)));
+	ok(`⑥箱の外は台地も床も消える(手前 ${fmt(rgb(B6, S150))}・北 300m ${fmt(rgb(B6, N300f))})`, dark(rgb(B6, S150)) && dark(rgb(B6, N300f)));
+	// ⑦ 水平面 30m（中心）：下を残す／上を残す
+	r.set("clip", { on: true, horizontal: [{ at: [LON, LAT], h: 30 }] });
+	const B7 = await shot();
+	ok(`⑦下を残す：台地と箱が消えて床(${fmt(rgb(B7, S150))}・屋根 ${fmt(rgb(B7, roofS))})`, !red(rgb(B7, S150)) && !dark(rgb(B7, S150)) && !blue(rgb(B7, roofS)) && dist(rgb(B7, N300f), rgb(Cf, N300f)) < 3);
+	r.set("clip", { on: true, horizontal: [{ at: [LON, LAT], h: 30, keep: "above" }] });
+	const B7a = await shot();
+	ok(`⑦上を残す：台地は残る(${fmt(rgb(B7a, S150))}・北 300m ${fmt(rgb(B7a, N300t))})`, dist(rgb(A1, S150), rgb(B7a, S150)) < 2 && red(rgb(B7a, N300t)));
+	// ⑧ 真俯瞰（地形なし＝塗りを直に描く・南 220m を中心に）
+	const cam2 = { center: ll(0, -200), zoom: 16, pitch: 0, bearing: 0, dpr: 1 }, st2 = cameraState(cam2, N, N);
+	const at2 = (e, n) => { const [lo, la] = ll(e, n), p = project(st2, lo, la); return [Math.round(p[0]), Math.round(p[1])]; };
+	const F_W = at2(-60, -250), F_E = at2(130, -250);
+	r.set("clip", { on: false });
+	const A8 = await shot({}, cam2);
+	r.set("clip", { on: true, vertical: [[ns0, ns1]] });
+	const B8 = await shot({}, cam2);
+	ok(`⑧真俯瞰の塗り：西は残る(${fmt(rgb(A8, F_W))}→${fmt(rgb(B8, F_W))})・東は切れて背景色(${fmt(rgb(A8, F_E))}→${fmt(rgb(B8, F_E))})`, orange(rgb(A8, F_W)) && orange(rgb(A8, F_E)) && dist(rgb(A8, F_W), rgb(B8, F_W)) < 2 && dark(rgb(B8, F_E)));
+	r.set("clip", { on: false });
+	const back8 = await shot({}, cam2);
+	ok(`真俯瞰も消して元どおり(Δ=${same(A8, back8)})`, same(A8, back8) === 0);
+
+	// ⑨ 消す＝元どおり
 	r.set("clip", { on: false });
 	const back = await shot();
-	ok(`消して元どおり(Δ=${same(A, back)})`, same(A, back) === 0);
+	ok(`消して元どおり(Δ=${same(A1, back)})`, same(A1, back) === 0);
 	await new Promise(res => setTimeout(res, 50));
 	ok(`GPU の検証エラーなし（${r.gpuErrors.length}${r.gpuErrors.length ? "：" + r.gpuErrors[0] : ""}）`, r.gpuErrors.length === 0);
 	r.dispose();

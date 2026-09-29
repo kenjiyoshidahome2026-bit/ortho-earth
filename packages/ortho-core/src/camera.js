@@ -18,6 +18,7 @@ export const WORLD_PX = 256;
 let R_AX = 1;   // b/a（球=1）。シェーダ側の dβ 補正は u_ellTrig=(0,…)＝球で厳密0（renderer が配る）
 export function setEllipsoid(on) { R_AX = on ? 1 - 1 / 298.257223563 : 1; }
 export const ellipsoidOn = () => R_AX !== 1;
+export const ellAxisRatio = () => R_AX;   // b/a（球=1）＝world＝S·β の S＝diag(1, b/a, 1)（断面の面を world で作って β へ移す・clip.js）
 export const worldRadiusM = () => R_AX === 1 ? 6371000 : 6378137;   // m→世界単位の換算半径（球＝従来値／楕円体＝a）
 // 測地緯度 φ ⇄ 更成緯度 β（deg）。閉形式（atan2＝極も厳密）。球では恒等。
 export const betaOf = latDeg => R_AX === 1 ? latDeg
