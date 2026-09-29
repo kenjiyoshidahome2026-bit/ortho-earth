@@ -475,7 +475,9 @@ let dpr = Math.min(2, window.devicePixelRatio || 1);
 
 // --- render worker：GL を OffscreenCanvas で worker に置く。main は set/draw を postMessage する薄いプロキシ ---
 // transfer 後は main から canvas.width を触れないので、論理サイズ(size)を main が自前で持つ。
-const size = { w: Math.round(mapEl.clientWidth * dpr), h: Math.round(mapEl.clientHeight * dpr) };
+// 下限 1px（2026-09-29）：容れ物の高さ 0 で起動すると縦横比が無限大＝投影行列の逆が作れず（unproject が null を読んで例外）・WebGPU は大きさ 0 のテクスチャで落ちた。
+// 1px で描いておき、大きさが付けば ResizeObserver の resize が追う（MapLibre も大きさ 0 の容れ物で壊れない）
+const size = { w: Math.max(1, Math.round(mapEl.clientWidth * dpr)), h: Math.max(1, Math.round(mapEl.clientHeight * dpr)) };
 canvas.width = size.w; canvas.height = size.h;             // transfer 前に初期サイズ
 labelCanvas.width = size.w; labelCanvas.height = size.h;
 const offscreen = canvas.transferControlToOffscreen();
@@ -1026,6 +1028,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	// 動作中＝帯（smoothstep）で滑らかに／静止中に届いた答え＝確定（地中なら全黒・地上なら解除）＝commitUnderground と同じ裁定
 	const done = (t, d) => { ugBusy = false; ugLastD = d; undergroundEl.style.opacity = moving ? t : (d < 0 ? 1 : 0); };
 	if ((cam.pitch || 0) < 0.06) return done(0, Infinity);   // 2D=地中判定なし
+	if (noTerr) return done(0, Infinity);   // 地形を描かない地図（terrain:false・MapLibre の口の既定）＝地面は海抜 0 の平面＝潜らない。旧＝描いていない自前の標高で判定し、z18・傾き 60° の公式例（add-a-3d-model-using-threejs）が全面灰色（2026-09-29）
 	const st = cameraState(cam, size.w, size.h);
 	const len = Math.hypot(st.eye[0], st.eye[1], st.eye[2]);
 	const [lon, lat] = betaToLonLat(st.eye);   // ★eye は β空間（cameraState が S⁻¹ 済み）＝β→測地緯度の一段だけ。生 asin=地心(−10km)・worldToLonLat=S⁻¹二重(+10km) はどちらも ?ell=1 で直下点が 10km 飛ぶ（8/15・9/21）
@@ -1070,7 +1073,7 @@ function mlZoomOf(tileSize = 512, round = false) {
 }
 const groundRNow = () => {
 	const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = pt * pt * (3 - 2 * pt);
-	if (pf <= 0 || groundElevM <= 0) return 1;   // 真俯瞰 or 海面＝従来挙動
+	if (noTerr || pf <= 0 || groundElevM <= 0) return 1;   // 真俯瞰 or 海面＝従来挙動・地形を描かない地図も海面（描く側と同じ＝持ち上げの pf と揃える）
 	// リフト量は eye の下に留める（-30m マージン）：球が eye を呑むと unproject の出口が地球の裏側＝
 	// ゴミサンプル。谷を見下ろす縁などで中心標高が eye を超えても、選抜は海面球との和集合が受け持つ。
 	const st = cameraState(cam, size.w, size.h);
@@ -1413,7 +1416,7 @@ dbgHost.__mesh = async (nameOrBase, tiles) => {
 
 function resize() {
 	const w = mapEl.clientWidth, h = mapEl.clientHeight;
-	size.w = Math.round(w * dpr); size.h = Math.round(h * dpr);
+	size.w = Math.max(1, Math.round(w * dpr)); size.h = Math.max(1, Math.round(h * dpr));   // 下限 1px（起動時と同じ理由）
 	// GL canvas：バッファサイズは worker が持つ（transfer 済）。main は CSS と論理サイズ(size)だけ。
 	canvas.style.width = w + "px"; canvas.style.height = h + "px";
 	wPost({ type: "resize", width: size.w, height: size.h });
