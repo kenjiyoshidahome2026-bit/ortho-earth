@@ -505,7 +505,10 @@ export type MapLibreSource =
 	 *  promoteId＝feature の id にする属性（文字列か source-layer ごとの object）。既定値は MapLibre どおり（minzoom 0・maxzoom 22）。
 	 *  encoding＝タイルの形式（MapLibre と同じ "mvt"（既定）｜"mlt"＝MapLibre Tile・1.4.0〜）。"mlt" はプラグイン @ortho-earth/tile-formats を "#tile-formats" に alias したビルドで描ける（無ければ空＋警告 1 回）。PMTiles はヘッダの tileType が決める */
 	| { type: "vector"; url?: string; tiles?: string[]; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms"; promoteId?: string | Record<string, string>; encoding?: "mvt" | "mlt" };
-export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster"; source: string | MapLibreSource; "source-layer"?: string; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
+/** type "hillshade"（1.5.0〜）・"color-relief"（1.8.0〜・#114）＝raster-dem の source から画像タイルを作る層（基図の上・注記の下）。
+ *  color-relief：paint "color-relief-color"＝["interpolate", …, ["elevation"], 標高, 色, …]（MapLibre と同じ意味＝段の標高で色を引き、段の間は事前乗算の線形・範囲の外は端の色・
+ *  step／match／定数色は透明）・"color-relief-opacity"（既定 1・タイルを作り直さない）。resampling は読まない。組み込みの段彩の上に重なる */
+export interface MapLibreLayer { id: string; type: "fill" | "line" | "circle" | "symbol" | "fill-extrusion" | "heatmap" | "raster" | "hillshade" | "color-relief"; source: string | MapLibreSource; "source-layer"?: string; filter?: StyleExpression; minzoom?: number; maxzoom?: number; layout?: Record<string, StyleExpression>; paint?: Record<string, StyleExpression> }
 /** tolerance＝足す px（拡張・1.5.0〜既定 0＝MapLibre と同じ：線は線幅の半分・円は半径＋縁・面は内側。〜1.3 は 3） */
 export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tolerance?: number }
 /** 外来の標高タイル（MapLibre の raster-dem 相当・#36）。encoding＝terrarium｜mapbox（MapLibre の既定）｜gsi（地理院 PNG 標高タイル）。
@@ -628,7 +631,7 @@ export interface OrthoJapanMap {
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
 	/** 描き終わり（MapLibre 同名・1.5.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
-	 *  画像タイル層（raster/hillshade/image/video・map.raster も）の未着も待つ（1.6.0〜。それまでは画像が降っている途中で来た）。
+	 *  画像タイル層（raster/hillshade/color-relief/image/video・map.raster も）の未着も待つ（1.6.0〜・color-relief は 1.8.0〜。それまでは画像が降っている途中で来た）。
 	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
@@ -727,7 +730,7 @@ export interface OrthoJapanMap {
 	getSource(id: string): (MapLibreSource & { setData(data: GeoJSONFeatureCollection | string): Promise<void>; getClusterExpansionZoom?(clusterId: number): Promise<number> } & Partial<VideoHandle>) | undefined;   // getClusterExpansionZoom＝cluster:true の source（1.3.0〜）
 	removeSource(id: string): OrthoJapanMap;
 	/** vector source（fill-extrusion・fill/line/circle/symbol）＝見えているタイルが今の式で組み上がって描画側に載るまで false（カメラが動いている間も false）。基図の source 名も受ける。
-	 *  raster/raster-dem（hillshade）/image/video の source（1.6.0〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
+	 *  raster/raster-dem（hillshade・color-relief＝1.8.0〜）/image/video の source（1.6.0〜）＝その source を使う見えている層が開く途中か、見えているタイルに未着がある間は false */
 	isSourceLoaded(id: string): boolean;
 	addLayer(layer: MapLibreLayer, beforeId?: string): Promise<unknown>;
 	getLayer(id: string): MapLibreLayer | undefined;

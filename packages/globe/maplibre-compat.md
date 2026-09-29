@@ -53,7 +53,7 @@
 | MLT（MapLibre Tile）の vector source（`"encoding":"mlt"`・PMTiles tileType 6） | 未対応（unknown＝空） | #88 | **済**（2026-09-27・core の登録簿 `tileformat.js`＝MVT も同じ差し込み口・プラグイン `@ortho-earth/tile-formats`＝`#tile-formats` の alias・解読器は最初の MLT タイルで動的 import・爪車 `t-mlcompat?g=mlt`＝MVT と同じ絵と答え） |
 | geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
 | queryRenderedFeatures の geojson の押し出し | 地面の足跡で当てる（傾けて屋根を押すと外れる） | 5b | **済**（立体＝屋根と壁・近い順・R23） |
-| color-relief の層（`["elevation"]` で段彩） | 無い（style は知らない演算子で層を落とす・addLayer は投げる） | #114 | 未（段 0＝場面と既知 11：node 6・g=relief 5） |
+| color-relief の層（`["elevation"]` で段彩） | 無い（style は知らない演算子で層を落とす・addLayer は投げる） | #114 | **済**（2026-09-29・core の式 elevation・globe `colorrelief.js`＝画像タイル層・DEM の在庫は source ごとに共有・門 add-a-color-relief-layer 2→3） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -363,6 +363,9 @@
   - `step`・`match`・定数色は Interpolate でない＝段の表が空→**[0: 透明]＝全部透明**（裁定「本物に合わせる」）。範囲の外は CLAMP_TO_EDGE＝**端の色**。段は最大 MAX_TEXTURE_SIZE（超えたら間引き）・段の標高は DEM の符号に詰める（terrarium なら 1/256 m 刻み）。
   - `color-relief-opacity`（既定 1・遷移あり）は色に掛ける・`resampling`（linear／nearest）は DEM の標本。source は raster-dem 必須（検証で落とす）。
   - 検定（段 0）：node `mlcompat.mjs` の `elevation-op`・`style-color-relief-routed`・`color-relief-ramp-*`（段の表の口＝globe `src/colorrelief.js` の `reliefRamp`／`reliefAt`＝事前乗算の 0〜1）・t-mlcompat `?g=relief`（style で起動・円錐の頂＝赤・中腹＝紫・裾＝青・step は透明・不透明度 0.5・外す・addLayer）。全部既知（段 1＝core・段 2＝globe）。
+  - **段 1〜4（同日）**：段 1＝core `expr.js` に `elevation`（`ctx.vars.elevation`）・`mlstyle.js` が raster-dem の color-relief を利用者の層の口へ（hillshade と同じ行）。段 2＝globe `src/colorrelief.js`（`reliefRamp`／`reliefAt`／`reliefTile`／port プロバイダ）・kind `colorrelief`・`color-relief-opacity` は画像タイル層の不透明度（作り直さない・`["zoom"]` の式は settle で見直す）・色を変えたら載せ直す。段 3＝`src/demtiles.js`＝raster-dem のタイルの在庫を source ごとに 1 つ（hillshade と共有・使う層が居なくなったら捨てる）＝同じ source に 2 層で 26 本中 12 本の二重取得→0。段 4＝関門・門・d.ts（`MapLibreLayer.type` に hillshade／color-relief）・版上げ（core 1.9.0・globe 1.8.0）。
+  - **門 ocr1（本物 r7・2 本だけ）**：add-a-color-relief-layer **2→3**（同じ絵・目で見ても同じ）。add-3d-terrain-from-quantized-mesh-tiles は 2 のまま（例は第三者のプラグインで quantized-mesh を raster-dem に変える形＝#110 の口は通らない・「基図が違う」＝OSM の raster）。
+  - 残す違い（文書）：`resampling`（nearest）は読まない＝画素ごとに色を引いて画像タイル層の標本に任せる。段の標高を DEM の符号に詰める量子化（terrarium で 1/256 m）はしない。段の数の上限（MAX_TEXTURE_SIZE）は無い。
 ### 8.x 再開の手引き（2026-09-28 夜・別の機械から続ける時に読む所）
 **最新（2026-09-29 朝・自宅）＝ここから読む**：
 - main＝文字の段 0〜5・注記の残件①〜⑤（#98〜#106）＋他の流れ（#112 影・#43 楕円体・版上げ core 1.8.0／globe 1.7.0＝**globe 1.7.0 は未公開**＝npm の最新は 1.6.0）。
