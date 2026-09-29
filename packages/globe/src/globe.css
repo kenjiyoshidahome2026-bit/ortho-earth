@@ -102,13 +102,16 @@
 /* 寸法だけは :where() で特異度ゼロに落とす（2026-08-19）。既定は「親いっぱい」＝これまで通りだが、
    埋め込み側が .map-box 等のクラスで大きさを指定したらそちらが勝つ。id セレクタ(0,1,0,0)のままだと
    利用者のクラス指定(0,0,1,0)を必ず握り潰し、容れ物が親の高さ（＝多くのページで 0）に化ける。 */
+/* position も同じ理由で特異度ゼロ（2026-09-29）：MapLibre の定番「#map { position:absolute; top:0; bottom:0; width:100% }」が
+   id セレクタどうしの後勝ちで relative に化け、top/bottom が効かず高さ 0 になった（公式例 display-performance-metrics が起動しなかった）。
+   MapLibre も relative はクラス（.maplibregl-map）＝利用者の id 指定が勝つ。子（#c ほか）の基準は absolute/fixed でも同じく立つ */
 :where(#map) {
+  position: relative;
   width: 100%;
   height: 100%;
 }
 
 #map {
-  position: relative;
   overflow: hidden;
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%; /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
