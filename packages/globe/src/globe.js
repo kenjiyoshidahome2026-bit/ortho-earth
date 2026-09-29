@@ -30,7 +30,8 @@ export { Marker, Popup };
 import { createRequester, addProtocol, removeProtocol } from "./request.js";   // 取得の前の手入れ（#37・transformRequest / addProtocol）
 export { addProtocol, removeProtocol };
 import { MAP_THEMES } from "./palettes.js";
-import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
+import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
+import { clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
@@ -1024,6 +1025,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	Promise.race([Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })), new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
 			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
+			if (clipMain && clipDistanceM(clipMain, lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が切られた側（周りに地面が無い）＝地中でない
 			const d = eyeAltM - (+h || 0);   // 直下地表からの余裕[m]（d<0=地中）
 			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
 			done(x * x * (3 - 2 * x), d);   // smoothstep
@@ -1441,10 +1443,11 @@ const input = createInput({
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
 		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
-		overlay.identifyAt(x, y); if (gint.interactive || extActive) wPost({ type: "gintClick", x, y });
+		const cut = clipCutXY(x, y);   // 断面で切られた側の地面（#111）＝地面の識別は当てない（gint は描画 worker の拾いが面で切る）
+		if (!cut) overlay.identifyAt(x, y); if (gint.interactive || extActive) wPost({ type: "gintClick", x, y });
 		if (mapOn.click.length) {   // §4 map.on('click')＝層をまたぐ照会（main 同期 JS レイキャスト・手前の層から）
 			const ll = unprojectXY(x, y);
-			if (ll) { const hits = gint.queryAllGint(ll); for (const cb of mapOn.click) cb({ lngLat: ll, hits }); }
+			if (ll) { const hits = cut ? [] : gint.queryAllGint(ll); for (const cb of mapOn.click) cb({ lngLat: ll, hits }); }
 		}
 	},
 	onHover: (x, y) => {
@@ -1454,7 +1457,8 @@ const input = createInput({
 		// tip 持参層（筆＝moj/maff）がホバー可で載っている間は gint が主導＝町丁目tip/太線と排他（本人裁定2026-08-18）。
 		const fudeOwn = (gint.userGint?.tip && gint.interactive && gint.hover) || !!extActive;   // 追加層がカーソル保持中（§4.1 アクティブ層＝主導権）も gint が主
 		if (fudeOwn && gint.extTipOwn) { gint.extTipOwn = false; renderer.set("overlayHover", null); needsDraw = true; }   // 跨ぎ瞬間＝残った町丁目tip/太線を掃除（tip本文は直後の識別ackが上書き）
-		if (!fudeOwn && hostHooks.hover.some(h => h(x, y))) return;   // 地域パックのホバー（e-Stat の町丁目 tip＝日本の install が差す）
+		const cutH = clipCutXY(x, y);   // 断面で切られた側（#111）＝地域パックのホバーと国名 tip を出さない
+		if (!fudeOwn && !cutH && hostHooks.hover.some(h => h(x, y))) return;   // 地域パックのホバー（e-Stat の町丁目 tip＝日本の install が差す）
 		if ((gint.interactive && gint.hover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
@@ -1463,7 +1467,7 @@ const input = createInput({
 			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
 			if (cam.zoom >= gint.WORLD_TIP_MAXZ) { if (gint.worldTipOn) { gint.hoverTip(null); gint.worldTipOn = false; } return; }
 			const ll = unprojectXY(x, y);
-			const fid = ll ? gint.admin0Pbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
+			const fid = ll && !cutH ? gint.admin0Pbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
 			let name = null;
 			// 国名＝表示言語の列（NE の NAME_JA/NAME_FR/NAME_AR…＝25 言語・th は無し）→ 英語 → NAME。地図の中身だが「国名 tip が日本語のまま」（本人 2026-09-19）＝UI 側の穴
 			if (fid != null) { try { const p = gint.admin0Pbf.getProperties(fid) || {}; name = p["NAME_" + getLang().toUpperCase()] || p.NAME_EN || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
@@ -2718,6 +2722,14 @@ map.gadget("profile", function (opts) {   // 断面図 … 投影/逆投影・�
 		// getHeightP 経由＝ローダ未着でも待って照会（map.getHeight の「未着=0m」縮退はグラフには不適）。
 		sampleHeight: (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => (f ? f(lon, lat, 99) : 0))).then(h => +h || 0),   // 外来の DEM（#36）が先
 		onBody: p => { profileBody = p; if (p && p._update) { frameHooks.add(p._update); p._update(); } },   // 抽象アクセス：本体到着後に _update を毎フレ描画へ（measure と同型）
+		// 3D で切る（#111）＝経路の両端 a→b の鉛直面。既定はカメラ（目の直下）の側を外す＝切り口がこちらを向く・flip で反対側
+		canCut: () => renderBackend === "webgpu",
+		cut: (a, b, flip) => {
+			if (!a) return map.setClipping(false);
+			const eye = betaToLonLat(cameraState(cam, size.w, size.h).eye), pl = clipPlanes({ vertical: [[a, b]] });
+			const eyeKept = pl.length && clipDistanceM(pl, eye[0], eye[1], 0) >= 0;
+			map.setClipping({ vertical: [eyeKept !== !!flip ? [b, a] : [a, b]] });
+		},
 		...opts,
 	});
 });
@@ -2750,14 +2762,35 @@ map.setShadows = (o = true) => {
 	renderer.set("shadow", v); needsDraw = true; onMove();
 };
 dbgHost.__shadow = o => map.setShadows(o);   // 検証窓（t-shadow・実機の切り分け）
-// ── 断面とクリッピング平面（#111 段 0〜1・試作＝公開面 map.setClipping は段 3）。WebGPU 専用（GL レンダラは "clip" を素通しする）。
-// ?clip=項;項…＝lon1,lat1,lon2,lat2（鉛直面・a→b に向かって右側を残す）／h:lon,lat,高さ[,above]（水平面・既定は下を残す）／box:lon,lat,幅,奥行き[,底,天[,向き]]（箱の内側）。
-// 読み解きは core の clip.js（parseClipParam）＝ここは文字列を渡すだけ。面は全部の交わり・6 枚まで
-dbgHost.__clip = o => { renderer.set("clip", o); needsDraw = true; onMove(); };   // 検証窓：{on, vertical, horizontal, box, planes, param}
-{
-	const q = new URLSearchParams(location.search).get("clip");
-	if (q) { const go = () => dbgHost.__clip({ on: true, param: q }); if (mapLoaded) go(); else mapOn.load.push(go); }   // 描画 worker のレンダラが立つ前の set は落ちる＝初描画を待つ
-}
+// ── 断面とクリッピング平面（#111・2026-09-29）＝建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane 相当・WebGPU 専用）。
+// map.setClipping(false | { vertical?: [[a, b]…], horizontal?: [{ at, h, keep }…], box?: { center, size, h, bearing }, planes?, cap?, edge? })
+//   vertical＝2 点 a→b（[lon,lat]）を通る鉛直面（a→b に向かって右側を残す）・horizontal＝高さ h(m) の水平面（keep "below"＝既定／"above"）・
+//   box＝箱の内側（center・size [幅, 奥行き] m・h [底, 天] m・bearing 度）。面は全部の交わり・6 枚まで。cap:false＝蓋なし・edge:false|{ width, color }＝縁の帯。
+// 切れる物＝地形（切り口に土の色の蓋）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は疑似の蓋）・模型/3D Tiles/I3S・gint・外部ベクタ・注記・
+// 同一フレームのオーバーレイ（api.clip）。影は切った形で落ちる。日影図・可視域・見通し線（worker の計算）は切らない＝実物の地形と建物で測る。
+// GL2 では何もしない（影と同じ扱い・本人裁定 2026-09-29）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
+let clipSpec = null, clipMain = null;   // 今の切り方（公開面の写し）と main 側の面（問い合わせ・地中フェード）
+map.setClipping = (o = false) => {
+	const v = o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
+	const apply = () => {
+		if (v && renderBackend !== "webgpu") { console.warn("[clip] setClipping needs WebGPU (WebGL2 = no-op)"); return; }
+		clipSpec = v; clipMain = v ? clipPlanes(v) : null; if (!clipMain?.length) clipMain = null;
+		renderer.set("clip", v || { on: false }); needsDraw = true; onMove();
+	};
+	if (mapLoaded) apply(); else mapOn.load.push(apply);   // 描画 worker のレンダラが立つ前の set は落ちる＝初描画を待つ
+};
+map.getClipping = () => clipSpec ? { ...clipSpec } : null;
+dbgHost.__clip = o => map.setClipping(o);   // 検証窓
+{ const q = new URLSearchParams(location.search).get("clip"); if (q) map.setClipping({ param: q }); }
+// 画素 (x, y)（CSS px）の地面（海抜 0）が切られた側か＝識別・ホバー・問い合わせで外す
+const clipCutXY = (x, y) => { if (!clipMain) return false; const ll = unprojectXY(x, y); return !!ll && clipDistanceM(clipMain, ll[0], ll[1], 0) < 0; };
+// 地物の形が全部切られた側か（座標を最大 400 点だけ見る）＝箱の問い合わせと押し出しの当たりで外す
+const clipAllCut = (g, hM = 0) => {
+	if (!clipMain || !g) return false;
+	const cs = []; const walk = c => { if (cs.length > 400) return; if (typeof c[0] === "number") cs.push(c); else for (const x of c) walk(x); };
+	walk(g.type === "GeometryCollection" ? g.geometries.map(x => x.coordinates) : g.coordinates || []);
+	return cs.length > 0 && cs.every(c => clipDistanceM(clipMain, c[0], c[1], hM) < 0);
+};
 // ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
 // map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）
 // map.lineOfSight(a, b, { eyeH, targetH, buildings })＝視点 a→目標 b。見えるか・遮る最初の点・断面（距離・地表・視線）。線を地図に引く（見える区間＝緑・遮られた先＝赤）
@@ -4277,6 +4310,7 @@ const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]
 		for (let i = used.length - 1; i >= 0; i--) {
 			const u = used[i], g = extGeom(u);
 			if (!g.polys.length) continue;
+			if (clipMain && clipAllCut(u.f.geometry, u.base)) continue;   // 断面で足元が全部切られた建物は当てない（#111・半分切られた建物は当たる）
 			const zb = u.base + lift, zt = u.h + lift;
 			// 外接球：中心＝面の中心の上下の中ほど・半径＝弦＋高さの半分＋起伏の遊び（地形に沿う面だけ・広い面ほど大きく）
 			const Rm = gnd(g.clon, g.clat) + (zb + zt) / 2 * k;
@@ -4405,6 +4439,16 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		layers: qo.layers || null, filter: qo.filter || null, cache: queryCache, request: requester.forTiles(), encoding: BASE_SOURCE.encoding || "mvt", source: baseSidNow() }).catch(err => { console.warn("[query] basemap", err); return []; });   // source＝外来 style ならその source 名（MapLibre と同じ答え）・地域の基図＝"basemap"
 	return qf(out).concat(base);
 };
+// 断面（#111）＝問い合わせも切った側を外す：点の問い合わせで地面が切られていれば立体の地物（押し出し）だけ・それ以外は形が全部切られた地物を外す
+{
+	const qRF0 = map.queryRenderedFeatures;
+	map.queryRenderedFeatures = async (geometry, qo) => {
+		const r = await qRF0(geometry, qo);
+		if (!clipMain) return r;
+		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
+		return r.filter(f => ptCut ? f.layer?.type === "fill-extrusion" : !clipAllCut(f.geometry));
+	};
+}
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。
 // e＝{ type, point:{x,y}, lngLat:{lng,lat}, features, originalEvent, target: map }。当たりは queryRenderedFeatures（層を絞る＝基図の層でなければタイルを取り直さない）。
 // click はドラッグ（押して 5px 以上動いた）を除く。mousemove は rAF に畳み、最新の問い合わせだけを採る。
