@@ -101,6 +101,7 @@ await map.addLayer({ id: "cities", type: "circle", source: "cities",
 
 `data` can also be a URL of a GeoJSON file. Layer types: `fill`, `line`, `circle`, `symbol`, `fill-extrusion`, `heatmap`, `raster`.
 Other formats (Shapefile, GeoPackage, FlatGeobuf, GeoParquet, KML, GPX …) are read with `geopbf` — `import { geopbf } from "@ortho-earth/globe"`.
+Dropping a time-tagged `.czml` or `.gpx` file (or opening it with `?g=`) plays it on the shared clock (`map.clock`), like Cesium: the CZML `clock` sets the time range and speed.
 
 ### A6. Clicks, popups, markers and the camera
 

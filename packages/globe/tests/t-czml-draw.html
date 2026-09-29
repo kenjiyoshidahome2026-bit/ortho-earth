@@ -24,6 +24,8 @@ try {
 	const pj = () => map.makeProjectorH({ terrain: false });
 	const whereAt = (id, ms, list = dl) => { const q = positionAt(list.find(x => x.id === id), ms); if (!q) return null; const [lon, lat, h] = ecefToLlh(...q), [x, y, f] = pj()(lon, lat, h); return f > 0 ? [x, y] : null; };
 	const grab = async () => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels("czml"); if (p && !p.error) return p; await sleep(250); } return null; };
+	// 描いた物を見る時＝インクが出るまで待つ（部品の chunk が届く前に積まれた問い合わせは、最初の描画より先に答える＝真っさら・関門を並べた負荷で踏んだ）
+	const grabInk = async () => { let p = null; for (let i = 0; i < 30; i++) { p = await grab(); if (p) for (let k = 3; k < p.data.length; k += 4) if (p.data[k] > 60) return p; await sleep(300); } return p; };
 	const W = document.getElementById("map").clientWidth;
 	const at = (p, x, y) => { const s = p.w / W, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
 	const near = (p, x, y, test, r = 3) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (test(at(p, x + dx, y + dy))) return true; return false; };
@@ -31,7 +33,7 @@ try {
 	const setT = async ms => { map.clock.setTime(ms).setStep(0); await sleep(700); };
 	// ① 00:40＝機体 A は出ている＝赤い点・尾（30 分前の位置も赤）・札（点の右）
 	await setT(T(2400));
-	let P = await grab(), a = whereAt("Flight/A", T(2400)), tail = whereAt("Flight/A", T(1500));
+	let P = await grabInk(), a = whereAt("Flight/A", T(2400)), tail = whereAt("Flight/A", T(1500));
 	ok("pointDrawn", !!P && !!a && near(P, a[0], a[1], red), a && P ? at(P, ...a).join(",") : "none");
 	ok("tailDrawn", !!P && !!tail && near(P, tail[0], tail[1], red, 2), tail && P ? at(P, ...tail).join(",") : "none");
 	ok("labelDrawn", !!P && !!a && near(P, a[0] + 30, a[1], ink, 6), "right of the point");
