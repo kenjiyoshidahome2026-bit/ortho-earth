@@ -31,7 +31,7 @@ import { createRequester, addProtocol, removeProtocol } from "./request.js";   /
 export { addProtocol, removeProtocol };
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
-import { clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
+import { normClip, clipPlanesFor, clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
@@ -1023,7 +1023,7 @@ function updateUnderground(force = false) {   // ~16Hz サンプラ（onMove か
 	Promise.race([Promise.resolve(getHeight(lon, lat, cam.zoom, { wait: true })), new Promise(r => setTimeout(r, UG_WAIT_MS, UG_TIMEOUT))])
 		.then(h => {
 			if (h === UG_TIMEOUT) { ugBusy = false; return; }   // ローダ無応答＝今の不透明度を据え置き（次の契機で再挑戦）
-			if (clipMain && clipDistanceM(clipMain, lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が切られた側（周りに地面が無い）＝地中でない
+			if (clipFor("terrain") && clipDistanceM(clipFor("terrain"), lon, lat, eyeAltM) < 0) return done(0, Infinity);   // 断面（#111）＝目が地形の面で切られた側（周りに地面が無い）＝地中でない
 			const d = eyeAltM - (+h || 0);   // 直下地表からの余裕[m]（d<0=地中）
 			const x = Math.max(0, Math.min(1, (UG_FADE_TOP_M - d) / (UG_FADE_TOP_M - UG_FADE_FULL_M)));
 			done(x * x * (3 - 2 * x), d);   // smoothstep
@@ -2767,27 +2767,31 @@ dbgHost.__shadow = o => map.setShadows(o);   // 検証窓（t-shadow・実機の
 // 切れる物＝地形（切り口に土の色の蓋）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は疑似の蓋）・模型/3D Tiles/I3S・gint・外部ベクタ・注記・
 // 同一フレームのオーバーレイ（api.clip）。影は切った形で落ちる。日影図・可視域・見通し線（worker の計算）は切らない＝実物の地形と建物で測る。
 // GL2 では何もしない（影と同じ扱い・本人裁定 2026-09-29）。消している間は描画に一切関与しない。?clip=項;項…＝URL の書き方（core clip.js parseClipParam）
-let clipSpec = null, clipMain = null;   // 今の切り方（公開面の写し）と main 側の面（問い合わせ・地中フェード）
+let clipSpec = null, clipMain = null, clipByT = null;   // 今の切り方（公開面の写し）・main 側の面（vector＝識別と問い合わせ）・対象ごとの面（段 4）
+const clipFor = t => clipByT?.[t] ?? null;
 map.setClipping = (o = false) => {
-	const v = o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
+	const v = Array.isArray(o) ? (o.length ? o.map(g => ({ ...g })) : null) : o && typeof o === "object" && o.on !== false ? { ...o, on: true } : null;
 	const apply = () => {
 		if (v && renderBackend !== "webgpu") { console.warn("[clip] setClipping needs WebGPU (WebGL2 = no-op)"); return; }
-		clipSpec = v; clipMain = v ? clipPlanes(v) : null; if (!clipMain?.length) clipMain = null;
-		renderer.set("clip", v || { on: false }); needsDraw = true; onMove();
+		const n = normClip(v);
+		clipSpec = n ? v : null;
+		clipByT = n ? Object.fromEntries(["terrain", "buildings", "models", "vector", "labels"].map(t => { const a = clipPlanesFor(n, t); return [t, a.length ? a : null]; })) : null;
+		clipMain = clipFor("vector");
+		renderer.set("clip", clipSpec || { on: false }); needsDraw = true; onMove();
 	};
 	if (mapLoaded) apply(); else mapOn.load.push(apply);   // 描画 worker のレンダラが立つ前の set は落ちる＝初描画を待つ
 };
-map.getClipping = () => clipSpec ? { ...clipSpec } : null;
+map.getClipping = () => clipSpec ? (Array.isArray(clipSpec) ? clipSpec.map(g => ({ ...g })) : { ...clipSpec }) : null;
 dbgHost.__clip = o => map.setClipping(o);   // 検証窓
 { const q = new URLSearchParams(location.search).get("clip"); if (q) map.setClipping({ param: q }); }
 // 画素 (x, y)（CSS px）の地面（海抜 0）が切られた側か＝識別・ホバー・問い合わせで外す
 const clipCutXY = (x, y) => { if (!clipMain) return false; const ll = unprojectXY(x, y); return !!ll && clipDistanceM(clipMain, ll[0], ll[1], 0) < 0; };
 // 地物の形が全部切られた側か（座標を最大 400 点だけ見る）＝箱の問い合わせと押し出しの当たりで外す
-const clipAllCut = (g, hM = 0) => {
-	if (!clipMain || !g) return false;
+const clipAllCut = (g, hM = 0, pl = clipMain) => {
+	if (!pl || !g) return false;
 	const cs = []; const walk = c => { if (cs.length > 400) return; if (typeof c[0] === "number") cs.push(c); else for (const x of c) walk(x); };
 	walk(g.type === "GeometryCollection" ? g.geometries.map(x => x.coordinates) : g.coordinates || []);
-	return cs.length > 0 && cs.every(c => clipDistanceM(clipMain, c[0], c[1], hM) < 0);
+	return cs.length > 0 && cs.every(c => clipDistanceM(pl, c[0], c[1], hM) < 0);
 };
 // ── 可視域と見通し線（#44・2026-09-23）──────────────────────────────────────
 // map.viewshed({ observer:[lon,lat], eyeH:1.6, targetH:0, radius:1000(m), buildings:true, tilesets? , probe? })＝見える所（緑）と見えない所を地面に貼る（map.raster の "viewshed"）
@@ -4286,7 +4290,7 @@ const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]
 		for (let i = used.length - 1; i >= 0; i--) {
 			const u = used[i], g = extGeom(u);
 			if (!g.polys.length) continue;
-			if (clipMain && clipAllCut(u.f.geometry, u.base)) continue;   // 断面で足元が全部切られた建物は当てない（#111・半分切られた建物は当たる）
+			if (clipFor("models") && clipAllCut(u.f.geometry, u.base, clipFor("models"))) continue;   // 断面で足元が全部切られた押し出しは当てない（#111・models の面・半分切られた物は当たる）
 			const zb = u.base + lift, zt = u.h + lift;
 			// 外接球：中心＝面の中心の上下の中ほど・半径＝弦＋高さの半分＋起伏の遊び（地形に沿う面だけ・広い面ほど大きく）
 			const Rm = gnd(g.clon, g.clat) + (zb + zt) / 2 * k;
@@ -4420,9 +4424,9 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const qRF0 = map.queryRenderedFeatures;
 	map.queryRenderedFeatures = async (geometry, qo) => {
 		const r = await qRF0(geometry, qo);
-		if (!clipMain) return r;
+		if (!clipMain) return r;   // 地面の地物＝vector の面（押し出しは extrudeHits が models の面で外す）
 		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
-		return r.filter(f => ptCut ? f.layer?.type === "fill-extrusion" : !clipAllCut(f.geometry));
+		return r.filter(f => f.layer?.type === "fill-extrusion" || (!ptCut && !clipAllCut(f.geometry)));
 	};
 }
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。

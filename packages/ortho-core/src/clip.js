@@ -71,6 +71,28 @@ export function clipPlanes(spec) {
 	return out.slice(0, CLIP_MAX);
 }
 
+// ── 対象ごとの面（段 4）：切り方は「群」の並び。群＝{ vertical?, horizontal?, box?, planes?, param?, targets? }（targets 省略＝全部）。
+// 配列を渡すと群ごとに対象を変えられる（例：地形は箱で・建物は水平面で）。蓋と縁の帯（cap・edge）は最初に書いた群の値
+export const CLIP_TARGETS = ["terrain", "buildings", "models", "vector", "labels"];   // 地形（床・蓋）／基図の押し出しと建物メッシュ／模型・3D Tiles・I3S・押し出し／塗り・線・gint・外部ベクタ・同一フレームのオーバーレイ／注記
+export function normClip(data) {
+	if (!data || data.on === false) return null;
+	const groups = (Array.isArray(data) ? data : [data]).filter(g => g && g.on !== false).map(g => ({ spec: g, targets: new Set(Array.isArray(g.targets) && g.targets.length ? g.targets : CLIP_TARGETS) }));
+	if (!groups.length) return null;
+	const sg = groups.find(g => "cap" in g.spec || "edge" in g.spec);
+	return { groups, style: clipStyle(sg ? sg.spec : null) };
+}
+// その対象の面（群を順に・6 枚まで）
+export function clipPlanesFor(norm, target) {
+	if (!norm) return [];
+	const out = [];
+	for (const g of norm.groups) if (g.targets.has(target)) out.push(...clipPlanes(g.spec));
+	return out.slice(0, CLIP_MAX);
+}
+// 同一フレームのオーバーレイ（自前の GPU シェーダ）へ渡す面の uniform＝pl[6]＋p（112B・WGSL の ClipP の先頭と同じ並び）。K＝n·(その原点) − c を f64 で
+export function clipPackOrigin(planes, origin) {
+	return packClip(planes, lonlatTo3D(origin[0], origin[1])).slice(0, (CLIP_MAX + 1) * 4);
+}
+
 // URL の書き方（?clip=）→ spec。区切り＝";"・各項：
 //   lon1,lat1,lon2,lat2            … 鉛直面（a→b に向かって右側を残す）
 //   h:lon,lat,高さ[,above]         … 水平面（既定は下を残す）

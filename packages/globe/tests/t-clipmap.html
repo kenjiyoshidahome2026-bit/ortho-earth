@@ -6,7 +6,7 @@
      ②切ると東の注記は置かれない（WEST は残る）・東の四角の画素は消える（西は元のまま）
      ③queryRenderedFeatures：東の四角の点は返さない・西は返す
      ④外部ベクタの覆うパス（spotlight の周辺マスク）は切られた東側に掛からない（掛かるのは西の外側だけ）
-     ⑤false で消す＝東の注記が戻る・getClipping は null（シェーダの検証は t-wgsl・t-clip・t-clipgint）。⚠実時間（verify-webgpu.mjs） -->
+     ⑦対象ごとの面（段 4）＝labels だけ／vector だけ　⑤false で消す＝東の注記が戻る・getClipping は null（シェーダの検証は t-wgsl・t-clip・t-clipgint）。⚠実時間（verify-webgpu.mjs） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-clipmap</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -63,6 +63,14 @@ try {
 	ok("④マスクは西の外だけ暗く・切られた東は変わらない", near(a4(...qEo), b4(...qEo), 3) && a4(...qWo)[0] + a4(...qWo)[1] + a4(...qWo)[2] < b4(...qWo)[0] + b4(...qWo)[1] + b4(...qWo)[2] - 60,
 		`西の外 ${fmt(b4(...qWo))}→${fmt(a4(...qWo))} 東 ${fmt(b4(...qEo))}→${fmt(a4(...qEo))}`);
 	sp?.clear();
+	// ⑦ 対象ごとの面（段 4）：labels だけ＝東の注記は消え東の四角は残る／vector だけ＝東の四角は消え東の注記は残る
+	map.setClipping({ ...spec, targets: ["labels"] }); await settle();
+	const n7 = await names(), s7 = await snap();
+	ok("⑦labels だけ：東の注記は消え・東の四角は残る", !n7.has("EAST") && n7.has("WEST") && blue(s7(...qE)), `${[...n7].filter(s => /EAST|WEST/.test(s))} ${fmt(s7(...qE))}`);
+	map.setClipping([{ ...spec, targets: ["vector"] }]); await settle();
+	const n8 = await names(), s8 = await snap();
+	ok("⑦vector だけ：東の四角は消え・東の注記は残る", n8.has("EAST") && !blue(s8(...qE)), `${[...n8].filter(s => /EAST|WEST/.test(s))} ${fmt(s8(...qE))}`);
+	ok("⑦getClipping は配列の写し", Array.isArray(map.getClipping()) && map.getClipping()[0].targets[0] === "vector");
 	// ⑤ 消す
 	map.setClipping(false);
 	await settle();
