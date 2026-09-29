@@ -980,11 +980,12 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const fogK = () => (view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（MapLibre の口の既定＝MapLibre は fog を持たない・2026-09-30）＝近/遠を実質無限へ（遠景の平ら化も外れる）
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＋worldPalBuf へ書込）。globe/terrain/wdepr は
 	// 同一バッファを読む＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。gl/renderer.js worldPal() と対。
-	let wpalSrc = false, wpal = null;   // 初期 false＝worldHypso が null でも初回は必ず書く
+	let wpalSrc = false, wpal = null, seaSrc = null;   // 初期 false＝worldHypso が null でも初回は必ず書く
 	const wpalCPU = new Float32Array(40);
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc) {
-			wpalSrc = view.worldHypso; wpal = resolveWorldPal(wpalSrc);
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) {
+			wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc);
+			if (seaSrc) wpal.sea = seaSrc;   // view.sea＝海（球の地）の色の上書き（MapLibre の口＝background 層の無い style は白・2026-09-30）
 			[wpal.lowHumid, wpal.lowArid, wpal.midHumid, wpal.midArid, wpal.ramp1, wpal.ramp2, wpal.peak, wpal.snow, wpal.belowSea, wpal.grat]
 				.forEach((c, i) => wpalCPU.set(c, i * 4));   // 各色 vec4f スロット（grat のみ w=α係数・他の w は 0 のまま）
 			device.queue.writeBuffer(worldPalBuf, 0, wpalCPU);
