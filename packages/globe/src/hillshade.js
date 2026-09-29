@@ -2,9 +2,9 @@
 // この地図の陰影は傾けた時の地形面だけ（真俯瞰は平面）＝MapLibre の hillshade（真俯瞰でも陰影の画像を重ねる）が無かった。
 // 作り＝raster-dem のタイルを取って MapLibre と同じ式（hillshade_prepare＋hillshade の fragment・method "standard"）で陰影の画像タイルを作り、
 // 画像タイル層の port プロバイダ（raster-src.js の契約＝info 1 通・{id,z,x,y}→{id,bitmap}）として render worker に渡す＝エンジンの描く経路は無改修。
-// 端の勾配は隣のタイル（東西南北）を使う＝タイルの継ぎ目に筋が出ない（MapLibre は隣で縁を埋める）。DEM のタイルは LRU に持つ（隣は次のタイルで使い回す）。
+// 端の勾配は隣のタイル（東西南北）を使う＝タイルの継ぎ目に筋が出ない（MapLibre は隣で縁を埋める）。DEM のタイルは在庫（demtiles.js）に持つ＝隣は次のタイルで使い回し、同じ source の color-relief とも共有（#114 段 3）。
 // 未対応＝method "basic"/"combined"/"igor"/"multidirectional"（standard で描く・警告 1 回）。
-import { decodeDEM, normalizeDemSpec } from "@ortho-earth/core";
+import { createDemTiles } from "./demtiles.js";
 
 const PI = Math.PI;
 let cctx = null;
@@ -79,37 +79,15 @@ export function shadeTile({ h, n, hN, hS, hE, hW, z, lat0, lat1, p }) {
 
 const tileLat = (y, z) => { const t = PI - 2 * PI * y / (1 << z); return 180 / PI * Math.atan(0.5 * (Math.exp(t) - Math.exp(-t))); };
 
-// port プロバイダ。dem＝raster-dem の spec（tiles 済み）・paint＝評価済み・fetchFn＝取得（requester）。戻り＝{ port（render worker へ transfer）, setPaint, close }
-export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null }) {
-	const spec = normalizeDemSpec(dem), nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
+// port プロバイダ。dem＝raster-dem の spec（tiles 済み）・paint＝評価済み・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, setPaint, close }
+export function createHillshadeProvider({ dem, paint = {}, fetchFn = (u, init) => fetch(u, init), name = "hillshade", attribution = null, warn = null, tiles = null }) {
+	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, nDecl = spec.tileSize;   // 勾配は画像の実寸で取る（MapLibre は DEM の画素そのまま＝tileSize に縮めない。縮めると勾配が実寸比で増え陰影が強すぎる＝3 巡目の轍）
 	let p = hillshadeParams(paint);
 	if (p.method !== "standard") warn?.(`hillshade-method "${p.method}" is drawn as "standard"`);
 	const ch = new MessageChannel(), port = ch.port1;
-	const tiles = new Map();   // "z/x/y" → Promise<Float32Array|null>（直近 128 枚）
 	const stats = { req: 0, ok: 0, empty: 0, err: 0, last: null };   // 切り分けの窓（dbgHost.__hillshade）
 	const acs = new Map();
-	let dctx = null;
-	const tpls = spec.tiles.map(u => u.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));   // new URL(...).href で括弧が %7B に化けた型紙も読む
-	const url = (z, x, y) => tpls[(x + y) % tpls.length].replace("{z}", z).replace("{x}", x).replace("{y}", y);
-	const tile = (z, x, y) => {
-		const m = 1 << z; x = ((x % m) + m) % m;
-		if (y < 0 || y >= m) return Promise.resolve(null);
-		const k = `${z}/${x}/${y}`;
-		if (tiles.has(k)) { const v = tiles.get(k); tiles.delete(k); tiles.set(k, v); return v; }
-		const pr = (async () => {
-			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
-			if (!r.ok) return null;
-			const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
-			const n = bmp.width;
-			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
-			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }
-			dctx.clearRect(0, 0, n, n); dctx.drawImage(bmp, 0, 0); bmp.close?.();
-			return { h: decodeDEM(dctx.getImageData(0, 0, n, n).data, spec.encoding, spec), n };
-		})().catch(() => null);
-		tiles.set(k, pr);
-		if (tiles.size > 128) tiles.delete(tiles.keys().next().value);
-		return pr;
-	};
+	const tile = store.tile;
 	port.postMessage({ type: "info", info: { tileSize: nDecl, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
 	port.onmessage = async e => {
 		const { id, z, x, y, abort } = e.data || {};
