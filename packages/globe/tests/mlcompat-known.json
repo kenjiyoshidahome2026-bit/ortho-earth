@@ -1,13 +1,5 @@
 {
 	"_": "互換の爪車の既知の失敗（MapLibre と違う答えになる場面）。値＝直す段と理由。直ったら消す（残すと爪車が落ちる）。足すのは『MapLibre と違うと分かった場面』を検定に書いた時だけ。正典の台帳＝packages/globe/maplibre-compat.md",
 	"node": {},
-	"browser": {
-		"before:style-second-source-between": "#123：style の 2 本目の source の層（vtdraw）は基図の上に描く（style の順の基図の間ではない）",
-		"before:before-base-fill": "#123：beforeId／moveLayer が基図の層を指しても基図の上に描く",
-		"before:between-base-fill-and-line": "#123：同上（基図の塗りと線の間）",
-		"before:user-line-before-base-fill": "#123：同上（利用者の線を基図の塗りの前へ）",
-		"before:before-chain": "#123：同上＋getStyle の鎖（c0→c1→基図の層）で c0 が末尾に出る",
-		"before:before-hidden-base-layer": "#123：同上（差し込んだ先の基図の層を伏せた時）",
-		"before:before-base-fill-3d": "#123：同上（3D＝地面アトラスの塗りの順）"
-	}
+	"browser": {}
 }

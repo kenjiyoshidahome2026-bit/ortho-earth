@@ -347,6 +347,8 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 			schedule();
 		},
 		has: id => layers.has(id),
+		// その層の op の li の範囲（#123＝描画器が基図の層の間へ差し込む時の表の鍵）。鍵がまだ無ければ null
+		liRange(id) { const s = layers.get(id); return s?.key != null ? [liOf(s.key, SUBS[0]), liOf(s.key, SUBS[SUBS.length - 1])] : null; },
 		// MapLibre の isSourceLoaded 相当：見えている層の wanted が全部「今の式で」組み上がり、結合が送り終わっているか
 		loaded(sid) {
 			const src = sources.get(sid); if (!src) return true;
