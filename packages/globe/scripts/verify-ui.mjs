@@ -26,9 +26,10 @@ const REALTIME = new Set(["t-anno", "t-camera", "t-mllayers", "t-mlstyle", "t-li
 const LONG = { "t-request": 180, "t-footprint": 120, "t-linedeco": 150, "t-dem": 170, "t-qmesh": 200, "t-bootview": 240, "t-overlaydepth": 150, "t-mlcompat": 300, "t-mlzoom": 120, "t-columnar": 240, "t-mlboot": 180, "t-ellparity": 300 };   // t-bootview＝5 回起動し直す   // 段が多い実描画＝枠を広げる
 
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
-const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p.split("?")[0])) : ALL_PAGES;
+const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p) || ARGS.includes(p.split("?")[0])) : ALL_PAGES;   // 頁名（t-mlcompat）か変種ごと（t-mlcompat?g=relief）
 
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGU_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
-const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
+const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（2026-09-29・6 本は負荷で揺れた）・VG_JOBS=1 で直列
+	 urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
