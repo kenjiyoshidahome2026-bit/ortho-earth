@@ -2,6 +2,7 @@
 // 混符号の正規化表現（±179.9…＝エディタの normLon 産）でも、範囲外の連続表現（179.9→180.1）でも同じ結果に切れること。
 // ±180の縫い目に「接するだけ」のリング（南極型）は切断器に入れず無傷が正解（fix() が +180→-180 に書き換えるため）。
 import { GeoPBF } from "../src/pbf-base.js";
+globalThis.ImageData ??= class ImageData {};   // node に無い（配列の属性を書く時に型を見る）
 
 let fails = 0;
 const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } else console.log("✓", msg); };
@@ -79,6 +80,31 @@ const mixed = [[[179.9, 35.0], [-179.9, 35.0], [-179.9, 35.2], [179.9, 35.2], [1
 	const south = [[0, -80], [-90, -80], [180, -80], [90, -80], [0, -80]];
 	const [h] = await enc([F("Polygon", [south])]);
 	ok(h && (h.geometry.coordinates[0] ?? []).some(p => p[1] === -90), "南極を囲む環＝[±180,-90] の柱");
+}
+
+// ⑩ 時刻・高さ付きの線（GPX の trk・CZML の sampled position＝頂点ごとの配列 time/ele）＝切った部品ごとに揃える（#113 段 1・2026-09-29）。
+//    縫い目に足す点の値は跨ぐ辺の上で内挿（経度の割合）。旧＝座標は N+2 点・time/ele は N 点のまま（再生と書き戻しが食い違う）
+{
+	const t = k => new Date(Date.UTC(2026, 0, 1, 0, k * 10)).toISOString();
+	const line = [[178, 10], [179, 11], [-179, 13], [-178, 14]];   // 179→-179 で跨ぐ（割合 0.5）
+	const [f] = await enc([F("LineString", structuredClone(line), { time: [t(0), t(1), t(2), t(3)], ele: [0, 100, 300, 400], name: "x" })]);
+	const g = f.geometry, p = f.properties;
+	ok(g.type === "MultiLineString" && g.coordinates.length === 2, `時刻付きの線＝2 本に切れる（${g.type}）`);
+	const lens = g.coordinates.map(l => l.length);
+	ok(Array.isArray(p.time?.[0]) && p.time.map(a => a.length).join() === lens.join() && p.ele.map(a => a.length).join() === lens.join(), `time/ele は部品ごとの入れ子・点数と同じ長さ（点 ${lens} time ${p.time?.map?.(a => a.length)} ele ${p.ele?.map?.(a => a.length)}）`);
+	const seamT = p.time[0][p.time[0].length - 1], seamE = p.ele[0][p.ele[0].length - 1];
+	ok(seamT === new Date(Date.UTC(2026, 0, 1, 0, 15)).toISOString() && seamE === 200 && p.time[1][0] === seamT && p.ele[1][0] === 200, `縫い目の点＝跨ぐ辺の真ん中の時刻と高さ（${seamT} ${seamE}）`);
+	ok(p.name === "x" && p.time[0][0] === t(0) && p.time[1][p.time[1].length - 1] === t(3), "元の標本はそのまま・他の属性は無傷");
+	// 0° を先に跨いでから ±180° を跨ぐ線＝縫い目の点は跨ぐ直前の点の側（旧＝線の最初の点の符号で -180 にしていた）
+	const [h] = await enc([F("LineString", [[-10, 0], [10, 1], [179, 2], [-179, 3]])]);
+	const a0 = h.geometry.coordinates[0];
+	ok(h.geometry.type === "MultiLineString" && a0[a0.length - 1][0] === 180 && h.geometry.coordinates[1][0][0] === -180, `0° を先に跨いだ線の縫い目＝179 の側は +180（${a0[a0.length - 1]}）`);
+	// GPX の trkseg 2 本（MultiLineString・入れ子の time）＝跨ぐ本だけ切れ、跨がない本はそのまま
+	const [m] = await enc([F("MultiLineString", [[[170, 0], [171, 0]], [[179.5, 1], [-179.5, 1]]], { time: [[t(0), t(1)], [t(2), t(3)]] })]);
+	ok(m.geometry.coordinates.length === 3 && m.properties.time.length === 3 && m.properties.time.map(a => a.length).join() === m.geometry.coordinates.map(l => l.length).join(), `入れ子の time（GPX の trkseg）も部品ごと（${m.properties.time.map(a => a.length)}）`);
+	// 点数の合わない配列は触らない（頂点ごとの配列でない）
+	const [q] = await enc([F("LineString", [[179, 0], [-179, 0]], { time: ["a"] })]);
+	ok(JSON.stringify(q.properties.time) === '["a"]', "点数と合わない time は触らない");
 }
 
 console.log(fails ? `FAIL (${fails})` : "PASS");

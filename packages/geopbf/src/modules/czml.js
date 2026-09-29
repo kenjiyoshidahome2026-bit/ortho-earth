@@ -12,7 +12,7 @@
 //   属性 czml に JSON のまま抱える＝書き戻しでそのまま展開する（静的 CZML は往復で等価）。
 //   id / name / description / availability は同名の属性。packet.properties のスカラーは素の属性へ、それ以外（時系列値・
 //   予約名と衝突）は czml.properties へ。cartesian（ECEF）と cartographicRadians は WGS84 の経緯度に直す。referenceFrame: "INERTIAL" の
-//   cartesian は標本の時刻で地球固定へ回してから（歳差＋恒星時・inertialToFixed）。
+//   cartesian は標本の時刻で地球固定へ回してから（歳差＋章動＋視恒星時・inertialToFixed）。
 //   参照（"id#prop"）・幾何を持たないパケットは落とす（dropped に数える）。document パケットの clock は残さない
 //   （Cesium は clock 無しなら availability から時計を組む）。
 
@@ -34,10 +34,33 @@ export function ecefToLLH(x, y, z) {
 }
 
 // 慣性系（referenceFrame: "INERTIAL"＝ICRF/J2000）→ 地球固定（ECEF）。標本の時刻ごとに 歳差（IAU 1976：J2000 → その時刻の平均赤道）→
-// 地球の自転（グリニッジ平均恒星時 IAU-82）で回す。章動（最大 17″）と極運動は入れない（LEO で最大 ~0.5 km）。
+// 章動（IAU 1980 の主な 18 項＝平均赤道 → 真の赤道・#113 段 1＝2026-09-29）→ 地球の自転（視恒星時＝平均恒星時 IAU-82＋分点差 Δψ cos ε）で回す。
+// 章動の残り（小さい項）は約 0.5″ 以下。UT1−UTC（最大 0.9 秒）と極運動（約 0.3″）は観測値が要る＝入れない（UT1＝UTC・極運動なし＝Cesium の既定と同じ前提）。
 // 旧＝INERTIAL を見ずに ECEF として読み、恒星時の分（最大 1 周）だけ経度が回っていた（衛星の CZML の大半が INERTIAL・2026-09-23）。
 // 式は公開の IAU 定数（geopbf は MIT＝GPL の ephem は読まない）。
 const AS = Math.PI / 648000;
+// 章動 IAU 1980（Meeus 表 22.A の上から 18 項・0.0001″）。引数 D M M′ F Ω の係数・Δψ（定数, T）・Δε（定数, T）
+const NUT = [
+	[0, 0, 0, 0, 1, -171996, -174.2, 92025, 8.9], [-2, 0, 0, 2, 2, -13187, -1.6, 5736, -3.1], [0, 0, 0, 2, 2, -2274, -0.2, 977, -0.5],
+	[0, 0, 0, 0, 2, 2062, 0.2, -895, 0.5], [0, 1, 0, 0, 0, 1426, -3.4, 54, -0.1], [0, 0, 1, 0, 0, 712, 0.1, -7, 0],
+	[-2, 1, 0, 2, 2, -517, 1.2, 224, -0.6], [0, 0, 0, 2, 1, -386, -0.4, 200, 0], [0, 0, 1, 2, 2, -301, 0, 129, -0.1],
+	[-2, -1, 0, 2, 2, 217, -0.5, -95, 0.3], [-2, 0, 1, 0, 0, -158, 0, 0, 0], [-2, 0, 0, 2, 1, 129, 0.1, -70, 0],
+	[0, 0, -1, 2, 2, 123, 0, -53, 0], [2, 0, 0, 0, 0, 63, 0, 0, 0], [0, 0, 1, 0, 1, 63, 0.1, -33, 0],
+	[2, 0, -1, 2, 2, -59, 0, 26, 0], [0, 0, -1, 0, 1, -58, -0.1, 32, 0], [0, 0, 1, 2, 1, -51, 0, 27, 0],
+];
+// T＝J2000 からのユリウス世紀。戻り＝{ dpsi, deps, eps0 }（rad）＝経度の章動・傾斜の章動・平均黄道傾斜
+export function nutation(T) {
+	const d = x => (x % 360) * Math.PI / 180;
+	const D = d(297.85036 + 445267.111480 * T - 0.0019142 * T * T + T ** 3 / 189474);
+	const M = d(357.52772 + 35999.050340 * T - 0.0001603 * T * T - T ** 3 / 300000);
+	const Mp = d(134.96298 + 477198.867398 * T + 0.0086972 * T * T + T ** 3 / 56250);
+	const Fa = d(93.27191 + 483202.017538 * T - 0.0036825 * T * T + T ** 3 / 327270);
+	const Om = d(125.04452 - 1934.136261 * T + 0.0020708 * T * T + T ** 3 / 450000);
+	let dpsi = 0, deps = 0;
+	for (const [a, b, c, e, f, s0, s1, c0, c1] of NUT) { const g = a * D + b * M + c * Mp + e * Fa + f * Om; dpsi += (s0 + s1 * T) * Math.sin(g); deps += (c0 + c1 * T) * Math.cos(g); }
+	const eps0 = (84381.448 - 46.8150 * T - 0.00059 * T * T + 0.001813 * T ** 3) * AS;
+	return { dpsi: dpsi * 1e-4 * AS, deps: deps * 1e-4 * AS, eps0 };
+}
 function inertialToFixed(x, y, z, ms) {
 	const jd = ms / 864e5 + 2440587.5, T = (jd - 2451545.0) / 36525;
 	const zeta = (2306.2181 * T + 0.30188 * T * T + 0.017998 * T ** 3) * AS;
@@ -48,10 +71,16 @@ function inertialToFixed(x, y, z, ms) {
 	const x1 = cz * x - sz * y, y1 = sz * x + cz * y, z1 = z;                 // R3(−ζ)
 	const x2 = ct * x1 - st * z1, y2 = y1, z2 = st * x1 + ct * z1;          // R2(θ)
 	const x3 = cZ * x2 - sZ * y2, y3 = sZ * x2 + cZ * y2, z3 = z2;          // R3(−z)
-	let g = (-6.2e-6 * T ** 3 + 0.093104 * T * T + (876600 * 3600 + 8640184.812866) * T + 67310.54841) * (Math.PI / 43200);   // 秒 → rad（1 秒＝15″）
-	g %= 2 * Math.PI;
+	// 章動 N = R1(−ε)·R3(−Δψ)·R1(ε0)（受動回転・ε＝ε0＋Δε）
+	const { dpsi, deps, eps0 } = nutation(T), eps = eps0 + deps;
+	const c0 = Math.cos(eps0), s0 = Math.sin(eps0), cp = Math.cos(dpsi), sp = Math.sin(dpsi), ce = Math.cos(eps), se = Math.sin(eps);
+	const y4 = c0 * y3 + s0 * z3, z4 = -s0 * y3 + c0 * z3;                    // R1(ε0)
+	const x5 = cp * x3 - sp * y4, y5 = sp * x3 + cp * y4;                     // R3(−Δψ)
+	const y6 = ce * y5 - se * z4, z6 = se * y5 + ce * z4;                     // R1(−ε)
+	let g = (-6.2e-6 * T ** 3 + 0.093104 * T * T + (876600 * 3600 + 8640184.812866) * T + 67310.54841) * (Math.PI / 43200);   // 秒 → rad（1 秒＝15″）＝平均恒星時
+	g = (g + dpsi * Math.cos(eps)) % (2 * Math.PI);                          // 視恒星時＝平均＋分点差
 	const cg = Math.cos(g), sg = Math.sin(g);
-	return [cg * x3 + sg * y3, -sg * x3 + cg * y3, z3];                    // R3(GMST)
+	return [cg * x5 + sg * y6, -sg * x5 + cg * y6, z6];                    // R3(GAST)
 }
 
 const SAMPLE_KEYS = ["cartographicDegrees", "cartographicRadians", "cartesian", "cartesianVelocity"];
@@ -218,6 +247,7 @@ export function featureToPackets(f, i) {
 	const sampledPacket = (segs, times, ele) => {
 		const samples = [];
 		segs.forEach((seg, s) => seg.forEach(([lon, lat], j) => {
+			if (segs.length > 1 && Math.abs(lon) === 180 && ((j === 0 && s > 0) || (j === seg.length - 1 && s < segs.length - 1))) return;   // ±180° の縫い目に足した点（切断が内挿した値）＝元の標本でない＝書かない（#113 段 1）
 			const t = isoStr(segs.length === 1 && !Array.isArray(times[0]) ? times[j] : at(times, s, j));
 			const ms = t ? Date.parse(t) : NaN; if (!Number.isFinite(ms)) return;
 			const h = segs.length === 1 && !Array.isArray(ele?.[0]) ? at(ele, j) : at(ele, s, j);
