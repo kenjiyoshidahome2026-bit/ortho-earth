@@ -908,14 +908,68 @@ try {
 			const gone = await gUntil(D.lake, p => !isCyan(p)), attrOff = !(document.getElementById("attr")?.textContent || "").includes("vt6 fixture");
 			return [lok && isCyan(p) && attr && !isCyan(gone) && attrOff, `loaded=${lok} px=${p} attr=${attr} removed=${gone} attrOff=${attrOff}`];
 		});
-		// feature-state で塗りの色（MapLibre の定番のホバー）＝段 8⑤b（既知の失敗）
-		await vscene("vector-fill-feature-state", async () => {
-			map.setPaintProperty("vf", "fill-color", ["case", ["boolean", ["feature-state", "hl"], false], "#00ff00", "#0000ff"]); await loaded("omt");
-			map.setFeatureState({ source: "omt", sourceLayer: "landuse", id: 101 }, { hl: true }); await loaded("omt");
-			const p = await gUntil(D.park, isGreen);
-			map.removeFeatureState({ source: "omt", sourceLayer: "landuse", id: 101 }); map.setPaintProperty("vf", "fill-color", "#0000ff"); await loaded("omt");
-			return [isGreen(p), `px=${p}`];
-		});
+		// ── feature-state（段 8⑤b・#109）＝MapLibre の定番のホバー：paint の ["feature-state", k] が vector の描く層（fill／line／circle／symbol）の絵に効く。
+		// 状態を置いた地物だけ変わる（他の地物は既定のまま）・外すと戻る・問い合わせの地物に state（押し出し 8①b と同じ約束）──
+		{
+			const fsCase = (on, off) => ["case", ["boolean", ["feature-state", "hl"], false], on, off];
+			const FS = (sourceLayer, id) => ({ source: "omt", sourceLayer, id });
+			// 注記の canvas の画素（requestSnapshot の labels）：点の周り ±r px で pred(r,g,b) に合う不透明な画素の数
+			const labelInkOf = async (ll, pred, r = 40) => {
+				const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return -1;
+				const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(ll);
+				let n = 0;
+				for (let yy = Math.max(0, Math.round((y - r) * R0.lh / H)); yy < Math.min(R0.lh, Math.round((y + r) * R0.lh / H)); yy++)
+					for (let xx = Math.max(0, Math.round((x - r) * R0.lw / W)); xx < Math.min(R0.lw, Math.round((x + r) * R0.lw / W)); xx++) { const i = (yy * R0.lw + xx) * 4; if (L[i + 3] > 200 && pred(L[i], L[i + 1], L[i + 2])) n++; }
+				return n;
+			};
+			await vscene("vector-fill-feature-state", async () => {   // 公園は横の継ぎ目をまたぐ＝地物を含む 2 枚のタイルが両方組み直る
+				map.setPaintProperty("vf", "fill-color", fsCase("#00ff00", "#0000ff")); await loaded("omt");
+				const b0 = await gUntil(D.park, isBlue);
+				map.setFeatureState(FS("landuse", 101), { hl: true }); await loaded("omt");
+				const a = await gUntil(D.park, isGreen, 0, -3), b = await gUntil(D.park, isGreen, 0, 3);
+				map.removeFeatureState(FS("landuse", 101)); await loaded("omt");
+				const back = await gUntil(D.park, isBlue);
+				map.setPaintProperty("vf", "fill-color", "#0000ff"); await loaded("omt");
+				return [isBlue(b0) && isGreen(a) && isGreen(b) && isBlue(back), `before=${b0} above=${a} below=${b} removed=${back}`];
+			});
+			await vscene("vector-line-feature-state", async () => {   // 鍵だけ外す（removeFeatureState(target, key)）でも戻る
+				map.setPaintProperty("vl", "line-color", fsCase("#00ffff", "#ff00ff")); await loaded("omt");
+				map.setFeatureState(FS("road", 201), { hl: true }); await loaded("omt");
+				const on = await gUntil(D.main, isCyan);
+				map.removeFeatureState(FS("road", 201), "hl"); await loaded("omt");
+				const back = await gUntil(D.main, isMag), left = map.getFeatureState(FS("road", 201));
+				map.setPaintProperty("vl", "line-color", "#ff00ff"); await loaded("omt");
+				return [isCyan(on) && isMag(back) && !("hl" in left), `hl=${on} removed=${back} state=${JSON.stringify(left)}`];
+			});
+			await vscene("vector-circle-feature-state", async () => {   // 円の色と縁の色・他の点（Shop）は既定のまま
+				map.setPaintProperty("vc", "circle-color", fsCase("#0000ff", "#00ff00")); map.setPaintProperty("vc", "circle-stroke-color", fsCase("#ff0000", "#000000")); await loaded("omt");
+				map.setFeatureState(FS("poi", 301), { hl: true }); await loaded("omt");
+				const c = await gUntil(D.cafe, isBlue), rim = await gUntil(D.cafe, isRed, 10, 0), other = await gUntil(D.shop, isGreen);
+				map.removeFeatureState(FS("poi", 301)); await loaded("omt");
+				const back = await gUntil(D.cafe, isGreen), rimBack = await gUntil(D.cafe, isDark, 10, 0);
+				map.setPaintProperty("vc", "circle-color", "#00ff00"); map.setPaintProperty("vc", "circle-stroke-color", "#000000"); await loaded("omt");
+				return [isBlue(c) && isRed(rim) && isGreen(other) && isGreen(back) && isDark(rimBack), `center=${c} rim=${rim} shop=${other} removed=${back}/${rimBack}`];
+			});
+			await vscene("vector-symbol-feature-state", async () => {   // 注記の文字の色＝注記の送り直し・他の注記（Cafe）は黒のまま
+				const red = (r, g, b) => r > 150 && g < 80 && b < 80, dark = (r, g, b) => r < 80 && g < 80 && b < 80;
+				map.setPaintProperty("vs", "text-color", fsCase("#ff0000", "#000000")); await loaded("omt");
+				map.setFeatureState(FS("poi", 302), { hl: true }); await loaded("omt");
+				let n = 0; for (let k = 0; k < 8 && n <= 20; k++) { await sleep(800); n = await labelInkOf(D.shop, red); }
+				const cafeRed = await labelInkOf(D.cafe, red), cafeDark = await labelInkOf(D.cafe, dark);
+				map.removeFeatureState(FS("poi", 302)); await loaded("omt");
+				let back = n; for (let k = 0; k < 8 && back > 0; k++) { await sleep(800); back = await labelInkOf(D.shop, red); }
+				map.setPaintProperty("vs", "text-color", "#000000"); await loaded("omt");
+				return [n > 20 && cafeRed === 0 && cafeDark > 20 && back === 0, `shop red=${n} cafe red=${cafeRed} dark=${cafeDark} removed red=${back}`];
+			});
+			await vscene("vector-feature-state-query", async () => {   // 問い合わせの地物に state（無ければ {}）・id 無しの removeFeatureState＝その source の全部
+				map.setFeatureState(FS("landuse", 101), { hl: true, n: 3 });
+				const a = (await map.queryRenderedFeatures(atG(D.park), { layers: ["vf"] }))[0]?.state, c = (await map.queryRenderedFeatures(atG(D.cafe), { layers: ["vc"] }))[0]?.state;
+				map.removeFeatureState({ source: "omt" }); await loaded("omt");
+				const b = (await map.queryRenderedFeatures(atG(D.park), { layers: ["vf"] }))[0]?.state, g = map.getFeatureState(FS("landuse", 101));
+				const empty = o => !!o && typeof o === "object" && !Object.keys(o).length;
+				return [a?.hl === true && a?.n === 3 && empty(c) && empty(b) && empty(g), `set=${JSON.stringify(a)} other=${JSON.stringify(c)} removed=${JSON.stringify(b)} get=${JSON.stringify(g)}`];
+			});
+		}
 		for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
 		map.jumpTo({ pitch: 50 }); await loaded("omt");
 		// feature-state で色（MapLibre の定番のホバー・段 8①b）＝状態が変わった地物を含むタイルだけ組み直す。他の棟は変わらない・外すと戻る・sourceLayer 無しは投げる（MapLibre と同じ）
