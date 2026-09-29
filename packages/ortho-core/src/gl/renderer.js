@@ -374,6 +374,13 @@ export function createRenderer(canvas, rOpts = {}) {
 	let sea = { li: -1, minzoom: Infinity };
 	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
 	let userAnchor = { ranges: [], rev: 0 };
+	// 描画ごとの差し込みの計画：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順・重なりなし）・anchorOf(user の li)＝境か Infinity
+	const userAnchorPlan = host => {
+		const R = userAnchor.ranges;
+		const anchorOf = li => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
+		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
+		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
+	};
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
@@ -584,7 +591,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				if (bOff) attrib(gl, lineProg, "a_off", bOff, 3, 1);   // line-offset を持つ層だけ＝[off, tS, tE]（無い層は既定値 0）
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld = null;
@@ -1446,8 +1453,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト
 		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
 		const mainLinesOn = slots.indexOf("main") >= 0 && sceneHasDraws(scenes.main);
-		for (const slot of slots) {   // 粗い下書き→現ズームの順
+		// 1 つの枠を描く（li が [lo, hi) の項だけ・pick があればそれで選ぶ）。#123＝基図の枠を差し込みの境で分け、間に利用者の群を描く＝呼ぶたびに枠の uniform を整え直す
+		const drawSlot = (slot, lo = -Infinity, hi = Infinity, pick = null) => {
 			const scene = scenes[slot];
+			const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
 			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
 				setCommonUniforms(md.fillProg, st, scene.origin, land);
 				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin); setGndScene(md.fillProg, scene.origin);
@@ -1460,6 +1469,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
 				let curProgM = null;
 				for (const e of scene.md.layers) {
+					if (!inRange(e)) continue;
 					if (e.kind === "fill") {
 						if (rasterHide) continue;   // ラスタ基図＝塗りを伏せる
 						const seaFBM = seaFbReal(e.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
@@ -1482,9 +1492,9 @@ export function createRenderer(canvas, rOpts = {}) {
 					}
 				}
 				gl.bindVertexArray(null);
-				continue;
+				return;
 			}
-			if (!scene.draws.length) continue;
+			if (!scene.draws.length) return;
 			const userSlot = slot === "user";   // 利用者の vector の層（段 8⑤）＝基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
@@ -1496,6 +1506,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			lineOffZero();
 			let curProg = null;
 			for (const d of scene.draws) {
+				if (!inRange(d)) continue;
 				if (d.kind === "fill") {
 					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる（利用者の層は 3D のアトラスに入った時だけ）
 					const seaFBC = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
@@ -1519,10 +1530,16 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (slot === "base") dbgC.baseLine++; else dbgC.mainLine++;
 				}
 			}
-		}
-		if (slots.indexOf("user") >= 0) {   // 利用者の層で 1 にした基図の濃さを戻す（後のパスが同じプログラムを使う）
-			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA);
-			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA);
+			if (userSlot) { gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA); gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA); }   // 利用者の層で 1 にした基図の濃さを戻す（後の基図の枠・後のパスが同じプログラムを使う・#123）
+		};
+		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の li ≥ anchor の項の前に描く。表に無い物・基図の枠が無い時は今どおり最後
+		const ua = userAnchorPlan(slots.indexOf("user") >= 0 ? [...slots].reverse().find(sl => sl !== "user" && sceneHasDraws(scenes[sl])) : null);
+		for (const slot of slots) {   // 粗い下書き→現ズームの順
+			if (slot === "user") { drawSlot("user", -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
+			if (slot !== ua.host) { drawSlot(slot); continue; }
+			let lo = -Infinity;
+			for (const a of ua.anchors) { drawSlot(slot, lo, a); drawSlot("user", -Infinity, Infinity, d => ua.anchorOf(d.li) === a); lo = a; }
+			drawSlot(slot, lo, Infinity);
 		}
 		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
