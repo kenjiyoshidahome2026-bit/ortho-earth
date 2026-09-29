@@ -10,7 +10,11 @@
      検定は ortho-japan の tests/t-rtl.html（LTR は座標が動かないこと・RTL は入れ替わること）。 */
 
 /* --- 舞台 --- */
-/* ★この意匠キットは #map の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
+/* 容れ物＝:is(.qm, #map)（2026-09-30・#173 段 1）。.qm はエンジン（createGlobe／equal）が付ける印＝容れ物の id に依らない
+   ＝1 頁に地図を複数置ける。#map は従来の頁の互換。特異度は :is の中の最大＝id 1 個＝#map 時代と同じ
+   （重なりの勝ち負けは変わらない）。寸法だけは :where(.qm, #map)＝特異度 0（下の節）。
+   新しい規則で容れ物に当てる時も #map と書かず :is(.qm, #map) と書く（geoedit・census2020・equal・globe も同じ）。 */
+/* ★この意匠キットは容れ物（#map）の外へ一切書かない（2026-08-19・SDK 化の掟）。任意のページへ埋め込まれる以上、
    html/body への指定はホストのレイアウトを乗っ取る。かつて開幕用に body{visibility:visible} を置いていたが、
    かつて開幕用に body{visibility:visible} を置いていた（index.html が body を隠して待つ作法の相方）が、
    本体は #boot オーバーレイ方式へ移って body を隠さなくなったので撤去した。
@@ -22,8 +26,8 @@
 /* position も同じ理由で特異度ゼロ（2026-09-29）：MapLibre の定番「#map { position:absolute; top:0; bottom:0; width:100% }」が
    id セレクタどうしの後勝ちで relative に化け、top/bottom が効かず高さ 0 になった（公式例 display-performance-metrics が起動しなかった）。
    MapLibre も relative はクラス（.maplibregl-map）＝利用者の id 指定が勝つ。子（#c ほか）の基準は absolute/fixed でも同じく立つ */
-:where(#map) { position: relative; width: 100%; height: 100%; }
-#map { overflow: hidden;
+:where(.qm, #map) { position: relative; width: 100%; height: 100%; }
+:is(.qm, #map) { overflow: hidden;
 	-webkit-text-size-adjust: 100%; text-size-adjust: 100%;   /* iOS横向きの文字自動拡大を全家具で禁止（出典が横回転で太る件・2026-08-02）。文字サイズは自分で決める */
 	touch-action: manipulation;   /* UI家具のダブルタップ拡大だけ禁止（パン/ピンチは許可＝viewportメタのuser-scalable=no撤去とセット・Lighthouse a11y対応 2026-08-04）。地図面は #c の none が交差で勝つ */
 }   /* 地図一式の容れ物＝任意サイズのdivに埋め込める */
@@ -213,7 +217,7 @@
 /* --- 夜家具（#map.ui-dark）：紙(land)が暗い配色テーマでアプリが輝度判定で付与。下辺の計器・出典・スケール・
        トーストだけ黒硝子へ転がす（値は #sky-attr＝星空劇場の黒硝子と同族＝夜の額装を揃える）。
        上辺のボタン/チップ/検索は白硝子のまま＝白の照り(sheen)が受光面を作るので暗地でも読める。 --- */
-#map.ui-dark {
+:is(.qm, #map).ui-dark {
 	#pos, #attr {
 		background-color: rgba(10, 14, 22, .55);
 		border-color: rgba(255, 255, 255, .22);
@@ -509,16 +513,16 @@
        z-index は使わない＝::after は自ボタンの子（DOM順で親の上に乗る）。aria-label は各ボタンに別途残す（読み上げ用）＝data-tip は目で読む層だけ。
        ::after の錨は「出す時だけ」relative＝隣接ボーダー共有（チップ/ズームの capsule）の重なり順を平時は崩さない。
        #search-btn は元の absolute が高詳細度で勝ち、常時そのまま錨になる。 --- */
-#map [data-tip]:hover, #map [data-tip]:focus-visible { position: relative; }
-#map [data-tip]::after {
+:is(.qm, #map) [data-tip]:hover, :is(.qm, #map) [data-tip]:focus-visible { position: relative; }
+:is(.qm, #map) [data-tip]::after {
 	content: attr(data-tip); position: absolute; white-space: nowrap; pointer-events: none;
 	font: 12px var(--qm-font); color: #fff;
 	background: rgba(0, 0, 0, .88); border: 1px solid rgba(255, 255, 255, .18);
 	border-radius: 5px; padding: 5px 9px; box-shadow: 0 3px 10px rgba(0, 0, 0, .35);
 	opacity: 0; transition: opacity .14s ease;   /* ポンと出さない＝フェード（家具の所作と揃える） */
 }
-#map [data-tip]:hover::after, #map [data-tip]:focus-visible::after { opacity: 1; }
-@media (pointer: coarse) { #map [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
+:is(.qm, #map) [data-tip]:hover::after, :is(.qm, #map) [data-tip]:focus-visible::after { opacity: 1; }
+@media (pointer: coarse) { :is(.qm, #map) [data-tip]::after { display: none; } }   /* タッチは操作方法カード(?)が説明役＝hover吹き出しは出さない */
 /* 置き場所：左上スタック・右上チップ＝ボタンの右／右上の×＝ボタンの左（chips は左スタック＝#gadgets 規則（右へ）が効く） */
 #gadgets [data-tip]::after, #chips [data-tip]::after { top: 50%; transform: translateY(-50%); inset-inline-start: calc(100% + 8px); }
 #close-btn[data-tip]::after { top: 50%; transform: translateY(-50%); inset-inline-end: calc(100% + 8px); }
@@ -640,7 +644,7 @@
 #shot-btn {
 	&.busy { opacity: .5; cursor: default; }
 }
-#map.measuring #c, #map.profiling #c { cursor: crosshair; }   /* 計測・断面図の経路指定中は照準カーソル（掴み手をやめる） */
+:is(.qm, #map).measuring #c, :is(.qm, #map).profiling #c { cursor: crosshair; }   /* 計測・断面図の経路指定中は照準カーソル（掴み手をやめる） */
 #measure-readout, #profile-readout {
 	position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
 	font: 13px var(--qm-font); color: var(--qm-text); white-space: nowrap;
@@ -655,7 +659,7 @@
 /* --- 閉じる×（埋め込み用）：右上の額縁の金具＝スタック不参加（骨格は34px規格） --- */
 /* ⚠#map を前置＝詳細度 (2,0,0)。#map [data-tip]:hover { position: relative }（吹き出しの錨）に負けると、
    ホバーした瞬間に×が左上へ飛び→カーソルが外れて戻る、の点滅で押せなかった（2026-09-22）。absolute も ::after の錨になる */
-#map #close-btn {
+:is(.qm, #map) #close-btn {
 	position: absolute; top: 10px; inset-inline-end: 10px;
 }
 /* 旧・×併存時のチップ退避（top:54）は廃止＝chips は左上スタックへ移設（2026-09-02）＝右上の×と干渉しない */
@@ -779,10 +783,10 @@
    退場するのは紙の計器だけ：#scale/#hint/#log。#pos（座標テーブル）は全z表示（本人裁定 2026-09-03）。
    #attr（出典）も全z表示＝文面はアプリ側が3圏（基図/世界帯/星空）で差し替える（旧 #sky-attr 廃止・同 09-03）。
    点火/消灯はアプリ側（ortho-japan render()＝z<STARSKY_Z で .world 付与）。 */
-#map :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
+:is(.qm, #map) :is(#chips, #gadgets, #gadgets > *, #search, #search-list, #hint, #log, #pos, #scale, #attr) {
 	transition: opacity .6s ease;
 }
-#map.world :is(#hint, #log, #scale) {
+:is(.qm, #map).world :is(#hint, #log, #scale) {
 	opacity: 0; pointer-events: none;
 }
 
@@ -792,12 +796,12 @@
    ②#attr＝上演中も GSI タイルは描かれる＝出典は消さない。
    操縦バー（#demo-bar）ごと非表示＝スライド送りは自動上演（狭画面の▶開始＝即 play）が担う。 */
 @media (max-width: 480px) {
-	#map.demo-live :is(#chips, #search-list, #hint, #log, #pos, #scale),
-	#map.demo-live #gadgets > :not(#demo-btn) {
+	:is(.qm, #map).demo-live :is(#chips, #search-list, #hint, #log, #pos, #scale),
+	:is(.qm, #map).demo-live #gadgets > :not(#demo-btn) {
 		opacity: 0; pointer-events: none;
 	}
-	#map.demo-live #demo-bar { display: none !important; }   /* .on/.playing より強く＝バーは一切出さない */
-	#map.demo-live #demo-btn { order: -1; }   /* 独りになったら最上段へ（他は opacity:0 で席だけ残るため） */
+	:is(.qm, #map).demo-live #demo-bar { display: none !important; }   /* .on/.playing より強く＝バーは一切出さない */
+	:is(.qm, #map).demo-live #demo-btn { order: -1; }   /* 独りになったら最上段へ（他は opacity:0 で席だけ残るため） */
 }
 /* 星空劇場の家具（逆相＝worldでだけ点灯）：右上=日時計（1秒針）。
    出典は #attr 一枚に統合済（2026-09-03）＝文面だけアプリ側が星空版へ差し替える。
@@ -809,13 +813,13 @@
 	font: 19px var(--qm-font-mono); font-variant-numeric: tabular-nums;   /* 等幅数字＝秒針で幅が揺れない */
 	color: rgba(250, 252, 255, .92);   /* 白抜き＝劇場の時計はしっかり読める明るさ */
 }
-#map.world #sky-clock { opacity: 1; }
+:is(.qm, #map).world #sky-clock { opacity: 1; }
 /* 埋め込みで×（#close-btn＝右上 10px・34px 角）が載っている時は、時計を×の左へ寄せる（重なって×が押しづらかった 2026-09-22） */
-#map:has(#close-btn) #sky-clock { inset-inline-end: 56px; top: calc(17px + env(safe-area-inset-top, 0px)); }
+:is(.qm, #map):has(#close-btn) #sky-clock { inset-inline-end: 56px; top: calc(17px + env(safe-area-inset-top, 0px)); }
 /* 狭画面（スマホ縦）：時計は一回り小さく */
 @media (max-width: 480px) {
 	#sky-clock { font-size: 14px; top: calc(10px + env(safe-area-inset-top, 0px)); inset-inline-end: 10px; }
-	#map:has(#close-btn) #sky-clock { inset-inline-end: 52px; top: calc(19px + env(safe-area-inset-top, 0px)); }
+	:is(.qm, #map):has(#close-btn) #sky-clock { inset-inline-end: 52px; top: calc(19px + env(safe-area-inset-top, 0px)); }
 }
 
 /* --- 画像タイル（ラスタ）切替：スタックのボタン＋右へ開く小パネル（#search と同じ流儀）。基図＝ラジオ／重ね＝チェック --- */

@@ -162,9 +162,10 @@ const REGION_RAIL = REGIONS.map(r => r.rail).find(Boolean) ?? null;    // 路線
 // UI言語を最初に確定（opts.lang > ?lang= > ブラウザ言語）。以降のfatal/トースト/ガジェットが全て従う。
 await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即返り・他言語は 1 本取る）
 // 起動の容れ物：target指定（selector/要素）→ 無ければ既存#map → それも無ければbody直下に自作。
-// 意匠（quiet-mono）とガジェットは id="map" の家具規格で当たるため、容れ物のidはmapへ正規化する。
-// ※ id→クラス化（多重化/二本建）は quiet-mono の #map スコープ移設(→中立クラス)とセットでないと
-//   容れ物が無スタイル＝0サイズ化して射影が退化する。単独で変えないこと（回帰の轍）。
+// 意匠（quiet-mono）は :is(.qm, #map) で当たる（#173 段 1・2026-09-30）＝容れ物に .qm を付ければ id に依らず家具が立つ。
+// 特異度は id 1 個ぶんのまま（:is は中の最大）＝重なりの勝ち負けは #map 時代と同じ。
+// ※ 容れ物の id を map へ正規化する下の改名は、固定 id の撤去（#173 段 2）までは残す。.qm を外して id も
+//   外すと容れ物が無スタイル＝0サイズ化して射影が退化する（2026-07 の回帰の轍）。
 let mapEl = (typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target)
 	|| document.getElementById("map");
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
@@ -192,6 +193,8 @@ if (mapElPrevId && mapElPrevId !== "map")
 		+ `CSS targeting #${mapElPrevId} will no longer apply = give dimensions via class or inline style. `
 		+ `destroy() restores the id.`);
 mapEl.id = "map";
+const mapElHadQm = mapEl.classList.contains("qm");   // 預かった div に最初から付いていた .qm は destroy で外さない
+mapEl.classList.add("qm");   // 意匠（quiet-mono）の容れ物の印＝エンジンが付ける（利用者は書かない）
 // 言語と書字方向は容れ物に付ける（html/body には触れない＝埋め込み先の領分）。dir=rtl で
 // 論理プロパティ（inset-inline-start 等）が鏡像になり、ブラウザの bidi がアラビア/ヘブライの行を正しく並べる。
 const mapElPrevLang = mapEl.lang, mapElPrevDir = mapEl.dir;   // destroy で返す
@@ -2180,6 +2183,7 @@ function destroy() {
 	// 埋め込み時は dbgHost が使い捨ての器＝この delete は空振りするが、閉包の錨は器ごと GC される。
 	for (const k of ["__backend", "__budget", "__cam", "__admin0", "__a0", "__drawErr", "__drawHud", "__drawSendErr", "__drawSendN", "__farState", "__fly", "__gload", "__hiddenLi", "__lastOrder", "__loadOverlay", "__mergeFail", "__paint", "__paintFid", "__paintOverlap", "__paintParity", "__paintProps", "__mesh", "__meshPurge", "__shadow", "__standup", "__worldContent", "__style", "__tileCache", "__tileStats", "__vtPool"]) delete dbgHost[k];
 	mapEl.classList.remove("world", "ui-dark", "ui-idle");   // SDK が付けた class を全部外す（全球フェード・白抜き家具・無操作フェード）＝"as it was" を真に
+	if (!mapElHadQm) mapEl.classList.remove("qm");   // 意匠の容れ物の印（エンジンが付けた分だけ）
 	if (ownMapEl) {   // 自前ページを預かった時に入れた inline 寸法を元へ（再起動しても二重に残らない）
 		document.documentElement.style.cssText = pageStyle.html ?? "";
 		document.body.style.cssText = pageStyle.body ?? "";
