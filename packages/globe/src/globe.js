@@ -88,7 +88,7 @@ import { dropFile as dropFileGadget, gunzipText } from "./gadgets/dropfile.js";
 import { edit as editGadget } from "./gadgets/edit.js";
 import { editDocLoad, editDocSave, editDocClear } from "./gadgets/editdoc.js";   // 編集中の図形の置き場（編集ボタンを載せた頁だけ使う）   // 編集ボタン（本体は geoedit（npm） の遅延chunk＝これは入口だけ）   // dropfileは起動時常駐（ドロップ受付）＝静的一本。gunzipTextもここから（動的importと混ぜるとチャンク分割が死ぬ）
 import { demo as demoGadget } from "./gadgets/demo-stub.js";   // 玄関スタブ＝同期ファサードを即返し、本体(demo.js＝再生エンジン)は搭載時に import()＝初期バンドルから隔離
-import { modalOpen } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
+import { modalOpen, registerKeyOwner, isKeyOwner } from "./gadgets/keys.js";   // 矢印キーのモーダル抑止に使う共通判定（ショートカット群と共有）
 import { setLang, getLang, isRTL, tr } from "./i18n.js";   // UI 多言語化（英語キー・26 言語・詳細は i18n.js）。地図の中身（地名等）は対象外
 
 // app.js 持参のUI辞書（ja文字列がキー・未訳はjaのまま出る）。ガジェット各自の辞書は各ファイル冒頭に。
@@ -123,13 +123,22 @@ const t = tr();
 // 同じ頁の地図が決めた世界の形（#43）＝core の setEllipsoid はモジュール状態＝頁に 1 つ。2 枚目以降は最初の決定に従う（違えば警告）
 let ELL_PAGE = null;
 // 地図が載っている容れ物（頁に 1 つの台帳・#173 段 2）＝target 無しの既定（頁の #map）を 2 枚目が掴まない・同じ容れ物への二重起動を止める
-const LIVE_CONTAINERS = new WeakSet();
+const LIVE_CONTAINERS = new Set();
+// URL の持ち主（#173 段 3・2026-09-30）＝頁の URL（hash の視点・?r=）と前回ビュー（localStorage）を読み書きする地図は頁に 1 枚。
+// 起動順で最初の地図（opts.urlHash:false は辞退）。持ち主でない地図は hash を読まず・hashchange に応じず・書かない・前回ビューも使わない。
+// 1 枚の頁は従来と同じ。持ち主が畳まれても、生きている他の地図が持ち主を継ぐことはない（起動の時に決まる）
+let URL_OWNER = null;
 export async function createGlobe(opts = {}) {
+const urlToken = {};   // この地図の URL の持ち主の札
+const URL_OWN = opts.urlHash !== false && !URL_OWNER;
+if (URL_OWN) URL_OWNER = urlToken;
+const releaseUrl = () => { if (URL_OWNER === urlToken) URL_OWNER = null; };
+const pageHash = URL_OWN ? location.hash : "";   // 持ち主でない地図は頁の hash を視点に使わない
 // ズームの目盛り（MapLibre 互換の台帳 maplibre-compat.md）：旗 zoomScale:"maplibre" の地図は公開面の数の zoom を MapLibre の z で受け渡す。
 // 換算は 3 か所だけ＝ここ（起動オプション）・最後の外側の顔（mlfacade）・MapLibre 形の層と source の dz（PUBLIC_DZ）。内部は素の map＝エンジンの z
 // "mercator"＝ML_DZ＋log2(sec φ0)（φ0＝起動の視点の緯度・zoomscale.js の mercatorDz）＝MapLibre のメルカトルの縮尺に合わせる。外来 style の目盛り STYLE_DZ も同じ（style.json は MapLibre の z）
 const ZOOM_SCALE = zoomScaleOf(opts);
-const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || location.hash)?.lat ?? 0) : 0;
+const PUBLIC_DZ = ZOOM_SCALE === "maplibre" ? ML_DZ : ZOOM_SCALE === "mercator" ? mercatorDz(parseViewHash(opts.view || pageHash)?.lat ?? 0) : 0;
 const STYLE_DZ = ZOOM_SCALE === "mercator" ? PUBLIC_DZ : ML_DZ;   // style.json の層と source の目盛り（旗なし・maplibre＝1）
 // タイルの z は MapLibre と同じに（mercator）：カメラが緯度の分だけ寄っても、選ぶタイルの z は MapLibre の z のまま（MapLibre は floor(zoom) のタイルを引き伸ばす）＝
 // 分割の閾（画面 px）を 2^(dz−1) 倍する。基図（tiles.update）と vector source（vtextrude/vtdraw）の選びに掛ける。⚠これが無いと一段細かいタイルを選び、問い合わせの答え（地物の集合）が MapLibre と違う（o8 で 43→30）
@@ -169,7 +178,7 @@ await setLang(opts.lang);   // 訳の用意まで待つ（ja/en は静的＝即�
 // .qm はエンジンが付ける印＝利用者はクラスを書かない。中の家具は固定 id（#c・#pos…）のまま＝探す時は必ず mapEl から
 // （document.getElementById は頁で最初の物＝1 枚目の家具を掴む）。
 const targetEl = typeof opts.target === "string" ? document.querySelector(opts.target) : opts.target;
-if (targetEl && LIVE_CONTAINERS.has(targetEl)) throw new Error("createGlobe: the target already holds a live map — destroy() it first");
+if (targetEl && LIVE_CONTAINERS.has(targetEl)) { releaseUrl(); throw new Error("createGlobe: the target already holds a live map — destroy() it first"); }
 const pageMapEl = document.getElementById("map");
 let mapEl = targetEl || (pageMapEl && !LIVE_CONTAINERS.has(pageMapEl) ? pageMapEl : null);
 const ownMapEl = !mapEl;   // 容れ物を自作した＝destroy で丸ごと消してよい（預かった div は中身だけ空にして返す）
@@ -341,7 +350,7 @@ const SKY_LAYER = "sky";
 // 配色テーマ（palettes.js の台帳）：共有URLの c=<name>（sky/l= と同じ後置トークン＝夜のまま人に渡る）。
 // style は起動時に pipeline/worker へ焼き付くため一度だけ選ぶ：ハッシュ手編集での切替は hashchange が reload で応える。
 const themeFixed = !!opts.theme;   // 埋め込みの焼き付け＝URLに書かず、ハッシュでも破れない
-const themeBootV = parseViewHash(opts.view || location.hash);
+const themeBootV = parseViewHash(opts.view || pageHash);
 let themeName = typeof opts.theme === "string" ? opts.theme
 	: themeBootV?.theme || (themeBootV?.layers?.includes("dark") ? "dark" : "mono");   // l=dark＝c=移行前の互換読み
 if (typeof opts.theme !== "object" && themeName && !MAP_THEMES[themeName] && normWorldTheme(themeName)) themeName = normWorldTheme(themeName);   // 旧名を正名へ（c=gsi → topo・c=night → dark）＝別名の台帳は ortho-core worldstyle 一本
@@ -368,7 +377,11 @@ const withBaseOverrides = st => {
 let style = withBaseOverrides(EXT ? extBaseStyle(EXT) : theme.style);   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
-mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
+// window/document 級のリスナーは全てこの signal で登録＝destroy() の abort 一発で束ごと外れる（外し漏れゼロ）。
+// 家具（チップの Esc）とキーの持ち主も使う＝家具を生やす前に作る（#173 段 3）
+const ac = new AbortController();
+registerKeyOwner(mapEl, ac.signal);   // 頁に地図が複数ある時のキーの持ち主（最後に触った地図・gadgets/keys.js）
+mountGadgets(mapEl, { chips: opts.chips, instruments: opts.instruments, fixedLayers, attribution: REGION_ATTR, signal: ac.signal });   // UI を #map に生やす＝以降の getElementById が実体を掴めるよう、全lookupの前で
 // 非搭載（chips:false / instruments:false）でも配線コードは無改造＝繋ぎ先が無ければ宙のdiv（どこにも描画されない）へ。
 const orDetached = el => el || document.createElement("div");
 const canvas = mapEl.querySelector("#c");
@@ -392,7 +405,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 		fatalOverlay(t("This map cannot be displayed in your browser"),
 			t("This 3D globe is drawn with WebGL2 and OffscreenCanvas. Please try the latest Chrome / Edge / Firefox, or Safari 17 or later."));
 		console.warn("[boot] unsupported: offscreencanvas = quiet exit (guidance overlay shown)");
-		LIVE_CONTAINERS.delete(mapEl); return deadMap();   // 起動しなかった＝容れ物は空き（同じ容れ物で起動し直せる）
+		LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap();   // 起動しなかった＝容れ物は空き（同じ容れ物で起動し直せる）
 	}
 	if (!probeGL()) {
 		const waiting = fatalOverlay(t("Waiting for the GPU to respond…"),
@@ -404,7 +417,7 @@ let gpuRenderer = "";   // GPU 素性の文字列（下の MID_TIER 判定用）
 			fatalOverlay(t("Cannot start 3D rendering"),
 				t("Your browser is supported, but the GPU (WebGL2) is not responding. Quit the browser completely and reopen it, or check that hardware acceleration is enabled in the settings."), true);
 			console.warn("[boot] webgl2 unavailable after 10s retry (hardware acceleration off?) = quiet exit (guidance overlay shown)");
-			LIVE_CONTAINERS.delete(mapEl); return deadMap();   // 起動しなかった＝容れ物は空き
+			LIVE_CONTAINERS.delete(mapEl); releaseUrl(); ac.abort(); return deadMap();   // 起動しなかった＝容れ物は空き
 		}
 	}
 }
@@ -459,8 +472,6 @@ const onTile = ok => {
 	if (ok) { tileFails = 0; if (navigator.onLine !== false) netEl.style.display = "none"; }
 	else if (++tileFails >= 3) netEl.style.display = "block";   // 3連続失敗＝ネット全滅の疑い（単発404では出さない）
 };
-// window/document 級のリスナーは全てこの signal で登録＝destroy() の abort 一発で束ごと外れる（外し漏れゼロ）。
-const ac = new AbortController();
 window.addEventListener("offline", () => { netEl.style.display = "block"; }, { signal: ac.signal });
 window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
@@ -532,7 +543,7 @@ const noMixedR01 = /[?&]nor01=1/.test(location.search);
 // モバイル：ページ自体のネイティブズーム禁止＝地図のズームだけが生きる。iOS Safari は viewport の
 // user-scalable=no を無視するため gesture 系 preventDefault が本丸（canvas の touch-action:none は
 // canvas 起点タッチのみ＝UI 跨ぎピンチやダブルタップは素通りする。Kenji 指示 2026-08-02）。
-for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(t, e => e.preventDefault(), { passive: false });
+for (const t of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(t, e => e.preventDefault(), { passive: false, signal: ac.signal });   // signal＝destroy で外す（#173 段 3・旧は取り残し）
 // 【既定化 2026-08-02】WebGPU を既定へ（本人裁定「デフォルトgpu」）。根拠＝同日の実機実測：メモリが構造的に軽く
 // （mdプール不在）、3GB機(iPad Air3)の走行距離が伸びる。navigator.gpu の無い環境（iOS≤18=XS級・旧ブラウザ）は
 // 最初から WebGL2 直結＝dynamic import もリレー迂回も発生しない＝従来と完全同一。落ち先の網は3枚：
@@ -884,7 +895,11 @@ let moving = false, settleT = null;
 // opts.mesh=false（旧 opts.plateau=false）＝建物3D機能ごと停止：カタログ・workerプール・自動ロード・データ管理ガジェットの全部
 //（1地区あたり数十〜百MB級の重い機能＝軽い埋め込みが丸ごと切れる口。UIのchips/instrumentsと対になる機能側スイッチ）。
 if ("plateau" in opts) console.warn('[mesh] opts.plateau is deprecated = use opts.mesh (same meaning)');   // 旧名（1.1.0 まで）＝次の大版まで別名で受ける
-const meshOn = (opts.mesh ?? opts.plateau) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
+// 省メモリ端末（LOW_MEM）で頁に地図がもう 1 枚生きている＝2 枚目は建物 3D を既定で切る（#173 段 3・本人裁定「全端末・LOW_MEM は軽い設定」）。
+// 建物メッシュが常駐メモリの最大の持ち主（GPU 固定常駐行＝数百 MB）＝2 枚ぶん持つと jetsam の危険。opts.mesh:true で入れられる
+const SECOND_LOWMEM = LOW_MEM && LIVE_CONTAINERS.size > 1;
+const MESH_ASKED = opts.mesh ?? opts.plateau;   // 明示の指定（旧名を含む）＝無ければ undefined
+const meshOn = (MESH_ASKED ?? !SECOND_LOWMEM) !== false && !/[?&]nopl=1/.test(location.search);   // ?nopl=1＝建物3D層別切り（iOS診断）
 const REGION_BLD_LABELS = REGIONS.map(r => r.buildings?.labels).find(Boolean) ?? {};   // 建物 UI の文言（i18n キー）＝出所の名を出す地域の申告（日本＝PLATEAU）・無ければ汎用
 const REGION_BLD_ICON = REGIONS.map(r => r.buildings?.icon).find(Boolean) ?? null;   // 建物データ管理ボタンの顔（日本＝PLATEAU 公式ロゴ・無ければ汎用）
 // 登録簿の取得＝地域宣言の合成（catalog の JSON＋地域が直書きする set）。到着後の裁き（合図・自動ロード・失敗の扱い）は mesh/manager.js（env.catalog）。
@@ -1218,12 +1233,13 @@ function applyCamView(v) {
 	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
 }
-const bootView = parseViewHash(opts.view || location.hash || REGIONS.map(r => r.view).filter(Boolean).pop() || "");   // 裸で開いた時の視点は地域宣言が持つ（/nl/ ＝デルフト上空・日本は既定のまま）
+const bootView = parseViewHash(opts.view || pageHash || REGIONS.map(r => r.view).filter(Boolean).pop() || "");   // 裸で開いた時の視点は地域宣言が持つ（/nl/ ＝デルフト上空・日本は既定のまま）
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
 // IDBのPLATEAUキャッシュと合わさると「開いた瞬間に前回の街が数秒で立ち上がる」起動になる。
+const PERSIST = opts.persistView !== false && URL_OWN;   // 前回ビュー（localStorage はオリジンで 1 つ）＝URL の持ち主だけ（#173 段 3）
 const CAM_KEY = "ortho-japan.cam256";   // 256px世界のz移行(2026-07-26)でキー更新＝旧512世界の保存ビュー（zが1小さい）を読まない
 if (bootView) applyCamView(bootView);
-else if (opts.persistView !== false) try {   // 前回ビューは URL／opts.view が無い時だけ（優先度＝URL ハッシュ > 前回ビュー > 既定）
+else if (PERSIST) try {   // 前回ビューは URL／opts.view が無い時だけ（優先度＝URL ハッシュ > 前回ビュー > 既定）
 	const saved = JSON.parse(localStorage.getItem(CAM_KEY) || "null");
 	if (saved && Array.isArray(saved.center) && saved.center.every(Number.isFinite) && Number.isFinite(saved.zoom))
 		applyCamView({ lon: saved.center[0], lat: saved.center[1], zoom: saved.zoom, pitch: saved.pitch, bearing: saved.bearing });
@@ -1237,7 +1253,7 @@ if (opts.time != null) clock.setTime(opts.time instanceof Date ? opts.time.getTi
 if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(clockParamsOf(bootView));
 // opts.persistView=false＝前回ビューを読まない・書かない。localStorage はオリジン単位＝同じドメインの別ページ
 // （www トップの背景・gishub の待ち受け）で回した視点が /japan/ の「前回の続き」を上書きするのを防ぐ（2026-09-21）
-const saveCam = () => { if (opts.persistView === false) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
+const saveCam = () => { if (!PERSIST) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
 const viewHash = () => {
@@ -1252,7 +1268,7 @@ const viewHash = () => {
 	if (clock.step !== 1) extras.push("s=" + clock.step);
 	return buildViewHash(cam, extras);
 };
-const saveView = () => { saveCam(); if (ownMapEl || opts.urlHash) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
+const saveView = () => { saveCam(); if (URL_OWN && (ownMapEl || opts.urlHash)) try { history.replaceState(null, "", viewHash()); } catch { /* file:// 等 */ } };   // 埋め込み（target 指定）ではホストページの URL を書かない（1.0.4〜・opts.urlHash=true で従来どおり）
 // 配色テーマの生き替え（reload無し restyle）：基図タイルを新styleで組み直し、静的色・夜家具(ui-dark)・海岸線色・
 // N02芯色を差し替える。★URLは書かない＝呼び出し側が「全状態が揃った後」に1回だけ書く（applyView 末尾の saveView／
 // palette は switchTheme 後に saveView）＝URL⇄状態の一元化・順序取りこぼしの防止。色は dl.ops に焼き込まれるため基図は
@@ -1401,7 +1417,7 @@ dbgHost.__cam = (lon, lat, zoom = cam.zoom, pitchDeg = cam.pitch * R2D, bearingD
 
 // 手打ちデモ：地区名(部分一致)かbase URLを指定して読み込み、カメラもそこへ寄せる（自動と違いカメラを動かす）。省略時は登録簿の先頭。
 dbgHost.__mesh = async (nameOrBase, tiles) => {
-	if (!meshOn) { console.warn("[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
+	if (!meshOn) { console.warn(SECOND_LOWMEM && MESH_ASKED == null ? "[mesh] second map on a low-memory device = 3D buildings off by default (opts.mesh:true to enable)" : "[mesh] opts.mesh=false = 3D buildings feature disabled"); return; }
 	await meshMgr.ready();   // manager と登録簿が揃うまで待つ（寄る前に呼ばれた時）
 	const sets = meshMgr.sets;
 	const set = !nameOrBase ? sets[0]
@@ -1452,7 +1468,7 @@ const input = createInput({
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
-	blocked: () => modalOpen(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),
+	blocked: () => modalOpen(mapEl) || !isKeyOwner(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),   // !isKeyOwner＝頁の別の地図がキーの持ち主（#173 段 3）
 	onGesture: () => flightCtl.cancel(),
 	onClick: dbgHost.__mapClickAt = (x, y) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
@@ -1858,7 +1874,7 @@ renderer.set("view", { showContour: layerState.terrain });
 // 操作方法カード（#hint）はオプトインガジェットへ移設＝gadgets/hint.js（6秒の自動表示・×の記憶ごと）。
 
 // ハッシュの手編集・ペーストで視点ジャンプ（replaceState は hashchange を発火しない＝自分の書き戻しとは無干渉）
-window.addEventListener("hashchange", () => {
+if (URL_OWN) window.addEventListener("hashchange", () => {   // URL の持ち主だけ（#173 段 3）
 	const v = parseViewHash(location.hash);
 	if (!v) return;
 	// 手編集/貼り付けは共有URLの「完全再現」＝c= 無しは既定 mono へ戻す（旧 l=dark 互換もここで前処理）。
@@ -2185,7 +2201,7 @@ function destroy() {
 		document.documentElement.style.cssText = pageStyle.html ?? "";
 		document.body.style.cssText = pageStyle.body ?? "";
 	}
-	LIVE_CONTAINERS.delete(mapEl);   // 容れ物は空き＝同じ div で起動し直せる（預かった div の id は借りた時から触っていない）
+	LIVE_CONTAINERS.delete(mapEl); releaseUrl();   // 容れ物は空き＝同じ div で起動し直せる（預かった div の id は借りた時から触っていない）・URL の持ち主の札も返す
 	mapEl.lang = mapElPrevLang; mapEl.dir = mapElPrevDir;   // 言語/書字方向も借りる前へ返す
 	ownMapEl ? mapEl.remove() : mapEl.replaceChildren();
 }
@@ -2545,7 +2561,7 @@ const catalogSpec = c => ({ url: c.url, tileSize: c.tileSize || 256, minZoom: c.
 	attribution: c.attribution ? (c.attribution.href ? `<a href="${c.attribution.href}" target="_blank" rel="noopener">${c.attribution.key ? t(c.attribution.key) : c.attribution.text}</a>` : (c.attribution.key ? t(c.attribution.key) : c.attribution.text)) : null });
 // ?r=<id,id…>＝今の選択（基図＋重ね）を URL の search に写す（hash＝視点とは別の静的パラメータ）。埋め込み（target）ではホストの URL に触れない
 const rasterSyncURL = () => {
-	if (opts.target) return;
+	if (opts.target || !URL_OWN) return;   // 埋め込み・URL の持ち主でない地図は書かない
 	try {
 		const sel = map.raster.selected(), ids = [sel.base, ...sel.overs].filter(Boolean);
 		const u = new URL(location.href);
@@ -3220,9 +3236,9 @@ map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, 
 {
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;
-	if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh") || 0, fit: !location.hash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
+	if (u) { const off = map.onFrame(() => { off(); map.gadget.tiles3d(u.href, { heightOffset: +q.get("t3dh") || 0, fit: !pageHash }).catch(err => console.warn("[tiles3d] ?tiles3d=", err)); }); }
 	const iu = q.get("i3s") ? remoteUrl(q.get("i3s"), "i3s") : null;   // ?i3s=<SceneServer の URL>（門は ?g= と共用）
-	if (iu) { const off = map.onFrame(() => { off(); map.addI3S(iu.href, { heightOffset: +q.get("t3dh") || 0, fit: !location.hash, ground: q.get("i3sground") || "absolute" }).catch(err => console.warn("[i3s] ?i3s=", err)); }); }
+	if (iu) { const off = map.onFrame(() => { off(); map.addI3S(iu.href, { heightOffset: +q.get("t3dh") || 0, fit: !pageHash, ground: q.get("i3sground") || "absolute" }).catch(err => console.warn("[i3s] ?i3s=", err)); }); }
 }
 // @スタイルの見分け＝geopbf のキー表に @属性 があるか（描画系の @キーだけ見る＝他レイヤの誤検知を避ける）
 const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@stroke", "@width", "@tip", "@pop", "@spline", "@blur", "@poly", "@start", "@end", "@cap0", "@cap1", "@cap"]);

@@ -16,7 +16,7 @@ const CHIPS = [
 	{ k: "road", label: "Roads", title: "Roads, IC/JCT, route and expressway numbers, ferry routes" },
 	{ k: "facility", label: "Facilities", title: "Facility and landmark names" },
 ];
-export function mountChips(mapEl, keys = true, fixed = {}) {
+export function mountChips(mapEl, keys = true, fixed = {}, signal) {
 	let sel = keys;
 	if (Array.isArray(keys)) {   // typo は黙って0個になる＝開発時の迷子防止に一声
 		sel = keys.map(k => LEGACY[k] || k);
@@ -60,5 +60,5 @@ export function mountChips(mapEl, keys = true, fixed = {}) {
 	mapEl.addEventListener("click", e => {   // 逆方向＝検索を押したらパネルを閉じる（capture＝検索側の処理順に依存しない）
 		if (!panel.hidden && e.target.closest?.("#search-btn")) setOpen(false);
 	}, true);
-	document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) setOpen(false); });
+	document.addEventListener("keydown", e => { if (e.key === "Escape" && !panel.hidden) setOpen(false); }, { signal });   // signal＝destroy で外す（#173 段 3・旧は取り残し）
 }
