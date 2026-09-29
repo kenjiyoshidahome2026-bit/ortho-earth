@@ -149,6 +149,37 @@ const dec = (name, file, extra = {}) => runWorker(new URL(`../src/decoder/${name
 	ok(st.properties.czml?.position?.referenceFrame === "INERTIAL", "czml: 時刻の無い静的な INERTIAL は回せない＝referenceFrame を温存");
 }
 
+// ---- czml：章動（IAU 1980 の主な 18 項・#113 段 1）＝Meeus 例題 22.a（1987-04-10 0h TD）：Δψ −3.788″・Δε +9.443″・ε 23°26′36.850″ ----
+{
+	const { nutation } = await import("../src/modules/czml.js");
+	const T = (2446895.5 - 2451545.0) / 36525, n = nutation(T), AS = Math.PI / 648000;
+	const eps = (n.eps0 + n.deps) / AS - (23 * 3600 + 26 * 60);
+	ok(Math.abs(n.dpsi / AS + 3.788) < 0.1 && Math.abs(n.deps / AS - 9.443) < 0.1 && Math.abs(eps - 36.850) < 0.1, `czml: 章動（Δψ ${(n.dpsi / AS).toFixed(3)}″ Δε ${(n.deps / AS).toFixed(3)}″ ε 23°26′${eps.toFixed(3)}″）`);
+}
+// ---- czml：±180° を跨ぐ sampled position の往復＝時刻・高さは部品ごと・書き戻しで標本を落とさない・縫い目の点は書かない（#113 段 1）----
+{
+	const epoch = "2026-01-01T00:00:00Z";
+	const samples = [0, 178, 10, 1000, 600, 179, 11, 1100, 1200, -179, 13, 1300, 1800, -178, 14, 1400];
+	const czml = [{ id: "document", version: "1.0" }, { id: "plane", position: { epoch, interpolationAlgorithm: "LINEAR", cartographicDegrees: samples }, point: { pixelSize: 5 } }];
+	const back = await dec("czml", new File([JSON.stringify(czml)], "dl.czml", { type: "application/json" }));
+	const pbf = await new GeoPBF().set(back.data), f = pbf.getFeature(0), p = f.properties;
+	ok(f.geometry.type === "MultiLineString" && Array.isArray(p.time[0]) && p.time.map(a => a.length).join() === f.geometry.coordinates.map(l => l.length).join(), `czml: 跨ぐ標本列＝部品ごとの time（${p.time.map(a => a.length)}）`);
+	const { featureToPackets } = await import("../src/modules/czml.js");
+	const pk = featureToPackets(f, 0)[0], cd = pk.position.cartographicDegrees;
+	const times = cd.filter((_, i) => i % 4 === 0), lons = cd.filter((_, i) => i % 4 === 1);
+	ok(cd.length === 16 && times.join() === "0,600,1200,1800" && lons.map(v => +v.toFixed(6)).join() === "178,179,-179,-178", `czml: 書き戻しは元の 4 標本（縫い目の点は書かない・${times} / ${lons.map(v => +v.toFixed(3))}）`);
+}
+// ---- czml：時刻はミリ秒未満も（isoMs／isoOfMs）・慣性系から直した印は読みで付き書き戻しでは出ない（#113 段 2）----
+{
+	const { isoMs, isoOfMs, czmlToFeatures, featureToPackets, FRAME_KEY } = await import("../src/modules/czml.js");
+	const s = "2012-03-15T20:29:52.109376Z", ms = isoMs(s);
+	ok(Math.abs(ms - (Date.parse("2012-03-15T20:29:52.109Z") + 0.376)) < 1e-6 && isoOfMs(ms) === s && isoOfMs(Date.parse("2026-01-01T00:00:00Z")) === "2026-01-01T00:00:00.000Z", `czml: 時刻のミリ秒未満（${ms} ⇄ ${isoOfMs(ms)}）`);
+	const R = 6778137, { features } = czmlToFeatures([{ id: "sat", position: { referenceFrame: "INERTIAL", epoch: "2012-03-15T10:00:00Z", interpolationAlgorithm: "LAGRANGE", cartesian: [0, R, 0, 0, 37792.109376, 0, R, 0, 60000, -R, 0, 0] } }]);
+	const f = features[0];
+	ok(f.properties.czml.position[FRAME_KEY] === "INERTIAL" && f.properties.time[1] === "2012-03-15T20:29:52.109376Z", `czml: 慣性系の標本に印・時刻はマイクロ秒まで（${f.properties.time[1]}）`);
+	const pk = featureToPackets(f, 0)[0];
+	ok(!(FRAME_KEY in pk.position) && pk.position.interpolationAlgorithm === "LAGRANGE" && Math.abs(pk.position.cartographicDegrees[4] - 37792.109376) < 1e-6, `czml: 書き戻しに印は出ない・時刻の端数を保つ（${pk.position.cartographicDegrees[4]}）`);
+}
 // ---- czml：Cesium CZML の往復（静的パケットは等価・sampled position は LineString + time 配列・ECEF は経緯度へ）2026-09-17 ----
 {
 	const { ecefToLLH, featureToPackets } = await import("../src/modules/czml.js");

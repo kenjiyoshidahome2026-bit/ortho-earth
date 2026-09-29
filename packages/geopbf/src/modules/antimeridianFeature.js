@@ -1,4 +1,4 @@
-import { antimeridianCut } from "./antimeridianCut.js";
+import { antimeridianCut, antimeridianCutLineAttrs } from "./antimeridianCut.js";
 import { pointInRing as pointInRingCore } from "./geom.js";
 
 // toClockwise 警告のスパム抑制：空リング多発データ（NE海岸線等）で数十万件出て console を潰すのを数件に絞る。
@@ -32,7 +32,16 @@ export function antimeridianFeature(feature, opts = null) {
     if (opts && opts.onCut) opts.onCut();
     c = type.startsWith("Multi") ? c : [c];
     if (type.includes("LineString")) {
-        c = c.flatMap(t => antimeridianCut(t, true));
+        // 頂点ごとの配列（GPX の trk・CZML の sampled position の time/ele＝LineString は平・MultiLineString は入れ子・点数と同じ長さ）は
+        // 切った部品ごとに揃える（縫い目の点の値は内挿・#113 段 1）。点数の合わない配列は頂点ごとの物でない＝触らない
+        const multi = type.startsWith("Multi"), perVertex = k => { const v = p[k]; if (!Array.isArray(v)) return false;
+            return multi ? v.length === c.length && c.every((l, i) => Array.isArray(v[i]) && v[i].length === l.length) : v.length === c[0].length && !v.some(Array.isArray); };
+        const keys = ["time", "ele"].filter(perVertex);
+        if (keys.length) {
+            const lines = [], arrs = keys.map(() => []);
+            c.forEach((l, li) => { const r = antimeridianCutLineAttrs(l, keys.map(k => multi ? p[k][li] : p[k])); lines.push(...r.parts); r.attrs.forEach((a, ki) => arrs[ki].push(...a)); });
+            c = lines; keys.forEach((k, ki) => { p[k] = c.length > 1 ? arrs[ki] : arrs[ki][0]; });
+        } else c = c.flatMap(t => antimeridianCut(t, true));
         feature.geometry = { type: c.length > 1 ? "MultiLineString" : "LineString", coordinates: c.length > 1 ? c : c[0] };
     } else if (type.includes("Polygon")) {
         c = c.flatMap(poly => {
