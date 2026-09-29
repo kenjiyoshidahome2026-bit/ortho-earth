@@ -221,7 +221,9 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindVertexArray(null); gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
 	}
 	// ベクタ塗り（merge 済みシーン＝3D の直描きと同じバッファ）を窓へ。ゲートは直描きと同じ（海の点火・図郭外水域・3D の足元塗り）
-	function drawFillsInto(a, st, land, slots, seaOff, baseA) {
+	// lo／hi／pick＝li の範囲・利用者の群（#123＝基図の枠を差し込みの境で分けて、間に利用者の塗りを焼く）
+	function drawFillsInto(a, st, land, slots, seaOff, baseA, lo = -Infinity, hi = Infinity, pick = null) {
+		const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
 		// ⚠標高サンプラ（水域ゲート）は unit1/8 を引く＝直前の gint パスが整数テクスチャを残していると型不一致でドロー全体が無効＝
 		// 塗りが空のアトラスになる（実際に踏んだ 2026-09-21）。draw() 本体と同じく明示的に張り直す（無ければ null＝incomplete＝黒で無害）
 		gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, (elev.has && elevTex) ? elevTex : null);
@@ -238,7 +240,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 				gl.bindVertexArray(md.fillVAO);
 				for (const e of scene.md.layers) {
-					if (e.kind !== "fill") continue;
+					if (e.kind !== "fill" || !inRange(e)) continue;
 					const seaFBM = seaFbReal(e.li) != null, waterM = e.li === sea.li || e.li === sea.li2;
 					if ((seaFBM || waterM) && seaOff) continue;
 					if (bldFill.li >= 0 && e.li === bldFill.li) continue;   // 3D＝フットプリント塗りは伏せる（押し出しに委ねる）
@@ -256,7 +258,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform2f(loc(gl, prog, "u_atlInv"), 1 / a.win[2], 1 / a.win[3]);
 			gl.uniform1f(loc(gl, prog, "u_baseAlpha"), baseA);
 			for (const d of scene.draws) {
-				if (d.kind !== "fill") continue;
+				if (d.kind !== "fill" || !inRange(d)) continue;
 				const seaFBC = seaFbReal(d.li) != null, waterC = d.li === sea.li || d.li === sea.li2;
 				if ((seaFBC || waterC) && seaOff) continue;
 				if (bldFill.li >= 0 && d.li === bldFill.li) continue;
@@ -278,7 +280,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const seaOff = cam.zoom < sea.minzoom, baseA = view.baseAlpha ?? 1;
 		// 利用者の vector の塗り（段 8⑤）＝基図の塗りの後・gint の面の前。ラスタ基図の hideFills と基図の濃さ（baseAlpha）には従わない（利用者のデータ）
 		const userIn = fillsIn && slots.indexOf("user") >= 0, baseSlots = userIn ? slots.filter(x => x !== "user") : slots;
-		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}` : "");
+		const key = windowsKey(wins) + `|${rasterOn ? rasterDraws.rev : -1}|${wantFills ? sceneRev + ":" + baseSlots.join("") : -1}|${seaOff}|${baseA}|${bldFill.li}|${fillsIn && groundHook ? (groundSig ? groundSig() : "") : -1}` + (userIn ? `|u${sceneRev}:${userAnchor.rev}` : "");   // userAnchor.rev＝差し込む位置が変わった（#123）
 		if (key === gnd.key) return;
 		gnd.key = key; gnd.tiles = 0; gnd.faces = 0;
 		const N = rOpts.lowMem ? 1024 : 2048, sizes = wins.length === 4 ? [N, N, N >> 1, N >> 1] : [N, N >> 1, N >> 1];   // 前景あり＝4 段（前景・近は N）
@@ -292,8 +294,15 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 			gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 			if (rasterOn) drawRasterInto(a, bb, "under");
-			if (wantFills) drawFillsInto(a, st, land, baseSlots, seaOff, baseA);
-			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1);
+			// 差し込み（#123）：基図の最後の枠（host）を境で分け、間に利用者の塗りを焼く（直描きの drawSlot と同じ計画）。表に無い物は今どおり基図の塗りの後
+			const ua = userAnchorPlan(userIn && wantFills ? [...baseSlots].reverse().find(sl => sceneHasDraws(scenes[sl])) : null);
+			if (wantFills) for (const sl of baseSlots) {
+				if (sl !== ua.host) { drawFillsInto(a, st, land, [sl], seaOff, baseA); continue; }
+				let lo = -Infinity;
+				for (const an of ua.anchors) { drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, an); drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, d => ua.anchorOf(d.li) === an); lo = an; }
+				drawFillsInto(a, st, land, [sl], seaOff, baseA, lo, Infinity);
+			}
+			if (userIn) drawFillsInto(a, st, land, ["user"], false, 1, -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null);
 			if (fillsIn && groundHook) {   // gint の面（基図の塗りの上・ラスタ重ねの下）。gint は自前で状態を触る＝後で戻す
 				try { gnd.faces += groundHook(cam, { fbo: a.fbo, win: a.win, size }) | 0; } catch (e) { console.error("[gl] ground hook", e?.message); }
 				gl.bindFramebuffer(gl.FRAMEBUFFER, a.fbo); gl.viewport(0, 0, size, size);
@@ -372,6 +381,15 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
+	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
+	let userAnchor = { ranges: [], rev: 0 };
+	// 描画ごとの差し込みの計画：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順・重なりなし）・anchorOf(user の li)＝境か Infinity
+	const userAnchorPlan = host => {
+		const R = userAnchor.ranges;
+		const anchorOf = li => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
+		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
+		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
+	};
 	let bldFill = { li: -1 };   // 建物フットプリント塗り（基図 fill）の layer index。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let gintBld = null;   // gint ユーザー層（moj筆/ドロップ図形）の地形沿い境界線＝独自 origin・BUILDING_VS 再利用・GL_LINES（各頂点 anchor=自分＝自標高に乗る）
 	const OVERLAY_LIFT_M = 3;   // overlay（外部ベクタ線/面）を地形から浮かせる(m)＝地形メッシュとの z-fight（境界線の明滅・消失）を断つ。gint drape(2m)同族＝高ズームで浮きが見えない最小値（15mは上げすぎ・本人指摘）。WebGPU OVERLAY_LIFT と対
@@ -582,7 +600,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				attrib(gl, lineProg, "a_half", bHalf, 1, 1);
 				if (bOff) attrib(gl, lineProg, "a_off", bOff, 3, 1);   // line-offset を持つ層だけ＝[off, tS, tE]（無い層は既定値 0）
 				gl.bindVertexArray(null);
-				draws.push({ kind: "line", vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });
+				draws.push({ kind: "line", li: L.li, vao, count: L.half.length, bufs: bOff ? [bP1, bP2, bCol, bHalf, bOff] : [bP1, bP2, bCol, bHalf] });   // li＝差し込みの境で枠を分ける（#123）
 			}
 		}
 		let bld = null;
@@ -1444,8 +1462,10 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 透けるのを防ぐ（従来はmerge時に間引いていたがdraw時判断へ移設）。下地が主役の間（skipMain=ズームアウト
 		// 退場中や本命未着）は線も描く＝低ズームは線が絵の本体なので、これが無いと引いた瞬間に真っ白になる。
 		const mainLinesOn = slots.indexOf("main") >= 0 && sceneHasDraws(scenes.main);
-		for (const slot of slots) {   // 粗い下書き→現ズームの順
+		// 1 つの枠を描く（li が [lo, hi) の項だけ・pick があればそれで選ぶ）。#123＝基図の枠を差し込みの境で分け、間に利用者の群を描く＝呼ぶたびに枠の uniform を整え直す
+		const drawSlot = (slot, lo = -Infinity, hi = Infinity, pick = null) => {
 			const scene = scenes[slot];
+			const inRange = x => pick ? pick(x) : x.li >= lo && x.li < hi;
 			if (scene.md) {   // multi_draw シーン＝常駐プールのレンジ列を li 順に流す（分岐ロジックは classic と同一）
 				setCommonUniforms(md.fillProg, st, scene.origin, land);
 				gl.useProgram(md.fillProg); setCogScene(md.fillProg, scene.origin); setGndScene(md.fillProg, scene.origin);
@@ -1458,6 +1478,7 @@ export function createRenderer(canvas, rOpts = {}) {
 				if (md.lineTex) { gl.activeTexture(gl.TEXTURE6); gl.bindTexture(gl.TEXTURE_2D, md.lineTex); gl.activeTexture(gl.TEXTURE0); }
 				let curProgM = null;
 				for (const e of scene.md.layers) {
+					if (!inRange(e)) continue;
 					if (e.kind === "fill") {
 						if (rasterHide) continue;   // ラスタ基図＝塗りを伏せる
 						const seaFBM = seaFbReal(e.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
@@ -1480,9 +1501,9 @@ export function createRenderer(canvas, rOpts = {}) {
 					}
 				}
 				gl.bindVertexArray(null);
-				continue;
+				return;
 			}
-			if (!scene.draws.length) continue;
+			if (!scene.draws.length) return;
 			const userSlot = slot === "user";   // 利用者の vector の層（段 8⑤）＝基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
 			setCommonUniforms(fillProg, st, scene.origin, land);
 			setCommonUniforms(lineProg, st, scene.origin, land);
@@ -1494,6 +1515,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			lineOffZero();
 			let curProg = null;
 			for (const d of scene.draws) {
+				if (!inRange(d)) continue;
 				if (d.kind === "fill") {
 					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる（利用者の層は 3D のアトラスに入った時だけ）
 					const seaFBC = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
@@ -1517,10 +1539,16 @@ export function createRenderer(canvas, rOpts = {}) {
 					if (slot === "base") dbgC.baseLine++; else dbgC.mainLine++;
 				}
 			}
-		}
-		if (slots.indexOf("user") >= 0) {   // 利用者の層で 1 にした基図の濃さを戻す（後のパスが同じプログラムを使う）
-			gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA);
-			gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA);
+			if (userSlot) { gl.useProgram(fillProg); gl.uniform1f(loc(gl, fillProg, "u_baseAlpha"), baseA); gl.useProgram(lineProg); gl.uniform1f(loc(gl, lineProg, "u_baseAlpha"), baseA); }   // 利用者の層で 1 にした基図の濃さを戻す（後の基図の枠・後のパスが同じプログラムを使う・#123）
+		};
+		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の li ≥ anchor の項の前に描く。表に無い物・基図の枠が無い時は今どおり最後
+		const ua = userAnchorPlan(slots.indexOf("user") >= 0 ? [...slots].reverse().find(sl => sl !== "user" && sceneHasDraws(scenes[sl])) : null);
+		for (const slot of slots) {   // 粗い下書き→現ズームの順
+			if (slot === "user") { drawSlot("user", -Infinity, Infinity, ua.host ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
+			if (slot !== ua.host) { drawSlot(slot); continue; }
+			let lo = -Infinity;
+			for (const a of ua.anchors) { drawSlot(slot, lo, a); drawSlot("user", -Infinity, Infinity, d => ua.anchorOf(d.li) === a); lo = a; }
+			drawSlot(slot, lo, Infinity);
 		}
 		if (terrainDepth) { gl.disable(gl.DEPTH_TEST); gl.depthMask(true); }   // 基図の深度テストを解除（overlayは従来通り最前面）
 		// overlay（外部ベクタ=geopbf/e-Stat）：stencil-then-cover で塗り（earcut不要・扇なし）＋境界線。深度off・最前面。
@@ -1708,7 +1736,8 @@ export function createRenderer(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
-			case "bldFill":   bldFill = { ...bldFill, ...data }; break;                          // data={li} 建物フットプリント塗り（3D時に伏せる）
+			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
+			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
 			case "gintBld":   setGintBld(data); break;                                          // data={origin,walls,roof,color} gintユーザー層の3D押し出し（null=解放）
 			case "scene":     setScene(data, prop); break;                                      // prop=slot("base"|"main")
 			case "mdGrow":    mdGrow(data.pool, data.units); break;                            // multi_draw: プール成長（GPU内コピー）

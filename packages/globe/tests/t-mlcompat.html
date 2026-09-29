@@ -5,6 +5,7 @@
        加えて分類表（src/zoomscale.js）と実行時のキー（map・map.gadget・map.raster・addGint の手綱）の突き合わせ＝台帳 R1（これは既知に入れない＝必ず通す）。
      ?g=style＝外来の style.json で起動（試料 fixtures/optbv）。style の中の geojson の層も MapLibre の z で読むか。実時間。
      ?g=relief＝標高の段彩（color-relief・#114）＝style で起動・試料 fixtures/dem の円錐に段の色・step は透明・不透明度・外す・addLayer。実時間。
+     ?g=before＝基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図の層を指す時の描く順（vector の描く層・2D と 3D）・style の 2 本目の source の層は style の順。実時間。
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -908,14 +909,68 @@ try {
 			const gone = await gUntil(D.lake, p => !isCyan(p)), attrOff = !(document.getElementById("attr")?.textContent || "").includes("vt6 fixture");
 			return [lok && isCyan(p) && attr && !isCyan(gone) && attrOff, `loaded=${lok} px=${p} attr=${attr} removed=${gone} attrOff=${attrOff}`];
 		});
-		// feature-state で塗りの色（MapLibre の定番のホバー）＝段 8⑤b（既知の失敗）
-		await vscene("vector-fill-feature-state", async () => {
-			map.setPaintProperty("vf", "fill-color", ["case", ["boolean", ["feature-state", "hl"], false], "#00ff00", "#0000ff"]); await loaded("omt");
-			map.setFeatureState({ source: "omt", sourceLayer: "landuse", id: 101 }, { hl: true }); await loaded("omt");
-			const p = await gUntil(D.park, isGreen);
-			map.removeFeatureState({ source: "omt", sourceLayer: "landuse", id: 101 }); map.setPaintProperty("vf", "fill-color", "#0000ff"); await loaded("omt");
-			return [isGreen(p), `px=${p}`];
-		});
+		// ── feature-state（段 8⑤b・#109）＝MapLibre の定番のホバー：paint の ["feature-state", k] が vector の描く層（fill／line／circle／symbol）の絵に効く。
+		// 状態を置いた地物だけ変わる（他の地物は既定のまま）・外すと戻る・問い合わせの地物に state（押し出し 8①b と同じ約束）──
+		{
+			const fsCase = (on, off) => ["case", ["boolean", ["feature-state", "hl"], false], on, off];
+			const FS = (sourceLayer, id) => ({ source: "omt", sourceLayer, id });
+			// 注記の canvas の画素（requestSnapshot の labels）：点の周り ±r px で pred(r,g,b) に合う不透明な画素の数
+			const labelInkOf = async (ll, pred, r = 40) => {
+				const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return -1;
+				const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(ll);
+				let n = 0;
+				for (let yy = Math.max(0, Math.round((y - r) * R0.lh / H)); yy < Math.min(R0.lh, Math.round((y + r) * R0.lh / H)); yy++)
+					for (let xx = Math.max(0, Math.round((x - r) * R0.lw / W)); xx < Math.min(R0.lw, Math.round((x + r) * R0.lw / W)); xx++) { const i = (yy * R0.lw + xx) * 4; if (L[i + 3] > 200 && pred(L[i], L[i + 1], L[i + 2])) n++; }
+				return n;
+			};
+			await vscene("vector-fill-feature-state", async () => {   // 公園は横の継ぎ目をまたぐ＝地物を含む 2 枚のタイルが両方組み直る
+				map.setPaintProperty("vf", "fill-color", fsCase("#00ff00", "#0000ff")); await loaded("omt");
+				const b0 = await gUntil(D.park, isBlue);
+				map.setFeatureState(FS("landuse", 101), { hl: true }); await loaded("omt");
+				const a = await gUntil(D.park, isGreen, 0, -3), b = await gUntil(D.park, isGreen, 0, 3);
+				map.removeFeatureState(FS("landuse", 101)); await loaded("omt");
+				const back = await gUntil(D.park, isBlue);
+				map.setPaintProperty("vf", "fill-color", "#0000ff"); await loaded("omt");
+				return [isBlue(b0) && isGreen(a) && isGreen(b) && isBlue(back), `before=${b0} above=${a} below=${b} removed=${back}`];
+			});
+			await vscene("vector-line-feature-state", async () => {   // 鍵だけ外す（removeFeatureState(target, key)）でも戻る
+				map.setPaintProperty("vl", "line-color", fsCase("#00ffff", "#ff00ff")); await loaded("omt");
+				map.setFeatureState(FS("road", 201), { hl: true }); await loaded("omt");
+				const on = await gUntil(D.main, isCyan);
+				map.removeFeatureState(FS("road", 201), "hl"); await loaded("omt");
+				const back = await gUntil(D.main, isMag), left = map.getFeatureState(FS("road", 201));
+				map.setPaintProperty("vl", "line-color", "#ff00ff"); await loaded("omt");
+				return [isCyan(on) && isMag(back) && !("hl" in left), `hl=${on} removed=${back} state=${JSON.stringify(left)}`];
+			});
+			await vscene("vector-circle-feature-state", async () => {   // 円の色と縁の色・他の点（Shop）は既定のまま
+				map.setPaintProperty("vc", "circle-color", fsCase("#0000ff", "#00ff00")); map.setPaintProperty("vc", "circle-stroke-color", fsCase("#ff0000", "#000000")); await loaded("omt");
+				map.setFeatureState(FS("poi", 301), { hl: true }); await loaded("omt");
+				const c = await gUntil(D.cafe, isBlue), rim = await gUntil(D.cafe, isRed, 10, 0), other = await gUntil(D.shop, isGreen);
+				map.removeFeatureState(FS("poi", 301)); await loaded("omt");
+				const back = await gUntil(D.cafe, isGreen), rimBack = await gUntil(D.cafe, isDark, 10, 0);
+				map.setPaintProperty("vc", "circle-color", "#00ff00"); map.setPaintProperty("vc", "circle-stroke-color", "#000000"); await loaded("omt");
+				return [isBlue(c) && isRed(rim) && isGreen(other) && isGreen(back) && isDark(rimBack), `center=${c} rim=${rim} shop=${other} removed=${back}/${rimBack}`];
+			});
+			await vscene("vector-symbol-feature-state", async () => {   // 注記の文字の色＝注記の送り直し・他の注記（Cafe）は黒のまま
+				const red = (r, g, b) => r > 150 && g < 80 && b < 80, dark = (r, g, b) => r < 80 && g < 80 && b < 80;
+				map.setPaintProperty("vs", "text-color", fsCase("#ff0000", "#000000")); await loaded("omt");
+				map.setFeatureState(FS("poi", 302), { hl: true }); await loaded("omt");
+				let n = 0; for (let k = 0; k < 8 && n <= 20; k++) { await sleep(800); n = await labelInkOf(D.shop, red); }
+				const cafeRed = await labelInkOf(D.cafe, red), cafeDark = await labelInkOf(D.cafe, dark);
+				map.removeFeatureState(FS("poi", 302)); await loaded("omt");
+				let back = n; for (let k = 0; k < 8 && back > 0; k++) { await sleep(800); back = await labelInkOf(D.shop, red); }
+				map.setPaintProperty("vs", "text-color", "#000000"); await loaded("omt");
+				return [n > 20 && cafeRed === 0 && cafeDark > 20 && back === 0, `shop red=${n} cafe red=${cafeRed} dark=${cafeDark} removed red=${back}`];
+			});
+			await vscene("vector-feature-state-query", async () => {   // 問い合わせの地物に state（無ければ {}）・id 無しの removeFeatureState＝その source の全部
+				map.setFeatureState(FS("landuse", 101), { hl: true, n: 3 });
+				const a = (await map.queryRenderedFeatures(atG(D.park), { layers: ["vf"] }))[0]?.state, c = (await map.queryRenderedFeatures(atG(D.cafe), { layers: ["vc"] }))[0]?.state;
+				map.removeFeatureState({ source: "omt" }); await loaded("omt");
+				const b = (await map.queryRenderedFeatures(atG(D.park), { layers: ["vf"] }))[0]?.state, g = map.getFeatureState(FS("landuse", 101));
+				const empty = o => !!o && typeof o === "object" && !Object.keys(o).length;
+				return [a?.hl === true && a?.n === 3 && empty(c) && empty(b) && empty(g), `set=${JSON.stringify(a)} other=${JSON.stringify(c)} removed=${JSON.stringify(b)} get=${JSON.stringify(g)}`];
+			});
+		}
 		for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
 		map.jumpTo({ pitch: 50 }); await loaded("omt");
 		// feature-state で色（MapLibre の定番のホバー・段 8①b）＝状態が変わった地物を含むタイルだけ組み直す。他の棟は変わらない・外すと戻る・sourceLayer 無しは投げる（MapLibre と同じ）
@@ -931,6 +986,94 @@ try {
 			let threw = false; try { map.setFeatureState({ source: "omt", id: 1 }, { hl: true }); } catch { threw = true; }
 			return [green(p) && isRed(other) && gs?.hl === true && qs?.hl === true && isRed(back) && Object.keys(gs2).length === 0 && threw,
 				`hl=${p} other=${other} get=${JSON.stringify(gs)} query=${JSON.stringify(qs)} back=${back} after=${JSON.stringify(gs2)} noLayerThrows=${threw}`];
+		});
+	} else if (G === "before") {
+		// ── 基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図（style）の層を指す時、MapLibre と同じくその層の直前に描く（vector の描く層＝vtdraw）。
+		// 試料＝vector 群と同じ fixtures/mlcompat（landuse の公園・湖）。基図＝公園の塗り（黄）・湖と公園の輪の線（マゼンタ 8px）。style の 2 本目の source の湖の塗り（シアン）は基図の間にある。
+		// 判定は真上から地面の画素：面の中・縁の 2〜5px 内側（線の半分が面の中にかかる所）
+		const { cameraState, project } = await import("@ortho-earth/core");
+		const FX = new URL("./fixtures/mlcompat/", location.href).href;
+		const VB = await (await fetch(FX + "vt-buildings.json")).json(), C = VB.corner;
+		const mE = 111320 * Math.cos(C[1] * Math.PI / 180), mN = 110574, at = (e, n) => [C[0] + e / mE, C[1] + n / mN];   // 試料の作り方（make-mvt.mjs）と同じ m のずらし
+		const style = {
+			version: 8, name: "t-mlcompat-before",
+			sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 }, extra: { type: "vector", url: FX + "vt.json" } },
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "base-park", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#ffff00" } },
+				{ id: "x-lake", type: "fill", source: "extra", "source-layer": "landuse", filter: ["==", ["get", "class"], "water"], paint: { "fill-color": "#00ffff" } },   // 2 本目の source＝利用者の層の口（vtdraw）・style の順では基図の間
+				{ id: "base-lake-edge", type: "line", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "water"], paint: { "line-color": "#ff00ff", "line-width": 8 } },
+				{ id: "base-park-edge", type: "line", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "line-color": "#ff00ff", "line-width": 8 } },
+			],
+		};
+		const map = await createGlobe({ target: "#map", view: `#16.5/${C[1]}/${C[0]}`, chips: false, style, debugGlobals: true });
+		window.__map = map;
+		const cv = document.getElementById("c");
+		const atG = ll => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, ll[0], ll[1], 1); return [x / d, y / d]; };
+		const loaded = async (sid = "omt", ms = 20000) => { const t0 = performance.now(); await sleep(400); while (performance.now() - t0 < ms) { if (map.isSourceLoaded(sid)) { await sleep(500); return true; } await sleep(200); } return false; };
+		const gUntil = async (ll, pred, dx = 0, dy = 0) => { let p = null; for (let k = 0; k < 8; k++) { const img = await snap(map); const [x, y] = atG(ll); p = px(img, x + dx, y + dy); if (pred(p)) break; await sleep(1200); } return p; };
+		const isYellow = p => p[0] > 150 && p[1] > 150 && p[2] < 90, isMag = p => p[0] > 150 && p[2] > 150 && p[1] < 90, isCyan = p => p[1] > 150 && p[2] > 150 && p[0] < 90, isBlue = p => p[2] > 150 && p[0] < 90 && p[1] < 90;
+		const PARK = at(-350, 60), PARK_E = at(-270, 60), LAKE = at(70, -330), LAKE_E = at(100, -330);   // 公園の中・東の縁・湖の中・東の縁。継ぎ目（公園＝n 0・湖＝e 0）から 60m 離す＝面の輪の線はタイルのバッファの縁（継ぎ目の ±33m）にも引かれる
+		const drop = async (...ids) => { for (const id of ids) if (map.getLayer(id)) map.removeLayer(id); await loaded(); await loaded("extra"); };
+		const orderOf = (...ids) => { const all = map.getStyle().layers.map(L => L.id); return ids.map(id => all.indexOf(id)); };
+		const inc = (a) => a.every((v, i) => i === 0 || v > a[i - 1]);
+		await loaded(); await loaded("extra"); await sleep(1500);
+		// 基図の見え方（差し込み無し）＝公園は黄・縁はマゼンタ・湖はシアン（2 本目の source の塗り）
+		await scene("base-baseline", async () => { const a = await gUntil(PARK, isYellow), b = await gUntil(PARK_E, isMag), c = await gUntil(LAKE, isCyan); return [isYellow(a) && isMag(b) && isCyan(c), `park=${a} edge=${b} lake=${c}`]; });
+		// style の 2 本目の source の層（x-lake）は style の順で基図の間＝湖の縁の線（base-lake-edge）が上。旧＝基図の上（縁の内側がシアン）
+		await scene("style-second-source-between", async () => { const e = await gUntil(LAKE_E, isMag, -2, 0); return [isMag(e), `edge-2px=${e} order=${orderOf("base-park", "x-lake", "base-lake-edge")}`]; });
+		// 利用者の塗りを基図の塗りの前へ＝基図の公園（黄）が上。moveLayer で最上段へ＝青・基図の層の前へ戻す＝黄
+		await scene("before-base-fill", async () => {
+			await map.addLayer({ id: "uf", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } }, "base-park"); await loaded();
+			const a = await gUntil(PARK, isYellow);
+			map.moveLayer("uf"); await loaded(); const b = await gUntil(PARK, isBlue);
+			map.moveLayer("uf", "base-park"); await loaded(); const c = await gUntil(PARK, isYellow);
+			const o = orderOf("uf", "base-park");
+			await drop("uf");
+			return [isYellow(a) && isBlue(b) && isYellow(c) && o[0] < o[1], `before=${a} top=${b} moved-back=${c} order=${o}`];
+		});
+		// 基図の塗りと線の間＝面の中は利用者の青（基図の塗りの上）・縁は基図の線（マゼンタ）が上
+		await scene("between-base-fill-and-line", async () => {
+			await map.addLayer({ id: "ub", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } }, "base-park-edge"); await loaded();
+			const a = await gUntil(PARK, isBlue), e = await gUntil(PARK_E, isMag, -2, 0);
+			await drop("ub");
+			return [isBlue(a) && isMag(e), `inside=${a} edge-2px=${e}`];
+		});
+		// 利用者の線を基図の塗りの前へ＝縁の 5px 内側（基図の縁の線 ±4px の外）は基図の塗り（黄）が上・外側は利用者の線（シアン）
+		await scene("user-line-before-base-fill", async () => {
+			await map.addLayer({ id: "ul", type: "line", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "line-color": "#00ffff", "line-width": 14 } }, "base-park"); await loaded();
+			const inn = await gUntil(PARK_E, isYellow, -5, 0), out = await gUntil(PARK_E, isCyan, 5, 0);
+			map.moveLayer("ul"); await loaded(); const top = await gUntil(PARK_E, isCyan, -5, 0);
+			await drop("ul");
+			return [isYellow(inn) && isCyan(out) && isCyan(top), `inside-5px=${inn} outside-5px=${out} top-inside=${top}`];
+		});
+		// 鎖：c0 → c1 → base-park（c1 は基図の層の前・c0 は c1 の前）＝getStyle の順も絵も両方とも基図の公園の下
+		await scene("before-chain", async () => {
+			await map.addLayer({ id: "c1", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } }, "base-park");
+			await map.addLayer({ id: "c0", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#00ff00" } }, "c1");
+			await loaded();
+			const a = await gUntil(PARK, isYellow), o = orderOf("c0", "c1", "base-park");
+			await drop("c0", "c1");
+			return [isYellow(a) && inc(o), `px=${a} order=${o}`];
+		});
+		// 差し込んだ先の基図の層を伏せても、差し込んだ位置は保つ（伏せた層の分だけ下が見える）
+		await scene("before-hidden-base-layer", async () => {
+			await map.addLayer({ id: "uh", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } }, "base-park-edge"); await loaded();
+			map.setLayoutProperty("base-park-edge", "visibility", "none"); await loaded();
+			const e = await gUntil(PARK_E, isBlue, -2, 0);
+			map.setLayoutProperty("base-park-edge", "visibility", "visible"); await loaded();
+			const back = await gUntil(PARK_E, isMag, -2, 0);
+			await drop("uh");
+			return [isBlue(e) && isMag(back), `hidden-edge=${e} shown-edge=${back}`];
+		});
+		// 3D（地形あり＝塗りは地面アトラス）：塗りは基図の塗りの間に入る（公園の中＝黄）・基図の線より下（基図自身と同じ規則）
+		await scene("before-base-fill-3d", async () => {
+			await map.addLayer({ id: "u3", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } }, "base-park");
+			map.jumpTo({ pitch: 50 }); await loaded(); await sleep(1500);
+			const a = await gUntil(PARK, isYellow), fillsIn = window.__drawHud?.d?.fillsIn;
+			map.moveLayer("u3"); await loaded(); const b = await gUntil(PARK, isBlue);
+			map.jumpTo({ pitch: 0 }); await drop("u3");
+			return [isYellow(a) && isBlue(b), `before=${a} top=${b} fillsIn=${fillsIn}`];
 		});
 	} else if (G === "extrude") {
 		// ── geojson の押し出し（fill-extrusion）＝問い合わせは立体（台帳 R23）・描き直しの鍵は曲線を見る（R22）。MapLibre の書き方そのまま・旗なし＝公開の口はエンジンの z ──
