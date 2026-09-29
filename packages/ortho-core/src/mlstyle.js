@@ -239,7 +239,8 @@ export async function resolveVectorSource(sp, baseUrl, { fetchFn = fetch } = {})
 	}
 	if (!tj.tiles?.length) throw new Error("vector source has no tiles");
 	return { tiles: tj.tiles.map(t => /^[a-z][\w+.-]*:/i.test(t) ? t : new URL(t, baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")),
-		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 22, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null, encoding: tj.encoding || "mvt" };   // maxzoom の既定＝MapLibre と同じ 22（2026-09-26・旧 14）   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
+		scheme: tj.scheme || "xyz", minzoom: tj.minzoom ?? 0, maxzoom: tj.maxzoom ?? 22, bounds: tj.bounds ?? null, attribution: tj.attribution ?? null, encoding: tj.encoding || "mvt",
+		demEncoding: tj.encoding ?? null, tileSize: tj.tileSize ?? null };   // demEncoding/tileSize＝raster-dem 用の申告そのまま（無ければ null＝呼び手の既定・source の指定が TileJSON に勝つ＝MapLibre の load_tilejson と同じ・2026-09-30）   // maxzoom の既定＝MapLibre と同じ 22（2026-09-26・旧 14）   // tiles：スキーム付き（https・pmtiles・addProtocol の独自スキーム）はそのまま＝{z} を符号化しない
 }
 // タイルの URL 型紙 → (z,x,y)=>URL（{z}{x}{y}・{s}（a/b/c）・scheme:"tms"＝y 反転・{ratio}/{prefix} は外す）
 export function tileUrlOf(src) {

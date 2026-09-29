@@ -2,7 +2,7 @@
 // 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
 import "./globe.css";
 import {
-	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
+	evalExpr, truthy, KNOWN_OPS, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
@@ -2519,7 +2519,7 @@ map.setTerrain = async t => {
 	if (typeof sp === "string") sp = mlSources.get(sp) ?? EXT?.ms.sources?.[sp] ?? null;
 	if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
 	if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
-	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds }; }
+	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize は TileJSON の申告も（mapterhorn＝terrarium・旧＝捨てて mapbox で解いた＝256m ごとに折り返す鋸歯）
 	if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
 	if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
 	const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
@@ -2590,16 +2590,20 @@ function serveProtocolRaster(port, tpl, spec) {
 			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
 			// 独自スキームは MapLibre と同じく type:"image" で頼む（maplibre-cog-protocol は "image" だけを受ける・公式例の門 2 巡目）。返りは画像・ImageBitmap・ImageData・Blob・ArrayBuffer のどれでも
 			const d = rq.load ? await rq.load("image", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
-			const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
-			const bitmap = d == null ? null
-				: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
-				: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) ? await createImageBitmap(d, bmOpts)
-				: d instanceof Blob ? await createImageBitmap(d, bmOpts)
-				: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
+			const bitmap = await protocolBitmap(d);
 			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
 		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
 		finally { acs.delete(id); }
 	};
+}
+// 独自の読み口（addProtocol）が type:"image" に返す物→ImageBitmap（画像・ImageBitmap・ImageData・canvas・Blob・ArrayBuffer のどれでも）。画像タイル層と raster-dem（陰影・段彩）で共有（2026-09-30）
+async function protocolBitmap(d) {
+	const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
+	return d == null ? null
+		: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
+		: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) || (typeof OffscreenCanvas !== "undefined" && d instanceof OffscreenCanvas) ? await createImageBitmap(d, bmOpts)
+		: d instanceof Blob ? await createImageBitmap(d, bmOpts)
+		: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
 }
 // 四隅の動画（#49）＝覆いのオーバーレイ（imagequad の組み込み・注記の下）へ毎コマ差し替え。動画を使うまで chunk も overlay も作らない
 let videoCtl = null;
@@ -3859,7 +3863,7 @@ const mountLayerRaw = async v => {
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
 		// url＝TileJSON（MapLibre）＝取りに行って tiles を得る（段 6・旧＝url を型紙として使っていた）。既定値は MapLibre の raster source（tileSize 512・maxzoom 22）
 		let rs = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme }; }
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
@@ -3867,7 +3871,7 @@ const mountLayerRaw = async v => {
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
 		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution }; }
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize も TileJSON から（setTerrain と同じ）
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
 		if (kind === "colorrelief") {
 			v.cr?.close();
@@ -3876,7 +3880,7 @@ const mountLayerRaw = async v => {
 			return map.raster.add(layer.id, { port: v.cr.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 		}
 		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
-		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
+		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && KNOWN_OPS.has(x[0]) ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）。頭が演算子の時だけ＝multidirectional の色の配列 ["#f40","#ff0",…] を式と取り違えない（2026-09-30）
 		v.hs?.close();
 		v.hs = createHillshadeProvider({ dem: ds, paint, name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`), tiles: demTilesFor(srcId(layer), ds, layer.id) });
 		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
@@ -3892,10 +3896,17 @@ const mountLayerRaw = async v => {
 // raster-dem のタイルの在庫＝source ごとに 1 つ（同じ source の hillshade と color-relief が共有＝同じタイルを 2 度取らない）。使う層が居なくなったら捨てる。
 // 鍵＝型紙と符号（setStyle 等で同じ id の source の中身が変われば作り直す）
 const demStores = new Map();   // source id → { key, tiles, users:Set<layer id> }
+// raster-dem のタイルの取得：独自の読み口は MapLibre と同じく type:"image" で頼み、返りを ImageBitmap で渡す（旧＝"arrayBuffer" で頼み ImageBitmap が JSON の "{}" に化けた＝quantized-mesh の陰影が空・2026-09-30）
+const demFetch = async (u, init = {}) => {
+	const rq = requester.resolve(u, "Tile");
+	if (!rq.load) return requester.fetch(u, "Tile", init);
+	const bm = await protocolBitmap(await rq.load("image"));
+	return bm ? { ok: true, status: 200, bitmap: async () => bm } : { ok: false, status: 404 };
+};
 function demTilesFor(sid, ds, lid) {
 	const key = JSON.stringify([ds.tiles, ds.encoding, ds.tileSize, ds.redFactor, ds.greenFactor, ds.blueFactor, ds.baseShift]);
 	let e = demStores.get(sid);
-	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: (u, init) => requester.fetch(u, "Tile", init) }), users: new Set() }; demStores.set(sid, e); }
+	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: demFetch }), users: new Set() }; demStores.set(sid, e); }
 	e.users.add(lid);
 	return e.tiles;
 }
@@ -4254,7 +4265,7 @@ const mountExtExtrasRaw = async ext => {
 		try {
 			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +(evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) ?? 1);   // style.json の層＝MapLibre の意味
-			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize ?? sp.tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
