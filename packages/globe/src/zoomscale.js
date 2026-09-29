@@ -91,7 +91,7 @@ export const GADGET_MEMBERS = {
 	offline: "none",  // zmaxDefault はタイルの z
 	search: "none", compass: "none", full: "none", shot: "none", measure: "none", profile: "none", contextmenu: "none",
 	legend: "none", palette: "none", hint: "none", qr: "none", print: "none", cpos: "none", mesh: "none", plateau: "none",
-	dropFile: "none", model: "none", tip: "none", pop: "none", clock: "none", tiles3d: "none",
+	dropFile: "none", model: "none", tip: "none", pop: "none", clock: "none", tiles3d: "none", inspect: "none",   // inspect＝検査表示（#174）
 	// 実行時にだけ在るガジェット（d.ts に無い＝t-mlcompat の実行時キーが拾う）。中でエンジン z を使う物（equal・anno・cog・stac・geoedit）は
 	// 素の map（func.apply(map)）で動く＝利用者の opts に zoom が無い限り換算は要らない（段 2 で opts を見直す）
 	equal: "none", equalHere: "none", equalStart: "none", solar: "none", explain: "none", close: "none", anno: "none",

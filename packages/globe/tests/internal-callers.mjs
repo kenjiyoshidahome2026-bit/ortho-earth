@@ -19,7 +19,9 @@ const RE = [
 const ALLOW = {
 	"apps/world/src/worldlayers.js": 4,   // 都市・空港の記号の層（gadget.symbols・エンジン z）＝段 1 で ML の意味を受けるか決める
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
-	"packages/globe/src/globe.js": 2,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
+	"packages/globe/src/globe.js": 4,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
+	                                      // ＋検査表示の下地（#174）＝利用者の層を伏せる／戻す setLayoutProperty の visibility 2（利用者の口と同じ意味で伏せる＝戻すと同じ姿）
+	"packages/globe/src/gadgets/inspect.js": 2,   // 検査表示（#174・maplibre-gl-inspect 相当）＝検査の層は MapLibre の層の文書（addLayer）・札は queryRenderedFeatures＝MapLibre の意味そのもの
 };
 
 const found = {};
