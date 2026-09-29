@@ -22,6 +22,7 @@ export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan, easePl
 export { createInput, isTypingTarget } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { selectLOD } from "./tilecover.js";
+export { mlTileZoomOf, mlCalculateTileZoom, ML_FOV_DEG } from "./mlcover.js";   // MapLibre のタイルの z の選び方（目盛り mercator／maplibre）
 export { createTileManager } from "./tilemanager.js";
 export { createPipeline } from "./pipeline.js";
 export { setWorkerFactory } from "./workerFactory.js";   // worker の入口を差し替える（役割 "ortho:scene" / "ortho:tile"・createPipeline の workerFactory でも可・2026-09-22）
