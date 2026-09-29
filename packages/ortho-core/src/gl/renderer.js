@@ -347,9 +347,9 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
 	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
-	let wpal = resolveWorldPal(null), wpalSrc = null;
+	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null;
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc) { wpalSrc = view.worldHypso; wpal = resolveWorldPal(wpalSrc); }
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
 		return wpal;
 	};
 	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform

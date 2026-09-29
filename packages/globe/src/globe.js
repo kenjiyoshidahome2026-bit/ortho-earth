@@ -482,11 +482,15 @@ window.addEventListener("offline", () => { netEl.style.display = "block"; }, { s
 window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
 let bg = style.layers.find(L => L.type === "background");
-let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
+// MapLibre の目盛りの地図で style に background 層が無い＝MapLibre の canvas は透明（頁の白が見える）＝球の地（陸も海も）を白で（2026-09-30・公式例 20 本の地の色）。内製の既定は従来の紙色と海の色
+const NO_BG_WHITE = !!ML_COVER;
+const landDefault = () => (NO_BG_WHITE ? [1, 1, 1, 1] : [0.96, 0.96, 0.95, 1]);
+const seaOf = bg => (NO_BG_WHITE && !bg ? [1, 1, 1] : null);
+let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : landDefault();
 // 白抜き家具（本人裁定 2026-08-05「紙の世界を司る神」）：計器・アイコン・出典を地図の明暗に依らず常に黒硝子＋白線へ（quiet-mono #map.ui-dark）。
 // 旧＝land輝度<0.45（暗い紙）の時だけ夜家具。今は常時ON＝昼夜で意匠がブレず、白線 on 黒硝子で輪郭が締まる（状態HUDと同族）。戻すなら下の add を輝度条件へ。
 mapEl.classList.add("ui-dark");
-const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
+const clear = ML_COVER ? [1, 1, 1, 1] : [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）。MapLibre の目盛り＝白（MapLibre の canvas は描かない所が透明＝頁の白が見える・地平線の上も同じ・2026-09-30）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
 
@@ -1237,7 +1241,9 @@ const solarOff = new URLSearchParams(location.search).has("nosolar") || opts.sky
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
 let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
 let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
-let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
+// 大気の霞（球の地を大気色へ寄せる・縁のリム光）＝MapLibre は sky／fog を書かない限り持たない＝MapLibre の目盛りでは強さ 0（options.ortho.atmosphere:true で戻す・2026-09-30）
+const atmoOf = a => (ML_COVER && opts.atmosphere !== true && Array.isArray(a) ? [a[0], a[1], a[2], 0] : a);
+let atmo = atmoOf(theme.atmo);      // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
@@ -1298,7 +1304,7 @@ function switchTheme(name) {
 	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withPM(theme.style));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
-	atmo = theme.atmo; bldColor = theme.bldColor;
+	atmo = atmoOf(theme.atmo); bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
 	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
 	worldContentH?.repaint();     // 世界帯の中身（州境・道路・注記…）も新テーマへ
@@ -1322,7 +1328,7 @@ function switchTheme(name) {
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
-renderer.set("view", { clear, land, atmo, bldColor, showRail: false, ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
+renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
@@ -4347,8 +4353,8 @@ function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());
 	if (EXT) style.globalState = { ...MAP_GS };   // tile worker の global-state（基図の層の filter/layout）
 	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
-	renderer.set("view", { land });
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	renderer.set("view", { land, sea: seaOf(bg) });
 	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(style) }); }   // 層の添字（削除で動く）
 	themes = mkThemes(style);
 	setPipelineStyle(style);
@@ -4373,8 +4379,8 @@ map.setStyle = async (spec, o = {}) => {
 	}
 	style = extBaseStyle(nx);
 	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
-	renderer.set("view", { land });
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	renderer.set("view", { land, sea: seaOf(bg) });
 	themes = mkThemes(style);
 	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";   // テーマの生き替え（上）と同じ＝結合の署名を捨てる。⚠これが無いと同じタイル集合では旧色のシーンが結合し直されず残る（t-request ④が 0% になった）

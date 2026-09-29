@@ -190,9 +190,14 @@ export function textMatch(R, O, T = THRESH) {
 	for (const [k, q] of placed.entries()) { if (q.line || lineRef[q.layer] || q.x < 0 || q.y < 0 || q.x >= W || q.y >= H) continue; out.placedN++; if (!used.has(k) && layersR.has(q.layer)) out.extra++; }   // 本物にもある層で、こちらだけが置いた物（線の注記は本数で別に測る）
 	return out;
 }
+// 本物の写しが例の狙いを写せていない例＝分母の外（本物が「落ちる」のとは別＝走らせ台で本物が描けない）。手で確かめて理由を書く（2026-09-30）
+export const REF_BROKEN = {
+	"add-a-3d-model-with-babylonjs": "real MapLibre draws nothing here: babylon issues 32 draw calls per frame but GL_INVALID_OPERATION (1282) follows and no pixel changes (materials/effects ready, matrices in view) — MapLibre×babylon interop in this rig; ours draws the two dishes",
+};
 // 1 例の段。level＝こちらの段（null＝本物が落ちる＝分母の外）・refLevel＝本物が届く段（止まって撮れたら 3・動く例は 2）
 export function grade(R, O, T = THRESH) {
 	const out = { level: 0, refLevel: 0, reasons: [], blockers: [], unsupported: splitUnsupported(O?.unsupported) };
+	const rb = REF_BROKEN[R?.name ?? O?.name]; if (rb) { out.level = null; out.refWhy = `reference capture invalid: ${rb}`; return out; }
 	const shared = new Set((R?.exceptions || []).filter(e => O?.exceptions?.includes(e)));
 	if (shared.size) out.sharedExceptions = [...shared];
 	const rw = runsWhy(R, shared);
