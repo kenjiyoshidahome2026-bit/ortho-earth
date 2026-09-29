@@ -25,7 +25,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt",
 	"t-columnar?g=same", "t-columnar?g=depth",
 	"t-mlboot?v=default", "t-mlboot?v=ml",
-	"t-snapearly?v=default", "t-snapearly?v=style", "t-czml-draw",   // t-czml-draw＝CZML の時刻再生の描画（#113 段 3）   // 起動直後の撮影＝旧 WebGPU は cam 未着の snapshot を黙って捨て promise が宙吊り
+	"t-snapearly?v=default", "t-snapearly?v=style", "t-czml-draw", "t-czml", "t-czml?g=url",   // t-czml-draw＝CZML の時刻再生の描画（#113 段 3）   // 起動直後の撮影＝旧 WebGPU は cam 未着の snapshot を黙って捨て promise が宙吊り
 	"t-ellparity?ell=0", "t-ellparity?ell=1", "t-ellparity?g=cache", "t-ellparity?g=scan&ell=1", "t-mlcompat?g=extrude&ell=1", "t-overlaydepth?ell=1"];   // 楕円体の測る台（#43 段 0）＝WebGPU の本体でも各機能の描いた位置が projectLL と合うか・既知の失敗は tests/ell-known.json   // 公式例の門 段 2＝idle・night/sky/terrain:false（既定は今と同じ）   // 列チャンク層（#90）＝オーバーレイは WebGL2 だが本体が WebGPU でも同じ絵   // MapLibre 互換の爪車（fill/line/circle の表・pass の重ね順）を WebGPU でも（台帳 R7）・g=mlt＝MVT と MLT で同じ絵（#88）   // t-atmo＝大気散乱（#46 段 1）・t-pbr＝PBR と環境光（段 2）・t-ao＝AO（段 3）   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
 const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;

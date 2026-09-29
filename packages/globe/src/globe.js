@@ -1441,11 +1441,12 @@ const input = createInput({
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
 	blocked: () => modalOpen(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),
 	onGesture: () => flightCtl.cancel(),
-	onClick: (x, y) => {
+	onClick: dbgHost.__mapClickAt = (x, y) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
 		if (poiClick) return poiClick(x, y);           // 台帳編集モード＝クリックは対象選択/置き先へ（同上）
 		if (editClick) return editClick(x, y);         // 派生アプリ編集モード＝同上（geoedit の選択/作図）
+		if (czmlCtl?.clickAt(x, y)) return;            // 時刻再生の点（CZML・GPX・#113）＝名前と説明の吹き出し（地面の識別はしない）
 		// 旧・全球ビューの画面クリック＝星座線トグルは表示パネルの「星空」チップへ移設（本人裁定 2026-09-02
 		// 「画面クリックの切り替えはいずれ何かとぶつかる」）＝クリックは全ズームで識別に一本化。
 		const cut = clipCutXY(x, y);   // 断面で切られた側の地面（#111）＝地面の識別は当てない（gint は描画 worker の拾いが面で切る）
@@ -3216,7 +3217,25 @@ const ANNO_KEYS = new Set(["@shape", "@icon", "@text", "@size", "@fill", "@strok
 //   convert … File を GeoPBF の File へ変え、下の本道（gint 焼き→識別→ドレープ→fit）へ合流する
 // 旧構造は if の連なりで、形式が増えるたびに本道の手前が一段伸びた。表なら「行を1つ足す」で済む。
 // ⚠ 順序が意味を持つ：上から順に test して最初に当たった行を使う。
+// CZML・GPX の時刻再生（#113 段 4）＝遅延 chunk（gadgets/czml.js）。起動時の URL の t=／s= は最初の 1 回だけ勝つ（本人裁定＝読み込んだ clock より URL）
+let czmlCtl = null, czmlUrlClock = !!(bootView && (bootView.time || bootView.speed != null));
+const czmlGet = async () => czmlCtl ??= (await import("./gadgets/czml.js")).createCzmlPlayer({ map, keepUrlClock: () => { const k = czmlUrlClock; czmlUrlClock = false; return k; } });
 const INTAKE = [
+	{
+		name: "timed",   // CZML・GPX＝時刻付きの地物は共通の時計で再生（render worker の組み込み czml・#113）・時刻の無い地物は本道（gint）へ。時刻付きが無ければ本道だけ（従来どおり）
+		test: f => /\.(czml|gpx)$/i.test(f.name),
+		draw: async (file, ctx) => {
+			const fs = (await geopbf(file, { gint: false, name: `drop/${file.name}` }).catch(err => { console.error("[timed] geopbf", file.name, err); return null; }))?.geojson?.features || [];
+			let packets = null; if (/\.czml$/i.test(file.name)) try { packets = JSON.parse(await file.text()); } catch { /* 読めない＝clock は無し */ }
+			const c = await czmlGet(), timed = fs.filter(c.isTimed), rest = fs.filter(f => !c.isTimed(f));
+			if (!timed.length) { c.clear(); return mainRoad(file, ctx); }
+			if (rest.length) await mainRoad(new File([JSON.stringify({ type: "FeatureCollection", features: rest })], file.name.replace(/\.[^.]+$/, "") + ".geojson"), { ...ctx, fit: false });
+			else { gint.clearUserGint(); annoCtl?.clear(); }
+			const n = c.show(timed, { packets });
+			if (ctx?.fit !== false) { const b = c.bounds(); if (b) map.fitBounds(b, { padding: 40 }); }
+			return { length: n + rest.length };
+		},
+	},
 	{
 		name: "raster-mbtiles",   // MBTiles（画像タイル）＝ローカル容器→プロバイダ worker→画像タイル層（基図・塗りは伏せる・2026-09-21）。ベクタ MBTiles は理由を言って断る
 		test: f => /\.mbtiles$/i.test(f.name),
@@ -3308,6 +3327,7 @@ const parquetToGeopbf = async file => {
 // editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
 let editDocHook = null;
 const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等・gint:true＝列チャンク層を使わない）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
+	if (!/\.(czml|gpx)$/i.test(file?.name || "")) czmlCtl?.clear();   // 別の図形に替わった＝時刻再生を消す（timed 行は自分で入れ替える）
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file, ctx)) continue;
 		if (fmt.draw) return fmt.draw(file, { fit, persist, ...ctx });
@@ -4561,7 +4581,7 @@ const rasterDropFile = async (file, fallback = false) => {
 	}
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); czmlCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
