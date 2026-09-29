@@ -53,7 +53,9 @@ export function miterSlides(coords, ls, le) {
 // origin: [lon,lat] シーン原点（精度確保のため頂点は原点からの差分で持つ）
 // pale: 色文字列→色文字列 の変換（無ければ恒等）
 // subLenM＝線の細分の長さ（m・既定 700＝基図）。利用者の vector の層（段 8⑤）は低ズームのタイルで細分が膨れないよう長くして渡す
-export function buildTileDrawList({ layers, z, x, y, subLenM = 700 }, style, origin, pale = c => c) {
+// stateOf＝地物 → その feature-state（#109・省略可）。paint の ["feature-state", k] だけが読む（filter と sort-key は読まない＝MapLibre と同じ）。
+//   渡すのは利用者の vector の描く層（globe の vtdraw）だけ＝基図は渡さない＝今と同じ絵（黄金の写しは不変）・層の中の sort-key の順も崩れない
+export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = null }, style, origin, pale = c => c) {
 	const [ox, oy] = origin;
 	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
@@ -89,10 +91,11 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700 }, style, ori
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = [], col = [], idx = [];
-			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
+				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
@@ -122,10 +125,11 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700 }, style, ori
 			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
 			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo }));
-			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
+				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);

@@ -48,7 +48,8 @@
 | 基図の層の実行時変更（visibility・paint・filter・beforeId） | 読むだけ | 7 | **済**（上書きの台帳・visibility は結合で外す・他は建て直し・重ね順は固定＝文書） |
 | vector source の fill-extrusion（MVT の 3D 建物・addLayer・style.json） | 不可（style.json は飛ばす・addSource vector は黙って壊れる） | 8① | **済**（gadgets/vtextrude.js・既存の経路は無改修） |
 | vector source の fill/line/circle/symbol・基図の source への差し込み | 不可 | 8⑤ | **済**（2026-09-27・本人裁定「別の流れ・基図の上」＝gadgets/vtdraw.js・renderer の "user" の枠・基図の配管は無改修） |
-| vector の描く層の feature-state・基図の層の間への正確な差し込み | 無い | 8⑤b | 未（状態は置き場に残る・絵は既定＝爪車の既知 1） |
+| vector の描く層の feature-state | 無い（状態は置き場に残るが絵は既定） | 8⑤b（#109） | **済**（2026-09-29・paint だけが読む・変わった地物を含むタイルだけ組み直す・問い合わせに state・core の組み立てに省略できる stateOf＝基図は渡さない） |
+| vector の描く層を基図の層の間へ差し込む（beforeId が基図の層を指す・style の 2 本目の source の層の順） | 基図の上（近似） | #123 | **済**（2026-09-29・描く時のアンカー表＝タイルは組み直さない・任意の層の間・3D の塗りは基図の線より下・geojson の層は基図の上のまま） |
 | vector の押し出しの feature-state | 無い | 8①b | **済**（2026-09-27・sourceLayer 必須・getFeatureState・変わった地物のタイルだけ組み直す・問い合わせに state） |
 | MLT（MapLibre Tile）の vector source（`"encoding":"mlt"`・PMTiles tileType 6） | 未対応（unknown＝空） | #88 | **済**（2026-09-27・core の登録簿 `tileformat.js`＝MVT も同じ差し込み口・プラグイン `@ortho-earth/tile-formats`＝`#tile-formats` の alias・解読器は最初の MLT タイルで動的 import・爪車 `t-mlcompat?g=mlt`＝MVT と同じ絵と答え） |
 | geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
@@ -82,7 +83,8 @@
   - 地域の基図（日本）の自動の建物（地理院の推定×1.6）は層 "building-extrusion"＝出し入れだけ（色・filter・出しズームは変えられない＝投げる・問い合わせには出ない・PLATEAU は別の口）。
   - source の出典（TileJSON の attribution・無ければホスト名）は押し出しの層がある間だけ出典の欄に出る（基図の出典と同じ文は重ねない）。
 - vector の描く層（fill／line／circle／symbol・段 8⑤）：
-  - 描く場所は基図の塗りと線の上・注記の下（本人裁定）。利用者の層どうしの順は正確（source をまたいでも）・beforeId が基図の層を指しても「基図の上」（層の順は getStyle に残る）。
+  - 描く場所：beforeId（の鎖の先）が基図の層を指せばその層の直前（#123・MapLibre と同じ）・指さなければ基図の塗りと線の上。注記は常に一番上（注記は別の canvas）。style の 2 本目以降の source の層は style の順。利用者の層どうしの順は正確（source をまたいでも）。
+  - 差し込みの違い（#123）：①3D（地形あり）では塗りが地面へ焼かれる＝利用者の塗りは基図の塗りの間には入るが、基図の線より常に下（基図自身と同じ規則）。線どうしは正確 ②差し込むのは最後に描く基図の枠（main）＝ズーム中に出る粗い下地（base）の上の層の下には入らない（下地が見える間だけ・下地の上に載る）③geojson の層（gint）は基図の上のまま（別のパス）④基図の層どうしの順は固定（moveLayer は効かない）。
   - 3D（地形あり）では塗りを地面に焼く（アトラス）＝基図の線の下・2D では上（基図自身も 3D では「塗りは全部線の下」）。gint（geojson の層）より下。
   - paint／layout の ["zoom"] は止まった所で評価し直す（0.25 刻みの z で組む＝隣り合うタイルの線幅は揃う）。filter の ["zoom"] はタイルの（過拡大の）z。
   - circle：画面に向いた円（MapLibre の既定 circle-pitch-scale "map" の遠近の縮みは無い）・circle-pitch-alignment "map"・blur・translate は未対応。塗りの透ける円の縁は止まった所のズームで合わせた輪（動いている間は地図と一緒に伸び縮みする）。
@@ -90,7 +92,8 @@
   - 線の端と継ぎは常に丸（基図と同じ）。タイルの枠で切る＝半透明の塗りに継ぎ目の濃い帯は出ない（線の丸い端だけ枠で重なる）。
   - 未対応（警告して描く）：fill-pattern・fill-translate・line-pattern・line-gradient・line-blur・line-gap-width・line-translate。fill-outline-color は明示された時だけ 1px の縁。
   - 基図の source の層はタイルを基図の配管と別に取る（HTTP キャッシュ頼み・押し出しとも別）。低ズームのタイルは線の細分をタイルの幅の 1/64 までに抑える（基図は 700m 固定）。
-  - feature-state は置き場に残るが絵には効かない（段 8⑤b）。問い合わせは基図と同じ当て方（面の中・線幅/2＋許し・円の半径＋縁・sourceLayer・id（promoteId）・source）。
+  - feature-state（#109）は paint だけが読む（filter・layout・sort-key は読まない＝MapLibre と同じ）。状態が変わると、その地物を含むタイルを組み直して user の枠を結合し直す＝MapLibre のように即座ではない（実測：OpenFreeMap の渋谷 z16・4 枚で状態→描く側 中央 40〜55ms・最悪 76ms・?hud=1 の vector layers の行）。タイルは source ごとに全部の描く層を一度に組む＝読まない層も一緒に組み直す。
+  - 問い合わせは基図と同じ当て方（面の中・線幅/2＋許し・円の半径＋縁・sourceLayer・id（promoteId）・source）・地物に state（無ければ {}・基図の地物も）。
 - geojson の押し出し（段 5b）：
   - ["zoom"] の式は止まった所で評価し直す（MapLibre はズーム中も連続）＝止まった絵は同じ。止まりの外（一番外の interpolate/step の範囲の外）では評価し直さない。
   - 問い合わせの結果の中で押し出し（geojson と vector）は一塊（上の段の順の中の「押し出し」の位置）で、その中が近い順。MapLibre は 3D の地物を 2D の層の間へ層の順で差し込む（押し出しの層の上にある 2D の層の地物が先）＝ここは描画の段の順（§4 の上の項）。
@@ -146,7 +149,7 @@
 
 | # | 食い違い | 手当て | 門 | 状態 |
 |---|---|---|---|---|
-| W1 | 基図との順番（beforeId が基図の層を指しても基図の上） | 本人裁定・§4・⑤b で差し込み | 爪車 vector-beforeid-base-layer | **済**（文書） |
+| W1 | 基図との順番（beforeId が基図の層を指しても基図の上） | #123＝描く時のアンカー表（globe の styleOrder→renderer の userAnchor・GL2 classic／multi_draw・WebGPU・地面アトラス） | 爪車 `?g=before`（両土台・md／nomd）・vector-beforeid-base-layer | **済** |
 | W2 | 3D の塗りはアトラス＝基図の線の下（2D は上） | 基図と同じ規則・§4 | 実機（ツェルマットの森を 65° で） | 文書 |
 | W3 | 利用者の層どうしの順番 | li＝層の順の鍵（小数＝間に差し込んでも他の source は組み直さない・外した鍵は使い回さず常に隠す） | 爪車 vector-layer-order（別の source どうし・moveLayer）・vtdraw.mjs（li の順） | **済** |
 | W4 | paint のズームが連続でない | 曲線の鍵（layout も）・0.25 刻みの z で組む | vtdraw.mjs（置き換え・線幅）・爪車 | **済**（文書） |
@@ -155,11 +158,11 @@
 | W7 | symbol は点と面だけ | 基図と同じ buildLabels・面は極・記号は段 3・線に沿う注記は段 4 から（同じ注記層） | vtdraw.mjs（極・タイルの中）・爪車 vector-symbol-label・symbol-icon-*（段 3）・symbol-line-*（段 4） | **済** |
 | W8 | タイルの縁の二重（半透明） | 枠で切る（面は Sutherland–Hodgman・線は Liang–Barsky・円と注記は中の点だけ） | vtdraw.mjs（面積の和）・実機（本初子午線の縁で色が一様） | **済** |
 | W9 | 基図の source を二度取る | HTTP キャッシュ・§4 | — | 文書 |
-| W10 | 重さ（CPU 結合で user の scene を上げ直す） | 間引き 120ms・結合 1 本ずつ・予算 128MB（LOW_MEM 48MB）・枚数上限・フライト中は取得と組み立てを止める・低ズームの細分を抑える | 実機（demotiles z2 10 枚＝7.5MB・細分を抑える前は 32MB／渋谷 OpenFreeMap 3 層 2 枚＝1.1MB） | **済**（?hud=1 の実測は次） |
+| W10 | 重さ（CPU 結合で user の scene を上げ直す） | 間引き 120ms（状態の変化を待つ間は 32ms・#109）・結合 1 本ずつ・予算 128MB（LOW_MEM 48MB）・枚数上限・フライト中は取得と組み立てを止める・低ズームの細分を抑える | 実機（demotiles z2 10 枚＝7.5MB・細分を抑える前は 32MB／渋谷 OpenFreeMap 3 層 2 枚＝1.1MB）・?hud=1 の vector layers（組み立て・解読・結合・状態の反映） | **済** |
 | W11 | 注記の二重（MVT のバッファ） | 点がタイルの中の物だけ | vtdraw.mjs | **済** |
 | W12 | li が基図の門（海・建物の塗り・図郭外の水域）に掛かる | 2^20 の帯 | vtdraw.mjs（帯） | **済** |
 | W13 | 問い合わせ | core queryTiles（source・promoteId・circle の分岐を足した）・解読の組ごとのキャッシュ | 爪車 vector-query（fill／line／circle） | **済** |
-| W14 | feature-state が絵に効かない | ⑤b（#109）・案内 1 回 | 爪車の既知 5 場面（vector-{fill,line,circle,symbol}-feature-state・vector-feature-state-query＝#109 段 0 で場面を先に） | 既知 |
+| W14 | feature-state が絵に効かない | #109＝押し出しの作法（touchFS・ids・fsDirty・loaded）＋core の stateOf（A1） | 爪車 vector-{fill,line,circle,symbol}-feature-state・vector-feature-state-query（両土台）・vtdraw.mjs（ids・色・main の配管）・core featurestate.mjs | **済** |
 | W15 | 利用者の注記が山で浮く・沈む | render worker の vtLabels が標高を付ける（基図の applyLabels と同じ） | 目視 | **済** |
 | W16〜W18 | 両土台・地域の語・読まない paint | 同じ scene の枠（GL2/WebGPU）・語なし・警告 1 回 | 爪車を両土台で・regionless | **済** |
 
@@ -206,7 +209,17 @@
   - **段 8①（vector の押し出し）と一本に**（main へ入った後に揃えた）：鍵＝vtmesh.paintZoomKey は extrude-ml.js の exprZoomKey を使う（書式は同じ "名前:lo|hi|s<段>|<z>"・interpolate-hcl/-lab も曲線に）。当たり＝vtextrude の query も hitExtrusion（旧＝屋根の頂点の投影＋重心の中ほどまでの距離）・口は globe.js の extView（hitEnv＝vtxGround の地面）・query は [{ d, f }] を返し、問い合わせが geojson の押し出しと一つの列にして近い順（MapLibre と同じく 3D の地物は奥行きで並ぶ）。vtxGround は ?noterr=1 で持ち上げない（描く側と同じ）。projectorH・distanceOf の口は要らなくなったので外した。
 - [x] **段 8②＝文字を測るの段 3**（2026-09-28・claude/text-stage-3）：基図と vector source の symbol 層の記号（icon-image）＝§8 の段 3 に記録。
 - [x] **段 8③＝文字を測るの段 4**（2026-09-28・claude/text-stage-4）：線に沿う注記＝§8 の段 4 に記録。
-- [ ] 段 8④・⑤b：hillshade・描く層の feature-state と基図の層の間への差し込み（着手前にそれぞれ別計画）
+- [x] **段 8⑤b＝#109**（2026-09-29・裁定＝タイルの組み直し・A1・beforeId は #123 へ）：vector の描く層（fill／line／circle／symbol）の feature-state。
+  - 段 0＝場面（爪車 5 場面を既知で先に・両土台で赤）・段 1＝配管（押し出しの部品を写す：createVTDraw に置き場・set/removeFeatureState が vtdraw にも印・worker が読む層の地物の id を source-layer ごとに返す・添える状態はそのタイルが含む地物の分だけ・isSourceLoaded は組み直しが済むまで false）・段 2＝core の `buildTileDrawList`・`buildLabels` に省略できる `stateOf(f)`（filter の後に ctx.state＝paint だけが読む・基図は渡さない＝黄金の写しは不変・sort-key の順も崩れない）・段 3＝問い合わせの地物に state・段 4＝?hud=1 の計器と間引き・段 5＝台帳と d.ts。
+  - 実測（段 4・WebGPU の実機・OpenFreeMap liberty の渋谷 z16・4 枚 3.5MB）：worker の往復 26ms（解読 6〜10ms・組み立て 13ms）・結合 1.6ms。外れ値 150〜190ms＝前と次の地物が別のタイルで 2 枚目の結合が間引き 120ms を待っていた→状態を待つ間は 32ms（最悪 76ms・中央 40〜55ms・20 回の連打の後 50ms）。解読は主因でない＝「解読を覚える」手当ては入れない。
+  - 門：爪車（両土台・既知は空）・`tests/vtdraw.mjs` 50・core `tests/featurestate.mjs`。
+  - 轍：①OpenMapTiles の building は 1 つの地物が多数の棟の MultiPolygon のことがある（渋谷で 28〜219 片）＝1 つの id に置くと街区ごと色が変わる（MapLibre も同じ）②真上から見ると style の 3D の建物（fill-extrusion）が平らな塗りを覆う（検分の画素は 3D を伏せて取る）。
+- [x] **#123 基図の層の間への差し込み**（2026-09-29・裁定＝持つ・任意の層の間・vector の描く層だけ）：
+  - 段 0＝爪車 `?g=before`（7 場面を既知で先に）・段 1＝globe の styleOrder（getStyle と共有・beforeId の鎖を辿る＝getStyle の鎖の順も直した）と sendUserAnchors（vtdraw の層ごとに「直後の基図の層」の li を renderer.set("userAnchor")・vtdraw の層の足し引き／順／基図の再ビルド（setPipelineStyle を包む）／style の層の振り分けの後に配る・起動の途中は何もしない）・段 2＝描画器（GL2 は枠の描き方を drawSlot(slot, lo, hi, pick) に・classic の線の項にも li・WebGPU は drawOne）＝最後に描く基図の枠を境で分けて間に利用者の群・段 3＝地面アトラス（GL2 drawFillsInto に範囲・WebGPU は焼く順を範囲つきの列に・鍵に userAnchor.rev）・段 4＝台帳・d.ts。
+  - 表が空（beforeId が基図を指さない）なら描く順は今と同じ。基図の sea／bldFill と同じ「li の表」の作法＝タイルも結合もやり直さない。
+  - 門：爪車 `?g=before`（GL2 md／nomd・WebGPU・既知は空）・全頁（globe の verify:ui／verify:webgpu）＋japan の基図とアトラスの頁。
+  - 轍：①style 由来の層は addLayer の時点ではまだ style 由来と分からない（extExtras.layers は足した後に積む）＝振り分けの後にも配る ②面の輪を線で描く基図の層は、タイルのバッファの縁（継ぎ目の ±33m）にも線を引く＝検定の画素は継ぎ目から離す ③WebGPU のフェード中は新しいシーンのパスにだけ差し込む（旧シーンは全部を先に敷く）。
+- [ ] 段 8④：hillshade（着手前に別計画）。
 
 ## 8. 公式例の門（2026-09-27 起票）
 
@@ -254,7 +267,7 @@
   - **A. getStyle は描かない層も返す**（外来 style の地図だけ・地域の基図は今のまま）：
     - A1 `getStyle().layers`＝元の style の順（描く基図の層・画像として載せた raster・style の vector/geojson の層・**描かない層**＝線に沿う注記・アイコン・hillshade・塗りより下の raster・知らない型）。描かない層は `metadata["ortho:drawn"]:false` を付ける。利用者の層は beforeId の層の前・無ければ末尾。
     - A2 `getLayer`・`get*Property`・`getFilter` が描かない層も返す。A3 `set*Property`・`setFilter`・`setLayerZoomRange`・`removeLayer` は描かない層でも投げない（記録だけ＝getStyle に出る・絵は変わらない）。画像の raster の visibility は画像層の出し入れへ。
-    - A4 `addLayer`／`moveLayer` の beforeId が style の層を指す時は `before` を記録（描く段は今のまま「基図の上」＝§4）＝getStyle の順が MapLibre と同じ。
+    - A4 `addLayer`／`moveLayer` の beforeId が style の層を指す時は `before` を記録＝getStyle の順が MapLibre と同じ（描く順も #123 から同じ・vector の描く層）。鎖（c0→c1→基図の層）も辿る（#123）。
   - **B. 問い合わせの許しは既定 0**（MapLibre と同じ＝線は線幅の半分・円は半径＋縁・面は内側）：`tolerance` は拡張として残す。GeoJSON（gint）の線と点は線幅の半分・円の半径＋縁を足して当てる（旧＝許し 3px と点の +6px だけ）。単一スロットの user 層（内製）は従来の 3px。内製アプリは問い合わせも層の事象も使っていない（grep で確かめた）。
   - **C. 採点**：通訳が捕まえたエンジンのエラー（`[mlshim] <口>:`＝MapLibre なら投げない所でエンジンが投げた）を段 2 の塞ぎに数える（o2 で 20 本＝custom 層の addLayer 12・知らない演算子 3 など・これまで数えていなかった）。
   - **D. 門を回し直して点数を比べる**（本物 r6 × こちら o3）。門＝t-mlcompat（style 群に A の場面・layers 群に B の場面）・t-mllayers・t-mlstyle・globe verify。
