@@ -70,4 +70,13 @@ t("タイルの URL 型紙（tms・{s}）", () => {
 	assert.equal(tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}.pbf"], scheme: "tms" })(3, 1, 2), "https://a/3/1/5.pbf");
 	assert.match(tileUrlOf({ tiles: ["https://{s}.a/{z}/{x}/{y}"] })(1, 0, 0), /^https:\/\/[abc]\.a\/1\/0\/0$/);
 });
+t("型紙が複数＝MapLibre と同じく tiles[(x+y) % 本数]（呼ぶ順に依らない）", () => {
+	const f = tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}", "https://b/{z}/{x}/{y}", "https://c/{z}/{x}/{y}", "https://d/{z}/{x}/{y}"] });
+	assert.equal(f(1, 0, 0), "https://a/1/0/0");
+	assert.equal(f(1, 0, 1), "https://b/1/0/1");
+	assert.equal(f(1, 1, 0), "https://b/1/1/0");
+	assert.equal(f(1, 1, 1), "https://c/1/1/1");
+	assert.equal(f(1, 1, 1), "https://c/1/1/1");   // 2 度目も同じ URL
+	assert.equal(tileUrlOf({ tiles: ["https://a/{z}/{x}/{y}", "https://b/{z}/{x}/{y}"], scheme: "tms" })(2, 0, 0), "https://a/2/0/3");   // 選ぶのは反転前の y（MapLibre と同じ）
+});
 console.log(`\n${n} passed`);
