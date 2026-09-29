@@ -22,7 +22,7 @@ const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-cl
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
-	"t-mlcompat?g=layers", "t-mlcompat?g=vector", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt",
+	"t-mlcompat?g=layers", "t-mlcompat?g=relief", "t-mlcompat?g=vector", "t-mlcompat?g=extrude", "t-mlcompat?g=mlt",
 	"t-columnar?g=same", "t-columnar?g=depth",
 	"t-mlboot?v=default", "t-mlboot?v=ml",
 	"t-ellparity?ell=0", "t-ellparity?ell=1", "t-ellparity?g=cache", "t-ellparity?g=scan&ell=1", "t-mlcompat?g=extrude&ell=1", "t-overlaydepth?ell=1"];   // 楕円体の測る台（#43 段 0）＝WebGPU の本体でも各機能の描いた位置が projectLL と合うか・既知の失敗は tests/ell-known.json   // 公式例の門 段 2＝idle・night/sky/terrain:false（既定は今と同じ）   // 列チャンク層（#90）＝オーバーレイは WebGL2 だが本体が WebGPU でも同じ絵   // MapLibre 互換の爪車（fill/line/circle の表・pass の重ね順）を WebGPU でも（台帳 R7）・g=mlt＝MVT と MLT で同じ絵（#88）   // t-atmo＝大気散乱（#46 段 1）・t-pbr＝PBR と環境光（段 2）・t-ao＝AO（段 3）   // t-wgsl＝WGSL 全モジュールのコンパイル（ソフトウェア WebGPU でも回る関門）・t-light＝メッシュの光は接地の局所系・模型の sRGB 往復（#46 段 0）
