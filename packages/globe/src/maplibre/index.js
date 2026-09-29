@@ -5,6 +5,7 @@ export { Compare } from "../globe.js";   // maplibre-gl-compare と同じ形（#
 export { LngLat, LngLatBounds, MercatorCoordinate } from "./geo.js";
 export { NavigationControl, FullscreenControl, GeolocateControl, ScaleControl, AttributionControl, LogoControl, GlobeControl, TerrainControl } from "./controls.js";
 export { addProtocol, removeProtocol } from "../globe.js";
+export { createTileMesh, SubdivisionGranularityExpression, SubdivisionGranularitySetting } from "./tilemesh.js";   // custom 層のタイル格子（MapLibre 同名・2026-09-30）
 
 // 名前空間の付き物（MapLibre と同名）。worker・RTL の差し込み・先読みはこの地図が自分で持つ＝受け取るだけ
 export const getVersion = () => "ortho-earth";

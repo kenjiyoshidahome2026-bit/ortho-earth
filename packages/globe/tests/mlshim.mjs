@@ -83,4 +83,22 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 }
 
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
+// ── createTileMesh／細分の粒度（MapLibre 同名・custom 層のタイル格子）──
+{
+	const { createTileMesh, SubdivisionGranularityExpression, GRANULARITY_GLOBE, NORTH_POLE_Y, SOUTH_POLE_Y, EXTENT } = await import("../src/maplibre/tilemesh.js");
+	const m1 = createTileMesh({ granularity: 1 }, "16bit"), v1 = new Int16Array(m1.vertices), i1 = new Uint16Array(m1.indices);
+	ok("createTileMesh 粒度 1＝4 頂点・6 索引", v1.length === 8 && i1.length === 6 && !m1.uses32bitIndices, `${v1.length} ${i1.length}`);
+	ok("createTileMesh 0..EXTENT", Math.min(...v1) === 0 && Math.max(...v1) === EXTENT);
+	const m2 = createTileMesh({ granularity: 4, extendToNorthPole: true, extendToSouthPole: true }, "16bit"), v2 = new Int16Array(m2.vertices), i2 = new Uint16Array(m2.indices);
+	ok("createTileMesh 極を足す＝(5)×(7) 頂点・4×6×6 索引", v2.length === 5 * 7 * 2 && i2.length === 4 * 6 * 6, `${v2.length} ${i2.length}`);
+	ok("createTileMesh 極の y＝-32768／32767", v2[1] === NORTH_POLE_Y && v2[v2.length - 1] === SOUTH_POLE_Y, `${v2[1]} ${v2[v2.length - 1]}`);
+	const m3 = createTileMesh({ granularity: 2, generateBorders: true }, "16bit"), v3 = new Int16Array(m3.vertices);
+	ok("createTileMesh 縁＝-64／EXTENT+64", Math.min(...v3) === -64 && Math.max(...v3) === EXTENT + 64, `${Math.min(...v3)} ${Math.max(...v3)}`);
+	ok("createTileMesh 16bit に収まらない粒度は投げる", throws(() => createTileMesh({ granularity: 300 }, "16bit")));
+	ok("createTileMesh 32bit を強いる", createTileMesh({ granularity: 1 }, "32bit").uses32bitIndices === true);
+	ok("粒度の式＝max(floor(base/2^z), min, 1)", new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(0) === 128 && new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(3) === 32 && new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(9) === 32 && new SubdivisionGranularityExpression(4, 0).getGranularityForZoomLevel(9) === 1);
+	ok("球の既定＝tile (128, 32)", GRANULARITY_GLOBE.tile.getGranularityForZoomLevel(1) === 64 && GRANULARITY_GLOBE.circle === 3);
+	ok("min > base は投げる", throws(() => new SubdivisionGranularityExpression(1, 2)));
+}
+console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 process.exit(fail ? 1 : 0);

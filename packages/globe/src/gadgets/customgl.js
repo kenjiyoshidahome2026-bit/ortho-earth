@@ -25,6 +25,61 @@ vec4 projectTile(vec2 p, vec2 rawPos) { return u_projection_matrix * vec4(p, 0.0
 vec4 projectTileFor3D(vec2 p, float elevation) { return u_projection_matrix * vec4(p, elevation, 1.0); }
 vec4 projectTileWithElevation(vec2 posInTile, float elevation) { return u_projection_matrix * vec4(posInTile, elevation, 1.0); }
 `;
+// 球の vertex の下ごしらえ（MapLibre の projectionGlobe と同じ名前・同じ働き＝2026-09-30）。タイルの座標 → メルカトル → 経緯度 → この地図の単位球（β 空間）→ u_projection_matrix（＝この地図の mvp）。
+// 球の座標の軸はこの地図の流儀（x＝cosφcosλ・y＝sinφ・z＝cosφsinλ・core lonlatTo3D）＝MapLibre（x＝sinλ）とは軸が違うが、層は projectTile しか呼ばないので絵は同じ。
+// 極の頂点（rawPos.y＝-32768／32767・tilemesh.js）は極へ。裏側は u_projection_clipping_plane（(dot(pos, xyz)+w) が 0 未満＝裏）で z を 1 の外へ＝描かない（MapLibre の globeComputeClippingZ と同じ式）。
+// u_projection_transition は常に 1（球のまま）・u_projection_fallback_matrix は mercator の局所線形化（層が transition を混ぜても壊れない）
+const PRELUDE_GLOBE = `#ifndef PI
+#define PI 3.141592653589793
+#endif
+#define GLOBE_RADIUS 6371008.8
+uniform mat4 u_projection_matrix;
+uniform highp vec4 u_projection_tile_mercator_coords;
+uniform highp vec4 u_projection_clipping_plane;
+uniform highp float u_projection_transition;
+uniform mat4 u_projection_fallback_matrix;
+out highp float v_projection_tile_x;
+vec3 globeRotateVector(vec3 vec, vec2 angles) { vec3 axisRight = vec3(vec.z, 0.0, -vec.x); vec3 axisUp = cross(axisRight, vec); axisRight = normalize(axisRight); axisUp = normalize(axisUp); vec2 t = tan(angles); return normalize(vec + axisRight * t.x + axisUp * t.y); }
+mat3 globeGetRotationMatrix(vec3 spherePos) { vec3 axisRight = vec3(spherePos.z, 0.0, -spherePos.x); vec3 axisDown = cross(axisRight, spherePos); axisRight = normalize(axisRight); axisDown = normalize(axisDown); return mat3(axisRight, axisDown, spherePos); }
+float circumferenceRatioAtTileY(float tileY) { float my = u_projection_tile_mercator_coords.y + u_projection_tile_mercator_coords.w * tileY; float t = exp(PI - (my * PI * 2.0)); return (2.0 * t) / (t * t + 1.0); }
+float projectLineThickness(float tileY) { return 1.0 / circumferenceRatioAtTileY(tileY); }
+float projectCircleRadius(float tileY) { return 1.0 / circumferenceRatioAtTileY(tileY); }
+vec3 projectToSphere(vec2 translatedPos, vec2 rawPos) {
+	vec2 m = u_projection_tile_mercator_coords.xy + u_projection_tile_mercator_coords.zw * translatedPos;
+	float lon = m.x * PI * 2.0 - PI;
+	float t = exp(PI - (m.y * PI * 2.0)); float t2 = t * t; float denom = t2 + 1.0;
+	float sinLat = (t2 - 1.0) / denom; float cosLat = (2.0 * t) / denom;
+	vec3 pos = vec3(cos(lon) * cosLat, sinLat, sin(lon) * cosLat);
+	if (rawPos.y < -32767.5) { pos = vec3(0.0, 1.0, 0.0); }
+	if (rawPos.y > 32766.5) { pos = vec3(0.0, -1.0, 0.0); }
+	return pos;
+}
+vec3 projectToSphere(vec2 posInTile) { return projectToSphere(posInTile, vec2(0.0, 0.0)); }
+float globeComputeClippingZ(vec3 spherePos) { return (1.0 - (dot(spherePos, u_projection_clipping_plane.xyz) + u_projection_clipping_plane.w)); }
+vec4 interpolateProjection(vec2 posInTile, vec3 spherePos, float elevation) {
+	v_projection_tile_x = posInTile.x;
+	vec3 elevatedPos = spherePos * (1.0 + elevation / GLOBE_RADIUS);
+	vec4 globePosition = u_projection_matrix * vec4(elevatedPos, 1.0);
+	globePosition.z = globeComputeClippingZ(elevatedPos) * globePosition.w;
+	if (u_projection_transition > 0.999) { return globePosition; }
+	vec4 flatPosition = u_projection_fallback_matrix * vec4(posInTile, elevation, 1.0);
+	vec4 result = globePosition;
+	result.z = mix(0.0, globePosition.z, clamp((u_projection_transition - 0.2) / 0.8, 0.0, 1.0));
+	result.xyw = mix(flatPosition.xyw, globePosition.xyw, u_projection_transition);
+	return result;
+}
+vec4 interpolateProjectionFor3D(vec2 posInTile, vec3 spherePos, float elevation) {
+	v_projection_tile_x = posInTile.x;
+	vec4 globePosition = u_projection_matrix * vec4(spherePos * (1.0 + elevation / GLOBE_RADIUS), 1.0);
+	if (u_projection_transition > 0.999) { return globePosition; }
+	return mix(u_projection_fallback_matrix * vec4(posInTile, elevation, 1.0), globePosition, u_projection_transition);
+}
+vec4 projectTile(vec2 posInTile) { return interpolateProjection(posInTile, projectToSphere(posInTile), 0.0); }
+vec4 projectTile(vec2 posInTile, vec2 rawPos) { return interpolateProjection(posInTile, projectToSphere(posInTile, rawPos), 0.0); }
+vec4 projectTileWithElevation(vec2 posInTile, float elevation) { return interpolateProjection(posInTile, projectToSphere(posInTile), elevation); }
+vec4 projectTileFor3D(vec2 posInTile, float elevation) { return interpolateProjectionFor3D(posInTile, projectToSphere(posInTile, posInTile), elevation); }
+`;
+const GLOBE_MAX_Z = 13;   // これより寄ったら mercator の variant（局所線形化）＝f32 の単位球座標では震える（MapLibre も z12 前後で球→メルカトルへ移る）
 
 // env＝{ mapEl, before（この canvas をこの要素の前に差す＝注記の下）, size()→{w,h}（device px）, dpr, cam, earthM, requestDraw, onFrame(fn)→off, hostMap（onAdd/render に渡す map） }
 export function createCustomGL(env) {
@@ -62,17 +117,23 @@ export function createCustomGL(env) {
 		M[12] = T[0] - M[0] * x0 - M[4] * y0; M[13] = T[1] - M[1] * x0 - M[5] * y0; M[14] = T[2] - M[2] * x0 - M[6] * y0; M[15] = 1;
 		const main = mul(Float64Array.from(st.mvp), M);
 		const fovy = cam.fovy ?? 50 * D2R;
+		// 球の variant（寄っていない間）：u_projection_matrix＝この地図の mvp（β 単位球→クリップ）・裏側の面＝(E·s, −s)（E＝目の位置・s＝2/(|E|−1)＝地平線で 1・真下で −1・裏で 1 超＝描かない）
+		const globe = cam.zoom < GLOBE_MAX_Z;
+		const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[0] * sC, eyeP[1] * sC, eyeP[2] * sC, -sC];
+		const mvp = Float64Array.from(st.mvp);
+		const dataOf = (mMerc, tmc) => globe
+			? { mainMatrix: mvp, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: clip, projectionTransition: 1 }
+			: { mainMatrix: mMerc, fallbackMatrix: mMerc, tileMercatorCoords: tmc, clippingPlane: [0, 0, 0, 0], projectionTransition: 0 };
 		return {
 			farZ: st.camDist * 1.15 * earthM, nearZ: Math.max(1e-7, st.camDist * 0.3) * earthM, fov: fovy,
 			modelViewProjectionMatrix: main, projectionMatrix: st.projection ? Float64Array.from(st.projection) : main,   // projectionMatrix＝透視だけ（MapLibre と同じ・mainMatrix＝P·V）。3D Tiles の例は inv(P)·main で視点を取り出す＝旧（main を渡す）は視点が恒等になりタイルを選ばなかった（2026-09-30）
-			defaultProjectionData: { mainMatrix: main, fallbackMatrix: main, tileMercatorCoords: [0, 0, 1, 1], clippingPlane: [0, 0, 0, 0], projectionTransition: 0 },
-			shaderData: { variantName: "mercator", vertexShaderPrelude: PRELUDE, define: "" },
-			// タイル単位の投影（MapLibre の args.getProjectionData({ tileID:{z,x,y} })）＝タイルの中の座標 0..EXTENT（8192）→ メルカトル → クリップ（mercator の variant）
+			defaultProjectionData: dataOf(main, [0, 0, 1, 1]),
+			shaderData: globe ? { variantName: "globe", vertexShaderPrelude: PRELUDE_GLOBE, define: "#define GLOBE" } : { variantName: "mercator", vertexShaderPrelude: PRELUDE, define: "" },
+			// タイル単位の投影（MapLibre の args.getProjectionData({ tileID:{z,x,y}|{canonical,wrap} })）＝タイルの中の座標 0..EXTENT（8192）→ メルカトル → クリップ。wrap＝世界の写し（mercator の variant で東西へ 1 世界ずらす）
 			getProjectionData({ tileID } = {}) {
-				const z = tileID?.z ?? tileID?.canonical?.z ?? 0, x = tileID?.x ?? tileID?.canonical?.x ?? 0, y = tileID?.y ?? tileID?.canonical?.y ?? 0, n = 2 ** z, EXT = 8192;
-				const T = new Float64Array(16); T[0] = 1 / (n * EXT); T[5] = 1 / (n * EXT); T[10] = 1; T[15] = 1; T[12] = x / n; T[13] = y / n;
-				const m = mul(main, T);
-				return { mainMatrix: m, fallbackMatrix: m, tileMercatorCoords: [x / n, y / n, 1 / (n * EXT), 1 / (n * EXT)], clippingPlane: [0, 0, 0, 0], projectionTransition: 0 };
+				const z = tileID?.z ?? tileID?.canonical?.z ?? 0, x = tileID?.x ?? tileID?.canonical?.x ?? 0, y = tileID?.y ?? tileID?.canonical?.y ?? 0, wrap = tileID?.wrap ?? 0, n = 2 ** z, EXT = 8192;
+				const T = new Float64Array(16); T[0] = 1 / (n * EXT); T[5] = 1 / (n * EXT); T[10] = 1; T[15] = 1; T[12] = x / n + wrap; T[13] = y / n;
+				return dataOf(mul(main, T), [x / n + wrap, y / n, 1 / (n * EXT), 1 / (n * EXT)]);
 			},
 		};
 	}
