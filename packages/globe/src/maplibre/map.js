@@ -6,16 +6,17 @@
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
 import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup, mercatorDz } from "../globe.js";
-import { LngLat, LngLatBounds } from "./geo.js";
+import { LngLat, LngLatBounds, MercatorCoordinate } from "./geo.js";
 import { unsupported } from "./report.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "./util.js";
+import { GRANULARITY_GLOBE } from "./tilemesh.js";
 
 // MapLibre GL JS 6.11.2 の Map の公開の口（型定義から）。ここに実装の無い口は「unsupported を記録して this」を返す
 const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "migrateProjection", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
-	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend"]);
+	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "dragstart", "drag", "dragend"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
 const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave"]);   // エンジンが層ごとに持つ事象（#34）
 
@@ -77,11 +78,16 @@ function bindDom(self, st, type) {
 // エンジンの事象 → MapLibre の事象（move は zoom/rotate/pitch に分け、start/end を付ける＝end はエンジンの settle）
 function wireEngine(self, st) {
 	const eng = st.engine;
-	let moving = null;
+	let moving = null, dragArm = false, dragging = false;
+	// drag 系（MapLibre の dragstart／drag／dragend＝指やマウスで掴んで動かしている間の move）：容れ物の pointerdown で構え、エンジンの move が来たら drag・離したら dragend（deck.gl の MapboxOverlay が購読する・2026-09-30）
+	const dragEnd = () => { dragArm = false; if (dragging) { dragging = false; emit(self, "dragend"); } };
+	st.container.addEventListener("pointerdown", e => { if (e.button === 0 || e.pointerType !== "mouse") dragArm = true; }, { passive: true });
+	for (const t of ["pointerup", "pointercancel"]) window.addEventListener(t, dragEnd, { passive: true });
 	eng.on("move", e => {
 		st.idle = false;
 		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch() };
 		if (!moving) { moving = { from: st.last ?? c, zoom: false, rotate: false, pitch: false }; emit(self, "movestart"); }
+		if (dragArm) { if (!dragging) { dragging = true; emit(self, "dragstart"); } emit(self, "drag"); }
 		const p = st.last ?? moving.from;
 		for (const [k, name] of [["zoom", "zoom"], ["bearing", "rotate"], ["pitch", "pitch"]]) {
 			if (Math.abs(c[k] - p[k]) < 1e-9) continue;
@@ -127,7 +133,7 @@ export class Map {
 		const handler = h => new Proxy({ isEnabled: () => true, isActive: () => false }, { get: (o, k) => k in o ? o[k] : typeof k !== "string" ? undefined
 			: (...a) => { if (/^disable/.test(k)) unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
 		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, handler(h)]));
-		if (liveMaps++ > 1) { liveMaps--; st.inert = true; unsupported(self, "third Map on the page (at most two live maps)"); return self; }   // 1 頁に 2 枚まで（#173・本人裁定 上限 2）
+		if (liveMaps++ > 3) { liveMaps--; st.inert = true; unsupported(self, "fifth Map on the page (at most four live maps)"); return self; }   // 1 頁に 4 枚まで（#173 の裁定 2 枚→2026-09-30 本人「4 枚まで」＝sync-movement-of-multiple-maps の 3 枚が生きる。GL の文脈は 1 枚 2 本＝8 本 < 16）
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
 		if (options.interactive === false) unsupported(self, "option interactive: false", "cosmetic");
@@ -293,13 +299,26 @@ export class Map {
 	// 問い合わせ＝この地図は非同期（台帳 §4）＝MapLibre の同期の答えは返せない。空で返し、差として記録する（通訳で隠さない）
 	queryRenderedFeatures() { unsupported(this, "queryRenderedFeatures (synchronous result)"); return []; }
 	querySourceFeatures(id, o) { return ask(this, "querySourceFeatures", [id, o], { before: [] }) ?? []; }   // 同期（集約の丸・geojson の地物）
-	queryTerrainElevation() { unsupported(this, "queryTerrainElevation (synchronous result)"); return null; }
+	queryTerrainElevation(ll) { const p = lngArr(ll); return ask(this, "queryTerrainElevation", [p[0], p[1]], { before: null }) ?? null; }   // 同期＝エンジンの標高のメモ（地形がある時・未着は null＝MapLibre と同じ）
+	// MapLibre 同名＝目の位置（from・高さ m）から注視点（to・高さ m）を見るカメラ（純粋な計算・MapLibre の式のまま：メルカトルの距離と cameraToCenterDistance＝0.5/tan(fov/2)·高さ px・fov 36.87°）
+	calculateCameraOptionsFromTo(from, altitudeFrom, to, altitudeTo = 0) {
+		const a = MercatorCoordinate.fromLngLat(LngLat.convert(from), altitudeFrom), b = MercatorCoordinate.fromLngLat(LngLat.convert(to), altitudeTo);
+		const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z, d3 = Math.hypot(dx, dy, dz);
+		if (d3 === 0) throw new Error("Can't calculate camera options with same From and To");
+		const H = S.get(this).container?.clientHeight || 600, fov = 36.86989764584402 * Math.PI / 180, c2c = 0.5 / Math.tan(fov / 2) * H;
+		const zoom = Math.log2(c2c / d3 / 512), bearing = Math.atan2(dx, -dy) * 180 / Math.PI;
+		let pitch = Math.acos(Math.hypot(dx, dy) / d3) * 180 / Math.PI; pitch = dz < 0 ? 90 - pitch : 90 + pitch;
+		return { center: b.toLngLat(), elevation: altitudeTo, zoom, pitch, bearing };
+	}
 	setTerrain(t) { ask(this, "setTerrain", [t]); return this; }
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
 	setSky(sky) { unsupported(this, `setSky (this map draws its own atmosphere)`, "cosmetic"); S.get(this).sky = sky; return this; }   // 空の色＝見た目（球の外・標本の外）
 	getSky() { return S.get(this).sky ?? {}; }
 	setProjection(p) { if ((p?.type ?? p) !== "globe") unsupported(this, `setProjection(${JSON.stringify(p?.type ?? p)}) (this map is always a globe)`); return this; }
 	getProjection() { return { type: "globe" }; }
+	getRenderWorldCopies() { return false; }   // 球に世界の写しは無い（deck.gl の MapboxOverlay が repeat に使う）
+	setRenderWorldCopies() { return this; }
+	get style() { return { projection: { subdivisionGranularity: GRANULARITY_GLOBE } }; }   // 例が map.style.projection.subdivisionGranularity.tile.getGranularityForZoomLevel(z) を読む（custom 層のタイル格子）＝球の既定。他は getStyle()/getLayer() の口
 	setTransformRequest(fn) { ask(this, "setTransformRequest", [fn]); return this; }
 
 	// ── 画像 ──
