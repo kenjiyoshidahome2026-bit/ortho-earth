@@ -9,14 +9,14 @@ import { evalExpr } from "@ortho-earth/core";
 import { createDemTiles } from "./demtiles.js";
 
 const INTERP = new Set(["interpolate", "interpolate-hcl", "interpolate-lab"]);
-const at = h => ({ zoom: 0, props: {}, geom: null, vars: { elevation: h }, origin: "ml" });
+const at = (h, gs) => ({ zoom: 0, props: {}, geom: null, vars: { elevation: h }, gs, origin: "ml" });   // gs＝地図の global-state（#173 段 3b）
 
 // 段の表：{ elev: Float64Array（昇順）, rgba: Float32Array（事前乗算 0〜1・段ごとに 4）, n }
-export function reliefRamp(expr) {
+export function reliefRamp(expr, gs) {
 	const elev = [], rgba = [];
 	if (Array.isArray(expr) && INTERP.has(expr[0])) {
 		for (let i = 3; i + 1 < expr.length; i += 2) {
-			const h = +expr[i], c = evalExpr(["to-rgba", expr], at(h));   // 段の標高で式を評価＝その段の色（MapLibre と同じ＝段の間の曲線は使わない）
+			const h = +expr[i], c = evalExpr(["to-rgba", expr], at(h, gs));   // 段の標高で式を評価＝その段の色（MapLibre と同じ＝段の間の曲線は使わない）
 			if (!Number.isFinite(h) || !Array.isArray(c)) continue;
 			const a = c[3] ?? 1;
 			elev.push(h); rgba.push(c[0] / 255 * a, c[1] / 255 * a, c[2] / 255 * a, a);
@@ -52,8 +52,8 @@ export function reliefTile(h, n, R) {
 
 // port プロバイダ。dem＝raster-dem の spec（tiles 済み）・color＝color-relief-color の式・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, stats, close }
 // 色を変える時は呼び手が作り直す（setPaintProperty → 層を載せ直す＝hillshade と同じ）
-export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null, tiles = null }) {
-	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, R = reliefRamp(color);
+export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null, tiles = null, gs = undefined }) {
+	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, R = reliefRamp(color, gs);
 	const ch = new MessageChannel(), port = ch.port1;
 	const stats = { req: 0, ok: 0, empty: 0, err: 0, last: null, stops: R.n };   // 切り分けの窓（dbgHost.__colorRelief）
 	const acs = new Map();

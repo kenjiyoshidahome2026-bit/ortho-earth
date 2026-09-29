@@ -9,7 +9,9 @@
        ⑥ 段 3：キーは最後に触った地図だけ（矢印＝core の blocked・N＝コンパスの keyBusy）
           URL の持ち主は最初の地図だけ（hash の手編集に応じる・前回ビューを書く）・省メモリでない端末は 2 枚とも建物 3D
      ?v=default：target 無しの既定の容れ物＝1 枚目は頁の #map、2 枚目は #map を掴まず body 直下に自作（id を付けない）。
-     ?v=lowmem：省メモリ端末（deviceMemory=2）＝2 枚目は建物 3D を既定で切る（ガジェットが載らない）・mesh:true で入る。 -->
+     ?v=lowmem：省メモリ端末（deviceMemory=2）＝2 枚目は建物 3D を既定で切る（ガジェットが載らない）・mesh:true で入る。
+     ?v=gs：式の global-state は地図ごと（段 3b）＝同じ層（円＝gint・記号＝symbols・filter が ["global-state","type"]）を 2 枚に置き、
+       A は "a"・B は "b" に絞る＝A には a だけ・B には b だけが描かれ、問い合わせも各自（公式例 filter-layer-symbols-using-global-state の形）。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>
 html,body{margin:0;background:#0b1021}
 #a, #b { display: inline-block; width: 480px; height: 360px; vertical-align: top; }
@@ -30,7 +32,32 @@ const until = async (fn, ms = 4000) => { for (let i = 0; i < ms / 50 && !fn(); i
 const base = { chips: false, persistView: false };
 try {
 	const { createGlobe } = await import("@ortho-earth/globe");
-	if (V === "lowmem") {
+	if (V === "gs") {
+		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div>`);
+		const [A, B] = await Promise.all([createGlobe({ ...base, target: "#a", view: "#8/36/141.3" }), createGlobe({ ...base, target: "#b", view: "#8/36/141.3" })]);
+		await Promise.all([loaded(A), loaded(B)]);
+		const F0 = ["case", ["==", ["to-string", ["global-state", "type"]], ""], true, ["==", ["get", "type"], ["global-state", "type"]]];
+		const data = { type: "FeatureCollection", features: [[141.0, "a", "A"], [141.6, "b", "B"]].map(([lon, type, name]) => ({ type: "Feature", properties: { type, name }, geometry: { type: "Point", coordinates: [lon, 36.0] } })) };
+		for (const M of [A, B]) {
+			M.addSource("gs", { type: "geojson", data });
+			await M.addLayer({ id: "gs-c", type: "circle", source: "gs", filter: F0, paint: { "circle-radius": 7, "circle-color": "#000" } });
+			await M.addLayer({ id: "gs-s", type: "symbol", source: "gs", filter: F0, layout: { "text-field": ["get", "name"], "text-offset": [0, 1], "text-anchor": "top" } });
+		}
+		const hits = async (M, lon, layer) => { const [x, y] = M.projectLL(lon, 36.0); return (await M.queryRenderedFeatures([x, y], { layers: [layer] })).length; };
+		const snap = async M => `${await hits(M, 141.0, "gs-c")}${await hits(M, 141.6, "gs-c")}`;
+		await sleep(900);
+		const r0 = `${await snap(A)}|${await snap(B)}`;
+		A.setGlobalStateProperty("type", "a");
+		B.setGlobalStateProperty("type", "b");
+		let r1 = "";
+		for (let i = 0; i < 20 && r1 !== "10|01"; i++) { await sleep(300); r1 = `${await snap(A)}|${await snap(B)}`; }
+		ok("gsStore", JSON.stringify(A.getGlobalState()) === '{"type":"a"}' && JSON.stringify(B.getGlobalState()) === '{"type":"b"}', `${JSON.stringify(A.getGlobalState())} ${JSON.stringify(B.getGlobalState())}`);
+		ok("gsCircles", r0 === "11|11" && r1 === "10|01", `none=${r0} a/b=${r1}`);
+		const symA = (await A.queryRenderedFeatures(A.projectLL(141.0, 36.0).slice(0, 2), { layers: ["gs-s"], tolerance: 40 })).length + (await A.queryRenderedFeatures(A.projectLL(141.6, 36.0).slice(0, 2), { layers: ["gs-s"], tolerance: 40 })).length * 10;
+		const symB = (await B.queryRenderedFeatures(B.projectLL(141.0, 36.0).slice(0, 2), { layers: ["gs-s"], tolerance: 40 })).length + (await B.queryRenderedFeatures(B.projectLL(141.6, 36.0).slice(0, 2), { layers: ["gs-s"], tolerance: 40 })).length * 10;
+		ok("gsSymbols", symA > 0 && symA < 10 && symB >= 10 && symB % 10 === 0, `A=${symA} B=${symB}`);
+		A.destroy(); B.destroy();
+	} else if (V === "lowmem") {
 		document.body.insertAdjacentHTML("afterbegin", `<div id="a"></div><div id="b"></div><div id="c2" style="width:320px;height:240px"></div>`);
 		const A = await createGlobe({ ...base, target: "#a", view: "#3/35/139" });
 		const B = await createGlobe({ ...base, target: "#b", view: "#3/48/2" });

@@ -5,7 +5,7 @@ import { evalColor } from "./model.js";
 export const D2R = Math.PI / 180;
 const mercY = lat => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
 const unMercY = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) / D2R;
-export const ctxOf = (zoom, props, origin) => ({ zoom, props: props || {}, geom: "Point", vars: {}, origin });   // origin＝"ml"（MapLibre の層）
+export const ctxOf = (zoom, props, origin, gs) => ({ zoom, props: props || {}, geom: "Point", vars: {}, gs, origin });   // gs＝地図の global-state（#173 段 3b）   // origin＝"ml"（MapLibre の層）
 
 // 点の列＝Point/MultiPoint を 1 点ずつ（属性は元の参照）
 export function pointsOf(src) {
@@ -21,26 +21,26 @@ export function pointsOf(src) {
 // ["heatmap-density"] を変数へ差し替えた式（評価器は heatmap-density を知らない＝var で渡す）
 const withDensity = e => Array.isArray(e) ? (e[0] === "heatmap-density" ? ["var", "__hd"] : e.map(withDensity)) : e;
 export const HEAT_DEFAULT_COLOR = ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(0, 0, 255, 0)", 0.1, "royalblue", 0.3, "cyan", 0.5, "lime", 0.7, "yellow", 1, "red"];
-export function heatStyle(paint = {}, zoomNow = 10, origin = undefined) {
+export function heatStyle(paint = {}, zoomNow = 10, origin = undefined, gs = undefined) {
 	const ZS = 0.5, zs = []; for (let z = 0; z <= 24; z += ZS) zs.push(z);
-	const tab = (e, def) => Float32Array.from(zs.map(z => { const v = evalExpr(e ?? def, ctxOf(z, {}, origin)); return +(v === undefined && origin ? def : v); }));   // ML の評価エラー（undefined）＝既定値・ネイティブは従来どおり
+	const tab = (e, def) => Float32Array.from(zs.map(z => { const v = evalExpr(e ?? def, ctxOf(z, {}, origin, gs)); return +(v === undefined && origin ? def : v); }));   // ML の評価エラー（undefined）＝既定値・ネイティブは従来どおり
 	const ce = withDensity(paint["heatmap-color"] ?? HEAT_DEFAULT_COLOR), ramp = new Uint8Array(256 * 4);
 	for (let i = 0; i < 256; i++) {
 		const c = evalColor(ce, { zoom: zoomNow, props: {}, geom: "Point", vars: { __hd: i / 255 }, origin }) || [0, 0, 0, 0];
 		ramp[i * 4] = Math.round(c[0]); ramp[i * 4 + 1] = Math.round(c[1]); ramp[i * 4 + 2] = Math.round(c[2]); ramp[i * 4 + 3] = Math.round((c[3] ?? 1) * 255);
 	}
-	return { radius: [...tab(paint["heatmap-radius"], 30)], intensity: [...tab(paint["heatmap-intensity"], 1)], zStep: ZS, opacity: (v => +(v === undefined && origin ? 1 : v))(evalExpr(paint["heatmap-opacity"] ?? 1, ctxOf(zoomNow, {}, origin))), ramp };
+	return { radius: [...tab(paint["heatmap-radius"], 30)], intensity: [...tab(paint["heatmap-intensity"], 1)], zStep: ZS, opacity: (v => +(v === undefined && origin ? 1 : v))(evalExpr(paint["heatmap-opacity"] ?? 1, ctxOf(zoomNow, {}, origin, gs))), ramp };
 }
 
 // 集約（supercluster と同じ考え方）：最も細かい段（clusterMaxZoom+1）＝ばらした点。そこから 1 段ずつ粗く、
 // 半径 clusterRadius px（その段の 256·2^z px 世界）以内の近所を重み付き重心へ束ねる（格子で近所を引く＝O(n)）。
 // ez＝その集約がばらける段（クリックで寄る先）。
-export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, minZoom = 0, clusterProperties = null } = {}) {
+export function buildClusters(pts, { clusterRadius = 50, clusterMaxZoom = 14, minZoom = 0, clusterProperties = null, gs = undefined } = {}) {
 	clusterMaxZoom = Math.round(clusterMaxZoom); minZoom = Math.floor(minZoom);   // 段は整数（目盛り "mercator" の dz は小数＝14→15.36 で new Array が投げた・2026-09-27）
 	const top = clusterMaxZoom + 1;
 	// clusterProperties（MapLibre）＝{ 名前: [畳み方, 写し方] }。写し方＝単点の属性からの式・畳み方＝"+"・"max" 等の演算子名か ["accumulated"]・["get", 名前] を使う式（段 6）
 	const cp = clusterProperties ? Object.entries(clusterProperties).map(([k, [op, mapE]]) => [k, Array.isArray(op) ? op : [op, ["var", "a"], ["var", "b"]], Array.isArray(op), mapE]) : [];
-	const ctxM = (props, vars = {}) => ({ zoom: 0, props: props || {}, geom: "Point", vars, origin: "ml" });
+	const ctxM = (props, vars = {}) => ({ zoom: 0, props: props || {}, geom: "Point", vars, gs, origin: "ml" });
 	const aggOf = p => cp.length ? Object.fromEntries(cp.map(([k, , , mapE]) => [k, evalExpr(mapE, ctxM(p.props))])) : null;
 	const fold = (a, b) => { if (!a) return b; const out = { ...a }; for (const [k, redE, isExpr] of cp) out[k] = isExpr ? evalExpr(redE, ctxM({ [k]: b[k] }, { accumulated: a[k] })) : evalExpr(redE, ctxM({}, { a: a[k], b: b[k] })); return out; };
 	let nextId = 0;
@@ -85,7 +85,7 @@ export function clusterDraw(pts, cl, opts = {}) {
 		return items.map(it => {
 			const lon = it.x * 360 - 180, lat = unMercY(it.y);
 			const single = it.n === 1, props = single ? pts[it.i].props : { cluster: true, cluster_id: it.cid, point_count: it.n, point_count_abbreviated: abbr(it.n), ...(it.agg || {}) };
-			const P = single ? up : cp, c = ctxOf(z, props, origin);
+			const P = single ? up : cp, c = ctxOf(z, props, origin, opts.gs);
 			const e = (k, d) => evalExpr(P[k] ?? d, c);
 			return { lon, lat, n: it.n, ez: it.ez, i: single ? it.i : -1, cid: it.cid, agg: it.agg, r: +e("circle-radius", 5), fill: css(evalColor(P["circle-color"] ?? "#000", c) || [0, 0, 0, 1]),
 				stroke: css(evalColor(P["circle-stroke-color"] ?? "#000", c) || [0, 0, 0, 1]), sw: +e("circle-stroke-width", 0), op: +e("circle-opacity", 1),
