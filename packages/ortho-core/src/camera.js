@@ -115,7 +115,8 @@ export function cameraState(cam, W, H) {
 		eye[1] /= R_AX;
 	}
 	const focal = (H / 2) / Math.tan(fovy / 2);   // 距離ベースLOD用の焦点距離(device px)
-	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal };
+	const projection = Float64Array.from(proj); projection[0] = -projection[0];   // 透視だけ（clip.x の反転込み＝mvp＝projection·view·S）。MapLibre の custom 層の args.projectionMatrix（inv(P)·mainMatrix で視点を取り出す書き方）用（2026-09-30）
+	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal, projection };
 }
 
 // 視線の基底（f64・純関数）：v(ndc)＝F＋ndc.x·X＋ndc.y·Y＝目から出る視線。長さは clip w が 1 になる向き（g·v＝1・g＝mvp の w 行）＝

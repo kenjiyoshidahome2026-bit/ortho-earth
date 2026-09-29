@@ -64,7 +64,7 @@ export function createCustomGL(env) {
 		const fovy = cam.fovy ?? 50 * D2R;
 		return {
 			farZ: st.camDist * 1.15 * earthM, nearZ: Math.max(1e-7, st.camDist * 0.3) * earthM, fov: fovy,
-			modelViewProjectionMatrix: main, projectionMatrix: main,
+			modelViewProjectionMatrix: main, projectionMatrix: st.projection ? Float64Array.from(st.projection) : main,   // projectionMatrix＝透視だけ（MapLibre と同じ・mainMatrix＝P·V）。3D Tiles の例は inv(P)·main で視点を取り出す＝旧（main を渡す）は視点が恒等になりタイルを選ばなかった（2026-09-30）
 			defaultProjectionData: { mainMatrix: main, fallbackMatrix: main, tileMercatorCoords: [0, 0, 1, 1], clippingPlane: [0, 0, 0, 0], projectionTransition: 0 },
 			shaderData: { variantName: "mercator", vertexShaderPrelude: PRELUDE, define: "" },
 			// タイル単位の投影（MapLibre の args.getProjectionData({ tileID:{z,x,y} })）＝タイルの中の座標 0..EXTENT（8192）→ メルカトル → クリップ（mercator の variant）

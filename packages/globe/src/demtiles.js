@@ -16,7 +16,7 @@ export function createDemTiles(dem, { fetchFn = (u, init) => fetch(u, init), cap
 		const pr = (async () => {
 			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
 			if (!r.ok) return null;
-			const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
+			const bmp = r.bitmap ? await r.bitmap() : await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });   // bitmap＝独自の読み口が画像で返した物（globe の demFetch）
 			const n = bmp.width;
 			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
 			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }
