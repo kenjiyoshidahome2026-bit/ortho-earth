@@ -6,8 +6,9 @@ import { setTimeout as sleep } from "node:timers/promises";
 // 実行＝ node scripts/verify-cloud.mjs（apps/ortho-japan で）。虚時間ハーネス（verify-ui）では fetch を待てないためこちら。
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PORT = 5249, CDP = 9349;
-const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = await resolveChrome();
 // ---- account Worker のスタブ（/me・/me/files・PUT/GET/DELETE）＝形は workers/files.js の返りに合わせる ----
 const store = new Map([["a.geopbf", { body: Buffer.from("x"), t: 1 }]]);
 const json = (res, code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
