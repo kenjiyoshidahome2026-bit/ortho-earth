@@ -512,7 +512,7 @@ export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tol
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
  *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
 /** 1.3.0〜 encoding "custom"（redFactor/greenFactor/blueFactor/baseShift）・既定値は MapLibre どおり tileSize 512・maxzoom 22（setTerrain・addSource・style の terrain。?dem= の URL は従来の 256） */
-/** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.8.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
+/** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.7.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
  *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。
  *  url＝layer.json（CORS が要る・相対は頁基準）か ion＝利用者の Cesium ion の鍵（{ assetId, accessToken }・Cesium World Terrain は assetId 1）。鍵は同梱しない。
  *  heights＝タイルの高さの基準：既定 "ellipsoidal"（仕様どおりの楕円体高＝Cesium World Terrain・PDOK）＝同梱の EGM96（30 分）のジオイド高を引いて標高へ直す（要る時だけ読む）／
@@ -527,7 +527,7 @@ export type ProtocolLoader = (params: { url: string; type: "arrayBuffer" | "json
  *  vector＝基図と利用者の塗り・線・gint・外部ベクタ・同一フレームのオーバーレイ（heatmap・模様・anno 等＝api.clip）・地面の識別と問い合わせ／
  *  labels＝注記（基図の注記と、symbol 層の記号・点の集約）。3D の塗りは地面に焼く＝terrain に従う */
 export type ClipTarget = "terrain" | "buildings" | "models" | "vector" | "labels";
-/** 断面の切り方（map.setClipping・1.8.0〜・#111） */
+/** 断面の切り方（map.setClipping・1.7.0〜・#111） */
 export interface ClipOptions {
 	/** この群の面で切る対象（省略＝全部） */
 	targets?: ClipTarget[];
@@ -777,7 +777,7 @@ export interface OrthoJapanMap {
 	 *  （傾けた遠景は影なし）。true／false／{ time（Date・ms・ISO＝その時刻の太陽・省略＝共通の時計）, darkness（影の明るさ 0..1・既定 0.66） }。
 	 *  z13 以上・太陽が地平線の上（2° 以上）の時だけ。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影をかけない仕様）。消している間は描画に一切関与しない（資源も持たない） */
 	setShadows(opts?: boolean | { on?: boolean; time?: Date | number | string; darkness?: number }): void;
-	/** 断面とクリッピング平面（1.8.0〜・#111）。建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane に当たる）。面は全部の交わり（残るのは全部の面の内側）・6 枚まで。
+	/** 断面とクリッピング平面（1.7.0〜・#111）。建物・地形・基図を平面で切って中を見る（Cesium の ClippingPlane に当たる）。面は全部の交わり（残るのは全部の面の内側）・6 枚まで。
 	 *  vertical＝2 点 a→b（[lon, lat]）を通る鉛直面＝**a→b に向かって右側を残す**・horizontal＝高さ h（m）の水平面（その地点の接平面・keep "below"＝既定で下を残す／"above"）・
 	 *  box＝箱の内側を残す（center・size＝[東西の幅, 南北の奥行き] m・h＝[底, 天] m・bearing＝奥行きの向き 度）・planes＝単位球の平面 [nx, ny, nz, c]（n·X ≥ c を残す・上級者向け）。
 	 *  切れる物＝地形（切り口に土の色の蓋＝鉛直面は縦の幕・水平面は板）・球の床・基図の塗りと線と押し出し建物・建物メッシュ（閉じた建物は裏面を蓋の色で塗る疑似の蓋）・
@@ -788,7 +788,7 @@ export interface OrthoJapanMap {
 	 *  対象ごとに 6 枚まで・targets 省略＝全部・蓋と縁の帯は最初に cap／edge を書いた群の値。
 	 *  false で消す（消している間は描画に一切関与しない）。**WebGPU 専用**（WebGL2 フォールバックでは何もしない＝影と同じ扱い）。URL の ?clip=（lon1,lat1,lon2,lat2／h:lon,lat,高さ[,above]／box:lon,lat,幅,奥行き[,底,天[,向き]]・; で重ねる） */
 	setClipping(opts?: false | ClipOptions | ClipOptions[]): void;
-	/** 今の切り方（setClipping に渡した物の写し）・切っていなければ null（1.8.0〜・#111） */
+	/** 今の切り方（setClipping に渡した物の写し）・切っていなければ null（1.7.0〜・#111） */
 	getClipping(): ClipOptions | ClipOptions[] | null;
 	/** 可視域（1.2.0〜・#44）。observer（既定＝画面の中心）に目の高さ eyeH（m・既定 1.6）で立ち、半径 radius（m・既定 1000・最大 5000）の中で高さ targetH（m）の点が見えるか。
 	 *  地表＝地形（setTerrain の DEM があればそれ）＋建物（buildings:false で地形だけ・tilesets で任意の 3D Tiles）・地球の丸みと大気の屈折（k＝0.13）込み。
