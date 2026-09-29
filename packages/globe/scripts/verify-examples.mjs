@@ -288,7 +288,8 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
 	const dir = path.join(ROOT, "report", orthoLabel);
 	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16) }));
+	const notes = (() => { try { const n = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/notes.json"), "utf8")); delete n._; return n; } catch { return {}; } })();   // 例ごとのコメント（tests/mlexamples/notes.json）
+	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes }));
 	fs.writeFileSync(path.join(dir, "grades.json"), JSON.stringify({ refLabel, orthoLabel, summary, ranking, grades: rows.map(r => ({ name: r.name, ...r.grade, color: undefined })) }, null, 1));
 	console.log(`\n見比べ帳：${path.relative(process.cwd(), path.join(dir, "index.html"))}`);
 	// 爪車：段が下がった例＝落ちる／上がった例＝--update で書き換える（実 GPU 1 回では落とさない）
