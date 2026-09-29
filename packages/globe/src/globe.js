@@ -3751,7 +3751,7 @@ const vtdGet = async () => {
 	if (vtdCtl) return vtdCtl;
 	ownDestroy.push(() => vtdCtl?.destroy());   // 組み役・結合役の worker・リスナー（map.destroy）
 	return vtdCtl = dbgHost.__vtd = m.createVTDraw(map, {   // __vtd＝検証窓（debugGlobals の時だけ）
-		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS,
+		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS, fstate: vtxFS, fsKey: vtxFSKey,   // feature-state の置き場は押し出しと同じ（#109）
 		sendScene: (scene, transfer) => { wPost({ type: "set", cmd: "scene", data: scene, prop: "user" }, transfer); needsDraw = true; },
 		sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); needsDraw = true; },
 	});
@@ -4075,7 +4075,7 @@ map.setFeatureState = ({ source, sourceLayer, id }, state) => {
 		if (sourceLayer == null) throw new Error(`setFeatureState: sourceLayer is required for vector source "${source}"`);
 		let m = vtxFS.get(source); if (!m) vtxFS.set(source, m = new Map());
 		const k = vtxFSKey(sourceLayer, id); m.set(k, { id, state: { ...(m.get(k)?.state || {}), ...state } });
-		vtxCtl?.touchFS(source, sourceLayer, id);
+		vtxCtl?.touchFS(source, sourceLayer, id); vtdCtl?.touchFS(source, sourceLayer, id);   // 押し出し（8①b）と描く層（#109）＝その地物を含むタイルだけ組み直す
 		return map;
 	}
 	let m = mlFeatureState.get(source); if (!m) mlFeatureState.set(source, m = new Map());
@@ -4087,11 +4087,11 @@ map.setFeatureState = ({ source, sourceLayer, id }, state) => {
 map.removeFeatureState = ({ source, sourceLayer, id } = {}, key) => {
 	if (isVecSrc(source)) {   // vector source：id 無し＝その source（sourceLayer があればその層）を全部
 		const m = vtxFS.get(source); if (!m) return map;
-		if (id == null) { for (const k of [...m.keys()]) if (sourceLayer == null || k.startsWith(sourceLayer + "\u0000")) m.delete(k); vtxCtl?.touchFS(source, sourceLayer ?? null, undefined); return map; }
+		if (id == null) { for (const k of [...m.keys()]) if (sourceLayer == null || k.startsWith(sourceLayer + "\u0000")) m.delete(k); vtxCtl?.touchFS(source, sourceLayer ?? null, undefined); vtdCtl?.touchFS(source, sourceLayer ?? null, undefined); return map; }
 		if (sourceLayer == null) throw new Error(`removeFeatureState: sourceLayer is required for vector source "${source}"`);
 		const k = vtxFSKey(sourceLayer, id), cur = m.get(k); if (!cur) return map;
 		if (key != null) { const st = { ...cur.state }; delete st[key]; m.set(k, { id, state: st }); } else m.delete(k);
-		vtxCtl?.touchFS(source, sourceLayer, id);
+		vtxCtl?.touchFS(source, sourceLayer, id); vtdCtl?.touchFS(source, sourceLayer, id);
 		return map;
 	}
 	const m = mlFeatureState.get(source);
