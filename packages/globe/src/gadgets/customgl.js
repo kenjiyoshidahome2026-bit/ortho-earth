@@ -118,7 +118,8 @@ export function createCustomGL(env) {
 		const main = mul(Float64Array.from(st.mvp), M);
 		const fovy = cam.fovy ?? 50 * D2R;
 		// 球の variant（寄っていない間）：u_projection_matrix＝この地図の mvp（β 単位球→クリップ）・裏側の面＝(E·s, −s)（E＝目の位置・s＝2/(|E|−1)＝地平線で 1・真下で −1・裏で 1 超＝描かない）
-		const globe = cam.zoom < GLOBE_MAX_Z;
+		// variant＝例が頼んだ投影に従う（MapLibre と同じ＝既定 mercator・setProjection({type:"globe"}) で globe）＝mercator で書かれた層（mainMatrix にメルカトル座標を掛ける）は本物の既定と同じ絵・球を頼んだ例だけ球の prelude。寄ったら（z≥13）どちらも mercator の局所線形化
+		const globe = cam.zoom < GLOBE_MAX_Z && env.hostMap?.getProjection?.()?.type === "globe";
 		const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[0] * sC, eyeP[1] * sC, eyeP[2] * sC, -sC];
 		const mvp = Float64Array.from(st.mvp);
 		const dataOf = (mMerc, tmc) => globe
