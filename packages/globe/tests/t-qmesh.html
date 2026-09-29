@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- 実描画の検分：quantized-mesh の地形（Cesium の layer.json＋.terrain・#110）。試料＝tests/fixtures/qmesh（t-dem と同じ円錐＝太平洋 150.5E 30.5N に 3000m・
+     半径 0.3°・z7〜z10・gzip のまま・高さは楕円体高＝標高＋ジオイド高 N（ここで 17.4m））。
+     ①opts.terrain（type:"quantized-mesh"）で起動 → map.getHeight が山頂 ≈3000m（ジオイドを引いた標高）・中腹 ≈1500m・範囲外は既定（海＝0）
+     ②描画：傾けた絵の山の位置が陸の色（地形のセル R01 が焼いた格子で上書きされている）
+     ③DOM オーバーレイの持ち上げ（projectLL）も同じ DEM：山頂の点が 3000m ぶん持ち上がる
+     ④setTerrain(null) で外れる（海＝0）
+     ⑤heights:"orthometric"（標高で配る配信の申告）で読むと N だけ高い＝基準面の切替が効いている（楕円体高の試料をそのまま読む）
+     ⑥style の terrain（sources の type "quantized-mesh"）も同じ。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-qmesh</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const URL0 = new URL("./fixtures/qmesh/layer.json", location.href).href;
+const SRC = { type: "quantized-mesh", url: URL0 };
+const N = 17.37;   // 試料の場所のジオイド高（fixtures/qmesh/make.mjs が書いた値）
+const lonAt = km => 150.5 + km / (111.32 * Math.cos(30.5 * Math.PI / 180));
+try {
+	const map = await createGlobe({ target: "#map", view: "#10.5/30.35/150.5/60t", chips: false, terrain: { source: SRC } });
+	const h0 = await map.getHeight(150.5, 30.5), h1 = await map.getHeight(lonAt(0.15 * 111.32), 30.5), h2 = await map.getHeight(150.95, 30.95);
+	ok("peak", Math.abs(h0 - 3000) < 40, h0.toFixed(1));
+	ok("slope", Math.abs(h1 - 1500) < 80, h1.toFixed(1));
+	ok("outside", h2 < 5, h2.toFixed(1));
+	ok("getTerrain", map.getTerrain()?.source?.type === "quantized-mesh");
+	// ③ 持ち上げ（t-dem と同じ物差し）
+	const lift = () => { const p0 = map.makeProjectorH({ terrain: false }), [bx, by] = p0(150.5, 30.5, 0), [ex, ey] = p0(150.5, 30.5, 3000), [x, y, f] = map.projectLL(150.5, 30.5); return { got: Math.hypot(x - bx, y - by), want: Math.hypot(ex - bx, ey - by), err: Math.hypot(x - ex, y - ey), front: f }; };
+	const pollLift = async (want, ms) => { const t0 = performance.now(); let r; while (performance.now() - t0 < ms) { r = lift(); if (want(r)) return r; await sleep(100); } return r; };
+	const lifted = r => r.front > 0 && r.want > 10 && r.err < r.want * 0.1, liftNote = r => `${r.got.toFixed(1)}/${r.want.toFixed(1)}px err ${r.err.toFixed(1)}`;
+	const l0 = await pollLift(lifted, 20000);
+	ok("liftPeak", lifted(l0), liftNote(l0));
+	// ② 描画
+	const shot = map.gadget.shot();
+	const grab = async () => { const blob = await Promise.race([shot.composite(), sleep(30000).then(() => { throw new Error("composite timeout"); })]); const bmp = await createImageBitmap(blob); const cv = Object.assign(document.createElement("canvas"), { width: bmp.width, height: bmp.height }); cv.getContext("2d").drawImage(bmp, 0, 0); return cv.getContext("2d").getImageData(0, 0, bmp.width, bmp.height).data; };
+	const W = 960, px = (d, x, y) => { const i = (y * W + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+	const land = d => { const [r, g, b] = px(d, 480, 250); return b < r + 10; };
+	const poll = async (want, ms) => { const t0 = performance.now(); let d; while (performance.now() - t0 < ms) { d = await grab(); if (want(d)) return d; await sleep(2000); } return d; };
+	const withDem = await poll(land, 60000);
+	ok("renderedLand", land(withDem), px(withDem, 480, 250).join(","));
+	// ④ 外す
+	await map.setTerrain(null);
+	const g0 = await map.getHeight(150.5, 30.5);
+	ok("removed", g0 < 5 && map.getTerrain() === null, g0.toFixed(1));
+	const noDem = await poll(d => !land(d), 40000);
+	ok("renderedSea", !land(noDem), px(noDem, 480, 250).join(","));
+	// ⑤ 基準面：同じ楕円体高のタイルを標高と申告して読む＝N だけ高い
+	await map.setTerrain({ source: { ...SRC, heights: "orthometric" } });
+	const g1 = await map.getHeight(150.5, 30.5);
+	ok("orthometricReadsN", Math.abs(g1 - (3000 + N)) < 40 && Math.abs((g1 - h0) - N) < 1.5, `${g1.toFixed(1)}−${h0.toFixed(1)}＝${(g1 - h0).toFixed(2)}（N ${N}）`);
+	// ⑥ style の terrain（この地図の拡張の source 型）
+	// ⑥ style の terrain＝style で起動し直した地図で（地域の基図の地図は setStyle しない作り）
+	map.destroy();
+	const map2 = await createGlobe({ target: "#map", view: "#10.5/30.35/150.5/60t", chips: false,
+		style: { version: 8, sources: { q: { type: "quantized-mesh", url: URL0 } }, terrain: { source: "q" }, layers: [{ id: "bg", type: "background", paint: { "background-color": "#dde" } }] } });
+	await new Promise(r => map2.on("load", r));
+	const g2 = await (async () => { for (let i = 0; i < 60; i++) { const v = await map2.getHeight(150.5, 30.5); if (v > 100) return v; await sleep(250); } return map2.getHeight(150.5, 30.5); })();
+	ok("styleTerrain", Math.abs(g2 - 3000) < 40 && map2.getTerrain()?.source?.type === "quantized-mesh", g2.toFixed(1));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

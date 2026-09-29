@@ -55,7 +55,7 @@ export interface OrthoJapanOptions {
 	/** 外来の標高タイル（1.2.0〜・#36・MapLibre の terrain と同じ形）。source＝raster-dem の spec。?dem=<型紙>&demenc=&demmax=&demdtm=1 と同じ。
 	 *  false（1.5.0〜）＝MapLibre と同じ「setTerrain まで平ら」＝この地図の既定の標高を取らない・描かない。setTerrain の DEM で地形が立つ
 	 *  （その後の setTerrain(null) は DEM を外すだけ＝既定の標高の地形に戻る）。?noterr=1 は従来どおり丸ごと停止 */
-	terrain?: { source: RasterDemSource; exaggeration?: number } | false;
+	terrain?: { source: RasterDemSource | QuantizedMeshSource; exaggeration?: number } | false;
 	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
 	/** 表示の世界の形（1.6.0〜・#43）。"auto"（既定）＝通常・HI のデスクトップは WGS84 楕円体・低メモリ端末（LOW_MEM）と非力な機体（MID_TIER＝内蔵 GPU・4 コア以下・
@@ -512,6 +512,13 @@ export interface QueryOptions { layers?: string[]; filter?: StyleExpression; tol
  *  地形の段 R01（1°）・R10（10°）のセルを、DEM が有効な画素だけ上書きする（アトラスは 1°あたり最大 1024 px＝見た目の細かさは約 100m 格子のまま）。
  *  1 点の標高（getHeight・断面図）は DEM の最大ズームを直に読む＝細かい DEM が効く。dtm:true＝裸地の申告＝地域の申告が無い所ではこの範囲で建物を地面へ持ち上げる */
 /** 1.3.0〜 encoding "custom"（redFactor/greenFactor/blueFactor/baseShift）・既定値は MapLibre どおり tileSize 512・maxzoom 22（setTerrain・addSource・style の terrain。?dem= の URL は従来の 256） */
+/** quantized-mesh（Cesium の地形＝layer.json＋.terrain・1.8.0〜・#110）。setTerrain・opts.terrain・style の terrain（sources の type "quantized-mesh"＝この地図の拡張）・?dem=<layer.json>。
+ *  三角形は地形の標高の格子（R01・R10 のセル）へ焼いて描く（誇張しない）。1 点の標高（getHeight・建物の接地・断面図）は最大の段のタイルから。
+ *  url＝layer.json（CORS が要る・相対は頁基準）か ion＝利用者の Cesium ion の鍵（{ assetId, accessToken }・Cesium World Terrain は assetId 1）。鍵は同梱しない。
+ *  heights＝タイルの高さの基準：既定 "ellipsoidal"（仕様どおりの楕円体高＝Cesium World Terrain・PDOK）＝同梱の EGM96（30 分）のジオイド高を引いて標高へ直す（要る時だけ読む）／
+ *  "orthometric"＝標高で配る配信（swisstopo）。heightOffset＝足す高さ（m）。高さ 0..0 の空のタイル（PDOK の粗い段）と 404/403 は無い所＝既定の標高が残る */
+export interface QuantizedMeshSource { type: "quantized-mesh"; url?: string; ion?: { assetId: number | string; accessToken: string }; heights?: "ellipsoidal" | "orthometric"; heightOffset?: number;
+	/** R01 のセルを焼く段（既定＝タイルの幅がセルの約 1/4＝z10）・maxzoom＝1 点の標本の上限の段（既定 16） */ cellZoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; headers?: Record<string, string>; credentials?: RequestCredentials }
 export interface RasterDemSource { tiles?: string[]; url?: string; encoding?: "terrarium" | "mapbox" | "gsi" | "custom"; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; dtm?: boolean; cellZoom?: number; redFactor?: number; greenFactor?: number; blueFactor?: number; baseShift?: number }
 export type ResourceType = "Style" | "Source" | "Tile" | "SpriteJSON" | "SpriteImage" | "Image" | "Unknown";
 export type TransformRequestFunction = (url: string, resourceType: ResourceType) => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | undefined | null;
@@ -797,8 +804,8 @@ export interface OrthoJapanMap {
 	readonly clock: OrthoClock;
 	/** import しなくても使える Marker / Popup（new map.Marker().setLngLat(…).addTo(map)） */
 	/** 標高を外来の DEM に（MapLibre 同名・#36）。source＝addSource した raster-dem の id か spec。null＝既定の標高へ。exaggeration は受け流す（地形は誇張しない） */
-	setTerrain(terrain: { source: string | RasterDemSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;
-	getTerrain(): { source: RasterDemSource; exaggeration: 1 } | null;
+	setTerrain(terrain: { source: string | RasterDemSource | QuantizedMeshSource; exaggeration?: number } | null): Promise<OrthoJapanMap>;
+	getTerrain(): { source: RasterDemSource | QuantizedMeshSource; exaggeration: 1 } | null;
 	/** 以後の取得に効く transformRequest（MapLibre 同名）。null で外す */
 	setTransformRequest(fn: TransformRequestFunction | null): OrthoJapanMap;
 	/** 独自スキーム（"myscheme://…"）の取得を関数に任せる（大域・export の addProtocol と同じ） */
