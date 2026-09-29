@@ -29,7 +29,7 @@ import { downsampleFlipped, cropResample } from "../elevation.js";   // 標高�
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { buildChunkIndex, visibleChunkRuns, shadowChunkRuns, TERR_HMAX_M } from "../terrainlod.js";   // 地形メッシュのチャンク主導 index と視錐台/地平線カリング（perf plan P4 step B）
 import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, SH_CAST_HMAX_M } from "../shadow.js";   // 建物の影（点けた時だけ）
-import { clipPlanes, packClip, clipStyle, CLIP_MAX, CLIP_F32 } from "../clip.js";   // 断面とクリッピング平面（#111・切った時だけ）
+import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.js";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
 import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
@@ -576,9 +576,11 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 切る物＝地形（近・遠）・球の床（海を含む）・基図と利用者の層の塗りと線・基図の押し出し建物・建物メッシュ・模型（3D Tiles・I3S・押し出し）。
 	// 面の記述は clip.js（毎フレーム面を作り直す＝楕円体の切替にも追従・高々 6 枚）。K は原点ごと＝束縛も原点ごと（CLIP_SLOTS：main＝地形/建物/床/メッシュ/模型・base・user）。
 	// 段 2：地形の蓋（面ごとの板＝地面の中だけ塗る）・建物の疑似の蓋（閉じた建物の裏面を蓋の色）・縁の帯・影と重ねる（受け手は影＋面の派生・深度パスも面で切る）
-	const CLIP_SLOTS = ["main", "base", "user"], CLIP_SLOT_B = 256;   // uniform のオフセット境界（ClipP＝160B）
+	// 段 4＝対象ごとの面：スロット＝対象（terrain＝地形・床・蓋／buildings＝基図の押し出し・建物メッシュ／models＝模型・3D Tiles・I3S・押し出し）＋塗りと線の原点（main/base/user＝vector の面）
+	const CLIP_SLOTS = ["terrain", "buildings", "models", "main", "base", "user"], CLIP_SLOT_B = 256;   // uniform のオフセット境界（ClipP＝160B）
+	const CS = Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, i]));
 	const CAP_SLOT_B = 512;   // 地形の蓋の CapP（320B）＝近窓・遠窓の 2 スロット
-	let clip = { on: false };
+	let clip = null;   // 正規化した切り方（clip.js normClip＝{ groups, style }）・null＝切らない
 	let cl = null, cl0mods = null, clipFrame = null, clipS = SAMPLES;   // clipS＝このフレームの MSAA 段（オーバーレイの派生パイプライン）
 	function clipRes() {
 		if (cl) return cl;
@@ -610,8 +612,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 			ovBG: device.createBindGroup({ layout: bglClDyn, entries: [{ binding: 0, resource: { buffer: ovBuf, offset: 0, size: CLIP_F32 * 4 } }] }),
 			layOv: lay([bglOvFrame, bglOvParam, bglClDyn]),
 			bg: Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, device.createBindGroup({ layout: bgl, entries: [{ binding: 0, resource: slotRes(i) }] })])),
-			plBG: device.createBindGroup({ layout: bglPlCl, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: slotRes(0) }] }),
-			capBG: [0, 1].map(k => device.createBindGroup({ layout: bglCap, entries: [{ binding: 0, resource: slotRes(0) }, { binding: 1, resource: { buffer: capBuf, offset: k * CAP_SLOT_B, size: 320 } }] })),
+			plBG: device.createBindGroup({ layout: bglPlCl, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: slotRes(CS.models) }] }),
+			capBG: [0, 1].map(k => device.createBindGroup({ layout: bglCap, entries: [{ binding: 0, resource: slotRes(CS.terrain) }, { binding: 1, resource: { buffer: capBuf, offset: k * CAP_SLOT_B, size: 320 } }] })),
 			lay: { terr: lay([bgl0, bgl1, bglClim, bgl]), mesh: lay([bgl0, bgl1, bglPlBatch, bgl]), meshTex: lay([bgl0, bgl1, bglPlCl, bglPlTex5]),
 				fill: lay([bgl0, bgl1, bgl]), bld: lay([bgl0, bgl1, bglMask, bgl]), globe: lay([bglGlobe, bgl]), cap: lay([bgl0, bglCap]) },
 			laySh: { terr: lay([bgl0, bgl1, bglClim, bglShCl]), mesh: lay([bgl0, bgl1, bglPlBatch, bglShCl]), meshTex: lay([bgl0, bgl1, bglPlShCl, bglPlTex5]),
@@ -667,8 +669,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		cl.shx = { sh,
 			bg: Object.fromEntries(CLIP_SLOTS.map((k, i) => [k, device.createBindGroup({ layout: cl.bglShCl, entries: [...shE, { binding: 3, resource: cl.slotRes(i) }] })])),
 			plBG: device.createBindGroup({ layout: cl.bglPlShCl, entries: [{ binding: 0, resource: { buffer: plBatchBuf, offset: 0, size: PL_BATCH_SLOT } },
-				{ binding: 1, resource: { buffer: sh.pBuf } }, { binding: 2, resource: sh.view }, { binding: 3, resource: sh.samp }, { binding: 4, resource: cl.slotRes(0) }] }),
-			castPlBG: device.createBindGroup({ layout: cl.bglPlCl, entries: [{ binding: 0, resource: { buffer: sh.batch, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: cl.slotRes(0) }] }),
+				{ binding: 1, resource: { buffer: sh.pBuf } }, { binding: 2, resource: sh.view }, { binding: 3, resource: sh.samp }, { binding: 4, resource: cl.slotRes(CS.models) }] }),
+			castPlBG: device.createBindGroup({ layout: cl.bglPlCl, entries: [{ binding: 0, resource: { buffer: sh.batch, offset: 0, size: PL_BATCH_SLOT } }, { binding: 1, resource: cl.slotRes(CS.models) }] }),
 		};
 		return cl.shx;
 	}
@@ -902,7 +904,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 		// 断面（#111 段 3）＝覆う（塗り・マスク）と線を切る派生へ。面の K はオーバーレイの原点ごと
 		const OC = clipFrame ? clipOvPipes(clipS) : null;
 		if (OC) {
-			const sty = clipStyle(clip);
+			const sty = clip.style;
 			for (let i = 0; i < n; i++) { const o = scenes[i].origin; packClip(clipFrame.planes, lonlatTo3D(o[0], o[1]), cl.ovCPU.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), sty); }
 			device.queue.writeBuffer(cl.ovBuf, 0, cl.ovCPU.buffer, 0, n * CLIP_SLOT_B);
 		}
@@ -1812,8 +1814,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	function encodeShadowCasters(enc, win, cam, opts, terrOn, clipPl) {   // terrOn＝地形も落とす（#112 段 2・地形が描かれているフレームだけ＝真俯瞰は平ら）・clipPl＝断面の面（#111 段 2＝切った形で落とす・null＝切らない）
 		const bld0 = !(opts && opts.skipMain) && !(opts && opts.noBld) ? scenes.main.bld : null;
 		// 窓（行列）・中身の版・標高リフト・マスク・建物シーンが前回と同じ＝深度テクスチャはそのまま使える（静止中は影のコストほぼ 0）
-		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? clipPl.map(p => p.join(",")).join(";") : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}`;   // 面が変われば描き直す（面の K は main 原点に依る）
-		const KC = clipPl ? clipCastPipes() : null, KX = clipPl ? clipShBG() : null;   // 切った形で落とす（#111 段 2）
+		const key = `${win.mvp.join(",")}|${castRev}|${elevScaleEff}|${qG}|${qMesh ? qMesh.join(",") : ""}|${maskSig}|${elev.has}|${far.has}|${terrOn ? 1 : 0}|${clipPl ? JSON.stringify(clipPl) : ""}|${clipPl ? (scenes.main.origin || [0, 0]).join(",") : ""}`;   // 面が変われば描き直す（面の K は main 原点に依る）
+		const KC = clipPl ? clipCastPipes() : null, KX = clipPl ? clipShBG() : null;   // 切った形で落とす（#111 段 2）・clipPl＝対象ごとの面（段 4）
 		if (sh.castKey === key && sh.castBld === bld0) { shStat.skipped++; return; }
 		sh.castKey = key; sh.castBld = bld0;
 		const spDesc = { colorAttachments: [], depthStencilAttachment: { view: sh.view, depthLoadOp: "clear", depthClearValue: 1.0, depthStoreOp: "store" }, timestampWrites: passTS("shadow") };   // GPU 実時間＝tag "shadow"（#112 段 0）
@@ -1831,7 +1833,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			if (runs.length) {
 				sp.setPipeline(KC ? KC.terr : sh.cast.terr);
 				sp.setBindGroup(0, shadowBG0("bg0T"));
-				if (KC) sp.setBindGroup(1, cl.bg.main);
+				if (KC) sp.setBindGroup(1, cl.bg.terrain);
 				sp.setVertexBuffer(0, terrain.vbo);
 				sp.setIndexBuffer(terrain.ibo, "uint32");
 				for (const [f0, n] of runs) { sp.drawIndexed(n, 1, f0); cnt.terrTris += n / 3; }
@@ -1847,7 +1849,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			sp.setBindGroup(0, bg0s);
 			sp.setBindGroup(1, paramBG[ROLE.bld]);
 			sp.setBindGroup(2, buildMaskBG(act, scenes.main.origin || [0, 0]));   // main パスと同じ鍵＝キャッシュ命中
-			if (KC) sp.setBindGroup(3, cl.bg.main);
+			if (KC) sp.setBindGroup(3, cl.bg.buildings);
 			sp.setVertexBuffer(0, bld.bPos); sp.setVertexBuffer(1, bld.bSh); sp.setVertexBuffer(2, bld.bAnc);
 			sp.draw(bld.count);
 			cnt.bldTris = bld.count / 3;
@@ -1875,8 +1877,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					sp.setPipeline(tex ? (KC ? KC.meshTex : sh.cast.meshTex) : (KC ? KC.mesh : sh.cast.mesh));
 					sp.setBindGroup(0, bg0s);
 					sp.setBindGroup(1, paramBG[ROLE.mesh]);
-					if (KC && !tex) sp.setBindGroup(3, cl.bg.main);
 					for (const { p, slot } of part) {
+						if (KC && !tex) sp.setBindGroup(3, p.textured ? cl.bg.models : cl.bg.buildings);   // 対象ごとの面（段 4）＝模型か建物メッシュか
 						sp.setBindGroup(2, KC && tex ? KX.castPlBG : sh.batchBG, [slot * PL_BATCH_SLOT]);
 						sp.setVertexBuffer(0, p.vbo); sp.setVertexBuffer(1, p.nbo);
 						if (tex) { sp.setVertexBuffer(2, p.uvbo); sp.setVertexBuffer(3, p.cbo); sp.setBindGroup(3, p.texBG); }
@@ -1917,8 +1919,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
 		// 建物の影：点灯中かつ建物の見えるズーム・太陽が地平線の上の時だけ窓が立つ（null＝このフレームは影なし＝従来経路そのまま）
 		const shWin = shadow.on && cam.zoom >= 13 ? shadowWindow(sunVector(shadow.time ?? clockNow(view.clock)), cam.center, shadowHalfM(cam.zoom, cam.center[1], W, H, cam.dpr || 1), SH_N) : null;
-		const clipPl = clip.on ? clipPlanes(clip) : null;   // 断面（#111）の面＝このフレームで作り直す（無ければ null か空）
-		const flat2d = !shWin && !(clipPl && clipPl.length) && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // 影と断面の間は球の床を描く（真俯瞰の地面も影を受ける・床の切れ目を陸の色で埋めない）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
+		// 断面（#111）の面＝対象ごと（段 4）にこのフレームで作り直す（楕円体の切替にも追従）。どれかの対象に面があれば「切っている」
+		const tp = clip ? { terrain: clipPlanesFor(clip, "terrain"), buildings: clipPlanesFor(clip, "buildings"), models: clipPlanesFor(clip, "models"), vector: clipPlanesFor(clip, "vector") } : null;
+		const clipAny = !!tp && (tp.terrain.length + tp.buildings.length + tp.models.length + tp.vector.length) > 0;
+		const flat2d = !shWin && !clipAny && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // 影と断面の間は球の床を描く（真俯瞰の地面も影を受ける・床の切れ目を陸の色で埋めない）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
 		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
@@ -1979,12 +1983,15 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 断面（#111）：面は描画の原点からの相対（K を f64 で）。main＝地形（terrain/terrainFar も main と同じ原点）・建物・球の床・メッシュと模型（バッチ原点との差は PB の clipO）／
 		// base・user＝そのシーンの原点（基図と利用者の層の塗りと線）
-		const clipOPt = clipPl && clipPl.length ? lonlatTo3D(mainOrigin[0], mainOrigin[1]) : null;
-		clipFrame = clipOPt ? { planes: clipPl, st } : null;   // gint（#111 段 3）＝host.clipInfo() で面とカメラ（全画面レイ）を読む
+		const clipOPt = clipAny ? lonlatTo3D(mainOrigin[0], mainOrigin[1]) : null;
+		clipFrame = clipAny && tp.vector.length ? { planes: tp.vector, st } : null;   // gint・外部ベクタ（#111 段 3）＝vector の面とカメラ（全画面レイ）
 		if (clipOPt) {
 			clipRes();
-			const sty = clipStyle(clip);
-			CLIP_SLOTS.forEach((k, i) => { const o = k === "main" ? mainOrigin : (scenes[k].origin || [0, 0]); packClip(clipPl, lonlatTo3D(o[0], o[1]), cl.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), sty); });
+			const sty = clip.style;
+			CLIP_SLOTS.forEach((k, i) => {   // 対象のスロット＝main 原点・塗りと線のスロット＝そのシーンの原点で vector の面。蓋はその対象に面がある時だけ
+				const o = k === "base" || k === "user" ? (scenes[k].origin || [0, 0]) : mainOrigin, pl = tp[k] || tp.vector;
+				packClip(pl, lonlatTo3D(o[0], o[1]), cl.cpu.subarray(i * CLIP_SLOT_B / 4, i * CLIP_SLOT_B / 4 + CLIP_F32), { ...sty, capOn: sty.capOn && pl.length > 0 });
+			});
 			device.queue.writeBuffer(cl.buf, 0, cl.cpu);
 		}
 		composeGround(gndJob, slotsG);   // 鍵が変わった時だけ（Frame 書込の後＝塗りの焼き込みが bg0[slot] の origin を読む）
@@ -2077,7 +2084,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const PX = CR || C || R || P;   // 描く物ごとの派生の選び（影＋面 → 面 → 影 → 素）
 		const grp = k => CR ? CX.bg[k] : C ? cl.bg[k] : R ? sh.bg : null;   // その派生の束縛（k＝原点のスロット・影だけの時は共通）
 		if (shadow.on) shStat.active = !!shWin;
-		if (shWin) encodeShadowCasters(enc, shWin, cam, opts, terrainActive, clipOPt ? clipPl : null);
+		if (shWin) encodeShadowCasters(enc, shWin, cam, opts, terrainActive, clipOPt ? tp : null);
 		// 1x（遷移フレーム／?msaa=0）＝canvas の current texture へ直描き。以降の全パス（gint 含む）が同じ view に
 		// load で重ね、flush() の resolve パスは丸ごと消える＝MSAA store/load/resolve がフレームから消滅する。
 		const colorView = S > 1 ? t.view : ctx.getCurrentTexture().createView();
@@ -2127,7 +2134,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (!flat2d) {   // 球体本体：land基色を縁(リム)まで敷く。2D高速パス時は clear で代替＝省略
 			pass.setPipeline(PX.globe);
 			pass.setBindGroup(0, globeBG);
-			if (grp("main")) pass.setBindGroup(1, grp("main"));
+			if (grp("terrain")) pass.setBindGroup(1, grp("terrain"));   // 球の床＝地形の対象
 			pass.draw(3);
 		}
 		// 地形サーフェス（標高変位＋hillshade）。深度を書く＝尾根の向こうの基図・建物が隠れる
@@ -2136,7 +2143,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(0, bg0.terrain);
 			pass.setBindGroup(1, paramBG[ROLE.terrain]);
 			pass.setBindGroup(2, climBG);   // 気候場（全球ハイプソ）。未着は dummy（p2.z=0 で不使用）
-			if (grp("main")) pass.setBindGroup(3, grp("main"));
+			if (grp("terrain")) pass.setBindGroup(3, grp("terrain"));
 			pass.setVertexBuffer(0, terrain.vbo);
 			pass.setIndexBuffer(terrain.ibo, "uint32");
 			for (const [f0, n] of nearRuns) pass.drawIndexed(n, 1, f0);   // 可視チャンクの区間だけ（P4 step B）
@@ -2147,8 +2154,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				for (const [f0, n] of farRuns) pass.drawIndexed(n, 1, f0);
 			}
 			// 地形の蓋（#111 段 2）＝切った面ごとに「地面の中」だけ塗る板（近窓・遠窓の 2 回・地形と同じ分担）
-			if (C && clip.cap !== false) {
-				const O = clipOPt;
+			if (C && tp.terrain.length && clip.style.capOn) {
+				const O = clipOPt, clipPl = tp.terrain;
 				packCap(0, clipPl, O, mainOrigin, terrain.mesh, cam.center, false);
 				if (farActive) packCap(1, clipPl, O, mainOrigin, far.bounds, cam.center, true);
 				device.queue.writeBuffer(cl.capBuf, 0, cl.capCPU);
@@ -2257,7 +2264,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[ROLE.bld]);
 			pass.setBindGroup(2, bldMaskBG);
-			if (grp("main")) pass.setBindGroup(3, grp("main"));
+			if (grp("buildings")) pass.setBindGroup(3, grp("buildings"));
 			pass.setVertexBuffer(0, bldPrev.bPos);
 			pass.setVertexBuffer(1, bldPrev.bSh);
 			pass.setVertexBuffer(2, bldPrev.bAnc);
@@ -2268,7 +2275,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			pass.setBindGroup(0, bg0.bld);
 			pass.setBindGroup(1, paramBG[fading ? ROLE.fadeBld : ROLE.bld]);
 			pass.setBindGroup(2, bldMaskBG);   // メッシュの区の footprint を伏せる（count=0 なら素通し）
-			if (grp("main")) pass.setBindGroup(3, grp("main"));
+			if (grp("buildings")) pass.setBindGroup(3, grp("buildings"));
 			pass.setVertexBuffer(0, bld.bPos);
 			pass.setVertexBuffer(1, bld.bSh);
 			pass.setVertexBuffer(2, bld.bAnc);
@@ -2345,7 +2352,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					pass.setPipeline(pipeline);
 					pass.setBindGroup(0, bg0.bld);              // フレーム共通（mvp/eye/fog/elev）は建物と同一
 					pass.setBindGroup(1, paramBG[ROLE.mesh]); // p0=liftBounds, p1=bldColor
-					if (!tx && grp("main")) pass.setBindGroup(3, grp("main"));
+					if (!tx && grp("buildings")) pass.setBindGroup(3, grp("buildings"));   // 素の建物メッシュ＝建物の対象（模型は group(2) に models の面）
 					for (const { p, count, slot } of list) {
 						pass.setBindGroup(2, !tx ? plBatchBG : CR ? CX.plBG : C ? cl.plBG : R ? sh.plShBG : plBatchBG, [slot * PL_BATCH_SLOT]);   // dynamic offset＝このバッチの uniform（影・断面の間の模型は、その束縛と同居の group）
 						pass.setVertexBuffer(0, p.vbo);
@@ -2500,7 +2507,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "view":    view = { ...view, ...data }; break;
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
-			case "clip":    clip = data && data.on !== false ? { ...data, on: true } : { on: false }; if (!clip.on) clipFree(); break;   // 断面（#111・{on, vertical:[[a,b]…], horizontal:[{at,h,keep}…], box:{center,size,h,bearing}, planes:[[nx,ny,nz,c]…]}＝clip.js clipPlanes）＝消して資源を返す
+			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
 			case "scene":   setScene(data, prop); break;

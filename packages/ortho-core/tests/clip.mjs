@@ -4,11 +4,12 @@
 //   2. 中点で鉛直（高さを変えても面からの距離が変わらない）＝球と楕円体の両方
 //   3. packClip の K（f64 で引いてから f32）＋原点相対の位置（f32）で出した距離が、f64 の直の距離と mm で合う（東京駅・z17 の画面の範囲）
 //   4. 日付変更線を跨ぐ 2 点も短い方の中点で鉛直・面の枚数は 6 枚まで
+//   6. 段 4：対象ごとの面（群の配列・targets）・同一フレームのオーバーレイへ渡す uniform（clipPackOrigin）
 //   5. 段 1：水平面（下を残す／上を残す・中心から 1 km で浮くのは 8 cm 程度）・箱（向きを回しても辺までの距離が幾何と合う・6 枚）・URL の書き方（?clip=）
 // 使い方: node packages/ortho-core/tests/clip.mjs
 import { lonlatTo3D, ellNormal3D, setEllipsoid, worldRadiusM } from "../src/camera.js";
 import { meridionalRadius, primeVerticalRadius } from "../src/geodesic.js";
-import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX } from "../src/clip.js";
+import { clipPlaneVertical, clipPlaneHorizontal, clipBox, clipPlanes, parseClipParam, packClip, clipDistanceM, clipStyle, CLIP_STYLE, CLIP_F32, CLIP_MAX, normClip, clipPlanesFor, clipPackOrigin, CLIP_TARGETS } from "../src/clip.js";
 
 let fails = 0;
 const ok = (cond, label) => { if (cond) { console.log(`  ✓ ${label}`); return; } fails++; console.error(`  ✗ ${label}`); };
@@ -82,6 +83,19 @@ ok(q && q.vertical.length === 1 && q.horizontal[0].h === 30 && q.horizontal[0].k
 ok(parseClipParam("h:139.7,35.7,30,above").horizontal[0].keep === "above" && parseClipParam("box:139.7,35.7,100,200").box.h === undefined, "above と箱の既定の高さ");
 ok(parseClipParam("") === null && parseClipParam("a,b") === null, "読めなければ null");
 ok(clipPlanes({ param: "box:139.7,35.7,100,200" }).length === 6 && clipPlanes({ param: "box:139.7,35.7,100,200", vertical: [[[139, 35], [140, 35]]] }).length === 6, "param も面にする・7 枚目は捨てる");
+
+console.log("― 段 4：対象ごとの面 ―");
+{
+	const at = [139.7, 35.7];
+	const n = normClip([{ box: { center: at, size: [100, 100] }, targets: ["terrain"] }, { horizontal: [{ at, h: 30 }], targets: ["buildings", "models"], edge: { width: 3 } }, { vertical: [[[139.7, 36], [139.7, 35]]] }]);
+	const cnt = Object.fromEntries(CLIP_TARGETS.map(t => [t, clipPlanesFor(n, t).length]));
+	ok(cnt.terrain === 6 && cnt.buildings === 2 && cnt.models === 2 && cnt.vector === 1 && cnt.labels === 1, `群ごとの対象（${JSON.stringify(cnt)}）・terrain は箱 6＋鉛直 1＝6 枚で打ち切り`);
+	ok(n.style.edgeWidth === 3 && n.style.capOn, "蓋と帯は最初に cap／edge を書いた群の値");
+	ok(normClip(null) === null && normClip({ on: false }) === null && normClip([]) === null && normClip([{ on: false }]) === null, "切らない（null・on:false・空の配列）");
+	ok(clipPlanesFor(normClip({ vertical: [[[139.7, 36], [139.7, 35]]] }), "labels").length === 1, "targets 省略＝全部の対象");
+	const P = clipPlanesFor(n, "vector"), O = [139.71, 35.69], U = clipPackOrigin(P, O), Ok = lonlatTo3D(...O);
+	ok(U.length === (CLIP_MAX + 1) * 4 && U[CLIP_MAX * 4] === 1 && Math.abs(U[3] - (P[0][0] * Ok[0] + P[0][1] * Ok[1] + P[0][2] * Ok[2] - P[0][3])) < 1e-7, "オーバーレイへ渡す uniform（pl[6]＋p・K はその原点）");
+}
 
 if (fails) { console.error(`FAIL ${fails}`); process.exit(1); }
 console.log("PASS clip");
