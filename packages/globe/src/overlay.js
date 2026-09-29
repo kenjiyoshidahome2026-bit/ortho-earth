@@ -11,10 +11,10 @@ const t = tr();
 // 「べた塗りはデータが見えにくい」）。setOverlayHi が {mask,color} を周辺マスクとして解釈する。
 const HI_MASK = { mask: true, color: [0, 0, 0, 0.1] };
 
-export function createOverlay({ renderer, cam, size, dpr, requestDraw }) {
+export function createOverlay({ renderer, cam, size, dpr, requestDraw, mapEl = null }) {
 	const identEl = document.createElement("div");
-	identEl.id = "ident";   // スタイルは style.css（#map 配下に後置＝DOM順で上）
-	(document.getElementById("map") || document.body).appendChild(identEl);
+	identEl.id = "ident";   // スタイルは style.css（容れ物の配下に後置＝DOM順で上）
+	(mapEl || document.body).appendChild(identEl);   // 自分の容れ物（#173＝頁に地図が複数でも）
 	// 空のままだと padding+背景が「小さな空箱」として常時見えてしまう＝中身がある時だけ表示
 	const say = t => { identEl.textContent = t; identEl.style.display = t ? "block" : "none"; };
 	let overlayFeatures = null, overlayOrigin = [138, 37];   // geopbf 経路（main側identify）用
