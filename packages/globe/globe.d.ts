@@ -21,7 +21,16 @@ export type OrthoJapanLang = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es" | "p
 export interface OrthoClock {
 	readonly time: number; readonly date: Date; readonly step: number;
 	/** 実 1 秒あたりのシミュレート秒（符号つき） */
-	readonly speed: number; readonly playing: boolean; readonly range: [number, number];
+	readonly speed: number; readonly playing: boolean;
+	/** 範囲があればその区間 [開始, 終了]（ms）・無ければ外の枠（1800-01-01〜2049-12-31） */
+	readonly range: [number, number];
+	/** 範囲の型（1.8.0〜・#124）："clamped"｜"loop"｜"unbounded"｜null（範囲なし） */
+	readonly rangeMode: "clamped" | "loop" | "unbounded" | null;
+	/** 範囲を写す（1.8.0〜・#124）。地図全体の時計に効く（夜の側・星・衛星も同じ範囲で動く）。mode は Cesium の ClockRange と同じ意味（CZML の名前も受ける）：
+	 *  "clamped"（CLAMPED）＝両端で止まる／"loop"（LOOP_STOP）＝順行で終わりに着いたら始まりへ戻る・逆行は始まりで止まる／"unbounded"（UNBOUNDED）＝縛らない。
+	 *  今の時刻が外なら近い端へ寄せる。URL には書かない */
+	setRange(start: number, end: number, mode?: "clamped" | "loop" | "unbounded" | "CLAMPED" | "LOOP_STOP" | "UNBOUNDED"): OrthoClock;
+	clearRange(): OrthoClock;
 	isLive(): boolean;
 	/** 速さの表示（英語の鍵を tr で訳す） */
 	label(tr?: (s: string) => string): string;
