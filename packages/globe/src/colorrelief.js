@@ -5,7 +5,8 @@
 //   ・step・match・定数色は段の表が空＝透明。範囲の外は端の色。段が 1 つなら +1m に同じ色を足す。
 //   ・color-relief-opacity は画像タイル層の不透明度（タイルを作り直さない）。resampling（linear/nearest）は読まない（画素ごとに色を引く）。
 // 隣のタイルは要らない（勾配を取らない）＝hillshade より単純。
-import { evalExpr, decodeDEM, normalizeDemSpec } from "@ortho-earth/core";
+import { evalExpr } from "@ortho-earth/core";
+import { createDemTiles } from "./demtiles.js";
 
 const INTERP = new Set(["interpolate", "interpolate-hcl", "interpolate-lab"]);
 const at = h => ({ zoom: 0, props: {}, geom: null, vars: { elevation: h }, origin: "ml" });
@@ -49,33 +50,23 @@ export function reliefTile(h, n, R) {
 	return out;
 }
 
-// port プロバイダ。dem＝raster-dem の spec（tiles 済み）・color＝color-relief-color の式・fetchFn＝取得（requester）。戻り＝{ port（render worker へ transfer）, stats, close }
+// port プロバイダ。dem＝raster-dem の spec（tiles 済み）・color＝color-relief-color の式・fetchFn＝取得（requester）・tiles＝共有の DEM の在庫（createDemTiles・無ければ自前）。戻り＝{ port（render worker へ transfer）, stats, close }
 // 色を変える時は呼び手が作り直す（setPaintProperty → 層を載せ直す＝hillshade と同じ）
-export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null }) {
-	const spec = normalizeDemSpec(dem), R = reliefRamp(color);
+export function createColorReliefProvider({ dem, color, fetchFn = (u, init) => fetch(u, init), name = "color-relief", attribution = null, tiles = null }) {
+	const store = tiles ?? createDemTiles(dem, { fetchFn }), spec = store.spec, R = reliefRamp(color);
 	const ch = new MessageChannel(), port = ch.port1;
 	const stats = { req: 0, ok: 0, empty: 0, err: 0, last: null, stops: R.n };   // 切り分けの窓（dbgHost.__colorRelief）
 	const acs = new Map();
-	let dctx = null;
-	const tpls = spec.tiles.map(u => u.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
-	const url = (z, x, y) => tpls[(x + y) % tpls.length].replace("{z}", z).replace("{x}", x).replace("{y}", y);
 	port.postMessage({ type: "info", info: { tileSize: spec.tileSize, minZoom: spec.minzoom, maxZoom: spec.maxzoom, bbox: spec.bounds, attribution, name } });
 	port.onmessage = async e => {
 		const { id, z, x, y, abort } = e.data || {};
 		if (abort) { acs.delete(id); return; }
 		acs.set(id, true); stats.req++; stats.last = `${z}/${x}/${y}`;
 		try {
-			const r = await fetchFn(url(z, x, y), { credentials: spec.credentials, ...(spec.headers ? { headers: spec.headers } : {}) });
+			const t = await store.tile(z, x, y);
 			if (!acs.has(id)) return;   // 中断された
-			if (!r.ok) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
-			const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: "none", colorSpaceConversion: "none" });
-			const n = bmp.width;
-			dctx ??= new OffscreenCanvas(n, n).getContext("2d", { willReadFrequently: true });
-			if (dctx.canvas.width !== n) { dctx.canvas.width = n; dctx.canvas.height = n; }
-			dctx.clearRect(0, 0, n, n); dctx.drawImage(bmp, 0, 0); bmp.close?.();
-			const h = decodeDEM(dctx.getImageData(0, 0, n, n).data, spec.encoding, spec);
-			if (!acs.has(id)) return;
-			const bitmap = await createImageBitmap(new ImageData(reliefTile(h, n, R), n, n), { premultiplyAlpha: "none" });
+			if (!t) { stats.empty++; port.postMessage({ id, bitmap: null }); return; }
+			const bitmap = await createImageBitmap(new ImageData(reliefTile(t.h, t.n, R), t.n, t.n), { premultiplyAlpha: "none" });
 			stats.ok++; port.postMessage({ id, bitmap }, [bitmap]);
 		} catch (err) { stats.err++; stats.lastErr = String(err?.message || err); port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
 		finally { acs.delete(id); }

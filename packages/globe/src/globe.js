@@ -45,7 +45,8 @@ import { sanitizeHTML } from "geopbf/sanitize";   // ?pm= のアーカイブが�
 import { createGintLayers } from "./gint/layers.js";
 import { createWorldContent } from "./gint/worldcontent.js";
 import { createHillshadeProvider } from "./hillshade.js";
-import { createColorReliefProvider } from "./colorrelief.js";   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
+import { createColorReliefProvider } from "./colorrelief.js";
+import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
 import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
@@ -3806,14 +3807,14 @@ const mountLayerRaw = async v => {
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
 		if (kind === "colorrelief") {
 			v.cr?.close();
-			v.cr = createColorReliefProvider({ dem: ds, color: layer.paint?.["color-relief-color"], fetchFn: (u, init) => requester.fetch(u, "Tile", init), name: layer.id, attribution: ds.attribution ?? null });
+			v.cr = createColorReliefProvider({ dem: ds, color: layer.paint?.["color-relief-color"], name: layer.id, attribution: ds.attribution ?? null, tiles: demTilesFor(srcId(layer), ds, layer.id) });
 			dbgHost.__colorRelief = v.cr;   // 切り分けの窓（debugGlobals）
 			return map.raster.add(layer.id, { port: v.cr.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 		}
 		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" });
 		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
 		v.hs?.close();
-		v.hs = createHillshadeProvider({ dem: ds, paint, fetchFn: (u, init) => requester.fetch(u, "Tile", init), name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`) });
+		v.hs = createHillshadeProvider({ dem: ds, paint, name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`), tiles: demTilesFor(srcId(layer), ds, layer.id) });
 		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
 		return map.raster.add(layer.id, { port: v.hs.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 	}
@@ -3824,14 +3825,25 @@ const mountLayerRaw = async v => {
 	if (kind === "pattern") return addPattern(layer, data, order);
 	if (kind === "gint") return rebuildGint(sid);
 };
+// raster-dem のタイルの在庫＝source ごとに 1 つ（同じ source の hillshade と color-relief が共有＝同じタイルを 2 度取らない）。使う層が居なくなったら捨てる。
+// 鍵＝型紙と符号（setStyle 等で同じ id の source の中身が変われば作り直す）
+const demStores = new Map();   // source id → { key, tiles, users:Set<layer id> }
+function demTilesFor(sid, ds, lid) {
+	const key = JSON.stringify([ds.tiles, ds.encoding, ds.tileSize, ds.redFactor, ds.greenFactor, ds.blueFactor, ds.baseShift]);
+	let e = demStores.get(sid);
+	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: (u, init) => requester.fetch(u, "Tile", init) }), users: new Set() }; demStores.set(sid, e); }
+	e.users.add(lid);
+	return e.tiles;
+}
+const demTilesDrop = lid => { for (const [sid, e] of demStores) if (e.users.delete(lid) && !e.users.size) demStores.delete(sid); };
 // color-relief-opacity（既定 1・["zoom"] の式も）＝今のズームで評価。止まるたびに見直す（下の settle）
 const reliefOpacity = L => { const x = L.paint?.["color-relief-opacity"]; if (x == null) return 1; const n = +evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, origin: "ml" }); return Number.isFinite(n) ? Math.max(0, Math.min(1, n)) : 1; };
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
 	else if (kind === "custom") customCtl?.remove(id);
-	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; }
-	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; }
+	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; demTilesDrop(id); }
+	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; demTilesDrop(id); }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
 	else if (kind === "vtdraw") { vtdCtl?.remove(id); vecAttrDrop(v, sid); }

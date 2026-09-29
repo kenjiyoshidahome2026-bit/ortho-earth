@@ -1093,6 +1093,19 @@ try {
 			const img = await until(im => near(px(im, ...PEAK), [0, 255, 0], 40), 15000), p = px(img, ...PEAK), m = px(img, ...MID);
 			return [near(p, [0, 255, 0], 40) && near(m, [0, 128, 0], 40) && !l0 && map.isSourceLoaded("dem"), `peak=${p} mid=${m} loaded=${l0}→${map.isSourceLoaded("dem")}`];
 		});
+		// 段 3：同じ raster-dem を hillshade と color-relief が読む＝DEM のタイルは source ごとに 1 回だけ取る（層ごとに取らない）。数え方＝Resource Timing（main の fetch）
+		await scene("dem-tiles-shared-per-source", async () => {
+			map.removeLayer("cr2"); await sleep(300);
+			performance.clearResourceTimings(); performance.setResourceTimingBufferSize(2000);
+			const addH = map.addLayer({ id: "hs3", type: "hillshade", source: "dem" }), addC = map.addLayer({ id: "cr3", type: "color-relief", source: "dem", paint: { "color-relief-color": RAMP } });
+			await Promise.all([addH, addC]);
+			const t0 = performance.now(); while (!map.isSourceLoaded("dem") && performance.now() - t0 < 20000) await sleep(100);
+			await sleep(500);
+			const n = new Map(); for (const e of performance.getEntriesByType("resource")) if (/fixtures\/dem\/\d+\/\d+\/\d+\.png/.test(e.name)) n.set(e.name, (n.get(e.name) || 0) + 1);
+			const dup = [...n.values()].filter(c => c > 1).length, drawnNow = near(px(await snap(map), ...PEAK), RED, 60);
+			map.removeLayer("hs3"); map.removeLayer("cr3");
+			return [n.size > 0 && dup === 0 && drawnNow, `urls=${n.size} fetchedTwice=${dup} drawn=${drawnNow}`];
+		});
 	}
 
 	// ── 爪車 ──
