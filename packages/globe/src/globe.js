@@ -4067,7 +4067,8 @@ map.setFilter = (id, filter) => {
 map.getFilter = id => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.filter); const B = baseLayerOf(id); if (!B) { const X = extOtherOf(id); return X?.filter == null ? undefined : rescaleZoomExpr(X.filter, STYLE_DZ, PUBLIC_DZ); } return B.filter == null ? undefined : rescaleZoomExpr(B.filter, 0, PUBLIC_DZ); };
 map.setLayerZoomRange = (id, minzoom, maxzoom) => { const v = mlLayers.get(id); if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setLayerZoomRange"); if (!v) { if (baseLayerOf(id)) overrideBase(id, o => { o.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, 0); o.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, 0); }); else if (extOtherOf(id)) noteOther(id, n => { n.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, STYLE_DZ); n.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, STYLE_DZ); }); return map; } v.layer.minzoom = rescaleZoomNum(minzoom, PUBLIC_DZ, v.dz); v.layer.maxzoom = rescaleZoomNum(maxzoom, PUBLIC_DZ, v.dz); relayer(v); return map; };   // gint の pass の署名は出しズームを含む＝変われば作り直し
 // feature-state（MapLibre 同名）：{ source, id } の id＝その source の地物の番号（GeoJSON の並び順＝gint の fid）。
-// 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）
+// 効くのは fill/line/circle（gint の層）の paint に ["feature-state", key] がある時。基図の地物には効かない（基図の塗りは worker で焼いた op 列）。
+// vector source（sourceLayer 必須）＝押し出し（vtextrude・段 8①b）と描く層（vtdraw・#109）がその地物を含むタイルだけ組み直す（置き場は vtxFS）
 // feature-state の id＝MapLibre の id（Feature.id／promoteId／並び順・段 6）。状態は source に住む（pass を作り直しても・データを差し替えても id で当て直す）
 const fidOfMl = (source, id) => { const m = mlGintData.get(source)?.idToFid; return m ? (m.get(id) ?? m.get(typeof id === "string" && id !== "" && !isNaN(+id) ? +id : String(id))) : undefined; };
 map.setFeatureState = ({ source, sourceLayer, id }, state) => {
