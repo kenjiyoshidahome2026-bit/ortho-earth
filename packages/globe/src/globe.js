@@ -4232,6 +4232,7 @@ const mountExtExtrasRaw = async ext => {
 			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
+	sendUserAnchors();   // style の層は style の順（#123）＝extExtras.layers が揃ってから差し込む位置を配る（層を足す時はまだ style 由来と分からない）
 };
 const unmountExtExtras = () => {
 	for (const id of extExtras.raster) map.raster.remove(id);

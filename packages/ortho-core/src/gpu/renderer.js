@@ -989,6 +989,13 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	let sea = { li: -1, minzoom: Infinity };
 	// 利用者の vector の層の差し込み（#123）＝ranges [[liLo, liHi, anchor]…]：user の枠の li がその範囲の op は、基図の li が anchor 以上の項の前に描く（表に無い＝今どおり基図の上）。rev＝アトラスの鍵
 	let userAnchor = { ranges: [], rev: 0 };
+	// 描画ごとの差し込みの計画（GL の userAnchorPlan と同じ）：host＝差し込む基図の枠（無ければ null＝全部最後）・anchors＝境の li（昇順）・anchorOf(user の li)＝境か Infinity
+	const userAnchorPlan = host => {
+		const R = userAnchor.ranges;
+		const anchorOf = li => { for (const r of R) if (li >= r[0] && li <= r[1]) return r[2]; return Infinity; };
+		if (!host || !R.length) return { host: null, anchors: [], anchorOf };
+		return { host, anchors: [...new Set(R.map(r => r[2]))].sort((x, y) => x - y), anchorOf };
+	};
 	let bldFill = { li: -1 };   // 建物フットプリント塗りの li。3D（チルト）時は伏せる＝押し出しと二重表現になるため
 	let fogDist = 0;            // フォグ距離の臨界減衰追従（gl/renderer.js と同じ）
 	let elevScaleEff = 0;       // pitch で変調した実効スケール（真俯瞰では0＝平面）
@@ -2195,49 +2202,61 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const linePipe = terrainDepth ? PX.lineTest : PX.lineOff;
 		// 塗りの直描きを伏せる条件：3D（地形あり）＝塗りは地面アトラスへ焼いてある（RTT ドレープ）／ラスタ基図（under・hideFills）＝裁定（線と注記は残す）
 		const rasterHide = gnd.fillsIn || !!(rasterDraws && rasterDraws.hideFills && gnd.rasterOn);
+		// 1 項を描く（#123 で枠を差し込みの境で分けるため関数に切り出した・中身は従来のまま）。bind group は項ごとに張る＝枠をまたいで順を入れ替えられる
+		const drawOne = (slot, d, useFade) => {
+			const userSlot = slot === "user";   // 基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
+			if (d.kind === "fill") {
+				if (userSlot ? gnd.fillsIn : rasterHide) return;   // ラスタ基図＝塗りを伏せる
+				const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
+				const waterC = d.li === sea.li || d.li === sea.li2;
+				if ((seaFB || waterC) && cam.zoom < sea.minzoom) return;   // 海：ビュー一律ゲート（紙の海）
+				if (hideBldFill && d.li === bldFill.li) return;            // 3D時＝フットプリント塗りを伏せる
+				const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
+				pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
+				if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setVertexBuffer(0, d.bPos);
+				pass.setVertexBuffer(1, d.bCol);
+				if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
+				else pass.draw(d.count);
+				if (slot === "base") dbg.baseFill++; else dbg.mainFill++;
+			} else {
+				if (slot === "base" && mainLinesOn) return;   // 本命の線が出ている間は下地の線を伏せる
+				pass.setPipeline(linePipe);
+				pass.setBindGroup(0, bg0[slot]);
+				pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
+				if (grp(slot)) pass.setBindGroup(2, grp(slot));
+				pass.setVertexBuffer(0, cornerBuf);
+				pass.setVertexBuffer(1, d.bP1);
+				pass.setVertexBuffer(2, d.bP2);
+				pass.setVertexBuffer(3, d.bCol);
+				pass.setVertexBuffer(4, d.bHalf);
+				pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
+				drawLine(pass, d.count);
+				if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
+			}
+		};
+		const runSlot = (slot, list, useFade, lo, hi, pick = null) => { for (const d of list) if (pick ? pick(d) : d.li >= lo && d.li < hi) drawOne(slot, d, useFade); };
+		// 差し込み（#123）：利用者の層（user の枠）のうち表に載った物は、最後に描く基図の枠（host）の最後のパス（フェード中は新しいシーン）の li ≥ anchor の項の前に描く。
+		// 表に無い物・基図の枠が無い時は今どおり最後（旧シーンのパスは全部を先に敷く＝差し込んだ層の上の基図の層は旧シーンでも上）
+		const ua = userAnchorPlan(userOn ? [...slots].reverse().find(sl => sl !== "user" && scenes[sl].draws.length) : null);
+		let uaDone = false;
 		for (const slot of slots) {
+			if (slot === "user") { runSlot("user", scenes.user.draws, false, -Infinity, Infinity, uaDone ? d => ua.anchorOf(d.li) === Infinity : null); continue; }
 			const scene = scenes[slot];
 			// フェード中の main＝旧シーン（通常ロール・α1）を先に敷き、新シーンを fade ロール（α=fadeK）で重ねる
 			const passes = (slot === "main" && fading)
-				? [[scene.fadePrev.draws, scene.fadePrev.bldIgnored, false], [scene.draws, null, true]]
-				: [[scene.draws, null, false]];
-			for (const [drawList,, useFade] of passes) {
-			if (!drawList.length) continue;
-			const userSlot = slot === "user";   // 基図の濃さとラスタ基図の hideFills に従わない（3D の塗りはアトラス側）
-			for (const d of drawList) {
-				if (d.kind === "fill") {
-					if (userSlot ? gnd.fillsIn : rasterHide) continue;   // ラスタ基図＝塗りを伏せる
-					const seaFB = seaFbReal(d.li) != null;   // 図郭外フォールバック水域（標高ゲート付き全面WA）
-					const waterC = d.li === sea.li || d.li === sea.li2;
-					if ((seaFB || waterC) && cam.zoom < sea.minzoom) continue;   // 海：ビュー一律ゲート（紙の海）
-					if (hideBldFill && d.li === bldFill.li) continue;            // 3D時＝フットプリント塗りを伏せる
-					const roof = R && !C && d.li === bldFill.li;   // 影の間の真俯瞰＝建物の塗りは屋根＝影を受けない（地面の高さに描くと自分の屋根の影に沈む）
-					pass.setPipeline(roof ? (terrainDepth ? P.fillTest : P.fillOff) : fillPipe);   // 直描きは 2D だけ（3D の塗りは地面アトラス側）
-					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? (seaFB ? ROLE.fadeSeaFb : waterC ? ROLE.fadeWater : ROLE.fadeNormal) : (seaFB ? ROLE.seaFb : waterC ? ROLE.water : ROLE.normal)]);
-					if (!roof && grp(slot)) pass.setBindGroup(2, grp(slot));
-					pass.setVertexBuffer(0, d.bPos);
-					pass.setVertexBuffer(1, d.bCol);
-					if (d.bIdx) { pass.setIndexBuffer(d.bIdx, "uint32"); pass.drawIndexed(d.count); }
-					else pass.draw(d.count);
-					if (slot === "base") dbg.baseFill++; else dbg.mainFill++;
-				} else {
-					if (slot === "base" && mainLinesOn) continue;   // 本命の線が出ている間は下地の線を伏せる
-					pass.setPipeline(linePipe);
-					pass.setBindGroup(0, bg0[slot]);
-					pass.setBindGroup(1, paramBG[userSlot ? ROLE.user : useFade ? ROLE.fadeNormal : ROLE.normal]);   // 線の接地リフト＝cityLift（fill の通常塗りと同じ）
-					if (grp(slot)) pass.setBindGroup(2, grp(slot));
-					pass.setVertexBuffer(0, cornerBuf);
-					pass.setVertexBuffer(1, d.bP1);
-					pass.setVertexBuffer(2, d.bP2);
-					pass.setVertexBuffer(3, d.bCol);
-					pass.setVertexBuffer(4, d.bHalf);
-					pass.setVertexBuffer(5, d.bOff || zeroOffBuf);
-					drawLine(pass, d.count);
-					if (slot === "base") dbg.baseLine++; else dbg.mainLine++;
-				}
-			}
-			}
+				? [[scene.fadePrev.draws, false], [scene.draws, true]]
+				: [[scene.draws, false]];
+			passes.forEach(([drawList, useFade], pi) => {
+				if (!drawList.length) return;
+				if (slot !== ua.host || pi !== passes.length - 1 || !ua.anchors.length) { runSlot(slot, drawList, useFade, -Infinity, Infinity); return; }
+				let lo = -Infinity;
+				for (const a of ua.anchors) { runSlot(slot, drawList, useFade, lo, a); runSlot("user", scenes.user.draws, false, 0, 0, d => ua.anchorOf(d.li) === a); lo = a; }
+				runSlot(slot, drawList, useFade, lo, Infinity);
+				uaDone = true;
+			});
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
 		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
