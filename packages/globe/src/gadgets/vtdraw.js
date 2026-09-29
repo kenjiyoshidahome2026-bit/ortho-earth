@@ -27,12 +27,14 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
 export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}` } = {}) {
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
-	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120;
+	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
 	const sources = new Map();   // sid → { sid, desc, sig, gen, zsig, pz, tiles: Map<key, T>, built: Map<key, B>, fetching, show: Set<key> }
 	//   T＝{ state: loading|ready|empty|failed, bytes, used, ac, tries, failedAt }   B＝{ state: none|ready, gen, zsig, fz, ops（持っているか）, bytes, labels, origin, z, ver, building, used, ids（Set<fsKey>|null）, fsDirty }
 	const layers = new Map();    // id → { id, layer, sid, on, key（層の順の鍵）, fs（paint が feature-state を読むか） }
 	const retired = new Set();   // 外した層の順の鍵＝その li は常に隠す（組み直しが済む前の古い op を出さない・鍵は使い回さない）
 	let clock = 0, building = 0, rafU = 0, lastUpd = 0, settledZoom = cam.zoom, moving = false, maxKey = -1;
+	// 計器（#109 段 4・?hud=1）＝直近の値：組み立ての往復（解読・組み立て）・結合・最後に状態を変えてから描く側へ渡すまで（fsMs）。描く側の上げとフレームは含まない
+	const tm = { builds: 0, rttMs: 0, decodeMs: 0, buildMs: 0, mergeMs: 0, fsMs: null, fsT0: 0 };
 	const warned = new Set();
 	const warnOnce = (k, msg) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
 
@@ -53,15 +55,15 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 
 	// ── 結合役＝core の scene worker（md:false＝CPU 結合）。render worker への口の代わりに main が端を持つ ──
 	let merger = null;
-	const mg = { seq: 0, inflight: false, want: false, sig: null, lastAt: 0, timer: 0, sent: 0, recv: 0 };
+	const mg = { seq: 0, inflight: false, want: false, sig: null, planSig: null, lastAt: 0, t0: 0, timer: 0, sent: 0, recv: 0 };   // planSig＝直近に見た計画の署名（計器の fsDone）・t0＝結合を出した時刻
 	const mergerW = () => {
 		if (merger) return merger;
 		const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "ortho:scene" });
 		const ch = new MessageChannel();
 		w.postMessage({ type: "connect", port: ch.port1 }, [ch.port1]);
 		ch.port2.postMessage({ type: "mode", md: false });   // CPU 結合（mergeTiles）＝render worker の常駐プールには触らない
-		ch.port2.onmessage = e => { if (e.data?.type === "scene") { mg.recv++; sendScene(e.data.scene, sceneBuffers(e.data.scene)); requestDraw(); } };
-		w.onmessage = e => { if (e.data?.type === "merged") { mg.inflight = false; mg.lastAt = performance.now(); if (mg.want) { mg.want = false; mergeMaybe(); } } };
+		ch.port2.onmessage = e => { if (e.data?.type === "scene") { mg.recv++; sendScene(e.data.scene, sceneBuffers(e.data.scene)); requestDraw(); fsDone(); } };
+		w.onmessage = e => { if (e.data?.type === "merged") { mg.inflight = false; mg.lastAt = performance.now(); tm.mergeMs = mg.lastAt - mg.t0; if (mg.want) { mg.want = false; mergeMaybe(); } fsDone(); } };
 		w.onerror = e => console.error("[vtdraw] merge worker error", e.message);
 		return merger = { w, port: ch.port2 };
 	};
@@ -145,12 +147,13 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 	function buildTile(src, t, B) {
 		const key = tileKey(t), gen = src.gen, zsig = src.zsig, fz = fzOf(src, t.z), pz = src.pz, sid = src.sid;
 		B.building = true; building++;
-		const fs = fsFor(src, B, gen, fz);
+		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
 		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key }));
 		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
+			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;
 			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.ver++;
 			B.ids = r.ids ? new Set(Object.entries(r.ids).flatMap(([sl, a]) => a.map(id => fsKey(sl, id)))) : null;   // このタイルが含む地物（feature-state を読む層の分）＝touchFS がどのタイルを組み直すか
 			for (const k of r.warn || []) warnOnce(`${sid}:${k}`, `[vtdraw] source "${sid}": ${k} is not supported yet on vector sources`);
@@ -201,6 +204,13 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 		mergeMaybe();
 		labelsMaybe();
 		evict();
+		fsDone();
+	}
+	// 状態の変化が描く側へ渡り終えたか（印も組み立ても無く、結合が今の計画で送り終わっている）＝計器の fsMs を刻む
+	function fsDone() {
+		if (!tm.fsT0 || mg.inflight || mg.timer || mg.want || mg.sent !== mg.recv || mg.planSig !== mg.sig) return;
+		for (const src of sources.values()) for (const B of src.built.values()) if (B.fsDirty || B.building) return;
+		tm.fsMs = performance.now() - tm.fsT0; tm.fsT0 = 0;
 	}
 
 	// ── 結合（署名が変わった時だけ・1 本ずつ・間引き）──
@@ -222,15 +232,16 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 	function mergeMaybe() {
 		if (!merger && !layers.size) return;
 		const plan = mergePlan();
+		mg.planSig = plan.sig;
 		if (plan.sig === mg.sig) return;
 		if (mg.inflight || mg.timer) { mg.want = true; return; }
-		const wait = MERGE_MS - (performance.now() - mg.lastAt);
+		const wait = (tm.fsT0 ? MERGE_FS_MS : MERGE_MS) - (performance.now() - mg.lastAt);
 		if (wait > 0) { mg.timer = setTimeout(() => { mg.timer = 0; mergeMaybe(); }, wait); return; }
 		// 原点＝カメラに近いタイル（頂点は原点からの差で f32＝近くほど正確）
 		const [cx, cy] = cam.center;
 		let origin = plan.order[0]?.origin || [0, 0], best = Infinity;
 		for (const o of plan.order) { const d = (o.origin[0] - cx) ** 2 + (o.origin[1] - cy) ** 2; if (d < best) { best = d; origin = o.origin; } }
-		mg.sig = plan.sig; mg.inflight = true; mg.sent++;
+		mg.sig = plan.sig; mg.inflight = true; mg.sent++; mg.t0 = performance.now();
 		mergerW().w.postMessage({ type: "merge", slot: "user", sig: ++mg.seq, order: plan.order, origin, hidden: plan.hidden.length ? plan.hidden : null });
 	}
 
@@ -279,7 +290,9 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 		const src = sources.get(sid); if (!src) return;
 		if (!layersOf(sid).some(s => s.fs && (sl == null || s.layer["source-layer"] === sl))) return;
 		const k = fid === undefined || sl == null ? null : fsKey(sl, fid);
-		for (const B of src.built.values()) if ((B.state === "ready" || B.building) && (k == null || !B.ids || B.ids.has(k))) B.fsDirty = true;
+		let hit = false;
+		for (const B of src.built.values()) if ((B.state === "ready" || B.building) && (k == null || !B.ids || B.ids.has(k))) { B.fsDirty = true; hit = true; }
+		if (hit) tm.fsT0 = performance.now();   // 直近の変化から（マウスを止めてから色が揃うまで＝連打の途中は数えない）
 		schedule();
 	}
 
@@ -334,6 +347,8 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 			schedule();
 		},
 		has: id => layers.has(id),
+		// その層の op の li の範囲（#123＝描画器が基図の層の間へ差し込む時の表の鍵）。鍵がまだ無ければ null
+		liRange(id) { const s = layers.get(id); return s?.key != null ? [liOf(s.key, SUBS[0]), liOf(s.key, SUBS[SUBS.length - 1])] : null; },
 		// MapLibre の isSourceLoaded 相当：見えている層の wanted が全部「今の式で」組み上がり、結合が送り終わっているか
 		loaded(sid) {
 			const src = sources.get(sid); if (!src) return true;
@@ -344,6 +359,12 @@ export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias
 				if (!B || B.building || B.state !== "ready" || B.gen !== src.gen || B.zsig !== src.zsig || B.fz !== fzOf(src, t.z) || B.fsDirty) return false;   // fsDirty＝状態の組み直し待ち
 			}
 			return mergePlan().sig === mg.sig;
+		},
+		// 計器（?hud=1）：直近の組み立て・結合・状態の反映の時間（ms）と、出しているタイルの数と op のバイト
+		timing() {
+			let shown = 0, bytes = 0;
+			for (const src of sources.values()) { shown += src.show.size; for (const k of src.show) bytes += src.built.get(k)?.bytes || 0; }
+			return { builds: tm.builds, rttMs: tm.rttMs, decodeMs: tm.decodeMs, buildMs: tm.buildMs, mergeMs: tm.mergeMs, fsMs: tm.fsMs, pending: !!tm.fsT0, shown, bytes };
 		},
 		// 問い合わせ用：その source の出しているタイル（"z/x/y"）
 		shownTiles(sid) { const src = sources.get(sid); return src ? [...src.show].map(k => ({ key: k, z: +k.split("/")[0] })) : []; },
