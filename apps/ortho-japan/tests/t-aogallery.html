@@ -1,0 +1,25 @@
+<!doctype html>
+<!-- AO の見た目の裁定（#63）のための撮影頁。回帰検定ではない＝verify には載せない。scripts/ao-gallery.mjs が実 GPU（WebGPU）で回し、runRealtime の shot で PNG を撮る。
+     ?v=<lon>/<lat>/<zoom>/<pitch>/<bearing>・?t=<ISO 時刻>・?ao=1（旗）・?s=<強さ>・?r=<半径の係数>・?b=<下駄>・?wait=<着地待ち ms>。着地して PLATEAU が立ってから title を PASS にする＝その瞬間を撮る -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}</style><title>t-aogallery</title></head>
+<body>
+<script>localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import orthoJapan from "../app.js";
+const Q = new URLSearchParams(location.search);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const v = (Q.get("v") || "139.7671/35.6812/17/60/20").split("/").map(Number);
+	const map = await orthoJapan({ view: `#${v[2]}/${v[1]}/${v[0]}/${v[3]}t/${v[4]}r`, chips: false, instruments: [], time: Q.get("t") || undefined });
+	const knobs = {};
+	if (Q.get("s")) knobs.aoStrength = +Q.get("s");
+	if (Q.get("r")) knobs.aoRadius = +Q.get("r");
+	if (Q.get("b")) knobs.aoBias = +Q.get("b");
+	if (Object.keys(knobs).length) map.renderer.set("view", knobs);
+	await sleep(+Q.get("wait") || 16000);   // 着地・PLATEAU・標高
+	map.renderer.set("view", {}); map.requestDraw?.();
+	await sleep(1500);
+	document.title = "PASS " + JSON.stringify({ v, knobs, ao: Q.get("ao"), t: Q.get("t") });
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

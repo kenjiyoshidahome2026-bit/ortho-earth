@@ -339,7 +339,7 @@ const dispatch = e => {
 			(async () => { try { if (typeof FontFace !== "function" || !self.fonts) return; const ff = new FontFace(m.family, m.source, m.descriptors || {}); await ff.load(); self.fonts.add(ff); labelLayer?.clearFontCache?.(); dirty = true; armRaf(); } catch (err) { console.warn("[render] fontFace", m.family, err?.message || err); } })();
 			break;
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
-		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); dirty = true; armRaf(); } break; }
+		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); noteTime(); dirty = true; armRaf(); } break; }   // 毎フレームの状態（地震の再生等）＝時計で動く描き直し（#125）
 		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
@@ -390,7 +390,9 @@ const dispatch = e => {
 				else terrain?.setDem(m.data || null);
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
-			else if (m.cmd === "clock") { clockA = m.data; dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く
+			else if (m.cmd === "clock") { clockA = m.data; noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
+			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
+			else if (m.cmd === "view" && m.data && ("clock" in m.data || "time" in m.data)) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
 				const n = normClip(m.data), pl = t => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
 				clipPlW = pl("vector"); clipPlL = pl("labels"); labelLayer?.setClip(clipPlL); renderer?.set("clip", m.data);
@@ -542,7 +544,12 @@ let lastDrewT = 0;
 // GL2 は antialias が context 生成時固定＝対象外。?msaa=0＝常時1x／?msaa=1＝常時4x固定（旧挙動・A/B用）。
 let aaDyn = false;     // webgpu かつ固定ノブ（?msaa=0/?msaa=1）無し＝遷移時AA有効
 let lastCamMoveT = 0;  // カメラが実際に動いた最終時刻（draw メッセージで cam 値が変わった時だけ更新）
-let animCont = false;  // 直前フレームがフェード/フォグ等の自前継続（dirty 自炊）＝遷移扱い
+let animCont = false;  // 直前フレームがフェード/フォグ等の自前継続（dirty 自炊・オーバーレイの続き・時計の早送り）＝遷移扱い
+// 時計で動く描き直し（#125・2026-09-29）＝main から毎フレーム届く「時刻」の合図（影の時刻の送り＝set shadow・時計の基準＝set clock・view の clock・
+// オーバーレイへの毎フレームの状態＝overlayMsg）の最終時刻。RES_SETTLE_MS 以内に届いていれば「動いている」＝1x（カメラ移動と同じ）。
+// タイル到着等の set（scene/gint…）は従来どおり静止扱い＝4x のまま（動きでない）。止まれば下の !drew 節が 4x の品質フレームを 1 枚描く
+let lastTimeT = 0;
+const noteTime = () => { lastTimeT = performance.now(); };
 let lastAA = 0;        // 直近フレームの段数（1/4）＝静止時の品質フレーム発火判定
 
 // 重い GPU 転送の平準化（1フレーム1件）：同一フレームに bufferData が束で乗るとフレームが飛ぶ。
@@ -703,7 +710,7 @@ function frame() {
 			tqPoll();   // 溜まった GPU タイマ結果を回収（数フレーム遅れで確定）。perf HUD専用→常時＝GPU格付けの給餌
 			// 遷移時AA：カメラ移動から RES_SETTLE_MS 以内・またはアニメ自前継続中＝1x 直描き。resPinned（録画）＝
 			// 常時4x（映像に段数切替の瞬きを混ぜない）。aaOn の品質フレームは連続描画でない＝tuneRes の計測対象外。
-			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS);
+			const aaOn = !aaDyn || resPinned || (!animCont && lastFrameRun - lastCamMoveT > RES_SETTLE_MS && lastFrameRun - lastTimeT > RES_SETTLE_MS);   // 時計で動く間も 1x（#125）
 			let dOpts = noBld ? { ...opts, noBld: 1 } : opts;
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
 			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
@@ -742,7 +749,7 @@ function frame() {
 			const ovMore = overlayFrame(cam, depthFrame);            // 同一フレームのオーバーレイ（地震等）＝注記の後・同じ cam（#13）・シーンの深度（#47）
 			const clockSpin = clockA && clockA.rate !== 0 && clockA.rate !== 1 && cam.zoom < 5;   // 時計の早送り/巻き戻し中は夜の側と星が動き続ける（z<5＝星空劇場が見える間だけ）
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
-			animCont = !!(animating || fogAnim);                     // 遷移時AA：自前継続の連続フレームも遷移扱い（1x）
+			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
 			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
