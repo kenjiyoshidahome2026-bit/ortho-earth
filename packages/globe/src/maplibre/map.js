@@ -125,7 +125,7 @@ export class Map {
 		const container = typeof options.container === "string" ? document.getElementById(options.container) : options.container;
 		if (!container) throw new Error(`Container '${options.container}' not found.`);
 		const st = { options, container, engine: null, loaded: false, idle: false, inert: false, queue: [], engineFns: [], ev: new globalThis.Map(), dom: new Set(),
-			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0,
+			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0, projection: options.style?.projection?.type === "globe" ? "globe" : "mercator",   // style の projection（object の style）も申告に数える
 			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
@@ -260,7 +260,7 @@ export class Map {
 	unproject(p) { const ll = S.get(this).engine?.unproject(Array.isArray(p) ? p : [p.x, p.y]); return ll ? new LngLat(ll.lng, ll.lat) : null; }
 
 	// ── style・source・層 ──
-	setStyle(style, o) { ask(this, "setStyle", [style, o]); return this; }
+	setStyle(style, o) { if (style && typeof style === "object" && style.projection) S.get(this).projection = style.projection.type === "globe" ? "globe" : "mercator"; ask(this, "setStyle", [style, o]); return this; }
 	getStyle() { return ask(this, "getStyle", []); }
 	isStyleLoaded() { return S.get(this).loaded; }
 	loaded() { const st = S.get(this); return st.loaded && st.idle && !st.engine?.isMoving(); }
@@ -314,11 +314,12 @@ export class Map {
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
 	setSky(sky) { unsupported(this, `setSky (this map draws its own atmosphere)`, "cosmetic"); S.get(this).sky = sky; return this; }   // 空の色＝見た目（球の外・標本の外）
 	getSky() { return S.get(this).sky ?? {}; }
-	setProjection(p) { if ((p?.type ?? p) !== "globe") unsupported(this, `setProjection(${JSON.stringify(p?.type ?? p)}) (this map is always a globe)`); return this; }
-	getProjection() { return { type: "globe" }; }
+	// 投影＝頼まれた物を覚える（MapLibre の既定は mercator・setProjection({type:"globe"}) で globe）。絵はどちらも球（文書の違い）だが、custom 層の variant（mercator の行列か球の prelude か）はこの申告に従う（2026-09-30）
+	setProjection(p) { const t = p?.type ?? p ?? "mercator"; S.get(this).projection = t === "globe" ? "globe" : "mercator"; return this; }
+	getProjection() { return { type: S.get(this).projection ?? "mercator" }; }
 	getRenderWorldCopies() { return false; }   // 球に世界の写しは無い（deck.gl の MapboxOverlay が repeat に使う）
 	setRenderWorldCopies() { return this; }
-	get style() { return { projection: { subdivisionGranularity: GRANULARITY_GLOBE } }; }   // 例が map.style.projection.subdivisionGranularity.tile.getGranularityForZoomLevel(z) を読む（custom 層のタイル格子）＝球の既定。他は getStyle()/getLayer() の口
+	get style() { return { projection: { type: S.get(this).projection ?? "mercator", subdivisionGranularity: GRANULARITY_GLOBE } }; }   // 例が map.style.projection.subdivisionGranularity.tile.getGranularityForZoomLevel(z) を読む（custom 層のタイル格子）＝球の既定。他は getStyle()/getLayer() の口
 	setTransformRequest(fn) { ask(this, "setTransformRequest", [fn]); return this; }
 
 	// ── 画像 ──
