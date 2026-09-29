@@ -12,9 +12,10 @@ import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { APP } from "./keys.mjs";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const ORIGIN = "https://www.ortho-earth.com";
-const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = await resolveChrome();
 const W = 1280, H = 800, OUT_W = 640, OUT_H = 400;
 const args = process.argv.slice(2);
 const only = (args.find(a => a.startsWith("--only=")) ?? "").slice(7).split(",").filter(Boolean);

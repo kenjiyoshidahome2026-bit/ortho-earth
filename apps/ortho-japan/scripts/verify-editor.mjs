@@ -8,6 +8,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import fsSync from "node:fs";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 // ページは複数渡せる（省略＝t-editor）。**1 つの vite と 1 つの Chrome を共有し、並行（同時 3 タブ）**で回す＝旧の「ページごとに
@@ -16,7 +17,7 @@ const PAGES = process.argv.slice(2).filter(a => !a.startsWith("--")); if (!PAGES
 const CONC = +(process.env.CONC || 3);
 const SHOT = process.env.SHOT || "";          // 判定後の画面を PNG で残す（目視の手すり・任意・ページが 1 つのとき）
 const PORT = 5244, CDP = 9344;
-const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = await resolveChrome();
 
 
 // 起動時に前回までの per-pid プロファイル（同じ接頭辞・別 pid）を掃く＝exit 時の削除は Chrome の後書きで残ることがある（/tmp 満杯の轍・2026-09-15）

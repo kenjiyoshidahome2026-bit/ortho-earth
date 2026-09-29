@@ -4,14 +4,16 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { readFile, writeFileSync, rmSync, mkdirSync } from "node:fs";
+import { readFile, writeFileSync, rmSync, mkdirSync, existsSync, readdirSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import os from "node:os";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 5248, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+// ortho-earth の検定専用 Chrome for Testing（~/.cache/ortho-earth/chrome-for-testing）があれば使う＝普段の Chrome とぶつからない（2026-09-30・単体の repo でも読めるよう globe を読まずにここで探す）
+const cftChrome = () => { try { const root = path.join(os.homedir(), ".cache", "ortho-earth", "chrome-for-testing"); for (const v of readdirSync(root).filter(d => /^\d/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))) for (const b of ["chrome-mac-arm64", "chrome-mac-x64"]) { const p = path.join(root, v, b, "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"); if (existsSync(p)) return p; } } catch { /* 無ければ次へ */ } return null; };
+const PORT = 5248, CHROME = process.env.CHROME || cftChrome() || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MIME = { ".js": "text/javascript", ".html": "text/html", ".wasm": "application/wasm" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 

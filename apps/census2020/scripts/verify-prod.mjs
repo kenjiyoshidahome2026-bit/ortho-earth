@@ -14,11 +14,12 @@ import { readFile, readFileSync, readdirSync, existsSync } from "node:fs";
 import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const JAPAN = path.resolve(APP, "../ortho-japan");
 const OUT = path.join(APP, "dist/site");
-const PORT = 5242, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const PORT = 5242, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".csv": "text/csv", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 

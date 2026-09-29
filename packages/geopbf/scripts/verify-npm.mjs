@@ -9,20 +9,22 @@
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { readFile, writeFileSync, rmSync, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { readFile, writeFileSync, rmSync, mkdirSync, readFileSync, existsSync, readdirSync } from "node:fs";
 import { promisify } from "node:util";
 import path from "node:path";
 import os from "node:os";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5247, DEVPORT = 5248;
-// Chromium: $CHROME → Playwright の Chromium（devDependency・CI は `npx playwright install chromium`）→ Mac の Chrome
+// ortho-earth の検定専用 Chrome for Testing（~/.cache/ortho-earth/chrome-for-testing）があれば使う＝普段の Chrome とぶつからない（2026-09-30・単体の repo でも読めるよう globe を読まずにここで探す）
+const cftChrome = () => { try { const root = path.join(os.homedir(), ".cache", "ortho-earth", "chrome-for-testing"); for (const v of readdirSync(root).filter(d => /^\d/.test(d)).sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))) for (const b of ["chrome-mac-arm64", "chrome-mac-x64"]) { const p = path.join(root, v, b, "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing"); if (existsSync(p)) return p; } } catch { /* 無ければ次へ */ } return null; };
+// Chromium: $CHROME → Playwright の Chromium（devDependency・CI は `npx playwright install chromium`）→ 検定専用の Chrome for Testing → Mac の Chrome
 const CHROME = process.env.CHROME || await (async () => {
 	try { const { chromium } = await import("playwright"); const p = chromium.executablePath(); if (p && (await import("node:fs")).existsSync(p)) return p; } catch {}
 	const fs = await import("node:fs");
 	try { if (fs.existsSync("/opt/pw-browsers/chromium") && !fs.statSync("/opt/pw-browsers/chromium").isDirectory()) return "/opt/pw-browsers/chromium"; } catch {}
 	try { for (const d of fs.readdirSync("/opt/pw-browsers")) for (const sub of ["chrome-linux/chrome", "chrome-linux64/chrome"]) { const p = `/opt/pw-browsers/${d}/${sub}`; if (d.startsWith("chromium") && fs.existsSync(p)) return p; } } catch {}
-	for (const p of ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]) if (fs.existsSync(p)) return p;
+	for (const p of [cftChrome(), "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"]) if (p && fs.existsSync(p)) return p;
 	return "google-chrome";
 })();
 const { setTimeout: sleep } = await import("node:timers/promises");

@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const BASE = process.env.OG_BASE || "http://localhost:5188/japan";
@@ -27,7 +28,7 @@ window.dispatchEvent(new Event("resize")); 1`;
 const want = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const pages = Object.keys(PAGES).filter(p => !want.length || want.includes(p));
 fs.mkdirSync(path.join(APP, "public/og"), { recursive: true });
-const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", ["--headless=new", `--remote-debugging-port=${PORT}`, "--window-size=1200,630",
+const chrome = spawn(await resolveChrome(), ["--headless=new", `--remote-debugging-port=${PORT}`, "--window-size=1200,630",
 	"--use-angle=metal", "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", "--hide-scrollbars", "--force-device-scale-factor=1",
 	"--user-data-dir=" + os.tmpdir() + "/ortho-og-" + Date.now(), "about:blank"], { stdio: "ignore" });
 const sleep = ms => new Promise(r => setTimeout(r, ms));

@@ -19,7 +19,7 @@ import path from "node:path";
 import os from "node:os";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const PORT = 5246, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const PORT = 5246, CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".wasm": "application/wasm", ".txt": "text/plain", ".md": "text/markdown" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
@@ -52,6 +52,7 @@ const host = `<!doctype html><meta charset="utf-8"><title>npm-embed</title>
 <div id="here" style="width:480px;height:320px"></div>
 <script type="module">
 import orthoJapan from "/lib/ortho-japan.js";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 orthoJapan({ target: "#here", assetBase: "/assets/", mesh: false }).then(() => { document.title = "PASS npm-embed"; });
 </script>`;
 const read = promisify(readFile);

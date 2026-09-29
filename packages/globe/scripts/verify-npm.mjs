@@ -17,7 +17,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 const GLOBE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(GLOBE, "../..");
 const PORT = 5261, DEVPORT = 5262, CDP = 9361;
-const CHROME = process.env.CHROME || ["/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"].find(p => existsSync(p)) || "google-chrome";
+const CHROME = await resolveChrome();
 const fail = msg => { console.error(`✗ ${msg}`); cleanup(); process.exit(1); };
 const kids = [];
 const cleanup = () => { for (const k of kids) try { k.kill("SIGKILL"); } catch {} };
@@ -57,6 +57,7 @@ for (const b of [mainA3, a5, a6]) for (const line of b.split("\n")) {
 }
 writeFileSync(path.join(WORK, "vite.config.js"), `
 import { writeFileSync } from "node:fs";
+import { resolveChrome } from "./lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 const beacon = { name: "beacon", configureServer(s) { s.middlewares.use((req, res, next) => {
 	if (!req.url?.startsWith("/__result")) return next();
 	writeFileSync(${JSON.stringify(RESULT)}, new URL(req.url, "http://x").searchParams.get("t") || ""); res.statusCode = 204; res.end(); }); } };
