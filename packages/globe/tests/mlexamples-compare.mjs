@@ -151,7 +151,17 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 	ok("textMatch 無し", textMatch({ symbols: [] }, O).n === 0 && textMatch(null, null).n === 0);
 	const base = { end: "stable", map: true, loadVia: "event", probes: [], layers: [], markers: [], popups: [] };   // grade の入口（runsWhy）を通る最小の記録
 	ok("grade は text を持ち・既定では段を動かさない", (() => { const g = grade({ ...base, symbols: R.symbols }, { ...base, ...O }); return g.text?.n === 3 && !g.reasons.some(r => /^text/.test(r)); })());
-	ok("textGate で段 2 の条件に", (() => { const g = grade({ ...base, symbols: [...R.symbols, ...R.symbols] }, { ...base, ...O, refSym: [...O.refSym, ...O.refSym], ink: [] }, { ...THRESH, textGate: true }); return g.reasons.some(r => /^text/.test(r)) && g.blockers.some(b => /^text/.test(b)); })());
+	{   // 例外：両側で同じ文言＝例の側（外部スクリプト）の不具合＝どちらの落ちにも数えない／片側だけ＝従来どおり落ち
+		const ex = "Uncaught ReferenceError: module is not defined";
+		const both = grade({ ...base, exceptions: [ex] }, { ...base, exceptions: [ex] });
+		ok("例外が両側で同じ＝分母に入り・こちらも動く", both.level !== null && both.level >= 1 && both.refLevel === 3 && both.sharedExceptions?.[0] === ex, JSON.stringify(both).slice(0, 200));
+		ok("例外が本物だけ＝分母の外", grade({ ...base, exceptions: [ex] }, { ...base }).level === null);
+		const oursOnly = grade({ ...base }, { ...base, exceptions: [ex] });
+		ok("例外がこちらだけ＝段 0", oursOnly.level === 0 && oursOnly.reasons[0] === `exception: ${ex}`);
+		const extra = grade({ ...base, exceptions: [ex] }, { ...base, exceptions: [ex, "Uncaught TypeError: x"] });
+		ok("同じ例外＋こちらだけの例外＝後者で段 0", extra.level === 0 && extra.reasons[0] === "exception: Uncaught TypeError: x");
+	}
+	ok("textGate で段 2 の条件に",(() => { const g = grade({ ...base, symbols: [...R.symbols, ...R.symbols] }, { ...base, ...O, refSym: [...O.refSym, ...O.refSym], ink: [] }, { ...THRESH, textGate: true }); return g.reasons.some(r => /^text/.test(r)) && g.blockers.some(b => /^text/.test(b)); })());
 }
 // インク：文字あり／なしの差分＝点の周りの箱に閾を超える画素が min 個以上あれば true・箱の外の差分は拾わない・寸法違いは null
 {
