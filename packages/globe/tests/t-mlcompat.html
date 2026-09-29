@@ -1070,7 +1070,7 @@ try {
 			return [drawn(A) && near(px(A, ...MID), PURPLE, 40) && L?.type === "color-relief" && L?.metadata?.["ortho:drawn"] !== false,
 				`peak=${px(A, ...PEAK)} mid=${px(A, ...MID)} foot=${px(A, ...FOOT)} layer=${L?.type} drawn=${L?.metadata?.["ortho:drawn"]}`];
 		});
-		// step は透明（6.11.2）→ 不透明度 0.5 → 外す。「外した後」の色（下の地図）を物差しにする
+		// step は透明（6.11.2）→ 不透明度 0.5 → 外す。「外した後」の色（下の地図）を物差しにする。どれも最初に描けていること（drawn(A)）が前提＝描かないまま通らない
 		let S = null, O = null, U = null, gone = null, err = "";
 		try {
 			map.setPaintProperty("cr", "color-relief-color", ["step", ["elevation"], "#00ff00", 1000, "#ffff00"]);
@@ -1082,9 +1082,9 @@ try {
 			U = await until(img => !near(px(img, ...PEAK), px(O, ...PEAK), 10), 15000);
 		} catch (e) { err = " threw " + (e?.message || e); }   // 各場面の注に載せる（場面は増やさない＝爪車の鍵を固定）
 		const u = U ? px(U, ...PEAK) : null;
-		await scene("color-relief-step-transparent", () => [!!S && !!U && near(px(S, ...PEAK), u, 12) && near(px(S, ...FOOT), px(U, ...FOOT), 12), `step peak=${S && px(S, ...PEAK)} foot=${S && px(S, ...FOOT)} under=${u}${err}`]);
-		await scene("color-relief-opacity", () => { if (!O || !U) return [false, "no pixels" + err]; const o = px(O, ...PEAK), want = [0, 1, 2].map(i => (RED[i] + u[i]) / 2); return [near(o, want, 30), `opacity 0.5 peak=${o} want≈${want.map(Math.round)}`]; });
-		await scene("color-relief-removed", () => [!!U && !near(u, RED, 60) && gone === false, `after remove peak=${u} inStyle=${gone}${err}`]);
+		await scene("color-relief-step-transparent", () => [drawn(A) && !!S && !!U && near(px(S, ...PEAK), u, 12) && near(px(S, ...FOOT), px(U, ...FOOT), 12), `step peak=${S && px(S, ...PEAK)} foot=${S && px(S, ...FOOT)} under=${u}${err}`]);
+		await scene("color-relief-opacity", () => { if (!O || !U) return [false, "no pixels" + err]; const o = px(O, ...PEAK), want = [0, 1, 2].map(i => (RED[i] + u[i]) / 2); return [drawn(A) && near(o, want, 30), `opacity 0.5 peak=${o} want≈${want.map(Math.round)}`]; });
+		await scene("color-relief-removed", () => [drawn(A) && !!U && !near(u, RED, 60) && gone === false, `after remove peak=${u} inStyle=${gone}${err}`]);
 		// addLayer（利用者の層）でも同じ：足した直後は isSourceLoaded＝false・載ったら true・色の段どおり
 		await scene("color-relief-addlayer", async () => {
 			const addP = map.addLayer({ id: "cr2", type: "color-relief", source: "dem", paint: { "color-relief-color": ["interpolate", ["linear"], ["elevation"], 0, "#000000", 3000, "#00ff00"] } });
@@ -1092,6 +1092,19 @@ try {
 			const t0 = performance.now(); while (!map.isSourceLoaded("dem") && performance.now() - t0 < 20000) await sleep(100);
 			const img = await until(im => near(px(im, ...PEAK), [0, 255, 0], 40), 15000), p = px(img, ...PEAK), m = px(img, ...MID);
 			return [near(p, [0, 255, 0], 40) && near(m, [0, 128, 0], 40) && !l0 && map.isSourceLoaded("dem"), `peak=${p} mid=${m} loaded=${l0}→${map.isSourceLoaded("dem")}`];
+		});
+		// 段 3：同じ raster-dem を hillshade と color-relief が読む＝DEM のタイルは source ごとに 1 回だけ取る（層ごとに取らない）。数え方＝Resource Timing（main の fetch）
+		await scene("dem-tiles-shared-per-source", async () => {
+			map.removeLayer("cr2"); await sleep(300);
+			performance.clearResourceTimings(); performance.setResourceTimingBufferSize(2000);
+			const addH = map.addLayer({ id: "hs3", type: "hillshade", source: "dem" }), addC = map.addLayer({ id: "cr3", type: "color-relief", source: "dem", paint: { "color-relief-color": RAMP } });
+			await Promise.all([addH, addC]);
+			const t0 = performance.now(); while (!map.isSourceLoaded("dem") && performance.now() - t0 < 20000) await sleep(100);
+			await sleep(500);
+			const n = new Map(); for (const e of performance.getEntriesByType("resource")) if (/fixtures\/dem\/\d+\/\d+\/\d+\.png/.test(e.name)) n.set(e.name, (n.get(e.name) || 0) + 1);
+			const dup = [...n.values()].filter(c => c > 1).length, drawnNow = near(px(await snap(map), ...PEAK), RED, 60);
+			map.removeLayer("hs3"); map.removeLayer("cr3");
+			return [n.size > 0 && dup === 0 && drawnNow, `urls=${n.size} fetchedTwice=${dup} drawn=${drawnNow}`];
 		});
 	}
 
