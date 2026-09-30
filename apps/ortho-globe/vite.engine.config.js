@@ -26,7 +26,6 @@ export default defineConfig({
 		lib: {
 			entry: {
 				globe: resolve(import.meta.dirname, "engine/globe.js"),
-				maplibre: resolve(import.meta.dirname, "engine/maplibre.js"),   // MapLibre 互換の口（www の /maplibre/ が import map で指す・2026-10-01）
 				i18n: resolve(ROOT, "packages/globe/src/i18n.js"),
 				core: resolve(ROOT, "packages/ortho-core/src/index.js"),
 				geopbf: resolve(ROOT, "packages/geopbf/src/index.js"),
