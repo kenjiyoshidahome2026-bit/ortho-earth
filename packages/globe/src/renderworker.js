@@ -590,6 +590,7 @@ function drainUploads() {
 	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
 		const [slot, scene] = sceneInbox.entries().next().value;
 		sceneInbox.delete(slot);
+		if (scene && performance.now() - lastCamMoveT < RES_SETTLE_MS) scene.noFade = true;   // 動いている間の差し替えはクロスフェードしない（ズーム中は 60ms 刻みで場面が替わる＝旧場面を半透明で重ねると大きな塗りがちらつく・2026-09-30 本人）
 		try { renderer.set("scene", scene, slot); }
 		catch (err) { console.error("[render] scene apply failed:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
 		dirty = true; uploadSkip = 2;

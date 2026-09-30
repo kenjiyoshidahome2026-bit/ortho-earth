@@ -1683,7 +1683,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// ?nofade=1＝クロスフェードを丸ごと止める切り分けノブ（WebGPU にしか無い機構＝実機で「遷移中だけ壊れる」
 		// 現象の容疑者。Android 実機で基図が黒く落ちる報告 2026-08-03。旧シーンは即破棄＝Phase 6 以前の挙動）。
 		let keepPrev = null;
-		if (!rOpts.noFade && slot === "main" && scenes[slot].draws.length && scenes[slot].origin && s.origin
+		if (!rOpts.noFade && !s.noFade && slot === "main" && scenes[slot].draws.length && scenes[slot].origin && s.origin
 			&& scenes[slot].origin[0] === s.origin[0] && scenes[slot].origin[1] === s.origin[1]) {
 			disposeFadePrev(slot);
 			keepPrev = { draws: scenes[slot].draws, bld: scenes[slot].bld };
