@@ -25,6 +25,28 @@ let _activeGetServer = null;
 let _activeGeopbf   = null;
 
 // レガシー互換エクスポート（createGeopbf 呼び出し後に使用可能）
+/**
+ * 鍵で控えた GeoPBF（＋GintBUF）を IDB から引く（#176・一度読んだ物を網に出ずに使い回す）。無い・古い（maxAge 超え）・壊れている＝null。
+ * 置く側＝geopbf(data, { cacheKey, cacheMeta })。鍵は呼び手が決める（フィーチャーサービス＝サービス・版・枡）。bucket provider が無ければ常に null。
+ * @param {string} key
+ * @param {{ gint?: boolean, maxAge?: number }} [opts]  maxAge＝ms（既定＝期限なし）
+ */
+export async function geopbfCached(key, opts = {}) {
+    const server = _activeGetServer ? await _activeGetServer().catch(() => null) : null;
+    if (!server) return null;
+    const val = await server.cache(key).catch(() => null);
+    if (!val?.PBF?.byteLength) return null;
+    if (opts.maxAge != null && !(Date.now() - (val.meta?.t || 0) <= opts.maxAge)) return null;
+    const pbf = await new GeoPBF({ name: opts.name }).set(val.PBF).catch(() => null);
+    if (!pbf?.length) return null;
+    if (opts.gint !== false) {
+        if (val.GINT) await pbf.setGintBUF(val.GINT).catch(() => {});
+        if (!pbf.unPackGint) await pbf.gint({ gint: true });   // GINT 無し（gint:false で置いた）か旧版＝ここで焼く（置き直しはしない）
+    }
+    pbf._cacheKey = key; pbf.cacheMeta = val.meta || null;
+    return pbf;
+}
+
 export async function geopbf(data, opts) {
     if (!_activeGeopbf) throw new Error("geopbf: call createGeopbf(apiBase) before use");
     return _activeGeopbf(data, opts);
@@ -101,6 +123,13 @@ export function createGeopbf(apiBase, options = {}) {
             // 0 件の結果は保存しない（旧 fgb デコーダの 0 件を IDB が覚えて、直した後も「Failed to load」を返し続けた・2026-09-22）
             // clean 済みの GINT も保存しない＝同じ URL/File を clean なしで読んだ時に clean 済みが返らないように
             if (!pbf.length || opts.clean) { /* 保存しない */ }
+            else if (opts.cacheKey && !pbf._cacheKey) {   // 呼び手の鍵で置く（geopbfCached で引く・#176）。meta.t＝置いた時刻（maxAge の物差し）
+                const server = await getServer().catch(() => null);
+                if (server && opts.nocache !== true) {
+                    const GINT = pbf._gintBuffer ? new Uint8Array(pbf._gintBuffer).slice().buffer : null;
+                    server.cache(opts.cacheKey, { PBF: pbf.arrayBuffer, GINT, meta: { ...(opts.cacheMeta || {}), t: Date.now() } }).catch(console.error);
+                }
+            }
             else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
