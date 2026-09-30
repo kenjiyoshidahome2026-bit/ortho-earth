@@ -1,6 +1,6 @@
 import { keyMatches } from './proxy.js';
 
-// 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・apps/gishub-jp/scripts/shared-data.mjs が上げる）は
+// 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・apps/uploader/scripts/shared-data-upload.mjs が上げる）は
 // 中身が変わればキーが変わる＝ブラウザに 1 年持たせてよい（2026-09-30・縮小計画 項目6b。他のキーは従来どおり max-age=60）
 const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
 
