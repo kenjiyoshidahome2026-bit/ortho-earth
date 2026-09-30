@@ -447,6 +447,10 @@ export type RasterSpec =
 	| { file: File; table?: string; name?: string; attribution?: string }
 	| { port: MessagePort; name?: string; attribution?: string }
 	| { image: Blob | ImageBitmap; corners: [LonLat, LonLat, LonLat, LonLat]; name?: string }
+	/** IIIF の古地図を基準点で歪みを直して地面に貼る（1.14.0〜・#177）。iiif＝Georeference Annotation（Allmaps の形・1 枚でもページでも）の URL か object。
+	 *  変換＝注記の transformation（polynomial 1〜3 次・thinPlateSpline・projective・helmert・無ければ 1 次）。画像は IIIF Image API（v2/v3・level0 の静的タイルも）から要る段とタイルだけ。
+	 *  枠（resourceMask）の外は透明。出典＝attribution → manifest の requiredStatement → info.json の attribution → 画像サーバーのホスト名。?iiif=<URL>・注記の JSON のドロップも同じ */
+	| { iiif: string | object; name?: string; attribution?: string }
 	/** 四隅で貼る動画（MapLibre の video source 相当・#49）。video＝動画要素（呼び手が持つ）か URL（の列）＝muted・loop・playsinline で自動再生。
 	 *  地面に焼かず毎コマ覆う（基図と gint の上・注記の下）＝地形の遮蔽は無い。add の戻り値は VideoHandle */
 	| { video: HTMLVideoElement | string | string[]; corners: [LonLat, LonLat, LonLat, LonLat] };
