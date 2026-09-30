@@ -1,70 +1,12 @@
 import { defineConfig } from "vite";
-import { resolve, dirname } from "node:path";
-import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
+import { urlAsFile, wasmAsFile, binUrlAsFile } from "../../packages/globe/scripts/lib/vite-lib-plugins.mjs";   // 資産を base64 で埋めない 3 本（共有エンジンと共用）
 
 // lib×ES では vite が whitespace minify を外す（下流バンドラ向け PURE 注釈保持の思想）。本ライブラリは事前ビルド一枚岩＝
 // 下流の木刈り効果は無く、本番 /japan/lib の app が 627KB raw で配られるパース代の方が高い（Lighthouse mobile 実測 2026-08-21）。
 // vite 5 までは renderChunk(post) で esbuild の空白 minify を追い掛けていたが、vite 8 は minify を rolldown の出力段
 // （renderChunk より後）で {compress, mangle, codegen:false} として掛け直す＝追い minify を刷り直して無効にする（2026-09-25 実測）。
 // ＝下の output.minify:true で rolldown に空白まで任せる（JS 総量 3.26→3.19MB・gzip 1.300→1.266MB＝vite 5 の追い minify 版より小）。
-
-// .wasm を base64 で JS に埋めない（処方①・#12）。vite 5 の lib モードは資産を大きさに関わらず必ず inline する
-// （shouldInline: `if (config.build.lib) return true`）ため、wasm-pack glue の `new URL('gint_wasm_bg.wasm', import.meta.url)`
-// が 126 KB → 173 KB の data: URI になり、glue を抱える 7 チャンク全部に複製されていた（2026-09-14 計量＝−855 KB の元凶）。
-// ここで .wasm を rollup の asset として emit し、参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝assets/ に実体 1 つ・
-// 各チャンクは相対 URL で指す（同じ内容＝同じハッシュ名＝worker の別ビルドが何本あってもファイルは 1 つ）。ブラウザキャッシュも効く。
-// worker ビルドは `worker.plugins` でしか plugin が効かないので、主ビルドと worker の両方へ挿す。
-const wasmAsFile = {
-	name: "wasm-as-file",
-	enforce: "pre",
-	async transform(code, id) {
-		if (!/\/wasm\/pkg\/gint_wasm\.js$/.test(id)) return;
-		const wasmPath = resolve(dirname(id), "gint_wasm_bg.wasm");
-		const ref = this.emitFile({ type: "asset", name: "gint_wasm_bg.wasm", source: await readFile(wasmPath) });
-		const from = "new URL('gint_wasm_bg.wasm', import.meta.url)";
-		if (!code.includes(from)) throw new Error("wasm-as-file: glue の .wasm 参照が見つからない（wasm-pack の出力形式が変わった？）");
-		return { code: code.replace(from, `new URL(import.meta.ROLLUP_FILE_URL_${ref})`), map: null };
-	},
-};
-
-// `import x from "./mod.js?url"`・`import w from "pkg/x.wasm?url"` を base64 で埋めない（wasm と同じ理由＝lib モードは資産を必ず inline する）。
-// 用途＝レンダーワーカーが URL で import() する同一フレームのオーバーレイのモジュール（gadgets/anno-draw.js 等・依存ゼロ）と、
-// worker が場所を渡して読む emscripten の .wasm（#178 の laz-perf＝COPC の worker・214KB を base64 で束に抱えない）。
-// asset として emit し、既定 export を実体ファイルの URL（chunk 相対＝import.meta.url 基準）にする。
-const urlAsFile = {
-	name: "js-url-as-file",
-	enforce: "pre",
-	async resolveId(source, importer) {
-		if (!/\.(js|wasm)\?url$/.test(source) || !importer) return null;
-		const r = await this.resolve(source.replace(/\?url$/, ""), importer, { skipSelf: true });
-		return r ? r.id + "?js-url-as-file" : null;
-	},
-	async load(id) {
-		if (!id.endsWith("?js-url-as-file")) return null;
-		const file = id.replace(/\?js-url-as-file$/, "");
-		const ref = this.emitFile({ type: "asset", name: file.split("/").pop(), source: await readFile(file) });
-		return `export default new URL(import.meta.ROLLUP_FILE_URL_${ref}).href;`;
-	},
-};
-
-// `new URL("./x.bin", import.meta.url)` の資産（ortho-core の EGM96 格子 298KB・2026-09-30）も base64 で埋めない（wasm・?url と同じ理由）。
-// 放っておくと lib モードは data: URI（398KB）にして、geoid.js を静的に抱える renderworker へまで焼き込む（実測 492KB）。
-// asset として emit し参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝主ビルドと worker の別ビルドで同じ内容＝同じハッシュ名＝実体は 1 つ。
-const binUrlAsFile = {
-	name: "bin-url-as-file",
-	enforce: "pre",
-	async transform(code, id) {
-		if (!code.includes(".bin") || !code.includes("import.meta.url")) return;
-		const re = /new URL\((["'`])(\.{1,2}\/[^"'`]+\.bin)\1,\s*import\.meta\.url\)/g;
-		let out = code, hit = false;
-		for (const m of code.matchAll(re)) {
-			const file = resolve(dirname(id.split("?")[0]), m[2]);
-			const ref = this.emitFile({ type: "asset", name: file.split("/").pop(), source: await readFile(file) });
-			out = out.replace(m[0], `new URL(import.meta.ROLLUP_FILE_URL_${ref})`); hit = true;
-		}
-		return hit ? { code: out, map: null } : undefined;
-	},
-};
 
 // SDK ビルド（ライブラリ形式）＝第三者のページへ埋め込むための出荷形。
 // サイトビルド（vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。

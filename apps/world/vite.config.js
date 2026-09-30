@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 import fs from 'fs';
+import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';   // build の時だけ地球儀は共有エンジン（/globe/engine/<版>/）を URL で読む（縮小計画 項目 9・2026-09-30）
 // www のデモ一覧は各デモをナビの下の iframe で開く（2026-09-22）＝www は COEP credentialless の頁＝中に入る頁も COEP が要る
 // （無いと iframe の中で拒まれる）。Workers の静的アセットは配信ディレクトリ直下の _headers を読む＝ビルドの最後に dist/site/_headers を書く。
 // credentialless＝越境の no-cors 取得は資格情報なしで通る（japan・equal と同じ・SAB は使わない）。
@@ -12,8 +13,8 @@ const coepHeaders = () => ({
 	name: "coep-headers",
 	closeBundle() { fs.writeFileSync(path.resolve(__dirname, "dist/site/_headers"), "/*\n  Cross-Origin-Opener-Policy: same-origin\n  Cross-Origin-Embedder-Policy: credentialless\n"); },
 });
-// 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev も本番もソース直
-// （A 裁定 2026-09-23＝自分の束に焼く。wasm プラグインと __GLOBE_ASSETS__ が要る＝geopbf-demo と同じ配線）。
+// 地図パネル（src/mappane.js）＝地球儀のホスト（@ortho-earth/globe）を遅延 import する。dev はソース直・build は共有エンジン
+// （sharedEngine＝/globe/engine/<版>/・2026-09-30 に A 裁定 2026-09-23「自分の束に焼く」を改めた。__GLOBE_ASSETS__ は従来どおり）。
 const GLOBE_PUBLIC = path.resolve(__dirname, '../ortho-globe/public');   // 地球儀の実行時アセット（koppen-clim.png 等）＝globe の家（本番 /globe/）
 // rolldown（vite 8）のチャンク最適化を切る（2026-09-25）。既定 on だと実行時ヘルパ __exportAll の共通チャンクが動的エントリ
 // mesh-loaders に合流し、renderworker・gint・topology 等がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を静的 import する
@@ -22,7 +23,7 @@ const GLOBE_PUBLIC = path.resolve(__dirname, '../ortho-globe/public');   // 地�
 const noChunkOptimization = { experimental: { chunkOptimization: false } };
 
 export default defineConfig(({ command }) => ({
-	plugins: [wasm(), coepHeaders()],
+	plugins: [wasm(), coepHeaders(), sharedEngine()],
 	define: { __GLOBE_ASSETS__: JSON.stringify(command === 'serve' ? `/world/@fs${GLOBE_PUBLIC}/` : '/globe/') },
 	base: '/world/',   // 公開パス＝ortho-earth.com/world/（gishub と同じ配置）
 	resolve: {

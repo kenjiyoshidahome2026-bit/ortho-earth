@@ -102,7 +102,7 @@
 				}
 				tbody {
 					td,th { border-bottom: $border; border-right: $border; position:relative; }
-					td::last-child { border-right: none; }
+					td:last-child { border-right: none; }
 					th { position: sticky; left: 0px; z-index: 1; border-right: none;
 						&:before { border-right: $border; }
 					}
