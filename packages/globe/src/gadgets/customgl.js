@@ -83,7 +83,7 @@ const GLOBE_MAX_Z = 13;   // これより寄ったら mercator の variant（局
 
 // env＝{ mapEl, before（この canvas をこの要素の前に差す＝注記の下）, size()→{w,h}（device px）, dpr, cam, earthM, requestDraw, onFrame(fn)→off, hostMap（onAdd/render に渡す map） }
 export function createCustomGL(env) {
-	const { mapEl, before, size, cam, earthM, requestDraw, onFrame } = env;
+	const { mapEl, before, size, cam, earthM, requestDraw, onFrame, onWorkerFrame } = env;   // onWorkerFrame＝worker が描いた絵の cam で呼ばれる（あれば同期＝こちらを使う）
 	const layers = [];   // { layer, order }
 	let cv = null, gl = null, off = null, lost = false;
 	function ensure() {
@@ -96,13 +96,13 @@ export function createCustomGL(env) {
 		if (!gl) { cv.remove(); cv = null; throw new Error("custom layer: WebGL2 is not available for the overlay canvas"); }
 		cv.addEventListener("webglcontextlost", e => { e.preventDefault(); lost = true; });
 		cv.addEventListener("webglcontextrestored", () => { lost = false; for (const L of layers) { try { L.layer.onAdd?.(env.hostMap ?? null, gl); } catch (err) { console.error("[custom layer] onAdd after context restore", err); } } requestDraw(); });
-		off = onFrame(frame);
+		off = onWorkerFrame ? onWorkerFrame(camW => frame(camW)) : onFrame(() => frame());   // 地図と同じ cam・同じ時刻で描く（main の rAF で描くと地図より先行して見える）
 		return gl;
 	}
 	// MapLibre の args（mercator の variant）。行列＝mvp · [メルカトル → 単位球]（起動の中心で局所線形化）
-	function makeArgs() {
-		const s = size(), st = cameraState(cam, s.w, s.h);
-		const [lon, lat] = cam.center, a = lon * D2R, b = lat * D2R;
+	function makeArgs(camUse = cam) {   // camUse＝worker が描いた絵の cam（frame 事象）か main の cam
+		const s = size(), st = cameraState(camUse, s.w, s.h);
+		const [lon, lat] = camUse.center, a = lon * D2R, b = lat * D2R;
 		const T = lonlatTo3D(lon, lat);                                                        // 中心（単位球・楕円体なら β 単位球）
 		// 東・北・上（測地）の β 空間像＝S⁻¹·n（楕円体表示＝y だけ 1/rAx・#43）。球（rAx＝1）は従来の式と同値
 		const rAx = ellipsoidOn() ? 1 - 1 / 298.257223563 : 1;
@@ -116,10 +116,10 @@ export function createCustomGL(env) {
 		M[8] = U[0] * K; M[9] = U[1] * K; M[10] = U[2] * K; M[11] = 0;
 		M[12] = T[0] - M[0] * x0 - M[4] * y0; M[13] = T[1] - M[1] * x0 - M[5] * y0; M[14] = T[2] - M[2] * x0 - M[6] * y0; M[15] = 1;
 		const main = mul(Float64Array.from(st.mvp), M);
-		const fovy = cam.fovy ?? 50 * D2R;
+		const fovy = camUse.fovy ?? 50 * D2R;
 		// 球の variant（寄っていない間）：u_projection_matrix＝この地図の mvp（β 単位球→クリップ）・裏側の面＝(E·s, −s)（E＝目の位置・s＝2/(|E|−1)＝地平線で 1・真下で −1・裏で 1 超＝描かない）
 		// variant＝例が頼んだ投影に従う（MapLibre と同じ＝既定 mercator・setProjection({type:"globe"}) で globe）＝mercator で書かれた層（mainMatrix にメルカトル座標を掛ける）は本物の既定と同じ絵・球を頼んだ例だけ球の prelude。寄ったら（z≥13）どちらも mercator の局所線形化
-		const globe = cam.zoom < GLOBE_MAX_Z && env.hostMap?.getProjection?.()?.type === "globe";
+		const globe = camUse.zoom < GLOBE_MAX_Z && env.hostMap?.getProjection?.()?.type === "globe";
 		const eyeP = st.eye, eL = Math.hypot(eyeP[0], eyeP[1], eyeP[2]), sC = 2 / Math.max(1e-9, eL - 1), clip = [eyeP[0] * sC, eyeP[1] * sC, eyeP[2] * sC, -sC];
 		const mvp = Float64Array.from(st.mvp);
 		const dataOf = (mMerc, tmc) => globe
@@ -138,14 +138,14 @@ export function createCustomGL(env) {
 			},
 		};
 	}
-	function frame() {
+	function frame(camW = null) {
 		if (!gl || lost || !layers.length) return;
 		const s = size();
 		if (cv.width !== s.w || cv.height !== s.h) { cv.width = s.w; cv.height = s.h; }
 		gl.viewport(0, 0, s.w, s.h);
 		gl.disable(gl.SCISSOR_TEST); gl.colorMask(true, true, true, true); gl.depthMask(true); gl.clearColor(0, 0, 0, 0); gl.clearDepth(1); gl.clearStencil(0);
 		gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
-		const args = makeArgs();
+		const args = makeArgs(camW || cam);
 		for (const { layer } of layers) {
 			// MapLibre が層の前に整える状態（深度は 3d の層だけ・ブレンドは事前乗算の合成）
 			gl.disable(gl.STENCIL_TEST); gl.disable(gl.CULL_FACE);
