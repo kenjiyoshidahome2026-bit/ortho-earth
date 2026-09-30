@@ -813,6 +813,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
@@ -3964,7 +3965,11 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 };
 // MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
 let customCtl = null, customHost = null;
-const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), get hostMap() { return customHost ?? map; } });
+// worker が描いた絵ごとの hook（frame 事象）＝custom 層の canvas を地図と同じ cam・同じ時刻で描く。誰かが要る間だけ worker に頼む
+const workerFrameFns = new Set();
+const onWorkerFrame = fn => { workerFrameFns.add(fn); if (workerFrameFns.size === 1) wPost({ type: "set", cmd: "frameEvents", data: true }); return () => { workerFrameFns.delete(fn); if (!workerFrameFns.size) wPost({ type: "set", cmd: "frameEvents", data: false }); }; };
+dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam と worker が描いた cam の差（遅れ）を測る
+const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 map.setCustomLayerHost = h => { customHost = h; return map; };
 map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
