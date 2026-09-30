@@ -29,8 +29,19 @@ export const isTypingTarget = (el = document.activeElement) => {
 //   blocked()＝真ならキーボードのカメラ操作を止める（モーダル表示中など・呼び出し側が注入）。文字入力中は自前で判定。
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
 export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal, wheelZoom = "linear" }) {
-	// wheelZoom＝ホイール 1 目盛りのズーム量："linear"（従来＝deltaY×0.002）｜"maplibre"（MapLibre の ScrollZoomHandler と同じ曲線＝log2(2/(1+e^(−|Δ|/450)))・100 で 0.15 段・大きな Δ は飽和）2026-09-30
-	const wheelDz = dy => wheelZoom === "maplibre" ? -Math.sign(dy) * Math.log2(2 / (1 + Math.exp(-Math.abs(dy) / 450))) : -dy * 0.002;
+	// wheelZoom＝ホイール 1 目盛りのズーム量："linear"（従来＝deltaY×0.002）｜"maplibre"（MapLibre の ScrollZoomHandler と同じ）2026-09-30：
+	//   種類の見分け（value＝deltaY・行モードは ×40）：4.000244140625 の倍数＝マウスのホイール（wheel）／|value|<4＝トラックパッド／それ以外は前の事象からの間隔で（|間隔×value|<200＝トラックパッド）
+	//   量＝log2(2/(1+e^(−|value|×rate)))・rate＝wheel 1/450（100 で 0.15 段）／trackpad 1/100（4.5 倍敏感＝本人「ref の方が感度がいい」＝トラックパッドを 1/450 で受けていた）
+	let wType = null, wLastT = 0;
+	const wheelDz = (dy, mode) => {
+		if (wheelZoom !== "maplibre") return -dy * 0.002;
+		const value = mode === 1 ? dy * 40 : dy, now = performance.now(), dt = now - wLastT; wLastT = now;
+		if (value !== 0 && value % 4.000244140625 === 0) wType = "wheel";
+		else if (value !== 0 && Math.abs(value) < 4) wType = "trackpad";
+		else if (dt > 400 || !wType) wType = Math.abs(dt * value) < 200 ? "trackpad" : "wheel";
+		const rate = wType === "wheel" ? 1 / 450 : 1 / 100;
+		return -Math.sign(value) * Math.log2(2 / (1 + Math.exp(-Math.abs(value) * rate)));
+	};
 	let drag = null;              // 1本指/マウスのドラッグ状態
 	let ptr = null;               // 直近のマウス位置（CSS px）＝キーボードのズーム/回転アンカー。マウスが地図外なら null（＝画面中心へ退避）
 	const touches = new Map();    // アクティブなタッチポインタ pointerId → {x,y}
@@ -217,7 +228,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		onGesture();   // ホイールでも主導権は人
 		const [wx, wy] = evXY(e);
 		if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
-		else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom + wheelDz(e.deltaY)); });  // ズーム
+		else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom + wheelDz(e.deltaY, e.deltaMode)); });  // ズーム
 	}, { passive: false });
 
 	// キーボードによる連続カメラ操作（押しっぱなしで動き続ける＝毎フレーム微小デルタ）：
