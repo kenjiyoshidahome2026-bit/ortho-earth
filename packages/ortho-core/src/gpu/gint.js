@@ -19,10 +19,10 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
-import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS } from "../gl/gint/state.js";
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gl/gint/state.js";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
 import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
-import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
 import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
@@ -171,7 +171,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	// ── main パス行きパイプラインのセット（遷移時AA）：renderer のフレーム段数（frameInfo().samples＝遷移中1x／
 	// 静止4x）に multisample count を揃える＝焼き込みゆえセット取替。sampleCount 毎に遅延生成・恒久キャッシュ。
 	// pick 系（別パス・rgba8・非MSAA）と idAccum（rg16/32float 蓄積）は従来どおり 1x 固定＝セット外。
-	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
+	// マスク専用の stencil シェーダ（旧 GL の VS_STENCIL_MASK）は持たない：drawHighlight の mask fan は stencilProgram＝レンジ描画（GL 側の未使用の写しも撤去済み）
 	const buildPipes = (sc, sb, clip) => { const cm = clip ? clipMods() : null;   // clip＝断面の派生（#111 段 3）
 		const [lm, sm, pm, lay] = sb ? (cm ? [cm.lineSB, cm.stencilSB, cm.pointSB, layoutSB] : [lineModSB, stencilModSB, pointModSB, layoutSB]) : (cm ? [cm.line, cm.stencil, cm.point, layout] : [lineMod, stencilMod, pointMod, layout]);
 		const rm = cm ? cm.resolve : idResolveMod; return ({
@@ -422,19 +422,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	}
 
 	// ── 層状態（§10.1 第1ブロック＝層ごとに割る）とスロット束 ────────────────
-	// SLOT_FIELDS＝スロット束が退避/復元する層のデータ・スタイル面（embed.js と同形＝ベイク済み GPU/台帳資産のキャッシュ）
-	const SLOT_FIELDS = [
-		"gintData", "arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "pivotW",
-		"totalEdges", "totalPoints", "polyEdges", "totalEdgesB", "polyEdgesB",
-		"fillOff", "lowFill", "tiersDone", "lodTiers", "metaChunks",
-		"polyEdgeByFid", "polyBboxByFid", "outlineZoom", "minZoom", "maxZoom",
-		"fidStyleTex", "fidStyleW", "_fidStyleH", "fidStyleCount", "_fidStyleData",
-	];
-	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
-		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
-		fillOff: false, lowFill: false, tiersDone: false, lodTiers: [], metaChunks: null,
-		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
-		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
+	// SLOT_FIELDS／emptySlot＝スロット束が退避/復元する層のデータ・スタイル面（gl/gint/state.js・GL と共通＝ベイク済み GPU/台帳資産のキャッシュ）
 	const layers = [];       // 描画順（後の層が上）
 	let act = null;          // カーソルを持つ層（§4.1 常に1層。既定＝最後に addLayer した層）
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;
@@ -511,17 +499,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 			if (key === L.activeKey) deleteTextures(L);
 			loadBundle(L, emptySlot());
 			L.activeKey = key;
-			L.gintData = {
-				arcBuffer: data.arcBuffer ?? null,
-				arcMeta: data.arcMeta ?? null,
-				polyStream: data.polyStream?.length ? data.polyStream : null,
-				lineStream: data.lineStream?.length ? data.lineStream : null,
-				pointBuffer: data.pointBuffer?.length ? data.pointBuffer : null,
-				point: data.point ?? null,
-				polyCompBbox: data.polyCompBbox ?? null,
-				fillMaxEdges: data.fillMaxEdges ?? null,   // 同期経路でも層別の塗り上限/低ズーム塗りを落とさない（gl/worker.js と同修理）
-				lowFill:      data.lowFill      ?? false,
-			};
+			L.gintData = gintDataOf(data);
 			const art = bakeBase(L.gintData);
 			applyArtifacts(L, art);
 			scheduleTierBuild(L, { weightHist: art.weightHist });
