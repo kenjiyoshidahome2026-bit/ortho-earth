@@ -20,7 +20,7 @@ const coiHeaders = server => {
 	});
 };
 const crossOriginIsolation = { name: "cross-origin-isolation", configureServer: coiHeaders, configurePreviewServer: coiHeaders };
-const placeEngine = { name: "place-engine", apply: "build", closeBundle() { const v = engineVersion(); cpSync(resolve(import.meta.dirname, "dist/engine", v), resolve(import.meta.dirname, "dist/site/globe/engine", v), { recursive: true }); } };
+const placeEngine = { name: "place-engine", apply: "build", closeBundle() { const v = engineVersion(); cpSync(resolve(import.meta.dirname, "dist/engine", v), resolve(import.meta.dirname, "dist/site/globe/engine", v), { recursive: true }); cpSync(resolve(import.meta.dirname, "dist/engine/current.json"), resolve(import.meta.dirname, "dist/site/globe/engine/current.json")); } };   // current.json＝Worker が旧版の入口を今の版へ送る時に読む
 
 export default defineConfig({
 	base: "/globe/",
