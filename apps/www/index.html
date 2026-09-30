@@ -76,7 +76,7 @@
 			<!-- 始める（2026-09-25 作り直し・同日に手順を start.md と一字一句そろえた＝tests/t-start-sync.mjs が門）：段組をやめて 1 列＝二つの道（コードで／AI エージェントで）を手順で。どの手順も公開済みの npm で実走させて確かめた物
 			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない -->
 			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
-				<p class="start-lead" data-t="Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.">Two ways to build with the globe. Every step here is run by an automated test against the published npm packages.</p>
+				<p class="start-lead" data-t="Three ways to build with the globe — with code, with an AI agent, or with the MapLibre GL JS code you already have. Every step here is run by an automated test against the published npm packages.">Three ways to build with the globe — with code, with an AI agent, or with the MapLibre GL JS code you already have. Every step here is run by an automated test against the published npm packages.</p>
 				<section class="card path">
 					<span class="path-no" aria-hidden="true">1</span>
 					<h3 class="card-title" data-t="Build with code">Build with code</h3>
@@ -151,6 +151,25 @@ name and population. Start the view looking at Asia.</code></pre>
 					</ol>
 					<p class="path-note" data-t="Tested: an AI agent given only this request built and verified the page on its first run.">Tested: an AI agent given only this request built and verified the page on its first run.</p>
 				</section>
+				<!-- 3 本目の道（2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）＝start.md の A8 と同じ片（verify:npm が公開物で実走）・公式例 139 本の頁 /maplibre/ -->
+				<section class="card path ml">
+					<span class="path-no" aria-hidden="true">3</span>
+					<h3 class="card-title" data-t="Bring your MapLibre code">Bring your MapLibre code</h3>
+					<p class="card-desc" data-t="MapLibre GL JS compatible. Change one import and your MapLibre code runs on the globe — the same API, styles and zoom levels.">MapLibre GL JS compatible. Change one import and your MapLibre code runs on the globe — the same API, styles and zoom levels.</p>
+					<pre class="code" translate="no" dir="ltr"><code>import * as maplibregl from "@ortho-earth/globe/maplibre";
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://demotiles.maplibre.org/style.json",
+  center: [139.77, 35.68],
+  zoom: 4,
+});</code></pre>
+					<p class="path-note" data-t="All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.">All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.</p>
+					<span class="doclinks">
+						<a href="/maplibre/" data-t="139 MapLibre examples">139 MapLibre examples</a>
+						<a href="/start.md" data-t="Full recipe">Full recipe</a>
+					</span>
+				</section>
 				<section class="card path small">
 					<h3 class="card-title" data-t="Look">Look</h3>
 					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
@@ -169,15 +188,25 @@ name and population. Start the view looking at Asia.</code></pre>
 				</section>
 			</div>
 			<div class="apps tech" id="panel-tech" role="tabpanel" aria-labelledby="tab-tech" hidden>
-				<div class="card tech-card">
-					<span class="card-eyebrow" data-t="Map engine · GPL-3.0">Map engine · GPL-3.0</span>
-					<span class="card-title" translate="no">ortho-earth</span>
-					<span class="card-desc"><span data-t="The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.">The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.</span><span class="desc-more" data-t="Parquet draws big data, Gint thinks, and nothing is exaggerated.">Parquet draws big data, Gint thinks, and nothing is exaggerated.</span></span>
-					<span class="doclinks">
-						<a href="/docs/core.html" data-t="Overview">Overview</a>
-						<a href="/docs/core-jp.html" lang="ja" translate="no">日本語</a>
-						<a href="https://www.npmjs.com/package/@ortho-earth/globe" translate="no">npm</a>
-					</span>
+				<!-- ortho-earth＝2 カラム幅（本人 2026-10-01「technologies は ortho-earth を 2 カラムにして、内容を充実」）：左＝何か・右＝描く／読む／調べる／時間と場所 -->
+				<div class="card tech-card tech-wide">
+					<div class="tech-main">
+						<span class="card-eyebrow" data-t="Map engine · GPL-3.0">Map engine · GPL-3.0</span>
+						<span class="card-title" translate="no">ortho-earth</span>
+						<span class="card-desc"><span data-t="The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.">The globe itself: WebGPU with a WebGL2 fallback, real-scale terrain, and base map, vectors and 3D cities drawn together through a worker pipeline.</span><span class="desc-more" data-t="MapLibre GL JS compatible, with no map server: everything is read and drawn in the browser.">MapLibre GL JS compatible, with no map server: everything is read and drawn in the browser.</span></span>
+						<span class="doclinks">
+							<a href="/docs/core.html" data-t="Overview">Overview</a>
+							<a href="/docs/core-jp.html" lang="ja" translate="no">日本語</a>
+							<a href="https://www.npmjs.com/package/@ortho-earth/globe" translate="no">npm</a>
+							<a href="/maplibre/" data-t="139 MapLibre examples">139 MapLibre examples</a>
+						</span>
+					</div>
+					<div class="tech-cols">
+						<div class="tech-col"><h4 class="tech-col-title" data-t="Draw">Draw</h4><ul class="tech-list"><li><span class="" data-t="WebGPU, with WebGL2 as the fallback — drawing runs in workers">WebGPU, with WebGL2 as the fallback — drawing runs in workers</span></li><li><span class="" data-t="One camera from the street to the Solar System, on a true WGS84 ellipsoid">One camera from the street to the Solar System, on a true WGS84 ellipsoid</span></li><li><span class="" data-t="Terrain at real scale, never exaggerated; 3D cities, shadows of the sun">Terrain at real scale, never exaggerated; 3D cities, shadows of the sun</span></li></ul></div>
+						<div class="tech-col"><h4 class="tech-col-title" data-t="Read">Read</h4><ul class="tech-list"><li><span class="" data-t="MapLibre GL JS API and style.json — the 139 official examples run unchanged">MapLibre GL JS API and style.json — the 139 official examples run unchanged</span></li><li><span class="" data-t="Vector and raster tiles, PMTiles, COG, 3D Tiles, I3S, glTF, COPC point clouds, GeoParquet">Vector and raster tiles, PMTiles, COG, 3D Tiles, I3S, glTF, COPC point clouds, GeoParquet</span></li><li><span class="" data-t="Old maps over IIIF by their control points; OGC API and ArcGIS feature services">Old maps over IIIF by their control points; OGC API and ArcGIS feature services</span></li></ul></div>
+						<div class="tech-col"><h4 class="tech-col-title" data-t="Ask">Ask</h4><ul class="tech-list"><li><span class="" data-t="Click, hover and query rendered features; feature state">Click, hover and query rendered features; feature state</span></li><li><span class="" data-t="Viewshed, line of sight and cross-sections">Viewshed, line of sight and cross-sections</span></li><li><span class="" data-t="Gint: shared-edge topology on the GPU for instant identify and choropleths">Gint: shared-edge topology on the GPU for instant identify and choropleths</span></li></ul></div>
+						<div class="tech-col"><h4 class="tech-col-title" data-t="Time and place">Time and place</h4><ul class="tech-list"><li><span class="" data-t="One shared clock: night side, stars, satellites and CZML/GPX tracks follow it">One shared clock: night side, stars, satellites and CZML/GPX tracks follow it</span></li><li><span class="" data-t="No server: public data is read straight by the browser and kept in its cache">No server: public data is read straight by the browser and kept in its cache</span></li><li><span class="" data-t="Region packs add local knowledge — Japan's basemap, PLATEAU and census">Region packs add local knowledge — Japan's basemap, PLATEAU and census</span></li></ul></div>
+					</div>
 				</div>
 				<div class="card tech-card">
 					<span class="card-eyebrow" data-t="Data format · MIT">Data format · MIT</span>

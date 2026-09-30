@@ -15,6 +15,7 @@
 //   node scripts/verify-examples.mjs --serve                                   （走らせ台だけ立てる＝gallery.html の「ここで開く」）
 //   node scripts/verify-examples.mjs --side ortho --ref r6 --label o1           （こちら＝本物の記録 r6 の標本点で比べる）
 //   node scripts/verify-examples.mjs --grade --ref r6 --ortho o1 [--update]    （採点・見比べ帳・順位表・known.json の爪車）
+//   node scripts/verify-examples.mjs --grade --ref r7 --ortho o67 --publish ../../apps/www/public/maplibre   （www に置く一式＝一覧・サムネ・走らせる例・2026-10-01）
 //   他：--only a,b（例の名前）・--jobs N（並行・既定 3）・--record（全部取り直す）・--gl2（こちらを WebGL2 で）
 import fs from "node:fs";
 import path from "node:path";
@@ -24,7 +25,7 @@ import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
 import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
-import { buildReport, buildGallery } from "../tests/mlexamples/report.mjs";
+import { buildReport, buildGallery, runnableForm } from "../tests/mlexamples/report.mjs";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(CACHE, "..");   // <repo>/.cache/mlexamples
@@ -258,6 +259,33 @@ function compareRuns(la, lb, side) {
 	console.log(`記録：${path.relative(process.cwd(), out)}`);
 }
 
+// ── www に置く一式（--publish <dir>・2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）──
+//   <dir>/index.html＝一覧（写し・題・分類 (一致度 %)・カードで覗き窓＝ortho の形の本文・英日の注釈・Run／Copy／Download）
+//   <dir>/thumbs/<例>.webp＝こちらの写し（full.png を 480×360 に）・<dir>/examples/<例>.html＝走らせる頁（ortho の形の本文＋import map 1 行）
+//   import map の先＝共有エンジンの maplibre 入口（/globe/engine/<版>/maplibre.js・版は apps/ortho-globe/dist/engine/current.json＝先に build:engine）。
+//   旧い版の入口は ortho-globe の配信口が今の版へ 302 で送る＝www を焼き直さなくても動き続ける
+let publishP = null;   // 書き出し（sharp の縮小）は非同期＝process.exit の前に待つ
+function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
+	const cur = JSON.parse(fs.readFileSync(path.join(PKG, "../../apps/ortho-globe/dist/engine/current.json"), "utf8"));
+	if (!cur.entries?.includes("maplibre")) throw new Error("共有エンジンに maplibre の入口が無い＝npm run build:engine -w ortho-globe");
+	const engineUrl = `/globe/engine/${cur.version}/maplibre.js`;
+	fs.rmSync(out, { recursive: true, force: true });
+	fs.mkdirSync(path.join(out, "thumbs"), { recursive: true }); fs.mkdirSync(path.join(out, "examples"), { recursive: true });
+	const pub = rows.filter(r => sources[r.name]);
+	return (async () => {
+		const sharp = (await import("sharp")).default;
+		for (const r of pub) {
+			fs.writeFileSync(path.join(out, "examples", `${r.name}.html`), runnableForm(sources[r.name], engineUrl));
+			const png = path.join(ROOT, "runs", orthoLabel, "ortho", `${r.name}.full.png`);
+			if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "thumbs", `${r.name}.webp`));
+		}
+		fs.writeFileSync(path.join(out, "index.html"), buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources,
+			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }));
+		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
+		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
+	})();
+}
+
 // ── 採点（段 4）＋爪車（段 5）：本物 runs/<ref> とこちら runs/<ortho> を突き合わせ、見比べ帳と順位表を出し、known.json と比べる ──
 const KNOWN = path.join(PKG, "tests/mlexamples/known.json");
 const T_TEXT_N = 5;   // 文字の比率を見る最小の個数（少ない例は揺れる）
@@ -294,6 +322,7 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	// 例の HTML 本文（取り置き＝本物の例そのまま）＝ギャラリーの覗き窓が「ortho で動く形」に道だけ替えて見せる・コピー／ダウンロードできる（2026-09-30 本人）
 	const sources = Object.fromEntries(rows.map(r => { try { return [r.name, fs.readFileSync(path.join(CACHE, "examples", r.name + ".html"), "utf8")]; } catch { return [r.name, ""]; } }));
 	fs.writeFileSync(path.join(dir, "gallery.html"), buildGallery({ rows, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, base: `http://localhost:${PORT}` }));   // 丸の無い一覧（人が見比べる用・リンクで本物とこちらを開く）
+	if (opt("--publish")) publishP = publishGallery(path.resolve(opt("--publish")), { rows, refLabel, orthoLabel, notes, sources });
 	fs.writeFileSync(path.join(dir, "grades.json"), JSON.stringify({ refLabel, orthoLabel, summary, ranking, grades: rows.map(r => ({ name: r.name, ...r.grade, color: undefined })) }, null, 1));
 	console.log(`\n見比べ帳：${path.relative(process.cwd(), path.join(dir, "index.html"))}`);
 	// 爪車：段が下がった例＝落ちる／上がった例＝--update で書き換える（実 GPU 1 回では落とさない）
@@ -319,7 +348,7 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 
 const side = opt("--side", "ref");
 if (has("--compare")) { const i = argv.indexOf("--compare"); compareRuns(argv[i + 1], argv[i + 2], side); process.exit(0); }
-if (has("--grade")) process.exit(gradeRuns(opt("--ref"), opt("--ortho"), { update: has("--update") }));
+if (has("--grade")) { const code = gradeRuns(opt("--ref"), opt("--ortho"), { update: has("--update") }); await publishP; process.exit(code); }
 
 const corpus = await ensureCorpus();
 const mode = has("--record") ? "record" : has("--record-missing") ? "record-missing" : "replay";
