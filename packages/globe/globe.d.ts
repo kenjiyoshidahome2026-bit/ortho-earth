@@ -524,7 +524,11 @@ export interface HeatmapLayer { type: "heatmap"; id?: string; source?: { type: "
 export interface CirclePaint { "circle-color"?: StyleExpression; "circle-radius"?: StyleExpression; "circle-stroke-color"?: StyleExpression; "circle-stroke-width"?: StyleExpression; "circle-opacity"?: StyleExpression }
 export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number } }
 export type MapLibreSource =
-	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] } */
+	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] }。
+	 *  URL は transformRequest を通して直に取る（型は "Source"・どこの proxy も通らない・1.14.0〜）。拡張子の無い URL は中身の頭で GeoJSON か GeoPBF かを決める。
+	 *  公開のフィーチャーサービス（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）も data に渡せる（1.14.0〜・#176）：件数が 5 万以下は丸ごと・
+	 *  超えたら fill/line/circle の層は視野の枡だけ読む（動いて止まったら足す・引きすぎの間は読まない）。一度読んだ分は IndexedDB に GeoPBF で控える。
+	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る） */
 	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
