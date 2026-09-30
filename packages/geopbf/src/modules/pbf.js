@@ -207,7 +207,7 @@ function makeRoomForExtraLength(pbf, startPos, len) {
 	let extraLen = 0;
 	for (let n = len; n > 0x7f; n = Math.floor(n / 128)) extraLen++;
 	pbf.realloc(extraLen);
-	for (let i = pbf.pos - 1; i >= startPos; i--) pbf.buf[i + extraLen] = pbf.buf[i];
+	pbf.buf.copyWithin(startPos + extraLen, startPos, pbf.pos);   // 旧＝1 バイトずつの逆順ループ（大きな packed 列・長い文字列で目立つ）
 }
 
 function packVarint(arr, pbf)   { for (let i = 0; i < arr.length; i++) pbf.writeVarint(arr[i]); }
