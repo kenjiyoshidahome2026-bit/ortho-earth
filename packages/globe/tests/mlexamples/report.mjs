@@ -71,42 +71,59 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => {
 </script></body></html>`;
 }
 
-// 丸（標本点）の無い一覧＝人が見比べる用（2026-09-30 本人「比較の丸を抜いて・リンク先を入れれば比較はユーザーでできる」）。
-// 1 例＝こちらの写し＋段＋コメント＋リンク（公式サイトの例・本物をこの走らせ台で開く・こちらで開く）。本物の写しは載せない（公式の頁で見る）
-export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, base = "http://localhost:5253" }) {
+// 丸（標本点）の無い一覧＝人が見比べる用（2026-09-30 本人「比較の丸を抜いて・リンク先を入れれば比較はユーザーでできる」「美しく・絵を横に揃えて・英語で」）。
+// 1 例＝こちらの写し（上・同じ比率で横に揃う）＋題＋段＋分類＋リンク（公式サイトの例・本物をこの走らせ台で・こちらで）。コメント（日本語）は畳んでおく。本物の写しは載せない（公式の頁で見る）
+export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, base = "http://localhost:5253", summary = null }) {
+	const LV = { 3: ["Same picture", "l3"], 2: ["Same answers", "l2"], 1: ["Runs", "l1"], 0: ["Does not run", "l0"], x: ["Excluded", "lx"] };
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
+	const n = l => rows.filter(r => (r.grade.level ?? "x") === l).length;
 	const card = r => {
-		const g = r.grade, lvl = g.level == null ? "分母の外" : LEVEL[g.level], note = notes[r.name];
-		return `<article class="card" data-level="${g.level ?? "x"}" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}">
-<header><h2 id="${esc(r.name)}">${esc(r.title || r.name)}</h2><span class="lv lv${g.level ?? "x"}">${esc(lvl)}</span><span class="muted">${esc(r.category)}</span></header>
-<p class="links"><a href="https://maplibre.org/maplibre-gl-js/docs/examples/${esc(r.name)}/" target="_blank" rel="noopener">公式サイトの例 ↗</a> <a href="${esc(base)}/ref/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener">本物をここで開く ↗</a> <a href="${esc(base)}/ortho/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener">こちらで開く ↗</a></p>
-${note ? `<p class="note">${esc(note)}</p>` : ""}
-<figure><a href="${esc(base)}/ortho/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener"><img loading="lazy" src="../../runs/${esc(orthoLabel)}/ortho/${esc(r.name)}.full.png" alt="${esc(r.name)}"></a><figcaption>こちら（MapLibre の口・runs/${esc(orthoLabel)}）</figcaption></figure>
-</article>`;
+		const g = r.grade, k = g.level ?? "x", [lvName, lvCls] = LV[k], note = notes[r.name];
+		const ours = `${base}/ortho/test/examples/${r.name}.html`, real = `${base}/ref/test/examples/${r.name}.html`, docs = `https://maplibre.org/maplibre-gl-js/docs/examples/${r.name}/`;
+		return `<article class="card" data-level="${k}" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}">
+<a class="shot" href="${esc(ours)}" target="_blank" rel="noopener"><img loading="lazy" src="../../runs/${esc(orthoLabel)}/ortho/${esc(r.name)}.full.png" alt=""></a>
+<div class="body">
+<h2 title="${esc(r.title || r.name)}">${esc(r.title || r.name)}</h2>
+<p class="meta"><span class="dot ${lvCls}"></span>${lvName}<span class="sep">·</span>${esc(r.category || "")}</p>
+<p class="links"><a href="${esc(docs)}" target="_blank" rel="noopener">Docs</a><a href="${esc(real)}" target="_blank" rel="noopener">MapLibre</a><a href="${esc(ours)}" target="_blank" rel="noopener">ortho</a>${note ? `<button class="tg" type="button">Note</button>` : ""}</p>
+${note ? `<p class="note" hidden>${esc(note)}</p>` : ""}
+</div></article>`;
 	};
-	return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre の公式例をこちらで</title>
+	const stat = (k, label) => `<div class="stat"><b>${n(k)}</b><span>${label}</span></div>`;
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre examples on ortho</title>
 <style>
-:root{--bg:#f6f5f2;--fg:#1d1d1b;--muted:#6b6a66;--card:#fff;--line:#dedcd6;--l0:#d23c3c;--l1:#d08a1c;--l2:#2f6fe0;--l3:#1a9e5c}
-@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--muted:#9c9a93;--card:#1e1e1c;--line:#34332f}}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
-main{max-width:1200px;margin:0 auto;padding:16px} h1{font-size:20px;margin:8px 0} h2{font-size:15px;margin:0} .muted{color:var(--muted)}
-nav{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0} nav button,nav select{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer} nav button.on{outline:2px solid var(--l2)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:12px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
-.card header{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
-.lv{font-size:12px;padding:1px 7px;border-radius:10px;color:#fff;background:var(--l1)} .lv0{background:var(--l0)} .lv1{background:var(--l1)} .lv2{background:var(--l2)} .lv3{background:var(--l3)} .lvx{background:var(--muted)}
-.links a{margin-right:10px} .note{background:#fff7e0;border-left:4px solid #d08a1c;padding:6px 10px;border-radius:4px;font-size:13px} @media (prefers-color-scheme:dark){.note{background:#2b2414}}
-figure{margin:0} figure img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;background:#000;display:block} figcaption{font-size:12px;color:var(--muted)}
+:root{--bg:#f7f7f5;--fg:#17170f;--muted:#6f6e68;--card:#ffffff;--line:#e6e5e0;--l0:#c8412f;--l1:#d99a2b;--l2:#3b6fd6;--l3:#1f9d5a;--lx:#9a9993;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -12px rgba(0,0,0,.18)}
+@media (prefers-color-scheme:dark){:root{--bg:#121211;--fg:#eeede8;--muted:#9c9b94;--card:#1c1c1a;--line:#2d2d2a;--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.7)}}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,"Helvetica Neue",Arial,sans-serif;-webkit-font-smoothing:antialiased}
+main{max-width:1320px;margin:0 auto;padding:40px 24px 72px}
+header.top h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:650} header.top p{margin:0;color:var(--muted);max-width:70ch}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin:22px 0 8px} .stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 16px;min-width:132px;box-shadow:var(--shadow)} .stat b{display:block;font-size:24px;font-weight:650;letter-spacing:-.02em} .stat span{color:var(--muted);font-size:12.5px}
+nav{position:sticky;top:0;z-index:2;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);padding:12px 0;margin:8px 0 18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line)}
+nav button,nav select{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:13.5px;cursor:pointer} nav button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)} nav .sp{flex:1}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .15s ease,box-shadow .15s ease}
+.card:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(0,0,0,.06),0 16px 32px -14px rgba(0,0,0,.28)}
+.shot{display:block;aspect-ratio:4/3;background:#e9e8e3;overflow:hidden} .shot img{width:100%;height:100%;object-fit:cover;display:block}
+.body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}
+h2{font-size:15.5px;font-weight:600;margin:0;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.meta{margin:0;color:var(--muted);font-size:13px;display:flex;align-items:center;gap:6px} .dot{width:9px;height:9px;border-radius:50%;display:inline-block} .l0{background:var(--l0)} .l1{background:var(--l1)} .l2{background:var(--l2)} .l3{background:var(--l3)} .lx{background:var(--lx)} .sep{opacity:.5}
+.links{margin:2px 0 0;display:flex;gap:6px;flex-wrap:wrap} .links a,.links .tg{font-size:12.5px;text-decoration:none;color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:transparent;font-family:inherit;cursor:pointer} .links a:hover,.links .tg:hover{border-color:var(--fg)}
+.note{margin:6px 0 0;font-size:13px;line-height:1.5;color:var(--fg);background:color-mix(in srgb,var(--l1) 10%,var(--card));border-left:3px solid var(--l1);padding:8px 10px;border-radius:6px}
+footer{margin-top:48px;color:var(--muted);font-size:12.5px;line-height:1.7}
 </style></head><body><main>
-<h1>MapLibre GL JS の公式例 139 本を、同じコードのままこちらで</h1>
-<p class="muted">こちらの写し＝runs/${esc(orthoLabel)}（本物＝runs/${esc(refLabel)} の走りと同じ録りの網）・${esc(when)}。写しの上の丸（標本点）は無し＝見比べは「公式サイトの例」「本物をここで開く」「こちらで開く」のリンクで。「ここで開く」は <code>npm run verify:examples -- --serve</code> で走らせ台を立てている間だけ（${esc(base)}）。</p>
-<nav><button data-f="all" class="on">全部</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}">${LEVEL[l]}</button>`).join("")}<button data-f="lx">分母の外</button><button data-f="note">コメントあり</button>
-<select id="cat"><option value="">全ての分類</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
+<header class="top"><h1>MapLibre GL JS examples, on ortho</h1>
+<p>The 139 official MapLibre GL JS examples, run unchanged against the ortho globe engine through its MapLibre-compatible API. Each card shows ortho's rendering. Open the same example in real MapLibre and in ortho side by side and compare for yourself.</p></header>
+<div class="stats">${stat(3, "Same picture")}${stat(2, "Same answers")}${stat(1, "Runs")}${stat(0, "Does not run")}${stat("x", "Excluded")}${summary ? `<div class="stat"><b>${summary.plain3}/${summary.plainN}</b><span>Same picture · no keys, libs, custom</span></div>` : ""}</div>
+<nav><button data-f="all" class="on">All</button><button data-f="l3">Same picture</button><button data-f="l2">Same answers</button><button data-f="l1">Runs</button><button data-f="l0">Does not run</button><button data-f="lx">Excluded</button><button data-f="note">With notes</button><span class="sp"></span>
+<select id="cat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
+<footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see attributions inside each example.<br>
+Grading: <em>Same picture</em> = colors match at sampled points; <em>Same answers</em> = layers, queries and camera agree; <em>Runs</em> = loads without errors; <em>Excluded</em> = the reference capture itself is invalid in this rig (see note). Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "MapLibre" and "ortho" links work while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).</footer>
 </main><script>
 let f = "all", cat = "";
 const apply = () => { for (const c of document.querySelectorAll(".card")) c.hidden = !((f === "all" || (f === "note" && c.dataset.note === "1") || f === "l" + c.dataset.level) && (!cat || c.dataset.cat === cat)); };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
+for (const t of document.querySelectorAll(".tg")) t.onclick = () => { const p = t.closest(".body").querySelector(".note"); p.hidden = !p.hidden; };
 </script></body></html>`;
 }
