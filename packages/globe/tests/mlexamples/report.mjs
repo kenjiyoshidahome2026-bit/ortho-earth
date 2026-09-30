@@ -76,25 +76,22 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => {
 // 丸（標本点）の無い一覧＝人が見比べる用（2026-09-30 本人「比較の丸を抜いて・リンク先を入れれば比較はユーザーでできる」「美しく・絵を横に揃えて・英語で」）。
 // 1 例＝こちらの写し（上・同じ比率で横に揃う）＋題＋段＋分類＋リンク（公式サイトの例・本物をこの走らせ台で・こちらで）。コメント（日本語）は畳んでおく。本物の写しは載せない（公式の頁で見る）
 export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sources = {}, base = "http://localhost:5253" }) {
-	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。載せるのは写し・題・分類・一致度 %（数）・リンク・HTML の覗き窓（例の本文を ortho で動く形に道だけ替えた物＋英日の注釈＋コピー／ダウンロード）
+	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
 	// 例の本文→ortho で動く形：替えるのは 2 つの道だけ（MapLibre の module → 通訳の npm の口・CSS → unpkg の本物）。例の本文は他に一文字も変えない
-	// 本物で動く形＝同じ 2 つの道を unpkg の本物へ（そのまま保存して開けば MapLibre で走る）
-	const CSS = "\"https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css\"", RE_JS = /(['"])\.\.\/\.\.\/dist\/maplibre-gl-dev\.mjs\1/g, RE_CSS = /(['"])\.\.\/\.\.\/dist\/maplibre-gl\.css\1/g;
-	const toOrtho = src => src.replace(RE_JS, "\"@ortho-earth/globe/maplibre\"").replace(RE_CSS, CSS);
-	const toML = src => src.replace(RE_JS, "\"https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl-dev.mjs\"").replace(RE_CSS, CSS);
+	const toOrtho = src => src
+		.replace(/(['"])\.\.\/\.\.\/dist\/maplibre-gl-dev\.mjs\1/g, "\"@ortho-earth/globe/maplibre\"")
+		.replace(/(['"])\.\.\/\.\.\/dist\/maplibre-gl\.css\1/g, "\"https://unpkg.com/maplibre-gl@6.11.2/dist/maplibre-gl.css\"");
 	const payload = {};
-	for (const r of rows) { const n = noteOf(notes, r.name), src = sources[r.name] || ""; payload[r.name] = { title: r.title || r.name, ortho: src ? toOrtho(src) : "", ml: src ? toML(src) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null }; }
+	for (const r of rows) { const n = noteOf(notes, r.name); payload[r.name] = { title: r.title || r.name, html: sources[r.name] ? toOrtho(sources[r.name]) : "", note: n ? { en: n.en || "", ja: n.ja || "" } : null }; }
 	const card = r => {
 		const note = noteOf(notes, r.name), c = completeness(r.grade);
-		const ours = `${base}/ortho/test/examples/${r.name}.html`, real = `${base}/ref/test/examples/${r.name}.html`;
 		const pct = c == null ? `<span class="pct na" title="${esc(r.grade?.refWhy || "reference not available")}">(n/a)</span>` : `<span class="pct" title="${esc(c.detail)}" data-pct="${c.pct}">(${c.pct}%)</span>`;
-		return `<article class="card" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}" data-name="${esc(r.name)}">
-<a class="shot" href="${esc(ours)}" target="_blank" rel="noopener"><img loading="lazy" src="../../runs/${esc(orthoLabel)}/ortho/${esc(r.name)}.full.png" alt=""></a>
+		return `<article class="card" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}" data-name="${esc(r.name)}" tabindex="0" role="button" aria-label="${esc(r.title || r.name)}">
+<div class="shot"><img loading="lazy" src="../../runs/${esc(orthoLabel)}/ortho/${esc(r.name)}.full.png" alt=""></div>
 <div class="body">
 <h2 title="${esc(r.title || r.name)}">${esc(r.title || r.name)}</h2>
-<p class="meta"><button type="button" class="cat" data-cat="${esc(r.category || "")}" title="Show this category">${esc(r.category || "")}</button> ${pct}</p>
-<p class="links"><a href="${esc(real)}" target="_blank" rel="noopener">MapLibre</a><a href="${esc(ours)}" target="_blank" rel="noopener">ortho</a><button class="tg" type="button" data-name="${esc(r.name)}">HTML${note ? " · note" : ""}</button></p>
+<p class="meta"><button type="button" class="cat" data-cat="${esc(r.category || "")}" title="Show this category">${esc(r.category || "")}</button> ${pct}${note ? ` <span class="nt" title="Has a note">note</span>` : ""}</p>
 </div></article>`;
 	};
 	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre examples on ortho</title>
@@ -107,39 +104,39 @@ header.top h1{font-size:30px;letter-spacing:-.02em;margin:0 0 6px;font-weight:65
 nav{position:sticky;top:0;z-index:2;background:color-mix(in srgb,var(--bg) 88%,transparent);backdrop-filter:blur(8px);padding:12px 0;margin:22px 0 18px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line)}
 nav button,nav select{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:999px;padding:6px 14px;font:inherit;font-size:13.5px;cursor:pointer} nav button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)} nav .sp{flex:1} nav .count{color:var(--muted);font-size:13px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:22px 20px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .15s ease,box-shadow .15s ease}
-.card:hover{transform:translateY(-2px);box-shadow:0 2px 4px rgba(0,0,0,.06),0 16px 32px -14px rgba(0,0,0,.28)}
-.shot{display:block;aspect-ratio:4/3;background:#e9e8e3;overflow:hidden;position:relative} .shot img{width:100%;height:100%;object-fit:cover;display:block}
-.pct{font-weight:650;color:var(--fg);font-variant-numeric:tabular-nums;cursor:help} .pct.na{color:var(--muted);font-weight:500}
-.meta .cat{border:0;background:transparent;color:var(--muted);font:inherit;padding:0;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px} .meta .cat:hover{color:var(--fg);text-decoration-color:var(--acc)}
-.dh .var{display:flex;border:1px solid var(--line);border-radius:999px;overflow:hidden} .dh .var button{border:0;border-radius:0;padding:5px 12px} .dh .var button.on{background:var(--fg);color:var(--bg)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;transition:transform .15s ease,box-shadow .15s ease;cursor:pointer}
+.card[hidden]{display:none}   /* display:flex が UA の [hidden] に勝つ＝絞り込みで消えなかった（2026-09-30 本人「セレクトできてない」） */
+.card:hover,.card:focus-visible{transform:translateY(-2px);box-shadow:0 2px 4px rgba(0,0,0,.06),0 16px 32px -14px rgba(0,0,0,.28);outline:none}
+.shot{display:block;aspect-ratio:4/3;background:#e9e8e3;overflow:hidden} .shot img{width:100%;height:100%;object-fit:cover;display:block}
 .body{padding:12px 14px 14px;display:flex;flex-direction:column;gap:6px}
 h2{font-size:15.5px;font-weight:600;margin:0;line-height:1.3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .meta{margin:0;color:var(--muted);font-size:13px}
-.links{margin:2px 0 0;display:flex;gap:6px;flex-wrap:wrap} .links a,.links .tg{font-size:12.5px;text-decoration:none;color:var(--fg);border:1px solid var(--line);border-radius:999px;padding:3px 10px;background:transparent;font-family:inherit;cursor:pointer;line-height:1.5} .links a:hover,.links .tg:hover{border-color:var(--fg)}
+.pct{font-weight:650;color:var(--fg);font-variant-numeric:tabular-nums;cursor:help} .pct.na{color:var(--muted);font-weight:500}
+.nt{font-size:11px;border:1px solid var(--acc);color:var(--acc);border-radius:999px;padding:0 7px;margin-left:4px;vertical-align:1px}
+.meta .cat{border:0;background:transparent;color:var(--muted);font:inherit;padding:0;cursor:pointer;text-decoration:underline;text-decoration-color:transparent;text-underline-offset:3px} .meta .cat:hover{color:var(--fg);text-decoration-color:var(--acc)}
 footer{margin-top:48px;color:var(--muted);font-size:12.5px;line-height:1.7}
-dialog{border:0;border-radius:16px;padding:0;width:min(960px,calc(100vw - 32px));max-height:calc(100vh - 48px);background:var(--card);color:var(--fg);box-shadow:0 24px 64px -24px rgba(0,0,0,.5)} dialog::backdrop{background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
+dialog{border:0;border-radius:16px;padding:0;width:min(1080px,calc(100vw - 32px));max-height:calc(100vh - 48px);background:var(--card);color:var(--fg);box-shadow:0 24px 64px -24px rgba(0,0,0,.5)} dialog::backdrop{background:rgba(0,0,0,.45);backdrop-filter:blur(2px)}
 .dh{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card);z-index:1} .dh h3{margin:0;font-size:16px;font-weight:650;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dh button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer} .dh button:hover{border-color:var(--fg)} .dh button.ok{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.dh button{border:1px solid var(--line);background:transparent;color:var(--fg);border-radius:999px;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer} .dh button:hover{border-color:var(--fg)} .dh button.ok,.dh button.on{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.fr{margin:14px 18px 0;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#e9e8e3;aspect-ratio:16/9} .fr iframe{width:100%;height:100%;border:0;display:block}
 .dn{margin:14px 18px 0;font-size:13.5px;line-height:1.55;background:color-mix(in srgb,var(--acc) 10%,var(--card));border-left:3px solid var(--acc);padding:10px 12px;border-radius:8px} .dn p{margin:0} .dn p+p{margin-top:6px} .dn .ja{color:var(--muted)}
 .hw{margin:12px 18px 0;font-size:13px;line-height:1.55;color:var(--muted)} .hw p{margin:0} .hw p+p{margin-top:4px} .hw code{font-size:12px;background:var(--code);padding:1px 5px;border-radius:4px} .hw a{color:inherit}
 pre{margin:12px 0 0;padding:16px 18px 20px;background:var(--code);font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;overflow:auto;tab-size:4;white-space:pre}
 </style></head><body><main>
 <header class="top"><h1>MapLibre GL JS examples, on ortho</h1>
-<p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho globe engine through its MapLibre-compatible API. Each card shows ortho's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Open the same example in real MapLibre and in ortho, compare for yourself, and take the HTML — in its MapLibre form or its ortho form — to run it on your own.</p></header>
+<p><a href="https://maplibre.org/maplibre-gl-js/docs/examples/" target="_blank" rel="noopener">The 139 official MapLibre GL JS examples</a>, run unchanged against the ortho globe engine through its MapLibre-compatible API. Each card shows ortho's rendering and, after the category, how closely it matches MapLibre (answers and sampled pixels). Click a card for the example's source in its ortho form — run it here, copy it, or download it.</p></header>
 <nav><button data-f="all" class="on">All</button><button data-f="note">With notes</button><span class="count" id="count"></span><span class="sp"></span>
 <select id="cat"><option value="">All categories</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
 <div class="grid">${rows.map(card).join("\n")}</div>
 <footer>Examples © MapLibre contributors (BSD-3-Clause), reproduced unchanged from MapLibre GL JS 6.11.2. ortho is not affiliated with or endorsed by the MapLibre project. Basemap data and imagery in each example belong to their respective providers; see the attribution inside each example.<br>
-Match % = level-2 checks passed (unsupported ops, engine errors, layer list, query answers, markers, popups, camera) weighted 40%, plus sampled-pixel agreement with MapLibre weighted 60% when both sides settled (animated examples: checks only). Hover the badge for the numbers.<br>
-Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. The "MapLibre" and "ortho" links work while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).</footer>
+Match % = level-2 checks passed (unsupported ops, engine errors, layer list, query answers, markers, popups, camera) weighted 40%, plus sampled-pixel agreement with MapLibre weighted 60% when both sides settled (animated examples: checks only). Hover the number for the counts.<br>
+Captures: ortho runs/${esc(orthoLabel)} · reference runs/${esc(refLabel)} · ${esc(when)}. "Run" works while the local rig is up (<code>npm run verify:examples -- --serve</code>, ${esc(base)}).</footer>
 </main>
-<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><span class="var"><button type="button" data-v="ml">MapLibre</button><button type="button" data-v="ortho" class="on">ortho</button></span><button type="button" id="run" title="Run this source in a new tab">Run</button><button type="button" id="cp">Copy</button><button type="button" id="dl">Download</button><button type="button" id="cl">Close</button></div>
+<dialog id="dlg"><div class="dh"><h3 id="dt"></h3><button type="button" id="run" title="Run this example here (local rig)">Run</button><button type="button" id="cp">Copy</button><button type="button" id="dl">Download</button><button type="button" id="cl">Close</button></div>
+<div class="fr" id="fr" hidden></div>
 <div class="dn" id="dn" hidden></div>
-<div class="hw" id="hw-ml" hidden><p><b>Run it yourself (MapLibre).</b> The example's HTML with only two paths changed: the module import and the CSS point at MapLibre GL JS 6.11.2 on unpkg. <b>Run</b> opens exactly this source in a new tab; or save it as an <code>.html</code> file and open it in a browser — it runs in real MapLibre as-is.</p>
-<p class="ja">自分で動かす（MapLibre）：例の HTML のうち 2 つの道だけを unpkg の MapLibre GL JS 6.11.2 に替えたものです。<b>Run</b> でこの本文そのものが新しいタブで開きます。<code>.html</code> として保存してブラウザで開いても、本物の MapLibre でそのまま動きます。</p></div>
-<div class="hw" id="hw-ortho"><p><b>Run it yourself (ortho).</b> The same HTML with the module import changed to <code>@ortho-earth/globe/maplibre</code> (CSS from unpkg). Save it as <code>index.html</code> in a Vite project that has <code>@ortho-earth/globe</code> installed (<a href="https://www.ortho-earth.com/start.md" target="_blank" rel="noopener">Get started</a>, Route A), then <code>npm run dev</code>. The engine's workers must come from your own origin, so a bare CDN import does not work. <b>Run</b> opens this example on the local rig (while it is up).</p>
-<p class="ja">自分で動かす（ortho）：同じ HTML の import を <code>@ortho-earth/globe/maplibre</code> に替えたものです（CSS は unpkg）。<code>@ortho-earth/globe</code> を入れた Vite の企画に <code>index.html</code> として置き、<code>npm run dev</code>。エンジンの worker は自分の origin から配る必要があるので、CDN からの直 import では動きません。<b>Run</b> は手元の走らせ台でこの例を開きます（立っている間）。</p></div>
+<div class="hw"><p><b>Run it yourself.</b> This is the example's HTML with only two paths changed: the MapLibre module import is now <code>@ortho-earth/globe/maplibre</code>, and the CSS comes from unpkg. Save it as <code>index.html</code> in a Vite project that has <code>@ortho-earth/globe</code> installed (<a href="https://www.ortho-earth.com/start.md" target="_blank" rel="noopener">Get started</a>, Route A), then <code>npm run dev</code>. The engine's workers must come from your own origin, so a bare CDN import does not work. <b>Run</b> above plays the example right here (local rig).</p>
+<p class="ja">自分で動かす：例の HTML のうち 2 つの道だけを替えたものです（MapLibre の import → <code>@ortho-earth/globe/maplibre</code>・CSS は unpkg の本物）。<code>@ortho-earth/globe</code> を入れた Vite の企画に <code>index.html</code> として置き、<code>npm run dev</code>。エンジンの worker は自分の origin から配る必要があるので、CDN からの直 import では動きません。上の <b>Run</b> はこの場で例を動かします（手元の走らせ台）。</p></div>
 <pre><code id="dc"></code></pre></dialog>
 <script type="application/json" id="payload">${JSON.stringify(payload).replace(/</g, "\\u003c")}</script>
 <script>
@@ -147,30 +144,27 @@ let f = "all", cat = "";
 const apply = () => { let n = 0; for (const c of document.querySelectorAll(".card")) { const on = (f === "all" || (f === "note" && c.dataset.note === "1")) && (!cat || c.dataset.cat === cat); c.hidden = !on; if (on) n++; } document.getElementById("count").textContent = n + " examples"; };
 for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
 document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
-for (const b of document.querySelectorAll(".meta .cat")) b.onclick = () => { cat = cat === b.dataset.cat ? "" : b.dataset.cat; document.getElementById("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };   // カードの分類＝押すと絞る（もう一度で解除）
+for (const b of document.querySelectorAll(".meta .cat")) b.onclick = e => { e.stopPropagation(); cat = cat === b.dataset.cat ? "" : b.dataset.cat; document.getElementById("cat").value = cat; apply(); window.scrollTo({ top: 0, behavior: "smooth" }); };   // カードの分類＝押すと絞る（もう一度で解除）
 apply();
 const P = JSON.parse(document.getElementById("payload").textContent), dlg = document.getElementById("dlg"), $ = id => document.getElementById(id), BASE = ${JSON.stringify(base)};
-let cur = null, variant = "ortho";
-const html = () => (P[cur] || {})[variant] || "";
-const show = () => { $("dc").textContent = html() || "(source not captured)"; $("hw-ml").hidden = variant !== "ml"; $("hw-ortho").hidden = variant !== "ortho"; for (const b of document.querySelectorAll(".dh .var button")) b.classList.toggle("on", b.dataset.v === variant); };
-for (const b of document.querySelectorAll(".dh .var button")) b.onclick = () => { variant = b.dataset.v; show(); };
+let cur = null;
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\"": "&quot;" })[c]);
+const stop = () => { $("fr").hidden = true; $("fr").innerHTML = ""; $("run").textContent = "Run"; $("run").classList.remove("on"); };
 const open = name => {
-	const p = P[name]; if (!p) return; cur = name;
-	$("dt").textContent = p.title; show();
+	const p = P[name]; if (!p) return; cur = name; stop();
+	$("dt").textContent = p.title; $("dc").textContent = p.html || "(source not captured)";
 	const dn = $("dn"); dn.hidden = !p.note; dn.innerHTML = p.note ? (p.note.en ? "<p>" + esc(p.note.en) + "</p>" : "") + (p.note.ja ? "<p class=\\"ja\\">" + esc(p.note.ja) + "</p>" : "") : "";
 	$("cp").textContent = "Copy"; $("cp").classList.remove("ok");
-	dlg.showModal(); dlg.scrollTop = 0; history.replaceState(null, "", "#" + name);
+	if (!dlg.open) dlg.showModal(); dlg.scrollTop = 0; history.replaceState(null, "", "#" + name);
 };
-const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\\"": "&quot;" })[c]);
-for (const t of document.querySelectorAll(".tg")) t.onclick = () => open(t.dataset.name);
-// Run＝本物の形はこの本文そのものを blob の頁として開く（unpkg の本物を import＝走らせ台なしで動く）・ortho の形は bare import＝走らせ台の頁を開く（同じ本文を通訳で走らせる）
-// file:// で開いた見比べ帳は origin が無い＝blob の頁で MapLibre の worker が起こせない（実測）→ その時だけ走らせ台の本物の頁へ
-$("run").onclick = () => { if (variant === "ml" && location.protocol !== "file:") { const u = URL.createObjectURL(new Blob([html()], { type: "text/html" })); window.open(u, "_blank", "noopener"); setTimeout(() => URL.revokeObjectURL(u), 60000); } else window.open(BASE + "/" + (variant === "ml" ? "ref" : "ortho") + "/test/examples/" + cur + ".html", "_blank", "noopener"); };
+for (const c of document.querySelectorAll(".card")) { c.onclick = () => open(c.dataset.name); c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.dataset.name); } }; }
+// Run＝同じ本文を通訳で走らせる走らせ台の頁を、この窓の中（iframe）で（タブを増やさない・2026-09-30 本人）。もう一度で止める
+$("run").onclick = () => { if (!$("fr").hidden) return stop(); const fr = $("fr"); fr.hidden = false; fr.innerHTML = '<iframe src="' + BASE + "/ortho/test/examples/" + cur + '.html" allow="fullscreen" loading="eager"></iframe>'; $("run").textContent = "Stop"; $("run").classList.add("on"); };
 $("cl").onclick = () => dlg.close();
 dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
-dlg.onclose = () => history.replaceState(null, "", location.pathname + location.search);
-$("cp").onclick = async () => { const b = $("cp"); try { await navigator.clipboard.writeText(html()); } catch { const r = document.createRange(); r.selectNodeContents($("dc")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("copy"); sel.removeAllRanges(); } b.textContent = "Copied"; b.classList.add("ok"); setTimeout(() => { b.textContent = "Copy"; b.classList.remove("ok"); }, 1400); };
-$("dl").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([html()], { type: "text/html" })); a.download = cur + "." + variant + ".html"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
+dlg.onclose = () => { stop(); history.replaceState(null, "", location.pathname + location.search); };
+$("cp").onclick = async () => { const b = $("cp"); try { await navigator.clipboard.writeText(P[cur].html); } catch { const r = document.createRange(); r.selectNodeContents($("dc")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("copy"); sel.removeAllRanges(); } b.textContent = "Copied"; b.classList.add("ok"); setTimeout(() => { b.textContent = "Copy"; b.classList.remove("ok"); }, 1400); };
+$("dl").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([P[cur].html], { type: "text/html" })); a.download = cur + ".html"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
 if (location.hash.length > 1 && P[location.hash.slice(1)]) open(location.hash.slice(1));
 </script></body></html>`;
 }
