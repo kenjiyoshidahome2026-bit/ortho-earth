@@ -14,6 +14,7 @@
 		".": "./src/index.js",
 		"./tileformat": "./src/tileformat.js",
 		"./gpu": "./src/gpu/backend.js",
+		"./f16": "./src/gpu/f16.js",
 		"./gl": "./src/gl/backend.js",
 		"./labels": "./src/labels2d.js",
 		"./terrain": "./src/terrain.js",
