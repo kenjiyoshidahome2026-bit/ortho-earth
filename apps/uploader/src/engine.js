@@ -12,19 +12,28 @@ export async function engine(q, { Bucket }) {
 	const cur = await fetch(`/@fs${__ENGINE_DIR__}/current.json`).then(r => r.json()).catch(() => null);
 	if (!cur?.version) throw new Error("共有エンジンがまだ焼かれていない＝先に npm run build -w ortho-globe（apps/ortho-globe/dist/engine/current.json を作る）");
 	const { version, files } = cur;
-	const have = new Set();
-	let put = 0, bytes = 0;
-	for (const f of files) {
+	// dir ごとに Bucket を 1 度だけ作り、在庫も 1 度だけ引く（Bucket() は作るたびに到達確認の list を投げる＝246 本で 500 回の往復になっていた）
+	const dirs = new Map();
+	const dirOf = async dir => {
+		if (!dirs.has(dir)) dirs.set(dir, (async () => {
+			const bucket = await Bucket(dir);
+			if (!bucket) throw new Error(`Bucket(${dir}) に到達できない`);
+			return { bucket, have: new Set((await bucket.list()).map(o => o.Key)) };
+		})());
+		return dirs.get(dir);
+	};
+	let put = 0, skip = 0, bytes = 0, next = 0;
+	const one = async f => {
 		const key = `GIS/engine/${version}/${f}`, dir = key.slice(0, key.lastIndexOf("/")), name = key.slice(key.lastIndexOf("/") + 1);
-		const bucket = await Bucket(dir);
-		if (!bucket) throw new Error(`Bucket(${dir}) に到達できない`);
-		if (!have.has(dir)) { for (const o of await bucket.list()) have.add(`${dir}/${o.Key}`); have.add(dir); }
-		if (have.has(key)) continue;
+		const { bucket, have } = await dirOf(dir);
+		if (have.has(name)) { skip++; return; }
 		const r = await fetch(`/@fs${__ENGINE_DIR__}/${version}/${f}`);
 		if (!r.ok || (r.headers.get("content-type") || "").startsWith("text/html")) throw new Error(`${f} を読めない（${r.status}）＝npm run build -w ortho-globe をやり直す`);
 		const blob = await r.blob();
 		await bucket.put(new File([blob], name, { type: MIME[name.split(".").pop()] || "application/octet-stream" }));
 		put++; bytes += blob.size;
-	}
-	q.success(`GIS/engine/${version}：${files.length} 本のうち ${put} 本を置いた（${(bytes / 1e6).toFixed(1)}MB）${put ? "" : "＝既に全部ある"}`);
+		if (put % 20 === 0) q.log(`… ${put + skip}/${files.length}`);
+	};
+	await Promise.all(Array.from({ length: 6 }, async () => { while (next < files.length) await one(files[next++]); }));   // 6 本ずつ並べて置く
+	q.success(`GIS/engine/${version}：${files.length} 本のうち ${put} 本を置いた・${skip} 本は既にあった（${(bytes / 1e6).toFixed(1)}MB）${put ? "" : "＝既に全部ある"}`);
 }
