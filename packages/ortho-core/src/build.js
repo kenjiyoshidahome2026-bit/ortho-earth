@@ -19,6 +19,37 @@ export function extendToPole(flat, tris, extent, pole) {
 	return [pts, out];
 }
 // 三角形の集合を「辺の長さ ≤ maxLen（タイル単位）」まで最長辺の二等分で細分（共有辺の中点は 1 回だけ作る＝隙間なし）。戻り＝[flat（x,y,…）, tris（index）]
+// 多角形（外周＋穴・タイル単位）を四角 [0,extent]² で切り抜く（Sutherland–Hodgman・凸の窓なので環ごとに独立に切ってよい）。
+// 全部が窓の中なら元の配列をそのまま返す（コピー無し）。外周が消えたら null。空になった穴は捨てる
+export function clipToExtent(flat, holes, extent) {
+	let inside = true;
+	for (let i = 0; i < flat.length && inside; i += 2) if (flat[i] < 0 || flat[i] > extent || flat[i + 1] < 0 || flat[i + 1] > extent) inside = false;
+	if (inside) return [flat, holes];
+	const ring = (s, e) => {
+		let pts = Array.from(flat.subarray(s, e));
+		for (let side = 0; side < 4 && pts.length; side++) {
+			const ax = side & 1, hi = side >= 2, out = [];   // side: 0=x≥0 1=y≥0 2=x≤extent 3=y≤extent
+			const inOf = (px, py) => { const v = ax ? py : px; return hi ? v <= extent : v >= 0; };
+			const n = pts.length >> 1;
+			for (let i = 0; i < n; i++) {
+				const j = (i + 1) % n, px = pts[i * 2], py = pts[i * 2 + 1], qx = pts[j * 2], qy = pts[j * 2 + 1], pi = inOf(px, py), qi = inOf(qx, qy);
+				if (pi) out.push(px, py);
+				if (pi !== qi) {   // 辺が窓の縁を跨ぐ＝交点を足す
+					const b = hi ? extent : 0, t = ax ? (b - py) / (qy - py) : (b - px) / (qx - px);
+					out.push(ax ? px + (qx - px) * t : b, ax ? b : py + (qy - py) * t);
+				}
+			}
+			pts = out;
+		}
+		return pts.length >= 6 ? pts : null;
+	};
+	const bounds = [0, ...holes.map(h => h * 2), flat.length];
+	const outer = ring(bounds[0], bounds[1]); if (!outer) return null;
+	const pts = outer.slice(), hs = [];
+	for (let k = 1; k + 1 < bounds.length; k++) { const h = ring(bounds[k], bounds[k + 1]); if (h) { hs.push(pts.length >> 1); for (const v of h) pts.push(v); } }
+	return [Float64Array.from(pts), hs];
+}
+
 export function subdivideTris(flat, tris, maxLen) {
 	const pts = Array.from(flat), out = [], mid = new Map(), m2 = maxLen * maxLen;
 	const midOf = (i, j) => { const k = i < j ? i * 4294967296 + j : j * 4294967296 + i; let r = mid.get(k); if (r === undefined) { r = pts.length >> 1; pts.push((pts[i * 2] + pts[j * 2]) / 2, (pts[i * 2 + 1] + pts[j * 2 + 1]) / 2); mid.set(k, r); } return r; };
@@ -133,7 +164,11 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
-				for (const [flat0, holes] of polygons(f.geom)) {
+				for (const [flatRaw, holesRaw] of polygons(f.geom)) {
+					// タイルの extent で切り抜く（MapLibre はタイルごとにステンシルで extent の外を捨てる）：MVT の余白（buffer）を隣同士が両方描くと
+					// 半透明の塗りが二重に重なり縁に濃い帯が出る・ズーム中はタイルが替わる度に帯が動く＝「塗りがチラチラ」（2026-09-30 本人）
+					const clipped = clipToExtent(flatRaw, holesRaw, extent); if (!clipped) continue;
+					const [flat0, holes] = clipped;
 					const tris0 = earcut(flat0, holes, 2);
 					if (!tris0.length) continue;
 					// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
