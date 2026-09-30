@@ -12,9 +12,9 @@
 // メッセージ面（postMessage）は worker 版と同じ action（identify/click/tiers）＝main 側は受信元が
 // gintWorker→renderWorker へ変わるだけ。
 
-import { createGintPrograms } from './programs.js';
+import { createGintPrograms, deleteGintPrograms } from './programs.js';
 import { checkZoomRange } from './utility.js';
-import { s } from './state.js';
+import { s, SLOT_FIELDS, emptySlot } from './state.js';
 import { uploadGintTextures, uploadBaked, addBakedTier, finishBakedTiers, deleteTextures, scheduleTierBuild } from './textures.js';
 import { createFBOs, deleteFBOs } from './fbo.js';
 import { renderCleanScene, drawHighlight, renderPickingBuffer } from './passes.js';
@@ -22,6 +22,7 @@ import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { computeDrawData, zoomInRange } from './drawdata.js';
 import { uploadFidStyle, clearFidStyle, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
+import { gintDataOf } from './bake.js';
 
 export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // quad4＝線・点を index の 4 頂点で（perf plan P3・?quad4=0 で旧 6 頂点）
 	s.embedded = true;
@@ -42,19 +43,6 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 	// 「梯子不在の窓」（nps_all 実測＝基準メタ451万辺/フレーム、定常の42倍）に毎回落ちていた。
 	// 束ごと退避/復帰すれば交替はポインタ差し替え＝再ベイク・再アップロード・梯子喪失すべてゼロ。
 	// passes.js/identify.js は s.* を読むだけ＝無改造で束の中身に従う。
-	const SLOT_FIELDS = [
-		'gintData', 'arcTex', 'metaTex', 'metaTexB', 'ptTex', 'ptMetaTex', 'pivotTex', 'pivotW',
-		'totalEdges', 'totalPoints', 'polyEdges', 'totalEdgesB', 'polyEdgesB',
-		'fillOff', 'lowFill', 'tiersDone', 'lodTiers', 'metaChunks', 'span', 'spanB',   // span/spanB＝最長辺スパン（地形適応細分の上限）
-		'polyEdgeByFid', 'polyBboxByFid', 'outlineZoom', 'minZoom', 'maxZoom',
-		'fidStyleTex', 'fidStyleW', '_fidStyleH', 'fidStyleCount', '_fidStyleData',   // paint（コロプレス表）も層の属性
-	];
-	// 空束は毎回新品（lodTiers 等の配列参照を共有すると空スロット中の構築が全スロットを汚す）
-	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
-		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
-		fillOff: false, lowFill: false, tiersDone: false, lodTiers: [], metaChunks: null,
-		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
-		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
 	const slots = new Map();   // key → bundle（s と同名フィールドの入れ物）
 	let activeKey = null;      // いま s に住んでいる束のキー（null=空スロット表示中）
 
@@ -90,14 +78,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 				deleteTextures(st); clearFidStyle(st);
 				Object.assign(st, emptySlot());
 				if (data) {
-					st.gintData = {
-						arcBuffer: data.arcBuffer ?? null, arcMeta: data.arcMeta ?? null,
-						polyStream: data.polyStream?.length ? data.polyStream : null,
-						lineStream: data.lineStream?.length ? data.lineStream : null,
-						pointBuffer: data.pointBuffer?.length ? data.pointBuffer : null,
-						point: data.point ?? null, polyCompBbox: data.polyCompBbox ?? null,
-						fillMaxEdges: data.fillMaxEdges ?? null, lowFill: data.lowFill ?? false,
-					};
+					st.gintData = gintDataOf(data);
 					uploadGintTextures(st);
 					({ minZoom: st.minZoom, maxZoom: st.maxZoom } = checkZoomRange({
 						arcMeta: st.gintData.arcMeta, minZoom: data.minZoom ?? null, maxZoom: data.maxZoom ?? null, precision: data.precision ?? 6 }));
@@ -221,15 +202,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 			if (key === activeKey) deleteTextures(s);                   // s に載っている旧資産（束と同一ハンドル）を解放
 			loadBundle(emptySlot());
 			activeKey = key;
-			s.gintData = {
-				arcBuffer:    data.arcBuffer   ?? null,
-				arcMeta:      data.arcMeta     ?? null,
-				polyStream:   data.polyStream?.length  ? data.polyStream  : null,
-				lineStream:   data.lineStream?.length  ? data.lineStream  : null,
-				pointBuffer:  data.pointBuffer?.length ? data.pointBuffer : null,
-				point:        data.point ?? null,
-				polyCompBbox: data.polyCompBbox ?? null,
-			};
+			s.gintData = gintDataOf(data);   // 旧＝ここだけ fillMaxEdges/lowFill を落とした（層別の塗り上限・低ズーム塗りが既定スロットで効かない）
 			uploadGintTextures(s);
 			({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 				arcMeta:   s.gintData.arcMeta,
@@ -455,13 +428,7 @@ export function createGintLayer(gl, { requestDraw, quad4 = true } = {}) {   // q
 		deleteTextures(s);
 		deleteFBOs();
 		disposeIdFill(s);
-		if (s.gl && s.programs) {
-			const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
-					pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;
-			if (emptyVAO)           gl.deleteVertexArray(emptyVAO);
-			for (const p of [renderProgram, stencilProgram, fillProgram, maskStencilProgram,
-							 pointProgram, pickLineProgram, pickPointProgram]) if (p) gl.deleteProgram(p);
-		}
+		if (s.gl) deleteGintPrograms(gl, s.programs);
 		s.programs = null; s.gintData = null;
 		s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false; s.lowFill = false;
 		s.totalEdges = s.totalPoints = s.polyEdges = 0;
