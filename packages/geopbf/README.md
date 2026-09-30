@@ -761,7 +761,10 @@ map.addSource("x", { type: "geojson", data: "featureservice://https://…/Featur
 - **Politeness** — HTTP 429/503 is retried up to 3 times, honouring `Retry-After`.
 - **Caching** — `svc.cacheKey(part)` gives a stable key (service, carried parameters minus secrets, `version`, part);
   with a bucket provider, `geopbf(fc, { cacheKey })` stores the GeoPBF (+ GintBUF) in IndexedDB and
-  `geopbfCached(key, { maxAge })` reads it back without touching the network.
+  `geopbfCached(key, { maxAge })` reads it back without touching the network. Every entry stored this way is recorded
+  in a small index (stored time, last use, bytes); `geopbfCachePrune({ prefix, maxAge, maxEntries, maxBytes })` removes
+  what is too old or too much (least recently used first). The prefix is required and only keys with it are touched —
+  the other cached entries (bucket names, URLs, files) are never pruned.
 - Not yet: Esri PBF (`f=pbf`), OGC API – Tiles/Maps.
 
 ### 8.2 Leaflet
