@@ -8,7 +8,6 @@
 //   world/         国別 DB（自前の節を持つ）
 //   models.js      名所 3D 模型（自前の節を持つ）
 //   shared-data.js gishub-jp・census2020 の共有データ（manifest のキー）
-//   engine.js      共有エンジン（/globe/engine/<版>/）の控え
 //   lib/           共通の手順（bakeEach）と画像変換
 // ボタンを足す時は MENU に一行（と、中身は分野のモジュールへ）。
 import * as d3 from 'd3';
@@ -26,9 +25,8 @@ import { poi } from "./poi/bake.js";
 import { belowSeaLand } from "./terrain/belowsea.js";
 import { worldAtlas } from "./terrain/worldatlas.js";
 import { worldUI } from "./world/index.js";
-import { modelsUI } from "./models.js";
-import { sharedData } from "./shared-data.js";
-import { engine } from "./engine.js";   // 共有エンジンの控え → GIS/engine/<版>（ortho-globe の Worker が旧版をここから返す）   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
+import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
+import { sharedData } from "./shared-data.js";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。
@@ -71,7 +69,6 @@ const MENU = [
 	]],
 	["共有データ", [
 		["census・zipcode → GIS/shared", sharedData],
-		["共有エンジン → GIS/engine/<版>", engine],
 	]],
 	["POI 台帳", [
 		["POI civic (KSJ P29→z14)", poi],

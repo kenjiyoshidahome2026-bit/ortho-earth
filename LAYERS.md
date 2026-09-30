@@ -30,9 +30,9 @@
    `<版>`＝出力の中身のハッシュ＝不変（immutable）。各アプリの build は `sharedEngine()`（`packages/globe/scripts/lib/shared-engine.mjs`）で
    エンジン・i18n・core・geopbf の 4 つを外に出し、その時の `<版>` の URL を指す（dev はソース直のまま）。同じ URL＝ブラウザのキャッシュがアプリを跨ぐ。
    4 つに限る訳＝状態（言語・楕円体の切替・worker の口・既定の bucket）を 1 つの実体に保つため。状態の無い部品（ephem・common 等）は従来どおり各アプリの束。
-   **旧版は消さない**：ortho-globe の assets には今の版だけが入る＝前の版は R2（`GIS/engine/<版>/`・uploader の「共有エンジン」ボタンが置く）から
-   ortho-globe の Worker が返す（`deploy-worker.js`）。ゆえに ortho-globe を出しても、前の版を指す他のアプリは壊れない。
-   段取り＝ortho-globe を build → uploader のボタン → ortho-globe を deploy → 他のアプリを deploy。
+   **前の版を指すアプリも壊れない**：ortho-globe の assets には今の版だけが入る。assets に無い版の入口（globe/i18n/core/geopbf.js・globe.css）は
+   ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
+   前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
    いま共有エンジンを読むのは ortho-globe・world・geopbf-demo。japan 系（japan・census2020・nl・gishub-jp）は地域パックとの二段が要る＝次の段（計画 6c・6d）。
    本番だけ `/japan/lib/` を実行時に食う二重構成（japan のサイト殻）は従来どおり japan の中だけ。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
