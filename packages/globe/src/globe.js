@@ -6,7 +6,7 @@ import {
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
-import { createGeopbf, geopbf, geopbfCached } from "geopbf";
+import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
@@ -3028,14 +3028,25 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 // credentials 無し＝他人の置き場を読むだけの姿勢。読めたら出所（ホスト名）を出典 #attr へ常時表示＝
 // 他人の作品を当ドメインで再生する時の看板（docs/geopbf §11 の作法とセット）。
 // ── URL の data と公開のフィーチャーサービス（#176）──
-// http(s) の URL は requester で直に取る（transformRequest＝利用者の鍵・addProtocol）＝旧＝geopbf(URL) は取得の前に URL を丸ごと
-// api.ortho-earth.com の proxy 確認へ送っていた（token 付きなら鍵がこちらへ渡る・本人裁定 2026-09-30＝この Issue で直す）。bucket の名前（http でない文字列）は従来どおり。
+// 本人裁定（2026-09-30 再）＝「token/key が付いている時だけ新しい道・従来に対して影響なし・オプション機能が過去の資産を壊さない」：
+//   直の取得（requester＝transformRequest を通す・proxy へ URL を送らない）に切り替えるのは、URL に鍵の問い合わせ（token・key…）が
+//   付いている時だけ（directOK）。それ以外の URL は（transformRequest を渡した頁でも）従来どおり geopbf(URL)
+//   （proxy 確認・URL の IDB 控えもそのまま）。bucket の名前（http でない文字列）も従来どおり。
+//   フィーチャーサービスの URL は従来「未対応の形式」で落ちていた＝足し算（読めるようにするだけ）。
+const SECRET_Q = /[?&](token|key|apikey|api_key|access_token|accesstoken|sig|signature|auth)=/i;
+const directOK = url => SECRET_Q.test(url);
 // サービスの形（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）＝件数が WHOLE_MAX 以下なら丸ごと・超えたら視野追従（gint へ・本人裁定）
 const fsMod = () => import("./featureservice.js");
 const SERVICE_HINT = /\/(?:FeatureServer|MapServer)\/\d+|\/collections\/[^/?#]+/i;   // 形のあたり（確定は geopbf の parseServiceUrl）＝当たらない URL は読み口の chunk を読まない
 const svcOpen = new Map();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
+// 控えの掃除（本人 2026-09-30「掃除する機能は絶対に必要」）＝鍵の接頭辞 FS1:: だけ（他の控えには触らない）。頁で最初にサービスを開く時に一度：
+// 置いてから 30 日を超えた物・2,000 件／256MB を超えた分（最後に使ったのが古い順）を消す。map.clearFeatureServiceCache()＝全部
+const FS_PREFIX = "FS1::", FS_PRUNE = { maxAge: 30 * 864e5, maxEntries: 2000, maxBytes: 256 * 2 ** 20 };
+let fsPruned = null;
+const pruneFsCache = () => fsPruned ??= geopbfCachePrune({ prefix: FS_PREFIX, ...FS_PRUNE }).then(r => { if (r?.removed) console.info(`[featureservice] cache: removed ${r.removed}, kept ${r.kept} (${(r.bytes / 2 ** 20).toFixed(1)} MB)`); return r; }).catch(err => { console.warn("[featureservice] cache prune", err); return null; });
 const openSvc = url => {
 	if (!/^https?:\/\//i.test(url) || !SERVICE_HINT.test(url)) return Promise.resolve(null);
+	pruneFsCache();
 	if (!svcOpen.has(url)) {
 		const p = fsMod().then(m => m.parseServiceUrl(url) ? m.openService(url, { fetch: (u, init) => requester.fetch(u, "Source", init) }) : null);
 		p.catch(() => svcOpen.delete(url)); svcOpen.set(url, p);
@@ -3076,6 +3087,7 @@ const readGeoData = async d => {
 	if (typeof d === "string" && /^https?:\/\//i.test(d)) {
 		const svc = await openSvc(d);
 		if (svc) return { type: "FeatureCollection", features: (await svcWhole(svc)).features };   // サービス＝丸ごと（上限 WHOLE_MAX・控えがあれば網に出ない＝押し出し・集約・模様・熱の層はこの道。視野追従は fill/line/circle の層だけ＝sourceData）
+		if (!directOK(d)) return (await geopbf(d, { gint: false }))?.geojson;   // 従来の道（鍵も手入れも無い URL）
 		const r = await requester.fetch(d, "Source");
 		if (!r.ok) throw new Error(`HTTP ${r.status} ${d}`);
 		const blob = await r.blob();
@@ -3091,7 +3103,7 @@ const dropFollow = sid => { const e = fsFollow.get(sid); if (e) { e.follow?.dest
 // fill/line/circle の層の data（gintDataOf）：サービスで件数が多い＝視野追従（動いて止まったら足りない枡を読み、source を組み直す）
 const sourceData = async (sid, d, sp) => {
 	const svc = typeof d === "string" ? await openSvc(d) : null;
-	if (!svc) { dropFollow(sid); setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : null); return readGeoData(d); }
+	if (!svc) { dropFollow(sid); setSrcAttr(sid, null); return readGeoData(d); }   // サービスでない＝従来どおり（出典の欄も触らない）
 	let e = fsFollow.get(sid);
 	if (e && e.url !== d) { dropFollow(sid); e = null; }
 	if (!e) { e = { url: d, fc: null, follow: null }; fsFollow.set(sid, e); }
@@ -3152,13 +3164,19 @@ async function loadServiceG(svc, u) {
 					pbf = await loadUserFile(new File([await r.blob()], name), { fit: !themeBootV, gint: true });
 				}
 			} else {
-				const r = await requester.fetch(u.href, "Source", { credentials: "omit" });   // transformRequest を通す（#176＝?g= も利用者の鍵で読める）
+				const r = directOK(u.href) ? await requester.fetch(u.href, "Source", { credentials: "omit" }) : await fetch(u, { credentials: "omit" });   // 鍵か手入れがある時だけ requester（#176）・他は従来どおり
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
 				if (+(r.headers?.get?.("content-length") ?? 0) > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
 				pbf = await loadUserFile(new File([await r.blob()], name), { ...modelAt(), fit: !themeBootV });   // URL に視点（#…）があればそれが勝つ＝寄せない（共有した傾き・画角を保つ・2026-09-21）
 			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
-			setGSrc(tr()("Map data: $1", u.host));   // 出所の常時表示（#attr の末尾・instruments 非搭載ページは出ない）
+			const attr = mapEl.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）＝従来どおり（サービスの行だけ setGSrc）
+			if (attr && !attr.querySelector(".g-src")) {
+				const line = document.createElement("div");
+				line.className = "g-src";
+				line.textContent = tr()("Map data: $1", u.host);
+				attr.append(line);
+			}
 			console.info("[g] loaded", u.href, `${pbf.length ?? "?"} features`);
 		} catch (err) { console.warn("[g] failed to fetch ?g=", u.href, err); }
 	})();
@@ -3384,7 +3402,9 @@ map.Marker = Marker; map.Popup = Popup;
 // 取得の前の手入れ（#37・MapLibre 同名）：setTransformRequest(fn)＝以後の取得に効く（すでに取った基図タイルは取り直さない）・addProtocol は大域（SDK の export と同じ）
 map.setTransformRequest = fn => { requester.setTransform(fn); return map; };
 map.addProtocol = addProtocol; map.removeProtocol = removeProtocol;
-map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, init);   // 部品（記号帳・3D Tiles）が同じ手入れで取るための口   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
+map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, init);
+// フィーチャーサービスの控え（#176）を消す＝鍵の接頭辞 FS1:: の物だけ（地図の他の控えは残る）。opts＝{ maxAge, maxEntries, maxBytes }（省略＝全部）
+map.clearFeatureServiceCache = (opts = { maxEntries: 0 }) => geopbfCachePrune({ prefix: "FS1::", ...opts });   // 部品（記号帳・3D Tiles）が同じ手入れで取るための口   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
 {
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;
@@ -3753,7 +3773,7 @@ const gintDataOf = async (sid, force, gen) => {
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
 	let d = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
-	else { dropFollow(sid); setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : null); }
+	else { dropFollow(sid); setSrcAttr(sid, null); }
 	const pbf = await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}` });
 	if (mlGen.get("gint") !== gen) return null;
 	const idToFid = new Map(), fidToId = [];
