@@ -7,7 +7,6 @@
 		"dev": "vite",
 		"build": "vite build",
 		"models": "node scripts/models-upload.mjs",
-		"shared-data": "node scripts/shared-data-upload.mjs",
 		"landmarks": "node scripts/plateau-landmarks.mjs"
 	},
 	"dependencies": {
