@@ -792,6 +792,15 @@ const L = img.levelFor(footprint); img.tilesIn(L, [x0, y0, x1, y1]).map(([c, r])
   images, and level1/2 servers that declare no tiles (512-px virtual tiles). Only browser-decodable formats are used.
 - The ortho globe renders it with `map.raster.add(id, { iiif })` (packages/globe `iiif-worker.js`).
 
+### 8.1.3 Projections added for point clouds (v1.18)
+
+`geopbf/proj`'s `crsFromWKT` now also inverts **Lambert Conformal Conic** (1SP/2SP — most US State Plane zones) and
+**Albers Equal Area** (e.g. CONUS Albers), checked against the EPSG Guidance Note 7-2 and Snyder worked examples
+(`lccInverse`/`lccForward`, `albersInverse`/`albersForward`). GDAL's WKT1 for EPSG:3857 (`Mercator_1SP` on the WGS 84
+ellipsoid, recognisable only by its name, authority or PROJ4 extension) is now treated as spherical Web Mercator —
+before, it was inverted as ellipsoidal Mercator and landed about 0.19° off in latitude at 40°N.
+`geopbf/cog/source` exports the HTTP Range reader (`openSource`) used by COG, GeoParquet and the ortho COPC reader.
+
 ### 8.2 Leaflet
 
 `geopbf/leaflet` provides an `L.GeoJSON` subclass. Register it explicitly (works with ESM and the CDN global `L`):

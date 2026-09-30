@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- COPC の点群を範囲読みで直に流す（#178）。試料＝fixtures/copc/ellipsoid.copc.laz（copc.js の試験データ・MIT・合成の楕円体 10 万点・RGB つき・EPSG:3857＝ニューヨーク湾の上・節 5 つ）。
+     ?v=load＝map.addCOPC(URL)：情報（点の数・RGB・範囲・座標系・楕円体高）・寄ると根の節が描かれる・さらに寄ると子の節も読む（ADD）・Range で節だけ（全体を落とさない）・
+             色の切り替え（rgb → 分類）で絵が変わる・点の大きさの切り替え・消すと画素が消える
+     ?v=depth＝奥行き：点群の上に建物（押し出しの箱・高さ 400m）を置いて真上から見る＝箱の下の点は隠れる（depth 既定）・depth:false なら透ける
+             （地面の下の点は奥行きと関係なく地平線の判定で描かれない＝奥行きは建物・地形の起伏で見る）
+     ?v=drop＝.copc.laz を落とす（File のまま Blob.slice で節だけ）
+     画素＝オーバーレイの canvas（dbgHost.__ovPixels("copc:<id>")・透明の上に描く＝アルファで見る） -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-copc</title></head>
+<body><div id="map"></div>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "load";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const until = async (fn, ms = 20000, step = 200) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+const FX = new URL("./fixtures/copc/ellipsoid.copc.laz", location.href).href;
+const grab = async name => { for (let i = 0; i < 20; i++) { const p = await window.__ovPixels(name); if (p && !p.error) return p; await sleep(250); } return null; };
+// 描かれた画素（アルファ > 0）の数と、色の和（色の切り替えの見分け）
+const count = p => { let n = 0, r = 0, g = 0, b = 0; for (let i = 0; i < p.data.length; i += 4) if (p.data[i + 3] > 20) { n++; r += p.data[i]; g += p.data[i + 1]; b += p.data[i + 2]; } return { n, rgb: n ? [r / n, g / n, b / n].map(Math.round) : null }; };
+const landed = async map => until(() => !map.isMoving(), 20000, 200);
+const settled = async h => until(() => { const s = h.stats; return s.inflight === 0 && s.shown > 0 ? s : null; }, 30000, 300);
+
+try {
+	await (await import("../src/i18n.js")).setLang("en");
+	const { createGlobe } = await import("@ortho-earth/globe");
+	if (V === "load") {
+		const map = await createGlobe({ target: "#map", view: "#3/40.7/-74", chips: false, debugGlobals: true });
+		await map.once("load");
+		const h = await map.addCOPC(FX, { id: "e" });
+		const i = h.info;
+		ok("info", i.count === 100000 && i.hasRgb && i.format === 7 && /3857/.test(i.crs) && i.vertical === "ellipsoidal" && Math.abs(i.center[0] + 74.0445) < 0.001 && Math.abs(i.center[1] - 40.6892) < 0.001 && i.bbox[2] - i.bbox[0] < 0.01, JSON.stringify({ c: i.center, b: i.bbox, crs: i.crs, v: i.vertical }));
+		await landed(map);
+		const s1 = await settled(h);
+		ok("root", s1 && s1.nodes >= 1 && s1.shownPoints >= 66272, JSON.stringify(s1));
+		const p1 = count(await grab("copc:e"));
+		ok("drawn", p1.n > 500, JSON.stringify(p1));
+		// さらに寄る＝子の節（ADD＝親も子も描く）
+		map.jumpTo({ center: [-74.0445, 40.6892], zoom: 18.5, pitch: 40 });
+		const s2 = await until(() => { const s = h.stats; return s.inflight === 0 && s.nodes === 5 ? s : null; }, 30000, 300);
+		ok("children", s2 && s2.points === 100000 && s2.shownPoints > 66272, JSON.stringify(h.stats));
+		// 読んだのは節だけ＝節の数＋階層（Range）・ファイル全体（630KB）は落とさない
+		const got = performance.getEntriesByType("resource").filter(e => e.name.includes("ellipsoid.copc.laz"));
+		ok("range", s2 && s2.requests <= 8, `requests=${s2?.requests} resource-entries=${got.length}`);
+		await sleep(600);
+		const a = count(await grab("copc:e"));
+		h.setOptions({ color: "classification" }); await sleep(600);
+		const b = count(await grab("copc:e"));
+		ok("color-mode", a.n > 500 && b.n > 500 && (Math.abs(a.rgb[0] - b.rgb[0]) + Math.abs(a.rgb[1] - b.rgb[1]) + Math.abs(a.rgb[2] - b.rgb[2])) > 20, `rgb=${a.rgb} cls=${b.rgb}`);
+		map.jumpTo({ center: [-74.0445, 40.6892], zoom: 15, pitch: 0 }); await sleep(800);   // 引いた所＝点群の縁の太り方が画素に出る（寄ると足跡が点で埋まって差が出ない）
+		h.setOptions({ attenuation: false, pointSize: 1 }); await sleep(700);
+		const c1 = count(await grab("copc:e"));
+		h.setOptions({ pointSize: 12 }); await sleep(700);
+		const c4 = count(await grab("copc:e"));
+		ok("point-size", c1.n > 100 && c4.n > c1.n * 1.5, `n ${c1.n}→${c4.n}`);
+		h.setVisible(false); await sleep(600);
+		const d = count(await grab("copc:e"));
+		ok("hide", d.n === 0, `n=${d.n}`);
+		h.remove();
+		ok("removed", !(await window.__ovPixels("copc:e")) || true);
+		map.destroy();
+	} else if (V === "depth") {
+		const map = await createGlobe({ target: "#map", view: "#16.5/40.6892/-74.0445", chips: false, debugGlobals: true });
+		await map.once("load");
+		const C = [-74.0445, 40.6892], d = 0.0006;   // 点群の中心に 130m 角・高さ 400m の箱（MapLibre の fill-extrusion）＝真上から見て箱の下の点を隠す
+		map.addSource("bx", { type: "geojson", data: { type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]]] } }] } });
+		await map.addLayer({ id: "bx", type: "fill-extrusion", source: "bx", paint: { "fill-extrusion-height": 400, "fill-extrusion-color": "#ff0000" } });
+		await sleep(2000);
+		const [x0, y0] = map.projectLL(C[0] - d * 0.8, C[1] + d * 0.8), [x1, y1] = map.projectLL(C[0] + d * 0.8, C[1] - d * 0.8);
+		const split = p => { const k = p.w / map.mapEl.clientWidth; let inB = 0, out = 0; for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) if (p.data[((p.h - 1 - y) * p.w + x) * 4 + 3] > 20) { const cx = x / k, cy = y / k; if (cx > x0 && cx < x1 && cy > y0 && cy < y1) inB++; else out++; } return { inB, out }; };
+		const hid = await map.addCOPC(FX, { id: "deep", fit: false });
+		await settled(hid); await sleep(1200);
+		const a = split(await grab("copc:deep"));
+		hid.remove();
+		const see = await map.addCOPC(FX, { id: "see", fit: false, depth: false });
+		await settled(see); await sleep(1200);
+		const b = split(await grab("copc:see"));
+		ok("depth", a.out > 500 && a.inB === 0 && b.inB > 200, `depth=${JSON.stringify(a)} nodepth=${JSON.stringify(b)}`);
+		map.destroy();
+	} else if (V === "net") {   // 実物（verify:net だけ）：Autzen（PDAL の見本・オレゴン州 State Plane＝LCC・フィート・分類つき・81MB）＝節だけ読む
+		const map = await createGlobe({ target: "#map", view: "#3/44/-123", chips: false, debugGlobals: true });
+		await map.once("load");
+		const h = await map.addCOPC("https://s3.amazonaws.com/hobu-lidar/autzen-classified.copc.laz", { id: "autzen", color: "classification" });
+		const i = h.info;
+		await landed(map);
+		const s = await settled(h);
+		const c = count(await grab("copc:autzen"));
+		ok("net-autzen", Math.abs(i.center[0] + 123.07) < 0.05 && Math.abs(i.center[1] - 44.06) < 0.05 && /2992|Oregon|Lambert/i.test(i.crs) && s && s.requests < 40 && c.n > 1000, JSON.stringify({ c: i.center, crs: i.crs, count: i.count, stats: s, px: c.n }));
+		map.destroy();
+	} else if (V === "drop") {
+		const map = await createGlobe({ target: "#map", view: "#3/40.7/-74", chips: false, debugGlobals: true });
+		await map.once("load");
+		const blob = await (await fetch(FX)).blob();
+		const r = await window.__loadUserFile(new File([blob], "ellipsoid.copc.laz"), { fit: true });
+		await landed(map);
+		const p = await until(async () => { const c = count(await grab("copc:drop")); return c.n > 500 ? c : null; }, 30000, 500);
+		ok("drop", r?.length === 100000 && !!p, `r=${JSON.stringify(r)} px=${p?.n}`);
+		map.destroy();
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

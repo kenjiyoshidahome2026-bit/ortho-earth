@@ -812,6 +812,12 @@ export interface OrthoJapanMap {
 	add3DTiles(url: string, opts?: Tiles3DOptions): Promise<Tiles3DHandle>;
 	/** I3S（ArcGIS の Indexed 3D Scene Layer・1.2.0〜・#48）を 3D Tiles と同じ選び・同じ GPU 経路で流す。url＝…/SceneServer か …/SceneServer/layers/N（?i3s=<URL> と同じ）。
 	 *  nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。lodScale＞1 で粗く。点群と旧形式は未対応。解読は @loaders.gl/i3s（MIT） */
+	/** COPC の点群（Cloud Optimized Point Cloud・.copc.laz・1.14.0〜・#178）を範囲読みで直に流す（maplibre-gl-lidar 相当・変換無し・サーバー無し）。
+	 *  URL（HTTP Range・transformRequest の鍵）か File。節の点の間隔が画面で density px より粗ければ子へ降りる（足し算）。解読＝プラグイン（バンドラの alias で "#pointcloud-formats" → "@ortho-earth/tile-formats/pointcloud"＝laz-perf・WASM・遅延）＝差し込まないと reject。
+	 *  座標＝WKT（TM/UTM・メルカトル・LCC・Albers・経緯度）→ 経緯度・高さ＝楕円体高なら EGM96 の N を引いて標高へ。?copc=<URL>・.copc.laz のドロップも同じ */
+	addCOPC(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;
+	/** COPC を外す（id を省く＝全部） */
+	removeCOPC(id?: string): Promise<boolean>;
 	addI3S(url: string, opts?: Tiles3DOptions & { lodScale?: number; token?: string }): Promise<{ id: string; name: string | null; copyright: string | null; readonly stats: Tiles3DHandle["stats"]; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions> & { lodScale?: number }): void }>;
 	/** 日影（1.2.0〜・#44）。建物（既定＝地域の建物台帳＝日本は PLATEAU・tilesets で任意の 3D Tiles）の影を測定面へ投影し、地面に画像として貼る（map.raster の "sunshadow"）。
 	 *  mode "duration"＝日影図（既定＝冬至・真太陽時 8〜16 時・30 分刻みで日影になる時間の段彩と 2〜5 時間の境線）／"instant"＝date の時刻の影。範囲＝既定は画面に見えている所（一辺 3km まで）。
@@ -1020,6 +1026,28 @@ export interface SearchOptions {
 	/** 飛び方の差し替え（既定＝map.flyTo） */ onGo?: (lon: number, lat: number, zoom: number, tilt?: number) => void;
 	/** 範囲 → 着地（既定＝map.cameraForBounds） */ fit?: (bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null;
 	narrow?: boolean;
+}
+/** COPC の点群のオプション（map.addCOPC） */
+export interface COPCOptions {
+	/** 手綱の id（既定＝自動） */ id?: string;
+	/** 点の色（既定 "auto"＝RGB があれば rgb・無ければ elevation） */ color?: "auto" | "rgb" | "classification" | "intensity" | "elevation";
+	/** 点の半径（CSS px・既定 2）／attenuation＝距離で縮む（既定 true＝節の点の間隔 × 焦点距離 / 距離・1〜size×4 px）・false＝画素固定 */ pointSize?: number; attenuation?: boolean;
+	/** 細かさ（節の点の間隔の画面 px がこれより粗ければ子へ・既定 2・LOW_MEM 3） */ density?: number;
+	/** 地形・建物の裏で隠れる（シーンの深度・既定 true） */ depth?: boolean;
+	/** 高さの足し込み（m） */ heightOffset?: number;
+	/** 段彩の範囲（m・既定＝ファイルの z の範囲）・強度の範囲（既定 0〜65535） */ elevationRange?: [number, number]; intensityRange?: [number, number];
+	opacity?: number;
+	/** 読んだら範囲へ寄る（既定 true） */ fit?: boolean;
+}
+export interface COPCHandle {
+	id: string;
+	/** count＝点の総数・hasRgb・bbox・center・crs（WKT の名）・vertical（"ellipsoidal" か鉛直の CRS の名）・spacing（根の点の間隔） */
+	info: { count: number; format: number; hasRgb: boolean; bbox: Bbox; center: LonLat; zRange: [number, number]; crs: string; vertical: string; spacing: number; size: number };
+	readonly stats: { nodes: number; shown: number; points: number; shownPoints: number; failed: number; requests: number; inflight: number; budget: number };
+	readonly bbox: Bbox;
+	setOptions(o: Partial<COPCOptions>): COPCHandle;
+	setVisible(v: boolean): COPCHandle;
+	remove(): boolean;
 }
 /** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
 export interface InspectOptions {
