@@ -39,21 +39,13 @@
 	<div id="sc-stage"><div id="sc-frame"><div id="map"></div></div></div>
 	<aside id="sc-panel"></aside>
 	<script type="module">
-		// ★SDK二重構成（site.js と同じ型・8/20）：dev=./app.js ソース直・本番=/japan/lib/ のSDK配布物。
-		//   エディタ本体(demo/editor.js)はサイト側チャンクのまま＝作業台はソース・舞台の地図は出荷物。
-		//   libのURLは変数経由（devのimport解析がリテラルを解決しにいく罠）・CSSはlib抽出分を本番だけ貼る。
+		// エンジンは ./app.js（site.js と同じ型）＝本番の globe・i18n・core・geopbf は共有エンジン（/globe/engine/<版>/・2026-09-30）。
+		//   エディタ本体(demo/editor.js)はサイト側チャンク。
 		import { mountSceneEditor } from "./demo/editor.js";
 		import { getLang } from "@ortho-earth/globe/i18n.js";
 		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "scenes エディタ — ortho-japan"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
 		(async () => {   // TLA はビルドターゲット外＝async IIFE で包む
-			let engineP;
-			if (import.meta.env.PROD) {
-				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
-				const LIB = "/japan/lib/ortho-japan.js";
-				engineP = import(/* @vite-ignore */ LIB);
-			} else {
-				engineP = import("./app.js");
-			}
+			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
 			const orthoJapan = (await engineP).default;
 			const map = await orthoJapan({ target: "#map", assetBase: import.meta.env.BASE_URL });   // フル機能の japan（PLATEAU・waitLoading の実物の上で編集する）
 			map.gadget.demo({ player: true });   // 素のプレーヤー（▶なし）＝map.playScenes の器（scene-format.md §7）
