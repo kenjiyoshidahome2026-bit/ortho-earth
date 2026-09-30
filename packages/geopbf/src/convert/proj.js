@@ -103,9 +103,11 @@ export function crsFromWKT(wkt, opts = {}) {
 	}
 	// ランベルト正角円錐（LCC 1SP/2SP＝米国の State Plane の多く）・アルベルス正積円錐（CONUS Albers 等）（2026-09-30・#178）
 	const lonF = P("central_meridian", "longitude_of_center", "Longitude of false origin", "Longitude of natural origin", "longitude_of_origin") ?? 0;
-	const latF = P("latitude_of_origin", "latitude_of_center", "Latitude of false origin", "Latitude of natural origin") ?? 0;
+	const latO = P("latitude_of_origin", "latitude_of_center", "Latitude of false origin", "Latitude of natural origin"), latF = latO ?? 0;
 	const fe = (P("false_easting", "Easting at false origin", "False easting") ?? 0) * toM, fn = (P("false_northing", "Northing at false origin", "False northing") ?? 0) * toM;
 	const sp1 = P("standard_parallel_1", "Latitude of 1st standard parallel"), sp2 = P("standard_parallel_2", "Latitude of 2nd standard parallel");
+	// 標準緯線も原点緯度も無い円錐＝円錐の定数が 0（赤道で潰れる）＝読めない物として other（パラメタの抜けた WKT を黙って誤配置しない）
+	if (/lambert_?conformal_?conic|albers/i.test(m) && sp1 == null && !latO) return { kind: "other", label: `${label} (${method}: no standard parallel)`, name };
 	if (/lambert_?conformal_?conic/i.test(m)) {
 		const k0 = P("scale_factor", "Scale factor at natural origin") ?? 1;
 		const one = /1sp/i.test(m) || sp1 == null;
