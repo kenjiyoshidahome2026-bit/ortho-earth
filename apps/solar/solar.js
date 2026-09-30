@@ -486,6 +486,10 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			new Uint8Array([color[0] * 255, color[1] * 255, color[2] * 255, 255]));
 		return t;
 	}
+	// 絵の形式（2026-09-30・縮小計画 項目7）：ephem の台帳の名前は .jpg のまま（公開データの名前は変えない）で、置き場の実体は WebP（q85・
+	// 元の JPEG との差は PSNR 36〜48dB）＝6.1MB → 2.9MB。雲だけは WebP の方が大きい（432→473KB）ので JPEG のまま。
+	const JPEG_KEPT = new Set(["2k_earth_clouds.jpg"]);
+	const texUrl = src => texBase + (JPEG_KEPT.has(src) ? src : src.replace(/\.jpe?g$/, ".webp"));
 	function loadInto(tex, src, clampS) {
 		const img = new Image();
 		img.onload = () => {
@@ -497,7 +501,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			if (clampS) gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			needsDraw = true;
 		};
-		img.src = texBase + src;
+		img.src = texUrl(src);
 	}
 	const textures = {}, texAsked = new Set();
 	const TEX_PX = 3;   // 見かけの半径がこの px を超えたら絵を取りに行く（クランプの点 2.6px より上＝点の間は取らない）
@@ -517,7 +521,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 				b[slot] = tex; needsDraw = true;
 			};
-			img.src = texBase + b[key];
+			img.src = texUrl(b[key]);
 		}
 	}
 	for (const b of ALL) {
