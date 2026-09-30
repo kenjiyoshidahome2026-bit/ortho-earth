@@ -7,11 +7,16 @@
 import { cameraState, project, unproject, lonlatTo3D, worldRadiusM } from "./camera.js";
 import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
 import { fontCss } from "./fontstack.js";
+import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝星空の注記も星（renderer）と同じ時刻で回す
+import { gmstAt } from "@ortho-earth/ephem/sun";       // 恒星時の正本（renderer の星と同じ式）
 
 const FONT_STACK = `"Noto Sans JP","Hiragino Sans","Yu Gothic UI","Yu Gothic",sans-serif`;
 const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.5], right: [1, 0.5], "top-left": [0, 0], "top-right": [1, 0], "bottom-left": [0, 1], "bottom-right": [1, 1] };   // text-anchor＝箱のどの点を錨に置くか（MapLibre）
 const css = (c, op = 1) => `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
-const keyOf = L => (L.k ? L.k + "|" : "") + L.text + (L.icon ? "\u0001" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // k＝利用者層 id（層またぎのキー衝突防止）・icon＝記号だけのラベル（text ""）の区別
+// k＝利用者層 id（層またぎのキー衝突防止）・icon＝記号だけのラベル（text ""）の区別・MapLibre 由来の層（mlp）は層の添字 li も＝同じ点・同じ文字の別の層を 1 つに畳まない（tilemanager.labels の重複排除と同じ区別・poi_transit／poi_r1 2026-09-28）。
+// 鍵はラベルごとに一度だけ作って覚える（__k）＝衝突判定（150ms 毎）と rebuild のたびに toFixed を回さない。ラベルは届くたびに新しい物（structured clone）＝覚えは古くならない
+const keyOf = L => L.__k ??= (L.k ? L.k + "|" : "") + (L.mlp && L.li != null ? L.li + "\u0002" : "") + L.text + (L.icon ? "\u0001" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);
+const GALAXY = new Set(["s", "e", "i", "gx", "gg"]);   // メシエの種別のうち銀河（星空の注記の記号＝楕円）
 const nowMs = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 // 伸びる記号（MapLibre の stretchX／stretchY／content）＝icon-text-fit の時、文字の箱 t＝[x0,y0,x1,y1] に余白 p＝[上,右,下,左] を足した箱へ content が重なるよう、伸びる区間だけを同じ倍率で伸ばす（伸びない区間は元の大きさ）。
 // 戻り＝{ box:[x0,y0,x1,y1], X, Y, s }（X/Y の segs＝[元の始点, 元の幅, 先の始点, 先の幅]（元 px）・s＝元 px→CSS px）。drawStretched が区間の組ごとに drawImage（9 分割の一般形）。symbols-2d と ortho-core/labels2d に同じ式（overlay は依存ゼロ）
@@ -35,6 +40,33 @@ export function stretchFit(im, size, fit, t, p) {
 }
 function drawStretched(g, src, f, ox = 0, oy = 0) { const x0 = f.box[0] + ox, y0 = f.box[1] + oy; for (const [ax, aw, dx, dw] of f.X.segs) for (const [ay, ah, dy, dh] of f.Y.segs) if (aw > 0 && ah > 0 && dw > 0 && dh > 0) g.drawImage(src, ax, ay, aw, ah, x0 + dx * f.s, y0 + dy * f.s, dw * f.s, dh * f.s); }
 export const isStretch = im => !!(im && (im.sx?.length || im.sy?.length || im.ct));
+// 置いた箱の格子（衝突判定の索引）＝画面を CELL px の升に切り、箱は重なる升すべてに入れる。hit は升の中の箱だけを厳密な不等号で当てる
+// （旧＝置いた箱の全件を線形に当てる＝O(候補×当選)。結果は同じ＝升の添字は単調に丸めるので、重なる 2 箱は必ず同じ升を共有する）。
+// 升の添字は [-LIM, LIM] に丸める＝画面のはるか外の箱（線の注記の字・変換後の箱）で升の数が膨れない。NaN の箱はどこにも入らず何にも当たらない（旧と同じ）
+const CELL = 64, LIM = 256, BIG = 256;
+export function boxGrid() {
+	const cells = new Map(), big = [];   // big＝升を BIG 個より多く跨ぐ箱（まれ）＝升に配らず線形に当てる
+	const ci = v => Math.max(-LIM, Math.min(LIM, Math.floor(v / CELL)));
+	const key = (x, y) => (x + LIM) * (2 * LIM + 1) + (y + LIM);
+	const hit1 = (box, b) => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1];
+	return {
+		push(b) {
+			const x0 = ci(b[0]), x1 = ci(b[2]), y0 = ci(b[1]), y1 = ci(b[3]);
+			if ((x1 - x0 + 1) * (y1 - y0 + 1) > BIG) { big.push(b); return; }
+			for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) { const k = key(x, y), c = cells.get(k); if (c) c.push(b); else cells.set(k, [b]); }
+		},
+		hit(box) {
+			for (const b of big) if (hit1(box, b)) return true;
+			const x0 = ci(box[0]), x1 = ci(box[2]), y0 = ci(box[1]), y1 = ci(box[3]);
+			if ((x1 - x0 + 1) * (y1 - y0 + 1) > BIG) { for (const c of cells.values()) for (const b of c) if (hit1(box, b)) return true; return false; }   // 大きな問い＝升を歩かず全件
+			for (let x = x0; x <= x1; x++) for (let y = y0; y <= y1; y++) {
+				const c = cells.get(key(x, y)); if (!c) continue;
+				for (const b of c) if (hit1(box, b)) return true;
+			}
+			return false;
+		},
+	};
+}
 
 
 // shieldFor(L) → { img:CanvasImageSource, w, h }（CSS px）を返すとテキストの代わりにその絵を描く。
@@ -68,11 +100,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	const images = new Map(), tinted = new Map();
 	function setImage(name, { bitmap, pixelRatio = 1, sdf = false, stretchX = null, stretchY = null, content = null }) {
 		const prev = images.get(name), pr = pixelRatio || 1;
-		images.set(name, { bm: bitmap, pr, sdf: !!sdf, sx: stretchX, sy: stretchY, ct: content });   // sx/sy/ct＝伸びる記号（stretchFit） for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k);
+		images.set(name, { bm: bitmap, pr, sdf: !!sdf, sx: stretchX, sy: stretchY, ct: content });   // sx/sy/ct＝伸びる記号（stretchFit）
+		dropTinted(name);   // 差し替えた SDF の記号＝古い絵で焼いた写しを捨てる（旧＝この行がコメントの後ろに入っていて効いていなかった）
 		if (!prev || prev.bm.width !== bitmap.width || prev.bm.height !== bitmap.height || prev.pr !== pr) dirty = true;   // 箱が変わる時だけ衝突判定をやり直す（動く記号＝毎フレームの差し替えで全件の再衝突をしない）
-		prev?.bm?.close?.();
+		if (prev?.bm !== bitmap) prev?.bm?.close?.();
 	}
-	function removeImage(name) { images.delete(name); for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); dirty = true; }
+	function dropTinted(name) { for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); }
+	function removeImage(name) { images.get(name)?.bm?.close?.(); images.delete(name); dropTinted(name); dirty = true; }
 	function sdfTint(name, im, color) {
 		const key = name + "|" + color;
 		let c = tinted.get(key);
@@ -96,7 +130,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		if (isStretch(im)) { const f = stretchFit(im, L.isz ?? 1, L.ifit, [t[0], t[1], t[0] + t[2], t[1] + t[3]], L.ifp || [0, 0, 0, 0]), q = f.box, r = [q[0], q[1], q[2] - q[0], q[3] - q[1]]; r.i9 = f; return r; }   // 伸びる記号＝伸びる区間だけ（箱に i9 を添える＝描く側が区間ごとに）
 		const [pt, pr, pb, pl] = L.ifp || [0, 0, 0, 0], sz = L.isz ?? 1, nw = im.bm.width / im.pr * sz, nh = im.bm.height / im.pr * sz, cx = t[0] + t[2] / 2, cy = t[1] + t[3] / 2, fit = L.ifit;
 		const x0 = fit === "height" ? cx - nw / 2 : t[0] - pl, x1 = fit === "height" ? cx + nw / 2 : t[0] + t[2] + pr, y0 = fit === "width" ? cy - nh / 2 : t[1] - pt, y1 = fit === "width" ? cy + nh / 2 : t[1] + t[3] + pb; return [x0, y0, x1 - x0, y1 - y0]; };
-	const overlaps = (placed, box) => placed.some(b => box[0] < b[2] && box[2] > b[0] && box[1] < b[3] && box[3] > b[1]);   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）
+	const overlaps = (placed, box) => placed.hit(box);   // 重なり＝厳密な不等号（接しているだけは重ならない＝MapLibre の格子と同じ）・格子（boxGrid）で近くの箱だけ当てる
 	const grow = (b, p) => [b[0] - p, b[1] - p, b[2] + p, b[3] + p];
 	// ── 向き（段 5・2026-09-28）＝錨での「地面の基底」：東と南へ画面 20px 相当だけ進めた点を投影した画面ベクトル（列＝東・南＝画面の利き手と同じ）。地図の回転（bearing）・傾き（pitch＝直角方向の縮み）・遠近が入る
 	const groundBasis = (st, lon, lat, r, sx, sy, dpr, zoom) => {
@@ -187,6 +221,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
 	let lastCollide = -1e9, dirty = true, lastShowFlat = true;   // showFlat=傾き閾値下（真俯瞰）だけ測量点等の flat ラベルを出す
+	let fontGen = 0;                // 書体の世代（clearFontCache で進む）＝ラベルごとの textLayout の覚え（__tl）の有効性
 	const widthCache = new Map();   // "size|text" → measureText 幅。measureText は高コスト＝再衝突判定(150ms毎)の度に全ラベル分呼ばない
 	let labelByKey = new Map();     // key → L（フェードアウト中ラベルの逆引き。draw 毎の線形探索を排除）
 
@@ -235,6 +270,9 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	// 月＝満ち欠けの円盤（注記トグルと独立＝天体なので常設）。{ cel, sunCel, k }＝方向・太陽方向・輝面比。
 	let moon = null;
 	function setMoon(data) { moon = data; }
+	// 共通の時計の基準（#42・{sim,wall,rate}｜null＝実時刻）＝render worker が renderer の view.clock と同じ物を渡す
+	let clock = null;
+	function setClock(c) { clock = c || null; }
 	function clear() {
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, canvas.width, canvas.height);
 		fades.clear(); winners.clear();
@@ -244,15 +282,15 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	let winBox = new Map();   // key → { sx, sy, tw, h, dx, dy, tl, an, txt, ib }（当選ラベルの画面上の箱＝placed() と draw の材料・公式例の門 段 0）。txt＝文字を置いた・ib＝置いた記号の箱 [dx, dy, w, h]（錨からの相対）
 	let dbg = { zoom: null, outOfZoom: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
 	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
-		const placed = [], w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
+		const placed = boxGrid(), w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
 		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }, pt: {} };   // line＝線の注記の落ちた理由・pt＝点の注記の層ごとの結果（診断）
-		const ptDbg = (L, k, eg) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, back: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; if (eg && !e[k + "Eg"]) e[k + "Eg"] = eg; };
+		const ptDbg = (L, k, eg) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, back: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; if (eg && !e[k + "Eg"]) e[k + "Eg"] = eg(); };   // eg＝見本を作る関数（最初の 1 件だけ作る＝落ちたラベルのたびに配列を組まない）
 		for (const L of combined) {
 			if (L.flat && !showFlat) continue;
 			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const rad = radiusOf(L, eScale, st, fogF), [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], rad);
 			if (clipPl && clipDistanceM(clipPl, L.anchor[0], L.anchor[1], (rad - 1) * worldRadiusM()) < 0) continue;   // 断面で切られた側（#111 段 3）
-			if (front < 0) { if (!L.lp) ptDbg(L, "back", [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
+			if (front < 0) { if (!L.lp) ptDbg(L, "back", () => [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
 			const sx = dx / dpr, sy = dy / dpr;
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
 				const dl = dbg.line; dl.n++;
@@ -300,7 +338,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 				}
 				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
 			} else { const [, pi] = judge(false, iOKof(nat)), nb = tb(Ti, nat[0], nat[1], nat[2], nat[3]); if (pi && !(nb[2] < 0 || nb[0] > Wc || nb[3] < 0 || nb[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
-			if (!hit) { ptDbg(L, hasText ? lastWhy : "icon", [String(L.text).slice(0, 20), Math.round(sx), Math.round(sy), Math.round(tw), Math.round(h), Math.round(Wc), Math.round(Hc)]); continue; }
+			if (!hit) { ptDbg(L, hasText ? lastWhy : "icon", () => [String(L.text).slice(0, 20), Math.round(sx), Math.round(sy), Math.round(tw), Math.round(h), Math.round(Wc), Math.round(Hc)]); continue; }
 			if (L.sp) {   // 線の錨に回さず置く注記（text-rotation-alignment viewport＝道路の盾）＝symbol-spacing を同じ群に課す
 				const grp = (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text + "\u0001" + (L.icon || "")), ga = lineGrp.get(grp);
 				if (ga && ga.some(p => Math.hypot(p[0] - sx, p[1] - sy) < L.sp)) { ptDbg(L, "spacing"); continue; }
@@ -311,6 +349,8 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			if (hit.ib && !L.iig) placed.push(grow(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3]), ipad));
 			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib, bb: hit.bb ?? null, ibb: hit.ib ? (q => [q[2] - q[0], q[3] - q[1]])(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3])) : null });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す）
 		}
+		// フェードアウト中（当選から外れた）のラベルは最後の箱を持ち越す＝消えていく間も text-anchor／offset／variable-anchor／icon-text-fit の位置のまま（旧＝箱を失い中央・自然な記号の箱へ跳んでいた）
+		for (const k of fades.keys()) if (!wb.has(k)) { const o = winBox.get(k); if (o) wb.set(k, o); }
 		winners = w; winBox = wb;
 	}
 	// 錨の候補＝[anchor, 画面 x の足し, y の足し]。text-offset は em（size 倍）。variable-anchor＝候補ごとに錨の反対側へ離す（radial-offset か offset の大きさ・MapLibre と同じ・symbols-2d と同式）
@@ -324,6 +364,11 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 	// 文字の行の束（折り返し＝text-max-width（em）・"\n"＝改行・字間＝letter-spacing（em）・行の高さ＝line-height（em））。key で覚える（measureText は高い）
 	function textLayout(L) {
+		if (L.__tlg === fontGen) return L.__tl;   // ラベルごとの覚え（書体が載ると fontGen が進む）＝衝突判定のたびに書体の文字列と鍵を組まない
+		L.__tl = textLayout1(L); L.__tlg = fontGen;
+		return L.__tl;
+	}
+	function textLayout1(L) {
 		const size = L.size || 12, ls = L.ls || 0, lh = L.lh || 1, mw = L.mw ?? 0;   // layout を持たないラベル（gint・旧い利用者層）＝折り返し無し・行高 1＝従来の箱
 		const font = fontOf(L, size), wk = font + "|" + ls + "|" + mw + "|" + lh + "|" + L.text;
 		let tl = widthCache.get(wk);
@@ -381,34 +426,37 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		const distOp = (lon, lat) => { const v = lonlatTo3D(lon, lat); const d = Math.hypot(v[0] - eye[0], v[1] - eye[1], v[2] - eye[2]); return 1 - Math.min(1, Math.max(0, (d - fNear) / (fFar - fNear))); };
 
 		let animating = false;
-		const keys = new Set([...winners.keys(), ...fades.keys()]);
-		for (const k of keys) {
+		// 描く順＝当選集合（優先順）→ フェードアウト中だけのもの（旧＝毎フレーム両方を Set に広げていた・順は同じ）
+		for (const k of winners.keys()) drawOne(k);
+		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
+		function drawOne(k) {
 			const L = winners.get(k) || labelByKey.get(k);
-			if (!L) { fades.delete(k); continue; }
+			if (!L) { fades.delete(k); return; }
 			const target = winners.has(k) ? 1 : 0;
 			let op = fades.get(k) ?? 0; op += (target - op) * fade;
-			if (target ? op > 0.99 : op < 0.02) { op = target; if (!op) { fades.delete(k); continue; } } else animating = true;
+			if (target ? op > 0.99 : op < 0.02) { op = target; if (!op) { fades.delete(k); return; } } else animating = true;
 			fades.set(k, op);
-			const [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF));   // ライブ投影（標高込み）
-			if (front < 0) continue;
-			const o = op * distOp(L.anchor[0], L.anchor[1]) * (L.op ?? 1);
-			if (o <= 0.01) continue;
+			const rad = radiusOf(L, eScale, st, fogF), [dx, dy, front] = project(st, L.anchor[0], L.anchor[1], rad);   // ライブ投影（標高込み）
+			if (front < 0) return;
+			const dop = op * distOp(L.anchor[0], L.anchor[1]), o = dop * (L.op ?? 1);   // dop＝フェード×距離（文字と記号で共有＝lonlatTo3D を 1 回だけ）
+			if (o <= 0.01) return;
 			const sx = Math.round(dx / dpr), sy = Math.round(dy / dpr);
 			const shield = shieldFor && shieldFor(L);
 			if (shield) {
 				ctx.globalAlpha = o;
 				shield.draw(ctx, sx, sy);   // ベクター直描き（DPRスケール済みctx上＝常にシャープ）
 				ctx.globalAlpha = 1;
-				continue;
+				curFont = "";   // 標識は ctx.font／textAlign を restore の外で触ることがある（空港＝名称）＝覚えを捨てる（旧＝次のラベルが標識の書体で描かれた）
+				return;
 			}
 			const b = winBox.get(k);
 			if (L.lp) {   // 線に沿う注記（段 4）＝毎フレーム投影し直して字ごとに回して描く（フェードアウト中も同じ）。裏へ回った・角が急＝描かない
-				const ll = lineLayout(L, st, dpr, radiusOf(L, eScale, st, fogF), cam.zoom); if (!ll) continue;
+				const ll = lineLayout(L, st, dpr, rad, cam.zoom); if (!ll) return;
 				if (ll.icon) {   // 線の記号＝錨で線の向きに回す（viewport なら正立）・SDF は icon-color
-					const im = iconImg(L), ic = ll.icon, oi = op * distOp(L.anchor[0], L.anchor[1]) * (L.iop ?? 1);
+					const im = iconImg(L), ic = ll.icon, oi = dop * (L.iop ?? 1);
 					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
 				}
-				if (!ll.g.length) continue;
+				if (!ll.g.length) return;
 				setFont(ll.font); if (hasLS) ctx.letterSpacing = "0px";
 				ctx.textAlign = "center"; ctx.textBaseline = "middle";
 				if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
@@ -420,13 +468,13 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 					ctx.restore();
 				}
 				ctx.shadowBlur = 0;
-				continue;
+				return;
 			}
 			// 記号（段 3）＝当選の箱（fit 済み）・フェードアウト中は自然な箱。SDF は icon-color で焼いた写し・icon-rotate は箱の中心で回す・icon-opacity
 			const im = iconImg(L), ib = b ? b.ib : (im ? iconBox(L, im) : null);
-			const rad = radiusOf(L, eScale, st, fogF), T = textT(L, st, rad, sx, sy, dpr, cam.zoom), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）
+			const T = textT(L, st, rad, sx, sy, dpr, cam.zoom), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）
 			if (im && ib) {
-				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm, oi = op * distOp(L.anchor[0], L.anchor[1]) * (L.iop ?? 1);
+				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || [0, 0, 0, 1])) : im.bm, oi = dop * (L.iop ?? 1);
 				if (oi > 0.01) {
 					ctx.globalAlpha = oi;
 					if (ib.i9) { if (Ti) { ctx.save(); ctx.translate(sx, sy); ctx.transform(Ti.a, Ti.b, Ti.c, Ti.d, 0, 0); drawStretched(ctx, src, ib.i9); ctx.restore(); } else drawStretched(ctx, src, ib.i9, sx, sy); }   // 伸びる記号＝区間ごと（9 分割）
@@ -436,7 +484,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 					ctx.globalAlpha = 1;
 				}
 			}
-			if (!(L.text && String(L.text).length) || (b && !b.txt)) continue;   // 文字が無い・置かなかった（text-optional）
+			if (!(L.text && String(L.text).length) || (b && !b.txt)) return;   // 文字が無い・置かなかった（text-optional）
 			const tl = b?.tl ?? textLayout(L);
 			setFont(tl.font || fontOf(L, L.size));   // textLayout が別の書体を据えた後でも、この行の描画は自分の書体で
 			if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size}px` : "0px";
@@ -447,11 +495,12 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 			const just = L.just === "auto" ? ((b?.an || L.an || "center").includes("left") ? "left" : (b?.an || L.an || "center").includes("right") ? "right" : "center") : (L.just || "center");
 			ctx.textAlign = just === "left" ? "left" : just === "right" ? "right" : "center"; ctx.textBaseline = "middle";
 			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
-			if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
+			const halo = L.haloW > 0 || L.blur > 0 ? css(L.halo, o) : null, fill = css(L.color, o);   // 色の文字列は行ごとでなくラベルごとに 1 回
+			if (L.blur > 0) { ctx.shadowColor = halo; ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
 			for (let i = 0; i < tl.lines.length; i++) {
 				const ly = y0 + (i + 0.5) * tl.lh * tl.size;
-				if (L.haloW > 0) { ctx.strokeStyle = css(L.halo, o); ctx.lineWidth = L.haloW * 2; ctx.strokeText(tl.lines[i], ax, ly); }
-				ctx.fillStyle = css(L.color, o); ctx.fillText(tl.lines[i], ax, ly);
+				if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(tl.lines[i], ax, ly); }
+				ctx.fillStyle = fill; ctx.fillText(tl.lines[i], ax, ly);
 			}
 			ctx.shadowBlur = 0;
 			if (T) ctx.restore();
@@ -465,7 +514,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	function drawSky(st, cam, Wc, Hc, dpr) {
 		if ((!sky && !moon) || cam.zoom >= 5) return;
 		const fade = Math.min(1, (5 - cam.zoom) / 0.5);
-		const gmst = (((18.697374 + 24.0657098 * (Date.now() / 864e5 + 2440587.5 - 2451545.0)) * 15) % 360) * Math.PI / 180;
+		const gmst = gmstAt(clockNow(clock));   // 星（renderer＝gmstAt(clockNow(view.clock))）と同じ時刻・同じ式（旧＝実時刻の近似式＝時計を早送りすると星座名が星からずれた）
 		const cg = Math.cos(gmst), sg = Math.sin(gmst);
 		const skyK = (0.4 + 0.3 * cam.zoom) / 1.6;
 		const m = st.mvp;
@@ -518,7 +567,7 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 		if (sky.messier) {
 			// v1 の記号語彙：gc=球状星団 銀河=楕円 oc=散開星団 他=矩形。銀河は d3-celestial の種別で s/e/i（渦巻・楕円・不規則）
 			// で来る＝旧版は gx/gg だけを見ていて銀河が全部矩形になっていた（2026-09-19・packages/space README と solar の messierKind と同じ読み）
-			const sz = 5, P2 = Math.PI * 2, GALAXY = new Set(["s", "e", "i", "gx", "gg"]);
+			const sz = 5, P2 = Math.PI * 2;
 			ctx.lineWidth = 0.8;
 			ctx.strokeStyle = `rgba(255,200,100,${0.75 * fade})`;
 			ctx.font = `8px ${FONT_STACK}`;
@@ -545,6 +594,6 @@ export function createLabelLayer(canvas, { pad = 5, fade = 0.3, recollideMs = 15
 	}
 
 	function placedDebug() { return dbg; }
-	function clearFontCache() { widthCache.clear(); curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚えを捨てて衝突判定からやり直す
-	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
+	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
+	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
 }
