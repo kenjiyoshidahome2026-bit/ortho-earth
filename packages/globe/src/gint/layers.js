@@ -34,6 +34,8 @@ let gintInteractive = false;
 let gintHover = true;   // ホバー識別のゲート（interactive と別軸＝災害面はクリックは残しホバー処理だけ切る・本人裁定 2026-08-13）
 // gint 表示状態（旧 #gint canvas の display 相当）。render() が visibleGintNow() と突き合わせ変更時だけ post。
 let gintVisible = true;
+// 地球儀の内部層（admin0・世界の線・worldContent＝_internal）を伏せる（検査表示 #174＝ベクタタイルだけを見せる）。層ごとの出し入れ（setVisible）とは別の軸＝戻すと各層の今の表示へ
+let internalHidden = false;
 // 地形沿い境界線(gintBld)が出ている層か＝視覚は draped 一本に統一し、gint層の2D視覚は平面でも出さない（識別は裏で生存）。二重線の解消。
 let drapedOn = false;
 // gint スタイルを render worker へ預ける（frame 末尾の gint パスが使う）。データ毎に差し替え。
@@ -314,6 +316,7 @@ function addGint(pbf, opts = {}) {
 	let zr = null;                       // エンジンが焼きの ack で返す実描画レンジ（データ導出×指定）。null＝未着地＝まだ描いていない
 	let styleZ = opts.style ?? null;     // style の minZoom/maxZoom（レンジの上書き＝エンジンの zoomInRange と同じ積）
 	const internal = !!opts._internal;   // 地球儀が自分で足す層（admin0・世界の線・worldContent）＝照会に出さない（非公開の印）
+	const sendVis = () => renderer.set("gintVis", shown && !(internal && internalHidden), undefined, id);   // 描く側の表示＝層の出し入れ × 内部層を伏せる旗（検査表示 #174）
 	// filter（fid 表の visible ビット）の述語＝照会が隠した地物を飛ばす。表が無い（paint 未設定）＝null＝全部通す・表の外の fid も通す
 	const accept = () => { const t = lastTable; if (!t) return null; return fid => { const j = fid * 4 + 2; return j >= t.length || (t[j] & 1) !== 0; }; };
 	// text-field＝§6 の式全域（evalExpr）＋文字列リテラル＋関数(props→string)。式は get/match/case/concat/to-string…
@@ -407,7 +410,8 @@ function addGint(pbf, opts = {}) {
 		setOrder: n => { h.order = n; renderer.set("gintOrder", n, undefined, id); requestDraw(); },   // ④ moveLayer 相当（実行時の重ね順）
 		setLabel: o => { labelOpt = zRange(o) ?? null; return refreshLabels(); },   // ② text-field の付け替え（null=消す）。await で labelCount 確定
 		style: o => { const o1 = zRange(o); styleZ = o1 ?? null; renderer.set("gintStyle", o1, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
-		setVisible: v => { shown = !!v; renderer.set("gintVis", !!v, undefined, id); requestDraw(); },
+		setVisible: v => { shown = !!v; sendVis(); requestDraw(); },
+		_internal: internal, _sendVis: () => sendVis(),
 		activate: () => { layers.active = id; renderer.set("gintActivate", null, undefined, id); },
 		remove: () => { cancelBake(id); extGint.delete(id); if (layers.active === id) layers.active = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); requestDraw(); },
 	};
@@ -428,6 +432,7 @@ function addGint(pbf, opts = {}) {
 	}
 	extGint.set(id, h);
 	renderer.set("gintAdd", { order: opts.order ?? null }, undefined, id);   // order＝重ね順（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z-order
+	if (internal && internalHidden) sendVis();   // 伏せている間に足された内部層（世界の線の遅延読み込み）も伏せて始める
 	// bake-ahead（①）＝メタ/tier 梯子を bake worker で焼き切って gintBaked（テクスチャ搭載のみ）＝
 	// render worker の同期ベイクで地図フレームを塞がない。worker 不成立/失敗は同期経路へ自動フォールバック
 	//（legacyGintSend が layer と meta を運ぶ）。ready はどちらの ack でも解決。
@@ -777,6 +782,9 @@ return {
 	get clickHandler() { return gintClickHandler; }, set clickHandler(fn) { gintClickHandler = fn; },
 	get worldTipOn() { return worldTipOn; }, set worldTipOn(v) { worldTipOn = v; },
 	get suppressAdmin0() { return suppressAdmin0; }, set suppressAdmin0(v) { suppressAdmin0 = v; },
+	// 地球儀の内部層をまとめて伏せる／戻す（検査表示 #174）。国名 tip も伏せている間は出さない（呼び手の門が internalHidden を読む）
+	get internalHidden() { return internalHidden; },
+	setInternalHidden(v) { v = !!v; if (v === internalHidden) return; internalHidden = v; for (const h of extGint.values()) if (h._internal) h._sendVis(); requestDraw(); },
 	get userGint() { return userGint; },
 	get admin0Layer() { return admin0Layer; },
 	get admin0Vis() { return admin0Vis; },

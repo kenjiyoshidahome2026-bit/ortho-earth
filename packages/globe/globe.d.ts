@@ -233,7 +233,9 @@ export interface ContextMenuItem {
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
 export interface Gadgets {
-	search(opts?: object): unknown;
+	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
+	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
+	search(opts?: SearchOptions): HTMLElement | undefined;
 	zoom(): unknown;
 	compass(): unknown;           // 3D（チルト中）のみ表示
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
@@ -306,6 +308,13 @@ export interface Gadgets {
 	symbols(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | ({ type: "symbol" } & Omit<MapLibreLayer, "type">) | null, layer?: Partial<MapLibreLayer>): Promise<{ features: number } | null>;
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;
+	/** 検査表示（MapLibre の maplibre-gl-inspect 相当・1.12.0〜・#174）。ボタン 1 つで、読み込んでいるベクタタイルの全 source-layer を層ごとの色で描き
+	 *  （面＝薄い塗り＋縁・線・点）、ホバー／クリックでカーソルの下の地物の層名と属性（$id・$type・properties）を札に出す。もう一度押すと元の地図（焼き直さない）。
+	 *  出す source＝ベクタタイル（外来 style の基図・addSource の vector・?pm= の PMTiles・地域の基図）と geojson。世界の帯（低ズームの Natural Earth）は出さない。
+	 *  層の一覧＝TileJSON の vector_layers → PMTiles の metadata → どちらも無ければ画面の中心のタイルを解いて集める（style が使わない層も・視点が止まるたびに足す）。
+	 *  検査の間は基図・利用者の層・画像タイル層・注記を伏せ、陸を backgroundColor に。検査の層の id は公式と同じ（source_sourceLayer_polygon|line|circle・geojson は source__kind）。
+	 *  MapLibre の口では `map.addControl(new MaplibreInspect({...}))`（@ortho-earth/globe/maplibre）。二重搭載（ボタンつき）は null */
+	inspect(opts?: InspectOptions): InspectHandle | null;
 	/** 自作ガジェットの登録（this===map で呼ばれる） */
 	(name: string, fn: (this: OrthoJapanMap, ...args: unknown[]) => unknown): void;
 	[name: string]: unknown;
@@ -949,6 +958,82 @@ export class Popup {
 	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
 	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
+}
+/** 検索の候補（#175）。着地＝zoom ＞ bbox（範囲に寄る）＞ 供給元の viewFor(title) ＞ z12 */
+export interface SearchHit {
+	title: string;
+	/** 添え書き（都市＝州と国・州＝国・地形＝分類）。照合にも着地にも使わない表示専用 */ note?: string;
+	lon: number; lat: number;
+	/** 範囲 [west, south, east, north]（west>east＝±180 を跨ぐ）＝その範囲に寄る（国・州） */ bbox?: [number, number, number, number];
+	/** 着地の倍率・チルト（度） */ zoom?: number; tilt?: number;
+	/** 種別（世界＝"country"｜"state"｜"city"｜地形の分類・外の geocoder＝place_type の頭） */ kind?: string;
+	/** 外から突き合わせる鍵（世界＝Wikidata の QID・外の geocoder＝feature.id） */ id?: string;
+}
+/** 検索の問い合わせ先（地域の宣言 region.search と同じ形）。今の形（{ title, note, lon, lat } と viewFor）は無改修で動く */
+export interface SearchProvider {
+	/** 検索履歴の localStorage の鍵（最初に鍵を持つ問い合わせ先の物を使う・既定 "ortho.searches"） */ histKey?: string;
+	query(q: string, signal: AbortSignal): Promise<SearchHit[]>;
+	/** 候補に zoom も bbox も無い時の着地（題名から） */ viewFor?(title: string): { zoom: number; tilt?: number };
+}
+/** Carmen GeoJSON の地物（maplibre-gl-geocoder の返り）。text＝名前・place_name＝住所まで・center＝[lon, lat] */
+export interface CarmenFeature {
+	id?: string | number; type?: "Feature"; text?: string; place_name?: string; place_type?: string[];
+	center?: [number, number]; bbox?: [number, number, number, number];
+	geometry?: { type: string; coordinates: any }; properties?: Record<string, any>;
+}
+/** 外の geocoder（maplibre-gl-geocoder の geocoderApi と同じ形）。forwardGeocode か getSuggestions＋searchByPlaceId のどちらか */
+export interface GeocoderApi {
+	forwardGeocode?(config: GeocoderConfig, abortController?: AbortController): Promise<{ features: CarmenFeature[] }>;
+	/** 今の版では呼ばない（右クリックの「ここはどこ」は別 Issue） */ reverseGeocode?(config: GeocoderConfig & { query: [number, number] | string }): Promise<{ features: CarmenFeature[] }>;
+	getSuggestions?(config: GeocoderConfig): Promise<{ suggestions: Array<{ text: string; placeId: string; place_name?: string }> }>;
+	searchByPlaceId?(config: GeocoderConfig): Promise<{ place: CarmenFeature }>;
+}
+export interface GeocoderConfig { query: string; limit: number; language: string; countries?: string; bbox?: [number, number, number, number]; types?: string; proximity?: { longitude: number; latitude: number } | [number, number] }
+/** 検索窓のオプション（map.gadget.search）。geocoderApi 以下の名前と意味は maplibre-gl-geocoder と同じ */
+export interface SearchOptions {
+	/** 問い合わせ先（1 つか配列・既定＝地域の宣言 region.search） */ provider?: SearchProvider | SearchProvider[];
+	/** 世界の既定（国・州・都市・山川湖海・26 言語・サーバー無し）。true か { url（索引の置き場・末尾 /）, lang（名前の言語・既定＝UI の言語） }。既定 false */
+	world?: boolean | { url?: string; lang?: string; limit?: number } | SearchProvider;
+	/** 外の geocoder（既定では何も繋がない） */ geocoderApi?: GeocoderApi;
+	/** 手元の地物を先に出す（query → Carmen 地物） */ localGeocoder?: (query: string) => CarmenFeature[] | Promise<CarmenFeature[]>;
+	/** geocoderApi を呼ばない（localGeocoder だけ） */ localGeocoderOnly?: boolean;
+	/** geocoder に渡す（公式と同じ） */ limit?: number; language?: string; countries?: string; bbox?: [number, number, number, number]; types?: string; proximity?: { longitude: number; latitude: number }; minLength?: number;
+	/** geocoder の候補を選り分ける */ filter?: (feature: CarmenFeature) => boolean;
+	/** 範囲の無い点の着地（geocoder の候補・既定 16）。配列はガジェットの表示域の宣言（[zmin, zmax)） */ zoom?: number | [number, number];
+	/** 範囲に寄る時の上限（既定 12） */ maxZoom?: number;
+	/** 入力欄の案内（既定＝「地名・住所を検索」・world だけ＝「地名を検索」） */ placeholder?: string;
+	/** 履歴の鍵（既定＝最初に鍵を持つ問い合わせ先の物） */ histKey?: string;
+	/** 候補を選んだ（公式の "result" 事象の中身） */ onResult?: (hit: SearchHit) => void;
+	/** 飛び方の差し替え（既定＝map.flyTo） */ onGo?: (lon: number, lat: number, zoom: number, tilt?: number) => void;
+	/** 範囲 → 着地（既定＝map.cameraForBounds） */ fit?: (bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null;
+	narrow?: boolean;
+}
+/** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
+export interface InspectOptions {
+	/** 起動時から検査表示（既定 false） */ showInspectMap?: boolean;
+	/** 左上の道具の列にボタンを出す（既定 true） */ showInspectButton?: boolean;
+	/** 検査表示で札を出す（既定 true）／ホバーで（既定 true・false＝クリックで） */ showInspectMapPopup?: boolean; showInspectMapPopupOnHover?: boolean;
+	/** 通常の地図でも札を出す（既定 false＝公式と同じ）／ホバーで（既定 true） */ showMapPopup?: boolean; showMapPopupOnHover?: boolean;
+	/** クリックで札を止める／動かす（ホバーの札の時・既定 false） */ blockHoverPopupOnClick?: boolean;
+	/** 札を引く箱の半幅（px・既定 5） */ selectThreshold?: number;
+	/** 検査表示の陸の色（既定 "#fff"） */ backgroundColor?: string;
+	/** 層の色（層名・不透明度 → CSS 色）。既定＝層名を種にした明るい色（water＝青・road＝橙・building＝暗い灰…） */ assignLayerColor?: (layerId: string, alpha: number) => string;
+	/** 札の中身（HTML の文字列か要素）。既定＝層名と $id・$type・属性の表（値は文字として入れる） */ renderPopup?: (features: RenderedFeature[]) => string | HTMLElement;
+	/** 札の問い合わせの条件（queryRenderedFeatures の opts・検査中の既定＝検査の層だけ） */ queryParameters?: QueryOptions;
+	/** 一覧に無い層を足す（{ source: [source-layer…] }） */ sources?: Record<string, string[]>;
+	/** 札の器（既定＝new Popup({ closeButton:false, closeOnClick:false })） */ popup?: Popup;
+	/** 切り替えの知らせ（true＝検査表示になった） */ toggleCallback?: (showInspectMap: boolean) => void;
+}
+/** 検査表示の層の台帳の 1 行（InspectHandle.sources）。from＝一覧の出所（tilejson｜pmtiles｜tiles＝タイルを解いて集めた｜null＝geojson） */
+export interface InspectSource { id: string; type: "vector" | "geojson"; layers: Array<{ id: string; fields: Record<string, string>; minzoom?: number; maxzoom?: number; description?: string }> | null; from: "tilejson" | "pmtiles" | "tiles" | null }
+export interface InspectHandle {
+	open(): Promise<unknown>; close(): Promise<unknown>; toggle(): Promise<unknown>;
+	/** maplibre-gl-inspect と同名（toggle と同じ） */ toggleInspector(): Promise<unknown>;
+	/** 台帳を読み直して検査の層を足す（source を足した後など） */ render(): Promise<unknown>;
+	isOpen(): boolean;
+	/** 検査の層の id（下から） */ layers(): string[];
+	/** 直近の層の台帳 */ sources(): InspectSource[];
+	destroy(): void;
 }
 /** 2 枚の地図を左右（上下）スワイプで比べる（MapLibre 公式 maplibre-gl-compare と同じ形・#173）。before＝つまみの左（上）・after＝右（下）を見せる。
  *  2 枚の容れ物は同じ場所に重ねて置く（利用者の CSS）。カメラは連動する（どちらを動かしても追う）。container＝つまみを置く要素（セレクタ可）。

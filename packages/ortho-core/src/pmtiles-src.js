@@ -8,6 +8,7 @@
 import { decodeTile, loadTileFormat } from "./decode.js";
 import { tileFormatOfPmtilesType } from "./tileformat.js";
 import { tileOutsideCoverage } from "./tile.js";
+import { vectorLayersOf } from "./mlstyle.js";
 
 const PREFIX = "pmtiles://";
 const archives = new Map();   // archive url → Promise<PMTiles>
@@ -64,6 +65,7 @@ export function pmtilesInfo(url) {
 				bbox: full ? null : [h.minLon, h.minLat, h.maxLon, h.maxLat],
 				minZoom: h.minZoom, maxZoom: h.maxZoom,
 				layers: Array.isArray(md?.vector_layers) ? md.vector_layers.map(l => l.id).filter(Boolean) : [],
+				vectorLayers: vectorLayersOf(md),   // 層の一覧（id・fields・minzoom・maxzoom＝TileJSON と同じ形・検査表示 #174）
 				attribution: md?.attribution || null,
 				name: md?.name || null,
 				// タイルの種別＝ヘッダの自己申告（pmtiles.js TileType）。ベクタ（mvt／mlt）は登録簿の名前・ラスタ（png/jpeg/webp/avif）＝画像タイル層の領分。
