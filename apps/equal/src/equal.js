@@ -26,7 +26,9 @@ import { t, setLang, isRTL, LANGUAGES, norm } from "./i18n.js";   // UI 文言�
 import { createLabels, countryLabels, cityLabels, airportLabels } from "./labels.js";
 import { countryName as countryNameOf, cityName as cityNameOf, shortEnNames, culturalUrl, culturalName, WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の中身の正本（名前の順・URL・出しズーム＝globe・world と共有）
 import { createAnno } from "@ortho-earth/globe/gadgets/anno.js";   // geoedit の @スタイル付き geopbf の再生＝japan と実装を共有（正典）
-import { kOfLat, yOfLat } from "./equalearth.js";
+import { search as searchGadget } from "@ortho-earth/globe/gadgets/searchbox.js";   // 地名検索の窓（#175）＝japan と同じ窓・世界の既定（国・州・都市・地形・26 言語）
+import { setLang as setSearchLang, t as searchT } from "@ortho-earth/globe/i18n.js";   // 窓の案内と地名の言語＝globe の i18n（equal の辞書とは別の口）を同じ言語に揃える
+import { kOfLat, yOfLat, latOfY } from "./equalearth.js";
 
 const API = "https://api.ortho-earth.com";
 const MAX_ZOOM = 8;   // NE 10m の縮尺の天井（本人 2026-09-18「maxZoom は 8 程度」）
@@ -403,6 +405,13 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const gadgets = el("div", { id: "gadgets" }), dock = el("div", { id: "dock" });
 	mapEl.append(gadgets, dock);
 
+	// 地名検索（#175・本人裁定 2026-09-30「窓は equal に積む」）＝左上の縦並びの頭。問い合わせ先＝世界の既定だけ（サーバー無し・索引は初めて引いた時に読む）。
+	// 着地は Equal Earth の自前カメラ：点＝その倍率へ飛ぶ・国/州＝範囲が収まる倍率（NE の天井 z8 で頭打ち）
+	await setSearchLang(lang);
+	// ?searchidx=＝焼いたばかりの索引を bucket に置く前に試す（world の VITE_WORLD_DATA と同じ役）
+	const searchIdx = q.get("searchidx");
+	searchGadget.call({ mapEl }, { world: searchIdx ? { url: new URL(searchIdx, location.href).href } : true, signal, onGo: (lon, lat, zoom) => flyView(lon, lat, zoom), fit: fitView, maxZoom: MAX_ZOOM });
+
 	// 層＋主題パネル（#chips/#layers-btn/#layers-panel/.chip/.lp-theme）
 	const chips = el("div", { id: "chips" });
 	const layersBtn = el("button", { id: "layers-btn", "aria-expanded": "false", "data-tt": "Layers & themes", "data-tip": t("Layers & themes") },
@@ -566,6 +575,33 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	const zoomBox = el("div", { id: "zoom" },
 		`<button id="zoom-in" data-tt="Zoom in" data-tip="${esc(t("Zoom in"))}" aria-label="${esc(t("Zoom in"))}">＋</button><button id="zoom-out" data-tt="Zoom out" data-tip="${esc(t("Zoom out"))}" aria-label="${esc(t("Zoom out"))}">−</button>`);
 	gadgets.append(zoomBox);
+	// 検索の着地：経度は近い側へ・倍率は遠い時だけ一度引いてから寄る（球のフライトと同じ見え方の簡約）。指で動かしたら止める
+	let flyTok = 0;
+	function flyView(lon, lat, zoom) {
+		const tok = ++flyTok, from = { ...view }, dl = ((lon - from.lon + 540) % 360) - 180;
+		const to = clampView({ lon: from.lon + dl, lat, zoom: Math.min(MAX_ZOOM, zoom) }, ...size(), MAX_ZOOM);
+		const far = Math.hypot(dl * Math.cos(lat * Math.PI / 180), to.lat - from.lat), hop = Math.min(2, Math.max(0, Math.log2(far / 20 + 1)));
+		const t0 = performance.now(), dur = 700 + 500 * Math.min(1, far / 90);
+		let mine = null;   // 前の歩で置いた視点（描画が毎フレーム clampView で作り直す＝参照でなく値で比べる）
+		const moved = () => mine && (Math.abs(wrapLon(view.lon - mine.lon)) > 1e-6 || Math.abs(view.lat - mine.lat) > 1e-6 || Math.abs(view.zoom - mine.zoom) > 1e-6);
+		const step = () => {
+			if (tok !== flyTok || destroyed || moved()) return;   // 次の検索・利用者の操作・破棄
+			const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k);
+			setView({ lon: from.lon + dl * e, lat: from.lat + (to.lat - from.lat) * e, zoom: from.zoom + (to.zoom - from.zoom) * e - hop * Math.sin(Math.PI * e) });
+			mine = { ...view };
+			if (k < 1) requestAnimationFrame(step); else scheduleHash();
+		};
+		requestAnimationFrame(step);
+	}
+	// 範囲（[w, s, e, n]・w>e＝±180 跨ぎ）が画面に収まる視点（余白 40px・Equal Earth の縦は y(φ)・横は中緯度の k(φ)）
+	function fitView([w, s, e, n]) {
+		const [W, H] = size(), pad = 40;
+		if (e < w) e += 360;
+		const y0 = yOfLat(s), y1 = yOfLat(n), yc = (y0 + y1) / 2, latC = latOfY(yc);
+		const dx = Math.max(1e-6, (e - w) * Math.PI / 180 * kOfLat(latC)), dy = Math.max(1e-6, y1 - y0);
+		const ppu = Math.min((W - 2 * pad) / dx, (H - 2 * pad) / dy);
+		return { lon: wrapLon((w + e) / 2), lat: latC, zoom: Math.min(MAX_ZOOM, Math.log2(ppu * 2 * Math.PI / 256)) };
+	}
 	function animateZoom(sx, sy, to) {
 		const from = view.zoom, t0 = performance.now(), dur = 260;
 		const step = () => { const k = Math.min(1, (performance.now() - t0) / dur), e = k * k * (3 - 2 * k); zoomAround(sx, sy, from + (to - from) * e); if (k < 1) requestAnimationFrame(step); };
@@ -786,12 +822,15 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	async function switchLang(code) {
 		const c = norm(code); if (!c || c === lang) return;
 		lang = c;
-		const [, table, ne] = await Promise.all([setLang(c), loadI18n(c).catch(e => { console.warn("[equal] i18n", e); return null; }), loadNeCities(c)]);
+		const [, table, ne] = await Promise.all([setLang(c), loadI18n(c).catch(e => { console.warn("[equal] i18n", e); return null; }), loadNeCities(c), setSearchLang(c)]);
 		i18n = table; neCities = ne;
 		mapEl.dir = isRTL() ? "rtl" : "ltr";
 		for (const n of mapEl.querySelectorAll("[data-t]")) n.textContent = t(n.dataset.t);            // 文字を持つ家具
 		for (const n of mapEl.querySelectorAll("[data-tt]")) { n.dataset.tip = t(n.dataset.tt); n.setAttribute("aria-label", t(n.dataset.tt)); }   // ボタンの説明
 		attrBase = attrBase.replace(/^[^<]*/, esc(t("Sources: ")));
+		const si = mapEl.querySelector("#search-in"), sb = mapEl.querySelector("#search-btn"), ph = searchT("Search places");   // 検索窓の案内（globe の辞書）
+		if (si) { si.placeholder = ph; si.setAttribute("aria-label", ph); }
+		if (sb) { sb.dataset.tip = searchT("Search places (/)"); sb.setAttribute("aria-label", ph); }
 		relabelChoro(); applyChoropleth(); rebuildLabels(); updateToast(); updatePos(); scheduleHash();
 		if (csv) csvBtn.querySelector(".eq-csv-name").textContent = csv.ds.name;   // ファイル名は訳さない
 	}

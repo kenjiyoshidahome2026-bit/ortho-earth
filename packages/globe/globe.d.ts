@@ -233,7 +233,9 @@ export interface ContextMenuItem {
 /** measure/profile の手綱（ガジェットは UI ボタン＝クリックで頂点・ダブルクリック確定・Esc 中断。プログラムからは start/stop） */
 export interface PathGadget { (): void; start(): void; stop(): void; open(): void; close(): void; stats(): Record<string, number> }
 export interface Gadgets {
-	search(opts?: object): unknown;
+	/** 地名検索の窓（#175）。問い合わせ先＝地域の宣言（日本＝地理院）→ world → localGeocoder → geocoderApi の順に候補を積む。
+	 *  問い合わせ先が 1 つも無い（地域の宣言も world も geocoderApi も無い）＝窓を出さない（undefined）。二重搭載も undefined */
+	search(opts?: SearchOptions): HTMLElement | undefined;
 	zoom(): unknown;
 	compass(): unknown;           // 3D（チルト中）のみ表示
 	full(): unknown;              // 全画面（ショートカット=Z単キー）
@@ -956,6 +958,55 @@ export class Popup {
 	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
 	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
+}
+/** 検索の候補（#175）。着地＝zoom ＞ bbox（範囲に寄る）＞ 供給元の viewFor(title) ＞ z12 */
+export interface SearchHit {
+	title: string;
+	/** 添え書き（都市＝州と国・州＝国・地形＝分類）。照合にも着地にも使わない表示専用 */ note?: string;
+	lon: number; lat: number;
+	/** 範囲 [west, south, east, north]（west>east＝±180 を跨ぐ）＝その範囲に寄る（国・州） */ bbox?: [number, number, number, number];
+	/** 着地の倍率・チルト（度） */ zoom?: number; tilt?: number;
+	/** 種別（世界＝"country"｜"state"｜"city"｜地形の分類・外の geocoder＝place_type の頭） */ kind?: string;
+	/** 外から突き合わせる鍵（世界＝Wikidata の QID・外の geocoder＝feature.id） */ id?: string;
+}
+/** 検索の問い合わせ先（地域の宣言 region.search と同じ形）。今の形（{ title, note, lon, lat } と viewFor）は無改修で動く */
+export interface SearchProvider {
+	/** 検索履歴の localStorage の鍵（最初に鍵を持つ問い合わせ先の物を使う・既定 "ortho.searches"） */ histKey?: string;
+	query(q: string, signal: AbortSignal): Promise<SearchHit[]>;
+	/** 候補に zoom も bbox も無い時の着地（題名から） */ viewFor?(title: string): { zoom: number; tilt?: number };
+}
+/** Carmen GeoJSON の地物（maplibre-gl-geocoder の返り）。text＝名前・place_name＝住所まで・center＝[lon, lat] */
+export interface CarmenFeature {
+	id?: string | number; type?: "Feature"; text?: string; place_name?: string; place_type?: string[];
+	center?: [number, number]; bbox?: [number, number, number, number];
+	geometry?: { type: string; coordinates: any }; properties?: Record<string, any>;
+}
+/** 外の geocoder（maplibre-gl-geocoder の geocoderApi と同じ形）。forwardGeocode か getSuggestions＋searchByPlaceId のどちらか */
+export interface GeocoderApi {
+	forwardGeocode?(config: GeocoderConfig, abortController?: AbortController): Promise<{ features: CarmenFeature[] }>;
+	/** 今の版では呼ばない（右クリックの「ここはどこ」は別 Issue） */ reverseGeocode?(config: GeocoderConfig & { query: [number, number] | string }): Promise<{ features: CarmenFeature[] }>;
+	getSuggestions?(config: GeocoderConfig): Promise<{ suggestions: Array<{ text: string; placeId: string; place_name?: string }> }>;
+	searchByPlaceId?(config: GeocoderConfig): Promise<{ place: CarmenFeature }>;
+}
+export interface GeocoderConfig { query: string; limit: number; language: string; countries?: string; bbox?: [number, number, number, number]; types?: string; proximity?: { longitude: number; latitude: number } | [number, number] }
+/** 検索窓のオプション（map.gadget.search）。geocoderApi 以下の名前と意味は maplibre-gl-geocoder と同じ */
+export interface SearchOptions {
+	/** 問い合わせ先（1 つか配列・既定＝地域の宣言 region.search） */ provider?: SearchProvider | SearchProvider[];
+	/** 世界の既定（国・州・都市・山川湖海・26 言語・サーバー無し）。true か { url（索引の置き場・末尾 /）, lang（名前の言語・既定＝UI の言語） }。既定 false */
+	world?: boolean | { url?: string; lang?: string; limit?: number } | SearchProvider;
+	/** 外の geocoder（既定では何も繋がない） */ geocoderApi?: GeocoderApi;
+	/** 手元の地物を先に出す（query → Carmen 地物） */ localGeocoder?: (query: string) => CarmenFeature[] | Promise<CarmenFeature[]>;
+	/** geocoderApi を呼ばない（localGeocoder だけ） */ localGeocoderOnly?: boolean;
+	/** geocoder に渡す（公式と同じ） */ limit?: number; language?: string; countries?: string; bbox?: [number, number, number, number]; types?: string; proximity?: { longitude: number; latitude: number }; minLength?: number;
+	/** geocoder の候補を選り分ける */ filter?: (feature: CarmenFeature) => boolean;
+	/** 範囲の無い点の着地（geocoder の候補・既定 16）。配列はガジェットの表示域の宣言（[zmin, zmax)） */ zoom?: number | [number, number];
+	/** 範囲に寄る時の上限（既定 12） */ maxZoom?: number;
+	/** 入力欄の案内（既定＝「地名・住所を検索」・world だけ＝「地名を検索」） */ placeholder?: string;
+	/** 履歴の鍵（既定＝最初に鍵を持つ問い合わせ先の物） */ histKey?: string;
+	/** 候補を選んだ（公式の "result" 事象の中身） */ onResult?: (hit: SearchHit) => void;
+	/** 飛び方の差し替え（既定＝map.flyTo） */ onGo?: (lon: number, lat: number, zoom: number, tilt?: number) => void;
+	/** 範囲 → 着地（既定＝map.cameraForBounds） */ fit?: (bbox: [number, number, number, number]) => { lon: number; lat: number; zoom: number } | null;
+	narrow?: boolean;
 }
 /** 検査表示のオプション（map.gadget.inspect・名前と既定値は maplibre-gl-inspect と同じ） */
 export interface InspectOptions {

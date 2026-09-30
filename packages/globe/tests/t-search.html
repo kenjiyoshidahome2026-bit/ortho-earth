@@ -1,0 +1,164 @@
+<!doctype html>
+<!-- 地名検索（maplibre-gl-geocoder 相当・#175）。試料＝fixtures/worldsearch（packages/world の search-index.mjs --fixture が焼いた部分集合＝全ての国＋Paris・Springfield・Tokyo…・ja/zh）。
+     既定（地域なしの地球儀＝createGlobe だけ）：
+       ① 窓の出し入れ＝問い合わせ先が無ければ窓を出さない・world で窓が出る（案内は「地名を検索」）
+       ② 「Paris」→ 候補の頭が Paris（France）・Enter で Paris へ着く（点＝索引の倍率）
+       ③ 同じ所：ja の「パリ」「ぱり」・zh の「巴黎」が同じ点を返す（問い合わせ先を直に）
+       ④ 国は範囲に寄る：「France」→ 着いた倍率＝cameraForBounds(France の範囲)・中心も
+       ⑤ 同名は注記で分かれる：「Springfield」の 5 件が州で分かれる
+       ⑥ 履歴が倍率を覚える：空の窓＝最近の検索（France・Paris）・Paris は zoom・France は bbox を持つ・履歴から選ぶと同じ倍率へ
+       ⑦ 地域が先：地域の問い合わせ先と world を重ねると地域の候補が先・地域の候補は viewFor の倍率へ
+     ?v=geo＝外の geocoder の口（公式の geocoderApi・localGeocoder の形）：手元の候補が先・範囲あり＝寄る・点＝opts.zoom・onResult・forwardGeocode の引数
+     ?v=merge＝候補の積み方（mergeHits）と正規化（normalizeName）の単体 -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-search</title></head>
+<body><div id="map"></div>
+<script type="module">
+const V = new URLSearchParams(location.search).get("v") || "world";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const until = async (fn, ms = 15000, step = 100) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+const FX = new URL("./fixtures/worldsearch/", location.href).href;
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+// 窓に打って候補を待つ（デバウンス 280ms の後）
+async function type(map, q) {
+	const inp = map.mapEl.querySelector("#search-in"), list = map.mapEl.querySelector("#search-list");
+	inp.focus(); inp.value = q; inp.dispatchEvent(new Event("input", { bubbles: true }));
+	return until(() => { const it = [...list.querySelectorAll(".search-item")]; return it.length && list.style.display === "block" ? it : null; }, 10000);
+}
+const itemText = el => ({ title: el.firstChild?.textContent || "", note: el.querySelector(".search-note")?.textContent || "" });
+const enter = map => map.mapEl.querySelector("#search-in").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+// 飛び終わり＝飛行が終わり（isMoving＝false）中心と倍率が 600ms 動かない（飛行は途中で溜めて止まることがある＝画素の静止だけでは早すぎる）
+const trace = [];   // 直近の飛行の倍率の列（落ちた時の注記）
+async function landed(map, ms = 20000) {
+	let prev = "", same = 0; trace.length = 0;
+	return until(() => { const c = map.getCenter(), s = `${c.lng.toFixed(5)},${c.lat.toFixed(5)},${map.getZoom().toFixed(4)}`; trace.push(map.getZoom().toFixed(2)); same = s === prev && !map.isMoving() ? same + 1 : 0; prev = s; return same >= 6 ? { lon: c.lng, lat: c.lat, zoom: map.getZoom() } : null; }, ms, 100);
+}
+
+try {
+	await (await import("../src/i18n.js")).setLang("en");   // 窓の文字（案内）を英語で見る＝走らせる端末の言語に依らない
+	localStorage.removeItem("ortho.searches"); localStorage.removeItem("t-search.region");
+	if (V === "world") {
+		const { createGlobe } = await import("@ortho-earth/globe");
+		const ws = await import("../src/worldsearch.js");
+		let map = await createGlobe({ target: "#map", view: "#2/20/0", chips: false });
+		await map.once("load");
+		// ① 窓の出し入れ
+		const none = map.gadget.search();
+		ok("no-provider-no-box", none === undefined && !map.mapEl.querySelector("#search"), `ret=${none}`);
+		const box = map.gadget.search({ world: { url: FX, lang: "en" } });
+		const inp = map.mapEl.querySelector("#search-in");
+		ok("box", !!box && box.id === "search" && inp?.placeholder === "Search places", `ph=${inp?.placeholder}`);
+		ok("double-mount", map.gadget.search({ world: true }) === undefined && map.mapEl.querySelectorAll("#search").length === 1);
+
+		// ② Paris
+		const its = await type(map, "Paris");
+		const first = its && itemText(its[0]);
+		ok("paris-list", first?.title === "Paris" && first?.note === "France", JSON.stringify(first));
+		enter(map);
+		const P = await landed(map);
+		ok("paris-land", P && near(P.lon, 2.35, 0.05) && near(P.lat, 48.86, 0.05) && near(P.zoom, 9.5, 0.05), JSON.stringify(P));
+
+		// ③ 同じ所（言語違い）
+		const en = (await ws.createWorldSearch({ url: FX, lang: "en" }).query("Paris"))[0];
+		const ja = (await ws.createWorldSearch({ url: FX, lang: "ja" }).query("パリ"))[0];
+		const jaH = (await ws.createWorldSearch({ url: FX, lang: "ja" }).query("ぱり"))[0];
+		const zh = (await ws.createWorldSearch({ url: FX, lang: "zh" }).query("巴黎"))[0];
+		const same = h => h && h.lon === en.lon && h.lat === en.lat && h.id === en.id && h.kind === "city";
+		ok("same-place", same(ja) && same(jaH) && same(zh) && ja.title === "パリ" && zh.title === "巴黎" && ja.note === "フランス", `${ja?.title}/${ja?.note} ${jaH?.title} ${zh?.title} id=${en?.id}`);
+
+		// ④ 国は範囲に寄る
+		const fr = (await ws.createWorldSearch({ url: FX, lang: "en" }).query("France"))[0];
+		const its2 = await type(map, "France");
+		ok("france-list", its2 && itemText(its2[0]).title === "France" && fr?.kind === "country" && fr.bbox?.length === 4, JSON.stringify(fr?.bbox));
+		enter(map);
+		const F = await landed(map);
+		const want = map.cameraForBounds(fr.bbox, { padding: 40, maxZoom: 12 });
+		ok("france-fit", F && want && near(F.zoom, want.zoom, 0.05) && near(F.lon, want.center[0], 0.05) && near(F.lat, want.center[1], 0.05) && fr.bbox[0] > -10 && fr.bbox[2] < 12, `got=${JSON.stringify(F)} want=${want?.zoom?.toFixed(3)}@${want?.center?.map(x => x.toFixed(2))} bbox=${fr.bbox}`);
+
+		// ⑤ 同名
+		const sp = await type(map, "Springfield");
+		const notes = (sp || []).map(e => itemText(e)).filter(x => x.title === "Springfield").map(x => x.note);
+		ok("springfield", notes.length === 5 && new Set(notes).size === 5 && notes.some(n => /^Illinois, /.test(n)), notes.join(" / "));
+
+		// ⑥ 履歴
+		map.mapEl.querySelector("#search-in").value = ""; map.mapEl.querySelector("#search-in").dispatchEvent(new Event("input", { bubbles: true }));
+		const hist = await until(() => { const l = map.mapEl.querySelector("#search-list"); return /Recent searches/.test(l.textContent) ? [...l.querySelectorAll(".search-item")] : null; }, 5000);
+		const H = JSON.parse(localStorage.getItem("ortho.searches") || "[]");
+		ok("history", hist?.length === 2 && itemText(hist[0]).title === "France" && itemText(hist[1]).title === "Paris"
+			&& H[1]?.zoom === 9.5 && H[1]?.bbox === undefined && H[0]?.bbox?.length === 4 && H[0]?.zoom === undefined && H[0]?.kind === "country" && /^Q\d+$/.test(H[1]?.id || ""), JSON.stringify(H));
+		hist[1].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+		const P2 = await landed(map);
+		ok("history-zoom", P2 && near(P2.zoom, 9.5, 0.05) && near(P2.lon, 2.35, 0.05), JSON.stringify(P2));
+		map.destroy();
+
+		// ⑦ 地域が先
+		const region = {
+			histKey: "t-search.region",
+			async query(q) { return /paris/i.test(q) ? [{ title: "Paris (region)", note: "local", lon: 10, lat: 10 }] : []; },
+			viewFor: () => ({ zoom: 7 }),
+		};
+		map = await createGlobe({ target: "#map", view: "#2/20/0", chips: false, region: { search: region } });
+		await map.once("load");
+		map.gadget.search({ world: { url: FX, lang: "en" } });
+		const ph = map.mapEl.querySelector("#search-in").placeholder;
+		const its3 = await type(map, "Paris");
+		const tt = (its3 || []).map(e => itemText(e).title);
+		ok("region-first", tt[0] === "Paris (region)" && tt[1] === "Paris" && ph === "Search places and addresses", `${tt.join(",")} ph=${ph}`);
+		enter(map);
+		const R = await landed(map);
+		ok("region-viewfor", R && near(R.lon, 10, 0.05) && near(R.lat, 10, 0.05) && near(R.zoom, 7, 0.05) && JSON.parse(localStorage.getItem("t-search.region") || "[]")[0]?.zoom === 7, JSON.stringify(R));
+		map.destroy();
+	} else if (V === "geo") {
+		const { createGlobe } = await import("@ortho-earth/globe");
+		const map = await createGlobe({ target: "#map", view: "#2/20/0", chips: false });
+		await map.once("load");
+		const calls = [], results = [];
+		const feature = (text, place_name, center, extra = {}) => ({ type: "Feature", id: "x." + text, text, place_name, center, geometry: { type: "Point", coordinates: center }, place_type: ["place"], properties: {}, ...extra });
+		const geocoderApi = {
+			forwardGeocode: async (config, ac) => { calls.push({ ...config, ac: ac instanceof AbortController }); return { features: [
+				feature("Cafe Uno", "Cafe Uno, Main St, Springfield", [-89.65, 39.8]),
+				feature("Cafe Park", "Cafe Park, Kyoto", [135.76, 35.01], { bbox: [135.7, 34.95, 135.82, 35.07], place_type: ["poi"] }),
+			] }; },
+		};
+		const localGeocoder = q => /cafe/i.test(q) ? [feature("Cafe Local", "Cafe Local, Home", [0.5, 51.5])] : [];
+		map.gadget.search({ geocoderApi, localGeocoder, zoom: 15, limit: 4, countries: "us,jp", onResult: h => results.push(h) });
+		const ph = map.mapEl.querySelector("#search-in").placeholder;
+		const its = await type(map, "cafe");
+		const tt = (its || []).map(e => itemText(e));
+		ok("geo-order", tt.map(x => x.title).join(",") === "Cafe Local,Cafe Uno,Cafe Park" && tt[1].note === "Main St, Springfield" && ph === "Search places and addresses", JSON.stringify(tt));
+		ok("geo-config", calls.length >= 1 && calls.at(-1).query === "cafe" && calls.at(-1).limit === 4 && calls.at(-1).countries === "us,jp" && calls.at(-1).language && calls.at(-1).ac, JSON.stringify(calls.at(-1)));
+		its[2].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+		const B = await landed(map);
+		const want = map.cameraForBounds([135.7, 34.95, 135.82, 35.07], { padding: 40, maxZoom: 12 });
+		ok("geo-bbox", B && near(B.zoom, want.zoom, 0.05) && near(B.lon, 135.76, 0.02) && results[0]?.kind === "poi" && results[0]?.id === "x.Cafe Park" && !("src" in results[0]), `${JSON.stringify(B)} want=${want.zoom.toFixed(3)} r=${JSON.stringify(results[0])} trace=${trace.join(",")}`);
+		const its2 = await type(map, "cafe u");
+		const uno = (its2 || []).find(e => itemText(e).title === "Cafe Uno");
+		uno?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+		const U = await landed(map);
+		ok("geo-point", U && near(U.zoom, 12, 0.05) === false && near(U.zoom, 15, 0.05) && near(U.lon, -89.65, 0.02), JSON.stringify(U));   // 点＝opts.zoom（15）
+		const its3 = await type(map, "c");   // minLength 2＝外は呼ばない
+		ok("geo-minlength", !its3 && calls.every(c => c.query.length >= 2), `calls=${calls.map(c => c.query)}`);
+		map.destroy();
+	} else if (V === "merge") {
+		const { mergeHits } = await import("../src/search.js");
+		const { normalizeName } = await import("../src/worldsearch.js");
+		const { carmenToHit } = await import("../src/geocoder.js");
+		const A = n => Array.from({ length: n }, (_, i) => ({ title: "a" + i })), B = n => Array.from({ length: n }, (_, i) => ({ title: "b" + i }));
+		const m1 = mergeHits([A(8), B(5)]).map(h => h.title), m2 = mergeHits([A(2), B(12)]).map(h => h.title), m3 = mergeHits([A(8), [], B(1)]).map(h => h.title);
+		ok("merge", m1.length === 10 && m1.filter(x => x[0] === "a").length === 7 && m1[7] === "b0" && m2.length === 10 && m2[0] === "a0" && m2[2] === "b0" && m3.length === 9 && m3[8] === "b0", `${m1} | ${m2} | ${m3}`);
+		const N = s => normalizeName(s);
+		ok("normalize", N("Zürich") === "zurich" && N("São Paulo") === "sao paulo" && N("St. Petersburg") === N("Saint Petersburg") && N("Mt. Fuji") === N("Mount Fuji") && N("ぱり") === "パリ" && N("ＰＡＲＩＳ") === "paris" && N("エントレ・リオス") === "エントレ リオス" && N("Straße") === "strasse",
+			[N("Zürich"), N("ぱり"), N("ＰＡＲＩＳ"), N("St. Petersburg")].join(","));
+		const c1 = carmenToHit({ text: "Kyoto", place_name: "Kyoto, Japan", center: [135.76, 35.01], place_type: ["place"], id: 7 });
+		const c2 = carmenToHit({ place_name: "Somewhere, Far", geometry: { type: "Point", coordinates: [1, 2] }, bbox: [0, 1, 2, 3] }, 16);
+		ok("carmen", c1.title === "Kyoto" && c1.note === "Japan" && c1.zoom === 16 && c1.id === "7" && c1.kind === "place" && c2.title === "Somewhere" && c2.note === "Far" && c2.bbox && c2.zoom === undefined && carmenToHit({ text: "x" }) === null, JSON.stringify([c1, c2]));
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
