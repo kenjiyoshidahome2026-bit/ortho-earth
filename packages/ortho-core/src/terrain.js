@@ -129,7 +129,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		atlasKey = ""; requestDraw();
 	}
 	// 1 点の標高（DEM の最大ズームから・範囲外や無効は null）＝main の getHeight・計測が使う
-	const demHeight = (lon, lat) => demSrc ? demSrc.height(lon, lat).then(v => (v === v ? v : null)) : Promise.resolve(null);
+	const demHeight = (lon, lat, zHint = null) => demSrc ? demSrc.height(lon, lat, zHint).then(v => (v === v ? v : null)) : Promise.resolve(null);
 	async function getCell(cellLng, cellLat, range) {
 		if (!loadTile) return null;
 		// 経度は周期正規化：日付変更線を跨いだ窓のセルは cellLng が 180 や -270 になり、そのまま

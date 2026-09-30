@@ -58,10 +58,12 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	}
 	function workerBuildTile(t) {
 		const id = ++reqId, key = `${t.z}/${t.x}/${t.y}`, w = tileWorkers[wIdx = (wIdx + 1) % NW];
-		const url = tileUrl(t.z, t.x, t.y), rq = url && request ? request(url, "Tile") : null;
+		const url = tileUrl(t.z, t.x, t.y), pm = !!url && /^pmtiles:\/\//i.test(url);
+		// PMTiles で頁が addProtocol("pmtiles") を登録している時＝MapLibre と同じ URL の形（…/{z}/{x}/{y}）で頁の読み口に頼む（旧＝アーカイブの URL だけを渡し、pmtiles.js は何も返さず＝タイルが来ない・2026-09-30）。登録が無ければ worker の自前の読み（範囲取得）
+		const rq = url && request ? request(pm ? `${url}/${t.z}/${t.x}/${t.y}` : url, "Tile") : null;
 		if (rq?.load) rq.load().then(ab => { if (pending.has(id)) w.postMessage({ id, url: rq.url, z: t.z, x: t.x, y: t.y, bytes: ab }, ab?.byteLength ? [ab] : []); },
 			err => { const p = pending.get(id); if (p) { pending.delete(id); p.reject(err); } });
-		else w.postMessage({ id, url: rq?.url ?? url, z: t.z, x: t.x, y: t.y, ...(rq?.headers || rq?.credentials ? { init: { headers: rq.headers, credentials: rq.credentials } } : {}) });
+		else w.postMessage({ id, url: pm ? url : (rq?.url ?? url), z: t.z, x: t.x, y: t.y, ...(rq?.headers || rq?.credentials ? { init: { headers: rq.headers, credentials: rq.credentials } } : {}) });
 		keyToId.set(key, id);
 		return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key, w, noUrl: !url }));
 	}

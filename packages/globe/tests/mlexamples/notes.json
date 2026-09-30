@@ -1,0 +1,131 @@
+{
+	"_": "見比べ帳のコメント（例の名前 → { ja, en }）。問題のある例に、原因・処置・残りを添える（台帳 §8 と対・2026-09-30 本人「問題がある時はコメントを添えて」）。gallery.html の HTML 覗き窓に英日で載る（2026-09-30 本人「Note もそちらに英語と日本語で」）",
+	"add-a-3d-model-with-babylonjs": {
+		"ja": "本物の側が描けない：babylon は毎フレーム 32 回 draw を出すが直後に GL_INVALID_OPERATION＝MapLibre と GL の状態を共有する時の食い違い（材質・行列は正常）。こちらは別 canvas に描くので皿 2 基が出る。分母の外（REF_BROKEN）。",
+		"en": "The reference side draws nothing: Babylon issues 32 draw calls per frame but each ends in GL_INVALID_OPERATION — a mismatch when sharing GL state with MapLibre (materials and matrices are fine). ortho renders custom layers on a separate canvas, so both antennas appear. Excluded from the denominator (reference broken)."
+	},
+	"toggle-deckgl-layer": {
+		"ja": "本物の側が読めない：style の API キーが Referer https://maplibre.org/ に縛られ、この走らせ台では両側 401（curl で確認）。こちらは既定の基図に落ち、deck.gl の overlay（5 点）は描ける。分母の外（REF_BROKEN）。",
+		"en": "The reference side cannot load its style: the API key is locked to Referer https://maplibre.org/, so both sides get 401 on this rig (verified with curl). ortho falls back to its default basemap and the deck.gl overlay (5 points) draws. Excluded from the denominator (reference broken)."
+	},
+	"sync-movement-of-multiple-maps": {
+		"ja": "3 枚とも生きて連動（段 2〜3＝撮る時に動いているかで揺れる）。本物の例外（unpkg の CommonJS プラグインの module is not defined）は害なし＝両側同じ例外は落ちに数えない。通訳の live な Map は 1 頁 4 枚まで（2026-09-30 本人裁定・旧 2）＝3 枚とも生きて連動する。見た目＝本物はメルカトル 3 分割・こちらは球 3 つ（文書の違い）。",
+		"en": "All three maps are live and synchronized. The exception thrown on the reference side (the CommonJS plugin from unpkg: module is not defined) is harmless and identical on both sides, so it is not counted. ortho allows up to four live maps per page. Visually, MapLibre shows three Mercator panes; ortho shows three globes — a documented difference."
+	},
+	"add-a-custom-layer-with-tiles-to-a-globe": {
+		"ja": "直した：custom 層に球の variant（例が setProjection(globe) か style の projection で球を頼んだ時だけ＝メルカトルで書かれた層は従来どおり）（MapLibre の projectionGlobe と同じ関数名・極の頂点・裏側の面）＋ createTileMesh／subdivisionGranularity。基図 9→96/156。残り＝注記と経緯線の色の細部。",
+		"en": "Fixed: custom layers get a globe variant (only when the page asks for globe via setProjection or the style's projection; Mercator-written layers are unchanged) with the same shader function names as MapLibre's projectionGlobe, pole vertices and back-face handling, plus createTileMesh / subdivisionGranularity. Basemap probes went from 9 to 96 of 156. Remaining: fine details of labels and graticule colors."
+	},
+	"pmtiles-source-and-protocol": {
+		"ja": "直した：頁が addProtocol(\"pmtiles\") を登録している時、基図の読み口にアーカイブの URL だけを渡していた（pmtiles.js は何も返さない）→ MapLibre と同じ pmtiles://…/{z}/{x}/{y} の形で頼む。",
+		"en": "Fixed: when the page registers addProtocol(\"pmtiles\"), ortho used to hand the archive URL alone to the protocol (pmtiles.js returns nothing for that). It now requests pmtiles://…/{z}/{x}/{y} exactly as MapLibre does."
+	},
+	"adding-3d-models-using-threejs-on-terrain": {
+		"ja": "直した：queryTerrainElevation（同期＝標高のメモ）。残り＝基図の色（地形の上の模型の位置は標高のメモが届いた後に決まる）。",
+		"en": "Fixed: queryTerrainElevation (synchronous, from the cached elevation). Remaining: basemap colors; the model's position on terrain is settled only after the elevation data arrives."
+	},
+	"walk-around-a-map-in-first-person": {
+		"ja": "直した：calculateCameraOptionsFromTo（MapLibre の式のまま）。動く例（animated）＝段 2 まで。残り＝歩きの途中の写しの時刻がずれる分のカメラ差。",
+		"en": "Fixed: calculateCameraOptionsFromTo (MapLibre's formula verbatim). This is an animated example, so the picture is not compared; the remaining camera difference is timing of the capture during the walk."
+	},
+	"set-center-point-above-ground": {
+		"ja": "直した：注視点の高さ（centerClampedToGround:false＋elevation 541m）＝カメラは本物と同じ高さ・地の色は白に。残り＝遠景の建物が出ない（原因未特定）。",
+		"en": "Fixed: the center point's elevation (centerClampedToGround:false with elevation 541 m) — the camera now sits at the same height as MapLibre, and the ground color is white. Remaining: distant buildings do not appear (cause not yet found)."
+	},
+	"elevate-symbols-above-the-terrain": {
+		"ja": "標高が正しく読めるようになり（terrarium の符号化）、街と山並みは本物と同じ構図に。残り＝細い道路と注記の標本で 8 割に届かない・記号の z 持ち上げ（symbol-z-elevate）は未実装。",
+		"en": "Elevation now decodes correctly (terrarium encoding), so the town and the ridges match the reference. Remaining: probes on thin roads and labels stay under the 80% bar, and symbol-z-elevate is not implemented."
+	},
+	"sky-fog-terrain": {
+		"ja": "MapLibre の sky（sky-color／horizon-color／fog-ground-blend）を描く機能が無い＝候補。地形の起伏と陰影は本物と同じ。",
+		"en": "ortho has no equivalent of MapLibre's sky (sky-color / horizon-color / fog-ground-blend) yet — a candidate. Terrain relief and hillshade match the reference."
+	},
+	"3d-terrain": {
+		"ja": "地形は本物と同じ（terrarium の符号化と注視点の高さを直した）。残り＝OSM の画像タイルは両側とも Access blocked（403）＝標本は文字の上に落ちる。",
+		"en": "Terrain matches the reference (terrarium decoding and center elevation fixed). Remaining: the OSM raster tiles are blocked (403) on both sides, so the probes land on the placeholder text."
+	},
+	"display-a-hybrid-satellite-map-with-terrain-elevation": {
+		"ja": "地形は本物と同じ。残り＝衛星画像の段の細部と注記。",
+		"en": "Terrain matches the reference. Remaining: fine details of the satellite imagery levels and labels."
+	},
+	"add-3d-terrain-from-quantized-mesh-tiles": {
+		"ja": "直した：addProtocol から画像で返る標高（quantized-mesh の陰影）。残り＝setTerrain の quantized-mesh:// は worker が直に fetch する（読み口を通らない）＝起伏は既定の DEM。",
+		"en": "Fixed: hillshade from elevation returned as an image by addProtocol (quantized-mesh). Remaining: setTerrain with quantized-mesh:// is fetched directly by the worker (bypassing the protocol), so the relief comes from the default DEM."
+	},
+	"jump-to-a-series-of-locations": {
+		"ja": "揺れ：load の 2 秒後に別の都市へ飛ぶ例＝撮る時刻で 1 か 3 になる（単独 3・並べて 1）。",
+		"en": "Flaky: the example jumps to another city two seconds after load, so the result depends on capture timing (same picture when run alone)."
+	},
+	"display-performance-metrics": {
+		"ja": "揺れ：静止の判定（stable／moving）が回ごとに変わる。",
+		"en": "Flaky: the settled/moving detection varies from run to run."
+	},
+	"display-a-popup-on-click": {
+		"ja": "色は完全に一致（背景・水・道路）。76% で 8 割に届かないのは 1〜2px の道路の縁に落ちた標本（片側は道路・片側は地）。",
+		"en": "Colors match exactly (background, water, roads). It stays at 76% because some probes land on 1–2 px road edges (road on one side, ground on the other)."
+	},
+	"display-a-popup-on-hover": {
+		"ja": "同上（密な道路網の標本の当たり外れ）。",
+		"en": "Same as above (probe luck on a dense road network)."
+	},
+	"filter-symbols-by-text-input": {
+		"ja": "色は一致・細い道路の幅がわずかに違う（sub-2px の縁の AA）。",
+		"en": "Colors match; thin roads differ slightly in width (sub-2 px edge anti-aliasing)."
+	},
+	"filter-symbols-by-toggling-a-list": {
+		"ja": "同上。",
+		"en": "Same as above."
+	},
+	"add-a-raster-tile-source": {
+		"ja": "低ズームの球とメルカトルの見え方の差（本物は画面いっぱいのメルカトル・こちらは小さな球）＝意図した違い。地の色は白に揃えた。",
+		"en": "At low zoom a globe and a Mercator map look different by design (MapLibre fills the screen with Mercator; ortho shows a small globe). The ground color is white on both."
+	},
+	"render-world-copies": {
+		"ja": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。",
+		"en": "A globe has no world copies — a documented difference. Low-zoom fills are now subdivided on the sphere, so the picture matches."
+	},
+	"display-line-that-crosses-180th-meridian": {
+		"ja": "同上（球）。",
+		"en": "Same as above (globe)."
+	},
+	"add-a-generated-icon-to-the-map": {
+		"ja": "同上（球）＋記号の下の標本。",
+		"en": "Same as above (globe), plus probes under the icon."
+	},
+	"add-an-icon-to-the-map": {
+		"ja": "同上（球）＋記号の下の標本。",
+		"en": "Same as above (globe), plus probes under the icon."
+	},
+	"generate-and-add-a-missing-icon-to-the-map": {
+		"ja": "同上（球）＋記号の下の標本。",
+		"en": "Same as above (globe), plus probes under the icon."
+	},
+	"filter-within-a-layer": {
+		"ja": "同上（球・z0）。",
+		"en": "Same as above (globe at z0)."
+	},
+	"add-a-stretchable-image-to-the-map": {
+		"ja": "同上（球・z0.1）。",
+		"en": "Same as above (globe at z0.1)."
+	},
+	"display-a-remote-svg-symbol": {
+		"ja": "同上（球・z1）＝416px の SVG が球を覆う。",
+		"en": "Same as above (globe at z1): the 416 px SVG covers the globe."
+	},
+	"level-of-detail-control": {
+		"ja": "setSourceTileLodParams は未対応（MapLibre 独自の LOD の口）。",
+		"en": "setSourceTileLodParams is not supported (a MapLibre-specific LOD control)."
+	},
+	"customize-the-map-transform-constrain": {
+		"ja": "transformCameraUpdate（カメラの拘束の差し込み）は未対応＝ズームが 2 段違う。",
+		"en": "transformCameraUpdate (a hook to constrain the camera) is not supported, so the zoom differs by two levels."
+	},
+	"add-a-canvas-source": {
+		"ja": "canvas source（動く canvas を画像として貼る）は未対応。",
+		"en": "Canvas sources (an animating canvas used as an image) are not supported."
+	},
+	"add-a-cog-raster-source": {
+		"ja": "maplibre-cog-protocol の tile は addLayer の型紙の形と合わない（Request failed）＝COG はこちらの geopbf の cog で読む道が別にある。",
+		"en": "Tiles from maplibre-cog-protocol do not fit ortho's addLayer URL templates (Request failed). ortho reads COGs through its own geopbf cog reader instead."
+	}
+}

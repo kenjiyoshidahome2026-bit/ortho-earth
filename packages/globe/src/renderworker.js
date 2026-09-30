@@ -99,6 +99,7 @@ function overlayFrame(camNow, depthFrame) {
 	return more;
 }
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
+let frameEvents = false;   // 描いたフレームごとに { type:"frame", cam } を main へ（custom 層の同期・要求された時だけ）
 let glRef = null, sentFrame1 = false, sentCtxLost = false, sentDrawErr = false;   // 起動ウォッチドッグ(frame1)・コンテキストロスト・draw例外の一次診断（main へ各1回だけ通知）
 let gint = null;   // gint（知性の層＝海岸線/14条筆/AI層）＝同一GLコンテキストの1パス（1canvas統合。旧・別worker+従属駆動）
 const gintLs = new Map();   // 追加層のレジストリ（layer id → addLayer ハンドル）。既定層＝gint（facade）
@@ -390,6 +391,7 @@ const dispatch = e => {
 				else terrain?.setDem(m.data || null);
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
+			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
 			else if (m.cmd === "clock") { clockA = m.data; noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
 			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
 			else if (m.cmd === "view" && m.data && ("clock" in m.data || "time" in m.data)) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
@@ -588,6 +590,7 @@ function drainUploads() {
 	if (sceneInbox.size) {   // シーン優先＝基図の見た目への効きが大きい（PLATEAUは1フレーム待つだけ）
 		const [slot, scene] = sceneInbox.entries().next().value;
 		sceneInbox.delete(slot);
+		if (scene && performance.now() - lastCamMoveT < RES_SETTLE_MS) scene.noFade = true;   // 動いている間の差し替えはクロスフェードしない（ズーム中は 60ms 刻みで場面が替わる＝旧場面を半透明で重ねると大きな塗りがちらつく・2026-09-30 本人）
 		try { renderer.set("scene", scene, slot); }
 		catch (err) { console.error("[render] scene apply failed:", err && (err.message || err)); }   // 適用失敗も黙らせない（次の merge で回復）
 		dirty = true; uploadSkip = 2;
@@ -751,7 +754,8 @@ function frame() {
 			if (animating || fogAnim || ovMore || clockSpin) dirty = true;        // フェード/フォグ追従の継続は自前で次フレーム（main関与なし）
 			animCont = !!(animating || fogAnim || ovMore || clockSpin);   // 遷移時AA：自前継続の連続フレーム（フェード・フォグ・オーバーレイの続き＝衛星・時計の早送り）も遷移扱い（1x・#125）
 			lastAA = aaOn ? 4 : 1;                                   // 静止時の品質フレーム発火判定（下の !drew 節）
-			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
+			if (!sentFrame1) { sentFrame1 = true; postMessage({ type: "frame1", backend: backendName }); }
+			if (frameEvents) postMessage({ type: "frame", cam: { center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, fovy: cam.fovy, dpr: cam.dpr, centerAlt: cam.centerAlt }, t: performance.now() });   // この絵の cam＝main の custom 層はこれで描く（main の最新 cam で描くと地図と注記より先行してカクつく）   // 初描画成功＝main の起動ウォッチドッグを解除（backend はスモークテスト用）
 			if (stayProbe === 1 && renderer.readback) {   // flush 直後の同一タスク＝present 前のテクスチャを読む（snapshot と同じ掟）
 				stayProbe = 2;
 				renderer.readback().then(r => {

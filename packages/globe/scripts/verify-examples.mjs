@@ -12,6 +12,7 @@
 //   node scripts/verify-examples.mjs --side ref --record-missing --label r1   （録りながら本物を回す）
 //   node scripts/verify-examples.mjs --side ref --label r2                    （再生だけで回す）
 //   node scripts/verify-examples.mjs --compare r1 r2 --side ref               （2 回の走りの揺れ）
+//   node scripts/verify-examples.mjs --serve                                   （走らせ台だけ立てる＝gallery.html の「ここで開く」）
 //   node scripts/verify-examples.mjs --side ortho --ref r6 --label o1           （こちら＝本物の記録 r6 の標本点で比べる）
 //   node scripts/verify-examples.mjs --grade --ref r6 --ortho o1 [--update]    （採点・見比べ帳・順位表・known.json の爪車）
 //   他：--only a,b（例の名前）・--jobs N（並行・既定 3）・--record（全部取り直す）・--gl2（こちらを WebGL2 で）
@@ -23,7 +24,7 @@ import { launchChrome, connect, REALGPU } from "./lib/cdp.mjs";
 import { ensureCorpus, CACHE } from "../tests/mlexamples/corpus.mjs";
 import { createNetStore, UA } from "../tests/mlexamples/netstore.mjs";
 import { decodePng, probeColors, diffRuns, grade, rankBlockers, THRESH, inkHits } from "../tests/mlexamples/compare.mjs";
-import { buildReport } from "../tests/mlexamples/report.mjs";
+import { buildReport, buildGallery } from "../tests/mlexamples/report.mjs";
 
 const PKG = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(CACHE, "..");   // <repo>/.cache/mlexamples
@@ -288,7 +289,11 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	for (const b of ranking.slice(0, 15)) console.log(`  ${String(b.n).padStart(3)}  ${b.blocker}`);
 	const dir = path.join(ROOT, "report", orthoLabel);
 	fs.mkdirSync(dir, { recursive: true });
-	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16) }));
+	const notes = (() => { try { const n = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/notes.json"), "utf8")); delete n._; return n; } catch { return {}; } })();   // 例ごとのコメント（tests/mlexamples/notes.json）
+	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes }));
+	// 例の HTML 本文（取り置き＝本物の例そのまま）＝ギャラリーの覗き窓が「ortho で動く形」に道だけ替えて見せる・コピー／ダウンロードできる（2026-09-30 本人）
+	const sources = Object.fromEntries(rows.map(r => { try { return [r.name, fs.readFileSync(path.join(CACHE, "examples", r.name + ".html"), "utf8")]; } catch { return [r.name, ""]; } }));
+	fs.writeFileSync(path.join(dir, "gallery.html"), buildGallery({ rows, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, base: `http://localhost:${PORT}` }));   // 丸の無い一覧（人が見比べる用・リンクで本物とこちらを開く）
 	fs.writeFileSync(path.join(dir, "grades.json"), JSON.stringify({ refLabel, orthoLabel, summary, ranking, grades: rows.map(r => ({ name: r.name, ...r.grade, color: undefined })) }, null, 1));
 	console.log(`\n見比べ帳：${path.relative(process.cwd(), path.join(dir, "index.html"))}`);
 	// 爪車：段が下がった例＝落ちる／上がった例＝--update で書き換える（実 GPU 1 回では落とさない）
@@ -326,6 +331,7 @@ const list = corpus.examples.filter(e => !only || only.has(e.name));
 if (only && list.length !== only.size) console.warn(`知らない例：${[...only].filter(n => !list.some(e => e.name === n)).join(", ")}`);
 
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGE_PORT", args: ["--config", "tests/mlexamples/vite.config.mjs"], readyUrl: `http://localhost:${PORT}/ref/dist/maplibre-gl.css` });
+if (has("--serve")) { console.log(`走らせ台を立てたまま（Ctrl-C で止める）：本物 http://localhost:${PORT}/ref/test/examples/<例>.html ・こちら http://localhost:${PORT}/ortho/test/examples/<例>.html（網は生＝録り置きでない）`); await new Promise(() => {}); }   // 見比べ帳（gallery.html）のリンク先
 try {
 	for (const s of sides) await fetch(`http://localhost:${PORT}/${s}/dist/maplibre-gl-dev.mjs`).catch(() => {});   // 温める（こちらは vite の変換が最初に走る）
 	console.log(`公式例の門：${list.length} 本 × ${sides.join("+")}・網=${mode}・並行 ${jobs}・記録 runs/${label}/`);

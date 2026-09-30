@@ -161,6 +161,7 @@ ok("colorDist", colorDist([0, 0, 0], [3, 4, 0]) === 5 && colorDist(null, [1, 1, 
 		const extra = grade({ ...base, exceptions: [ex] }, { ...base, exceptions: [ex, "Uncaught TypeError: x"] });
 		ok("同じ例外＋こちらだけの例外＝後者で段 0", extra.level === 0 && extra.reasons[0] === "exception: Uncaught TypeError: x");
 	}
+	ok("REF_BROKEN の例＝分母の外（本物の写しが無効）", (() => { const g = grade({ ...base, name: "add-a-3d-model-with-babylonjs" }, { ...base, name: "add-a-3d-model-with-babylonjs" }); return g.level === null && /reference capture invalid/.test(g.refWhy); })());
 	ok("textGate で段 2 の条件に",(() => { const g = grade({ ...base, symbols: [...R.symbols, ...R.symbols] }, { ...base, ...O, refSym: [...O.refSym, ...O.refSym], ink: [] }, { ...THRESH, textGate: true }); return g.reasons.some(r => /^text/.test(r)) && g.blockers.some(b => /^text/.test(b)); })());
 }
 // インク：文字あり／なしの差分＝点の周りの箱に閾を超える画素が min 個以上あれば true・箱の外の差分は拾わない・寸法違いは null

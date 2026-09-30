@@ -3,6 +3,91 @@
 // 投影非依存の部分だけ担当：幾何を経緯度に戻し、シーン原点からの delta(float32) と地物ごとの色/線幅を確定。
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
+
+// 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
+// 極の頂点はタイル座標では表せない＝末尾に置き、呼び手が経緯度（緯度 ±90）を直に書く。境界の辺が無ければ何もしない（配列はそのまま返す）
+export function extendToPole(flat, tris, extent, pole) {
+	const onEdge = i => (pole > 0 ? flat[i * 2 + 1] <= 0 : flat[i * 2 + 1] >= extent);
+	const cnt = new Map(), key = (i, j) => (i < j ? i * 4294967296 + j : j * 4294967296 + i);
+	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j)) { const kk = key(i, j); cnt.set(kk, (cnt.get(kk) || 0) + 1); } }
+	const edges = [];
+	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j) && cnt.get(key(i, j)) === 1) edges.push(i, j); }
+	if (!edges.length) return [flat, tris];
+	const pts = Array.from(flat), out = Array.from(tris), p = pts.length >> 1;
+	pts.push(0, pole > 0 ? -extent : 2 * extent);   // 仮の座標（呼び手が経緯度を上書きする）
+	for (let e = 0; e < edges.length; e += 2) out.push(edges[e], edges[e + 1], p);   // 向きは境界の辺の向きに従う（塗りは両面）
+	return [pts, out];
+}
+// 三角形の集合を「辺の長さ ≤ maxLen（タイル単位）」まで最長辺の二等分で細分（共有辺の中点は 1 回だけ作る＝隙間なし）。戻り＝[flat（x,y,…）, tris（index）]
+// 多角形（外周＋穴・タイル単位）を四角 [0,extent]² で切り抜く（Sutherland–Hodgman・凸の窓なので環ごとに独立に切ってよい）。
+// 全部が窓の中なら元の配列をそのまま返す（コピー無し）。外周が消えたら null。空になった穴は捨てる
+export function clipToExtent(flat, holes, extent) {
+	let inside = true;
+	for (let i = 0; i < flat.length && inside; i += 2) if (flat[i] < 0 || flat[i] > extent || flat[i + 1] < 0 || flat[i + 1] > extent) inside = false;
+	if (inside) return [flat, holes];
+	const ring = (s, e) => {
+		let pts = Array.from(flat.subarray(s, e));
+		for (let side = 0; side < 4 && pts.length; side++) {
+			const ax = side & 1, hi = side >= 2, out = [];   // side: 0=x≥0 1=y≥0 2=x≤extent 3=y≤extent
+			const inOf = (px, py) => { const v = ax ? py : px; return hi ? v <= extent : v >= 0; };
+			const n = pts.length >> 1;
+			for (let i = 0; i < n; i++) {
+				const j = (i + 1) % n, px = pts[i * 2], py = pts[i * 2 + 1], qx = pts[j * 2], qy = pts[j * 2 + 1], pi = inOf(px, py), qi = inOf(qx, qy);
+				if (pi) out.push(px, py);
+				if (pi !== qi) {   // 辺が窓の縁を跨ぐ＝交点を足す
+					const b = hi ? extent : 0, t = ax ? (b - py) / (qy - py) : (b - px) / (qx - px);
+					out.push(ax ? px + (qx - px) * t : b, ax ? b : py + (qy - py) * t);
+				}
+			}
+			pts = out;
+		}
+		return pts.length >= 6 ? pts : null;
+	};
+	const bounds = [0, ...holes.map(h => h * 2), flat.length];
+	const outer = ring(bounds[0], bounds[1]); if (!outer) return null;
+	const pts = outer.slice(), hs = [];
+	for (let k = 1; k + 1 < bounds.length; k++) { const h = ring(bounds[k], bounds[k + 1]); if (h) { hs.push(pts.length >> 1); for (const v of h) pts.push(v); } }
+	return [Float64Array.from(pts), hs];
+}
+
+// 線分の両端がタイルの同じ側の外（余白＝buffer の中）＝MapLibre ならステンシルで見えない線分。ポリゴンの輪郭を線で描く層（demotiles の countries-boundary）は
+// タイル生成側が余白の縁で切った辺（x＝−buffer／extent＋buffer に沿う縦横の直線）を持ち、描くとタイルの境の両脇に白い二重線が出る（2026-09-30 本人の写し・回転した視点では 45°）。
+// 境をまたぐ線分は丸ごと残す（継ぎ目の join のため）
+const outsideSameSide = (ax, ay, bx, by, extent) => (ax < 0 && bx < 0) || (ax > extent && bx > extent) || (ay < 0 && by < 0) || (ay > extent && by > extent);
+// 三角形を格子（マス幅 cell・タイル単位）で切り分ける＝MapLibre の subdivideFill と同じ「格子で切る」細分。
+// 旧＝最長辺の二等分：隣の三角形が同じ辺を割らないと T 字の接点ができ、球の上では割った側の中点は球面に乗り・割らない側の辺は弦のまま沈む
+// ＝その差が 45° の白い筋（低ズームの demotiles・2026-09-30 本人の写し）。格子線との交点は辺の向きに依らず同じ式で出す＝隣同士が必ず同じ頂点を共有＝継ぎ目なし
+export function subdivideTris(flat, tris, cell) {
+	const pts = Array.from(flat), out = [], seen = new Map();
+	const addPt = (x, y) => { const k = x + "," + y; let r = seen.get(k); if (r === undefined) { r = pts.length >> 1; pts.push(x, y); seen.set(k, r); } return r; };
+	// 辺 (p,q) と格子線 axis=v の交点＝頂点添字の小さい方を始点に計算（向きに依らずビット同値）
+	const cut = (p, q, ax, v) => {
+		if (p > q) { const t = p; p = q; q = t; }
+		const pc = pts[p * 2 + ax], qc = pts[q * 2 + ax], po = pts[p * 2 + 1 - ax], qo = pts[q * 2 + 1 - ax], o = po + (qo - po) * ((v - pc) / (qc - pc));
+		return ax ? addPt(o, v) : addPt(v, o);
+	};
+	let guard = 0;
+	const split = poly => {
+		if (guard++ > 4e6) return;
+		const n = poly.length;
+		let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
+		for (const i of poly) { const x = pts[i * 2], y = pts[i * 2 + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
+		// 箱の中を通る格子線（端を含まない）：多い方の軸の真ん中の 1 本で二分＝再帰の深さ log
+		const kx0 = Math.floor(minx / cell) + 1, kx1 = Math.ceil(maxx / cell) - 1, ky0 = Math.floor(miny / cell) + 1, ky1 = Math.ceil(maxy / cell) - 1;
+		const nx = Math.max(0, kx1 - kx0 + 1), ny = Math.max(0, ky1 - ky0 + 1);
+		if (!nx && !ny) { for (let i = 1; i + 1 < n; i++) out.push(poly[0], poly[i], poly[i + 1]); return; }   // 凸多角形＝扇
+		const ax = nx >= ny ? 0 : 1, v = (ax ? ky0 + (ny >> 1) : kx0 + (nx >> 1)) * cell;
+		const lo = [], hi = [];
+		for (let i = 0; i < n; i++) {
+			const p = poly[i], q = poly[(i + 1) % n], pc = pts[p * 2 + ax], qc = pts[q * 2 + ax];
+			if (pc <= v) lo.push(p); if (pc >= v) hi.push(p);
+			if ((pc < v && qc > v) || (pc > v && qc < v)) { const m = cut(p, q, ax, v); lo.push(m); hi.push(m); }
+		}
+		if (lo.length >= 3) split(lo); if (hi.length >= 3) split(hi);
+	};
+	for (let t = 0; t < tris.length; t += 3) split([tris[t], tris[t + 1], tris[t + 2]]);
+	return [pts, out];
+}
 import { evalExpr, truthy, originOfLayer } from "./expr.js";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
@@ -88,6 +173,7 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
 
 		if (L.type === "fill") {
+			const fillSub = z <= 6 ? extent / Math.max(1, 128 >> z) : 0;   // 細分の格子のマス幅（タイル単位）＝MapLibre の granularity 128/2^z（z0＝128 マス）。z≥7 は細分しない
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = [], col = [], idx = [];
@@ -99,12 +185,24 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
-				for (const [flat, holes] of polygons(f.geom)) {
-					const tris = earcut(flat, holes, 2);
-					if (!tris.length) continue;
+				for (const [flatRaw, holesRaw] of polygons(f.geom)) {
+					// タイルの extent で切り抜く（MapLibre はタイルごとにステンシルで extent の外を捨てる）：MVT の余白（buffer）を隣同士が両方描くと
+					// 半透明の塗りが二重に重なり縁に濃い帯が出る・ズーム中はタイルが替わる度に帯が動く＝「塗りがチラチラ」（2026-09-30 本人）
+					const clipped = clipToExtent(flatRaw, holesRaw, extent); if (!clipped) continue;
+					const [flat0, holes] = clipped;
+					const tris0 = earcut(flat0, holes, 2);
+					if (!tris0.length) continue;
+					// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
+					// 粗い三角形は弦＝球の内側に沈み、縁では頂点が裏でも面の一部が表＝v_front の補間と弦の沈みで縁の帯が塗られない（極を見下ろす z1 の海＝八角形に欠けた・2026-09-30）
+					const [flat1, tris1] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
+					// 極まで延ばす（MapLibre の extendToNorthPole／SouthPole）：一番上／下の行のタイルで、上端（py≤0）／下端（py≥extent）に沿う境界の辺から極の 1 頂点へ扇を張る
+					// ＝北極海・南極大陸がメルカトルの端（85.05°）で切れず極まで塗られる（旧＝極の周りが球の地の色・2026-09-30）。極の頂点は経緯度を直に書く（下の poleAt）
+					const poleAt = fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;
+					const [flat, tris] = poleAt ? extendToPole(flat1, tris1, extent, poleAt) : [flat1, tris1];
 					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
 					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
 					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
+					if (poleAt && flat.length > flat1.length) { const i = flat.length - 2; llBuf[i] = ((x + 0.5) / nTiles) * 360 - 180 - ox; llBuf[i + 1] = 90 * poleAt - oy; }   // 極の頂点（最後の 1 個）＝経緯度を直に
 					const base = pos.length >> 1;
 					for (let i = 0; i < flat.length; i += 2) { pos.push(llBuf[i], llBuf[i + 1]); col.push(cr, cg, cb, ca); }
 					for (const t of tris) idx.push(base + t);
@@ -158,10 +256,11 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 							const Ax = coords[i], Ay = coords[i + 1];
 							const dx = coords[i + 2] - Ax, dy = coords[i + 3] - Ay, len = Math.hypot(dx, dy);
 							if (!len) continue;
+							const hidden = outsideSameSide(Ax, Ay, coords[i + 2], coords[i + 3], extent);   // 余白だけの線分＝模様の位相は進めて描かない
 							let pos = 0;
 							while (pos < len - 1e-9) {
 								const take = Math.min(rem, len - pos);
-								if (!(pi & 1) && take > 0) { const k = (i - ls) >> 1; emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len), pos === 0 ? tS[k] ?? 0 : 0, pos + take >= len - 1e-9 ? tE[k] ?? 0 : 0); }
+								if (!(pi & 1) && take > 0 && !hidden) { const k = (i - ls) >> 1; emit(Ax + dx * (pos / len), Ay + dy * (pos / len), Ax + dx * ((pos + take) / len), Ay + dy * ((pos + take) / len), pos === 0 ? tS[k] ?? 0 : 0, pos + take >= len - 1e-9 ? tE[k] ?? 0 : 0); }
 								pos += take; rem -= take;
 								if (rem <= 1e-9) { pi = (pi + 1) % dashPat.length; rem = dashPat[pi] * k; }
 							}
@@ -175,6 +274,7 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 					let pLon = sc[0], pLat = sc[1];
 					for (let i = ls + 2; i < le; i += 2) {
 						const Ax = coords[i - 2], Ay = coords[i - 1];
+						if (outsideSameSide(Ax, Ay, coords[i], coords[i + 1], extent)) { llInto(coords[i], coords[i + 1], extent, sc, 0); pLon = sc[0]; pLat = sc[1]; continue; }   // 余白だけを走る線分＝描かない（下の outsideSameSide）
 						const dx = coords[i] - Ax, dy = coords[i + 1] - Ay;
 						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
 						for (let s = 1; s <= steps; s++) {
