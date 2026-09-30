@@ -33,6 +33,15 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	//   種類の見分け（value＝deltaY・行モードは ×40）：4.000244140625 の倍数＝マウスのホイール（wheel）／|value|<4＝トラックパッド／それ以外は前の事象からの間隔で（|間隔×value|<200＝トラックパッド）
 	//   量＝log2(2/(1+e^(−|value|×rate)))・rate＝wheel 1/450（100 で 0.15 段）／trackpad 1/100（4.5 倍敏感＝本人「ref の方が感度がいい」＝トラックパッドを 1/450 で受けていた）
 	let wType = null, wLastT = 0;
+	// マウスのホイール（wheel）は MapLibre と同じく 200ms かけて滑らかに寄せる（目盛りごとの段差＝引っ掛かりを溶かす・トラックパッドは即時）。目標 z は目盛りが来るたびに積む・錨はホイールの位置
+	let ease = null;   // { x, y, z0, z1, t0 }
+	const EASE_MS = 200, easeOut = t => 1 - Math.pow(1 - t, 3);
+	const tickEase = () => {
+		if (!ease) return;
+		const k = Math.min(1, (performance.now() - ease.t0) / EASE_MS), z = ease.z0 + (ease.z1 - ease.z0) * easeOut(k), e = ease;
+		anchoredAt(e.x, e.y, () => { cam.zoom = clampZoom(z); });
+		if (k < 1) requestAnimationFrame(tickEase); else ease = null;
+	};
 	const wheelDz = (dy, mode) => {
 		if (wheelZoom !== "maplibre") return -dy * 0.002;
 		const value = mode === 1 ? dy * 40 : dy, now = performance.now(), dt = now - wLastT; wLastT = now;
@@ -228,7 +237,11 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		onGesture();   // ホイールでも主導権は人
 		const [wx, wy] = evXY(e);
 		if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
-		else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom + wheelDz(e.deltaY, e.deltaMode)); });  // ズーム
+		else {
+			const dz = wheelDz(e.deltaY, e.deltaMode);
+			if (wheelZoom === "maplibre" && wType === "wheel") { const from = ease ? ease.z1 : cam.zoom; const wasEasing = !!ease; ease = { x: wx, y: wy, z0: cam.zoom, z1: clampZoom(from + dz), t0: performance.now() }; if (!wasEasing) tickEase(); }   // 滑らかに（上）
+			else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom + dz); });  // 即時（トラックパッド／従来）
+		}
 	}, { passive: false });
 
 	// キーボードによる連続カメラ操作（押しっぱなしで動き続ける＝毎フレーム微小デルタ）：
