@@ -70,7 +70,9 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const mkey = (sid, k) => `${k}/${sid}`;   // z/x/y を先頭に（core の coveredTiles が z/x/y で読む＝祖先の鍵と重ならない）
 
 	const schedule = () => { if (!rafU) rafU = requestAnimationFrame(() => { rafU = 0; update(); }); };
-	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else setTimeout(schedule, 130); };
+	// 間引き：120ms 以内の move は 130ms 後に 1 回だけ（保留は 1 本）。旧＝move の度に setTimeout を積んだ＝ドラッグ中は 1 フレームに何本も溜まって destroy でも消えなかった
+	let moveT = 0;
+	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else if (!moveT) moveT = setTimeout(() => { moveT = 0; schedule(); }, 130); };
 	const onSettle = () => { moving = false; settledZoom = cam.zoom; schedule(); };
 	map.on("move", onMove); map.on("settle", onSettle);
 	const srcReady = T => T && (T.state === "ready" || T.state === "empty" || (T.state === "failed" && T.tries >= TRIES));
@@ -375,6 +377,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		destroy() {
 			for (const id of [...layers.keys()]) ctl.remove(id);
 			map.off("move", onMove); map.off("settle", onSettle);
+			clearTimeout(moveT); moveT = 0; if (rafU) { globalThis.cancelAnimationFrame?.(rafU); rafU = 0; }
 			clearTimeout(mg.timer);
 			for (const w of workers) w?.terminate();
 			if (merger) { merger.port.onmessage = null; merger.port.close(); merger.w.terminate(); merger = null; }

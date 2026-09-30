@@ -673,6 +673,9 @@ dockStack(mapEl).append(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.terrain)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
+// 毎フレームの診断行：文面が変わった時だけ DOM に書く（同じ文字列の textContent 代入も文字ノードを作り直す）
+let logText = "";
+const setLog = t => { if (t !== logText) { logText = t; logEl.textContent = t; } };
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
 // glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
 let bootT = setTimeout(() => {
@@ -1130,8 +1133,8 @@ const groundRNow = () => {
 
 function onMove() {
 	clampCamLimits();   // 実行時の上限・可動域（#35）＝入力・飛行・URL 復元のどの経路で動いても同じ所で締める（聞き手へ渡す前に）
+	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）。聞き手より先＝move も settle／getCenter と同じ ±180° の経度を受け取る（旧＝move だけ 190° 等の生の値）
 	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing }); } catch (e) { console.error("[map.on move]", e); } }
-	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
@@ -2061,7 +2064,7 @@ function render() {
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		runFrameHooks();
-		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  basemap off / coastline + elevation fill`;
+		setLog(`world  zoom=${cam.zoom.toFixed(1)}  basemap off / coastline + elevation fill`);
 		return;
 	}
 	basemapHidden = false;
@@ -2079,7 +2082,7 @@ function render() {
 	// 間隔は 250ms・sig が同じなら要求しない（swapScene）＝MapLibre の目盛りでは段が変わる時だけ。LOW_MEM は従来（止まってから）
 	else if (performance.now() - lastMoveSwapT >= (zoomStable ? MOVE_SWAP_MS : MOVE_SWAP_ZOOM_MS) && (zoomStable || !LOW_MEM)) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
-	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
+	setLog(`tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`);
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
