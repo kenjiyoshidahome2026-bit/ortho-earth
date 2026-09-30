@@ -36,7 +36,9 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 	}
 	if (!samples.length) return [];
 	const rootMap = new Map();
-	for (const [lo, la] of samples) { const [x, y] = lonLatToTile(lo, la, minZ); rootMap.set(minZ + "/" + x + "/" + y, { z: minZ, x, y }); }
+	// 極の上（|緯度|>85.05°）のサンプルはメルカトルの外＝y が範囲外のタイル（実在しない）になる→上下の端の行へ畳む（旧＝1/0/-1 のような偽タイルが根になり、極の周りの帯が覆われず紙色のまま・2026-09-30）
+	const nRoot = 1 << minZ;
+	for (const [lo, la] of samples) { const [x0, y0] = lonLatToTile(lo, la, minZ); const x = ((x0 % nRoot) + nRoot) % nRoot, y = Math.max(0, Math.min(nRoot - 1, y0)); rootMap.set(minZ + "/" + x + "/" + y, { z: minZ, x, y }); }
 	const out = [], stack = [...rootMap.values()];
 	let guard = 0;
 	while (stack.length && guard++ < 30000) {
@@ -60,7 +62,9 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
 function tileMetrics(st, t, center, W, H, samples, groundR = 1) {
 	const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
-	const corners = [[w, n], [e, n], [e, s], [w, s]];
+	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
+	const K = t.z <= 4 ? 6 : 1, corners = [];
+	for (let i = 0; i < K; i++) { const f = i / K; corners.push([w + (e - w) * f, n], [e, n + (s - n) * f], [e + (w - e) * f, s], [w, s + (n - s) * f]); }
 	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
 	for (const [lo, la] of corners) for (const R of groundR !== 1 ? [1, groundR] : [1]) {
 		const [sx, sy, f] = project(st, lo, la, R);
