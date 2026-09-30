@@ -71,8 +71,8 @@
 	"homepage": "https://www.ortho-earth.com/",
 	"files": [
 		"src",
+		"!src/i18n/ui.json",
 		"globe.d.ts",
-		"scripts",
 		"LICENSE",
 		"README.md"
 	],

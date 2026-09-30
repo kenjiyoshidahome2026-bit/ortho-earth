@@ -1,0 +1,6 @@
+{
+	"census/2015-small.csv": "GIS/shared/census/2015-small.c9d49c8d.csv",
+	"census/2020-small.csv": "GIS/shared/census/2020-small.8d2ee2ae.csv",
+	"census/pop-history.json": "GIS/shared/census/pop-history.69a4cc1b.json",
+	"zipcode/area-zip.json": "GIS/shared/zipcode/area-zip.a9509cc9.json"
+}

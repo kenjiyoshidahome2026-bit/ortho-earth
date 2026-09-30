@@ -47,6 +47,25 @@ const urlAsFile = {
 	},
 };
 
+// `new URL("./x.bin", import.meta.url)` の資産（ortho-core の EGM96 格子 298KB・2026-09-30）も base64 で埋めない（wasm・?url と同じ理由）。
+// 放っておくと lib モードは data: URI（398KB）にして、geoid.js を静的に抱える renderworker へまで焼き込む（実測 492KB）。
+// asset として emit し参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝主ビルドと worker の別ビルドで同じ内容＝同じハッシュ名＝実体は 1 つ。
+const binUrlAsFile = {
+	name: "bin-url-as-file",
+	enforce: "pre",
+	async transform(code, id) {
+		if (!code.includes(".bin") || !code.includes("import.meta.url")) return;
+		const re = /new URL\((["'`])(\.{1,2}\/[^"'`]+\.bin)\1,\s*import\.meta\.url\)/g;
+		let out = code, hit = false;
+		for (const m of code.matchAll(re)) {
+			const file = resolve(dirname(id.split("?")[0]), m[2]);
+			const ref = this.emitFile({ type: "asset", name: file.split("/").pop(), source: await readFile(file) });
+			out = out.replace(m[0], `new URL(import.meta.ROLLUP_FILE_URL_${ref})`); hit = true;
+		}
+		return hit ? { code: out, map: null } : undefined;
+	},
+};
+
 // SDK ビルド（ライブラリ形式）＝第三者のページへ埋め込むための出荷形。
 // サイトビルド（vite.config.js）とは別物：あちらは index.html を持つ「作品」、こちらは import される「部品」。
 //
@@ -62,7 +81,7 @@ const urlAsFile = {
 //  - worker は ES module 形式固定（vite 既定の iife は worker 内 code-splitting を弾く＝サイトビルドと同じ理由）
 //  - COOP/COEP は要求しない：SAB が無ければ geopbf がコピー経路へ落ちる（fallback-ladder.md §3.5・verify:nocoi で実測）
 export default defineConfig({
-	plugins: [urlAsFile, wasmAsFile],
+	plugins: [urlAsFile, wasmAsFile, binUrlAsFile],
 	build: {
 		outDir: "dist/lib",
 		emptyOutDir: true,
@@ -100,7 +119,7 @@ export default defineConfig({
 		{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") },   // 地域の worker 役（e-Stat）＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },   // MLT（MapLibre Tile）のプラグイン（#88）＝SDK でも同じ（解読器は動的チャンク）
 		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
-	worker: { format: "es", plugins: () => [urlAsFile, wasmAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
+	worker: { format: "es", plugins: () => [urlAsFile, wasmAsFile, binUrlAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
 	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
 	//   （2026-08-20 本番事故の真因。www の SPA フォールバックが HTML を 200 で返し、module worker の

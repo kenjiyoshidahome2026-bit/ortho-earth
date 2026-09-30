@@ -1,5 +1,5 @@
 /**
- * e-Stat T001081（基本情報）全47都道府県 → public/census/2020-small.json
+ * e-Stat T001081（基本情報）全47都道府県 → shared-data/census/2020-small.json
  *
  * 出力形式: { "13101": [["131010010","丸の内",10,5,5], ...], ... }
  *   各エントリ: [KEY_CODE, NAME, 総人口, 男, 女]
@@ -13,10 +13,10 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../public/census/2020-small.csv');
+const OUT   = join(__dir, '../shared-data/census/2020-small.csv');
 
 // ensure output dir
-const outDir = join(__dir, '../public/census');
+const outDir = join(__dir, '../shared-data/census');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 function decode(buf) {
@@ -91,7 +91,7 @@ async function main() {
     rows.sort();
     writeFileSync(OUT, rows.join('\n') + '\n');
     const size = (Buffer.byteLength(rows.join('\n')) / 1024 / 1024).toFixed(1);
-    console.log(`\n✅ ${totalSA} small areas → public/census/2020-small.csv (${size} MB)`);
+    console.log(`\n✅ ${totalSA} small areas → shared-data/census/2020-small.csv (${size} MB)`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });
