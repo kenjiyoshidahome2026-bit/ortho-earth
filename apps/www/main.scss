@@ -235,3 +235,20 @@ body.in-demo {
 	#demoOverlay nav .logo { cursor: pointer; }   // デモの間はロゴも「戻る」（main.js）
 	#demoOverlay nav .logo:hover { color: var(--text-primary); }
 }
+
+/* ── 2026-10-01 Technologies の ortho-earth＝2 カラム幅（本人「2 カラムにして、内容を充実」）：左＝何か・右＝描く／読む／調べる／時間と場所の 4 列 ── */
+body #demoOverlay main .apps.tech .card.tech-card.tech-wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 2fr); gap: 1.5rem 2rem; align-items: start; }
+body #demoOverlay main .apps.tech .tech-wide .tech-main { display: flex; flex-direction: column; }
+body #demoOverlay main .apps.tech .tech-wide .tech-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem 1.5rem; }
+body #demoOverlay main .apps.tech .tech-wide .tech-col-title { margin: 0 0 .45rem; font-size: .72rem; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-color); }
+body #demoOverlay main .apps.tech .tech-wide .tech-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .4rem; }
+body #demoOverlay main .apps.tech .tech-wide .tech-list li { position: relative; padding-inline-start: .95rem; font-size: .86rem; line-height: 1.45; color: var(--text-secondary); }
+body #demoOverlay main .apps.tech .tech-wide .tech-list li::before { content: ""; position: absolute; inset-inline-start: 0; top: .55em; width: .38rem; height: .38rem; border-radius: 50%; background: var(--accent-2); opacity: .8; }
+@media (max-width: 900px) {
+	body #demoOverlay main .apps.tech .card.tech-card.tech-wide { grid-template-columns: 1fr; }
+}
+@media (max-width: 640px) {
+	body #demoOverlay main .apps.tech .tech-wide .tech-cols { grid-template-columns: 1fr; }
+}
+/* Get started の 3 本目（MapLibre のコードをそのまま） */
+body #demoOverlay main .apps.start .card.path.ml .path-note { margin-top: .75rem; }
