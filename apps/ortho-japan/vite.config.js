@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 // worker は全て new Worker(..., { type: "module" }) で生成している＝ES module worker。
@@ -45,6 +46,13 @@ const asyncMainCss = {
 	},
 };
 
+// plateau-names.json（2.9MB）＝台帳づくりの中間（scripts/plateau-names-*.mjs が読む）で実行時は読まない＝出力から外す（deploy.mjs の rm と同じ・2026-09-30 に build 側へ）
+const dropUnusedPublic = {
+	name: "drop-unused-public",
+	apply: "build",
+	closeBundle() { for (const f of ["plateau-names.json"]) rmSync(resolve(import.meta.dirname, "dist/site/japan", f), { recursive: true, force: true }); },
+};
+
 export default defineConfig({
 	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。地域なしの頁は /globe/＝apps/ortho-globe）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
@@ -72,5 +80,5 @@ export default defineConfig({
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },   // MLT（MapLibre Tile）のプラグイン（#88）＝解読器は最初の MLT タイルで動的 import（起動の束には入らない）
 		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
-	plugins: [crossOriginIsolation, asyncMainCss],
+	plugins: [crossOriginIsolation, asyncMainCss, dropUnusedPublic],
 });

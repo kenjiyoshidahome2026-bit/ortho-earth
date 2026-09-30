@@ -1,4 +1,5 @@
 import { defineConfig } from "vite";
+import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 
 // ortho-nl＝オランダ（3DBAG）の独立した入口。中身は ortho-japan と同じエンジン（../ortho-japan/app.js を直接 import）で、
@@ -37,11 +38,18 @@ const asyncMainCss = {
 // worker は別ビルド＝build と worker の両方に要る。experimental の口＝rolldown を上げたら静的 import が無いことを確かめ直す。
 const noChunkOptimization = { experimental: { chunkOptimization: false } };
 
+// japan の public を共有すると、実行時に読まない物まで出力に入る＝外す（2026-09-30・−4.6MB）。plateau-names.json＝台帳づくりの中間（japan も deploy で消す）・showcase＝www のデモが /japan/showcase を指す
+const dropUnusedPublic = {
+	name: "drop-unused-public",
+	apply: "build",
+	closeBundle() { for (const f of ["plateau-names.json", "showcase"]) rmSync(resolve(import.meta.dirname, "dist/site/nl", f), { recursive: true, force: true }); },
+};
+
 export default defineConfig({
 	base: "/nl/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
 	server: { port: 5188, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・packages）を dev で読ませる
 	build: { outDir: "dist/site/nl", emptyOutDir: true, rolldownOptions: noChunkOptimization },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation, asyncMainCss],
+	plugins: [crossOriginIsolation, asyncMainCss, dropUnusedPublic],
 });
