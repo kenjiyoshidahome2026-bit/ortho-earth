@@ -3,6 +3,25 @@
 // 投影非依存の部分だけ担当：幾何を経緯度に戻し、シーン原点からの delta(float32) と地物ごとの色/線幅を確定。
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
+
+// 三角形の集合を「辺の長さ ≤ maxLen（タイル単位）」まで最長辺の二等分で細分（共有辺の中点は 1 回だけ作る＝隙間なし）。戻り＝[flat（x,y,…）, tris（index）]
+export function subdivideTris(flat, tris, maxLen) {
+	const pts = Array.from(flat), out = [], mid = new Map(), m2 = maxLen * maxLen;
+	const midOf = (i, j) => { const k = i < j ? i * 4294967296 + j : j * 4294967296 + i; let r = mid.get(k); if (r === undefined) { r = pts.length >> 1; pts.push((pts[i * 2] + pts[j * 2]) / 2, (pts[i * 2 + 1] + pts[j * 2 + 1]) / 2); mid.set(k, r); } return r; };
+	const d2 = (i, j) => { const dx = pts[i * 2] - pts[j * 2], dy = pts[i * 2 + 1] - pts[j * 2 + 1]; return dx * dx + dy * dy; };
+	const stack = [];
+	for (let t = 0; t < tris.length; t += 3) stack.push(tris[t], tris[t + 1], tris[t + 2]);
+	let guard = 0;
+	while (stack.length && guard++ < 4e6) {
+		const c = stack.pop(), b = stack.pop(), a = stack.pop();
+		const ab = d2(a, b), bc = d2(b, c), ca = d2(c, a), mx = Math.max(ab, bc, ca);
+		if (mx <= m2) { out.push(a, b, c); continue; }
+		if (mx === ab) { const m = midOf(a, b); stack.push(a, m, c, m, b, c); }
+		else if (mx === bc) { const m = midOf(b, c); stack.push(a, b, m, a, m, c); }
+		else { const m = midOf(c, a); stack.push(a, b, m, m, b, c); }
+	}
+	return [pts, out];
+}
 import { evalExpr, truthy, originOfLayer } from "./expr.js";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
@@ -88,6 +107,7 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
 
 		if (L.type === "fill") {
+			const fillSub = z <= 6 ? extent / Math.max(1, 128 >> z) : 0;   // 細分の辺の上限（タイル単位）＝MapLibre の granularity 128/2^z（z0＝64 マス）。z≥7 は細分しない
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = [], col = [], idx = [];
@@ -99,9 +119,12 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
-				for (const [flat, holes] of polygons(f.geom)) {
-					const tris = earcut(flat, holes, 2);
-					if (!tris.length) continue;
+				for (const [flat0, holes] of polygons(f.geom)) {
+					const tris0 = earcut(flat0, holes, 2);
+					if (!tris0.length) continue;
+					// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
+					// 粗い三角形は弦＝球の内側に沈み、縁では頂点が裏でも面の一部が表＝v_front の補間と弦の沈みで縁の帯が塗られない（極を見下ろす z1 の海＝八角形に欠けた・2026-09-30）
+					const [flat, tris] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
 					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
 					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
 					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
