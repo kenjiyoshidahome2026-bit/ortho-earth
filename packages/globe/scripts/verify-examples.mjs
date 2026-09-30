@@ -291,7 +291,9 @@ function gradeRuns(refLabel, orthoLabel, { update = false } = {}) {
 	fs.mkdirSync(dir, { recursive: true });
 	const notes = (() => { try { const n = JSON.parse(fs.readFileSync(path.join(PKG, "tests/mlexamples/notes.json"), "utf8")); delete n._; return n; } catch { return {}; } })();   // 例ごとのコメント（tests/mlexamples/notes.json）
 	fs.writeFileSync(path.join(dir, "index.html"), buildReport({ rows, summary, ranking, thresh: THRESH, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes }));
-	fs.writeFileSync(path.join(dir, "gallery.html"), buildGallery({ rows, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, base: `http://localhost:${PORT}` }));   // 丸の無い一覧（人が見比べる用・リンクで本物とこちらを開く）
+	// 例の HTML 本文（取り置き＝本物の例そのまま）＝ギャラリーの覗き窓が「ortho で動く形」に道だけ替えて見せる・コピー／ダウンロードできる（2026-09-30 本人）
+	const sources = Object.fromEntries(rows.map(r => { try { return [r.name, fs.readFileSync(path.join(CACHE, "examples", r.name + ".html"), "utf8")]; } catch { return [r.name, ""]; } }));
+	fs.writeFileSync(path.join(dir, "gallery.html"), buildGallery({ rows, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, base: `http://localhost:${PORT}` }));   // 丸の無い一覧（人が見比べる用・リンクで本物とこちらを開く）
 	fs.writeFileSync(path.join(dir, "grades.json"), JSON.stringify({ refLabel, orthoLabel, summary, ranking, grades: rows.map(r => ({ name: r.name, ...r.grade, color: undefined })) }, null, 1));
 	console.log(`\n見比べ帳：${path.relative(process.cwd(), path.join(dir, "index.html"))}`);
 	// 爪車：段が下がった例＝落ちる／上がった例＝--update で書き換える（実 GPU 1 回では落とさない）
