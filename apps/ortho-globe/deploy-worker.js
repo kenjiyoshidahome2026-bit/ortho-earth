@@ -1,12 +1,12 @@
 // ortho-globe の配信口（Workers assets の前段・run_worker_first）。
 // ①全レスポンスに COOP/COEP（credentialless）を刻む＝dev の vite と同条件（gint の SharedArrayBuffer の点火条件。無くてもコピー経路で動く）
 // ②/globe（末尾スラッシュなし）→ /globe/
-// ③共有エンジン（/globe/engine/<版>/・縮小計画 項目 9）の旧版＝この deploy の assets に無い版の入口（globe.js・i18n.js・core.js・geopbf.js・globe.css）は
+// ③共有エンジン（/globe/engine/<版>/・縮小計画 項目 9）の旧版＝この deploy の assets に無い版の入口（globe.js・maplibre.js・i18n.js・core.js・geopbf.js・globe.css）は
 //   今の版の同じ名前へ 302 で送る。入口の名前は版を跨いで同じ＝前の版を指したまま出ている他のアプリ（world・geopbf）も今のエンジンで動く。
 //   送った先の URL がモジュールの住所になる（import.meta.url）＝チャンク・worker は今の版から引かれ、4 つの入口は同じ実体に揃う。
 //   今の版は assets の engine/current.json（ortho-globe の build が置く）。入口でない旧版のチャンクは 404 のまま（R2 に控えは置かない＝本人 2026-09-30）。
 const ENGINE = /^\/globe\/engine\/([0-9a-f]{10})\/(.+)$/;
-const ENTRY = /^(globe|i18n|core|geopbf)\.js$|^globe\.css$/;
+const ENTRY = /^(globe|maplibre|i18n|core|geopbf)\.js$|^globe\.css$/;   // maplibre＝MapLibre 互換の口（www の /maplibre/ の例が import map で指す・2026-10-01）
 const COI = { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "credentialless" };
 const toCurrent = async (env, url) => {
 	const m = url.pathname.match(ENGINE); if (!m || !ENTRY.test(m[2])) return null;
