@@ -27,20 +27,13 @@
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<script type="module">
-		// 打ち上げ花火＝シーンの深度（#47）の見本。器だけ：SDK 二重構成（models.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
+		// 打ち上げ花火＝シーンの深度（#47）の見本。器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// UI と合図は ./fireworks.js（遅延 chunk）、描画は ./fireworks-gl.js（レンダーワーカー内のオーバーレイ）。建物 3D（PLATEAU）はそのまま＝花火を隠す側。
 		(async () => {
 			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
 			await setLang();
 			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
-			let engineP;
-			if (import.meta.env.PROD) {
-				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
-				const LIB = "/japan/lib/ortho-japan.js";
-				engineP = import(/* @vite-ignore */ LIB);
-			} else {
-				engineP = import("./app.js");
-			}
+			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
 			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
 			try {
 				const [{ default: orthoJapan }, { mountFireworks }] = await Promise.all([engineP, import("./fireworks.js")]);

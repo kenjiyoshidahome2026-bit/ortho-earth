@@ -15,7 +15,6 @@
 		"./*": "./src/*"
 	},
 	"imports": {
-		"#extra-roles": "./src/worker-roles-extra.js",
 		"#pointcloud-formats": "./src/pointcloud-formats-none.js"
 	},
 	"dependencies": {
