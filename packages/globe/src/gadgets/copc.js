@@ -1,7 +1,7 @@
 // ガジェット：COPC（Cloud Optimized Point Cloud・.copc.laz）を範囲読みで直に流す（#178・maplibre-gl-lidar 相当・変換無し・サーバー無し）。
 //   map.addCOPC(url | File, opts) / ?copc=<URL> / .copc.laz のドロップ。
 //   選び＝節の点の間隔を今の距離で画面の px に直し、density（既定 2px・LOW_MEM 3px）より粗ければ子へ降りる。COPC の節は足し算（ADD）＝親も子も描く。
-//   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ を laz-perf で解き、原点相対の点にして返す。階層の頁は要る時に読む。
+//   読み＝worker（copc-worker.js・copc 役）が節だけを HTTP Range で取り、LAZ をプラグイン（"#pointcloud-formats"＝@ortho-earth/tile-formats/pointcloud の laz-perf）で解き、原点相対の点にして返す。階層の頁は要る時に読む。
 //   描き＝copc-gl.js（同一フレームのオーバーレイ・奥行きで隠れる・距離で縮む・色の切り替え）＝3D Tiles の点（points-gl）とは別（本人裁定）。
 //   予算＝点の数（既定 600 万・LOW_MEM 200 万）＝超えたら今出していない節から古い順に捨てる。読みは同時に 4 つまで（LOW_MEM 2）。
 //   高さ＝楕円体高なら節の中心の EGM96 の N（@ortho-earth/core の geoid）を引いて標高へ（この地図の標高はジオイド基準）。heightOffset[m] で合わせられる。

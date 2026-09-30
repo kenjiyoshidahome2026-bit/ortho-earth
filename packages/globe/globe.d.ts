@@ -813,7 +813,7 @@ export interface OrthoJapanMap {
 	/** I3S（ArcGIS の Indexed 3D Scene Layer・1.2.0〜・#48）を 3D Tiles と同じ選び・同じ GPU 経路で流す。url＝…/SceneServer か …/SceneServer/layers/N（?i3s=<URL> と同じ）。
 	 *  nodepages 形式（I3S 1.6 以降）の 3D Object / IntegratedMesh。lodScale＞1 で粗く。点群と旧形式は未対応。解読は @loaders.gl/i3s（MIT） */
 	/** COPC の点群（Cloud Optimized Point Cloud・.copc.laz・1.14.0〜・#178）を範囲読みで直に流す（maplibre-gl-lidar 相当・変換無し・サーバー無し）。
-	 *  URL（HTTP Range・transformRequest の鍵）か File。節の点の間隔が画面で density px より粗ければ子へ降りる（足し算）。解読＝laz-perf（WASM・遅延）。
+	 *  URL（HTTP Range・transformRequest の鍵）か File。節の点の間隔が画面で density px より粗ければ子へ降りる（足し算）。解読＝プラグイン（バンドラの alias で "#pointcloud-formats" → "@ortho-earth/tile-formats/pointcloud"＝laz-perf・WASM・遅延）＝差し込まないと reject。
 	 *  座標＝WKT（TM/UTM・メルカトル・LCC・Albers・経緯度）→ 経緯度・高さ＝楕円体高なら EGM96 の N を引いて標高へ。?copc=<URL>・.copc.laz のドロップも同じ */
 	addCOPC(src: string | File | Blob, opts?: COPCOptions): Promise<COPCHandle>;
 	/** COPC を外す（id を省く＝全部） */

@@ -23,7 +23,8 @@ const crossOriginIsolation = { name: "cross-origin-isolation", configureServer: 
 
 export default defineConfig({
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../tile-formats/src/register.js") }] },
+		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../tile-formats/src/register.js") },
+		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation],
 });
