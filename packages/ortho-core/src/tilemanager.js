@@ -86,6 +86,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 距離LODで可視タイルを選定→ロード。ready なタイル列 { key, origin, z } を返す。
 	let stickySplit = null;   // 前回 update で分割された祖先ノード集合＝selectLOD のヒステリシス（境界の親⇔子振動を止める）
 	let selMaxZ = 0;          // 直近 update の「選択レベル」の最細 z（keepFine の子孫代打を除いた素の選抜）＝labels の近景窓の基準
+	let lod = null;           // 選抜の memo（update 冒頭の説明）
 	function update(cam, W, H, opts) {
 		clock++;
 		const floorZ = lodFloor && cam.zoom >= lodFloor.minViewZoom ? lodFloor.z : 0;
@@ -96,14 +97,25 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// groundR＝地形リフト球の半径（app が表示中の地形変位と同式で計算）。主層・下地・毛布の3経路とも
 		// 同じ球で選抜する＝チルト×高標高地の「手前くさび欠け」をどの層にも作らない（草津1200m根治）。
 		const groundR = opts?.groundR ?? 1;
-		const selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR, minZ, maxZ: opts?.maxZ ?? undefined, zOf: opts?.zOf ?? null });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）。maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分に留める）
-		// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
-		stickySplit = new Set();
-		for (const t of selected) {
-			let z = t.z, x = t.x, y = t.y;
-			while (z > minZ) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
+		// 選抜の memo：カメラ・画面・選抜の入力が前回と同じなら 3 本の selectLOD（チルトで数 ms）を丸ごと省く（静止・再描画だけのフレーム）。
+		// 主層は sticky（前回の分割）も読むが、結果 A の祖先集合 S(A) を sticky にして同じ入力で解き直しても A のまま（A で割った節は S(A) で閾が下がるだけ・
+		// 割らなかった節は閾が上がるだけ・子が全部 cull の節は出力に出ない）＝同じ入力なら前回の結果そのもの（tests/tilemanager-lod.mjs）。
+		// zOf は関数＝入力に数えられない＝key（mlTileZoomOf が付ける）の無い zOf の時は memo しない
+		const zk = opts?.zOf ? opts.zOf.key : "";
+		const ck = zk === undefined ? null : [cam.center[0], cam.center[1], cam.zoom, cam.pitch, cam.bearing, cam.fovy, cam.dpr, cam.centerAlt, W, H, floorZ, opts?.tilePx, groundR, opts?.maxZ, zk].join();
+		const hit = ck !== null && lod && lod.key === ck;
+		let selected;
+		if (hit) selected = lod.selected;
+		else {
+			selected = selectLOD(cam, W, H, { sticky: stickySplit, floorZ, tilePx: opts?.tilePx ?? undefined, groundR, minZ, maxZ: opts?.maxZ ?? undefined, zOf: opts?.zOf ?? null });   // null/未指定→undefined＝selectLOD既定560（destructuring既定はundefinedでのみ発火・nullだと閾0で全分割の罠）。maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分に留める）
+			// 「分割されたノード」＝選択タイルの祖先チェーンそのもの。次回のヒステリシス判定に持ち越す。
+			stickySplit = new Set();
+			for (const t of selected) {
+				let z = t.z, x = t.x, y = t.y;
+				while (z > minZ) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
+			}
+			selMaxZ = 0; for (const t of selected) if (t.z > selMaxZ) selMaxZ = t.z;
 		}
-		selMaxZ = selected.length ? Math.max(...selected.map(t => t.z)) : 0;
 		// keepFine＝ズームアウトの書き直し回避：常駐子孫（keepFine 段まで）で隙間なく覆える枠は親に差し替えず
 		// 子孫のまま描く＝描画キー集合が変わらない＝merge シグネチャ不変＝再結合ゼロ。親の ensure は従来どおり
 		// 走る（下で ensure(selected)）＝子孫が LRU 予算で消えた象限だけ、その時点で用意済みの親へ一度で交代する。
@@ -122,14 +134,15 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// opts.maxZ＝呼び出し側の上限（全球ビュー＝世界ソースの領分 z≤3 に留める）は下地・毛布にも掛ける：
 		// 主層だけ縛っても下地(z4)に optbv が混ざれば「日本固有はまだ出さない」ゲートが破れる。
 		const capZ = z => opts?.maxZ != null ? Math.min(z, opts.maxZ) : z;
-		const coarse = selectLOD(cam, W, H, { maxZ: capZ(Math.max(floorZ || 4, minZ, Math.round(cam.zoom) - 4)), floorZ, groundR, minZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
+		const coarse = hit ? lod.coarse : selectLOD(cam, W, H, { maxZ: capZ(Math.max(floorZ || 4, minZ, Math.round(cam.zoom) - 4)), floorZ, groundR, minZ });   // -4＝主層(タイルz≈zoom-1)の3段下（256px世界の z はタイルzより1大きい）
 		// 毛布：固定 z4 の床タイル＝フォールバックの終点保証。「zoom-6」の動く目標だと高速ズームアウト中に
 		// 毎段コールドフェッチで間に合わず白が出る。z4 固定なら1枚で22.5°＝数枚で日本全体、初回以降キャッシュ常駐
 		// ＝どんな引き方をしても床が必ず先に居る。W/H×3＝視野の3倍を先回り（外周の白露出も防ぐ）。
 		// minZ<4（全球ソース混在）だけ低ズームで毛布の段も下げる：全球ビューで固定 z4 だと視野3倍が
 		// 世界全体＝256枚 ensure の爆発。世界タイル（低z・軽量）は段が動いてもコールドフェッチ負けしない。
 		const blanketZ = capZ(minZ < 4 ? Math.max(minZ, Math.min(4, Math.round(cam.zoom) - 2)) : 4);
-		const blanket = selectLOD(cam, W * 3, H * 3, { maxZ: blanketZ, groundR, minZ });
+		const blanket = hit ? lod.blanket : selectLOD(cam, W * 3, H * 3, { maxZ: blanketZ, groundR, minZ });
+		lod = ck === null ? null : { key: ck, selected, coarse, blanket };
 		const keep = new Set([...selected, ...drawSel, ...coarse, ...blanket].map(keyOf));   // drawSel（keepFine の子孫代打）も keep＝描画中の子孫を LRU に食わせない
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
@@ -225,7 +238,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 分割ヒステリシスが「もう無いタイル」を指さないようにする（clock=LRU時刻は単調のまま据置で無害）。
 	function reset() {
 		if (cache.size && onEvict) onEvict([...cache.keys()]);
-		cache.clear(); totalBytes = 0; stickySplit = null;
+		cache.clear(); totalBytes = 0; stickySplit = null; lod = null;
 	}
 	return { update, buildScene, labels, cache, stats, reset };
 }

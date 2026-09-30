@@ -40,17 +40,18 @@ export function mlTileZoomOf(cam, Hcss, cover, { tileSize = 512, round = false }
 	const centerZ = zML + Math.log2(512 / (tileSize || 512));
 	const pitchDeg = (cam.pitch || 0) / D2R;
 	const maxConstPitch = Math.max(0, Math.min(60, 78.5 - fov / 2));
-	if (!cover.terrain && pitchDeg <= maxConstPitch) { const z = Math.max(0, rnd(centerZ)); return () => z; }
+	// key＝戻す関数の入力の全部（tilemanager の選抜 memo が「前回と同じ関数か」を見る）
+	if (!cover.terrain && pitchDeg <= maxConstPitch) { const z = Math.max(0, rnd(centerZ)); return Object.assign(() => z, { key: "c" + z }); }
 	// カメラの位置（メルカトル単位）＝cameraMercatorCoordinateFromCenterAndRotation と同じ組み方
 	const d = (Hcss / 2) / Math.tan(fov / 2 * D2R) / (512 * 2 ** zML);
 	const b = (cam.bearing || 0) / D2R, p = pitchDeg * D2R;
 	const dzM = d * Math.cos(p), dhM = d * Math.sin(p);
 	const cx = (cam.center[0] + 180) / 360 + dhM * Math.sin(-b * D2R), cy = mercY(cam.center[1]) + dhM * Math.cos(-b * D2R);
-	return (z, x, y) => {
+	return Object.assign((z, x, y) => {
 		const N = 2 ** z, x0 = x / N, y0 = y / N, s = 1 / N;
 		let dx = Infinity;
 		for (const w of [-1, 0, 1]) { const a = x0 + w; dx = Math.min(dx, cx < a ? a - cx : cx > a + s ? cx - a - s : 0); }   // 東西は巻いて近い方
 		const dy = cy < y0 ? y0 - cy : cy > y0 + s ? cy - y0 - s : 0;
 		return Math.max(0, rnd(mlCalculateTileZoom(centerZ, Math.hypot(dx, dy), dzM, d, fov)));
-	};
+	}, { key: [centerZ, dzM, d, cx, cy, fov, round ? 1 : 0].join() });
 }
