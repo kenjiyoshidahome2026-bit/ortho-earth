@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { rmSync } from "node:fs";
+import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
 
 // census2020＝国勢調査2020の独立した入口（/japan/census2020/）。中身は ortho-japan と同じエンジン
 // （../ortho-japan/app.js を直接 import）で、違うのは base(/japan/census2020/)・6:4分割レイアウト・右パネルの
@@ -44,12 +45,11 @@ const dropUnusedPublic = {
 export default defineConfig({
 	base: "/japan/census2020/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
-	resolve: { alias: [{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") }] },   // e-Stat の worker 役＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 	server: { port: 5189, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・../gishub-jp/jp・packages）を dev で読ませる
-	// エンジンは同梱（main.js 冒頭＝A 裁定 2026-09-23）＝external 無し。worker/wasm は ortho-japan の build と同じ既定で束なる
+	// build はエンジン（globe・i18n・core・geopbf）を共有エンジンの版つき URL から読む（2026-09-30・LAYERS.md 掟 3）。束に残るのは jp パック・census の殻・e-Stat の worker。dev はソース直のまま
 	// experimental.chunkOptimization:false＝rolldown（vite 8）の決まり（2026-09-25・japan と同じ）。既定 on だと worker が実行時ヘルパ欲しさに
 	// mesh-loaders＋basis-loader（計 220KB）を静的 import する。worker は別ビルド＝両方に要る。rolldown を上げたら確かめ直す。
 	build: { outDir: "dist/site/japan/census2020", emptyOutDir: true, rolldownOptions: { experimental: { chunkOptimization: false } } },
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
-	plugins: [crossOriginIsolation, asyncMainCss, dropUnusedPublic],
+	plugins: [crossOriginIsolation, sharedEngine(), asyncMainCss, dropUnusedPublic],
 });

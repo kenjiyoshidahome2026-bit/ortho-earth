@@ -43,7 +43,7 @@ export default defineConfig({
 		},
 	},
 	// 部品（geopbf・ortho-core・altpbf）の worker はエンジンの入口（globe の worker.js）で走らせる＝builtinWorkers を「作らない版」へ（ortho-globe と同じ）。
-	// #extra-roles は差し替えない＝地域の worker 役なし。#tile-formats＝MLT・#pointcloud-formats＝COPC（どちらも動的チャンク＝起動の束に入らない）
+	// #tile-formats＝MLT・#pointcloud-formats＝COPC（どちらも動的チャンク＝起動の束に入らない）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.js") },
 		{ find: "#tile-formats", replacement: resolve(ROOT, "packages/tile-formats/src/register.js") },
 		{ find: "#pointcloud-formats", replacement: resolve(ROOT, "packages/tile-formats/src/pointcloud.js") }] },

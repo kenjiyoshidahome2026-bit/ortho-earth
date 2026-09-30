@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
 
 // worker は全て new Worker(..., { type: "module" }) で生成している＝ES module worker。
 // vite 既定の worker.format="iife" は code-splitting（worker 内で worker を割る/動的 import）を弾くため、
@@ -64,21 +65,20 @@ export default defineConfig({
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
 	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。
-	// external＝SDK二重構成（site.js 冒頭）の本番側 import はバンドルせず実行時URLのまま残す（build:prod が dist/lib を複写する）。
+	// エンジン（globe・i18n・core・geopbf）は sharedEngine() が /globe/engine/<版>/ へ外に出す（2026-09-30・旧＝本番だけ /japan/lib/ の SDK を実行時に食う二重構成）。
+	// SDK（dist/lib）は外へ配る物＝build:prod が従来どおり /japan/lib/ に置く。
 	// experimental.chunkOptimization:false＝rolldown（vite 8）の決まり（2026-09-25・world／ortho-nl／gishub-jp と同じ）。既定 on だと実行時ヘルパ
 	// __exportAll の共通チャンクが動的エントリ mesh-loaders に合流し、worker がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を
 	// 静的 import する。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。rolldown を上げたら静的 import が無いことを確かめ直す。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
 		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html"), fireworks: resolve(import.meta.dirname, "fireworks.html") },
-		external: ["/japan/lib/ortho-japan.js"],
 		experimental: { chunkOptimization: false },
 	} },
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
 	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") },   // 地域の worker 役（e-Stat）＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },   // MLT（MapLibre Tile）のプラグイン（#88）＝解読器は最初の MLT タイルで動的 import（起動の束には入らない）
 		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
-	plugins: [crossOriginIsolation, asyncMainCss, dropUnusedPublic],
+	plugins: [crossOriginIsolation, sharedEngine(), asyncMainCss, dropUnusedPublic],
 });

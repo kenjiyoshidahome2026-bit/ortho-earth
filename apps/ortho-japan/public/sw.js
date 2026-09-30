@@ -7,7 +7,7 @@
 //   非ハッシュの同一オリジン資産(json/png)も素通し＝版ズレの罠を避け、ブラウザのHTTPキャッシュに委ねる。
 // 依存ゼロ（[[軽さの訴求]] の掟＝出荷コードに npm を足さない）。★ロジックを変えたら CACHE の版番号を上げる＝activate で旧キャッシュを一掃。
 // 前提：登録は本番httpsの index.html だけ（[[gadget-development-principle]] と同じくアプリ本体 app.js には副作用を入れない＝埋め込みを汚さない）。
-const CACHE = "oj-assets-v4";      // v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
+const CACHE = "oj-assets-v5";      // v5＝2026-09-30 共有エンジン（/globe/engine/<版>/）を cache-first に足した・v4＝2026-09-25 オフラインパック（#40）＝PACK の cache-first と、起動に要る json の退避を足した
 const PACK = "oj-pack";            // オフラインパック（gadgets/offline.js が詰める＝基図タイル・ラスタ）。activate で掃かない（利用者の持ち物）
 // パックがあるか＝SW の生存中に一度だけ調べる（無ければクロスオリジンは素通し＝従来と同じ費用）。gadget が作る/消すたびに postMessage で取り直す
 let packOn = null;
@@ -16,8 +16,10 @@ self.addEventListener("message", e => { if (e.data?.type === "oj-pack") packOn =
 // v2＝SDK二重構成（2026-08-20）：/japan/lib/ を導入した版
 // content-hash 名の不変資産＝cache-first で握るプレフィックス。
 //   /japan/assets/     … サイト殻（site.js・scenes台本・scene.html エディタ）のチャンク
-//   /japan/lib/assets/ … SDK（本番の index が食うエンジン実体）のチャンク＝配布 zip と同一物
-const ASSETS = ["/japan/assets/", "/japan/lib/assets/"];
+//   /japan/lib/assets/ … SDK（外へ配る物）のチャンク＝配布 zip と同一物
+//   /globe/engine/     … 共有エンジン（本番の japan が食うエンジン実体・2026-09-30）＝<版>が中身のハッシュ＝不変。
+//                        古い版の入口は今の版へ 302 される（ortho-globe の Worker）＝転送された応答は掴まない（下の !res.redirected）
+const ASSETS = ["/japan/assets/", "/japan/lib/assets/", "/globe/engine/"];
 // lib の入口2枚（ortho-japan.js / .css）はハッシュ無し＝不変と扱えない。navigate と同じ
 // network-first＋キャッシュ退避＝新デプロイを常に拾いつつオフライン起動も守る。
 const LIB_ENTRY = ["/japan/lib/ortho-japan.js", "/japan/lib/ortho-japan.css"];
@@ -56,7 +58,7 @@ self.addEventListener("fetch", e => {
 			const hit = await cache.match(req);
 			if (hit) return hit;
 			const res = await fetch(req);
-			if (res.ok) cache.put(req, res.clone());          // 成功(200)時のみ保存＝部分/失敗レスポンスは掴まない
+			if (res.ok && !res.redirected) cache.put(req, res.clone());   // 成功(200)時のみ保存＝部分/失敗レスポンスと、旧版→今の版の転送は掴まない
 			return res;
 		})());
 		return;

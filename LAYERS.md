@@ -33,8 +33,13 @@
    **前の版を指すアプリも壊れない**：ortho-globe の assets には今の版だけが入る。assets に無い版の入口（globe/i18n/core/geopbf.js・globe.css）は
    ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
    前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
-   いま共有エンジンを読むのは ortho-globe・world・geopbf-demo。japan 系（japan・census2020・nl・gishub-jp）は地域パックとの二段が要る＝次の段（計画 6c・6d）。
-   本番だけ `/japan/lib/` を実行時に食う二重構成（japan のサイト殻）は従来どおり japan の中だけ。
+   いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp・japan のサイト（後の 4 つは 2026-09-30）。
+   japan 系は**二段**＝共有エンジン（地域を知らない）＋各アプリの束に入る `orthoJapan`（`apps/ortho-japan/app.js`）と jp パック。
+   地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.js`）。
+   `orthoJapan` は `assetBase` の既定を自分の束の `BASE_URL` にする（エンジンの束の BASE_URL は別物）。
+   japan のサイト殻も同じ二段（本人裁定「A」2026-09-30・旧＝本番だけ `/japan/lib/` の SDK を実行時に食う二重構成）。
+   SDK（`/japan/lib/`・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く（サイトはもう食わない）。
+   japan の Service Worker は `/globe/engine/` も cache-first で握る（版＝不変・旧版→今の版の 302 応答は掴まない）。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
 5. 地球儀が要るアプリは `createGlobe(opts)` を使う（`orthoJapan()` は「globe＋日本の申告」の薄い包み）。
 
@@ -78,7 +83,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
   - S3d ④ 済：worker の入口は 1 本のまま（複製を断つ設計は据え置き）、地域の役は `worker-roles-extra.js`（今は estat）へ。S4 では globe 側の既定を `{}` にし、japan／census2020 の vite が その相対 import を @ortho-earth/jp の役表へ alias で差し替える（部品の builtinWorkers を「作らない版」へ差し替えるのと同じ作法）。ホストの各 spawn（render/mesh/gintbake/columnar/model/imagequad/rastertiles）は静的な `new Worker(new URL("./worker.js"))` のまま＝vite の静的検出を壊さない
   - S3d ③ 残（裁定待ち）：basemap の語彙＝themes.js（bvmap の vt_code 分類・CHOME/RAILTR の z 閾・layerState の鍵）・style-mono/dark/sepia/gsi.js（bvmap の層→描画規則）・mergeChome（丁目の畳み）・chips（層の切替 UI）。案 a＝`basemap` 宣言が語彙・テーマ・ラベル規則を持参し、globe は「層の鍵の集合」と「切替の口」だけを持つ／案 b＝themes/style/chips は japan の殻（UI）に残し、globe は基図なしの地球儀＝world 帯とガジェットだけ（basemap 圏の UI は地域側の責務）
   - S4 済（2026-09-23・案 b＝本人裁定「themes/style/chips は当面 globe が抱える」）：ホストの閉包 132 ファイル（globe.js・gadgets 62・gint・sky・scenes・boot・mesh・demo/scene-adapter・i18n.js＋本体の訳 i18n/ui.json＋lang/<code>.json・style.scss・themes/style-*/palettes・worker 一式）を `packages/globe/src` へ git mv（相対構造そのまま）。`@ortho-earth/globe`＝exports "."（createGlobe）＋"./*"。japan の殻に残る物＝app.js（包み）・index.html/site.js・頁（quakes/sats/tellus/models/scene/geoedit）・demo（editor/scenes）・nl・i18n/pages（頁の辞書）・public・scripts・tests・sdk
-    - worker の入口は globe の worker.js 1 本。地域の役は `#extra-roles`（package.json imports・既定 {}）を japan／census2020 の vite alias が `@ortho-earth/jp/worker-roles`（estat）へ差し替える
+    - worker の入口は globe の worker.js 1 本。地域の役は `#extra-roles`（package.json imports・既定 {}）を japan／census2020 の vite alias が `@ortho-earth/jp/worker-roles`（estat）へ差し替える（2026-09-30 に廃止＝e-Stat は自前の入口。共有エンジンの入口は地域を知らないまま焼かれるため）
     - ortho-core の公開面に `./workers/gintbake` を追加（gintbakeworker.js が相対で内部を掴んでいた）
     - i18n の道具：本体の走査は APP＋HOST（rel は "globe/…"・contexts/pages の鍵も同表記）・正本 ui.json／焼き先 lang／langs.js は HOST・頁の辞書は APP
     - 掟の現状：globe に残る bvmap の語彙（themes.js・style-gsi.js・mergeChome・chips）＝案 b で受け入れた負債。第二の基図が来た時に `basemap` 宣言へ
@@ -93,7 +98,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 自分の門を自分で持てなければ筋が通らない。
 
 - **器**：`packages/globe/vite.config.js`（COOP/COEP を middleware で全リクエストに刻む・`worker.format="es"`・
-  builtinWorkers は「作らない版」へ）。`#extra-roles` は**差し替えない**＝globe 既定の `{}` のまま＝地域を知らない器であることの実地確認。
+  builtinWorkers は「作らない版」へ）。地域の worker 役は持たない（2026-09-30 に `#extra-roles` ごと廃止）＝地域を知らない器。
   `#tile-formats`（core の imports・タイル形式のプラグインの空き枠・既定＝何も足さない）は載せる＝`@ortho-earth/tile-formats/register`（MLT・#88）。形式は地域ではない（ortho-globe／japan／globe の器で同じ alias）。
 - **頁**：`packages/globe/tests/*.html`（2026-09-25 に 29 枚＝verify:ui 18・verify:webgpu 10・nocoi・外部依存の verify:net 3・補助の t-bootview-frame。関門の一覧は各 verify-*.mjs の ALL_PAGES が正本）。どれも**公開面 `@ortho-earth/globe` の `createGlobe`** で起動する
   （旧＝`../app.js` 経由＝日本の包みを通っていた）。`orthoJapan` で起動していた 6 枚（t-backfill／t-anchorfill／t-rectlook／
@@ -112,7 +117,7 @@ worker 入口・IDB/OPFS・予算とヒステリシスは地球儀のロード�
 
 ## 依存の向きと入口（2026-09-24 実測）
 
-- **向き**：japan → globe → core → ephem／japan → jp → core。**globe と jp は互いを import しない**（出会うのは japan が渡す申告 `opts.region` と、ビルド時に worker の空き枠 `#extra-roles` を jp の役表へ差し替える所だけ）。
+- **向き**：japan → globe → core → ephem／japan → jp → core。**globe と jp は互いを import しない**（出会うのは japan が渡す申告 `opts.region` だけ・2026-09-30 に worker の空き枠 `#extra-roles` を廃止）。
   モノレポ全体をパッケージ単位で機械検査して**出荷物に循環なし**（輪は scripts・tests が他アプリのデータを読む所だけ）。
 - **入口**：地域なしの地球儀は `@ortho-earth/globe` から直に取る＝ortho-globe（下の「globe の家」）・world（国の地図パネル）・GeoPBF デモ（9/24 に japan の殻経由から直へ＝束から日本／NL の申告が消えた）・equal（ガジェットと i18n だけ）。
   日本／NL の申告が要るアプリは japan の殻（`apps/ortho-japan/app.js`＝`orthoJapan`）＝census2020・gishub-jp・ortho-nl。

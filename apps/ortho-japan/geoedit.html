@@ -49,19 +49,12 @@
 		© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
 	<script type="module">
 		// geoedit＝GeoPBF トポロジカルエディタ（旧 apps/geoedit＝独立アプリ → ortho-japan のガジェット gadgets/geoedit（9/4）→ packages/geoedit＝geoedit（npm）（MIT・9/20））。
-		// このページは器だけ：SDK二重構成（scene.html と同型＝dev=./app.js ソース直・本番=/japan/lib/ の配布物）でエンジンを起こし、
+		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// 編集に要る最小限のガジェット＋ map.gadget.geoedit()（遅延chunk）を載せる。
 		import { getLang } from "@ortho-earth/globe/i18n.js";
 		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "geoedit — GeoPBFエディタ"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
 		(async () => {
-			let engineP;
-			if (import.meta.env.PROD) {
-				document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
-				const LIB = "/japan/lib/ortho-japan.js";
-				engineP = import(/* @vite-ignore */ LIB);
-			} else {
-				engineP = import("./app.js");
-			}
+			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
 			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
 			try {
 				const orthoJapan = (await engineP).default;
