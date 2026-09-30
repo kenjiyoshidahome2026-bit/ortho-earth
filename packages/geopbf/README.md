@@ -767,6 +767,31 @@ map.addSource("x", { type: "geojson", data: "featureservice://https://…/Featur
   the other cached entries (bucket names, URLs, files) are never pruned.
 - Not yet: Esri PBF (`f=pbf`), OGC API – Tiles/Maps.
 
+### 8.1.2 Georeferenced IIIF maps (Georeference Annotation, Allmaps-compatible)
+
+`geopbf/georef` holds the map-library-independent half of "put a scanned map where it belongs": reading and
+writing Georeference Annotations (the W3C Web Annotation form Allmaps uses — `resourceCoords`, older `pixelCoords`,
+SVG `resourceMask`), fitting the transformation from ground control points, and choosing IIIF Image API levels and
+tiles. No dependencies.
+
+```js
+import { parseGeoreference, georefMapping, iiifImage, infoUrl, fitTransform } from "geopbf/georef";
+
+const [g] = parseGeoreference(await (await fetch("https://annotations.allmaps.org/maps/…")).json());
+const m = georefMapping(g);            // both directions between image pixels and Web Mercator (0..1, y down)
+m.toResource([x, y]); m.toWorld([px, py]); m.bbox; m.residuals;   // residuals in metres at the control points
+const img = iiifImage(await (await fetch(infoUrl(g.image.id))).json(), { base: infoUrl(g.image.id) });
+const L = img.levelFor(footprint); img.tilesIn(L, [x0, y0, x1, y1]).map(([c, r]) => img.tile(L, c, r).url);
+```
+
+- **Transformations** — `polynomial` (order 1–3, least squares), `thinPlateSpline` (passes through every point),
+  `projective` (8-parameter), `helmert` (similarity). Each is fitted in one direction; the inverse is a second fit
+  in the other direction (thin-plate splines have no closed-form inverse — the same approach as Allmaps).
+  Too few points for the requested type fall back to a simpler one instead of failing.
+- **IIIF** — Image API v2 and v3, `tiles` + `scaleFactors`, level0 static tiles (canonical URL forms), `sizes`-only
+  images, and level1/2 servers that declare no tiles (512-px virtual tiles). Only browser-decodable formats are used.
+- The ortho globe renders it with `map.raster.add(id, { iiif })` (packages/globe `iiif-worker.js`).
+
 ### 8.2 Leaflet
 
 `geopbf/leaflet` provides an `L.GeoJSON` subclass. Register it explicitly (works with ESM and the CDN global `L`):

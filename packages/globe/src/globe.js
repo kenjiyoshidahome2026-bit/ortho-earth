@@ -2667,8 +2667,15 @@ map.raster = {
 			if (rq.load) { const ch = new MessageChannel(); serveProtocolRaster(ch.port1, rq.url, spec); wireSpec = { port: ch.port2, name: spec.name || null, attribution: spec.attribution || null }; transfer = [ch.port2]; rec.port = ch.port1; }
 			else if (rq.url !== tpl || rq.headers || rq.credentials) wireSpec = { ...spec, wms: undefined, url: rq.url, headers: rq.headers ? { ...(spec.headers || {}), ...rq.headers } : spec.headers, credentials: rq.credentials ?? spec.credentials };
 		}
-		if (spec && (spec.file || spec.image)) {   // ローカル容器／四隅で貼る画像＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
-			const w = spec.image
+		let iiifMaps = null, iiifAttr = null, iiifFallback = null;
+		if (spec?.iiif) {   // 基準点の注記（Georeference Annotation・#177）＝main で読んで解き、画像と写像は worker が持つ
+			try { ({ maps: iiifMaps, attribution: iiifAttr, fallback: iiifFallback } = await iiifOpen(spec.iiif, spec.attribution)); }
+			catch (err) { if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
+		}
+		if (spec && (spec.file || spec.image || spec.iiif)) {   // ローカル容器／四隅で貼る画像／IIIF の古地図＝プロバイダ worker（main 所有・入れ子 worker 禁止）→ port を render worker へ＝タイルは worker→worker
+			const w = spec.iiif
+				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "iiif" })   // 基準点で歪みを直した IIIF の画像＝タイルに焼く（iiif-worker.js・#177）
+				: spec.image
 				? new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "imagequad" })   // 四隅の画像＝射影変換でタイルに焼く（imagequad-worker.js）
 				: new Worker(new URL("./worker.js", import.meta.url), { type: "module", name: "rastertiles" });
 			rec.worker = w;
@@ -2677,11 +2684,13 @@ map.raster = {
 				w.onmessage = e => { const d = e.data || {}; if (d.type === "opened") res(d.info); else if (d.type === "error") rej(Object.assign(new Error(d.error), { vectorLayers: d.vectorLayers })); };
 				w.onerror = e => rej(new Error(e.message || "raster provider worker error"));
 			});
-			if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, attribution: spec.attribution || null, maxSide: LOW_MEM ? 2048 : 4096, port: ch.port1 }, [ch.port1]);   // 省メモリ機＝長辺 2048（RGBA＋ミップ ≈21MB・4096 だと ≈85MB＝Air3 jetsam の轍）
+			if (spec.iiif) w.postMessage({ type: "open", maps: iiifMaps, name: spec.name || null, attribution: iiifAttr, fallbackAttribution: iiifFallback, port: ch.port1 }, [ch.port1]);
+			else if (spec.image) w.postMessage({ type: "open", image: spec.image, corners: spec.corners, name: spec.name || null, attribution: spec.attribution || null, maxSide: LOW_MEM ? 2048 : 4096, port: ch.port1 }, [ch.port1]);   // 省メモリ機＝長辺 2048（RGBA＋ミップ ≈21MB・4096 だと ≈85MB＝Air3 jetsam の轍）
 			else w.postMessage({ type: "open", file: spec.file, table: spec.table || null, port: ch.port1 }, [ch.port1]);
 			try { await opened; } catch (err) { w.terminate(); if (rasterReg.get(id) === rec) rasterReg.delete(id); throw err; }
 			if (rasterReg.get(id) !== rec) { w.terminate(); throw new Error("removed while opening"); }
-			wireSpec = { port: ch.port2, name: spec.name || spec.file?.name || "image", attribution: spec.attribution || null }; transfer = [ch.port2];
+			const opened_ = await opened.catch(() => null);   // 開いた時の情報（iiif＝info.json の attribution・ホスト名まで決まった出典）
+			wireSpec = { port: ch.port2, name: spec.name || spec.file?.name || (spec.iiif ? "iiif" : "image"), attribution: (spec.iiif ? opened_?.attribution ?? iiifAttr : spec.attribution) || null }; transfer = [ch.port2];
 		}
 		const done = new Promise((res, rej) => { rec._res = res; rec._rej = rej; });
 		wPost({ type: "set", cmd: "rasterAdd", prop: id, data: { spec: wireSpec, opts: rec.opts } }, transfer);
@@ -3358,6 +3367,32 @@ async function extrudeNative(src, opts = {}) {
 map.gadget("stac", function (opts) {
 	return stacGadget.call(this, { loadCog: (src, o) => map.gadget.cog(src, o), clearCog: () => cogCtl?.clear(), signal: ac.signal, ...opts });
 });
+// ── IIIF の古地図を基準点で重ねる（#177・Georeference Annotation＝Allmaps 互換）──
+// 注記（URL か object・1 枚でもページでも）→ geopbf/georef で解く（変換＝多項式・TPS・射影・Helmert＝自前）→ iiif-worker が IIIF の段とタイルを選んで焼く。
+// 地面に貼るだけ（画像タイル層・本人裁定）。出典＝spec.attribution → manifest の requiredStatement／attribution → info.json の attribution。
+// 取得は requester（transformRequest）＝新しい口（従来の道は無い）。IIIF のタイルは worker が直に（公開の画像サーバー）
+const iiifText = v => v == null ? "" : typeof v === "string" ? v : Array.isArray(v) ? v.map(iiifText).filter(Boolean).join(" ") : typeof v === "object" ? iiifText(v.none ?? v.en ?? v["@value"] ?? v.value ?? Object.values(v)[0]) : String(v);
+async function iiifOpen(src, attribution) {
+	const G = await import("geopbf/georef");
+	let ann = src, base = location.href;
+	if (typeof src === "string") { base = new URL(src, location.href).href; const r = await requester.fetch(base, "Source"); if (!r.ok) throw new Error(`iiif: HTTP ${r.status} ${src}`); ann = await r.json(); }
+	const maps = G.parseGeoreference(ann);
+	for (const m of maps) { m.image.id = new URL(m.image.id, base).href; if (m.image.manifest) m.image.manifest = new URL(m.image.manifest, base).href; }   // 相対の id＝注記の置き場所から（worker は自分の URL を基準にしてしまう）
+	if (!maps.length) throw new Error("iiif: no georeferenced image in the annotation (motivation \"georeferencing\" with resourceCoords)");
+	if (attribution == null) {   // manifest の表示義務（requiredStatement／v2 attribution）＝取れなければ info.json の attribution（worker）
+		const ids = [...new Set(maps.map(m => m.image.manifest).filter(Boolean))];
+		const parts = await Promise.all(ids.map(async u => { try { const m = await (await requester.fetch(u, "Source")).json(); return iiifText(m.requiredStatement?.value ?? m.attribution) || null; } catch { return null; } }));
+		attribution = parts.filter(Boolean).join(" · ") || null;
+	}
+	const fallback = [...new Set(maps.map(m => { try { return new URL(m.image.id).host; } catch { return null; } }).filter(Boolean))].join(" · ") || null;   // 宣言がどこにも無い＝画像サーバーのホスト名（無出典で他人の画像を出さない）
+	return { maps, attribution, fallback };
+}
+// ?iiif=<注記の URL>（Allmaps の注記 URL も・門は ?g= と共用＝https 限定）＝重ねの画像タイル層・範囲へ寄る（URL に視点があればそれが勝つ）
+{
+	const iSpec = new URLSearchParams(location.search).get("iiif");
+	const u = iSpec ? remoteUrl(iSpec, "iiif") : null;
+	if (u) { const off = map.onFrame(() => { off(); map.raster.add("iiif", { iiif: u.href }, { order: "over", opacity: 1, hideFills: false }).then(info => { const b = info?.bbox || map.raster.info("iiif")?.bbox; if (b && !themeBootV) map.fitBounds(b, { padding: 40 }); }).catch(err => console.warn("[iiif] ?iiif=", u.href, err)); }); }
+}
 // ?cog=<URL>＝COG の URL ロード（門は ?g=/?scene= と共用＝https 限定・gh: 短縮形）。Range 直読み＝全量 fetch はしない
 {
 	const cogSpec = new URLSearchParams(location.search).get("cog");
@@ -3509,6 +3544,19 @@ const INTAKE = [
 		// 内部圧縮は none/snappy/gzip を自前で読む。zstd はブラウザに実装が無い（DecompressionStream("zstd") は未実装）＝
 		// fzstd を注入して読む（2026-09-22）。それでも読めない時の素のエラーは読み手を惑わすので包み直す。
 		convert: file => parquetToGeopbf(file),
+	},
+	{
+		name: "georef",   // 基準点の注記（Georeference Annotation・Allmaps の JSON・#177）＝IIIF の古地図を地面に貼る。注記でない .json は本道（従来どおり）へ
+		test: f => /\.json$/i.test(f.name) && f.size < 32e6,
+		draw: async (file, ctx) => {
+			if (!/"georeferencing"/.test(await file.slice(0, 65536).text())) return mainRoad(file, ctx);   // 頭に印が無い＝従来の .json（parse もしない＝従来と同じ道・同じ手間）
+			let j = null; try { j = JSON.parse(await file.text()); } catch { /* 読めない＝本道に任せる */ }
+			if (!j) return mainRoad(file, ctx);
+			const info = await map.raster.add("iiif", { iiif: j, name: file.name.replace(/\.[^.]+$/, "") }, { order: "over", opacity: 1, hideFills: false });
+			const b = info?.bbox || map.raster.info("iiif")?.bbox;
+			if (b && ctx?.fit !== false) map.fitBounds(b, { padding: 40 });
+			return { length: 1 };
+		},
 	},
 ];
 // GeoParquet → GeoPBF の File（従来の全量変換・gint の道）＝INTAKE の geoparquet 行と、列チャンク層が「gint 向き」と言った時の合流に共用
