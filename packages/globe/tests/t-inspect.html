@@ -1,0 +1,190 @@
+<!doctype html>
+<!-- 検査表示（maplibre-gl-inspect 相当・#174）。試料＝fixtures/mlcompat（make-mvt.mjs の 4 層＝building・landuse・road・poi）。
+     既定（外来 style で起動・基図の source "omt"＝XYZ の MVT で層の申告なし）：
+       ① 層の台帳＝基図はタイルを解いて全層（style が使わない building・poi も）・TileJSON（vt.json）は vector_layers・PMTiles（vt.pmtiles）は metadata（fields つき）・geojson は層なし
+       ② 検査の層＝公式と同じ id（source_sourceLayer_kind・geojson は source__kind）・面→線→点の順・色は層名から（brightColor）
+       ③ 下地＝基図の塗り（緑）と利用者の層（赤）が消え、何も無い所は背景色（白）・層ごとに色が違う
+       ④ 札＝ホバーで層名と属性（$id・$type・name）・値は文字として（HTML にならない）・カーソルが外れると消える
+       ⑤ 戻す＝層が消え、利用者の層の表示が戻り、基図の画素が開く前と同じ（0px 差）・toggleCallback が true→false
+       ⑥ 問い合わせの控え（段 5）＝style を替えて基図が読む source-layer が増えても古い解読を返さない
+     ?v=world＝基図の無い地球儀（世界の帯だけ）：台帳は空・球は背景色一色（ハイプソ・海岸線も伏せる）・戻すと元の画素
+     ?v=ml＝MapLibre の口（@ortho-earth/globe/maplibre）：map.addControl(new MaplibreInspect())＝公式の class のボタン・押すと検査の層・もう一度で戻る・removeControl -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-inspect</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { brightColor } from "../src/gadgets/inspect.js";
+const V = new URLSearchParams(location.search).get("v") || "style";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const until = async (fn, ms = 15000, step = 200) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+const F = (geometry, properties = {}) => ({ type: "Feature", properties, geometry });
+// 基図の画素（ラベル抜き・requestSnapshot の base）。座標は地図の容れ物の CSS px
+async function snap(map) {
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => {
+	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
+	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
+	return [img.data[i], img.data[i + 1], img.data[i + 2]];
+};
+const diff = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+const near = (a, c, tol = 40) => diff(a, c) <= tol;
+const pixDiff = (a, b) => { if (a.w !== b.w || a.h !== b.h) return -1; let n = 0; for (let i = 0; i < a.data.length; i += 4) if (Math.abs(a.data[i] - b.data[i]) > 3 || Math.abs(a.data[i + 1] - b.data[i + 1]) > 3 || Math.abs(a.data[i + 2] - b.data[i + 2]) > 3) n++; return n; };
+const rgbOf = css => css.match(/[\d.]+/g).slice(0, 3).map(Number);
+// 画素が落ち着くまで撮る（タイルの到着・結合の往復）＝同じ場所の画素が 2 回続けて同じ
+const settled = async (map, pts, ms = 15000) => { let prev = null, img = null; const t0 = performance.now(); while (performance.now() - t0 < ms) { img = await snap(map); const v = JSON.stringify(pts.map(([x, y]) => px(img, x, y))); if (v === prev) return img; prev = v; await sleep(700); } return img; };
+const popupEl = map => map.mapEl.querySelector(".maplibregl-inspect_popup");
+const hover = (map, x, y) => { const cv = map.mapEl.querySelector("#c"), r = cv.getBoundingClientRect(); cv.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + x, clientY: r.top + y, buttons: 0 })); };
+
+try {
+	const FX = new URL("./fixtures/mlcompat/", location.href).href;
+	const VB = await (await fetch(FX + "vt-buildings.json")).json(), C = VB.corner, D = VB.draw;
+	const mE = 111320 * Math.cos(C[1] * Math.PI / 180), mN = 110574, at = (e, n) => [C[0] + e / mE, C[1] + n / mN];   // 試料の作り方（make-mvt.mjs）と同じ m のずらし
+	const style = {
+		version: 8, name: "t-inspect",
+		sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 } },   // 層の申告なし＝タイルを解いて集める
+		layers: [
+			{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+			{ id: "lu", type: "fill", source: "omt", "source-layer": "landuse", paint: { "fill-color": "#00aa00" } },
+		],
+	};
+	const VIEW = at(160, -170);   // 南東のタイル（building・landuse・road・poi の 4 層が揃う）の中
+	if (V === "style") {
+		const { createGlobe } = await import("@ortho-earth/globe");
+		const map = await createGlobe({ target: "#map", view: `#16.5/${VIEW[1]}/${VIEW[0]}`, chips: false, style, debugGlobals: true });
+		window.__map = map;
+		await map.once("load");
+		map.pinRes(true);   // 動的解像度を止める（戻した後の画素を開く前と同じ寸法で比べる）
+		const P = ll => { const [x, y] = map.projectLL(ll[0], ll[1]); return [x, y]; };
+		const GJ = at(300, 250), d = 0.0004;
+		map.addSource("vt2", { type: "vector", url: FX + "vt.json" });
+		map.addSource("vt3", { type: "vector", url: "pmtiles://" + FX + "vt.pmtiles" });
+		map.addSource("gj", { type: "geojson", data: { type: "FeatureCollection", features: [F({ type: "Polygon", coordinates: [[[GJ[0] - d, GJ[1] - d], [GJ[0] + d, GJ[1] - d], [GJ[0] + d, GJ[1] + d], [GJ[0] - d, GJ[1] + d], [GJ[0] - d, GJ[1] - d]]] }, { name: "<b>bold</b>", n: 7 })] } });
+		await map.addLayer({ id: "gj-fill", type: "fill", source: "gj", paint: { "fill-color": "#ff0000" } });
+		const EMPTY = at(-250, 200), PTS = [P(D.park), P(GJ), P(EMPTY), P(D.lake), P(D.cafe)];
+		await until(() => map.isSourceLoaded("omt"));
+		const before = await settled(map, PTS);
+		ok("before", near(px(before, ...P(D.park)), [0, 170, 0], 50) && near(px(before, ...P(GJ)), [255, 0, 0], 50), `park=${px(before, ...P(D.park))} gj=${px(before, ...P(GJ))}`);
+
+		const calls = [];
+		const h = map.gadget.inspect({ toggleCallback: v => calls.push(v) });
+		const btn = map.mapEl.querySelector("#inspect-btn");
+		ok("button", !!btn && btn.classList.contains("qm-panel-btn") && btn.getAttribute("aria-pressed") === "false" && !h.isOpen(), `btn=${!!btn}`);
+		await h.open();
+		ok("open", h.isOpen() && btn.classList.contains("on") && btn.getAttribute("aria-pressed") === "true" && calls.join() === "true", `calls=${calls}`);
+
+		// ① 層の台帳
+		const S = Object.fromEntries(h.sources().map(s => [s.id, s])), ids = s => (s?.layers || []).map(l => l.id).sort().join(",");
+		ok("sources-tiles", S.omt?.type === "vector" && S.omt.from === "tiles" && ids(S.omt) === "building,landuse,poi,road", `omt=${S.omt?.from}:${ids(S.omt)}`);
+		ok("sources-tilejson", S.vt2?.from === "tilejson" && ids(S.vt2) === "building,landuse,poi,road", `vt2=${S.vt2?.from}:${ids(S.vt2)}`);
+		const b3 = S.vt3?.layers?.find(l => l.id === "building");
+		ok("sources-pmtiles", S.vt3?.from === "pmtiles" && ids(S.vt3) === "building,landuse,poi,road" && b3?.fields?.render_height === "Number", `vt3=${S.vt3?.from}:${ids(S.vt3)} fields=${JSON.stringify(b3?.fields)}`);
+		ok("sources-geojson", S.gj?.type === "geojson" && S.gj.layers === null, JSON.stringify(S.gj));
+
+		// ② 検査の層（id・順・色）
+		const L = h.layers(), kindAt = k => L.map((id, i) => id.endsWith("_" + k) ? i : -1).filter(i => i >= 0);
+		const [pg, ln, ci] = ["polygon", "line", "circle"].map(kindAt);
+		const hasIds = ["omt_landuse_polygon", "omt_road_line", "omt_poi_circle", "omt_building_polygon", "vt2_landuse_polygon", "vt3_road_line", "gj__polygon", "gj__line", "gj__circle"].every(id => L.includes(id));
+		ok("layers", hasIds && L.length === 3 * 13 && Math.max(...pg) < Math.min(...ln) && Math.max(...ln) < Math.min(...ci), `n=${L.length} ${L.slice(0, 4).join(",")}…`);
+		const lp = map.getLayer("omt_landuse_polygon"), rl = map.getLayer("omt_road_line"), pc = map.getLayer("omt_poi_circle");
+		ok("layer-style", lp?.type === "fill" && lp["source-layer"] === "landuse" && lp.paint["fill-color"] === brightColor("landuse", 0.3) && lp.paint["fill-outline-color"] === brightColor("landuse", 0.6)
+			&& rl?.type === "line" && rl.paint["line-color"] === brightColor("road", 0.6) && pc?.type === "circle" && pc.paint["circle-radius"] === 2 && JSON.stringify(pc.filter) === '["==","$type","Point"]',
+			`${lp?.paint?.["fill-color"]} ${rl?.paint?.["line-color"]}`);
+
+		// ③ 下地
+		await until(() => map.isSourceLoaded("omt") && map.isSourceLoaded("vt2") && map.isSourceLoaded("vt3"), 20000);
+		const img = await settled(map, PTS);
+		const pPark = px(img, ...P(D.park)), pGj = px(img, ...P(GJ)), pEmpty = px(img, ...P(EMPTY)), pLake = px(img, ...P(D.lake));
+		ok("background", near(pEmpty, [255, 255, 255], 8), `empty=${pEmpty}`);
+		ok("base-hidden", !near(pPark, [0, 170, 0], 60) && diff(pPark, [255, 255, 255]) > 30, `park=${pPark}`);
+		ok("user-layer-hidden", map.getLayoutProperty("gj-fill", "visibility") === "none" && !near(pGj, [255, 0, 0], 80) && diff(pGj, [255, 255, 255]) > 20, `gj=${pGj} vis=${map.getLayoutProperty("gj-fill", "visibility")}`);
+		const cLu = rgbOf(brightColor("landuse", 1));
+		ok("layer-color", diff(pPark, pGj) > 20 && diff(pLake, pPark) <= 12 && pPark.every((v, i) => Math.abs((255 - v) - (255 - cLu[i]) * (1 - 0.7 ** 3)) <= 40), `park=${pPark} lake=${pLake} gj=${pGj} landuse=${cLu}`);   // 同じ層名＝同じ色（3 つの source が同じ所に重なる＝α0.3 を 3 回）
+
+		window.__h = h; window.__P = P; window.__GJ = GJ; window.__D = D;   // 手で覗く窓（検定の判定には使わない）
+		if (new URLSearchParams(location.search).has("hold")) await new Promise(() => {});   // hold=1＝ここで止める（手で覗く時だけ）
+		// ④ 札
+		hover(map, ...P(D.cafe));
+		const pop = await until(() => popupEl(map), 8000);
+		const txt = pop?.textContent || "";
+		ok("popup-hover", !!pop && /poi/.test(txt) && /Cafe/.test(txt) && /\$type/.test(txt) && /Point/.test(txt) && /\$id/.test(txt), txt.slice(0, 120));
+		hover(map, ...P(GJ));
+		const pop2 = await until(() => { const e = popupEl(map); return e && /bold/.test(e.textContent) ? e : null; }, 8000);
+		ok("popup-text-safe", !!pop2 && pop2.textContent.includes("<b>bold</b>") && !pop2.querySelector("b") && /gj/.test(pop2.textContent), (pop2?.textContent || "none").slice(0, 120));
+		map.mapEl.querySelector("#c").dispatchEvent(new PointerEvent("pointerleave", { bubbles: false }));
+		await sleep(300);
+		ok("popup-leave", !popupEl(map), `left=${!!popupEl(map)}`);
+
+		// ⑤ 戻す
+		await h.close();
+		const after = await settled(map, PTS);
+		const nd = pixDiff(before, after);
+		ok("close", !h.isOpen() && !btn.classList.contains("on") && h.layers().length === 0 && !map.getStyle().layers.some(l => /_(polygon|line|circle)$/.test(l.id)) && calls.join() === "true,false", `calls=${calls} left=${h.layers().length}`);
+		ok("restore", map.getLayoutProperty("gj-fill", "visibility") !== "none" && nd === 0, `diff=${nd}px park=${px(after, ...P(D.park))} gj=${px(after, ...P(GJ))}`);
+		await h.open();
+		ok("reopen", h.isOpen() && h.layers().length === 3 * 13, `n=${h.layers().length}`);
+		await h.close();
+
+		// ⑥ 問い合わせの控え（段 5）＝基図の問い合わせで landuse だけ解いた後、road を描く style へ替えても road に当たる
+		const lu = await map.queryRenderedFeatures(P(D.park), { layers: ["lu"] });
+		await map.setStyle({ ...style, layers: [...style.layers, { id: "rd", type: "line", source: "omt", "source-layer": "road", paint: { "line-color": "#222222", "line-width": 6 } }] });
+		await until(() => map.isSourceLoaded("omt"));
+		const rd = await until(async () => { const r = await map.queryRenderedFeatures(P(D.main), { layers: ["rd"] }); return r.length ? r : null; }, 8000);
+		ok("query-cache-layers", lu.some(f => f.properties?.name === "Park") && rd?.some(f => f.properties?.name === "Main St"), `lu=${lu.map(f => f.properties?.name)} rd=${rd?.map(f => f.properties?.name)}`);
+		ok("double-mount", map.gadget.inspect() === null, "second mount with a button returns null");
+		map.destroy();
+	} else if (V === "world") {
+		const { createGlobe } = await import("@ortho-earth/globe");
+		const map = await createGlobe({ target: "#map", view: "#3/-25/134", chips: false });
+		await map.once("load");
+		map.pinRes(true);
+		map.clock.setTime(Date.UTC(2026, 5, 1, 3, 0, 0)); if (map.clock.playing) map.clock.toggle();   // 夜の側・星を止める（戻した後の画素を比べる）
+		const P = ll => { const [x, y] = map.projectLL(ll[0], ll[1]); return [x, y]; };
+		const AU = P([134, -25]), AF = P([20, 0]), SEA = P([160, -40]);
+		await sleep(4000);
+		const before = await settled(map, [AU, SEA]);
+		await sleep(3000);
+		const noise = pixDiff(before, await settled(map, [AU, SEA]));   // 何もしない間の揺れ（注記に出すだけ）
+		const h = map.gadget.inspect();
+		await h.open();
+		const img = await settled(map, [AU, SEA]);
+		ok("world-sources", h.sources().length === 0 && h.layers().length === 0, JSON.stringify(h.sources()));
+		ok("world-flat", near(px(img, ...AU), [255, 255, 255], 10) && near(px(img, ...SEA), [255, 255, 255], 10) && diff(px(before, ...AU), [255, 255, 255]) > 30, `au=${px(before, ...AU)}→${px(img, ...AU)} sea=${px(before, ...SEA)}→${px(img, ...SEA)}`);
+		await h.close();
+		const after = await settled(map, [AU, SEA]);
+		const nd = pixDiff(before, after);
+		ok("world-restore", nd === 0, `diff=${nd}px noise=${noise}px au=${px(after, ...AU)}`);
+		map.destroy();
+	} else if (V === "ml") {
+		const ml = await import("@ortho-earth/globe/maplibre");
+		const { engineOf } = await import("../src/maplibre/map.js");
+		const m = new ml.Map({ container: "map", style, center: VIEW, zoom: 15.5 });
+		await Promise.race([new Promise(r => m.once("load", r)), sleep(30000)]);
+		const eng = engineOf(m);
+		const calls = [];
+		const ctl = new ml.MaplibreInspect({ toggleCallback: v => calls.push(v) });
+		m.addControl(ctl);
+		const btn = document.querySelector(".maplibregl-ctrl-top-right .maplibregl-ctrl-inspect");
+		ok("ml-button", !!btn && btn.tagName === "BUTTON" && btn.classList.contains("maplibregl-ctrl-icon") && !eng.mapEl.querySelector("#inspect-btn"), `btn=${btn?.className}`);
+		await until(() => ctl._ctl, 5000, 50);
+		btn.click();
+		const on = await until(() => eng.getLayer("omt_landuse_polygon") ? true : null, 10000);
+		ok("ml-open", on && btn.classList.contains("maplibregl-ctrl-map") && calls.join() === "true", `class=${btn.className} calls=${calls}`);
+		btn.click();
+		const off = await until(() => !eng.getLayer("omt_landuse_polygon") && calls.length === 2 ? true : null, 10000);
+		ok("ml-close", off && btn.classList.contains("maplibregl-ctrl-inspect") && calls.join() === "true,false", `class=${btn.className} calls=${calls}`);
+		m.removeControl(ctl);
+		ok("ml-remove", !document.querySelector(".maplibregl-ctrl-inspect"), "");
+		m.remove();
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

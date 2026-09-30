@@ -4,7 +4,7 @@
 import assert from "node:assert/strict";
 import { registerTileFormat, loadTileFormat, decodeTile, hasTileFormat, tileFormatNames, tileFormatOfPmtilesType, tileFormatReady } from "../src/tileformat.js";
 import { decodeMVT, fetchMVT } from "../src/decode.js";
-import { resolveVectorSource } from "../src/mlstyle.js";
+import { resolveVectorSource, vectorLayersOf } from "../src/mlstyle.js";
 import { pmtilesInfo } from "../src/pmtiles-src.js";
 let n = 0;
 const t = async (name, fn) => { await fn(); n++; console.log("  ✔", name); };
@@ -93,6 +93,18 @@ await t("PMTiles の tileType の名前は登録簿から引く（1＝mvt・6＝
 	assert.equal((await pmtilesInfo("pmtiles://https://example.test/mlt.pmtiles")).tileType, "mlt");
 	assert.equal((await pmtilesInfo("pmtiles://https://example.test/png.pmtiles")).tileType, "png");
 	assert.equal((await pmtilesInfo("pmtiles://https://example.test/lazy.pmtiles")).tileType, "lazy");   // 登録簿の pmtilesType（上で 99 を登録）
+});
+await t("vector_layers＝層の一覧（id・fields・minzoom・maxzoom・description）・外のデータは素の形へ・無ければ null（検査表示 #174）", async () => {
+	const base = "https://example.test/style.json";
+	const vl = [{ id: "water", fields: { class: "String", n: 3 }, minzoom: 0, maxzoom: 14, description: "d" }, { id: "road" }, { id: 5 }, null, { id: "" }, { id: "poi", fields: ["x"], minzoom: "1" }];
+	const want = [{ id: "water", fields: { class: "String", n: "3" }, minzoom: 0, maxzoom: 14, description: "d" }, { id: "road", fields: {} }, { id: "poi", fields: {} }];
+	assert.deepEqual(vectorLayersOf({ vector_layers: vl }), want);
+	assert.equal(vectorLayersOf({}), null); assert.equal(vectorLayersOf(null), null); assert.equal(vectorLayersOf({ vector_layers: "x" }), null);
+	const tj = await resolveVectorSource({ type: "vector", url: "tiles.json" }, base, { fetchFn: async () => new Response(JSON.stringify({ tiles: ["t/{z}/{x}/{y}.pbf"], vector_layers: vl })) });
+	assert.deepEqual(tj.vectorLayers, want);
+	assert.deepEqual((await resolveVectorSource({ type: "vector", tiles: ["a/{z}/{x}/{y}.pbf"], vector_layers: [{ id: "a" }] }, base)).vectorLayers, [{ id: "a", fields: {} }]);   // 書き込みの TileJSON（tiles と一緒）
+	assert.equal((await resolveVectorSource({ type: "vector", tiles: ["a/{z}/{x}/{y}.pbf"] }, base)).vectorLayers, null);
+	assert.equal((await resolveVectorSource({ type: "vector", url: "pmtiles://a.pmtiles" }, base)).vectorLayers, null);   // PMTiles＝アーカイブの metadata（pmtilesInfo）が持つ
 });
 console.warn = origWarn;
 console.log(`\n${n} passed`);

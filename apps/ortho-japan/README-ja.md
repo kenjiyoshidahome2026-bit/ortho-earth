@@ -81,10 +81,13 @@ map.destroy();   // 完全撤収（この後もう一度 orthoJapan() で再起�
 
 ```js
 map.gadget.search();    // 地名・住所検索（地理院API・キー不要）。{ onGo } で飛び方を差し替え可
+// { world: true } で世界の国・州・都市・山川湖海を 26 言語で（サーバー無し・索引は初めて引いた時に読む）。
+// 自分の geocoder は maplibre-gl-geocoder と同じ形で：{ geocoderApi: { forwardGeocode }, localGeocoder, limit, countries, … }
 map.gadget.compass();   // コンパス兼リセット（3Dの時だけ現れる）
 map.gadget.mesh();      // 建物3Dデータ管理（日本は PLATEAU 公式ロゴマーク・旧名 map.gadget.plateau() も効く）
 map.gadget.palette();   // 配色テーマ切替（中央に他テーマの地図見本＝色で選ぶ）→ { open, close }。未搭載でも c= には従う
 map.gadget.hint();      // 操作説明カード（6秒迷った人にだけ自動表示）→ { open, close }
+map.gadget.inspect();   // ベクタタイルの検査表示（全 source-layer を層ごとの色で・ホバーで属性）→ { open, close, toggle }。オプションは maplibre-gl-inspect と同じ（MapLibre の口では map.addControl(new MaplibreInspect())）
 map.gadget("myGadget", function () { /* this = map */ });   // 自作ガジェットの登録も同じ作法
 ```
 

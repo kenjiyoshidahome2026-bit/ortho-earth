@@ -2,6 +2,7 @@
 // 基図タイルが既に地理院依存なので実質的な依存追加ゼロ。APIの素性が悪い（同名の真の重複・全国散在の同名・並びの癖）ので、
 // 全件を前処理してから候補にする。検索窓（UI・履歴・IME）は search.js の createSearch＝この供給元を地域宣言（JP_REGION.search）から受ける。
 // 供給元の契約＝{ histKey, query(q, signal) → [{title, note, lon, lat}], viewFor(title) → {zoom, tilt?} }（2026-09-22 search.js から分離）。
+// 候補には bbox・zoom・kind・id を任意で足せる（#175・あれば viewFor より優先）＝契約の正本は globe の search.js と d.ts の SearchProvider。
 const API = "https://msearch.gsi.go.jp/address-search/AddressSearch?q=";
 
 // addressCode（JIS市区町村コード）先頭2桁→都道府県名。'' は市区町村に属さない広域地物（本物の富士山等）。
