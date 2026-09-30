@@ -114,7 +114,7 @@
 		"navigate-the-map-with-game-like-controls": 1,
 		"offset-the-vanishing-point-using-padding": 1,
 		"pmtiles-source-and-protocol": 3,
-		"render-world-copies": 2,
+		"render-world-copies": 3,
 		"restrict-map-panning-to-an-area": 3,
 		"select-features-with-boxzoomend-callback": 2,
 		"set-center-point-above-ground": 1,

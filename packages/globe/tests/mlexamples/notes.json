@@ -20,7 +20,7 @@
 	"filter-symbols-by-text-input": "色は一致・細い道路の幅がわずかに違う（sub-2px の縁の AA）。",
 	"filter-symbols-by-toggling-a-list": "同上。",
 	"add-a-raster-tile-source": "低ズームの球とメルカトルの見え方の差（本物は画面いっぱいのメルカトル・こちらは小さな球）＝意図した違い。地の色は白に揃えた。",
-	"render-world-copies": "同上（球に世界の写しは無い）。",
+	"render-world-copies": "球に世界の写しは無い（文書の違い）。低ズームの塗りを球の上で細分して段 3 に。",
 	"display-line-that-crosses-180th-meridian": "同上（球）。",
 	"add-a-generated-icon-to-the-map": "同上（球）＋記号の下の標本。",
 	"add-an-icon-to-the-map": "同上（球）＋記号の下の標本。",
