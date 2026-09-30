@@ -25,30 +25,39 @@ export function clipToExtent(flat, holes, extent) {
 	let inside = true;
 	for (let i = 0; i < flat.length && inside; i += 2) if (flat[i] < 0 || flat[i] > extent || flat[i + 1] < 0 || flat[i + 1] > extent) inside = false;
 	if (inside) return [flat, holes];
+	// 環を窓の 4 辺で順に切る（ping-pong の 2 本の作業配列・旧＝辺ごとに JS 配列を作っていた＝式と順はそのまま＝ビット同値）
 	const ring = (s, e) => {
-		let pts = Array.from(flat.subarray(s, e));
-		for (let side = 0; side < 4 && pts.length; side++) {
-			const ax = side & 1, hi = side >= 2, out = [];   // side: 0=x≥0 1=y≥0 2=x≤extent 3=y≤extent
-			const inOf = (px, py) => { const v = ax ? py : px; return hi ? v <= extent : v >= 0; };
-			const n = pts.length >> 1;
+		if (clipA.length < e - s) clipA = new Float64Array(e - s);
+		let src = clipA, dst = clipB, m = e - s;
+		for (let i = 0; i < m; i++) src[i] = flat[s + i];
+		for (let side = 0; side < 4 && m; side++) {
+			const ax = side & 1, hi = side >= 2;   // side: 0=x≥0 1=y≥0 2=x≤extent 3=y≤extent
+			const n = m >> 1; let o = 0;
+			if (dst.length < 2 * m) { dst = new Float64Array(2 * m); if (src === clipA) clipB = dst; else clipA = dst; }   // 1 辺で切ると各頂点は高々 2 点（自分＋交点）
 			for (let i = 0; i < n; i++) {
-				const j = (i + 1) % n, px = pts[i * 2], py = pts[i * 2 + 1], qx = pts[j * 2], qy = pts[j * 2 + 1], pi = inOf(px, py), qi = inOf(qx, qy);
-				if (pi) out.push(px, py);
+				const j = (i + 1) % n, px = src[i * 2], py = src[i * 2 + 1], qx = src[j * 2], qy = src[j * 2 + 1];
+				const pv = ax ? py : px, qv = ax ? qy : qx, pi = hi ? pv <= extent : pv >= 0, qi = hi ? qv <= extent : qv >= 0;
+				if (pi) { dst[o++] = px; dst[o++] = py; }
 				if (pi !== qi) {   // 辺が窓の縁を跨ぐ＝交点を足す
 					const b = hi ? extent : 0, t = ax ? (b - py) / (qy - py) : (b - px) / (qx - px);
-					out.push(ax ? px + (qx - px) * t : b, ax ? b : py + (qy - py) * t);
+					dst[o++] = ax ? px + (qx - px) * t : b; dst[o++] = ax ? b : py + (qy - py) * t;
 				}
 			}
-			pts = out;
+			const tmp = src; src = dst; dst = tmp; m = o;
 		}
-		return pts.length >= 6 ? pts : null;
+		return m >= 6 ? src.slice(0, m) : null;
 	};
 	const bounds = [0, ...holes.map(h => h * 2), flat.length];
 	const outer = ring(bounds[0], bounds[1]); if (!outer) return null;
-	const pts = outer.slice(), hs = [];
-	for (let k = 1; k + 1 < bounds.length; k++) { const h = ring(bounds[k], bounds[k + 1]); if (h) { hs.push(pts.length >> 1); for (const v of h) pts.push(v); } }
-	return [Float64Array.from(pts), hs];
+	const parts = [outer], hs = [];
+	let len = outer.length;
+	for (let k = 1; k + 1 < bounds.length; k++) { const h = ring(bounds[k], bounds[k + 1]); if (h) { hs.push(len >> 1); parts.push(h); len += h.length; } }
+	if (parts.length === 1) return [outer, hs];
+	const pts = new Float64Array(len); let o = 0;
+	for (const p of parts) { pts.set(p, o); o += p.length; }
+	return [pts, hs];
 }
+let clipA = new Float64Array(1024), clipB = new Float64Array(1024);   // clipToExtent の作業配列（伸びるだけ・worker ごと）
 
 // 線分の両端がタイルの同じ側の外（余白＝buffer の中）＝MapLibre ならステンシルで見えない線分。ポリゴンの輪郭を線で描く層（demotiles の countries-boundary）は
 // タイル生成側が余白の縁で切った辺（x＝−buffer／extent＋buffer に沿う縦横の直線）を持ち、描くとタイルの境の両脇に白い二重線が出る（2026-09-30 本人の写し・回転した視点では 45°）。
@@ -93,6 +102,18 @@ import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 import { polygons, signedArea } from "./decode.js";   // フラットgeom({coords,ends})→[flat, holes]（buildings と共用）
 import { SEA_FB_BASE } from "./scene.js";
+
+// 組み立ての出力の伸びる型付き配列（層ごとに reset・最後に out() で必要な長さだけ写す）。旧＝JS の数の配列へ push して最後に Float32Array(配列)＝
+// 伸びるたびの付け替え・倍精度の箱・2 度目の写しが組み立ての GC の大半だった。Float32Array へ直に書く丸めは Float32Array(配列) と同じ（ビット同値）。
+// 組み立ては同期＝worker の中で入れ子にならない限り使い回してよい（入れ子＝buildEmptySeaOps から呼ぶ時は depth で新しい物を作る）
+class Grow {
+	constructor(T, n = 4096) { this.T = T; this.a = new T(n); this.n = 0; }
+	reserve(k) { if (this.n + k > this.a.length) { let m = this.a.length * 2; while (m < this.n + k) m *= 2; const b = new this.T(m); b.set(this.a.subarray(0, this.n)); this.a = b; } return this.a; }
+	out(T = this.T) { return T === this.T ? this.a.slice(0, this.n) : T.from(this.a.subarray(0, this.n)); }
+}
+const newBufs = () => ({ pos: new Grow(Float32Array), col: new Grow(Uint8Array), idx: new Grow(Uint32Array), P1: new Grow(Float32Array), P2: new Grow(Float32Array), half: new Grow(Float32Array), off: new Grow(Float32Array) });
+let sharedBufs = null, bufDepth = 0;
+const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
 
 // line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
 const NO_SLIDES = [[], []];
@@ -140,16 +161,32 @@ export function miterSlides(coords, ls, le) {
 // subLenM＝線の細分の長さ（m・既定 700＝基図）。利用者の vector の層（段 8⑤）は低ズームのタイルで細分が膨れないよう長くして渡す
 // stateOf＝地物 → その feature-state（#109・省略可）。paint の ["feature-state", k] だけが読む（filter と sort-key は読まない＝MapLibre と同じ）。
 //   渡すのは利用者の vector の描く層（globe の vtdraw）だけ＝基図は渡さない＝今と同じ絵（黄金の写しは不変）・層の中の sort-key の順も崩れない
-export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = null }, style, origin, pale = c => c) {
+export function buildTileDrawList(tile, style, origin, pale = c => c) {
+	const B = bufDepth++ === 0 ? (sharedBufs ??= newBufs()) : newBufs();
+	try { return buildTileDrawList1(tile, style, origin, pale, B); } finally { bufDepth--; }
+}
+function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, style, origin, pale, B) {
 	const [ox, oy] = origin;
 	const ops = [];   // { kind:'fill'|'line', li, ... } を style層順に（li=style層index、跨ぎバッチ結合用）
 	// タイルローカル(0..extent) → 経緯度(原点相対) を out[oi],out[oi+1] へ直書き。x,y,n はタイル内で不変なので
 	// ここで一度だけ捕獲し、毎頂点の一時配列 [lon,lat] 生成を廃す（＝GC削減）。extent は層毎に渡す。
 	const nTiles = 1 << z, R2D = 180 / Math.PI, HALF_PI = Math.PI / 2;
+	// 緯度（メルカトルの逆・atan＋exp）は整数の py（MVT の頂点はほぼ全部）ごとに一度だけ計算して覚える＝同じ式・同じ値（ビット同値）。
+	// 覚えは層の extent ごと（通常は全層 4096）・範囲は余白込みの [−extent, 2·extent)。切り口の交点・線の細分の点（小数）は毎回計算
+	let latE = 0, latC = null;
+	const latOf = (py, extent) => {
+		if (Number.isInteger(py) && py >= -extent && py < 2 * extent) {
+			if (latE !== extent) { latE = extent; latC = new Float64Array(3 * extent).fill(NaN); }
+			const i = py + extent, v = latC[i];
+			if (v === v) return v;
+			return (latC[i] = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * ((y + py / extent) / nTiles)))) - HALF_PI) - oy);
+		}
+		return R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * ((y + py / extent) / nTiles)))) - HALF_PI) - oy;
+	};
 	const llInto = (px, py, extent, out, oi) => {
-		const wx = (x + px / extent) / nTiles, wy = (y + py / extent) / nTiles;
+		const wx = (x + px / extent) / nTiles;
 		out[oi] = (wx * 360 - 180) - ox;
-		out[oi + 1] = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * wy))) - HALF_PI) - oy;
+		out[oi + 1] = latOf(py, extent);
 	};
 	const sc = new Float64Array(2);    // line 用スクラッチ（1頂点）＝毎回の一時配列を作らない
 	let llBuf = new Float64Array(0);   // fill 用：ポリゴン頂点の経緯度を貯める再利用バッファ（最大サイズまで成長）
@@ -161,6 +198,78 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 	const mPerUnit = 40075016.686 * Math.cos(cLat * Math.PI / 180) / (Math.pow(2, z) * 4096);
 	const subLen = Math.max(1, subLenM / mPerUnit);   // 700m（既定）相当のタイル単位
 
+	// 塗りの地物の幾何（切り抜き→三角形分割→細分→極の扇→経緯度）は色に依らない＝地物ごとに一度だけ作って層を跨いで使い回す。
+	// 基図は同じ source-layer の地物を複数の fill 層（water／water-hi 等）が塗る＝旧は同じ地物を層の数だけ earcut していた（optbv の見本で全て 2 回）。
+	// 戻り＝[{ ll: Float32Array（経緯度・原点相対）, tris }]（塗りの頂点は Float32 で運ぶ＝旧と同じ丸め）
+	const fillCache = new Map();
+	const fillSub0 = z <= 6;
+	const fillParts = (geom, extent) => {
+		let parts = fillCache.get(geom);
+		if (parts) return parts;
+		parts = [];
+		const fillSub = fillSub0 ? extent / Math.max(1, 128 >> z) : 0;   // 細分の格子のマス幅（タイル単位）＝MapLibre の granularity 128/2^z（z0＝128 マス）。z≥7 は細分しない
+		for (const [flatRaw, holesRaw] of polygons(geom)) {
+			// タイルの extent で切り抜く（MapLibre はタイルごとにステンシルで extent の外を捨てる）：MVT の余白（buffer）を隣同士が両方描くと
+			// 半透明の塗りが二重に重なり縁に濃い帯が出る・ズーム中はタイルが替わる度に帯が動く＝「塗りがチラチラ」（2026-09-30 本人）
+			const clipped = clipToExtent(flatRaw, holesRaw, extent); if (!clipped) continue;
+			const [flat0, holes] = clipped;
+			const tris0 = earcut(flat0, holes, 2);
+			if (!tris0.length) continue;
+			// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
+			// 粗い三角形は弦＝球の内側に沈み、縁では頂点が裏でも面の一部が表＝v_front の補間と弦の沈みで縁の帯が塗られない（極を見下ろす z1 の海＝八角形に欠けた・2026-09-30）
+			const [flat1, tris1] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
+			// 極まで延ばす（MapLibre の extendToNorthPole／SouthPole）：一番上／下の行のタイルで、上端（py≤0）／下端（py≥extent）に沿う境界の辺から極の 1 頂点へ扇を張る
+			// ＝北極海・南極大陸がメルカトルの端（85.05°）で切れず極まで塗られる（旧＝極の周りが球の地の色・2026-09-30）。極の頂点は経緯度を直に書く（下の poleAt）
+			const poleAt = fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;
+			const [flat, tris] = poleAt ? extendToPole(flat1, tris1, extent, poleAt) : [flat1, tris1];
+			// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
+			if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
+			for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
+			if (poleAt && flat.length > flat1.length) { const i = flat.length - 2; llBuf[i] = ((x + 0.5) / nTiles) * 360 - 180 - ox; llBuf[i + 1] = 90 * poleAt - oy; }   // 極の頂点（最後の 1 個）＝経緯度を直に
+			parts.push({ ll: Float32Array.from(llBuf.subarray(0, flat.length)), tris });
+		}
+		fillCache.set(geom, parts);
+		return parts;
+	};
+
+	// 破線でない線の線分列（色・幅に依らない）＝地物ごとに一度だけ作る。細分点を含む頂点を一度だけ経緯度化し、連続ペアを線分に
+	// （隣接サブ線分＝隣接線分が端点を共有＝「サブ線分ごとに両端を変換」の重複なし）。余白だけを走る線分は描かない（outsideSameSide）。
+	// 戻り＝{ n, p1, p2（Float32・経緯度・原点相対）, r（環の番号）, k（環の中の元の線分の番号）, fl（1＝元の線分の最初の小片・2＝最後の小片）, rs/re（環の始終の添字） }
+	const lineCache = new Map();
+	const lineSegs = (geom, extent) => {
+		let g = lineCache.get(geom);
+		if (g) return g;
+		const { coords, ends } = geom, p1 = LS.p1, p2 = LS.p2, rr = LS.r, kk = LS.k, fl = LS.fl, rs = [], re = [];
+		p1.n = p2.n = rr.n = kk.n = fl.n = 0;
+		let ls = 0;
+		for (let r = 0; r < ends.length; r++) {
+			const le = ends[r];
+			rs.push(ls); re.push(le);
+			if (le - ls < 4) { ls = le; continue; }   // 2点未満
+			llInto(coords[ls], coords[ls + 1], extent, sc, 0);
+			let pLon = sc[0], pLat = sc[1];
+			for (let i = ls + 2; i < le; i += 2) {
+				const Ax = coords[i - 2], Ay = coords[i - 1];
+				if (outsideSameSide(Ax, Ay, coords[i], coords[i + 1], extent)) { llInto(coords[i], coords[i + 1], extent, sc, 0); pLon = sc[0]; pLat = sc[1]; continue; }   // 余白だけを走る線分＝描かない（下の outsideSameSide）
+				const dx = coords[i] - Ax, dy = coords[i + 1] - Ay;
+				const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
+				const k = (i - ls - 2) >> 1;
+				for (let s = 1; s <= steps; s++) {
+					const t = s / steps;
+					llInto(Ax + dx * t, Ay + dy * t, extent, sc, 0);
+					const a1 = p1.reserve(2), a2 = p2.reserve(2);
+					a1[p1.n++] = pLon; a1[p1.n++] = pLat; a2[p2.n++] = sc[0]; a2[p2.n++] = sc[1];
+					rr.reserve(1)[rr.n++] = r; kk.reserve(1)[kk.n++] = k; fl.reserve(1)[fl.n++] = (s === 1 ? 1 : 0) | (s === steps ? 2 : 0);
+					pLon = sc[0]; pLat = sc[1];
+				}
+			}
+			ls = le;
+		}
+		g = { n: rr.n, p1: p1.out(), p2: p2.out(), r: rr.out(), k: kk.out(), fl: fl.out(), rs, re };
+		lineCache.set(geom, g);
+		return g;
+	};
+
 	for (let li = 0; li < style.layers.length; li++) {
 		const L = style.layers[li], eo = originOfLayer(L);   // eo＝式の出自（引数 origin はシーンの原点＝別物）
 		if (L.type !== "fill" && L.type !== "line") continue;
@@ -169,54 +278,41 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 		if (L.maxzoom != null && z >= L.maxzoom) continue;
 		const src = layers[L["source-layer"]]; if (!src) continue;
 		const extent = src.extent;
-		// line-sort-key/fill-sort-key: 層内で昇順に並べ替え（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
-		const feats = sortFeatures(src.features, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
+		// filter で残る地物だけを line-sort-key/fill-sort-key の昇順に（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
+		// 旧＝層の全地物を並べてから filter＝同じ source-layer（road）を読む層の数だけ全地物の sort-key を評価して並べていた
+		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
 
 		if (L.type === "fill") {
-			const fillSub = z <= 6 ? extent / Math.max(1, 128 >> z) : 0;   // 細分の格子のマス幅（タイル単位）＝MapLibre の granularity 128/2^z（z0＝128 マス）。z≥7 は細分しない
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
-			const pos = [], col = [], idx = [];
+			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
 			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;
-				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;   // filter は filterSortFeatures で済んでいる
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
 				const cr = b255(c[0]), cg = b255(c[1]), cb = b255(c[2]), ca = b255(a);
-				for (const [flatRaw, holesRaw] of polygons(f.geom)) {
-					// タイルの extent で切り抜く（MapLibre はタイルごとにステンシルで extent の外を捨てる）：MVT の余白（buffer）を隣同士が両方描くと
-					// 半透明の塗りが二重に重なり縁に濃い帯が出る・ズーム中はタイルが替わる度に帯が動く＝「塗りがチラチラ」（2026-09-30 本人）
-					const clipped = clipToExtent(flatRaw, holesRaw, extent); if (!clipped) continue;
-					const [flat0, holes] = clipped;
-					const tris0 = earcut(flat0, holes, 2);
-					if (!tris0.length) continue;
-					// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
-					// 粗い三角形は弦＝球の内側に沈み、縁では頂点が裏でも面の一部が表＝v_front の補間と弦の沈みで縁の帯が塗られない（極を見下ろす z1 の海＝八角形に欠けた・2026-09-30）
-					const [flat1, tris1] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
-					// 極まで延ばす（MapLibre の extendToNorthPole／SouthPole）：一番上／下の行のタイルで、上端（py≤0）／下端（py≥extent）に沿う境界の辺から極の 1 頂点へ扇を張る
-					// ＝北極海・南極大陸がメルカトルの端（85.05°）で切れず極まで塗られる（旧＝極の周りが球の地の色・2026-09-30）。極の頂点は経緯度を直に書く（下の poleAt）
-					const poleAt = fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;
-					const [flat, tris] = poleAt ? extendToPole(flat1, tris1, extent, poleAt) : [flat1, tris1];
-					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
-					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
-					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
-					if (poleAt && flat.length > flat1.length) { const i = flat.length - 2; llBuf[i] = ((x + 0.5) / nTiles) * 360 - 180 - ox; llBuf[i + 1] = 90 * poleAt - oy; }   // 極の頂点（最後の 1 個）＝経緯度を直に
-					const base = pos.length >> 1;
-					for (let i = 0; i < flat.length; i += 2) { pos.push(llBuf[i], llBuf[i + 1]); col.push(cr, cg, cb, ca); }
-					for (const t of tris) idx.push(base + t);
+				for (const part of fillParts(f.geom, extent)) {
+					const ll = part.ll, tris = part.tris, base = pos.n >> 1, nv = ll.length >> 1;
+					const pa = pos.reserve(nv * 2), ca4 = col.reserve(nv * 4);
+					pa.set(ll, pos.n);
+					for (let i = 0, cn = col.n; i < nv; i++) { ca4[cn++] = cr; ca4[cn++] = cg; ca4[cn++] = cb; ca4[cn++] = ca; }
+					pos.n += nv * 2; col.n += nv * 4;
+					const ia = idx.reserve(tris.length); let inn = idx.n;
+					for (let t = 0; t < tris.length; t++) ia[inn++] = base + tris[t];
+					idx.n = inn;
 				}
 			}
 			// index はタイル単体なら大抵 Uint16 で足りる（65536頂点超の層だけ Uint32）＝transfer/常駐がさらに半減。
 			// merge 側は結合時に常に Uint32 へ広げる（結合後は頂点数が容易に 65k を超える）。
-			if (pos.length) ops.push({ kind: "fill", li, id: L.id, pos: new Float32Array(pos), col: new Uint8Array(col), idx: pos.length >> 1 <= 65535 ? new Uint16Array(idx) : new Uint32Array(idx) });
+			if (pos.n) ops.push({ kind: "fill", li, id: L.id, pos: pos.out(), col: col.out(), idx: idx.out(pos.n >> 1 <= 65535 ? Uint16Array : Uint32Array) });
 		} else { // line
-			const P1 = [], P2 = [], col = [], half = [];
+			const P1 = B.P1, P2 = B.P2, col = B.col, half = B.half; P1.n = P2.n = col.n = half.n = 0;
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
 			// ずらしは頂点シェーダが画面空間で掛ける＝ここは線分ごとに [off, tS, tE]（角の継ぎ＝miterSlides）を添えるだけ。
 			// 層が持つ時だけ配列を作る（無い層は 0 バイト）
-			const offExpr = L.paint?.["line-offset"], off = offExpr != null ? [] : null;
+			const offExpr = L.paint?.["line-offset"], off = offExpr != null ? B.off : null; if (off) off.n = 0;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
@@ -225,8 +321,7 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo }));
 			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;
-				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;   // filter は filterSortFeatures で済んでいる
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
@@ -236,15 +331,39 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 				const hw = w * 0.5;
 				let ow = 0;
 				if (off) { ow = +evalExpr(offExpr, ctx); if (!isFinite(ow)) ow = 0; }
+				// 線分 1 本を書く（P1＝始点・P2＝終点の経緯度（原点相対）・色・半幅・ずらし）
+				const seg = (alon, alat, blon, blat, ta, tb) => {
+					const n = half.n, p1 = P1.reserve(2), p2 = P2.reserve(2), c4 = col.reserve(4), hf = half.reserve(1);
+					p1[n * 2] = alon; p1[n * 2 + 1] = alat; p2[n * 2] = blon; p2[n * 2 + 1] = blat;
+					c4[n * 4] = cr; c4[n * 4 + 1] = cg; c4[n * 4 + 2] = cb; c4[n * 4 + 3] = ca; hf[n] = hw;
+					P1.n += 2; P2.n += 2; col.n += 4; half.n++;
+					if (off) { const o = off.reserve(3); o[off.n++] = ow; o[off.n++] = ta; o[off.n++] = tb; }
+				};
 				const emit = (ax, ay, bx, by, ta, tb) => {
 					llInto(ax, ay, extent, sc, 0); const alon = sc[0], alat = sc[1];
 					llInto(bx, by, extent, sc, 0);
-					P1.push(alon, alat); P2.push(sc[0], sc[1]);
-					col.push(cr, cg, cb, ca); half.push(hw);
-					if (off) off.push(ow, ta, tb);
+					seg(alon, alat, sc[0], sc[1], ta, tb);
 				};
 				// フラットgeom：coords([x,y,…]) を ends の区切りで線/リング毎に走査（添字直読み＝Point中間なし）
 				const { coords, ends } = f.geom;
+				if (!dashPat) {   // 破線でない線＝地物ごとに一度だけ作った線分列（lineSegs）を写す＝ケーシングと本線など同じ地物を描く層の数だけ経緯度化・細分をやり直さない
+					const g = lineSegs(f.geom, extent), n = g.n;
+					if (!n) continue;
+					P1.reserve(n * 2).set(g.p1, P1.n); P2.reserve(n * 2).set(g.p2, P2.n);
+					const c4 = col.reserve(n * 4), hf = half.reserve(n);
+					for (let j = 0, cn = col.n, hn = half.n; j < n; j++) { c4[cn++] = cr; c4[cn++] = cg; c4[cn++] = cb; c4[cn++] = ca; hf[hn++] = hw; }
+					P1.n += n * 2; P2.n += n * 2; col.n += n * 4; half.n += n;
+					if (off) {
+						const sl = ow ? g.rs.map((s0, r) => miterSlides(coords, s0, g.re[r])) : null;   // 線分 k＝点 (ls+2k)→(ls+2k+2)
+						const o = off.reserve(n * 3); let on = off.n;
+						for (let j = 0; j < n; j++) {
+							const fl = g.fl[j], k = g.k[j], sr = sl ? sl[g.r[j]] : NO_SLIDES;
+							o[on++] = ow; o[on++] = fl & 1 ? sr[0][k] ?? 0 : 0; o[on++] = fl & 2 ? sr[1][k] ?? 0 : 0;   // 細分の途中は直線＝0
+						}
+						off.n = on;
+					}
+					continue;
+				}
 				let ls = 0;
 				for (let r = 0; r < ends.length; r++) {
 					const le = ends[r];
@@ -267,31 +386,12 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 						}
 						ls = le; continue;
 					}
-					// 細分点を含む頂点を一度だけ経緯度化し、連続ペアで emit（隣接サブ線分＝隣接線分が端点を共有＝
-					// 旧版の「サブ線分ごとに両端を変換」の重複を排除。長い道路の line 頂点変換がほぼ半減）。
-					if (le - ls < 4) { ls = le; continue; }   // 2点未満
-					llInto(coords[ls], coords[ls + 1], extent, sc, 0);
-					let pLon = sc[0], pLat = sc[1];
-					for (let i = ls + 2; i < le; i += 2) {
-						const Ax = coords[i - 2], Ay = coords[i - 1];
-						if (outsideSameSide(Ax, Ay, coords[i], coords[i + 1], extent)) { llInto(coords[i], coords[i + 1], extent, sc, 0); pLon = sc[0]; pLat = sc[1]; continue; }   // 余白だけを走る線分＝描かない（下の outsideSameSide）
-						const dx = coords[i] - Ax, dy = coords[i + 1] - Ay;
-						const steps = Math.min(24, Math.max(1, Math.ceil(Math.hypot(dx, dy) / subLen)));  // 地形ドレープ用に細分
-						for (let s = 1; s <= steps; s++) {
-							const t = s / steps;
-							llInto(Ax + dx * t, Ay + dy * t, extent, sc, 0);
-							P1.push(pLon, pLat); P2.push(sc[0], sc[1]);
-							col.push(cr, cg, cb, ca); half.push(hw);
-							if (off) { const k = (i - ls - 2) >> 1; off.push(ow, s === 1 ? tS[k] ?? 0 : 0, s === steps ? tE[k] ?? 0 : 0); }   // 細分の途中は直線＝0
-							pLon = sc[0]; pLat = sc[1];
-						}
-					}
 					ls = le;
 				}
 			}
-			if (half.length) {
-				const op = { kind: "line", li, id: L.id, P1: new Float32Array(P1), P2: new Float32Array(P2), col: new Uint8Array(col), half: new Float32Array(half) };
-				if (off && off.some((v, i) => i % 3 === 0 && v)) op.off = new Float32Array(off);   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない
+			if (half.n) {
+				const op = { kind: "line", li, id: L.id, P1: P1.out(), P2: P2.out(), col: col.out(), half: half.out() };
+				if (off) { let any = false; for (let i = 0; i < off.n; i += 3) if (off.a[i]) { any = true; break; } if (any) op.off = off.out(); }   // [off, tS, tE]×線分。ずらしが全部 0（式が今の z で 0）なら持たない
 				ops.push(op);
 			}
 		}
@@ -337,12 +437,32 @@ function waOnlyPartial(layers, src) {
 	return area < extent * extent * 0.995;
 }
 
-// sort-key 式があれば層内の地物を昇順に並べ替える（安定ソート）。無ければ元順のまま。
-function sortFeatures(features, sortExpr, z, eo) {
-	if (!sortExpr) return features;
-	// {f,i,k} を feature 毎に作らず、キー配列＋インデックス配列で安定ソート（GC削減）。ctx も1個使い回す。
+// 層の filter に通る地物を、sort-key 式があれば昇順に並べ替える（安定ソート）。無ければ元順のまま。
+// filter が先＝落ちる地物の sort-key は評価も並べ替えもしない。並べる順は「全地物を並べてから filter」と同じ（比較＝(鍵, 元の添字)の全順序）。
+// ただし鍵に NaN（数でない sort-key）が混ざる時だけは比較が全順序でなく、並べ替えの結果が集合の大きさに依る＝旧来の順（全地物を並べてから filter）で並べる＝絵を変えない
+function filterSortFeatures(features, filter, sortExpr, z, eo) {
+	const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // ctx は 1 個を使い回す（compile 済み evalExpr は ctx を保持しない）
+	const pass = f => { ctx.props = f.props; ctx.geom = f.type; return truthy(evalExpr(filter, ctx)); };
+	if (!sortExpr) return filter ? features.filter(pass) : features;
+	const src = filter ? features.filter(pass) : features;
+	// {f,i,k} を feature 毎に作らず、キー配列＋インデックス配列で安定ソート（GC削減）
+	const sorted = list => {
+		const n = list.length, keys = new Array(n), idx = new Array(n);
+		let nan = false;
+		for (let i = 0; i < n; i++) { const f = list[i]; ctx.props = f.props; ctx.geom = f.type; const k = evalExpr(sortExpr, ctx); keys[i] = k; idx[i] = i; if (Number.isNaN(k - 0)) nan = true; }
+		if (nan) return null;
+		idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
+		const out = new Array(n);
+		for (let i = 0; i < n; i++) out[i] = list[idx[i]];
+		return out;
+	};
+	const out = sorted(src);
+	if (out || !filter) return out ?? legacySort(features, sortExpr, ctx);
+	return legacySort(features, sortExpr, ctx).filter(pass);
+}
+// 旧来の並べ替え（全順序でない鍵＝NaN を含む時の順をそのまま保つ）
+function legacySort(features, sortExpr, ctx) {
 	const n = features.length, keys = new Array(n), idx = new Array(n);
-	const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo };
 	for (let i = 0; i < n; i++) { const f = features[i]; ctx.props = f.props; ctx.geom = f.type; keys[i] = evalExpr(sortExpr, ctx); idx[i] = i; }
 	idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
 	const out = new Array(n);
