@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 const APP = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(APP, "dist/engine"), TMP = path.join(OUT, "_build");
 execSync("npx vite build -c vite.engine.config.js --logLevel warn", { cwd: APP, stdio: "inherit" });
+execSync("npx vite build -c vite.engine-ml.config.js --logLevel warn", { cwd: APP, stdio: "inherit" });   // maplibre.js＝互換の口だけ（本体は ./globe.js を実行時に読む＝本体の束を変えない）
 
 const walk = d => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : [path.join(d, e.name)]);
 const files = walk(TMP).filter(f => !f.endsWith(".map")).map(f => path.relative(TMP, f)).sort();
