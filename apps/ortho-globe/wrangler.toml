@@ -14,3 +14,8 @@ routes = [
 directory = "dist/site"
 binding = "ASSETS"
 run_worker_first = true   # アセット直返しより先に必ず deploy-worker を通す＝COOP/COEP を全レスポンスに刻む
+
+# 共有エンジンの旧版の控え（R2・GIS/engine/<版>/…）＝assets に無い版だけここから返す（deploy-worker.js ③・縮小計画 項目 9）
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "my-native-bucket"
