@@ -15,6 +15,7 @@ import { GeoPBF } from "../pbf-base.js";
 import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
 import { resolveDatum, datumStats } from "./datum.js";
+import { assemblePolygons } from "./esri-rings.js";   // Esri の環の約束（フィーチャーサービスの f=json と共用・#176）
 
 const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const utf16 = new TextDecoder("utf-16le"), utf8 = new TextDecoder("utf-8");
@@ -173,22 +174,6 @@ export function parseShape(b, gf, ctx, xf) {
 	if (isLine) { const ls = parts.filter(a => a.length >= 2); return ls.length === 0 ? (ctx.empty++, null) : ls.length === 1 ? { type: "LineString", coordinates: ls[0] } : { type: "MultiLineString", coordinates: ls }; }
 	return assemblePolygons(parts.filter(a => a.length >= 4), ctx);
 }
-/** Esri の平坦な環の列 → Polygon / MultiPolygon（外環=時計回り・穴=反時計回り。GeoJSON 流に外環を反時計回りへ揃える）。 */
-function assemblePolygons(rings, ctx) {
-	if (!rings.length) { ctx.empty++; return null; }
-	const area = r => { let a = 0; for (let i = 0, j = r.length - 1; i < r.length; j = i++) a += (r[j][0] - r[i][0]) * (r[j][1] + r[i][1]); return a / 2; };   // <0 = 時計回り（y 上向き）
-	const outers = [], holes = [];
-	for (const r of rings) { const a = area(r); if (a === 0) continue; if (a < 0) outers.push([r.slice().reverse()]); else holes.push(r.slice().reverse()); }
-	if (!outers.length) { if (!holes.length) { ctx.empty++; return null; } outers.push([holes.shift().reverse()]); }   // 向きが逆に書かれた単独環
-	for (const h of holes) {
-		let host = outers.length === 1 ? outers[0] : outers.find(o => inside(h[0], o[0])) ?? outers.find(o => h.some(p => inside(p, o[0])));
-		if (!host) host = outers[0];
-		host.push(h);
-	}
-	return outers.length === 1 ? { type: "Polygon", coordinates: outers[0] } : { type: "MultiPolygon", coordinates: outers };
-}
-function inside(p, ring) { let c = false; for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) { const a = ring[i], b = ring[j]; if ((a[1] > p[1]) !== (b[1] > p[1]) && p[0] < (b[0] - a[0]) * (p[1] - a[1]) / (b[1] - a[1]) + a[0]) c = !c; } return c; }
-
 // ───────────────────────────── ジオデータベース ─────────────────────────────
 const fileOf = id => `a${id.toString(16).padStart(8, "0")}`;
 async function openTable(source, base) {

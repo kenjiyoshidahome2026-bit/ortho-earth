@@ -524,7 +524,13 @@ export interface HeatmapLayer { type: "heatmap"; id?: string; source?: { type: "
 export interface CirclePaint { "circle-color"?: StyleExpression; "circle-radius"?: StyleExpression; "circle-stroke-color"?: StyleExpression; "circle-stroke-width"?: StyleExpression; "circle-opacity"?: StyleExpression }
 export interface ClusterOptions { clusterRadius?: number; clusterMaxZoom?: number; paint?: CirclePaint; unclustered?: { paint?: CirclePaint }; text?: { color?: string; size?: number } }
 export type MapLibreSource =
-	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] } */
+	/** data の文字列＝URL（相対は頁から・1.3.0〜）。promoteId＝feature の id にする属性・clusterProperties（集約の属性・1.3.0〜）＝{ 名前: [畳み方, 写し方] }。
+	 *  URL に鍵の問い合わせ（token・key・apikey…）が付いている時だけ、transformRequest を通して直に取る（型は "Source"・proxy を通らない・1.14.0〜）。
+	 *  それ以外の URL は従来どおり。拡張子の無い鍵つき URL は中身の頭で GeoJSON か GeoPBF かを決める。
+	 *  公開のフィーチャーサービス（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）も data に渡せる（1.14.0〜・#176）：件数が 5 万以下は丸ごと・
+	 *  超えたら fill/line/circle の層は視野の枡だけ読む（動いて止まったら足す・引きすぎの間は読まない）。サービスの取得は transformRequest を通る。
+	 *  一度読んだ分は IndexedDB に GeoPBF で控える（30 日・2,000 件・256MB を超えた分は掃除・map.clearFeatureServiceCache()）。
+	 *  出典はサービスの宣言（copyrightText・OGC の license）か attribution（#attr に出る） */
 	| { type: "geojson"; data: GeoJSONFeatureCollection | string; cluster?: boolean; clusterRadius?: number; clusterMaxZoom?: number; clusterProperties?: Record<string, [unknown, unknown]>; promoteId?: string; generateId?: boolean }
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
@@ -730,6 +736,9 @@ export interface OrthoJapanMap {
 	listImages(): string[];
 	/** MapLibre の sprite を丸ごと記号帳へ（base.json＋base.png・高解像度画面は base@2x.*）。戻り値＝足した記号の数 */
 	loadSprite(base: string): Promise<number>;
+	/** フィーチャーサービスの控え（IndexedDB・鍵の接頭辞 FS1::）を消す（1.14.0〜・#176）。他の控え（地図データ・ファイル）は残る。
+	 *  opts＝{ maxAge（ms）, maxEntries, maxBytes }＝超えた分だけ（省略＝全部）。戻り値＝{ removed, kept, bytes }（控えの棚が無ければ null） */
+	clearFeatureServiceCache(opts?: { maxAge?: number; maxEntries?: number; maxBytes?: number }): Promise<{ removed: number; kept: number; bytes: number } | null>;
 	/** MapLibre の addSource／addLayer をそのまま（source＝geojson（cluster 可）/image/video/raster・layer.type＝fill/line/circle/symbol/fill-extrusion/heatmap/raster。fill-pattern/line-pattern＝記号帳の画像を敷き詰め）。
 	 *  line-gradient（["line-progress"] の式）・line-offset（画面 px・進行方向の右が正）の線は canvas2D の口で描く（#49・gint の線は一色・ずらしなし＝地形の遮蔽は無い）。
 	 *  外来 style の基図（ベクタタイル）の line-offset はエンジンの線（GPU）でずらす（角はマイターで継ぐ・90° より鋭い角は継ぎを諦める）。

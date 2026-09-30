@@ -6,7 +6,7 @@ import {
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
-import { createGeopbf, geopbf } from "geopbf";
+import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
@@ -860,6 +860,8 @@ const STALE_ZOOMOUT = 0.5;            // これ以上ズームアウトしたら
 const mainStale = () => !keepFineNow() && mainSceneZoom > cam.zoom + STALE_ZOOMOUT;
 let lastSkipBase = false;   // render() が最後に決めた skipBase（onMove の draw が同じ値を送る・#58）
 let basemapHidden = false;                 // z<BASEMAP_MINZOOM で基図(GSI)を止めてるか（全球ビュー＝海岸線のみ）
+let gSrcText = null;   // ?g= の出所の行（文字・#attr を圏で書き直しても残す＝attrHTMLOf が末尾に足す・#176 で出典の組み立てへ移した）
+const setGSrc = txt => { if (txt === gSrcText) return; gSrcText = txt; attrZone = null; needsDraw = true; };
 let attrZone = null, attrRegionHTML = null;   // 出典（#attr）の圏＝"region"（地域の基図圏）|"world"|"sky"（render() が z 跨ぎで一枚を差し替え＝各ズーム統合 2026-09-03）
 // 出典の圏（z で決まる）と、その圏の出典の HTML＝#attr の中身と、#attr の無い画面（instruments に "attr" を出さない構成）で
 // shot／print が焼く出典の共通の源。地域の文面は宣言（REGION_ATTR）から＝globe は地域の出典を持たない（2026-09-24・旧＝shot に日本の出典を直書き）
@@ -880,9 +882,10 @@ function attrHTMLOf(zone) {
 	const rasTail = (rasterSrc ? `<br>${t("Imagery: $1", rasterSrc)}` : "") + vtxAttrTail(pmSrc);   // ＋利用者の vector source の出典（段 8①）＝MapLibre は source の出典を自動で出す・OSM 等は表示が利用の条件
 	// 出典は文単位で組む（"出典：" + 名前 の足し算は言語で語順が壊れる＝i18n.js の掟）。$1 に列を差す
 	const head = pmSrc ? pmSrc + "・" : "";
-	return zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : (attrRegionHTML ?? attributionHTML(REGION_ATTR)) + rasTail))
+	const body = zone === "region" ? ((pmSrc ? t("Source: $1", pmSrc) + rasTail + tail : (attrRegionHTML ?? attributionHTML(REGION_ATTR)) + rasTail))
 		: zone === "world" ? t("Source: $1", head + worldSrc) + rasTail + tail
 		: t("Source: $1", head + A("https://github.com/ofrohn/d3-celestial", "d3-celestial") + "・" + worldSrc) + rasTail + tail;   // sky＝星図が先頭（星空劇場の主役）
+	return body + (gSrcText ? `<div class="g-src">${String(gSrcText).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c])}</div>` : "");   // ?g= の出所（#176・圏の書き直しでも残す）
 }
 const attrTextNow = () => { const d = document.createElement("div"); d.innerHTML = attrHTMLOf(attrZoneNow()).replace(/<br\s*\/?>/gi, "\n"); return d.textContent.split("\n").map(x => x.trim()).filter(Boolean); };
 // 日本固有（GSI基図）の出番：従来5。世界下地（ハイプソ＋admin0国線）がある ?world=1 は 6.5 から
@@ -3024,6 +3027,126 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 // GitHub raw へ展開（ref 省略=HEAD・コミットSHA固定も可）。https 限定（開発時のみ localhost の http 可）・
 // credentials 無し＝他人の置き場を読むだけの姿勢。読めたら出所（ホスト名）を出典 #attr へ常時表示＝
 // 他人の作品を当ドメインで再生する時の看板（docs/geopbf §11 の作法とセット）。
+// ── URL の data と公開のフィーチャーサービス（#176）──
+// 本人裁定（2026-09-30 再）＝「token/key が付いている時だけ新しい道・従来に対して影響なし・オプション機能が過去の資産を壊さない」：
+//   直の取得（requester＝transformRequest を通す・proxy へ URL を送らない）に切り替えるのは、URL に鍵の問い合わせ（token・key…）が
+//   付いている時だけ（directOK）。それ以外の URL は（transformRequest を渡した頁でも）従来どおり geopbf(URL)
+//   （proxy 確認・URL の IDB 控えもそのまま）。bucket の名前（http でない文字列）も従来どおり。
+//   フィーチャーサービスの URL は従来「未対応の形式」で落ちていた＝足し算（読めるようにするだけ）。
+const SECRET_Q = /[?&](token|key|apikey|api_key|access_token|accesstoken|sig|signature|auth)=/i;
+const directOK = url => SECRET_Q.test(url);
+// サービスの形（…/FeatureServer/N・…/MapServer/N・…/collections/{id}）＝件数が WHOLE_MAX 以下なら丸ごと・超えたら視野追従（gint へ・本人裁定）
+const fsMod = () => import("./featureservice.js");
+const SERVICE_HINT = /\/(?:FeatureServer|MapServer)\/\d+|\/collections\/[^/?#]+/i;   // 形のあたり（確定は geopbf の parseServiceUrl）＝当たらない URL は読み口の chunk を読まない
+const svcOpen = new Map();   // url → Promise<svc|null>（1 頁 1 回・失敗は次に取り直す）
+// 控えの掃除（本人 2026-09-30「掃除する機能は絶対に必要」）＝鍵の接頭辞 FS1:: だけ（他の控えには触らない）。頁で最初にサービスを開く時に一度：
+// 置いてから 30 日を超えた物・2,000 件／256MB を超えた分（最後に使ったのが古い順）を消す。map.clearFeatureServiceCache()＝全部
+const FS_PREFIX = "FS1::", FS_PRUNE = { maxAge: 30 * 864e5, maxEntries: 2000, maxBytes: 256 * 2 ** 20 };
+let fsPruned = null;
+const pruneFsCache = () => fsPruned ??= geopbfCachePrune({ prefix: FS_PREFIX, ...FS_PRUNE }).then(r => { if (r?.removed) console.info(`[featureservice] cache: removed ${r.removed}, kept ${r.kept} (${(r.bytes / 2 ** 20).toFixed(1)} MB)`); return r; }).catch(err => { console.warn("[featureservice] cache prune", err); return null; });
+const openSvc = url => {
+	if (!/^https?:\/\//i.test(url) || !SERVICE_HINT.test(url)) return Promise.resolve(null);
+	pruneFsCache();
+	if (!svcOpen.has(url)) {
+		const p = fsMod().then(m => m.parseServiceUrl(url) ? m.openService(url, { fetch: (u, init) => requester.fetch(u, "Source", init) }) : null);
+		p.catch(() => svcOpen.delete(url)); svcOpen.set(url, p);
+	}
+	return svcOpen.get(url);
+};
+// 控え（本人 2026-09-30「一度読んだ Feature は IDB で GeoPBF/GintBUF として使い回す」）＝鍵はサービス・版・部分（"all" か枡）＝geopbf の IDB（同じ棚）。
+// 版の無いサービス（OGC・MapServer）は 1 日で読み直す・版のあるもの（ArcGIS の lastEditDate）は 30 日（版が替われば鍵が替わる）。
+// GeoPBF は Feature.id を持たない＝置く時に属性へ写し、引く時に戻す（視野追従の重複落とし・MapLibre の feature-state が id で当てる）
+const FS_ID = "ortho:fsid";   // ortho:mlid と同じ名前空間
+const fsAge = svc => svc.version != null ? 30 * 864e5 : 864e5;
+const stampIds = fs => fs.map(f => f.id == null ? f : { ...f, properties: { ...(f.properties || {}), [FS_ID]: f.id } });
+const unstampIds = fs => fs.map(f => { const p = f.properties; if (!p || p[FS_ID] == null) return f; const { [FS_ID]: id, ...rest } = p; return { ...f, id, properties: rest }; });
+const fsCacheGet = async (svc, part, gint = false) => geopbfCached(svc.cacheKey(part), { gint, maxAge: fsAge(svc), name: `fs/${svc.name || "layer"}` }).catch(() => null);
+const fsCachePut = (svc, part, features, gint = false) => features.length ? geopbf({ type: "FeatureCollection", features: stampIds(features) }, { gint, name: `fs/${svc.name || "layer"}`, cacheKey: svc.cacheKey(part) }) : Promise.resolve(null);
+const fsCellCache = svc => ({   // 視野追従の枡
+	get: async key => { const pbf = await fsCacheGet(svc, key); return pbf ? unstampIds(pbf.geojson?.features || []) : null; },
+	put: (key, fc) => fsCachePut(svc, key, fc.features),
+});
+// 丸ごと＝控えがあれば網に出ない。gint＝GintBUF も欲しい（?g= の利用者の枠＝焼き直さず GPU へ）
+const svcWhole = async (svc, gint = false) => {
+	const hit = await fsCacheGet(svc, "all", gint);
+	if (hit) return { features: unstampIds(hit.geojson?.features || []), pbf: hit, cached: true };
+	const { WHOLE_MAX } = await fsMod(), fc = await svc.readAll({ max: WHOLE_MAX });
+	if (fc.truncated) console.warn(`[featureservice] ${svc.url}: first ${WHOLE_MAX} of ${svc.count ?? "?"} features only (fill/line/circle layers follow the view instead)`);
+	const pbf = fc.truncated ? (gint && fc.features.length ? await geopbf({ type: "FeatureCollection", features: fc.features }, { gint: true, name: `fs/${svc.name || "layer"}` }) : null)
+		: await fsCachePut(svc, "all", fc.features, gint).catch(err => { console.warn("[featureservice] cache", err); return null; });
+	return { features: fc.features, pbf, cached: false };
+};
+const svcAttrHTML = svc => svc?.attribution ? sanitizeHTML(svc.attribution) : (() => { try { return new URL(svc.url).host; } catch { return null; } })();   // 宣言が無ければホスト名＝無出典で他人のデータを出さない
+const urlFileName = async (u, blob) => {   // 拡張子の無い URL（…/data・…?f=geojson）＝中身の頭で JSON か GeoPBF かを決める
+	let n = "data"; try { n = decodeURIComponent(new URL(u).pathname.split("/").pop() || "data"); } catch { /* 相対は上で解いてある */ }
+	if (/\.[a-z0-9]{2,8}$/i.test(n)) return n;
+	const head = (await blob.slice(0, 64).text()).trimStart();
+	return n + (head[0] === "{" || head[0] === "[" ? ".geojson" : ".geopbf");
+};
+const readGeoData = async d => {
+	if (typeof d === "string" && /^https?:\/\//i.test(d)) {
+		const svc = await openSvc(d);
+		if (svc) return { type: "FeatureCollection", features: (await svcWhole(svc)).features };   // サービス＝丸ごと（上限 WHOLE_MAX・控えがあれば網に出ない＝押し出し・集約・模様・熱の層はこの道。視野追従は fill/line/circle の層だけ＝sourceData）
+		if (!directOK(d)) return (await geopbf(d, { gint: false }))?.geojson;   // 従来の道（鍵も手入れも無い URL）
+		const r = await requester.fetch(d, "Source");
+		if (!r.ok) throw new Error(`HTTP ${r.status} ${d}`);
+		const blob = await r.blob();
+		return (await geopbf(new File([blob], await urlFileName(d, blob)), { gint: false }))?.geojson;
+	}
+	if (typeof d === "string" || d instanceof Blob) return (await geopbf(d, { gint: false }))?.geojson;
+	return d;
+};
+// 出典の欄（vtxAttrs の "src:<sid>"）＝geojson source の attribution（MapLibre の宣言）かサービスの出典（copyrightText・OGC の license）
+const setSrcAttr = (sid, html) => { const k = "src:" + sid, cur = vtxAttrs.get(k) ?? null; if ((html ?? null) === cur) return; if (html) vtxAttrs.set(k, html); else vtxAttrs.delete(k); attrZone = null; needsDraw = true; };
+const fsFollow = new Map();   // sid → { url, fc, follow }（視野追従の source）
+const dropFollow = sid => { const e = fsFollow.get(sid); if (e) { e.follow?.destroy(); fsFollow.delete(sid); } };
+// fill/line/circle の層の data（gintDataOf）：サービスで件数が多い＝視野追従（動いて止まったら足りない枡を読み、source を組み直す）
+const sourceData = async (sid, d, sp) => {
+	const svc = typeof d === "string" ? await openSvc(d) : null;
+	if (!svc) { dropFollow(sid); setSrcAttr(sid, null); return readGeoData(d); }   // サービスでない＝従来どおり（出典の欄も触らない）
+	let e = fsFollow.get(sid);
+	if (e && e.url !== d) { dropFollow(sid); e = null; }
+	if (!e) { e = { url: d, fc: null, follow: null }; fsFollow.set(sid, e); }
+	setSrcAttr(sid, sp?.attribution ? sanitizeHTML(String(sp.attribution)) : svcAttrHTML(svc));
+	const m = await fsMod();
+	if (svc.count != null && svc.count <= m.WHOLE_MAX) return e.fc ??= { type: "FeatureCollection", features: (await svcWhole(svc)).features };
+	e.follow ??= m.followView(svc, { map, cache: fsCellCache(svc), onData: fc => { if (fsFollow.get(sid) !== e) return; e.fc = fc; remountSource(sid).catch(err => console.warn(`[featureservice] source "${sid}"`, err)); },
+		onStatus: s => s === "zoom-in" && console.info(`[featureservice] source "${sid}": too many features in view (${svc.url}) — zoom in to load`) });
+	return e.fc ?? { type: "FeatureCollection", features: [] };
+};
+dbgHost.__fsFollow = () => [...fsFollow].map(([sid, e]) => ({ sid, url: e.url, n: e.fc?.features?.length ?? 0, stats: e.follow?.stats() ?? null }));   // 検定の窓
+// ?g= がフィーチャーサービス（#176）＝件数が WHOLE_MAX 以下は丸ごと（ドロップと同じ本道）・超えたら視野追従（利用者の gint 枠を読むたびに差し替え＝識別が効く）。
+// 取得は requester（transformRequest＝鍵）。出典の行＝サービスの宣言（copyrightText・OGC の license）かホスト名。引きすぎの間は「寄れば読む」を添える
+let gFollow = null;   // ?g= の視野追従（別の図形を読んだら止める＝loadUserFile の頭・ドロップの消去）
+async function loadServiceG(svc, u) {
+	const m = await fsMod(), name = svc.name || u.host, t = tr();
+	const credit = t("Map data: $1", svc.attribution || u.host);   // 文字として入れる（HTML にしない）
+	setGSrc(credit);
+	if (svc.count != null && svc.count <= m.WHOLE_MAX) {   // 丸ごと＝控え（GeoPBF＋GintBUF）があれば網に出ず焼き直さず GPU へ
+		const w = await svcWhole(svc, true), pbf = w.pbf;
+		gFollow?.destroy(); gFollow = null; annoCtl?.clear(); czmlCtl?.clear();
+		if (!pbf?.unPackGint) { gint.clearUserGint(); return null; }
+		gint.applyGintData(pbf, name, false, { drape: true });
+		editDocHook?.(pbf, name);
+		const bb = pbf.unPackGint.bbox;
+		if (!themeBootV && bb?.length === 4) map.fitBounds(bb, { padding: 40, maxZoom: 16 });
+		console.info("[g] feature service", svc.url, `${pbf.length} features (whole${w.cached ? ", from the local cache" : ""})`);
+		return pbf;
+	}
+	if (!themeBootV && svc.bbox) map.fitBounds(svc.bbox, { padding: 40, maxZoom: 14 });   // まず全体へ（引きすぎなら「寄れば読む」の札・寄れば読む）
+	const follow = gFollow = m.followView(svc, {
+		map, cache: fsCellCache(svc),
+		onData: async fc => {
+			if (gFollow !== follow) return;
+			const pbf = fc.features.length ? await geopbf(fc, { gint: true, name: `drop/${name}` }).catch(err => { console.warn("[g] geopbf", err); return null; }) : null;
+			if (gFollow !== follow) return;
+			if (pbf?.unPackGint) gint.applyGintData(pbf, name, false, { drape: true }); else gint.clearUserGint();
+		},
+		onStatus: st => { if (gFollow === follow) setGSrc(st === "zoom-in" ? `${credit} · ${t("Zoom in to load features")}` : credit); },
+	});
+	console.info("[g] feature service", svc.url, `${svc.count ?? "?"} features (following the view)`);
+	return follow.ready;
+}
 {
 	const gSpec = new URLSearchParams(location.search).get("g");
 	const u = gSpec ? remoteUrl(gSpec, "g") : null;   // 門は ?scene= と共用（remoteUrl）
@@ -3031,6 +3154,8 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 		try {
 			const name = decodeURIComponent(u.pathname.split("/").pop() || "") || "map.geopbf";
 			let pbf;
+			const svc = await openSvc(u.href);   // フィーチャーサービスの形＝拡張子の判定より前（…/query?f=geojson を "query" という名のファイルと見て落ちていた）
+			if (svc) return void await loadServiceG(svc, u);
 			if (/\.(parquet|geoparquet)$/i.test(u.pathname) && columnarOn(Infinity)) {   // GeoParquet＝列チャンク層が URL のまま開く（footer → 視野の row group だけ Range・#90）
 				pbf = await columnarView(u.href, name, { fit: !themeBootV, probe: columnarProbe(0) });
 				if (!pbf) {   // 規則が gint と言った（塗り分け）＝全量を取って従来の道（64MB まで）
@@ -3039,13 +3164,13 @@ const modelAt = () => { const v = (new URLSearchParams(location.search).get("at"
 					pbf = await loadUserFile(new File([await r.blob()], name), { fit: !themeBootV, gint: true });
 				}
 			} else {
-				const r = await fetch(u, { credentials: "omit" });
+				const r = directOK(u.href) ? await requester.fetch(u.href, "Source", { credentials: "omit" }) : await fetch(u, { credentials: "omit" });   // 鍵か手入れがある時だけ requester（#176）・他は従来どおり
 				if (!r.ok) throw new Error(`HTTP ${r.status}`);
-				if (+r.headers.get("content-length") > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
+				if (+(r.headers?.get?.("content-length") ?? 0) > 256e6) throw new Error("too large");   // 正気上限（敵入力の巨大確保よけ・GitHub raw は 100MB 上限）
 				pbf = await loadUserFile(new File([await r.blob()], name), { ...modelAt(), fit: !themeBootV });   // URL に視点（#…）があればそれが勝つ＝寄せない（共有した傾き・画角を保つ・2026-09-21）
 			}
 			if (!pbf) return console.warn("[g] decode failed", u.href);
-			const attr = mapEl.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）
+			const attr = mapEl.querySelector("#attr");   // 出所の常時表示（instruments 非搭載ページは console のみ）＝従来どおり（サービスの行だけ setGSrc）
 			if (attr && !attr.querySelector(".g-src")) {
 				const line = document.createElement("div");
 				line.className = "g-src";
@@ -3218,7 +3343,7 @@ map.gadget("extrude", async function (src, opts = {}) {
 async function extrudeNative(src, opts = {}) {
 	const c = await modelCtlGet();
 	let gj = src;
-	if (typeof src === "string" || src instanceof Blob) gj = (await geopbf(src, { gint: false }))?.geojson;
+	if (typeof src === "string" || src instanceof Blob) gj = await readGeoData(src);   // URL＝requester で直に（proxy を通らない・#176）
 	else if (!src.type && !Array.isArray(src) && src.geojson) gj = src.geojson;
 	const { fit: doFit = true, ...rest } = opts;
 	const st = await c.extrude(gj, { zoom: cam.zoom, ...rest, fit: false });   // zoom＝式の ["zoom"]（評価は呼んだ時に一度＝ズーム追随は呼び直し。gint の paintTable と同じ約束）
@@ -3277,7 +3402,9 @@ map.Marker = Marker; map.Popup = Popup;
 // 取得の前の手入れ（#37・MapLibre 同名）：setTransformRequest(fn)＝以後の取得に効く（すでに取った基図タイルは取り直さない）・addProtocol は大域（SDK の export と同じ）
 map.setTransformRequest = fn => { requester.setTransform(fn); return map; };
 map.addProtocol = addProtocol; map.removeProtocol = removeProtocol;
-map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, init);   // 部品（記号帳・3D Tiles）が同じ手入れで取るための口   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
+map.fetchResource = (url, type = "Unknown", init) => requester.fetch(url, type, init);
+// フィーチャーサービスの控え（#176）を消す＝鍵の接頭辞 FS1:: の物だけ（地図の他の控えは残る）。opts＝{ maxAge, maxEntries, maxBytes }（省略＝全部）
+map.clearFeatureServiceCache = (opts = { maxEntries: 0 }) => geopbfCachePrune({ prefix: "FS1::", ...opts });   // 部品（記号帳・3D Tiles）が同じ手入れで取るための口   // new map.Marker().setLngLat(…).addTo(map)（import しなくても使える口）
 {
 	const q = new URLSearchParams(location.search), spec = q.get("tiles3d");
 	const u = spec ? remoteUrl(spec, "tiles3d") : null;
@@ -3404,6 +3531,7 @@ const parquetToGeopbf = async file => {
 // editDocHook＝編集ボタンを載せた頁だけ＝読んだ図形を「編集中の図形」として保存する口（単独 geoedit の頁では null）
 let editDocHook = null;
 const loadUserFile = async (file, { fit = true, persist, ...ctx } = {}) => {   // ctx＝形式固有の文脈（glb の at/heading/scale 等・gint:true＝列チャンク層を使わない）＝draw 行へそのまま・persist＝編集中の図形の置き場の扱い（mainRoad 参照）
+	gFollow?.destroy(); gFollow = null;   // ?g= のサービスの視野追従＝別の図形に替わった
 	if (!/\.(czml|gpx)$/i.test(file?.name || "")) czmlCtl?.clear();   // 別の図形に替わった＝時刻再生を消す（timed 行は自分で入れ替える）
 	for (const fmt of INTAKE) {
 		if (!fmt.test(file, ctx)) continue;
@@ -3493,7 +3621,7 @@ const autoExtrude = async pbf => {
 //   null＝外す。ズームは ortho の z（MapLibre の z＋1 と同じ見た目の縮尺）。
 let aggCtl = null;
 const aggGet = async () => { const m = await import("./gadgets/aggregate.js"); return aggCtl ??= m.createAggregate(map, { signal: ac.signal }); };
-const readPoints = async src => (typeof src === "string" || src instanceof Blob) ? (await geopbf(src, { gint: false }))?.geojson : (!src?.type && !Array.isArray(src) && src?.geojson) ? src.geojson : src;
+const readPoints = async src => (typeof src === "string" || src instanceof Blob) ? await readGeoData(src) : (!src?.type && !Array.isArray(src) && src?.geojson) ? src.geojson : src;
 // 中身（native）＝層は正規化済み（エンジンの目盛り）で受ける。内部（addLayer の描き出し）はこちらを直に呼ぶ＝公開の入口を二度くぐらない（台帳 R4）
 const heatmapNative = async (src, layer, slot) => (await aggGet()).heatmap(await readPoints(src), layer, slot);
 const clusterNative = async (src, opts, slot) => (await aggGet()).cluster(await readPoints(src), opts, slot);
@@ -3644,7 +3772,8 @@ const gintDataOf = async (sid, force, gen) => {
 	let cur = mlGintData.get(sid);
 	if (cur && !force && cur.data === dataOf(sp)) return { cur, changed: false };
 	let d = dataOf(sp); const raw = d;
-	if (typeof d === "string") d = (await geopbf(d, { gint: false }))?.geojson;
+	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
+	else { dropFollow(sid); setSrcAttr(sid, null); }
 	const pbf = await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}` });
 	if (mlGen.get("gint") !== gen) return null;
 	const idToFid = new Map(), fidToId = [];
@@ -3711,6 +3840,8 @@ const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) =
 	}
 	for (const [sig, e] of mlPasses) if (!keep.has(sig)) { e.h.remove(); mlPasses.delete(sig); }
 	for (const sid of [...mlGintData.keys()]) if (!sids.includes(sid)) mlGintData.delete(sid);
+	for (const sid of [...fsFollow.keys()]) if (!sids.includes(sid)) dropFollow(sid);   // その source の fill/line/circle が無くなった＝視野追従と出典を下げる
+	for (const k of [...vtxAttrs.keys()]) if (k.startsWith("src:") && !sids.includes(k.slice(4))) setSrcAttr(k.slice(4), null);
 	if (failOwn) throw failOwn;
 	return true;
 };
@@ -3734,7 +3865,7 @@ const addPattern = async (layer, data, order) => {
 	const pf = [];   // 問い合わせ用の地物（画面の px で当てる）
 	const P0 = layer.paint || {}, needSym = P0["fill-pattern"] != null || P0["line-pattern"] != null;
 	const c = needSym ? await symGet() : null; patOv ??= map.overlay(patUrl, { name: "pattern" });
-	let d = data; if (typeof d === "string" || d instanceof Blob) d = (await geopbf(d, { gint: false }))?.geojson;
+	let d = data; if (typeof d === "string" || d instanceof Blob) d = await readGeoData(d);
 	const feats = d?.features || (Array.isArray(d) ? d : d?.type === "Feature" ? [d] : d?.type && d?.coordinates ? [{ type: "Feature", properties: {}, geometry: d }] : []), P = layer.paint || {}, fill = layer.type === "fill", items = [];   // FeatureCollection／Feature／素の geometry（MapLibre の geojson source はどれも受ける）
 	for (const f of feats) {
 		const g = f?.geometry; if (!g) continue;
@@ -3984,6 +4115,12 @@ dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam 
 const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 map.setCustomLayerHost = h => { customHost = h; return map; };
 map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
+// この source を使う層を載せ直す（setData・updateData・updateImage・視野追従の読み足し＝#176）
+const remountSource = async (id, dataChanged = true) => {
+	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
+	if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged });
+	for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
+};
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
 map.addSource = (id, spec) => addSourceAt(id, spec, PUBLIC_DZ);
 map.getSource = id => {
@@ -3994,11 +4131,7 @@ map.getSource = id => {
 		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
-	const remount = async (dataChanged = true) => {   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
-		const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
-		if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged });
-		for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
-	};
+	const remount = (dataChanged = true) => remountSource(id, dataChanged);   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
 	const self = { ...sp, ...extra, setData: async data => { sp.data = data; await remount(); } };
 	// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
 	if (sp.type === "geojson") self.updateData = async diff => {
@@ -4028,7 +4161,7 @@ map.getSource = id => {
 };
 map.removeSource = id => {
 	if ([...mlLayers.values()].some(v => srcId(v.layer) === id)) throw new Error(`removeSource: source "${id}" is used by a layer`);   // MapLibre と同じ＝使われている source は外せない
-	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
+	mlSources.delete(id); vtxDescs.delete(id); vtdDesc.delete(id); dropFollow(id); setSrcAttr(id, null); for (const k of [...vtdQueryCache.keys()]) if (k.startsWith(id + "|")) vtdQueryCache.delete(k); return map;
 };
 // global-state（MapLibre v5 同名・記号の残件③・2026-09-28）：式の ["global-state", 鍵] が読む地図全体の状態。変えたらそれを読む層だけ評価し直す。
 // geojson の fill/line/circle＝gint の表を作り直す（main の buildMLTable）・記号/集約/模様/押し出し＝relayer（main）・vector の描く層/押し出し＝版を上げて組み直す（worker へ gs）・基図の層＝restyleBase（tile worker へ globalState）
@@ -4828,7 +4961,7 @@ const rasterDropFile = async (file, fallback = false) => {
 	}
 };
 map.gadget("dropFile", function (opts) {   // GISファイルのD&D取り込み … loadUserFile（上）を束ね注入（gint単一スロット＝置き換え）
-	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { annoCtl?.clear(); czmlCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
+	return dropFileGadget.call(this, { loadFile: loadUserFile, unprojectAt, clearGint: () => { gFollow?.destroy(); gFollow = null; annoCtl?.clear(); czmlCtl?.clear(); cogCtl?.clear(); modelCtl?.clear(); modelCtl?.clearExtrude(); clearImages(); map.raster.remove("drop"); gint.clearUserGint(); columnarCtl?.remove(); columnarCtl = null; editDocHook?.(null); }, playScene: scenes.playScene, busy: scenes.playingNow, yieldTo: () => editDropOwner, signal: ac.signal, ...opts });   // busy＝上映中はドロップ無視（デモ中はドロップ禁止）。消去は注釈レイヤも一緒に
 });
 map.gadget("geoedit", function (opts) {   // GeoPBF トポロジカル編集＝geoedit（npm）（packages/geoedit・MIT・2026-09-20 に分離・遅延chunk）… 公開面だけで動く＝ここは import と結線だけ。戻り値＝Promise<editor>
 	// ホスト契約：言語（エディタは自前の 26 言語表）・左下ドック・クラウド保存パネル（japan の共通の器）を注入。搭載中はドロップをエディタが所有（dropFile は譲る）
