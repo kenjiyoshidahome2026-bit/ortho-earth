@@ -33,6 +33,7 @@
 	"files": [
 		"src",
 		"i18n",
+		"!i18n/ui.json",
 		"LICENSE",
 		"README.md"
 	],
