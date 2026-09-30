@@ -404,10 +404,11 @@ export function drawHighlight(s, data) {
 	const mc = data.maskColor ?? DEF_MASK;
 	if (mc[3] > 0 && hasRange) {
 		gl.enable(gl.STENCIL_TEST);
-		gl.stencilMask(0xFF);
+		// winding はビット0-6 だけ（塗りのパスと同じ）＝bit7（renderer の建物マスク）を消さない。旧＝0xFF で clear/書き込み＝ホバーの暗幕の後は建物の遮蔽が効かなかった（WebGPU は 0x7F）
+		gl.stencilMask(0x7F);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
 		gl.colorMask(false, false, false, false);
-		gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+		gl.stencilFunc(gl.ALWAYS, 0, 0x7F);
 		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
@@ -416,7 +417,7 @@ export function drawHighlight(s, data) {
 		gl.drawArrays(gl.TRIANGLES, eStart * 3, eCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
-		gl.stencilFunc(gl.EQUAL, 0, 0xFF);
+		gl.stencilFunc(gl.EQUAL, 0, 0x7F);
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 		gl.useProgram(fillProgram);
 		gl.uniform4fv(uFill.u_fill_color, mc);

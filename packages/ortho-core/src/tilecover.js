@@ -35,6 +35,10 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 		}
 	}
 	if (!samples.length) return [];
+	// サンプルの包含判定は「親に入っていたサンプル」だけを子で見直す（子⊂親＝境界の式も親と同値）＝旧＝全サンプル（チルトで ~900 点）を
+	// 見えない候補タイルごとに総なめ（選抜の 5 割）。sIn＝そのノードに入るサンプルの添字（根＝null＝全部）
+	const sLo = new Float64Array(samples.length), sLa = new Float64Array(samples.length);
+	for (let i = 0; i < samples.length; i++) { sLo[i] = samples[i][0]; sLa[i] = samples[i][1]; }
 	const rootMap = new Map();
 	// 極の上（|緯度|>85.05°）のサンプルはメルカトルの外＝y が範囲外のタイル（実在しない）になる→上下の端の行へ畳む（旧＝1/0/-1 のような偽タイルが根になり、極の周りの帯が覆われず紙色のまま・2026-09-30）
 	const nRoot = 1 << minZ;
@@ -43,46 +47,56 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 	let guard = 0;
 	while (stack.length && guard++ < 30000) {
 		const t = stack.pop();
-		const m = tileMetrics(st, t, cam.center, W, H, samples, groundR);
-		if (!m.visible) continue;                   // 画面外＆中心外＆サンプル無し → cull
+		const b = tileBounds(t.x, t.y, t.z);
+		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, groundR);
+		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
 			: sticky && sticky.has(t.z + "/" + t.x + "/" + t.y) ? tilePx * stickyRatio : tilePx;
-		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : m.size > th)) {
-			const z = t.z + 1, x = t.x * 2, y = t.y * 2;
-			stack.push({ z, x, y }, { z, x: x + 1, y }, { z, x, y: y + 1 }, { z, x: x + 1, y: y + 1 });
-		} else out.push(t);
+		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : size > th)) {
+			const z = t.z + 1, x = t.x * 2, y = t.y * 2, s = samplesIn(b, sLo, sLa, t.s);
+			stack.push({ z, x, y, s }, { z, x: x + 1, y, s }, { z, x, y: y + 1, s }, { z, x: x + 1, y: y + 1, s });
+		} else out.push({ z: t.z, x: t.x, y: t.y });
 	}
 	return out;
 }
 
-// 可視判定＆画面サイズ。可視＝(前面4隅bbox交差) or (中心を含む) or (サンプル包含)。
+// 可視判定＆画面サイズ（戻り＝画面上のタイル px・見えない＝-1）。可視＝(前面4隅bbox交差) or (中心を含む) or (サンプル包含)。
 // サイズはタイル中心の局所解像度から測る（巨大タイルで4隅が裏でも安定。中心が裏なら遠方=粗のまま）。
 // 4隅の投影は海面と groundR（地形リフト球）の**両方**で行い bbox を合併：海面bboxだけだと、リフトで
 // 画面内へ持ち上がる手前タイルが「画面外」でculされ、疎な画面サンプル（grid=10）の網に掛かった数枚しか
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
-function tileMetrics(st, t, center, W, H, samples, groundR = 1) {
-	const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
+function tileMetrics(st, t, [w, s, e, n], center, W, H, sLo, sLa, sIn, groundR = 1) {
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
-	const K = t.z <= 4 ? 6 : 1, corners = [];
-	for (let i = 0; i < K; i++) { const f = i / K; corners.push([w + (e - w) * f, n], [e, n + (s - n) * f], [e + (w - e) * f, s], [w, s + (n - s) * f]); }
+	const K = t.z <= 4 ? 6 : 1;
 	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
-	for (const [lo, la] of corners) for (const R of groundR !== 1 ? [1, groundR] : [1]) {
-		const [sx, sy, f] = project(st, lo, la, R);
-		if (f >= 0) { nf++; minx = Math.min(minx, sx); miny = Math.min(miny, sy); maxx = Math.max(maxx, sx); maxy = Math.max(maxy, sy); }
-	}
+	const corner = (lo, la) => {
+		for (let r = 0; r < (groundR !== 1 ? 2 : 1); r++) {
+			const [sx, sy, f] = project(st, lo, la, r ? groundR : 1);
+			if (f >= 0) { nf++; minx = Math.min(minx, sx); miny = Math.min(miny, sy); maxx = Math.max(maxx, sx); maxy = Math.max(maxy, sy); }
+		}
+	};
+	for (let i = 0; i < K; i++) { const f = i / K; corner(w + (e - w) * f, n); corner(e, n + (s - n) * f); corner(e + (w - e) * f, s); corner(w, s + (n - s) * f); }
 	let visible = nf > 0 && !(maxx < 0 || minx > W || maxy < 0 || miny > H);
 	if (!visible) {
 		if (center[0] >= w && center[0] <= e && center[1] >= s && center[1] <= n) visible = true;
-		else for (const [lo, la] of samples) if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; }
+		else if (sIn) { for (let k = 0; k < sIn.length; k++) { const i = sIn[k], lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; } } }
+		else for (let i = 0; i < sLo.length; i++) { const lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) { visible = true; break; } }
 	}
-	if (!visible) return { visible: false };
+	if (!visible) return -1;
 	// サイズ：距離ベースのスクリーン誤差。タイル内で視点直下に最も近い点までの距離で、
 	// (タイル角度サイズ / 距離) × focal ≈ 画面上のタイルpx。近いほど大きい＝分割。
 	const refLon = Math.min(e, Math.max(w, center[0])), refLat = Math.min(n, Math.max(s, center[1]));
 	const p = lonlatTo3D(refLon, refLat);
 	const dist = Math.hypot(p[0] - st.eye[0], p[1] - st.eye[1], p[2] - st.eye[2]);
 	const worldSize = 2 * Math.PI / (1 << t.z);
-	const size = worldSize / Math.max(dist, 1e-9) * st.focal;
-	return { visible, size };
+	return worldSize / Math.max(dist, 1e-9) * st.focal;   // 画面上のタイル px（≥0）。見えない＝-1
+}
+
+// 境界 [w,s,e,n] に入るサンプルの添字（sIn＝親の分・null＝全部）
+function samplesIn([w, s, e, n], sLo, sLa, sIn) {
+	const o = [];
+	if (sIn) { for (let k = 0; k < sIn.length; k++) { const i = sIn[k], lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); } }
+	else for (let i = 0; i < sLo.length; i++) { const lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); }
+	return o;
 }
 

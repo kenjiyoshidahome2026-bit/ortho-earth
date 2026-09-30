@@ -85,9 +85,11 @@ function airportSymbol(text, markOnly) {
 		g.fillStyle = "#3f6d9e"; g.fill(PLANE_PATH);
 		g.restore();
 		if (markOnly) return;
+		g.save();   // 書体・揃えは restore で戻す（旧＝外に漏れて、注記層の書体の覚えと食い違った）
 		g.font = "10px sans-serif"; g.textAlign = "left"; g.textBaseline = "middle";
 		g.strokeStyle = "#f6f6f4"; g.lineWidth = 2.2; g.lineJoin = "round"; g.strokeText(text, x0 + PLANE_S + 3, cy);
 		g.fillStyle = "#6b6c66"; g.fillText(text, x0 + PLANE_S + 3, cy);
+		g.restore();
 	} };
 	airportCache.set(key, s); return s;
 }

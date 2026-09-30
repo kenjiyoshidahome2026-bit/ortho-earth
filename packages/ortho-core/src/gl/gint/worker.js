@@ -6,7 +6,7 @@
 // 【site 4 準備】視野コーナーを unproject → Morton 整数 bbox（JS polygon identify の絞り込み）。
 // 単位は device px 一本（app が innerWidth*dpr で width/height を渡す。cameraState/unproject と同座標系）。
 
-import { createGintPrograms } from './programs.js';
+import { createGintPrograms, deleteGintPrograms } from './programs.js';
 import { checkZoomRange } from './utility.js';
 import { s } from './state.js';
 import { uploadGintTextures, deleteTextures } from './textures.js';
@@ -16,6 +16,7 @@ import { doIdentify, handleMove, handleLeave } from './identify.js';
 import { computeDrawData, zoomInRange } from './drawdata.js';
 import { uploadFidStyle, clearFidStyle, restoreFidStyle, idFillContextLost, disposeIdFill } from './idfill.js';
 import { unproject } from '../../camera.js';
+import { gintDataOf } from './bake.js';
 
 const funcs = { init, set, resize, drawing, drawn, move, leave, click, destroy, style, paint, snapshot, bench };
 
@@ -103,18 +104,7 @@ function init(data) {
 
 function set(data) {
 	if (data.cmd === "gint" && data.data) {
-		const { arcBuffer, arcMeta, polyStream, lineStream, pointBuffer, point, polyCompBbox } = data.data;
-		s.gintData = {
-			arcBuffer:    arcBuffer   ?? null,
-			arcMeta:      arcMeta     ?? null,
-			polyStream:   polyStream?.length  ? polyStream  : null,
-			lineStream:   lineStream?.length  ? lineStream  : null,
-			pointBuffer:  pointBuffer?.length ? pointBuffer : null,
-			point:        point ?? null,
-			polyCompBbox: polyCompBbox ?? null,
-			fillMaxEdges: data.data.fillMaxEdges ?? null,   // 同期フォールバックでも層別の塗り上限/低ズーム塗りを落とさない（bakeworker と同じ台帳）
-			lowFill:      data.data.lowFill      ?? false,
-		};
+		s.gintData = gintDataOf(data.data);
 		uploadGintTextures(s);
 		({ minZoom: s.minZoom, maxZoom: s.maxZoom } = checkZoomRange({
 			arcMeta:   s.gintData.arcMeta,
@@ -215,18 +205,7 @@ function destroy() {
 	deleteTextures(s);
 	deleteFBOs();
 	disposeIdFill(s);
-	if (s.gl && s.programs) {
-		const { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
-				pointProgram, pickLineProgram, pickPointProgram, emptyVAO } = s.programs;
-		if (emptyVAO)           s.gl.deleteVertexArray(emptyVAO);
-		if (renderProgram)      s.gl.deleteProgram(renderProgram);
-		if (stencilProgram)     s.gl.deleteProgram(stencilProgram);
-		if (fillProgram)        s.gl.deleteProgram(fillProgram);
-		if (maskStencilProgram) s.gl.deleteProgram(maskStencilProgram);
-		if (pointProgram)       s.gl.deleteProgram(pointProgram);
-		if (pickLineProgram)    s.gl.deleteProgram(pickLineProgram);
-		if (pickPointProgram)   s.gl.deleteProgram(pickPointProgram);
-	}
+	if (s.gl) deleteGintPrograms(s.gl, s.programs);
 	s.programs = null; s.gintData = null;
 	s.polyEdgeByFid = null; s.polyBboxByFid = null; s.fillOff = false; s.lowFill = false;
 	s.totalEdges = s.totalPoints = s.polyEdges = 0;
