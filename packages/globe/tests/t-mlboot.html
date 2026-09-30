@@ -15,7 +15,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const SRC = { tiles: ["./fixtures/dem/{z}/{x}/{y}.png"], encoding: "terrarium", tileSize: 256, minzoom: 10, maxzoom: 10, cellZoom: 10, bounds: [150, 30, 151, 31] };
 try {
 	const map = await createGlobe({ target: "#map", view: "#2.5/-45/-90", chips: false, instruments: false, countryTip: false, persistView: false, debugGlobals: true,
-		time: "2026-03-20T12:00:00Z", ...(ML ? { night: false, sky: false, coastline: false, terrain: false } : {}) });
+		time: "2026-03-20T12:00:00Z", ...(ML ? { night: false, sky: false, coastline: false, terrain: false, centerElevation: "ground", fog: false } : {}) });
 	await map.once("load");
 	// ① idle：動かさなくても来る・静かな間は重ねて来ない・動いた後にまた来る
 	let idleN = 0; map.on("idle", () => { idleN++; });
@@ -93,6 +93,11 @@ try {
 		let frac = 0;
 		for (const t0 = performance.now(); performance.now() - t0 < 60000;) { frac = changed(before, (await grab()).d); if (frac > 0.01) break; await sleep(2000); }
 		ok("terrainAfterSetTerrain", frac > 0.01, `changed ${(frac * 100).toFixed(1)}%`);
+		// ⑤ 注視点の高さ（centerElevation:"ground"）＝地形の上の中心点にカメラが向く（MapLibre の centerClampedToGround）：山頂を中心に傾けると、山頂（標高込み）が画面の中心に写る
+		map.jumpTo({ center: [150.5, 30.5], zoom: 12, pitch: 60 });
+		let h = 0, cx = 0, cy = 0;
+		for (const t0 = performance.now(); performance.now() - t0 < 30000;) { h = await map.getHeight(150.5, 30.5); await sleep(400); [cx, cy] = map.projectLL(150.5, 30.5); if (h > 2000 && Math.abs(cy - 300) < 4 && (window.__idleWhy?.().centerAlt || 0) > 2000) break; }
+		ok("centerOnGround", h > 2000 && Math.hypot(cx - 480, cy - 300) < 4, `h=${h?.toFixed?.(0)} at ${cx.toFixed(1)},${cy.toFixed(1)} centerAlt=${(window.__idleWhy?.().centerAlt || 0).toFixed(0)} why=${JSON.stringify((({ geBusy, groundElevM, noTerr }) => ({ geBusy, groundElevM, noTerr }))(window.__idleWhy?.() || {}))}`);
 		let l1 = lift();
 		for (const t0 = performance.now(); performance.now() - t0 < 20000 && !(l1.front > 0 && l1.err < l1.want * 0.1); await sleep(100)) l1 = lift();
 		ok("liftAfterSetTerrain", l1.front > 0 && l1.err < l1.want * 0.1, `${l1.got.toFixed(1)}/${l1.want.toFixed(1)}px err ${l1.err.toFixed(1)}`);

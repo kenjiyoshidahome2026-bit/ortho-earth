@@ -78,11 +78,11 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		if (area) ts = ts.filter(t => hits(tileBbox(t.z, t.x, t.y), area));
 		if (!ts.length) return [];
 		const fine = Math.max(...ts.map(t => t.z));
-		ts = ts.filter(t => t.z >= fine - 2);
+		if (!zoomOf) ts = ts.filter(t => t.z >= fine - 2);   // MapLibre の目盛り（zoomOf）＝coveringTiles が選んだ集合をそのまま（急な傾きの遠くは何段も粗い＝切ると遠景の建物が消える・set-center-point-above-ground・2026-09-30）
 		const [cx, cy] = cam.center, cw = Math.cos(cy / R2D);
 		const d2 = t => { const b = tileBbox(t.z, t.x, t.y), dx = Math.max(b[0] - cx, 0, cx - b[2]) * cw, dy = Math.max(b[1] - cy, 0, cy - b[3]); return dx * dx + dy * dy; };
 		ts.sort((a, b) => d2(a) - d2(b));
-		ts = ts.slice(0, MAX_TILES);
+		ts = ts.slice(0, zoomOf ? MAX_TILES * 3 : MAX_TILES);   // MapLibre の目盛りは上限を緩める（MapLibre に上限は無い・予算は下で見る）
 		// 予算を見た選び＝組んだタイルは実際のバイト・まだの物はこの source の中央値（無ければ 1MB）で見積もり、遠い方から落とす（近い 1 枚は必ず残す）
 		const own = [...layers.values()].filter(s => s.sid === src.sid && s.on), known = [];
 		for (const s of own) for (const lt of s.tiles.values()) if (lt.bytes) known.push(lt.bytes);

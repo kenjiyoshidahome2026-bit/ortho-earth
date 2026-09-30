@@ -2,7 +2,7 @@
 // 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
 import "./globe.css";
 import {
-	evalExpr, truthy, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
+	evalExpr, truthy, KNOWN_OPS, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
@@ -486,11 +486,15 @@ window.addEventListener("offline", () => { netEl.style.display = "block"; }, { s
 window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
 let bg = style.layers.find(L => L.type === "background");
-let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
+// MapLibre の目盛りの地図で style に background 層が無い＝MapLibre の canvas は透明（頁の白が見える）＝球の地（陸も海も）を白で（2026-09-30・公式例 20 本の地の色）。内製の既定は従来の紙色と海の色
+const NO_BG_WHITE = !!ML_COVER;
+const landDefault = () => (NO_BG_WHITE ? [1, 1, 1, 1] : [0.96, 0.96, 0.95, 1]);
+const seaOf = bg => (NO_BG_WHITE && !bg ? [1, 1, 1] : null);
+let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : landDefault();
 // 白抜き家具（本人裁定 2026-08-05「紙の世界を司る神」）：計器・アイコン・出典を地図の明暗に依らず常に黒硝子＋白線へ（quiet-mono #map.ui-dark）。
 // 旧＝land輝度<0.45（暗い紙）の時だけ夜家具。今は常時ON＝昼夜で意匠がブレず、白線 on 黒硝子で輪郭が締まる（状態HUDと同族）。戻すなら下の add を輝度条件へ。
 mapEl.classList.add("ui-dark");
-const clear = [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）
+const clear = ML_COVER ? [1, 1, 1, 1] : [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）。MapLibre の目盛り＝白（MapLibre の canvas は描かない所が透明＝頁の白が見える・地平線の上も同じ・2026-09-30）
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
 
@@ -618,6 +622,16 @@ if (gl2Fallback) console.warn(`[boot] WebGPU fallback active = WebGL2 (reason=${
 // setTerrain の DEM が来たら render worker が地形を作る（terrLazy）。?noterr=1 は従来どおり丸ごと停止（後から入れる口も無い）
 const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search);
 let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
+// 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
+// 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
+const CENTER_ELEV = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;
+let centerElevFixed = Number.isFinite(CENTER_ELEV) ? CENTER_ELEV : null;
+function syncCenterAlt() {
+	if (CENTER_ELEV === undefined && centerElevFixed == null) return;
+	if (CENTER_ELEV === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
+	const v = CENTER_ELEV === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
+	if ((cam.centerAlt || 0) !== v) { cam.centerAlt = v; needsDraw = true; }
+}
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
 const GNDFAST = !/[?&]gndfast=0/.test(location.search);   // perf plan P6 の逃げ道＝0 で gndMix0 を旧順序（4 本標本化してから捨てる）へ。既定 true
 const QUAD4 = !/[?&]quad4=0/.test(location.search);   // perf plan P3 の逃げ道＝0 で線・点を旧 6 頂点の draw に（既定＝index の 4 頂点）
@@ -640,7 +654,7 @@ const wPost = (msg, transfer) => {
 	}
 	ctrlChan.port1.postMessage(msg, transfer || []);
 };
-renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search), msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
+renderWorker.postMessage({ type: "init", ctrlPort: ctrlChan.port2, canvas: offscreen, labelCanvas: labelOffscreen, elevBase: TERR_EXAG / EARTH_M, terrainExag: TERR_EXAG, earthM: EARTH_M, apiUrl: "https://api.ortho-earth.com", scenePort: sceneChan.port2, noMultiDraw, perf: perfLog, mem: hudOn, lowMem: LOW_MEM, noMixed: noMixedR01, noFarTerr, dtm: REGION_DTM, dem: DEM0, noBld: /[?&]nobld=1/.test(location.search), gpu: gpuBackend, noTQ: /[?&]notq=1/.test(location.search), noFragDepth: /[?&]fd=0/.test(location.search), noGint: /[?&]nogint=1/.test(location.search), noGintSB: /[?&]gintsb=0/.test(location.search), noFade: /[?&]nofade=1/.test(location.search) || !!ML_COVER, msaa1: MSAA_OFF, msaa4: MSAA_PIN, fx: RENDER_FX, drawHud: drawHud, stay: /[?&]stay=1/.test(location.search), noTerr, terrLazy, gmax: GMAX, gndFast: GNDFAST, quad4: QUAD4, cpuElev: CPUELEV, terrLod: TERRLOD, ell: ELL_ON }, [ctrlChan.port2, offscreen, labelOffscreen, sceneChan.port2]);
 // 薄いプロキシ：有線(関数呼び)を無線(postMessage)に載せ替え。set/draw 統一済なので pipeline/overlay は無改造。
 // draw は worker 側で「cam を記録するだけ」に受け、実描画は worker 自前 rAF が最新 cam で回す（worker-driven）。
 // 標高アトラス(terrain)も worker 側に住む＝main はもう視野→セル計算・ダウンサンプルを一切やらない。読込インジケータだけ elevPending で受ける。
@@ -803,6 +817,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
 	if (d.type === "mem") { memTerrain = d.terrain || 0; memHeap = d.heap || 0; memGpu = d.gpu || null; memRaster = d.raster || 0; memFps = d.fps ?? memFps; memFrameMs = d.frameMs ?? memFrameMs; memRes = d.res ?? memRes; memBackend = d.backend || memBackend; memGpuName = d.gpuName || memGpuName; memGpuMap = d.gpuMap ?? memGpuMap; memGpuGint = d.gpuGint ?? memGpuGint; memAa = d.aa ?? memAa; memHitch = d.hitch || memHitch; memTerr = d.terr || memTerr; memGpuShadow = d.gpuShadow ?? memGpuShadow; memShadow = d.shadow ?? null; return; }   // ?hud=1：render worker からのメモリ台帳＋描画実測（HUD が合算・表示）
@@ -1082,15 +1097,18 @@ function commitUnderground() {
 //（実測: 草津1200m・z15.8・チルト52°で画面左下1/3が空白。Node被覆シミュで海面欠け0/リフト欠け48%）。
 // 表示中の地形変位と同式（renderer elevScaleEff と同じ pitch フェード）で半径を作る＝真俯瞰は1（従来通り）。
 // 標高は getHeight の非同期サンプル＝到着まで0（海面挙動）、到着時 needsDraw で選抜し直し＝自己回復。
-let groundElevM = 0, geBusy = false, geKey = "";
+let groundElevM = 0, geBusy = false, geKey = "", geGen = 0;
 function sampleGroundElev() {
-	if (!getHeight || geBusy) return;
+	if ((!getHeight && !demMain) || geBusy) return;
 	const k = Math.round(cam.center[0] * 1000) + "," + Math.round(cam.center[1] * 1000);   // ~100m格子＝微パンで照会を積まない
 	if (k === geKey) return;
 	geBusy = true;
-	Promise.resolve(getHeight(cam.center[0], cam.center[1], cam.zoom))
-		.then(h => { geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; needsDraw = true; } })
-		.catch(() => { geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
+	// 世代＝DEM の差し替え（setDem）で古い照会の答えを捨てる・3 秒で答えが無ければ手を放す（答えの来ない照会で geBusy が立ちっぱなし＝以後一度も引き直さない事故の柵・2026-09-30）
+	const gen = ++geGen, timer = setTimeout(() => { if (gen === geGen) geBusy = false; }, 3000);
+	// 外来の DEM（setTerrain・style の terrain）がある地図は描いている地形と同じ出どころ（heightAt＝外来が先・無い所は既定）。旧＝既定の DTM だけ＝mapterhorn の山で 0m（注視点の高さが効かない・2026-09-30）
+	Promise.resolve(demMain ? heightAt(cam.center[0], cam.center[1]) : getHeight(cam.center[0], cam.center[1], cam.zoom))
+		.then(h => { clearTimeout(timer); if (gen !== geGen) return; geBusy = false; geKey = k; const v = Math.max(0, +h || 0); if (Math.abs(v - groundElevM) > 1) { groundElevM = v; needsDraw = true; } })
+		.catch(() => { clearTimeout(timer); if (gen === geGen) geBusy = false; });   // 失敗は geKey 据置＝次の render で再挑戦
 }
 // MapLibre の目盛りの時のタイルの z（ML_COVER）＝selectLOD の zOf。tileSize＝source のタイルの大きさ・round＝raster（roundZoom）。内製の目盛りは null＝従来の閾
 function mlZoomOf(tileSize = 512, round = false) {
@@ -1173,6 +1191,7 @@ function onSceneApplied(slot, sig) {
 		return;
 	}
 	if (slot === "main") {
+		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
 		const z = mergePendingZoom.get(sig);
@@ -1228,7 +1247,9 @@ const solarOff = new URLSearchParams(location.search).has("nosolar") || opts.sky
 const CAM_ZOOM_MIN = solarOff ? ZOOM_MIN : SOLAR_ZOOM_MIN;   // カメラ実床（手動系はこちら）
 let zoomMinCur = CAM_ZOOM_MIN;   // 現在のズーム床＝map.setZoomMin で実行時に上げられる（編集ガジェット＝z2.5・解除で CAM_ZOOM_MIN へ）
 let editDropOwner = false;       // 編集ガジェットがドロップを所有中＝dropFile ガジェットは譲る
-let atmo = theme.atmo;              // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
+// 大気の霞（球の地を大気色へ寄せる・縁のリム光）＝MapLibre は sky／fog を書かない限り持たない＝MapLibre の目盛りでは強さ 0（options.ortho.atmosphere:true で戻す・2026-09-30）
+const atmoOf = a => (ML_COVER && opts.atmosphere !== true && Array.isArray(a) ? [a[0], a[1], a[2], 0] : a);
+let atmo = atmoOf(theme.atmo);      // 大気色 rgb + 強さ（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝palettes.js）※生き替えで差し替わる
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
@@ -1289,7 +1310,7 @@ function switchTheme(name) {
 	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withPM(theme.style));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
 	bg = style.layers.find(L => L.type === "background");
 	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
-	atmo = theme.atmo; bldColor = theme.bldColor;
+	atmo = atmoOf(theme.atmo); bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
 	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
 	worldContentH?.repaint();     // 世界帯の中身（州境・道路・注記…）も新テーマへ
@@ -1314,7 +1335,7 @@ function switchTheme(name) {
 	readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; needsDraw = true; onMove();   // 下地・主層を強制再結合（次のupdateで新styleビルド→順次merge）
 }
 // contourColor/distColor/hypso はテーマの任意ノブ（無指定＝renderer 既定：セピア等高線・遠山ブルー・単色陰影）
-renderer.set("view", { clear, land, atmo, bldColor, showRail: false,
+renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(bg), ...(opts.fog === false ? { fog: false } : {}),   // opts.fog:false＝霧を焚かない（MapLibre の口の既定）
 	...(opts.night === false && { night: false }),   // opts.night＝false：低ズームの夜面を描かない（MapLibre の口・公式例の門 段 2）
 	gintSub: !/[?&]nosub=1/.test(location.search),   // ?nosub=1＝gint 線の地形適応細分を切る（3D ドレープ貫きの切り分け用・?nofar と同じ逃げ道の作法）
 	...(theme.contourColor && { contourColor: theme.contourColor }),
@@ -1477,6 +1498,7 @@ toolClose.set("profile", () => profileBody?.stop?.());
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
+	wheelZoom: ML_COVER ? "maplibre" : "linear",   // MapLibre の目盛り＝ホイールの 1 目盛りも MapLibre と同じ量（並べて触った時に同じ所へ寄る）
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
@@ -1653,11 +1675,13 @@ dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点�
 // readySig/baseSig は merge の ack（onMerged）で確定。要求中の sig は mergeReq が持ち、
 // MERGE_ACK_MS 以内は同一要求を重ねない。ack が来なければ出し直す＝merge の一過性失敗が自己修復する。
 const MERGE_ACK_MS = 1500;
+const mergeLog = []; dbgHost.__mergeLog = mergeLog;   // main merge の要求→着地の時刻（切り分け・直近 64 件）
 const mergeReq = { main: { sig: "", at: 0 }, base: { sig: "", at: 0 } };
 function requestWithAck(slot, sig, doRequest) {
 	const rq = mergeReq[slot];
 	if (sig === rq.sig && performance.now() - rq.at < MERGE_ACK_MS) return false;   // 同一要求の ack 待ち
 	doRequest();
+	if (slot === "main") { mergeLog.push({ sig: sig.slice(0, 40), n: sig.split("#")[0].split("|").length, reqAt: Math.round(performance.now()), ackAt: 0 }); if (mergeLog.length > 64) mergeLog.shift(); }   // 計測（要求→着地）
 	rq.sig = sig; rq.at = performance.now();
 	setTimeout(() => {   // ack 喪失→要求記憶を消して次フレームで出し直させる（静止中でも needsDraw で起こす）
 		const confirmed = slot === "main" ? readySig : baseSig;
@@ -1673,7 +1697,7 @@ let zoomAtBuild = -1, lastMainReqT = 0;   // lastMainReqT＝main merge 要求の
 // GPU全アップロードを毎秒~25回やり直していた（チルト75°・z8.46実測）。8Hzでも下地(base)が隙間を敷くので
 // 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
 let lastMoveSwapT = 0;
-const MOVE_SWAP_MS = 125;
+const MOVE_SWAP_MS = 125, MOVE_SWAP_ZOOM_MS = 60, MAIN_REQ_GAP_MS = 60;   // MAIN_REQ_GAP_MS＝新 sig の merge 要求の最短間隔（旧 200＝届いたタイルが画面に出るまでの主因・merge 自体は数 ms・sig が同じなら要求しない）2026-09-30   // MOVE_SWAP_ZOOM_MS＝ズーム中（zoomStable でない間）の merge 要求の間隔＝新しい段のタイルは届き次第（止まるまで待たない・LOW_MEM は従来どおり止まってから）2026-09-30
 // ラベルはGLシーンと別経路（render worker のテキスト描画）＝丁目(z15.5)/空港マーク(z13)のz門で GL バッファを
 // 全再結合する理由は無い（本人指摘 2026-08-04「テキストにmergeは要らない」）。両者を merge シグネチャから外し、
 // ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層
@@ -1700,7 +1724,7 @@ function swapScene(order) {
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	// merge 合流：新 sig の要求は最短200ms間隔（タイル流入中の細切れ merge 連発＝classic のパラパラ感の素）。
 	// needsDraw 維持で次フレーム再試行＝取りこぼしなし。同一 sig の ack 待ちは requestWithAck が従来どおり看る。
-	if (performance.now() - lastMainReqT < 200) { needsDraw = true; return; }
+	if (performance.now() - lastMainReqT < MAIN_REQ_GAP_MS) { needsDraw = true; return; }
 	if (!requestWithAck("main", sig, () => {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
@@ -1983,6 +2007,7 @@ function render() {
 	// ⚠ 描画命令（下の renderer.draw）の位置は動かさない：この下に基図の門（z<BASEMAP_MINZOOM）の早期 return が
 	// あり、命令をその後ろへ動かすと世界帯で描画要求が一度も出ず frame1 が来ない（前回の t-anno 不安定の正体）。
 	// 判定材料の方を先に作る＝基図圏でだけ tiles.update をここで回す（出典/家具の DOM 処理より僅かに早いだけ）。
+	syncCenterAlt();   // 注視点の高さ（MapLibre の目盛り＝地形の上の中心点）を cam へ＝この下の描画・選抜・投影が同じカメラを見る
 	const basemap = cam.zoom >= TILE_MINZOOM;
 	let tu = null, skipBase = false;
 	if (!basemap) { lastTileOrder = []; lastSkipBase = false; coverOk = true; }
@@ -2047,7 +2072,9 @@ function render() {
 	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
-	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }
+	// ズーム中も merge を出す（旧＝zoomStable の間だけ＝ホイールでズームを続けている間は新しい段のタイルが届いても止まるまで載らず、止まってから +200ms で「ポン」＝MapLibre は届いた順に描く）。
+	// 間隔は 250ms・sig が同じなら要求しない（swapScene）＝MapLibre の目盛りでは段が変わる時だけ。LOW_MEM は従来（止まってから）
+	else if (performance.now() - lastMoveSwapT >= (zoomStable ? MOVE_SWAP_MS : MOVE_SWAP_ZOOM_MS) && (zoomStable || !LOW_MEM)) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
@@ -2170,10 +2197,10 @@ dbgHost.__placedDebug = () => new Promise(res => {   // 同・診断＝衝突判
 });
 dbgHost.__labelsMain = () => { const by = {}; for (const L of lastLabels) { const k = L.li != null ? (style.layers[L.li]?.id ?? "li" + L.li) : "?"; by[k] = (by[k] || 0) + 1; } return { n: lastLabels.length, by, styleSymbols: style.layers.filter(L => L.type === "symbol").map(L => [L.id, L.minzoom ?? null, L.maxzoom ?? null]) }; };   // 診断（debugGlobals）＝main が worker へ送った基図ラベルの数（層 id ごと）と style の symbol 層の zoom 域
 // 診断の窓（debugGlobals）＝idle を塞いでいる材料を全部返す（公式例の門で「idle が来ない」を切り分ける）
-dbgHost.__idleWhy = () => ({ mapLoaded, moving, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
+dbgHost.__idleWhy = () => ({ mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
 function checkIdle(now) {
-	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(CENTER_ELEV === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
@@ -2261,7 +2288,7 @@ const map = { cam, flyTo, renderer, mapEl, destroy, clock,
 // 標高は heightAt を100m格子でメモ（非同期＝到着まで0m、次フレームで乗る。キーはマーカー/pop地点のみ＝有界）。
 // 外来の標高タイル（#36）＝1 点の標高は main で DEM の最大ズームを直に読む（範囲外・無効は既定の標高へ）
 let demMain = DEM0 ? createDemSource(DEM0) : null, demSpec = DEM0;
-const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();
+const demFirst = (lon, lat, fallback) => demMain ? demMain.height(lon, lat, Math.floor(cam.zoom - (ML_COVER?.dz ?? ML_DZ))).then(v => (v === v ? v : fallback())).catch(fallback) : fallback();   // z の当たり＝今の視点の MapLibre の z（512px のタイル）＝maxzoom 22 の source でも見えている段から引く（無ければ親へ）
 // 1 点の標高＝描いている地形と同じ出どころ（外来の DEM が先・無い所は既定の DTM をタイル着荷まで待つ）。map.getHeight と DOM オーバーレイの持ち上げ（elevOf）が共用
 //（旧・elevOf は既定の DTM だけを待たずに引いていた＝setTerrain の DEM ではマーカー/pop/計測/足跡がチルトで描いた地形とずれ、別タイルの読込中に引いた点は 0m のままメモに残った・2026-09-27）
 const heightAt = (lon, lat) => demFirst(lon, lat, () => getHeightP.then(f => f(lon, lat, cam.zoom, { wait: true }))).then(h => +h || 0);
@@ -2424,7 +2451,7 @@ function clampCamLimits() {
 	const d = x => { const v = Math.abs(wrapLon(lon - x)); return v; };
 	cam.center[0] = d(w) <= d(e) ? w : e;
 }
-map.jumpTo = (o = {}) => { flightCtl.cancel(); const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
+map.jumpTo = (o = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
 map.easeTo = (o = {}) => o.animate === false ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
 // flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
 map.flyTo = (a, ...rest) => {
@@ -2524,7 +2551,7 @@ map.setTerrain = async t => {
 	if (typeof sp === "string") sp = mlSources.get(sp) ?? EXT?.ms.sources?.[sp] ?? null;
 	if (t && !sp) throw new Error("setTerrain: raster-dem source not found");
 	if (sp?.type === "quantized-mesh") return setDem(qmSpecOf(sp));   // Cesium の地形（#110）＝raster-dem の詰め直しを通さない
-	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds }; }
+	if (sp && !sp.tiles && sp.url) { const r = await resolveVectorSource(sp, EXT?.baseUrl || location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); sp = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize は TileJSON の申告も（mapterhorn＝terrarium・旧＝捨てて mapbox で解いた＝256m ごとに折り返す鋸歯）
 	if (t?.exaggeration && t.exaggeration !== 1) console.info("[terrain] exaggeration is ignored (terrain is drawn at true scale)");
 	if (sp?.tiles) sp = { ...sp, tiles: sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")) };
 	const demSpec = sp ? { tiles: sp.tiles, encoding: sp.encoding || "mapbox", tileSize: sp.tileSize ?? 512, minzoom: sp.minzoom, maxzoom: sp.maxzoom ?? 22, bounds: sp.bounds, dtm: !!sp.dtm, cellZoom: sp.cellZoom,
@@ -2534,13 +2561,15 @@ map.setTerrain = async t => {
 function setDem(spec) {   // 標高のソースを差し替える（raster-dem も quantized-mesh も同じ 4 つの口＝core createDemSource が振り分ける）
 	demSpec = spec;
 	demMain = demSpec ? createDemSource(demSpec) : null;
+	geGen++; geBusy = false; geKey = "";   // 中心の地面の高さも新しい DEM で引き直す（古い照会の答えは捨てる）
 	elevMemo.clear(); elevGen++;   // DOM オーバーレイの持ち上げも新しい DEM で引き直す（次フレームから）
 	if (terrLazy && demSpec) noTerr = false;   // terrain:false の地図に初めて DEM が来た＝render worker が地形を作る（持ち上げもここから）
 	wPost({ type: "set", cmd: "dem", data: demSpec });
 	needsDraw = true;
 	return map;
 }
-map.getTerrain = () => demSpec ? { source: demSpec, exaggeration: 1 } : null;   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
+map.getTerrain = () => demSpec ? { source: demSpec, exaggeration: 1 } : null;
+map.queryTerrainElevation = (lon, lat) => (demSpec ? (elevOf(lon, lat) ?? null) : null);   // MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・メモに無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）2026-09-30   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 // ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
 // ここは台帳（id→spec/opts/info）と指示（rasterAdd/Remove/Set）・ローカル容器（gpkg/mbtiles）のプロバイダ worker・
@@ -2595,16 +2624,20 @@ function serveProtocolRaster(port, tpl, spec) {
 			const rq = requester.resolve(expandTemplate(tpl, z, x, y, subs, !!spec.tms, spec.matrixIds, spec.tileSize || 256), "Tile");
 			// 独自スキームは MapLibre と同じく type:"image" で頼む（maplibre-cog-protocol は "image" だけを受ける・公式例の門 2 巡目）。返りは画像・ImageBitmap・ImageData・Blob・ArrayBuffer のどれでも
 			const d = rq.load ? await rq.load("image", ac) : await (await requester.fetch(rq.url, "Tile", { signal: ac.signal })).arrayBuffer();
-			const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
-			const bitmap = d == null ? null
-				: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
-				: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) ? await createImageBitmap(d, bmOpts)
-				: d instanceof Blob ? await createImageBitmap(d, bmOpts)
-				: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
+			const bitmap = await protocolBitmap(d);
 			port.postMessage({ id, bitmap }, bitmap ? [bitmap] : []);
 		} catch (err) { if (!ac.signal.aborted) port.postMessage({ id, bitmap: null, error: String(err?.message || err) }); }
 		finally { acs.delete(id); }
 	};
+}
+// 独自の読み口（addProtocol）が type:"image" に返す物→ImageBitmap（画像・ImageBitmap・ImageData・canvas・Blob・ArrayBuffer のどれでも）。画像タイル層と raster-dem（陰影・段彩）で共有（2026-09-30）
+async function protocolBitmap(d) {
+	const bmOpts = { premultiplyAlpha: "none", colorSpaceConversion: "none" };
+	return d == null ? null
+		: typeof ImageBitmap !== "undefined" && d instanceof ImageBitmap ? d
+		: (typeof HTMLImageElement !== "undefined" && d instanceof HTMLImageElement) || (typeof ImageData !== "undefined" && d instanceof ImageData) || (typeof HTMLCanvasElement !== "undefined" && d instanceof HTMLCanvasElement) || (typeof OffscreenCanvas !== "undefined" && d instanceof OffscreenCanvas) ? await createImageBitmap(d, bmOpts)
+		: d instanceof Blob ? await createImageBitmap(d, bmOpts)
+		: (d.byteLength ?? 0) > 0 ? await createImageBitmap(new Blob([d]), bmOpts) : null;
 }
 // 四隅の動画（#49）＝覆いのオーバーレイ（imagequad の組み込み・注記の下）へ毎コマ差し替え。動画を使うまで chunk も overlay も作らない
 let videoCtl = null;
@@ -3865,7 +3898,7 @@ const mountLayerRaw = async v => {
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
 		// url＝TileJSON（MapLibre）＝取りに行って tiles を得る（段 6・旧＝url を型紙として使っていた）。既定値は MapLibre の raster source（tileSize 512・maxzoom 22）
 		let rs = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme }; }
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
@@ -3873,7 +3906,7 @@ const mountLayerRaw = async v => {
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
 		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
-		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution }; }
+		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); ds = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, encoding: sp.encoding ?? r.demEncoding ?? undefined, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }   // encoding/tileSize も TileJSON から（setTerrain と同じ）
 		ds = { ...ds, tiles: (ds.tiles || []).map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")), encoding: ds.encoding ?? "mapbox", maxzoom: ds.maxzoom ?? 22, tileSize: ds.tileSize ?? 512 };   // MapLibre の raster-dem の既定（encoding mapbox・tileSize 512・maxzoom 22）。⚠この地図の既定は terrarium＝ここで揃えないと勾配が 25 分の 1（3 巡目の轍）
 		if (kind === "colorrelief") {
 			v.cr?.close();
@@ -3882,7 +3915,7 @@ const mountLayerRaw = async v => {
 			return map.raster.add(layer.id, { port: v.cr.port, name: layer.id, attribution: ds.attribution ?? null }, ro);
 		}
 		const num = x => evalExpr(x, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" });
-		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && typeof x[0] === "string" ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）
+		const paint = Object.fromEntries(Object.entries(layer.paint || {}).map(([k, x]) => [k, Array.isArray(x) && KNOWN_OPS.has(x[0]) ? num(x) : x]));   // 式は今のズームで（色の式も evalExpr が色文字列に）。頭が演算子の時だけ＝multidirectional の色の配列 ["#f40","#ff0",…] を式と取り違えない（2026-09-30）
 		v.hs?.close();
 		v.hs = createHillshadeProvider({ dem: ds, paint, name: layer.id, attribution: ds.attribution ?? null, warn: m => console.warn(`[hillshade] ${layer.id}: ${m}`), tiles: demTilesFor(srcId(layer), ds, layer.id) });
 		dbgHost.__hillshade = v.hs;   // 切り分けの窓（debugGlobals）
@@ -3898,10 +3931,17 @@ const mountLayerRaw = async v => {
 // raster-dem のタイルの在庫＝source ごとに 1 つ（同じ source の hillshade と color-relief が共有＝同じタイルを 2 度取らない）。使う層が居なくなったら捨てる。
 // 鍵＝型紙と符号（setStyle 等で同じ id の source の中身が変われば作り直す）
 const demStores = new Map();   // source id → { key, tiles, users:Set<layer id> }
+// raster-dem のタイルの取得：独自の読み口は MapLibre と同じく type:"image" で頼み、返りを ImageBitmap で渡す（旧＝"arrayBuffer" で頼み ImageBitmap が JSON の "{}" に化けた＝quantized-mesh の陰影が空・2026-09-30）
+const demFetch = async (u, init = {}) => {
+	const rq = requester.resolve(u, "Tile");
+	if (!rq.load) return requester.fetch(u, "Tile", init);
+	const bm = await protocolBitmap(await rq.load("image"));
+	return bm ? { ok: true, status: 200, bitmap: async () => bm } : { ok: false, status: 404 };
+};
 function demTilesFor(sid, ds, lid) {
 	const key = JSON.stringify([ds.tiles, ds.encoding, ds.tileSize, ds.redFactor, ds.greenFactor, ds.blueFactor, ds.baseShift]);
 	let e = demStores.get(sid);
-	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: (u, init) => requester.fetch(u, "Tile", init) }), users: new Set() }; demStores.set(sid, e); }
+	if (!e || e.key !== key) { e = { key, tiles: createDemTiles(ds, { fetchFn: demFetch }), users: new Set() }; demStores.set(sid, e); }
 	e.users.add(lid);
 	return e.tiles;
 }
@@ -3937,7 +3977,11 @@ const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 };
 // MapLibre の custom 層の器（main の透明な WebGL2 canvas・注記の下）。層が来た時に作る。hostMap＝onAdd/render に渡す map（MapLibre の口が自分を差す口＝map.setCustomLayerHost）
 let customCtl = null, customHost = null;
-const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), get hostMap() { return customHost ?? map; } });
+// worker が描いた絵ごとの hook（frame 事象）＝custom 層の canvas を地図と同じ cam・同じ時刻で描く。誰かが要る間だけ worker に頼む
+const workerFrameFns = new Set();
+const onWorkerFrame = fn => { workerFrameFns.add(fn); if (workerFrameFns.size === 1) wPost({ type: "set", cmd: "frameEvents", data: true }); return () => { workerFrameFns.delete(fn); if (!workerFrameFns.size) wPost({ type: "set", cmd: "frameEvents", data: false }); }; };
+dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam と worker が描いた cam の差（遅れ）を測る
+const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 map.setCustomLayerHost = h => { customHost = h; return map; };
 map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
@@ -4260,7 +4304,7 @@ const mountExtExtrasRaw = async ext => {
 		try {
 			const sp = await resolveVectorSource(ms.sources[L.source], ext.baseUrl, { fetchFn: (u, init) => requester.fetch(u, "Source", init) });   // TileJSON の解決は raster も同じ
 			const op = L.paint?.["raster-opacity"] ?? 1, opNow = () => +(evalExpr(op, { zoom: cam.zoom, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: "ml" }) ?? 1);   // style.json の層＝MapLibre の意味
-			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
+			await map.raster.add(L.id, { url: sp.tiles[0], tileSize: ms.sources[L.source].tileSize ?? sp.tileSize ?? 512, minZoom: sp.minzoom, maxZoom: sp.maxzoom, bbox: sp.bounds, attribution: sp.attribution, tms: sp.scheme === "tms", adjust: rasterAdjust(L.paint) }, { order: "over", opacity: opNow(), hideFills: false, ...(L.minzoom != null ? { minZoom: L.minzoom } : {}), ...(L.maxzoom != null ? { maxZoom: L.maxzoom - 1e-6 } : {}) });   // tileSize の既定＝MapLibre の 512（段 6）・層の出しズーム＝表示窓
 			if (Array.isArray(op)) { const f = () => map.raster.set(L.id, { opacity: opNow() }); map.on("settle", f); extExtras.offs.push(() => map.off("settle", f)); }   // ズームの式＝止まるたび評価し直す
 			extExtras.raster.push(L.id);
 		} catch (err) { console.warn("[style] raster layer", L.id, err); }
@@ -4327,8 +4371,8 @@ function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());
 	if (EXT) style.globalState = { ...MAP_GS };   // tile worker の global-state（基図の層の filter/layout）
 	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
-	renderer.set("view", { land });
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	renderer.set("view", { land, sea: seaOf(bg) });
 	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(style) }); }   // 層の添字（削除で動く）
 	themes = mkThemes(style);
@@ -4354,8 +4398,8 @@ map.setStyle = async (spec, o = {}) => {
 	}
 	style = extBaseStyle(nx);
 	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : land;
-	renderer.set("view", { land });
+	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	renderer.set("view", { land, sea: seaOf(bg) });
 	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	themes = mkThemes(style);
 	setPipelineStyle(style);   // （sea / bldFill の門は外来 style では常に -1＝差し替え不要）
