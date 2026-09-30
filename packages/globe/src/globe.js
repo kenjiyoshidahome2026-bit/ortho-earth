@@ -1187,6 +1187,7 @@ function onSceneApplied(slot, sig) {
 		return;
 	}
 	if (slot === "main") {
+		const ml = mergeLog.find(m => m.ackAt === 0 && sig.startsWith(m.sig)); if (ml) ml.ackAt = Math.round(performance.now());
 		readySig = sig;
 		readyKeys = new Set(sig.split("#")[0].split("|").filter(Boolean)); readyTail = sig.slice(sig.indexOf("#"));   // render の Set 照合用（ここが readySig 確定の唯一の点）
 		const z = mergePendingZoom.get(sig);
@@ -1492,6 +1493,7 @@ toolClose.set("profile", () => profileBody?.stop?.());
 let editClick = null;      // 派生アプリ編集モード（geoedit）中だけ非null＝同上（map.setEditClick で装着/解除）
 // zoomMin の二重指定（前:ZOOM_MIN 後:2＝後勝ちで床2）を解消（2026-08-10）＝ホイール/ピンチも太陽系圏へ潜れる
 const input = createInput({
+	wheelZoom: ML_COVER ? "maplibre" : "linear",   // MapLibre の目盛り＝ホイールの 1 目盛りも MapLibre と同じ量（並べて触った時に同じ所へ寄る）
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
 	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
@@ -1668,11 +1670,13 @@ dbgHost.__hiddenLi = () => [...themes.hiddenLi(layerState, cam.zoom)];   // 点�
 // readySig/baseSig は merge の ack（onMerged）で確定。要求中の sig は mergeReq が持ち、
 // MERGE_ACK_MS 以内は同一要求を重ねない。ack が来なければ出し直す＝merge の一過性失敗が自己修復する。
 const MERGE_ACK_MS = 1500;
+const mergeLog = []; dbgHost.__mergeLog = mergeLog;   // main merge の要求→着地の時刻（切り分け・直近 64 件）
 const mergeReq = { main: { sig: "", at: 0 }, base: { sig: "", at: 0 } };
 function requestWithAck(slot, sig, doRequest) {
 	const rq = mergeReq[slot];
 	if (sig === rq.sig && performance.now() - rq.at < MERGE_ACK_MS) return false;   // 同一要求の ack 待ち
 	doRequest();
+	if (slot === "main") { mergeLog.push({ sig: sig.slice(0, 40), n: sig.split("#")[0].split("|").length, reqAt: Math.round(performance.now()), ackAt: 0 }); if (mergeLog.length > 64) mergeLog.shift(); }   // 計測（要求→着地）
 	rq.sig = sig; rq.at = performance.now();
 	setTimeout(() => {   // ack 喪失→要求記憶を消して次フレームで出し直させる（静止中でも needsDraw で起こす）
 		const confirmed = slot === "main" ? readySig : baseSig;
@@ -1688,7 +1692,7 @@ let zoomAtBuild = -1, lastMainReqT = 0;   // lastMainReqT＝main merge 要求の
 // GPU全アップロードを毎秒~25回やり直していた（チルト75°・z8.46実測）。8Hzでも下地(base)が隙間を敷くので
 // 見た目の追従は落ちない。静止時は無条件（settle の鮮度確定を遅らせない）＝間引くのは移動中だけ。
 let lastMoveSwapT = 0;
-const MOVE_SWAP_MS = 125;
+const MOVE_SWAP_MS = 125, MOVE_SWAP_ZOOM_MS = 60, MAIN_REQ_GAP_MS = 60;   // MAIN_REQ_GAP_MS＝新 sig の merge 要求の最短間隔（旧 200＝届いたタイルが画面に出るまでの主因・merge 自体は数 ms・sig が同じなら要求しない）2026-09-30   // MOVE_SWAP_ZOOM_MS＝ズーム中（zoomStable でない間）の merge 要求の間隔＝新しい段のタイルは届き次第（止まるまで待たない・LOW_MEM は従来どおり止まってから）2026-09-30
 // ラベルはGLシーンと別経路（render worker のテキスト描画）＝丁目(z15.5)/空港マーク(z13)のz門で GL バッファを
 // 全再結合する理由は無い（本人指摘 2026-08-04「テキストにmergeは要らない」）。両者を merge シグネチャから外し、
 // ラベルだけ独立に更新＝ズームアウトで z15.5/z13 を跨いでも基図の書き直しゼロ。駅軌道(z14.5)は本物のGL層
@@ -1715,7 +1719,7 @@ function swapScene(order) {
 		sceneOrigin = [cam.center[0], cam.center[1]];
 	// merge 合流：新 sig の要求は最短200ms間隔（タイル流入中の細切れ merge 連発＝classic のパラパラ感の素）。
 	// needsDraw 維持で次フレーム再試行＝取りこぼしなし。同一 sig の ack 待ちは requestWithAck が従来どおり看る。
-	if (performance.now() - lastMainReqT < 200) { needsDraw = true; return; }
+	if (performance.now() - lastMainReqT < MAIN_REQ_GAP_MS) { needsDraw = true; return; }
 	if (!requestWithAck("main", sig, () => {
 		lastMainReqT = performance.now();
 		mergePendingZoom.set(sig, cam.zoom);   // ackが来たらこのzoomのシーンが乗る（ズームアウト退場判定の基準）
@@ -2063,7 +2067,9 @@ function render() {
 	dbgHost.__tileCache = tiles.cache;   // デバッグ：タイル台帳の生参照（status/tries/seen を界隈キーで覗く＝矩形再描画の切り分け用）
 	swapBase(coarseOrder);                          // 粗い下地は常に敷く（移動中も）＝先端の空白を無くす
 	if (!moving) swapScene(order);   // 静止フレームは毎回＝mainDesired 更新と settle 後の穴埋め merge を最速で
-	else if (zoomStable && performance.now() - lastMoveSwapT >= MOVE_SWAP_MS) { lastMoveSwapT = performance.now(); swapScene(order); }
+	// ズーム中も merge を出す（旧＝zoomStable の間だけ＝ホイールでズームを続けている間は新しい段のタイルが届いても止まるまで載らず、止まってから +200ms で「ポン」＝MapLibre は届いた順に描く）。
+	// 間隔は 250ms・sig が同じなら要求しない（swapScene）＝MapLibre の目盛りでは段が変わる時だけ。LOW_MEM は従来（止まってから）
+	else if (performance.now() - lastMoveSwapT >= (zoomStable ? MOVE_SWAP_MS : MOVE_SWAP_ZOOM_MS) && (zoomStable || !LOW_MEM)) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
 	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
 }
