@@ -21,6 +21,7 @@ import { prefetchZip, fillZips } from '../zipcode/lookup.js';   // 上位で小�
 import { PREFS, escHtml } from '../ui/shared.js';
 import { ctx } from '../ui/ctx.js';
 import { API_BASE } from '../ui/config.js';
+import { fetchSharedData } from 'gishub-jp/shared-data/index.js';
 
 // ---- constants -------------------------------------------------------
 
@@ -278,8 +279,7 @@ function _fullChartHtml(opts, year = '2020') {
 let _popHist = null, _popHistP = null;
 export function loadPopHistory() {
     if (_popHist) return Promise.resolve(_popHist);
-    if (!_popHistP) _popHistP = fetch(`${import.meta.env.BASE_URL}census/pop-history.json`)
-        .then(r => r.ok ? r.json() : null)
+    if (!_popHistP) _popHistP = fetchSharedData('census/pop-history.json', API_BASE, 'json')   // 正本は R2（gishub-jp/shared-data・2026-09-30）
         .then(j => { _popHist = j; return j; })
         .catch(e => { console.warn('[pop-history] load failed:', e); _popHistP = null; return null; });
     return _popHistP;

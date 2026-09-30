@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../public/census/pop-history.json');   // 1MB: バンドルせず静的配信でランタイムfetch
+const OUT   = join(__dir, '../shared-data/census/pop-history.json');   // 1MB: バンドルせず静的配信でランタイムfetch
 const PROXY = 'https://api.ortho-earth.com/proxy/?url=';
 
 // 都道府県順（01北海道〜47沖縄）の statInfId
