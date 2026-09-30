@@ -1,5 +1,5 @@
 /**
- * 国勢調査2015 e-Stat GIS T000848（男女別人口・世帯総数）全47都道府県 → public/census/2015-small.csv
+ * 国勢調査2015 e-Stat GIS T000848（男女別人口・世帯総数）全47都道府県 → shared-data/census/2015-small.csv
  *
  * 出力形式（1行 = 1小地域）: KEY_CODE,NAME,総人口,男,女
  *   KEY_CODE: 9桁=町丁・字等 / 11桁=基本単位区
@@ -16,9 +16,9 @@ import { dirname, join } from 'path';
 import AdmZip from 'adm-zip';
 
 const __dir = dirname(fileURLToPath(import.meta.url));
-const OUT   = join(__dir, '../public/census/2015-small.csv');
+const OUT   = join(__dir, '../shared-data/census/2015-small.csv');
 
-const outDir = join(__dir, '../public/census');
+const outDir = join(__dir, '../shared-data/census');
 if (!existsSync(outDir)) mkdirSync(outDir, { recursive: true });
 
 function decode(buf) {
@@ -88,7 +88,7 @@ async function main() {
     rows.sort();
     writeFileSync(OUT, rows.join('\n') + '\n');
     const size = (Buffer.byteLength(rows.join('\n')) / 1024 / 1024).toFixed(1);
-    console.log(`\n✅ ${totalSA} small areas → public/census/2015-small.csv (${size} MB)`);
+    console.log(`\n✅ ${totalSA} small areas → shared-data/census/2015-small.csv (${size} MB)`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

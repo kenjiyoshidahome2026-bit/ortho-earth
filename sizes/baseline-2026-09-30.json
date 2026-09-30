@@ -1,0 +1,859 @@
+{
+	"date": "2026-09-30",
+	"commit": "75f721e",
+	"site": {
+		"sumBytes": 133591297,
+		"uniqueBytes": 77272274
+	},
+	"apps": {
+		"japan-sdk": {
+			"files": 252,
+			"bytes": 5777777,
+			"gz": 2502226,
+			"kinds": {
+				"js": {
+					"files": 248,
+					"bytes": 5246756,
+					"gz": 2230323
+				},
+				"wasm": {
+					"files": 2,
+					"bytes": 357247,
+					"gz": 132172
+				},
+				"css": {
+					"files": 1,
+					"bytes": 42160,
+					"gz": 8117
+				},
+				"data": {
+					"files": 1,
+					"bytes": 131614,
+					"gz": 131614
+				}
+			},
+			"largestJs": [
+				[
+					"assets/egm96-30m-DjABrFO7.js",
+					596380,
+					321750
+				],
+				[
+					"assets/egm96-30m-BIIRIBPt.js",
+					596378,
+					321746
+				],
+				[
+					"ortho-japan.js",
+					534561,
+					232586
+				],
+				[
+					"assets/backend-BDyQ2gU9.js",
+					287622,
+					95997
+				],
+				[
+					"assets/backend-VC13CX3A.js",
+					231834,
+					76697
+				]
+			]
+		},
+		"japan-site": {
+			"files": 117,
+			"bytes": 7013830,
+			"gz": 3909453,
+			"kinds": {
+				"json": {
+					"files": 6,
+					"bytes": 3027670,
+					"gz": 687009
+				},
+				"img": {
+					"files": 7,
+					"bytes": 935196,
+					"gz": 935095
+				},
+				"js": {
+					"files": 93,
+					"bytes": 1091888,
+					"gz": 438547
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"html": {
+					"files": 6,
+					"bytes": 23268,
+					"gz": 11381
+				},
+				"data": {
+					"files": 4,
+					"bytes": 1792912,
+					"gz": 1778947
+				}
+			},
+			"largestJs": [
+				[
+					"japan/assets/scene-BWfdntFJ.js",
+					48708,
+					17259
+				],
+				[
+					"japan/assets/th-DErie-Sq.js",
+					43041,
+					13370
+				],
+				[
+					"japan/assets/bn-hh8H6b7M.js",
+					42938,
+					13301
+				],
+				[
+					"japan/assets/mesh-loaders-BPDqT0Aj.js",
+					42263,
+					13850
+				],
+				[
+					"japan/assets/hi-el6gUEOv.js",
+					42139,
+					13323
+				]
+			]
+		},
+		"globe": {
+			"files": 347,
+			"bytes": 6181336,
+			"gz": 2717103,
+			"kinds": {
+				"js": {
+					"files": 336,
+					"bytes": 5514973,
+					"gz": 2316015
+				},
+				"wasm": {
+					"files": 2,
+					"bytes": 357247,
+					"gz": 132172
+				},
+				"css": {
+					"files": 1,
+					"bytes": 42148,
+					"gz": 8104
+				},
+				"img": {
+					"files": 4,
+					"bytes": 255020,
+					"gz": 255020
+				},
+				"html": {
+					"files": 4,
+					"bytes": 11948,
+					"gz": 5792
+				}
+			},
+			"largestJs": [
+				[
+					"globe/assets/egm96-30m-DjABrFO7.js",
+					596333,
+					321683
+				],
+				[
+					"globe/assets/egm96-30m-BIIRIBPt.js",
+					596331,
+					321678
+				],
+				[
+					"globe/assets/globe-C_wD5fhx.js",
+					414957,
+					147159
+				],
+				[
+					"globe/assets/backend-C8kdN5qU.js",
+					287577,
+					95957
+				],
+				[
+					"globe/assets/backend-CoHic-9N.js",
+					231789,
+					76653
+				]
+			]
+		},
+		"world-lib": {
+			"files": 2,
+			"bytes": 129391,
+			"gz": 39625,
+			"kinds": {
+				"css": {
+					"files": 1,
+					"bytes": 22705,
+					"gz": 3848
+				},
+				"js": {
+					"files": 1,
+					"bytes": 106686,
+					"gz": 35777
+				}
+			},
+			"largestJs": [
+				[
+					"ortho-world.js",
+					106686,
+					35777
+				]
+			]
+		},
+		"world": {
+			"files": 297,
+			"bytes": 5707757,
+			"gz": 2433391,
+			"kinds": {
+				"data": {
+					"files": 1,
+					"bytes": 92,
+					"gz": 92
+				},
+				"js": {
+					"files": 291,
+					"bytes": 5416087,
+					"gz": 2280080
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 2,
+					"bytes": 64890,
+					"gz": 11945
+				},
+				"img": {
+					"files": 1,
+					"bytes": 81784,
+					"gz": 81784
+				},
+				"html": {
+					"files": 1,
+					"bytes": 2008,
+					"gz": 1016
+				}
+			},
+			"largestJs": [
+				[
+					"world/assets/egm96-30m-DjABrFO7.js",
+					596380,
+					321750
+				],
+				[
+					"world/assets/egm96-30m-BIIRIBPt.js",
+					596378,
+					321746
+				],
+				[
+					"world/assets/globe-DE54g4zz.js",
+					412099,
+					145882
+				],
+				[
+					"world/assets/backend-Di5P5UBL.js",
+					287622,
+					95995
+				],
+				[
+					"world/assets/backend-DihslR0-.js",
+					231834,
+					76695
+				]
+			]
+		},
+		"www": {
+			"files": 125,
+			"bytes": 1793662,
+			"gz": 1156552,
+			"kinds": {
+				"data": {
+					"files": 5,
+					"bytes": 12591,
+					"gz": 9912
+				},
+				"js": {
+					"files": 65,
+					"bytes": 562985,
+					"gz": 219443
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 1,
+					"bytes": 16682,
+					"gz": 3354
+				},
+				"img": {
+					"files": 26,
+					"bytes": 724209,
+					"gz": 724066
+				},
+				"json": {
+					"files": 25,
+					"bytes": 296854,
+					"gz": 129767
+				},
+				"html": {
+					"files": 2,
+					"bytes": 37445,
+					"gz": 11536
+				}
+			},
+			"largestJs": [
+				[
+					"assets/src-BuiOTWou.js",
+					81830,
+					27891
+				],
+				[
+					"assets/tileworker-BHqlulnJ.js",
+					49818,
+					18125
+				],
+				[
+					"assets/index-D1wOAdC3.js",
+					49679,
+					18141
+				],
+				[
+					"assets/pbf-base-CNWfj338.js",
+					31878,
+					10692
+				],
+				[
+					"assets/worker-CIpgn4Am.js",
+					31000,
+					10480
+				]
+			]
+		},
+		"equal": {
+			"files": 122,
+			"bytes": 1768767,
+			"gz": 748214,
+			"kinds": {
+				"js": {
+					"files": 117,
+					"bytes": 1500490,
+					"gz": 598815
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 1,
+					"bytes": 41950,
+					"gz": 8081
+				},
+				"img": {
+					"files": 2,
+					"bytes": 82133,
+					"gz": 82032
+				},
+				"html": {
+					"files": 1,
+					"bytes": 1298,
+					"gz": 812
+				}
+			},
+			"largestJs": [
+				[
+					"equal/assets/index-HU-q_4yb.js",
+					217862,
+					78530
+				],
+				[
+					"equal/assets/tileworker-Dgne8XHD.js",
+					48065,
+					17531
+				],
+				[
+					"equal/assets/th-DErie-Sq.js",
+					43041,
+					13370
+				],
+				[
+					"equal/assets/bn-hh8H6b7M.js",
+					42938,
+					13301
+				],
+				[
+					"equal/assets/hi-el6gUEOv.js",
+					42139,
+					13323
+				]
+			]
+		},
+		"geopbf-demo": {
+			"files": 332,
+			"bytes": 5804062,
+			"gz": 2474849,
+			"kinds": {
+				"data": {
+					"files": 2,
+					"bytes": 114,
+					"gz": 134
+				},
+				"js": {
+					"files": 321,
+					"bytes": 5509123,
+					"gz": 2319606
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 2,
+					"bytes": 54633,
+					"gz": 11108
+				},
+				"img": {
+					"files": 4,
+					"bytes": 82653,
+					"gz": 82465
+				},
+				"json": {
+					"files": 1,
+					"bytes": 11974,
+					"gz": 1835
+				},
+				"html": {
+					"files": 1,
+					"bytes": 2669,
+					"gz": 1227
+				}
+			},
+			"largestJs": [
+				[
+					"assets/egm96-30m-DjABrFO7.js",
+					596333,
+					321683
+				],
+				[
+					"assets/egm96-30m-BIIRIBPt.js",
+					596331,
+					321678
+				],
+				[
+					"assets/globe-XobeZCG2.js",
+					415251,
+					147203
+				],
+				[
+					"assets/backend-BCV4OU2e.js",
+					287577,
+					95957
+				],
+				[
+					"assets/backend-iqaLxWqp.js",
+					231789,
+					76653
+				]
+			]
+		},
+		"solar": {
+			"files": 97,
+			"bytes": 6801928,
+			"gz": 6401206,
+			"kinds": {
+				"data": {
+					"files": 1,
+					"bytes": 92,
+					"gz": 92
+				},
+				"img": {
+					"files": 17,
+					"bytes": 6116780,
+					"gz": 6116679
+				},
+				"js": {
+					"files": 77,
+					"bytes": 539821,
+					"gz": 224630
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"html": {
+					"files": 1,
+					"bytes": 2339,
+					"gz": 1331
+				}
+			},
+			"largestJs": [
+				[
+					"solar/assets/index-DK54RcPV.js",
+					174078,
+					62946
+				],
+				[
+					"solar/assets/pbf-base-CNWfj338.js",
+					31878,
+					10692
+				],
+				[
+					"solar/assets/pbf-BGrP8guT.js",
+					17315,
+					6217
+				],
+				[
+					"solar/assets/parquet-DGheDEmq.js",
+					16273,
+					6379
+				],
+				[
+					"solar/assets/tile-worker-G5KB4FTF.js",
+					14542,
+					6024
+				]
+			]
+		},
+		"census2020": {
+			"files": 322,
+			"bytes": 37647906,
+			"gz": 14199533,
+			"kinds": {
+				"json": {
+					"files": 8,
+					"bytes": 6339101,
+					"gz": 1511749
+				},
+				"img": {
+					"files": 8,
+					"bytes": 1016980,
+					"gz": 1016879
+				},
+				"js": {
+					"files": 296,
+					"bytes": 9114244,
+					"gz": 3464775
+				},
+				"css": {
+					"files": 2,
+					"bytes": 59514,
+					"gz": 12026
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"data": {
+					"files": 6,
+					"bytes": 20968458,
+					"gz": 8132429
+				},
+				"html": {
+					"files": 1,
+					"bytes": 6713,
+					"gz": 3201
+				}
+			},
+			"largestJs": [
+				[
+					"japan/census2020/assets/index-B825tD9a.js",
+					3762938,
+					1213665
+				],
+				[
+					"japan/census2020/assets/egm96-30m-DjABrFO7.js",
+					596333,
+					321683
+				],
+				[
+					"japan/census2020/assets/egm96-30m-BIIRIBPt.js",
+					596331,
+					321678
+				],
+				[
+					"japan/census2020/assets/app-B-6YMUT3.js",
+					419335,
+					149744
+				],
+				[
+					"japan/census2020/assets/backend-DSVJ44oM.js",
+					287577,
+					95960
+				]
+			]
+		},
+		"gishub-jp": {
+			"files": 376,
+			"bytes": 41638554,
+			"gz": 13818938,
+			"kinds": {
+				"data": {
+					"files": 6,
+					"bytes": 20910655,
+					"gz": 8088591
+				},
+				"js": {
+					"files": 361,
+					"bytes": 17097887,
+					"gz": 4746909
+				},
+				"css": {
+					"files": 2,
+					"bytes": 90116,
+					"gz": 16689
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"img": {
+					"files": 3,
+					"bytes": 82394,
+					"gz": 82248
+				},
+				"json": {
+					"files": 2,
+					"bytes": 3311431,
+					"gz": 824740
+				},
+				"html": {
+					"files": 1,
+					"bytes": 3175,
+					"gz": 1287
+				}
+			},
+			"largestJs": [
+				[
+					"assets/ui-nqcu3UeT.js",
+					2664713,
+					1004171
+				],
+				[
+					"assets/ui-DNqns0MY.js",
+					1839920,
+					251303
+				],
+				[
+					"assets/40-C3KNrGpr.js",
+					1385291,
+					229903
+				],
+				[
+					"assets/13-DxrtE7A6.js",
+					1067921,
+					136867
+				],
+				[
+					"assets/egm96-30m-DjABrFO7.js",
+					596333,
+					321683
+				]
+			]
+		},
+		"nl": {
+			"files": 315,
+			"bytes": 11377023,
+			"gz": 5801935,
+			"kinds": {
+				"json": {
+					"files": 6,
+					"bytes": 3027670,
+					"gz": 687009
+				},
+				"img": {
+					"files": 8,
+					"bytes": 1016980,
+					"gz": 1016879
+				},
+				"js": {
+					"files": 294,
+					"bytes": 5346559,
+					"gz": 2248878
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 1,
+					"bytes": 42148,
+					"gz": 8104
+				},
+				"html": {
+					"files": 1,
+					"bytes": 7858,
+					"gz": 3644
+				},
+				"data": {
+					"files": 4,
+					"bytes": 1792912,
+					"gz": 1778947
+				}
+			},
+			"largestJs": [
+				[
+					"nl/assets/egm96-30m-DjABrFO7.js",
+					596333,
+					321683
+				],
+				[
+					"nl/assets/egm96-30m-BIIRIBPt.js",
+					596331,
+					321678
+				],
+				[
+					"nl/assets/index-D7PGI99Q.js",
+					420309,
+					150186
+				],
+				[
+					"nl/assets/backend-BkuwwSSt.js",
+					287577,
+					95960
+				],
+				[
+					"nl/assets/backend-DUTrOuah.js",
+					231789,
+					76656
+				]
+			]
+		},
+		"uploader": {
+			"files": 71,
+			"bytes": 1949304,
+			"gz": 688917,
+			"kinds": {
+				"js": {
+					"files": 68,
+					"bytes": 1800976,
+					"gz": 628628
+				},
+				"wasm": {
+					"files": 1,
+					"bytes": 142896,
+					"gz": 58474
+				},
+				"css": {
+					"files": 1,
+					"bytes": 5079,
+					"gz": 1559
+				},
+				"html": {
+					"files": 1,
+					"bytes": 353,
+					"gz": 256
+				}
+			},
+			"largestJs": [
+				[
+					"assets/index-8ayUh5ZL.js",
+					1167828,
+					377966
+				],
+				[
+					"assets/lerc-B6fKDJ2R.js",
+					96998,
+					37560
+				],
+				[
+					"assets/zstd-i4Jwubnx.js",
+					81068,
+					32294
+				],
+				[
+					"assets/tileworker-BHqlulnJ.js",
+					49866,
+					18168
+				],
+				[
+					"assets/pako.esm-DbNwwHiY.js",
+					46502,
+					14504
+				]
+			]
+		}
+	},
+	"packages": {
+		"altpbf": {
+			"tgz": 5761,
+			"unpacked": 10989,
+			"files": 4
+		},
+		"@ortho-earth/columnar": {
+			"tgz": 41458,
+			"unpacked": 110150,
+			"files": 18
+		},
+		"common": {
+			"tgz": 31707,
+			"unpacked": 90725,
+			"files": 25
+		},
+		"@ortho-earth/ephem": {
+			"tgz": 28465,
+			"unpacked": 68437,
+			"files": 7
+		},
+		"geoedit": {
+			"tgz": 194358,
+			"unpacked": 601043,
+			"files": 50
+		},
+		"geopbf": {
+			"tgz": 447125,
+			"unpacked": 1218919,
+			"files": 150
+		},
+		"glbconv": {
+			"tgz": 15481,
+			"unpacked": 41239,
+			"files": 8
+		},
+		"@ortho-earth/globe": {
+			"tgz": 1457779,
+			"unpacked": 3930759,
+			"files": 207
+		},
+		"himekuri": {
+			"tgz": 54956,
+			"unpacked": 113200,
+			"files": 15
+		},
+		"native-bucket": {
+			"tgz": 13206,
+			"unpacked": 31268,
+			"files": 8
+		},
+		"@ortho-earth/core": {
+			"tgz": 903281,
+			"unpacked": 2183876,
+			"files": 83
+		},
+		"quiet-mono": {
+			"tgz": 25144,
+			"unpacked": 74416,
+			"files": 5
+		},
+		"@ortho-earth/tile-formats": {
+			"tgz": 13124,
+			"unpacked": 30926,
+			"files": 13
+		}
+	}
+}
