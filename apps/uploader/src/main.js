@@ -25,8 +25,8 @@ import { poi } from "./poi/bake.js";
 import { belowSeaLand } from "./terrain/belowsea.js";
 import { worldAtlas } from "./terrain/worldatlas.js";
 import { worldUI } from "./world/index.js";
-import { modelsUI } from "./models.js";
-import { sharedData } from "./shared-data.js";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
+import { modelsUI } from "./models.js";   // 名所 3D 模型（GLB）の一括アップロード → GIS/models（/japan/models.html の台帳と突き合わせ）
+import { sharedData } from "./shared-data.js";   // gishub-jp・census2020 の共有データ → GIS/shared（manifest のキー）
 
 const API_BASE = import.meta.env.DEV ? `${location.origin}/api` : "https://api.ortho-earth.com";
 // 書込キーはソースに置かない（過去に履歴掃除で "***REMOVED***" 化＝無効キーで PUT が黙って死ぬ事故）。

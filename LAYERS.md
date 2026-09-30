@@ -25,7 +25,16 @@
    漢字の部分一致（日本・東京・地理院…）・**和文**（かな漢字を含む文字列 1 か所＝1。地域の語彙はほぼ和文で入る）・地域由来の定数（0.819＝cos35°）。
    地域でない和文（天体の和名・診断文）も数に入る＝許可表で「言語（地域ではない）」と書き分ける。
 2. **消費者は公開面（`packages/globe/globe.d.ts`＝SDK の `lib/ortho-japan.d.ts` も同じ物）だけを使う**。`map.estat` のような地域の口は japan の拡張面であって globe の口ではない。`dbgHost`／`__*` はアプリから触らない。
-3. **内製アプリはエンジンを自分の束に焼く**（本番だけ `/japan/lib/` を実行時に食う二重構成はしない）。japan を出さなくても各アプリが自分の deploy で進み、japan を出しても他が変わらない。
+3. **地域の無い内製アプリは共有エンジンを版つきの URL で読む**（本人裁定 2026-09-30・旧＝「エンジンを自分の束に焼く」2026-09-23）。
+   `@ortho-earth/globe` を lib×ES で 1 度だけ焼き（`apps/ortho-globe/vite.engine.config.js`）、`www.ortho-earth.com/globe/engine/<版>/` に置く。
+   `<版>`＝出力の中身のハッシュ＝不変（immutable）。各アプリの build は `sharedEngine()`（`packages/globe/scripts/lib/shared-engine.mjs`）で
+   エンジン・i18n・core・geopbf の 4 つを外に出し、その時の `<版>` の URL を指す（dev はソース直のまま）。同じ URL＝ブラウザのキャッシュがアプリを跨ぐ。
+   4 つに限る訳＝状態（言語・楕円体の切替・worker の口・既定の bucket）を 1 つの実体に保つため。状態の無い部品（ephem・common 等）は従来どおり各アプリの束。
+   **前の版を指すアプリも壊れない**：ortho-globe の assets には今の版だけが入る。assets に無い版の入口（globe/i18n/core/geopbf.js・globe.css）は
+   ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
+   前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
+   いま共有エンジンを読むのは ortho-globe・world・geopbf-demo。japan 系（japan・census2020・nl・gishub-jp）は地域パックとの二段が要る＝次の段（計画 6c・6d）。
+   本番だけ `/japan/lib/` を実行時に食う二重構成（japan のサイト殻）は従来どおり japan の中だけ。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
 5. 地球儀が要るアプリは `createGlobe(opts)` を使う（`orthoJapan()` は「globe＋日本の申告」の薄い包み）。
 
