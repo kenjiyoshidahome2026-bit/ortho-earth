@@ -70,3 +70,43 @@ for (const b of document.querySelectorAll("nav button")) b.onclick = () => {
 };
 </script></body></html>`;
 }
+
+// 丸（標本点）の無い一覧＝人が見比べる用（2026-09-30 本人「比較の丸を抜いて・リンク先を入れれば比較はユーザーでできる」）。
+// 1 例＝こちらの写し＋段＋コメント＋リンク（公式サイトの例・本物をこの走らせ台で開く・こちらで開く）。本物の写しは載せない（公式の頁で見る）
+export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, base = "http://localhost:5253" }) {
+	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
+	const card = r => {
+		const g = r.grade, lvl = g.level == null ? "分母の外" : LEVEL[g.level], note = notes[r.name];
+		return `<article class="card" data-level="${g.level ?? "x"}" data-cat="${esc(r.category)}" data-note="${note ? 1 : 0}">
+<header><h2 id="${esc(r.name)}">${esc(r.title || r.name)}</h2><span class="lv lv${g.level ?? "x"}">${esc(lvl)}</span><span class="muted">${esc(r.category)}</span></header>
+<p class="links"><a href="https://maplibre.org/maplibre-gl-js/docs/examples/${esc(r.name)}/" target="_blank" rel="noopener">公式サイトの例 ↗</a> <a href="${esc(base)}/ref/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener">本物をここで開く ↗</a> <a href="${esc(base)}/ortho/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener">こちらで開く ↗</a></p>
+${note ? `<p class="note">${esc(note)}</p>` : ""}
+<figure><a href="${esc(base)}/ortho/test/examples/${esc(r.name)}.html" target="_blank" rel="noopener"><img loading="lazy" src="../../runs/${esc(orthoLabel)}/ortho/${esc(r.name)}.full.png" alt="${esc(r.name)}"></a><figcaption>こちら（MapLibre の口・runs/${esc(orthoLabel)}）</figcaption></figure>
+</article>`;
+	};
+	return `<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre の公式例をこちらで</title>
+<style>
+:root{--bg:#f6f5f2;--fg:#1d1d1b;--muted:#6b6a66;--card:#fff;--line:#dedcd6;--l0:#d23c3c;--l1:#d08a1c;--l2:#2f6fe0;--l3:#1a9e5c}
+@media (prefers-color-scheme:dark){:root{--bg:#141413;--fg:#ecebe6;--muted:#9c9a93;--card:#1e1e1c;--line:#34332f}}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,"Hiragino Sans","Noto Sans JP",sans-serif}
+main{max-width:1200px;margin:0 auto;padding:16px} h1{font-size:20px;margin:8px 0} h2{font-size:15px;margin:0} .muted{color:var(--muted)}
+nav{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0} nav button,nav select{border:1px solid var(--line);background:var(--card);color:var(--fg);border-radius:6px;padding:4px 10px;cursor:pointer} nav button.on{outline:2px solid var(--l2)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,360px),1fr));gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px}
+.card header{display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.lv{font-size:12px;padding:1px 7px;border-radius:10px;color:#fff;background:var(--l1)} .lv0{background:var(--l0)} .lv1{background:var(--l1)} .lv2{background:var(--l2)} .lv3{background:var(--l3)} .lvx{background:var(--muted)}
+.links a{margin-right:10px} .note{background:#fff7e0;border-left:4px solid #d08a1c;padding:6px 10px;border-radius:4px;font-size:13px} @media (prefers-color-scheme:dark){.note{background:#2b2414}}
+figure{margin:0} figure img{width:100%;aspect-ratio:4/3;object-fit:cover;border-radius:6px;background:#000;display:block} figcaption{font-size:12px;color:var(--muted)}
+</style></head><body><main>
+<h1>MapLibre GL JS の公式例 139 本を、同じコードのままこちらで</h1>
+<p class="muted">こちらの写し＝runs/${esc(orthoLabel)}（本物＝runs/${esc(refLabel)} の走りと同じ録りの網）・${esc(when)}。写しの上の丸（標本点）は無し＝見比べは「公式サイトの例」「本物をここで開く」「こちらで開く」のリンクで。「ここで開く」は <code>npm run verify:examples -- --serve</code> で走らせ台を立てている間だけ（${esc(base)}）。</p>
+<nav><button data-f="all" class="on">全部</button>${[3, 2, 1, 0].map(l => `<button data-f="l${l}">${LEVEL[l]}</button>`).join("")}<button data-f="lx">分母の外</button><button data-f="note">コメントあり</button>
+<select id="cat"><option value="">全ての分類</option>${cats.map(c => `<option>${esc(c)}</option>`).join("")}</select></nav>
+<div class="grid">${rows.map(card).join("\n")}</div>
+</main><script>
+let f = "all", cat = "";
+const apply = () => { for (const c of document.querySelectorAll(".card")) c.hidden = !((f === "all" || (f === "note" && c.dataset.note === "1") || f === "l" + c.dataset.level) && (!cat || c.dataset.cat === cat)); };
+for (const b of document.querySelectorAll("nav button")) b.onclick = () => { document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b)); f = b.dataset.f; apply(); };
+document.getElementById("cat").onchange = e => { cat = e.target.value; apply(); };
+</script></body></html>`;
+}
