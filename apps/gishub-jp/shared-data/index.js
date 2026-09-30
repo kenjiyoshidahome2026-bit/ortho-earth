@@ -1,7 +1,7 @@
 // 重いデータ（小地域 CSV 2 本・pop-history.json・area-zip.json＝計約 22MB）の置き場＝R2（api.ortho-earth.com/bucket）。
 // 2026-09-30（縮小計画 項目6b・本人裁定「R2 に置く」）：それまで gishub-jp と census2020 が同じファイルを各自の配信物に抱えていた。
 // 正本は このディレクトリ（census/・zipcode/）＝scripts/build-*.mjs が書く。R2 のキーは中身のハッシュ入り（manifest.json）＝
-// 中身が変わればキーが変わる＝バケツの GET が immutable で返せる（workers/bucket.js）。更新の手順＝scripts/shared-data.mjs --upload。
+// 中身が変わればキーが変わる＝バケツの GET が immutable で返せる（workers/bucket.js）。更新の手順＝scripts/shared-data.mjs で manifest → npm run shared-data -w uploader で R2 へ。
 import MANIFEST from "./manifest.json" with { type: "json" };
 
 export const sharedDataUrl = (name, apiBase) => {
