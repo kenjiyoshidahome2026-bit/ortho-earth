@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite';
 import wasm from 'vite-plugin-wasm';
 import { resolve } from 'node:path';
+import { sharedEngine } from '../../packages/globe/scripts/lib/shared-engine.mjs';   // 共有エンジン（LAYERS.md 掟 3）
 
-// 地球儀＝ortho-japan エンジン（gint v2）＝dev も本番も ../ortho-japan/app.js をソース直 import＝同梱（A 裁定 2026-09-23・external 無し）。
+// 地球儀＝../ortho-japan/app.js（orthoJapan＝globe＋jp パック）。build はエンジン（globe・i18n・core・geopbf）を共有エンジンの版つき URL から読む
+// （2026-09-30・LAYERS.md 掟 3）＝束に残るのは jp パックと gishub の殻。dev はソース直のまま。
 // 実行時アセット（plateau-sets.json 等）は ortho-japan の public が正本：本番＝/japan/（japan Worker が配る）・dev＝/@fs で直読み。
 const ROOT = resolve(import.meta.dirname, '../..');
 const JAPAN_PUBLIC = resolve(import.meta.dirname, '../ortho-japan/public');
@@ -14,7 +16,7 @@ const noChunkOptimization = { experimental: { chunkOptimization: false } };
 
 export default defineConfig(({ command }) => ({
 	base: '/gishub-jp/',
-	plugins: [wasm()],
+	plugins: [sharedEngine(), wasm()],
 	define: { __JAPAN_ASSETS__: JSON.stringify(command === 'serve' ? `/gishub-jp/@fs${JAPAN_PUBLIC}/` : '/japan/') },
 	worker: { format: 'es', rolldownOptions: noChunkOptimization },
 	// sourcemap: 'hidden' = .map は生成するが JS 末尾に参照 URL を書かない（=デプロイしても実質非公開、
