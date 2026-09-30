@@ -7,6 +7,7 @@ Ortho Earth reads the open data of the Earth in your own browser — on a round 
 ## Build with it
 
 - [Build with Ortho Earth](https://www.ortho-earth.com/start.md): Step-by-step recipe for putting the globe in your own page — with Vite (npm `@ortho-earth/globe`) or without a bundler (npm `@ortho-earth/japan`). Written for people and AI coding agents; every step is run by an automated test against the published packages.
+- [MapLibre GL JS examples on ortho](https://www.ortho-earth.com/maplibre/): Ortho Earth is MapLibre GL JS compatible — `import * as maplibregl from "@ortho-earth/globe/maplibre"` runs existing MapLibre code on the globe (recipe section A8). The page lists all 139 official MapLibre GL JS examples running unchanged, each with its source (in the ortho form), how closely it matches MapLibre, and a Run button.
 
 ## Apps
 

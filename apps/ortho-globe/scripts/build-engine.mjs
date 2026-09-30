@@ -21,5 +21,5 @@ const version = h.digest("hex").slice(0, 10);
 
 for (const d of readdirSync(OUT)) if (d !== "_build" && d !== "current.json") rmSync(path.join(OUT, d), { recursive: true, force: true });   // 手元は今の版だけ（旧版は本番が持つ）
 renameSync(TMP, path.join(OUT, version));
-writeFileSync(path.join(OUT, "current.json"), JSON.stringify({ version, entries: ["globe", "i18n", "core", "geopbf"], files }, null, "\t") + "\n");
+writeFileSync(path.join(OUT, "current.json"), JSON.stringify({ version, entries: ["globe", "maplibre", "i18n", "core", "geopbf"], files }, null, "\t") + "\n");
 console.log(`engine ${version}（${files.length} files）→ dist/engine/${version}/`);

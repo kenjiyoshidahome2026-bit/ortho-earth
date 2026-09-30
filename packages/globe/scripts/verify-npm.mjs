@@ -50,6 +50,7 @@ const block = (head, lang, nth = 0) => {
 	if (!bs[nth]) fail(`start.md の「${head}」に ${lang} のコード片が無い`); return bs[nth];
 };
 const cfg = block("### A2", "js"), html = block("### A3", "html"), mainA3 = block("### A3", "js"), a5 = block("### A5", "js"), a6 = block("### A6", "js");
+const a8 = block("### A8", "js");   // MapLibre GL JS のコードをそのまま（@ortho-earth/globe/maplibre・2026-10-01）＝2 枚目の頁 maplibre.html で走らせる
 const names = new Set(); const code = [];
 for (const b of [mainA3, a5, a6]) for (const line of b.split("\n")) {
 	const m = /^import \{([^}]+)\} from "@ortho-earth\/globe";$/.exec(line.trim());
@@ -59,8 +60,8 @@ writeFileSync(path.join(WORK, "vite.config.js"), `
 import { writeFileSync } from "node:fs";
 const beacon = { name: "beacon", configureServer(s) { s.middlewares.use((req, res, next) => {
 	if (!req.url?.startsWith("/__result")) return next();
-	writeFileSync(${JSON.stringify(RESULT)}, new URL(req.url, "http://x").searchParams.get("t") || ""); res.statusCode = 204; res.end(); }); } };
-` + cfg.replace("export default {", "export default {\n  plugins: [beacon],"));
+	const q = new URL(req.url, "http://x").searchParams; writeFileSync(${JSON.stringify(RESULT)} + (q.get("k") ? "." + q.get("k") : ""), q.get("t") || ""); res.statusCode = 204; res.end(); }); } };
+` + cfg.replace("export default {", "export default {\n  plugins: [beacon],\n  build: { rollupOptions: { input: { main: \"index.html\", maplibre: \"maplibre.html\" } } },"));
 writeFileSync(path.join(WORK, "index.html"), html);
 const mainPath = /src="\/([^"]+\.js)"/.exec(html)?.[1] || fail("start.md の index.html に script の src が無い");
 writeFileSync(path.join(WORK, mainPath), `import { ${[...names].join(", ")} } from "@ortho-earth/globe";
@@ -82,6 +83,24 @@ ${code.join("\n")}
   const checks = { layer: !!map.getLayer("cities"), marker: document.querySelectorAll("[class*=marker]").length > 0, zoom: Math.abs(map.getZoom() - 12) < 0.3, center: !!c, proj, ja, errors: errors.length };
   report((Object.values(checks).every(v => v === true || v === 0) ? "PASS " : "FAIL ") + JSON.stringify(checks) + (errors.length ? " " + errors.slice(0, 3).join(" | ") : ""));
 } catch (e) { report("FAIL " + (e?.stack || e)); }
+`);
+// 2 枚目の頁＝start.md の A8（MapLibre GL JS のコードを import だけ替えて）。容れ物は A3 の index.html と同じ #map
+writeFileSync(path.join(WORK, "maplibre.html"), html.replace(/src="\/[^"]+\.js"/, 'src="/src/maplibre.js"'));
+writeFileSync(path.join(WORK, "src/maplibre.js"), `const errors = [];
+const oErr = console.error; console.error = (...a) => { errors.push(a.map(String).join(" ").slice(0, 200)); oErr(...a); };
+addEventListener("error", e => errors.push("error: " + (e.message || e)));
+addEventListener("unhandledrejection", e => errors.push("rejection: " + (e.reason?.message || e.reason)));
+const report = t => { document.title = t; fetch("/__result?k=ml&t=" + encodeURIComponent(t)).catch(() => {}); };
+setTimeout(() => report("FAIL no load event in 60 s " + errors.slice(0, 3).join(" | ")), 60000);
+// ---- ここから start.md のコード片（A8）----
+${a8.replace(/^const map = /m, "const map = window.__ml = ")}
+// ---- ここまで ----
+map.on("load", async () => {
+  await new Promise(r => setTimeout(r, 3000));
+  const c = map.getCenter(), layers = map.getStyle()?.layers?.length || 0;
+  const checks = { load: true, layers: layers > 0, citiesLayer: !!map.getLayer("cities"), center: Math.abs(c.lng - 139.77) < 0.5 && Math.abs(c.lat - 35.68) < 0.5, errors: errors.length };
+  report((Object.values(checks).every(v => v === true || v === 0) ? "PASS " : "FAIL ") + JSON.stringify(checks) + (errors.length ? " " + errors.slice(0, 3).join(" | ") : ""));
+});
 `);
 console.log(FROM_NPM ? "… npm install（雛形の依存＋npm の @ortho-earth/globe）" : "… npm install（雛形の依存＋手元の core・globe の tarball）");
 execFileSync("npm", ["install", "--no-audit", "--no-fund", "--prefer-online"], { cwd: WORK, stdio: ["ignore", "ignore", "inherit"] });   // A1 の npm install（雛形の vite）
@@ -114,17 +133,18 @@ const results = [];
 console.log(`… vite ${viteVer} build`);
 try { execFileSync(vite, ["build"], { cwd: WORK, stdio: ["ignore", "ignore", "pipe"] }); }
 catch (e) { fail(`vite build が失敗：\n${String(e.stderr || e).split("\n").filter(l => !/^\s+at /.test(l)).slice(0, 15).join("\n")}`); }
-let buildResult = null;
+let buildResult = null, buildResultMl = null;
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".wasm": "application/wasm", ".png": "image/png", ".webp": "image/webp" };
 const srv = createServer((req, res) => {
 	const u = new URL(req.url, "http://x");
-	if (u.pathname === "/__result") { buildResult = u.searchParams.get("t"); res.statusCode = 204; return res.end(); }
+	if (u.pathname === "/__result") { if (u.searchParams.get("k") === "ml") buildResultMl = u.searchParams.get("t"); else buildResult = u.searchParams.get("t"); res.statusCode = 204; return res.end(); }
 	let f = path.join(WORK, "dist", decodeURIComponent(u.pathname));
 	if (existsSync(f) && statSync(f).isDirectory()) f = path.join(f, "index.html");
 	if (!existsSync(f)) { res.statusCode = 404; return res.end(); }
 	res.setHeader("content-type", MIME[path.extname(f)] || "application/octet-stream"); res.end(readFileSync(f));
 }).listen(PORT);
 results.push(["build", await runPage(`http://localhost:${PORT}/?lang=ja&gl2=1`, () => buildResult)]);
+results.push(["build maplibre", await runPage(`http://localhost:${PORT}/maplibre.html?gl2=1`, () => buildResultMl)]);
 srv.close();
 
 // 3b) dev（解決の経路が build と別物＝片方だけ割れる型がある）
@@ -133,6 +153,7 @@ rmSync(RESULT, { force: true });
 const dev = spawn(vite, ["--port", String(DEVPORT), "--strictPort"], { cwd: WORK, stdio: "ignore" }); kids.push(dev);
 for (let i = 0; i < 60; i++) { try { if ((await fetch(`http://localhost:${DEVPORT}/`)).ok) break; } catch {} await sleep(250); }
 results.push(["dev", await runPage(`http://localhost:${DEVPORT}/?lang=ja&gl2=1`, () => existsSync(RESULT) ? readFileSync(RESULT, "utf8") : null)]);
+results.push(["dev maplibre", await runPage(`http://localhost:${DEVPORT}/maplibre.html?gl2=1`, () => existsSync(RESULT + ".ml") ? readFileSync(RESULT + ".ml", "utf8") : null)]);
 dev.kill("SIGKILL");
 
 for (const [k, r] of results) console.log(`${r.startsWith("PASS") ? "ok" : "NG"}:${k}  ${r}`);
