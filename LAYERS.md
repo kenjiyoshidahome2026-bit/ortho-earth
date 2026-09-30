@@ -33,11 +33,13 @@
    **前の版を指すアプリも壊れない**：ortho-globe の assets には今の版だけが入る。assets に無い版の入口（globe/i18n/core/geopbf.js・globe.css）は
    ortho-globe の Worker が今の版の同じ名前へ 302 で送る（`deploy-worker.js`・R2 に控えは置かない＝本人 2026-09-30）。ゆえに ortho-globe を先に出しても、
    前の版を指す他のアプリは今のエンジンで動く。入口の外の口（createGlobe の opts 等）を変えた時は、他のアプリも続けて出し直す。
-   いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp（後の 3 つは 2026-09-30）。
+   いま共有エンジンを読むのは ortho-globe・world・geopbf-demo・census2020・ortho-nl・gishub-jp・japan のサイト（後の 4 つは 2026-09-30）。
    japan 系は**二段**＝共有エンジン（地域を知らない）＋各アプリの束に入る `orthoJapan`（`apps/ortho-japan/app.js`）と jp パック。
    地域パックの worker は共有エンジンの入口に差し込まない＝自前の入口（e-Stat＝`packages/jp/src/estat-worker.js`）。
    `orthoJapan` は `assetBase` の既定を自分の束の `BASE_URL` にする（エンジンの束の BASE_URL は別物）。
-   japan のサイト殻（本番だけ `/japan/lib/` の SDK を実行時に食う二重構成）は従来どおり＝SDK は外へ配る物なので自己完結のまま。
+   japan のサイト殻も同じ二段（本人裁定「A」2026-09-30・旧＝本番だけ `/japan/lib/` の SDK を実行時に食う二重構成）。
+   SDK（`/japan/lib/`・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く（サイトはもう食わない）。
+   japan の Service Worker は `/globe/engine/` も cache-first で握る（版＝不変・旧版→今の版の 302 応答は掴まない）。
 4. **core／globe の変更は関門＋d.ts＋版**（verify:webgpu／verify:ui／型の更新／SDK の版上げ）。apps は自由＝各アプリの verify:prod だけ。
 5. 地球儀が要るアプリは `createGlobe(opts)` を使う（`orthoJapan()` は「globe＋日本の申告」の薄い包み）。
 

@@ -1,21 +1,9 @@
 // スタンドアロン /japan/ サイトの配線（index.html のインライン script から移設 2026-08-20）。
-// ★二重構成の分岐点＝ここ1か所：
-//   dev（vite dev）        … ./app.js（ソース直＝HMR・編集即反映＝従来どおり）
-//   本番（vite build）     … /japan/lib/ortho-japan.js（SDK配布物そのもの＝pack:sdk が配る物と同一バイト列）
-// 仕組み＝import.meta.env.PROD は build 時に定数化 → 死んだ側の分岐は rollup が丸ごと落とす
-//   （＝本番バンドルに app.js は入らない・dev は lib を見ない）。verify:prod がこの確約を毎回検査する。
-// lib のURLは**変数経由**で import＝vite の import 解析（devでもリテラルは解決を試みて 404 で落ちる）を
-// 素通りさせ、実行時にブラウザが /japan/lib/ から取る。@vite-ignore は「解析しない」警告の抑止。
-let engineP;
-if (import.meta.env.PROD) {
-	// CSS は lib 側で抽出されている＝ページが自分で貼る（dev は app.js の import が面倒を見る）。
-	// #boot（不透明カバー）が初回フレームまで全面を覆う＝CSS到着の遅速は見えない。
-	document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
-	const LIB = "/japan/lib/ortho-japan.js";
-	engineP = import(/* @vite-ignore */ LIB);
-} else {
-	engineP = import("./app.js");
-}
+// エンジン＝./app.js（orthoJapan＝globe＋jp パック）。dev はソース直、本番の build は globe・i18n・core・geopbf を
+// 共有エンジン（/globe/engine/<版>/・ortho-globe の Worker が配る）から読む＝/globe/ や /world/ とブラウザのキャッシュを分かち合う
+// （2026-09-30・本人裁定「A」・LAYERS.md 掟 3）。旧＝本番だけ /japan/lib/ の SDK 配布物を実行時に食う二重構成。
+// SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
+const engineP = import("./app.js");
 // 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.jsは触らない。
 const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
 	requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -23,7 +11,7 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 		if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
 	}));
 };
-// assetBase＝自分の配信ベース（dev/本番とも /japan/）。lib は base:"/" で焼かれている＝ここで指し直すのが埋め込み作法どおり。
+// assetBase＝自分の配信ベース（dev/本番とも /japan/）。
 // top-level await は使わない＝既定ビルドターゲット(es2020)の掟。then連鎖で同じ流れ。
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
