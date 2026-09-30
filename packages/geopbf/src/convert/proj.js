@@ -3,6 +3,7 @@
 //   ・GEOGCS: WGS84 / JGD2011 / ITRF / ETRS89 / NAD83 / GDA 系＝そのまま経緯度（測地系差は m 未満〜1m 級）
 //   ・PROJCS Transverse_Mercator（平面直角座標系 I〜XIX・UTM・Gauss-Krüger）＝Krüger 級数の逆変換（GSI の式・mm 級）
 //   ・PROJCS Mercator_Auxiliary_Sphere / Popular Visualisation Pseudo Mercator（Web メルカトル）＝球の逆変換
+//   ・PROJCS Lambert_Conformal_Conic（1SP/2SP＝米国 State Plane の多く）・Albers_Conic_Equal_Area（2026-09-30・#178＝LAS/COPC の座標系）
 //   ・測地系（convert/datum.js）: 日本測地系（GCS_Tokyo / D_Tokyo）→ JGD2000（格子で 0.2 m 級・無ければ Helmert 10 m 級）、
 //     JGD2000 → JGD2011（PatchJGD の格子を渡した時だけ・対象域外は無変換）。経緯度でも平面直角でも同じように後段で効く
 //   crsFromWKT(wkt, { datum }) → { kind: "lonlat" | "projected" | "datum" | "other", label, name, approx?, toLonLat?: ([x, y]) => [lon, lat] }
@@ -85,7 +86,13 @@ export function crsFromWKT(wkt, opts = {}) {
 	// メルカトル（2026-09-25・B9c）：球（Web メルカトル＝EPSG:3857・Esri 102100）と楕円体（Mercator 1SP/2SP＝EPSG:3395 等）を分ける。
 	// 旧＝楕円体のメルカトルも球の式で逆変換（緯度 35° で約 −20 km）し、中央子午線 0 以外・縮尺係数・原点移動を扱わなかった
 	const m = method.replace(/[\s()]+/g, "_").replace(/_+$/, "");
-	const pseudo = /mercator_auxiliary_sphere|pseudo_?mercator|popular_visualisation/i.test(m);
+	// GDAL の WKT1 は EPSG:3857 を PROJECTION["Mercator_1SP"]＋WGS84 楕円体で書く（球であることは名前・AUTHORITY・PROJ4 の拡張にしか出ない）＝
+	// 方法の名前だけで見ると楕円体の逆変換になり緯度 40° で約 0.19° ずれる（2026-09-30・#178 の COPC の試料で発見）
+	const ext = child(root, "EXTENSION"), proj4 = ext && typeof ext.args[1] === "string" ? ext.args[1] : "";
+	const pseudo = /mercator_auxiliary_sphere|pseudo_?mercator|popular_visualisation/i.test(m)
+		|| /pseudo[\s_-]?mercator|web[\s_-]?mercator|popular visualisation/i.test(name || "")
+		|| /^(EPSG|ESRI):(3857|3785|900913|102100|102113)$/.test(label)
+		|| (/\+a=6378137\b/.test(proj4) && /\+b=6378137\b/.test(proj4));
 	if (pseudo || /^mercator(_1sp|_2sp|_variant_[ab])?$/i.test(m)) {
 		const lon0 = P("central_meridian", "Longitude of natural origin", "longitude_of_origin") ?? 0;
 		const fe = (P("false_easting") ?? 0) * toM, fn = (P("false_northing") ?? 0) * toM;
@@ -94,7 +101,75 @@ export function crsFromWKT(wkt, opts = {}) {
 		const inv = mercInverse({ a, f, k0: P("scale_factor", "Scale factor at natural origin") ?? 1, phi1, lon0, fe, fn });
 		return wrap(([x, y]) => inv(x * toM, y * toM));
 	}
+	// ランベルト正角円錐（LCC 1SP/2SP＝米国の State Plane の多く）・アルベルス正積円錐（CONUS Albers 等）（2026-09-30・#178）
+	const lonF = P("central_meridian", "longitude_of_center", "Longitude of false origin", "Longitude of natural origin", "longitude_of_origin") ?? 0;
+	const latF = P("latitude_of_origin", "latitude_of_center", "Latitude of false origin", "Latitude of natural origin") ?? 0;
+	const fe = (P("false_easting", "Easting at false origin", "False easting") ?? 0) * toM, fn = (P("false_northing", "Northing at false origin", "False northing") ?? 0) * toM;
+	const sp1 = P("standard_parallel_1", "Latitude of 1st standard parallel"), sp2 = P("standard_parallel_2", "Latitude of 2nd standard parallel");
+	if (/lambert_?conformal_?conic/i.test(m)) {
+		const k0 = P("scale_factor", "Scale factor at natural origin") ?? 1;
+		const one = /1sp/i.test(m) || sp1 == null;
+		const inv = lccInverse({ a, f, lat1: one ? latF : sp1, lat2: one ? null : (sp2 ?? sp1), latF, lonF, k0: one ? k0 : 1, fe, fn });
+		return wrap(([x, y]) => inv(x * toM, y * toM));
+	}
+	if (/albers/i.test(m)) {
+		const inv = albersInverse({ a, f, lat1: sp1 ?? latF, lat2: sp2 ?? sp1 ?? latF, latF, lonF, fe, fn });
+		return wrap(([x, y]) => inv(x * toM, y * toM));
+	}
 	return { kind: "other", label: `${label} (${method || "projection ?"})`, name };
+}
+
+// ── 円錐図法（EPSG Guidance Note 7-2 の式）──
+const eOf = f => Math.sqrt(2 * f - f * f);
+const mOf = (e, phi) => Math.cos(phi) / Math.sqrt(1 - e * e * Math.sin(phi) ** 2);
+const tOf = (e, phi) => Math.tan(Math.PI / 4 - phi / 2) / ((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi))) ** (e / 2);
+function lccConsts({ a, f, lat1, lat2, latF, k0 = 1 }) {
+	const e = eOf(f), p1 = lat1 / D, pF = latF / D;
+	let n, F;
+	if (lat2 == null) { n = Math.sin(p1); F = mOf(e, p1) / (n * tOf(e, p1) ** n); }   // 1SP＝原点緯度が標準緯線（lat1＝latF）・縮尺係数 k0
+	else {
+		const p2 = lat2 / D, m1 = mOf(e, p1), m2 = mOf(e, p2), t1 = tOf(e, p1), t2 = tOf(e, p2);
+		n = Math.abs(p1 - p2) < 1e-12 ? Math.sin(p1) : (Math.log(m1) - Math.log(m2)) / (Math.log(t1) - Math.log(t2));
+		F = m1 / (n * t1 ** n);
+	}
+	return { e, n, F, rF: a * F * tOf(e, pF) ** n * k0, aFk: a * F * k0 };
+}
+/** ランベルト正角円錐の逆変換（lat2 を省く＝1SP）。x=東距 y=北距（m）→ [lon, lat]（度） */
+export function lccInverse(o) {
+	const { e, n, rF, aFk } = lccConsts(o), lonF = o.lonF / D, fe = o.fe ?? 0, fn = o.fn ?? 0, sg = Math.sign(n);
+	return (x, y) => {
+		const dx = x - fe, dy = rF - (y - fn), r = sg * Math.hypot(dx, dy), t = (r / aFk) ** (1 / n), th = Math.atan2(sg * dx, sg * dy);
+		let phi = Math.PI / 2 - 2 * Math.atan(t);
+		for (let i = 0; i < 8; i++) phi = Math.PI / 2 - 2 * Math.atan(t * ((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi))) ** (e / 2));
+		return [(th / n + lonF) * D, phi * D];
+	};
+}
+/** ランベルト正角円錐の順変換（検定用）。[lon, lat]（度）→ [x, y]（m） */
+export function lccForward(o) {
+	const { e, n, rF, aFk } = lccConsts(o), lonF = o.lonF / D, fe = o.fe ?? 0, fn = o.fn ?? 0;
+	return (lon, lat) => { const r = aFk * tOf(e, lat / D) ** n, th = n * (lon / D - lonF); return [fe + r * Math.sin(th), fn + rF - r * Math.cos(th)]; };
+}
+const qOf = (e, phi) => { const s = Math.sin(phi); return (1 - e * e) * (s / (1 - e * e * s * s) - (1 / (2 * e)) * Math.log((1 - e * s) / (1 + e * s))); };
+function albersConsts({ a, f, lat1, lat2, latF }) {
+	const e = eOf(f), p1 = lat1 / D, p2 = lat2 / D, m1 = mOf(e, p1), m2 = mOf(e, p2), q1 = qOf(e, p1), q2 = qOf(e, p2);
+	const n = Math.abs(p1 - p2) < 1e-12 ? Math.sin(p1) : (m1 * m1 - m2 * m2) / (q2 - q1), C = m1 * m1 + n * q1;
+	return { e, n, C, rho0: a * Math.sqrt(C - n * qOf(e, latF / D)) / n };
+}
+/** アルベルス正積円錐の逆変換。x=東距 y=北距（m）→ [lon, lat]（度） */
+export function albersInverse(o) {
+	const { a } = o, { e, n, C, rho0 } = albersConsts(o), lonF = o.lonF / D, fe = o.fe ?? 0, fn = o.fn ?? 0, sg = Math.sign(n), e2 = e * e, e4 = e2 * e2, e6 = e4 * e2;
+	const qp = 1 - ((1 - e2) / (2 * e)) * Math.log((1 - e) / (1 + e));
+	return (x, y) => {
+		const dx = x - fe, dy = rho0 - (y - fn), rho = Math.hypot(dx, dy), th = Math.atan2(sg * dx, sg * dy);
+		const q = (C - rho * rho * n * n / (a * a)) / n, beta = Math.asin(Math.max(-1, Math.min(1, q / qp)));
+		const phi = beta + (e2 / 3 + 31 * e4 / 180 + 517 * e6 / 5040) * Math.sin(2 * beta) + (23 * e4 / 360 + 251 * e6 / 3780) * Math.sin(4 * beta) + (761 * e6 / 45360) * Math.sin(6 * beta);
+		return [(lonF + th / n) * D, phi * D];
+	};
+}
+/** アルベルス正積円錐の順変換（検定用）。[lon, lat]（度）→ [x, y]（m） */
+export function albersForward(o) {
+	const { a } = o, { e, n, C, rho0 } = albersConsts(o), lonF = o.lonF / D, fe = o.fe ?? 0, fn = o.fn ?? 0;
+	return (lon, lat) => { const rho = a * Math.sqrt(C - n * qOf(e, lat / D)) / n, th = n * (lon / D - lonF); return [fe + rho * Math.sin(th), fn + rho0 - rho * Math.cos(th)]; };
 }
 
 /** 楕円体のメルカトル（EPSG 9804 variant A／9805 variant B）の逆変換。x=東距 y=北距（m）→ [lon, lat]（度）。
