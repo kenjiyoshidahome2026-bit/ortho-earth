@@ -6,6 +6,8 @@ import { JP_REGION } from "@ortho-earth/jp/region";   // 日本の地域パッ�
 import { NL_REGION, nlEntry } from "./nl/region.js";
 export { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol };
 export default function orthoJapan(opts = {}) {
+	// 実行時アセット（plateau-sets.json 等）の既定＝この包みを束ねたアプリのベース。createGlobe が共有エンジン（別の束）にいる時、その BASE_URL はエンジンの物になる（2026-09-30）
+	opts = { ...opts, assetBase: opts.assetBase ?? import.meta.env.BASE_URL };
 	if (opts.region !== undefined) return createGlobe(opts);   // 申告を持参＝そのまま
 	const nlMode = nlEntry();                                    // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
 	return createGlobe({ ...opts, region: nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION] });

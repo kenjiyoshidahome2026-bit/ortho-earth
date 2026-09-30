@@ -76,7 +76,6 @@ export default defineConfig({
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
 	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") },   // 地域の worker 役（e-Stat）＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },   // MLT（MapLibre Tile）のプラグイン（#88）＝解読器は最初の MLT タイルで動的 import（起動の束には入らない）
 		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
