@@ -8,9 +8,10 @@ const MIME = { js: "text/javascript", css: "text/css", wasm: "application/wasm",
 export async function engine(q, { Bucket }) {
 	q.clear(); q.title("共有エンジン → GIS/engine");
 	if (!import.meta.env.DEV) throw new Error("dev server（npm run dev -w uploader）でだけ動く");
-	const res = await fetch(`/@fs${__ENGINE_DIR__}/current.json`);
-	if (!res.ok) throw new Error("共有エンジンが無い＝先に npm run build -w ortho-globe");
-	const { version, files } = await res.json();
+	// 無いファイルでも vite の dev server は index.html を 200 で返す＝ok では見分けられない＝JSON として読めるかで判定
+	const cur = await fetch(`/@fs${__ENGINE_DIR__}/current.json`).then(r => r.json()).catch(() => null);
+	if (!cur?.version) throw new Error("共有エンジンがまだ焼かれていない＝先に npm run build -w ortho-globe（apps/ortho-globe/dist/engine/current.json を作る）");
+	const { version, files } = cur;
 	const have = new Set();
 	let put = 0, bytes = 0;
 	for (const f of files) {
@@ -20,7 +21,7 @@ export async function engine(q, { Bucket }) {
 		if (!have.has(dir)) { for (const o of await bucket.list()) have.add(`${dir}/${o.Key}`); have.add(dir); }
 		if (have.has(key)) continue;
 		const r = await fetch(`/@fs${__ENGINE_DIR__}/${version}/${f}`);
-		if (!r.ok) throw new Error(`${f} を読めない（${r.status}）`);
+		if (!r.ok || (r.headers.get("content-type") || "").startsWith("text/html")) throw new Error(`${f} を読めない（${r.status}）＝npm run build -w ortho-globe をやり直す`);
 		const blob = await r.blob();
 		await bucket.put(new File([blob], name, { type: MIME[name.split(".").pop()] || "application/octet-stream" }));
 		put++; bytes += blob.size;
