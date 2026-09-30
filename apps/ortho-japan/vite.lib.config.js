@@ -27,14 +27,15 @@ const wasmAsFile = {
 	},
 };
 
-// `import x from "./mod.js?url"` を base64 で埋めない（wasm と同じ理由＝lib モードは資産を必ず inline する）。
-// 用途＝レンダーワーカーが URL で import() する同一フレームのオーバーレイのモジュール（gadgets/anno-draw.js 等・依存ゼロ）。
+// `import x from "./mod.js?url"`・`import w from "pkg/x.wasm?url"` を base64 で埋めない（wasm と同じ理由＝lib モードは資産を必ず inline する）。
+// 用途＝レンダーワーカーが URL で import() する同一フレームのオーバーレイのモジュール（gadgets/anno-draw.js 等・依存ゼロ）と、
+// worker が場所を渡して読む emscripten の .wasm（#178 の laz-perf＝COPC の worker・214KB を base64 で束に抱えない）。
 // asset として emit し、既定 export を実体ファイルの URL（chunk 相対＝import.meta.url 基準）にする。
 const urlAsFile = {
 	name: "js-url-as-file",
 	enforce: "pre",
 	async resolveId(source, importer) {
-		if (!/\.js\?url$/.test(source) || !importer) return null;
+		if (!/\.(js|wasm)\?url$/.test(source) || !importer) return null;
 		const r = await this.resolve(source.replace(/\?url$/, ""), importer, { skipSelf: true });
 		return r ? r.id + "?js-url-as-file" : null;
 	},
@@ -98,7 +99,7 @@ export default defineConfig({
 	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
 		{ find: "#extra-roles", replacement: resolve(import.meta.dirname, "../../packages/jp/src/worker-roles.js") },   // 地域の worker 役（e-Stat）＝globe の入口の既定 {} を日本の役表へ（S4 2026-09-23）
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") }] },   // MLT（MapLibre Tile）のプラグイン（#88）＝SDK でも同じ（解読器は動的チャンク）
-	worker: { format: "es", plugins: () => [wasmAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
+	worker: { format: "es", plugins: () => [urlAsFile, wasmAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
 	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
 	//   （2026-08-20 本番事故の真因。www の SPA フォールバックが HTML を 200 で返し、module worker の

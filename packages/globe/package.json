@@ -87,6 +87,7 @@
 		"./src/rastertiles-worker.js",
 		"./src/imagequad-worker.js",
 		"./src/iiif-worker.js",
+		"./src/copc-worker.js",
 		"./src/model-worker.js",
 		"./src/vtextrude-worker.js",
 		"./src/vtdraw-worker.js"
