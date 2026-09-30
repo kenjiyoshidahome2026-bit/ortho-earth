@@ -45,12 +45,12 @@ export const urlAsFile = {
 // `new URL("./x.bin", import.meta.url)` の資産（ortho-core の EGM96 格子 298KB・2026-09-30）も base64 で埋めない（wasm・?url と同じ理由）。
 // 放っておくと lib モードは data: URI（398KB）にして、geoid.js を静的に抱える renderworker へまで焼き込む（実測 492KB）。
 // asset として emit し参照を import.meta.ROLLUP_FILE_URL_ に差し替える＝主ビルドと worker の別ビルドで同じ内容＝同じハッシュ名＝実体は 1 つ。
-export const binUrlAsFile = {
-	name: "bin-url-as-file",
+export const assetUrlAsFile = (exts, name = "bin-url-as-file") => ({
+	name,
 	enforce: "pre",
 	async transform(code, id) {
-		if (!code.includes(".bin") || !code.includes("import.meta.url")) return;
-		const re = /new URL\((["'`])(\.{1,2}\/[^"'`]+\.bin)\1,\s*import\.meta\.url\)/g;
+		if (!code.includes("import.meta.url") || !exts.some(e => code.includes("." + e))) return;
+		const re = new RegExp(`new URL\\((["'\`])(\\.{1,2}\\/[^"'\`]+\\.(?:${exts.join("|")}))\\1,\\s*import\\.meta\\.url\\)`, "g");
 		let out = code, hit = false;
 		for (const m of code.matchAll(re)) {
 			const file = resolve(dirname(id.split("?")[0]), m[2]);
@@ -59,4 +59,6 @@ export const binUrlAsFile = {
 		}
 		return hit ? { code: out, map: null } : undefined;
 	},
-};
+});
+export const binUrlAsFile = assetUrlAsFile(["bin"]);
+// 共有エンジンは globe 同梱の気候場（assets/koppen-clim.png 82KB）も実体にする（japan の SDK は assetBase で公開側の物を指すので対象外）
