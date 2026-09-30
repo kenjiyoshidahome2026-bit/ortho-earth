@@ -3,14 +3,12 @@
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
 import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
-import { tileBounds, tileOutsideCoverage } from "./tile.js";
-import { buildTileDrawList, buildEmptySeaOps } from "./build.js";
-import { buildLabels } from "./labels.js";
-import { buildBuildings } from "./buildings.js";
+import { tileOutsideCoverage } from "./tile.js";
+import { buildTilePayload } from "./tilepayload.js";   // 組み立て（drawlist・水域・ラベル・建物・実バイト）は tile worker と共通
+import { mergeTiles } from "./scene.js";
 import { selectLOD } from "./tilecover.js";
 
 const keyOf = t => `${t.z}/${t.x}/${t.y}`;
-const EMPTY = new Set();
 
 // lodFloor＝{ minViewZoom, z }：ビューが minViewZoom 以上のとき詳細シーンの LOD 下限を z に強制。
 // optbv の海（WA）は z8 タイルから全面収録＝z7 以下が混ざる遠景は海が紙色に抜ける。下限 z8 で敷けば
@@ -20,6 +18,10 @@ const EMPTY = new Set();
 // encoding＝タイルの形式（"mvt"｜"mlt"・文字列か () => 文字列・既定 mvt・#88）＝main で解く既定経路（defaultBuildTile）だけが読む（worker 経路は pipeline が init で運ぶ）
 export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTile, onEvict, lodFloor, memBudgetMB, coverage, minZ = 4, encoding = "mvt" }) {
 	const cache = new Map();   // key → { status, origin, dl, labels, z, bytes, seen }
+	// 常駐の実バイトの合計（set／delete のたびに足し引き＝毎 update で全キャッシュを数え直さない）。キャッシュの出し入れは下の put／drop だけを通す
+	let totalBytes = 0;
+	const put = (k, v) => { const o = cache.get(k); if (o) totalBytes -= o.bytes || 0; cache.set(k, v); totalBytes += v.bytes || 0; };
+	const drop = k => { const o = cache.get(k); if (o) { totalBytes -= o.bytes || 0; cache.delete(k); } };
 
 	// tess済み geometry の常駐量を「枚数」でなく「実バイト」で束ねる：z16密都市(~100KB級)と沖合z8(数十B)を
 	// 同一に数えると枚数上限がメモリの代理にならない。予算は端末メモリで自動調整（navigator.deviceMemory=GB・
@@ -38,24 +40,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		const url = tileUrl(t.z, t.x, t.y);
 		const layers = isPMTiles(url) ? await fetchPMTiles(url, t.z, t.x, t.y, undefined, need)   // 全球ソース（PMTiles）＝coverage 対象外
 			: tileOutsideCoverage(t.x, t.y, t.z, coverage) ? { __empty: true } : await fetchMVT(url, undefined, need, null, null, (typeof encoding === "function" ? encoding() : encoding) || "mvt");
-		const [w, s, e, n] = tileBounds(t.x, t.y, t.z);
-		const origin = [w, n];
-		const dl = buildTileDrawList({ layers, z: t.z, x: t.x, y: t.y }, style, origin);
-		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域（worker 経路 tileworker.js と同処置）
-		const seaOps = buildEmptySeaOps(layers, { z: t.z, x: t.x, y: t.y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
-		const { labels } = buildLabels({ layers, z: t.z, x: t.x, y: t.y }, style);
-		const buildings = buildBuildings({ layers, z: t.z, x: t.x, y: t.y }, origin, style.schema);
-		return { origin, dl, labels, buildings, z: t.z, bytes: dlBytes(dl, buildings) };
+		return buildTilePayload(layers, t, style);   // 図郭外（404/図郭縁の WA スライバ）の標高ゲート付き全面水域も worker 経路と同じ処置
 	}
 	const build = buildTile || defaultBuildTile;
-
-	// dl+建物の typed array 実バイト（main保持の既定パス用。worker パスは tileworker が bytes を報告）。
-	function dlBytes(dl, buildings) {
-		let b = 0;
-		for (const op of dl.ops) b += op.kind === "fill" ? op.pos.byteLength + op.col.byteLength + op.idx.byteLength : op.P1.byteLength + op.P2.byteLength + op.col.byteLength + op.half.byteLength + (op.off ? op.off.byteLength : 0);
-		if (buildings) b += buildings.pos.byteLength + buildings.shade.byteLength + buildings.anchor.byteLength;
-		return b;
-	}
 
 	async function ensure(t) {
 		const k = keyOf(t);
@@ -63,17 +50,17 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		if (ex && ex.status !== "error") return;   // loading/ready はそのまま
 		const tries = ex ? (ex.tries || 0) : 0;
 		if (tries >= 3) return;                     // 3回失敗＝諦める（本当に無いタイル等での永久リトライ回避）
-		cache.set(k, { status: "loading", tries });
+		put(k, { status: "loading", tries });
 		try {
 			const r = await build(t);   // worker or main
-			cache.set(k, { status: "ready", ...r });
+			put(k, { status: "ready", ...r });
 			onChange && onChange();
 		} catch (e) {
 			// abort（視野から外れて中断）はエントリごと消す＝再訪時に再取得できる。
-			if (String(e && e.message) === "aborted") { cache.delete(k); return; }
+			if (String(e && e.message) === "aborted") { drop(k); return; }
 			// その他のエラー（ネット瞬断/デコード失敗）は "error" のまま残すと永久欠け＝そこだけ粗いタイルが透けて
 			// 静止中もズーム混在になる。tries を数えてバックオフ再取得を促す（onChange→再update→ensure がリトライ）。
-			cache.set(k, { status: "error", origin: null, dl: null, labels: [], z: t.z, tries: tries + 1 });
+			put(k, { status: "error", origin: null, dl: null, labels: [], z: t.z, tries: tries + 1 });
 			setTimeout(() => onChange && onChange(), 300 * (tries + 1));
 		}
 	}
@@ -157,7 +144,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 満たすまで退避。geometry の実体は scene worker＝ここで消せば onEvict で鏡が同時に縮む（知らせないと
 		// 「main は ready・worker は破棄」の食い違いで merge が黙って穴になる。scene 側独自CAP退避で実際に起きた）。
 		for (const k of keep) { const c = cache.get(k); if (c) c.seen = clock; }   // 「最近見えた」を更新＝LRUの新しさ
-		let total = 0; for (const c of cache.values()) total += c.bytes || 0;
+		let total = totalBytes;
 		if (total > budgetBytes || cache.size > hardCap) {
 			const cands = [];
 			for (const [k, c] of cache) if (!keep.has(k)) cands.push(k);
@@ -165,8 +152,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			const evicted = [];
 			for (const k of cands) {
 				if (total <= budgetBytes && cache.size <= hardCap) break;
-				total -= cache.get(k).bytes || 0;
-				cache.delete(k); evicted.push(k);
+				drop(k); total = totalBytes; evicted.push(k);
 			}
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
@@ -202,67 +188,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	}
 
 	// order の全タイルの op を style層(li)ごとに結合。origin(=cam.center)へ再ベースして精度確保。
+	// 結合の本体は scene.js の mergeTiles（scene worker と同じ純関数）＝旧＝ここに下敷きの線の伏せ（coveredTiles）と図郭外の水域の消灯（seaFbReal）を欠いた写しがあった
 	function buildScene(order, opts = {}) {
-		if (!order.length) return { origin: [0, 0], layers: [] };
-		const origin = opts.origin || order[0].origin;
-		const hidden = opts.hidden || EMPTY;   // 非表示スタイル層(li)の集合。既存タイルから当該opを描画時に除くだけ
-		const tileOps = [];
-		const size = new Map();
-		for (const { key, origin: to } of order) {
-			const c = cache.get(key); if (!c || !c.dl) continue;
-			tileOps.push({ ox: to[0] - origin[0], oy: to[1] - origin[1], ops: c.dl.ops });
-			for (const op of c.dl.ops) {
-				if (hidden.has(op.li)) continue;
-				let e = size.get(op.li); if (!e) { e = { kind: op.kind, fillN: 0, idxN: 0, lineN: 0 }; size.set(op.li, e); }
-				if (op.kind === "fill") { e.fillN += op.pos.length / 2; e.idxN += op.idx.length; } else { e.lineN += op.half.length; if (op.off) e.off = true; }
-			}
-		}
-		const buf = new Map();
-		for (const [li, e] of size) {
-			// fill の index は結合後に頂点数が 65k を超え得るので常に Uint32（タイル単体は Uint16 で届く）
-			buf.set(li, e.kind === "fill"
-				? { kind: "fill", li, pos: new Float32Array(e.fillN * 2), col: new Uint8Array(e.fillN * 4), idx: new Uint32Array(e.idxN), pi: 0, ci: 0, ii: 0 }
-				: { kind: "line", li, P1: new Float32Array(e.lineN * 2), P2: new Float32Array(e.lineN * 2), col: new Uint8Array(e.lineN * 4), half: new Float32Array(e.lineN), off: e.off ? new Float32Array(e.lineN * 3) : null, pi: 0, ci: 0, hi: 0 });   // off＝line-offset（#49）の [off, tS, tE]×線分・持つ層だけ・持たないタイルの分は 0
-		}
-		for (const { ox, oy, ops } of tileOps) {
-			for (const op of ops) {
-				if (hidden.has(op.li)) continue;
-				const m = buf.get(op.li);
-				if (op.kind === "fill") {
-					const base = m.pi >> 1;   // このタイル分の頂点オフセット（index 再ベース用）
-					const p = op.pos; let pi = m.pi; for (let i = 0; i < p.length; i += 2) { m.pos[pi++] = p[i] + ox; m.pos[pi++] = p[i + 1] + oy; } m.pi = pi;
-					m.col.set(op.col, m.ci); m.ci += op.col.length;
-					const ix = op.idx; let ii = m.ii; for (let i = 0; i < ix.length; i++) m.idx[ii++] = ix[i] + base; m.ii = ii;
-				} else {
-					const P1 = op.P1, P2 = op.P2; let pi = m.pi;
-					for (let i = 0; i < P1.length; i += 2) { m.P1[pi] = P1[i] + ox; m.P1[pi + 1] = P1[i + 1] + oy; m.P2[pi] = P2[i] + ox; m.P2[pi + 1] = P2[i + 1] + oy; pi += 2; } m.pi = pi;
-					m.col.set(op.col, m.ci); m.ci += op.col.length;
-					if (m.off && op.off) m.off.set(op.off, m.hi * 3);
-					m.half.set(op.half, m.hi); m.hi += op.half.length;
-				}
-			}
-		}
-		const layers = [...buf.values()].sort((a, b) => a.li - b.li).map(m => m.kind === "fill"
-			? { kind: "fill", pos: m.pos, col: m.col, idx: m.idx }
-			: { kind: "line", P1: m.P1, P2: m.P2, col: m.col, half: m.half, ...(m.off ? { off: m.off } : {}) });
-
-		// 建物（3D押し出し）を全タイルから結合。pos は xy を原点へ再ベース、z(高さ)はそのまま。
-		let bN = 0;
-		for (const { key } of order) { const c = cache.get(key); if (c && c.buildings) bN += c.buildings.pos.length; }
-		let buildings = null;
-		if (bN) {
-			const pos = new Float32Array(bN), shade = new Float32Array(bN / 3), anchor = new Float32Array(bN / 3 * 2);
-			let pi = 0, si = 0, ai = 0;
-			for (const { key, origin: to } of order) {
-				const c = cache.get(key); if (!c || !c.buildings) continue;
-				const ox = to[0] - origin[0], oy = to[1] - origin[1], bp = c.buildings.pos, ba = c.buildings.anchor;
-				for (let i = 0; i < bp.length; i += 3) { pos[pi++] = bp[i] + ox; pos[pi++] = bp[i + 1] + oy; pos[pi++] = bp[i + 2]; }
-				for (let i = 0; i < ba.length; i += 2) { anchor[ai++] = ba[i] + ox; anchor[ai++] = ba[i + 1] + oy; }
-				shade.set(c.buildings.shade, si); si += c.buildings.shade.length;
-			}
-			buildings = { pos, shade, anchor };
-		}
-		return { origin, layers, buildings };
+		return mergeTiles(order, k => { const c = cache.get(k); return c && c.dl ? { ops: c.dl.ops, buildings: c.buildings } : null; }, opts);
 	}
 
 	// 近景（高z）タイルのラベルだけ結合＆重複排除。遠方（粗タイル）はテキスト無し。
@@ -297,7 +225,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 	// 分割ヒステリシスが「もう無いタイル」を指さないようにする（clock=LRU時刻は単調のまま据置で無害）。
 	function reset() {
 		if (cache.size && onEvict) onEvict([...cache.keys()]);
-		cache.clear(); stickySplit = null;
+		cache.clear(); totalBytes = 0; stickySplit = null;
 	}
 	return { update, buildScene, labels, cache, stats, reset };
 }

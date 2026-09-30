@@ -5,6 +5,7 @@
 import { createTileManager } from "./tilemanager.js";
 import { spawnWorker, setWorkerFactory } from "./workerFactory.js";
 import { builtinWorker } from "./builtinWorkers.js";
+import { opBuffers } from "./scene.js";
 
 // request(url, "Tile")＝取得の前の手入れ（#37）→ { url, headers?, credentials?, load?: () => Promise<ArrayBuffer> }｜null。load＝addProtocol の読み口（main で取って本体を worker へ）
 // encoding＝基図タイルの形式（"mvt"｜"mlt"・文字列か () => 文字列＝setStyle で基図の置き場と一緒に替わる・既定 mvt・#88）。tile worker へ init／setStyle で運ぶ
@@ -30,12 +31,6 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 	}
 	requestMerge.debugFail = () => sceneWorker.postMessage({ type: "debugFailNext" });   // テスト用：次の merge を故意に失敗させる
 	requestMerge.stats = () => sceneWorker.postMessage({ type: "stats" });   // 観測用：GPU常駐プールの占有を scene worker が console に出す
-	function collectTileBuffers(dl, buildings) {
-		const bufs = [];
-		for (const op of dl.ops) { if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer); else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); } }
-		if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
-		return bufs;
-	}
 
 	// タイル worker プール：geometry は scene worker へ転送し、main にはメタ＋ラベルだけ返す。
 	const NW = Math.min(4, (navigator.hardwareConcurrency || 4) - 1) || 2;
@@ -50,7 +45,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 			// 取得先の無いタイル（noUrl＝外来 style にベクタの基図が無い＝画像タイルだけ等）は通信の失敗に数えない（2026-09-29・公式例 3d-terrain で「地図データの取得に失敗」が誤って出た）
 			if (onTile && !p.noUrl && (e.data.ok || !/abort/i.test(String(e.data.error)))) onTile(!!e.data.ok);
 			if (!e.data.ok) { p.reject(new Error(e.data.error)); return; }
-			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, collectTileBuffers(e.data.dl, e.data.buildings));
+			sceneWorker.postMessage({ type: "tile", key: p.key, ops: e.data.dl.ops, buildings: e.data.buildings }, opBuffers(e.data.dl.ops, e.data.buildings));
 			p.resolve({ origin: e.data.origin, labels: e.data.labels, z: e.data.z, bytes: e.data.bytes });   // メタ＋ラベル＋geometry実バイト（退避予算用）
 		};
 		w.postMessage({ type: "init", style, coverage, ell, encoding: encodingNow() });   // coverage＝配信圏 bbox（圏外タイルは worker が fetch せず空タイル扱い）。ell＝楕円体ノブ（buildings の世界単位）。encoding＝タイルの形式
@@ -62,7 +57,7 @@ export function createPipeline({ style, tileUrl, requestDraw, scenePort, onMerge
 		// PMTiles で頁が addProtocol("pmtiles") を登録している時＝MapLibre と同じ URL の形（…/{z}/{x}/{y}）で頁の読み口に頼む（旧＝アーカイブの URL だけを渡し、pmtiles.js は何も返さず＝タイルが来ない・2026-09-30）。登録が無ければ worker の自前の読み（範囲取得）
 		const rq = url && request ? request(pm ? `${url}/${t.z}/${t.x}/${t.y}` : url, "Tile") : null;
 		if (rq?.load) rq.load().then(ab => { if (pending.has(id)) w.postMessage({ id, url: rq.url, z: t.z, x: t.x, y: t.y, bytes: ab }, ab?.byteLength ? [ab] : []); },
-			err => { const p = pending.get(id); if (p) { pending.delete(id); p.reject(err); } });
+			err => { const p = pending.get(id); if (p) { pending.delete(id); if (keyToId.get(key) === id) keyToId.delete(key); if (onTile && !/abort/i.test(String(err?.message ?? err))) onTile(false); p.reject(err); } });   // 読み口の失敗＝worker の失敗と同じ扱い（旧＝keyToId が残り、通信断の数にも入らなかった）
 		else w.postMessage({ id, url: pm ? url : (rq?.url ?? url), z: t.z, x: t.x, y: t.y, ...(rq?.headers || rq?.credentials ? { init: { headers: rq.headers, credentials: rq.credentials } } : {}) });
 		keyToId.set(key, id);
 		return new Promise((resolve, reject) => pending.set(id, { resolve, reject, key, w, noUrl: !url }));
