@@ -79,13 +79,21 @@ export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_O
 	// 焼き込み済みレコード（manifest.baked）は適用しない＝del/move が同名近傍の別施設を最近傍matchで
 	// 誤爆する「再発火」を封じる（schema.js の⚠・t-poioverrides.mjs が検証）。タイルとbakedは同じ
 	// マニフェスト便で届く（タイルURLは ?v=版）＝新旧が食い違わない。
+	// 手差分を被せた全点。入力（タイルの中身＝poiVer・タイル鍵の集合＝size（消さない＝単調）・手差分・マニフェスト）が同じなら前回の配列を返す
+	// ＝ラベルの組み直しの度に全タイルを連結して差分を当て直さない（読み手は読むだけ）
+	let patchedMemo = null;
 	function poiPatchedAll() {
+		const m = patchedMemo;
+		if (m && m.ver === poiVer && m.size === poiTiles.size && m.ovr === poiOvr && m.man === poiManifest) return m.out;
 		const feats = [];
-		for (const fs of poiTiles.values()) if (Array.isArray(fs)) feats.push(...fs);
-		if (!poiOvr?.recs?.length) return feats;
-		const recs = poiManifest?.baked?.size ? poiOvr.recs.filter(r => !poiManifest.baked.has(r.id)) : poiOvr.recs;
-		if (!recs.length) return feats;
-		return applyPoiOvr(feats, recs, ll => poiTiles.has(lonLatToTile(ll[0], ll[1], 14).join("/")));
+		for (const fs of poiTiles.values()) if (Array.isArray(fs)) for (const f of fs) feats.push(f);
+		let out = feats;
+		if (poiOvr?.recs?.length) {
+			const recs = poiManifest?.baked?.size ? poiOvr.recs.filter(r => !poiManifest.baked.has(r.id)) : poiOvr.recs;
+			if (recs.length) out = applyPoiOvr(feats, recs, ll => poiTiles.has(lonLatToTile(ll[0], ll[1], 14).join("/")));
+		}
+		patchedMemo = { ver: poiVer, size: poiTiles.size, ovr: poiOvr, man: poiManifest, out };
+		return out;
 	}
 	function loadPOI(cam) {
 		loadPoiManifest();
@@ -122,9 +130,14 @@ export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_O
 		const poiAuth = s => { const p = s >> 4; return p === POI_SRC_ANNO || p === POI_SRC_MANUAL; };
 		const authNames = new Set();
 		for (const p of patched) if (poiAuth(p.s) && (poiAll || zoom >= poiZAppear(p.r))) authNames.add(p.n);
-		if (authNames.size) for (let i = allLabels.length - 1; i >= 0; i--) {
-			const c = allLabels[i].code;
-			if (c !== POI_CODE && c !== landmarkCode && authNames.has(allLabels[i].text)) allLabels.splice(i, 1);
+		if (authNames.size) {   // その場で詰める（旧＝後ろから splice＝消す数×長さ）
+			let w = 0;
+			for (let i = 0; i < allLabels.length; i++) {
+				const L = allLabels[i], c = L.code;
+				if (c !== POI_CODE && c !== landmarkCode && authNames.has(L.text)) continue;
+				allLabels[w++] = L;
+			}
+			allLabels.length = w;
 		}
 		const have = new Set(allLabels.map(L => L.text));   // タイル注記(上書き済)＋landmark に既出の名前は出さない（案A）
 		let nAvail = 0, nShown = 0, nGated = 0, nDedup = 0;

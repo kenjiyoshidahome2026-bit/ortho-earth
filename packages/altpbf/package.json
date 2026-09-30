@@ -31,7 +31,7 @@
 		".": "./src/format.js"
 	},
 	"scripts": {
-		"test": "node -e \"import('./src/format.js').then(()=>console.log('✓ altpbf format loads'))\"",
+		"test": "node tests/roundtrip.mjs",
 		"verify:npm": "node scripts/verify-npm.mjs",
 		"mirror": "git -C ../.. subtree split --prefix=packages/altpbf -b altpbf-mirror && git -C ../.. push https://github.com/kenjiyoshidahome2026-bit/altpbf.git altpbf-mirror:main --force && git -C ../.. branch -D altpbf-mirror"
 	},

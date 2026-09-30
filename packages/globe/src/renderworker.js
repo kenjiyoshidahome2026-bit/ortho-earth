@@ -283,6 +283,7 @@ const dispatch = e => {
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
 			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
+			labelLayer.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;
 			stayProbe = m.stay ? 1 : 0;
@@ -392,7 +393,7 @@ const dispatch = e => {
 				if (cam) labelLayer?.setElev(L => terrain ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0);   // 先に届いていた注記（基図・vector）へ標高を付け直す＝注記が地形より先に来ると標高 0 のまま置かれ、傾けた絵で位置がずれる（段 3 で sprite の読み込みが setTerrain を遅らせて露見・2026-09-28）
 			}
 			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
-			else if (m.cmd === "clock") { clockA = m.data; noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
+			else if (m.cmd === "clock") { clockA = m.data; labelLayer?.setClock?.(clockA); noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
 			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
 			else if (m.cmd === "view" && m.data && ("clock" in m.data || "time" in m.data)) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る

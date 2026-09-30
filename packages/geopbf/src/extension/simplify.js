@@ -29,14 +29,16 @@ export function simplified(self, minRank = 0) {
 		tub.set(aid, pts);
 		return pts;
 	};
+	// arc を 1 本つなぐ（負の添字＝逆向き）。連結点の重複を除く。旧＝slice().reverse() の写し＋push(...seg)＝点数の多い arc（~10 万点超）でスタックが溢れた
+	const append = (out, ai, rank, tub) => {
+		const seg = arcPts(ai < 0 ? ~ai : ai, rank, tub);
+		if (out.length) out.pop();
+		if (ai < 0) for (let i = seg.length - 1; i >= 0; i--) out.push(seg[i]);
+		else for (let i = 0; i < seg.length; i++) out.push(seg[i]);
+	};
 	const chain = (arcIdxs, rank, tub) => {
 		const out = [];
-		for (const ai of arcIdxs) {
-			let seg = arcPts(ai < 0 ? ~ai : ai, rank, tub);
-			if (ai < 0) seg = seg.slice().reverse();
-			if (out.length) out.pop();   // 連結点の重複を除く
-			out.push(...seg);
-		}
+		for (const ai of arcIdxs) append(out, ai, rank, tub);
 		if (out.length && (out[0][0] !== out[out.length - 1][0] || out[0][1] !== out[out.length - 1][1]))
 			out.push(out[0]);
 		return out;
@@ -78,18 +80,13 @@ export function simplified(self, minRank = 0) {
 				const na = lineStream[p++], arcs = [];
 				for (let a = 0; a < na; a++) arcs.push(lineStream[p++]);
 				const line = [];
-				for (const ai of arcs) {
-					let seg = arcPts(ai < 0 ? ~ai : ai, minRank, cache);
-					if (ai < 0) seg = seg.slice().reverse();
-					if (line.length) line.pop();
-					line.push(...seg);
-				}
+				for (const ai of arcs) append(line, ai, minRank, cache);
 				if (line.length >= 2) sets.push(line);
 			}
 			if (sets.length) {
 				let arr = byFid.get(fid);
 				if (!arr) { arr = []; byFid.set(fid, arr); }
-				arr.push(...sets);
+				for (const l of sets) arr.push(l);
 			}
 		}
 		for (const [fid, lines] of byFid) features.push({

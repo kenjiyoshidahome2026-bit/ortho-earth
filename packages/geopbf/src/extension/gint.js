@@ -1,3 +1,4 @@
+import { propsKeyOf } from "../pbf-base.js";
 import init, { L1toL2_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
@@ -312,7 +313,8 @@ export class gint {
 		if (!wasmReady || typeof topology_full_wasm !== 'function') return null;
 		const dir = [];
 		let tub = new Map();
-		self.forEach((i, map) => { const key = self.props[i].join("|");
+		// 同じ属性の地物は同じ fid（propsKeyOf＝型ごとの鍵）。旧 props[i].join("|")＝worker 復号の遅延 props（未復号＝undefined）で投げ、["a|","b"] と ["a","|b"] も同じ地物にした
+		self.forEach((i, map) => { const key = propsKeyOf(self.propsRow(i));
 			if (!tub.has(key)) tub.set(key, i);
 			const id = tub.get(key);
 			(map[2] === 6) ? map[3].forEach((p, j) => dir.push(id, map[4][j], p)) : dir.push(id, map[2], map[1]);
