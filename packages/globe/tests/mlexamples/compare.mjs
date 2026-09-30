@@ -207,17 +207,20 @@ export function grade(R, O, T = THRESH) {
 	const ow = runsWhy(O, shared);
 	if (ow) { out.reasons.push(ow); out.blockers.push(ow.startsWith("exception: ") ? `exception: ${normError(ow.slice(11))}` : ow); return out; }
 	out.level = 1;
-	// 段 2＝同じ答え
-	const why = [];
+	// 段 2＝同じ答え（checks＝検査ごとの合否＝見比べ帳の一致度 % の分子・2026-09-30）
+	const why = [], checks = out.checks = {};
+	checks.unsupported = !out.unsupported.semantic.length;
 	if (out.unsupported.semantic.length) { why.push(`unsupported: ${out.unsupported.semantic.join(", ")}`); out.blockers.push(...out.unsupported.semantic.map(u => `unsupported: ${u}`)); }
 	// 通訳が捕まえたエンジンのエラー（MapLibre なら投げない所でエンジンが投げた＝通訳は error 事象に替えて例を走らせ続ける）＝段 2 を塞ぐ（§8 C）
 	const engErr = (O.consoleErrors || []).map(e => /^\[mlshim\] ([\w.]+):\s*([\s\S]*)$/.exec(e)).filter(Boolean);
+	checks.engine = !engErr.length;
 	if (engErr.length) {
 		why.push(`engine errors: ${[...new Set(engErr.map(m => m[1]))].join(", ")}`);
 		for (const m of engErr) out.blockers.push(`engine error: ${m[1]}: ${normError(m[2].replace(new RegExp(`^${m[1]}: `), ""))}`);
 	}
 	const lr = (R.layers || []).map(l => l.id), lo = (O.layers || []).map(l => l.id);
-	if (lr.length !== lo.length || lr.some((v, i) => v !== lo[i])) {
+	checks.layers = lr.length === lo.length && !lr.some((v, i) => v !== lo[i]);
+	if (!checks.layers) {
 		const miss = lr.filter(id => !lo.includes(id)), extra = lo.filter(id => !lr.includes(id));
 		why.push(`layers (missing ${miss.length}: ${miss.slice(0, 4).join(",")}${miss.length > 4 ? "…" : ""} / extra ${extra.length}${!miss.length && !extra.length ? " / order" : ""})`);
 		// 順位表は抜けた層の型ごと（getStyle が描かない層を落とす＝型で原因が分かれる）・足された層・順番
@@ -227,6 +230,7 @@ export function grade(R, O, T = THRESH) {
 		if (!miss.length && !extra.length) out.blockers.push("layer order differs");
 	}
 	const q = out.query = queryMatch(R, O);
+	if (q.n) checks.query = q.ok / q.n >= T.queryMin;
 	if (q.n && q.ok / q.n < T.queryMin) {
 		why.push(`query ${q.ok}/${q.n}${q.extra.size ? ` · extra ${[...q.extra].join(",")}` : ""}${q.missing.size ? ` · missing ${[...q.missing].join(",")}` : ""}`);
 		for (const t of q.extra) out.blockers.push(`query: extra ${t} hits`);
@@ -235,6 +239,7 @@ export function grade(R, O, T = THRESH) {
 	}
 	const tx = out.text = textMatch(R, O, T);
 	if (T.textGate && tx.n >= 5 && tx.hit / tx.n < T.textMin) { why.push(`text ${tx.hit}/${tx.n}`); out.blockers.push("text: labels not placed where MapLibre placed them"); }
+	checks.markers = (R.markers?.length || 0) === (O.markers?.length || 0); checks.popups = (R.popups?.length || 0) === (O.popups?.length || 0);
 	if ((R.markers?.length || 0) !== (O.markers?.length || 0)) { why.push(`markers ${R.markers?.length || 0}/${O.markers?.length || 0}`); out.blockers.push("markers differ"); }
 	if ((R.popups?.length || 0) !== (O.popups?.length || 0)) { why.push(`popups ${R.popups?.length || 0}/${O.popups?.length || 0}`); out.blockers.push("popups differ"); }
 	// MapLibre のメルカトルは「世界の高さが画面を満たす」までしかズームアウトしない（600px で z≈0.23・中心も緯度 0 へ寄る）。
@@ -245,10 +250,12 @@ export function grade(R, O, T = THRESH) {
 		const lat = R.camera.lat, zTol = 0.1 + Math.abs(Math.log2(Math.max(0.05, Math.cos(lat * Math.PI / 180))));   // 緯度の差（台帳 §4）は許す
 		const span = R.bounds ? hav({ lng: R.bounds[0][0], lat }, { lng: R.bounds[1][0], lat }) : 0;
 		const d = hav(R.camera, O.camera);
-		if (Math.abs(R.camera.zoom - O.camera.zoom) > zTol || (span && d > 0.02 * span)) { why.push(`camera (Δz ${(O.camera.zoom - R.camera.zoom).toFixed(2)} · Δc ${Math.round(d)}m)`); out.blockers.push("camera differs"); }
+		checks.camera = !(Math.abs(R.camera.zoom - O.camera.zoom) > zTol || (span && d > 0.02 * span));
+		if (!checks.camera) { why.push(`camera (Δz ${(O.camera.zoom - R.camera.zoom).toFixed(2)} · Δc ${Math.round(d)}m)`); out.blockers.push("camera differs"); }
 	}
 	const cm = out.color = colorMatch(R, O, T);
 	// 絵だけの一致（段 2 の答えに依らない副の数＝描く力そのもの）：両側とも止まって撮れ・比べられる点が足りて・色が閾値を越える
+	out.pictureCompared = out.refLevel === 3 && STILL_END.has(O.end) && cm.comparable >= T.minComparable * cm.total && cm.base.n + cm.added.n > 0;   // 絵を比べられた（一致度 % に絵を入れる条件）
 	out.pictureOnly = STILL_END.has(R.end) && STILL_END.has(O.end) && cm.comparable >= T.minComparable * cm.total
 		&& passRatio(cm.added.ok, cm.added.n, T.addedMin, T) && passRatio(cm.base.ok, cm.base.n, T.baseMin, T);
 	if (why.length) { out.reasons.push(...why); return out; }
@@ -273,4 +280,16 @@ export function rankBlockers(graded) {
 		for (const b of new Set(g.blockers)) { const e = c.get(b) || { blocker: b, n: 0, examples: [] }; e.n++; e.examples.push(g.name); c.set(b, e); }
 	}
 	return [...c.values()].sort((a, b) => b.n - a.n || a.blocker.localeCompare(b.blocker));
+}
+
+// 一致度（見比べ帳のカードの %・2026-09-30 本人「各カードに完成度を％で」）＝段の解釈でなく数：
+//   答え＝段 2 の検査（checks）の合格数／検査数・絵＝色の標本の一致数／比べられた数（基図＋足した層）。
+//   絵を比べられた例＝答え 40%＋絵 60%・比べられない例（動く例など）＝答えだけ。動かない＝0・本物が落ちる＝null（分母の外）
+export function completeness(g) {
+	if (!g || g.level == null) return null;
+	if (g.level === 0) return { pct: 0, detail: g.reasons[0] || "does not run" };
+	const ck = Object.values(g.checks || {}), pass = ck.filter(Boolean).length, answers = ck.length ? pass / ck.length : 1;
+	const cm = g.color, n = cm ? cm.base.n + cm.added.n : 0, ok = cm ? cm.base.ok + cm.added.ok : 0;
+	if (g.pictureCompared) return { pct: Math.round(100 * (0.4 * answers + 0.6 * ok / n)), detail: `answers ${pass}/${ck.length} · picture ${ok}/${n} probes` };
+	return { pct: Math.round(100 * answers), detail: `answers ${pass}/${ck.length} · picture not compared (${g.refLevel < 3 ? "animated example" : "not settled"})` };
 }
