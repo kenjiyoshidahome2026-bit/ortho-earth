@@ -4,6 +4,20 @@
 // 線幅はスクリーン空間の定px（fat-line/capsule 展開は頂点シェーダ側）。
 import earcut from "earcut";
 
+// 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
+// 極の頂点はタイル座標では表せない＝末尾に置き、呼び手が経緯度（緯度 ±90）を直に書く。境界の辺が無ければ何もしない（配列はそのまま返す）
+export function extendToPole(flat, tris, extent, pole) {
+	const onEdge = i => (pole > 0 ? flat[i * 2 + 1] <= 0 : flat[i * 2 + 1] >= extent);
+	const cnt = new Map(), key = (i, j) => (i < j ? i * 4294967296 + j : j * 4294967296 + i);
+	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j)) { const kk = key(i, j); cnt.set(kk, (cnt.get(kk) || 0) + 1); } }
+	const edges = [];
+	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j) && cnt.get(key(i, j)) === 1) edges.push(i, j); }
+	if (!edges.length) return [flat, tris];
+	const pts = Array.from(flat), out = Array.from(tris), p = pts.length >> 1;
+	pts.push(0, pole > 0 ? -extent : 2 * extent);   // 仮の座標（呼び手が経緯度を上書きする）
+	for (let e = 0; e < edges.length; e += 2) out.push(edges[e], edges[e + 1], p);   // 向きは境界の辺の向きに従う（塗りは両面）
+	return [pts, out];
+}
 // 三角形の集合を「辺の長さ ≤ maxLen（タイル単位）」まで最長辺の二等分で細分（共有辺の中点は 1 回だけ作る＝隙間なし）。戻り＝[flat（x,y,…）, tris（index）]
 export function subdivideTris(flat, tris, maxLen) {
 	const pts = Array.from(flat), out = [], mid = new Map(), m2 = maxLen * maxLen;
@@ -124,10 +138,15 @@ export function buildTileDrawList({ layers, z, x, y, subLenM = 700, stateOf = nu
 					if (!tris0.length) continue;
 					// 低ズームの塗りは球の上で細分（MapLibre の globe の subdivisionGranularity fill＝128/2^z・z≥7 は無し）：
 					// 粗い三角形は弦＝球の内側に沈み、縁では頂点が裏でも面の一部が表＝v_front の補間と弦の沈みで縁の帯が塗られない（極を見下ろす z1 の海＝八角形に欠けた・2026-09-30）
-					const [flat, tris] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
+					const [flat1, tris1] = fillSub > 0 ? subdivideTris(flat0, tris0, fillSub) : [flat0, tris0];
+					// 極まで延ばす（MapLibre の extendToNorthPole／SouthPole）：一番上／下の行のタイルで、上端（py≤0）／下端（py≥extent）に沿う境界の辺から極の 1 頂点へ扇を張る
+					// ＝北極海・南極大陸がメルカトルの端（85.05°）で切れず極まで塗られる（旧＝極の周りが球の地の色・2026-09-30）。極の頂点は経緯度を直に書く（下の poleAt）
+					const poleAt = fillSub > 0 && y === 0 ? 1 : fillSub > 0 && y === nTiles - 1 ? -1 : 0;
+					const [flat, tris] = poleAt ? extendToPole(flat1, tris1, extent, poleAt) : [flat1, tris1];
 					// ユニーク頂点を一度だけ経緯度化（原点相対）→ 三角形は共有頂点をインデックスで引く。
 					if (llBuf.length < flat.length) llBuf = new Float64Array(flat.length);
 					for (let i = 0; i < flat.length; i += 2) llInto(flat[i], flat[i + 1], extent, llBuf, i);
+					if (poleAt && flat.length > flat1.length) { const i = flat.length - 2; llBuf[i] = ((x + 0.5) / nTiles) * 360 - 180 - ox; llBuf[i + 1] = 90 * poleAt - oy; }   // 極の頂点（最後の 1 個）＝経緯度を直に
 					const base = pos.length >> 1;
 					for (let i = 0; i < flat.length; i += 2) { pos.push(llBuf[i], llBuf[i + 1]); col.push(cr, cg, cb, ca); }
 					for (const t of tris) idx.push(base + t);
