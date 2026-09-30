@@ -732,6 +732,41 @@ map.addSource("rail", { type: "geojson",
 
 See `examples/maplibre.html` for a standalone demo (base map + protocol source + `loadGeopbf` metadata wiring).
 
+### 8.1.1 Public feature services (ArcGIS FeatureServer, OGC API – Features)
+
+`geopbf/featureservice` reads a public feature service straight from the browser — no proxy, no server of ours in
+between. It understands two dialects:
+
+- **ArcGIS REST** — `…/FeatureServer/N` and `…/MapServer/N` (a trailing `/query` is fine). Metadata from `?f=json`,
+  count from `returnCountOnly`, paging with `resultOffset` + `exceededTransferLimit` (or `objectIds` batches when the
+  server cannot page), `f=geojson` where supported and Esri JSON (`f=json`) otherwise.
+- **OGC API – Features** — `…/collections/{id}` (a trailing `/items` is fine). Count from `numberMatched`, paging by
+  following `rel="next"` links.
+
+```js
+import { openFeatureService, makeFeatureServiceProtocol } from "geopbf/featureservice";
+
+const svc = await openFeatureService("https://…/FeatureServer/0", { fetch: myFetch });   // meta + count, no features yet
+svc.name; svc.count; svc.bbox; svc.attribution; svc.version;
+const all = await svc.readAll({ max: 50000 });              // FeatureCollection (+ truncated), de-duplicated by id
+const box = await svc.readAll({ bbox: [139, 35, 140, 36] }); // only what intersects; a bbox across ±180 is split in two
+
+// MapLibre: the whole layer as one geojson source
+maplibregl.addProtocol("featureservice", makeFeatureServiceProtocol({ max: 50000 }));
+map.addSource("x", { type: "geojson", data: "featureservice://https://…/FeatureServer/0" });
+```
+
+- **Keys** — every request goes through the `fetch` you pass (default `globalThis.fetch`), so tokens and headers are
+  yours to add. Query parameters on the URL you pass (e.g. `?token=…`) are carried to every request.
+- **Politeness** — HTTP 429/503 is retried up to 3 times, honouring `Retry-After`.
+- **Caching** — `svc.cacheKey(part)` gives a stable key (service, carried parameters minus secrets, `version`, part);
+  with a bucket provider, `geopbf(fc, { cacheKey })` stores the GeoPBF (+ GintBUF) in IndexedDB and
+  `geopbfCached(key, { maxAge })` reads it back without touching the network. Every entry stored this way is recorded
+  in a small index (stored time, last use, bytes); `geopbfCachePrune({ prefix, maxAge, maxEntries, maxBytes })` removes
+  what is too old or too much (least recently used first). The prefix is required and only keys with it are touched —
+  the other cached entries (bucket names, URLs, files) are never pruned.
+- Not yet: Esri PBF (`f=pbf`), OGC API – Tiles/Maps.
+
 ### 8.2 Leaflet
 
 `geopbf/leaflet` provides an `L.GeoJSON` subclass. Register it explicitly (works with ESM and the CDN global `L`):

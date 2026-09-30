@@ -25,6 +25,65 @@ let _activeGetServer = null;
 let _activeGeopbf   = null;
 
 // レガシー互換エクスポート（createGeopbf 呼び出し後に使用可能）
+// ── 呼び手の鍵で置く控え（#176）の台帳＝掃除の物差し。IDB の同じ棚に 1 件（"KEYS::cacheKey"）＝{ entries: { 鍵: { t: 置いた時刻, u: 最後に使った時刻, bytes } } }。
+// 台帳を書くのはここだけ（読み書きを 1 本の鎖に並べる＝同時の書き込みで消し合わない）。既存の控え（bucket 名・URL・File）は台帳に載らず、掃除も触らない
+const KEYS_REC = "KEYS::cacheKey";
+let keysChain = Promise.resolve();
+const withKeys = (server, fn) => (keysChain = keysChain.then(async () => {
+    const rec = (await server.cache(KEYS_REC).catch(() => null))?.entries || {};
+    const out = await fn(rec);
+    await server.cache(KEYS_REC, { entries: rec });
+    return out;
+}).catch(e => { console.error("[geopbf] cache index", e); return null; }));
+
+/**
+ * 呼び手の鍵で置いた控えを掃除する（#176）。prefix は必須＝その接頭辞の鍵だけを見る（他の控えには触らない）。
+ * maxAge＝置いてからの時間（ms）を超えた物・maxEntries／maxBytes＝超えた分を最後に使ったのが古い順に。台帳に無い同じ接頭辞の鍵（書きかけ）も消す。
+ * @returns {Promise<{ removed: number, kept: number, bytes: number } | null>}（bucket provider が無ければ null）
+ */
+export async function geopbfCachePrune({ prefix, maxAge = Infinity, maxEntries = Infinity, maxBytes = Infinity } = {}) {
+    if (typeof prefix !== "string" || prefix.length < 3) throw new Error("geopbfCachePrune: prefix is required (at least 3 characters) — only keys with this prefix are touched");
+    const server = _activeGetServer ? await _activeGetServer().catch(() => null) : null;
+    if (!server) return null;
+    return withKeys(server, async rec => {
+        const keys = new Set(((await server.cache().catch(() => [])) || []).filter(k => typeof k === "string" && k.startsWith(prefix) && k !== KEYS_REC));
+        let removed = 0;
+        const drop = async k => { await server.cache(k, null).catch(() => {}); delete rec[k]; removed++; };
+        for (const k of keys) if (!rec[k]) await drop(k);                                   // 台帳に無い＝書きかけ・旧版
+        for (const k of Object.keys(rec)) if (k.startsWith(prefix) && !keys.has(k)) delete rec[k];   // 台帳だけ残った
+        const now = Date.now();
+        const live = Object.entries(rec).filter(([k]) => k.startsWith(prefix) && keys.has(k));
+        for (const [k, e] of live) if (now - (e.t || 0) > maxAge) await drop(k);
+        const rest = Object.entries(rec).filter(([k]) => k.startsWith(prefix)).sort((a, b) => (a[1].u || a[1].t || 0) - (b[1].u || b[1].t || 0));
+        let bytes = rest.reduce((s, [, e]) => s + (e.bytes || 0), 0), n = rest.length;
+        for (const [k, e] of rest) { if (n <= maxEntries && bytes <= maxBytes) break; await drop(k); n--; bytes -= e.bytes || 0; }
+        return { removed, kept: n, bytes };
+    });
+}
+
+/**
+ * 鍵で控えた GeoPBF（＋GintBUF）を IDB から引く（#176・一度読んだ物を網に出ずに使い回す）。無い・古い（maxAge 超え）・壊れている＝null。
+ * 置く側＝geopbf(data, { cacheKey, cacheMeta })。鍵は呼び手が決める（フィーチャーサービス＝サービス・版・枡）。bucket provider が無ければ常に null。
+ * @param {string} key
+ * @param {{ gint?: boolean, maxAge?: number }} [opts]  maxAge＝ms（既定＝期限なし）
+ */
+export async function geopbfCached(key, opts = {}) {
+    const server = _activeGetServer ? await _activeGetServer().catch(() => null) : null;
+    if (!server) return null;
+    const val = await server.cache(key).catch(() => null);
+    if (!val?.PBF?.byteLength) return null;
+    if (opts.maxAge != null && !(Date.now() - (val.meta?.t || 0) <= opts.maxAge)) return null;
+    const pbf = await new GeoPBF({ name: opts.name }).set(val.PBF).catch(() => null);
+    if (!pbf?.length) return null;
+    if (opts.gint !== false) {
+        if (val.GINT) await pbf.setGintBUF(val.GINT).catch(() => {});
+        if (!pbf.unPackGint) await pbf.gint({ gint: true });   // GINT 無し（gint:false で置いた）か旧版＝ここで焼く（置き直しはしない）
+    }
+    pbf._cacheKey = key; pbf.cacheMeta = val.meta || null;
+    withKeys(server, rec => { if (rec[key]) rec[key].u = Date.now(); });   // 使った＝掃除の順で後ろへ
+    return pbf;
+}
+
 export async function geopbf(data, opts) {
     if (!_activeGeopbf) throw new Error("geopbf: call createGeopbf(apiBase) before use");
     return _activeGeopbf(data, opts);
@@ -101,6 +160,16 @@ export function createGeopbf(apiBase, options = {}) {
             // 0 件の結果は保存しない（旧 fgb デコーダの 0 件を IDB が覚えて、直した後も「Failed to load」を返し続けた・2026-09-22）
             // clean 済みの GINT も保存しない＝同じ URL/File を clean なしで読んだ時に clean 済みが返らないように
             if (!pbf.length || opts.clean) { /* 保存しない */ }
+            else if (opts.cacheKey && !pbf._cacheKey) {   // 呼び手の鍵で置く（geopbfCached で引く・#176）。meta.t＝置いた時刻（maxAge の物差し）
+                const server = await getServer().catch(() => null);
+                if (server && opts.nocache !== true) {
+                    const GINT = pbf._gintBuffer ? new Uint8Array(pbf._gintBuffer).slice().buffer : null;
+                    const key = opts.cacheKey, t = Date.now(), bytes = (pbf.arrayBuffer?.byteLength || 0) + (GINT?.byteLength || 0);
+                    server.cache(key, { PBF: pbf.arrayBuffer, GINT, meta: { ...(opts.cacheMeta || {}), t } })
+                        .then(() => withKeys(server, rec => { rec[key] = { t, u: t, bytes }; }))   // 台帳へ（掃除の物差し）
+                        .catch(console.error);
+                }
+            }
             else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
