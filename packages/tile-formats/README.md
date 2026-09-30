@@ -1,7 +1,7 @@
 # @ortho-earth/tile-formats
 
-Tile-format plugins for [`@ortho-earth/core`](../ortho-core) — formats the core does not want as a
-dependency. The core ships MVT (Mapbox Vector Tile) built in; this package adds:
+Format plugins for [`@ortho-earth/core`](../ortho-core) and [`@ortho-earth/globe`](../globe): formats the engine does
+not want as a dependency. The core ships MVT (Mapbox Vector Tile) built in; this package adds:
 
 | Format | Registered name | PMTiles `tileType` | Decoder |
 |---|---|---|---|
@@ -49,6 +49,23 @@ const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, n
   Node cannot resolve. Bundlers are fine; in Node use
   `node --import @ortho-earth/tile-formats/node-register script.mjs`.
 
+## Point clouds: LAZ for COPC (`@ortho-earth/globe`)
+
+`map.addCOPC(url | File)` in [`@ortho-earth/globe`](../globe) streams a
+[COPC](https://copc.io/) point cloud node by node. It reads the COPC hierarchy by itself, but the points of each node are LAZ
+(LASzip-compressed LAS 1.4). The globe does not depend on a LAZ decoder. This package provides one on top of
+[`laz-perf`](https://www.npmjs.com/package/laz-perf) (WASM), loaded lazily on the first node. The globe reads
+`"#pointcloud-formats"` (a `package.json` `imports` slot, default: none). Point it at this package in your bundler:
+
+```js
+// vite.config.js
+resolve: { alias: [{ find: "#pointcloud-formats", replacement: "@ortho-earth/tile-formats/pointcloud" }] }
+```
+
+Without the alias, `addCOPC` rejects before fetching anything, with a message that names this package.
+The decoder alone: `decodeLazChunk(lazPerfInstance, bytes, { format, recordLength, count })` from
+`@ortho-earth/tile-formats/laz` returns the raw LAS point records of one LAZ chunk.
+
 ## Notes
 
 - Polygon rings come out in the order and orientation they were written (exterior, then its holes, then the
@@ -61,4 +78,4 @@ const layers = decodeMLT(bytes);     // → { [layer]: { extent, features } }, n
 
 ## License
 
-GPL-3.0-or-later ([LICENSE](LICENSE)), like the core. `@maplibre/mlt` is MIT OR Apache-2.0.
+GPL-3.0-or-later ([LICENSE](LICENSE)), like the core. `@maplibre/mlt` is MIT OR Apache-2.0. `laz-perf` is Apache-2.0.

@@ -1,7 +1,7 @@
 // COPC（Cloud Optimized Point Cloud・LAS 1.4＋LAZ＋八分木の階層）の形を読む（#178・自前＝本人裁定 2026-09-30）。地図に依らない純関数だけ：
 //   ヘッダ（375B）・VLR（copc info／laszip／WKT）・階層の節ページ（32B の項＝key(d,x,y,z)・offset・byteSize・pointCount＝−1 は子ページ）・
 //   節の範囲（立方体を d 段割った x,y,z 番目）・点の記録（形式 6/7/8＝位置・強度・分類・RGB）。
-// 取得（Range）と LAZ の展開（laz-perf の ChunkDecoder）は呼び手（copc-worker.js）。依存なし。
+// 取得（Range）と LAZ の展開は呼び手（copc-worker.js → "#pointcloud-formats" のプラグイン）。依存なし。
 
 const td = new TextDecoder();
 const str = (u8, o, n) => td.decode(u8.subarray(o, o + n)).replace(/\0[\s\S]*$/, "");

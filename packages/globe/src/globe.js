@@ -3393,7 +3393,7 @@ async function iiifOpen(src, attribution) {
 	const u = iSpec ? remoteUrl(iSpec, "iiif") : null;
 	if (u) { const off = map.onFrame(() => { off(); map.raster.add("iiif", { iiif: u.href }, { order: "over", opacity: 1, hideFills: false }).then(info => { const b = info?.bbox || map.raster.info("iiif")?.bbox; if (b && !themeBootV) map.fitBounds(b, { padding: 40 }); }).catch(err => console.warn("[iiif] ?iiif=", u.href, err)); }); }
 }
-// ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（laz-perf）──
+// ── COPC の点群（#178・Cloud Optimized Point Cloud・.copc.laz）＝gadgets/copc.js（遅延 chunk）・worker は copc 役（LAZ の解読器＝"#pointcloud-formats" のプラグイン）──
 // map.addCOPC(url | File, opts) → 手綱（stats・setOptions・setVisible・remove）・?copc=<URL>（門は ?g= と共用）・.copc.laz のドロップ
 let copcCtl = null;
 const copcGet = async () => copcCtl ??= (await import("./gadgets/copc.js")).createCOPC(map, { cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON, earthM: EARTH_M });

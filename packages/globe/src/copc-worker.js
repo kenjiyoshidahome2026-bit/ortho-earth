@@ -2,19 +2,20 @@
 //   開く  { type:"open", id, src: URL | Blob, headers?, ell } → { type:"opened", id, info, root: { nodes, pages } }
 //   頁    { type:"page", id, rid, page: { offset, byteSize } } → { type:"page", id, rid, nodes, pages }
 //   節    { type:"node", id, rid, node, N, heightOffset } → { type:"node", id, rid, n, pos(Float32・原点相対), origin, rgb(Uint8×3|null), intensity(Uint16), cls(Uint8), elev(Float32・m) }
-// 解読＝laz-perf 0.0.7 の ChunkDecoder（WASM・Apache-2.0・本人裁定）＝この worker を初めて使う時に一度だけ起こす（起動の重さは 0）。
+// 解読＝"#pointcloud-formats" の laz（プラグイン @ortho-earth/tile-formats/pointcloud＝laz-perf 0.0.7 の ChunkDecoder・WASM・Apache-2.0）。
+//   globe 自身は laz-perf に依存しない（本人裁定＝プラグインの形）・差し込まれていなければ open で何を足すかを返す。最初の節で一度だけ起こす（起動の重さは 0）。
 // 座標＝WKT（LASF_Projection 2112）→ geopbf/proj の crsFromWKT（TM・メルカトル・LCC・Albers・経緯度）→ 経緯度。高さ＝z（鉛直の単位）
 //   ＋楕円体高なら N（main が節の中心で EGM96 から引いて渡す）を引いて標高へ（この地図の標高はジオイド基準）・鉛直の CRS がジオイド系を申告していればそのまま。
 // 世界座標＝meshdecode の geoWorld（建物メッシュ・3D Tiles の点と同じ式・楕円体表示も）。
-import { createLazPerf } from "laz-perf";
-import lazWasmUrl from "laz-perf/lib/web/laz-perf.wasm?url";
+import { POINTCLOUD_FORMATS } from "#pointcloud-formats";
 import { openSource } from "geopbf/cog/source";
 import { crsFromWKT, parseWKTTree } from "geopbf/proj";
 import { geoWorld, setDecodeEnv, earthW } from "./meshdecode.js";
 import { parseHeader, listVlrs, parseCopcInfo, parseHierarchyPage, readRecords, nodeBounds } from "./copc-format.js";
 
-let LP = null;
-const lazPerf = () => LP ??= createLazPerf({ locateFile: () => new URL(lazWasmUrl, self.location.href).href });
+let LAZ = null;
+const NO_LAZ = 'copc: no LAZ decoder — install @ortho-earth/tile-formats and alias "#pointcloud-formats" to "@ortho-earth/tile-formats/pointcloud" in your bundler';
+const laz = () => LAZ ??= POINTCLOUD_FORMATS.laz().catch(e => { LAZ = null; throw e; });
 const sets = new Map();   // id → { src, hdr, info, crs, vUnit, ellipsoidal }
 const D2R = Math.PI / 180;
 // 節ページの項に選びの材料を足す：c＝境界球の中心（世界座標）・r＝半径（世界単位）・spacingM＝その節の点の間隔（m）・ll＝中心の経緯度（main が EGM96 の N を引く）
@@ -40,6 +41,7 @@ function verticalOf(wkt) {
 }
 
 async function open(m) {
+	if (!POINTCLOUD_FORMATS.laz) throw new Error(NO_LAZ);   // 取りに行く前に
 	const fetchFn = m.headers ? (u, init = {}) => fetch(u, { ...init, headers: { ...(init.headers || {}), ...m.headers } }) : undefined;
 	const src = await openSource(m.src, { headerBytes: 65536, ...(fetchFn ? { fetch: fetchFn } : {}) });
 	let head = new Uint8Array(src.head);
@@ -77,15 +79,9 @@ async function open(m) {
 
 async function node(m) {
 	const set = sets.get(m.id); if (!set) throw new Error("copc: not open");
-	const { hdr, ll } = set, n = m.node.pointCount, L = hdr.recordLength;
-	const [buf, lp] = await Promise.all([set.src.read(m.node.offset, m.node.byteSize), lazPerf()]);
-	const cp = lp._malloc(m.node.byteSize), pp = lp._malloc(L), rec = new Uint8Array(n * L);
-	try {
-		lp.HEAPU8.set(new Uint8Array(buf), cp);
-		const dec = new lp.ChunkDecoder();
-		try { dec.open(hdr.format, L, cp); for (let i = 0; i < n; i++) { dec.getPoint(pp); rec.set(lp.HEAPU8.subarray(pp, pp + L), i * L); } }
-		finally { dec.delete(); }
-	} finally { lp._free(cp); lp._free(pp); }
+	const { hdr, ll } = set, n = m.node.pointCount;
+	const [buf, decode] = await Promise.all([set.src.read(m.node.offset, m.node.byteSize), laz()]);
+	const rec = await decode(buf, { format: hdr.format, recordLength: hdr.recordLength, count: n });
 	const r = readRecords(rec, n, hdr);
 	const EW = earthW(), dz = (set.orthometric ? 0 : -(m.N || 0)) + (m.heightOffset || 0), vu = set.vUnit;
 	const pos = new Float32Array(n * 3), elev = new Float32Array(n), w = [0, 0, 0];
