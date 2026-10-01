@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-import { cpSync } from "node:fs";
+import { cpSync, rmSync } from "node:fs";
 import { sharedEngine, engineVersion } from "../../packages/globe/scripts/lib/shared-engine.mjs";
 
 // ortho-globe＝地球儀（@ortho-earth/globe）の家＝地域の申告を持たない頁だけを置く（LAYERS.md「globe の家」2026-09-24）。
@@ -23,6 +23,10 @@ const coiHeaders = server => {
 const crossOriginIsolation = { name: "cross-origin-isolation", configureServer: coiHeaders, configurePreviewServer: coiHeaders };
 const placeEngine = { name: "place-engine", apply: "build", closeBundle() { const v = engineVersion(); cpSync(resolve(import.meta.dirname, "dist/engine", v), resolve(import.meta.dirname, "dist/site/globe/engine", v), { recursive: true }); cpSync(resolve(import.meta.dirname, "dist/engine/current.json"), resolve(import.meta.dirname, "dist/site/globe/engine/current.json")); } };   // current.json＝Worker が旧版の入口を今の版へ送る時に読む
 
+// dev の地震データ（public/quakes/*.geopbf・gitignore・24MB）は出荷しない＝本番は /quakes/（quakes-mirror）から読む。置いたままだと dist に
+// quakes/ ができ、頁 /globe/quakes と同名のフォルダが並ぶ（検札の配り方が 404 にしていた・本番へ 24MB が上がる・2026-10-01）
+const dropDevData = { name: "drop-dev-data", apply: "build", closeBundle() { rmSync(resolve(import.meta.dirname, "dist/site/globe/quakes"), { recursive: true, force: true }); } };
+
 export default defineConfig(({ command }) => ({
 	base: "/globe/",
 	// 地形の頁（physical.js）のデータ置き場：dev＝手元の packages/world/out/（npm run build / ne:physical の生成物を bucket に置く前に見る）・本番＝空＝bucket GIS/world/
@@ -40,5 +44,5 @@ export default defineConfig(({ command }) => ({
 		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },
 		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
 	worker: { format: "es", rolldownOptions: { experimental: { chunkOptimization: false } } },
-	plugins: [crossOriginIsolation, sharedEngine(), placeEngine],
+	plugins: [crossOriginIsolation, sharedEngine(), placeEngine, dropDevData],
 }));

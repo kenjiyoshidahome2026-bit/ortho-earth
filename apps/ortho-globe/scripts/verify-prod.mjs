@@ -45,7 +45,9 @@ server = createServer(async (req, res) => {
 		if (p.startsWith("/globe/")) {
 			let f = path.join(SITE, p);
 			if (p.endsWith("/")) f = path.join(f, "index.html");
-			else if (!fs.existsSync(f) && fs.existsSync(f + ".html")) f += ".html";
+			// 拡張子なし＝<名前>.html（本番の Workers assets と同じ）。同名のフォルダがあっても .html が勝つ＝dev の地震データ public/quakes/（gitignore）が
+			// ある機械では dist に quakes/ ができ、旧＝「在るがファイルでない」で 404＝quakes だけ「起動しない」で落ちていた（2026-10-01）
+			else if ((!fs.existsSync(f) || fs.statSync(f).isDirectory()) && fs.existsSync(f + ".html")) f += ".html";
 			if (!f.startsWith(SITE) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404, COI); return res.end(); }
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
 			return fs.createReadStream(f).pipe(res);
