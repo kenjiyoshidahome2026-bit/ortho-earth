@@ -13,6 +13,10 @@ export const staleDSM = (name, obj, dtm) => {
 	if (!obj || !dtm) return false;
 	if (String(obj.source || "").startsWith(dtm.brand)) return false;   // 焼き直し済み＝信用
 	const [lng, lat, range] = decodeName(name);
+	// 粗い段（R10）も申告域の中は「brand の銘を含む」物だけ信用（2026-10-02）：日本の R10 は GEBCO ベースに DEM10B を転写して焼き直した
+	// （源の銘＝"GEBCO 2026 + GSI DEM10B(JP)"）。転写前の GEBCO だけの R10 は 10° タイルの境（東北 140°E）に段差＝縦の継ぎ目を持つ＝
+	// IDB に残る旧タイルは失効させて bucket を見直す（海だけのセルも同じ銘で焼いてある＝毎セッション取り直しにはならない）。
+	if (range === 10 && inBbox(dtm.bbox, lng, lat)) return !String(obj.source || "").includes(dtm.brand);
 	if (range !== dtm.range || !inBbox(dtm.bbox, lng, lat)) return false;
 	// noBake（bucket未収録の印）は申告域の「外」概念だが、域内の収録外の土地（韓国・台湾等）にも付く。
 	// 域内では noBake を信用しない＝毎セッション bucket を確認（load_gepco の decode 事故で日本セルに
