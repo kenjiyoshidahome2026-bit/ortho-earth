@@ -726,18 +726,21 @@ let worldLinesState = 0;   // 0=未 1=読込中 2=搭載 3=見送り
 const worldLineHandles = [];   // テーマ切替で塗り直す（色＝ortho-core worldstyle の正本・env.worldStyle）
 const repaintWorldLines = () => { const T = env.worldStyle; for (const { h, def } of worldLineHandles) h.setPaint(def.paint(T), def.filter).catch(() => {}); };
 const WORLD_LINES = [
-	{ name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
+	{ key: "rivers", name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
 		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 0.6, 5, 0.45, 8, 0.3] }),   // CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		filter: ["all", ["!", ["in", "Lake Centerline", ["to-string", ["coalesce", ["get", "featurecla"], ["get", "FEATURECLA"], ""]]]],
 			["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 6]], ["zoom"]]] },
-	{ name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
+	{ key: "maritime", name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
 		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.3 }),
 		filter: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 4]], ["zoom"]] },
 ];
 async function loadWorldLines() {
 	if (worldLinesState || LOW_MEM) { worldLinesState ||= 3; return; }
 	worldLinesState = 1;
+	// opts.worldLines＝false で読まない・["rivers"|"maritime"] でその種類だけ（自前の川を描く頁が二重に描かない・2026-10-01 /globe/physical）
+	const want = env.worldLines ?? true;
 	for (const def of WORLD_LINES) {
+		if (want !== true && !(Array.isArray(want) && want.includes(def.key))) continue;
 		let pbf = await geopbf(def.name).catch(() => null);
 		if (!pbf?.unPackGint) pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${def.dir}/${def.name}.zip`, { name: def.name }).catch(e => { console.warn("[world-lines]", def.name, e); return null; });
 		if (!pbf?.unPackGint) continue;
