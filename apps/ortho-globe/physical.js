@@ -32,6 +32,9 @@ const GROUP_OF = Object.fromEntries(GROUPS.flatMap(g => g.cats.map(c => [c, g.id
 const SEL = "#d7263d";   // 選択の縁取り（どの系統の色とも違う赤）
 
 // プレート境界（PB2002 の 7 種別）→ 動きの 3 系統（広がる・近づく・すれ違う）
+// ケッペン気候区分の大区分（30 区分は属性に残し、塗りは大区分＝Kenji 2026-09-15）。色は従来の地図帳の系統（熱帯＝青・乾燥＝赤橙・温帯＝緑・亜寒帯＝紫・寒帯＝灰青）を淡く
+const KOPPEN_GROUPS = [{ id: "A", color: "#1e60c8" }, { id: "B", color: "#de6028" }, { id: "C", color: "#4ca83c" }, { id: "D", color: "#8c48b0" }, { id: "E", color: "#8cb8ce" }];
+const koppenGroupName = id => ({ A: t("Tropical (A)"), B: t("Arid (B)"), C: t("Temperate (C)"), D: t("Continental (D)"), E: t("Polar (E)") })[id];
 const PLATE_KINDS = [{ id: "divergent", color: "#e0a020" }, { id: "convergent", color: "#b04a9c" }, { id: "transform", color: "#5a6472" }];
 const PLATE_KIND_OF = { OSR: "divergent", CRB: "divergent", SUB: "convergent", OCB: "convergent", CCB: "convergent", OTF: "transform", CTF: "transform" };
 const plateKindName = id => ({ divergent: t("Spreading (ridges, rifts)"), convergent: t("Converging (subduction, collision)"), transform: t("Sliding (transform faults)") })[id];
@@ -315,6 +318,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	const lodCache = [new Map(), new Map(), new Map(), null];
 	const lodGeom = (key, g, lv) => { if (!LOD_TOL[lv]) return g; let m = lodCache[lv].get(key); if (!m) lodCache[lv].set(key, m = simplifyGeom(g, LOD_TOL[lv])); return m; };
 	map.on("settle", () => { if (Math.abs(arrowWidth() - arrowW) >= 1 || lodOf(map.view.zoom) !== annoLod) drawAnno(); });   // 太さと粗さはズームで変わる＝止まった所で積み直す
+	let koppenOn = false;   // 気候区分の重ね（下の koppenOverlay が点ける・ホバーが読む）
 	function drawAnno() {
 		const fs = [];
 		arrowW = arrowWidth(); annoLod = lodOf(map.view.zoom); const lv = annoLod;
@@ -372,12 +376,14 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 
 	// ── 地図の操作（ホバー＝名前と主な量・クリック＝選択）──
 	const tip = map.gadget.tip();
-	const HIT = ["ph-poi", "ph-range-label", "ph-area-label", "ph-line-label", "ph-river", "ph-range", "ph-current", "ph-fill"];
+	const HIT = ["ph-poi", "ph-range-label", "ph-area-label", "ph-line-label", "ph-river", "ph-range", "ph-current", "ph-fill", "ph-koppen"];
 	const keyMetrics = d => Object.keys(METRICS).filter(k => valueOf(d, k) != null).slice(0, 2);
 	// 重なって当たった時は HIT の順（記号 → 名前 → 線 → 面）で 1 つ＝山の記号の下の氷河の面を拾わない
 	const topQid = e => (e.features || []).filter(f => f.properties?.qid).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0]?.properties.qid;
 	map.on("mousemove", HIT, e => {
 		const q = topQid(e), d = byQ.get(q);
+		const kf = !d && koppenOn ? (e.features || []).find(f => f.layer?.id === "ph-koppen")?.properties : null;   // 地形が無い所＝気候区分（記号と名前）
+		if (kf) return tip([`<b>${esc(kf.koppen)}</b>　${esc(kf.kname)}`, esc(koppenGroupName(kf.group))]);
 		tip(d ? [`<b>${esc(nameOf(d))}</b>　${esc(catName(d.category))}`, ...keyMetrics(d).map(k => `${esc(metricName(k))}: ${esc(fmtVal(valueOf(d, k), k))}`)] : null);
 	});
 	map.on("mouseleave", HIT, () => tip(null));
@@ -400,6 +406,11 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 				<h2>${esc(t("Overlays"))}</h2>
 				<label class="grp"><input type="checkbox" data-ov="plates"><span class="sw ln" style="background:linear-gradient(90deg,#e0a020 33%,#b04a9c 33% 66%,#5a6472 66%)"></span>${esc(t("Plate boundaries"))}</label>
 				<div class="leg" data-leg="plates" hidden>${PLATE_KINDS.map(k => `<span><i style="background:${k.color}"></i>${esc(plateKindName(k.id))}</span>`).join("")}</div>
+				<label class="grp"><input type="checkbox" data-ov="koppen"><span class="sw" style="background:linear-gradient(90deg,${KOPPEN_GROUPS.map((g, i) => `${g.color} ${i * 20}% ${(i + 1) * 20}%`).join(",")})"></span>${esc(t("Climate (Köppen)"))}</label>
+				<div class="leg kleg grp" data-leg="koppen" hidden>
+					<button type="button" class="kmore" aria-pressed="false">${esc(t("Details (30 types)"))}</button>
+					<div class="kgroups">${KOPPEN_GROUPS.map(g => `<div class="kg" data-g="${g.id}"><span class="kgn"><i style="background:${g.color};height:8px"></i>${esc(koppenGroupName(g.id))}</span><span class="kcs"></span></div>`).join("")}</div>
+					<small class="note">${esc(t("Beck et al. 2023 (CC BY 4.0), 1991–2020"))}</small></div>
 				<label class="grp"><input type="checkbox" data-ov="lines"><span class="sw ln" style="background:#5a6472"></span>${esc(t("Equator, tropics and polar circles"))}</label>
 				<p class="note">${esc(t("Symbol size and line width follow height and length. Names appear as you zoom in, larger features first."))}</p>
 				<p class="src">${esc(t("Data: Wikidata (CC0), Natural Earth"))}</p>
@@ -424,6 +435,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	const ovLoaded = {};
 	async function overlay(id, on) {
 		const leg = panel.querySelector(`[data-leg="${id}"]`); if (leg) leg.hidden = !on;
+		if (id === "koppen") return koppenOverlay(on);
 		if (!ovLoaded[id]) {
 			if (!on) return;
 			ovLoaded[id] = (async () => {
@@ -449,6 +461,35 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		}
 		const ids = await ovLoaded[id];
 		for (const l of ids) map.setLayoutProperty(l, "visibility", panel.querySelector(`input[data-ov="${id}"]`).checked ? "visible" : "none");
+	}
+
+	// ── 気候区分（ケッペン）＝0.1° の格子のセル辺そのまま（間引かない＝z8 まで寄っても四角の集まりのまま・本人 2026-10-01）を gint の塗りで。
+	// 頂点 37.5 万は GPU の LOD に任せる（anno で毎フレーム投影するより軽い）。30 区分は属性に残し、塗りは大区分。高地（チベット）でも塗りは出る（実測）
+	let koppenP = null, koppenMode = "group";   // 既定＝大区分 5 色・「詳細」で 30 区分（Beck の配色）＝本人 2026-10-01
+	const koppenColor = () => koppenMode === "class" ? ["get", "kc"] : ["match", ["get", "group"], ...KOPPEN_GROUPS.flatMap(g => [g.id, g.color]), "rgba(0,0,0,0)"];
+	panel.querySelector(".kmore").onclick = async e => {
+		koppenMode = koppenMode === "group" ? "class" : "group";
+		e.currentTarget.setAttribute("aria-pressed", String(koppenMode === "class")); e.currentTarget.classList.toggle("on", koppenMode === "class");
+		panel.querySelector(".kleg").classList.toggle("grp", koppenMode === "group");
+		if (koppenP) { await koppenP; map.setPaintProperty("ph-koppen", "fill-color", koppenColor()); }
+	};
+	async function koppenOverlay(on) {
+		const leg = panel.querySelector(`[data-leg="koppen"]`); if (leg) leg.hidden = !on;
+		koppenP ??= (async () => {
+			const p = await loadPbf(geopbf, base + "climate-koppen.geopbf"), feats = [];
+			for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
+				const pr = f.properties || {};
+				const kc = Array.isArray(pr.color) ? `rgb(${pr.color.join(",")})` : "#888";   // Beck et al. の標準配色（区分ごと）
+				feats.push({ type: "Feature", geometry: f.geometry, properties: { koppen: pr.code, group: pr.group, kname: pr["name_" + lang] || pr.name, kc } });
+				const chips = panel.querySelector(`.kg[data-g="${pr.group}"] .kcs`);
+				if (chips) chips.insertAdjacentHTML("beforeend", `<span class="kc" title="${esc(pr["name_" + lang] || pr.name)}"><i style="background:${kc}"></i>${esc(pr.code)}</span>`); }
+			map.addSource("ph-koppen", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+			await map.addLayer({ id: "ph-koppen", type: "fill", source: "ph-koppen",
+				paint: { "fill-color": koppenColor(), "fill-opacity": 0.42 } }, "ph-fill");   // いちばん下（地形の面・線・名前の下）
+		})();
+		await koppenP;
+		koppenOn = on;
+		map.setLayoutProperty("ph-koppen", "visibility", on ? "visible" : "none");
 	}
 
 	let tab = "layers";
@@ -605,6 +646,15 @@ const CSS = `
 .ph-panel h2{font-size:12px;margin:12px 0 2px;color:var(--qm-text-dim);font-weight:600}
 .ph-panel .sw.ln{height:4px;border-radius:2px}
 .ph-panel .leg{display:flex;flex-direction:column;gap:2px;margin:0 0 4px 34px;font-size:11.5px;color:var(--qm-text-dim)}
+.ph-panel .kleg{gap:4px;align-items:flex-start}
+.ph-panel .kgroups{display:flex;flex-direction:column;gap:3px;align-self:stretch}
+.ph-panel .kmore{align-self:flex-start;margin:2px 0 4px;font:inherit;font-size:11.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);cursor:pointer}
+.ph-panel .kmore.on{background:var(--qm-ink);color:#fff;border-color:var(--qm-ink)}
+.ph-panel .kg{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.ph-panel .kcs{display:flex;flex-wrap:wrap;gap:2px 8px;margin-left:20px}
+.ph-panel .kc{display:inline-flex;align-items:center;font-size:11px;font-variant-numeric:tabular-nums}
+.ph-panel .kc i{width:10px !important;height:10px !important;border-radius:2px;margin-right:3px !important}
+.ph-panel .kleg.grp .kcs{display:none}
 .ph-panel .leg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
 .ph-panel .grp small{margin-left:auto;color:var(--qm-text-faint)}
 .ph-panel .sw{flex:none;width:12px;height:12px;border-radius:3px}
