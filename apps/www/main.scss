@@ -250,5 +250,6 @@ body #demoOverlay main .apps.tech .tech-wide .tech-list li::before { content: ""
 @media (max-width: 640px) {
 	body #demoOverlay main .apps.tech .tech-wide .tech-cols { grid-template-columns: 1fr; }
 }
-/* Get started の 3 本目（MapLibre のコードをそのまま） */
-body #demoOverlay main .apps.start .card.path.ml .path-note { margin-top: .75rem; }
+/* Get started：lead の下の一文（絶えず速く・API は一貫＝同じ自動検査を通して出す）と、手順 6（MapLibre の片）の下の補足 */
+body #demoOverlay main .apps.start .start-note { margin: -.4rem 0 .2rem; font-size: .82rem; color: var(--text-secondary); text-align: center; }
+body #demoOverlay main .apps.start .steps .step-note { display: block; margin-top: .45rem; font-size: .82rem; color: var(--text-secondary); }
