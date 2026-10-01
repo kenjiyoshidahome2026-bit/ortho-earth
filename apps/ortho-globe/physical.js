@@ -136,7 +136,7 @@ function simplifyGeom(g, tol) {
 const countPts = g => { let n = 0; const w = c => { if (typeof c[0] === "number") n++; else for (const k of c) w(k); }; if (g?.coordinates) w(g.coordinates); return n; };
 
 // 名前の出しズーム（NE scalerank＝小さいほど大きな物。手動追加は rank なし）
-const minZoomOf = d => d.category === "continent" || d.category === "ocean" ? 0 : d.rank == null ? 3.2 : [1, 1.8, 2.6, 3.4, 4.2, 5, 5.6][Math.min(6, d.rank)];
+const minZoomOf = d => d.category === "continent" || d.category === "ocean" ? 0 : d.category === "ridge" ? 1.8 : d.rank == null ? 3.2 : [1, 1.8, 2.6, 3.4, 4.2, 5, 5.6][Math.min(6, d.rank)];   // 海嶺＝rank なし（手動）だが地球規模＝遠くから
 const textSizeOf = d => d.category === "continent" ? 15 : d.category === "ocean" ? 14 : d.rank == null ? 11 : Math.max(10.5, 13.5 - d.rank * 0.6);
 const ICON = { peak: "ph-peak", volcano: "ph-volcano", pass: "ph-pass", waterfall: "ph-fall", trench: "ph-trench", cape: "ph-dot", reef: "ph-dot", pole: "ph-dot" };
 const LINE_LABEL = new Set(["river", "current", "canal"]);   // 名前を線に沿わせる
@@ -200,9 +200,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		return c[c.length >> 1]; };
 	// 名前と記号の点（代表点＝Wikidata の P625 か NE の代表点）。線に沿わせる物（川・海流・運河）はここに入れない
 	const valLabel = d => d.category === "waterfall" ? fmtVal(d.height ?? null, "height") : d.elevation != null ? fmtVal(d.elevation, "elevation") : "";
-	const points = items.filter(d => !LINE_LABEL.has(d.category) || !geomsOf.has(d.qid)).map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: d.category === "range" && axisOf.has(d.qid) ? midOf(axisOf.get(d.qid)) : d.coord },
+	const points = items.filter(d => !LINE_LABEL.has(d.category) || !geomsOf.has(d.qid)).map(d => ({ type: "Feature", geometry: { type: "Point", coordinates: (d.category === "range" || d.category === "ridge") && axisOf.has(d.qid) ? midOf(axisOf.get(d.qid)) : d.coord },
 		properties: { qid: d.qid, category: d.category, g: GROUP_OF[d.category] || "land", name: nameOf(d), elev: d.elevation ?? 0, sub: ICON[d.category] && d.category !== "trench" ? valLabel(d) : d.category === "trench" && valueOf(d, "depth") != null ? "−" + fmtVal(valueOf(d, "depth"), "depth") : "",
-			icon: ICON[d.category] || "", mz: minZoomOf(d), size: textSizeOf(d),
+			icon: ICON[d.category] || "", mz: minZoomOf(d), size: textSizeOf(d), ...(d.category === "ridge" && axisOf.has(d.qid) ? { label: 1 } : {}),   // 海嶺＝名前は帯の中心（山脈の名前の層）
 			sort: (d.rank ?? 4) * 1e5 - (d.category === "range" ? 5000 : d.elevation ?? d.length ?? Math.sqrt(d.area ?? 0)) } }));   // 山脈＝同じ rank の 5,000 m 級の山と同格
 	// 海溝（軸線のある物）＝名前は帯の中心（山脈と同じ層）・最深部の ▼ には深さだけを残す（チャレンジャー海淵などの代表点＝P625）
 	for (const f of points.slice()) {
@@ -265,7 +265,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		"ph-range-label": { type: "symbol", source: "ph-pts", filter: ["all", ["any", ["==", ["get", "category"], "range"], ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["+", 1, ["get", "size"]], "symbol-sort-key": ["get", "sort"], "text-max-width": 8,
 				"text-variable-anchor": ["center", "top", "bottom", "left", "right"], "text-radial-offset": 0.9 },
-			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
+			paint: { "text-color": ["match", ["get", "category"], "ridge", "#8a6410", colorBy("ink")], "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
 		"ph-area-label": { type: "symbol", source: "ph-pts", filter: ["all", ["==", ["get", "icon"], ""], ["!=", ["get", "category"], "range"], ["!", ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["get", "size"], "symbol-sort-key": ["get", "sort"], "text-max-width": 8 },
 			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
@@ -278,7 +278,8 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// 面の絵（anno）：山脈の帯（縁をぼかす）・乾燥と氷の塗り・選択した面の縁取り。系統の切り替えと選択のたびに積み直す（数百の面＝軽い）
 	// 山脈は帯を 2 重（全幅＋芯の 55%）に重ねて、中ほどが濃く縁が淡い形に（anno の @blur＝canvas の filter は環境によって効かない＝headless Chrome で無描画だった）
 	const RANGE_OUT = "rgba(143,74,20,.24)", RANGE_IN = "rgba(143,74,20,.28)", NONE = "rgba(0,0,0,0)";
-	const TRENCH_FILL = ["rgba(126,48,110,.24)", "rgba(126,48,110,.36)"];   // 海溝＝プレート・海溝の系統（赤紫）を海の青の上で沈めた色
+	const TRENCH_FILL = ["rgba(126,48,110,.24)", "rgba(126,48,110,.36)"];
+	const RIDGE_FILL = ["rgba(214,150,30,.2)", "rgba(214,150,30,.32)"];   // 海嶺＝プレート境界の凡例の「広がる境界」と同じ黄土（海の青の上）   // 海溝＝プレート・海溝の系統（赤紫）を海の青の上で沈めた色
 	const coreOf = new Map([...axisOf].map(([q, c]) => [q, rangeBand({ type: "LineString", coordinates: c }, (shapes.find(f => f.properties.qid === q && f.properties.shape === "axis")?.properties.width || 60) * 0.55)]));
 	// 海流＝半透明の太い矢印（anno の @poly 線＝帯＋先端の矢じり・幅は画面 px）。長い流れは約 2,000 km ごとに区切って矢印を連ねる＝途中でも向きが読める
 	const CURRENT_FILL = { warm: "rgba(214,85,58,.5)", cold: "rgba(47,120,196,.5)" }, CURRENT_EDGE = { warm: "rgba(168,64,42,.55)", cold: "rgba(31,94,164,.55)" };
@@ -323,7 +324,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			const on = shown.has(g);
 			const geom = () => lodGeom(f, f.geometry, lv);
 			if (on && shape === "axis") {
-				const [OUT, IN] = category === "trench" ? TRENCH_FILL : [RANGE_OUT, RANGE_IN];
+				const [OUT, IN] = category === "trench" ? TRENCH_FILL : category === "ridge" ? RIDGE_FILL : [RANGE_OUT, RANGE_IN];
 				fs.push({ type: "Feature", geometry: geom(), properties: { "@fill": OUT, "@stroke": NONE, "@width": 0.01 } });
 				const core = coreOf.get(qid); if (core) fs.push({ type: "Feature", geometry: lodGeom(core, core, lv), properties: { "@fill": IN, "@stroke": NONE, "@width": 0.01 } });
 			}
