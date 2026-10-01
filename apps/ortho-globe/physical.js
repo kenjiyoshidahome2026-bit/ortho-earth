@@ -89,13 +89,21 @@ function rangeBand(geom, widthKm) {
 		const t = cum[i] / L, w = half * Math.pow(Math.min(1, t / 0.2, (1 - t) / 0.2), 0.6);   // 端ですぼむ
 		left.push([S[i][0] - ty * w / kx, S[i][1] + tx * w / KY]); right.push([S[i][0] + ty * w / kx, S[i][1] - tx * w / KY]);
 	}
-	const ring = [...left, ...right.reverse()]; ring.push(ring[0]);
-	// 外周は反時計回り（GeoJSON RFC 7946）＝軸線の向きで回りが決まる（西→東・北→南の軸は時計回りになり、穴として読まれて消えた）
-	let A = 0; for (let i = 1; i < ring.length; i++) A += (ring[i][0] - ring[i - 1][0]) * (ring[i][1] + ring[i - 1][1]);
-	if (A > 0) ring.reverse();
 	// 経度は折り返さない＝ほどいたまま（±180 を越えてよい・anno の投影は周期的）。折り返すと日付変更線をまたぐ帯（アリューシャン・トンガ）が地球を横切る
 	const shift = 360 * Math.round(-(P[0][0] + P.at(-1)[0]) / 720);
-	return { type: "Polygon", coordinates: [ring.map(p => [+(p[0] + shift).toFixed(4), +p[1].toFixed(4)])] };
+	// 長い帯は約 2,000 km ごとの塊（隣と断面を共有）に分けた MultiPolygon にする：anno の塗りは見えない点を地平線へ押し付けて結ぶ＝
+	// 「一部が見え・一部が視点の真裏（対蹠点）近く」の 1 枚の面は押し付けの向きが暴れて画面を横切る弦の塗りになった（大西洋中央海嶺・
+	// 本人 2026-10-01）。塊が短ければその両立は起きない・真裏の塊は描かれない・1 地物の塊は 1 回で塗る＝継ぎ目は出ない
+	const pieces = Math.max(1, Math.round(L / 2000)), parts = [];
+	for (let k = 0; k < pieces; k++) {
+		const a = Math.round(k * (S.length - 1) / pieces), b = Math.round((k + 1) * (S.length - 1) / pieces);
+		const ring = [...left.slice(a, b + 1), ...right.slice(a, b + 1).reverse()]; ring.push(ring[0]);
+		// 外周は反時計回り（GeoJSON RFC 7946）＝軸線の向きで回りが決まる（西→東・北→南の軸は時計回りになり、穴として読まれて消えた）
+		let A = 0; for (let i = 1; i < ring.length; i++) A += (ring[i][0] - ring[i - 1][0]) * (ring[i][1] + ring[i - 1][1]);
+		if (A > 0) ring.reverse();
+		parts.push([ring.map(p => [+(p[0] + shift).toFixed(4), +p[1].toFixed(4)])]);
+	}
+	return parts.length === 1 ? { type: "Polygon", coordinates: parts[0] } : { type: "MultiPolygon", coordinates: parts };
 }
 
 // 線（LineString / 日付変更線で割れた MultiLineString）を経度をほどいた 1 本の座標列に（継ぎ目の重複点は落とす）
