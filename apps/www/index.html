@@ -77,12 +77,21 @@
 			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない
 			     2026-10-02 本人「『MapLibre のコードを持ち込む』を 1 の『コードで作る』に併合し、学習コストが低いことを強調」＝3 本目の道を 1 の手順 6（start.md A8 の片・公式例 139 本の頁 /maplibre/）に畳み、
 			     説明文に「API は MapLibre GL JS そのもの＝新しく覚える物が無い」。同「絶えず性能向上とコードの整合性を行っている」＝lead の下の一文（start-note）
-			     同日「AI エージェントへの依頼文も日本語表示なら日本語に」＝依頼文の code に data-t（唯一の訳すコード片＝複数行キー・25 言語・dir=auto で RTL も）。実走で確かめたのは英語の依頼文 -->
+			     同日「一番最初が『見る』の方が自然」＝「見る」を 1 に上げて番号を付け、コード 2・AI 3。lead は「まず見る、それから作る」。同日「AI エージェントへの依頼文も日本語表示なら日本語に」＝依頼文の code に data-t（唯一の訳すコード片＝複数行キー・25 言語・dir=auto で RTL も）。実走で確かめたのは英語の依頼文 -->
 			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
-				<p class="start-lead" data-t="Two ways to build with the globe — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.">Two ways to build with the globe — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.</p>
+				<p class="start-lead" data-t="Look first, then build — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.">Look first, then build — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.</p>
 				<p class="start-note" data-t="The globe keeps getting faster and its API stays consistent: every change passes the same automated checks before it ships, so what you learn here keeps working.">The globe keeps getting faster and its API stays consistent: every change passes the same automated checks before it ships, so what you learn here keeps working.</p>
 				<section class="card path">
 					<span class="path-no" aria-hidden="true">1</span>
+					<h3 class="card-title" data-t="Look">Look</h3>
+					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
+					<span class="doclinks">
+						<a href="/japan/" translate="no">ortho-japan</a>
+						<a href="/geopbf/" translate="no">GeoPBF</a>
+					</span>
+				</section>
+				<section class="card path">
+					<span class="path-no" aria-hidden="true">2</span>
 					<h3 class="card-title" data-t="Build with code">Build with code</h3>
 					<p class="card-desc" data-t="Vite and npm — the whole world first, then your own data on top. The API is MapLibre GL JS, so if you know MapLibre there is nothing new to learn.">Vite and npm — the whole world first, then your own data on top. The API is MapLibre GL JS, so if you know MapLibre there is nothing new to learn.</p>
 					<ol class="steps">
@@ -151,7 +160,7 @@ const map = new maplibregl.Map({
 					</span>
 				</section>
 				<section class="card path">
-					<span class="path-no" aria-hidden="true">2</span>
+					<span class="path-no" aria-hidden="true">3</span>
 					<h3 class="card-title" data-t="Build with an AI agent">Build with an AI agent</h3>
 					<p class="card-desc" data-t="Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.">Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.</p>
 					<ol class="steps">
@@ -168,14 +177,6 @@ name and population. Start the view looking at Asia.</code></pre>
 						<li><span data-t="It installs, writes the code and checks it in the browser. Then run npm run dev and look.">It installs, writes the code and checks it in the browser. Then run npm run dev and look.</span></li>
 					</ol>
 					<p class="path-note" data-t="Tested: an AI agent given only this request built and verified the page on its first run.">Tested: an AI agent given only this request built and verified the page on its first run.</p>
-				</section>
-				<section class="card path small">
-					<h3 class="card-title" data-t="Look">Look</h3>
-					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
-					<span class="doclinks">
-						<a href="/japan/" translate="no">ortho-japan</a>
-						<a href="/geopbf/" translate="no">GeoPBF</a>
-					</span>
 				</section>
 				<section class="card path small">
 					<h3 class="card-title" data-t="Publish your map">Publish your map</h3>
