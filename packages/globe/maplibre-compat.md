@@ -127,6 +127,7 @@
 | R21 | 基図の paint は tile z で焼く | 触らない（§4） | — | — |
 | R22 | geojson の押し出しが止まるたびに全体を上げ直す（伸び上がりの式が一つでもあると、範囲の外でも 0.25 刻みごと） | 押し出しの鍵は曲線を見る（`src/extrude-ml.js` の curveZoomKey）：一番外の interpolate（-hcl/-lab も）/step の入力が ["zoom"] 由来なら止まりの外は "lo"/"hi"・中は 0.25 刻み／段の番号・それ以外の所の ["zoom"] は 0.25 刻みのまま。模様（canvas2D）の鍵は従来どおり | 爪車 node（extrude-zkey-* 7 場面）＋ t-mlcompat?g=extrude（押し出しの呼び出しを数える：範囲の外 4 回止めて 0 回・中 2 回・段） | **済**（段 5b） |
 | R23 | geojson の押し出しの問い合わせが足跡だけ（傾けると屋根・壁が当たらず、足元の地面が当たる・浮いた箱の下が当たる） | 立体（`src/extrude-ml.js` の hitExtrusion＝MapLibre の queryIntersectsFeature と同じく屋根と壁）・地物ごとの外接球で下ごしらえ・当たった所の奥行きで近い順・描いた地面と同じ所（model.js の mode） | 爪車 node（extrude-hit-* 5 場面）＋ t-mlcompat?g=extrude（屋根・壁・近い順・浮き・箱・見えている色＝先頭・中庭・目の後ろへ回る広い面）両土台 | **済**（段 5b） |
+| R24 | 移動中だけ面がオレンジ（線は水色）に塗られる＝25 万辺を超える source は動かしている間 gint の予算で層の単色（既定 #FF6B35／#00B4D8）へ落ちる（/globe/physical の形状台帳 39 万頂点・本人指摘 2026-10-01） | ML の pass の addGint に style＝moveBudget:Infinity・outlineZoom:0（admin0 と同じ＝移動中も表で描く）＋fillColor/styleTable を透明（それでも落ちる経路で色を出さない）＝`globe.js` rebuildGintNow | 実 GPU の CDP でドラッグ中を撮りオレンジの画素を数える（直す前 約 24 万→後 静止と同じ）。自動の門は未（移動中の描画状態を外から見る口が無い） | **済**（エンジン） |
 
 段 8①（vector の押し出し）で前もって把握した食い違い：
 
