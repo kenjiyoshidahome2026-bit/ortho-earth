@@ -173,7 +173,7 @@ export default async function world(opts = {}) {
 </div>
 <div name="wiki" class="hidden">
 	<div class="bar"><img name="logo" alt="Wikipedia"/><span name="title" class="title"></span><a name="newtab" target="_blank" rel="noopener"></a><button name="close"></button></div>
-	<iframe name="frame" title="Wikipedia"></iframe>
+	<iframe name="frame" title="Wikipedia" credentialless referrerpolicy="no-referrer"></iframe>
 </div>`);
 	const head = root.select("[name=head]").slideX(true);
 	[...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = sel(t));
@@ -182,6 +182,9 @@ export default async function world(opts = {}) {
 	const modal = root.select("[name=modal]");
 	[...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = sel(t));
 	// Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。記事は m. 版＝狭い枠でも読みやすい。別タブは ↗ で
+	// ⚠この頁は COEP credentialless（www のデモ一覧の iframe に入るため・2026-09-22）＝素の iframe は Wikipedia が COEP を返さず
+	// 遮断される。<iframe credentialless>（Chrome/Edge）で免除・非対応のブラウザは別タブへ（census2020/wiki.js と同じ）
+	const CAN_FRAME = "credentialless" in HTMLIFrameElement.prototype;
 	const wikiPane = root.select("[name=wiki]");
 	[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = sel(t));
 	wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
@@ -189,6 +192,7 @@ export default async function world(opts = {}) {
 	let flagWave = null;      // 今の旗のたなびき（国歌の play/pause/ended に連動・旗を替える/閉じる時に片付ける）
 	function showWiki(url, name) {
 		Sound("操作H");
+		if (!CAN_FRAME) { open(url, "_wiki_"); return; }
 		wikiPane.title.text(name || ""); wikiPane.newtab.attr("href", url).tip(trans("Open '$1' on Wikipedia", name || ""));
 		wikiPane.close.tip(trans("Back to list"));
 		wikiPane.frame.attr("src", url.replace(/^https:\/\/([a-z-]+)\.wikipedia\.org/, "https://$1.m.wikipedia.org")); wikiPane.show();
