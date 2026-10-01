@@ -14,6 +14,7 @@
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
 import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
+import { gunzip, isGzip } from "geopbf/gzip";
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
 const t = tr();
 
@@ -104,6 +105,14 @@ function joinParts(g) {
 	return out.length >= 2 ? out : null;
 }
 
+// 形状台帳を読む＝fetch（HTTP キャッシュが ETag で新旧を確かめる）→ 中身を geopbf へ。geopbf(URL) は URL ごとに IDB へ写して以後は版を見ずに使い回す
+//（bucket の名前読み＝GIS/pbf だけが版を突き合わせる）＝台帳を作り直しても開いたことのあるブラウザに届かなかった（海溝・海嶺の帯が出ない・本人 2026-10-01）
+async function loadPbf(geopbf, url) {
+	const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+	const b = await r.blob();
+	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer());
+}
+
 // ── 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）────────────────
 const SIMPLIFY_TOL = 0.004;   // 度（赤道の z8 で約 0.7 画素）
 function simplifyPts(P, tol, closed) {
@@ -148,13 +157,12 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Mountains, rivers, lakes, seas and deserts of the world on a 3D globe, with their heights, lengths, areas and depths side by side."));
 	const lang = getLang(), mapEl = map.mapEl;
 	const base = data || (typeof __WORLD_OUT__ !== "undefined" && __WORLD_OUT__) || WORLD_GIS;
-	const fromBucket = base === WORLD_GIS;
 
 	// データ（3 本を並行に）。名前表の失敗は英語で出すだけ（地図は止めない）
 	const [db, i18n, pbf] = await Promise.all([
 		fetchJsonMaybeGz(base + "TerrainDB.json"),
 		lang === "en" ? null : fetchJsonMaybeGz(`${base}i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
-		geopbf(base + "ne-physical.geopbf", fromBucket ? { name: "ne-physical.geopbf" } : undefined),   // bucket 版だけ IDB に写す（dev の out/ と鍵を混ぜない）
+		loadPbf(geopbf, base + "ne-physical.geopbf"),
 	]);
 	const items = (db.items || db).filter(d => d.coord);
 	const byQ = new Map(items.map(d => [d.qid, d]));
@@ -420,7 +428,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			if (!on) return;
 			ovLoaded[id] = (async () => {
 				const file = id === "plates" ? "plates.geopbf" : "ne-physical-lines.geopbf";
-				const p = await geopbf(base + file, fromBucket ? { name: file } : undefined), feats = [];
+				const p = await loadPbf(geopbf, base + file), feats = [];
 				for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
 					const pr = f.properties || p.getProperties(i) || {};
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
