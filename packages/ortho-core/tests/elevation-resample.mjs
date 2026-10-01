@@ -8,16 +8,16 @@ import { f32ToF16, f32ToF16Loop } from "../src/gpu/f16.js";
 let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log(`${c ? "✓" : "✗"} ${msg}`); };
 
-// 規約の写し（elevation-worldatlas.mjs と同じ原本＝2026-09-27 以前の downsampleFlipped をそのまま）
+// 規約の写し（elevation-worldatlas.mjs と同じ原本＝2026-09-27 以前の downsampleFlipped をそのまま。入力の画素中心 gx=u·w−0.5 は 2026-10-02 に両方へ入れた）
 function reference(tile, N) {
 	const { data, width: w, height: h } = tile;
 	const out = new Float32Array(N * N);
 	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
 	const M = 2;
 	for (let j = 0; j < N; j++) {
-		const gy = Math.min(Math.max((j + 0.5) / N * (h - 1), M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		for (let i = 0; i < N; i++) {
-			const gx = Math.min(Math.max((i + 0.5) / N * (w - 1), M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
+			const gx = Math.min(Math.max((i + 0.5) / N * w - 0.5, M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
 			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 			const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
 			out[j * N + i] = v < 0 ? 0 : v;
@@ -51,10 +51,10 @@ function referenceCrop(tile, lng0, lat0, span, N) {
 	const out = new Float32Array(N * N);
 	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
 	for (let j = 0; j < N; j++) {
-		const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * (h - 1);
+		const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * h - 0.5;
 		const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
 		for (let i = 0; i < N; i++) {
-			const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * (w - 1);
+			const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * w - 0.5;
 			const x0 = Math.max(0, Math.min(w - 2, gx | 0)), fx = Math.min(1, Math.max(0, gx - x0));
 			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 			const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;

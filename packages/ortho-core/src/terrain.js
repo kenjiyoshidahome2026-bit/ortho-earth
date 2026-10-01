@@ -115,7 +115,7 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		for (let r = 0; r < N; r++) for (let c = 0; c < N; c++) {
 			const i = r * N + c; if (data[i] === data[i]) continue;
 			if (!base) { data[i] = 0; continue; }
-			const w = base.width, h = base.height, gx = c / (N - 1) * (w - 1), gy = r / (N - 1) * (h - 1), x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = gx - x0, fy = gy - y0, B = base.data;
+			const w = base.width, h = base.height, gx = Math.max(0, c / (N - 1) * w - 0.5), gy = Math.max(0, r / (N - 1) * h - 0.5), x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), fx = Math.min(1, gx - x0), fy = Math.min(1, gy - y0), B = base.data;   // 格子点 → タイルの画素中心（elevation.js と同じ規約）
 			const a = B[y0 * w + x0], b = B[y0 * w + x0 + 1], cc = B[(y0 + 1) * w + x0], dd = B[(y0 + 1) * w + x0 + 1];
 			data[i] = (a + (b - a) * fx) * (1 - fy) + (cc + (dd - cc) * fx) * fy;
 		}
@@ -186,8 +186,8 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 		if (!tile) return worldAtlas ? sampleWorldAtlas(worldAtlas, lon, lat) : 0;   // R90 生タイルはアトラス運用では LRU に来ない＝床はアトラス
 		const cx = tile.lng, cy = tile.lat, range = tile.range;
 		const { data, width: w, height: h } = tile;
-		const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * (w - 1)));
-		const gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * (h - 1)));
+		const gx = Math.min(w - 1, Math.max(0, (lon - cx) / range * w - 0.5));   // 画素中心（elevation.js と同じ規約・旧 (w-1) は境界で 1 画素の段差）
+		const gy = Math.min(h - 1, Math.max(0, (lat - cy) / range * h - 0.5));
 		const x0 = Math.min(w - 2, gx | 0), y0 = Math.min(h - 2, gy | 0), tx = gx - x0, ty = gy - y0;
 		const H = (x, y) => data[(h - 1 - y) * w + x];   // y:0=南（downsampleFlippedと同規約）
 		const top = H(x0, y0) + (H(x0 + 1, y0) - H(x0, y0)) * tx;

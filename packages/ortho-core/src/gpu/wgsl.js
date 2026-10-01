@@ -1511,8 +1511,8 @@ struct RP {
 	lo: vec4f,    // mode 3: gx∈[x,y]・gy∈[z,w]
 	o: vec4u,     // ox, oy（セル原点 texel）, N, k
 	box: vec4u,   // mode 1: AW, rowN0, col0, 0
-	ix: vec4u,    // mode 0/2: Ax, Bx, Dx, 0
-	iy: vec4u,    // mode 0/2: Ay, By, Dy, 0
+	ix: vec4u,    // mode 0/2: Ax, Bx, Dx, shift（gx = (Ax + Bx·(2i+1))/Dx − shift＝画素中心の −½ を符号なしで書くための下駄・2026-10-02）
+	iy: vec4u,    // mode 0/2: Ay, By, Dy, shift
 };
 @group(0) @binding(0) var<uniform> R: RP;
 @group(0) @binding(1) var<storage, read> raw: array<u32>;
@@ -1546,9 +1546,11 @@ fn rd(idx: u32) -> f32 {
 			x0 = u32(clamp(floor(gx), 0.0, f32(w - 2u))); fx = clamp(gx - f32(x0), 0.0, 1.0);
 			y0 = u32(clamp(floor(gy), 0.0, f32(h - 2u))); fy = clamp(gy - f32(y0), 0.0, 1.0);
 		} else {
-			let nx = R.ix.x + R.ix.y * (2u * i + 1u); let qx = nx / R.ix.z; let rx = nx - qx * R.ix.z;
-			let ny = R.iy.x + R.iy.y * (2u * j + 1u); let qy = ny / R.iy.z; let ry = ny - qy * R.iy.z;
-			x0 = qx; fx = f32(rx) / f32(R.ix.z); y0 = qy; fy = f32(ry) / f32(R.iy.z);
+			let nx = R.ix.x + R.ix.y * (2u * i + 1u); var qx = nx / R.ix.z; let rx = nx - qx * R.ix.z;
+			let ny = R.iy.x + R.iy.y * (2u * j + 1u); var qy = ny / R.iy.z; let ry = ny - qy * R.iy.z;
+			let negx = qx < R.ix.w; let negy = qy < R.iy.w;   // gx < 0（タイル西端・南端の半画素）＝画素 0 でクランプ（CPU の x0=0・fx=0 と同じ）
+			qx = select(qx - R.ix.w, 0u, negx); qy = select(qy - R.iy.w, 0u, negy);
+			x0 = qx; fx = select(f32(rx) / f32(R.ix.z), 0.0, negx); y0 = qy; fy = select(f32(ry) / f32(R.iy.z), 0.0, negy);
 			if (mode == 0u) {   // downsampleFlipped：gx を [M, w−1−M] に clamp
 				let M = 2u;
 				if (qx < M) { x0 = M; fx = 0.0; } else if (qx > w - 1u - M || (qx == w - 1u - M && rx > 0u)) { x0 = w - 1u - M; fx = 0.0; }

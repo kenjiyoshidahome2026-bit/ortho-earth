@@ -722,13 +722,14 @@ export function createRenderer(canvas, rOpts = {}) {
 		if (!(w >= 2 && h >= 2)) return false;
 		const u = U4, f = F4;
 		u.fill(0);
-		if (src.mode === "down") { u[20] = 0; u[21] = w - 1; u[22] = 2 * N; u[24] = 0; u[25] = h - 1; u[26] = 2 * N; }
+		if (src.mode === "down") { u[20] = N; u[21] = w; u[22] = 2 * N; u[23] = 1; u[24] = N; u[25] = h; u[26] = 2 * N; u[27] = 1; }   // gx=(w(2i+1)−N)/2N＝画素中心（2026-10-02・elevation.js と同式）。分子に D を足し ix.w=1 で商から引く＝符号なしのまま
 		else if (src.mode === "crop") {
 			const rg = tile.range, dl = src.lng0 - tile.lng, dt = src.lat0 - tile.lat, sp = src.span;
 			const ints = [rg, dl, dt, sp, N].every(Number.isInteger) && dl >= 0 && dt >= 0 && rg > 0 && sp > 0;
-			const Ax = dl * 2 * N * (w - 1), Ay = dt * 2 * N * (h - 1), Bx = sp * (w - 1), By = sp * (h - 1), D = 2 * N * rg;
-			if (ints && Ax + Bx * (2 * N - 1) < 0x100000000 && Ay + By * (2 * N - 1) < 0x100000000 && D < 0x100000000) { u[3] = 2; u[20] = Ax; u[21] = Bx; u[22] = D; u[24] = Ay; u[25] = By; u[26] = D; }
-			else { u[3] = 3; f[4] = dl / rg * (w - 1); f[5] = sp / N / rg * (w - 1); f[6] = dt / rg * (h - 1); f[7] = sp / N / rg * (h - 1); f[8] = -1e30; f[9] = 1e30; f[10] = -1e30; f[11] = 1e30; }
+			// 画素中心：gx = ((dl + sp(i+½)/N)/rg)·w − ½ = (dl·2N·w + sp·w·(2i+1) − N·rg) / (2N·rg)。分子が負になり得る（dl=0 の西端）＝D を足して ix.w=1 で商から引く
+			const Ax = dl * 2 * N * w + N * rg, Ay = dt * 2 * N * h + N * rg, Bx = sp * w, By = sp * h, D = 2 * N * rg;
+			if (ints && Ax + Bx * (2 * N - 1) < 0x100000000 && Ay + By * (2 * N - 1) < 0x100000000 && D < 0x100000000) { u[3] = 2; u[20] = Ax; u[21] = Bx; u[22] = D; u[23] = 1; u[24] = Ay; u[25] = By; u[26] = D; u[27] = 1; }
+			else { u[3] = 3; f[4] = dl / rg * w - 0.5; f[5] = sp / N / rg * w; f[6] = dt / rg * h - 0.5; f[7] = sp / N / rg * h; f[8] = -1e30; f[9] = 1e30; f[10] = -1e30; f[11] = 1e30; }
 		}
 		else if (src.mode === "world") { const C = w >> 2; if (C % N) return false; u[3] = 1; u[15] = C / N; u[16] = w; u[17] = (1 - src.cy) * C; u[18] = src.cx * C; }
 		else return false;
