@@ -9,7 +9,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { JP_REGION } from "@ortho-earth/jp";
-import { NL_REGION } from "../nl/region.js";
+import { NL_REGION, NL_PLACES, NL_TERRAIN } from "../nl/region.js";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 let ok = 0, ng = 0;
@@ -45,7 +45,7 @@ eq("裸で開いた時の視点はアプリ既定", JP_REGION.view, null);
 // ── ② ?nl=1 / /nl/（オランダを足す） ────────────────────────────────────
 const both = compose(pick("with-jp"));
 eq("取得する台帳は日本の 1 本のまま", both.catalog, ["plateau-sets.json"]);
-eq("足すのはオランダの 3 件", both.sets.length, 3);
+eq("足すのはオランダの 8 件（街の一覧 NL_PLACES と同数）", both.sets.length, NL_PLACES.length);
 eq("裸地標高の申告は日本のものが残る（オランダは持たない）", both.dtm, JP_REGION.dtm);
 eq("オランダは裸地標高を宣言しない＝接地リフトしない", NL_REGION.dtm, null);
 eq("裸で開いた時はデルフト上空", NL_REGION.view, "#16/52.0116/4.3571/45t");
@@ -60,12 +60,17 @@ yes("出典の 1 行目は地理院の正式名称", jp.attr[0].lines[0][0].key.
 // ── ②' /nl/ ＝独立の入口（この地域だけ） ────────────────────────────────
 const only = compose(pick("only"));
 eq("取得する台帳は無い（日本の 336 件を持ち込まない）", only.catalog, []);
-eq("建物はオランダの 3 件だけ", only.sets.length, 3);
+eq("建物はオランダの 8 件だけ", only.sets.length, 8);
 eq("裸地標高の申告は無い＝接地リフトしない", only.dtm, null);
 eq("基図を宣言しない＝タイルを要求しない（図郭外と同じ全面水域）", only.basemap, null);
 eq("出典はオランダのものだけ", only.attr.length, 1);
 yes("出典に 3DBAG と CC BY 4.0", only.attr[0].lines[0][0].key.includes("3DBAG") && only.attr[0].lines[0][0].key.includes("CC BY 4.0"));
 yes("日本の出典は混ざらない", !JSON.stringify(only.attr).includes("GSI"));
+// /nl/ の基図と標高（2026-10-01）＝外来 style（OpenFreeMap）と外来の標高タイル（Mapterhorn）を入口が渡す。地域の基図の口は空のまま
+yes("街の視点は自分の建物の枠の中", NL_PLACES.every(p => p.view[0] > p.bbox[0] && p.view[0] < p.bbox[2] && p.view[1] > p.bbox[1] && p.view[1] < p.bbox[3]));
+yes("街の鍵は重ならない", new Set(NL_PLACES.map(p => p.key)).size === NL_PLACES.length);
+yes("標高は裸地として渡す＝建物を地面へ載せる", NL_TERRAIN.source.dtm === true && NL_TERRAIN.source.encoding === "terrarium");
+yes("style が取れなかった時の出典にも標高の出所", JSON.stringify(only.attr).includes("Mapterhorn"));
 
 // ?nl=1（重ね）は日本の基図と出典のまま＝開発の重ね確認
 yes("?nl=1 は日本の基図を使う", both.basemap && both.basemap.kind === "gsi");
@@ -82,7 +87,7 @@ yes("オランダは外部 tileset と切り抜きを持つ", NL_REGION.building
 eq("識別キーは国で衝突しない", NL_REGION.buildings.sets.filter(s => jpSets.some(j => j.base === s.base)).length, 0);
 
 // 識別キーは永続化の鍵（worker 振り分け・IDB・OPFS のファイル名）＝移設で変わっていないこと
-eq("オランダの識別キー", NL_REGION.buildings.sets.map(s => s.base), ["nl-3dbag-delft/", "nl-3dbag-rotterdam/", "nl-3dbag-amsterdam/"]);
+eq("オランダの識別キー", NL_REGION.buildings.sets.map(s => s.base), ["nl-3dbag-delft/", "nl-3dbag-rotterdam/", "nl-3dbag-amsterdam/", "nl-3dbag-denhaag/", "nl-3dbag-utrecht/", "nl-3dbag-eindhoven/", "nl-3dbag-groningen/", "nl-3dbag-maastricht/"]);
 
 // ── 宣言から注入する 4 つの口（2026-09-22：app.js の直書きから移設）──────────────────────────
 // 日本＝全部持つ／/nl/＝どれも持たない（検索窓・日本ボタン・POI・N02 を作らない）／?nl=1＝日本のものが効く
