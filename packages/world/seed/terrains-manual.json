@@ -1,6 +1,15 @@
 {
  "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。axis_len=海溝の軸線の長さ（km・PB2002 の沈み込み境界をたどる長さ）。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
  "add": [
+  { "qid": "Q1011", "category": "islands", "name": "Cape Verde" },
+  { "qid": "Q664687", "category": "islands", "name": "Bijagós Islands" },
+  { "qid": "Q34497", "category": "island", "name": "Saint Helena" },
+  { "qid": "Q46197", "category": "island", "name": "Ascension Island" },
+  { "qid": "Q220982", "category": "islands", "name": "Tristan da Cunha" },
+  { "qid": "Q175057", "category": "islands", "name": "Fernando de Noronha" },
+  { "qid": "Q205022", "category": "island", "name": "Bioko" },
+  { "qid": "Q233124", "category": "island", "name": "São Tomé Island" },
+  { "qid": "Q23635", "category": "islands", "name": "Bermuda" },
   {
    "qid": "Q130135",
    "category": "range",
@@ -4074,9 +4083,7 @@
   "Sudd": "wetland",
   "Zambezi Delta": "delta"
  },
- "allow_nation": [
-  "Q223"
- ],
+ "allow_nation": ["Q223", "Q1011", "Q23635"],
  "alias": {
   "Q15120268": "Q1978",
   "Q23945221": "Q66065",

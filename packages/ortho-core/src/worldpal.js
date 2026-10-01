@@ -52,3 +52,12 @@ export function resolveWorldPal(knob) {   // per-key マージ。knob=view.world
 	for (const k in WORLD_PAL_DEFAULT) p[k] = (knob && knob[k]) || WORLD_PAL_DEFAULT[k];
 	return p;
 }
+// 段彩の濃さ（view.worldHypsoOpacity・0..1）＝陸の色（低地〜雪）を地色 land へ寄せる。海・海面下の締め・レチクルは触らない＝
+// 0 で「地色の陸＋陰影だけ」（map.setOpacity({ hypso })・2026-10-01）。uniform を足さずパレットで表す＝両レンダラ・全パスで同じ色
+const LAND_KEYS = ["lowHumid", "lowArid", "midHumid", "midArid", "ramp1", "ramp2", "peak", "snow"];
+export function fadeWorldPal(pal, opacity, land) {
+	const a = Math.max(0, Math.min(1, opacity ?? 1)); if (a >= 1 || !land) return pal;
+	const out = { ...pal };
+	for (const k of LAND_KEYS) out[k] = [0, 1, 2].map(i => land[i] + (pal[k][i] - land[i]) * a);
+	return out;
+}
