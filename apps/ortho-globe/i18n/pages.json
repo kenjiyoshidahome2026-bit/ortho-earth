@@ -13,6 +13,9 @@
 		"clouds": [
 			"clouds.js",
 			"clouds-gl.js"
+		],
+		"physical": [
+			"physical.js"
 		]
 	}
 }

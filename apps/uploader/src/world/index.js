@@ -3,6 +3,7 @@
 // ここは「ブラウザで組み立てて bucket に保存する」入口と、資産（旗・音源・地形PNG）の出し入れ。
 //   全部作る: seed → Wikidata / World Bank / IMF / HDR / en.wikipedia → NationDB・CityDB・TerrainDB・LanguageDB・CurrencyDB・Conflicts・i18n/<lang>・rivers（川の形状 GeoJSON）・range（山脈の軸線 GeoJSON）
 //   zip drop: flags.zip（<key>.svg）/ 音源.zip（mp3）/ geoms.zip（png）。svg 一枚差し（<key>.svg）
+//   形状台帳 drop: packages/world/out/ の ne-physical.geopbf・ne-physical-lines.geopbf・plates.geopbf・climate-koppen.geopbf・ne-physical.json（Node の scripts が生成）＝素通しで置く
 //   NE Cultural: Natural Earth 10m から key ごとに切った台帳（ne-cultural.geopbf）を生成して保存＝apps/equal が国・道路・鉄道・市街地に読む（2026-09-18）
 import * as d3 from 'd3';
 import "common/d3/fileio.js";   // dropFiles 拡張
@@ -19,6 +20,7 @@ import { buildSearchIndex } from "../../../../packages/world/build/search.js";
 // seed は同梱（ビルド時に取り込む＝repo の seed/ が正本・将来はデータ用リポジトリの submodule）
 const SEEDS = import.meta.glob("../../../../packages/world/seed/*", { query: "?raw", import: "default", eager: true });
 import uiJSON from "../../../../packages/world/i18n/ui.json?raw";
+const PHYSICAL_FILES = ["ne-physical.geopbf", "ne-physical-lines.geopbf", "plates.geopbf", "climate-koppen.geopbf", "ne-physical.json"];
 
 
 export async function worldUI({ CMD, q, Bucket, Fetch }) {
@@ -198,6 +200,13 @@ export async function worldUI({ CMD, q, Bucket, Fetch }) {
 			const cleaned = await cleanSVG(file);
 			await db.saveFlagDB(files.map(t => t.name.replace(/\.svg$/, "") == target ? cleaned : t));
 			return q.success(`${FLAG}/${target}.svg: 差し替え`);
+		}
+		// 地形の形状台帳（Node の scripts が out/ に書く gzip の GeoPBF）＝素通しで置く＝/globe/physical が読む（2026-10-01）
+		if (PHYSICAL_FILES.includes(name)) {
+			if (name.endsWith(".json")) { await bucket.put(new File([file], name, { type: "application/json" })); return q.success(`${DIRE}/${name}: 保存`); }
+			const head = new Uint8Array(await file.slice(0, 2).arrayBuffer());
+			if (head[0] != 0x1f || head[1] != 0x8b) return q.error(`${name}: gzip でない＝packages/world/out/ の生成物をそのまま落とす`);
+			await db.saveGeoPBF(name, file); return q.success(`${DIRE}/${name}: 保存（${(file.size / 1e6).toFixed(2)}MB gzip）`);
 		}
 		q.log(`${name}: 対象外（DB は「全部作る」で seed から組み立てる）`);
 	}
