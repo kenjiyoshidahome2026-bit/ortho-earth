@@ -12,7 +12,7 @@
 //   量   … 山の記号＝標高・川の太さ＝長さ・山脈の帯の幅＝実寸（km）。数値は名前の下に添える（山・火山・滝）
 //   出し … NE の scalerank（rank）で名前の出しズームを決める＝大きな物ほど遠くから
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
-import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
+import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
@@ -404,7 +404,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	const panel = document.createElement("div");
 	panel.className = "ph-panel";
 	panel.innerHTML = `<style>${CSS}</style>
-		<div class="head"><h1>${esc(t("Physical world"))}</h1><button class="fold" type="button" aria-label="${esc(t("Fold"))}">–</button></div>
+		<div class="head"><h1>${esc(t("Physical world"))}</h1><select class="lang" aria-label="Language">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button class="fold" type="button" aria-label="${esc(t("Fold"))}">–</button></div>
 		<div class="body">
 			<div class="detail" hidden></div>
 			<div class="tabs" role="tablist">
@@ -440,6 +440,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		</div>`;
 	mapEl.appendChild(panel);
 	const $ = s => panel.querySelector(s);
+	// 言語（world と同じ＝その言語の呼び名を並べた select・26 言語）。地球儀の注記・地形の名前表・エンジンの文言は起動時の言語で組む＝
+	// ?lang= を書き換えて読み直す（視点＝hash・選択＝?q= は URL に残る＝同じ場所・同じ選択へ戻る）
+	$(".lang").onchange = e => { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.assign(u); };
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g) : shown.delete(inp.dataset.g); applyGroups(); });
 	panel.querySelectorAll("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov, inp.checked));
@@ -675,7 +678,8 @@ const CSS = `
 	padding:12px 14px;border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);
 	backdrop-filter:blur(var(--qm-blur));-webkit-backdrop-filter:blur(var(--qm-blur));color:var(--qm-text);font:13px/1.45 var(--qm-font)}
 .ph-panel .head{display:flex;align-items:center;justify-content:space-between;gap:8px}
-.ph-panel h1{font-size:15px;margin:0;font-weight:700;color:var(--qm-ink)}
+.ph-panel h1{flex:1;min-width:0;font-size:15px;margin:0;font-weight:700;color:var(--qm-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ph-panel .head .lang{flex:none;max-width:120px;font-size:12px;padding:3px 4px}
 .ph-panel .fold,.ph-panel .x{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer}
 .ph-panel.min .body{display:none}
 .ph-panel .tabs{display:flex;gap:4px;margin:10px 0 8px;border-bottom:1px solid var(--qm-border-soft)}
