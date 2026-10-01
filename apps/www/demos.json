@@ -20,7 +20,7 @@
 	"demos": [
 		{
 			"id": "japan-demo",
-			"href": "/japan/?demo=1",
+			"href": "/japan/?demo=1#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "▶️",
 			"title": "japan(demo)",
@@ -49,7 +49,7 @@
 		},
 		{
 			"id": "geoedit",
-			"href": "/japan/geoedit",
+			"href": "/japan/geoedit#5.1/38.2/136.9",
 			"group": "tools",
 			"icon": "✏️",
 			"title": "geoedit",
@@ -74,6 +74,20 @@
 			"img": "/thumbs/world.webp",
 			"shot": {
 				"wait": 8
+			}
+		},
+		{
+			"id": "physical",
+			"href": "/globe/physical",
+			"group": "earth",
+			"icon": "🏔️",
+			"title": "Landforms of the World",
+			"lang": "26",
+			"desc": "Mountains, rivers, lakes, seas and deserts of the world on a 3D globe — rank them, compare their heights and lengths, and overlay ocean currents, plate boundaries and climate zones.",
+			"img": "/thumbs/physical.webp",
+			"shot": {
+				"url": "/globe/physical?lang=en#3.35/26/88",
+				"wait": 20
 			}
 		},
 		{
@@ -105,6 +119,22 @@
 			}
 		},
 		{
+			"id": "clouds",
+			"href": "/globe/clouds#3.2/18/135",
+			"group": "earth",
+			"icon": "☁️",
+			"title": "Clouds now",
+			"lang": "26",
+			"desc": "Infrared images from five geostationary weather satellites (Himawari, GOES, Meteosat), read straight from NASA GIBS and EUMETSAT and drawn in 3D over the globe.",
+			"img": "/thumbs/clouds.webp",
+			"shot": {
+				"url": "/globe/clouds#3.2/18/135",
+				"wait": 60,
+				"eval": "document.querySelector('button.fold')?.click()",
+				"after": 2
+			}
+		},
+		{
 			"id": "solar",
 			"href": "/solar/",
 			"group": "space",
@@ -119,7 +149,7 @@
 		},
 		{
 			"id": "scene",
-			"href": "/japan/scene",
+			"href": "/japan/scene#5.2/36.2/137.8",
 			"group": "tools",
 			"icon": "🎥",
 			"title": "Make a video",
@@ -159,7 +189,7 @@
 		},
 		{
 			"id": "census2020",
-			"href": "/japan/census2020/",
+			"href": "/japan/census2020/#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "📊",
 			"title": "census2020",
@@ -185,7 +215,7 @@
 		},
 		{
 			"id": "japan",
-			"href": "/japan/",
+			"href": "/japan/#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "🗾",
 			"title": "ortho-japan",
@@ -244,19 +274,6 @@
 			}
 		},
 		{
-			"id": "maps",
-			"href": "/japan/?r=gsi-photo&hud=1#13.01/35.33664/138.66888/74t/-18r",
-			"group": "tools",
-			"icon": "📚",
-			"title": "Aerial photo tiles",
-			"lang": "26",
-			"desc": "GSI aerial photo tiles. Any XYZ tiles or PMTiles can be shown in 3D.",
-			"img": "/thumbs/maps.webp",
-			"shot": {
-				"wait": 15
-			}
-		},
-		{
 			"id": "pop-density",
 			"href": "/japan/?g=showcase/pop-density-2020.geopbf#7.6/35.3/139.1/62t/-25r",
 			"group": "japan",
@@ -271,12 +288,12 @@
 		},
 		{
 			"id": "edo-map",
-			"href": "/japan/?g=showcase/edo-nihonbashi-1850.geopbf",
+			"href": "/japan/?iiif=/japan/showcase/edo-nihonbashi-1850.iiif.json#15.7/35.6895/139.778",
 			"group": "japan",
 			"icon": "🗺️",
 			"title": "An old map of Edo",
 			"lang": "26",
-			"desc": "A woodblock map of Nihonbashi from 1850 (National Diet Library), laid on today's Tokyo.",
+			"desc": "A woodblock map of Nihonbashi from 1850, read as IIIF tiles straight from the National Diet Library and laid on today's Tokyo by its control points.",
 			"img": "/thumbs/edo-map.webp",
 			"shot": {
 				"wait": 25

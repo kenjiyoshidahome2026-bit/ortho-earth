@@ -471,7 +471,7 @@ fn worldHypsoColor(e: f32, ll: vec2f, clim: vec2f, hasClim: f32) -> vec3f {
 	c = mix(c, WP.snow.rgb, clamp(snow, 0.0, 1.0));
 	return mix(c, vec3f(dot(c, vec3f(0.299, 0.587, 0.114))), 0.10);
 }
-fn climUV(ll: vec2f) -> vec2f { return vec2f(ll.x / 360.0 + 0.5, 0.5 - ll.y / 180.0); }
+fn climUV(ll: vec2f) -> vec2f { return vec2f(fract(ll.x / 360.0 + 0.5), 0.5 - ll.y / 180.0); }   // 経度は一周で折り返す（原点相対の経度は ±180 を越えうる）
 `;
 
 export const TERRAIN_WGSL = /* wgsl */`
@@ -907,14 +907,19 @@ struct GCogP { bbox: vec4f, p: vec4f };
 struct GGndP { w0: vec4f, w1: vec4f, w2: vec4f, w3: vec4f, p: vec4f };
 ${WORLD_HYPSO_WGSL}
 const R2Dg: f32 = 57.29577951308232;
-fn gElevFar(ll: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
+fn gElevFar(ll0: vec2f) -> f32 {   // far床＝近窓の外の受け（GL elevFar と同式）
 	if (G.farP.x < 0.5) { return 0.0; }
+	let ll = vec2f(ll0.x - 360.0 * floor((ll0.x + 180.0) / 360.0), ll0.y);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	let uv = (ll - G.farBounds.xy) / G.farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
 	return textureSampleLevel(gFarTex, gSamp, uv, 0.0).r;
 }
 fn gElevAt(ll: vec2f) -> f32 { return gElevUV((ll - G.elevBounds.xy) / G.elevBounds.zw, ll); }
-fn gElevUV(uv: vec2f, ll: vec2f) -> f32 {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+fn gElevUV(uv0: vec2f, ll: vec2f) -> f32 {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+	// 全球の窓（R90＝経度幅 360°）は経度が一周＝uv.x を折り返す。原点（最初の視点）から 180° 超回った先は原点相対の uv/経度が窓の外
+	//（例 原点 138°E→米州で 276°）に出て far 床（世界帯では未読込＝0）へ落ち、陸が海色に抜けた（本人 2026-10-01「回すと欠ける」）
+	var uv = uv0;
+	if (G.elevBounds.z > 359.0) { uv.x = fract(uv.x); }
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return gElevFar(ll); }
 	var fade = 1.0;
 	if (G.farP.y > 0.0) {   // 近窓縁＝far値へ溶かす（R90全球窓=0＝従来どおり）

@@ -42,6 +42,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 - ローカル: `npm run build -w world-data`（`packages/world/out/` へ。取得結果は `.cache/` に残る＝`--fresh` で捨てる）
 - uploader（DB Updater の「国別DB (world)」節）の **「全部作る」**: 同じ build をブラウザで回して bucket `GIS/world/` に保存（取得キャッシュは IDB `worldBuild`）。
   HDR の CSV だけ CORS が無いので api.ortho-earth.com の proxy 経由（allowlist に hdr.undp.org）。
+- 形状台帳（`ne-physical.geopbf`・`ne-physical-lines.geopbf`・`plates.geopbf`・`climate-koppen.geopbf`・`ne-physical.json`）は Node の scripts で out/ に作り、uploader の国別DB節に**ドロップ**して `GIS/world/` へ素通しで置く（2026-10-01）。順序＝`npm run plates` → `npm run ne:physical`（プレートの面は PB2002 の取得が先）
 - 旗（flags.zip → flags/<key>.svg）・音源（音源.zip）・地形 PNG（geoPNG 作成 → geoms/<key>.png）は資産として別に置く。
 - ビューアは起動時に IDB の写しで即描画し、裏で一覧（ETag）を突合して変わったファイルだけ取り直す（`apps/world/src/data.js`）。
 
@@ -51,7 +52,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 |---|---|---|
 | NationDB | key | qid, name.en, official, region, iso[2,3,num], ioc, un(加盟日), capital(都市 QID), territory/conflict(key), sovereignt/claim(係争地 key), coord, area, population/gni/gnipc/gdp/gdppc/ppp/ppppc/hdi/homicide(=[最新年, 値…]), gpi(=[年, 値]), languages(ISO 639), currency(ISO 4217), anthem(URL), flag(Commons ファイル名), wiki.en(記事名), capitalNote, `_src`(項目ごとの出所) |
 | CityDB | qid | name.en, nation[key], capital, coords[lon,lat,標高], population[年,値], wiki.en |
-| TerrainDB | qid | category(35 分類), rank(NE scalerank・手動追加は無し), name.en, coord[lon,lat], area(km²), elevation(m), length(km), wiki.en |
+| TerrainDB | qid | category(35 分類), rank(NE scalerank・手動追加は無し), name.en, coord[lon,lat], area(km²), elevation(m), length(km), discharge(流量 m³/s・P2225), basin(流域面積 km²・P2053), depth(深さ m・P4511), height(落差 m・P2048), prominence(m・P2660), volume(km³・P2234), wiki.en。物理量は Wikidata に有るものだけ（ft/mi/hm³ は換算・2026-10-01 に 6 量を追加＝/globe/physical 用） |
 | range.geojson | qid | 山脈の軸線＝FeatureCollection（properties: qid, name, width(km), length(km), source=ne/seed / LineString 3〜40 点（約 120 km 間隔）・小数 3 桁）。表示側で spline を通し width でポリゴン化する前提（Kenji 2026-09-11）|
 | rivers.geojson | qid | 川の形状＝FeatureCollection（properties: qid, name, scalerank / MultiLineString・小数 4 桁）。Natural Earth 10m rivers_lake_centerlines_scale_rank v5.1.2 を wikidataid で結合 |
 | LanguageDB / CurrencyDB | ISO 639 / 4217 | qid, name.en, wiki.en |
@@ -112,6 +113,8 @@ B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX �
   海流（current・26 本・2026-09-15）: 教科書の模式図の水準で seed の axis に手書き（向き＝流れ・"|" で複数の線・Catmull-Rom で約 250 km 間隔に再標本化・経度は unwrap して日付変更線越えを扱う）。flow（warm/cold）は手動層の flow。Wikidata の海流項目に結ぶ＝多言語名は TerrainDB 側。
   絵として収録（picture）: 英語記事が無い項目（対馬海流）は `seed/terrains-pictures.csv` に出て台帳にだけ載る（wiki:false・TerrainDB には入れない）。NE に線が無い川（信濃川・パラグアイ川・フーグリ川・イグアス川）は axis の手書き線（source=seed）。
   火山（volcano・27 件）: 手動層で追加。既に peak にある山（富士・ベスビオ・エトナ・クラカタウ…22 件）は peak のまま、台帳が Wikidata P31（volcano の下位クラス 41 種＝`.cache/wikidata-volcano-classes.json`）で `volcano:true` を付ける（46 地物）。
+  海溝の軸線（trench・16 本・2026-10-01）: 海溝は点しか無い（Wikidata P625）＝PB2002 の沈み込み境界（SUB）を代表点の最寄りから両側へ長さの半分ずつたどった `shape=axis`（source=pb2002・幅 140 km）を足す＝表示側で山脈と同じ帯。たどるのは「沈み込むプレート」が同じ SUB だけ（境界名の向き＝"A/B" は B・"A\\B" は A が沈む＝アリューシャン西端で OK/NA へ逸れない）・分岐は最も真っすぐ（90° まで）・SUB の間の 120 km 未満の別種別は渡った先に SUB が続く時だけ 1 区間橋渡し（マリアナ南端の OTF）・片側が尽きたら残りを反対側へ・50 km 内に SUB が無い海溝（ヤップ＝OCB・プエルトリコ）は種別を問わず。長さ＝手動層 `axis_len`（km・概数・en.wikipedia）
+  海嶺の軸線（ridge・8 本・2026-10-01）: 代表点は三重会合点に置かれた物がある（南東・南西インド洋海嶺がどちらも 70°E 25.5°S）＝点からはたどらず、手動層 `ridge_plates` のプレートの組（順不同・lon で絞れる＝大西洋中央海嶺の NA-EU から北極海のガッケル海嶺を外す）の拡大軸 OSR とトランスフォーム断層 OTF を集め、いちばん大きな塊の中の最長の道筋（二度掃き）を 1 本に。断層のジグザグは 1° の Douglas–Peucker でならす。`shape=axis`（source=pb2002・幅 300 km・length は断層込みの道のり）
   プレート（plate・主要 16 枚）: 面は PB2002（Bird 2003）の "~PB2002:記号" を merge で結ぶ。位置＝面の頂点平均。全 52 枚と境界線（種別 OSR/OTF/OCB/CRB/CTF/CCB/SUB）は `scripts/plates.mjs` → `out/plates.geopbf`。
   気候（`scripts/koppen.mjs` → `out/climate-koppen.geopbf`）: Beck et al. 2023（CC BY 4.0）の 1991–2020・0.1° ラスタを区分ごとの面に（30 区分＝1 地物ずつ・属性 id/code/group/name/color・塗りは group）。境界セル辺を環に繋ぐ方式＝隣接区分と辺を共有（面積検算でセル数と完全一致）。TIFF は geopbf の COG 読み口で読む。
   地理線 `out/ne-physical-lines.geopbf`（⑤ 2026-09-15）: 赤道・回帰線・極圏は黄道傾斜角 ε（IAU 2006・2026 年評価）から計算（NE v5.1.2 は北回帰線 23.50°/南 −23.56° と不揃い）、日付変更線は NE。属性 name / kind / lat / epoch / wikidataid。

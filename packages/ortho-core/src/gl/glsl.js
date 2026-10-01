@@ -24,6 +24,7 @@ float elevFadeAt(vec2 uv) {
 }
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	float f = 1.0;
@@ -426,7 +427,7 @@ vec3 worldHypso(float e, vec2 ll) {
 	float arid, pol;
 	if (u_hasClim > 0.5) {
 		// 本物の cross-blend：気候場テクスチャ（海は焼き時に最寄り陸の値で充填済＝海岸で値が落ちない）
-		vec2 c2 = texture(u_climTex, vec2(ll.x / 360.0 + 0.5, 0.5 - latD / 180.0)).rg;
+		vec2 c2 = texture(u_climTex, vec2(fract(ll.x / 360.0 + 0.5), 0.5 - latD / 180.0)).rg;   // 経度は一周で折り返す
 		arid = c2.r; pol = c2.g;
 	} else {
 		// フォールバック＝緯度近似（馬緯度の乾燥帯×湿潤東岸の打ち消し箱）。気候場が届くまでの1-2フレーム用
@@ -609,11 +610,13 @@ uniform float u_hasFar;
 uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
 float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+	if (u_elevBounds.z > 359.0) uv.x = fract(uv.x);   // 全球の窓（R90）は経度が一周＝原点から 180° 超回った先の uv を折り返す（gpu/wgsl.js gElevUV と同じ・2026-10-01）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {
@@ -732,11 +735,13 @@ uniform float u_hasFar;
 uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
 float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+	if (u_elevBounds.z > 359.0) uv.x = fract(uv.x);   // 全球の窓（R90）は経度が一周＝原点から 180° 超回った先の uv を折り返す（gpu/wgsl.js gElevUV と同じ・2026-10-01）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {

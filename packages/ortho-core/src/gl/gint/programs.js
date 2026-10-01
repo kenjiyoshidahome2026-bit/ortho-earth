@@ -511,28 +511,6 @@ void main() {
 	gl_Position = fetchClipDrape(sub == 1 ? lodA : lodB);   // 塗り扇の辺端点を地形へドレープ（真俯瞰=無変化・WebGPU vsStencil と対）
 }`;
 
-// Mask stencil：アクティブ地物のリングだけ stencil を切り抜く。
-const VS_STENCIL_MASK = `${GLSL_VS_HEADER}
-flat out int v_feat_id;
-void main() {
-	int edge_id = gl_VertexID / 3;
-	int sub     = gl_VertexID % 3;
-	uvec4 meta = fetchEdgeMeta(edge_id);
-	v_feat_id  = int(meta.a);
-	if (sub == 0) { gl_Position = pivotClip(meta.a); return; }   // 扇要＝feature局所（VS_STENCIL と同じ）
-	gl_Position = fetchClip(sub == 1 ? meta.r : meta.g);   // クリップ座標のまま（VS_STENCIL と同じ根治）
-}`;
-
-const FS_STENCIL_MASK = `#version 300 es
-precision mediump float;
-uniform int  u_active_id;
-flat in  int v_feat_id;
-out vec4 fragColor;
-void main() {
-	if (v_feat_id != u_active_id) discard;
-	fragColor = vec4(0.0);
-}`;
-
 // 6 verts/edge: (A-)(A+)(B+)(A-)(B+)(B-)。u_pass=0: 非アクティブ, u_pass=1: アクティブのみ(最後に描き z-fight 解消)。
 // per-fid スタイル（paint 時のみ・u_has_fidstyle=1）：fid表(unit5)から visibility/line色/width を上書き。
 // width はスタイル正味（u8×1/8 CSS px × u_fid_wscale＝dpr）＋u_width_add（パス都合の増分＝highlight+2 device px 等。表に混ぜない＝spec §7.1）。
@@ -974,7 +952,6 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 	const renderProgram      = linkProgram(gl, Q(VS_RENDER),     FS_RENDER);
 	const stencilProgram     = linkProgram(gl, VS_STENCIL,       FS_STENCIL);
 	const fillProgram        = linkProgram(gl, VS_FILL,          FS_FILL);
-	const maskStencilProgram = linkProgram(gl, VS_STENCIL_MASK,  FS_STENCIL_MASK);
 	const pointProgram       = linkProgram(gl, Q(VS_POINT),      FS_POINT);
 	const pickLineProgram    = linkProgram(gl, Q(VS_PICK_LINE),  FS_PICK);
 	const pickPointProgram   = linkProgram(gl, Q(VS_PICK_POINT), FS_PICK_POINT);
@@ -985,7 +962,6 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add', 'u_fid_wscale']);        // per-fid スタイル（paint）
 	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // 深度＝fetchClipDrape（面ドレープ）
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
-	const uMaskStencil = getUniforms(gl, maskStencilProgram, [...SHARED_UNIFORM_NAMES, 'u_active_id']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);
 	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']);
 	const uPickPoint   = getUniforms(gl, pickPointProgram,   PT_UNIFORM_NAMES);
@@ -1004,9 +980,9 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 	gl.enable(gl.BLEND);
 	gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
 
-	return { renderProgram, stencilProgram, fillProgram, maskStencilProgram,
+	return { renderProgram, stencilProgram, fillProgram,
 			 pointProgram, pickLineProgram, pickPointProgram,
-			 uRender, uStencil, uFill, uMaskStencil, uPoint, uPickLine, uPickPoint, emptyVAO,
+			 uRender, uStencil, uFill, uPoint, uPickLine, uPickPoint, emptyVAO,
 			 quad4, quadVAO, quadIdx, QK: QUAD_K };
 }
 
@@ -1035,3 +1011,12 @@ function getUniforms(gl, prog, names) {
 
 // idfill.js（コロプレス ID バッファ塗り）がシェーダ部品を共用する（VS ヘッダ＝投影/RTE/LOD/pivot 一式）。
 export { GLSL_VS_HEADER, VS_FILL, SHARED_UNIFORM_NAMES, linkProgram, getUniforms };
+
+// createGintPrograms の資源を全部返す（プログラム・emptyVAO・quadVAO／quadIdx）。GL embed と gint worker の dispose で共通。旧＝両方の写しが quadVAO／quadIdx を解放していなかった
+export function deleteGintPrograms(gl, P) {
+	if (!P) return;
+	if (P.emptyVAO) gl.deleteVertexArray(P.emptyVAO);
+	if (P.quadVAO) gl.deleteVertexArray(P.quadVAO);
+	if (P.quadIdx) gl.deleteBuffer(P.quadIdx);
+	for (const p of [P.renderProgram, P.stencilProgram, P.fillProgram, P.pointProgram, P.pickLineProgram, P.pickPointProgram]) if (p) gl.deleteProgram(p);
+}
