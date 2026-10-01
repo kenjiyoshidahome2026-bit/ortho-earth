@@ -254,6 +254,60 @@ if (needP625.length) {
 		log(`海溝の軸線（PB2002 SUB）: ${made}/${trenches.length}`);
 	}
 }
+// 海嶺の軸線（2026-10-01・/globe/physical で山脈・海溝と同じ帯にする）：海嶺は点しか無い（Wikidata P625・三重会合点に置かれた物もある）＝
+// 手動層 ridge_plates のプレートの組（順不同）の拡大軸 OSR とトランスフォーム断層 OTF を PB2002 から集め、つながりの中の最長の道筋（木の直径＝二度掃き）を 1 本に。
+// 拡大軸は断層で細かく刻まれる（ジグザグ）＝1° の Douglas–Peucker でならす（帯の Catmull-Rom が残りを丸める）。経度は連続にほどく
+{
+	const stepsPath = path.join(ROOT, ".cache/pb2002/PB2002_steps.dat.txt"), RP = M.ridge_plates || {};
+	const ridges = Object.keys(RP).filter(q => !q.startsWith("_"));
+	if (ridges.length && existsSync(stepsPath)) {
+		const S = pb2002Steps(await readFile(stepsPath, "latin1"));
+		const key = p => `${Math.abs(p[0]) >= 179.9999 ? 180 : p[0].toFixed(4)},${p[1].toFixed(4)}`;
+		const dlon = (a, b) => ((b - a + 540) % 360) - 180;
+		const km = (a, b) => Math.hypot(dlon(a[0], b[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
+		const norm = b => b.split(/[-\/\\]/).sort().join("-");
+		const dp = (P, tol) => {   // 度・経度は cos(緯度) で縮める
+			if (P.length <= 2) return P;
+			const keep = new Uint8Array(P.length); keep[0] = keep[P.length - 1] = 1; const st = [[0, P.length - 1]];
+			while (st.length) { const [a, b] = st.pop(); if (b - a < 2) continue;
+				const k = Math.cos((P[a][1] + P[b][1]) * Math.PI / 360), dx = (P[b][0] - P[a][0]) * k, dy = P[b][1] - P[a][1], L2 = dx * dx + dy * dy;
+				let bi = -1, bd = tol * tol;
+				for (let i = a + 1; i < b; i++) { const px = (P[i][0] - P[a][0]) * k, py = P[i][1] - P[a][1], t = L2 ? Math.max(0, Math.min(1, (px * dx + py * dy) / L2)) : 0, ex = px - t * dx, ey = py - t * dy, d = ex * ex + ey * ey; if (d > bd) { bd = d; bi = i; } }
+				if (bi > 0) { keep[bi] = 1; st.push([a, bi], [bi, b]); } }
+			return P.filter((_, i) => keep[i]);
+		};
+		let made = 0;
+		for (const q of ridges) {
+			const spec = RP[q], want = new Set(spec.pairs.map(norm)), lon = spec.lon;
+			const f0 = features.find(f => f.properties.qid === q); if (!f0) { log(`  海嶺なし（台帳に無い）: ${q}`); continue; }
+			const E = S.filter(s => (s.cls === "OSR" || s.cls === "OTF") && want.has(norm(s.boundary)) && (!lon || [s.a, s.b].every(p => p[0] >= lon[0] && p[0] <= lon[1])));
+			if (!E.length) { log(`  海嶺の軸線なし（境界なし）: ${q} ${f0.properties.name}`); continue; }
+			const adj = new Map(), pos = new Map();
+			E.forEach((s, i) => { for (const [p, o] of [[s.a, s.b], [s.b, s.a]]) { const k = key(p); pos.set(k, p); if (!adj.has(k)) adj.set(k, []); adj.get(k).push({ to: key(o), w: km(s.a, s.b), i }); } });
+			const far = src => {   // src からの最遠点（重み付きの最短距離）と道筋
+				const dist = new Map([[src, 0]]), prev = new Map(), todo = [src];
+				while (todo.length) { todo.sort((a, b) => dist.get(b) - dist.get(a)); const u = todo.pop();
+					for (const e of adj.get(u)) { const nd = dist.get(u) + e.w; if (!dist.has(e.to) || nd < dist.get(e.to)) { dist.set(e.to, nd); prev.set(e.to, u); todo.push(e.to); } } }
+				let best = src; for (const [k, d] of dist) if (d > dist.get(best)) best = k;
+				const path = [best]; while (prev.has(path.at(-1))) path.push(prev.get(path.at(-1)));
+				return { best, d: dist.get(best), path };
+			};
+			// 起点＝いちばん大きな塊（辺の km の和）の点。最初に見つけた点から始めると小さな塊の中だけを掃いた（太平洋南極海嶺＝マッコーリー側の 13 点の塊で 487 km）
+			const comp = new Map(); let bestC = null, bestW = -1;
+			for (const k0 of adj.keys()) { if (comp.has(k0)) continue; let w = 0; const st = [k0]; comp.set(k0, k0);
+				while (st.length) { const u = st.pop(); for (const e of adj.get(u)) { w += e.w / 2; if (!comp.has(e.to)) { comp.set(e.to, k0); st.push(e.to); } } }
+				if (w > bestW) { bestW = w; bestC = k0; } }
+			const A = far(bestC).best, R = far(A);   // 二度掃き＝最長の道筋（木なら厳密）
+			let line = R.path.map(k => pos.get(k));
+			for (let i = 1; i < line.length; i++) line[i] = [line[i - 1][0] + dlon(line[i - 1][0], line[i][0]), line[i][1]];
+			const raw = R.d; line = dp(line, 1.0).map(c => [+c[0].toFixed(3), +c[1].toFixed(3)]);
+			features.push({ type: "Feature", properties: { qid: q, category: "ridge", name: f0.properties.name, rank: f0.properties.rank, shape: "axis", source: "pb2002", width: 300, length: Math.round(raw) }, geometry: { type: "LineString", coordinates: line } });
+			tally("ridge", "axis", "pb2002"); made++;
+			log(`  海嶺の軸線: ${f0.properties.name} ${spec.pairs.join(",")} ${Math.round(raw)} km（境界 ${E.length} ステップ・軸 ${line.length} 点）`);
+		}
+		log(`海嶺の軸線（PB2002 OSR/OTF）: ${made}/${ridges.length}`);
+	}
+}
 // 火山フラグ: Wikidata P31（instance of）が volcano（Q8072）の下位クラスなら volcano:true（peak にある富士山なども火山と分かる＝山との被りの扱い・Kenji 2026-09-15）
 {
 	const clsPath = path.join(ROOT, ".cache/wikidata-volcano-classes.json"), p31Path = path.join(ROOT, ".cache/wikidata-p31.json");
