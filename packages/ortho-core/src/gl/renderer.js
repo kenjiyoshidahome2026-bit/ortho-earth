@@ -9,7 +9,7 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.js";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
-import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
+import { resolveWorldPal, fadeWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
@@ -347,9 +347,10 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
 	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
-	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null;
+	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null, wpalA = 1, wpalLand = null;
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
+		const a = view.worldHypsoOpacity ?? 1;
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc || a !== wpalA || view.land !== wpalLand) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpalA = a; wpalLand = view.land; wpal = fadeWorldPal(resolveWorldPal(wpalSrc), a, view.land || [0.96, 0.96, 0.95]); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
 		return wpal;
 	};
 	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
