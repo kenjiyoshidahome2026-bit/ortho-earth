@@ -6,14 +6,20 @@
 // 選んだ公園は spotlight（周りを暗く・その形だけ素の地図）で指す。写真と Wikipedia の本文は実行時に直読み（bucket に置かない＝直接取れる物は置かない方針）。
 // 一覧のカード＝写真そのもの（Commons のサムネ）。クリック＝①視点へ飛ぶ ②spotlight ③詳細（写真大・指定日・面積・都道府県・Wikipedia の冒頭・リンク）。
 // ?p=<id> で起動時に選ぶ（共有）。←/→ で隣の公園・Esc で一覧へ。
-import { tr, setLang, getLang, loadPage } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { gunzip } from "geopbf/gzip";   // bucket の置き物は gzip（Content-Type application/gzip＝素の fetch では解かれない）＝models と同じく自分で解く
+import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
 const t = tr();
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 const REGIONS = ["hokkaido", "tohoku", "kanto", "chubu", "kinki", "chugoku-shikoku", "kyushu-okinawa"];   // 並び＝北から南
 // 地方の名＝訳のキーを**リテラルで** t() に渡す（i18n の走査器は t("…") の文字列だけ読む）＝mount 時に一度引く
+const zoneNames = () => ({ "特別保護地区": t("Special Protection Zone"), "第1種特別地域": t("Class 1 Special Zone"), "第2種特別地域": t("Class 2 Special Zone"), "第3種特別地域": t("Class 3 Special Zone"), "普通地域": t("Ordinary Zone"), "海域公園地区": t("Marine Park Zone"), "区分未定": t("Undetermined") });
 const regionNames = () => ({ hokkaido: t("Hokkaidō"), tohoku: t("Tōhoku"), kanto: t("Kantō"), chubu: t("Chūbu"), kinki: t("Kinki"), "chugoku-shikoku": t("Chūgoku & Shikoku"), "kyushu-okinawa": t("Kyūshū & Okinawa") });
 const WIKI_FALLBACK = ["en", "ja"];   // 本文・リンクの言語が無い時の順（英語→日本語）
+// 地種区分（環境省 nps_all の属性「地域区」）＝色は保護の強さの順（濃い緑→黄）・海域は青。bucket の nps_all（10MB gzip・1.1 万面）は押した時だけ読む
+const ZONES_URL = "https://api.ortho-earth.com/bucket/GIS/pbf/nps_all";
+const ZONES = [["特別保護地区", "#1b5e20", 0.62], ["第1種特別地域", "#2e7d32", 0.52], ["第2種特別地域", "#7cb342", 0.46], ["第3種特別地域", "#c0ca33", 0.42], ["普通地域", "#fff176", 0.30], ["海域公園地区", "#29b6f6", 0.45], ["区分未定", "#9e9e9e", 0.35]];
+const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountParks(map, geopbf, { catalog, boundary, panelHost } = {}) {
@@ -22,7 +28,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Japan's 35 national parks on a 3D globe — photos, official boundaries, facts and Wikipedia links in 26 languages."));
 	const mapEl = map.mapEl;
 	const lang = getLang();
-	const RN = regionNames();
+	const RN = regionNames(), ZN = zoneNames();
 	const L = v => (v && typeof v === "object") ? (v[lang] ?? v.en ?? v.ja ?? Object.values(v)[0] ?? "") : (v ?? "");
 	const fmtN = n => Number(n).toLocaleString(lang);
 	const fmtDate = s => { try { return new Date(s + "T00:00:00Z").toLocaleDateString(lang, { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" }); } catch { return s; } };
@@ -51,6 +57,16 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 .parks-panel .head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;padding:14px 16px 0}
 .parks-panel h1{font-size:17px;margin:0;font-weight:700;letter-spacing:.02em;line-height:1.3}
 .parks-panel h1 small{display:block;font-size:11px;color:#8fd3a7;font-weight:600;letter-spacing:.12em;text-transform:uppercase;margin-bottom:2px}
+.parks-panel .lang{flex:none;max-width:120px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9eef7;padding:4px 6px;font:inherit;font-size:11.5px;outline:none}
+.parks-panel .lang option{color:#000}
+.parks-panel .zones{flex:none;border-radius:9px;border:1px solid rgba(255,255,255,.16);background:rgba(255,255,255,.07);color:#cfd8e8;padding:5px 10px;font:inherit;cursor:pointer;white-space:nowrap}
+.parks-panel .zones.on{background:#8fd3a7;border-color:#8fd3a7;color:#0b1021;font-weight:700}
+.parks-panel .zones[aria-busy="true"]{opacity:.6;cursor:progress}
+.parks-panel .legend{display:none;flex-wrap:wrap;gap:4px 10px;font-size:11px;color:#cfd8e8}
+.parks-panel .legend.on{display:flex}
+.parks-panel .legend i{display:inline-block;width:12px;height:12px;border-radius:3px;vertical-align:-2px;margin-inline-end:4px;border:1px solid rgba(255,255,255,.25)}
+.parks-panel .zstatus{color:#9aa6bd;font-size:11px}
+.parks-panel .zstatus:empty{display:none}
 .parks-panel .fold{flex:none;width:26px;height:26px;border-radius:7px;border:1px solid rgba(255,255,255,.18);background:rgba(255,255,255,.06);color:#e9eef7;font-size:14px;line-height:1;cursor:pointer}
 .parks-panel.min .body,.parks-panel.min .sub,.parks-panel.min .tools{display:none}
 .parks-panel.min{padding-bottom:12px}
@@ -110,11 +126,13 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 .parks-panel .note a{color:#9cc4ff}
 @media (max-width:640px){.parks-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:56%}.parks-panel .grid{grid-template-columns:1fr 1fr}.parks-panel .facts{grid-template-columns:1fr 1fr}}
 </style>
-<div class="head"><h1><small>${t("Japan")}</small>${t("National Parks of Japan")}</h1><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></div>
+<div class="head"><h1><small>${t("Japan")}</small>${t("National Parks of Japan")}</h1><span class="row"><select class="lang" data-k="lang" aria-label="${t("Language")}">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></span></div>
 <div class="sub">${t("$1 parks. Click one to fly there — the boundaries are the Ministry of the Environment's official park areas.", fmtN(parks.length))}</div>
 <div class="tools">
 	<div class="row"><input type="search" data-k="q" placeholder="${t("Search parks…")}" aria-label="${t("Search parks…")}">
 		<select data-k="sort" aria-label="${t("Sort")}"><option value="north">${t("North to south")}</option><option value="name">${t("Name")}</option><option value="year">${t("Year designated")}</option><option value="area">${t("Area")}</option></select></div>
+	<div class="row"><button type="button" class="zones" data-k="zones" aria-pressed="false">${t("Zone types")}</button><span class="zstatus" data-k="zstatus"></span></div>
+	<div class="legend" data-k="legend">${ZONES.map(([k, c, a]) => `<span><i style="background:${rgba(c, Math.min(1, a + 0.3))}"></i>${esc(ZN[k])}</span>`).join("")}</div>
 	<div class="chips" data-k="chips"><button type="button" class="chip on" data-r="">${t("All")}</button>${REGIONS.map(r => `<button type="button" class="chip" data-r="${r}">${RN[r]}</button>`).join("")}</div>
 </div>
 <div class="body"><div data-k="list"></div><div class="note">${t("Boundaries: Ministry of the Environment, Japan (national park areas). Names and links: Wikidata. Photos: Wikimedia Commons, each with its own licence.")}</div></div>`;
@@ -123,6 +141,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
+	$("lang").addEventListener("change", e => { try { const u = new URL(location.href); u.searchParams.set("lang", e.target.value); location.replace(u.href); } catch { /* 埋め込み先 */ } });
 
 	// ── 一覧（検索・地方・並び）──
 	let region = "", query = "", sort = "north", cur = null;
@@ -155,6 +174,8 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	$("chips").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; region = c.dataset.r; for (const x of $("chips").children) x.classList.toggle("on", x === c); renderList(); });
 
 	// ── 外周（parks.geopbf）＝全公園を薄い緑で常時・名前のラベル・ホバー/クリック ──
+	let zones = null, zonesOn = false, zonesLoading = null;
+	const BOUNDARY_PAINT = { "fill-color": "rgba(90,200,130,0.20)", "line-color": "#8fd3a7", "line-width": 1.1 };
 	let pbf = null, layer = null;
 	const shapes = new Map();   // id → FeatureCollection（spotlight / outline に渡す形・初回に組む）
 	const shapeOf = id => { if (shapes.has(id)) return shapes.get(id); if (!pbf) return null;
@@ -167,12 +188,41 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 			layer = map.addGint(pbf, { order: -4, interactive: true, minZoom: 2.5,
 				label: { field: pr => { const p = byId.get(pr?.id); return p ? nameOf(p) : ""; }, size: 12, color: "#dff5e3", halo: "#0b1021", haloW: 2, minZoom: 5.2 } });
 			await layer?.ready;
-			await layer?.setPaint?.({ "fill-color": "rgba(90,200,130,0.20)", "line-color": "#8fd3a7", "line-width": 1.1 });
+			await layer?.setPaint?.(zonesOn ? { ...BOUNDARY_PAINT, "fill-color": "rgba(0,0,0,0)" } : BOUNDARY_PAINT);
 			layer?.on?.("click", e => { const id = e?.properties?.id; if (id && byId.has(id)) show(id); });
 			layer?.on?.("hover", e => { const id = e?.properties?.id ?? null; for (const b of panel.querySelectorAll(".card")) b.classList.toggle("hov", b.dataset.id === id); });
 			if (cur) applySpot(cur);   // 外周が後から届いた＝選択済みの公園にスポットライトを当て直す
 		} catch (e) { console.warn("[parks] boundary", e); }
 	})();
+	// ── 地種区分（押した時だけ bucket の nps_all を読む・2 回目からは IDB）＝公園の塗りは消して区分の色に譲る ──
+	const setZones = async on => {
+		zonesOn = on;
+		$("zones").classList.toggle("on", on); $("zones").setAttribute("aria-pressed", String(on)); $("legend").classList.toggle("on", on);
+		if (on && !zones) {
+			if (!zonesLoading) zonesLoading = (async () => {
+				$("zones").setAttribute("aria-busy", "true"); $("zstatus").textContent = t("Loading zone types… (10 MB, first time only)");
+				try {
+					// bucket の名前に拡張子が無い＝URL のままだと geopbf が形式を嗅げない。自分で取って gunzip し、名前と lastModified を固定した File で渡す
+					// （FILE::name::size::lastModified が IDB の鍵＝2 回目からは網に出ない）
+					const r = await fetch(ZONES_URL, { credentials: "omit" });
+					if (!r.ok) throw new Error(`HTTP ${r.status}`);
+					const blob = await gunzip(await r.blob());
+					const z = await geopbf(new File([blob], "nps_all.geopbf", { lastModified: 0 }), { name: "nps_all", gint: true });
+					const h = map.addGint(z, { order: -3, interactive: false, minZoom: 5, fillMaxEdges: 6_000_000 });   // 既定の塗り上限 200 万辺を超える（450 万辺）＝明示して塗りを通す（超えると自動で輪郭だけになる）
+					await h?.ready;
+					await h?.setPaint?.({ "fill-color": ["match", ["get", "地域区"], ...ZONES.flatMap(([k, c, a]) => [k, rgba(c, a)]), "rgba(0,0,0,0)"], "line-color": "rgba(255,255,255,0.35)", "line-width": 0.4 });
+					zones = h;
+				} catch (e) { console.warn("[parks] zones", e); $("zstatus").textContent = t("Failed to load: $1", String(e?.message || e)); }
+				finally { $("zones").removeAttribute("aria-busy"); zonesLoading = null; }
+			})();
+			await zonesLoading;
+			if (zones) $("zstatus").textContent = "";
+		}
+		zones?.setVisible?.(zonesOn);
+		layer?.setPaint?.(zonesOn ? { ...BOUNDARY_PAINT, "fill-color": "rgba(0,0,0,0)" } : BOUNDARY_PAINT);
+		map.requestDraw?.();
+	};
+	$("zones").addEventListener("click", () => setZones(!zonesOn));
 	let hovId = null;
 	const hover = id => { if (id === hovId) return; hovId = id; const fc = id && shapeOf(id); map.gadget.outline(fc || null, { color: [1, 1, 1, 0.9], width: 2 }); };
 	const applySpot = p => { const fc = shapeOf(p.id); if (fc) map.gadget.spotlight(fc, { fit: false, opacity: 0.5 }); };
@@ -246,6 +296,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		parks, show, back,
 		get current() { return cur; },
 		get layer() { return layer; },
-		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); panel.remove(); },
+		get zones() { return zones; }, setZones,
+		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); zones?.remove?.(); panel.remove(); },
 	};
 }
