@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 import { GeoPBF } from "../../geopbf/src/pbf-base.js";
 import { parseCSV } from "../build/csv.js";
 import { rangeAxis, parseAxis } from "../build/geom.js";
-import { plates as pb2002Plates, PLATE_NAMES } from "./lib/pb2002.mjs";
+import { plates as pb2002Plates, steps as pb2002Steps, PLATE_NAMES } from "./lib/pb2002.mjs";
 
 globalThis.ImageData ??= class ImageData { constructor(data, width, height) { this.data = data; this.width = width; this.height = height; } };
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -178,6 +178,82 @@ if (needP625.length) {
 	}
 }
 
+// 海溝の軸線（2026-10-01・/globe/physical で山脈と同じ帯にする）：海溝は点しか無い（NE に形なし・Wikidata P625）＝PB2002 の沈み込み境界（SUB）を
+// 代表点の最寄りのステップから両側へ長さの半分ずつたどる（片側が尽きたら残りを反対側へ＝代表点が端寄りのマリアナ）。境界名（プレートの組）は問わない
+//（マリアナは PS/PA→MA/PA・ペルー・チリは NZ\SA→AN/SA と途中で組が変わる）＝分岐ではいちばん真っすぐ続くステップを選ぶ。
+// 50 km 内に SUB が無い海溝（ヤップ＝OCB・プエルトリコ）は最寄りの境界を種別を問わずたどる。
+// 長さ＝手動層 axis_len（km・概数）。日付変更線（トンガ・ケルマデック・アリューシャン）は ±180 の端点を同一視してつなぎ、経度は連続にほどいて持つ
+{
+	const stepsPath = path.join(ROOT, ".cache/pb2002/PB2002_steps.dat.txt");
+	const trenches = features.filter(f => f.properties.category === "trench" && f.geometry.type === "Point");
+	if (trenches.length && existsSync(stepsPath)) {
+		const S = pb2002Steps(await readFile(stepsPath, "latin1"));
+		const key = p => `${Math.abs(p[0]) >= 179.9999 ? 180 : p[0].toFixed(4)},${p[1].toFixed(4)}`;
+		const at = new Map(); S.forEach((s, i) => { for (const p of [s.a, s.b]) { const k = key(p); if (!at.has(k)) at.set(k, []); at.get(k).push(i); } });
+		const dlon = (a, b) => ((b - a + 540) % 360) - 180;
+		const km = (a, b) => Math.hypot(dlon(a[0], b[0]) * 111.32 * Math.cos((a[1] + b[1]) * Math.PI / 360), (b[1] - a[1]) * 110.57);
+		const segDist = (p, s) => {   // 点と線分の距離（局所の正距）と最近点
+			const k = 111.32 * Math.cos(p[1] * Math.PI / 180), ax = dlon(p[0], s.a[0]) * k, ay = (s.a[1] - p[1]) * 110.57, bx = dlon(p[0], s.b[0]) * k, by = (s.b[1] - p[1]) * 110.57;
+			const dx = bx - ax, dy = by - ay, L2 = dx * dx + dy * dy, t = L2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / L2)) : 0;
+			return { d: Math.hypot(ax + t * dx, ay + t * dy), t };
+		};
+		// 端点 p から先へ（来た線分 from を除く）たどる。候補＝SUB（any＝種別を問わない）・選ぶ＝来た向きからの曲がりが最小
+		const dir = (a, b) => { const k = Math.cos((a[1] + b[1]) * Math.PI / 360); const x = dlon(a[0], b[0]) * k, y = b[1] - a[1], n = Math.hypot(x, y) || 1; return [x / n, y / n]; };
+		// 沈み込むプレート＝PB2002 の境界名の向き（"A/B"＝B が沈む・"A\\B"＝A が沈む：NA/PA・PS/PA・NZ\\SA・CO\\NA）。
+		// たどる SUB はこれが同じ物だけ（アリューシャン西端の分岐で NA が沈む OK/NA へ逸れた・マリアナの PS/PA→MA/PA は PA のまま）
+		const subOf = b => b.includes("/") ? b.split("/")[1] : b.includes("\\") ? b.split("\\")[0] : null;
+		let sinking = null;
+		const walk = (p, from, any, budget, came) => {
+			const out = []; let cur = p, prev = from, left = budget, d0 = came;
+			const used = new Set([from]);
+			let bridged = false;
+			while (left > 0) {
+				// 先に SUB が無い時だけ、短い別種別のステップ（120 km 未満）を 1 つだけ橋にする＝マリアナの PS/PA と MA/PA の間の 44 km の OTF
+				const pick = allowBridge => { let n = null, bestDot = 0;   // 90° より急な曲がりは採らない
+					for (const i of at.get(key(cur)) || []) {
+						if (used.has(i)) continue;
+						const isSub = any || (S[i].cls === "SUB" && (!sinking || subOf(S[i].boundary) === sinking));
+						if (!isSub && !(allowBridge && km(S[i].a, S[i].b) < 120)) continue;
+						const q = key(S[i].a) === key(cur) ? S[i].b : S[i].a, d = dir(cur, q), dot = d[0] * d0[0] + d[1] * d0[1];
+						if (!isSub && !(at.get(key(q)) || []).some(j => j !== i && !used.has(j) && S[j].cls === "SUB" && (!sinking || subOf(S[j].boundary) === sinking))) continue;   // 橋は渡った先に SUB が続くものだけ（マリアナ南端の分岐で背弧の拡大軸 OSR へ逸れた）
+						if (dot > bestDot) { bestDot = dot; n = i; }
+					}
+					return n; };
+				let next = pick(false);
+				if (next == null && !bridged) { next = pick(true); if (next != null) bridged = true; }
+				else if (next != null && S[next].cls === "SUB") bridged = false;
+				if (next == null) break;
+				const s = S[next], q = key(s.a) === key(cur) ? s.b : s.a;
+				d0 = dir(cur, q); out.push(q); left -= km(cur, q); used.add(next); prev = next; cur = q;
+			}
+			return { pts: out, left };
+		};
+		let made = 0;
+		for (const f of trenches) {
+			const q = f.properties.qid, L = +(M.axis_len || {})[q] || 1000, p = f.geometry.coordinates;
+			const nearest = any => { let best = -1, bd = Infinity, bt = 0; S.forEach((s, i) => { if (!any && s.cls !== "SUB") return; const r = segDist(p, s); if (r.d < bd) { bd = r.d; best = i; bt = r.t; } }); return { best, bd, bt }; };
+			let any = false, { best, bd, bt } = nearest(false);
+			if (bd > 50) { any = true;   // 50 km 内に SUB が無い＝PB2002 が別種別で引いた海溝（ヤップ＝PS-CL OCB・プエルトリコ）
+				 ({ best, bd, bt } = nearest(true)); }
+			if (best < 0 || bd > 400) { log(`  海溝の軸線なし（境界が ${bd.toFixed(0)} km 先）: ${q} ${f.properties.name}`); continue; }
+			sinking = any ? null : subOf(S[best].boundary);
+			const s0 = S[best], mid = [s0.a[0] + dlon(s0.a[0], s0.b[0]) * bt, s0.a[1] + (s0.b[1] - s0.a[1]) * bt];
+			const half = L / 2;
+			const dF = dir(s0.a, s0.b), dB = [-dF[0], -dF[1]];
+			let fw = walk(s0.b, best, any, half - km(mid, s0.b), dF), bw = walk(s0.a, best, any, half - km(mid, s0.a), dB);
+			if (fw.left > 0 && bw.left <= 0) bw = walk(s0.a, best, any, half - km(mid, s0.a) + fw.left, dB);   // 片側が尽きた分を反対側へ
+			else if (bw.left > 0 && fw.left <= 0) fw = walk(s0.b, best, any, half - km(mid, s0.b) + bw.left, dF);
+			let line = [...bw.pts.reverse(), s0.a, s0.b, ...fw.pts];
+			for (let i = 1; i < line.length; i++) line[i] = [line[i - 1][0] + dlon(line[i - 1][0], line[i][0]), line[i][1]];   // 経度をほどく
+			line = line.map(c => [+c[0].toFixed(3), +c[1].toFixed(3)]);
+			let len = 0; for (let i = 1; i < line.length; i++) len += km(line[i - 1], line[i]);
+			features.push({ type: "Feature", properties: { qid: q, category: "trench", name: f.properties.name, rank: f.properties.rank, shape: "axis", source: "pb2002", width: 140, length: Math.round(len) }, geometry: { type: "LineString", coordinates: line } });
+			tally("trench", "axis", "pb2002"); made++;
+			log(`  海溝の軸線: ${f.properties.name} ${s0.boundary}${any ? "（種別問わず）" : ""} ${Math.round(len)} km（指定 ${L}・最寄り ${bd.toFixed(0)} km）`);
+		}
+		log(`海溝の軸線（PB2002 SUB）: ${made}/${trenches.length}`);
+	}
+}
 // 火山フラグ: Wikidata P31（instance of）が volcano（Q8072）の下位クラスなら volcano:true（peak にある富士山なども火山と分かる＝山との被りの扱い・Kenji 2026-09-15）
 {
 	const clsPath = path.join(ROOT, ".cache/wikidata-volcano-classes.json"), p31Path = path.join(ROOT, ".cache/wikidata-p31.json");

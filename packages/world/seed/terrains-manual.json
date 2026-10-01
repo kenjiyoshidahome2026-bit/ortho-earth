@@ -1,5 +1,5 @@
 {
- "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
+ "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。axis_len=海溝の軸線の長さ（km・PB2002 の沈み込み境界をたどる長さ）。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
  "add": [
   {
    "qid": "Q130135",
@@ -4125,5 +4125,24 @@
   "Q58708": "warm",
   "Q924509": "cold",
   "Q600069": "warm"
+ },
+ "axis_len": {
+  "_why": "海溝の軸線の長さ（km・概数）＝scripts/ne-physical.mjs が PB2002 の沈み込み境界を代表点から両側へたどる長さ。出典は en.wikipedia の記事の記載（Aleutian・Ryukyu は Wikidata P2043 と同じ値）。表示の範囲を決めるだけ＝量としては出さない（2026-10-01）",
+  "Q119177": 3400,
+  "Q118544": 1000,
+  "Q118537": 800,
+  "Q119196": 1000,
+  "Q118525": 2200,
+  "Q510": 2550,
+  "Q164040": 2750,
+  "Q3249284": 900,
+  "Q118873": 5900,
+  "Q656364": 1320,
+  "Q666090": 800,
+  "Q702908": 1398,
+  "Q118518": 965,
+  "Q118394": 3200,
+  "Q119294": 1375,
+  "Q1423293": 700
  }
 }

@@ -87,9 +87,21 @@ function rangeBand(geom, widthKm) {
 	// 外周は反時計回り（GeoJSON RFC 7946）＝軸線の向きで回りが決まる（西→東・北→南の軸は時計回りになり、穴として読まれて消えた）
 	let A = 0; for (let i = 1; i < ring.length; i++) A += (ring[i][0] - ring[i - 1][0]) * (ring[i][1] + ring[i - 1][1]);
 	if (A > 0) ring.reverse();
-	// 経度は折り返さず ±180 で止める（折り返すと帯が地球を横切る。張り出しで越えるのはトランスアンタークティック＝南緯 85° の 1° 未満）
+	// 経度は折り返さない＝ほどいたまま（±180 を越えてよい・anno の投影は周期的）。折り返すと日付変更線をまたぐ帯（アリューシャン・トンガ）が地球を横切る
 	const shift = 360 * Math.round(-(P[0][0] + P.at(-1)[0]) / 720);
-	return { type: "Polygon", coordinates: [ring.map(p => [+Math.max(-180, Math.min(180, p[0] + shift)).toFixed(4), +p[1].toFixed(4)])] };
+	return { type: "Polygon", coordinates: [ring.map(p => [+(p[0] + shift).toFixed(4), +p[1].toFixed(4)])] };
+}
+
+// 線（LineString / 日付変更線で割れた MultiLineString）を経度をほどいた 1 本の座標列に（継ぎ目の重複点は落とす）
+function joinParts(g) {
+	const parts = g?.type === "LineString" ? [g.coordinates] : g?.type === "MultiLineString" ? g.coordinates : null; if (!parts) return null;
+	const out = [];
+	for (const part of parts) for (const c of part) {
+		const p = out.length ? [c[0] + 360 * Math.round((out.at(-1)[0] - c[0]) / 360), c[1]] : [c[0], c[1]];
+		if (out.length && Math.abs(p[0] - out.at(-1)[0]) < 1e-6 && Math.abs(p[1] - out.at(-1)[1]) < 1e-6) continue;
+		out.push(p);
+	}
+	return out.length >= 2 ? out : null;
 }
 
 // ── 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）────────────────
@@ -160,8 +172,10 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		(geomsOf.get(p.qid) || geomsOf.set(p.qid, []).get(p.qid)).push(f.geometry);
 		// 山脈＝軸線を実寸の幅の帯（面）にして描く。NE の山脈ポリゴンは粗く重なる＝描かない（寄り先の範囲にだけ使う）
 		if (p.category === "range" && p.shape === "polygon") continue;
-		if (p.shape === "axis") axisOf.set(p.qid, f.geometry.coordinates);
-		const geometry = p.shape === "axis" ? rangeBand(f.geometry, p.width) : f.geometry;
+		// 軸線は 1 本の線に（台帳の書き出しが日付変更線で MultiLineString に割る＝アリューシャン海溝）＝経度をほどいて継ぎ直す
+		const axis = p.shape === "axis" ? joinParts(f.geometry) : null;
+		if (axis) axisOf.set(p.qid, axis);
+		const geometry = axis ? rangeBand({ type: "LineString", coordinates: axis }, p.width) : f.geometry;
 		if (!geometry) continue;
 		shapes.push({ type: "Feature", geometry, properties: { qid: p.qid, category: p.category, g, shape: p.shape, width: p.width ?? null, flow: p.flow ?? null,
 			length: d?.length ?? null, name: d ? nameOf(d) : p["name_" + lang] || p.name } });   // 絵（TerrainDB に無い）は台帳の name_<lang>
@@ -190,6 +204,12 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		properties: { qid: d.qid, category: d.category, g: GROUP_OF[d.category] || "land", name: nameOf(d), elev: d.elevation ?? 0, sub: ICON[d.category] && d.category !== "trench" ? valLabel(d) : d.category === "trench" && valueOf(d, "depth") != null ? "−" + fmtVal(valueOf(d, "depth"), "depth") : "",
 			icon: ICON[d.category] || "", mz: minZoomOf(d), size: textSizeOf(d),
 			sort: (d.rank ?? 4) * 1e5 - (d.category === "range" ? 5000 : d.elevation ?? d.length ?? Math.sqrt(d.area ?? 0)) } }));   // 山脈＝同じ rank の 5,000 m 級の山と同格
+	// 海溝（軸線のある物）＝名前は帯の中心（山脈と同じ層）・最深部の ▼ には深さだけを残す（チャレンジャー海淵などの代表点＝P625）
+	for (const f of points.slice()) {
+		const p = f.properties; if (p.category !== "trench" || !axisOf.has(p.qid)) continue;
+		points.push({ type: "Feature", geometry: { type: "Point", coordinates: midOf(axisOf.get(p.qid)) }, properties: { ...p, icon: "", sub: "", label: 1 } });
+		p.name = "";
+	}
 
 	// ── 記号の画像 ──
 	const icon = (draw, s = 22) => { const c = document.createElement("canvas"); c.width = c.height = s; const x = c.getContext("2d"); x.lineJoin = "round"; draw(x, s); return c; };
@@ -237,16 +257,16 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			paint: { "text-color": ["match", ["get", "flow"], "warm", "#a8402a", "#1f5ea4"], "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.6 } },
 		"ph-poi": { type: "symbol", source: "ph-pts", filter: ["all", ["!=", ["get", "icon"], ""], ["!=", ["get", "category"], "range"], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "icon-image": ["get", "icon"], "icon-size": ["match", ["get", "category"], ["peak", "volcano"], ["interpolate", ["linear"], ["get", "elev"], 0, 0.6, 4000, 0.85, 8849, 1.3], 0.85],   // 山＝標高に比例 "symbol-sort-key": ["get", "sort"],
-				"text-field": ["case", ["!=", ["get", "sub"], ""], ["concat", ["get", "name"], "\n", ["get", "sub"]], ["get", "name"]],
+				"text-field": ["case", ["==", ["get", "name"], ""], ["get", "sub"], ["!=", ["get", "sub"], ""], ["concat", ["get", "name"], "\n", ["get", "sub"]], ["get", "name"]],
 				"text-size": ["get", "size"], "text-anchor": "left", "text-offset": [0.75, 0], "text-justify": "left", "text-optional": true },
 			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.8 } },
 		// 山脈の名前＝帯の中心。山の記号の後に置く（山が勝つ）代わりに、ぶつかったら中心の上下左右へずれて空きを探す
 		//（ヒマラヤの中心はエベレストとカイラス山の間＝中心固定だとどちらかが消えた・2026-10-01）
-		"ph-range-label": { type: "symbol", source: "ph-pts", filter: ["all", ["==", ["get", "category"], "range"], ["<=", ["get", "mz"], ["zoom"]]],
+		"ph-range-label": { type: "symbol", source: "ph-pts", filter: ["all", ["any", ["==", ["get", "category"], "range"], ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["+", 1, ["get", "size"]], "symbol-sort-key": ["get", "sort"], "text-max-width": 8,
 				"text-variable-anchor": ["center", "top", "bottom", "left", "right"], "text-radial-offset": 0.9 },
-			paint: { "text-color": "#6e3810", "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
-		"ph-area-label": { type: "symbol", source: "ph-pts", filter: ["all", ["==", ["get", "icon"], ""], ["!=", ["get", "category"], "range"], ["<=", ["get", "mz"], ["zoom"]]],
+			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
+		"ph-area-label": { type: "symbol", source: "ph-pts", filter: ["all", ["==", ["get", "icon"], ""], ["!=", ["get", "category"], "range"], ["!", ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["get", "size"], "symbol-sort-key": ["get", "sort"], "text-max-width": 8 },
 			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
 	};
@@ -258,6 +278,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// 面の絵（anno）：山脈の帯（縁をぼかす）・乾燥と氷の塗り・選択した面の縁取り。系統の切り替えと選択のたびに積み直す（数百の面＝軽い）
 	// 山脈は帯を 2 重（全幅＋芯の 55%）に重ねて、中ほどが濃く縁が淡い形に（anno の @blur＝canvas の filter は環境によって効かない＝headless Chrome で無描画だった）
 	const RANGE_OUT = "rgba(143,74,20,.24)", RANGE_IN = "rgba(143,74,20,.28)", NONE = "rgba(0,0,0,0)";
+	const TRENCH_FILL = ["rgba(126,48,110,.24)", "rgba(126,48,110,.36)"];   // 海溝＝プレート・海溝の系統（赤紫）を海の青の上で沈めた色
 	const coreOf = new Map([...axisOf].map(([q, c]) => [q, rangeBand({ type: "LineString", coordinates: c }, (shapes.find(f => f.properties.qid === q && f.properties.shape === "axis")?.properties.width || 60) * 0.55)]));
 	// 海流＝半透明の太い矢印（anno の @poly 線＝帯＋先端の矢じり・幅は画面 px）。長い流れは約 2,000 km ごとに区切って矢印を連ねる＝途中でも向きが読める
 	const CURRENT_FILL = { warm: "rgba(214,85,58,.5)", cold: "rgba(47,120,196,.5)" }, CURRENT_EDGE = { warm: "rgba(168,64,42,.55)", cold: "rgba(31,94,164,.55)" };
@@ -302,8 +323,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			const on = shown.has(g);
 			const geom = () => lodGeom(f, f.geometry, lv);
 			if (on && shape === "axis") {
-				fs.push({ type: "Feature", geometry: geom(), properties: { "@fill": RANGE_OUT, "@stroke": NONE, "@width": 0.01 } });
-				const core = coreOf.get(qid); if (core) fs.push({ type: "Feature", geometry: lodGeom(core, core, lv), properties: { "@fill": RANGE_IN, "@stroke": NONE, "@width": 0.01 } });
+				const [OUT, IN] = category === "trench" ? TRENCH_FILL : [RANGE_OUT, RANGE_IN];
+				fs.push({ type: "Feature", geometry: geom(), properties: { "@fill": OUT, "@stroke": NONE, "@width": 0.01 } });
+				const core = coreOf.get(qid); if (core) fs.push({ type: "Feature", geometry: lodGeom(core, core, lv), properties: { "@fill": IN, "@stroke": NONE, "@width": 0.01 } });
 			}
 			else if (on && FILL_CATS[category]) fs.push({ type: "Feature", geometry: geom(), properties: { "@fill": FILL_CATS[category], "@stroke": NONE, "@width": 0.01 } });
 			if (qid === sel) fs.push({ type: "Feature", geometry: geom(), properties: { "@fill": "rgba(215,38,61,.10)", "@stroke": SEL, "@width": 2.4 } });
@@ -327,7 +349,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	async function select(qid, { fly = true } = {}) {
 		const d = byQ.get(qid) || null; sel = d?.qid ?? null;
 		const f = ["==", ["get", "qid"], sel ?? ""];
-		map.setFilter("ph-sel-line", ["all", f, ["!=", ["geometry-type"], "Polygon"]]); map.setFilter("ph-sel-pt", f);
+		map.setFilter("ph-sel-line", ["all", f, ["!=", ["geometry-type"], "Polygon"]]); map.setFilter("ph-sel-pt", ["all", f, ["!", ["has", "label"]]]);   // 名前だけの点（海溝の帯の中心）には輪を付けない
 		drawAnno();
 		const u = new URL(location.href); sel ? u.searchParams.set("q", sel) : u.searchParams.delete("q"); history.replaceState(null, "", u);
 		renderDetail(); list.mark(); chart.mark();
