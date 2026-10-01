@@ -295,9 +295,9 @@
 			"desc": "The Netherlands in 3D — 3DBAG buildings standing on OpenStreetMap vector tiles and terrain. Hop between eight cities, from Delft to Maastricht.",
 			"img": "/thumbs/nl.webp",
 			"shot": {
-				"url": "/nl/#16.2/51.9195/4.4800/62t/20r",
-				"wait": 45,
-				"eval": "document.getElementById('net-toast')?.remove()"
+				"url": "/nl/#15.9/51.9120/4.4870/66t/-25r",
+				"wait": 55,
+				"eval": "document.getElementById('net-toast')?.remove(); document.getElementById('nl-places')?.remove()"
 			}
 		}
 	]
