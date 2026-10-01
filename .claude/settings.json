@@ -1,17 +1,28 @@
 {
 	"hooks": {
-	"PostToolUse": [
-	  {
-		"matcher": "Write|Edit",
-		"hooks": [
-		  {
-			"type": "command",
-			"command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; echo \"$f\" | grep -q 'packages/geopbf/wasm/src/.*\\.rs$' && cd \"$(git rev-parse --show-toplevel)/packages/geopbf/wasm\" && wasm-pack build --target web --out-dir pkg; } 2>/dev/null || true",
-			"timeout": 120,
-			"statusMessage": "WASM rebuilding..."
-		  }
+		"PostToolUse": [
+			{
+				"matcher": "Write|Edit",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "jq -r '.tool_input.file_path // \"\"' | { read -r f; echo \"$f\" | grep -q 'packages/geopbf/wasm/src/.*\\.rs$' && cd \"$(git rev-parse --show-toplevel)/packages/geopbf/wasm\" && wasm-pack build --target web --out-dir pkg; } 2>/dev/null || true",
+						"timeout": 120,
+						"statusMessage": "WASM rebuilding..."
+					}
+				]
+			}
+		],
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh",
+						"timeout": 300
+					}
+				]
+			}
 		]
-	  }
-	]
 	}
 }

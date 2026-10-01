@@ -14,7 +14,7 @@
 // ・MSAA 4x 明示（GL の canvas antialias:true と同格）。リサイズは getCurrentTexture が canvas 寸法へ自動追随。
 import { cameraState, lonlatTo3D, project, betaOf, ellipsoidOn, sphereRayUniforms, anchorUV } from "../camera.js";
 import { seaFbReal } from "../scene.js";
-import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
+import { resolveWorldPal, fadeWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
@@ -977,14 +977,17 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 
 	// 静的 view（色・見た目）と海ゲート＝gl/renderer.js と同じ意味論
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
+	let warnedPL = false;   // 可視バッチの上限超え（MAX_PL_BATCH）の警告は 1 回だけ
 	const fogK = () => (view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（MapLibre の口の既定＝MapLibre は fog を持たない・2026-09-30）＝近/遠を実質無限へ（遠景の平ら化も外れる）
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＋worldPalBuf へ書込）。globe/terrain/wdepr は
 	// 同一バッファを読む＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。gl/renderer.js worldPal() と対。
 	let wpalSrc = false, wpal = null, seaSrc = null;   // 初期 false＝worldHypso が null でも初回は必ず書く
+	let wpalA = 1, wpalLand = null;   // 段彩の濃さ（view.worldHypsoOpacity）と地色＝変わったらパレットを作り直す
 	const wpalCPU = new Float32Array(40);
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) {
-			wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc);
+		const a = view.worldHypsoOpacity ?? 1;
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc || a !== wpalA || view.land !== wpalLand) {
+			wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpalA = a; wpalLand = view.land; wpal = fadeWorldPal(resolveWorldPal(wpalSrc), a, view.land || [0.96, 0.96, 0.95]);
 			if (seaSrc) wpal.sea = seaSrc;   // view.sea＝海（球の地）の色の上書き（MapLibre の口＝background 層の無い style は白・2026-09-30）
 			[wpal.lowHumid, wpal.lowArid, wpal.midHumid, wpal.midArid, wpal.ramp1, wpal.ramp2, wpal.peak, wpal.snow, wpal.belowSea, wpal.grat]
 				.forEach((c, i) => wpalCPU.set(c, i * 4));   // 各色 vec4f スロット（grat のみ w=α係数・他の w は 0 のまま）
@@ -2201,7 +2204,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
 		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
 		if (worldHypsoK > 0 && !rasterBase) {
-			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr);
+			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr);   // fog:false＝overlay も霧なし（GL は setCommonUniforms が fogK を掛ける）
 			drawWdepr(pass, packOv, st);
 			// 湖（NE lakes）＝wdepr の上・タイルの下（海→海面下→湖→陸の順のまま供給源だけ NE へ 2026-09-03）
 			drawLakes(pass, packOv, st, worldHypsoK);
@@ -2276,7 +2279,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			});
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
-		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr), cam.zoom || 0);
+		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr), cam.zoom || 0);
 		// 10度レチクル（v1「地図の上に重ねる」と同じ最前面・ラベルの下）。出現度は globe UBO の seaC.w に書き込み済み
 		if (!flat2d && view.graticule && globeBG && cam.zoom > 1.7 && cam.zoom < whZ) {   // 退場は世界ハイプソと同じ帯（出現度 seaC.w も whZ でフェード＝GL と同じ・旧 6.5 固定は地域の申告が無い器で z6.5〜8 の罫線を切っていた）
 			pass.setPipeline(P.grat);
@@ -2323,7 +2326,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// ★常時描画（show3d/skipMain ゲート無し＝GL 同等）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
 		if (gintBld) {
 			ensureOvFrameBG();
-			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr));
 			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);   // Frame＝origin 共有＝バッチ間で同一
 			pass.setBindGroup(2, emptyMaskBG);   // マスク無し（count=0＝footprint 伏せ無し・固定BGで thrashing 回避）
 			for (let bi = 0; bi < gintBld.batches.length; bi++) {
@@ -2349,7 +2352,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			// ① CPU カリング＋LOD＝可視バッチ列を作り、per-batch uniform を一括で書く（writeBuffer は pass より先に適用）
 			const draws = [];
 			for (const p of meshes.values()) {
-				if (draws.length >= MAX_PL_BATCH) { console.warn(`[gpu] mesh visible batches exceed ${MAX_PL_BATCH} = truncated`); break; }
+				if (draws.length >= MAX_PL_BATCH) { if (!warnedPL) { warnedPL = true; console.warn(`[gpu] mesh visible batches exceed ${MAX_PL_BATCH} = truncated`); } break; }   // 警告は 1 回（旧＝超えている間は毎フレーム）
 				if (!show3d && !p.keep2d) continue;   // 真俯瞰＝建物 3D は描かない（keep2d だけ通す）
 				if (meshHidden.has(p.ward)) continue;
 				if (!meshBboxVisible(st, p.bbox, cam.center, pad)) continue;

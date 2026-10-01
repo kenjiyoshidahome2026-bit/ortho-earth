@@ -15,4 +15,10 @@ for (const [tag, feats, want] of [
 	await dissolve(p);
 	ok(p.length === want, `${tag}（${p.length} 件）`);
 }
+{   // worker 復号＝props は遅延（未復号の欄は undefined）でも読める（propsRow）
+	const p = await new GeoPBF().set({ type: "FeatureCollection", features: [P({ k: 1 }, [0, 0]), P({ k: 1 }, [1, 1]), P({ k: 2 }, [2, 2])] });
+	p.props = new Array(p.length);
+	let err = null; try { await dissolve(p); } catch (e) { err = e; }
+	ok(!err && p.length === 2, `遅延 props でも併合できる（${err ? err.message : p.length + " 件"}）`);
+}
 console.log(fails ? `FAIL (${fails})` : "PASS"); process.exit(fails ? 1 : 0);

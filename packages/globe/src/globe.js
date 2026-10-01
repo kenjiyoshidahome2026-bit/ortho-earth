@@ -673,6 +673,9 @@ dockStack(mapEl).append(elevEl);
 // 等高線(真俯瞰の茶線)・測量点標高・地形読込表示は「地形」チップ(layerState.terrain)に統合＝独立トグル無し。
 // zoom/tileのデバッグログ(#log)はユーザー向けチップから切り離し常時非表示（必要なら devtools で #log を出す）。
 logEl.style.display = "none";
+// 毎フレームの診断行：文面が変わった時だけ DOM に書く（同じ文字列の textContent 代入も文字ノードを作り直す）
+let logText = "";
+const setLog = t => { if (t !== logText) { logText = t; logEl.textContent = t; } };
 // 起動ウォッチドッグ：最初のフレーム(frame1)が10秒来なければ原因不明でも案内を出す（健全なら1秒未満で来る）。
 // glfail=worker内のWebGL2初期化失敗、contextlost=GPUコンテキスト喪失（1回だけ自動リロード→再発なら案内）。
 let bootT = setTimeout(() => {
@@ -1130,8 +1133,8 @@ const groundRNow = () => {
 
 function onMove() {
 	clampCamLimits();   // 実行時の上限・可動域（#35）＝入力・飛行・URL 復元のどの経路で動いても同じ所で締める（聞き手へ渡す前に）
+	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）。聞き手より先＝move も settle／getCenter と同じ ±180° の経度を受け取る（旧＝move だけ 190° 等の生の値）
 	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing }); } catch (e) { console.error("[map.on move]", e); } }
-	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）
 	moving = true; needsDraw = true;
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
@@ -1375,6 +1378,7 @@ const gint = createGintLayers({
 	gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
 	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
+	worldLines: opts.worldLines,   // false＝世界帯の河川・海洋境界線（NE 10m）を読まない／["rivers"|"maritime"]＝その種類だけ（既定＝全部）
 	coastline: opts.coastline,   // false＝世界の海岸線（NE admin0 の gint 層・z<9）を持たない（MapLibre の口・公式例の門 段 2）
 	worldBandZ: BASEMAP_MINZOOM,   // 湖・海面下の陸が見える帯＝世界ハイプソと同じ所で退場（地域の基図が入場する所）
 	get theme() { return theme; },
@@ -1534,21 +1538,37 @@ const input = createInput({
 		if ((gint.interactive && gint.hover) || extActive) wPost({ type: "gintMove", x, y });
 		// 世界ビュー＝admin0 国ポリゴンの国名 tip（本人裁定 2026-08-30「国の認識」）。識別は main 同期
 		// （admin0Pbf.identifyAt＝findPolygon smallest-wins・エンジン往復なし）。面のみ探索＝点/線半径は0。
-		const a0TipOn = opts.countryTip !== false && gint.admin0Layer && gint.admin0Vis && !gint.internalHidden && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
-		if (a0TipOn && gint.admin0Pbf && gint.hoverTip && !fudeOwn) {
-			// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
-			if (cam.zoom >= gint.WORLD_TIP_MAXZ) { if (gint.worldTipOn) { gint.hoverTip(null); gint.worldTipOn = false; } return; }
-			const ll = unprojectXY(x, y);
-			const fid = ll && !cutH ? gint.admin0Pbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
-			let name = null;
-			// 国名＝表示言語の列（NE の NAME_JA/NAME_FR/NAME_AR…＝25 言語・th は無し）→ 英語 → NAME。地図の中身だが「国名 tip が日本語のまま」（本人 2026-09-19）＝UI 側の穴
-			if (fid != null) { try { const p = gint.admin0Pbf.getProperties(fid) || {}; name = p["NAME_" + getLang().toUpperCase()] || p.NAME_EN || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
-			gint.hoverTip(name ? [name] : null);
-			gint.worldTipOn = !!name;
-		}
+		countryTipAt(x, y, cutH, fudeOwn);
 	},
 });
 
+// 世界ビューの国名 tip（opts.countryTip）。"shift"＝Shift を押している間だけ（地物の tip を持つ頁が国名を出し分ける・/globe/physical・2026-10-01）
+let shiftHeld = false;
+const countryTipMode = () => opts.countryTip === "shift" ? shiftHeld : opts.countryTip !== false;
+function countryTipAt(x, y, cutH = false, fudeOwn = false) {
+	const a0TipOn = countryTipMode()  && gint.admin0Layer && gint.admin0Vis && !gint.internalHidden && cam.zoom < gint.ADMIN0_Z && !(gint.userGint && cam.zoom >= (gint.userGint.minZoom ?? 0));   // opts.countryTip=false＝国名 tip を出さない（自前の tip を持つ器）
+	if (a0TipOn && gint.admin0Pbf && gint.hoverTip && !fudeOwn) {
+		// z≥5.5＝国名 tip の圏外（本人裁定 2026-09-02）：基図接近帯は注記が主役＝国名の板は出さない
+		if (cam.zoom >= gint.WORLD_TIP_MAXZ) { if (gint.worldTipOn) { gint.hoverTip(null); gint.worldTipOn = false; } return; }
+		const ll = unprojectXY(x, y);
+		const fid = ll && !cutH ? gint.admin0Pbf.identifyAt(ll[0], ll[1], { point: 0, polyline: 0 }) : null;
+		let name = null;
+		// 国名＝表示言語の列（NE の NAME_JA/NAME_FR/NAME_AR…＝25 言語・th は無し）→ 英語 → NAME。地図の中身だが「国名 tip が日本語のまま」（本人 2026-09-19）＝UI 側の穴
+		if (fid != null) { try { const p = gint.admin0Pbf.getProperties(fid) || {}; name = p["NAME_" + getLang().toUpperCase()] || p.NAME_EN || p.NAME || null; } catch (e) { /* 壊れfeature＝tipなし */ } }
+		gint.hoverTip(name ? [name] : null);
+		gint.worldTipOn = !!name;
+	}
+}
+if (opts.countryTip === "shift") {
+	const setShift = on => {
+		if (on === shiftHeld) return; shiftHeld = on;
+		if (!on) { if (gint.worldTipOn) { gint.hoverTip?.(null); gint.worldTipOn = false; } return; }
+		const xy = gint.lastHoverXY; if (xy) countryTipAt(xy[0], xy[1], clipCutXY(xy[0], xy[1]));   // 止まったまま Shift を押しても出る
+	};
+	window.addEventListener("keydown", e => { if (e.key === "Shift") setShift(true); }, { signal: ac.signal });
+	window.addEventListener("keyup", e => { if (e.key === "Shift") setShift(false); }, { signal: ac.signal });
+	window.addEventListener("blur", () => setShift(false), { signal: ac.signal });
+}
 // アイドル退場：マウスを止めると左上/右上のアイコンが静かに消え、動かす（or キー操作）と戻る。
 // タッチ端末は対象外（指では常時見えていてほしい＝端末標準の消え方に委ねない）。
 // 触れている間（#gadgets/#chips 上）と検索を開いている間は消さない＝操作中に足元が消える事故を防ぐ。
@@ -2061,7 +2081,7 @@ function render() {
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		runFrameHooks();
-		logEl.textContent = `world  zoom=${cam.zoom.toFixed(1)}  basemap off / coastline + elevation fill`;
+		setLog(`world  zoom=${cam.zoom.toFixed(1)}  basemap off / coastline + elevation fill`);
 		return;
 	}
 	basemapHidden = false;
@@ -2079,7 +2099,7 @@ function render() {
 	// 間隔は 250ms・sig が同じなら要求しない（swapScene）＝MapLibre の目盛りでは段が変わる時だけ。LOW_MEM は従来（止まってから）
 	else if (performance.now() - lastMoveSwapT >= (zoomStable ? MOVE_SWAP_MS : MOVE_SWAP_ZOOM_MS) && (zoomStable || !LOW_MEM)) { lastMoveSwapT = performance.now(); swapScene(order); }
 	runFrameHooks();                               // 3D時のみコンパス表示・針を方位／現在地マーカーの追随 等
-	logEl.textContent = `tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`;
+	setLog(`tiles=${order.length}/${total}  labels=${lastLabels.length}  zoom=${cam.zoom.toFixed(1)} pitch=${(cam.pitch * 180 / Math.PI).toFixed(0)}°`);
 }
 
 // --- 統合スパイク：geopbf/e-Stat を overlay に描き、クリックで identify（実装は overlay.js）---
@@ -2404,7 +2424,7 @@ map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリッ�
 map.t = (key, ...args) => t(key, ...args);   // UI 文言の訳（SDK が起動時に読んだ辞書で引く＝器の頁が i18n と辞書をもう一度読まない・1.2.0〜 2026-09-22）
 Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true });   // 表示言語（ja/en/…）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
-map.setOpacity = ({ base, globe } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; renderer.set("view", v); needsDraw = true; };   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
+map.setOpacity = ({ base, globe, hypso } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); needsDraw = true; };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
 map.setMaxPitch = rad => {
 	maxPitchCur = pitchIn(rad) ?? (pitchIn(opts.maxPitch) ?? MAXPITCH);
@@ -3883,7 +3903,11 @@ const rebuildGintNow = async (sidChanged = null, { dataChanged = false } = {}) =
 		let e = mlPasses.get(sig);
 		if (!e) {
 			const holder = { pass, zs: zoomSensitivity(pass), drawn: null };
+			// style＝移動中も地物ごとの表で描く（admin0 と同じ moveBudget=Infinity＋outlineZoom=0）＝MapLibre の層は動かしている間も同じ見た目。
+			// 既定のままだと 25 万辺を超える source は移動中に層の単色（既定の #FF6B35／#00B4D8）へ落ち、面がオレンジに塗られた
+			//（/globe/physical の形状台帳 39 万頂点・本人指摘 2026-10-01）。単色の色も透明に＝それでも落ちる経路で色を出さない
 			const h = map.addGint(cur.pbf, { order, minZoom: minZ, maxZoom: maxZ, origin: "ml", interactive: false, ...(pass.fill ? {} : { fillMaxEdges: 0 }),   // 塗りの層が無い＝縮退 stencil が表を見ずに塗る穴を塞ぐ（U13・R16）
+				style: { fillColor: [0, 0, 0, 0], styleTable: new Float32Array(256 * 4), moveBudget: Infinity, outlineZoom: 0 },
 				buildTable: ({ feats, zoom, states }) => { const t = buildMLTable(holder.pass, feats, { zoom, states }); holder.drawn = t.drawn; return t; },
 				zoomKey: z => zoomActiveKey(holder.pass, z) + (holder.zs.expr ? "@" + Math.round(z * 4) / 4 : "") });
 			if (!h) continue;

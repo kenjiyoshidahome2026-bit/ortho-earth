@@ -9,7 +9,7 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.js";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
-import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
+import { resolveWorldPal, fadeWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
@@ -347,9 +347,10 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
 	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
-	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null;
+	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null, wpalA = 1, wpalLand = null;
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
+		const a = view.worldHypsoOpacity ?? 1;
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc || a !== wpalA || view.land !== wpalLand) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpalA = a; wpalLand = view.land; wpal = fadeWorldPal(resolveWorldPal(wpalSrc), a, view.land || [0.96, 0.96, 0.95]); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
 		return wpal;
 	};
 	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
@@ -1683,6 +1684,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
 			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !v.p.blend), ...vis.filter(v => v.p.blend).sort((x, y) => d2(y.p) - d2(x.p))];
 			let zOff = false;
+			const common = new Set();   // 共通 uniform（カメラ・霧・標高窓・建物色）を入れ終えたプログラム＝バッチ毎でなくプログラム毎に 1 回（GL の uniform はプログラムに残る）
 			for (const { p, count } of order) {
 				const pg = p.textured ? meshTexProg : meshProg;   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ
 				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
@@ -1691,10 +1693,9 @@ export function createRenderer(canvas, rOpts = {}) {
 					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), p.blend ? 1 : 0);
 				}
 				if (!!p.blend !== zOff) { zOff = !!p.blend; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
-				setCommonUniforms(pg, st, [0, 0], land);
+				if (!common.has(pg)) { common.add(pg); setCommonUniforms(pg, st, [0, 0], land); gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]); }
 				const lb = p.noLift ? null : p.drape ? DRAPE_ALL : elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）・noLift＝持ち上げない（平面の統計）・drape＝全域で持ち上げる
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
-				gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）

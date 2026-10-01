@@ -122,11 +122,14 @@ export interface OrthoJapanOptions {
 	 *  本体が WebGPU だとその 2 枚目が描かれないため、宣言したページだけ WebGL2 を既定にする（?gpu=1 で破れる） */
 	glOverlay?: boolean;
 	/** 世界ビュー（z<5.5）のホバー国名 tip。false=出さない（自前の tip と重ねないページ向け。既定true） */
-	countryTip?: boolean;
+	countryTip?: boolean | "shift";   // "shift"＝Shift を押している間だけ（地物の tip を持つ頁が国名を出し分ける・1.7.x〜）
 	/** 世界帯（低ズーム・地域の基図より手前）に Equal Earth と同じ中身を描く（1.2.1〜）：州境（z≥4）・係争地の線・湖の岸線・
 	 *  市街地（z≥4）・道路/鉄道（z≥5）・国名・首都/都市・空港 ✈（z≥5）。海岸線/国境は全ズーム・河川/海洋境界は z1.5 から。
 	 *  名前は map の言語（26 言語）。データと規則は Equal Earth と共有（Natural Earth 10m・World DB）。既定 false */
 	worldContent?: boolean;
+	/** 世界帯（低ズーム）の河川・海洋境界線（Natural Earth 10m・z1.5 から）。false＝読まない／["rivers" | "maritime"]＝その種類だけ（既定 true＝全部）。
+	 *  自前の川を描く頁が二重に描かない・読まない口（1.7.x〜） */
+	worldLines?: boolean | Array<"rivers" | "maritime">;
 	/** 実行時アセット（plateau-sets.json等）の配信ベースURL（既定 "./"＝ページと同じ階層） */
 	assetBase?: string;
 	/** ページ URL のハッシュに視点を書き続ける（history.replaceState）。埋め込み（target 指定）では既定 false（1.0.4〜）＝SPA のルータを汚さない。
@@ -712,7 +715,8 @@ export interface OrthoJapanMap {
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
 	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
-	setOpacity(o: { base?: number; globe?: number }): void;
+	/** 基図（紙・線）・球体（globe/terrain）・全球ハイプソ（低ズームの段彩＝0 で陸の地色だけ・1.7.x〜）の不透明度（0..1） */
+	setOpacity(o: { base?: number; globe?: number; hypso?: number }): void;
 	/** クリック横取りスロット（編集アプリ用。gint の onGintClick より優先）。null=解除。クリックvsドラッグ弁別はエンジン側が済ませる */
 	setEditClick(fn: ((x: number, y: number) => void) | null): void;
 	/** 標高 m（GSI DEM10B / AW3D30 のタイルを api.ortho-earth.com 経由で取得）。格子は今のズームで決まる＝z<7 は R90・z<12 は R10（約 460m＝鋭い山頂は低めに出る）・

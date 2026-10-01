@@ -236,6 +236,8 @@ class GeoPBF {
 	get features() { return this.each(i => this.getFeature(i)); }
 	get geometries() { return this.each(i => this.getGeometry(i)); }
 	get properties() { return this.each(i => this.getProperties(i)); }
+	// 地物 i の属性の行（keys 順の値の配列）。worker 復号は props を遅延で埋める＝props[i] を直に読むと未復号の undefined を掴む
+	propsRow(i) { return this.props[i] !== undefined ? this.props[i] : decodePropsAt(this, i); }
 	get propertiesTable() {
 		if (this.props) for (let i = 0; i < this.fmap.length; i++) {
 			if (this.props[i] === undefined) decodePropsAt(this, i);
@@ -483,4 +485,7 @@ function _setViaWorker(self, buf) {
 		});
 }
 
+// 属性の行 → 同一判定の鍵（型ごと：1 と "1"、"" と null、["a|","b"] と ["a","|b"] を別にする）。dissolve・gint の地物台帳で共通
+const valKey = v => v === null || v === undefined ? "n" : v instanceof Date ? "d" + v.getTime() : typeof v === "object" ? "o" + JSON.stringify(v) : (typeof v)[0] + String(v);
+export const propsKeyOf = row => JSON.stringify(row.map(valKey));
 export { GeoPBF, makeKeys };   // makeKeys＝ストリームエンコード（set() を自前でなぞる呼び出し側＝geoedit）用に公開 2026-08-20
