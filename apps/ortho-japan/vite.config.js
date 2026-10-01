@@ -64,14 +64,14 @@ export default defineConfig({
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
-	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。
+	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。parks.html＝国立公園 35 の showcase（/japan/parks・台帳 public/parks.json・外周 public/parks.geopbf）。
 	// エンジン（globe・i18n・core・geopbf）は sharedEngine() が /globe/engine/<版>/ へ外に出す（2026-09-30・旧＝本番だけ /japan/lib/ の SDK を実行時に食う二重構成）。
 	// SDK（dist/lib）は外へ配る物＝build:prod が従来どおり /japan/lib/ に置く。
 	// experimental.chunkOptimization:false＝rolldown（vite 8）の決まり（2026-09-25・world／ortho-nl／gishub-jp と同じ）。既定 on だと実行時ヘルパ
 	// __exportAll の共通チャンクが動的エントリ mesh-loaders に合流し、worker がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を
 	// 静的 import する。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。rolldown を上げたら静的 import が無いことを確かめ直す。
 	build: { outDir: "dist/site/japan", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html"), fireworks: resolve(import.meta.dirname, "fireworks.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), scene: resolve(import.meta.dirname, "scene.html"), geoedit: resolve(import.meta.dirname, "geoedit.html"), tellus: resolve(import.meta.dirname, "tellus.html"), models: resolve(import.meta.dirname, "models.html"), fireworks: resolve(import.meta.dirname, "fireworks.html"), parks: resolve(import.meta.dirname, "parks.html") },
 		experimental: { chunkOptimization: false },
 	} },
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない

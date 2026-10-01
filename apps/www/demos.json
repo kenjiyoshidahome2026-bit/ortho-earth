@@ -230,6 +230,20 @@
 			}
 		},
 		{
+			"id": "parks",
+			"href": "/japan/parks",
+			"group": "japan",
+			"icon": "🏞️",
+			"title": "National Parks of Japan",
+			"lang": "26",
+			"desc": "All 35 national parks of Japan on a 3D globe — photos, the official boundaries, facts and Wikipedia links.",
+			"img": "/thumbs/parks.webp",
+			"shot": {
+				"url": "/japan/parks?p=daisetsuzan",
+				"wait": 16
+			}
+		},
+		{
 			"id": "models",
 			"href": "/japan/models",
 			"group": "japan",

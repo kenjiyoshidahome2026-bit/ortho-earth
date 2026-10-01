@@ -10,6 +10,9 @@
 		],
 		"fireworks": [
 			"fireworks.js"
+		],
+		"parks": [
+			"parks.js"
 		]
 	}
 }
