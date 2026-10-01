@@ -8,6 +8,9 @@ export function downsampleFlipped(tile, N) {
 	// 標本はtexel中心 (i+0.5)/N に置く＝シェーダの uv=(ll-origin)/span 直サンプルと規約が一致。
 	// 旧実装の角合わせ i/(N-1) はGLのtexel中心と±0.5texel（R90@1024で最大4.9km）伸縮し、
 	// land10m海岸線と陰影がズレて見えた。
+	// 入力側も画素中心＝タイルの画素 c は lng0+(c+0.5)/w（GEBCO は pixel-registered・AW3D30 は pixel-is-area・自前の DEM10B 焼き直しも (c+0.5)/W）。
+	// 旧＝(w-1) 等分（両端の画素をタイルの縁に貼る）は半画素の伸縮＝西端で +0.5・東端で −0.5 画素ずれ、隣のタイルと合わせると境界で丸 1 画素
+	// （R10 で約 460m・R01 で約 30m）の段差＝10° ごとの縦横の継ぎ目（2026-10-02 本人が東北 140°E で発見）。→ gx=(u·w−0.5)（u＝タイル内の位置 0..1）。
 	// ALOSタイルの最外周画素は縁の fill/no-data(値は中途半端で絶対値クランプをすり抜ける)。
 	// これを読むとセル境界(整数緯度)に非実在のタワーが全経度に並ぶ。読み位置を内側[M, end-M]へ
 	// クランプ＝縁2px帯だけ平坦化・内側は無歪み（旧実装の全域線形リマップはセル端で±Mpx＝R90で
@@ -17,11 +20,11 @@ export function downsampleFlipped(tile, N) {
 	// 閉包 H() と毎 texel の clamp を消した＝算術は旧式と同じ式・同じ順（規約の写しと bit 一致＝tests/elevation-resample.mjs）。1024² で 3〜4 倍速。
 	const x0s = new Int32Array(N), fxs = new Float64Array(N);
 	for (let i = 0; i < N; i++) {
-		const gx = Math.min(Math.max((i + 0.5) / N * (w - 1), M), w - 1 - M), x0 = Math.min(gx | 0, w - 2);
+		const gx = Math.min(Math.max((i + 0.5) / N * w - 0.5, M), w - 1 - M), x0 = Math.min(gx | 0, w - 2);
 		x0s[i] = x0; fxs[i] = gx - x0;
 	}
 	for (let j = 0; j < N; j++) {
-		const gy = Math.min(Math.max((j + 0.5) / N * (h - 1), M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		const r0 = (h - 1 - y0) * w, r1 = r0 - w, o = j * N;   // データ行（北上げ）：y0 の行と y0+1（1 行北＝添字は 1 行前）
 		for (let i = 0; i < N; i++) {
 			const x0 = x0s[i], fx = fxs[i];
@@ -43,12 +46,12 @@ export function cropResample(tile, lng0, lat0, span, N) {
 	const out = new Float32Array(N * N);
 	const x0s = new Int32Array(N), fxs = new Float64Array(N);
 	for (let i = 0; i < N; i++) {
-		const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * (w - 1);
+		const gx = ((lng0 - lo) + span * (i + 0.5) / N) / r * w - 0.5;   // 入力は画素中心（downsampleFlipped と同じ規約・縁は隣タイルが無いので最外画素でクランプ）
 		const x0 = Math.max(0, Math.min(w - 2, gx | 0));
 		x0s[i] = x0; fxs[i] = Math.min(1, Math.max(0, gx - x0));
 	}
 	for (let j = 0; j < N; j++) {
-		const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * (h - 1);
+		const gy = ((lat0 - la) + span * (j + 0.5) / N) / r * h - 0.5;
 		const y0 = Math.max(0, Math.min(h - 2, gy | 0)), fy = Math.min(1, Math.max(0, gy - y0));
 		const r0 = (h - 1 - y0) * w, r1 = r0 - w, o = j * N;   // y:0=南
 		for (let i = 0; i < N; i++) {
