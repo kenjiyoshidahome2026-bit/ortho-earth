@@ -448,6 +448,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 				const p = await loadPbf(geopbf, base + file), feats = [];
 				for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue;
 					const pr = f.properties || p.getProperties(i) || {};
+					if (id === "lines" && pr.kind === "dateline") continue;   // 日付変更線は人が決めた線＝地形の地図には入れない（赤道・回帰線・極圏＝自転軸の傾きで決まる線だけ・本人 2026-10-01）
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
 						: { kind: pr.kind, name: pr["name_" + lang] || pr.name } }); }
 				map.addSource("ph-" + id, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
