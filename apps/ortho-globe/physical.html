@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#f6f6f4}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#f6f6f4;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<title>Physical world — ortho-globe</title>
+	<meta name="description" content="Mountains, rivers, lakes, seas and deserts of the world on a 3D globe, with their heights, lengths, areas and depths side by side.">
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/physical">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Physical world — ortho-globe">
+	<meta property="og:description" content="About 1,000 landforms of the world on a 3D globe: compare the heights of mountains, the lengths of rivers and the depths of lakes, and jump to any of them.">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/physical">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Physical world — ortho-globe">
+	<meta name="twitter:description" content="About 1,000 landforms of the world on a 3D globe: compare the heights of mountains, the lengths of rivers and the depths of lakes, and jump to any of them.">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#9aa6bd" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 世界の地形（山・川・湖・海・砂漠…約 1,000 件）を地球儀に。物理量（標高・長さ・面積・深さ・流量…）で記号の大きさを変え、
+		// 一覧（並べ替え）と比較図（高さ比べ・長さ比べ）を地図と連動させる。
+		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を自分の束に焼いてエンジンを起こし、描画と案内板は ./physical.js（遅延 chunk）。
+		// データ＝packages/world の TerrainDB（物理量）・i18n/<lang>（名前）・ne-physical.geopbf（形状台帳）。本番は bucket GIS/world/、dev は手元の out/（vite の __WORLD_OUT__）。?data=URL で差し替え可。
+		(async () => {
+			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
+			await setLang();
+			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
+			const engineP = import("@ortho-earth/globe");
+			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
+			try {
+				const [{ createGlobe, geopbf }, { mountPhysical }] = await Promise.all([engineP, import("./physical.js")]);
+				// 初期視点＝ヒマラヤからアフリカまで（大山脈・大河・大砂漠が一度に入る）。共有 URL の hash があればそちら
+				const map = await createGlobe({ target: "#map", view: location.hash || "#3.4/26/62", chips: false, zoomMax: 8,
+					worldContent: { groups: ["lakes"] }, worldLines: false, night: false, countryTip: "shift",   // Shift＋ホバー＝国名（本人 2026-10-01）・ふだんは地形の tip
+					 mesh: false,   // night:false＝夜の半球を減光しない（地形図＝全面を同じ明るさで・本人 2026-10-01「ハイプソが地球全面ではない」）
+					   // worldLines:false＝世界帯の NE 河川を読まない（川は形状台帳で描く＝二重に描かない）   // 世界帯は湖の岸線だけ（国名・都市・道路は出さない＝地形が主役）。海岸線と国境は別系統で常に出る
+					 instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL,
+					debugGlobals: /[?&]debug=1/.test(location.search) });   // ?debug=1＝検証窓（__perf…）
+				dismissBoot();
+				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+				const physical = await mountPhysical(map, { geopbf, data: new URLSearchParams(location.search).get("data") });   // 省略＝dev は手元の out/・本番は bucket
+				window.__map = map; window.__physical = physical;   // console 検証用
+			} catch (e) { console.error("[physical] startup failed", e); dismissBoot(); }
+		})();
+	</script>
+</body>
+</html>
