@@ -20,15 +20,17 @@ const t = tr();
 
 // ── 系統（凡例と表示の切り替えの単位）──────────────────────────────────────────
 const GROUPS = [
-	{ id: "relief", color: "#8f4a14", ink: "#6e3810", cats: ["range", "peak", "volcano", "pass", "plateau", "plain", "basin", "valley", "shield", "region"] },
+	{ id: "relief", color: "#8f4a14", ink: "#6e3810", cats: ["range", "peak", "volcano", "pass", "plateau", "plain", "basin", "valley", "shield", "region", "trench", "ridge"] },   // 海溝・海嶺も起伏（本人 2026-10-01）
 	{ id: "water", color: "#2f78c4", ink: "#1f5ea4", cats: ["river", "lake", "waterfall", "delta", "wetland", "canal"] },
-	{ id: "sea", color: "#2f78c4", ink: "#23609c", cats: ["ocean", "sea", "bay", "strait", "reef", "current"] },
+	{ id: "sea", color: "#2f78c4", ink: "#23609c", cats: ["ocean", "sea", "bay", "strait", "reef"] },
 	{ id: "dry", color: "#e0a020", ink: "#8a6410", cats: ["desert", "saltflat", "ice", "pole"] },
 	{ id: "land", color: "#5a6472", ink: "#4a5058", cats: ["continent", "island", "islands", "peninsula", "cape", "isthmus"] },
-	{ id: "tectonic", color: "#b04a9c", ink: "#8e3a7e", cats: ["plate", "trench", "ridge"] },
 ];
-const groupName = id => ({ relief: t("Mountains & relief"), water: t("Rivers & lakes"), sea: t("Seas & oceans"), dry: t("Deserts & ice"), land: t("Continents & islands"), tectonic: t("Plates & trenches") })[id];
-const GROUP_OF = Object.fromEntries(GROUPS.flatMap(g => g.cats.map(c => [c, g.id])));
+// 「重ねる」で出す系統（上の一覧には無い）＝プレート（境界の重ねと一緒に名前）・海流（矢印）。本人 2026-10-01「海流は重ねに・プレートは重ねのみ」
+const OVERLAY_GROUPS = [{ id: "plate", color: "#b04a9c", ink: "#8e3a7e", cats: ["plate"] }, { id: "current", color: "#d4553a", ink: "#a8402a", cats: ["current"] }];
+const ALL_GROUPS = [...GROUPS, ...OVERLAY_GROUPS];
+const groupName = id => ({ relief: t("Mountains & relief"), water: t("Rivers & lakes"), sea: t("Seas & oceans"), dry: t("Deserts & ice"), land: t("Continents & islands") })[id];
+const GROUP_OF = Object.fromEntries(ALL_GROUPS.flatMap(g => g.cats.map(c => [c, g.id])));
 const SEL = "#d7263d";   // 選択の縁取り（どの系統の色とも違う赤）
 
 // プレート境界（PB2002 の 7 種別）→ 動きの 3 系統（広がる・近づく・すれ違う）
@@ -236,7 +238,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	]);
 
 	// ── 層 ──
-	const colorBy = key => ["match", ["get", "g"], ...GROUPS.flatMap(g => [g.id, g[key]]), "#5a6472"];
+	const colorBy = key => ["match", ["get", "g"], ...ALL_GROUPS.flatMap(g => [g.id, g[key]]), "#5a6472"];
 	const shown = new Set(GROUPS.map(g => g.id));
 	const groupFilter = () => ["match", ["get", "g"], [...shown].length ? [...shown] : ["-"], true, false];
 	// 面の塗り：乾燥（砂漠・塩原）と氷だけ色を敷く＝他の面（海・高原・島…）は名前だけ（NE の地域面は粗く重なる＝塗ると地図が濁る）
@@ -270,13 +272,13 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			layout: { "icon-image": ["get", "icon"], "icon-size": ["match", ["get", "category"], ["peak", "volcano"], ["interpolate", ["linear"], ["get", "elev"], 0, 0.6, 4000, 0.85, 8849, 1.3], 0.85],   // 山＝標高に比例 "symbol-sort-key": ["get", "sort"],
 				"text-field": ["case", ["==", ["get", "name"], ""], ["get", "sub"], ["!=", ["get", "sub"], ""], ["concat", ["get", "name"], "\n", ["get", "sub"]], ["get", "name"]],
 				"text-size": ["get", "size"], "text-anchor": "left", "text-offset": [0.75, 0], "text-justify": "left", "text-optional": true },
-			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.8 } },
+			paint: { "text-color": ["match", ["get", "category"], "trench", "#8e3a7e", colorBy("ink")], "text-halo-color": "rgba(255,255,255,.9)", "text-halo-width": 1.8 } },   // 海溝の深さ＝赤紫のまま（起伏の系統へ移しても）
 		// 山脈の名前＝帯の中心。山の記号の後に置く（山が勝つ）代わりに、ぶつかったら中心の上下左右へずれて空きを探す
 		//（ヒマラヤの中心はエベレストとカイラス山の間＝中心固定だとどちらかが消えた・2026-10-01）
 		"ph-range-label": { type: "symbol", source: "ph-pts", filter: ["all", ["any", ["==", ["get", "category"], "range"], ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["+", 1, ["get", "size"]], "symbol-sort-key": ["get", "sort"], "text-max-width": 8,
 				"text-variable-anchor": ["center", "top", "bottom", "left", "right"], "text-radial-offset": 0.9 },
-			paint: { "text-color": ["match", ["get", "category"], "ridge", "#8a6410", colorBy("ink")], "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
+			paint: { "text-color": ["match", ["get", "category"], "ridge", "#8a6410", "trench", "#8e3a7e", colorBy("ink")], "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
 		"ph-area-label": { type: "symbol", source: "ph-pts", filter: ["all", ["==", ["get", "icon"], ""], ["!=", ["get", "category"], "range"], ["!", ["has", "label"]], ["<=", ["get", "mz"], ["zoom"]]],
 			layout: { "text-field": ["get", "name"], "text-size": ["get", "size"], "symbol-sort-key": ["get", "sort"], "text-max-width": 8 },
 			paint: { "text-color": colorBy("ink"), "text-halo-color": "rgba(255,255,255,.85)", "text-halo-width": 1.8 } },
@@ -351,7 +353,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 
 	// ── 選択（地図・一覧・比較図の共通の口）──
 	let sel = null;
-	drawAnno();   // 面の絵の初回（sel の宣言の後＝drawAnno が読む）
+	applyGroups();   // 系統の絞りの初回（海流・プレートは「重ねる」で点けるまで出さない）＋面の絵の初回（sel の宣言の後＝drawAnno が読む）
 	const bboxOf = qid => {
 		const gs = geomsOf.get(qid); if (!gs) return null;
 		let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -403,7 +405,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			</div>
 			<div class="pane" data-pane="layers">
 				${GROUPS.map(g => `<label class="grp"><input type="checkbox" data-g="${g.id}" checked><span class="sw" style="background:${g.color}"></span>${esc(groupName(g.id))}<small>${items.filter(d => g.cats.includes(d.category)).length}</small></label>`).join("")}
+				<label class="grp"><input type="checkbox" data-ov="lines" checked><span class="sw ln" style="background:#5a6472"></span>${esc(t("Equator, tropics and polar circles"))}</label>
 				<h2>${esc(t("Overlays"))}</h2>
+				<label class="grp"><input type="checkbox" data-ov="currents"><span class="sw ln" style="background:linear-gradient(90deg,#d4553a 50%,#2f78c4 50%)"></span>${esc(t("Ocean currents"))}<small>${items.filter(d => d.category === "current").length}</small></label>
 				<label class="grp"><input type="checkbox" data-ov="plates"><span class="sw ln" style="background:linear-gradient(90deg,#e0a020 33%,#b04a9c 33% 66%,#5a6472 66%)"></span>${esc(t("Plate boundaries"))}</label>
 				<div class="leg" data-leg="plates" hidden>${PLATE_KINDS.map(k => `<span><i style="background:${k.color}"></i>${esc(plateKindName(k.id))}</span>`).join("")}</div>
 				<label class="grp"><input type="checkbox" data-ov="koppen"><span class="sw" style="background:linear-gradient(90deg,${KOPPEN_GROUPS.map((g, i) => `${g.color} ${i * 20}% ${(i + 1) * 20}%`).join(",")})"></span>${esc(t("Climate (Köppen)"))}</label>
@@ -411,7 +415,6 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 					<button type="button" class="kmore" aria-pressed="false">${esc(t("Details (30 types)"))}</button>
 					<div class="kgroups">${KOPPEN_GROUPS.map(g => `<div class="kg" data-g="${g.id}"><span class="kgn"><i style="background:${g.color};height:8px"></i>${esc(koppenGroupName(g.id))}</span><span class="kcs"></span></div>`).join("")}</div>
 					<small class="note">${esc(t("Beck et al. 2023 (CC BY 4.0), 1991–2020"))}</small></div>
-				<label class="grp"><input type="checkbox" data-ov="lines"><span class="sw ln" style="background:#5a6472"></span>${esc(t("Equator, tropics and polar circles"))}</label>
 				<p class="note">${esc(t("Symbol size and line width follow height and length. Names appear as you zoom in, larger features first."))}</p>
 				<p class="src">${esc(t("Data: Wikidata (CC0), Natural Earth"))}</p>
 			</div>
@@ -436,6 +439,8 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	async function overlay(id, on) {
 		const leg = panel.querySelector(`[data-leg="${id}"]`); if (leg) leg.hidden = !on;
 		if (id === "koppen") return koppenOverlay(on);
+		if (id === "currents") { on ? shown.add("current") : shown.delete("current"); return applyGroups(); }   // 海流＝矢印（anno）と名前（線に沿う）＝系統の出し入れと同じ
+		if (id === "plates") { on ? shown.add("plate") : shown.delete("plate"); applyGroups(); }   // プレートの名前は境界の重ねと一緒に
 		if (!ovLoaded[id]) {
 			if (!on) return;
 			ovLoaded[id] = (async () => {
@@ -492,6 +497,8 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		map.setLayoutProperty("ph-koppen", "visibility", on ? "visible" : "none");
 	}
 
+	overlay("lines", true);   // 赤道・回帰線・極圏＝上の一覧で既定で点灯（本人 2026-10-01）＝ovLoaded・koppen の宣言の後で呼ぶ
+
 	let tab = "layers";
 	panel.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
 		tab = b.dataset.tab;
@@ -508,7 +515,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		if (!d) { el.hidden = true; el.innerHTML = ""; return; }
 		const rows = Object.keys(METRICS).map(k => [k, valueOf(d, k)]).filter(([, v]) => v != null)
 			.map(([k, v]) => `<div class="m"><span>${esc(metricName(k))}</span><b>${esc(fmtVal(v, k))}</b>${rankNote(d, k)}</div>`).join("");
-		const w = wikiUrl(d), g = GROUPS.find(x => x.id === (GROUP_OF[d.category] || "land"));
+		const w = wikiUrl(d), g = ALL_GROUPS.find(x => x.id === (GROUP_OF[d.category] || "land"));
 		el.hidden = false;
 		el.innerHTML = `<div class="dh"><span class="sw" style="background:${g.color}"></span><div><b class="nm">${esc(nameOf(d))}</b><small>${esc(catName(d.category))}${lang !== "en" && nameOf(d) !== d.name.en ? " · " + esc(d.name.en) : ""}</small></div><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			${rows || `<p class="note">${esc(t("No measurements recorded for this feature."))}</p>`}
@@ -525,7 +532,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 
 	// ── 一覧（分類 × 量で並べ替え・名前で検索）＝地図の表の顔 ──
 	const catSel = $(".cat"), metSel = $(".met"), find = $(".find"), ol = $(".list");
-	const CAT_ORDER = GROUPS.flatMap(g => g.cats).filter(c => items.some(d => d.category === c));
+	const CAT_ORDER = ALL_GROUPS.flatMap(g => g.cats).filter(c => items.some(d => d.category === c));
 	catSel.innerHTML = CAT_ORDER.map(c => `<option value="${c}">${esc(catName(c))} (${items.filter(d => d.category === c).length})</option>`).join("");
 	catSel.value = "peak";
 	// 分類ごとの「まず比べたい量」（無い分類は量の並びの先頭）
@@ -646,6 +653,7 @@ const CSS = `
 .ph-panel h2{font-size:12px;margin:12px 0 2px;color:var(--qm-text-dim);font-weight:600}
 .ph-panel .sw.ln{height:4px;border-radius:2px}
 .ph-panel .leg{display:flex;flex-direction:column;gap:2px;margin:0 0 4px 34px;font-size:11.5px;color:var(--qm-text-dim)}
+.ph-panel .leg[hidden]{display:none}   /* display:flex が hidden 属性に勝って、消した重ねの凡例が出ていた */
 .ph-panel .kleg{gap:4px;align-items:flex-start}
 .ph-panel .kgroups{display:flex;flex-direction:column;gap:3px;align-self:stretch}
 .ph-panel .kmore{align-self:flex-start;margin:2px 0 4px;font:inherit;font-size:11.5px;padding:3px 10px;border-radius:999px;border:1px solid var(--qm-border-soft);background:#fff;color:var(--qm-text);cursor:pointer}
