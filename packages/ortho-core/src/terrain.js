@@ -41,7 +41,10 @@ export function createTerrain({ renderer, requestDraw, exag, earthM, apiUrl, onP
 	// 再標本化＋f16 変換を GPU で（描画スレッドの N² ループが消える）。無ければ従来＝ここで Float32 セルを作って上げる（GL・逃げ道）。
 	// 記述子の CPU 退避（型が想定外など）は renderer 側＝同じ式（elevation.js）＝絵は同じ。
 	const gpuRs = !!renderer.gpuResample;
-	const rsDown = (tile, N) => gpuRs ? { tile, mode: "down" } : perfT("resample", N, () => downsampleFlipped(tile, N));
+	// 縁の除外（downsampleFlipped の M）＝fill の縁を持つ ALOS の R01 だけ 2。GEBCO の R10/R90・brand 銘（DEM10B）の R01 は 0＝
+	// 10° の境で両側 2 画素をクランプして継ぎ目の帯を作らない（2026-10-02・東北 140°E）
+	const edgeOf = tile => (tile.range === 1 && !(dtm?.brand && String(tile.source || "").startsWith(dtm.brand))) ? 2 : 0;
+	const rsDown = (tile, N) => gpuRs ? { tile, mode: "down", edge: edgeOf(tile) } : perfT("resample", N, () => downsampleFlipped(tile, N, edgeOf(tile)));
 	const rsCrop = (tile, lng0, lat0, span, N) => gpuRs ? { tile, mode: "crop", lng0, lat0, span } : perfT("resample", N, () => cropResample(tile, lng0, lat0, span, N));
 	let demSrc = dem ? createDemSource(dem) : null;
 	let dtmBounds = dtmDecl?.bbox || (demSrc?.spec.dtm ? demSrc.spec.bounds : null);

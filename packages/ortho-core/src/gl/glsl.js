@@ -1294,7 +1294,7 @@ uniform uvec4 u_dim;   // w, h, kind, mode(0=down 1=box 2=crop 3=float)
 uniform vec4  u_a;     // mode 3: ax, bx, ay, by
 uniform vec4  u_lo;    // mode 3: gx∈[x,y]・gy∈[z,w]
 uniform uvec4 u_o;     // ox, oy（セル原点 texel）, N, k
-uniform uvec4 u_box;   // mode 1: AW, rowN0, col0, 0
+uniform uvec4 u_box;   // mode 1: AW, rowN0, col0, 0／mode 0: M（読まない最外周の画素数）
 uniform uvec4 u_ix;    // mode 0/2: Ax, Bx, Dx, shift（gx = (Ax + Bx·(2i+1))/Dx − shift＝画素中心の −½ を符号なしで書くための下駄・2026-10-02）
 uniform uvec4 u_iy;    // mode 0/2: Ay, By, Dy, shift
 out vec4 fragColor;
@@ -1324,7 +1324,7 @@ void main() {
 			qx = negx ? 0u : qx - u_ix.w; qy = negy ? 0u : qy - u_iy.w;
 			x0 = qx; fx = negx ? 0.0 : float(rx) / float(u_ix.z); y0 = qy; fy = negy ? 0.0 : float(ry) / float(u_iy.z);
 			if (mode == 0u) {
-				uint M = 2u;
+				uint M = u_box.x;
 				if (qx < M) { x0 = M; fx = 0.0; } else if (qx > w - 1u - M || (qx == w - 1u - M && rx > 0u)) { x0 = w - 1u - M; fx = 0.0; }
 				if (qy < M) { y0 = M; fy = 0.0; } else if (qy > h - 1u - M || (qy == h - 1u - M && ry > 0u)) { y0 = h - 1u - M; fy = 0.0; }
 			} else {

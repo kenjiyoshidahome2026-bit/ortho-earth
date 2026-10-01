@@ -1510,7 +1510,7 @@ struct RP {
 	a: vec4f,     // mode 3: ax, bx, ay, by（gx = ax + bx·(i+0.5)）
 	lo: vec4f,    // mode 3: gx∈[x,y]・gy∈[z,w]
 	o: vec4u,     // ox, oy（セル原点 texel）, N, k
-	box: vec4u,   // mode 1: AW, rowN0, col0, 0
+	box: vec4u,   // mode 1: AW, rowN0, col0, 0／mode 0: M（読まない最外周の画素数）
 	ix: vec4u,    // mode 0/2: Ax, Bx, Dx, shift（gx = (Ax + Bx·(2i+1))/Dx − shift＝画素中心の −½ を符号なしで書くための下駄・2026-10-02）
 	iy: vec4u,    // mode 0/2: Ay, By, Dy, shift
 };
@@ -1552,7 +1552,7 @@ fn rd(idx: u32) -> f32 {
 			qx = select(qx - R.ix.w, 0u, negx); qy = select(qy - R.iy.w, 0u, negy);
 			x0 = qx; fx = select(f32(rx) / f32(R.ix.z), 0.0, negx); y0 = qy; fy = select(f32(ry) / f32(R.iy.z), 0.0, negy);
 			if (mode == 0u) {   // downsampleFlipped：gx を [M, w−1−M] に clamp
-				let M = 2u;
+				let M = R.box.x;
 				if (qx < M) { x0 = M; fx = 0.0; } else if (qx > w - 1u - M || (qx == w - 1u - M && rx > 0u)) { x0 = w - 1u - M; fx = 0.0; }
 				if (qy < M) { y0 = M; fy = 0.0; } else if (qy > h - 1u - M || (qy == h - 1u - M && ry > 0u)) { y0 = h - 1u - M; fy = 0.0; }
 			} else {            // cropResample：x0 = clamp(floor, 0, w−2)・fx = clamp(gx − x0, 0, 1)

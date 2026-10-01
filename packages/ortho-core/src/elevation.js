@@ -1,7 +1,9 @@
 // 標高タイル（altpbf 復号済み {data,width,height,...}）の再標本化。取得・復号は altpbf 側。
 
 // タイルを N×N の Float32 にダウンサンプル。行は南→北（row0=南）で格納＝アトラス配置用。海は0クランプ。
-export function downsampleFlipped(tile, N) {
+// M＝読まない最外周の画素数（既定 2＝ALOS の縁の fill 対策）。fill を持たないタイル（GEBCO の R10/R90・DEM10B 焼きの R01）は 0 を渡す＝
+// 2026-10-02：一律 M=2 だと 10° の境で両側 2 画素（R10 で約 1km）がクランプされ、継ぎ目の帯になっていた（東北 140°E・本人発見）。呼び手（terrain.js edgeOf）が決める
+export function downsampleFlipped(tile, N, M = 2) {
 	const { data, width: w, height: h } = tile;
 	const out = new Float32Array(N * N);
 	// y: 0=南 の地理座標 → データ行(北上げ)へ。異常値(int16巨大値/-9999)は0に（旧 H() 閉包＝下の内側ループへ展開済み）。
@@ -15,7 +17,6 @@ export function downsampleFlipped(tile, N) {
 	// これを読むとセル境界(整数緯度)に非実在のタワーが全経度に並ぶ。読み位置を内側[M, end-M]へ
 	// クランプ＝縁2px帯だけ平坦化・内側は無歪み（旧実装の全域線形リマップはセル端で±Mpx＝R90で
 	// ±7.4kmの伸縮を全体に配っていた＝ズレのもう一因）。
-	const M = 2;
 	// 速さ（perf plan P1 step 0・2026-09-27）：列ごとの x0/fx は行に依らない＝先に 1 回だけ計算し、内側は配列の直読みだけにする。
 	// 閉包 H() と毎 texel の clamp を消した＝算術は旧式と同じ式・同じ順（規約の写しと bit 一致＝tests/elevation-resample.mjs）。1024² で 3〜4 倍速。
 	const x0s = new Int32Array(N), fxs = new Float64Array(N);
