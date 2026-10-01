@@ -30,12 +30,25 @@
 			color:rgba(200,210,226,.82);background:rgba(16,24,44,.4);border:1px solid rgba(255,255,255,.14);
 			padding:4px 8px;border-radius:8px}
 		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
+		/* 街のボタン（上辺中央・#map の中）＝3DBAG を切ってある街へ飛ぶ。家具は常に暗い硝子（ui-dark）＝字は明るく・今いる街だけ白く点す。
+		   狭い画面は横に流す（折り返さない＝地図を隠さない）。 */
+		#nl-places{position:absolute;top:calc(8px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);z-index:5;
+			display:flex;gap:2px;max-width:calc(100% - 120px);overflow-x:auto;scrollbar-width:none;padding:3px;border-radius:999px;
+			background-color:rgba(15,20,30,.56);-webkit-backdrop-filter:blur(14px) saturate(1.5);backdrop-filter:blur(14px) saturate(1.5);
+			border:1px solid rgba(255,255,255,.28);box-shadow:0 1px 1px rgba(20,30,50,.06),0 3px 10px rgba(20,30,50,.14)}
+		#nl-places::-webkit-scrollbar{display:none}
+		#nl-places button{flex:none;font:500 13px/1 "Noto Sans JP","Hiragino Sans","Yu Gothic UI",sans-serif;color:#eef2f8;
+			background:none;border:0;border-radius:999px;padding:7px 11px;cursor:pointer;white-space:nowrap}
+		#nl-places button:hover{background:rgba(255,255,255,.18)}
+		#nl-places button[aria-pressed="true"]{background:rgba(255,255,255,.92);color:#1c2330}
+		#nl-places button:focus-visible{outline:2px solid #fff;outline-offset:-2px}
+		@media (max-width:640px){#nl-places{left:8px;right:56px;transform:none;max-width:none}}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 	<link rel="apple-touch-icon" href="/nl/apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-solar と同じ一枚＝球儀マーク -->
 	<meta name="apple-mobile-web-app-title" content="ortho-nl">
 	<title>ortho-nl — オランダ 3DBAG（同じエンジン・別の国）</title>
-	<meta name="description" content="オランダ全土の3D建物モデル（3DBAG／TU Delft・CC BY 4.0）を、ortho-japan と同じ自作WebGLエンジンで球面に直描き。日本専用ではないことの実証。">
+	<meta name="description" content="オランダの3D建物モデル（3DBAG／TU Delft・CC BY 4.0）を、OpenStreetMap のベクトルタイルと標高の上に、ortho-japan と同じ自作エンジンで球面に直描き。デルフト・ロッテルダム・アムステルダムなど 8 都市。日本専用ではないことの実証。">
 	<!-- OGP：SNS共有カード。og:url / og:image は絶対URL必須＝デプロイ先確定時にこの2行を実URLへ。画像は public/ogp.png（1200×630） -->
 	<meta property="og:type" content="website">
 	<meta property="og:site_name" content="ortho-earth">
@@ -50,14 +63,14 @@
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
 	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ortho-earth 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
-	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。文言は instruments.js と同文＝起動後に養子縁組される -->
-	<div id="attr" data-boot>出典：<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG（TU Delft・CC BY 4.0）</a><br>
-		BAG（建物登記）・AHN（国土LiDAR）より TU Delft が自動生成<br>
-		（各データを加工して作成）© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
+	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。起動後に養子縁組され、エンジンが基図の出典（nl/region.js の NL_ATTR_HTML）で書き直す＝同じ並び -->
+	<div id="attr" data-boot>Source: <a href="https://openfreemap.org" target="_blank" rel="noopener">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank" rel="noopener">© OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>・<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG (TU Delft), CC BY 4.0</a>・<a href="https://mapterhorn.com/attribution" target="_blank" rel="noopener">© Mapterhorn</a><br>
+		(processed from each source)© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
 	<script type="module">
 		// 中身は ortho-japan と同じエンジン（app.js）＝1行で立ち上がる。違うのは入口URL(/nl/)と既定の視点だけ。
 		// 日本固有のガジェット（地名検索・日本ボタン・デモ台本・太陽系への口）は載せない＝この画面はオランダ一本。
 		import orthoJapan from "../ortho-japan/app.js";
+		import { NL_PLACES } from "../ortho-japan/nl/region.js";   // 街の一覧（建物の枠と同じ表＝街を足すのは region.js だけ）
 		const dismissBoot = () => {
 			requestAnimationFrame(() => requestAnimationFrame(() => {
 				const boot = document.getElementById("boot");
@@ -66,7 +79,6 @@
 		};
 		orthoJapan().then(map => {
 			dismissBoot();
-			map.gadget.palette();     // 配色テーマ切替
 			map.gadget.zoom();        // ズーム＋/−
 			map.gadget.full();        // 全画面トグル
 			map.gadget.compass();     // コンパス兼リセット（3Dの時だけ現れる）
@@ -78,6 +90,20 @@
 			map.gadget.contextmenu(); // 右クリックメニュー
 			map.gadget.dropFile();    // GISファイルのD&D取り込み
 			map.gadget.hint();        // 操作説明カード
+			// 配色テーマ切替（palette）は載せない＝基図が外来 style（OpenFreeMap）＝テーマは背景と建物色にしか効かない
+			// 街のボタン＝3DBAG を切ってある街へ飛ぶ。今いる街（画面中心が枠の中）を点す
+			const nav = document.createElement("nav");
+			nav.id = "nl-places"; nav.setAttribute("aria-label", "Cities");
+			const inside = (p, c) => c.lng >= p.bbox[0] && c.lng <= p.bbox[2] && c.lat >= p.bbox[1] && c.lat <= p.bbox[3];
+			const mark = () => { const c = map.getCenter(); NL_PLACES.forEach((p, i) => nav.children[i].setAttribute("aria-pressed", inside(p, c))); };
+			for (const p of NL_PLACES) {
+				const b = document.createElement("button");
+				b.type = "button"; b.textContent = p.name;
+				b.addEventListener("click", () => Promise.resolve(map.flyTo(...p.view)).then(mark, mark));
+				nav.append(b);
+			}
+			(document.getElementById("map") || document.body).append(nav);
+			mark(); map.on("moveend", mark);
 		});
 		if (location.protocol === "https:" && "serviceWorker" in navigator)
 			addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));

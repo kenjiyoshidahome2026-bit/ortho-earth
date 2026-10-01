@@ -292,10 +292,11 @@
 			"icon": "🇳🇱",
 			"title": "ortho-nl",
 			"lang": "26",
-			"desc": "The Netherlands, drawn with 3DBAG data.",
+			"desc": "The Netherlands in 3D — 3DBAG buildings standing on OpenStreetMap vector tiles and terrain. Hop between eight cities, from Delft to Maastricht.",
 			"img": "/thumbs/nl.webp",
 			"shot": {
-				"wait": 25,
+				"url": "/nl/#16.2/51.9195/4.4800/62t/20r",
+				"wait": 45,
 				"eval": "document.getElementById('net-toast')?.remove()"
 			}
 		}
