@@ -19,6 +19,9 @@ const WIKI_FALLBACK = ["en", "ja"];   // 本文・リンクの言語が無い時
 // 地種区分（環境省 nps_all の属性「地域区」）＝色は保護の強さの順（濃い緑→黄）・海域は青。bucket の nps_all（10MB gzip・1.1 万面）は押した時だけ読む
 const ZONES_URL = "https://api.ortho-earth.com/bucket/GIS/pbf/nps_all";
 const ZONES = [["特別保護地区", "#1b5e20", 0.62], ["第1種特別地域", "#2e7d32", 0.52], ["第2種特別地域", "#7cb342", 0.46], ["第3種特別地域", "#c0ca33", 0.42], ["普通地域", "#fff176", 0.30], ["海域公園地区", "#29b6f6", 0.45], ["区分未定", "#9e9e9e", 0.35]];
+// gint 層の持参スタイル：単色フォールバック（移動中に予算を超えた時・z 跨ぎで表が無い時の層の色＝既定は 14 条筆のオレンジ/水色）を透明に・表（256 色）はゼロ
+const NO_SOLID = { fillColor: [0, 0, 0, 0], styleTable: new Float32Array(256 * 4), outlineZoom: 0 };
+const NO_SOLID_MOVING = { ...NO_SOLID, moveBudget: Infinity };   // 外周＝軽い（5.8 万頂点）＝移動中も表で描く
 const rgba = (hex, a) => `rgba(${parseInt(hex.slice(1, 3), 16)},${parseInt(hex.slice(3, 5), 16)},${parseInt(hex.slice(5, 7), 16)},${a})`;
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
@@ -185,7 +188,9 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		try {
 			if (!boundary || !geopbf || !map.addGint) return;
 			pbf = await geopbf(boundary, { name: "parks-boundary", gint: true });
-			layer = map.addGint(pbf, { order: -4, interactive: true, minZoom: 2.5,
+			// style＝移動中・z 跨ぎのフォールバック（層の単色＝既定オレンジ #FF6B35／水色）を透明に・表はゼロ（globe.js の addLayer と同じ処方・本人 10/2「時たまオレンジ」）。
+			// moveBudget=Infinity＝外周（5.8 万頂点）は動かしている間も地物ごとの表で描く・outlineZoom=0＝低ズームの単色ベタ塗りへ落ちない
+			layer = map.addGint(pbf, { order: -4, interactive: true, minZoom: 2.5, style: NO_SOLID_MOVING,
 				label: { field: pr => { const p = byId.get(pr?.id); return p ? nameOf(p) : ""; }, size: 12, color: "#dff5e3", halo: "#0b1021", haloW: 2, minZoom: 5.2 } });
 			await layer?.ready;
 			await layer?.setPaint?.(zonesOn ? { ...BOUNDARY_PAINT, "fill-color": "rgba(0,0,0,0)" } : BOUNDARY_PAINT);
@@ -208,7 +213,8 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 					if (!r.ok) throw new Error(`HTTP ${r.status}`);
 					const blob = await gunzip(await r.blob());
 					const z = await geopbf(new File([blob], "nps_all.geopbf", { lastModified: 0 }), { name: "nps_all", gint: true });
-					const h = map.addGint(z, { order: -3, interactive: false, minZoom: 5, fillMaxEdges: 6_000_000 });   // 既定の塗り上限 200 万辺を超える（450 万辺）＝明示して塗りを通す（超えると自動で輪郭だけになる）
+					// style＝単色フォールバックを透明に（450 万辺＝移動中の予算 25 万辺を必ず超える＝旧は動かすたびオレンジ）。予算は既定のまま＝動かしている間は区分の塗りが一旦消え、止まると戻る（全密度を毎フレーム描かない）
+					const h = map.addGint(z, { order: -3, interactive: false, minZoom: 5, fillMaxEdges: 6_000_000, style: NO_SOLID });   // 既定の塗り上限 200 万辺を超える（450 万辺）＝明示して塗りを通す（超えると自動で輪郭だけになる）
 					await h?.ready;
 					await h?.setPaint?.({ "fill-color": ["match", ["get", "地域区"], ...ZONES.flatMap(([k, c, a]) => [k, rgba(c, a)]), "rgba(0,0,0,0)"], "line-color": "rgba(255,255,255,0.35)", "line-width": 0.4 });
 					zones = h;
@@ -225,7 +231,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	$("zones").addEventListener("click", () => setZones(!zonesOn));
 	let hovId = null;
 	const hover = id => { if (id === hovId) return; hovId = id; const fc = id && shapeOf(id); map.gadget.outline(fc || null, { color: [1, 1, 1, 0.9], width: 2 }); };
-	const applySpot = p => { const fc = shapeOf(p.id); if (fc) map.gadget.spotlight(fc, { fit: false, opacity: 0.5 }); };
+	const applySpot = p => { const fc = shapeOf(p.id); if (fc) map.gadget.spotlight(fc, { fit: false, opacity: 0.32 }); };   // マスクの濃さ 0.32（旧 0.5・本人 10/2「不透明度を下げて」）
 
 	// ── 詳細 ──
 	let seq = 0;
