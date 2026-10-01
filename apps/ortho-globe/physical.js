@@ -391,12 +391,13 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// 重なって当たった時は HIT の順（記号 → 名前 → 線 → 面）で 1 つ＝山の記号の下の氷河の面を拾わない
 	const topQid = e => (e.features || []).filter(f => f.properties?.qid).sort((a, b) => HIT.indexOf(a.layer?.id) - HIT.indexOf(b.layer?.id))[0]?.properties.qid;
 	map.on("mousemove", HIT, e => {
+		if (e.originalEvent?.shiftKey) return;   // Shift＝国名（エンジンの countryTip:"shift" が出す）
 		const q = topQid(e), d = byQ.get(q);
 		const kf = !d && koppenOn ? (e.features || []).find(f => f.layer?.id === "ph-koppen")?.properties : null;   // 地形が無い所＝気候区分（記号と名前）
 		if (kf) return tip([`<b>${esc(kf.koppen)}</b>　${esc(kf.kname)}`, esc(koppenGroupName(kf.group))]);
 		tip(d ? [`<b>${esc(nameOf(d))}</b>　${esc(catName(d.category))}`, ...keyMetrics(d).map(k => `${esc(metricName(k))}: ${esc(fmtVal(valueOf(d, k), k))}`)] : null);
 	});
-	map.on("mouseleave", HIT, () => tip(null));
+	map.on("mouseleave", HIT, e => { if (!e.originalEvent?.shiftKey) tip(null); });
 	map.on("click", HIT, e => { const q = topQid(e); if (q) select(q, { fly: false }); });
 
 	// ── 案内板（右上）：詳細カード＋タブ（表示・一覧・比較）──
@@ -414,6 +415,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 			<div class="pane" data-pane="layers">
 				${GROUPS.map(g => `<label class="grp"><input type="checkbox" data-g="${g.id}" checked><span class="sw" style="background:${g.color}"></span>${esc(groupName(g.id))}<small>${items.filter(d => g.cats.includes(d.category)).length}</small></label>`).join("")}
 				<label class="grp"><input type="checkbox" data-ov="lines" checked><span class="sw ln" style="background:#5a6472"></span>${esc(t("Equator, tropics and polar circles"))}</label>
+				<label class="rng"><span>${esc(t("Relief colours"))}</span><input type="range" class="hypso" min="0" max="100" value="100" aria-label="${esc(t("Relief colours"))}"><output>100%</output></label>
 				<h2>${esc(t("Overlays"))}</h2>
 				<label class="grp"><input type="checkbox" data-ov="currents"><span class="sw ln" style="background:linear-gradient(90deg,#d4553a 50%,#2f78c4 50%)"></span>${esc(t("Ocean currents"))}<small>${items.filter(d => d.category === "current").length}</small></label>
 				<label class="grp"><input type="checkbox" data-ov="plates"><span class="sw ln" style="background:linear-gradient(90deg,#e0a020 33%,#b04a9c 33% 66%,#5a6472 66%)"></span>${esc(t("Plate boundaries"))}</label>
@@ -441,6 +443,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	$(".fold").onclick = () => { panel.classList.toggle("min"); $(".fold").textContent = panel.classList.contains("min") ? "+" : "–"; };
 	panel.querySelectorAll("input[data-g]").forEach(inp => inp.onchange = () => { inp.checked ? shown.add(inp.dataset.g) : shown.delete(inp.dataset.g); applyGroups(); });
 	panel.querySelectorAll("input[data-ov]").forEach(inp => inp.onchange = () => overlay(inp.dataset.ov, inp.checked));
+	// 段彩（全球ハイプソ）の濃さ＝エンジンの setOpacity({ hypso })・0 で陸の地色だけ（本人 2026-10-01）
+	const hy = $(".hypso"), hyOut = hy.nextElementSibling;
+	hy.oninput = () => { const a = +hy.value / 100; map.setOpacity({ hypso: a }); hyOut.textContent = `${hy.value}%`; };
 
 	// ── 重ね（プレート境界＝PB2002・地理線）＝初めて点けた時に読む ──
 	const ovLoaded = {};
@@ -673,6 +678,10 @@ const CSS = `
 .ph-panel .kc i{width:10px !important;height:10px !important;border-radius:2px;margin-right:3px !important}
 .ph-panel .kleg.grp .kcs{display:none}
 .ph-panel .leg i{display:inline-block;width:14px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+.ph-panel .rng{display:flex;align-items:center;gap:8px;padding:4px 0 2px;color:var(--qm-text)}
+.ph-panel .rng span{flex:none}
+.ph-panel .rng input{flex:1;min-width:0;margin:0}
+.ph-panel .rng output{flex:none;width:38px;text-align:right;color:var(--qm-num);font-variant-numeric:tabular-nums;font-size:12px}
 .ph-panel .grp small{margin-left:auto;color:var(--qm-text-faint)}
 .ph-panel .sw{flex:none;width:12px;height:12px;border-radius:3px}
 .ph-panel .note{color:var(--qm-text-dim);font-size:12px;margin:8px 0 0}
