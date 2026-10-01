@@ -77,6 +77,20 @@
 			}
 		},
 		{
+			"id": "physical",
+			"href": "/globe/physical",
+			"group": "earth",
+			"icon": "🏔️",
+			"title": "Landforms of the World",
+			"lang": "26",
+			"desc": "Mountains, rivers, lakes, seas and deserts of the world on a 3D globe — rank them, compare their heights and lengths, and overlay ocean currents, plate boundaries and climate zones.",
+			"img": "/thumbs/physical.webp",
+			"shot": {
+				"url": "/globe/physical?lang=en#3.35/26/88",
+				"wait": 20
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",
