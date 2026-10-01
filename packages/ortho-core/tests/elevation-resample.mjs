@@ -9,11 +9,10 @@ let fails = 0;
 const ok = (c, msg) => { if (!c) fails++; console.log(`${c ? "✓" : "✗"} ${msg}`); };
 
 // 規約の写し（elevation-worldatlas.mjs と同じ原本＝2026-09-27 以前の downsampleFlipped をそのまま。入力の画素中心 gx=u·w−0.5 は 2026-10-02 に両方へ入れた）
-function reference(tile, N) {
+function reference(tile, N, M = 2) {
 	const { data, width: w, height: h } = tile;
 	const out = new Float32Array(N * N);
 	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
-	const M = 2;
 	for (let j = 0; j < N; j++) {
 		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		for (let i = 0; i < N; i++) {
@@ -44,6 +43,13 @@ for (const [w, h, N] of [[3600, 3600, 1024], [3600, 3600, 512], [1201, 1201, 102
 	let diff = 0, maxd = 0;
 	for (let i = 0; i < want.length; i++) if (want[i] !== got[i]) { diff++; maxd = Math.max(maxd, Math.abs(want[i] - got[i])); }
 	ok(got.length === N * N && diff === 0, `downsampleFlipped ${w}x${h}→${N}²：規約の写しと bit 一致（違い ${diff} texel・最大 ${maxd}）`);
+}
+// M=0（縁を読む＝GEBCO の R10/R90・DEM10B の R01）：縁の fill 無しの合成タイルで写しと bit 一致・最外周の値が出力の縁に効く（M=2 と違う）
+{
+	const t = synth(2400, 2400); for (let y = 0; y < 2400; y++) for (let x = 0; x < 2400; x++) if (x < 2 || y < 2 || x >= 2398 || y >= 2398) t.data[y * 2400 + x] = 1234;   // 縁も本物の値
+	const want = reference(t, 512, 0), got = downsampleFlipped(t, 512, 0), two = downsampleFlipped(t, 512, 2);
+	let diff = 0, differs = 0; for (let i = 0; i < want.length; i++) { if (want[i] !== got[i]) diff++; if (got[i] !== two[i]) differs++; }
+	ok(diff === 0 && differs > 0, `downsampleFlipped M=0：写しと bit 一致（違い ${diff}）・M=2 とは縁で違う（${differs} texel）`);
 }
 // cropResample（R10 親タイル→1°セル）＝旧 terrain.js の写しと bit 一致（縁のクランプ・fx/fy の [0,1] クランプ込み）
 function referenceCrop(tile, lng0, lat0, span, N) {
