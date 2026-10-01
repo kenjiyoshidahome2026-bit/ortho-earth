@@ -3,12 +3,23 @@
 // SDK の公開面はこのファイル＝default orthoJapan・createGlobe・geopbf・Marker・Popup・addProtocol・removeProtocol（型は packages/globe/globe.d.ts＋SDK の入口＝scripts/build-dts.mjs）。
 import { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol } from "@ortho-earth/globe";   // 地球儀のホスト（packages/globe・S4 2026-09-23）
 import { JP_REGION } from "@ortho-earth/jp/region";   // 日本の地域パック＝その国の知識の正本。入口（index）でなく region 直＝POI・N02 の実装を起動のバンドルに載せない
-import { NL_REGION, nlEntry } from "./nl/region.js";
+import { NL_REGION, NL_TERRAIN, nlEntry, nlStyle } from "./nl/region.js";
 export { createGlobe, geopbf, Marker, Popup, addProtocol, removeProtocol };
 export default function orthoJapan(opts = {}) {
 	// 実行時アセット（plateau-sets.json 等）の既定＝この包みを束ねたアプリのベース。createGlobe が共有エンジン（別の束）にいる時、その BASE_URL はエンジンの物になる（2026-09-30）
 	opts = { ...opts, assetBase: opts.assetBase ?? import.meta.env.BASE_URL };
 	if (opts.region !== undefined) return createGlobe(opts);   // 申告を持参＝そのまま
 	const nlMode = nlEntry();                                    // "only"=/nl/（独立）／"with-jp"=?nl=1（重ね）／null=日本
-	return createGlobe({ ...opts, region: nlMode === "only" ? [NL_REGION] : nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION] });
+	if (nlMode === "only") {
+		// /nl/＝基図は外来 style（OpenFreeMap）・標高は外来の標高タイル（Mapterhorn）＝どちらも地域の申告（nl/region.js）から。
+		// 呼び手の opts と URL（?style= ?pm= ?dem=）が先＝持ち込みを上書きしない。style の取得だけ起動の前に待つ（落ちていれば基図なしで起動）
+		const q = new URLSearchParams(location.search);
+		const own = opts.style === undefined && !q.has("style") && !q.has("pm");
+		return (own ? nlStyle() : Promise.resolve(null)).then(style => createGlobe({
+			...opts, region: [NL_REGION],
+			...(style ? { style } : {}),
+			...(opts.terrain === undefined && !q.has("dem") ? { terrain: NL_TERRAIN } : {}),
+		}));
+	}
+	return createGlobe({ ...opts, region: nlMode === "with-jp" ? [JP_REGION, NL_REGION] : [JP_REGION] });
 }
