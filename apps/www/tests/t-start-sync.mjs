@@ -1,4 +1,4 @@
-// Get started の「コードで作る」の手順（index.html の最初の section.card.path の pre.code）が、手順書 public/start.md に一字一句あるか。
+// Get started の「コードで作る」の手順（index.html の題 Build with code の section.card.path の pre.code）が、手順書 public/start.md に一字一句あるか。
 // start.md のコード片は packages/globe の verify:npm が公開物で実走させる＝頁の片がそこから外れると「どの手順も検定済み」が嘘になる（2026-09-25）
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -8,7 +8,9 @@ const read = p => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const unesc = s => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 const html = read("index.html"), start = read("public/start.md");
 const panel = html.slice(html.indexOf('id="panel-start"'));
-const code = panel.slice(panel.indexOf('<section class="card path">'), panel.indexOf("</section>"));
+// 「コードで作る」のカード＝題で探す（2026-10-02 に「見る」を 1 番目に上げた＝最初の section.card.path ではなくなった）
+const at = panel.indexOf('data-t="Build with code"'), from = panel.lastIndexOf('<section class="card path">', at);
+const code = panel.slice(from, panel.indexOf("</section>", at));
 const blocks = [...code.matchAll(/<pre class="code"[^>]*><code>([\s\S]*?)<\/code><\/pre>/g)].map(m => unesc(m[1]));
 
 test("コードの道に手順のコード片がある", () => assert.ok(blocks.length >= 5, `pre.code が ${blocks.length} 個`));

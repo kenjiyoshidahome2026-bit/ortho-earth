@@ -74,13 +74,26 @@
 				<p class="edu-note" data-t="Free to use in education, always. Ready to use as is in classrooms around the world.">Free to use in education, always. Ready to use as is in classrooms around the world.</p>
 			</div>
 			<!-- 始める（2026-09-25 作り直し・同日に手順を start.md と一字一句そろえた＝tests/t-start-sync.mjs が門）：段組をやめて 1 列＝二つの道（コードで／AI エージェントで）を手順で。どの手順も公開済みの npm で実走させて確かめた物
-			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない -->
+			     （コードの道＝packages/globe の verify:npm が start.md のコード片をそのまま走らせる・AI の道＝素のフォルダでこの依頼文だけを渡して一発で動いた）。コードは訳さない
+			     2026-10-02 本人「『MapLibre のコードを持ち込む』を 1 の『コードで作る』に併合し、学習コストが低いことを強調」＝3 本目の道を 1 の手順 6（start.md A8 の片・公式例 139 本の頁 /maplibre/）に畳み、
+			     説明文に「API は MapLibre GL JS そのもの＝新しく覚える物が無い」。同「絶えず性能向上とコードの整合性を行っている」＝lead の下の一文（start-note）
+			     同日「一番最初が『見る』の方が自然」＝「見る」を 1 に上げて番号を付け、コード 2・AI 3。lead は「まず見る、それから作る」。同日「AI エージェントへの依頼文も日本語表示なら日本語に」＝依頼文の code に data-t（唯一の訳すコード片＝複数行キー・25 言語・dir=auto で RTL も）。実走で確かめたのは英語の依頼文 -->
 			<div class="apps start" id="panel-start" role="tabpanel" aria-labelledby="tab-start" hidden>
-				<p class="start-lead" data-t="Three ways to build with the globe — with code, with an AI agent, or with the MapLibre GL JS code you already have. Every step here is run by an automated test against the published npm packages.">Three ways to build with the globe — with code, with an AI agent, or with the MapLibre GL JS code you already have. Every step here is run by an automated test against the published npm packages.</p>
+				<p class="start-lead" data-t="Look first, then build — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.">Look first, then build — with code or with an AI agent. Every step here is run by an automated test against the published npm packages.</p>
+				<p class="start-note" data-t="The globe keeps getting faster and its API stays consistent: every change passes the same automated checks before it ships, so what you learn here keeps working.">The globe keeps getting faster and its API stays consistent: every change passes the same automated checks before it ships, so what you learn here keeps working.</p>
 				<section class="card path">
 					<span class="path-no" aria-hidden="true">1</span>
+					<h3 class="card-title" data-t="Look">Look</h3>
+					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
+					<span class="doclinks">
+						<a href="/japan/" translate="no">ortho-japan</a>
+						<a href="/geopbf/" translate="no">GeoPBF</a>
+					</span>
+				</section>
+				<section class="card path">
+					<span class="path-no" aria-hidden="true">2</span>
 					<h3 class="card-title" data-t="Build with code">Build with code</h3>
-					<p class="card-desc" data-t="Vite and npm — the whole world first, then your own data on top.">Vite and npm — the whole world first, then your own data on top.</p>
+					<p class="card-desc" data-t="Vite and npm — the whole world first, then your own data on top. The API is MapLibre GL JS, so if you know MapLibre there is nothing new to learn.">Vite and npm — the whole world first, then your own data on top. The API is MapLibre GL JS, so if you know MapLibre there is nothing new to learn.</p>
 					<ol class="steps">
 						<li><span data-t="Create a project and add the globe">Create a project and add the globe</span>
 							<pre class="code" translate="no" dir="ltr"><code>npm create vite@latest my-globe -- --template vanilla --no-interactive
@@ -127,22 +140,36 @@ const map = await createGlobe({ target: "#map", view: "#3/20/140" });   // "#zoo
 });
 await map.addLayer({ id: "cities", type: "circle", source: "cities",
   paint: { "circle-radius": 6, "circle-color": "#e4572e" } });</code></pre></li>
+						<li><span data-t="Already have MapLibre GL JS code? Change one import and it runs on the globe — the same API, styles and zoom levels">Already have MapLibre GL JS code? Change one import and it runs on the globe — the same API, styles and zoom levels</span>
+							<pre class="code" translate="no" dir="ltr"><code>import * as maplibregl from "@ortho-earth/globe/maplibre";
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://demotiles.maplibre.org/style.json",
+  center: [139.77, 35.68],
+  zoom: 4,
+});</code></pre>
+							<span class="step-note" data-t="All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.">All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.</span></li>
 					</ol>
 					<p class="path-note" data-t="No bundler? Copy the prebuilt SDK into your site — it is in the full recipe.">No bundler? Copy the prebuilt SDK into your site — it is in the full recipe.</p>
 					<span class="doclinks">
 						<a href="/start.md" data-t="Full recipe">Full recipe</a>
+						<a href="/maplibre/" data-t="139 MapLibre examples">139 MapLibre examples</a>
 						<a href="/docs/core.html" data-t="Docs">Docs</a>
 						<a href="https://www.npmjs.com/package/@ortho-earth/globe" translate="no">npm</a>
 					</span>
 				</section>
 				<section class="card path">
-					<span class="path-no" aria-hidden="true">2</span>
+					<span class="path-no" aria-hidden="true">3</span>
 					<h3 class="card-title" data-t="Build with an AI agent">Build with an AI agent</h3>
 					<p class="card-desc" data-t="Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.">Claude Code, Cursor, Codex … Give it the address of the recipe and say what you want.</p>
 					<ol class="steps">
 						<li><span data-t="Open your AI coding agent in an empty folder">Open your AI coding agent in an empty folder</span></li>
 						<li><span data-t="Paste a request like this">Paste a request like this</span>
-							<pre class="code prompt" translate="no" dir="ltr"><code>Read https://www.ortho-earth.com/llms.txt and follow "Build with it".
+							<pre class="code prompt" dir="auto"><code data-t="Read https://www.ortho-earth.com/llms.txt and follow &quot;Build with it&quot;.
+Make me a web page with a 3D globe that shows the 10 most populous
+cities of the world as red dots. When I click a dot, show the city's
+name and population. Start the view looking at Asia.">Read https://www.ortho-earth.com/llms.txt and follow "Build with it".
 Make me a web page with a 3D globe that shows the 10 most populous
 cities of the world as red dots. When I click a dot, show the city's
 name and population. Start the view looking at Asia.</code></pre>
@@ -151,38 +178,14 @@ name and population. Start the view looking at Asia.</code></pre>
 					</ol>
 					<p class="path-note" data-t="Tested: an AI agent given only this request built and verified the page on its first run.">Tested: an AI agent given only this request built and verified the page on its first run.</p>
 				</section>
-				<!-- 3 本目の道（2026-10-01 本人「Get Started に MapLibre コンパチを謳い、今回作ったデモを入れて」）＝start.md の A8 と同じ片（verify:npm が公開物で実走）・公式例 139 本の頁 /maplibre/ -->
-				<section class="card path ml">
-					<span class="path-no" aria-hidden="true">3</span>
-					<h3 class="card-title" data-t="Bring your MapLibre code">Bring your MapLibre code</h3>
-					<p class="card-desc" data-t="MapLibre GL JS compatible. Change one import and your MapLibre code runs on the globe — the same API, styles and zoom levels.">MapLibre GL JS compatible. Change one import and your MapLibre code runs on the globe — the same API, styles and zoom levels.</p>
-					<pre class="code" translate="no" dir="ltr"><code>import * as maplibregl from "@ortho-earth/globe/maplibre";
-
-const map = new maplibregl.Map({
-  container: "map",
-  style: "https://demotiles.maplibre.org/style.json",
-  center: [139.77, 35.68],
-  zoom: 4,
-});</code></pre>
-					<p class="path-note" data-t="All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.">All 139 official MapLibre GL JS examples run on it with their code unchanged. Open any of them: its source, how closely it matches MapLibre, and a Run button.</p>
-					<span class="doclinks">
-						<a href="/maplibre/" data-t="139 MapLibre examples">139 MapLibre examples</a>
-						<a href="/start.md" data-t="Full recipe">Full recipe</a>
-					</span>
-				</section>
-				<section class="card path small">
-					<h3 class="card-title" data-t="Look">Look</h3>
-					<p class="card-desc" data-t="Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.">Open any demo — nothing to install. Drop your own GIS file onto the globe; it is read in your browser and never uploaded.</p>
-					<span class="doclinks">
-						<a href="/japan/" translate="no">ortho-japan</a>
-						<a href="/geopbf/" translate="no">GeoPBF</a>
-					</span>
-				</section>
 				<section class="card path small">
 					<h3 class="card-title" data-t="Publish your map">Publish your map</h3>
+					<!-- 2026-10-02 本人「地図を公開するに、geoedit の紹介もしよう」＝作る側の一文（地球儀の上で描いて GeoPBF に保存・GIS ソフト不要）とリンク -->
+					<p class="card-desc" data-t="Make the map in geoedit — draw shapes, pins and labels right on the globe and save them as a GeoPBF file. No GIS software needed.">Make the map in geoedit — draw shapes, pins and labels right on the globe and save them as a GeoPBF file. No GIS software needed.</p>
 					<p class="card-desc" data-t="Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.">Put a GeoPBF file in your own GitHub repository and open it by its address. Your map stays yours; list it in Maps so others can find it.</p>
 					<pre class="code" translate="no" dir="ltr"><code>https://www.ortho-earth.com/japan/?g=gh:you/repo/map.geopbf</code></pre>
 					<span class="doclinks">
+						<a href="/japan/geoedit" translate="no">geoedit</a>
 						<a href="/maps/" data-t="Maps">Maps</a>
 					</span>
 				</section>
