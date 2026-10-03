@@ -173,4 +173,46 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.ok(Math.abs(pt.x - pe.x) < 1e-6 && Math.abs(pt.y - pe.y) < 1e-6, "variable-anchor-offset の最初の候補＝anchor top＋offset [0,−2] と同じ箱");
 }
 
+// ── 10. format の区間（sec＝区間ごとの書体・大きさ・色）＝行は run の列・行の高さは最大の font-scale・run ごとの書体で描く。縦書き（wm）＝列は右から左・字は上から下・ラテンは回す・並びの順に試す
+{
+	const { layer, ctx } = mkLayer();
+	const S = lab("東京\nTokyo", 139.7, 35.68, { ov: true, size: 10, lh: 1.2, sec: [{ t: "東京", fs: 1.5 }, { t: "\n" }, { t: "Tokyo", col: [1, 0, 0, 1], fnt: { fam: ["Noto Sans"], w: 700, st: "normal" } }] });
+	layer.setLabels([S]); ctx.log.length = 0; layer.draw(cam);
+	const p = layer.placed()[0];
+	assert.ok(Math.abs(p.h - (1.2 * 15 + 1.2 * 10)) < 1e-6, `行の高さ＝1.2×15＋1.2×10（${p.h}）`);
+	assert.ok(Math.abs(p.w - Math.max(2 * 15 * 0.6, 5 * 10 * 0.6)) < 1e-6, `幅＝広い行（${p.w}）`);
+	const fills = ctx.log.filter(e => e.op === "fill");
+	assert.deepEqual(fills.map(e => e.s), ["東京", "Tokyo"]);
+	assert.ok(/^15px/.test(fills[0].font) && /700 10px "Noto Sans"/.test(fills[1].font), `run ごとの書体（${fills[0].font}／${fills[1].font}）`);
+	assert.ok(/^rgba\(255,0,0/.test(String(fills[1].fill)) && !/^rgba\(255,0,0/.test(String(fills[0].fill)), "区間の text-color");
+	assert.ok(fills[1].y > fills[0].y, "2 行目は下");
+	// 縦書き
+	const fresh = list => { const m = mkLayer(); m.layer.setLabels(list); m.layer.draw(cam); return m; };   // 新しい層＝最初の描画は即出す（フェードの時計に依らない）
+	const V = lab("東京タワー", 139.7, 35.68, { ov: true, size: 10, lh: 1.2, wm: "v" });
+	const mv = fresh([V]);
+	const pv = mv.layer.placed()[0], fv = mv.ctx.log.filter(e => e.op === "fill");
+	assert.ok(Math.abs(pv.w - 12) < 1e-6 && Math.abs(pv.h - 50) < 1e-6, `縦書きの箱＝幅 1.2 字・高さ 5 字（${pv.w}×${pv.h}）`);
+	assert.deepEqual(fv.map(e => e.s), ["東", "京", "タ", "ワ", "｜"], "字は 1 つずつ・長音は縦の形");
+	assert.ok(fv.every((e, i) => i === 0 || e.y > fv[i - 1].y) && fv.every(e => Math.abs(e.x - fv[0].x) < 1e-6), "上から下へ同じ列");
+	// 2 列（"\n"）＝右から左・ラテンは回す（translate で描く＝x,y が字の中心）
+	const V2 = lab("東京\nAB", 139.7, 35.68, { ov: true, size: 10, lh: 1, wm: "v" });
+	const f2 = fresh([V2]).ctx.log.filter(e => e.op === "fill");
+	assert.deepEqual(f2.map(e => e.s), ["東", "京", "A", "B"]);
+	assert.ok(f2[2].x < f2[0].x, "2 列目は左");
+	// 並びの順＝"hv"＝横が置ければ横・塞がれたら縦
+	const H = lab("横縦", 139.7, 35.68, { size: 10, lh: 1, wm: "hv", pad: 0 });
+	layer.setLabels([H]); layer.draw(cam);
+	const ph = layer.placed()[0]; assert.ok(ph.w > ph.h, "横書きが先");
+	const wide = lab("Blocker", 139.7, 35.68, { an: "left", off: [0.55, 0], sort: -1, size: 10, lh: 1, pad: 0 });   // 錨の右 5.5px から塞ぐ＝横（幅 12＝右 6px）は当たる・縦（幅 10＝右 5px）は当たらない
+	layer.setLabels([wide, H]); layer.draw(cam);
+	const ph2 = layer.placed().find(q => q.text === "横縦"); assert.ok(ph2 && ph2.h > ph2.w, "塞がれたら縦書き");
+	// 線に沿う注記＝縦に近い線で縦書き（上から下・正立の字は 1 字分の送り）
+	const path = new Float64Array([139.7, 35.69, 139.7, 35.67]);   // 南北
+	const fl = fresh([lab("山手線", 139.7, 35.68, { lp: true, path, ai: 0, ov: true, size: 12, wm: "hv" })]).ctx.log.filter(e => e.op === "fill");
+	assert.equal(fl.length, 3); assert.ok(fl[1].y - fl[0].y > 11 && fl[2].y > fl[1].y && Math.abs(fl[1].x - fl[0].x) < 1e-6, `縦の線＝上から下へ 1 字分（${(fl[1].y - fl[0].y).toFixed(1)}）`);
+	const hpath = new Float64Array([139.69, 35.68, 139.71, 35.68]);
+	const fh = fresh([lab("山手線", 139.7, 35.68, { lp: true, path: hpath, ai: 0, ov: true, size: 12, wm: "hv" })]).ctx.log.filter(e => e.op === "fill");
+	assert.ok(fh[1].x > fh[0].x && Math.abs(fh[1].y - fh[0].y) < 1e-6, "横の線＝横書きのまま");
+}
+
 console.log("labels2d: ok");

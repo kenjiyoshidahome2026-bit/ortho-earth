@@ -7,6 +7,7 @@
 import { cameraState, projectInto, unproject, distTo, worldRadiusM } from "./camera.js";
 import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
 import { fontCss } from "./fontstack.js";
+import { charRotated, verticalize } from "./vertical.js";   // 縦書き（text-writing-mode・2026-10-03）
 import { labelKey } from "./labelkey.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝星空の注記も星（renderer）と同じ時刻で回す
 import { gmstAt } from "@ortho-earth/ephem/sun";       // 恒星時の正本（renderer の星と同じ式）
@@ -107,6 +108,10 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	let curFont = "";   // ctx.font の覚え（collide/draw/textLayout で共有＝設定は変わる時だけ）
 	const setFont = f => { if (f !== curFont) { ctx.font = curFont = f; } };
 	const fontOf = (L, size) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
+	// format の区間（L.sec＝[{ t, fs?, col?, fnt? }]・2026-10-03）＝区間ごとの書体（font-scale・text-font）と色。無ければ 1 つ（ラベルの書体）
+	const secStyles = (L, size) => L.sec ? L.sec.map(q => ({ fs: q.fs || 1, font: fontCss(q.fnt || L.fnt, size * (q.fs || 1), FONT_STACK), col: q.col || null })) : [{ fs: 1, font: fontOf(L, size), col: null }];
+	// 字の列＝[字…] と、区間を持つ時は字ごとの区間の添字（__cs）。文字そのものは不変＝ラベルごとに覚える
+	const charsOf = L => { if (L.__ch) return L.__ch; if (L.sec) { const ch = [], cs = []; L.sec.forEach((q, si) => { for (const c of q.t) { ch.push(c); cs.push(si); } }); L.__cs = cs; return (L.__ch = ch); } return (L.__ch = [...String(L.text)]); };
 	// 記号帳（段 3・2026-09-28）＝名前 → { bm: ImageBitmap, pr: pixelRatio, sdf }。main の記号帳（addImage / sprite）の写し＝届いた時に衝突判定をやり直す（名前だけ持って待っていたラベルが出る）
 	// SDF の記号は icon-color で塗る（縁 0.7〜0.8＝symbols-2d と同式・名前×色で一度だけ焼いて覚える）
 	const images = new Map(), tinted = new Map();
@@ -183,7 +188,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	let nullWhy = "", fitDbg = null, angDbg = null;   // 診断＝lineLayout が null を返した理由（placedDebug の line）
 	function lineLayout(L, st, dpr, r, zoom) {
 		const P = L.path, n = P.length >> 1; if (n < 2) { nullWhy = "empty"; return null; }
-		const im = iconImg(L), chars = L.text ? (L.__ch ??= [...String(L.text)]) : NO_CHARS;
+		const im = iconImg(L), chars = L.text ? charsOf(L) : NO_CHARS, csi = L.sec ? L.__cs : null;
 		if (!chars.length && !im) { nullWhy = "empty"; return null; }
 		// 投影＝錨を含む「表側の連続区間」だけ使う（全球ビューの赤道など＝窓の端が地球の裏に届いても錨の周りは置ける・旧＝裏の頂点が 1 つでもあれば丸ごと却下）。
 		// 重なる点＝長さ 0 の線分は捨てる（錨が頂点と一致した時に角度が跳んで max-angle で落ちていた）。s0＝錨の弧長
@@ -206,17 +211,26 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const total = cum[m_n - 1]; if (!(total > 0)) { nullWhy = "empty"; return null; }
 		// 大きさ＝L.size（タイルの z）× 表示の z の倍率 sk（sizeK）：字送りは L.size で測って覚え（書体の文字列は不変＝覚えが効く）、幅・間隔は sk 倍・字は transform で sk 倍に描く
 		const size0 = L.size || 12, sk = sizeK(L, zoom), size = size0 * sk, font = fontOf(L, size0), ls = (L.ls || 0) * size0;
-		// 字送りはラベルごとに覚える（書体の世代・書体で有効）＝毎フレーム（線の注記は毎フレーム敷き直す）measureText の覚えを引き直さない
+		// 字送りはラベルごとに覚える（書体の世代・書体で有効）＝毎フレーム（線の注記は毎フレーム敷き直す）measureText の覚えを引き直さない。区間（format）があれば字ごとの書体（fonts）・大きさ（fs）
 		let la = L.__la;
-		if (la === undefined || la.gen !== fontGen || la.font !== font) { const a = chars.map(ch => advOf(font, ch) + ls); la = L.__la = { gen: fontGen, font, adv: a, W: chars.length ? a.reduce((a, b) => a + b, 0) - ls : 0 }; }
-		const adv = la.adv, W = la.W * sk;
+		if (la === undefined || la.gen !== fontGen || la.font !== font) {
+			const sty = csi ? secStyles(L, size0) : null, fonts = csi ? csi.map(si => sty[si].font) : null, fss = csi ? csi.map(si => sty[si].fs) : null, cols = csi ? csi.map(si => sty[si].col) : null;
+			const a = chars.map((ch, i) => advOf(fonts ? fonts[i] : font, ch) + ls * (fss ? fss[i] : 1));
+			la = L.__la = { gen: fontGen, font, adv: a, W: chars.length ? a.reduce((a, b) => a + b, 0) - ls : 0, fonts, fss, cols, hmax: fss ? Math.max(1, ...fss) : 1 };
+			// 縦書き（text-writing-mode に vertical・縦書きにできる文字）＝正立の字は 1 字分（size×fs）・回す字（ラテン）は測った幅＝線が縦に近い時に使う
+			if (L.wm?.includes("v") && L.ra !== "viewport-glyph") { const av = chars.map((ch, i) => (charRotated(ch) ? advOf(fonts ? fonts[i] : font, verticalize(ch)) : size0 * (fss ? fss[i] : 1)) + ls * (fss ? fss[i] : 1)); la.vadv = av; la.VW = chars.length ? av.reduce((a, b) => a + b, 0) - ls : 0; }
+		}
+		let adv = la.adv, W = la.W * sk, vert = false;
 		// 錨の弧長 s0 は、文字が窓（labels.js が焼いた前後の長さ・地球の縁で切れた分も）に収まる範囲へ寄せる（旧＝錨に固定＝縁の近くや短い窓で「fit」で落ちた。候補はタイルの目盛りで疎＝寄せて拾う。symbol-spacing は寄せた後の位置で裁く）
+		const at = q => { let i = 1; while (i < m_n - 1 && cum[i] < q) i++; const t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
+		// 縦書き（MapLibre の線の注記＝横と縦の両方を組み、錨の所の線の向きが縦に近い（45° 超）なら縦）＝字送りを縦の物に替える・読む向きは上→下
+		if (la.vadv && chars.length) { const q0 = Math.max(0, s0 - W / 2), q1 = Math.min(total, s0 + W / 2), p0 = at(q0), p1 = at(q1); if (Math.abs(p1[1] - p0[1]) > Math.abs(p1[0] - p0[0])) { vert = true; adv = la.vadv; W = la.VW * sk; } }
 		if (W > total) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
 		s0 = Math.min(Math.max(s0, W / 2), total - W / 2);
-		const at = q => { let i = 1; while (i < m_n - 1 && cum[i] < q) i++; const t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
 		const m = at(s0);
 		let rev = false;
-		if (chars.length && L.ku !== false) { const a = at(s0 - W / 2), b = at(s0 + W / 2); rev = b[0] < a[0]; }
+		if (chars.length && vert) { const a = at(s0 - W / 2), b = at(s0 + W / 2); rev = b[1] < a[1]; }   // 縦書き＝常に上から下へ
+		else if (chars.length && L.ku !== false) { const a = at(s0 - W / 2), b = at(s0 + W / 2); rev = b[0] < a[0]; }
 		const g = [], ma = (L.ma ?? 45) * Math.PI / 180, oy = (L.off?.[1] || 0) * size;
 		let q = s0 - W / 2, prev = null;
 		// 字の向き＝字の中心を挟む弦（幅＝max(字送り, 1.5 字)＝微小な線分の向きは字ごとに振れる＝小川のジグザグで max-angle に当たっていた・タイルの z が MapLibre より細かい分だけ折れ線が粗い）。弦が潰れていれば線分の向き
@@ -226,7 +240,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			const [x, y] = at(q + half), a0 = chord(q + half - cw, q + half + cw), a = rev ? a0 + Math.PI : a0;
 			if (prev != null) { let d = a - prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; if (Math.abs(d) > ma) { nullWhy = "angle"; if (!angDbg) angDbg = { text: L.text, i, q: Math.round(q), s0: Math.round(s0), W: Math.round(W), total: Math.round(total), a: Math.round(a * 180 / Math.PI), prev: Math.round(prev * 180 / Math.PI), rev, pts: xs.map((x, j) => [Math.round(x), Math.round(ys[j]), Math.round(cum[j])]), gl: g.map(c => [Math.round(c.x), Math.round(c.y), Math.round(c.a * 180 / Math.PI)]) }; return null; } }
 			prev = a;
-			g.push({ ch: chars[k], x: x - Math.sin(a) * oy, y: y + Math.cos(a) * oy, a, w: ak - ls * sk });
+			// 縦書きの正立の字＝字の上を「線の進む向きの逆（上）」へ＝向きを 90° 戻す（線が真下へ向く時に字が正立）。回す字（ラテン）は横書きと同じ向き（線に沿って寝る）・句読点は縦の形
+			const vr = vert && !charRotated(chars[k]);
+			g.push({ ch: vert ? verticalize(chars[k]) : chars[k], x: x - Math.sin(a) * oy, y: y + Math.cos(a) * oy, a: vr ? a - Math.PI / 2 : a, w: ak - ls * sk, ...(la.fonts ? { f: la.fonts[k], col: la.cols[k] } : {}) });
 			q += ak;
 		}
 		if (rev) g.reverse();
@@ -240,7 +256,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		let icon = null;
 		if (im) { const sz = L.isz ?? 1, iw = im.bm.width / im.pr * sz, ih = im.bm.height / im.pr * sz, a0 = chord(Math.max(0, s0 - iw / 2), Math.min(total, s0 + iw / 2)), a = (L.ira === "viewport" ? 0 : (rev ? a0 + Math.PI : a0)) + (L.irot || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a)); icon = { x: m[0], y: m[1], a, w: iw, h: ih, bw: iw * c + ih * sn, bh: iw * sn + ih * c }; }   // bw/bh＝回した記号を囲む箱
 		const ang = prev ?? m[2];
-		return { g, w: W, h: size, x: m[0] - Math.sin(ang) * oy, y: m[1] + Math.cos(ang) * oy, font, icon };
+		return { g, w: W, h: size * la.hmax, x: m[0] - Math.sin(ang) * oy, y: m[1] + Math.cos(ang) * oy, font, icon, vert };
 	}
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
@@ -339,9 +355,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			const shield = shieldFor && shieldFor(L), im = iconImg(L), hasText = !!shield || !!(L.text && String(L.text).length);
 			if (!hasText && !im) { ptDbg(L, "noimg"); continue; }   // 記号だけのラベルで記号帳にまだ無い＝出さない（届いたら setImage が dirty にする）
 			// 箱＝標識ならその絵・文字なら layout（折り返し・字間・行の高さ）で組んだ行の束（textLayout）。錨からの置き方＝text-anchor/offset（variable-anchor は候補を順に試す）
+			// 向き（text-writing-mode・2026-10-03）＝"vh"／"hv"／"v"＝並びの順に組んで置けた物（MapLibre の placementModes）。無ければ横書きだけ
+			const ors = L.wm && hasText && !shield ? [...L.wm] : ["h"];
 			let tw = 0, h = 0, tl = null;
-			if (shield) { tw = shield.w; h = shield.h; }
-			else if (hasText) { tl = textLayout(L); tw = tl.w; h = tl.h; }
 			const padL = L.pad ?? pad, ipad = L.ipad ?? 2, k = shield ? 1 : sizeK(L, zoomV);
 			const T0 = textT(L, st, rad, sx, sy, dpr, zoomV), T = scaleT(T0, k), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, zoomV) ?? T0) : null;   // 向き（段 5）＝文字の transform（大きさの倍率込み）・記号は自分の map 指定があればそれ・無ければ文字の向き（倍率は掛けない＝icon-size の領分）
 			const tb = (Tm, lx, ly, w, h) => Tm ? aabb(Tm, sx, sy, lx, ly, w, h) : [sx + lx, sy + ly, sx + lx + w, sy + ly + h];   // 錨からの箱 → 画面の箱（transform 込み）
@@ -354,6 +370,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			let hit = null, lastWhy = "off";
 			if (hasText) {
 				const cands = shield ? [["center", 0, 0]] : anchorCands(L, winBox.get(keyOf(L))?.an);   // variable-anchor＝前回置けた錨を先に試す（MapLibre と同じ＝衝突判定のたびに錨が飛ばない）
+				for (const or of ors) {
+				if (shield) { tw = shield.w; h = shield.h; } else { tl = textLayout(L, or === "v"); tw = tl.w; h = tl.h; }
 				for (const [an, ox, oy] of cands) {
 					const a = ANCH[an] || ANCH.center, lx0 = ox - a[0] * tw, ly0 = oy - a[1] * h, x0 = sx + lx0, y0 = sy + ly0;   // 箱の左上（錨＋offset を箱のどの点に合わせるか）
 					const bb = tb(T, lx0, ly0, tw, h);
@@ -364,6 +382,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 					const tOK = L.ov || !overlaps(placed, box), iOK = iOKof(ib), [pt, pi] = judge(tOK, iOK);
 					if (!pt) { lastWhy = !tOK ? "text" : !iOK ? "icon" : "text"; continue; }   // 文字が置けない候補＝次の候補（variable-anchor）
 					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null, bb: [bb[2] - bb[0], bb[3] - bb[1]] }; break;
+				}
+				if (hit) break;
 				}
 				if (!hit && im && iconAlone) { const [, pi] = judge(false, iOKof(nat)); if (pi) hit = { box: null, x0: sx, y0: sy, an: L.an || "center", txt: false, ib: nat }; }   // 文字はどの候補も置けない＝text-optional なら記号だけ
 			} else { const [, pi] = judge(false, iOKof(nat)), nb = tb(Ti, nat[0], nat[1], nat[2], nat[3]); if (pi && !(nb[2] < 0 || nb[0] > Wc || nb[3] < 0 || nb[1] > Hc)) hit = { box: null, x0: sx, y0: sy, an: "center", txt: false, ib: nat }; }
@@ -395,16 +415,20 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		return [[L.an || "center", off[0] * size, off[1] * size]];
 	}
 	// 文字の行の束（折り返し＝text-max-width（em）・"\n"＝改行・字間＝letter-spacing（em）・行の高さ＝line-height（em））。key で覚える（measureText は高い）
-	function textLayout(L) {
+	// vert＝縦書き（text-writing-mode vertical・列は右から左・字は上から下・ラテンは 90° 回す）。区間（format）があれば行は run の列（runs）＝区間ごとの書体・大きさ・色
+	function textLayout(L, vert = false) {
+		if (vert) { if (L.__tlvg === fontGen) return L.__tlv; L.__tlv = textLayout1(L, true); L.__tlvg = fontGen; return L.__tlv; }
 		if (L.__tlg === fontGen) return L.__tl;   // ラベルごとの覚え（書体が載ると fontGen が進む）＝衝突判定のたびに書体の文字列と鍵を組まない
-		L.__tl = textLayout1(L); L.__tlg = fontGen;
+		L.__tl = textLayout1(L, false); L.__tlg = fontGen;
 		return L.__tl;
 	}
-	function textLayout1(L) {
+	function textLayout1(L, vert) {
 		const size = L.size || 12, ls = L.ls || 0, lh = L.lh || 1, mw = L.mw ?? 0;   // layout を持たないラベル（gint・旧い利用者層）＝折り返し無し・行高 1＝従来の箱
-		const font = fontOf(L, size), wk = font + "|" + ls + "|" + mw + "|" + lh + "|" + L.text;
+		const font = fontOf(L, size), sty = L.sec ? secStyles(L, size) : null;
+		const wk = (vert ? "V|" : "") + (sty ? sty.map(q => q.font + "/" + (q.col ? q.col.join(",") : "")).join("\u0002") + "|" + L.sec.map(q => q.t).join("\u0002") : font + "|" + L.text) + "|" + ls + "|" + mw + "|" + lh;
 		let tl = widthCache.get(wk);
 		if (tl) return tl;
+		if (vert || sty) { tl = vert ? vertLayout(L, size, ls, lh, mw, sty || secStyles(L, size)) : runLayout(L, size, ls, lh, mw, sty); widthCache.set(wk, tl); if (widthCache.size > 4096) widthCache.clear(); return tl; }
 		setFont(font);
 		if (hasLS) ctx.letterSpacing = ls ? `${ls * size}px` : "0px";
 		const measure = t => ctx.measureText(t).width;
@@ -422,6 +446,54 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		widthCache.set(wk, tl);
 		if (widthCache.size > 4096) widthCache.clear();   // 念のための上限（テキスト種は高々数千）
 		return tl;
+	}
+	const isWS = t => /^\s+$/.test(t);
+	// 区間つきの横書き（format・2026-10-03）＝語（空白で区切れる）／字（CJK）の単位に区間の添字を添えて折り返し、行は run（同じ区間の続き）の列。行の高さ＝line-height×size×行の中で最大の font-scale（MapLibre と同じ）
+	function runLayout(L, size, ls, lh, mw, sty) {
+		const measure = (t, si) => { setFont(sty[si].font); if (hasLS) ctx.letterSpacing = ls ? `${ls * size * sty[si].fs}px` : "0px"; return ctx.measureText(t).width; };
+		const maxPx = mw > 0 ? mw * size : Infinity;
+		const paras = [[]];
+		L.sec.forEach((q, si) => { const parts = String(q.t).split("\n"); parts.forEach((p, j) => { if (j) paras.push([]); if (p) paras[paras.length - 1].push({ t: p, si }); }); });
+		const runs = [], lhs = [], ws = [];
+		const flush = cur => {
+			while (cur.length && isWS(cur[cur.length - 1].t)) cur.pop();
+			while (cur.length && isWS(cur[0].t)) cur.shift();
+			const rs = [];   // 同じ区間の単位を 1 つの run に（幅は繋いで測り直す＝字間の詰まりを保つ）
+			for (const u of cur) { const r = rs[rs.length - 1]; if (r && r.si === u.si) r.t += u.t; else rs.push({ t: u.t, si: u.si }); }
+			let w = 0, fsMax = 1;
+			for (const r of rs) { r.w = measure(r.t, r.si); r.font = sty[r.si].font; r.col = sty[r.si].col; r.fs = sty[r.si].fs; w += r.w; if (r.fs > fsMax) fsMax = r.fs; }
+			runs.push(rs); ws.push(w); lhs.push(lh * size * fsMax);
+		};
+		for (const para of paras) {
+			const units = [];
+			for (const r of para) { const us = /\s/.test(r.t) ? r.t.split(/(\s+)/).filter(Boolean) : [...r.t]; for (const u of us) units.push({ t: u, si: r.si, w: measure(u, r.si) }); }
+			let cur = [], curW = 0;
+			for (const u of units) { if (cur.length && !isWS(u.t) && curW + u.w > maxPx) { flush(cur); cur = []; curW = 0; } cur.push(u); curW += u.w; }
+			flush(cur);
+		}
+		const w = Math.max(0, ...ws), h = lhs.reduce((a, b) => a + b, 0);
+		return { lines: runs.map(rs => rs.map(r => r.t).join("")), ws, w, h, size, ls, lh, font: sty[0].font, runs, lhs };
+	}
+	// 縦書き（text-writing-mode vertical・2026-10-03）＝列は "\n" と text-max-width（em＝列の長さ）で折り、右から左へ並べる。正立の字は 1 字分（size×fs）を送り、回す字（ラテン・数字）は測った幅＝90° 回して描く。句読点は縦の形。
+	// 列の幅＝line-height×size×（列の中で最大の font-scale）。箱＝幅は列の和・高さは最長の列（MapLibre の縦の shaping と同じ）
+	function vertLayout(L, size, ls, lh, mw, sty) {
+		const chars = []; if (L.sec) L.sec.forEach((q, si) => { for (const ch of q.t) chars.push({ ch, si }); }); else for (const ch of String(L.text)) chars.push({ ch, si: 0 });
+		const maxPx = mw > 0 ? mw * size : Infinity;
+		const cols = [[]]; let cur = 0;
+		for (const c of chars) {
+			if (c.ch === "\n") { cols.push([]); cur = 0; continue; }
+			const q = sty[c.si], v = verticalize(c.ch), rot = charRotated(c.ch);
+			let adv;
+			if (rot) { setFont(q.font); if (hasLS) ctx.letterSpacing = "0px"; adv = ctx.measureText(v).width; } else adv = size * q.fs;
+			adv += ls * size * q.fs;
+			if (cols[cols.length - 1].length && cur + adv > maxPx) { cols.push([]); cur = 0; }
+			cols[cols.length - 1].push({ ch: v, rot, adv, font: q.font, col: q.col, fs: q.fs });
+			cur += adv;
+		}
+		for (const c of cols) while (c.length && isWS(c[c.length - 1].ch)) c.pop();
+		const cw = cols.map(c => lh * size * Math.max(1, ...c.map(g => g.fs))), hs = cols.map(c => c.reduce((a, g) => a + g.adv, 0));
+		const w = cw.reduce((a, b) => a + b, 0), h = Math.max(size, ...hs);
+		return { lines: cols.map(c => c.map(g => g.ch).join("")), ws: cw, w, h, size, ls, lh, font: sty[0].font, vcols: cols, vhs: hs, vert: true };
 	}
 	// 置いたラベル（直近の衝突判定の当選集合）＝{ text, lon, lat, x, y（CSS px・中心）, w, h, size, li（基図の層の添字）, set（利用者層の id） }。
 	// 公式例の門 段 0（文字を測る）＝本物の queryRenderedFeatures の symbol と突き合わせる材料。描いた物の申告＝描画は変えない
@@ -501,8 +573,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 				const halo = L.haloW > 0 ? css(L.halo, o) : null, fill = css(L.color, o);
 				for (const c of ll.g) {   // 字ごとに錨へ移して回す＝終わりは基底の変換（dpr の拡大）へ据え直す（旧＝save/restore＝字ごとに描画状態を丸ごと積み下ろし）
 					ctx.translate(c.x, c.y); if (c.t) ctx.transform(c.t.a, c.t.b, c.t.c, c.t.d, 0, 0); else ctx.rotate(c.a);
+					if (c.f) setFont(c.f);   // 区間（format）の書体
 					if (halo) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(c.ch, 0, 0); }
-					ctx.fillStyle = fill; ctx.fillText(c.ch, 0, 0);
+					ctx.fillStyle = c.col ? css(c.col, o) : fill; ctx.fillText(c.ch, 0, 0);
 					ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 				}
 				ctx.shadowBlur = 0;
@@ -536,7 +609,32 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			const ax = just === "left" ? x0 : just === "right" ? x0 + tl.w : x0 + tl.w / 2;
 			const halo = L.haloW > 0 || L.blur > 0 ? css(L.halo, o) : null, fill = css(L.color, o);   // 色の文字列は行ごとでなくラベルごとに 1 回
 			if (L.blur > 0) { ctx.shadowColor = halo; ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
-			for (let i = 0; i < tl.lines.length; i++) {
+			if (tl.vcols) {   // 縦書き＝列は右から左・字は上から下（回す字は 90° 回して）
+				ctx.textAlign = "center";
+				let cx = x0 + tl.w;
+				for (let i = 0; i < tl.vcols.length; i++) {
+					cx -= tl.ws[i]; const x = cx + tl.ws[i] / 2; let y = y0;
+					for (const g of tl.vcols[i]) {
+						setFont(g.font); const gy = y + g.adv / 2, f = g.col ? css(g.col, o) : fill;
+						if (g.rot) { ctx.translate(x, gy); ctx.rotate(Math.PI / 2); if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(g.ch, 0, 0); } ctx.fillStyle = f; ctx.fillText(g.ch, 0, 0); ctx.rotate(-Math.PI / 2); ctx.translate(-x, -gy); }
+						else { if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(g.ch, x, gy); } ctx.fillStyle = f; ctx.fillText(g.ch, x, gy); }
+						y += g.adv;
+					}
+				}
+			} else if (tl.runs) {   // 区間つき（format）＝run ごとに書体・色を据えて左から詰める（寄せは行の幅で）
+				ctx.textAlign = "left";
+				let ly = y0;
+				for (let i = 0; i < tl.runs.length; i++) {
+					const cy = ly + tl.lhs[i] / 2; let x = just === "left" ? x0 : just === "right" ? x0 + tl.w - tl.ws[i] : x0 + (tl.w - tl.ws[i]) / 2;
+					for (const r of tl.runs[i]) {
+						setFont(r.font); if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size * r.fs}px` : "0px";
+						if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(r.t, x, cy); }
+						ctx.fillStyle = r.col ? css(r.col, o) : fill; ctx.fillText(r.t, x, cy);
+						x += r.w;
+					}
+					ly += tl.lhs[i];
+				}
+			} else for (let i = 0; i < tl.lines.length; i++) {
 				const ly = y0 + (i + 0.5) * tl.lh * tl.size;
 				if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(tl.lines[i], ax, ly); }
 				ctx.fillStyle = fill; ctx.fillText(tl.lines[i], ax, ly);
