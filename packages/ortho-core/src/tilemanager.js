@@ -2,6 +2,7 @@
 // buildScene で全選択タイルを style層ごとに1バッファへ結合（mixed-z, 共通原点に再ベース）。
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
+import { labelKey } from "./labelkey.js";
 import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
 import { tileOutsideCoverage, tileId } from "./tile.js";
 import { buildTilePayload } from "./tilepayload.js";   // 組み立て（drawlist・水域・ラベル・建物・実バイト）は tile worker と共通
@@ -223,7 +224,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			const c = cache.get(key);
 			if (!c || c.status !== "ready") continue;
 			for (const L of c.labels) {
-				const dk = (L.mlp ? L.li + "|" : "") + L.text + (L.icon ? "#" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // MapLibre 由来の層は層ごと（同じ点・同じ文字でも別の層なら両方＝poi_transit が poi_r1 に消されていた・2026-09-28）・記号だけの注記は記号名で
+				const dk = labelKey(L);   // tile worker が焼いた鍵（labelkey.js＝labels2d の当選集合と同じ式）。MapLibre 由来の層は層ごと（poi_transit が poi_r1 に消されていた・2026-09-28）・記号だけの注記は記号名で
 				if (seen.has(dk)) continue; seen.add(dk); out.push(L);
 			}
 		}
