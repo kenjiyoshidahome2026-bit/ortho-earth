@@ -25,6 +25,11 @@ t("属性の式は地物ごと", () => { const op = opOf({ "line-offset": ["get"
 t("zoom の式（z10 で 0）＝全部 0 なら持たない", () => assert.equal(opOf({ "line-offset": ["step", ["zoom"], 0, 12, 5] }).off, undefined));
 t("読めない値は 0（線は消さない）", () => { const op = opOf({ "line-offset": ["get", "nope"] }); assert.ok(op.half.length > 0); assert.equal(op.off, undefined); });
 t("破線と併用＝片ごとに off が付く", () => { const op = opOf({ "line-offset": 2, "line-dasharray": [2, 1] }); assert.ok(op.half.length > 10); assert.equal(op.off.length, op.half.length * 3); });
+// line-gap-width（2026-10-03）＝芯の両脇に幅 line-width の線を 2 本（芯から ±(gap/2＋width/2)）。line-offset と足し合う・破線とも併用
+t("line-gap-width＝線分が 2 倍・ずらしは ±(gap/2＋width/2)", () => { const a = opOf({}), op = opOf({ "line-gap-width": 6 }); assert.equal(op.half.length, a.half.length * 2); assert.deepEqual([...new Set(offs(op))].sort((x, y) => x - y), [-4, 4]); assert.ok(op.half.every(h => h === 1)); });
+t("line-gap-width＋line-offset＝ずらしに足す", () => assert.deepEqual([...new Set(offs(opOf({ "line-gap-width": 6, "line-offset": 1 })))].sort((x, y) => x - y), [-3, 5]));
+t("line-gap-width 0・負・読めない＝1 本（off 無し）", () => { for (const v of [0, -2, ["get", "nope"]]) assert.equal(opOf({ "line-gap-width": v }).off, undefined); });
+t("line-gap-width＋破線＝片ごとに 2 本", () => { const d = opOf({ "line-dasharray": [2, 1] }), op = opOf({ "line-gap-width": 2, "line-dasharray": [2, 1] }); assert.equal(op.half.length, d.half.length * 2); });
 t("結合：持つタイルと持たないタイルが混ざっても長さが揃い、持たない分は 0", () => {
 	const a = { ops: [{ ...opOf({ "line-offset": 3 }), li: 0 }] }, b = { ops: [{ ...opOf({}), li: 0 }] };
 	const geom = { "10/900/400": a, "10/901/400": b };

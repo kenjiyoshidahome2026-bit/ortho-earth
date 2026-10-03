@@ -34,6 +34,7 @@ function iconOf(L, lo, ctx) {
 	const ipa = String(ev(lo["icon-pitch-alignment"], "auto")); if (ipa !== "auto") rec.ipa = ipa;   // icon-pitch-alignment（段 5）
 	if (FITS.has(fit) && fit !== "none") { rec.ifit = fit; rec.ifp = Array.isArray(fp) && fp.length === 4 ? fp.map(v => num(v, 0)) : [0, 0, 0, 0]; }
 	if (L.paint?.["icon-color"] != null) rec.icol = parseRGBA(evalExpr(L.paint["icon-color"], ctx));   // SDF の記号を塗る色（無ければ #000＝labels2d の既定）
+	const it = ev(L.paint?.["icon-translate"], null); if (Array.isArray(it) && it.length === 2 && (num(it[0], 0) || num(it[1], 0))) { rec.itt = [num(it[0], 0), num(it[1], 0)]; if (String(ev(L.paint?.["icon-translate-anchor"], "map")) === "viewport") rec.itta = "viewport"; }   // icon-translate（px）＋anchor（2026-10-03）
 	return rec;
 }
 // 線の各部分（flat coords＋ends）→ 錨の候補 [{ px, py, path:[px,py,…], ai }]（タイル単位）。
@@ -81,6 +82,15 @@ function layoutOf(L, lo, ctx, ml) {
 	// 向き（段 5）＝text-rotate（度・時計回り）・text-rotation-alignment（map＝地図の回転に追随／viewport＝画面／viewport-glyph＝線の上で字だけ正立）・text-pitch-alignment（map＝傾けた地面に寝かせる）。既定（auto・0）は焼かない
 	const rot = num(ev(lo["text-rotate"], 0), 0), ra = String(ev(lo["text-rotation-alignment"], "auto")), pa = String(ev(lo["text-pitch-alignment"], "auto"));
 	if (rot) rec.rot = rot; if (ra !== "auto") rec.ra = ra; if (pa !== "auto") rec.pa = pa;
+	// text-translate（px・[x, y]・右と下が正）＋ text-translate-anchor（map＝地図の回転に追随（既定）／viewport＝画面）＝描く側が錨の画面位置に足す（2026-10-03）
+	const tt = ev(L.paint?.["text-translate"], null); if (Array.isArray(tt) && tt.length === 2 && (num(tt[0], 0) || num(tt[1], 0))) { rec.tt = [num(tt[0], 0), num(tt[1], 0)]; if (String(ev(L.paint?.["text-translate-anchor"], "map")) === "viewport") rec.tta = "viewport"; }
+	// text-variable-anchor-offset（[錨, [x, y], 錨, [x, y], …]・em）＝錨ごとのずらし（text-offset と同じ向き）。あれば text-variable-anchor／radial-offset に勝つ（MapLibre と同じ）
+	const vao = ev(lo["text-variable-anchor-offset"], null);
+	if (Array.isArray(vao) && vao.length >= 2 && vao.length % 2 === 0) {
+		const va = [], vo = {};
+		for (let i = 0; i < vao.length; i += 2) { const an = String(vao[i]), o = vao[i + 1]; if (!ANCHORS.has(an) || !Array.isArray(o) || o.length !== 2) continue; va.push(an); vo[an] = [num(o[0], 0), num(o[1], 0)]; }
+		if (va.length) { rec.va = va; rec.vao = vo; delete rec.ro; }
+	}
 	return { rec, transform: String(ev(lo["text-transform"], "none")) };
 }
 // style の symbol層から点・横書きラベルを抽出。anchor は絶対経緯度[lon,lat]（タイル跨ぎ共通原点）。
