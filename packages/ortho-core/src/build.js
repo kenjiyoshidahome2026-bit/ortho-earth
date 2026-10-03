@@ -333,7 +333,9 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
 			// ずらしは頂点シェーダが画面空間で掛ける＝ここは線分ごとに [off, tS, tE]（角の継ぎ＝miterSlides）を添えるだけ。
 			// 層が持つ時だけ配列を作る（無い層は 0 バイト）
-			const offExpr = L.paint?.["line-offset"], off = offExpr != null ? B.off : null; if (off) off.n = 0;
+			// line-gap-width（MapLibre 互換・2026-10-03）：線の芯の両脇に幅 line-width の線を 2 本（芯から gap/2＋width/2 ずらす＝ずらしの口（off）で描く・継ぎはマイター）
+			const gapExpr = L.paint?.["line-gap-width"];
+			const offExpr = L.paint?.["line-offset"], off = offExpr != null || gapExpr != null ? B.off : null; if (off) off.n = 0;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
@@ -350,8 +352,12 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
-				let ow = 0;
-				if (off) { ow = +evalExpr(offExpr, ctx); if (!isFinite(ow)) ow = 0; }
+				let ow0 = 0;
+				if (offExpr != null) { ow0 = +evalExpr(offExpr, ctx); if (!isFinite(ow0)) ow0 = 0; }
+				let gw = 0;
+				if (gapExpr != null) { gw = +evalExpr(gapExpr, ctx); if (!(gw > 0)) gw = 0; }
+				for (let side = 0, nSide = gw ? 2 : 1; side < nSide; side++) {   // 隙間つき＝右（+）と左（−）の 2 本・無ければ 1 本
+				const ow = gw ? ow0 + (side ? -1 : 1) * (gw * 0.5 + hw) : ow0;
 				// 線分 1 本を書く（P1＝始点・P2＝終点の経緯度（原点相対）・色・半幅・ずらし）
 				const seg = (alon, alat, blon, blat, ta, tb) => {
 					const n = half.n, p1 = P1.reserve(2), p2 = P2.reserve(2), c4 = col.reserve(4), hf = half.reserve(1);
@@ -409,6 +415,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 					}
 					ls = le;
 				}
+				}   // side
 			}
 			if (half.n) {
 				const op = { kind: "line", li, id: L.id, P1: P1.out(), P2: P2.out(), col: col.out(), half: half.out() };

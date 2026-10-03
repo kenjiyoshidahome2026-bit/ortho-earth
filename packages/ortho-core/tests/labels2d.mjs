@@ -158,4 +158,19 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.equal(layer.placed()[0].x < W / 2, true, "塞ぎが消えても前回の錨（right）に留まる");
 }
 
+// ── 9. text-translate（px・anchor map は −bearing で回す／viewport はそのまま）・icon-translate・text-variable-anchor-offset（錨ごとの em のずらし）
+{
+	const { layer } = mkLayer();
+	const base = () => { layer.setLabels([lab("T", 139.7, 35.68, { ov: true })]); layer.draw(cam); return layer.placed()[0]; };
+	const p0 = base();
+	layer.setLabels([lab("T", 139.7, 35.68, { ov: true, tt: [10, -4], tta: "viewport" })]); layer.draw(cam); const pv = layer.placed()[0];
+	assert.ok(Math.abs(pv.x - p0.x - 10) < 1e-6 && Math.abs(pv.y - p0.y + 4) < 1e-6, "viewport＝画面でそのまま足す");
+	layer.setLabels([lab("T", 139.7, 35.68, { ov: true, tt: [10, 0] })]); layer.draw({ ...cam, bearing: Math.PI / 2 }); const pm = layer.placed()[0];
+	assert.ok(Math.abs(pm.x - p0.x) < 1e-3 && Math.abs(pm.y - p0.y + 10) < 1e-3, `map＝bearing 90° で (10,0) は上へ（${(pm.x - p0.x).toFixed(2)}, ${(pm.y - p0.y).toFixed(2)}）`);
+	const V = lab("V", 139.7, 35.68, { va: ["top", "bottom"], vao: { top: [0, -2], bottom: [0, 2] }, size: 10, ov: true });
+	layer.setLabels([V]); layer.draw(cam); const pt = layer.placed()[0];
+	layer.setLabels([lab("V", 139.7, 35.68, { an: "top", off: [0, -2], size: 10, ov: true })]); layer.draw(cam); const pe = layer.placed()[0];
+	assert.ok(Math.abs(pt.x - pe.x) < 1e-6 && Math.abs(pt.y - pe.y) < 1e-6, "variable-anchor-offset の最初の候補＝anchor top＋offset [0,−2] と同じ箱");
+}
+
 console.log("labels2d: ok");

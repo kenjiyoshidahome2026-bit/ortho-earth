@@ -4101,7 +4101,7 @@ const vtdGet = async () => {
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-gap-width", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
+const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v, layer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);

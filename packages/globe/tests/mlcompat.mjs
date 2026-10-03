@@ -29,6 +29,12 @@ const obliqueEnv = (dep = 40 * Math.PI / 180) => {
 };
 
 const SCENES = {
+	// ── 式：split／join／ln2（MapLibre v5）＝文字列と配列の往復・型が合わなければ ML の評価エラー（undefined）
+	"expr-split-join": () => {
+		const c = { zoom: 10, props: { a: "x,y,z" }, geom: null, vars: {}, origin: "ml" };
+		const sp = evalExpr(["split", ["get", "a"], ","], c), jn = evalExpr(["join", ["split", ["get", "a"], ","], "-"], c), bad = evalExpr(["split", 5, ","], c);
+		return [deq(sp, ["x", "y", "z"]) && jn === "x-y-z" && bad === undefined && Math.abs(evalExpr(["ln2"], c) - Math.LN2) < 1e-15, `${JSON.stringify(sp)} ${jn} ${bad}`];
+	},
 	// ── 記号：MapLibre は面にも線にも点置きのラベルを置く（面＝到達不能極・線＝頂点）──
 	"symbol-on-polygon": () => {
 		const it = symbolItems(fc([F({ type: "Polygon", coordinates: [[[0, 0], [1, 0], [1, 1], [0, 1], [0, 0]]] }, { n: "A" })]), { layout: { "text-field": ["get", "n"] } });

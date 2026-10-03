@@ -78,7 +78,7 @@ export function evalExpr(e, ctx) {
 }
 
 // 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
-export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation"]);
+export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation", "ln2", "split", "join"]);
 
 // MapLibre 形の式の検査＝知らない演算子を集める（MapLibre は addLayer でその名を挙げて層を足さない・2026-09-26 段 5）。
 // 式の位置だけを見る：literal の中・match のラベル・interpolate の補間型と停留値・step の閾値・let の名前・var・format/number-format/collator の設定は式でない。
@@ -245,6 +245,10 @@ function build(e, o = "native") {
 			return ctx => { const v = a(ctx); if (ML && !isColor(v)) mlFail(); const c = parseRGBA(v); return [Math.round(c[0] * 255), Math.round(c[1] * 255), Math.round(c[2] * 255), c[3]]; };
 		}
 		case "ln": { const a = compile_(e[1]); return ctx => Math.log(a(ctx)); }
+		case "ln2": return () => Math.LN2;
+		// split／join（MapLibre v5）：文字列 → 区切りで配列／配列 → 区切りで文字列（2026-10-03・互換の段）
+		case "split": { const a = compile_(e[1]), d = compile_(e[2]); return ctx => { const v = a(ctx); if (typeof v !== "string") return ML ? mlFail() : []; return v.split(String(d(ctx) ?? "")); }; }
+		case "join": { const a = compile_(e[1]), d = compile_(e[2]); return ctx => { const v = a(ctx); if (!Array.isArray(v)) return ML ? mlFail() : ""; return v.map(x => x == null ? "" : String(x)).join(String(d(ctx) ?? "")); }; }
 		case "e": return () => Math.E;
 		case "pi": return () => Math.PI;
 		case "image": { const a = compile_(e[1]); return ctx => a(ctx); }   // 記号の名前をそのまま（記号帳が引く）

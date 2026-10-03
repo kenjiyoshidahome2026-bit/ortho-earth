@@ -168,6 +168,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	const textT = (L, st, r, sx, sy, dpr, zoom) => (L.rot || L.ra === "map" || L.pa === "map") ? orient(st, L.anchor[0], L.anchor[1], r, sx, sy, dpr, zoom, L.ra === "map" ? "map" : "viewport", L.pa ?? "auto", L.rot) : null;   // 点＝auto は viewport
 	// ズームに連続な文字の大きさ（MapLibre の compositeTextSize と同じ＝タイルの z と隣の z の値を表示の z で線形に補間）：labels.js が焼いた szn=[size(z−1), size(z+1)]・tz＝タイルの z。倍率（L.size に対する）
 	const sizeK = (L, zoom) => { const n = L.szn; if (!n || zoom == null) return 1; const s0 = L.size || 12, d = Math.max(-1, Math.min(1, zoom - L.tz)); return (d >= 0 ? s0 + (n[1] - s0) * d : s0 + (n[0] - s0) * -d) / s0; };
+	// text-translate／icon-translate（px）：anchor map（既定）＝地図の回転に追随（ベクトルを −bearing で回す＝MapLibre の translatePosition と同じ）・viewport＝画面のまま。戻り＝[dx, dy]（CSS px）
+	const TR0 = [0, 0];
+	const translateOf = (t, anchor, bearing) => { if (!t) return TR0; if (anchor === "viewport" || !bearing) return t; const c = Math.cos(-bearing), s = Math.sin(-bearing); return [t[0] * c - t[1] * s, t[0] * s + t[1] * c]; };
 	// 文字の transform ＝ 向き（T0）に大きさの倍率 k を掛けた物（文字は L.size で組み・描き、倍率は transform で）。k＝1 なら T0 のまま（旧と同じ）
 	const scaleT = (T0, k) => k === 1 ? T0 : T0 ? { a: T0.a * k, b: T0.b * k, c: T0.c * k, d: T0.d * k } : { a: k, b: 0, c: 0, d: k };
 	const iconT = (L, st, r, sx, sy, dpr, zoom) => (L.ira === "map" || L.ipa === "map") ? orient(st, L.anchor[0], L.anchor[1], r, sx, sy, dpr, zoom, L.ira === "map" ? "map" : "viewport", L.ipa ?? "auto", L.irot) : null;   // 記号＝map の時だけ錨を原点に transform（それ以外の icon-rotate は箱の中心で回す＝従来）
@@ -304,7 +307,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	// 衝突判定（優先度順の貪欲）。当選集合 winners を更新。
 	let winBox = new Map();   // key → { sx, sy, tw, h, dx, dy, tl, an, txt, ib }（当選ラベルの画面上の箱＝placed() と draw の材料・公式例の門 段 0）。txt＝文字を置いた・ib＝置いた記号の箱 [dx, dy, w, h]（錨からの相対）
 	let dbg = { zoom: null, outOfZoom: {}, total: 0 };   // 診断（placedDebug）＝直近の衝突判定の地図 z と、zoom 域で外した数（層の添字/利用者層 id ごと・minZ/maxZ の見本）
-	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV) {
+	function collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, zoomV, bearing = 0) {
 		const placed = boxGrid(), w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
 		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }, pt: {} };   // line＝線の注記の落ちた理由・pt＝点の注記の層ごとの結果（診断）
 		const ptDbg = (L, k, eg) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, back: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; if (eg && !e[k + "Eg"]) e[k + "Eg"] = eg(); };   // eg＝見本を作る関数（最初の 1 件だけ作る＝落ちたラベルのたびに配列を組まない）
@@ -315,7 +318,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			const dx = PJ[0], dy = PJ[1], front = PJ[2];
 			if (clipPl && clipDistanceM(clipPl, L.anchor[0], L.anchor[1], (rad - 1) * worldRadiusM()) < 0) continue;   // 断面で切られた側（#111 段 3）
 			if (front < 0) { if (!L.lp) ptDbg(L, "back", () => [String(L.text).slice(0, 20), +L.anchor[0].toFixed(2), +L.anchor[1].toFixed(2), +front.toFixed(3), +rad.toFixed(4)]); continue; }
-			const sx = dx / dpr, sy = dy / dpr;
+			const tr = L.tt ? translateOf(L.tt, L.tta, bearing) : TR0, sx = dx / dpr + tr[0], sy = dy / dpr + tr[1];   // text-translate＝錨の画面位置に足す（線に沿う注記は読まない）
 			if (L.lp) {   // 線に沿う注記（段 4）＝字ごとの箱（text-padding 込み）で裁く。全部の字が画面の外なら出さない
 				const dl = dbg.line; dl.n++;
 				const lb = (dbg.lineBy ??= {})[L.k ?? ("li" + L.li)] ??= { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }; lb.n++;   // 層ごと（診断）
@@ -345,7 +348,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			// 記号と文字の裁き（MapLibre の placement と同じ）：既定＝両方置けなければ両方出さない。text-optional＝記号だけでも出す・icon-optional＝文字だけでも出す
 			const iconAlone = L.topt || !hasText, textAlone = L.iopt || !im;
 			const judge = (tOK, iOK) => !textAlone && !iconAlone ? [tOK && iOK, tOK && iOK] : !textAlone ? [tOK && iOK, iOK] : !iconAlone ? [tOK, iOK && tOK] : [tOK, iOK];   // → [文字を置く, 記号を置く]
-			const nat = im ? iconBox(L, im) : null;   // 記号の自然な箱（fit しない時＝候補に依らない）
+			const nat = im ? iconBox(L, im) : null, itr = im && L.itt ? translateOf(L.itt, L.itta, bearing) : TR0;   // 記号の自然な箱（fit しない時＝候補に依らない）・icon-translate
+			if (nat && itr !== TR0) { nat[0] += itr[0]; nat[1] += itr[1]; }
 			const iOKof = ib => !im || L.iov || !overlaps(placed, grow(tb(Ti, ib[0], ib[1], ib[2], ib[3]), ipad));
 			let hit = null, lastWhy = "off";
 			if (hasText) {
@@ -356,6 +360,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 					if (bb[2] < 0 || bb[0] > Wc || bb[3] < 0 || bb[1] > Hc) continue;
 					const box = grow(bb, padL);
 					const ib = im ? (L.ifit ? iconFit(L, im, [lx0 * k, ly0 * k, tw * k, h * k]) : nat) : null;   // icon-text-fit＝文字の箱（向きの空間・倍率込み）
+					if (ib && ib !== nat && itr !== TR0) { ib[0] += itr[0]; ib[1] += itr[1]; }
 					const tOK = L.ov || !overlaps(placed, box), iOK = iOKof(ib), [pt, pi] = judge(tOK, iOK);
 					if (!pt) { lastWhy = !tOK ? "text" : !iOK ? "icon" : "text"; continue; }   // 文字が置けない候補＝次の候補（variable-anchor）
 					hit = { box, x0, y0, an, txt: true, ib: pi ? ib : null, bb: [bb[2] - bb[0], bb[3] - bb[1]] }; break;
@@ -381,6 +386,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	function anchorCands(L, prevAn = null) {
 		const size = L.size || 12, off = L.off || [0, 0];
 		if (L.va?.length) {
+			if (L.vao) { const c = L.va.map(an => { const o = L.vao[an] || [0, 0]; return [an, o[0] * size, o[1] * size]; }); if (prevAn && c.length > 1) { const i = c.findIndex(x => x[0] === prevAn); if (i > 0) { const [p] = c.splice(i, 1); c.unshift(p); } } return c; }   // text-variable-anchor-offset＝錨ごとのずらし（em・text-offset と同じ向き）
 			const r = (L.ro ?? Math.max(Math.abs(off[0]), Math.abs(off[1]))) * size;
 			const c = L.va.map(an => { const k = an.includes("-") ? Math.SQRT1_2 : 1; return [an, (an.includes("left") ? r : an.includes("right") ? -r : 0) * k, (an.startsWith("top") ? r : an.startsWith("bottom") ? -r : 0) * k]; });
 			if (prevAn && c.length > 1) { const i = c.findIndex(x => x[0] === prevAn); if (i > 0) { const [p] = c.splice(i, 1); c.unshift(p); } }   // 前回の錨を先頭に
@@ -446,7 +452,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		let still = true; for (let i = 0; i < 16; i++) if (st.mvp[i] !== lastMvp[i]) { still = false; break; } if (!still) lastMvp.set(st.mvp);
 		if (showFlat !== lastShowFlat) { dirty = true; lastShowFlat = showFlat; }   // 閾値跨ぎで即再衝突判定→flat を外す/戻す
 		const fogF = Math.max(st.camDist * 5.0, 0.026 * pfFog);
-		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99); lastCollide = now; dirty = false; }
+		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99, cam.bearing || 0); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
 		ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.lineJoin = "round"; ctx.miterLimit = 2;
@@ -471,7 +477,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			if (front < 0) return;
 			const dop = op * distOp(L.anchor[0], L.anchor[1]), o = dop * (L.op ?? 1);   // dop＝フェード×距離（文字と記号で共有＝lonlatTo3D を 1 回だけ）
 			if (o <= 0.01) return;
-			const sx = still ? Math.round(dx / dpr) : dx / dpr, sy = still ? Math.round(dy / dpr) : dy / dpr;
+			const tr = L.tt && !L.lp ? translateOf(L.tt, L.tta, cam.bearing || 0) : TR0;   // text-translate（衝突判定と同じ値）
+			const sx = (still ? Math.round(dx / dpr) : dx / dpr) + tr[0], sy = (still ? Math.round(dy / dpr) : dy / dpr) + tr[1];
 			const shield = shieldFor && shieldFor(L);
 			if (shield) {
 				ctx.globalAlpha = o;
@@ -503,6 +510,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			}
 			// 記号（段 3）＝当選の箱（fit 済み）・フェードアウト中は自然な箱。SDF は icon-color で焼いた写し・icon-rotate は箱の中心で回す・icon-opacity
 			const im = iconImg(L), ib = b ? b.ib : (im ? iconBox(L, im) : null);
+			if (!b && ib && L.itt) { const itr = translateOf(L.itt, L.itta, cam.bearing || 0); ib[0] += itr[0]; ib[1] += itr[1]; }
 			const T0 = textT(L, st, rad, sx, sy, dpr, cam.zoom), T = scaleT(T0, sizeK(L, cam.zoom)), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T0) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）・文字は大きさの倍率込み
 			if (im && ib) {
 				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0)) : im.bm, oi = dop * (L.iop ?? 1);
