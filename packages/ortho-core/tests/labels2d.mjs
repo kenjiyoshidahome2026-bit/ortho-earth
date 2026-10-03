@@ -35,7 +35,7 @@ function fakeCtx(canvas) {
 		get textAlign() { return st.textAlign; }, set textAlign(v) { st.textAlign = v; },
 		get textBaseline() { return st.textBaseline; }, set textBaseline(v) { st.textBaseline = v; },
 		measureText: s => ({ width: [...String(s)].length * parseFloat(st.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 10) * 0.6 }),
-		fillText: (s, x, y) => log.push({ op: "fill", s, x: x + t.x, y: y + t.y, font: st.font, alpha: ctx.globalAlpha }),
+		fillText: (s, x, y) => log.push({ op: "fill", s, x: x + t.x, y: y + t.y, font: st.font, alpha: ctx.globalAlpha, fill: ctx.fillStyle }),
 		strokeText() {}, setTransform() { t.x = 0; t.y = 0; }, translate(x, y) { t.x += x; t.y += y; }, save() { stack.push({ ...t, ...st }); }, restore() { const s = stack.pop(); if (s) { t.x = s.x; t.y = s.y; st.font = s.font; st.textAlign = s.textAlign; st.textBaseline = s.textBaseline; } },
 		drawImage: (src, ...a) => log.push({ op: "img", src, a }),
 		getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(255) }),
@@ -113,6 +113,49 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	ctx.log.length = 0; layer.draw(cam);
 	const after = ctx.log.filter(e => e.op === "fill").map(e => e.x);
 	assert.ok(Math.abs((after[3] - after[0]) - 2 * (before[3] - before[0])) < 1e-6, `字送りが新しい幅で測り直される（${before[3] - before[0]} → ${after[3] - after[0]}）`);
+}
+
+// ── 7. ズームに連続な文字の大きさ（szn＝[size(z−1), size(z+1)]・tz＝タイルの z）＝置いた箱の幅が表示の z で線形に補間され・±1 で止まる。線の注記は字送りも伸びる
+{
+	const { layer } = mkLayer();
+	const L = lab("Scale", 139.7, 35.68, { size: 12, szn: [6, 24], tz: 14, ov: true });
+	const widthAt = z => { layer.setLabels([L]); layer.draw({ ...cam, zoom: z }); return layer.placed()[0].w; };
+	const w14 = widthAt(14), w145 = widthAt(14.5), w15 = widthAt(15), w16 = widthAt(16), w13 = widthAt(13), w125 = widthAt(12.5);
+	assert.ok(Math.abs(w145 / w14 - 1.5) < 1e-6, `z+0.5＝1.5 倍（${w14}→${w145}）`);
+	assert.ok(Math.abs(w15 / w14 - 2) < 1e-6 && Math.abs(w16 / w14 - 2) < 1e-6, "z+1 で 2 倍・それ以上は止まる");
+	assert.ok(Math.abs(w13 / w14 - 0.5) < 1e-6 && Math.abs(w125 / w14 - 0.5) < 1e-6, "z−1 で半分・それ以下は止まる");
+	const P = { ...lab("Fixed", 139.7, 35.68, { size: 12, ov: true }) };
+	layer.setLabels([P]); layer.draw({ ...cam, zoom: 15 }); const fixed = layer.placed()[0].w; layer.draw({ ...cam, zoom: 14 });
+	assert.equal(fixed, layer.placed()[0].w, "szn の無いラベルは z で変わらない");
+	const { layer: ll, ctx: lc } = mkLayer();
+	const path = new Float64Array([139.69, 35.68, 139.71, 35.68]);
+	const adv = z => { ll.setLabels([lab("Road", 139.7, 35.68, { lp: true, path, ai: 0, ov: true, size: 12, szn: [6, 24], tz: 14 })]); lc.log.length = 0; ll.draw({ ...cam, zoom: z }); const xs = lc.log.filter(e => e.op === "fill").map(e => e.x); return xs[3] - xs[0]; };
+	assert.ok(Math.abs(adv(15) / adv(14) - 2) < 1e-6, "線に沿う注記の字送りも z+1 で 2 倍");
+}
+
+// ── 8. フェードは時計（300ms の線形）＝フレームの数に依らない。variable-anchor は前回の錨を先に試す
+{
+	const { layer, ctx } = mkLayer();
+	const A = lab("A", 139.7, 35.68, { sort: 1 });
+	layer.setLabels([A]); layer.draw(cam);
+	const alphaOf = s => { const e = ctx.log.find(e => e.op === "fill" && e.s === s); if (!e) return null; const m = /rgba\([^,]+,[^,]+,[^,]+,([^)]+)\)/.exec(String(e.fill)); return m ? +m[1] : 1; };   // 文字の不透明度＝塗りの rgba の α（globalAlpha ではない）
+	ctx.log.length = 0; layer.draw(cam);
+	assert.equal(alphaOf("A"), 1, "最初の描画で現れる（フェードイン無し）");
+	layer.setLabels([lab("B", 139.7, 35.68, { sort: 0 }), A]);   // B が勝ち A は消えていく
+	const t0 = performance.now();
+	let a1 = null; for (let i = 0; i < 50; i++) { ctx.log.length = 0; layer.draw(cam); a1 = alphaOf("A"); if (a1 == null) break; }
+	assert.ok(a1 == null ? performance.now() - t0 >= 250 : a1 > 0 && a1 < 1, `50 フレームでは消え切らない（時計で進む・α=${a1}）`);
+}
+{
+	const { layer } = mkLayer();
+	const V = lab("Var", 139.7, 35.68, { va: ["left", "right"], ro: 1, size: 12 });
+	layer.setLabels([V]); layer.draw(cam);
+	assert.equal(layer.placed()[0].x > W / 2, true, "最初の候補（left＝錨の右側に置く）");
+	const blocker = lab("Block", 139.7, 35.68, { an: "left", off: [1, 0], sort: -1, size: 12 });   // 右側を塞ぐ
+	layer.setLabels([blocker, V]); layer.draw(cam);
+	assert.equal(layer.placed().find(p => p.text === "Var").x < W / 2, true, "塞がれたら次の候補（right）へ");
+	layer.setLabels([V]); layer.draw(cam);
+	assert.equal(layer.placed()[0].x < W / 2, true, "塞ぎが消えても前回の錨（right）に留まる");
 }
 
 console.log("labels2d: ok");

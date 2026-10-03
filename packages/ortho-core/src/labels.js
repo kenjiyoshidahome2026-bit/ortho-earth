@@ -9,6 +9,8 @@ import { labelKey } from "./labelkey.js";   // 注記の鍵＝ここで一度焼
 const M1_FONT = "NotoSansJP-Regular";
 
 const num = (v, d) => (typeof v === "number" && !isNaN(v)) ? v : d;
+// 式が ["zoom"] を読むか（literal の中は見ない）
+const usesZoom = e => Array.isArray(e) && (e[0] === "zoom" ? true : e[0] === "literal" ? false : e.some(usesZoom));
 
 // 配置の layout（MapLibre の symbol の layout＝段 1・2026-09-28）＝labels2d が箱を作る材料。式は評価してから運ぶ（worker は式を持たない）。
 // text-anchor/offset/radial-offset/variable-anchor・max-width（em・折り返し）・letter-spacing（em）・line-height（em）・justify・transform・padding（px・重なり判定だけ）・
@@ -101,6 +103,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 		const src = layers[L["source-layer"]]; if (!src) continue;
 		const ml = originOfLayer(L) === "ml";   // MapLibre の文書から来た層＝padding の既定 2（MapLibre）・ネイティブの層＝従来の 5（この地図の注記の間合い）
 
+		const sizeZ = lo["text-size"] != null && usesZoom(lo["text-size"]);   // text-size が zoom を読む（連続な大きさの材料を焼く）
 		let fi = 0;
 		for (const f of src.features) {
 			fi++;
@@ -114,6 +117,10 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			if (!text && !icon) continue;
 			const g = f.geom; if (!g || !g.coords.length) continue;   // フラットgeom：先頭点＝coords[0,1]
 			const size = num(evalExpr(lo["text-size"] ?? 16, ctx), 16);
+			// ズームに連続な文字の大きさ（MapLibre は text-size を表示の z で評価＝タイルの z で焼くと段が替わる時に跳ぶ）：式が zoom を読む層は z−1・z+1 の値も焼き、
+			// 描く側（labels2d）が表示の z で線形に補間する（錨・鍵・size（タイルの z の値）は不変＝差分配達の鍵も不変）。ハロー幅は文字と同じ倍率で伸びる
+			let szn = null;
+			if (sizeZ) { ctx.zoom = z - 1; const a = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = z + 1; const b = num(evalExpr(lo["text-size"], ctx), size); ctx.zoom = z; if (a !== size || b !== size) szn = [a, b]; }
 			// 線の錨に「回さず」置く＝text-rotation-alignment viewport（記号だけなら icon-rotation-alignment viewport）＝道路の盾（road_shield_us）。点の注記として錨に置く（記号も文字も回さない・spacing だけ課す）
 			const upright = onLine && String(evalExpr(text ? traE : (lo["icon-rotation-alignment"] ?? "auto"), ctx) ?? "auto") === "viewport";
 			// 線の錨：px→タイル単位は extent/256（このエンジンのタイルは 256px 世界＝タイル z＝エンジン z で 16 単位/px。MapLibre の 512px タイル z と同じ地面）。文字の長さは字数×size×0.7 の見積もり（本物の幅は描く側・記号だけなら 16px×icon-size）。候補の間隔＝max(文字の長さ/2, spacing/4)（曲がった線でも真っ直ぐな所を拾えるよう密に・spacing は描く側）・最初＝文字の半分＋1 字分（MapLibre は 2 字分＝過拡大で厳しすぎるので 1 字）・窓＝文字の長さ＋余白
@@ -134,7 +141,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			const lay = layoutOf(L, lo, ctx, ml);
 			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
 			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
-			const rec = { anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
+			const rec = { anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z } : {}), ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
 			rec.key = labelKey(rec);   // 鍵＝文字・記号・錨（ML の層は li も）。文字や錨を変える写しは付け直す
 			out.push(rec);   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 			}
