@@ -132,7 +132,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
 export function createModel(map, { setMesh, fit, center, ell = false, signal } = {}) {
 	const t = tr();
-	let cur = null;   // cur＝{ name, stats, src }
+	let seq = 0, cur = null;   // seq＝模型・押し出しの名前の連番・cur＝{ name, stats, src }
 	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
 	const rpc = pool.rpc;
 	const clear = () => { if (cur) { setMesh(cur.name, null); cur = null; } };
