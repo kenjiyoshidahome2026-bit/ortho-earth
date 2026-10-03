@@ -305,17 +305,7 @@
 .ortho-world[dir=rtl] [name=scroll].grid .nation { float:none; }
 @media (max-width: 720px) { .ortho-world [name=scroll].grid { grid-template-columns:1fr; padding:5px !important; } .ortho-world [name=scroll].grid .nation { width:auto; margin:0; } }
 
-// ── Wikipedia をアプリ内 iframe で（2026-09-10・census と同じ）。閉じる＝×／Escape、別タブ＝↗ ──
+// ── Wikipedia をアプリ内 iframe で（2026-09-10・census と同じ）。枠＝@ortho-earth/globe/wiki.js（.oe-wiki・見た目は共通）＝ここは置き場所だけ ──
 // モジュールの箱を**全面**覆う（2026-09-12 Kenji 裁定）。旧は top:50px でヘッダを残していたが、
 // 記事を読んでいる間に地域/並べ替えの操作卓が生きて見えるのは嘘＝覆い切って、戻る口は × と Escape の 2 つに絞る。
-.ortho-world [name=wiki] { position:absolute; inset:0; z-index:15; background:#eee; display:flex; flex-direction:column;
-	> .bar { flex:0 0 36px; background:#222; color:#fff; display:flex; align-items:center; gap:8px; padding:0 8px; font-size:13px;
-		img { height:22px; width:auto; }
-		.title { flex:1; font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-		a, button { display:inline-block; color:#fff; fill:#fff; background:#444; border:2px solid #fff; border-radius:3px; line-height:22px; padding:0 0.5em; cursor:pointer; text-decoration:none; font-size:13px;
-			&:hover { background:#000; }
-			svg { width:18px; height:18px; vertical-align:middle; }
-		}
-	}
-	> iframe { flex:1; width:100%; border:none; background:#fff; }
-}
+.ortho-world .oe-wiki.wiki { inset:0; z-index:15; border-radius:0; border:none; box-shadow:none; }
