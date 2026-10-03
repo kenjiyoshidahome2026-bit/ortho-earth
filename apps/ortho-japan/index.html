@@ -56,7 +56,7 @@
 </head>
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ortho-earth 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。文言は instruments.js と同文＝起動後に養子縁組される -->
 	<div id="attr" data-boot>出典：<a href="https://maps.gsi.go.jp/development/ichiran.html#optbv" target="_blank" rel="noopener">国土地理院最適化ベクトルタイル（提供実験）</a><br>
 		<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank" rel="noopener">標高タイル（DEM10B）</a>・<a href="https://www.mlit.go.jp/plateau/" target="_blank" rel="noopener">国土交通省 PLATEAU</a>・<a href="https://www.eorc.jaxa.jp/ALOS/jp/dataset/aw3d30/aw3d30_j.htm" target="_blank" rel="noopener">JAXA AW3D30</a><br>
