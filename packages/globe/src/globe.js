@@ -61,6 +61,7 @@ import { hint as hintGadget } from "./gadgets/hint.js";
 import { compass as compassGadget } from "./gadgets/compass.js";
 import { solar as solarGadget } from "./gadgets/solar.js";
 import { equal as equalGadget, equalHereItem, goEqual } from "./gadgets/equal.js";
+import { lang as langGadget } from "./gadgets/lang.js";   // UI 言語の切替（26 言語・?lang= を書いて読み直す）＝デモ頁の共通装備（2026-10-04）
 import { mesh as meshGadget } from "./gadgets/mesh.js";
 import { palette as paletteGadget } from "./gadgets/palette-stub.js";   // 玄関スタブ＝ボタン常駐、本体(palette.js＝色域写像＋合成)は起動後アイドルで先読み（常用ゆえ押した時に即開く）
 import { zoom as zoomGadget } from "./gadgets/zoom.js";
@@ -2788,6 +2789,7 @@ map.gadget("equal", function (opts) {   // 全球図（ortho-equal・Equal Earth
 	return equalGadget.call(this, opts);
 });
 map.gadget("equalHere", function (opts) { return equalHereItem(this, opts); });   // 右クリックメニューの項目＝contextmenu の setter へ渡す材料
+map.gadget("lang", function (opts) { return langGadget.call(this, opts); });   // 言語切替（34px 規格・透明な select）… map.gadget.lang({ onChange? })
 map.gadget("equalStart", function (opts) { return goEqual(this, { morph: false, ...opts }); });   // 入口＝Equal Earth を最初から上に（?start=equal）。japan は裏で起動
 map.gadget("solar", function (opts) {   // 太陽系への口（ortho-solar）＝34px規格アイコン。表示域を絞るなら搭載側で opts.zoom
 	return solarGadget.call(this, opts);

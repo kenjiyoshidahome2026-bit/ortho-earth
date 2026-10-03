@@ -11,8 +11,12 @@
 		#boot.gone{opacity:0;pointer-events:none}
 		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
 		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="manifest" href="/japan/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png">
 	<title>Fireworks over Sumida — ortho-japan</title>
 	<meta name="description" content="Full-scale fireworks (a 10-inch shell opens 320 m wide at 330 m) launched over the Sumida River, hidden by the buildings and Tokyo Skytree in front of them.">
 	<link rel="canonical" href="https://www.ortho-earth.com/japan/fireworks">
@@ -22,30 +26,30 @@
 	<meta property="og:title" content="Fireworks over Sumida — ortho-japan">
 	<meta property="og:description" content="Real-size fireworks over the Sumida River on a 3D globe. Stars behind PLATEAU buildings and Tokyo Skytree are hidden by the scene depth.">
 	<meta property="og:url" content="https://www.ortho-earth.com/japan/fireworks">
+	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/fireworks.webp">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Fireworks over Sumida — ortho-japan">
+	<meta name="twitter:description" content="Real-size fireworks over the Sumida River on a 3D globe. Stars behind PLATEAU buildings and Tokyo Skytree are hidden by the scene depth.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/thumbs/fireworks.webp">
 </head>
 <body>
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<script type="module">
 		// 打ち上げ花火＝シーンの深度（#47）の見本。器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// UI と合図は ./fireworks.js（遅延 chunk）、描画は ./fireworks-gl.js（レンダーワーカー内のオーバーレイ）。建物 3D（PLATEAU）はそのまま＝花火を隠す側。
-		(async () => {
-			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
-			await setLang();
-			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
-			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
-			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
-			try {
-				const [{ default: orthoJapan }, { mountFireworks }] = await Promise.all([engineP, import("./fireworks.js")]);
-				// 初期視点＝隅田川の上空（共有 URL の hash があればそちら）。glOverlay＝WebKit では本体を WebGL2 に（WebGPU 本体＋WebGL2 オーバーレイは合成されない）
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#14/35.716/139.807", chips: false, theme: "dark",
-					instruments: ["pos", "scale", "attr"], urlHash: true, glOverlay: true, assetBase: import.meta.env.BASE_URL });
-				dismissBoot();
-				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock?.();
-				const fw = await mountFireworks(map);
-				window.__map = map; window.__fw = fw;   // console 検証用
-			} catch (e) { console.error("[fireworks] startup failed", e); dismissBoot(); }
-		})();
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("fireworks", async () => {
+			const [{ default: orthoJapan }, { mountFireworks }] = await Promise.all([import("./app.js"), import("./fireworks.js")]);
+			// 初期視点＝隅田川の上空（共有 URL の hash があればそちら）。glOverlay＝WebKit では本体を WebGL2 に（WebGPU 本体＋WebGL2 オーバーレイは合成されない）
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#14/35.716/139.807", chips: false, theme: "dark",
+				instruments: ["pos", "scale", "attr"], urlHash: true, glOverlay: true, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.clock?.(); map.gadget.lang();
+			const fw = await mountFireworks(map);
+			window.__map = map; window.__fw = fw;   // console 検証用
+		});
 	</script>
 </body>
 </html>

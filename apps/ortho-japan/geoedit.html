@@ -22,6 +22,9 @@
 		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="manifest" href="/japan/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png">
 	<meta name="apple-mobile-web-app-title" content="geoedit">
 	<title>geoedit — GeoPBF editor</title>
 	<meta name="description" content="Create and edit points, lines and polygons on a globe. Topological editing where shared boundaries move together, a switchable snap grid, and reading/writing GeoPBF, GeoJSON, TopoJSON, FlatGeobuf, Shapefile and more.">
@@ -43,7 +46,7 @@
 </head>
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに依存せずパース直後に描画。ready後に #boot.gone でフェード消去 -->
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="geoedit 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<div id="attr" data-boot>出典：<a href="https://www.gsi.go.jp/" target="_blank" rel="noopener">国土地理院</a>ほか（各データを加工して作成）<br>
 		© 2026 <a href="https://www.ortho-earth.com/docs/introduction.html" target="_blank" rel="noopener">Kenji Yoshida</a></div>
@@ -51,22 +54,20 @@
 		// geoedit＝GeoPBF トポロジカルエディタ（旧 apps/geoedit＝独立アプリ → ortho-japan のガジェット gadgets/geoedit（9/4）→ packages/geoedit＝geoedit（npm）（MIT・9/20））。
 		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// 編集に要る最小限のガジェット＋ map.gadget.geoedit()（遅延chunk）を載せる。
-		import { getLang } from "@ortho-earth/globe/i18n.js";
-		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "geoedit — GeoPBFエディタ"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
-		(async () => {
-			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
-			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
-			try {
-				const orthoJapan = (await engineP).default;
-				// hash（共有ビュー）優先、無ければ列島俯瞰。エディタはチルトなし（maxPitch:0）＝真上からの編集専用（ガジェットも搭載時に真上へ固定する）
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#5.1/38.2/136.9", maxPitch: 0, assetBase: import.meta.env.BASE_URL });
-				dismissBoot();
-				window.__map = map;   // console 検証用（デバッグの手すり）
-				map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();   // 編集に要る最小限（右クリックメニューはエディタ本体が編集アクション付きで載せる）
-				if (/[?&]verify=1/.test(location.search)) return;   // 検定ゲート（verify-prod）＝エンジン起動だけを見る静穏モード
-				window.__editor = await map.gadget.geoedit();
-			} catch (e) { console.error("[geoedit] engine startup failed", e); dismissBoot(); }
-		})();
+		// 言語（26 言語・<html lang/dir>）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。head は英語（共有カード・検索）＝起動後に読む人の言語へ
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("geoedit", async () => {
+			const orthoJapan = (await import("./app.js")).default;   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
+			// hash（共有ビュー）優先、無ければ列島俯瞰。エディタはチルトなし（maxPitch:0）＝真上からの編集専用（ガジェットも搭載時に真上へ固定する）
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#5.1/38.2/136.9", maxPitch: 0, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			if (map.lang === "ja") document.title = "geoedit — GeoPBFエディタ";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
+			window.__map = map;   // console 検証用（デバッグの手すり）
+			map.gadget.search(); map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.lang();   // 編集に要る最小限（右クリックメニューはエディタ本体が編集アクション付きで載せる）
+			if (/[?&]verify=1/.test(location.search)) return map;   // 検定ゲート（verify-prod）＝エンジン起動だけを見る静穏モード
+			window.__editor = await map.gadget.geoedit();
+			return map;
+		});
 	</script>
 </body>
 </html>

@@ -74,7 +74,7 @@ engineP.then(m => m.default({ target: "#map", view: location.hash || JAPAN_VIEW,
 	const legend = map.gadget.legend();   // 左下の凡例＝コロプレス/防災の色の読み物
 	const choro = initChoropleth(map, { legend });
 	initBind(map, { choro, legend });
-}).catch(e => { console.error("[census2020] エンジン起動失敗", e); dismissBoot(); });
+}).catch(e => import("@ortho-earth/globe/page.js").then(m => m.startupFailed("census2020", e), () => { console.error("[census2020] エンジン起動失敗", e); dismissBoot(); }));   // 起動失敗＝画面に言葉で（共通の器・2026-10-04）
 
 if (location.protocol === "https:" && "serviceWorker" in navigator)
 	addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
