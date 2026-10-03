@@ -21,6 +21,7 @@ const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ALL_PAGES.filter(p => ARGS.includes(p)) : ALL_PAGES;
 
 const stop = await startVite({ cwd: APP, port: PORT, portEnv: "VUI_PORT", readyUrl: `http://localhost:${PORT}/japan/` });
-const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}` });
+const fail = await runPages({ pages: PAGES, realtime: REALTIME, long: LONG, jobs: +process.env.VG_JOBS || 4,   // 4 本ずつ並べる（globe の verify-ui と同じ・2026-10-03。旧＝1 本ずつ＝22 頁で 10 分超）・VG_JOBS=1 で直列
+	urlOf: (page, q) => `http://localhost:${PORT}/japan/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
