@@ -41,18 +41,23 @@ const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? M
 // target＝置き場（要素か CSS セレクタ・大きさは持ち主が決める）。lang＝UI と地名の言語（省略＝params の lang → ブラウザ）。
 // params＝設定（?labels ?hypso ?choro ?choroA ?year ?g ?csv と同じ書式の文字列/URLSearchParams）。view＝初期視点（"#z/lat/lon/l=…" 書式）。
 // hash＝頁の URL と往復する（殻＝true・埋め込み＝false）。keyboard＝矢印/+/− を聞く。assetBase＝koppen-clim.png の置き場（既定＝この頁）
-export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = new URL(import.meta.env.BASE_URL, location.href) } = {}) {
+// geopbf＝false なら bucket 基盤（createGeopbf）を起こさない＝持ち主（globe のエンジン）が同じ geopbf を既に起こしている頁（japan の上に div で重ねる時）
+export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = new URL(import.meta.env.BASE_URL, location.href), geopbf: ownGeopbf = true } = {}) {
 	const host = typeof target === "string" ? document.querySelector(target) : target;
 	if (!host) throw new Error("createEqual: target not found");
 	const q = params instanceof URLSearchParams ? params : new URLSearchParams(params || "");   // 殻＝location.search・埋め込み＝持ち主の指定
-	ensureGeopbf();
+	if (ownGeopbf) ensureGeopbf();
 
 	let lang = norm(langOpt) || norm(q.get("lang")) || norm(navigator.language) || "en";   // UI と地名の言語（26 言語・本人裁定 2026-09-18「操作系の UI も i18n」）
 	await setLang(lang);   // UI を組む前に訳を揃える（japan と同じ掟＝モジュール評価時に t() を呼ばない）
-	// 預かった div を生きている間だけ #map にする（quiet-mono の家具規格＝#map の中の #gadgets/#dock/#c…・japan の SDK と同じ作法）。
-	// destroy で id/class/dir を返す＝同じ頁で地図は 1 つ（家具規格の前提）
+	// 預かった div を生きている間だけ #map にする（quiet-mono の家具規格＝#map の中の #gadgets/#dock/#c…・japan の SDK と同じ作法＝従来の頁の互換）。
+	// ただし別の地図の容れ物（.qm／#map）の中に置かれた時＝japan の地図の上に div で重ねる時（2026-10-04）は id を触らない＝頁の #map は 1 つのまま。
+	// 意匠は .qm で当たる（:is(.qm, #map)・#173）＝id に依らない。.eq＝equal 固有の規則（style.scss）の印＝持ち主の家具へ漏らさない。
+	// destroy で id/class/dir を返す
 	const mapEl = host, prevId = host.id, prevClass = host.className;
-	mapEl.id = "map"; mapEl.classList.add("ui-dark", "qm");   // .qm＝quiet-mono の容れ物の印（意匠は :is(.qm, #map) で当たる・#173）
+	const nested = !!host.parentElement?.closest(".qm, #map");
+	if (!nested) mapEl.id = "map";
+	mapEl.classList.add("ui-dark", "qm", "eq");   // .qm＝quiet-mono の容れ物の印（意匠は :is(.qm, #map) で当たる・#173）
 	mapEl.insertAdjacentHTML("beforeend", `<canvas id="c"></canvas><canvas id="labels"></canvas>`);
 	mapEl.dir = isRTL() ? "rtl" : "ltr";   // RTL（アラビア・ヘブライ・ペルシア・ウルドゥー）＝quiet-mono の論理プロパティで家具が鏡像になる
 	const canvas = mapEl.querySelector("#c");
