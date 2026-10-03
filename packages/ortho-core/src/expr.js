@@ -77,6 +77,32 @@ export function evalExpr(e, ctx) {
 	try { return fn(ctx); } catch (err) { if (err === ML_ERR) return undefined; throw err; }
 }
 
+// format の区間（MapLibre の formatted・2026-10-03 互換の段）：text-field の根が ["format", 中身, {書式}, 中身, {書式}, …] の時だけ、区間ごとの文字と書式を返す
+// → [{ t（文字）, fs（font-scale・無ければ null）, col（text-color の評価値・無ければ null）, fnt（text-font の名前の列・無ければ null）, img（["image", 名] の区間＝記号の名前・文字は ""） }]。
+// 文字の連結は従来の evalExpr（"format" は文字だけを連結）と同じ順＝鍵・重複排除は不変。labels.js が読んで区間の書式を焼く（labels2d が区間ごとの書体・大きさ・色で描く）
+const fmtCaches = { native: new WeakMap(), ml: new WeakMap() };
+export function formatSections(e, ctx) {
+	if (!Array.isArray(e) || e[0] !== "format") return null;
+	const o = originOfCtx(ctx), cache = fmtCaches[o];
+	let fn = cache.get(e);
+	if (fn === undefined) {
+		const secs = [];
+		for (let i = 1; i < e.length; i++) {
+			const x = e[i]; if (x && typeof x === "object" && !Array.isArray(x)) continue;
+			const opt = e[i + 1] && typeof e[i + 1] === "object" && !Array.isArray(e[i + 1]) ? e[i + 1] : null;
+			secs.push({ v: compile(x, o), img: Array.isArray(x) && x[0] === "image", fs: opt?.["font-scale"] != null ? compile(opt["font-scale"], o) : null, col: opt?.["text-color"] != null ? compile(opt["text-color"], o) : null, fnt: opt?.["text-font"] != null ? compile(opt["text-font"], o) : null });
+		}
+		fn = ctx => secs.map(s => {
+			const v = s.v(ctx), t = s.img || v == null ? "" : String(v);
+			const fs = s.fs ? +s.fs(ctx) : null, col = s.col ? s.col(ctx) : null, fnt = s.fnt ? s.fnt(ctx) : null;
+			return { t, fs: Number.isFinite(fs) && fs > 0 ? fs : null, col: col ?? null, fnt: Array.isArray(fnt) && fnt.length ? fnt : typeof fnt === "string" && fnt ? [fnt] : null, img: s.img && v != null ? String(v) : null };
+		});
+		cache.set(e, fn);
+	}
+	if (o === "native") return fn(ctx);
+	try { return fn(ctx); } catch (err) { if (err === ML_ERR) return null; throw err; }
+}
+
 // 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
 export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation", "ln2", "split", "join"]);
 

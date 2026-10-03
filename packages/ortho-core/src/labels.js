@@ -1,6 +1,7 @@
 // ラベル抽出（投影非依存）。style の symbol層から点・横書きラベルを取り出す。
 // 描画は labels2d（Canvas2Dオーバーレイ）が担う。size/color/halo は式を評価。
-import { evalExpr, truthy, originOfLayer } from "./expr.js";
+import { evalExpr, truthy, originOfLayer, formatSections } from "./expr.js";
+import { allowsVertical } from "./vertical.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 import { parseFontStack } from "./fontstack.js";
@@ -66,6 +67,24 @@ function lineAnchors(g, extent, { step, half, first, win }) {
 	}
 	return out;
 }
+// format の区間（expr.js formatSections）→ 焼く形 [{ t, fs?, col?（[r,g,b,a]）, fnt?（parseFontStack の形） }]。書式の付く区間が 1 つも無ければ null（従来の 1 本の文字で描く）。
+// 記号の区間（["image"]）は文字 ""（記号の差し込みは未・記録）。両端の空白は text（trim 済み）と揃える
+function sectionsOf(tf, ctx) {
+	const raw = Array.isArray(tf) && tf[0] === "format" ? formatSections(tf, ctx) : null;
+	if (!raw || !raw.some(q => q.fs != null || q.col != null || q.fnt)) return null;
+	const out = [];
+	for (const q of raw) {
+		if (!q.t) continue;
+		const r = { t: q.t };
+		if (q.fs != null && q.fs !== 1) r.fs = q.fs;
+		if (q.col != null) { const c = parseRGBA(q.col); if (c) r.col = c; }
+		if (q.fnt) { const f = parseFontStack(q.fnt); if (f) r.fnt = f; }
+		out.push(r);
+	}
+	if (!out.length) return null;
+	out[0].t = out[0].t.trimStart(); out[out.length - 1].t = out[out.length - 1].t.trimEnd();
+	return out.filter(r => r.t);
+}
 function layoutOf(L, lo, ctx, ml) {
 	const ev = (e, d) => { if (e == null) return d; const v = evalExpr(e, ctx); return v == null ? d : v; };
 	const anchor = String(ev(lo["text-anchor"], "center")), off = ev(lo["text-offset"], [0, 0]);
@@ -79,6 +98,9 @@ function layoutOf(L, lo, ctx, ml) {
 		...(ml && lo["text-font"] != null ? (f => f ? { fnt: f } : {})(parseFontStack(ev(lo["text-font"], null))) : {}),   // 書体（段 2）＝MapLibre 由来の層だけ（ネイティブは既定の束）
 		...(vaList?.length ? { va: vaList, ro: lo["text-radial-offset"] != null ? num(ev(lo["text-radial-offset"], 0), 0) : null } : {}),
 	};
+	// text-writing-mode（["horizontal"|"vertical", …]・2026-10-03）＝縦書きにできる文字（漢字・かな・ハングル…を含む）の注記だけ焼く。点の注記＝並びの順に試す（MapLibre の placementModes）・線の注記＝線が縦に近い所で縦
+	const wmRaw = lo["text-writing-mode"], wm = Array.isArray(wmRaw) && wmRaw.every(x => typeof x === "string") ? wmRaw : (v => Array.isArray(v) ? v : null)(wmRaw == null ? null : evalExpr(wmRaw, ctx));
+	if (wm && wm.includes("vertical")) rec.wm = wm.filter(x => x === "vertical" || x === "horizontal").map(x => x[0]).filter((x, i, a) => a.indexOf(x) === i).join("");   // "v"・"hv"・"vh"
 	// 向き（段 5）＝text-rotate（度・時計回り）・text-rotation-alignment（map＝地図の回転に追随／viewport＝画面／viewport-glyph＝線の上で字だけ正立）・text-pitch-alignment（map＝傾けた地面に寝かせる）。既定（auto・0）は焼かない
 	const rot = num(ev(lo["text-rotate"], 0), 0), ra = String(ev(lo["text-rotation-alignment"], "auto")), pa = String(ev(lo["text-pitch-alignment"], "auto"));
 	if (rot) rec.rot = rot; if (ra !== "auto") rec.ra = ra; if (pa !== "auto") rec.pa = pa;
@@ -123,6 +145,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 			if (stateOf) ctx.state = stateOf(f);   // filter の後（#109）
 			const text = lo["text-field"] == null ? "" : String(evalExpr(lo["text-field"], ctx) ?? "").trim();
+			const sec = text ? sectionsOf(lo["text-field"], ctx) : null;   // format の区間（書式が付く時だけ・2026-10-03）
 			const icon = lo["icon-image"] == null ? "" : String(evalExpr(lo["icon-image"], ctx) ?? "").trim();   // 記号の名前（["image", …] は名前をそのまま返す・"{tok}" は mlstyle が式にしてある）
 			if (!text && !icon) continue;
 			const g = f.geom; if (!g || !g.coords.length) continue;   // フラットgeom：先頭点＝coords[0,1]
@@ -151,7 +174,9 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			const lay = layoutOf(L, lo, ctx, ml);
 			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
 			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
-			const rec = { anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z } : {}), ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
+			const tx = s => lay.transform === "uppercase" ? s.toUpperCase() : lay.transform === "lowercase" ? s.toLowerCase() : s;
+			const rec = { anchor: [lon, lat], text: tx(text), size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z } : {}), ...lay.rec, ...(sec ? { sec: sec.map(q => ({ ...q, t: tx(q.t) })) } : {}), ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
+			if (rec.wm && !allowsVertical(rec.text)) delete rec.wm;   // 縦書きにできない文字（ラテンだけ）＝横書き
 			rec.key = labelKey(rec);   // 鍵＝文字・記号・錨（ML の層は li も）。文字や錨を変える写しは付け直す
 			out.push(rec);   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 			}
