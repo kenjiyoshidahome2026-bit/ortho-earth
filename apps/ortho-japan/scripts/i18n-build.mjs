@@ -5,7 +5,7 @@
 //                           （Vite は要らない＝食い違うと npm test だけが落ちる。2026-09-17 に実際に踏んだ）。
 //   i18n/lang/<code>.json … その言語の { "<英語キー>": "訳" }。空文字（意図して英語）と欠落は落とす＝
 //                           実行時は「表に無い＝英語（キー）」の一本道で、二つを区別する必要がない。
-// ja は i18n.js が静的に import する（母語＝英語のちらつきを出さない・裁定 2026-09-16）。他言語は遅延 import。
+// ja も他言語と同じ遅延 import（「母語だけ特別扱い」を持たない＝裁定 2026-09-16 の実装。字面の import の表は lang-loaders.js）。
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
