@@ -8,6 +8,7 @@
 //         （key=名前#k・ward=名前）＝uv・頂点色（baseColorFactor×COLOR_0）・baseColorTexture を持つ派生パイプラインで描く（両バックエンド）。
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
@@ -131,17 +132,9 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
 export function createModel(map, { setMesh, fit, center, ell = false, signal } = {}) {
 	const t = tr();
-	let worker = null, seq = 0, cur = null;   // cur＝{ name, stats, src }
-	const waiting = new Map();
-	const rpc = (msg, transfer) => new Promise((res, rej) => {
-		worker ??= (() => {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）
-			w.onmessage = e => { const d = e.data, p = waiting.get(d.id); if (!p) return; waiting.delete(d.id); d.error ? p.rej(new Error(d.error)) : p.res(d); };
-			w.onerror = e => console.error("[model] worker error", e.message);
-			return w;
-		})();
-		const id = ++seq; waiting.set(id, { res, rej }); worker.postMessage({ id, ...msg }, transfer || []);
-	});
+	let cur = null;   // cur＝{ name, stats, src }
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
+	const rpc = pool.rpc;
 	const clear = () => { if (cur) { setMesh(cur.name, null); cur = null; } };
 	// 押し出しの今＝slot → { name, stats, used }（模型とは別スロット＝GLB と並べて立てられる）。
 	// slot＝層の名前（map.addLayer の fill-extrusion は層 id ごと＝複数並べられる・#34）。ガジェット直呼びは "default"＝従来どおり置き換え
@@ -193,7 +186,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;
 		},
-		destroy() { clear(); clearExtrude(); worker?.terminate(); worker = null; waiting.clear(); },
+		destroy() { clear(); clearExtrude(); pool.destroy(); },
 		// src＝File | URL 文字列。戻り値＝ctl（stats/bbox）。失敗は throw（dropFile がトーストへ出す）
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
