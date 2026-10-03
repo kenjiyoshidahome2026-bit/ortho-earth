@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { urlAsFile, wasmAsFile, assetUrlAsFile } from "../../packages/globe/scripts/lib/vite-lib-plugins.mjs";
+import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // 部品の worker を作らない版へ・MLT／点群のプラグイン（アプリ共通）
 const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EGM96 の格子と気候場の PNG を実体に（base64 で globe.js に埋めない）
 
 // 共有エンジン（縮小計画 項目 9・本人裁定 2026-09-30「アプリ間でエンジンのチャンクを共有」）＝@ortho-earth/globe を
@@ -44,8 +45,6 @@ export default defineConfig({
 	},
 	// 部品（geopbf・ortho-core・altpbf）の worker はエンジンの入口（globe の worker.js）で走らせる＝builtinWorkers を「作らない版」へ（ortho-globe と同じ）。
 	// #tile-formats＝MLT・#pointcloud-formats＝COPC（どちらも動的チャンク＝起動の束に入らない）
-	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(ROOT, "packages/geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#tile-formats", replacement: resolve(ROOT, "packages/tile-formats/src/register.js") },
-		{ find: "#pointcloud-formats", replacement: resolve(ROOT, "packages/tile-formats/src/pointcloud.js") }] },
+	resolve: { alias: engineAliases(ROOT) },
 	worker: { format: "es", plugins: () => [urlAsFile, wasmAsFile, assetAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
 });
