@@ -1,10 +1,13 @@
 // LOD選択と可視タイル算出（透視カメラ）。画面をサンプリングし各点をカメラ光線でunproject→タイルへ。
-import { lonLatToTile, tileBounds } from "./tile.js";
-import { cameraState, unproject, project, lonlatTo3D } from "./camera.js";
+import { lonLatToTile, tileBoundsInto, tileId } from "./tile.js";
+import { cameraState, unproject, projectInto, lonlatTo3D } from "./camera.js";
+
+// 節ごとの作業域（selectLOD は同期＝使い回し）：タイル境界 [w,s,e,n]・射影 [sx,sy,front]。旧＝節ごと・隅ごとに配列を作って GC が選抜の 2 割
+const B = new Float64Array(4), P = new Float64Array(3);
 
 // 距離別LOD（quadtree）：画面サンプルを含む root から、画面上のタイルサイズが閾値超なら4分割。
 // 近景=高z・遠景=低z を重なりなく敷く。可視判定はサンプル包含で（大タイルの4隅誤カリングを回避）。
-// sticky＝前回update で分割されたノード集合（"z/x/y"）。渡すとヒステリシスが効く：一度分割したノードは
+// sticky＝前回update で分割されたノード集合（tileId(z,x,y) の番号）。渡すとヒステリシスが効く：一度分割したノードは
 // tilePx×stickyRatio まで縮むまで分割を維持（分割は >tilePx のまま）。境界上のタイルがカメラ微動で
 // 親⇔子に毎フレーム振動し、merge・abort・再fetch を撒き散らすのを断つ（チルト時のちらつきの燃料）。
 // floorZ＝LOD下限：z<floorZ のノードは分割閾値を tilePx×floorRatio へ下げて優先的に割る＝遠景も floorZ 以上の
@@ -42,16 +45,16 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 	const rootMap = new Map();
 	// 極の上（|緯度|>85.05°）のサンプルはメルカトルの外＝y が範囲外のタイル（実在しない）になる→上下の端の行へ畳む（旧＝1/0/-1 のような偽タイルが根になり、極の周りの帯が覆われず紙色のまま・2026-09-30）
 	const nRoot = 1 << minZ;
-	for (const [lo, la] of samples) { const [x0, y0] = lonLatToTile(lo, la, minZ); const x = ((x0 % nRoot) + nRoot) % nRoot, y = Math.max(0, Math.min(nRoot - 1, y0)); rootMap.set(minZ + "/" + x + "/" + y, { z: minZ, x, y }); }
+	for (const [lo, la] of samples) { const [x0, y0] = lonLatToTile(lo, la, minZ); const x = ((x0 % nRoot) + nRoot) % nRoot, y = Math.max(0, Math.min(nRoot - 1, y0)); rootMap.set(tileId(minZ, x, y), { z: minZ, x, y }); }
 	const out = [], stack = [...rootMap.values()];
 	let guard = 0;
 	while (stack.length && guard++ < 30000) {
 		const t = stack.pop();
-		const b = tileBounds(t.x, t.y, t.z);
+		const b = tileBoundsInto(t.x, t.y, t.z, B);
 		const size = tileMetrics(st, t, b, cam.center, W, H, sLo, sLa, t.s, groundR);
 		if (size < 0) continue;                     // 画面外＆中心外＆サンプル無し → cull
 		const th = t.z < floorZ ? tilePx * floorRatio
-			: sticky && sticky.has(t.z + "/" + t.x + "/" + t.y) ? tilePx * stickyRatio : tilePx;
+			: sticky && sticky.has(tileId(t.z, t.x, t.y)) ? tilePx * stickyRatio : tilePx;
 		if (t.z < maxZ && (zOf ? t.z < zOf(t.z, t.x, t.y) : size > th)) {
 			const z = t.z + 1, x = t.x * 2, y = t.y * 2, s = samplesIn(b, sLo, sLa, t.s);
 			stack.push({ z, x, y, s }, { z, x: x + 1, y, s }, { z, x, y: y + 1, s }, { z, x: x + 1, y: y + 1, s });
@@ -65,13 +68,15 @@ export function selectLOD(cam, W, H, { minZ = 4, maxZ = 16, tilePx = 560, grid =
 // 4隅の投影は海面と groundR（地形リフト球）の**両方**で行い bbox を合併：海面bboxだけだと、リフトで
 // 画面内へ持ち上がる手前タイルが「画面外」でculされ、疎な画面サンプル（grid=10）の網に掛かった数枚しか
 // 残らない（63°チルトで実測）。リフトbboxだけだと逆に、中心標高より低い遠景（山上→谷）が欠ける。
-function tileMetrics(st, t, [w, s, e, n], center, W, H, sLo, sLa, sIn, groundR = 1) {
+function tileMetrics(st, t, b, center, W, H, sLo, sLa, sIn, groundR = 1) {
+	const w = b[0], s = b[1], e = b[2], n = b[3];
 	// 四隅に加えて辺の途中も見る（粗いタイル＝z≤4）：球の縁では四隅が全部裏側でも辺の一部が表に出る（極を見下ろす時の赤道帯＝南半球の z1 タイル）。旧＝四隅だけ＝縁の帯が「見えない」と切られて紙色のまま（2026-09-30）
 	const K = t.z <= 4 ? 6 : 1;
 	let nf = 0, minx = 1e9, miny = 1e9, maxx = -1e9, maxy = -1e9;
 	const corner = (lo, la) => {
 		for (let r = 0; r < (groundR !== 1 ? 2 : 1); r++) {
-			const [sx, sy, f] = project(st, lo, la, r ? groundR : 1);
+			projectInto(st, lo, la, r ? groundR : 1, P);
+			const sx = P[0], sy = P[1], f = P[2];
 			if (f >= 0) { nf++; minx = Math.min(minx, sx); miny = Math.min(miny, sy); maxx = Math.max(maxx, sx); maxy = Math.max(maxy, sy); }
 		}
 	};
@@ -93,8 +98,8 @@ function tileMetrics(st, t, [w, s, e, n], center, W, H, sLo, sLa, sIn, groundR =
 }
 
 // 境界 [w,s,e,n] に入るサンプルの添字（sIn＝親の分・null＝全部）
-function samplesIn([w, s, e, n], sLo, sLa, sIn) {
-	const o = [];
+function samplesIn(b, sLo, sLa, sIn) {
+	const w = b[0], s = b[1], e = b[2], n = b[3], o = [];
 	if (sIn) { for (let k = 0; k < sIn.length; k++) { const i = sIn[k], lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); } }
 	else for (let i = 0; i < sLo.length; i++) { const lo = sLo[i], la = sLa[i]; if (lo >= w && lo <= e && la >= s && la <= n) o.push(i); }
 	return o;
