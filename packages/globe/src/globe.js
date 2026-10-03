@@ -33,6 +33,7 @@ export { Compare } from "./compare.js";   // 2 枚の地図をスワイプで比
 import { MAP_THEMES } from "./palettes.js";
 import { WORLD_STYLE_THEMES, normWorldTheme } from "@ortho-earth/core/worldstyle";
 import { normClip, clipPlanesFor, clipPlanes, clipDistanceM } from "@ortho-earth/core/clip";   // 断面とクリッピング平面（#111）＝main 側の問い合わせ・地中フェードも切った側を外す   // 世界の地図面の配色の正本（名札・世界線の色・c= の別名）
+import { createLabelSender, labelKey } from "@ortho-earth/core/labelsync";   // 注記の集合は差分で worker へ（持っている物は番号だけ・2026-10-03）
 import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, CHOME800_MINZOOM, RAILTR_MINZOOM } from "./themes.js";
 import { createOverlay } from "./overlay.js";
 
@@ -820,6 +821,7 @@ renderWorker.onmessage = e => {
 	if (d.type === "elevGrid") { const f = elevGridWait.get(d.id); if (f) { elevGridWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "rasterStats") { const f = rasterStatWait.get(d.id); if (f) { rasterStatWait.delete(d.id); f(d.data); } return; }
 	if (d.type === "labelsPlaced") { const f = placedWait.get(d.id); if (f) { placedWait.delete(d.id); f(d.data); } return; }
+	if (d.type === "labelsResync") { labelSender.reset(); renderer.set("labels", labelSender(lastLabels)); return; }   // worker が持たない番号を受けた（同期ずれ）＝全部送り直す
 	if (d.type === "frame") { for (const fn of workerFrameFns) { try { fn(d.cam, d.t); } catch (err) { console.error("[frame hook]", err); } } return; }   // worker が描いた絵の cam（custom 層の同期・frameEvents を頼んだ時だけ来る）
 	if (d.type === "labelImageMissing") { for (const n of d.names || []) imageMissing(n); return; }   // 基図/vector の注記の記号帳に無い名前
 	if (d.type === "rasterPending") { rasterPend.clear(); for (const k in d.layers) rasterPend.set(k, d.layers[k]); rasterPendTotal = d.total; return; }   // 画像タイル層の未着（層 id→枚数・raster.js の申告）＝idle と isSourceLoaded の材料
@@ -1777,6 +1779,8 @@ const nearAnchor = (list, a, m) => {   // list（経緯度の列）に a から 
 	const cos = Math.cos(a[1] * Math.PI / 180);
 	return list.some(p => Math.hypot((p[0] - a[0]) * 111320 * cos, (p[1] - a[1]) * 111320) < m);
 };
+const chomeCopies = new WeakMap();   // 800 の元 → （N）表記の写し（文字が変わる＝鍵も付け直す）
+const chomeCopy = L => { let c = chomeCopies.get(L); if (!c) { c = { ...L, text: chomeShort(L.text), code: 210 }; c.key = labelKey({ ...c, key: undefined }); chomeCopies.set(L, c); } return c; };
 function mergeChome(all, zoom) {
 	if (!all.some(L => L.code === 800)) return all;   // 800 が来ないズーム/地域＝素通り（配列コピーもしない）
 	if (zoom < CHOME800_MINZOOM) return all.filter(L => L.code !== 800);
@@ -1800,10 +1804,34 @@ function mergeChome(all, zoom) {
 		if (nearAnchor(seen.get(k), L.anchor, 30)) continue;
 		let a = seen.get(k); if (!a) seen.set(k, a = []);
 		a.push(L.anchor);
-		out.push(L.code === 800 ? { ...L, text: chomeShort(L.text), code: 210 } : L);   // コピー＝タイル側のラベルキャッシュを壊さない
+		out.push(L.code === 800 ? chomeCopy(L) : L);   // コピー＝タイル側のラベルキャッシュを壊さない（同じ元には同じ写し＝worker へ送り直さない）
 	}
 	return out;
 }
+// 作り直すたびに同じ中身の物を新しく作らない＝worker へ送るのは初めての物だけ（labelsync）。インクが変わった（テーマ）時だけ作り直す
+const landmarkLabels = new WeakMap();
+const landmarkLabel = (m, color, halo, haloW) => { let e = landmarkLabels.get(m); if (!e || e.color !== color || e.halo !== halo || e.haloW !== haloW) landmarkLabels.set(m, e = { color, halo, haloW, L: { text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW } }); return e.L; };   // size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
+let facInkMemo = null;
+const restyled = new WeakMap();   // 元の注記 → { gen, out }＝再スタイルの写し（入力が同じなら同じ物）
+function restyle(L, kuVisible) {
+	// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
+	if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
+	// 郡名は同サイズのままやや薄く＝行政の骨格であって主役ではない。
+	if (L.code === 130) return { ...L, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.65] };
+	// 区名が表示されるズームでは、政令指定都市名は大きく薄い背景ラベルに（都道府県と同じ作法＝主役は区名）。
+	if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
+	// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
+	if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
+	// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役。
+	// 色はテーマ台帳のノブ（夜は同色相のまま明度を持ち上げた別値＝palettes.js）
+	// 施設は「小さい方」に統一：基図の並施設はスタイル既定(13.5)を丁目(12)へ頭打ち＝重要でない施設が大きく出る問題を消す
+	// （本人指摘 2026-08-08）。ただし 9xxx 合成コード（landmark/POI＝超高層の名前・意図的に大きい）は据え置く。
+	if (layerState.facility && isFacility(L)) return { ...L, size: (L.code >= 9000 ? L.size : Math.min(L.size, 12)) * 0.9, color: [...theme.facilityRGB, L.color[3]] };
+	// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-terrain #754c24＝等高線の茶の同族）
+	if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [...theme.terrainRGB, L.color[3]] };
+	return L;
+	}
+const labelSender = createLabelSender();
 function rebuildLabels(order) {
 	lastLabelGate = labelGate();
 	slog("labels rebuilt (no merge)");
@@ -1816,8 +1844,11 @@ function rebuildLabels(order) {
 	// そのまま追随する（読み込み時に焼くと夜テーマで紙色のハローが残る）。
 	const facInk = () => {
 		const lp = style.layers.find(l => l.id === "label")?.paint || {};
-		return { color: parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1],
+		if (facInkMemo && facInkMemo.lp === lp) return facInkMemo.ink;   // 同じ paint なら同じ配列（landmark/POI の名札を作り直さない）
+		const ink = { color: parseRGBA(lp["text-color"] ?? "#333") || [0.2, 0.2, 0.2, 1],
 			halo: parseRGBA(lp["text-halo-color"] ?? "#fff") || [1, 1, 1, 1], haloW: +(lp["text-halo-width"] ?? 1.1) };
+		facInkMemo = { lp, ink };
+		return ink;
 	};
 	// PLATEAU ランドマーク（施設チップON時のみ・高さの梯子で段階表示）
 	if (landmarks && layerState.facility) {
@@ -1828,7 +1859,7 @@ function rebuildLabels(order) {
 			for (const m of landmarks) {
 				if (m.h < minH || have.has(m.text)) continue;
 				// size 15＝施設の再スタイル(×0.9)を通ると13.5＝並の施設注記(12.2)より一回り大きい。sort 3＝施設の中では優先して残る
-				allLabels.push({ text: m.text, code: LANDMARK_CODE, anchor: m.anchor, size: 15, sort: 3, color, halo, haloW });
+				allLabels.push(landmarkLabel(m, color, halo, haloW));
 			}
 		}
 	}
@@ -1841,25 +1872,16 @@ function rebuildLabels(order) {
 	const zf = Math.floor(cam.zoom), inZ = L => (L.minZ == null || L.minZ < zf + 1) && (L.maxZ == null || L.maxZ >= zf);
 	const filtered = themes.filterLabels(merged.filter(inZ), layerState, cam.zoom, layerState.terrain);   // 地形ON＝測量点の標高数値も通す
 	const kuVisible = filtered.some(L => L.code === 110);   // 区名が見えている＝政令市名は「背景ラベル」へ格下げする合図
+	// 再スタイルの写しは元の注記ごとに覚える＝入力（区名の有無・チップ・テーマ）が同じなら同じ物＝labelsync が worker へ送り直さない
+	const gen = (kuVisible ? "k" : "") + (layerState.facility ? "f" : "") + (layerState.terrain ? "t" : "") + "|" + themeName;
 	lastLabels = filtered.map(L => {
-		// 都道府県は大きく薄い背景ラベルに（コピーしてキャッシュ側を壊さない）。他はそのまま。
-		if (L.code === 140) return { ...L, size: L.size * 1.25, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
-		// 郡名は同サイズのままやや薄く＝行政の骨格であって主役ではない。
-		if (L.code === 130) return { ...L, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.65] };
-		// 区名が表示されるズームでは、政令指定都市名は大きく薄い背景ラベルに（都道府県と同じ作法＝主役は区名）。
-		if (kuVisible && SEIREI.has(L.text)) return { ...L, size: L.size * 1.2, color: [L.color[0], L.color[1], L.color[2], L.color[3] * 0.5] };
-		// 測量点(7102三角点/7201・7221標高点)は shieldFor が記号＋標高値を描く。flat=真俯瞰の作法＝傾けたら等高線と一緒に消す。
-		if (L.code === 7102 || L.code === 7201 || L.code === 7221) return { ...L, flat: true };
-		// 施設は濃い紫＝チップと同色（--qm-accent-facility #6a3d9a。点火の掟：チップ色＝地図上の色）。名前は一回り小さく＝地名の脇役。
-		// 色はテーマ台帳のノブ（夜は同色相のまま明度を持ち上げた別値＝palettes.js）
-		// 施設は「小さい方」に統一：基図の並施設はスタイル既定(13.5)を丁目(12)へ頭打ち＝重要でない施設が大きく出る問題を消す
-		// （本人指摘 2026-08-08）。ただし 9xxx 合成コード（landmark/POI＝超高層の名前・意図的に大きい）は据え置く。
-		if (layerState.facility && isFacility(L)) return { ...L, size: (L.code >= 9000 ? L.size : Math.min(L.size, 12)) * 0.9, color: [...theme.facilityRGB, L.color[3]] };
-		// 地形名（3xx帯）は濃い茶＝チップと同色（--qm-accent-terrain #754c24＝等高線の茶の同族）
-		if (layerState.terrain && isTerrain(L.code)) return { ...L, color: [...theme.terrainRGB, L.color[3]] };
-		return L;
+		const e = restyled.get(L);
+		if (e && e.gen === gen) return e.out;
+		const out = restyle(L, kuVisible);
+		if (out !== L) restyled.set(L, { gen, out });
+		return out;
 	});
-	renderer.set("labels", lastLabels);   // ラベル集合を render worker へ。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
+	renderer.set("labels", labelSender(lastLabels));   // ラベル集合を render worker へ（差分＝持っている物は番号だけ）。標高付与(sampleElev)も terrain と一緒に worker 側で行う（同期して描く）
 }
 
 // 粗い下地（base スロット）：移動中も常に敷き直して先端の空白・ちらつきを消す。低zで少数＝安く広い。
@@ -2077,7 +2099,7 @@ function render() {
 			const o = [cam.center[0], cam.center[1]];
 			renderer.set("scene", { origin: o, layers: [] }, "main");
 			renderer.set("scene", { origin: o, layers: [] }, "base");
-			renderer.set("labels", []);
+			renderer.set("labels", labelSender([]));
 			readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = ""; lastLabels = []; mainSceneZoom = -1; basemapHidden = true;   // 復帰時に再結合させる
 		}
 		runFrameHooks();
@@ -4079,7 +4101,7 @@ const vtdGet = async () => {
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-gap-width", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
+const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v, layer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
