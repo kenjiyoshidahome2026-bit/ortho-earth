@@ -102,22 +102,8 @@
 	p { font-size: 12.5px; line-height: 1.7; margin: 0; }
 }
 
-/* Wikipedia iframe オーバーレイ（#stage 配下＝DOM順で地図の上・z-index 不使用の掟） */
-#stage .c20-wiki-frame {
-	position: absolute; inset: 10px; display: flex; flex-direction: column;
-	background: #fff; border-radius: 12px; overflow: hidden;
-	border: 1px solid rgba(255, 255, 255, .28); box-shadow: 0 14px 48px rgba(0, 0, 0, .55);
-	.c20-wf-bar { flex: none; display: flex; align-items: center; gap: 10px;
-		background: #0e1530; color: #cdd6e6; padding: 6px 6px 6px 12px; font-size: 12px;
-		.c20-wf-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-		a { margin-left: auto; flex: none; color: #9db8e8; font-size: 11px; text-decoration: none;
-			&:hover { color: #cde; } }
-		button { flex: none; width: 26px; height: 26px; border: none; background: none; color: #cdd6e6;
-			font-size: 15px; line-height: 1; cursor: pointer; border-radius: 6px;
-			&:hover { background: rgba(255, 255, 255, .12); } }
-	}
-	iframe { flex: 1; border: none; width: 100%; background: #fff; }
-}
+/* Wikipedia の枠（@ortho-earth/globe/wiki.js の .oe-wiki＝見た目は共通・ここは置き場所だけ。#stage 配下＝DOM順で地図の上・z-index 不使用の掟） */
+#stage .c20-wiki-frame { inset: 10px; z-index: auto; border-color: rgba(255, 255, 255, .28); }
 
 /* 国勢調査面＝パネル幅いっぱいを使う（移植元 gishub-jp の max-width 上限を撤廃・本人要望 2026-08-14） */
 #panel .cs-drill-display {

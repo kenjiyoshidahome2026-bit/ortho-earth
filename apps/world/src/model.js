@@ -1,7 +1,6 @@
 // ── 国別DB の表示モデル（旧 draw.js 前半の移植）──
 // 変更点: isox→key（データ側で焼き込み済）・capitalComment 表→データの capitalNote・言語=キー結合・通貨=キー配列・
 // AU 加盟の名前特例→キー "B28" をリストへ（サハラ・アラブ民主共和国）
-import { wiki } from "common/wiki.js";
 import LANGS from "../../../packages/world/i18n/langs.json";   // 言語一覧（code/name/rtl）＝小さいので同梱。UI 文言と名前は i18n/<lang>.json をサーバーから
 
 export const state = { display: "1", region: "0", filter: "", sort: "1", reg: "", lang: "en", i18n: null };
