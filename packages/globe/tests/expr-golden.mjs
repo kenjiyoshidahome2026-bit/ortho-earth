@@ -33,7 +33,10 @@ function scan(e, keys, vals) {
 }
 const ZOOMS = [...Array.from({ length: 23 }, (_, i) => i), 6.5, 12.3, 15.7];
 const GEOMS = ["Point", "LineString", "Polygon", "MultiPolygon"];
-const ser = v => v === undefined ? "∅" : typeof v === "number" && Number.isNaN(v) ? "NaN" : JSON.stringify(v);
+// 数は有効 12 桁に丸めて写す＝Math.pow 等の末尾 1ulp の違い（V8 の版・CPU）で指紋が変わらないように（2026-10-03：mono/dark/sepia の
+// road-face の line-width＝["^", 2, ["-", ["zoom"], 16]] が Linux の Node 22 で Mac と別の指紋＝式の意味は同じ）。12 桁＝式の結果の違いは必ず残る粒度
+const round = x => typeof x === "number" && Number.isFinite(x) ? +x.toPrecision(12) : x;
+const ser = v => v === undefined ? "∅" : typeof v === "number" && Number.isNaN(v) ? "NaN" : JSON.stringify(round(v), (k, x) => round(x));
 
 function fingerprint(expr, keys, vals) {
 	const js = JSON.stringify(expr ?? null);
