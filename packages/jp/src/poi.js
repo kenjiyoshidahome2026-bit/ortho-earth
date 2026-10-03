@@ -119,6 +119,9 @@ export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_O
 	}
 	// ラベル注入（施設チップON・z14+ で呼ばれる）：焼いた点を rank で解禁。同名は既存注記＋landmark に譲る（§11.2 案A＝d2 の実行時版）。
 	// sort=4−rank/255＝rank 大ほど衝突に強い（§11.5 の二役）。ctx＝{ zoom, ink:{color,halo,haloW}, landmarkCode }。
+	// 名札は点ごとに覚える（インクが同じ間は同じ物）＝main が worker へ送るのは初めての物だけ（labelsync・2026-10-03）
+	const poiLabels = new WeakMap();
+	const poiLabel = (p, color, halo, haloW) => { let e = poiLabels.get(p); if (!e || e.color !== color || e.halo !== halo || e.haloW !== haloW) poiLabels.set(p, e = { color, halo, haloW, L: { text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW } }); return e.L; };
 	function injectLabels(allLabels, { zoom, ink, landmarkCode }) {
 		if (!poiTiles.size) return;
 		const { color, halo, haloW } = ink;
@@ -146,7 +149,7 @@ export function createPoiLedger({ api: POI_API, base: POI_BASE, overrides: POI_O
 			if (!poiAll && zoom < poiZAppear(p.r)) { nGated++; continue; }   // rank解禁（?poiall=1で無効）
 			const auth = poiAuth(p.s);                  // 権威＝基図を消した側＝必ず出す。非権威は基図/landmarkに譲る
 			if (!poiAll && !auth && have.has(p.n)) { nDedup++; continue; }        // 案A dedup（?poiall=1で無効）
-			allLabels.push({ text: p.n, code: POI_CODE, anchor: p.anchor, size: 13, sort: 4 - p.r / 255, color, halo, haloW });
+			allLabels.push(poiLabel(p, color, halo, haloW));
 			have.add(p.n); nShown++;   // 別タイルの同名（同じ名の学校）も1つに
 		}
 		if (poiLog) console.log(`[poi] z${zoom.toFixed(1)} -> shown ${nShown} / stock ${nAvail} (rank-gated ${nGated}, basemap-dup ${nDedup}, overriding ${authNames.size}, manual ${poiOvr?.recs?.length ?? 0})${poiAll ? " [poiall]" : ""}`);
