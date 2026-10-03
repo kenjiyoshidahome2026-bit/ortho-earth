@@ -14,7 +14,7 @@ import { sel } from "common/dom";        // 後から部品の意匠＝同詳細
 import { setTipRoot } from "common/dom/tip.js";
 import "common/dom/highlight.js";
 import { escape, download } from "common";
-import { wiki } from "common/wiki.js";
+import { createWikiFrame } from "@ortho-earth/globe/wiki.js";   // Wikipedia の枠＝アプリ横断の共通の芯（2026-10-03）
 import { loadWorld, loadI18N, refresh, systemStore, dropCache, ASSET_BASE } from "./data.js";
 import { state, REGIONS, SORTS, FILTERS, LANGUAGES, LANG_LIST, isRTL, trans, collator, buildModel } from "./model.js";
 import { selectOptions, selectButtons, inputSearch } from "./controls.js";
@@ -171,37 +171,24 @@ export default async function world(opts = {}) {
 	<div class="foot left" name="LL"></div><div class="foot center" name="LC"></div><div class="foot right" name="LR"></div>
 	<button name="backward"></button><button name="forward"></button><button name="close"></button><button name="svg"></button>
 </div>
-<div name="wiki" class="hidden">
-	<div class="bar"><img name="logo" alt="Wikipedia"/><span name="title" class="title"></span><a name="newtab" target="_blank" rel="noopener"></a><button name="close"></button></div>
-	<iframe name="frame" title="Wikipedia" credentialless referrerpolicy="no-referrer"></iframe>
-</div>`);
+`);
 	const head = root.select("[name=head]").slideX(true);
 	[...head.selectAll("[name]")].forEach(t => head[t.getAttribute("name")] = sel(t));
 	[...head.selectAll("[icon]")].forEach(t => sel(t).html(icon[t.getAttribute("icon")]));
 	const scroll = root.select("[name=scroll]");
 	const modal = root.select("[name=modal]");
 	[...modal.selectAll("[name]")].forEach(t => modal[t.getAttribute("name")] = sel(t));
-	// Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。記事は m. 版＝狭い枠でも読みやすい。別タブは ↗ で
-	// ⚠この頁は COEP credentialless（www のデモ一覧の iframe に入るため・2026-09-22）＝素の iframe は Wikipedia が COEP を返さず
-	// 遮断される。<iframe credentialless>（Chrome/Edge）で免除・非対応のブラウザは別タブへ（census2020/wiki.js と同じ）
-	const CAN_FRAME = "credentialless" in HTMLIFrameElement.prototype;
-	const wikiPane = root.select("[name=wiki]");
-	[...wikiPane.selectAll("[name]")].forEach(t => wikiPane[t.getAttribute("name")] = sel(t));
-	wikiPane.logo.attr("src", wiki.logo); wikiPane.newtab.html("&nearr;"); wikiPane.close.html(icon.close).on("click", () => closeWiki());
+	// Wikipedia はアプリ内の iframe で（census と同じ・Kenji 2026-09-10）。枠＝@ortho-earth/globe/wiki.js の共通の芯（2026-10-03）：
+	// 記事は m. 版・別タブは ↗・COEP credentialless の頁でも <iframe credentialless> で免除・非対応のブラウザは別タブ。
+	// Escape はこの頁の積み方（escape()）で＝枠の自前の Escape は切る。モジュールの箱を全面覆う（2026-09-12 Kenji 裁定・寸法は draw.scss）
 	let modalEscape = null;   // 国旗モーダルの Escape（wiki を閉じた後に復帰させる）
 	let flagWave = null;      // 今の旗のたなびき（国歌の play/pause/ended に連動・旗を替える/閉じる時に片付ける）
-	function showWiki(url, name) {
-		Sound("操作H");
-		if (!CAN_FRAME) { open(url, "_wiki_"); return; }
-		wikiPane.title.text(name || ""); wikiPane.newtab.attr("href", url).tip(trans("Open '$1' on Wikipedia", name || ""));
-		wikiPane.close.tip(trans("Back to list"));
-		wikiPane.frame.attr("src", url.replace(/^https:\/\/([a-z-]+)\.wikipedia\.org/, "https://$1.m.wikipedia.org")); wikiPane.show();
-		escape(() => closeWiki());
-	}
-	function closeWiki() {
-		Sound("リスト"); wikiPane.hide(); wikiPane.frame.attr("src", "about:blank");
-		escape(modal.isVisible() && modalEscape ? modalEscape : null);
-	}
+	const wikiPane = createWikiFrame({ host: root.node(), className: "wiki", esc: false,
+		labels: () => ({ newTab: trans("Open in a new tab"), close: trans("Back to list") }),   // 関数＝言語を切り替えた後の open() で引き直す
+		onOpen: () => escape(() => closeWiki()),
+		onClose: () => { Sound("リスト"); escape(modal.isVisible() && modalEscape ? modalEscape : null); } });
+	function showWiki(url, name) { Sound("操作H"); wikiPane.open(url, name); }
+	function closeWiki() { wikiPane.close(); }
 	selectOptions(head.areas, REGIONS, v => (state.region = v, drawAll()), state.region, trans);
 	selectOptions(head.filter, FILTERS, v => (state.filter = v, drawAll()), state.filter, trans);
 	selectButtons(head.sorts, SORTS.index, v => (String(state.sort) == String(v) ? (v = -v) : 0, state.sort = +v || v, drawAll()), Math.abs(state.sort), true, trans);

@@ -18,6 +18,7 @@
 		"geopbf": "*",
 		"native-bucket": "*",
 		"quiet-mono": "*",
+		"@ortho-earth/globe": "*",
 		"@ortho-earth/japan": "*",
 		"gishub-jp": "*"
 	}
