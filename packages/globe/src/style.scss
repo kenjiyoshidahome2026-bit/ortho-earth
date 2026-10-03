@@ -22,8 +22,8 @@
    点火/消灯は app.js が #map へ .ui-idle を付与/除去（触れている間・検索を開いている間・タッチ端末では消えない）。
    トランジション(.6s)は components.scss の #gadgets/#chips 既定に相乗り。
    アイコン配列は全z共通（2026-09-03 シンプル化）＝星空圏(.world)も同じ一則＝星空はアイドルで独り占めできる。 */
-:is(.qm, #map).ui-idle :is(#gadgets, #chips) { opacity: 0; }
-:is(.qm, #map).ui-idle :is(#gadgets, #chips, #gadgets *, #chips *) { pointer-events: none; }   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
+:is(.qm, #map).ui-idle :is(#gadgets, #chips):not(.qm .qm *) { opacity: 0; }
+:is(.qm, #map).ui-idle :is(#gadgets, #chips, #gadgets *, #chips *):not(.qm .qm *) { pointer-events: none; }   /* :not(.qm .qm *)＝中に重ねた別の容れ物（equal の全球図）の家具は巻き込まない＝そちらは自分の退場規則を持つ */   /* 消えている間は下の地図を素通し（動かせば即復帰＝クリックを奪わない） */
 
 /* 建物3D（PLATEAU）データ管理モーダル＝日本固有の道具。佇まいはトークン参照 */
 #pdb {
