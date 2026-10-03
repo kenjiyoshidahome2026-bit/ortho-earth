@@ -76,6 +76,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const onSettle = () => { moving = false; settledZoom = cam.zoom; schedule(); };
 	map.on("move", onMove); map.on("settle", onSettle);
 	const srcReady = T => T && (T.state === "ready" || T.state === "empty" || (T.state === "failed" && T.tries >= TRIES));
+	let layerRev = 0;   // 層の版（set のたびに進む）
 	const layersOf = sid => [...layers.values()].filter(s => s.sid === sid);
 	const fzOf = (src, z) => layersOf(src.sid).some(s => hasZoom(s.layer.filter)) ? filterZoom(z, src.desc.maxzoom ?? 22, settledZoom) : z + 1;
 
@@ -151,7 +152,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		B.building = true; building++;
 		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
-		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key }));
+		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key, rev: s.rev }));
 		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
@@ -315,7 +316,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			const old = layers.get(id);
 			if (old && old.sid !== sid) ctl.remove(id);
 			const s = layers.get(id) || { id, sid, on: true, key: null };   // 順の鍵は呼び手の setOrder が振る（同じ手番で呼ぶ＝組み立ては rAF の後）
-			s.layer = layer; s.sid = sid; s.fs = usesFS(layer);
+			s.layer = layer; s.sid = sid; s.fs = usesFS(layer); s.rev = ++layerRev;   // rev＝層の中身の版（worker が ["zoom"] を置き換えた写しを層×版×pz で覚える＝式のコンパイルの覚えが効く）
 			layers.set(id, s);
 			src.zsig = layersOf(sid).map(x => x.id + "=" + paintZoomKey(styleZoomProps(x.layer), settledZoom, evalIn)).join(";");
 			touchSource(sid);
