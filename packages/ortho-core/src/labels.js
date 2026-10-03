@@ -4,6 +4,7 @@ import { evalExpr, truthy, originOfLayer } from "./expr.js";
 import { parseRGBA } from "./color.js";
 import { tileLocalToLonLat } from "./tile.js";
 import { parseFontStack } from "./fontstack.js";
+import { labelKey } from "./labelkey.js";   // 注記の鍵＝ここで一度焼く（main の重複排除・labels2d の当選集合が同じ鍵を読む）
 
 const M1_FONT = "NotoSansJP-Regular";
 
@@ -133,7 +134,9 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			const lay = layoutOf(L, lo, ctx, ml);
 			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
 			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
-			out.push({ anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line });   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
+			const rec = { anchor: [lon, lat], text: lay.transform === "uppercase" ? text.toUpperCase() : lay.transform === "lowercase" ? text.toLowerCase() : text, size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...lay.rec, ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
+			rec.key = labelKey(rec);   // 鍵＝文字・記号・錨（ML の層は li も）。文字や錨を変える写しは付け直す
+			out.push(rec);   // minZ/maxZ＝style の z（main が地図の z の目盛りへ寄せる）・lay＝配置の layout（labels2d の箱）・icon＝記号（段 3）   // li＝層の添字（基図の層の出し入れ＝main が外す・段 7）   // 分類コードの属性名は style の申告（無ければ 0＝分類なし）
 			}
 		}
 	}
