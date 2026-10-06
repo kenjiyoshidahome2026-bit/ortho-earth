@@ -2,16 +2,25 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8">
-	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><!-- maximum-scale=1/user-scalable=no は撤去（japan・nl と同判断＝ピンチ拡大は弱視配慮・地図面のジェスチャは touch-action が握る） -->
 	<title>GeoPBF — Convert GIS files in your browser</title>
 	<meta name="description" content="The GeoPBF demo: convert GIS files right in your browser — Shapefile, GeoJSON, GeoPackage, FileGDB, GeoParquet, KML, GPX, DXF, CSV and more to GeoPBF, GeoJSON, FlatGeobuf, GeoParquet, PMTiles and more. The file never leaves your machine. No server, no account.">
 	<meta property="og:title" content="GeoPBF — Convert GIS files in your browser">
 	<meta property="og:description" content="Drop a file, check it on the globe, write it out in another format. 18 formats in, 14 formats out. Everything runs in your browser.">
 	<meta property="og:type" content="website">
 	<meta property="og:url" content="https://www.ortho-earth.com/geopbf/">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/geopbf.webp">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="GeoPBF — Convert GIS files in your browser">
+	<meta name="twitter:description" content="Drop a file, check it on the globe, write it out in another format. 18 formats in, 14 formats out. Everything runs in your browser.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/thumbs/geopbf.webp">
+	<link rel="canonical" href="https://www.ortho-earth.com/geopbf/">
 	<link rel="preconnect" href="https://api.ortho-earth.com">
-	<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-	<link rel="apple-touch-icon" href="/favicon.svg" />
+	<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png"><!-- iOS は SVG 不可＝180px の PNG（japan・solar と同じ一枚＝球儀マーク・同一オリジン） -->
+	<meta name="theme-color" content="#000">
 	<!-- ページそのものの体裁。packages/ortho-map/src/index.scss から移設 2026-08-19＝
 	     ライブラリ（ortho-map）は html/body へ書かない＝任意のページへ埋め込んでもホストを壊さない、の掟。
 	     内容は移設前と同一＝このアプリの見た目・操作感は不変。 -->
