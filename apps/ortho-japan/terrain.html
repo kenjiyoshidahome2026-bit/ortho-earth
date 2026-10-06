@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ja">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#f6f6f4}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#f6f6f4;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+	</style>
+	<link rel="icon" href="/japan/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<title>Landforms of Japan — ortho-japan</title>
+	<meta name="description" content="Mountains, volcanoes, rivers, lakes, plains, islands and seas of Japan on a 3D map, with their heights, lengths, areas and depths side by side.">
+	<link rel="canonical" href="https://www.ortho-earth.com/japan/terrain">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="ja_JP">
+	<meta property="og:title" content="Landforms of Japan — ortho-japan">
+	<meta property="og:description" content="About 1,500 landforms of Japan on a 3D map: compare the heights of mountains, the lengths of rivers and the areas of lakes, and jump to any of them.">
+	<meta property="og:url" content="https://www.ortho-earth.com/japan/terrain">
+	<meta property="og:image" content="https://www.ortho-earth.com/japan/og/terrain.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Landforms of Japan — ortho-japan">
+	<meta name="twitter:description" content="About 1,500 landforms of Japan on a 3D map: compare the heights of mountains, the lengths of rivers and the areas of lakes, and jump to any of them.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/japan/og/terrain.jpg">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 日本の地形（山・川・湖・平野・島・海…約 1,500 件）を日本の 3D 地図に。物理量（標高・長さ・面積・深さ…）で記号の大きさを変え、
+		// 一覧（並べ替え）と比較図（高さ比べ・長さ比べ）を地図と連動させる＝/globe/physical（世界の地形）の日本版。
+		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、描画と案内板は ./terrain.js（遅延 chunk）。
+		// データ＝public/terrain.json（台帳）・terrain-i18n/<lang>.json（名前表）・terrain.geopbf（形状台帳）＝scripts/terrain-ledger が組む。
+		(async () => {
+			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
+			await setLang();
+			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
+			const engineP = import("./app.js");
+			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
+			try {
+				const [{ default: orthoJapan, geopbf }, { mountTerrain }] = await Promise.all([engineP, import("./terrain.js")]);
+				// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D は出さない（地形が主役・起動も軽い）。
+				// 基図の地形チップ（地理院の地形名・等高線・水系）は固定で消す＝地形名はこの頁の台帳が描く（二重に出さない）・地名（都市名）は残す
+				const map = await orthoJapan({ target: "#map", view: location.hash || "#4.6/36.5/137.5/30t", chips: false, mesh: false,
+					layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+				dismissBoot();
+				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+				const terrain = await mountTerrain(map, { geopbf, base: new URLSearchParams(location.search).get("data") || import.meta.env.BASE_URL });   // ?data=URL で台帳を差し替え
+				window.__map = map; window.__terrain = terrain;   // console 検証用
+			} catch (e) { console.error("[terrain] startup failed", e); dismissBoot(); }
+		})();
+	</script>
+</body>
+</html>
