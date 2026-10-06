@@ -5,7 +5,9 @@ const w = fs.readFileSync(src, "utf8");
 const table = w.slice(w.indexOf('{| class="wikitable sortable"'), w.indexOf("\n|}", w.indexOf('{| class="wikitable sortable"')));
 const rows = table.split(/\n\|-\s*\n/).slice(1);
 const MONTH = { January: 1, February: 2, March: 3, April: 4, May: 5, June: 6, July: 7, August: 8, September: 9, October: 10, November: 11, December: 12 };
-const strip = s => s.replace(/<ref[^>]*\/>/g, "").replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, "").replace(/\{\{[^{}]*\}\}/g, "").replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1").replace(/'{2,}/g, "").replace(/<[^>]+>/g, "").trim();
+// wikitext → 素の文（<ref>・テンプレート・リンク・強調・タグを落とす）。落として新たに現れる形（<<script>script> 等）が無くなるまで繰り返す＝CodeQL の「不完全な多文字の除去」を避ける。
+// 出力は台帳の desc（頁では textContent で出す＝HTML として差し込まない）
+const strip = s => { let t = s, prev; do { prev = t; t = t.replace(/<ref[^>]*\/>/g, "").replace(/<ref[^>]*>[\s\S]*?<\/ref>/g, "").replace(/\{\{[^{}]*\}\}/g, "").replace(/\[\[(?:[^\]|]*\|)?([^\]]*)\]\]/g, "$1").replace(/'{2,}/g, "").replace(/<[^>]+>/g, ""); } while (t !== prev); return t.trim(); };
 const list = [];
 for (const r of rows) {
 	const cells = r.split(/\n\|(?!\|)/);   // 先頭＝!scope="row" | [[Title|Short]]
