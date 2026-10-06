@@ -9,6 +9,7 @@ import { sharedEngine, engineVersion } from "../../packages/globe/scripts/lib/sh
 //   /globe/sats    … 人工衛星（データ＝apps/sats-mirror の /sats/active.csv）
 //   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
 //   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は bucket GIS/world/）
+//   /globe/parks    … アメリカ合衆国の国立公園 63（/japan/parks と同型・台帳 public/parks-us.json・外周 public/parks-us.geopbf・他ユニット public/nps-units.geopbf）
 // エンジンは共有エンジン（/globe/engine/<版>/・縮小計画 項目 9・本人裁定 2026-09-30）を URL で読む＝build の時だけ（dev はソース直）。
 // 共有エンジンの置き場はこの家（/globe/*）＝build の最後に dist/engine/<版>/ を dist/site/globe/engine/<版>/ へ写す。japan の殻（app.js）も jp パックも通らない。
 // COOP/COEP（credentialless）＝gint の SharedArrayBuffer（ゼロコピー）の点火条件。server.headers では worker のサブ import に
@@ -34,7 +35,7 @@ export default defineConfig(({ command }) => ({
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
 	build: { outDir: "dist/site/globe", emptyOutDir: true, rollupOptions: {
-		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html") },
+		input: { main: resolve(import.meta.dirname, "index.html"), quakes: resolve(import.meta.dirname, "quakes.html"), sats: resolve(import.meta.dirname, "sats.html"), clouds: resolve(import.meta.dirname, "clouds.html"), physical: resolve(import.meta.dirname, "physical.html"), parks: resolve(import.meta.dirname, "parks.html") },
 		// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・japan と同じ）＝worker が実行時ヘルパ欲しさに mesh-loaders を静的 import する罠。worker にも同じ物
 		experimental: { chunkOptimization: false },
 	} },
