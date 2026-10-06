@@ -32,6 +32,8 @@
 		#attr[data-boot] a{color:rgba(200,210,226,.82);text-decoration:none}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="canonical" href="https://www.ortho-earth.com/nl/">
 	<link rel="apple-touch-icon" href="/nl/apple-touch-icon.png"><!-- ホーム画面に追加した時のアイコン（iOSはSVG不可＝180pxのPNG）。ortho-solar と同じ一枚＝球儀マーク -->
 	<meta name="apple-mobile-web-app-title" content="ortho-nl">
 	<title>ortho-nl — オランダ 3DBAG（同じエンジン・別の国）</title>
@@ -42,14 +44,13 @@
 	<meta property="og:title" content="ortho-nl — オランダ 3DBAG">
 	<meta property="og:description" content="オランダ全土のLoD2建物（3DBAG）を同じエンジンで。国が変わってもエンジンは変わらない。">
 	<meta property="og:url" content="https://www.ortho-earth.com/nl/">
-	<meta property="og:image" content="https://www.ortho-earth.com/nl/ogp.png">
-	<meta property="og:image:width" content="1200">
-	<meta property="og:image:height" content="630">
+	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/nl.webp">
 	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/thumbs/nl.webp">
 </head>
 <body>
 	<!-- 起動画面（球儀マーク）：外部CSS/JSに一切依存せずHTMLパース直後に描画＝FCPの実体。ready後に #boot.gone でフェード消去 -->
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="ortho-earth 起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<!-- 静的出典＝LCP前倒し（幕の上・クレジット風）。文言は instruments.js と同文＝起動後に養子縁組される -->
 	<div id="attr" data-boot>出典：<a href="https://3dbag.nl/" target="_blank" rel="noopener">3DBAG（TU Delft・CC BY 4.0）</a><br>
 		BAG（建物登記）・AHN（国土LiDAR）より TU Delft が自動生成<br>
@@ -78,7 +79,7 @@
 			map.gadget.contextmenu(); // 右クリックメニュー
 			map.gadget.dropFile();    // GISファイルのD&D取り込み
 			map.gadget.hint();        // 操作説明カード
-		});
+		}).catch(e => import("@ortho-earth/globe/page.js").then(m => m.startupFailed("nl", e), () => { console.error("[nl] startup failed", e); dismissBoot(); }));   // 起動失敗＝画面に言葉で（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 		if (location.protocol === "https:" && "serviceWorker" in navigator)
 			addEventListener("load", () => navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).catch(e => console.warn("[sw] 登録失敗", e)));
 	</script>

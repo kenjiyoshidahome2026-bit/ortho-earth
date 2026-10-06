@@ -11,8 +11,12 @@
 		#boot.gone{opacity:0;pointer-events:none}
 		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
 		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="manifest" href="/japan/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png">
 	<title>Landmarks in GLB — ortho-japan</title>
 	<meta name="description" content="Japanese landmarks as PLATEAU LOD3 city models, read straight from GLB on a 3D globe. Download each one as GLB or glTF.">
 	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
@@ -32,32 +36,26 @@
 	<meta name="twitter:image" content="https://www.ortho-earth.com/japan/og/models.jpg">
 </head>
 <body>
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<script type="module">
 		// 名所の 3D 模型 showcase＝写真測量スキャン（CC BY）を実在の場所に置き、一覧をクリックすると飛んで見せる（quakes/sats と同型の器）。
 		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// 一覧と配線は ./models.js（遅延 chunk）。読み込みと描画はエンジンの model ガジェット（gadgets/model.js＝PLATEAU と同じ建物メッシュ経路）。
 		// 台帳＝public/models.json（GLB 本体は bucket GIS/models/）。?m=<id> で起動時に選ぶ。
-		(async () => {
-			// 言語（./i18n.js・英語キー・26 言語）：html の lang/dir をこの言語に。文言（title/description/パネル）は models.js が t() で組む＝走査器（.js だけ読む）の目に入る
-			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
-			await setLang();
-			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
-			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
-			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
-			try {
-				const [{ default: orthoJapan }, { mountModels }] = await Promise.all([engineP, import("./models.js")]);
-				// 初期視点＝日本を眺める球（共有 URL の hash があればそちら）。建物 3D（PLATEAU）はそのまま＝模型の周りに街が立つ
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#3/36/138", chips: false,
-					// plateau:false＝エンジンの PLATEAU 建物（LOD2）は出さない。模型が同じ建物の LOD3 版＝重なって壁の絵が明滅するため（本人 2026-09-21）
-					mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
-				dismissBoot();
-				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
-				const models = await mountModels(map, { catalog: `${import.meta.env.BASE_URL}models.json` });
-				window.__map = map; window.__models = models;   // console 検証用
-			} catch (e) { console.error("[models] startup failed", e); dismissBoot(); }
-		})();
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。文言（title/description/パネル）は models.js が t() で組む
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("models", async () => {
+			const [{ default: orthoJapan }, { mountModels }] = await Promise.all([import("./app.js"), import("./models.js")]);
+			// 初期視点＝日本を眺める球（共有 URL の hash があればそちら）。建物 3D（PLATEAU）はそのまま＝模型の周りに街が立つ
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#3/36/138", chips: false,
+				// plateau:false＝エンジンの PLATEAU 建物（LOD2）は出さない。模型が同じ建物の LOD3 版＝重なって壁の絵が明滅するため（本人 2026-09-21）
+				mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
+			const models = await mountModels(map, { catalog: `${import.meta.env.BASE_URL}models.json` });
+			window.__map = map; window.__models = models;   // console 検証用
+		});
 	</script>
 </body>
 </html>

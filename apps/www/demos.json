@@ -91,6 +91,20 @@
 			}
 		},
 		{
+			"id": "parks-us",
+			"href": "/globe/parks",
+			"group": "earth",
+			"icon": "🏞️",
+			"title": "National Parks of the United States",
+			"lang": "26",
+			"desc": "All 63 national parks of the United States on a 3D globe — photos, the National Park Service's boundaries, facts and Wikipedia links.",
+			"img": "/thumbs/parks-us.webp",
+			"shot": {
+				"url": "/globe/parks?p=yellowstone",
+				"wait": 16
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",
