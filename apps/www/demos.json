@@ -148,6 +148,20 @@
 			}
 		},
 		{
+			"id": "himekuri",
+			"href": "/himekuri/",
+			"group": "japan",
+			"icon": "📅",
+			"title": "Daily calendar",
+			"lang": "26",
+			"desc": "A Japanese tear-off calendar (lunisolar date, rokuyō, solar terms, holidays) with sunrise, sunset, twilight and the Moon for where you stand, computed with your elevation. Scroll a week without end; add your own iCal.",
+			"img": "/thumbs/himekuri.webp",
+			"shot": {
+				"url": "/himekuri/?d=2026-10-08&lat=35.6812&lon=139.7671&alt=3",
+				"wait": 6
+			}
+		},
+		{
 			"id": "scene",
 			"href": "/japan/scene#5.2/36.2/137.8",
 			"group": "tools",
