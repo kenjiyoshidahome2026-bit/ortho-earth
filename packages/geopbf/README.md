@@ -953,7 +953,7 @@ GeoPBF, ZIP/Shapefile/MOJ decoders, COG tiles, PMTiles and Parquet — go throug
 Requires a browser with `CompressionStream` (all evergreen browsers). zstd in Node needs 22.15+.
 
 Workers are declared as `new Worker(new URL("./…", import.meta.url), { type: "module" })` and the WASM ships as a
-regular asset — Vite and other modern bundlers handle both natively, no plugins. One setting is required in the
+regular asset (prebuilt in `wasm/pkg`; `npm run build:wasm` rebuilds it with the pinned toolchain and `npm test` checks the ledger, see reference.md § Verification) — Vite and other modern bundlers handle both natively, no plugins. One setting is required in the
 consumer's Vite config, because the workers use dynamic imports internally and Vite's default `iife` worker format
 rejects them:
 
