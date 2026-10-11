@@ -1,4 +1,4 @@
-# GeoPBF API Reference (v1.14)
+# GeoPBF API Reference (v1.19)
 
 `GeoPBF` is a high-performance GIS library for the browser, providing efficient binary storage, spatial analysis, and topological processing.
 
@@ -19,11 +19,13 @@
 
 ## 1. Constructor
 
-### `new PBF(options)`
-Creates a new GeoPBF instance.
+### `new GeoPBF(options)`
+Creates a new GeoPBF instance (`import { GeoPBF } from "geopbf/pbf"`; the auto-detecting entry `geopbf(input, options)` from `createGeopbf()` creates instances with the same options).
 * **`options.name`** (String): Dataset name.
 * **`options.precision`** (Number): Coordinate precision ($10^n$). Default is `6` ($10^{-6}$ degrees).
 * **`options.noprop`** (Boolean): If true, skips property encoding to save space.
+* **`options.cut`** (Boolean): `false` disables the antimeridian split at encode time (for a container that must round-trip shapes unchanged, e.g. an editor session). Default `true`; `pbf.cutCount` counts the features that were split.
+* **`options.description` / `license` / `attribution` / `minZoom` / `maxZoom`**: header metadata (see §3).
 * **`options.noeval`** (Boolean): FUNC-typed property values (wire type 7, written when a property is a JavaScript function) are returned as their source string. **Default `true`** since 1.19: opening an unknown file never runs code from it, and decoding works under a CSP without `unsafe-eval`. Pass `{ noeval: false }` to opt back into the old behaviour (`new Function(\`return ${src}\`)`, i.e. a thunk that returns the function).
 
 ---
@@ -49,7 +51,10 @@ Returns the serialized binary data as an `ArrayBuffer`.
 Gets or sets metadata strings.
 
 ### `pbf.precision([value])`
-Gets or sets the coordinate precision ($10^n$).
+Without an argument: the coordinate precision ($10^n$, synchronous). With an argument (1–9): **returns a Promise of a new instance** re-encoded at that precision (the receiver is unchanged).
+
+### `pbf.updateHeader(meta)` / `pbf.attribution([value])` / `pbf.minZoom([value])` / `pbf.maxZoom([value])`
+Header metadata is rewritten in place (O(header), the feature body is copied, not re-encoded). `pbf.headerBuffer` is the header alone.
 
 ---
 
@@ -61,44 +66,81 @@ Returns the `[lng, lat]` centroid of the feature at the specified index.
 ### `pbf.area(index)`
 Returns the area (in square meters) of the polygon at the specified index.
 
-### `pbf.contain([lng, lat], [getOneFlag])`
-Checks which polygons contain the given point. Returns an array of indices or a single index if `getOneFlag` is true.
+### `pbf.contain([lng, lat])`
+Returns the feature index (fid) of the **smallest** polygon containing the point, or `null` (also `null` when no Gint has been baked). Needs `{ gint: true }`.
+
+### `pbf.identifyAt(lng, lat, [options])`
+Point / line / polygon hit test without a projection, in that order: `{ point: 50, polyline: 30 }` are the search radii in metres, `accept(fid)` filters candidates. Returns the feature index or `null`.
+
+### `pbf.lineLength(index)` / `pbf.getBbox(index)` / `pbf.bbox` / `pbf.bboxes`
+Length in metres, per-feature bbox, dataset bbox, all bboxes.
 
 ---
 
 ## 5. Data Manipulation
 
 ### `await pbf.dissolve(propertyName)`
-Merges adjacent polygons that share the same value for the specified property.
+Merges adjacent polygons that share the same value for the specified property (`true` = everything, omitted = all properties equal, compared by type: `1` and `"1"` differ).
 
-### `await pbf.map(mapFunc)`
-Returns a new PBF instance with properties modified by the `mapFunc`.
+### `await pbf.map(mapFunc)` / `await pbf.closeFilter(filterFunc)` / `await pbf.cloneMap({ map, filter })`
+Returns a new instance with properties modified by `mapFunc` / only the features passing `filterFunc`.
 
 ### `await pbf.classify(keyOrFunc)`
-Splits the dataset into multiple PBF instances based on a property key or a custom classification function.
+Splits the dataset into multiple instances based on a property key or a custom classification function.
+
+### `pbf.clone()` / `pbf.cloneHead()` / `pbf.getPropertyTable()` / `pbf.getCSV()` / `pbf.propertiesTable` / `pbf.propsRow(i)`
+Copies and attribute tables. `propsRow(i)` is the row of values in `keys` order, decoded lazily.
+
+### `pbf.simplified(minRank)`
+A FeatureCollection thinned to vertices of Gint rank ≥ `minRank` (for baking dedicated low-detail data, not for drawing).
 
 ---
 
 ## 6. Topology & Advanced GIS
 
-### `pbf.topojson` (Getter)
-Returns the dataset in **TopoJSON** format.
+All of §6 needs the Gint topology (`geopbf(input, { gint: true })`, or `await pbf.gint()`).
+
+### `pbf.topojson()`
+Returns the dataset in **TopoJSON** format (arcs shared between neighbours).
 
 ### `pbf.neighbors([index])`
-Returns an array of indices representing features that share boundaries with the specified feature.
+Indices of the features sharing a boundary with `index`; without an argument, the whole adjacency list.
 
-### `pbf.mesh(filterFunc)`
-Extracts shared boundaries (edges) between polygons that satisfy the filter criteria.
+### `pbf.mesh({ filter, arc })`
+MultiLineString of the boundaries shared by exactly two polygons that satisfy `filter` (`arc: true` returns arc indices).
 
-### `pbf.merge(filterFunc)`
-Combines multiple polygons into a single geometry by removing shared internal boundaries.
+### `pbf.merge({ filter, arc })`
+Outer boundary of the union of the polygons that satisfy `filter`, with shared internal boundaries removed.
+
+### `await pbf.gint([options])` / `await pbf.setGintBUF(buf)` / `pbf.cleanTopology(options)` / `pbf._gintBuffer` / `pbf.unPackGint`
+Bake, attach, clean and read the GintBUF (format 5). `options.clean` runs the intersection repair after baking.
 
 ---
 
-## 7. Combining
+## 7. Combining & export
 
-### `pbf.concat(...others)`
-Combines this instance with other PBF instances into a new instance (named after this one).
+### `pbf.concat(...others)` / `GeoPBF.concatinate([a, b, …], name)`
+Combines this instance with other instances into a new instance (named after this one).
+
+### Export (methods added by `createGeopbf()`)
+`await pbf.geopbfFile()`, `geojsonFile()`, `topojsonFile()`, `shapeFile()`, `kmzFile()`, `gpxFile()`, `czmlFile()`, `gmlFile()`, `fgbFile()` → a `File`/`Blob` of that format, encoded in a worker (`{ gz: true }` where the format is text). `await pbf.save()` stores to the configured bucket; `await pbf.preview(canvas, props)` draws a thumbnail; `await pbf.profile()` measures sizes; `await pbf.gintbuf()` returns the GintBUF.
+
+### Module map (package subpaths)
+| Subpath | What it exports |
+| :-- | :-- |
+| `geopbf` | `createGeopbf`, `geopbf`, `geopbfCached`, `setWorkerFactory` |
+| `geopbf/pbf`, `geopbf/pbf-base` | `GeoPBF` (with / without the extension methods), `makeKeys`, `propsKeyOf` |
+| `geopbf/worker`, `geopbf/no-builtin-workers` | the single worker entry; the alias that drops geopbf's own worker from a host bundle |
+| `geopbf/gint`, `geopbf/topology`, `geopbf/identify` | Gint baking (WASM), GintBUF pack/unpack, `findPolygon` and friends |
+| `geopbf/convert`, `geopbf/pmtiles`, `geopbf/geoparquet`, `geopbf/parquet`, `geopbf/spatial-order` | PMTiles / GeoParquet writers and readers, engines, spatial ordering |
+| `geopbf/gpkg`, `geopbf/sqlite`, `geopbf/spatialite`, `geopbf/mbtiles`, `geopbf/filegdb`, `geopbf/fgb`, `geopbf/dxf`, `geopbf/table` | readers: GeoPackage (own SQLite reader), SpatiaLite, MBTiles, File Geodatabase, FlatGeobuf, DXF, CSV/TSV/XLSX |
+| `geopbf/proj`, `geopbf/datum`, `geopbf/convert/node-gint` | projections (EPSG), JGD datum shifts (TKY2JGD / PatchJGD), Gint baking from Node |
+| `geopbf/cog`, `geopbf/cog/core`, `geopbf/cog/source`, `geopbf/maplibre-cog`, `geopbf/leaflet-cog` | Cloud Optimized GeoTIFF by Range requests and its map adapters |
+| `geopbf/featureservice` | ArcGIS FeatureServer / OGC API – Features as a GeoPBF source |
+| `geopbf/georef` | IIIF Georeference Annotation (control points → image warp) |
+| `geopbf/edit`, `geopbf/edit/*` | the editing model used by geoedit (DOM-free) |
+| `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/load` | map library adapters (§8–§11) and the shared loader |
+| `geopbf/sanitize`, `geopbf/czml`, `geopbf/gzip`, `geopbf/encodeZIP`, `geopbf/decodeZIP`, `geopbf/encodeXLSX`, `geopbf/fname2mime` | utilities |
 
 ---
 
@@ -209,4 +251,4 @@ The inverse: a GeoParquet (or any Parquet with a WKB geometry column) → `{ pbf
 
 ---
 
-*Document version: August 2026. This specification is based on the implementation in the `geopbf` library.*
+*Document version: October 2026 (v1.19). This reference follows the implementation in the `geopbf` library.*
