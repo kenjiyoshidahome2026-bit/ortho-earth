@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import { renderDemos } from './cards.js';
+import { crossOriginIsolation, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
 const readDemos = () => JSON.parse(readFileSync(new URL('./demos.json', import.meta.url), 'utf8'));
@@ -20,7 +21,7 @@ const demosHtml = () => ({
 
 // 背景の地球は globe-lite.js（webp 1 枚＋WebGL）＝エンジンは載せない。prefetch.js が geopbf/altpbf で /japan/ の世界データを IDB へ先読みする。
 export default defineConfig({
-	plugins: [demosHtml()],
+	plugins: [crossOriginIsolation(), demosHtml()],   // COOP/COEP credentialless＝dev と preview の全リクエスト（旧 server.headers＝dev だけ）。本番は deploy-worker.js が刻む
 	optimizeDeps: {
 		exclude: ['common', 'geopbf', 'altpbf', 'native-bucket', 'himekuri', 'pbf', '@ortho-earth/core'],
 	},
@@ -32,14 +33,9 @@ export default defineConfig({
 		proxy: Object.fromEntries(['/japan', '/globe', '/equal', '/world', '/solar', '/geopbf', '/gishub-jp', '/nl', '/maps', '/docs'].map(p => [`^${p}(/|\\?|$)`, {
 			target: (p === '/japan' && process.env.JAPAN_DEV) || 'https://www.ortho-earth.com', changeOrigin: true, secure: true,
 		}])),
-		headers: {
-			'Cross-Origin-Opener-Policy': 'same-origin',
-			'Cross-Origin-Embedder-Policy': 'credentialless',
-		}
 	},
 	worker: { format: 'es' },
 	// sourcemap: 'hidden' = .mapは出すがJS末尾に参照を書かない＝実質非公開（gishub-jpと同じ方針）
-	// cssTarget＝vite 8 の既定（baseline-widely-available）の実体。無いと cssTarget も esnext になり、lightningcss が
-	// -webkit-backdrop-filter を「不要な接頭辞」として消す＝iOS 17 以前の Safari でガラスのぼかしが消える（2026-09-25 実測）
-	build: { target: 'esnext', cssTarget: ['chrome111', 'edge111', 'firefox114', 'safari16.4', 'ios16.4'], sourcemap: 'hidden' }
+	// CSS_TARGET＝vite 8 の既定の実体（target esnext で -webkit-backdrop-filter が消えるのを防ぐ・2026-09-25 実測・理由は vite-app.mjs）
+	build: { target: 'esnext', cssTarget: CSS_TARGET, sourcemap: 'hidden' }
 });

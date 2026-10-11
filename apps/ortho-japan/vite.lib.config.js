@@ -1,6 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { urlAsFile, wasmAsFile, binUrlAsFile } from "../../packages/globe/scripts/lib/vite-lib-plugins.mjs";   // 資産を base64 で埋めない 3 本（共有エンジンと共用）
+import { engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // 部品の worker を作らない版へ・MLT／点群のプラグイン（アプリ共通）
 
 // lib×ES では vite が whitespace minify を外す（下流バンドラ向け PURE 注釈保持の思想）。本ライブラリは事前ビルド一枚岩＝
 // 下流の木刈り効果は無く、本番 /japan/lib の app が 627KB raw で配られるパース代の方が高い（Lighthouse mobile 実測 2026-08-21）。
@@ -57,9 +58,7 @@ export default defineConfig({
 	// 旧：vite 5 で空白 minify を worker に入れ忘れていた実測（2026-09-14）：renderworker 6,380 行・meshworker 11,377 行のまま配っていた。
 	// 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（worker.js）で走らせる（app.js の hostWorker）＝部品自身の worker は組み立てない
 	// ＝各部品の builtinWorkers.js（new Worker の唯一の直書き）を「作らない版」（geopbf/no-builtin-workers・中身は汎用）に差し替える（2026-09-22・標準の作法）
-	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../../packages/geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/register.js") },   // MLT（MapLibre Tile）のプラグイン（#88）＝SDK でも同じ（解読器は動的チャンク）
-		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../../packages/tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
+	resolve: { alias: engineAliases(resolve(import.meta.dirname, "../..")) },   // MLT（#88）・点群（#178）のプラグインも SDK で同じ（解読器は動的チャンク）
 	worker: { format: "es", plugins: () => [urlAsFile, wasmAsFile, binUrlAsFile], rolldownOptions: { experimental: { chunkOptimization: false } } },
 	// ★base は必ず相対（"./"）＝worker・チャンクのURLが import.meta.url 起点になり、lib を**どこに置いても**動く。
 	//   base:"/" だと worker がドメイン直下 /assets/ を指す＝/japan/lib/ 配下に置いた本番で worker 全滅
