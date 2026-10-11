@@ -20,7 +20,7 @@
 	const viewer = new Cesium.Viewer("cesiumContainer", {
 		baseLayer: new Cesium.ImageryLayer(new Cesium.UrlTemplateImageryProvider({
 			url: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png",
-			credit: "国土地理院", maximumLevel: 18,
+			credit: "国土地理院", minimumLevel: 2, maximumLevel: 18,   // 淡色地図は z2 から（z0/1 は 404）
 		})),
 		baseLayerPicker: false, geocoder: false, animation: false, timeline: false,
 		sceneModePicker: false, navigationHelpButton: false, infoBox: true,
