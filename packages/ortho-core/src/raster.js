@@ -17,7 +17,7 @@
 //   窓（近/中/遠）は renderer が持つ（ベクタ塗りと同じ「地面アトラス」＝2026-09-21 RTT ドレープ統合）。renderer は rev か窓か塗りが
 //   変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
 import { selectLOD } from "./tilecover.js";
-import { tileBounds, tileLocalToLonLat, tileOutsideCoverage } from "./tile.js";
+import { tileBounds, tileLocalToLonLat, tileOutsideCoverage, tileId } from "./tile.js";
 import { createRasterSource } from "./raster-src.js";
 
 const keyOf = (z, x, y) => `${z}/${x}/${y}`;
@@ -158,7 +158,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			sel.sort((a, b) => a._d - b._d); sel.length = maxTiles;
 		}
 		L.sticky = new Set();
-		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = keyOf(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }
+		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵
 		return sel;
 	}
 
