@@ -40,8 +40,11 @@ const road1 = { extent: 4096, features: [{ type: "LineString", props: { name: "E
 const rp1 = buildLabels({ layers: { road: road1 }, z: 14, x: 0, y: 0 }, { layers: [lstyle.layers[2]] }).labels;
 assert.equal(rp1.length, 1, "点の注記は線の先頭の頂点に 1 つ（MapLibre）"); assert.equal(rp1[0].lp, undefined);
 assert.equal(rc.length, 1, "line-center は 1 つ"); assert.equal(rc[0].lp, 1); assert.equal(rc[0].mw, 0); assert.equal(rc[0].ma, 45); assert.equal(rc[0].ku, true);
-// 文字 "Main St"＝7 字×12×0.7＝58.8px＝941 単位（16 単位/px）・候補の間隔＝max(941/2, 100px/4＝400 単位)＝470・最初＝470＋384＝854 → 4300−470 まで＝約 7 個（タイルの中 [0,4096) だけ）
-assert.ok(rl.length >= 6 && rl.length <= 8, "候補の錨は文字の半分ごと（タイルの中だけ）: " + rl.length);
+// "line"（線に沿って回す）＝部分を丸ごと 1 本（lp 2・2026-10-07）：錨は描く側（labels2d）が表示の整数 z で symbol-spacing の間隔に置く。path＝全頂点（経緯度）・cum＝タイル単位の弧長・lc＝枠に続く（両端が枠の外＝3）・tbx＝タイルの枠・錨＝弧長の中心
+assert.equal(rl.length, 1, "丸ごと 1 本: " + rl.length); assert.equal(rl[0].lp, 2); assert.equal(rl[0].lc, 3, "両端が枠の外＝続く線"); assert.equal(rl[0].tz, 14); assert.equal(rl[0].upp, 16);
+assert.ok(rl[0].cum instanceof Float32Array && rl[0].cum.length === 2 && Math.abs(rl[0].cum[1] - 4500) < 1e-3, "cum＝タイル単位の弧長"); assert.equal(rl[0].ai, undefined);
+assert.ok(Array.isArray(rl[0].tbx) && rl[0].tbx.length === 4 && rl[0].tbx[0] < rl[0].tbx[2] && rl[0].tbx[1] < rl[0].tbx[3], "tbx＝西・南・東・北");
+assert.ok(rl[0].anchor[0] > rl[0].tbx[0] && rl[0].anchor[0] < rl[0].tbx[2], "錨（中心）はタイルの中"); assert.equal(rl[0].path.length, 4);
 
 assert.equal(rl[0].ma, 30); assert.equal(rl[0].ku, false); assert.equal(rl[0].sp, 100, "symbol-spacing（px）は描く側が課す"); assert.equal(rc[0].sp, undefined);
 assert.ok(rl.every(L => L.lg === rl[0].lg) && /^14\/100\/200\/0\/1\/0$/.test(rl[0].lg), "spacing の群＝1 本の線: " + rl[0].lg);
@@ -51,12 +54,12 @@ const dup = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, { layers: [
 assert.equal(dup.length, 2, "ML の層＝両方");
 const dupN = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, { layers: [{ id: "a", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] } }, { id: "b", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"] } }] }).labels;
 assert.equal(dupN.length, 1, "ネイティブの層＝1 つ");
-for (const L of rl) { assert.ok(L.path instanceof Float64Array && L.path.length >= 4); assert.ok(L.ai >= 0 && L.ai * 2 < L.path.length); assert.equal(L.path[L.ai * 2], L.anchor[0]); assert.equal(L.path[L.ai * 2 + 1], L.anchor[1]); assert.ok(L.icon === undefined); }
-const xs = rl.map(L => L.anchor[0]); assert.ok(xs.every((v, i) => i === 0 || v > xs[i - 1]), "錨は線に沿って並ぶ");
-// 短い線（文字は収まるが最初の余白が取れない）＝中心に 1 つ
-const short = { extent: 4096, features: [{ type: "LineString", props: { name: "Main St" }, geom: { coords: [100, 100, 700, 100], ends: [4] } }] };   // 600 単位・文字の見積もり 941 単位の半分以上＝中心に 1 つ（収まるかは描く側）
+assert.ok(rc[0].path instanceof Float64Array && rc[0].ai >= 0 && rc[0].path[rc[0].ai * 2] === rc[0].anchor[0], "line-center＝従来どおり錨の窓（lp 1）");
+// 枠の中で始まり終わる短い線＝lc 0・部分が 2 つ（ends）＝2 本（部分ごとに lg が違う）・線の中心が錨
+const short = { extent: 4096, features: [{ type: "LineString", props: { name: "Main St" }, geom: { coords: [100, 100, 700, 100, 1000, 2000, 1000, 3000], ends: [4, 8] } }] };
 const { labels: sl } = buildLabels({ layers: { road: short }, z: 14, x: 0, y: 0 }, { layers: [lstyle.layers[0]] });
-assert.equal(sl.length, 1, "短い線＝中心に 1 つ"); assert.equal(sl[0].path[sl[0].ai * 2], sl[0].anchor[0]);
+assert.equal(sl.length, 2, "部分ごとに 1 本"); assert.equal(sl[0].lc, 0); assert.notEqual(sl[0].lg, sl[1].lg); assert.ok(/\/0$/.test(sl[0].lg) && /\/1$/.test(sl[1].lg), "lg＝…/部分");
+assert.ok(Math.abs(sl[0].anchor[0] - (sl[0].path[0] + sl[0].path[2]) / 2) < 1e-9, "錨＝線の中心");
 // symbol-placement が式（zoom で point/line）・viewport の向き＝線の錨に点として（lp 無し・sp あり・記号あり）・線の記号だけの層（lp・icon）
 const road2 = { extent: 4096, features: [{ type: "LineString", props: { ref: "I 80", net: "us-interstate" }, geom: { coords: [0, 500, 4096, 500], ends: [4] } }] };
 const st2 = { layers: [
@@ -67,7 +70,7 @@ const z9 = buildLabels({ layers: { road: road2 }, z: 9, x: 0, y: 0 }, st2).label
 assert.equal(z9.length, 1, "z9＝point＝線の先頭の頂点に盾 1 つ（MapLibre の点置き）"); assert.equal(z9[0].lp, undefined); assert.equal(z9[0].icon, "us-interstate_2"); assert.equal(z9[0].sp, undefined);
 const sh = z14.filter(L => L.li === 0), ow = z14.filter(L => L.li === 1);
 assert.ok(sh.length >= 2, "z14＝line＝盾の錨: " + sh.length); assert.equal(sh[0].lp, undefined, "viewport＝回さない＝点として"); assert.equal(sh[0].sp, 200); assert.equal(sh[0].icon, "us-interstate_2"); assert.equal(sh[0].ira, "viewport"); assert.equal(sh[0].text, "I 80");
-assert.ok(ow.length >= 5, "矢印の錨: " + ow.length); assert.equal(ow[0].lp, 1); assert.equal(ow[0].icon, "oneway"); assert.equal(ow[0].irot, 90); assert.equal(ow[0].ira, "map"); assert.equal(ow[0].text, "");
+assert.equal(ow.length, 1, "矢印＝線を丸ごと 1 本（錨は描く側）: " + ow.length); assert.equal(ow[0].lp, 2); assert.equal(ow[0].sp, 75); assert.equal(ow[0].icon, "oneway"); assert.equal(ow[0].irot, 90); assert.equal(ow[0].ira, "map"); assert.equal(ow[0].text, "");
 // 向き（段 5）＝text-rotate・rotation/pitch-alignment・icon-pitch-alignment を焼く（既定＝auto/0 は焼かない）
 const ost = { layers: [
 	{ id: "o1", type: "symbol", "source-layer": "poi", layout: { "text-field": ["get", "name"], "text-rotate": 30, "text-rotation-alignment": "map", "text-pitch-alignment": "viewport", "icon-image": "sq", "icon-rotation-alignment": "map", "icon-pitch-alignment": "map" } },
