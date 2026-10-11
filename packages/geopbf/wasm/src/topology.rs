@@ -59,7 +59,7 @@ type MixMap<K, V> = std::collections::HashMap<K, V, MixBuild>;
 type MixSet<K> = std::collections::HashSet<K, MixBuild>;
 
 // ── 出力コンテナ：JS は ptr/len 越しに wasm メモリを直接読む（slice→GintBUF へ 1 copy）──
-#[wasm_bindgen]
+// 2026-10-12（改良点 11）: JS へ渡す class ではなく crate 内の中間値に（build_polygons_wasm／build_polylines_wasm と ptr/len の getter は撤去＝呼び手無し）
 pub struct PolyTopology {
     arc_buffer: Vec<u64>,
     arc_meta: Vec<u32>,
@@ -68,18 +68,6 @@ pub struct PolyTopology {
     count: u32,
 }
 
-#[wasm_bindgen]
-impl PolyTopology {
-    pub fn count(&self) -> u32 { self.count }
-    pub fn arc_buffer_ptr(&self) -> u32 { self.arc_buffer.as_ptr() as u32 }
-    pub fn arc_buffer_len(&self) -> u32 { self.arc_buffer.len() as u32 }
-    pub fn arc_meta_ptr(&self) -> u32 { self.arc_meta.as_ptr() as u32 }
-    pub fn arc_meta_len(&self) -> u32 { self.arc_meta.len() as u32 }
-    pub fn poly_stream_ptr(&self) -> u32 { self.poly_stream.as_ptr() as u32 }
-    pub fn poly_stream_len(&self) -> u32 { self.poly_stream.len() as u32 }
-    pub fn neighbor_stream_ptr(&self) -> u32 { self.neighbor_stream.as_ptr() as u32 }
-    pub fn neighbor_stream_len(&self) -> u32 { self.neighbor_stream.len() as u32 }
-}
 
 // リング実長：末尾の閉合重複（複数個あり得る）を除いた頂点数（JS visit/splitRing と同じ）
 #[inline]
@@ -263,7 +251,6 @@ struct Comp {
 // 入力は L1 Morton(u64) 連結バッファ（purifier は JS 側で適用済み＝80kセグ以下の小データ専用）。
 // cutPolyline の掟：arc 照合は「端点キー＋頂点数」のみ（ポリゴンと違い内容照合なし＝JS と同じ）。
 
-#[wasm_bindgen]
 pub struct LineTopology {
     arc_buffer: Vec<u64>,
     arc_meta: Vec<u32>,
@@ -271,16 +258,6 @@ pub struct LineTopology {
     count: u32,
 }
 
-#[wasm_bindgen]
-impl LineTopology {
-    pub fn count(&self) -> u32 { self.count }
-    pub fn arc_buffer_ptr(&self) -> u32 { self.arc_buffer.as_ptr() as u32 }
-    pub fn arc_buffer_len(&self) -> u32 { self.arc_buffer.len() as u32 }
-    pub fn arc_meta_ptr(&self) -> u32 { self.arc_meta.as_ptr() as u32 }
-    pub fn arc_meta_len(&self) -> u32 { self.arc_meta.len() as u32 }
-    pub fn line_stream_ptr(&self) -> u32 { self.line_stream.as_ptr() as u32 }
-    pub fn line_stream_len(&self) -> u32 { self.line_stream.len() as u32 }
-}
 
 // metaArc calcMeta の u64(L1 Morton) 経路：unpack しつつ長さ/面積/bbox（JS と同一の f64 経路）
 fn calc_meta_u64(buff: &[u64], aid: usize) -> ArcMeta {
@@ -321,16 +298,6 @@ fn calc_meta_u64(buff: &[u64], aid: usize) -> ArcMeta {
 // lines  : ラインごとの [offset(要素), len(要素)]
 // fids   : ラインごとの feature id
 // n_poly / vertex_offset : ポリゴン arc 数・頂点数（グローバル index / offset への繰上げ）
-#[wasm_bindgen]
-pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly: u32, vertex_offset: u32) -> LineTopology {
-    let line_ranges: Vec<(usize, usize)> = lines
-        .chunks_exact(2)
-        .map(|c| (c[0] as usize, c[1] as usize))
-        .collect();
-    let fids_i32: Vec<i32> = fids.iter().map(|&f| f as i32).collect();
-    polylines_core(coords, &line_ranges, &fids_i32, n_poly, vertex_offset)
-}
-
 fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], n_poly: u32, vertex_offset: u32) -> LineTopology {
     // 1. 頂点出現回数（cutPolyline setHash 相当。キーは raw u64＝JS の BigInt 値と同一）
     let mut hash: MixMap<u64, u32> = MixMap::default();
@@ -427,19 +394,6 @@ fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], 
 // xy    : 全リング連結 XY（u32 ペア・densify/fit/offset 適用済みの gint 整数座標）
 // rings : リングごとの [offset(頂点), len(頂点)]
 // comps : コンポーネント（MultiPolygon の島）ごとの [fid, ringCount]。リングは出現順に消費。
-#[wasm_bindgen]
-pub fn build_polygons_wasm(xy: &[u32], rings: &[u32], comps: &[u32]) -> PolyTopology {
-    let ring_ranges: Vec<(usize, usize)> = rings
-        .chunks_exact(2)
-        .map(|c| (c[0] as usize, c[1] as usize))
-        .collect();
-    let comp_pairs: Vec<(i32, usize)> = comps
-        .chunks_exact(2)
-        .map(|c| (c[0] as i32, c[1] as usize))
-        .collect();
-    polygons_core(xy, &ring_ranges, &comp_pairs)
-}
-
 fn polygons_core(xy: &[u32], ring_ranges: &[(usize, usize)], comps: &[(i32, usize)]) -> PolyTopology {
     // 1. 接合点判定
     let junctions = compute_junctions(xy, ring_ranges);
@@ -835,7 +789,7 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut final_: Vec<u64> = Vec::new();
     for (li, &(off, len)) in ranges.iter().enumerate() {
         final_.clear();
-        let mut push_clean = |p: u64, f: &mut Vec<u64>| {
+        let push_clean = |p: u64, f: &mut Vec<u64>| {
             let n = f.len();
             if n > 0 && f[n - 1] == p { return; }
             if n > 1 && f[n - 2] == p { f.pop(); return; }
