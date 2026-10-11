@@ -1,4 +1,7 @@
 import { gint } from "./gint.js";
+import { hitGridOf, hitCandidates } from "./hitgrid.js";   // 格子索引（改良点 ⑧）＝候補だけ照合
+export { hitGridOf, buildHitGrid } from "./hitgrid.js";
+export const hitGridMode = { on: true };   // 検定用＝false で旧の全走査（tests/t-hitgrid.mjs が答えの一致と速さを突き合わせる）
 
 // 全て純JS実装。wasm側 GintConverter(identify.rs) との連携コード（buildConverter等）は
 // 呼び出し元ゼロのまま識別経路が findPolygon(JS) に一本化されたため 2026-07-17 に撤去した。
@@ -147,26 +150,41 @@ function segDistSq(px, py, ax, ay, bx, by) {
 }
 function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null) {
 	const errSq = error * error;
-	let p = 0;
-	while (p < lineStream.length) {
-		const fid = lineStream[p++], numSets = lineStream[p++];
-		const ok = !accept || accept(fid);   // 外した地物＝流れは読み進めるが照合しない
-		for (let s = 0; s < numSets; s++) {
-			const arcCount = lineStream[p++];
-			for (let a = 0; a < arcCount; a++) {
-				const arcIdx = lineStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx;
-				if (!ok) continue;
-				if (mix < meta[aid * 8 + 4] - error || miy < meta[aid * 8 + 5] - error ||
-					mix > meta[aid * 8 + 6] + error || miy > meta[aid * 8 + 7] + error) continue;   // arc bbox 早期棄却
-				const off = meta[aid * 8], len = meta[aid * 8 + 1];
-				let px = 0, py = 0;
-				for (let i = 0; i < len; i++) {
-					const [ix, iy] = gint.unpackToInt(buffer[off + i]);
-					if (i && segDistSq(mix, miy, px, py, ix, iy) <= errSq) return fid;
-					px = ix; py = iy;
+	// 1 地物（流れの位置 p0 から）の線分距離の照合
+	const hit = (fid, p0) => {
+		let p = p0;
+		while (p < lineStream.length && lineStream[p] === fid) {
+			p++; const numSets = lineStream[p++];
+			for (let s = 0; s < numSets; s++) {
+				const arcCount = lineStream[p++];
+				for (let a = 0; a < arcCount; a++) {
+					const arcIdx = lineStream[p++], aid = arcIdx < 0 ? ~arcIdx : arcIdx;
+					if (mix < meta[aid * 8 + 4] - error || miy < meta[aid * 8 + 5] - error ||
+						mix > meta[aid * 8 + 6] + error || miy > meta[aid * 8 + 7] + error) continue;   // arc bbox 早期棄却
+					const off = meta[aid * 8], len = meta[aid * 8 + 1];
+					let px = 0, py = 0;
+					for (let i = 0; i < len; i++) {
+						const [ix, iy] = gint.unpackToInt(buffer[off + i]);
+						if (i && segDistSq(mix, miy, px, py, ix, iy) <= errSq) return true;
+						px = ix; py = iy;
+					}
 				}
 			}
 		}
+		return false;
+	};
+	const grid = hitGridMode.on ? hitGridOf(lineStream, meta) : null;   // 格子索引（改良点 ⑧）＝bbox が掛かる候補だけ（旧＝全地物の走査）
+	if (grid) {
+		let found = null, at = Infinity;   // 旧＝流れの順で最初に当たった線＝候補のうち流れの位置が最小の物（big を先に見ても答えは同じ）
+		hitCandidates(grid, mix, miy, error, (fid, p0) => { if (p0 < at && (!accept || accept(fid)) && hit(fid, p0)) { found = fid; at = p0; } return false; });
+		return found;
+	}
+	let p = 0;
+	while (p < lineStream.length) {
+		const fid = lineStream[p], at = p;
+		p++; const numSets = lineStream[p++];
+		for (let s = 0; s < numSets; s++) { const arcCount = lineStream[p++]; p += arcCount; }
+		if ((!accept || accept(fid)) && hit(fid, at)) return fid;
 	}
 	return null;
 }
@@ -177,39 +195,10 @@ function findMortonNear(buffer, meta, lineStream, mix, miy, error, accept = null
 // accept＝fid → 真偽（偽＝無いものとして飛ばす＝隠した小さい面の下の、見えている面が返る・2026-09-26）
 export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, viewBbox, accept = null) {
 	const vb = viewBbox ?? null;
-	let best = null;
-	let p = 0;
-	while (p < polyStream.length) {
-		const fid = polyStream[p];
-
-		if (accept && !accept(fid)) {
-			while (p < polyStream.length && polyStream[p] === fid) {
-				p++; const nr = polyStream[p++];
-				for (let r = 0; r < nr; r++) { const ac = polyStream[p++]; p += ac; }
-			}
-			continue;
-		}
-
-		// Early rejection using per-feature bbox.
-		if (polyBboxByFid) {
-			const bb = polyBboxByFid.get(fid);
-			if (bb) {
-				// bbox は縫い目跨ぎだと x が 360e7 を超える（ortho-core bake の周期対応合流）＝東片 [0, bb2−360e7] と西片 [bb0, 360e7] の 2 区間で見る
-				const P = 3600000000, wrap = bb[2] > P;
-				const inX = wrap ? (mix <= bb[2] - P || mix >= bb[0]) : (mix >= bb[0] && mix <= bb[2]);
-				const vbX = !vb ? true : wrap ? (vb[0] <= bb[2] - P || vb[2] >= bb[0]) : !(bb[2] < vb[0] || bb[0] > vb[2]);
-				const skip = !vbX || (vb && (bb[3] < vb[1] || bb[1] > vb[3])) || !inX || miy < bb[1] || miy > bb[3];
-				if (skip) {
-					while (p < polyStream.length && polyStream[p] === fid) {
-						p++; const nr = polyStream[p++];
-						for (let r = 0; r < nr; r++) { const ac = polyStream[p++]; p += ac; }
-					}
-					continue;
-				}
-			}
-		}
-
-		let inside = false;
+	const P = 3600000000;
+	// 1 地物（流れの位置 p0 から＝多角形の塊が連続する）の内包判定（偶奇）
+	const inside = (fid, p0) => {
+		let p = p0, ins = false;
 		while (p < polyStream.length && polyStream[p] === fid) {
 			p++; // fid
 			const numRings = polyStream[p++];
@@ -225,13 +214,41 @@ export function findPolygon(buffer, meta, polyStream, mix, miy, polyBboxByFid, v
 					for (let k = 1; k < len; k++) {
 						const [ix2, iy2] = gint.unpackToInt(buffer[off + k]);
 						if (((iy1 > miy) !== (iy2 > miy)) &&
-							(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) inside = !inside;
+							(mix < (ix2 - ix1) * (miy - iy1) / (iy2 - iy1) + ix1)) ins = !ins;
 						ix1 = ix2; iy1 = iy2;
 					}
 				}
 			}
 		}
-		if (inside) best = fid;
+		return ins;
+	};
+	// 視野 bbox（描画側の hover が渡す）の外の地物は見ない＝旧実装と同じ門。bbox は縫い目跨ぎだと x が 360e7 を超える（東片 [0, bb2−360e7] と西片 [bb0, 360e7]）
+	const inView = bb => { if (!vb || !bb) return true; const wrap = bb[2] > P; const vbX = wrap ? (vb[0] <= bb[2] - P || vb[2] >= bb[0]) : !(bb[2] < vb[0] || bb[0] > vb[2]); return vbX && !(bb[3] < vb[1] || bb[1] > vb[3]); };
+	const grid = hitGridMode.on ? hitGridOf(polyStream, meta) : null;   // 格子索引（改良点 ⑧）＝bbox が掛かる候補だけ。smallest-wins＝候補のうち流れの位置が最大の物（流れは weight 降順）
+	if (grid) {
+		let best = null, bestAt = -1;
+		hitCandidates(grid, mix, miy, 0, (fid, p0) => {
+			if (p0 <= bestAt || (accept && !accept(fid)) || !inView(grid.bboxOf(fid))) return false;
+			if (inside(fid, p0)) { best = fid; bestAt = p0; }
+			return false;
+		});
+		return best;
+	}
+	let best = null;
+	let p = 0;
+	while (p < polyStream.length) {
+		const fid = polyStream[p], at = p;
+		while (p < polyStream.length && polyStream[p] === fid) { p++; const nr = polyStream[p++]; for (let r = 0; r < nr; r++) { const ac = polyStream[p++]; p += ac; } }
+		if (accept && !accept(fid)) continue;
+		if (polyBboxByFid) {
+			const bb = polyBboxByFid.get(fid);
+			if (bb) {
+				const wrap = bb[2] > P;
+				const inX = wrap ? (mix <= bb[2] - P || mix >= bb[0]) : (mix >= bb[0] && mix <= bb[2]);
+				if (!inView(bb) || !inX || miy < bb[1] || miy > bb[3]) continue;
+			}
+		}
+		if (inside(fid, at)) best = fid;
 	}
 	return best;
 }

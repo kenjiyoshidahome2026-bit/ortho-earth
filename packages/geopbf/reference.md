@@ -71,6 +71,7 @@ Returns the feature index (fid) of the **smallest** polygon containing the point
 
 ### `pbf.identifyAt(lng, lat, [options])`
 Point / line / polygon hit test without a projection, in that order: `{ point: 50, polyline: 30 }` are the search radii in metres, `accept(fid)` filters candidates. Returns the feature index or `null`.
+Lines and polygons are matched through a uniform grid index built lazily per layer (`geopbf/identify` → `hitGridOf(stream, arcMeta)`): only features whose bbox covers the query cell are tested, so hover on large layers no longer scans every feature (polygons ×10–20, lines ×3–5 on 6k/3k-feature layers). Answers are identical to the full scan (smallest polygon wins; first line in stream order).
 
 ### `pbf.lineLength(index)` / `pbf.getBbox(index)` / `pbf.bbox` / `pbf.bboxes`
 Length in metres, per-feature bbox, dataset bbox, all bboxes.
