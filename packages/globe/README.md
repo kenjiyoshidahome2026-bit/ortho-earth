@@ -32,6 +32,10 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **three.js**: `map.addThree({ three: <URL of three.module.js>, module: <URL of your module exporting setup(THREE, scene, h)> })` runs
   three.js inside the render worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by
   terrain and buildings through the scene depth, pickable with the overlay picking above. three.js is not a dependency; you bring it
+- **Data layers**: `map.addData(array, { kind, getPosition, getColor, getRadius, … })` takes an array (or GeoJSON) plus deck.gl-style
+  accessors. `kind: "points"` and `"arcs"` (great circles with optional height, `getSourcePosition` / `getTargetPosition`) are GPU
+  overlays with picking; `"polygons"`, `"paths"` and `"columns"` ride the ordinary `fill` / `line` / `fill-extrusion` layer route.
+  `h.setData(array)` re-bakes everything, like deck.gl
 - **H3**: `map.addH3(points | cells, { res, weight, paint, extrude })` bins points into H3 cells (or draws given cell ids) as a
   `fill` / `fill-extrusion` layer (`@ortho-earth/h3`, loaded on demand)
 - **Regions**: pass `opts.region` to add a country pack (basemap, elevation, buildings, search…).
