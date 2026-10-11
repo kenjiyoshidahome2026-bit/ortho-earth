@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#0b1021}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<title>National Parks of the United States — ortho-globe</title>
+	<meta name="description" content="All 63 national parks of the United States on a 3D globe — photos, the National Park Service's boundaries, facts and Wikipedia links in 26 languages.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像＝public/og/parks.jpg（1200×630・実描画から撮る） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/parks">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="National Parks of the United States — ortho-globe">
+	<meta property="og:description" content="From Denali to the Everglades — all 63 national parks of the United States on a 3D globe, with photos, the National Park Service's boundaries, facts and Wikipedia links.">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/parks">
+	<meta property="og:image" content="https://www.ortho-earth.com/globe/og/parks.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="National Parks of the United States — ortho-globe">
+	<meta name="twitter:description" content="From Denali to the Everglades — all 63 national parks of the United States on a 3D globe, with photos, the National Park Service's boundaries, facts and Wikipedia links.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/og/parks.jpg">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// アメリカ合衆国の国立公園 63 の showcase＝NPS の境界を球に載せ、写真の一覧から選ぶと飛んでスポットライトで指す（/japan/parks と同型の器・世界側）。
+		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域の申告なし＝米国に地域パックは無く、世界帯の州境・都市で足りる）を自分の束に焼いてエンジンを起こし、一覧と配線は ./parks.js（遅延 chunk）。
+		// 台帳＝public/parks-us.json（名前 26 言語・Wikipedia・写真・面積・指定日・来訪者・州）／外周＝public/parks-us.geopbf／他の NPS ユニット＝public/nps-units.geopbf。?p=<id> で起動時に選ぶ。
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。言語の切替は parks.js の案内板が持つ（select）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("parks", async () => {
+			const [{ createGlobe, geopbf }, { mountParks }] = await Promise.all([import("@ortho-earth/globe"), import("./parks.js")]);
+			// 初期視点＝北米を少し傾けて眺める（アラスカからフロリダまで・共有 URL の hash があればそちら）。建物 3D は出さない（公園に街は要らない・起動も軽い）
+			const map = await createGlobe({ target: "#map", view: location.hash || "#2.3/44/-112/20t", chips: false,
+				worldContent: true, mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+			const B = import.meta.env.BASE_URL;
+			const parks = await mountParks(map, geopbf, { catalog: `${B}parks-us.json`, boundary: `${B}parks-us.geopbf`, units: `${B}nps-units.geopbf` });
+			window.__map = map; window.__parks = parks;   // console 検証用
+			return map;
+		}, { page: c => import(`./i18n/lang/parks/${c}.json`) });
+	</script>
+</body>
+</html>

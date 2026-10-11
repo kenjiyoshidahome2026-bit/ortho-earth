@@ -1,7 +1,7 @@
 // 地球儀ホストの検定台（packages/globe/tests/*.html を dev サーバで配るだけ）。
 // なぜ器が要るか：検定頁は「実ブラウザで起動して title に PASS/FAIL を書く」形＝配る器が要る。
 // 9/24 までこの器は apps/ortho-japan（日本の殻）しか持っておらず、globe の門は japan に間借りしていた。
-// ここが持つのは**頁を配るのに必要な条件だけ**で、japan の vite と同じにする必要があるのは次の3つ：
+// ここが持つのは**頁を配るのに必要な条件だけ**で、japan の vite と同じにする必要があるのは次の3つ（どれも scripts/lib/vite-app.mjs の共通部品）：
 //   ① COOP/COEP を middleware で全リクエストに刻む（server.headers だと worker のサブ import に届かず
 //      worker 全滅＝黒画面。crossOriginIsolated＝SAB のゼロコピーが点く条件・NOCOI=1 で外して A/B）
 //   ② worker.format="es"（全 worker が type:"module"＝既定の iife だと worker 内 worker/動的 import で落ちる）
@@ -9,21 +9,10 @@
 // #tile-formats（タイル形式のプラグイン）は MLT を載せる（#88）＝形式は地域ではない。t-mlcompat?g=mlt が「MVT と MLT で同じ絵」を見る器
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
-
-const coiHeaders = server => {
-	server.middlewares.use((_req, res, next) => {
-		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-		res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
-		next();
-	});
-};
-const NOCOI = process.env.NOCOI === "1";
-const crossOriginIsolation = { name: "cross-origin-isolation", configureServer: NOCOI ? undefined : coiHeaders, configurePreviewServer: NOCOI ? undefined : coiHeaders };
+import { crossOriginIsolation, engineAliases } from "./scripts/lib/vite-app.mjs";
 
 export default defineConfig({
-	resolve: { alias: [{ find: /^\.\.?\/(modules\/)?builtinWorkers\.js$/, replacement: resolve(import.meta.dirname, "../geopbf/src/modules/builtinWorkers.none.js") },
-		{ find: "#tile-formats", replacement: resolve(import.meta.dirname, "../tile-formats/src/register.js") },
-		{ find: "#pointcloud-formats", replacement: resolve(import.meta.dirname, "../tile-formats/src/pointcloud.js") }] },   // 点群の解読器（#178・COPC の LAZ＝laz-perf）＝最初の節で動的 import（起動の束には入らない）
+	resolve: { alias: engineAliases(resolve(import.meta.dirname, "..", "..")) },
 	worker: { format: "es" },
-	plugins: [crossOriginIsolation],
+	plugins: [crossOriginIsolation()],
 });

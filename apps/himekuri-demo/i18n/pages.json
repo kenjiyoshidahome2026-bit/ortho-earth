@@ -1,0 +1,12 @@
+{
+	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル（正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json）。本体の訳（globe の ui.json＝page.js の起動失敗の面など）は @ortho-earth/globe が持つ＝ここでは足さない。この殻のファイルは全部 himekuri 頁の持ち物",
+	"pages": {
+		"himekuri": [
+			"main.js",
+			"src/app.js",
+			"src/week.js",
+			"src/format.js",
+			"src/elevation.js"
+		]
+	}
+}

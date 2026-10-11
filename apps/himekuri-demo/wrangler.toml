@@ -1,0 +1,12 @@
+# 日めくり（himekuri-demo）本番配信：Cloudflare Workers 静的アセット（www.ortho-earth.com/himekuri/）。solar と同じ型（route + dist/site・Worker スクリプト無し）。
+# COOP/COEP は dist/site/_headers（vite の coepHeaders が書く）＝www のデモ一覧の iframe に入るため。
+name = "ortho-himekuri"
+compatibility_date = "2025-06-01"
+workers_dev = true
+
+routes = [
+	{ pattern = "www.ortho-earth.com/himekuri*", zone_name = "ortho-earth.com" }
+]
+
+[assets]
+directory = "dist/site"
