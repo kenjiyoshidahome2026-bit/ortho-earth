@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="light">
+	<link rel="icon" href="/quiz/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#fff7e6">
+	<title>World quiz — flags, capitals and the globe</title>
+	<meta name="description" content="A geography quiz for kids and grown-ups: flags, capitals and where countries are on a 3D globe. Three levels, the whole world or one region, scores and badges that help you remember the countries you missed. 26 languages.">
+	<!-- 共有カード（デモ頁の作法＝head は英語・og:image は www のサムネイル・絶対 URL） -->
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:title" content="World quiz — flags, capitals and the globe">
+	<meta property="og:description" content="Flags, capitals and where countries are on a 3D globe. Three levels, every region, stars and badges — built on the ortho-earth World database.">
+	<meta property="og:url" content="https://www.ortho-earth.com/quiz/">
+	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/quiz.webp">
+	<meta name="twitter:card" content="summary_large_image">
+	<link rel="canonical" href="https://www.ortho-earth.com/quiz/">
+	<link rel="preconnect" href="https://api.ortho-earth.com">
+	<link rel="stylesheet" href="/src/style.css">
+	<style>
+		/* 起動画面＝World の台帳が揃うまで（page.js の dismissBoot が畳む）。prefers-reduced-motion で止まる（デモ頁の門） */
+		#boot { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: #fff7e6; transition: opacity .25s; }
+		#boot.gone { opacity: 0; pointer-events: none; }
+		#boot svg { width: 84px; height: 84px; animation: wq-spin 2.4s linear infinite; }
+		@keyframes wq-spin { to { transform: rotate(360deg); } }
+		@media (prefers-reduced-motion: reduce) { #boot svg { animation: none; } }
+	</style>
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Loading"><circle cx="32" cy="32" r="28" fill="#8ecae6" stroke="#1d6fa5" stroke-width="3"/><path d="M14 26c6-8 14-6 18-2s10 4 16-2M12 40c8 2 14 6 22 2s12-6 18-2" fill="none" stroke="#2a9d8f" stroke-width="5" stroke-linecap="round"/></svg></div>
+	<div id="app"></div>
+	<script type="module" src="/main.js"></script>
+</body>
+</html>
