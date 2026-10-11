@@ -175,6 +175,32 @@ export async function prepareTiling(pbf, opts = {}) {
 		t0, destroy: () => { proj.destroy(); eng.destroy(); } };
 }
 
+// 極小面（tinyPolygon）の決定表＝このズームで「落とす（1）／代わりの正方形を置く（2）／普通に描く（0）」を面成分ごとに main 側で決める
+//（改良点 13・2026-10-12）。旧＝積算が assembleZoom（1 ズーム×列範囲の job）ごとだったので、小島の群れが shard 境界をまたぐと
+// 正方形の数と置き場が worker 数で変わり「worker 数に依らず byte 同一」（README §5.1）が破れていた。積算の式は assembleZoom の
+// tinySquare と同じ（簡略化前の面積 compArea × このズームの尺・fid ごとに積み、閾値面積に達するたびに正方形 1 つ）。ズームごとに 1 回だけ組んで控える
+export function tinyDecisions(P, z) {
+	const { S } = P;
+	if (!(S.tinyPolygon > 0) || !S.compArea || !S.polyStream) return null;
+	const cache = P._tiny ??= new Map();
+	let dec = cache.get(z);
+	if (dec) return dec;
+	const ps = S.polyStream, compArea = S.compArea, tinyA2 = 2 * S.tinyPolygon, areaScale = Math.pow(4, z + (S.extentShift ?? 12) - 32);
+	dec = new Uint8Array(compArea.length);
+	const acc = new Map();
+	let c = 0;
+	for (let p = 0; p < ps.length; c++) {
+		const fid = ps[p], nr = ps[p + 1]; p += 2;
+		for (let r = 0; r < nr; r++) p += ps[p] + 1;
+		const a2full = compArea[c] * areaScale;
+		if (!(Math.abs(a2full) < tinyA2)) continue;
+		const a = (acc.get(fid) ?? 0) + Math.abs(a2full) / 2;
+		if (a < tinyA2 / 2) { acc.set(fid, a); dec[c] = 1; } else { acc.set(fid, a - tinyA2 / 2); dec[c] = 2; }
+	}
+	cache.set(z, dec);
+	return dec;
+}
+
 // 1 ズーム×列範囲 [txFrom,txTo] の job（assembleZoom の J）。out＝そのズームの束の圧縮座標・zo＝束内の arc 別オフセット（絶対）・zc/zb＝そのズームの counts/bbox。
 // shard の列範囲に掛かる feature の arc だけを詰め直す（旧＝shard ごとに このズームの全頂点を slice＝shards 倍のコピー・俯瞰レビュー 2026-09-15）。
 // 判定は assembleZoom の外環先読みと同じ式（bbox は extent 単位・buffer 込み）。面は外環の bbox で決め、通れば全環の arc を含める（クリップは環全体が要る）。
@@ -211,7 +237,7 @@ export function columnJob(P, { z, out, zo, zc, zb, txFrom, txTo }) {
 		const src = zo[a] * 2, n2 = zc[a] * 2;   // zo＝この束の out 内の絶対頂点オフセット（旧は zStart で slice してから相対化していた）
 		o.set(out.subarray(src, src + n2), w * 2); counts[a] = zc[a]; offs[a] = w; w += zc[a];
 	}
-	return { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o };
+	return { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o, tiny: tinyDecisions(P, z) };   // tiny＝極小面の決定表（shard に依らない・null＝無効）
 }
 
 export async function toPMTiles(pbf, opts = {}) {

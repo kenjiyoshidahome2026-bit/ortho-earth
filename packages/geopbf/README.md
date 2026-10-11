@@ -263,8 +263,9 @@ ortho-core uses at draw time — and two neighbouring polygons are simplified to
    stitches rings and lines from the arcs (`polyStream`/`lineStream`), bisects them into tiles with buffer, encodes
    MVT, gzips and content-hashes its tiles. The main thread merges by content key and packs PMTiles v3: Hilbert tile
    ids, run-length plus content de-duplication for interior tiles, leaf directories once the root exceeds 16 KB.
-   Sharding only prunes the bisection tree, so **the output is byte-identical at any worker count** (`workers: 0`
-   runs inline).
+   Sharding only prunes the bisection tree, and the tiny-polygon accumulator is decided on the main thread per zoom
+   (1.20; before, a cluster of islets straddling a shard boundary could change the replacement squares), so **the output
+   is byte-identical at any worker count** (`workers: 0` runs inline).
 
 The assembly stage is typed-array based, stops bisecting as soon as a sub-range of tiles is provably interior to a
 polygon (one range event instead of one clip per tile), encodes the attribute section once per feature, and hashes
@@ -276,7 +277,8 @@ writer/reader directly in browsers (≈4× cheaper per tile than the `Blob`→`R
 
 Points skip the clipping tree entirely (tile index by shift, buffer copies to neighbours) and are thinned at lower
 zooms like tippecanoe's `-r`: `dropRate` 2.5 keeps 1/2.5 of the points per zoom step below `maxZoom`, chosen by a
-hash of the feature id so the kept sets nest. `dropRate: 1` keeps every point in every tile.
+hash of (feature id, ordinal of the point within the feature) so the kept sets nest and a MultiPoint is thinned point by
+point (1.20; before, all points of a feature stood or fell together). `dropRate: 1` keeps every point in every tile.
 
 ### 5.2 Simplification is calibrated to tippecanoe's, per arc
 
