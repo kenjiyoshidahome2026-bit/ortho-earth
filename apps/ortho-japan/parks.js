@@ -5,9 +5,11 @@
 // 外周＝public/parks.geopbf（環境省 nps_all の地種区分 1.1 万面を公園ごとに溶かした 35 面・0.2MB）＝全公園を薄い緑で常時描き、
 // 選んだ公園は spotlight（周りを暗く・その形だけ素の地図）で指す。写真と Wikipedia の本文は実行時に直読み（bucket に置かない＝直接取れる物は置かない方針）。
 // 一覧のカード＝写真そのもの（Commons のサムネ）。クリック＝①視点へ飛ぶ ②spotlight ③詳細（写真大・指定日・面積・都道府県・Wikipedia の冒頭・リンク）。
+// Wikipedia の記事＝頁の上の iframe（world・census・physical と同じ・共通の芯 @ortho-earth/globe/wiki.js・2026-10-03）。
 // ?p=<id> で起動時に選ぶ（共有）。←/→ で隣の公園・Esc で一覧へ。
 import { gunzip } from "geopbf/gzip";   // bucket の置き物は gzip（Content-Type application/gzip＝素の fetch では解かれない）＝models と同じく自分で解く
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない
+import { createWikiFrame, summaryIn, langChain, pickTitle, wikiUrl as wikiHref, DEFAULT_FALLBACK as WIKI_FALLBACK } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠・冒頭・URL の共通の芯（2026-10-03）
 const t = tr();
 
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -15,7 +17,6 @@ const REGIONS = ["hokkaido", "tohoku", "kanto", "chubu", "kinki", "chugoku-shiko
 // 地方の名＝訳のキーを**リテラルで** t() に渡す（i18n の走査器は t("…") の文字列だけ読む）＝mount 時に一度引く
 const zoneNames = () => ({ "特別保護地区": t("Special Protection Zone"), "第1種特別地域": t("Class 1 Special Zone"), "第2種特別地域": t("Class 2 Special Zone"), "第3種特別地域": t("Class 3 Special Zone"), "普通地域": t("Ordinary Zone"), "海域公園地区": t("Marine Park Zone"), "区分未定": t("Undetermined") });
 const regionNames = () => ({ hokkaido: t("Hokkaidō"), tohoku: t("Tōhoku"), kanto: t("Kantō"), chubu: t("Chūbu"), kinki: t("Kinki"), "chugoku-shikoku": t("Chūgoku & Shikoku"), "kyushu-okinawa": t("Kyūshū & Okinawa") });
-const WIKI_FALLBACK = ["en", "ja"];   // 本文・リンクの言語が無い時の順（英語→日本語）
 // 地種区分（環境省 nps_all の属性「地域区」）＝色は保護の強さの順（濃い緑→黄）・海域は青。bucket の nps_all（10MB gzip・1.1 万面）は押した時だけ読む
 const ZONES_URL = "https://api.ortho-earth.com/bucket/GIS/pbf/nps_all";
 const ZONES = [["特別保護地区", "#1b5e20", 0.62], ["第1種特別地域", "#2e7d32", 0.52], ["第2種特別地域", "#7cb342", 0.46], ["第3種特別地域", "#c0ca33", 0.42], ["普通地域", "#fff176", 0.30], ["海域公園地区", "#29b6f6", 0.45], ["区分未定", "#9e9e9e", 0.35]];
@@ -40,8 +41,9 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	const prefName = c => L(PN[c]) || c;
 	const byId = new Map(parks.map(p => [p.id, p]));
 	const nameOf = p => L(p.name);
-	const wikiOf = p => { for (const l of [lang, ...WIKI_FALLBACK]) if (p.wiki?.[l]) return { lang: l, title: p.wiki[l] }; return null; };
-	const wikiUrl = w => w ? `https://${w.lang}.wikipedia.org/wiki/${encodeURIComponent(w.title.replace(/ /g, "_"))}` : null;
+	const WIKI_LANGS = langChain(lang, WIKI_FALLBACK);   // 自分の言語 → 英語 → 日本語
+	const wikiOf = p => pickTitle(p.wiki, WIKI_LANGS);
+	const wikiUrl = w => w ? wikiHref(w.title, w.lang) : null;
 	// 写真＝台帳の URL をそのまま使う（thumb＝一覧用の 960px・src＝詳細用の 1280px）。⚠ 幅を URL で差し替えてはいけない＝Commons は API で生成された幅しか配信しない（任意幅は 400・2026-10 実測）
 
 	// ── パネル（models/quakes/sats と同じ意匠＝暗いガラス・写真の格子）──
@@ -124,7 +126,9 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 .parks-panel .credit a{color:#9cc4ff}
 .parks-panel .note{color:#8793aa;font-size:10.5px;line-height:1.5;padding-top:8px;border-top:1px solid rgba(255,255,255,.1)}
 .parks-panel .note a{color:#9cc4ff}
-@media (max-width:640px){.parks-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:56%}.parks-panel .grid{grid-template-columns:1fr 1fr}.parks-panel .facts{grid-template-columns:1fr 1fr}}
+.oe-wiki.parks-wiki{left:444px;top:12px;bottom:12px;width:min(640px,calc(100% - 456px));z-index:30;--oe-wiki-font:"Noto Sans JP","Hiragino Sans","Yu Gothic UI",system-ui,sans-serif}
+@media (max-width:640px){.parks-panel{top:auto;bottom:44px;right:8px;left:8px;width:auto;max-height:56%}.parks-panel .grid{grid-template-columns:1fr 1fr}.parks-panel .facts{grid-template-columns:1fr 1fr}
+ .oe-wiki.parks-wiki{left:8px;right:8px;top:8px;bottom:8px;width:auto;z-index:31}}
 </style>
 <div class="head"><h1><small>${t("Japan")}</small>${t("National Parks of Japan")}</h1><span class="row"><select class="lang" data-k="lang" aria-label="${t("Language")}">${LANGUAGES.map(l => `<option value="${l.code}"${l.code === lang ? " selected" : ""}>${esc(l.name)}</option>`).join("")}</select><button type="button" class="fold" data-k="fold" aria-label="${t("Collapse panel")}">−</button></span></div>
 <div class="sub">${t("$1 parks. Click one to fly there — the boundaries are the Ministry of the Environment's official park areas.", fmtN(parks.length))}</div>
@@ -138,6 +142,8 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 <div class="body"><div data-k="list"></div><div class="note">${t("Boundaries: Ministry of the Environment, Japan (national park areas). Names and links: Wikidata. Photos: Wikimedia Commons, each with its own licence.")}</div></div>`;
 	(panelHost || mapEl).appendChild(panel);
 	const $ = k => panel.querySelector(`[data-k="${k}"]`);
+	// Wikipedia の枠（記事は m. 版・↗ で別タブ・✕/Esc で閉じる）。公園を替える・一覧へ戻る＝閉じる
+	const wikiFrame = createWikiFrame({ host: mapEl, className: "parks-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
 	const setFold = min => { panel.classList.toggle("min", min); $("fold").textContent = min ? "＋" : "−"; $("fold").setAttribute("aria-label", min ? t("Expand panel") : t("Collapse panel")); };
 	$("fold").addEventListener("click", () => setFold(!panel.classList.contains("min")));
 	setFold(matchMedia("(max-width:640px)").matches);
@@ -242,28 +248,20 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 				<div class="fact wide"><small>${t("Prefectures")}</small>${p.prefs.map(c => `<span class="pref">${esc(prefName(c))}</span>`).join("")}</div>
 			</div>
 			<div class="extract wait" data-k="extract">${t("Loading…")}</div>
-			<div class="links">${url ? `<a class="wp" href="${esc(url)}" target="_blank" rel="noopener">${t("Read on Wikipedia")} ↗</a>` : ""}${p.site ? `<a href="${esc(p.site)}" target="_blank" rel="noopener">${t("Official site")} ↗</a>` : ""}</div>
+			<div class="links">${url ? `<a class="wp">${t("Read on Wikipedia")}</a>` : ""}${p.site ? `<a href="${esc(p.site)}" target="_blank" rel="noopener">${t("Official site")} ↗</a>` : ""}</div>
 			${p.photo?.src ? `<div class="credit">${t("Photo: $1 ($2)", esc(p.photo.artist || "Wikimedia Commons"), p.photo.licenseUrl ? `<a href="${esc(p.photo.licenseUrl)}" target="_blank" rel="noopener">${esc(p.photo.license || "")}</a>` : esc(p.photo.license || ""))}${p.photo.page ? ` · <a href="${esc(p.photo.page)}" target="_blank" rel="noopener">Wikimedia Commons</a>` : ""}</div>` : ""}
 		</div>`;
 		body.scrollTop = 0;
-		// Wikipedia の冒頭＝REST summary を直読み（CORS 可・資格情報なし）。自分の言語 → 英語 → 日本語
+		const wp = $("list").querySelector(".wp"); if (wp) wikiFrame.link(wp, url, nameOf(p));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
+		// Wikipedia の冒頭＝REST summary（共通の芯・IDB 30 日）。自分の言語 → 英語 → 日本語
 		const el = $("extract");
-		for (const l of [...new Set([lang, ...WIKI_FALLBACK])]) {
-			const title = p.wiki?.[l]; if (!title) continue;
-			try {
-				const r = await fetch(`https://${l}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title.replace(/ /g, "_"))}`, { credentials: "omit", headers: { Accept: "application/json" } });
-				if (my !== seq) return;
-				if (!r.ok) continue;
-				const j = await r.json();
-				if (my !== seq) return;
-				if (j?.extract) { el.textContent = j.extract; el.classList.remove("wait"); return; }
-			} catch { /* 次の言語へ */ }
-		}
-		if (my === seq && el) { el.textContent = ""; el.classList.remove("wait"); }
+		const s = await summaryIn(p.wiki, WIKI_LANGS).catch(() => null);
+		if (my !== seq) return;
+		el.textContent = s?.extract || ""; el.classList.remove("wait");
 	};
 	function show(id, { fly = true } = {}) {
 		const p = byId.get(id); if (!p) return;
-		cur = p; hover(null);
+		cur = p; hover(null); wikiFrame.close();
 		renderDetail(p);
 		applySpot(p);
 		if (fly) {
@@ -274,7 +272,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		try { const u = new URL(location.href); u.searchParams.set("p", id); history.replaceState(null, "", u); } catch { /* 埋め込み先で URL を触れない */ }
 	}
 	function back() {
-		cur = null; seq++;
+		cur = null; seq++; wikiFrame.close();
 		map.gadget.spotlight(null);
 		renderList();
 		try { const u = new URL(location.href); u.searchParams.delete("p"); history.replaceState(null, "", u); } catch { /* 同上 */ }
@@ -285,6 +283,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		show(list[(i + d + list.length) % list.length].id);
 	}
 	const onKey = e => { if (e.target.closest?.("input,select,textarea")) return; if (!cur) return;
+		if (e.key === "Escape" && wikiFrame.isOpen) return;   // 記事が開いている＝Esc は枠が閉じる（一覧へは戻らない）
 		if (e.key === "ArrowRight") step(1); else if (e.key === "ArrowLeft") step(-1); else if (e.key === "Escape") back(); else return; e.preventDefault(); };
 	window.addEventListener("keydown", onKey);
 
@@ -297,6 +296,6 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 		get current() { return cur; },
 		get layer() { return layer; },
 		get zones() { return zones; }, setZones,
-		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); zones?.remove?.(); panel.remove(); },
+		destroy() { seq++; window.removeEventListener("keydown", onKey); map.gadget.spotlight(null); map.gadget.outline(null); layer?.remove?.(); zones?.remove?.(); wikiFrame.remove(); panel.remove(); },
 	};
 }

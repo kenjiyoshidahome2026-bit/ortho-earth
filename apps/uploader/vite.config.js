@@ -2,9 +2,11 @@
 import { defineConfig } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { crossOriginIsolation } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
+	plugins: [crossOriginIsolation({ coep: 'require-corp' })],   // uploader だけ従来どおり require-corp（dev と preview の全リクエスト・旧 server.headers＝dev だけ）
 	// 共有データの正本（apps/gishub-jp/shared-data）の絶対パス＝src/shared-data.js が dev の /@fs で読む
 	define: { __SHARED_DATA_DIR__: JSON.stringify(path.resolve(__dirname, '../gishub-jp/shared-data')) },
 	resolve: {
@@ -20,10 +22,6 @@ export default defineConfig({
 	},
 	server: {
 		fs: { allow: ['../..'] },
-		headers: {
-			'Cross-Origin-Opener-Policy': 'same-origin',
-			'Cross-Origin-Embedder-Policy': 'require-corp',
-		},
 		proxy: {
 			'/api': {
 				target: 'https://api.ortho-earth.com',
