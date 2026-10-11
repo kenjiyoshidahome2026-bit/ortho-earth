@@ -146,6 +146,9 @@ export interface OrthoJapanOptions {
 	time?: Date | string | number;
 	/** window.__cam 等のデバッグ手を生やす（target 指定時は既定で生えない） */
 	debugGlobals?: boolean;
+	/** addGint の paint/filter の表を GPU で組む（WebGPU の層だけ・2026-10-12〜・opt-in＝URL の ?gintexpr=1 と同じ）。式を WGSL に、属性を列にして一度だけ送り、
+	 *  feature-state／zoom の差し替えは列の 1 セル書き＝CPU の全 fid 再評価が消える。載らない式（MapLibre 出自・文字列どうしの大小比較…）と WebGL2 は CPU の表へ自動で落ちる（見た目は不変） */
+	gpuExpr?: boolean;
 	/** 落とした／?g= の .geopbf をこのバイト数を超えたら列チャンク層（addColumnar・gint を通さない）で描く（1.4.0〜・#90）。以下は gint（位相・ドレープ・編集）。
 	 *  既定 4e6。GeoParquet は大きさに依らず常に列チャンク層。URL の ?columnar=1|0 が勝つ */
 	columnarBytes?: number;

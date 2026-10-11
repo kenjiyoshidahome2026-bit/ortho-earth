@@ -1,0 +1,75 @@
+<!doctype html>
+<!-- fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）の実描画の検分＝createGlobe({ gpuExpr:true })（?gintexpr=1 と同じ）で addGint し、
+     データ駆動の paint（match／interpolate の色・式の線幅・点の半径・filter）と feature-state・zoom の差し替えが、CPU の表（buildFidStyle）と同じ絵になる。
+     標本点の色の期待は CPU の表から取る（同じ paint・同じ地物＝GPU の表と一致するはず＝t-gintexpr が値で見張る物を絵で見る）。
+     ① 走者が載った（h._gpuExpr()）② 面の色＝match/interpolate の期待色 ③ filter で隠した面は無色 ④ setFeatureState で 1 枚が hover 色に（小径＝列の 1 セル書き）
+     ⑤ removeFeatureState で戻る ⑥ zoom を跨いで線幅の式が追随 ⑦ CPU の表（gpuExpr:false の地図）と同じ標本
+     WebGPU（verify:webgpu）＝実 GPU 専用（swiftshader の器では renderer の最初の draw で device が落ちる＝t-gintgpu と同じ）＝Kenji の手元 Mac。GL2（verify:ui）＝走者が無い＝CPU へ落ちる経路の検分（器でも回る） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map,#map2{width:800px;height:600px}</style><title>t-gintexprdraw</title></head>
+<body><div id="map"></div><div id="map2"></div>
+<script type="module">
+const t = [], ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.76, LAT = 35.68;
+const sq = (x, y, s) => [[x, y], [x + s, y], [x + s, y + s], [x, y + s], [x, y]];
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");
+	const { geopbf } = await import("geopbf");
+	const { buildFidStyle } = await import("@ortho-earth/core");
+	// ── 試料：面 12 枚（v=0..110）・線 4 本・点 6
+	const feats = []; let id = 0;
+	const add = (geometry, props = {}) => feats.push({ type: "Feature", properties: { id: id++, ...props }, geometry });
+	const S = 0.006;
+	for (let i = 0; i < 12; i++) { const x = LON - 0.055 + (i % 6) * 0.018, y = LAT - 0.028 + Math.floor(i / 6) * 0.03; add({ type: "Polygon", coordinates: [sq(x, y, S)] }, { kind: i % 3 === 0 ? "a" : i % 3 === 1 ? "b" : "c", v: i * 10 }); }
+	for (let i = 0; i < 4; i++) { const y = LAT + 0.02 + i * 0.006; add({ type: "LineString", coordinates: [[LON - 0.05, y], [LON - 0.02, y + 0.002], [LON + 0.01, y]] }, { kind: "line", v: 100 + i }); }
+	for (let i = 0; i < 6; i++) add({ type: "Point", coordinates: [LON + 0.03 + (i % 3) * 0.012, LAT + 0.015 + Math.floor(i / 3) * 0.012] }, { kind: "pt", v: 200 + i });
+	const fc = { type: "FeatureCollection", features: feats };
+	const PAINT = {
+		"fill-color": ["case", ["==", ["feature-state", "hover"], true], "#ffff00", ["match", ["get", "kind"], "a", "#ff0000", "b", ["interpolate", ["linear"], ["get", "v"], 0, "#0000ff", 110, "#00ffff"], "#00ff00"]],
+		"fill-opacity": 1, "line-color": "#ff00ff", "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 14, 8], "circle-color": "#ffffff", "circle-radius": ["-", ["get", "v"], 196],
+	};
+	const FILTER = ["!=", ["get", "v"], 50];   // 面 5 枚目（v=50）を隠す
+	const makeMap = async (target, gpuExpr) => { const map = await createGlobe({ target, view: `#13/${LAT}/${LON}`, chips: false, persistView: false, mesh: false, gpuExpr, debugGlobals: true }); await new Promise(r => map.on("load", r)); await sleep(400); return map; };
+	const { composeLayersToCanvas } = await import("../src/gadgets/compose.js");   // shot と同じ合成の核（gadget は二重搭載で handle を返さない）
+	const readShot = async map => { const img = composeLayersToCanvas(await map.requestSnapshot(), null); const cv = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = cv.getContext("2d"); g.drawImage(img, 0, 0); return { at: (x, y) => g.getImageData(Math.round(x), Math.round(y), 1, 1).data, k: img.width / 800 }; };
+	const samples = [];
+	for (let i = 0; i < 12; i++) { const g = feats[i].geometry.coordinates; samples.push({ name: `poly${i}`, fid: i, ll: [g[0][0][0] + S * 0.5, g[0][0][1] + S * 0.5] }); }
+	for (let i = 16; i < 22; i++) samples.push({ name: `pt${i}`, fid: i, ll: feats[i].geometry.coordinates });
+	// CPU の表 → 標本の期待色（fill は R 欄・点は G 欄）
+	const expect = (states = new Map(), zoom = 13) => { const { u32 } = buildFidStyle(PAINT, feats, { filter: FILTER, zoom, states }); return samples.map(s => { const u = s.fid < 12 ? u32[s.fid * 4] : u32[s.fid * 4 + 1]; return (u & 255) === 0 || !(u32[s.fid * 4 + 2] & 1) ? null : [u >>> 24, (u >>> 16) & 255, (u >>> 8) & 255]; }); };   // visible ビット（filter）が 0＝無色
+	const near = (c, want) => want === null ? c[3] < 60 || (c[0] < 40 && c[1] < 40 && c[2] < 60) || (c[0] > 200 && c[1] > 200 && c[2] > 200) : c[3] > 200 && Math.abs(c[0] - want[0]) < 40 && Math.abs(c[1] - want[1]) < 40 && Math.abs(c[2] - want[2]) < 40;
+	const sampleAll = async map => { const img = await readShot(map), pr = map.makeProjector(); return samples.map(s => { const [x, y] = pr(s.ll[0], s.ll[1]); return Array.from(img.at(x * img.k, y * img.k)); }); };
+	const judge = (name, got, want) => ok(name, got.every((c, i) => near(c, want[i])), got.map((c, i) => near(c, want[i]) ? "" : `${samples[i].name}:${c.join(",")}≠${want[i]}`).filter(Boolean).join(" ") || "all match");
+
+	const map = await makeMap("#map", true);
+	const GPU = window.__backend === "webgpu";   // GL2（verify:ui）＝走者が無い＝ack の error で CPU の表へ落ちる経路の検分（絵は同じ・_gpuExpr は false）
+	const pbf = await geopbf(fc, { gint: true, name: "t/exprdraw" });
+	const h = map.addGint(pbf, { order: 40, interactive: false });
+	await h.ready; await h.setPaint(PAINT, FILTER); await sleep(1200);
+	ok(GPU ? "① 走者に載った（gpuExpr）" : "① GL2＝走者なし＝CPU の表へ落ちた", h._gpuExpr() === GPU, `${window.__backend} ${h._gpuExpr()}`);
+	const got0 = await sampleAll(map);
+	judge("②③ match/interpolate の色・filter の無色（CPU の表の期待）", got0, expect());
+	// ④ feature-state（hover）＝小径
+	h.setFeatureState(3, { hover: true }); await sleep(600);
+	judge("④ feature-state で poly3 が hover 色", await sampleAll(map), expect(new Map([[3, { hover: true }]])));
+	ok("④' 経路が変わらない", h._gpuExpr() === GPU);
+	h.removeFeatureState(3); await sleep(600);
+	judge("⑤ removeFeatureState で戻る", await sampleAll(map), expect());
+	// ⑥ zoom の差し替え（線幅の式）＝線の標本は線上の画素（幅 2px→8px）
+	const lineLL = [LON - 0.035, LAT + 0.021]; const pr0 = map.makeProjector();
+	const lineW = async () => { const img = await readShot(map), [x, y] = map.makeProjector()(lineLL[0], lineLL[1]); let n = 0; for (let dy = -12; dy <= 12; dy++) { const c = img.at(x * img.k, (y + dy) * img.k); if (c[0] > 150 && c[2] > 150 && c[1] < 100) n++; } return n; };
+	const w13 = await lineW();
+	map.jumpTo({ zoom: 14 }); await sleep(1500);
+	const w14 = await lineW();
+	ok("⑥ zoom 13→14 で線幅の式が追随", w14 > w13 + 2, `${w13}px→${w14}px`);
+	map.jumpTo({ zoom: 13 }); await sleep(1000);
+	// ⑦ CPU の表の地図と同じ標本
+	const map2 = await makeMap("#map2", false);
+	const h2 = map2.addGint(await geopbf(fc, { gint: true, name: "t/exprdraw2" }), { order: 40, interactive: false });
+	await h2.ready; await h2.setPaint(PAINT, FILTER); await sleep(1200);
+	ok("⑦' CPU の表の地図（gpuExpr:false）", h2._gpuExpr() === false);
+	const gotG = await sampleAll(map), gotC = await sampleAll(map2);
+	ok("⑦ GPU の表と CPU の表の絵が同じ標本", gotG.every((c, i) => c.every((v, j) => Math.abs(v - gotC[i][j]) < 24)), gotG.map((c, i) => c.every((v, j) => Math.abs(v - gotC[i][j]) < 24) ? "" : `${samples[i].name}:${c.join(",")}≠${gotC[i].join(",")}`).filter(Boolean).join(" ") || "all match");
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script></body></html>

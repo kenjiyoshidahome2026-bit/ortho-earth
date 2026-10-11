@@ -273,6 +273,7 @@ Gint の評価文脈に `id` は無い（`["id"]`＝undefined）。契約に足�
 - width=0＝線を描かない（VS で棄却）／radius=0＝点を描かない。線色・点色の α=0＝既定色（§5）
 - 更新は同寸なら `texSubImage2D`（WebGPU は `writeTexture`）1 回。メタ・tier・幾何に触れることを**仕様として禁止**。context lost 用に CPU 側の写しを保持
 - 規模：16 B/fid＝1,919 市区町村で 31 KB／100 万 feature で 16 MB
+- **表を GPU で組む経路（2026-10-12・geopbf 改良点 ⑦・opt-in）**：`createGlobe({ gpuExpr: true })`／`?gintexpr=1` の WebGPU の層は、main が式を WGSL compute に（`gpu/gintexpr.js compileFidStyleWGSL`）、属性を鍵ごとの列（`gl/gint/attrcols.js`＝vec2u「型・中身」＋層の文字列辞書＋geometry-type 列）に一度だけ組んで送り、render worker の走者（`gpu/gintexprgpu.js`・`paintExpr`）が fid ごとに評価して `copyBufferToTexture` で表へ写す。feature-state の差し替え（`exprState`）＝列の該当セル 8 B を `writeBuffer` して走らせ直すだけ（旧＝全 fid を CPU で再評価）、zoom の差し替え＝uniform 1 本。main の `lastTable`（ラベルの filter 連動・照会の `accept`）は ack の読み戻し（filter が state／zoom を読む時だけ差し替え時にも読む）。意味論はネイティブ出自（expr.js の JS 流儀＝ToNumber・truthy・===・±Infinity・NaN・入れ子の色の補間の丸め）を写し、載らない式（MapLibre 出自・文字列どうしの大小比較・文字列を足す +・配列の値・動的な鍵・2^24 超の整数リテラル）と GL2・旧エンジンは ack の `error` で CPU の `buildFidStyle` へ自動で落ちる＝見た目は不変。数は f32（JS は f64）＝.5 の境で ±1/255。門＝ortho-core `tests/gint-exprgpu.mjs`（列・辞書・WGSL の形・断る式）・globe `t-gintexpr`（本物の走者で GPU の表を読み戻して CPU と突き合わせ＝契約の式 43 組＋乱数 120 本・swiftshader でも回る）・`t-gintexprdraw`（実描画＝実 GPU。GL2 では落ちる経路の検分）
 - **visible ビットを見る所**：線の描画と強調・線の pick・点の描画と pick・ID 塗りの蓄積と解決・ラベル・`findPolygon`／`identifyAt`（`accept`＝ホバーの面と照会・2026-09-26）。
   **見ない所**：stencil 単色の塗り（`VS_STENCIL` は表を読まない＝ID 塗りが使えない時の縮退で隠した面も単色で塗る＝U13）
 
@@ -570,3 +571,4 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - **2026-09-26** **1.0**：実装に合わせて全面改稿（Issue #10）。公開の線（本人裁定）・draft からの差（§4.10）・実測（§8）・検定（§11）・未決の一覧（§12-B）
 - **2026-09-26** 1.0 の後の直し（本人「2,3,1」）：U2＝interactive:false の追加でカーソルが動かない／U3・U4＝照会の意味（§4.5 の表・geopbf の accept・エンジンが ack で実レンジを返す・地球儀の内部層を照会から外す）／
   MapLibre 形の層の出しズームを MapLibre の既定に／d.ts の型（U11）。U12・U13 を未決に足した／U1＝表の line-width を CSS px に（既存アプリは半分にして見た目を保つ）
+- **2026-10-12** fid 表を GPU で組む経路（§7.1・geopbf 改良点 ⑦・opt-in `gpuExpr`／`?gintexpr=1`）＝式→WGSL compute・属性列と辞書・feature-state は列の 1 セル書き・載らない式と GL2 は CPU へ自動で落ちる

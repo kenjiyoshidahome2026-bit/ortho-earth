@@ -28,6 +28,7 @@ import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from ".
 import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
 import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
 	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.js";
+import { createFidExprRunner } from "./gintexprgpu.js";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
@@ -447,6 +448,35 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	function clearFidStyle(L) {
 		if (L.fidStyleTex) L.fidStyleTex.destroy();
 		L.fidStyleTex = null; L.fidStyleW = 0; L._fidStyleH = 0; L.fidStyleCount = 0; L._fidStyleData = null;
+		dropExpr(L);
+	}
+	// ── fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）＝main が式を WGSL に（gpu/gintexpr.js）・属性列と辞書表を送り、ここで compute → fidStyleTex へ copy。
+	// feature-state の差し替え（exprState）は列の該当セルを writeBuffer して走らせ直すだけ＝CPU の全 fid 再評価が無い。zoom の差し替えも同じ（uniform 1 本）
+	let exprRunner = null;
+	const dropExpr = L => { if (L._exprJob) { L._exprJob.destroy(); L._exprJob = null; } };
+	async function paintExpr(L, d) {   // d＝{ prog, count, props, states, geom, dnum, dcol, zoom, overlap, table }（table＝表を読み戻して返す＝main の lastTable）
+		if (!d?.prog || !(d.count > 0)) { clearFidStyle(L); L.idOverlapMode = !!d?.overlap; bump(); return null; }
+		exprRunner ||= createFidExprRunner(device, { texW: Math.min(4096, TEX_ARC_W) });
+		const job = await exprRunner.create(d.prog, d);   // WGSL のエラーは throw（呼び手が ack の error に載せ、main は CPU の表へ落ちる）
+		dropExpr(L); L._exprJob = job;
+		const W = job.texW, H = job.H;
+		if (!L.fidStyleTex || L.fidStyleW !== W || L._fidStyleH !== H) {
+			if (L.fidStyleTex) L.fidStyleTex.destroy();
+			L.fidStyleTex = device.createTexture({ size: [W, H], format: "rgba32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+		}
+		job.run({ tex: L.fidStyleTex });
+		L.fidStyleW = W; L._fidStyleH = H; L.fidStyleCount = d.count; L._fidStyleData = null;
+		L.idOverlapMode = !!d.overlap;
+		bump();
+		return d.table ? job.readback() : null;
+	}
+	function exprState(L, d) {   // d＝{ rows: [[fid, cells]…], dnum?, dcol?（辞書が伸びた時）, zoom?, table }。走者が無い（CPU の表の層）＝false＝main が CPU 経路へ
+		const job = L._exprJob; if (!job || !L.fidStyleTex) return null;
+		if (d?.dnum) job.growDict(d.dnum, d.dcol);
+		if (d?.rows) for (const [fid, cells] of d.rows) job.setState(fid, cells);
+		job.run({ tex: L.fidStyleTex, zoom: d?.zoom });
+		bump();
+		return d?.table ? job.readback() : Promise.resolve(null);
 	}
 
 	// ── 層状態（§10.1 第1ブロック＝層ごとに割る）とスロット束 ────────────────
@@ -580,7 +610,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	function style(L, data) { L.drawStyle = data ?? null; L.stylesDirty = true; bump(); }
 	function setVisible(L, v) { L.visible = !!v; bump(); }
 	function paint(L, data) {
-		if (data?.table && data.count > 0) uploadFidStyle(L, data.table, data.count);
+		if (data?.table && data.count > 0) { dropExpr(L); uploadFidStyle(L, data.table, data.count); }   // CPU の表＝GPU の走者は捨てる（⑦）
 		else clearFidStyle(L);
 		L.idOverlapMode = !!data?.overlap;
 		bump();
@@ -1151,7 +1181,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 			rank: L.lastDrawData?.lodRank ?? -1, tierW: L._pfTierW ?? -1, edges: L._pfLineEdges ?? 0, dbg: L._dbg ?? null, ring: (L._dbgRing ?? []).slice(-40).join(" "),
 			style: L.drawStyle ? { oz: L.drawStyle.outlineZoom, mb: L.drawStyle.moveBudget, nd: L.drawStyle.noDepth, lw: L.drawStyle.lineWidth } : null,
 			tiers: L.lodTiers?.length ?? 0, tiersDone: !!L.tiersDone, total: L.totalEdges,
-			layers: Math.max(L.arcTex?.depthOrArrayLayers ?? 0, L.metaTex?.depthOrArrayLayers ?? 0, L.ptTex?.depthOrArrayLayers ?? 0), layerH: LH, sbLimit: SB_LIMIT,   // 2D 配列の層数（分割送りの検札）
+			expr: L._exprJob ? 1 : 0, layers: Math.max(L.arcTex?.depthOrArrayLayers ?? 0, L.metaTex?.depthOrArrayLayers ?? 0, L.ptTex?.depthOrArrayLayers ?? 0), layerH: LH, sbLimit: SB_LIMIT,   // 2D 配列の層数（分割送りの検札）
 			runs: L._pfRuns ?? -1, chunks: L._pfChunks ?? -1, vb: V.lastViewBbox };
 	}
 	// 層ハンドル（§4 addGint の土台＝データ・スタイル面の動詞を層に束ねる。カーソルはエンジン＝activate で移す）
@@ -1159,6 +1189,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		return {
 			set: (d, k) => set(L, d, k), setSlot: k => setSlot(L, k), setBaked: (p, k) => setBaked(L, p, k),
 			style: d => style(L, d), setVisible: v => setVisible(L, v), paint: d => paint(L, d),
+			paintExpr: d => paintExpr(L, d), exprState: d => exprState(L, d),   // fid 表を GPU で組む（⑦）・feature-state／zoom の差し替え
 			stats: () => statsFor(L),
 			range: () => ({ minZoom: L.minZoom ?? null, maxZoom: L.maxZoom ?? null }),   // 実描画レンジ（データ導出×指定）＝main の照会が「見えている層」を判定する物差し（ack で返す）
 			activate: () => { if (act !== L) { act = L; activeId = -1; } },
