@@ -375,6 +375,8 @@ fid が上限を超える層は地物ごとの塗りを失う。回避は「同�
 
 - 既定 ON：`maxStorageBufferBindingSize > 0 ∧ maxStorageBuffersPerShaderStage ≥ 2`。group(2)（arc・meta・metaB・tier・pt・ptMeta）を storage buffer へ。扇の要・fid 表・標高はテクスチャのまま
 - buffer ごとに `byteLength ≤ device の上限`（既定 128 MiB）の時だけ写す＝超えればその層はテクスチャ経路。`sbReady(L)` を draw/drawn/bakeFaces の頭で層ごとにラッチ＝同じフレームで混在しても各層のパスは自己完結
+- 上限は renderer が `requestDevice` でアダプタの実力値（`maxStorageBufferBindingSize`／`maxBufferSize`）を要求＝Apple/Windows は GiB 級・ソフトウェア実装は既定のまま（2026-10-12・geopbf 改良点 ⑤）
+- **テクスチャ経路は 2D 配列**（2026-10-12・分割送り）：group(2)（arc・meta・metaB・tier・pt・ptMeta）は `texture_2d_array<u32>`＝幅 4096×層ごと `TEX_LAYER_H=4096` 行（arc 128 MiB・meta 256 MiB／層）。層数の上限 `maxTextureArrayLayers`（≥256）＝実質天井なし（旧＝1 枚 2D で高さ ≤ 8192＝arc 268 MB が天井・超えると createTexture が即死）。読みは `arcAt/metaAt/ptAt/ptMetaAt` の 4 アクセサに閉じ、storage 版は `toStorageWGSL` がその本体だけを添字 1 回に変える。送りは `texLayerWrites`（純関数）の計画どおり層ごと＝満杯の行は生配列の view のまま `writeTexture`・半端な 1 行だけ詰め物（旧＝生配列と同じ大きさの padding 済み写しをもう 1 本作っていた）。`?gintlh=N`／`createGintLayerGPU({ layerH })`＝層の高さを下げて小データで複数層を踏む検定用（`withLayerH`）。検札＝`stats().layers`／`layerH`。門＝ortho-core `tests/gint-texlayers.mjs`（計画・変換）・globe `t-gintlayers`（実機で読み戻し一致＝swiftshader でも回る）・`t-gintgpu?gintlh=16`（絵の一致・実 GPU）
 - パイプラインは storage × MSAA で引く。storage 用 WGSL はテクスチャ版から `toStorageWGSL` で生成（`textureLoad` が残れば throw）
 - `?gintsb=0`＝テクスチャ経路（globe.js `noGintSB` → renderworker → `createGintLayerGPU({ noSB })`）。WebGL2 に storage 経路は無い
 - 検札口 `stats().sb`＝−1（経路なし）/0（この層はテクスチャ）/1（storage）・render worker の `self.__gintStats`
@@ -533,7 +535,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - TF 前段（復号・投影・lodSnap を辺ごとに 1 回・全パス共有）と Morton の入口一回展開＝ID 塗り（全密度）を軽くする本命
 - 派生物の IndexedDB 焼き（再訪で bake を飛ばす）
 - ID バッファを面の pick に使う（findPolygon の GPU 化）
-- storage 一本化（案 3・複数 binding で 128 MiB 上限を回避）
+- storage 一本化（案 3・複数 binding で binding 上限を回避。上限はアダプタの実力値を要求済み・超える層は 2D 配列テクスチャで受ける＝2026-10-12）
 - 契約の式の拡張（`["id"]` を fid として評価文脈へ 等）
 
 ### 12-B 未決（実装と意図がずれている所＝本人裁定待ち・説明書は現状を書いた）
