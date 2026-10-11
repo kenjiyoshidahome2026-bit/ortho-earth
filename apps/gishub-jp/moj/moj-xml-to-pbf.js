@@ -23,121 +23,10 @@ const BUCKET_DIR  = 'moj';
 const PROGRESS_FILE = join(__dir, 'pbf-progress.json');
 const MIN_SIZE    = 5000; // バイト未満は空データとみなしてスキップ
 
-// ============================================================
-// 座標変換 (公共座標系 → WGS84)
-// ============================================================
-const DEG = Math.PI / 180;
-const a = 6378137.0, f = 1/298.257222101;
-const e2 = 2*f - f*f, m0 = 0.9999;
-const CS_ORIGINS = {
-	 1:[33,129.5],  2:[33,131],     3:[36,132+10/60], 4:[33,133.5],
-	 5:[36,134+20/60], 6:[36,136],  7:[36,137+10/60], 8:[36,138.5],
-	 9:[36,139+50/60], 10:[40,140+50/60],
-	11:[44,140.25], 12:[44,142.25], 13:[44,144.25],
-	14:[26,142],    15:[26,127.5],  16:[26,124],
-	17:[26,131],    18:[20,136],    19:[26,154],
-};
 // 任意座標系XMLの都道府県→系番号フォールバック（正本: jp/codes.js・1か所管理）
 import { PREF_SYS } from '../jp/codes.js';
-
-function meridianArc(phi) {
-	const e4=e2*e2, e6=e2*e4;
-	return a*((1-e2/4-3*e4/64-5*e6/256)*phi
-		-(3/8)*(e2+e4/4+15*e6/128)*Math.sin(2*phi)
-		+(15/256)*(e4+3*e6/4)*Math.sin(4*phi)
-		-(35*e6/3072)*Math.sin(6*phi));
-}
-
-function planeToLatLon(x, y, sysNum) {
-	const [lat0d,lon0d] = CS_ORIGINS[sysNum] || CS_ORIGINS[9];
-	const phi0=lat0d*DEG, lam0=lon0d*DEG;
-	const e4=e2*e2, e6=e2*e4;
-	const M0=meridianArc(phi0), M=M0+x/m0;
-	const mu=M/(a*(1-e2/4-3*e4/64-5*e6/256));
-	const e1=(1-Math.sqrt(1-e2))/(1+Math.sqrt(1-e2));
-	const e12=e1*e1, e13=e1*e12, e14=e1*e13;
-	const phi1=mu+(3*e1/2-27*e13/32)*Math.sin(2*mu)
-		+(21*e12/16-55*e14/32)*Math.sin(4*mu)
-		+(151*e13/96)*Math.sin(6*mu)+(1097*e14/512)*Math.sin(8*mu);
-	const sinP=Math.sin(phi1),cosP=Math.cos(phi1),tanP=Math.tan(phi1);
-	const ep2=e2/(1-e2),C1=ep2*cosP*cosP,T1=tanP*tanP;
-	const N1=a/Math.sqrt(1-e2*sinP*sinP);
-	const R1=a*(1-e2)/Math.pow(1-e2*sinP*sinP,1.5);
-	const D=y/(N1*m0), D2=D*D,D3=D*D2,D4=D*D3,D5=D*D4,D6=D*D5;
-	const phi=phi1-(N1*tanP/R1)*(D2/2
-		-(5+3*T1+10*C1-4*C1*C1-9*ep2)*D4/24
-		+(61+90*T1+298*C1+45*T1*T1-252*ep2-3*C1*C1)*D6/720);
-	const lam=lam0+(D-(1+2*T1+C1)*D3/6
-		+(5-2*C1+28*T1-3*C1*C1+8*ep2+24*T1*T1)*D5/120)/cosP;
-	return [parseFloat((lam/DEG).toFixed(8)),parseFloat((phi/DEG).toFixed(8))];
-}
-
-function parseSysNum(txt) {
-	const m=txt?.match(/(\d+)系/); return m?parseInt(m[1]):0;
-}
-
-// ============================================================
-// XML → Feature[] (座標変換済み)
-// ============================================================
-function* xmlToFeatures(xml, defaultSysNum=9) {
-	const sysTag=(xml.match(/<座標系>(.*?)<\/座標系>/)||[])[1]||'';
-	const sysNum=/任意/.test(sysTag)?defaultSysNum:(parseSysNum(sysTag)||defaultSysNum);
-	const cityCode=(xml.match(/<市区町村コード>(.*?)<\/市区町村コード>/)||[])[1]||'';
-	const cityName=(xml.match(/<市区町村名>(.*?)<\/市区町村名>/)||[])[1]||'';
-	const pointMap=new Map();
-	const pr=/<zmn:GM_Point id="(P\d+)">\s*<zmn:GM_Point\.position>\s*<zmn:DirectPosition>\s*<zmn:X>([-\d.]+)<\/zmn:X>\s*<zmn:Y>([-\d.]+)<\/zmn:Y>/g;
-	let m;
-	while((m=pr.exec(xml))!==null) pointMap.set(m[1],{x:parseFloat(m[2]),y:parseFloat(m[3])});
-	const curveMap=new Map();
-	const cr=/<zmn:GM_Curve id="(C\d+)">([\s\S]*?)<\/zmn:GM_Curve>/g;
-	while((m=cr.exec(xml))!==null){
-		const id=m[1],body=m[2];
-		const ori=(body.match(/<zmn:GM_OrientablePrimitive\.orientation>([+-])/)||[])[1]||'+';
-		const pts=[];
-		const dr=/<zmn:GM_Position\.direct>\s*<zmn:X>([-\d.]+)<\/zmn:X>\s*<zmn:Y>([-\d.]+)<\/zmn:Y>\s*<\/zmn:GM_Position\.direct>/g;
-		let dm;
-		while((dm=dr.exec(body))!==null) pts.push({x:parseFloat(dm[1]),y:parseFloat(dm[2])});
-		if(!pts.length){const ir=/<zmn:GM_PointRef\.point idref="(P\d+)"\/>/g;let im;while((im=ir.exec(body))!==null){const p=pointMap.get(im[1]);if(p)pts.push(p);}}
-		curveMap.set(id,{pts,ori});
-	}
-	pointMap.clear();
-	const surfaceMap=new Map();
-	const getCIds=str=>{const ids=[],g=/<zmn:GM_CompositeCurve\.generator idref="(C\d+)"\/>/g;let gm;while((gm=g.exec(str))!==null)ids.push(gm[1]);return ids;};
-	const sr=/<zmn:GM_Surface id="(F\d+)">([\s\S]*?)<\/zmn:GM_Surface>/g;
-	while((m=sr.exec(xml))!==null){
-		const id=m[1],body=m[2];
-		const extM=body.match(/<zmn:GM_SurfaceBoundary\.exterior>([\s\S]*?)<\/zmn:GM_SurfaceBoundary\.exterior>/);
-		const ints=[],intR=/<zmn:GM_SurfaceBoundary\.interior>([\s\S]*?)<\/zmn:GM_SurfaceBoundary\.interior>/g;let im;
-		while((im=intR.exec(body))!==null)ints.push(getCIds(im[1]));
-		surfaceMap.set(id,{ext:extM?getCIds(extM[1]):[],ints});
-	}
-	const buildRing=cids=>{
-		const pts=[];
-		for(const cid of cids){
-			const c=curveMap.get(cid);if(!c||!c.pts.length)continue;
-			const cp=c.ori==='-'?[...c.pts].reverse():c.pts;
-			pts.push(...(pts.length?cp.slice(1):cp));
-		}
-		if(pts.length>1){const f=pts[0],l=pts[pts.length-1];if(f.x!==l.x||f.y!==l.y)pts.push(f);}
-		return pts.map(({x,y})=>planeToLatLon(x,y,sysNum));
-	};
-	const fr=/<筆 id="(H\d+)">([\s\S]*?)<\/筆>/g;
-	while((m=fr.exec(xml))!==null){
-		const body=m[2];
-		const tag=t=>(body.match(new RegExp(`<${t}>(.*?)</${t}>`))||[])[1]||'';
-		const fid=(body.match(/<形状 idref="(F\d+)"\/>/)||[])[1];
-		if(!fid)continue;
-		const s=surfaceMap.get(fid);if(!s)continue;
-		const ext=buildRing(s.ext);if(ext.length<4)continue;
-		yield {
-			type:'Feature',
-			geometry:{type:'Polygon',coordinates:[ext,...s.ints.map(buildRing)]},
-			properties:{市区町村コード:cityCode,市区町村名:cityName,大字コード:tag('大字コード'),
-				大字名:tag('大字名'),丁目コード:tag('丁目コード'),小字コード:tag('小字コード'),
-				地番:tag('地番'),精度区分:tag('精度区分'),座標値種別:tag('座標値種別')},
-		};
-	}
-}
+// 地図XML の読み（座標変換・筆の yield）＝moj-xml.js に 1 本（moj-batch / moj-convert と共通・2026-10-03）
+import { xmlToFeatures, scanSysNum } from './moj-xml.js';
 
 // ============================================================
 // 軽量 GeoPBF エンコーダー（Polygon + 文字列プロパティのみ）
@@ -222,22 +111,10 @@ async function processCity(entries) {
 		const outerZip = new AdmZip(buf);
 		const innerZips = outerZip.getEntries().filter(e => e.entryName.endsWith('.zip'));
 
-		// 座標系を先行スキャン（任意座標系対応）
-		for (const iz of innerZips) {
-			const iz2 = new AdmZip(iz.getData());
-			const xe = iz2.getEntries().find(e => e.entryName.endsWith('.xml'));
-			if (!xe) continue;
-			const tag = (xe.getData().toString('utf8').match(/<座標系>(.*?)<\/座標系>/) || [])[1] || '';
-			if (!/任意/.test(tag)) { const n = parseSysNum(tag); if (n) { defaultSys = n; break; } }
-		}
-
-		for (const iz of innerZips) {
-			const iz2 = new AdmZip(iz.getData());
-			const xe = iz2.getEntries().find(e => e.entryName.endsWith('.xml'));
-			if (!xe) continue;
-			const xml = xe.getData().toString('utf-8');
-			for (const feat of xmlToFeatures(xml, defaultSys)) allFeatures.push(feat);
-		}
+		// 座標系を先行スキャン（任意座標系対応）。XML は一度だけ読んで持つ（旧＝先行スキャンと変換で 2 度展開）
+		const xmls = innerZips.map(iz => new AdmZip(iz.getData()).getEntries().find(e => e.entryName.endsWith('.xml'))).filter(Boolean).map(xe => xe.getData().toString('utf8'));
+		defaultSys = scanSysNum(xmls, defaultSys);
+		for (const xml of xmls) for (const feat of xmlToFeatures(xml, defaultSys)) allFeatures.push(feat);
 	}
 
 	if (!allFeatures.length) return null;
