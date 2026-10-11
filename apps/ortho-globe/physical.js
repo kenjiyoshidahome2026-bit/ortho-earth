@@ -15,6 +15,7 @@
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
 import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
+import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
 const t = tr();
 
@@ -181,7 +182,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	const byQ = new Map(items.map(d => [d.qid, d]));
 	const nameOf = d => i18n?.terrains?.[d.qid]?.name || d.name.en;
 	const catName = c => CATEGORY_NAMES[c]?.[lang] || CATEGORY_NAMES[c]?.en || c;
-	const wikiUrl = d => { const w = i18n?.terrains?.[d.qid]?.wiki; return w ? `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(w)}` : d.wiki?.en ? `https://en.wikipedia.org/wiki/${encodeURIComponent(d.wiki.en)}` : null; };
+	const wikiUrl = d => { const w = i18n?.terrains?.[d.qid]?.wiki; return w ? wikiHref(w, lang) : d.wiki?.en ? wikiHref(d.wiki.en, "en") : null; };
 
 	// 形状台帳 → GeoJSON（TerrainDB の物理量を属性へ結ぶ＝式で太さ・色を引く）
 	const shapes = [], geomsOf = new Map(), axisOf = new Map();   // axisOf＝山脈の軸線（名前を沿わせる）
@@ -526,22 +527,10 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	});
 	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) panel.addEventListener(ev, e => e.stopPropagation());   // 案内板の上の操作を地図に渡さない
 
-	// Wikipedia＝アプリ内の iframe（world・census と同じ作法・本人 2026-10-01）。この頁は COEP credentialless＝素の iframe は Wikipedia が COEP を返さず
-	// 遮断される＝<iframe credentialless>（Chrome/Edge）で免除・非対応のブラウザは別タブ（リンクの既定）。記事は m. 版＝狭い枠でも読みやすい
-	const CAN_FRAME = "credentialless" in HTMLIFrameElement.prototype;
-	const wiki = document.createElement("div");
-	wiki.className = "ph-wiki"; wiki.hidden = true;
-	wiki.innerHTML = `<div class="bar"><b class="tt"></b><a class="nt" target="_blank" rel="noopener" aria-label="${esc(t("Open in a new tab"))}" title="${esc(t("Open in a new tab"))}">↗</a><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div><iframe title="Wikipedia" credentialless referrerpolicy="no-referrer"></iframe>`;
-	mapEl.appendChild(wiki);
-	for (const ev of ["pointerdown", "wheel", "dblclick", "contextmenu"]) wiki.addEventListener(ev, e => e.stopPropagation());
-	const closeWiki = () => { if (wiki.hidden) return; wiki.hidden = true; wiki.querySelector("iframe").removeAttribute("src"); };
-	function showWiki(url, name) {
-		wiki.querySelector(".tt").textContent = name || ""; wiki.querySelector(".nt").href = url;
-		wiki.querySelector("iframe").src = url.replace(/^https:\/\/([a-z-]+)\.wikipedia\.org/, "https://$1.m.wikipedia.org");
-		wiki.hidden = false;
-	}
-	wiki.querySelector(".x").onclick = closeWiki;
-	addEventListener("keydown", e => { if (e.key === "Escape") closeWiki(); });
+	// Wikipedia＝アプリ内の iframe（world・census と同じ作法・本人 2026-10-01）。枠＝@ortho-earth/globe/wiki.js の共通の芯（2026-10-03）：
+	// 記事は m. 版・別タブは ↗・COEP credentialless の頁でも <iframe credentialless> で免除・非対応のブラウザは別タブ（リンクの既定）。置き場所＝.ph-wiki
+	const wikiFrame = createWikiFrame({ host: mapEl, className: "ph-wiki", labels: { newTab: t("Open in a new tab"), close: t("Close") } });
+	const closeWiki = () => wikiFrame.close();
 
 	// 詳細カード
 	function renderDetail() {
@@ -553,9 +542,9 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 		el.hidden = false;
 		el.innerHTML = `<div class="dh"><span class="sw" style="background:${g.color}"></span><div><b class="nm">${esc(nameOf(d))}</b><small>${esc(catName(d.category))}${lang !== "en" && nameOf(d) !== d.name.en ? " · " + esc(d.name.en) : ""}</small></div><button class="x" type="button" aria-label="${esc(t("Close"))}">×</button></div>
 			${rows || `<p class="note">${esc(t("No measurements recorded for this feature."))}</p>`}
-			<div class="dl"><span>${d.coord[1].toFixed(2)}°, ${d.coord[0].toFixed(2)}°</span>${w ? `<a class="wk" href="${esc(w)}" target="_blank" rel="noopener">Wikipedia</a>` : ""}</div>`;
+			<div class="dl"><span>${d.coord[1].toFixed(2)}°, ${d.coord[0].toFixed(2)}°</span>${w ? `<a class="wk">Wikipedia</a>` : ""}</div>`;
 		el.querySelector(".x").onclick = () => select(null);
-		const wk = el.querySelector(".wk"); if (wk) wk.onclick = e => { if (!CAN_FRAME || e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); showWiki(w, nameOf(d)); };   // 修飾キー＝ブラウザの既定（別タブ）
+		const wk = el.querySelector(".wk"); if (wk) wikiFrame.link(wk, w, nameOf(d));   // 枠で開く（修飾キー・非対応ブラウザ＝ブラウザの既定＝別タブ）
 	}
 	// 同じ分類の中で何番目か（例：世界で 3 番目に高い）
 	function rankNote(d, k) {
@@ -732,13 +721,7 @@ const CSS = `
 .ph-panel .m small{margin-left:auto;color:var(--qm-text-faint)}
 .ph-panel .dl{display:flex;justify-content:space-between;margin-top:6px;font-size:12px;color:var(--qm-text-faint)}
 .ph-panel .dl a{color:var(--qm-ink)}
-.ph-wiki{position:absolute;left:12px;top:12px;bottom:calc(40px + var(--qm-safe-b));z-index:31;width:min(560px,calc(100% - 356px));display:flex;flex-direction:column;overflow:hidden;
-	border-radius:var(--qm-r-l);background:#fff;border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);color:var(--qm-text);font:13px/1.4 var(--qm-font)}
-.ph-wiki[hidden]{display:none}
-.ph-wiki .bar{flex:none;display:flex;align-items:center;gap:8px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--qm-border-soft)}
-.ph-wiki .tt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--qm-ink)}
-.ph-wiki .nt,.ph-wiki .x{flex:none;width:26px;height:26px;display:grid;place-items:center;border-radius:7px;border:1px solid var(--qm-border-soft);background:transparent;color:var(--qm-text-dim);font-size:14px;line-height:1;cursor:pointer;text-decoration:none}
-.ph-wiki iframe{flex:1;min-height:0;width:100%;border:0;background:#fff}
+.oe-wiki.ph-wiki{left:12px;top:12px;bottom:calc(40px + var(--qm-safe-b));z-index:31;width:min(560px,calc(100% - 356px));--oe-wiki-radius:var(--qm-r-l);--oe-wiki-border:var(--qm-border-soft);--oe-wiki-shadow:var(--qm-shadow-pop);--oe-wiki-font:var(--qm-font)}
 .ph-chart{position:absolute;left:12px;right:344px;bottom:calc(40px + var(--qm-safe-b));z-index:29;height:300px;box-sizing:border-box;padding:8px 12px 10px;display:flex;flex-direction:column;
 	border-radius:var(--qm-r-l);background:var(--qm-panel-solid);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-pop);color:var(--qm-text);font:12px/1.4 var(--qm-font)}
 .ph-chart[hidden]{display:none}
@@ -768,7 +751,7 @@ const CSS = `
 .ph-chart .ctip{position:absolute;pointer-events:none;min-width:120px;padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.97);border:1px solid var(--qm-border-soft);box-shadow:var(--qm-shadow-card);font-size:12px}
 .ph-chart .ctip[hidden]{display:none}
 @media (max-width:720px){
-	.ph-wiki{left:8px;right:8px;top:8px;width:auto}
+	.oe-wiki.ph-wiki{left:8px;right:8px;top:8px;width:auto}
 	.ph-panel{left:12px;right:12px;width:auto;max-height:44vh}
 	.ph-chart{left:8px;right:8px;height:240px}
 }`;

@@ -1562,6 +1562,33 @@
    "bn": "ইচ্ছাকৃত হত্যার হার (প্রতি ১ লাখে)",
    "ur": "دانستہ قتل کی شرح (فی ایک لاکھ)",
    "th": "อัตราการฆาตกรรมโดยเจตนา (ต่อ 100,000 คน)"
+  },
+  "Open in a new tab": {
+   "ja": "別タブで開く",
+   "zh": "在新标签页中打开",
+   "ko": "새 탭에서 열기",
+   "es": "Abrir en una pestaña nueva",
+   "fr": "Ouvrir dans un nouvel onglet",
+   "de": "In neuem Tab öffnen",
+   "pt": "Abrir num novo separador",
+   "ru": "Открыть в новой вкладке",
+   "ar": "فتح في علامة تبويب جديدة",
+   "hi": "नए टैब में खोलें",
+   "id": "Buka di tab baru",
+   "it": "Apri in una nuova scheda",
+   "tr": "Yeni sekmede aç",
+   "vi": "Mở trong thẻ mới",
+   "fa": "باز کردن در زبانهٔ جدید",
+   "he": "פתיחה בלשונית חדשה",
+   "pl": "Otwórz w nowej karcie",
+   "nl": "Openen in nieuw tabblad",
+   "uk": "Відкрити в новій вкладці",
+   "hu": "Megnyitás új lapon",
+   "sv": "Öppna i ny flik",
+   "el": "Άνοιγμα σε νέα καρτέλα",
+   "bn": "নতুন ট্যাবে খুলুন",
+   "ur": "نئے ٹیب میں کھولیں",
+   "th": "เปิดในแท็บใหม่"
   }
  },
  "categories": {
