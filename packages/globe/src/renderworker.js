@@ -370,6 +370,13 @@ const dispatch = e => {
 			else if (m.cmd === "gintBaked") { const g = gTgt(m); if (g) { g.setBaked(m.data, m.prop); if (m.layer != null) { g.setSlot(m.prop ?? "user"); postMessage({ action: "gintAck", cmd: "gintBaked", layer: m.layer, error: null, ...g.range?.() }); } } }   // bake worker 完成品の搭載（CPU ベイク無し＝テクスチャのみ）。既定層＝表示は変えない（gintSlot は main の調停）／層指名＝スロット舞踏が無い＝焼き着地で点火＋搭載 ack（main の ready）
 			else if (m.cmd === "gintStyle") { gTgt(m)?.style(m.data); }    // 描画スタイル（styleTable/lineWidth 等）
 			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
+			else if (m.cmd === "gintPaintExpr" || m.cmd === "gintExprState") {   // fid 表を GPU で組む（geopbf 改良点 ⑦）＝WebGPU の層だけ。GL2／旧エンジン＝error で ack（main は CPU の表へ落ちる）
+				const g = gTgt(m), fn = m.cmd === "gintPaintExpr" ? g?.paintExpr : g?.exprState, seq = m.data?.seq ?? null;
+				const ack = (table, error) => postMessage({ action: "gintAck", cmd: m.cmd, layer: m.layer, seq, error, table }, table ? [table.buffer] : []);
+				if (!fn) ack(null, "no-gpu-expr");
+				else { let r; try { r = fn.call(g, m.data); } catch (e) { ack(null, String(e?.message || e)); r = undefined; }
+					if (r === null) ack(null, "no-expr-job"); else if (r) Promise.resolve(r).then(t => { ack(t ?? null, null); dirty = true; }, e => ack(null, String(e?.message || e))); }
+			}
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
 			else if (m.cmd === "vtLabels") { const list = m.data?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer, list, m.data ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
 			else if (m.cmd === "labels") { const r = labelReceiver(m.data); pendingLabels = r.list; if (r.missing) postMessage({ type: "labelsResync" }); applyLabels(); }   // ラベル集合の更新（差分→集合。持たない番号＝main に全部送り直してもらう）（標高は cam が揃ってから付与）

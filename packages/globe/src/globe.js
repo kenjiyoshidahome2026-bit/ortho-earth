@@ -1379,6 +1379,7 @@ renderer.set("bldFill", { li: bldFillLi(style) });   // 建物フットプリン
 let worldContentH = null;   // opts.worldContent の手綱（テーマ切替で塗り直す・下の install が入れる）
 const gint = createGintLayers({
 	gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）
+	gpuExpr: !!opts.gpuExpr || /[?&]gintexpr=1/.test(location.search),   // fid 表を GPU で組む（geopbf 改良点 ⑦・opt-in＝WebGPU の層だけ・GL2 や載らない式は CPU の表へ自動で落ちる）
 	canvas, mapEl, renderer, wPost, dbgHost, ASSET_BASE, WORLD_VT, LOW_MEM, noGint, ZOOM_MIN, ZOOM_MAX, cam,
 	worldContent: !!opts.worldContent,   // 海岸線・国境＝全ズーム＋最初から 10m・河川/海洋境界＝z1.5 から（equal と同じ出し方）
 	worldLines: opts.worldLines,   // false＝世界帯の河川・海洋境界線（NE 10m）を読まない／["rivers"|"maritime"]＝その種類だけ（既定＝全部）
