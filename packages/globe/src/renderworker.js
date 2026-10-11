@@ -67,6 +67,7 @@ function overlayAdd(m) {
 		dirty = true; armRaf();
 	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); stage("failed", { error: String(err?.message || err) }); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
 }
+let lastOv = null;   // 最後に描いたフレームの { cam, s, size, api }（統一 picking＝overlayPick が同じ cam で当てる・PR-1）
 function overlayFrame(camNow, depthFrame) {
 	if (!overlays.size) return false;
 	let more = false, s = null, api = null;
@@ -97,7 +98,25 @@ function overlayFrame(camNow, depthFrame) {
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
 	}
+	if (s) lastOv = { cam: camNow, s, size: { w: baseW || api.W * api.dpr, h: baseH || api.H * api.dpr }, api: { ...api, clip: null, depth: null } };
 	return more;
+}
+// 統一 picking（deck.gl 差分 PR-1・2026-10-11）：main の map.pickOverlays(x, y) → names の順（手前から）に各モジュールの pick(x, y, r, ctx) を問う。
+// x, y, r は CSS px で来る＝device px に直す。答え＝[{ name, id, distance（CSS px）, lngLat, properties, … }]（モジュールが返した物に name を足す）。pick の無いモジュールは飛ばす
+function overlayPick(m) {
+	const hits = [];
+	if (lastOv) {
+		const dpr = lastOv.cam?.dpr || 1, r = (m.r ?? 6) * dpr;
+		for (const name of m.names || [...overlays.keys()].reverse()) {
+			const o = overlays.get(name);
+			if (!o?.mod?.pick) continue;
+			try {
+				const res = o.mod.pick(m.x * dpr, m.y * dpr, r, lastOv);
+				for (const h of res == null ? [] : Array.isArray(res) ? res : [res]) if (h) hits.push({ ...h, name, distance: (h.distance ?? 0) / dpr });
+			} catch (e) { console.error("[render] overlay", name, "pick failed", e?.message); }
+		}
+	}
+	postMessage({ type: "overlayPickResult", seq: m.seq, hits });
 }
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let frameEvents = false;   // 描いたフレームごとに { type:"frame", cam } を main へ（custom 層の同期・要求された時だけ）
@@ -343,6 +362,7 @@ const dispatch = e => {
 			break;
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
 		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); noteTime(); dirty = true; armRaf(); } break; }   // 毎フレームの状態（地震の再生等）＝時計で動く描き直し（#125）
+		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
