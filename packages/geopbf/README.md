@@ -88,6 +88,11 @@ pbf.arrayBuffer     // → the GeoPBF binary (store it, ship it, re-load it)
 pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 ```
 
+For code that only reads or writes `.geopbf` files there is a light entry, `geopbf/core` (1.20): the `GeoPBF` container, the
+`loadGeopbf` / `decodeToGeojson` loader and gzip helpers, without the WASM glue, identify, dissolve or the worker entry
+(14 files / 77 KB of source in the static import closure, against 30 / 218 KB for `geopbf`). TypeScript declarations ship
+with the package (`types/`); the converter subpaths are declared as `any` for now.
+
 The same entry works in Node (≥ 22): `createGeopbf()` decodes and bakes Gint on the calling thread when there is no
 `Worker` (initialise the WASM once with `initGintWasm()` from `geopbf/convert/node-gint`), and `new GeoPBF().set(geojson)`
 needs no `ImageData` shim. Format conversion (shapefile, KML, …) still needs a worker; in Node use the `geopbf` CLI or the

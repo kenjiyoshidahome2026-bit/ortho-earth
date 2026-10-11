@@ -2,6 +2,7 @@ import { GeoPBF } from "./pbf.js";
 import { createPbfio } from "./pbf-io.js";
 import { spawnWorker, setWorkerFactory } from "./modules/workerFactory.js";
 import { builtinWorker } from "./modules/builtinWorkers.js";   // geopbf 自身の worker（new Worker の直書きはここ 1 か所＝ホストはビルドの alias で「作らない版」に差し替えられる）
+export { GeoPBF };   // 拡張メソッド付きの GeoPBF（1.20〜・改良点 10）。旧＝どの subpath からも拡張付きの class が取れなかった（pbf-base は器だけ・geopbf/pbf は protobuf の wire 読み書き）
 export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
