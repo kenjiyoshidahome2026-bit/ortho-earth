@@ -551,7 +551,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | U9 | 予算で飛ばした非アクティブ層 | 静止時に自前でフレームを要求しない | drawn の復帰を全層へ |
 | U10 | order 0 | GL＝既定スロットの上・WebGPU＝下 | 既定層の order を揃える |
 | ~~U11~~ | d.ts のずれ | **解決 2026-09-26**：`label.field`＝式・関数・文字列／`label.sort`＝number／`map.on('click')` の hits に `layer: GintLayerHandle \| null` と `feature`（型だけ・版上げで npm に届く） | — |
-| U12 | fid の束ね方の鍵 | geopbf `topologyFullWasm` は properties を `join("\|")` で束ねる＝`dissolve` が 9/25 に直した「1 と "1"・"" と null を同じ地物に」を GintBUF の fid でまだ起こす（併合されずに残った別の地物が同じ fid を指す） | `dissolve` と同じ型つきの鍵（valKey）に揃える（geopbf・版上げ） |
+| ~~U12~~ | fid の束ね方の鍵 | **解決済み**（geopbf `extension/gint.js` が `propsKeyOf`＝`dissolve` と同じ型つきの鍵で束ねる。表が古いままだったのを 2026-10-11 に訂正） | — |
 | U13 | 縮退した塗りと filter | ID 塗りが使えない時（能力なし・fid 上限超え・移動中の安表現・3D の窓）の stencil 単色は fid 表を読まない＝隠した面も単色で塗る | stencil 扇の VS で visible ビットを見る（表がある時だけ） |
 
 ## 13. 変更履歴
