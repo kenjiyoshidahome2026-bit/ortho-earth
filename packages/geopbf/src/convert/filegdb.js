@@ -16,8 +16,8 @@ import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
 import { resolveDatum, datumStats } from "./datum.js";
 import { assemblePolygons } from "./esri-rings.js";   // Esri の環の約束（フィーチャーサービスの f=json と共用・#176）
+import { now } from "../modules/now.js";
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const utf16 = new TextDecoder("utf-16le"), utf8 = new TextDecoder("utf-8");
 const TYPE = ["int16", "int32", "float32", "float64", "string", "datetime", "objectid", "geometry", "binary", "raster", "uuid", "globalid", "xml", "int64", "date", "time", "datetimeoffset"];
 const GEOM = { 0: null, 1: "point", 2: "multipoint", 3: "polyline", 4: "polygon", 9: "multipatch" };

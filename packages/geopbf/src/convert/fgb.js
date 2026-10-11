@@ -17,11 +17,11 @@ import { classifyCrs } from "./gpkg.js";
 import { epsgToWKT } from "./epsg.js";
 import { resolveDatum, datumStats } from "./datum.js";
 
+import { now } from "../modules/now.js";
 const GTYPES = ["Unknown", "Point", "LineString", "Polygon", "MultiPoint", "MultiLineString", "MultiPolygon", "GeometryCollection"];
 const CTYPES = ["Byte", "UByte", "Bool", "Short", "UShort", "Int", "UInt", "Long", "ULong", "Float", "Double", "String", "Json", "DateTime", "Binary"];
 const NODE_ITEM_BYTE_LEN = 40;   // packed Hilbert R-tree の 1 節＝bbox 4×f64 ＋ offset u64
 const TD = new TextDecoder();
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 // 索引の大きさ（公式 packedrtree の calcTreeSize と同じ）
 export function calcTreeSize(numItems, nodeSize) {

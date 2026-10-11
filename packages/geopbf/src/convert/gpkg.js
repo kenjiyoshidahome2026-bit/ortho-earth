@@ -19,8 +19,8 @@ import { attrFilter } from "./attrs.js";
 import { crsFromWKT } from "./proj.js";
 import { resolveDatum, datumStats } from "./datum.js";
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
+import { now } from "../modules/now.js";
 /** GeoPackage を開いて層の一覧を返す（変換はしない）。 */
 export function readGeoPackage(u8, opts = {}) {
 	const db = openSqlite(u8);

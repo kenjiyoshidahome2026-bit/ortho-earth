@@ -6,6 +6,7 @@
 // 取得は呼び手の fetch を使う（既定＝globalThis.fetch）＝鍵（ArcGIS の token 等）は呼び手が付ける（MapLibre の transformRequest と同じ考え）。
 // どこかの proxy を経由しない。URL に付いていた問い合わせ（?token=…）は全ての要求へ引き継ぐ。依存なし（Esri の環だけ convert/esri-rings）。
 import { assemblePolygons } from "../convert/esri-rings.js";
+import { mercToLonLat } from "../modules/mercator.js";
 
 const ARCGIS = /^(.*\/(?:FeatureServer|MapServer)\/\d+)(?:\/query)?\/?$/i;
 const OGC = /^(.*\/collections\/[^/]+)(?:\/items)?\/?$/;
@@ -48,8 +49,7 @@ function extentToLonLat(e) {
 	const wkid = e.spatialReference?.latestWkid ?? e.spatialReference?.wkid;
 	if (wkid === 4326 || wkid === 4269 || wkid === 4258 || wkid === 6668 || wkid === 4612) return [e.xmin, e.ymin, e.xmax, e.ymax];
 	if (wkid === 3857 || wkid === 102100 || wkid === 102113 || wkid === 900913) {
-		const lon = x => x / R * 180 / Math.PI, lat = y => (2 * Math.atan(Math.exp(y / R)) - Math.PI / 2) * 180 / Math.PI;
-		return [lon(e.xmin), lat(e.ymin), lon(e.xmax), lat(e.ymax)];
+		return [...mercToLonLat([e.xmin, e.ymin]), ...mercToLonLat([e.xmax, e.ymax])];
 	}
 	return null;
 }

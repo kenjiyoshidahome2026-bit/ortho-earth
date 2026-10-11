@@ -138,7 +138,7 @@ Combines this instance with other instances into a new instance (named after thi
 | `geopbf/gint`, `geopbf/topology`, `geopbf/identify` | Gint baking (WASM), GintBUF pack/unpack, `findPolygon` and friends |
 | `geopbf/convert`, `geopbf/pmtiles`, `geopbf/geoparquet`, `geopbf/parquet`, `geopbf/spatial-order` | PMTiles / GeoParquet writers and readers, engines, spatial ordering |
 | `geopbf/gpkg`, `geopbf/sqlite`, `geopbf/spatialite`, `geopbf/mbtiles`, `geopbf/filegdb`, `geopbf/fgb`, `geopbf/dxf`, `geopbf/table` | readers: GeoPackage (own SQLite reader), SpatiaLite, MBTiles, File Geodatabase, FlatGeobuf, DXF, CSV/TSV/XLSX |
-| `geopbf/proj`, `geopbf/datum`, `geopbf/convert/node-gint` | projections (EPSG), JGD datum shifts (TKY2JGD / PatchJGD), Gint baking from Node |
+| `geopbf/proj`, `geopbf/datum`, `geopbf/convert/node-gint` | projections (`crsFromWKT` → `toLonLat` / `fromLonLat`, `epsgToWKT`; one Krüger TM shared with the COG reader), JGD datum shifts (TKY2JGD / PatchJGD), Gint baking from Node |
 | `geopbf/cog`, `geopbf/cog/core`, `geopbf/cog/source`, `geopbf/maplibre-cog`, `geopbf/leaflet-cog` | Cloud Optimized GeoTIFF by Range requests and its map adapters |
 | `geopbf/featureservice` | ArcGIS FeatureServer / OGC API – Features as a GeoPBF source |
 | `geopbf/georef` | IIIF Georeference Annotation (control points → image warp) |

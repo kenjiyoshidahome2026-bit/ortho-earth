@@ -1,3 +1,4 @@
+import { writeUvarint, zigzagEncode } from "../modules/varint.js";
 // convert/mvt.js ── Mapbox Vector Tile 2.1 の最小エンコーダ。protobuf ライタも自前（依存ゼロ＝worker がバンドラ無しで
 // 読める）。1 タイル = 1 レイヤ。feature.id = fid。幾何はタイルローカル整数。環の向きは MVT 規則（外環＝測量公式の面積が
 // 正・穴＝負）にここで揃える。復号（検定用）は mvt-decode.js。
@@ -12,10 +13,10 @@ class W {
 	constructor(cap = 1 << 16) { this.buf = new Uint8Array(cap); this.pos = 0; }
 	reset() { this.pos = 0; return this; }
 	need(n) { if (this.pos + n > this.buf.length) { const b = new Uint8Array(Math.max(this.buf.length * 2, this.pos + n)); b.set(this.buf.subarray(0, this.pos)); this.buf = b; } }
-	varint(v) { this.need(10); while (v >= 0x80) { this.buf[this.pos++] = (v % 128) | 0x80; v = Math.floor(v / 128); } this.buf[this.pos++] = v; }
+	varint(v) { this.need(10); this.pos = writeUvarint(this.buf, this.pos, v); }
 	tag(field, wt) { this.varint((field << 3) | wt); }
 	uint(field, v) { this.tag(field, 0); this.varint(v); }
-	sint(field, v) { this.tag(field, 0); this.varint(v >= 0 ? v * 2 : -v * 2 - 1); }
+	sint(field, v) { this.tag(field, 0); this.varint(zigzagEncode(v)); }
 	double(field, v) { this.tag(field, 1); this.need(8); new DataView(this.buf.buffer, this.buf.byteOffset).setFloat64(this.pos, v, true); this.pos += 8; }
 	bytes(field, u8) { this.tag(field, 2); this.varint(u8.length); this.need(u8.length); this.buf.set(u8, this.pos); this.pos += u8.length; }
 	raw(u8) { this.need(u8.length); this.buf.set(u8, this.pos); this.pos += u8.length; }   // 符号化済みフィールド列をそのまま
