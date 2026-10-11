@@ -888,7 +888,10 @@ new GeoJsonLayer({ data: "https://…/N02-25_RailroadSection", loaders: [GeoPBFL
 ```
 
 `parse` returns a GeoJSON FeatureCollection with the header metadata attached as `geopbfMeta`; pass
-`loadOptions: { geopbf: { sanitize: false } }` to opt out of property sanitizing. See `examples/deckgl.html`.
+`loadOptions: { geopbf: { sanitize: false } }` to opt out of property sanitizing. The loader claims the `.geopbf`
+extension and the MIME types `application/x-geopbf`, `application/octet-stream` and `application/gzip` (a whole-file
+gzipped `.geopbf` served from object storage usually carries the last one, and an extension-less URL is matched by
+MIME alone). See `examples/deckgl.html`.
 
 ### 8.5 Cesium, D3, and everything else
 
