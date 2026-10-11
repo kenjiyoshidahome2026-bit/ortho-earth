@@ -1080,6 +1080,33 @@
 			"fa": "نامشخص",
 			"ur": "غیر متعین",
 			"he": "לא נקבע"
+		},
+		"Open in a new tab": {
+			"ja": "別タブで開く",
+			"zh": "在新标签页中打开",
+			"ko": "새 탭에서 열기",
+			"fr": "Ouvrir dans un nouvel onglet",
+			"de": "In neuem Tab öffnen",
+			"es": "Abrir en una pestaña nueva",
+			"pt": "Abrir num novo separador",
+			"it": "Apri in una nuova scheda",
+			"nl": "Openen in nieuw tabblad",
+			"pl": "Otwórz w nowej karcie",
+			"ru": "Открыть в новой вкладке",
+			"uk": "Відкрити в новій вкладці",
+			"hu": "Megnyitás új lapon",
+			"sv": "Öppna i ny flik",
+			"tr": "Yeni sekmede aç",
+			"el": "Άνοιγμα σε νέα καρτέλα",
+			"id": "Buka di tab baru",
+			"vi": "Mở trong thẻ mới",
+			"th": "เปิดในแท็บใหม่",
+			"bn": "নতুন ট্যাবে খুলুন",
+			"hi": "नए टैब में खोलें",
+			"ar": "فتح في علامة تبويب جديدة",
+			"fa": "باز کردن در زبانهٔ جدید",
+			"ur": "نئے ٹیب میں کھولیں",
+			"he": "פתיחה בלשונית חדשה"
 		}
 	}
 }
