@@ -91,6 +91,20 @@
 			}
 		},
 		{
+			"id": "parks-us",
+			"href": "/globe/parks",
+			"group": "earth",
+			"icon": "🏞️",
+			"title": "National Parks of the United States",
+			"lang": "26",
+			"desc": "All 63 national parks of the United States on a 3D globe — photos, the National Park Service's boundaries, facts and Wikipedia links.",
+			"img": "/thumbs/parks-us.webp",
+			"shot": {
+				"url": "/globe/parks?p=yellowstone",
+				"wait": 16
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",
@@ -145,6 +159,20 @@
 			"img": "/thumbs/solar.webp",
 			"shot": {
 				"wait": 12
+			}
+		},
+		{
+			"id": "himekuri",
+			"href": "/himekuri/",
+			"group": "japan",
+			"icon": "📅",
+			"title": "Daily calendar",
+			"lang": "26",
+			"desc": "A Japanese tear-off calendar (lunisolar date, rokuyō, solar terms, holidays) with sunrise, sunset, twilight and the Moon for where you stand, computed with your elevation. Scroll a week without end; add your own iCal.",
+			"img": "/thumbs/himekuri.webp",
+			"shot": {
+				"url": "/himekuri/?d=2026-10-08&lat=35.6812&lon=139.7671&alt=3",
+				"wait": 6
 			}
 		},
 		{

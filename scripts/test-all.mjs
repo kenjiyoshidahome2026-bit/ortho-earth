@@ -24,7 +24,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const GATES = {
 	test: [
 		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/columnar", "test"], ["geopbf", "test"], ["altpbf", "test"],
-		["@ortho-earth/ephem", "test"], ["space-data", "test"], ["glbconv", "test"], ["@ortho-earth/japan", "test"], ["ortho-equal", "test"], ["solar", "test"],
+		["@ortho-earth/ephem", "test"], ["space-data", "test"], ["glbconv", "test"], ["@ortho-earth/japan", "test"], ["ortho-equal", "test"], ["solar", "test"], ["himekuri-demo", "test"],
 		["account", "test"], ["www", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"],
 		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], [".", "test:mirrors"],
 	],
