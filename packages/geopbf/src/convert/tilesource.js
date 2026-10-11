@@ -2,7 +2,7 @@
 // toPMTiles（tiler.js）と同じ本体（prepareTiling＝unpack→project→較正→lodCount→属性表、columnJob＝1 ズーム×列の job、assembleZoom）を
 // 使い、ズームの圧縮座標（lodWrite）はズーム単位、組み立ては列（tx）単位で遅延して持つ＝MapLibre の addProtocol から z/x/y で引ける。
 // 同じ入力・同じ options なら toPMTiles のタイルと MVT のバイト列が一致する（clip.js の二分は列の分担で結果が変わらない。
-// ただし tinyPolygon の積算は assembleZoom 1 回＝列範囲の中で閉じるので、極小面の代替正方形の置き場だけは分担で変わり得る）。
+// tinyPolygon の積算も main 側の決定表（tiler.js tinyDecisions・改良点 13）＝列の分担に依らない）。
 // worker プールは使わない（1 列ぶんの組み立ては小さく、呼び手は 1 タイルずつ待つ）。gzip もしない（MapLibre は生の MVT を受ける）。
 //
 // const src = await createTileSource(pbf, { gint, minZoom, maxZoom, extent, buffer, layer, simplification, lodBias, dropRate, tinyPolygon, tinyLine,
