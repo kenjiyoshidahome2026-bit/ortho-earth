@@ -16,6 +16,9 @@
 		],
 		"physical": [
 			"physical.js"
+		],
+		"parks": [
+			"parks.js"
 		]
 	}
 }
