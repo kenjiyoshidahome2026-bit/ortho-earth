@@ -2,17 +2,22 @@
 // 本番デプロイ＝訳の門（verify:i18n・数秒）→ 地域の語の門（globe の verify:regionless・数秒）→ 関門（verify:editor・globe・verify:prod）を**並行**に回してから wrangler deploy → verify-live。
 // 旧＝npm script の && 直列（editor 83 s → prod 140〜234 s → deploy → live 32 s ≈ 5〜6 分・2026-09-20 実測）。
 // 2 本はポートが別（editor 5244/9344・prod 5241/9351/9353）で干渉しない。どちらか落ちれば deploy しない。
+// 並行の負荷で揺れる頁（globe の画素比較＝t-mlcompat の fill-no-outline・circle-opacity が 2026-10-11 の配布で 2 回落ち、単独は毎回 PASS）＝
+// 頁側は写しを「基図が止まってから」撮る（t-mlcompat の stillSnap）に直し、台本側は globe の門で落ちた頁だけを、editor・prod が終わって
+// 何も並行していない状態で 1 回だけ回し直す（下の rerunGlobe）。検定は緩めない＝回し直しても落ちれば deploy しない・editor/prod の赤は回し直さない。
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
+import { failedPages } from "./deploy-lib.mjs";
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(APP, "..", "..");   // 変更検知の git は repo 直下で（WATCH の pathspec は repo 相対。apps/ortho-japan を cwd にすると 1 件も当たらず常に「速い版」になっていた・2026-09-27）
 const t0 = Date.now(), el = () => `${((Date.now() - t0) / 1000).toFixed(0)}s`;
-const run = (cmd, args, tag) => new Promise(res => {
-	const c = spawn(cmd, args, { cwd: APP, stdio: ["ignore", "pipe", "pipe"], shell: false });
-	const pipe = (st, w) => st.on("data", d => { for (const line of String(d).split("\n")) if (line.trim()) w(`[${tag} ${el()}] ${line}`); });
-	pipe(c.stdout, l => console.log(l)); pipe(c.stderr, l => console.error(l));
-	c.on("close", code => res(code));
+const run = (cmd, args, tag, { lines = null, env = null } = {}) => new Promise(res => {   // lines＝stdout の行を溜める器（globe の落ちた頁を拾う）・env＝子に足す環境変数
+	const c = spawn(cmd, args, { cwd: APP, stdio: ["ignore", "pipe", "pipe"], shell: false, ...(env ? { env: { ...process.env, ...env } } : {}) });
+	let buf = "";
+	const pipe = (st, w, keep) => st.on("data", d => { buf += String(d); const parts = buf.split("\n"); buf = parts.pop(); for (const line of parts) { if (keep && lines) lines.push(line); if (line.trim()) w(`[${tag} ${el()}] ${line}`); } });
+	pipe(c.stdout, l => console.log(l), true); pipe(c.stderr, l => console.error(l), false);
+	c.on("close", code => { if (buf.trim()) { if (lines) lines.push(buf); console.log(`[${tag} ${el()}] ${buf}`); } res(code); });
 });
 // 先に訳の門（数秒）＝キーの欠け・プレースホルダ・実行時の表の焼き忘れ（⑥）。落ちたら重い関門を回さず止める
 // （2026-09-23：i18n:build の焼き忘れで本番の日本語 UI が英語で出た＝この門が deploy の経路に無かった）
@@ -31,11 +36,23 @@ const full = changed === null || changed.length > 0 || dirty.length > 0;
 const QUICK = ["t-import"];
 const QUICK_GLOBE = ["t-backfill", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3", "t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3"];
 console.log(`… 関門を並行で（verify:editor${full ? "（全部＝エディタ/gint に変更あり" + (changed === null ? "・tag なし" : `・${changed.length + dirty.length} ファイル`) + "）" : "（速い版＝エディタ/gint に変更なし）"} ‖ globe の門 ‖ verify:prod）`);
-const [ed, gl, pr] = await Promise.all([
+const globeLines = [];
+let [ed, gl, pr] = await Promise.all([
 	full ? run("npm", ["run", "-s", "verify:editor"], "editor") : run("node", ["scripts/verify-editor.mjs", ...QUICK], "editor"),
-	full ? run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu"], "globe") : run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...QUICK_GLOBE], "globe"),
+	full ? run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu"], "globe", { lines: globeLines }) : run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...QUICK_GLOBE], "globe", { lines: globeLines }),
 	run("npm", ["run", "-s", "verify:prod"], "prod"),
 ]);
+// globe の門だけ落ちた＝落ちた頁だけを単独（editor・prod は終わっている・VG_JOBS=1）で 1 回だけ回し直す。頁の名前が拾えない落ち方（Chrome が立たない等）は回し直さない。
+// editor か prod も落ちていれば、どのみち deploy しないので回し直さない（時間の無駄）。
+if (gl !== 0 && ed === 0 && pr === 0) {
+	const pages = failedPages(globeLines);
+	if (pages.length === 0 || pages.length > 8) console.error(`… globe の門の落ちた頁が拾えない／多すぎる（${pages.length} 頁）＝回し直さない`);
+	else {
+		console.log(`… globe の門で落ちた ${pages.length} 頁を単独で回し直す（並行負荷の揺れか本物の退行かを分ける）: ${pages.join(" ")}`);
+		gl = await run("npm", ["--prefix", "../../packages/globe", "run", "-s", "verify:webgpu", "--", ...pages], "globe2", { env: { VG_JOBS: "1" } });
+		console.log(gl === 0 ? `… 単独では PASS＝並行負荷の揺れ（頁の写しの待ちを見直す余地あり） ${el()}` : `✗ 単独でも FAIL＝本物の退行 ${el()}`);
+	}
+}
 if (ed !== 0 || gl !== 0 || pr !== 0) { console.error(`✗ 関門 FAIL（editor=${ed} globe=${gl} prod=${pr}）＝deploy しない ${el()}`); process.exit(1); }
 console.log(`✓ 関門 PASS ${el()}`);
 // 配布物の掃除（dev 専用・重い置き土産）→ deploy → 実配信の検定

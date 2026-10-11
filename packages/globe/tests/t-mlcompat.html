@@ -50,7 +50,25 @@ const explained = (p, b, m, tol = 45) => {
 try {
 	if (G === "layers") {
 		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false, debugGlobals: true });   // debugGlobals＝__placed（global-state-filter の記号の数え方）
-		await sleep(7000);
+		// 写しは基図が落ち着いてから＝①世界の層（admin0 の海岸線・国境＝cover の陸マスクにもなる・世界の線）が載る ②idle（見えている基図のタイルが全部載った）
+		// ③2 枚の写しが同じ（まだ流れ込んでいない）。旧＝固定の sleep(7000)／sleep(3000) は japan の deploy で editor‖globe‖prod を並行に回すと早すぎ、
+		// before と after の間に admin0 や基図のタイルが届いて「層を足していない所」の色が変わり fill-no-outline・circle-opacity が落ちた
+		// （2026-10-11・単独は毎回 PASS・relief の群と同じ轍）。器（網の閉じた SwiftShader）でも admin0 が 8 秒前後に届いて陸の色が変わる＝同じ落ち方を再現。
+		const worldReady = () => (window.__a0?.().layer ?? true) && ((window.__worldLines?.() ?? 2) >= 2);   // debugGlobals の窓（無ければ待たない）
+		const stillSnap = async (idleMs, tag) => {
+			for (const t0 = performance.now(); !worldReady() && performance.now() - t0 < 20000;) await sleep(250);
+			if (!worldReady()) console.log(`[t-mlcompat] ${tag}：世界の層が 20 秒で載らない（a0=${JSON.stringify(window.__a0?.())} lines=${window.__worldLines?.()}）＝待たずに撮る`);
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(idleMs)]); await sleep(300);
+			let a = await snap(map);
+			for (let k = 0; k < 8; k++) {   // 2 枚が一致するまで（並行負荷で idle の後にもタイルや焼きが届くことがある）・最長 ≈ 8×2 秒
+				await sleep(2000); const b = await snap(map);
+				let same = true; for (let i = 0; i < a.data.length && same; i += 4) if (Math.abs(a.data[i] - b.data[i]) > 8 || Math.abs(a.data[i + 1] - b.data[i + 1]) > 8 || Math.abs(a.data[i + 2] - b.data[i + 2]) > 8) same = false;
+				if (same) return b;
+				console.log(`[t-mlcompat] ${tag} の写しがまだ動いている（${k + 1} 回目）＝待って撮り直す`); a = b;
+			}
+			return a;
+		};
+		await sleep(2000);
 		const P = (lon, lat) => { const [x, y] = map.projectLL(lon, lat); return [x, y]; };
 		const at = async (lon, lat, layers) => { const [x, y] = P(lon, lat); return (await map.queryRenderedFeatures([x, y], layers ? { layers } : {})).map(f => f.layer.id); };
 
@@ -66,7 +84,7 @@ try {
 			put("zoomscale-runtime-keys", unc.length === 0, unc.join(","));
 		}
 
-		const before = await snap(map);
+		const before = await stillSnap(15000, "before");
 		// ── 層を並べる（1 枚の絵で判定）──
 		// S1 ハイライト層＝同じ source に filter つきの層を重ねる（MapLibre の定番）
 		map.addSource("hl", { type: "geojson", data: fc([sq(133.8, 37.2, 0.3, { name: "A" }), sq(134.8, 37.2, 0.3, { name: "B" })]) });
@@ -104,8 +122,8 @@ try {
 		await map.addLayer({ id: "cs2-c", type: "circle", source: "cs2", paint: { "circle-color": "#ffff00", "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
 		map.addSource("ch", { type: "geojson", data: fc([pt(141.8, 35.3, {})]) });   // 中空の円（塗り無し・縁だけ＝MapLibre の定番）
 		await map.addLayer({ id: "ch-c", type: "circle", source: "ch", paint: { "circle-opacity": 0, "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
-		await sleep(3000);
-		const after = await snap(map);
+		await sleep(1000);
+		const after = await stillSnap(10000, "after");
 
 		await scene("highlight-same-source", () => {
 			const a = px(after, ...P(133.8, 37.2)), b = px(after, ...P(134.8, 37.2));
