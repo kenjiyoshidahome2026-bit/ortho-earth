@@ -87,7 +87,10 @@ export function componentAreas(ps, arcMeta, xy) {
 // opts.include / exclude / excludeAll: 属性の選別（tippecanoe の -y / -x / -X）
 // opts.simplification: DP 許容差（タイル単位・既定 1＝tippecanoe -S 1 相当）。arc ごとに VW ランク閾値を「DP が残す頂点数」へ
 //   較正する（calibrate.js）。false で固定則 63−3(z+log2(extent/256)) のみ。lodBias は較正後に足す
-export async function toPMTiles(pbf, opts = {}) {
+//
+// 2026-10-12（改良点 ⑥）: 準備（unpack→project→較正→lodCount→属性表）と「1 ズーム×列範囲の job 作り」を prepareTiling／columnJob に
+// 切り出し、toPMTiles（全タイル一括）と tilesource.js（MapLibre の geopbf:// protocol＝要求されたタイルだけ）が同じ本体を使う。
+export async function prepareTiling(pbf, opts = {}) {
 	const t0 = now();
 	const gintBuf = opts.gint ?? pbf._gintBuffer;
 	if (!gintBuf) throw new Error("toPMTiles: GintBUF missing (await pbf.gint() or pass opts.gint)");
@@ -101,7 +104,6 @@ export async function toPMTiles(pbf, opts = {}) {
 	const tinyPolygon = opts.tinyPolygon ?? 2, tinyLine = opts.tinyLine ?? 0;
 	if (!(tinyPolygon >= 0) || !(tinyLine >= 0)) throw new Error("tinyPolygon / tinyLine must be >= 0");
 	const layerName = opts.layer ?? pbf.name?.() ?? "layer";
-	const tileGzip = (opts.tileCompression ?? "gzip") === "gzip";
 	const stats = { engine: "cpu", vertices: 0, arcs: 0, kept: 0, tiles: 0, bytes: 0, workers: 0, ms: {} };
 
 	// ── 頂点台帳: arc 群 ＋ 点（点は長さ 1 の arc として同じ経路を通す）
@@ -153,6 +155,69 @@ export async function toPMTiles(pbf, opts = {}) {
 	const dropRate = opts.dropRate ?? 2.5;
 	if (!(dropRate >= 1)) throw new Error("dropRate must be >= 1 (1 = keep every point)");
 	const S = { arcCount: d.arcCount, nPts, point: d.point ? d.point.slice() : null, polyStream: d.polyStream ? d.polyStream.slice() : null, lineStream: d.lineStream ? d.lineStream.slice() : null, extent, buffer, layerName, tagTable, featureCount: pbf.length, maxZoom, dropRate, tinyPolygon, tinyLine, compArea, extentShift };
+	const metadata = {
+		name: layerName, format: "pbf", type: "overlay", version: "1",
+		description: pbf.description?.() || undefined, attribution: pbf.attribution?.() || undefined, license: pbf.license?.() || undefined,
+		minzoom: String(minZoom), maxzoom: String(maxZoom), bounds: d.bbox.join(","),
+		vector_layers: [{ id: layerName, description: "", minzoom: minZoom, maxzoom: maxZoom, fields: Object.fromEntries(fields) }],
+		generator: "geopbf",
+		...(opts.metadata || {}),
+	};
+	for (const k of Object.keys(metadata)) if (metadata[k] === undefined) delete metadata[k];
+	// 1 ズーム（k＝minZoom からの番号）の圧縮座標を読み戻す。sub＝このズームの arc 別オフセット（out 内・相対）
+	const zoomOut = async (k) => {
+		const sum = zoomTotal(k), base0 = offsets[k * A], zo = offsets.slice(k * A, (k + 1) * A);
+		for (let i = 0; i < zo.length; i++) zo[i] -= base0;
+		const out = sum ? await eng.lodWrite(proj, arcs, params, zo, sum, k, k + 1) : new Uint32Array(0);
+		return { out, zo, sum };
+	};
+	return { d, A, nPts, arcs, eng, proj, params, counts, bbox, offsets, total, zoomTotal, zoomOut, S, fields, stats, metadata, extent, buffer, minZoom, maxZoom, zoomCount, layerName, bounds: d.bbox,
+		t0, destroy: () => { proj.destroy(); eng.destroy(); } };
+}
+
+// 1 ズーム×列範囲 [txFrom,txTo] の job（assembleZoom の J）。out＝そのズームの束の圧縮座標・zo＝束内の arc 別オフセット（絶対）・zc/zb＝そのズームの counts/bbox。
+// shard の列範囲に掛かる feature の arc だけを詰め直す（旧＝shard ごとに このズームの全頂点を slice＝shards 倍のコピー・俯瞰レビュー 2026-09-15）。
+// 判定は assembleZoom の外環先読みと同じ式（bbox は extent 単位・buffer 込み）。面は外環の bbox で決め、通れば全環の arc を含める（クリップは環全体が要る）。
+// 線は set ごと。外れた arc は counts=0＝assemble が素通し
+export function columnJob(P, { z, out, zo, zc, zb, txFrom, txTo }) {
+	const { A, nPts, S, extent, buffer } = P;
+	const need = new Uint8Array(A);
+	const hitX = (x0, x1) => !(x1 < 0 || (x1 + buffer) / extent < txFrom || (x0 - buffer) / extent >= txTo + 1);
+	const markStream = (st, poly) => {
+		if (!st) return;
+		for (let p = 0; p < st.length;) {
+			const nr = st[p + 1]; p += 2;
+			const p0 = p;
+			let keep = !poly;
+			for (let r = 0; r < nr; r++) {
+				const ac = st[p++];
+				if (poly ? r === 0 : true) {
+					let x0 = Infinity, x1 = -Infinity;
+					for (let k = 0; k < ac; k++) { const ai = st[p + k], aid = ai < 0 ? ~ai : ai; if (!zc[aid]) continue; if (zb[aid * 4] < x0) x0 = zb[aid * 4]; if (zb[aid * 4 + 2] > x1) x1 = zb[aid * 4 + 2]; }
+					const h = x0 !== Infinity && hitX(x0, x1);
+					if (poly) keep = h; else if (h) for (let k = 0; k < ac; k++) { const ai = st[p + k]; need[ai < 0 ? ~ai : ai] = 1; }
+				}
+				p += ac;
+			}
+			if (poly && keep) { let q = p0; for (let r = 0; r < nr; r++) { const ac = st[q++]; for (let k = 0; k < ac; k++) { const ai = st[q + k]; need[ai < 0 ? ~ai : ai] = 1; } q += ac; } }
+		}
+	};
+	markStream(S.polyStream, true); markStream(S.lineStream, false);
+	for (let a = A - nPts; a < A; a++) need[a] = 1;   // 点＝arc の後ろに並ぶ疑似 arc（A = arcCount + nPts）＝全部含める（軽い・列外は assemble の put が捨てる）
+	let total = 0; for (let a = 0; a < A; a++) if (need[a]) total += zc[a];
+	const counts = new Uint32Array(A), offs = new Uint32Array(A), o = new Uint32Array(total * 2);
+	for (let a = 0, w = 0; a < A; a++) {
+		if (!need[a] || !zc[a]) continue;
+		const src = zo[a] * 2, n2 = zc[a] * 2;   // zo＝この束の out 内の絶対頂点オフセット（旧は zStart で slice してから相対化していた）
+		o.set(out.subarray(src, src + n2), w * 2); counts[a] = zc[a]; offs[a] = w; w += zc[a];
+	}
+	return { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o };
+}
+
+export async function toPMTiles(pbf, opts = {}) {
+	const P = await prepareTiling(pbf, opts);
+	const { A, eng, proj, arcs, params, counts, bbox, offsets, total, zoomTotal, S, stats, minZoom, maxZoom, zoomCount, t0 } = P;
+	const tileGzip = (opts.tileCompression ?? "gzip") === "gzip";
 
 	// ── worker プール（失敗したらインライン）
 	let pool = null;
@@ -193,46 +258,13 @@ export async function toPMTiles(pbf, opts = {}) {
 		for (let k = k0; k < k1; k++) {
 			const z = minZoom + k, ntx = 1 << z;
 			const zc = counts.subarray(k * A, (k + 1) * A), zb = bbox.subarray(k * A * 4, (k + 1) * A * 4);
-			const zo = sub.subarray((k - k0) * A, (k - k0 + 1) * A), zStart = zo[0], zEnd = (k - k0 + 1 < k1 - k0 ? sub[(k - k0 + 1) * A] : sum);
+			const zo = sub.subarray((k - k0) * A, (k - k0 + 1) * A);
 			const shards = Math.max(1, Math.min(ntx, pool ? pool.size * 3 : 1));
 			for (let s = 0; s < shards; s++) {
 				const txFrom = Math.floor(ntx * s / shards), txTo = Math.floor(ntx * (s + 1) / shards) - 1;
 				const makeJob = () => {   // worker が空いた時に複製を作る＝同時に NW 個まで
-					// shard の列範囲 [txFrom,txTo] に掛かる feature の arc だけを詰め直す（旧＝shard ごとに このズームの全頂点を slice＝shards 倍のコピー・
-					// 俯瞰レビュー 2026-09-15）。判定は assembleZoom の外環先読みと同じ式（bbox は extent 単位・buffer 込み）。面は外環の bbox で決め、
-					// 通れば全環の arc を含める（クリップは環全体が要る）。線は set ごと。外れた arc は counts=0＝assemble が素通し
-					const need = new Uint8Array(A);
-					const hitX = (x0, x1) => !(x1 < 0 || (x1 + buffer) / extent < txFrom || (x0 - buffer) / extent >= txTo + 1);
-					const markStream = (st, poly) => {
-						if (!st) return;
-						for (let p = 0; p < st.length;) {
-							const nr = st[p + 1]; p += 2;
-							const p0 = p;
-							let keep = !poly;
-							for (let r = 0; r < nr; r++) {
-								const ac = st[p++];
-								if (poly ? r === 0 : true) {
-									let x0 = Infinity, x1 = -Infinity;
-									for (let k = 0; k < ac; k++) { const ai = st[p + k], aid = ai < 0 ? ~ai : ai; if (!zc[aid]) continue; if (zb[aid * 4] < x0) x0 = zb[aid * 4]; if (zb[aid * 4 + 2] > x1) x1 = zb[aid * 4 + 2]; }
-									const h = x0 !== Infinity && hitX(x0, x1);
-									if (poly) keep = h; else if (h) for (let k = 0; k < ac; k++) { const ai = st[p + k]; need[ai < 0 ? ~ai : ai] = 1; }
-								}
-								p += ac;
-							}
-							if (poly && keep) { let q = p0; for (let r = 0; r < nr; r++) { const ac = st[q++]; for (let k = 0; k < ac; k++) { const ai = st[q + k]; need[ai < 0 ? ~ai : ai] = 1; } q += ac; } }
-						}
-					};
-					markStream(S.polyStream, true); markStream(S.lineStream, false);
-					for (let a = A - nPts; a < A; a++) need[a] = 1;   // 点＝arc の後ろに並ぶ疑似 arc（A = arcCount + nPts）＝全部含める（軽い・列外は assemble の put が捨てる）
-					let total = 0; for (let a = 0; a < A; a++) if (need[a]) total += zc[a];
-					const counts = new Uint32Array(A), offs = new Uint32Array(A), o = new Uint32Array(total * 2);
-					for (let a = 0, w = 0; a < A; a++) {
-						if (!need[a] || !zc[a]) continue;
-						const src = zo[a] * 2, n2 = zc[a] * 2;   // zo＝この束の out 内の絶対頂点オフセット（旧は zStart で slice してから相対化していた）
-						o.set(out.subarray(src, src + n2), w * 2); counts[a] = zc[a]; offs[a] = w; w += zc[a];
-					}
-					const J = { z, txFrom, txTo, counts, bbox: zb.slice(), offs, out: o };
-					return { msg: { type: "job", J, gzip: tileGzip }, transfers: [J.counts.buffer, J.bbox.buffer, offs.buffer, o.buffer] };
+					const J = columnJob(P, { z, out, zo, zc, zb, txFrom, txTo });
+					return { msg: { type: "job", J, gzip: tileGzip }, transfers: [J.counts.buffer, J.bbox.buffer, J.offs.buffer, J.out.buffer] };
 				};
 				if (pool) pending.push(pool.run(makeJob).then(r => { merge(r); opts.onProgress?.({ zoom: z, tiles: tileCount }); }));
 				else {
@@ -248,20 +280,11 @@ export async function toPMTiles(pbf, opts = {}) {
 		k0 = k1;
 	}
 	stats.ms.lod_write = tLod2; stats.ms.assemble = tAsm;
-	proj.destroy(); eng.destroy(); pool?.destroy();
+	P.destroy(); pool?.destroy();
 
 	// ── PMTiles
 	const tp = now();
-	const bounds = d.bbox;
-	const metadata = {
-		name: layerName, format: "pbf", type: "overlay", version: "1",
-		description: pbf.description?.() || undefined, attribution: pbf.attribution?.() || undefined, license: pbf.license?.() || undefined,
-		minzoom: String(minZoom), maxzoom: String(maxZoom), bounds: bounds.join(","),
-		vector_layers: [{ id: layerName, description: "", minzoom: minZoom, maxzoom: maxZoom, fields: Object.fromEntries(fields) }],
-		generator: "geopbf",
-		...(opts.metadata || {}),
-	};
-	for (const k of Object.keys(metadata)) if (metadata[k] === undefined) delete metadata[k];
+	const { metadata, bounds } = P;
 	const buf = await assemblePMTiles(items, contents, metadata, { minZoom, maxZoom, bounds, tileCompression: tileGzip ? "gzip" : "none", center: opts.center });
 	stats.ms.pmtiles = now() - tp;
 	stats.tiles = tileCount; stats.bytes = buf.length; stats.contents = contents.size; stats.ms.total = now() - t0;
