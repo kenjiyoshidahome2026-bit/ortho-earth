@@ -4,6 +4,7 @@
 // （2026-09-30・本人裁定「A」・LAYERS.md 掟 3）。旧＝本番だけ /japan/lib/ の SDK 配布物を実行時に食う二重構成。
 // SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
 const engineP = import("./app.js");
+const failedP = import("@ortho-earth/globe/page.js");   // 起動失敗の表示（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 // 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.jsは触らない。
 const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
 	requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -67,7 +68,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 		});
 	}
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
-});
+}).catch(e => failedP.then(m => m.startupFailed("japan", e), () => console.error("[japan] startup failed", e)));
 // サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
 // 本番 https と localhost（検定の頁 tests/*.html は site.js を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
 // updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。

@@ -24,6 +24,9 @@
 		}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="manifest" href="/japan/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png">
 	<meta name="apple-mobile-web-app-title" content="Tellus × ortho-earth">
 	<title>Tellus × ortho-earth — satellite data on a 3D globe</title>
 	<meta name="description" content="Reads Tellus satellite data (PALSAR-2, AVNIR-2) straight in the browser — no server, no tiling — and drapes it on the terrain of a 3D globe to compare.">
@@ -45,7 +48,7 @@
 </head>
 <body>
 	<!-- 起動画面（球儀マーク）：ready 後に #boot.gone でフェード消去 -->
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="app">
 		<aside id="side" aria-label="Tellus"></aside>
 		<div class="map-wrap"><div id="map"></div></div>
@@ -55,21 +58,20 @@
 		// ブラウザで直接読んで 3D 地球儀へ載せる専用ビューア（2026-09-16・Tellus の方々に見せて次の一手を相談するための一枚）。
 		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、
 		// 案内板と配線は ./tellus.js（遅延 chunk）。
-		import { getLang } from "@ortho-earth/globe/i18n.js";
-		if (getLang() === "ja") { document.documentElement.lang = "ja"; document.title = "Tellus × ortho-earth — 衛星データを地球儀へ"; }   // head は英語（共有カード・検索）＝日本語の読者だけ起動後に日本語へ
-		(async () => {
-			const engineP = import("./app.js");   // dev＝ソース直／本番＝エンジンは共有エンジン（/globe/engine/<版>/・2026-09-30）・束には orthoJapan と jp パックだけ
-			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
-			try {
-				const [{ default: orthoJapan }, { mountTellus }] = await Promise.all([engineP, import("./tellus.js")]);
-				// 初期視点＝共有 URL の hash 優先、無ければ東京を少し傾けて（SAR を地形に載せた立体感が第一印象）
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#9.2/35.62/139.55/48t", chips: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
-				dismissBoot();
-				window.__map = map;   // console 検証用（デバッグの手すり）
-				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();
-				window.__tellus = await mountTellus(map, document.getElementById("side"));   // console 検証用（search/load/items）
-			} catch (e) { console.error("[tellus] engine startup failed", e); dismissBoot(); }
-		})();
+		// 言語（<html lang/dir>）・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。head は英語（共有カード・検索）＝起動後に読む人の言語へ
+		//（案内板の長文は tellus.js が ja/en の 2 本で持つ＝言語切替のガジェットはまだ載せない）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("tellus", async () => {
+			const [{ default: orthoJapan }, { mountTellus }] = await Promise.all([import("./app.js"), import("./tellus.js")]);
+			// 初期視点＝共有 URL の hash 優先、無ければ東京を少し傾けて（SAR を地形に載せた立体感が第一印象）
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#9.2/35.62/139.55/48t", chips: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			if (map.lang === "ja") document.title = "Tellus × ortho-earth — 衛星データを地球儀へ";   // head は英語（共有カード・検索）＝日本語の読者だけ日本語の題名
+			window.__map = map;   // console 検証用（デバッグの手すり）
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot();
+			window.__tellus = await mountTellus(map, document.getElementById("side"));   // console 検証用（search/load/items）
+			return map;
+		});
 	</script>
 </body>
 </html>

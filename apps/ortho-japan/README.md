@@ -80,6 +80,25 @@ map.gadget.inspect();   // inspect the vector tiles: every source-layer in its o
 map.gadget("myGadget", function () { /* this = map */ });   // your own
 ```
 
+## Showcase pages (served next to `/japan/`)
+
+Besides the full site at `/japan/`, this app ships small demo pages that reuse the same engine. They all follow the demo page contract
+(`npm test -w www` → `apps/www/tests/t-demo-pages.mjs`): English `<head>` with share card, `startPage()` from `@ortho-earth/globe/page.js`
+for language / boot cover / visible startup failure, and the common gadgets `zoom · compass · full · shot · hint · lang`.
+
+| Page | URL | Code | Languages |
+|---|---|---|---|
+| National Parks of Japan | `/japan/parks` (`?p=<id>`) | `parks.html` + `parks.js`, catalogue `public/parks.json` | 26 (language `<select>` in the panel) |
+| Landmarks in GLB | `/japan/models` (`?m=<id>`) | `models.html` + `models.js`, catalogue `public/models.json` | 26 |
+| Fireworks over Sumida | `/japan/fireworks` | `fireworks.html` + `fireworks.js` / `fireworks-gl.js` | 26 |
+| Scenes editor | `/japan/scene` | `scene.html` + `demo/editor.js` (desktop only) | 26 (UI), ja/en tab title |
+| geoedit | `/japan/geoedit` | `geoedit.html` → `map.gadget.geoedit()` (`packages/geoedit`) | 26 |
+| Tellus × ortho-earth | `/japan/tellus` | `tellus.html` + `tellus.js` | UI 26, guide text ja/en |
+| census2020 | `/japan/census2020/` | `apps/census2020` (own app, same engine) | ja |
+
+Browser checks: `verify:ui` covers `t-fireworks` and `t-scene`; `verify:prod` boots `/japan/`, `/japan/scene` and `/japan/geoedit?verify=1`.
+parks, models and tellus are checked statically only (head contract) — open them on a real GPU after changing them.
+
 ## Promises to the host page
 
 Verified mechanically on every build (`verify:lib`):

@@ -2,11 +2,24 @@
 <html lang="en">
 <head>
 	<meta charset="UTF-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 	<meta name="description" content="Every country at a glance: flags, capitals, statistics and maps in 26 languages. The ortho-earth nation database viewer." />
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 	<title>Nations of the World - Ortho Earth</title>
-	<meta name="theme-color" content="#000" />
+	<meta name="theme-color" content="#000">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は www のサムネイル -->
+	<link rel="canonical" href="https://www.ortho-earth.com/world/">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="Nations of the World - Ortho Earth">
+	<meta property="og:description" content="Basic data for the countries and territories of the world, as cards — facts, flag and anthem, Wikipedia and map. 262 countries and territories in 26 languages.">
+	<meta property="og:url" content="https://www.ortho-earth.com/world/">
+	<meta property="og:image" content="https://www.ortho-earth.com/thumbs/world.webp">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="Nations of the World - Ortho Earth">
+	<meta name="twitter:description" content="Basic data for the countries and territories of the world, as cards — facts, flag and anthem, Wikipedia and map.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/thumbs/world.webp">
 	<link rel="preconnect" href="https://api.ortho-earth.com">
 	<!-- ページ側の器だけ。中身の意匠は全部 .ortho-world（モジュール）が持つ -->
 	<style>html, body { position:absolute; inset:0; background:#000; margin:0; padding:0; overscroll-behavior:none; }

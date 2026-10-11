@@ -11,8 +11,12 @@
 		#boot.gone{opacity:0;pointer-events:none}
 		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
 		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
 	</style>
 	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<link rel="manifest" href="/japan/manifest.webmanifest">
+	<link rel="apple-touch-icon" href="/japan/apple-touch-icon.png">
 	<title>National Parks of Japan — ortho-japan</title>
 	<meta name="description" content="Japan's 35 national parks on a 3D globe — photos, official boundaries, facts and Wikipedia links in 26 languages.">
 	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
@@ -32,29 +36,24 @@
 	<meta name="twitter:image" content="https://www.ortho-earth.com/japan/og/parks.jpg">
 </head>
 <body>
-	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="起動中"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
 	<div id="map"></div>
 	<script type="module">
 		// 国立公園の showcase＝環境省の区域（nps_all を溶かした外周）を球に載せ、写真の一覧から選ぶと飛んでスポットライトで指す（models と同型の器）。
 		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、一覧と配線は ./parks.js（遅延 chunk）。
 		// 台帳＝public/parks.json（名前 26 言語・Wikipedia・写真・面積・指定日・都道府県）／外周＝public/parks.geopbf。?p=<id> で起動時に選ぶ。
-		(async () => {
-			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
-			await setLang();
-			document.documentElement.lang = getLang(); document.documentElement.dir = isRTL() ? "rtl" : "ltr";
-			const engineP = import("./app.js");
-			const dismissBoot = () => requestAnimationFrame(() => requestAnimationFrame(() => { const b = document.getElementById("boot"); if (b) { b.classList.add("gone"); setTimeout(() => b.remove(), 250); } }));
-			try {
-				const [{ default: orthoJapan, geopbf }, { mountParks }] = await Promise.all([engineP, import("./parks.js")]);
-				// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D は出さない（公園に街は要らない・起動も軽い）
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#4.3/36.8/137.2/35t", chips: false,
-					mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
-				dismissBoot();
-				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
-				const parks = await mountParks(map, geopbf, { catalog: `${import.meta.env.BASE_URL}parks.json`, boundary: `${import.meta.env.BASE_URL}parks.geopbf` });
-				window.__map = map; window.__parks = parks;   // console 検証用
-			} catch (e) { console.error("[parks] startup failed", e); dismissBoot(); }
-		})();
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）。言語の切替は parks.js の案内板が持つ（select）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("parks", async () => {
+			const [{ default: orthoJapan, geopbf }, { mountParks }] = await Promise.all([import("./app.js"), import("./parks.js")]);
+			// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D は出さない（公園に街は要らない・起動も軽い）
+			const map = await orthoJapan({ target: "#map", view: location.hash || "#4.3/36.8/137.2/35t", chips: false,
+				mesh: false, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
+			const parks = await mountParks(map, geopbf, { catalog: `${import.meta.env.BASE_URL}parks.json`, boundary: `${import.meta.env.BASE_URL}parks.geopbf` });
+			window.__map = map; window.__parks = parks;   // console 検証用
+		});
 	</script>
 </body>
 </html>
