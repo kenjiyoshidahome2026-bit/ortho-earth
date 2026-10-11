@@ -31,6 +31,8 @@ let _activeGeopbf   = null;
 // ── 呼び手の鍵で置く控え（#176）の台帳＝掃除の物差し。IDB の同じ棚に 1 件（"KEYS::cacheKey"）＝{ entries: { 鍵: { t: 置いた時刻, u: 最後に使った時刻, bytes } } }。
 // 台帳を書くのはここだけ（読み書きを 1 本の鎖に並べる＝同時の書き込みで消し合わない）。既存の控え（bucket 名・URL・File）は台帳に載らず、掃除も触らない
 const KEYS_REC = "KEYS::cacheKey";
+// IDB へ置く GintBUF: SAB は IDB に入らない＝ArrayBuffer へ写す。ArrayBuffer ならそのまま（put が structured clone で写す＝旧の .slice() は二重の写し・2026-10-11）
+const idbGint = b => !b ? null : b instanceof ArrayBuffer ? b : new Uint8Array(b).slice().buffer;
 let keysChain = Promise.resolve();
 const withKeys = (server, fn) => (keysChain = keysChain.then(async () => {
     const rec = (await server.cache(KEYS_REC).catch(() => null))?.entries || {};
@@ -167,7 +169,7 @@ export function createGeopbf(apiBase, options = {}) {
             else if (opts.cacheKey && !pbf._cacheKey) {   // 呼び手の鍵で置く（geopbfCached で引く・#176）。meta.t＝置いた時刻（maxAge の物差し）
                 const server = await getServer().catch(() => null);
                 if (server && opts.nocache !== true) {
-                    const GINT = pbf._gintBuffer ? new Uint8Array(pbf._gintBuffer).slice().buffer : null;
+                    const GINT = pbf._gintBuffer ? idbGint(pbf._gintBuffer) : null;
                     const key = opts.cacheKey, t = Date.now(), bytes = (pbf.arrayBuffer?.byteLength || 0) + (GINT?.byteLength || 0);
                     server.cache(key, { PBF: pbf.arrayBuffer, GINT, meta: { ...(opts.cacheMeta || {}), t } })
                         .then(() => withKeys(server, rec => { rec[key] = { t, u: t, bytes }; }))   // 台帳へ（掃除の物差し）
@@ -177,14 +179,14 @@ export function createGeopbf(apiBase, options = {}) {
             else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
-                    const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                    const GINT = idbGint(pbf._gintBuffer);
                     server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
             } else if (isFile(data) && (!pbf._fileKey || pbf._staleGint)) {
                 const server = await getServer().catch(() => null);
                 if (server && opts.nocache !== true) {
                     const fileKey = `FILE::${data.name}::${data.size}::${data.lastModified}`;
-                    const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                    const GINT = idbGint(pbf._gintBuffer);
                     server.cache(fileKey, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
             }
@@ -352,7 +354,7 @@ const methods = {
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
     async gint(opts = {}) { if (opts.gint === false) return this;
         if (!this.unPackGint) {
-            let buf = await encoder(this, "gint", opts);
+            let buf = await encoder(this, "gint", { ...opts, shared: typeof SharedArrayBuffer !== "undefined" });   // Worker が SAB に直に組む（setGintBUF の写しが消える）
             if (!buf) { await gint.initialize(); buf = topology(this); if (opts.clean) buf = cleanGintBuffer(buf, opts.clean); }   // Worker 不成立の予備でも clean を落とさない
             await this.setGintBUF(buf);
         } else if (opts.clean) this.cleanTopology(opts.clean);   // 焼き済み（キャッシュ由来・先の gint()）にも clean を掛ける

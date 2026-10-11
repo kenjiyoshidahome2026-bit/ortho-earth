@@ -49,13 +49,15 @@ export function gintDataOf(data) {
 // 基準メタ＋境界メタ＋台帳一式。gintData は {arcBuffer, arcMeta, polyStream, lineStream} を読む
 //（polyStream は正規化で符号がその場で書き換わる＝呼び出し側のバッファがそのまま真実になる）。
 export function bakeBase(gintData) {
-	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
-
 	// 逆巻きリングの参照符号を正規化（境界メタ netting の前提＋IDバッファ塗りの符号一貫）。データごとに一回。
 	if (!gintData._ringsNormalized) {
-		normalizeRingOrientation(ab, am, ps);
+		// polyStream が SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack＝main の unPackGint と同じメモリ）なら
+		// 写してから書く＝main の原本（identify・IDB の控え）を worker から黙って書き換えない。ArrayBuffer（structured clone の写し）は従来どおりその場
+		if (typeof SharedArrayBuffer !== "undefined" && gintData.polyStream?.buffer instanceof SharedArrayBuffer) gintData.polyStream = gintData.polyStream.slice();
+		normalizeRingOrientation(gintData.arcBuffer, gintData.arcMeta, gintData.polyStream);
 		gintData._ringsNormalized = true;
 	}
+	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 
 	const polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
 	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };
