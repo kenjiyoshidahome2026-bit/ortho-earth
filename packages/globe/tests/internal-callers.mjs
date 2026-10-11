@@ -25,6 +25,7 @@ const ALLOW = {
 	                                      // ＋検査表示の下地（#174）＝利用者の層を伏せる／戻す setLayoutProperty の visibility 2（利用者の口と同じ意味で伏せる＝戻すと同じ姿）
 	                                      // ＋map.addData の面・線・柱（deck.gl 差分 PR-4・2026-10-12）4＝addSource・addLayer・setLayoutProperty（visibility）・queryRenderedFeatures（h.pick）
 	                                      //   ＝利用者の層と同じ MapLibre の意味で良い（H3 と同じく既存の層経路に乗せる＝利用者が addLayer で描いたのと同じ姿・当たり）
+	"packages/globe/src/cells/layer.js": 7,   // セル・等高線の層（deck.gl 差分 PR-5・2026-10-12）＝addSource 2・addLayer 4・setPaintProperty 1＝H3（packages/h3）と同じく意図して MapLibre の意味の層経路（利用者が addLayer で描いたのと同じ姿・当たり）
 	"packages/globe/src/gadgets/inspect.js": 2,   // 検査表示（#174・maplibre-gl-inspect 相当）＝検査の層は MapLibre の層の文書（addLayer）・札は queryRenderedFeatures＝MapLibre の意味そのもの
 };
 
