@@ -41,7 +41,22 @@ class GeoPBF {
 		// 旧＝クラス静的な _workerFactory だけを見ていた＝一度 createGeopbf() を呼ぶと以後の全インスタンスが worker 経路に固定され、
 		// Node では `Worker is not defined` で落ちた（2026-10-11・俯瞰 §2-B 5）。undefined＝クラス既定（createGeopbf が配線していれば worker）
 		this._useWorker = options.worker === false ? false : undefined;
+		// validate＝符号化の検証層（geopbf 改良点 ⑧'・2026-10-12・俯瞰 §2-C 8「黙った欠損」）。set(geojson)／setFeature が地物を書く前に幾何と属性を検める。
+		//   "lenient"（既定）＝直せる物は直して数える（NaN／±Infinity の属性 → null、壊れた座標・空の座標・退化した環 → 落とす、
+		//                     幾何なし → 落とす。緯度の範囲外は数えるだけで値は変えない）。何を何件直したかは pbf.issues（先頭 100 件＝{ kind, index, detail }）と pbf.issueCount（種別ごと）に残り、close() で 1 行だけ warn
+		//   "strict"        ＝最初の問題で throw（Error.issue に { kind, index, detail }）＝取り込みの門にする時
+		//   "legacy"        ＝1.19 までの挙動（NaN → 0、Infinity → 例外、Point の [] → (0,0)、緯度は丸めない、幾何なしは warn 1 行で落とす）
+		// 単要素の Multi* を単数型に落とす（ワイヤの約束）のは問題ではない＝issueCount.multiDegraded に数えるだけ（throw しない）
+		this.validate = options.validate === "strict" ? "strict" : options.validate === "legacy" ? "legacy" : "lenient";
+		this.issues = []; this.issueCount = {}; this._fi = 0;   // _fi＝setFeature が見た地物の通し番号（issues の index）
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
+	}
+	// 検証層の記録（lenient＝数える／strict＝throw）。info＝真なら strict でも投げない（multiDegraded）
+	_issue(kind, detail, info = false) {
+		this.issueCount[kind] = (this.issueCount[kind] || 0) + 1;
+		const index = this._fi - 1;   // setFeature が先に進めた通し番号＝今の地物
+		if (this.issues.length < 100) this.issues.push({ kind, index, detail });
+		if (this.validate === "strict" && !info) { const e = new Error(`GeoPBF validate: ${kind} at feature ${index}${detail ? ` (${detail})` : ""}`); e.issue = { kind, index, detail }; throw e; }
 	}
 	static setProperty(name, value) {
 		if (isString(name)) {
@@ -222,15 +237,30 @@ class GeoPBF {
 		return this;
 	}
 	setFeature(q) {
+		const fi = this._fi++;
 		// 幾何なし（null / 型不明）の地物はワイヤに載せられない＝書かずに数える（旧＝GTYPE 抜けの壊れたレコードを書き、読み側が TypeError で飛ばしていた）
-		if (!q.geometry || geometryMap[q.geometry.type] == null) { if (!this.dropped++) console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`); return this; }
+		if (!q.geometry || geometryMap[q.geometry.type] == null) {
+			if (this.validate !== "legacy") this._issue("nullGeometry", q.geometry ? `type ${q.geometry.type}` : "geometry null");
+			if (!this.dropped++ && this.validate === "legacy") console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`);
+			return this;
+		}
+		if (this.validate !== "legacy") {   // 検証層：壊れた座標・空の座標・退化した環・緯度の範囲外を直すか落とす（幾何が空になった地物は書かない）
+			const g = normalizeGeometry(this, q.geometry);
+			if (!g) { this.dropped++; return this; }
+			if (g !== q.geometry) q = { ...q, geometry: g };
+		}
 		q.geometry.coordinates = q.geometry.coordinates ||[];
 		antimeridianFeature(q, this._am);
 		return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
 	}
 	setGeometry(q) { return writeGeometry(this, q); }
 	setProperties(q) { return writeProperties(this, q); }
-	close() { this.end = this.pbf.pos; this.pbf.finish(); return this; }
+	close() {
+		this.end = this.pbf.pos; this.pbf.finish();
+		const kinds = Object.entries(this.issueCount).filter(([k]) => k !== "multiDegraded");
+		if (kinds.length && this.validate === "lenient") console.warn(`GeoPBF: ${kinds.reduce((a, [, n]) => a + n, 0)} issue(s) found while encoding (${kinds.map(([k, n]) => `${k} ${n}`).join(", ")}) = see pbf.issues`);
+		return this;
+	}
 
 	getFeature(i) { return { type: "Feature", geometry: this.getGeometry(i), properties: this.getProperties(i) }; }
 	getGeometry(i, j) { return readGeometry(this, i, j); }
@@ -377,11 +407,12 @@ function readValue(self) {
 function writeProperties(self, q) {
 	const { pbf, keytub } = self;
 	var index = []; if (self.noprop) return
+	const badNum = (v, k) => typeof v === "number" && !Number.isFinite(v) && self.validate !== "legacy" && (self._issue("badNumber", `${k}: ${v}`), true);   // NaN／±Infinity → null（書かない）。legacy＝NaN → 0・Infinity → 例外
 	for (var key in q) if (q[key] != null) {
 		var v = q[key];
 		if (isSimpleObject(v) && Object.keys(v).every(k => `${key}.${k}` in keytub)) {
-			for (let k in v) if (v[k] != null) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v[k])); index.push(keytub[`${key}.${k}`]); }
-		} else { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v)); index.push(keytub[key]); }
+			for (let k in v) if (v[k] != null && !badNum(v[k], `${key}.${k}`)) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v[k])); index.push(keytub[`${key}.${k}`]); }
+		} else if (!badNum(v, key)) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v)); index.push(keytub[key]); }
 	}
 	pbf.writePackedVarint(TAGS.INDEX, index);
 }
@@ -414,13 +445,42 @@ function readProperties(self, n) {
 	return q;
 }
 
+// 検証層（validate: lenient／strict）：座標を検めて直した幾何を返す（元のまま使える時は同じオブジェクト）。空になった幾何＝null（呼び手が地物を落とす）
+//   位置＝[x, y, …] で x・y が有限の数。そうでない位置は落とす（badCoordinate）。|緯度| > 90 は数えるだけ（latitude・値は不変）。経度は writeGeometry の fix が ±180 に畳む
+//   Point: 位置でない → emptyCoords。MultiPoint/LineString: 位置を濾す（LineString は 2 点未満 → emptyCoords）。
+//   Polygon: 環ごとに濾し、4 位置未満（閉合込み・= 3 頂点未満）の環は落とす（degenerateRing）。外環が落ちた多角形は落ちる。Multi*: 要素ごと・空になれば落とす。GeometryCollection: 要素ごと
+function normalizeGeometry(self, g) {
+	const type = g.type, c = g.coordinates;
+	let changed = false;
+	const pos = p => {
+		if (!Array.isArray(p) || p.length < 2 || typeof p[0] !== "number" || typeof p[1] !== "number" || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) { self._issue("badCoordinate", JSON.stringify(p)?.slice(0, 40)); changed = true; return null; }
+		if (p[1] > 90 || p[1] < -90) self._issue("latitude", String(p[1]), true);   // 範囲外の緯度＝数えるだけ（値は変えない＝CRS 無しの図面などを壊さない。strict でも投げない）
+		return p;
+	};
+	const line = (l, min, what) => { if (!Array.isArray(l)) { self._issue(what, "not an array"); changed = true; return null; } const out = l.map(pos).filter(Boolean); if (out.length < min) { if (out.length === l.length) { self._issue(what, `${out.length} position(s)`); changed = true; } return null; } if (out.length !== l.length) changed = true; return out; };
+	const ring = r => line(r, 4, "degenerateRing");
+	const poly = rs => { if (!Array.isArray(rs) || !rs.length) { self._issue("emptyCoords", "Polygon without rings"); changed = true; return null; } const outer = ring(rs[0]); if (!outer) return null; const holes = rs.slice(1).map(ring).filter(Boolean); if (holes.length !== rs.length - 1) changed = true; return [outer, ...holes]; };
+	let out;
+	switch (type) {
+		case "Point": if (!Array.isArray(c) || !c.length) { self._issue("emptyCoords", "Point []"); return null; } out = pos(c); if (!out) return null; break;
+		case "MultiPoint": out = line(c, 1, "emptyCoords"); if (!out) return null; break;
+		case "LineString": out = line(c, 2, "emptyCoords"); if (!out) return null; break;
+		case "MultiLineString": { if (!Array.isArray(c)) { self._issue("emptyCoords", "not an array"); return null; } out = c.map(l => line(l, 2, "emptyCoords")).filter(Boolean); if (!out.length) { if (!c.length) self._issue("emptyCoords", "MultiLineString []"); return null; } if (out.length !== c.length) changed = true; break; }
+		case "Polygon": out = poly(c); if (!out) return null; break;
+		case "MultiPolygon": { if (!Array.isArray(c)) { self._issue("emptyCoords", "not an array"); return null; } out = c.map(poly).filter(Boolean); if (!out.length) { if (!c.length) self._issue("emptyCoords", "MultiPolygon []"); return null; } if (out.length !== c.length) changed = true; break; }
+		case "GeometryCollection": { const gs = (g.geometries || []).map(x => geometryMap[x.type] == null ? (self._issue("nullGeometry", `type ${x.type}`), null) : normalizeGeometry(self, x)).filter(Boolean); if (!gs.length) { self._issue("emptyCoords", "GeometryCollection []"); return null; } return gs.length === (g.geometries || []).length && gs.every((x, i) => x === g.geometries[i]) ? g : { ...g, geometries: gs }; }
+		default: return g;
+	}
+	return changed ? { ...g, coordinates: out } : g;
+}
+
 function writeGeometry(self, q) {
 	const { pbf, e } = self;
 	return self.setMessage(TAGS.GEOMETRY, () => {
 		const fix = n => { while (n < -180) n += 360; while (n > 180) n -= 360; return n; };
 		let type = geometryMap[q.type], c = q.coordinates;
 		if (type == null) return console.error("illegal geometry type: ", q.type);
-		if (type % 2 == 1 && c.length == 1) { type--; c = c[0];}
+		if (type % 2 == 1 && c.length == 1) { type--; c = c[0]; if (self.validate !== "legacy") self._issue("multiDegraded", q.type, true); }   // 単要素の Multi* → 単数型（ワイヤの約束・数えるだけ）
 		pbf.writeVarintField(TAGS.GTYPE, type);
 		if (type == 6) return pbf.writeMessage(TAGS.GARRAY, () => q.geometries.forEach(t => writeGeometry(self, t)));
 		[write0, write1, write1, write2, write2, write3][type]();
