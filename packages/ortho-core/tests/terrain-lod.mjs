@@ -9,12 +9,23 @@ for (const G of [769, 1024, 1536]) {
 	const Q = G - 1;
 	ok(idx.length === Q * Q * 6, `G=${G}: index 数 ${idx.length} = ${Q * Q * 6}`);
 	ok(chunks.length === 256 && chunks.reduce((s, c) => s + c.count, 0) === idx.length, `G=${G}: 256 チャンクの count 和 = 全 index`);
-	// 三角形の集合が従来（行主導）と同一：各三角形を正規化した鍵の多重集合で比べる
-	const key = (a, b, c) => a + "," + b + "," + c;
-	const ref = new Map(); let p = 0;
-	for (let j = 0; j < Q; j++) for (let i = 0; i < Q; i++) { const a = j * G + i, b = a + 1, c = a + G, d = c + 1; for (const t of [[a, c, b], [b, c, d]]) { const k = key(...t); ref.set(k, (ref.get(k) || 0) + 1); } }
-	let miss = 0; for (let t = 0; t < idx.length; t += 3) { const k = key(idx[t], idx[t + 1], idx[t + 2]); const n = ref.get(k); if (!n) miss++; else if (n === 1) ref.delete(k); else ref.set(k, n - 1); }
-	ok(miss === 0 && ref.size === 0, `G=${G}: 三角形の多重集合が従来と同一（欠け ${miss}・余り ${ref.size}）`);
+	// 三角形の集合が従来（行主導）と同一：従来の三角形は格子のセル (i,j) ごとに [a,c,b]・[b,c,d] の 2 つ（頂点の並びもこの順）＝
+	// index の各三角形をそのセルと種類に引き当てて数える（引き当たらない＝欠け・0 回＝余り・2 回以上＝重複）＝文字列の鍵の Map と同じ判定を
+	// 数の配列で（G=1536 の 470 万三角形で 29 秒→0.1 秒・2026-10-03）
+	const seen = new Uint8Array(Q * Q * 2);
+	let miss = 0;
+	for (let t = 0; t < idx.length; t += 3) {
+		const x = idx[t], y = idx[t + 1], z = idx[t + 2];
+		let a = -1, kind = 0;
+		if (y === x + G && z === x + 1) a = x;                       // [a, c, b]
+		else if (y === x + G - 1 && z === x + G) { a = x - 1; kind = 1; }   // [b, c, d]（b = a + 1）
+		const i = a % G, j = (a - i) / G;
+		if (a < 0 || i >= Q || j >= Q) { miss++; continue; }
+		const s = (j * Q + i) * 2 + kind;
+		if (seen[s] < 255) seen[s]++;
+	}
+	let rest = 0; for (let s = 0; s < seen.length; s++) if (seen[s] !== 1) rest++;
+	ok(miss === 0 && rest === 0, `G=${G}: 三角形の多重集合が従来と同一（欠け ${miss}・余り/重複 ${rest}）`);
 	ok(chunks.every(c => c.first % 3 === 0 && c.count % 3 === 0), `G=${G}: 区間は三角形境界`);
 }
 // カリング：真俯瞰 z6・窓 [130,30]+[10,10]：全チャンク可視ではないが中央は可視・全球窓の裏側は不可視

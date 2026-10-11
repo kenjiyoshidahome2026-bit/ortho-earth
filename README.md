@@ -14,9 +14,12 @@ A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from 
 
 ## Tests
 
-`npm test` at the repository root runs every Node-only test suite in the monorepo (about 30 seconds, no browser or network needed).
-Browser suites stay per package: `npm run verify` in `packages/globe`, `npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/ortho-japan`,
-`npm run verify:pages` in `packages/geopbf`. They drive a local Google Chrome, and the WebGPU suites need a real GPU.
+`npm test` at the repository root runs every Node-only test suite in the monorepo (`scripts/test-all.mjs`: the suites of each
+workspace are unrolled to their test files and run in parallel, about 15 seconds on 4 cores, no browser or network needed;
+`npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
+`npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify` in `packages/globe`,
+`npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/ortho-japan`, `npm run verify:pages` in `packages/geopbf`,
+`npm run verify:gpu` in `apps/equal`. They drive a local Google Chrome, and the WebGPU suites need a real GPU.
 
 ## Contributors & Acknowledgments
 
