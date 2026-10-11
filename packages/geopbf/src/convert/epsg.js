@@ -1,5 +1,5 @@
 // convert/epsg.js ── EPSG 番号 → WKT（proj.js の crsFromWKT が読める最小形）。DXF のように座標系を持たない入力へ「EPSG 番号で指定」するための表。
-// 収録: 経緯度（4326 WGS84・4612 JGD2000・6668 JGD2011・4301 Tokyo）・3857・平面直角座標系 I〜XIX（JGD2011 6669–6687・JGD2000 2443–2461・
+// 収録: 経緯度（4326 WGS84・4612 JGD2000・6668 JGD2011・4301 Tokyo・4258 ETRS89・4269 NAD83・4019 GRS80）・3857・平面直角座標系 I〜XIX（JGD2011 6669–6687・JGD2000 2443–2461・
 // Tokyo 30161–30179）・UTM（WGS84 32601–32660 N / 32701–32760 S・JGD2011 6688–6691 = 51–54 帯・JGD2000 3097–3101 = 51–55 帯）。
 // それ以外は null＝呼び手が WKT 文字列を渡す。
 const JPR = [   // [lat0, lon0]（度）＝測量法 平面直角座標系 I〜XIX の原点
@@ -12,6 +12,9 @@ const GEOG = {
 	JGD2011: 'GEOGCS["JGD2011",DATUM["Japanese_Geodetic_Datum_2011",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","6668"]]',
 	JGD2000: 'GEOGCS["JGD2000",DATUM["Japanese_Geodetic_Datum_2000",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4612"]]',
 	TOKYO: 'GEOGCS["Tokyo",DATUM["Tokyo",SPHEROID["Bessel 1841",6377397.155,299.1528128]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4301"]]',
+	ETRS89: 'GEOGCS["ETRS89",DATUM["European_Terrestrial_Reference_System_1989",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4258"]]',
+	NAD83: 'GEOGCS["NAD83",DATUM["North_American_Datum_1983",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4269"]]',
+	GRS80: 'GEOGCS["Unknown datum based upon the GRS 1980 ellipsoid",DATUM["Not_specified_based_on_GRS_1980_ellipsoid",SPHEROID["GRS 1980",6378137,298.257222101]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4019"]]',
 };
 const tm = (name, geog, lat0, lon0, k0, fe, fn, code) =>
 	`PROJCS["${name}",${geog},PROJECTION["Transverse_Mercator"],PARAMETER["latitude_of_origin",${lat0}],PARAMETER["central_meridian",${lon0}],PARAMETER["scale_factor",${k0}],PARAMETER["false_easting",${fe}],PARAMETER["false_northing",${fn}],UNIT["metre",1],AUTHORITY["EPSG","${code}"]]`;
@@ -23,6 +26,9 @@ export function epsgToWKT(code) {
 	if (code === 6668) return GEOG.JGD2011;
 	if (code === 4612) return GEOG.JGD2000;
 	if (code === 4301) return GEOG.TOKYO;
+	if (code === 4258) return GEOG.ETRS89;
+	if (code === 4269) return GEOG.NAD83;
+	if (code === 4019) return GEOG.GRS80;   // COG（旧 cog/proj.js が受けていた）
 	if (code === 3857 || code === 3785 || code === 900913) return `PROJCS["WGS 84 / Pseudo-Mercator",${GEOG.WGS84},PROJECTION["Mercator_1SP"],PARAMETER["central_meridian",0],PARAMETER["scale_factor",1],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1],AUTHORITY["EPSG","3857"]]`;
 	const jpr = (base, geog, datum) => { const z = code - base; if (z < 0 || z >= 19) return null; const [lat0, lon0] = JPR[z]; return tm(`${datum} / Japan Plane Rectangular CS ${ROMAN[z]}`, geog, lat0, lon0, 0.9999, 0, 0, code); };
 	if (code >= 6669 && code <= 6687) return jpr(6669, GEOG.JGD2011, "JGD2011");

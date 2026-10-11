@@ -13,7 +13,7 @@ import { decodeText } from "./table.js";
 import { resolveDatum, datumStats } from "./datum.js";
 import { mercToLonLat } from "../modules/mercator.js";
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+import { now } from "../modules/now.js";
 const D2R = Math.PI / 180;
 const ARC_STEP = 5 * D2R;   // 円弧の折線化＝5° 刻み
 const UNIT_M = { 0: 1, 1: 0.0254, 2: 0.3048, 3: 1609.344, 4: 0.001, 5: 0.01, 6: 1, 7: 1000, 8: 2.54e-5, 9: 2.54e-8, 10: 0.9144, 14: 0.1, 21: 0.1 };   // $INSUNITS → m
