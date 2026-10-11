@@ -24,6 +24,7 @@ export function registerKeyOwner(mapEl, signal) {
 		if (keyActive === mapEl) keyActive = null;
 	}, { once: true });
 }
+export const claimKeys = mapEl => { if (keyMaps.includes(mapEl)) keyActive = mapEl; };   // 触られる前から持ち主にする（地図の上に重ねた物＝equal の全球図が開いた瞬間）
 export const isKeyOwner = mapEl => keyMaps.length < 2 || (keyActive ?? keyMaps[0]) === mapEl;
 export const keyBusy = mapEl => isTypingTarget() || modalOpen(mapEl) || !isKeyOwner(mapEl);
 export { isTypingTarget };

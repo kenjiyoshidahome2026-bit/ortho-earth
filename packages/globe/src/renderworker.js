@@ -6,6 +6,7 @@
 // index.js（createRenderer 等を静的に束ねる）を経由すると GL2 のレンダラが常に同梱されるので、ここは subpath だけを使う
 // （WebGPU 機で GL2 の約 106 KB を読まない＝起動ロードの計量 2026-09-14）。
 import { createLabelLayer } from "@ortho-earth/core/labels";
+import { createLabelReceiver } from "@ortho-earth/core/labelsync";   // main からの注記は差分（持っている物は番号だけ・2026-10-03）
 import { createTerrain } from "@ortho-earth/core/terrain";
 import { setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";
 // terrain の標高ローダ（core の elevation）は render worker の中で worker を立てる（入れ子）＝口の状態はスレッドごと＝ここでも入口を渡す。
@@ -371,7 +372,7 @@ const dispatch = e => {
 			else if (m.cmd === "gintPaint") { gTgt(m)?.paint(m.data); }    // fidスタイル表（コロプレス。main が buildFidStyle 評価済み・null=解除）
 			else if (m.cmd === "gintVis") { gTgt(m)?.setVisible(m.data); if (m.layer != null) labelLayer?.setUserVisible(m.layer, !!m.data); } // 表示切替（層指名＝ラベルも連動）
 			else if (m.cmd === "vtLabels") { const list = m.data?.list ?? null; if (list) for (const L of list) L.elev = terrain && cam ? terrain.sampleElev(L.anchor[0], L.anchor[1], cam) : 0; labelLayer?.setUserLabels(m.layer, list, m.data ?? {}); }   // vector source の注記（段 8⑤）＝基図の注記と同じく標高を付けて同じ衝突へ（gintLabels は触らない）
-			else if (m.cmd === "labels") { pendingLabels = m.data; applyLabels(); }   // ラベル集合の更新（標高は cam が揃ってから付与）
+			else if (m.cmd === "labels") { const r = labelReceiver(m.data); pendingLabels = r.list; if (r.missing) postMessage({ type: "labelsResync" }); applyLabels(); }   // ラベル集合の更新（差分→集合。持たない番号＝main に全部送り直してもらう）（標高は cam が揃ってから付与）
 			else if (m.cmd === "labelImage") { if (m.data?.bitmap) labelLayer?.setImage(m.data.name, m.data); else labelLayer?.removeImage(m.data?.name); }   // 記号帳の写し（addImage / sprite）＝基図と vector の symbol 層の icon-image（段 3）。bitmap null＝外す
 			else if (m.cmd === "skyLabels") { if (labelLayer) labelLayer.setSky(m.data); }   // 星空劇場の注記（星座名・メシエ）＝ラベルcanvasへ
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
@@ -513,6 +514,7 @@ async function snapshotGPU(id) {   // 呼び手（snapshot）が renderer/cam/fr
 }
 
 // ラベルに標高を付与（傾き時に地物と一致）。main.js が持っていた terrain.sampleElev(...) 呼び出しをそのままこちらへ移設。
+const labelReceiver = createLabelReceiver();
 function applyLabels() {
 	if (!labelLayer || !cam) return;
 	const list = pendingLabels; pendingLabels = null;
