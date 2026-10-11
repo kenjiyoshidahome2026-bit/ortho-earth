@@ -1,0 +1,127 @@
+/* 日めくりの頁の見た目。紙の色の面に白い日めくり（SVG は白地固定）と札（カード）。暗い配色は面だけ暗く、日めくりは紙のまま */
+:root {
+	--bg: #eceae6; --fg: #333; --card: #fff; --muted: #777; --line: #d8d5cf; --accent: #a22; --sun: #c33; --sat: #26c; --soft: #f6f4f0;
+	color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+	:root { --bg: #1b1b1d; --fg: #ddd; --card: #26262a; --muted: #999; --line: #3a3a3e; --accent: #e66; --sun: #f77; --sat: #8ad; --soft: #2d2d32; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* .hk-week の display:flex に負けないように */
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.6 system-ui, "Hiragino Sans", "Noto Sans JP", sans-serif; -webkit-text-size-adjust: 100%; }
+#app { min-height: 100%; display: flex; flex-direction: column; }
+button, input, select { font: inherit; color: inherit; }
+a { color: inherit; }
+.hk-muted { color: var(--muted); }
+.hk-err { color: var(--accent); }
+.hk-note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+.hk-sub { font-size: 12px; color: var(--muted); margin: -2px 0 4px; display: flex; gap: 4px; align-items: center; }
+.hk-arrow { display: inline-block; transition: transform .2s; }
+
+/* 上の帯 */
+.hk-bar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 10px 16px; flex-wrap: wrap; padding: 8px 16px; background: color-mix(in srgb, var(--bg) 88%, transparent); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid var(--line); padding-inline: max(16px, env(safe-area-inset-left)) max(16px, env(safe-area-inset-right)); }
+.hk-brand { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .04em; display: flex; align-items: baseline; gap: 8px; }
+.hk-brand small { font-size: 12px; font-weight: 400; color: var(--muted); }
+.hk-nav { display: flex; gap: 6px; align-items: center; }
+.hk-nav button, .hk-nav input, .hk-mode-btn, .hk-btn, .hk-tools select { height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); cursor: pointer; }
+.hk-nav button:hover, .hk-btn:hover, .hk-mode-btn:hover { border-color: var(--muted); }
+.hk-nav input { padding: 0 8px; }
+.hk-mode { display: flex; }
+.hk-mode-btn { border-radius: 0; }
+.hk-mode-btn:first-child { border-radius: 8px 0 0 8px; }
+.hk-mode-btn:last-child { border-radius: 0 8px 8px 0; margin-inline-start: -1px; }
+.hk-mode-btn.on { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.hk-tools { margin-inline-start: auto; display: flex; gap: 6px; align-items: center; }
+.hk-icon { height: 34px; min-width: 34px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); cursor: pointer; font-size: 16px; }
+.hk-btn.primary { background: var(--fg); color: var(--bg); border-color: var(--fg); }
+.hk-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+
+/* 日 */
+.hk-day { display: grid; grid-template-columns: minmax(300px, 560px) minmax(300px, 420px); gap: 24px; justify-content: center; align-items: start; padding: 24px 16px 48px; }
+.hk-page-wrap { position: sticky; top: 64px; }
+#page { width: 100%; aspect-ratio: 1; perspective: 1200px; touch-action: pan-y; }
+#page > div { width: 100%; height: 100%; background: #fff; border-radius: 4px; box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 12px 32px rgba(0, 0, 0, .14); overflow: hidden; }
+#page svg { display: block; width: 100%; height: 100%; }
+#page > div.flip-next { animation: flipNext .28s ease-out; transform-origin: top center; }
+#page > div.flip-prev { animation: flipPrev .28s ease-out; transform-origin: top center; }
+@keyframes flipNext { from { transform: rotateX(8deg) translateY(6px); opacity: .4; } }
+@keyframes flipPrev { from { transform: rotateX(-8deg) translateY(-6px); opacity: .4; } }
+@media (prefers-reduced-motion: reduce) { #page > div.flip-next, #page > div.flip-prev { animation: none; } }
+.hk-hint { font-size: 12px; color: var(--muted); text-align: center; margin-top: 10px; }
+.hk-side { display: grid; gap: 14px; }
+.hk-card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
+.hk-card h2 { margin: 0 0 8px; font-size: 15px; letter-spacing: .04em; }
+.hk-card h3 { margin: 10px 0 4px; font-size: 12px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .08em; }
+.hk-row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+.hk-k { color: var(--muted); }
+.hk-v { font-variant-numeric: tabular-nums; text-align: end; }
+.hk-v small { color: var(--muted); }
+.hk-moon-head { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: center; }
+.hk-phase svg { width: 72px; height: 72px; display: block; }
+.hk-events { list-style: none; margin: 0; padding: 0; }
+.hk-events li { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; padding: 6px 0; border-top: 1px solid var(--line); }
+.hk-events li:first-child { border-top: 0; }
+.hk-ev-time { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.hk-ev-loc { grid-column: 2; color: var(--muted); }
+
+/* 週 */
+.hk-week { flex: 1; min-height: 0; display: flex; }
+.hk-week-list { flex: 1; height: calc(100dvh - var(--barh, 51px)); overflow-y: auto; overscroll-behavior: contain; padding: 0 16px 24px; scroll-padding-top: 8px; }
+.hk-sentinel { height: 1px; }
+.hk-wmonth { grid-column: 1 / -1; font-size: 12px; color: var(--muted); font-weight: 600; letter-spacing: .06em; padding: 14px 0 2px; }
+.hk-wrow { display: grid; grid-template-columns: 64px minmax(160px, 1.4fr) minmax(170px, 1fr) 40px minmax(120px, 1fr); gap: 4px 14px; align-items: center; max-width: 1100px; margin: 0 auto; padding: 10px 12px; border-bottom: 1px solid var(--line); text-decoration: none; }
+.hk-wrow:hover { background: var(--soft); }
+.hk-wrow.today { background: color-mix(in srgb, var(--accent) 7%, var(--card)); border-inline-start: 3px solid var(--accent); }
+.hk-wrow.sel .d { text-decoration: underline; text-underline-offset: 4px; }
+.hk-wdate { text-align: center; line-height: 1.1; }
+.hk-wdate .d { font-size: 28px; font-weight: 700; }
+.hk-wdate .w, .hk-wdate .m { font-size: 11px; color: var(--muted); }
+.hk-wrow.sun .d, .hk-wrow.sun .w { color: var(--sun); }
+.hk-wrow.sat .d, .hk-wrow.sat .w { color: var(--sat); }
+.hk-wtags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 11px; padding: 1px 7px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+.tag.holiday { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tag.sekki { border-color: var(--muted); }
+.hk-wline { font-size: 12px; }
+.hk-wastro { font-size: 13px; font-variant-numeric: tabular-nums; line-height: 1.5; }
+.hk-wastro small { color: var(--muted); }
+.hk-ico { color: var(--muted); }
+.hk-wmoon svg { width: 36px; height: 36px; display: block; }
+.hk-wev { font-size: 12px; }
+.hk-wev-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 設定 */
+.hk-dialog { border: 1px solid var(--line); border-radius: 12px; padding: 0; width: min(92vw, 560px); max-height: 90vh; background: var(--card); color: var(--fg); }
+.hk-dialog::backdrop { background: rgba(0, 0, 0, .35); }
+.hk-form { padding: 16px 20px 20px; display: grid; gap: 14px; }
+.hk-form header, .hk-form footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.hk-form h2 { margin: 0; font-size: 16px; }
+.hk-form h3 { margin: 0 0 4px; font-size: 14px; }
+.hk-form section { display: grid; gap: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.hk-form p { margin: 0; font-size: 12px; }
+.hk-grid { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
+.hk-grid input, .hk-inline input { height: 32px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--card); width: 100%; }
+.hk-check { display: flex; gap: 6px; align-items: flex-start; font-size: 13px; }
+.hk-inline { display: flex; gap: 6px; }
+.hk-file { font-size: 13px; }
+.hk-cal-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.hk-cal-list li { display: grid; grid-template-columns: 1fr auto auto; gap: 2px 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.hk-cal-list li small { grid-column: 1; }
+.hk-cal-list li .hk-icon { grid-row: 1 / span 2; height: 28px; min-width: 28px; }
+.hk-cal-name { overflow-wrap: anywhere; }
+
+@media (max-width: 760px) {
+	.hk-day { grid-template-columns: minmax(0, 1fr); padding: 16px 16px 40px; }
+	.hk-page-wrap { position: static; }
+	#page { width: min(100%, 520px); margin: 0 auto; }
+	.hk-wrow { grid-template-columns: 56px 1fr 36px; }
+	.hk-wastro, .hk-wev { grid-column: 2 / -1; }
+	.hk-brand small { display: none; }
+}
+
+/* 今日の言葉＝日めくりの下の短冊 */
+.hk-quote { margin: 14px 0 0; padding: 12px 16px; background: var(--card); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 4px; }
+.hk-quote figcaption { font-size: 11px; color: var(--muted); letter-spacing: .08em; }
+.hk-quote blockquote { margin: 0; font-size: 15px; line-height: 1.7; }
+.hk-quote cite { font-style: normal; font-size: 12px; color: var(--muted); text-align: end; }

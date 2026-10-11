@@ -89,7 +89,7 @@ function 十二直計算(YMD) {
 function 黄経計算(YMD, h = 24, tdiff = 9) {
 	return r360(SunDegree(ymd2jdn(YMD) + (h - tdiff) / 24 - 51544.5));
 }
-function 日暦情報(YMD) {
+export function 日暦情報(YMD) {
 	const [年, 月, 日] = YMD;
 	const 元号 = 元号計算(YMD);
 	const 通日 = ymd2jdn(YMD);
@@ -279,7 +279,7 @@ function 月カレンダー(YMD) {
 	return `<svg viewBox="0 0 100 70"><g dominant-baseline="middle">${body.join("")}</g></svg>`;
 }
 
-function 月相(n) { 
+export function 月相(n) { 
 	const T = 29.530589, r = Math.min(1, Math.max(0, (n / T))), p = Math.floor(r * 4), R = Math.cos(r * 2 * Math.PI);
 	const D = `M 0 -50 A 50 50 0 0 ${p < 2 ? 1 : 0} 0 50 A ${Math.abs(50 * R)} 50 0 0 ${p % 2 ? 1 : 0} 0 -50 Z`;
 	return `<svg viewBox="-51 -51 102 102">
