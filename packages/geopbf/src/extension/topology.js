@@ -5,8 +5,10 @@ import { gint } from "./gint.js";
 // 旧版キャッシュが新リーダで読まれて海岸線が全端末で黙って消えた——ETag はソース PBF の版であって派生物の版ではない）。
 topology.FORMAT_VERSION = 5;   // v5: 度アンカーを大円補間に（完全球体＝頂点は大円で結ぶ・parse 時の経緯度線形 densify は撤去）＝旧キャッシュは再焼き。v4: 度アンカー（1°ごとの L1）挿入。v3: 接合点判定を出現回数→neighbor-pair方式に
 
-export function topology(self) {
-	const full = gint.topologyFullWasm(self, topology.FORMAT_VERSION);
+// shared:true＝GintBUF を SharedArrayBuffer に直に組む（encoder/gint Worker → main の setGintBUF がコピーせずそのまま掴む・2026-10-11 ゼロコピー）。
+// 度アンカー・clean を掛けた時は repack の ArrayBuffer（setGintBUF が SAB へ写す＝従来どおり 1 回）
+export function topology(self, { shared = false } = {}) {
+	const full = gint.topologyFullWasm(self, topology.FORMAT_VERSION, shared);
 	// JS 位相経路（parse→cutPolygon/cutPolyline→meta→buildArcs→stream 組立・部分 wasm 版込み）は 2026-09-16 に撤去。
 	// 全呼び手（index.js gint()・encoder/gint Worker・convert/node-gint）は先に gint.initialize() を await している＝ここへ来るのは
 	// initialize 抜きで topology() を直接呼んだ時だけ。黙って壊れた JS 経路（共有点を落とすバグ・t-large 参照）で焼くより明示的に投げる。
@@ -19,9 +21,11 @@ export function topology(self) {
 // （筆/census級の密データは常にこちら）。必要時のみ unpack→insertDegreeAnchors→repack。
 function anchorFullGintBuf(full) {
 	const header = new Uint32Array(full, 0, 16);
-	const arcLength = header[6], arcCount = header[7], mlen = 8, LIMIT = 10000000;
+	const arcLength = header[6], arcCount = header[7], pointCount = header[4], mlen = 8, LIMIT = 10000000;
 	if (!arcCount) return full;
-	const meta = new Uint32Array(full, 64 + arcLength * 8, arcCount * mlen);
+	// arcMeta は arcBuffer・pointBuffer の後（unpackRawViews と同じ並び）。旧＝pointBuffer を飛ばしていなかった＝点を含む層では
+	// 点の Morton を meta と読んで「1° 超」を誤検出し、毎回 unpack→repack の写しを 1 回余計に払っていた（2026-10-11・結果の byte は不変）
+	const meta = new Uint32Array(full, 64 + arcLength * 8 + pointCount * 8, arcCount * mlen);
 	let hit = false;
 	for (let a = 0; a < arcCount && !hit; a++) {
 		const r = a * mlen;
@@ -55,6 +59,17 @@ export function attachLazyStreams(d) {
 	if (!Object.getOwnPropertyDescriptor(d, "polygon")?.get) lazy("polygon", "polyStream", streamToPolygon);
 	if (!Object.getOwnPropertyDescriptor(d, "polyline")?.get) lazy("polyline", "lineStream", streamToPolyline);
 	if (!Object.getOwnPropertyDescriptor(d, "neighbors")?.get) lazy("neighbors", "neighborStream", streamToNeighbors);
+	// bbox 台帳も遅延（値が own property として来ていれば＝rebuildStreams の代入・旧 clone＝そのまま尊重）
+	const lazy2 = (name, build) => {
+		if (Object.getOwnPropertyDescriptor(d, name)?.get || Object.prototype.hasOwnProperty.call(d, name)) return;
+		let v, done = false;
+		Object.defineProperty(d, name, { configurable: true, enumerable: false,
+			get() { if (!done) { v = build(); done = true; } return v; },
+			set(x) { v = x; done = true; } });
+	};
+	lazy2("polyBboxByFid", () => buildFeatureBboxes(d.polyStream, d.arcMeta));
+	lazy2("lineBboxByFid", () => buildFeatureBboxes(d.lineStream, d.arcMeta));
+	lazy2("polyCompBbox",  () => buildCompBboxes(d.polyStream, d.arcMeta));
 	return d;
 }
 // GintBUF の生ビュー（コピーなし・ネスト配列も bbox 台帳も作らない）＝anchorFullGintBuf 用。repackGintBuffer が読む項目だけを返す
@@ -75,10 +90,18 @@ function unpackRawViews(full) {
 	const neighborStream = nbLen ? new Int32Array(full, ptr, nbLen) : null;
 	return { polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox, arcBuffer, arcMeta, polyStream, lineStream, neighborStream, pointBuffer, point };
 }
+// GintBUF（ArrayBuffer・SharedArrayBuffer・その view）→ 型付き配列の view 一式。
+// ゼロコピー（2026-10-11・俯瞰 §2-E 10）: 旧＝丸ごと .slice() してから view を切っていた（GintBUF 1 本ぶんの余分なピーク・main スレッド同期）。
+// 今＝渡されたバッファの上に view を切る＝SAB なら worker（復号・bake）とも共有。書き換える消費者（clean の弧切り直し・bake の
+// リング向き正規化）は自分の写しに書く約束（bake.js bakeBase は共有バッファなら polyStream を写してから書く）。
+// bbox 台帳（polyBboxByFid/lineBboxByFid/polyCompBbox）は遅延＝初めて読まれた時に組む（非列挙 accessor＝structured clone に
+// 乗らない＝受け側で attachLazyStreams を掛け直す）。旧＝毎 unpack で Map 2 つと配列 1 つを同期で組み、Worker 越しは Map の clone まで払っていた
 export function unPackGintBuffer(GintBUF) {
 	try { let ptr = 0;
-		const buf = new Uint8Array(GintBUF).slice().buffer, mlen = 8, SCALE = gint.SCALE_E;
-		const header = new Uint32Array(buf, 0, 16); ptr += 64;
+		const buf = ArrayBuffer.isView(GintBUF) ? GintBUF.buffer : GintBUF, mlen = 8, SCALE = gint.SCALE_E;
+		ptr = ArrayBuffer.isView(GintBUF) ? GintBUF.byteOffset : 0;
+		if (ptr % 8) throw new Error("Gint buffer view must be 8-byte aligned");
+		const header = new Uint32Array(buf, ptr, 16); ptr += 64;
 		if (header[0] !== 1953392967) throw new Error("Invalid Gint buffer");
 		// 版検札：旧レイアウトの GintBUF（IDBキャッシュ由来）を現行リーダで読むとオフセットがずれ、
 		// 例外にすらならず「空の絵」になり得る。ここで確実に弾く＝呼び出し側(pbf-io)が再焼きで自己修復。
@@ -95,14 +118,13 @@ export function unPackGintBuffer(GintBUF) {
 		const polyStream     = psLen ? new Int32Array(buf, ptr, psLen) : null; ptr += psLen * 4;
 		const lineStream     = lsLen ? new Int32Array(buf, ptr, lsLen) : null; ptr += lsLen * 4;
 		const neighborStream = nbLen ? new Int32Array(buf, ptr, nbLen) : null; ptr += nbLen * 4;
-		const polyBboxByFid = buildFeatureBboxes(polyStream, arcMeta);
-		const lineBboxByFid = buildFeatureBboxes(lineStream, arcMeta);
-		const polyCompBbox  = buildCompBboxes(polyStream, arcMeta);
 		return attachLazyStreams({ polygonCount, polylineCount, pointCount, nodeCount, arcCount, bbox,
 			arcBuffer, arcMeta, polyStream, lineStream, neighborStream,
-			pointBuffer, point, polyBboxByFid, lineBboxByFid, polyCompBbox });
+			pointBuffer, point });
 	} catch (e) { console.error("Failed to unpack Gint buffer:", e); return null; }
 }
+// 共有バッファ（SharedArrayBuffer）に載っている view か＝書き換える前に写す判断・transfer リストから外す判断に使う
+export const isSharedView = v => typeof SharedArrayBuffer !== "undefined" && !!v && (v instanceof SharedArrayBuffer || (ArrayBuffer.isView(v) && v.buffer instanceof SharedArrayBuffer));
 
 export function repackGintBuffer(d) {
 	const mlen = 8, SCALE = gint.SCALE_E;
