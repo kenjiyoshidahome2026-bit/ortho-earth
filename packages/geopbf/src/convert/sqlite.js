@@ -75,19 +75,21 @@ class Db {
 	get(name, rowid) {
 		const t = this.table(name), { u8, dv } = this, vi = { v: 0, p: 0 };
 		let page = t.rootpage;
+		const seen = new Set();
 		for (;;) {
 			const base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
+			this._visit(seen, page);
 			const type = u8[hdr], cells = dv.getUint16(hdr + 3);
 			if (type === 0x05) {
 				let next = dv.getUint32(hdr + 8);   // 右端の子（全鍵より大きい時）
 				let lo = 0, hi = cells;             // 内部セルは鍵昇順＝二分探索で「key >= rowid」の最初のセル
-				while (lo < hi) { const mid = (lo + hi) >> 1, c = base + dv.getUint16(hdr + 12 + mid * 2); varint(u8, c + 4, vi); if (vi.v < rowid) lo = mid + 1; else hi = mid; }
-				if (lo < cells) next = dv.getUint32(base + dv.getUint16(hdr + 12 + lo * 2));
+				while (lo < hi) { const mid = (lo + hi) >> 1, c = this._cell(base, hdr, mid, hdr + 12); varint(u8, c + 4, vi); if (vi.v < rowid) lo = mid + 1; else hi = mid; }
+				if (lo < cells) next = dv.getUint32(this._cell(base, hdr, lo, hdr + 12));
 				page = next; continue;
 			}
 			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
-				let p = base + dv.getUint16(hdr + 8 + i * 2);
+				let p = this._cell(base, hdr, i, hdr + 8);
 				varint(u8, p, vi); const P = vi.v; p = vi.p;
 				varint(u8, p, vi); const id = vi.v; p = vi.p;
 				if (id === rowid) {
@@ -111,37 +113,50 @@ class Db {
 	// ── 内部 ─────────────────────────────────────────────────────────────
 	_off(page) {
 		const o = (page - 1) * this.pageSize;
-		if (page < 1 || o + this.pageSize > this.u8.length) throw new Error(`sqlite: page ${page} is outside the file (corrupt or truncated)`);
+		if (!(page >= 1) || o + this.pageSize > this.u8.length) throw new Error(`sqlite: page ${page} is outside the file (corrupt or truncated)`);
 		return o;
+	}
+	// 細工されたファイルへの備え（2026-10-11・安全既定）: B-tree を歩く 3 経路（_pages/_rows/get）は「同じページを二度踏まない」
+	// （自己参照・循環する子ポインタで無限ループしない）、「セルポインタはそのページの中」（外のバイトを record と読まない）。
+	_visit(seen, page) {
+		if (seen.has(page)) throw new Error(`sqlite: page ${page} is referenced twice in a B-tree (cycle; corrupt file)`);
+		seen.add(page);
+	}
+	_cell(base, hdr, i, ptrs) {
+		const p = base + this.dv.getUint16(ptrs + i * 2);
+		if (p < hdr || p >= base + this.pageSize) throw new Error(`sqlite: cell pointer ${i} points outside its page (corrupt file)`);
+		return p;
 	}
 	/** 表 B-tree を rowid 順に歩き、ページ種別とセル数を返す（count 用・葉は復号しない）。 */
 	*_pages(root) {
-		const stack = [root];
+		const stack = [root], seen = new Set();
 		while (stack.length) {
 			const page = stack.pop(), base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
+			this._visit(seen, page);
 			const type = this.u8[hdr], cells = this.dv.getUint16(hdr + 3);
 			yield { type, cells };
 			if (type === 0x05) {
 				stack.push(this.dv.getUint32(hdr + 8));   // 右端の子（最後に）
-				for (let i = cells - 1; i >= 0; i--) stack.push(this.dv.getUint32(base + this.dv.getUint16(hdr + 12 + i * 2)));
+				for (let i = cells - 1; i >= 0; i--) stack.push(this.dv.getUint32(this._cell(base, hdr, i, hdr + 12)));
 			}
 		}
 	}
 	/** 葉セルを { rowid, values[] } で順に返す（limit＝先頭何列まで復号するか・省略で全列）。 */
 	*_rows(root, t, limit) {
 		const { u8, dv } = this, vi = { v: 0, p: 0 };
-		const stack = [root];
+		const stack = [root], seen = new Set();
 		while (stack.length) {
 			const page = stack.pop(), base = this._off(page), hdr = base + (page === 1 ? 100 : 0);
+			this._visit(seen, page);
 			const type = u8[hdr], cells = dv.getUint16(hdr + 3);
 			if (type === 0x05) {
 				stack.push(dv.getUint32(hdr + 8));
-				for (let i = cells - 1; i >= 0; i--) stack.push(dv.getUint32(base + dv.getUint16(hdr + 12 + i * 2)));
+				for (let i = cells - 1; i >= 0; i--) stack.push(dv.getUint32(this._cell(base, hdr, i, hdr + 12)));
 				continue;
 			}
 			if (type !== 0x0d) throw new Error(`sqlite: index page (0x${type.toString(16)}) found in a table B-tree (page ${page})`);
 			for (let i = 0; i < cells; i++) {
-				let p = base + dv.getUint16(hdr + 8 + i * 2);
+				let p = this._cell(base, hdr, i, hdr + 8);
 				varint(u8, p, vi); const P = vi.v; p = vi.p;
 				varint(u8, p, vi); const rowid = vi.v; p = vi.p;
 				yield { rowid, values: this._record(this._payload(p, P), limit) };
@@ -157,8 +172,11 @@ class Db {
 		const out = new Uint8Array(P);
 		out.set(this.u8.subarray(p, p + local), 0);
 		let done = local, next = this.dv.getUint32(p + local);
+		const seen = new Set();
 		while (done < P) {
 			if (!next) throw new Error("sqlite: overflow chain is broken");
+			if (seen.has(next)) throw new Error("sqlite: overflow chain loops (corrupt file)");
+			seen.add(next);
 			const o = this._off(next);
 			const n = Math.min(U - 4, P - done);
 			out.set(this.u8.subarray(o + 4, o + 4 + n), done);
