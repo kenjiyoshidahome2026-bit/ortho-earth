@@ -4,7 +4,7 @@
 // 入力: Blob/File（stream で逐次・全文を 1 本の文字列に持たない）・Uint8Array/ArrayBuffer・string。
 // 大きい入力（既定 500 MB 以上）は 2 パス＝keys を先に拾い、2 回目は行→setFeature を逐次（pbf-base setBodyAsync）＝全地物を同時に持たない。
 import { GeoPBF } from "../pbf-base.js";
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+import { now } from "../modules/now.js";
 const GEOM = new Set(["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"]);
 const clean = s => s.replace(/[\u001e\r]/g, "").trim();   // RS（Text Sequence の区切り）と CR は落とす
 function* splitLines(text) { for (const p of text.split("\n")) { const t = clean(p); if (t) yield t; } }

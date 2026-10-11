@@ -545,7 +545,7 @@ const { pbf, stats } = await fromFileGDB(source, { layer: "筆界" });
 | Datum | Tokyo Datum and JGD2000 are shifted onto JGD2011 — see below |
 | Rows | deleted rows skipped; sparse 1024-row blocks handled; only the catalog and the chosen layer's two files are read |
 
-`geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
+`geopbf/proj` reads the GEOGCS angular unit and prime meridian too (grads, Paris), and every projection it inverts also comes with `fromLonLat`, the forward transform the COG reader uses to warp. `geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
 projections that cover Japanese administrative data, and nothing more. The same classifier reads a GeoPackage's
 `gpkg_spatial_ref_sys.definition`, so a `.gpkg` in EPSG:6677 or EPSG:4301 comes back on the globe too.
 
@@ -642,7 +642,7 @@ npx geopbf cog png  https://…/TCI.tif out.png   # quick-look render
 | Layout | tiled and stripped TIFF, BigTIFF |
 | Compression | none · deflate · LZW · JPEG · WebP *(JPEG/WebP decode in browser only)* · predictor 2 |
 | Samples | uint8 RGB(A) · RGB+NIR *(4th band drawn as alpha only when `ExtraSamples` says so)* · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* · 2-band gray+extra *(first band drawn by default; e.g. Tellus PALSAR-2 HH/HV)* |
-| CRS | EPSG:4326 · EPSG:3857 · UTM 326xx–327xx *(Krüger n-series, nm-accurate)* |
+| CRS | lon/lat (EPSG:4326, 4258, 4269, 4612, 6668) · EPSG:3857 · UTM 326xx–327xx, JGD 6688–6691 / 3097–3101 · 平面直角座標系 I–XIX (6669–6687, 2443–2461) *(one Krüger n-series shared with `geopbf/proj`, nm-accurate)* |
 
 Single- and two-band rasters take rendering options (the same object for browser and Node):
 

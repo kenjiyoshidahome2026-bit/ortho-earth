@@ -13,7 +13,7 @@ import { mercToLonLat } from "../modules/mercator.js";
 import { classifyCrs, valueConverter } from "./gpkg.js";
 import { resolveDatum, datumStats } from "./datum.js";
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+import { now } from "../modules/now.js";
 const TYPES = { 1: "Point", 2: "LineString", 3: "Polygon", 4: "MultiPoint", 5: "MultiLineString", 6: "MultiPolygon", 7: "GeometryCollection" };
 
 /** 幾何 BLOB → GeoJSON geometry（2D・Z/M は読み飛ばす）。ctx.vertices に頂点数を積む。null（NULL 幾何）はそのまま null */

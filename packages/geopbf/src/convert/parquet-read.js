@@ -13,14 +13,15 @@
 // 戻り: { numRows, keyValue, created, columns: [{ path: string[], name, type, logical, values: Array(numRows) | null }] }
 const DEC = new TextDecoder();   // 呼び出しごとの new TextDecoder を撤去（2026-09-15）
 import { inflate } from "../modules/inflate.js";
-import { openSource } from "../cog/source.js";   // 部分読み（Range）＝COG と同じソース抽象（url | Blob/File | {read,size}）
+import { openSource } from "../cog/source.js";
+import { readUvarint, readSvarint } from "../modules/varint.js";   // 部分読み（Range）＝COG と同じソース抽象（url | Blob/File | {read,size}）
 
 // ── Thrift compact ──
 class TReader {
 	constructor(u8, pos = 0) { this.u8 = u8; this.pos = pos; this.last = 0; this.stack = []; }
 	byte() { return this.u8[this.pos++]; }
-	varint() { let v = 0, m = 1; for (;;) { const b = this.u8[this.pos++]; v += (b & 127) * m; if (b < 128) return v; m *= 128; } }
-	zig() { const n = this.varint(); return n % 2 ? -(n + 1) / 2 : n / 2; }
+	varint() { return readUvarint(this.u8, this); }
+	zig() { return readSvarint(this.u8, this); }
 	i64() { return this.zig(); }
 	double() { const v = new DataView(this.u8.buffer, this.u8.byteOffset + this.pos).getFloat64(0, true); this.pos += 8; return v; }
 	binary() { const n = this.varint(), b = this.u8.subarray(this.pos, this.pos + n); this.pos += n; return b; }
@@ -130,7 +131,7 @@ function decodeHybrid(u8, pos, end, w, n) {
 // 頭: block size・block 当たりの miniblock 数・値の総数・先頭の値（zigzag）。block ごとに min delta（zigzag）と miniblock の bit 幅、
 // 続けて miniblock の bit-packed 列（値が尽きた miniblock は書かれない）。INT32 は 2^32 で回り（spec の overflow）、INT64 は
 // 2^53 を越えると Number の精度で丸まる（PLAIN の INT64 と同じ）。戻り { out, pos }（pos＝消費した次の位置＝DELTA_*BYTE_ARRAY が続きを読む）
-function uleb(u8, pos) { let v = 0, m = 1, b; do { if (pos >= u8.length) throw new Error("parquet: truncated delta header"); b = u8[pos++]; v += (b & 127) * m; m *= 128; } while (b >= 128); return [v, pos]; }
+function uleb(u8, pos) { const c = { pos }; const v = readUvarint(u8, c); return [v, c.pos]; }
 function zigzag64(u8, pos) {   // zigzag varint（64 bit）→ BigInt
 	let v = 0n, sh = 0n, b;
 	do { if (pos >= u8.length) throw new Error("parquet: truncated delta header"); b = u8[pos++]; v |= BigInt(b & 127) << sh; sh += 7n; } while (b >= 128);

@@ -90,5 +90,5 @@ export const residuals = (fn, src, dst) => src.map((p, i) => { const q = fn(p); 
 
 // 経緯度 ⇄ メルカトルの世界座標（0..1・y 下向き＝画像タイルの z/x/y と同じ）
 const D2R = Math.PI / 180;
-export const lonLatToWorld = ([lon, lat]) => { const s = Math.sin(Math.max(-85.0511, Math.min(85.0511, lat)) * D2R); return [(lon + 180) / 360, 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI)]; };
-export const worldToLonLat = ([x, y]) => [x * 360 - 180, Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) / D2R];
+export { lonLatToWorld, worldToLonLat } from "../modules/mercator.js";   // 2026-10-12 共通化
+import { lonLatToWorld, worldToLonLat } from "../modules/mercator.js";

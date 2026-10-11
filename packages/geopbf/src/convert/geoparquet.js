@@ -14,6 +14,7 @@ import { hasZstd } from "./gzip.js";
 import { openParquet } from "./parquet-read.js";
 import { parseWkb } from "./wkb.js";
 
+import { now } from "../modules/now.js";
 const { TAGS } = GeoPBF;
 const WKB = { Point: 1, LineString: 2, Polygon: 3, MultiPoint: 4, MultiLineString: 5, MultiPolygon: 6, GeometryCollection: 7 };
 const GTYPES = ["Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon", "GeometryCollection"];
@@ -223,7 +224,6 @@ export async function toGeoParquet(pbf, opts = {}) {
 	return { buffer, stats, geo };
 }
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 
 // ───────────────────────────── 逆変換 GeoParquet → GeoPBF ─────────────────────────────
 // WKB（geo メタの primary_column・encoding "WKB"・CRS は CRS84/EPSG:4326 か未指定）を読み、列を属性にして GeoPBF を組む。

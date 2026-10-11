@@ -4,11 +4,12 @@
 //       → getTile(s)（sparse→null・coalesce 発注・LRU・注入キャッシュ）→ render(目標グリッドへ warp）。
 import { openSource } from "./source.js";
 import { parseTiff } from "./tiff.js";
-import { projFor } from "./proj.js";
+import { projFor, SUPPORTED_EPSG } from "./proj.js";
 import { decodeTile, toRGBA8, makeLut } from "./decode.js";
 import { warpRGBA, geoAtLevel, geoPx, xyzTarget, lonlatTarget } from "./warp.js";
 import { makeLRU, noopCache } from "./cache.js";
 
+import { now } from "../modules/now.js";
 export { xyzTarget, lonlatTarget };
 
 export async function openCog(src, opts = {}) {
@@ -30,7 +31,7 @@ export async function openCog(src, opts = {}) {
 
 	if (t.epsg === null) throw new Error("cog: no EPSG in GeoKeyDirectory");
 	const proj = projFor(t.epsg);
-	if (!proj) throw new Error(`cog: unsupported CRS EPSG:${t.epsg} (supported: 4326 / 3857 / UTM 326xx-327xx)`);
+	if (!proj) throw new Error(`cog: unsupported CRS EPSG:${t.epsg} (supported: ${SUPPORTED_EPSG})`);
 
 	const full = t.ifds[0];
 	const gsd = Math.sqrt(Math.abs(t.geo.ax * t.geo.by - t.geo.ay * t.geo.bx));   // 画素サイズ（CRS単位・回転でも面積ベースで正）
@@ -207,4 +208,3 @@ export async function openCog(src, opts = {}) {
 
 const allTiles = (lv) => { const a = []; for (let ty = 0; ty < lv.tilesY; ty++) for (let tx = 0; tx < lv.tilesX; tx++) a.push([tx, ty]); return a; };
 const dtypeOf = (ifd) => ifd.bits[0] === 8 ? (ifd.sampleFormat === 2 ? "i8" : "u8") : ifd.bits[0] === 16 ? (ifd.sampleFormat === 2 ? "i16" : "u16") : "f32";
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());

@@ -13,7 +13,7 @@ import { GeoPBF } from "../pbf-base.js";
 import { attrFilter } from "./attrs.js";
 import { decodeZIP } from "../modules/decodeZIP.js";
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+import { now } from "../modules/now.js";
 const norm = s => String(s ?? "").replace(/^﻿/, "").trim().toLowerCase();
 const LON = ["lon", "lng", "long", "longitude", "経度", "x", "x座標", "東経", "lon_dd", "x_coord"];
 const LAT = ["lat", "latitude", "緯度", "y", "y座標", "北緯", "lat_dd", "y_coord"];
