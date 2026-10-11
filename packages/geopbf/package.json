@@ -48,21 +48,56 @@
 	"files": [
 		"bin",
 		"src",
-		"wasm/pkg"
+		"wasm/pkg",
+		"types"
 	],
 	"bin": {
 		"geopbf": "bin/geopbf.mjs"
 	},
 	"main": "src/index.js",
+	"types": "./types/index.d.ts",
+	"sideEffects": [
+		"./src/index.js",
+		"./src/pbf.js",
+		"./src/pbf-base.js",
+		"./src/worker.js",
+		"./src/decoder/*.js",
+		"./src/encoder/*.js",
+		"./src/cog/worker.js",
+		"./src/convert/tile-worker.js",
+		"./wasm/pkg/*.js"
+	],
 	"exports": {
-		".": "./src/index.js",
-		"./worker": "./src/worker.js",
+		".": {
+			"types": "./types/index.d.ts",
+			"default": "./src/index.js"
+		},
+		"./core": {
+			"types": "./types/core.d.ts",
+			"default": "./src/core.js"
+		},
+		"./worker": {
+			"types": "./types/worker.d.ts",
+			"default": "./src/worker.js"
+		},
 		"./no-builtin-workers": "./src/modules/builtinWorkers.none.js",
-		"./identify": "./src/extension/identify.js",
+		"./identify": {
+			"types": "./types/identify.d.ts",
+			"default": "./src/extension/identify.js"
+		},
 		"./gint": "./src/extension/gint.js",
-		"./topology": "./src/extension/topology.js",
-		"./pbf-base": "./src/pbf-base.js",
-		"./pbf": "./src/modules/pbf.js",
+		"./topology": {
+			"types": "./types/topology.d.ts",
+			"default": "./src/extension/topology.js"
+		},
+		"./pbf-base": {
+			"types": "./types/pbf-base.d.ts",
+			"default": "./src/pbf-base.js"
+		},
+		"./pbf": {
+			"types": "./types/pbf.d.ts",
+			"default": "./src/modules/pbf.js"
+		},
 		"./czml": "./src/modules/czml.js",
 		"./cog": "./src/cog/index.js",
 		"./cog/core": "./src/cog/core.js",
@@ -91,11 +126,26 @@
 		"./sanitize": "./src/sanitize.js",
 		"./edit": "./src/edit/index.js",
 		"./edit/*": "./src/edit/*.js",
-		"./maplibre": "./src/maplibre.js",
-		"./leaflet": "./src/leaflet.js",
-		"./openlayers": "./src/openlayers.js",
-		"./loaders": "./src/loaders.js",
-		"./load": "./src/modules/geojson-load.js",
+		"./maplibre": {
+			"types": "./types/maplibre.d.ts",
+			"default": "./src/maplibre.js"
+		},
+		"./leaflet": {
+			"types": "./types/leaflet.d.ts",
+			"default": "./src/leaflet.js"
+		},
+		"./openlayers": {
+			"types": "./types/openlayers.d.ts",
+			"default": "./src/openlayers.js"
+		},
+		"./loaders": {
+			"types": "./types/loaders.d.ts",
+			"default": "./src/loaders.js"
+		},
+		"./load": {
+			"types": "./types/load.d.ts",
+			"default": "./src/modules/geojson-load.js"
+		},
 		"./gzip": "./src/modules/gzip.js",
 		"./encodeZIP": "./src/modules/encodeZIP.js",
 		"./encodeXLSX": "./src/modules/encodeXLSX.js",
@@ -104,7 +154,7 @@
 	},
 	"scripts": {
 		"prepack": "rm -f wasm/pkg/.gitignore",
-		"test": "node tests/t-zip.mjs && node tests/t-safety.mjs && node tests/t-node-entry.mjs && node tests/t-zerocopy.mjs && node tests/t-pbf.mjs && node tests/t-maplibre.mjs && node tests/t-tileprotocol.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && node tests/t-moj.mjs && node tests/t-antimeridian.mjs && node tests/t-anchors.mjs && node tests/t-identify-accept.mjs && node tests/t-hitgrid.mjs && node tests/t-validate.mjs && node tests/t-null-island.mjs && node tests/t-skipprops.mjs && node tests/t-purifier.mjs && node tests/t-ndjson.mjs && node tests/t-spatialite.mjs && node tests/t-dxf.mjs && node tests/t-shape.mjs && node tests/t-clean.mjs && node tests/t-color.mjs && node tests/t-dissolve.mjs && node tests/t-dbf.mjs && node tests/t-sjis.mjs && node tests/t-roundtrip.mjs && node tests/t-mercator.mjs && node tests/t-featureservice.mjs && node tests/t-georef.mjs && node tests/t-conic.mjs && npm run test:convert && npm run test:edit",
+		"test": "node tests/t-zip.mjs && node tests/t-safety.mjs && node tests/t-node-entry.mjs && node tests/t-dts.mjs && node tests/t-zerocopy.mjs && node tests/t-pbf.mjs && node tests/t-maplibre.mjs && node tests/t-tileprotocol.mjs && node tests/t-leaflet.mjs && node tests/t-openlayers.mjs && node tests/t-loaders.mjs && node tests/t-cli.mjs && node tests/t-cog.mjs && node tests/t-cog-proj.mjs && node tests/t-cog-cli.mjs && node tests/t-moj.mjs && node tests/t-antimeridian.mjs && node tests/t-anchors.mjs && node tests/t-identify-accept.mjs && node tests/t-hitgrid.mjs && node tests/t-validate.mjs && node tests/t-null-island.mjs && node tests/t-skipprops.mjs && node tests/t-purifier.mjs && node tests/t-ndjson.mjs && node tests/t-spatialite.mjs && node tests/t-dxf.mjs && node tests/t-shape.mjs && node tests/t-clean.mjs && node tests/t-color.mjs && node tests/t-dissolve.mjs && node tests/t-dbf.mjs && node tests/t-sjis.mjs && node tests/t-roundtrip.mjs && node tests/t-mercator.mjs && node tests/t-featureservice.mjs && node tests/t-georef.mjs && node tests/t-conic.mjs && npm run test:convert && npm run test:edit",
 		"test:convert": "node tests/t-encoders.mjs && node tests/t-convert.mjs && node tests/t-pmtiles.mjs && node tests/t-parquet.mjs && node tests/t-parquet-range.mjs && node tests/t-gpkg.mjs && node tests/t-fgb.mjs && node tests/t-table.mjs && node tests/t-gdb.mjs && node tests/t-datum.mjs",
 		"verify:gpu": "node scripts/verify-convert-gpu.mjs",
 		"test:edit": "node tests/edit/t-model.mjs && node tests/edit/t-imagequad.mjs && node tests/edit/t-spline.mjs && node tests/edit/t-sphere.mjs && node tests/edit/t-snap.mjs && node tests/edit/t-roundtrip.mjs && node tests/edit/t-history.mjs && node tests/edit/t-combine.mjs && node tests/edit/t-large.mjs && node tests/edit/t-large-edit.mjs",
