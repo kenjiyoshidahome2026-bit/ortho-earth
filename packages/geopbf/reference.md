@@ -24,7 +24,7 @@ Creates a new GeoPBF instance.
 * **`options.name`** (String): Dataset name.
 * **`options.precision`** (Number): Coordinate precision ($10^n$). Default is `6` ($10^{-6}$ degrees).
 * **`options.noprop`** (Boolean): If true, skips property encoding to save space.
-* **`options.noeval`** (Boolean): If true, FUNC-typed property values are returned as their source string instead of being revived with `new Function` (for CSP environments without `unsafe-eval`). Default `false`.
+* **`options.noeval`** (Boolean): FUNC-typed property values (wire type 7, written when a property is a JavaScript function) are returned as their source string. **Default `true`** since 1.19: opening an unknown file never runs code from it, and decoding works under a CSP without `unsafe-eval`. Pass `{ noeval: false }` to opt back into the old behaviour (`new Function(\`return ${src}\`)`, i.e. a thunk that returns the function).
 
 ---
 
