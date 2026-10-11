@@ -93,7 +93,8 @@ async function open(url) {
 const BOOTED = `!!document.querySelector('#map canvas') && !document.querySelector('#boot:not(.gone)')`;
 const PAGES = [
 	{ name: "globe", url: "/globe/", ready: BOOTED, ms: 45000 },
-	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && !!document.querySelector('iframe[src*="/equal/"]')`, ms: 60000 },
+	// Equal Earth は同じ頁の div（#equal-frame）に組む（PR #218・2026-10-04）＝重なり切る（opacity 1＝最初の 1 枚が描けた）まで待つ。load が無い頁は旧来の iframe
+	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && (() => { const f = document.querySelector('#equal-frame'); return !!f && (f.tagName === 'IFRAME' ? f.src.includes('/equal/') : !!f.querySelector('canvas') && f.style.opacity === '1'); })()`, ms: 60000 },
 	{ name: "quakes", url: "/globe/quakes", ready: `${BOOTED} && window.__quakes && window.__quakes.count > 1000`, ms: 120000 },
 	{ name: "sats", url: "/globe/sats", ready: `${BOOTED} && window.__sats && window.__sats.count > 1000`, ms: 60000 },
 	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 120000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える
