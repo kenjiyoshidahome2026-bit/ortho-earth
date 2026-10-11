@@ -1,7 +1,7 @@
 // 汎用の点オーバーレイ（同一フレームのオーバーレイ＝map.overlay・レンダーワーカー内で地球と同じ rAF・同じ cam に描く）。
 // 用途＝GeoParquet の点だけのファイル（gadgets/parquet-view.js）：列（経緯度）→ 単位球の xyz → そのまま GPU。gint も GeoPBF も経由しない。
 // 契約（app.js map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
-//   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4), origin?: [x,y,z] }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け）
+//   message { type:"layer", q, n, pos: Float32Array(n*3), rgba?: Uint8Array(n*4), size?: Float32Array(n), origin?: [x,y,z] }（同じ q は置き換え・rgba＝点ごとの色＝属性で色分け・size＝点ごとの半径 CSS px＝map.addData の getRadius・PR-4）
 //           origin＝pos の原点（原点相対＝RTE・3D Tiles の点群 #41）＝絶対座標を float32 に通さない（寄ると 0.4m 級のガタつき）。
 //           mvp×平行移動(origin) は倍精度で掛けてから float32 へ＝原点付近の精度が桁で戻る
 //           ／{ type:"remove", q }／{ type:"vis", q, on }（表示だけ切替）／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
@@ -14,6 +14,10 @@ const VS = `#version 300 es
 precision highp float;
 layout(location = 0) in vec3 a_pos;
 layout(location = 1) in vec4 a_rgba;   // 点ごとの色（無い層は u_color）
+layout(location = 2) in float a_size;  // 点ごとの半径（CSS px・無い層は u_size）
+uniform float u_perSize;   // 1＝a_size を使う
+uniform float u_dpr;
+uniform float u_maxPt;
 uniform mat4 u_mvp;         // 層ごと＝mvp×平行移動(origin)
 uniform vec3 u_origin;      // 層の原点（地平線の判定だけに使う＝粗くてよい）
 uniform vec3 u_eye;
@@ -21,8 +25,10 @@ uniform float u_size;      // 半径（device px）
 uniform vec4 u_color;
 uniform float u_perPoint;  // 1＝a_rgba を使う
 out vec4 v_col;
+out float v_size;
 void main() {
 	v_col = u_perPoint > 0.5 ? a_rgba : u_color;
+	v_size = u_perSize > 0.5 ? min(u_maxPt * 0.5 - 1.0, a_size * u_dpr) : u_size;
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
 	// 地平線の向こう（球の裏側）は描かない：視線 eye→P が球の中を通るなら裏
 	vec3 d = (a_pos + u_origin) - u_eye;
@@ -31,17 +37,17 @@ void main() {
 	if (disc > 0.0) { float s = sqrt(disc); float t0 = (-b - s) / a; if (t0 > 1e-4 && t0 < 1.0 - 1e-4) { gl_Position = off; gl_PointSize = 0.0; return; } }
 	vec4 cpos = u_mvp * vec4(a_pos, 1.0);
 	if (cpos.w <= 0.0) { gl_Position = off; gl_PointSize = 0.0; return; }
-	gl_PointSize = u_size * 2.0 + 2.0;
+	gl_PointSize = v_size * 2.0 + 2.0;
 	gl_Position = cpos;
 }`;
 const FS = `#version 300 es
 precision highp float;
 in vec4 v_col;   // premultiplied でない RGBA
-uniform float u_size;
+in float v_size;
 out vec4 o;
 void main() {
-	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (u_size + 1.0);
-	float cov = clamp(u_size + 0.5 - length(p), 0.0, 1.0);
+	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
+	float cov = clamp(v_size + 0.5 - length(p), 0.0, 1.0);
 	if (cov <= 0.0) discard;
 	float a = v_col.a * cov;
 	o = vec4(v_col.rgb * a, a);
@@ -51,11 +57,11 @@ const VS_PICK = VS.replace("out vec4 v_col;", "out vec4 v_col; flat out highp ui
 const FS_PICK = `#version 300 es
 precision highp float;
 flat in highp uint v_id;
-uniform float u_size;
+in float v_size;
 out vec4 o;
 void main() {
-	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (u_size + 1.0);
-	if (length(p) > u_size + 0.5) discard;
+	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (v_size + 1.0);
+	if (length(p) > v_size + 0.5) discard;
 	o = vec4(float(v_id & 255u), float((v_id >> 8) & 255u), float((v_id >> 16) & 255u), float((v_id >> 24) & 255u)) / 255.0;
 }`;
 // 読んだ窓（RGBA8・side×side・GL の並び＝下の行が先）から中心に一番近い 0 でない番号を選ぶ（純関数・node の検定 tests/pick.mjs が読む）
@@ -73,7 +79,7 @@ export function nearestId(data, side, flipY = true) {
 }
 let gl = null, prog = null, uni = {}, maxPt = 1;
 let pickProg = null, pickUni = {}, pickFbo = null, pickTex = null, pickW = 0, pickH = 0;   // 当たり判定の別パス（頼まれた時だけ作る）
-const layers = new Map();   // q → { n, buf, cbuf, vao, perPoint, pos, origin, base }
+const layers = new Map();   // q → { n, buf, cbuf, sbuf, vao, perPoint, perSize, pos, origin, base }
 // 層ごとの番号の底（1 から・層の点数ぶん連続）＝層が増減した時に振り直す
 function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 let style = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
@@ -95,7 +101,7 @@ export function init(canvas, _opts, h) {
 	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[points] pick pass unavailable", e?.message); }
 	maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
 }
-const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); if (L.cbuf) gl.deleteBuffer(L.cbuf); gl.deleteVertexArray(L.vao); };
+const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); if (L.cbuf) gl.deleteBuffer(L.cbuf); if (L.sbuf) gl.deleteBuffer(L.sbuf); gl.deleteVertexArray(L.vao); };
 export function message(d) {
 	if (d.type === "probe") { probes.push(d.id); host?.requestDraw?.(); return; }
 	if (!gl) return;
@@ -106,8 +112,11 @@ export function message(d) {
 		let cbuf = null;
 		if (d.rgba) { cbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cbuf); gl.bufferData(gl.ARRAY_BUFFER, d.rgba, gl.STATIC_DRAW); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 0, 0); }
 		else { gl.disableVertexAttribArray(1); gl.vertexAttrib4f(1, 0, 0, 0, 1); }
+		let sbuf = null;
+		if (d.size) { sbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, sbuf); gl.bufferData(gl.ARRAY_BUFFER, d.size, gl.STATIC_DRAW); gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0); }
+		else gl.disableVertexAttribArray(2);
 		gl.bindVertexArray(null);
-		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba, origin: d.origin || null, on: true, pos: d.pos, base: 0 });
+		layers.set(d.q, { n: d.n, buf, cbuf, sbuf, vao, perPoint: !!d.rgba, perSize: !!d.size, origin: d.origin || null, on: true, pos: d.pos, base: 0 });
 		rebase();
 	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
 	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
@@ -141,7 +150,7 @@ function drawLayers(P, U, s, dpr, idMode) {
 	gl.useProgram(P);
 	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M);
 	gl.uniform3fv(U.u_eye, new Float32Array(s.eye));
-	gl.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr));
+	gl.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr)); gl.uniform1f(U.u_dpr, dpr); gl.uniform1f(U.u_maxPt, maxPt);
 	if (!idMode) gl.uniform4fv(U.u_color, new Float32Array(style.color));
 	for (const L of layers.values()) {
 		if (!L.on) continue;
@@ -152,7 +161,7 @@ function drawLayers(P, U, s, dpr, idMode) {
 			gl.uniformMatrix4fv(U.u_mvp, false, mvpL); gl.uniform3f(U.u_origin, o[0], o[1], o[2]);
 		} else { gl.uniformMatrix4fv(U.u_mvp, false, mvp0); gl.uniform3f(U.u_origin, 0, 0, 0); }
 		if (idMode) gl.uniform1ui(U.u_base, L.base);
-		gl.uniform1f(U.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
+		gl.uniform1f(U.u_perPoint, L.perPoint ? 1 : 0); gl.uniform1f(U.u_perSize, L.perSize ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
 	}
 	gl.bindVertexArray(null);
 }
