@@ -1,6 +1,7 @@
 import { GeoPBF } from "../pbf.js";   // pbf-base ではなく pbf.js＝bbox / getBbox の prototype が要る（pbf-base 直 import だと shapeFile() が永久 hang・2026-09-14 根治）
 import { encodeZIP } from "../modules/encodeZIP.js";
 import { encodeSJIS } from "../modules/sjis.js";
+import { isImageData } from "../modules/utility.js";
 const getEncoder = async (encoding) => {
 	if (encoding === "sjis") return encodeSJIS;   // 依存ゼロの自前表（旧＝実行時に esm.sh から encoding-japanese・B8）
 	const utf8Encoder = new TextEncoder();
@@ -94,7 +95,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 	const parray = farray.map(t=>Array.isArray(t)?t[0]:t), recordSize = farray.length;
 	const props = parray.map(i=>pbf.getProperties(i));
 	 const stringify = q => {
-		return "{"+Object.entries(q).map(([k,v])=>`"${k}":${JSON.stringify(v instanceof ImageData?{}:v)}`).join(",")+"}";
+		return "{"+Object.entries(q).map(([k,v])=>`"${k}":${JSON.stringify(isImageData(v)?{}:v)}`).join(",")+"}";
 	}
 	const strlen = s => encoder(typeof s == "object"?stringify(s):String(s)).length;
 	const schema = {};
@@ -114,7 +115,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 			return [num[0].length, (num[1] || '').length];
 		};
 		for (let name in q) {  const value = q[name];
-			if (value instanceof ImageData||value instanceof Blob) {
+			if (isImageData(value)||value instanceof Blob) {
 				update({name, type: 'C', length:2}, "{}");
 			} else if (value instanceof Date) {
 				update({name, type: 'D', length:8}, value);
@@ -169,7 +170,7 @@ function writeDbf(pbf, name, farray, encoding, encoder) {
 				DBF.writeBuffer(encoder(numStr)); break;
 			case 'D': DBF.writeBuffer(encoder(yyyymmdd(value)), length); break;
 			case 'C': 
-				if (value instanceof ImageData||value instanceof Blob) {
+				if (isImageData(value)||value instanceof Blob) {
 					badname[name] = true;
 					value = {};
 				}

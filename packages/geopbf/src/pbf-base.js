@@ -4,6 +4,11 @@ import { isString, isSimpleObject, isFloat, isBbox } from "./modules/utility.js"
 import { antimeridianFeature } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
 import { runInWorker } from "./modules/workerPool.js";
+import { hasWorkerFactory } from "./modules/workerFactory.js";
+
+// Node（main / worker_threads）には ImageData が無い＝参照するだけで ReferenceError。instanceof の前に存在を見る（2026-10-11・俯瞰 §2-B 4）。
+// 旧＝CLI と試験 20 本が globalThis.ImageData のスタブで隠していた。読む側（image()）はファイルに IMAGE 型が入っている時だけ参照する
+const isImageData = v => typeof ImageData !== "undefined" && v instanceof ImageData;
 
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16, MIN_ZOOM: 17, MAX_ZOOM: 18 };
@@ -32,6 +37,10 @@ class GeoPBF {
 		// 未知のファイルの属性を呼ぶだけで任意コードが走る経路を閉じ、CSP（unsafe-eval 無し）でも復号が落ちない。
 		// 旧挙動（関数へ復元）は { noeval: false } の明示 opt-in。書く側（dataType/writeValue）は従来どおり関数のソースを FUNC で書く。
 		this.noeval = options.noeval !== false;
+		// worker:false＝このインスタンスの set(ArrayBuffer)／setGintBUF を main スレッドで解く（createGeopbf の { worker:false } が各インスタンスへ渡す）。
+		// 旧＝クラス静的な _workerFactory だけを見ていた＝一度 createGeopbf() を呼ぶと以後の全インスタンスが worker 経路に固定され、
+		// Node では `Worker is not defined` で落ちた（2026-10-11・俯瞰 §2-B 5）。undefined＝クラス既定（createGeopbf が配線していれば worker）
+		this._useWorker = options.worker === false ? false : undefined;
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
 	}
 	static setProperty(name, value) {
@@ -64,7 +73,8 @@ class GeoPBF {
 	}
 	async set(q) {
 		if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
-			if (GeoPBF._workerFactory || GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+			// ArrayBuffer は worker へ transfer される＝呼び手の q は detach（byteLength 0）。残したい時は q.slice(0) を渡す（reference.md §2）
+			if (canUseWorker(this, GeoPBF._workerFactory, GeoPBF._workerUrl)) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
 			this.pbf = new Pbf(q);
 		} else if (isSimpleObject(q)) {
 			const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
@@ -278,12 +288,12 @@ async function makeKeys(q) {
 		for (let key in item) {
 			const v = item[key]; tub[key] = true;
 			if (v instanceof Blob) item[key].id = buffs.set(await v.arrayBuffer());
-			else if (v instanceof ImageData) item[key].id = buffs.set(v.data.buffer);
+			else if (isImageData(v)) item[key].id = buffs.set(v.data.buffer);
 			else if (isSimpleObject(v)) {
 				for (let k in v) {
 					const u = v[k]; tub[`${key}.${k}`] = true;
 					if (u instanceof Blob) u.id = buffs.set(await u.arrayBuffer());
-					if (u instanceof ImageData) u.id = buffs.set(u.data.buffer);
+					if (isImageData(u)) u.id = buffs.set(u.data.buffer);
 				}
 			}
 		}
@@ -312,7 +322,7 @@ function dataType(q) {
 	else if (type === "function") return DATATYPE.FUNC;
 	else if (q instanceof Date) return DATATYPE.DATE;
 	else if (q instanceof Blob) return DATATYPE.BLOB;
-	else if (q instanceof ImageData) return DATATYPE.IMAGE;
+	else if (isImageData(q)) return DATATYPE.IMAGE;
 	else if (type === "object") return isBbox(q) ? DATATYPE.BBOX : DATATYPE.JSON;
 	return DATATYPE.UNKNOWN;
 }
@@ -462,6 +472,15 @@ function readGeometry(self, n, m) {
 }
 
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
+
+// worker 経路を使うか：インスタンスの worker:false が最優先。次にクラスに配線（createGeopbf）があるか。配線が geopbf 自身の
+// 入口（builtinWorker＝new Worker）に頼る時は、その場に Worker が居る時だけ（Node の main には無い＝main スレッドで解く）。
+// ホストの入口（setWorkerFactory）があれば Worker の有無はホストの責任
+export function canUseWorker(self, factory, url) {
+	if (self._useWorker === false) return false;
+	if (!factory && !url) return false;
+	return hasWorkerFactory() || typeof Worker !== "undefined";
+}
 
 function _setViaWorker(self, buf) {
 	// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）。

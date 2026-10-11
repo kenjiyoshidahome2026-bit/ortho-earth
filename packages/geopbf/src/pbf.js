@@ -1,4 +1,4 @@
-import { GeoPBF } from "./pbf-base.js";
+import { GeoPBF, canUseWorker } from "./pbf-base.js";
 import { centroid, lineLength, area, getBbox, bboxes, bbox } from "./extension/spatial.js";
 import { concatinate, clone, cloneHead, cloneMap, classify, getPropertyTable, getCSV } from "./extension/manipulate.js";
 import { dissolve } from "./extension/dissolve.js";
@@ -65,7 +65,7 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	} else {
 		payload = this._gintBuffer = buf.slice(0);   // 自前コピーを保持（呼び出し元の buf と縁を切る＝IDB put 等は従来通り）
 	}
-	if (GeoPBF._gintWorkerFactory || GeoPBF._gintWorkerUrl) {
+	if (canUseWorker(this, GeoPBF._gintWorkerFactory, GeoPBF._gintWorkerUrl)) {
 		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）。
 		// postMessage は AB の場合 structured clone（unpack は内部でコピーする設計＝どちらでも正しい）。
 		// Worker 越し＝遅延 accessor（非列挙）は clone に乗らない＝受け側で attachLazyStreams を掛け直す
