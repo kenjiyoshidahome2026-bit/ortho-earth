@@ -93,10 +93,10 @@
 				"why": "負債（地域）：政令指定都市 20 市の名（SEIREI）と丁目の正規化の正規表現（丁目・漢数字）。上の seirei・chome と同じ移設で消える"
 			}
 		},
-		"packages/globe/src/i18n.js": {
+		"packages/globe/src/i18n/core.js": {
 			"jp": {
 				"n": 1,
-				"why": "言語コードの別名 jp→ja"
+				"why": "言語コードの別名 jp→ja（norm は 2026-10-03 に i18n.js から core.js へ）"
 			}
 		},
 		"packages/globe/src/i18n/langs.js": {
