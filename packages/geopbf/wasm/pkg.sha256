@@ -1,0 +1,22 @@
+{
+	"note": "wasm/build.sh が書く台帳。手で編集しない（tests/t-wasm-pkg.mjs が照合）",
+	"sources": {
+		"Cargo.toml": "2cf69ebc21bd7f95f113092a09d2c88eae6f09d3701075580def295c7cc61cea",
+		"Cargo.lock": "eba989ae1ee629b1495f4536300cd26edd594fa0e15ddc7abd3fe047f8117edd",
+		"rust-toolchain.toml": "849edea87bc0255d373b60eefc699e4cd3c0cda16ca83a27a23fe03f04efef37",
+		"src/lib.rs": "997fef2f44b6dfbec7037c950fcecd54b39cb1d4615aea068c28e25939b00c5c",
+		"src/topology.rs": "afbdca9529ca3f646f1ec10724a3c7ee45ec504cbeade5a8fc255076470a63be"
+	},
+	"outputs": {
+		"pkg/gint_wasm_bg.wasm": "905c573d69bbc8140b422a0317128f9d100ea6a9fca5096e0e1bd2ea1f6d82d6",
+		"pkg/gint_wasm.js": "3dfca895c605ddbac2a3df129d421f6cf468260466acb0a1ae9f9c1f59854c5d",
+		"pkg/gint_wasm.d.ts": "aa81421bc80aca15624476c9af45b4fbeb55a0af854df293b00452be97fe33c8",
+		"pkg/package.json": "8f21cbab81e30e51292f392dc0f17e5300fd7fd063b4031459f9094e6e9575fc"
+	},
+	"producers": {
+		"rustc": "1.96.0 (ac68faa20 2026-05-25)",
+		"wasm-bindgen": "0.2.122"
+	},
+	"wasmOpt": "132",
+	"builtAt": "2026-10-11T21:04:19.137Z"
+}
