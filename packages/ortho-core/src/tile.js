@@ -19,13 +19,17 @@ export function tileLocalToLonLat(x, y, z, px, py, extent) {
 }
 
 // タイル {x,y,z} の経緯度境界（west,south,east,north）
-export function tileBounds(x, y, z) {
+export function tileBounds(x, y, z) { return tileBoundsInto(x, y, z, new Array(4)); }
+// 割り当てなし版：out に [w, s, e, n] を書いて out を返す（タイル選抜の節ごと）
+export function tileBoundsInto(x, y, z, out) {
 	const n = 1 << z;
-	const lon0 = x / n * 360 - 180, lon1 = (x + 1) / n * 360 - 180;
-	const lat0 = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * y / n))) - Math.PI / 2);
-	const lat1 = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * (y + 1) / n))) - Math.PI / 2);
-	return [lon0, lat1, lon1, lat0];
+	out[0] = x / n * 360 - 180; out[2] = (x + 1) / n * 360 - 180;
+	out[3] = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * y / n))) - Math.PI / 2);
+	out[1] = R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * (y + 1) / n))) - Math.PI / 2);
+	return out;
 }
+// タイルの番号鍵（z ≤ 22・x,y < 2^22 ＝ 2^53 未満の整数）＝Set/Map の鍵を文字列（"z/x/y"）で組まずに済ます（選抜の sticky）
+export const tileId = (z, x, y) => (z * 0x400000 + x) * 0x400000 + y;
 
 // タイル {x,y,z} が配信圏 coverage=[west,south,east,north] と全く重ならない（＝提供圏外）か。
 // coverage 未指定なら常に false（全タイル取得＝従来動作を壊さない）。圏外なら呼び出し側で fetch を省き

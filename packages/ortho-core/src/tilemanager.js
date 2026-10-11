@@ -2,8 +2,9 @@
 // buildScene で全選択タイルを style層ごとに1バッファへ結合（mixed-z, 共通原点に再ベース）。
 // ラベルは近景（高z）タイルのみ＝遠方はテキスト無し。
 import { fetchMVT, neededSourceLayers } from "./decode.js";
+import { labelKey } from "./labelkey.js";
 import { isPMTiles, fetchPMTiles } from "./pmtiles-src.js";
-import { tileOutsideCoverage } from "./tile.js";
+import { tileOutsideCoverage, tileId } from "./tile.js";
 import { buildTilePayload } from "./tilepayload.js";   // 組み立て（drawlist・水域・ラベル・建物・実バイト）は tile worker と共通
 import { mergeTiles } from "./scene.js";
 import { selectLOD } from "./tilecover.js";
@@ -102,8 +103,9 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 割らなかった節は閾が上がるだけ・子が全部 cull の節は出力に出ない）＝同じ入力なら前回の結果そのもの（tests/tilemanager-lod.mjs）。
 		// zOf は関数＝入力に数えられない＝key（mlTileZoomOf が付ける）の無い zOf の時は memo しない
 		const zk = opts?.zOf ? opts.zOf.key : "";
-		const ck = zk === undefined ? null : [cam.center[0], cam.center[1], cam.zoom, cam.pitch, cam.bearing, cam.fovy, cam.dpr, cam.centerAlt, W, H, floorZ, opts?.tilePx, groundR, opts?.maxZ, zk].join();
-		const hit = ck !== null && lod && lod.key === ck;
+		// 鍵＝入力の並び（旧＝join した文字列＝静止フレームごとに 15 値の文字列化）。memo の鍵と要素ごとに比べる（NaN/undefined は join と同じく同値扱い＝Object.is）
+		const ck = zk === undefined ? null : [cam.center[0], cam.center[1], cam.zoom, cam.pitch, cam.bearing, cam.fovy, cam.dpr, cam.centerAlt, W, H, floorZ, opts?.tilePx, groundR, opts?.maxZ, zk];
+		const hit = ck !== null && !!lod && lod.key.every((v, i) => Object.is(v, ck[i]));
 		let selected;
 		if (hit) selected = lod.selected;
 		else {
@@ -112,7 +114,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			stickySplit = new Set();
 			for (const t of selected) {
 				let z = t.z, x = t.x, y = t.y;
-				while (z > minZ) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (stickySplit.has(k)) break; stickySplit.add(k); }
+				while (z > minZ) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (stickySplit.has(k)) break; stickySplit.add(k); }
 			}
 			selMaxZ = 0; for (const t of selected) if (t.z > selMaxZ) selMaxZ = t.z;
 		}
@@ -142,8 +144,11 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 		// 世界全体＝256枚 ensure の爆発。世界タイル（低z・軽量）は段が動いてもコールドフェッチ負けしない。
 		const blanketZ = capZ(minZ < 4 ? Math.max(minZ, Math.min(4, Math.round(cam.zoom) - 2)) : 4);
 		const blanket = hit ? lod.blanket : selectLOD(cam, W * 3, H * 3, { maxZ: blanketZ, groundR, minZ });
-		lod = ck === null ? null : { key: ck, selected, coarse, blanket };
-		const keep = new Set([...selected, ...drawSel, ...coarse, ...blanket].map(keyOf));   // drawSel（keepFine の子孫代打）も keep＝描画中の子孫を LRU に食わせない
+		// keep の鍵（選抜・下地・毛布）は memo に持つ＝ヒット時は文字列を組み直さない。drawSel（keepFine の子孫代打）は常駐次第で変わる＝毎回足す＝描画中の子孫を LRU に食わせない
+		const keepKeys = hit ? lod.keepKeys : [...selected, ...coarse, ...blanket].map(keyOf);
+		lod = ck === null ? null : { key: ck, selected, coarse, blanket, keepKeys };
+		const keep = new Set(keepKeys);
+		if (drawSel !== selected) for (const t of drawSel) keep.add(keyOf(t));
 		for (const t of blanket) ensure(t);
 		for (const t of coarse) ensure(t);
 		for (const t of selected) ensure(t);
@@ -169,7 +174,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			}
 			if (evicted.length && onEvict) onEvict(evicted);
 		}
-		const ready = arr => { const o = []; for (const t of arr) { const c = cache.get(keyOf(t)); if (c && c.status === "ready") o.push({ key: keyOf(t), origin: c.origin, z: t.z }); } return o; };
+		const ready = arr => { const o = []; for (const t of arr) { const k = keyOf(t), c = cache.get(k); if (c && c.status === "ready") o.push({ key: k, origin: c.origin, z: t.z }); } return o; };
 		// 下地は祖先フォールバック付き：ズームで下地の段(round(zoom)-4)が切り替わる度に新段が未着で
 		// 紙色の空白がチラつくのを、キャッシュ済みの粗い親で埋めて防ぐ。粗い順＝下に描かれる。
 		// フォールバックの床：opts.maxZ（全球ソースの領分に cap 中＝世界帯）は minZ まで降ろすが、
@@ -219,7 +224,7 @@ export function createTileManager({ style, tileUrl, onChange, cap = 256, buildTi
 			const c = cache.get(key);
 			if (!c || c.status !== "ready") continue;
 			for (const L of c.labels) {
-				const dk = (L.mlp ? L.li + "|" : "") + L.text + (L.icon ? "#" + L.icon : "") + "@" + L.anchor[0].toFixed(5) + "," + L.anchor[1].toFixed(5);   // MapLibre 由来の層は層ごと（同じ点・同じ文字でも別の層なら両方＝poi_transit が poi_r1 に消されていた・2026-09-28）・記号だけの注記は記号名で
+				const dk = labelKey(L);   // tile worker が焼いた鍵（labelkey.js＝labels2d の当選集合と同じ式）。MapLibre 由来の層は層ごと（poi_transit が poi_r1 に消されていた・2026-09-28）・記号だけの注記は記号名で
 				if (seen.has(dk)) continue; seen.add(dk); out.push(L);
 			}
 		}

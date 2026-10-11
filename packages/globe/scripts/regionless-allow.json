@@ -77,8 +77,8 @@
 				"why": "凍結：localStorage の鍵 ortho-japan.cam256（前回の視点）＋互換：gadget(\"japan\")＝home の旧名"
 			},
 			"chome": {
-				"n": 12,
-				"why": "負債（地域）：町丁名（optbv Anno 210/800）の畳み込み mergeChome。日本の地域パックの注記処理へ移す"
+				"n": 17,
+				"why": "負債（地域）：町丁名（optbv Anno 210/800）の畳み込み mergeChome＋（N）表記の写し chomeCopy（2026-10-03・鍵の付け直し）。日本の地域パックの注記処理へ移す"
 			},
 			"cos35°": {
 				"n": 1,
@@ -287,6 +287,12 @@
 			"jp": {
 				"n": 1,
 				"why": "字形：フォント名 Noto Sans JP（CJK の字形の既定）＝地域ではない"
+			}
+		},
+		"packages/ortho-core/src/vertical.js": {
+			"和文": {
+				"n": 1,
+				"why": "文字（地域ではない）：縦書き（text-writing-mode）の句読点・括弧の置換表に全角の中点・括弧が並ぶ（2026-10-03）"
 			}
 		},
 		"packages/ortho-core/src/terrain.js": {
