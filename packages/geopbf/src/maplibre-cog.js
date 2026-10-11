@@ -30,7 +30,7 @@ export function makeCogProtocol(options = {}) {
 
 export const cogProtocol = makeCogProtocol();
 
-// 透明 1×1 PNG（圏外タイル用・67 bytes）
+// 透明 1×1 PNG（圏外タイル用・70 bytes）
 const EMPTY_PNG = Uint8Array.from(atob(
 	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
 ), c => c.charCodeAt(0));

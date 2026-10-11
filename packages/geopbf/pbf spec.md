@@ -81,8 +81,8 @@ A `FEATURE` message is `GEOMETRY` followed by the `VALUE` messages and the `INDE
 | :--- | :--- | :--- |
 | 0 | `NULL` | None |
 | 1 | `BOOL` | Boolean |
-| 2 | `INTEGER` | SVarint |
-| 3 | `FLOAT` | Double |
+| 2 | `INTEGER` | SVarint (zigzag). Writers use it only for integer values with |v| ≤ 2^52, so the zigzag-doubled value stays exact in a double; larger integers go out as `FLOAT`. |
+| 3 | `FLOAT` | Double (also integer-valued numbers beyond ±2^52, and 1e300-class values) |
 | 4 | `STRING` | String |
 | 5 | `DATE` | SVarint: Unix time in **seconds** (milliseconds are rounded away). |
 | 6 | `COLOR` | Bytes (RGBA 4-byte array). Written only for strings in the exact canonical forms `rgb(r,g,b)` / `rgba(r,g,b,a)` (no spaces, 0–255 integers, `a` in 0–1); read back as that string (`rgba` alpha as `a/255` with two decimals, `rgb` when alpha is 255). Any other colour notation (`#hex`, spaces, …) is a plain `STRING`. |
