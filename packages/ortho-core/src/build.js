@@ -7,15 +7,20 @@ import earcut from "earcut";
 // 一番上（pole=1）／下（pole=-1）の行のタイル：上端（py≤0）／下端（py≥extent）に沿う「境界の辺」（1 つの三角形にしか属さない辺）から、極の 1 頂点へ扇を張る。
 // 極の頂点はタイル座標では表せない＝末尾に置き、呼び手が経緯度（緯度 ±90）を直に書く。境界の辺が無ければ何もしない（配列はそのまま返す）
 export function extendToPole(flat, tris, extent, pole) {
-	const onEdge = i => (pole > 0 ? flat[i * 2 + 1] <= 0 : flat[i * 2 + 1] >= extent);
+	// 端の頂点の印を先に 1 回だけ（旧＝三角形ごと・辺ごとに座標を見直し＝全球のタイルで細分の後の数万三角形×6 回）。辺の鍵は端の頂点どうしの辺だけ
+	const nv = flat.length >> 1, on = new Uint8Array(nv);
+	let any = 0;
+	for (let i = 0; i < nv; i++) { const y = flat[i * 2 + 1]; if (pole > 0 ? y <= 0 : y >= extent) { on[i] = 1; any++; } }
+	if (any < 2) return [flat, tris];
 	const cnt = new Map(), key = (i, j) => (i < j ? i * 4294967296 + j : j * 4294967296 + i);
-	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j)) { const kk = key(i, j); cnt.set(kk, (cnt.get(kk) || 0) + 1); } }
+	for (let t = 0; t < tris.length; t += 3) { const a = tris[t], b = tris[t + 1], c = tris[t + 2]; if (on[a] + on[b] + on[c] < 2) continue; for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (on[i] && on[j]) { const kk = key(i, j); cnt.set(kk, (cnt.get(kk) || 0) + 1); } } }
 	const edges = [];
-	for (let t = 0; t < tris.length; t += 3) for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (onEdge(i) && onEdge(j) && cnt.get(key(i, j)) === 1) edges.push(i, j); }
+	for (let t = 0; t < tris.length; t += 3) { const a = tris[t], b = tris[t + 1], c = tris[t + 2]; if (on[a] + on[b] + on[c] < 2) continue; for (let k = 0; k < 3; k++) { const i = tris[t + k], j = tris[t + (k + 1) % 3]; if (on[i] && on[j] && cnt.get(key(i, j)) === 1) edges.push(i, j); } }
 	if (!edges.length) return [flat, tris];
-	const pts = Array.from(flat), out = Array.from(tris), p = pts.length >> 1;
-	pts.push(0, pole > 0 ? -extent : 2 * extent);   // 仮の座標（呼び手が経緯度を上書きする）
-	for (let e = 0; e < edges.length; e += 2) out.push(edges[e], edges[e + 1], p);   // 向きは境界の辺の向きに従う（塗りは両面）
+	const p = nv, pts = new Float64Array(flat.length + 2); pts.set(flat);
+	pts[flat.length] = 0; pts[flat.length + 1] = pole > 0 ? -extent : 2 * extent;   // 仮の座標（呼び手が経緯度を上書きする）
+	const out = new Uint32Array(tris.length + edges.length / 2 * 3); out.set(tris);
+	for (let e = 0, o = tris.length; e < edges.length; e += 2) { out[o++] = edges[e]; out[o++] = edges[e + 1]; out[o++] = p; }   // 向きは境界の辺の向きに従う（塗りは両面）
 	return [pts, out];
 }
 // 三角形の集合を「辺の長さ ≤ maxLen（タイル単位）」まで最長辺の二等分で細分（共有辺の中点は 1 回だけ作る＝隙間なし）。戻り＝[flat（x,y,…）, tris（index）]
@@ -67,35 +72,50 @@ const outsideSameSide = (ax, ay, bx, by, extent) => (ax < 0 && bx < 0) || (ax > 
 // 旧＝最長辺の二等分：隣の三角形が同じ辺を割らないと T 字の接点ができ、球の上では割った側の中点は球面に乗り・割らない側の辺は弦のまま沈む
 // ＝その差が 45° の白い筋（低ズームの demotiles・2026-09-30 本人の写し）。格子線との交点は辺の向きに依らず同じ式で出す＝隣同士が必ず同じ頂点を共有＝継ぎ目なし
 export function subdivideTris(flat, tris, cell) {
-	const pts = Array.from(flat), out = [], seen = new Map();
-	const addPt = (x, y) => { const k = x + "," + y; let r = seen.get(k); if (r === undefined) { r = pts.length >> 1; pts.push(x, y); seen.set(k, r); } return r; };
+	// 作業域（worker ごと・伸びるだけ）：頂点＝Float64・三角形＝Uint32・再帰の多角形＝Uint32 の 1 本の棚（lo/hi を棚の上に積む＝多角形ごとの配列を作らない）。
+	// 旧＝JS の配列へ push・交点の覚えは "x,y" の文字列の鍵＝全球（z0〜6）のタイルは 1 枚 100ms 超の 7 割がこの文字列化と GC だった。
+	// 鍵＝x → y の二段の Map（数が鍵）＝文字列の鍵と同じ同一性（String(-0)==="0"＝SameValueZero と同じ）。頂点の採番と三角形の順は旧と同じ＝出力はビット同値
+	let np = flat.length; if (SD.pts.length < np) SD.pts = new Float64Array(np * 2); const pts0 = SD.pts; pts0.set(flat);
+	let pts = pts0, pn = np;
+	SD.out.n = 0;
+	const seen = new Map();   // x → (y → 添字)＝旧の "x,y" と同じ同一性（格子の角＝縦線の交点と横線の交点が同じ点なら同じ頂点）
+	const addPt = (x, y) => {
+		let m = seen.get(x); if (m === undefined) { m = new Map(); seen.set(x, m); }
+		let r = m.get(y);
+		if (r === undefined) { r = pn >> 1; if (pn + 2 > pts.length) { const b = new Float64Array(pts.length * 2); b.set(pts.subarray(0, pn)); pts = SD.pts = b; } pts[pn++] = x; pts[pn++] = y; m.set(y, r); }
+		return r;
+	};
 	// 辺 (p,q) と格子線 axis=v の交点＝頂点添字の小さい方を始点に計算（向きに依らずビット同値）
 	const cut = (p, q, ax, v) => {
 		if (p > q) { const t = p; p = q; q = t; }
 		const pc = pts[p * 2 + ax], qc = pts[q * 2 + ax], po = pts[p * 2 + 1 - ax], qo = pts[q * 2 + 1 - ax], o = po + (qo - po) * ((v - pc) / (qc - pc));
 		return ax ? addPt(o, v) : addPt(v, o);
 	};
-	let guard = 0;
-	const split = poly => {
+	let guard = 0, stk = SD.stk;
+	// 多角形＝棚の [s, s+n)・top＝棚の空きの先頭。lo・hi を top から順に積み、lo を先に（旧と同じ順）・次に hi を割る（子の作業域は両方の後ろ＝重ならない）
+	const split = (s, n, top) => {
 		if (guard++ > 4e6) return;
-		const n = poly.length;
 		let minx = Infinity, maxx = -Infinity, miny = Infinity, maxy = -Infinity;
-		for (const i of poly) { const x = pts[i * 2], y = pts[i * 2 + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
+		for (let i = 0; i < n; i++) { const k = stk[s + i], x = pts[k * 2], y = pts[k * 2 + 1]; if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y; }
 		// 箱の中を通る格子線（端を含まない）：多い方の軸の真ん中の 1 本で二分＝再帰の深さ log
 		const kx0 = Math.floor(minx / cell) + 1, kx1 = Math.ceil(maxx / cell) - 1, ky0 = Math.floor(miny / cell) + 1, ky1 = Math.ceil(maxy / cell) - 1;
 		const nx = Math.max(0, kx1 - kx0 + 1), ny = Math.max(0, ky1 - ky0 + 1);
-		if (!nx && !ny) { for (let i = 1; i + 1 < n; i++) out.push(poly[0], poly[i], poly[i + 1]); return; }   // 凸多角形＝扇
+		if (!nx && !ny) { const ia = SD.out.reserve(3 * (n - 2)); let io = SD.out.n; const a0 = stk[s]; for (let i = 1; i + 1 < n; i++) { ia[io++] = a0; ia[io++] = stk[s + i]; ia[io++] = stk[s + i + 1]; } SD.out.n = io; return; }   // 凸多角形＝扇
 		const ax = nx >= ny ? 0 : 1, v = (ax ? ky0 + (ny >> 1) : kx0 + (nx >> 1)) * cell;
-		const lo = [], hi = [];
+		if (stk.length < top + 4 * n + 4) { const b = new Uint32Array(Math.max(stk.length * 2, top + 4 * n + 4)); b.set(stk.subarray(0, top)); stk = SD.stk = b; }
+		// lo を [top, …)・hi を一時に [top+2n, …) へ積み、hi を lo の直後へ詰める（1 辺で切ると各側は高々 2n 点）
+		let nl = 0, nh = 0; const hb = top + 2 * n;
 		for (let i = 0; i < n; i++) {
-			const p = poly[i], q = poly[(i + 1) % n], pc = pts[p * 2 + ax], qc = pts[q * 2 + ax];
-			if (pc <= v) lo.push(p); if (pc >= v) hi.push(p);
-			if ((pc < v && qc > v) || (pc > v && qc < v)) { const m = cut(p, q, ax, v); lo.push(m); hi.push(m); }
+			const p = stk[s + i], q = stk[s + (i + 1) % n], pc = pts[p * 2 + ax], qc = pts[q * 2 + ax];
+			if (pc <= v) stk[top + nl++] = p; if (pc >= v) stk[hb + nh++] = p;
+			if ((pc < v && qc > v) || (pc > v && qc < v)) { const m = cut(p, q, ax, v); stk[top + nl++] = m; stk[hb + nh++] = m; }
 		}
-		if (lo.length >= 3) split(lo); if (hi.length >= 3) split(hi);
+		stk.copyWithin(top + nl, hb, hb + nh);
+		if (nl >= 3) split(top, nl, top + nl + nh);
+		if (nh >= 3) split(top + nl, nh, top + nl + nh);
 	};
-	for (let t = 0; t < tris.length; t += 3) split([tris[t], tris[t + 1], tris[t + 2]]);
-	return [pts, out];
+	for (let t = 0; t < tris.length; t += 3) { if (stk.length < 3) stk = SD.stk = new Uint32Array(64); stk[0] = tris[t]; stk[1] = tris[t + 1]; stk[2] = tris[t + 2]; split(0, 3, 3); }
+	return [pts.slice(0, pn), SD.out.out()];
 }
 import { evalExpr, truthy, originOfLayer } from "./expr.js";   // originOfLayer＝MapLibre の文書から来た層は MapLibre の意味で評価（ctx.origin・2026-09-26）
 import { parseRGBA } from "./color.js";
@@ -114,6 +134,7 @@ class Grow {
 const newBufs = () => ({ pos: new Grow(Float32Array), col: new Grow(Uint8Array), idx: new Grow(Uint32Array), P1: new Grow(Float32Array), P2: new Grow(Float32Array), half: new Grow(Float32Array), off: new Grow(Float32Array) });
 let sharedBufs = null, bufDepth = 0;
 const LS = { p1: new Grow(Float32Array), p2: new Grow(Float32Array), r: new Grow(Uint32Array), k: new Grow(Uint32Array), fl: new Grow(Uint8Array) };   // lineSegs の作業（同期・入れ子にならない＝使い回す）
+const SD = { pts: new Float64Array(1 << 12), stk: new Uint32Array(1 << 12), out: new Grow(Uint32Array, 1 << 14) };   // subdivideTris の作業（同期・使い回す）
 
 // line-dasharray の評価結果 → 模様（線,間,線,間…）。数でない・負・合計 0 は null（破線なし）。奇数個は MapLibre/SVG と同じく 2 回繰り返す
 const NO_SLIDES = [[], []];
@@ -312,7 +333,9 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 			// line-offset（MapLibre 互換の口・#49）：線を進行方向の右（正）／左（負）へ平行にずらす＝画面 px（線幅と同じ単位）。
 			// ずらしは頂点シェーダが画面空間で掛ける＝ここは線分ごとに [off, tS, tE]（角の継ぎ＝miterSlides）を添えるだけ。
 			// 層が持つ時だけ配列を作る（無い層は 0 バイト）
-			const offExpr = L.paint?.["line-offset"], off = offExpr != null ? B.off : null; if (off) off.n = 0;
+			// line-gap-width（MapLibre 互換・2026-10-03）：線の芯の両脇に幅 line-width の線を 2 本（芯から gap/2＋width/2 ずらす＝ずらしの口（off）で描く・継ぎはマイター）
+			const gapExpr = L.paint?.["line-gap-width"];
+			const offExpr = L.paint?.["line-offset"], off = offExpr != null || gapExpr != null ? B.off : null; if (off) off.n = 0;
 			// line-dasharray [線, 間隔, …]：走行距離の位相を保って線分を刻む。
 			// renderer の capsule は丸端なので、刻んだ破片がそのままピル状のダッシュになる（トンネル破線等）。
 			// 値は式として評価する（["literal",[..]]・step/interpolate・旧式関数の変換物）＝MapLibre でも zoom だけに依る＝層で一度。
@@ -329,8 +352,12 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 				let w = evalExpr(L.paint?.["line-width"] ?? 1, ctx);
 				if (typeof w !== "number" || isNaN(w) || w <= 0) w = 1;
 				const hw = w * 0.5;
-				let ow = 0;
-				if (off) { ow = +evalExpr(offExpr, ctx); if (!isFinite(ow)) ow = 0; }
+				let ow0 = 0;
+				if (offExpr != null) { ow0 = +evalExpr(offExpr, ctx); if (!isFinite(ow0)) ow0 = 0; }
+				let gw = 0;
+				if (gapExpr != null) { gw = +evalExpr(gapExpr, ctx); if (!(gw > 0)) gw = 0; }
+				for (let side = 0, nSide = gw ? 2 : 1; side < nSide; side++) {   // 隙間つき＝右（+）と左（−）の 2 本・無ければ 1 本
+				const ow = gw ? ow0 + (side ? -1 : 1) * (gw * 0.5 + hw) : ow0;
 				// 線分 1 本を書く（P1＝始点・P2＝終点の経緯度（原点相対）・色・半幅・ずらし）
 				const seg = (alon, alat, blon, blat, ta, tb) => {
 					const n = half.n, p1 = P1.reserve(2), p2 = P2.reserve(2), c4 = col.reserve(4), hf = half.reserve(1);
@@ -388,6 +415,7 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 					}
 					ls = le;
 				}
+				}   // side
 			}
 			if (half.n) {
 				const op = { kind: "line", li, id: L.id, P1: P1.out(), P2: P2.out(), col: col.out(), half: half.out() };

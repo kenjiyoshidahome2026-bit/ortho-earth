@@ -13,6 +13,9 @@
 		],
 		"parks": [
 			"parks.js"
+		],
+		"terrain": [
+			"terrain.js"
 		]
 	}
 }

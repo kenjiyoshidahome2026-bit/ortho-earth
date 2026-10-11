@@ -76,4 +76,19 @@ const ost = { layers: [
 const ol = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, ost).labels, o1 = ol.find(L => L.li === 0), o0 = ol.find(L => L.li === 1);
 assert.equal(o1.rot, 30); assert.equal(o1.ra, "map"); assert.equal(o1.pa, "viewport"); assert.equal(o1.ira, "map"); assert.equal(o1.ipa, "map");
 assert.equal(o0.rot, undefined); assert.equal(o0.ra, undefined); assert.equal(o0.pa, undefined);
+// ── format の区間（書式つき）と text-writing-mode（2026-10-03）：区間は書式が付く時だけ焼く・縦書きは縦書きにできる文字だけ
+{
+	const src = { extent: 4096, features: [{ type: "Point", props: { name: "東京タワー", en: "Tokyo Tower" }, geom: { coords: [100, 200] } }, { type: "Point", props: { name: "Paris", en: "Paris" }, geom: { coords: [300, 200] } }] };
+	const style = { layers: [
+		{ id: "f", type: "symbol", "source-layer": "poi", layout: { "text-field": ["format", ["get", "name"], { "font-scale": 1.2 }, "\n", {}, ["get", "en"], { "font-scale": 0.8, "text-color": "#f00", "text-font": ["literal", ["Noto Sans Italic"]] }], "text-writing-mode": ["literal", ["vertical", "horizontal"]], "text-transform": "uppercase" } },
+		{ id: "p", type: "symbol", "source-layer": "poi", layout: { "text-field": ["format", ["get", "name"], {}, " ", {}, ["get", "en"], {}] } },
+	] };
+	const { labels } = buildLabels({ layers: { poi: src }, z: 14, x: 0, y: 0 }, style);
+	const f = labels.filter(L => L.li === 0), p = labels.filter(L => L.li === 1);
+	assert.equal(f[0].text, "東京タワー\nTOKYO TOWER"); assert.equal(f[0].wm, "vh", "縦書きにできる＝vh");
+	assert.deepEqual(f[0].sec, [{ t: "東京タワー", fs: 1.2 }, { t: "\n" }, { t: "TOKYO TOWER", fs: 0.8, col: [1, 0, 0, 1], fnt: { fam: ["Noto Sans"], w: 400, st: "italic" } }], "区間＝文字（transform 済み）・font-scale・色・書体");
+	assert.equal(f[1].wm, undefined, "ラテンだけ＝横書き"); assert.equal(f[1].sec.length, 3);
+	assert.equal(p[0].text, "東京タワー Tokyo Tower"); assert.equal(p[0].sec, undefined, "書式の無い format は区間を焼かない");
+}
+
 console.log("labels.mjs: ok (", labels.length, "+", ll.length, "+", sl.length, "+", z14.length, "+", ol.length, "labels )");
