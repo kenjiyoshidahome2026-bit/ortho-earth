@@ -215,7 +215,11 @@ npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
 ```
 
-Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
+`npx geopbf <command> --help` prints that command's section of the usage. Options take `--name value` or
+`--name=value`; `--min-zoom` / `--max-zoom` are aliases of `--minzoom` / `--maxzoom`. An option a command does not
+know is rejected (exit code 2, like every usage error — missing arguments, `--precision` outside 1–9, a non-numeric
+`--minzoom`), before any file is read; a failure while running exits 1. Output is gzipped by default, matching the
+GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
 `--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including
 `enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage, File Geodatabase and tables — PostGIS and everything
 else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
