@@ -29,6 +29,11 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **Overlays**: `map.overlay(url)` draws in the render worker's frame (same camera, scene depth on request); overlays that export
   `pick(x, y, r, ctx)` answer `map.pickOverlays(x, y)`, `map.on("click" | "mousemove", overlayName, cb)` and
   `queryRenderedFeatures({ layers: [overlayName] })` like any layer (GPU id pass for points, geometry for canvas overlays)
+- **three.js**: `map.addThree({ three: <URL of three.module.js>, module: <URL of your module exporting setup(THREE, scene, h)> })` runs
+  three.js inside the render worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by
+  terrain and buildings through the scene depth, pickable with the overlay picking above. three.js is not a dependency; you bring it
+- **H3**: `map.addH3(points | cells, { res, weight, paint, extrude })` bins points into H3 cells (or draws given cell ids) as a
+  `fill` / `fill-extrusion` layer (`@ortho-earth/h3`, loaded on demand)
 - **Regions**: pass `opts.region` to add a country pack (basemap, elevation, buildings, search…).
   Without it you get the world: Natural Earth 10m, global hypsometry, lakes, rivers, maritime
   boundaries, stars — honest up to about z8, which is what world data can carry.
