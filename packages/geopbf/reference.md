@@ -140,6 +140,7 @@ Combines this instance with other instances into a new instance (named after thi
 | `geopbf/georef` | IIIF Georeference Annotation (control points → image warp) |
 | `geopbf/edit`, `geopbf/edit/*` | the editing model used by geoedit (DOM-free) |
 | `geopbf/maplibre`, `geopbf/leaflet`, `geopbf/openlayers`, `geopbf/loaders`, `geopbf/load` | map library adapters (§8–§11) and the shared loader |
+| `geopbf/tilesource` | on-demand MVT tiles from a GeoPBF+Gint (`createTileSource`; the `geopbf://…/{z}/{x}/{y}` protocol's engine) |
 | `geopbf/sanitize`, `geopbf/czml`, `geopbf/gzip`, `geopbf/encodeZIP`, `geopbf/decodeZIP`, `geopbf/encodeXLSX`, `geopbf/fname2mime` | utilities |
 
 ---
@@ -156,6 +157,14 @@ Builds a customized handler.
 * **`options.fetch`** (Function `(url, { signal }) → Promise<Response>`): custom fetch (caching, auth, proxying). Default: plain `fetch` with `cache: "default"`.
 * **`options.sanitize`** (Boolean): default `true`. When false, properties pass through undecoded-for-JSON (Date/Blob/ImageData objects survive locally but will not survive MapLibre's worker round-trip).
 * **`options.onMeta`** (Function `(innerUrl, meta) → void`): called after each decode with `{ name, description, license, attribution, minZoom, maxZoom }`.
+
+### Vector tiles: `geopbf://…/{z}/{x}/{y}`
+The same `geopbfProtocol` serves Mapbox Vector Tiles when the URL ends with `/{z}/{x}/{y}` (`.pbf`/`.mvt` suffix allowed) and MapLibre asks for an `arrayBuffer` (a `vector` source). Tiles are built on demand from the file's Gint with the `toPMTiles` pipeline (`convert/tilesource.js`): shared borders stay one arc at every zoom, `feature.id` is the fid, the source layer is the header `name`. One tile source is kept per inner URL (fetched, baked and projected once).
+* **`makeGeopbfProtocol({ tiler })`**: `tiler` takes every `toPMTiles` option (`minZoom`, `maxZoom`, `extent`, `buffer`, `layer`, `simplification`, `lodBias`, `dropRate`, `tinyPolygon`, `tinyLine`, `include`/`exclude`/`excludeAll`, `gpu`) plus `zoomCache` (4) / `columnCache` (256), the number of per-zoom coordinate sets and per-column tile sets kept. `tilerOf(innerUrl)` returns per-URL overrides. `bake(pbf)` replaces the Gint step (default: `pbf.gint()` when the main package is loaded, else the wasm topology on the main thread). `onSource(innerUrl, src)` is called once per source.
+* **`handler.tiles.sources`** (Map) / **`handler.tiles.dispose(innerUrl)`**: the cached tile sources; `dispose` releases one.
+* **`geopbfTileProtocol`** / **`makeGeopbfTileProtocol(options)`**: the tile-only handler (throws on a URL without `/z/x/y`).
+* **`parseTileUrl(url)`** → `{ inner, z, x, y }` or `null`.
+* **`await createTileSource(pbf, options)`** (`geopbf/tilesource`): protocol-free form. `src.tile(z, x, y)` → `Promise<Uint8Array | null>` (uncompressed MVT; `null` when the tile has no feature or is out of range), `src.metadata` (same as `toPMTiles`), `src.minZoom/maxZoom/bounds/layerName`, `src.destroy()`. With the same options (and `tinyPolygon: 0`) the bytes equal the `toPMTiles` tiles.
 
 ### `await loadGeopbf(url, [options])`
 Protocol-free shortest path: returns `{ geojson, name, description, license, attribution, minZoom, maxZoom }` so the consumer can wire `attribution` into `addSource` and `minZoom`/`maxZoom` into `addLayer`. Accepts `geopbf://…` or a bare URL; relative URLs resolve against `location` (browser only). `options`: `{ signal, fetch, sanitize }`.
