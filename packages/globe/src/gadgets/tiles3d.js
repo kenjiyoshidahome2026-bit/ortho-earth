@@ -10,6 +10,7 @@
 // 未対応：implicit tiling（3D Tiles 1.1 の subtree）・メタデータとスタイル。
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 
@@ -67,20 +68,9 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 	const getJSON = async (url, type) => { const r = await (requester ? requester.fetch(url, type) : fetch(url, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };   // transformRequest / addProtocol（#37）
 	const sets = new Map();   // id → tileset
 	let seq = 0, tileSeq = 0;
-	// worker（model 役）を 2 本＝取りに行く・解くを並列に。1 本あたり同時 3 件まで
-	const workers = [], waiting = new Map();
-	let rpcSeq = 0, wi = 0;
-	const worker = () => {
-		if (workers.length < 2) {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" });
-			w.onmessage = e => { const p = waiting.get(e.data.id); if (!p) return; waiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); };
-			w.onerror = e => console.error("[tiles3d] worker error", e.message);
-			workers.push(w);
-			return w;
-		}
-		return workers[(wi++) % workers.length];
-	};
-	const rpc = (msg, transfer = []) => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); worker().postMessage({ id, ...msg }, transfer); });
+	// worker（model 役）を 2 本＝取りに行く・解くを並列に（順繰り）。1 本あたり同時 3 件まで
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { size: 2, tag: "tiles3d" });
+	const rpc = pool.rpc;
 	const BUDGET = (lowMem ? 160 : 512) * 1024 * 1024, MAX_INFLIGHT = lowMem ? 3 : 6;
 	let inflight = 0, gpuBytes = 0, rafPending = 0;
 	const schedule = () => { if (rafPending) return; rafPending = requestAnimationFrame(() => { rafPending = 0; update(); }); };
@@ -294,7 +284,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 			sets.delete(id);
 		},
 		get ids() { return [...sets.keys()]; },
-		destroy() { for (const id of [...sets.keys()]) ctl.remove(id); for (const w of workers) w.terminate(); workers.length = 0; map.off("move", onMove); map.off("settle", onMove); },
+		destroy() { for (const id of [...sets.keys()]) ctl.remove(id); pool.destroy(); map.off("move", onMove); map.off("settle", onMove); },
 	};
 	signal?.addEventListener("abort", () => ctl.destroy(), { once: true });
 	return ctl;

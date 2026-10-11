@@ -5,6 +5,36 @@ import path from "node:path";
 import { loadPages } from "./i18n-pages.mjs";
 import { hostDir } from "./i18n-scan.mjs";
 
+// アプリ自前の辞書（i18n/ui.json＝英語キー → 26 言語）を言語ごとの薄い表に（solar・equal・geopbf-demo・www の i18n:build が使う・2026-10-03 に 4 本の同じ写しを 1 本に）。
+// 空文字（意図して英語）と欠落は落とす＝実行時は「表に無い＝英語（キー）」の一本道。en は表を持たない。訳が 1 つも無い言語は null（＝消す）
+export function uiTables(ui, langs, outDir) {
+	const files = new Map(), rows = [];
+	for (const { code } of langs) {
+		if (code === "en") continue;
+		const table = {};
+		for (const [key, row] of Object.entries(ui)) if (row[code]) table[key] = row[code];
+		const keys = Object.keys(table).sort(), file = path.join(outDir, `${code}.json`);
+		if (!keys.length) { files.set(file, null); rows.push([code, 0, 0]); continue; }
+		const body = JSON.stringify(Object.fromEntries(keys.map(k => [k, table[k]])));
+		files.set(file, body + "\n");
+		rows.push([code, keys.length, Buffer.byteLength(body)]);
+	}
+	return { files, rows, total: Object.keys(ui).length };
+}
+// 作った表を書く（null＝消す）。rows を表示する printRows と対
+export function writeTables(files) {
+	for (const [file, body] of files) {
+		if (body == null) { fs.existsSync(file) && fs.rmSync(file); continue; }
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, body);
+	}
+}
+export function printRows(rows, total) {
+	console.log(`ui.json: ${total} keys`);
+	console.log("lang  translated  bytes");
+	for (const [code, n, b] of rows) console.log(`${code.padEnd(5)} ${String(n).padStart(9)}  ${n ? (b / 1024).toFixed(1) + " KB" : "(no file)"}`);
+}
+
 export function i18nTables(APP) {
 	const HOST = hostDir(APP);   // 本体（地球儀のホスト＝packages/globe/src）の訳＝正本 ui.json・焼き先 i18n/lang・langs.js はそこに住む（S4 2026-09-23）。頁の辞書は殻（APP）
 	const ui = JSON.parse(fs.readFileSync(path.join(HOST, "i18n/ui.json"), "utf8")).ui ?? {};
