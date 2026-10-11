@@ -697,7 +697,7 @@ JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素�
 	</tr>
 	<tr>
 		<td><code>geopbf/maplibre</code></td>
-		<td class="dim">addProtocol ハンドラ</td>
+		<td class="dim">addProtocol ハンドラ（GeoJSON ソース、または <code>/{z}/{x}/{y}</code> でベクタタイル）</td>
 		<td>MapLibre GL JS (v4+)</td>
 	</tr>
 	<tr>
@@ -726,6 +726,7 @@ JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素�
 <span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
 maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
 map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+map.<span class="fn">addSource</span>(<span class="st">"rail-tiles"</span>, { type: <span class="st">"vector"</span>, tiles: [<span class="st">"geopbf://https://…/N02-25_RailroadSection/{z}/{x}/{y}"</span>] });   <span class="cm">// 同じ URL に /{z}/{x}/{y}＝Gint から要求タイルだけ MVT に（共有境界は継ぎ目無し・feature.id＝fid）</span>
 
 <span class="cm">// ── Leaflet — レイヤープラグイン ───────────────────────────</span>
 <span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;

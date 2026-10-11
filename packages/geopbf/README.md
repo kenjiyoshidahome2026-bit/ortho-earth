@@ -733,7 +733,23 @@ map.addSource("rail", { type: "geojson",
   feature-state, set `promoteId` on the source (GeoPBF features carry no `id`).
 - A GeoPBF file is one whole dataset, not z/x/y tiles, so MapLibre's built-in geojson-vt does the tiling and
   simplification. Comfortable up to tens of MB of resulting GeoJSON; for very large datasets, tile it first with
-  [§5](#5-vector-tiles-and-geoparquet).
+  [§5](#5-vector-tiles-and-geoparquet) — or let the same protocol serve **vector tiles on demand** (below).
+
+**Vector tiles from the same URL** — append `/{z}/{x}/{y}` and use a `vector` source. The handler then builds only the
+requested tiles from the file's Gint (the same code path as `toPMTiles`: shared borders are one arc, so adjacent
+polygons never gap or overlap at any zoom; `feature.id` is the GeoPBF fid, so feature-state works without `promoteId`;
+the first tile arrives before the whole dataset would have been converted to GeoJSON). The source layer is the file's
+header `name` (override with `makeGeopbfProtocol({ tiler: { layer } })`; `tiler` takes every `toPMTiles` option).
+
+```js
+maplibregl.addProtocol("geopbf", geopbfProtocol);
+map.addSource("rail", { type: "vector", maxzoom: 14,
+  tiles: ["geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection/{z}/{x}/{y}"] });
+map.addLayer({ id: "rail", type: "line", source: "rail", "source-layer": "N02-25_RailroadSection" });
+```
+
+One tile source per inner URL is kept (fetched, baked and projected once; `handler.tiles.dispose(url)` releases it).
+`createTileSource(pbf, options)` (`geopbf/tilesource`) is the protocol-free form: `await src.tile(z, x, y)` → MVT bytes.
 
 See `examples/maplibre.html` for a standalone demo (base map + protocol source + `loadGeopbf` metadata wiring).
 

@@ -696,7 +696,7 @@ survive each library's worker handoff.
 	</tr>
 	<tr>
 		<td><code>geopbf/maplibre</code></td>
-		<td class="dim">addProtocol handler</td>
+		<td class="dim">addProtocol handler (GeoJSON source, or vector tiles with <code>/{z}/{x}/{y}</code>)</td>
 		<td>MapLibre GL JS (v4+)</td>
 	</tr>
 	<tr>
@@ -725,6 +725,7 @@ survive each library's worker handoff.
 <span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
 maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
 map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+map.<span class="fn">addSource</span>(<span class="st">"rail-tiles"</span>, { type: <span class="st">"vector"</span>, tiles: [<span class="st">"geopbf://https://…/N02-25_RailroadSection/{z}/{x}/{y}"</span>] });   <span class="cm">// same URL + /{z}/{x}/{y} = on-demand MVT from the Gint (seamless shared borders, feature.id = fid)</span>
 
 <span class="cm">// ── Leaflet — layer plugin ─────────────────────────────</span>
 <span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;
