@@ -55,47 +55,60 @@ const str = (r, t) => r.string();
 const strList = (r) => r.list(str);
 
 // ── ページ本文の復号 ──
-function snappy(src) {   // raw snappy（Parquet の SNAPPY はフレーム無し）
+// 細工されたページへの備え（2026-10-11・安全既定）: 宣言長は呼び手の上限（ページヘッダの uncompressed_page_size か MAX_PAGE）で
+// 確保前に検査し、リテラル・複写とも「入力の外・出力の外・まだ書いていない所」を読まない（旧＝宣言サイズをそのまま確保・境界検査なし）。
+export const MAX_PAGE = 1 << 30;   // 1 ページ／1 列チャンクの伸長後の上限（1 GiB）。Parquet の実用サイズ（既定 1 MB ページ・128 MB row group）の遥か上
+export function snappy(src, limit = MAX_PAGE) {   // raw snappy（Parquet の SNAPPY はフレーム無し）
 	let p = 0, n = 0, m = 1;
-	for (;;) { const b = src[p++]; n += (b & 127) * m; if (b < 128) break; m *= 128; }
+	for (;;) { if (p >= src.length) throw new Error("snappy: truncated length header"); const b = src[p++]; n += (b & 127) * m; if (b < 128) break; m *= 128; if (m > 2 ** 35) throw new Error("snappy: bad length header"); }
+	if (n > limit) throw new Error(`snappy: declared size ${n} exceeds limit ${limit}`);
 	const out = new Uint8Array(n); let o = 0;
 	while (p < src.length) {
 		const tag = src[p++];
 		if ((tag & 3) === 0) {
 			let len = tag >> 2;
-			if (len >= 60) { const k = len - 59; len = 0; for (let i = 0; i < k; i++) len |= src[p + i] << (8 * i); p += k; len >>>= 0; }
+			if (len >= 60) { const k = len - 59; if (p + k > src.length) throw new Error("snappy: truncated literal length"); len = 0; for (let i = 0; i < k; i++) len |= src[p + i] << (8 * i); p += k; len >>>= 0; }
 			len += 1;
+			if (p + len > src.length || o + len > n) throw new Error("snappy: literal runs past the input or the declared size");
 			out.set(src.subarray(p, p + len), o); p += len; o += len;
 		} else {
 			let len, off;
-			if ((tag & 3) === 1) { len = ((tag >> 2) & 7) + 4; off = ((tag >> 5) << 8) | src[p]; p += 1; }
-			else if ((tag & 3) === 2) { len = (tag >> 2) + 1; off = src[p] | (src[p + 1] << 8); p += 2; }
-			else { len = (tag >> 2) + 1; off = (src[p] | (src[p + 1] << 8) | (src[p + 2] << 16) | (src[p + 3] << 24)) >>> 0; p += 4; }
+			if ((tag & 3) === 1) { if (p + 1 > src.length) throw new Error("snappy: truncated copy"); len = ((tag >> 2) & 7) + 4; off = ((tag >> 5) << 8) | src[p]; p += 1; }
+			else if ((tag & 3) === 2) { if (p + 2 > src.length) throw new Error("snappy: truncated copy"); len = (tag >> 2) + 1; off = src[p] | (src[p + 1] << 8); p += 2; }
+			else { if (p + 4 > src.length) throw new Error("snappy: truncated copy"); len = (tag >> 2) + 1; off = (src[p] | (src[p + 1] << 8) | (src[p + 2] << 16) | (src[p + 3] << 24)) >>> 0; p += 4; }
 			let s = o - off;
+			if (off === 0 || s < 0 || o + len > n) throw new Error("snappy: copy offset outside the output written so far");
 			for (let i = 0; i < len; i++) out[o++] = out[s++];   // 重なりあり＝1 バイトずつ
 		}
 	}
+	if (o !== n) throw new Error(`snappy: output ${o} B does not match declared ${n} B`);
 	return out;
 }
 const CODEC_NAME = { 0: "none", 1: "snappy", 2: "gzip", 6: "zstd" };
 async function decompress(u8, codec, uncompressedSize) {
+	// uncompressedSize＝ページヘッダの宣言（型は Thrift の i32 ＝ 2 GiB 未満）。上限（MAX_PAGE）を越える宣言は確保前に拒む
+	if (!(uncompressedSize >= 0) || uncompressedSize > MAX_PAGE) throw new Error(`parquet: page declares ${uncompressedSize} B uncompressed (limit ${MAX_PAGE})`);
 	if (codec === 0) return u8;
-	if (codec === 1) return snappy(u8);
-	if (codec === 2) return inflate(u8, "gzip");
-	if (codec === 6) return inflate(u8, "zstd");
-	throw new Error("parquet: unsupported codec " + (CODEC_NAME[codec] ?? codec) + " (none/snappy/gzip/zstd)");
+	let out;
+	if (codec === 1) out = snappy(u8, uncompressedSize);
+	else if (codec === 2) out = await inflate(u8, "gzip");
+	else if (codec === 6) out = await inflate(u8, "zstd");
+	else throw new Error("parquet: unsupported codec " + (CODEC_NAME[codec] ?? codec) + " (none/snappy/gzip/zstd)");
+	if (out.length > uncompressedSize) throw new Error(`parquet: page inflated to ${out.length} B, more than the declared ${uncompressedSize} B`);
+	return out;
 }
 
 // RLE/bit-packed hybrid → Int32Array(n)（bit 幅 w）
 function decodeHybrid(u8, pos, end, w, n) {
 	const out = new Int32Array(n); let o = 0;
 	const bytes = (w + 7) >> 3;
+	end = Math.min(end, u8.length);   // end は呼び手の宣言＝入力の外を指し得る（細工されたページ）。読むのは end まで・足りない分は 0
 	while (o < n && pos < end) {
-		let h = 0, m = 1; for (;;) { const b = u8[pos++]; h += (b & 127) * m; if (b < 128) break; m *= 128; }
+		let h = 0, m = 1; for (;;) { const b = pos < end ? u8[pos] : 0; pos++; h += (b & 127) * m; if (b < 128) break; m *= 128; }
 		if (h & 1) {   // bit-packed: (h>>1) groups of 8
 			const groups = h >>> 1; let acc = 0, nb = 0;
-			for (let g = 0; g < groups; g++) for (let i = 0; i < 8; i++) {
-				while (nb < w) { acc += (u8[pos++] || 0) * Math.pow(2, nb); nb += 8; }
+			for (let g = 0; g < groups && o < n; g++) for (let i = 0; i < 8; i++) {
+				while (nb < w) { acc += (pos < end ? u8[pos] : 0) * Math.pow(2, nb); pos++; nb += 8; }
 				const v = acc % Math.pow(2, w); acc = Math.floor(acc / Math.pow(2, w)); nb -= w;
 				if (o < n) out[o++] = v;
 			}
@@ -203,7 +216,9 @@ async function decodeChunk(buf, cm, leaf, rows) {
 		const tr = new TReader(buf, pos);
 		const ph = tr.struct({ 5: (r) => r.struct(), 7: (r) => r.struct(), 8: (r) => r.struct() });
 		const kind = ph[1], uncSize = ph[2], compSize = ph[3];
+		if (!(compSize >= 0) || !(uncSize >= 0)) throw new Error("parquet: page header with negative size (corrupt file)");
 		const bodyStart = tr.pos; pos = bodyStart + compSize;
+		if (pos > buf.length) throw new Error(`parquet: page body (${compSize} B) runs past its column chunk (${buf.length - bodyStart} B left; corrupt or truncated)`);
 		if (kind === 2) {   // DICTIONARY_PAGE
 			const body = await decompress(buf.subarray(bodyStart, pos), codec, uncSize);
 			dict = decodePlain(body, 0, leaf.type, ph[7][1], leaf.typeLength).out;

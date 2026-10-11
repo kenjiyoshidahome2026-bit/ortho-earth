@@ -1,15 +1,20 @@
 import { isBlob, isObject } from "./utility.js";
 import { fname2mime } from "./fname2mime.js";
 
+// 展開の上限（2026-10-11・安全既定）: 1 エントリの伸長後サイズ。細工された zip（宣言 1 KB・実体 数 GB の「zip 爆弾」）が
+// メモリを食い尽くす前に止める。展開は宣言サイズ（中央ディレクトリの uSiz）を越えた時点でも止める。{ maxEntrySize } で変更可
+export const MAX_ENTRY_SIZE = 4 * 1024 * 1024 * 1024;   // 4 GiB（zip64 無しの上限と同じ・ブラウザの Blob は実質その手前で尽きる）
+
 export async function decodeZIP(source, target = null, encoding = null) {
 	let eventTarget = (typeof window !== 'undefined' ? window : (typeof self !== 'undefined' ? self : null));
 	const event = (type, detail) => eventTarget && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
 
-	let passedTotalLength = 0;
+	let passedTotalLength = 0, maxEntrySize = MAX_ENTRY_SIZE;
 	if (isObject(target)) {
 		encoding = target.encoding || encoding;
 		eventTarget = target.eventTarget || eventTarget;
 		if (target.totalLength) passedTotalLength = target.totalLength;
+		if (target.maxEntrySize > 0) maxEntrySize = target.maxEntrySize;
 		target = target.target;
 	}
 
@@ -92,6 +97,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		const count = ev.getUint16(p + 10, true);
 		const cdSize = ev.getUint32(p + 12, true);
 		const cdOff = ev.getUint32(p + 16, true);
+		if (cdOff + cdSize > totalLength) throw new Error(`Invalid ZIP: central directory (${cdOff}+${cdSize}) runs past the end of the file (${totalLength})`);
 
 		const cd = await read(cdOff, cdSize);
 		const cv = new DataView(cd.buffer);
@@ -100,6 +106,7 @@ export async function decodeZIP(source, target = null, encoding = null) {
 		// 名前のデコーダは 2 本だけ用意（旧＝エントリごとに new TextDecoder、しかも `encoding || (flags & 0x0800) ? …` の優先順位で encoding 指定が常に utf-8 になっていた・2026-09-15）
 		const decUtf8 = new TextDecoder("utf-8"), decOther = new TextDecoder(encoding || "shift-jis");   // bit 11（UTF-8 フラグ）> encoding 引数 > shift-jis
 		for (let i = 0, off = 0; i < count; i++) {
+			if (off + 46 > cd.length) throw new Error(`Invalid ZIP: central directory entry ${i} is truncated`);
 			const flags = cv.getUint16(off + 8, true), meth = cv.getUint16(off + 10, true);
 			const time = cv.getUint16(off + 12, true), date = cv.getUint16(off + 14, true);
 			const crc = cv.getUint32(off + 16, true), cSiz = cv.getUint32(off + 20, true), uSiz = cv.getUint32(off + 24, true);
@@ -129,12 +136,18 @@ export async function decodeZIP(source, target = null, encoding = null) {
 				const eLen = hv.getUint16(28, true);
 				const dataOff = loc + 30 + nLen + eLen;
 
+				if (uSiz > maxEntrySize) throw new Error(`${name}: declared size ${uSiz} B exceeds the limit (${maxEntrySize} B)`);
+				if (dataOff + cSiz > totalLength) throw new Error(`${name}: compressed data runs past the end of the file`);
 				const data = await read(dataOff, cSiz, name, uSiz);
 
 				let resBlob;
 				if (meth) {
 					const ds = new DecompressionStream("deflate-raw");
-					const stream = new Response(data).body.pipeThrough(ds);
+					// 伸長の上限＝宣言サイズ（zip64 の印 0xFFFFFFFF の時は maxEntrySize）。越えたら途中で止める＝zip 爆弾がメモリを食い尽くす前に落とす
+					const limit = (uSiz && uSiz !== 0xFFFFFFFF) ? uSiz : maxEntrySize;
+					let got = 0;
+					const guard = new TransformStream({ transform(chunk, ctl) { got += chunk.byteLength; if (got > limit) throw new Error(`${name}: inflates past its declared size (${limit} B); refusing to continue`); ctl.enqueue(chunk); } });
+					const stream = new Response(data).body.pipeThrough(ds).pipeThrough(guard);
 					resBlob = await new Response(stream).blob();
 				} else {
 					resBlob = new Blob([data]);
