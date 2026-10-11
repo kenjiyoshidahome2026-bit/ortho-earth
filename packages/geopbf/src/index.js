@@ -20,6 +20,9 @@ import { decodeZIP } from "./modules/decodeZIP.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
 import { prewarmWorkers } from "./modules/workerPool.js";
 
+// Worker を作る（ホストの入口 → geopbf 自身の入口）。Worker 自体が無い環境（Node の main スレッド）は null＝呼び手が main スレッドの道へ落とす
+const spawnWorkerOrNull = role => { try { return spawnWorker(role, () => builtinWorker(role)); } catch (e) { if (typeof Worker === "undefined") return null; throw e; } };
+
 // prototype メソッドとレガシー geopbf が使うアクティブインスタンス
 let _activeGetServer = null;
 let _activeGeopbf   = null;
@@ -115,6 +118,7 @@ export function createGeopbf(apiBase, options = {}) {
     _activeGetServer = getServer;
 
     const geopbfFn = async function geopbf(data, opts = {}) { if (isString(opts)) opts = { name: opts };
+        if (options.worker === false && opts.worker === undefined) opts.worker = false;   // この入口の worker:false を各インスタンスへ（2026-10-11）
         // 相対パス（"/data/x.gpx" "./x.geojson" "../y.zip"）＝自サイトの URL。旧＝bucket 名と誤認して api/bucket/GIS/pbf//data/… を取りに行き
         // 404→0 件を黙って返した（2026-09-10 SDK ドッグフード）。ブラウザなら location 基準で絶対 URL へ。
         if (isString(data) && /^\.{0,2}\//.test(data) && typeof location !== "undefined") data = new URL(data, location.href).href;
@@ -132,8 +136,8 @@ export function createGeopbf(apiBase, options = {}) {
             const params = { file, name, precision, encoding, description, license, attribution, ...extra };
             const event = `convrsion from ${type} to GeoPBF`;
             throwEvent("ConvertStart",{name, event});
-            const w = DECODERS.has(type) ? spawnWorker(`decoder:${type}`, () => builtinWorker(`decoder:${type}`)) : null;   // ホストの入口が勝つ（setWorkerFactory）
-            if (!w) return null;   // ホストの factory が役割を断った（旧＝スコープ外の resolve で ReferenceError・B9b）
+            const w = DECODERS.has(type) ? spawnWorkerOrNull(`decoder:${type}`) : null;   // ホストの入口が勝つ（setWorkerFactory）
+            if (!w) { throwEvent("ConvertEnd", { name, error: `no worker for [${type}]` }); throw new Error(`geopbf: decoding ${type} needs a Worker (none in this environment; in Node use the CLI or the converters under geopbf/convert)`); }   // 旧＝黙って null＝空 pbf
             return new Promise(resolve => {
                 w.onmessage = async e => {
                     if (e.data?.type === 'progress') {
@@ -295,8 +299,8 @@ const encoder = async (pbf, type, opts = {}) => {
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     opts.message == false || throwEvent("ConvertStart", { name, event });
-    const w = ENCODERS.has(type) ? spawnWorker(`encoder:${type}`, () => builtinWorker(`encoder:${type}`)) : null;
-    if (!w) return null;
+    const w = ENCODERS.has(type) ? spawnWorkerOrNull(`encoder:${type}`) : null;
+    if (!w) return null;   // Worker が作れない（Node の main 等）＝null＝gint() は main スレッドの topology へ落ちる
     return new Promise(resolve => {
         w.onmessage = e => {
             opts.message == false || throwEvent("ConvertEnd", { name, event });
@@ -317,7 +321,8 @@ const methods = {
         else if (isObject(canvas)) { props = canvas; canvas = null; }
         const offscreen = canvas || null;
         const buf = this.arrayBuffer, name = this._name;
-        const w = spawnWorker("encoder:preview", () => builtinWorker("encoder:preview"));
+        const w = spawnWorkerOrNull("encoder:preview");
+        if (!w) return null;   // 旧＝factory が拒んだ・Worker が無い時に null を参照して落ちた
         const transferables = offscreen ? [buf, offscreen] : [buf];
         const bitmap = await new Promise(resolve => {
             w.onmessage = e => { w.terminate(); resolve(e.data); };

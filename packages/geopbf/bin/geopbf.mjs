@@ -3,7 +3,8 @@
 //
 // 依存はこのパッケージ自身と Node 組み込みのみ（pbf は geopbf の既存依存・圧縮は node:zlib）。
 // Worker と DOM を使う src/index.js は通さず、Node でそのまま動く pbf-base / extension/gint を直に叩く。
-// ImageData は pbf-base のエンコード経路が参照するが Node に無いので、tests/t-loaders.mjs と同じ手で補う。
+// ImageData は Node に無い。エンコード側は pbf-base が存在を見てから使う（1.19〜）ので、ここで補うのは IMAGE 型（型 11）の値が
+// 入ったファイルを読み戻す時（readValue の image()）の器だけ。
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";

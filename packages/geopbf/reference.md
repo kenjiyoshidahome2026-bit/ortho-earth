@@ -32,6 +32,8 @@ Creates a new GeoPBF instance.
 
 ### `await pbf.set(data)`
 Loads data into the instance. Supports GeoJSON objects, ArrayBuffers, or TypedArrays.
+* **ArrayBuffer ownership.** When a decoder worker is wired (after `createGeopbf()` in a browser), the buffer is **transferred** to the worker and the caller's `ArrayBuffer` becomes detached (`byteLength === 0`). Pass `buf.slice(0)` if you still need it. On the main-thread path (`{ worker: false }`, or Node where no `Worker` exists) the buffer is used in place and stays readable.
+* **`options.worker`** (Boolean, constructor): `false` decodes `set(ArrayBuffer)` and `setGintBUF()` on the calling thread for this instance even when `createGeopbf()` has wired workers. `createGeopbf(apiBase, { worker: false })` passes it to every instance it creates. In Node (no global `Worker`) the main-thread path is used automatically.
 
 ### `pbf.geojson` (Getter)
 Returns the entire dataset as a GeoJSON `FeatureCollection`.
