@@ -3287,6 +3287,12 @@ map.addColumnar = async (src, o = {}) => {
 	const m = await import("@ortho-earth/columnar");
 	return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 };
+// H3 のセル（@ortho-earth/h3・deck.gl 差分 PR-2・2026-10-11）：map.addH3(cells | points, { id, res, weight, paint, extrude, outline }) → 手綱（setData/setPaint/setRes/remove）。
+// セル id → 面・点 → セルへの集約（count/sum/mean/min/max）を GeoJSON にして addSource/addLayer（fill か fill-extrusion）へ＝描画・当たりは既存の層経路。本体（h3-js）は遅延 import
+map.addH3 = async (src, o = {}) => {
+	const m = await import("@ortho-earth/h3");
+	return m.createH3Layer(map, src, { evalExpr, ...o });
+};
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
 map.gadget("anno", async function (pbf) {
