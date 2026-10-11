@@ -1,0 +1,129 @@
+<!doctype html>
+<!-- WebGPU gint の分割送り（geopbf 改良点 ⑤・2026-10-12）＝group(2) テクスチャを 2D 配列（層ごと TEX_LAYER_H 行）で送る経路の実機検定。
+     ① gint.js の uploadTexArrU32（本物）で arc/meta/pt/ptMeta を層高 2・3・4096 で載せ、gintwgsl.js の本物のアクセサ（arcAt/metaAt/ptAt/ptMetaAt＝
+        線系 HEADER と点の原本から切り出し）を compute で全添字なめて読み戻し＝raw と bit 一致（層・行・列の添字がアクセサと送りで合う）
+     ② 同じ切り出しを toStorageWGSL に掛けた storage 版も同じ値（両経路の等価）
+     ③ 線・stencil・点＋切る派生の 6 本を withLayerH(2) とその storage 版でコンパイル（エラー 0）
+     ④ renderer と同じ requiredLimits（アダプタの実力値）で device が立つ＝storage の binding 上限が既定 128 MiB から上がる
+     renderer を起こさない（createRendererGPU 直叩きの頁はソフトウェア WebGPU＝swiftshader で device が落ちる＝器の CI でも回る軽い門）。
+     絵の一致（実 GPU）は t-gintgpu?gintlh=16／?gintsb=0&gintlh=16 が見る。⚠実時間専用（verify-webgpu.mjs が回す・noBoot） -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-gintlayers</title></head>
+<body>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+window.__t = t;
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const { uploadTexArrU32, texLayerWrites } = await import("../../../packages/ortho-core/src/gpu/gint.js");
+	const G = await import("../../../packages/ortho-core/src/gpu/gintwgsl.js");
+	const adapter = await navigator.gpu.requestAdapter();
+	const AL = adapter.limits;
+	// ④ renderer.js createRendererGPU と同じ要求（maxTextureDimension2D／maxStorageBufferBindingSize／maxBufferSize＝アダプタの実力値）
+	const device = await adapter.requestDevice({ requiredLimits: { maxTextureDimension2D: AL.maxTextureDimension2D || 8192,
+		...(AL.maxStorageBufferBindingSize ? { maxStorageBufferBindingSize: AL.maxStorageBufferBindingSize } : {}), ...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}) } });
+	const DL = device.limits;
+	ok(`④ device の上限＝アダプタの実力値（storage binding ${DL.maxStorageBufferBindingSize >>> 20} MiB・buffer ${DL.maxBufferSize >>> 20} MiB・tex2D ${DL.maxTextureDimension2D}・層 ${DL.maxTextureArrayLayers}）`,
+		DL.maxStorageBufferBindingSize === AL.maxStorageBufferBindingSize && DL.maxBufferSize === AL.maxBufferSize && DL.maxStorageBufferBindingSize >= 128 * 1024 * 1024 && DL.maxTextureArrayLayers >= 256);
+	const errs = [];
+	device.addEventListener?.("uncapturederror", e => errs.push(e.error?.message || String(e.error)));
+	const compile = async (code, label) => {
+		const m = device.createShaderModule({ code });
+		const info = await m.getCompilationInfo();
+		const bad = (info.messages || []).filter(x => x.type === "error").map(x => `${label} ${x.lineNum}:${x.linePos} ${x.message}`);
+		return { m, bad };
+	};
+	// ── 本物のアクセサを原本から切り出す（線系 HEADER＝arcAt/metaAt・点＝ptAt/ptMetaAt）＝検定用シェーダに貼る（同じ字面＝toStorageWGSL も掛かる）
+	const cut = (src, re) => { const m = src.match(re); if (!m) throw new Error("accessor not found: " + re); return m[0]; };
+	const ACC_LINE = cut(G.GINT_LINE_WGSL, /@group\(2\) @binding\(0\) var arcTex: texture_2d_array<u32>;\n@group\(2\) @binding\(1\) var metaTex: texture_2d_array<u32>;[\s\S]*?fn metaAt\(edgeId: i32\) -> vec4u \{[\s\S]*?\n\}\n/);
+	const ACC_PT = cut(G.GINT_POINT_WGSL, /@group\(2\) @binding\(0\) var ptTex: texture_2d_array<u32>;\n@group\(2\) @binding\(1\) var ptMetaTex: texture_2d_array<u32>;[\s\S]*?fn ptMetaAt\(ptId: i32\) -> u32 \{[\s\S]*?\n\}\n/);
+	const stripG3 = s => s.replace(/@group\(3\)[^\n]*\n/g, "");   // 点の原本は group(3) の fidTex 宣言を挟む＝検定では要らない
+	const W = 4096;
+	const probe = (acc, isPt) => /* wgsl */`
+struct GF { texw: vec2i, n: u32, pad: u32 };
+@group(0) @binding(0) var<uniform> F: GF;
+${stripG3(acc)}
+@group(3) @binding(0) var<storage, read_write> outA: array<vec4u>;
+@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3u) {
+	let i = g.x; if (i >= F.n) { return; }
+	${isPt ? "let a = ptAt(i32(i)); let b = ptMetaAt(i32(i)); outA[i] = vec4u(a.x, a.y, b, 0u);" : "let a = arcAt(i); let b = metaAt(i32(i)); outA[i] = vec4u(a.x, a.y, b.x ^ b.y, b.z ^ b.w);"}
+}`;
+	const hash = i => (Math.imul(i + 1, 2654435761) ^ 0x9E3779B9) >>> 0;
+	const bglF = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: {} }] });
+	const bglE = device.createBindGroupLayout({ entries: [] });
+	const bglT = device.createBindGroupLayout({ entries: [0, 1].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, texture: { sampleType: "uint", viewDimension: "2d-array" } })) });
+	const bglB = device.createBindGroupLayout({ entries: [0, 1].map(binding => ({ binding, visibility: GPUShaderStage.COMPUTE, buffer: { type: "read-only-storage" } })) });
+	const bglO = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: "storage" } }] });
+	const run = async (code, sb, N, texA, texB, bufA, bufB) => {
+		const { m, bad } = await compile(code, sb ? "storage" : "texture"); if (bad.length) throw new Error(bad.join("; "));
+		const pipe = await device.createComputePipelineAsync({ layout: device.createPipelineLayout({ bindGroupLayouts: [bglF, bglE, sb ? bglB : bglT, bglO] }), compute: { module: m, entryPoint: "main" } });
+		const u = device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
+		device.queue.writeBuffer(u, 0, new Int32Array([W, W, N, 0]));
+		const out = device.createBuffer({ size: N * 16, usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC });
+		const rd = device.createBuffer({ size: N * 16, usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ });
+		const bg2 = sb ? device.createBindGroup({ layout: bglB, entries: [{ binding: 0, resource: { buffer: bufA } }, { binding: 1, resource: { buffer: bufB } }] })
+			: device.createBindGroup({ layout: bglT, entries: [{ binding: 0, resource: texA.createView({ dimension: "2d-array" }) }, { binding: 1, resource: texB.createView({ dimension: "2d-array" }) }] });
+		const enc = device.createCommandEncoder();
+		const pass = enc.beginComputePass();
+		pass.setPipeline(pipe);
+		pass.setBindGroup(0, device.createBindGroup({ layout: bglF, entries: [{ binding: 0, resource: { buffer: u } }] }));
+		pass.setBindGroup(1, device.createBindGroup({ layout: bglE, entries: [] }));
+		pass.setBindGroup(2, bg2);
+		pass.setBindGroup(3, device.createBindGroup({ layout: bglO, entries: [{ binding: 0, resource: { buffer: out } }] }));
+		pass.dispatchWorkgroups(Math.ceil(N / 64));
+		pass.end();
+		enc.copyBufferToBuffer(out, 0, rd, 0, N * 16);
+		device.queue.submit([enc.finish()]);
+		await rd.mapAsync(GPUMapMode.READ);
+		const r = new Uint32Array(rd.getMappedRange()).slice();
+		rd.unmap(); rd.destroy(); out.destroy(); u.destroy();
+		return r;
+	};
+	const sbuf = raw => { const b = device.createBuffer({ size: Math.max(4, raw.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(b, 0, raw); return b; };
+	// ① ② 層高 2（複数層・tail 行あり）・3（2 の冪でない）・4096（本番既定＝1 層）
+	const N = W * 5 + 7;   // texel 数＝6 行（層高 2 で 3 層・最後の行は半端）
+	for (const LH of [2, 3, 4096]) {
+		const arc = Uint32Array.from({ length: N * 2 }, (_, i) => hash(i)), meta = Uint32Array.from({ length: N * 4 }, (_, i) => hash(i + 7777777));
+		const pt = Uint32Array.from({ length: N * 2 }, (_, i) => hash(i + 333)), ptMeta = Uint32Array.from({ length: N }, (_, i) => hash(i + 999));
+		// 本番の送り（uploadTexArrU32）＝meta は minTexels（複製行）も踏む
+		device.pushErrorScope("validation");
+		const arcTex = uploadTexArrU32(device, arc, W, "rg32uint", 2, LH), metaTex = uploadTexArrU32(device, meta, W, "rgba32uint", 4, LH, N + 3);
+		const ptTex = uploadTexArrU32(device, pt, W, "rg32uint", 2, LH), ptMetaTex = uploadTexArrU32(device, ptMeta, W, "r32uint", 1, LH);
+		const ve = await device.popErrorScope();
+		const plan = texLayerWrites(arc.length, 2, W, LH);
+		ok(`層高${LH}: 送りの検証エラー 0（arc ${arcTex.depthOrArrayLayers}層×${arcTex.height}行・計画 ${plan.layers}層 ${plan.writes.length}回）${ve ? "（" + ve.message.slice(0, 100) + "）" : ""}`,
+			!ve && arcTex.depthOrArrayLayers === plan.layers && arcTex.height === plan.h && (LH === 4096 ? plan.layers === 1 : plan.layers === Math.ceil(6 / LH)));
+		const lineAcc = G.withLayerH(probe(ACC_LINE, false), LH), ptAcc = G.withLayerH(probe(ACC_PT, true), LH);
+		const check = (r, want) => { let bad = 0, first = -1; for (let i = 0; i < want.length; i++) if (r[i] !== want[i]) { if (first < 0) first = i; bad++; } return { bad, first }; };
+		const wantLine = new Uint32Array(N * 4), wantPt = new Uint32Array(N * 4);
+		for (let i = 0; i < N; i++) { wantLine[i * 4] = arc[i * 2]; wantLine[i * 4 + 1] = arc[i * 2 + 1]; wantLine[i * 4 + 2] = (meta[i * 4] ^ meta[i * 4 + 1]) >>> 0; wantLine[i * 4 + 3] = (meta[i * 4 + 2] ^ meta[i * 4 + 3]) >>> 0;
+			wantPt[i * 4] = pt[i * 2]; wantPt[i * 4 + 1] = pt[i * 2 + 1]; wantPt[i * 4 + 2] = ptMeta[i]; wantPt[i * 4 + 3] = 0; }
+		for (const [label, code, want, ta, tb, ba, bb] of [["arc/meta", lineAcc, wantLine, arcTex, metaTex, arc, meta], ["pt/ptMeta", ptAcc, wantPt, ptTex, ptMetaTex, pt, ptMeta]]) {
+			const rt = check(await run(code, false, N, ta, tb), want);
+			ok(`① 層高${LH} ${label}: テクスチャ経路（2D 配列）の読み＝raw と一致（${N} texel・不一致 ${rt.bad}${rt.first >= 0 ? " 最初=" + (rt.first >> 2) : ""}）`, rt.bad === 0);
+			if (LH === 2) {   // ② storage 版（toStorageWGSL を同じ切り出しに掛ける＝本番と同じ変換）
+				const sA = sbuf(ba), sB = sbuf(bb);
+				const rs = check(await run(G.toStorageWGSL(code), true, N, null, null, sA, sB), want);
+				ok(`② ${label}: storage 経路（toStorageWGSL）の読み＝同じ値（不一致 ${rs.bad}）`, rs.bad === 0);
+				sA.destroy(); sB.destroy();
+			}
+		}
+		for (const x of [arcTex, metaTex, ptTex, ptMetaTex]) x.destroy();
+	}
+	// ③ 本番の 6 本＝withLayerH(2) とその storage 版がコンパイルを通る（t-wgsl は既定 4096 の版を見る）
+	{
+		const bad = [];
+		for (const k of ["GINT_LINE_WGSL", "GINT_STENCIL_WGSL", "GINT_POINT_WGSL", "GINT_LINE_CLIP_WGSL", "GINT_STENCIL_CLIP_WGSL", "GINT_POINT_CLIP_WGSL"]) {
+			const src = G.withLayerH(G[k], 2);
+			bad.push(...(await compile(src, k + "(lh2)")).bad, ...(await compile(G.toStorageWGSL(src), k + "(lh2,storage)")).bad);
+		}
+		ok(`③ 本番シェーダ 6 本×2 経路が層高 2 でコンパイル${bad.length ? "（" + bad.slice(0, 3).join("; ").slice(0, 300) + "）" : ""}`, bad.length === 0);
+	}
+	await device.queue.onSubmittedWorkDone();
+	await new Promise(r => setTimeout(r, 50));
+	ok(`uncaptured エラー 0（${errs.length}）${errs.length ? " " + errs[0].slice(0, 120) : ""}`, errs.length === 0);
+	}
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

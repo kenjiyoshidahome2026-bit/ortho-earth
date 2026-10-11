@@ -27,7 +27,8 @@ try {
 	const canvas = document.getElementById("g");
 	const r = await createRendererGPU(canvas);
 	const noSB = /[?&]gintsb=0/.test(location.search);   // verify が両経路を回す（既定=storage・?gintsb=0=テクスチャ）
-	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB });
+	const layerH = +(location.search.match(/[?&]gintlh=(\d+)/)?.[1] || 0);   // 2D 配列の層の高さ（分割送り・改良点 ⑤）＝小さくして複数層を踏む
+	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB, layerH });
 	ok("boot(webgpu+gint)", !!r.device);
 	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
 	const rctx = rd.getContext("2d", { willReadFrequently: true });
@@ -165,6 +166,9 @@ try {
 		let px = 0;   // style1（折れ線 #00B4D8＝シアン系）
 		for (let i = 0; i < a8.length; i += 4) if (a8[i + 2] > 150 && a8[i] < 130) px++;
 		ok(`大データtier描画(px=${px})`, px > 50);
+		// 分割送りの検札：?gintlh=N＝層 N 行の 2D 配列＝250k 頂点（4096 幅で 62 行）が複数層に跨って同じ絵（?gintsb=0 で描画もその層から読む）
+		if (layerH) ok(`2D配列の層(${gint.stats().layers}層・層高${gint.stats().layerH})`, gint.stats().layers > 1 && gint.stats().layerH === layerH);
+		else ok(`2D配列1層(${gint.stats().layers})`, gint.stats().layers === 1);
 	}
 
 	// ── ⑤ overlay：stencil-then-cover 塗り（純赤の正方形ポリゴン）＝面パスの検定 ──

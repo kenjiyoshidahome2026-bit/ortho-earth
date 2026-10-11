@@ -118,9 +118,15 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// maxTextureDimension2D＝既定8192のままだと、縦長ウィンドウ×高dpr（ブラウザ拡大率等）でスワップチェイン/
 	// 画面サイズ従属テクスチャ（gint idTex 等）が上限超えで即死する（実測 2026-09-02: 2042x9677）。アダプタの
 	// 実力値（Apple系=16384）をそのまま要求＝タダで倍の頭上空間。適用失敗の互換性リスクはアダプタ自己申告値ゆえ無い
+	// maxStorageBufferBindingSize／maxBufferSize も同じ理由でアダプタの実力値（既定 128 MiB＝gint の storage 経路が 16M 頂点で
+	// テクスチャ経路へ落ちる壁。Apple/Windows の実力値は GiB 級＝そのまま storage で描ける。swiftshader 等は既定のまま）。
+	// 超える層は gint.js が 2D 配列テクスチャ（分割送り）で受ける＝どちらにも天井が無い（2026-10-12・geopbf 改良点 ⑤）
+	const AL = adapter.limits || {};
 	const device = await adapter.requestDevice({
 		...(reqFeats.length ? { requiredFeatures: reqFeats } : {}),
-		requiredLimits: { maxTextureDimension2D: adapter.limits?.maxTextureDimension2D || 8192 },
+		requiredLimits: { maxTextureDimension2D: AL.maxTextureDimension2D || 8192,
+			...(AL.maxStorageBufferBindingSize ? { maxStorageBufferBindingSize: AL.maxStorageBufferBindingSize } : {}),
+			...(AL.maxBufferSize ? { maxBufferSize: AL.maxBufferSize } : {}) },
 	});
 	const ctx = canvas.getContext("webgpu");
 	if (!ctx) throw new Error("webgpu context unavailable");

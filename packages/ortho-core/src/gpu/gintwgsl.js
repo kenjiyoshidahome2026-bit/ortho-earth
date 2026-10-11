@@ -50,12 +50,23 @@ struct GP {
 // 線・stencil 系の共有ヘッダ（GLSL_VS_HEADER の移植）。group(2)=arc+meta、group(3)=pivot/fidStyle/標高。
 const HEADER = /* wgsl */`
 ${GF}
-@group(2) @binding(0) var arcTex: texture_2d<u32>;
-@group(2) @binding(1) var metaTex: texture_2d<u32>;
+@group(2) @binding(0) var arcTex: texture_2d_array<u32>;
+@group(2) @binding(1) var metaTex: texture_2d_array<u32>;
 @group(3) @binding(0) var pivotTex: texture_2d<u32>;
 @group(3) @binding(1) var fidTex: texture_2d<u32>;
 @group(3) @binding(2) var elevTex: texture_2d<f32>;
 @group(3) @binding(3) var elevSamp: sampler;
+// group(2) の読み＝層ごと TEX_LAYER_H 行の 2D 配列（gint.js texArrU32 と対・分割送り＝1 枚 268 MB の壁を外す）。
+// 線形添字 → (x, y, layer)。storage 経路は toStorageWGSL がこの 2 関数の本体だけを添字 1 回に書き換える
+const TEX_LAYER_H: i32 = 4096;
+fn arcAt(idx: u32) -> vec2u {
+	let r = i32(idx) / F.texw.x;
+	return textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, r % TEX_LAYER_H), r / TEX_LAYER_H, 0).rg;
+}
+fn metaAt(edgeId: i32) -> vec4u {
+	let r = edgeId / F.texw.y;
+	return textureLoad(metaTex, vec2i(edgeId % F.texw.y, r % TEX_LAYER_H), r / TEX_LAYER_H, 0);
+}
 const D2R: f32 = 0.017453292519943295;
 // 標高（renderer と同式＝基図の線/塗りと同じドレープ＝重ねてズレない）
 fn elevAt(ll: vec2f) -> f32 {
@@ -133,8 +144,7 @@ fn dlonE7(a: u32, b: u32) -> f32 {
 }
 // gint 整数 → 原点相対 delta (deg)
 fn decodeDLL(idx: u32) -> vec2f {
-	let tc = vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x);
-	let px = textureLoad(arcTex, tc, 0);
+	let px = arcAt(idx);
 	let lo = px.r; let hi = px.g;
 	let lo_c = select(lo & 0xFFFFFFC0u, lo, (hi >> 31u) != 0u);
 	let hi_c = hi & 0x7FFFFFFFu;
@@ -148,7 +158,7 @@ fn decodeRel(idx: u32) -> vec3f {
 }
 // 縫い目上の頂点か（ix が ±180 ちょうど）＝切断の痕。両端が縫い目上の辺は線パスで描かない（GL onSeam と同じ・9/15）
 fn onSeam(idx: u32) -> bool {
-	let px = textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x), 0);
+	let px = arcAt(idx);
 	let lo = px.r; let hi = px.g;
 	let lo_c = select(lo & 0xFFFFFFC0u, lo, (hi >> 31u) != 0u);
 	let ix = (compact16(hi & 0x7FFFFFFFu) << 16u) | compact16(lo_c);
@@ -293,11 +303,11 @@ fn toNDC(p: vec2f) -> vec4f {
 	return vec4f(2.0 * p.x / F.viewport.x - 1.0, 1.0 - 2.0 * p.y / F.viewport.y, 0.0, 1.0);
 }
 fn fetchEdgeMeta(edgeId: i32) -> vec4u {
-	return textureLoad(metaTex, vec2i(edgeId % F.texw.y, edgeId / F.texw.y), 0);
+	return metaAt(edgeId);
 }
 // gint 整数 (ix, iy)（decodeDLL と同じ展開・整数のまま）と辺スパン（e7・経度は 360e7 周期の最短側）＝bake の細分バケット分類と厳密同値
 fn decodeIXY(idx: u32) -> vec2u {
-	let px = textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x), 0);
+	let px = arcAt(idx);
 	let lo = px.r; let hi = px.g;
 	let loC = select(lo & 0xFFFFFFC0u, lo, (hi >> 31u) != 0u);
 	let hiC = hi & 0x7FFFFFFFu;
@@ -311,7 +321,7 @@ fn spanE7(a: u32, b: u32) -> u32 {
 }
 // 頂点の VW rank（terminal=63 常時保持、他は低6bit）
 fn fetchRank(idx: u32) -> u32 {
-	let px = textureLoad(arcTex, vec2i(i32(idx) % F.texw.x, i32(idx) / F.texw.x), 0);
+	let px = arcAt(idx);
 	return select(px.r & 0x3Fu, 63u, (px.g >> 31u) != 0u);
 }
 fn fetchFidBbox(fid: u32) -> vec4u {
@@ -674,9 +684,18 @@ struct FOut { @builtin(position) pos: vec4f };
 // group(2) を (ptTex, ptMetaTex) として使う（線系と同じレイアウト＝bind group 差し替えだけ）。
 export const GINT_POINT_WGSL = /* wgsl */`
 ${GF}
-@group(2) @binding(0) var ptTex: texture_2d<u32>;
-@group(2) @binding(1) var ptMetaTex: texture_2d<u32>;
+@group(2) @binding(0) var ptTex: texture_2d_array<u32>;
+@group(2) @binding(1) var ptMetaTex: texture_2d_array<u32>;
 @group(3) @binding(1) var fidTex: texture_2d<u32>;   // fid スタイル表（線系と同じ group(3) スロット＝aux bind group を共有）
+const TEX_LAYER_H: i32 = 4096;   // 線系 HEADER と同じ（2D 配列の層の高さ）
+fn ptAt(ptId: i32) -> vec2u {
+	let r = ptId / F.texw.x;
+	return textureLoad(ptTex, vec2i(ptId % F.texw.x, r % TEX_LAYER_H), r / TEX_LAYER_H, 0).rg;
+}
+fn ptMetaAt(ptId: i32) -> u32 {
+	let r = ptId / F.texw.x;
+	return textureLoad(ptMetaTex, vec2i(ptId % F.texw.x, r % TEX_LAYER_H), r / TEX_LAYER_H, 0).r;
+}
 const D2R: f32 = 0.017453292519943295;
 fn sinP(x: f32) -> f32 {
 	let x2 = x * x;
@@ -717,8 +736,7 @@ fn dlonE7(a: u32, b: u32) -> f32 {
 }
 struct Pt { xy: vec2f, zr: f32 };
 fn fetchPoint(ptId: i32) -> Pt {
-	let tc = vec2i(ptId % F.texw.x, ptId / F.texw.x);
-	let px = textureLoad(ptTex, tc, 0);
+	let px = ptAt(ptId);
 	let hi_c = px.g & 0x7FFFFFFFu;
 	let ix = (compact16(hi_c) << 16u) | compact16(px.r);
 	let iy = (compact16(hi_c >> 1u) << 16u) | compact16(px.r >> 1u);
@@ -767,8 +785,7 @@ struct POut {
 	let p = fetchPoint(ptId);
 	o.zr = p.zr;
 	o.uv = vec2f(ox, oy);
-	let tc = vec2i(ptId % F.texw.x, ptId / F.texw.x);
-	let featId = i32(textureLoad(ptMetaTex, tc, 0).r);
+	let featId = i32(ptMetaAt(ptId));
 	let fs = fidPointStyle(featId, P.a.z);
 	if (!fs.keep) { return o; }   // per-fid：非表示/半径0＝棄却（o.pos=0 の縮退）
 	let isActive = featId == P.b.x;
@@ -799,8 +816,7 @@ struct POut {
 	let p = fetchPoint(ptId);
 	o.zr = p.zr;
 	o.uv = vec2f(ox, oy);
-	let tc = vec2i(ptId % F.texw.x, ptId / F.texw.x);
-	let fid1 = textureLoad(ptMetaTex, tc, 0).r + 1u;
+	let fid1 = ptMetaAt(ptId) + 1u;
 	let fs = fidPointStyle(i32(fid1 - 1u), P.a.z);
 	if (!fs.keep) { return o; }   // filter 非表示の点は pick からも外す（線と同じ）
 	let r = max(fs.r + fs.sw, P.a.z);   // pick 半径＝max(表の半径＋縁, マージン)
@@ -826,33 +842,37 @@ struct POut {
 export function toStorageWGSL(code) {
 	const R = [
 		// 宣言（line/stencil 用と point 用は同じ group(2) スロットを共有する）
-		[/@group\(2\) @binding\(0\) var arcTex: texture_2d<u32>;/,
+		[/@group\(2\) @binding\(0\) var arcTex: texture_2d_array<u32>;/,
 		 "@group(2) @binding(0) var<storage, read> arcBuf: array<vec2u>;"],
-		[/@group\(2\) @binding\(1\) var metaTex: texture_2d<u32>;/,
+		[/@group\(2\) @binding\(1\) var metaTex: texture_2d_array<u32>;/,
 		 "@group(2) @binding(1) var<storage, read> metaBuf: array<vec4u>;"],
-		[/@group\(2\) @binding\(0\) var ptTex: texture_2d<u32>;/,
+		[/@group\(2\) @binding\(0\) var ptTex: texture_2d_array<u32>;/,
 		 "@group(2) @binding(0) var<storage, read> ptBuf: array<vec2u>;"],
-		[/@group\(2\) @binding\(1\) var ptMetaTex: texture_2d<u32>;/,
+		[/@group\(2\) @binding\(1\) var ptMetaTex: texture_2d_array<u32>;/,
 		 "@group(2) @binding(1) var<storage, read> ptMetaBuf: array<u32>;"],
-		// アクセサ（tc の行ごと消す＝除算が無くなる）
-		[/\tlet tc = vec2i\(i32\(idx\) % F\.texw\.x, i32\(idx\) \/ F\.texw\.x\);\n\tlet px = textureLoad\(arcTex, tc, 0\);/,
-		 "\tlet px = arcBuf[idx];"],
-		[/textureLoad\(arcTex, vec2i\(i32\(idx\) % F\.texw\.x, i32\(idx\) \/ F\.texw\.x\), 0\)/g,
-		 "arcBuf[idx]"],
-		[/textureLoad\(metaTex, vec2i\(edgeId % F\.texw\.y, edgeId \/ F\.texw\.y\), 0\)/g,
-		 "metaBuf[u32(edgeId)]"],
-		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet px = textureLoad\(ptTex, tc, 0\);/,
-		 "\tlet px = ptBuf[u32(ptId)];"],
-		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet featId = i32\(textureLoad\(ptMetaTex, tc, 0\)\.r\);/,
-		 "\tlet featId = i32(ptMetaBuf[u32(ptId)]);"],
-		[/\tlet tc = vec2i\(ptId % F\.texw\.x, ptId \/ F\.texw\.x\);\n\tlet fid1 = textureLoad\(ptMetaTex, tc, 0\)\.r \+ 1u;/,
-		 "\tlet fid1 = ptMetaBuf[u32(ptId)] + 1u;"],
+		// アクセサ＝本体を添字 1 回に（(x,y,layer) の除算が無くなる。呼び手は原本のまま）
+		[/fn arcAt\(idx: u32\) -> vec2u \{\n\tlet r = i32\(idx\) \/ F\.texw\.x;\n\treturn textureLoad\(arcTex, [^\n]*\n\}/,
+		 "fn arcAt(idx: u32) -> vec2u {\n\treturn arcBuf[idx];\n}"],
+		[/fn metaAt\(edgeId: i32\) -> vec4u \{\n\tlet r = edgeId \/ F\.texw\.y;\n\treturn textureLoad\(metaTex, [^\n]*\n\}/,
+		 "fn metaAt(edgeId: i32) -> vec4u {\n\treturn metaBuf[u32(edgeId)];\n}"],
+		[/fn ptAt\(ptId: i32\) -> vec2u \{\n\tlet r = ptId \/ F\.texw\.x;\n\treturn textureLoad\(ptTex, [^\n]*\n\}/,
+		 "fn ptAt(ptId: i32) -> vec2u {\n\treturn ptBuf[u32(ptId)];\n}"],
+		[/fn ptMetaAt\(ptId: i32\) -> u32 \{\n\tlet r = ptId \/ F\.texw\.x;\n\treturn textureLoad\(ptMetaTex, [^\n]*\n\}/,
+		 "fn ptMetaAt(ptId: i32) -> u32 {\n\treturn ptMetaBuf[u32(ptId)];\n}"],
 	];
 	let out = code, hit = 0;
 	for (const [re, to] of R) { const before = out; out = out.replace(re, to); if (out !== before) hit++; }
 	// 変換漏れ＝テクスチャ宣言が消えたのに textureLoad が残る等は黙って壊れる（黒画面）＝必ず検札する
 	if (/textureLoad\((arcTex|metaTex|ptTex|ptMetaTex)/.test(out))
 		throw new Error("toStorageWGSL: 変換漏れ（textureLoad が残っている）＝原本の書式が変わった疑い");
+	return out;
+}
+
+// 2D 配列の層の高さを差し替える（検定用＝小さなデータで複数層を踏む・gint.js の layerH と対）。既定 4096 はそのまま
+export function withLayerH(code, h) {
+	if (!h || h === 4096) return code;
+	const out = code.replace(/const TEX_LAYER_H: i32 = 4096;/g, `const TEX_LAYER_H: i32 = ${h | 0};`);
+	if (out === code) throw new Error("withLayerH: TEX_LAYER_H not found = the source shader format changed");
 	return out;
 }
 
