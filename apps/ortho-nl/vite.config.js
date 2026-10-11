@@ -1,57 +1,21 @@
 import { defineConfig } from "vite";
-import { rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
+import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPublic } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // ortho-nl＝オランダ（3DBAG）の独立した入口。中身は ortho-japan と同じエンジン（../ortho-japan/app.js を直接 import）で、
 // 違うのは base(/nl/)・既定の視点・題字・出典・載せるガジェットだけ＝コードは二重化しない。
 // build はエンジン（globe・i18n・core・geopbf）を共有エンジンの版つき URL から読む（2026-09-30・LAYERS.md 掟 3）＝束に残るのは地域の申告と殻だけ。
 // publicDir も japan のものを共有（plateau-sets.json 等の実行時 fetch は import.meta.env.BASE_URL 前置＝/nl/ から引ける）。
 // COOP/COEP は japan と同条件（gint の SharedArrayBuffer＝ゼロコピーの点火条件。無くてもコピー経路で動く）。worker は ES module 形式。
-const coiHeaders = (server) => {
-	server.middlewares.use((_req, res, next) => {
-		res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
-		res.setHeader("Cross-Origin-Embedder-Policy", "credentialless");
-		next();
-	});
-};
-const crossOriginIsolation = {
-	name: "cross-origin-isolation",
-	configureServer: coiHeaders,
-	configurePreviewServer: coiHeaders,
-};
-// 本番CSSを render-blocking から外す（japan と同じ定石＝起動画面を先に描く）
-const asyncMainCss = {
-	name: "async-main-css",
-	enforce: "post",
-	transformIndexHtml(html) {
-		return html.replace(
-			/<link rel="stylesheet"([^>]*?)href="([^"]+)"([^>]*)>/g,
-			(_m, pre, href, post) =>
-				`<link rel="stylesheet"${pre}href="${href}"${post} media="print" onload="this.media='all'">` +
-				`<noscript><link rel="stylesheet"${pre}href="${href}"${post}></noscript>`,
-		);
-	},
-};
-
-// rolldown（vite 8）のチャンク最適化を切る（2026-09-25・world と同じ）。既定 on だと実行時ヘルパ __exportAll の共通チャンクが
-// 動的エントリ mesh-loaders に合流し、renderworker・gint・topology 等がヘルパ欲しさに mesh-loaders＋basis-loader（計 220KB）を
-// 静的 import する＝3D を使う前から worker ごとに読み込み・副作用（globalThis.probe）も走る（起動 4 秒の JS 1.5→2.1MB を実測）。
-// worker は別ビルド＝build と worker の両方に要る。experimental の口＝rolldown を上げたら静的 import が無いことを確かめ直す。
-const noChunkOptimization = { experimental: { chunkOptimization: false } };
-
-// japan の public を共有すると、実行時に読まない物まで出力に入る＝外す（2026-09-30・−4.6MB）。plateau-names.json＝台帳づくりの中間（japan も deploy で消す）・showcase＝www のデモが /japan/showcase を指す
-const dropUnusedPublic = {
-	name: "drop-unused-public",
-	apply: "build",
-	closeBundle() { for (const f of ["plateau-names.json", "showcase"]) rmSync(resolve(import.meta.dirname, "dist/site/nl", f), { recursive: true, force: true }); },
-};
+// japan の public を共有すると、実行時に読まない物まで出力に入る＝外す（dropUnusedPublic・2026-09-30・−4.6MB）。
+const OUT = resolve(import.meta.dirname, "dist/site/nl");
 
 export default defineConfig({
 	base: "/nl/",
 	publicDir: resolve(import.meta.dirname, "../ortho-japan/public"),
 	server: { port: 5188, fs: { allow: [resolve(import.meta.dirname, "..", "..")] } },   // root の外（../ortho-japan・packages）を dev で読ませる
-	build: { outDir: "dist/site/nl", emptyOutDir: true, rolldownOptions: noChunkOptimization },
+	build: { outDir: OUT, emptyOutDir: true, rolldownOptions: noChunkOptimization },
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
-	plugins: [crossOriginIsolation, sharedEngine(), asyncMainCss, dropUnusedPublic],
+	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, dropUnusedPublic(OUT, ["plateau-names.json", "showcase"])],
 });

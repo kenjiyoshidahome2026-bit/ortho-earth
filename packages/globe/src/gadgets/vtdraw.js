@@ -9,6 +9,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
 //   feature-state（#109・押し出し 8①b と同じ作法）＝置き場は呼び手（globe の vtxFS）・ここは読むだけ。状態が変わった地物を含むタイルに印（touchFS）＝そのタイルだけ組み直す。
 //         paint に ["feature-state"] がある層だけが読む（filter は読まない＝MapLibre と同じ）。タイルごとに「含む地物の id」（ids）を worker から受け取って持つ。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
@@ -38,20 +39,9 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const warned = new Set();
 	const warnOnce = (k, msg) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
 
-	// ── 組み役 worker（タイルの鍵で振る）──
-	const NB = lowMem ? 1 : 2, workers = [], waiting = new Map(); let rpcSeq = 0;
-	const workerOf = k => {
-		let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
-		const i = Math.abs(h) % NB;
-		if (!workers[i]) {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
-			w.onmessage = e => { const p = waiting.get(e.data.id); if (!p) return; waiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); };
-			w.onerror = e => console.error("[vtdraw] worker error", e.message);
-			workers[i] = w;
-		}
-		return { w: workers[i], i };
-	};
-	const rpc = (w, msg, transfer = []) => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); w.postMessage({ id, ...msg }, transfer); });
+	// ── 組み役 worker（タイルの鍵で振る＝lowMem は 1 本）──
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
+	const workerOf = pool.pick, rpc = pool.rpc;
 
 	// ── 結合役＝core の scene worker（md:false＝CPU 結合）。render worker への口の代わりに main が端を持つ ──
 	let merger = null;
@@ -379,9 +369,8 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			map.off("move", onMove); map.off("settle", onSettle);
 			clearTimeout(moveT); moveT = 0; if (rafU) { globalThis.cancelAnimationFrame?.(rafU); rafU = 0; }
 			clearTimeout(mg.timer);
-			for (const w of workers) w?.terminate();
+			pool.destroy();
 			if (merger) { merger.port.onmessage = null; merger.port.close(); merger.w.terminate(); merger = null; }
-			workers.length = 0; waiting.clear();
 		},
 	};
 	return ctl;
