@@ -371,6 +371,7 @@ fid が上限を超える層は地物ごとの塗りを失う。回避は「同�
 - ホバーの間引き `MOVE_THROTTLE_MS=32`（先頭＋末尾）。pick の余白 `12×dpr`（線＝幅＋余白・点＝`max(ptRadius, 余白/2)`・fid 別の幅は pick では見ない）
 - 強調：+2 device px（`hiliteWidth` があればそれ）・色 `hiliteColor` か黄・点は半径 ×1.6。マスク＝アクティブな面の外を α0.4 で暗く
 - `findPolygon` の smallest-wins と `identifyAt` の順序は §4.5
+- **格子索引（2026-10-12・geopbf 改良点 ⑧）**：`findPolygon`／線の `identifyAt` は geopbf `extension/hitgrid.js` の一様格子（層の bbox を √地物数 ×√地物数 の cell に割り、bbox が掛かる cell に fid を積む CSR。多くの cell に掛かる大物と縫い目跨ぎは「常に見る」側）で候補だけを照合する。索引は流れ（polyStream／lineStream の identity）ごとに一度だけ遅延で組み WeakMap に持つ＝render worker の `gintData` と main の `unPackGint` の両方で効く。答えは全走査と同じ（面＝候補のうち流れの位置が最大の物＝最小の地物、線＝位置が最小の物）。門＝geopbf `tests/t-hitgrid.mjs`（面 6,001 × 3,000 点・線 3,001 × 3,000 点で一致・速さ）
 
 ### 7.8 WebGPU の storage 経路（2026-09-09）
 
