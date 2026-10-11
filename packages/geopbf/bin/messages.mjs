@@ -40,13 +40,13 @@ const USAGE_EN = `geopbf <command>
        [--include a,b] [--exclude a,b] [--exclude-all]  attribute selection (like tippecanoe -y / -x / -X)
   parquet <in.geopbf> <out.parquet>  GeoPBF → GeoParquet (WKB, bbox column, gzip)
        [--compression zstd|gzip|none] [--row-group N] [--gpu | --no-gpu]   (default zstd = Node 22.15+, under half the size of gzip)
+       [--order str|hilbert|morton|none]  spatial row order (default str = non-overlapping row-group bboxes; none = input order)
+       [--no-bbox]                  skip the bbox covering column (half the size for points; loses predicate pushdown)
        [--include a,b] [--exclude a,b] [--exclude-all]  column selection
   parquet2pbf <in.parquet> <out.geopbf>  GeoParquet (WKB, lon/lat) → GeoPBF = the reverse; output of geopandas / DuckDB / pyarrow works too
        [--precision N]              coordinate digits (default = geopbf:precision or 6)
        [--name name] [--geometry col] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  column selection
-       [--order str|hilbert|morton|none]  spatial row order (default str = non-overlapping row-group bboxes; none = input order)
-       [--no-bbox]                  skip the bbox covering column (half the size for points; loses predicate pushdown)
   gpkg2pbf <in.gpkg> [out.geopbf]   one GeoPackage layer → GeoPBF (own SQLite reader, no GDAL, read-only). Omit out to list layers (features/tiles)
        [--layer name]               layer (table name or identifier; default = first feature layer)
        [--tky2jgd <file|url>]       TKY2JGD grid for Tokyo Datum layers (Helmert ±10 m without it)
@@ -75,6 +75,9 @@ const USAGE_EN = `geopbf <command>
        [--include a,b] [--exclude a,b] [--exclude-all]  column selection
 
   Gzipped input is detected by its signature (1f 8b), not by extension, and expanded transparently.
+  <command> --help prints that command's section. Options take --name value or --name=value; --min-zoom / --max-zoom
+  are aliases of --minzoom / --maxzoom. An option a command does not know is an error (exit code 2, like any
+  usage error; a failure while running exits 1).
   Messages are in English; set GEOPBF_LANG=ja (or a Japanese LANG) for Japanese.
 `;
 
@@ -106,13 +109,13 @@ const USAGE_JA = `geopbf <command>
        [--include a,b] [--exclude a,b] [--exclude-all]  属性の選別（tippecanoe -y / -x / -X 相当）
   parquet <in.geopbf> <out.parquet>  GeoPBF を GeoParquet（WKB・bbox 列・gzip）へ
        [--compression zstd|gzip|none] [--row-group N] [--gpu | --no-gpu]   （既定 zstd＝Node 22.15+・gzip の半分以下）
+       [--order str|hilbert|morton|none]  行の空間整列（既定 str＝行グループ bbox が重ならない・none＝入力順）
+       [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
   parquet2pbf <in.parquet> <out.geopbf>  GeoParquet（WKB・経緯度）を GeoPBF へ＝逆変換。geopandas / DuckDB / pyarrow の出力も可
        [--precision N]              座標の小数桁（既定＝geopbf:precision か 6）
        [--name name] [--geometry col] [--ignore-crs] [--no-gzip]
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
-       [--order str|hilbert|morton|none]  行の空間整列（既定 str＝行グループ bbox が重ならない・none＝入力順）
-       [--no-bbox]                  bbox 覆域列を書かない（点データで半分の大きさ・刈り込みは失う）
   gpkg2pbf <in.gpkg> [out.geopbf]   GeoPackage の 1 層を GeoPBF へ（自前 SQLite リーダ・GDAL 不要・読み専用）。out を省くと層（地物/タイル）の一覧
        [--layer name]               層（表名か identifier・既定＝最初の地物層）
        [--tky2jgd <file|url>]       日本測地系の層に使う TKY2JGD 格子（無ければ Helmert ±10 m）
@@ -141,6 +144,8 @@ const USAGE_JA = `geopbf <command>
        [--include a,b] [--exclude a,b] [--exclude-all]  列の選別
 
   入力の gzip は拡張子によらず署名（1f 8b）で判別して透過的に展開する。
+  <command> --help でそのコマンドの段だけ出す。オプションは --name value でも --name=value でも可。--min-zoom / --max-zoom は
+  --minzoom / --maxzoom の別名。コマンドが知らないオプションは誤り（終了コード 2＝使い方の誤り全般。実行中の失敗は 1）。
   表示は英語が既定。GEOPBF_LANG=ja（か日本語の LANG）で日本語になる。
 `;
 
@@ -148,6 +153,13 @@ const MSG = {
 	en: {
 		usage: USAGE_EN,
 		unknownCommand: `geopbf: unknown command "{cmd}"\n`,
+		unknownOption: `unknown option {opt} (options of {cmd}: {list})`,
+		optionNeedsValue: `{opt} needs a value`,
+		optionNoValue: `{opt} takes no value`,
+		missingArgs: `usage: geopbf {usage}`,
+		numberOption: `{opt} must be {kind}{range} (got "{got}")`,
+		integer: "an integer", number: "a number",
+		seeHelp: `(geopbf {cmd} --help shows the options)`,
 		precisionRange: "--precision must be an integer from 1 to 9",
 		gpuMissing: "--gpu: WebGPU not found (on Node: `npm i webgpu`); continuing on the CPU path",
 		zipOpenFailed: "cannot open zip",
@@ -218,6 +230,13 @@ const MSG = {
 	ja: {
 		usage: USAGE_JA,
 		unknownCommand: `geopbf: 知らないコマンド "{cmd}"\n`,
+		unknownOption: `知らないオプション {opt}（{cmd} のオプション: {list}）`,
+		optionNeedsValue: `{opt} には値が要る`,
+		optionNoValue: `{opt} は値を取らない`,
+		missingArgs: `使い方: geopbf {usage}`,
+		numberOption: `{opt} は{kind}{range}（"{got}" は読めない）`,
+		integer: "整数", number: "数",
+		seeHelp: `（geopbf {cmd} --help でオプション一覧）`,
 		precisionRange: "--precision は 1 から 9 の整数",
 		gpuMissing: "--gpu: WebGPU が見つからない（Node は `npm i webgpu`）＝CPU 経路で続行",
 		zipOpenFailed: "zip を開けない",
@@ -281,3 +300,13 @@ const MSG = {
 
 /** t("key", { name: value }) → 選んだ言語の文。{name} を差し替える（未定義の名前はそのまま残す＝書き損じが見える）。 */
 export const t = (key, vars = {}) => (MSG[LANG][key] ?? MSG.en[key] ?? key).replace(/\{(\w+)\}/g, (m, k) => k in vars ? String(vars[k]) : m);
+
+// <cmd> --help: usage からそのコマンドの段（"  cmd " で始まる行から次のコマンドの行の手前まで）を抜く。無ければ全文
+export function usageFor(cmd) {
+	const lines = t("usage").split("\n");
+	const isCmd = (l) => /^  [a-z0-9]+ /.test(l);
+	const start = lines.findIndex(l => l.startsWith(`  ${cmd} `));
+	if (start < 0) return t("usage");
+	let end = start + 1; while (end < lines.length && lines[end].trim() !== "" && (!isCmd(lines[end]) || lines[end].startsWith(`  ${cmd} `))) end++;   // "cog info" と "cog png" のように段が 2 つある命令も全部
+	return [lines[0], "", ...lines.slice(start, end)].join("\n");
+}

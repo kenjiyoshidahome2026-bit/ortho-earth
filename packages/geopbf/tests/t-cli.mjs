@@ -99,9 +99,58 @@ ok(rows.at(-1).z === 21 && rows.at(-1).keep === totalVerts,
 
 // ---- 使い方 ----------------------------------------------------------------------
 ok(run("--help").includes("geopbf <command>"), "--help が使い方を出す");
-let badCmd = false;
-try { run("nosuch"); } catch { badCmd = true; }
-ok(badCmd, "未知のコマンドは終了コード 1");
+const fail = (...args) => { try { execFileSync(process.execPath, [CLI, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GEOPBF_LANG: "en" } }); return null; } catch (e) { return { code: e.status, err: String(e.stderr) }; } };
+{
+	const r = fail("nosuch");
+	ok(r && r.code === 2 && /unknown command "nosuch"/.test(r.err), `未知のコマンドは終了コード 2（${r?.code}）`);
+}
+// ---- 改良点 16（2026-10-12）: オプション表・未知の --flag の拒否・<cmd> --help・数値検査・別名 ----------
+{
+	const h = run("enc", "--help");
+	ok(h.includes("enc  <in.geojson") && h.includes("--precision") && !h.includes("pmtiles <in.geopbf>"), "enc --help はその段だけ");
+	const hc = run("cog", "--help");
+	ok(hc.includes("cog  info") && hc.includes("cog  png") && !hc.includes("parquet"), "cog --help は info と png の両段");
+	const r1 = fail("enc", geojson, join(dir, "x.geopbf"), "--presicion", "3");
+	ok(r1 && r1.code === 2 && /unknown option --presicion/.test(r1.err) && /--precision/.test(r1.err), `打ち間違いのオプションは拒む（終了 2・候補一覧つき）`);
+	ok(!existsSync(join(dir, "x.geopbf")), "拒んだ時はファイルを書かない");
+	const r2 = fail("enc", geojson, join(dir, "x.geopbf"), "--precision", "abc");
+	ok(r2 && r2.code === 2 && /--precision must be an integer from 1 to 9/.test(r2.err), "--precision abc は 2");
+	const r3 = fail("gpkg2pbf", join(dir, "nothere.gpkg"), join(dir, "x.geopbf"), "--precision", "0");
+	ok(r3 && r3.code === 2 && /--precision/.test(r3.err), "gpkg2pbf でも --precision は読み込み前に同じ検査（旧＝enc だけ）");
+	const r4 = fail("pmtiles", pbfPath, join(dir, "x.pmtiles"), "--minzoom", "x");
+	ok(r4 && r4.code === 2 && /--minzoom must be an integer 0\.\.30 \(got "x"\)/.test(r4.err), "数値オプションの検査（旧＝NaN が通った）");
+	const r5 = fail("pmtiles", pbfPath, join(dir, "x.pmtiles"), "--min-zoom", "5", "--max-zoom", "3");
+	ok(r5 && r5.code === 2 && /--minzoom must be an integer 0\.\.3 \(--maxzoom\)/.test(r5.err), "--min-zoom/--max-zoom の別名・minzoom > maxzoom は誤り");
+	const r6 = fail("enc", geojson);
+	ok(r6 && r6.code === 2 && /usage: geopbf enc <in\.geojson/.test(r6.err), "引数不足は使い方の 1 行（t() 経由）");
+	const r7 = fail("enc", geojson, join(dir, "x.geopbf"), "--no-gzip=1");
+	ok(r7 && r7.code === 2 && /--no-gzip takes no value/.test(r7.err), "真偽のオプションに値は付けられない");
+	const r8 = fail("info", join(dir, "nothere.geopbf"));
+	ok(r8 && r8.code === 1 && /ENOENT/.test(r8.err), "実行時の失敗は終了コード 1 のまま");
+	run("enc", geojson, join(dir, "eq.geopbf"), "--precision=4", "--no-gzip");
+	ok(/precision\s+4/.test(run("info", join(dir, "eq.geopbf"))), "--name=value の形");
+	const ja = (() => { try { return execFileSync(process.execPath, [CLI, "enc", geojson, join(dir, "x.geopbf"), "--nosuch"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, GEOPBF_LANG: "ja" } }); } catch (e) { return String(e.stderr); } })();
+	ok(/知らないオプション --nosuch/.test(ja), "GEOPBF_LANG=ja で日本語の文");
+}
+// 直接: 引数の表は使い方の文と一致（SPEC の全オプションが usage に載り、usage の --flag は SPEC にある）
+{
+	const { SPEC, parseArgs, numOpt } = await import("../bin/args.mjs");
+	const { t } = await import("../bin/messages.mjs");
+	const usage = t("usage");
+	let miss = [];
+	for (const [cmd, sp] of Object.entries(SPEC)) {
+		const i0 = usage.indexOf(`\n  ${cmd} `); if (i0 < 0) { miss.push(`${cmd}: no usage`); continue; }
+		const m = usage.slice(i0 + 1).match(/^  [a-z0-9]+ [^]*?(?=\n  [a-z0-9]+ |\n\n)/);
+		let block = ""; for (const mm of usage.matchAll(/^  ([a-z0-9]+) [^]*?(?=\n  [a-z0-9]+ |\n\n)/gm)) if (mm[1] === cmd) block += mm[0];
+		void m;
+		for (const o of [...sp.valued, ...sp.flags]) if (!block.includes(`--${o}`)) miss.push(`${cmd}: --${o} not in usage`);
+		for (const mm of block.matchAll(/--([a-z0-9-]+)/g)) if (!sp.valued.includes(mm[1]) && !sp.flags.includes(mm[1])) miss.push(`${cmd}: --${mm[1]} in usage but not in SPEC`);
+	}
+	ok(miss.length === 0, `SPEC と usage が一致（${miss.join("; ") || "全コマンド"}）`);
+	const r = parseArgs("pmtiles", ["in", "out", "--min-zoom=2", "--", "--not-an-option"]);
+	ok(r.opts.minzoom === "2" && r.pos.join() === "in,out,--not-an-option", "別名＝正規名に畳む・-- 以降は位置引数");
+	ok(numOpt({ a: "1.5" }, "a") === 1.5 && numOpt({}, "a") === undefined, "numOpt: 小数・未指定");
+}
 
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);
