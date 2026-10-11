@@ -17,9 +17,10 @@ const PAGES = {
 	models:  { url: "/models.html", view: "", pick: "tokyo-tower", ready: "window.__models && window.__models.stats", wait: 10000 },
 	parks:   { url: "/parks.html",  view: "", pick: "daisetsuzan", ready: "window.__parks && window.__parks.layer", wait: 12000 },
 	tellus:  { url: "/tellus.html",   view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 14000 },
+	terrain: { url: "/terrain.html",  view: "",                    ready: "window.__terrain && window.__terrain.items", wait: 12000 },
 	geoedit: { url: "/geoedit.html",  view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 12000 },
 };
-const HIDE = `for (const s of ["#sky-clock",".models-panel",".parks-panel","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
+const HIDE = `for (const s of ["#sky-clock",".models-panel",".parks-panel",".tr-panel","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
 	document.querySelectorAll(s).forEach(e => e.style.display = "none");
 document.querySelectorAll(".sats-tag,.quakes-tag,.sats-tip,.quakes-info").forEach(e => e.style.display = "none");
 const app = document.getElementById("app"); if (app) app.style.gridTemplateColumns = "1fr";   // Tellus＝左の案内板を伏せたら地図を全幅へ（格子が 352px の列を残す）

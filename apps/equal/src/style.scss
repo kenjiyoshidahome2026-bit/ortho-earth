@@ -1,50 +1,52 @@
 /* ortho-equal 固有のスタイル。外観の本体は quiet-mono（main.js が tokens → components → 本ファイルの順で import）。
    ここに残すのは equal だけの道具（パネル内の不透明度行・主題行の見本・凡例の行）。japan の作法（ui-dark・ガラス・ドック）に揃える。 */
-:is(.qm, #map) { color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
-:is(.qm, #map) > #c, :is(.qm, #map) > #labels { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-:is(.qm, #map) > #c { touch-action: none; cursor: grab; }
-:is(.qm, #map) > #c:active { cursor: grabbing; }
-:is(.qm, #map) > #labels { pointer-events: none; }
+/* .eq＝equal の容れ物の印（createEqual が付ける）。japan の地図の上に div で重ねる時（2026-10-04）は同じ頁に japan の #map.qm が居る＝
+   equal 固有の規則は .eq で囲い、持ち主の家具（.qm-panel・#pos・容れ物の container-type）へ漏らさない */
+.eq { color: #cdd; font: 13px/1.5 system-ui, sans-serif; container-type: size; }   /* size＝パネルの高さを部品の高さで測る（埋め込みの小窓で頁の高さを使わない） */
+.eq > #c, .eq > #labels { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.eq > #c { touch-action: none; cursor: grab; }
+.eq > #c:active { cursor: grabbing; }
+.eq > #labels { pointer-events: none; }
 /* 持ち主のボタン（addButton＝戻る など）＝#gadgets の縦並びの末尾・計器と同じ ui-dark の下地 */
-#gadgets .eq-host-btn { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; font: 12px var(--qm-font); color: rgba(225, 232, 242, .95);
+.eq #gadgets .eq-host-btn { display: flex; align-items: center; gap: 4px; height: 30px; padding: 0 10px; font: 12px var(--qm-font); color: rgba(225, 232, 242, .95);
 	background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim); backdrop-filter: var(--qm-glass-frost);
 	border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--qm-r-m, 6px); cursor: pointer; }
-#gadgets .eq-host-btn .eq-arrow { font-style: normal; display: inline-block; }
-:is(.qm, #map)[dir="rtl"] .eq-host-btn .eq-arrow { transform: scaleX(-1); }
+.eq #gadgets .eq-host-btn .eq-arrow { font-style: normal; display: inline-block; }
+.eq[dir="rtl"] .eq-host-btn .eq-arrow { transform: scaleX(-1); }
 
 /* 不透明度の行＝ui-dark の計器（#pos/#attr）と同じ下地＝地図の上でも読める */
-.qm-panel .eq-row, #layers-panel .eq-row {
+.eq :is(.qm-panel, #layers-panel) .eq-row {
 	display: flex; gap: 8px; align-items: center; margin-top: 6px; padding: 6px 9px; font-size: 11px;
 	color: rgba(225, 232, 242, .92); background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim);
 	backdrop-filter: var(--qm-glass-frost); border: 1px solid rgba(255, 255, 255, .22); border-radius: 5px;
 	span { white-space: nowrap; min-width: 6.5em; }
 	input[type=range] { flex: 1; min-width: 0; accent-color: #cdd6e6; }
 }
-#layers-panel, .qm-panel { max-height: calc(100cqh - 20px); overflow-y: auto; }   /* 部品の高さ（コンテナ）で測る＝頁の高さ（100vh）ではない */
+.eq :is(#layers-panel, .qm-panel) { max-height: calc(100cqh - 20px); overflow-y: auto; }   /* 部品の高さ（コンテナ）で測る＝頁の高さ（100vh）ではない */
 /* 主題（コロプレス）列＝配色テーマ列と同じ佇まい（quiet-mono .lp-stack）。二つの軸を並べるので間を空ける */
-#choro-row { margin-top: 4px; }
+.eq #choro-row { margin-top: 4px; }
 /* パネル内の小見出し＝「配色（地図の顔）」と「主題図（データの塗り分け）」の二つの軸を目で分ける。
    下地は .eq-row と同じ黒硝子＝明るいテーマ列（.lp-theme は明パネル）の上でも地図の上でも読める
    （明色の文字だけ置くと明パネルに溶けて消える＝実測で一度やった） */
-.qm-panel .eq-head, #layers-panel .eq-head {
+.eq :is(.qm-panel, #layers-panel) .eq-head {
 	margin-top: 8px; padding: 4px 9px; font-size: 10px; font-weight: 600; letter-spacing: .06em;
 	color: rgba(225, 232, 242, .92); background-color: rgba(10, 14, 22, .55); background-image: var(--qm-glass-sheen-dim);
 	backdrop-filter: var(--qm-glass-frost); border: 1px solid rgba(255, 255, 255, .22); border-radius: 5px;
 }
-#choro-row .eq-choro .sw.eq-none { background: repeating-linear-gradient(135deg, var(--eq-paper, #fff) 0 3px, color-mix(in srgb, var(--eq-paper, #fff) 78%, #667) 3px 6px); }
+.eq #choro-row .eq-choro .sw.eq-none { background: repeating-linear-gradient(135deg, var(--eq-paper, #fff) 0 3px, color-mix(in srgb, var(--eq-paper, #fff) 78%, #667) 3px 6px); }
 
-#legend .eq-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
-#legend .eq-li { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.7; }
-#legend .eq-sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
+.eq #legend .eq-title { font-size: 12px; font-weight: 600; margin-bottom: 4px; }
+.eq #legend .eq-li { display: flex; align-items: center; gap: 6px; font-size: 11px; line-height: 1.7; }
+.eq #legend .eq-sw { width: 14px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 
-#pos td:nth-child(4) { min-width: 8ch; }
+.eq #pos td:nth-child(4) { min-width: 8ch; }
 
-#choro-row .eq-choro .sw.eq-csv { background: linear-gradient(180deg, #f5f2f8 0 33%, #a38bc3 33% 66%, #4a2e70 66%); }
-#choro-row .eq-choro .eq-csv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
-.qm-panel .eq-select, #layers-panel .eq-select { flex: 1; min-width: 0; font: 11px var(--qm-font); color: #2b3b57; background: rgba(255, 255, 255, .9); border: 1px solid var(--qm-border); border-radius: 4px; padding: 2px 4px; }
+.eq #choro-row .eq-choro .sw.eq-csv { background: linear-gradient(180deg, #f5f2f8 0 33%, #a38bc3 33% 66%, #4a2e70 66%); }
+.eq #choro-row .eq-choro .eq-csv-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 14em; }
+.eq :is(.qm-panel, #layers-panel) .eq-select { flex: 1; min-width: 0; font: 11px var(--qm-font); color: #2b3b57; background: rgba(255, 255, 255, .9); border: 1px solid var(--qm-border); border-radius: 4px; padding: 2px 4px; }
 
 /* ドロップの受け皿＝地図全面の薄い幕＋中央のガラス札（japan の計器と同じ ui-dark の下地） */
-#eq-drop {
+.eq #eq-drop {
 	position: absolute; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; pointer-events: none;
 	background: rgba(15, 20, 30, .18); outline: 2px solid rgba(255, 255, 255, .55); outline-offset: -12px;
 	> div { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 22px; font-size: 15px; color: rgba(225, 232, 242, .95);
@@ -52,7 +54,7 @@
 		border: 1px solid rgba(255, 255, 255, .22); border-radius: var(--qm-r-l); }
 	small { font-size: 11px; opacity: .75; }
 }
-#eq-drop[hidden] { display: none; }
+.eq #eq-drop[hidden] { display: none; }
 
 /* 注釈の吹き出し（@pop）＝静かな紙の箱 */
 .eq-pop { position: absolute; max-width: 280px; font: 12px/1.5 var(--qm-font); color: var(--qm-text); background: var(--qm-panel-solid);
