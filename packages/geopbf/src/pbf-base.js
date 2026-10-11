@@ -347,7 +347,9 @@ function dataType(q) {
 	if (q == null) return DATATYPE.NULL;
 	const type = typeof q;
 	if (type === "string") return isColor(q) ? DATATYPE.COLOR : DATATYPE.STRING;
-	else if (type === "number") return isFloat(q) ? DATATYPE.FLOAT : DATATYPE.INTEGER;
+	// 整数でも |q| > 2^52 は FLOAT（double＝bit 同一）で書く。INTEGER の zigzag は 2 倍して varint に乗せるので 2^53 を越えると
+	// 読み戻しの Number で丸まり（-(2^53-1) が +(2^53-2) に化けた）、2^64 以上は varint に入らず例外だった（2026-10-12・t-encode-edge）
+	else if (type === "number") return isFloat(q) || (Number.isFinite(q) && Math.abs(q) > 4503599627370496) ? DATATYPE.FLOAT : DATATYPE.INTEGER;   // NaN／±Infinity は validate 層が先に裁く（legacy＝NaN → 0・Infinity → 例外のまま）
 	else if (type === "boolean") return DATATYPE.BOOL;
 	else if (type === "function") return DATATYPE.FUNC;
 	else if (q instanceof Date) return DATATYPE.DATE;
