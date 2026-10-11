@@ -191,10 +191,14 @@ const reqCount = (path) => log.filter(l => l.path === path).length;
 
 // ---- 13) 非対応 CRS の明示エラー --------------------------------------------------------------
 {
-	files.set("/bad.tif", { body: buildCog({ epsg: 6677 }) });
+	files.set("/bad.tif", { body: buildCog({ epsg: 30169 }) });   // 旧日本測地系の平面直角 IX＝順変換が無いので非対応（2026-10-12・旧は 6677 だったが一本化で読めるようになった）
 	let msg = "";
 	try { await openCog(`${base}/bad.tif`); } catch (e) { msg = e.message; }
-	ok(/unsupported CRS.*6677/.test(msg), `非対応 CRS は明示エラー（${msg}）`);
+	ok(/unsupported CRS.*30169.*JPR/.test(msg), `非対応 CRS は明示エラー・対応一覧つき（${msg.slice(0, 80)}…）`);
+	files.set("/jpr.tif", { body: buildCog({ epsg: 6677 }) });
+	const jpr = await openCog(`${base}/jpr.tif`);
+	ok(jpr && jpr.bboxLL.every(Number.isFinite) && jpr.bboxLL[0] > 147 && jpr.bboxLL[0] < 150 && jpr.bboxLL[1] > 71 && jpr.bboxLL[1] < 73, `EPSG:6677（平面直角 IX）の COG が開く（原点から東 300 km・北 4,000 km の試料 → 経緯度 ${jpr.bboxLL.map(v => v.toFixed(3)).join(", ")}）`);
+	jpr.close?.();
 }
 
 // ---- 14) auto stretch はタイル余白（ゼロ詰め）を標本化しない（GCOM-C SST f32 で [0,0] に化けた轍）------

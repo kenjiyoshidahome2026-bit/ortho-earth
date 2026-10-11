@@ -7,9 +7,8 @@
 export const IMAGE_KEY = "@image";
 
 const D2R = Math.PI / 180;
-export const mercX = lon => (lon + 180) / 360;
-export const mercY = lat => { const s = Math.sin(Math.max(-85.05112878, Math.min(85.05112878, lat)) * D2R); return 0.5 - Math.log((1 + s) / (1 - s)) / (4 * Math.PI); };
-export const unMercY = y => Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) / D2R;
+import { lonToWorldX as mercX, latToWorldY as mercY, worldYToLat as unMercY } from "../modules/mercator.js";   // 2026-10-12 共通化（名前は旧のまま）
+export { mercX, mercY, unMercY };
 
 // 地物が「貼った画像」か＝Polygon・外環が 4 頂点（閉じ点は数えない）・@image を持つ
 export function isImageFeature(f) {

@@ -1,3 +1,4 @@
+import { worldToLonLat } from "../modules/mercator.js";
 // 再標本化＝「デコード直後に worker 内で1回だけ」の CPU warp（本計画 §4）。
 // 目標グリッドの各ピクセルを 目標座標 → 経緯度 → 源 CRS → 源ピクセル と逆引きし bilinear。
 // タイル跨ぎの 4 近傍は都度タイルを引く（Map 参照＝安価）。fragment シェーダから三角関数を
@@ -25,7 +26,7 @@ export function xyzTarget(z, x, y, size = 256) {
 		w: size, h: size,
 		mapLL: (i, j) => {
 			const wx = (x + (i + 0.5) / size) / n, wy = (y + (j + 0.5) / size) / n;
-			return [wx * 360 - 180, R2D * (2 * Math.atan(Math.exp(Math.PI * (1 - 2 * wy))) - Math.PI / 2)];
+			return worldToLonLat([wx, wy]);
 		},
 	};
 }

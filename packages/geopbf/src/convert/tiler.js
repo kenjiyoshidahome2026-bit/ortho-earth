@@ -19,6 +19,7 @@ import { assemblePMTiles, sameBytes } from "./pmtiles.js";
 import { attrFilter } from "./attrs.js";
 import { buildTagTable } from "./tagtable.js";
 import { calibrateArcThresholds } from "./calibrate.js";
+import { now } from "../modules/now.js";
 export { attrFilter };
 
 // lodBias: 正で閾値を上げる＝残る頂点が減る（3 で VW 面積 4 倍＝線形で 2 倍粗い相当）。負で細かく。
@@ -317,4 +318,3 @@ export async function toPMTiles(pbf, opts = {}) {
 	return { buffer: buf, stats, metadata };
 }
 
-const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
