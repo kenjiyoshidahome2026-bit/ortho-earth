@@ -40,6 +40,15 @@ self.onmessage = e => {
 };
 
 // { sid, key, z, x, y, layers: [{ id, layer（正規化済み＝エンジンの目盛り）, key（層の順の鍵） }], fz（filter の zoom）, pz（paint／layout の zoom）, promoteId, fs（feature-state・無ければ null） }
+// 層の ["zoom"] の置き換え（substituteZoom）の覚え＝id → { rev, pz, paint, layout }（層ごとに最新の 1 つ＝版か pz が変われば作り直す）。rev が無い呼び手（検定）は毎回
+const zoomSubs = new Map();
+function zoomSubst(id, rev, pz, L0) {
+	const c = rev != null ? zoomSubs.get(id) : null;
+	if (c && c.rev === rev && c.pz === pz) return c;
+	const o = { rev, pz, paint: substituteZoom(L0.paint || {}, pz), layout: { ...substituteZoom(L0.layout || {}, pz), visibility: "visible" } };
+	if (rev != null) zoomSubs.set(id, o);
+	return o;
+}
 function build(m) {
 	const { sid, key, z, x, y, fz, pz, promoteId } = m;
 	const fsm = m.fs ? new Map(Object.entries(m.fs).map(([sl, list]) => [sl, new Map(list)])) : null;   // source-layer → Map<id, state>
@@ -53,7 +62,7 @@ function build(m) {
 	// 線の細分＝基図と同じ 700m（地形に沿わせる）。低ズームのタイル（z2 で 1 枚 1 万 km）では 700m だと 1 本が 24 分割に膨れる＝タイルの幅の 1/64 より細かくしない
 	const subLenM = Math.max(700, 40075016.686 * Math.cos((origin[1] + tileNW(z, x, y + 1)[1]) / 2 / R2D) / 2 ** z / 64);
 	let features = 0;
-	for (const { id, layer: L0, key: okey } of m.layers) {
+	for (const { id, layer: L0, key: okey, rev } of m.layers) {
 		const sl = L0["source-layer"], src = sl ? data[sl] : null, fsIds = usesFS(L0) && sl ? (ids[sl] ||= new Set()) : null;   // 読む層があれば地物が無くても空の集合（main が「このタイルは含まない」と分かる）
 		if (!src || !src.features.length) continue;
 		const E = src.extent || 4096;
@@ -63,7 +72,9 @@ function build(m) {
 		if (!feats.length) continue;
 		if (fsIds) for (const f of feats) { const v = idOf(f, promoteId, sl); if (v != null) fsIds.add(v); }
 		const SM = fsIds ? fsm?.get(sl) : null, stateOf = SM?.size ? f => SM.get(idOf(f, promoteId, sl)) : null;   // 地物 → 状態（読む層で、状態が置かれている時だけ）
-		const L = { ...L0, filter: undefined, minzoom: undefined, maxzoom: undefined, paint: substituteZoom(L0.paint || {}, pz), layout: { ...substituteZoom(L0.layout || {}, pz), visibility: "visible" } };   // 層の出しズームと出し入れは main（結合の hidden）
+		// ["zoom"] を置き換えた写しは層（id×版）× pz で覚える＝同じ層の次のタイルは同じ配列＝式のコンパイルの覚え（配列の同一性で引く）が効く。旧＝タイルごとに写しを作り直し＝全部の式を毎回コンパイル
+		const sz = zoomSubst(id, rev, pz, L0);
+		const L = { ...L0, filter: undefined, minzoom: undefined, maxzoom: undefined, paint: sz.paint, layout: sz.layout };   // 層の出しズームと出し入れは main（結合の hidden）
 		const P = L.paint, pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml" };
 		const run = (lyr, fs, sub) => {   // core の組み立て（層 1 枚の小さな style）→ li を利用者の帯へ
 			if (!fs.length) return;
