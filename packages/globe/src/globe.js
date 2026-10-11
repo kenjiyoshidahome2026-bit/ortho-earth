@@ -3287,6 +3287,22 @@ map.addColumnar = async (src, o = {}) => {
 	const m = await import("@ortho-earth/columnar");
 	return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 };
+// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
+//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない）, module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)）,
+//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる）, params, name, above })
+//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
+map.addThree = ({ three, module, origin, depth = true, params, name = "three", above = false } = {}) => {
+	if (!three) throw new Error("addThree: three (URL of three.module.js) is required");
+	const abs = u => u == null ? u : new URL(u, location.href).href;
+	const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } });
+	h.ready = new Promise((res, rej) => {
+		const prev = h.onmessage;
+		h.onmessage = d => { if (d?.type === "error") { h.onmessage = prev; rej(new Error(d.error)); } else prev?.(d); };
+		const poll = () => { const st = dbgHost.__overlay?.[name]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (!overlays.has(name)) { rej(new Error("removed")); return; } if (st?.stage === "ready") res(h); else setTimeout(poll, 100); };
+		poll();
+	});
+	return h;
+};
 // H3 のセル（@ortho-earth/h3・deck.gl 差分 PR-2・2026-10-11）：map.addH3(cells | points, { id, res, weight, paint, extrude, outline }) → 手綱（setData/setPaint/setRes/remove）。
 // セル id → 面・点 → セルへの集約（count/sum/mean/min/max）を GeoJSON にして addSource/addLayer（fill か fill-extrusion）へ＝描画・当たりは既存の層経路。本体（h3-js）は遅延 import
 map.addH3 = async (src, o = {}) => {

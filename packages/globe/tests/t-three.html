@@ -1,0 +1,74 @@
+<!doctype html>
+<!-- 実描画の検分：three.js を render worker の中で描く口（map.addThree・deck.gl 差分 PR-3・2026-10-11）。試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-overlaydepth と同じ）、
+     three の箱（40m・無灯・赤）を ①棟の南 150m・高さ 150m（手前＝見える）②棟の北 600m・画面上で棟の中腹と同じ高さ（向こう＝隠れる）③棟の真上 450m（見える）に置く。
+     ①setup が走り ENU の向き（東＝経度＋・北＝緯度＋・上＝高さ＋）が正しい ②箱の中心の画素＝赤（見える）・透明（隠れる）＝本体の深度で隠れている
+     ③pick が箱の名前を返す ④onMessage で箱を動かせる ⑤RTE＝z18 で箱の画素の重心が projectH の点から 2px 以内 ⑥remove で消える
+     three.js は globe の devDependency（検定だけ）＝vite.config.js の define で /@fs/ の URL にして worker へ渡す（利用者は CDN の URL を渡す）。実時間（worker の動的 import）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-three</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 40000;
+const { createGlobe } = await import("@ortho-earth/globe");
+const threeUrl = new URL(__OE_THREE_URL__, location.href).href;   // vite.config.js の define＝/@fs/…/three.module.js（検定だけの devDependency）
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
+try {
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+	const sq = [ll(-50, -50), ll(50, -50), ll(50, 50), ll(-50, 50), ll(-50, -50)];
+	const st = await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#888888", fit: false, mask: false });
+	ok("extrude", !!st && st.polygons === 1);
+	await sleep(1500);
+	const P = map.makeProjectorH();
+	const [, by] = P(LON, LAT, 150);
+	const hAt = (e, n) => { const [lo, la] = ll(e, n); let a = -2000, b = 4000; for (let i = 0; i < 50; i++) { const m = (a + b) / 2; if (P(lo, la, m)[1] > by) a = m; else b = m; } return [lo, la, (a + b) / 2]; };
+	const behind = hAt(25, 600), front = hAt(-25, -150), above = [LON, LAT, 450];
+	const boxes = [{ name: "behind", lon: behind[0], lat: behind[1], h: behind[2], size: 40, color: 0xff2020 }, { name: "front", lon: front[0], lat: front[1], h: front[2], size: 40, color: 0xff2020 }, { name: "above", lon: above[0], lat: above[1], h: above[2], size: 40, color: 0xff2020 }];
+	let setupMsg = null;
+	const h = map.addThree({ three: threeUrl, module: new URL("./fixtures/three/boxes.js", location.href).href, origin: [LON, LAT, 0], params: { boxes }, name: "three" });
+	h.onmessage = d => { if (d?.type === "setup") setupMsg = d; };
+	await h.ready;
+	await until(() => setupMsg, WAIT);
+	ok("setup", setupMsg?.n === 3, JSON.stringify(setupMsg));
+	const E = setupMsg?.east, N = setupMsg?.north, U = setupMsg?.up;
+	ok("enu", E && E[0] > LON && Math.abs(E[1] - LAT) < 1e-4 && N && N[1] > LAT && Math.abs(N[0] - LON) < 1e-4 && U && Math.abs(U[2] - 1000) < 1 && Math.abs(U[0] - LON) < 1e-6, JSON.stringify([E, N, U]));
+	ok("eastKm", E && Math.abs((E[0] - LON) * K * Math.cos(LAT * Math.PI / 180) - 1000) < 5, E && ((E[0] - LON) * K * Math.cos(LAT * Math.PI / 180)).toFixed(1));
+	await sleep(1500);   // 深度の申し出＝本体が FBO に切り替わって落ち着くまで
+	const pixels = () => new Promise(res => { const prev = h.onmessage; const tm = setTimeout(() => { h.onmessage = prev; res(null); }, WAIT); h.onmessage = d => { if (d?.type === "pixels") { clearTimeout(tm); h.onmessage = prev; res(d); } else prev?.(d); }; h.post({ type: "probe", id: "p" + Math.random() }); });
+	const dpr = Math.min(2, devicePixelRatio || 1);
+	const px = (img, x, y) => { const X = Math.round(x * dpr), Y = img.flipY ? img.h - 1 - Math.round(y * dpr) : Math.round(y * dpr); const k = (Y * img.w + X) * 4; return [img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]]; };
+	const red = c => c[3] > 200 && c[0] > 150 && c[1] < 80;
+	let img = await pixels();
+	ok("pixels", img && img.w > 0, img && `${img.w}x${img.h}`);
+	const at = b => P(b[0], b[1], b[2]);
+	const cF = at(front), cB = at(behind), cA = at(above);
+	ok("frontVisible", img && red(px(img, cF[0], cF[1])), JSON.stringify(img && px(img, cF[0], cF[1])));
+	ok("aboveVisible", img && red(px(img, cA[0], cA[1])), JSON.stringify(img && px(img, cA[0], cA[1])));
+	ok("behindHidden", img && !red(px(img, cB[0], cB[1])) && px(img, cB[0], cB[1])[3] < 30, JSON.stringify(img && px(img, cB[0], cB[1])));
+	// ③ pick
+	const hits = await map.pickOverlays(cF[0], cF[1]);
+	ok("pick", hits[0]?.name === "three" && hits[0]?.properties?.name === "front" && Math.abs(hits[0].lngLat[0] - front[0]) < 1e-3, JSON.stringify(hits));
+	ok("pickMiss", (await map.pickOverlays(cF[0] + 200, cF[1] + 100)).length === 0);
+	// ④ onMessage＝above を西へ 200m
+	const mv = ll(-200, 0); h.post({ type: "move", name: "above", lon: mv[0], lat: mv[1], h: 450 });
+	await sleep(400); img = await pixels();
+	const cA2 = P(mv[0], mv[1], 450);
+	ok("moved", img && red(px(img, cA2[0], cA2[1])) && !red(px(img, cA[0], cA[1])), JSON.stringify([img && px(img, cA2[0], cA2[1]), img && px(img, cA[0], cA[1])]));
+	// ⑤ RTE＝z18・真俯瞰で front の箱（40m）の赤の重心が投影点から 2px 以内
+	map.jumpTo({ center: [front[0], front[1]], zoom: 18, pitch: 0, bearing: 0 });
+	await sleep(1200); img = await pixels();
+	{ let sx = 0, sy = 0, n = 0; for (let y = 0; y < img.h; y++) for (let x = 0; x < img.w; x++) { const k = (y * img.w + x) * 4; if (img.data[k + 3] > 200 && img.data[k] > 150 && img.data[k + 1] < 80) { sx += x; sy += (img.flipY ? img.h - 1 - y : y); n++; } }
+	  const P2 = map.makeProjectorH(), c = P2(front[0], front[1], front[2]); const cx = sx / n / dpr, cy = sy / n / dpr;
+	  ok("rte", n > 100 && Math.hypot(cx - c[0], cy - c[1]) < 2, `n=${n} centroid=${cx?.toFixed(1)},${cy?.toFixed(1)} proj=${c[0].toFixed(1)},${c[1].toFixed(1)}`); }
+	// ⑥ remove
+	h.remove(); await sleep(300);
+	ok("removed", (await map.pickOverlays(cF[0], cF[1])).length === 0 && !document.querySelector('canvas[data-overlay="three"]'));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
