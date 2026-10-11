@@ -113,7 +113,7 @@ MultiLineString of the boundaries shared by exactly two polygons that satisfy `f
 Outer boundary of the union of the polygons that satisfy `filter`, with shared internal boundaries removed.
 
 ### `await pbf.gint([options])` / `await pbf.setGintBUF(buf)` / `pbf.cleanTopology(options)` / `pbf._gintBuffer` / `pbf.unPackGint`
-Bake, attach, clean and read the GintBUF (format 5). `options.clean` runs the intersection repair after baking.
+Bake, attach, clean and read the GintBUF (format 5). `options.clean` runs the intersection repair after baking. `setGintBUF(buf)` **takes ownership** of `buf` (a `SharedArrayBuffer` is used as is, an `ArrayBuffer` is wrapped without a copy where no SAB exists); pass `buf.slice(0)` to keep your own copy. `unPackGint`'s typed arrays are views over `_gintBuffer`, and its bbox tables (`polyBboxByFid`, `lineBboxByFid`, `polyCompBbox`) are built lazily on first read.
 
 ---
 

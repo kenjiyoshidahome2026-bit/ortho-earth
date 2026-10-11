@@ -58,12 +58,17 @@ GeoPBF.setPrototype("setGintBUF", async function(buf) {
 	// SAB＝worker へのゼロコピー共有（最適化）であって必須ではない。Safari は COEP:credentialless を認識せず
 	// crossOriginIsolated が立たない＝SAB 不在。ここで throw すると海岸線/14条筆が Safari/iPhone で全滅する
 	//（実際に起きた）ので、無い環境は通常 ArrayBuffer＝structured clone のコピー1回を払って動かす。
+	// 所有権＝buf は渡した側がもう使わない（encoder Worker の返り便・IDB の読み出し・repack の新品＝全呼び手がそう）。
+	// 2026-10-11 ゼロコピー: 既に SAB ならそのまま（encoder/gint が shared で組んだ時）、SAB の無い環境は buf をそのまま掴む
+	//（旧＝常に .slice(0)＝GintBUF 1 本ぶんの余分な写し）。残したい呼び手は buf.slice(0) を渡す
 	let payload;
-	if (typeof SharedArrayBuffer !== "undefined") {
+	if (ArrayBuffer.isView(buf)) buf = buf.byteOffset === 0 && buf.byteLength === buf.buffer.byteLength ? buf.buffer : buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+	if (typeof SharedArrayBuffer !== "undefined" && buf instanceof SharedArrayBuffer) payload = this._gintBuffer = buf;
+	else if (typeof SharedArrayBuffer !== "undefined") {
 		payload = this._gintBuffer = new SharedArrayBuffer(buf.byteLength);
 		new Uint8Array(payload).set(new Uint8Array(buf));
 	} else {
-		payload = this._gintBuffer = buf.slice(0);   // 自前コピーを保持（呼び出し元の buf と縁を切る＝IDB put 等は従来通り）
+		payload = this._gintBuffer = buf;
 	}
 	if (canUseWorker(this, GeoPBF._gintWorkerFactory, GeoPBF._gintWorkerUrl)) {
 		// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）。

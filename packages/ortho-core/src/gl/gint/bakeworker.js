@@ -22,8 +22,9 @@ onmessage = e => {
 		const tiers = [];
 		for (const w of [...plan].reverse()) tiers.push(bakeTier(gintData, w, art.polyBboxByFid));   // 粗い側から（台帳は minW ソートなので順序は表示に無関係）
 		const { weightHist, ...artifacts } = art;   // hist は下流不要（tier まで焼き切った）＝落とす
+		// transfer できるのは ArrayBuffer だけ＝SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack）は共有のまま渡す（リストに入れると DataCloneError）
 		const bufs = new Set();
-		for (const v of Object.values(gintData)) if (ArrayBuffer.isView(v)) bufs.add(v.buffer);
+		for (const v of Object.values(gintData)) if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) bufs.add(v.buffer);
 		if (artifacts.base?.metaU32)     bufs.add(artifacts.base.metaU32.buffer);
 		if (artifacts.boundary?.metaU32) bufs.add(artifacts.boundary.metaU32.buffer);
 		if (artifacts.pivot?.px)         bufs.add(artifacts.pivot.px.buffer);

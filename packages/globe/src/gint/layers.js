@@ -534,7 +534,7 @@ function ensureBakeWorker() {
 		if (d.kind !== "done") return;
 		// 完成品をゼロコピー中継（TypedArray の underlying buffer を transfer。共有 buffer は Set で重複除去）
 		const bufs = new Set();
-		const collect = o => { for (const v of Object.values(o ?? {})) if (ArrayBuffer.isView(v)) bufs.add(v.buffer); };
+		const collect = o => { for (const v of Object.values(o ?? {})) if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) bufs.add(v.buffer); };   // SAB の view は transfer 不可＝共有のまま
 		collect(d.gint); collect(d.artifacts?.base); collect(d.artifacts?.boundary);
 		if (d.artifacts?.pivot?.px) bufs.add(d.artifacts.pivot.px.buffer);
 		for (const t of d.tiers ?? []) if (t.metaU32) bufs.add(t.metaU32.buffer);
@@ -561,7 +561,7 @@ function bakeAndSend(key, raw, meta, onDone, layer = null) {
 	bakePending.set(id, p);
 	w.postMessage({ id, data: {
 		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
-		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });
+		pointBuffer: raw.pointBuffer, point: raw.point, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });   // polyCompBbox は読み手が無い＝運ばない（geopbf 1.19 で遅延生成になった台帳を main で組ませない）
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
 // ユーザー層のベイク発火（applyGintData の初回と、LOW_MEM で束を破棄した後の再入の両方から）。
@@ -708,7 +708,7 @@ async function loadAdmin0Now(res = "50m") {
 	admin0Gint = {   // maxZoom:9＝z≤9 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
-		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
+		pointBuffer: g.pointBuffer, point: g.point,
 		maxZoom: 9,
 		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
