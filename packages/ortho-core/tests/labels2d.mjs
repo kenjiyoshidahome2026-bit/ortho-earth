@@ -215,4 +215,40 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.ok(fh[1].x > fh[0].x && Math.abs(fh[1].y - fh[0].y) < 1e-6, "横の線＝横書きのまま");
 }
 
+// ── 11. 線を丸ごと持つ注記（lp 2・symbol-placement line）＝錨は描く側が表示の整数 z で symbol-spacing の間隔に置く（MapLibre の getAnchors）。
+// 間隔は画面 px＝z が 1 上がると線は 2 倍に伸び錨は約 2 倍・最初の錨＝（文字/2＋2 字）% spacing・枠に続く線（lc）は spacing/2・置けない短い線は中心に 1 つ（枠に続く線は無し）・錨はタイルの枠（tbx）の中だけ・z を跨ぐと鍵が替わりフェード
+{
+	const PXM = 256 * 2 ** 14 / 360, PXD = PXM * Math.cos(35.68 * Math.PI / 180);   // z14 の 1°＝メルカトル（タイル単位）の px・画面（正射の球＝cos 緯度）の px
+	const road = (lon0, lon1, extra = {}) => { const px = (lon1 - lon0) * PXM; return lab("Road", (lon0 + lon1) / 2, 35.68, { lp: 2, path: new Float64Array([lon0, 35.68, lon1, 35.68]), cum: new Float32Array([0, px * 16]), tz: 14, upp: 16, tbx: [139, 35, 140, 36], lc: 0, sp: 100, ov: true, size: 12, key: "road" + lon0 + lon1, ...extra }); };
+	const lines = layer => layer.placed().filter(q => q.line).sort((a, b) => a.x - b.x);
+	const { layer, ctx } = mkLayer();
+	const LEN = 0.04 * PXD;   // 画面 378.5px・文字 "Road"＝4×12×0.6＝28.8px・間隔 100・最初＝(14.4＋24) % 100＝38.4 → 38.4・138.4・238.4・338.4（＋14.4 ≤ 378.5）
+	layer.setLabels([road(139.68, 139.72)]);
+	layer.draw(cam); const a = lines(layer);
+	assert.equal(a.length, 4, `z14＝4 つ: ${a.length}`);
+	const x0 = 400 - LEN / 2;   // 線の西端の画面 x
+	assert.ok(Math.abs(a[0].x - (x0 + 38.4)) < 1.5, `最初の錨＝文字/2＋2 字分（${a[0].x.toFixed(1)} vs ${(x0 + 38.4).toFixed(1)}）`);
+	assert.ok(Math.abs(a[1].x - a[0].x - 100) < 1.5, "間隔＝symbol-spacing（画面 px）");
+	ctx.log.length = 0; layer.draw({ ...cam, zoom: 15 }); const b = lines(layer);
+	assert.equal(b.length, 8, `z15＝線は 2 倍（757px）・錨 8 つ: ${b.length}`);
+	const rx = ctx.log.filter(e => e.op === "fill" && e.s === "R").map(e => e.x);   // 字 "R" の中心＝錨 − 28.8/2 ＋ 7.2/2
+	assert.ok(a.every(q => rx.some(x => Math.abs(x - (400 + (q.x - 400) * 2 - 10.8)) < 1.5)), `z を跨いだ直後＝前の z の錨（経緯度に固定＝z15 では間隔 2 倍）がフェードアウト中も描かれる（${rx.map(v => v.toFixed(0))} vs ${a.map(q => (400 + (q.x - 400) * 2 - 10.8).toFixed(0))}）`);
+	for (let i = 0; i < 10; i++) layer.draw({ ...cam, zoom: 15 });
+	assert.equal(lines(layer).length, 8, "落ち着けば新しい z の錨だけ");
+	// 枠に続く線（lc 1）＝最初の錨は spacing/2
+	const { layer: l2 } = mkLayer(); l2.setLabels([road(139.68, 139.72, { lc: 1 })]); l2.draw(cam); const c = lines(l2);
+	assert.ok(c.length === 4 && Math.abs(c[0].x - (x0 + 50)) < 1.5, `続く線＝spacing/2 から（${c.length}・${c[0]?.x.toFixed(1)}）`);
+	// 短い線（40px・最初の錨が収まらない）＝中心に 1 つ・枠に続く線なら無し
+	const d40 = 40 / PXD, { layer: l3 } = mkLayer(); l3.setLabels([road(139.7 - d40 / 2, 139.7 + d40 / 2)]); l3.draw(cam); const d = lines(l3);
+	assert.ok(d.length === 1 && Math.abs(d[0].x - 400) < 1.5, `短い線＝中心に 1 つ（${d.map(q => q.x.toFixed(1))}）`);
+	const { layer: l4 } = mkLayer(); l4.setLabels([road(139.7 - d40 / 2, 139.7 + d40 / 2, { lc: 1 })]); l4.draw(cam);
+	assert.equal(lines(l4).length, 0, "枠に続く短い線＝置かない（隣のタイルの続きに任せる）");
+	// タイルの枠（tbx）＝西半分だけのタイル＝東半分の錨は出ない
+	const { layer: l5 } = mkLayer(); l5.setLabels([road(139.68, 139.72, { tbx: [139, 35, 139.7, 36] })]); l5.draw(cam); const e = lines(l5);
+	assert.ok(e.length === 2 && e.every(q => q.x < 400), `枠の中だけ: ${e.map(q => q.x.toFixed(0))}`);
+	// 字送りの倍率（szn）＝"RoadName" は z15 で 2 倍（115.2px）・spacing−長さ＜spacing/4 なら間隔＝長さ＋spacing/4＝140.2（MapLibre の getAnchors）
+	const { layer: l6 } = mkLayer(); l6.setLabels([road(139.68, 139.72, { text: "RoadName", szn: [6, 24] })]); l6.draw({ ...cam, zoom: 15 }); const f = lines(l6);
+	assert.ok(f.length === 5 && Math.abs(f[1].x - f[0].x - 140.2) < 1.5, `長い文字＝間隔は文字＋spacing/4（${f.length}・${f.length > 1 ? (f[1].x - f[0].x).toFixed(1) : "?"}）`);
+}
+
 console.log("labels2d: ok");

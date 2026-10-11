@@ -186,58 +186,79 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	const advOf = (font, ch) => { const k = font + "\u0001" + ch; let v = advCache.get(k); if (v == null) { if (advCache.size > 8192) advCache.clear(); setFont(font); if (hasLS) ctx.letterSpacing = "0px"; v = ctx.measureText(ch).width; advCache.set(k, v); } return v; };
 	// 記号（icon）は錨に置く＝線の向きに回す（icon-rotation-alignment auto/map＋icon-rotate）か正立（viewport）。文字が無い層（road_oneway の矢印）は記号だけ
 	let nullWhy = "", fitDbg = null, angDbg = null;   // 診断＝lineLayout が null を返した理由（placedDebug の line）
+	// 線の字送り（ラベルごとに覚える・書体の世代・書体で有効）＝毎フレーム（線の注記は毎フレーム敷き直す）measureText の覚えを引き直さない。区間（format）があれば字ごとの書体（fonts）・大きさ（fs）。
+	// 部分を丸ごと持つ注記（lp 2）の錨（子）は親の覚えを共有する（par）
+	function advancesOf(L, chars, csi, size0, font, ls) {
+		const H = L.par ?? L; let la = H.__la;
+		if (la !== undefined && la.gen === fontGen && la.font === font) return la;
+		const sty = csi ? secStyles(L, size0) : null, fonts = csi ? csi.map(si => sty[si].font) : null, fss = csi ? csi.map(si => sty[si].fs) : null, cols = csi ? csi.map(si => sty[si].col) : null;
+		const a = chars.map((ch, i) => advOf(fonts ? fonts[i] : font, ch) + ls * (fss ? fss[i] : 1));
+		la = H.__la = { gen: fontGen, font, adv: a, W: chars.length ? a.reduce((a, b) => a + b, 0) - ls : 0, fonts, fss, cols, hmax: fss ? Math.max(1, ...fss) : 1 };
+		// 縦書き（text-writing-mode に vertical・縦書きにできる文字）＝正立の字は 1 字分（size×fs）・回す字（ラテン）は測った幅＝線が縦に近い時に使う
+		if (L.wm?.includes("v") && L.ra !== "viewport-glyph") { const av = chars.map((ch, i) => (charRotated(ch) ? advOf(fonts ? fonts[i] : font, verticalize(ch)) : size0 * (fss ? fss[i] : 1)) + ls * (fss ? fss[i] : 1)); la.vadv = av; la.VW = chars.length ? av.reduce((a, b) => a + b, 0) - ls : 0; }
+		return la;
+	}
+	// 折れ線の投影＝部分を丸ごと持つ注記（lp 2）は同じフレーム・同じ半径なら子（錨）の間で 1 回だけ（親に覚える・projGen＝描画のフレーム番号）
+	let projGen = 0;
+	function projectPath(L, st, r) {
+		const P = L.path, n = P.length >> 1, H = L.par ?? L;
+		let pr;
+		if (L.lp === 2) {
+			const c = H.__pr;
+			if (c && c.n === n) { if (c.gen === projGen && c.r === r) return c.buf; pr = c.buf; c.gen = projGen; c.r = r; }   // 同じフレーム・同じ半径＝そのまま。違えば同じ作業域に投影し直す
+			else { pr = new Float64Array(3 * n); H.__pr = { gen: projGen, r, n, buf: pr }; }
+		} else { if (prBuf.length < 3 * n) prBuf = new Float64Array(3 * n * 2); pr = prBuf; }
+		for (let i = 0; i < n; i++) { projectInto(st, P[i * 2], P[i * 2 + 1], r, PJ); pr[i * 3] = PJ[0]; pr[i * 3 + 1] = PJ[1]; pr[i * 3 + 2] = PJ[2]; }
+		return pr;
+	}
 	function lineLayout(L, st, dpr, r, zoom) {
 		const P = L.path, n = P.length >> 1; if (n < 2) { nullWhy = "empty"; return null; }
 		const im = iconImg(L), chars = L.text ? charsOf(L) : NO_CHARS, csi = L.sec ? L.__cs : null;
 		if (!chars.length && !im) { nullWhy = "empty"; return null; }
 		// 投影＝錨を含む「表側の連続区間」だけ使う（全球ビューの赤道など＝窓の端が地球の裏に届いても錨の周りは置ける・旧＝裏の頂点が 1 つでもあれば丸ごと却下）。
-		// 重なる点＝長さ 0 の線分は捨てる（錨が頂点と一致した時に角度が跳んで max-angle で落ちていた）。s0＝錨の弧長
-		const ai = Math.min(L.ai ?? 0, n - 1);
-		if (prBuf.length < 3 * n) prBuf = new Float64Array(3 * n * 2);
-		const pr = prBuf;
-		for (let i = 0; i < n; i++) { projectInto(st, P[i * 2], P[i * 2 + 1], r, PJ); pr[i * 3] = PJ[0]; pr[i * 3 + 1] = PJ[1]; pr[i * 3 + 2] = PJ[2]; }
-		if (pr[ai * 3 + 2] < 0) { nullWhy = "back"; return null; }
-		let lo = ai, hi = ai; while (lo > 0 && pr[(lo - 1) * 3 + 2] >= 0) lo--; while (hi < n - 1 && pr[(hi + 1) * 3 + 2] >= 0) hi++;
+		// 重なる点＝長さ 0 の線分は捨てる（錨が頂点と一致した時に角度が跳んで max-angle で落ちていた）。s0＝錨の弧長。錨は頂点 ai と ai+1 の間（at＝0〜1・lp 2 の子）か頂点 ai の上（従来）
+		const ai = Math.min(L.ai ?? 0, n - 1), at = L.at || 0, bi = at > 0 ? Math.min(ai + 1, n - 1) : ai;
+		const pr = projectPath(L, st, r);
+		if (pr[ai * 3 + 2] < 0 || pr[bi * 3 + 2] < 0) { nullWhy = "back"; return null; }
+		let lo = ai, hi = bi; while (lo > 0 && pr[(lo - 1) * 3 + 2] >= 0) lo--; while (hi < n - 1 && pr[(hi + 1) * 3 + 2] >= 0) hi++;
 		const xs = [], ys = [], cum = [];
-		let s0 = 0;
+		let ka = 0, kb = 0;
 		for (let i = lo; i <= hi; i++) {
 			const dx = pr[i * 3], dy = pr[i * 3 + 1];
 			const x = dx / dpr, y = dy / dpr, k = xs.length;
-			if (k && Math.hypot(x - xs[k - 1], y - ys[k - 1]) < 1e-3) { if (i === ai) s0 = cum[k - 1]; continue; }
+			if (k && Math.hypot(x - xs[k - 1], y - ys[k - 1]) < 1e-3) { if (i === ai) ka = k - 1; if (i === bi) kb = k - 1; continue; }
 			xs.push(x); ys.push(y); cum.push(k ? cum[k - 1] + Math.hypot(x - xs[k - 1], y - ys[k - 1]) : 0);
-			if (i === ai) s0 = cum[k];
+			if (i === ai) ka = k; if (i === bi) kb = k;
 		}
 		const m_n = xs.length; if (m_n < 2) { nullWhy = "empty"; return null; }
 		const total = cum[m_n - 1]; if (!(total > 0)) { nullWhy = "empty"; return null; }
+		const sA = cum[ka] + (cum[kb] - cum[ka]) * at;   // 錨の弧長（画面 px）
+		let s0 = sA;
 		// 大きさ＝L.size（タイルの z）× 表示の z の倍率 sk（sizeK）：字送りは L.size で測って覚え（書体の文字列は不変＝覚えが効く）、幅・間隔は sk 倍・字は transform で sk 倍に描く
 		const size0 = L.size || 12, sk = sizeK(L, zoom), size = size0 * sk, font = fontOf(L, size0), ls = (L.ls || 0) * size0;
-		// 字送りはラベルごとに覚える（書体の世代・書体で有効）＝毎フレーム（線の注記は毎フレーム敷き直す）measureText の覚えを引き直さない。区間（format）があれば字ごとの書体（fonts）・大きさ（fs）
-		let la = L.__la;
-		if (la === undefined || la.gen !== fontGen || la.font !== font) {
-			const sty = csi ? secStyles(L, size0) : null, fonts = csi ? csi.map(si => sty[si].font) : null, fss = csi ? csi.map(si => sty[si].fs) : null, cols = csi ? csi.map(si => sty[si].col) : null;
-			const a = chars.map((ch, i) => advOf(fonts ? fonts[i] : font, ch) + ls * (fss ? fss[i] : 1));
-			la = L.__la = { gen: fontGen, font, adv: a, W: chars.length ? a.reduce((a, b) => a + b, 0) - ls : 0, fonts, fss, cols, hmax: fss ? Math.max(1, ...fss) : 1 };
-			// 縦書き（text-writing-mode に vertical・縦書きにできる文字）＝正立の字は 1 字分（size×fs）・回す字（ラテン）は測った幅＝線が縦に近い時に使う
-			if (L.wm?.includes("v") && L.ra !== "viewport-glyph") { const av = chars.map((ch, i) => (charRotated(ch) ? advOf(fonts ? fonts[i] : font, verticalize(ch)) : size0 * (fss ? fss[i] : 1)) + ls * (fss ? fss[i] : 1)); la.vadv = av; la.VW = chars.length ? av.reduce((a, b) => a + b, 0) - ls : 0; }
-		}
+		const la = advancesOf(L, chars, csi, size0, font, ls);
 		let adv = la.adv, W = la.W * sk, vert = false;
-		// 錨の弧長 s0 は、文字が窓（labels.js が焼いた前後の長さ・地球の縁で切れた分も）に収まる範囲へ寄せる（旧＝錨に固定＝縁の近くや短い窓で「fit」で落ちた。候補はタイルの目盛りで疎＝寄せて拾う。symbol-spacing は寄せた後の位置で裁く）
-		const at = q => { let i = 1; while (i < m_n - 1 && cum[i] < q) i++; const t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
+		// 弧長 q の点と向き＝二分探索（部分を丸ごと持つ線は頂点が多い＝字ごとの線形探索をしない）
+		const at_ = q => { let a = 1, b = m_n - 1; while (a < b) { const c = (a + b) >> 1; if (cum[c] < q) a = c + 1; else b = c; } const i = a, t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
 		// 縦書き（MapLibre の線の注記＝横と縦の両方を組み、錨の所の線の向きが縦に近い（45° 超）なら縦）＝字送りを縦の物に替える・読む向きは上→下
-		if (la.vadv && chars.length) { const q0 = Math.max(0, s0 - W / 2), q1 = Math.min(total, s0 + W / 2), p0 = at(q0), p1 = at(q1); if (Math.abs(p1[1] - p0[1]) > Math.abs(p1[0] - p0[0])) { vert = true; adv = la.vadv; W = la.VW * sk; } }
+		if (la.vadv && chars.length) { const q0 = Math.max(0, s0 - W / 2), q1 = Math.min(total, s0 + W / 2), p0 = at_(q0), p1 = at_(q1); if (Math.abs(p1[1] - p0[1]) > Math.abs(p1[0] - p0[0])) { vert = true; adv = la.vadv; W = la.VW * sk; } }
 		if (W > total) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
-		s0 = Math.min(Math.max(s0, W / 2), total - W / 2);
-		const m = at(s0);
+		// 錨の弧長 s0 は、文字が線（地球の縁で切れた分も）に収まる範囲へ寄せる（旧＝錨に固定＝縁の近くや短い窓で「fit」で落ちた。symbol-spacing は寄せた後の位置で裁く）。
+		// 部分を丸ごと持つ線（lp 2）は錨から文字の 3/4＋2 字分まで（窓）＝隣の錨の持ち場へ滑らない
+		const win = L.lp === 2 ? W * 0.75 + size * 2 : Infinity, qlo = Math.max(W / 2, sA - win), qhi = Math.min(total - W / 2, sA + win);
+		if (qlo > qhi) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
+		s0 = Math.min(Math.max(s0, qlo), qhi);
+		const m = at_(s0);
 		let rev = false;
-		if (chars.length && vert) { const a = at(s0 - W / 2), b = at(s0 + W / 2); rev = b[1] < a[1]; }   // 縦書き＝常に上から下へ
-		else if (chars.length && L.ku !== false) { const a = at(s0 - W / 2), b = at(s0 + W / 2); rev = b[0] < a[0]; }
+		if (chars.length && vert) { const a = at_(s0 - W / 2), b = at_(s0 + W / 2); rev = b[1] < a[1]; }   // 縦書き＝常に上から下へ
+		else if (chars.length && L.ku !== false) { const a = at_(s0 - W / 2), b = at_(s0 + W / 2); rev = b[0] < a[0]; }
 		const g = [], ma = (L.ma ?? 45) * Math.PI / 180, oy = (L.off?.[1] || 0) * size;
 		let q = s0 - W / 2, prev = null;
 		// 字の向き＝字の中心を挟む弦（幅＝max(字送り, 1.5 字)＝微小な線分の向きは字ごとに振れる＝小川のジグザグで max-angle に当たっていた・タイルの z が MapLibre より細かい分だけ折れ線が粗い）。弦が潰れていれば線分の向き
-		const chord = (q0, q1) => { const p0 = at(Math.max(0, q0)), p1 = at(Math.min(total, q1)), dx = p1[0] - p0[0], dy = p1[1] - p0[1]; return dx * dx + dy * dy > 1e-6 ? Math.atan2(dy, dx) : p1[2]; };
+		const chord = (q0, q1) => { const p0 = at_(Math.max(0, q0)), p1 = at_(Math.min(total, q1)), dx = p1[0] - p0[0], dy = p1[1] - p0[1]; return dx * dx + dy * dy > 1e-6 ? Math.atan2(dy, dx) : p1[2]; };
 		for (let i = 0; i < chars.length; i++) {
 			const k = rev ? chars.length - 1 - i : i, ak = adv[k] * sk, half = ak / 2, cw = Math.max(ak, size * 1.5) / 2;
-			const [x, y] = at(q + half), a0 = chord(q + half - cw, q + half + cw), a = rev ? a0 + Math.PI : a0;
+			const [x, y] = at_(q + half), a0 = chord(q + half - cw, q + half + cw), a = rev ? a0 + Math.PI : a0;
 			if (prev != null) { let d = a - prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; if (Math.abs(d) > ma) { nullWhy = "angle"; if (!angDbg) angDbg = { text: L.text, i, q: Math.round(q), s0: Math.round(s0), W: Math.round(W), total: Math.round(total), a: Math.round(a * 180 / Math.PI), prev: Math.round(prev * 180 / Math.PI), rev, pts: xs.map((x, j) => [Math.round(x), Math.round(ys[j]), Math.round(cum[j])]), gl: g.map(c => [Math.round(c.x), Math.round(c.y), Math.round(c.a * 180 / Math.PI)]) }; return null; } }
 			prev = a;
 			// 縦書きの正立の字＝字の上を「線の進む向きの逆（上）」へ＝向きを 90° 戻す（線が真下へ向く時に字が正立）。回す字（ラテン）は横書きと同じ向き（線に沿って寝る）・句読点は縦の形
@@ -247,7 +268,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		}
 		if (rev) g.reverse();
 		// 字の transform（段 5）：pitch-alignment map（既定）＝字の上向きを「地面で線と直角」の向きへ（傾けると字が地面に寝る）。viewport＝画面で直角（回すだけ）。rotation-alignment viewport-glyph＝字は正立のまま線に沿って並ぶ
-		const paMap = L.ra !== "viewport-glyph" && (L.pa ?? "auto") !== "viewport", M = paMap && g.length ? groundBasis(st, P[ai * 2], P[ai * 2 + 1], r, m[0], m[1], dpr, zoom) : null, det = M ? M.a * M.d - M.b * M.c : 0;
+		const paMap = L.ra !== "viewport-glyph" && (L.pa ?? "auto") !== "viewport", M = paMap && g.length ? groundBasis(st, L.anchor[0], L.anchor[1], r, m[0], m[1], dpr, zoom) : null, det = M ? M.a * M.d - M.b * M.c : 0;
 		for (const c of g) {
 			if (L.ra === "viewport-glyph") { c.a = 0; c.t = scaleT(null, sk); continue; }
 			if (M && Math.abs(det) > 1e-9) { const dx = Math.cos(c.a), dy = Math.sin(c.a), gx = (M.d * dx - M.c * dy) / det, gy = (-M.b * dx + M.a * dy) / det, px = -gy, py = gx; c.t = scaleT({ a: dx, b: dy, c: M.a * px + M.c * py, d: M.b * px + M.d * py }, sk); }   // 地面の向き d_g＝M⁻¹d_s・直角 p_g＝rot90(d_g)・画面へ M（大きさの倍率込み）
@@ -258,10 +279,37 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const ang = prev ?? m[2];
 		return { g, w: W, h: size * la.hmax, x: m[0] - Math.sin(ang) * oy, y: m[1] + Math.cos(ang) * oy, font, icon, vert };
 	}
+	// 部分を丸ごと持つ線の注記（lp 2）の錨＝表示の整数 z（zi）で symbol-spacing の間隔に置く（MapLibre の getAnchors＝過拡大のタイルごとに組み直すのと同じ答え）。整数 z ごとに覚える（鍵＝親の鍵＋"#zi:番号"＝z を跨ぐと入れ替わりフェード）。
+	// 間隔＝文字の長さに対して spacing−長さ＜spacing/4 なら 長さ＋spacing/4・最初の錨＝枠に続く線は spacing/2・そうでなければ（長さ/2＋2 字分）% spacing（T 字路の衝突を避ける）・
+	// 錨は文字が線に収まる所（±長さ/2 が線の中）かつタイルの枠の中（隣のタイルの続きと二重に出さない）。1 つも置けず枠に続かない線（短い線・過拡大）＝線の中心に 1 つ（MapLibre の placeAtMiddle）
+	const kidByKey = new Map();   // 子の鍵 → 子（フェードアウト中の描画が引く）
+	function kidsOf(L, zi) {
+		const c = L.__kids; if (c && c.zi === zi && c.gen === fontGen) return c.list;
+		const list = [], P = L.path, n = P.length >> 1, cum = L.cum;
+		if (n >= 2 && cum && cum.length === n) {
+			const im = iconImg(L), chars = L.text ? charsOf(L) : NO_CHARS, csi = L.sec ? L.__cs : null, size0 = L.size || 12, sk = sizeK(L, zi), size = size0 * sk;
+			let len = 0;   // 文字（記号）の長さ＝表示 z の px
+			if (chars.length) len = advancesOf(L, chars, csi, size0, fontOf(L, size0), (L.ls || 0) * size0).W * sk;
+			if (im) len = Math.max(len, im.bm.width / im.pr * (L.isz ?? 1));
+			if (len > 0 || (!chars.length && im)) {
+				const k = Math.pow(2, zi - (L.tz ?? zi)) / (L.upp || 16) * Math.cos(L.anchor[1] * Math.PI / 180), total = cum[n - 1] * k;   // タイル単位 → 表示 z の画面 px（正射の球＝メルカトルのタイルは緯度の cos 分だけ狭く見える）
+				let sp = Math.max(1, L.sp || 250); if (sp - len < sp / 4) sp = len + sp / 4;
+				const cont = L.lc || 0, offset = (cont & 1) ? (sp / 2) % sp : (len / 2 + size * 2) % sp, tb = L.tbx;
+				const at = d => { const q = d / k; let a = 1, b = n - 1; while (a < b) { const c = (a + b) >> 1; if (cum[c] < q) a = c + 1; else b = c; } const i = a, t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [P[i * 2 - 2] + (P[i * 2] - P[i * 2 - 2]) * t, P[i * 2 - 1] + (P[i * 2 + 1] - P[i * 2 - 1]) * t, i - 1, t]; };
+				const push = d => { const [lon, lat, i, t] = at(d); if (tb && (lon < tb[0] || lon >= tb[2] || lat <= tb[1] || lat > tb[3])) return; list.push({ ...L, anchor: [lon, lat], ai: i, at: t, key: (L.key ?? keyOf(L)) + "#" + zi + ":" + list.length, par: L, __k: undefined, __la: undefined, __kids: undefined, __pr: undefined }); };
+				for (let d = offset; d <= total; d += sp) if (d - len / 2 >= 0 && d + len / 2 <= total) push(d);
+				if (!list.length && !(cont & 1) && len <= total) push(total / 2);
+			}
+		}
+		for (const kid of list) kidByKey.set(keyOf(kid), kid);
+		if (c) for (const kid of c.list) { const k = keyOf(kid); if (!fades.has(k)) kidByKey.delete(k); }   // 前の整数 z の子＝フェードアウト中だけ鍵の表に残す
+		L.__kids = { zi, gen: fontGen, list };
+		return list;
+	}
 	let labels = [];
 	const fades = new Map();        // key → 不透明度（フェード）
 	let winners = new Map();         // key → L（現在の当選集合。間引きで更新）
-	let lastCollide = -1e9, dirty = true, lastShowFlat = true;   // showFlat=傾き閾値下（真俯瞰）だけ測量点等の flat ラベルを出す
+	let lastCollide = -1e9, dirty = true, lastShowFlat = true, lastZi = -1;   // showFlat=傾き閾値下（真俯瞰）だけ測量点等の flat ラベルを出す
 	let lastDraw = -1; const lastMvp = new Float64Array(16);   // フェードの時計・前の描画のカメラ（止まっているか）
 	let fontGen = 0;                // 書体の世代（clearFontCache で進む）＝ラベルごとの textLayout の覚え（__tl）の有効性
 	const widthCache = new Map();   // "size|text" → measureText 幅。measureText は高コスト＝再衝突判定(150ms毎)の度に全ラベル分呼ばない
@@ -283,6 +331,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const pri = L => (L.sort ?? 0) - (L.mlp && L.li != null ? L.li * 1e3 : 0);
 		const all = [...u, ...labels].sort((a, b) => pri(a) - pri(b));
 		labelByKey = new Map(all.map(L => [keyOf(L), L]));
+		if (kidByKey.size) { const alive = new Set(all); for (const [k, kid] of kidByKey) if (!alive.has(kid.par)) kidByKey.delete(k); }   // 親が集合から消えた子は捨てる
 		combined = all;
 		dirty = true;
 	}
@@ -327,8 +376,12 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const placed = boxGrid(), w = new Map(), wb = new Map(), lineGrp = new Map();   // lineGrp＝線の注記の群（層＋文字）→ 置いた位置＝symbol-spacing（画面 px）を課す
 		dbg = { zoom: zoomV, outOfZoom: {}, total: combined.length, line: { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }, pt: {} };   // line＝線の注記の落ちた理由・pt＝点の注記の層ごとの結果（診断）
 		const ptDbg = (L, k, eg) => { const key = L.k ?? ("li" + L.li), e = dbg.pt[key] ??= { n: 0, back: 0, noimg: 0, text: 0, icon: 0, off: 0, spacing: 0, ok: 0 }; e[k]++; if (k !== "n") e.n++; if (eg && !e[k + "Eg"]) e[k + "Eg"] = eg(); };   // eg＝見本を作る関数（最初の 1 件だけ作る＝落ちたラベルのたびに配列を組まない）
-		for (const L of combined) {
-			if (L.flat && !showFlat) continue;
+		const zi = Math.floor(zoomV);
+		for (const L0 of combined) {
+			if (L0.flat && !showFlat) continue;
+			const kids = L0.lp === 2 ? kidsOf(L0, zi) : null;
+			for (let ki = 0, kn = kids ? kids.length : 1; ki < kn; ki++) {
+			const L = kids ? kids[ki] : L0; if (kids) L.elev = L0.elev;
 			if ((L.minZ != null && zoomV < L.minZ - 1e-3) || (L.maxZ != null && zoomV > L.maxZ + 1e-3)) { const key = L.k ?? ("li" + L.li); const e = dbg.outOfZoom[key] ??= { n: 0, minZ: L.minZ, maxZ: L.maxZ }; e.n++; continue; }   // 層の zoom 域で裁く（利用者層＝meta・基図＝labels.js の minZ/maxZ）。1e-3＝整数の境（MapLibre の zoom 3＝こちらの換算で 2.999998）を落とさない   // 傾けたら測量点(真俯瞰の作法)は当選集合から外す＝以降フェードアウト（等高線と対称）
 			const rad = radiusOf(L, eScale, st, fogF); projectInto(st, L.anchor[0], L.anchor[1], rad, PJ);
 			const dx = PJ[0], dy = PJ[1], front = PJ[2];
@@ -344,8 +397,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 				if (ll.icon) { const ic = ll.icon, ip = L.ipad ?? 2; boxes.push([ic.x - ic.bw / 2 - ip, ic.y - ic.bh / 2 - ip, ic.x + ic.bw / 2 + ip, ic.y + ic.bh / 2 + ip]); }   // 記号の箱（icon-padding）＝文字と一緒に裁く（両方置けなければ出さない）
 				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; lb.off++; continue; }
 				if (!L.ov && boxes.some(b => overlaps(placed, b))) { dl.overlap++; lb.overlap++; continue; }
-				const grp = L.sp ? (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text) : null, ga = grp ? lineGrp.get(grp) : null;   // 群＝1 本の線（lg）・無ければ文字
-				if (ga && ga.some(p => Math.hypot(p[0] - ll.x, p[1] - ll.y) < L.sp)) { dl.spacing++; lb.spacing++; continue; }   // symbol-spacing＝同じ文字の線の注記は画面 px でこの間隔より近くに置かない（候補はタイルが細かく焼く＝表示 z に追随）
+				const grp = L.sp && L.lp !== 2 ? (L.k ?? "b" + L.li) + "\u0001" + (L.lg ?? L.text) : null, ga = grp ? lineGrp.get(grp) : null;   // 群＝1 本の線（lg）・無ければ文字。丸ごとの線（lp 2）の錨は置く時に間隔を取ってある＝ここでは裁かない（傾けた画面で縮んでも落とさない＝MapLibre と同じ）
+				if (ga && ga.some(p => Math.hypot(p[0] - ll.x, p[1] - ll.y) < L.sp - 1)) { dl.spacing++; lb.spacing++; continue; }   // symbol-spacing＝同じ文字の線の注記は画面 px でこの間隔より近くに置かない（候補はタイルが細かく焼く＝表示 z に追随）
 				if (grp) { if (ga) ga.push([ll.x, ll.y]); else lineGrp.set(grp, [[ll.x, ll.y]]); }
 				if (!L.ig) for (const b of boxes) placed.push(b);
 				dl.ok++; lb.ok++;
@@ -397,6 +450,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			if (hit.txt && !L.ig) placed.push(hit.box);   // ignore-placement＝他を押しのけない（自分は置く）
 			if (hit.ib && !L.iig) placed.push(grow(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3]), ipad));
 			w.set(keyOf(L), L); wb.set(keyOf(L), { sx, sy, tw, h, dx: hit.x0 - sx, dy: hit.y0 - sy, tl, an: hit.an, txt: hit.txt, ib: hit.ib, bb: hit.bb ?? null, T: hit.txt ? T : null, ibb: hit.ib ? (q => [q[2] - q[0], q[3] - q[1]])(tb(Ti, hit.ib[0], hit.ib[1], hit.ib[2], hit.ib[3])) : null });   // dx,dy＝錨から箱の左上（描く時はライブ投影の錨に足す・T があれば T の空間）
+			}
 		}
 		// フェードアウト中（当選から外れた）のラベルは最後の箱を持ち越す＝消えていく間も text-anchor／offset／variable-anchor／icon-text-fit の位置のまま（旧＝箱を失い中央・自然な記号の箱へ跳んでいた）
 		for (const k of fades.keys()) if (!wb.has(k)) { const o = winBox.get(k); if (o) wb.set(k, o); }
@@ -523,7 +577,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		// 動いている間は点の注記を画素に丸めない（旧＝CSS px に丸め＝ゆっくり動かすと 1px ずつ跳ぶ）。止まったら丸める＝文字は常に鮮明
 		let still = true; for (let i = 0; i < 16; i++) if (st.mvp[i] !== lastMvp[i]) { still = false; break; } if (!still) lastMvp.set(st.mvp);
 		if (showFlat !== lastShowFlat) { dirty = true; lastShowFlat = showFlat; }   // 閾値跨ぎで即再衝突判定→flat を外す/戻す
+		const zi = Math.floor(cam.zoom ?? 99); if (zi !== lastZi) { dirty = true; lastZi = zi; }   // 整数 z を跨いだら即再衝突判定＝丸ごとの線（lp 2）の錨を表示 z で置き直す
 		const fogF = Math.max(st.camDist * 5.0, 0.026 * pfFog);
+		projGen++;   // 折れ線の投影の覚え（lp 2）はこのフレームの間だけ
 		if (dirty || now - lastCollide > recollideMs) { collide(st, dpr, Wc, Hc, eScale, showFlat, fogF, cam.zoom ?? 99, cam.bearing || 0); lastCollide = now; dirty = false; }
 
 		ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, H); ctx.scale(dpr, dpr);
@@ -538,11 +594,11 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		for (const k of winners.keys()) drawOne(k);
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
 		function drawOne(k) {
-			const L = winners.get(k) || labelByKey.get(k);
+			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
 			if (!L) { fades.delete(k); return; }
 			const target = winners.has(k) ? 1 : 0;
 			let op = fades.get(k) ?? 0; op = target ? Math.min(1, op + step) : Math.max(0, op - step);
-			if (op === target) { if (!op) { fades.delete(k); return; } } else animating = true;
+			if (op === target) { if (!op) { fades.delete(k); if (!winners.has(k) && !labelByKey.has(k) && L.par && L.par.__kids?.list.indexOf(L) < 0) kidByKey.delete(k); return; } } else animating = true;   // 消え終わった古い子（lp 2）は鍵の表から外す
 			fades.set(k, op);
 			const rad = radiusOf(L, eScale, st, fogF); projectInto(st, L.anchor[0], L.anchor[1], rad, PJ);   // ライブ投影（標高込み）
 			const dx = PJ[0], dy = PJ[1], front = PJ[2];

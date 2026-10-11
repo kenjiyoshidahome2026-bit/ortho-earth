@@ -85,6 +85,25 @@ function sectionsOf(tf, ctx) {
 	out[0].t = out[0].t.trimStart(); out[out.length - 1].t = out[out.length - 1].t.trimEnd();
 	return out.filter(r => r.t);
 }
+// 線の各部分（flat coords＋ends）を丸ごと＝symbol-placement "line" の注記 1 本分（2026-10-07）。錨は描く側（labels2d）が表示の整数 z で symbol-spacing の間隔に置く
+// （MapLibre の getAnchors＝過拡大のタイルごとに組み直すのと同じ答え＝旧＝タイルの z の目盛りで候補を焼いていた＝z14 のタイルを z17 で見ると候補が 8 倍疎・最初の余白が 8 倍）。
+// 記録＝path（経緯度）・cum（タイル単位の弧長）・lc（枠に続く＝1 始まり・2 終わり＝MapLibre の isLineContinued）・mid（弧長の中心＝錨＝鍵・標高・並べ替えの代表点）
+function lineParts(g, extent) {
+	const c = g.coords, ends = g.ends?.length ? g.ends : [c.length], out = [];
+	let s = 0, pi = 0;
+	for (const e of ends) {
+		const n = (e - s) / 2; if (n < 2) { s = e; pi++; continue; }
+		const cum = new Float32Array(n); let len = 0;
+		for (let i = 1; i < n; i++) { len += Math.hypot(c[s + i * 2] - c[s + i * 2 - 2], c[s + i * 2 + 1] - c[s + i * 2 - 1]); cum[i] = len; }
+		if (len <= 0) { s = e; pi++; continue; }
+		const onEdge = (x, y) => x <= 0 || y <= 0 || x >= extent || y >= extent;
+		const lc = (onEdge(c[s], c[s + 1]) ? 1 : 0) | (onEdge(c[e - 2], c[e - 1]) ? 2 : 0);
+		let i = 1; const d = len / 2; while (i < n - 1 && cum[i] < d) i++; const t = (d - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1);
+		out.push({ px: c[s + i * 2 - 2] + (c[s + i * 2] - c[s + i * 2 - 2]) * t, py: c[s + i * 2 - 1] + (c[s + i * 2 + 1] - c[s + i * 2 - 1]) * t, s, n, cum, lc, part: pi });
+		s = e; pi++;
+	}
+	return out;
+}
 function layoutOf(L, lo, ctx, ml) {
 	const ev = (e, d) => { if (e == null) return d; const v = evalExpr(e, ctx); return v == null ? d : v; };
 	const anchor = String(ev(lo["text-anchor"], "center")), off = ev(lo["text-offset"], [0, 0]);
@@ -158,13 +177,15 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			const upright = onLine && String(evalExpr(text ? traE : (lo["icon-rotation-alignment"] ?? "auto"), ctx) ?? "auto") === "viewport";
 			// 線の錨：px→タイル単位は extent/256（このエンジンのタイルは 256px 世界＝タイル z＝エンジン z で 16 単位/px。MapLibre の 512px タイル z と同じ地面）。文字の長さは字数×size×0.7 の見積もり（本物の幅は描く側・記号だけなら 16px×icon-size）。候補の間隔＝max(文字の長さ/2, spacing/4)（曲がった線でも真っ直ぐな所を拾えるよう密に・spacing は描く側）・最初＝文字の半分＋1 字分（MapLibre は 2 字分＝過拡大で厳しすぎるので 1 字）・窓＝文字の長さ＋余白
 			const upp = src.extent / 256, tlen = Math.max(text.length * size * 0.7, text ? 0 : 16 * num(evalExpr(lo["icon-size"] ?? 1, ctx), 1)) * upp, spacingPx = place === "line" ? Math.max(1, num(evalExpr(lo["symbol-spacing"] ?? 250, ctx), 250)) : 0;
-			const spots = onLine ? lineAnchors(g, src.extent, { step: place === "line" ? Math.max(tlen / 2, spacingPx * upp / 4) : 0, half: tlen / 2, first: tlen / 2 + size * upp, win: tlen * 0.75 + size * 2 * upp })
+			const whole = onLine && !upright && place === "line";   // 線に沿って回す "line"＝部分を丸ごと 1 本（錨は描く側が表示 z で置く）。line-center＝中心 1 つ・upright（盾）＝タイルの目盛りの候補（従来）
+			const spots = whole ? lineParts(g, src.extent)
+				: onLine ? lineAnchors(g, src.extent, { step: place === "line" ? Math.max(tlen / 2, spacingPx * upp / 4) : 0, half: tlen / 2, first: tlen / 2 + size * upp, win: tlen * 0.75 + size * 2 * upp })
 				: f.type === "LineString" ? (() => { const o = [], c = g.coords, ends = g.ends?.length ? g.ends : [c.length]; let st = 0; for (const e of ends) { if (e - st >= 4 && c[st] >= 0 && c[st + 1] >= 0 && c[st] < src.extent && c[st + 1] < src.extent) o.push({ px: c[st], py: c[st + 1] }); st = e; } return o; })()   // 線の各部分の先頭（タイルの中だけ）
 				: [{ px: g.coords[0], py: g.coords[1] }];
 			for (const sp of spots) {
 			const px = sp.px, py = sp.py;
 			const [lon, lat] = tileLocalToLonLat(x, y, z, px, py, src.extent);
-			const dkey = (ml ? li + "\u0001" : "") + text + "\u0001" + icon + "@" + Math.round(px) + "," + Math.round(py);   // MapLibre 由来の層は層ごとに（同じ点・同じ文字でも別の層なら両方置いて後の層が勝つ＝poi_transit が poi_r1 に消されていた）・ネイティブは従来どおり層またぎで 1 つ
+			const dkey = (ml ? li + "\u0001" : "") + (whole ? "~" : "") + text + "\u0001" + icon + "@" + Math.round(px) + "," + Math.round(py);   // 丸ごとの線（~）は点・中心の注記と畳まない   // MapLibre 由来の層は層ごとに（同じ点・同じ文字でも別の層なら両方置いて後の層が勝つ＝poi_transit が poi_r1 に消されていた）・ネイティブは従来どおり層またぎで 1 つ
 			if (seen.has(dkey)) continue; seen.add(dkey);
 			const color = parseRGBA(evalExpr(L.paint?.["text-color"] ?? "#000", ctx));
 			const halo = parseRGBA(evalExpr(L.paint?.["text-halo-color"] ?? "rgba(255,255,255,1)", ctx));
@@ -173,7 +194,11 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 			for (const ch of text) codepoints.add(ch.codePointAt(0));
 			const lay = layoutOf(L, lo, ctx, ml);
 			const lg = spacingPx ? `${z}/${x}/${y}/${li}/${fi}/${sp.part ?? 0}` : null;   // symbol-spacing の群＝1 本の線（タイル・層・地物・部分）の中だけ（MapLibre と同じ＝隣の区間の同名の道は両方出る）
-			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
+			const line = !onLine ? {} : upright ? { mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}) } : whole ? (() => {
+				const path = new Float64Array(sp.n * 2); for (let i = 0; i < sp.n; i++) { const q = tileLocalToLonLat(x, y, z, g.coords[sp.s + i * 2], g.coords[sp.s + i * 2 + 1], src.extent); path[i * 2] = q[0]; path[i * 2 + 1] = q[1]; }
+				const w = tileLocalToLonLat(x, y, z, 0, 0, src.extent), e2 = tileLocalToLonLat(x, y, z, src.extent, src.extent, src.extent);
+				return { lp: 2, path, cum: sp.cum, lc: sp.lc, tz: z, upp, tbx: [w[0], e2[1], e2[0], w[1]], mw: 0, sp: spacingPx, lg, ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false };   // lp 2＝部分を丸ごと（錨は描く側）・tbx＝タイルの枠（西・南・東・北＝錨はこの中だけ）
+			})() : (() => { const path = new Float64Array(sp.path.length); for (let i = 0; i < sp.path.length; i += 2) { const q = tileLocalToLonLat(x, y, z, sp.path[i], sp.path[i + 1], src.extent); path[i] = q[0]; path[i + 1] = q[1]; } return { lp: 1, path, ai: sp.ai, mw: 0, ...(spacingPx ? { sp: spacingPx, lg } : {}), ma: num(evalExpr(lo["text-max-angle"] ?? 45, ctx), 45), ku: evalExpr(lo["text-keep-upright"] ?? true, ctx) !== false }; })();   // 線の注記＝折れ線（経緯度）・錨の添字・折り返し無し・max-angle（度）・keep-upright。upright＝点として錨に（sp だけ）
 			const tx = s => lay.transform === "uppercase" ? s.toUpperCase() : lay.transform === "lowercase" ? s.toLowerCase() : s;
 			const rec = { anchor: [lon, lat], text: tx(text), size, font: M1_FONT, color, halo, haloW, sort, code: codeKey ? num(f.props[codeKey], 0) : 0, li, minZ, maxZ, ...(szn ? { szn, tz: z } : {}), ...lay.rec, ...(sec ? { sec: sec.map(q => ({ ...q, t: tx(q.t) })) } : {}), ...(icon ? { icon, ...iconOf(L, lo, ctx) } : {}), ...line };
 			if (rec.wm && !allowsVertical(rec.text)) delete rec.wm;   // 縦書きにできない文字（ラテンだけ）＝横書き
