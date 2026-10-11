@@ -259,6 +259,7 @@ The package ships hand-written declarations (`types/*.d.ts`, `"types"` in `packa
 `"sideEffects"` lists the modules that must survive tree shaking: the worker bodies (top-level `onmessage`), `pbf.js` / `pbf-base.js` / `index.js` (they add methods to `GeoPBF.prototype` at load) and the WASM glue. Everything else (loaders, identify, converters) is side-effect free and can be dropped when unused.
 
 ### CLI
+Every command's options are listed in `bin/args.mjs` (`SPEC`, one row per command: usage line, valued options, flags); `tests/t-cli.mjs` checks that table against the usage text. Unknown options, missing arguments and out-of-range numbers are usage errors (exit code 2, `--help` hint, message through the CLI's language table); runtime failures exit 1. `--name=value` and `--min-zoom` / `--max-zoom` (aliases of `--minzoom` / `--maxzoom`) are accepted.
 `geopbf pmtiles <in.geopbf> <out.pmtiles> [--minzoom N] [--maxzoom N] [--extent N] [--buffer N] [--layer name] [--gint in.gint] [--simplification N|off] [--lod-bias N] [--tiny-polygon A] [--tiny-line L] [--include a,b] [--exclude a,b] [--exclude-all] [--workers N] [--drop-rate R] [--gpu | --no-gpu]`
 `geopbf parquet <in.geopbf> <out.parquet> [--compression gzip|none] [--row-group N] [--order str|hilbert|morton|none] [--no-bbox] [--gpu | --no-gpu]`
 
