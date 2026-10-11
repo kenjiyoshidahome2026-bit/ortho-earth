@@ -3,9 +3,13 @@
 // 列チャンクは row group × 列の byte range を readMany（隣接合体・並列）で取る＝全量を持たない。row group の列統計（min/max）と
 // GeoParquet の bbox 覆域列から、視野（bbox）に触れる row group だけを選べる（select）。書き手が空間整列していれば読む量が視野比例になる。
 // 読めるもの: Thrift compact の FileMetaData / PageHeader、DataPage v1・v2、PLAIN / PLAIN_DICTIONARY / RLE_DICTIONARY、
-// definition level の RLE/bit-packed、圧縮 none / gzip / zstd（Node）/ snappy（自前・pyarrow と geopandas の既定）。
-// 型: BOOLEAN / INT32 / INT64 / FLOAT / DOUBLE / BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY。平坦な列（optional/required）だけ＝
-// 入れ子の group は葉ごとの列として path で返し、repeated（list/map）は読まずに飛ばす。
+// RLE（BOOLEAN）/ DELTA_BINARY_PACKED / DELTA_LENGTH_BYTE_ARRAY / DELTA_BYTE_ARRAY / BYTE_STREAM_SPLIT（2026-10-12・改良点 14＝
+// parquet-java／DuckDB／pyarrow の v2 ページで属性が黙って消えていた）、definition level の RLE/bit-packed、
+// 圧縮 none / gzip / zstd（Node）/ snappy（自前・pyarrow と geopandas の既定）。
+// 型: BOOLEAN / INT32 / INT64 / INT96（旧式の timestamp＝Date）/ FLOAT / DOUBLE / BYTE_ARRAY / FIXED_LEN_BYTE_ARRAY。
+// 平坦な列（optional/required）だけ＝入れ子の group は葉ごとの列として path で返し（name＝path を "." で結んだもの・実在の
+// "a.b" 列と衝突したら後の方に "#2" "#3"…）、repeated（list/map）は読まずに飛ばす。読めない符号化・型は列ごとに
+// columns[i].unsupported に理由（"unsupported encoding BIT_PACKED" など）。
 // 戻り: { numRows, keyValue, created, columns: [{ path: string[], name, type, logical, values: Array(numRows) | null }] }
 const DEC = new TextDecoder();   // 呼び出しごとの new TextDecoder を撤去（2026-09-15）
 import { inflate } from "../modules/inflate.js";
@@ -85,6 +89,8 @@ export function snappy(src, limit = MAX_PAGE) {   // raw snappy（Parquet の SN
 	return out;
 }
 const CODEC_NAME = { 0: "none", 1: "snappy", 2: "gzip", 6: "zstd" };
+const ENC_NAME = { 0: "PLAIN", 2: "PLAIN_DICTIONARY", 3: "RLE", 4: "BIT_PACKED", 5: "DELTA_BINARY_PACKED", 6: "DELTA_LENGTH_BYTE_ARRAY", 7: "DELTA_BYTE_ARRAY", 8: "RLE_DICTIONARY", 9: "BYTE_STREAM_SPLIT" };
+const PT_NAME = { 0: "BOOLEAN", 1: "INT32", 2: "INT64", 3: "INT96", 4: "FLOAT", 5: "DOUBLE", 6: "BYTE_ARRAY", 7: "FIXED_LEN_BYTE_ARRAY" };
 async function decompress(u8, codec, uncompressedSize) {
 	// uncompressedSize＝ページヘッダの宣言（型は Thrift の i32 ＝ 2 GiB 未満）。上限（MAX_PAGE）を越える宣言は確保前に拒む
 	if (!(uncompressedSize >= 0) || uncompressedSize > MAX_PAGE) throw new Error(`parquet: page declares ${uncompressedSize} B uncompressed (limit ${MAX_PAGE})`);
@@ -120,9 +126,89 @@ function decodeHybrid(u8, pos, end, w, n) {
 	return out;
 }
 
+// ── DELTA_BINARY_PACKED（INT32/INT64）──
+// 頭: block size・block 当たりの miniblock 数・値の総数・先頭の値（zigzag）。block ごとに min delta（zigzag）と miniblock の bit 幅、
+// 続けて miniblock の bit-packed 列（値が尽きた miniblock は書かれない）。INT32 は 2^32 で回り（spec の overflow）、INT64 は
+// 2^53 を越えると Number の精度で丸まる（PLAIN の INT64 と同じ）。戻り { out, pos }（pos＝消費した次の位置＝DELTA_*BYTE_ARRAY が続きを読む）
+function uleb(u8, pos) { let v = 0, m = 1, b; do { if (pos >= u8.length) throw new Error("parquet: truncated delta header"); b = u8[pos++]; v += (b & 127) * m; m *= 128; } while (b >= 128); return [v, pos]; }
+function zigzag64(u8, pos) {   // zigzag varint（64 bit）→ BigInt
+	let v = 0n, sh = 0n, b;
+	do { if (pos >= u8.length) throw new Error("parquet: truncated delta header"); b = u8[pos++]; v |= BigInt(b & 127) << sh; sh += 7n; } while (b >= 128);
+	return [(v >> 1n) ^ -(v & 1n), pos];
+}
+export function decodeDeltaBinaryPacked(u8, pos, n, type) {
+	const big = type === 2;   // INT64＝BigInt で積む（delta の幅が 32 を越え得る）
+	let bs, mbs, total, first;
+	[bs, pos] = uleb(u8, pos); [mbs, pos] = uleb(u8, pos); [total, pos] = uleb(u8, pos); [first, pos] = zigzag64(u8, pos);
+	if (!(bs > 0) || !(mbs > 0) || bs % mbs || (bs / mbs) % 32) throw new Error(`parquet: bad DELTA_BINARY_PACKED header (block ${bs}, miniblocks ${mbs})`);
+	if (total < n) throw new Error(`parquet: DELTA_BINARY_PACKED holds ${total} values, page needs ${n}`);
+	const per = bs / mbs, out = big ? new Array(n) : new Int32Array(n);
+	const wrap32 = v => Number(BigInt.asIntN(32, v));
+	let cur = first, o = 0;
+	if (n) out[o++] = big ? Number(cur) : wrap32(cur);
+	let left = total - 1;   // 残る delta の数（ページの n を越える分も読み飛ばす＝pos を正しく進める）
+	while (left > 0) {
+		let minD; [minD, pos] = zigzag64(u8, pos);
+		if (pos + mbs > u8.length) throw new Error("parquet: truncated DELTA_BINARY_PACKED block");
+		const widths = u8.subarray(pos, pos + mbs); pos += mbs;
+		for (let m = 0; m < mbs && left > 0; m++) {
+			const w = widths[m];
+			if (w > 64) throw new Error("parquet: DELTA_BINARY_PACKED bit width " + w);
+			const bytes = (per * w) >> 3;
+			if (pos + bytes > u8.length) throw new Error("parquet: truncated DELTA_BINARY_PACKED miniblock");
+			const take = Math.min(per, left);
+			if (w === 0) { for (let i = 0; i < take; i++) { cur += minD; if (o < n) out[o++] = big ? Number(cur) : wrap32(cur); } }
+			else {
+				let acc = 0n, nb = 0n, p = pos; const W = BigInt(w), mask = (1n << W) - 1n;
+				for (let i = 0; i < take; i++) {
+					while (nb < W) { acc |= BigInt(u8[p++]) << nb; nb += 8n; }
+					cur += minD + (acc & mask); acc >>= W; nb -= W;
+					if (o < n) out[o++] = big ? Number(BigInt.asIntN(64, cur)) : wrap32(cur);
+				}
+			}
+			pos += bytes; left -= take;
+		}
+	}
+	return { out, pos };
+}
+// DELTA_LENGTH_BYTE_ARRAY: 長さ列（DELTA_BINARY_PACKED INT32）＋連結したバイト列
+function decodeDeltaLengthByteArray(u8, pos, n) {
+	const { out: lens, pos: p0 } = decodeDeltaBinaryPacked(u8, pos, n, 1);
+	const out = new Array(n); let p = p0;
+	for (let i = 0; i < n; i++) { const l = lens[i]; if (l < 0 || p + l > u8.length) throw new Error("parquet: DELTA_LENGTH_BYTE_ARRAY runs past the page"); out[i] = u8.subarray(p, p + l); p += l; }
+	return { out, pos: p };
+}
+// DELTA_BYTE_ARRAY: 前の値との共通接頭辞の長さ列＋接尾辞（DELTA_LENGTH_BYTE_ARRAY）。FIXED_LEN_BYTE_ARRAY にも使われる
+function decodeDeltaByteArray(u8, pos, n) {
+	const { out: pre, pos: p0 } = decodeDeltaBinaryPacked(u8, pos, n, 1);
+	const { out: suf, pos: p1 } = decodeDeltaLengthByteArray(u8, p0, n);
+	const out = new Array(n); let prev = new Uint8Array(0);
+	for (let i = 0; i < n; i++) {
+		const k = pre[i]; if (k < 0 || k > prev.length) throw new Error("parquet: DELTA_BYTE_ARRAY prefix longer than the previous value");
+		const v = new Uint8Array(k + suf[i].length); v.set(prev.subarray(0, k), 0); v.set(suf[i], k); out[i] = prev = v;
+	}
+	return { out, pos: p1 };
+}
+// BYTE_STREAM_SPLIT: 値の k 番目のバイトを集めた stream が size 本（FLOAT 4・DOUBLE 8・INT32 4・INT64 8・FIXED_LEN は typeLength）
+function decodeByteStreamSplit(u8, pos, type, n, typeLength) {
+	const size = type === 1 || type === 4 ? 4 : type === 2 || type === 5 ? 8 : type === 7 ? typeLength : 0;
+	if (!size) throw new Error("parquet: BYTE_STREAM_SPLIT on physical type " + type);
+	if (pos + n * size > u8.length) throw new Error("parquet: truncated BYTE_STREAM_SPLIT page");
+	const raw = new Uint8Array(n * size);
+	for (let k = 0; k < size; k++) { const s0 = pos + k * n; for (let i = 0; i < n; i++) raw[i * size + k] = u8[s0 + i]; }
+	return decodePlain(raw, 0, type, n, typeLength);
+}
+// INT96（旧式の timestamp）: 8 バイトの nanos-of-day ＋ 4 バイトの Julian day（どちらも LE）→ Date（ミリ秒へ丸め）
+function int96ToDate(dv, p) {
+	const lo = dv.getUint32(p, true), hi = dv.getUint32(p + 4, true), jd = dv.getUint32(p + 8, true);
+	const nanos = hi * 4294967296 + lo;
+	return new Date((jd - 2440588) * 86400000 + Math.floor(nanos / 1e6));
+}
+
 // PLAIN の値列を n 個読む（type 別）。BYTE_ARRAY は Uint8Array の配列
 function decodePlain(u8, pos, type, n, typeLength) {
 	const dv = new DataView(u8.buffer, u8.byteOffset), out = new Array(n);
+	if (type === 3) { for (let i = 0; i < n; i++) out[i] = int96ToDate(dv, pos + i * 12); return { out, pos: pos + n * 12 }; }
 	if (type === 0) { for (let i = 0; i < n; i++) out[i] = !!(u8[pos + (i >> 3)] & (1 << (i & 7))); return { out, pos: pos + ((n + 7) >> 3) }; }
 	if (type === 1) { for (let i = 0; i < n; i++) out[i] = dv.getInt32(pos + i * 4, true); return { out, pos: pos + n * 4 }; }
 	if (type === 2) { for (let i = 0; i < n; i++) { const lo = dv.getUint32(pos + i * 8, true), hi = dv.getInt32(pos + i * 8 + 4, true); out[i] = hi * 4294967296 + lo; } return { out, pos: pos + n * 8 }; }
@@ -183,9 +269,14 @@ function parseFooter(foot) {
 		else leaves.push({ path: p, name: p.join("."), type: el[1], typeLength: el[2] ?? 0, converted: el[6], logical: parseLogical(el[10]), maxDef: md, repeated: rp });
 	};
 	while (i < schema.length) walk([], 0, false);
+	// 葉の name は path を "." で結んだもの。実在の "a.b" 列と入れ子 a/b が同名になったら後の方へ "#2" "#3"… を付けて一意に
+	//（chunk との突き合わせは path そのもので行う＝pathKey）。旧は同名 2 本が Map で潰れ、どちらの値かが写し順で決まっていた
+	const seen = new Map();
+	for (const l of leaves) { l.pathKey = JSON.stringify(l.path); const c = seen.get(l.name) ?? 0; seen.set(l.name, c + 1); if (c) l.name = `${l.name}#${c + 1}`; }
 	const columns = leaves.map(l => ({ path: l.path, name: l.name, type: l.type, logical: l.logical ?? (l.converted === 0 ? "STRING" : l.converted === 19 ? "JSON" : null), unsupported: l.repeated ? "repeated" : null }));
 	const rowGroups = rgs.map(rg => ({ numRows: rg[3] ?? 0, chunks: rg[1] ?? [] }));
-	return { numRows, keyValue, created, leaves, columns, rowGroups };
+	const leafIndex = new Map(leaves.map((l, k) => [l.pathKey, k]));
+	return { numRows, keyValue, created, leaves, columns, rowGroups, leafIndex };
 }
 // 列チャンクの統計値（min_value/max_value・旧 min/max）を物理型で復号。文字列は STRING のときだけ文字へ
 function statValue(leaf, b) {
@@ -193,6 +284,7 @@ function statValue(leaf, b) {
 	const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
 	switch (leaf.type) {
 		case 0: return !!b[0];
+		case 3: return b.byteLength >= 12 ? int96ToDate(dv, 0) : undefined;
 		case 1: return b.byteLength >= 4 ? dv.getInt32(0, true) : undefined;
 		case 2: return b.byteLength >= 8 ? dv.getInt32(4, true) * 4294967296 + dv.getUint32(0, true) : undefined;
 		case 4: return b.byteLength >= 4 ? dv.getFloat32(0, true) : undefined;
@@ -242,8 +334,13 @@ async function decodeChunk(buf, cm, leaf, rows) {
 		const nonNull = levels ? levels.reduce((s, v) => s + (v === leaf.maxDef ? 1 : 0), 0) : numV;
 		let vals;
 		if (enc === 0) vals = decodePlain(body, 0, leaf.type, nonNull, leaf.typeLength).out;
+		else if (enc === 3 && leaf.type === 0) { const len = new DataView(body.buffer, body.byteOffset).getUint32(0, true); const bits = decodeHybrid(body, 4, 4 + len, 1, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = !!bits[k]; }   // RLE（BOOLEAN・v2 ページの既定）
+		else if (enc === 5 && (leaf.type === 1 || leaf.type === 2)) vals = decodeDeltaBinaryPacked(body, 0, nonNull, leaf.type).out;
+		else if (enc === 6 && leaf.type === 6) vals = decodeDeltaLengthByteArray(body, 0, nonNull).out;
+		else if (enc === 7 && (leaf.type === 6 || leaf.type === 7)) vals = decodeDeltaByteArray(body, 0, nonNull).out;
+		else if (enc === 9) vals = decodeByteStreamSplit(body, 0, leaf.type, nonNull, leaf.typeLength).out;
 		else if (enc === 2 || enc === 8) { if (!dict) throw new Error("parquet: dictionary page missing"); const w = body[0]; const idx = decodeHybrid(body, 1, body.length, w, nonNull); vals = new Array(nonNull); for (let k = 0; k < nonNull; k++) vals[k] = dict[idx[k]]; }
-		else throw new Error("unsupported encoding " + enc);
+		else throw new Error("unsupported encoding " + (ENC_NAME[enc] ?? enc) + " for physical type " + (PT_NAME[leaf.type] ?? leaf.type));
 		let vi = 0;
 		for (let k = 0; k < numV; k++) {
 			if (levels && levels[k] !== leaf.maxDef) { values[r++] = null; continue; }
@@ -290,7 +387,7 @@ export async function openParquet(src, opts = {}) {
 		const stats = {}; let bytes = 0;
 		for (const ch of rg.chunks) {
 			const cm = ch[3]; if (!cm) continue;
-			const name = (cm[3] ?? []).join("."), ci = F.columns.findIndex(c => c.name === name);
+			const ci = F.leafIndex.get(JSON.stringify(cm[3] ?? [])) ?? -1, name = ci >= 0 ? F.columns[ci].name : (cm[3] ?? []).join(".");
 			bytes += cm[7] ?? 0;
 			const st = cm[12];
 			if (st && ci >= 0) {
@@ -307,8 +404,9 @@ export async function openParquet(src, opts = {}) {
 		const out = new Map(), jobs = [];
 		for (const ch of rg.chunks) {
 			const cm = ch[3]; if (!cm) continue;
-			const name = (cm[3] ?? []).join("."), ci = F.columns.findIndex(c => c.name === name);
-			if (ci < 0 || (want && !want.has(name))) continue;
+			const ci = F.leafIndex.get(JSON.stringify(cm[3] ?? [])) ?? -1; if (ci < 0) continue;
+			const name = F.columns[ci].name;
+			if (want && !want.has(name)) continue;
 			const col = F.columns[ci];
 			if (col.unsupported) { out.set(name, null); continue; }
 			const { from, len } = chunkSpan(cm);

@@ -380,8 +380,12 @@ The `bbox` column is written by default because it is what the pruning keys on. 
 repeats the coordinates, so `bboxColumn: "auto"` drops it there (half the size, no pruning); `false` drops it always.
 
 **And back again.** `fromGeoParquet(u8)` / `geopbf parquet2pbf` turns a GeoParquet file into a GeoPBF: a
-dependency-free Parquet reader (Thrift compact footer, DataPage v1/v2, PLAIN and dictionary encodings, none/gzip/zstd
-and a built-in snappy decoder for pyarrow's default) plus a WKB parser (all seven types, EWKB flags, Z/M dropped). A
+dependency-free Parquet reader (Thrift compact footer, DataPage v1/v2, every value encoding a writer uses today —
+PLAIN, the two dictionary encodings, `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`,
+`BYTE_STREAM_SPLIT` and `RLE` booleans, so parquet-java, DuckDB and pyarrow v2 pages keep their attributes — the
+physical types `BOOLEAN`/`INT32`/`INT64`/`INT96`/`FLOAT`/`DOUBLE`/`BYTE_ARRAY`/`FIXED_LEN_BYTE_ARRAY`, none/gzip/zstd
+and a built-in snappy decoder for pyarrow's default; a column the reader cannot decode is skipped with its reason
+in `stats.skipped`, never silently emptied) plus a WKB parser (all seven types, EWKB flags, Z/M dropped). A
 file geopbf wrote comes back bit-identical — coordinates are `round(x·10^precision)` with the precision recorded in
 the file — and files written by geopandas, pyarrow (v2 pages, zstd) and DuckDB read back to the same features
 (Natural Earth: all 258 identical across the three writers). ZCTA5 2010 (33,092 features, 52M vertices, zstd) comes back
