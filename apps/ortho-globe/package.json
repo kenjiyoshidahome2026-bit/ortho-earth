@@ -21,6 +21,7 @@
 		"@ortho-earth/globe": "*",
 		"@ortho-earth/tile-formats": "*",
 		"geopbf": "*",
+		"ortho-equal": "*",
 		"world-data": "*"
 	}
 }

@@ -5,10 +5,11 @@ import assert from "node:assert/strict";
 import { selectLOD } from "../src/tilecover.js";
 import { createTileManager } from "../src/tilemanager.js";
 import { mlTileZoomOf } from "../src/mlcover.js";
+import { tileId } from "../src/tile.js";
 let n = 0;
 const t = (name, fn) => { fn(); n++; console.log("  ✔", name); };
 let seed = 11; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
-const anc = sel => { const s = new Set(); for (const t of sel) { let { z, x, y } = t; while (z > 4) { z--; x >>= 1; y >>= 1; const k = `${z}/${x}/${y}`; if (s.has(k)) break; s.add(k); } } return s; };
+const anc = sel => { const s = new Set(); for (const t of sel) { let { z, x, y } = t; while (z > 4) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (s.has(k)) break; s.add(k); } } return s; };
 const cams = Array.from({ length: 60 }, (_, i) => ({ center: [120 + rnd() * 30, 25 + rnd() * 20], zoom: 6 + rnd() * 11, pitch: rnd() * 1.2, bearing: rnd() * 6.28, dpr: 1 + (i & 1) }));
 
 t("sticky＝前回の結果の祖先で解き直しても同じ（前回の sticky が別のカメラの物でも）", () => {

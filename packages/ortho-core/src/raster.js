@@ -17,7 +17,7 @@
 //   窓（近/中/遠）は renderer が持つ（ベクタ塗りと同じ「地面アトラス」＝2026-09-21 RTT ドレープ統合）。renderer は rev か窓か塗りが
 //   変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
 import { selectLOD } from "./tilecover.js";
-import { tileBounds, tileLocalToLonLat, tileOutsideCoverage } from "./tile.js";
+import { tileBounds, tileLocalToLonLat, tileOutsideCoverage, tileId } from "./tile.js";
 import { createRasterSource } from "./raster-src.js";
 
 const keyOf = (z, x, y) => `${z}/${x}/${y}`;
@@ -62,7 +62,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	const BUDGET = budgetMB ? Math.round(budgetMB * 1048576) : (lowMem ? 24 : 64) << 20;   // GPU テクスチャの常駐予算（mips 込み）。LOW_MEM＝iOS jetsam 対策の側。budgetMB＝検定用の明示
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
 	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
-	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", texSeq = 0;
+	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", sigDirty = true, texSeq = 0;
 	let lastPendSig = "";   // rasterPending の前回の申告（変わった時だけ main へ）
 	// 未着の申告（idle / isSourceLoaded の材料・2026-09-28）＝層ごとに「開いている途中＝1」「開いた直後で一度も選抜していない＝1」「見えている選抜の未着（queued/loading/retry）の枚数」。
 	// 見えていない層（visible:false・表示域の外）は 0。合計が変わった時だけ post（main の checkIdle と isSourceLoaded が読む）
@@ -158,7 +158,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			sel.sort((a, b) => a._d - b._d); sel.length = maxTiles;
 		}
 		L.sticky = new Set();
-		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = keyOf(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }
+		for (const t of sel) { let z = t.z, x = t.x, y = t.y; while (z > src.minZoom) { z--; x >>= 1; y >>= 1; const k = tileId(z, x, y); if (L.sticky.has(k)) break; L.sticky.add(k); } }   // selectLOD の sticky は tileId の番号鍵
 		return sel;
 	}
 
@@ -264,11 +264,15 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		rd.layers.sort((a, b) => (a.order === "over" ? 1 : 0) - (b.order === "over" ? 1 : 0));
 		drawCount = 0; for (const l of rd.layers) drawCount += l.draws.length;
 		if (rd.layers.length) {
-			// 改訂番号：描画リスト（tex/uvT/位置/不透明度）が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない
-			const sig = rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
-			if (sig !== lastSig) { lastSig = sig; rev++; }
+			// 改訂番号：描画リスト（tex/uvT/位置/不透明度）が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない。
+			// 署名を組むのは描画リストが変わり得た時（選抜が走った・層の設定が変わった・層が消えた）だけ＝静止フレームは文字列を組まない（旧＝毎フレーム・層×描画の数だけ toFixed と join）
+			if (changed || sigDirty) {
+				const sig = rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
+				if (sig !== lastSig) { lastSig = sig; rev++; }
+				sigDirty = false;
+			}
 			rd.rev = rev;
-		} else lastSig = "";
+		} else { lastSig = ""; sigDirty = false; }
 		renderer.setRasterDraws(rd.layers.length ? rd : null);
 		reportPending();
 		return changed;
@@ -314,7 +318,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		for (const e of L.cache.values()) freeEntry(e);
 		L.cache.clear(); L.queue.length = 0; L.draws = [];
 		L.source?.close?.();
-		layers.delete(id);
+		layers.delete(id); sigDirty = true;
 		if (!layers.size) renderer.setRasterDraws(null);
 		reportPending();
 		requestDraw && requestDraw();
@@ -328,7 +332,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (o.hideFills != null) L.hideFills = !!o.hideFills;
 		if (o.minZoom != null) L.showMin = o.minZoom;
 		if (o.maxZoom != null) L.showMax = o.maxZoom;
-		L.dirty = true; requestDraw && requestDraw();
+		L.dirty = true; sigDirty = true; requestDraw && requestDraw();
 		return true;
 	}
 	function stats() {
