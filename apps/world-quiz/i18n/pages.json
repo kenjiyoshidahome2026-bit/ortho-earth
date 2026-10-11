@@ -1,0 +1,10 @@
+{
+	"_": "頁の辞書の分け方＝ページ名 → そのページのファイル（正本＝i18n/pages/<page>.json・焼き先＝i18n/lang/<page>/<code>.json）。本体の訳（globe の ui.json＝page.js の起動失敗の面など）は @ortho-earth/globe が持つ＝ここでは足さない。この殻のファイルは全部 quiz 頁の持ち物。国名・首都・地域名の訳は World の台帳（bucket の i18n/<lang>.json）から＝ここには無い",
+	"pages": {
+		"quiz": [
+			"main.js",
+			"src/app.js",
+			"src/mapview.js"
+		]
+	}
+}

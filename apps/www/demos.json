@@ -48,6 +48,20 @@
 			"proper": true
 		},
 		{
+			"id": "quiz",
+			"href": "/quiz/",
+			"group": "earth",
+			"icon": "🧠",
+			"title": "World quiz",
+			"lang": "26",
+			"desc": "A geography quiz for kids and grown-ups: flags, capitals and where countries are on the 3D globe. Three levels, the whole world or one region, stars and badges — and the countries you miss come back until you know them.",
+			"img": "/thumbs/quiz.webp",
+			"shot": {
+				"url": "/quiz/?mode=flag&level=1&start",
+				"wait": 8
+			}
+		},
+		{
 			"id": "geoedit",
 			"href": "/japan/geoedit#5.1/38.2/136.9",
 			"group": "tools",
