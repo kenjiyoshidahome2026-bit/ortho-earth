@@ -1,0 +1,205 @@
+<!doctype html>
+<!-- gint の fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）＝gpu/gintexpr.js（式→WGSL compute）＋ gpu/gintexprgpu.js（走者）の実機検定。
+     CPU の正本（gl/gint/style.js buildFidStyle）と同じ paint/filter・同じ地物で GPU の表を読み戻し、fid ごとのレコードを突き合わせる：
+     色は各チャネル ±1（f32 と f64 の丸めの境）、width/radius は ±1、visible ビットは一致。
+     ① 契約の式（tests/gint-expr.mjs と同じ顔ぶれ＝get/has/feature-state/geometry-type/zoom/match/case/step/coalesce/interpolate（linear・exponential・色・入れ子の色）/
+        比較/all/any/!/in/let/算術/min/max/to-number/to-boolean/abs…）を混ぜた 40 組 × 型の混ざった地物 300
+     ② 乱数の式（種固定）120 本 ③ feature-state の差し替え（setState＝列の 1 セル書き）後の表＝CPU の states と一致 ④ zoom の差し替え
+     ⑤ 載せない式（文字列の大小比較・文字列の +・ML 出自・配列）は compile が断る（CPU へ落ちる口）
+     renderer を起こさない（swiftshader の器でも回る）。本番の絵（paintExpr→fidStyleTex）は t-gintgpu?gintexpr=1 が見る。⚠実時間専用（verify-webgpu.mjs・noBoot） -->
+<html lang="ja"><head><meta charset="utf-8"><title>t-gintexpr</title></head>
+<body>
+<script type="module">
+const t = [], ok = (n, c) => { t.push((c ? "ok:" : "NG:") + n); console.log("[t]", t[t.length - 1]); };
+window.__t = t;
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+try {
+	if (!navigator.gpu) { ok("webgpu-unavailable→スキップ扱いPASS", true); fin(); }
+	else {
+	const A = await import("../../../packages/ortho-core/src/gl/gint/attrcols.js");
+	const { compileFidStyleWGSL, dictTables } = await import("../../../packages/ortho-core/src/gpu/gintexpr.js");
+	const { createFidExprRunner } = await import("../../../packages/ortho-core/src/gpu/gintexprgpu.js");
+	const { buildFidStyle } = await import("../../../packages/ortho-core/src/gl/gint/style.js");
+	const adapter = await navigator.gpu.requestAdapter();
+	const device = await adapter.requestDevice();
+	const errs = [];
+	device.addEventListener?.("uncapturederror", e => errs.push(e.error?.message || String(e.error)));
+	const runner = createFidExprRunner(device);
+	// ── 地物（型が混ざる）──
+	let seed = 12345; const rnd = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) / 4294967296;
+	const pick = a => a[Math.floor(rnd() * a.length)];
+	const GT = ["Point", "MultiPoint", "LineString", "Polygon", "MultiPolygon"];
+	const STR = ["a", "b", "river", "road", "", "12", "3.5", "#ff0000", "rgba(0,128,255,0.5)", "blue", "x y"];
+	const feats = [];
+	for (let i = 0; i < 300; i++) {
+		const p = {};
+		if (rnd() < 0.9) p.v = rnd() < 0.8 ? Math.round(rnd() * 2000 - 500) / 4 : pick([0, -0, 1e6, 1e-3, 2 ** 24, -7]);
+		if (rnd() < 0.8) p.k = pick(STR);
+		if (rnd() < 0.5) p.b = rnd() < 0.5;
+		if (rnd() < 0.3) p.n = null;
+		if (rnd() < 0.5) p.c = pick(["#ff0000", "#00ff0080", "rgba(10,20,30,0.25)", "blue", "transparent", "nonsense", 5, true]);
+		if (rnd() < 0.4) p.s = pick(["12", "3.5", "abc", " 7 ", ""]);
+		feats.push({ properties: p, geometry: { type: pick(GT) } });
+	}
+	const RED = "#ff0000", BLUE = "#0000ff", G = "rgba(0,255,0,0.5)";
+	// ── ① 契約の式 ──
+	const cases = [
+		{ paint: { "fill-color": ["match", ["get", "k"], "a", RED, BLUE] } },
+		{ paint: { "fill-color": ["literal", RED] }, filter: ["has", "k"] },
+		{ paint: { "fill-color": ["case", ["==", ["feature-state", "sel"], true], RED, BLUE] } },
+		{ paint: { "fill-color": ["match", ["geometry-type"], "Point", RED, ["Polygon", "MultiPolygon"], G, BLUE] } },
+		{ paint: { "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1, 15, 3] }, zoom: 10 },
+		{ paint: { "fill-color": ["match", ["get", "k"], ["a", "river", "road"], RED, "b", BLUE, "rgba(0,0,0,0)"] } },
+		{ paint: { "fill-color": ["case", [">", ["get", "v"], 5], RED, BLUE] } },
+		{ paint: { "fill-color": ["step", ["get", "v"], BLUE, 10, RED, 100, G] } },
+		{ paint: { "fill-color": ["step", ["coalesce", ["get", "v"], 100], BLUE, 10, RED] } },
+		{ paint: { "line-width": ["interpolate", ["linear"], ["get", "v"], 0, 0, 10, 4, 100, 20] } },
+		{ paint: { "line-width": ["interpolate", ["exponential", 2], ["get", "v"], 0, 1, 100, 9] } },
+		{ paint: { "fill-color": ["interpolate", ["linear"], ["get", "v"], 0, RED, 100, BLUE] } },
+		{ paint: { "fill-color": ["interpolate", ["exponential", 1.5], ["get", "v"], -100, "rgba(255,0,0,0.2)", 0, G, 100, BLUE] } },
+		{ paint: { "fill-color": ["match", ["get", "k"], "a", ["interpolate", ["linear"], ["get", "v"], 0, RED, 100, BLUE], G] } },   // 入れ子の色の補間（lerpColor の丸め）
+		{ paint: { "fill-color": ["case", ["has", "v"], ["interpolate", ["linear"], ["get", "v"], 0, "#000000", 250, "#ffffff"], "#808080"], "fill-opacity": ["interpolate", ["linear"], ["get", "v"], 0, 0.2, 100, 1] } },
+		{ paint: { "fill-color": RED, "fill-opacity": ["get", "v"] } },
+		{ paint: { "fill-color": ["get", "c"] } },
+		{ paint: { "fill-color": ["get", "k"], "line-color": ["get", "c"], "line-opacity": 0.5 } },
+		{ paint: { "line-color": RED, "circle-color": BLUE, "line-width": 2.25, "circle-radius": 3.5 } },
+		{ paint: { "circle-color": ["case", ["!", ["get", "b"]], RED, BLUE], "circle-radius": ["*", ["get", "v"], 0.01] } },
+		{ paint: { "line-width": ["+", ["get", "v"], 1, ["*", 2, 3]] } },
+		{ paint: { "line-width": ["-", ["get", "v"]] } },
+		{ paint: { "line-width": ["/", ["get", "v"], 7] } },
+		{ paint: { "line-width": ["%", ["get", "v"], 5] } },
+		{ paint: { "line-width": ["^", ["abs", ["get", "v"]], 0.5] } },
+		{ paint: { "line-width": ["min", ["get", "v"], 20, ["get", "s"]] } },
+		{ paint: { "line-width": ["max", ["get", "v"], ["get", "b"], 0] } },
+		{ paint: { "line-width": ["to-number", ["get", "s"]] } },
+		{ paint: { "line-width": ["floor", ["get", "v"]], "circle-radius": ["ceil", ["get", "v"]] } },
+		{ paint: { "line-width": ["round", ["get", "v"]], "circle-radius": ["sqrt", ["abs", ["get", "v"]]] } },
+		{ paint: { "fill-color": RED }, filter: ["all", [">=", ["get", "v"], 0], ["<", ["get", "v"], 100], ["!=", ["get", "k"], "b"]] },
+		{ paint: { "fill-color": RED }, filter: ["any", ["==", ["get", "b"], true], ["==", ["get", "n"], null], ["<=", ["get", "s"], 5]] },
+		{ paint: { "fill-color": RED }, filter: ["in", ["get", "k"], ["literal", ["a", "road", 12]]] },
+		{ paint: { "fill-color": RED }, filter: ["get", "b"] },
+		{ paint: { "fill-color": RED }, filter: ["get", "k"] },
+		{ paint: { "fill-color": RED }, filter: ["to-boolean", ["get", "v"]] },
+		{ paint: { "fill-color": ["let", "x", ["*", ["get", "v"], 2], ["case", [">", ["var", "x"], 100], RED, BLUE]] } },
+		{ paint: { "fill-color": ["case", [">", ["get", "s"], 5], RED, BLUE] } },   // 数の文字列の比較＝Number("12") > 5
+		{ paint: { "fill-color": ["case", ["==", ["get", "v"], 0], RED, ["==", ["get", "k"], ""], G, BLUE] } },   // -0 と ""（偽の文字列）
+		{ paint: { "fill-color": ["interpolate", ["linear"], ["get", "k"], 0, RED, 10, BLUE] } },   // 文字列の入力＝NaN は描かない
+		{ paint: { "fill-color": ["match", ["get", "k"], "a", ["interpolate", ["linear"], ["get", "k"], 0, RED, 10, BLUE], G] } },   // 入れ子・NaN
+		{ paint: { "fill-color": ["interpolate", ["linear"], ["get", "v"], 0, ["get", "c"], 100, BLUE] } },   // 停留が式（色なし→描かない）
+		{ paint: { "fill-color": ["feature-state", "col"], "line-width": ["feature-state", "w"] } },
+	];
+	const states = new Map([[0, { sel: true, col: "#123456", w: 3 }], [1, { sel: false }], [5, { col: "red", w: "2.5" }], [7, { sel: 1 }]]);
+	const unpack = u => [u >>> 24, (u >>> 16) & 255, (u >>> 8) & 255, u & 255];
+	const near = (a, b) => unpack(a).every((x, i) => Math.abs(x - unpack(b)[i]) <= 1);
+	const same = (c, g, fid) => {
+		const j = fid * 4;
+		if (!near(c[j], g[j]) || !near(c[j + 1], g[j + 1])) return false;
+		const cb = c[j + 2], gb = g[j + 2];
+		return Math.abs((cb >>> 24) - (gb >>> 24)) <= 1 && Math.abs(((cb >>> 8) & 255) - ((gb >>> 8) & 255)) <= 1 && (cb & 1) === (gb & 1);
+	};
+	// GPU で表を組む → Uint32Array（CPU と同じ並び）
+	const gpuTable = async (paint, filter, { zoom = 0, st = states } = {}) => {
+		const dict = new A.Dict();
+		const keys = A.paintKeys(paint, filter), propKeys = [...keys.props], stateKeys = [...keys.states];
+		const cols = A.buildPropColumns(feats, propKeys, dict);
+		const geom = A.buildGeomColumn(feats, dict);
+		const prog = compileFidStyleWGSL(paint, filter, { propKeys, stateKeys, kinds: cols.kinds, dict });
+		if (prog.error) return { error: prog.error };
+		const stCols = A.buildStateColumns(st, stateKeys, feats.length, dict);
+		const { dnum, dcol } = dictTables(dict);
+		const job = await runner.create(prog, { count: feats.length, props: cols.data, states: stCols, geom, dnum, dcol, zoom });
+		job.run();
+		const u32 = await job.readback();
+		return { u32, job, dict, stateKeys, prog };
+	};
+	const diffs = (c, g) => { let bad = 0, first = -1; for (let f = 0; f < feats.length; f++) if (!same(c, g, f)) { if (first < 0) first = f; bad++; } return { bad, first }; };
+	const hex = u => (u >>> 0).toString(16).padStart(8, "0");
+	let nOK = 0, nBad = 0, firstBad = "";
+	for (let i = 0; i < cases.length; i++) {
+		const { paint, filter = null, zoom = 0 } = cases[i];
+		const cpu = buildFidStyle(paint, feats, { filter, zoom, states }).u32;
+		const r = await gpuTable(paint, filter, { zoom });
+		if (r.error) { nBad++; firstBad ||= `#${i} compile: ${r.error}`; continue; }
+		const d = diffs(cpu, r.u32);
+		if (d.bad) { nBad++; firstBad ||= `#${i} fid ${d.first} ${JSON.stringify(feats[d.first].properties)} ${feats[d.first].geometry.type} cpu ${[0, 1, 2].map(k => hex(cpu[d.first * 4 + k])).join("/")} gpu ${[0, 1, 2].map(k => hex(r.u32[d.first * 4 + k])).join("/")} (${d.bad} fids)`; } else nOK++;
+		r.job.destroy();
+	}
+	ok(`① 契約の式 ${cases.length} 組 × 地物 ${feats.length}＝GPU の表が CPU と一致（OK ${nOK}・NG ${nBad}${firstBad ? "・" + firstBad : ""}）`, nBad === 0);
+	// ── ② 乱数の式 ──
+	const COLS = [RED, BLUE, G, "#80ff0040", "white", "rgba(1,2,3,1)"];
+	const numE = d => { if (d <= 0) return pick([["get", "v"], ["get", "s"], ["zoom"], 1, 2.5, -3, 0, ["feature-state", "w"]]);
+		return pick([() => ["+", numE(d - 1), numE(d - 1)], () => ["*", numE(d - 1), 0.5], () => ["-", numE(d - 1), numE(d - 1)], () => ["/", numE(d - 1), pick([2, 4, ["get", "v"]])], () => ["abs", numE(d - 1)], () => ["min", numE(d - 1), numE(d - 1)],
+			() => ["max", numE(d - 1), 3], () => ["to-number", pick([["get", "s"], ["get", "b"], ["get", "k"]])], () => ["step", numE(d - 1), numE(d - 1), 10, numE(d - 1)], () => ["interpolate", pick([["linear"], ["exponential", 2]]), numE(d - 1), 0, numE(d - 1), 50, numE(d - 1)],
+			() => ["case", boolE(d - 1), numE(d - 1), numE(d - 1)], () => ["coalesce", ["get", "v"], numE(d - 1)], () => ["round", numE(d - 1)], () => ["%", numE(d - 1), 7]])();
+	};
+	const boolE = d => { if (d <= 0) return pick([["has", "v"], ["get", "b"], true, false, ["==", ["get", "k"], "a"], [">", ["get", "v"], 0]]);
+		return pick([() => ["all", boolE(d - 1), boolE(d - 1)], () => ["any", boolE(d - 1), boolE(d - 1)], () => ["!", boolE(d - 1)], () => ["<", numE(d - 1), numE(d - 1)], () => [">=", numE(d - 1), numE(d - 1)], () => ["==", numE(d - 1), numE(d - 1)],
+			() => ["!=", ["get", "k"], pick(STR)], () => ["in", ["get", "k"], ["literal", [pick(STR), pick(STR)]]], () => ["case", boolE(d - 1), boolE(d - 1), boolE(d - 1)], () => ["to-boolean", numE(d - 1)]])();
+	};
+	const colE = d => { if (d <= 0) return pick([...COLS, ["get", "c"], ["feature-state", "col"]]);
+		return pick([() => ["match", ["get", "k"], pick(STR), colE(d - 1), [pick(STR), pick(STR)], colE(d - 1), colE(d - 1)], () => ["case", boolE(d - 1), colE(d - 1), colE(d - 1)], () => ["step", numE(d - 1), colE(d - 1), 0, colE(d - 1), 100, colE(d - 1)],
+			() => ["interpolate", ["linear"], numE(d - 1), 0, colE(d - 1), 100, colE(d - 1)], () => ["coalesce", ["get", "c"], colE(d - 1)], () => ["match", ["geometry-type"], "Point", colE(d - 1), colE(d - 1)]])();
+	};
+	let rOK = 0, rBad = 0, rSkip = 0, rFirst = "";
+	for (let i = 0; i < 120; i++) {
+		const paint = { "fill-color": colE(3), "fill-opacity": numE(2), "line-color": colE(2), "circle-color": colE(2), "line-width": numE(3), "circle-radius": numE(2) };
+		const filter = boolE(3), zoom = Math.round(rnd() * 160) / 10;
+		const cpu = buildFidStyle(paint, feats, { filter, zoom, states }).u32;
+		const r = await gpuTable(paint, filter, { zoom });
+		if (r.error) { rSkip++; continue; }
+		const d = diffs(cpu, r.u32);
+		if (d.bad && !rFirst) {   // 最初の不一致＝鍵ごとに切り分けて、どの式が外れたかを出す
+			for (const [k, e] of [...Object.entries(paint), ["filter", filter]]) {
+				const p1 = k === "filter" ? {} : { [k]: e }, f1 = k === "filter" ? filter : null;
+				const c1 = buildFidStyle(p1, feats, { filter: f1, zoom, states }).u32, g1 = await gpuTable(p1, f1, { zoom });
+				if (g1.error) continue; const d1 = diffs(c1, g1.u32); g1.job.destroy();
+				if (d1.bad) rFirst += ` [${k}] ${JSON.stringify(e)} fid ${d1.first} ${JSON.stringify(feats[d1.first].properties)} ${feats[d1.first].geometry.type} cpu ${[0, 1, 2].map(j => hex(c1[d1.first * 4 + j])).join("/")} gpu ${[0, 1, 2].map(j => hex(g1.u32[d1.first * 4 + j])).join("/")};`;
+			}
+		}
+		if (d.bad) { rBad++; rFirst ||= `#${i} ${JSON.stringify({ paint, filter, zoom }).slice(0, 600)} fid ${d.first} ${JSON.stringify(feats[d.first].properties)} ${feats[d.first].geometry.type} cpu ${[0, 1, 2].map(k => hex(cpu[d.first * 4 + k])).join("/")} gpu ${[0, 1, 2].map(k => hex(r.u32[d.first * 4 + k])).join("/")} (${d.bad} fids)`; } else rOK++;
+		r.job.destroy();
+	}
+	ok(`② 乱数の式 120 本＝一致（OK ${rOK}・NG ${rBad}・compile が断った ${rSkip}${rFirst ? "・" + rFirst : ""}）`, rBad === 0 && rSkip < 100);
+	// ── ③ feature-state の差し替え（列の 1 セル書き）→ 表が CPU の states と一致 ──
+	{
+		const paint = { "fill-color": ["case", ["==", ["feature-state", "sel"], true], RED, ["coalesce", ["feature-state", "col"], BLUE]], "line-width": ["coalesce", ["feature-state", "w"], 1] };
+		const r = await gpuTable(paint, null);
+		const st2 = new Map(states); st2.set(3, { sel: true }); st2.set(0, { sel: false, col: "#abcdef", w: 4.5 }); st2.delete(5); st2.set(9, { col: "hotpink", w: "9" });
+		for (const fid of [3, 0, 5, 9]) r.job.setState(fid, A.encodeStateRow(st2.get(fid), r.stateKeys, r.dict));
+		const { dnum, dcol } = dictTables(r.dict); r.job.growDict(dnum, dcol);   // 新しい文字列（#abcdef・hotpink）＝辞書が伸びた
+		r.job.run();
+		const g = await r.job.readback(), cpu = buildFidStyle(paint, feats, { states: st2 }).u32;
+		const d = diffs(cpu, g);
+		ok(`③ feature-state の差し替え（4 fid・辞書の伸び）後の表＝CPU と一致（不一致 ${d.bad}${d.bad ? " fid " + d.first + " cpu " + hex(cpu[d.first * 4]) + " gpu " + hex(g[d.first * 4]) : ""}）`, d.bad === 0);
+		// ④ zoom の差し替え
+		const pz = { "line-width": ["interpolate", ["linear"], ["zoom"], 0, 1, 10, 11], "fill-color": ["step", ["zoom"], RED, 5, BLUE] };
+		const rz = await gpuTable(pz, null, { zoom: 2 });
+		rz.job.run({ zoom: 7.5 });
+		const gz = await rz.job.readback(), cz = buildFidStyle(pz, feats, { zoom: 7.5, states }).u32;
+		const dz = diffs(cz, gz);
+		ok(`④ zoom の差し替え（2→7.5）＝CPU と一致（不一致 ${dz.bad}）`, dz.bad === 0 && (gz[2] >>> 24) === 68);
+		r.job.destroy(); rz.job.destroy();
+	}
+	// ── ⑤ 断る式 ──
+	{
+		const dict = new A.Dict(), kinds = A.buildPropColumns(feats, ["k", "v", "s"], dict).kinds;
+		const c = (paint, filter, o = {}) => compileFidStyleWGSL(paint, filter, { propKeys: ["k", "v", "s"], stateKeys: [], kinds, dict, ...o });
+		const bad = [
+			["文字列の大小比較", c({}, ["<", ["get", "k"], "m"])],
+			["文字列の +", c({ "line-width": ["+", ["get", "k"], 1] })],
+			["ML 出自", c({ "fill-color": RED }, null, { origin: "ml" })],
+			["配列のリテラル", c({ "fill-color": ["literal", [1, 2]] })],
+			["get の 2 引数", c({ "fill-color": ["get", "k", ["literal", {}]] })],
+			["未対応の演算子", c({ "fill-color": ["concat", ["get", "k"], "x"] })],
+			["f32 で表せない整数", c({}, ["==", ["get", "v"], 123456789])],
+		];
+		const okC = c({ "fill-color": RED, "line-width": ["get", "v"] }, ["==", ["get", "s"], "12"]);
+		ok(`⑤ 載せない式を compile が断る（${bad.filter(([, r]) => r.error).length}/${bad.length}）・載る式は通る（${!okC.error}）${bad.filter(([, r]) => !r.error).map(([n]) => " 通してしまった:" + n).join("")}`, bad.every(([, r]) => r.error) && !okC.error);
+	}
+	await device.queue.onSubmittedWorkDone();
+	await new Promise(r => setTimeout(r, 50));
+	ok(`uncaptured エラー 0（${errs.length}）${errs.length ? " " + errs[0].slice(0, 160) : ""}`, errs.length === 0);
+	}
+} catch (e) { ok("boot:" + (e && (e.stack || e.message) || e).toString().slice(0, 400), false); }
+fin();
+</script></body></html>
