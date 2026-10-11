@@ -28,7 +28,10 @@ class GeoPBF {
 		// 器」として使う時（geoedit のセッション保存）。既定は切断（表示/識別/相互運用の正典）。cutCount＝切断した feature 数。
 		this.cutCount = 0;
 		this._am = { cut: options.cut !== false, onCut: () => { this.cutCount++; } };
-		this.noeval = !!options.noeval; // FUNC値をnew Functionせず関数ソース文字列のまま返す（CSP unsafe-eval なし環境向け）
+		// noeval＝FUNC 値（型 7）を new Function で復元せず、関数ソース文字列のまま返す。既定 true（2026-10-11・安全既定）＝
+		// 未知のファイルの属性を呼ぶだけで任意コードが走る経路を閉じ、CSP（unsafe-eval 無し）でも復号が落ちない。
+		// 旧挙動（関数へ復元）は { noeval: false } の明示 opt-in。書く側（dataType/writeValue）は従来どおり関数のソースを FUNC で書く。
+		this.noeval = options.noeval !== false;
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
 	}
 	static setProperty(name, value) {
