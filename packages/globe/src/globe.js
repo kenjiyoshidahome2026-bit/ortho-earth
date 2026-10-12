@@ -10,7 +10,7 @@ import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { positionAt, ecefToLlh } from "./czml-time.js";
 import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";
-import { normLight, lightPayload } from "./light.js";
+import { normLight, lightPayload, normLights, LIGHT_TYPES } from "./light.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spriteEcho, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";
@@ -2528,7 +2528,7 @@ const pluginHost = createPluginHost(map, {
 	getBackend: () => dbgHost.__backend || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
 	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: registerTileFormat, has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
-	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: ["bloom", "vignette"], builtinLights: ["directional"],
+	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: ["bloom", "vignette"], builtinLights: LIGHT_TYPES,
 });
 map.use = (p, o) => pluginHost.use(p, o);
 map.unuse = name => pluginHost.unuse(name);
@@ -2716,8 +2716,22 @@ map.setCamera = (c = {}) => {
 };
 map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.centerAlt || 0, distance: distMOfZoom(cam.zoom), heading: cam.bearing * R2D, pitch: cam.pitch * R2D, roll: (cam.roll || 0) * R2D });
 // style の light（MapLibre 同名・B3）：押し出し・glTF・LOD2 の陰影（GL2 の u_light*・WebGPU は局所系の固定光のまま）。null＝従来の固定光
-map.setLight = l => { mlLight = l == null ? null : normLight(l); sendLight(); needsDraw = true; return map; };
+map.setLight = l => { mlLight = l == null ? null : normLight(l); sendLight(); needsDraw = true; return map; };   // setLight＝setLights の directional の別名（F1・getLights は mlLight を見る＝style の根の light も映る）
 map.getLight = () => normLight(mlLight);
+// 光源の口（第 2 波 F1・2026-10-12・src/light.js）：map.setLights([{ type: "directional"|"point"|"spot"|"ambient"|"hemisphere"|"ibl"|<plugin の type>, ... }])／getLights()。
+//   受けて既定を補って**保つ**。描くのは directional（setLight と同じ経路・1 つまで）。他の builtin の type は保つだけ（capabilities "spec"・後の段か plugin が描く）。
+//   plugin の type＝registry.lights.add(type, { apply(map, lights) })＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（自前の overlay/three で描く約束）
+let lightsCur = [];
+map.setLights = list => {
+	const reg = pluginHost.registry.lights;
+	const next = normLights(list, t => reg.has(t) && !LIGHT_TYPES.includes(t));
+	const dir = next.find(l => l.type === "directional");
+	mlLight = dir ? normLight(dir) : null; sendLight();
+	lightsCur = next.filter(l => l.type !== "directional");   // directional は mlLight が正本（setLight・style の根の light・setStyle の差分と同じ 1 本）
+	for (const t of reg.names()) if (!LIGHT_TYPES.includes(t)) { try { reg.get(t).apply(map, next.filter(l => l.type === t)); } catch (e) { console.warn(`[lights] ${t}: apply failed`, e); } }
+	needsDraw = true; return map;
+};
+map.getLights = () => (mlLight ? [{ type: "directional", ...normLight(mlLight) }] : []).concat(lightsCur.map(l => ({ ...l })));
 // style の sky（MapLibre 同名・B4）：球に当たらない視線を horizon-color→sky-color の簡易の空で塗り（GL2・不透明＝星空は隠れる）、霧の色を fog-color・濃さを fog-ground-blend に（両レンダラ）。
 // null＝従来（宇宙へ抜けるリム光・霧は紙色）。getSky は MapLibre と同じく無指定なら undefined・指定があれば既定を補った物
 map.setSky = s => { mlSky = s == null ? null : normSky(s); sendSky(); needsDraw = true; return map; };

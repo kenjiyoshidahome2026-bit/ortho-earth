@@ -18,7 +18,7 @@ const coreFormats = new Map([["mvt", 1], ["geopbf", 1]]);
 const host = createPluginHost(map, {
 	getBackend: () => "webgl2", gadgetNames: () => Object.keys(map.gadget), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: sp => { if (coreFormats.has(sp.name)) throw new Error("dup"); coreFormats.set(sp.name, sp); }, has: k => coreFormats.has(k), names: () => [...coreFormats.keys()] },
-	builtinTileFormats: [...coreFormats.keys()], pointcloud: {}, builtinDataKinds: ["points", "arcs", "trips", "polygons", "paths", "columns"], builtinPostEffects: ["bloom", "vignette"], builtinLights: ["directional"],
+	builtinTileFormats: [...coreFormats.keys()], pointcloud: {}, builtinDataKinds: ["points", "arcs", "trips", "polygons", "paths", "columns"], builtinPostEffects: ["bloom", "vignette"], builtinLights: ["directional", "point", "spot", "ambient", "hemisphere", "ibl"],
 });
 Object.assign(map, { use: host.use, unuse: host.unuse, plugins: host.plugins, registry: host.registry, supports: host.supports, capabilities: host.capabilities });
 map.gadget("compass", () => "c");
@@ -33,7 +33,7 @@ ok("cap.dataBuiltin", map.supports("data.points") && map.supports("data.columns"
 ok("cap.gadgetLive", map.supports("gadget.compass"), JSON.stringify(c0["gadget.compass"]));
 ok("cap.tiles", map.supports("tiles.mvt") && !map.supports("tiles.ktx2"));
 ok("cap.postBuiltin", map.supports("post.bloom") && !map.supports("post.ssr"));
-ok("cap.lightBuiltin", map.supports("light.directional") && !map.supports("light.point"));
+ok("cap.lightBuiltin", map.supports("light.directional") && !map.supports("light.point") && c0["light.point"].status === "spec");
 ok("cap.laz", !map.supports("pointcloud.laz"));
 ok("cap.unknown", !map.supports("nonsense.key"));
 
@@ -48,7 +48,8 @@ const P = definePlugin({
 		m.registry.gadgets.add("hello", function () { return "hi"; });
 		m.registry.tileFormats.add("fakefmt", { decode: () => ({}) });
 		m.registry.postEffects.add("fxaa", { pass: true });
-		m.registry.lights.add("point", { kind: "point" });
+		m.registry.lights.add("laser", { apply() {} });
+		ok("reg.lightNeedsApply", throws(() => m.registry.lights.add("laser2", { kind: "x" })) && throws(() => m.registry.lights.add("point", { apply() {} })));
 		return () => { removed++; };
 	},
 });
@@ -66,12 +67,12 @@ ok("cap.pluginData", c1["data.squares"].status === "plugin" && c1["data.squares"
 ok("cap.pluginGadget", c1["gadget.hello"].status === "plugin" && map.supports("gadget.hello"));
 ok("cap.pluginTiles", c1["tiles.fakefmt"].status === "plugin");
 ok("cap.specPost", c1["post.fxaa"].status === "spec" && !map.supports("post.fxaa") && /PR-F3/.test(c1["post.fxaa"].note), JSON.stringify(c1["post.fxaa"]));
-ok("cap.specLight", c1["light.point"].status === "spec" && !map.supports("light.point"));
-ok("reg.notWired", map.registry.postEffects.wired === false && map.registry.lights.pending === "PR-F1" && map.registry.dataKinds.wired === true);
+ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
+ok("reg.notWired", map.registry.postEffects.wired === false && map.registry.lights.wired === true && map.registry.dataKinds.wired === true);
 
 // 撤去＝cleanup が呼ばれ・自分の登録が消える（tileFormats は process-wide＝残るが capabilities からは外れる）
 ok("unuse", map.unuse("demo") === true && removed === 1 && map.plugins().length === 0);
-ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("fxaa") && !map.registry.lights.has("point") && !map.registry.gadgets.has("hello"));
+ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("fxaa") && !map.registry.lights.has("laser") && !map.registry.gadgets.has("hello"));
 ok("unuse.tileFormatStays", coreFormats.has("fakefmt") && !map.registry.tileFormats.has("fakefmt"));
 ok("unuse.again", map.unuse("demo") === false);
 ok("cap.afterUnuse", !map.supports("data.squares") && map.capabilities()["post.fxaa"].status === "no");   // 静的な表の「no」へ戻る
