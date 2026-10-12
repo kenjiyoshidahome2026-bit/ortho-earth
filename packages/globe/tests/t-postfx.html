@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- 実描画の検分：後処理 bloom・vignette（map.setPostProcess・deck.gl 差分 PR-8・計画 段 D・2026-10-12）。
+     試料＝dark テーマ・東京駅・z16・真上から。白い押し出し 1 棟（100m 角×高さ 50m＝屋根が白い四角）を置き、requestSnapshot の base（本体の絵・注記抜き）で
+     ①bloom＝四角のすぐ外（10px）が素の絵より明るくなる（滲み）・四角の中は白のまま・画面の隅は変わらない
+     ②vignette＝四隅が素の絵より暗くなる・中心は変わらない
+     ③setPostProcess(null)＝素の絵に戻る（±tol）④getPostProcess＝正規化（既定の数値）
+     GL2（verify:ui）と WebGPU（verify:webgpu）の両方。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-postfx</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
+async function snap(map) {
+	await sleep(400);
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => { const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H))); const i = ((img.flip ? img.h - 1 - by : by) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+// 点の周り ±r px の平均輝度（AA・タイルの縁の揺れを均す）
+const lumAround = (img, x, y, r = 2) => { let s = 0, n = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { s += lum(px(img, x + dx, y + dy)); n++; } return s / n; };
+const J = v => +v.toFixed(1);
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", theme: "dark", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 0, bearing: 0 });
+	const sq = [ll(-50, -50), ll(50, -50), ll(50, 50), ll(-50, 50), ll(-50, -50)];
+	const st = await map.gadget.extrude({ type: "Feature", properties: { height: 50 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#ffffff", fit: false, mask: false });
+	ok("extrude", !!st && st.polygons === 1);
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(1500);
+	const P = map.makeProjectorH(), c = P(LON, LAT, 50), e = P(...ll(60, 0), 50);   // 四角の中心と、東の縁の 10m 外（z16＝約 1.2 px/m→約 12px）
+	const edgePx = Math.abs(e[0] - c[0]);
+	const corners = [[12, 12], [map.mapEl.clientWidth - 13, 12], [12, map.mapEl.clientHeight - 13], [map.mapEl.clientWidth - 13, map.mapEl.clientHeight - 13]];
+	const base = await snap(map);
+	const cIn = lumAround(base, c[0], c[1]), cOut = lumAround(base, e[0], e[1]), cCorner = corners.map(([x, y]) => lumAround(base, x, y));
+	ok("whiteRoof", cIn > 200, `in=${J(cIn)} out=${J(cOut)} edge=${J(edgePx)}px`);
+	ok("darkAround", cOut < 140, `out=${J(cOut)}`);
+	// ① bloom だけ（強め＝器でも差が出る）
+	map.setPostProcess({ bloom: { threshold: 0.6, strength: 1.5, radius: 2 } });
+	ok("getPost", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.6, strength: 1.5, radius: 2 }, vignette: null }), JSON.stringify(map.getPostProcess()));
+	const b = await snap(map);
+	const bOut = lumAround(b, e[0], e[1]), bIn = lumAround(b, c[0], c[1]), bCorner = corners.map(([x, y]) => lumAround(b, x, y));
+	ok("bloomOut", bOut > cOut + 12, `out ${J(cOut)}→${J(bOut)}`);
+	ok("bloomIn", bIn > 200, `in ${J(cIn)}→${J(bIn)}`);
+	ok("bloomCornerSame", bCorner.every((v, i) => Math.abs(v - cCorner[i]) < 6), JSON.stringify([cCorner.map(J), bCorner.map(J)]));
+	// ② vignette だけ
+	map.setPostProcess({ vignette: { strength: 0.8, radius: 0.7, softness: 0.4 } });
+	const v = await snap(map);
+	const vCorner = corners.map(([x, y]) => lumAround(v, x, y)), vIn = lumAround(v, c[0], c[1]), vOut = lumAround(v, e[0], e[1]);
+	ok("vignetteCorner", vCorner.every((x, i) => x < cCorner[i] * 0.5 + 1 && (cCorner[i] < 4 || x < cCorner[i] - 1)), JSON.stringify([cCorner.map(J), vCorner.map(J)]));
+	ok("vignetteCenterSame", Math.abs(vIn - cIn) < 6 && Math.abs(vOut - cOut) < 6, `in ${J(cIn)}→${J(vIn)} out ${J(cOut)}→${J(vOut)}`);
+	// ③ 両方＝既定の数値で正規化
+	map.setPostProcess({ bloom: true, vignette: true });
+	ok("normDefaults", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.5, radius: 0.8, softness: 0.5 } }), JSON.stringify(map.getPostProcess()));
+	const bv = await snap(map);
+	ok("both", lumAround(bv, c[0], c[1]) > 200, `in=${J(lumAround(bv, c[0], c[1]))}`);
+	// ④ 外す＝素の絵
+	map.setPostProcess(null);
+	ok("getPostNull", map.getPostProcess() === null);
+	const z = await snap(map);
+	const zOut = lumAround(z, e[0], e[1]), zCorner = corners.map(([x, y]) => lumAround(z, x, y));
+	ok("restored", Math.abs(zOut - cOut) < 6 && zCorner.every((x, i) => Math.abs(x - cCorner[i]) < 6), `out ${J(cOut)}→${J(zOut)} corner ${JSON.stringify(zCorner.map(J))}`);
+	if (Q.get("keep")) { map.setPostProcess({ bloom: true, vignette: true }); window.__t = { map }; }
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>

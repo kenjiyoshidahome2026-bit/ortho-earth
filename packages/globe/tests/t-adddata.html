@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- 実描画の検分：map.addData と弧（deck.gl 差分 PR-4・2026-10-12）。
+     ①点 1 万（kind:"points"・getPosition/getColor/getRadius）＝points-gl に描けて（probe 画素）、最後の点の画面位置で pick がその index・lngLat を返す・点ごとの半径（大きい点は離れても当たる）
+     ②弧 1,000 本（kind:"arcs"）＝arcs-gl に描けて、最後の弧の中点（arcPoint と同じ式で求めた画面位置）で pick がその index・source/target を返す・層イベント map.on("click", id)
+     （後の物が上に描かれ当たりも後の物＝deck.gl と同じ。乱数の点が同じ画素に重なると先の物は隠れる）
+     ③柱（kind:"columns"・getElevation）＝fill-extrusion の既存の層経路＝queryRenderedFeatures が _h 付きの地物を返す ④setData で全焼き（n が変わる）・setVisible・remove で消える
+     実時間（overlay の import は仮想時間で解決しない）。GL2（verify:ui）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-adddata</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 30000;
+const { createGlobe } = await import("@ortho-earth/globe");
+const { lonlatTo3D, betaToLonLat } = await import("@ortho-earth/core/camera");
+const { arcPoint } = await import("../src/gadgets/arcs-gl.js");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812;
+const probe = (ov, min) => until(() => new Promise(res => { const prev = ov.onmessage; ov.onmessage = d => { if (d?.type === "pixels") { ov.onmessage = prev; let n = 0; for (let i = 3; i < d.data.length; i += 4) if (d.data[i]) n++; res(n > min ? n : null); } else prev?.(d); }; ov.post({ type: "probe", id: "p" }); }), WAIT);
+try {
+	const map = await createGlobe({ target: "#map", view: "#11/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 11, pitch: 0, bearing: 0 });
+	// ① 点 1 万（擬似乱数・東京駅の周り ±1°＝視野の外にも）。最後の 1 点（K）は東京駅・半径 12px、他は 2px（後の物が上に描かれる＝deck.gl と同じ＝当たりも後の物）
+	let seed = 7; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+	const pts = []; for (let i = 0; i < 9999; i++) pts.push([LON + (rnd() - 0.5) * 2, LAT + (rnd() - 0.5) * 2]); pts.push([LON, LAT]);
+	const K = pts.length - 1;
+	const P = map.addData(pts, { id: "pts", kind: "points", getPosition: d => d, getColor: (d, i) => i < K ? [255, 200, 40, 200] : [255, 40, 40, 255], getRadius: (d, i) => i < K ? 2 : 12 });
+	await P.ready;
+	ok("points.n", P.n === 10000, `n=${P.n}`);
+	ok("points.drawn", (await probe(P.overlay, 500)) > 500);
+	await sleep(300);
+	const prj = map.makeProjector(), s0 = prj(LON, LAT);
+	{ const hits = await P.pick(s0[0], s0[1]); const h = hits[0]; ok("points.pickK", h && h.name === "pts" && h.index === K && Math.abs(h.lngLat[0] - LON) < 1e-4 && Math.abs(h.lngLat[1] - LAT) < 1e-4, JSON.stringify(h)); }
+	{ const hits = await P.pick(s0[0] + 9, s0[1], 1); ok("points.perRadius", hits[0]?.index === K, `半径 12px の点＝9px 離れても当たる: ${JSON.stringify(hits[0]?.index)}`); }
+	// ② 弧 1,000 本（最後の 1 本（KA）＝東京駅 → 成田・幅 6px）
+	const NA = Q.has("narcs") ? +Q.get("narcs") : 999; const arcs = []; for (let i = 0; i < NA; i++) arcs.push({ s: [LON + (rnd() - 0.5) * 2, LAT + (rnd() - 0.5) * 2], t: [LON + (rnd() - 0.5) * 2, LAT + (rnd() - 0.5) * 2] }); arcs.push({ s: [LON, LAT], t: [140.3929, 35.7720] });
+	const KA = arcs.length - 1;
+	const A = map.addData(arcs, { id: "arcs", kind: "arcs", getSourcePosition: d => d.s, getTargetPosition: d => d.t, getSourceColor: [40, 160, 255, 230], getTargetColor: [255, 80, 200, 230], getWidth: (d, i) => i < KA ? 1.5 : 6, getHeight: 0 });
+	await A.ready; window.__t = { map, A, P, prj, arcPoint, lonlatTo3D, betaToLonLat, LON, LAT };
+	ok("arcs.n", A.n === 1000, `n=${A.n}`);
+	ok("arcs.drawn", (await probe(A.overlay, 500)) > 500);
+	await sleep(300);
+	const mid = betaToLonLat(arcPoint(lonlatTo3D(LON, LAT), lonlatTo3D(140.3929, 35.7720), 0.5)), sm = prj(mid[0], mid[1]);
+	ok("arcs.midOnScreen", sm[2] > 0 && sm[0] > 0 && sm[0] < 960 && sm[1] > 0 && sm[1] < 600, JSON.stringify(sm.map(v => +v.toFixed(1))));
+	{ const hits = await A.pick(sm[0], sm[1], 4); const h = hits[0]; ok("arcs.pickMid", h && h.name === "arcs" && h.index === KA && h.properties?.source && Math.abs(h.properties.target[0] - 140.3929) < 1e-3, JSON.stringify(h)); }
+	let got = null; map.on("click", "arcs", e => { got = e; });
+	const cv = map.mapEl.querySelector("#c"), r = cv.getBoundingClientRect();
+	for (const type of ["pointerdown", "click"]) cv.dispatchEvent(new (type === "click" ? MouseEvent : PointerEvent)(type, { clientX: r.left + sm[0], clientY: r.top + sm[1], bubbles: true }));
+	await until(() => got, 5000);
+	ok("arcs.layerEvent", got && got.features?.[0]?.layer?.id === "arcs" && got.features[0].overlay?.index === KA, JSON.stringify(got?.features?.[0]?.overlay));
+	// ③ 柱（既存の層経路）
+	const C = map.addData([{ p: [LON + 0.05, LAT + 0.05], h: 800 }, { p: [LON - 0.05, LAT - 0.05], h: 300 }], { id: "cols", kind: "columns", getPosition: d => d.p, getRadius: 600, getElevation: d => d.h, getFillColor: d => [d.h > 500 ? 255 : 60, 120, 60, 230] });
+	await C.ready;
+	ok("cols.layer", !!map.getLayer("cols") && map.getLayer("cols").type === "fill-extrusion", JSON.stringify(map.getLayer("cols")?.type));
+	const sc = prj(LON + 0.05, LAT + 0.05);
+	let fs = []; for (let i = 0; i < 20 && !fs.length; i++) { fs = await map.queryRenderedFeatures([sc[0], sc[1]], { layers: ["cols"] }); if (!fs.length) await sleep(300); }
+	ok("cols.query", fs.length >= 1 && fs[0].properties?._h === 800, JSON.stringify(fs[0]?.properties));
+	// ④ setData（全焼き）・setVisible・remove
+	await P.setData([pts[0], pts[1], pts[K]]); await sleep(300);
+	ok("points.setData", P.n === 3, `n=${P.n}`);
+	ok("points.pickAfterSetData", (await P.pick(s0[0], s0[1]))[0]?.index === 2);
+	P.setVisible(false); await sleep(400);
+	ok("points.hidden", (await P.pick(s0[0], s0[1])).length === 0);
+	A.remove(); await sleep(300);
+	ok("arcs.removed", (await map.pickOverlays(sm[0], sm[1], { radius: 4 })).every(h => h.name !== "arcs"));
+	C.remove(); ok("cols.removed", !map.getLayer("cols") && !map.getSource("cols"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
