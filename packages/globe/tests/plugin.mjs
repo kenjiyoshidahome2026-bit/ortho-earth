@@ -51,6 +51,9 @@ const P = definePlugin({
 		ok("reg.postNeedsApply", throws(() => m.registry.postEffects.add("crt2", { pass: true })) && throws(() => m.registry.postEffects.add("fxaa", { apply() {} })));
 		m.registry.lights.add("laser", { apply() {} });
 		m.registry.clouds.add("puffy", { apply() {} });
+		m.registry.handlers.add("walk", { create: () => ({ start() {}, stop() {}, active: false }) });
+		m.registry.handlers.add("orbit", { create: () => ({}) });
+		ok("reg.handlersNeedsCreate", throws(() => m.registry.handlers.add("x", {})));
 		ok("reg.cloudsNeedsApply", throws(() => m.registry.clouds.add("x", {})));
 		ok("reg.lightNeedsApply", throws(() => m.registry.lights.add("laser2", { kind: "x" })) && throws(() => m.registry.lights.add("point", { apply() {} })));
 		return () => { removed++; };
@@ -70,13 +73,14 @@ ok("cap.pluginData", c1["data.squares"].status === "plugin" && c1["data.squares"
 ok("cap.pluginGadget", c1["gadget.hello"].status === "plugin" && map.supports("gadget.hello"));
 ok("cap.pluginTiles", c1["tiles.fakefmt"].status === "plugin");
 ok("cap.pluginPost", c1["post.crt"].status === "plugin" && c1["post.crt"].via === "demo" && map.supports("post.crt"), JSON.stringify(c1["post.crt"]));
+ok("cap.pluginWalk", c1["camera.walk"].status === "plugin" && c1["camera.walk"].via === "demo" && map.supports("camera.walk") && c0["camera.walk"].status === "spec" && c1["handler.orbit"].status === "plugin" && c0["terrain.sample"].status === "builtin");
 ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "spec" && c0["sun.direction"].status === "builtin");
 ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
 ok("reg.wired", map.registry.postEffects.wired === true && map.registry.lights.wired === true && map.registry.dataKinds.wired === true && map.registry.textureTranscoders.wired === false);
 
 // 撤去＝cleanup が呼ばれ・自分の登録が消える（tileFormats は process-wide＝残るが capabilities からは外れる）
 ok("unuse", map.unuse("demo") === true && removed === 1 && map.plugins().length === 0);
-ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("crt") && !map.registry.lights.has("laser") && !map.registry.clouds.has("puffy") && !map.registry.gadgets.has("hello"));
+ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("crt") && !map.registry.lights.has("laser") && !map.registry.clouds.has("puffy") && !map.registry.handlers.has("walk") && !map.registry.gadgets.has("hello"));
 ok("unuse.tileFormatStays", coreFormats.has("fakefmt") && !map.registry.tileFormats.has("fakefmt"));
 ok("unuse.again", map.unuse("demo") === false);
 ok("cap.afterUnuse", !map.supports("data.squares") && !("post.crt" in map.capabilities()));

@@ -55,6 +55,11 @@ export interface SunSpec { follow?: "clock" | null; azimuth?: number; altitude?:
 /** map.setClouds の引数（F2）。受けて保つだけ＝描かない（map.supports("clouds") は false）。plugin が registry.clouds に { apply(map, clouds) } を足せば描く。
  *  coverage＝空を覆う割合 0〜1・altitude＝雲底 m・thickness＝厚み m・density＝濃さ 0〜1・wind＝[東 m/s, 北 m/s]・precipitation＝{ type: "rain"|"snow", intensity 0〜1 } */
 export interface CloudsSpec { coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
+/** registry.handlers の契約（F6）：create(map, opts) が { start, stop, active } を返す。"walk" は map.walk(opts) の中身 */
+export interface HandlerImpl { create(map: OrthoJapanMap, opts: Record<string, unknown>): { start?(): void; stop?(): void; readonly active?: boolean } }
+/** map.walk の引数（F6・口だけ＝受けて保つ）。speed＝m/s（既定 1.4）・eyeHeight＝目の高さ m（既定 1.7）・collide＝建物・地形に当たる（既定 true）・keys＝WASD/矢印（既定 true） */
+export interface WalkOptions { speed?: number; eyeHeight?: number; collide?: boolean; keys?: boolean; [k: string]: unknown }
+export interface WalkHandle { readonly opts: Required<Pick<WalkOptions, "speed" | "eyeHeight" | "collide" | "keys">> & WalkOptions; readonly active: boolean; /** 中身（registry.handlers "walk"）が無ければ false を返し何もしない */ start(): boolean; stop(): WalkHandle }
 export interface CloudsImpl { apply(map: OrthoJapanMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
 export interface LightTypeImpl { apply(map: OrthoJapanMap, lights: LightSpec[]): void }
@@ -740,6 +745,8 @@ export interface MapRegistry {
 	readonly textureTranscoders: PluginRegistry<TextureTranscoderImpl>;
 	/** 雲・降水の描き手（F2 で結線）＝setClouds のたびに apply(map, clouds|null) */
 	readonly clouds: PluginRegistry<CloudsImpl>;
+	/** 操作の手（F6 で結線）＝"walk" を map.walk が引く。他の名は plugin の自由（capabilities "handler.<名>"） */
+	readonly handlers: PluginRegistry<HandlerImpl>;
 }
 /** "builtin"＝今の版で絵が出る・"plugin"＝搭載した plugin が担う・"spec"＝口は受けて保つが絵は変わらない・"no"＝口も無い（note に後の PR）・"never"＝作らない（Mercator） */
 export type CapabilityStatus = "builtin" | "plugin" | "spec" | "no" | "never";
@@ -842,6 +849,11 @@ export interface OrthoJapanMap {
 	/** 雲・降水の spec を受けて保つ（描かない＝plugin の registry.clouds が描く）。null で外す */
 	setClouds(clouds: CloudsSpec | true | null): OrthoJapanMap;
 	getClouds(): Required<CloudsSpec> | null;
+	/** 地形の一括標本（F6・2026-10-12・実装つき）。出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝getHeight）。到着を待つ。
+	 *  positions＝[lng,lat][]・{lng|lon,lat}[]・GeoJSON（Point/MultiPoint/LineString…の座標）。負の標高はそのまま返す（描く側は 0 に切る） */
+	sampleTerrain(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { concurrency?: number }): Promise<{ lng: number; lat: number; height: number }[]>;
+	/** 一人称歩行の口（F6・口だけ）。中身は registry.handlers の "walk"（plugin）。無ければ spec を保つだけ（map.supports("camera.walk") は false） */
+	walk(opts?: WalkOptions): WalkHandle;
 	/** 今の light（既定を補った物） */
 	getLight(): Required<LightSpecification>;
 	/** style の sky（MapLibre 同名・1.16.0〜）＝球に当たらない視線を horizon-color→sky-color の簡易の空で塗る（WebGL2・不透明＝星空は隠れる）。fog-color・fog-ground-blend は両レンダラの霧に効く。null＝従来（宇宙へ抜けるリム光・霧は紙色） */

@@ -2979,6 +2979,31 @@ function setDem(spec) {   // 標高のソースを差し替える（raster-dem �
 }
 map.getTerrain = () => demSpec ? { source: demSpec, exaggeration: 1 } : null;
 map.queryTerrainElevation = (lon, lat) => (demSpec ? (elevOf(lon, lat) ?? null) : null);   // MapLibre 同名（同期）＝地形（setTerrain／style の terrain）がある時だけ・メモに無ければ null（照会を起こす＝次の呼び出しで返る・MapLibre も地形の未着は null）2026-09-30   // ローダ着荷（数秒）を待ってから照会＝初期化中に 0 を返さない（旧＝未着 0。SDK ドッグフード 2026-09-10）。初期化失敗は reject
+// 地形の一括標本（第 2 波 F6・2026-10-12・実装つき）：map.sampleTerrain(positions, { concurrency }) → Promise<[{ lng, lat, height }]>。
+//   出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝heightAt＝map.getHeight と同じ）。負の標高はそのまま（描く側は 0 に切る＝文書）。
+//   positions＝[lng,lat] の配列・{lng|lon,lat} の配列・GeoJSON（Point/MultiPoint/LineString の座標）。到着を待つ（wait）＝起動直後でも 0m に化けない。同時 8 件ずつ
+map.sampleTerrain = async (positions, { concurrency = 8 } = {}) => {
+	const pts = [];
+	const push = c => { if (Array.isArray(c) && typeof c[0] === "number") pts.push([c[0], c[1]]); else if (c && typeof c === "object" && !Array.isArray(c) && Number.isFinite(+(c.lng ?? c.lon)) && Number.isFinite(+c.lat)) pts.push([+(c.lng ?? c.lon), +c.lat]); else if (Array.isArray(c)) c.forEach(push); };
+	const g = positions?.type === "Feature" ? positions.geometry : positions?.type === "FeatureCollection" ? { type: "GeometryCollection", geometries: positions.features.map(f => f.geometry) } : positions;
+	if (g && typeof g === "object" && !Array.isArray(g) && g.type) { const walk = x => { if (!x) return; if (x.type === "GeometryCollection") x.geometries.forEach(walk); else push(x.coordinates); }; walk(g); } else push(positions);
+	const out = new Array(pts.length); let i = 0;
+	await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, pts.length)) }, async () => { while (i < pts.length) { const k = i++; const [lng, lat] = pts[k]; let h = 0; try { h = await heightAt(lng, lat); } catch { h = 0; } out[k] = { lng, lat, height: Number.isFinite(h) ? h : 0 }; } }));
+	return out;
+};
+// 一人称歩行の口（F6・口だけ）：map.walk(opts) → 手綱 { start, stop, active, opts }。描く側は registry.handlers の "walk"（plugin が { create(map, opts) → { start, stop, active } } を足す）。
+//   無ければ手綱は spec を保つだけ（start は false を返し console.warn）＝capabilities "camera.walk" は spec。plugin が入れば "plugin"
+let walkCur = null;
+map.walk = (opts = {}) => {
+	const o = { speed: Number.isFinite(+opts.speed) ? +opts.speed : 1.4, eyeHeight: Number.isFinite(+opts.eyeHeight) ? +opts.eyeHeight : 1.7, collide: opts.collide !== false, keys: opts.keys !== false, ...opts };
+	const impl = pluginHost.registry.handlers.get("walk");
+	const inner = impl && typeof impl.create === "function" ? impl.create(map, o) : null;
+	if (walkCur) walkCur.stop();
+	const h = { opts: o, get active() { return inner ? !!inner.active : false; },
+		start() { if (!inner) { console.warn("[walk] no walk handler installed (registry.handlers \"walk\"); keeping the spec only"); return false; } inner.start?.(); return true; },
+		stop() { inner?.stop?.(); if (walkCur === h) walkCur = null; return h; } };
+	walkCur = h; return h;
+};
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
 // ── 画像タイル層（メルカトル XYZ ラスタ）＝v1 base.js/Layers の後継（2026-09-21）。本体は render worker（ortho-core/raster）。
 // ここは台帳（id→spec/opts/info）と指示（rasterAdd/Remove/Set）・ローカル容器（gpkg/mbtiles）のプロバイダ worker・
