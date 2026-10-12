@@ -657,6 +657,17 @@ try {
 			const on = await gUntil(D.main, isMag), off = await gUntil(D.mainOff, p => !isMag(p));
 			return [isMag(on) && !isMag(off), `on=${on} off=${off}`];
 		});
+		// ── 式の残り（C2・2026-10-12）＝within（GeoJSON の中の点）と distance（m）を vector の層の filter に＝worker（組み立て）と問い合わせ（queryTiles）の両方が地物の形を経緯度へ ──
+		await vscene("vector-filter-within-distance", async () => {
+			const box = { type: "Polygon", coordinates: [[[139.990, 30.0110], [139.993, 30.0110], [139.993, 30.0125], [139.990, 30.0125], [139.990, 30.0110]]] };   // cafe を含み shop を含まない
+			await map.addLayer({ id: "vw", type: "circle", source: "omt", "source-layer": "poi", filter: ["all", ["within", box], ["<", ["distance", { type: "Point", coordinates: D.cafe }], 200]], paint: { "circle-color": "#ff00ff", "circle-radius": 8 } });
+			await loaded("omt");
+			const isMag = p => p[0] > 150 && p[1] < 90 && p[2] > 150;
+			const c = await gUntil(D.cafe, isMag), sh = await gUntil(D.shop, p => !isMag(p));
+			const q = (await map.queryRenderedFeatures(atG(D.cafe), { layers: ["vw"] })).map(f => f.properties?.name).join(), qs = (await map.queryRenderedFeatures(atG(D.shop), { layers: ["vw"] })).length;
+			map.removeLayer("vw"); await sleep(300);
+			return [isMag(c) && !isMag(sh) && q === "Cafe" && qs === 0, `cafe=${c} shop=${sh} q=${q} qShop=${qs}`];
+		});
 		await vscene("vector-circle-draws", async () => {
 			await map.addLayer({ id: "vc", type: "circle", source: "omt", "source-layer": "poi", paint: { "circle-color": "#00ff00", "circle-radius": 8, "circle-stroke-color": "#000000", "circle-stroke-width": 4 } });
 			await loaded("omt");

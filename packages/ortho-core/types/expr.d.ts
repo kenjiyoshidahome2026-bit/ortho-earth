@@ -17,6 +17,17 @@ export interface ExprContext {
 	vars?: Record<string, unknown>;
 	/** "ml"＝MapLibre の意味（型違いは undefined）・既定 "native"。 */
 	origin?: "ml" | "native";
+	/** 地物の形（main の GeoJSON geometry）＝["within"]・["distance"] が読む（C2）。 */
+	geojson?: { type: string; coordinates: unknown } | null;
+	/** タイルの地物（{ type, geom: { coords, ends } }）と、そのタイル（{ z, x, y, E }）＝geojson の代わり（worker）。 */
+	feat?: { type: string; geom: { coords: ArrayLike<number>; ends: number[] } } | null;
+	tile?: { z: number; x: number; y: number; E?: number } | null;
+	/** 地図の傾き（度）＝["pitch"]。無ければ 0。 */
+	pitch?: number;
+	/** 画面の中心からの距離（画面の高さ＝1・手前が負）＝["distance-from-center"]。無ければ 0。 */
+	dfc?: number;
+	/** その地図の global-state（["global-state"]・["config"]）＝無ければこのスレッドの状態。 */
+	gs?: Record<string, unknown> | null;
 }
 
 export interface FormatSection {

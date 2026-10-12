@@ -1,6 +1,7 @@
 // @ortho-earth/core: 球面ベクタタイル描画エンジン（MVT を正射の球面に直描き・WebGPU/GL2）。地域を知らない硬い層（LAYERS.md）。
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
+export { featureGeomLL, withinGeom, distanceGeom } from "./expr-geo.js";   // within/distance の中身（C2）
 export { packMLLayers, buildMLTable, zoomSensitivity, ML_DEFAULTS, ML_ID_KEY, ML_IX_KEY } from "./mltables.js";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
 export { parseRGBA, isColor } from "./color.js";
 export { fetchMVT, decodeTile, loadTileFormat, registerTileFormat } from "./decode.js";   // タイル形式の登録簿（MVT 既定・MLT は @ortho-earth/tile-formats・#88）
