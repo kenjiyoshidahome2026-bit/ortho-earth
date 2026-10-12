@@ -88,6 +88,7 @@ export const MAP_MEMBERS = {
 	setPostProcess: "none", getPostProcess: "none",
 	// plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12）＝zoom を運ばない（plugin の install は素の map を受ける＝地域パックと同じ）
 	use: "none", unuse: "none", plugins: "none", registry: "none", supports: "none", capabilities: "none",
+	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他
