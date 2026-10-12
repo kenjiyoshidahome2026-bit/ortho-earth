@@ -1,0 +1,62 @@
+<!doctype html>
+<!-- 実描画の検分：2D の雲（map.setClouds({ type:"image" })・第 3 波 W6・2026-10-12）。
+     試料＝dark テーマ・z8・真上から。頁で作る全球の雲画像（720×360・黒地に、東経 135〜145°／北緯 30〜40° の白い箱）＝輝度が α（alphaFrom auto＝α 無し）。
+     ①箱の中（140,35）＝雲で画面の中央が明るくなる・on("clouds") に ready ②箱の外（146.5,35）＝変わらない ③風（東へ 100 m/s）＋時計を 1 時間進める（setNow）＝殻が 3.95° 東へ回り、箱の外だった所が雲に覆われる
+     ④setClouds(null)＝元に戻る。GL2（verify:ui）と WebGPU（verify:webgpu）の両方。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-clouds</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function snap(map) {
+	await sleep(500);
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => { const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H))); const i = ((img.flip ? img.h - 1 - by : by) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+const lumAround = (img, x, y, r = 3) => { let s = 0, n = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { s += lum(px(img, x + dx, y + dy)); n++; } return s / n; };
+const J = v => +v.toFixed(1);
+try {
+	const map = await createGlobe({ target: "#map", view: "#8/35/140", theme: "dark", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(1000);
+	// 雲の画像（黒地＝透明・白い箱＝雲）
+	const cv = document.createElement("canvas"); cv.width = 720; cv.height = 360; const g = cv.getContext("2d");
+	g.fillStyle = "#000"; g.fillRect(0, 0, 720, 360); g.fillStyle = "#fff"; g.fillRect((135 + 180) * 2, (90 - 40) * 2, 20, 20);
+	const url = cv.toDataURL("image/png");
+	const center = async () => lumAround(await snap(map), 400, 300);
+	const goto = async lon => { map.jumpTo({ center: [lon, 35], zoom: 8, pitch: 0, bearing: 0 }); await Promise.race([new Promise(r => map.once("idle", r)), sleep(6000)]); await sleep(300); };
+	// 殻（0.5° 格子＝約 13 MB）の受け取りは renderer のフレーム次第＝条件が満つまで撮り直す（最長 12 秒）
+	const until = async (f, ms = 12000) => { const t0 = performance.now(); let v; do { v = await center(); if (f(v)) return v; } while (performance.now() - t0 < ms); return v; };
+	const ready = () => new Promise(r => { const f = e => { if (e.state === "ready" || e.state === "error") { map.off("clouds", f); r(e); } }; map.on("clouds", f); });
+	const c0 = await center();            // 箱の中（140,35）の素の明るさ
+	await goto(146.5); const o0 = await center();   // 箱の外（146.5,35）の素の明るさ
+	let rp = ready(); map.setClouds({ type: "image", url, altitude: 3000 }); const e1 = await Promise.race([rp, sleep(10000)]);
+	ok("ready", e1 && e1.state === "ready" && e1.tris === 518400 && e1.image.alphaFrom === "luminance" && e1.image.w === 720, JSON.stringify(e1));
+	ok("spec", map.getClouds().type === "image" && map.getClouds().url === url && map.getClouds().altitude === 3000 && map.supports("clouds") && map.capabilities().clouds.status === "builtin");
+	await goto(140); const c1 = await until(v => v > c0 + 40);
+	ok("cloudCenter", c1 > c0 + 40, `${J(c0)}→${J(c1)}`);
+	await goto(146.5); const o1 = await center();
+	ok("outsideSame", Math.abs(o1 - o0) < 25, `${J(o0)} vs ${J(o1)}`);
+	// ③ 風（東へ 100 m/s）＋時計を 1 時間進める＝3.95°（R cos35°）東へ＝箱の外だった 146.5 が雲に覆われる
+	const T0 = Date.UTC(2026, 5, 1, 3); map.setNow(T0);
+	rp = ready(); map.setClouds({ type: "image", url, altitude: 3000, wind: [100, 0] }); await Promise.race([rp, sleep(10000)]);
+	await sleep(600);
+	const a0 = map.__clouds.angles();
+	map.setNow(T0 + 3600e3); await sleep(900);
+	const a1 = map.__clouds.angles();
+	ok("windAngle", Math.abs(a0[0]) < 0.01 && Math.abs(a1[0] - 3.95) < 0.1 && a1[1] === 0, `${a0.map(J)} → ${a1.map(J)}`);
+	const o2 = await until(v => v > o0 + 40);
+	ok("windCovers", o2 > o0 + 40, `${J(o0)}→${J(o2)}`);
+	// ④ 外す
+	map.setClouds(null);
+	const o3 = await until(v => Math.abs(v - o0) < 25, 6000);
+	ok("cleared", Math.abs(o3 - o0) < 25 && map.getClouds() === null && map.__clouds.current === null, `${J(o0)} vs ${J(o3)}`);
+	map.restoreNow();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e); }
+</script></body></html>

@@ -74,7 +74,7 @@ ok("cap.pluginGadget", c1["gadget.hello"].status === "plugin" && map.supports("g
 ok("cap.pluginTiles", c1["tiles.fakefmt"].status === "plugin");
 ok("cap.pluginPost", c1["post.crt"].status === "plugin" && c1["post.crt"].via === "demo" && map.supports("post.crt"), JSON.stringify(c1["post.crt"]));
 ok("cap.pluginWalk", c1["camera.walk"].status === "plugin" && c1["camera.walk"].via === "demo" && map.supports("camera.walk") && c0["camera.walk"].status === "builtin" && c1["handler.orbit"].status === "plugin" && c0["terrain.sample"].status === "builtin");
-ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "spec" && c0["sun.direction"].status === "builtin");
+ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "builtin" && c0["clouds.procedural"].status === "spec" && c0.precipitation.status === "spec" && c0["sun.direction"].status === "builtin");
 ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
 ok("reg.wired", map.registry.postEffects.wired === true && map.registry.lights.wired === true && map.registry.dataKinds.wired === true && map.registry.textureTranscoders.wired === true);
 

@@ -410,6 +410,7 @@ const dispatch = e => {
 			else if (m.cmd === "skyMoon") { if (labelLayer) labelLayer.setMoon(m.data); }    // 月の満ち欠け円盤＝ラベルcanvasへ（常設）
 			else if (m.cmd === "meshSet") meshInbox.push({ meshData: m.data, name: m.prop });   // 解放(null)も同じ列へ＝キュー内の未転送バッチを追い越さない（先に解放が効くと後から亡霊バッチが立つ）
 			else if (m.cmd === "meshVis") meshInbox.push({ vis: !!m.data, name: m.prop });      // 表示切替も同じ列＝未転送バッチ/解放との順序を保つ（適用は軽い＝フレーム予算を消費しない）
+			else if (m.cmd === "meshXf") meshInbox.push({ xf: m.data, name: m.prop });      // 剛体変換（W4）も同じ列＝バッチの到着前に届いた変換が捨てられない（雲の風・2026-10-12）
 			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop, m.data.spec, m.data.opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
 			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop); }
@@ -639,6 +640,7 @@ function drainUploads() {
 	while (meshInbox.length) {
 		const item = meshInbox.shift();
 		if ("vis" in item) { renderer.set("meshVis", item.vis, item.name); dirty = true; continue; }   // 表示切替＝フラグだけ＝同フレームで続けて消化
+		if ("xf" in item) { renderer.set("meshXf", item.xf, item.name); dirty = true; continue; }   // 変換＝フラグだけ＝同フレームで続けて消化
 		const { meshData, name } = item;
 		try { renderer.set("meshSet", meshData, name); }
 		finally {

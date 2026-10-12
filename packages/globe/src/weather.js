@@ -29,7 +29,11 @@ export function normClouds(c) {
 	if (c == null || c === false) return null;
 	const o = c === true ? {} : typeof c === "object" ? c : {};
 	const p = o.precipitation;
+	const url = typeof o.url === "string" && o.url ? o.url : null;
 	return {
+		// type "image"（W6・builtin）＝全球の雲量の画像（等経緯度）を altitude の殻として描く。url が無ければ type は null（手続きの雲＝spec のまま）
+		type: o.type === "image" && url ? "image" : o.type === "image" ? null : (o.type ?? (url ? "image" : null)), url,
+		opacity: clamp01(o.opacity, 1), alphaFrom: o.alphaFrom === "alpha" || o.alphaFrom === "luminance" ? o.alphaFrom : "auto",
 		coverage: clamp01(o.coverage, 0.5), altitude: Math.max(0, fin(o.altitude, 2000)), thickness: Math.max(1, fin(o.thickness, 800)), density: clamp01(o.density, 0.6),
 		color: typeof o.color === "string" && o.color ? o.color : "#ffffff", wind: Array.isArray(o.wind) && o.wind.length >= 2 ? [fin(o.wind[0], 0), fin(o.wind[1], 0)] : [0, 0],
 		precipitation: p && typeof p === "object" && (p.type === "rain" || p.type === "snow") ? { type: p.type, intensity: clamp01(p.intensity, 0.5) } : null,
