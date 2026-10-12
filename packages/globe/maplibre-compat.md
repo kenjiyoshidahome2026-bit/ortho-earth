@@ -64,6 +64,8 @@
 - getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
 - チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。
+- custom 層（CustomLayerInterface）：層の object を渡す従来の経路は main の別 canvas＝地図と深度を共有しない（常に手前・局所線形化）。`url`（層のモジュール）を渡すと render worker の同一フレームで描き、renderingMode "3d" はシーンの深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる（PR-7・2026-10-12）。onAdd/render の map は小さな代理（triggerRepaint・getCanvas＝OffscreenCanvas・getProjection・getZoom）。
+- deck.gl の MapboxOverlay：overlaid は動く（render／resize／mouse・drag 系の事象、getCenter/getZoom/getBearing/getPitch/getPadding/getRenderWorldCopies＝false）。interleaved（地図の GL 文脈へ描く）は地図が worker で描かれるため成り立たない＝overlaid に倒して unsupported を 1 回記録（意図した違い）。`map.transform` は deck.gl が読む最小の写し（width/height/elevation 0）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
 - 線幅・点の半径の上限（表の u8：線 約 32px・点 約 64px）。

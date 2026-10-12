@@ -35,7 +35,8 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 //   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map();
 let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
-let dOutH = null, depthSeq = 0;   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
+let dOutH = null, depthSeq = 0;
+let postOn = false;   // 後処理（PR-8）が点いている＝GL2 は深度と同じ FBO（depthOut）を開いて end で合成する（WebGPU は renderer の flush が掛ける）   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
 // 書き出しが begin/end で落ちた＝以後このセッションでは作らない（毎フレーム落ちて地図ごと止まる形を断つ）。GL2 の読み替えは abort で素へ戻す
 function depthOff(e) {
 	console.warn("[render] depthOut failed (overlay depth off):", e?.message || e);
@@ -47,7 +48,7 @@ let clockA = null, clockSet = null;   // 共通の時計の基準（#42）。nul
 let elevBase = 0;   // TERR_EXAG / EARTH_M（init で）
 // 組み込みのオーバーレイ＝このバンドルの一部として import（依存を持ってよい・vite が chunk にする）。URL 方式（依存ゼロ・?url）と並ぶもう一つの口。
 // anno＝@スタイル再生（正典 geopbf/edit/draw を import する＝依存ゼロでは書けない）。
-const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequad: () => import("./gadgets/imagequad-draw.js"), czml: () => import("./gadgets/czml-draw.js") };   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
+const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequad: () => import("./gadgets/imagequad-draw.js"), czml: () => import("./gadgets/czml-draw.js"), three: () => import("./gadgets/three-draw.js") };   // three＝three.js を worker 内で（深度で隠れる・RTE・PR-3・2026-10-11）   // czml＝時刻付きの位置（CZML・GPX）を共通の時計で（#113 段 3）   // imagequad＝四隅の画像を「覆う」描き方（2026-09-21）
 function overlayAdd(m) {
 	const o = { canvas: m.canvas, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name, o);
@@ -55,7 +56,11 @@ function overlayAdd(m) {
 	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
-	(m.builtin ? (BUILTIN_OVERLAYS[m.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${m.builtin}"`))) : import(/* @vite-ignore */ m.url)).then(mod => {
+	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
+	const instUrl = u => { try { const x = new URL(u); x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
+	// builtin は表にある名前だけ（Object.hasOwn＝"constructor" 等の継承した名前で別の物を呼ばない・CodeQL js/unvalidated-dynamic-method-call）
+	const builtinLoad = name => typeof name === "string" && Object.hasOwn(BUILTIN_OVERLAYS, name) ? BUILTIN_OVERLAYS[name]() : Promise.reject(new Error(`unknown builtin overlay "${name}"`));
+	(m.builtin ? builtinLoad(m.builtin) : import(/* @vite-ignore */ instUrl(m.url))).then(mod => {
 		if (!overlays.has(m.name)) return;   // 待っている間に外された
 		stage("imported");
 		const ret = mod.init(o.canvas, m.opts || {}, host);
@@ -67,6 +72,7 @@ function overlayAdd(m) {
 		dirty = true; armRaf();
 	}).catch(err => { console.error("[render] overlay", m.name, "failed to load", m.url, err?.message || err); stage("failed", { error: String(err?.message || err) }); postMessage({ type: "drawErr", msg: `overlay ${m.name}: ${err?.message || err}` }); });
 }
+let lastOv = null;   // 最後に描いたフレームの { cam, s, size, api }（統一 picking＝overlayPick が同じ cam で当てる・PR-1）
 function overlayFrame(camNow, depthFrame) {
 	if (!overlays.size) return false;
 	let more = false, s = null, api = null;
@@ -97,7 +103,25 @@ function overlayFrame(camNow, depthFrame) {
 			if (o.mod.frame(camNow, s, { w: o.canvas.width, h: o.canvas.height }, api)) more = true;
 		} catch (e) { console.error("[render] overlay", name, "frame failed", e?.message); }
 	}
+	if (s) lastOv = { cam: camNow, s, size: { w: baseW || api.W * api.dpr, h: baseH || api.H * api.dpr }, api: { ...api, clip: null, depth: null } };
 	return more;
+}
+// 統一 picking（deck.gl 差分 PR-1・2026-10-11）：main の map.pickOverlays(x, y) → names の順（手前から）に各モジュールの pick(x, y, r, ctx) を問う。
+// x, y, r は CSS px で来る＝device px に直す。答え＝[{ name, id, distance（CSS px）, lngLat, properties, … }]（モジュールが返した物に name を足す）。pick の無いモジュールは飛ばす
+function overlayPick(m) {
+	const hits = [];
+	if (lastOv) {
+		const dpr = lastOv.cam?.dpr || 1, r = (m.r ?? 6) * dpr;
+		for (const name of m.names || [...overlays.keys()].reverse()) {
+			const o = overlays.get(name);
+			if (!o?.mod?.pick) continue;
+			try {
+				const res = o.mod.pick(m.x * dpr, m.y * dpr, r, lastOv);
+				for (const h of res == null ? [] : Array.isArray(res) ? res : [res]) if (h) hits.push({ ...h, name, distance: (h.distance ?? 0) / dpr });
+			} catch (e) { console.error("[render] overlay", name, "pick failed", e?.message); }
+		}
+	}
+	postMessage({ type: "overlayPickResult", seq: m.seq, hits });
 }
 let cam = null, opts = null, dirty = false;   // 最新の描画状態。dirty の時だけ rAF で描く。
 let frameEvents = false;   // 描いたフレームごとに { type:"frame", cam } を main へ（custom 層の同期・要求された時だけ）
@@ -343,6 +367,7 @@ const dispatch = e => {
 			break;
 		case "overlayAdd": overlayAdd(m); break;                 // 同一フレームのオーバーレイ（上の overlays）
 		case "overlayMsg": { const o = overlays.get(m.name); if (o) { if (o.mod) o.mod.message(m.data); else o.queue.push(m.data); noteTime(); dirty = true; armRaf(); } break; }   // 毎フレームの状態（地震の再生等）＝時計で動く描き直し（#125）
+		case "overlayPick": overlayPick(m); break;               // 統一 picking（PR-1）＝最後に描いたフレームの cam で当てる
 		case "overlayRemove": { const o = overlays.get(m.name); if (o) { overlays.delete(m.name); try { o.mod?.destroy(); } catch {} dirty = true; armRaf(); } break; }
 		case "meshPort":                                      // plateau worker → ここ のメッシュ直結パイプ（workerプール1本につき1ポート）
 			m.port.onmessage = ev => { meshInbox.push({ ...ev.data, port: m.port }); dirty = true; };   // 受信は貯めるだけ＝GPU転送は frame() が1件/フレームで平準化（下の drainUploads）。port＝消化ack（クレジット）の返送先
@@ -403,6 +428,7 @@ const dispatch = e => {
 			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
 			else if (m.cmd === "clock") { clockA = m.data; labelLayer?.setClock?.(clockA); noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
 			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
+			else if (m.cmd === "post") { postOn = !!m.data; renderer?.set(m.cmd, m.data, m.prop); }   // 後処理 bloom・vignette（PR-8）＝GL2 は下の dWant が FBO を開く
 			else if (m.cmd === "view" && m.data && ("clock" in m.data || "time" in m.data)) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
 				const n = normClip(m.data), pl = t => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
@@ -489,8 +515,12 @@ function snapshot(id) {
 		if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 		const s = RES_STEPS[resIdx];
 		const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-		renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
-		if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		let sBegun = false;   // 後処理（PR-8）や深度の FBO が開いている地図＝撮影も同じ経路（begin〜end）で描く＝画面と同じ絵（bloom・vignette 込み）
+		if (dOutH) { try { sBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+		try {
+			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
+			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		} finally { if (sBegun) { try { dOutH.end({ depth: false }); } catch (e) { depthOff(e); } } }
 		labelLayer && labelLayer.draw(cam);
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
 		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip:true で main が戻す。
@@ -727,7 +757,8 @@ function frame() {
 			let dOpts = noBld ? { ...opts, noBld: 1 } : opts;
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
 			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
-			const dWant = depthOk && !!renderer.depthOut && overlayWantsDepth();
+			const ovDepth = overlayWantsDepth();
+			const dWant = depthOk && !!renderer.depthOut && (ovDepth || (postOn && !!glRef));   // 後処理（PR-8）は GL2 だけ FBO を要る（WebGPU は flush で掛ける）
 			if (dWant !== !!dOutH) {
 				try { dOutH = renderer.depthOut(dWant); if (dWant && !dOutH) depthOff("unavailable"); }   // null＝この環境では作れない＝以後申し出ても作らない
 				catch (e) { depthOff(e); }
@@ -739,7 +770,7 @@ function frame() {
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			let depthFrame = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
-			if (dBegun) { try { depthFrame = dOutH.end(); depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }
+			if (dBegun) { try { depthFrame = dOutH.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;
