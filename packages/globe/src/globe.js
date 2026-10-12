@@ -1137,7 +1137,7 @@ const groundRNow = () => {
 function onMove() {
 	clampCamLimits();   // 実行時の上限・可動域（#35）＝入力・飛行・URL 復元のどの経路で動いても同じ所で締める（聞き手へ渡す前に）
 	cam.center[0] = wrapLon(cam.center[0]);   // パン/回転/フライトの累積を毎移動で正規化＝float32原点相対の前提を守る（階段バグ根治）。聞き手より先＝move も settle／getCenter と同じ ±180° の経度を受け取る（旧＝move だけ 190° 等の生の値）
-	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing }); } catch (e) { console.error("[map.on move]", e); } }
+	for (const cb of mapOn.move) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 }); } catch (e) { console.error("[map.on move]", e); } }
 	moving = true; needsDraw = true;
 	idleCalm = false; clearTimeout(calmT);     // 動いた瞬間に「本当の静止」を取り下げ（詳細化は許可待ちに戻る）
 	updateUnderground();                       // 地中フェード（非同期・10Hz＝eye直下の地表との高低差→#underground の opacity。時間フェードはCSS transition）
@@ -1150,7 +1150,7 @@ function onMove() {
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
 	settleT = setTimeout(() => {
-		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
+		for (const cb of mapOn.settle) { try { cb({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0, hash: viewHash() }); } catch (e) { console.error("[map.on settle]", e); } }
 		moving = false; needsDraw = true; commitUnderground(); updateUnderground(true); wPost({ type: "gintDrawn" }); for (const hh of extGint.values()) hh._zoomReeval?.(cam.zoom); meshMgr.update(true); if (!printHold) saveView();   // 停止後に identify(picking)＋PLATEAU確定（settled＝ロード発火/レーン切替はこの瞬間だけ）＋ビュー保存＋地中フェード確定（止まったら地中=全黒）
 		calmT = setTimeout(() => { idleCalm = true; needsDraw = true; }, 550);   // さらに550ms（停止から計700ms）＝ホイール刻みを跨いだ「本当の静止」でだけ手前詳細化
 	}, 150);
@@ -1263,7 +1263,7 @@ let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝pa
 // cam＝幾何のみ（center/zoom/pitch/bearing/dpr）＝毎フレームの draw payload（将来の worker 境界）。
 // 色（clear/land/atmo/bldColor）は静的なので setView で一度きりアップロード＝hot path から追い出す。
 const HOME_VIEW = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
-const cam = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, dpr };   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
+const cam = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, roll: 0, dpr };   // roll＝視線まわりの回転（MapLibre の roll・2026-10-12 A1）。fovy は無指定＝エンジン既定 50°（setVerticalFieldOfView で書く）   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
 // --- 共有URL（パーマリンク）：codec は engine（viewurl.js）。ここは起動の優先度と app 固有クランプだけ ---
 // 起動の優先度：URLハッシュ > localStorage(前回ビュー) > 既定の世界ビュー。settle 毎に replaceState で
 // 書き戻す＝アドレスバーが常に「今この視点の共有URL」（コピーするだけで人に渡る＝発表・拡散の生命線）。
@@ -1272,6 +1272,7 @@ function applyCamView(v) {
 	cam.zoom = Math.max(zoomMinCur, Math.min(ZOOM_MAX, v.zoom));   // URL/復元は太陽系圏の深度も受ける（編集中は z2.5 床）
 	cam.pitch = Math.max(0, Math.min(maxPitchCur, v.pitch || 0));   // 共有hashのtiltも派生アプリの上限に従う（geoedit=0）
 	cam.bearing = Number.isFinite(v.bearing) ? v.bearing : 0;
+	cam.roll = Number.isFinite(v.roll) ? v.roll : 0;
 }
 const bootView = parseViewHash(opts.view || pageHash || REGIONS.map(r => r.view).filter(Boolean).pop() || "");   // 裸で開いた時の視点は地域宣言が持つ（/nl/ ＝デルフト上空・日本は既定のまま）
 // 前回ビューの復元（ortho-earth 本体と同じ流儀）：settle 毎に localStorage へ保存し、起動時にそこから立ち上がる。
@@ -1293,7 +1294,7 @@ if (opts.time != null) clock.setTime(opts.time instanceof Date ? opts.time.getTi
 if (bootView && (bootView.time || bootView.speed != null)) clock.fromParams(clockParamsOf(bootView));
 // opts.persistView=false＝前回ビューを読まない・書かない。localStorage はオリジン単位＝同じドメインの別ページ
 // （www トップの背景・gishub の待ち受け）で回した視点が /japan/ の「前回の続き」を上書きするのを防ぐ（2026-09-21）
-const saveCam = () => { if (!PERSIST) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing })); } catch { /* private mode 等 */ } };
+const saveCam = () => { if (!PERSIST) return; try { localStorage.setItem(CAM_KEY, JSON.stringify({ center: cam.center, zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 })); } catch { /* private mode 等 */ } };
 // 現在ビュー→ハッシュ（codec は engine）。app 固有の後置トークン＝チップ状態 l=…
 // 固定キー(opts.layers)はURLに書かない＝そのURLを本家で開いた人には既定が適用される（埋め込み構成を持ち出さない）。
 const viewHash = () => {
@@ -1996,7 +1997,7 @@ function applyView(v, { fly = false, glide = false, jump = false } = {}) {
 	applyViewLayers(v);                                                        // 1) l=（チップ）＝先に反映
 	if (v.time || v.speed != null) clock.fromParams(clockParamsOf(v));   // 時計（t=/s=・#42）＝貼り替え・台本のビューが時刻を持つ時だけ（無ければ今の時計のまま）
 	if (!themeFixed && v.theme && v.theme !== themeName) switchTheme(v.theme);  // 2) c=（テーマ生き替え・switchThemeはURLを書かない＝ここで束ねる）
-	if (fly && !jump) (glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * R2D, v.bearing * R2D);   // 3a) フライト（離陸＝現視点のまま animate）
+	if (fly && !jump) { cam.roll = Number.isFinite(v.roll) ? v.roll : 0; (glide ? flightCtl.glideTo : flyTo)(wrapLon(v.lon), v.lat, v.zoom, v.pitch * R2D, v.bearing * R2D); }   // 3a) フライト（離陸＝現視点のまま animate・roll は飛行が補間しない＝離陸で書く）
 	else { if (jump) flightCtl.cancel(); applyCamView(v); onMove(); }          // 3b) 即時＝カメラ直書き（jump／hashchange貼付け）
 	saveView();   // 4) URL書込＝全状態が揃った後に1回。即時=確定視点／フライト=離陸時に(新テーマ/チップ+離陸視点)、着地settleで dest cam へ更新
 	return true;
@@ -2319,7 +2320,7 @@ const map = { cam, flyTo, renderer, mapEl, destroy, clock,
 	// ★表示状態（共有される「単一の真実」）を map インスタンスから常時参照可能に＝viewHash が直列化するのと同じ状態。
 	// center/zoom/pitch/bearing（cam）＋ theme(c=)＋ layers(l=・sky含む)＋ sky ＋ 現在の共有URL文字列(hash)。読み取り専用スナップショット。
 	// eye＝カメラ実位置（緯度・経度・海抜m・注視点距離m＝参考値）。
-	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(sky.constelVisible ? [SKY_LAYER] : []), sky: sky.constelVisible, hash: viewHash(), eye: eyePose() }; },
+	get view() { return { center: [...cam.center], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0, fovy: cam.fovy || 50 * D2R, theme: themeName, layers: FREE_LAYER_KEYS.filter(k => layerState[k]).concat(sky.constelVisible ? [SKY_LAYER] : []), sky: sky.constelVisible, hash: viewHash(), eye: eyePose() }; },
 	// ★scene-player API（v2整備 2026-08-09）＝台本オブジェクトの直接上映（第三の入口・エディタの土台）。要 demo ガジェット搭載。
 	//   playScenes(obj, {from, quick, onScene, onEnd})／stopScenes()＝停止（準備中でも安全）。正典＝demo/scene-format.md §7
 	playScenes: (obj, opts) => scenes.playScenes(obj, opts), stopScenes: () => scenes.stopScenes(),
@@ -2482,10 +2483,10 @@ function padCenter([lon, lat], zoom, bearingRad, pad) {
 	return [wrapLon(lon - e / Math.max(0.05, Math.cos(lat * D2R))), Math.max(-89.9, Math.min(89.9, lat - n))];
 }
 function camTarget(o = {}) {   // MapLibre の CameraOptions → cam の単位（ラジアン）の目標
-	const zoom = o.zoom ?? cam.zoom, bearing = o.bearing != null ? o.bearing * D2R : cam.bearing, pitch = o.pitch != null ? o.pitch * D2R : cam.pitch;
+	const zoom = o.zoom ?? cam.zoom, bearing = o.bearing != null ? o.bearing * D2R : cam.bearing, pitch = o.pitch != null ? o.pitch * D2R : cam.pitch, roll = o.roll != null ? o.roll * D2R : (cam.roll || 0);
 	let c = lngLatOf(o.center) ?? [cam.center[0], cam.center[1]];
 	if (o.center != null || o.padding != null) c = padCenter(c, zoom, bearing, padOf(o.padding));
-	return { lon: c[0], lat: c[1], zoom: Math.max(zoomMinCur, Math.min(zoomMaxCur, zoom)), pitch, bearing };
+	return { lon: c[0], lat: c[1], zoom: Math.max(zoomMinCur, Math.min(zoomMaxCur, zoom)), pitch, bearing, roll };
 }
 function clampCamLimits() {
 	if (cam.zoom > zoomMaxCur) cam.zoom = zoomMaxCur;
@@ -2498,13 +2499,14 @@ function clampCamLimits() {
 	const d = x => { const v = Math.abs(wrapLon(lon - x)); return v; };
 	cam.center[0] = d(w) <= d(e) ? w : e;
 }
-map.jumpTo = (o = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; onMove(); return map; };
+map.jumpTo = (o = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; cam.roll = t.roll; onMove(); return map; };
 map.easeTo = (o = {}) => o.animate === false ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
 // flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
 map.flyTo = (a, ...rest) => {
 	if (a == null || typeof a !== "object" || Array.isArray(a)) return flyTo(a, ...rest);
 	if (a.animate === false) { map.jumpTo(a); return Promise.resolve(); }
 	const t = camTarget(a);
+	if (t.roll !== (cam.roll || 0)) { cam.roll = t.roll; }   // roll は飛行の振り付けに無い＝離陸で書く（easeTo は補間する）
 	return flyTo(t.lon, t.lat, t.zoom, t.pitch * R2D, t.bearing * R2D);   // 省略した角は今の値（MapLibre の意味論）
 };
 // bbox＝[west, south, east, north]（west>east＝±180 跨ぎ）か [[w,s],[e,n]]。options＝{ padding, maxZoom, pitch, bearing, animate, linear, duration }
@@ -2541,6 +2543,11 @@ map.getMaxZoom = () => zoomMaxCur;
 map.getCenter = () => ({ lng: cam.center[0], lat: cam.center[1] });
 map.getPitch = () => cam.pitch * R2D;
 map.getBearing = () => cam.bearing * R2D;
+// roll（視線まわりの回転・度・MapLibre 同名・2026-10-12 A1）と縦の視野角（度・MapLibre の setVerticalFieldOfView・エンジン既定 50°・MapLibre の既定は 36.87°）
+map.getRoll = () => (cam.roll || 0) * R2D;
+map.setRoll = r => map.jumpTo({ roll: r });
+map.getVerticalFieldOfView = () => (cam.fovy || 50 * D2R) * R2D;
+map.setVerticalFieldOfView = deg => { const v = +deg; if (!Number.isFinite(v)) return map; cam.fovy = Math.max(1, Math.min(170, v)) * D2R; onMove(); return map; };   // ズーム↔距離の式は fovy を含む＝同じ z で地表の縮尺は変わらずカメラの距離が変わる（MapLibre と同じ）
 map.setCenter = c => map.jumpTo({ center: c });
 map.setZoom = z => map.jumpTo({ zoom: z });
 map.setPitch = p => map.jumpTo({ pitch: p });

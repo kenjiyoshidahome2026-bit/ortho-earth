@@ -431,7 +431,7 @@ const dispatch = e => {
 			// 遷移時AA：カメラ値が実際に変わった時だけ「動いた」と記録（タイル到着等の dirty は静止扱い＝4x のまま）。
 			// 初回 cam（prev 無し）は静止扱い＝初期表示は最初から品質段で描く。
 			if (cam && m.cam && (cam.center[0] !== m.cam.center[0] || cam.center[1] !== m.cam.center[1]
-				|| cam.zoom !== m.cam.zoom || (cam.pitch || 0) !== (m.cam.pitch || 0) || (cam.bearing || 0) !== (m.cam.bearing || 0))) lastCamMoveT = performance.now();
+				|| cam.zoom !== m.cam.zoom || (cam.pitch || 0) !== (m.cam.pitch || 0) || (cam.bearing || 0) !== (m.cam.bearing || 0) || (cam.roll || 0) !== (m.cam.roll || 0) || cam.fovy !== m.cam.fovy)) lastCamMoveT = performance.now();
 			cam = m.cam; opts = m.opts; dirty = true;
 			if (pendingLabels) applyLabels();                    // cam が届いた時点で保留中のラベルへ標高を付与
 			break;

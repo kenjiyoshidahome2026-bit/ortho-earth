@@ -77,9 +77,11 @@ export function ellNormal3D(lon, lat) {
 	return [cb * Math.cos(a), Math.sin(b) / R_AX, cb * Math.sin(a)];
 }
 
-// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), fovy(rad), dpr }
+// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), roll(rad), fovy(rad), dpr }
+// roll＝視線（boresight）まわりの回転［rad］（MapLibre の roll と同じ向き＝正で絵が時計回りに回る・2026-10-12 A1）。0＝従来とビット同値
 export function cameraState(cam, W, H) {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
+	const roll = cam.roll || 0;
 	const [lon, lat] = center;
 	const Tb = lonlatTo3D(lon, lat);                                // β単位球上の注視点
 	const T0 = R_AX === 1 ? Tb : [Tb[0], R_AX * Tb[1], Tb[2]];      // world（楕円体面）＝S·u(β)。球では同一
@@ -102,7 +104,9 @@ export function cameraState(cam, W, H) {
 	// カメラ基底を pitch/bearing から明示構築（退化なし）:
 	//   pitch=0 で真上・screen-up=北。pitch>0 で fwdH 方向の地平へ傾く。
 	const back = mat.add(mat.scale(nrm, Math.cos(pitch)), mat.scale(fwdH, -Math.sin(pitch)));   // 対象→カメラ
-	const upCam = mat.add(mat.scale(nrm, Math.sin(pitch)), mat.scale(fwdH, Math.cos(pitch)));   // 画面上方向
+	let upCam = mat.add(mat.scale(nrm, Math.sin(pitch)), mat.scale(fwdH, Math.cos(pitch)));   // 画面上方向
+	// roll＝画面上方向を視線軸（back）まわりに回す（Rodrigues・back と upCam は直交・clip.x の鏡像反転の後で正の roll＝絵が時計回り）。roll=0 はこの枝を通らない＝ビット同値
+	if (roll) upCam = mat.add(mat.scale(upCam, Math.cos(roll)), mat.scale(mat.cross(upCam, back), Math.sin(roll)));
 	// 地形クランプ（eye の押し上げ）は廃止（2026-07-28）：山頂×高チルトで eye が sea-level 軌道ごと山体に
 	// 埋まり、eye直下サンプルは下った斜面＝山頂を見ないため効かなかった（富士 z15/75° で裏面を見上げる絵）。
 	// 代替＝カメラは一切動かさず、地表より下に潜ったら app が全画面 DOM オーバーレイ(#underground)を暗くする。
