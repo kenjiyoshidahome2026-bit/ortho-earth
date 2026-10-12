@@ -5,7 +5,7 @@
 //   覚える工夫＝間違えた国を次のセットに優先して混ぜる（間隔反復）・最近出た国は避ける・図鑑（正解した国の数）・星とバッジは localStorage。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { loadCountries, flagURL } from "./data.js";
-import { buildSet, makeQuestion, pool, eligible, stars, roundPopulation, REGIONS, REGION_EN, LEVELS, MODES, SET_SIZE } from "./quiz.js";
+import { buildSet, makeQuestion, pool, eligible, stars, roundPopulation, tapHits, REGIONS, REGION_EN, LEVELS, MODES, SET_SIZE } from "./quiz.js";
 import { createProgress, BADGES } from "./progress.js";
 import { sfx } from "./sound.js";
 import { confetti } from "./confetti.js";
@@ -164,12 +164,16 @@ export async function mountApp(root) {
 	const regionOf = c => c.region;
 	// 地図が無い環境で Lv.3 の地図モードに来た＝選択肢の問に落とす
 	function fallbackTap(Q) { Object.assign(Q, makeQuestion(Q.answer, pool(countries, { mode: "map", level: 3, region: S.region }), { mode: "map", level: 2, all: countries })); renderQuestion(); }
-	function tapAnswer(key, lngLat) {
+	async function tapAnswer(key, lngLat) {
 		if (S.answered) return;
 		const Q = S.set[S.i], a = Q.answer, hit = key ? byKey.get(key) : null;
-		const ok = !!hit && (hit.key === a.key || hit.territory === a.key || a.territory === hit.key);
-		S.mapView?.disarm(); S.mapView?.mark(key, lngLat);
-		judge(ok, hit);
+		const inside = !!hit && (hit.key === a.key || hit.territory === a.key || a.territory === hit.key);
+		S.mapView?.disarm();
+		const r = inside || !lngLat || !S.mapView ? null : await S.mapView.reach(a, lngLat).catch(() => null);   // 外れ＝形までの距離を測る（小さい国は指で押し損ねる）
+		if (S.answered || S.set[S.i] !== Q) return;
+		const ok = tapHits({ inside, hitOther: !!hit, px: r?.px ?? Infinity, size: r?.size ?? 0 });
+		S.mapView?.mark(ok && !inside ? a.key : key, lngLat);   // 近くで救った時は正解の国に印
+		judge(ok, ok ? a : hit);
 	}
 	function answer(o) {
 		if (S.answered) return;
