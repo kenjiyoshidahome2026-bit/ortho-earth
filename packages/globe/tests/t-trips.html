@@ -1,0 +1,99 @@
+<!doctype html>
+<!-- 実描画の検分：Trips の GPU 化・GPU の範囲フィルタ／ブラシ／マスク・トランジション（deck.gl 差分 PR-6・2026-10-12）。
+     ①kind:"trips"＝東京駅から東へ進む軌跡（時刻 0〜100）。currentTime 50・trail 30 で、t=40 の位置に画素があり t=10（尾の外）と t=70（未来）には無い。pick が index と t0/t1 を返す。
+       setCurrentTime(90) で t=70 に画素が出る。animate で時刻が進む（probe の time が増える）
+     ②points の getFilterValue＋setFilter＝範囲の外の点は描かれず当たらない・解除で戻る
+     ③setBrush(x, y, r)＝ブラシの中の点だけ当たる ④setMask(polygon)＝多角形の外の点は当たらない
+     ⑤transition: 1500ms の setData＝緑の点の画素の重心が途中で旧位置と新位置の間・終わると新位置（旧位置には当たらない）
+     ⑥arcs の setFilter／setMask（始点で判定）
+     実時間。GL2（verify:ui）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-trips</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 30000;
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812;
+const grab = ov => new Promise(res => { const prev = ov.onmessage; ov.onmessage = d => { if (d?.type === "pixels") { ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id: "p" }); });
+const grabInk = async (ov, min = 1) => until(async () => { const d = await grab(ov); let n = 0; for (let i = 3; i < d.data.length; i += 4) if (d.data[i]) n++; return n >= min ? d : null; }, WAIT);
+try {
+	const map = await createGlobe({ target: "#map", view: "#12/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON + 0.03, LAT], zoom: 12, pitch: 0, bearing: 0 });
+	const prj = map.makeProjector();
+	const W = 960, pxAt = (d, x, y) => { const s = d.w / W, i = ((d.h - 1 - Math.round(y * s)) * d.w + Math.round(x * s)) * 4; return d.data[i + 3]; };   // GL の並び＝下が先
+	const inkNear = (d, x, y, r = 4) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (pxAt(d, x + dx, y + dy) > 40) return true; return false; };
+	// ① 軌跡＝東京駅から東へ 0.08°（時刻 0〜100 で等速）
+	const path = [], ts = []; for (let k = 0; k <= 10; k++) { path.push([LON + 0.008 * k, LAT]); ts.push(k * 10); }
+	const T = map.addData([{ path, ts }], { id: "tr", kind: "trips", getPath: d => d.path, getTimestamps: d => d.ts, getColor: [255, 120, 0, 255], getWidth: 6, currentTime: 50, trailLength: 30 });
+	await T.ready;
+	ok("trips.n", T.n === 1 && T.timeRange[0] === 0 && T.timeRange[1] === 100, JSON.stringify(T.timeRange));
+	const at = tt => prj(LON + 0.08 * tt / 100, LAT);
+	let d = await grabInk(T.overlay, 50);
+	ok("trips.drawn", !!d);
+	ok("trips.inTrail", d && inkNear(d, ...at(40)), "t=40（頭 50・尾 30）に画素");
+	ok("trips.beforeTrail", d && !inkNear(d, ...at(10)), "t=10（尾の外）に画素なし");
+	ok("trips.future", d && !inkNear(d, ...at(70)), "t=70（未来）に画素なし");
+	{ const p = at(45), hits = await T.pick(p[0], p[1], 3); ok("trips.pick", hits[0]?.name === "tr" && hits[0]?.index === 0 && hits[0]?.properties?.t1 === 100, JSON.stringify(hits[0])); }
+	{ const p = at(70), hits = await T.pick(p[0], p[1], 3); ok("trips.pickFuture", hits.length === 0, "未来は当たらない"); }
+	T.setCurrentTime(90); await sleep(300); d = await grabInk(T.overlay, 50);
+	ok("trips.setTime", d && inkNear(d, ...at(70)) && !inkNear(d, ...at(40)), "t=70 に出て t=40 は消える");
+	T.animate({ from: 0, to: 100, speed: 50 }); await sleep(400);
+	const d1 = await grab(T.overlay); await sleep(400); const d2 = await grab(T.overlay);
+	ok("trips.animate", d1.time != null && d2.time !== d1.time, `time ${d1.time?.toFixed?.(1)} → ${d2.time?.toFixed?.(1)}`);
+	T.animate(false); T.remove();
+	// ② 点のフィルタ（3 点・v＝1,2,3）
+	const pts = [[LON, LAT], [LON + 0.02, LAT], [LON + 0.04, LAT]];
+	const P = map.addData(pts.map((p, i) => ({ p, v: i + 1 })), { id: "pts", kind: "points", getPosition: d => d.p, getFilterValue: d => d.v, getRadius: 8, getColor: [255, 40, 40, 255] });
+	await P.ready; await grabInk(P.overlay, 20);
+	const sc = pts.map(p => prj(p[0], p[1]));
+	const hit = async (i, r = 2) => (await P.pick(sc[i][0], sc[i][1], r))[0]?.index;
+	window.__t = { map, P, sc, prj };
+	ok("filter.before", (await hit(0)) === 0 && (await hit(2)) === 2, JSON.stringify([await P.pick(sc[0][0], sc[0][1], 2), await P.pick(sc[2][0], sc[2][1], 2), sc]));
+	P.setFilter([2, 3]); await sleep(300);
+	ok("filter.on", (await hit(0)) === undefined && (await hit(1)) === 1 && (await hit(2)) === 2, "v=1 は外");
+	{ const dd = await grabInk(P.overlay, 1); ok("filter.pixels", dd && !inkNear(dd, sc[0][0], sc[0][1], 3) && inkNear(dd, sc[1][0], sc[1][1], 3), "描画も落ちる"); }
+	P.setFilter(null); await sleep(300);
+	ok("filter.off", (await hit(0)) === 0);
+	// ③ ブラシ（2 点目の周り 40px）
+	P.setBrush(sc[1][0], sc[1][1], 40); await sleep(300);
+	ok("brush.on", (await hit(1)) === 1 && (await hit(0)) === undefined && (await hit(2)) === undefined, "ブラシの中だけ");
+	P.setBrush(null); await sleep(300);
+	ok("brush.off", (await hit(0)) === 0 && (await hit(2)) === 2);
+	// ④ マスク（1〜2 点目を含み 3 点目を含まない多角形）
+	await P.setMask([[LON - 0.01, LAT - 0.01], [LON + 0.03, LAT - 0.01], [LON + 0.03, LAT + 0.01], [LON - 0.01, LAT + 0.01]]); await sleep(400);
+	ok("mask.on", (await hit(0)) === 0 && (await hit(1)) === 1 && (await hit(2)) === undefined, "多角形の外は落ちる");
+	await P.setMask(null); await sleep(300);
+	ok("mask.off", (await hit(2)) === 2);
+	// ⑤ トランジション（0 番＝緑を 2 点目の位置へ 1500ms）＝緑の画素の重心が旧と新の間を通って新に着く
+	const P3 = map.addData(pts.map((p, i) => ({ p, v: i + 1 })), { id: "pt3", kind: "points", getPosition: d => d.p, getRadius: 8, getColor: (d, i) => i ? [255, 40, 40, 255] : [40, 255, 40, 255], transition: { duration: 1500 } });
+	await P3.ready; await grabInk(P3.overlay, 20);
+	const greenX = dd => { let n = 0, sx = 0; for (let i = 0; i < dd.data.length; i += 4) if (dd.data[i + 3] > 100 && dd.data[i + 1] > 150 && dd.data[i] < 100) { n++; sx += (i / 4) % dd.w; } return n ? sx / n / (dd.w / W) : null; };
+	{ const dd = await grab(P3.overlay), g0 = greenX(dd); let na = 0, ng = 0; for (let i = 0; i < dd.data.length; i += 4) { if (dd.data[i + 3] > 100) na++; if (dd.data[i + 3] > 100 && dd.data[i + 1] > 150 && dd.data[i] < 100) ng++; } ok("transition.start", g0 != null && Math.abs(g0 - sc[0][0]) < 3, `緑は旧位置 ${sc[0][0].toFixed(0)}: x=${g0?.toFixed?.(1)} alpha=${na} green=${ng} w=${dd.w} err=${dd.error}`); }
+	const pNew = [LON + 0.012, LAT], sNew = prj(pNew[0], pNew[1]);   // 緑の行き先＝0 番と 1 番の間の空いた所（赤の下に隠れない）
+	await P3.setData([{ p: pNew, v: 1 }, { p: pts[1], v: 2 }, { p: pts[2], v: 3 }]); await sleep(400);
+	const gx = greenX(await grab(P3.overlay));
+	ok("transition.mid", gx != null && gx > sc[0][0] + 3 && gx < sNew[0] - 3, `400ms 後の緑 x=${gx?.toFixed(1)}（旧 ${sc[0][0].toFixed(0)} → 新 ${sNew[0].toFixed(0)} の間）`);
+	await sleep(1600);
+	const gx2 = greenX(await grab(P3.overlay));
+	ok("transition.end", gx2 != null && Math.abs(gx2 - sNew[0]) < 3 && (await P3.pick(sc[0][0], sc[0][1], 2)).length === 0, `終わると新位置 x=${gx2?.toFixed(1)}（${sNew[0].toFixed(0)}）・旧位置には無い`);
+	P3.remove();
+	P.remove();
+	// ⑥ 弧のフィルタ・マスク（始点で）
+	const A = map.addData([{ s: pts[0], t: pts[2], v: 1 }, { s: pts[2], t: pts[0], v: 2 }], { id: "arcs", kind: "arcs", getSourcePosition: d => d.s, getTargetPosition: d => d.t, getFilterValue: d => d.v, getWidth: 6, getHeight: 0.2 });
+	await A.ready; await grabInk(A.overlay, 20);
+	const midArc = prj(LON + 0.02, LAT), apick = async () => (await A.pick(midArc[0], midArc[1] - 40, 60)).map(h => h.index);
+	ok("arcs.both", (await apick()).length >= 1, JSON.stringify(await apick()));
+	A.setFilter([2, 2]); await sleep(300);
+	ok("arcs.filter", (await apick()).every(i => i === 1), JSON.stringify(await apick()));
+	A.setFilter(null); await A.setMask([[LON - 0.01, LAT - 0.01], [LON + 0.01, LAT - 0.01], [LON + 0.01, LAT + 0.01], [LON - 0.01, LAT + 0.01]]); await sleep(400);
+	ok("arcs.mask", (await apick()).every(i => i === 0), `始点が中の弧（0 番）だけ ${JSON.stringify(await apick())}`);
+	A.remove();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>
