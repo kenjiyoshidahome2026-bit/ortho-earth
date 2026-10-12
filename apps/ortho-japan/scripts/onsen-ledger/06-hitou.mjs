@@ -5,7 +5,7 @@
 import { getText, writeJSON, inJapan, PREF_RE } from "./lib.mjs";
 
 const BASE = process.env.HITOU || "https://www.hitou.or.jp";
-const unesc = s => (s || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+const unesc = s => (s || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();   // &amp; は最後（&amp;lt; を二重に戻さない）
 const strip = s => unesc((s || "").replace(/<[^>]+>/g, " "));
 
 const list = await getText(`${BASE}/provider/list`, { tag: "hitou" });
