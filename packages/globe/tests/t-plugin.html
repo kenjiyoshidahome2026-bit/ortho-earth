@@ -42,15 +42,17 @@ try {
 		const gj = await map.sampleTerrain({ type: "Feature", geometry: { type: "LineString", coordinates: [[138.7274, 35.3606], [138.75, 35.37]] } });
 		ok("s.geojson", gj.length === 2 && gj[0].height > 3000);
 		ok("s.empty", (await map.sampleTerrain([])).length === 0);
-		ok("s.caps", map.supports("terrain.sample") && !map.supports("camera.walk") && map.capabilities()["camera.walk"].status === "spec");
-		const w = map.walk({ speed: 2 });
-		ok("w.spec", w.opts.speed === 2 && w.opts.eyeHeight === 1.7 && w.active === false && w.start() === false && w.active === false);
+		ok("s.caps", map.supports("terrain.sample") && map.supports("camera.walk") && map.capabilities()["camera.walk"].status === "builtin");
+		const w = map.walk({ speed: 2, keys: false, mouse: false });
+		ok("w.builtin", w.opts.speed === 2 && w.opts.eyeHeight === 1.7 && w.active === false && w.start() === true && w.active === true && w.position().eyeHeight === 1.7 && map.getCamera().pitch > 80, `pitch=${map.getCamera().pitch.toFixed(1)}`);   // W3＝builtin が歩く（絵と動きは t-walk）
+		w.stop(); ok("w.builtinStop", w.active === false && map.getMaxPitch() <= 75.01);
 		let started = 0, stopped = 0, gotOpts = null;
 		map.use({ name: "legs", install(m) { m.registry.handlers.add("walk", { create: (mm, o) => { gotOpts = o; let on = false; return { start() { on = true; started++; }, stop() { on = false; stopped++; }, get active() { return on; } }; } }); } });
 		const w2 = map.walk({ eyeHeight: 1.2 });
 		ok("w.plugin", gotOpts.eyeHeight === 1.2 && w2.start() === true && w2.active === true && started === 1 && map.supports("camera.walk") && map.capabilities()["camera.walk"].via === "legs");
 		w2.stop(); ok("w.stop", w2.active === false && stopped === 1);
-		map.unuse("legs"); ok("w.afterUnuse", !map.supports("camera.walk") && map.walk().start() === false);
+		const walkStopAll = () => map.walk({ keys: false, mouse: false }).stop();   // 直前の手綱を止める（map.walk は前の手綱を stop してから作る）
+		map.unuse("legs"); ok("w.afterUnuse", map.capabilities()["camera.walk"].status === "builtin" && map.walk({ keys: false, mouse: false }).start() === true); walkStopAll();
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
@@ -215,7 +217,7 @@ try {
 	ok("cap.spec", c["light.ibl"].status === "spec" && !map.supports("light.ibl"));   // point は W2 で builtin＝spec の代表は ibl
 	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
 	ok("cap.types", ["types.core", "types.globe", "types.shim", "react"].every(k => map.supports(k)));
-	ok("cap.specF", ["camera.walk", "data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "terrain.sample"].every(k => map.supports(k)));
+	ok("cap.specF", ["data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
