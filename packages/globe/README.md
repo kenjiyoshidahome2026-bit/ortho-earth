@@ -32,6 +32,15 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **three.js**: `map.addThree({ three: <URL of three.module.js>, module: <URL of your module exporting setup(THREE, scene, h)> })` runs
   three.js inside the render worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by
   terrain and buildings through the scene depth, pickable with the overlay picking above. three.js is not a dependency; you bring it
+- **Custom layers in the worker**: `map.addLayer({ id, type: "custom", renderingMode: "3d", url: <URL of a module exporting createLayer(params)> , params })`
+  runs a MapLibre-style `CustomLayerInterface` (`onAdd(map, gl)` / `render(gl, args)` with `args.defaultProjectionData.mainMatrix`, prelude and
+  `getProjectionData`) inside the render worker on the same camera; the scene depth is written into the layer's depth buffer first, so a "3d" layer is
+  occluded by terrain and buildings without touching its shaders (`depth: false` to opt out). `map.getCustomLayerHandle(id)` posts messages to the layer's
+  `onMessage`. Passing a layer object (no `url`) keeps the main-thread canvas route (always on top, no depth).
+- **deck.gl**: `MapboxOverlay` (overlaid) from `@deck.gl/mapbox` works on the MapLibre-shaped `Map` (`@ortho-earth/globe/maplibre`) through the usual
+  `map.addControl(overlay)`: the camera follows the `render` event, picking and `onClick` go through the container's mouse and drag events.
+  `interleaved: true` falls back to overlaid (the map is drawn in a worker, so deck.gl cannot share its GL context). deck.gl is not a dependency; it is
+  a devDependency for `tests/t-deckgl.html` only.
 - **Data layers**: `map.addData(array, { kind, getPosition, getColor, getRadius, … })` takes an array (or GeoJSON) plus deck.gl-style
   accessors. `kind: "points"` and `"arcs"` (great circles with optional height, `getSourcePosition` / `getTargetPosition`) are GPU
   overlays with picking; `"polygons"`, `"paths"` and `"columns"` ride the ordinary `fill` / `line` / `fill-extrusion` layer route.
