@@ -333,7 +333,7 @@ export interface Gadgets {
 	clock(opts?: { zoom?: [number, number]; narrow?: boolean }): void;
 	/** 任意の 3D Tiles（map.add3DTiles と同じ）。null＝全部（opts.id＝その 1 つ）を外す */
 	tiles3d(url: string | null, opts?: Tiles3DOptions): Promise<Tiles3DHandle | null>;
-	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key）。null＋{id} で外す */
+	/** 記号の層（MapLibre の symbol 層：icon-image/-size/-rotate/-anchor/-offset/-allow-overlap/-color（SDF）・text-field/-size/-anchor/-offset/-color/-halo・symbol-sort-key・symbol-z-order・icon-halo-*・format の image/vertical-align・symbol-height-offset/-anchor）。null＋{id} で外す */
 	symbols(src: GeoJSONFeatureCollection | GeoJSONFeature[] | File | string | ({ type: "symbol" } & Omit<MapLibreLayer, "type">) | null, layer?: Partial<MapLibreLayer>): Promise<{ features: number } | null>;
 	tip(opts?: object): (rows: string[] | null) => void;
 	pop(opts?: object): unknown;

@@ -1024,7 +1024,77 @@ try {
 				return [a?.hl === true && a?.n === 3 && empty(c) && empty(b) && empty(g), `set=${JSON.stringify(a)} other=${JSON.stringify(c)} removed=${JSON.stringify(b)} get=${JSON.stringify(g)}`];
 			});
 		}
-		for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
+		// ── symbol の残り（C5・2026-10-12）＝format の ["image"] 区間・vertical-align・icon-halo-*（SDF）・symbol-z-order viewport-y・symbol-height-offset。注記の画素は requestSnapshot の labels（Canvas2D の層）
+		{
+			const inkStat = async (ll, pred, r = 40) => {   // 錨の周り r px の、pred に合う画素の数と y の重心（CSS px）
+				const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return { n: -1, cy: 0 };
+				const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(ll);
+				let n = 0, sy = 0;
+				for (let yy = Math.max(0, Math.round((y - r) * R0.lh / H)); yy < Math.min(R0.lh, Math.round((y + r) * R0.lh / H)); yy++)
+					for (let xx = Math.max(0, Math.round((x - r) * R0.lw / W)); xx < Math.min(R0.lw, Math.round((x + r) * R0.lw / W)); xx++) { const i = (yy * R0.lw + xx) * 4; if (L[i + 3] > 200 && pred(L[i], L[i + 1], L[i + 2])) { n++; sy += yy * H / R0.lh; } }
+				return { n, cy: n ? sy / n : 0 };
+			};
+			const inkUntil = async (ll, pred, min, r = 40) => { let st = { n: 0 }; for (let k = 0; k < 10; k++) { await sleep(500); st = await inkStat(ll, pred, r); if (st.n >= min) break; } return st; };
+			const pixelAt = async (ll, ddx = 0, ddy = 0) => { const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return null; const L = new Uint8ClampedArray(R0.labels), [x0, y0] = atG(ll), x = x0 + ddx, y = y0 + ddy; const i = (Math.round(y * R0.lh / map.mapEl.clientHeight) * R0.lw + Math.round(x * R0.lw / map.mapEl.clientWidth)) * 4; return [L[i], L[i + 1], L[i + 2], L[i + 3]]; };
+			const red = (r, g, b) => r > 150 && g < 80 && b < 80, blue = (r, g, b) => b > 150 && r < 80 && g < 80, dark = (r, g, b) => r < 80 && g < 80 && b < 80;
+			const placedOf = async id => (await window.__placed()).filter(L => L.layer === id);
+			const untilN = async (id, pred) => { let p = []; for (let k = 0; k < 20; k++) { await sleep(300); p = await placedOf(id); if (pred(p.length)) break; } return p; };
+			const onlyCafe = ["==", ["get", "name"], "Cafe"];
+			const sym = (id, layout, paint = {}, filter = onlyCafe) => map.addLayer({ id, type: "symbol", source: "omt", "source-layer": "poi", filter, layout: { "text-allow-overlap": true, "text-ignore-placement": true, "icon-allow-overlap": true, "icon-ignore-placement": true, ...layout }, paint: { "text-color": "#000", ...paint } });
+			const drop = async (...ids) => { for (const id of ids) if (map.getLayer(id)) map.removeLayer(id); await sleep(400); };
+			for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
+			for (const id of ["poi-ico", "poi-lbl"]) map.setLayoutProperty(id, "visibility", "none");   // 基図の赤い記号（sq）と注記を伏せる＝錨の周りの赤いインクは自分の層だけ
+			map.jumpTo({ pitch: 0 }); await loaded("omt"); await sleep(800);
+			await vscene("symbol-format-image-section", async () => {   // ["image","sq"]（sprite の赤い 16×16・非 SDF）が字の列に差し込まれる＝錨の周りに赤いインク
+				const z0 = await inkStat(D.cafe, red);
+				await sym("fi", { "text-field": ["format", "AB", {}, ["image", "sq"], {}, "CD"], "text-size": 24 });
+				const st = await inkUntil(D.cafe, red, 40), p = await placedOf("fi");
+				await drop("fi");
+				return [z0.n === 0 && st.n >= 40 && p.length > 0, `red before=${z0.n} after=${st.n} placed=${p.length} w=${p[0]?.w?.toFixed(0)}`];
+			});
+			await vscene("symbol-format-vertical-align", async () => {   // 2.5 倍の █ の行に 1 倍の赤い I を top／bottom で揃える＝赤の重心が top は上・bottom は下
+				await sym("vt", { "text-field": ["format", "\u2588", { "font-scale": 2.5 }, "I", { "vertical-align": "top", "text-color": "#ff0000" }], "text-size": 20 });
+				const top = await inkUntil(D.cafe, red, 10, 60);
+				await drop("vt");
+				await sym("vb", { "text-field": ["format", "\u2588", { "font-scale": 2.5 }, "I", { "vertical-align": "bottom", "text-color": "#ff0000" }], "text-size": 20 });
+				const bot = await inkUntil(D.cafe, red, 10, 60);
+				await drop("vb");
+				return [top.n >= 10 && bot.n >= 10 && bot.cy - top.cy > 12, `top n=${top.n} cy=${top.cy.toFixed(1)} · bottom n=${bot.n} cy=${bot.cy.toFixed(1)}`];
+			});
+			await vscene("symbol-icon-halo", async () => {   // SDF の円（縁 0.75・1px＝1/8）＝icon-color 青・icon-halo-color 赤・幅 4px → 赤い輪が出る・幅 0 → 消える
+				const N = 48, R0 = 12, im = new ImageData(N, N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const d = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2), a = Math.max(0, Math.min(1, 0.75 + (R0 - d) / 8)); const i = (y * N + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 0; im.data[i + 3] = Math.round(a * 255); }
+				await map.addImage("sdfc", im, { sdf: true });
+				await sym("ih", { "icon-image": "sdfc" }, { "icon-color": "#0000ff", "icon-halo-color": "#ff0000", "icon-halo-width": 4 });
+				const r1 = await inkUntil(D.cafe, red, 30), b1 = await inkStat(D.cafe, blue);
+				map.setPaintProperty("ih", "icon-halo-width", 0, { transition: false }); await sleep(800);
+				let r2 = { n: 99 }; for (let k = 0; k < 8 && r2.n > 0; k++) { await sleep(400); r2 = await inkStat(D.cafe, red); }
+				await drop("ih"); map.removeImage("sdfc");
+				return [r1.n >= 30 && b1.n >= 30 && r2.n === 0, `halo red=${r1.n} blue=${b1.n} → width 0 red=${r2.n}`];
+			});
+			await vscene("symbol-z-order-viewport-y", async () => {   // Shop の █ を text-offset で Cafe の █ に重ねる（箱は 0.4em 下・錨は Shop が画面の上）。source＝sort-key の順（Shop 2 が後＝上＝赤）・viewport-y＝錨の画面 y（Cafe が下＝手前）が上＝黒
+				const [cx, cy] = atG(D.cafe), [sx, sy] = atG(D.shop), S = 30, ex = +((cx - sx) / S).toFixed(3), ey = +((cy - sy) / S + 0.4).toFixed(3);
+				const lay = { "text-field": "\u2588\u2588\u2588\u2588", "text-size": S, "text-offset": ["case", onlyCafe, ["literal", [0, 0]], ["literal", [ex, ey]]], "symbol-sort-key": ["case", onlyCafe, 1, 2], "symbol-z-order": "source" };
+				await sym("zo", lay, { "text-color": ["case", onlyCafe, "#000000", "#ff0000"] }, ["in", ["get", "name"], ["literal", ["Cafe", "Shop"]]]);
+				await untilN("zo", n => n >= 2);
+				let a = null; for (let k = 0; k < 8; k++) { await sleep(400); a = await pixelAt(D.cafe); if (a && a[3] > 200 && red(a[0], a[1], a[2])) break; }
+				map.setLayoutProperty("zo", "symbol-z-order", "viewport-y");
+				let b = null; for (let k = 0; k < 10; k++) { await sleep(400); b = await pixelAt(D.cafe); if (b && b[3] > 200 && dark(b[0], b[1], b[2])) break; }
+				const pz = (await placedOf("zo")).map(q => `${q.text}@${q.x.toFixed(0)},${q.y.toFixed(0)}`).join(" "), up = await pixelAt([D.cafe[0], D.cafe[1]], 0, -14);   // up＝Cafe の █ だけの所（Shop は 12px 下）
+				await drop("zo");
+				return [!!a && a[3] > 200 && red(a[0], a[1], a[2]) && !!b && b[3] > 200 && dark(b[0], b[1], b[2]) && ey > 0.4, `source=${a} viewport-y=${b} off=[${ex},${ey}] placed=${pz} cafeOnly=${up}`];
+			});
+			await vscene("symbol-height-offset", async () => {   // 傾けて（60°）60m 浮かす＝置いた箱が画面で上に動く・absolute は地表を読まない（傾き 0 では効かない＝標高の門と同じ）
+				map.jumpTo({ pitch: 60 }); await loaded("omt");
+				await sym("h0", { "text-field": "H", "text-size": 16 }); await sym("h1", { "text-field": "H", "text-size": 16, "symbol-height-offset": 60 }); await sym("h2", { "text-field": "H", "text-size": 16, "symbol-height-offset": 60, "symbol-height-anchor": "absolute" });
+				const p0 = await untilN("h0", n => n > 0), p1 = await untilN("h1", n => n > 0), p2 = await untilN("h2", n => n > 0);
+				const y0 = p0[0]?.y, y1 = p1[0]?.y, y2 = p2[0]?.y;
+				map.jumpTo({ pitch: 0 }); await loaded("omt");
+				const q0 = await untilN("h0", n => n > 0), q1 = await untilN("h1", n => n > 0);
+				await drop("h0", "h1", "h2");
+				for (const id of ["poi-ico", "poi-lbl"]) map.setLayoutProperty(id, "visibility", "visible");
+				return [y0 != null && y1 != null && y0 - y1 > 8 && Math.abs(y1 - y2) < 2 && q0[0] && q1[0] && Math.abs(q0[0].y - q1[0].y) < 1.5, `pitch60 y0=${y0?.toFixed(1)} y1=${y1?.toFixed(1)} y2=${y2?.toFixed(1)} · pitch0 ${q0[0]?.y?.toFixed(1)}/${q1[0]?.y?.toFixed(1)}`];
+			});
+		}
 		map.jumpTo({ pitch: 50 }); await loaded("omt");
 		// feature-state で色（MapLibre の定番のホバー・段 8①b）＝状態が変わった地物を含むタイルだけ組み直す。他の棟は変わらない・外すと戻る・sourceLayer 無しは投げる（MapLibre と同じ）
 		await vscene("feature-state-color", async () => {
