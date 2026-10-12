@@ -23,6 +23,30 @@ export type LightSpec =
 	| { id?: string; type: "hemisphere"; skyColor?: string; groundColor?: string; intensity?: number }
 	| { id?: string; type: "ibl"; url: string; intensity?: number; rotation?: number; background?: boolean }
 	| { id?: string; type: string; [k: string]: unknown };
+/** glTF の見出し（F4・2026-10-12・src/gltf-meta.js）＝模型に何が入っているか。animations＝名前・長さ（秒）・channel の数・target の path。textureFormats＝画像の形式（"ktx2" なら KHR_texture_basisu＝変換器が要る）。
+ *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る。再生・変換・当たりは描かない（口だけ） */
+export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean }
+export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
+/** 再生の spec（受けて保つだけ＝map.supports("gltf.animation") は false）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
+export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
+export interface AnimationState extends Required<Omit<AnimationSpec, "name" | "index">> { name: string | null; index: number | null; duration: number }
+export interface ModelHandle {
+	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta } | null;
+	readonly bbox: [number, number, number, number] | null; readonly name: string | null;
+	/** 模型のアニメの見出し（無ければ []） */
+	readonly animations: GltfAnimationInfo[];
+	readonly gltf: GltfMeta | null;
+	/** 再生の spec を受けて保つ（知らない name／index は投げる）。描くのは第 3 波か plugin（onAnimation で合図を受けて自前で動かす） */
+	setAnimation(spec: AnimationSpec | string | number | true | null): ModelHandle;
+	getAnimation(): AnimationState | null;
+	play(nameOrSpec?: string | AnimationSpec): ModelHandle;
+	stop(): ModelHandle;
+	/** setAnimation のたびに呼ばれる（plugin が再生を担う口）。戻り値で解除 */
+	onAnimation(f: (state: AnimationState | null, model: ModelHandle) => void): () => void;
+	clear(): void; destroy(): void;
+}
+/** registry.textureTranscoders の契約（F4・契約だけ＝worker 側の読み込みは第 3 波）：url＝worker が import() する module（export transcode(bytes: Uint8Array) → { width, height, rgba }） */
+export interface TextureTranscoderImpl { url: string; formats?: string[] }
 /** 太陽・月の向き（F2・2026-10-12）。azimuth＝北 0・東 90（度・時計回り）・altitude＝地平 0・天頂 90（大気差なし）・enu＝天体へ向く単位ベクトル [東, 北, 上]・subpoint＝直下点（度） */
 export interface BodyPosition { time: number; subpoint: { lng: number; lat: number }; azimuth: number; altitude: number; enu: [number, number, number] }
 /** map.setSun の引数。{ follow: "clock" }（既定・true も同じ）＝共通の時計の太陽の向きに directional の光を合わせる（時計の変化・静止・実時間なら 60 秒ごと）。{ azimuth, altitude }＝固定（度）。
@@ -325,7 +349,7 @@ export interface Gadgets {
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean }): Promise<{ readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number } | null; readonly bbox: [number, number, number, number] | null; readonly name: string | null; clear(): void; destroy(): void }>;
+	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
@@ -704,8 +728,8 @@ export interface MapRegistry {
 	readonly lights: PluginRegistry<LightTypeImpl>;
 	/** 後処理の pass の type（F3 で結線）＝builtin は bloom/vignette/fxaa/smaa/tonemap/lut/dof/ssr。plugin の type は { apply(map, passes) } */
 	readonly postEffects: PluginRegistry<PostEffectImpl>;
-	/** テクスチャの変換器（KTX2 など・PR-F4 で結線・今は受けて保つだけ） */
-	readonly textureTranscoders: PluginRegistry<unknown>;
+	/** テクスチャの変換器（KTX2 など）。契約は { url }（F4）・worker 側の読み込みは第 3 波＝今は受けて保つだけ（capabilities "spec"） */
+	readonly textureTranscoders: PluginRegistry<TextureTranscoderImpl>;
 	/** 雲・降水の描き手（F2 で結線）＝setClouds のたびに apply(map, clouds|null) */
 	readonly clouds: PluginRegistry<CloudsImpl>;
 }
