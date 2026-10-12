@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- 実描画の検分：セル・等高線・画面格子（deck.gl 差分 PR-5・2026-10-12）。試料＝東京駅の周り 300 点。
+     ①map.addCells(points, { kind:"geohash", res:6 })＝セルの層（fill＋輪郭）が立ち、点の多いセルの中心で queryRenderedFeatures が count 付きの地物を返す
+     ②map.addCells(ids, { kind:"s2" })＝id の配列（level 10）→ 多角形・属性 cell/res、kind:"mesh" の 3 次メッシュ＝東京駅のセルが queryRenderedFeatures で返る
+     ③map.addContour(points, { cellSize:500, thresholds:[2, 6] })＝等値線の層（line）・geojson に MultiLineString、bands で fill
+     ④map.addScreenGrid(points, { cellPx: 30 })＝overlay に画素が出る・東京駅の画素で pick が count を返す（20 点の塊が格子の境目で割れても 10 以上）・remove で消える
+     ⑤map.addAggregate(points, { kind:"h3", res:8 })＝H3 へ振り分け（層 id）
+     実時間（overlay の import）。GL2（verify:ui）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-cells</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 30000;
+const { createGlobe } = await import("@ortho-earth/globe");
+const { s2, geohash, mesh } = await import("../src/cells/core.js");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812;
+const qrfWait = async (xy, layers, ms = 8000) => until(async () => { const fs = await map.queryRenderedFeatures(xy, { layers }); return fs.length ? fs : null; }, ms) || [];
+let map;
+try {
+	map = await createGlobe({ target: "#map", view: "#12/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 12, pitch: 0, bearing: 0 });
+	let seed = 11; const rnd = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+	const pts = []; for (let i = 0; i < 300; i++) { const r = Math.sqrt(rnd()) * 0.03, a = rnd() * Math.PI * 2; pts.push({ lon: LON + r * Math.cos(a), lat: LAT + r * Math.sin(a), props: { v: 1 + (i % 4) } }); }
+	for (let i = 0; i < 20; i++) pts.push({ lon: LON + (rnd() - 0.5) * 0.001, lat: LAT + (rnd() - 0.5) * 0.001, props: { v: 2 } });   // 東京駅の上に 20 点＝一番濃いセル
+	const prj = map.makeProjector(), s0 = prj(LON, LAT);
+	// ① geohash の集約
+	const G = await map.addCells(pts, { id: "gh", kind: "geohash", res: 6, weight: "v", paint: { "fill-color": ["interpolate", ["linear"], ["get", "count"], 1, "#ffffb2", 20, "#bd0026"], "fill-opacity": 0.8 } });
+	ok("gh.layers", !!map.getLayer("gh") && !!map.getLayer("gh-line") && !!map.getSource("gh"), `cells=${G.cells.size}`);
+	const home = geohash.encode(LON, LAT, 6), hc = G.cells.get(home);
+	ok("gh.homeCell", hc && hc.count >= 20 && hc.sum >= hc.count, JSON.stringify(hc));
+	const f1 = await qrfWait([s0[0], s0[1]], ["gh"]);
+	ok("gh.qrf", f1.length >= 1 && f1[0].properties?.cell === home && f1[0].properties?.count === hc?.count, JSON.stringify(f1[0]?.properties));
+	// ② s2 の id・mesh
+	const ids = [s2.encode(LON, LAT, 10), s2.encode(LON + 0.1, LAT, 10)];
+	const S = await map.addCells(new Map(ids.map((c, i) => [c, { name: "c" + i }])), { id: "s2", kind: "s2", paint: { "fill-color": "#0a0", "fill-opacity": 0.5 } });
+	ok("s2.geojson", S.geojson.features.length === 2 && S.geojson.features[0].properties.res === 10 && S.geojson.features[0].properties.name === "c0", JSON.stringify(S.geojson.features[0].properties));
+	const M = await map.addCells(pts, { id: "mesh", kind: "mesh", res: 3, outline: false, paint: { "fill-color": "#00f", "fill-opacity": 0.3 } });
+	const f2 = await qrfWait([s0[0], s0[1]], ["mesh"]);
+	ok("mesh.qrf", f2.length >= 1 && f2[0].properties?.cell === mesh.encode(LON, LAT, 3) && f2[0].properties?.res === 3, JSON.stringify(f2[0]?.properties));
+	// ③ 等高線
+	const C = await map.addContour(pts, { id: "ct", cellSize: 500, thresholds: [2, 6], linePaint: { "line-color": "#f0f", "line-width": 2 } });
+	ok("ct.layer", !!map.getLayer("ct") && map.getLayer("ct").type === "line", JSON.stringify(map.getLayer("ct")?.type));
+	ok("ct.geojson", C.geojson.features.length >= 1 && C.geojson.features[0].geometry.type === "MultiLineString" && C.geojson.features[0].properties.threshold === 2, `features=${C.geojson.features.length} nx=${C.field.nx} ny=${C.field.ny}`);
+	const CB = await map.addContour(pts, { id: "cb", cellSize: 500, bands: [[1, 4], [4, 50]], thresholds: [4] });
+	ok("cb.layers", map.getLayer("cb")?.type === "fill" && map.getLayer("cb-line")?.type === "line" && CB.geojson.features.some(f => f.geometry.type === "MultiPolygon"), `features=${CB.geojson.features.length}`);
+	// ④ 画面格子
+	const SG = await map.addScreenGrid(pts, { id: "sg", cellPx: 30 });
+	ok("sg.n", SG.n === pts.length, `n=${SG.n}`);
+	const drawn = await until(() => new Promise(res => { const prev = SG.overlay.onmessage; SG.overlay.onmessage = d => { if (d?.type === "pixels") { SG.overlay.onmessage = prev; let n = 0; for (let i = 3; i < d.data.length; i += 4) if (d.data[i]) n++; res(n > 100 ? n : null); } else prev?.(d); }; SG.overlay.post({ type: "probe", id: "p" }); }), WAIT);
+	ok("sg.drawn", drawn > 100, `alpha px=${drawn}`);
+	const sh = await SG.pick(s0[0], s0[1]);
+	ok("sg.pick", sh[0]?.name === "sg" && sh[0]?.properties?.count >= 10, JSON.stringify(sh[0]?.properties));
+	SG.remove(); await sleep(300);
+	ok("sg.removed", (await map.pickOverlays(s0[0], s0[1])).every(h => h.name !== "sg"));
+	// ⑤ addAggregate → h3
+	const H = await map.addAggregate(pts, { kind: "h3", id: "agg", res: 8 });
+	ok("agg.h3", H.id === "agg" && !!map.getLayer("agg") && H.cells.size >= 1, `cells=${H.cells.size}`);
+	const A2 = await map.addAggregate(pts, { kind: "quadkey", id: "qk", res: 14 });
+	ok("agg.quadkey", A2.kind === "quadkey" && !!map.getLayer("qk") && A2.cells.size >= 2, `cells=${A2.cells.size}`);
+	for (const h of [G, S, M, C, CB, H, A2]) h.remove();
+	ok("removed", !map.getLayer("gh") && !map.getSource("gh") && !map.getLayer("s2") && !map.getLayer("ct") && !map.getLayer("cb") && !map.getLayer("agg") && !map.getLayer("qk"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>
