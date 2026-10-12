@@ -86,6 +86,8 @@ export const MAP_MEMBERS = {
 	// deck.gl 差分（PR-1〜8・2026-10-11〜12）：overlay の統一 picking・H3・three.js・addData・セル／等高線／画面格子／集約・custom 層の口・後処理。座標は lon/lat・画素＝z の換算なし
 	pickOverlays: "none", addThree: "none", addH3: "none", addData: "none", addCells: "none", addContour: "none", addScreenGrid: "none", addAggregate: "none", getCustomLayerHandle: "none",
 	setPostProcess: "none", getPostProcess: "none",
+	// plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12）＝zoom を運ばない（plugin の install は素の map を受ける＝地域パックと同じ）
+	use: "none", unuse: "none", plugins: "none", registry: "none", supports: "none", capabilities: "none",
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他
