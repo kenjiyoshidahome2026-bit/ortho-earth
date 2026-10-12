@@ -381,8 +381,8 @@ export class Map {
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
 	setLight(light, o) { ask(this, "setLight", [light]); return this; }   // style の light（B3・2026-10-12）＝エンジンの押し出し・glTF の陰影（GL2）
 	getLight() { return ask(this, "getLight", [], { before: { anchor: "viewport", color: "#ffffff", intensity: 0.5, position: [1.15, 210, 30] } }); }
-	setSky(sky) { unsupported(this, `setSky (this map draws its own atmosphere)`, "cosmetic"); S.get(this).sky = sky; return this; }   // 空の色＝見た目（球の外・標本の外）
-	getSky() { return S.get(this).sky ?? {}; }
+	setSky(sky, o) { ask(this, "setSky", [sky]); return this; }   // style の sky（B4・2026-10-12）＝エンジンの簡易の空（GL2）と霧の色・濃さ
+	getSky() { return ask(this, "getSky", [], { before: undefined }); }
 	// 投影＝頼まれた物を覚える（MapLibre の既定は mercator・setProjection({type:"globe"}) で globe）。絵はどちらも球（文書の違い）だが、custom 層の variant（mercator の行列か球の prelude か）はこの申告に従う（2026-09-30）
 	setProjection(p) { const t = p?.type ?? p ?? "mercator"; S.get(this).projection = t === "globe" ? "globe" : "mercator"; return this; }
 	getProjection() { return { type: S.get(this).projection ?? "mercator" }; }

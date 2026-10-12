@@ -12,6 +12,8 @@ export type Bbox = [w: number, s: number, e: number, n: number];
 export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
 /** style の light（MapLibre 同名・1.16.0〜）。position＝[r, 方位（0＝anchor:"map" なら北・"viewport" なら画面の上・時計回り）, 天頂からの角]（度） */
 export interface LightSpecification { anchor?: "map" | "viewport"; color?: string; intensity?: number; position?: [number, number, number] }
+/** style の sky（MapLibre 同名・1.16.0〜）。色は文字列か ["zoom"] の式。blend は 0..1。空＝地平線の horizon-color から天頂の sky-color へ（sky-horizon-blend＝混ざる幅）・地平線の際に fog-color を horizon-fog-blend の分・atmosphere-blend＝従来のリム光を重ねる度合い・fog-ground-blend＝地面の霧の濃さ（0＝霧なし・0.5＝従来・1＝近くから） */
+export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
 export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
@@ -683,6 +685,10 @@ export interface OrthoJapanMap {
 	setLight(light: LightSpecification | null): OrthoJapanMap;
 	/** 今の light（既定を補った物） */
 	getLight(): Required<LightSpecification>;
+	/** style の sky（MapLibre 同名・1.16.0〜）＝球に当たらない視線を horizon-color→sky-color の簡易の空で塗る（WebGL2・不透明＝星空は隠れる）。fog-color・fog-ground-blend は両レンダラの霧に効く。null＝従来（宇宙へ抜けるリム光・霧は紙色） */
+	setSky(sky: SkySpecification | null): OrthoJapanMap;
+	/** 今の sky（既定を補った物）。無指定なら undefined（MapLibre と同じ） */
+	getSky(): Required<SkySpecification> | undefined;
 	/** 的を注視点に（A4・1.16.0〜）。duration>0 なら easeTo。的が無い（軌跡の範囲外・不明な id）なら何もしない。高さのある的は注視点の高さを的に合わせる（centerClampedToGround が false になる） */
 	lookAt(target: CameraTarget, options?: LookAtOptions): Promise<void>;
 	/** 毎フレーム的を追う（衛星・車両・CZML の時刻つき点・1.16.0〜）。省いた角・zoom は今の値のまま＝追従中の setZoom や回転が効く。null で止める。flyTo 中は的を待つ */
