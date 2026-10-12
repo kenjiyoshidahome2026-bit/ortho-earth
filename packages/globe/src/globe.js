@@ -4830,6 +4830,14 @@ map.getStyle = () => {
 // 外来 style の基図以外の層＝画像層（raster source）と利用者の層（geojson / image source）へ振り分ける（起動後・setStyle の後）
 const extExtras = { raster: [], layers: [], sources: [], offs: [], mounting: 0 };   // mounting＝振り分けの途中（isSourceLoaded / idle は待つ）
 const mountExtExtras = async ext => { extExtras.mounting++; try { return await mountExtExtrasRaw(ext); } finally { extExtras.mounting--; } };
+// style 由来の source（geojson・image・video・raster-dem）を足す（相対 URL は style の置き場基準・目盛りは root の metadata["ortho:sourceDz"]・無ければ style.json＝dz 1）。足したら extExtras.sources に控える
+const ensureExtSource = (ext, sid) => {
+	if (mlSources.has(sid) || !ext.ms.sources?.[sid]) return;
+	const sp = { ...ext.ms.sources[sid] };
+	if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href);
+	if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}"));
+	addSourceAt(sid, sp, ext.ms.metadata?.["ortho:sourceDz"]?.[sid] ?? STYLE_DZ); extExtras.sources.push(sid);
+};
 const mountExtExtrasRaw = async ext => {
 	const ms = ext.ms, baseIdx = ms.layers.findIndex(L => L.source === ext.split.vectorSource && L.type !== "background");
 	for (const L of ext.split.raster) {
@@ -4871,7 +4879,7 @@ const mountExtExtrasRaw = async ext => {
 	}
 	for (const L of ext.split.geojson) {
 		try {
-			if (!mlSources.has(L.source)) { const sp = { ...ms.sources[L.source] }; if (typeof sp.data === "string") sp.data = new URL(sp.data, ext.baseUrl).href; if (sp.url) sp.url = new URL(sp.url, ext.baseUrl).href; if (Array.isArray(sp.urls)) sp.urls = sp.urls.map(u => new URL(u, ext.baseUrl).href); if (Array.isArray(sp.tiles)) sp.tiles = sp.tiles.map(u => /^[a-z][\w+.-]*:/i.test(u) ? u : new URL(u, ext.baseUrl).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}")); addSourceAt(L.source, sp, ms.metadata?.["ortho:sourceDz"]?.[L.source] ?? STYLE_DZ); extExtras.sources.push(L.source); }
+			ensureExtSource(ext, L.source);
 			await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(L.id);   // style.json の層＝MapLibre の z（dz 1・層の metadata の申告が勝つ）
 		} catch (err) { console.warn("[style] layer", L.id, err); }
 	}
@@ -4919,9 +4927,56 @@ const overrideBase = (id, fn) => { const o = baseOverrides.get(id) || {}; fn(o);
 const baseValueIn = (key, value) => value === undefined ? undefined : normalizeMLLayer({ paint: { [key]: value } }, PUBLIC_DZ).paint[key];   // 旧書式の読み替え＋目盛り（公開の口→エンジン）
 const echoBase = L => ({ ...L, ...(baseVis.get(L.id) === "none" ? { layout: { ...(L.layout || {}), visibility: "none" } } : {}) });
 // 基図の style を生き替える（外来 style で起動した地図だけ）。spec＝URL か style の object。解決は新しい style の基図が描き始めた後
+// setStyle の差分適用（B2・2026-10-12・MapLibre の options.diff＝既定 true）：次の style が「畳める」なら建て直さず、変わった所だけ既存の口に落とす。
+// 畳める＝基図の vector source（id と中身）・sprite・glyphs・terrain・projection・画像の raster 層（と source）・vector の描く層／押し出し（と source）が同じ。
+// 畳めない差（基図の source の tiles が変わる・層の type が変わる等）は従来の建て直し（unmount→mount）。style-spec の diff() は使わない（依存ゼロ）。
+// 基図の層の差（paint/layout/filter/zoom/順/add/remove）＝有効な style を組み直す 1 回（setPaintProperty の上書きと同じ重さ・タイルの生バイトは温間キャッシュ）。
+// style 由来の利用者の層＝id ごとに JSON で比べ、変わった層（と source が変わった層）だけ外して載せ直し、順を style の順に戻す。上書きの台帳（baseOverrides・baseVis・extNotes）は捨てる（新しい style が正）
+const styleStats = dbgHost.__styleStats = { full: 0, diff: 0, rebuilds: 0 };   // 検定の窓（debugGlobals）
+const styleFoldable = (a, b) => {   // a＝今の EXT・b＝次。畳めない理由の文字列｜null（畳める）
+	const J = x => JSON.stringify(x ?? null);
+	if (!a.split.vectorSource || a.split.vectorSource !== b.split.vectorSource) return "basemap source id";
+	if (J(a.ms.sources?.[a.split.vectorSource]) !== J(b.ms.sources?.[b.split.vectorSource])) return "basemap source";
+	for (const k of ["sprite", "glyphs", "terrain", "projection"]) if (J(a.ms[k]) !== J(b.ms[k])) return k;
+	const rasterOf = e => J(e.split.raster.map(L => [L, e.ms.sources?.[L.source] ?? null]));
+	if (rasterOf(a) !== rasterOf(b)) return "raster layers";
+	const vtOf = e => J(e.ms.layers.filter(L => vtRouted(L, e.ms, e.split.vectorSource)).map(L => [L, L.source === e.split.vectorSource ? null : e.ms.sources?.[L.source] ?? null]));
+	if (vtOf(a) !== vtOf(b)) return "vector layers";
+	return null;
+};
+const applyStyleDiff = async nx => {
+	const old = EXT, ms = nx.ms, J = x => JSON.stringify(x ?? null);
+	baseOverrides.clear(); baseVis.clear(); extNotes.clear();
+	EXT = nx;
+	const ns = extBaseStyle(nx); ns.globalState = { ...MAP_GS };
+	if (J(ns.layers) !== J(style.layers)) {   // 基図の層が変わった＝有効な style を組み直す 1 回（restyleBase と同じ手順）
+		style = ns; bg = style.layers.find(L => L.type === "background");
+		land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+		renderer.set("view", { land, sea: seaOf(bg) }); inspectReapply();
+		themes = mkThemes(style); setPipelineStyle(style); styleStats.rebuilds++;
+		readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";
+	} else style = ns;
+	// style 由来の利用者の層＝変わった層（と source の変わった層）を外して載せ直す
+	const oldL = new Map(old.split.geojson.map(L => [L.id, L])), newL = new Map(nx.split.geojson.map(L => [L.id, L]));
+	const srcChanged = sid => J(old.ms.sources?.[sid]) !== J(ms.sources?.[sid]);
+	const touched = [];
+	for (const [id, L] of newL) { const p = oldL.get(id); if (!p || J(p) !== J(L) || srcChanged(L.source) || !mlLayers.has(id)) touched.push(id); }
+	for (const id of oldL.keys()) if (!newL.has(id) || touched.includes(id)) { if (mlLayers.has(id)) map.removeLayer(id); extExtras.layers = extExtras.layers.filter(x => x !== id); }
+	for (const sid of [...extExtras.sources]) if ((!ms.sources?.[sid] || srcChanged(sid)) && mlSources.has(sid) && ![...mlLayers.values()].some(v => srcId(v.layer) === sid)) { try { map.removeSource(sid); } catch { /* 利用者の層が使っている＝残す */ } extExtras.sources = extExtras.sources.filter(x => x !== sid); }
+	for (const id of touched) { const L = newL.get(id); try { ensureExtSource(nx, L.source); await addLayerAt(L, undefined, STYLE_DZ); extExtras.layers.push(id); } catch (err) { console.warn("[style] layer", id, err); } }
+	const order = nx.split.geojson.map(L => L.id);   // 順＝style の順（載せ直した層は末尾に居る＝次の「触っていない」層の前へ）
+	for (const id of touched) { const i = order.indexOf(id), anchor = order.slice(i + 1).find(x => mlLayers.has(x) && !touched.includes(x)); if (anchor && mlLayers.has(id)) map.moveLayer(id, anchor); }
+	sendUserAnchors();
+	styleStats.diff++; needsDraw = true; onMove();
+	return map;
+};
 map.setStyle = async (spec, o = {}) => {
 	if (!EXT) throw new Error("setStyle: this map uses the regional basemap — boot with opts.style (or ?style=) to switch MapLibre styles");
 	const nx = await loadExtStyle(spec, o?.transformStyle);
+	const why = o.diff === false ? "diff:false" : styleFoldable(EXT, nx);
+	if (!why) return applyStyleDiff(nx);
+	if (o.diff !== false && DEBUG_GLOBALS) console.info(`[style] setStyle rebuilds (not foldable: ${why})`);
+	styleStats.full++; styleStats.rebuilds++;
 	unmountExtExtras();
 	const oldBaseSid = baseSidNow();
 	baseOverrides.clear(); baseVis.clear(); extNotes.clear();   // 新しい style＝基図の層の上書き（その他の層の記録も）は捨てる（MapLibre の setStyle と同じ）

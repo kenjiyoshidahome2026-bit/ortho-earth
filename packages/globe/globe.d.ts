@@ -937,7 +937,9 @@ export interface OrthoJapanMap {
 	readonly Marker: typeof Marker;
 	readonly Popup: typeof Popup;
 	/** 基図の style を生き替える（opts.style で起動した地図だけ・地域の基図で起動した地図では投げる）。解決＝新しい style の基図が描き始めた後 */
-	setStyle(style: string | Record<string, unknown>): Promise<OrthoJapanMap>;
+	/** 基図の style を生き替える（外来 style で起動した地図だけ）。1.16.0〜 options.diff（既定 true）＝畳める差（基図の層の paint/filter/順・style 由来の geojson 層や source の差）は建て直さず当てる。
+	 *  畳めない差（基図の vector source・sprite・glyphs・terrain・画像の raster 層・vector の描く層が変わる）と diff:false は従来の建て直し。transformStyle＝当てる前に書き換える（MapLibre 同名） */
+	setStyle(style: string | Record<string, unknown>, options?: { diff?: boolean; transformStyle?: (previous: Record<string, unknown> | undefined, next: Record<string, unknown>) => Record<string, unknown> | undefined }): Promise<OrthoJapanMap>;
 	/** 描画結果への問い合わせ（MapLibre の queryRenderedFeatures 相当）。geometry＝省略（画面全体）｜[x,y]（CSS px）｜[[x0,y0],[x1,y1]]（箱）。
 	 *  返り値は上に描かれたものから：canvas2D の線/模様（addLayer の層 id・1.3.0〜）→記号・集約→四隅の画像（layer.id "img:<n>"）→押し出し（addLayer の層 id・ガジェット直呼びは "extrude"）→addLayer の fill/line/circle（層ごとに 1 件・層 id・source＝source id）→利用者の図形（"user"）→基図（スタイルの層 id・属性つき）。
 	 *  押し出しは MapLibre と同じく立体で当てる（屋根と壁・床は当てない＝傾けて屋根を押せば当たる・空を指しても高い屋根には当たる）。押し出しどうしは近い順（1.3.0〜・旧＝地面の足跡）。
