@@ -82,9 +82,10 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"post.tonemap": { status: "spec", note: "accepted and kept (F3); not rendered yet" }, "post.lut": { status: "spec", note: "accepted and kept (F3); not rendered yet" },
 	"post.dof": { status: "spec", note: "accepted and kept (F3); needs a real-GPU pass" }, "post.ssr": { status: "spec", note: "accepted and kept (F3); needs a real-GPU pass" },
 	"gltf.model": { status: "builtin", note: "glb models (gadget model, 3D Tiles b3dm/glb)" },
-	"gltf.animation": { status: "no", note: "glTF animation: PR-F4 opening" },
-	"gltf.featureIds": { status: "no", note: "EXT_mesh_features: PR-F4 opening" },
-	"texture.ktx2": { status: "no", note: "KTX2/Basis: PR-F4 opening (registry.textureTranscoders; WASM via opt-in alias)" },
+	"gltf.meta": { status: "builtin", note: "model handle .gltf / .animations: animations, skins, morph targets, extensions, texture formats, feature ids (F4)" },
+	"gltf.animation": { status: "spec", note: "model handle setAnimation/play/stop accepted and kept (F4); not played yet (a plugin can drive it via onAnimation)" },
+	"gltf.featureIds": { status: "spec", note: "EXT_mesh_features / _FEATURE_ID_n detected in .gltf.featureIds (F4); not yet pickable" },
+	"texture.ktx2": { status: "spec", note: "KTX2/Basis detected in .gltf.textureFormats (F4); registry.textureTranscoders holds the module URL contract, worker-side transcoding not wired yet" },
 	"tiles3d": { status: "builtin", note: "add3DTiles (b3dm/i3dm/cmpt/glb), addI3S" },
 	"tiles3d.requestTransform": { status: "no", note: "Google Photorealistic 3D Tiles key/session injection: PR-F5 (implemented)" },
 	"terrain.dem": { status: "builtin", note: "setTerrain (raster-dem, quantized-mesh)" },
@@ -113,7 +114,7 @@ export function createPluginHost(map, { getBackend = () => null, gadgetNames = (
 		tileFormats: createRegistry("tileFormats", { builtin: builtinTileFormats, onAdd: (name, impl) => { if (!tileFormats) throw new Error("registry.tileFormats: core decode is not available"); tileFormats.register({ name, ...impl }); }, onRemove: name => { throw new Error(`registry.tileFormats: "${name}" is process-wide (core registerTileFormat has no unregister)`); } }),
 		lights: createRegistry("lights", { builtin: builtinLights, onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.lights.add("${name}"): { apply(map, lights) } is required`); } }),   // F1 で結線＝setLights が type ごとに impl.apply(map, lightsOfThatType) を呼ぶ
 		postEffects: createRegistry("postEffects", { builtin: builtinPostEffects, onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.postEffects.add("${name}"): { apply(map, passes) } is required`); } }),   // F3 で結線＝setPostChain が type ごとに impl.apply(map, passesOfThatType) を呼ぶ
-		textureTranscoders: createRegistry("textureTranscoders", { wired: false, pending: "PR-F4" }),
+		textureTranscoders: createRegistry("textureTranscoders", { wired: false, pending: "worker-side texture loading (third wave)", onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.url !== "string") throw new Error(`registry.textureTranscoders.add("${name}"): { url } (module exporting transcode(bytes) -> { width, height, rgba }) is required`); } }),   // 契約だけ（F4）
 		clouds: createRegistry("clouds", { onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.clouds.add("${name}"): { apply(map, clouds) } is required`); } }),   // F2 で結線＝setClouds が impl.apply(map, clouds|null) を呼ぶ
 	});
 	const regs = Object.values(registry);
