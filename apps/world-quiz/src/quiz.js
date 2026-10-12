@@ -100,3 +100,27 @@ export function roundPopulation(n) {
 	const unit = 10 ** Math.max(0, digits - 2);   // 上 3 桁
 	return Math.round(n / unit) * unit;
 }
+
+// 「地図を押して当てる」の押し損ねを救う（Kenji 2026-10-12「シンガポール、マカオみたいな小さい国がクリックしづらい」）。
+//   reachOf＝押した点から国の形までの画面上の最短距離（px）と、国の画面上の大きさ（外接箱の長辺 px）。project(lon,lat)→[x,y,front]（front≤0＝裏半球で数えない）。
+//   tapHits＝面の中なら正解。外れても形から TAP_SLOP px 以内なら正解＝海を押した時は国の大小を問わず、隣の国を押した時は画面で小さい国（SMALL_PX 未満）だけ。
+export const TAP_SLOP = 24, SMALL_PX = 40;
+export function reachOf(geometry, project, [tx, ty], coord = null) {
+	let px = Infinity, x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+	const at = (lon, lat) => { const p = project(lon, lat); if (!p || !(p[2] > 0)) return null; x0 = Math.min(x0, p[0]); y0 = Math.min(y0, p[1]); x1 = Math.max(x1, p[0]); y1 = Math.max(y1, p[1]); px = Math.min(px, Math.hypot(p[0] - tx, p[1] - ty)); return p; };
+	const seg = (a, b) => { const dx = b[0] - a[0], dy = b[1] - a[1], L = dx * dx + dy * dy, u = L ? Math.max(0, Math.min(1, ((tx - a[0]) * dx + (ty - a[1]) * dy) / L)) : 0; px = Math.min(px, Math.hypot(a[0] + u * dx - tx, a[1] + u * dy - ty)); };
+	const ring = r => { let prev = null; for (const [lon, lat] of r) { const p = at(lon, lat); if (p && prev) seg(prev, p); prev = p; } };
+	const walk = g => {
+		if (!g) return;
+		if (g.type === "FeatureCollection") g.features.forEach(f => walk(f.geometry));
+		else if (g.type === "Feature") walk(g.geometry);
+		else if (g.type === "GeometryCollection") g.geometries.forEach(walk);
+		else if (g.type === "Point") at(...g.coordinates);
+		else if (g.type === "MultiPoint" || g.type === "LineString") ring(g.coordinates);
+		else if (g.type === "Polygon" || g.type === "MultiLineString") g.coordinates.forEach(ring);
+		else if (g.type === "MultiPolygon") g.coordinates.forEach(p => p.forEach(ring));
+	};
+	walk(geometry); if (coord) at(coord[0], coord[1]);
+	return { px, size: x1 >= x0 ? Math.max(x1 - x0, y1 - y0) : 0 };
+}
+export const tapHits = ({ inside, hitOther, px, size }) => inside || (px <= TAP_SLOP && (!hitOther || size < SMALL_PX));
