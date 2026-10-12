@@ -2924,11 +2924,16 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
 // モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
+// 一つのオーバーレイに載る層の id（W9・2026-10-12）＝id → オーバーレイの名前。plugin が一つの canvas（＝一つの WebGL 文脈）に多くの層を載せる口。
+// render worker の WebGL 文脈は Chrome で 4 つまで（地球が 1 つ使う）＝層ごとにオーバーレイを作ると 4 つ目で一番古い文脈（地球）が落ちる。
+// pick の答えに layer（この id）を入れると、統一 picking（map.on(ev, id)・queryRenderedFeatures({ layers:[id] })・pickOverlays の names）がその id で当たる。
+const ovLayerIds = new Map();
+const isOv = n => overlays.has(n) || ovLayerIds.has(n);
 const pickWait = new Map();   // seq → resolve（統一 picking の往復・下の map.pickOverlays）
 let pickSeq = 0;
 map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 	name ??= "ov" + (overlays.size + 1);
-	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
+	if (overlays.has(name) || ovLayerIds.has(name)) throw new Error(`overlay "${name}" already exists`);
 	const cv = document.createElement("canvas");
 	cv.className = "overlay-gl"; cv.dataset.overlay = name;
 	cv.style.cssText = "position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none";
@@ -2939,7 +2944,14 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 	const h = {
 		name, el: cv, onmessage: null,   // onmessage＝worker 側モジュールの host.post(data) を受ける口
 		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
-		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); wPost({ type: "overlayRemove", name }); cv.remove(); },
+		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); for (const [id, n] of ovLayerIds) if (n === name) ovLayerIds.delete(id); wPost({ type: "overlayRemove", name }); cv.remove(); },
+		addLayerId(id) {   // W9：このオーバーレイが描く層の id を名乗る（pick の答えの layer がこの id の物がこの id で当たる）
+			id = String(id);
+			if (overlays.has(id) || (ovLayerIds.has(id) && ovLayerIds.get(id) !== name)) throw new Error(`overlay layer id "${id}" already exists`);
+			if (overlays.get(name) === h) ovLayerIds.set(id, name);
+			return h;
+		},
+		removeLayerId(id) { if (ovLayerIds.get(String(id)) === name) ovLayerIds.delete(String(id)); return h; },
 		pick: (x, y, radius) => map.pickOverlays(x, y, { radius, names: [name] }),   // このオーバーレイだけに当てる（統一 picking・PR-1）
 	};
 	overlays.set(name, h);
@@ -2951,13 +2963,19 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 //   層イベント（map.on("click"|"mousemove"|…, overlayName, cb)）と queryRenderedFeatures({ layers:[overlayName] }) にもこの答えが Feature の形（layer.id＝名前・source＝名前）で混ざる
 const overlayOrder = () => [...mapEl.querySelectorAll("canvas.overlay-gl")].reverse().map(c => c.dataset.overlay).filter(n => overlays.has(n));   // DOM の後ろ＝上＝手前から
 map.pickOverlays = (x, y, { radius = 6, names } = {}) => new Promise(res => {
-	const list = (names ?? overlayOrder()).filter(n => overlays.has(n));
+	// names＝オーバーレイの名前か、その上の層の id（addLayerId・W9）。層の id は持ち主のオーバーレイに問い、答えの layer で絞る
+	const whole = new Set(), sub = new Map();   // 丸ごと問う名前／名前 → 絞る層の id
+	for (const n of names ?? overlayOrder()) {
+		if (overlays.has(n)) whole.add(n);
+		else if (ovLayerIds.has(n)) { const o = ovLayerIds.get(n); if (!sub.has(o)) sub.set(o, new Set()); sub.get(o).add(n); }
+	}
+	const order = overlayOrder(), list = order.filter(n => whole.has(n) || sub.has(n));
 	if (!list.length) return res([]);
 	const seq = ++pickSeq, tm = setTimeout(() => { pickWait.delete(seq); res([]); }, 3000);
-	pickWait.set(seq, hits => { clearTimeout(tm); res(hits); });
+	pickWait.set(seq, hits => { clearTimeout(tm); res(hits.filter(h => whole.has(h.name) || sub.get(h.name)?.has(h.layer))); });
 	wPost({ type: "overlayPick", seq, x, y, r: radius, names: list });
 });
-const overlayFeature = h => ({ type: "Feature", id: h.id ?? null, geometry: h.lngLat ? { type: "Point", coordinates: h.lngLat } : null, properties: h.properties || {}, layer: { id: h.name, type: "overlay" }, source: h.name, overlay: { name: h.name, distance: h.distance, q: h.q, index: h.index } });
+const overlayFeature = h => ({ type: "Feature", id: h.id ?? null, geometry: h.lngLat ? { type: "Point", coordinates: h.lngLat } : null, properties: h.properties || {}, layer: { id: h.layer ?? h.name, type: "overlay" }, source: h.layer ?? h.name, overlay: { name: h.name, distance: h.distance, q: h.q, index: h.index } });   // layer＝一つのオーバーレイに載る層の id（W9）
 // ★互換：map.overlay は 9/20（c246591a）まで「estat 小地域・geopbf オーバーレイ・選択マスク・identify の手綱」（上の overlay）だった。
 // 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
@@ -5661,9 +5679,9 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const qRF0 = map.queryRenderedFeatures;
 	map.queryRenderedFeatures = async (geometry, qo) => {
 		// layers にオーバーレイの名前（map.overlay の name）があれば統一 picking（PR-1）の答えを先頭に混ぜる（点の問い合わせだけ・箱は当てない）
-		const ovNames = Array.isArray(qo?.layers) ? qo.layers.filter(n => overlays.has(n)) : [];
+		const ovNames = Array.isArray(qo?.layers) ? qo.layers.filter(isOv) : [];
 		const ovHits = ovNames.length && Array.isArray(geometry) && typeof geometry[0] === "number" ? map.pickOverlays(geometry[0], geometry[1], { names: ovNames }) : null;
-		const r0 = ovNames.length ? (qo.layers.length === ovNames.length ? [] : await qRF0(geometry, { ...qo, layers: qo.layers.filter(n => !overlays.has(n)) })) : await qRF0(geometry, qo);
+		const r0 = ovNames.length ? (qo.layers.length === ovNames.length ? [] : await qRF0(geometry, { ...qo, layers: qo.layers.filter(n => !isOv(n)) })) : await qRF0(geometry, qo);
 		const r = ovHits ? [...(await ovHits).map(overlayFeature), ...r0] : r0;
 		if (!clipMain) return r;   // 地面の地物＝vector の面（押し出しは extrudeHits が models の面で外す）
 		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
@@ -5677,7 +5695,7 @@ const layerEvs = [];   // { ev, ids:Set, cb, inside }
 const onPlain = map.on, offPlain = map.off;
 const lngLatObj = ll => ll ? { lng: ll[0], lat: ll[1] } : null;
 const hitsFor = async (x, y, ids) => {   // 層 id のうちオーバーレイの名前は統一 picking（PR-1）へ・それ以外は queryRenderedFeatures へ＝一つの列（オーバーレイは手前＝先）
-	const ov = [...ids].filter(i => overlays.has(i)), rest = [...ids].filter(i => !overlays.has(i));
+	const ov = [...ids].filter(isOv), rest = [...ids].filter(i => !isOv(i));
 	const [fs, hits] = await Promise.all([rest.length ? map.queryRenderedFeatures([x, y], { layers: rest }) : [], ov.length ? map.pickOverlays(x, y, { names: ov }) : []]);
 	return [...hits.map(overlayFeature), ...fs];
 };
@@ -5687,7 +5705,7 @@ let downAt = null, hovSeq = 0, hovRaf = 0, hovLast = null;
 const fireLayerPress = (type, e, x, y) => {
 	const ls = layerEvs.filter(L => L.ev === type); if (!ls.length) return false;
 	const ids = new Set(ls.flatMap(L => [...L.ids]));
-	const fs = queryUserSync([x, y], { layers: [...ids].filter(i => !overlays.has(i)) }) || [];
+	const fs = queryUserSync([x, y], { layers: [...ids].filter(i => !isOv(i)) }) || [];
 	let prevented = false;
 	for (const L of ls) {
 		const mine = fs.filter(f => L.ids.has(f.layer?.id)); if (!mine.length) continue;
