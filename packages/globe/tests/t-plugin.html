@@ -212,7 +212,7 @@ try {
 	const be = [c["render.webgl2"].status, c["render.webgpu"].status];
 	ok("cap.backendOne", be.filter(s => s === "builtin").length === 1 && be.filter(s => s === "no").length === 1, be.join("/"));
 	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
-	ok("cap.spec", c["light.point"].status === "spec" && !map.supports("light.point"));
+	ok("cap.spec", c["light.ibl"].status === "spec" && !map.supports("light.ibl"));   // point は W2 で builtin＝spec の代表は ibl
 	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
 	ok("cap.types", ["types.core", "types.globe", "types.shim", "react"].every(k => map.supports(k)));
 	ok("cap.specF", ["camera.walk", "data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "terrain.sample"].every(k => map.supports(k)));
