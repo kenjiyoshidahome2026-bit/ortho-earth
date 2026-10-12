@@ -12,7 +12,7 @@ import { lngArr, boundsArr, camOpts, viewOf } from "./util.js";
 import { GRANULARITY_GLOBE } from "./tilemesh.js";
 
 // MapLibre GL JS 6.11.2 の Map の公開の口（型定義から）。ここに実装の無い口は「unsupported を記録して this」を返す
-const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "migrateProjection", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
+const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
@@ -383,6 +383,46 @@ export class Map {
 	getLight() { return ask(this, "getLight", [], { before: { anchor: "viewport", color: "#ffffff", intensity: 0.5, position: [1.15, 210, 30] } }); }
 	setSky(sky, o) { ask(this, "setSky", [sky]); return this; }   // style の sky（B4・2026-10-12）＝エンジンの簡易の空（GL2）と霧の色・濃さ
 	getSky() { return ask(this, "getSky", [], { before: undefined }); }
+	// ── 小口の束（B6・2026-10-12）＝旧 stub をエンジンの口へ ──
+	getSprite() { return ask(this, "getSprite", [], { before: [] }) ?? []; }
+	setSprite(url, o) { ask(this, "setSprite", [url]); return this; }
+	addSprite(id, url, o) { ask(this, "addSprite", [id, url]); return this; }
+	removeSprite(id) { ask(this, "removeSprite", [id]); return this; }
+	getImage(id) { return ask(this, "getImage", [id], { before: undefined }); }
+	getGlyphs() { return ask(this, "getGlyphs", [], { before: undefined }); }
+	setGlyphs(url, o) { ask(this, "setGlyphs", [url]); return this; }
+	getStyleUrl() { return ask(this, "getStyleUrl", [], { before: typeof S.get(this).options.style === "string" ? S.get(this).options.style : undefined }); }
+	getFontFaces() { return ask(this, "getFontFaces", [], { before: [] }) ?? []; }
+	setFontFaces(list) { ask(this, "setFontFaces", [list]); return this; }
+	refreshTiles(sourceId, tileIds) { ask(this, "refreshTiles", [sourceId]); return this; }   // tileIds（一部だけ）は読まない＝source 全体
+	coveringTiles(o) { return ask(this, "coveringTiles", [o], { before: [] }) ?? []; }
+	setSourceTileLodParams(a, b) { ask(this, "setSourceTileLodParams", [a, b]); return this; }
+	setTransformCameraUpdate(fn) {   // 制約の後にカメラを書き換える（zoom は公開の z で往復・角は度・elevation は m）
+		const st = S.get(this), dz = st.dz ?? 1;
+		ask(this, "setCameraUpdate", [typeof fn === "function" ? v => { const r = fn({ center: new LngLat(v.center[0], v.center[1]), zoom: v.zoom - dz, pitch: v.pitch, bearing: v.bearing, roll: v.roll, elevation: v.elevation }); return r ? { ...r, center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : null]);
+		return this;
+	}
+	setMinPitch(p) { ask(this, "setMinPitch", [p ?? 0]); return this; }
+	getMinPitch() { return ask(this, "getMinPitch", [], { before: 0 }); }
+	setPixelRatio(r) { ask(this, "setPixelRatio", [r]); return this; }
+	setZoomSnap(v) { ask(this, "setZoomSnap", [v]); return this; }   // 目盛りの刻み（A2 のエンジンの口・zoom の数ではない＝換算なし）
+	getZoomSnap() { return ask(this, "getZoomSnap", [], { before: 0 }); }
+	setAnisotropicFilterPitch(p) { S.get(this).anisoPitch = p; unsupported(this, "setAnisotropicFilterPitch (raster filtering is not configurable)", "cosmetic"); return this; }
+	getAnisotropicFilterPitch() { return S.get(this).anisoPitch ?? 60; }   // 既定 60 は本物と未照合
+	setEventedParent(parent, data) { S.get(this).eventedParent = parent ? { parent, data } : null; unsupported(this, "setEventedParent", "cosmetic"); return this; }
+	// property の口（MapLibre は map.showTileBoundaries = true と書く）
+	get showTileBoundaries() { return !!S.get(this).dbg?.tileBoundaries; }
+	set showTileBoundaries(v) { const st = S.get(this); (st.dbg ??= {}).tileBoundaries = !!v; ask(this, "setDebug", [{ tileBoundaries: !!v }]); }
+	get showPadding() { return !!S.get(this).dbg?.padding; }
+	set showPadding(v) { const st = S.get(this); (st.dbg ??= {}).padding = !!v; ask(this, "setDebug", [{ padding: !!v }]); }
+	get showCollisionBoxes() { return !!S.get(this).dbg?.collision; }
+	set showCollisionBoxes(v) { const st = S.get(this); (st.dbg ??= {}).collision = !!v; if (v) unsupported(this, "showCollisionBoxes", "cosmetic"); }
+	get showOverdrawInspector() { return !!S.get(this).dbg?.overdraw; }
+	set showOverdrawInspector(v) { const st = S.get(this); (st.dbg ??= {}).overdraw = !!v; if (v) unsupported(this, "showOverdrawInspector", "cosmetic"); }
+	get vertices() { return !!S.get(this).dbg?.vertices; }
+	set vertices(v) { const st = S.get(this); (st.dbg ??= {}).vertices = !!v; if (v) unsupported(this, "vertices (wireframe)", "cosmetic"); }
+	get repaint() { return !!S.get(this).repaint; }
+	set repaint(v) { S.get(this).repaint = !!v; ask(this, "setRepaint", [!!v]); }
 	// 投影＝頼まれた物を覚える（MapLibre の既定は mercator・setProjection({type:"globe"}) で globe）。絵はどちらも球（文書の違い）だが、custom 層の variant（mercator の行列か球の prelude か）はこの申告に従う（2026-09-30）
 	setProjection(p) { const t = p?.type ?? p ?? "mercator"; S.get(this).projection = t === "globe" ? "globe" : "mercator"; return this; }
 	getProjection() { return { type: S.get(this).projection ?? "mercator" }; }
@@ -472,7 +512,7 @@ export class Map {
 		unsupported(this, "getCanvas before the map is ready");
 		return (st.placeholder ??= document.createElement("canvas"));
 	}
-	getPixelRatio() { return window.devicePixelRatio || 1; }
+	getPixelRatio() { return ask(this, "getPixelRatio", [], { before: window.devicePixelRatio || 1 }); }
 	triggerRepaint() { S.get(this).engine?.requestDraw?.(); }
 	redraw() { this.triggerRepaint(); return this; }
 	resize() { return this; }   // 容れ物の大きさはエンジンが ResizeObserver で追う
