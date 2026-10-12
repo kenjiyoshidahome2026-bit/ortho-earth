@@ -14,6 +14,13 @@ export interface PaddingOptions { top: number; right: number; bottom: number; le
 /** 手触りの handler の名前（A2・1.16.0〜） */
 export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
 export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; /** 視線まわりの回転（度・MapLibre の roll・1.16.0〜）。正＝絵が時計回り */ roll?: number; padding?: Partial<PaddingOptions> | number }
+/** 注視の的（A4・1.16.0〜）：[lon, lat, h?]・{lng|lon, lat, alt|height?}・関数（時計の ms → 点）・文字列＝読み込み中の CZML/GPX の軌跡の id か name（時計の時刻の位置） */
+export type CameraTarget = LonLat | [lon: number, lat: number, heightM: number] | { lng?: number; lon?: number; lat: number; alt?: number; height?: number; elevation?: number } | string | ((timeMs: number) => CameraTarget | null | undefined);
+export interface LookAtOptions { /** 注視点までの距離［m］（zoom と排他・camera.js の式＝view.eye.distM と一致） */ distance?: number; zoom?: number; bearing?: number; pitch?: number; roll?: number; /** >0 なら easeTo（ms）・既定は即時 */ duration?: number; animate?: boolean }
+export interface FollowOptions extends Omit<LookAtOptions, "duration" | "animate"> { /** 的からのずらし［東 m, 北 m, 上 m］ */ offset?: [number, number, number]; /** 毎フレームの追いつき 0..1（1＝即・既定） */ lerp?: number; /** 操作で止める（既定 true） */ stopOnGesture?: boolean }
+export interface FollowHandle { stop(): void; readonly active: boolean; readonly target: CameraTarget }
+/** Navara の形のカメラ（A4）：lng/lat/height＝注視点・distance＝注視点までの m・heading＝bearing・pitch＝MapLibre の意味（0＝真下）。set では負の pitch を Cesium の意味（−90＝真下）と読む */
+export interface NavaraCamera { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number }
 export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number }
 
 /** UI 言語（26 言語・1.1.0〜。1.0.5 以前は ja/en のみ）。ar/fa/ur/he は右横書き（容れ物に dir=rtl）。"ja-JP" 等の地域付きは基底へ寄せる */
@@ -676,6 +683,14 @@ export interface OrthoJapanMap {
 	/** 縦の視野角（度・MapLibre 同名・1.16.0〜）。既定 50（MapLibre は 36.87）。同じ zoom で地表の縮尺は変わらずカメラの距離が変わる */
 	getVerticalFieldOfView(): number;
 	setVerticalFieldOfView(deg: number): OrthoJapanMap;
+	/** 的を注視点に（A4・1.16.0〜）。duration>0 なら easeTo。的が無い（軌跡の範囲外・不明な id）なら何もしない。高さのある的は注視点の高さを的に合わせる（centerClampedToGround が false になる） */
+	lookAt(target: CameraTarget, options?: LookAtOptions): Promise<void>;
+	/** 毎フレーム的を追う（衛星・車両・CZML の時刻つき点・1.16.0〜）。省いた角・zoom は今の値のまま＝追従中の setZoom や回転が効く。null で止める。flyTo 中は的を待つ */
+	follow(target: CameraTarget | null, options?: FollowOptions): FollowHandle | null;
+	isFollowing(): boolean;
+	/** Navara の setCamera の形を 1 対 1 で受ける（即時・1.16.0〜）。省いた物は今の値。zoom を渡せば distance より優先 */
+	setCamera(camera: Partial<NavaraCamera> & { lon?: number; alt?: number; bearing?: number; zoom?: number }): OrthoJapanMap;
+	getCamera(): NavaraCamera;
 	setCenter(center: LonLat | { lng: number; lat: number }): OrthoJapanMap;
 	setZoom(zoom: number): OrthoJapanMap;
 	setPitch(pitchDeg: number): OrthoJapanMap;

@@ -8,6 +8,7 @@ import {
 } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
+import { positionAt, ecefToLlh } from "./czml-time.js";   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
@@ -1529,7 +1530,7 @@ const input = createInput({
 	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
 	blocked: () => modalOpen(mapEl) || !isKeyOwner(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),   // !isKeyOwner＝頁の別の地図がキーの持ち主（#173 段 3）
-	onGesture: () => flightCtl.cancel(),
+	onGesture: () => { flightCtl.cancel(); if (followSt?.stopOnGesture) followSt = null; },
 	onClick: dbgHost.__mapClickAt = (x, y) => {   // __mapClickAt＝検証窓（画面のクリックと同じ処理を CDP・検定から・#113 段 4）
 		if (measureClick) return measureClick(x, y);   // 測距モード＝クリックは頂点追加へ（識別/星座は止める）
 		if (profileClick) return profileClick(x, y);   // 断面図モード＝クリックは経路の頂点追加へ（同上）
@@ -2230,6 +2231,7 @@ function frame() {
 		if (nowT - clockUrlAt > 1000) { clockUrlAt = nowT; if (!printHold) saveView(); }   // 再生中も URL の t を追わせる＝いつコピーしても今の場面（solar と同じ）
 		for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: false, ticking: true }); } catch (e) { console.error("[map.on time]", e); } }
 	}
+	if (followSt) tickFollow();   // 追従（A4）＝描く前に的の今の位置へ
 	if (needsDraw) { needsDraw = false; render(); }
 	if (mapOn.idle.length) checkIdle(nowT);
 	requestAnimationFrame(frame);
@@ -2567,6 +2569,72 @@ map.getCameraTargetElevation = () => cam.centerAlt || 0;
 // 可動域の自作（MapLibre の setTransformConstrain 相当・A3）：fn({ center:[lon,lat], zoom, pitch, bearing, roll }) → { center?, zoom? } か null。角は度・zoom はエンジンの z（旗つきの地図でも＝"engine"）。毎移動 clamp の前に通す
 let camConstrain = null;
 map.setConstrain = fn => { camConstrain = typeof fn === "function" ? fn : null; onMove(); return map; };
+// ── Navara 系の口（A4・2026-10-12・計画 parity-plan §7）：lookAt・follow・setCamera/getCamera。MapLibre に同名は無い＝shim には出さない（エンジンの口）
+//   的（target）＝[lon, lat, h?]・{lng|lon, lat, alt|height?}・関数 ms→点（時計の時刻を渡す）・文字列＝読み込み中の CZML/GPX の軌跡の id か name（時計の時刻の位置・範囲外は null＝動かない）
+//   距離（m）⇄ zoom は camera.js の式そのもの（camDist＝radPerDevPx·H/2/tan(fovy/2)）＝view.eye.distM と一致する
+const camDpr = () => cam.dpr ?? 1;
+const zoomOfDistM = distM => Math.log2(Math.PI * size.h * EARTH_M / (Math.tan((cam.fovy || 50 * D2R) / 2) * WORLD_PX * camDpr() * Math.max(1e-3, distM)));
+const distMOfZoom = z => Math.PI * size.h * EARTH_M / (Math.tan((cam.fovy || 50 * D2R) / 2) * WORLD_PX * camDpr() * Math.pow(2, z));
+const targetOf = t => {   // → [lon, lat, hM] | null
+	if (t == null) return null;
+	if (typeof t === "function") { let v = null; try { v = t(clock.time); } catch (e) { console.error("[map.follow target]", e); } return typeof v === "function" ? null : targetOf(v); }
+	if (typeof t === "string") { const tr = czmlCtl?.tracks.find(x => x.id === t || x.name === t); if (!tr) return null; const q = positionAt(tr, clock.time); return q ? ecefToLlh(q[0], q[1], q[2]) : null; }
+	if (Array.isArray(t)) return t.length >= 2 && Number.isFinite(+t[0]) && Number.isFinite(+t[1]) ? [+t[0], +t[1], Number.isFinite(+t[2]) ? +t[2] : 0] : null;
+	const lon = +(t.lng ?? t.lon), lat = +t.lat;
+	return Number.isFinite(lon) && Number.isFinite(lat) ? [lon, lat, +(t.alt ?? t.height ?? t.elevation ?? 0) || 0] : null;
+};
+const offsetLLH = (p, off) => {   // offset＝[東 m, 北 m, 上 m]（的からのずらし・Navara の cameraFollow の offset と同じ向き＝局所の東北上）
+	if (!Array.isArray(off)) return p;
+	const n = +off[1] || 0, e = +off[0] || 0, u = +off[2] || 0, lat = p[1] + n / EARTH_M * R2D;
+	return [p[0] + e / (EARTH_M * Math.max(0.01, Math.cos(lat * D2R))) * R2D, Math.max(-90, Math.min(90, lat)), p[2] + u];
+};
+const camOfLookAt = (p, o) => ({ center: [p[0], p[1]], elevation: p[2], zoom: o.zoom ?? (o.distance != null && Number.isFinite(+o.distance) ? zoomOfDistM(+o.distance) : undefined), bearing: o.bearing, pitch: o.pitch, roll: o.roll });
+// lookAt(target, { distance(m) | zoom, bearing, pitch, roll, duration, animate })＝的を注視点に。duration>0 なら easeTo・それ以外は即時。戻り＝Promise（着いたら）
+map.lookAt = (target, o = {}) => {
+	const p = targetOf(target); if (!p) return Promise.resolve();
+	followSt = null;
+	const c = camOfLookAt(p, o);
+	if (p[2]) centerElevMode = p[2];   // 高さのある的（航空機・衛星）＝地面の上の中心点を離れて的の高さを注視点に（getCenterClampedToGround が false になる）。h=0 の的は今の流儀のまま
+	if (o.animate === false || !(o.duration > 0)) { map.jumpTo(c); syncCenterAlt(); return Promise.resolve(); }
+	centerElevFixed = p[2]; syncCenterAlt();
+	return map.easeTo({ ...c, duration: o.duration });
+};
+// follow(target, { distance | zoom, bearing, pitch, roll, offset:[東,北,上 m], lerp:0..1（1＝即・既定）, stopOnGesture:true })＝毎フレーム的を追う（衛星・車両・CZML の時刻つき点）。
+// 省いた角・zoom は今の値のまま＝追従中に setZoom/回転の操作が効く。飛行中（flyTo）は的を待つ。follow(null)・stop()・map.stop()・操作（stopOnGesture）で止まる。戻り＝{ stop(), active, target }
+let followSt = null;
+map.follow = (target, o = {}) => {
+	if (target == null) { followSt = null; return null; }
+	const st = { target, lerp: Math.max(0, Math.min(1, +(o.lerp ?? 1))), offset: o.offset, zoom: o.zoom ?? (o.distance != null && Number.isFinite(+o.distance) ? zoomOfDistM(+o.distance) : null), bearing: o.bearing, pitch: o.pitch, roll: o.roll, stopOnGesture: o.stopOnGesture !== false,
+		stop() { if (followSt === st) followSt = null; }, get active() { return followSt === st; } };
+	followSt = st; flightCtl.cancel(); input.stop(); tickFollow(true);
+	return st;
+};
+map.isFollowing = () => !!followSt;
+function tickFollow(first = false) {
+	const st = followSt; if (!st || flying) return;
+	let p = targetOf(st.target); if (!p) return;
+	p = offsetLLH(p, st.offset);
+	const k = first ? 1 : st.lerp;
+	cam.center = [cam.center[0] + wrapLon(p[0] - cam.center[0]) * k, cam.center[1] + (p[1] - cam.center[1]) * k];
+	centerElevFixed = (centerElevFixed ?? 0) + (p[2] - (centerElevFixed ?? 0)) * k;
+	if (p[2]) centerElevMode = centerElevFixed;   // 高さのある的＝lookAt と同じ（地面の上の中心点を離れる）
+	if (st.zoom != null) cam.zoom = cam.zoom + (st.zoom - cam.zoom) * k;
+	if (st.bearing != null) cam.bearing += shortBearingOf(st.bearing * D2R - cam.bearing) * k;
+	if (st.pitch != null) cam.pitch = Math.max(0, Math.min(maxPitchCur, cam.pitch + (st.pitch * D2R - cam.pitch) * k));
+	if (st.roll != null) cam.roll = (cam.roll || 0) + shortBearingOf(st.roll * D2R - (cam.roll || 0)) * k;
+	syncCenterAlt(); onMove();
+}
+// setCamera({ lng, lat, height, distance, heading, pitch, roll })＝Navara の形を 1 対 1 で受ける薄い変換（即時）。lng/lat/height＝注視点・distance＝注視点までの m・heading＝bearing・
+// pitch＝MapLibre の意味（0＝真下・度）。負の pitch は Cesium の意味（−90＝真下）と読んで 90+pitch に直す。省いた物は今の値。getCamera＝同じ形で返す（pitch は MapLibre の意味）
+map.setCamera = (c = {}) => {
+	const cur = map.getCamera();
+	const p = targetOf({ lng: c.lng ?? c.lon ?? cur.lng, lat: c.lat ?? cur.lat, height: c.height ?? c.alt ?? cur.height });
+	if (!p) return map;
+	let pitch = c.pitch ?? cur.pitch; if (pitch < 0) pitch = 90 + pitch;
+	map.jumpTo(camOfLookAt(p, { distance: c.distance, zoom: c.zoom, bearing: c.heading ?? c.bearing, pitch, roll: c.roll }));
+	syncCenterAlt(); return map;
+};
+map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.centerAlt || 0, distance: distMOfZoom(cam.zoom), heading: cam.bearing * R2D, pitch: cam.pitch * R2D, roll: (cam.roll || 0) * R2D });
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
 	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
@@ -2590,7 +2658,7 @@ map.setZoom = z => map.jumpTo({ zoom: z });
 map.setPitch = p => map.jumpTo({ pitch: p });
 map.setBearing = b => map.jumpTo({ bearing: b });
 map.isMoving = () => flightCtl.active || moving;
-map.stop = () => { flightCtl.cancel(); input.stop(); return map; };
+map.stop = () => { flightCtl.cancel(); input.stop(); followSt = null; return map; };
 // 手触りの handler（A2・2026-10-12）：MapLibre の map.scrollZoom.disable() 等の実体。名前＝scrollZoom・dragPan・dragRotate・keyboard・doubleClickZoom・boxZoom・touchZoomRotate・touchRotate・touchPitch・cooperativeGestures
 map.setHandler = (name, on) => { input.setHandler(name, on); return map; };
 map.handlerOn = name => input.handlerOn(name);
