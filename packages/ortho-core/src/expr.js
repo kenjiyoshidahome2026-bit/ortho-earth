@@ -126,12 +126,12 @@ export function formatSections(e, ctx) {
 		for (let i = 1; i < e.length; i++) {
 			const x = e[i]; if (x && typeof x === "object" && !Array.isArray(x)) continue;
 			const opt = e[i + 1] && typeof e[i + 1] === "object" && !Array.isArray(e[i + 1]) ? e[i + 1] : null;
-			secs.push({ v: compile(x, o), img: Array.isArray(x) && x[0] === "image", fs: opt?.["font-scale"] != null ? compile(opt["font-scale"], o) : null, col: opt?.["text-color"] != null ? compile(opt["text-color"], o) : null, fnt: opt?.["text-font"] != null ? compile(opt["text-font"], o) : null });
+			secs.push({ v: compile(x, o), img: Array.isArray(x) && x[0] === "image", fs: opt?.["font-scale"] != null ? compile(opt["font-scale"], o) : null, col: opt?.["text-color"] != null ? compile(opt["text-color"], o) : null, fnt: opt?.["text-font"] != null ? compile(opt["text-font"], o) : null, va: typeof opt?.["vertical-align"] === "string" ? opt["vertical-align"] : null });   // va＝vertical-align（bottom|center|top・C5）
 		}
 		fn = ctx => secs.map(s => {
 			const v = s.v(ctx), t = s.img || v == null ? "" : String(v);
 			const fs = s.fs ? +s.fs(ctx) : null, col = s.col ? s.col(ctx) : null, fnt = s.fnt ? s.fnt(ctx) : null;
-			return { t, fs: Number.isFinite(fs) && fs > 0 ? fs : null, col: col ?? null, fnt: Array.isArray(fnt) && fnt.length ? fnt : typeof fnt === "string" && fnt ? [fnt] : null, img: s.img && v != null ? String(v) : null };
+			return { t, fs: Number.isFinite(fs) && fs > 0 ? fs : null, col: col ?? null, fnt: Array.isArray(fnt) && fnt.length ? fnt : typeof fnt === "string" && fnt ? [fnt] : null, img: s.img && v != null ? String(v) : null, va: s.va };
 		});
 		cache.set(e, fn);
 	}
