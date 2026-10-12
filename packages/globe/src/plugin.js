@@ -94,7 +94,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"picking": { status: "builtin", note: "unified picking (map.on(ev, id), queryRenderedFeatures, pickOverlays)" },
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
 	"h3": { status: "builtin", note: "@ortho-earth/h3" },
-	"data.splat": { status: "no", note: "Gaussian splat: PR-F8 opening (dataKinds splat; WASM via opt-in alias)" },
+	"data.splat": { status: "spec", note: "Gaussian splat: addData(data, { kind: \"splat\" }) accepts SplatData / .ply .splat .spz URLs and validates the contract (F8); sorting and drawing come from a plugin registered in registry.dataKinds as \"splat\"" },
 	"react": { status: "no", note: "@ortho-earth/react: PR-F9" },
 	"types.core": { status: "builtin", note: "core d.ts (PR-0 #256)" },
 	"types.globe": { status: "builtin", note: "globe.d.ts" },
