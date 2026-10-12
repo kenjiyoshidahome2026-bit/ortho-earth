@@ -699,6 +699,42 @@ export interface OrthoJapanMap {
 	getSky(): Required<SkySpecification> | undefined;
 	/** 宇宙（球の外側）の色（1.16.0〜・B5）。色の文字列・"transparent"・null＝起動時の既定 */
 	setClearColor(color: string | null): OrthoJapanMap;
+	/** ── MapLibre の小口（1.16.0〜・B6） ── */
+	/** sprite の一覧（MapLibre の getSprite と同じ形）。setSprite＝全部入れ替え（null＝全部外す）・addSprite／removeSprite＝id ごと。default 以外の記号は "id:名前" */
+	getSprite(): { id: string; url: string }[];
+	setSprite(url: string | null): OrthoJapanMap;
+	addSprite(id: string, url: string): OrthoJapanMap;
+	removeSprite(id: string): OrthoJapanMap;
+	/** 記号帳の 1 枚（MapLibre の StyleImage の形・RGBA の生画素）。無ければ undefined */
+	getImage(name: string): { data: { width: number; height: number; data: Uint8ClampedArray }; pixelRatio: number; sdf: boolean; version: number; stretchX?: number[][]; stretchY?: number[][]; content?: number[] } | undefined;
+	/** glyphs の URL＝記録だけ（文字は Canvas2D で描く）。getStyle に echo */
+	getGlyphs(): string | undefined;
+	setGlyphs(url: string | null): OrthoJapanMap;
+	/** URL で起動した style の URL（object の style なら undefined） */
+	getStyleUrl(): string | undefined;
+	/** font-faces（[{ "font-family"|family, src（url(...) も可）, "font-weight"?, "font-style"?, "unicode-range"? }]）→ addFontFace。記録は getFontFaces に。署名は MapLibre 6.x の文書と未照合 */
+	getFontFaces(): Record<string, unknown>[];
+	setFontFaces(list: Record<string, unknown>[]): Promise<OrthoJapanMap>;
+	/** タイルの取り直し＝基図の source（無指定も）は新 style で組み直し・利用者の source はその層を載せ直す（geojson の URL は取り直す） */
+	refreshTiles(sourceId?: string): Promise<OrthoJapanMap>;
+	/** 今の画面を覆うタイル（近似＝画面に散らした点の逆投影・z は MapLibre の規則）。MapLibre の OverscaledTileID に似た形 */
+	coveringTiles(options?: { tileSize?: number; minzoom?: number; maxzoom?: number; roundZoom?: boolean }): { canonical: { x: number; y: number; z: number }; overscaledZ: number; wrap: number; key: string }[];
+	/** タイルの z の規則の 2 定数（MapLibre 同名。内製の目盛りでは効かない） */
+	setSourceTileLodParams(maxZoomLevelsOnScreen: number, tileCountMaxMinimum: number): OrthoJapanMap;
+	/** 制約（setConstrain・限界）の後にカメラを書き換える口（MapLibre の setTransformCameraUpdate）。角は度・zoom はエンジンの z・elevation＝注視点の高さ m。null で外す */
+	setCameraUpdate(fn: ((cam: { center: [number, number]; zoom: number; pitch: number; bearing: number; roll: number; elevation: number }) => Partial<{ center: LonLat | { lng: number; lat: number }; zoom: number; pitch: number; bearing: number; roll: number; elevation: number }> | null | undefined) | null): OrthoJapanMap;
+	/** 最小チルト（度・MapLibre 同名） */
+	setMinPitch(deg: number): OrthoJapanMap;
+	getMinPitch(): number;
+	/** 描く解像度（CSS px あたりの画素・0.5〜4）。星空劇場・overlay の内部は起動時の値のまま */
+	setPixelRatio(ratio: number): OrthoJapanMap;
+	getPixelRatio(): number;
+	/** 連続描画（MapLibre の map.repaint・計測用） */
+	setRepaint(on: boolean): OrthoJapanMap;
+	getRepaint(): boolean;
+	/** debug の表示（MapLibre の showTileBoundaries・showPadding）＝main の canvas2D 1 枚 */
+	setDebug(o: { tileBoundaries?: boolean; padding?: boolean }): OrthoJapanMap;
+	getDebug(): { tileBoundaries: boolean; padding: boolean };
 	/** 的を注視点に（A4・1.16.0〜）。duration>0 なら easeTo。的が無い（軌跡の範囲外・不明な id）なら何もしない。高さのある的は注視点の高さを的に合わせる（centerClampedToGround が false になる） */
 	lookAt(target: CameraTarget, options?: LookAtOptions): Promise<void>;
 	/** 毎フレーム的を追う（衛星・車両・CZML の時刻つき点・1.16.0〜）。省いた角・zoom は今の値のまま＝追従中の setZoom や回転が効く。null で止める。flyTo 中は的を待つ */
