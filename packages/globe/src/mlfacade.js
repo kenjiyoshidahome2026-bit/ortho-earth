@@ -8,7 +8,7 @@
 import { RAW, zIn, zOut, GADGET_MEMBERS } from "./zoomscale.js";
 
 // ここで換算する公開メンバー（tests/mlfacade.mjs が zoomscale.js の表の in/out/io/event と突き合わせる）。view は getter で別扱い
-export const FACADE_CONV = ["flyTo", "jumpTo", "easeTo", "setZoom", "getZoom", "fitBounds", "fitScreenCoordinates", "cameraForBounds", "fitZoomForBbox",
+export const FACADE_CONV = ["flyTo", "jumpTo", "easeTo", "setZoom", "getZoom", "fitBounds", "fitScreenCoordinates", "lookAt", "follow", "setCamera", "cameraForBounds", "fitZoomForBbox",
 	"setMinZoom", "getMinZoom", "setMaxZoom", "getMaxZoom", "setZoomMin", "zoomMin", "addGint", "applyGintData", "paint",
 	"queryRenderedFeatures", "on", "off", "once"];
 
@@ -67,6 +67,7 @@ export function createFacade(raw, dz, { shiftZoomExpr } = {}) {
 		getZoom: () => zo(raw.getZoom()),
 		fitBounds: (b, o) => raw.fitBounds(b, fitIn(o)),
 		fitScreenCoordinates: (p0, p1, br, o) => raw.fitScreenCoordinates(p0, p1, br, fitIn(o)),
+		lookAt: (t, o) => raw.lookAt(t, camIn(o)), follow: (t, o) => raw.follow(t, camIn(o)), setCamera: c => raw.setCamera(camIn(c)),   // A4
 		cameraForBounds: (b, o) => { const r = raw.cameraForBounds(b, fitIn(o)); return r && { ...r, zoom: zo(r.zoom) }; },
 		fitZoomForBbox: b => zo(raw.fitZoomForBbox(b)),
 		setMinZoom: z => raw.setMinZoom(zi(z)), getMinZoom: () => zo(raw.getMinZoom()),
