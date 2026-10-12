@@ -1,0 +1,32 @@
+// 型の門の素材：公開の口を TypeScript から呼ぶ（tsc --noEmit で型が通ることだけを見る・実行しない）。
+import { cameraState, project, unproject, evalExpr, geodesicDistance, parseRGBA, parseViewHash, buildViewHash, WORLD_PX, registerTileFormat, normalizeMLLayer, createFlight, createInput } from "@ortho-earth/core";
+import type { CameraPose, CameraState, ExprContext, MLLayer } from "@ortho-earth/core";
+import { geodesicArea } from "@ortho-earth/core/geodesic";
+import { clipBox, CLIP_MAX } from "@ortho-earth/core/clip";
+import { lonlatTo3D } from "@ortho-earth/core/camera";
+import { KNOWN_OPS } from "@ortho-earth/core/expr";
+import { wmsTemplate } from "@ortho-earth/core/raster-src";
+
+const cam: CameraPose = { center: [139.767, 35.681], zoom: 12, pitch: 0.5, bearing: 0 };
+const st: CameraState = cameraState(cam, 800, 600);
+const xy: [number, number] | null = project(st, 139.7, 35.6);
+const ll = unproject(st, 400, 300);
+const px: 256 = WORLD_PX;
+const ctx: ExprContext = { zoom: 12, props: { name: "x" }, origin: "ml" };
+const v = evalExpr<string>(["get", "name"], ctx);
+const d: number = geodesicDistance([139, 35], [140, 36]);
+const a: number = geodesicArea([[139, 35], [140, 35], [140, 36], [139, 35]]);
+const c = parseRGBA("#ff000080");
+const h: string = buildViewHash(cam);
+const parsed = parseViewHash(h);
+registerTileFormat({ name: "mvt", pmtilesType: 1 });
+const L: MLLayer = normalizeMLLayer({ id: "a", type: "fill", filter: ["==", "k", 1] }, 1);
+const planes = clipBox({ center: [139.7, 35.7], size: [100, 100] });
+const n: 6 = CLIP_MAX;
+const p3 = lonlatTo3D(0, 0);
+const known: boolean = KNOWN_OPS.has("get");
+const tpl: string = wmsTemplate({ url: "https://x/wms", layers: "a" });
+declare const canvas: HTMLCanvasElement;
+const fc = createFlight({ cam, viewW: () => 800, maxPitch: 1.3, onMove: () => {} });
+const ic = createInput({ canvas, cam, size: { w: 800, h: 600 }, dpr: 1, maxPitch: 1.3, onMove: () => {} });
+void [xy, ll, px, v, d, a, c, parsed, L, planes, n, p3, known, tpl, fc.active, ic.evXY];

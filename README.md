@@ -2,6 +2,14 @@
 
 A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from scratch — zero dependencies, no tile servers. Runs entirely in the browser.
 
+## Why Ortho Earth
+
+- **Always a globe.** There is no flat Mercator mode to switch to or fall back on: orthographic and perspective are one continuum on a sphere (WGS84 ellipsoid optional), from the whole Earth down to street level. What you see at z2 and at z18 is the same model of the world.
+- **MapLibre code runs on it.** `@ortho-earth/globe/maplibre` is a `maplibregl` namespace: style.json, expressions, sources (MVT · MLT · PMTiles · GeoJSON · raster · raster-dem · image · video), `addLayer`/`setPaintProperty`/`queryRenderedFeatures`, Markers, Popups and Controls. The gate is MapLibre's own example gallery: of 139 official examples, 70 give the same picture, 42 the same answer and 25 run (none fail to run). The ledger is [`packages/globe/maplibre-compat.md`](packages/globe/maplibre-compat.md).
+- **WebGPU first, WebGL2 always.** Shadows, ambient occlusion, clipping planes and atmospheric scattering on WebGPU; the same map, minus those, on WebGL2.
+- **Reads the formats you already have.** 3D Tiles (b3dm · i3dm · pnts · cmpt · glb), I3S, COPC point clouds, quantized-mesh and raster-dem terrain, COG, WMS/WMTS, CZML/KML/GPX, GeoParquet, FlatGeobuf, Shapefile, GeoPackage, MVT and MLT — in the browser, with no server of your own ([`geopbf`](packages/geopbf)).
+- **Analysis built in.** Sun shadows and shadow hours, viewshed, line of sight, profiles, clipping, measurement. 26 UI languages.
+
 <img src="assets/hero.png" width="600" alt="Ortho Earth hero">
 
 **top page:** [www.ortho-earth.com](https://www.ortho-earth.com)

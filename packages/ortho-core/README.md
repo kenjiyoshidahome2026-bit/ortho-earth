@@ -23,6 +23,11 @@ npm i @ortho-earth/core
 | `./worldstyle` · `./worldpal` | the map-face palettes (`mono` / `dark` / `topo` / `sepia`) |
 | `./workers/*` | worker entries (tile, scene, gint, gint bake) |
 
+Types ship with the package (`types/*.d.ts`, hand-written, 1.15.0 →): the entries a host calls — camera, flight, input,
+expressions, geodesy, colour, the view hash, tile formats, the MapLibre style rewrite — are typed precisely; the factories
+that live inside the render worker (renderer, pipeline, terrain, raster) are typed by shape. `node tests/types.mjs` compiles
+a TypeScript fixture against them and is part of `npm test`.
+
 The core **knows no region**. Country-specific knowledge (basemaps, elevation, buildings, search) is a
 declaration passed in from outside — see `@ortho-earth/globe` and its region packs.
 
