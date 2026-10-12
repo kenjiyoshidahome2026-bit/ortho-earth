@@ -35,7 +35,7 @@ map.supports("data.squares");   // true
 | `gadgets` | `function (opts) { … }`（`map.gadget(name, fn)` と同じ・this＝map） | `map.gadget.<name>(opts)` | `gadget.<name>` |
 | `tileFormats` | `{ decode(bytes, need) }` か `{ load() → Promise<decode> }`・`pmtilesType?`（core の registerTileFormat と同じ） | source の encoding がその名の時 | `tiles.<name>` |
 | `lights` | `{ apply(map, lights) }` | `map.setLights([...])` のたびに、その type の光源の配列（無ければ []） | `light.<type>` |
-| `clouds` | `{ apply(map, clouds \| null) }` | `map.setClouds(spec)` のたびに | `clouds` |
+| `clouds` | `{ apply(map, clouds \| null) }` | `map.setClouds(spec)` のたびに（`type:"image"` は builtin も描く＝W6・plugin は手続きの雲・降水を受け持てる） | `clouds` |
 | `postEffects` | `{ apply(map, passes) }` | `map.setPostChain([...])` のたびに、その type の pass の配列 | `post.<type>` |
 | `handlers` | `{ create(map, opts) → { start, stop, active } }` | `"walk"` は `map.walk(opts)` の中身。他の名は plugin の自由 | `camera.walk`・`handler.<name>` |
 | `textureTranscoders` | `{ url }`（worker が import() する module＝`transcode(bytes) → { width, height, rgba }`） | 契約だけ（worker 側の読み込みは第 3 波） | `texture.<name>` |

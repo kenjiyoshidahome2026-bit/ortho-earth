@@ -71,7 +71,8 @@ import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの�
 import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
 import { sunSubpoint, moonSubpoint, sunAltAz, moonAltAz } from "@ortho-earth/ephem/sun";   // 太陽・月の向きの口（F2）＝夜の側・日影と同じ出所
-import { normSun, sunToLight, normClouds } from "./weather.js";   // setSun/setClouds の spec（F2）   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
+import { normSun, sunToLight, normClouds } from "./weather.js";
+import { createCloudShell } from "./clouds.js";   // 2D の雲（W6）＝setClouds({ type:"image" }) の builtin の描き手（模型と同じメッシュの道）   // setSun/setClouds の spec（F2）   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
@@ -739,7 +740,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], clouds: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -2757,7 +2758,7 @@ map.getSky = () => (mlSky ? normSky(mlSky) : undefined);
 // ── 太陽・月の向きと雲の口（第 2 波 F2・2026-10-12・src/weather.js・ephem/sun）──
 //   getSunPosition(ms?, at?)／getMoonPosition(ms?, at?)＝{ time, subpoint:{lng,lat}, azimuth, altitude, enu }（度・at 省略＝視点の中心・ms 省略＝共通の時計）
 //   setSun({ follow:"clock" } | { azimuth, altitude } | null)＝directional の光（setLight と同じ 1 本）を太陽に合わせる。follow＝時計の変化・静止・実時間なら 60 秒ごとに追う。null＝setLight(null)
-//   setClouds(spec|null)／getClouds()＝受けて保つだけ（描かない＝capabilities "clouds" は spec）。registry.clouds の plugin（{ apply(map, clouds) }）があれば呼ぶ
+//   setClouds(spec|null)／getClouds()＝type "image"（url の全球の雲画像を altitude の殻として描く・W6 builtin）はこちらで描き、手続きの雲・降水は受けて保つだけ。registry.clouds の plugin（{ apply(map, clouds) }）があれば呼ぶ
 const bodyAt = (altAz, sub, ms, at) => {
 	const t = Number.isFinite(+ms) ? +ms : clock.time;
 	const lon = at ? (at.lng ?? at.lon ?? at[0]) : cam.center[0], lat = at ? (at.lat ?? at[1]) : cam.center[1];
@@ -2778,9 +2779,19 @@ map.getSun = () => (sunSpec ? { ...sunSpec } : null);
 map.on("time", () => { if (sunSpec?.follow === "clock") applySun(); });
 map.on("settle", () => { if (sunSpec?.follow === "clock") applySun(); });   // 視点の中心が動いた＝その場所の高度・方位で
 ownDestroy.push(() => { if (sunTimer) clearInterval(sunTimer); });
-let cloudsCur = null;
+ownDestroy.push(() => cloudShell?.destroy());
+let cloudsCur = null, cloudShell = null;
 map.setClouds = c => {
 	cloudsCur = normClouds(c);
+	if (cloudsCur?.type === "image") {   // builtin（W6）＝全球の雲画像を高度の殻として描く。読めたら map.on("clouds") に { state:"ready" }（失敗は "error"）
+		cloudShell ??= map.__clouds = createCloudShell(map, {
+			setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv.buffer, data.col.buffer, data.tex?.rgba?.buffer].filter(Boolean))] : []); needsDraw = true; },
+			setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); },
+			requestDraw: () => { needsDraw = true; }, earthM: EARTH_M, now: animNow,
+			emit: ev => { for (const cb of mapOn.clouds) { try { cb(ev); } catch (e) { console.error("[map.on clouds]", e); } } },
+		});
+		cloudShell.set(cloudsCur);
+	} else cloudShell?.clear();
 	const reg = pluginHost.registry.clouds;
 	for (const n of reg.names()) { try { reg.get(n).apply(map, cloudsCur); } catch (e) { console.warn(`[clouds] ${n}: apply failed`, e); } }
 	needsDraw = true; return map;
