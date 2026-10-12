@@ -22,6 +22,8 @@ export interface CameraPose {
 	dpr?: number;
 	/** 注視点の高さ［m］（MapLibre の centerClampedToGround 相当・無指定＝0）。 */
 	centerAlt?: number;
+	/** 注視点を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の centerOffset（padding の中身の中心）。消失点も動く。無指定＝[0,0]。 */
+	offset?: [number, number];
 }
 
 /** cameraState の戻り＝1 フレームの行列と派生量。mvp/invMvp は列優先 f64。 */
