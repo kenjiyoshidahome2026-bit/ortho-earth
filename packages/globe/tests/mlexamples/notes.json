@@ -121,8 +121,8 @@
 		"en": "transformCameraUpdate (a hook to constrain the camera) is not supported, so the zoom differs by two levels."
 	},
 	"add-a-canvas-source": {
-		"ja": "canvas source（動く canvas を画像として貼る）は未対応。",
-		"en": "Canvas sources (an animating canvas used as an image) are not supported."
+		"ja": "canvas source は四隅の覆い（動画と同じ口・注記の下）＝毎フレーム写す。基図の上に常に乗る（傾けた時の遮蔽は無い）。",
+		"en": "Canvas sources are drawn as a corner-pinned overlay (same path as video, below labels), copied every frame. It always sits above the basemap (no occlusion when tilted)."
 	},
 	"add-a-cog-raster-source": {
 		"ja": "maplibre-cog-protocol の tile は addLayer の型紙の形と合わない（Request failed）＝COG はこちらの geopbf の cog で読む道が別にある。",
