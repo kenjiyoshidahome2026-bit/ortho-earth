@@ -71,6 +71,20 @@ try {
 		ok("t.caps", map.supports("tiles3d.requestTransform") && map.supports("tiles3d"));
 		const n0 = calls.length; h.setOptions({ requestTransform: null }); map.setZoom(map.getZoom() + 0.01); await new Promise(r => setTimeout(r, 800));
 		ok("t.setOptions", calls.length === n0 || true);   // 外した後は呼ばれない（既に揃っていれば要求自体が無い＝数は増えない）
+		// W7＝3D Tiles の当たり：紫の箱（ext-box.b3dm）だけ _BATCHID＋batch table { name: "purple" }（pickable "auto"＝番号のある束だけ当たりの写しを持つ）。画面を格子で舐めて当てる
+		{
+			let hit = null, others = 0;
+			for (let y = 10; y < 600 && !hit; y += 12) for (let x = 10; x < 800; x += 12) { const p = h.pick(x, y); if (p?.featureId === 0) { hit = { x, y, p }; break; } if (p) others++; }
+			ok("t.pick", hit && hit.p.properties.name === "purple" && hit.p.properties.height === 60 && hit.p.table?.name === "batchTable" && others === 0, JSON.stringify(hit && hit.p) + " others=" + others);
+			if (hit) {
+				const qf = await map.queryRenderedFeatures([hit.x, hit.y], { layers: [h.id] });
+				ok("t.query", qf.length === 1 && qf[0].id === 0 && qf[0].layer.type === "3d-tiles" && qf[0].layer.id === h.id && qf[0].properties.name === "purple", JSON.stringify(qf.map(f => ({ id: f.id, l: f.layer }))));
+				h.setFeatureState(0, { color: "#00ff00" });
+				ok("t.state", h.getFeatureState(0).color === "#00ff00" && h.pick(hit.x, hit.y)?.state?.color === "#00ff00");
+				h.removeFeatureState();
+				ok("t.stateCleared", JSON.stringify(h.getFeatureState(0)) === "{}");
+			}
+		}
 		h.remove();
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
@@ -125,7 +139,7 @@ try {
 		ok("g.unknownThrows", throws(() => h.setAnimation("Run")) && throws(() => h.setAnimation(3)));
 		h.setAnimation(null); ok("g.clear", h.getAnimation() === null && seen === null); off();
 		const c = map.capabilities();
-		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && map.supports("gltf.animation") && c["gltf.animation"].status === "builtin" && c["gltf.skin"].status === "spec" && c["gltf.morph"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "spec");
+		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && map.supports("gltf.animation") && c["gltf.animation"].status === "builtin" && c["gltf.skin"].status === "spec" && c["gltf.morph"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "builtin" && c["gltf.featureIds.texture"].status === "spec" && c["gltf.structuralMetadata"].status === "builtin");
 		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === true);
 		// W5＝変換器の結線：KHR_texture_basisu の texture（image は bufferView のでたらめな 16 バイト）を持つ glb。変換器が無い＝fallback 無し＝texture 0・成績 failed。
 		// 読めない url の変換器＝failed。偽の変換器（data: URL の module・2×2 の緑）＝transcoded 1・texture 1（worker が import() して transcode() を呼ぶ道が通る）
@@ -155,6 +169,46 @@ try {
 		ok("k.transcoded", h2.stats.textures === 1 && h2.stats.ktx2?.transcoded === 1 && h2.stats.ktx2?.failed === 0 && map.capabilities()["texture.ktx2"].via === "fake-ktx2", JSON.stringify({ t: h2.stats.textures, k: h2.stats.ktx2 }));
 		map.unuse("fake-ktx2");
 		h2.clear();
+		// W7＝EXT_mesh_features の当たり：板 2 枚（西 x<0＝番号 0・東 x>0＝番号 1・_FEATURE_ID_0）＋property table（name）。斜めから画面の点で当てる・queryRenderedFeatures の層 "model"・feature state の色
+		{
+			const sleep = ms => new Promise(r => setTimeout(r, ms));
+			const P = [], ids = [], I = [];
+			for (const [x0, x1, id] of [[-100, 0, 0], [0, 100, 1]]) { const b = P.length / 3; P.push(x0, 0, -100, x1, 0, -100, x1, 0, 100, x0, 0, 100); ids.push(id, id, id, id); I.push(b, b + 2, b + 1, b, b + 3, b + 2); }
+			const names = ["West", "East"].map(n => new TextEncoder().encode(n)), sv = new Uint8Array(names[0].length + names[1].length); sv.set(names[0]); sv.set(names[1], names[0].length);
+			const views = [new Uint8Array(Float32Array.from(P).buffer), new Uint8Array(Uint16Array.from(I).buffer), new Uint8Array(Float32Array.from(ids).buffer), sv, new Uint8Array(Uint32Array.of(0, names[0].length, sv.length).buffer)];
+			let off = 0; const bvs = views.map(v => { while (off % 4) off++; const bv = { buffer: 0, byteOffset: off, byteLength: v.byteLength }; off += v.byteLength; return bv; });
+			const fbin = new Uint8Array((off + 3) & ~3); views.forEach((v, i) => fbin.set(v, bvs[i].byteOffset));
+			const fjson = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+				meshes: [{ primitives: [{ attributes: { POSITION: 0, _FEATURE_ID_0: 2 }, indices: 1, extensions: { EXT_mesh_features: { featureIds: [{ featureCount: 2, attribute: 0, propertyTable: 0 }] } } }] }],
+				buffers: [{ byteLength: fbin.byteLength }], bufferViews: bvs,
+				accessors: [{ bufferView: 0, componentType: 5126, count: 8, type: "VEC3", min: [-100, 0, -100], max: [100, 0, 100] }, { bufferView: 1, componentType: 5123, count: 12, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 8, type: "SCALAR" }],
+				extensionsUsed: ["EXT_mesh_features", "EXT_structural_metadata"],
+				extensions: { EXT_structural_metadata: { schema: { id: "s", classes: { lot: { properties: { name: { type: "STRING" } } } } }, propertyTables: [{ name: "lots", class: "lot", count: 2, properties: { name: { values: 3, stringOffsets: 4 } } }] } } };
+			const hf = await map.gadget.model(new File([mkGlb(fjson, fbin.buffer)], "lots.glb"), { at: [139.7671, 35.6812], fit: false });
+			ok("f.meta", hf.gltf.featureIds && hf.gltf.structuralMetadata && hf.features?.primitives === 1 && hf.features.tables[0]?.name === "lots" && hf.features.tables[0].columns.join() === "name", JSON.stringify(hf.features));
+			map.jumpTo({ center: [139.7671, 35.6812], zoom: 17, pitch: 45, bearing: 0 }); await sleep(1500);
+			const dl = 50 / (111320 * Math.cos(35.6812 * Math.PI / 180)), pE = map.project([139.7671 + dl, 35.6812]), pW = map.project([139.7671 - dl, 35.6812]), pOut = map.project([139.7671 + 3 * dl, 35.6812]);
+			const e = hf.pick(pE.x, pE.y), w = hf.pick(pW.x, pW.y);
+			ok("f.pick", e?.featureId === 1 && e.properties.name === "East" && e.table?.name === "lots" && w?.featureId === 0 && w.properties.name === "West" && hf.pick(pOut.x, pOut.y) === null, JSON.stringify({ e, w }));
+			ok("f.lngLat", e && Math.abs(e.lngLat[0] - (139.7671 + dl)) < dl * 0.2 && Math.abs(e.lngLat[1] - 35.6812) < 2e-4, JSON.stringify(e?.lngLat));
+			const qf = await map.queryRenderedFeatures([pE.x, pE.y], { layers: ["model"] });
+			ok("f.query", qf.length === 1 && qf[0].id === 1 && qf[0].properties.name === "East" && qf[0].layer.type === "model" && qf[0].source === "model", JSON.stringify(qf.map(f => ({ id: f.id, l: f.layer, p: f.properties }))));
+			const snapPx = async (p) => { await sleep(600); const s = await map.requestSnapshot(), r = s.render, W = map.mapEl.clientWidth, H = map.mapEl.clientHeight;
+				const bx = Math.round(p.x * r.w / W), by = Math.round(p.y * r.h / H), i = (((r.flip !== false) ? r.h - 1 - by : by) * r.w + bx) * 4, d = new Uint8Array(r.base); return [d[i], d[i + 1], d[i + 2]]; };
+			const e0 = await snapPx(pE), w0 = await snapPx(pW);
+			hf.setFeatureState(1, { color: "#ff0000", picked: true });
+			const e1 = await snapPx(pE), w1 = await snapPx(pW);
+			ok("f.state", hf.getFeatureState(1).picked === true && hf.pick(pE.x, pE.y)?.state?.color === "#ff0000" && JSON.stringify(hf.getFeatureState(0)) === "{}");
+			ok("f.tint", e1[0] > e1[1] + 60 && Math.abs(e0[0] - e0[1]) < 30 && Math.abs(w1[0] - w0[0]) < 12 && Math.abs(w1[1] - w0[1]) < 12, JSON.stringify({ e0, e1, w0, w1 }));
+			hf.removeFeatureState(1);
+			const e2 = await snapPx(pE);
+			ok("f.untint", Math.abs(e2[0] - e2[1]) < 30 && JSON.stringify(hf.getFeatureState(1)) === "{}", JSON.stringify(e2));
+			map.jumpTo({ pitch: 0 }); await sleep(300);
+			const pE0 = map.project([139.7671 + dl, 35.6812]);
+			ok("f.topDownNone", hf.pick(pE0.x, pE0.y) === null, "models are not drawn top-down");
+			hf.clear();
+			ok("f.cleared", hf.pick(pE0.x, pE0.y) === null && hf.features === null);
+		}
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
