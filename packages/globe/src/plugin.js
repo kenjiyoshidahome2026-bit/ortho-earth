@@ -62,7 +62,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"camera.roll": { status: "builtin", note: "setRoll/getRoll, setVerticalFieldOfView (A1)" },
 	"camera.lookAt": { status: "builtin", note: "lookAt/follow/setCamera/getCamera (A4)" },
 	"camera.constrain": { status: "builtin", note: "setConstrain (= setTransformConstrain), padding, setCenterElevation (A3)" },
-	"camera.walk": { status: "spec", note: "map.walk(opts) keeps the spec (F6); movement comes from a plugin registered in registry.handlers as \"walk\"" },
+	"camera.walk": { status: "builtin", note: "map.walk(opts): first-person walk (W3) with WASD/arrows, mouse look, terrain under foot and simple building collision; a plugin registered in registry.handlers as \"walk\" takes over" },
 	"handlers": { status: "builtin", note: "inertia, double-click, box zoom, keyboard, setHandler (A2)" },
 	"style.transition": { status: "builtin", note: "paint transitions, default 300ms (B1)" },
 	"style.diff": { status: "builtin", note: "setStyle diff (B2)" },

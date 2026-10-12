@@ -11,6 +11,7 @@ import { hasHeightKey } from "./extrude-keys.js";
 import { positionAt, ecefToLlh } from "./czml-time.js";
 import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";
 import { normLight, lightPayload, normLights, LIGHT_TYPES, localLightsPayload } from "./light.js";
+import { createWalk, pointInPolygon } from "./walk.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spriteEcho, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";
@@ -2993,17 +2994,32 @@ map.sampleTerrain = async (positions, { concurrency = 8 } = {}) => {
 	await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, pts.length)) }, async () => { while (i < pts.length) { const k = i++; const [lng, lat] = pts[k]; let h = 0; try { h = await heightAt(lng, lat); } catch { h = 0; } out[k] = { lng, lat, height: Number.isFinite(h) ? h : 0 }; } }));
 	return out;
 };
-// 一人称歩行の口（F6・口だけ）：map.walk(opts) → 手綱 { start, stop, active, opts }。描く側は registry.handlers の "walk"（plugin が { create(map, opts) → { start, stop, active } } を足す）。
-//   無ければ手綱は spec を保つだけ（start は false を返し console.warn）＝capabilities "camera.walk" は spec。plugin が入れば "plugin"
-let walkCur = null;
+// 一人称歩行（F6 の口・第 3 波 W3 で中身＝src/walk.js）：map.walk(opts) → 手綱 { start, stop, active, opts, step, turn, look, position }。
+//   registry.handlers の "walk"（plugin の { create(map, opts) → { start, stop, active } }）があればそれが勝つ（capabilities "camera.walk" は plugin）・無ければ builtin（"builtin"）。
+//   builtin の足元＝heightAt（描いている地形と同じ出どころ）・壁＝wallHeightAt（基図の建物の足跡の高さ＋geojson の押し出し）
+let walkCur = null, wallCache = { t: 0, fs: [] };
+const wallHeightAt = (lon, lat) => {
+	let h = 0;
+	const B = style?.schema?.buildings;
+	if (B?.layer) {   // 基図の建物（出しているタイルの写し＝querySourceFeatures・1 秒だけ覚える）
+		const now = performance.now();
+		if (now - wallCache.t > 1000) { wallCache = { t: now, fs: map.querySourceFeatures(baseSidNow(), { sourceLayer: B.layer }) }; }
+		for (const f of wallCache.fs) if (pointInPolygon(lon, lat, f.geometry)) { h = Math.max(h, (B.heightByCode && B.heightByCode[f.properties?.[B.codeKey]]) || B.defaultHeight || 10); }
+	}
+	for (const u of modelCtl?.extrudedFeatures || []) if (u.h > h && pointInPolygon(lon, lat, u.f?.geometry)) h = Math.max(h, u.h);   // gadget.extrude・fill-extrusion の geojson
+	return h;
+};
+const WALK_BUILTIN = { create: (m, o) => createWalk(m, o, { heightAt, wallHeightAt, radiusM: EARTH_M }) };
 map.walk = (opts = {}) => {
 	const o = { speed: Number.isFinite(+opts.speed) ? +opts.speed : 1.4, eyeHeight: Number.isFinite(+opts.eyeHeight) ? +opts.eyeHeight : 1.7, collide: opts.collide !== false, keys: opts.keys !== false, ...opts };
-	const impl = pluginHost.registry.handlers.get("walk");
+	const impl = pluginHost.registry.handlers.get("walk") || WALK_BUILTIN;
 	const inner = impl && typeof impl.create === "function" ? impl.create(map, o) : null;
 	if (walkCur) walkCur.stop();
 	const h = { opts: o, get active() { return inner ? !!inner.active : false; },
 		start() { if (!inner) { console.warn("[walk] no walk handler installed (registry.handlers \"walk\"); keeping the spec only"); return false; } inner.start?.(); return true; },
-		stop() { inner?.stop?.(); if (walkCur === h) walkCur = null; return h; } };
+		stop() { inner?.stop?.(); if (walkCur === h) walkCur = null; return h; },
+		step: (f, s2 = 0) => inner?.step ? inner.step(+f || 0, +s2 || 0) : 0, turn: deg => { inner?.turn?.(+deg || 0); return h; }, look: deg => { inner?.look?.(+deg || 0); return h; },
+		position: () => inner?.position ? inner.position() : null };
 	walkCur = h; return h;
 };
 map.getZoom = () => cam.zoom;             // 現在ズーム（派生アプリのズーム連動 LOD＝集約⇄市区町村の層切替に）
