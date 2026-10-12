@@ -1312,6 +1312,59 @@ try {
 		await sleep(700);
 		const green = pxAt(await snap(map));
 		put("option-off", green[1] > 180 && green[2] < 90 && map.getStyle().transition === undefined, `${green}`);
+	} else if (G === "diff") {
+		// ── setStyle の差分適用（B2・2026-10-12・MapLibre の options.diff＝既定 true）：同じ style の往復＝建て直し 0・基図の paint の差＝組み直し 1 回（建て直しは 0）・
+		//    geojson の層の追加／paint の差＝その層だけ・diff:false と基図の source の差＝従来の建て直し。窓＝window.__styleStats { full, diff, rebuilds }（debugGlobals）
+		const mk = (over = {}) => ({
+			version: 8, name: "t-mlcompat-diff",
+			sources: {
+				gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf" + (over.v ? "?v=" + over.v : "")], minzoom: 4, maxzoom: 16 },
+				pts: { type: "geojson", data: fc([pt(139.85, 35.45, { n: 1 })]) },
+				...(over.pts2 ? { pts2: { type: "geojson", data: fc([pt(139.87, 35.45, {})]) } } : {}),
+			},
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": over.water ?? "#9ec3e6" } },
+				{ id: "g", type: "circle", source: "pts", paint: { "circle-radius": 8, "circle-color": over.g ?? "#ff00ff" } },
+				...(over.pts2 ? [{ id: "g2", type: "circle", source: "pts2", paint: { "circle-radius": 8, "circle-color": "#00ffff" } }] : []),
+			],
+		});
+		const map = await createGlobe({ target: "#map", view: "#12.5/35.45/139.85", chips: false, style: mk(), debugGlobals: true });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const st = () => ({ ...window.__styleStats });
+		const hitAt = async (lon, lat, id) => { const [x, y] = map.projectLL(lon, lat); return (await map.queryRenderedFeatures([x, y], { layers: [id] })).map(f => f.layer.id); };
+		await scene("roundtrip-noop", async () => {
+			const a = st(); const s1 = map.getStyle(); await map.setStyle(s1); await sleep(1500); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && b.diff === a.diff + 1 && h.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g", `${JSON.stringify(a)}→${JSON.stringify(b)} hit=${h} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("base-paint-one-rebuild", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000" })); await sleep(1500); const b = st();
+			return [b.full === a.full && b.rebuilds === a.rebuilds + 1 && b.diff === a.diff + 1 && map.getPaintProperty("water", "fill-color") === "#ff0000", `${JSON.stringify(a)}→${JSON.stringify(b)} water=${map.getPaintProperty("water", "fill-color")}`];
+		});
+		await scene("user-layer-add", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", pts2: true })); await sleep(2000); const b = st();
+			const h2 = await hitAt(139.87, 35.45, "g2"), h1 = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && h2.includes("g2") && h1.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g,g2", `${JSON.stringify(a)}→${JSON.stringify(b)} g2=${h2} g=${h1} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("user-layer-paint", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", pts2: true, g: "#00ff00" })); await sleep(2000); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && map.getPaintProperty("g", "circle-color") === "#00ff00" && h.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g,g2", `${JSON.stringify(a)}→${JSON.stringify(b)} g=${map.getPaintProperty("g", "circle-color")} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("user-layer-remove", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00" })); await sleep(1500); const b = st();
+			return [b.full === a.full && !map.getLayer("g2") && !map.getSource("pts2") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g", `${JSON.stringify(a)}→${JSON.stringify(b)} ids=${map.getStyle().layers.map(L => L.id)} src=${!!map.getSource("pts2")}`];
+		});
+		await scene("diff-false-rebuilds", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00" }), { diff: false }); await sleep(2500); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full + 1 && h.includes("g"), `${JSON.stringify(a)}→${JSON.stringify(b)} g=${h}`];
+		});
+		await scene("source-change-rebuilds", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00", v: 2 })); await sleep(2500); const b = st();
+			return [b.full === a.full + 1 && map.getStyle().sources.gsi.tiles[0].endsWith("?v=2"), `${JSON.stringify(a)}→${JSON.stringify(b)}`];
+		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。
