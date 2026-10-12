@@ -32,6 +32,16 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **three.js**: `map.addThree({ three: <URL of three.module.js>, module: <URL of your module exporting setup(THREE, scene, h)> })` runs
   three.js inside the render worker on the same camera: meters in an east-north-up frame around `origin` (RTE), occluded by
   terrain and buildings through the scene depth, pickable with the overlay picking above. three.js is not a dependency; you bring it
+- **Data layers**: `map.addData(array, { kind, getPosition, getColor, getRadius, … })` takes an array (or GeoJSON) plus deck.gl-style
+  accessors. `kind: "points"` and `"arcs"` (great circles with optional height, `getSourcePosition` / `getTargetPosition`) are GPU
+  overlays with picking; `"polygons"`, `"paths"` and `"columns"` ride the ordinary `fill` / `line` / `fill-extrusion` layer route.
+  `h.setData(array)` re-bakes everything, like deck.gl. `kind: "trips"` draws timestamped paths up to `currentTime` with a fading
+  `trailLength` (`h.setCurrentTime`, `h.animate`, `h.useClock`). Points, arcs and trips take `getFilterValue` + `h.setFilter([lo, hi])`
+  (GPU range filter), `h.brush(true, radius)` (pointer brushing) and `h.setMask(polygon)`; points animate `setData` with `transition: { duration }`
+- **Cells, contours, screen grid**: `map.addCells(points | ids, { kind: "grid" | "mesh" | "geohash" | "quadkey" | "s2", res, weight })`
+  bins points into (or draws given) cells as `fill` / `fill-extrusion` layers, pure JS with no dependency (S2 ids match the
+  reference library). `map.addContour(points, { cellSize, thresholds | bands })` draws isolines / isobands, and
+  `map.addScreenGrid(points, { cellPx })` is a screen-fixed grid overlay. `map.addAggregate(src, { kind })` dispatches to these and H3
 - **H3**: `map.addH3(points | cells, { res, weight, paint, extrude })` bins points into H3 cells (or draws given cell ids) as a
   `fill` / `fill-extrusion` layer (`@ortho-earth/h3`, loaded on demand)
 - **Regions**: pass `opts.region` to add a country pack (basemap, elevation, buildings, search…).
