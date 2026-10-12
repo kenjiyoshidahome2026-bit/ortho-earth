@@ -1811,6 +1811,76 @@ try {
 			const parks = map.querySourceFeatures("omt", { sourceLayer: "landuse", filter: ["==", ["get", "class"], "park"] }), blds = map.querySourceFeatures("omt", { sourceLayer: "building" });
 			return [parks.some(f => f.properties?.name === "Park") && blds.some(f => f.properties?.name === "tall" && f.id === 1), `parks=${parks.length} blds=${blds.length}`];
 		});
+	} else if (G === "live") {
+		// ── 生きた geojson・層の押し系・集約の HTML 札（C8・2026-10-12）＝MapLibre の口（通訳）で：setData の連打は畳む（例 update-a-feature-in-realtime）・
+		//    層の mousedown/touchstart は同期に当たり preventDefault で地図のドラッグを捨てる（例 create-a-draggable-point）・data 事象に isSourceLoaded（例 display-html-clusters-with-custom-properties）・
+		//    集約の丸の層が無ければ既定の丸を描かない・Popup.trackPointer ──
+		const ml = await import("@ortho-earth/globe/maplibre");
+		const C = [139.76, 35.68];
+		const style = { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] };
+		const map = new ml.Map({ container: "map", style, center: C, zoom: 11, pitch: 0, ortho: { debugGlobals: true } });   // debugGlobals＝window.__map（エンジン）で手で覗く窓（判定には使わない）
+		await Promise.race([new Promise(r => map.once("load", r)), sleep(30000)]);
+		const ptAt = (lon, lat) => ({ type: "FeatureCollection", features: [{ type: "Feature", properties: { k: 1 }, geometry: { type: "Point", coordinates: [lon, lat] } }] });
+		const srcEvs = [];
+		map.on("sourcedata", e => { if (e.sourceId === "pt" && e.sourceDataType === "content") srcEvs.push(e); });
+		map.addSource("pt", { type: "geojson", data: ptAt(C[0], C[1]) });
+		map.addLayer({ id: "pt", type: "circle", source: "pt", paint: { "circle-radius": 14, "circle-color": "#ff0000" } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const cv = document.querySelector("#map canvas#c"), R = () => cv.getBoundingClientRect();
+		const pe = (type, x, y, o = {}) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: R().left + x, clientY: R().top + y, ...o }));
+		const drag = (x0, y0, dx, dy, o = {}) => { pe("pointerdown", x0, y0, o); for (let i = 1; i <= 8; i++) pe("pointermove", x0 + dx * i / 8, y0 + dy * i / 8, o); pe("pointerup", x0 + dx, y0 + dy, o); };
+		const srcPt = () => map.querySourceFeatures("pt")[0]?.geometry?.coordinates;
+		await scene("setdata-stream-coalesced", async () => {   // 30 連打＝載せ直しは数回・最後の約束が解けた時に最後の中身が載っている
+			const n0 = srcEvs.length; let last = null;
+			for (let i = 1; i <= 30; i++) last = map.getSource("pt").setData(ptAt(C[0] + i * 0.001, C[1]));
+			await Promise.race([last, sleep(10000)]);
+			const p = srcPt(), ev = srcEvs.length - n0;
+			return [!!p && Math.abs(p[0] - (C[0] + 0.03)) < 1e-9 && ev >= 1 && ev < 30, `lon=${p?.[0]} sourcedata=${ev}`];
+		});
+		await scene("data-event-isSourceLoaded", async () => {   // setData の後に data（dataType source・isSourceLoaded:true）が来る
+			let got = null; const h = e => { if (e.sourceId === "pt" && e.isSourceLoaded) got = e; }; map.on("data", h);
+			await Promise.race([map.getSource("pt").setData(ptAt(C[0], C[1])), sleep(10000)]); await sleep(50); map.off("data", h);
+			return [!!got && got.dataType === "source", `got=${JSON.stringify(got && { dataType: got.dataType, isSourceLoaded: got.isSourceLoaded })}`];
+		});
+		await sleep(800);
+		await scene("layer-mousedown-prevents-pan", async () => {   // 点の上で mousedown＋preventDefault → 80px 引いても中心は動かない。点の外では動く
+			const evs = []; const h = e => { evs.push(e); e.preventDefault(); }; map.on("mousedown", "pt", h);
+			const c0 = map.getCenter(), p = map.project(C);
+			drag(p.x, p.y, 80, 0); await sleep(300);
+			const c1 = map.getCenter(), held = Math.abs(c1.lng - c0.lng) < 1e-6 && Math.abs(c1.lat - c0.lat) < 1e-6;
+			drag(p.x + 200, p.y + 120, 80, 0); await sleep(300);
+			const c2 = map.getCenter(), moved = Math.abs(c2.lng - c1.lng) > 1e-4;
+			map.off("mousedown", "pt", h); map.jumpTo({ center: C }); await sleep(200);
+			return [evs.length === 1 && evs[0].features?.[0]?.properties?.k === 1 && evs[0].point && held && moved, `evs=${evs.length} held=${held} moved=${moved} dlng=${(c2.lng - c1.lng).toFixed(5)}`];
+		});
+		await scene("layer-touchstart-points", async () => {   // touch の押し＝touchstart に points/lngLats（配列）。mouseup も層で来る
+			let t = null, u = 0; const h = e => { t = e; e.preventDefault(); }, hu = () => u++; map.on("touchstart", "pt", h); map.on("mouseup", "pt", hu);
+			const p = map.project(C);
+			pe("pointerdown", p.x, p.y, { pointerType: "touch" }); pe("pointerup", p.x, p.y, { pointerType: "touch" });
+			pe("pointerdown", p.x, p.y); pe("pointerup", p.x, p.y); await sleep(100);
+			map.off("touchstart", "pt", h); map.off("mouseup", "pt", hu);
+			return [!!t && t.points?.length === 1 && t.lngLats?.length === 1 && Math.abs(t.lngLats[0].lng - C[0]) < 0.01 && u === 1, `points=${t?.points?.length} lngLats=${t?.lngLats?.length} mouseup=${u}`];
+		});
+		await scene("cluster-without-circle-layer", async () => {   // 丸の層が無い集約＝querySourceFeatures は集約を返すが、画面の当たり（queryRenderedFeatures）に既定の丸は居ない
+			const P2 = [C[0] + 0.1, C[1] - 0.05], P1 = [C[0] - 0.12, C[1] - 0.05];   // P2＝2 点が重なる（集約）・P1＝単点（対照＝当たりの索引が埋まった証）
+			const fc = { type: "FeatureCollection", features: [[P2[0], P2[1]], [P2[0] + 0.0005, P2[1]], P1].map((c, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: c } })) };
+			map.addSource("eq", { type: "geojson", data: fc, cluster: true, clusterRadius: 50, clusterMaxZoom: 14 });
+			map.addLayer({ id: "eq-single", type: "circle", source: "eq", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": 8, "circle-color": "#00ff00" } });
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1000);
+			const sf = map.querySourceFeatures("eq"), cl = sf.find(f => f.properties?.cluster);
+			const q = async pt => { const p = map.project(pt); let r = []; for (let k = 0; k < 10 && !r.length; k++) { r = map.queryRenderedFeatures([p.x, p.y]); if (!r.length) await sleep(400); } return r; };
+			const single = await q(P1), hit = await q(P2);
+			return [!!cl && cl.properties.point_count === 2 && single.some(f => f.layer?.id === "eq-single") && !hit.some(f => f.properties?.cluster), `source=${sf.length} cluster=${cl?.properties?.point_count} single=${single.map(f => f.layer?.id).join(",") || "none"} atCluster=${hit.map(f => f.layer?.id).join(",") || "none"}`];
+		});
+		await scene("popup-trackpointer", async () => {   // trackPointer＝pointermove で lngLat が付いて回る・pointer-events none
+			const pop = new ml.Popup({ closeButton: false, closeOnClick: false }).trackPointer().setHTML("t").addTo(map);
+			const el = pop.getElement(), mapEl = document.querySelector("#map"), r = mapEl.getBoundingClientRect();
+			mapEl.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: r.left + 300, clientY: r.top + 200 }));
+			await sleep(50);
+			const ll = pop.getLngLat(), want = map.unproject([300, 200]), pen = getComputedStyle(el).pointerEvents;
+			pop.remove();
+			return [!!ll && !!want && Math.abs(ll.lng - want.lng) < 1e-6 && Math.abs(ll.lat - want.lat) < 1e-6 && pen === "none", `ll=${ll?.lng?.toFixed(4)},${ll?.lat?.toFixed(4)} want=${want?.lng?.toFixed(4)},${want?.lat?.toFixed(4)} pe=${pen}`];
+		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。

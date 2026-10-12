@@ -730,7 +730,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [], sourcedata: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -4232,6 +4232,8 @@ const rebuildCluster = async sid => {   // 同じ source の集約の層を一�
 		else if (L.type === "circle") { opts.unclustered = { paint: L.paint }; opts.layerIds.unclustered = L.id; opts.ranges.unclustered = zr(L); }
 		else if (L.type === "symbol") { opts.text = { color: typeof L.paint?.["text-color"] === "string" ? L.paint["text-color"] : undefined, size: typeof L.layout?.["text-size"] === "number" ? L.layout["text-size"] : undefined }; opts.layerIds.text = L.id; }   // text＝件数の文字の層 id（置いた記号の申告＝__placed）
 	}
+	if (!opts.layerIds.clusters) opts.ranges.clusters = [Infinity, Infinity];   // 丸の層が無い＝丸は描かない（C8・既定の丸は出さない＝MapLibre は層が無ければ何も描かない。例 display-html-clusters-with-custom-properties は HTML の Marker で描く）
+	if (!opts.layerIds.unclustered) opts.ranges.unclustered = [Infinity, Infinity];
 	const pts = await readPoints(dataOf(sp));
 	if (mlGen.get("cluster:" + sid) !== gen) return null;   // 待っている間に層が足し引きされた＝新しい方に任せる
 	return clusterNative(pts, opts, sid);
@@ -4514,7 +4516,17 @@ const vtdMount = async (v, layer) => {
 };
 const vecAttrDrop = (v, sid) => { if (![...mlLayers.values()].some(x => x !== v && (x.kind === "vtextrude" || x.kind === "vtdraw") && srcId(x.layer) === sid) && vtxAttrs.delete(sid)) { attrZone = null; needsDraw = true; } };   // その source を使う層が無くなった＝出典を下げる
 // 層を描き出す／取り下げる（登録簿 mlLayers はそのまま＝visibility と setPaintProperty の往復で使う）
-const mountLayer = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
+// source の中身が載った合図（C8・MapLibre の sourcedata）＝setData／層が載った後に { sourceId }。通訳は data（isSourceLoaded:true）にも写す（例 display-html-clusters-with-custom-properties）
+const emitSourceData = sourceId => { for (const cb of [...mapOn.sourcedata]) { try { cb({ sourceId }); } catch (e) { console.error("[map.on sourcedata]", e); } } };
+// setData の畳み（C8）＝同じ source に連打された setData は走っている載せ直しの後に 1 回だけ（例 update-a-feature-in-realtime＝10ms ごと）。返す約束は最新の中身が載った時に解ける
+const setDataQ = new Map();
+const setDataLive = id => {
+	let q = setDataQ.get(id); if (q) { q.again = true; return q.p; }
+	q = { again: false, p: null }; setDataQ.set(id, q);
+	q.p = (async () => { try { do { q.again = false; await remountSource(id); } while (q.again); } finally { setDataQ.delete(id); } })();
+	return q.p;
+};
+const mountLayer = async v => { v.mounting = true; try { return await mountLayerRaw(v); } finally { v.mounting = false; if (!setDataQ.has(srcId(v.layer))) emitSourceData(srcId(v.layer)); } };   // mounting＝載せる途中（isSourceLoaded の材料・画像タイル層は TileJSON/画像の fetch と worker の open を跨ぐ）
 const mountLayerRaw = async v => {
 	if (pendingImages.size) await Promise.allSettled([...pendingImages]);   // 直前の addImage を待つ（上の pendingImages）
 	const layer = drawLayerOf(v), { kind, src: sp } = v, sid = srcId(layer), data = dataOf(sp), order = mlOrderOf(layer.id);
@@ -4641,6 +4653,7 @@ const remountSource = async (id, dataChanged = true) => {
 	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
 	if (vs.some(v => v.kind === "gint")) await rebuildGint(id, { dataChanged });
 	for (const v of vs) if (v.kind !== "gint") await mountLayer(v);
+	emitSourceData(id);
 };
 const addSourceAt = (id, spec, dz) => { if (mlSources.has(id)) throw new Error(`addSource: source "${id}" already exists`); mlSources.set(id, spec); mlSourceDz.set(id, dz); return map; };
 map.addSource = (id, spec) => addSourceAt(id, spec, PUBLIC_DZ);
@@ -4655,7 +4668,7 @@ map.getSource = id => {
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
 	const remount = (dataChanged = true) => remountSource(id, dataChanged);   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
-	const self = { ...sp, ...extra, setData: async data => { sp.data = data; await remount(); } };
+	const self = { ...sp, ...extra, setData: data => { sp.data = data; return setDataLive(id); } };
 	// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
 	if (sp.type === "geojson") self.updateData = async diff => {
 		const d = sp.data;
@@ -4724,7 +4737,7 @@ const rasterSrcLoaded = sid => {
 };
 // 外来 style の source（vector の基図・画像層・地形の raster-dem）も受ける＝画像層は mountExtExtras の途中（extExtras.mounting）と未着を見る
 const extSrcKnown = id => !!EXT?.ms.sources?.[id];
-map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id) || extSrcKnown(id)) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true) && rasterSrcLoaded(id) && !(extSrcKnown(id) && extExtras.mounting);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
+map.isSourceLoaded = id => (mlSources.has(id) || !!baseSrcSpec(id) || extSrcKnown(id)) && ![...mlLayers.values()].some(v => v.mounting && srcId(v.layer) === id) && !setDataQ.has(id) && (vtxCtl ? vtxCtl.loaded(id) : true) && !vtdMounting.has(id) && (vtdCtl ? vtdCtl.loaded(id) : true) && rasterSrcLoaded(id) && !(extSrcKnown(id) && extExtras.mounting);   // vector source の押し出し・描く層＝見えているタイルが組み上がって載るまで false（MapLibre 同名）
 // get 系＝渡されたままを返す。層の目盛りが公開の口と違う時（style.json 由来など）だけ metadata["ortho:dz"] でその目盛りを申告する
 // always＝getStyle（もう一度 setStyle に読ませる文書）＝公開の口と同じ目盛りでも申告する（style 経路の既定は MapLibre の z＝省くと二重にずれる）
 const echoLayer = (v, always = false) => (!always && v.dz === PUBLIC_DZ) || layerDzOf(v.layer, null) != null ? v.layer : { ...v.layer, metadata: { ...(v.layer.metadata || {}), [DZ_KEY]: v.dz } };
@@ -5301,24 +5314,21 @@ const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]
 	}
 	return hits;
 };
-map.queryRenderedFeatures = async (geometry, qo = {}) => {
-	if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
-	if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
-	// 許し（公式例の門 §8 B・2026-09-27）＝既定 0（MapLibre と同じ・旧 3px は線に余計に当たっていた＝83 例）。単一スロットの user 層（内製・線幅を持たない）だけ従来の 3px
+// 同期の当たり（C8・2026-10-12）＝利用者の図形（模様・記号・集約の丸・四隅の画像・gint の pass・単一スロットの user 層）だけを、その場で当てる。基図と vector のタイル（非同期）と
+// 押し出し（立体）は見ない。queryRenderedFeatures の同じ部分の実体（hook＝押し出しの答えを差し込む所）。層の mousedown／touchstart（押した瞬間に答えが要る＝preventDefault でパンを止める）もこれを使う。
+// 戻り＝Feature の列・点が球の外なら null
+const queryArea = geometry => {   // 問い合わせの範囲（点＝{ ll }・箱＝{ bbox }）。球の外なら null
+	const W = size.w / dpr, H = size.h / dpr;
+	if (geometry && typeof geometry[0] === "number") { const ll = unprojectXY(geometry[0], geometry[1]); return ll ? { ll } : null; }
+	const [[x0, y0], [x1, y1]] = geometry || [[0, 0], [W, H]];
+	const cs = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, (y0 + y1) / 2]].map(([x, y]) => unprojectXY(x, y)).filter(Boolean);
+	if (!cs.length) return null;
+	return { bbox: [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))] };
+};
+const queryUserSync = (geometry, qo = {}, hook = null) => {
 	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
 	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
-	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: MAP_GS, geojson: f.geometry, pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
-	const extHits = extrudeHits(geometry || [[0, 0], [W, H]], take);   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
-	const vtxHits = vtxCtl ? vtxCtl.query(geometry || [[0, 0], [W, H]], take).catch(err => { console.warn("[query] vector extrusion", err); return []; }) : null;   // ベクタタイルの押し出し（段 8①）＝同じ当たり（extView）
-	const ext3d = async () => [...extHits, ...(vtxHits ? await vtxHits : [])].sort((a, b) => a.d - b.d).map(h => h.f);   // 押し出しは二つの経路を一つの列に・近い順（MapLibre は 3D の地物を奥行きで並べる）
-	let area;
-	if (geometry && typeof geometry[0] === "number") { const ll = unprojectXY(geometry[0], geometry[1]); if (!ll) return qf(await ext3d()); area = { ll }; }
-	else {
-		const [[x0, y0], [x1, y1]] = geometry || [[0, 0], [W, H]];
-		const cs = [[x0, y0], [x1, y0], [x0, y1], [x1, y1], [(x0 + x1) / 2, (y0 + y1) / 2]].map(([x, y]) => unprojectXY(x, y)).filter(Boolean);
-		if (!cs.length) return qf(await ext3d());
-		area = { bbox: [Math.min(...cs.map(c => c[0])), Math.min(...cs.map(c => c[1])), Math.max(...cs.map(c => c[0])), Math.max(...cs.map(c => c[1]))] };
-	}
+	const area = queryArea(geometry); if (!area) return null;
 	const inBox = (lon, lat) => area.bbox ? lon >= area.bbox[0] && lon <= area.bbox[2] && lat >= area.bbox[1] && lat <= area.bbox[3] : false;
 	const pt = area.ll || [(area.bbox[0] + area.bbox[2]) / 2, (area.bbox[1] + area.bbox[3]) / 2];
 	const inRing = (r, x, y) => { let c = false; for (let i = 0, j = r.length - 1; i < r.length; j = i++) if ((r[i][1] > y) !== (r[j][1] > y) && x < (r[j][0] - r[i][0]) * (y - r[i][1]) / (r[j][1] - r[i][1]) + r[i][0]) c = !c; return c; };
@@ -5370,7 +5380,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const g = { type: "Polygon", coordinates: [[...q.corners, q.corners[0]]] };
 		if (touches(g)) { const { [IMAGE_KEY]: _img, ...props } = q.properties || {}; out.push({ type: "Feature", properties: props, geometry: g, layer: { id: q.id, type: "raster" }, source: "image" }); }
 	}
-	for (const f of await ext3d()) out.push(f);   // 押し出し＝geojson（スロットごと＝addLayer の層 id・ガジェット直呼びは "extrude"）と vector を立体で当てて近い順（上の ext3d）
+	if (hook) hook(out);
 	// addLayer の fill/line/circle（gint の pass）＝上の pass から・pass の中は上の層（circle→line→fill）から。点は識別（gint の identifyAt）・箱は地物ごとに当てる。
 	// MapLibre と同じく「その層が描いている地物」を層ごとに 1 件（表を組んだ時の drawn＝層の filter・zoom 域・ジオメトリの型・描く色/幅があるか・台帳 R20）
 	for (const e of [...mlPasses.values()].sort((a, b) => b.order - a.order)) {
@@ -5407,6 +5417,21 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const feats = fids ? fids.map(i => [i, upbf.getFeature(i)]) : upbf.features.map((f, i) => [i, f]).filter(([i, f]) => f?.geometry && (!uacc || uacc(i)) && touches(f.geometry));
 		for (const [i, f] of feats) if (f) out.push({ type: "Feature", id: i, properties: f.properties || {}, geometry: f.geometry, layer: { id: "user", type: "gint" }, source: "user" });
 	}
+	return out;
+};
+map.queryRenderedFeatures = async (geometry, qo = {}) => {
+	if (!Array.isArray(geometry) && geometry && typeof geometry === "object") { qo = geometry; geometry = undefined; }   // MapLibre と同じ＝第 1 引数に opts だけも可
+	if (qo.filter != null) qo = { ...qo, filter: normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter };   // 問い合わせの filter も ML の入口 1 本（旧式フィルタ・目盛り）
+	// 許し（公式例の門 §8 B・2026-09-27）＝既定 0（MapLibre と同じ・旧 3px は線に余計に当たっていた＝83 例）。単一スロットの user 層（内製・線幅を持たない）だけ従来の 3px
+	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
+	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
+	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: MAP_GS, geojson: f.geometry, pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
+	const extHits = extrudeHits(geometry || [[0, 0], [W, H]], take);   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
+	const vtxHits = vtxCtl ? vtxCtl.query(geometry || [[0, 0], [W, H]], take).catch(err => { console.warn("[query] vector extrusion", err); return []; }) : null;   // ベクタタイルの押し出し（段 8①）＝同じ当たり（extView）
+	const ext3d = async () => [...extHits, ...(vtxHits ? await vtxHits : [])].sort((a, b) => a.d - b.d).map(h => h.f);   // 押し出しは二つの経路を一つの列に・近い順（MapLibre は 3D の地物を奥行きで並べる）
+	// 上から：模様・記号・集約の丸・画像（queryUserSync の前半）→ 押し出し（hook で差し込む）→ gint の pass と user 層（後半）。点が球の外（null）＝高い屋根だけ
+	const ext = await ext3d(), area = queryArea(geometry), out = area ? queryUserSync(geometry, qo, o => o.push(...ext)) : null;
+	if (!out) return qf(ext);
 	if (vtdCtl) {   // vector source の描く層（段 8⑤）＝基図と同じ queryTiles を source ごとに（出しているタイルを取り直す）。上の層から＝層の順の鍵の大きい方から
 		const bySid = new Map();
 		for (const v of mlLayers.values()) {
@@ -5461,7 +5486,30 @@ const hitsFor = async (x, y, ids) => {   // 層 id のうちオーバーレイ�
 	return [...hits.map(overlayFeature), ...fs];
 };
 let downAt = null, hovSeq = 0, hovRaf = 0, hovLast = null;
-canvas.addEventListener("pointerdown", e => { downAt = evXY(e); }, { signal: ac.signal });
+// 押し系（C8・MapLibre 同名）＝mousedown/mouseup/touchstart/touchend/dblclick/contextmenu。同期の当たり（queryUserSync＝利用者の層だけ・基図の層は click/mousemove のみ）で
+// その場で呼ぶ＝e.preventDefault() が間に合う。mousedown で preventDefault すると地図のドラッグを捨てる（MapLibre の create-a-draggable-point と同じ手触り）。touch は points/lngLats（配列）も付ける
+const fireLayerPress = (type, e, x, y) => {
+	const ls = layerEvs.filter(L => L.ev === type); if (!ls.length) return false;
+	const ids = new Set(ls.flatMap(L => [...L.ids]));
+	const fs = queryUserSync([x, y], { layers: [...ids].filter(i => !overlays.has(i)) }) || [];
+	let prevented = false;
+	for (const L of ls) {
+		const mine = fs.filter(f => L.ids.has(f.layer?.id)); if (!mine.length) continue;
+		const ll = lngLatObj(unprojectXY(x, y)), pt = { x, y };
+		const evo = { type, point: pt, lngLat: ll, features: mine, originalEvent: e, target: map, defaultPrevented: false, preventDefault() { this.defaultPrevented = true; prevented = true; } };
+		if (type.startsWith("touch")) { evo.points = [pt]; evo.lngLats = [ll]; }
+		try { L.cb(evo); } catch (err) { console.error("[map.on %s]", type, err); }
+	}
+	return prevented;
+};
+canvas.addEventListener("pointerdown", e => {
+	downAt = evXY(e);
+	const [x, y] = downAt, touch = e.pointerType === "touch";
+	if (fireLayerPress(touch ? "touchstart" : "mousedown", e, x, y)) input.cancelDrag();
+}, { signal: ac.signal });
+canvas.addEventListener("pointerup", e => { const [x, y] = evXY(e); fireLayerPress(e.pointerType === "touch" ? "touchend" : "mouseup", e, x, y); }, { signal: ac.signal });
+canvas.addEventListener("dblclick", e => { const [x, y] = evXY(e); fireLayerPress("dblclick", e, x, y); }, { signal: ac.signal });
+canvas.addEventListener("contextmenu", e => { const [x, y] = evXY(e); fireLayerPress("contextmenu", e, x, y); }, { signal: ac.signal });
 canvas.addEventListener("click", async e => {
 	const ls = layerEvs.filter(L => L.ev === "click"); if (!ls.length) return;
 	const [x, y] = evXY(e);
