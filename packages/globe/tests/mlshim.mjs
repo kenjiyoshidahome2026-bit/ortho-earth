@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LngLat, LngLatBounds, MercatorCoordinate } from "../src/maplibre/geo.js";
+import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "../src/maplibre/geo.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.js";
 import { mercatorDz } from "../src/zoomscale.js";
 import { unsupported } from "../src/maplibre/report.js";
@@ -35,6 +35,19 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 	ok("LngLatBounds.isEmpty", new LngLatBounds().isEmpty() && !a.isEmpty());
 	const r = LngLatBounds.fromLngLat([0, 0], 111195.08);
 	ok("LngLatBounds.fromLngLat 半径", near(r.getNorth(), 1, 1e-3) && near(r.getEast(), 1, 1e-3));
+}
+
+// ── FreeCameraOptions（A3）＝向きの往復は恒等・lookAtPoint の方位と俯角 ──
+{
+	const w = a => ((a + 180) % 360 + 360) % 360 - 180;
+	const rt = [[0, 0, 0], [30, 45, 0], [60, -120, 15], [85, 170, -40], [45, 0, 90], [10, -179, 179]].every(([p, b, r]) => { const d = pitchBearingRollFromOrientation(orientationFromPitchBearing(p, b, r)); return near(d.pitch, p, 1e-9) && near(w(d.bearing - b), 0, 1e-9) && near(w(d.roll - r), 0, 1e-9); });
+	ok("FreeCameraOptions の向き＝pitch/bearing/roll の往復は恒等", rt);
+	const f = new FreeCameraOptions(MercatorCoordinate.fromLngLat([139.76, 35.68], 1000));
+	f.lookAtPoint([139.77, 35.68]); const e = pitchBearingRollFromOrientation(f.orientation);
+	f.lookAtPoint([139.76, 35.70]); const n = pitchBearingRollFromOrientation(f.orientation);
+	ok("lookAtPoint＝東は方位 90・北は 0・遠い方が寝る・roll 0", near(e.bearing, 90, 1e-9) && near(n.bearing, 0, 1e-9) && n.pitch > e.pitch && e.roll === 0 && e.pitch > 0 && e.pitch < 90, `${e.pitch.toFixed(1)} ${n.pitch.toFixed(1)}`);
+	f.setPitchBearing(30, -45); const s = pitchBearingRollFromOrientation(f.orientation);
+	ok("setPitchBearing の往復", near(s.pitch, 30, 1e-9) && near(s.bearing, -45, 1e-9));
 }
 
 // ── MercatorCoordinate ──

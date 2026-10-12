@@ -77,8 +77,10 @@ export function ellNormal3D(lon, lat) {
 	return [cb * Math.cos(a), Math.sin(b) / R_AX, cb * Math.sin(a)];
 }
 
-// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), roll(rad), fovy(rad), dpr }
+// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), roll(rad), fovy(rad), dpr, offset:[x,y] }
 // roll＝視線（boresight）まわりの回転［rad］（MapLibre の roll と同じ向き＝正で絵が時計回りに回る・2026-10-12 A1）。0＝従来とビット同値
+// offset＝注視点（center）を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の transform.centerOffset（padding の中身の中心）。消失点も一緒に動く
+//   （clip 空間の平行移動＝x'＝x＋dx·w）。無指定・[0,0]＝従来とビット同値（2026-10-12 A3）
 export function cameraState(cam, W, H) {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
 	const roll = cam.roll || 0;
@@ -132,6 +134,11 @@ export function cameraState(cam, W, H) {
 	}
 	const focal = (H / 2) / Math.tan(fovy / 2);   // 距離ベースLOD用の焦点距離(device px)
 	const projection = Float64Array.from(proj); projection[0] = -projection[0];   // 透視だけ（clip.x の反転込み＝mvp＝projection·view·S）。MapLibre の custom 層の args.projectionMatrix（inv(P)·mainMatrix で視点を取り出す書き方）用（2026-09-30）
+	const off = cam.offset;
+	if (off && (off[0] || off[1])) {   // 消失点のずらし＝clip の x,y に w の倍を足す（ndc で +dx,+dy）。行 0・1 に行 3 を足す（列優先＝添字 r, 4+r, 8+r, 12+r）
+		const dx = 2 * off[0] * dpr / W, dy = -2 * off[1] * dpr / H;
+		for (const m of [mvp, projection]) for (let c = 0; c < 4; c++) { m[4 * c] += dx * m[4 * c + 3]; m[4 * c + 1] += dy * m[4 * c + 3]; }
+	}
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal, projection };
 }
 

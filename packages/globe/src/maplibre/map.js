@@ -6,7 +6,7 @@
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
 import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup, mercatorDz } from "../globe.js";
-import { LngLat, LngLatBounds, MercatorCoordinate } from "./geo.js";
+import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "./geo.js";
 import { unsupported } from "./report.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "./util.js";
 import { GRANULARITY_GLOBE } from "./tilemesh.js";
@@ -149,6 +149,7 @@ export class Map {
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
 		if (options.renderWorldCopies === false) unsupported(self, "option renderWorldCopies: false (the globe has no world copies)", "cosmetic");
+		st.dz = (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1;   // 公開の z とエンジンの z の差（setTransformConstrain の往復に）
 		const o = {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
 			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
@@ -275,6 +276,49 @@ export class Map {
 	getMaxPitch() { return ask(this, "getMaxPitch", [], { before: 85 }); }
 	setPadding(p) { ask(this, "setPadding", [p]); return this; }
 	getPadding() { return ask(this, "getPadding", [], { before: { top: 0, bottom: 0, left: 0, right: 0 } }); }
+	fitScreenCoordinates(p0, p1, bearing, o = {}) { const xy = p => Array.isArray(p) ? p : [p.x, p.y]; ask(this, "fitScreenCoordinates", [xy(p0), xy(p1), bearing, o]); return this; }
+	// 注視点の高さ（A3・2026-10-12）＝エンジンの centerElevation を実行時に
+	setCenterClampedToGround(b) { ask(this, "setCenterClampedToGround", [!!b]); return this; }
+	getCenterClampedToGround() { return !!ask(this, "getCenterClampedToGround", [], { before: S.get(this).options.centerClampedToGround !== false }); }
+	setCenterElevation(m) { ask(this, "setCenterElevation", [m]); return this; }
+	getCenterElevation() { return ask(this, "getCenterElevation", [], { before: 0 }) ?? 0; }
+	getCameraTargetElevation() { return this.getCenterElevation(); }
+	// 可動域の自作（MapLibre 同名・A3）：fn(LngLat, zoom) → { center, zoom }（MapLibre の z）。エンジンの口はエンジンの z＝dz を往復させる
+	setTransformConstrain(fn) {
+		const st = S.get(this), dz = st.dz ?? 1;
+		ask(this, "setConstrain", [typeof fn === "function" ? v => { const r = fn(new LngLat(v.center[0], v.center[1]), v.zoom - dz); return r ? { center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : null]);
+		return this;
+	}
+	// 自由カメラ（MapLibre 同名・A3）：位置＝目の経緯度と高さ（MercatorCoordinate）・向き＝四元数（geo.js の約束）。set は位置と向きから center/zoom/pitch/bearing/roll へ分解して jumpTo
+	getFreeCameraOptions() {
+		const st = S.get(this), eng = st.engine;
+		if (!eng) return new FreeCameraOptions(MercatorCoordinate.fromLngLat(st.init.center, 0), orientationFromPitchBearing(st.init.pitch, st.init.bearing, st.init.roll));
+		const e = eng.view.eye;
+		return new FreeCameraOptions(MercatorCoordinate.fromLngLat([e.lon, e.lat], e.altM), orientationFromPitchBearing(eng.getPitch(), eng.getBearing(), eng.getRoll()));
+	}
+	setFreeCameraOptions(o) {
+		if (!o || !o.position) return this;
+		const ll = o.position.toLngLat(), alt = o.position.toAltitude();
+		const pbr = o.orientation ? pitchBearingRollFromOrientation(o.orientation) : { pitch: this.getPitch(), bearing: this.getBearing(), roll: this.getRoll() };
+		return this.jumpTo(this.calculateCameraOptionsFromCameraLngLatAltRotation(ll, alt, pbr.bearing, pbr.pitch, pbr.roll));
+	}
+	// MapLibre 同名（6.x・例 walk-around-a-map-in-first-person）＝目の経緯度・高さ［m］・方位・チルト・roll → 地面の注視点と zoom（純粋な計算・MapLibre の cameraToCenterDistance＝0.5/tan(fov/2)·高さ px・fov 36.87°）。
+	// pitch が 89° を超える（地面を見ない）時は注視点＝目の真下の点を目の高さに置く（elevation＝alt）
+	calculateCameraOptionsFromCameraLngLatAltRotation(cameraLngLat, cameraAlt, bearing, pitch, roll = 0) {
+		const c = LngLat.convert(cameraLngLat), H = S.get(this).container?.clientHeight || 600, fov = 36.86989764584402 * Math.PI / 180, c2c = 0.5 / Math.tan(fov / 2) * H;
+		const R = 6371008.8, p = Math.max(0, Math.min(89, pitch)) * Math.PI / 180, alt = Math.max(1, +cameraAlt || 0);
+		if (pitch > 89) {   // 地平線より上＝注視点は目の高さの先（距離は目の高さ分）
+			const zoom = Math.log2(c2c * 2 * Math.PI * R * Math.cos(c.lat * Math.PI / 180) / (512 * alt));
+			return { center: new LngLat(c.lng, c.lat), elevation: alt, zoom, bearing, pitch, roll };
+		}
+		const hor = alt * Math.tan(p), dist = alt / Math.cos(p);   // 地面までの水平距離・直線距離［m］
+		const d = hor / R, b = bearing * Math.PI / 180, la1 = c.lat * Math.PI / 180, lo1 = c.lng * Math.PI / 180;
+		const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+		const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+		const center = new LngLat(((lo2 * 180 / Math.PI + 540) % 360) - 180, la2 * 180 / Math.PI);
+		const zoom = Math.log2(c2c * 2 * Math.PI * R * Math.cos(la2) / (512 * dist));
+		return { center, elevation: 0, zoom, bearing, pitch, roll };
+	}
 	isMoving() { return !!ask(this, "isMoving", [], { before: false }); }
 	isZooming() { return this.isMoving(); }
 	isRotating() { return this.isMoving(); }

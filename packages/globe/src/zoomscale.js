@@ -44,6 +44,8 @@ export const MAP_MEMBERS = {
 	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
 	getRoll: "none", setRoll: "none", getVerticalFieldOfView: "none", setVerticalFieldOfView: "none",   // A1（2026-10-12）＝角度・度。zoom は運ばない
 	setHandler: "none", handlerOn: "none", setZoomSnap: "none", getZoomSnap: "none",   // A2（2026-10-12）＝handler の旗・zoomSnap は目盛りの刻み（zoom の数ではない）
+	fitScreenCoordinates: "in", setCenterClampedToGround: "none", getCenterClampedToGround: "none", setCenterElevation: "none", getCenterElevation: "none", getCameraTargetElevation: "none",   // A3（2026-10-12）
+	setConstrain: "engine",   // A3＝fn が受け取る zoom はエンジンの z（文書に明記・MapLibre の口 setTransformConstrain が dz を往復させる）
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",
