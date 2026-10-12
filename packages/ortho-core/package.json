@@ -56,6 +56,10 @@
 			"types": "./types/depthout.d.ts",
 			"default": "./src/depthout.js"
 		},
+		"./postfx": {
+			"types": "./types/postfx.d.ts",
+			"default": "./src/postfx.js"
+		},
 		"./geojson": {
 			"types": "./types/geojson.d.ts",
 			"default": "./src/geojson.js"

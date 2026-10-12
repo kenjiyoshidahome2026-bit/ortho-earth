@@ -1768,6 +1768,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
 			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
+			case "post":   post = data || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
 			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
@@ -1779,12 +1780,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
 	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
-	let dOut = null, lastLogCoef = 0;
+	let dOut = null, lastLogCoef = 0, post = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
 	function depthOut(on) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
-		if (!dOut) dOut = createDepthOutGL(gl, canvas);
+		if (!dOut) { dOut = createDepthOutGL(gl, canvas); dOut.setPost(post); }
 		const d = dOut;
-		return { begin: d.begin, abort: d.abort, end: () => { const f = d.end(); return f ? { ...f, logCoef: lastLogCoef } : null; } };
+		return { begin: d.begin, abort: d.abort, end: o => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
 	}
 	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数
