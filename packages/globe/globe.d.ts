@@ -31,7 +31,7 @@ export interface GltfAnimationInfo { index: number; name: string; duration: numb
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
 export interface AnimationState extends Required<Omit<AnimationSpec, "name" | "index">> { name: string | null; index: number | null; duration: number }
 export interface ModelHandle {
-	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta } | null;
+	readonly stats: { vertices: number; triangles: number; instances: number; mode: "anchor" | "rtc" | "ecef"; bbox: [number, number, number, number]; materials: number; textures: number; blended: number; gltf: GltfMeta; /** KHR_texture_basisu の texture がある時だけ（W5）：数・変換器で素の RGBA になった数・できなかった数（変換器が無い／読めない／壊れている） */ ktx2?: { textures: number; transcoded: number; failed: number } } | null;
 	readonly bbox: [number, number, number, number] | null; readonly name: string | null;
 	/** 模型のアニメの見出し（無ければ []） */
 	readonly animations: GltfAnimationInfo[];
@@ -50,7 +50,8 @@ export interface ModelHandle {
 	onAnimation(f: (state: AnimationState | null, model: ModelHandle) => void): () => void;
 	clear(): void; destroy(): void;
 }
-/** registry.textureTranscoders の契約（F4・契約だけ＝worker 側の読み込みは第 3 波）：url＝worker が import() する module（export transcode(bytes: Uint8Array) → { width, height, rgba }） */
+/** registry.textureTranscoders の契約（F4・W5 で結線）：url＝worker が import() する module（export transcode(bytes: Uint8Array, info: { mimeType: string }) → { width, height, rgba: Uint8Array } か その Promise）。
+ *  模型・3D Tiles の glb の KHR_texture_basisu の画像がこれで素の RGBA になる。@ortho-earth/ktx2 の ktx2Plugin() が実装を持つ */
 export interface TextureTranscoderImpl { url: string; formats?: string[] }
 /** 太陽・月の向き（F2・2026-10-12）。azimuth＝北 0・東 90（度・時計回り）・altitude＝地平 0・天頂 90（大気差なし）・enu＝天体へ向く単位ベクトル [東, 北, 上]・subpoint＝直下点（度） */
 export interface BodyPosition { time: number; subpoint: { lng: number; lat: number }; azimuth: number; altitude: number; enu: [number, number, number] }
@@ -728,7 +729,7 @@ export interface OrthoPlugin<O = Record<string, unknown>> {
 	uninstall?(map: OrthoJapanMap): void;
 }
 export function definePlugin<O = Record<string, unknown>>(spec: OrthoPlugin<O>): Readonly<OrthoPlugin<O>>;
-/** 名前→実装の表。builtin（この版が持つ物）は上書き・撤去できない。wired=false の表（lights・postEffects・textureTranscoders）は登録を受けて保つだけ＝絵はまだ変わらない（pending の PR で結線） */
+/** 名前→実装の表。builtin（この版が持つ物）は上書き・撤去できない。wired=false の表は登録を受けて保つだけ＝絵はまだ変わらない（pending の PR で結線） */
 export interface PluginRegistry<T> {
 	readonly kind: string;
 	/** true＝登録が効く。false＝受けて保つだけ（capabilities の答えは "spec"） */
@@ -769,7 +770,7 @@ export interface MapRegistry {
 	readonly lights: PluginRegistry<LightTypeImpl>;
 	/** 後処理の pass の type（F3 で結線）＝builtin は bloom/vignette/fxaa/smaa/tonemap/lut/dof/ssr。plugin の type は { apply(map, passes) } */
 	readonly postEffects: PluginRegistry<PostEffectImpl>;
-	/** テクスチャの変換器（KTX2 など）。契約は { url }（F4）・worker 側の読み込みは第 3 波＝今は受けて保つだけ（capabilities "spec"） */
+	/** テクスチャの変換器（KTX2 など）。契約は { url }（F4）・worker が import() して KHR_texture_basisu の画像を素の RGBA にする（W5）＝登録があれば capabilities "plugin" */
 	readonly textureTranscoders: PluginRegistry<TextureTranscoderImpl>;
 	/** 雲・降水の描き手（F2 で結線）＝setClouds のたびに apply(map, clouds|null) */
 	readonly clouds: PluginRegistry<CloudsImpl>;

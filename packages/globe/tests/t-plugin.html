@@ -78,6 +78,7 @@ try {
 	if (V === "gltf") {   // ⑩ glTF の口（F4）：頁で作った最小の glb（三角形 1 つ・回転のアニメ 1 本・KHR_texture_basisu を extensionsUsed に）を gadget model で読み、
 		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta/gltf.animation builtin・gltf.skin/texture.ktx2 は spec）
 		//   W4＝rigid アニメの再生：pose(time) が束の剛体変換（90° の回転＝L の trace 1・時刻 0＝null）・play で時計が進む・stop で止まる
+		//   W5＝KTX2 の変換器の結線：registry.textureTranscoders の url を worker が import() し、KHR_texture_basisu の texture を transcode → RGBA（無い＝failed・読めない url＝failed・偽の変換器＝transcoded）
 		const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false });
 		await map.once("load");
 		const json = {
@@ -92,11 +93,15 @@ try {
 		};
 		const bin = new ArrayBuffer(84), f = new Float32Array(bin, 0, 9); f.set([0, 0, 0, 10, 0, 0, 0, 10, 0]);
 		new Uint16Array(bin, 36, 3).set([0, 1, 2]); new Float32Array(bin, 44, 2).set([0, 1.5]); new Float32Array(bin, 52, 8).set([0, 0, 0, 1, 0, 0, 1, 0]);
-		const js = new TextEncoder().encode(JSON.stringify(json)), jl = (js.length + 3) & ~3;
-		const glb = new ArrayBuffer(12 + 8 + jl + 8 + 84), dv = new DataView(glb), u8 = new Uint8Array(glb);
-		dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.byteLength, true);
-		dv.setUint32(12, jl, true); dv.setUint32(16, 0x4E4F534A, true); u8.set(js, 20); for (let i = 20 + js.length; i < 20 + jl; i++) u8[i] = 0x20;
-		dv.setUint32(20 + jl, 84, true); dv.setUint32(24 + jl, 0x004E4942, true); u8.set(new Uint8Array(bin), 28 + jl);
+		const mkGlb = (json, bin) => {
+			const js = new TextEncoder().encode(JSON.stringify(json)), jl = (js.length + 3) & ~3, bl = (bin.byteLength + 3) & ~3;
+			const glb = new ArrayBuffer(12 + 8 + jl + 8 + bl), dv = new DataView(glb), u8 = new Uint8Array(glb);
+			dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.byteLength, true);
+			dv.setUint32(12, jl, true); dv.setUint32(16, 0x4E4F534A, true); u8.set(js, 20); for (let i = 20 + js.length; i < 20 + jl; i++) u8[i] = 0x20;
+			dv.setUint32(20 + jl, bl, true); dv.setUint32(24 + jl, 0x004E4942, true); u8.set(new Uint8Array(bin), 28 + jl);
+			return glb;
+		};
+		const glb = mkGlb(json, bin);
 		const h = await map.gadget.model(new File([glb], "tri.glb"), { at: [139.7671, 35.6812], fit: false });
 		ok("g.loaded", h && h.stats && h.stats.triangles === 1, JSON.stringify(h?.stats && { t: h.stats.triangles, g: !!h.stats.gltf }));
 		const g = h.gltf;
@@ -121,10 +126,35 @@ try {
 		h.setAnimation(null); ok("g.clear", h.getAnimation() === null && seen === null); off();
 		const c = map.capabilities();
 		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && map.supports("gltf.animation") && c["gltf.animation"].status === "builtin" && c["gltf.skin"].status === "spec" && c["gltf.morph"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "spec");
-		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === false);
+		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === true);
+		// W5＝変換器の結線：KHR_texture_basisu の texture（image は bufferView のでたらめな 16 バイト）を持つ glb。変換器が無い＝fallback 無し＝texture 0・成績 failed。
+		// 読めない url の変換器＝failed。偽の変換器（data: URL の module・2×2 の緑）＝transcoded 1・texture 1（worker が import() して transcode() を呼ぶ道が通る）
+		const kjson = {
+			asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+			meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 2 }, indices: 1, material: 0 }] }],
+			materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }],
+			textures: [{ extensions: { KHR_texture_basisu: { source: 0 } } }], images: [{ mimeType: "image/ktx2", bufferView: 3 }],
+			buffers: [{ byteLength: 36 + 8 + 24 + 16 }],
+			bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }, { buffer: 0, byteOffset: 44, byteLength: 24 }, { buffer: 0, byteOffset: 68, byteLength: 16 }],
+			accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 10, 0] }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 3, type: "VEC2" }],
+			extensionsUsed: ["KHR_texture_basisu"],
+		};
+		const kbin = new ArrayBuffer(84); new Float32Array(kbin, 0, 9).set([0, 0, 0, 10, 0, 0, 0, 10, 0]); new Uint16Array(kbin, 36, 3).set([0, 1, 2]); new Float32Array(kbin, 44, 6).set([0, 0, 1, 0, 0, 1]); new Uint8Array(kbin, 68, 16).fill(7);
+		const kglb = mkGlb(kjson, kbin), loadK = () => map.gadget.model(new File([kglb], "ktx.glb"), { at: [139.7671, 35.6812], fit: false });
+		const h0 = await loadK();
+		ok("k.none", h0.stats.triangles === 1 && h0.stats.textures === 0 && h0.stats.ktx2?.textures === 1 && h0.stats.ktx2.transcoded === 0 && h0.stats.ktx2.failed === 1 && h0.gltf.textureFormats.join() === "ktx2", JSON.stringify(h0.stats.ktx2));
 		map.use({ name: "tx", install(m) { m.registry.textureTranscoders.add("ktx2", { url: "https://example.invalid/ktx2.js" }); } });
-		ok("g.transcoderSpec", map.capabilities()["texture.ktx2"].status === "spec" && !map.supports("texture.ktx2") && map.registry.textureTranscoders.ownerOf("ktx2") === "tx");
-		h.clear();
+		ok("g.transcoderPlugin", map.capabilities()["texture.ktx2"].status === "plugin" && map.supports("texture.ktx2") && map.registry.textureTranscoders.ownerOf("ktx2") === "tx");
+		const h1 = await loadK();
+		ok("k.badUrl", h1.stats.textures === 0 && h1.stats.ktx2?.failed === 1, JSON.stringify({ t: h1.stats.textures, k: h1.stats.ktx2, m: h1.stats.materials }));
+		map.unuse("tx");
+		ok("k.afterUnuse", map.capabilities()["texture.ktx2"].status === "spec" && !map.registry.textureTranscoders.has("ktx2"));
+		const fake = "data:text/javascript;charset=utf-8," + encodeURIComponent("export function transcode(bytes, info) { if (bytes.length !== 16 || bytes[0] !== 7 || info.mimeType !== 'image/ktx2') throw new Error('bad input'); const rgba = new Uint8Array(16); for (let i = 0; i < 16; i++) rgba[i] = i % 4 === 1 || i % 4 === 3 ? 255 : 0; return { width: 2, height: 2, rgba }; }");
+		map.use({ name: "fake-ktx2", install(m) { m.registry.textureTranscoders.add("ktx2", { url: fake }); } });
+		const h2 = await loadK();
+		ok("k.transcoded", h2.stats.textures === 1 && h2.stats.ktx2?.transcoded === 1 && h2.stats.ktx2?.failed === 0 && map.capabilities()["texture.ktx2"].via === "fake-ktx2", JSON.stringify({ t: h2.stats.textures, k: h2.stats.ktx2 }));
+		map.unuse("fake-ktx2");
+		h2.clear();
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}

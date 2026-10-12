@@ -1,0 +1,24 @@
+{
+	"name": "@ortho-earth/ktx2",
+	"version": "0.1.0",
+	"license": "GPL-3.0-or-later",
+	"type": "module",
+	"description": "KTX2 / Basis Universal texture transcoder plugin for @ortho-earth/globe: registers a worker-side transcode() module (basis_universal WASM, loaded on first use from a library path you choose) so KHR_texture_basisu textures in glb models and 3D Tiles become plain RGBA textures.",
+	"main": "src/index.js",
+	"types": "ktx2.d.ts",
+	"exports": {
+		".": { "types": "./ktx2.d.ts", "default": "./src/index.js" },
+		"./transcode": "./src/transcode.js"
+	},
+	"sideEffects": false,
+	"scripts": {
+		"test": "node tests/t-ktx2.mjs"
+	},
+	"peerDependencies": {
+		"@ortho-earth/globe": "^1.14.0"
+	},
+	"keywords": ["ktx2", "basis", "basis-universal", "texture", "gltf", "globe", "ortho-earth"],
+	"repository": { "type": "git", "url": "git+https://github.com/kenjiyoshidahome2026-bit/ortho-earth.git", "directory": "packages/ktx2" },
+	"homepage": "https://www.ortho-earth.com/",
+	"files": ["src", "ktx2.d.ts", "LICENSE", "README.md"]
+}

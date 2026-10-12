@@ -76,7 +76,7 @@ ok("cap.pluginPost", c1["post.crt"].status === "plugin" && c1["post.crt"].via ==
 ok("cap.pluginWalk", c1["camera.walk"].status === "plugin" && c1["camera.walk"].via === "demo" && map.supports("camera.walk") && c0["camera.walk"].status === "builtin" && c1["handler.orbit"].status === "plugin" && c0["terrain.sample"].status === "builtin");
 ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "spec" && c0["sun.direction"].status === "builtin");
 ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
-ok("reg.wired", map.registry.postEffects.wired === true && map.registry.lights.wired === true && map.registry.dataKinds.wired === true && map.registry.textureTranscoders.wired === false);
+ok("reg.wired", map.registry.postEffects.wired === true && map.registry.lights.wired === true && map.registry.dataKinds.wired === true && map.registry.textureTranscoders.wired === true);
 
 // 撤去＝cleanup が呼ばれ・自分の登録が消える（tileFormats は process-wide＝残るが capabilities からは外れる）
 ok("unuse", map.unuse("demo") === true && removed === 1 && map.plugins().length === 0);
