@@ -21,6 +21,7 @@ import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（�
 import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
 import customglUrl from "./gadgets/customgl-draw.js?url";
 import { normPost } from "@ortho-earth/core/postfx";
+import { normSplat } from "./splat.js";   // F8：Gaussian splat の受け口（契約の検め・描く段は plugin）
 import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
@@ -3692,6 +3693,10 @@ map.addData = (data, o = {}) => {
 	const { kind = "points", id, before, above = false, paint, ...acc } = o;
 	if (!BUILTIN_DATA_KINDS.includes(kind)) {   // plugin の kind（registry.dataKinds・PR-F0）＝{ create(map, data, opts) → 手綱 }。知らない kind は投げる（黙って points にしない）
 		const ext = pluginHost.registry.dataKinds.get(kind);
+		if (kind === "splat") {   // F8：予約された kind＝契約（src/splat.js の SplatData か .ply/.splat/.spz の URL）はここで検める。描く段（ソート・楕円・深度）は plugin の "splat"
+			data = normSplat(data);
+			if (!ext || typeof ext.create !== "function") throw new Error(`addData: kind "splat" is a reserved contract (capabilities()["data.splat"] is "spec"); install a plugin that registers map.registry.dataKinds "splat" (see PLUGINS.md)`);
+		}
 		if (!ext || typeof ext.create !== "function") throw new Error(`addData: unknown kind "${kind}" (builtin: ${BUILTIN_DATA_KINDS.join("/")}; plugins register via map.registry.dataKinds)`);
 		return ext.create(map, data, { ...o, id: id ?? `data${++dataSeq}` });
 	}
