@@ -153,7 +153,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
 		const bytes = Math.round(bitmap.width * bitmap.height * 4 * 4 / 3);
 		memRaster += bytes;
-		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height };
+		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height, nearest: false };
 	}
 	function rasterMesh({ pos, uv, idx }) {
 		const vao = gl.createVertexArray();
@@ -206,13 +206,19 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.activeTexture(gl.TEXTURE10);
 		for (const L of rasterDraws.layers) {
 			if (L.order !== order) continue;
-			gl.uniform1f(loc(gl, rasAtlasProg, "u_opacity"), L.opacity);
+			const nearest = L.resampling === "nearest";   // raster-resampling（C4）＝層の設定をテクスチャに掛ける（1 枚のテクスチャは 1 層のもの＝毎回掛け直して安い）
 			for (const d of L.draws) {
 				const b = d.bounds;
 				if (b[2] <= bb[0] || b[0] >= bb[2] || b[3] <= bb[1] || b[1] >= bb[3]) continue;   // 窓と重ならない
+				gl.uniform1f(loc(gl, rasAtlasProg, "u_opacity"), L.opacity * (d.a ?? 1));   // a＝到着フェード（raster-fade-duration）
 				gl.uniform2f(loc(gl, rasAtlasProg, "u_tileOff"), d.nw[0] - a.win[0], d.nw[1] - a.win[1]);   // CPU f64 で差を取ってから f32
 				gl.uniform4f(loc(gl, rasAtlasProg, "u_uvT"), d.uvT[0], d.uvT[1], d.uvT[2], d.uvT[3]);
 				gl.bindTexture(gl.TEXTURE_2D, d.tex.tex);
+				if (d.tex.nearest !== nearest) {   // nearest＝拡大は最近傍・縮小は最近傍の mip（MapLibre は mip 無しの NEAREST＝球では遠景が暴れるので mip は残す・文書 §4）
+					d.tex.nearest = nearest;
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+				}
 				gl.bindVertexArray(d.mesh.vao);
 				gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
 				gnd.tiles++;

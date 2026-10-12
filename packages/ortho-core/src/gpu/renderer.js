@@ -1075,6 +1075,7 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	const gnd = { w: [null, null, null, null], n: 0, key: "", tiles: 0, bytes: 0, rasterOn: false, fillsIn: false, faces: 0 };   // faces＝直近合成で焼いた gint 面の層数（窓の和）   // 段は細かい順（前景/近/中/遠・前景は強いチルト時のみ）
 	const gndPBuf = device.createBuffer({ size: 80, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });   // GndP/GGndP：w0..w3,p
 	const rasSampler = device.createSampler({ magFilter: "linear", minFilter: "linear", mipmapFilter: "linear", maxAnisotropy: 8, addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // CLAMP＝隣接タイルの滲み防止
+	const rasSamplerN = device.createSampler({ magFilter: "nearest", minFilter: "nearest", mipmapFilter: "nearest", addressModeU: "clamp-to-edge", addressModeV: "clamp-to-edge" });   // raster-resampling:"nearest"（C4）＝拡大は最近傍・縮小は最近傍の mip
 	function rebuildBG0() {
 		elevTexView = elevTexObj ? elevTexObj.createView() : null;   // view は1回だけ作って使い回す（gint の bind group キャッシュも view 同一性で安定）
 		farTexView = farTexObj ? farTexObj.createView() : null;
@@ -1371,7 +1372,10 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (levels > 1) genMips(tex, levels);
 		const bytes = Math.round(w * h * 4 * 4 / 3);
 		memRaster += bytes;
-		return { kind: "tex", tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: rasSampler }, { binding: 1, resource: tex.createView() }] }), bytes, w, h };
+		const view = tex.createView();
+		const h_ = { kind: "tex", tex, bg: device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: rasSampler }, { binding: 1, resource: view }] }), bgN: null, bytes, w, h };
+		h_.bgOf = nearest => nearest ? (h_.bgN ||= device.createBindGroup({ layout: bglPlTex, entries: [{ binding: 0, resource: rasSamplerN }, { binding: 1, resource: view }] })) : h_.bg;   // nearest の束は要る時に 1 回
+		return h_;
 	}
 	function rasterMesh({ pos, uv, idx }) {
 		const bPos = makeBuf(pos, GPUBufferUsage.VERTEX), bUv = makeBuf(uv, GPUBufferUsage.VERTEX), bIdx = makeBuf(idx, GPUBufferUsage.INDEX);
@@ -1455,8 +1459,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 					const o = n * (RAS_SLOT / 4);
 					rasCPU[o] = d.nw[0] - a.win[0]; rasCPU[o + 1] = d.nw[1] - a.win[1]; rasCPU[o + 2] = 1 / a.win[2]; rasCPU[o + 3] = 1 / a.win[3];
 					rasCPU[o + 4] = d.uvT[0]; rasCPU[o + 5] = d.uvT[1]; rasCPU[o + 6] = d.uvT[2]; rasCPU[o + 7] = d.uvT[3];
-					rasCPU[o + 8] = L.opacity; rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;
-					tiles.push({ d, slot: n, order }); n++; gnd.tiles++;
+					rasCPU[o + 8] = L.opacity * (d.a ?? 1); rasCPU[o + 9] = 0; rasCPU[o + 10] = 0; rasCPU[o + 11] = 0;   // a＝到着フェード（raster-fade-duration）
+					tiles.push({ d, slot: n, order, nearest: L.resampling === "nearest" }); n++; gnd.tiles++;
 				}
 			}
 			const fills = [], atOf = {};   // atOf[slot][gate]＝その窓の uniform の置き場（範囲で分けても同じ置き場を使う）
@@ -1494,7 +1498,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				for (const t of tiles) {
 					if (t.order !== order) continue;
 					if (!any) { pass.setPipeline(rasAtlasPipe); any = true; }
-					pass.setBindGroup(0, rasBG, [t.slot * RAS_SLOT]); pass.setBindGroup(1, t.d.tex.bg);
+					pass.setBindGroup(0, rasBG, [t.slot * RAS_SLOT]); pass.setBindGroup(1, t.d.tex.bgOf ? t.d.tex.bgOf(t.nearest) : t.d.tex.bg);
 					pass.setVertexBuffer(0, t.d.mesh.bPos); pass.setVertexBuffer(1, t.d.mesh.bUv);
 					pass.setIndexBuffer(t.d.mesh.bIdx, "uint16"); pass.drawIndexed(t.d.mesh.count);
 				}
