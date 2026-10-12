@@ -489,8 +489,8 @@ export type RasterSpec =
 export interface CanvasHandle { getCanvas(): HTMLCanvasElement | OffscreenCanvas; play(): void; pause(): void; readonly playing: boolean; setCoordinates(c: [LonLat, LonLat, LonLat, LonLat]): CanvasHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 /** 四隅の動画の手綱（MapLibre の VideoSource と同じ名前）。setCoordinates＝四隅を差し替え（止まっていても動く） */
 export interface VideoHandle { getVideo(): HTMLVideoElement; play(): Promise<void>; pause(): void; seek(seconds: number): void; setCoordinates(corners: [LonLat, LonLat, LonLat, LonLat]): VideoHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
-export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number }
-export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean }
+export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number; /** 標本化（MapLibre の raster-resampling・既定 linear・C4） */ resampling?: "linear" | "nearest"; /** 到着フェード ms（MapLibre の raster-fade-duration・既定 300・0＝無し） */ fadeDuration?: number }
+export interface RasterInfo { id: string; kind: string; tileSize: number; minZoom: number; maxZoom: number; bbox: Bbox | null; attribution: string | null; name: string | null; order: "under" | "over"; opacity: number; hideFills: boolean; resampling?: "linear" | "nearest"; fadeDuration?: number }
 export interface RasterAPI {
 	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典）。{ video } は VideoHandle */
 	add(id: string, spec: Extract<RasterSpec, { video: unknown }>, opts?: RasterOptions): Promise<VideoHandle>;

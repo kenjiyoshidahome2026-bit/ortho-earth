@@ -13,7 +13,9 @@
 // renderer 契約（gl/renderer.js・gpu/renderer.js が実装）：
 //   rasterTex(bitmap) → { kind:"tex", bytes, … }      rasterMesh({pos,uv,idx}) → { kind:"mesh", bytes, count, … }
 //   rasterFree(handle)                                  setRasterDraws(rd | null)
-//   rd = { rev, hideFills:bool, layers:[{ order:"under"|"over", opacity, draws:[{ mesh, tex, nw:[lon,lat], bounds:[w,s,e,n], uvT:[u0,v0,su,sv] }] }] }
+//   rd = { rev, hideFills:bool, layers:[{ order:"under"|"over", opacity, resampling:"linear"|"nearest", draws:[{ mesh, tex, nw:[lon,lat], bounds:[w,s,e,n], uvT:[u0,v0,su,sv], a }] }] }
+//   resampling＝層ごとの標本化（MapLibre の raster-resampling・C4）・a＝描画 1 枚の到着フェード（0→1・MapLibre の raster-fade-duration・既定 300ms。
+//   フェード中は直下の祖先を先に描く＝親→子のクロスフェード。フェードの進行は rev を進めて合成し直す＝止まれば静止コスト 0 に戻る）
 //   窓（近/中/遠）は renderer が持つ（ベクタ塗りと同じ「地面アトラス」＝2026-09-21 RTT ドレープ統合）。renderer は rev か窓か塗りが
 //   変わった時だけアトラスを描き直し、毎フレームは標本化だけ（合成は静止中ゼロコスト）
 import { selectLOD } from "./tilecover.js";
@@ -21,6 +23,7 @@ import { tileBounds, tileLocalToLonLat, tileOutsideCoverage, tileId } from "./ti
 import { createRasterSource } from "./raster-src.js";
 
 const keyOf = (z, x, y) => `${z}/${x}/${y}`;
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
 const MAX_UP = 5;   // 祖先フォールバックの段数（v1＝3段＋高緯度補正。5 段＝1/32 の部分 uv までは絵として成立）
 
 // タイル 1 枚の格子メッシュ（純関数＝Node で検定）。頂点＝タイル北西隅からの (dlon, dlat) 度・uv＝(i/n, j/n)。
@@ -63,6 +66,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 	const CONC = lowMem ? 4 : 8;       // 同時取得数（v1 は hardwareConcurrency 本の sub-worker・ここは fetch の並列）
 	const CONC_MOVING = lowMem ? 1 : 2;   // 遷移中（飛行/入力）は絞る＝「トランジション通過点で重い層を発火させない」の一般則（着地で本来の並列へ戻る）
 	let inflight = 0, clock = 0, texBytes = 0, meshBytes = 0, drawCount = 0, gen = 0, moving = false, rev = 0, lastSig = "", sigDirty = true, texSeq = 0;
+	let fading = false;   // 直近の update で到着フェードが進行中（rasterPending に載せる＝idle が待つ）
 	let lastPendSig = "";   // rasterPending の前回の申告（変わった時だけ main へ）
 	// 未着の申告（idle / isSourceLoaded の材料・2026-09-28）＝層ごとに「開いている途中＝1」「開いた直後で一度も選抜していない＝1」「見えている選抜の未着（queued/loading/retry）の枚数」。
 	// 見えていない層（visible:false・表示域の外）は 0。合計が変わった時だけ post（main の checkIdle と isSourceLoaded が読む）
@@ -73,12 +77,12 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		for (const e of L.cache.values()) if (e.status === "queued" || e.status === "loading" || e.status === "retry") n++;
 		return n;
 	}
-	function pending() { const layers_ = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_ }; }
+	function pending() { const layers_ = {}; let total = 0; for (const L of layers.values()) { const n = pendingOf(L); if (n) { layers_[L.id] = n; total += n; } } return { total, layers: layers_, fading }; }
 	function reportPending() {
-		const p = pending(), sig = Object.entries(p.layers).map(([k, n]) => k + ":" + n).join(",");
+		const p = pending(), sig = Object.entries(p.layers).map(([k, n]) => k + ":" + n).join(",") + (p.fading ? "~" : "");
 		if (sig === lastPendSig) return;
 		lastPendSig = sig;
-		say({ type: "rasterPending", total: p.total, layers: p.layers });
+		say({ type: "rasterPending", total: p.total, layers: p.layers, fading: p.fading });   // fading＝到着フェードの最中（idle はこれも待つ＝MapLibre の hasTransition と同じ）
 	}
 	const say = m => { if (post) try { post(m); } catch { /* main が居ない（検定等）＝無害 */ } };
 
@@ -124,7 +128,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 				if (L.gen !== myGen || !layers.has(L.id)) { bitmap?.close?.(); return; }   // 世代替わり（remove/再 add）の遅着＝捨てる
 				if (!bitmap) { e.status = "empty"; }
 				else {
-					try { e.tex = renderer.rasterTex(bitmap); e.tex.id = ++texSeq; e.bytes = e.tex.bytes || 0; texBytes += e.bytes; e.status = "ready"; }
+					try { e.tex = renderer.rasterTex(bitmap); e.tex.id = ++texSeq; e.bytes = e.tex.bytes || 0; texBytes += e.bytes; e.status = "ready"; e.at = now(); }
 					catch (err) { e.status = "error"; e.tries = (e.tries || 0) + 1; console.warn("[raster] texture upload failed", err?.message); }
 					bitmap.close?.();
 				}
@@ -211,14 +215,22 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		for (const [k, e] of L.cache) if (e.status === "queued" && !keep.has(k)) L.cache.delete(k);
 		pump();
 		// 描画リスト：自身が ready ならそのまま・未着/無しなら ready な祖先の部分 uv（v1 の親フォールバック）・祖先も無ければ描かない（球の下地が透ける）
-		const draws = [];
+		// 到着フェード（raster-fade-duration・C4）：着いたばかりのタイル（at から fadeDur 未満）は a を 0→1 で描き、その間だけ直下の ready な祖先を先に描く
+		// （until＝祖先を外す時刻）＝MapLibre の親→子クロスフェード。a と until の進行は update が毎フレーム見る（選抜は走らせない）
+		const draws = [], t0 = now();
 		for (const t of sel) {
 			let z = t.z, x = t.x, y = t.y, e = L.cache.get(keyOf(z, x, y));
 			let d = 0;
 			while (!(e && e.status === "ready") && d < MAX_UP && z > 0) { z--; x >>= 1; y >>= 1; d++; e = L.cache.get(keyOf(z, x, y)); }
 			if (!(e && e.status === "ready")) continue;
-			const b = tileBounds(t.x, t.y, t.z);
-			draws.push({ mesh: meshFor(t.z, t.y), tex: e.tex, nw: [b[0], b[3]], bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z });
+			const b = tileBounds(t.x, t.y, t.z), mesh = meshFor(t.z, t.y), nw = [b[0], b[3]];
+			const fade = L.fadeDur > 0 && e.at != null && t0 - e.at < L.fadeDur;
+			if (fade) {
+				let az = z, ax = x, ay = y, ae = null, ad = d;
+				while (ad < MAX_UP && az > 0) { az--; ax >>= 1; ay >>= 1; ad++; ae = L.cache.get(keyOf(az, ax, ay)); if (ae && ae.status === "ready") break; ae = null; }
+				if (ae) draws.push({ mesh, tex: ae.tex, nw, bounds: b, uvT: ancestorUV(t.x, t.y, ad), z: t.z, a: 1, until: e.at + L.fadeDur });
+			}
+			draws.push({ mesh, tex: e.tex, nw, bounds: b, uvT: d ? ancestorUV(t.x, t.y, d) : [0, 0, 1, 1], z: t.z, a: fade ? 0 : 1, at: fade ? e.at : 0 });
 		}
 		L.draws = draws;
 		L.selN = sel.length;
@@ -244,7 +256,8 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		const wasMoving = moving; moving = !!opts?.moving;
 		if (wasMoving && !moving) { for (const L of layers.values()) L.dirty = true; pump(); }   // 着地＝絞っていた取得を本来の並列で再開
 		const key = `${cam.zoom.toFixed(3)}/${cam.center[0].toFixed(5)}/${cam.center[1].toFixed(5)}/${(cam.pitch || 0).toFixed(3)}/${(cam.bearing || 0).toFixed(3)}/${W}x${H}/${(opts?.groundR ?? 1).toFixed(4)}`;
-		let changed = false;
+		let changed = false, anyFade = false;
+		const tNow = now();
 		const rd = { rev: 0, hideFills: false, layers: [] };
 		for (const L of layers.values()) {
 			if (!L.source || !L.visible) { L.inView = false; L.fresh = false; if (L.draws.length) { L.draws = []; changed = true; } continue; }   // fresh を落とす＝伏せた層は未着に数えない
@@ -255,7 +268,19 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			else {
 				// 原点は cam.center＝カメラ不変なら off も不変（camKey が同じ＝center 同じ）
 			}
-			if (L.draws.length) rd.layers.push({ order: L.order, opacity: L.opacity, draws: L.draws });
+			let draws = L.draws;
+			if (draws.some(d => d.at || d.until)) {   // 到着フェードの進行（a を進める・済んだ祖先を外す）＝描画リストが変わる＝署名で rev が進む
+				draws = [];
+				let live = false;
+				for (const d of L.draws) {
+					if (d.until) { if (tNow >= d.until) continue; live = true; draws.push(d); continue; }
+					if (d.at) { const a = Math.min(1, (tNow - d.at) / Math.max(1, L.fadeDur)); if (a < 1) live = true; else d.at = 0; d.a = a; }
+					draws.push(d);
+				}
+				if (live) anyFade = true; else L.draws = draws;   // 全部済んだ＝以後は組み直さない
+				changed = true;
+			}
+			if (draws.length) rd.layers.push({ order: L.order, opacity: L.opacity, resampling: L.resampling, draws });
 			if (L.order === "under" && L.hideFills && L.draws.length) rd.hideFills = true;
 		}
 		evict();
@@ -267,13 +292,15 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			// 改訂番号：描画リスト（tex/uvT/位置/不透明度）が変わった時だけ進める＝静止中に到着が無ければアトラスは描き直さない。
 			// 署名を組むのは描画リストが変わり得た時（選抜が走った・層の設定が変わった・層が消えた）だけ＝静止フレームは文字列を組まない（旧＝毎フレーム・層×描画の数だけ toFixed と join）
 			if (changed || sigDirty) {
-				const sig = rd.layers.map(l => l.order + l.opacity + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6)).join(";")).join("#");
+				const sig = rd.layers.map(l => l.order + l.opacity + l.resampling + ":" + l.draws.map(d => d.tex.id + "/" + d.uvT.join(",") + "/" + d.nw[0].toFixed(6) + "," + d.nw[1].toFixed(6) + (d.a < 1 ? "~" + d.a.toFixed(3) : "")).join(";")).join("#");
 				if (sig !== lastSig) { lastSig = sig; rev++; }
 				sigDirty = false;
 			}
 			rd.rev = rev;
 		} else { lastSig = ""; sigDirty = false; }
 		renderer.setRasterDraws(rd.layers.length ? rd : null);
+		fading = anyFade;
+		if (anyFade && requestDraw) requestDraw();   // フェード中は次のフレームも要る
 		reportPending();
 		return changed;
 	}
@@ -286,7 +313,9 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			opacity: Number.isFinite(opts.opacity) ? Math.max(0, Math.min(1, opts.opacity)) : 1,
 			visible: opts.visible !== false,
 			hideFills: opts.hideFills !== undefined ? !!opts.hideFills : opts.order !== "over",   // 基図（under）は塗りを伏せる（裁定：線と注記は残す）
-			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias > 0 ? opts.tileBias : 1,   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
+			tileBias: Number.isFinite(opts.tileBias) && opts.tileBias > 0 ? opts.tileBias : 1,
+			resampling: opts.resampling === "nearest" ? "nearest" : "linear",   // MapLibre の raster-resampling（C4）＝層ごとの標本化
+			fadeDur: Number.isFinite(opts.fadeDuration) ? Math.max(0, opts.fadeDuration) : 300,   // MapLibre の raster-fade-duration（ms・既定 300）＝到着フェード   // 分割の閾の倍率（目盛り "mercator"＝タイルの z を MapLibre と同じに・globe.js の TILE_BIAS）
 			showMin: -Infinity, showMax: Infinity, cache: new Map(), queue: [], sticky: null, draws: [], dirty: true, camKey: "", selN: 0, warned: false,
 			fresh: false, inView: false,   // fresh＝開いた直後（最初の選抜まで未着 1 と数える）・inView＝直近の update で見えていた（pendingOf）
 		};
@@ -298,7 +327,7 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 			L.source = src;
 			L.showMin = Number.isFinite(opts.minZoom) ? opts.minZoom : src.minZoom - 1.5;   // 表示域＝配信下限の 1.5 段下から（v1 minZoom 門）。下は選抜爆発を避ける
 			L.showMax = Number.isFinite(opts.maxZoom) ? opts.maxZoom : Infinity;
-			const info = { id, kind: src.kind, tileSize: src.tileSize, minZoom: src.minZoom, maxZoom: src.maxZoom, bbox: src.bbox, attribution: src.attribution, name: src.name, tileType: src.tileType || null, order: L.order, opacity: L.opacity, hideFills: L.hideFills };
+			const info = { id, kind: src.kind, tileSize: src.tileSize, minZoom: src.minZoom, maxZoom: src.maxZoom, bbox: src.bbox, attribution: src.attribution, name: src.name, tileType: src.tileType || null, order: L.order, opacity: L.opacity, hideFills: L.hideFills, resampling: L.resampling, fadeDuration: L.fadeDur };
 			L.info = info;
 			L.fresh = true; L.dirty = true; requestDraw && requestDraw();
 			reportPending();   // rasterInfo より先に届く＝main は「開けた」を知る時すでに未着を知っている
@@ -332,15 +361,17 @@ export function createRaster({ renderer, requestDraw, lowMem = false, post = nul
 		if (o.hideFills != null) L.hideFills = !!o.hideFills;
 		if (o.minZoom != null) L.showMin = o.minZoom;
 		if (o.maxZoom != null) L.showMax = o.maxZoom;
+		if (o.resampling === "nearest" || o.resampling === "linear") L.resampling = o.resampling;
+		if (o.fadeDuration != null && Number.isFinite(o.fadeDuration)) L.fadeDur = Math.max(0, o.fadeDuration);
 		L.dirty = true; sigDirty = true; requestDraw && requestDraw();
 		return true;
 	}
 	function stats() {
-		const out = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: BUDGET };
+		const out = { layers: [], texBytes, meshBytes, draws: drawCount, meshes: meshes.size, inflight, budget: BUDGET, fading };
 		for (const L of layers.values()) {
 			let ready = 0, loading = 0, empty = 0, error = 0;
 			for (const e of L.cache.values()) { if (e.status === "ready") ready++; else if (e.status === "loading" || e.status === "queued") loading++; else if (e.status === "empty") empty++; else error++; }
-			out.layers.push({ id: L.id, kind: L.source?.kind || null, ready, loading, empty, error, selected: L.selN, draws: L.draws.length, order: L.order, opacity: L.opacity, visible: L.visible, hideFills: L.hideFills });
+			out.layers.push({ id: L.id, kind: L.source?.kind || null, ready, loading, empty, error, selected: L.selN, draws: L.draws.length, order: L.order, opacity: L.opacity, visible: L.visible, hideFills: L.hideFills, resampling: L.resampling, fadeDuration: L.fadeDur, fading: L.draws.some(d => d.at || d.until) });
 		}
 		return out;
 	}
