@@ -238,15 +238,20 @@ in vec3 a_normal;   // glTF 実法線を ortho へ変換済
 uniform vec3 u_meshOrigin;   // メッシュ重心＝単位球の錨。絶対位置 = u_meshOrigin + a_pos
 uniform vec4 u_clipMesh;     // mvp*[u_meshOrigin,1]（CPU double）＝MVP相殺回避の錨（旧: シェーダ内 float32 で算出＝錨が相殺）
 uniform vec4 u_liftBounds;   // DTM(裸地=DEM10B)保証域 [lng0,lat0,spanLng,spanLat]。外＝接地リフトしない（DSM=ビル天端でリフトすると屋根が斜面に裂ける）
+uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニメ・W4）：1＝a_pos を u_xfL·a_pos + u_xfT（原点相対）に写し法線も回す。0＝素通し（ビット同一）
+uniform mat3 u_xfL;
+uniform vec3 u_xfT;
 ${PROJECT}
 out vec3  v_n;      // 実法線
 out vec3  v_toEye;  // 視線ベクトル（巻き順に依存せず法線を表向きへ）
 out float v_front;  // >0 で手前半球
 out float v_fog;
 void main() {
-	vec3 wp = u_meshOrigin + a_pos;                              // 絶対位置（陰影・フォグ・半球判定用＝粗くて可）
+	vec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま
+	vec3 wp = u_meshOrigin + ap;                                 // 絶対位置（陰影・フォグ・半球判定用＝粗くて可）
 	vec3 dir = normalize(wp);
 	v_n = a_normal;
+	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
 	v_toEye = u_eye - wp;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
@@ -267,7 +272,7 @@ void main() {
 	float inX = smoothstep(0.0, 0.05, min(lon - u_liftBounds.x, u_liftBounds.x + u_liftBounds.z - lon));
 	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
 	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
-	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
+	gl_Position = u_clipMesh + u_mvp * vec4(ap + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
 	applyLogDepth();
 }`;
 
