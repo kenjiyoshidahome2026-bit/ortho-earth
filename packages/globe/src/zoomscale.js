@@ -78,6 +78,9 @@ export const MAP_MEMBERS = {
 	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", makeProjector: "none", makeProjectorH: "none",
 	onFrame: "none", requestDraw: "none", requestSnapshot: "none", setOpacity: "none", setEditClick: "none", pinRes: "none",
 	overlay: "engine",   // worker の overlay 契約の cam はエンジン z
+	// deck.gl 差分（PR-1〜8・2026-10-11〜12）：overlay の統一 picking・H3・three.js・addData・セル／等高線／画面格子／集約・custom 層の口・後処理。座標は lon/lat・画素＝z の換算なし
+	pickOverlays: "none", addThree: "none", addH3: "none", addData: "none", addCells: "none", addContour: "none", addScreenGrid: "none", addAggregate: "none", getCustomLayerHandle: "none",
+	setPostProcess: "none", getPostProcess: "none",
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他
