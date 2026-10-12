@@ -1709,7 +1709,13 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 
 // --- 球面フライト：実装は engine（flight.js＝三段振り付け＋van Wijk厳密解）。ここは配線だけ。
 // onFlying＝autoMesh のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
-const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
+// 時計の口（C10・2026-10-12）＝map.setNow(ms) が動きの時計（飛行・paint の transition・共通の時計の刻み）を止める／進める＝決定論の撮影（同じ setNow の列は同じ絵）。restoreNow で実時間へ
+let nowPin = null; const animNow = () => nowPin ?? performance.now();
+// 動きを減らす（C10・MapLibre の prefers-reduced-motion と同じ意味）＝easeTo／flyTo／fitBounds は essential:true でなければ jumpTo。opts.reduceMotion（true／false・無指定＝OS の設定を追う）
+const reduceMq = typeof matchMedia === "function" ? matchMedia("(prefers-reduced-motion: reduce)") : null;
+let reduceMotionOpt = typeof opts.reduceMotion === "boolean" ? opts.reduceMotion : null;
+const reduceMotionOn = () => reduceMotionOpt ?? !!reduceMq?.matches;
+const flightCtl = createFlight({ now: animNow, stepMax: () => nowPin != null ? Infinity : 35, cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
 	if (f) input.stop();   // 飛行が始まったら慣性・ズームの滑りは止める（A2）
 	if (!f && gint.suppressAdmin0) { gint.suppressAdmin0 = false; gint.updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
@@ -1717,6 +1723,7 @@ const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur
 // flyTo をラップ：両端が z≥ADMIN0_Z（coast 表示条件外）なら飛行中の海岸線を抑制＝弧の中間の低ズームで
 // loadAdmin0 を誘発しない（描画も出さない）。片方でも coast 条件内なら従来どおり（端の海岸線をポップさせない）。
 const flyTo = (lon, lat, zoom, tiltDeg, bearingDeg) => {
+	if (reduceMotionOn()) { map.jumpTo({ center: [lon, lat], zoom, pitch: tiltDeg, bearing: bearingDeg }); return Promise.resolve(); }   // 動きを減らす（C10）＝即座に
 	gint.suppressAdmin0 = cam.zoom >= gint.ADMIN0_Z && zoom >= gint.ADMIN0_Z;
 	if (gint.suppressAdmin0) gint.updateGintSlot();   // 既に coast がスロットに載っていれば離陸前に降ろす
 	return flightCtl.flyTo(lon, lat, zoom, tiltDeg, bearingDeg);
@@ -2258,7 +2265,7 @@ function frame() {
 	if (destroyed) return;   // destroy 後はループを再予約しない＝rAF が自然消滅
 	// 共通の時計を進める（#42）：実時間は Date.now に張り付くので何もしない。早送り/巻き戻し中だけ積算し、惑星・日時計・太陽系圏を追わせる。
 	// worker の基準は 1 秒ごとに送り直す（main の積算は dt を 0.1 秒で頭打ち＝裏タブ復帰の跳びを防ぐ solar の流儀／worker は壁時計で外挿＝その差を詰める）
-	const nowT = performance.now(), dtC = Math.min(0.1, (nowT - clockLastT) / 1000); clockLastT = nowT;
+	const nowT = performance.now(), aNow = animNow(), dtC = Math.min(0.1, Math.max(0, (aNow - clockLastT) / 1000)); clockLastT = aNow;   // 共通の時計の刻みは動きの時計で（setNow で止まる・C10）
 	if (clock.playing && !clock.isLive()) {
 		clock.tick(dtC); sky.timeChanged();
 		if (cam.zoom < STARSKY_Z) needsDraw = true;
@@ -2573,11 +2580,12 @@ function clampCamLimits() {
 	cam.center[0] = d(w) <= d(e) ? w : e;
 }
 map.jumpTo = (o = {}) => { flightCtl.cancel(); if (o.elevation != null && Number.isFinite(+o.elevation)) centerElevFixed = +o.elevation; const t = camTarget(o); cam.center = [t.lon, t.lat]; cam.zoom = t.zoom; cam.pitch = Math.max(0, Math.min(maxPitchCur, t.pitch)); cam.bearing = t.bearing; cam.roll = t.roll; onMove(); return map; };
-map.easeTo = (o = {}) => o.animate === false ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
+const noAnim = o => o.animate === false || (!o.essential && reduceMotionOn());   // animate:false・動きを減らす（essential:true は例外＝MapLibre と同じ・C10）
+map.easeTo = (o = {}) => noAnim(o) ? (map.jumpTo(o), Promise.resolve()) : flightCtl.easeTo(camTarget(o), o.duration ?? 500);
 // flyTo：従来の位置引数（lon, lat, zoom, tiltDeg, bearingDeg）に加え、MapLibre の形 flyTo({ center, zoom, pitch, bearing, padding, animate })
 map.flyTo = (a, ...rest) => {
 	if (a == null || typeof a !== "object" || Array.isArray(a)) return flyTo(a, ...rest);
-	if (a.animate === false) { map.jumpTo(a); return Promise.resolve(); }
+	if (noAnim(a)) { map.jumpTo(a); return Promise.resolve(); }
 	const t = camTarget(a);
 	if (t.roll !== (cam.roll || 0)) { cam.roll = t.roll; }   // roll は飛行の振り付けに無い＝離陸で書く（easeTo は補間する）
 	return flyTo(t.lon, t.lat, t.zoom, t.pitch * R2D, t.bearing * R2D);   // 省略した角は今の値（MapLibre の意味論）
@@ -2598,8 +2606,8 @@ map.cameraForBounds = (bounds, o = {}) => {
 map.fitBounds = (bounds, o = {}) => {
 	const c = map.cameraForBounds(bounds, o);
 	if (!c) return Promise.resolve();
-	if (o.animate === false) { map.jumpTo(c); return Promise.resolve(); }
-	return o.linear ? map.easeTo({ ...c, duration: o.duration }) : map.flyTo(c);
+	if (noAnim(o)) { map.jumpTo(c); return Promise.resolve(); }
+	return o.linear ? map.easeTo({ ...c, duration: o.duration, essential: o.essential }) : map.flyTo({ ...c, essential: o.essential });
 };
 map.setPadding = p => { camPadding = padOf(p ?? 0); syncOffset(); onMove(); return map; };
 map.getPadding = () => ({ ...camPadding });
@@ -2795,6 +2803,13 @@ map.setHandler = (name, on) => { input.setHandler(name, on); return map; };
 map.handlerOn = name => input.handlerOn(name);
 map.setZoomSnap = v => { input.setZoomSnap(v); return map; };
 map.getZoomSnap = () => input.zoomSnap();
+// 時計と動き（C10・2026-10-12）：setNow(ms)＝動きの時計を ms に止める（続けて呼べば進む・飛行／transition／共通の時計の刻みが従う）・restoreNow＝実時間へ・getNow＝今の動きの時計。
+// setReduceMotion(true|false|null)＝動きを減らす（null＝OS の prefers-reduced-motion を追う）・getReduceMotion＝今の値
+map.setNow = ms => { nowPin = Number.isFinite(+ms) ? +ms : null; needsDraw = true; return map; };
+map.restoreNow = () => { nowPin = null; clockLastT = performance.now(); needsDraw = true; return map; };
+map.getNow = () => animNow();
+map.setReduceMotion = v => { reduceMotionOpt = typeof v === "boolean" ? v : null; return map; };
+map.getReduceMotion = () => reduceMotionOn();
 // 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
 map.getBounds = () => {
 	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）
@@ -4807,7 +4822,7 @@ map.moveLayer = (id, beforeId) => {
 const relayer = v => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : v.kind === "cluster" ? rebuildCluster(srcId(v.layer)) : mountLayer(v)) : null;
 // paint の transition（B1・2026-10-12・MapLibre の `*-transition`・style の根の `transition`・既定 300ms）：利用者の層（mlLayers）だけ。数・色・数の配列を rAF ごとに補間して描き直す
 // （gint＝fid 表の書き換え・他＝relayer）。式は補間しない（MapLibre も同じ）。基図の層（restyleBase＝組み直し）とその他の層（描かない）は即時。getPaintProperty は set した目標値を返す
-const transitions = createTransitions();
+const transitions = createTransitions({ now: animNow });   // 時計＝map.setNow で止められる（C10）
 const TR_KEY = (id, name) => `${id}\u0000${name}`;
 const styleTransitionOf = () => EXT?.ms?.transition ?? null;
 const NO_TRANSITION = new Set(["raster-fade-duration"]);   // style-spec で transition:false の数の paint（補間しない＝即時）
