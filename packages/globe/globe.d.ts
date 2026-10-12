@@ -24,7 +24,7 @@ export type LightSpec =
 	| { id?: string; type: "ibl"; url: string; intensity?: number; rotation?: number; background?: boolean }
 	| { id?: string; type: string; [k: string]: unknown };
 /** glTF の見出し（F4・2026-10-12・src/gltf-meta.js）＝模型に何が入っているか。animations＝名前・長さ（秒）・channel の数・target の path。textureFormats＝画像の形式（"ktx2" なら KHR_texture_basisu＝変換器が要る）。
- *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る。再生・変換・当たりは描かない（口だけ） */
+ *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る（W7 から pick・queryRenderedFeatures・setFeatureState で当たる）。structuralMetadata＝EXT_structural_metadata が在る */
 export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean }
 export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
 /** 再生の spec（W4 から rigid アニメ＝ノードの translation/rotation/scale は描く・skin/morph は spec のまま）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
@@ -48,8 +48,19 @@ export interface ModelHandle {
 	readonly animating: boolean;
 	/** setAnimation のたびに呼ばれる（plugin が再生を担う口）。戻り値で解除 */
 	onAnimation(f: (state: AnimationState | null, model: ModelHandle) => void): () => void;
+	/** 画面の点（CSS px）に一番手前で重なる三角形と地物（第 3 波 W7）。featureId＝EXT_mesh_features（load の featureIdSet の組・attribute か implicit）か _BATCHID の番号・無ければ null（模型そのもの）。
+	 *  properties＝EXT_structural_metadata の property table（b3dm は batch table）の行。load({ pickable: false }) では null。queryRenderedFeatures の層 "model" も同じ当たり */
+	pick(x: number, y: number): MeshPick | null;
+	/** 地物の見出し（番号を持つプリミティブの数・texture の番号の数・property table の名前・行数・列名） */
+	readonly features: { primitives: number; texture: number; tables: Array<{ name: string | null; class: string | null; count: number; columns: string[] }> } | null;
+	/** feature state（MapLibre の setFeatureState と同じ置き場）。{ color: CSS 色 } は描きに効く（その地物の頂点色を差し替え＝テクスチャに掛かる）。他の鍵は保つだけ（pick の state に出る）。null で外す */
+	setFeatureState(featureId: number, state: Record<string, unknown> | null): ModelHandle;
+	getFeatureState(featureId: number): Record<string, unknown>;
+	removeFeatureState(featureId?: number): ModelHandle;
 	clear(): void; destroy(): void;
 }
+/** 模型・3D Tiles の当たり（W7）。table＝property table の番号・名前・class（無ければ null）・distance＝奥行き（clip の w・小さいほど手前）・state＝feature state の写し */
+export interface MeshPick { featureId: number | null; properties: Record<string, any>; table: { index: number; name: string | null; class: string | null } | null; distance: number; lngLat: [number, number]; state: Record<string, unknown>; batch?: number; tile?: string }
 /** registry.textureTranscoders の契約（F4・W5 で結線）：url＝worker が import() する module（export transcode(bytes: Uint8Array, info: { mimeType: string }) → { width, height, rgba: Uint8Array } か その Promise）。
  *  模型・3D Tiles の glb の KHR_texture_basisu の画像がこれで素の RGBA になる。@ortho-earth/ktx2 の ktx2Plugin() が実装を持つ */
 export interface TextureTranscoderImpl { url: string; formats?: string[] }
@@ -374,7 +385,7 @@ export interface Gadgets {
 	 */
 	dropFile(opts?: { onLoad?(pbf: GeoPBF, file: File): void; loadFile?(file: File): Promise<GeoPBF | { length?: number } | null>; clearGint?(): void }): { say(text: string, sticky?: boolean): void; clear(): void; destroy(): void } | (() => void);
 	/** glTF/GLB（3D 模型）を PLATEAU と同じ建物メッシュとして立てる（法線陰影・両面・地形に接地。マテリアル＝baseColor の factor×頂点色×テクスチャ・マテリアルごとに 1 バッチ）。at＝置き場所（省略＝画面中心）／glb に CESIUM_RTC・ECEF が埋まっていればそちらが勝つ。真俯瞰では建物ごと描かれない（fit はチルト付き） */
-	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean }): Promise<ModelHandle>;
+	model(src: File | string, opts?: { at?: [number, number]; heading?: number; scale?: number; name?: string; fit?: boolean; textures?: boolean; /** 当たりの写しを持つか（W7・既定 true） */ pickable?: boolean; /** EXT_mesh_features の何組目の番号で当てるか（W7・既定 0） */ featureIdSet?: number }): Promise<ModelHandle>;
 	/** 任意ポリゴンの 3D 押し出し（MapLibre の fill-extrusion 相当）。src＝GeoJSON（Feature/FeatureCollection/features 配列）・GeoPBF・File・URL。
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
@@ -704,12 +715,19 @@ export interface ClipOptions {
 /** 3D Tiles の取得の前の手入れ（F5・2026-10-12）＝この tileset の全ての要求（tileset.json・外部 tileset＝type "Source"、タイルの本体＝"Tile"）に、地図の transformRequest の後で掛かる。
  *  戻り＝{ url?, headers?, credentials? }（null＝そのまま）。鍵・session の付与（Google Photorealistic 3D Tiles 等）や署名つき URL への差し替えは呼び手の closure で（鍵を repo に置かない） */
 export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
-export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform }
+/** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
+export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number }
 export interface Tiles3DHandle {
 	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
 	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
+	/** 画面の点（CSS px）の当たり（W7）＝ModelHandle.pick と同じ形（tile＝当たったタイルの id）。queryRenderedFeatures の層＝この tileset の id（type "3d-tiles"） */
+	pick(x: number, y: number): MeshPick | null;
+	/** feature state（tileset ごと・タイルを跨いで同じ番号＝同じ地物）。{ color } は描きに効く・後から読んだタイルにも効く */
+	setFeatureState(featureId: number, state: Record<string, unknown> | null): Tiles3DHandle;
+	getFeatureState(featureId: number): Record<string, unknown>;
+	removeFeatureState(featureId?: number): Tiles3DHandle;
 }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
