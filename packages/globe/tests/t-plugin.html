@@ -12,6 +12,30 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "terrain") {   // ⑫ 地形の一括標本と歩行の口（F6）：sampleTerrain＝配列・object・GeoJSON を受け getHeight と同じ値・順番が保たれる。walk＝中身が無ければ spec を保つだけ・plugin の "walk" を入れると動く
+		const map = await createGlobe({ target: "#map", view: "#12/35.36/138.73", chips: false, persistView: false });   // 富士山
+		await map.once("load");
+		const pts = [[138.7274, 35.3606], [139.7671, 35.6812], { lng: 138.80, lat: 35.30 }];
+		const r = await map.sampleTerrain(pts);
+		const ref = await Promise.all([map.getHeight(138.7274, 35.3606), map.getHeight(139.7671, 35.6812), map.getHeight(138.80, 35.30)]);
+		ok("s.shape", r.length === 3 && r[0].lng === 138.7274 && r[2].lat === 35.30 && r.every(x => Number.isFinite(x.height)), JSON.stringify(r));
+		ok("s.sameSource", r.every((x, i) => Math.abs(x.height - ref[i]) < 1e-6), `${r.map(x => x.height.toFixed(1))} vs ${ref.map(v => v.toFixed(1))}`);
+		ok("s.fuji", r[0].height > 3000 && r[1].height < 100, `fuji=${r[0].height.toFixed(0)} tokyo=${r[1].height.toFixed(0)}`);
+		const gj = await map.sampleTerrain({ type: "Feature", geometry: { type: "LineString", coordinates: [[138.7274, 35.3606], [138.75, 35.37]] } });
+		ok("s.geojson", gj.length === 2 && gj[0].height > 3000);
+		ok("s.empty", (await map.sampleTerrain([])).length === 0);
+		ok("s.caps", map.supports("terrain.sample") && !map.supports("camera.walk") && map.capabilities()["camera.walk"].status === "spec");
+		const w = map.walk({ speed: 2 });
+		ok("w.spec", w.opts.speed === 2 && w.opts.eyeHeight === 1.7 && w.active === false && w.start() === false && w.active === false);
+		let started = 0, stopped = 0, gotOpts = null;
+		map.use({ name: "legs", install(m) { m.registry.handlers.add("walk", { create: (mm, o) => { gotOpts = o; let on = false; return { start() { on = true; started++; }, stop() { on = false; stopped++; }, get active() { return on; } }; } }); } });
+		const w2 = map.walk({ eyeHeight: 1.2 });
+		ok("w.plugin", gotOpts.eyeHeight === 1.2 && w2.start() === true && w2.active === true && started === 1 && map.supports("camera.walk") && map.capabilities()["camera.walk"].via === "legs");
+		w2.stop(); ok("w.stop", w2.active === false && stopped === 1);
+		map.unuse("legs"); ok("w.afterUnuse", !map.supports("camera.walk") && map.walk().start() === false);
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "tiles3d") {   // ⑪ 3D Tiles の requestTransform（F5）：tileset.json・外部 tileset（Source）とタイル（Tile）の全要求が通る・URL の書き換えが効く（?rt=1 でも読める）・handle に root の見出し・capabilities builtin
 		const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", chips: false, persistView: false });
 		await map.once("load"); await new Promise(r => setTimeout(r, 1500));
