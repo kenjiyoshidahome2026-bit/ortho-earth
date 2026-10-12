@@ -898,11 +898,11 @@ const open = name => {
 };
 for (const c of document.querySelectorAll(".card")) { c.onclick = () => open(c.dataset.name); c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.dataset.name); } }; }
 // Run＝同じ本文を通訳で走らせる走らせ台の頁を、この窓の中（iframe）で（タブを増やさない・2026-09-30 本人）。もう一度で止める
-$("run").onclick = () => { if (!$("fr").hidden) return stop(); const fr = $("fr"); fr.hidden = false; fr.innerHTML = '<iframe src="' + (RUN ? RUN[cur] : BASE + "/ortho/test/examples/" + cur + ".html") + '" allow="fullscreen" loading="eager"></iframe>'; $("run").textContent = "Stop"; $("run").classList.add("on"); };
+$("run").onclick = () => { if (!$("fr").hidden) return stop(); const fr = $("fr"); fr.hidden = false; const f = document.createElement("iframe"); f.src = RUN ? RUN[cur] : BASE + "/ortho/test/examples/" + cur + ".html"; f.allow = "fullscreen"; f.loading = "eager"; fr.replaceChildren(f); $("run").textContent = "Stop"; $("run").classList.add("on"); };   // 要素で組む（HTML の文字列を組まない）
 $("cl").onclick = () => dlg.close();
 dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
 dlg.onclose = () => { stop(); history.replaceState(null, "", location.pathname + location.search); };
 $("cp").onclick = async () => { const b = $("cp"); try { await navigator.clipboard.writeText(P[cur].html); } catch { const r = document.createRange(); r.selectNodeContents($("dc")); const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r); document.execCommand("copy"); sel.removeAllRanges(); } b.textContent = "Copied"; b.classList.add("ok"); setTimeout(() => { b.textContent = "Copy"; b.classList.remove("ok"); }, 1400); };
 $("dl").onclick = () => { const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([P[cur].html], { type: "text/html" })); a.download = cur + ".html"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000); };
-if (location.hash.length > 1 && P[location.hash.slice(1)]) open(location.hash.slice(1));
+{ const h = location.hash.slice(1), k = Object.keys(P).find(x => x === h); if (k) open(k); }   // 開く名前は一覧の鍵から取る（URL の文字をそのまま使わない）
 </script></body></html>
