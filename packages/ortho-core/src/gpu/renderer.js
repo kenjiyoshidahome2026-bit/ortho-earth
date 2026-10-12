@@ -985,7 +985,8 @@ export async function createRendererGPU(canvas, rOpts = {}) {
 	// 静的 view（色・見た目）と海ゲート＝gl/renderer.js と同じ意味論
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
 	let warnedPL = false;   // 可視バッチの上限超え（MAX_PL_BATCH）の警告は 1 回だけ
-	const fogK = () => (view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（MapLibre の口の既定＝MapLibre は fog を持たない・2026-09-30）＝近/遠を実質無限へ（遠景の平ら化も外れる）
+	let sky = null;   // style の sky（B4）＝{ fog:[r,g,b], groundBlend, … }｜null。WebGPU では霧の色と濃さだけ写す（空の絵は従来どおり）
+	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（MapLibre の口の既定＝MapLibre は fog を持たない・2026-09-30）＝近/遠を実質無限へ（遠景の平ら化も外れる）
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＋worldPalBuf へ書込）。globe/terrain/wdepr は
 	// 同一バッファを読む＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。gl/renderer.js worldPal() と対。
 	let wpalSrc = false, wpal = null, seaSrc = null;   // 初期 false＝worldHypso が null でも初回は必ず書く
@@ -1746,6 +1747,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		a[at + 8] = u.Y[0]; a[at + 9] = u.Y[1]; a[at + 10] = u.Y[2]; a[at + 11] = 0;
 		a[at + 12] = u.E[0]; a[at + 13] = u.E[1]; a[at + 14] = u.E[2]; a[at + 15] = u.c;
 	}
+	const fogColorOf = c => (sky ? sky.fog : c);   // style の sky の fog-color（B4）＝霧の色の最優先（基図・建物・地形の遠山ブルーも）
 	function packFrame(st, origin, fogNear, fogFar, fogColor, logCoef, dpr, mesh, farPass) {
 		const f = frameF32;
 		f.set(st.mvp, 0);
@@ -1993,23 +1995,23 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		if (userOn) slotsG.push("user");
 		const gndJob = prepareGround(cam, terrainActive, slotsG);
 		// Frame 4スロット：base/main=fill/line（fogFar=cap）、terrain=遠山ブルー、bld=既定fog(2.5×/14×)
-		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, land, logCoef, dpr));
-		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), fogFarCap, land, logCoef, dpr));
+		device.queue.writeBuffer(frameBuf, SLOT.base * FRAME_SLOT, packFrame(st, scenes.base.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));
+		device.queue.writeBuffer(frameBuf, SLOT.main * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));
 		const dc = view.distColor || [0.63, 0.72, 0.83];   // 空気遠近法＝遠くの山は青く霞む
-		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, dc, logCoef, dpr, terrain ? terrain.mesh : null));
+		device.queue.writeBuffer(frameBuf, SLOT.terrain * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain ? terrain.mesh : null));
 		const farActive = terrainActive && far.has && !!farTexObj;   // 遠景メッシュパス（terrain slot と同 fog・mesh=遠窓・farPass=1）
-		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, dc, logCoef, dpr, far.bounds, 1));
+		if (farActive) device.queue.writeBuffer(frameBuf, SLOT.terrainFar * FRAME_SLOT, packFrame(st, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK(), fogFarCap, fogColorOf(dc), logCoef, dpr, far.bounds, 1));
 		// 地形チャンクの可視区間（P4 step B）＝近窓・遠窓それぞれ（同じ単位格子・別の窓）。カメラの行列が同じ静止フレームでも安い（256 箱×20 点）
 		const nearRuns = terrainActive ? terrRuns(terrain.mesh, st, "near") : null;
 		const farRuns = farActive ? terrRuns(far.bounds, st, "far") : null;
 		if (!farActive) { terrStat.far.drawn = 0; terrStat.far.of = 0; }
-		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr));
-		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, land, logCoef, dpr));   // base/main と同じ fog
+		device.queue.writeBuffer(frameBuf, SLOT.bld * FRAME_SLOT, packFrame(st, mainOrigin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr));
+		if (userOn) device.queue.writeBuffer(frameBuf, SLOT.user * FRAME_SLOT, packFrame(st, scenes.user.origin || [0, 0], st.fogDist * 2.5 * fogK(), fogFarCap, fogColorOf(land), logCoef, dpr));   // base/main と同じ fog
 		if (shWin) {   // 影：太陽の正射影の Frame（落とす側）と ShadowP（受け手）
 			shadowRes();
-			device.queue.writeBuffer(sh.frameB, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: shWin.eye, rays: st.rays }, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, land, logCoef, dpr));
+			device.queue.writeBuffer(sh.frameB, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: shWin.eye, rays: st.rays }, mainOrigin, st.fogDist * 2.5, st.fogDist * 14.0, fogColorOf(land), logCoef, dpr));
 			// 地形を落とす側（#112 段 2）＝terrain スロットと同じ窓・同じ距離フェード（eye はカメラ＝画面の地形と同じ形）で行列だけ太陽
-			if (terrainActive) device.queue.writeBuffer(sh.frameT, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays }, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, dc, logCoef, dpr, terrain.mesh));
+			if (terrainActive) device.queue.writeBuffer(sh.frameT, 0, packFrame({ mvp: shWin.mvp, invMvp: st.invMvp, eye: st.eye, rays: st.rays }, mainOrigin, Math.max(st.fogDist * 1.2, 0.008 * pfFog), fogFarCap, fogColorOf(dc), logCoef, dpr, terrain.mesh));
 			const oPt = lonlatTo3D(mainOrigin[0], mainOrigin[1]), cT = mat.transform(shWin.mvp, [oPt[0], oPt[1], oPt[2], 1]), u = sh.cpu;
 			u.set(shWin.mvp, 0);
 			u[16] = cT[0]; u[17] = cT[1]; u[18] = cT[2]; u[19] = cT[3];
@@ -2211,7 +2213,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// 描画順が精度を代替（2026-09-01 本人指摘）：海側だけ焼きが正確（admin0海岸線でクリップ）ならよく、
 		// 湖側は上に乗る湖の塗り・陸側は cover（landK=1 のハイプソ本体）が外側と同色に溶ける。gl/renderer.js と対。
 		if (worldHypsoK > 0 && !rasterBase) {
-			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr);   // fog:false＝overlay も霧なし（GL は setCommonUniforms が fogK を掛ける）
+			const packOv = (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr);   // fog:false＝overlay も霧なし（GL は setCommonUniforms が fogK を掛ける）
 			drawWdepr(pass, packOv, st);
 			// 湖（NE lakes）＝wdepr の上・タイルの下（海→海面下→湖→陸の順のまま供給源だけ NE へ 2026-09-03）
 			drawLakes(pass, packOv, st, worldHypsoK);
@@ -2286,7 +2288,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			});
 		}
 		// overlay（外部ベクタ=geopbf/e-Stat/N02）：基図の上・建物の下・深度off。per-scene origin の Frame を渡す
-		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr), cam.zoom || 0);
+		drawOverlay(pass, st, (origin) => packFrame(st, origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr), cam.zoom || 0);
 		// 10度レチクル（v1「地図の上に重ねる」と同じ最前面・ラベルの下）。出現度は globe UBO の seaC.w に書き込み済み
 		if (!flat2d && view.graticule && globeBG && cam.zoom > 1.7 && cam.zoom < whZ) {   // 退場は世界ハイプソと同じ帯（出現度 seaC.w も whZ でフェード＝GL と同じ・旧 6.5 固定は地域の申告が無い器で z6.5〜8 の罫線を切っていた）
 			pass.setPipeline(P.grat);
@@ -2333,7 +2335,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		// ★常時描画（show3d/skipMain ゲート無し＝GL 同等）＝真俯瞰(elevScaleEff=0)は海面の平面、チルトで地形へ立ち上がる（GL と同じモーフ）。
 		if (gintBld) {
 			ensureOvFrameBG();
-			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), land, logCoef, dpr));
+			device.queue.writeBuffer(ovFrameBuf, GB_SLOT * FRAME_SLOT, packFrame(st, gintBld.origin, st.fogDist * 2.5 * fogK(), st.fogDist * 14.0 * fogK(), fogColorOf(land), logCoef, dpr));
 			pass.setBindGroup(0, ovFrameBG, [GB_SLOT * FRAME_SLOT]);   // Frame＝origin 共有＝バッチ間で同一
 			pass.setBindGroup(2, emptyMaskBG);   // マスク無し（count=0＝footprint 伏せ無し・固定BGで thrashing 回避）
 			for (let bi = 0; bi < gintBld.batches.length; bi++) {
@@ -2559,6 +2561,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lakes":     setLakes(data); break;             // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
+			case "sky":     sky = data && Array.isArray(data.sky) ? data : null; break;   // style の sky（B4）＝WebGPU は霧の色・濃さだけ写す（空の絵は従来のリム光・#46 の散乱のまま＝簡易の空は GL2 だけ）
 			case "light":   break;   // style の light（B3）＝WebGPU のメッシュは局所系の固定光のまま（#46 段 2 の太陽＋環境光と合わせて読む・gl は u_light* で読む）
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す

@@ -378,7 +378,11 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
-	const fogK = () => (view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
+	// style の sky（B4）＝{ sky, horizon, fog:[r,g,b], groundBlend, horizonFogBlend, skyHorizonBlend, atmosphereBlend }｜null（従来＝宇宙へ抜けるリム光・霧は land 色）
+	// 霧：sky の fog-color が霧の色（基図・建物・地形の遠山ブルーも）。fog-ground-blend＝濃さ（0＝霧なし・0.5＝従来の距離・1＝半分の距離から）＝view.fog:false より優先
+	let sky = null;
+	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
+	const fogColorOf = c => (sky ? sky.fog : c);
 	function setView(v) { view = { ...view, ...v }; }
 	let light = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
@@ -1140,6 +1144,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
+		fog = fogColorOf(fog);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
 		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
@@ -1258,6 +1263,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			setRayUniforms(globeProg, st);   // #65：視線の基底（f64）＋目＋c
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+			gl.uniform1f(loc(gl, globeProg, "u_skyOn"), sky ? 1 : 0);   // style の sky（B4）＝簡易の空。無指定＝従来の絵
+			if (sky) {
+				gl.uniform3f(loc(gl, globeProg, "u_skyColor"), sky.sky[0], sky.sky[1], sky.sky[2]);
+				gl.uniform3f(loc(gl, globeProg, "u_horizonColor"), sky.horizon[0], sky.horizon[1], sky.horizon[2]);
+				gl.uniform3f(loc(gl, globeProg, "u_skyFogColor"), sky.fog[0], sky.fog[1], sky.fog[2]);
+				gl.uniform4f(loc(gl, globeProg, "u_skyBlend"), sky.skyHorizonBlend, sky.horizonFogBlend, sky.atmosphereBlend, 0);
+			}
 			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
@@ -1346,7 +1358,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
 			// 距離は camDist 比例に「実距離の下限＝視程」を併用：ズームを寄せても 50km 手前から
 			// 165km（快晴の山岳視程）までは霞み切らない＝八ヶ岳から中央・北アルプスが青い山並みとして残る。
-			const dc = view.distColor || [0.63, 0.72, 0.83];
+			const dc = fogColorOf(view.distColor || [0.63, 0.72, 0.83]);   // sky の fog-color（B4）が最優先
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
 			// 視程の下限（50km/165km）はチルト連動：真俯瞰では0＝純camDist比例（見下ろす平面地図の縁が
 			// 青く染まるのを防ぐ）。傾けるほど（20°→46°）横に大気を見通す＝実距離の視程が効く。
@@ -1743,6 +1755,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "light":     light = data && Array.isArray(data.dir) ? data : null; break;      // style の light（B3・MapLibre の setLight）
+			case "sky":       sky = data && Array.isArray(data.sky) ? data : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
