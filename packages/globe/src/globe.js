@@ -13,7 +13,8 @@ import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
 import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
 import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
-import customglUrl from "./gadgets/customgl-draw.js?url";   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
+import customglUrl from "./gadgets/customgl-draw.js?url";
+import { normPost } from "@ortho-earth/core/postfx";   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
@@ -2454,6 +2455,12 @@ map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリッ�
 map.t = (key, ...args) => t(key, ...args);   // UI 文言の訳（SDK が起動時に読んだ辞書で引く＝器の頁が i18n と辞書をもう一度読まない・1.2.0〜 2026-09-22）
 Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true });   // 表示言語（ja/en/…）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
+// 後処理（deck.gl の PostProcessEffect 相当・差分 PR-8・2026-10-12）：map.setPostProcess({ bloom: { threshold, strength, radius }, vignette: { strength, radius, softness } } | null)
+//   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
+let postCur = null;
+map.setPostProcess = p => { postCur = normPost(p); renderer.set("post", postCur); needsDraw = true; return map; };
+map.getPostProcess = () => postCur;
+if (opts.postProcess) map.setPostProcess(opts.postProcess);
 map.setOpacity = ({ base, globe, hypso } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); needsDraw = true; };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
 map.setMaxPitch = rad => {

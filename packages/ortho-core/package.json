@@ -22,6 +22,7 @@
 		"./camera": "./src/camera.js",
 		"./clip": "./src/clip.js",
 		"./depthout": "./src/depthout.js",
+		"./postfx": "./src/postfx.js",
 		"./geojson": "./src/geojson.js",
 		"./viewurl": "./src/viewurl.js",
 		"./decode": "./src/decode.js",
