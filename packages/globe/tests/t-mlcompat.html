@@ -902,6 +902,17 @@ try {
 				const c = await one("wr0", { "text-field": "a rather long label that wraps", "text-max-width": 0 });
 				return [!!a && Math.abs(a.h - 3 * 1.2 * 16) < 1 && !!b && b.h >= 2 * 1.2 * 16 - 1 && b.w <= 10 * 16 + 1 && !!c && Math.abs(c.h - 1.2 * 16) < 1 && c.w > b.w, `newline=${a ? `${a.w.toFixed(0)}x${a.h.toFixed(1)}` : "none"} wrap=${b ? `${b.w.toFixed(0)}x${b.h.toFixed(1)}` : "none"} nowrap=${c ? `${c.w.toFixed(0)}x${c.h.toFixed(1)}` : "none"}`];
 			});
+			await vscene("symbol-geojson-line-placement", async () => {   // geojson の symbol の線沿い（C9）＝symbol-placement line は線の上に（y≒線の y・line:true）・点の地物は置かない・line-center は 1 つ（中心）
+				const [lx, ly] = map.projectLL(D.cafe[0], D.cafe[1]);
+				map.addSource("gln", { type: "geojson", data: fc([F({ type: "LineString", coordinates: [[D.cafe[0] - 0.004, D.cafe[1]], [D.cafe[0] + 0.004, D.cafe[1]]] }, { name: "Geo Rd" }), pt(D.cafe[0], D.cafe[1] + 0.001, { name: "Geo Rd" })]) });
+				await map.addLayer({ id: "gl1", type: "symbol", source: "gln", layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 14 }, paint: { "text-color": "#000" } });
+				const a = await untilN("gl1", n => n > 0); await drop("gl1");
+				await map.addLayer({ id: "gl2", type: "symbol", source: "gln", layout: { "symbol-placement": "line-center", "text-field": ["get", "name"], "text-size": 14 }, paint: { "text-color": "#000" } });
+				const b = await untilN("gl2", n => n > 0); await drop("gl2"); map.removeSource("gln");
+				const onLine = q => q.line && Math.abs(q.y - ly) < 6;
+				const [rx] = map.projectLL(D.cafe[0] + 0.004, D.cafe[1]), half = Math.abs(rx - lx);   // line-center はタイルごとの中心（MapLibre と同じ＝タイルの枠で切れた線はその部分の中心）＝線の範囲の中・1〜2 個
+				return [a.length > 0 && a.every(onLine) && b.length >= 1 && b.length <= 2 && b.every(q => onLine(q) && Math.abs(q.x - lx) < half), `line n=${a.length} y=${a.map(q => q.y.toFixed(0)).join("/")} (want ${ly.toFixed(0)}) · center n=${b.length} x=${b.map(q => q.x.toFixed(0)).join("/")} (line ${lx.toFixed(0)}±${half.toFixed(0)}) y=${b[0]?.y?.toFixed(0)}`];
+			});
 			await vscene("symbol-text-overlap-always", async () => {   // text-overlap "always"（MapLibre 新）＝allow-overlap と同じ：同じ点に 2 層＝後の層だけ → 前の層に always で両方
 				await sym("ta1", {}); await sym("ta2", { "text-field": ["concat", ["get", "name"], "2"] });
 				const n0 = (await untilN("ta2", n => n >= 2), await placedOf("ta1")).length;

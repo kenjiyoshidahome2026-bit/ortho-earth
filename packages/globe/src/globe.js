@@ -4129,6 +4129,10 @@ map.gadget("cluster", async function (src, opts = {}) {
 });
 // ── 記号帳（sprite）と記号の層（MapLibre の addImage／sprite／symbol 相当・gadgets/symbols.js・遅延chunk・2026-09-21）──────────────
 let symCtl = null;
+// 線に沿う geojson の注記（C9・gadgets/gjlabels.js）＝symbol-placement line/line-center の geojson の symbol 層。vector の注記と同じ口（sendLabels "vt:"）へ
+let gjCtl = null;
+const gjGet = async () => { const m = await import("./gadgets/gjlabels.js"); if (gjCtl) return gjCtl; ownDestroy.push(() => gjCtl?.destroy()); return gjCtl = m.createGJLabels(map, { cam, size: () => size, dpr, sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); needsDraw = true; } }); };
+const gjIsLine = layer => { const p = layer.layout?.["symbol-placement"]; if (p == null) return false; const v = typeof p === "string" ? p : evalExpr(p, { zoom: cam.zoom, props: {}, geom: "LineString", vars: {}, gs: MAP_GS, origin: "ml" }); return v === "line" || v === "line-center"; };
 const missingImgs = new Set();   // styleimagemissing を鳴らした名前（名前ごとに 1 回＝MapLibre と同じ）
 function imageMissing(name) {
 	if (!name || missingImgs.has(name) || symCtl?.hasImage(name)) return;
@@ -4583,7 +4587,11 @@ const mountLayerRaw = async v => {
 	if (kind === "extrude") return extrudeNative(await readPoints(data), { ...layer, fit: false, slot: layer.id });
 	if (kind === "heatmap") return heatmapNative(data, layer, layer.id);
 	if (kind === "cluster") return rebuildCluster(sid);
-	if (kind === "symbol") { const c = await symGet(); const r = await c.addLayer(layer.id, await readPoints(data), layer); c.setOrder(layer.id, order); return r; }
+	if (kind === "symbol") {
+		if (gjIsLine(layer)) { symCtl?.removeLayer(layer.id); const c = await gjGet(); return c.set(layer.id, layer, await readPoints(data), order); }   // 線に沿う配置（C9）＝線の地物だけ・点と面は MapLibre と同じく置かない
+		gjCtl?.remove(layer.id);
+		const c = await symGet(); const r = await c.addLayer(layer.id, await readPoints(data), layer); c.setOrder(layer.id, order); return r;
+	}
 	if (kind === "pattern") return addPattern(layer, data, order);
 	if (kind === "gint") return rebuildGint(sid);
 };
@@ -4621,7 +4629,7 @@ const unmountLayer = v => {
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
 	else if (kind === "vtdraw") { vtdCtl?.remove(id); if (layer.type === "heatmap") aggCtl?.clear("heatmap", id); vecAttrDrop(v, sid); sendUserAnchors(); }
 	else if (kind === "heatmap") aggCtl?.clear("heatmap", id);
-	else if (kind === "symbol") symCtl?.removeLayer(id);
+	else if (kind === "symbol") { symCtl?.removeLayer(id); gjCtl?.remove(id); }
 	else if (kind === "cluster") return rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
 	else if (kind === "gint") return rebuildGint(sid);
 	else if (kind === "pattern") { patOv?.post({ type: "removeLayer", id }); patItems.delete(id); }
@@ -4632,7 +4640,7 @@ map.on("settle", () => {   // 押し出し・模様は一度きりの評価＝�
 });
 const reorderLayers = () => {   // 登録順を各描き方の重ね順へ
 	if ([...mlLayers.values()].some(v => v.kind === "gint")) rebuildGint();   // gint の pass は詰め方ごと組み直す（連続の切れ目が変わる）
-	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id));
+	for (const v of mlLayers.values()) if (v.kind === "symbol" && mlVisible(v)) { symCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id)); gjCtl?.setOrder(v.layer.id, mlOrderOf(v.layer.id)); }
 	for (const v of mlLayers.values()) if (v.kind === "pattern" && mlVisible(v)) mountLayer(v);   // 模様は送り直しで順が付く
 	vtdCtl?.setOrder(vtdOrder());   // vector の描く層（段 8⑤）＝順の鍵（増えている間は組み直さない）
 	sendUserAnchors();              // 基図の層の間への差し込み（#123）＝順が変われば差し込む位置も変わる
