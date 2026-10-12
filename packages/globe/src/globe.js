@@ -20,7 +20,11 @@ import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（de
 import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
 import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
 import customglUrl from "./gadgets/customgl-draw.js?url";
-import { normPost } from "@ortho-earth/core/postfx";   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
+import { normPost } from "@ortho-earth/core/postfx";
+import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
+export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
+import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
+import { POINTCLOUD_FORMATS } from "#pointcloud-formats";   // capabilities の pointcloud.laz（alias で差し替わる・既定は {}）   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
@@ -2515,6 +2519,24 @@ let postCur = null;
 map.setPostProcess = p => { postCur = normPost(p); renderer.set("post", postCur); needsDraw = true; return map; };
 map.getPostProcess = () => postCur;
 if (opts.postProcess) map.setPostProcess(opts.postProcess);
+// ── plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 compat §9「拡張点の台帳」）──
+//   map.use(definePlugin({ name, install(map, opts), uninstall? }), opts)／unuse(name)／plugins()。install は同期・返した関数は撤去時に呼ぶ。地域パックと同じく素の map を受ける
+//   map.registry.dataKinds（addData の kind＝{ create(map, data, opts) → 手綱 }）・gadgets（map.gadget と同じ）・tileFormats（core の registerTileFormat）は効く。lights/postEffects/textureTranscoders は F1/F3/F4 で結線
+//   map.supports(key)＝builtin か plugin の時だけ true・map.capabilities()＝鍵ごとの正直な答え（"never"＝Mercator）。opts.plugins＝起動時に use する並び（[p] か [[p, opts]]）
+const BUILTIN_DATA_KINDS = ["points", "arcs", "trips", "polygons", "paths", "columns"];
+const pluginHost = createPluginHost(map, {
+	getBackend: () => dbgHost.__backend || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
+	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
+	tileFormats: { register: registerTileFormat, has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
+	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: ["bloom", "vignette"], builtinLights: ["directional"],
+});
+map.use = (p, o) => pluginHost.use(p, o);
+map.unuse = name => pluginHost.unuse(name);
+map.plugins = () => pluginHost.plugins();
+map.registry = pluginHost.registry;
+map.supports = key => pluginHost.supports(key);
+map.capabilities = () => pluginHost.capabilities();
+ownDestroy.push(() => pluginHost.destroy());
 map.setOpacity = ({ base, globe, hypso } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); needsDraw = true; };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
 map.setMaxPitch = rad => {
@@ -3582,6 +3604,11 @@ map.addH3 = async (src, o = {}) => {
 let dataSeq = 0;
 map.addData = (data, o = {}) => {
 	const { kind = "points", id, before, above = false, paint, ...acc } = o;
+	if (!BUILTIN_DATA_KINDS.includes(kind)) {   // plugin の kind（registry.dataKinds・PR-F0）＝{ create(map, data, opts) → 手綱 }。知らない kind は投げる（黙って points にしない）
+		const ext = pluginHost.registry.dataKinds.get(kind);
+		if (!ext || typeof ext.create !== "function") throw new Error(`addData: unknown kind "${kind}" (builtin: ${BUILTIN_DATA_KINDS.join("/")}; plugins register via map.registry.dataKinds)`);
+		return ext.create(map, data, { ...o, id: id ?? `data${++dataSeq}` });
+	}
 	const name = id ?? `data${++dataSeq}`;
 	let props = acc, cur = data, removed = false;
 	const modP = import("./adddata.js");
@@ -5765,6 +5792,7 @@ if (opts.worldContent && WORLD_VT) {
 // 地域パックが起動後に足す物（e-Stat 小地域＝map.estat 等・LAYERS.md 段階 2 S3）。ホストの内部でなく拡張面（hostEnv）だけを渡す
 const hostEnv = { opts, renderer, cam, size, dpr, requestDraw: () => { needsDraw = true; }, overlay, spawnWorker: hostWorker, ownTip, hooks: hostHooks, t, dbg: dbgHost, assetBase: ASSET_BASE, onDestroy: f => hostDestroy.push(f) };
 for (const r of REGIONS) if (r.install) await r.install(map, hostEnv);
+for (const p of opts.plugins ?? []) Array.isArray(p) ? map.use(p[0], p[1]) : map.use(p);   // 起動時の plugin（PR-F0）＝地域パックの後・顔を被せる前（素の map を受ける）
 
 // 旗なし＝素の map をそのまま・旗つき＝外側の顔（公開面の数の zoom を MapLibre の z で受け渡す）。地域パック・ガジェットは上で素の map を握った
 return createFacade(map, PUBLIC_DZ, { shiftZoomExpr });
