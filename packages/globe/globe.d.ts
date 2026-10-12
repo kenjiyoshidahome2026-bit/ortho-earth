@@ -844,7 +844,8 @@ export interface OrthoJapanMap {
 	/** 重ね順を変える（beforeId の下へ・省略＝一番上）。同じ描き方の中で効く */
 	moveLayer(id: string, beforeId?: string): OrthoJapanMap;
 	/** paint の性質を変える（gint の層は fid 表の書き換えだけ＝安い・raster-opacity は即時）。undefined＝既定へ */
-	setPaintProperty(id: string, name: string, value: StyleExpression | undefined): OrthoJapanMap;
+	/** paint の変更。利用者の層は数・色・数の配列を transition で補間して描き直す（1.16.0〜・MapLibre の `<name>-transition`＝{duration, delay}・style の根の `transition`・既定 300ms。式は補間しない・基図の層は即時）。options.transition:false で即時 */
+	setPaintProperty(id: string, name: string, value: StyleExpression | { duration?: number; delay?: number } | undefined, options?: { validate?: boolean; transition?: boolean }): OrthoJapanMap;
 	getPaintProperty(id: string, name: string): StyleExpression | undefined;
 	/** layout の性質を変える。visibility:"none"｜"visible" で出し入れ（層は残る） */
 	setLayoutProperty(id: string, name: string, value: StyleExpression | undefined): OrthoJapanMap;

@@ -9,7 +9,7 @@ export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES,
 export type { HandlerName, InertiaOptions } from "./input.js";
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
 export type { Expression, ExprContext, FormatSection } from "./expr.js";
-export { parseRGBA } from "./color.js";
+export { parseRGBA, isColor } from "./color.js";
 export { geodesicDistance, geodesicArea, primeVerticalRadius, meridionalRadius, AUTHALIC_R, WGS84 } from "./geodesic.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { fetchMVT } from "./decode.js";

@@ -8,7 +8,8 @@ import {
 } from "@ortho-earth/core";
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
-import { positionAt, ecefToLlh } from "./czml-time.js";   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
+import { positionAt, ecefToLlh } from "./czml-time.js";
+import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
@@ -4451,7 +4452,7 @@ map.removeLayer = id => {
 		else if (extOtherOf(id)) { if (isExtImage(id)) { map.raster.remove(id); extExtras.raster = extExtras.raster.filter(x => x !== id); } extNotes.set(id, { removed: true }); }   // その他の層（§8 A）
 		return map;
 	}   // 基図の層を外す（段 7）・自動の建物は伏せて getStyle からも外す
-	mlLayers.delete(id);
+	mlLayers.delete(id); transitions.cancelPrefix(TR_KEY(id, ""));
 	unmountLayer(v);
 	if (extExtras.layers.includes(id)) extNotes.set(id, { removed: true });   // style 由来の層を外した＝getStyle の「その他の層」として復活させない（§8 A）
 	return map;
@@ -4471,9 +4472,39 @@ map.moveLayer = (id, beforeId) => {
 };
 // 性質の変更＝登録簿の層を書き換えて描き直す（gint は fid 表の書き換えだけ＝安い・画像の不透明度は map.raster.set）
 const relayer = v => mlVisible(v) ? (v.kind === "gint" ? rebuildGint(srcId(v.layer)) : v.kind === "cluster" ? rebuildCluster(srcId(v.layer)) : mountLayer(v)) : null;
-map.setPaintProperty = (id, name, value) => {
+// paint の transition（B1・2026-10-12・MapLibre の `*-transition`・style の根の `transition`・既定 300ms）：利用者の層（mlLayers）だけ。数・色・数の配列を rAF ごとに補間して描き直す
+// （gint＝fid 表の書き換え・他＝relayer）。式は補間しない（MapLibre も同じ）。基図の層（restyleBase＝組み直し）とその他の層（描かない）は即時。getPaintProperty は set した目標値を返す
+const transitions = createTransitions();
+const TR_KEY = (id, name) => `${id}\u0000${name}`;
+const styleTransitionOf = () => EXT?.ms?.transition ?? null;
+map.setPaintProperty = (id, name, value, o = undefined) => {
 	const v = mlLayers.get(id);
+	if (/-transition$/.test(name)) {   // 遷移の指定そのもの＝値を記録するだけ（描き直さない）
+		if (v) { if (value == null) delete v.layer.paint[name]; else v.layer.paint[name] = value; }
+		else if (baseLayerOf(id) || extOtherOf(id)) paintTransitionsOther.set(TR_KEY(id, name), value);
+		else throw new Error(`setPaintProperty: layer "${id}" not found`);
+		return map;
+	}
 	if (value !== undefined) assertMLLayer({ id, paint: { [name]: value } }, "setPaintProperty");
+	if (v && o?.transition !== false && value !== undefined && mlVisible(v) && !v.mounting) {
+		const tr = transitionOf(v.layer, name, styleTransitionOf());
+		const to = rescaleZoomExpr(value, PUBLIC_DZ, v.dz), from = v.layer.paint?.[name] ?? PAINT_DEFAULTS[name];
+		if (tr.duration > 0 && interpolable(from, to)) {
+			(v.trans ??= {})[name] = to;
+			transitions.start(TR_KEY(id, name), from, to, tr, (mid, done) => {
+				if (mlLayers.get(id) !== v) return false;   // 外された・入れ替わった層＝走者から消える
+				if (done && v.trans) delete v.trans[name];
+				applyPaintNow(v, id, name, mid, true);
+				return true;
+			});
+			return map;
+		}
+	}
+	transitions.cancel(TR_KEY(id, name)); if (v?.trans) delete v.trans[name];
+	return applyPaintNow(v, id, name, value, false);
+};
+const paintTransitionsOther = new Map();   // 基図・その他の層の *-transition（記録だけ・getPaintProperty で戻す）
+const applyPaintNow = (v, id, name, value, raw) => {   // raw＝走者の補間値（層の目盛りのまま・検査済み）
 	if (!v && id === AUTO_BLD && autoBldOn()) autoBldReadOnly("setPaintProperty");
 	if (!v && !baseLayerOf(id) && extOtherOf(id)) {   // その他の層（§8 A）＝記録だけ・画像の raster は不透明度が効く
 		noteOther(id, n => { if (value === undefined) delete n.paint[name]; else n.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, STYLE_DZ); });
@@ -4481,7 +4512,7 @@ map.setPaintProperty = (id, name, value) => {
 		return map;
 	}
 	if (!v) { if (!baseLayerOf(id)) throw new Error(`setPaintProperty: layer "${id}" not found`); overrideBase(id, o => { o.paint = { ...(o.paint || {}), [name]: baseValueIn(name, value) }; }); return map; }   // 基図の層（段 7）
-	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
+	if (value === undefined) delete v.layer.paint[name]; else v.layer.paint[name] = raw ? value : rescaleZoomExpr(value, PUBLIC_DZ, v.dz);   // 呼び手の目盛り→層の目盛り
 	if (v.kind === "raster" && name === "raster-opacity") { map.raster.set(id, { opacity: value ?? 1 }); return map; }
 	if (v.kind === "colorrelief" && name === "color-relief-opacity") { map.raster.set(id, { opacity: reliefOpacity(v.layer) }); return map; }   // 不透明度はタイルを作り直さない（#114）
 	const k = kindOf(drawLayerOf(v), v.src);   // 描き方が変わる paint（line-offset を足した gint の線→canvas2D の口 等）＝外して載せ直す
@@ -4489,7 +4520,7 @@ map.setPaintProperty = (id, name, value) => {
 	relayer(v); return map;
 };
 const echoProp = (v, x) => v && x !== undefined ? rescaleZoomExpr(x, v.dz, PUBLIC_DZ) : x;   // 層の目盛り→呼び手の目盛り（set したものが get で戻る）
-map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.layer.paint?.[name]); const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } const x = B.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
+map.getPaintProperty = (id, name) => { const v = mlLayers.get(id); if (v) return echoProp(v, v.trans?.[name] ?? v.layer.paint?.[name]); if (/-transition$/.test(name) && paintTransitionsOther.has(TR_KEY(id, name))) return paintTransitionsOther.get(TR_KEY(id, name)); const B = baseLayerOf(id); if (!B) { const x = extOtherOf(id)?.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, STYLE_DZ, PUBLIC_DZ); } const x = B.paint?.[name]; return x === undefined ? undefined : rescaleZoomExpr(x, 0, PUBLIC_DZ); };
 map.setLayoutProperty = (id, name, value) => {
 	const v = mlLayers.get(id);
 	if (value !== undefined) assertMLLayer({ id, layout: { [name]: value } }, "setLayoutProperty");
@@ -4637,6 +4668,7 @@ map.getStyle = () => {
 	return {
 		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
 		...(EXT ? Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => EXT.ms[k] != null).map(k => [k, EXT.ms[k]])) : {}),   // style の根の視点（MapLibre の getStyle と同じ・style.json の目盛り＝MapLibre の z）
+		...(EXT?.ms?.transition ? { transition: EXT.ms.transition } : {}),   // style の根の transition（B1）
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
 		sources: { ...(EXT ? EXT.ms.sources : {}), [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
 		layers: list,
