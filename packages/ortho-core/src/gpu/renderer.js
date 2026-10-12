@@ -32,7 +32,8 @@ import { sunVector, shadowWindow, shadowHalfM, shadowBias, bboxInShadowWindow, S
 import { normClip, clipPlanesFor, packClip, CLIP_MAX, CLIP_F32 } from "../clip.js";   // 断面とクリッピング平面（#111・切った時だけ）
 import { groundWindows, windowsKey } from "../ground.js";   // 地面アトラスの 3 段窓（RTT ドレープ・GL と共通）
 import { createDepthOutGPU } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ 1 パス足す
-import { createAoGPU } from "./ao.js";   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
+import { createAoGPU } from "./ao.js";
+import { createPostGPU } from "./postfx.js";   // 後処理 bloom・vignette（PR-8）＝flush の終端で canvas を控えに写して合成   // AO（#46 段 3）＝fx.ao の間だけ main パスの後に 4 パス足す（AO・ぼかし縦横・合成）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)＝gl/renderer.js と同一（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一
@@ -2460,6 +2461,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			}
 			pass.end();
 		}
+		// 後処理（PR-8）：描き終えた canvas（1x＝直描き／4x＝上の resolve 済み）を控えに写して bloom・vignette を掛けて戻す。注記・オーバーレイは別 canvas＝掛からない
+		if (post) {
+			try { postFx ??= createPostGPU(device, format); postFx.encode(frame.enc, ctx.getCurrentTexture(), frame.w, frame.h, post); }
+			catch (e) { console.warn("[gpu] post-process failed (disabled):", e?.message || e); post = null; postFx?.dispose(); postFx = null; }
+		} else if (postFx) { postFx.dispose(); postFx = null; }
 		let st = null;
 		if (tq && tq.idx) {
 			frame.enc.resolveQuerySet(tq.qs, 0, tq.idx, tq.resolve, 0);
@@ -2491,6 +2497,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut = null, lastDepth = null, dOutFailed = false;
 	let ao = null;   // AO（#46 段 3）＝fx.ao の間だけ
+	let post = null, postFx = null;   // 後処理（PR-8）＝set("post") の間だけ資源を持つ
 	function depthOut(on) {
 		if (!on || dOutFailed) { if (dOut) { dOut.dispose(); dOut = null; } lastDepth = null; return null; }
 		if (!dOut) {
@@ -2555,6 +2562,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
+			case "post":    post = data || null; break;   // 後処理 bloom・vignette（PR-8・normPost 済みの形）＝flush の終端で掛ける
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）
@@ -2605,6 +2613,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		dummyTex.destroy();
 		if (dOut) { dOut.dispose(); dOut = null; }
 		if (ao) { ao.dispose(); ao = null; }
+		if (postFx) { postFx.dispose(); postFx = null; }
 		for (const t of tgtBySc.values()) { t.tex?.destroy(); t.depth.destroy(); }
 		tgtBySc.clear();
 		device.destroy();
