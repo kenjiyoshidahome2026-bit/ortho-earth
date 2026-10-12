@@ -2,7 +2,7 @@
 // 意匠：quiet-mono（トークン→部品）→ app固有 の順を 1 枚に焼いた素の CSS（scripts/build-css.mjs・scss を変えたら npm run build:css）＝利用者に sass が要らない
 import "./globe.css";
 import {
-	evalExpr, truthy, KNOWN_OPS, parseRGBA, cameraState, project, unproject, buildGeoJSONOverlay,
+	evalExpr, truthy, KNOWN_OPS, parseRGBA, isColor, cameraState, project, unproject, buildGeoJSONOverlay,
 	createFlight, shortBearingOf, parseViewHash, buildViewHash, wrapLon, createInput, WORLD_PX, lonLatToTile,
 	primeVerticalRadius, setEllipsoid, ellipsoidOn, worldRadiusM, betaToLonLat, lonlatTo3D, ellNormal3D,
 } from "@ortho-earth/core";
@@ -390,7 +390,10 @@ const withBaseOverrides = st => {
 	}
 	return { ...st, layers };
 };
-let style = withBaseOverrides(EXT ? extBaseStyle(EXT) : theme.style);   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
+// addLayer({type:"background"})（B5）＝実行時に足した background 層。基図の層の先頭に置く（beforeId は見ない）。setStyle で捨てる（MapLibre と同じ）
+const userBg = [];
+const withUserBg = st => (userBg.length ? { ...st, layers: [...userBg.map(L => ({ ...L })), ...st.layers] } : st);
+let style = withBaseOverrides(withUserBg(EXT ? extBaseStyle(EXT) : theme.style));   // 外来 style＝基図はその層（テーマの配色は背景・大気・建物色だけに効く）
 // 旧・世界層前置（withWorld＝world-water 湖タイル層）は撤去（2026-09-03 湖のNE化）＝style はテーマの素のまま。
 // 湖の色は worldPal.sea をレンダラが直接読む（u_seaC と単一の出所＝テーマの worldHypso.sea が両方へ届く）。
 // window/document 級のリスナーは全てこの signal で登録＝destroy() の abort 一発で束ごと外れる（外し漏れゼロ）。
@@ -491,16 +494,27 @@ const onTile = ok => {
 window.addEventListener("offline", () => { netEl.style.display = "block"; }, { signal: ac.signal });
 window.addEventListener("online", () => { netEl.style.display = "none"; needsDraw = true; }, { signal: ac.signal });
 
-let bg = style.layers.find(L => L.type === "background");
+// 効いている background 層＝一番上（後ろ）の、見えている物（MapLibre は後の層が上に塗る）。baseVis の none（setLayoutProperty）も見る
+const bgOf = st => { let b = null; for (const L of st.layers) if (L.type === "background" && L.layout?.visibility !== "none" && baseVis.get(L.id) !== "none") b = L; return b; };
+let bg = bgOf(style);
 // MapLibre の目盛りの地図で style に background 層が無い＝MapLibre の canvas は透明（頁の白が見える）＝球の地（陸も海も）を白で（2026-09-30・公式例 20 本の地の色）。内製の既定は従来の紙色と海の色
 const NO_BG_WHITE = !!ML_COVER;
-const landDefault = () => (NO_BG_WHITE ? [1, 1, 1, 1] : [0.96, 0.96, 0.95, 1]);
+const landDefault = () => (NO_BG_WHITE ? [1, 1, 1, 0] : [0.96, 0.96, 0.95, 1]);   // MapLibre の口＝透明（本人裁定 2026-10-12・B5。WebGPU は白に畳む）
 const seaOf = bg => (NO_BG_WHITE && !bg ? [1, 1, 1] : null);
-let land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : landDefault();
+// background 層 → 球の床の色（rgb）と不透明度（a＝background-opacity）。MapLibre の口で層が無い＝a 0（透明・頁の色）。式は z10 で評価（従来どおり）
+const landOf = (bg, dflt) => {
+	if (!bg) return dflt;
+	const ev = (v, d) => evalExpr(v ?? d, { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? d;
+	const c = parseRGBA(ev(bg.paint?.["background-color"], "#fff")), op = +ev(bg.paint?.["background-opacity"], 1);
+	return [c[0], c[1], c[2], c[3] * (Number.isFinite(op) ? Math.max(0, Math.min(1, op)) : 1)];
+};
+let land = landOf(bg, landDefault());
 // 白抜き家具（本人裁定 2026-08-05「紙の世界を司る神」）：計器・アイコン・出典を地図の明暗に依らず常に黒硝子＋白線へ（quiet-mono #map.ui-dark）。
 // 旧＝land輝度<0.45（暗い紙）の時だけ夜家具。今は常時ON＝昼夜で意匠がブレず、白線 on 黒硝子で輪郭が締まる（状態HUDと同族）。戻すなら下の add を輝度条件へ。
 mapEl.classList.add("ui-dark");
-const clear = ML_COVER ? [1, 1, 1, 1] : [0.03, 0.04, 0.07, 1];   // 宇宙（球の外側）。MapLibre の目盛り＝白（MapLibre の canvas は描かない所が透明＝頁の白が見える・地平線の上も同じ・2026-09-30）
+// 宇宙（球の外側）。MapLibre の口＝透明（MapLibre の canvas は描かない所が透明＝頁の色が見える・地平線の上も同じ・本人裁定 2026-10-12・B5）。opts.clearColor（色か "transparent"）で変えられる
+const clearOf = c => (c === "transparent" ? [0, 0, 0, 0] : typeof c === "string" && isColor(c) ? parseRGBA(c) : Array.isArray(c) && c.length === 4 ? c : null);
+let clear = clearOf(opts.clearColor) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]);
 
 let dpr = Math.min(2, window.devicePixelRatio || 1);
 
@@ -1236,7 +1250,7 @@ if (BASE_SOURCE.kind === "pmtiles") pmtilesInfo(BASE_SOURCE.url).then(info => {
 	// innerHTML の直前で消毒する（docs/geopbf §11 の作法・?pm=<攻撃者URL> を踏んでも script が走らない）。
 	BASE_SOURCE.attrHTML = info.attribution ? sanitizeHTML(info.attribution) : null;
 	attrZone = null;   // 圏を無効化＝既に "region" に居ても次フレームで出典が差し替わる
-	style = withBaseOverrides(withPM(theme.style));
+	style = withBaseOverrides(withUserBg(withPM(theme.style)));
 	setPipelineStyle(style);   // 生成層込みで再ビルド
 	needsDraw = true;
 	console.info(`[pm] ${info.name || PM_SPEC}  z${info.minZoom}-${info.maxZoom}  bbox ${info.bbox ? info.bbox.map(v => v.toFixed(2)).join(", ") : "global"}\n     layer -> role: ${pmRoles(info).join(" ") || "no metadata"} (ground/label are not drawn or decoded)`);
@@ -1329,9 +1343,9 @@ const saveView = () => { saveCam(); if (URL_OWN && (ownMapEl || opts.urlHash)) t
 function switchTheme(name) {
 	if (name === themeName || !MAP_THEMES[name]) return;
 	queueMicrotask(() => mapEl.querySelectorAll("#theme-row .lp-theme").forEach(b => b.classList.toggle("on", b.dataset.theme === themeName)));   // 表示パネルのテーマ列同期（themeName確定後＝microtask）
-	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withPM(theme.style));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
-	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : [0.96, 0.96, 0.95, 1];
+	themeName = name; theme = MAP_THEMES[name]; style = withBaseOverrides(withUserBg(withPM(theme.style)));   // 基図の層の上書き（段 7）はテーマを越えて残す   // 湖はエンジンの lakes スロット（worldPal.sea 直読）＝style 側の世界層前置は廃止（2026-09-03）
+	bg = bgOf(style);
+	land = landOf(bg, [0.96, 0.96, 0.95, 1]);
 	atmo = atmoOf(theme.atmo); bldColor = theme.bldColor;
 	setPipelineStyle(style);   // 基図タイルを全捨て→新styleで再ビルド（生バイトはIDB/HTTP温間キャッシュ命中で速い）
 	gint.repaintWorldLines?.();   // 世界線の色も新テーマへ（正本 worldstyle）
@@ -2642,6 +2656,8 @@ map.getLight = () => normLight(mlLight);
 // null＝従来（宇宙へ抜けるリム光・霧は紙色）。getSky は MapLibre と同じく無指定なら undefined・指定があれば既定を補った物
 map.setSky = s => { mlSky = s == null ? null : normSky(s); sendSky(); needsDraw = true; return map; };
 map.getSky = () => (mlSky ? normSky(mlSky) : undefined);
+// 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
+map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); needsDraw = true; return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
 	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
@@ -4447,6 +4463,12 @@ map.getLayer = id => { const v = mlLayers.get(id); if (v) return echoLayer(v); i
 const addLayerAt = async (layer, beforeId, dz) => {
 	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
 	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
+	if (layer?.type === "background") {   // background 層（B5）＝球の床の色・不透明度（基図の層として持つ＝get/setPaintProperty・removeLayer・getStyle は基図の層の道）
+		assertMLLayer(layer, "addLayer");
+		const i = userBg.findIndex(L => L.id === layer.id); if (i >= 0) userBg.splice(i, 1);
+		userBg.push({ ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }); baseOverrides.delete(layer.id); baseVis.delete(layer.id);
+		restyleBase(); return null;
+	}
 	const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
 	if (layer?.type === "custom" && typeof layer.render !== "function") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method`);
 	assertMLLayer(layer, "addLayer");
@@ -4467,6 +4489,7 @@ map.removeLayer = id => {
 	const v = mlLayers.get(id);
 	if (!v) {
 		if (id === AUTO_BLD && autoBldOn()) { setAutoBld(true); autoBldRemoved = true; return map; }
+		const ub = userBg.findIndex(L => L.id === id); if (ub >= 0) { userBg.splice(ub, 1); baseVis.delete(id); baseOverrides.delete(id); restyleBase(); return map; }   // 実行時の background 層（B5）
 		if (baseLayerOf(id)) { baseVis.delete(id); overrideBase(id, o => { o.removed = true; }); }
 		else if (extOtherOf(id)) { if (isExtImage(id)) { map.raster.remove(id); extExtras.raster = extExtras.raster.filter(x => x !== id); } extNotes.set(id, { removed: true }); }   // その他の層（§8 A）
 		return map;
@@ -4555,6 +4578,7 @@ map.setLayoutProperty = (id, name, value) => {
 			const now = value === "none" ? "none" : "visible";
 			if (now === "visible" && B.layout?.visibility === "none") { baseVis.delete(id); overrideBase(id, o => { o.layout = { ...(o.layout || {}), visibility: "visible" }; }); }
 			else { if (now === "none") baseVis.set(id, "none"); else baseVis.delete(id); remergeBase(); }
+			if (B.type === "background") { bg = bgOf(style); land = landOf(bg, NO_BG_WHITE ? landDefault() : land); renderer.set("view", { land, sea: seaOf(bg) }); needsDraw = true; }   // background の出し入れ＝床の色（B5）
 			return map;
 		}
 		overrideBase(id, o => { o.layout = { ...(o.layout || {}), [name]: value === undefined ? undefined : normalizeMLLayer({ layout: { [name]: value } }, PUBLIC_DZ).layout[name] }; });
@@ -4764,7 +4788,7 @@ if (EXT) map.on("load", () => { mountExtExtras(EXT); });
 // ── 基図の層を実行時に触る（MapLibre 互換の段 7）──────────────────────────
 // 色・filter・出しズーム・層の削除＝有効な style を組み直して worker へ（基図タイルを新しい style で建て直す＝テーマの生き替えと同じ重さ）。
 // 出し入れ（visibility）は結合で外すだけ（baseVis・安い）。値は MapLibre の入口と同じく旧書式を読み替え、公開の口の目盛りからエンジンの目盛りへ。
-const baseRawStyle = () => EXT ? extBaseStyle(EXT) : withPM(theme.style);
+const baseRawStyle = () => withUserBg(EXT ? extBaseStyle(EXT) : withPM(theme.style));
 const baseLayerOf = id => mlLayers.has(id) ? null : style.layers.find(L => L.id === id) ?? null;   // 利用者の層と同じ id なら利用者の層が勝つ
 // 外来 style の「その他の層」＝基図にも利用者の層にも居ない層（画像として載せた raster・描かない層＝線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）。
 // MapLibre の getStyle／getLayer は style の全ての層を返す＝こちらも返し、set 系は投げずに記録だけ（絵は変わらない・画像の raster は出し入れと不透明度だけ効く）＝公式例の門 §8 A。
@@ -4781,8 +4805,8 @@ const noteOther = (id, fn) => { const L = extOtherOf(id); const n = { ...L, pain
 function restyleBase() {
 	style = withBaseOverrides(baseRawStyle());
 	if (EXT) style.globalState = { ...MAP_GS };   // tile worker の global-state（基図の層の filter/layout）
-	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	bg = bgOf(style);
+	land = landOf(bg, NO_BG_WHITE ? landDefault() : land);
 	renderer.set("view", { land, sea: seaOf(bg) });
 	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	if (!EXT) { renderer.set("sea", { li: seaLi(style, "water"), li2: seaLi(style, "water-hi"), minzoom: 9 }); renderer.set("bldFill", { li: bldFillLi(style) }); }   // 層の添字（削除で動く）
@@ -4814,14 +4838,14 @@ const styleFoldable = (a, b) => {   // a＝今の EXT・b＝次。畳めない�
 };
 const applyStyleDiff = async nx => {
 	const old = EXT, ms = nx.ms, J = x => JSON.stringify(x ?? null);
-	baseOverrides.clear(); baseVis.clear(); extNotes.clear();
+	baseOverrides.clear(); baseVis.clear(); extNotes.clear(); userBg.length = 0;
 	EXT = nx;
 	if (J(old.ms.light) !== J(ms.light)) { mlLight = ms.light ? normLight(ms.light) : null; sendLight(); }   // 根の light（B3）
 	if (J(old.ms.sky) !== J(ms.sky)) { mlSky = ms.sky ? normSky(ms.sky) : null; sendSky(); }   // 根の sky（B4）
 	const ns = extBaseStyle(nx); ns.globalState = { ...MAP_GS };
 	if (J(ns.layers) !== J(style.layers)) {   // 基図の層が変わった＝有効な style を組み直す 1 回（restyleBase と同じ手順）
-		style = ns; bg = style.layers.find(L => L.type === "background");
-		land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+		style = ns; bg = bgOf(style);
+		land = landOf(bg, NO_BG_WHITE ? landDefault() : land);
 		renderer.set("view", { land, sea: seaOf(bg) }); inspectReapply();
 		themes = mkThemes(style); setPipelineStyle(style); styleStats.rebuilds++;
 		readySig = ""; baseSig = ""; mergeReq.main.sig = ""; mergeReq.base.sig = "";
@@ -4849,7 +4873,7 @@ map.setStyle = async (spec, o = {}) => {
 	styleStats.full++; styleStats.rebuilds++;
 	unmountExtExtras();
 	const oldBaseSid = baseSidNow();
-	baseOverrides.clear(); baseVis.clear(); extNotes.clear();   // 新しい style＝基図の層の上書き（その他の層の記録も）は捨てる（MapLibre の setStyle と同じ）
+	baseOverrides.clear(); baseVis.clear(); extNotes.clear(); userBg.length = 0;   // 新しい style＝基図の層の上書き（その他の層の記録も・実行時の background 層も）は捨てる（MapLibre の setStyle と同じ）
 	EXT = nx;
 	mlLight = nx.ms.light ? normLight(nx.ms.light) : null; sendLight();   // 新しい style の根の light（B3）
 	mlSky = nx.ms.sky ? normSky(nx.ms.sky) : null; sendSky();   // 新しい style の根の sky（B4）
@@ -4859,8 +4883,8 @@ map.setStyle = async (spec, o = {}) => {
 		BASE_SOURCE.info = info; if (info?.attribution && !BASE_SOURCE.attrHTML) BASE_SOURCE.attrHTML = sanitizeHTML(String(info.attribution));
 	}
 	style = extBaseStyle(nx);
-	bg = style.layers.find(L => L.type === "background");
-	land = bg ? parseRGBA(evalExpr(bg.paint?.["background-color"] ?? "#fff", { zoom: 10, props: {}, geom: null, vars: {}, gs: MAP_GS, origin: originOfLayer(bg) }) ?? "#fff") : (NO_BG_WHITE ? [1, 1, 1, 1] : land);
+	bg = bgOf(style);
+	land = landOf(bg, NO_BG_WHITE ? landDefault() : land);
 	renderer.set("view", { land, sea: seaOf(bg) });
 	inspectReapply();   // 検査表示の間（#174）＝陸は背景色のまま
 	themes = mkThemes(style);
