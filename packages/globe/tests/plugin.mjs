@@ -18,7 +18,7 @@ const coreFormats = new Map([["mvt", 1], ["geopbf", 1]]);
 const host = createPluginHost(map, {
 	getBackend: () => "webgl2", gadgetNames: () => Object.keys(map.gadget), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: sp => { if (coreFormats.has(sp.name)) throw new Error("dup"); coreFormats.set(sp.name, sp); }, has: k => coreFormats.has(k), names: () => [...coreFormats.keys()] },
-	builtinTileFormats: [...coreFormats.keys()], pointcloud: {}, builtinDataKinds: ["points", "arcs", "trips", "polygons", "paths", "columns"], builtinPostEffects: ["bloom", "vignette"], builtinLights: ["directional", "point", "spot", "ambient", "hemisphere", "ibl"],
+	builtinTileFormats: [...coreFormats.keys()], pointcloud: {}, builtinDataKinds: ["points", "arcs", "trips", "polygons", "paths", "columns"], builtinPostEffects: ["bloom", "vignette", "fxaa", "smaa", "tonemap", "lut", "dof", "ssr"], builtinLights: ["directional", "point", "spot", "ambient", "hemisphere", "ibl"],
 });
 Object.assign(map, { use: host.use, unuse: host.unuse, plugins: host.plugins, registry: host.registry, supports: host.supports, capabilities: host.capabilities });
 map.gadget("compass", () => "c");
@@ -32,7 +32,7 @@ ok("cap.webgl2", c0["render.webgl2"].status === "builtin" && c0["render.webgpu"]
 ok("cap.dataBuiltin", map.supports("data.points") && map.supports("data.columns") && !map.supports("data.splat"));
 ok("cap.gadgetLive", map.supports("gadget.compass"), JSON.stringify(c0["gadget.compass"]));
 ok("cap.tiles", map.supports("tiles.mvt") && !map.supports("tiles.ktx2"));
-ok("cap.postBuiltin", map.supports("post.bloom") && !map.supports("post.ssr"));
+ok("cap.postBuiltin", map.supports("post.bloom") && !map.supports("post.ssr") && c0["post.ssr"].status === "spec" && c0["post.chain"].status === "builtin");
 ok("cap.lightBuiltin", map.supports("light.directional") && !map.supports("light.point") && c0["light.point"].status === "spec");
 ok("cap.laz", !map.supports("pointcloud.laz"));
 ok("cap.unknown", !map.supports("nonsense.key"));
@@ -47,7 +47,8 @@ const P = definePlugin({
 		m.registry.dataKinds.add("squares", { create: (mm, data, opts) => ({ id: opts.id, kind: opts.kind, n: data.length }) });
 		m.registry.gadgets.add("hello", function () { return "hi"; });
 		m.registry.tileFormats.add("fakefmt", { decode: () => ({}) });
-		m.registry.postEffects.add("fxaa", { pass: true });
+		m.registry.postEffects.add("crt", { apply() {} });
+		ok("reg.postNeedsApply", throws(() => m.registry.postEffects.add("crt2", { pass: true })) && throws(() => m.registry.postEffects.add("fxaa", { apply() {} })));
 		m.registry.lights.add("laser", { apply() {} });
 		m.registry.clouds.add("puffy", { apply() {} });
 		ok("reg.cloudsNeedsApply", throws(() => m.registry.clouds.add("x", {})));
@@ -68,17 +69,17 @@ const c1 = map.capabilities();
 ok("cap.pluginData", c1["data.squares"].status === "plugin" && c1["data.squares"].via === "demo" && map.supports("data.squares"));
 ok("cap.pluginGadget", c1["gadget.hello"].status === "plugin" && map.supports("gadget.hello"));
 ok("cap.pluginTiles", c1["tiles.fakefmt"].status === "plugin");
-ok("cap.specPost", c1["post.fxaa"].status === "spec" && !map.supports("post.fxaa") && /PR-F3/.test(c1["post.fxaa"].note), JSON.stringify(c1["post.fxaa"]));
+ok("cap.pluginPost", c1["post.crt"].status === "plugin" && c1["post.crt"].via === "demo" && map.supports("post.crt"), JSON.stringify(c1["post.crt"]));
 ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "spec" && c0["sun.direction"].status === "builtin");
 ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
-ok("reg.notWired", map.registry.postEffects.wired === false && map.registry.lights.wired === true && map.registry.dataKinds.wired === true);
+ok("reg.wired", map.registry.postEffects.wired === true && map.registry.lights.wired === true && map.registry.dataKinds.wired === true && map.registry.textureTranscoders.wired === false);
 
 // 撤去＝cleanup が呼ばれ・自分の登録が消える（tileFormats は process-wide＝残るが capabilities からは外れる）
 ok("unuse", map.unuse("demo") === true && removed === 1 && map.plugins().length === 0);
-ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("fxaa") && !map.registry.lights.has("laser") && !map.registry.clouds.has("puffy") && !map.registry.gadgets.has("hello"));
+ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("crt") && !map.registry.lights.has("laser") && !map.registry.clouds.has("puffy") && !map.registry.gadgets.has("hello"));
 ok("unuse.tileFormatStays", coreFormats.has("fakefmt") && !map.registry.tileFormats.has("fakefmt"));
 ok("unuse.again", map.unuse("demo") === false);
-ok("cap.afterUnuse", !map.supports("data.squares") && map.capabilities()["post.fxaa"].status === "no");   // 静的な表の「no」へ戻る
+ok("cap.afterUnuse", !map.supports("data.squares") && !("post.crt" in map.capabilities()));
 
 // install が投げたら登録は巻き戻す・搭載されない
 ok("use.throwRollsBack", throws(() => map.use({ name: "boom", install(m) { m.registry.dataKinds.add("x", { create() {} }); throw new Error("boom"); } })) && !map.registry.dataKinds.has("x") && map.plugins().length === 0);
