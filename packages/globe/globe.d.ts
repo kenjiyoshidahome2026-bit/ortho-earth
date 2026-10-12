@@ -702,8 +702,8 @@ export interface MapRegistry {
 	readonly tileFormats: PluginRegistry<TileFormatImpl>;
 	/** 光源の type（F1 で結線）＝builtin は directional/point/spot/ambient/hemisphere/ibl。plugin の type は { apply(map, lights) } */
 	readonly lights: PluginRegistry<LightTypeImpl>;
-	/** 後処理の効果（PR-F3 で結線・今は受けて保つだけ） */
-	readonly postEffects: PluginRegistry<unknown>;
+	/** 後処理の pass の type（F3 で結線）＝builtin は bloom/vignette/fxaa/smaa/tonemap/lut/dof/ssr。plugin の type は { apply(map, passes) } */
+	readonly postEffects: PluginRegistry<PostEffectImpl>;
 	/** テクスチャの変換器（KTX2 など・PR-F4 で結線・今は受けて保つだけ） */
 	readonly textureTranscoders: PluginRegistry<unknown>;
 	/** 雲・降水の描き手（F2 で結線）＝setClouds のたびに apply(map, clouds|null) */
@@ -716,6 +716,19 @@ export interface Capability { status: CapabilityStatus; via?: string | null; not
  *  "gadget.<名>"・"tiles.<形式>"・"tiles3d.requestTransform"・"terrain.sample"・"camera.walk"・"gltf.animation"・"texture.ktx2"・"render.webgpu"・"pointcloud.laz"・"react"・"types.shim" */
 export type CapabilityKey = string;
 
+/** 後処理の鎖の 1 段（F3・2026-10-12）。bloom・vignette は描く（PR-8 と同じ）。fxaa/smaa/tonemap/lut/dof/ssr は**受けて保つだけ**（map.supports("post.fxaa") は false・capabilities "spec"）＝実 GPU の段か plugin（registry.postEffects）が描く。enabled:false＝鎖に残すが掛けない */
+export type PostPass =
+	| { id?: string; type: "bloom"; enabled?: boolean; threshold?: number; strength?: number; radius?: number }
+	| { id?: string; type: "vignette"; enabled?: boolean; strength?: number; radius?: number; softness?: number }
+	| { id?: string; type: "fxaa"; enabled?: boolean }
+	| { id?: string; type: "smaa"; enabled?: boolean; preset?: "low" | "medium" | "high" | "ultra" }
+	| { id?: string; type: "tonemap"; enabled?: boolean; mode?: "linear" | "reinhard" | "aces" | "agx" | "filmic"; exposure?: number }
+	| { id?: string; type: "lut"; enabled?: boolean; url: string; size?: 16 | 32 | 64; intensity?: number }
+	| { id?: string; type: "dof"; enabled?: boolean; focusDistance?: number; focalLength?: number; aperture?: number; maxBlur?: number }
+	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number }
+	| { id?: string; type: string; enabled?: boolean; [k: string]: unknown };
+/** registry.postEffects に足す pass の type＝setPostChain のたびに、その type の pass の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／CSS filter で描く約束） */
+export interface PostEffectImpl { apply(map: OrthoJapanMap, passes: PostPass[]): void }
 /** map.setPostProcess の引数。true＝既定値。bloom: threshold＝滲む輝度の下限（0〜1・既定 0.75）・strength＝足す量（既定 0.5）・radius＝ぼかし半径の倍率（既定 1）。vignette: strength＝四隅の暗さ（既定 0.5）・radius＝暗くなり始める距離（中心 0〜角 1・既定 0.8）・softness＝移り変わりの幅（既定 0.5）。 */
 export interface PostProcessOptions {
 	bloom?: true | { threshold?: number; strength?: number; radius?: number };
@@ -1133,7 +1146,11 @@ export interface OrthoJapanMap {
 	sceneTimeline(scenes: object): { dur: number; rows: unknown[]; at(t: number): unknown; seek(t: number): unknown; end(): void } | null;
 	/** 今の画面の生スナップショット（W×H・render＝基図＋知性層＋注記の画素）。合成は shot ガジェット／gadgets/compose.js */
 	/** 後処理（bloom・vignette）。本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない。null で外す。 */
-	setPostProcess(p: PostProcessOptions | null): this;
+	setPostProcess(p: PostProcessOptions | PostPass[] | null): this;
+	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette（従来と同じ経路）。他の builtin の type は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */
+	setPostChain(chain: PostPass[] | PostPass | PostProcessOptions | null): this;
+	/** 保っている鎖（正規化済み・順番どおり） */
+	getPostChain(): PostPass[];
 	/** 正規化済みの後処理の設定（off なら null）。 */
 	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null } | null;
 	// ---- plugin 契約・registry・capabilities（第 2 波 PR-F0・2026-10-12）----

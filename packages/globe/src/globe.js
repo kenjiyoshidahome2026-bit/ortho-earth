@@ -21,6 +21,7 @@ import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（�
 import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
 import customglUrl from "./gadgets/customgl-draw.js?url";
 import { normPost } from "@ortho-earth/core/postfx";
+import { normPostChain, POST_TYPES } from "./postchain.js";   // 後処理の鎖（F3）
 import { createPluginHost } from "./plugin.js";   // plugin 契約・registry・supports/capabilities（第 2 波 PR-F0・2026-10-12）
 export { definePlugin, STATIC_CAPABILITIES } from "./plugin.js";
 import { registerTileFormat, hasTileFormat, tileFormatNames } from "@ortho-earth/core/tileformat";   // registry.tileFormats＝core の表へ（process-wide）
@@ -2517,8 +2518,20 @@ Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true }); 
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
 // 後処理（deck.gl の PostProcessEffect 相当・差分 PR-8・2026-10-12）：map.setPostProcess({ bloom: { threshold, strength, radius }, vignette: { strength, radius, softness } } | null)
 //   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
-let postCur = null;
-map.setPostProcess = p => { postCur = normPost(p); renderer.set("post", postCur); needsDraw = true; return map; };
+let postCur = null, postChain = [];
+// 後処理の鎖（第 2 波 F3・2026-10-12・src/postchain.js）：map.setPostChain([{ type:"bloom"|"vignette"|"fxaa"|"smaa"|"tonemap"|"lut"|"dof"|"ssr"|<plugin>, ... }])／getPostChain()。
+//   描くのは bloom・vignette（従来の "post" と同じ）。他の builtin の type は受けて保つだけ（capabilities "spec"）。plugin の type は registry.postEffects の { apply(map, passes) } が setPostChain のたびに呼ばれる。
+//   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette に写る（getPostProcess の形は不変）
+const applyPostChain = chain => {
+	const reg = pluginHost.registry.postEffects;
+	const r = normPostChain(chain, t => reg.has(t) && !POST_TYPES.includes(t));
+	postChain = r.passes; postCur = r.post; renderer.set("post", postCur);
+	for (const t of reg.names()) if (!POST_TYPES.includes(t)) { try { reg.get(t).apply(map, postChain.filter(x => x.type === t)); } catch (e) { console.warn(`[post] ${t}: apply failed`, e); } }
+	needsDraw = true; return map;
+};
+map.setPostChain = chain => applyPostChain(chain);
+map.getPostChain = () => postChain.map(x => ({ ...x }));
+map.setPostProcess = p => (Array.isArray(p) ? applyPostChain(p) : applyPostChain(p == null ? null : { bloom: p.bloom, vignette: p.vignette }));
 map.getPostProcess = () => postCur;
 if (opts.postProcess) map.setPostProcess(opts.postProcess);
 // ── plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 compat §9「拡張点の台帳」）──
@@ -2530,7 +2543,7 @@ const pluginHost = createPluginHost(map, {
 	getBackend: () => dbgHost.__backend || memBackend || (gpuBackend ? "webgpu" : "webgl2"),
 	gadgetNames: () => Object.keys(map.gadget || {}), defineGadget: (name, fn) => map.gadget(name, fn), removeGadget: name => { delete map.gadget[name]; },
 	tileFormats: { register: registerTileFormat, has: hasTileFormat, names: tileFormatNames }, builtinTileFormats: tileFormatNames(),
-	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: ["bloom", "vignette"], builtinLights: LIGHT_TYPES,
+	pointcloud: POINTCLOUD_FORMATS, builtinDataKinds: BUILTIN_DATA_KINDS, builtinPostEffects: POST_TYPES, builtinLights: LIGHT_TYPES,
 });
 map.use = (p, o) => pluginHost.use(p, o);
 map.unuse = name => pluginHost.unuse(name);
