@@ -3907,6 +3907,8 @@ const modelCtlGet = async () => {
 	if (modelCtl) return modelCtl;
 	modelCtl = dbgHost.__model = m.createModel(map, {   // __model＝検証窓（t-model・押し出し）
 		setMeshXf: (name, data) => { wPost({ type: "set", cmd: "meshXf", data, prop: name }); needsDraw = true; },   // バッチの剛体変換（glTF の rigid アニメ・W4）＝Float32Array(12)｜null
+		setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); needsDraw = true; },   // feature state の色（W7）＝頂点色の列（RGBA8）
+		pickEnv: meshPickEnv,   // 当たり（W7）＝画面の点 → 三角形と地物の番号
 		setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); needsDraw = true; },   // uv/頂点色/テクスチャ（ImageBitmap）も transfer
 		fit: bb => {   // 模型へ寄る＝loadUserFile の fit と同じ視野幅逆解き。ただしチルト 55°（建物メッシュは真俯瞰 pitch<0.02 では描かない＝寄って何も無いを避ける）
 			const cx = (bb[0] + bb[2]) / 2, cy = (bb[1] + bb[3]) / 2;
@@ -4021,6 +4023,8 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); ret
 	cam, size: () => size, dpr, lowMem: LOW_MEM, signal: ac.signal, requester, ell: ELL_ON,   // ell＝楕円体表示（#43）＝選びの世界座標と worker の置き方
 	setMesh: (name, data) => { wPost({ type: "set", cmd: "meshSet", data, prop: name }, data ? [...new Set([data.pos.buffer, data.nrm.buffer, data.idx.buffer, data.uv?.buffer, data.col?.buffer, ...["tex", "texMR", "texN", "texOcc", "texEm"].flatMap(k => [data[k]?.bitmap, data[k]?.rgba?.buffer])].filter(Boolean))] : []); needsDraw = true; },
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
+	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); needsDraw = true; },   // feature state の色（W7）
+	pickEnv: meshPickEnv,   // 当たり（W7）
 }); };
 map.gadget("tiles3d", async function (url, opts = {}) {
 	const c = await t3dGet();
@@ -5446,18 +5450,39 @@ const extView = () => {
 	});
 	return { st, W, H, k, f: st.focal / dpr, pos, clipOf, envOf };
 };
-// 問い合わせの形 → extrude-ml.js の q（点＝{ pt }・箱＝{ box: [x0,y0,x1,y1] } に正規化）
-const extQ = g => typeof g[0] === "number" ? { pt: g } : { box: [Math.min(g[0][0], g[1][0]), Math.min(g[0][1], g[1][1]), Math.max(g[0][0], g[1][0]), Math.max(g[0][1], g[1][1])] };
-const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]（並べるのは問い合わせ＝vector の押し出しと一緒に）
-	const sets = modelCtl?.extrudeSets;
-	if (!sets?.length || !sets.some(s => take(s.slot === "default" ? "extrude" : s.slot))) return [];
-	const { W, H, k, f, pos, clipOf, envOf } = extView();
+// 今の視点で、メッシュが描かれる地面の半径（単位球＝1）＝renderer の接地リフトと同じ域の判定（押し出しの当たり・模型の当たり W7 が共用）。
+// mode＝"plane"（持ち上げない）｜"drape"（全域で地形へ）｜その他（DTM 保証域の中だけ）
+const groundNow = () => {
 	const pt0 = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14)), pf = noTerr ? 0 : pt0 * pt0 * (3 - 2 * pt0);   // 地形のフェード（dispRadius・vtxGround と同じ）
 	const dtm = REGION_DTM?.bbox || (demSpec?.dtm ? demSpec.bounds : null), z = cam.zoom, pitch = cam.pitch || 0;
 	const mixed = !noMixedR01 && pitch > 0.9 && z >= 11.5 && z < 14, r01 = z >= 13 && !(pitch > 0.9 && z < 14);
 	const cx = Math.floor(cam.center[0]), cy = Math.floor(cam.center[1]);
 	const liftHere = (lon, lat) => !!dtm && lon >= dtm[0] && lon <= dtm[2] && lat >= dtm[1] && lat <= dtm[3] && (mixed ? lon >= cx - 1 && lon < cx + 2 && lat >= cy - 1 && lat < cy + 2 : r01);
 	const groundOf = mode => mode === "plane" || pf === 0 ? () => 1 : mode === "drape" ? vtxGround : (lon, lat) => liftHere(lon, lat) ? vtxGround(lon, lat) : 1;
+	return { pf, groundOf };
+};
+// 模型・3D Tiles の当たり（W7）の環境＝{ view: { mvp, W, H, eye }（CSS px）, show3d, lift(origin, mode) → 持ち上げ（世界単位・束の中心で 1 回） }
+const meshPickEnv = () => {
+	const st = cameraState(cam, size.w, size.h), { groundOf } = groundNow();
+	return { view: { mvp: st.mvp, W: size.w / dpr, H: size.h / dpr, eye: st.eye }, show3d: (cam.pitch || 0) >= 0.02,   // show3d＝renderer と同じ（真俯瞰は keep2d の束しか描かない＝模型は当てない）
+		lift: (o, mode) => { const l = Math.hypot(o[0], o[1], o[2]) || 1, lon = Math.atan2(o[2], o[0]) * 180 / Math.PI, lat = Math.asin(o[1] / l) * 180 / Math.PI; return groundOf(mode)(lon, lat) - 1; } };
+};
+// 問い合わせの形 → extrude-ml.js の q（点＝{ pt }・箱＝{ box: [x0,y0,x1,y1] } に正規化）
+const extQ = g => typeof g[0] === "number" ? { pt: g } : { box: [Math.min(g[0][0], g[1][0]), Math.min(g[0][1], g[1][1]), Math.max(g[0][0], g[1][0]), Math.max(g[0][1], g[1][1])] };
+// 模型・3D Tiles の当たり（W7）＝点の問い合わせだけ（箱は当てない）。層 id＝模型 "model"・tileset はその id（type "model"／"3d-tiles"）
+const meshHits = (geometry, take) => {
+	if (!Array.isArray(geometry) || typeof geometry[0] !== "number") return [];
+	const [x, y] = geometry, out = [];
+	const feat = (h, lid, type) => ({ d: h.distance, f: { type: "Feature", ...(h.featureId != null ? { id: h.featureId } : {}), properties: h.properties || {}, geometry: { type: "Point", coordinates: h.lngLat }, layer: { id: lid, type }, source: lid, state: h.state || {}, ...(h.table ? { propertyTable: h.table } : {}) } });
+	if (modelCtl?.name && take("model")) { const h = modelCtl.pick(x, y); if (h) out.push(feat(h, "model", "model")); }
+	if (t3dCtl) for (const h of t3dCtl.pickAll(x, y)) if (take(h.id)) out.push(feat(h, h.id, "3d-tiles"));
+	return out;
+};
+const extrudeHits = (geometry, take) => {   // → [{ d: 奥行き, f: 地物 }]（並べるのは問い合わせ＝vector の押し出しと一緒に）
+	const sets = modelCtl?.extrudeSets;
+	if (!sets?.length || !sets.some(s => take(s.slot === "default" ? "extrude" : s.slot))) return [];
+	const { W, H, k, f, pos, clipOf, envOf } = extView();
+	const { pf, groundOf } = groundNow();
 	const q = extQ(geometry), box = q.box;
 	const hits = [];
 	for (const { slot, used, mode, lift } of [...sets].reverse()) {   // 新しいスロットから（奥行きが同じ時の順＝従来どおり）
@@ -5596,7 +5621,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	const W = size.w / dpr, H = size.h / dpr, tolPx = qo.tolerance ?? 0, tolUser = qo.tolerance ?? 3;
 	const want = qo.layers ? new Set(qo.layers) : null, take = id => !want || want.has(id);
 	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(qo.filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: MAP_GS, geojson: f.geometry, pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
-	const extHits = extrudeHits(geometry || [[0, 0], [W, H]], take);   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
+	const extHits = [...extrudeHits(geometry || [[0, 0], [W, H]], take), ...meshHits(geometry, take)];   // 模型・3D Tiles（W7）も立体の当たりの列へ   // geojson の押し出し＝立体で当てる（空を指しても高い屋根には当たる＝地面の問い合わせより先に）
 	const vtxHits = vtxCtl ? vtxCtl.query(geometry || [[0, 0], [W, H]], take).catch(err => { console.warn("[query] vector extrusion", err); return []; }) : null;   // ベクタタイルの押し出し（段 8①）＝同じ当たり（extView）
 	const ext3d = async () => [...extHits, ...(vtxHits ? await vtxHits : [])].sort((a, b) => a.d - b.d).map(h => h.f);   // 押し出しは二つの経路を一つの列に・近い順（MapLibre は 3D の地物を奥行きで並べる）
 	// 上から：模様・記号・集約の丸・画像（queryUserSync の前半）→ 押し出し（hook で差し込む）→ gint の pass と user 層（後半）。点が球の外（null）＝高い屋根だけ
@@ -5641,7 +5666,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 		const r = ovHits ? [...(await ovHits).map(overlayFeature), ...r0] : r0;
 		if (!clipMain) return r;   // 地面の地物＝vector の面（押し出しは extrudeHits が models の面で外す）
 		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
-		return r.filter(f => f.layer?.type === "fill-extrusion" || (!ptCut && !clipAllCut(f.geometry)));
+		return r.filter(f => f.layer?.type === "fill-extrusion" || f.layer?.type === "model" || f.layer?.type === "3d-tiles" || (!ptCut && !clipAllCut(f.geometry)));   // 模型・3D Tiles（W7）は描いた三角形に当てた＝切られた側は描かれない＝そのまま
 	};
 }
 // 層ごとのイベント（MapLibre 同名・#34）：map.on("click"|"mousemove"|"mouseenter"|"mouseleave", layerId | layerId[], cb)。

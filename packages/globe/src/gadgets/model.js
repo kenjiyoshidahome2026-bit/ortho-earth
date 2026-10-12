@@ -11,6 +11,8 @@
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { normAnimation } from "../gltf-meta.js";   // アニメの spec（F4）
 import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.js";
+import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.js";   // 当たりと feature state の色（W7）
+import { featureProperties } from "../mesh-features.js";
 import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
@@ -137,7 +139,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 }
 
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
-export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell = false, signal } = {}) {
+export function createModel(map, { setMesh, setMeshXf = null, setMeshCol = null, pickEnv = null, fit, center, ell = false, signal } = {}) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const t = tr();
 	let seq = 0, cur = null;   // seq＝模型・押し出しの名前の連番・cur＝{ name, stats, src }
 	const animListeners = new Set();   // setAnimation の合図（F4）
@@ -151,7 +153,7 @@ export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell =
 		const pose = samplePose(cur.rig, a.index, wrapTime(time, a.duration, a.loop)); if (!pose) return null;
 		return cur.batches.map(b => b.node >= 0 ? batchXf(worldXf(pose, b.node, cur.place), b.origin) : null);
 	};
-	const applyPose = time => { const xs = poseAt(time); if (!cur || !setMeshXf) return; cur.batches.forEach((b, k) => { const xf = xs ? xs[k] : null; if (xf || b.xfOn) { setMeshXf(`${cur.name}#${k}`, xf); b.xfOn = !!xf; } }); };
+	const applyPose = time => { const xs = poseAt(time); if (!cur || !setMeshXf) return; cur.batches.forEach((b, k) => { const xf = xs ? xs[k] : null; b.xf = xf; if (xf || b.xfOn) { setMeshXf(`${cur.name}#${k}`, xf); b.xfOn = !!xf; } }); };   // b.xf＝当たり（W7）も同じ姿勢で
 	const stopLoop = () => { if (animRaf) cancelAnimationFrame(animRaf); animRaf = 0; animLast = null; };
 	const tick = () => {
 		animRaf = 0; const a = cur?.animation; if (!a || !a.playing) { animLast = null; return; }
@@ -162,6 +164,11 @@ export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell =
 		cur.animation = { ...a, time, playing };
 		applyPose(time);
 		if (playing) animRaf = requestAnimationFrame(tick); else animLast = null;
+	};
+	const repaintStates = () => {   // feature state の色（W7）＝束ごとに元の頂点色から差し替えた列を renderer の "meshCol" へ（state の無い束も一度戻す）
+		if (!cur || !setMeshCol) return;
+		const colorOf = id => { const c = cur.states.get(id)?.color; const v = c ? rgbaOf(String(c)) : null; return v ? v.slice(0, 3) : null; };
+		cur.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${cur.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
 	};
 	const syncAnim = () => { if (!cur) return; const a = cur.animation; stopLoop(); applyPose(a ? a.time : 0); if (a?.playing && cur.rig && typeof requestAnimationFrame === "function") animRaf = requestAnimationFrame(tick); };
 	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
@@ -232,7 +239,7 @@ export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell =
 		// src＝File | URL 文字列。戻り値＝ctl（stats/bbox）。失敗は throw（dropFile がトーストへ出す）
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false } = {}) {   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0 } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab, baseUri = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -247,18 +254,46 @@ export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell =
 				name ??= src.name || "model.glb";
 			}
 			const anchor = at || center?.() || null;
-			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, transcoders: transcodersOf(map) }, [ab]).catch(err => {
+			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, transcoders: transcodersOf(map) }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
 			clear();
 			const key = `model/${++seq}`;
-			cur = { name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], xfOn: false })) };   // rig/place/batches＝rigid アニメ（W4）
+			cur = { name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], xfOn: false, xf: null,
+				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map() };   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return ctl;
 		},
+		// ── 当たりと feature state（第 3 波 W7）──────────────────────────────────────
+		// pick(x, y)＝画面の点（CSS px）に一番手前の三角形 → { featureId, properties, table, batch, distance, lngLat } | null。
+		// featureId＝EXT_mesh_features（組は load の featureIdSet・attribute／implicit）か _BATCHID の番号（無ければ null＝模型そのものに当たった）
+		pick(x, y) {
+			if (!cur?.pickable || !pickEnv) return null;
+			const env = pickEnv(); if (!env) return null;
+			if (!env.show3d) return null;   // 真俯瞰＝模型は描かれない（renderer の show3d）＝当てない
+			const items = cur.batches.map(b => b.pos ? { pos: b.pos, idx: b.idx, origin: b.origin, xf: b.xf, lift: env.lift(b.origin), features: b.features } : null);
+			const h = pickMeshes(items, env.view, x, y); if (!h) return null;
+			const b = cur.batches[h.item], f = b.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f.tables?.[tIdx] : null;
+			return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx, name: table.name, class: table.class } : null,
+				batch: h.item, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(cur.states.get(h.featureId) || {}) } : {} };
+		},
+		// 地物の一覧の見出し＝{ primitives, tables: [{ name, class, count, columns }] } | null
+		get features() {
+			const fb = cur?.batches?.find(b => b.features); if (!fb) return cur?.stats?.features ? { ...cur.stats.features, tables: [] } : null;
+			return { ...(cur.stats.features || {}), tables: (fb.features.tables || []).map(T => ({ name: T.name, class: T.class, count: T.count, columns: Object.keys(T.columns) })) };
+		},
+		// feature state（MapLibre の setFeatureState と同じ置き場の考え方）＝{ color: CSS 色 } を描きに効かせる（頂点色を差し替え＝テクスチャに掛かる）。他の鍵は保つだけ
+		setFeatureState(id, state) {
+			if (!cur || id == null) return ctl;
+			const prev = cur.states.get(+id) || {}, next = state == null ? {} : { ...prev, ...state };
+			if (Object.keys(next).length) cur.states.set(+id, next); else cur.states.delete(+id);
+			repaintStates(); return ctl;
+		},
+		getFeatureState(id) { return { ...(cur?.states.get(+id) || {}) }; },
+		removeFeatureState(id) { if (!cur) return ctl; if (id == null) cur.states.clear(); else cur.states.delete(+id); repaintStates(); return ctl; },
 		toastLength() { return cur ? t("$1 triangles", cur.stats.triangles) : "?"; },
 	};
 	signal?.addEventListener("abort", () => ctl.destroy(), { once: true });
