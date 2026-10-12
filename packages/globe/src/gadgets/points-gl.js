@@ -6,6 +6,9 @@
 //           mvp×平行移動(origin) は倍精度で掛けてから float32 へ＝原点付近の精度が桁で戻る
 //           ／{ type:"remove", q }／{ type:"vis", q, on }（表示だけ切替）／{ type:"style", size, color:[r,g,b,a] }（rgba の無い層の色）／{ type:"clear" }
 //           検定用の { type:"probe", id }＝次の frame の後に自分の画素を host.post（{ type:"pixels", … }・t-ellparity）。描画には関与しない。
+// 当たり判定（統一 picking・deck.gl 差分 PR-1・2026-10-11）：pick(x, y, r, ctx)＝device px の点の半径 r の中で一番近い点＝{ id, q, index, distance, lngLat, properties }｜null。
+//   GPU picking＝点の番号（層ごとの base＋gl_VertexID・1 から・0＝無し）を RGBA8 に焼く別パス（Gint と同じ流儀）を頼まれた時だけ FBO へ描き、(2r+1)² の窓を読む。
+//   描く形は本番と同じ丸（同じ coverage で discard）＝見えている所だけ当たる。pos は CPU 側にも持つ（当たった点の経緯度を返す）。
 // ⚠ 依存ゼロ（import 文なし）＝vite は ?url のファイルをそのまま置く。
 const VS = `#version 300 es
 precision highp float;
@@ -43,8 +46,36 @@ void main() {
 	float a = v_col.a * cov;
 	o = vec4(v_col.rgb * a, a);
 }`;
+// 当たり判定の別パス＝同じ VS に点の番号を足し（base＋gl_VertexID）、FS は番号を 4 バイトに焼く（blend 無し・coverage は本番と同じ丸）
+const VS_PICK = VS.replace("out vec4 v_col;", "out vec4 v_col; flat out highp uint v_id; uniform highp uint u_base;").replace("v_col = u_perPoint > 0.5 ? a_rgba : u_color;", "v_col = u_perPoint > 0.5 ? a_rgba : u_color; v_id = u_base + uint(gl_VertexID);");
+const FS_PICK = `#version 300 es
+precision highp float;
+flat in highp uint v_id;
+uniform float u_size;
+out vec4 o;
+void main() {
+	vec2 p = (gl_PointCoord * 2.0 - 1.0) * (u_size + 1.0);
+	if (length(p) > u_size + 0.5) discard;
+	o = vec4(float(v_id & 255u), float((v_id >> 8) & 255u), float((v_id >> 16) & 255u), float((v_id >> 24) & 255u)) / 255.0;
+}`;
+// 読んだ窓（RGBA8・side×side・GL の並び＝下の行が先）から中心に一番近い 0 でない番号を選ぶ（純関数・node の検定 tests/pick.mjs が読む）
+export const decodeId = (r, g, b, a) => (r | (g << 8) | (b << 16) | (a << 24)) >>> 0;
+export function nearestId(data, side, flipY = true) {
+	const c = (side - 1) / 2;
+	let best = null;
+	for (let j = 0; j < side; j++) for (let i = 0; i < side; i++) {
+		const k = (j * side + i) * 4, id = decodeId(data[k], data[k + 1], data[k + 2], data[k + 3]);
+		if (!id) continue;
+		const dy = flipY ? (side - 1 - j) - c : j - c, dx = i - c, d = Math.hypot(dx, dy);
+		if (!best || d < best.distance) best = { id, distance: d, dx, dy };
+	}
+	return best;
+}
 let gl = null, prog = null, uni = {}, maxPt = 1;
-const layers = new Map();   // q → { n, buf, cbuf, vao, perPoint }
+let pickProg = null, pickUni = {}, pickFbo = null, pickTex = null, pickW = 0, pickH = 0;   // 当たり判定の別パス（頼まれた時だけ作る）
+const layers = new Map();   // q → { n, buf, cbuf, vao, perPoint, pos, origin, base }
+// 層ごとの番号の底（1 から・層の点数ぶん連続）＝層が増減した時に振り直す
+function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 let style = { size: 3, color: [0.9, 0.3, 0.2, 0.85] };
 let host = null;
 const probes = [];
@@ -61,6 +92,7 @@ export function init(canvas, _opts, h) {
 	gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false });
 	if (!gl) throw new Error("WebGL2 is not available (points overlay)");
 	({ p: prog, u: uni } = compile(VS, FS));
+	try { ({ p: pickProg, u: pickUni } = compile(VS_PICK, FS_PICK)); } catch (e) { pickProg = null; console.warn("[points] pick pass unavailable", e?.message); }
 	maxPt = gl.getParameter(gl.ALIASED_POINT_SIZE_RANGE)[1];
 }
 const drop = L => { if (!L) return; gl.deleteBuffer(L.buf); if (L.cbuf) gl.deleteBuffer(L.cbuf); gl.deleteVertexArray(L.vao); };
@@ -75,10 +107,11 @@ export function message(d) {
 		if (d.rgba) { cbuf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, cbuf); gl.bufferData(gl.ARRAY_BUFFER, d.rgba, gl.STATIC_DRAW); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.UNSIGNED_BYTE, true, 0, 0); }
 		else { gl.disableVertexAttribArray(1); gl.vertexAttrib4f(1, 0, 0, 0, 1); }
 		gl.bindVertexArray(null);
-		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba, origin: d.origin || null, on: true });
-	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); }
+		layers.set(d.q, { n: d.n, buf, cbuf, vao, perPoint: !!d.rgba, origin: d.origin || null, on: true, pos: d.pos, base: 0 });
+		rebase();
+	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
 	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
-	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); }
+	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); }
 	else if (d.type === "style") { style = { ...style, ...d }; }
 }
 // 検定用の画素（dbgHost.__ovPixels・t-ellparity）＝probe を受けたら、次の frame で描いた直後に readPixels して host へ（columnar の draw-gl と同じ口・premultiplied RGBA・下が先）
@@ -95,27 +128,68 @@ export function frame(cam, s, size) {
 }
 function draw(cam, s, { w, h }) {
 	if (!gl) return false;
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	gl.viewport(0, 0, w, h);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
 	if (!layers.size) return false;
-	const dpr = cam.dpr || 1;
-	gl.useProgram(prog);
-	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M);
-	gl.uniform3fv(uni.u_eye, new Float32Array(s.eye));
-	gl.uniform1f(uni.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr));
-	gl.uniform4fv(uni.u_color, new Float32Array(style.color));
 	gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+	drawLayers(prog, uni, s, cam.dpr || 1, false);
+	return false;
+}
+// 本番（P＝prog）と当たり判定（P＝pickProg・u_base を層ごとに）で同じ層を同じ行列で描く
+function drawLayers(P, U, s, dpr, idMode) {
+	gl.useProgram(P);
+	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M);
+	gl.uniform3fv(U.u_eye, new Float32Array(s.eye));
+	gl.uniform1f(U.u_size, Math.min(maxPt * 0.5 - 1, style.size * dpr));
+	if (!idMode) gl.uniform4fv(U.u_color, new Float32Array(style.color));
 	for (const L of layers.values()) {
 		if (!L.on) continue;
 		const o = L.origin;
 		if (o) {   // mvp·T(o)＝4 列目だけが変わる（倍精度で掛ける）
 			for (let i = 0; i < 12; i++) mvpL[i] = M[i];
 			for (let r = 0; r < 4; r++) mvpL[12 + r] = M[r] * o[0] + M[4 + r] * o[1] + M[8 + r] * o[2] + M[12 + r];
-			gl.uniformMatrix4fv(uni.u_mvp, false, mvpL); gl.uniform3f(uni.u_origin, o[0], o[1], o[2]);
-		} else { gl.uniformMatrix4fv(uni.u_mvp, false, mvp0); gl.uniform3f(uni.u_origin, 0, 0, 0); }
-		gl.uniform1f(uni.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
+			gl.uniformMatrix4fv(U.u_mvp, false, mvpL); gl.uniform3f(U.u_origin, o[0], o[1], o[2]);
+		} else { gl.uniformMatrix4fv(U.u_mvp, false, mvp0); gl.uniform3f(U.u_origin, 0, 0, 0); }
+		if (idMode) gl.uniform1ui(U.u_base, L.base);
+		gl.uniform1f(U.u_perPoint, L.perPoint ? 1 : 0); gl.bindVertexArray(L.vao); gl.drawArrays(gl.POINTS, 0, L.n);
 	}
 	gl.bindVertexArray(null);
-	return false;
 }
-export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); gl.deleteProgram(prog); gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
+// 当たり判定（統一 picking）：x, y, r＝device px（y は上が 0）。ctx＝{ cam, s, size, api }（render worker が最後に描いたフレームの物）
+export function pick(x, y, r, ctx) {
+	if (!gl || !pickProg || !layers.size || !ctx?.s) return null;
+	const { w, h } = ctx.size, dpr = ctx.cam?.dpr || 1;
+	if (pickW !== w || pickH !== h || !pickFbo) {   // FBO（RGBA8・canvas と同寸）＝寸法が変わった時だけ作り直す
+		if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo);
+		pickTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, pickTex); gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+		pickFbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTex, 0);
+		pickW = w; pickH = h;
+	} else gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo);
+	gl.viewport(0, 0, w, h); gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
+	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+	drawLayers(pickProg, pickUni, ctx.s, dpr, true);
+	const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = (h - 1 - Math.round(y)) - rr;   // GL は下が 0
+	const data = new Uint8Array(side * side * 4);
+	// 窓が端にかかる分は 0 のまま（canvas の外は当たらない）
+	const cx0 = Math.max(0, x0), cy0 = Math.max(0, y0), cx1 = Math.min(w, x0 + side), cy1 = Math.min(h, y0 + side);
+	if (cx1 > cx0 && cy1 > cy0) {
+		const sub = new Uint8Array((cx1 - cx0) * (cy1 - cy0) * 4);
+		gl.readPixels(cx0, cy0, cx1 - cx0, cy1 - cy0, gl.RGBA, gl.UNSIGNED_BYTE, sub);
+		for (let j = 0; j < cy1 - cy0; j++) data.set(sub.subarray(j * (cx1 - cx0) * 4, (j + 1) * (cx1 - cx0) * 4), ((j + cy0 - y0) * side + (cx0 - x0)) * 4);
+	}
+	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+	const best = nearestId(data, side, true);
+	if (!best) return null;
+	let q = null, L = null; for (const [k, v] of layers) if (best.id >= v.base && best.id < v.base + v.n) { q = k; L = v; break; }
+	if (!L) return null;
+	const index = best.id - L.base;
+	let lngLat = null;
+	if (L.pos && L.pos.length >= index * 3 + 3) {   // 単位球（楕円体＝β 空間）の xyz → 経緯度。tanφ = tanβ / rAx（rAx＝b/a・球では 1）
+		const o = L.origin || [0, 0, 0], px = L.pos[index * 3] + o[0], py = L.pos[index * 3 + 1] + o[1], pz = L.pos[index * 3 + 2] + o[2];
+		const rAx = ctx.api?.rAx || 1, lon = Math.atan2(pz, px) * 180 / Math.PI, beta = Math.asin(Math.max(-1, Math.min(1, py / Math.hypot(px, py, pz))));
+		lngLat = [lon, Math.atan(Math.tan(beta) / rAx) * 180 / Math.PI];
+	}
+	return { id: best.id, q, index, distance: best.distance, lngLat, properties: { q, index } };
+}
+export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); gl.deleteProgram(prog); if (pickProg) gl.deleteProgram(pickProg); if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo); pickProg = pickTex = pickFbo = null; pickW = pickH = 0; gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
