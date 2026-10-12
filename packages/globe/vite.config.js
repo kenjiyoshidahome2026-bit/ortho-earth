@@ -13,6 +13,10 @@ import { crossOriginIsolation, engineAliases } from "./scripts/lib/vite-app.mjs"
 
 export default defineConfig({
 	resolve: { alias: engineAliases(resolve(import.meta.dirname, "..", "..")) },
+	// three.js（検定 t-three だけの devDependency・利用者は CDN の URL を渡す）：bare の "three" を頁で import すると dep の事前束ね（?url が default を失う）に
+	// 入るので、ファイルの実パスを /@fs/ の URL として定数で渡す＝頁は __OE_THREE_URL__ を worker（map.addThree の opts.three）へそのまま渡す
+	define: { __OE_THREE_URL__: JSON.stringify("/@fs" + resolve(import.meta.dirname, "..", "..", "node_modules", "three", "build", "three.module.js")) },
+	optimizeDeps: { include: ["@deck.gl/core", "@deck.gl/layers", "@deck.gl/mapbox"] },   // deck.gl（検定 t-deckgl だけの devDependency）＝起動時に束ねておく（頁の途中の再読込を避ける）
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation()],
 });
