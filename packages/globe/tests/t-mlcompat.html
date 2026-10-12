@@ -11,6 +11,7 @@
      ?g=bg＝background 層（B5）＝MapLibre の目盛りの地図で background の無い style は床も宇宙も透明（α 0）・addLayer({type:"background"}) で床が塗られ background-opacity と visibility が効く・removeLayer で透明に戻る・setClearColor。
      ?g=small＝shim の小口の束（B6）＝sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces・coveringTiles・setCameraUpdate・minPitch・pixelRatio・repaint・debug の表示・refreshTiles。
      ?g=canvas＝canvas source（C3）＝四隅の覆い（videoquad）に毎フレーム写す・pause/play・id の文字列・animate:false・setCoordinates・raster-opacity。
+     ?g=raster＝raster-resampling／resampling・raster-fade-duration（C4）＝2×2 市松のタイル＝nearest は赤/青だけ・linear は混ざる・別名 resampling・既定 300ms・長いフェードを idle が待つ・hillshade の resampling。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -1590,6 +1591,68 @@ try {
 		await scene("canvas-raster-opacity", async () => {
 			map.setPaintProperty("cl2", "raster-opacity", 0.5); const c = await ov(cx + 9, cy + 7, x => x && x[3] > 100 && x[3] < 160);   // 中心は格子の継ぎ目（セルの重なりで α が足される）＝少し外す
 			return [!!c && c[3] > 100 && c[3] < 160, `near-center=${c}`];
+		});
+	} else if (G === "raster") {
+		// ── raster-resampling／resampling・raster-fade-duration（C4・2026-10-12）＝層ごとの標本化（nearest/linear）と到着フェード。
+		//    2×2 の市松（赤/青）をタイルにして z10 で見る＝1 texel が画面で百数十 px：nearest は赤か青しか無い・linear は texel の中心の間が混ざる（半分ほどが紫）。
+		//    フェードは idle が待つ（MapLibre の hasTransition と同じ）＝__idleWhy().rasterFading で最中を見る
+		const C = [139.76, 35.68];
+		const map = await createGlobe({ target: "#map", view: `#10/${C[1]}/${C[0]}`, chips: false, debugGlobals: true, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(300);
+		const ck = document.createElement("canvas"); ck.width = 2; ck.height = 2;
+		const g2 = ck.getContext("2d"); g2.fillStyle = "#ff0000"; g2.fillRect(0, 0, 2, 2); g2.fillStyle = "#0000ff"; g2.fillRect(1, 0, 1, 1); g2.fillRect(0, 1, 1, 1);
+		const tiles = [ck.toDataURL("image/png") + "#{z}/{x}/{y}"];   // data: URL＝どのタイルも同じ市松（# の後ろの型紙は fetch が捨てる）
+		const idle = () => Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]);
+		const pure = c => (c[0] > 200 && c[1] < 45 && c[2] < 45) || (c[2] > 200 && c[1] < 45 && c[0] < 45);
+		const mixed = c => c[0] > 60 && c[2] > 60 && c[1] < 45;   // 赤と青の混ざり（紫）
+		const scan = async () => { const img = await snap(map); let p = 0, m = 0, o = 0; for (let x = 180; x < 780; x += 3) { const c = px(img, x, 300); if (pure(c)) p++; else if (mixed(c)) m++; else o++; } return { p, m, o, n: p + m + o }; };
+		let entry = () => map.raster.list().find(r => r.id === "rr");
+		await scene("raster-resampling-paint", async () => {
+			map.addSource("ck", { type: "raster", tiles, tileSize: 256, minzoom: 0, maxzoom: 12 });
+			await Promise.race([map.addLayer({ id: "rr", type: "raster", source: "ck", paint: { "raster-resampling": "nearest", "raster-fade-duration": 0 } }), sleep(5000)]);
+			const e = entry();
+			return [e?.opts?.resampling === "nearest" && e?.opts?.fadeDuration === 0 && map.getPaintProperty("rr", "raster-resampling") === "nearest", e ? JSON.stringify(e.opts) : "no raster entry"];
+		});
+		await scene("raster-nearest-pixels", async () => {
+			await idle(); await sleep(400);
+			const r = await scan();
+			return [r.n > 0 && r.p >= r.n * 0.85 && r.m <= r.n * 0.1, `pure=${r.p} mixed=${r.m} other=${r.o} of ${r.n}`];
+		});
+		await scene("raster-linear-pixels", async () => {
+			map.setPaintProperty("rr", "raster-resampling", "linear"); await idle(); await sleep(400);
+			const r = await scan(), e = entry();
+			return [e?.opts?.resampling === "linear" && r.m >= r.n * 0.25 && r.p <= r.n * 0.75, `pure=${r.p} mixed=${r.m} other=${r.o} of ${r.n} opts=${JSON.stringify(e?.opts)}`];
+		});
+		await scene("resampling-alias", async () => {   // paint_raster の `resampling`（raster-resampling の別名）
+			map.setPaintProperty("rr", "resampling", "nearest"); await idle(); await sleep(400);
+			const r = await scan(), e = entry();
+			return [e?.opts?.resampling === "nearest" && r.p >= r.n * 0.85, `pure=${r.p} mixed=${r.m} of ${r.n} opts=${JSON.stringify(e?.opts)}`];
+		});
+		await scene("raster-fade-default", async () => {   // 指定なし＝worker の既定（linear・300ms）が info に戻る
+			await Promise.race([map.addLayer({ id: "rf", type: "raster", source: "ck", paint: { "raster-opacity": 0.01 } }), sleep(5000)]);
+			const e = map.raster.list().find(r => r.id === "rf");
+			return [e?.info?.resampling === "linear" && e?.info?.fadeDuration === 300 && e.opts.fadeDuration === undefined, e ? JSON.stringify({ info: { r: e.info?.resampling, f: e.info?.fadeDuration }, opts: e.opts }) : "no entry"];
+		});
+		await scene("raster-fade-idle-waits", async () => {   // 長いフェード＝最中は rasterFading・idle はフェードの終わりまで来ない
+			map.removeLayer("rf"); map.removeLayer("rr"); await idle();
+			const t0 = performance.now();
+			await Promise.race([map.addLayer({ id: "rf2", type: "raster", source: "ck", paint: { "raster-fade-duration": 1500 } }), sleep(5000)]);
+			let seen = false; for (let i = 0; i < 100 && !seen; i++) { if (window.__idleWhy?.().rasterFading) seen = true; else await sleep(30); }
+			await idle(); const dt = performance.now() - t0, after = window.__idleWhy?.().rasterFading;
+			return [seen && after === false && dt >= 1400, `fadingSeen=${seen} after=${after} idleAfter=${dt.toFixed(0)}ms`];
+		});
+		await scene("raster-fade-setpaint", async () => {
+			map.setPaintProperty("rf2", "raster-fade-duration", 0);
+			const e = map.raster.list().find(r => r.id === "rf2");
+			return [e?.opts?.fadeDuration === 0 && map.getPaintProperty("rf2", "raster-fade-duration") === 0, JSON.stringify(e?.opts)];
+		});
+		await scene("hillshade-resampling", async () => {   // paint_hillshade の resampling も同じ口（タイルは作り直さない）
+			await map.addSource("hsd", { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 });
+			await Promise.race([map.addLayer({ id: "hs", type: "hillshade", source: "hsd", paint: { resampling: "nearest" } }), sleep(8000)]);
+			const o1 = { ...(map.raster.list().find(r => r.id === "hs")?.opts || {}) };   // list() の opts は生きた参照＝写してから set
+			map.setPaintProperty("hs", "resampling", "linear");
+			const o2 = map.raster.list().find(r => r.id === "hs")?.opts;
+			return [o1.resampling === "nearest" && o2?.resampling === "linear", `mount=${o1.resampling} set=${o2?.resampling}`];
 		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。

@@ -413,7 +413,7 @@ const dispatch = e => {
 			else if (m.cmd === "noBld") { noBld = !!m.data; dirty = true; }   // 基図の建物の押し出しを伏せる（層 "building-extrusion" の出し入れ＝?nobld=1 の旗を実行時に・2026-09-27）
 			else if (m.cmd === "rasterAdd") { raster?.add(m.prop, m.data.spec, m.data.opts).catch(() => {}); }   // 画像タイル層の追加（spec＝url/pmtiles/port・失敗は rasterError で main へ）
 			else if (m.cmd === "rasterRemove") { raster?.remove(m.prop); }
-			else if (m.cmd === "rasterSet") { raster?.set(m.prop, m.data); }   // opacity/visible/order/hideFills/minZoom/maxZoom
+			else if (m.cmd === "rasterSet") { raster?.set(m.prop, m.data); }   // opacity/visible/order/hideFills/minZoom/maxZoom/resampling/fadeDuration（C4）
 			else if (m.cmd === "scene") {                                        // mainからのシーンクリア（退場の layers:[]）も同じ受け口＝キュー内の古いシーンに追い越されない
 				// 滞留中の同slotの draw list（multi_draw）はこのクリアより古い＝パージ。残すと転送渋滞の1フレーム後に
 				// 古いシーンが復活する（遅れて届く dl は ack 側の再クリア（onMerged の z<4 分岐）が面倒を見る）。
