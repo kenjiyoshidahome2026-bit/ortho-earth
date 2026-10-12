@@ -49,6 +49,8 @@ const P = definePlugin({
 		m.registry.tileFormats.add("fakefmt", { decode: () => ({}) });
 		m.registry.postEffects.add("fxaa", { pass: true });
 		m.registry.lights.add("laser", { apply() {} });
+		m.registry.clouds.add("puffy", { apply() {} });
+		ok("reg.cloudsNeedsApply", throws(() => m.registry.clouds.add("x", {})));
 		ok("reg.lightNeedsApply", throws(() => m.registry.lights.add("laser2", { kind: "x" })) && throws(() => m.registry.lights.add("point", { apply() {} })));
 		return () => { removed++; };
 	},
@@ -67,12 +69,13 @@ ok("cap.pluginData", c1["data.squares"].status === "plugin" && c1["data.squares"
 ok("cap.pluginGadget", c1["gadget.hello"].status === "plugin" && map.supports("gadget.hello"));
 ok("cap.pluginTiles", c1["tiles.fakefmt"].status === "plugin");
 ok("cap.specPost", c1["post.fxaa"].status === "spec" && !map.supports("post.fxaa") && /PR-F3/.test(c1["post.fxaa"].note), JSON.stringify(c1["post.fxaa"]));
+ok("cap.pluginClouds", c1.clouds.status === "plugin" && c1.clouds.via === "demo" && map.supports("clouds") && c0.clouds.status === "spec" && c0["sun.direction"].status === "builtin");
 ok("cap.pluginLight", c1["light.laser"].status === "plugin" && c1["light.laser"].via === "demo" && map.supports("light.laser"));
 ok("reg.notWired", map.registry.postEffects.wired === false && map.registry.lights.wired === true && map.registry.dataKinds.wired === true);
 
 // 撤去＝cleanup が呼ばれ・自分の登録が消える（tileFormats は process-wide＝残るが capabilities からは外れる）
 ok("unuse", map.unuse("demo") === true && removed === 1 && map.plugins().length === 0);
-ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("fxaa") && !map.registry.lights.has("laser") && !map.registry.gadgets.has("hello"));
+ok("unuse.dropsOwned", !map.registry.dataKinds.has("squares") && !map.registry.postEffects.has("fxaa") && !map.registry.lights.has("laser") && !map.registry.clouds.has("puffy") && !map.registry.gadgets.has("hello"));
 ok("unuse.tileFormatStays", coreFormats.has("fakefmt") && !map.registry.tileFormats.has("fakefmt"));
 ok("unuse.again", map.unuse("demo") === false);
 ok("cap.afterUnuse", !map.supports("data.squares") && map.capabilities()["post.fxaa"].status === "no");   // 静的な表の「no」へ戻る
