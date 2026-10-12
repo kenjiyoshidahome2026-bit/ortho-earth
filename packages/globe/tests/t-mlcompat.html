@@ -10,6 +10,7 @@
      ?g=sky＝style の sky（B4・setSky/getSky）＝海の上を 80° 傾けて見上げ、画面の上（球に当たらない視線）が sky-color・地平線の際が fog-color・外すと元の絵。GL2 の簡易の空。
      ?g=bg＝background 層（B5）＝MapLibre の目盛りの地図で background の無い style は床も宇宙も透明（α 0）・addLayer({type:"background"}) で床が塗られ background-opacity と visibility が効く・removeLayer で透明に戻る・setClearColor。
      ?g=small＝shim の小口の束（B6）＝sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces・coveringTiles・setCameraUpdate・minPitch・pixelRatio・repaint・debug の表示・refreshTiles。
+     ?g=canvas＝canvas source（C3）＝四隅の覆い（videoquad）に毎フレーム写す・pause/play・id の文字列・animate:false・setCoordinates・raster-opacity。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -1538,6 +1539,57 @@ try {
 			const hit = async () => (await map.queryRenderedFeatures(map.projectLL(C[0], C[1]), { layers: ["rs-f"] })).length;
 			const a = await hit(); await map.refreshTiles("rs"); await sleep(1500); const b = await hit(); await map.refreshTiles(); await sleep(1000);
 			return [a > 0 && b > 0 && map.getLayer("rs-f")?.id === "rs-f", `before=${a} after=${b}`];
+		});
+	} else if (G === "canvas") {
+		// ── canvas source（C3・2026-10-12）＝MapLibre の CanvasSource：{ type:"canvas", canvas: id|要素, coordinates, animate }。動画と同じ覆い（videoquad・注記の下）＝毎フレーム写す。
+		//    顔＝getSource(id).getCanvas/play/pause/setCoordinates。画素はオーバーレイ "videoquad" の実画素（__ovPixels・canvas2D＝上が先）
+		const C = [139.76, 35.68];
+		const map = await createGlobe({ target: "#map", view: `#11/${C[1]}/${C[0]}`, chips: false, debugGlobals: true, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const cv = Object.assign(document.createElement("canvas"), { width: 64, height: 64, id: "src-canvas" }); document.body.appendChild(cv); cv.style.cssText = "position:absolute;left:-200px;top:0";
+		const g2 = cv.getContext("2d"), paint = col => { g2.fillStyle = col; g2.fillRect(0, 0, 64, 64); };
+		const quad = d => [[C[0] - 0.1 + d, C[1] + 0.06], [C[0] + 0.1 + d, C[1] + 0.06], [C[0] + 0.1 + d, C[1] - 0.06], [C[0] - 0.1 + d, C[1] - 0.06]];
+		const at = (p, x, y) => { if (!p?.data) return null; const s = p.w / map.mapEl.clientWidth, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+		const ov = async (x, y, test, ms = 8000) => { let c = null; for (const t0 = performance.now(); performance.now() - t0 < ms; await sleep(200)) { c = at(await window.__ovPixels?.("videoquad"), x, y); if (c && test(c)) break; } return c; };
+		const isRed = c => c && c[3] > 200 && c[0] > 190 && c[1] < 80 && c[2] < 80, isBlue = c => c && c[3] > 200 && c[2] > 190 && c[0] < 80, isGreen = c => c && c[3] > 200 && c[1] > 190 && c[0] < 80 && c[2] < 80;
+		const [cx, cy] = map.projectLL(C[0], C[1]);
+		await scene("canvas-draws", async () => {
+			paint("#ff0000");
+			map.addSource("cs", { type: "canvas", canvas: cv, coordinates: quad(0), animate: true });
+			await map.addLayer({ id: "cl", type: "raster", source: "cs" });
+			const c = await ov(cx, cy, isRed), src = map.getSource("cs");
+			return [isRed(c) && src?.getCanvas?.() === cv && typeof src.play === "function" && typeof src.pause === "function", `center=${c} getCanvas=${src?.getCanvas?.() === cv}`];
+		});
+		await scene("canvas-animates", async () => { paint("#0000ff"); const c = await ov(cx, cy, isBlue); return [isBlue(c), `center=${c}`]; });
+		await scene("canvas-pause-play", async () => {
+			map.getSource("cs").pause(); await sleep(300); paint("#00ff00"); await sleep(1200);
+			const stale = at(await window.__ovPixels?.("videoquad"), cx, cy);
+			map.getSource("cs").play(); const fresh = await ov(cx, cy, isGreen);
+			return [isBlue(stale) && isGreen(fresh), `paused=${stale} played=${fresh}`];
+		});
+		await scene("canvas-set-coordinates", async () => {
+			map.getSource("cs").setCoordinates(quad(0.3)); await sleep(100);
+			const [mx, my] = map.projectLL(C[0] + 0.3, C[1]);
+			const moved = await ov(mx, my, isGreen), old = await ov(cx, cy, c => !isGreen(c), 3000);
+			return [isGreen(moved) && !isGreen(old), `moved=${moved} old=${old}`];
+		});
+		await scene("canvas-remove", async () => {
+			map.removeLayer("cl"); map.removeSource("cs");
+			const [mx, my] = map.projectLL(C[0] + 0.3, C[1]); const c = await ov(mx, my, x => !x || x[3] < 20, 3000);
+			return [!c || c[3] < 20, `after=${c}`];
+		});
+		await scene("canvas-by-id-animate-false", async () => {
+			paint("#ff0000");
+			map.addSource("cs2", { type: "canvas", canvas: "src-canvas", coordinates: quad(0), animate: false });
+			await map.addLayer({ id: "cl2", type: "raster", source: "cs2", paint: { "raster-opacity": 1 } });
+			const first = await ov(cx, cy, isRed);
+			paint("#0000ff"); await sleep(1000); const still = at(await window.__ovPixels?.("videoquad"), cx, cy);   // animate:false＝1 枚だけ
+			map.getSource("cs2").play(); const after = await ov(cx, cy, isBlue);
+			return [isRed(first) && isRed(still) && isBlue(after) && map.getSource("cs2").getCanvas() === cv, `first=${first} still=${still} afterPlay=${after}`];
+		});
+		await scene("canvas-raster-opacity", async () => {
+			map.setPaintProperty("cl2", "raster-opacity", 0.5); const c = await ov(cx + 9, cy + 7, x => x && x[3] > 100 && x[3] < 160);   // 中心は格子の継ぎ目（セルの重なりで α が足される）＝少し外す
+			return [!!c && c[3] > 100 && c[3] < 160, `near-center=${c}`];
 		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
