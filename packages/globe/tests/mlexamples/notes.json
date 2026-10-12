@@ -113,12 +113,12 @@
 		"en": "Same as above (globe at z1): the 416 px SVG covers the globe."
 	},
 	"level-of-detail-control": {
-		"ja": "setSourceTileLodParams は未対応（MapLibre 独自の LOD の口）。",
-		"en": "setSourceTileLodParams is not supported (a MapLibre-specific LOD control)."
+		"en": "setSourceTileLodParams (maxZoomLevelsOnScreen / tileCountMaxMinimum) is read since B6 (2026-10-12) and feeds the tile-zoom rule; it is a MapLibre-specific LOD control, so the picture is compared as usual.",
+		"ja": "setSourceTileLodParams（maxZoomLevelsOnScreen／tileCountMaxMinimum）は B6（2026-10-12）で読む＝タイルの z の規則に入る。MapLibre 独自の LOD の口。"
 	},
 	"customize-the-map-transform-constrain": {
-		"ja": "transformCameraUpdate（カメラの拘束の差し込み）は未対応＝ズームが 2 段違う。",
-		"en": "transformCameraUpdate (a hook to constrain the camera) is not supported, so the zoom differs by two levels."
+		"en": "setTransformCameraUpdate (a hook that rewrites the camera after constraints) is wired since B6 (2026-10-12): the hook receives center / zoom / pitch / bearing / roll / elevation and its return value is applied in MapLibre's order.",
+		"ja": "setTransformCameraUpdate（制約の後にカメラを書き換える差し込み）は B6（2026-10-12）で結線＝center／zoom／pitch／bearing／roll／elevation を渡し、返りを MapLibre と同じ順で適用する。"
 	},
 	"add-a-canvas-source": {
 		"ja": "canvas source は四隅の覆い（動画と同じ口・注記の下）＝毎フレーム写す。基図の上に常に乗る（傾けた時の遮蔽は無い）。",

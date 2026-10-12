@@ -279,10 +279,11 @@ function publishGallery(out, { rows, refLabel, orthoLabel, notes, sources }) {
 			const png = path.join(ROOT, "runs", orthoLabel, "ortho", `${r.name}.full.png`);
 			if (fs.existsSync(png)) await sharp(png).resize(480, 360, { fit: "cover" }).webp({ quality: 70, effort: 6 }).toFile(path.join(out, "thumbs", `${r.name}.webp`));
 		}
-		fs.writeFileSync(path.join(out, "index.html"), buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources,
+		const engine = JSON.parse(fs.readFileSync(path.join(PKG, "package.json"), "utf8")).version;   // 脚注に「どの版の絵か」＝@ortho-earth/globe の版（2026-10-12）
+		fs.writeFileSync(path.join(out, "index.html"), buildGallery({ rows: pub, refLabel, orthoLabel, when: new Date().toISOString().slice(0, 16), notes, sources, engine,
 			publish: { thumb: n => `thumbs/${n}.webp`, run: n => `examples/${n}.html` } }));
 		const bytes = d => fs.readdirSync(d).reduce((a, f) => a + fs.statSync(path.join(d, f)).size, 0);
-		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
+		console.log(`\n公開の一式：${path.relative(process.cwd(), out)}（${pub.length} 例・engine ${cur.version}・globe ${engine}・写し ${(bytes(path.join(out, "thumbs")) / 1e6).toFixed(1)} MB）`);
 	})();
 }
 
