@@ -42,6 +42,7 @@ export const MAP_MEMBERS = {
 	getCenter: "none", setCenter: "none", getPitch: "none", setPitch: "none", getBearing: "none", setBearing: "none",
 	getBounds: "none", setMaxBounds: "none", getMaxBounds: "none", setPadding: "none", getPadding: "none",
 	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
+	getRoll: "none", setRoll: "none", getVerticalFieldOfView: "none", setVerticalFieldOfView: "none",   // A1（2026-10-12）＝角度・度。zoom は運ばない
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",

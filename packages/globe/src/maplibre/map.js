@@ -16,7 +16,7 @@ const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
-	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "dragstart", "drag", "dragend"]);
+	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
 const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave"]);   // エンジンが層ごとに持つ事象（#34）
 
@@ -85,11 +85,11 @@ function wireEngine(self, st) {
 	for (const t of ["pointerup", "pointercancel"]) window.addEventListener(t, dragEnd, { passive: true });
 	eng.on("move", e => {
 		st.idle = false;
-		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch() };
-		if (!moving) { moving = { from: st.last ?? c, zoom: false, rotate: false, pitch: false }; emit(self, "movestart"); }
+		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch(), roll: eng.getRoll() };
+		if (!moving) { moving = { from: st.last ?? c, zoom: false, rotate: false, pitch: false, roll: false }; emit(self, "movestart"); }
 		if (dragArm) { if (!dragging) { dragging = true; emit(self, "dragstart"); } emit(self, "drag"); }
 		const p = st.last ?? moving.from;
-		for (const [k, name] of [["zoom", "zoom"], ["bearing", "rotate"], ["pitch", "pitch"]]) {
+		for (const [k, name] of [["zoom", "zoom"], ["bearing", "rotate"], ["pitch", "pitch"], ["roll", "roll"]]) {
 			if (Math.abs(c[k] - p[k]) < 1e-9) continue;
 			if (!moving[name]) { moving[name] = true; emit(self, `${name}start`); }
 			emit(self, name);
@@ -126,7 +126,7 @@ export class Map {
 		if (!container) throw new Error(`Container '${options.container}' not found.`);
 		const st = { options, container, engine: null, loaded: false, idle: false, inert: false, queue: [], engineFns: [], ev: new globalThis.Map(), dom: new Set(),
 			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0, projection: options.style?.projection?.type === "globe" ? "globe" : "mercator",   // style の projection（object の style）も申告に数える
-			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0 } };
+			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0, roll: options.roll ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
 		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝どの口も受ける。止める系は見た目の記録（操作の手触り＝最初の絵は変わらない）
@@ -147,7 +147,7 @@ export class Map {
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
-			...(options.maxPitch != null && { maxPitch: options.maxPitch }),
+			maxPitch: options.maxPitch ?? 85,   // MapLibre の既定は 60・この口の既定は 85（MapLibre 6.x が許す 180 の手前・地平線まで見せる・2026-10-12 本人裁定 A1）。ortho の口（createGlobe）の既定 75 は変えない
 			...(options.transformRequest && { transformRequest: options.transformRequest }),
 			...options.ortho,   // この地図の起動オプションへの逃げ道（夜面・星空を点ける・時計を止める…）
 		};
@@ -219,6 +219,10 @@ export class Map {
 	getZoom() { const st = S.get(this); return st.engine ? st.engine.getZoom() : st.init.zoom; }
 	getBearing() { const st = S.get(this); return st.engine ? st.engine.getBearing() : st.init.bearing; }
 	getPitch() { const st = S.get(this); return st.engine ? st.engine.getPitch() : st.init.pitch; }
+	getRoll() { const st = S.get(this); return st.engine ? st.engine.getRoll() : st.init.roll; }
+	setRoll(r, e) { return this.jumpTo({ roll: r }, e); }
+	getVerticalFieldOfView() { return ask(this, "getVerticalFieldOfView", [], { before: 50 }); }   // エンジンの既定 50°（MapLibre は 36.87°＝絵の奥行きの差は §4）
+	setVerticalFieldOfView(deg) { ask(this, "setVerticalFieldOfView", [deg]); return this; }
 	setCenter(c, e) { return this.jumpTo({ center: c }, e); }
 	setZoom(z, e) { return this.jumpTo({ zoom: z }, e); }
 	setBearing(b, e) { return this.jumpTo({ bearing: b }, e); }
@@ -249,7 +253,7 @@ export class Map {
 	setMaxZoom(z) { ask(this, "setMaxZoom", [z]); return this; }
 	getMaxZoom() { return ask(this, "getMaxZoom", [], { before: 22 }); }
 	setMaxPitch(p) { ask(this, "setMaxPitch", [p]); return this; }
-	getMaxPitch() { return ask(this, "getMaxPitch", [], { before: 60 }); }
+	getMaxPitch() { return ask(this, "getMaxPitch", [], { before: 85 }); }
 	setPadding(p) { ask(this, "setPadding", [p]); return this; }
 	getPadding() { return ask(this, "getPadding", [], { before: { top: 0, bottom: 0, left: 0, right: 0 } }); }
 	isMoving() { return !!ask(this, "isMoving", [], { before: false }); }

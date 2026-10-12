@@ -1,6 +1,6 @@
 // @ortho-earth/core — 飛行（van Wijk–Nuij の最適経路・三相・中断可）。
 import type { CameraPose } from "./camera.js";
-export interface FlightTarget { lon: number; lat: number; zoom: number; pitch: number; bearing: number }
+export interface FlightTarget { lon: number; lat: number; zoom: number; pitch: number; bearing: number; /** easePlan だけが補間する（fly/glide は今の値のまま） */ roll?: number }
 export interface FlightPlan { dur: number; land: number; at(tMs: number): FlightTarget; knots?: number[] }
 export interface FlightEnv { viewW: number; maxPitch: number; minZoom: number }
 export const shortBearingOf: (b: number) => number;
