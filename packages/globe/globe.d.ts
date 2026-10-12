@@ -630,6 +630,8 @@ export interface ClipOptions {
 export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean }
 export interface Tiles3DHandle { id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void }
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
+/** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
+export interface LayerPressEvent extends LayerMouseEvent { defaultPrevented: boolean; preventDefault(): void; points?: Array<{ x: number; y: number }>; lngLats?: Array<{ lng: number; lat: number } | null> }
 /** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
 export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
@@ -787,13 +789,18 @@ export interface OrthoJapanMap {
 	on(ev: "time", cb: (e: { time: number; step: number; live: boolean; ticking: boolean }) => void): OrthoJapanMap;
 	/** 層ごとのイベント（MapLibre 同名・1.2.0〜・#34）。layerId＝addLayer の層 id か基図の層 id（配列可）。click はドラッグを除く・mousemove は rAF に畳む */
 	on(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
-	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
+	/** 層の押し系（C8・MapLibre 同名）＝同期の当たり（利用者の層だけ・基図の層には当たらない）。mousedown/touchstart の e.preventDefault() で地図のドラッグを捨てる */
+	on(ev: "mousedown" | "mouseup" | "touchstart" | "touchend" | "dblclick" | "contextmenu", layerId: string | string[], cb: (e: LayerPressEvent) => void): OrthoJapanMap;
+	off(ev: "click" | "mousemove" | "mouseenter" | "mouseleave" | "mousedown" | "mouseup" | "touchstart" | "touchend" | "dblclick" | "contextmenu", layerId: string | string[], cb: (e: LayerMouseEvent) => void): OrthoJapanMap;
 	/** 一度だけ。cb 省略＝Promise */
 	once(ev: string, layerIdOrCb?: string | string[] | ((e: any) => void), cb?: (e: any) => void): OrthoJapanMap | Promise<any>;
 	/** 描き終わり（MapLibre 同名・1.5.0〜）：動いていない・基図が視野を覆って載った・標高と建物と利用者の source の読み込みが無い、が続いた時に 1 回。
 	 *  画像タイル層（raster/hillshade/color-relief/image/video・map.raster も）の未着も待つ（1.6.0〜・color-relief は 1.8.0〜。それまでは画像が降っている途中で来た）。
 	 *  忙しくなったら次の静けさでまた 1 回。起動直後もカメラを動かさずに来る（settle は動いた後だけ） */
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
+	/** source の中身が載った（C8・MapLibre の sourcedata の骨）＝addLayer／setData の載せ直しが終わるたび { sourceId }。setData の連打は畳まれる（最後の中身で 1 回）。
+	 *  isSourceLoaded(id) は載せ直しの間 false。MapLibre の口（通訳）は sourcedata と data（isSourceLoaded:true）に写す */
+	on(ev: "sourcedata", cb: (e: { sourceId: string }) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
 	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;
 	/** ボックスズーム（shift＋ドラッグ・1.16.0〜・MapLibre 同名）。end の bbox＝[w,s,e,n]（west>east＝±180 跨ぎ）・x0..y1＝画面の矩形（CSS px） */
@@ -1109,6 +1116,8 @@ export class Popup {
 	setLngLat(ll: LonLat | { lng: number; lat: number }): this; getLngLat(): { lng: number; lat: number } | null;
 	setHTML(html: string): this; setText(s: string): this; setDOMContent(node: Node): this; setMaxWidth(w: string): this;
 	addTo(map: OrthoJapanMap): this; remove(): this; isOpen(): boolean; getElement(): HTMLElement;
+	/** カーソルに付いて回る（MapLibre 同名・C8）＝pointer-events none・mapEl の pointermove で lngLat を置き直す（球の外＝隠す） */
+	trackPointer(): this;
 	on(type: "open" | "close", cb: (e: { type: string; target: Popup }) => void): this; off(type: string, cb: Function): this; once(type: string, cb: Function): this;
 }
 /** 検索の候補（#175）。着地＝zoom ＞ bbox（範囲に寄る）＞ 供給元の viewFor(title) ＞ z12 */

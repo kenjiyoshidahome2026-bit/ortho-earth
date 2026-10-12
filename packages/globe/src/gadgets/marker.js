@@ -14,6 +14,7 @@ const CSS = `
 .oe-popup-close{position:absolute;top:0;inset-inline-end:0;border:0;background:none;font:16px/1 system-ui;padding:4px 7px;cursor:pointer;color:inherit;opacity:.6}
 .oe-popup-close:hover{opacity:1}
 .oe-popup-tip{width:0;height:0;border:7px solid transparent}
+.oe-popup.oe-popup-track{pointer-events:none}
 .oe-popup[data-anchor=bottom] .oe-popup-tip{border-top-color:var(--qm-surface,#fff);border-bottom:0;order:2}
 .oe-popup[data-anchor=top] .oe-popup-tip{border-bottom-color:var(--qm-surface,#fff);border-top:0;order:-1}
 .oe-popup[data-anchor=left],.oe-popup[data-anchor=right]{flex-direction:row}
@@ -122,7 +123,11 @@ export class Popup extends Evented {
 		this.setMaxWidth(this._opts.maxWidth);
 		this._ll = null; this._map = null;
 		this._onMapClick = e => { if (!this._el.contains(e.target) && !this._marker?.getElement().contains(e.target)) this.remove(); };
+		// trackPointer（MapLibre 同名・C8）＝カーソルに付いて回る吹き出し。pointer-events を切り、mapEl の pointermove で lngLat を置き直す（球の外＝隠す）
+		this._track = false;
+		this._onTrack = e => { const m = this._map; if (!m) return; const r = m.mapEl.getBoundingClientRect(), ll = m.unproject([e.clientX - r.left, e.clientY - r.top]); if (ll) this.setLngLat([ll.lng, ll.lat]); else { this._ll = null; this._el.style.display = "none"; } };
 	}
+	trackPointer() { this._track = true; this._el.classList.add("oe-popup-track"); this._map?.mapEl.addEventListener("pointermove", this._onTrack); return this; }
 	setLngLat(ll) { this._ll = lngLatOf(ll); this._map && reg(this._map).place(); return this; }
 	getLngLat() { return this._ll ? { lng: this._ll[0], lat: this._ll[1] } : null; }
 	setHTML(html) { this._content.innerHTML = html; return this; }   // ⚠呼び手の HTML をそのまま入れる（MapLibre と同じ）＝外来の文字列は setText で
@@ -137,6 +142,7 @@ export class Popup extends Evented {
 		map.mapEl.append(this._el);
 		reg(map).items.add(this); reg(map).place();
 		if (this._opts.closeOnClick) setTimeout(() => this._map && map.mapEl.addEventListener("click", this._onMapClick), 0);   // 開けたクリック自身で閉じない
+		if (this._track) map.mapEl.addEventListener("pointermove", this._onTrack);
 		this.fire("open");
 		return this;
 	}
@@ -144,6 +150,7 @@ export class Popup extends Evented {
 		if (!this._map) return this;
 		reg(this._map).items.delete(this);
 		this._map.mapEl.removeEventListener("click", this._onMapClick);
+		this._map.mapEl.removeEventListener("pointermove", this._onTrack);
 		this._el.remove(); this._map = null;
 		this.fire("close");
 		return this;
