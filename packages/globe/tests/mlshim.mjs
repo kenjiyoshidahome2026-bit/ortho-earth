@@ -51,6 +51,8 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 {
 	const v = parseViewHash(viewOf({ center: new LngLat(139.5, 35.25), zoom: 6, pitch: 45, bearing: -30 }));
 	ok("viewOf＝エンジンの z（MapLibre の z＋dz）・緯度が先・度", near(v.zoom, 7) && v.lat === 35.25 && v.lon === 139.5 && near(v.pitch, 45 * Math.PI / 180) && near(v.bearing, -30 * Math.PI / 180));
+	ok("viewOf の roll＝0 なら書かない・あれば roll トークン（A1）", v.roll === 0 && !viewOf({ center: new LngLat(0, 0), zoom: 1, pitch: 0, bearing: 0, roll: 0 }).includes("roll")
+		&& near(parseViewHash(viewOf({ center: new LngLat(0, 0), zoom: 1, pitch: 0, bearing: 0, roll: 15 })).roll, 15 * Math.PI / 180));
 	const vm = parseViewHash(viewOf({ center: new LngLat(0, 60), zoom: 6, pitch: 0, bearing: 0 }, mercatorDz(60)));
 	ok("viewOf の mercator＝北緯 60° で +2（log2 sec 60°＝1）", near(vm.zoom, 8, 1e-6), vm.zoom.toFixed(4));
 	const vx = parseViewHash(viewOf({ center: new LngLat(-121.403732, 40.492392), zoom: 10, pitch: 0, bearing: 0 }, mercatorDz(40.492392)));

@@ -75,6 +75,21 @@ try {
 	// ⑪ getBounds＝見えている範囲が中心を含み、ズームに見合う幅
 	const b = map.getBounds();
 	ok("getBounds", !!b && b[0] < 139.76 && b[2] > 139.76 && b[1] < 35.68 && b[3] > 35.68 && (b[2] - b[0]) < 1, b ? b.map(v => v.toFixed(3)).join(",") : "null");
+	// ⑫ roll（A1・2026-10-12）＝正の roll で絵が時計回り（北の点が右へ）・注視点は中心のまま・hash に "90roll"・0 に戻せば hash から消える
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0, bearing: 0, roll: 0 });
+	const [nx0, ny0] = map.projectLL(139.76, 35.69);
+	map.setRoll(90);
+	const [nx, ny] = map.projectLL(139.76, 35.69), [cx, cy] = map.projectLL(139.76, 35.68);
+	ok("roll", near(map.getRoll(), 90, 1e-9) && near(nx0, 480, 1) && ny0 < 290 && nx > 490 && near(ny, 300, 1) && near(cx, 480, 1) && near(cy, 300, 1) && map.view.hash.endsWith("/90roll"), `${nx0.toFixed(0)},${ny0.toFixed(0)} -> ${nx.toFixed(0)},${ny.toFixed(0)} ${map.view.hash}`);
+	map.setRoll(0);
+	ok("roll0", map.getRoll() === 0 && !map.view.hash.includes("roll"), map.view.hash);
+	// ⑬ 縦の視野角＝既定 50°・30° にすると同じ zoom で地表の縮尺は変わらず（真俯瞰の中心付近）カメラの距離が tan 比で伸びる
+	const d50 = map.view.eye.distM;
+	map.setVerticalFieldOfView(30);
+	const [fx, fy] = map.projectLL(139.76, 35.69), d30 = map.view.eye.distM;
+	ok("fov", near(map.getVerticalFieldOfView(), 30, 1e-9) && near(fx, nx0, 0.5) && near(fy, ny0, 0.5) && near(d30 / d50, Math.tan(25 * Math.PI / 180) / Math.tan(15 * Math.PI / 180), 1e-6), `${fx.toFixed(1)},${fy.toFixed(1)} ${(d30 / d50).toFixed(4)}`);
+	map.setVerticalFieldOfView(50);
+	ok("fov50", near(map.getVerticalFieldOfView(), 50, 1e-9));
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>

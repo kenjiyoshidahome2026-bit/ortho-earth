@@ -30,3 +30,8 @@ declare const canvas: HTMLCanvasElement;
 const fc = createFlight({ cam, viewW: () => 800, maxPitch: 1.3, onMove: () => {} });
 const ic = createInput({ canvas, cam, size: { w: 800, h: 600 }, dpr: 1, maxPitch: 1.3, onMove: () => {} });
 void [xy, ll, px, v, d, a, c, parsed, L, planes, n, p3, known, tpl, fc.active, ic.evXY];
+
+// A1: roll は CameraPose の任意項・parseViewHash は roll を返す
+const rolled = cameraState({ center: [0, 0], zoom: 3, roll: 0.1 }, 10, 10);
+const rollVal: number = rolled.camDist;
+void rollVal;
