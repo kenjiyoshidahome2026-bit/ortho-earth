@@ -2471,7 +2471,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		}
 		// 後処理（PR-8）：描き終えた canvas（1x＝直描き／4x＝上の resolve 済み）を控えに写して bloom・vignette を掛けて戻す。注記・オーバーレイは別 canvas＝掛からない
 		if (post) {
-			try { postFx ??= createPostGPU(device, format); postFx.encode(frame.enc, ctx.getCurrentTexture(), frame.w, frame.h, post); }
+			try { postFx ??= createPostGPU(device, format, () => rOpts.requestDraw?.()); postFx.encode(frame.enc, ctx.getCurrentTexture(), frame.w, frame.h, post); }
 			catch (e) { console.warn("[gpu] post-process failed (disabled):", e?.message || e); post = null; postFx?.dispose(); postFx = null; }
 		} else if (postFx) { postFx.dispose(); postFx = null; }
 		let st = null;
@@ -2572,7 +2572,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
-			case "post":    post = data || null; break;   // 後処理 bloom・vignette（PR-8・normPost 済みの形）＝flush の終端で掛ける
+			case "post":    post = data || null; break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1・normPost 済みの形）＝flush の終端で掛ける
 			case "fx":      Object.assign(FX, data || {}); break;   // 描画の質の旗の実行時切替（#46）＝{atmosphere?, pbr?, ao?}（検定と A/B・起動時の値は rOpts.fx）
 			case "bldFill": bldFill = { ...bldFill, ...data }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）

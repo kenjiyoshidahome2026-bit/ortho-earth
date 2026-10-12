@@ -1,7 +1,7 @@
 <!doctype html>
 <!-- UI回帰：plugin 契約・registry・supports/capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js）。数値だけ（画素は見ない）。
      ①opts.plugins で起動時に搭載（素の map を受ける・load の前）②map.use/unuse/plugins ③registry.dataKinds の kind を addData が引く（builtin の points に委ねる plugin）・知らない kind は投げる
-     ④registry.gadgets＝map.gadget に生える／撤去で消える ⑤supports/capabilities の正直さ（Mercator は never・render.webgl2 か webgpu のどちらか 1 つが builtin・post.fxaa は spec→no）
+     ④registry.gadgets＝map.gadget に生える／撤去で消える ⑤supports/capabilities の正直さ（Mercator は never・render.webgl2 か webgpu のどちらか 1 つが builtin・post.smaa は spec→no）
      ⑥zoomScale:"maplibre" の顔の上でも use/registry が通り install は素の map を受ける（zoom が換算されない） -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map,#map2{width:640px;height:400px}</style><title>t-plugin</title></head>
 <body><div id="map"></div><div id="map2"></div>
@@ -116,14 +116,16 @@ try {
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
-	if (V === "post") {   // ⑨ 後処理の鎖（F3）：setPostChain の順番と既定・bloom/vignette は getPostProcess（renderer）へ写る・他の type は保つだけ・plugin の type は apply が呼ばれる・setPostProcess の旧形は不変
+	if (V === "post") {   // ⑨ 後処理の鎖（F3）：setPostChain の順番と既定・bloom/vignette/fxaa/tonemap/lut は getPostProcess（renderer）へ写る（W1）・smaa/dof/ssr は保つだけ・plugin の type は apply が呼ばれる・setPostProcess の旧形は不変
 		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
 		await map.once("load");
-		ok("p.empty", map.getPostChain().length === 0 && map.getPostProcess() === null && map.supports("post.chain") && !map.supports("post.tonemap"));
+		ok("p.empty", map.getPostChain().length === 0 && map.getPostProcess() === null && map.supports("post.chain") && map.supports("post.tonemap") && map.supports("post.fxaa") && map.supports("post.lut") && !map.supports("post.smaa"));
 		map.setPostChain([{ type: "tonemap", mode: "agx" }, { type: "bloom", strength: 1.5 }, { type: "fxaa", enabled: false }]);
 		const ch = map.getPostChain();
 		ok("p.chain", ch.map(x => x.type).join() === "tonemap,bloom,fxaa" && ch[0].exposure === 1 && ch[2].enabled === false, JSON.stringify(ch));
-		ok("p.toRenderer", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.75, strength: 1.5, radius: 1 }, vignette: null }), JSON.stringify(map.getPostProcess()));
+		ok("p.toRenderer", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.75, strength: 1.5, radius: 1 }, vignette: null, tonemap: { mode: "agx", exposure: 1 } }), JSON.stringify(map.getPostProcess()));
+		map.setPostChain([{ type: "fxaa" }, { type: "lut", url: "data:text/plain,LUT_3D_SIZE%202%0A0%200%200%0A1%200%200%0A0%201%200%0A1%201%200%0A0%200%201%0A1%200%201%0A0%201%201%0A1%201%201", intensity: 0.5 }, { type: "smaa" }]);
+		ok("p.w1ToRenderer", map.getPostProcess().fxaa === true && map.getPostProcess().lut?.intensity === 0.5 && map.getPostProcess().bloom === null && map.getPostChain().length === 3, JSON.stringify(map.getPostProcess()));
 		map.setPostProcess({ vignette: true });
 		ok("p.legacy", map.getPostChain().map(x => x.type).join() === "vignette" && map.getPostProcess().vignette.strength === 0.5 && map.getPostProcess().bloom === null);
 		ok("p.unknownThrows", throws(() => map.setPostChain([{ type: "crt" }])) && map.getPostChain().length === 1);
@@ -235,7 +237,7 @@ try {
 	ok("addData.unknownKind", throws(() => map.addData([], { kind: "nonsense" })));
 	const c2 = map.capabilities();
 	ok("cap.pluginKind", c2["data.dots"].status === "plugin" && c2["data.dots"].via === "dots" && map.supports("data.dots"));
-	ok("cap.pluginPost", c2["post.crt"].status === "plugin" && !map.supports("post.fxaa") && c2["post.fxaa"].status === "spec" && map.registry.postEffects.wired === true);
+	ok("cap.pluginPost", c2["post.crt"].status === "plugin" && !map.supports("post.smaa") && c2["post.smaa"].status === "spec" && map.supports("post.fxaa") && map.registry.postEffects.wired === true);
 	ok("reg.builtinLocked", throws(() => map.registry.dataKinds.add("points", { create() {} })) && throws(() => map.registry.gadgets.add("compass", () => 0)));
 	// ④ 撤去
 	h.remove();
