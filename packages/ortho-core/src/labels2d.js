@@ -97,11 +97,14 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	};
 	// 標高の持ち上げは地形の遠景平坦化(df・TERRAIN_VSと同式)にも追随＝平坦化された遠くの山の上で
 	// ラベルだけがフル標高で浮かない。fogF=フォグ終端（renderer の fogFarCap と同式・camDist近似）。
+	// elevOf＝錨の高さ（m）＝地表の標高（L.elev）＋symbol-height-offset（L.hoff・C5）。symbol-height-anchor absolute（L.habs）は海面から＝地表を読まない
+	const elevOf = L => (L.habs ? 0 : (L.elev || 0)) + (L.hoff || 0);
 	const radiusOf = (L, eScale, st, fogF) => {
-		if (!L.elev || !eScale) return 1;
+		const e = elevOf(L);
+		if (!e || !eScale) return 1;
 		const d = distTo(L.anchor[0], L.anchor[1], st.eye);
 		const t = Math.max(0, Math.min(1, (d - fogF * 0.8) / (fogF * 1.2)));
-		return 1 + L.elev * eScale * (1 - t * t * (3 - 2 * t));
+		return 1 + e * eScale * (1 - t * t * (3 - 2 * t));
 	};
 	const ctx = canvas.getContext("2d");
 	const hasLS = "letterSpacing" in ctx;   // 字間（Chrome 99+・無い環境は 0 扱い）
@@ -109,9 +112,9 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	const setFont = f => { if (f !== curFont) { ctx.font = curFont = f; } };
 	const fontOf = (L, size) => fontCss(L.fnt, size, FONT_STACK);   // ラベルの書体（text-font → family/weight/style・無ければ既定の束）
 	// format の区間（L.sec＝[{ t, fs?, col?, fnt? }]・2026-10-03）＝区間ごとの書体（font-scale・text-font）と色。無ければ 1 つ（ラベルの書体）
-	const secStyles = (L, size) => L.sec ? L.sec.map(q => ({ fs: q.fs || 1, font: fontCss(q.fnt || L.fnt, size * (q.fs || 1), FONT_STACK), col: q.col || null })) : [{ fs: 1, font: fontOf(L, size), col: null }];
+	const secStyles = (L, size) => L.sec ? L.sec.map(q => ({ fs: q.fs || 1, font: fontCss(q.fnt || L.fnt, size * (q.fs || 1), FONT_STACK), col: q.col || null, img: q.img || null, va: q.va || null })) : [{ fs: 1, font: fontOf(L, size), col: null, img: null, va: null }];   // img＝記号の区間・va＝vertical-align（C5）
 	// 字の列＝[字…] と、区間を持つ時は字ごとの区間の添字（__cs）。文字そのものは不変＝ラベルごとに覚える
-	const charsOf = L => { if (L.__ch) return L.__ch; if (L.sec) { const ch = [], cs = []; L.sec.forEach((q, si) => { for (const c of q.t) { ch.push(c); cs.push(si); } }); L.__cs = cs; return (L.__ch = ch); } return (L.__ch = [...String(L.text)]); };
+	const charsOf = L => { if (L.__ch) return L.__ch; if (L.sec) { const ch = [], cs = []; L.sec.forEach((q, si) => { if (q.img) return; for (const c of q.t) { ch.push(c); cs.push(si); } }); L.__cs = cs; return (L.__ch = ch); } return (L.__ch = [...String(L.text)]); };   // 記号の区間は字の列に入れない（線の注記＝横書きの run だけが差し込む）
 	// 記号帳（段 3・2026-09-28）＝名前 → { bm: ImageBitmap, pr: pixelRatio, sdf }。main の記号帳（addImage / sprite）の写し＝届いた時に衝突判定をやり直す（名前だけ持って待っていたラベルが出る）
 	// SDF の記号は icon-color で塗る（縁 0.7〜0.8＝symbols-2d と同式・名前×色で一度だけ焼いて覚える）
 	const images = new Map(), tinted = new Map();
@@ -119,24 +122,36 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const prev = images.get(name), pr = pixelRatio || 1;
 		images.set(name, { bm: bitmap, pr, sdf: !!sdf, sx: stretchX, sy: stretchY, ct: content });   // sx/sy/ct＝伸びる記号（stretchFit）
 		dropTinted(name);   // 差し替えた SDF の記号＝古い絵で焼いた写しを捨てる（旧＝この行がコメントの後ろに入っていて効いていなかった）
-		if (!prev || prev.bm.width !== bitmap.width || prev.bm.height !== bitmap.height || prev.pr !== pr) dirty = true;   // 箱が変わる時だけ衝突判定をやり直す（動く記号＝毎フレームの差し替えで全件の再衝突をしない）
+		if (!prev || prev.bm.width !== bitmap.width || prev.bm.height !== bitmap.height || prev.pr !== pr) { dirty = true; if (imgSecNames.has(name)) { fontGen++; widthCache.clear(); } }   // 箱が変わる時だけ衝突判定をやり直す（動く記号＝毎フレームの差し替えで全件の再衝突をしない）。文字に差し込む記号（format の image）の寸が変わった＝行の組み直し
 		if (prev?.bm !== bitmap) prev?.bm?.close?.();
 	}
 	function dropTinted(name) { for (const k of [...tinted.keys()]) if (k.startsWith(name + "|")) tinted.delete(k); }
-	function removeImage(name) { images.get(name)?.bm?.close?.(); images.delete(name); dropTinted(name); dirty = true; }
-	function sdfTint(name, im, color) {
-		const key = name + "|" + color;
+	function removeImage(name) { images.get(name)?.bm?.close?.(); images.delete(name); dropTinted(name); dirty = true; if (imgSecNames.has(name)) { fontGen++; widthCache.clear(); } }
+	const imgSecNames = new Set();   // format の image で参照される記号の名前（寸が変わったら行を組み直す）
+	// SDF の記号を塗る（icon-color）。halo＝{ col: css, w: 元の px, b: 元の px }（icon-halo-*・C5）＝縁（0.75）から w だけ外へ halo の色（MapLibre の SDF は 1px＝1/8）・blur は外側を b/8 だけ滑らかに
+	function sdfTint(name, im, color, halo = null) {
+		const key = name + "|" + color + (halo ? "|" + halo.col + "/" + halo.w.toFixed(2) + "/" + halo.b.toFixed(2) : "");
 		let c = tinted.get(key);
 		if (c) return c;
 		const w = im.bm.width, h = im.bm.height, cv = new OffscreenCanvas(w, h), g = cv.getContext("2d");
 		g.drawImage(im.bm, 0, 0);
 		const px = g.getImageData(0, 0, w, h), a = px.data;
 		g.fillStyle = color; g.fillRect(0, 0, 1, 1); const [r, gg, b, al] = g.getImageData(0, 0, 1, 1).data;
-		for (let i = 0; i < a.length; i += 4) { const d = a[i + 3] / 255, t = Math.max(0, Math.min(1, (d - 0.7) / 0.1)), sm = t * t * (3 - 2 * t); a[i] = r; a[i + 1] = gg; a[i + 2] = b; a[i + 3] = Math.round(sm * al); }
+		let hr = 0, hg = 0, hb = 0, ha = 0, th = 0, soft = 0.1;
+		if (halo) { g.fillStyle = halo.col; g.fillRect(0, 0, 1, 1); [hr, hg, hb, ha] = g.getImageData(0, 0, 1, 1).data; th = 0.75 - halo.w / 8; soft = 0.1 + halo.b / 8; }
+		const sm = t => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
+		for (let i = 0; i < a.length; i += 4) {
+			const d = a[i + 3] / 255, ia = sm((d - 0.7) / 0.1) * al / 255;
+			if (!halo) { a[i] = r; a[i + 1] = gg; a[i + 2] = b; a[i + 3] = Math.round(ia * 255); continue; }
+			const hA = sm((d - (th - soft / 2)) / soft) * ha / 255, oa = ia + hA * (1 - ia);   // 記号を halo の上に（事前乗算で合成して戻す）
+			if (oa <= 0) { a[i + 3] = 0; continue; }
+			a[i] = Math.round((r * ia + hr * hA * (1 - ia)) / oa); a[i + 1] = Math.round((gg * ia + hg * hA * (1 - ia)) / oa); a[i + 2] = Math.round((b * ia + hb * hA * (1 - ia)) / oa); a[i + 3] = Math.round(oa * 255);
+		}
 		g.putImageData(px, 0, 0);
 		tinted.set(key, cv);
 		return cv;
 	}
+	const haloOf = (L, im) => L.ihw > 0 || L.ihb > 0 ? { col: css(L.ihc || [0, 0, 0, 0]), w: (L.ihw || 0) * im.pr / (L.isz || 1), b: (L.ihb || 0) * im.pr / (L.isz || 1) } : null;   // 画面 px → 記号の元の px
 	const missing = new Set(), reported = new Set();   // 記号帳に無い名前（styleimagemissing の材料）＝takeMissing で 1 回だけ渡す
 	const iconImg = L => { if (!L.icon) return null; const im = images.get(L.icon); if (!im && !reported.has(L.icon)) missing.add(L.icon); return im || null; };   // 記号帳に無い名前＝記号は描かない（main が styleimagemissing を鳴らす）＝文字だけ残る
 	function takeMissing() { if (!missing.size) return null; const out = [...missing]; for (const n of out) reported.add(n); missing.clear(); return out; }
@@ -333,9 +348,13 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		labelByKey = new Map(all.map(L => [keyOf(L), L]));
 		if (kidByKey.size) { const alive = new Set(all); for (const [k, kid] of kidByKey) if (!alive.has(kid.par)) kidByKey.delete(k); }   // 親が集合から消えた子は捨てる
 		combined = all;
+		zoAny = all.some(zoY);
 		dirty = true;
 	}
 	let combined = [];
+	// symbol-z-order（C5）：zo＝"viewport-y"｜"source"（無指定＝auto）・sk＝sort-key あり。MapLibre の sortFeaturesByY＝(viewport-y か auto で sort-key 無し) かつ (allow-overlap か ignore-placement)
+	const zoY = L => (L.zo === "viewport-y" || (L.zo !== "source" && !L.sk)) && !!(L.ov || L.ig || L.iov || L.iig);
+	let zoAny = false;
 	function setUserLabels(id, list, meta = {}) {
 		if (!list?.length) userSets.delete(id);
 		else userSets.set(id, {
@@ -479,7 +498,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	function textLayout1(L, vert) {
 		const size = L.size || 12, ls = L.ls || 0, lh = L.lh || 1, mw = L.mw ?? 0;   // layout を持たないラベル（gint・旧い利用者層）＝折り返し無し・行高 1＝従来の箱
 		const font = fontOf(L, size), sty = L.sec ? secStyles(L, size) : null;
-		const wk = (vert ? "V|" : "") + (sty ? sty.map(q => q.font + "/" + (q.col ? q.col.join(",") : "")).join("\u0002") + "|" + L.sec.map(q => q.t).join("\u0002") : font + "|" + L.text) + "|" + ls + "|" + mw + "|" + lh;
+		const wk = (vert ? "V|" : "") + (sty ? sty.map(q => q.font + "/" + (q.col ? q.col.join(",") : "") + (q.va ? "/" + q.va : "") + (q.img ? "/img:" + q.img : "")).join("\u0002") + "|" + L.sec.map(q => q.t).join("\u0002") : font + "|" + L.text) + "|" + ls + "|" + mw + "|" + lh;
 		let tl = widthCache.get(wk);
 		if (tl) return tl;
 		if (vert || sty) { tl = vert ? vertLayout(L, size, ls, lh, mw, sty || secStyles(L, size)) : runLayout(L, size, ls, lh, mw, sty); widthCache.set(wk, tl); if (widthCache.size > 4096) widthCache.clear(); return tl; }
@@ -507,22 +526,24 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const measure = (t, si) => { setFont(sty[si].font); if (hasLS) ctx.letterSpacing = ls ? `${ls * size * sty[si].fs}px` : "0px"; return ctx.measureText(t).width; };
 		const maxPx = mw > 0 ? mw * size : Infinity;
 		const paras = [[]];
-		L.sec.forEach((q, si) => { const parts = String(q.t).split("\n"); parts.forEach((p, j) => { if (j) paras.push([]); if (p) paras[paras.length - 1].push({ t: p, si }); }); });
+		// 記号の区間（format の ["image"]・C5）＝1 単位（幅・高さ＝絵の px×size/24×font-scale＝MapLibre の shaping）。記号帳に無い名前＝幅 0（届いたら setImage が組み直す）
+		const imgDim = si => { const q = sty[si], im = images.get(q.img); imgSecNames.add(q.img); if (!im) { if (!reported.has(q.img)) missing.add(q.img); return null; } const k = size / 24 * q.fs; return { w: im.bm.width / im.pr * k, h: im.bm.height / im.pr * k }; };
+		L.sec.forEach((q, si) => { if (q.img) { paras[paras.length - 1].push({ t: "", si, img: true }); return; } const parts = String(q.t).split("\n"); parts.forEach((p, j) => { if (j) paras.push([]); if (p) paras[paras.length - 1].push({ t: p, si }); }); });
 		const runs = [], lhs = [], ws = [];
 		const flush = cur => {
-			while (cur.length && isWS(cur[cur.length - 1].t)) cur.pop();
-			while (cur.length && isWS(cur[0].t)) cur.shift();
-			const rs = [];   // 同じ区間の単位を 1 つの run に（幅は繋いで測り直す＝字間の詰まりを保つ）
-			for (const u of cur) { const r = rs[rs.length - 1]; if (r && r.si === u.si) r.t += u.t; else rs.push({ t: u.t, si: u.si }); }
-			let w = 0, fsMax = 1;
-			for (const r of rs) { r.w = measure(r.t, r.si); r.font = sty[r.si].font; r.col = sty[r.si].col; r.fs = sty[r.si].fs; w += r.w; if (r.fs > fsMax) fsMax = r.fs; }
-			runs.push(rs); ws.push(w); lhs.push(lh * size * fsMax);
+			while (cur.length && !cur[cur.length - 1].img && isWS(cur[cur.length - 1].t)) cur.pop();
+			while (cur.length && !cur[0].img && isWS(cur[0].t)) cur.shift();
+			const rs = [];   // 同じ区間の単位を 1 つの run に（幅は繋いで測り直す＝字間の詰まりを保つ）・記号は 1 単位＝1 run
+			for (const u of cur) { const r = rs[rs.length - 1]; if (r && r.si === u.si && !u.img) r.t += u.t; else rs.push({ t: u.t, si: u.si, ...(u.img ? { img: sty[u.si].img, w: u.w, h: u.h } : {}) }); }
+			let w = 0, fsMax = 1, hMax = 0;
+			for (const r of rs) { if (!r.img) r.w = measure(r.t, r.si); r.font = sty[r.si].font; r.col = sty[r.si].col; r.fs = sty[r.si].fs; r.va = sty[r.si].va; w += r.w; if (r.img) { if (r.h > hMax) hMax = r.h; } else if (r.fs > fsMax) fsMax = r.fs; }
+			runs.push(rs); ws.push(w); lhs.push(Math.max(lh * size * fsMax, hMax));
 		};
 		for (const para of paras) {
 			const units = [];
-			for (const r of para) { const us = /\s/.test(r.t) ? r.t.split(/(\s+)/).filter(Boolean) : [...r.t]; for (const u of us) units.push({ t: u, si: r.si, w: measure(u, r.si) }); }
+			for (const r of para) { if (r.img) { const d = imgDim(r.si); units.push({ t: "", si: r.si, img: true, w: d ? d.w : 0, h: d ? d.h : 0 }); continue; } const us = /\s/.test(r.t) ? r.t.split(/(\s+)/).filter(Boolean) : [...r.t]; for (const u of us) units.push({ t: u, si: r.si, w: measure(u, r.si) }); }
 			let cur = [], curW = 0;
-			for (const u of units) { if (cur.length && !isWS(u.t) && curW + u.w > maxPx) { flush(cur); cur = []; curW = 0; } cur.push(u); curW += u.w; }
+			for (const u of units) { if (cur.length && (u.img || !isWS(u.t)) && curW + u.w > maxPx) { flush(cur); cur = []; curW = 0; } cur.push(u); curW += u.w; }
 			flush(cur);
 		}
 		const w = Math.max(0, ...ws), h = lhs.reduce((a, b) => a + b, 0);
@@ -591,7 +612,14 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 
 		let animating = false;
 		// 描く順＝当選集合（優先順）→ フェードアウト中だけのもの（旧＝毎フレーム両方を Set に広げていた・順は同じ）
-		for (const k of winners.keys()) drawOne(k);
+		// 描く順＝当選の順（優先順）。symbol-z-order（C5）＝viewport-y（か auto で sort-key が無い）かつ重ねを許す層は、層の中を画面の y で並べ直す（下＝手前が上に描かれる＝MapLibre の sortFeaturesByY）
+		let order = [...winners.keys()];
+		if (zoAny) {
+			const groups = new Map();
+			order.forEach((k, i) => { const L = winners.get(k); if (!zoY(L)) return; const g = L.k ?? ("li" + L.li), e = groups.get(g) ?? (groups.set(g, { s: [], it: [] }), groups.get(g)); projectInto(st, L.anchor[0], L.anchor[1], radiusOf(L, eScale, st, fogF), PJ); e.s.push(i); e.it.push([k, PJ[1]]); });
+			for (const e of groups.values()) { e.it.sort((a, b) => a[1] - b[1]); e.s.forEach((slot, j) => { order[slot] = e.it[j][0]; }); }
+		}
+		for (const k of order) drawOne(k);
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
 		function drawOne(k) {
 			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
@@ -620,7 +648,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 				const ll = lineLayout(L, st, dpr, rad, cam.zoom); if (!ll) return;
 				if (ll.icon) {   // 線の記号＝錨で線の向きに回す（viewport なら正立）・SDF は icon-color
 					const im = iconImg(L), ic = ll.icon, oi = dop * (L.iop ?? 1);
-					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0)) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
+					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
 				}
 				if (!ll.g.length) return;
 				setFont(ll.font); if (hasLS) ctx.letterSpacing = "0px";
@@ -642,7 +670,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 			if (!b && ib && L.itt) { const itr = translateOf(L.itt, L.itta, cam.bearing || 0); ib[0] += itr[0]; ib[1] += itr[1]; }
 			const T0 = textT(L, st, rad, sx, sy, dpr, cam.zoom), T = scaleT(T0, sizeK(L, cam.zoom)), Ti = im ? (iconT(L, st, rad, sx, sy, dpr, cam.zoom) ?? T0) : null;   // 向き（段 5）＝毎フレーム（回転・傾きに追随）・文字は大きさの倍率込み
 			if (im && ib) {
-				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0)) : im.bm, oi = dop * (L.iop ?? 1);
+				const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm, oi = dop * (L.iop ?? 1);
 				if (oi > 0.01) {
 					ctx.globalAlpha = oi;
 					if (ib.i9) { if (Ti) { ctx.save(); ctx.translate(sx, sy); ctx.transform(Ti.a, Ti.b, Ti.c, Ti.d, 0, 0); drawStretched(ctx, src, ib.i9); ctx.restore(); } else drawStretched(ctx, src, ib.i9, sx, sy); }   // 伸びる記号＝区間ごと（9 分割）
@@ -681,8 +709,11 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 				ctx.textAlign = "left";
 				let ly = y0;
 				for (let i = 0; i < tl.runs.length; i++) {
-					const cy = ly + tl.lhs[i] / 2; let x = just === "left" ? x0 : just === "right" ? x0 + tl.w - tl.ws[i] : x0 + (tl.w - tl.ws[i]) / 2;
+					const lhI = tl.lhs[i]; let x = just === "left" ? x0 : just === "right" ? x0 + tl.w - tl.ws[i] : x0 + (tl.w - tl.ws[i]) / 2;
 					for (const r of tl.runs[i]) {
+						// vertical-align（C5）＝run の高さ（字＝size×font-scale・記号＝絵の高さ）を行の上／中央／下に揃える。無指定＝行の中央（従来）
+						const rh = r.img ? r.h : tl.size * r.fs, cy = r.va === "top" ? ly + rh / 2 : r.va === "bottom" ? ly + lhI - rh / 2 : ly + lhI / 2;
+						if (r.img) { const im = images.get(r.img); if (im && r.w > 0) { const ga = ctx.globalAlpha; ctx.globalAlpha = o; ctx.drawImage(im.bm, x, cy - r.h / 2, r.w, r.h); ctx.globalAlpha = ga; } x += r.w; continue; }   // 記号の区間（format の image）
 						setFont(r.font); if (hasLS) ctx.letterSpacing = tl.ls ? `${tl.ls * tl.size * r.fs}px` : "0px";
 						if (L.haloW > 0) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(r.t, x, cy); }
 						ctx.fillStyle = r.col ? css(r.col, o) : fill; ctx.fillText(r.t, x, cy);

@@ -30,7 +30,8 @@ function iconOf(L, lo, ctx) {
 		isz: num(ev(lo["icon-size"], 1), 1), ian: ANCHORS.has(an) ? an : "center", ioff: Array.isArray(off) && off.length === 2 ? [num(off[0], 0), num(off[1], 0)] : [0, 0],
 		irot: num(ev(lo["icon-rotate"], 0), 0), ipad: num(ev(lo["icon-padding"], 2), 2),
 		iov: lo["icon-overlap"] != null ? String(ev(lo["icon-overlap"], "never")) !== "never" : !!ev(lo["icon-allow-overlap"], false), iig: !!ev(lo["icon-ignore-placement"], false), iopt: !!ev(lo["icon-optional"], false), topt: !!ev(lo["text-optional"], false),
-		iop: num(ev(L.paint?.["icon-opacity"], 1), 1), ira: String(ev(lo["icon-rotation-alignment"], "auto")),   // ira＝線の記号を線の向きに回す（auto/map）か画面に正立（viewport）か・点では map＝地図の回転に追随
+		iop: num(ev(L.paint?.["icon-opacity"], 1), 1), ira: String(ev(lo["icon-rotation-alignment"], "auto")),
+		...((hw, hb) => (hw > 0 || hb > 0) ? { ihw: hw, ihb: hb, ihc: parseRGBA(ev(L.paint?.["icon-halo-color"], "rgba(0,0,0,0)")) || [0, 0, 0, 0] } : {})(num(ev(L.paint?.["icon-halo-width"], 0), 0), num(ev(L.paint?.["icon-halo-blur"], 0), 0)),   // icon-halo-*（C5）＝SDF の記号だけ（MapLibre と同じ）   // ira＝線の記号を線の向きに回す（auto/map）か画面に正立（viewport）か・点では map＝地図の回転に追随
 	};
 	const ipa = String(ev(lo["icon-pitch-alignment"], "auto")); if (ipa !== "auto") rec.ipa = ipa;   // icon-pitch-alignment（段 5）
 	if (FITS.has(fit) && fit !== "none") { rec.ifit = fit; rec.ifp = Array.isArray(fp) && fp.length === 4 ? fp.map(v => num(v, 0)) : [0, 0, 0, 0]; }
@@ -68,22 +69,25 @@ function lineAnchors(g, extent, { step, half, first, win }) {
 	return out;
 }
 // format の区間（expr.js formatSections）→ 焼く形 [{ t, fs?, col?（[r,g,b,a]）, fnt?（parseFontStack の形） }]。書式の付く区間が 1 つも無ければ null（従来の 1 本の文字で描く）。
-// 記号の区間（["image"]）は文字 ""（記号の差し込みは未・記録）。両端の空白は text（trim 済み）と揃える
+// 記号の区間（["image", 名前]・C5）は { t:"", img }＝描く側が記号帳の絵を字の列に差し込む（大きさ＝絵の px×text-size/24×font-scale＝MapLibre）。
+// va＝vertical-align（bottom|center|top・無指定は従来どおり行の中央）。両端の空白は text（trim 済み）と揃える
 function sectionsOf(tf, ctx) {
 	const raw = Array.isArray(tf) && tf[0] === "format" ? formatSections(tf, ctx) : null;
-	if (!raw || !raw.some(q => q.fs != null || q.col != null || q.fnt)) return null;
+	if (!raw || !raw.some(q => q.fs != null || q.col != null || q.fnt || q.img || q.va)) return null;
 	const out = [];
 	for (const q of raw) {
-		if (!q.t) continue;
-		const r = { t: q.t };
+		if (!q.t && !q.img) continue;
+		const r = q.img ? { t: "", img: q.img } : { t: q.t };
 		if (q.fs != null && q.fs !== 1) r.fs = q.fs;
 		if (q.col != null) { const c = parseRGBA(q.col); if (c) r.col = c; }
 		if (q.fnt) { const f = parseFontStack(q.fnt); if (f) r.fnt = f; }
+		if (q.va === "top" || q.va === "bottom" || q.va === "center") r.va = q.va;
 		out.push(r);
 	}
 	if (!out.length) return null;
-	out[0].t = out[0].t.trimStart(); out[out.length - 1].t = out[out.length - 1].t.trimEnd();
-	return out.filter(r => r.t);
+	const first = out.find(r => !r.img), last = [...out].reverse().find(r => !r.img);
+	if (first) first.t = first.t.trimStart(); if (last) last.t = last.t.trimEnd();
+	return out.filter(r => r.t || r.img);
 }
 // 線の各部分（flat coords＋ends）を丸ごと＝symbol-placement "line" の注記 1 本分（2026-10-07）。錨は描く側（labels2d）が表示の整数 z で symbol-spacing の間隔に置く
 // （MapLibre の getAnchors＝過拡大のタイルごとに組み直すのと同じ答え＝旧＝タイルの z の目盛りで候補を焼いていた＝z14 のタイルを z17 で見ると候補が 8 倍疎・最初の余白が 8 倍）。
@@ -123,6 +127,11 @@ function layoutOf(L, lo, ctx, ml) {
 	// 向き（段 5）＝text-rotate（度・時計回り）・text-rotation-alignment（map＝地図の回転に追随／viewport＝画面／viewport-glyph＝線の上で字だけ正立）・text-pitch-alignment（map＝傾けた地面に寝かせる）。既定（auto・0）は焼かない
 	const rot = num(ev(lo["text-rotate"], 0), 0), ra = String(ev(lo["text-rotation-alignment"], "auto")), pa = String(ev(lo["text-pitch-alignment"], "auto"));
 	if (rot) rec.rot = rot; if (ra !== "auto") rec.ra = ra; if (pa !== "auto") rec.pa = pa;
+	// symbol-z-order（C5）＝描く順（viewport-y＝画面の y で下が上に）。sk＝symbol-sort-key の指定あり（auto は sort-key が無い時だけ y で並ぶ＝MapLibre の sortFeaturesByY）
+	const zo = String(ev(lo["symbol-z-order"], "auto")); if (zo === "viewport-y" || zo === "source") rec.zo = zo;
+	if (lo["symbol-sort-key"] != null) rec.sk = true;
+	// symbol-height-offset（m・点の注記）／symbol-height-anchor（ground＝地表から・absolute＝海面から）＝錨の標高に足す（C5・3D 文字の第一歩）。傾けた時だけ効く（標高の持ち上げと同じ門）
+	const ho = num(ev(lo["symbol-height-offset"], 0), 0); if (ho) { rec.hoff = ho; if (String(ev(lo["symbol-height-anchor"], "ground")) === "absolute") rec.habs = true; }
 	// text-translate（px・[x, y]・右と下が正）＋ text-translate-anchor（map＝地図の回転に追随（既定）／viewport＝画面）＝描く側が錨の画面位置に足す（2026-10-03）
 	const tt = ev(L.paint?.["text-translate"], null); if (Array.isArray(tt) && tt.length === 2 && (num(tt[0], 0) || num(tt[1], 0))) { rec.tt = [num(tt[0], 0), num(tt[1], 0)]; if (String(ev(L.paint?.["text-translate-anchor"], "map")) === "viewport") rec.tta = "viewport"; }
 	// text-variable-anchor-offset（[錨, [x, y], 錨, [x, y], …]・em）＝錨ごとのずらし（text-offset と同じ向き）。あれば text-variable-anchor／radial-offset に勝つ（MapLibre と同じ）
