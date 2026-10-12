@@ -67,15 +67,16 @@ function build(m) {
 		if (!src || !src.features.length) continue;
 		const E = src.extent || 4096;
 		// filter＝MapLibre はタイルの（過拡大の）z で評価・Feature.id か promoteId（ctx.id）。paint は表示の z＝式の ["zoom"] を数へ置き換えた写しで組む
-		const fctx = { zoom: fz, props: null, geom: null, vars: {}, origin: "ml", id: undefined };
-		const feats = L0.filter == null ? src.features : src.features.filter(f => { fctx.props = f.props; fctx.geom = f.type; fctx.id = idOf(f, promoteId, sl); return truthy(evalExpr(L0.filter, fctx)); });
+		const tile = { z, x, y, E }, pitch = m.pitch ?? 0;   // within/distance（C2）が地物の形を経緯度へ・["pitch"]＝main の傾き（度）
+		const fctx = { zoom: fz, props: null, geom: null, vars: {}, origin: "ml", id: undefined, feat: null, tile, pitch };
+		const feats = L0.filter == null ? src.features : src.features.filter(f => { fctx.props = f.props; fctx.geom = f.type; fctx.id = idOf(f, promoteId, sl); fctx.feat = f; return truthy(evalExpr(L0.filter, fctx)); });
 		if (!feats.length) continue;
 		if (fsIds) for (const f of feats) { const v = idOf(f, promoteId, sl); if (v != null) fsIds.add(v); }
 		const SM = fsIds ? fsm?.get(sl) : null, stateOf = SM?.size ? f => SM.get(idOf(f, promoteId, sl)) : null;   // 地物 → 状態（読む層で、状態が置かれている時だけ）
 		// ["zoom"] を置き換えた写しは層（id×版）× pz で覚える＝同じ層の次のタイルは同じ配列＝式のコンパイルの覚え（配列の同一性で引く）が効く。旧＝タイルごとに写しを作り直し＝全部の式を毎回コンパイル
 		const sz = zoomSubst(id, rev, pz, L0);
 		const L = { ...L0, filter: undefined, minzoom: undefined, maxzoom: undefined, paint: sz.paint, layout: sz.layout };   // 層の出しズームと出し入れは main（結合の hidden）
-		const P = L.paint, pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml" };
+		const P = L.paint, pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml", pitch };
 		const run = (lyr, fs, sub) => {   // core の組み立て（層 1 枚の小さな style）→ li を利用者の帯へ
 			if (!fs.length) return;
 			const dl = buildTileDrawList({ layers: { [sl]: { extent: E, features: fs } }, z, x, y, subLenM, stateOf }, { layers: [lyr] }, origin);
@@ -106,10 +107,10 @@ function build(m) {
 			// 円＝長さ 0 の線（カプセルの丸点・半径＝線幅の半分）。縁（stroke）は半径＋縁の太さの丸点を下に置く（li の副番号 1）。
 			// 塗りが透ける円の縁は丸点だと中が縁の色になる＝止まった所のズームで合わせた輪（24 角形）で描く
 			const r = P["circle-radius"] ?? 5, sw = P["circle-stroke-width"] ?? 0;
-			const dots = [], rimDots = [], rings = [], upx = unitsPerPx(E, z, pz), ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined };
+			const dots = [], rimDots = [], rings = [], upx = unitsPerPx(E, z, pz), ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined, feat: null, tile, pitch };
 			for (const f of feats) {
 				const v = verticesOf(f, E); if (!v.length) continue;
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f);   // 縁の太さ・透け（丸点か輪か）も状態で変わり得る
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f); ctx.feat = f;   // 縁の太さ・透け（丸点か輪か）も状態で変わり得る
 				dots.push({ ...f, type: "LineString", geom: dotsGeom(v) });
 				const w = num(sw, ctx, 0); if (!(w > 0)) continue;
 				const a = alphaOf(P["circle-color"], ctx) * num(P["circle-opacity"] ?? 1, ctx, 1);
@@ -125,10 +126,10 @@ function build(m) {
 		} else if (L.type === "heatmap") {
 			// ヒートマップ（C1・2026-10-12）＝描くのは main の heatmap-gl（画面単位の密度＝MapLibre と同じ 2 パス）。ここは地物の頂点（MapLibre の CircleBucket と同じ＝点・線・面の頂点）の経緯度と
 			// heatmap-weight（属性・表示の z・feature-state）を集めるだけ。タイルの枠の外の頂点（バッファ）は落とす＝隣のタイルと二重に足さない
-			const n = 2 ** z, ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined }, ll = [], ws = [];
+			const n = 2 ** z, ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined, feat: null, tile, pitch }, ll = [], ws = [];
 			for (const f of feats) {
 				const v = verticesOf(f, E); if (!v.length) continue;
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f);
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f); ctx.feat = f;
 				const w = Math.max(0, num(P["heatmap-weight"] ?? 1, ctx, 1));
 				for (let i = 0; i < v.length; i += 2) { ll.push((x + v[i] / E) / n * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + v[i + 1] / E) / n)))); ws.push(w); }
 			}

@@ -55,7 +55,7 @@ export async function queryTiles({ style, hidden = null, order = [], tileUrl, zo
 			const toU = (lon, lat) => [((lon + 180) / 360 * N - t.x) * ext, (mercY(lat) * N - t.y) * ext];
 			const [ux0, uy1] = toU(w, s), [ux1, uy0] = toU(e, n);
 			for (const f of src.features) {
-				const ctx = { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: originOfLayer(L), gs };
+				const ctx = { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: originOfLayer(L), gs, feat: f, tile: { z: t.z, x: t.x, y: t.y, E: ext } };   // feat/tile＝within/distance（C2）
 				if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
 				if (filter && !truthy(evalExpr(filter, { ...ctx, origin: filterOrigin }))) continue;
 				let tol = tolPx;
