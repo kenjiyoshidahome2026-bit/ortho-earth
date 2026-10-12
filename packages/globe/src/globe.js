@@ -10,7 +10,8 @@ import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { positionAt, ecefToLlh } from "./czml-time.js";
 import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";
-import { normLight, lightPayload } from "./light.js";   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
+import { normLight, lightPayload } from "./light.js";
+import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
@@ -1157,6 +1158,7 @@ function onMove() {
 	// skipBase＝render() が最後に決めた値を使う（#58・2026-09-27）。旧＝常に false＝rAF の render()（covered&&merged＝true）と交互に worker へ届き、
 	// 3D では地面アトラスの鍵（焼くスロット）が毎フレーム変わって全窓を焼き直し、中身も「粗い下地の水域あり／なし」で交互＝海岸の水域がちらつく（2 度描き）
 	if (mlLight && mlLight.anchor === "viewport" && cam.bearing !== lightBearingSent) sendLight();   // style の light（viewport の錨＝画面の上）＝方位が変わった時だけ
+	if (mlSky && skyHasExpr(mlSky) && cam.zoom !== skyZoomSent) sendSky();   // style の sky（B4）＝["zoom"] の式を持つ時だけ zoom が変わったら評価し直す
 	renderer.draw(cam, { skipBase: lastSkipBase, skipMain: mainStale(), noTerrain: false, terrainGate: false });   // 入力の瞬間に最新camをworkerへ（全球z<4も標高の塗りは描く）。terrainGate:false＝入力中はアトラス再構築を起こさない（停止時に一回だけ）
 	// 知性の層(gint)は render worker が frame 末尾に同フレーム同カメラで描く（1canvas統合＝泳ぎ・チルト opacity 手当てとも消滅）。
 	clearTimeout(settleT);
@@ -1276,6 +1278,8 @@ let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝pa
 // style の light（B3・2026-10-12・MapLibre の light/setLight/getLight）：起動の style と setStyle の根の light を読む。null＝従来の固定光（renderer の既定・ビット同一）。
 // viewport の錨は画面の上＝bearing で回る＝onMove で bearing が変わった時だけ送り直す（軽い message）
 let mlLight = null, lightBearingSent = null;
+let mlSky = null, skyZoomSent = null;   // style の sky（B4）＝normSky 済み｜null（従来＝宇宙へ抜けるリム光）
+const sendSky = () => { skyZoomSent = cam.zoom; renderer.set("sky", mlSky ? skyPayload(mlSky, cam.zoom) : null); };
 const sendLight = () => { lightBearingSent = cam.bearing; renderer.set("light", mlLight ? lightPayload(mlLight, cam.bearing * R2D) : null); };
 const HOME_VIEW = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
 const cam = { center: [HOME_VIEW[0], HOME_VIEW[1]], zoom: HOME_VIEW[2], pitch: 0, bearing: 0, roll: 0, dpr };   // roll＝視線まわりの回転（MapLibre の roll・2026-10-12 A1）。fovy は無指定＝エンジン既定 50°（setVerticalFieldOfView で書く）   // 初訪問時のみ＝共有URL→前回ビューの順で下で復元
@@ -1373,6 +1377,7 @@ renderer.set("view", { clear, land, atmo, bldColor, showRail: false, sea: seaOf(
 	worldHypsoZ: BASEMAP_MINZOOM,   // 世界の色（ハイプソ・湖・罫線）が退場するズーム＝地域の基図が入場する所と同値
 	worldHypso: WORLD_VT ? { clim: CLIM_URL, ...(theme.worldHypso || {}) } : null });
 if (EXT?.ms.light) { mlLight = normLight(EXT.ms.light); sendLight(); }   // 起動の style の根の light（B3）
+if (EXT?.ms.sky) { mlSky = normSky(EXT.ms.sky); sendSky(); }   // 起動の style の根の sky（B4）
 // 海：水レイヤ(WA)をビュー一律にゲート＝cam.zoom<9 では描かない（＝紙の海・まだら無し）、z9+で一律点火。
 const seaLi = (st, id) => st.ext ? -1 : st.layers.findIndex(L => L.id === id);   // 外来 style＝地理院の「海は z9 から」「建物の塗りはチルトで伏せる」の門を当てない（層 id が偶然同じでも）
 // 地域の基図の自動の建物（style.schema.buildings の押し出し＝推定の高さ）＝層 "building-extrusion"（段 8① の続き・2026-09-27）。
@@ -2646,6 +2651,10 @@ map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.cen
 // style の light（MapLibre 同名・B3）：押し出し・glTF・LOD2 の陰影（GL2 の u_light*・WebGPU は局所系の固定光のまま）。null＝従来の固定光
 map.setLight = l => { mlLight = l == null ? null : normLight(l); sendLight(); needsDraw = true; return map; };
 map.getLight = () => normLight(mlLight);
+// style の sky（MapLibre 同名・B4）：球に当たらない視線を horizon-color→sky-color の簡易の空で塗り（GL2・不透明＝星空は隠れる）、霧の色を fog-color・濃さを fog-ground-blend に（両レンダラ）。
+// null＝従来（宇宙へ抜けるリム光・霧は紙色）。getSky は MapLibre と同じく無指定なら undefined・指定があれば既定を補った物
+map.setSky = s => { mlSky = s == null ? null : normSky(s); sendSky(); needsDraw = true; return map; };
+map.getSky = () => (mlSky ? normSky(mlSky) : undefined);
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
 	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
@@ -4833,6 +4842,7 @@ map.getStyle = () => {
 		...(EXT ? Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => EXT.ms[k] != null).map(k => [k, EXT.ms[k]])) : {}),   // style の根の視点（MapLibre の getStyle と同じ・style.json の目盛り＝MapLibre の z）
 		...(EXT?.ms?.transition ? { transition: EXT.ms.transition } : {}),   // style の根の transition（B1）
 		...(mlLight ? { light: normLight(mlLight) } : {}),   // style の根の light（B3）＝setLight した物も
+		...(mlSky ? { sky: normSky(mlSky) } : {}),   // style の根の sky（B4）＝setSky した物も
 		metadata: { "ortho:sourceDz": Object.fromEntries([...mlSourceDz]) },
 		sources: { ...(EXT ? EXT.ms.sources : {}), [baseSid]: baseSrc, ...Object.fromEntries(mlSources), ...Object.fromEntries([...mlLayers.values()].filter(v => typeof v.layer.source !== "string").map(v => [v.layer.id, v.layer.source])) },
 		layers: list,
@@ -4960,6 +4970,7 @@ const applyStyleDiff = async nx => {
 	baseOverrides.clear(); baseVis.clear(); extNotes.clear();
 	EXT = nx;
 	if (J(old.ms.light) !== J(ms.light)) { mlLight = ms.light ? normLight(ms.light) : null; sendLight(); }   // 根の light（B3）
+	if (J(old.ms.sky) !== J(ms.sky)) { mlSky = ms.sky ? normSky(ms.sky) : null; sendSky(); }   // 根の sky（B4）
 	const ns = extBaseStyle(nx); ns.globalState = { ...MAP_GS };
 	if (J(ns.layers) !== J(style.layers)) {   // 基図の層が変わった＝有効な style を組み直す 1 回（restyleBase と同じ手順）
 		style = ns; bg = style.layers.find(L => L.type === "background");
@@ -4994,6 +5005,7 @@ map.setStyle = async (spec, o = {}) => {
 	baseOverrides.clear(); baseVis.clear(); extNotes.clear();   // 新しい style＝基図の層の上書き（その他の層の記録も）は捨てる（MapLibre の setStyle と同じ）
 	EXT = nx;
 	mlLight = nx.ms.light ? normLight(nx.ms.light) : null; sendLight();   // 新しい style の根の light（B3）
+	mlSky = nx.ms.sky ? normSky(nx.ms.sky) : null; sendSky();   // 新しい style の根の sky（B4）
 	Object.assign(BASE_SOURCE, extSourceFields(nx));
 	if (BASE_SOURCE.kind === "pmtiles") {
 		const info = await pmtilesInfo(BASE_SOURCE.url).catch(err => { console.warn("[style] cannot read PMTiles", err); return null; });

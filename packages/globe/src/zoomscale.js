@@ -47,7 +47,7 @@ export const MAP_MEMBERS = {
 	fitScreenCoordinates: "in", setCenterClampedToGround: "none", getCenterClampedToGround: "none", setCenterElevation: "none", getCenterElevation: "none", getCameraTargetElevation: "none",   // A3（2026-10-12）
 	setConstrain: "engine",
 	lookAt: "in", follow: "in", setCamera: "in", getCamera: "none", isFollowing: "none",
-	setLight: "none", getLight: "none",   // B3（2026-10-12）   // A4（2026-10-12）＝options.zoom を換算（distance は m のまま）・getCamera は zoom を返さない   // A3＝fn が受け取る zoom はエンジンの z（文書に明記・MapLibre の口 setTransformConstrain が dz を往復させる）
+	setLight: "none", getLight: "none", setSky: "none", getSky: "none",   // B3・B4（2026-10-12）   // A4（2026-10-12）＝options.zoom を換算（distance は m のまま）・getCamera は zoom を返さない   // A3＝fn が受け取る zoom はエンジンの z（文書に明記・MapLibre の口 setTransformConstrain が dz を往復させる）
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",

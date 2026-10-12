@@ -7,6 +7,7 @@
      ?g=relief＝標高の段彩（color-relief・#114）＝style で起動・試料 fixtures/dem の円錐に段の色・step は透明・不透明度・外す・addLayer。実時間。
      ?g=before＝基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図の層を指す時の描く順（vector の描く層・2D と 3D）・style の 2 本目の source の層は style の順。実時間。
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。
+     ?g=sky＝style の sky（B4・setSky/getSky）＝海の上を 80° 傾けて見上げ、画面の上（球に当たらない視線）が sky-color・地平線の際が fog-color・外すと元の絵。GL2 の簡易の空。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -1382,6 +1383,32 @@ try {
 			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00", v: 2 })); await sleep(2500); const b = st();
 			return [b.full === a.full + 1 && map.getStyle().sources.gsi.tiles[0].endsWith("?v=2"), `${JSON.stringify(a)}→${JSON.stringify(b)}`];
 		});
+	} else if (G === "sky") {
+		// ── style の sky（B4・2026-10-12・src/sky-spec.js）：海の上（地形なし）を 80° 傾けて見上げる＝画面の上半分は球に当たらない視線。
+		//    setSky の sky-color が画面の上の色・horizon-color と fog-color（horizon-fog-blend 1）が地平線の際・atmosphere-blend 0＝リム光を重ねない。
+		//    getSky は無指定なら undefined・指定があれば既定を補った物。setSky(null)＝従来の絵（宇宙へ抜ける＝起動時の画素）に戻る。getStyle に根の sky が echo される
+		const C = [138.5, 32.5];
+		const map = await createGlobe({ target: "#map", view: `#12/${C[1]}/${C[0]}/80t`, chips: false });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const TOP = [480, 6];
+		const pixelUntil = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = px(await snap(map), ...p); if (pred(c)) break; await sleep(1200); } return c; };
+		const isRed = p => p[0] > 200 && p[1] < 60 && p[2] < 60, isBlue = p => p[2] > 180 && p[0] < 80 && p[1] < 80;
+		const before = await pixelUntil(TOP, () => false);
+		await scene("no-sky-top-not-red", () => [!isRed(before) && map.getSky() === undefined, `top=${before} pitch=${map.getPitch().toFixed(1)}`]);
+		const SKY = { "sky-color": "#ff0000", "horizon-color": "#00ff00", "fog-color": "#0000ff", "sky-horizon-blend": 0.05, "horizon-fog-blend": 1, "atmosphere-blend": 0, "fog-ground-blend": 0.5 };
+		await scene("sky-color-top", async () => { map.setSky(SKY); const c = await pixelUntil(TOP, isRed); return [isRed(c), `top=${c}`]; });
+		await scene("horizon-fog-band", async () => {   // 画面の上から下へ：赤（空）→ 青（地平線の際の fog-color）→ 地。緑（horizon-color）は 15% の帯で青に隠れる＝青が出ればよい
+			const img = await snap(map); let red = 0, blue = 0, firstBlue = -1;
+			for (let y = 0; y < 600; y += 2) { const c = px(img, 480, y); if (isRed(c)) red++; else if (isBlue(c)) { blue++; if (firstBlue < 0) firstBlue = y; } }
+			return [red > 20 && blue > 0 && firstBlue > 20, `red=${red} blue=${blue} firstBlue=${firstBlue}`];
+		});
+		await scene("get-roundtrip", () => {
+			const g = map.getSky(), st = map.getStyle().sky;
+			const want = { "sky-color": "#ff0000", "horizon-color": "#00ff00", "fog-color": "#0000ff", "fog-ground-blend": 0.5, "horizon-fog-blend": 1, "sky-horizon-blend": 0.05, "atmosphere-blend": 0 };
+			return [JSON.stringify(g) === JSON.stringify(want) && JSON.stringify(st) === JSON.stringify(want), JSON.stringify(g)];
+		});
+		await scene("partial-filled-with-defaults", () => { map.setSky({ "sky-color": "#123456" }); const g = map.getSky(); map.setSky(SKY); return [g["sky-color"] === "#123456" && g["horizon-color"] === "#ffffff" && g["fog-ground-blend"] === 0.5 && g["atmosphere-blend"] === 0.8, JSON.stringify(g)]; });
+		await scene("set-null-restores", async () => { map.setSky(null); const c = await pixelUntil(TOP, p => diff(p, before) <= 8); return [diff(c, before) <= 8 && map.getSky() === undefined && !("sky" in map.getStyle()), `top=${c} before=${before}`]; });
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。

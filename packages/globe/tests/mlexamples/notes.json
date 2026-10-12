@@ -37,8 +37,8 @@
 		"en": "Elevation now decodes correctly (terrarium encoding), so the town and the ridges match the reference. Remaining: probes on thin roads and labels stay under the 80% bar, and symbol-z-elevate is not implemented."
 	},
 	"sky-fog-terrain": {
-		"ja": "MapLibre の sky（sky-color／horizon-color／fog-ground-blend）を描く機能が無い＝候補。地形の起伏と陰影は本物と同じ。",
-		"en": "ortho has no equivalent of MapLibre's sky (sky-color / horizon-color / fog-ground-blend) yet — a candidate. Terrain relief and hillshade match the reference."
+		"ja": "sky（sky-color／horizon-color／fog-color／fog-ground-blend）は B4（2026-10-12）で読む＝GL2 の簡易の空と霧の色・濃さ。地平線の形と散乱は本物と同じではない。地形の起伏と陰影は本物と同じ。",
+		"en": "sky (sky-color / horizon-color / fog-color / fog-ground-blend) is read since B4 (2026-10-12): a simple WebGL2 sky gradient plus fog color and density. The horizon shape and scattering are not identical to the reference. Terrain relief and hillshade match."
 	},
 	"3d-terrain": {
 		"ja": "地形は本物と同じ（terrarium の符号化と注視点の高さを直した）。残り＝OSM の画像タイルは両側とも Access blocked（403）＝標本は文字の上に落ちる。",
