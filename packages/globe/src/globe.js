@@ -12,6 +12,7 @@ import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し�
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
 import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
+import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
 import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
@@ -3316,6 +3317,8 @@ map.addH3 = async (src, o = {}) => {
 //   kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）→ points-gl、"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth px／getHeight 弦長比）→ arcs-gl
 //     ＝同一フレームの overlay（RTE・統一 picking＝map.on(ev, id, cb)・queryRenderedFeatures({ layers:[id] })・h.pick）。main で accessor を評価して typed array に焼き worker へ transfer
 //   "polygons"（getPolygon）／"paths"（getPath）／"columns"（getPosition＋getRadius m）＋ getFillColor／getLineColor／getLineWidth／getElevation m → GeoJSON の addSource/addLayer（fill／line／fill-extrusion＝H3 と同じ既存の層経路）
+//   "trips"（getPath [[lon,lat,h?]…]／getTimestamps／getColor／getWidth・currentTime・trailLength・fadeTrail・clock）→ trips-gl（PR-6）＝h.setCurrentTime / setTrail / animate({ from, to, speed, loop }) / useClock
+//   点・弧・軌跡の共通（PR-6）：getFilterValue＋h.setFilter([lo, hi])（GPU の範囲フィルタ）、h.brush(true, r)／h.setBrush(x, y, r)（ポインタのブラシ）、h.setMask(polygon)（多角形のマスク）、points の transition: { duration }（setData で位置・色・半径を混ぜる）
 //   → 手綱 { id, kind, ready, setData(data), setProps(accessors), setVisible(on), pick(x, y), remove() }。setData は差分でなく全焼き（deck.gl と同じ）。data＝配列・GeoJSON FeatureCollection（位置の既定＝geometry）・iterable
 let dataSeq = 0;
 map.addData = (data, o = {}) => {
@@ -3324,22 +3327,46 @@ map.addData = (data, o = {}) => {
 	let props = acc, cur = data, removed = false;
 	const modP = import("./adddata.js");
 	const h = { id: name, kind };
-	if (kind === "points" || kind === "arcs") {
-		const ov = map.overlay(kind === "points" ? pointsUrl : arcsUrl, { name, above });
+	if (kind === "points" || kind === "arcs" || kind === "trips") {
+		const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
 		const style = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
+		if (acc.trailLength != null) style.trail = acc.trailLength; if (acc.fadeTrail != null) style.fade = acc.fadeTrail;
 		if (acc.color) style.color = [acc.color[0] / 255, acc.color[1] / 255, acc.color[2] / 255, (acc.color[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
 		if (Object.keys(style).length) ov.post({ type: "style", ...style });
+		if (kind === "trips") { if (acc.currentTime != null) ov.post({ type: "time", t: acc.currentTime }); if (acc.clock) ov.post({ type: "clock", on: true }); }
+		const transOf = () => props.transition ? (typeof props.transition === "object" ? props.transition : { duration: +props.transition }) : null;
 		const bake = async () => {
 			const m = await modP; if (removed) return;
-			if (kind === "points") { const b = m.bakePoints(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, pos: b.pos, rgba: b.rgba, size: b.size, origin: b.origin }, [b.pos.buffer]); }
-			else { const b = m.bakeArcs(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, src: b.src, dst: b.dst, theta: b.theta, rgba: b.rgba, rgba2: b.rgba2, width: b.width, height: b.height, origin: b.origin }, [b.src.buffer, b.dst.buffer]); }
+			if (kind === "points") { const b = m.bakePoints(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, pos: b.pos, rgba: b.rgba, size: b.size, f: b.f, origin: b.origin, transition: transOf() }, [b.pos.buffer]); }
+			else if (kind === "arcs") { const b = m.bakeArcs(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, src: b.src, dst: b.dst, theta: b.theta, rgba: b.rgba, rgba2: b.rgba2, width: b.width, height: b.height, f: b.f, origin: b.origin }, [b.src.buffer, b.dst.buffer]); }
+			else { const b = m.bakeTrips(cur, props); h.n = b.n; h.timeRange = [b.tMin, b.tMax]; ov.post({ type: "layer", q: "d", nv: b.nv, ni: b.ni, pos: b.pos, oth: b.oth, side: b.side, time: b.time, id: b.id, index: b.index, rgba: b.rgba, width: b.width, f: b.f, origin: b.origin, trips: b.trips, tMin: b.tMin, tMax: b.tMax }, [b.pos.buffer, b.oth.buffer, b.index.buffer]); }
 		};
 		h.ready = bake();
 		h.setData = d => { cur = d; return (h.ready = bake()); };
 		h.setProps = p => { props = { ...props, ...p }; return (h.ready = bake()); };
 		h.setVisible = on => { ov.post({ type: "vis", q: "d", on: !!on }); return h; };
 		h.pick = (x, y, r) => ov.pick(x, y, r);
-		h.remove = () => { removed = true; ov.remove(); };
+		// GPU の範囲フィルタ・ブラシ・マスク（deck.gl の DataFilter／Brushing／Mask の各 Extension 相当・PR-6）
+		h.setFilter = range => { ov.post({ type: "filter", q: "d", range: range || null }); return h; };
+		h.setBrush = (x, y, r) => { ov.post(x == null ? { type: "brush" } : { type: "brush", x, y, r: r ?? acc.brushRadius ?? 60 }); return h; };
+		let brushOff = null;
+		h.brush = (on = true, r) => {   // ポインタに追従するブラシ（CSS px）。off でポインタを離れた時は消す
+			brushOff?.(); brushOff = null;
+			if (!on) { h.setBrush(null); return h; }
+			const mv = e => { const rc = canvas.getBoundingClientRect(); h.setBrush(e.clientX - rc.left, e.clientY - rc.top, r ?? acc.brushRadius ?? 60); }, lv = () => h.setBrush(null);
+			mapEl.addEventListener("pointermove", mv, { passive: true }); mapEl.addEventListener("pointerleave", lv, { passive: true });
+			brushOff = () => { mapEl.removeEventListener("pointermove", mv); mapEl.removeEventListener("pointerleave", lv); };
+			return h;
+		};
+		h.setMask = async (polygon, o2 = {}) => { const m = await modP; const mk = polygon ? m.rasterMask(polygon, o2) : null; ov.post(mk ? { type: "mask", ...mk } : { type: "mask" }, mk ? [mk.data.buffer] : []); return h; };
+		if (acc.filterRange) h.setFilter(acc.filterRange); if (acc.mask) h.setMask(acc.mask); if (acc.brush) h.brush(true, acc.brushRadius);
+		if (kind === "trips") {   // 時刻（deck.gl の currentTime / trailLength）
+			h.setCurrentTime = t => { ov.post({ type: "time", t }); return h; };
+			h.setTrail = (len, fade) => { ov.post({ type: "style", trail: len, ...(fade != null ? { fade } : {}) }); return h; };
+			h.animate = (o2 = {}) => { ov.post(o2 === false || o2.on === false ? { type: "animate", on: false } : { type: "animate", from: o2.from ?? h.timeRange?.[0] ?? 0, to: o2.to ?? h.timeRange?.[1] ?? 1, speed: o2.speed ?? 1, loop: o2.loop !== false }); return h; };
+			h.useClock = (on = true) => { ov.post({ type: "clock", on }); return h; };
+		}
+		h.remove = () => { removed = true; brushOff?.(); ov.remove(); };
 		h.overlay = ov;
 		return h;
 	}
