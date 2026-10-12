@@ -1794,7 +1794,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
 			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
-			case "post":   post = data || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）＝renderworker が FBO（depthOut）を開いて end で合成
+			case "post":   post = data || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
 			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
@@ -1809,7 +1809,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	let dOut = null, lastLogCoef = 0, post = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
 	function depthOut(on) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
-		if (!dOut) { dOut = createDepthOutGL(gl, canvas); dOut.setPost(post); }
+		if (!dOut) { dOut = createDepthOutGL(gl, canvas, () => rOpts.requestDraw?.()); dOut.setPost(post); }
 		const d = dOut;
 		return { begin: d.begin, abort: d.abort, end: o => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
 	}
