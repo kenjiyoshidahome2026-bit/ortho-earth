@@ -19,7 +19,7 @@ export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D, WORLD_PX,
 	setEllipsoid, ellipsoidOn, worldRadiusM, betaOf, geodeticOf, ellNormal3D, worldToLonLat, betaToLonLat } from "./camera.js";
 export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan, easePlan } from "./flight.js";
-export { createInput, isTypingTarget } from "./input.js";
+export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES, bezierEase, inertiaOf, inertiaOf2, snapZoom } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { selectLOD } from "./tilecover.js";
 export { mlTileZoomOf, mlCalculateTileZoom, ML_FOV_DEG } from "./mlcover.js";   // MapLibre のタイルの z の選び方（目盛り mercator／maplibre）
