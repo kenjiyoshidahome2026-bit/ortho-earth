@@ -23,6 +23,15 @@ export type LightSpec =
 	| { id?: string; type: "hemisphere"; skyColor?: string; groundColor?: string; intensity?: number }
 	| { id?: string; type: "ibl"; url: string; intensity?: number; rotation?: number; background?: boolean }
 	| { id?: string; type: string; [k: string]: unknown };
+/** 太陽・月の向き（F2・2026-10-12）。azimuth＝北 0・東 90（度・時計回り）・altitude＝地平 0・天頂 90（大気差なし）・enu＝天体へ向く単位ベクトル [東, 北, 上]・subpoint＝直下点（度） */
+export interface BodyPosition { time: number; subpoint: { lng: number; lat: number }; azimuth: number; altitude: number; enu: [number, number, number] }
+/** map.setSun の引数。{ follow: "clock" }（既定・true も同じ）＝共通の時計の太陽の向きに directional の光を合わせる（時計の変化・静止・実時間なら 60 秒ごと）。{ azimuth, altitude }＝固定（度）。
+ *  intensity（0〜1）・color を指定すれば高度からの自動（高い＝白く強く・地平＝橙に弱く・地平の下＝薄い青）を上書き。minAltitude＝光の向きの下限（既定 2°・陰影が消えないため） */
+export interface SunSpec { follow?: "clock" | null; azimuth?: number; altitude?: number; intensity?: number; color?: string; minAltitude?: number }
+/** map.setClouds の引数（F2）。受けて保つだけ＝描かない（map.supports("clouds") は false）。plugin が registry.clouds に { apply(map, clouds) } を足せば描く。
+ *  coverage＝空を覆う割合 0〜1・altitude＝雲底 m・thickness＝厚み m・density＝濃さ 0〜1・wind＝[東 m/s, 北 m/s]・precipitation＝{ type: "rain"|"snow", intensity 0〜1 } */
+export interface CloudsSpec { coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
+export interface CloudsImpl { apply(map: OrthoJapanMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
 export interface LightTypeImpl { apply(map: OrthoJapanMap, lights: LightSpec[]): void }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
@@ -697,6 +706,8 @@ export interface MapRegistry {
 	readonly postEffects: PluginRegistry<unknown>;
 	/** テクスチャの変換器（KTX2 など・PR-F4 で結線・今は受けて保つだけ） */
 	readonly textureTranscoders: PluginRegistry<unknown>;
+	/** 雲・降水の描き手（F2 で結線）＝setClouds のたびに apply(map, clouds|null) */
+	readonly clouds: PluginRegistry<CloudsImpl>;
 }
 /** "builtin"＝今の版で絵が出る・"plugin"＝搭載した plugin が担う・"spec"＝口は受けて保つが絵は変わらない・"no"＝口も無い（note に後の PR）・"never"＝作らない（Mercator） */
 export type CapabilityStatus = "builtin" | "plugin" | "spec" | "no" | "never";
@@ -776,6 +787,16 @@ export interface OrthoJapanMap {
 	setLights(lights: LightSpec[] | LightSpec | null): OrthoJapanMap;
 	/** 保っている光源（directional は setLight／style の根の light も映る・正規化済み） */
 	getLights(): LightSpec[];
+	/** 太陽の向き（F2・2026-10-12・ephem＝夜の側・日影と同じ出所・精度 約 0.05°）。ms 省略＝共通の時計の今・at 省略＝視点の中心 */
+	getSunPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;
+	/** 月の向き（地心＝視差なし・精度 約 0.3°） */
+	getMoonPosition(ms?: number, at?: LonLat | { lng?: number; lon?: number; lat: number }): BodyPosition;
+	/** directional の光（setLight と同じ 1 本）を太陽に合わせる。null＝外す（setLight(null)＝従来の固定光） */
+	setSun(sun: SunSpec | true | null): OrthoJapanMap;
+	getSun(): (Required<Pick<SunSpec, "follow" | "minAltitude">> & SunSpec) | null;
+	/** 雲・降水の spec を受けて保つ（描かない＝plugin の registry.clouds が描く）。null で外す */
+	setClouds(clouds: CloudsSpec | true | null): OrthoJapanMap;
+	getClouds(): Required<CloudsSpec> | null;
 	/** 今の light（既定を補った物） */
 	getLight(): Required<LightSpecification>;
 	/** style の sky（MapLibre 同名・1.16.0〜）＝球に当たらない視線を horizon-color→sky-color の簡易の空で塗る（WebGL2・不透明＝星空は隠れる）。fog-color・fog-ground-blend は両レンダラの霧に効く。null＝従来（宇宙へ抜けるリム光・霧は紙色） */

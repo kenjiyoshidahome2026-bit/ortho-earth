@@ -12,6 +12,44 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "sun") {   // ⑧ 太陽・月・雲の口（F2）：getSunPosition は ephem と一致・setSun が directional の光を動かす・時計の変化に追う・setClouds は保つだけ・plugin の clouds が apply される
+		const { sunAltAz } = await import("@ortho-earth/ephem/sun");
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		const T = Date.parse("2026-06-21T02:43:00Z");
+		const sp = map.getSunPosition(T), ref = sunAltAz(T, map.getCenter().lng, map.getCenter().lat);
+		ok("sun.pos", Math.abs(sp.altitude - ref.altitude) < 1e-9 && Math.abs(sp.azimuth - ref.azimuth) < 1e-9 && sp.altitude > 75 && Math.abs(sp.azimuth - 180) < 6 && sp.time === T, `${sp.altitude.toFixed(2)} ${sp.azimuth.toFixed(2)}`);
+		const sp2 = map.getSunPosition(T, [0, 0]);
+		ok("sun.at", Math.abs(sp2.subpoint.lat - sp.subpoint.lat) < 1e-9 && sp2.altitude !== sp.altitude);
+		const mp = map.getMoonPosition(T);
+		ok("moon.pos", Number.isFinite(mp.altitude) && Math.abs(mp.subpoint.lat) < 29.5 && Math.abs(Math.hypot(...mp.enu) - 1) < 1e-9);
+		ok("sun.now", Math.abs(map.getSunPosition().time - map.clock.time) < 2000);
+		ok("caps", map.supports("sun.direction") && !map.supports("clouds") && map.capabilities().clouds.status === "spec");
+		map.setSun({ azimuth: 135, altitude: 40 });
+		let L = map.getLight();
+		ok("sun.fixed", L.anchor === "map" && L.position[1] === 135 && L.position[2] === 50 && map.getSun().follow === null && map.getLights()[0].type === "directional", JSON.stringify(L));
+		map.clock.setTime(T); map.setSun({ follow: "clock" });
+		L = map.getLight();
+		ok("sun.follow", Math.abs(L.position[1] - ref.azimuth) < 1e-6 && Math.abs(L.position[2] - (90 - ref.altitude)) < 1e-6 && L.color === "#ffffff", JSON.stringify(L));
+		const T2 = Date.parse("2026-06-21T20:44:00Z"), ref2 = sunAltAz(T2, map.getCenter().lng, map.getCenter().lat);   // 翌朝＝低い太陽＝橙・弱い
+		map.clock.setTime(T2); await new Promise(r => setTimeout(r, 50));
+		L = map.getLight();
+		ok("sun.tracks", Math.abs(L.position[1] - ref2.azimuth) < 1e-6 && L.color !== "#ffffff" && L.intensity < 0.5, `${JSON.stringify(L)} alt=${ref2.altitude.toFixed(1)}`);
+		const T3 = Date.parse("2026-06-21T15:00:00Z"); map.clock.setTime(T3); await new Promise(r => setTimeout(r, 50));   // 真夜中＝地平の下＝向きは minAltitude で止まる・薄い青
+		L = map.getLight();
+		ok("sun.night", L.position[2] === 88 && L.color === "#7f8cb0" && L.intensity === 0.12, JSON.stringify(L));
+		map.setSun(null);
+		ok("sun.off", map.getSun() === null && map.getLights().length === 0);
+		let got = undefined;
+		map.use({ name: "puffy", install(m) { m.registry.clouds.add("puffy", { apply: (mm, c) => { got = c; } }); } });
+		map.setClouds({ coverage: 0.7, precipitation: { type: "snow" } });
+		ok("clouds.kept", map.getClouds().coverage === 0.7 && map.getClouds().precipitation.type === "snow" && map.getClouds().altitude === 2000);
+		ok("clouds.applied", got && got.coverage === 0.7 && map.supports("clouds") && map.capabilities().clouds.via === "puffy");
+		map.setClouds(null); ok("clouds.off", got === null && map.getClouds() === null);
+		map.unuse("puffy"); ok("clouds.afterUnuse", !map.supports("clouds"));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "lights") {   // ⑦ 光源の口（F1）：setLights/getLights・directional は setLight と同じ経路・他の type は保つだけ・plugin の type は apply が呼ばれる
 		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
 		await map.once("load");

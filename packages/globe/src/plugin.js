@@ -3,7 +3,7 @@
 // ここはその土台＝
 //   definePlugin({ name, install(map, opts), uninstall? })  … 拡張の形を 1 つに（地域パック・gadget・addData の kind・タイル形式・後処理・光源が同じ門をくぐる）
 //   map.use(p, opts) / map.unuse(name) / map.plugins()      … 搭載・撤去・一覧。install が返した関数は撤去の時に呼ぶ（uninstall が無い時）
-//   map.registry.<kind>                                      … 名前→実装の表。dataKinds（map.addData の kind）・gadgets（map.gadget）・tileFormats（core の registerTileFormat）は結線済み、
+//   map.registry.<kind>                                      … 名前→実装の表。dataKinds（map.addData の kind）・gadgets（map.gadget）・tileFormats（core の registerTileFormat）・lights（F1）・clouds（F2）は結線済み、
 //                                                              lights は F1 で結線（plugin の type＝{ apply(map, lights) } を setLights が呼ぶ）、postEffects（F3）・textureTranscoders（F4）は表だけ先に在る（登録は受けて保つ・絵はまだ変わらない＝capabilities は "spec"）
 //   map.supports(key) / map.capabilities()                   … 正直な答え。"builtin"＝今の版で絵が出る・"plugin"＝搭載した plugin が担う・"spec"＝口は受けて保つが絵は変わらない・
 //                                                              "no"＝口も無い（後の PR の番号を note に）・"never"＝作らない（Mercator＝常に地球儀）。supports は builtin|plugin の時だけ true
@@ -73,8 +73,8 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"light.hemisphere": { status: "spec", note: "accepted and kept by setLights (F1); not shaded yet" },
 	"light.ibl": { status: "spec", note: "accepted and kept by setLights (F1); HDR environment not loaded yet" },
 	"sky": { status: "builtin", note: "setSky (B4): simple sky on GL2, fog on both renderers" },
-	"sun.direction": { status: "no", note: "sun/moon direction: PR-F2 (implemented from ephem)" },
-	"clouds": { status: "no", note: "volumetric clouds / precipitation: PR-F2 opening" },
+	"sun.direction": { status: "builtin", note: "getSunPosition/getMoonPosition (ephem) and setSun (drives the directional light) (F2)" },
+	"clouds": { status: "spec", note: "setClouds/getClouds accepted and kept (F2); not rendered. A plugin can render via registry.clouds" },
 	"background": { status: "builtin", note: "background layer, setClearColor (B5)" },
 	"post.chain": { status: "no", note: "post-process chain (renders registry.postEffects): PR-F3" },
 	"post.fxaa": { status: "no", note: "PR-F3" }, "post.tonemap": { status: "no", note: "PR-F3" }, "post.lut": { status: "no", note: "PR-F3" },
@@ -112,6 +112,7 @@ export function createPluginHost(map, { getBackend = () => null, gadgetNames = (
 		lights: createRegistry("lights", { builtin: builtinLights, onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.lights.add("${name}"): { apply(map, lights) } is required`); } }),   // F1 で結線＝setLights が type ごとに impl.apply(map, lightsOfThatType) を呼ぶ
 		postEffects: createRegistry("postEffects", { wired: false, pending: "PR-F3", builtin: builtinPostEffects }),
 		textureTranscoders: createRegistry("textureTranscoders", { wired: false, pending: "PR-F4" }),
+		clouds: createRegistry("clouds", { onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.clouds.add("${name}"): { apply(map, clouds) } is required`); } }),   // F2 で結線＝setClouds が impl.apply(map, clouds|null) を呼ぶ
 	});
 	const regs = Object.values(registry);
 	const setCurrent = p => regs.forEach(r => r._setCurrent(p));
@@ -147,6 +148,7 @@ export function createPluginHost(map, { getBackend = () => null, gadgetNames = (
 		for (const n of registry.postEffects.names()) out[`post.${n}`] = registry.postEffects.isBuiltin(n) ? { status: "builtin", note: "setPostProcess" } : specOf(registry.postEffects, n);
 		for (const n of registry.lights.names()) if (!registry.lights.isBuiltin(n)) out[`light.${n}`] = { status: "plugin", via: registry.lights.ownerOf(n), note: "registry.lights (rendered by the plugin's apply)" };   // builtin の type は静的な表にある
 		for (const n of registry.textureTranscoders.names()) out[`texture.${n}`] = specOf(registry.textureTranscoders, n);
+		{ const cl = registry.clouds.names(); if (cl.length) out.clouds = { status: "plugin", via: registry.clouds.ownerOf(cl[0]), note: "registry.clouds (rendered by the plugin's apply)" }; }
 		out["pointcloud.laz"] = pointcloud && pointcloud.laz ? { status: "builtin", note: 'laz-perf bundled via the "#pointcloud-formats" alias' } : { status: "no", note: 'alias "#pointcloud-formats" to @ortho-earth/tile-formats/pointcloud to read COPC (LAZ)' };
 		return out;
 	}
