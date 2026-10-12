@@ -1954,14 +1954,16 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		const pt = Math.max(0, Math.min(1, ((cam.pitch || 0) - 0.06) / 0.14));
 		const pf = pt * pt * (3 - 2 * pt);
 		elevScaleEff = elev.scale * pf;
-		const land = view.land || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
+		// 透明な床・宇宙（B5＝background 層の無い MapLibre の地図）は WebGPU では白に畳む＝canvas は alphaMode:"opaque"（上の 2026-08-03 の裁定）で α を合成に使わない
+		const solid = c => (c && c[3] < 1 ? [c[0] * c[3] + (1 - c[3]), c[1] * c[3] + (1 - c[3]), c[2] * c[3] + (1 - c[3]), 1] : c);
+		const land = solid(view.land) || [0.96, 0.96, 0.95, 1], atmo = view.atmo || [0.45, 0.62, 0.95, 0.6];
 		// 建物の影：点灯中かつ建物の見えるズーム・太陽が地平線の上の時だけ窓が立つ（null＝このフレームは影なし＝従来経路そのまま）
 		const shWin = shadow.on && cam.zoom >= 13 ? shadowWindow(sunVector(shadow.time ?? clockNow(view.clock)), cam.center, shadowHalfM(cam.zoom, cam.center[1], W, H, cam.dpr || 1), SH_N) : null;
 		// 断面（#111）の面＝対象ごと（段 4）にこのフレームで作り直す（楕円体の切替にも追従）。どれかの対象に面があれば「切っている」
 		const tp = clip ? { terrain: clipPlanesFor(clip, "terrain"), buildings: clipPlanesFor(clip, "buildings"), models: clipPlanesFor(clip, "models"), vector: clipPlanesFor(clip, "vector") } : null;
 		const clipAny = !!tp && (tp.terrain.length + tp.buildings.length + tp.models.length + tp.vector.length) > 0;
 		const flat2d = !shWin && !clipAny && (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogHas && !gnd.rasterOn;   // 影と断面の間は球の床を描く（真俯瞰の地面も影を受ける・床の切れ目を陸の色で埋めない）   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
-		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
+		const c = flat2d ? [land[0], land[1], land[2], 1] : (solid(view.clear) || [1, 1, 1, 1]);
 		const _limb = Math.sqrt(Math.max((1 + st.camDist) * (1 + st.camDist) - 1, 1e-12));
 		const logCoef = 2.0 / Math.log2(_limb * 1.15 + st.camDist + 1.0);
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK();   // fill/line/terrain 共通の終端＝線が地形に厳密追随（fog:false＝無限）

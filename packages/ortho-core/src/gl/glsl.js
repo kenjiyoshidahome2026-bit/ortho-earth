@@ -418,6 +418,17 @@ vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
 	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
 	return col * (1.0 - c.a) + c.rgb;   // アトラスは前乗算＝over 合成
+}
+// 前乗算の床（rgb·a, a）の上にアトラスを over（B5＝background 層の無い MapLibre の地図は床が透明＝塗りだけが残る。a=1 なら gndMix と同じ値）
+vec4 gndOver(vec4 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
+	if (u_gndN < 0.5) return col;
+	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
+	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
+	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
+	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
+	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
+	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
+	return col * (1.0 - c.a) + c;
 }`;
 
 const WORLD_HYPSO = /* glsl */`
@@ -468,6 +479,7 @@ export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
 uniform vec3 u_land;
+uniform float u_landA;   // 床の不透明度（B5）＝globe パスの u_land.a と同じ（background 層の無い MapLibre の地図＝0）。1＝従来とビット同一
 uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
 uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
@@ -516,9 +528,10 @@ void main() {
 	// 深度は VS の applyLogDepth() が焼き済み（mesh/building と一貫。FSで書くと early-Z が死ぬ）
 	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）＝不透明化した分を床と同色で埋める（wgsl.js と同式・低ズームは旧式と恒等）
 	float tS = smoothstep(1.0, 100.0, v_h);
-	vec3 colBase = gndMix(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
-	vec3 col = mix(colBase, u_fogColor, v_fog);
-	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
+	float ba = mix(u_landA, 1.0, max(u_whK, u_hasCog));   // 床の不透明度（B5）＝全球ハイプソ・COG は不透明
+	vec4 g = gndOver(vec4(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv) * ba, ba), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	vec3 col = g.rgb * (1.0 - v_fog) + u_fogColor * v_fog * g.a;   // ＝mix(colBase, fog, v_fog) を前乗算で
+	fragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
 
 // stencil-then-cover の塗り（earcut不要でロバスト）。ortho-map の 2-sided winding を透視mat4へ移植。
@@ -686,7 +699,7 @@ void main() {
 			fragColor = vec4(col * (1.0 - a) + mix(u_atmo.rgb, limbCol, max(g, 0.0)) * a, 1.0);   // premultiplied・不透明
 			return;
 		}
-		if (g <= 0.0) discard;
+		if (g <= 0.0 || u_atmo.a <= 0.0) discard;   // 大気の強さ 0（MapLibre の口＝sky の無い style）＝リム光も描かない（B5・旧＝強さ 0 でも床色の帯が宇宙へ滲んだ）
 		// 縁(g=1)は球面リム内側の霞と同色・不透明＝地平線で色が連続。外側へ大気色→透明へフェード。
 		vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
 		float a = g * g * mix(u_atmo.a, 1.0, g);
@@ -711,17 +724,21 @@ void main() {
 		vec3 hyp = mix(u_seaC, worldHypso(e, ll) * shade, landK);
 		base = mix(base, hyp, u_whK);
 	}
+	// 床の不透明度（B5）＝u_land.a（background 層の無い MapLibre の地図＝0＝透明・頁の色が見える。全球ハイプソ・COG は不透明）。a=1 なら従来とビット同一
+	float ba = mix(u_land.a, 1.0, u_whK);
 	if (u_hasCog > 0.5) {   // ユーザ COG＝基球でも羽織る（地形パスは低地 t フェードで穴が開くためここが床）。uv＝原点相対の係数（#65）
-		base = cogTexMix(base, u_cogOff.xy + dll * u_cogOff.zw);
+		base = cogTexMix(base, u_cogOff.xy + dll * u_cogOff.zw); ba = 1.0;
 	}
+	vec4 g = vec4(base * ba, ba);   // 前乗算の床
 	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
-		base = gndMix(base, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
+		g = gndOver(g, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
-	vec3 col = mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9);
-	fragColor = vec4(col * u_globeAlpha, u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
+	float hz = haze * u_atmo.a * 0.9;
+	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
+	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 }`;
 
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側をフラット色でなく「landK=1 強制のハイプソ本体」で
