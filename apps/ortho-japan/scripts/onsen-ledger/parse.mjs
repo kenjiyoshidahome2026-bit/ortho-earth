@@ -65,11 +65,18 @@ function parseCoordTpl(args) {
 //   返り値: { sourceSeparate, sourceKind:"引湯元あり"|"遠隔"|"運搬", sourceFrom:(引湯元の温泉記事名), sourceDistanceM, sourceNote, sourceCoord:[lon,lat] }
 const DIST_RE = /(?:約|およそ|延長約?)?\s*(\d+(?:\.\d+)?)\s*(km|㎞|キロメートル|キロ|m|メートル)(?![²³])/;
 const toMeters = m => m ? Math.round(+m[1] * (/^(km|㎞|キロ)/.test(m[2]) ? 1000 : 1)) : undefined;
+// 註釈 <!-- … --> を除く（閉じていない註釈は末尾まで捨てる）。正規表現の置き換えでなく走査で＝消した跡に新しい "<!--" が出来ない
+function stripComments(s) {
+  let out = "", i = 0;
+  for (;;) {
+    const a = s.indexOf("<!--", i); if (a < 0) return out + s.slice(i);
+    out += s.slice(i, a); const b = s.indexOf("-->", a + 4); if (b < 0) return out;
+    i = b + 3;
+  }
+}
 export function sourceInfo(text, title = "") {
   const r = {};
-  let body = text.replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/g, ""), prev;
-  do { prev = body; body = body.replace(/<!--[\s\S]*?-->/g, ""); } while (body !== prev);
-  body = body.replace(/<!--|-->/g, "");   // 入れ子・閉じていない註釈の残りも消す
+  const body = stripComments(text.replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/g, ""));
   const core = title.replace(/ \(.*\)$/, "").replace(/温泉郷?$/, "");
   for (const raw of body.split(/[。\n]/)) {
     const s = raw.trim(); if (!s) continue;
