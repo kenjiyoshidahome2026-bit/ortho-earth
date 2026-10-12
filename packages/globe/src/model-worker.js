@@ -3,7 +3,7 @@
 // PLATEAU の worker/デコーダプールとは独立＝建物 3D が停止（opts.mesh=false）でも模型は立つ。
 // 返すのはマテリアルごとのバッチ列（uv・頂点色・テクスチャ画像つき）＝ImageBitmap も transfer で渡す（コピーしない）。
 // kind:"extrude"＝任意ポリゴンの押し出し（extrude.js・2026-09-21）。返す形は模型と同じ（バッチ 1 本・テクスチャ無し）。
-import { decodeModel, setDecodeEnv } from "./meshdecode.js";
+import { decodeModel, setDecodeEnv, setTextureTranscoders } from "./meshdecode.js";
 import { extrudeMesh } from "./extrude.js";
 import { decodeTile3D } from "./tiles3d-decode.js";   // 3D Tiles のタイル（#41）＝kind:"tile3d"
 import { i3sOpen, i3sNodes, i3sContent } from "./i3s-decode.js";
@@ -42,6 +42,7 @@ self.onmessage = async e => {
 async function work(e) {
 	const { id, kind, ab, at, heading, scale, baseUri, ell, textures, ground, mask, polys } = e.data;
 	try {
+		if ("transcoders" in e.data) setTextureTranscoders(e.data.transcoders);   // registry.textureTranscoders の写し（W5）＝模型・3D Tiles の KTX2
 		if (kind === "extrude") {
 			const r = extrudeMesh(polys, { mask: mask !== false, refine: e.data.refine ?? 1500 });   // refine＝屋根の細分の刻み(m)（沿わせる=1500・平面=20000）
 			if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }

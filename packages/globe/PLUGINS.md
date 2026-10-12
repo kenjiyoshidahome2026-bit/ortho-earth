@@ -94,7 +94,7 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 
 - `dataKinds` の **`splat`**（Gaussian splat）：`map.addData(data, { kind: "splat" })`。data＝`{ n, positions: Float32Array(n*3)（[lng,lat,alt] か ECEF＝opts.crs）, scales: Float32Array(n*3), rotations: Float32Array(n*4)（四元数）, colors: Uint8Array(n*4), sh?: Float32Array }` か .ply/.splat/.spz の URL（読み手は plugin）。
   plugin が無ければ `addData` は投げる（`capabilities()["data.splat"]` は "spec"）。描く段は同一フレームのオーバーレイ（深度つき・視線順のソート）＝plugin か第 3 波。
-- `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import する module（`transcode(bytes) → { width, height, rgba }`）。worker 側の読み込みは第 3 波。
+- `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import() する module（`export transcode(bytes: Uint8Array, { mimeType }) → { width, height, rgba: Uint8Array(width*height*4) }`・Promise でもよい）。模型（gadget model）と 3D Tiles の glb の KHR_texture_basisu の画像がこれを通って普通のテクスチャになる（第 3 波 W5）。登録が無ければ fallback の画像（texture.source）のまま＝`capabilities()["texture.ktx2"]` は "spec"、登録があれば "plugin"。`@ortho-earth/ktx2` が basis_universal の WASM（opt-in・既定は unpkg の @loaders.gl/textures の libs・`libraryPath` で自前配布）で実装している：`map.use(ktx2Plugin({ libraryPath }))`。
 
 ## 検定
 
