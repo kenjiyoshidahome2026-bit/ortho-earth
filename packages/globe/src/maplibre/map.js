@@ -274,7 +274,7 @@ export class Map {
 	addLayer(layer, before) {
 		if (layer?.type === "custom") {   // CustomLayerInterface＝エンジンの main の WebGL2 canvas に描く（onAdd/render の map はこの口＝setCustomLayerHost）
 			const st = S.get(this); if (!st.customHost) { st.customHost = true; ask(this, "setCustomLayerHost", [this]); }
-			if (layer.renderingMode === "3d") unsupported(this, "custom layer depth shared with the map (3d models are drawn above the map)", "cosmetic");
+			if (layer.renderingMode === "3d" && typeof layer.url !== "string") unsupported(this, "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)", "cosmetic");
 			ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this;
 		}
 		const sid = typeof layer?.source === "string" ? layer.source : layer?.id;
@@ -390,6 +390,10 @@ export class Map {
 
 	// ── 容れ物・描画・後片付け ──
 	getContainer() { return S.get(this).container; }
+	get transform() {   // MapLibre の内部（公式の口ではない）。deck.gl の MapboxOverlay が地形のある地図で transform.elevation・height を読む＝最小の写し
+		const st = S.get(this), c = st.container;
+		return { width: c?.clientWidth ?? 0, height: c?.clientHeight ?? 0, elevation: 0, center: this.getCenter(), zoom: this.getZoom(), bearing: this.getBearing(), pitch: this.getPitch() };
+	}
 	getCanvasContainer() { return S.get(this).container; }
 	getCanvas() {
 		const st = S.get(this), cg = st.engine?.getCustomLayerCanvas?.();
@@ -421,6 +425,8 @@ export class Map {
 			st.corners = Object.fromEntries(["top-left", "top-right", "bottom-left", "bottom-right"].map(k => { const d = document.createElement("div"); d.className = `maplibregl-ctrl-${k}`; root.appendChild(d); return [k, d]; }));
 			st.container.appendChild(root);
 		}
+		// deck.gl の MapboxOverlay（PR-7）：interleaved（地図の GL 文脈へ描く）はこの地図では成り立たない（地図は worker が描く）＝overlaid に倒す。overlaid は render／resize／mouse・drag 系の事象と getCenter/getZoom/getBearing/getPitch/getPadding/getRenderWorldCopies で追従する
+		if (ctrl._interleaved === true && ctrl._props && typeof ctrl.setProps === "function") { unsupported(this, "MapboxOverlay interleaved (deck.gl cannot draw into this map's GL context; falling back to overlaid)", "cosmetic"); ctrl._interleaved = false; }
 		const where = pos || ctrl.getDefaultPosition?.() || "top-right", el = ctrl.onAdd(this);
 		const corner = st.corners[where] || st.corners["top-right"];
 		if (where.startsWith("bottom")) corner.insertBefore(el, corner.firstChild); else corner.appendChild(el);
