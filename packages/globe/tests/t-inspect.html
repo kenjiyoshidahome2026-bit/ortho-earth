@@ -38,6 +38,8 @@ const pixDiff = (a, b) => { if (a.w !== b.w || a.h !== b.h) return -1; let n = 0
 const rgbOf = css => css.match(/[\d.]+/g).slice(0, 3).map(Number);
 // 画素が落ち着くまで撮る（タイルの到着・結合の往復）＝同じ場所の画素が 2 回続けて同じ
 const settled = async (map, pts, ms = 15000) => { let prev = null, img = null; const t0 = performance.now(); while (performance.now() - t0 < ms) { img = await snap(map); const v = JSON.stringify(pts.map(([x, y]) => px(img, x, y))); if (v === prev) return img; prev = v; await sleep(700); } return img; };
+// 画面全体が止まるまで待つ（続けて撮った 2 枚が全画素一致）＝世界の基図が遅い回線で 4 秒を超えて届く時、2 点だけの settled では「届く前」を before に撮ってしまう（2026-10-13・Kenji の Mac で main が 2/2 落ち）
+const settledAll = async (map, ms = 45000) => { let prev = null, img = null; const t0 = performance.now(); while (performance.now() - t0 < ms) { img = await snap(map); if (prev && pixDiff(prev, img) === 0) return img; prev = img; await sleep(1000); } return img; };
 const popupEl = map => map.mapEl.querySelector(".maplibregl-inspect_popup");
 const hover = (map, x, y) => { const cv = map.mapEl.querySelector("#c"), r = cv.getBoundingClientRect(); cv.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + x, clientY: r.top + y, buttons: 0 })); };
 
@@ -146,8 +148,8 @@ try {
 		map.clock.setTime(Date.UTC(2026, 5, 1, 3, 0, 0)); if (map.clock.playing) map.clock.toggle();   // 夜の側・星を止める（戻した後の画素を比べる）
 		const P = ll => { const [x, y] = map.projectLL(ll[0], ll[1]); return [x, y]; };
 		const AU = P([134, -25]), AF = P([20, 0]), SEA = P([160, -40]);
-		await sleep(4000);
-		const before = await settled(map, [AU, SEA]);
+		await sleep(12000);   // 旧 4 秒＝世界の陸の色が遅い回線で 4 秒より後に届き、届く前の絵を before に撮って world-restore が落ちた（2026-10-13・main で 2/2 落ち・12 秒で 5/5 PASS）
+		const before = await settledAll(map);
 		await sleep(3000);
 		const noise = pixDiff(before, await settled(map, [AU, SEA]));   // 何もしない間の揺れ（注記に出すだけ）
 		const h = map.gadget.inspect();
