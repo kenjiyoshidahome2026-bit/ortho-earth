@@ -632,12 +632,12 @@ const terrLazy = opts.terrain === false && !/[?&]noterr=1/.test(location.search)
 let noTerr = /[?&]noterr=1/.test(location.search) || opts.terrain === false;
 // 注視点の高さ（opts.centerElevation）："ground"＝地形がある間は中心の地面の標高（MapLibre の centerClampedToGround＝既定）・数＝固定［m］（centerClampedToGround:false＋elevation）・
 // 無指定＝従来（海面・内製の既定）。cam.centerAlt へ毎フレーム写す（core cameraState が注視点を持ち上げる）。jumpTo({ elevation }) は固定値を上書き（2026-09-30）
-const CENTER_ELEV = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;
-let centerElevFixed = Number.isFinite(CENTER_ELEV) ? CENTER_ELEV : null;
+let centerElevMode = opts.centerElevation === "ground" || Number.isFinite(opts.centerElevation) ? opts.centerElevation : undefined;   // 実行時に map.setCenterClampedToGround／setCenterElevation で変わる（A3・2026-10-12）
+let centerElevFixed = Number.isFinite(centerElevMode) ? centerElevMode : null;
 function syncCenterAlt() {
-	if (CENTER_ELEV === undefined && centerElevFixed == null) return;
-	if (CENTER_ELEV === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
-	const v = CENTER_ELEV === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
+	if (centerElevMode === undefined && centerElevFixed == null) return;
+	if (centerElevMode === "ground" && !noTerr) sampleGroundElev();   // 基図の無い地図（style 無し・基図の門の外）でも中心の地面を引く（基図圏の tiles.update の前でも呼ぶ＝二重は geKey で潰れる）
+	const v = centerElevMode === "ground" && !noTerr ? groundElevM : (centerElevFixed ?? 0);
 	if ((cam.centerAlt || 0) !== v) { cam.centerAlt = v; needsDraw = true; }
 }
 const GMAX = +(/[?&]gmax=(\d+)/.exec(location.search)?.[1] ?? 0) || null;   // 地形メッシュ格子の天井（perf plan §1 計器 c・?gmax=768＝P4 の上限見積り。既定 null＝1536/lowMem 1024）
@@ -2263,7 +2263,7 @@ dbgHost.__labelsMain = () => { const by = {}; for (const L of lastLabels) { cons
 dbgHost.__idleWhy = () => ({ mapLoaded, moving, geBusy, groundElevM, noTerr, centerAlt: cam.centerAlt || 0, flight: !!flightCtl.active, needsDraw, coverOk, noVecBase: noVecBase(), extMounting: extExtras.mounting, elevBusy, meshLoading: meshMgr.visibleLoading().length, rasterPendTotal, rasterPend: Object.fromEntries(rasterPend),
 	sources: [...mlSources.keys(), ...Object.keys(EXT?.ms.sources || {})].map(id => [id, map.isSourceLoaded(id)]), mounting: [...mlLayers].filter(([, v]) => v.mounting).map(([k]) => k), idleState });
 function checkIdle(now) {
-	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(CENTER_ELEV === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
+	const quiet = mapLoaded && !moving && !flightCtl.active && !needsDraw && (coverOk || noVecBase()) && !elevBusy && !(centerElevMode === "ground" && !noTerr && geBusy) && !meshMgr.visibleLoading().length && !rasterPendTotal && !extExtras.mounting
 		&& [...mlSources.keys()].every(id => map.isSourceLoaded(id)) && (!EXT || Object.keys(EXT.ms.sources || {}).every(id => map.isSourceLoaded(id)));
 	if (!quiet) { idleState = 0; return; }
 	if (idleState === 0) { idleState = 1; idleSince = now; return; }
@@ -2493,23 +2493,23 @@ map.zoomMin = () => zoomMinCur;
 // padding＝{ top, right, bottom, left }（CSS px）か数値＝「中身の中心」を画面中心から寄せる（UI パネルに隠れる分）。setPadding の値が既定。
 // 近似の範囲：寄せはズーム先の地表の度/px で真俯瞰として解く（チルト中の奥行きの伸びは見ない＝MapLibre の厳密解より粗い）。
 let camPadding = { top: 0, right: 0, bottom: 0, left: 0 };
+// padding＝中身の中心＝注視点を画面の中心からずらす（cam.offset・CSS px）。MapLibre の transform.padding／centerOffset と同じ＝getCenter は頼んだ中心のまま・消失点も一緒に動く（A3・2026-10-12。旧＝経緯度の中心をずらしていた＝getCenter が頼んだ点と違った）
+const syncOffset = () => { const ox = (camPadding.left - camPadding.right) / 2, oy = (camPadding.top - camPadding.bottom) / 2; cam.offset = ox || oy ? [ox, oy] : undefined; };
 const padOf = p => p == null ? camPadding : typeof p === "number" ? { top: p, right: p, bottom: p, left: p } : { top: +p.top || 0, right: +p.right || 0, bottom: +p.bottom || 0, left: +p.left || 0 };
 const lngLatOf = c => c == null ? null : Array.isArray(c) ? [+c[0], +c[1]] : [+(c.lng ?? c.lon), +c.lat];
-// 目標（中身の中心に置きたい点）→ カメラ中心。画面の右＝(cos b, −sin b)・上＝(sin b, cos b)（東, 北）・b＝方位（時計回り）
-function padCenter([lon, lat], zoom, bearingRad, pad) {
-	const ox = (pad.left - pad.right) / 2, oy = (pad.top - pad.bottom) / 2;   // 中身の中心の画面上のずれ（右・下が正）
-	if (!ox && !oy) return [lon, lat];
-	const degPx = 360 / (WORLD_PX * Math.pow(2, zoom));
-	const e = (ox * Math.cos(bearingRad) - oy * Math.sin(bearingRad)) * degPx, n = (-ox * Math.sin(bearingRad) - oy * Math.cos(bearingRad)) * degPx;
-	return [wrapLon(lon - e / Math.max(0.05, Math.cos(lat * D2R))), Math.max(-89.9, Math.min(89.9, lat - n))];
-}
 function camTarget(o = {}) {   // MapLibre の CameraOptions → cam の単位（ラジアン）の目標
 	const zoom = o.zoom ?? cam.zoom, bearing = o.bearing != null ? o.bearing * D2R : cam.bearing, pitch = o.pitch != null ? o.pitch * D2R : cam.pitch, roll = o.roll != null ? o.roll * D2R : (cam.roll || 0);
-	let c = lngLatOf(o.center) ?? [cam.center[0], cam.center[1]];
-	if (o.center != null || o.padding != null) c = padCenter(c, zoom, bearing, padOf(o.padding));
+	const c = lngLatOf(o.center) ?? [cam.center[0], cam.center[1]];
+	if (o.padding != null) { camPadding = padOf(o.padding); syncOffset(); }   // CameraOptions.padding＝以後の padding（MapLibre と同じ＝transform.padding を書く）
 	return { lon: c[0], lat: c[1], zoom: Math.max(zoomMinCur, Math.min(zoomMaxCur, zoom)), pitch, bearing, roll };
 }
 function clampCamLimits() {
+	if (camConstrain) {
+		try {
+			const r = camConstrain({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch * R2D, bearing: cam.bearing * R2D, roll: (cam.roll || 0) * R2D });
+			if (r) { const c = lngLatOf(r.center); if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) cam.center = [c[0], Math.max(-90, Math.min(90, c[1]))]; if (Number.isFinite(r.zoom)) cam.zoom = Math.max(zoomMinCur, Math.min(zoomMaxCur, r.zoom)); }
+		} catch (e) { console.error("[map.setConstrain]", e); }
+	}
 	if (cam.zoom > zoomMaxCur) cam.zoom = zoomMaxCur;
 	if (!camBounds) return;
 	const [w, s, e, n] = camBounds;
@@ -2549,8 +2549,24 @@ map.fitBounds = (bounds, o = {}) => {
 	if (o.animate === false) { map.jumpTo(c); return Promise.resolve(); }
 	return o.linear ? map.easeTo({ ...c, duration: o.duration }) : map.flyTo(c);
 };
-map.setPadding = p => { camPadding = padOf(p ?? 0); return map; };
+map.setPadding = p => { camPadding = padOf(p ?? 0); syncOffset(); onMove(); return map; };
 map.getPadding = () => ({ ...camPadding });
+// 画面の 2 点（CSS px）が収まる所へ（MapLibre 同名・A3）。bearing＝着地の方位。2 点のどちらかが空（球の外）なら何もしない
+map.fitScreenCoordinates = (p0, p1, bearing, o = {}) => {
+	const xy = p => Array.isArray(p) ? p : [p.x, p.y], a = unprojectXY(...xy(p0)), b = unprojectXY(...xy(p1));
+	if (!a || !b) return Promise.resolve();
+	let w = Math.min(a[0], b[0]), e = Math.max(a[0], b[0]); if (e - w > 180) [w, e] = [e, w];   // ±180 を跨ぐ＝西>東
+	return map.fitBounds([w, Math.min(a[1], b[1]), e, Math.max(a[1], b[1])], { ...o, bearing: bearing ?? o.bearing ?? 0 });
+};
+// 注視点の高さの実行時変更（MapLibre 同名・A3）：clamped＝地形の上の中心点（opts.centerElevation:"ground"）／false＝固定値（setCenterElevation・jumpTo({elevation})）
+map.setCenterClampedToGround = b => { centerElevMode = b ? "ground" : (centerElevFixed ?? 0); if (!b && centerElevFixed == null) centerElevFixed = 0; syncCenterAlt(); onMove(); return map; };
+map.getCenterClampedToGround = () => centerElevMode === "ground";
+map.setCenterElevation = m => { centerElevFixed = Number.isFinite(+m) ? +m : 0; if (centerElevMode !== "ground") centerElevMode = centerElevFixed; syncCenterAlt(); onMove(); return map; };
+map.getCenterElevation = () => cam.centerAlt || 0;
+map.getCameraTargetElevation = () => cam.centerAlt || 0;
+// 可動域の自作（MapLibre の setTransformConstrain 相当・A3）：fn({ center:[lon,lat], zoom, pitch, bearing, roll }) → { center?, zoom? } か null。角は度・zoom はエンジンの z（旗つきの地図でも＝"engine"）。毎移動 clamp の前に通す
+let camConstrain = null;
+map.setConstrain = fn => { camConstrain = typeof fn === "function" ? fn : null; onMove(); return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
 	else { const v = Array.isArray(b[0]) ? [b[0][0], b[0][1], b[1][0], b[1][1]] : b; if (v.length >= 4 && v.every(Number.isFinite)) camBounds = [wrapLon(v[0]), v[1], wrapLon(v[2]), v[3]]; }
