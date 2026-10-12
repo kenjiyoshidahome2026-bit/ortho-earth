@@ -105,7 +105,20 @@ function hit(f, type, x0, y0, x1, y1, tolU, box) {
 	return false;
 }
 
-function toGeoJSON(f, t, ext) {
+// source の地物（MapLibre の querySourceFeatures・同期・C7 2026-10-12）＝解読済みのタイル 1 枚（decodeTile の出力）の source-layer の地物を全部 GeoJSON（経緯度）で。
+// 当たりは取らない（タイルに入っている物が答え＝MapLibre と同じ・タイルをまたぐ地物は枚数ぶん重複する）。filter＝MapLibre の式（ML の出自）。t＝{ z, x, y, key }
+export function sourceFeatures(data, t, { sourceLayer, filter = null, zoom = 0, gs = undefined, promoteId = null, source = "basemap", pitch = 0 } = {}) {
+	const src = data?.[sourceLayer]; if (!src || data.__empty) return [];
+	const ext = src.extent || 4096, out = [];
+	const pk = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sourceLayer];
+	for (const f of src.features) {
+		if (filter && !truthy(evalExpr(filter, { zoom, props: f.props || {}, geom: f.type, vars: {}, origin: "ml", gs, feat: f, tile: { z: t.z, x: t.x, y: t.y, E: ext }, pitch }))) continue;
+		out.push({ type: "Feature", id: pk != null && f.props?.[pk] !== undefined ? f.props[pk] : f.id, properties: f.props || {}, geometry: toGeoJSON(f, t, ext), sourceLayer, source, tile: t.key });
+	}
+	return out;
+}
+
+export function toGeoJSON(f, t, ext) {
 	const { coords: c, ends } = f.geom;
 	const ll = i => tileLocalToLonLat(t.x, t.y, t.z, c[i], c[i + 1], ext);
 	const run = (s, e) => { const a = []; for (let i = s; i < e; i += 2) a.push(ll(i)); return a; };

@@ -22,7 +22,7 @@ const meshBytes = d => d.pos.byteLength + d.nrm.byteLength + d.idx.byteLength + 
 // desc（source の記述子・globe が作る）＝{ tileUrl:(z,x,y)=>URL|null, pmtiles: URL|null, minzoom, maxzoom, bounds:[w,s,e,n]|null, coverage:[w,s,e,n]|null, promoteId, tag（同じ source かの印） }
 // 呼び手の口：size()＝{ w, h }（device px）・hitEnv()＝今の視点の当たりの口（extrude-ml.js の env＝vtx/roof・地形の持ち上げ込み・奥行き＝clip の w）・
 //             unprojectAt(x, y, 高さ m)→[lon, lat]|null（候補の区間）・isFlying()
-export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
+export function createVTExtrude(map, { raw = null, cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const MESH_BUDGET = (lowMem ? 96 : 256) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3;
@@ -110,7 +110,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
+			if (T.bytes) { raw?.put("vtextrude", src.sid, key, ab.slice(0), enc); await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]); }   // raw＝main の写し（querySourceFeatures・C7）
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -207,7 +207,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			let rawTotal = 0; const rc = [];
 			for (const [k, T] of src.tiles) { rawTotal += T.bytes; if (T.state === "ready" && T.used < clock) rc.push([T.used, k, T]); }
 			rc.sort((a, b) => a[0] - b[0]);
-			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); raw?.drop("vtextrude", sid, k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		}
 	}
 	// 状態が変わった地物（fid＝undefined は全部）を含むタイルに印＝次の選びで組み直す（paint に ["feature-state"] がある層だけ・残したタイルも印＝出す時に直る）
@@ -222,6 +222,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	function dropSource(sid) {
 		const src = sources.get(sid); if (!src) return;
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+		raw?.dropSource("vtextrude", sid);
 		sources.delete(sid);
 	}
 	const ctl = {
@@ -260,6 +261,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		// 状態が変わった（setFeatureState / removeFeatureState）＝その地物を含むタイルだけ組み直す（幾何は残す＝高さと色だけ）。fid＝undefined は全部
 		touchFS: (sid, sl, fid) => touchFS(sid, sl, fid),
 		has: id => layers.has(id),
+		shownTiles(sid) { const ks = new Set(); for (const s of layers.values()) if (s.sid === sid) for (const [k, lt] of s.tiles) if (lt.on && lt.bytes) ks.add(k); return [...ks]; },   // 出しているタイルの鍵（querySourceFeatures・C7）
 		// MapLibre の isSourceLoaded 相当：見えている層の wanted が全部「今の式で」組み上がって送り終わり、出しているか（組み直し待ち＝まだ）
 		loaded(sid) {
 			const src = sources.get(sid); if (!src) return true;
