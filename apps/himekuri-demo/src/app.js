@@ -34,7 +34,7 @@ export async function mountApp(root) {
 	const lang = getLang();
 	const q = new URLSearchParams(location.search), saved = load();
 	const S = {
-		ymd: parseISO(q.get("d")) || today(),
+		ymd: parseISO(q.get("d")),   // 「今日」は tz が決まった後（下の S.ymd ??= today()）。ここで today() を呼ぶと const の初期化前＝TDZ で起動が落ちる
 		mode: q.get("mode") === "week" ? "week" : saved.mode === "week" && !q.has("d") ? "week" : "day",
 		loc: saved.loc || null,
 		calendars: (saved.calendars || []).map(c => ({ ...c, cal: null })),
