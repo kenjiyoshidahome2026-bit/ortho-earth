@@ -5,6 +5,7 @@
 //           src/dst＝β 単位球の xyz の原点相対（RTE・points-gl と同じ）、theta＝始点と終点の開き角（rad・倍精度で求めておく＝f32 の acos は近い 2 点で崩れる）、
 //           rgba/rgba2＝始点側・終点側の色（無ければ style の色・t で混ぜる）、width＝px（無ければ style.width）、height＝弦長に対する高さの比（0＝大円が地面を這う・無ければ style.height）
 //           ／{ type:"remove", q }／{ type:"vis", q, on }／{ type:"style", width, color, color2, height, segments }／{ type:"clear" }／{ type:"probe", id }（検定用の画素＝points-gl と同じ口）
+//           PR-6：layer に f（弧ごとのフィルタの値）、{ type:"filter", q?, range }・{ type:"brush", x, y, r }（始点か終点がブラシの中）・{ type:"mask", bbox, w, h, data }（始点がマスクの中）
 // 補間（純関数 arcPoint＝node の検定 tests/arcs.mjs が読む）：p(t) = (sin((1−t)θ)·A + sin(tθ)·B) / sinθ（単位球の上）＋ 4·h·弦長·t(1−t) を動径の向きへ。
 //   原点相対のまま：p − O = cA·(A−O) + cB·(B−O) + (cA+cB−1)·O ＝ 近い 2 点（θ 小）では cA+cB−1 ≈ 0 で O の f32 誤差が消える（RTE が効く）。
 // 当たり判定（統一 picking・PR-1）：pick(x, y, r, ctx)＝弧の番号（層の base＋gl_InstanceID・1 から）を RGBA8 に焼く別パス＝points-gl と同じ流儀。
@@ -19,6 +20,10 @@ layout(location = 4) in vec4 a_c0;
 layout(location = 5) in vec4 a_c1;
 layout(location = 6) in float a_w;      // 幅（CSS px）
 layout(location = 7) in float a_h;      // 高さ（弦長比）
+layout(location = 8) in float a_f;      // フィルタの値（PR-6）
+uniform vec2 u_filter; uniform float u_filterOn;
+uniform vec3 u_brush;                                      // ブラシ（x, y, r・device px）＝始点か終点が中なら描く
+uniform sampler2D u_mask; uniform float u_maskOn; uniform vec4 u_maskBox; uniform float u_rAx;   // マスク＝始点の経緯度で
 uniform mat4 u_mvp;        // 層ごと＝mvp×平行移動(origin)
 uniform vec3 u_origin;
 uniform vec3 u_eyeRel;     // eye − origin（倍精度で引いてから f32）
@@ -37,10 +42,19 @@ vec3 arcRel(float t) {
 	float hh = 4.0 * a_h * 2.0 * sin(th * 0.5) * t * (1.0 - t);
 	return hh > 0.0 ? rel + normalize(rel + u_origin) * hh : rel;
 }
+bool masked(vec3 rel) {
+	vec3 P = rel + u_origin; float lon = degrees(atan(P.z, P.x)), beta = asin(clamp(P.y / length(P), -1.0, 1.0)), lat = degrees(atan(tan(beta) / u_rAx));
+	vec2 uv = vec2((lon - u_maskBox.x) / (u_maskBox.z - u_maskBox.x), (lat - u_maskBox.y) / (u_maskBox.w - u_maskBox.y));
+	return uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || texture(u_mask, uv).r < 0.5;
+}
+vec2 scr(vec3 rel) { vec4 c = u_mvp * vec4(rel, 1.0); return vec2((c.x / c.w + 1.0) * u_half.x, (1.0 - c.y / c.w) * u_half.y); }
 void main() {
 	float t = a_tv.x, side = a_tv.y;
 	v_col = mix(a_c0, a_c1, t);
 	vec4 off = vec4(2.0, 2.0, 2.0, 1.0);
+	if (u_filterOn > 0.5 && (a_f < u_filter.x || a_f > u_filter.y)) { gl_Position = off; return; }
+	if (u_maskOn > 0.5 && masked(a_src)) { gl_Position = off; return; }
+	if (u_brush.z > 0.0 && distance(scr(a_src), u_brush.xy) > u_brush.z && distance(scr(a_dst), u_brush.xy) > u_brush.z) { gl_Position = off; return; }
 	vec3 p0 = arcRel(t);
 	// dot(P, eye − P) を原点相対で：P = O + rel, eye − P = eyeRel − rel → dot(O, eyeRel) − dot(O, rel) + dot(rel, eyeRel) − dot(rel, rel)（絶対座標の f32 では z11 で判定が揺れ、棘になった）
 	v_hid = u_oe - dot(u_origin, p0) + dot(p0, u_eyeRel) - dot(p0, p0);
@@ -105,6 +119,7 @@ let geomBuf = null, geomSeg = 0, geomN = 0;   // 頂点ごとの (t, side)＝(se
 const layers = new Map();   // q → { n, bufs, vao, has:{c,w,h}, src, dst, origin, on, base }
 function rebase() { let b = 1; for (const L of layers.values()) { L.base = b; b += L.n; } }
 let style = { width: 2, color: [0.2, 0.6, 1, 0.9], color2: null, height: 0.3, segments: 32 };
+let brush = null, mask = null, maskTex = null, rAxNow = 1;
 let host = null;
 const probes = [];
 
@@ -151,12 +166,21 @@ export function message(d) {
 		else gl.disableVertexAttribArray(5);
 		if (d.width) inst(6, d.width, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(6);
 		if (d.height) inst(7, d.height, 1, gl.FLOAT, false); else gl.disableVertexAttribArray(7);
+		if (d.f) { inst(8, d.f, 1, gl.FLOAT, false); L.has.f = true; } else gl.disableVertexAttribArray(8);
 		gl.bindVertexArray(null);
+		L.filter = layers.get(d.q)?.filter ?? null;
 		layers.set(d.q, L); rebase();
 	} else if (d.type === "remove") { drop(layers.get(d.q)); layers.delete(d.q); rebase(); }
 	else if (d.type === "vis") { const L = layers.get(d.q); if (L) L.on = !!d.on; }
 	else if (d.type === "clear") { layers.forEach(drop); layers.clear(); rebase(); }
 	else if (d.type === "style") { style = { ...style, ...d }; if (d.segments) geometry(d.segments); }
+	else if (d.type === "filter") { const r = d.range ? [+d.range[0], +d.range[1]] : null; if (d.q != null) { const L = layers.get(d.q); if (L) L.filter = r; } else for (const L of layers.values()) L.filter = r; }
+	else if (d.type === "brush") brush = d.x != null && d.r > 0 ? { x: d.x, y: d.y, r: d.r } : null;
+	else if (d.type === "mask") {
+		if (maskTex) { gl.deleteTexture(maskTex); maskTex = null; } mask = null;
+		if (d.data && d.w && d.h) { maskTex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1); gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, d.w, d.h, 0, gl.RED, gl.UNSIGNED_BYTE, d.data); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE); mask = { bbox: d.bbox, w: d.w, h: d.h }; }
+	}
+	host?.requestDraw?.();
 }
 function answerProbes(w, h) {
 	if (!probes.length) return;
@@ -164,8 +188,9 @@ function answerProbes(w, h) {
 	try { const data = new Uint8Array(w * h * 4); gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, data); for (const id of ids) host?.post?.({ type: "pixels", id, w, h, flipY: true, data: id === ids[ids.length - 1] ? data : data.slice() }); }
 	catch (e) { for (const id of ids) host?.post?.({ type: "pixels", id, error: String(e?.message || e) }); }
 }
-export function frame(cam, s, size) {
+export function frame(cam, s, size, api) {
 	if (!gl) return false;
+	if (api?.rAx) rAxNow = api.rAx;
 	gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 	gl.viewport(0, 0, size.w, size.h);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
@@ -177,6 +202,8 @@ function drawLayers(P, U, s, dpr, { w, h }, idMode) {
 	gl.useProgram(P);
 	const M = s.mvp, mvpL = new Float32Array(16), mvp0 = new Float32Array(M), E = s.eye;
 	gl.uniform2f(U.u_half, w / 2, h / 2); gl.uniform1f(U.u_dpr, dpr); gl.uniform1f(U.u_seg, geomSeg);
+	if (brush) gl.uniform3f(U.u_brush, brush.x * dpr, brush.y * dpr, brush.r * dpr); else gl.uniform3f(U.u_brush, 0, 0, 0);
+	if (mask && maskTex) { gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, maskTex); gl.uniform1i(U.u_mask, 0); gl.uniform1f(U.u_maskOn, 1); gl.uniform4f(U.u_maskBox, mask.bbox[0], mask.bbox[1], mask.bbox[2], mask.bbox[3]); gl.uniform1f(U.u_rAx, rAxNow); } else { gl.uniform1f(U.u_maskOn, 0); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, null); }   // マスク無し＝unit 0 を空に（pick の FBO の texture が残っていると「読みながら書く」＝描画が黙って捨てられる）
 	const c1 = style.color, c2 = style.color2 || style.color;
 	for (const L of layers.values()) {
 		if (!L.on) continue;
@@ -189,7 +216,9 @@ function drawLayers(P, U, s, dpr, { w, h }, idMode) {
 		const oo = o || [0, 0, 0], ex = E[0] - oo[0], ey = E[1] - oo[1], ez = E[2] - oo[2];
 		gl.uniform3f(U.u_eyeRel, ex, ey, ez); gl.uniform1f(U.u_oe, oo[0] * ex + oo[1] * ey + oo[2] * ez);
 		if (idMode) gl.uniform1ui(U.u_base, L.base);
+		gl.uniform1f(U.u_filterOn, L.filter && L.has.f ? 1 : 0); if (L.filter) gl.uniform2f(U.u_filter, L.filter[0], L.filter[1]);
 		gl.bindVertexArray(L.vao);
+		if (!L.has.f) gl.vertexAttrib1f(8, 0);
 		// 無い属性は定数（generic attribute＝VAO の外の状態＝描く時に入れる）
 		if (!L.has.c) gl.vertexAttrib4f(4, c1[0], c1[1], c1[2], c1[3] ?? 1);
 		if (!L.has.c2) gl.vertexAttrib4f(5, c2[0], c2[1], c2[2], c2[3] ?? 1);
@@ -216,6 +245,7 @@ export function pick(x, y, r, ctx) {
 	} else gl.bindFramebuffer(gl.FRAMEBUFFER, pickFbo);
 	gl.viewport(0, 0, w, h); gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
 	gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+	rAxNow = ctx.api?.rAx || rAxNow;
 	drawLayers(pickProg, pickUni, ctx.s, dpr, { w, h }, true);
 	const rr = Math.max(0, Math.round(r)), side = rr * 2 + 1, x0 = Math.round(x) - rr, y0 = (h - 1 - Math.round(y)) - rr;
 	const data = new Uint8Array(side * side * 4);
@@ -234,4 +264,4 @@ export function pick(x, y, r, ctx) {
 	const source = toLngLat(L.src, index, o, rAx), target = toLngLat(L.dst, index, o, rAx);
 	return { id: best.id, q, index, distance: best.distance, lngLat: source, properties: { q, index, source, target } };
 }
-export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); gl.deleteProgram(prog); if (pickProg) gl.deleteProgram(pickProg); if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo); if (geomBuf) gl.deleteBuffer(geomBuf); geomBuf = null; geomSeg = 0; pickProg = pickTex = pickFbo = null; pickW = pickH = 0; gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }
+export function destroy() { if (!gl) return; layers.forEach(drop); layers.clear(); if (maskTex) gl.deleteTexture(maskTex); maskTex = null; mask = null; gl.deleteProgram(prog); if (pickProg) gl.deleteProgram(pickProg); if (pickTex) gl.deleteTexture(pickTex); if (pickFbo) gl.deleteFramebuffer(pickFbo); if (geomBuf) gl.deleteBuffer(geomBuf); geomBuf = null; geomSeg = 0; pickProg = pickTex = pickFbo = null; pickW = pickH = 0; gl.getExtension("WEBGL_lose_context")?.loseContext(); gl = null; }

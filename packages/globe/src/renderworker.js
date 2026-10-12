@@ -55,7 +55,9 @@ function overlayAdd(m) {
 	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
-	(m.builtin ? (BUILTIN_OVERLAYS[m.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${m.builtin}"`))) : import(/* @vite-ignore */ m.url)).then(mod => {
+	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
+	const instUrl = u => { try { const x = new URL(u); x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
+	(m.builtin ? (BUILTIN_OVERLAYS[m.builtin]?.() ?? Promise.reject(new Error(`unknown builtin overlay "${m.builtin}"`))) : import(/* @vite-ignore */ instUrl(m.url))).then(mod => {
 		if (!overlays.has(m.name)) return;   // 待っている間に外された
 		stage("imported");
 		const ret = mod.init(o.canvas, m.opts || {}, host);
