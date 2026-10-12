@@ -90,6 +90,7 @@ export const MAP_MEMBERS = {
 	use: "none", unuse: "none", plugins: "none", registry: "none", supports: "none", capabilities: "none",
 	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない
 	getSunPosition: "none", getMoonPosition: "none", setSun: "none", getSun: "none", setClouds: "none", getClouds: "none",   // 太陽・月・雲の口（F2）＝度と m
+	setPostChain: "none", getPostChain: "none",   // 後処理の鎖（F3）
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他
