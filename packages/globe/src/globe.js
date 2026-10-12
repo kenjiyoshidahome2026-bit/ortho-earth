@@ -66,7 +66,9 @@ import { createHillshadeProvider } from "./hillshade.js";
 import { createColorReliefProvider } from "./colorrelief.js";
 import { createDemTiles } from "./demtiles.js";   // raster-dem のタイルの在庫＝source ごとに 1 つ（hillshade と color-relief が共有・#114 段 3）   // MapLibre の color-relief 層（標高の段彩・#114）＝hillshade と同じ port プロバイダ
 import { createCustomGL } from "./gadgets/customgl.js";   // MapLibre の custom 層（main の透明な WebGL2 canvas・mainMatrix＝メルカトル→クリップ・公式例の門 4 巡目）   // MapLibre の hillshade 層（raster-dem→陰影の画像タイル・公式例の門 3 巡目）   // 世界帯に Equal Earth と同じ中身（opts.worldContent・2026-09-24）   // gint（知性の層）＝単一スロット・多層・admin0・bake-ahead・ドレープ・fid 塗り（同）
-import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
+import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";
+import { sunSubpoint, moonSubpoint, sunAltAz, moonAltAz } from "@ortho-earth/ephem/sun";   // 太陽・月の向きの口（F2）＝夜の側・日影と同じ出所
+import { normSun, sunToLight, normClouds } from "./weather.js";   // setSun/setClouds の spec（F2）   // 共通の時計（#42）＝solar と同じ部品。夜の側・星・太陽系圏・overlay（衛星）がこの時刻で描く
 import { createSkyTheater } from "./sky/theater.js";   // 星空劇場（z<4）＝星・惑星・月・星座・日時計・太陽系圏との交代（同）
 import { createScenePlayer } from "./scenes/player.js";
 import { lowMem, classifyTier, ellipsoidMode, renderFx, probeGL as probeWebGL2, fatalOverlay as showFatal, deadMap } from "./boot/tier.js";   // 起動時の裁き＝純関数（t-tier で検定）   // シーン再生プレーヤー＝上映・停止・タイムライン・黒幕・待ちパネル（同）
@@ -2736,6 +2738,38 @@ map.getLights = () => (mlLight ? [{ type: "directional", ...normLight(mlLight) }
 // null＝従来（宇宙へ抜けるリム光・霧は紙色）。getSky は MapLibre と同じく無指定なら undefined・指定があれば既定を補った物
 map.setSky = s => { mlSky = s == null ? null : normSky(s); sendSky(); needsDraw = true; return map; };
 map.getSky = () => (mlSky ? normSky(mlSky) : undefined);
+// ── 太陽・月の向きと雲の口（第 2 波 F2・2026-10-12・src/weather.js・ephem/sun）──
+//   getSunPosition(ms?, at?)／getMoonPosition(ms?, at?)＝{ time, subpoint:{lng,lat}, azimuth, altitude, enu }（度・at 省略＝視点の中心・ms 省略＝共通の時計）
+//   setSun({ follow:"clock" } | { azimuth, altitude } | null)＝directional の光（setLight と同じ 1 本）を太陽に合わせる。follow＝時計の変化・静止・実時間なら 60 秒ごとに追う。null＝setLight(null)
+//   setClouds(spec|null)／getClouds()＝受けて保つだけ（描かない＝capabilities "clouds" は spec）。registry.clouds の plugin（{ apply(map, clouds) }）があれば呼ぶ
+const bodyAt = (altAz, sub, ms, at) => {
+	const t = Number.isFinite(+ms) ? +ms : clock.time;
+	const lon = at ? (at.lng ?? at.lon ?? at[0]) : cam.center[0], lat = at ? (at.lat ?? at[1]) : cam.center[1];
+	const sp = sub(t), a = altAz(t, lon, lat);
+	return { time: t, subpoint: { lng: sp[0] * R2D, lat: sp[1] * R2D }, azimuth: a.azimuth, altitude: a.altitude, enu: a.enu };
+};
+map.getSunPosition = (ms, at) => bodyAt(sunAltAz, sunSubpoint, ms, at);
+map.getMoonPosition = (ms, at) => bodyAt(moonAltAz, moonSubpoint, ms, at);
+let sunSpec = null, sunTimer = 0;
+const applySun = () => { if (!sunSpec) return; map.setLight(sunToLight(sunSpec, sunSpec.follow === "clock" ? map.getSunPosition() : sunSpec)); };
+map.setSun = sp => {
+	if (sp == null || sp === false) { sunSpec = null; if (sunTimer) { clearInterval(sunTimer); sunTimer = 0; } map.setLight(null); return map; }
+	sunSpec = normSun(sp); applySun();
+	if (!sunTimer) sunTimer = setInterval(() => { if (sunSpec?.follow === "clock" && clock.isLive()) applySun(); }, 60e3);   // 実時間＝time の合図が来ない（約 0.25°/分）
+	return map;
+};
+map.getSun = () => (sunSpec ? { ...sunSpec } : null);
+map.on("time", () => { if (sunSpec?.follow === "clock") applySun(); });
+map.on("settle", () => { if (sunSpec?.follow === "clock") applySun(); });   // 視点の中心が動いた＝その場所の高度・方位で
+ownDestroy.push(() => { if (sunTimer) clearInterval(sunTimer); });
+let cloudsCur = null;
+map.setClouds = c => {
+	cloudsCur = normClouds(c);
+	const reg = pluginHost.registry.clouds;
+	for (const n of reg.names()) { try { reg.get(n).apply(map, cloudsCur); } catch (e) { console.warn(`[clouds] ${n}: apply failed`, e); } }
+	needsDraw = true; return map;
+};
+map.getClouds = () => (cloudsCur ? { ...cloudsCur, wind: [...cloudsCur.wind], precipitation: cloudsCur.precipitation && { ...cloudsCur.precipitation } } : null);
 // 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
 // ── MapLibre の小口（B6・2026-10-12） ──
 // sprite：読んだ記号の名前を sprite の id ごとに覚える（removeSprite／setStyle で消すため）。default 以外は "id:名前"
