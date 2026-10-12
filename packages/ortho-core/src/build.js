@@ -301,15 +301,15 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 		const extent = src.extent;
 		// filter で残る地物だけを line-sort-key/fill-sort-key の昇順に（高い値ほど後＝上に描く）。std は道路を vt_drworder で並べる。
 		// 旧＝層の全地物を並べてから filter＝同じ source-layer（road）を読む層の数だけ全地物の sort-key を評価して並べていた
-		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo);
+		const feats = filterSortFeatures(src.features, L.filter, L.layout?.["line-sort-key"] ?? L.layout?.["fill-sort-key"], z, eo, { z, x, y, E: extent });   // tile＝within/distance（C2）が地物の形を経緯度へ
 
 		if (L.type === "fill") {
 			// インデックス描画：ユニーク頂点(pos/col)＋三角形index。スープ展開（3頂点/三角形）をやめ、
 			// 頂点は一度だけ持つ＝典型ポリゴン(tris≈verts)でバイト2/3・GPUのpost-transform cacheも効く。
 			const pos = B.pos, col = B.col, idx = B.idx; pos.n = col.n = idx.n = 0;
-			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;   // filter は filterSortFeatures で済んでいる
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["fill-color"] ?? "#000", ctx)));
 				const op = L.paint?.["fill-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
@@ -342,9 +342,9 @@ function buildTileDrawList1({ layers, z, x, y, subLenM = 700, stateOf = null }, 
 			// 単位：内蔵 style は px（タイル基準ズームでの見かけ）、外来 MapLibre style（dashInLineWidths）は線幅の倍数。
 			// 読めない値は破線なし（実線）に倒す＝線ごと消さない（2026-09-25・旧版は NaN で片が 0 になり線が消えた）
 			const dashPat = dashPattern(evalExpr(L.paint?.["line-dasharray"] ?? null, { zoom: z, props: {}, geom: null, vars: {}, origin: eo }));
-			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
+			const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile: { z, x, y, E: extent } };   // feature 間で使い回す（compile 済み evalExpr は ctx を保持しない＝安全）
 			for (const f of feats) {
-				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined;   // filter は filterSortFeatures で済んでいる
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = undefined; ctx.feat = f;   // filter は filterSortFeatures で済んでいる。feat＝distance（C2）
 				if (stateOf) ctx.state = stateOf(f);   // filter の後＝paint だけが読む
 				const c = parseRGBA(pale(evalExpr(L.paint?.["line-color"] ?? "#000", ctx)));
 				const op = L.paint?.["line-opacity"], ov = op != null ? evalExpr(op, ctx) : 1; const a = c[3] * (ov === undefined && eo ? 1 : ov);   // ML の評価エラー＝既定 1
@@ -468,16 +468,16 @@ function waOnlyPartial(layers, src) {
 // 層の filter に通る地物を、sort-key 式があれば昇順に並べ替える（安定ソート）。無ければ元順のまま。
 // filter が先＝落ちる地物の sort-key は評価も並べ替えもしない。並べる順は「全地物を並べてから filter」と同じ（比較＝(鍵, 元の添字)の全順序）。
 // ただし鍵に NaN（数でない sort-key）が混ざる時だけは比較が全順序でなく、並べ替えの結果が集合の大きさに依る＝旧来の順（全地物を並べてから filter）で並べる＝絵を変えない
-function filterSortFeatures(features, filter, sortExpr, z, eo) {
-	const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined };   // ctx は 1 個を使い回す（compile 済み evalExpr は ctx を保持しない）
-	const pass = f => { ctx.props = f.props; ctx.geom = f.type; return truthy(evalExpr(filter, ctx)); };
+function filterSortFeatures(features, filter, sortExpr, z, eo, tile = null) {
+	const ctx = { zoom: z, props: null, geom: null, vars: {}, origin: eo, state: undefined, feat: null, tile };   // ctx は 1 個を使い回す（compile 済み evalExpr は ctx を保持しない）。feat/tile＝within/distance（C2）
+	const pass = f => { ctx.props = f.props; ctx.geom = f.type; ctx.feat = f; return truthy(evalExpr(filter, ctx)); };
 	if (!sortExpr) return filter ? features.filter(pass) : features;
 	const src = filter ? features.filter(pass) : features;
 	// {f,i,k} を feature 毎に作らず、キー配列＋インデックス配列で安定ソート（GC削減）
 	const sorted = list => {
 		const n = list.length, keys = new Array(n), idx = new Array(n);
 		let nan = false;
-		for (let i = 0; i < n; i++) { const f = list[i]; ctx.props = f.props; ctx.geom = f.type; const k = evalExpr(sortExpr, ctx); keys[i] = k; idx[i] = i; if (Number.isNaN(k - 0)) nan = true; }
+		for (let i = 0; i < n; i++) { const f = list[i]; ctx.props = f.props; ctx.geom = f.type; ctx.feat = f; const k = evalExpr(sortExpr, ctx); keys[i] = k; idx[i] = i; if (Number.isNaN(k - 0)) nan = true; }
 		if (nan) return null;
 		idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
 		const out = new Array(n);
@@ -491,7 +491,7 @@ function filterSortFeatures(features, filter, sortExpr, z, eo) {
 // 旧来の並べ替え（全順序でない鍵＝NaN を含む時の順をそのまま保つ）
 function legacySort(features, sortExpr, ctx) {
 	const n = features.length, keys = new Array(n), idx = new Array(n);
-	for (let i = 0; i < n; i++) { const f = features[i]; ctx.props = f.props; ctx.geom = f.type; keys[i] = evalExpr(sortExpr, ctx); idx[i] = i; }
+	for (let i = 0; i < n; i++) { const f = features[i]; ctx.props = f.props; ctx.geom = f.type; ctx.feat = f; keys[i] = evalExpr(sortExpr, ctx); idx[i] = i; }
 	idx.sort((a, b) => (keys[a] - keys[b]) || (a - b));
 	const out = new Array(n);
 	for (let i = 0; i < n; i++) out[i] = features[idx[i]];

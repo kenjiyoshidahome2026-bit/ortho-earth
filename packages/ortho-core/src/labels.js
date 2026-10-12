@@ -158,7 +158,7 @@ export function buildLabels({ layers, z, x, y, stateOf = null }, style) {
 		let fi = 0;
 		for (const f of src.features) {
 			fi++;
-			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L), state: undefined };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）
+			const ctx = { zoom: z, props: f.props, geom: f.type, vars: {}, origin: originOfLayer(L), state: undefined, feat: f, tile: { z, x, y, E: src.extent || 4096 } };   // MapLibre の文書から来た層＝MapLibre の意味（2026-09-26）。feat/tile＝within/distance（C2）
 			const place = String(evalExpr(placeE, ctx) ?? "point"), onLine = place === "line" || place === "line-center";   // 線に沿う注記（段 4）
 			if (onLine ? f.type !== "LineString" : f.type === "Polygon") continue;   // 線の注記は線だけ（面の輪郭は置かない・記録）。点の注記＝点と、線の各部分の先頭の頂点（MapLibre の点置き＝低 z の道路の盾）
 			if (L.filter && !truthy(evalExpr(L.filter, ctx))) continue;
