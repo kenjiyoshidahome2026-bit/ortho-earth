@@ -23,6 +23,13 @@ from the whole Earth to street level. The MapLibre face (`@ortho-earth/globe/map
 139 examples: 70 same picture · 42 same answer · 25 run · 0 fail to run (`npm run verify:examples`; ledger in
 [`maplibre-compat.md`](maplibre-compat.md)).
 
+## Plugins
+
+Every extension has one shape: `definePlugin({ name, install(map, opts) })`, installed with `map.use(plugin)` or
+`createGlobe({ plugins: [...] })`. Plugins register into `map.registry` (data kinds, gadgets, tile formats, light types,
+clouds, post-process passes, handlers) and `map.supports(key)` / `map.capabilities()` answer honestly what this map
+renders, what a plugin renders, and what is only accepted as a spec. Handbook: [`PLUGINS.md`](PLUGINS.md).
+
 ## What you get
 
 - **Camera**: `jumpTo` / `easeTo` / `flyTo` / `fitBounds` / `cameraForBounds` / padding / `setMaxBounds`
