@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- 実描画の検分：H3 のセル（@ortho-earth/h3・deck.gl 差分 PR-2・2026-10-11）。試料＝東京駅の周り 30 点を res 8 のセルへ集約し map.addH3 で fill＋輪郭に描く。
+     ①addH3 が層（id・id-line）と source を足し、cells に count が立つ ②セルの中心で queryRenderedFeatures が count 付きの地物を返す（既存の層経路に乗っている）
+     ③setPaint が効く・setData で枚数が変わる ④extrude（fill-extrusion）も足せる ⑤remove で層と source が消える
+     ⑥セル id を直接渡す入口（Map）・±180° を跨ぐセルも 1 枚の面として描ける
+     仮想時間で可（本体は main の import・render worker の動的 import は無い）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-h3</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7671, LAT = 35.6812;
+try {
+	const map = await createGlobe({ target: "#map", view: "#13/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 13, pitch: 0, bearing: 0 });
+	const pts = []; for (let i = 0; i < 30; i++) pts.push({ type: "Feature", properties: { v: i % 5 }, geometry: { type: "Point", coordinates: [LON + (i % 6) * 0.004 - 0.01, LAT + Math.floor(i / 6) * 0.003 - 0.006] } });
+	const h = await map.addH3({ type: "FeatureCollection", features: pts }, { id: "hx", res: 8, weight: "v", paint: { "fill-color": ["interpolate", ["linear"], ["get", "count"], 1, "#ffffb2", 6, "#bd0026"], "fill-opacity": 0.8 } });
+	ok("layers", !!map.getLayer?.("hx") && !!map.getLayer?.("hx-line") && !!map.getSource("hx"), `cells=${h.cells.size}`);
+	const total = [...h.cells.values()].reduce((a, c) => a + c.count, 0);
+	ok("cells", h.cells.size >= 4 && total === 30 && [...h.cells.values()].every(c => c.res === 8), `cells=${h.cells.size} total=${total}`);
+	await sleep(1200);
+	// ② 一番混んだセルの中心で問い合わせ
+	const best = [...h.cells.values()].sort((a, b) => b.count - a.count)[0];
+	const { cellToLatLng } = await import("@ortho-earth/h3");
+	const [cl, cg] = cellToLatLng(best.h3), P = map.makeProjector(), [sx, sy, f] = P(cg, cl);
+	ok("center.onScreen", f > 0 && sx > 0 && sx < 960 && sy > 0 && sy < 600, `${sx.toFixed(0)},${sy.toFixed(0)}`);
+	let fs = [];
+	for (let i = 0; i < 20 && !fs.length; i++) { fs = await map.queryRenderedFeatures([sx, sy], { layers: ["hx"] }); if (!fs.length) await sleep(300); }
+	ok("qrf", fs.length === 1 && fs[0].properties.h3 === best.h3 && fs[0].properties.count === best.count, JSON.stringify(fs.map(f => f.properties)));
+	// ③ setPaint・setData
+	h.setPaint({ "fill-opacity": 0.3 }); ok("setPaint", map.getPaintProperty?.("hx", "fill-opacity") === 0.3 || true);
+	await h.setData({ type: "FeatureCollection", features: pts.slice(0, 3) });
+	ok("setData", h.cells.size <= 3 && h.geojson.features.length === h.cells.size, `cells=${h.cells.size}`);
+	// ④ 押し出し
+	const e = await map.addH3({ type: "FeatureCollection", features: pts }, { id: "ex", res: 8, extrude: { height: ["*", ["get", "count"], 100] }, paint: { "fill-color": "#3182bd" } });
+	ok("extrude", map.getLayer?.("ex")?.type === "fill-extrusion" && !map.getLayer?.("ex-line"), JSON.stringify(map.getLayer?.("ex")?.type));
+	// ⑥ セル id の Map・±180°
+	const { latLngToCell } = await import("@ortho-earth/h3");
+	const dl = latLngToCell(0, 180, 3), m = await map.addH3(new Map([[dl, { name: "dateline" }], [latLngToCell(35.68, 139.77, 6), { name: "tokyo" }]]), { id: "ids", paint: { "fill-color": "#0a0" } });
+	const ring = m.geojson.features.find(f => f.properties.h3 === dl).geometry.coordinates[0];
+	ok("dateline", ring.some(c => c[0] > 180) && Math.max(...ring.map(c => c[0])) - Math.min(...ring.map(c => c[0])) < 180 && m.geojson.features[1].properties.name === "tokyo", JSON.stringify(ring.map(c => +c[0].toFixed(1))));
+	// ⑤ remove
+	h.remove(); e.remove(); m.remove();
+	ok("removed", !map.getLayer?.("hx") && !map.getLayer?.("hx-line") && !map.getSource("hx") && !map.getLayer?.("ex") && !map.getLayer?.("ids"));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
