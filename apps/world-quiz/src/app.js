@@ -5,9 +5,10 @@
 //   覚える工夫＝間違えた国を次のセットに優先して混ぜる（間隔反復）・最近出た国は避ける・図鑑（正解した国の数）・星とバッジは localStorage。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";
 import { loadCountries, flagURL } from "./data.js";
-import { buildSet, makeQuestion, pool, eligible, stars, needsRuby, roundPopulation, REGIONS, REGION_EN, LEVELS, MODES, SET_SIZE } from "./quiz.js";
+import { buildSet, makeQuestion, pool, eligible, stars, roundPopulation, REGIONS, REGION_EN, LEVELS, MODES, SET_SIZE } from "./quiz.js";
 import { createProgress, BADGES } from "./progress.js";
 import { sfx } from "./sound.js";
+import { confetti } from "./confetti.js";
 
 const t = tr();
 const el = (tag, attrs = {}, ...kids) => {
@@ -19,6 +20,7 @@ const el = (tag, attrs = {}, ...kids) => {
 const MODE_ICON = { capital: "🏛️", flag: "🚩", map: "🌍" };
 const LEVEL_ICON = { 1: "🌱", 2: "🌿", 3: "🌳" };
 const BADGE_ICON = { "first-set": "🎒", perfect: "💯", "streak-10": "🔥", "sets-10": "🔟", "sets-50": "🏅", "all-modes": "🧭", "collector-50": "📗", "collector-100": "📘", "region-master": "👑" };
+const put = (node, ...kids) => node.replaceChildren(...kids.flat().filter(k => k != null && k !== false));   // replaceChildren(null) は "null" の文字を置く＝先に落とす
 const fmtMs = ms => { const s = Math.round(ms / 1000); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
 const numLocale = lang => ({ zh: "zh-CN", pt: "pt-BR", ar: "ar-EG", bn: "bn-BD" })[lang] || lang;
 
@@ -39,7 +41,7 @@ export async function mountApp(root) {
 	const modeName = m => m === "capital" ? t("Country & flag → capital") : m === "flag" ? t("Flag ⇄ country") : t("Map ⇄ country");
 	const levelName = l => l === 1 ? t("Level 1 · Starter") : l === 2 ? t("Level 2 · Explorer") : t("Level 3 · Expert");
 	const badgeName = b => ({ "first-set": t("First quiz"), perfect: t("Perfect 10"), "streak-10": t("10 in a row"), "sets-10": t("10 quizzes"), "sets-50": t("50 quizzes"), "all-modes": t("Tried every mode"), "collector-50": t("50 countries learned"), "collector-100": t("100 countries learned"), "region-master": t("Region master") })[b] || b;
-	const nameOf = c => { const e = el("span", { class: "q-name" }); if (lang === "ja" && needsRuby(c.name, c.yomi)) e.append(el("ruby", {}, c.name, el("rt", { text: c.yomi }))); else e.textContent = c.name; return e; };
+	const nameOf = c => el("span", { class: "q-name", text: c.name });   // 読み（World の yomi）は並べ替え用の鍵＝ルビには使わない（Kenji 2026-10-12）
 	const flagImg = (c, cls = "") => el("img", { class: `q-flag ${cls}`, src: flagURL(c.flagKey || c.key), alt: "", loading: "eager", draggable: "false" });
 	const play = f => { if (P.state.sound) sfx[f]?.(); };
 
@@ -59,14 +61,14 @@ export async function mountApp(root) {
 
 	// ---- 始めの面 ----
 	function showHome() {
-		clearInterval(timer); clearTimeout(advance);
+		clearInterval(timer); clearTimeout(advance); stopConfetti?.(); stopConfetti = null;
 		S.set = null; mapWrap.hidden = true; S.mapView?.clear();
 		play_.hidden = result.hidden = true; home.hidden = false;
 		const seg = (items, cur, set, render) => el("div", { class: "q-seg", role: "radiogroup" }, items.map(v => el("button", { type: "button", role: "radio", "aria-checked": String(v === cur), class: v === cur ? "on" : "", onclick: () => { set(v); play("tap"); showHome(); } }, render(v))));
 		const poolN = pool(countries, { mode: S.mode, level: S.level, region: S.region }).length;
 		const best = P.bestFor(S.mode, S.level, S.region);
 		const due = P.mistakeKeys().filter(k => P.isDue(k) && byKey.has(k)).length;
-		home.replaceChildren(
+		put(home, 
 			el("section", { class: "q-card q-pick" },
 				el("h2", { text: t("What do you want to practice?") }),
 				el("div", { class: "q-modes" }, MODES.map(m => el("button", { type: "button", class: `q-mode ${m === S.mode ? "on" : ""}`, "aria-pressed": String(m === S.mode), onclick: () => { S.mode = m; play("tap"); showHome(); } },
@@ -98,7 +100,7 @@ export async function mountApp(root) {
 	const tile = (icon, label, value) => el("div", { class: "q-tile" }, el("span", { class: "q-tile-icon", text: icon }), el("strong", { text: value }), el("small", { text: label }));
 
 	// ---- 問題の面 ----
-	let timer = 0, advance = 0;
+	let timer = 0, advance = 0, stopConfetti = null;
 	async function startSet({ review = false, keys = null } = {}) {
 		const opts = { mode: S.mode, level: S.level, region: S.region };
 		let set;
@@ -122,6 +124,7 @@ export async function mountApp(root) {
 	}
 	function renderQuestion() {
 		clearTimeout(advance);
+		if (window.scrollY) window.scrollTo(0, 0);   // 前の問で下までスクロールしていても、問題文が上の帯に隠れないよう頭から
 		const Q = S.set[S.i], c = Q.answer; S.answered = false;
 		S.mapView?.clear?.();
 		const hint = mapWrap.querySelector(".q-map-hint"); hint.hidden = true;
@@ -130,7 +133,7 @@ export async function mountApp(root) {
 			el("span", { class: "q-dots" }, S.set.map((_, k) => el("i", { class: k < S.i ? (S.wrong.some(w => w.key === S.set[k].answer.key) ? "ng" : "ok") : k === S.i ? "now" : "" }))),
 			el("span", { class: "q-time", text: fmtMs(performance.now() - S.t0) }),
 			el("button", { type: "button", class: "q-quit", onclick: () => { clearInterval(timer); showHome(); }, text: t("Quit") }));
-		const prompt = el("div", { class: `q-prompt q-${Q.kind}` });
+		const prompt = el("div", { class: `q-prompt kind-${Q.kind}` });   // 種類の印は kind- で（旧 q-${kind} は地図の器 .q-map＝position:absolute と同名で、地図の問だけ問題文が選択肢に被さった）
 		const choices = el("div", { class: `q-choices ${Q.kind === "name" ? "flags" : ""}`, role: "group" });
 		if (Q.kind === "capital") prompt.append(flagImg(c, "big"), el("h2", {}, nameOf(c)), el("p", { class: "q-ask", text: t("What is the capital?") }));
 		else if (Q.kind === "flag") prompt.append(flagImg(c, "big"), el("p", { class: "q-ask", text: t("Whose flag is this?") }));
@@ -142,7 +145,7 @@ export async function mountApp(root) {
 			Q.kind === "name" ? flagImg(o, "choice") : Q.kind === "capital" ? el("span", { class: "q-choice-text", text: o.capital }) : nameOf(o))));
 		const fact = el("div", { class: "q-fact", hidden: true });
 		const next = el("button", { type: "button", class: "q-next", hidden: true, onclick: () => nextQuestion(), text: S.i + 1 < S.set.length ? t("Next →") : t("See the result") });
-		play_.replaceChildren(head, prompt, choices, fact, next);
+		put(play_, head, prompt, choices, fact, next);
 		if (Q.kind === "map" || Q.kind === "tap") {
 			mapWrap.hidden = false;
 			ensureMap().then(async v => {
@@ -182,13 +185,13 @@ export async function mountApp(root) {
 		const fact = play_.querySelector(".q-fact"), next = play_.querySelector(".q-next");
 		const verdict = el("div", { class: `q-verdict ${ok ? "ok" : "ng"}`, text: ok ? (streak >= 3 ? t("Correct! $1 in a row!", streak) : t("Correct!")) : t("Not quite. The answer is…") });
 		const pop = roundPopulation(c.population);
-		fact.replaceChildren(verdict,
+		put(fact, verdict,
 			el("div", { class: "q-fact-card" }, flagImg(c, "small"), el("div", {},
 				el("strong", {}, nameOf(c)),
 				el("div", { class: "q-fact-row", text: c.capital ? t("Capital: $1", c.capital) : "" }),
 				el("div", { class: "q-fact-row", text: [regionName(REGION_EN[c.region] || ""), pop ? t("Population: about $1", fmtInt(pop)) : null].filter(Boolean).join(" · ") }),
 				!ok && picked && picked.key !== c.key ? el("div", { class: "q-fact-row q-muted", text: Q.kind === "capital" ? t("$1 is the capital of $2", picked.capital, picked.name) : t("You picked $1", picked.name) }) : null)));
-		fact.hidden = false; next.hidden = false; next.focus();
+		fact.hidden = false; next.hidden = false; next.focus({ preventScroll: true });   // focus の自動スクロールで次の問の頭が上の帯の下に潜らない
 		if (S.mapWanted && Q.kind !== "map") { mapWrap.hidden = false; ensureMap().then(v => v && S.set[S.i] === Q && v.focus(c, { pad: Q.kind === "tap" ? 2 : 1.8, keepMark: Q.kind === "tap" })); }   // 押した所の赤い印は残す＝正解と見比べる
 		if (ok && Q.kind !== "tap") advance = setTimeout(() => S.set[S.i] === Q && S.answered && nextQuestion(), 1600);   // 正解はテンポよく次へ（間違いは見て覚える＝押すまで待つ）
 	}
@@ -211,7 +214,7 @@ export async function mountApp(root) {
 		const r = S.review ? { got: [], best: null, isBest: false } : P.finish({ mode: S.mode, level: S.level, region: S.region, correct: n, total, ms, poolKeys: p.map(c => c.key) });
 		play(st === 3 ? "fanfare" : "correct"); if (r.got.length) setTimeout(() => play("badge"), 700);
 		play_.hidden = true; result.hidden = false; mapWrap.hidden = !S.mapWanted || S.mapView === false;
-		result.replaceChildren(
+		put(result, 
 			el("section", { class: "q-card q-score" },
 				el("div", { class: "q-stars", "aria-label": t("$1 of 3 stars", st) }, [1, 2, 3].map(k => el("span", { class: k <= st ? "lit" : "", text: "★" }))),
 				el("h2", { text: st === 3 ? t("Perfect!") : st === 2 ? t("Great job!") : st === 1 ? t("Nice try!") : t("Keep going!") }),
@@ -220,12 +223,13 @@ export async function mountApp(root) {
 				el("p", { class: "q-muted", text: `${modeName(S.mode)} · ${levelName(S.level)} · ${regionName(REGION_EN[S.region])}` }),
 				r.got.length ? el("div", { class: "q-new-badges" }, el("h3", { text: t("New badge!") }), r.got.map(b => el("span", { class: "q-badge got" }, el("span", { class: "q-badge-icon", text: BADGE_ICON[b] }), el("span", { class: "q-badge-name", text: badgeName(b) })))) : null,
 				el("div", { class: "q-actions" },
-					el("button", { type: "button", class: "q-start", onclick: () => startSet(), text: t("Play again") }),
+					st === 3 ? null : el("button", { type: "button", class: "q-start", onclick: () => startSet(), text: t("Play again") }),   // 全問正解は「もう一度」を出さない＝花吹雪で締める（Kenji 2026-10-12）
 					S.wrong.length ? el("button", { type: "button", class: "q-start q-review", onclick: () => startSet({ keys: S.wrong.map(c => c.key) }), text: t("Retry the $1 you missed", S.wrong.length) }) : null,
-					el("button", { type: "button", class: "q-link", onclick: () => showHome(), text: t("Back to start") }))),
+					el("button", { type: "button", class: "q-start q-home-btn", onclick: () => showHome(), text: t("Back to start") }))),
 			S.wrong.length ? el("section", { class: "q-card" }, el("h3", { text: t("Remember these") }), el("ul", { class: "q-missed" }, S.wrong.map(c => el("li", { onclick: () => S.mapView?.focus(c, { pad: 1.8 }) }, flagImg(c, "small"), el("span", {}, nameOf(c), c.capital ? el("small", { text: " · " + c.capital }) : null))))) : null,
 			el("section", { class: "q-card q-muted q-small", text: t("Country data: ortho-earth World database (Natural Earth, Wikidata, UN). Flags: Wikimedia Commons.") }));
 		if (S.wrong.length) S.mapView?.focus(S.wrong[0], { pad: 1.8 });
+		stopConfetti?.(); stopConfetti = st === 3 ? confetti() : null;
 	}
 
 	if (q.has("start")) startSet(); else showHome();

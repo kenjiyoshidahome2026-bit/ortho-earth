@@ -1,5 +1,5 @@
 // クイズの芯（DOM なし＝Node の検定で回る）。国の台帳は World（apps/world の NationDB）＝ここでは「平らにした 1 件」を受け取る：
-//   { key, iso2, name, nameEn, yomi, capital, capitalEn, region("1".."6"), population, area, un(加盟日|null), territory(key|null), conflict(key|null), flagKey, coord }
+//   { key, iso2, name, nameEn, capital, capitalEn, region("1".."6"), population, area, un(加盟日|null), territory(key|null), conflict(key|null), flagKey, coord }
 // 難易度＝国の知名度（人口・面積・国連加盟）で 3 層に分ける。範囲＝世界か地域（World の REGIONS と同じ番号）。
 // 出題＝1 セット 10 問。間違えた国を優先して混ぜる（間隔反復）・最近出た国は避ける＝飽きずに全部を回る。
 
@@ -92,8 +92,6 @@ export function updateMistake(m, correct, now = Date.now()) {
 	return { wrong: m?.wrong || 0, streak, due: now + DAY * 2 ** (streak - 1), last: now };
 }
 
-// 読みの振り方（ja）：先頭が漢字の名前（日本・中国・南アフリカ…）だけ読みを添える。カナで始まる名前はそのまま
-export const needsRuby = (name, yomi) => !!yomi && !!name && yomi !== name && !/^[ァ-ヶーぁ-ん]/.test(name) && /[一-鿿]/.test(name);
 
 // 人口を「約 1 億 2,500 万人」のように子供向けに丸める（言語に依らない数値部分だけ。単位は呼び手が t() で付ける）
 export function roundPopulation(n) {
