@@ -9,7 +9,8 @@
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
 let _loaders = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
-import { weldMesh } from "./meshq.js";   // 頂点溶接（焼きと共用）
+import { weldMesh } from "./meshq.js";
+import { gltfMeta, rawGltfJson } from "./gltf-meta.js";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
 
 const R2D = 180 / Math.PI;
 // デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（meshworker の
@@ -795,5 +796,5 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
-	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
+	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(rawGltfJson(ab) ?? gltf.json ?? gltf) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）
 }
