@@ -2552,6 +2552,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "lakes":     setLakes(data); break;             // 湖（NE lakes・?world=1）＝wdepr 直後に描く塗り専用シーン（色は worldPal.sea 平色）
 			case "gintBld":   setGintBld(data); break;           // data={origin,lines,points,color}／null=解放
 			case "view":    view = { ...view, ...data }; break;
+			case "light":   break;   // style の light（B3）＝WebGPU のメッシュは局所系の固定光のまま（#46 段 2 の太陽＋環境光と合わせて読む・gl は u_light* で読む）
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す
