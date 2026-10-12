@@ -1,0 +1,70 @@
+<!doctype html>
+<!-- 実描画の検分：局所の光源 point／spot／ambient／hemisphere（map.setLights・第 3 波 W2・2026-10-12）。
+     試料＝dark テーマ・東京駅・z16・真上から。灰色（#808080）の押し出し 2 棟（模型と同じメッシュ経路＝光が効く）：中央 100m 角と、東へ 400m の 100m 角。requestSnapshot の base で屋根の輝度を読む。
+     ①ambient（白・1.0）＝両方の屋根が明るくなる ②point（中央の上 150m・range 300m）＝中央だけ明るく・東は変わらない ③spot（中央の上 150m・真下・角 20°）＝中央だけ明るく／真上向きなら変わらない
+     ④hemisphere（空＝白・地面＝黒・1.0）＝屋根（上向き）が明るくなる ⑤setLights([])＝素に戻る。getLights は保った spec を返す。
+     GL2（verify:ui）と WebGPU（verify:webgpu）の両方。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-lights</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K];
+async function snap(map) {
+	await sleep(400);
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => { const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H))); const i = ((img.flip ? img.h - 1 - by : by) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+const lum = c => 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+const lumAround = (img, x, y, r = 2) => { let s = 0, n = 0; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { s += lum(px(img, x + dx, y + dy)); n++; } return s / n; };
+const J = v => +v.toFixed(1);
+const sq = (e, n, h) => ({ type: "Feature", properties: { height: h }, geometry: { type: "Polygon", coordinates: [[ll(e - 50, n - 50), ll(e + 50, n - 50), ll(e + 50, n + 50), ll(e - 50, n + 50), ll(e - 50, n - 50)]] } });
+try {
+	const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", theme: "dark", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON + 200 / (K * Math.cos(LAT * Math.PI / 180)), LAT], zoom: 16, pitch: 0, bearing: 0 });
+	const st = await map.gadget.extrude({ type: "FeatureCollection", features: [sq(0, 0, 50), sq(400, 0, 50)] }, { color: "#808080", fit: false, mask: false });
+	ok("extrude", !!st && st.polygons === 2);
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(1500);
+	const P = map.makeProjectorH(), c = P(LON, LAT, 50), e = P(...ll(400, 0), 50);
+	const read = async () => { const img = await snap(map); return [lumAround(img, c[0], c[1]), lumAround(img, e[0], e[1])]; };
+	const [c0, e0] = await read();
+	ok("grayRoofs", c0 > 60 && c0 < 200 && Math.abs(c0 - e0) < 6, `center=${J(c0)} east=${J(e0)}`);
+	// ① ambient
+	map.setLights([{ type: "ambient", color: "#ffffff", intensity: 1 }]);
+	ok("getLights", map.getLights().length === 1 && map.getLights()[0].intensity === 1 && map.supports("light.ambient") && map.supports("light.point"));
+	const [c1, e1] = await read();
+	ok("ambientBoth", c1 > c0 + 30 && e1 > e0 + 30, `center ${J(c0)}→${J(c1)} east ${J(e0)}→${J(e1)}`);
+	// ② point（中央の上 150m・range 300m＝東の棟（400m）には届かない）
+	map.setLights([{ type: "point", position: [LON, LAT, 150], intensity: 2, range: 300, decay: 1 }]);
+	const [c2, e2] = await read();
+	ok("pointCenter", c2 > c0 + 30, `center ${J(c0)}→${J(c2)}`);
+	ok("pointEastSame", Math.abs(e2 - e0) < 6, `east ${J(e0)}→${J(e2)}`);
+	// ③ spot（真下・角 20°）と、真上向き（当たらない）
+	map.setLights([{ type: "spot", position: [LON, LAT, 150], direction: [0, 0, -1], angle: 20, intensity: 2, range: 300, decay: 1 }]);
+	const [c3, e3] = await read();
+	ok("spotCenter", c3 > c0 + 30 && Math.abs(e3 - e0) < 6, `center ${J(c0)}→${J(c3)} east ${J(e0)}→${J(e3)}`);
+	map.setLights([{ type: "spot", position: [LON, LAT, 150], direction: [0, 0, 1], angle: 20, intensity: 2, range: 300, decay: 1 }]);
+	const [c3b] = await read();
+	ok("spotAwaySame", Math.abs(c3b - c0) < 6, `center ${J(c0)}→${J(c3b)}`);
+	map.setLights([{ type: "spot", position: [LON, LAT, 150], target: [LON, LAT, 0], angle: 20, intensity: 2, range: 300, decay: 1 }]);
+	const [c3c] = await read();
+	ok("spotTarget", c3c > c0 + 30, `center ${J(c0)}→${J(c3c)}`);
+	// ④ hemisphere（空＝白・地面＝黒）＝上向きの屋根が明るく
+	map.setLights([{ type: "hemisphere", skyColor: "#ffffff", groundColor: "#000000", intensity: 1 }]);
+	const [c4, e4] = await read();
+	ok("hemiRoof", c4 > c0 + 30 && e4 > e0 + 30, `center ${J(c0)}→${J(c4)} east ${J(e0)}→${J(e4)}`);
+	// ⑤ 外す
+	map.setLights([]);
+	const [c5, e5] = await read();
+	ok("restored", Math.abs(c5 - c0) < 6 && Math.abs(e5 - e0) < 6, `center ${J(c0)}→${J(c5)} east ${J(e0)}→${J(e5)}`);
+	if (Q.get("keep")) { map.setLights([{ type: "point", position: [LON, LAT, 150], intensity: 2, range: 300 }]); window.__t = { map }; }
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>

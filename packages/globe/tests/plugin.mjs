@@ -33,7 +33,7 @@ ok("cap.dataBuiltin", map.supports("data.points") && map.supports("data.columns"
 ok("cap.gadgetLive", map.supports("gadget.compass"), JSON.stringify(c0["gadget.compass"]));
 ok("cap.tiles", map.supports("tiles.mvt") && !map.supports("tiles.ktx2"));
 ok("cap.postBuiltin", map.supports("post.bloom") && !map.supports("post.ssr") && c0["post.ssr"].status === "spec" && c0["post.chain"].status === "builtin");
-ok("cap.lightBuiltin", map.supports("light.directional") && !map.supports("light.point") && c0["light.point"].status === "spec");
+ok("cap.lightBuiltin", map.supports("light.directional") && map.supports("light.point") && map.supports("light.hemisphere") && !map.supports("light.ibl") && c0["light.ibl"].status === "spec");   // point/spot/ambient/hemisphere は W2 で builtin
 ok("cap.laz", !map.supports("pointcloud.laz"));
 ok("cap.unknown", !map.supports("nonsense.key"));
 

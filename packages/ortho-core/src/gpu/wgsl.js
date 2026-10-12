@@ -631,7 +631,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9> };   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32> };   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -661,12 +661,33 @@ struct PlOut {
 	o.pos = p;
 	return o;
 }
+// 局所の光源（第 3 波 W2・2026-10-12）＝陰影の係数に足す（gl/glsl.js localLights と同式）。pos＝画素の世界座標（単位球）
+fn localLights(n: vec3f, pos: vec3f) -> vec3f {
+	var acc = vec3f(0.0);
+	let up = normalize(pos);
+	let cnt = u32(B.ln.x + 0.5);
+	for (var i = 0u; i < 8u; i++) {
+		if (i >= cnt) { break; }
+		let A = B.lt[i * 4u]; let Bc = B.lt[i * 4u + 1u]; let C = B.lt[i * 4u + 2u]; let D = B.lt[i * 4u + 3u];
+		let kind = i32(A.w + 0.5);
+		if (kind == 3) { acc += Bc.rgb * Bc.w; }
+		else if (kind == 4) { acc += mix(C.rgb, Bc.rgb, dot(n, up) * 0.5 + 0.5) * Bc.w; }
+		else {
+			let dv = A.xyz - pos; let dist = length(dv); let L = dv / max(dist, 1e-9);
+			var at = select(1.0, pow(clamp(1.0 - dist / C.w, 0.0, 1.0), D.z), C.w > 0.0);
+			if (kind == 2) { at *= smoothstep(D.x, D.y, dot(-L, C.xyz)); }
+			acc += Bc.rgb * Bc.w * at * max(dot(n, L), 0.0);
+		}
+	}
+	return acc;
+}
 @fragment fn fs(in: PlOut) -> @location(0) vec4f {
 	// 面の幾何法線＝スクリーン微分（FS冒頭＝uniform control flow・discard より前＝fwidth の轍と同じ掟）。
 	// toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号相殺＝位置微分の面法線と等価（varying追加不要）。
 	let gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));
 	if (in.front < 0.0) { discard; }
 	var n = normalize(in.n);
+	var ltBase = P.p1.rgb;   // 局所の光源（W2）が掛かる素の色（模型の派生＝頂点色×テクスチャ）
 	// 裏面カリングは幾何法線＝面内で一定＝画素毎の揺れゼロ。旧・補間int8法線のdot閾値は「すれすれ帯≈1px」
 	// 前提が深ズーム(z20)で崩れ点描ゴーストになった（glsl.js MESH_FS と同文・2026-08-02）。
 	// 向きは属性法線で採決＝巻き順非依存。退化面（微分ゼロ）だけ旧判定へフォールバック。
@@ -690,6 +711,7 @@ struct PlOut {
 		var pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;
 		lit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));
 	}
+	if (B.ln.x > 0.5) { lit += ltBase * localLights(n, F.eye - in.toEye); }   // 局所の光源（W2）
 	let c = mix(lit, F.fogColor, in.fog);
 	return vec4f(c, 1.0);
 }
@@ -1149,6 +1171,7 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
 	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
+	["\tvar ltBase = P.p1.rgb;   // 局所の光源（W2）", "\tvar ltBase = srgbEncode(tx.rgb);   // 局所の光源（W2）"],
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
 	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
 	 "\t\t// normal map via screen-space tangents (no TANGENT attribute; degenerate = plain normal). default 1x1 (128,128,255) = identity\n\t\tlet nmv = vec3f((nm.xy * 2.0 - 1.0) * B.pbr0.z, nm.z * 2.0 - 1.0);\n\t\tlet dp1 = -dpx; let dp2 = -dpy;\n\t\tlet dp2p = cross(dp2, n); let dp1p = cross(n, dp1);\n\t\tlet T = dp2p * dux.x + dp1p * duy.x; let Bt = dp2p * dux.y + dp1p * duy.y;\n\t\tlet mx = max(dot(T, T), dot(Bt, Bt));\n\t\tvar nn = n;\n\t\tif (mx > 1e-20) { let im = inverseSqrt(mx); nn = normalize(T * im * nmv.x + Bt * im * nmv.y + n * max(nmv.z, 0.05)); }\n\t\tvar pi: PbrIn; pi.base = tx.rgb; pi.n = nn; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = clamp(B.pbr0.x * mr.b, 0.0, 1.0); pi.rough = clamp(B.pbr0.y * mr.g, 0.04, 1.0); pi.ao = mix(1.0, oc.r, B.pbr0.w); pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh) + B.emis.rgb * em.rgb, vec3f(1.0)));   // emissive (srgb view = linear) added as is\n"],
@@ -1337,7 +1360,7 @@ const MESH_VS = [
 	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", `\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],
 	["\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n", `\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],   // 影の派生（lp は既にある）
 ];
-const PB_CLIPO = [["sh: array<vec4f, 9> };", "sh: array<vec4f, 9>, clipO: vec4f };"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）
+const PB_CLIPO = [["sh: array<vec4f, 9>, pad: vec4f,", "sh: array<vec4f, 9>, clipO: vec4f,"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）
 // 建物の疑似の蓋（閉じた建物＝裏面を捨てる物だけ）：切っている間は裏面を蓋の色で塗る＝切り口から中を覗くと断面に見える（両面のデータ＝上屋・橋は今のまま）
 const MESH_CAP = [["\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { discard; }\n", "\tif (B.meshOrigin.w > 0.5 && fe < -0.02) { if (CL.capB.w > 0.5) { return vec4f(CL.capB.rgb, 1.0); } discard; }\n"]];
 const CLIP_STEPS = {

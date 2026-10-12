@@ -1,7 +1,7 @@
 // style の light（MapLibre の light・setLight/getLight・B3 2026-10-12）＝既定の補完と、接地の局所系（東・北・上）の向きへの換算。
 // position＝[r, azimuthal, polar]（度）：azimuthal＝光源の方位（0°＝anchor:"map" なら真北・"viewport" なら画面の上、時計回り）・polar＝天頂からの角。
 // 文書の意味で実装（MapLibre の shader の軸の符号は本物と未照合）。r は向きに効かない（MapLibre も同じ）。
-import { parseRGBA } from "@ortho-earth/core";
+import { parseRGBA, lonlatTo3D } from "@ortho-earth/core";
 
 export const LIGHT_DEFAULT = Object.freeze({ anchor: "viewport", color: "#ffffff", intensity: 0.5, position: Object.freeze([1.15, 210, 30]) });
 const D2R = Math.PI / 180;
@@ -26,7 +26,7 @@ export function lightPayload(light, bearingDeg = 0) {
 }
 
 // ── 光源の口（第 2 波 F1・2026-10-12）＝map.setLights([...])／getLights()。type ごとの spec を受けて既定を補い**保つ**。描くのは directional だけ（setLight と同じ経路）。
-//   point/spot/ambient/hemisphere/ibl は受けて保つだけ（capabilities "spec"）＝後の段（実 GPU の多光源）か plugin（registry.lights に type を足し apply(map, lights) で自前描画）が描く。
+//   point/spot/ambient/hemisphere は第 3 波 W2（2026-10-12）で描く（下の localLightsPayload → renderer "lights"・メッシュ＝模型・LOD2 建物の陰影に足す・上限 8 灯）。ibl は受けて保つだけ（"spec"）＝plugin（registry.lights に type を足し apply(map, lights) で自前描画）が描く。
 //   位置は [lon, lat, alt m]・向きは [east, north, up]・角は度・距離は m・色は CSS 文字列・intensity は 0〜（directional だけ MapLibre どおり 0〜1）
 export const LIGHT_TYPES = Object.freeze(["directional", "point", "spot", "ambient", "hemisphere", "ibl"]);
 const fin = (v, d) => (Number.isFinite(+v) ? +v : d);
@@ -66,4 +66,43 @@ export function normLights(list, known = () => false) {
 		out.push({ ...(typeof l === "object" ? l : {}), type });   // plugin の type＝形は plugin の約束（そのまま保つ）
 	}
 	return out;
+}
+
+// ── 局所の光源の renderer への形（第 3 波 W2・2026-10-12）＝point/spot/ambient/hemisphere を上限 LOCAL_LIGHT_MAX 灯、1 灯 4 つの vec4 に詰める（GL2 の uniform 配列・WebGPU の PB.lt と同じ並び）。
+//   A＝(位置 xyz（単位球の世界座標＝lonlatTo3D×(1+alt/R)）, kind 1 point・2 spot・3 ambient・4 hemisphere)
+//   B＝(色 rgb 0..1, intensity)　C＝(spot の向き xyz（世界・単位）／hemisphere の地面色 rgb, range（世界単位＝m/R・0＝減衰なし））　D＝(cos(angle), cos(angle×(1−penumbra)), decay, 0)
+//   減衰＝range>0 なら (1−dist/range)^decay を 0..1 に畳む・range=0 なら 1。spot＝cos で smoothstep(cosOuter, cosInner)。
+//   陰影への足し方＝d（従来の陰影の係数）に足す＝色×(d＋Σ光)。ambient は向きに依らず・hemisphere は法線の上向き具合で空色と地面色を混ぜる。
+//   戻り＝{ n, data: Float32Array(LOCAL_LIGHT_MAX×16) }（n＝詰めた数・data は常に満杯の長さ＝renderer が uniform にそのまま流す）。ibl・directional・plugin の type は飛ばす
+export const LOCAL_LIGHT_MAX = 8;
+const LOCAL_KIND = { point: 1, spot: 2, ambient: 3, hemisphere: 4 };
+export function localLightsPayload(lights, radiusM = 6371000) {
+	const data = new Float32Array(LOCAL_LIGHT_MAX * 16); let n = 0;
+	const rgb = c => { const v = parseRGBA(c); return [v[0], v[1], v[2]]; };
+	const world = ([lon, lat, alt]) => { const p = lonlatTo3D(lon, lat), k = 1 + (alt || 0) / radiusM; return [p[0] * k, p[1] * k, p[2] * k]; };
+	for (const l of lights || []) {
+		const kind = LOCAL_KIND[l?.type]; if (!kind) continue;
+		if (n >= LOCAL_LIGHT_MAX) { console.warn(`setLights: more than ${LOCAL_LIGHT_MAX} local lights; the rest are not rendered`); break; }
+		const o = n * 16, A = data.subarray(o, o + 4), B = data.subarray(o + 4, o + 8), C = data.subarray(o + 8, o + 12), D = data.subarray(o + 12, o + 16);
+		A[3] = kind;
+		if (kind === 3) { B.set(rgb(l.color)); B[3] = l.intensity; }
+		else if (kind === 4) { B.set(rgb(l.skyColor)); B[3] = l.intensity; C.set(rgb(l.groundColor)); }
+		else {
+			const P = world(l.position); A.set(P); B.set(rgb(l.color)); B[3] = l.intensity; C[3] = (l.range || 0) / radiusM; D[2] = l.decay;
+			if (kind === 2) {
+				let dir;
+				if (l.target) { const T = world(l.target); dir = [T[0] - P[0], T[1] - P[1], T[2] - P[2]]; }
+				else {   // direction＝[east, north, up] → 世界（光源の位置の局所系）
+					const up = P.map((v, i) => v / Math.hypot(P[0], P[1], P[2]) || 0), e0 = [-up[2], 0, up[0]];   // cross((0,1,0), up)
+					const el = Math.hypot(e0[0], e0[1], e0[2]), east = el < 1e-9 ? [1, 0, 0] : e0.map(v => v / el);
+					const north = [up[1] * east[2] - up[2] * east[1], up[2] * east[0] - up[0] * east[2], up[0] * east[1] - up[1] * east[0]];
+					const [de, dn, du] = l.direction; dir = [0, 1, 2].map(i => east[i] * de + north[i] * dn + up[i] * du);
+				}
+				const len = Math.hypot(dir[0], dir[1], dir[2]) || 1; C.set(dir.map(v => v / len));
+				const ang = l.angle * D2R; D[0] = Math.cos(ang); D[1] = Math.cos(ang * (1 - l.penumbra));
+			}
+		}
+		n++;
+	}
+	return { n, data };
 }

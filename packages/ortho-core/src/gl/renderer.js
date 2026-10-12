@@ -390,6 +390,7 @@ export function createRenderer(canvas, rOpts = {}) {
 	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
 	const fogColorOf = c => (sky ? sky.fog : c);
 	function setView(v) { view = { ...view, ...v }; }
+	let lights = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
 	let light = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
@@ -1717,6 +1718,8 @@ export function createRenderer(canvas, rOpts = {}) {
 					common.add(pg); setCommonUniforms(pg, st, [0, 0], land); gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
 					gl.uniform1f(loc(gl, pg, "u_lightOn"), light ? 1 : 0);   // style の light（B3）＝無ければ従来の固定光
 					if (light) { gl.uniform3f(loc(gl, pg, "u_lightDir"), light.dir[0], light.dir[1], light.dir[2]); gl.uniform1f(loc(gl, pg, "u_lightI"), light.intensity ?? 0.5); const lc = light.color || [1, 1, 1]; gl.uniform3f(loc(gl, pg, "u_lightColor"), lc[0], lc[1], lc[2]); }
+					gl.uniform1i(loc(gl, pg, "u_lightN"), lights ? lights.n : 0);   // 局所の光源（W2）＝4 本の vec4[8] をそのまま流す
+					if (lights) { const d = lights.data; for (let i = 0; i < 4; i++) { const a = new Float32Array(32); for (let k = 0; k < 8; k++) a.set(d.subarray(k * 16 + i * 4, k * 16 + i * 4 + 4), k * 4); gl.uniform4fv(loc(gl, pg, ["u_lA", "u_lB", "u_lC", "u_lD"][i]), a); } }
 				}
 				const lb = p.noLift ? null : p.drape ? DRAPE_ALL : elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）・noLift＝持ち上げない（平面の統計）・drape＝全域で持ち上げる
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
@@ -1762,6 +1765,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
 			case "light":     light = data && Array.isArray(data.dir) ? data : null; break;      // style の light（B3・MapLibre の setLight）
+			case "lights":    lights = data && data.n > 0 && data.data ? data : null; break;      // 局所の光源（W2・light.js localLightsPayload）
 			case "sky":       sky = data && Array.isArray(data.sky) ? data : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
