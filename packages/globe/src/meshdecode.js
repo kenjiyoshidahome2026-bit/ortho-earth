@@ -11,6 +11,7 @@ let _loaders = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
 import { weldMesh } from "./meshq.js";
 import { gltfMeta, rawGltfJson } from "./gltf-meta.js";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
+import { rigFromGltf } from "./gltf-anim.js";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
 
 const R2D = 180 / Math.PI;
 // デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（meshworker の
@@ -633,10 +634,11 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 	let roots = gltf.scene?.nodes || gltf.scenes?.[0]?.nodes;
 	if (!roots) { const kids = new Set(); for (const n of nodes) for (const c of n.children || []) kids.add(c); roots = nodes.filter(n => !kids.has(n)); }
 	const inst = [];
+	const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
 	const visit = (nd, P, depth) => {
 		if (!nd || depth > 64) return;   // 循環/異常な深さの保険
 		const W = m4mul(P, nd.matrix ? Float64Array.from(nd.matrix) : m4trs(nd.translation, nd.rotation, nd.scale));
-		if (nd.mesh) inst.push({ mesh: nd.mesh, W });
+		if (nd.mesh) inst.push({ mesh: nd.mesh, W, node: nodeIdx.get(nd) ?? -1 });
 		for (const c of nd.children || []) visit(c, W, depth + 1);
 	};
 	for (const r of roots) visit(r, I4, 0);
@@ -662,12 +664,17 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		if (scale !== 1) for (let i = 0; i < 9; i++) A[i] *= scale;
 		mode = "anchor";
 	}
-	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）
-	const groups = new Map();   // material → { segs, totalV, totalI, mat }
+	// rigid アニメ（W4）：アニメの掛かるノード（と子孫）の下の mesh は、ノードごとに別の束にする＝renderer がバッチ単位の変換（meshXf）で動かせる。
+	// 3D Tiles のタイル（tile）はインスタンス配置＝アニメは読まない。rig（ノードの親子・静止の TRS・channel の数列）は main へ返す
+	const rig = tile ? null : rigFromGltf(gltf);
+	const animated = new Set(rig?.animated || []);
+	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
+	const groups = new Map();   // material|node → { segs, totalV, totalI, mat, node }
+	const matNo = new Map(); const gkOf = (prefix, mat) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
 	let minH = Infinity, nTri = 0, nVert = 0;
 	const pts = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
-	for (const pl of places || [{ A, T }]) for (const { mesh, W } of inst) {
-		const A = pl.A, T = pl.T;
+	for (const pl of places || [{ A, T }]) for (const { mesh, W, node } of inst) {
+		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
 		const lin = m3mul(A, Wlin), o = m3v(A, [W[12], W[13], W[14]]), ox = o[0] + T[0], oy = o[1] + T[1], oz = o[2] + T[2];
 		const cof = [   // 法線＝余因子（非等方スケールでも面の向きが狂わない。長さは後で正規化）
@@ -694,8 +701,8 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			const q = acc.normalized ? dequant(P) : 1;
 			const qLo = (P instanceof Int8Array || P instanceof Int16Array) ? -1 : 0;
 			const n = P.length / 3;
-			const mat = pr.material || null;
-			let g = groups.get(mat); if (!g) groups.set(mat, g = { segs: [], totalV: 0, totalI: 0, mat });
+			const mat = pr.material || null, gk = animNode >= 0 ? gkOf(`${animNode}|`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）
+			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: animNode });
 			const base = g.totalV;
 			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
 			for (let i = 0; i < n; i++) {
@@ -793,8 +800,16 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		const pb = pbrOf(g.mat, gltf);   // #46 段 2＝材質（数値）と 4 枚のテクスチャ（無ければ null）
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
 		batches.push({ mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive },
-			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
+			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1 });   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
-	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(rawGltfJson(ab) ?? gltf.json ?? gltf) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）
+	// place（W4）＝G：glTF のローカル → ECEF（A・T）、F：ECEF → 単位球の世界座標の局所線形化（模型の錨 T の周りで 1 m の差分＝接地の minH 込み・ecef2geo＋geoWorld と同じ道）
+	const place = rig && !places ? (() => {
+		const w = e => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
+		const c = inst.length ? (() => { const o = m3v(A, [inst[0].W[12], inst[0].W[13], inst[0].W[14]]); return [o[0] + T[0], o[1] + T[1], o[2] + T[2]]; })() : T;
+		const w0 = w(c), L = new Float64Array(9);
+		for (let k = 0; k < 3; k++) { const e = [...c]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
+		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
+	})() : null;
+	return { batches, rig, place, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(rawGltfJson(ab) ?? gltf.json ?? gltf) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）
 }

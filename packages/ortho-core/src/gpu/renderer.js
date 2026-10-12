@@ -1590,6 +1590,11 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 		meshHidden.delete(ward);
 		maskSig = "\0";   // active 集合が変わり得る＝次フレーム再構築を強制
 	}
+	// バッチの剛体変換（glTF の rigid アニメ・W4）＝PB の xf（mat3x3f＝列ごとに 16B 詰め・float 196〜）と xt（float 208〜・w＝on）。null＝恒等＋off
+	function writeXf(b, o, xf) {
+		if (xf) { for (let c = 0; c < 3; c++) { b[o + 196 + c * 4] = xf[c * 3]; b[o + 197 + c * 4] = xf[c * 3 + 1]; b[o + 198 + c * 4] = xf[c * 3 + 2]; } b[o + 208] = xf[9]; b[o + 209] = xf[10]; b[o + 210] = xf[11]; b[o + 211] = 1; }
+		else { b[o + 196] = 1; b[o + 197] = 0; b[o + 198] = 0; b[o + 200] = 0; b[o + 201] = 1; b[o + 202] = 0; b[o + 204] = 0; b[o + 205] = 0; b[o + 206] = 1; b[o + 208] = 0; b[o + 209] = 0; b[o + 210] = 0; b[o + 211] = 0; }
+	}
 	function setMeshSet(key, data) {
 		castRev++;
 		if (!data) { freeMeshWard(key); return; }   // key=区名：全バッチ+マスク解放
@@ -1909,6 +1914,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				const mask = p.textured && p.cut > 0;   // 模型の MASK（葉など）＝α で抜く落とす側（#112 段 4）
 				b[o + 8] = mask ? p.cut : -1; b[o + 9] = 0; b[o + 10] = p.noLift ? 1 : 0; b[o + 11] = p.drape ? 1 : 0;
 				if (clipPl) { const O = lonlatTo3D(...(scenes.main.origin || [0, 0])); b[o + 60] = p.origin[0] - O[0]; b[o + 61] = p.origin[1] - O[1]; b[o + 62] = p.origin[2] - O[2]; }   // clipO（#111 段 2）
+				writeXf(b, o, p.xf);   // バッチの剛体変換（W4）＝影も同じ位置に落ちる
 				list.push({ p, slot, mask });
 			}
 			if (list.length) {
@@ -2392,6 +2398,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU.set(env.lp, o + 20);
 				plBatchCPU.set(env.sh, o + 24);
 				if (lights) { plBatchCPU[o + 64] = lights.n; plBatchCPU.set(lights.data, o + 68); } else plBatchCPU[o + 64] = 0;   // 局所の光源（W2）＝ln.x＋lt[32]（バッチごとに同じ物を写す）
+				writeXf(plBatchCPU, o, p.xf);   // バッチの剛体変換（W4）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
 			}
@@ -2590,6 +2597,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasFarOff": clearElevationFar(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
+			case "meshXf": { const p = meshes.get(prop); if (p) { p.xf = data && data.length >= 12 ? data : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
 			case "planets":     planets = setStarBuf(planets, data, 8); break;     // 惑星（starsと同8fレイアウト・アプリが実位置更新）

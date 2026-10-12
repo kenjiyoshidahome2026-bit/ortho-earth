@@ -75,6 +75,6 @@ async function work(e) {
 		}
 		const r = await decodeModel(ab, { at, heading, scale, baseUri, textures: textures !== false, ground, mask });
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
-		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats }, transferOf(r.batches));
+		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats, rig: r.rig || null, place: r.place || null }, transferOf(r.batches));   // rig/place＝rigid アニメ（W4）
 	} catch (err) { self.postMessage({ id, error: err?.message || String(err) }); }
 }
