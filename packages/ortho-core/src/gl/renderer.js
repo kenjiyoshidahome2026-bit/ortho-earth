@@ -1201,7 +1201,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const whZ = view.worldHypsoZ ?? 6.5;
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
 		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has && !gnd.rasterOn;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
-		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
+		const c = flat2d ? [land[0], land[1], land[2], land[3] ?? 1] : (view.clear || [1, 1, 1, 1]);   // 2D の床も land の不透明度（B5）＝background 層の無い MapLibre の地図は透明
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
@@ -1365,6 +1365,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK());
 			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK());
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
+			gl.uniform1f(loc(gl, terrainProg, "u_landA"), land[3] ?? 1);   // 床の不透明度（B5）
 			// 標高ティント（view.hypso={color,max,amount}＝テーマのノブ）。未指定は amount=0＝恒等（従来の単色陰影）
 			const hy = view.hypso;
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);

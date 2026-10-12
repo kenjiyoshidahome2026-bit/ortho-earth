@@ -1027,7 +1027,7 @@ struct GOut { @builtin(position) pos: vec4f, @location(0) ndc: vec2f };
 		let oa = g * g * mix(G.atmo.a, 1.0, g);
 		let old = vec4f(mix(G.atmo.rgb, limbCol, g) * oa, oa);   // premultiplied（従来のリム光）
 		let k = G.sun.w;
-		if (k <= 0.0) { if (g <= 0.0) { discard; } return old; }
+		if (k <= 0.0) { if (g <= 0.0 || G.atmo.a <= 0.0) { discard; } return old; }   // 大気の強さ 0（MapLibre の口＝sky の無い style）＝リム光も描かない（B5・gl と同じ）
 		// 大気散乱（#46 段 1）：大気殻を通る区間だけ積分。殻の外＝宇宙＝discard（星がそのまま）。星は透過率のぶん透ける（α＝1−平均透過率）
 		let dn = normalize(d);
 		let sh = atmShell(A, dn, atmRt());

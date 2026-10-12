@@ -8,6 +8,7 @@
      ?g=before＝基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図の層を指す時の描く順（vector の描く層・2D と 3D）・style の 2 本目の source の層は style の順。実時間。
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。
      ?g=sky＝style の sky（B4・setSky/getSky）＝海の上を 80° 傾けて見上げ、画面の上（球に当たらない視線）が sky-color・地平線の際が fog-color・外すと元の絵。GL2 の簡易の空。
+     ?g=bg＝background 層（B5）＝MapLibre の目盛りの地図で background の無い style は床も宇宙も透明（α 0）・addLayer({type:"background"}) で床が塗られ background-opacity と visibility が効く・removeLayer で透明に戻る・setClearColor。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -36,6 +37,11 @@ const px = (img, x, y) => {
 	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
 	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
 	return [img.data[i], img.data[i + 1], img.data[i + 2]];
+};
+const pxa = (img, x, y) => {   // α も（B5＝透明の床）
+	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
+	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
+	return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]];
 };
 const diff = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
 const near = (a, c, tol = 70) => diff(a, c) <= tol;
@@ -1409,6 +1415,40 @@ try {
 		});
 		await scene("partial-filled-with-defaults", () => { map.setSky({ "sky-color": "#123456" }); const g = map.getSky(); map.setSky(SKY); return [g["sky-color"] === "#123456" && g["horizon-color"] === "#ffffff" && g["fog-ground-blend"] === 0.5 && g["atmosphere-blend"] === 0.8, JSON.stringify(g)]; });
 		await scene("set-null-restores", async () => { map.setSky(null); const c = await pixelUntil(TOP, p => diff(p, before) <= 8); return [diff(c, before) <= 8 && map.getSky() === undefined && !("sky" in map.getStyle()), `top=${c} before=${before}`]; });
+	} else if (G === "bg") {
+		// ── background 層（B5・2026-10-12・本人裁定「ML の口では background 無し＝透明」）：MapLibre の目盛り（zoomScale mercator）＋ background の無い空の style。
+		//    床（海の上・z12・75° 傾け）も宇宙（画面の上）も α 0＝頁の色。addLayer({type:"background"}) は基図の層として持つ（getStyle の先頭・get/setPaintProperty・visibility・removeLayer）。
+		//    setClearColor＝宇宙の色（エンジンの口）。GL2 の門（WebGPU は白に畳む＝この頁は GL2）
+		const C = [138.5, 32.5];
+		const map = await createGlobe({ target: "#map", view: `#12/${C[1]}/${C[0]}/75t`, zoomScale: "mercator", chips: false, style: { version: 8, sources: {}, layers: [] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const GROUND = [480, 520], TOP = [480, 6];
+		const until = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = pxa(await snap(map), ...p); if (pred(c)) break; await sleep(1200); } return c; };
+		const clear = c => c[3] <= 2, red = c => c[3] >= 250 && c[0] > 200 && c[1] < 60 && c[2] < 60;
+		await scene("no-bg-transparent", async () => { const g = await until(GROUND, clear), t = await until(TOP, clear); return [clear(g) && clear(t), `ground=${g} top=${t}`]; });
+		await scene("add-background-paints-ground", async () => {
+			await map.addLayer({ id: "bg2", type: "background", paint: { "background-color": "#ff0000" } });
+			const g = await until(GROUND, red), t = await until(TOP, clear), L = map.getLayer("bg2"), ids = map.getStyle().layers.map(l => l.id);
+			return [red(g) && clear(t) && L?.type === "background" && ids[0] === "bg2", `ground=${g} top=${t} layer=${JSON.stringify(L)} ids=${ids}`];
+		});
+		await scene("background-opacity", async () => {
+			map.setPaintProperty("bg2", "background-opacity", 0.5);
+			const g = await until(GROUND, c => Math.abs(c[3] - 128) <= 14);
+			const v = map.getPaintProperty("bg2", "background-opacity"); map.setPaintProperty("bg2", "background-opacity", 1);
+			return [Math.abs(g[3] - 128) <= 14 && g[0] > 100 && v === 0.5, `ground=${g} get=${v}`];
+		});
+		await scene("background-visibility", async () => {
+			map.setLayoutProperty("bg2", "visibility", "none"); const a = await until(GROUND, clear);
+			map.setLayoutProperty("bg2", "visibility", "visible"); const b = await until(GROUND, red);
+			return [clear(a) && red(b) && map.getLayoutProperty("bg2", "visibility") !== "none", `none=${a} visible=${b}`];
+		});
+		await scene("remove-background-transparent-again", async () => { map.removeLayer("bg2"); const g = await until(GROUND, clear); return [clear(g) && map.getLayer("bg2") === undefined && !map.getStyle().layers.some(l => l.id === "bg2"), `ground=${g}`]; });
+		await scene("set-clear-color", async () => {   // 宇宙の色＝描かない所の色。background の無い床は透明＝床の下にも同じ色が見える（MapLibre の canvas の後ろに頁の色が見えるのと同じ）
+			map.setClearColor("#00ff00"); const green = c => c[3] >= 250 && c[1] > 200 && c[0] < 60 && c[2] < 60;
+			const t = await until(TOP, green), g = pxa(await snap(map), ...GROUND);
+			map.setClearColor(null); const t2 = await until(TOP, clear);
+			return [green(t) && green(g) && clear(t2), `top=${t} ground=${g} reset=${t2}`];
+		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。

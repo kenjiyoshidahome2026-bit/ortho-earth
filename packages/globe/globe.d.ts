@@ -82,6 +82,8 @@ export interface OrthoJapanOptions {
 	terrain?: { source: RasterDemSource | QuantizedMeshSource; exaggeration?: number } | false;
 	/** 低ズーム（z<5）の夜面（共通の時計の夜半球を 50% で減光）。false＝描かない（1.5.0〜・MapLibre の口の既定）。既定 true */
 	night?: boolean;
+	/** 宇宙（球の外側）の色（1.16.0〜・B5）：色の文字列か "transparent"。既定＝内製は紺・MapLibre の目盛り（zoomScale mercator／maplibre）は透明＝頁の色が見える（background 層の無い style の床も透明）。WebGPU は白に畳む */
+	clearColor?: string;
 	/** 表示の世界の形（1.6.0〜・#43）。"auto"（既定）＝通常・HI のデスクトップは WGS84 楕円体・低メモリ端末（LOW_MEM）と非力な機体（MID_TIER＝内蔵 GPU・4 コア以下・
 	 *  RAM の多いスマホ/タブレット）は球（6371 km）。true／false で固定。URL の ?ell=1／?ell=0 が opts より強い。計測は常に WGS84（表示の形に依らない）。
 	 *  同じ頁の 2 枚目以降の地図は最初の地図の形に従う（core の状態は頁に 1 つ＝違えば console に警告） */
@@ -689,6 +691,8 @@ export interface OrthoJapanMap {
 	setSky(sky: SkySpecification | null): OrthoJapanMap;
 	/** 今の sky（既定を補った物）。無指定なら undefined（MapLibre と同じ） */
 	getSky(): Required<SkySpecification> | undefined;
+	/** 宇宙（球の外側）の色（1.16.0〜・B5）。色の文字列・"transparent"・null＝起動時の既定 */
+	setClearColor(color: string | null): OrthoJapanMap;
 	/** 的を注視点に（A4・1.16.0〜）。duration>0 なら easeTo。的が無い（軌跡の範囲外・不明な id）なら何もしない。高さのある的は注視点の高さを的に合わせる（centerClampedToGround が false になる） */
 	lookAt(target: CameraTarget, options?: LookAtOptions): Promise<void>;
 	/** 毎フレーム的を追う（衛星・車両・CZML の時刻つき点・1.16.0〜）。省いた角・zoom は今の値のまま＝追従中の setZoom や回転が効く。null で止める。flyTo 中は的を待つ */
