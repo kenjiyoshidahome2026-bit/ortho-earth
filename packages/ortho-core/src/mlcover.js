@@ -52,6 +52,6 @@ export function mlTileZoomOf(cam, Hcss, cover, { tileSize = 512, round = false }
 		let dx = Infinity;
 		for (const w of [-1, 0, 1]) { const a = x0 + w; dx = Math.min(dx, cx < a ? a - cx : cx > a + s ? cx - a - s : 0); }   // 東西は巻いて近い方
 		const dy = cy < y0 ? y0 - cy : cy > y0 + s ? cy - y0 - s : 0;
-		return Math.max(0, rnd(mlCalculateTileZoom(centerZ, Math.hypot(dx, dy), dzM, d, fov)));
-	}, { key: [centerZ, dzM, d, cx, cy, fov, round ? 1 : 0].join() });
+		return Math.max(0, rnd(mlCalculateTileZoom(centerZ, Math.hypot(dx, dy), dzM, d, fov, cover.maxLevels ?? 9.314, cover.maxMinRatio ?? 3)));   // cover.maxLevels/maxMinRatio＝setSourceTileLodParams（B6）
+	}, { key: [centerZ, dzM, d, cx, cy, fov, round ? 1 : 0, cover.maxLevels ?? 9.314, cover.maxMinRatio ?? 3].join() });
 }

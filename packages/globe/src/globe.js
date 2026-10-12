@@ -11,7 +11,8 @@ import { hasHeightKey } from "./extrude-keys.js";
 import { positionAt, ecefToLlh } from "./czml-time.js";
 import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";
 import { normLight, lightPayload } from "./light.js";
-import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
+import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
+import { normSprite, spriteEcho, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
@@ -1292,7 +1293,12 @@ let bldColor = theme.bldColor;      // 建物色（テーマ台帳のノブ＝pa
 // style の light（B3・2026-10-12・MapLibre の light/setLight/getLight）：起動の style と setStyle の根の light を読む。null＝従来の固定光（renderer の既定・ビット同一）。
 // viewport の錨は画面の上＝bearing で回る＝onMove で bearing が変わった時だけ送り直す（軽い message）
 let mlLight = null, lightBearingSent = null;
-let mlSky = null, skyZoomSent = null;   // style の sky（B4）＝normSky 済み｜null（従来＝宇宙へ抜けるリム光）
+let mlSky = null, skyZoomSent = null;
+// MapLibre の小口（B6）の状態：glyphs（記録だけ＝文字は Canvas2D）・sprite の一覧（id → url・読んだ記号の名前）・font-faces の記録・最小チルト・カメラの後処理・連続描画・debug の表示
+let mlGlyphs = EXT?.ms.glyphs ?? null, spriteList = normSprite(EXT?.ms.sprite), fontFacesList = [];
+const spriteNames = new Map();   // sprite の id → その sprite から読んだ記号の名前（removeSprite で消す）
+let minPitchCur = 0, camUpdateFn = null, repaintAlways = false, lastCoverOrder = null;
+const dbgState = { tileBoundaries: false, padding: false };   // style の sky（B4）＝normSky 済み｜null（従来＝宇宙へ抜けるリム光）
 const sendSky = () => { skyZoomSent = cam.zoom; renderer.set("sky", mlSky ? skyPayload(mlSky, cam.zoom) : null); };
 const sendLight = () => { lightBearingSent = cam.bearing; renderer.set("light", mlLight ? lightPayload(mlLight, cam.bearing * R2D) : null); };
 const HOME_VIEW = REGION_HOME?.view ?? [0, 20, 1.6];   // 既定起動の視点＝地域宣言の home（日本＝列島ビュー z6.6＝デモ初景）・申告が無ければ世界（globe）
@@ -1784,6 +1790,7 @@ const labelGate = () => "" + (cam.zoom >= CHOME_MINZOOM ? 1 : 0) + (cam.zoom >= 
 const swapLog = /[?&]swaplog=1/.test(location.search);
 const slog = (...a) => swapLog && console.log(`[swap ${(performance.now() / 1000).toFixed(2)}s z${cam.zoom.toFixed(2)}]`, ...a);
 function swapScene(order) {
+	lastCoverOrder = order;   // debug の表示（showTileBoundaries・B6）が読む今の基図のタイル集合
 	const sig = order.map(o => o.key).join("|") + "#" + styleSig + "#z" + (cam.zoom >= RAILTR_MINZOOM ? 1 : 0);
 	mainDesired = sig;
 	// 望みのシーンが既に載っている＝この zoom の現行として扱う（zoomAtBuild を追認しないと、微ズーム往復で
@@ -2259,7 +2266,8 @@ function frame() {
 		for (const cb of mapOn.time) { try { cb({ time: clock.time, step: clock.step, live: false, ticking: true }); } catch (e) { console.error("[map.on time]", e); } }
 	}
 	if (followSt) tickFollow();   // 追従（A4）＝描く前に的の今の位置へ
-	if (needsDraw) { needsDraw = false; render(); }
+	if (repaintAlways) needsDraw = true;   // 連続描画（MapLibre の map.repaint・B6）
+	if (needsDraw) { needsDraw = false; render(); if (dbgState.tileBoundaries || dbgState.padding) drawDebug(); }
 	if (mapOn.idle.length) checkIdle(nowT);
 	requestAnimationFrame(frame);
 }
@@ -2539,7 +2547,21 @@ function clampCamLimits() {
 			if (r) { const c = lngLatOf(r.center); if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) cam.center = [c[0], Math.max(-90, Math.min(90, c[1]))]; if (Number.isFinite(r.zoom)) cam.zoom = Math.max(zoomMinCur, Math.min(zoomMaxCur, r.zoom)); }
 		} catch (e) { console.error("[map.setConstrain]", e); }
 	}
+	if (camUpdateFn) {   // setTransformCameraUpdate（B6）＝制約の後にカメラを書き換える口（MapLibre と同じ順）。角は度・elevation は注視点の高さ m
+		try {
+			const r = camUpdateFn({ center: [cam.center[0], cam.center[1]], zoom: cam.zoom, pitch: cam.pitch * R2D, bearing: cam.bearing * R2D, roll: (cam.roll || 0) * R2D, elevation: cam.centerAlt || 0 });
+			if (r) {
+				const c = r.center != null ? lngLatOf(r.center) : null; if (c && Number.isFinite(c[0]) && Number.isFinite(c[1])) cam.center = [c[0], Math.max(-90, Math.min(90, c[1]))];
+				if (Number.isFinite(r.zoom)) cam.zoom = Math.max(zoomMinCur, Math.min(zoomMaxCur, r.zoom));
+				if (Number.isFinite(r.pitch)) cam.pitch = Math.max(0, Math.min(maxPitchCur, r.pitch * D2R));
+				if (Number.isFinite(r.bearing)) cam.bearing = r.bearing * D2R;
+				if (Number.isFinite(r.roll)) cam.roll = r.roll * D2R;
+				if (Number.isFinite(r.elevation)) { centerElevFixed = r.elevation; centerElevMode = r.elevation; syncCenterAlt(); }
+			}
+		} catch (e) { console.error("[map.setCameraUpdate]", e); }
+	}
 	if (cam.zoom > zoomMaxCur) cam.zoom = zoomMaxCur;
+	if (cam.pitch < minPitchCur) cam.pitch = minPitchCur;   // 最小チルト（setMinPitch・B6）
 	if (!camBounds) return;
 	const [w, s, e, n] = camBounds;
 	cam.center[1] = Math.max(s, Math.min(n, cam.center[1]));
@@ -2670,6 +2692,78 @@ map.getLight = () => normLight(mlLight);
 map.setSky = s => { mlSky = s == null ? null : normSky(s); sendSky(); needsDraw = true; return map; };
 map.getSky = () => (mlSky ? normSky(mlSky) : undefined);
 // 宇宙（球の外側）の色（B5・エンジンの口）：色の文字列・"transparent"・null＝起動時の既定（MapLibre の口は透明・内製は紺）。GL2 の canvas は α を持つ＝透明なら頁の色が見える。WebGPU は白に畳む
+// ── MapLibre の小口（B6・2026-10-12） ──
+// sprite：読んだ記号の名前を sprite の id ごとに覚える（removeSprite／setStyle で消すため）。default 以外は "id:名前"
+const spriteLoad = async (id, url) => {
+	const c = await symGet(), before = new Set(c.listImages());
+	await c.loadSprite(url, spritePrefix(id));
+	spriteNames.set(id, c.listImages().filter(n => !before.has(n)));
+};
+const spriteDrop = id => { for (const n of spriteNames.get(id) || []) symCtl?.removeImage(n); spriteNames.delete(id); };
+map.getSprite = () => spriteList.map(e => ({ id: e.id, url: e.url }));
+map.addSprite = (id, url) => { id = String(id ?? "default"); spriteDrop(id); spriteList = [...spriteList.filter(e => e.id !== id), { id, url: String(url) }]; spriteLoad(id, new URL(url, location.href).href).catch(err => console.warn("[addSprite]", id, err)); return map; };
+map.removeSprite = id => { id = String(id ?? "default"); spriteDrop(id); spriteList = spriteList.filter(e => e.id !== id); return map; };
+map.setSprite = url => { for (const id of [...new Set([...spriteList.map(e => e.id), ...spriteNames.keys()])]) spriteDrop(id); spriteList = []; if (url) return map.addSprite("default", url); return map; };   // 全部入れ替え（MapLibre の setSprite）。null＝全部外す
+map.getImage = name => { const e = symCtl?.getImage(name); if (!e?.bitmap) return undefined; const { bitmap: bm, pixelRatio = 1, sdf = false } = e;   // MapLibre の StyleImage の形（data＝RGBA の生画素）
+	const cv = new OffscreenCanvas(bm.width, bm.height), g = cv.getContext("2d"); g.drawImage(bm, 0, 0); const d = g.getImageData(0, 0, bm.width, bm.height);
+	return { data: { width: d.width, height: d.height, data: d.data }, pixelRatio, sdf, version: 1, ...(e.stretchX ? { stretchX: e.stretchX } : {}), ...(e.stretchY ? { stretchY: e.stretchY } : {}), ...(e.content ? { content: e.content } : {}) }; };
+map.getGlyphs = () => mlGlyphs ?? undefined;   // 文字は Canvas2D＝記録だけ（getStyle に echo）
+map.setGlyphs = url => { mlGlyphs = url == null ? null : String(url); return map; };
+map.getStyleUrl = () => EXT?.url ?? undefined;   // URL で起動した style の URL（object なら undefined）
+map.getFontFaces = () => fontFacesList.map(f => ({ ...f }));
+map.setFontFaces = async list => {   // [{ "font-family"|family, src, font-weight?, font-style?, unicode-range? }] → addFontFace（段 2 の口）。記録は getFontFaces に
+	fontFacesList = Array.isArray(list) ? list.filter(f => f && typeof f === "object").map(f => ({ ...f })) : [];
+	await Promise.all(fontFacesList.map(fontFaceArgs).filter(Boolean).map(a => map.addFontFace(a.family, a.src, a.descriptors).catch(err => console.warn("[setFontFaces]", a.family, err))));
+	return map;
+};
+// タイルの取り直し（MapLibre の refreshTiles）：基図の source＝新 style で組み直す（生バイトは温間キャッシュ命中なら速い＝サーバまでは行かない）・利用者の source＝その source の層を外して載せ直す（geojson の URL は取り直す）
+map.refreshTiles = async sid => {
+	if (sid == null || sid === baseSidNow()) { setPipelineStyle(style); remergeBase(); return map; }
+	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === sid);
+	for (const v of vs) { if (mlVisible(v) && !v.mounting) { await unmountLayer(v); await mountLayer(v); } }
+	return map;
+};
+// 今の画面を覆うタイル（MapLibre の coveringTiles）の近似：画面に 33×21 の点を散らして逆投影し、その点を含むタイルを集める（z＝MapLibre と同じ規則 mlcover.js・内製の目盛りでは cam.zoom の整数部）。
+// 球の外・地平線の向こうの点は落ちる＝縁のタイルを取りこぼすことはある。戻り＝[{ canonical:{x,y,z}, overscaledZ, wrap:0, key }]
+map.coveringTiles = (o = {}) => {
+	const tileSize = o.tileSize || 512, W = size.w / dpr, H = size.h / dpr, pts = [];
+	const zf = mlZoomOf(tileSize, !!o.roundZoom);
+	const zAt = (lon, lat) => { if (!zf) return Math.floor(cam.zoom + Math.log2(512 / tileSize)); if (zf.key?.startsWith("c")) return zf(); const z0 = Math.max(0, Math.floor(cam.zoom - (ML_COVER?.dz || 0) + Math.log2(512 / tileSize))); const [x, y] = tileOfLL(lon, lat, z0); return zf(z0, x, y); };
+	for (let j = 0; j <= 20; j++) for (let i = 0; i <= 32; i++) { const ll = unprojectXY(W * i / 32, H * j / 20); pts.push(ll ? [ll.lng ?? ll[0], ll.lat ?? ll[1]] : null); }
+	return tilesFromPoints(pts, zAt, { minzoom: o.minzoom ?? 0, maxzoom: o.maxzoom ?? 25 });
+};
+const tileOfLL = (lon, lat, z) => { const n = 2 ** z, la = Math.max(-85.05, Math.min(85.05, lat)) * D2R; return [Math.floor(((lon + 180) / 360 % 1 + 1) % 1 * n), Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)]; };
+map.setSourceTileLodParams = (maxZoomLevelsOnScreen, tileCountMaxMinimum) => {   // MapLibre 同名＝タイルの z の規則の 2 定数（mlcover.js の maxLevels・maxMinRatio）。内製の目盛り（ML_COVER 無し）では効かない
+	if (ML_COVER) { if (Number.isFinite(+maxZoomLevelsOnScreen)) ML_COVER.maxLevels = +maxZoomLevelsOnScreen; if (Number.isFinite(+tileCountMaxMinimum)) ML_COVER.maxMinRatio = +tileCountMaxMinimum; needsDraw = true; onMove(); }
+	return map;
+};
+map.setCameraUpdate = fn => { camUpdateFn = typeof fn === "function" ? fn : null; onMove(); return map; };   // MapLibre の setTransformCameraUpdate＝制約の後に {center, zoom, pitch, bearing, roll, elevation} を書き換える。zoom は内製の目盛り（cam.zoom）＝shim が MapLibre の目盛りに往復する
+map.setMinPitch = deg => { minPitchCur = Math.max(0, Math.min(maxPitchCur, (+deg || 0) * D2R)); if (cam.pitch < minPitchCur) { flightCtl.cancel(); cam.pitch = minPitchCur; onMove(); } return map; };   // 度（MapLibre の口と同じ・setMaxPitch の rad とは違う＝新しい口は度で揃える）
+map.getMinPitch = () => minPitchCur * R2D;
+map.setPixelRatio = r => { r = Math.max(0.5, Math.min(4, +r || 1)); if (r === dpr) return map; dpr = r; cam.dpr = r; resize(); return map; };   // 描く解像度（CSS px あたりの画素）。星空劇場・overlay の内部の dpr は起動時の値のまま
+map.getPixelRatio = () => dpr;
+map.setRepaint = on => { repaintAlways = !!on; if (on) needsDraw = true; return map; };   // 連続描画（計測用）
+map.getRepaint = () => repaintAlways;
+// debug の表示（MapLibre の showTileBoundaries・showPadding）＝main の canvas2D 1 枚（#labels の上・操作は通す）
+let dbgCanvas = null;
+const dbgCtx = () => { if (!dbgCanvas) { dbgCanvas = document.createElement("canvas"); dbgCanvas.id = "debug"; Object.assign(dbgCanvas.style, { position: "absolute", inset: "0", width: "100%", height: "100%", pointerEvents: "none" }); labelCanvas.insertAdjacentElement("afterend", dbgCanvas); } if (dbgCanvas.width !== size.w || dbgCanvas.height !== size.h) { dbgCanvas.width = size.w; dbgCanvas.height = size.h; } return dbgCanvas.getContext("2d"); };
+function drawDebug() {
+	const g = dbgCtx(); g.setTransform(dpr, 0, 0, dpr, 0, 0); g.clearRect(0, 0, size.w, size.h);
+	if (dbgState.tileBoundaries) {
+		const P = makeProjector(); g.lineWidth = 1; g.strokeStyle = "rgba(255,0,0,.8)"; g.fillStyle = "rgba(255,0,0,.9)"; g.font = "11px system-ui, sans-serif";
+		for (const o of (lastCoverOrder && lastCoverOrder.length ? lastCoverOrder : map.coveringTiles())) {   // 基図が無い（空の style）時は coveringTiles の近似で引く
+			const m = /^(\d+)\/(\d+)\/(\d+)$/.exec(o.key); if (!m) continue;
+			const z = +m[1], x = +m[2], y = +m[3], n = 2 ** z, lonOf = i => x / n * 360 - 180 + i * 360 / n, latOf = j => Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + j) / n))) * R2D;
+			const ring = []; for (let k = 0; k <= 8; k++) ring.push([lonOf(k / 8), latOf(0)]); for (let k = 1; k <= 8; k++) ring.push([lonOf(1), latOf(k / 8)]); for (let k = 7; k >= 0; k--) ring.push([lonOf(k / 8), latOf(1)]); for (let k = 7; k >= 1; k--) ring.push([lonOf(0), latOf(k / 8)]);
+			const pts = ring.map(([lo, la]) => P(lo, la)); if (pts.some(p => !(p[2] > 0) || !Number.isFinite(p[0]))) continue;
+			g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(p[0], p[1]) : g.moveTo(p[0], p[1]))); g.closePath(); g.stroke();
+			const c = P(lonOf(0.5), latOf(0.5)); if (c[2] > 0) g.fillText(o.key, c[0] + 3, c[1] - 3);
+		}
+	}
+	if (dbgState.padding) { const p = camPadding, W = size.w / dpr, H = size.h / dpr; g.fillStyle = "rgba(0,120,255,.18)"; g.fillRect(0, 0, W, p.top); g.fillRect(0, H - p.bottom, W, p.bottom); g.fillRect(0, p.top, p.left, H - p.top - p.bottom); g.fillRect(W - p.right, p.top, p.right, H - p.top - p.bottom); g.strokeStyle = "rgba(0,120,255,.9)"; g.lineWidth = 1; g.strokeRect(p.left + .5, p.top + .5, W - p.left - p.right - 1, H - p.top - p.bottom - 1); }
+}
+map.setDebug = (o = {}) => { for (const k of ["tileBoundaries", "padding"]) if (k in o) dbgState[k] = !!o[k]; if (!dbgState.tileBoundaries && !dbgState.padding) { if (dbgCanvas) dbgCtx().clearRect(0, 0, size.w, size.h); } else needsDraw = true; return map; };
+map.getDebug = () => ({ ...dbgState });
 map.setClearColor = c => { clear = clearOf(c) ?? (ML_COVER ? [0, 0, 0, 0] : [0.03, 0.04, 0.07, 1]); renderer.set("view", { clear }); needsDraw = true; return map; };
 map.setMaxBounds = b => {
 	if (b == null) camBounds = null;
@@ -4862,7 +4956,7 @@ map.getStyle = () => {
 	// 並べ方＝styleOrder（getStyle と #123 の差し込みが共有）
 	const list = styleOrder().map(e => e.base ? baseEcho(e.base) : e.v ? userEcho(e.v) : e.auto ? autoBldLayer() : echoOther(e.other));
 	return {
-		version: 8, ...(EXT ? { name: EXT.ms.name, sprite: EXT.ms.sprite, glyphs: EXT.ms.glyphs } : {}),
+		version: 8, ...(EXT ? { name: EXT.ms.name } : {}), ...(spriteEcho(spriteList) !== undefined ? { sprite: spriteEcho(spriteList) } : {}), ...(mlGlyphs ? { glyphs: mlGlyphs } : {}),   // sprite/glyphs＝setSprite/addSprite/removeSprite/setGlyphs の後の値（B6）
 		...(EXT ? Object.fromEntries(["center", "zoom", "bearing", "pitch"].filter(k => EXT.ms[k] != null).map(k => [k, EXT.ms[k]])) : {}),   // style の根の視点（MapLibre の getStyle と同じ・style.json の目盛り＝MapLibre の z）
 		...(EXT?.ms?.transition ? { transition: EXT.ms.transition } : {}),   // style の根の transition（B1）
 		...(mlLight ? { light: normLight(mlLight) } : {}),   // style の根の light（B3）＝setLight した物も
@@ -4908,7 +5002,7 @@ const mountExtExtrasRaw = async ext => {
 	if (ms.sprite && ms.layers.some(L => L.type === "symbol" && L.layout?.["icon-image"] != null)) {   // どの経路の symbol 層でも（geojson・基図・vector source＝段 3）記号を使うなら sprite を読む（旧＝geojson の層だけ）
 		// 複数の sprite（MapLibre v4）＝[{ id, url }]・default 以外は "id:名前"（段 6・旧＝最初の 1 本だけ）
 		const list = Array.isArray(ms.sprite) ? ms.sprite : [{ id: "default", url: ms.sprite }];
-		await Promise.all(list.filter(e => e?.url).map(e => map.loadSprite(new URL(e.url, ext.baseUrl).href, e.id && e.id !== "default" ? e.id + ":" : "").catch(err => console.warn("[style] sprite", e.id, err))));
+		await Promise.all(list.filter(e => e?.url).map(e => spriteLoad(e.id ?? "default", new URL(e.url, ext.baseUrl).href).catch(err => console.warn("[style] sprite", e.id, err))));
 	}
 	// vector source の fill-extrusion（段 8①）＝利用者の層の口（dz 1）。基図と同じ source はその名前のまま（srcOf が基図の記述子を返す）・別の vector source は source を足す（相対 URL は style の置き場から）
 	for (const L of ms.layers.filter(L => vtRouted(L, ms, ext.split.vectorSource))) {   // ＋2 本目以降の vector source の描く層・基図の source の circle（段 8⑤）
@@ -5030,6 +5124,7 @@ map.setStyle = async (spec, o = {}) => {
 	EXT = nx;
 	mlLight = nx.ms.light ? normLight(nx.ms.light) : null; sendLight();   // 新しい style の根の light（B3）
 	mlSky = nx.ms.sky ? normSky(nx.ms.sky) : null; sendSky();   // 新しい style の根の sky（B4）
+	for (const id of [...spriteNames.keys()]) spriteDrop(id); spriteList = normSprite(nx.ms.sprite); mlGlyphs = nx.ms.glyphs ?? null;   // 新しい style の sprite/glyphs（B6）＝前の sprite の記号は消す
 	Object.assign(BASE_SOURCE, extSourceFields(nx));
 	if (BASE_SOURCE.kind === "pmtiles") {
 		const info = await pmtilesInfo(BASE_SOURCE.url).catch(err => { console.warn("[style] cannot read PMTiles", err); return null; });

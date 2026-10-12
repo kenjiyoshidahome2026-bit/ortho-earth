@@ -115,5 +115,16 @@ console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 	ok("球の既定＝tile (128, 32)", GRANULARITY_GLOBE.tile.getGranularityForZoomLevel(1) === 64 && GRANULARITY_GLOBE.circle === 3);
 	ok("min > base は投げる", throws(() => new SubdivisionGranularityExpression(1, 2)));
 }
+// ── stub の一覧（B6・2026-10-12）＝ML_METHODS にあって class Map に無い口は Proxy が unsupported を記録して何もしない。残る stub はここに列挙＝増えたら気づく（計画の付録 B の照合）
+{
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.js"), "utf8");
+	const ml = JSON.parse(src.match(/const ML_METHODS = new Set\((\[.*?\])\);/s)[1]);
+	const cls = src.slice(src.indexOf("export class Map"), src.indexOf("\n}\n", src.indexOf("export class Map")));
+	const defined = new Set([...cls.matchAll(/^\t(?:get |set |async )?([A-Za-z_]\w*)\s*\(/gm)].map(m => m[1]));
+	const stubs = ml.filter(m => !defined.has(m)).sort();
+	ok("shim の stub は calculateAnchoredCameraOptions だけ（増えたらここを更新＝台帳 §3 に行を足す）", JSON.stringify(stubs) === JSON.stringify(["calculateAnchoredCameraOptions"]), stubs.join(" "));
+	const acc = ["showTileBoundaries", "showPadding", "showCollisionBoxes", "showOverdrawInspector", "vertices", "repaint"];
+	ok("property の口が accessor（get/set）", acc.every(k => cls.includes(`\tget ${k}()`) && cls.includes(`\tset ${k}(`)));
+}
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 process.exit(fail ? 1 : 0);
