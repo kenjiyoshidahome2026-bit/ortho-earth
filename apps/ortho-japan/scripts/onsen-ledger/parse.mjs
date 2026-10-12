@@ -67,7 +67,9 @@ const DIST_RE = /(?:約|およそ|延長約?)?\s*(\d+(?:\.\d+)?)\s*(km|㎞|キ�
 const toMeters = m => m ? Math.round(+m[1] * (/^(km|㎞|キロ)/.test(m[2]) ? 1000 : 1)) : undefined;
 export function sourceInfo(text, title = "") {
   const r = {};
-  const body = text.replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/g, "").replace(/<!--[\s\S]*?-->/g, "");
+  let body = text.replace(/<ref[^>]*>[\s\S]*?<\/ref>|<ref[^>]*\/>/g, ""), prev;
+  do { prev = body; body = body.replace(/<!--[\s\S]*?-->/g, ""); } while (body !== prev);
+  body = body.replace(/<!--|-->/g, "");   // 入れ子・閉じていない註釈の残りも消す
   const core = title.replace(/ \(.*\)$/, "").replace(/温泉郷?$/, "");
   for (const raw of body.split(/[。\n]/)) {
     const s = raw.trim(); if (!s) continue;
