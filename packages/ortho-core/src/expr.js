@@ -42,7 +42,7 @@ const makeCollator = o => {
 	const col = new Intl.Collator(loc, { sensitivity: cs && ds ? "variant" : cs ? "case" : ds ? "accent" : "base", usage: "search" });
 	return { compare: (a, b) => col.compare(String(a), String(b)), resolvedLocale: () => col.resolvedOptions().locale, isCollator: true };
 };
-// semiliteral（C2・spec 26.x）＝literal の配列／object だが、中の式（先頭が演算子の文字列の配列）だけは評価する。※本物の文面は未照合＝推定の意味（compat.md §4）
+// semiliteral（C2・spec 26.4.4 の definitions/semiliteral.ts と照合済み）＝引数が配列なら各要素を式として評価して配列を返し、配列でなければ literal と同じ。要素のうち「先頭が演算子の文字列の配列」だけ式として評価する（素の値は literal として通す）。本物は配列でない引数を literal に落とすだけ＝object の中は見ないが、ここは中も見る＝spec 内の入力では同じ答え（compat.md §4）
 const semiEval = (v, ctx, o) => Array.isArray(v) ? (typeof v[0] === "string" && KNOWN_OPS.has(v[0]) ? compile(v, o)(ctx) : v.map(x => semiEval(x, ctx, o))) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, semiEval(x, ctx, o)])) : v;
 
 // 色の補間（interpolate の出力が色文字列の時・#33）＝rgba の各成分を線形に。出力は "rgba(r,g,b,a)"（parseRGBA が読む形）
