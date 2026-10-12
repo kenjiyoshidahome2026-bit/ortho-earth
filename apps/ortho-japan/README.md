@@ -89,6 +89,7 @@ for language / boot cover / visible startup failure, and the common gadgets `zoo
 | Page | URL | Code | Languages |
 |---|---|---|---|
 | National Parks of Japan | `/japan/parks` (`?p=<id>`) | `parks.html` + `parks.js`, catalogue `public/parks.json` | 26 (language `<select>` in the panel) |
+| Hot springs of Japan | `/japan/onsen` (`?o=<id>`) | `onsen.html` + `onsen.js`, catalogue `public/onsen.json` (built by `scripts/onsen-ledger`) | 26 (language `<select>` in the panel) |
 | Landmarks in GLB | `/japan/models` (`?m=<id>`) | `models.html` + `models.js`, catalogue `public/models.json` | 26 |
 | Fireworks over Sumida | `/japan/fireworks` | `fireworks.html` + `fireworks.js` / `fireworks-gl.js` | 26 |
 | Scenes editor | `/japan/scene` | `scene.html` + `demo/editor.js` (desktop only) | 26 (UI), ja/en tab title |
@@ -97,7 +98,7 @@ for language / boot cover / visible startup failure, and the common gadgets `zoo
 | census2020 | `/japan/census2020/` | `apps/census2020` (own app, same engine) | ja |
 
 Browser checks: `verify:ui` covers `t-fireworks` and `t-scene`; `verify:prod` boots `/japan/`, `/japan/scene` and `/japan/geoedit?verify=1`.
-parks, models and tellus are checked statically only (head contract) — open them on a real GPU after changing them.
+parks, onsen, models and tellus are checked statically only (head contract) — open them on a real GPU after changing them.
 
 ## Promises to the host page
 
