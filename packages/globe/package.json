@@ -34,6 +34,9 @@
 		"native-bucket": "^1.0.0"
 	},
 	"devDependencies": {
+		"@deck.gl/core": "^9.4.0",
+		"@deck.gl/layers": "^9.4.0",
+		"@deck.gl/mapbox": "^9.4.0",
 		"@ortho-earth/tile-formats": "*",
 		"quiet-mono": "^1.0.0",
 		"sass": "^1.93.0",
