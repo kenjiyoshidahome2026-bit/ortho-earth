@@ -276,6 +276,11 @@ precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
 uniform float u_cullBack;   // 1=裏面discard（建物＝閉じた体積）、0=両面（橋梁＝ケーブル/柵の開いた薄面。dedupで片面化済みのため）
+uniform vec3  u_eye;        // カメラ位置（接地の局所系＝画素の動径を出す・light 用）
+uniform float u_lightOn;    // style の light（MapLibre・B3 2026-10-12）：1＝u_lightDir（東・北・上の単位ベクトル）・u_lightI（強さ）・u_lightColor で陰影。0＝従来の固定光（ビット同一）
+uniform vec3  u_lightDir;
+uniform float u_lightI;
+uniform vec3  u_lightColor;
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
@@ -296,7 +301,13 @@ void main() {
 	if (u_cullBack > 0.5 && fe < -0.02) discard;
 	if (fe < 0.0) n = -n;                                         // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
-	float d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);         // 基図建物の屋根1.0/壁0.76に合わせる（up向き屋根→~1.0、垂直壁→~0.76）
+	vec3 d = vec3(clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0));    // 基図建物の屋根1.0/壁0.76に合わせる（up向き屋根→~1.0、垂直壁→~0.76）
+	if (u_lightOn > 0.5) {   // style の light＝接地の局所系（上＝画素の動径・東・北）で向きを写し、MapLibre の式 mix(1−強さ, 1, max(dot, 0))×色
+		vec3 up = normalize(u_eye - v_toEye); vec3 e0 = cross(vec3(0.0, 1.0, 0.0), up);
+		vec3 east = dot(e0, e0) < 1e-12 ? vec3(1.0, 0.0, 0.0) : normalize(e0); vec3 north = cross(up, east);
+		vec3 Ls = normalize(east * u_lightDir.x + north * u_lightDir.y + up * u_lightDir.z);
+		d = u_lightColor * mix(1.0 - u_lightI, 1.0, clamp(dot(n, Ls), 0.0, 1.0));
+	}
 	vec3 c = mix(u_bldColor * d, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;

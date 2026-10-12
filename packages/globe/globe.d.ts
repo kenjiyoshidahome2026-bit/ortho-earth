@@ -10,6 +10,8 @@ export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
 /** 画面の縁から中身を寄せる余白（CSS px）＝UI パネルに隠れる分（#35） */
 export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
+/** style の light（MapLibre 同名・1.16.0〜）。position＝[r, 方位（0＝anchor:"map" なら北・"viewport" なら画面の上・時計回り）, 天頂からの角]（度） */
+export interface LightSpecification { anchor?: "map" | "viewport"; color?: string; intensity?: number; position?: [number, number, number] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
 export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
@@ -683,6 +685,10 @@ export interface OrthoJapanMap {
 	/** 縦の視野角（度・MapLibre 同名・1.16.0〜）。既定 50（MapLibre は 36.87）。同じ zoom で地表の縮尺は変わらずカメラの距離が変わる */
 	getVerticalFieldOfView(): number;
 	setVerticalFieldOfView(deg: number): OrthoJapanMap;
+	/** style の light（MapLibre 同名・1.16.0〜）＝押し出し・glTF・LOD2 の陰影の向き・強さ・色（WebGL2。WebGPU は局所系の固定光のまま）。null＝従来の固定光に戻す。style の根の light は起動と setStyle で読む */
+	setLight(light: LightSpecification | null): OrthoJapanMap;
+	/** 今の light（既定を補った物） */
+	getLight(): Required<LightSpecification>;
 	/** 的を注視点に（A4・1.16.0〜）。duration>0 なら easeTo。的が無い（軌跡の範囲外・不明な id）なら何もしない。高さのある的は注視点の高さを的に合わせる（centerClampedToGround が false になる） */
 	lookAt(target: CameraTarget, options?: LookAtOptions): Promise<void>;
 	/** 毎フレーム的を追う（衛星・車両・CZML の時刻つき点・1.16.0〜）。省いた角・zoom は今の値のまま＝追従中の setZoom や回転が効く。null で止める。flyTo 中は的を待つ */
