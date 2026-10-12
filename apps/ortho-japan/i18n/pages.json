@@ -16,6 +16,9 @@
 		],
 		"terrain": [
 			"terrain.js"
+		],
+		"onsen": [
+			"onsen.js"
 		]
 	}
 }
