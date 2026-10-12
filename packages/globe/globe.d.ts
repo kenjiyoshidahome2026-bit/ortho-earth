@@ -180,6 +180,8 @@ export interface OrthoJapanOptions {
 	/** 大きさの門を越えた後の振り分け（#90）。true＝列チャンク層・false＝gint。省略＝「弧の共有が多い塗り分け（meta.share.ratio ≥ 0.3 かつ 1 地物 40 頂点以上・64MB 以下）は gint」
 	 *  meta.share＝読み手が先頭チャンクを標本に測る { ratio（別の地物に既に出た頂点の割合）, meanVertices, features, vertices } */
 	columnarRule?: (meta: ColumnarLayerHandle["meta"], bytes: number) => boolean;
+	/** 起動時に map.use する plugin（PR-F0・2026-10-12）。[plugin] か [plugin, opts] の並び。地域パックの後・load の前に、素の map を渡して install */
+	plugins?: (OrthoPlugin<any> | Readonly<OrthoPlugin<any>> | [OrthoPlugin<any> | Readonly<OrthoPlugin<any>>, unknown])[];
 }
 
 /** addColumnar の層オプション（1.4.0〜・#90） */
@@ -637,6 +639,60 @@ export interface LayerPressEvent extends LayerMouseEvent { defaultPrevented: boo
 /** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
 export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
+// ---- plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 maplibre-compat.md §9「拡張点の台帳」）----
+/** 拡張の形は 1 つ：definePlugin({ name, install(map, opts), uninstall? })。install は**同期**（非同期の仕事は中で始める）・返した関数は撤去の時に呼ぶ（uninstall が無い時）。
+ *  install が受ける map は**素の map**（zoomScale の旗つきでも外側の顔ではない＝地域パックと同じ・エンジンの z）。registry への登録は install 中にすると撤去で自動的に外れる */
+export interface OrthoPlugin<O = Record<string, unknown>> {
+	/** 一意の名前（英数・-・_・. ）。map.use は同名の二重搭載を投げる */
+	name: string;
+	version?: string | null;
+	/** 担う能力の鍵（capabilities の鍵・申告だけ） */
+	provides?: string[];
+	install(map: OrthoJapanMap, opts: O): void | (() => void);
+	uninstall?(map: OrthoJapanMap): void;
+}
+export function definePlugin<O = Record<string, unknown>>(spec: OrthoPlugin<O>): Readonly<OrthoPlugin<O>>;
+/** 名前→実装の表。builtin（この版が持つ物）は上書き・撤去できない。wired=false の表（lights・postEffects・textureTranscoders）は登録を受けて保つだけ＝絵はまだ変わらない（pending の PR で結線） */
+export interface PluginRegistry<T> {
+	readonly kind: string;
+	/** true＝登録が効く。false＝受けて保つだけ（capabilities の答えは "spec"） */
+	readonly wired: boolean;
+	/** wired=false の時、結線する PR の名（"PR-F1" など） */
+	readonly pending: string;
+	add(name: string, impl: T): this;
+	remove(name: string): boolean;
+	get(name: string): T | undefined;
+	has(name: string): boolean;
+	isBuiltin(name: string): boolean;
+	/** 登録した plugin の名（builtin・直接の add は null） */
+	ownerOf(name: string): string | null;
+	names(): string[];
+}
+/** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin） */
+export interface DataKindImpl { create(map: OrthoJapanMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }
+/** タイル形式（core の registerTileFormat と同じ形・process-wide＝撤去できない） */
+export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: Uint8Array, need: unknown) => unknown; load?: () => Promise<(bytes: Uint8Array, need: unknown) => unknown> }
+export interface MapRegistry {
+	/** map.addData の kind（結線済み） */
+	readonly dataKinds: PluginRegistry<DataKindImpl>;
+	/** map.gadget と同じ（add＝map.gadget(name, fn)・結線済み・builtin の名は実行時の map.gadget の鍵） */
+	readonly gadgets: PluginRegistry<(this: OrthoJapanMap, ...args: any[]) => unknown>;
+	/** core の registerTileFormat（結線済み） */
+	readonly tileFormats: PluginRegistry<TileFormatImpl>;
+	/** 光源の種類（PR-F1 で結線・今は受けて保つだけ） */
+	readonly lights: PluginRegistry<unknown>;
+	/** 後処理の効果（PR-F3 で結線・今は受けて保つだけ） */
+	readonly postEffects: PluginRegistry<unknown>;
+	/** テクスチャの変換器（KTX2 など・PR-F4 で結線・今は受けて保つだけ） */
+	readonly textureTranscoders: PluginRegistry<unknown>;
+}
+/** "builtin"＝今の版で絵が出る・"plugin"＝搭載した plugin が担う・"spec"＝口は受けて保つが絵は変わらない・"no"＝口も無い（note に後の PR）・"never"＝作らない（Mercator） */
+export type CapabilityStatus = "builtin" | "plugin" | "spec" | "no" | "never";
+export interface Capability { status: CapabilityStatus; via?: string | null; note?: string }
+/** 鍵の例："projection.globe"・"projection.mercator"（never）・"camera.roll"・"light.directional"・"light.point"・"sky"・"post.bloom"・"post.ssr"・"data.points"・"data.<plugin の kind>"・
+ *  "gadget.<名>"・"tiles.<形式>"・"tiles3d.requestTransform"・"terrain.sample"・"camera.walk"・"gltf.animation"・"texture.ktx2"・"render.webgpu"・"pointcloud.laz"・"react"・"types.shim" */
+export type CapabilityKey = string;
+
 /** map.setPostProcess の引数。true＝既定値。bloom: threshold＝滲む輝度の下限（0〜1・既定 0.75）・strength＝足す量（既定 0.5）・radius＝ぼかし半径の倍率（既定 1）。vignette: strength＝四隅の暗さ（既定 0.5）・radius＝暗くなり始める距離（中心 0〜角 1・既定 0.8）・softness＝移り変わりの幅（既定 0.5）。 */
 export interface PostProcessOptions {
 	bloom?: true | { threshold?: number; strength?: number; radius?: number };
@@ -1043,6 +1099,18 @@ export interface OrthoJapanMap {
 	setPostProcess(p: PostProcessOptions | null): this;
 	/** 正規化済みの後処理の設定（off なら null）。 */
 	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null } | null;
+	// ---- plugin 契約・registry・capabilities（第 2 波 PR-F0・2026-10-12）----
+	/** plugin を搭載（同期）。同名は投げる。install が投げたら、その install 中の registry への登録は巻き戻す。opts.plugins で起動時にも */
+	use<O>(plugin: OrthoPlugin<O> | Readonly<OrthoPlugin<O>>, opts?: O): this;
+	/** 撤去（uninstall か install の返した関数を呼び、その plugin の registry の登録を外す）。無ければ false */
+	unuse(name: string | OrthoPlugin): boolean;
+	/** 搭載中の plugin */
+	plugins(): { name: string; version: string | null; provides: string[] }[];
+	readonly registry: MapRegistry;
+	/** 鍵の能力が**今この地図で絵になる**か（"builtin" か "plugin" の時だけ true。"spec"・"no"・"never" は false） */
+	supports(key: CapabilityKey): boolean;
+	/** 鍵ごとの正直な答え（台帳 §9「拡張点の台帳」の実行時の写し）。render.webgpu は実際のバックエンド・data.*／gadget.*／tiles.* は registry の今 */
+	capabilities(): Record<CapabilityKey, Capability>;
 	requestSnapshot(): Promise<{ W: number; H: number; render: { base: ArrayBuffer | null; w: number; h: number; labels: ArrayBuffer | null; lw: number; lh: number; flip: boolean } }>;
 
 	// ---- gint 多層（addGint＝追加・層ごとのハンドル・両バックエンド）----
