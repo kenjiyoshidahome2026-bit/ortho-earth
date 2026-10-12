@@ -735,6 +735,7 @@ renderWorker.onmessage = e => {
 	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
+	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { (dbgHost.__overlay ??= {})[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
@@ -2564,6 +2565,8 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
 // モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
+const pickWait = new Map();   // seq → resolve（統一 picking の往復・下の map.pickOverlays）
+let pickSeq = 0;
 map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 	name ??= "ov" + (overlays.size + 1);
 	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
@@ -2578,10 +2581,24 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 		name, el: cv, onmessage: null,   // onmessage＝worker 側モジュールの host.post(data) を受ける口
 		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
 		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); wPost({ type: "overlayRemove", name }); cv.remove(); },
+		pick: (x, y, radius) => map.pickOverlays(x, y, { radius, names: [name] }),   // このオーバーレイだけに当てる（統一 picking・PR-1）
 	};
 	overlays.set(name, h);
 	return h;
 };
+// 統一 picking（deck.gl の onHover/onClick（object が返る）相当・deck.gl 差分 PR-1・2026-10-11）：
+//   map.pickOverlays(x, y, { radius=6, names })→Promise<[{ name, id, distance, lngLat, properties, … }]>（x, y, radius＝CSS px・手前のオーバーレイから）
+//   モジュールが pick(x, y, r, ctx) を持つ物だけ答える（points-gl・czml-draw・columnar の draw-gl…）。ctx＝render worker が最後に描いたフレームの cam＝描いた絵と同じ位置で当たる。
+//   層イベント（map.on("click"|"mousemove"|…, overlayName, cb)）と queryRenderedFeatures({ layers:[overlayName] }) にもこの答えが Feature の形（layer.id＝名前・source＝名前）で混ざる
+const overlayOrder = () => [...mapEl.querySelectorAll("canvas.overlay-gl")].reverse().map(c => c.dataset.overlay).filter(n => overlays.has(n));   // DOM の後ろ＝上＝手前から
+map.pickOverlays = (x, y, { radius = 6, names } = {}) => new Promise(res => {
+	const list = (names ?? overlayOrder()).filter(n => overlays.has(n));
+	if (!list.length) return res([]);
+	const seq = ++pickSeq, tm = setTimeout(() => { pickWait.delete(seq); res([]); }, 3000);
+	pickWait.set(seq, hits => { clearTimeout(tm); res(hits); });
+	wPost({ type: "overlayPick", seq, x, y, r: radius, names: list });
+});
+const overlayFeature = h => ({ type: "Feature", id: h.id ?? null, geometry: h.lngLat ? { type: "Point", coordinates: h.lngLat } : null, properties: h.properties || {}, layer: { id: h.name, type: "overlay" }, source: h.name, overlay: { name: h.name, distance: h.distance, q: h.q, index: h.index } });
 // ★互換：map.overlay は 9/20（c246591a）まで「estat 小地域・geopbf オーバーレイ・選択マスク・identify の手綱」（上の overlay）だった。
 // 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
@@ -4909,7 +4926,11 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 {
 	const qRF0 = map.queryRenderedFeatures;
 	map.queryRenderedFeatures = async (geometry, qo) => {
-		const r = await qRF0(geometry, qo);
+		// layers にオーバーレイの名前（map.overlay の name）があれば統一 picking（PR-1）の答えを先頭に混ぜる（点の問い合わせだけ・箱は当てない）
+		const ovNames = Array.isArray(qo?.layers) ? qo.layers.filter(n => overlays.has(n)) : [];
+		const ovHits = ovNames.length && Array.isArray(geometry) && typeof geometry[0] === "number" ? map.pickOverlays(geometry[0], geometry[1], { names: ovNames }) : null;
+		const r0 = ovNames.length ? (qo.layers.length === ovNames.length ? [] : await qRF0(geometry, { ...qo, layers: qo.layers.filter(n => !overlays.has(n)) })) : await qRF0(geometry, qo);
+		const r = ovHits ? [...(await ovHits).map(overlayFeature), ...r0] : r0;
 		if (!clipMain) return r;   // 地面の地物＝vector の面（押し出しは extrudeHits が models の面で外す）
 		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
 		return r.filter(f => f.layer?.type === "fill-extrusion" || (!ptCut && !clipAllCut(f.geometry)));
@@ -4921,7 +4942,11 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 const layerEvs = [];   // { ev, ids:Set, cb, inside }
 const onPlain = map.on, offPlain = map.off;
 const lngLatObj = ll => ll ? { lng: ll[0], lat: ll[1] } : null;
-const hitsFor = async (x, y, ids) => { const fs = await map.queryRenderedFeatures([x, y], { layers: [...ids] }); return fs; };
+const hitsFor = async (x, y, ids) => {   // 層 id のうちオーバーレイの名前は統一 picking（PR-1）へ・それ以外は queryRenderedFeatures へ＝一つの列（オーバーレイは手前＝先）
+	const ov = [...ids].filter(i => overlays.has(i)), rest = [...ids].filter(i => !overlays.has(i));
+	const [fs, hits] = await Promise.all([rest.length ? map.queryRenderedFeatures([x, y], { layers: rest }) : [], ov.length ? map.pickOverlays(x, y, { names: ov }) : []]);
+	return [...hits.map(overlayFeature), ...fs];
+};
 let downAt = null, hovSeq = 0, hovRaf = 0, hovLast = null;
 canvas.addEventListener("pointerdown", e => { downAt = evXY(e); }, { signal: ac.signal });
 canvas.addEventListener("click", async e => {

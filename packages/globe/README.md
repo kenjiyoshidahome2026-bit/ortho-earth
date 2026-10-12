@@ -26,6 +26,9 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
 - **Terrain**: built-in elevation, or your own `raster-dem` source (`map.setTerrain`)
 - **Analysis**: sun shadow / shadow-hours, viewshed, line of sight, profiles, measurement
 - **DOM**: `new Marker().setLngLat([lon, lat]).addTo(map)`, `Popup`, `addProtocol`, `transformRequest`
+- **Overlays**: `map.overlay(url)` draws in the render worker's frame (same camera, scene depth on request); overlays that export
+  `pick(x, y, r, ctx)` answer `map.pickOverlays(x, y)`, `map.on("click" | "mousemove", overlayName, cb)` and
+  `queryRenderedFeatures({ layers: [overlayName] })` like any layer (GPU id pass for points, geometry for canvas overlays)
 - **Regions**: pass `opts.region` to add a country pack (basemap, elevation, buildings, search…).
   Without it you get the world: Natural Earth 10m, global hypsometry, lakes, rivers, maritime
   boundaries, stars — honest up to about z8, which is what world data can carry.
