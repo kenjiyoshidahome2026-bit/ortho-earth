@@ -63,6 +63,12 @@
 | ダブルクリック／ダブルタップのズーム・キーボード +/−・zoomSnap | 無い | A2 | **済**（dblclick＝z+1・shift で z−1・カーソル下を固定・300ms。+/−＝マウス位置か画面中心。`setZoomSnap`／`getZoomSnap`） |
 | ボックスズーム（shift＋ドラッグ）・boxzoomstart/boxzoomend/boxzoomcancel | 無い（shift＋ドラッグはチルトだった） | A2 | **済**（矩形 `.ortho-boxzoom` → 四隅と辺の中点を逆投影 → fitBounds(linear 500ms)・boxzoomend の `boxZoomBounds`。空を囲んだら cancel） |
 | cooperativeGestures | 記録だけ | A2 | **済**（修飾キー無しのホイール・1 本指は頁へ譲り `cooperativegestureprevented`（gestureType wheel_zoom／touch_pan）・MapLibre と同じ文の案内を 1 秒） |
+| padding＝消失点のずらし（getCenter は頼んだ中心・MapLibre の transform.padding／centerOffset） | 経緯度の中心をずらす（getCenter が頼んだ点と違う・消失点は画面の中心のまま） | A3 | **済**（2026-10-12・core cameraState の `cam.offset`＝clip の平行移動・0 はビット同値・門 core `tests/camera-offset.mjs`・t-camera ⑭） |
+| setCenterClampedToGround／getCenterClampedToGround／setCenterElevation／getCenterElevation／getCameraTargetElevation | 起動 options だけ（stub） | A3 | **済**（実行時に centerElevMode を書く・t-camera ⑰） |
+| fitScreenCoordinates | stub | A3 | **済**（2 点を逆投影 → fitBounds・facade は options.maxZoom を換算・t-camera ⑮） |
+| setTransformConstrain | stub | A3 | **済**（エンジン `map.setConstrain(fn)`＝毎移動 clamp の前に通す・MapLibre の口は fn(LngLat, zoom) → {center, zoom} と読み dz を往復・⚠ MapLibre 6.x の署名は本物と並べて未確認・t-camera ⑯） |
+| getFreeCameraOptions／setFreeCameraOptions／FreeCameraOptions（lookAtPoint・setPitchBearing）・calculateCameraOptionsFromCameraLngLatAltRotation | stub | A3 | **済**（位置＝目の経緯度と高さ（view.eye）・向き＝四元数（geo.js・往復は恒等＝門 mlshim）・set は目の位置と向きから地面の注視点と zoom へ（MapLibre の cameraToCenterDistance・fov 36.87°・例 walk-around-a-map-in-first-person の口）。⚠ 四元数の符号が MapLibre の gl-matrix と一致するかは本物と並べて未確認） |
+| calculateAnchoredCameraOptions | stub | A3 | **未**（6.x の署名を本物で確かめてから） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -73,6 +79,7 @@
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
 - チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。MapLibre の口（`@ortho-earth/globe/maplibre`）の既定は 85°（MapLibre は 60°・2026-10-12 本人裁定）。
 - shift＋左ドラッグは A2（2026-10-12）からボックスズーム（MapLibre と同じ）。チルトは右ボタン／Ctrl＋ドラッグ・2 本指の平行縦ドラッグ（従来どおり）。dragRotate を切ると右ドラッグのチルトも止まる（MapLibre の pitchWithRotate と同じ括り）。2 本指の離し際の慣性は無い（MapLibre はある）。
+- padding は A3（2026-10-12）から MapLibre と同じ意味＝注視点（getCenter）を中身の中心に写し、消失点も一緒に動く（`cam.offset`）。以前は経緯度の中心をずらしていた（getCenter が頼んだ点と違った）。`jumpTo/easeTo/flyTo({padding})` は以後の padding を書く（MapLibre と同じ）。
 - 縦の視野角の既定：エンジン 50°（MapLibre は 36.87°）＝傾けた絵の奥行きの見え方が少し違う（公式例の門は MapLibre のタイル選択を fov 36.87° で写しているので枚数は同じ）。`setVerticalFieldOfView(36.87)` で揃えられる。roll の向きは MapLibre と同じ（正＝絵が時計回り）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
@@ -234,6 +241,7 @@
 - [ ] 段 8④：hillshade（着手前に別計画）。
 - [x] **A1＝MapLibre・Navara 整合計画（`/mnt/project-files/compare/parity-plan-2026-10-12.md`）の段 A の 1**（2026-10-12・branch claude/project-thread-5hybus-a1・PR-0 #256 の上）：roll（core `camera.js` の cam.roll・`flight.js` easePlan の補間・`viewurl.js` の roll トークン・globe の setRoll/getRoll・CameraOptions.roll・事象 roll/rollstart/rollend・shim の options.roll）・setVerticalFieldOfView/getVerticalFieldOfView・shim の maxPitch 既定 85。門：core `tests/camera-roll.mjs`・`tests/mlshim.mjs`（viewOf の roll）・t-camera ⑫⑬。実 GPU：t-camera の目視（roll で注記・星空・大気の縁が追随するか＝注記は同じ mvp で写すので追随する見込み・sky の星は bearing から向きを決めている箇所があれば別途）。
 - [x] **A2＝同計画の段 A の 2**（2026-10-12・branch claude/project-thread-5hybus-a2・A1 の上）：操作の手触り＝core `input.js` に慣性（pan/rotate/pitch・MapLibre の定数）・dblclick／ダブルタップ・shift＋ドラッグのボックスズーム・キーボード +/−・handler の旗（HANDLER_NAMES 10・`setHandler/handlerOn/stop/setZoomSnap`）・cooperativeGestures・zoomSnap。globe＝opts.handlers/interactive/cooperativeGestures/zoomSnap・`map.setHandler/handlerOn/setZoomSnap/getZoomSnap`・事象 boxzoom*/cooperativegestureprevented・飛行開始と `map.stop()` で慣性を止める。shim＝handler proxy が実体・`options.scrollZoom:false` 等・`interactive:false`（記録を外した）・boxzoomend の boxZoomBounds・協調モードの案内。門：core `tests/input-inertia.mjs`・`t-handlers`（default／?v=noint・実時間）。実 GPU：慣性の手触り（マウス・トラックパッド）、Mac でダブルタップ、協調モードの案内の見え方。
+- [x] **A3＝同計画の段 A の 3**（2026-10-12・branch claude/project-thread-5hybus-a3・A2 の上）：カメラ API の残り＝core `cameraState` の `cam.offset`（padding＝消失点のずらし・MapLibre の centerOffset）→ globe の padding を経緯度のずらしから offset へ（getCenter が頼んだ点になった）・`setCenterClampedToGround/getCenterClampedToGround/setCenterElevation/getCenterElevation/getCameraTargetElevation` の実行時変更・`fitScreenCoordinates`・`setConstrain`（shim の `setTransformConstrain`）・shim の `FreeCameraOptions`（geo.js・四元数の組み立てと分解）・`getFreeCameraOptions/setFreeCameraOptions`・`calculateCameraOptionsFromCameraLngLatAltRotation`。門：core `tests/camera-offset.mjs`・`tests/mlshim.mjs`（向きの往復・lookAtPoint）・t-camera ⑭〜⑰。実 GPU：padding の消失点の見え方（傾けた絵の中心が中身の中心に来る）、例 offset-the-vanishing-point-using-padding・set-center-point-above-ground・walk-around-a-map-in-first-person・customize-the-map-transform-constrain を本物と並べて（四元数と setTransformConstrain の署名の確認）。残り：calculateAnchoredCameraOptions。
 
 ## 8. 公式例の門（2026-09-27 起票）
 

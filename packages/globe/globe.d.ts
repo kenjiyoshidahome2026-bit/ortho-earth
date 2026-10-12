@@ -625,8 +625,19 @@ export interface OrthoJapanMap {
 	fitBounds(bounds: Bbox | [LonLat, LonLat], options?: FitBoundsOptions): Promise<void>;
 	/** fitBounds が向かうカメラ（動かさない） */
 	cameraForBounds(bounds: Bbox | [LonLat, LonLat], options?: FitBoundsOptions): (Required<Pick<CameraOptions, "center" | "zoom" | "pitch" | "bearing">> & { padding: PaddingOptions }) | null;
-	/** 既定の padding（以後の jumpTo/easeTo/flyTo/fitBounds の中身の中心）。数値＝四辺同じ */
+	/** 既定の padding（以後の jumpTo/easeTo/flyTo/fitBounds の中身の中心）。数値＝四辺同じ。1.16.0〜は MapLibre と同じく注視点（getCenter）を画面の中身の中心に写し消失点も動く（以前は経緯度の中心をずらしていた＝getCenter が頼んだ点と違った） */
 	setPadding(padding: PaddingOptions | number): OrthoJapanMap;
+	/** 画面の 2 点（CSS px）が収まる所へ（MapLibre 同名・1.16.0〜）。bearing＝着地の方位。どちらかが球の外なら何もしない */
+	fitScreenCoordinates(p0: [number, number] | { x: number; y: number }, p1: [number, number] | { x: number; y: number }, bearing?: number, options?: FitBoundsOptions): Promise<void>;
+	/** 注視点の高さの実行時変更（MapLibre 同名・1.16.0〜）。true＝地形の上の中心点（opts.centerElevation:"ground"）・false＝固定値（setCenterElevation／jumpTo({elevation})） */
+	setCenterClampedToGround(clamped: boolean): OrthoJapanMap;
+	getCenterClampedToGround(): boolean;
+	setCenterElevation(meters: number): OrthoJapanMap;
+	/** 今の注視点の高さ［m］（map.cam.centerAlt） */
+	getCenterElevation(): number;
+	getCameraTargetElevation(): number;
+	/** 可動域の自作（MapLibre の setTransformConstrain 相当・1.16.0〜）。毎移動、締める前に fn を通し、返した center/zoom を採る（null＝そのまま）。角は度・zoom はこの地図の z（旗つきでも換算しない） */
+	setConstrain(fn: ((v: { center: LonLat; zoom: number; pitch: number; bearing: number; roll: number }) => { center?: LonLat | { lng: number; lat: number }; zoom?: number } | null | undefined) | null): OrthoJapanMap;
 	getPadding(): PaddingOptions;
 	/** 中心の可動域。null で解除。west>east＝±180 跨ぎ。入力・飛行・URL 復元のどれで動いても締まる */
 	setMaxBounds(bounds: Bbox | [LonLat, LonLat] | null): OrthoJapanMap;
