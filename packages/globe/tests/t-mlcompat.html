@@ -673,6 +673,11 @@ try {
 			const back = await gUntil(D.park, isBlue, 0, -3);
 			return [mix[0] > 90 && mix[0] < 200 && mix[2] > 90 && mix[2] < 200 && isBlue(back), `mix=${mix} back=${back}`];
 		});
+		await vscene("query-source-features-vector", async () => {   // querySourceFeatures（C7）＝出しているタイルの写し（main）を同期で解く。sourceLayer 必須・filter は ML の式・id は MVT の id（promoteId なし）・タイルをまたぐ地物は枚数ぶん
+			const parks = map.querySourceFeatures("omt", { sourceLayer: "landuse", filter: ["==", ["get", "class"], "park"] }), blds = map.querySourceFeatures("omt", { sourceLayer: "building" }), none = map.querySourceFeatures("omt", {});
+			const p = parks.find(f => f.properties?.name === "Park"), t = blds.find(f => f.properties?.name === "tall");
+			return [!!p && p.geometry?.type === "Polygon" && p.source === "omt" && p.sourceLayer === "landuse" && parks.every(f => f.properties?.class === "park") && t?.id === 1 && blds.length >= 6 && none.length === 0, `parks=${parks.length} blds=${blds.length} tall=${t?.id} noSourceLayer=${none.length}`];
+		});
 		await vscene("vector-line-draws", async () => {
 			await map.addLayer({ id: "vl", type: "line", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], paint: { "line-color": "#ff00ff", "line-width": 6 } });
 			await loaded("omt");
@@ -1765,6 +1770,46 @@ try {
 			map.setPaintProperty("hs", "resampling", "linear");
 			const o2 = map.raster.list().find(r => r.id === "hs")?.opts;
 			return [o1.resampling === "nearest" && o2?.resampling === "linear", `mount=${o1.resampling} set=${o2?.resampling}`];
+		});
+	} else if (G === "query") {
+		// ── MapLibre の口（通訳・@ortho-earth/globe/maplibre）の同期の問い合わせ（C7・2026-10-12・本人裁定「直近の描画の索引で近似」）：初回は []・裏の答えが着けば同じ所（8px）・同じ視点の
+		//    次の呼び出しで返る・層で絞る物は先回り（全層）の答えから同期に・視点が変われば []・querySourceFeatures（vector）は同期 ──
+		const ml = await import("@ortho-earth/globe/maplibre");
+		const FX = new URL("./fixtures/mlcompat/", location.href).href;
+		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner;
+		const style = { version: 8, sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 } }, layers: [
+			{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+			{ id: "park", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } },
+			{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"] } } ] };
+		const map = new ml.Map({ container: "map", style, center: C, zoom: 15.5, pitch: 0 });
+		await Promise.race([new Promise(r => map.once("load", r)), sleep(30000)]);
+		const srcLoaded = async (ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (map.isSourceLoaded("omt")) return true; await sleep(200); } return false; };
+		await srcLoaded(); await sleep(3000);
+		const pt = () => map.project(bOf("tall").center), names = fs => fs.map(f => `${f.layer?.id}/${f.properties?.name}`).join(",");
+		await scene("sync-qrf-first-then-filled", async () => {
+			const first = map.queryRenderedFeatures(pt());
+			let later = []; for (let k = 0; k < 12 && !later.some(f => f.layer?.id === "b3d"); k++) { await sleep(500); later = map.queryRenderedFeatures(pt()); }
+			return [Array.isArray(first) && later.some(f => f.layer?.id === "b3d" && f.properties?.name === "tall"), `first=${names(first)} later=${names(later)}`];
+		});
+		await scene("sync-qrf-layers-from-prewarm", async () => {   // 層で絞る＝全層の答え（上の呼び出し・同じ所・同じ視点）から同期に
+			const r = map.queryRenderedFeatures(pt(), { layers: ["b3d"] });
+			return [r.length === 1 && r[0].properties?.name === "tall", names(r)];
+		});
+		await scene("sync-qrf-box", async () => {   // 箱＝鍵が別（層つき）＝初回は []・着けば返る
+			const p = pt(), box = [[p.x - 5, p.y - 5], [p.x + 5, p.y + 5]];
+			const first = map.queryRenderedFeatures(box, { layers: ["b3d"] });
+			let later = []; for (let k = 0; k < 12 && !later.some(f => f.properties?.name === "tall"); k++) { await sleep(500); later = map.queryRenderedFeatures(box, { layers: ["b3d"] }); }
+			return [first.length === 0 && later.some(f => f.properties?.name === "tall"), `first=${names(first)} later=${names(later)}`];
+		});
+		await scene("sync-qrf-camera-change-empties", async () => {   // 視点が変われば直近の答えは使わない
+			map.jumpTo({ center: C, zoom: 15.6 }); await sleep(100);
+			const r = map.queryRenderedFeatures(pt(), { layers: ["b3d"] });
+			map.jumpTo({ center: C, zoom: 15.5 }); await sleep(1500);
+			return [r.length === 0, names(r)];
+		});
+		await scene("query-source-features-shim", async () => {
+			const parks = map.querySourceFeatures("omt", { sourceLayer: "landuse", filter: ["==", ["get", "class"], "park"] }), blds = map.querySourceFeatures("omt", { sourceLayer: "building" });
+			return [parks.some(f => f.properties?.name === "Park") && blds.some(f => f.properties?.name === "tall" && f.id === 1), `parks=${parks.length} blds=${blds.length}`];
 		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。

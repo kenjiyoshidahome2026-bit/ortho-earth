@@ -25,7 +25,7 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, sendHeat = () => {}, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // sendHeat(id, ll|null, w)＝heatmap 層の点（C1）＝出しているタイルの和を呼び手（globe→heatmap-gl）へ   // gs＝地図の global-state の取り出し（#173 段 3b）
+export function createVTDraw(map, { raw = null, cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, sendHeat = () => {}, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // sendHeat(id, ll|null, w)＝heatmap 層の点（C1）＝出しているタイルの和を呼び手（globe→heatmap-gl）へ   // gs＝地図の global-state の取り出し（#173 段 3b）
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
@@ -112,7 +112,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
+			if (T.bytes) { raw?.put("vtdraw", src.sid, key, ab.slice(0), enc); await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]); }   // raw＝main の写し（querySourceFeatures・C7）
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -285,13 +285,14 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			let rawTotal = 0; const rc = [];
 			for (const [k, T] of src.tiles) { rawTotal += T.bytes; if (T.state === "ready" && T.used < clock) rc.push([T.used, k, T]); }
 			rc.sort((a, b) => a[0] - b[0]);
-			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); raw?.drop("vtdraw", sid, k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		}
 	}
 	const sigOf = d => JSON.stringify([d.tag ?? null, d.pmtiles ?? null, d.minzoom ?? null, d.maxzoom ?? null, d.bounds ?? null, d.coverage ?? null, d.promoteId ?? null]);
 	function dropSource(sid) {
 		const src = sources.get(sid); if (!src) return;
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+		raw?.dropSource("vtdraw", sid);
 		const keys = [...src.built].filter(([, B]) => B.ops).map(([k]) => mkey(sid, k));
 		if (keys.length && merger) merger.w.postMessage({ type: "evict", keys });
 		sources.delete(sid);
