@@ -11,7 +11,8 @@ import { hasHeightKey } from "./extrude-keys.js";
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
-import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
+import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
+import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
@@ -3367,6 +3368,16 @@ map.addData = (data, o = {}) => {
 	h.remove = () => { removed = true; for (const i of ids) if (map.getLayer(i)) map.removeLayer(i); if (map.getSource(name)) map.removeSource(name); };
 	return h;
 };
+// セル・等高線・画面格子（deck.gl の GridLayer／GeohashLayer／QuadkeyLayer／S2Layer／ContourLayer／ScreenGridLayer 相当・差分 PR-5・2026-10-12・src/cells/）：
+//   map.addCells(cells | points, { kind:"grid"|"mesh"|"geohash"|"quadkey"|"s2", res|"auto", weight, paint, extrude, outline })＝id → 多角形・点 → セルの集約（count/sum/mean/min/max）→ fill／fill-extrusion（H3 と同じ既存の層経路）
+//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
+//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
+//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
+const cellsMod = () => import("./cells/layer.js");
+map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
+map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
+map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });
+map.addAggregate = async (src, o = {}) => (await cellsMod()).addAggregate(map, src, { evalExpr, ...o }, { screengrid: screengridUrl });
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
 map.gadget("anno", async function (pbf) {
