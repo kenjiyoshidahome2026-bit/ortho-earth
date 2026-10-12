@@ -76,7 +76,8 @@ try {
 		throw null;
 	}
 	if (V === "gltf") {   // ⑩ glTF の口（F4）：頁で作った最小の glb（三角形 1 つ・回転のアニメ 1 本・KHR_texture_basisu を extensionsUsed に）を gadget model で読み、
-		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta builtin・gltf.animation/texture.ktx2 は spec）
+		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta/gltf.animation builtin・gltf.skin/texture.ktx2 は spec）
+		//   W4＝rigid アニメの再生：pose(time) が束の剛体変換（90° の回転＝L の trace 1・時刻 0＝null）・play で時計が進む・stop で止まる
 		const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false });
 		await map.once("load");
 		const json = {
@@ -106,11 +107,20 @@ try {
 		ok("g.play", seen && seen.name === "Spin" && seen.playing === true && seen.loop === true && seen.duration === 1.5 && h.getAnimation().speed === 1, JSON.stringify(seen));
 		h.setAnimation({ time: 0.7, speed: 2, loop: false });
 		ok("g.set", h.getAnimation().time === 0.7 && h.getAnimation().speed === 2 && h.getAnimation().loop === false && seen.time === 0.7);
-		h.stop(); ok("g.stop", h.getAnimation().playing === false);
+		h.stop(); ok("g.stop", h.getAnimation().playing === false && !h.animating);
+		h.setAnimation({ name: "Spin", time: 0.75, playing: false, loop: false });   // W4＝半分（0.75 s）＝Z 回り 90°：世界座標の L は回転（trace＝1+2cos90°＝1）・時刻 0 は恒等＝null
+		const xs = h.pose(), L = xs && xs[0];
+		ok("g.pose", L && L.length === 12 && Math.abs(L[0] + L[4] + L[8] - 1) < 0.02 && Math.abs(L[0] * L[0] + L[1] * L[1] + L[2] * L[2] - 1) < 0.02 && h.pose(0) && h.pose(0)[0] === null && h.pose(1.5)[0] && Math.abs(h.pose(1.5)[0][0] + h.pose(1.5)[0][4] + h.pose(1.5)[0][8] + 1) < 0.02, L && [...L].map(v => +v.toFixed(3)).join());
+		const n0 = map.getNow(), wait = async f => { for (let i = 0; i < 80 && !f(); i++) await new Promise(r => setTimeout(r, 50)); };   // 門の仮想時計＝rAF は刻みの節目でしか来ない＝条件まで待つ（上限 4 s）
+		h.play("Spin"); await wait(() => h.getAnimation().time > 0.05);
+		ok("g.advances", h.animating && h.getAnimation().playing && h.getAnimation().time > 0.05 && h.getAnimation().time < 1.5, `time=${h.getAnimation().time} now=${n0}->${map.getNow()}`);
+		h.setAnimation({ name: "Spin", time: 1.45, loop: false, speed: 1 }); await wait(() => !h.animating);
+		ok("g.ends", !h.animating && h.getAnimation().playing === false && h.getAnimation().time === 1.5, String(h.getAnimation().time));
+		h.stop();
 		ok("g.unknownThrows", throws(() => h.setAnimation("Run")) && throws(() => h.setAnimation(3)));
 		h.setAnimation(null); ok("g.clear", h.getAnimation() === null && seen === null); off();
 		const c = map.capabilities();
-		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && !map.supports("gltf.animation") && c["gltf.animation"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "spec");
+		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && map.supports("gltf.animation") && c["gltf.animation"].status === "builtin" && c["gltf.skin"].status === "spec" && c["gltf.morph"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "spec");
 		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === false);
 		map.use({ name: "tx", install(m) { m.registry.textureTranscoders.add("ktx2", { url: "https://example.invalid/ktx2.js" }); } });
 		ok("g.transcoderSpec", map.capabilities()["texture.ktx2"].status === "spec" && !map.supports("texture.ktx2") && map.registry.textureTranscoders.ownerOf("ktx2") === "tx");
