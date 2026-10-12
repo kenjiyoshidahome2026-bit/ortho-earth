@@ -11,7 +11,7 @@ export type Bbox = [w: number, s: number, e: number, n: number];
 /** 画面の縁から中身を寄せる余白（CSS px）＝UI パネルに隠れる分（#35） */
 export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
-export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; padding?: Partial<PaddingOptions> | number }
+export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; /** 視線まわりの回転（度・MapLibre の roll・1.16.0〜）。正＝絵が時計回り */ roll?: number; padding?: Partial<PaddingOptions> | number }
 export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number }
 
 /** UI 言語（26 言語・1.1.0〜。1.0.5 以前は ja/en のみ）。ar/fa/ur/he は右横書き（容れ物に dir=rtl）。"ja-JP" 等の地域付きは基底へ寄せる */
@@ -649,6 +649,12 @@ export interface OrthoJapanMap {
 	getPitch(): number;
 	/** 度（map.view.bearing はラジアン） */
 	getBearing(): number;
+	/** 視線まわりの回転（度・MapLibre 同名・1.16.0〜）。共有 hash では "15roll"。easeTo は補間・flyTo は離陸で書く */
+	getRoll(): number;
+	setRoll(rollDeg: number): OrthoJapanMap;
+	/** 縦の視野角（度・MapLibre 同名・1.16.0〜）。既定 50（MapLibre は 36.87）。同じ zoom で地表の縮尺は変わらずカメラの距離が変わる */
+	getVerticalFieldOfView(): number;
+	setVerticalFieldOfView(deg: number): OrthoJapanMap;
 	setCenter(center: LonLat | { lng: number; lat: number }): OrthoJapanMap;
 	setZoom(zoom: number): OrthoJapanMap;
 	setPitch(pitchDeg: number): OrthoJapanMap;
@@ -660,7 +666,7 @@ export interface OrthoJapanMap {
 	stop(): OrthoJapanMap;
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
-	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
+	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; /** ラジアン（1.16.0〜） */ roll: number; /** 縦の視野角（ラジアン・1.16.0〜） */ fovy: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
 	/** UI 文言の訳（英語キー → 表示言語・$1… は args で埋める）。SDK が読んだ辞書で引く（1.2.0〜） */
 	t(key: string, ...args: Array<string | number>): string;
 	/** 表示言語コード（ja/en/…・1.2.0〜） */

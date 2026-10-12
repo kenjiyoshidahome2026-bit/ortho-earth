@@ -15,6 +15,8 @@ export interface CameraPose {
 	pitch?: number;
 	/** 方位［rad］。0＝北が上。 */
 	bearing?: number;
+	/** 視線まわりの回転［rad］（MapLibre の roll・正＝絵が時計回り・無指定＝0）。 */
+	roll?: number;
 	/** 縦の視野角［rad］。既定 50°。 */
 	fovy?: number;
 	dpr?: number;

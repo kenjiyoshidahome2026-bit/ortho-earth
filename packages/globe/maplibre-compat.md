@@ -55,6 +55,9 @@
 | geojson の押し出しの ["zoom"] の式（伸び上がり）の描き直し | どこに ["zoom"] があっても 0.25 刻みごとに全体を評価し直して上げ直す（止まりの外でも） | 5b | **済**（曲線の鍵・R22） |
 | queryRenderedFeatures の geojson の押し出し | 地面の足跡で当てる（傾けて屋根を押すと外れる） | 5b | **済**（立体＝屋根と壁・近い順・R23） |
 | color-relief の層（`["elevation"]` で段彩） | 無い（style は知らない演算子で層を落とす・addLayer は投げる） | #114 | **済**（2026-09-29・core の式 elevation・globe `colorrelief.js`＝画像タイル層・DEM の在庫は source ごとに共有・門 add-a-color-relief-layer 2→3） |
+| roll（setRoll/getRoll・CameraOptions.roll・事象 roll/rollstart/rollend・起動 options.roll） | 無い（stub） | A1 | **済**（2026-10-12・core cameraState の cam.roll＝画面上方向を視線軸まわりに回す・0 はビット同値・easeTo は補間・flyTo は離陸で書く・hash "15roll"・門 core `tests/camera-roll.mjs`・t-camera ⑫） |
+| setVerticalFieldOfView/getVerticalFieldOfView | 無い（stub） | A1 | **済**（2026-10-12・cam.fovy を度で読み書き・同じ z で地表の縮尺は変わらずカメラの距離が変わる＝MapLibre と同じ・t-camera ⑬） |
+| この口の maxPitch の既定 | 60（MapLibre の既定） | A1 | **済**（2026-10-12 本人裁定＝85・ortho の口の既定 75 は不変・getMaxPitch の起動前の答えも 85） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -63,7 +66,8 @@
 - queryRenderedFeatures は非同期。当たり方は MapLibre と同じ（2026-09-27・§8 B：線は線幅の半分＋|ずらし|・円は半径＋縁・面は内側・既定の許し 0）。`tolerance`（足す px）は拡張。GeoJSON（gint）の線の当たりは南北に 1/cos(緯度) だけ広い（識別が度の空間の円＝東西を取りこぼさない側に寄せた・点は画面の距離で締め直す）。単一スロットの user 層（内製）は従来の 3px。
 - getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
-- チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。
+- チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。MapLibre の口（`@ortho-earth/globe/maplibre`）の既定は 85°（MapLibre は 60°・2026-10-12 本人裁定）。
+- 縦の視野角の既定：エンジン 50°（MapLibre は 36.87°）＝傾けた絵の奥行きの見え方が少し違う（公式例の門は MapLibre のタイル選択を fov 36.87° で写しているので枚数は同じ）。`setVerticalFieldOfView(36.87)` で揃えられる。roll の向きは MapLibre と同じ（正＝絵が時計回り）。
 - custom 層（CustomLayerInterface）：層の object を渡す従来の経路は main の別 canvas＝地図と深度を共有しない（常に手前・局所線形化）。`url`（層のモジュール）を渡すと render worker の同一フレームで描き、renderingMode "3d" はシーンの深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる（PR-7・2026-10-12）。onAdd/render の map は小さな代理（triggerRepaint・getCanvas＝OffscreenCanvas・getProjection・getZoom）。
 - deck.gl の MapboxOverlay：overlaid は動く（render／resize／mouse・drag 系の事象、getCenter/getZoom/getBearing/getPitch/getPadding/getRenderWorldCopies＝false）。interleaved（地図の GL 文脈へ描く）は地図が worker で描かれるため成り立たない＝overlaid に倒して unsupported を 1 回記録（意図した違い）。`map.transform` は deck.gl が読む最小の写し（width/height/elevation 0）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
@@ -224,6 +228,7 @@
   - 門：爪車 `?g=before`（GL2 md／nomd・WebGPU・既知は空）・全頁（globe の verify:ui／verify:webgpu）＋japan の基図とアトラスの頁。
   - 轍：①style 由来の層は addLayer の時点ではまだ style 由来と分からない（extExtras.layers は足した後に積む）＝振り分けの後にも配る ②面の輪を線で描く基図の層は、タイルのバッファの縁（継ぎ目の ±33m）にも線を引く＝検定の画素は継ぎ目から離す ③WebGPU のフェード中は新しいシーンのパスにだけ差し込む（旧シーンは全部を先に敷く）。
 - [ ] 段 8④：hillshade（着手前に別計画）。
+- [x] **A1＝MapLibre・Navara 整合計画（`/mnt/project-files/compare/parity-plan-2026-10-12.md`）の段 A の 1**（2026-10-12・branch claude/project-thread-5hybus-a1・PR-0 #256 の上）：roll（core `camera.js` の cam.roll・`flight.js` easePlan の補間・`viewurl.js` の roll トークン・globe の setRoll/getRoll・CameraOptions.roll・事象 roll/rollstart/rollend・shim の options.roll）・setVerticalFieldOfView/getVerticalFieldOfView・shim の maxPitch 既定 85。門：core `tests/camera-roll.mjs`・`tests/mlshim.mjs`（viewOf の roll）・t-camera ⑫⑬。実 GPU：t-camera の目視（roll で注記・星空・大気の縁が追随するか＝注記は同じ mvp で写すので追随する見込み・sky の星は bearing から向きを決めている箇所があれば別途）。
 
 ## 8. 公式例の門（2026-09-27 起票）
 
