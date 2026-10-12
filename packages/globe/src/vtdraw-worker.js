@@ -19,6 +19,14 @@ const raw = new Map();   // "sid|z/x/y" → { buf: Uint8Array（生タイル）,
 const R2D = 180 / Math.PI;
 const tileNW = (z, x, y) => { const n = 2 ** z; return [x / n * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * y / n)))]; };   // タイルの原点（core の tileworker と同じ＝北西の角）
 const idOf = (f, promoteId, sl) => { const k = promoteId == null ? null : typeof promoteId === "string" ? promoteId : promoteId[sl]; return k != null ? f.props?.[k] : f.id; };
+// fill-layer-opacity／line-layer-opacity（C6・2026-10-12）＝層単位の α（データ駆動しない）。MapLibre は層を 1 枚に描いてから掛ける（重なる面が 1 面に見える）が、
+// ここは地物ごとの fill-opacity／line-opacity に掛け合わせる近似（重なる所は濃くなる＝compat §4）
+const LAYER_OP = { fill: ["fill-layer-opacity", "fill-opacity"], line: ["line-layer-opacity", "line-opacity"] };
+const foldLayerOpacity = (L, ctx) => {
+	const k = LAYER_OP[L.type]; if (!k || L.paint?.[k[0]] == null) return;
+	const v = Math.max(0, Math.min(1, num(L.paint[k[0]], ctx, 1)));
+	L.paint = { ...L.paint, [k[1]]: L.paint[k[1]] == null ? v : ["*", L.paint[k[1]], v] };
+};
 const num = (e, ctx, dflt) => { if (e == null) return dflt; const v = evalExpr(e, ctx); return typeof v === "number" && Number.isFinite(v) ? v : dflt; };   // ML の評価エラー＝既定値
 const alphaOf = (e, ctx) => { const v = e == null ? "#000000" : evalExpr(e, ctx); return isColor(v) ? parseRGBA(v)[3] : 1; };
 const usesFS = L => JSON.stringify(L.paint ?? null).includes('"feature-state"');   // gadgets/vtdraw.js の usesFS と同じ（worker は gadgets を読まない）
@@ -76,7 +84,9 @@ function build(m) {
 		// ["zoom"] を置き換えた写しは層（id×版）× pz で覚える＝同じ層の次のタイルは同じ配列＝式のコンパイルの覚え（配列の同一性で引く）が効く。旧＝タイルごとに写しを作り直し＝全部の式を毎回コンパイル
 		const sz = zoomSubst(id, rev, pz, L0);
 		const L = { ...L0, filter: undefined, minzoom: undefined, maxzoom: undefined, paint: sz.paint, layout: sz.layout };   // 層の出しズームと出し入れは main（結合の hidden）
-		const P = L.paint, pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml", pitch };
+		const pctx = { zoom: pz, props: {}, geom: null, vars: {}, origin: "ml", pitch };
+		foldLayerOpacity(L, pctx);
+		const P = L.paint;
 		const run = (lyr, fs, sub) => {   // core の組み立て（層 1 枚の小さな style）→ li を利用者の帯へ
 			if (!fs.length) return;
 			const dl = buildTileDrawList({ layers: { [sl]: { extent: E, features: fs } }, z, x, y, subLenM, stateOf }, { layers: [lyr] }, origin);

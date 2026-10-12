@@ -72,15 +72,37 @@ export function clipRing(r, E) {
 	const f = Float64Array.from(out);
 	return Math.abs(ringArea2(f)) < 1 ? null : f;   // 面積 0.5 単位²未満（z14 で 0.2m² 程度）＝切った後の糸くず
 }
+// 角の丸め（fill-extrusion-rounded-corner-distance・MapLibre GL JS 6.2・layout・m・C6 2026-10-12）：各頂点を、両隣の辺の上で d（辺の半分まで）だけ手前の 2 点と
+// その間の二次ベジェ（制御点＝元の頂点・22.5° ごとに 1 片＝直角は 4 片）の弧に置き換える。単位は輪と同じ（タイル座標なら m→単位の換算は呼ぶ側）。
+// 開いた平坦列 → 開いた平坦列（d ≤ 0・3 点未満はそのまま・ほぼ直進の頂点はそのまま・重なった点は落とす）。vector（tessellatePolygon）と geojson（extrude.js）の両方がこれを使う
+export function roundRing(r, d) {
+	const n = r.length / 2;
+	if (!(d > 0) || n < 3) return r;
+	const out = [], eps = d * 1e-6;
+	const push = (x, y) => { const k = out.length; if (k && Math.abs(out[k - 2] - x) <= eps && Math.abs(out[k - 1] - y) <= eps) return; out.push(x, y); };
+	for (let i = 0; i < n; i++) {
+		const p = (i + n - 1) % n, q = (i + 1) % n, bx = r[i * 2], by = r[i * 2 + 1];
+		const ax = r[p * 2] - bx, ay = r[p * 2 + 1] - by, cx = r[q * 2] - bx, cy = r[q * 2 + 1] - by, la = Math.hypot(ax, ay), lc = Math.hypot(cx, cy);
+		if (!(la > 0) || !(lc > 0)) continue;
+		const turn = Math.PI - Math.acos(Math.max(-1, Math.min(1, (ax * cx + ay * cy) / (la * lc))));   // 曲がりの角（0＝直進）
+		if (turn < 0.01) { push(bx, by); continue; }
+		const dd = Math.min(d, la / 2, lc / 2), px = bx + ax * dd / la, py = by + ay * dd / la, qx = bx + cx * dd / lc, qy = by + cy * dd / lc;
+		const segs = Math.max(1, Math.ceil(turn / (Math.PI / 8)));
+		for (let k = 0; k <= segs; k++) { const t = k / segs, u = 1 - t; push(u * u * px + 2 * u * t * bx + t * t * qx, u * u * py + 2 * u * t * by + t * t * qy); }
+	}
+	while (out.length >= 4 && Math.abs(out[0] - out[out.length - 2]) <= eps && Math.abs(out[1] - out[out.length - 1]) <= eps) out.length -= 2;
+	return out.length >= 6 ? Float64Array.from(out) : r;
+}
 // 枠の上の辺か（両端が同じ枠の線の上＝タイルの継ぎ目）。MapLibre の isBoundaryEdge と同じ意味（こちらは枠で切ってあるので「上」）
 const onBoundary = (ax, ay, bx, by, E) => (ax === bx && (ax <= 0 || ax >= E)) || (ay === by && (ay <= 0 || ay >= E));
 
 // 1 つの面（[外周, 穴…]・タイル座標）→ 三角形分割済みの幾何（null＝外周が切れて消えた）。
 // { xy: Float64Array（全輪の頂点を連結）, starts: [輪の先頭の頂点番号…, 総数], sgn: [輪ごとの外向きの符号], tris: Uint32Array, wall: Uint8Array（頂点 i→次の辺に壁を立てるか） }
-export function tessellatePolygon(rings, E) {
+// opts.round＝角の丸め（タイル座標の単位・roundRing）＝枠で切る前に丸める（継ぎ目の辺は真っすぐのまま＝両側のタイルで同じ形）
+export function tessellatePolygon(rings, E, { round = 0 } = {}) {
 	const kept = [];
 	for (let k = 0; k < rings.length; k++) {
-		const c = clipRing(rings[k], E);
+		const c = clipRing(round > 0 ? roundRing(rings[k], round) : rings[k], E);
 		if (!c) { if (k === 0) return null; continue; }
 		kept.push({ c, hole: k > 0 });
 	}
