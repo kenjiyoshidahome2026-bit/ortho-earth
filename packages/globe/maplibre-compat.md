@@ -58,6 +58,11 @@
 | roll（setRoll/getRoll・CameraOptions.roll・事象 roll/rollstart/rollend・起動 options.roll） | 無い（stub） | A1 | **済**（2026-10-12・core cameraState の cam.roll＝画面上方向を視線軸まわりに回す・0 はビット同値・easeTo は補間・flyTo は離陸で書く・hash "15roll"・門 core `tests/camera-roll.mjs`・t-camera ⑫） |
 | setVerticalFieldOfView/getVerticalFieldOfView | 無い（stub） | A1 | **済**（2026-10-12・cam.fovy を度で読み書き・同じ z で地表の縮尺は変わらずカメラの距離が変わる＝MapLibre と同じ・t-camera ⑬） |
 | この口の maxPitch の既定 | 60（MapLibre の既定） | A1 | **済**（2026-10-12 本人裁定＝85・ortho の口の既定 75 は不変・getMaxPitch の起動前の答えも 85） |
+| 操作の handler（`map.scrollZoom.disable()` 等 9 種・`touchZoomRotate.disableRotation`・起動 options の `scrollZoom:false` 等・`interactive:false`） | 記録だけ（絵も手触りも変わらない） | A2 | **済**（2026-10-12・core `input.js` の旗 H＝HANDLER_NAMES 10・engine `setHandler/handlerOn`・`isEnabled` は実値・門 t-handlers） |
+| ドラッグの慣性（pan・rotate・pitch） | 無い（離すと止まる） | A2 | **済**（MapLibre の handler_inertia の定数と式そのまま＝linearity・maxSpeed・deceleration・cubic-bezier・窓 160ms・門 core `tests/input-inertia.mjs`） |
+| ダブルクリック／ダブルタップのズーム・キーボード +/−・zoomSnap | 無い | A2 | **済**（dblclick＝z+1・shift で z−1・カーソル下を固定・300ms。+/−＝マウス位置か画面中心。`setZoomSnap`／`getZoomSnap`） |
+| ボックスズーム（shift＋ドラッグ）・boxzoomstart/boxzoomend/boxzoomcancel | 無い（shift＋ドラッグはチルトだった） | A2 | **済**（矩形 `.ortho-boxzoom` → 四隅と辺の中点を逆投影 → fitBounds(linear 500ms)・boxzoomend の `boxZoomBounds`。空を囲んだら cancel） |
+| cooperativeGestures | 記録だけ | A2 | **済**（修飾キー無しのホイール・1 本指は頁へ譲り `cooperativegestureprevented`（gestureType wheel_zoom／touch_pan）・MapLibre と同じ文の案内を 1 秒） |
 
 ## 4. 文書に書く違い（意図した違い）
 
@@ -67,6 +72,7 @@
 - getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
 - `map.view` は ortho の状態物（pitch/bearing はラジアン・hash はエンジンの z の文字列）。旗つきでは view.zoom だけ公開の目盛り。`map.cam` は内部の生の状態（常にエンジンの z）。
 - チルト上限：`maxPitch()` はラジアン（ortho の口）・`getMaxPitch()` は度（MapLibre 同名）。`opts.maxPitch`／`setMaxPitch` は 1.3.0〜度（1.6 以下は従来のラジアン＝非推奨の警告）。MapLibre の口（`@ortho-earth/globe/maplibre`）の既定は 85°（MapLibre は 60°・2026-10-12 本人裁定）。
+- shift＋左ドラッグは A2（2026-10-12）からボックスズーム（MapLibre と同じ）。チルトは右ボタン／Ctrl＋ドラッグ・2 本指の平行縦ドラッグ（従来どおり）。dragRotate を切ると右ドラッグのチルトも止まる（MapLibre の pitchWithRotate と同じ括り）。2 本指の離し際の慣性は無い（MapLibre はある）。
 - 縦の視野角の既定：エンジン 50°（MapLibre は 36.87°）＝傾けた絵の奥行きの見え方が少し違う（公式例の門は MapLibre のタイル選択を fov 36.87° で写しているので枚数は同じ）。`setVerticalFieldOfView(36.87)` で揃えられる。roll の向きは MapLibre と同じ（正＝絵が時計回り）。
 - flyTo・easeTo・fitBounds・addLayer・setStyle は Promise を返す（MapLibre は this）。
 - 基図（tile z で焼く）の paint は連続でない（MapLibre はズームに連続）。
@@ -227,6 +233,7 @@
   - 轍：①style 由来の層は addLayer の時点ではまだ style 由来と分からない（extExtras.layers は足した後に積む）＝振り分けの後にも配る ②面の輪を線で描く基図の層は、タイルのバッファの縁（継ぎ目の ±33m）にも線を引く＝検定の画素は継ぎ目から離す ③WebGPU のフェード中は新しいシーンのパスにだけ差し込む（旧シーンは全部を先に敷く）。
 - [ ] 段 8④：hillshade（着手前に別計画）。
 - [x] **A1＝MapLibre・Navara 整合計画（`/mnt/project-files/compare/parity-plan-2026-10-12.md`）の段 A の 1**（2026-10-12・branch claude/project-thread-5hybus-a1・PR-0 #256 の上）：roll（core `camera.js` の cam.roll・`flight.js` easePlan の補間・`viewurl.js` の roll トークン・globe の setRoll/getRoll・CameraOptions.roll・事象 roll/rollstart/rollend・shim の options.roll）・setVerticalFieldOfView/getVerticalFieldOfView・shim の maxPitch 既定 85。門：core `tests/camera-roll.mjs`・`tests/mlshim.mjs`（viewOf の roll）・t-camera ⑫⑬。実 GPU：t-camera の目視（roll で注記・星空・大気の縁が追随するか＝注記は同じ mvp で写すので追随する見込み・sky の星は bearing から向きを決めている箇所があれば別途）。
+- [x] **A2＝同計画の段 A の 2**（2026-10-12・branch claude/project-thread-5hybus-a2・A1 の上）：操作の手触り＝core `input.js` に慣性（pan/rotate/pitch・MapLibre の定数）・dblclick／ダブルタップ・shift＋ドラッグのボックスズーム・キーボード +/−・handler の旗（HANDLER_NAMES 10・`setHandler/handlerOn/stop/setZoomSnap`）・cooperativeGestures・zoomSnap。globe＝opts.handlers/interactive/cooperativeGestures/zoomSnap・`map.setHandler/handlerOn/setZoomSnap/getZoomSnap`・事象 boxzoom*/cooperativegestureprevented・飛行開始と `map.stop()` で慣性を止める。shim＝handler proxy が実体・`options.scrollZoom:false` 等・`interactive:false`（記録を外した）・boxzoomend の boxZoomBounds・協調モードの案内。門：core `tests/input-inertia.mjs`・`t-handlers`（default／?v=noint・実時間）。実 GPU：慣性の手触り（マウス・トラックパッド）、Mac でダブルタップ、協調モードの案内の見え方。
 
 ## 8. 公式例の門（2026-09-27 起票）
 

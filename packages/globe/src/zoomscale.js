@@ -43,6 +43,7 @@ export const MAP_MEMBERS = {
 	getBounds: "none", setMaxBounds: "none", getMaxBounds: "none", setPadding: "none", getPadding: "none",
 	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
 	getRoll: "none", setRoll: "none", getVerticalFieldOfView: "none", setVerticalFieldOfView: "none",   // A1（2026-10-12）＝角度・度。zoom は運ばない
+	setHandler: "none", handlerOn: "none", setZoomSnap: "none", getZoomSnap: "none",   // A2（2026-10-12）＝handler の旗・zoomSnap は目盛りの刻み（zoom の数ではない）
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",
