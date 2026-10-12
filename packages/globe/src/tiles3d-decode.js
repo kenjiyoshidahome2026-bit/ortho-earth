@@ -106,7 +106,7 @@ async function decodeI3dm(ab, M, opts, maxInstances) {
 
 // 中身一つ → { batches, points, stats }（null＝描く物なし）
 // ground＝"terrain"：三角形は PLATEAU と同じ「連結成分ごとに最低点で接地」（呼び手は地形へ持ち上げて置く）＝建物の tileset 向け。既定＝絶対高さ（写真測量の街並み・点群）
-export async function decodeTile3D(ab, { transform, baseUri, baseH = 0, textures = true, maxInstances = 5000, ground = "absolute" } = {}) {
+export async function decodeTile3D(ab, { transform, baseUri, baseH = 0, textures = true, maxInstances = 5000, ground = "absolute", featureIdSet = 0 } = {}) {
 	const M = splitM4(transform || [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 	const out = { batches: [], points: [], stats: { triangles: 0, points: 0 } };
 	const gOpt = ground === "terrain" ? { ground: "each" } : {}, bH = ground === "terrain" ? null : baseH;   // 接地＝baseH を渡さない（decodeModel が成分ごとの最低点を使う）
@@ -123,14 +123,16 @@ export async function decodeTile3D(ab, { transform, baseUri, baseH = 0, textures
 			const dv = new DataView(buf), ftJ = dv.getUint32(12, true), ftB = dv.getUint32(16, true), btJ = dv.getUint32(20, true), btB = dv.getUint32(24, true);
 			const J = jsonAt(buf, 28, ftJ);
 			const glb = buf.slice(28 + ftJ + ftB + btJ + btB);
-			merge(await decodeModel(glb, { baseUri, textures, ...gOpt, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true } }));
+			const nB = J.BATCH_LENGTH | 0, BT = nB && btJ ? jsonAt(buf, 28 + ftJ + ftB, btJ) : null;   // batch table（W7）＝_BATCHID の地物の属性（JSON の配列＋binary 参照）
+			const batchTable = BT ? { json: BT, bin: btB ? new Uint8Array(buf, 28 + ftJ + ftB + btJ, btB) : null, count: nB } : null;
+			merge(await decodeModel(glb, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: J.RTC_CENTER || null, baseH: bH, points: true, batchTable } }));
 		} else if (magic === "i3dm") merge(await decodeI3dm(buf, M, { baseUri, textures, baseH }, maxInstances));
 		else if (magic === "pnts") merge(decodePnts(buf, M, baseH));
 		else if (magic === "cmpt") {
 			const dv = new DataView(buf), nT = dv.getUint32(12, true);
 			let off = 16;
 			for (let k = 0; k < nT && off + 12 <= buf.byteLength; k++) { const len = new DataView(buf, off).getUint32(8, true); await one(buf.slice(off, off + len)); off += len; }
-		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, ...gOpt, tile: { places: [M], rtc: null, baseH: bH, points: true } }));   // glb / glTF(JSON)＝3D Tiles 1.1
+		} else if (magic === "glTF" || new Uint8Array(buf, 0, 1)[0] === 0x7b) merge(await decodeModel(buf, { baseUri, textures, ...gOpt, featureIdSet, tile: { places: [M], rtc: null, baseH: bH, points: true } }));   // glb / glTF(JSON)＝3D Tiles 1.1
 		else throw new Error(`unknown tile content "${magic}"`);
 	};
 	await one(ab);

@@ -12,7 +12,7 @@ import { computeSunShadow, computeViewshed } from "./sunshadow.js";   // 日影�
 export const TEX_KEYS = ["tex", "texMR", "texN", "texOcc", "texEm"];   // 模型のテクスチャ（baseColor＋#46 段 2 の材質 4 枚）＝transfer の対象
 const transferOf = batches => {
 	const tr = new Set();
-	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col"]) if (b.mesh[k]?.buffer) tr.add(b.mesh[k].buffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k].bitmap); if (b[k]?.rgba) tr.add(b[k].rgba.buffer); } }
+	for (const b of batches) { for (const k of ["pos", "nrm", "idx", "uv", "col"]) if (b.mesh[k]?.buffer) tr.add(b.mesh[k].buffer); if (b.features?.ids) tr.add(b.features.ids.buffer); if (b.features?.tblV) tr.add(b.features.tblV.buffer); for (const k of TEX_KEYS) { if (b[k]?.bitmap) tr.add(b[k].bitmap); if (b[k]?.rgba) tr.add(b[k].rgba.buffer); } }
 	return [...tr];
 };
 
@@ -67,14 +67,14 @@ async function work(e) {
 				if (!res.ok) { self.postMessage({ id, error: `HTTP ${res.status}` }); return; }
 				buf = await res.arrayBuffer();
 			}
-			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode });
+			const r = await decodeTile3D(buf, { transform, baseUri: url, baseH: baseH ?? 0, textures: textures !== false, maxInstances: e.data.maxInstances ?? 5000, ground: groundMode, featureIdSet: e.data.featureIdSet ?? 0 });
 			if (!r) { self.postMessage({ id, batches: [], points: [], stats: { triangles: 0, points: 0, bytes: buf.byteLength } }); return; }
 			r.stats.bytes = buf.byteLength;
 			const tr = transferOf(r.batches); for (const p of r.points) tr.push(p.pos.buffer, p.rgba.buffer);
 			self.postMessage({ id, batches: r.batches, points: r.points, stats: r.stats }, tr);
 			return;
 		}
-		const r = await decodeModel(ab, { at, heading, scale, baseUri, textures: textures !== false, ground, mask });
+		const r = await decodeModel(ab, { at, heading, scale, baseUri, textures: textures !== false, ground, mask, featureIdSet: e.data.featureIdSet ?? 0 });
 		if (!r) { self.postMessage({ id, error: "no-triangles" }); return; }
 		self.postMessage({ id, batches: r.batches, mask: r.mask, stats: r.stats, rig: r.rig || null, place: r.place || null }, transferOf(r.batches));   // rig/place＝rigid アニメ（W4）
 	} catch (err) { self.postMessage({ id, error: err?.message || String(err) }); }

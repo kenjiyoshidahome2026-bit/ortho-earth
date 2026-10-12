@@ -2597,6 +2597,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "elevAtlasFarOff": clearElevationFar(); break;
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "meshSet": setMeshSet(prop, data); break;   // prop=キー(区名#i)、data={pos,nrm,idx,...}／null=区解放
+			case "meshCol": { const p = meshes.get(prop); if (p?.cbo && data?.length && data.byteLength <= p.cbo.size) device.queue.writeBuffer(p.cbo, 0, data.buffer, data.byteOffset, data.byteLength); break; }   // 頂点色だけ書き換える（feature state の色・W7）
 			case "meshXf": { const p = meshes.get(prop); if (p) { p.xf = data && data.length >= 12 ? data : null; castRev++; } break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop, data); break;    // prop=区名、data=真偽（GPU常駐のまま表示切替）
 			case "stars":       stars = setStarBuf(stars, data, 8); break;         // data=Float32Array [cel.xyz,rgba,size]×n
