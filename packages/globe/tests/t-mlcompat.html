@@ -9,6 +9,7 @@
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。
      ?g=sky＝style の sky（B4・setSky/getSky）＝海の上を 80° 傾けて見上げ、画面の上（球に当たらない視線）が sky-color・地平線の際が fog-color・外すと元の絵。GL2 の簡易の空。
      ?g=bg＝background 層（B5）＝MapLibre の目盛りの地図で background の無い style は床も宇宙も透明（α 0）・addLayer({type:"background"}) で床が塗られ background-opacity と visibility が効く・removeLayer で透明に戻る・setClearColor。
+     ?g=small＝shim の小口の束（B6）＝sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces・coveringTiles・setCameraUpdate・minPitch・pixelRatio・repaint・debug の表示・refreshTiles。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -1448,6 +1449,71 @@ try {
 			const t = await until(TOP, green), g = pxa(await snap(map), ...GROUND);
 			map.setClearColor(null); const t2 = await until(TOP, clear);
 			return [green(t) && green(g) && clear(t2), `top=${t} ground=${g} reset=${t2}`];
+		});
+	} else if (G === "small") {
+		// ── shim の小口の束（B6・2026-10-12）＝エンジンの口を直に：sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces の記録・coveringTiles（近似）・
+		//    setCameraUpdate（制約の後）・minPitch・pixelRatio・repaint・debug の表示（#debug の canvas2D）・refreshTiles
+		const C = [139.76, 35.68], SP = new URL("fixtures/mlcompat/sprite-a", location.href).href, SPB = new URL("fixtures/mlcompat/sprite-b", location.href).href;
+		const map = await createGlobe({ target: "#map", view: `#10/${C[1]}/${C[0]}`, zoomScale: "mercator", chips: false, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1000);
+		const waitFor = async (pred, ms = 8000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (pred()) return true; await sleep(200); } return pred(); };
+		const tileOf = (lon, lat, z) => { const n = 2 ** z, la = lat * Math.PI / 180; return [Math.floor((lon + 180) / 360 * n), Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)]; };
+		await scene("sprite-add-remove", async () => {
+			map.addSprite("alt", SPB); const got = await waitFor(() => map.hasImage("alt:sq"));
+			const g = map.getSprite(), st = map.getStyle().sprite;
+			map.removeSprite("alt"); const gone = !map.hasImage("alt:sq") && map.getSprite().length === 0 && map.getStyle().sprite === undefined;
+			return [got && g.length === 1 && g[0].id === "alt" && g[0].url === SPB && Array.isArray(st) && st[0].id === "alt" && gone, `got=${got} sprite=${JSON.stringify(g)} style=${JSON.stringify(st)} gone=${gone}`];
+		});
+		await scene("sprite-set-default-getimage", async () => {
+			map.setSprite(SP); const got = await waitFor(() => map.hasImage("sq"));
+			const im = map.getImage("sq"), st = map.getStyle().sprite;
+			map.setSprite(null); const gone = !map.hasImage("sq") && map.getImage("sq") === undefined;
+			return [got && im && im.data.width === 16 && im.data.height === 16 && im.data.data[0] > 200 && im.data.data[1] < 60 && im.pixelRatio === 1 && st === SP && gone, `got=${got} im=${im && `${im.data.width}x${im.data.height} rgba=${[...im.data.data.slice(0, 4)]}`} style=${st} gone=${gone}`];
+		});
+		await scene("glyphs-styleurl-fontfaces", async () => {
+			map.setGlyphs("https://example.invalid/{fontstack}/{range}.pbf");
+			const g = map.getGlyphs(), sg = map.getStyle().glyphs, u = map.getStyleUrl();
+			await map.setFontFaces([{ "font-family": "TestFace", src: "url(fixtures/mlcompat/nothing.woff2)", "font-weight": 700 }]);   // 無いファイル＝読めないが記録は残る
+			const ff = map.getFontFaces(); map.setGlyphs(null);
+			return [g === "https://example.invalid/{fontstack}/{range}.pbf" && sg === g && u === undefined && ff.length === 1 && ff[0]["font-family"] === "TestFace" && map.getGlyphs() === undefined, `glyphs=${g} styleUrl=${u} faces=${JSON.stringify(ff)}`];
+		});
+		await scene("covering-tiles", async () => {
+			map.jumpTo({ zoom: 10, pitch: 0 }); await sleep(100);   // view の # は内製の目盛り＝MapLibre の 10 に揃える（傾き 0・地形なし＝floor(10)）
+			const t = map.coveringTiles(), z = 10, [cx, cy] = tileOf(C[0], C[1], z), hasC = t.some(k => k.canonical.z === z && k.canonical.x === cx && k.canonical.y === cy);   // 地形あり＝距離の式＝縁は一段粗くてよい（MapLibre も同じ）
+			const t3 = map.coveringTiles({ maxzoom: 3 });
+			return [t.length >= 4 && t.every(k => k.canonical.z >= z - 1 && k.canonical.z <= z && k.wrap === 0 && k.key === `${k.canonical.z}/${k.canonical.x}/${k.canonical.y}`) && hasC && t3.length > 0 && t3.every(k => k.canonical.z === 3) && map.setSourceTileLodParams(2, 1) === map, `n=${t.length} zs=${[...new Set(t.map(k => k.canonical.z))]} center=${hasC} z3=${t3.length}`];
+		});
+		await scene("camera-update", async () => {
+			map.setCameraUpdate(v => ({ zoom: v.zoom - 1 })); map.jumpTo({ zoom: 10 }); await sleep(100); const a = map.getZoom();   // v.zoom は内製の目盛り＝差で見る
+			map.setCameraUpdate(null); map.jumpTo({ zoom: 10 }); await sleep(100); const b = map.getZoom();
+			return [Math.abs(a - 9) < 1e-6 && Math.abs(b - 10) < 1e-6, `minus1=${a.toFixed(3)} free=${b.toFixed(3)}`];
+		});
+		await scene("min-pitch", async () => {
+			map.setMinPitch(30); map.jumpTo({ pitch: 10 }); await sleep(100); const a = map.getPitch(), g = map.getMinPitch();
+			map.setMinPitch(0); map.jumpTo({ pitch: 10 }); await sleep(100); const b = map.getPitch();
+			return [Math.abs(a - 30) < 0.01 && Math.abs(g - 30) < 1e-6 && Math.abs(b - 10) < 0.01, `min=${a.toFixed(2)} get=${g} free=${b.toFixed(2)}`];
+		});
+		await scene("pixel-ratio-repaint", async () => {
+			const d0 = map.getPixelRatio(); map.setPixelRatio(0.5); await sleep(300); const a = map.getPixelRatio(), cd = map.cam.dpr; map.setPixelRatio(d0); await sleep(300);
+			map.setRepaint(true); const r = map.getRepaint(); map.setRepaint(false);
+			return [a === 0.5 && cd === 0.5 && map.getPixelRatio() === d0 && r === true && map.getRepaint() === false, `dpr=${a} cam.dpr=${cd} back=${map.getPixelRatio()} repaint=${r}`];
+		});
+		await scene("debug-tiles-padding", async () => {
+			map.setDebug({ tileBoundaries: true }); await sleep(2000);
+			const cv = map.mapEl.querySelector("#debug"); if (!cv) return [false, "no #debug canvas"];
+			const g = cv.getContext("2d"), scan = pred => { const d = g.getImageData(0, 0, cv.width, cv.height).data; let n = 0; for (let i = 0; i < d.length; i += 16) if (pred(d[i], d[i + 1], d[i + 2], d[i + 3])) n++; return n; };
+			const red = scan((r, gg, b, a) => a > 100 && r > 200 && gg < 80);
+			map.setPadding({ top: 100, left: 0, right: 0, bottom: 0 }); map.setDebug({ tileBoundaries: false, padding: true }); await sleep(800);
+			const blue = scan((r, gg, b, a) => a > 20 && b > 150 && r < 80), redAfter = scan((r, gg, b, a) => a > 100 && r > 200 && gg < 80);
+			map.setDebug({ padding: false }); map.setPadding(0); await sleep(500); const clear = scan((r, gg, b, a) => a > 0);
+			return [red > 50 && blue > 50 && redAfter === 0 && clear === 0 && JSON.stringify(map.getDebug()) === JSON.stringify({ tileBoundaries: false, padding: false }), `red=${red} blue=${blue} redAfter=${redAfter} clear=${clear}`];
+		});
+		await scene("refresh-tiles", async () => {
+			map.addSource("rs", { type: "geojson", data: fc([sq(C[0], C[1], 0.05, { name: "R" })]) });
+			await map.addLayer({ id: "rs-f", type: "fill", source: "rs", paint: { "fill-color": "#00ff00" } }); await sleep(1500);
+			const hit = async () => (await map.queryRenderedFeatures(map.projectLL(C[0], C[1]), { layers: ["rs-f"] })).length;
+			const a = await hit(); await map.refreshTiles("rs"); await sleep(1500); const b = await hit(); await map.refreshTiles(); await sleep(1000);
+			return [a > 0 && b > 0 && map.getLayer("rs-f")?.id === "rs-f", `before=${a} after=${b}`];
 		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
