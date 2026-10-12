@@ -1892,6 +1892,52 @@ try {
 			pop.remove();
 			return [!!ll && !!want && Math.abs(ll.lng - want.lng) < 1e-6 && Math.abs(ll.lat - want.lat) < 1e-6 && pen === "none", `ll=${ll?.lng?.toFixed(4)},${ll?.lat?.toFixed(4)} want=${want?.lng?.toFixed(4)},${want?.lat?.toFixed(4)} pe=${pen}`];
 		});
+	} else if (G === "motion") {
+		// ── 動きを減らす・動きの時計（C10・2026-10-12）：reduceMotion＝easeTo/flyTo は essential:true でなければ即座に・無指定は OS の prefers-reduced-motion を追う。
+		//    setNow(ms)＝飛行と paint の transition がその時刻で止まる／進む（決定論の撮影）・restoreNow で実時間へ ──
+		const C = [139.76, 35.68], C2 = [139.90, 35.60], C3 = [139.60, 35.75];
+		const map = await createGlobe({ target: "#map", view: `#11/${C[1]}/${C[0]}`, chips: false, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const near = (a, b, eps = 1e-6) => Math.abs(a.lng - b[0]) < eps && Math.abs(a.lat - b[1]) < eps;
+		const raf = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		await scene("reduce-motion-default-follows-media", async () => {
+			map.setReduceMotion(null);
+			const mq = matchMedia("(prefers-reduced-motion: reduce)").matches;
+			return [map.getReduceMotion() === mq, `media=${mq} get=${map.getReduceMotion()}`];
+		});
+		await scene("reduce-motion-ease-jumps-unless-essential", async () => {
+			map.setReduceMotion(true);
+			const p = map.easeTo({ center: C2, duration: 2000 }); const c1 = map.getCenter(); await p;
+			map.jumpTo({ center: C });
+			map.easeTo({ center: C3, duration: 2000, essential: true }); await raf(); const c2 = map.getCenter();
+			map.setReduceMotion(false); map.jumpTo({ center: C }); await sleep(100);
+			return [near(c1, C2) && !near(c2, C3, 1e-3), `reduced: at=${c1.lng.toFixed(4)},${c1.lat.toFixed(4)} (want ${C2}) · essential mid=${c2.lng.toFixed(4)},${c2.lat.toFixed(4)}`];
+		});
+		await scene("setnow-freezes-and-steps-flight", async () => {
+			map.setReduceMotion(false); map.setNow(1000);
+			const p = map.easeTo({ center: C2, duration: 1000 }); await sleep(300);
+			const frozen = map.getCenter();   // 実時間が 300ms 流れても動きの時計は 1000 のまま＝出発点
+			map.setNow(1500); await raf(); await raf(); const mid = map.getCenter();
+			map.setNow(2100); await raf(); await raf(); await Promise.race([p, sleep(2000)]); const end = map.getCenter();
+			map.restoreNow(); map.jumpTo({ center: C }); await sleep(100);
+			const midOk = !near(mid, C, 1e-4) && !near(mid, C2, 1e-4);
+			return [near(frozen, C, 1e-6) && midOk && near(end, C2, 1e-6), `frozen=${frozen.lng.toFixed(5)} (start ${C[0]}) mid=${mid.lng.toFixed(5)} end=${end.lng.toFixed(5)} (want ${C2[0]})`];
+		});
+		await scene("setnow-freezes-and-steps-transition", async () => {
+			const d = 0.06, sq = { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]]] } };
+			map.addSource("tq", { type: "geojson", data: sq }); await map.addLayer({ id: "tq", type: "fill", source: "tq", paint: { "fill-color": "#ff0000" } });
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(500);
+			const [x, y] = map.projectLL(C[0], C[1]);
+			const pix = async () => px(await snap(map), x, y);
+			const isRed = c => c[0] > 200 && c[2] < 60, isBlue = c => c[2] > 235 && c[0] < 20;
+			const a = await pix();
+			map.setNow(5000); map.setPaintProperty("tq", "fill-color", "#0000ff"); await sleep(500);   // transition 300ms（既定）＝実時間が流れても t0 のまま＝赤
+			const b = await pix();
+			map.setNow(5090); await raf(); await raf(); await sleep(200); const m = await pix();   // 途中（90/300・緩急の曲線で 3〜4 割）＝混ざった色
+			map.setNow(5400); await raf(); await raf(); await sleep(200); const e = await pix();
+			map.restoreNow(); map.removeLayer("tq"); map.removeSource("tq");
+			return [isRed(a) && isRed(b) && !isRed(m) && !isBlue(m) && isBlue(e), `before=${a} frozen=${b} mid=${m} end=${e}`];
+		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。

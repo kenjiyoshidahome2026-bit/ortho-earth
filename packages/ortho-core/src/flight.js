@@ -190,7 +190,8 @@ export function glidePathPlan(cam0, env, pts) {
 //   { flyTo, glideTo, glidePath, easeTo, cancel(), active, plan:{fly,glide,path,ease} }
 //   cam＝{center,zoom,pitch,bearing} を直接書く（描画は onMove が飛ばす）。viewW()＝視野幅px（van Wijk の尺）。
 //   plan.*＝時刻評価プランを「今の env（視野幅等）」で構築する口（cam0 省略=現カメラ）＝スクラブ（map.sceneTimeline）の材料。
-export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {} }) {
+const STEP_MAX_MS = 35;   // 1 フレームの刻みの上限（ms）＝低 fps では「大股に飛ぶ」でなく「ゆっくり滑る」（createFlight の注を参照）
+export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlying = () => {}, now = () => performance.now(), stepMax = () => STEP_MAX_MS }) {   // now＝飛行の時計（C10・map.setNow で止められる＝決定論の撮影）・stepMax＝1 フレームの刻みの上限（止めた時計では無限＝呼び手が決める）
 	let flight = null;
 	const snap = () => ({ lon: cam.center[0], lat: cam.center[1], zoom: cam.zoom, pitch: cam.pitch, bearing: cam.bearing, roll: cam.roll || 0 });
 	let maxPitchCur = maxPitch, minZoomCur = minZoom;   // 実行時に変えられる（app の setMaxPitch/setZoomMin＝飛行の着地も上限/床に従う）
@@ -200,7 +201,6 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 	// 時を進めない＝低fps（重い都市を描くドリー等）では「大股に飛ぶ」でなく「ゆっくり滑る」（尺は伸びる側に倒す）。
 	// ≈29fps以上なら dt<上限＝実時間と完全一致＝録画（desktop・pinRes）もエディタの再生ヘッド（行頭で再同期）も実尺のまま。
 	// 35ms＝30Hz外部モニタ（dt≈33ms・tuneRes実測の恒常値）を素通しする下限。50→35（2026-08-12 実機「あまり変わらない」を受け一段強く）
-	const STEP_MAX_MS = 35;
 	// 戻り値＝着地（または cancel）で解決する Promise（2026-09-11・SDK ドッグフード「flyTo の完了を知る方法がない」）。中止も resolve（reject しない）
 	function run(plan) {
 		if (flight) flight.cancel();
@@ -210,11 +210,11 @@ export function createFlight({ cam, viewW, maxPitch, minZoom = 0, onMove, onFlyi
 		onFlying(true);
 		if (!plan || !(plan.dur > 0)) { onFlying(false); flight = null; done(); return settled; }   // 変化なし（glide の全チャンネル一致等）＝即着地扱い
 		let landed = false;
-		let t = 0, last = performance.now();
+		let t = 0, last = now();
 		const step = () => {
 			if (cancelled) return;
-			const now = performance.now();
-			t = Math.min(t + Math.min(now - last, STEP_MAX_MS), plan.dur); last = now;
+			const tn = now();
+			t = Math.min(t + Math.min(tn - last, stepMax()), plan.dur); last = tn;
 			const c = plan.at(t);
 			cam.center = [c.lon, c.lat]; cam.zoom = c.zoom; cam.pitch = c.pitch; cam.bearing = c.bearing; if (c.roll != null) cam.roll = c.roll;   // roll＝プランが持つ時だけ（easeTo）。fly/glide は今の値のまま
 			onMove();
