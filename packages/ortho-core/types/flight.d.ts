@@ -24,4 +24,4 @@ export interface FlightController {
 	};
 	[k: string]: unknown;
 }
-export function createFlight(opts: { cam: CameraPose; viewW: () => number; maxPitch: number; minZoom?: number; onMove: () => void; onFlying?: (on: boolean) => void }): FlightController;
+export function createFlight(opts: { cam: CameraPose; viewW: () => number; maxPitch: number; minZoom?: number; onMove: () => void; onFlying?: (on: boolean) => void; now?: () => number; stepMax?: () => number }): FlightController;

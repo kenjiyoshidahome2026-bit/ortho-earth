@@ -25,7 +25,7 @@ export interface FollowOptions extends Omit<LookAtOptions, "duration" | "animate
 export interface FollowHandle { stop(): void; readonly active: boolean; readonly target: CameraTarget }
 /** Navara の形のカメラ（A4）：lng/lat/height＝注視点・distance＝注視点までの m・heading＝bearing・pitch＝MapLibre の意味（0＝真下）。set では負の pitch を Cesium の意味（−90＝真下）と読む */
 export interface NavaraCamera { lng: number; lat: number; height: number; distance: number; heading: number; pitch: number; roll: number }
-export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number }
+export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number; essential?: boolean }
 
 /** UI 言語（26 言語・1.1.0〜。1.0.5 以前は ja/en のみ）。ar/fa/ur/he は右横書き（容れ物に dir=rtl）。"ja-JP" 等の地域付きは基底へ寄せる */
 export type OrthoJapanLang = "ja" | "en" | "zh" | "ko" | "fr" | "de" | "es" | "pt" | "it" | "nl" | "pl" | "ru" | "uk" | "hu" | "sv" | "tr" | "el" | "id" | "vi" | "th" | "bn" | "hi" | "ar" | "fa" | "ur" | "he";
@@ -162,6 +162,8 @@ export interface OrthoJapanOptions {
 	cooperativeGestures?: boolean;
 	/** ズームの目盛り（0＝無し）。ホイール・ダブルクリック・+/− の着地を吸着 */
 	zoomSnap?: number;
+	/** 動きを減らす（C10・2026-10-12・MapLibre の prefers-reduced-motion と同じ意味）＝easeTo／flyTo／fitBounds は essential:true でなければ jumpTo。無指定＝OS の設定を追う。実行時は setReduceMotion */
+	reduceMotion?: boolean;
 	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜）。
 	 *  頁に地図が複数ある時は URL の持ち主（urlHash）だけが扱う */
 	persistView?: boolean;
@@ -646,11 +648,11 @@ export interface OrthoJapanMap {
 	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
 	flyTo(lon: number, lat: number, zoom: number, tiltDeg?: number, bearingDeg?: number): Promise<void>;
 	/** MapLibre の形の飛行（1.2.0〜・#35）。省略した項目は今の値。animate:false＝jumpTo と同じ */
-	flyTo(options: CameraOptions & { animate?: boolean }): Promise<void>;
+	flyTo(options: CameraOptions & { animate?: boolean; essential?: boolean }): Promise<void>;
 	/** 即座に移る（MapLibre 同名・角は度） */
 	jumpTo(options: CameraOptions): OrthoJapanMap;
 	/** 全項目を一本の緩急で同時に動かす（MapLibre 同名）。duration 既定 500ms。着地（または中断）で解決 */
-	easeTo(options: CameraOptions & { duration?: number; animate?: boolean }): Promise<void>;
+	easeTo(options: CameraOptions & { duration?: number; animate?: boolean; essential?: boolean }): Promise<void>;
 	/** bbox が収まる所へ（MapLibre 同名）。west>east＝±180 跨ぎ。linear:true＝easeTo・既定＝flyTo・animate:false＝jumpTo */
 	fitBounds(bounds: Bbox | [LonLat, LonLat], options?: FitBoundsOptions): Promise<void>;
 	/** fitBounds が向かうカメラ（動かさない） */
@@ -767,6 +769,11 @@ export interface OrthoJapanMap {
 	setHandler(name: HandlerName, on: boolean): OrthoJapanMap;
 	handlerOn(name: HandlerName): boolean;
 	setZoomSnap(v: number): OrthoJapanMap;
+	/** 動きの時計（C10・2026-10-12）＝飛行・paint の transition・共通の時計の刻みが読む時計を ms に止める（続けて呼べば進む）＝決定論の撮影（同じ setNow の列は同じ絵）。restoreNow＝実時間へ。
+	 *  画像タイルの到着フェード（raster-fade-duration）と注記のフェードは描く側の壁時計のまま（記録） */
+	setNow(ms: number): OrthoJapanMap; restoreNow(): OrthoJapanMap; getNow(): number;
+	/** 動きを減らす（C10）＝true/false・null＝OS の prefers-reduced-motion を追う */
+	setReduceMotion(v: boolean | null): OrthoJapanMap; getReduceMotion(): boolean;
 	getZoomSnap(): number;
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
