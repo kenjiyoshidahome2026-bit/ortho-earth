@@ -1,33 +1,128 @@
 <h1><img src="apps/www/public/favicon.svg" width="28" height="28" alt="Ortho Earth logo"> Ortho Earth</h1>
 
-A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from scratch — zero dependencies, no tile servers. Runs entirely in the browser.
-
-## Why Ortho Earth
-
-- **Always a globe.** There is no flat Mercator mode to switch to or fall back on: orthographic and perspective are one continuum on a sphere (WGS84 ellipsoid optional), from the whole Earth down to street level. What you see at z2 and at z18 is the same model of the world.
-- **MapLibre code runs on it.** `@ortho-earth/globe/maplibre` is a `maplibregl` namespace: style.json, expressions, sources (MVT · MLT · PMTiles · GeoJSON · raster · raster-dem · image · video), `addLayer`/`setPaintProperty`/`queryRenderedFeatures`, Markers, Popups and Controls. The gate is MapLibre's own example gallery: of 139 official examples, 70 give the same picture, 42 the same answer and 25 run (none fail to run). The ledger is [`packages/globe/maplibre-compat.md`](packages/globe/maplibre-compat.md).
-- **WebGPU first, WebGL2 always.** Shadows, ambient occlusion, clipping planes and atmospheric scattering on WebGPU; the same map, minus those, on WebGL2.
-- **Reads the formats you already have.** 3D Tiles (b3dm · i3dm · pnts · cmpt · glb), I3S, COPC point clouds, quantized-mesh and raster-dem terrain, COG, WMS/WMTS, CZML/KML/GPX, GeoParquet, FlatGeobuf, Shapefile, GeoPackage, MVT and MLT — in the browser, with no server of your own ([`geopbf`](packages/geopbf)).
-- **Analysis built in.** Sun shadows and shadow hours, viewshed, line of sight, profiles, clipping, measurement. 26 UI languages.
+A serverless WebGPU/GL2 orthographic map engine and GIS workstation, built from scratch — zero runtime dependencies, no tile servers. Runs entirely in the browser.
 
 <img src="assets/hero.png" width="600" alt="Ortho Earth hero">
 
-**top page:** [www.ortho-earth.com](https://www.ortho-earth.com)
+**top page:** [www.ortho-earth.com](https://www.ortho-earth.com) · **ortho-japan (flagship 3D map):** [/japan/](https://www.ortho-earth.com/japan/) · **world globe:** [/globe/](https://www.ortho-earth.com/globe/) · **GIS-HUB (apps):** [/gishub/](https://www.ortho-earth.com/gishub/) · **MapLibre examples:** [/maplibre/](https://www.ortho-earth.com/maplibre/) · **technical documents:** [/#technologies](https://www.ortho-earth.com/#technologies)
 
-**ortho-japan (flagship 3D map):**  [www.ortho-earth.com/japan](https://www.ortho-earth.com/japan/)
+## Why Ortho Earth
 
-**GIS-HUB(apps):**  [www.ortho-earth.com/gishub](https://www.ortho-earth.com/gishub/)
+- **Always a globe.** There is no flat Mercator mode to switch to or fall back on: orthographic and perspective are one continuum on a sphere (WGS84 ellipsoid optional), from the whole Earth down to street level. What you see at z2 and at z18 is the same model of the world. MapLibre's `projection` is read as "globe" whatever it says, and `renderWorldCopies` has nothing to copy.
+- **MapLibre code runs on it.** `@ortho-earth/globe/maplibre` is a `maplibregl` namespace: style.json, expressions, sources (MVT · MLT · PMTiles · GeoJSON · raster · raster-dem · image · video · canvas), `addLayer`/`setPaintProperty`/`queryRenderedFeatures`, paint transitions, light, sky and fog, camera API (`FreeCameraOptions`, padding, constrain), Markers, Popups, Controls, and typings (`maplibre.d.ts`). The gate is MapLibre's own example gallery: of 139 official examples, 66 give the same picture, 50 the same answer and 21 run (none fail to run; graded on `@ortho-earth/globe` 1.14.0). The ledger is [`packages/globe/maplibre-compat.md`](packages/globe/maplibre-compat.md); the gallery with every example's source, match score and a Run button is [www.ortho-earth.com/maplibre/](https://www.ortho-earth.com/maplibre/).
+- **Extension points, one shape.** Every extension is `definePlugin({ name, install(map, opts) })`, installed with `map.use(plugin)`. Plugins register into `map.registry` (data kinds, gadgets, tile formats, light types, clouds, post-process passes, handlers, texture transcoders), and `map.supports(key)` / `map.capabilities()` answer honestly what is built in, what a plugin renders, and what is only accepted as a spec. Handbook: [`packages/globe/PLUGINS.md`](packages/globe/PLUGINS.md); the ledger of extension points is `maplibre-compat.md` §9.
+- **WebGPU first, WebGL2 always.** Shadows, ambient occlusion, clipping planes and atmospheric scattering on WebGPU; the same map, minus those, on WebGL2.
+- **Reads the formats you already have.** 3D Tiles (b3dm · i3dm · pnts · cmpt · glb), I3S, COPC point clouds, quantized-mesh and raster-dem terrain, COG, WMS/WMTS, CZML/KML/GPX, GeoParquet, FlatGeobuf, Shapefile, GeoPackage, File Geodatabase, MVT and MLT — in the browser, with no server of your own ([`geopbf`](packages/geopbf): 18 formats in, 14 out).
+- **Data layers without a second engine.** `map.addData(array, { kind, getPosition, getColor, … })` takes an array or GeoJSON with accessor functions: points, arcs, polygons, paths, columns and trips, with GPU range filters, brushing and masks. `map.addH3` / `addCells` (grid · geohash · quadkey · S2) / `addContour` / `addScreenGrid` bin points into cells, isolines and screen grids. deck.gl's `MapboxOverlay` and MapLibre-style custom layers (in the render worker, occluded by terrain and buildings) and three.js modules ride on the same camera.
+- **Analysis built in.** Sun shadows and shadow hours, viewshed, line of sight, profiles, clipping, measurement, `sampleTerrain`, sun and moon position. 26 UI languages.
+- **React, if you want it.** [`@ortho-earth/react`](packages/react): `<Globe>`, `<Source>`, `<Layer>`, `<Data>`, `<Marker>`, `useGlobe`, `useGlobeEvent`.
 
-**technical documents:**  [www.ortho-earth.com/#technologies](https://www.ortho-earth.com/#technologies)
+## Quick start
+
+```
+npm i @ortho-earth/globe
+```
+
+```js
+import { createGlobe } from "@ortho-earth/globe";
+
+const map = await createGlobe({ target: "#map", view: "#3/20/140" });
+map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
+```
+
+Or keep your MapLibre code as it is:
+
+```js
+import maplibregl from "@ortho-earth/globe/maplibre";
+
+const map = new maplibregl.Map({ container: "map", style: "https://demotiles.maplibre.org/style.json", center: [139.77, 35.68], zoom: 3 });
+```
+
+For Japan, [`@ortho-earth/japan`](apps/ortho-japan) is a self-contained bundle of the same engine plus the Japan region pack (GSI vector tiles, DEM, PLATEAU buildings, POI, search).
+
+## Repository layout
+
+The monorepo is one npm workspace (`packages/*` and `apps/*`). Parts are arranged in four layers, hard at the top and soft at the bottom ([`LAYERS.md`](LAYERS.md)):
+
+| Layer | Where | What |
+|---|---|---|
+| core | [`packages/ortho-core`](packages/ortho-core) (`@ortho-earth/core`) | Rendering, camera, projection, Gint, overlay contract. Knows no region |
+| globe | [`packages/globe`](packages/globe) (`@ortho-earth/globe`) | The globe host: boot, world layers, region-independent gadgets, the MapLibre face, plugins, SDK types, gates |
+| region pack | [`packages/jp`](packages/jp) (`@ortho-earth/jp`) | A region's declaration (terrain, buildings, basemap, rasters, search, POI, rail) and the parts only that region needs |
+| apps | [`apps/*`](apps) | Shells. `japan` = globe + jp pack + Japanese UI; `world`, `equal`, `census2020`, `solar`, … |
+
+Region names never appear in core or globe code (the `verify:regionless` gate counts them). Apps without a region load the shared engine from a versioned, immutable URL (`www.ortho-earth.com/globe/engine/<hash>/`); the Japan apps are two-stage: shared engine + their own bundle with `orthoJapan` and the jp pack.
+
+### Packages
+
+| Package | Version | License | What it is |
+|---|---|---|---|
+| [`@ortho-earth/core`](packages/ortho-core) | 1.14.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 1.14.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/jp`](packages/jp) | 0.0.1 | GPL-3.0-or-later | Japan region pack |
+| [`@ortho-earth/react`](packages/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
+| [`@ortho-earth/columnar`](packages/columnar) | 0.1.1 | GPL-3.0-or-later | Column-chunk layer: GeoPBF / GeoParquet without the topology pass |
+| [`@ortho-earth/h3`](packages/h3) | 0.1.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
+| [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.1.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
+| [`@ortho-earth/ephem`](packages/ephem) | 1.1.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
+| [`geopbf`](packages/geopbf) | 1.19.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
+| [`geoedit`](packages/geoedit) | 0.3.2 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
+| [`altpbf`](packages/altpbf) | 1.1.1 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
+| [`glbconv`](packages/glbconv) | 0.1.0 | MIT | GLB to other 3D formats, browser and Node |
+| [`native-bucket`](packages/native-bucket) | 1.0.1 | MIT | Cloudflare R2 ⇄ browser IndexedDB bridge for heavy binary datasets |
+| [`himekuri`](packages/himekuri) | 1.0.0 | MIT | Japanese tear-off calendar and world-clock SVG widgets |
+| [`common`](packages/common) | 1.0.0 | MIT | Small shared helpers |
+| [`quiet-mono`](packages/quiet-mono) | 1.0.0 | GPL-3.0-or-later | Design kit (tokens and UI parts) shared by the ortho apps |
+| [`world-data`](packages/world) | 2.0.0 | CC BY-SA 4.0 (data) | Countries and territories (262) and landforms (~900) with names in 26 languages |
+| [`space-data`](packages/space) | 1.0.0 | CC BY-SA 4.0 (data) | Constellations, Messier objects, Solar-System bodies and 2,023 lunar place names in 26 languages |
+
+`geopbf` and `altpbf` are also published to standalone repositories as read-only mirrors on each release.
+
+### Apps
+
+Every page under `apps/*` is a shell over the packages above. The ones that are public today:
+
+| URL | App | What it shows |
+|---|---|---|
+| [/japan/](https://www.ortho-earth.com/japan/) | `apps/ortho-japan` | The flagship: Japan from public data only (GSI, PLATEAU, JAXA). Also `/japan/terrain`, `/japan/parks`, `/japan/models`, `/japan/fireworks`, `/japan/scene`, `/japan/tellus`, `/japan/geoedit` |
+| [/globe/](https://www.ortho-earth.com/globe/) | `apps/ortho-globe` | The world globe and the shared engine. `/globe/physical` (landforms), `/globe/parks` (US national parks), `/globe/quakes`, `/globe/sats`, `/globe/clouds`, `/globe/?start=equal` (Equal Earth) |
+| [/world/](https://www.ortho-earth.com/world/) | `apps/world` | Nations of the world as cards |
+| [/quiz/](https://www.ortho-earth.com/quiz/) | `apps/world-quiz` | Geography quiz on the globe |
+| [/japan/census2020/](https://www.ortho-earth.com/japan/census2020/) | `apps/census2020` | Japan's 2020 census, small-area statistics and risk zones |
+| [/solar/](https://www.ortho-earth.com/solar/) | `apps/solar` | The planets and their moons, now and replayed over time |
+| [/himekuri/](https://www.ortho-earth.com/himekuri/) | `apps/himekuri-demo` | Daily calendar with sunrise, sunset, twilight and the Moon |
+| [/nl/](https://www.ortho-earth.com/nl/) | `apps/ortho-nl` | The Netherlands from 3DBAG |
+| [/geopbf/](https://www.ortho-earth.com/geopbf/) | `apps/geopbf-demo` | Drop a GIS file, check it on the globe, write it in another format |
+| [/gishub-jp/](https://www.ortho-earth.com/gishub-jp/) | `apps/gishub-jp` | Japan's open GIS data: view and convert |
+| [/](https://www.ortho-earth.com/) | `apps/www` | Top page, demo cards, the `/maplibre/` gallery and `/docs/` |
+
+`apps/uploader` (bakes data and puts it in the bucket), `apps/account` (per-user file storage Worker), `apps/quakes-mirror` and `apps/sats-mirror` (Workers that mirror the USGS and CelesTrak feeds) are internal.
+
+## Development
+
+Node 22 and npm. `npm install` at the root installs every workspace.
+
+- `npm run dev:www` — the top page with the demo cards; each app has its own `npm run dev -w <app>` (for example `-w @ortho-earth/japan`, `-w ortho-globe`).
+- `npm run build:all` — builds www, geopbf-demo, gishub-jp and world and assembles `apps/www/dist` (docs, geopbf, gishub-jp, world, the shared engine).
+- Each package README documents its own API; [`packages/globe/README.md`](packages/globe/README.md) is the place to start for the engine, [`packages/geopbf/README.md`](packages/geopbf/README.md) for the data layer.
 
 ## Tests
 
 `npm test` at the repository root runs every Node-only test suite in the monorepo (`scripts/test-all.mjs`: the suites of each
-workspace are unrolled to their test files and run in parallel, about 15 seconds on 4 cores, no browser or network needed;
+workspace are unrolled to their test files, about 190 of them, and run in parallel, no browser or network needed;
 `npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
-`npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify` in `packages/globe`,
+`npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify:ui` / `verify:webgpu` / `verify:nocoi` / `verify:examples` in `packages/globe`,
 `npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/ortho-japan`, `npm run verify:pages` in `packages/geopbf`,
 `npm run verify:gpu` in `apps/equal`. They drive a local Google Chrome, and the WebGPU suites need a real GPU.
+
+## Deploying
+
+There is no CI/CD workflow in this repository (only GitHub's CodeQL scan runs on push). Publishing is done from a machine with a logged-in `wrangler`:
+
+- **Workers** (`ortho-japan`, `ortho-globe`, `world`, `ortho-equal`, `census2020`, `ortho-solar`, `ortho-nl`, `ortho-himekuri`, `ortho-world-quiz`, …; one `wrangler.toml` per app): `npm run deploy -w <app>`. Each app's deploy script runs its own gates first (i18n tables, `verify:prod`, tests) and then `wrangler deploy`; `apps/ortho-japan` uses `scripts/deploy.mjs`.
+- **www** (`www.ortho-earth.com`, Cloudflare Pages): published automatically when `main` is merged, through the Pages Git integration. No manual `wrangler pages deploy` is needed.
+- **Order matters.** Because www goes live on merge, deploy the Workers first, and `ortho-globe` before the apps that load the shared engine (its URL is a content hash of `packages/globe`; older entry points are redirected to the current version by the `ortho-globe` Worker).
+- Bulk data (`world`, `space`, GeoPBF archives) lives in a Cloudflare R2 bucket and is uploaded with `apps/uploader`.
 
 ## Contributors & Acknowledgments
 
@@ -38,7 +133,8 @@ I also acknowledge the invaluable support of my AI collaborators:
 
 ## License
 
-- Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
-- Data formats & utilities (`geopbf`, `altpbf`, `native-bucket`, `common`, `himekuri`): **MIT**
+- Engine & apps (`@ortho-earth/core`, `@ortho-earth/globe`, `@ortho-earth/jp`, `@ortho-earth/react`, `@ortho-earth/columnar`, `@ortho-earth/h3`, `@ortho-earth/tile-formats`, `@ortho-earth/ephem`, `quiet-mono`, `ortho-japan`, `apps/*`): **GPL-3.0-or-later**
+- Data formats & utilities (`geopbf`, `geoedit`, `altpbf`, `glbconv`, `native-bucket`, `common`, `himekuri`, `apps/world`): **MIT**
+- Data packages (`world-data`, `space-data`): **CC BY-SA 4.0** (lunar place names from USGS are public domain)
 
 For commercial use without GPL obligations, a separate commercial license is available — contact kenji.yoshida.home.2026@gmail.com.
