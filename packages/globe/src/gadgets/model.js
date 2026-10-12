@@ -10,7 +10,8 @@
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { normAnimation } from "../gltf-meta.js";   // アニメの spec（F4）
-import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.js";   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
+import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.js";
+import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
@@ -246,7 +247,7 @@ export function createModel(map, { setMesh, setMeshXf = null, fit, center, ell =
 				name ??= src.name || "model.glb";
 			}
 			const anchor = at || center?.() || null;
-			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask }, [ab]).catch(err => {
+			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, transcoders: transcodersOf(map) }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});

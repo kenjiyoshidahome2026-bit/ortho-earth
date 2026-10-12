@@ -11,6 +11,7 @@
 // 楕円体表示（#43）：選び（worldOf）は β 単位球＋測地法線のリフト・中身は worker へ ell を渡して建物メッシュと同じ式（meshdecode の geoWorld）。
 // I3S（#48）も同じ選び・同じ GPU 経路（addI3S）＝節点の木と中身は worker が @loaders.gl/i3s で読む（i3s-decode.js）。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝タイルの glb の KTX2 も変換器で
 import { cameraState, ellipsoidOn } from "@ortho-earth/core";
 import pointsUrl from "./points-gl.js?url";
 
@@ -130,7 +131,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		const rq = set.kind !== "i3s" ? resolveFor(set.opts.requestTransform, n.uri, "Tile") : { url: n.uri };
 		const body = rq.load ? rq.load("arrayBuffer") : Promise.resolve(null);   // 独自スキーム＝main が読み口で取って本体を worker へ
 		body.then(ab => set.kind === "i3s" ? rpc({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
-			: rpc({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
+			: rpc({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute", transcoders: transcodersOf(map) }, ab ? [ab] : [])).then(r => {
 			if (set.removed) return;
 			n.ward = `t3d:${set.id}:${n.id}`;
 			n.bytes = 0;
