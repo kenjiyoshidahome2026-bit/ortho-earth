@@ -11,6 +11,8 @@ export type Bbox = [w: number, s: number, e: number, n: number];
 /** 画面の縁から中身を寄せる余白（CSS px）＝UI パネルに隠れる分（#35） */
 export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
+/** 手触りの handler の名前（A2・1.16.0〜） */
+export type HandlerName = "scrollZoom" | "dragPan" | "dragRotate" | "keyboard" | "doubleClickZoom" | "boxZoom" | "touchZoomRotate" | "touchRotate" | "touchPitch" | "cooperativeGestures";
 export interface CameraOptions { center?: LonLat | { lng: number; lat: number }; zoom?: number; pitch?: number; bearing?: number; /** 視線まわりの回転（度・MapLibre の roll・1.16.0〜）。正＝絵が時計回り */ roll?: number; padding?: Partial<PaddingOptions> | number }
 export interface FitBoundsOptions { padding?: Partial<PaddingOptions> | number; maxZoom?: number; pitch?: number; bearing?: number; animate?: boolean; linear?: boolean; duration?: number }
 
@@ -139,6 +141,14 @@ export interface OrthoJapanOptions {
 	/** 矢印キーのカメラ操作（window で受ける）。false＝取らない／関数＝真を返す間だけ取る（背景に置く時にページのスクロールを奪わない。既定 true・1.1.0〜）。
 	 *  頁に地図が複数ある時、キー（矢印とガジェットのショートカット）は最後に触った地図だけが拾う＝起動直後は最初の地図（#173） */
 	keyboard?: boolean | (() => boolean);
+	/** 手触りの handler の初期 on/off（1.16.0〜・A2・MapLibre 同名）。実行時は setHandler */
+	handlers?: Partial<Record<HandlerName, boolean>>;
+	/** false＝全 handler off（MapLibre の interactive:false） */
+	interactive?: boolean;
+	/** 協調モード（MapLibre 同名）＝修飾キー無しのホイール・1 本指は頁に譲り on("cooperativegestureprevented") を出す */
+	cooperativeGestures?: boolean;
+	/** ズームの目盛り（0＝無し）。ホイール・ダブルクリック・+/− の着地を吸着 */
+	zoomSnap?: number;
 	/** 前回ビューの保存と復元（localStorage）。false＝読まない・書かない（同じオリジンの本体の「前回の続き」を上書きしない背景用途向け。既定 true・1.1.0〜）。
 	 *  頁に地図が複数ある時は URL の持ち主（urlHash）だけが扱う */
 	persistView?: boolean;
@@ -656,8 +666,13 @@ export interface OrthoJapanMap {
 	/** 見えている範囲の概算 [w,s,e,n]（画面の四隅と辺の中点の逆投影）。球の縁が画面に入る時は null */
 	getBounds(): Bbox | null;
 	isMoving(): boolean;
-	/** 飛行・easeTo を止める */
+	/** 飛行・easeTo・慣性・ズームの滑りを止める */
 	stop(): OrthoJapanMap;
+	/** handler の on/off（1.16.0〜・A2）。shift＋ドラッグ＝ボックスズーム（1.16.0〜。以前はチルト・右ボタン／Ctrl＋ドラッグは従来どおりチルト）・ダブルクリック／ダブルタップ＝z+1（shift で z−1）・+/−＝1 段・離した勢いの慣性（MapLibre の定数） */
+	setHandler(name: HandlerName, on: boolean): OrthoJapanMap;
+	handlerOn(name: HandlerName): boolean;
+	setZoomSnap(v: number): OrthoJapanMap;
+	getZoomSnap(): number;
 	getZoom(): number;
 	/** 現在の視点。pitch/bearing は**ラジアン**（flyTo の tiltDeg/bearingDeg は度）。theme＝現在の配色名。hash＝共有/再生成用の "#z/lat/lon/…" */
 	readonly view: { center: LonLat; zoom: number; pitch: number; bearing: number; /** ラジアン（1.16.0〜） */ roll: number; /** 縦の視野角（ラジアン・1.16.0〜） */ fovy: number; theme?: string; hash: string;[k: string]: unknown };   // 未記載のキー（sky/eye 等）は内部用＝使わない
@@ -688,6 +703,11 @@ export interface OrthoJapanMap {
 	on(ev: "idle", cb: (e: {}) => void): OrthoJapanMap;
 	/** カメラ静止（移動が 150ms 止まった時・1.0.5〜）。ツアー/オーバレイの「止まった」合図 */
 	on(ev: "settle", cb: (e: { center: LonLat; zoom: number; pitch: number; bearing: number; hash: string }) => void): OrthoJapanMap;
+	/** ボックスズーム（shift＋ドラッグ・1.16.0〜・MapLibre 同名）。end の bbox＝[w,s,e,n]（west>east＝±180 跨ぎ）・x0..y1＝画面の矩形（CSS px） */
+	on(ev: "boxzoomstart" | "boxzoomcancel", cb: (e: {}) => void): OrthoJapanMap;
+	on(ev: "boxzoomend", cb: (e: { bbox: Bbox; x0: number; y0: number; x1: number; y1: number }) => void): OrthoJapanMap;
+	/** 協調モード（opts.cooperativeGestures）で止めた操作（1.16.0〜） */
+	on(ev: "cooperativegestureprevented", cb: (e: { kind: "wheel" | "touch" }) => void): OrthoJapanMap;
 	/** 購読解除（1.0.5〜） */
 	off(ev: string, cb: (e: any) => void): OrthoJapanMap;
 	destroy(): void;

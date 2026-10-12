@@ -16,7 +16,7 @@ const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
-	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend"]);
+	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend", "boxzoomstart", "boxzoomend", "boxzoomcancel", "cooperativegestureprevented"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
 const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave"]);   // エンジンが層ごとに持つ事象（#34）
 
@@ -104,6 +104,10 @@ function wireEngine(self, st) {
 		emit(self, "moveend");
 	});
 	eng.on("styleimagemissing", e => emit(self, "styleimagemissing", { id: e.id }));   // 記号帳に無い名前（名前ごとに 1 回）
+	eng.on("boxzoomstart", () => emit(self, "boxzoomstart"));
+	eng.on("boxzoomend", e => emit(self, "boxzoomend", { boxZoomBounds: new LngLatBounds([e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]) }));   // MapLibre の boxzoomend＝boxZoomBounds（例 select-features-with-boxzoomend-callback）
+	eng.on("boxzoomcancel", () => emit(self, "boxzoomcancel"));
+	eng.on("cooperativegestureprevented", e => emit(self, "cooperativegestureprevented", { gestureType: e.kind === "touch" ? "touch_pan" : "wheel_zoom" }));
 	eng.on("idle", () => {
 		st.idle = true;
 		for (const id of st.sources) { emit(self, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "idle" }); emit(self, "data", { dataType: "source", sourceId: id }); }
@@ -129,14 +133,21 @@ export class Map {
 			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0, roll: options.roll ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
-		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝どの口も受ける。止める系は見た目の記録（操作の手触り＝最初の絵は変わらない）
-		const handler = h => new Proxy({ isEnabled: () => true, isActive: () => false }, { get: (o, k) => k in o ? o[k] : typeof k !== "string" ? undefined
-			: (...a) => { if (/^disable/.test(k)) unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝エンジンの handler の旗を叩く実体（A2・2026-10-12。旧＝記録だけ）。
+		// touchZoomRotate.enableRotation/disableRotation＝旗 touchRotate。isActive は false（掴んでいる最中の判定は持たない）
+		const flag = (h, k) => h === "touchZoomRotate" && /Rotation$/.test(k) ? "touchRotate" : h;
+		const handler = h => new Proxy({}, { get: (o, k) => typeof k !== "string" ? undefined
+			: k === "isEnabled" ? () => (st.engine ? st.engine.handlerOn(h) : st.handlerInit[h] !== false)
+			: k === "isActive" ? () => false
+			: /^(enable|disable)/.test(k) ? () => { const on = /^enable/.test(k), f = flag(h, k); st.handlerInit[f] = on; onEngine(st, eng => eng.setHandler(f, on)); return undefined; }
+			: () => { unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		st.handlerInit = Object.fromEntries(HANDLERS.map(h => [h, options[h] !== false && options.interactive !== false]));
+		st.handlerInit.touchRotate = st.handlerInit.touchZoomRotate;
+		st.handlerInit.cooperativeGestures = !!options.cooperativeGestures;
 		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, handler(h)]));
 		if (liveMaps++ > 3) { liveMaps--; st.inert = true; unsupported(self, "fifth Map on the page (at most four live maps)"); return self; }   // 1 頁に 4 枚まで（#173 の裁定 2 枚→2026-09-30 本人「4 枚まで」＝sync-movement-of-multiple-maps の 3 枚が生きる。GL の文脈は 1 枚 2 本＝8 本 < 16）
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
-		if (options.interactive === false) unsupported(self, "option interactive: false", "cosmetic");
 		if (options.renderWorldCopies === false) unsupported(self, "option renderWorldCopies: false (the globe has no world copies)", "cosmetic");
 		const o = {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
@@ -147,6 +158,7 @@ export class Map {
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
+			handlers: st.handlerInit, interactive: options.interactive, cooperativeGestures: !!options.cooperativeGestures,   // 手触りの旗（A2）
 			maxPitch: options.maxPitch ?? 85,   // MapLibre の既定は 60・この口の既定は 85（MapLibre 6.x が許す 180 の手前・地平線まで見せる・2026-10-12 本人裁定 A1）。ortho の口（createGlobe）の既定 75 は変えない
 			...(options.transformRequest && { transformRequest: options.transformRequest }),
 			...options.ortho,   // この地図の起動オプションへの逃げ道（夜面・星空を点ける・時計を止める…）
@@ -154,6 +166,13 @@ export class Map {
 		st.ready = createGlobe(o).then(async eng => {
 			st.engine = eng;
 			wireEngine(self, st);
+			if (options.cooperativeGestures) {   // MapLibre の協調モードの案内（.maplibregl-cooperative-gesture-screen 相当・修飾キー無しのホイール／1 本指で 1 秒出す）
+				const mac = /Mac|iPhone|iPad/.test(navigator.platform), txt = { wheel: `Use ${mac ? "⌘" : "Ctrl"} + scroll to zoom the map`, touch: "Use two fingers to move the map" };
+				const scr = document.createElement("div"); scr.className = "maplibregl-cooperative-gesture-screen";
+				Object.assign(scr.style, { position: "absolute", inset: "0", display: "none", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.4)", color: "#fff", font: "20px/1.4 sans-serif", textAlign: "center", pointerEvents: "none", zIndex: 99 });
+				container.appendChild(scr); let t = 0;
+				eng.on("cooperativegestureprevented", e => { scr.textContent = txt[e.kind] || txt.wheel; scr.style.display = "flex"; clearTimeout(t); t = setTimeout(() => { scr.style.display = "none"; }, 1000); });
+			}
 			for (const f of st.engineFns.splice(0)) f(eng);
 			if (options.minZoom != null) eng.setMinZoom(options.minZoom);
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
