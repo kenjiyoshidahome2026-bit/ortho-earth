@@ -1,0 +1,45 @@
+// MapLibre GL JS の書き方そのまま（公式例の型）が `@ortho-earth/globe/maplibre` の型で通るか（F10・tests/mlshim-dts.mjs が tsc にかける）
+import * as maplibregl from "@ortho-earth/globe/maplibre";
+import { Map, Marker, Popup, LngLat, LngLatBounds, NavigationControl, ScaleControl, GeolocateControl, MaplibreInspect, FreeCameraOptions, MercatorCoordinate, addProtocol, createTileMesh, SubdivisionGranularitySetting, SubdivisionGranularityExpression } from "@ortho-earth/globe/maplibre";
+
+const map = new Map({ container: "map", style: "https://demotiles.maplibre.org/style.json", center: [139.76, 35.68], zoom: 10, pitch: 45, maxPitch: 85, hash: true, ortho: { night: true } });
+map.on("load", () => {
+	map.addSource("pts", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+	map.addLayer({ id: "pts", type: "circle", source: "pts", paint: { "circle-radius": 6, "circle-color": ["get", "c"] } }, "water");
+	map.setPaintProperty("pts", "circle-opacity", 0.5);
+	map.setFilter("pts", ["==", ["get", "k"], 1]);
+	map.setTerrain({ source: "dem", exaggeration: 1.5 });
+	map.setLight({ anchor: "map", intensity: 0.6 });
+	map.setSky({ "sky-color": "#88c", "horizon-color": "#fff" });
+	map.setFeatureState({ source: "pts", id: 3 }, { hover: true });
+	const src = map.getSource("pts"); src?.setData?.({ type: "FeatureCollection", features: [] });
+	map.addControl(new NavigationControl({ visualizePitch: true }), "top-left");
+	map.addControl(new ScaleControl({ unit: "metric" }));
+	const geo = new GeolocateControl({ trackUserLocation: true }); map.addControl(geo); geo.trigger();
+	map.addControl(new MaplibreInspect({ showInspectButton: true }));
+	map.scrollZoom.disable(); map.touchZoomRotate.disableRotation(); map.dragPan.enable();
+	map.showTileBoundaries = true;
+});
+map.on("click", "pts", e => { const f = e.features?.[0]; const ll: LngLat = e.lngLat; console.log(f?.properties, ll.lng, e.point.x); });
+map.on("mousemove", e => { const p = map.project(e.lngLat); map.getCanvas().style.cursor = p.x > 0 ? "pointer" : ""; });
+map.once("idle").then(() => {}); map.once("load", () => {});
+map.flyTo({ center: [139.7, 35.6], zoom: 12, speed: 0.8, curve: 1.2, essential: true });
+map.easeTo({ pitch: 60, bearing: -20, padding: { top: 50, right: 0, bottom: 0, left: 0 }, duration: 800 });
+map.fitBounds(new LngLatBounds([139.5, 35.5], [140, 36]), { padding: 20, maxZoom: 14 });
+map.fitBounds([139.5, 35.5, 140, 36]);
+const b: LngLatBounds = map.getBounds(); const c: LngLat = b.getCenter(); const z: number = map.getZoom(); const r: number = map.getRoll();
+map.setRoll(10).setVerticalFieldOfView(40).setZoomSnap(0.5);
+const fs = map.queryRenderedFeatures([10, 20], { layers: ["pts"] }); const n = fs.length + map.querySourceFeatures("pts", { sourceLayer: "a" }).length;
+const h: number | null = map.queryTerrainElevation([139.76, 35.68]);
+const cam = new FreeCameraOptions(MercatorCoordinate.fromLngLat([139.76, 35.68], 2000), [0, 0, 0, 1]); cam.lookAtPoint([139.8, 35.7]); map.setFreeCameraOptions(cam);
+map.setTransformConstrain(tr => ({ center: tr.center, zoom: Math.min(tr.zoom, 15) }));
+const mk = new Marker({ color: "#f00", draggable: true }).setLngLat([139.76, 35.68]).setPopup(new Popup({ offset: 25 }).setText("Tokyo")).addTo(map);
+mk.on("dragend", () => { const p = mk.getLngLat(); if (p) console.log(p.lng); });
+new Popup().setLngLat(new LngLat(139.76, 35.68)).setHTML("<b>hi</b>").addTo(map);
+addProtocol("custom", async ({ url }) => ({ data: new ArrayBuffer(0) }));
+const mesh = createTileMesh({ granularity: 4, generateBorders: true }, "16bit"); const idx: ArrayBuffer = mesh.indices;
+const gs = new SubdivisionGranularitySetting({ fill: new SubdivisionGranularityExpression(128, 2), line: new SubdivisionGranularityExpression(512, 0), tile: new SubdivisionGranularityExpression(128, 32), stencil: new SubdivisionGranularityExpression(128, 1), circle: 3 });
+console.log(maplibregl.getVersion(), c.lat, z, r, n, h, idx.byteLength, gs.fill.getGranularityForZoomLevel(3), b.toArray());
+map.setStyle("https://example.com/other.json", { diff: true });
+map.resize(); map.remove();
+export {};
