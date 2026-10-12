@@ -10,7 +10,7 @@ import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { positionAt, ecefToLlh } from "./czml-time.js";
 import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from "./transition.js";
-import { normLight, lightPayload, normLights, LIGHT_TYPES } from "./light.js";
+import { normLight, lightPayload, normLights, LIGHT_TYPES, localLightsPayload } from "./light.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spriteEcho, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";
@@ -2735,7 +2735,7 @@ map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.cen
 map.setLight = l => { mlLight = l == null ? null : normLight(l); sendLight(); needsDraw = true; return map; };   // setLight＝setLights の directional の別名（F1・getLights は mlLight を見る＝style の根の light も映る）
 map.getLight = () => normLight(mlLight);
 // 光源の口（第 2 波 F1・2026-10-12・src/light.js）：map.setLights([{ type: "directional"|"point"|"spot"|"ambient"|"hemisphere"|"ibl"|<plugin の type>, ... }])／getLights()。
-//   受けて既定を補って**保つ**。描くのは directional（setLight と同じ経路・1 つまで）。他の builtin の type は保つだけ（capabilities "spec"・後の段か plugin が描く）。
+//   受けて既定を補って**保つ**。描くのは directional（setLight と同じ経路・1 つまで）と point/spot/ambient/hemisphere（第 3 波 W2・renderer "lights"・メッシュの陰影）。ibl は保つだけ（capabilities "spec"・plugin が描く）。
 //   plugin の type＝registry.lights.add(type, { apply(map, lights) })＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（自前の overlay/three で描く約束）
 let lightsCur = [];
 map.setLights = list => {
@@ -2744,6 +2744,7 @@ map.setLights = list => {
 	const dir = next.find(l => l.type === "directional");
 	mlLight = dir ? normLight(dir) : null; sendLight();
 	lightsCur = next.filter(l => l.type !== "directional");   // directional は mlLight が正本（setLight・style の根の light・setStyle の差分と同じ 1 本）
+	renderer.set("lights", localLightsPayload(lightsCur, EARTH_M));   // 局所の光源（第 3 波 W2）＝point/spot/ambient/hemisphere を renderer へ（メッシュ＝模型・LOD2 の陰影に足す・上限 8）
 	for (const t of reg.names()) if (!LIGHT_TYPES.includes(t)) { try { reg.get(t).apply(map, next.filter(l => l.type === t)); } catch (e) { console.warn(`[lights] ${t}: apply failed`, e); } }
 	needsDraw = true; return map;
 };

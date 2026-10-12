@@ -281,11 +281,34 @@ uniform float u_lightOn;    // style の light（MapLibre・B3 2026-10-12）：1
 uniform vec3  u_lightDir;
 uniform float u_lightI;
 uniform vec3  u_lightColor;
+uniform int   u_lightN;       // 局所の光源（第 3 波 W2・2026-10-12）＝point/spot/ambient/hemisphere・上限 8。並びは light.js localLightsPayload（A＝位置+kind・B＝色+強さ・C＝向き／地面色+range・D＝cos 内外+decay）
+uniform vec4  u_lA[8];
+uniform vec4  u_lB[8];
+uniform vec4  u_lC[8];
+uniform vec4  u_lD[8];
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
 in float v_fog;
 out vec4 fragColor;
+// 局所の光の寄与＝陰影の係数 d に足す（色×(d＋Σ光)）。pos＝画素の世界座標（単位球）・up＝その動径。ambient は向きに依らず・hemisphere は上向き具合で空色と地面色・point/spot は (1−dist/range)^decay と cos の smoothstep
+vec3 localLights(vec3 n, vec3 pos, vec3 up) {
+	vec3 acc = vec3(0.0);
+	for (int i = 0; i < 8; i++) {
+		if (i >= u_lightN) break;
+		vec4 A = u_lA[i], B = u_lB[i], C = u_lC[i], D = u_lD[i];
+		int kind = int(A.w + 0.5);
+		if (kind == 3) acc += B.rgb * B.w;
+		else if (kind == 4) acc += mix(C.rgb, B.rgb, dot(n, up) * 0.5 + 0.5) * B.w;
+		else {
+			vec3 dv = A.xyz - pos; float dist = length(dv); vec3 L = dv / max(dist, 1e-9);
+			float at = C.w > 0.0 ? pow(clamp(1.0 - dist / C.w, 0.0, 1.0), D.z) : 1.0;
+			if (kind == 2) at *= smoothstep(D.x, D.y, dot(-L, C.xyz));
+			acc += B.rgb * B.w * at * max(dot(n, L), 0.0);
+		}
+	}
+	return acc;
+}
 void main() {
 	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
 	// v_toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号が相殺し位置微分の面法線と等価＝varying追加不要。
@@ -308,6 +331,7 @@ void main() {
 		vec3 Ls = normalize(east * u_lightDir.x + north * u_lightDir.y + up * u_lightDir.z);
 		d = u_lightColor * mix(1.0 - u_lightI, 1.0, clamp(dot(n, Ls), 0.0, 1.0));
 	}
+	if (u_lightN > 0) { vec3 pw = u_eye - v_toEye; d += localLights(n, pw, normalize(pw)); }   // 局所の光源（W2）
 	vec3 c = mix(u_bldColor * d, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
