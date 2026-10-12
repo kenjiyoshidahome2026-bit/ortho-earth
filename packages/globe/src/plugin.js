@@ -87,7 +87,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"gltf.featureIds": { status: "spec", note: "EXT_mesh_features / _FEATURE_ID_n detected in .gltf.featureIds (F4); not yet pickable" },
 	"texture.ktx2": { status: "spec", note: "KTX2/Basis detected in .gltf.textureFormats (F4); registry.textureTranscoders holds the module URL contract, worker-side transcoding not wired yet" },
 	"tiles3d": { status: "builtin", note: "add3DTiles (b3dm/i3dm/cmpt/glb), addI3S" },
-	"tiles3d.requestTransform": { status: "no", note: "Google Photorealistic 3D Tiles key/session injection: PR-F5 (implemented)" },
+	"tiles3d.requestTransform": { status: "builtin", note: "add3DTiles(url, { requestTransform(url, type) }) rewrites every tileset/tile request (key, session, signed URLs, headers); root asset/metadata/extras on the handle (F5)" },
 	"terrain.dem": { status: "builtin", note: "setTerrain (raster-dem, quantized-mesh)" },
 	"terrain.queryElevation": { status: "builtin", note: "queryTerrainElevation (sync, 100m grid cache)" },
 	"terrain.sample": { status: "no", note: "batch terrain sampling (sampleTerrain): PR-F6 (implemented)" },
