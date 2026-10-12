@@ -57,9 +57,22 @@ export interface SunSpec { follow?: "clock" | null; azimuth?: number; altitude?:
 export interface CloudsSpec { coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
 /** registry.handlers の契約（F6）：create(map, opts) が { start, stop, active } を返す。"walk" は map.walk(opts) の中身 */
 export interface HandlerImpl { create(map: OrthoJapanMap, opts: Record<string, unknown>): { start?(): void; stop?(): void; readonly active?: boolean } }
-/** map.walk の引数（F6・口だけ＝受けて保つ）。speed＝m/s（既定 1.4）・eyeHeight＝目の高さ m（既定 1.7）・collide＝建物・地形に当たる（既定 true）・keys＝WASD/矢印（既定 true） */
-export interface WalkOptions { speed?: number; eyeHeight?: number; collide?: boolean; keys?: boolean; [k: string]: unknown }
-export interface WalkHandle { readonly opts: Required<Pick<WalkOptions, "speed" | "eyeHeight" | "collide" | "keys">> & WalkOptions; readonly active: boolean; /** 中身（registry.handlers "walk"）が無ければ false を返し何もしない */ start(): boolean; stop(): WalkHandle }
+/** map.walk の引数（F6 の口・W3 で中身）。speed＝m/s（既定 1.4）・eyeHeight＝目の高さ m（既定 1.7）・collide＝基図の建物・押し出しに当たる（既定 true）・keys＝W/↑ 前・S/↓ 後・A/D 横・←/→ か Q/E 回る・R/F 見上げ/見下ろし・Shift で run 倍・Esc で止める（既定 true）・
+ *  mouse＝ドラッグで見回す（既定 true）・lookDown＝見下ろし角°（既定 5）・turnSpeed °/s（既定 90）・lookSpeed °/s（既定 45）・lookDistance＝注視点までの水平 m（既定 30）・run＝Shift の倍率（既定 3） */
+export interface WalkOptions { speed?: number; eyeHeight?: number; collide?: boolean; keys?: boolean; mouse?: boolean; lookDown?: number; turnSpeed?: number; lookSpeed?: number; lookDistance?: number; run?: number; [k: string]: unknown }
+export interface WalkHandle {
+	readonly opts: Required<Pick<WalkOptions, "speed" | "eyeHeight" | "collide" | "keys">> & WalkOptions; readonly active: boolean;
+	/** 歩き始める（今の注視点が足元・maxPitch を 89° に上げ、地図の keyboard/dragPan/dragRotate/scrollZoom/doubleClickZoom を止める）。中身が無い時だけ false */
+	start(): boolean;
+	/** 止める（handler と maxPitch を元へ） */
+	stop(): WalkHandle;
+	/** 前・横に m 歩く（壁で止まる）。戻り＝動いた m。台本・検定から動かす口（builtin） */
+	step(forwardM: number, strafeM?: number): number;
+	/** 向きを deg 回す／見下ろし角を deg 足す（builtin） */
+	turn(deg: number): WalkHandle; look(deg: number): WalkHandle;
+	/** 足元と向き（builtin・plugin の中身が返さなければ null） */
+	position(): { lng: number; lat: number; ground: number; eyeHeight: number; bearing: number; lookDown: number } | null;
+}
 export interface CloudsImpl { apply(map: OrthoJapanMap, clouds: Required<CloudsSpec> | null): void }
 /** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
 export interface LightTypeImpl { apply(map: OrthoJapanMap, lights: LightSpec[]): void }
@@ -868,7 +881,7 @@ export interface OrthoJapanMap {
 	/** 地形の一括標本（F6・2026-10-12・実装つき）。出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝getHeight）。到着を待つ。
 	 *  positions＝[lng,lat][]・{lng|lon,lat}[]・GeoJSON（Point/MultiPoint/LineString…の座標）。負の標高はそのまま返す（描く側は 0 に切る） */
 	sampleTerrain(positions: LonLat[] | { lng?: number; lon?: number; lat: number }[] | object, opts?: { concurrency?: number }): Promise<{ lng: number; lat: number; height: number }[]>;
-	/** 一人称歩行の口（F6・口だけ）。中身は registry.handlers の "walk"（plugin）。無ければ spec を保つだけ（map.supports("camera.walk") は false） */
+	/** 一人称歩行（F6 の口・W3 で builtin の中身＝src/walk.js）。registry.handlers の "walk"（plugin）があればそれが勝つ。足元＝描いている地形・壁＝基図の建物の足跡と押し出し（簡易の衝突） */
 	walk(opts?: WalkOptions): WalkHandle;
 	/** 今の light（既定を補った物） */
 	getLight(): Required<LightSpecification>;
