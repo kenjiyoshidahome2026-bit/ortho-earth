@@ -46,6 +46,8 @@ map.supports("data.squares");   // true
    `init(canvas, opts, host)`／`message(data)`／`frame(cam, camState, { w, h }, api) → boolean`／`pick?(x, y, r, ctx)`／`destroy()` を export する。地球・注記と同じフレーム・同じカメラで描き、
    `api.project/projectH/clipH/depth`（シーンの深度＝建物や地形に隠れる）が使える。見本＝`src/gadgets/points-gl.js`（点・RTE・GPU picking）・`arcs-gl.js`・`trips-gl.js`・`three-draw.js`（three.js を worker で）。
    手綱の `post(data, transfer)` で状態を渡し、`pick(x, y, r)` で当たりを返す（統一 picking＝`map.on("click", id, cb)`・`queryRenderedFeatures({ layers: [id] })` に乗る）。
+   **文脈の数に気をつける**：render worker の WebGL 文脈は Chrome で 4 つまで（地球が 1 つ使う）。超えると一番古い文脈＝地球が落ちる。層ごとにオーバーレイを作らず、一つのオーバーレイに多くの層を載せる：
+   手綱の `addLayerId(id)`／`removeLayerId(id)` で層の id を名乗り、module の `pick` の答えに `layer: id` を入れると、`map.on(ev, id)`・`queryRenderedFeatures({ layers: [id] })`・`pickOverlays({ names: [id] })` がその id で当たる（W9）。
 2. **GeoJSON の層**＝`map.addSource/addLayer`（fill/line/circle/symbol/fill-extrusion/heatmap）＝MapLibre の意味で評価される既存の経路。`addData` の polygons/paths/columns はこれ。
 3. **three.js**＝`map.addThree(url)`（worker 内の three.js・深度で隠れる）。
 4. **DOM**＝`map.mapEl` に自前の要素（Marker/Popup と同じ層）。`map.makeProjectorH()` で毎フレーム投影。
@@ -101,6 +103,20 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
 - `add3DTiles(url, { requestTransform(url, type) })`＝tileset.json・外部 tileset（type "Source"）とタイル（"Tile"）の全要求が通る。`{ url }` を返せば書き換え、null なら元のまま（F5）。
 - `add3DTiles(url, { attribution })`＝文字列か `(copyrights) => 文字列|null`。copyrights＝今見えているタイルの glTF `asset.copyright`（";" で分け・多い順）。出典の欄に出て、remove で消える。手綱の `copyrights` でも読める（第 3 波 W8・`capabilities()["tiles3d.attribution"]`＝builtin）。
 - `@ortho-earth/google-tiles` がこの二つで Google Photorealistic 3D Tiles を読む：鍵（key=…）は許した host への要求にだけ付け、子の tileset の URI にある session=… を覚えて後の要求に付け回す。出典は "Google; 提供元…"。`addGoogle3DTiles(map, { key })` か `map.use(googleTilesPlugin({ key }))` → `map.gadget.googleTiles()`。鍵はアプリが実行時に渡す（package にも repo にも置かない）。
+
+## instanced・billboard・3D 文字（@ortho-earth/plugin-scene）
+
+`map.use(scenePlugin())` で `addData` の kind が 3 つ増える（第 3 波 W9）。`dataKinds` と同一フレームのオーバーレイだけで作った見本でもある（`packages/plugin-scene/src/index.js`＝main で焼く、`scene-gl.js`＝worker で描く・深度・当たり）。手綱がいくつあっても一つの map に一つのオーバーレイ（`above` の物は別にもう一つ）で描き、手綱の id を `addLayerId` で名乗る。
+
+```js
+import { scenePlugin } from "@ortho-earth/plugin-scene";
+map.use(scenePlugin());
+map.addData(trees, { kind: "instanced", id: "trees", shape: "cone", getPosition: d => [d.lon, d.lat], getScale: d => [4, 4, d.h], getColor: [40, 140, 60] });
+map.addData(shops, { kind: "billboards", id: "pins", getIcon: "pin", icons: { pin: "/img/pin.png" }, getSize: 32, getPosition: d => [d.lon, d.lat, 20] });
+map.addData(peaks, { kind: "labels3d", id: "peaks", getText: d => d.name, getSize: 14, getPosition: d => [d.lon, d.lat, d.ele], altitude: "absolute" });
+```
+
+`instanced` の shape＝box／cylinder／cone／sphere／`{ pos, idx, nrm?, col? }`（x 東・y 北・z 上・底が z 0）／圧縮なしの `.glb`。billboards と labels3d は `facing`（screen／flat／upright）と `sizeUnits`（pixels／meters）。どれも建物や地形に隠れ（`depthTest: false` で外す）、統一 picking に乗る。
 
 ## 検定
 
