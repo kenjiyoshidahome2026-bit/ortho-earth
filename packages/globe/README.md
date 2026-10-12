@@ -36,6 +36,10 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
   accessors. `kind: "points"` and `"arcs"` (great circles with optional height, `getSourcePosition` / `getTargetPosition`) are GPU
   overlays with picking; `"polygons"`, `"paths"` and `"columns"` ride the ordinary `fill` / `line` / `fill-extrusion` layer route.
   `h.setData(array)` re-bakes everything, like deck.gl
+- **Cells, contours, screen grid**: `map.addCells(points | ids, { kind: "grid" | "mesh" | "geohash" | "quadkey" | "s2", res, weight })`
+  bins points into (or draws given) cells as `fill` / `fill-extrusion` layers, pure JS with no dependency (S2 ids match the
+  reference library). `map.addContour(points, { cellSize, thresholds | bands })` draws isolines / isobands, and
+  `map.addScreenGrid(points, { cellPx })` is a screen-fixed grid overlay. `map.addAggregate(src, { kind })` dispatches to these and H3
 - **H3**: `map.addH3(points | cells, { res, weight, paint, extrude })` bins points into H3 cells (or draws given cell ids) as a
   `fill` / `fill-extrusion` layer (`@ortho-earth/h3`, loaded on demand)
 - **Regions**: pass `opts.region` to add a country pack (basemap, elevation, buildings, search…).
