@@ -98,7 +98,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"react": { status: "builtin", note: "@ortho-earth/react: <Globe> <Source> <Layer> <Data> <Marker>, useGlobe, useGlobeEvent (F9)" },
 	"types.core": { status: "builtin", note: "core d.ts (PR-0 #256)" },
 	"types.globe": { status: "builtin", note: "globe.d.ts" },
-	"types.shim": { status: "no", note: "MapLibre shim d.ts: PR-F10" },
+	"types.shim": { status: "builtin", note: "maplibre.d.ts for @ortho-earth/globe/maplibre (exports types; gate tests/mlshim-dts.mjs) (F10)" },
 	"plugin": { status: "builtin", note: "definePlugin, map.use, registry (PR-F0)" },
 });
 
