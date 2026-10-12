@@ -1268,6 +1268,50 @@ try {
 			map.removeLayer("hs3"); map.removeLayer("cr3");
 			return [n.size > 0 && dup === 0 && drawnNow, `urls=${n.size} fetchedTwice=${dup} drawn=${drawnNow}`];
 		});
+	} else if (G === "transition") {
+		// ── paint の transition（B1・2026-10-12・src/transition.js）：fill-opacity を 1→0 に 4 秒で＝途中の写しが「赤と地の間」・終わりは地と同じ。
+		//    getPaintProperty は set した目標をすぐ返す（MapLibre と同じ）。式は補間しない＝すぐ当たる。既定 300ms＝set の 1 秒後には着いている
+		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const C = [137.2, 35.9], [cx, cy] = map.projectLL(C[0], C[1]);
+		const pxAt = img => px(img, cx, cy);
+		// 地の色は層を opacity 0 で載せた状態で、2 枚の写しが同じになるまで待って取る（基図のタイル・世界の層が後から届いて地の色が変わる＝layers 変種と同じ轍）
+		map.addSource("tr", { type: "geojson", data: fc([sq(C[0], C[1], 0.6, {})]) });
+		await map.addLayer({ id: "tr-f", type: "fill", source: "tr", paint: { "fill-color": "#ff0000", "fill-opacity": 0 } });
+		const still = async () => { let a = pxAt(await snap(map)); for (let k = 0; k < 8; k++) { await sleep(1500); const b = pxAt(await snap(map)); if (diff(a, b) <= 6) return b; a = b; } return a; };
+		await sleep(2000);
+		const before = await still();
+		map.setPaintProperty("tr-f", "fill-opacity", 1, { transition: false });
+		await sleep(1500);
+		const red = await still();
+		put("drawn", red[0] > 180 && red[1] < 90 && red[2] < 90 && diff(red, before) > 60, `${red} vs ${before}`);
+		map.setPaintProperty("tr-f", "fill-opacity-transition", { duration: 4000 });
+		const t0 = performance.now();
+		map.setPaintProperty("tr-f", "fill-opacity", 0);
+		put("target-immediate", map.getPaintProperty("tr-f", "fill-opacity") === 0 && map.getPaintProperty("tr-f", "fill-opacity-transition")?.duration === 4000, `${map.getPaintProperty("tr-f", "fill-opacity")}`);
+		await sleep(1000);
+		const mid = pxAt(await snap(map)), tMid = performance.now() - t0;
+		put("mid", tMid < 3600 && diff(mid, red) > 25 && diff(mid, before) > 25, `${mid} at ${tMid.toFixed(0)}ms (red ${red} / base ${before})`);
+		await sleep(Math.max(0, 4800 - (performance.now() - t0)));
+		const end = pxAt(await snap(map));
+		put("end", diff(end, before) <= 24 && diff(end, red) > 60, `${end} vs ${before}`);
+		// 既定 300ms＝*-transition を外して戻すと 1 秒後には赤
+		map.setPaintProperty("tr-f", "fill-opacity-transition", undefined);
+		map.setPaintProperty("tr-f", "fill-opacity", 1);
+		await sleep(1200);
+		const back = pxAt(await snap(map));
+		put("default-300", diff(back, red) <= 24, `${back} vs ${red}`);
+		// 式は補間しない＝すぐ当たる（青）
+		map.setPaintProperty("tr-f", "fill-color-transition", { duration: 4000 });
+		map.setPaintProperty("tr-f", "fill-color", ["case", true, "#0000ff", "#000000"]);
+		await sleep(900);
+		const blue = pxAt(await snap(map));
+		put("expr-immediate", blue[2] > 180 && blue[0] < 90, `${blue}`);
+		// style の根の transition が getStyle に出る（外来 style でない地図＝無い）・options.transition:false＝即時
+		map.setPaintProperty("tr-f", "fill-color", "#00ff00", { transition: false });
+		await sleep(700);
+		const green = pxAt(await snap(map));
+		put("option-off", green[1] > 180 && green[2] < 90 && map.getStyle().transition === undefined, `${green}`);
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。
 		//    旧＝画面 px の閾（TILE_BIAS）と静止時の手前詳細化で、z の小数部が大きいと一段細かかった（公式例の門 o44＝z11.15 で z12＝問い合わせの答えが揃わない）。
