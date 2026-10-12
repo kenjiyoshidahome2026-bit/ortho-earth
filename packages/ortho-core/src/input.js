@@ -11,6 +11,9 @@
 //   3本指以上は関知しない＝iPadOS のシステムジェスチャ（コピー/取り消し）に譲る。
 // ・座標は常に canvas ローカル（evXY）＝#map がページのどこに置かれても幾何が狂わない（埋め込み対応）。
 // アプリ固有の反応（identify・ホバー・フライト中断）はコールバックで注入＝エンジンは地図の掴み方だけを知る。
+// ・手触り（2026-10-12 A2＝MapLibre 整合）：ドラッグ慣性（pan・rotate・pitch＝MapLibre の inertia の定数そのまま）・ダブルクリック／ダブルタップで z+1（shift で z−1）・
+//   shift+ドラッグのボックスズーム（矩形→ onBoxZoom(bbox)）・キーボード +/−・handler ごとの on/off（scrollZoom・dragPan・dragRotate・keyboard・doubleClickZoom・
+//   boxZoom・touchZoomRotate・touchRotate・touchPitch・cooperativeGestures）・interactive:false＝全部 off・zoomSnap（目盛りに吸着）。
 import { cameraState, unproject, lonlatTo3D, WORLD_PX, betaOf, geodeticOf } from "./camera.js";
 import { dot, cross, add, scale } from "./mat.js";
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
@@ -28,7 +31,58 @@ export const isTypingTarget = (el = document.activeElement) => {
 //   onClick(x,y)＝動かず離した（<4px）＝クリック。onHover(x,y)＝ドラッグ外の移動。座標はローカルCSS px。
 //   blocked()＝真ならキーボードのカメラ操作を止める（モーダル表示中など・呼び出し側が注入）。文字入力中は自前で判定。
 // 戻り値 { evXY, anchoredAt }＝座標変換とアンカー適用は他所（計器・将来のジェスチャ）からも使える。
-export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal, wheelZoom = "linear" }) {
+// MapLibre の慣性の定数（handler_inertia.ts・6.x）：pan＝px、rotate＝度、pitch＝度。speed＝amount·linearity/秒 を maxSpeed で頭打ち、
+// 減速 deceleration で止まるまでの dur、進む量＝speed·dur/2（等減速）。記録の窓は直近 160ms。
+export const INERTIA = {
+	pan: { linearity: 0.3, maxSpeed: 1400, deceleration: 2500, ease: [0, 0, 0.3, 1] },
+	rotate: { linearity: 0.25, maxSpeed: 180, deceleration: 720, ease: [0, 0, 0.25, 1] },
+	pitch: { linearity: 0.3, maxSpeed: 90, deceleration: 1000, ease: [0, 0, 0.3, 1] },
+};
+export const INERTIA_WINDOW_MS = 160;
+// cubic-bezier(x1,y1,x2,y2) の y(x)（CSS の timing-function と同じ・x を二分探索で解く＝MapLibre の unitbezier と同じ答え）
+export function bezierEase(x1, y1, x2, y2) {
+	const bz = (a, b, t) => 3 * a * (1 - t) * (1 - t) * t + 3 * b * (1 - t) * t * t + t * t * t;
+	return x => {
+		if (x <= 0) return 0; if (x >= 1) return 1;
+		let lo = 0, hi = 1;
+		for (let i = 0; i < 24; i++) { const mid = (lo + hi) / 2; if (bz(x1, x2, mid) < x) lo = mid; else hi = mid; }
+		return bz(y1, y2, (lo + hi) / 2);
+	};
+}
+// 記録 records＝[{ t, v }]（v＝1 フレームの変化量・px か度）→ 慣性 { dur(ms), amount, ease }。無ければ null。
+// MapLibre の calculateEasing と同じ式：speed＝Σv·linearity／(窓の秒)・|speed|≤maxSpeed・dur＝|speed|/(deceleration·linearity)・amount＝speed·dur/2
+export function inertiaOf(records, now, o = INERTIA.pan) {
+	const recs = records.filter(r => now - r.t <= INERTIA_WINDOW_MS);
+	if (recs.length < 2) return null;
+	const span = recs[recs.length - 1].t - recs[0].t;
+	const sum = recs.reduce((a, r) => a + r.v, 0);
+	if (!(span > 0) || sum === 0) return null;
+	const speed = Math.max(-o.maxSpeed, Math.min(o.maxSpeed, sum * o.linearity / (span / 1000)));
+	const dur = Math.abs(speed) / (o.deceleration * o.linearity);
+	if (!(dur > 0)) return null;
+	return { dur: dur * 1000, amount: speed * (dur / 2), ease: bezierEase(...o.ease) };
+}
+// 2 次元（pan）＝向きは保って大きさで頭打ち（MapLibre と同じ：速度ベクトルの mag を clamp）
+export function inertiaOf2(records, now, o = INERTIA.pan) {
+	const recs = records.filter(r => now - r.t <= INERTIA_WINDOW_MS);
+	if (recs.length < 2) return null;
+	const span = recs[recs.length - 1].t - recs[0].t;
+	const sx = recs.reduce((a, r) => a + r.vx, 0), sy = recs.reduce((a, r) => a + r.vy, 0), mag = Math.hypot(sx, sy);
+	if (!(span > 0) || mag === 0) return null;
+	const sp = Math.min(o.maxSpeed, mag * o.linearity / (span / 1000));
+	const dur = sp / (o.deceleration * o.linearity);
+	if (!(dur > 0)) return null;
+	return { dur: dur * 1000, ax: sx / mag * sp * (dur / 2), ay: sy / mag * sp * (dur / 2), ease: bezierEase(...o.ease) };
+}
+// zoomSnap＝目盛り（0＝無し）に吸着
+export const snapZoom = (z, snap) => snap > 0 ? Math.round(z / snap) * snap : z;
+export const HANDLER_NAMES = ["scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom", "boxZoom", "touchZoomRotate", "touchRotate", "touchPitch", "cooperativeGestures"];
+
+export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoomMax = 20, onMove, onGesture = () => {}, onClick = () => {}, onHover = () => {}, blocked, signal, wheelZoom = "linear",
+	handlers = {}, interactive = true, cooperativeGestures = false, zoomSnap = 0, onBoxZoom = () => {}, onBlocked = () => {} }) {
+	// handler の on/off（MapLibre の map.scrollZoom.disable() …）。interactive:false＝全部 off（cooperativeGestures は「協調モード」の旗＝既定 off）
+	const H = Object.fromEntries(HANDLER_NAMES.map(n => [n, n === "cooperativeGestures" ? !!cooperativeGestures : interactive !== false && handlers[n] !== false]));
+	let zoomSnapCur = +zoomSnap || 0;
 	// wheelZoom＝ホイール 1 目盛りのズーム量："linear"（従来＝deltaY×0.002）｜"maplibre"（MapLibre の ScrollZoomHandler と同じ）2026-09-30：
 	//   種類の見分け（value＝deltaY・行モードは ×40）：4.000244140625 の倍数＝マウスのホイール（wheel）／|value|<4＝トラックパッド／それ以外は前の事象からの間隔で（|間隔×value|<200＝トラックパッド）
 	//   量＝log2(2/(1+e^(−|value|×rate)))・rate＝wheel 1/450（100 で 0.15 段）／trackpad 1/100（4.5 倍敏感＝本人「ref の方が感度がいい」＝トラックパッドを 1/450 で受けていた）
@@ -38,7 +92,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	const EASE_MS = 200, easeOut = t => 1 - Math.pow(1 - t, 3);
 	const tickEase = () => {
 		if (!ease) return;
-		const k = Math.min(1, (performance.now() - ease.t0) / EASE_MS), z = ease.z0 + (ease.z1 - ease.z0) * easeOut(k), e = ease;
+		const k = Math.min(1, (performance.now() - ease.t0) / (ease.ms || EASE_MS)), z = ease.z0 + (ease.z1 - ease.z0) * easeOut(k), e = ease;
 		anchoredAt(e.x, e.y, () => { cam.zoom = clampZoom(z); });
 		if (k < 1) requestAnimationFrame(tickEase); else ease = null;
 	};
@@ -134,14 +188,19 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	canvas.addEventListener("contextmenu", e => e.preventDefault());
 	canvas.addEventListener("pointerdown", e => {
 		onGesture();   // 掴んだ瞬間＝主導権は人（呼び出し側がフライト中断等）
+		stopInertia(); ease = null;   // 慣性・ズームの滑りも人が掴んだら止める
 		const [x, y] = evXY(e);
 		try { canvas.setPointerCapture(e.pointerId); } catch { /* 合成イベント（テスト）はcapture不可＝無視 */ }
 		if (e.pointerType === "touch") {
 			touches.set(e.pointerId, { x, y });
-			if (touches.size === 2) { drag = null; pinch = startPinch(); return; }   // 2本目＝2本指ジェスチャ開始（クリック判定も放棄）
+			if (touches.size === 2) { drag = null; pinch = (H.touchZoomRotate || H.touchPitch) ? startPinch() : null; return; }   // 2本目＝2本指ジェスチャ開始（クリック判定も放棄）
 			if (touches.size > 2) { pinch = null; return; }                          // 3本以上＝OSのジェスチャに譲る
 		}
-		drag = { x, y, x0: x, y0: y, tilt: e.button === 2 || e.shiftKey || e.ctrlKey };
+		// shift＋左ドラッグ＝ボックスズーム（MapLibre の BoxZoomHandler）。右ボタン／ctrl＝回転・チルト（dragRotate）。旧＝shift もチルトだった（2026-10-12 A2 で MapLibre に揃えた）
+		if (e.pointerType !== "touch" && e.button === 0 && e.shiftKey && H.boxZoom) { box = { x0: x, y0: y, x: x, y: y, el: null }; drag = null; return; }
+		const tilt = e.button === 2 || e.ctrlKey;
+		drag = { x, y, x0: x, y0: y, tilt, off: tilt ? !H.dragRotate : !H.dragPan || (e.pointerType === "touch" && H.cooperativeGestures), recs: [] };   // off＝動かさない（クリック判定だけ残す）
+		if (drag.off && e.pointerType === "touch" && H.cooperativeGestures && H.dragPan) onBlocked("touch");
 	});
 	const lift = e => {
 		if (e.pointerType === "touch" && touches.has(e.pointerId)) {
@@ -156,7 +215,13 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 			if (touches.size === 0) pinch = null;
 		}
 		const [x, y] = evXY(e);
-		if (drag && !drag.tilt && Math.hypot(x - drag.x0, y - drag.y0) < 4) onClick(x, y);   // 動いていない＝クリック（NaNは偽）
+		if (box) { endBox(x, y); return; }
+		if (drag && !drag.tilt && Math.hypot(x - drag.x0, y - drag.y0) < 4) {   // 動いていない＝クリック（NaNは偽）
+			const now = performance.now();
+			if (e.pointerType === "touch" && H.doubleClickZoom && lastTap && now - lastTap.t < 300 && Math.hypot(x - lastTap.x, y - lastTap.y) < 30) { lastTap = null; drag = null; zoomEase(x, y, cam.zoom + 1, 300); return; }   // ダブルタップ＝z+1（MapLibre の TapZoomHandler）
+			lastTap = e.pointerType === "touch" ? { t: now, x, y } : null;
+			onClick(x, y);
+		} else if (drag && !drag.off && drag.recs.length) startInertia(drag);   // 離した勢いで滑る（MapLibre の inertia）
 		drag = null;
 	};
 	canvas.addEventListener("pointerup", lift);
@@ -170,14 +235,93 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 			if (pinch && touches.size === 2) { movePinch(); return; }
 			if (touches.size > 2) return;
 		}
+		if (box) { box.x = ex; box.y = ey; drawBox(); return; }
 		if (!drag) { onHover(ex, ey); return; }
+		if (drag.off) { drag.x = ex; drag.y = ey; return; }   // handler off＝掴んでも動かない（MapLibre の dragPan.disable()）
+		const now = performance.now();
 		if (drag.tilt) {
-			cam.bearing += (ex - drag.x) * 0.006;
-			cam.pitch = clampPitch(cam.pitch + (ey - drag.y) * 0.005);
+			const db = (ex - drag.x) * 0.006, dp = clampPitch(cam.pitch + (ey - drag.y) * 0.005) - cam.pitch;
+			cam.bearing += db; cam.pitch += dp;
+			drag.recs.push({ t: now, vx: db * R2D, vy: dp * R2D });
 			onMove();
-		} else panBy(drag.x, drag.y, ex, ey);
+		} else { panBy(drag.x, drag.y, ex, ey); drag.recs.push({ t: now, vx: ex - drag.x, vy: ey - drag.y }); }
+		if (drag.recs.length > 64) drag.recs.splice(0, drag.recs.length - 64);
 		drag.x = ex; drag.y = ey;
 	});
+	canvas.addEventListener("dblclick", e => {   // ダブルクリック＝z+1（shift で z−1・MapLibre の DoubleClickZoomHandler・カーソル下を固定）
+		if (!H.doubleClickZoom || e.pointerType === "touch") return;
+		e.preventDefault(); onGesture();
+		const [x, y] = evXY(e);
+		zoomEase(x, y, cam.zoom + (e.shiftKey ? -1 : 1), 300);
+	});
+	let box = null, lastTap = null, inertia = null;
+	// ズームの滑り（ホイールの目盛り・ダブルクリック・キーボード +/−）＝anchoredAt を ms かけて easeOut・目盛り（zoomSnap）に吸着
+	function zoomEase(x, y, z1, ms) {
+		const wasEasing = !!ease;
+		ease = { x, y, z0: cam.zoom, z1: clampZoom(snapZoom(z1, zoomSnapCur)), t0: performance.now(), ms };
+		if (!wasEasing) requestAnimationFrame(tickEase);
+	}
+	// 慣性＝離した時の直近 160ms の記録から MapLibre と同じ式で「どれだけ・どれくらいの時間で」を決め、rAF で進める（pan は画面中心の掴み点で versor）
+	function startInertia(d) {
+		const now = performance.now();
+		let plan;
+		if (d.tilt) {
+			const b = inertiaOf(d.recs.map(r => ({ t: r.t, v: r.vx })), now, INERTIA.rotate), p = inertiaOf(d.recs.map(r => ({ t: r.t, v: r.vy })), now, INERTIA.pitch);
+			if (!b && !p) return;
+			plan = { kind: "tilt", dur: Math.max(b?.dur || 0, p?.dur || 0), b, p };
+		} else {
+			const v = inertiaOf2(d.recs, now, INERTIA.pan);
+			if (!v) return;
+			plan = { kind: "pan", dur: v.dur, v };
+		}
+		if (!(plan.dur > 0)) return;
+		inertia = { plan, t0: now, last: { x: 0, y: 0, b: 0, p: 0 } };
+		requestAnimationFrame(tickInertia);
+	}
+	function tickInertia() {
+		if (!inertia) return;
+		const { plan, t0, last } = inertia, k = Math.min(1, (performance.now() - t0) / plan.dur);
+		if (plan.kind === "pan") {
+			const e = plan.v.ease(k), x = plan.v.ax * e, y = plan.v.ay * e;
+			const cx = size.w / dpr / 2, cy = size.h / dpr / 2;
+			panBy(cx, cy, cx + (x - last.x), cy + (y - last.y));
+			last.x = x; last.y = y;
+		} else {
+			const b = plan.b ? plan.b.amount * plan.b.ease(Math.min(1, (performance.now() - t0) / plan.b.dur)) : 0;
+			const p = plan.p ? plan.p.amount * plan.p.ease(Math.min(1, (performance.now() - t0) / plan.p.dur)) : 0;
+			cam.bearing += (b - last.b) * D2R; cam.pitch = clampPitch(cam.pitch + (p - last.p) * D2R);
+			last.b = b; last.p = p;
+			onMove();
+		}
+		if (k < 1) requestAnimationFrame(tickInertia); else inertia = null;
+	}
+	function stopInertia() { inertia = null; }
+	// ボックスズーム（shift＋左ドラッグ）＝点線の矩形を容れ物に描き、離したら四隅を逆投影して bbox を onBoxZoom へ（呼び出し側が fitBounds）
+	function drawBox() {
+		if (!box.el) {
+			const el = document.createElement("div");
+			el.className = "ortho-boxzoom";
+			Object.assign(el.style, { position: "absolute", boxSizing: "border-box", border: "2px dotted #202020", background: "rgba(0,0,0,.1)", pointerEvents: "none", zIndex: 9 });
+			(canvas.parentElement || document.body).appendChild(el); box.el = el;
+			onBoxZoom("start", { x0: box.x0, y0: box.y0 });
+		}
+		const r = canvas.getBoundingClientRect(), pr = (canvas.parentElement || document.body).getBoundingClientRect();
+		const l = Math.min(box.x0, box.x) + r.left - pr.left, t = Math.min(box.y0, box.y) + r.top - pr.top;
+		Object.assign(box.el.style, { left: `${l}px`, top: `${t}px`, width: `${Math.abs(box.x - box.x0)}px`, height: `${Math.abs(box.y - box.y0)}px` });
+	}
+	function endBox(x, y) {
+		const b = box; box = null;
+		if (b.el) b.el.remove();
+		if (!b.el || Math.abs(x - b.x0) < 4 || Math.abs(y - b.y0) < 4) { if (b.el) onBoxZoom("cancel", {}); return; }
+		const st = cameraState(cam, size.w, size.h), xs = [Math.min(b.x0, x), Math.max(b.x0, x)], ys = [Math.min(b.y0, y), Math.max(b.y0, y)];
+		const pts = [[xs[0], ys[0]], [xs[1], ys[0]], [xs[0], ys[1]], [xs[1], ys[1]], [(xs[0] + xs[1]) / 2, ys[0]], [(xs[0] + xs[1]) / 2, ys[1]], [xs[0], (ys[0] + ys[1]) / 2], [xs[1], (ys[0] + ys[1]) / 2]]
+			.map(([px, py]) => unproject(st, px * dpr, py * dpr));
+		if (pts.some(p => !p)) { onBoxZoom("cancel", {}); return; }   // 球の外（空）を囲んだ＝何もしない
+		const lons = pts.map(p => p[0]), lats = pts.map(p => p[1]);
+		let w = Math.min(...lons), e = Math.max(...lons);
+		if (e - w > 180) { const a = lons.filter(v => v >= 0), c = lons.filter(v => v < 0); w = Math.min(...a); e = Math.max(...c); }   // ±180 を跨ぐ＝西>東で返す
+		onBoxZoom("end", { bbox: [w, Math.min(...lats), e, Math.max(...lats)], x0: xs[0], y0: ys[0], x1: xs[1], y1: ys[1] });
+	}
 
 	function startPinch() {
 		const [p, q] = [...touches.values()];
@@ -200,16 +344,15 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 				const vertical = Math.abs(uy + vy) > 2 * Math.abs(ux + vx);
 				// 太陽系圏はチルト封印＝地面が無い深さで pitch を溜めると、戻った時に地球が傾いたままになる
 				// （この距離では pitch は実質「南北の周回」と同義＝二重の操作系になる）。2本指縦は素直に周回＋ズームへ。
-				pinch.mode = parallel && vertical && globePx() >= ORBIT_PX ? "tilt" : "free";
+				pinch.mode = parallel && vertical && globePx() >= ORBIT_PX && H.touchPitch ? "tilt" : "free";
 			}
 		}
 		if (pinch.mode === "tilt") {
-			cam.pitch = clampPitch(cam.pitch + (cy - pinch.cy) * 0.005);   // マウス右ドラッグと同係数＝手触りを揃える
-			onMove();
+			if (H.touchPitch) { cam.pitch = clampPitch(cam.pitch + (cy - pinch.cy) * 0.005); onMove(); }   // マウス右ドラッグと同係数＝手触りを揃える（touchPitch off＝動かない）
 		} else if (pinch.mode === "free") {
-			panBy(pinch.cx, pinch.cy, cx, cy);                             // 重心＝掴み点（1本指と同じ所作）
-			const da = wrapAngle(a - pinch.a), dz = Math.log2(d / pinch.d);
-			anchoredAt(cx, cy, () => {
+			if (H.dragPan) panBy(pinch.cx, pinch.cy, cx, cy);                             // 重心＝掴み点（1本指と同じ所作）
+			const da = H.touchZoomRotate && H.touchRotate ? wrapAngle(a - pinch.a) : 0, dz = H.touchZoomRotate ? Math.log2(d / pinch.d) : 0;
+			if (da || dz) anchoredAt(cx, cy, () => {
 				cam.zoom = clampZoom(cam.zoom + dz);
 				cam.bearing -= da;   // 指の間の線が地図に貼り付く向き（コンパス針=rotate(-bearing)から導出。実機で逆なら符号1つ）
 			});
@@ -233,13 +376,16 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	// 回転修飾キー：Macは⌘（ctrl+wheelはトラックパッドのピンチ＝ズームに温存）、Mac以外は⌘が無いのでCtrl。
 	const ROTKEY_IS_META = /Mac/.test(navigator.platform);
 	canvas.addEventListener("wheel", e => {
+		if (!H.scrollZoom) return;   // scrollZoom off＝頁のスクロールに譲る（MapLibre と同じ・preventDefault もしない）
+		if (H.cooperativeGestures && !(e.ctrlKey || e.metaKey)) { onBlocked("wheel"); return; }   // 協調モード＝修飾キー無しのホイールは頁に譲る（MapLibre の cooperativeGestures）
 		e.preventDefault();
 		onGesture();   // ホイールでも主導権は人
+		stopInertia();
 		const [wx, wy] = evXY(e);
-		if (ROTKEY_IS_META ? e.metaKey : e.ctrlKey) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール）
+		if (!H.cooperativeGestures && (ROTKEY_IS_META ? e.metaKey : e.ctrlKey)) anchoredAt(wx, wy, () => { cam.bearing += e.deltaY * 0.01; });   // 軸回転（⌘/Ctrl＋ホイール・協調モードでは修飾キー＝ズーム）
 		else {
 			const dz = wheelDz(e.deltaY, e.deltaMode);
-			if (wheelZoom === "maplibre" && wType === "wheel") { const from = ease ? ease.z1 : cam.zoom; const wasEasing = !!ease; ease = { x: wx, y: wy, z0: cam.zoom, z1: clampZoom(from + dz), t0: performance.now() }; if (!wasEasing) tickEase(); }   // 滑らかに（上）
+			if (wheelZoom === "maplibre" && wType === "wheel") { const from = ease ? ease.z1 : cam.zoom; const wasEasing = !!ease; ease = { x: wx, y: wy, z0: cam.zoom, z1: clampZoom(snapZoom(from + dz, zoomSnapCur)), t0: performance.now() }; if (!wasEasing) tickEase(); }   // 滑らかに（上）
 			else anchoredAt(wx, wy, () => { cam.zoom = clampZoom(cam.zoom + dz); });  // 即時（トラックパッド／従来）
 		}
 	}, { passive: false });
@@ -271,7 +417,14 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	}
 	window.addEventListener("keydown", e => {
 		mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey };   // 修飾は毎イベントで最新化（押しっぱ中のShift追加/解除に追従）
-		if (!ARROWS[e.key] || isTypingTarget() || blocked?.()) return;   // 文字入力中・モーダル表示中(blocked)は矢印を地図に奪わせない
+		if (!H.keyboard || isTypingTarget() || blocked?.()) return;   // keyboard off・文字入力中・モーダル表示中(blocked)は地図に奪わせない
+		if ((e.key === "+" || e.key === "=" || e.key === "-" || e.key === "_") && !e.ctrlKey && !e.metaKey) {   // +/−＝1 段（MapLibre の KeyboardHandler・アンカーはマウス位置か画面中心）
+			e.preventDefault(); onGesture();
+			const ax = ptr ? ptr[0] : size.w / dpr / 2, ay = ptr ? ptr[1] : size.h / dpr / 2;
+			zoomEase(ax, ay, cam.zoom + (e.key === "-" || e.key === "_" ? -1 : 1), 300);
+			return;
+		}
+		if (!ARROWS[e.key]) return;
 		e.preventDefault();                                              // ページスクロール/履歴移動を止める
 		if (!held.size) onGesture();                                     // 操作開始＝フライト中断（主導権は人）
 		held.add(e.key);
@@ -280,5 +433,11 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 	window.addEventListener("keyup", e => { mod = { shift: e.shiftKey, ctrl: e.ctrlKey, meta: e.metaKey }; if (ARROWS[e.key]) held.delete(e.key); }, { signal });
 	window.addEventListener("blur", () => held.clear(), { signal });    // フォーカスを失ったら押下状態を捨てる（キー詰まり防止）
 
-	return { evXY, anchoredAt, setMaxPitch: v => { maxPitchCur = v; }, setZoomMin: v => { zoomMinCur = v; } };
+	return { evXY, anchoredAt, setMaxPitch: v => { maxPitchCur = v; }, setZoomMin: v => { zoomMinCur = v; },
+		// A2：handler の on/off・慣性と滑りの停止・zoomSnap
+		setHandler: (name, on) => { if (name in H) H[name] = !!on; },
+		handlerOn: name => !!H[name],
+		stop: () => { stopInertia(); ease = null; },
+		setZoomSnap: v => { zoomSnapCur = Math.max(0, +v || 0); },
+		zoomSnap: () => zoomSnapCur };
 }

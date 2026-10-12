@@ -35,3 +35,9 @@ void [xy, ll, px, v, d, a, c, parsed, L, planes, n, p3, known, tpl, fc.active, i
 const rolled = cameraState({ center: [0, 0], zoom: 3, roll: 0.1 }, 10, 10);
 const rollVal: number = rolled.camDist;
 void rollVal;
+
+// A2: 慣性の純関数と handler 名
+import { inertiaOf, INERTIA, snapZoom, type HandlerName } from "@ortho-earth/core";
+const inr = inertiaOf([{ t: 0, v: 10 }, { t: 50, v: 10 }], 60, INERTIA.rotate);
+const hn: HandlerName = "scrollZoom";
+void [inr?.dur, snapZoom(3.3, 0.5), hn];

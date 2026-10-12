@@ -5,7 +5,8 @@
 
 export * from "./camera.js";
 export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan, easePlan } from "./flight.js";
-export { createInput, isTypingTarget } from "./input.js";
+export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES, bezierEase, inertiaOf, inertiaOf2, snapZoom } from "./input.js";
+export type { HandlerName, InertiaOptions } from "./input.js";
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
 export type { Expression, ExprContext, FormatSection } from "./expr.js";
 export { parseRGBA } from "./color.js";

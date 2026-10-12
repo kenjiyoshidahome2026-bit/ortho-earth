@@ -710,7 +710,7 @@ let printHold = false;
 let gintLayerSeq = 0;
 const extGint = new Map();   // layer id → handle（identify/click/ack ルーティング先）
 let extActive = null;        // カーソルを持つ追加層の id（null＝既定層＝従来ゲート）
-const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [] };   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
+const mapOn = { click: [], move: [], load: [], mesh: [], plateau: [], settle: [], time: [], idle: [], styleimagemissing: [], boxzoomstart: [], boxzoomend: [], boxzoomcancel: [], cooperativegestureprevented: [] };   // boxzoom*＝shift＋ドラッグの矩形（A2・MapLibre 同名・end は { bbox, x0,y0,x1,y1 }）・cooperativegestureprevented＝協調モードで止めた操作（{ kind:"wheel"|"touch" }）   // styleimagemissing＝記号帳に無い名前（MapLibre 同名・{ id }・名前ごとに 1 回）   // idle＝MapLibre 同名（公式例の門 段 2）＝下の checkIdle   // time＝共通の時計の状態が変わった（#42）   // settle＝カメラ静止（onMove の 150ms 無音）＝ツアー/オーバレイの「止まった」合図（2026-09-11）   // map.on の登録簿（§4: click=hits 同型／move=カメラ更新／load=frame1／plateau=建物3D の読込合図）
 // map.on("mesh")（旧名 "plateau"＝非推奨の別名・同じ合図が両方へ）：{phase:"catalog",count} → {phase:"start"|"done"|"cancelled"|"failed", name(区名), base(URL)}。旧＝コンソール文字列しか合図が無く
 // 埋め込み側が console.log をフックしていた（SDK ドッグフード 2026-09-10）。
 const emitMesh = e => { for (const cb of [...mapOn.mesh, ...mapOn.plateau]) { try { cb(e); } catch (err) { console.error("[map.on mesh]", err); } } };
@@ -1519,6 +1519,13 @@ let editClick = null;      // 派生アプリ編集モード（geoedit）中だ�
 const input = createInput({
 	wheelZoom: ML_COVER ? "maplibre" : "linear",   // MapLibre の目盛り＝ホイールの 1 目盛りも MapLibre と同じ量（並べて触った時に同じ所へ寄る）
 	canvas, cam, size, dpr, maxPitch: maxPitchCur, zoomMin: zoomMinCur, zoomMax: ZOOM_MAX, onMove, signal: ac.signal,   // opts.maxPitch＝派生アプリのチルト上限（0=俯瞰固定＝geoedit）。??＝0を殺さない
+	// 手触りの旗（A2・2026-10-12・MapLibre 同名）：opts.handlers={scrollZoom:false,…}・opts.interactive:false＝全部 off・opts.cooperativeGestures・opts.zoomSnap。実行時は map.setHandler
+	handlers: opts.handlers || {}, interactive: opts.interactive, cooperativeGestures: opts.cooperativeGestures, zoomSnap: opts.zoomSnap,
+	onBoxZoom: (phase, d) => {
+		if (phase === "end") { for (const cb of mapOn.boxzoomend) { try { cb({ bbox: d.bbox, x0: d.x0, y0: d.y0, x1: d.x1, y1: d.y1 }); } catch (e) { console.error("[map.on boxzoomend]", e); } } map.fitBounds(d.bbox, { linear: true, duration: 500 }); }   // MapLibre の BoxZoomHandler＝fitScreenCoordinates(linear)
+		else for (const cb of mapOn[phase === "start" ? "boxzoomstart" : "boxzoomcancel"]) { try { cb({}); } catch (e) { console.error("[map.on boxzoom]", e); } }
+	},
+	onBlocked: kind => { for (const cb of mapOn.cooperativegestureprevented) { try { cb({ kind }); } catch (e) { console.error("[map.on cooperativegestureprevented]", e); } } },
 	// モーダル表示中は矢印キーで背後の地図を動かさない（文字入力中は input.js が自前で判定）。
 	// opts.keyboard＝false で矢印キーを地図に取らない／関数なら真の間だけ取る（背景に置く埋め込みでページのスクロールや一覧の矢印移動を奪わない・2026-09-21）
 	blocked: () => modalOpen(mapEl) || !isKeyOwner(mapEl) || opts.keyboard === false || (typeof opts.keyboard === "function" && !opts.keyboard()),   // !isKeyOwner＝頁の別の地図がキーの持ち主（#173 段 3）
@@ -1669,6 +1676,7 @@ schedulePos();   // 起動直後からスケールを出す（真俯瞰復元時
 // onFlying＝autoMesh のゲート（飛行中はPLATEAU完全停止・着地の瞬間に解禁＝立ち上がりが着陸の演出）。
 const flightCtl = createFlight({ cam, viewW: () => size.w, maxPitch: maxPitchCur, minZoom: zoomMinCur, onMove, onFlying: f => {   // 飛行床＝カメラ実床（太陽系圏へ台本から飛べる・?nosolar時は1）
 	flying = f;
+	if (f) input.stop();   // 飛行が始まったら慣性・ズームの滑りは止める（A2）
 	if (!f && gint.suppressAdmin0) { gint.suppressAdmin0 = false; gint.updateGintSlot(); }   // 着地＝抑制解除→再評価（着地が低ズームなら海岸線が戻る）
 } });
 // flyTo をラップ：両端が z≥ADMIN0_Z（coast 表示条件外）なら飛行中の海岸線を抑制＝弧の中間の低ズームで
@@ -2566,7 +2574,12 @@ map.setZoom = z => map.jumpTo({ zoom: z });
 map.setPitch = p => map.jumpTo({ pitch: p });
 map.setBearing = b => map.jumpTo({ bearing: b });
 map.isMoving = () => flightCtl.active || moving;
-map.stop = () => { flightCtl.cancel(); return map; };
+map.stop = () => { flightCtl.cancel(); input.stop(); return map; };
+// 手触りの handler（A2・2026-10-12）：MapLibre の map.scrollZoom.disable() 等の実体。名前＝scrollZoom・dragPan・dragRotate・keyboard・doubleClickZoom・boxZoom・touchZoomRotate・touchRotate・touchPitch・cooperativeGestures
+map.setHandler = (name, on) => { input.setHandler(name, on); return map; };
+map.handlerOn = name => input.handlerOn(name);
+map.setZoomSnap = v => { input.setZoomSnap(v); return map; };
+map.getZoomSnap = () => input.zoomSnap();
 // 見えている範囲の概算 [w, s, e, n]（画面四隅と辺の中点を逆投影・球外の点は捨てる＝全球が見える時は null）
 map.getBounds = () => {
 	const W = size.w / dpr, H = size.h / dpr, pts = [];   // CSS px（unprojectXY の座標系）
