@@ -601,6 +601,13 @@ vec2 deltaLL(vec3 dl, float ell) {
 }
 uniform vec4 u_land;
 uniform vec4 u_atmo;   // 大気色 rgb + 強さ(a)
+// style の sky（B4・MapLibre の setSky）＝簡易の空：地平線の horizon-color から天頂の sky-color へのグラデーション（球に当たらない光線だけ・不透明）。
+// 無指定（u_skyOn=0）＝従来の宇宙へ抜けるリム光とビット同一。u_skyBlend＝(sky-horizon-blend, horizon-fog-blend, atmosphere-blend, 0)
+uniform float u_skyOn;
+uniform vec3 u_skyColor;
+uniform vec3 u_horizonColor;
+uniform vec3 u_skyFogColor;
+uniform vec4 u_skyBlend;
 // 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
 // レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
 // 配色本体は WORLD_HYPSO（TERRAIN_FS と共有＝ピッチで色が変わらない）。
@@ -662,7 +669,23 @@ void main() {
 		float g = smoothstep(1.09, 1.0, m);
 		// 高度角フェード：見上げるほど大気は薄く＝天頂へ滑らかに宇宙色。低高度では m≈lenA が一様なので、
 		// これが無いと今度は空全体が一枚の紺に塗り潰される。
-		g *= 1.0 - smoothstep(0.0, 0.55, dot(normalize(d), A / lenA));
+		float alt = dot(normalize(d), A / lenA);   // 視線の高度（上向きの余弦・地平線は水平より少し下）
+		g *= 1.0 - smoothstep(0.0, 0.55, alt);
+		if (u_skyOn > 0.5) {
+			// 簡易の空（B4）：地平線（球に接する視線＝sin(俯角)=sqrt(1−1/|A|²)）を 0・天頂を 1 とした高さ u で horizon-color → sky-color。
+			// sky-horizon-blend＝混ざる幅（1＝天頂まで・0＝地平線でスパッと）。地平線の際は fog-color を horizon-fog-blend の分だけ重ねる（15% の高さで消える）。
+			// atmosphere-blend＝従来のリム光（大気の霞）を空の上に重ねる度合い。空は不透明＝星空は隠れる（MapLibre と同じ）
+			float hz = -sqrt(max(1.0 - 1.0 / (lenA * lenA), 0.0));
+			float u = clamp((alt - hz) / max(1.0 - hz, 1e-6), 0.0, 1.0);
+			float w = u_skyBlend.x;
+			float k = w <= 0.0 ? step(1e-6, u) : smoothstep(0.0, w, u);
+			vec3 col = mix(u_horizonColor, u_skyColor, k);
+			col = mix(col, u_skyFogColor, u_skyBlend.y * (1.0 - smoothstep(0.0, 0.15, u)));
+			vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
+			float a = max(g, 0.0); a = a * a * mix(u_atmo.a, 1.0, a) * u_skyBlend.z;
+			fragColor = vec4(col * (1.0 - a) + mix(u_atmo.rgb, limbCol, max(g, 0.0)) * a, 1.0);   // premultiplied・不透明
+			return;
+		}
 		if (g <= 0.0) discard;
 		// 縁(g=1)は球面リム内側の霞と同色・不透明＝地平線で色が連続。外側へ大気色→透明へフェード。
 		vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
