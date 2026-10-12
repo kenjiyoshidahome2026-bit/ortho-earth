@@ -13,6 +13,18 @@ export interface PaddingOptions { top: number; right: number; bottom: number; le
 /** style の light（MapLibre 同名・1.16.0〜）。position＝[r, 方位（0＝anchor:"map" なら北・"viewport" なら画面の上・時計回り）, 天頂からの角]（度） */
 export interface LightSpecification { anchor?: "map" | "viewport"; color?: string; intensity?: number; position?: [number, number, number] }
 /** style の sky（MapLibre 同名・1.16.0〜）。色は文字列か ["zoom"] の式。blend は 0..1。空＝地平線の horizon-color から天頂の sky-color へ（sky-horizon-blend＝混ざる幅）・地平線の際に fog-color を horizon-fog-blend の分・atmosphere-blend＝従来のリム光を重ねる度合い・fog-ground-blend＝地面の霧の濃さ（0＝霧なし・0.5＝従来・1＝近くから） */
+/** 光源の口（第 2 波 F1・2026-10-12）：map.setLights の 1 つ。type を省くと directional（setLight の形）。位置は [lon, lat, alt m]・向きは [east, north, up]・角は度・距離は m。
+ *  描くのは directional だけ（setLight と同じ経路・1 つまで）。point/spot/ambient/hemisphere/ibl は**受けて保つだけ**（map.supports("light.point") は false・capabilities は "spec"）＝後の段か plugin（registry.lights）が描く */
+export type LightSpec =
+	| ({ id?: string; type?: "directional" } & LightSpecification)
+	| { id?: string; type: "point"; position: [number, number, number?]; color?: string; intensity?: number; range?: number; decay?: number }
+	| { id?: string; type: "spot"; position: [number, number, number?]; target?: [number, number, number?]; direction?: [number, number, number]; color?: string; intensity?: number; range?: number; decay?: number; angle?: number; penumbra?: number }
+	| { id?: string; type: "ambient"; color?: string; intensity?: number }
+	| { id?: string; type: "hemisphere"; skyColor?: string; groundColor?: string; intensity?: number }
+	| { id?: string; type: "ibl"; url: string; intensity?: number; rotation?: number; background?: boolean }
+	| { id?: string; type: string; [k: string]: unknown };
+/** registry.lights に足す光源の type＝setLights のたびに、その type の光源の配列（無ければ []）で apply を呼ぶ（plugin が自前の overlay／three で描く約束） */
+export interface LightTypeImpl { apply(map: OrthoJapanMap, lights: LightSpec[]): void }
 export interface SkySpecification { "sky-color"?: string | unknown[]; "horizon-color"?: string | unknown[]; "fog-color"?: string | unknown[]; "fog-ground-blend"?: number | unknown[]; "horizon-fog-blend"?: number | unknown[]; "sky-horizon-blend"?: number | unknown[]; "atmosphere-blend"?: number | unknown[] }
 /** MapLibre の CameraOptions と同じ意味（角は度）。padding＝中身の中心を寄せる（真俯瞰として解く近似） */
 /** 手触りの handler の名前（A2・1.16.0〜） */
@@ -679,8 +691,8 @@ export interface MapRegistry {
 	readonly gadgets: PluginRegistry<(this: OrthoJapanMap, ...args: any[]) => unknown>;
 	/** core の registerTileFormat（結線済み） */
 	readonly tileFormats: PluginRegistry<TileFormatImpl>;
-	/** 光源の種類（PR-F1 で結線・今は受けて保つだけ） */
-	readonly lights: PluginRegistry<unknown>;
+	/** 光源の type（F1 で結線）＝builtin は directional/point/spot/ambient/hemisphere/ibl。plugin の type は { apply(map, lights) } */
+	readonly lights: PluginRegistry<LightTypeImpl>;
 	/** 後処理の効果（PR-F3 で結線・今は受けて保つだけ） */
 	readonly postEffects: PluginRegistry<unknown>;
 	/** テクスチャの変換器（KTX2 など・PR-F4 で結線・今は受けて保つだけ） */
@@ -760,6 +772,10 @@ export interface OrthoJapanMap {
 	setVerticalFieldOfView(deg: number): OrthoJapanMap;
 	/** style の light（MapLibre 同名・1.16.0〜）＝押し出し・glTF・LOD2 の陰影の向き・強さ・色（WebGL2。WebGPU は局所系の固定光のまま）。null＝従来の固定光に戻す。style の根の light は起動と setStyle で読む */
 	setLight(light: LightSpecification | null): OrthoJapanMap;
+	/** 光源の口（F1・2026-10-12）。配列で受けて既定を補って保つ。directional は 1 つまで（setLight と同じ経路で描く）。知らない type は投げる（plugin は registry.lights に足す）。[] で全部外す */
+	setLights(lights: LightSpec[] | LightSpec | null): OrthoJapanMap;
+	/** 保っている光源（directional は setLight／style の根の light も映る・正規化済み） */
+	getLights(): LightSpec[];
 	/** 今の light（既定を補った物） */
 	getLight(): Required<LightSpecification>;
 	/** style の sky（MapLibre 同名・1.16.0〜）＝球に当たらない視線を horizon-color→sky-color の簡易の空で塗る（WebGL2・不透明＝星空は隠れる）。fog-color・fog-ground-blend は両レンダラの霧に効く。null＝従来（宇宙へ抜けるリム光・霧は紙色） */
