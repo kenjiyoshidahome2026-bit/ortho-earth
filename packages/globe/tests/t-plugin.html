@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- UI回帰：plugin 契約・registry・supports/capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js）。数値だけ（画素は見ない）。
+     ①opts.plugins で起動時に搭載（素の map を受ける・load の前）②map.use/unuse/plugins ③registry.dataKinds の kind を addData が引く（builtin の points に委ねる plugin）・知らない kind は投げる
+     ④registry.gadgets＝map.gadget に生える／撤去で消える ⑤supports/capabilities の正直さ（Mercator は never・render.webgl2 か webgpu のどちらか 1 つが builtin・post.fxaa は spec→no）
+     ⑥zoomScale:"maplibre" の顔の上でも use/registry が通り install は素の map を受ける（zoom が換算されない） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map,#map2{width:640px;height:400px}</style><title>t-plugin</title></head>
+<body><div id="map"></div><div id="map2"></div>
+<script type="module">
+import { createGlobe, definePlugin, RAW } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const throws = f => { try { f(); return false; } catch { return true; } };
+try {
+	let bootMap = null, bootLoaded = null;
+	const boot = definePlugin({ name: "boot", provides: ["gadget.hello"], install(m, o) { bootMap = m; bootLoaded = o.flag; m.registry.gadgets.add("hello", function () { return "hi:" + this.getZoom().toFixed(1); }); } });
+	const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false, plugins: [[boot, { flag: 7 }]] });
+	await map.once("load");
+	// ① 起動時の搭載
+	ok("boot.installed", bootMap === map && bootLoaded === 7 && map.plugins().map(p => p.name).join() === "boot");
+	ok("boot.gadget", typeof map.gadget.hello === "function" && map.gadget.hello() === "hi:" + map.getZoom().toFixed(1) && map.supports("gadget.hello"));
+	// ⑤ capabilities の正直さ
+	const c = map.capabilities();
+	ok("cap.mercatorNever", c["projection.mercator"].status === "never" && !map.supports("projection.mercator") && map.supports("projection.globe"));
+	const be = [c["render.webgl2"].status, c["render.webgpu"].status];
+	ok("cap.backendOne", be.filter(s => s === "builtin").length === 1 && be.filter(s => s === "no").length === 1, be.join("/"));
+	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
+	ok("cap.no", ["light.point", "post.ssr", "camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
+	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
+	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
+	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
+	let cleaned = 0;
+	const dots = definePlugin({
+		name: "dots", version: "1.0", provides: ["data.dots"],
+		install(m) {
+			m.registry.dataKinds.add("dots", { create: (mm, data, o) => { const h = mm.addData(data, { ...o, kind: "points", getPosition: d => d.position, radius: o.radius ?? 6 }); h.kind = "dots"; return h; } });
+			m.registry.postEffects.add("fxaa", { pass: true });
+			return () => { cleaned++; };
+		},
+	});
+	map.use(dots);
+	ok("use.list", map.plugins().length === 2 && map.plugins()[1].version === "1.0");
+	ok("use.dup", throws(() => map.use(dots)));
+	const h = map.addData([{ position: [139.76, 35.68] }, { position: [139.77, 35.69] }], { kind: "dots", id: "d1", radius: 8 });
+	await h.ready;
+	ok("addData.pluginKind", h.id === "d1" && h.kind === "dots" && h.n === 2 && typeof h.setData === "function", `${h.id} ${h.kind} ${h.n}`);
+	ok("addData.unknownKind", throws(() => map.addData([], { kind: "nonsense" })));
+	const c2 = map.capabilities();
+	ok("cap.pluginKind", c2["data.dots"].status === "plugin" && c2["data.dots"].via === "dots" && map.supports("data.dots"));
+	ok("cap.specPost", c2["post.fxaa"].status === "spec" && !map.supports("post.fxaa") && map.registry.postEffects.wired === false);
+	ok("reg.builtinLocked", throws(() => map.registry.dataKinds.add("points", { create() {} })) && throws(() => map.registry.gadgets.add("compass", () => 0)));
+	// ④ 撤去
+	h.remove();
+	ok("unuse", map.unuse("dots") && cleaned === 1 && !map.registry.dataKinds.has("dots") && map.capabilities()["post.fxaa"].status === "no" && throws(() => map.addData([], { kind: "dots" })));
+	ok("unuse.boot", map.unuse("boot") && typeof map.gadget.hello !== "function" && !map.supports("gadget.hello") && map.plugins().length === 0);
+	// ⑥ 旗つきの顔の上でも
+	const map2 = await createGlobe({ target: "#map2", view: "#10/35.68/139.76", chips: false, persistView: false, zoomScale: "maplibre" });
+	await map2.once("load");
+	let seen = null;
+	const r = map2.use({ name: "probe", install(m) { seen = m; } });
+	ok("facade.chain", r === map2);
+	ok("facade.rawMap", seen === map2[RAW] && seen !== map2 && Math.abs(seen.getZoom() - map2.getZoom() - 1) < 1e-9, `${seen?.getZoom?.()} ${map2.getZoom()}`);
+	ok("facade.registry", map2.registry === map2[RAW].registry && map2.supports("projection.globe") && map2.plugins().length === 1);
+	map2.destroy();
+	ok("destroy.unuses", map2[RAW].plugins().length === 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
