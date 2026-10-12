@@ -12,6 +12,24 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "splat") {   // ⑬ Gaussian splat の受け口（F8）：plugin が無ければ addData(kind "splat") は契約を検めてから投げる（spec）・壊れた data は型の誤りで投げる・URL も受ける・plugin の "splat" を入れると検めた data が渡り supports が true
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		const mk = n => ({ n, positions: new Float32Array(n * 3).map((_, i) => i % 3 === 0 ? 139.76 + (i / 3) * 0.001 : i % 3 === 1 ? 35.68 : 50), scales: new Float32Array(n * 3).fill(2), rotations: new Float32Array(n * 4).map((_, i) => i % 4 === 3 ? 1 : 0), colors: new Uint8Array(n * 4).fill(200) });
+		const th = f => { try { f(); return ""; } catch (e) { return e.message; } };
+		ok("s.spec", map.capabilities()["data.splat"].status === "spec" && !map.supports("data.splat"));
+		ok("s.noPlugin", /reserved contract/.test(th(() => map.addData(mk(5), { kind: "splat" }))));
+		ok("s.badData", /scales/.test(th(() => map.addData({ ...mk(2), scales: null }, { kind: "splat" }))));
+		ok("s.url", /reserved contract/.test(th(() => map.addData("scene.spz", { kind: "splat" }))) && /SplatData/.test(th(() => map.addData("scene.glb", { kind: "splat" }))));
+		let got = null;
+		map.use({ name: "dots-splat", install(m) { m.registry.dataKinds.add("splat", { create: (mm, data, o) => { got = data; const pts = []; for (let i = 0; i < data.n; i++) pts.push({ p: [data.positions[i * 3], data.positions[i * 3 + 1], data.positions[i * 3 + 2]] }); return mm.addData(pts, { kind: "points", id: o.id, getPosition: d => d.p, getRadius: () => 6, getColor: () => [255, 80, 80, 255] }); } }); } });
+		const h = map.addData(mk(5), { kind: "splat", id: "sp" });
+		await h.ready;
+		ok("s.plugin", got && got.n === 5 && got.crs === "lnglat" && got.positions instanceof Float32Array && h.n === 5 && map.supports("data.splat") && map.capabilities()["data.splat"].via === "dots-splat");
+		h.remove(); map.unuse("dots-splat");
+		ok("s.afterUnuse", map.capabilities()["data.splat"].status === "spec" && !map.supports("data.splat"));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "terrain") {   // ⑫ 地形の一括標本と歩行の口（F6）：sampleTerrain＝配列・object・GeoJSON を受け getHeight と同じ値・順番が保たれる。walk＝中身が無ければ spec を保つだけ・plugin の "walk" を入れると動く
 		const map = await createGlobe({ target: "#map", view: "#12/35.36/138.73", chips: false, persistView: false });   // 富士山
 		await map.once("load");
@@ -194,7 +212,8 @@ try {
 	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
 	ok("cap.spec", c["light.point"].status === "spec" && !map.supports("light.point"));
 	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
-	ok("cap.no", ["camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
+	ok("cap.no", ["react", "types.shim"].every(k => c[k]?.status === "no" && !map.supports(k)));
+	ok("cap.specF", ["camera.walk", "data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "terrain.sample"].every(k => map.supports(k)));
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
