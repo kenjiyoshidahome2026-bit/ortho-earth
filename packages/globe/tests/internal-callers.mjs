@@ -21,8 +21,10 @@ const ALLOW = {
 	"apps/ortho-globe/physical.js": 15,   // 世界の地形（2026-10-01）＝MapLibre の意味で良い（意図して互換の口だけで描く＝ドッグフード。線・記号・線に沿う名前・当たり判定の面・重ねの出し入れ・気候区分の塗りと色の切替。山脈の帯などの絵は anno）
 	"apps/ortho-japan/terrain.js": 11,   // 日本の地形（2026-10-06）＝/globe/physical の日本版＝同じく MapLibre の意味で良い（互換の口だけで描くドッグフード）
 	"apps/www/index.html": 2,             // Get started の見本（start.md と同文＝MapLibre の書き方の見本そのもの）
-	"packages/globe/src/globe.js": 4,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
+	"packages/globe/src/globe.js": 8,     // 層イベントの問い合わせ（hitsFor）＋コメント 1。段 1 で描き出し・worldcontent・"los" は内部の入口（*Native・addLayerAt）へ移した
 	                                      // ＋検査表示の下地（#174）＝利用者の層を伏せる／戻す setLayoutProperty の visibility 2（利用者の口と同じ意味で伏せる＝戻すと同じ姿）
+	                                      // ＋map.addData の面・線・柱（deck.gl 差分 PR-4・2026-10-12）4＝addSource・addLayer・setLayoutProperty（visibility）・queryRenderedFeatures（h.pick）
+	                                      //   ＝利用者の層と同じ MapLibre の意味で良い（H3 と同じく既存の層経路に乗せる＝利用者が addLayer で描いたのと同じ姿・当たり）
 	"packages/globe/src/gadgets/inspect.js": 2,   // 検査表示（#174・maplibre-gl-inspect 相当）＝検査の層は MapLibre の層の文書（addLayer）・札は queryRenderedFeatures＝MapLibre の意味そのもの
 };
 

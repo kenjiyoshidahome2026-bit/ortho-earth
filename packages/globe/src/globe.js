@@ -9,7 +9,9 @@ import {
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
-import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
+import patUrl from "./pattern-2d.js?url";
+import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
+import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
@@ -3308,6 +3310,62 @@ map.addThree = ({ three, module, origin, depth = true, params, name = "three", a
 map.addH3 = async (src, o = {}) => {
 	const m = await import("@ortho-earth/h3");
 	return m.createH3Layer(map, src, { evalExpr, ...o });
+};
+// deck.gl の Layer（配列＋accessor）の相当（差分 PR-4・2026-10-12・src/adddata.js）：map.addData(data, { kind, …accessors, id, before, above, paint })
+//   kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）→ points-gl、"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth px／getHeight 弦長比）→ arcs-gl
+//     ＝同一フレームの overlay（RTE・統一 picking＝map.on(ev, id, cb)・queryRenderedFeatures({ layers:[id] })・h.pick）。main で accessor を評価して typed array に焼き worker へ transfer
+//   "polygons"（getPolygon）／"paths"（getPath）／"columns"（getPosition＋getRadius m）＋ getFillColor／getLineColor／getLineWidth／getElevation m → GeoJSON の addSource/addLayer（fill／line／fill-extrusion＝H3 と同じ既存の層経路）
+//   → 手綱 { id, kind, ready, setData(data), setProps(accessors), setVisible(on), pick(x, y), remove() }。setData は差分でなく全焼き（deck.gl と同じ）。data＝配列・GeoJSON FeatureCollection（位置の既定＝geometry）・iterable
+let dataSeq = 0;
+map.addData = (data, o = {}) => {
+	const { kind = "points", id, before, above = false, paint, ...acc } = o;
+	const name = id ?? `data${++dataSeq}`;
+	let props = acc, cur = data, removed = false;
+	const modP = import("./adddata.js");
+	const h = { id: name, kind };
+	if (kind === "points" || kind === "arcs") {
+		const ov = map.overlay(kind === "points" ? pointsUrl : arcsUrl, { name, above });
+		const style = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
+		if (acc.color) style.color = [acc.color[0] / 255, acc.color[1] / 255, acc.color[2] / 255, (acc.color[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
+		if (Object.keys(style).length) ov.post({ type: "style", ...style });
+		const bake = async () => {
+			const m = await modP; if (removed) return;
+			if (kind === "points") { const b = m.bakePoints(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, pos: b.pos, rgba: b.rgba, size: b.size, origin: b.origin }, [b.pos.buffer]); }
+			else { const b = m.bakeArcs(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, src: b.src, dst: b.dst, theta: b.theta, rgba: b.rgba, rgba2: b.rgba2, width: b.width, height: b.height, origin: b.origin }, [b.src.buffer, b.dst.buffer]); }
+		};
+		h.ready = bake();
+		h.setData = d => { cur = d; return (h.ready = bake()); };
+		h.setProps = p => { props = { ...props, ...p }; return (h.ready = bake()); };
+		h.setVisible = on => { ov.post({ type: "vis", q: "d", on: !!on }); return h; };
+		h.pick = (x, y, r) => ov.pick(x, y, r);
+		h.remove = () => { removed = true; ov.remove(); };
+		h.overlay = ov;
+		return h;
+	}
+	const ids = [name, name + "-line"];
+	const specs = () => {
+		const ext = kind === "columns" || props.getElevation !== undefined, gf = props.getFillColor !== undefined, gl = props.getLineColor !== undefined, gw = props.getLineWidth !== undefined;
+		const out = [];
+		if (kind !== "paths") out.push(ext
+			? { id: name, type: "fill-extrusion", source: name, paint: { "fill-extrusion-color": gf ? ["get", "_fill"] : "#3182bd", "fill-extrusion-opacity": 0.85, "fill-extrusion-height": props.getElevation !== undefined ? ["get", "_h"] : (props.elevation ?? 100), "fill-extrusion-base": 0, ...(paint || {}) } }
+			: { id: name, type: "fill", source: name, paint: { "fill-color": gf ? ["get", "_fill"] : "rgba(49,130,189,0.6)", ...(paint || {}) } });
+		if (kind === "paths" || (gl && !ext)) out.push({ id: kind === "paths" ? name : name + "-line", type: "line", source: name, paint: { "line-color": gl ? ["get", "_line"] : "#1f3b73", "line-width": gw ? ["get", "_lw"] : (props.lineWidth ?? 1.5), ...(kind === "paths" ? (paint || {}) : {}) } });
+		return out;
+	};
+	let mounted = false;
+	const bake = async () => {
+		const m = await modP; if (removed) return;
+		const gj = m.toGeoJSON(cur, kind, props); h.n = gj.features.length;
+		if (!mounted) { map.addSource(name, { type: "geojson", data: gj }); for (const sp of specs()) await map.addLayer(sp, before); mounted = true; }
+		else await map.getSource(name)?.setData(gj);
+	};
+	h.ready = bake();
+	h.setData = d => { cur = d; return (h.ready = bake()); };
+	h.setProps = p => { props = { ...props, ...p }; return (h.ready = bake()); };
+	h.setVisible = on => { for (const i of ids) if (map.getLayer(i)) map.setLayoutProperty(i, "visibility", on ? "visible" : "none"); return h; };
+	h.pick = async (x, y) => map.queryRenderedFeatures([x, y], { layers: ids.filter(i => map.getLayer(i)) });
+	h.remove = () => { removed = true; for (const i of ids) if (map.getLayer(i)) map.removeLayer(i); if (map.getSource(name)) map.removeSource(name); };
+	return h;
 };
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
