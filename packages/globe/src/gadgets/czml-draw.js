@@ -6,12 +6,15 @@
 // 隠れ＝視線（eye→点）が地球（単位球）を通るか＝地平線の向こうでも高い衛星は地球の縁の外に見える（api.projectH の表裏は高さを見ない＝使わない）。
 // 断面（#111）で切られた側も描かない。時計が動いている間（実時間を含む）は描き続ける（frame が true）。
 // 契約（map.overlay）：init(canvas, opts, host) / message(data) / frame(cam, camState, size, api) / destroy()
+// 当たり判定（統一 picking・deck.gl 差分 PR-1・2026-10-11）：pick(x, y, r, ctx)＝最後に描いたフレームの点・画像・札の位置（device px）から半径 r の中で一番近い軌跡
+//   ＝{ id, distance, lngLat, properties:{ id, name, description } }｜null。描いた物だけ当たる（出ていない区間・地球の陰は描いていない＝当たらない）。
 import { positionAt, availableAt, pathTimes, numberAt, boolAt, ecefToLlh } from "../czml-time.js";
 import { ellipsoidOn, worldRadiusM } from "@ortho-earth/core/camera";
 
 const D2R = Math.PI / 180, MIN_EARTH_PX = 14;   // 地球の見かけの半径（CSS px）がこれ未満＝太陽系圏の奥＝描かない（衛星と同じ）
 const FONT = '"Noto Sans",system-ui,sans-serif';   // 地域の書体は名指ししない（regionless）＝各言語の文字は OS の書体が受ける
 let canvas = null, ctx = null, host = null, tracks = [];
+let marks2 = [];   // 最後に描いた印＝[{ x, y, r（当たり半径・device px）, tr }]（pick が読む）
 const images = new Map();   // src → ImageBitmap | "loading" | "bad"
 
 const imageOf = src => {
@@ -56,6 +59,7 @@ export function frame(cam, s, { w, h }, api) {
 		return [((m[0] * x + m[4] * y + m[8] * z + m[12]) / ww * 0.5 + 0.5) * w, (1 - ((m[1] * x + m[5] * y + m[9] * z + m[13]) / ww * 0.5 + 0.5)) * h];
 	};
 	const marks = [];
+	marks2 = [];
 	for (const tr of tracks) {
 		if (!availableAt(tr, ms)) continue;
 		const st = tr.style || {};
@@ -68,19 +72,23 @@ export function frame(cam, s, { w, h }, api) {
 			ctx.stroke();
 		}
 		const q = positionAt(tr, ms), P = q && toScreen(q);
-		if (P) marks.push([P, st]);
+		if (P) marks.push([P, st, tr]);
 	}
-	for (const [P, st] of marks) {   // 点・画像・札は尾の上に
+	for (const [P, st, tr] of marks) {   // 点・画像・札は尾の上に
+		let hitR = 4 * dpr;   // 当たり半径＝描いた物の大きさ（画像＝短辺の半分・点＝半径・最低 4px）
 		const img = st.image && boolAt(st.image.show, ms, true) ? imageOf(st.image.src) : null;
 		if (img) {
 			const sw = img.width * st.image.scale * dpr, sh = img.height * st.image.scale * dpr;
 			ctx.drawImage(img, P[0] + st.image.offset[0] * dpr - sw / 2, P[1] + st.image.offset[1] * dpr - sh / 2, sw, sh);
+			hitR = Math.max(hitR, Math.min(sw, sh) / 2);
 		} else if ((st.point && boolAt(st.point.show, ms, true)) || st.image) {   // 画像が取れない（取れる前も）＝点
 			const pt = st.point || { size: 8, color: "rgba(255,255,255,1)", outline: "rgba(0,0,0,0.8)", outlineWidth: 1 };
 			ctx.beginPath(); ctx.arc(P[0], P[1], Math.max(1, pt.size) * dpr / 2, 0, Math.PI * 2);
 			ctx.fillStyle = pt.color; ctx.fill();
 			if (pt.outline && pt.outlineWidth) { ctx.lineWidth = pt.outlineWidth * dpr; ctx.strokeStyle = pt.outline; ctx.stroke(); }
+			hitR = Math.max(hitR, Math.max(1, pt.size) * dpr / 2);
 		}
+		marks2.push({ x: P[0], y: P[1], r: hitR, tr });
 		const lb = st.label;
 		if (lb && boolAt(lb.show, ms, true) && lb.text) {
 			ctx.font = `${lb.px * dpr}px ${FONT}`; ctx.textBaseline = "middle";
@@ -91,4 +99,20 @@ export function frame(cam, s, { w, h }, api) {
 		}
 	}
 	return api.clock?.rate !== 0;   // 時計が動いている（null＝実時間も）間は描き続ける
+}
+// 印の列から (x, y) に一番近い物（中心の距離 − 印の半径 ≤ r）＝純関数（node の検定 tests/pick.mjs が読む）
+export function nearestMark(marks, x, y, r) {
+	let best = null;
+	for (const m of marks) {
+		const d = Math.hypot(m.x - x, m.y - y);
+		if (d - m.r > r) continue;
+		if (!best || d < best.d) best = { m, d };
+	}
+	return best;
+}
+export function pick(x, y, r, ctx) {
+	const b = nearestMark(marks2, x, y, r);
+	if (!b) return null;
+	const tr = b.m.tr, ms = ctx?.api?.time, q = ms != null ? positionAt(tr, ms) : null, llh = q ? ecefToLlh(q[0], q[1], q[2]) : null;
+	return { id: tr.id, distance: b.d, lngLat: llh ? [llh[0], llh[1]] : null, properties: { id: tr.id, name: tr.name ?? null } };   // 説明（description）は main（gadgets/czml.js）が持つ＝ここには来ない
 }
