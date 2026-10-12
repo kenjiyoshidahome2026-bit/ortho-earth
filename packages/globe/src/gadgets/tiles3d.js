@@ -70,7 +70,7 @@ let ctxRGB = null;
 const cssRGB = c => { const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim()); if (m) { let h = m[1]; if (h.length === 3) h = [...h].map(x => x + x).join(""); return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); }
 	try { ctxRGB ??= new OffscreenCanvas(1, 1).getContext("2d"); ctxRGB.fillStyle = "#000"; ctxRGB.fillStyle = c; const f = ctxRGB.fillStyle, h = /^#([0-9a-f]{6})$/i.exec(f)?.[1]; if (h) return [0, 2, 4].map(i => parseInt(h.slice(i, i + 2), 16)); const r = /rgba?\(([^)]+)\)/.exec(f); return r ? r[1].split(",").slice(0, 3).map(v => +v) : null; } catch { return null; }
 };   // feature state の色（CSS 色 → [r,g,b]）
-export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, pickEnv = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() } = {}) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
+export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCol = null, pickEnv = null, setAttribution = null, lowMem = false, signal, requester = null, ell = ellipsoidOn() } = {}) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
 	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
 	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
@@ -150,6 +150,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCo
 				setMesh(`${n.ward}#${k}`, { ...m, noLift: !onGround, drape: onGround, keep2d: true, castShadow: true, ward: n.ward, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: null, maskN: 0 });   // pbr＋材質 4 枚＝#46 段 2
 			});
 			if (set.states.size) paintNode(n);   // feature state の色は後から読んだタイルにも
+			n.copyright = r.stats?.copyright || null;   // glTF の asset.copyright（W8）＝出典の欄へ
 			n.meshN = r.batches.length; n.bbox = r.batches[0]?.mesh.bbox?.map(v => +v.toFixed(5)) ?? null;
 			if (r.points.length) {
 				set.pts ??= map.overlay(pointsUrl, { name: `tiles3d:${set.id}` });
@@ -176,6 +177,18 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCo
 		const [n, p] = refs[h.item], f = p.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f.tables?.[tIdx] : null;
 		return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx, name: table.name, class: table.class } : null,
 			tile: n.id, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(set.states.get(h.featureId) || {}) } : {} };
+	};
+	// 出典（W8）＝表示しているタイルの glTF asset.copyright を「;」で割って数え、多い順（Google Map Tiles の表示の決まり）。
+	//   opts.attribution＝文字列（そのまま）か関数（copyrights の列 → 文字列）。無ければ出典の欄に何も足さない（従来どおり）
+	const copyrightsOf = (set, nodes) => {
+		const cnt = new Map();
+		for (const n of nodes) for (const c of n.copyright || []) for (const p of String(c).split(";")) { const k = p.trim(); if (k) cnt.set(k, (cnt.get(k) || 0) + 1); }
+		return [...cnt].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).map(([k]) => k);
+	};
+	const updateAttr = (set, shown) => {
+		set.copyrights = copyrightsOf(set, shown);
+		const a = set.opts.attribution, text = a == null ? null : typeof a === "function" ? (() => { try { return a(set.copyrights); } catch (e) { console.error("[tiles3d] attribution", e); return null; } })() : String(a);
+		if ((text ?? null) !== (set.attrText ?? null)) { set.attrText = text ?? null; setAttribution?.(set.id, set.attrText); }
 	};
 	const unload = n => {
 		if (n.state !== "ready") return;
@@ -257,6 +270,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCo
 			// 出す/伏せる
 			for (const n of set.loaded()) setOn(n, show.has(n));
 			set.stats.shown = show.size;
+			updateAttr(set, show);
 		}
 		// 読む（SSE の大きい＝粗すぎて目立つ物から）
 		want.sort((a, b) => b.pri - a.pri);
@@ -299,6 +313,8 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCo
 				setOptions: o => { Object.assign(set.opts, o); schedule(); },
 				// 当たりと feature state（W7）＝EXT_mesh_features／_BATCHID の番号。色は { color } を頂点色へ（他の鍵は保つだけ）。状態は tileset ごと（タイルを跨いで同じ番号＝同じ地物）
 				pick: (x, y) => pickSet(set, x, y),
+				/** 表示しているタイルの出典（glTF asset.copyright・多い順・W8） */
+				get copyrights() { return [...(set.copyrights || [])]; },
 				setFeatureState(fid, state) { if (fid == null) return this; const nx = state == null ? {} : { ...(set.states.get(+fid) || {}), ...state }; if (Object.keys(nx).length) set.states.set(+fid, nx); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; },
 				getFeatureState: fid => ({ ...(set.states.get(+fid) || {}) }),
 				removeFeatureState(fid) { if (fid == null) set.states.clear(); else set.states.delete(+fid); for (const n of set.loaded()) paintNode(n); return this; } };
@@ -326,6 +342,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, setMeshCo
 			set.removed = true;
 			for (const n of set.loaded()) unload(n);
 			set.pts?.remove();
+			if (set.attrText) setAttribution?.(id, null);
 			sets.delete(id);
 		},
 		get ids() { return [...sets.keys()]; },

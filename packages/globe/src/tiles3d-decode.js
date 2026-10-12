@@ -113,6 +113,7 @@ export async function decodeTile3D(ab, { transform, baseUri, baseH = 0, textures
 	const merge = r => {
 		if (!r) return;
 		if (r.batches?.length) { out.batches.push(...r.batches); out.stats.triangles += r.stats?.triangles || 0; }
+		if (r.stats?.gltf?.copyright) (out.stats.copyright ??= []).includes(r.stats.gltf.copyright) || out.stats.copyright.push(r.stats.gltf.copyright);   // glTF の asset.copyright（W8）＝tileset の出典を集める
 		const p = r.points && !r.points.pos ? pointsOut(r.points, baseH) : r.points;   // decodeModel の点（経緯度）は形を揃える
 		if (p) { out.points.push(p); out.stats.points += p.n; }
 		if (r.pos && r.n) { out.points.push(r); out.stats.points += r.n; }

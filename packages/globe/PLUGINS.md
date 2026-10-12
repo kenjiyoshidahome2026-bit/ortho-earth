@@ -96,6 +96,12 @@ map.walk({ speed: 1.4, eyeHeight: 1.7 }).start();
   plugin が無ければ `addData` は投げる（`capabilities()["data.splat"]` は "spec"）。描く段は同一フレームのオーバーレイ（深度つき・視線順のソート）＝plugin か第 3 波。
 - `textureTranscoders` の **`ktx2`**：`{ url }`＝worker が import() する module（`export transcode(bytes: Uint8Array, { mimeType }) → { width, height, rgba: Uint8Array(width*height*4) }`・Promise でもよい）。模型（gadget model）と 3D Tiles の glb の KHR_texture_basisu の画像がこれを通って普通のテクスチャになる（第 3 波 W5）。登録が無ければ fallback の画像（texture.source）のまま＝`capabilities()["texture.ktx2"]` は "spec"、登録があれば "plugin"。`@ortho-earth/ktx2` が basis_universal の WASM（opt-in・既定は unpkg の @loaders.gl/textures の libs・`libraryPath` で自前配布）で実装している：`map.use(ktx2Plugin({ libraryPath }))`。
 
+## 3D Tiles の要求と出典（requestTransform・attribution）
+
+- `add3DTiles(url, { requestTransform(url, type) })`＝tileset.json・外部 tileset（type "Source"）とタイル（"Tile"）の全要求が通る。`{ url }` を返せば書き換え、null なら元のまま（F5）。
+- `add3DTiles(url, { attribution })`＝文字列か `(copyrights) => 文字列|null`。copyrights＝今見えているタイルの glTF `asset.copyright`（";" で分け・多い順）。出典の欄に出て、remove で消える。手綱の `copyrights` でも読める（第 3 波 W8・`capabilities()["tiles3d.attribution"]`＝builtin）。
+- `@ortho-earth/google-tiles` がこの二つで Google Photorealistic 3D Tiles を読む：鍵（key=…）は許した host への要求にだけ付け、子の tileset の URI にある session=… を覚えて後の要求に付け回す。出典は "Google; 提供元…"。`addGoogle3DTiles(map, { key })` か `map.use(googleTilesPlugin({ key }))` → `map.gadget.googleTiles()`。鍵はアプリが実行時に渡す（package にも repo にも置かない）。
+
 ## 検定
 
 - `node tests/plugin.mjs`（契約・registry・capabilities の純関数）・`npm run verify:ui -- t-plugin`（default／lights／sun／post／gltf／tiles3d／terrain の変種）。
