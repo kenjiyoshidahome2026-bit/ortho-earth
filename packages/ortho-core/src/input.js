@@ -438,6 +438,7 @@ export function createInput({ canvas, cam, size, dpr, maxPitch, zoomMin = 2, zoo
 		setHandler: (name, on) => { if (name in H) H[name] = !!on; },
 		handlerOn: name => !!H[name],
 		stop: () => { stopInertia(); ease = null; },
+		cancelDrag: () => { drag = null; box = null; },   // 掴みを捨てる（層の mousedown の preventDefault＝MapLibre の「地図のドラッグを止める」・C8）
 		setZoomSnap: v => { zoomSnapCur = Math.max(0, +v || 0); },
 		zoomSnap: () => zoomSnapCur };
 }

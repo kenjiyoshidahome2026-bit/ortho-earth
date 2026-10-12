@@ -18,7 +18,7 @@ const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", 
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
 	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend", "boxzoomstart", "boxzoomend", "boxzoomcancel", "cooperativegestureprevented"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
-const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave"]);   // エンジンが層ごとに持つ事象（#34）
+const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave", "mousedown", "mouseup", "touchstart", "touchend", "dblclick", "contextmenu"]);   // C8＝押し系も（エンジンの同期当たり・preventDefault でパン止め）   // エンジンが層ごとに持つ事象（#34）
 
 const S = new WeakMap();   // 通訳の地図（と Proxy）→ 状態
 let liveMaps = 0;
@@ -135,13 +135,14 @@ function wireEngine(self, st) {
 		emit(self, "moveend");
 	});
 	eng.on("styleimagemissing", e => emit(self, "styleimagemissing", { id: e.id }));   // 記号帳に無い名前（名前ごとに 1 回）
+	eng.on("sourcedata", e => { if (st.sources.has(e.sourceId)) self._sourceLoaded(e.sourceId); });   // C8＝setData／層が載った合図（エンジンの sourcedata）を sourcedata/data（isSourceLoaded:true）に
 	eng.on("boxzoomstart", () => emit(self, "boxzoomstart"));
 	eng.on("boxzoomend", e => emit(self, "boxzoomend", { boxZoomBounds: new LngLatBounds([e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]) }));   // MapLibre の boxzoomend＝boxZoomBounds（例 select-features-with-boxzoomend-callback）
 	eng.on("boxzoomcancel", () => emit(self, "boxzoomcancel"));
 	eng.on("cooperativegestureprevented", e => emit(self, "cooperativegestureprevented", { gestureType: e.kind === "touch" ? "touch_pan" : "wheel_zoom" }));
 	eng.on("idle", () => {
 		st.idle = true;
-		for (const id of st.sources) { emit(self, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "idle" }); emit(self, "data", { dataType: "source", sourceId: id }); }
+		for (const id of st.sources) { emit(self, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "idle" }); emit(self, "data", { dataType: "source", sourceId: id, isSourceLoaded: true }); }
 		emit(self, "idle");
 	});
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => emit(self, "resize")).observe(st.container);
@@ -616,5 +617,4 @@ export class Popup extends OrthoPopup {
 	}
 	setLngLat(ll) { return super.setLngLat(lngArr(ll)); }
 	getLngLat() { const v = super.getLngLat?.(); return v ? LngLat.convert(v) : v; }
-	trackPointer() { unsupported(this, "Popup.trackPointer", "cosmetic"); return this; }
 }
