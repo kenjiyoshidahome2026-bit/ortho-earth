@@ -129,5 +129,6 @@ export function extrudeMesh(polys, { mask = true, refine = ROOF_EDGE_M } = {}) {
 	const G = geo.subarray(0, v * 3), N = nrm.subarray(0, v * 4), I = idx.subarray(0, w);
 	const maskBbox = mask && lo0 < lo1 ? [lo0, la0, lo1, la1] : null;
 	const mesh = finishMesh(G.slice(), N.slice(), I.slice(), 0, null, maskBbox, true, { uv: uv.slice(0, v * 2), col: col.slice(0, v * 4) }, true);
+	mesh.colSrgb = true;   // 頂点色＝style の色そのまま（sRGB）＝WebGPU の模型シェーダにリニアと読ませない
 	return { mesh, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, stats: { polygons: nPoly, vertices: v, triangles: nTri, bbox: [lo0, la0, lo1, la1] } };
 }
