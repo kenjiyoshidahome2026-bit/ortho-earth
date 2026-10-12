@@ -631,7 +631,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f };   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f, sl0: vec4f, sl1: vec4f, cs: vec4f };   // sl0/sl1＝style の light（setLight・float 212〜219）：sl0＝(東, 北, 上, on)・sl1＝(色 rgb, 強さ)／cs.x＝1 で頂点色は sRGB（押し出し＝表示空間の色・float 220）   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -705,7 +705,11 @@ fn localLights(n: vec3f, pos: vec3f) -> vec3f {
 	let east = select(normalize(e0), vec3f(1.0, 0.0, 0.0), dot(e0, e0) < 1e-12);   // 極では退化＝任意の水平
 	let north = cross(up, east);
 	let L = normalize(north * 0.44 + up * 0.90);   // 斜め上の光＝屋根が立つ
-	let d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);   // 基図建物の屋根1.0/壁0.76に合わせる
+	var d = vec3f(clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0));   // 基図建物の屋根1.0/壁0.76に合わせる
+	if (B.sl0.w > 0.5) {   // style の light（MapLibre の setLight・2026-10-13）＝gl/glsl.js MESH_FS と同式：局所系で向きを写し mix(1−強さ, 1, max(dot, 0))×色。fx.pbr の経路（太陽＋環境光）には掛けない
+		let Ls = normalize(east * B.sl0.x + north * B.sl0.y + up * B.sl0.z);
+		d = B.sl1.rgb * mix(1.0 - B.sl1.w, 1.0, clamp(dot(n, Ls), 0.0, 1.0));
+	}
 	let sunK = 1.0;   // 影の受け手（MESH_SH）は shLit(in.sc) に差し替える＝太陽の項だけ影が消す（環境光は残る）
 	var lit = P.p1.rgb * d;   // 従来（fx.pbr off）
 	if (B.emis.w > 0.5) {   // #46 段 2＝太陽＋空の環境光（拡散だけ・rough 1・metallic 0）。夜は固定光へ
@@ -1171,7 +1175,7 @@ export const MESH_TEX_WGSL = deriveWgsl(MESH_WGSL, [
 	["@group(2) @binding(0) var<uniform> B: PB;\n", "@group(2) @binding(0) var<uniform> B: PB;\n@group(3) @binding(0) var texS: sampler;\n@group(3) @binding(1) var texT: texture_2d<f32>;\n@group(3) @binding(2) var texMR: texture_2d<f32>;\n@group(3) @binding(3) var texN: texture_2d<f32>;\n@group(3) @binding(4) var texOcc: texture_2d<f32>;\n@group(3) @binding(5) var texEm: texture_2d<f32>;\n"],
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) uv: vec2f,\n\t@location(5) col: vec4f,\n};"],
 	["@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {\n\tvar o: PlOut;\n", "@vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f, @location(2) a_uv: vec2f, @location(3) a_col: vec4f) -> PlOut {\n\tvar o: PlOut;\n\to.uv = a_uv; o.col = a_col;\n"],
-	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet tx = textureSample(texT, texS, in.uv) * in.col;   // uniform control flow（discard より前）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
+	["\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n", "\tlet gnRaw = cross(dpdx(in.toEye), dpdy(in.toEye));\n\tlet txT = textureSample(texT, texS, in.uv);   // uniform control flow（discard より前）\n\tlet tx = vec4f(txT.rgb * select(in.col.rgb, srgbDecode(in.col.rgb), B.cs.x > 0.5), txT.a * in.col.a);   // cs.x＝頂点色が sRGB（押し出し）＝リニアへ戻してから掛ける＝出口の srgbEncode で元の色（gl と同じ絵・2026-10-13）\n\tlet mr = textureSample(texMR, texS, in.uv); let nm = textureSample(texN, texS, in.uv); let oc = textureSample(texOcc, texS, in.uv); let em = textureSample(texEm, texS, in.uv);   // #46 段 2＝材質 4 枚（無い物は 1×1 の既定）\n\tlet dpx = dpdx(in.toEye); let dpy = dpdy(in.toEye); let dux = dpdx(in.uv); let duy = dpdy(in.uv);   // 法線マップの接線（微分＝ここで確定）\n"],
 	["\tvar ltBase = P.p1.rgb;   // 局所の光源（W2）", "\tvar ltBase = srgbEncode(tx.rgb);   // 局所の光源（W2）"],
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tif (tx.a < B.alpha.x) { discard; }\n\tlet a = select(1.0, tx.a, B.alpha.y > 0.5);\n\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）＝tx はリニア（srgb ビュー）・陰影 d は表示空間\n"],
 	["\t\tvar pi: PbrIn; pi.base = srgbDecode(P.p1.rgb); pi.n = n; pi.pos = F.eye - in.toEye; pi.v = normalize(in.toEye); pi.metallic = 0.0; pi.rough = 1.0; pi.ao = 1.0; pi.sunK = sunK; pi.lp = B.lp; pi.fill = B.sh[0].w;\n\t\tlit = srgbEncode(min(pbrShade(pi, B.sh), vec3f(1.0)));\n",
