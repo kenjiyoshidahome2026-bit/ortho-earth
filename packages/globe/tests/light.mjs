@@ -1,5 +1,5 @@
 // style の light（src/light.js・B3 2026-10-12）＝既定の補完・方位の意味（0＝北・90＝東・時計回り）・viewport の錨は bearing で回る・色
-import { normLight, lightENU, lightPayload, LIGHT_DEFAULT, normLightSpec, normLights, LIGHT_TYPES } from "../src/light.js";
+import { normLight, lightENU, lightPayload, LIGHT_DEFAULT, normLightSpec, normLights, LIGHT_TYPES, localLightsPayload, LOCAL_LIGHT_MAX } from "../src/light.js";
 let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
 const near = (a, b, e = 1e-9) => Math.abs(a - b) <= e, vnear = (a, b, e = 1e-9) => a.length === b.length && a.every((v, i) => near(v, b[i], e));
 
@@ -34,5 +34,15 @@ threw = false; try { normLights([{}, { type: "directional" }]); } catch { threw 
 ok("list.pluginKept", JSON.stringify(normLights([{ type: "laser", w: 1 }], t => t === "laser")) === JSON.stringify([{ type: "laser", w: 1 }]));
 ok("list.single", normLights({ type: "ambient" }).length === 1 && normLights(null).length === 0);
 
+// ── 局所の光源の renderer への形（W2）＝kind・位置（単位球）・range（m/R）・spot の向き（direction は局所系→世界・target は差）・8 灯で打ち切り・directional/ibl は飛ばす ──
+const R = 6371000, L = normLights([{ type: "ambient", color: "#ff0000", intensity: 0.3 }, { type: "point", position: [0, 0, R], range: R, decay: 1 }, { type: "spot", position: [0, 0, 0], direction: [0, 0, -1], angle: 60, penumbra: 0.5 }, { type: "hemisphere" }, { type: "ibl" }, {}]);
+const pl = localLightsPayload(L, R), d = pl.data;
+ok("local.count", pl.n === 4 && d.length === LOCAL_LIGHT_MAX * 16 && d[4 * 16 + 3] === 0);
+ok("local.ambient", d[3] === 3 && near(d[4], 1) && near(d[5], 0) && near(d[7], 0.3, 1e-6));
+ok("local.point", d[16 + 3] === 1 && near(d[16], 2, 1e-6) && near(d[16 + 1], 0) && near(d[16 + 2], 0) && near(d[16 + 11], 1, 1e-6) && near(d[16 + 14], 1));   // (0,0) の alt=R＝x=2・range=R＝1
+const s0 = 32; ok("local.spot", d[s0 + 3] === 2 && near(d[s0], 1, 1e-6) && near(d[s0 + 8], -1, 1e-6) && near(d[s0 + 9], 0, 1e-6) && near(d[s0 + 10], 0, 1e-6) && near(d[s0 + 12], 0.5, 1e-6) && near(d[s0 + 13], Math.cos(30 * Math.PI / 180), 1e-6), Array.from(d.subarray(s0, s0 + 16)).map(v => +v.toFixed(3)).join());   // 下向き＝−up＝(−1,0,0)
+const tg = localLightsPayload(normLights([{ type: "spot", position: [0, 0, 1000], target: [0, 0, 0] }]), R).data; ok("local.spotTarget", near(tg[8], -1, 1e-6) && near(tg[9], 0, 1e-6));
+ok("local.hemi", d[48 + 3] === 4 && near(d[48 + 7], 0.5) && near(d[48 + 8], 0x6b / 255, 1e-6));
+ok("local.cap", localLightsPayload(Array.from({ length: 10 }, () => ({ type: "ambient", intensity: 1 })), R).n === LOCAL_LIGHT_MAX);
 console.log(fail ? `✗ light: ${fail} failed` : "✓ light PASS");
 process.exit(fail ? 1 : 0);
