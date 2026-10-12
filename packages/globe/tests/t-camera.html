@@ -113,6 +113,25 @@ try {
 	ok("centerElevation", near(map.getCenterElevation(), 500, 1e-9) && !map.getCenterClampedToGround() && near(map.getCameraTargetElevation(), 500, 1e-9));
 	map.setCenterClampedToGround(true);
 	ok("clampedToGround", map.getCenterClampedToGround() && map.getCenterElevation() < 1);
+	// ⑱ lookAt＝的が注視点・distance（m）が view.eye.distM と一致（A4）
+	await map.lookAt([135.5, 34.7, 300], { distance: 8000, bearing: 45, pitch: 30, roll: 5 });
+	const ec = map.getCenter(), ey = map.view.eye;
+	ok("lookAt", near(ec.lng, 135.5, 1e-9) && near(ec.lat, 34.7, 1e-9) && near(ey.distM, 8000, 8) && near(map.getBearing(), 45, 1e-9) && near(map.getPitch(), 30, 1e-9) && near(map.getRoll(), 5, 1e-9) && near(map.getCenterElevation(), 300, 1e-9) && !map.getCenterClampedToGround(), `dist ${ey.distM.toFixed(1)} h ${map.getCenterElevation()}`);   // 高さのある的＝地面の上の中心点を離れる
+	// ⑲ setCamera（Navara の形）＝getCamera で往復・負の pitch は Cesium の意味（−60 → 30）
+	map.setCamera({ lng: 139.7, lat: 35.6, height: 0, distance: 20000, heading: -90, pitch: -60, roll: 0 });
+	const nc = map.getCamera();
+	ok("setCamera", near(nc.lng, 139.7, 1e-9) && near(nc.lat, 35.6, 1e-9) && near(nc.distance, 20000, 20) && near(nc.heading, -90, 1e-9) && near(nc.pitch, 30, 1e-9) && near(nc.roll, 0, 1e-9), JSON.stringify(nc));
+	// ⑳ follow＝関数の的を毎フレーム追う（lerp 1）・follow(null) で止まる・追従中の setZoom は効く
+	let tx = 139.0; const fh = map.follow(() => [tx, 35.0], { pitch: 0 });
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	const f1 = map.getCenter();
+	tx = 139.2; map.setZoom(9);
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	const f2 = map.getCenter();
+	ok("follow", fh.active && map.isFollowing() && near(f1.lng, 139.0, 1e-9) && near(f2.lng, 139.2, 1e-9) && near(f2.lat, 35.0, 1e-9) && near(map.getZoom(), 9, 1e-9), `${f1.lng.toFixed(3)} → ${f2.lng.toFixed(3)} z${map.getZoom()}`);
+	map.follow(null); tx = 140.0;
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	ok("followStop", !fh.active && !map.isFollowing() && near(map.getCenter().lng, 139.2, 1e-9));
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>
