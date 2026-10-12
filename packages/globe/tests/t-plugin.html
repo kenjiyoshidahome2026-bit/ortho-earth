@@ -12,6 +12,26 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "post") {   // ⑨ 後処理の鎖（F3）：setPostChain の順番と既定・bloom/vignette は getPostProcess（renderer）へ写る・他の type は保つだけ・plugin の type は apply が呼ばれる・setPostProcess の旧形は不変
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		ok("p.empty", map.getPostChain().length === 0 && map.getPostProcess() === null && map.supports("post.chain") && !map.supports("post.tonemap"));
+		map.setPostChain([{ type: "tonemap", mode: "agx" }, { type: "bloom", strength: 1.5 }, { type: "fxaa", enabled: false }]);
+		const ch = map.getPostChain();
+		ok("p.chain", ch.map(x => x.type).join() === "tonemap,bloom,fxaa" && ch[0].exposure === 1 && ch[2].enabled === false, JSON.stringify(ch));
+		ok("p.toRenderer", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.75, strength: 1.5, radius: 1 }, vignette: null }), JSON.stringify(map.getPostProcess()));
+		map.setPostProcess({ vignette: true });
+		ok("p.legacy", map.getPostChain().map(x => x.type).join() === "vignette" && map.getPostProcess().vignette.strength === 0.5 && map.getPostProcess().bloom === null);
+		ok("p.unknownThrows", throws(() => map.setPostChain([{ type: "crt" }])) && map.getPostChain().length === 1);
+		let applied = null;
+		map.use({ name: "crt", install(m) { m.registry.postEffects.add("crt", { apply: (mm, ps) => { applied = ps; } }); } });
+		map.setPostChain([{ type: "crt", scanlines: 2 }, { type: "vignette", strength: 0.2 }]);
+		ok("p.pluginApply", applied?.length === 1 && applied[0].scanlines === 2 && map.supports("post.crt") && map.getPostProcess().vignette.strength === 0.2, JSON.stringify(applied));
+		map.setPostChain(null); ok("p.clear", map.getPostChain().length === 0 && map.getPostProcess() === null && applied.length === 0);
+		map.unuse("crt"); ok("p.afterUnuse", throws(() => map.setPostChain([{ type: "crt" }])));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "sun") {   // ⑧ 太陽・月・雲の口（F2）：getSunPosition は ephem と一致・setSun が directional の光を動かす・時計の変化に追う・setClouds は保つだけ・plugin の clouds が apply される
 		const { sunAltAz } = await import("@ortho-earth/ephem/sun");
 		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
@@ -87,7 +107,8 @@ try {
 	ok("cap.backendOne", be.filter(s => s === "builtin").length === 1 && be.filter(s => s === "no").length === 1, be.join("/"));
 	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
 	ok("cap.spec", c["light.point"].status === "spec" && !map.supports("light.point"));
-	ok("cap.no", ["post.ssr", "camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
+	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
+	ok("cap.no", ["camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
@@ -96,7 +117,7 @@ try {
 		name: "dots", version: "1.0", provides: ["data.dots"],
 		install(m) {
 			m.registry.dataKinds.add("dots", { create: (mm, data, o) => { const h = mm.addData(data, { ...o, kind: "points", getPosition: d => d.position, radius: o.radius ?? 6 }); h.kind = "dots"; return h; } });
-			m.registry.postEffects.add("fxaa", { pass: true });
+			m.registry.postEffects.add("crt", { apply() {} });
 			return () => { cleaned++; };
 		},
 	});
@@ -109,11 +130,11 @@ try {
 	ok("addData.unknownKind", throws(() => map.addData([], { kind: "nonsense" })));
 	const c2 = map.capabilities();
 	ok("cap.pluginKind", c2["data.dots"].status === "plugin" && c2["data.dots"].via === "dots" && map.supports("data.dots"));
-	ok("cap.specPost", c2["post.fxaa"].status === "spec" && !map.supports("post.fxaa") && map.registry.postEffects.wired === false);
+	ok("cap.pluginPost", c2["post.crt"].status === "plugin" && !map.supports("post.fxaa") && c2["post.fxaa"].status === "spec" && map.registry.postEffects.wired === true);
 	ok("reg.builtinLocked", throws(() => map.registry.dataKinds.add("points", { create() {} })) && throws(() => map.registry.gadgets.add("compass", () => 0)));
 	// ④ 撤去
 	h.remove();
-	ok("unuse", map.unuse("dots") && cleaned === 1 && !map.registry.dataKinds.has("dots") && map.capabilities()["post.fxaa"].status === "no" && throws(() => map.addData([], { kind: "dots" })));
+	ok("unuse", map.unuse("dots") && cleaned === 1 && !map.registry.dataKinds.has("dots") && !("post.crt" in map.capabilities()) && throws(() => map.addData([], { kind: "dots" })));
 	ok("unuse.boot", map.unuse("boot") && typeof map.gadget.hello !== "function" && !map.supports("gadget.hello") && map.plugins().length === 0);
 	// ⑥ 旗つきの顔の上でも
 	const map2 = await createGlobe({ target: "#map2", view: "#10/35.68/139.76", chips: false, persistView: false, zoomScale: "maplibre" });
