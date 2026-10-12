@@ -314,7 +314,7 @@ try {
 	ok("cap.spec", c["light.ibl"].status === "spec" && !map.supports("light.ibl"));   // point は W2 で builtin＝spec の代表は ibl
 	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
 	ok("cap.types", ["types.core", "types.globe", "types.shim", "react"].every(k => map.supports(k)));
-	ok("cap.specF", ["data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
+	ok("cap.specF", ["data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "tiles3d.attribution", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec

@@ -4025,6 +4025,7 @@ const t3dGet = async () => { const m = await import("./gadgets/tiles3d.js"); ret
 	meshVis: (ward, on) => { wPost({ type: "set", cmd: "meshVis", data: !!on, prop: ward }); needsDraw = true; },
 	setMeshCol: (name, data) => { wPost({ type: "set", cmd: "meshCol", data, prop: name }, [data.buffer]); needsDraw = true; },   // feature state の色（W7）
 	pickEnv: meshPickEnv,   // 当たり（W7）
+	setAttribution: (id, text) => setSrcAttr("t3d:" + id, text ? sanitizeHTML(String(text)) : null),   // tileset の出典（W8・opts.attribution）＝出典の欄（#attr）へ
 }); };
 map.gadget("tiles3d", async function (url, opts = {}) {
 	const c = await t3dGet();

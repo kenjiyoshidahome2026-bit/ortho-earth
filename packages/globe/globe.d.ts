@@ -716,7 +716,9 @@ export interface ClipOptions {
  *  戻り＝{ url?, headers?, credentials? }（null＝そのまま）。鍵・session の付与（Google Photorealistic 3D Tiles 等）や署名つき URL への差し替えは呼び手の closure で（鍵を repo に置かない） */
 export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
 /** pickable（W7）＝当たりの写し（頂点・index）を main に持つか："auto"（既定）＝地物の番号（EXT_mesh_features／_BATCHID）を持つ束だけ・true＝全部・false＝持たない。featureIdSet＝何組目の番号で当てるか（既定 0） */
-export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number }
+export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform; pickable?: boolean | "auto"; featureIdSet?: number;
+	/** 出典（W8）＝文字列か、表示しているタイルの glTF asset.copyright の列（「;」で割り・多い順）→ 文字列 の関数。出典の欄（#attr）に出る（HTML は消毒される）。無ければ何も足さない */
+	attribution?: string | ((copyrights: string[]) => string | null) }
 export interface Tiles3DHandle {
 	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null;
 	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
@@ -724,6 +726,8 @@ export interface Tiles3DHandle {
 	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
 	/** 画面の点（CSS px）の当たり（W7）＝ModelHandle.pick と同じ形（tile＝当たったタイルの id）。queryRenderedFeatures の層＝この tileset の id（type "3d-tiles"） */
 	pick(x: number, y: number): MeshPick | null;
+	/** 表示しているタイルの出典（glTF asset.copyright を「;」で割り・多い順・W8） */
+	readonly copyrights: string[];
 	/** feature state（tileset ごと・タイルを跨いで同じ番号＝同じ地物）。{ color } は描きに効く・後から読んだタイルにも効く */
 	setFeatureState(featureId: number, state: Record<string, unknown> | null): Tiles3DHandle;
 	getFeatureState(featureId: number): Record<string, unknown>;
@@ -800,7 +804,7 @@ export interface MapRegistry {
 export type CapabilityStatus = "builtin" | "plugin" | "spec" | "no" | "never";
 export interface Capability { status: CapabilityStatus; via?: string | null; note?: string }
 /** 鍵の例："projection.globe"・"projection.mercator"（never）・"camera.roll"・"light.directional"・"light.point"・"sky"・"post.bloom"・"post.ssr"・"data.points"・"data.<plugin の kind>"・
- *  "gadget.<名>"・"tiles.<形式>"・"tiles3d.requestTransform"・"terrain.sample"・"camera.walk"・"gltf.animation"・"texture.ktx2"・"render.webgpu"・"pointcloud.laz"・"react"・"types.shim" */
+ *  "gadget.<名>"・"tiles.<形式>"・"tiles3d.requestTransform"・"tiles3d.attribution"・"terrain.sample"・"camera.walk"・"gltf.animation"・"texture.ktx2"・"render.webgpu"・"pointcloud.laz"・"react"・"types.shim" */
 export type CapabilityKey = string;
 
 /** 後処理の鎖の 1 段（F3・2026-10-12）。bloom・vignette は描く（PR-8 と同じ）。fxaa/smaa/tonemap/lut/dof/ssr は**受けて保つだけ**（map.supports("post.fxaa") は false・capabilities "spec"）＝実 GPU の段か plugin（registry.postEffects）が描く。enabled:false＝鎖に残すが掛けない */

@@ -20,6 +20,7 @@ export function gltfMeta(json) {
 		extensionsUsed: used, extensionsRequired: required, textureFormats: [...fmts].sort(),
 		featureIds: used.includes("EXT_mesh_features") || (j.meshes || []).some(m => (m.primitives || []).some(p => p.attributes && Object.keys(p.attributes).some(k => /^_FEATURE_ID_\d+$|^_BATCHID$/.test(k)))),
 		structuralMetadata: used.includes("EXT_structural_metadata"),
+		...(typeof j.asset?.copyright === "string" && j.asset.copyright.trim() ? { copyright: j.asset.copyright.trim() } : {}),   // asset.copyright（W8）＝3D Tiles の出典の表示義務（Google 等はタイルごとに持つ）
 	};
 }
 // アニメの再生 spec（口だけ・保つ）：{ name|index, time(s), loop, speed, playing }。name/index が無ければ最初のアニメ。知らない name は投げる
