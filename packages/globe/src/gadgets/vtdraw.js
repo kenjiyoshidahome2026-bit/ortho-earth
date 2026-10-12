@@ -143,7 +143,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
 		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key, rev: s.rev }));
-		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
+		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs, pitch: (cam.pitch || 0) * R2D }).then(r => {   // pitch＝["pitch"]（C2）
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;
