@@ -13,6 +13,7 @@ import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
 import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
 import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
+import customglUrl from "./gadgets/customgl-draw.js?url";   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
 import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
@@ -4281,7 +4282,16 @@ const mountLayerRaw = async v => {
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
-	if (kind === "custom") { customGet().add(v.layer, order); return null; }   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
+	if (kind === "custom") {
+		// url＝層のモジュール（worker 経路・gadgets/customgl-draw.js・PR-7）＝render worker の同一フレームで描き、renderingMode "3d" は本体の深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる
+		if (typeof v.layer.url === "string") {
+			v.ov?.remove();
+			const abs = u => new URL(u, location.href).href;
+			v.ov = map.overlay(customglUrl, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: customHost?.getProjection?.()?.type ?? "mercator" } });
+			return null;
+		}
+		customGet().add(v.layer, order); return null;
+	}   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
 		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
@@ -4330,7 +4340,7 @@ const reliefOpacity = L => { const x = L.paint?.["color-relief-opacity"]; if (x 
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
-	else if (kind === "custom") customCtl?.remove(id);
+	else if (kind === "custom") { if (v.ov) { v.ov.remove(); v.ov = null; } else customCtl?.remove(id); }
 	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; demTilesDrop(id); }
 	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; demTilesDrop(id); }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
@@ -4363,6 +4373,7 @@ dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam 
 const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 map.setCustomLayerHost = h => { customHost = h; return map; };
 map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
+map.getCustomLayerHandle = id => mlLayers.get(id)?.ov ?? null;   // worker 経路の custom 層（addLayer の url）のオーバーレイの手綱（post/onmessage/remove）＝検定・利用者の層へのメッセージ
 // この source を使う層を載せ直す（setData・updateData・updateImage・視野追従の読み足し＝#176）
 const remountSource = async (id, dataChanged = true) => {
 	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
@@ -4459,7 +4470,7 @@ const addLayerAt = async (layer, beforeId, dz) => {
 	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
 	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
 	const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
-	if (layer?.type === "custom" && typeof layer.render !== "function") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method`);
+	if (layer?.type === "custom" && typeof layer.render !== "function" && typeof layer.url !== "string") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method (or url of a layer module for the worker route)`);
 	assertMLLayer(layer, "addLayer");
 	const v = { layer: layer?.type === "custom" ? layer : { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
 	v.kind = kindOf(drawLayerOf(v), sp);
