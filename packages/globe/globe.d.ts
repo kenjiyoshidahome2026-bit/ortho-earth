@@ -27,7 +27,7 @@ export type LightSpec =
  *  featureIds＝EXT_mesh_features か _FEATURE_ID_n／_BATCHID が在る。再生・変換・当たりは描かない（口だけ） */
 export interface GltfMeta { animations: GltfAnimationInfo[]; skins: number; morphTargets: boolean; extensionsUsed: string[]; extensionsRequired: string[]; textureFormats: string[]; featureIds: boolean; structuralMetadata: boolean }
 export interface GltfAnimationInfo { index: number; name: string; duration: number; channels: number; paths: string[] }
-/** 再生の spec（受けて保つだけ＝map.supports("gltf.animation") は false）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
+/** 再生の spec（W4 から rigid アニメ＝ノードの translation/rotation/scale は描く・skin/morph は spec のまま）。name か index（省略＝最初）・time（秒）・loop（既定 true）・speed（既定 1）・playing */
 export interface AnimationSpec { name?: string; index?: number; time?: number; loop?: boolean; speed?: number; playing?: boolean }
 export interface AnimationState extends Required<Omit<AnimationSpec, "name" | "index">> { name: string | null; index: number | null; duration: number }
 export interface ModelHandle {
@@ -36,11 +36,16 @@ export interface ModelHandle {
 	/** 模型のアニメの見出し（無ければ []） */
 	readonly animations: GltfAnimationInfo[];
 	readonly gltf: GltfMeta | null;
-	/** 再生の spec を受けて保つ（知らない name／index は投げる）。描くのは第 3 波か plugin（onAnimation で合図を受けて自前で動かす） */
+	/** 再生の spec を受けて保つ（知らない name／index は投げる）。rigid アニメ（ノードの TRS）は builtin が描く（W4・時計は map.getNow＝setNow で止められる・loop 無しは端で止まり playing=false）。
+	 *  skin／morph は描かない（plugin が onAnimation で合図を受けて自前で動かせる） */
 	setAnimation(spec: AnimationSpec | string | number | true | null): ModelHandle;
 	getAnimation(): AnimationState | null;
 	play(nameOrSpec?: string | AnimationSpec): ModelHandle;
 	stop(): ModelHandle;
+	/** 再生の時刻での束（マテリアル×アニメするノード）ごとの剛体変換＝[Float32Array(12)（L 3x3 列優先＋原点相対の平行移動）| null]。time 省略＝今の時刻。アニメが無ければ null */
+	pose(time?: number): (Float32Array | null)[] | null;
+	/** 時計で進めている最中か */
+	readonly animating: boolean;
 	/** setAnimation のたびに呼ばれる（plugin が再生を担う口）。戻り値で解除 */
 	onAnimation(f: (state: AnimationState | null, model: ModelHandle) => void): () => void;
 	clear(): void; destroy(): void;

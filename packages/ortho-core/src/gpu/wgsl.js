@@ -631,7 +631,7 @@ struct BldOut {
 // group(1)=DrawP（p0=liftBounds・p1=bldColor）、group(2)=per-batch（meshOrigin+cullBack・clipMesh）。
 export const MESH_WGSL = /* wgsl */`
 ${FRAME}
-struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32> };   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
+struct PB { meshOrigin: vec4f, clipMesh: vec4f, alpha: vec4f, pbr0: vec4f, emis: vec4f, lp: vec4f, sh: array<vec4f, 9>, pad: vec4f, ln: vec4f, lt: array<vec4f, 32>, xf: mat3x3f, xt: vec4f };   // xf/xt＝バッチの剛体変換（glTF の rigid アニメ・W4・float 196〜211・xt.w＝on）   // pad＝clipO の枠（断面の派生が clipO に替える）・ln.x＝局所の光源の数（W2）・lt＝8 灯×(A,B,C,D)（light.js localLightsPayload と同じ並び）   // xyz+cullBack, clip錨, alpha.z＝noLift（1＝地形へ持ち上げない）・alpha.w＝drape（1＝DTM 保証域に縛らず持ち上げる・2026-09-22）。
 // #46 段 2：pbr0=(metallic, roughness, normalScale, occlusionStrength)・emis=(発光 rgb, fx.pbr の旗)・lp=(太陽の強さ rgb 正規化, 固定光の重み)・sh=空の SH9（sh[0].w＝fill）
 @group(2) @binding(0) var<uniform> B: PB;
 struct PlOut {
@@ -643,9 +643,10 @@ struct PlOut {
 };
 @vertex fn vs(@location(0) a_pos: vec3f, @location(1) a_normal: vec4f) -> PlOut {
 	var o: PlOut;
-	let wp = B.meshOrigin.xyz + a_pos;                 // 絶対位置（陰影/フォグ/半球判定＝粗くて可）
+	let ap = select(a_pos, B.xf * a_pos + B.xt.xyz, B.xt.w > 0.5);   // バッチの剛体変換（W4）＝原点相対のまま
+	let wp = B.meshOrigin.xyz + ap;                    // 絶対位置（陰影/フォグ/半球判定＝粗くて可）
 	let dir = normalize(wp);
-	o.n = a_normal.xyz;
+	o.n = select(a_normal.xyz, B.xf * a_normal.xyz, B.xt.w > 0.5);
 	o.toEye = F.eye - wp;
 	o.front = dot(dir, F.eye) - 1.0;
 	o.fog = fogOf(wp);
@@ -656,7 +657,7 @@ struct PlOut {
 	let inX = smoothstep(0.0, 0.05, min(lon - lb.x, lb.x + lb.z - lon));
 	let inY = smoothstep(0.0, 0.05, min(lat - lb.y, lb.y + lb.w - lat));
 	let h = elev(vec2f(lon, lat)) * F.elevP.x * select(inX * inY, 1.0, B.alpha.w > 0.5) * (1.0 - B.alpha.z);   // noLift＝平面に浮かせた統計・drape＝全域で地形に沿わせる
-	var p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
+	var p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線
 	p.z = logDepthZ(p.w);
 	o.pos = p;
 	return o;
@@ -1283,14 +1284,14 @@ export const BUILDING_SH_WGSL = deriveWgsl(BUILDING_WGSL, [
 ], "BUILDING_SH_WGSL") + SHADOW_WGSL(3);
 export const MESH_SH_WGSL = deriveWgsl(MESH_WGSL, [
 	["\t@location(3) fog: f32,\n};", "\t@location(3) fog: f32,\n\t@location(4) sc: vec4f,\n};"],
-	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（f32 差＝バッチ内一定の ≤0.4m）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = ap + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（f32 差＝バッチ内一定の ≤0.4m）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
 	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
 	["\tvar lit = P.p1.rgb * d;   // 従来（fx.pbr off）\n", "\tvar lit = shShade(P.p1.rgb * d, in.sc);   // 従来（fx.pbr off）＝全体を暗く\n"],
 ], "MESH_SH_WGSL") + SHADOW_WGSL(3);
 // 模型・3D Tiles・I3S・押し出し（uv と頂点色を持つメッシュ＝MESH_TEX）の受け手（#112 段 1）。影の束縛は group(2) の binding 1〜3（PB と同居）
 export const MESH_TEX_SH_WGSL = deriveWgsl(MESH_TEX_WGSL, [
 	["\t@location(5) col: vec4f,\n};", "\t@location(5) col: vec4f,\n\t@location(6) sc: vec4f,\n};"],
-	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（MESH_SH と同じ）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", "\tlet lp = ap + h * liftDir(vec2f(lon, lat), dir);\n\to.sc = shClip(B.meshOrigin.xyz - SH.anchor.xyz + lp);   // バッチ原点−main 原点（MESH_SH と同じ）\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n"],
 	["\tlet sunK = 1.0;   // 影の受け手", "\tlet sunK = shLit(in.sc);   // 影の受け手"],
 	["\tvar lit = srgbEncode(tx.rgb) * d;   // 従来（fx.pbr off）", "\tvar lit = shShade(srgbEncode(tx.rgb) * d, in.sc);   // 従来（fx.pbr off）"],
 ], "MESH_TEX_SH_WGSL") + SHADOW_WGSL(2, 1);
@@ -1357,7 +1358,7 @@ const EDGE_HEAD = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\ti
 const EDGE_FLAG = "\tlet cm = clipMin(in.cdA, in.cdB); let cw = fwidth(cm);\n\tif (cm < 0.0) { discard; }\n\tlet edgeOn = CL.p.y > 0.0 && cm < CL.p.y * F.params.w * cw;\n";   // 帯を最後に塗る版（地形）
 const DISCARD = "\tif (clipOut(in.cdA, in.cdB)) { discard; }\n";
 const MESH_VS = [
-	["\tvar p = B.clipMesh + F.mvp * vec4f(a_pos + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", `\tlet lp = a_pos + h * liftDir(vec2f(lon, lat), dir);\n\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],
+	["\tvar p = B.clipMesh + F.mvp * vec4f(ap + h * liftDir(vec2f(lon, lat), dir), 0.0);   // 楕円体＝測地法線\n", `\tlet lp = ap + h * liftDir(vec2f(lon, lat), dir);\n\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],
 	["\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n", `\t${CD_SET("B.clipO.xyz + lp")}\n\tvar p = B.clipMesh + F.mvp * vec4f(lp, 0.0);\n`],   // 影の派生（lp は既にある）
 ];
 const PB_CLIPO = [["sh: array<vec4f, 9>, pad: vec4f,", "sh: array<vec4f, 9>, clipO: vec4f,"]];   // 建物メッシュ・模型のバッチ原点 − main 原点（PB の空き 16B・CPU f64 の差）

@@ -1725,6 +1725,8 @@ export function createRenderer(canvas, rOpts = {}) {
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
+				if (p.xf) { gl.uniformMatrix3fv(loc(gl, pg, "u_xfL"), false, p.xf.subarray(0, 9)); gl.uniform3f(loc(gl, pg, "u_xfT"), p.xf[9], p.xf[10], p.xf[11]); }
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
 				gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
 				gl.bindVertexArray(p.vao);
@@ -1791,6 +1793,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
 			case "meshSet": setMeshSet(prop, data); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
+			case "meshXf": { const p = meshes.get(prop); if (p) p.xf = data && data.length >= 12 ? data : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
 			case "meshVis":  setMeshVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst

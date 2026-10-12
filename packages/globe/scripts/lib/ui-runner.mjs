@@ -198,14 +198,15 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 	const one = async p => {
 		const tp = Date.now();
 		const [page, extra = ""] = p.split("?");
+		const rt = realtime.has(page) || realtime.has(p);   // 頁名か変種（t-plugin?v=gltf）のどちらでも実時間にできる
 		const q = new URLSearchParams(base);
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
 		const url = urlOf(page, q.toString());
-		const backends = expectBackend && realtime.has(page) ? [] : null;
+		const backends = expectBackend && rt ? [] : null;
 		// 世界の検め（#43）：頁の URL に ell= があれば、起動ログの世界（[geo] world=）が全部それに合うこと。頁の中で読み直す頁（t-ellparity?g=cache）は ell を付けない
-		const wantWorld = realtime.has(page) && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
+		const wantWorld = rt && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
 		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
-		let title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url, { limitS: long[page] ?? 90, seq: opt.seq, ...(profilePrefix ? { profilePrefix: profilePrefix + "-v" } : {}) });
+		let title = rt ? await runRealtime(url, opt) : await runVirtual(url, { limitS: long[page] ?? 90, seq: opt.seq, ...(profilePrefix ? { profilePrefix: profilePrefix + "-v" } : {}) });
 		if (backends && title.startsWith("PASS")) {
 			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;
 			const seen = [...new Set(backends)].join("+") || "なし";
