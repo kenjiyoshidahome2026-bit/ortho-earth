@@ -2,7 +2,7 @@
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
 export { packMLLayers, buildMLTable, zoomSensitivity, ML_DEFAULTS, ML_ID_KEY, ML_IX_KEY } from "./mltables.js";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
-export { parseRGBA } from "./color.js";
+export { parseRGBA, isColor } from "./color.js";
 export { fetchMVT, decodeTile, loadTileFormat, registerTileFormat } from "./decode.js";   // タイル形式の登録簿（MVT 既定・MLT は @ortho-earth/tile-formats・#88）
 export { queryTiles } from "./query.js";   // 描画結果への問い合わせ（queryRenderedFeatures 相当＝描いているタイルを取り直して今のスタイルで当てる）
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
