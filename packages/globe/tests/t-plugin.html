@@ -172,6 +172,7 @@ try {
 		// W7＝EXT_mesh_features の当たり：板 2 枚（西 x<0＝番号 0・東 x>0＝番号 1・_FEATURE_ID_0）＋property table（name）。斜めから画面の点で当てる・queryRenderedFeatures の層 "model"・feature state の色
 		{
 			const sleep = ms => new Promise(r => setTimeout(r, ms));
+			const C0 = 140.2, C1 = 34.6;   // 沖（相模灘の南）に置く＝陸の細かい標高（DTM）が届くと 4 頂点だけの 200 m の板が頂点ごとの接地リフトで歪んで見えなくなる（器で実測）＝色を測る場所は標高 0 の海
 			const P = [], ids = [], I = [];
 			for (const [x0, x1, id] of [[-100, 0, 0], [0, 100, 1]]) { const b = P.length / 3; P.push(x0, 0, -100, x1, 0, -100, x1, 0, 100, x0, 0, 100); ids.push(id, id, id, id); I.push(b, b + 2, b + 1, b, b + 3, b + 2); }
 			const names = ["West", "East"].map(n => new TextEncoder().encode(n)), sv = new Uint8Array(names[0].length + names[1].length); sv.set(names[0]); sv.set(names[1], names[0].length);
@@ -184,27 +185,29 @@ try {
 				accessors: [{ bufferView: 0, componentType: 5126, count: 8, type: "VEC3", min: [-100, 0, -100], max: [100, 0, 100] }, { bufferView: 1, componentType: 5123, count: 12, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 8, type: "SCALAR" }],
 				extensionsUsed: ["EXT_mesh_features", "EXT_structural_metadata"],
 				extensions: { EXT_structural_metadata: { schema: { id: "s", classes: { lot: { properties: { name: { type: "STRING" } } } } }, propertyTables: [{ name: "lots", class: "lot", count: 2, properties: { name: { values: 3, stringOffsets: 4 } } }] } } };
-			const hf = await map.gadget.model(new File([mkGlb(fjson, fbin.buffer)], "lots.glb"), { at: [139.7671, 35.6812], fit: false });
+			const hf = await map.gadget.model(new File([mkGlb(fjson, fbin.buffer)], "lots.glb"), { at: [C0, C1], fit: false });
 			ok("f.meta", hf.gltf.featureIds && hf.gltf.structuralMetadata && hf.features?.primitives === 1 && hf.features.tables[0]?.name === "lots" && hf.features.tables[0].columns.join() === "name", JSON.stringify(hf.features));
-			map.jumpTo({ center: [139.7671, 35.6812], zoom: 17, pitch: 45, bearing: 0 }); await sleep(1500);
-			const dl = 50 / (111320 * Math.cos(35.6812 * Math.PI / 180)), pE = map.project([139.7671 + dl, 35.6812]), pW = map.project([139.7671 - dl, 35.6812]), pOut = map.project([139.7671 + 3 * dl, 35.6812]);
+			map.jumpTo({ center: [C0, C1], zoom: 17, pitch: 45, bearing: 0 }); await sleep(1500);
+			const dl = 50 / (111320 * Math.cos(C1 * Math.PI / 180)), pE = map.project([C0 + dl, C1]), pW = map.project([C0 - dl, C1]), pOut = map.project([C0 + 3 * dl, C1]);
 			const e = hf.pick(pE.x, pE.y), w = hf.pick(pW.x, pW.y);
 			ok("f.pick", e?.featureId === 1 && e.properties.name === "East" && e.table?.name === "lots" && w?.featureId === 0 && w.properties.name === "West" && hf.pick(pOut.x, pOut.y) === null, JSON.stringify({ e, w }));
-			ok("f.lngLat", e && Math.abs(e.lngLat[0] - (139.7671 + dl)) < dl * 0.2 && Math.abs(e.lngLat[1] - 35.6812) < 2e-4, JSON.stringify(e?.lngLat));
+			ok("f.lngLat", e && Math.abs(e.lngLat[0] - (C0 + dl)) < dl * 0.2 && Math.abs(e.lngLat[1] - C1) < 2e-4, JSON.stringify(e?.lngLat));
 			const qf = await map.queryRenderedFeatures([pE.x, pE.y], { layers: ["model"] });
 			ok("f.query", qf.length === 1 && qf[0].id === 1 && qf[0].properties.name === "East" && qf[0].layer.type === "model" && qf[0].source === "model", JSON.stringify(qf.map(f => ({ id: f.id, l: f.layer, p: f.properties }))));
 			const snapPx = async (p) => { await sleep(600); const s = await map.requestSnapshot(), r = s.render, W = map.mapEl.clientWidth, H = map.mapEl.clientHeight;
 				const bx = Math.round(p.x * r.w / W), by = Math.round(p.y * r.h / H), i = (((r.flip !== false) ? r.h - 1 - by : by) * r.w + bx) * 4, d = new Uint8Array(r.base); return [d[i], d[i + 1], d[i + 2]]; };
-			const e0 = await snapPx(pE), w0 = await snapPx(pW);
+			// renderer の取り込みが負荷で遅れても揺れないよう、色が変わるまで撮り直して待つ（素の板＝白・色付け＝赤）
+			const snapUntil = async (p, f, n = 8) => { let v; for (let i = 0; i < n; i++) { v = await snapPx(p); if (f(v)) break; } return v; };
+			const e0 = await snapUntil(pE, v => Math.abs(v[0] - v[1]) < 30), w0 = await snapPx(pW);
 			hf.setFeatureState(1, { color: "#ff0000", picked: true });
-			const e1 = await snapPx(pE), w1 = await snapPx(pW);
+			const e1 = await snapUntil(pE, v => v[0] > v[1] + 60), w1 = await snapPx(pW);
 			ok("f.state", hf.getFeatureState(1).picked === true && hf.pick(pE.x, pE.y)?.state?.color === "#ff0000" && JSON.stringify(hf.getFeatureState(0)) === "{}");
 			ok("f.tint", e1[0] > e1[1] + 60 && Math.abs(e0[0] - e0[1]) < 30 && Math.abs(w1[0] - w0[0]) < 12 && Math.abs(w1[1] - w0[1]) < 12, JSON.stringify({ e0, e1, w0, w1 }));
 			hf.removeFeatureState(1);
-			const e2 = await snapPx(pE);
+			const e2 = await snapUntil(pE, v => Math.abs(v[0] - v[1]) < 30);
 			ok("f.untint", Math.abs(e2[0] - e2[1]) < 30 && JSON.stringify(hf.getFeatureState(1)) === "{}", JSON.stringify(e2));
 			map.jumpTo({ pitch: 0 }); await sleep(300);
-			const pE0 = map.project([139.7671 + dl, 35.6812]);
+			const pE0 = map.project([C0 + dl, C1]);
 			ok("f.topDownNone", hf.pick(pE0.x, pE0.y) === null, "models are not drawn top-down");
 			hf.clear();
 			ok("f.cleared", hf.pick(pE0.x, pE0.y) === null && hf.features === null);
