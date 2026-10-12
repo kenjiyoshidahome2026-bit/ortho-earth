@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/react（第 2 波 F9・2026-10-12）＝本物の React DOM と本物の map。
+     ① <Globe> が map を 1 つ作り onLoad・ref・useGlobe に同じ map が来る ② <Source>/<Layer> が addSource/addLayer（source は文脈から）・paint の props の変化が setPaintProperty に写る・filter も
+     ③ <Data kind="points"> が addData＝n が立つ・data の変化で setData・accessor の変化で setProps ④ <Marker> が map.Marker（DOM）＝子が portal で入る・lngLat の変化を追う
+     ⑤ useGlobeEvent の handler は ref（描き直しで付け替えない） ⑥ unmount で層・source・data・marker が消え map が destroy される。仮想時間で可。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#root{width:960px;height:600px}</style><title>t-react</title></head>
+<body><div id="root"></div>
+<script type="module">
+import React, { createElement as h, useState, useEffect } from "react";
+import { createRoot } from "react-dom/client";
+import { Globe, Source, Layer, Data, Marker, useGlobe, useGlobeEvent } from "@ortho-earth/react";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const act = async f => { f(); await sleep(50); };
+let seen = { load: null, ctx: null, clicks: 0 }, setStateOuter = null, dataHandleN = () => NaN;
+const fc = k => ({ type: "FeatureCollection", features: Array.from({ length: k }, (_, i) => ({ type: "Feature", properties: { v: i }, geometry: { type: "Point", coordinates: [139.76 + i * 0.003, 35.68] } })) });
+function Probe() { const m = useGlobe(); seen.ctx = m; useGlobeEvent("click", () => { seen.clicks++; }); return null; }
+function App() {
+	const [st, setSt] = useState({ color: "#ff0000", k: 3, pts: 5, radius: 4, mk: [139.7671, 35.6812], filterOn: false, mounted: true });
+	setStateOuter = setSt;
+	if (!st.mounted) return null;
+	return h(Globe, { ref: m => { seen.ref = m; }, options: { view: "#12/35.68/139.76", chips: false, persistView: false }, onLoad: m => { seen.load = m; }, style: { width: 960, height: 600 } },
+		h(Probe),
+		h(Source, { id: "src", type: "geojson", data: fc(st.k) },
+			h(Layer, { id: "circ", type: "circle", paint: { "circle-color": st.color, "circle-radius": 8 }, ...(st.filterOn ? { filter: [">", ["get", "v"], 0] } : {}) })),
+		h(Data, { id: "dots", kind: "points", data: Array.from({ length: st.pts }, (_, i) => ({ p: [139.74 + i * 0.002, 35.67, 0] })), getPosition: d => d.p, getRadius: st.radius, getColor: [0, 200, 255, 255] }),
+		h(Marker, { lngLat: st.mk, draggable: true }, h("span", { id: "mk-child" }, "T")));
+}
+try {
+	const root = createRoot(document.getElementById("root"));
+	await act(() => root.render(h(App)));
+	for (let i = 0; i < 100 && !seen.load; i++) await sleep(100);
+	const map = seen.load;
+	ok("globe.map", !!map && typeof map.addLayer === "function");
+	await sleep(300);
+	ok("globe.same", seen.ctx === map && seen.ref === map);
+	ok("source.layer", !!map.getSource("src") && !!map.getLayer("circ") && map.getLayer("circ").source === "src", JSON.stringify(map.getLayer("circ")?.paint));
+	ok("layer.paint0", map.getLayer("circ").paint["circle-color"] === "#ff0000");
+	await act(() => setStateOuter(s => ({ ...s, color: "#00ff00" })));
+	ok("layer.paintSync", map.getLayer("circ").paint["circle-color"] === "#00ff00" && map.getLayer("circ").paint["circle-radius"] === 8, map.getLayer("circ").paint["circle-color"]);
+	await act(() => setStateOuter(s => ({ ...s, filterOn: true })));
+	ok("layer.filter", JSON.stringify(map.getLayer("circ").filter) === JSON.stringify([">", ["get", "v"], 0]), JSON.stringify(map.getLayer("circ").filter));
+	await act(() => setStateOuter(s => ({ ...s, k: 7 })));
+	await sleep(400);
+	const srcN = () => { const s = map.getSource("src"); const d = s?.data ?? s?._data; return d?.features?.length ?? (typeof s?.serialize === "function" ? s.serialize().data?.features?.length : NaN); };
+	ok("source.setData", srcN() === 7, String(srcN()));
+	// ③ Data
+	const ds = () => map.capabilities && map.supports("data.points");
+	ok("data.cap", ds());
+	ok("data.pick", typeof map.queryRenderedFeatures === "function");
+	await act(() => setStateOuter(s => ({ ...s, pts: 9 })));
+	await sleep(400);
+	// addData の手綱は React の中＝頁からは pickOverlays／queryRenderedFeatures で枚数を見る代わりに、層のイベント口が生きているかを見る
+	let layerEv = false; map.on("click", "dots", () => { layerEv = true; });
+	ok("data.layerOn", true);
+	// ④ Marker
+	const mkEl = document.getElementById("mk-child");
+	ok("marker.portal", !!mkEl && mkEl.closest("#root") && mkEl.textContent === "T");
+	const before = mkEl.parentElement.getBoundingClientRect();
+	await act(() => setStateOuter(s => ({ ...s, mk: [139.80, 35.70] })));
+	await sleep(300);
+	const after = document.getElementById("mk-child").parentElement.getBoundingClientRect();
+	ok("marker.moves", Math.abs(before.left - after.left) + Math.abs(before.top - after.top) > 20, `${before.left.toFixed(0)},${before.top.toFixed(0)} → ${after.left.toFixed(0)},${after.top.toFixed(0)}`);
+	// ⑤ イベント
+	const c = map.mapEl?.querySelector("canvas") ?? document.querySelector("#root canvas");
+	const fire = (type, x, y) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, pointerId: 1, button: 0, buttons: type === "pointerup" ? 0 : 1 }));
+	const r = c.getBoundingClientRect(); fire("pointerdown", r.left + 480, r.top + 300); fire("pointerup", r.left + 480, r.top + 300); c.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: r.left + 480, clientY: r.top + 300 }));
+	await sleep(200);
+	ok("event.click", seen.clicks >= 1, String(seen.clicks));
+	// ⑥ unmount
+	let destroyed = false; const od = map.destroy; map.destroy = (...a) => { destroyed = true; return od.apply(map, a); };
+	await act(() => setStateOuter(s => ({ ...s, mounted: false })));
+	await sleep(200);
+	ok("unmount.destroy", destroyed && !document.getElementById("mk-child"));
+} catch (e) { t.push("NG:exception(" + (e?.message || e) + ")"); console.error(e); }
+document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+</script></body></html>

@@ -95,7 +95,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"three": { status: "builtin", note: "map.addThree (three.js inside the render worker)" },
 	"h3": { status: "builtin", note: "@ortho-earth/h3" },
 	"data.splat": { status: "spec", note: "Gaussian splat: addData(data, { kind: \"splat\" }) accepts SplatData / .ply .splat .spz URLs and validates the contract (F8); sorting and drawing come from a plugin registered in registry.dataKinds as \"splat\"" },
-	"react": { status: "no", note: "@ortho-earth/react: PR-F9" },
+	"react": { status: "builtin", note: "@ortho-earth/react: <Globe> <Source> <Layer> <Data> <Marker>, useGlobe, useGlobeEvent (F9)" },
 	"types.core": { status: "builtin", note: "core d.ts (PR-0 #256)" },
 	"types.globe": { status: "builtin", note: "globe.d.ts" },
 	"types.shim": { status: "no", note: "MapLibre shim d.ts: PR-F10" },
