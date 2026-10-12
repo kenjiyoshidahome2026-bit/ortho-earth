@@ -65,7 +65,19 @@ function planesOf(m) {
 
 export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = false, signal, requester = null, ell = ellipsoidOn() } = {}) {
 	const EARTH_M = ell ? 6378137 : 6371000;   // 世界単位の m（core の worldRadiusM と同じ）
-	const getJSON = async (url, type) => { const r = await (requester ? requester.fetch(url, type) : fetch(url, { credentials: "omit" })); if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); };   // transformRequest / addProtocol（#37）
+	// 取得の前の手入れ＝地図の transformRequest（#37）の上に、tileset ごとの opts.requestTransform(url, type) → { url?, headers?, credentials? }（F5・2026-10-12）。
+	//   Google Photorealistic 3D Tiles の鍵・session の付与や、署名つき URL への差し替えはここで（鍵は repo に置かない＝呼び手の closure）。type＝"Source"（tileset.json・外部 tileset）か "Tile"（タイルの本体）
+	const applyRT = (rt, r, type) => {
+		if (typeof rt !== "function") return r;
+		try { const o = rt(r.url, type); if (!o) return r; const out = { ...r, url: o.url ?? r.url }; if (o.headers) out.headers = { ...(r.headers || {}), ...o.headers }; if (o.credentials) out.credentials = o.credentials; return out; }
+		catch (err) { console.error("[tiles3d] requestTransform", err); return r; }
+	};
+	const resolveFor = (rt, url, type) => applyRT(rt, requester ? requester.resolve(url, type) : { url, headers: undefined, credentials: undefined }, type);
+	const getJSON = async (url, type, rt = null) => {
+		const rq = resolveFor(rt, url, type);
+		const r = rq.load ? { ok: true, json: async () => rq.load("json") } : await fetch(rq.url, { credentials: rq.credentials || "omit", ...(rq.headers ? { headers: rq.headers } : {}) });   // 独自スキーム（addProtocol）は読み口で
+		if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json();
+	};   // transformRequest / addProtocol（#37）
 	const sets = new Map();   // id → tileset
 	let seq = 0, tileSeq = 0;
 	// worker（model 役）を 2 本＝取りに行く・解くを並列に（順繰り）。1 本あたり同時 3 件まで
@@ -104,7 +116,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 	const loadExternal = n => {
 		if (n.state !== "none") return;
 		n.state = "loading"; inflight++;
-		getJSON(n.uri, "Source").then(j => {
+		getJSON(n.uri, "Source", n.set.opts.requestTransform).then(j => {
 			n.children = [tileNode(j.root, n.M, n.uri, n.set, n)];
 			n.uri = null; n.external = false; n.state = "ready";
 		}).catch(err => { n.state = "failed"; console.warn("[tiles3d] external tileset", n.uri, err.message); })
@@ -115,7 +127,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		n.state = "loading"; inflight++;
 		const set = n.set;
 		const onGround = set.opts.ground === "terrain";
-		const rq = requester && set.kind !== "i3s" ? requester.resolve(n.uri, "Tile") : { url: n.uri };
+		const rq = set.kind !== "i3s" ? resolveFor(set.opts.requestTransform, n.uri, "Tile") : { url: n.uri };
 		const body = rq.load ? rq.load("arrayBuffer") : Promise.resolve(null);   // 独自スキーム＝main が読み口で取って本体を worker へ
 		body.then(ab => set.kind === "i3s" ? rpc({ kind: "i3sContent", ell, url: set.url, nodeId: n.i3s.id, token: set.opts.token, baseH: -set.opts.heightOffset, groundMode: onGround ? "terrain" : "absolute" })
 			: rpc({ kind: "tile3d", ell, url: rq.url, ab, headers: rq.headers, credentials: rq.credentials, transform: n.M, baseH: -set.opts.heightOffset, textures: set.opts.textures !== false, groundMode: onGround ? "terrain" : "absolute" }, ab ? [ab] : [])).then(r => {
@@ -236,11 +248,12 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 		// url＝tileset.json。opts＝{ maxSSE:16, heightOffset:0（m・高さへの足し込み）, ground:"absolute"|"terrain"（1 棟ずつ地面へ接地）, pointSize:1.5（px）, textures:true, fit:true（寄る）}
 		async add(url, opts = {}) {
 			const abs = /^[a-z][\w+.-]*:\/\//i.test(url) ? new URL(url) : new URL(url, location.href);
-			const j = await getJSON(abs.href, "Source");
+			const j = await getJSON(abs.href, "Source", opts.requestTransform);
 			if (!j.root) throw new Error("not a 3D Tiles tileset (no root)");
 			const id = opts.id ?? `t${++seq}`;
 			if (sets.has(id)) ctl.remove(id);
-			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0 }, query: [...abs.searchParams], pts: null, removed: false, hidden: false, asset: j.asset };
+			const set = { id, url: abs.href, opts: { heightOffset: 0, ...opts }, stats: { loaded: 0, shown: 0, failed: 0, triangles: 0, points: 0, bytes: 0 }, query: [...abs.searchParams], pts: null, removed: false, hidden: false,
+				asset: j.asset ?? null, metadata: j.metadata ?? null, extras: j.extras ?? j.asset?.extras ?? null, extensionsUsed: j.extensionsUsed ?? [], extensionsRequired: j.extensionsRequired ?? [] };   // root の見出し（F5）＝手綱から読める
 			set.root = tileNode(j.root, I4, abs.href, set, null);
 			if (!set.root.ge) set.root.ge = j.geometricError ?? 0;
 			const all = function* (n) { if (!n) return; yield n; for (const k of n.children || []) yield* all(k); };
@@ -255,6 +268,7 @@ export function createTiles3D(map, { cam, size, dpr, setMesh, meshVis, lowMem = 
 			schedule();
 			return { id, get stats() { return { ...set.stats, gpuMB: +(gpuBytes / 1048576).toFixed(1), inflight } }, get bbox() { return sp ? (() => { const [lo, la] = ecef2geo(sp.c[0], sp.c[1], sp.c[2]), d = sp.r / 111320; return [lo * R2D - d / Math.cos(la), la * R2D - d, lo * R2D + d / Math.cos(la), la * R2D + d]; })() : null; },
 				get tiles() { return set.loaded().map(n => ({ id: n.id, uri: n.uri?.split("/").pop(), on: n.on, ward: n.ward, meshes: n.meshN, pts: n.pts?.length || 0, bbox: n.bbox })); },   // 検分用
+				get asset() { return set.asset; }, get metadata() { return set.metadata; }, get extras() { return set.extras; }, get extensionsUsed() { return [...set.extensionsUsed]; }, get extensionsRequired() { return [...set.extensionsRequired]; },   // root の見出し（F5）
 				remove: () => ctl.remove(id), setVisible: v => { set.hidden = !v; for (const n of set.loaded()) setOn(n, false); schedule(); },
 				setOptions: o => { Object.assign(set.opts, o); schedule(); } };
 		},
