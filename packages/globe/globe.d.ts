@@ -726,7 +726,17 @@ export interface PluginRegistry<T> {
 	ownerOf(name: string): string | null;
 	names(): string[];
 }
-/** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin） */
+/** Gaussian splat（F8・予約された kind "splat" の契約）：map.addData(data, { kind: "splat" }) の data。描く段は plugin（registry.dataKinds "splat"）。URL（.ply/.splat/.spz）も受ける＝読み手は plugin */
+export interface SplatData {
+	/** 個数（省略なら positions.length / 3） */ n?: number;
+	/** 位置＝crs "lnglat"（既定）なら [lng, lat, alt(m)] の並び、"ecef" なら地心直交 m（n*3） */ positions: Float32Array;
+	/** 楕円の各軸の尺（m・n*3） */ scales: Float32Array;
+	/** 向き＝四元数 x,y,z,w（n*4） */ rotations: Float32Array;
+	/** RGBA 0〜255（n*4） */ colors: Uint8Array;
+	/** 球面調和の係数（任意・長さは n の倍数＝次数は plugin が決める） */ sh?: Float32Array;
+	crs?: "lnglat" | "ecef";
+}
+/** map.addData の kind を足す実装＝create が手綱を返す（points/arcs/trips/polygons/paths/columns は builtin・"splat" は契約が予約済み＝data は検めた SplatData か URL） */
 export interface DataKindImpl { create(map: OrthoJapanMap, data: unknown, opts: Record<string, unknown> & { kind: string; id: string }): unknown }
 /** タイル形式（core の registerTileFormat と同じ形・process-wide＝撤去できない） */
 export interface TileFormatImpl { pmtilesType?: number | null; decode?: (bytes: Uint8Array, need: unknown) => unknown; load?: () => Promise<(bytes: Uint8Array, need: unknown) => unknown> }
