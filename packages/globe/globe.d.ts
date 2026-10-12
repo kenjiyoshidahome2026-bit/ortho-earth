@@ -1057,7 +1057,7 @@ export interface OrthoJapanMap {
 	 *  シーンの深度（1.2.0〜・#47）：opts.depth:true か init の戻り値 { depth: true } で申し出たオーバーレイがある時だけ本体が作り、api.depth に載る（OverlayDepth）。
 	 *  init の第 3 引数 host に depthGLSL（FS に貼る GLSL）。省メモリ端末（LOW_MEM）・作れない環境では api.depth＝null（従来どおり＝隠れ無し）。
 	 *  戻り値の post(data, transfer) で状態やデータを渡す（描画要求を兼ねる）。remove() で外す */
-	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): { name: string; el: HTMLCanvasElement; onmessage: ((data: unknown) => void) | null; post(data: unknown, transfer?: Transferable[]): void; remove(): void };
+	overlay(src: string | { builtin: string }, opts?: { name?: string; opts?: Record<string, unknown>; above?: boolean }): OverlayHandle;
 	/** 不透明度（0..1）。base＝紙と線（塗り/線）・globe＝球体（globe/terrain/海面下/湖/夜面）。表示パネル「基図」スライダーは両方を一緒に動かす。globe<1 で地中に置いた overlay（makeProjectorH の負の高さ）が透けて見える */
 	/** 基図（紙・線）・球体（globe/terrain）・全球ハイプソ（低ズームの段彩＝0 で陸の地色だけ・1.7.x〜）の不透明度（0..1） */
 	setOpacity(o: { base?: number; globe?: number; hypso?: number }): void;
@@ -1519,3 +1519,18 @@ export interface GeoPBF {
  * shape(zip)/kmz/gpx/gml/moj(zip)/gz）→ GeoPBF。createGeopbf は不要（export していない）。opts を文字列で渡すと name 扱い
  */
 export function geopbf(data: GeopbfInput, opts?: GeopbfOptions | string): Promise<GeoPBF>;
+
+/** map.overlay(...) の手綱（同一フレームのオーバーレイ） */
+export interface OverlayHandle {
+	name: string;
+	el: HTMLCanvasElement;
+	onmessage: ((data: unknown) => void) | null;
+	post(data: unknown, transfer?: Transferable[]): void;
+	remove(): void;
+	/** このオーバーレイだけに当てる（統一 picking） */
+	pick(x: number, y: number, radius?: number): Promise<any[]>;
+	/** W9：このオーバーレイが描く層の id を名乗る＝module の pick の答えに layer: id を入れると、map.on(ev, id)・queryRenderedFeatures({ layers: [id] })・pickOverlays({ names: [id] }) がその id で当たる。
+	 *  一つの canvas（render worker の WebGL 文脈・Chrome で 4 つまで＝地球が 1 つ使う）に多くの層を載せる口 */
+	addLayerId(id: string): OverlayHandle;
+	removeLayerId(id: string): OverlayHandle;
+}
