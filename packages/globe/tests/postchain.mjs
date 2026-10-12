@@ -8,7 +8,11 @@ ok("null", J(normPostChain(null)) === J({ passes: [], post: null }) && normPostC
 const c = normPostChain([{ type: "tonemap", mode: "agx" }, { type: "vignette" }, { type: "bloom", strength: 2 }, { type: "fxaa", enabled: false }, "smaa"]);
 ok("order", c.passes.map(p => p.type).join() === "tonemap,vignette,bloom,fxaa,smaa");
 ok("spec.kept", c.passes[0].mode === "agx" && c.passes[0].exposure === 1 && c.passes[3].enabled === false && c.passes[4].preset === "medium");
-ok("post.fromChain", J(c.post) === J({ bloom: { threshold: 0.75, strength: 2, radius: 1 }, vignette: { strength: 0.5, radius: 0.8, softness: 0.5 } }));
+ok("post.fromChain", J(c.post) === J({ bloom: { threshold: 0.75, strength: 2, radius: 1 }, vignette: { strength: 0.5, radius: 0.8, softness: 0.5 }, tonemap: { mode: "agx", exposure: 1 } }), J(c.post));
+// W1（2026-10-12）：fxaa・tonemap・lut も renderer へ（on の時だけ鍵が生える）。url の無い lut・enabled:false・intensity 0 は渡らない
+ok("w1.toRenderer", J(normPostChain([{ type: "fxaa" }, { type: "lut", url: "a.cube", size: 16, intensity: 0.5 }]).post) === J({ bloom: null, vignette: null, fxaa: true, lut: { url: "a.cube", size: 16, intensity: 0.5 } }));
+ok("w1.legacy", normPostChain({ tonemap: true, fxaa: true, bloom: true }).passes.map(p => p.type).join() === "fxaa,bloom,tonemap" && normPostChain({ lut: { url: "x.png" } }).post.lut.size === 32);
+ok("w1.off", normPostChain([{ type: "fxaa", enabled: false }, { type: "lut" }, { type: "lut", url: "b.png", intensity: 0 }]).post === null && normPostChain([{ type: "tonemap", exposure: 2 }]).post.tonemap.exposure === 2 && normPostChain(["smaa"]).post === null);
 ok("disabledBloom", normPostChain([{ type: "bloom", enabled: false }]).post === null);
 ok("zeroStrength", normPostChain([{ type: "bloom", strength: 0 }]).post === null && normPostChain([{ type: "bloom", strength: 0 }]).passes[0].strength === 0);
 ok("pass.defaults", J(normPass({ type: "dof" })) === J({ type: "dof", enabled: true, focusDistance: 500, focalLength: 50, aperture: 2.8, maxBlur: 8 }) && normPass({ type: "lut" }).url === null && normPass({ type: "ssr", steps: 1000 }).steps === 256);
