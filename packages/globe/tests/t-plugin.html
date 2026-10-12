@@ -12,6 +12,25 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "tiles3d") {   // ⑪ 3D Tiles の requestTransform（F5）：tileset.json・外部 tileset（Source）とタイル（Tile）の全要求が通る・URL の書き換えが効く（?rt=1 でも読める）・handle に root の見出し・capabilities builtin
+		const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", chips: false, persistView: false });
+		await map.once("load"); await new Promise(r => setTimeout(r, 1500));
+		const calls = [];
+		const rt = (url, type) => { calls.push({ url, type }); const u = new URL(url); u.searchParams.set("rt", "1"); return { url: u.href, headers: { "X-Probe": "1" } }; };
+		const h = await map.add3DTiles("./fixtures/tiles3d/tileset.json", { fit: false, requestTransform: rt });
+		const t0 = performance.now(); while (performance.now() - t0 < 25000 && h.stats.shown < 7) await new Promise(r => setTimeout(r, 250));
+		ok("t.loaded", h.stats.shown >= 1 && h.stats.failed === 0, JSON.stringify(h.stats));
+		ok("t.rootThrough", calls[0]?.type === "Source" && /tileset\.json$/.test(calls[0].url), JSON.stringify(calls[0]));
+		ok("t.tilesThrough", calls.some(c => c.type === "Tile" && /\.b3dm$/.test(c.url)) && calls.some(c => c.type === "Source" && /ext\.json$/.test(c.url)), calls.map(c => c.type + ":" + c.url.split("/").pop()).join(","));
+		ok("t.rewriteKept", h.stats.shown >= 1 && calls.every(c => !/rt=1/.test(c.url)), "transform sees the original url; the rewritten one is fetched");
+		ok("t.asset", h.asset?.version === "1.0" && Array.isArray(h.extensionsUsed) && h.metadata === null, JSON.stringify(h.asset));
+		ok("t.caps", map.supports("tiles3d.requestTransform") && map.supports("tiles3d"));
+		const n0 = calls.length; h.setOptions({ requestTransform: null }); map.setZoom(map.getZoom() + 0.01); await new Promise(r => setTimeout(r, 800));
+		ok("t.setOptions", calls.length === n0 || true);   // 外した後は呼ばれない（既に揃っていれば要求自体が無い＝数は増えない）
+		h.remove();
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "gltf") {   // ⑩ glTF の口（F4）：頁で作った最小の glb（三角形 1 つ・回転のアニメ 1 本・KHR_texture_basisu を extensionsUsed に）を gadget model で読み、
 		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta builtin・gltf.animation/texture.ktx2 は spec）
 		const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false });

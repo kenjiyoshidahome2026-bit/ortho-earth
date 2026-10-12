@@ -676,8 +676,16 @@ export interface ClipOptions {
 	/** false＝縁の帯なし・{ width（CSS px・既定 2）, color（[r,g,b] 0..1・既定 橙） } */
 	edge?: false | { width?: number; color?: [number, number, number] };
 }
-export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean }
-export interface Tiles3DHandle { id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null; remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void }
+/** 3D Tiles の取得の前の手入れ（F5・2026-10-12）＝この tileset の全ての要求（tileset.json・外部 tileset＝type "Source"、タイルの本体＝"Tile"）に、地図の transformRequest の後で掛かる。
+ *  戻り＝{ url?, headers?, credentials? }（null＝そのまま）。鍵・session の付与（Google Photorealistic 3D Tiles 等）や署名つき URL への差し替えは呼び手の closure で（鍵を repo に置かない） */
+export type Tiles3DRequestTransform = (url: string, type: "Source" | "Tile") => { url?: string; headers?: Record<string, string>; credentials?: RequestCredentials } | null | undefined;
+export interface Tiles3DOptions { id?: string; maxSSE?: number; heightOffset?: number; ground?: "absolute" | "terrain"; pointSize?: number; textures?: boolean; fit?: boolean; requestTransform?: Tiles3DRequestTransform }
+export interface Tiles3DHandle {
+	id: string; readonly stats: { loaded: number; shown: number; failed: number; triangles: number; points: number; bytes: number; gpuMB: number; inflight: number }; readonly bbox: Bbox | null;
+	/** root の tileset.json の見出し（F5）：asset（version・tilesetVersion・extras）・metadata（3D Tiles 1.1）・extras・拡張 */
+	readonly asset: Record<string, unknown> | null; readonly metadata: Record<string, unknown> | null; readonly extras: Record<string, unknown> | null; readonly extensionsUsed: string[]; readonly extensionsRequired: string[];
+	remove(): void; setVisible(v: boolean): void; setOptions(o: Partial<Tiles3DOptions>): void;
+}
 export interface LayerMouseEvent { type: string; point: { x: number; y: number }; lngLat: { lng: number; lat: number } | null; features: RenderedFeature[]; originalEvent: PointerEvent | MouseEvent; target: OrthoJapanMap }
 /** 層の押し系のイベント（C8・MapLibre 同名）。preventDefault()＝mousedown/touchstart で呼ぶと地図のドラッグを捨てる（例 create-a-draggable-point）。touch＝points/lngLats（指の列・今は 1 本） */
 export interface LayerPressEvent extends LayerMouseEvent { defaultPrevented: boolean; preventDefault(): void; points?: Array<{ x: number; y: number }>; lngLats?: Array<{ lng: number; lat: number } | null> }
