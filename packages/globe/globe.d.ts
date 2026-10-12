@@ -553,7 +553,9 @@ export interface OverlayDepth {
 export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "base" | "color"> {
 	type: "fill-extrusion"; id?: string;
 	source?: { type: "geojson"; data: GeoJSONFeatureCollection | string } | GeoJSONFeatureCollection;
-	paint: { "fill-extrusion-height"?: StyleExpression; "fill-extrusion-base"?: StyleExpression; "fill-extrusion-color"?: StyleExpression; "fill-extrusion-opacity"?: number };
+	paint: { "fill-extrusion-height"?: StyleExpression; "fill-extrusion-base"?: StyleExpression; "fill-extrusion-color"?: StyleExpression; "fill-extrusion-opacity"?: number; "fill-extrusion-vertical-gradient"?: boolean | StyleExpression };   // vertical-gradient＝壁の縦の陰影（既定 true・C6）
+	/** layout：`fill-extrusion-rounded-corner-distance`（m・既定 0・GL JS 6.2）＝足元の角を弧に（vector の押し出しも同じ）。ズームの式は止まった z で一度評価 */
+	layout?: { "fill-extrusion-rounded-corner-distance"?: number | StyleExpression; visibility?: "visible" | "none" };
 	filter?: StyleExpression;
 }
 

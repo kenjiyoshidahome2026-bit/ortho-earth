@@ -616,6 +616,18 @@ try {
 			map.removeLayer("b3d-base"); await sleep(500);
 			return [a.some(f => f.properties?.name === "L"), names(a)];
 		});
+		// ── 角の丸め（C6・2026-10-12）＝layout の fill-extrusion-rounded-corner-distance（m）。court（80m 角）を 40m で丸める＝真上から屋根の角（辺から 6m 内）の画素が背景に・辺の中ほどは赤のまま・0 に戻すと角も赤に ──
+		await vscene("rounded-corner-vector", async () => {
+			const cb = bOf("court"), kx = 1 / (111320 * Math.cos(C[1] * Math.PI / 180)), corner = { center: [cb.center[0] + 34 * kx, cb.center[1] + 34 / 110574] }, edge = { center: [cb.center[0] + 34 * kx, cb.center[1]] };
+			map.jumpTo({ center: cb.center, zoom: 18, pitch: 0 }); await loaded("omt");
+			const sq = await pixelUntil(corner, 50, isRed);
+			map.setLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance", 40); await loaded("omt");
+			const rd = await pixelUntil(corner, 50, p => !isRed(p)), mid = await pixelUntil(edge, 50, isRed), got = map.getLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance");
+			map.setLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance", 0); await loaded("omt");
+			const back = await pixelUntil(corner, 50, isRed);
+			map.jumpTo({ center: C, zoom: 16.5, pitch: 50 }); await loaded("omt");
+			return [isRed(sq) && !isRed(rd) && isRed(mid) && isRed(back) && got === 40, `square=${sq} rounded=${rd} edgeMid=${mid} back=${back} get=${got}`];
+		});
 		// ── vector source の描く層（fill／line／circle／symbol・段 8⑤）＝基図の塗りと線の上・注記は基図と同じ衝突。真上から＝地面の画素で判定 ──
 		const D = VB.draw;
 		const atG = ll => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, ll[0], ll[1], 1); return [x / d, y / d]; };
@@ -652,6 +664,14 @@ try {
 			await loaded("omt");
 			const a = await gUntil(D.park, isBlue, 0, -3), b = await gUntil(D.park, isBlue, 0, 3), out = await gUntil(D.outside, p => !isBlue(p));   // 横の継ぎ目の上と下（2 枚のタイル）
 			return [isBlue(a) && isBlue(b) && !isBlue(out), `above=${a} below=${b} outside=${out}`];
+		});
+		await vscene("fill-layer-opacity", async () => {   // 層単位の α（C6）＝公園の青い塗りの上に半分の赤＝紫がかる・外すと青に戻る（line-layer-opacity も同じ畳み）
+			await map.addLayer({ id: "vlo", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#ff0000", "fill-layer-opacity": 0.5 } });
+			await loaded("omt");
+			const mix = await gUntil(D.park, p => p[0] > 90 && p[2] > 90 && p[1] < 90, 0, -3);
+			map.removeLayer("vlo"); await loaded("omt");
+			const back = await gUntil(D.park, isBlue, 0, -3);
+			return [mix[0] > 90 && mix[0] < 200 && mix[2] > 90 && mix[2] < 200 && isBlue(back), `mix=${mix} back=${back}`];
 		});
 		await vscene("vector-line-draws", async () => {
 			await map.addLayer({ id: "vl", type: "line", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], paint: { "line-color": "#ff00ff", "line-width": 6 } });
@@ -1263,6 +1283,28 @@ try {
 		// 中庭（穴）＝真上から＝穴の地面は当たらず・縁の屋根は当たる（見張り）
 		map.jumpTo({ zoom: 17, pitch: 0 }); await sleep(2500);
 		await scene("courtyard-hole", async () => { const h = await q(at(220, 0, 40), ["bx"]), r = await q(at(220 + 40, 0, 40), ["bx"]); return [!h.includes("K") && r.includes("K"), `hole=${h} rim=${r}`]; });
+		// ── 小口（C6・2026-10-12）：角の丸め（layout の fill-extrusion-rounded-corner-distance・m）＝真上から 120m 角の屋根の角（辺から 8m 内）の画素が背景に・0 に戻すと屋根の色。
+		//    壁の縦の陰影（fill-extrusion-vertical-gradient・既定 true＝vector の押し出しと同じ verticalShade）＝false にすると壁が素の色（明るく）に ──
+		map.addSource("rc", { type: "geojson", data: fc([rect(0, 600, 60, { name: "RC" })]) });
+		await map.addLayer({ id: "rc", type: "fill-extrusion", source: "rc", layout: { "fill-extrusion-rounded-corner-distance": 60 }, paint: { "fill-extrusion-height": 20, "fill-extrusion-color": "#ff00ff" } });
+		map.jumpTo({ center: off(0, 600), zoom: 18, pitch: 0 }); await sleep(2500);
+		const isMag = p => p[0] > 150 && p[2] > 150 && p[1] < 90;
+		await scene("rounded-corner-distance", async () => {
+			const mid = await pixelUntil(at(0, 600, 20), isMag), corner = await pixelUntil(at(52, 652, 20), p => !isMag(p));
+			map.setLayoutProperty("rc", "fill-extrusion-rounded-corner-distance", 0); await sleep(1500);
+			const square = await pixelUntil(at(52, 652, 20), isMag);
+			return [isMag(mid) && !isMag(corner) && isMag(square), `mid=${mid} corner(round60)=${corner} corner(square)=${square}`];
+		});
+		map.jumpTo({ center: C, zoom: 17, pitch: 60 }); await sleep(2500);
+		await scene("vertical-gradient-geojson", async () => {
+			// T（200m）の南の壁の高さ 100m＝縦の陰影 0.92（下 0.84・上 1.0）に固定光の陰影が掛かる（実測 169）。false＝素の色×固定光（実測 184）＝8 以上明るい
+			const shaded = await pixelUntil(at(0, -30, 100), isRed);
+			map.setPaintProperty("bx", "fill-extrusion-vertical-gradient", false); await sleep(1500);
+			const flat = await pixelUntil(at(0, -30, 100), p => isRed(p) && p[0] >= shaded[0] + 8);
+			map.setPaintProperty("bx", "fill-extrusion-vertical-gradient", true); await sleep(1500);
+			const back = await pixelUntil(at(0, -30, 100), p => isRed(p) && p[0] <= shaded[0] + 2);
+			return [isRed(shaded) && isRed(flat) && flat[0] - shaded[0] >= 8 && Math.abs(back[0] - shaded[0]) <= 2, `shaded=${shaded} flat=${flat} back=${back}`];
+		});
 		// 広い面（統計の押し出し＝床 2,000m の平面）に寄って傾ける＝面の頂点がカメラの後ろへ回っても屋根に当たる（見張り＝頂点の投影だけの当て方は外す）
 		const C2 = [140.5, 31.0];
 		map.addSource("big", { type: "geojson", data: fc([rect(0, 0, 20000, { name: "BIG", h: 500 }, 0, C2)]) });
