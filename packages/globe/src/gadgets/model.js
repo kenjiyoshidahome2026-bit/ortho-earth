@@ -9,6 +9,7 @@
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
 import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { normAnimation } from "../gltf-meta.js";   // アニメの spec（F4・口だけ）
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
@@ -137,6 +138,7 @@ const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本�
 export function createModel(map, { setMesh, fit, center, ell = false, signal } = {}) {
 	const t = tr();
 	let seq = 0, cur = null;   // seq＝模型・押し出しの名前の連番・cur＝{ name, stats, src }
+	const animListeners = new Set();   // setAnimation の合図（F4）
 	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
 	const rpc = pool.rpc;
 	const clear = () => { if (cur) { setMesh(cur.name, null); cur = null; } };
@@ -148,6 +150,14 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 	};
 	const ctl = {
 		get stats() { return cur?.stats || null; },
+		// glTF の口（F4・2026-10-12・src/gltf-meta.js）：animations＝模型に入っているアニメの見出し（name/duration/paths）・setAnimation(spec)＝再生の spec を受けて保つ（描くのは第 3 波か plugin＝capabilities "gltf.animation" は spec）
+		get animations() { return (cur?.stats?.gltf?.animations || []).map(a => ({ ...a, paths: [...a.paths] })); },
+		get gltf() { return cur?.stats?.gltf ? { ...cur.stats.gltf, animations: ctl.animations } : null; },
+		setAnimation(spec) { if (!cur) throw new Error("setAnimation: no model loaded"); cur.animation = normAnimation(spec, cur.stats.gltf?.animations || []); for (const f of animListeners) { try { f(cur.animation, ctl); } catch (e) { console.warn("[model] animation listener", e); } } return ctl; },
+		getAnimation() { return cur?.animation ? { ...cur.animation } : null; },
+		play(nameOrSpec) { return ctl.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
+		stop() { if (cur?.animation) cur.animation = { ...cur.animation, playing: false }; return ctl; },
+		onAnimation(f) { animListeners.add(f); return () => animListeners.delete(f); },   // plugin が再生を担う時の合図（spec が変わるたび）
 		get bbox() { return cur?.stats?.bbox || null; },
 		get name() { return cur?.name || null; },
 		clear,
@@ -215,7 +225,7 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			});
 			clear();
 			const key = `model/${++seq}`;
-			cur = { name: key, stats: r.stats, src: name };
+			cur = { name: key, stats: r.stats, src: name, animation: null };
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);

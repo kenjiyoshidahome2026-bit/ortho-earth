@@ -12,6 +12,49 @@ const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${not
 const throws = f => { try { f(); return false; } catch { return true; } };
 const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "gltf") {   // ⑩ glTF の口（F4）：頁で作った最小の glb（三角形 1 つ・回転のアニメ 1 本・KHR_texture_basisu を extensionsUsed に）を gadget model で読み、
+		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta builtin・gltf.animation/texture.ktx2 は spec）
+		const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false });
+		await map.once("load");
+		const json = {
+			asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, name: "tri" }],
+			meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+			buffers: [{ byteLength: 36 + 8 + 8 + 32 }],
+			bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }, { buffer: 0, byteOffset: 44, byteLength: 8 }, { buffer: 0, byteOffset: 52, byteLength: 32 }],
+			accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 10, 0] }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" },
+				{ bufferView: 2, componentType: 5126, count: 2, type: "SCALAR", min: [0], max: [1.5] }, { bufferView: 3, componentType: 5126, count: 2, type: "VEC4" }],
+			animations: [{ name: "Spin", channels: [{ sampler: 0, target: { node: 0, path: "rotation" } }], samplers: [{ input: 2, output: 3, interpolation: "LINEAR" }] }],
+			extensionsUsed: ["KHR_texture_basisu"],
+		};
+		const bin = new ArrayBuffer(84), f = new Float32Array(bin, 0, 9); f.set([0, 0, 0, 10, 0, 0, 0, 10, 0]);
+		new Uint16Array(bin, 36, 3).set([0, 1, 2]); new Float32Array(bin, 44, 2).set([0, 1.5]); new Float32Array(bin, 52, 8).set([0, 0, 0, 1, 0, 0, 1, 0]);
+		const js = new TextEncoder().encode(JSON.stringify(json)), jl = (js.length + 3) & ~3;
+		const glb = new ArrayBuffer(12 + 8 + jl + 8 + 84), dv = new DataView(glb), u8 = new Uint8Array(glb);
+		dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.byteLength, true);
+		dv.setUint32(12, jl, true); dv.setUint32(16, 0x4E4F534A, true); u8.set(js, 20); for (let i = 20 + js.length; i < 20 + jl; i++) u8[i] = 0x20;
+		dv.setUint32(20 + jl, 84, true); dv.setUint32(24 + jl, 0x004E4942, true); u8.set(new Uint8Array(bin), 28 + jl);
+		const h = await map.gadget.model(new File([glb], "tri.glb"), { at: [139.7671, 35.6812], fit: false });
+		ok("g.loaded", h && h.stats && h.stats.triangles === 1, JSON.stringify(h?.stats && { t: h.stats.triangles, g: !!h.stats.gltf }));
+		const g = h.gltf;
+		ok("g.meta", g && g.animations.length === 1 && g.animations[0].name === "Spin" && g.animations[0].duration === 1.5 && g.animations[0].paths.join() === "rotation" && g.textureFormats.join() === "ktx2" && g.featureIds === false, JSON.stringify(g));
+		ok("g.animations", h.animations.length === 1 && h.animations[0].index === 0 && h.getAnimation() === null);
+		let seen = null; const off = h.onAnimation(st => { seen = st; });
+		h.play("Spin");
+		ok("g.play", seen && seen.name === "Spin" && seen.playing === true && seen.loop === true && seen.duration === 1.5 && h.getAnimation().speed === 1, JSON.stringify(seen));
+		h.setAnimation({ time: 0.7, speed: 2, loop: false });
+		ok("g.set", h.getAnimation().time === 0.7 && h.getAnimation().speed === 2 && h.getAnimation().loop === false && seen.time === 0.7);
+		h.stop(); ok("g.stop", h.getAnimation().playing === false);
+		ok("g.unknownThrows", throws(() => h.setAnimation("Run")) && throws(() => h.setAnimation(3)));
+		h.setAnimation(null); ok("g.clear", h.getAnimation() === null && seen === null); off();
+		const c = map.capabilities();
+		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && !map.supports("gltf.animation") && c["gltf.animation"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "spec");
+		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === false);
+		map.use({ name: "tx", install(m) { m.registry.textureTranscoders.add("ktx2", { url: "https://example.invalid/ktx2.js" }); } });
+		ok("g.transcoderSpec", map.capabilities()["texture.ktx2"].status === "spec" && !map.supports("texture.ktx2") && map.registry.textureTranscoders.ownerOf("ktx2") === "tx");
+		h.clear();
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	if (V === "post") {   // ⑨ 後処理の鎖（F3）：setPostChain の順番と既定・bloom/vignette は getPostProcess（renderer）へ写る・他の type は保つだけ・plugin の type は apply が呼ばれる・setPostProcess の旧形は不変
 		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
 		await map.once("load");
