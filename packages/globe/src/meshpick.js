@@ -3,6 +3,7 @@
 //   GPU の番号焼きは使わない（メッシュは core の renderer が描く＝オーバーレイの当たりの道に乗らない）。三角形の数に比例＝クリックの瞬間だけ走らせる。
 //   feature state の色（tintColors）＝頂点色を地物ごとに差し替えた列（renderer の "meshCol" で色の頂点バッファだけ書き換える）。
 import { NO_FEATURE } from "./mesh-features.js";
+import { betaToLonLat } from "@ortho-earth/core";
 // 束の局所の箱（原点相対）＝画面で外れる束を素早く捨てる
 function aabbOf(item) {
 	if (item._aabb) return item._aabb;
@@ -60,8 +61,9 @@ export function pickMeshes(items, view, x, y) {
 	}
 	return best;
 }
-// 世界座標 → [経度, 緯度]（度・球）
-export const lngLatOfWorld = P => [Math.atan2(P[2], P[0]) * 180 / Math.PI, Math.asin(Math.max(-1, Math.min(1, P[1] / Math.hypot(P[0], P[1], P[2])))) * 180 / Math.PI];
+// 世界座標（描いた頂点と同じ空間＝β の単位球・S は mvp 側）→ [経度, 緯度]（度・測地）。楕円体では y を直に asin すると β＝緯度 35° で約 0.09°（≒10 km 南）ずれる
+// （2026-10-13・t-plugin?v=gltf の f.lngLat が既定＝楕円体の器で落ちた）＝core の betaToLonLat（β → 測地緯度・球は恒等）に通す。worldToLonLat は S⁻¹ が二重に掛かり逆に 10 km 北へずれる（実測）
+export const lngLatOfWorld = P => betaToLonLat(P);
 // feature state の色：col0（元の頂点色 RGBA8）・ids（頂点の番号）・colorOf(id) → [r,g,b(,a)]（0..255）| null（元のまま）
 export function tintColors(col0, ids, colorOf) {
 	const out = new Uint8Array(col0);
