@@ -13,6 +13,9 @@ import { crossOriginIsolation, engineAliases } from "./scripts/lib/vite-app.mjs"
 
 export default defineConfig({
 	resolve: { alias: engineAliases(resolve(import.meta.dirname, "..", "..")) },
+	// three.js（検定 t-three だけの devDependency・利用者は CDN の URL を渡す）：bare の "three" を頁で import すると dep の事前束ね（?url が default を失う）に
+	// 入るので、ファイルの実パスを /@fs/ の URL として定数で渡す＝頁は __OE_THREE_URL__ を worker（map.addThree の opts.three）へそのまま渡す
+	define: { __OE_THREE_URL__: JSON.stringify("/@fs" + resolve(import.meta.dirname, "..", "..", "node_modules", "three", "build", "three.module.js")) },
 	worker: { format: "es" },
 	plugins: [crossOriginIsolation()],
 });
