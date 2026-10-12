@@ -851,7 +851,7 @@ export interface OrthoJapanMap {
 	setVerticalFieldOfView(deg: number): OrthoJapanMap;
 	/** style の light（MapLibre 同名・1.16.0〜）＝押し出し・glTF・LOD2 の陰影の向き・強さ・色（WebGL2。WebGPU は局所系の固定光のまま）。null＝従来の固定光に戻す。style の根の light は起動と setStyle で読む */
 	setLight(light: LightSpecification | null): OrthoJapanMap;
-	/** 光源の口（F1・2026-10-12）。配列で受けて既定を補って保つ。directional は 1 つまで（setLight と同じ経路で描く）。知らない type は投げる（plugin は registry.lights に足す）。[] で全部外す */
+	/** 光源の口（F1・2026-10-12）。配列で受けて既定を補って保つ。directional は 1 つまで（setLight と同じ経路で描く）。point／spot／ambient／hemisphere は W2（2026-10-12）でメッシュ（模型・押し出し・LOD2）の陰影に足す（WebGL2・WebGPU・上限 8 灯・位置 [lon, lat, alt m]・range m（0＝減衰なし）・decay＝(1−d/range)^decay・spot は direction [東,北,上] か target）。ibl は保つだけ。知らない type は投げる（plugin は registry.lights に足す）。[] で全部外す */
 	setLights(lights: LightSpec[] | LightSpec | null): OrthoJapanMap;
 	/** 保っている光源（directional は setLight／style の根の light も映る・正規化済み） */
 	getLights(): LightSpec[];

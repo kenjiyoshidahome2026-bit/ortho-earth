@@ -176,7 +176,7 @@ try {
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
-	if (V === "lights") {   // ⑦ 光源の口（F1）：setLights/getLights・directional は setLight と同じ経路・他の type は保つだけ・plugin の type は apply が呼ばれる
+	if (V === "lights") {   // ⑦ 光源の口（F1）：setLights/getLights・directional は setLight と同じ経路・point/spot/ambient/hemisphere は renderer へ（W2・絵は t-lights）・ibl は保つだけ・plugin の type は apply が呼ばれる
 		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
 		await map.once("load");
 		ok("l.empty", map.getLights().length === 0 && map.getLight().intensity === 0.5);
@@ -188,7 +188,7 @@ try {
 		ok("l.setLightUpdates", map.getLights()[0].intensity === 0.3 && map.getLights().length === 3);
 		ok("l.unknownThrows", throws(() => map.setLights([{ type: "laser" }])) && map.getLights().length === 3);
 		ok("l.twoDirThrows", throws(() => map.setLights([{}, {}])));
-		ok("l.caps", map.supports("light.directional") && !map.supports("light.point") && map.capabilities()["light.point"].status === "spec" && map.registry.lights.wired === true);
+		ok("l.caps", map.supports("light.directional") && map.supports("light.point") && map.supports("light.spot") && map.supports("light.hemisphere") && !map.supports("light.ibl") && map.capabilities()["light.ibl"].status === "spec" && map.registry.lights.wired === true);
 		let applied = null;
 		map.use({ name: "laser", install(m) { m.registry.lights.add("laser", { apply: (mm, ls) => { applied = ls; } }); } });
 		map.setLights([{ type: "laser", power: 9 }, { type: "point", position: [0, 0] }]);
