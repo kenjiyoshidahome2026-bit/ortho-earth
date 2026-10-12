@@ -1,4 +1,4 @@
-// vector source の描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27）の main 側。中身は vtdraw-worker.js・前処理は vtops.js。
+// vector source の描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27。heatmap は点集めだけ＝C1・2026-10-12）の main 側。中身は vtdraw-worker.js・前処理は vtops.js。
 // 本人の裁定「別の流れ・基図の上」：基図の配管（core の pipeline）は触らない。利用者の層は renderer の "user" の枠へ＝基図の塗りと線の上・注記は基図と同じ衝突。
 //   選び＝段 8①（vtextrude.js）と同じ作法：core selectLOD を MapLibre の vector source の尺で（tilePx 512√2）・source の min/maxzoom・範囲・遠景の打ち切り・予算。
 //   取得＝main が requester で（transformRequest・addProtocol の読み口）・PMTiles は core の生バイトの口。生バイトは組み役の worker が預かる。
@@ -25,7 +25,7 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
+export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, sendHeat = () => {}, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // sendHeat(id, ll|null, w)＝heatmap 層の点（C1）＝出しているタイルの和を呼び手（globe→heatmap-gl）へ   // gs＝地図の global-state の取り出し（#173 段 3b）
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
@@ -147,7 +147,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;
-			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.ver++;
+			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.heat = r.heat || {}; B.ver++;
 			B.ids = r.ids ? new Set(Object.entries(r.ids).flatMap(([sl, a]) => a.map(id => fsKey(sl, id)))) : null;   // このタイルが含む地物（feature-state を読む層の分）＝touchFS がどのタイルを組み直すか
 			for (const k of r.warn || []) warnOnce(`${sid}:${k}`, `[vtdraw] source "${sid}": ${k} is not supported yet on vector sources`);
 			const mk = mkey(sid, key);
@@ -157,7 +157,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		}).catch(err => { B.state = B.state === "ready" ? "ready" : "failed"; console.warn("[vtdraw] build", sid, key, err.message); })
 			.finally(() => { B.building = false; building--; schedule(); });
 	}
-	const emptyB = () => ({ state: "none", gen: -1, zsig: null, fz: null, ops: false, bytes: 0, labels: {}, origin: null, z: 0, ver: 0, building: false, used: clock, ids: null, fsDirty: false });
+	const emptyB = () => ({ state: "none", gen: -1, zsig: null, fz: null, ops: false, bytes: 0, labels: {}, heat: {}, origin: null, z: 0, ver: 0, building: false, used: clock, ids: null, fsDirty: false });
 
 	// ── 毎回の選び（rAF に畳む）──
 	function update() {
@@ -187,7 +187,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 				if (!B) src.built.set(k, B = emptyB());
 				B.used = clock;
 				if (B.building) continue;
-				if (T.state !== "ready") { if (B.state !== "ready" || B.ops || B.gen !== src.gen) { if (B.ops) mergerW().w.postMessage({ type: "evict", keys: [mkey(src.sid, k)] }); Object.assign(B, { state: "ready", ops: false, bytes: 0, labels: {}, gen: src.gen, zsig: src.zsig, fz: fzOf(src, t.z), ids: null }); B.ver++; } B.fsDirty = false; continue; }   // 空・諦めたタイル
+				if (T.state !== "ready") { if (B.state !== "ready" || B.ops || B.gen !== src.gen) { if (B.ops) mergerW().w.postMessage({ type: "evict", keys: [mkey(src.sid, k)] }); Object.assign(B, { state: "ready", ops: false, bytes: 0, labels: {}, heat: {}, gen: src.gen, zsig: src.zsig, fz: fzOf(src, t.z), ids: null }); B.ver++; } B.fsDirty = false; continue; }   // 空・諦めたタイル
 				if (B.state !== "ready" || B.gen !== src.gen || B.zsig !== src.zsig || B.fz !== fzOf(src, t.z) || B.fsDirty) buildTile(src, t, B);
 			}
 			const ready = k => src.built.get(k)?.state === "ready";
@@ -196,6 +196,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		}
 		mergeMaybe();
 		labelsMaybe();
+		heatMaybe();
 		evict();
 		fsDone();
 	}
@@ -250,6 +251,25 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			labelSig.set(s.id, sig);
 			const list = []; for (const k of keys) { const ls = src.built.get(k)?.labels?.[s.id]; if (ls) for (const L of ls) list.push(L); }
 			sendLabels(s.id, list.length ? list : null, { minZoom: s.layer.minzoom ?? null, maxZoom: s.layer.maxzoom ?? null });
+		}
+	}
+
+	// ── ヒートマップ（C1・層ごと・出しているタイルの点の和）＝呼び手が heatmap-gl（画面単位の密度）へ渡す。署名はタイル×版＝組み直し（paint・zoom・feature-state）で送り直す ──
+	const heatSig = new Map();   // id → 署名
+	function heatMaybe() {
+		for (const s of layers.values()) {
+			if (s.layer.type !== "heatmap") continue;
+			const src = sources.get(s.sid), on = s.on && !!src && inZoom(s.layer, cam.zoom);
+			const keys = on ? [...src.show].sort() : [];
+			const sig = on ? keys.map(k => `${k}:${src.built.get(k)?.ver ?? 0}`).join(",") : "off";
+			if (heatSig.get(s.id) === sig) continue;
+			heatSig.set(s.id, sig);
+			let n = 0; const parts = [];
+			for (const k of keys) { const h = src.built.get(k)?.heat?.[s.id]; if (h) { parts.push(h); n += h.w.length; } }
+			if (!n) { sendHeat(s.id, null, null); continue; }
+			const ll = new Float64Array(n * 2), w = new Float32Array(n); let o = 0;
+			for (const h of parts) { ll.set(h.ll, o * 2); w.set(h.w, o); o += h.w.length; }
+			sendHeat(s.id, ll, w);
 		}
 	}
 
@@ -315,6 +335,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			const s = layers.get(id); if (!s) return;
 			layers.delete(id); retired.add(s.key);
 			if (labelSig.has(id)) { labelSig.delete(id); sendLabels(id, null, {}); }
+			if (heatSig.has(id)) { heatSig.delete(id); sendHeat(id, null, null); }
 			if (!layersOf(s.sid).length) dropSource(s.sid); else touchSource(s.sid);
 			schedule();
 		},

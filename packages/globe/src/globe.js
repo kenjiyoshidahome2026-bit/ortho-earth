@@ -283,8 +283,8 @@ const STYLE_SPEC = opts.style ?? (q => {   // ?style= は URL の門（?g= と�
 })(new URLSearchParams(location.search).get("style"));
 // style.json の vector source の層のうち、利用者の層の口で描く物（段 8①・8⑤）：押し出し（どの vector source でも）・2 本目以降の vector source の fill／line／circle／symbol・
 // 基図の source の circle（基図は円を描かない）。基図の source の fill／line／点ラベルは基図が描く（今まで通り）
-const VT_DRAW = new Set(["fill", "line", "circle", "symbol"]);
-const vtRouted = (L, ms, baseSid) => ms.sources?.[L.source]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle")));
+const VT_DRAW = new Set(["fill", "line", "circle", "symbol", "heatmap"]);   // heatmap＝C1（2026-10-12）：worker は点集め・描くのは heatmap-gl（画面単位の密度）
+const vtRouted = (L, ms, baseSid) => ms.sources?.[L.source]?.type === "vector" && !mlUnknownOps(L).length && (L.type === "fill-extrusion" || (VT_DRAW.has(L.type) && (L.source !== baseSid || L.type === "circle" || L.type === "heatmap")));   // 基図の配管が描けない型（circle・heatmap）は基図の source でも vtdraw へ
 const loadExtStyle = async (spec, transformStyle = null) => {
 	let { style: ms, baseUrl } = await loadMapLibreStyle(spec, { fetchFn: (u, init) => requester.fetch(u, "Style", init) });
 	// setStyle(spec, { transformStyle })（MapLibre 同名・公式例の門 2 巡目）＝当てる前に書き換える（前の style と次の style を渡し、返りを使う）
@@ -4209,7 +4209,7 @@ const kindOf = (layer, sp) => {
 	if (layer.type === "hillshade") { if (sp.type !== "raster-dem") throw new Error(`addLayer: hillshade layer "${layer.id}" needs a raster-dem source`); return "hillshade"; }   // 2D の陰影（hillshade.js）
 	if (layer.type === "color-relief") { if (sp.type !== "raster-dem") throw new Error(`addLayer: color-relief layer "${layer.id}" needs a raster-dem source`); return "colorrelief"; }   // 標高の段彩（colorrelief.js・#114）
 	if (layer.type === "fill-extrusion") return sp.type === "vector" ? "vtextrude" : "extrude";   // vector source＝ベクタタイルの押し出し（段 8①）
-	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported yet — vector sources feed fill / line / circle / symbol / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
+	if (sp.type === "vector") { if (VT_DRAW.has(layer.type)) return "vtdraw"; throw new Error(`addLayer: layer "${layer.id}" (${layer.type}) on vector source "${layer.source}" is not supported — vector sources feed fill / line / circle / symbol / heatmap / fill-extrusion layers`); }   // vector source の描く層（段 8⑤）＝renderer の "user" の枠（基図の上）・それ以外は黙って壊れない
 	if (layer.type === "heatmap") return "heatmap";
 	if (sp.cluster && (layer.type === "circle" || (layer.type === "symbol" && hasPointCount(layer.layout?.["text-field"])))) return "cluster";
 	if (layer.type === "symbol") return "symbol";
@@ -4476,12 +4476,18 @@ const vtdGet = async () => {
 		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS, zoomOf: mlZoomOf, fstate: vtxFS, fsKey: vtxFSKey,   // feature-state の置き場は押し出しと同じ（#109）
 		sendScene: (scene, transfer) => { wPost({ type: "set", cmd: "scene", data: scene, prop: "user" }, transfer); needsDraw = true; },
 		sendLabels: (id, list, meta) => { wPost({ type: "set", cmd: "vtLabels", layer: "vt:" + id, data: { list, ...meta } }); needsDraw = true; },
+		sendHeat: async (id, ll, w) => {   // heatmap 層の点（C1）＝層 id の枠（slot）の heatmap-gl へ。null＝外す（層が外れた・出すタイルに点が無い）
+			const v = mlLayers.get(id);
+			if (!v || ll == null) { aggCtl?.clear("heatmap", id); return; }
+			const agg = await aggGet(); if (mlLayers.get(id) !== v) { agg.clear("heatmap", id); return; }
+			agg.heatmapPoints(ll, w, drawLayerOf(v), id); needsDraw = true;
+		},
 	});
 	vtdAnchorsOn = true;   // 基図の層の間への差し込み（#123）を配り始める
 	return vtdCtl;
 };
 // 読まない性質（台帳 §4）＝層ごとに 1 回だけ知らせて、無しで描く
-const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [] };   // symbol の icon-image は段 3 から読む
+const VTD_UNSUPPORTED = { fill: ["fill-pattern", "fill-translate"], line: ["line-pattern", "line-gradient", "line-blur", "line-translate"], circle: ["circle-blur", "circle-translate"], symbol: [], heatmap: [] };   // symbol の icon-image は段 3 から読む
 const vtdMount = async (v, layer) => {
 	const sid = srcId(layer);
 	vtdMounting.set(sid, (vtdMounting.get(sid) || 0) + 1);
@@ -4586,7 +4592,7 @@ const unmountLayer = v => {
 	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; demTilesDrop(id); }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
 	else if (kind === "vtextrude") { vtxCtl?.remove(id); vecAttrDrop(v, sid); }
-	else if (kind === "vtdraw") { vtdCtl?.remove(id); vecAttrDrop(v, sid); sendUserAnchors(); }
+	else if (kind === "vtdraw") { vtdCtl?.remove(id); if (layer.type === "heatmap") aggCtl?.clear("heatmap", id); vecAttrDrop(v, sid); sendUserAnchors(); }
 	else if (kind === "heatmap") aggCtl?.clear("heatmap", id);
 	else if (kind === "symbol") symCtl?.removeLayer(id);
 	else if (kind === "cluster") return rebuildCluster(sid);   // 残りの集約の層で組み直す（無ければ外す・世代で古い組み直しを捨てる）
@@ -5368,7 +5374,7 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 	if (vtdCtl) {   // vector source の描く層（段 8⑤）＝基図と同じ queryTiles を source ごとに（出しているタイルを取り直す）。上の層から＝層の順の鍵の大きい方から
 		const bySid = new Map();
 		for (const v of mlLayers.values()) {
-			if (v.kind !== "vtdraw" || !mlVisible(v) || !vtdCtl.has(v.layer.id)) continue;   // 層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
+			if (v.kind !== "vtdraw" || !mlVisible(v) || !vtdCtl.has(v.layer.id) || v.layer.type === "heatmap") continue;   // heatmap は問い合わせに出ない（MapLibre と同じ）。層の絞り込みは queryTiles の layers（解読する source-layer を問い合わせごとに変えない）
 			const L = drawLayerOf(v), sid = srcId(L); if (!inZoomML(L, cam.zoom)) continue;
 			if (!bySid.has(sid)) bySid.set(sid, []); bySid.get(sid).push(L);
 		}

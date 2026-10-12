@@ -1,4 +1,4 @@
-// vector source の描く層（fill／line／circle／symbol）の worker（MapLibre 互換 段 8⑤・2026-09-27・main は gadgets/vtdraw.js）。役の名は "vtdraw"（worker.js の役表）。
+// vector source の描く層（fill／line／circle／symbol・heatmap は点集めだけ＝C1）の worker（MapLibre 互換 段 8⑤・2026-09-27・main は gadgets/vtdraw.js）。役の名は "vtdraw"（worker.js の役表）。
 // main が取ったタイルの生バイト（MVT）を預かり、(source, タイル) ごとにその source の描く層をまとめて組む（解読 1 回）：
 //   filter（自前・MapLibre の意味＝過拡大の z・Feature.id／promoteId）→ タイルの枠で切る（バッファの二重を作らない）→
 //   core の buildTileDrawList（fill／line・基図と同じ部品）・circle は長さ 0 の線（カプセルの丸点）・symbol は core の buildLabels。
@@ -58,7 +58,7 @@ function build(m) {
 	const t0 = performance.now();   // 計器（#109 段 4・?hud=1）＝解読と組み立ての時間を返す
 	const data = R.buf.byteLength ? decodeTile(R.buf, need, R.enc) : {};
 	const t1 = performance.now();
-	const origin = tileNW(z, x, y), ops = [], labels = {}, warn = [], ids = {};   // ids＝{ source-layer: Set<id> }（feature-state を読む層の地物・読む層が無ければ null で返す）
+	const origin = tileNW(z, x, y), ops = [], labels = {}, heat = {}, warn = [], ids = {};   // heat＝heatmap 層の点（C1）＝{ 層 id: { ll: Float64Array(lon,lat…), w: Float32Array } }   // ids＝{ source-layer: Set<id> }（feature-state を読む層の地物・読む層が無ければ null で返す）
 	// 線の細分＝基図と同じ 700m（地形に沿わせる）。低ズームのタイル（z2 で 1 枚 1 万 km）では 700m だと 1 本が 24 分割に膨れる＝タイルの幅の 1/64 より細かくしない
 	const subLenM = Math.max(700, 40075016.686 * Math.cos((origin[1] + tileNW(z, x, y + 1)[1]) / 2 / R2D) / 2 ** z / 64);
 	let features = 0;
@@ -122,6 +122,18 @@ function build(m) {
 			if (rings.length) run({ ...base, paint: { "line-color": P["circle-stroke-color"] ?? "#000000", "line-width": sw, "line-opacity": P["circle-stroke-opacity"] ?? 1 } }, rings, 1);
 			run({ ...base, paint: { "line-color": P["circle-color"] ?? "#000000", "line-width": ["*", 2, r], "line-opacity": P["circle-opacity"] ?? 1 } }, dots, 2);
 			features += dots.length;
+		} else if (L.type === "heatmap") {
+			// ヒートマップ（C1・2026-10-12）＝描くのは main の heatmap-gl（画面単位の密度＝MapLibre と同じ 2 パス）。ここは地物の頂点（MapLibre の CircleBucket と同じ＝点・線・面の頂点）の経緯度と
+			// heatmap-weight（属性・表示の z・feature-state）を集めるだけ。タイルの枠の外の頂点（バッファ）は落とす＝隣のタイルと二重に足さない
+			const n = 2 ** z, ctx = { zoom: pz, props: null, geom: null, vars: {}, origin: "ml", state: undefined }, ll = [], ws = [];
+			for (const f of feats) {
+				const v = verticesOf(f, E); if (!v.length) continue;
+				ctx.props = f.props; ctx.geom = f.type; ctx.state = stateOf?.(f);
+				const w = Math.max(0, num(P["heatmap-weight"] ?? 1, ctx, 1));
+				for (let i = 0; i < v.length; i += 2) { ll.push((x + v[i] / E) / n * 360 - 180, R2D * Math.atan(Math.sinh(Math.PI * (1 - 2 * (y + v[i + 1] / E) / n)))); ws.push(w); }
+			}
+			if (ws.length) heat[id] = { ll: Float64Array.from(ll), w: Float32Array.from(ws) };
+			features += ws.length;
 		} else if (L.type === "symbol") {
 			const place = L.layout["symbol-placement"] ?? "point", pts = [];
 			if (place === "line" || place === "line-center") { for (const f of feats) if (f.type === "LineString") { const g = f.geom && clipLineGeom(f.geom, E); if (g?.coords?.length) pts.push({ ...f, geom: g }); } }   // 線に沿う注記（段 4）＝枠で切った線（隣のタイルと二重にしない）を core の buildLabels（錨と折れ線）へ
@@ -136,6 +148,7 @@ function build(m) {
 	const transfer = [];
 	let bytes = 0;
 	for (const op of ops) for (const a of op.kind === "fill" ? [op.pos, op.col, op.idx] : [op.P1, op.P2, op.col, op.half, op.off]) if (a) { transfer.push(a.buffer); bytes += a.byteLength; }
+	for (const h of Object.values(heat)) { transfer.push(h.ll.buffer, h.w.buffer); bytes += h.ll.byteLength + h.w.byteLength; }
 	const idl = Object.keys(ids).length ? Object.fromEntries(Object.entries(ids).map(([k, v]) => [k, [...v]])) : null;
-	self.postMessage({ id: m.id, origin, ops, labels, bytes, stats: { features, ops: ops.length, decodeMs: t1 - t0, buildMs: performance.now() - t1 }, warn, ids: idl }, transfer);
+	self.postMessage({ id: m.id, origin, ops, labels, heat, bytes, stats: { features, ops: ops.length, decodeMs: t1 - t0, buildMs: performance.now() - t1 }, warn, ids: idl }, transfer);
 }

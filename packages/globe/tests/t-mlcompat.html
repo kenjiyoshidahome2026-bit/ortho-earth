@@ -391,7 +391,7 @@ try {
 				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
 				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
 				{ id: "rd-lbl", type: "symbol", source: "gsi", "source-layer": "RdCL", layout: { "symbol-placement": "line", "text-field": "{name}" } },   // 線に沿う注記＝段 4 から描く層
-				{ id: "hm", type: "heatmap", source: "gsi", "source-layer": "WA" },   // 描かない層（§8 A＝基図では描けない型）
+				{ id: "hm", type: "heatmap", source: "gsi", "source-layer": "WA", layout: { visibility: "none" } },   // 基図の source の heatmap＝C1 から vtdraw（点集め）＋heatmap-gl が描く層＝隠して置く（下の get/set の的）
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 				{ id: "ic-s", type: "symbol", source: "ic", layout: { "icon-image": "alt:sq" } },
 			],
@@ -404,9 +404,9 @@ try {
 		// ── getStyle は style の全ての層を元の順で（描かない層も・§8 A）＝MapLibre の getStyle と同じ答え ──
 		await scene("getstyle-all-layers-in-order", () => {
 			const ls = map.getStyle().layers, ids = ls.map(L => L.id).join(","), und = ls.filter(L => L.metadata?.["ortho:drawn"] === false).map(L => L.id).join(",");
-			return [ids === "bg,hs,water,rd-lbl,hm,g,ic-s" && und === "hm", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から・rd-lbl（線に沿う注記）は段 4 から描く層
+			return [ids === "bg,hs,water,rd-lbl,hm,g,ic-s" && und === "", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から・rd-lbl（線に沿う注記）は段 4 から・hm（heatmap）は C1 から描く層＝描かない層は無くなった
 		});
-		await scene("undrawn-layer-get-set", () => {
+		await scene("drawn-layer-get-set", () => {   // 旧 undrawn-layer-get-set＝hm が描く層になっても get/set の往復は同じ
 			const r = [];
 			r.push(map.getLayer("hm")?.type === "heatmap");
 			try { map.setLayoutProperty("hm", "visibility", "none"); map.setPaintProperty("hs", "hillshade-exaggeration", 0.3); map.setFilter("hm", ["==", ["get", "k"], 1]); map.setLayerZoomRange("hm", 5, 12); r.push(true); } catch (e) { r.push(String(e.message)); }
@@ -631,7 +631,20 @@ try {
 			return n;
 		};
 		map.jumpTo({ pitch: 0 }); await loaded("omt");
-		await vscene("vector-heatmap-throws-names-source", async () => { try { await map.addLayer({ id: "vh", type: "heatmap", source: "omt", "source-layer": "poi" }); map.removeLayer("vh"); return [false, "did not throw"]; } catch (e) { return [/vector source "omt"/.test(e.message), e.message]; } });
+		// ── heatmap を vector source に（C1・2026-10-12）＝vtdraw-worker が poi の点と heatmap-weight を集め、heatmap-gl（層 id の枠のオーバーレイ）が画面単位の密度で描く。問い合わせには出ない（MapLibre と同じ）──
+		await vscene("vector-heatmap-draws", async () => {
+			await map.addLayer({ id: "vh", type: "heatmap", source: "omt", "source-layer": "poi", paint: { "heatmap-radius": 40, "heatmap-intensity": 3, "heatmap-weight": ["case", ["==", ["get", "class"], "cafe"], 1, 0.5],
+				"heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(255,0,0,0)", 0.05, "rgba(255,0,0,1)", 1, "rgba(255,0,0,1)"] } });
+			await loaded("omt");
+			for (let k = 0; k < 40 && window.__overlay?.["heatmap:vh"]?.stage !== "ready"; k++) await sleep(250);
+			const ovAt = (img, [x, y]) => { if (!img?.data) return null; const kx = img.w / cv.clientWidth, ky = img.h / cv.clientHeight, bx = Math.min(img.w - 1, Math.round(x * kx)), by = Math.min(img.h - 1, Math.round(y * ky)), i = ((img.flipY ? img.h - 1 - by : by) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]]; };
+			let cafe = null, out = null;
+			for (let k = 0; k < 8; k++) { await sleep(800); const img = await window.__ovPixels?.("heatmap:vh"); cafe = ovAt(img, at({ center: D.cafe }, 0)); out = ovAt(img, at({ center: D.outside }, 0)); if (cafe && cafe[3] > 100) break; }
+			const q = (await map.queryRenderedFeatures(at({ center: D.cafe }, 0), { layers: ["vh"] })).length;
+			map.setLayoutProperty("vh", "visibility", "none"); await sleep(600); const hidden = await window.__ovPixels?.("heatmap:vh");
+			map.removeLayer("vh"); await sleep(500); const gone = (await window.__ovPixels?.("heatmap:vh")) == null;
+			return [!!cafe && cafe[3] > 100 && cafe[0] > 150 && cafe[1] < 60 && !!out && out[3] < 20 && q === 0 && hidden == null && gone, `cafe=${cafe} outside=${out} q=${q} hidden=${hidden == null} gone=${gone}`];
+		});
 		await vscene("vector-fill-draws", async () => {
 			await map.addLayer({ id: "vf", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } });
 			await loaded("omt");
