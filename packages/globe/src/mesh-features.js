@@ -5,9 +5,20 @@
 //   property table＝列ごとの素の配列（行＝地物の番号）。型＝SCALAR・VECn・MATn（数の並び）・STRING・BOOLEAN・ENUM、固定長／可変長の配列。
 //   offset／scale／normalized（数の型）は掛けた値。表に無い列（class の既定値 default）はその値。読めない列は落として理由を warnings に。
 export const NO_FEATURE = 0xFFFFFFFF;
-// 型名→配列の型。glTF／batch table から来る名は Map で引く（素の object だと "constructor" 等が prototype に当たる）
-const CT = new Map(Object.entries({ INT8: Int8Array, UINT8: Uint8Array, INT16: Int16Array, UINT16: Uint16Array, INT32: Int32Array, UINT32: Uint32Array, INT64: BigInt64Array, UINT64: BigUint64Array, FLOAT32: Float32Array, FLOAT64: Float64Array }));
-const BT = new Map(Object.entries({ BYTE: Int8Array, UNSIGNED_BYTE: Uint8Array, SHORT: Int16Array, UNSIGNED_SHORT: Uint16Array, INT: Int32Array, UNSIGNED_INT: Uint32Array, FLOAT: Float32Array, DOUBLE: Float64Array }));   // b3dm の batch table の componentType
+// 型名→配列の型。glTF／batch table から来る名は switch で引く（表の object／Map を名で引くと、"constructor" 等が prototype に当たり得る）
+function ctorOf(name) {   // EXT_structural_metadata の componentType
+	switch (name) {
+		case "INT8": return Int8Array; case "UINT8": return Uint8Array; case "INT16": return Int16Array; case "UINT16": return Uint16Array;
+		case "INT32": return Int32Array; case "UINT32": return Uint32Array; case "INT64": return BigInt64Array; case "UINT64": return BigUint64Array;
+		case "FLOAT32": return Float32Array; case "FLOAT64": return Float64Array; default: return null;
+	}
+}
+function batchCtorOf(name) {   // b3dm の batch table の componentType
+	switch (name) {
+		case "BYTE": return Int8Array; case "UNSIGNED_BYTE": return Uint8Array; case "SHORT": return Int16Array; case "UNSIGNED_SHORT": return Uint16Array;
+		case "INT": return Int32Array; case "UNSIGNED_INT": return Uint32Array; case "FLOAT": return Float32Array; case "DOUBLE": return Float64Array; default: return null;
+	}
+}
 const NCOMP = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4, MAT2: 4, MAT3: 9, MAT4: 16 };
 const NORM_MAX = { INT8: 127, UINT8: 255, INT16: 32767, UINT16: 65535, INT32: 2147483647, UINT32: 4294967295 };
 
@@ -70,7 +81,7 @@ export function decodePropertyTables(meta, bytesOf, warnings = []) {
 }
 function decodeColumn(cp, p, count, bytesOf, enums) {
 	const type = cp.type, nc = NCOMP[type];
-	const offsets = (view, ot, n) => { const T = CT.get(ot || "UINT32"); if (!T) throw new Error(`offset type ${ot}`); return Array.from(typed(bytesOf(view), T, n + 1), Number); };
+	const offsets = (view, ot, n) => { const T = ctorOf(ot || "UINT32"); if (!T) throw new Error(`offset type ${ot}`); return Array.from(typed(bytesOf(view), T, n + 1), Number); };
 	const nd = v => (cp.noData !== undefined && JSON.stringify(v) === JSON.stringify(cp.noData)) ? (cp.default ?? null) : v;
 	if (type === "STRING") {
 		const u8 = bytesOf(p.values), dec = new TextDecoder();
@@ -93,7 +104,7 @@ function decodeColumn(cp, p, count, bytesOf, enums) {
 	let ctName = cp.componentType, names = null;
 	if (type === "ENUM") { const e = enums[cp.enumType]; if (!e) throw new Error(`enum ${cp.enumType}`); ctName = e.valueType || "UINT16"; names = new Map((e.values || []).map(v => [v.value, v.name])); }
 	else if (!nc) throw new Error(`type ${type}`);
-	const T = CT.get(ctName); if (!T) throw new Error(`componentType ${ctName}`);
+	const T = ctorOf(ctName); if (!T) throw new Error(`componentType ${ctName}`);
 	const per = type === "ENUM" ? 1 : nc, u8 = bytesOf(p.values);
 	const isNo = (vals, k0) => cp.noData !== undefined && (per === 1 ? num(vals[k0]) === cp.noData : Array.isArray(cp.noData) && cp.noData.every((v, i) => num(vals[k0 + i]) === v));   // noData＝生の値で比べる（offset/scale の前）
 	const one = (vals, k0) => {   // 1 要素（成分 per 個）
@@ -118,7 +129,7 @@ export function batchTableOf(json, bin, count) {
 		if (k === "extensions" || k === "extras") continue;
 		if (Array.isArray(v)) { columns[k] = v.slice(0, count); continue; }
 		if (v && typeof v === "object" && v.byteOffset != null && bin) {
-			const T = BT.get(v.componentType);
+			const T = batchCtorOf(v.componentType);
 			const nc = NCOMP[v.type] || 1; if (!T) continue;
 			try { const a = typed(bin.subarray(v.byteOffset), T, count * nc); columns[k] = Array.from({ length: count }, (_, r) => nc === 1 ? a[r] : Array.from(a.subarray(r * nc, r * nc + nc))); } catch { /* 短い＝落とす */ }
 		}
