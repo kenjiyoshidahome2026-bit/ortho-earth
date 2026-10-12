@@ -192,7 +192,7 @@ try {
 		const mp = map.getMoonPosition(T);
 		ok("moon.pos", Number.isFinite(mp.altitude) && Math.abs(mp.subpoint.lat) < 29.5 && Math.abs(Math.hypot(...mp.enu) - 1) < 1e-9);
 		ok("sun.now", Math.abs(map.getSunPosition().time - map.clock.time) < 2000);
-		ok("caps", map.supports("sun.direction") && !map.supports("clouds") && map.capabilities().clouds.status === "spec");
+		ok("caps", map.supports("sun.direction") && map.supports("clouds") && map.capabilities().clouds.status === "builtin" && !map.supports("precipitation") && !map.supports("clouds.procedural"));
 		map.setSun({ azimuth: 135, altitude: 40 });
 		let L = map.getLight();
 		ok("sun.fixed", L.anchor === "map" && L.position[1] === 135 && L.position[2] === 50 && map.getSun().follow === null && map.getLights()[0].type === "directional", JSON.stringify(L));
@@ -214,7 +214,7 @@ try {
 		ok("clouds.kept", map.getClouds().coverage === 0.7 && map.getClouds().precipitation.type === "snow" && map.getClouds().altitude === 2000);
 		ok("clouds.applied", got && got.coverage === 0.7 && map.supports("clouds") && map.capabilities().clouds.via === "puffy");
 		map.setClouds(null); ok("clouds.off", got === null && map.getClouds() === null);
-		map.unuse("puffy"); ok("clouds.afterUnuse", !map.supports("clouds"));
+		map.unuse("puffy"); ok("clouds.afterUnuse", map.capabilities().clouds.status === "builtin" && !map.capabilities().clouds.via);
 		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 		throw null;
 	}
