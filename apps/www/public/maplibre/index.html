@@ -898,7 +898,7 @@ const open = name => {
 };
 for (const c of document.querySelectorAll(".card")) { c.onclick = () => open(c.dataset.name); c.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(c.dataset.name); } }; }
 // Run＝同じ本文を通訳で走らせる走らせ台の頁を、この窓の中（iframe）で（タブを増やさない・2026-09-30 本人）。もう一度で止める
-$("run").onclick = () => { if (!$("fr").hidden) return stop(); const fr = $("fr"); fr.hidden = false; const f = document.createElement("iframe"); f.src = RUN ? RUN[cur] : BASE + "/ortho/test/examples/" + cur + ".html"; f.allow = "fullscreen"; f.loading = "eager"; fr.replaceChildren(f); $("run").textContent = "Stop"; $("run").classList.add("on"); };   // 要素で組む（HTML の文字列を組まない）
+$("run").onclick = () => { if (!$("fr").hidden) return stop(); const fr = $("fr"); fr.hidden = false; const f = document.createElement("iframe"); f.src = Object.hasOwn(RUN, cur) ? RUN[cur] : "about:blank"; f.allow = "fullscreen"; f.loading = "eager"; fr.replaceChildren(f); $("run").textContent = "Stop"; $("run").classList.add("on"); };   // 要素で組む（HTML の文字列を組まない）
 $("cl").onclick = () => dlg.close();
 dlg.onclick = e => { if (e.target === dlg) dlg.close(); };
 dlg.onclose = () => { stop(); history.replaceState(null, "", location.pathname + location.search); };
