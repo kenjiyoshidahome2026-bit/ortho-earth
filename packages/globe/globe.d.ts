@@ -622,6 +622,12 @@ export interface LayerMouseEvent { type: string; point: { x: number; y: number }
 /** properties の値は any（MapLibre・GeoJSON の型と同じ＝JS のまま書いても型検査で咎めない・1.1.1〜。以前は unknown） */
 export interface RenderedFeature { type: "Feature"; id?: number | string; properties: Record<string, any>; geometry: { type: string; coordinates: unknown } | null; layer: { id: string; type: string; "source-layer"?: string }; sourceLayer?: string; source: "basemap" | "user" | "extrude" | "image" | "cluster" | "symbols" | (string & {}); expansionZoom?: number }
 
+/** map.setPostProcess の引数。true＝既定値。bloom: threshold＝滲む輝度の下限（0〜1・既定 0.75）・strength＝足す量（既定 0.5）・radius＝ぼかし半径の倍率（既定 1）。vignette: strength＝四隅の暗さ（既定 0.5）・radius＝暗くなり始める距離（中心 0〜角 1・既定 0.8）・softness＝移り変わりの幅（既定 0.5）。 */
+export interface PostProcessOptions {
+	bloom?: true | { threshold?: number; strength?: number; radius?: number };
+	vignette?: true | { strength?: number; radius?: number; softness?: number };
+}
+
 export interface OrthoJapanMap {
 	// ---- 基本 ----
 	/** 飛行（度）。戻り値＝着地または cancel で解決する Promise（1.0.5〜。以前は void＝on("move") の無音で判定していた）。静止の合図は on("settle") */
@@ -970,6 +976,10 @@ export interface OrthoJapanMap {
 	/** 台本のタイムライン（再生せずに任意の秒の絵を出す＝エディタ用）。読めなければ null */
 	sceneTimeline(scenes: object): { dur: number; rows: unknown[]; at(t: number): unknown; seek(t: number): unknown; end(): void } | null;
 	/** 今の画面の生スナップショット（W×H・render＝基図＋知性層＋注記の画素）。合成は shot ガジェット／gadgets/compose.js */
+	/** 後処理（bloom・vignette）。本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない。null で外す。 */
+	setPostProcess(p: PostProcessOptions | null): this;
+	/** 正規化済みの後処理の設定（off なら null）。 */
+	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null } | null;
 	requestSnapshot(): Promise<{ W: number; H: number; render: { base: ArrayBuffer | null; w: number; h: number; labels: ArrayBuffer | null; lw: number; lh: number; flip: boolean } }>;
 
 	// ---- gint 多層（addGint＝追加・層ごとのハンドル・両バックエンド）----

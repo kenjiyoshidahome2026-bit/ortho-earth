@@ -1,0 +1,73 @@
+<!doctype html>
+<!-- 実描画の検分：統一 picking（deck.gl 差分 PR-1・2026-10-11）。試料＝東京駅の周り 3 点を points-gl のオーバーレイ（名前 "pts"・原点相対）に描き、
+     ①map.pickOverlays(x, y)＝描いた点の画面位置で当たる（q・index・lngLat が 1e-4° 以内）・40px 離れた所は当たらない・2 点の間は近い方
+     ②層イベント＝map.on("click", "pts", cb) が canvas のクリックで Feature（layer.id＝"pts"・source＝"pts"・geometry＝Point）を受ける
+     ③map.queryRenderedFeatures([x, y], { layers:["pts"] }) にも同じ答え・layers に基図と混ぜても落ちない
+     ④h.pick（そのオーバーレイだけ）・vis:false の層は当たらない・remove 後は []
+     実時間（overlay の import は仮想時間で解決しない）。GL2（verify:ui・gl2=1）と WebGPU（verify:webgpu＝points-gl は WebGL2 の canvas・本体のバックエンドに依らない）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-pick</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 30000;
+const { createGlobe } = await import("@ortho-earth/globe");
+const { lonlatTo3D } = await import("@ortho-earth/core");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812;
+const PTS = [[LON, LAT], [LON + 0.004, LAT], [LON, LAT + 0.003]];   // 東京駅・東 360m・北 330m（z13 で 50px 前後離れる）
+try {
+	const map = await createGlobe({ target: "#map", view: "#13/35.6812/139.7671", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 13, pitch: 0, bearing: 0 });
+	// 原点相対（RTE）＝原点を 1 点目に・pos は原点からの差
+	const o = lonlatTo3D(LON, LAT), pos = new Float32Array(PTS.length * 3);
+	PTS.forEach(([lo, la], i) => { const u = lonlatTo3D(lo, la); pos[i * 3] = u[0] - o[0]; pos[i * 3 + 1] = u[1] - o[1]; pos[i * 3 + 2] = u[2] - o[2]; });
+	const ov = map.overlay(new URL("../src/gadgets/points-gl.js", import.meta.url).href, { name: "pts" });
+	ov.post({ type: "style", size: 6, color: [1, 0.3, 0.2, 1] });
+	ov.post({ type: "layer", q: "a", n: PTS.length, pos, origin: [o[0], o[1], o[2]] });
+	// 描けたことは画素で確かめる（probe）＝pick は最後に描いたフレームで当てる
+	const drawn = await until(() => new Promise(res => { const prev = ov.onmessage; ov.onmessage = d => { if (d?.type === "pixels") { ov.onmessage = prev; let n = 0; for (let i = 3; i < d.data.length; i += 4) if (d.data[i]) n++; res(n > 20 ? n : null); } else prev?.(d); }; ov.post({ type: "probe", id: "p" }); }), WAIT);
+	ok("drawn", drawn > 20, `alpha px=${drawn}`);
+	await sleep(300);
+	const P = map.makeProjector(), sc = PTS.map(([lo, la]) => P(lo, la));
+	ok("projected", sc.every(p => p[2] > 0), JSON.stringify(sc.map(p => p.map(v => +v.toFixed(1)))));
+	// ① 画面位置で当たる
+	const near = (a, b) => Math.abs(a[0] - b[0]) < 1e-4 && Math.abs(a[1] - b[1]) < 1e-4;
+	for (let i = 0; i < PTS.length; i++) {
+		const hits = await map.pickOverlays(sc[i][0], sc[i][1]);
+		const h = hits[0];
+		ok(`pick${i}`, h && h.name === "pts" && h.q === "a" && h.index === i && h.distance <= 2, JSON.stringify(hits));
+		ok(`pick${i}.lngLat`, h?.lngLat && near(h.lngLat, PTS[i]), JSON.stringify(h?.lngLat));
+	}
+	ok("miss", (await map.pickOverlays(sc[0][0] + 40, sc[0][1] + 40)).length === 0, "40px 離れた所");
+	{ const mid = [(sc[0][0] * 2 + sc[1][0]) / 3, sc[0][1]]; const hits = await map.pickOverlays(mid[0], mid[1], { radius: 40 }); ok("nearerWins", hits[0]?.index === 0, JSON.stringify(hits.map(h => h.index))); }
+	// ② 層イベント（map.on("click", "pts", cb)）＝canvas のクリック
+	let got = null;
+	map.on("click", "pts", e => { got = e; });
+	const cv = map.mapEl.querySelector("#c"), r = cv.getBoundingClientRect();
+	const click = (x, y) => { for (const type of ["pointerdown", "click"]) cv.dispatchEvent(new (type === "click" ? MouseEvent : PointerEvent)(type, { clientX: r.left + x, clientY: r.top + y, bubbles: true })); };
+	click(sc[1][0], sc[1][1]);
+	await until(() => got, 5000);
+	ok("layerEvent", got && got.features?.length === 1 && got.features[0].layer?.id === "pts" && got.features[0].source === "pts" && got.features[0].geometry?.type === "Point" && got.features[0].overlay?.index === 1, JSON.stringify(got?.features));
+	// ③ queryRenderedFeatures
+	const q1 = await map.queryRenderedFeatures([sc[2][0], sc[2][1]], { layers: ["pts"] });
+	ok("qrf", q1.length === 1 && q1[0].layer?.id === "pts" && q1[0].overlay?.index === 2, JSON.stringify(q1));
+	const q2 = await map.queryRenderedFeatures([sc[2][0], sc[2][1]], { layers: ["pts", "no-such-layer"] });
+	ok("qrf.mixed", q2.some(f => f.layer?.id === "pts"), `n=${q2.length}`);
+	const q3 = await map.queryRenderedFeatures([sc[2][0], sc[2][1]]);
+	ok("qrf.noLayers", !q3.some(f => f.layer?.id === "pts"), "layers を指定しなければ混ざらない");
+	// ④ h.pick・vis・remove
+	ok("h.pick", (await ov.pick(sc[0][0], sc[0][1]))[0]?.index === 0);
+	ov.post({ type: "vis", q: "a", on: false }); await sleep(400);
+	ok("hidden", (await map.pickOverlays(sc[0][0], sc[0][1])).length === 0, "vis:false");
+	ov.post({ type: "vis", q: "a", on: true }); await sleep(400);
+	ok("shownAgain", (await map.pickOverlays(sc[0][0], sc[0][1])).length === 1);
+	ov.remove(); await sleep(200);
+	ok("removed", (await map.pickOverlays(sc[0][0], sc[0][1])).length === 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>
