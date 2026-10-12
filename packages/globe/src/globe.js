@@ -2521,8 +2521,8 @@ map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1�
 //   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
 let postCur = null, postChain = [];
 // 後処理の鎖（第 2 波 F3・2026-10-12・src/postchain.js）：map.setPostChain([{ type:"bloom"|"vignette"|"fxaa"|"smaa"|"tonemap"|"lut"|"dof"|"ssr"|<plugin>, ... }])／getPostChain()。
-//   描くのは bloom・vignette（従来の "post" と同じ）。他の builtin の type は受けて保つだけ（capabilities "spec"）。plugin の type は registry.postEffects の { apply(map, passes) } が setPostChain のたびに呼ばれる。
-//   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette に写る（getPostProcess の形は不変）
+//   描くのは bloom・vignette（従来の "post"）と fxaa・tonemap・lut（第 3 波 W1・2026-10-12・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は受けて保つだけ（capabilities "spec"）。plugin の type は registry.postEffects の { apply(map, passes) } が setPostChain のたびに呼ばれる。
+//   setPostProcess({ bloom, vignette }) は従来どおり＝鎖の bloom→vignette に写る（getPostProcess の形は不変・fxaa/tonemap/lut の鍵は on の時だけ生える）
 const applyPostChain = chain => {
 	const reg = pluginHost.registry.postEffects;
 	const r = normPostChain(chain, t => reg.has(t) && !POST_TYPES.includes(t));
@@ -2532,7 +2532,7 @@ const applyPostChain = chain => {
 };
 map.setPostChain = chain => applyPostChain(chain);
 map.getPostChain = () => postChain.map(x => ({ ...x }));
-map.setPostProcess = p => (Array.isArray(p) ? applyPostChain(p) : applyPostChain(p == null ? null : { bloom: p.bloom, vignette: p.vignette }));
+map.setPostProcess = p => (Array.isArray(p) ? applyPostChain(p) : applyPostChain(p == null ? null : { bloom: p.bloom, vignette: p.vignette, fxaa: p.fxaa, tonemap: p.tonemap, lut: p.lut }));
 map.getPostProcess = () => postCur;
 if (opts.postProcess) map.setPostProcess(opts.postProcess);
 // ── plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js・台帳 compat §9「拡張点の台帳」）──

@@ -771,7 +771,9 @@ export type PostPass =
 	| { id?: string; type: "vignette"; enabled?: boolean; strength?: number; radius?: number; softness?: number }
 	| { id?: string; type: "fxaa"; enabled?: boolean }
 	| { id?: string; type: "smaa"; enabled?: boolean; preset?: "low" | "medium" | "high" | "ultra" }
+	/** tone mapping＝本体の色（LDR）に exposure を掛けて曲線を通す（見え方の調整）。既定 aces・exposure 1 */
 	| { id?: string; type: "tonemap"; enabled?: boolean; mode?: "linear" | "reinhard" | "aces" | "agx" | "filmic"; exposure?: number }
+	/** 3D LUT＝url は .cube（LUT_3D_SIZE が勝つ）か、横に size 枚の板を並べた size²×size の画像（x＝B の板×size＋R・y＝G）。intensity＝混ぜる量 0〜1 */
 	| { id?: string; type: "lut"; enabled?: boolean; url: string; size?: 16 | 32 | 64; intensity?: number }
 	| { id?: string; type: "dof"; enabled?: boolean; focusDistance?: number; focalLength?: number; aperture?: number; maxBlur?: number }
 	| { id?: string; type: "ssr"; enabled?: boolean; intensity?: number; maxDistance?: number; thickness?: number; steps?: number }
@@ -782,6 +784,10 @@ export interface PostEffectImpl { apply(map: OrthoJapanMap, passes: PostPass[]):
 export interface PostProcessOptions {
 	bloom?: true | { threshold?: number; strength?: number; radius?: number };
 	vignette?: true | { strength?: number; radius?: number; softness?: number };
+	/** W1（2026-10-12）：鎖でも旧形でも受ける。描く順は fxaa → bloom → tonemap → lut → vignette */
+	fxaa?: true | { enabled?: boolean };
+	tonemap?: true | { mode?: "linear" | "reinhard" | "aces" | "agx" | "filmic"; exposure?: number };
+	lut?: { url: string; size?: 16 | 32 | 64; intensity?: number };
 }
 
 export interface OrthoJapanMap {
@@ -1201,12 +1207,12 @@ export interface OrthoJapanMap {
 	/** 今の画面の生スナップショット（W×H・render＝基図＋知性層＋注記の画素）。合成は shot ガジェット／gadgets/compose.js */
 	/** 後処理（bloom・vignette）。本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない。null で外す。 */
 	setPostProcess(p: PostProcessOptions | PostPass[] | null): this;
-	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette（従来と同じ経路）。他の builtin の type は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */
+	/** 後処理の鎖（F3・2026-10-12）＝順番つきの pass。描くのは bloom・vignette・fxaa・tonemap・lut（W1・掛ける順は固定＝fxaa → bloom → tonemap → lut → vignette）。smaa/dof/ssr は保つだけ。知らない type は投げる（plugin は registry.postEffects に足す）。null＝全部外す */
 	setPostChain(chain: PostPass[] | PostPass | PostProcessOptions | null): this;
 	/** 保っている鎖（正規化済み・順番どおり） */
 	getPostChain(): PostPass[];
-	/** 正規化済みの後処理の設定（off なら null）。 */
-	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null } | null;
+	/** 正規化済みの後処理の設定（off なら null）。fxaa／tonemap／lut の鍵は on の時だけ生える（W1） */
+	getPostProcess(): { bloom: { threshold: number; strength: number; radius: number } | null; vignette: { strength: number; radius: number; softness: number } | null; fxaa?: true; tonemap?: { mode: "linear" | "reinhard" | "aces" | "agx" | "filmic"; exposure: number }; lut?: { url: string; size: 16 | 32 | 64; intensity: number } } | null;
 	// ---- plugin 契約・registry・capabilities（第 2 波 PR-F0・2026-10-12）----
 	/** plugin を搭載（同期）。同名は投げる。install が投げたら、その install 中の registry への登録は巻き戻す。opts.plugins で起動時にも */
 	use<O>(plugin: OrthoPlugin<O> | Readonly<OrthoPlugin<O>>, opts?: O): this;
