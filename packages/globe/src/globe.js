@@ -2733,7 +2733,7 @@ map.setCamera = (c = {}) => {
 	syncCenterAlt(); return map;
 };
 map.getCamera = () => ({ lng: cam.center[0], lat: cam.center[1], height: cam.centerAlt || 0, distance: distMOfZoom(cam.zoom), heading: cam.bearing * R2D, pitch: cam.pitch * R2D, roll: (cam.roll || 0) * R2D });
-// style の light（MapLibre 同名・B3）：押し出し・glTF・LOD2 の陰影（GL2 の u_light*・WebGPU は局所系の固定光のまま）。null＝従来の固定光
+// style の light（MapLibre 同名・B3）：押し出し・glTF・LOD2 の陰影（GL2 の u_light*・WebGPU は PB の sl0/sl1＝同式・2026-10-13）。null＝従来の固定光
 map.setLight = l => { mlLight = l == null ? null : normLight(l); sendLight(); needsDraw = true; return map; };   // setLight＝setLights の directional の別名（F1・getLights は mlLight を見る＝style の根の light も映る）
 map.getLight = () => normLight(mlLight);
 // 光源の口（第 2 波 F1・2026-10-12・src/light.js）：map.setLights([{ type: "directional"|"point"|"spot"|"ambient"|"hemisphere"|"ibl"|<plugin の type>, ... }])／getLights()。

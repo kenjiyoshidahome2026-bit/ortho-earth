@@ -46,7 +46,7 @@ const OVERLAY_LIFT = 3;   // overlay（外部ベクタ線/面）を地形から 
 const ROLE = { normal: 0, water: 1, seaFb: 2, terrain: 3, bld: 4, contour: 5, mesh: 6, fadeNormal: 7, fadeWater: 8, fadeSeaFb: 9, fadeBld: 10, user: 11 };   // fade*=クロスフェード中の新シーン用（p0.w=α）・user＝利用者の vector の層（基図の濃さに従わない＝p0.w=1・段 8⑤）
 const N_ROLES = 12;
 const FADE_MS = 180;   // classic merge のシーン一括差し替えをフェードに（「ポンッ」→融ける。モバイルのパラパラ感対策）
-const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）のスロット境界（dynamic offset）
+const PL_BATCH_SLOT = 1024; // mesh per-batch UBO（meshOrigin+cullBack, clipMesh, alpha, pbr0, emis, lp, sh[9], pad/clipO＝256B・#46 段 2・#111）＋局所の光源 ln+lt[32]＝528B（W2・float 64〜195）＋xf/xt（196〜211）＋sl0/sl1/cs（212〜223・style の light と頂点色の色空間）のスロット境界（dynamic offset）
 const MAX_PL_BATCH = 512;  // 1フレームに描く可視バッチ上限（超過は log して打ち切り）
 const MAX_MESH_MASKS = 4;
 
@@ -1622,7 +1622,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			const blend = textured && data.alphaMode === "BLEND", cut = !textured ? -1 : data.alphaMode === "MASK" ? (data.alphaCutoff ?? 0.5) : blend ? 1 / 255 : -1;
 			meshes.set(key, { vbo, nbo, ibo, textured, blend, cut, uvbo, cbo, texs, texBG, pbr: pb, count: data.idx.length, origin: data.origin || [0, 0, 0],
 				bbox: data.bbox || [1e9, 1e9, -1e9, -1e9], ward: data.ward || String(key).split("#")[0],
-				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
+				lodH: data.lodH || null, lodCounts: data.lodCounts || null, two: data.twoSided ? 1 : 0, colSrgb: !!data.colSrgb, noLift: !!data.noLift, drape: !!data.drape, keep2d: !!data.keep2d,
 				noCast: data.castShadow === false || (!!data.keep2d && data.castShadow !== true) });   // 影を落とさない（#112 段 1）＝keep2d は出元が castShadow:true と言った時だけ落とす（統計の柱は落とさない）   // noLift＝地形へ持ち上げない（平面に浮かせる）／drape＝DTM 保証域に縛らず全ズームで地形へ持ち上げる／keep2d＝真俯瞰でも描き・高さの間引きをしない（統計の押し出し・2026-09-22）
 		}
 		// 被覆マスク（r8unorm・NEAREST）＝届いたバッチの断片(maskCells)だけをOR合成。
@@ -2399,6 +2399,8 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 				plBatchCPU.set(env.sh, o + 24);
 				if (lights) { plBatchCPU[o + 64] = lights.n; plBatchCPU.set(lights.data, o + 68); } else plBatchCPU[o + 64] = 0;   // 局所の光源（W2）＝ln.x＋lt[32]（バッチごとに同じ物を写す）
 				writeXf(plBatchCPU, o, p.xf);   // バッチの剛体変換（W4）
+				if (light) { const lc = light.color || [1, 1, 1]; plBatchCPU[o + 212] = light.dir[0]; plBatchCPU[o + 213] = light.dir[1]; plBatchCPU[o + 214] = light.dir[2]; plBatchCPU[o + 215] = 1; plBatchCPU[o + 216] = lc[0]; plBatchCPU[o + 217] = lc[1]; plBatchCPU[o + 218] = lc[2]; plBatchCPU[o + 219] = light.intensity ?? 0.5; } else plBatchCPU[o + 215] = 0;   // style の light（sl0/sl1）
+				plBatchCPU[o + 220] = p.colSrgb ? 1 : 0;   // cs.x＝頂点色が sRGB（押し出し）
 				if (clipOPt) { plBatchCPU[o + 60] = p.origin[0] - clipOPt[0]; plBatchCPU[o + 61] = p.origin[1] - clipOPt[1]; plBatchCPU[o + 62] = p.origin[2] - clipOPt[2]; }   // clipO＝バッチ原点 − main 原点（f64 で引く・断面の派生だけが読む）
 				draws.push({ p, count, slot });
 			}
@@ -2513,6 +2515,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 	// ImageBitmap をオーバーレイの gl へ上げる所で GPU の完了を待つ＝1 フレーム 1 回の同期（申し出がある間だけの費用・GL2 の readPixels と同じ）
 	let dOut = null, lastDepth = null, dOutFailed = false;
 	let ao = null;   // AO（#46 段 3）＝fx.ao の間だけ
+	let light = null;    // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）
 	let lights = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }｜null（light.js localLightsPayload）＝PB の ln/lt に写す
 	let post = null, postFx = null;   // 後処理（PR-8）＝set("post") の間だけ資源を持つ
 	function depthOut(on) {
@@ -2578,7 +2581,7 @@ struct VO { @builtin(position) p: vec4f, @location(0) uv: vec2f };
 			case "view":    view = { ...view, ...data }; break;
 			case "sky":     sky = data && Array.isArray(data.sky) ? data : null; break;   // style の sky（B4）＝WebGPU は霧の色・濃さだけ写す（空の絵は従来のリム光・#46 の散乱のまま＝簡易の空は GL2 だけ）
 			case "lights":  lights = data && data.n > 0 && data.data ? data : null; break;   // 局所の光源（W2）＝メッシュの陰影に足す
-			case "light":   break;   // style の light（B3）＝WebGPU のメッシュは局所系の固定光のまま（#46 段 2 の太陽＋環境光と合わせて読む・gl は u_light* で読む）
+			case "light":   light = data && Array.isArray(data.dir) ? data : null; break;   // style の light（B3・MapLibre の setLight）＝メッシュの陰影（PB の sl0/sl1・gl は u_light*）。fx.pbr の経路は太陽＋環境光のまま（#46 段 2）
 			case "sea":     sea = { ...sea, ...data }; break;
 			case "shadow":  shadow = { ...shadow, ...data }; if (!shadow.on) shadowFree(); break;   // 建物の影（{on, time?, darkness?}）＝消灯で資源を返す
 			case "clip":    clip = normClip(data); if (!clip) clipFree(); break;   // 断面（#111）＝群か群の配列（{vertical, horizontal, box, planes, param, targets, cap, edge}・clip.js normClip）＝消して資源を返す

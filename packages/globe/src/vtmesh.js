@@ -195,7 +195,7 @@ export function buildMesh(geos, styleOf, tile, { ell = false } = {}) {
 	}
 	const origin = [ox / v, oy / v, oz / v], pos = new Float32Array(v * 3);
 	for (let i = 0; i < v; i++) { pos[i * 3] = wpos[i * 3] - origin[0]; pos[i * 3 + 1] = wpos[i * 3 + 1] - origin[1]; pos[i * 3 + 2] = wpos[i * 3 + 2] - origin[2]; }
-	return { mesh: { pos, nrm: nrm.subarray(0, v * 4).slice(), idx: idx.subarray(0, q).slice(), uv: new Float32Array(v * 2), col: col.subarray(0, v * 4).slice(), origin, bbox: [lo0, la0, lo1, la1], twoSided: 0 }, stats: { vertices: v, triangles: q / 3, hMax } };
+	return { mesh: { pos, nrm: nrm.subarray(0, v * 4).slice(), idx: idx.subarray(0, q).slice(), uv: new Float32Array(v * 2), col: col.subarray(0, v * 4).slice(), origin, bbox: [lo0, la0, lo1, la1], twoSided: 0, colSrgb: true }, stats: { vertices: v, triangles: q / 3, hMax } };
 }
 
 // ── 選び（main）の純関数 ──────────────────────────────────────────
