@@ -43,6 +43,15 @@ export function createAggregate(map, { signal } = {}) {
 			h.post({ type: "points", pos, w }, [pos.buffer, w.buffer]);
 			return { points: pts.length };
 		},
+		// vector source の heatmap（C1・2026-10-12）＝vtdraw-worker が集めた点（ll＝経緯度の列・w＝heatmap-weight 済み）をそのまま heatmap-gl へ。style（半径・強さ・色・不透明度の表）は層の paint から
+		heatmapPoints(ll, w, layer = {}, slot = "default") {
+			const n = w.length, pos = new Float32Array(n * 3);
+			for (let i = 0; i < n; i++) { const u = lonlatTo3D(ll[i * 2], ll[i * 2 + 1]); pos[i * 3] = u[0]; pos[i * 3 + 1] = u[1]; pos[i * 3 + 2] = u[2]; }
+			const h = ensureHeat(slot), st = heatStyle(layer.paint || {}, map.getZoom(), originOfLayer(layer), map.getGlobalState?.());
+			h.post({ type: "style", ...st, minzoom: layer.minzoom ?? -99, maxzoom: layer.maxzoom ?? 99 }, [st.ramp.buffer]);
+			h.post({ type: "points", pos, w }, [pos.buffer, w.buffer]);
+			return { points: n };
+		},
 		cluster(src, opts = {}, slot = "default") {
 			const pts = pointsOf(src), gs = map.getGlobalState?.();   // gs＝地図の global-state（#173 段 3b）
 			const cl = buildClusters(pts, { clusterRadius: opts.clusterRadius ?? 50, clusterMaxZoom: opts.clusterMaxZoom ?? 14, clusterProperties: opts.clusterProperties, gs });
