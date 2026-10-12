@@ -20,7 +20,8 @@ function boxGlb(w, d, h, color, cx = 0, cz = 0, batchId = false) {   // batchId�
 	const Bid = batchId ? Buffer.from(new Float32Array(pos.length / 3).buffer) : Buffer.alloc(0);
 	const bin = pad4(Buffer.concat([P, Nb, pad4(I, 0), Bid]), 0);
 	const mn = [Math.min(x0, x1), y0, Math.min(z0, z1)], mx = [Math.max(x0, x1), y1, Math.max(z0, z1)];
-	const json = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+	const json = { asset: { version: "2.0", ...(batchId ? { copyright: "Fixture Survey; Test Imagery" } : {}) }, scene: 0,   // copyright＝出典の試料（W8・t-googletiles）
+		 scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
 		meshes: [{ primitives: [{ attributes: { POSITION: 0, NORMAL: 1, ...(batchId ? { _BATCHID: 3 } : {}) }, indices: 2, material: 0 }] }],
 		materials: [{ pbrMetallicRoughness: { baseColorFactor: color, metallicFactor: 0, roughnessFactor: 1 } }],
 		buffers: [{ byteLength: bin.length }],

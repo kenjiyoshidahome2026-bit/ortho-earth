@@ -94,6 +94,7 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"texture.ktx2": { status: "spec", note: "KHR_texture_basisu textures are transcoded in the worker by the module registered as registry.textureTranscoders \"ktx2\" ({ url } exporting transcode(bytes) -> { width, height, rgba }; W5); none registered = the fallback image is used. @ortho-earth/ktx2 provides one (basis_universal WASM, opt-in)" },
 	"tiles3d": { status: "builtin", note: "add3DTiles (b3dm/i3dm/cmpt/glb), addI3S" },
 	"tiles3d.requestTransform": { status: "builtin", note: "add3DTiles(url, { requestTransform(url, type) }) rewrites every tileset/tile request (key, session, signed URLs, headers); root asset/metadata/extras on the handle (F5)" },
+	"tiles3d.attribution": { status: "builtin", note: "add3DTiles(url, { attribution: text | (copyrights) => text }) shows the data providers of the tiles on screen (glTF asset.copyright, most frequent first) in the attribution panel; handle.copyrights (W8)" },
 	"terrain.dem": { status: "builtin", note: "setTerrain (raster-dem, quantized-mesh)" },
 	"terrain.queryElevation": { status: "builtin", note: "queryTerrainElevation (sync, 100m grid cache)" },
 	"terrain.sample": { status: "builtin", note: "sampleTerrain(positions) resolves heights from the drawn terrain (DEM first, then the default DTM) (F6)" },
