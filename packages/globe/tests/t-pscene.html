@@ -1,0 +1,107 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/plugin-scene（第 3 波 W9・2026-10-12）＝map.addData の kind "instanced" / "billboards" / "labels3d"（同一フレームのオーバーレイ）。
+     試料＝東京駅に 100m 角×高さ 300m の押し出し 1 棟（t-customgl と同じ）・北向きに 60° 傾けて南から見る。
+     ①plugin の形：map.use(scenePlugin()) で capabilities の data.instanced/billboards/labels3d が plugin・unuse で外れる
+     ②instanced：40m の赤い箱＝棟の南 250m（見える）と北 500m（棟に隠れる＝本体の深度）・当たり（handle.pick と queryRenderedFeatures）・setData で数が変わる・円柱と自前の mesh
+     ③billboards：頁で作った緑の四角の画像（px・画面に向く・錨は下）＝棟の東 250m・高さ 60m・当たり
+     ④labels3d：白い文字（px・画面に向く）＝棟の西 250m・高さ 60m・当たり。地面に寝る文字（m）＝棟の南 120m
+     ⑤setVisible(false) で消える・remove で canvas が外れる。GL2（verify:ui）・実時間（worker の動的 import）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:640px;height:400px}</style><title>t-pscene</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const { scenePlugin } = await import("@ortho-earth/plugin-scene");
+const t = [];
+let stage = "boot";
+const beat = () => { if (!/^(PASS|FAIL)/.test(document.title)) document.title = "t-pscene @" + Math.round(performance.now() / 1000) + " [" + stage + "] " + t.slice(-2).join(" ").slice(0, 300); };
+const heart = setInterval(beat, 1000);   // 器で止まった時にどこで止まったかを題に残す（走らせ台は FAIL に題を写す）
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); beat(); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+let lastWait = 0;
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) { lastWait = performance.now() - t0; return v; } await sleep(1000); } lastWait = -1; return null; };   // 1 秒おき＝器の SwiftShader では readPixels を詰めると GPU process が溢れて頁ごと止まった
+const LON = 139.7671, LAT = 35.6812, K = 111320, ll = (e, n, h = 0) => [LON + e / (K * Math.cos(LAT * Math.PI / 180)), LAT + n / K, h];
+try {
+	const map = await createGlobe({ target: "#map", view: "#15/35.6812/139.7671", chips: false, persistView: false });
+	await map.once("load");
+	map.jumpTo({ center: [LON, LAT], zoom: 16, pitch: 60, bearing: 0 });
+	const sq = [ll(-50, -50), ll(50, -50), ll(50, 50), ll(-50, 50), ll(-50, -50)].map(p => p.slice(0, 2));
+	await map.gadget.extrude({ type: "Feature", properties: { height: 300 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#888888", fit: false, mask: false });
+	await sleep(1500);
+	// ① plugin
+	map.use(scenePlugin());
+	const caps = map.capabilities();
+	ok("caps", ["instanced", "billboards", "labels3d"].every(k => caps[`data.${k}`]?.status === "plugin" && caps[`data.${k}`]?.via === "plugin-scene"), JSON.stringify(["instanced", "billboards", "labels3d"].map(k => caps[`data.${k}`])));
+	const dpr = Math.min(2, devicePixelRatio || 1);
+	const probe = h => new Promise(res => { stage = "probe:" + h.id; const ov = h.overlay, prev = ov.onmessage, id = "p" + Math.random(), tm = setTimeout(() => { ov.onmessage = prev; res(null); }, 8000);
+		ov.onmessage = d => { if (d?.type === "pixels" && d.id === id) { clearTimeout(tm); ov.onmessage = prev; res(d); } else prev?.(d); }; ov.post({ type: "probe", id }); });
+	const px = (img, x, y) => { const X = Math.round(x * dpr), Y = img.flipY ? img.h - 1 - Math.round(y * dpr) : Math.round(y * dpr), k = (Y * img.w + X) * 4; return [img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]]; };
+	const near = (img, x, y, f, r = 4) => { for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) if (f(px(img, x + dx, y + dy))) return true; return false; };
+	const where = (img, f) => { let n = 0, sx = 0, sy = 0; for (let k = 0; k < img.data.length; k += 4) if (f([img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]])) { n++; const i = k / 4, x = i % img.w, y = img.flipY ? img.h - 1 - Math.floor(i / img.w) : Math.floor(i / img.w); sx += x; sy += y; } return n ? `${n}@${(sx / n / dpr).toFixed(0)},${(sy / n / dpr).toFixed(0)}` : "0"; };
+	const count = (img, f) => { let n = 0; for (let k = 0; k < img.data.length; k += 4) if (f([img.data[k], img.data[k + 1], img.data[k + 2], img.data[k + 3]])) n++; return n; };
+	const at = p => map.makeProjectorH()(p[0], p[1], p[2]);   // 毎回投影し直す（陸の細かい標高が後から届くと持ち上げが変わり、画面の位置がずれる）
+	const red = c => c[3] > 150 && c[0] > 2 * c[1] + 30 && c[0] > 2 * c[2] + 30;
+	// ②〜④ 全部を一度に足してから、それぞれの絵を待つ（器の SwiftShader では overlay の更新が絵に出るまで十数秒かかる）
+	const boxes = [{ name: "front", p: ll(0, -250) }, { name: "behind", p: ll(0, 500) }];
+	const cv = document.createElement("canvas"); cv.width = cv.height = 32; const cx = cv.getContext("2d"); cx.fillStyle = "#00e040"; cx.fillRect(0, 0, 32, 32);
+	const green = c => c[3] > 150 && c[1] > 2 * c[0] + 30 && c[1] > 2 * c[2] + 30, yellow = c => c[3] > 150 && c[0] > 180 && c[1] > 160 && c[2] < 140, blue = c => c[3] > 150 && c[2] > 2 * c[0] + 30;
+	const pend = new Set(), step = () => { document.title = "t-pscene @" + Math.round(performance.now() / 1000) + " pending:" + [...pend].join(",") + " " + t.slice(-1).join(""); };
+	const [hi, hb, hl, hf] = await Promise.all([
+		map.addData(boxes, { kind: "instanced", id: "boxes", shape: "box", getPosition: d => d.p, getScale: [40, 40, 40], getColor: [230, 30, 30], getProperties: d => ({ name: d.name }) }),
+		map.addData([{ p: ll(250, 0, 60) }], { kind: "billboards", id: "pins", getPosition: d => d.p, getIcon: "sq", icons: { sq: cv }, getSize: 32 }),
+		map.addData([{ p: ll(-250, 0, 60), name: "TOKYO" }], { kind: "labels3d", id: "names", getPosition: d => d.p, getText: d => d.name, getSize: 24, getColor: [255, 240, 80] }),
+		map.addData([{ p: ll(0, -120, 2), name: "FLAT" }], { kind: "labels3d", id: "flat", getPosition: d => d.p, getText: d => d.name, getSize: 40, sizeUnits: "meters", facing: "flat", getColor: [255, 240, 80] }),
+	].map(async h => { pend.add(h.id); step(); await h.ready; pend.delete(h.id); step(); return h; }));
+	ok("i.n", hi.n === 2 && hi.kind === "instanced" && hb.n === 1 && hl.n === 1);
+	// 手綱が 4 つでもオーバーレイ（＝worker の WebGL 文脈）は一つ（文脈は 4 つまで＝層ごとに作ると地球が落ちた）。同じ id は投げる
+	ok("oneCanvas", map.mapEl.querySelectorAll('canvas.overlay-gl[data-overlay^="plugin-scene"]').length === 1 && hi.overlay === hl.overlay);
+	let dup = false; try { map.addData([], { kind: "billboards", id: "boxes", getIcon: "sq", icons: { sq: cv } }); } catch { dup = true; }
+	ok("dupIdThrows", dup);
+	const Q = { get F() { return at(ll(0, -250, 20)); }, get B() { return at(ll(0, 500, 20)); }, get E() { return at(ll(250, 0, 60)); }, get L() { return at(ll(-250, 0, 60)); }, get Fl() { return at(ll(0, -120, 2)); }, get W() { return at(ll(-150, -250, 20)); } };
+	const W = 40000;   // 器の SwiftShader では更新が絵に出るまで 25 秒を越える時がある
+	// 4 つの手綱は同じオーバーレイ＝一度の probe で 4 つとも見る（器の SwiftShader では probe 自体が重い）。見えた物は覚えておく
+	const seen = {};
+	await until(async () => { const d = await probe(hi); if (!d) return null;
+		if (!seen.i && near(d, Q.F[0], Q.F[1], red) && !near(d, Q.B[0], Q.B[1], red, 6)) seen.i = d;   // 本体の深度は数フレーム後に来る＝奥の箱が隠れるまで待つ
+		if (!seen.b && near(d, Q.E[0], Q.E[1] - 16, green)) seen.b = d;
+		if (!seen.l && near(d, Q.L[0], Q.L[1], yellow, 10)) seen.l = d;
+		if (!seen.f && near(d, Q.Fl[0], Q.Fl[1], yellow, 12)) seen.f = d;
+		return seen.i && seen.b && seen.l && seen.f; }, 2 * W);
+	const iI = seen.i, iB = seen.b, iL = seen.l, iF = seen.f;
+	const diag = async (h, f, c) => { const d = await probe(h); return d ? `${where(d, f)} want ${c[0].toFixed(0)},${c[1].toFixed(0)}` : "no probe"; };
+	ok("i.front", !!iI, iI ? "" : await diag(hi, red, Q.F));
+	ok("i.behindHidden", iI && !near(iI, Q.B[0], Q.B[1], red, 6), JSON.stringify(iI && px(iI, Q.B[0], Q.B[1])));
+	ok("b.draw", !!iB && !near(iB, Q.E[0], Q.E[1] + 12, green, 2), iB ? "" : await diag(hb, green, [Q.E[0], Q.E[1] - 16]));
+	ok("l.draw", !!iL, iL ? "" : await diag(hl, yellow, Q.L));
+	ok("l.flat", !!iF, iF ? "" : await diag(hf, yellow, Q.Fl));
+	// 当たりは往復 3 秒で諦める（本体）＝器の SwiftShader では間に合わない時がある＝空なら撮り直す
+	const again = f => until(async () => { const r = await f(); return r.length ? r : null; }, 30000).then(r => r ?? []);
+	const pk = await again(() => hi.pick(Q.F[0], Q.F[1]));
+	ok("i.pick", pk.length === 1 && pk[0].index === 0 && pk[0].object?.name === "front" && pk[0].properties?.name === "front", JSON.stringify(pk.map(h => ({ i: h.index, o: h.object?.name, p: h.properties }))) + (pk.length ? "" : " " + await diag(hi, red, Q.F)));
+	const qf = await again(() => map.queryRenderedFeatures([Q.F[0], Q.F[1]], { layers: ["boxes"] }));
+	ok("i.query", qf.length >= 1 && qf[0].properties?.name === "front" && qf[0].layer?.id === "boxes", JSON.stringify(qf.map(f => ({ l: f.layer?.id, p: f.properties }))));
+	const pb = await again(() => hb.pick(Q.E[0], Q.E[1] - 16));
+	ok("b.pick", pb.length === 1 && pb[0].index === 0 && !!pb[0].object, JSON.stringify(pb.map(h => h.index)));
+	const pl = await again(() => hl.pick(Q.L[0], Q.L[1], 10));
+	ok("l.pick", pl.length === 1 && pl[0].object?.name === "TOKYO", JSON.stringify(pl.map(h => h.object?.name)));
+	// setData・形の差し替え（円柱・自前の mesh）
+	await hi.setData([{ name: "front", p: ll(0, -250) }, { name: "west", p: ll(-150, -250) }]);
+	ok("i.setData", hi.n === 2 && !!await until(async () => { const d = await probe(hi); return d && near(d, Q.W[0], Q.W[1], red) ? d : null; }, W));
+	await hi.setProps({ shape: "cylinder", getColor: [30, 30, 230] });
+	ok("i.cylinder", !!await until(async () => { const d = await probe(hi); return d && near(d, Q.F[0], Q.F[1], blue) ? d : null; }, W), lastWait < 0 ? await diag(hi, blue, Q.F) + " r=" + await diag(hi, red, Q.F) : "");
+	await hi.setProps({ shape: { pos: [-0.5, 0, 0, 0.5, 0, 0, 0, 0, 1], idx: [0, 1, 2] }, getScale: [60, 60, 60], getColor: [230, 30, 30] });
+	ok("i.customMesh", !!await until(async () => { const d = await probe(hi); return d && near(d, Q.F[0], Q.F[1], red) ? d : null; }, W), lastWait < 0 ? await diag(hi, red, Q.F) + " b=" + await diag(hi, blue, Q.F) : "");
+	// ⑤ 表示・撤去
+	hl.setVisible(false);
+	const st = async () => { const d = await probe(hl); return d ? `y=${where(d, yellow)} g=${where(d, green)} r=${where(d, red)}` : "no probe"; };
+	ok("l.hidden", !!await until(async () => { const d = await probe(hl); return d && !near(d, Q.L[0], Q.L[1], yellow, 10) && near(d, Q.E[0], Q.E[1] - 16, green) ? d : null; }, W), await st());   // 文字だけ消え、billboard は残る
+	hl.remove(); hb.remove(); hf.remove();
+	ok("removeOne", !!map.mapEl.querySelector('canvas.overlay-gl[data-overlay="plugin-scene"]') && !!await until(async () => { const d = await probe(hi); return d && !near(d, Q.E[0], Q.E[1] - 16, green) && near(d, Q.F[0], Q.F[1], red) ? d : null; }, W), await st());   // 残る手綱がある間はオーバーレイも残る
+	hi.remove(); await sleep(300);
+	ok("removed", !map.mapEl.querySelector('canvas.overlay-gl[data-overlay^="plugin-scene"]'));
+	map.unuse("plugin-scene");
+	ok("unuse", !map.supports("data.instanced") && !map.supports("data.labels3d"));
+	let threw = false; try { map.addData([], { kind: "instanced" }); } catch { threw = true; }
+	ok("unuseThrows", threw);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>
