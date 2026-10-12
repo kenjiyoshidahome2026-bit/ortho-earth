@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, SET_SIZE } from "../src/quiz.js";
+import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, reachOf, tapHits, TAP_SLOP, SET_SIZE } from "../src/quiz.js";
 
 const csv = fs.readFileSync(path.resolve(import.meta.dirname, "../../../packages/world/seed/nations.csv"), "utf8").trim().split("\n").slice(1);
 let seed = 1; const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;   // 固定の列
@@ -67,4 +67,17 @@ assert.equal(updateMistake(m, false, now).streak, 0);
 
 // 人口
 assert.equal(roundPopulation(125416877), 125000000); assert.equal(roundPopulation(9876), 9880); assert.equal(roundPopulation(0), null);
+// 地図を押して当てる：小さい国の押し損ねを救う
+const proj = (lon, lat) => [lon * 10, -lat * 10, lon > 170 ? -1 : 1];   // 1° = 10px の平面・東経 170° 超は裏半球
+const sq = { type: "Polygon", coordinates: [[[0, 0], [2, 0], [2, 2], [0, 2], [0, 0]]] };   // 画面 20px 角の小さい国
+let r = reachOf(sq, proj, [10, -40]); assert.equal(r.px, 20, "上の辺まで 20px"); assert.equal(r.size, 20);
+r = reachOf({ type: "FeatureCollection", features: [{ type: "Feature", geometry: { type: "MultiPolygon", coordinates: [sq.coordinates, [[[100, 0], [101, 0], [101, 1], [100, 0]]]] } }] }, proj, [1005, 5]);
+assert.ok(r.px < 6 && r.size > 900, "多面体はいちばん近い島で測る");
+assert.equal(reachOf({ type: "Point", coordinates: [175, 0] }, proj, [1750, 0]).px, Infinity, "裏半球の点は数えない");
+assert.equal(reachOf(null, proj, [0, 0], [3, 4]).px, 50, "形が無ければ代表点");
+assert.ok(tapHits({ inside: true, hitOther: false, px: Infinity, size: 0 }));
+assert.ok(tapHits({ inside: false, hitOther: false, px: TAP_SLOP, size: 500 }), "海を押した＝国の大小を問わず近ければ正解");
+assert.ok(tapHits({ inside: false, hitOther: true, px: 10, size: 12 }), "小さい国の隣を押した＝近ければ正解");
+assert.ok(!tapHits({ inside: false, hitOther: true, px: 10, size: 300 }), "大きい国の隣の国は外れ");
+assert.ok(!tapHits({ inside: false, hitOther: false, px: TAP_SLOP + 1, size: 10 }), "遠ければ外れ");
 console.log("t-quiz: ok");
