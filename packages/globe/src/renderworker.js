@@ -35,7 +35,8 @@ let renderer = null, labelLayer = null, canvas = null, labelCanvas = null;
 //   海面の球は深度を書かない＝地平線の向こうは従来どおり解析で隠す（f<0）。
 const overlays = new Map();
 let depthOk = true;                         // LOW_MEM（init.lowMem）・作れなかった環境＝false＝深度を作らない（従来の挙動）
-let dOutH = null, depthSeq = 0;   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
+let dOutH = null, depthSeq = 0;
+let postOn = false;   // 後処理（PR-8）が点いている＝GL2 は深度と同じ FBO（depthOut）を開いて end で合成する（WebGPU は renderer の flush が掛ける）   // 本体の深度の書き出し口（renderer.depthOut・非 null＝書き出し中）と、フレームの通し番号（オーバーレイ側のテクスチャの上げ直し判定）
 // 書き出しが begin/end で落ちた＝以後このセッションでは作らない（毎フレーム落ちて地図ごと止まる形を断つ）。GL2 の読み替えは abort で素へ戻す
 function depthOff(e) {
 	console.warn("[render] depthOut failed (overlay depth off):", e?.message || e);
@@ -427,6 +428,7 @@ const dispatch = e => {
 			else if (m.cmd === "frameEvents") { frameEvents = !!m.data; }   // main の custom 層（別 canvas）を worker の描いた cam で描く＝同じ絵の時刻に揃える（2026-09-30）
 			else if (m.cmd === "clock") { clockA = m.data; labelLayer?.setClock?.(clockA); noteTime(); dirty = true; armRaf(); }   // 共通の時計の基準（#42）＝状態の変わり目だけ届く（再生中は毎フレーム＝#125）
 			else if (m.cmd === "shadow") { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }   // 影の時刻の送り（#112）＝時計で動く描き直し（#125）
+			else if (m.cmd === "post") { postOn = !!m.data; renderer?.set(m.cmd, m.data, m.prop); }   // 後処理 bloom・vignette（PR-8）＝GL2 は下の dWant が FBO を開く
 			else if (m.cmd === "view" && m.data && ("clock" in m.data || "time" in m.data)) { noteTime(); renderer?.set(m.cmd, m.data, m.prop); }
 			else if (m.cmd === "clip") {   // 断面（#111）＝レンダラへ＋注記（labels の面）と同一フレームのオーバーレイ（vector の面）。面は worker の楕円体の状態で作る
 				const n = normClip(m.data), pl = t => { const a = clipPlanesFor(n, t); return a.length ? a : null; };
@@ -513,8 +515,12 @@ function snapshot(id) {
 		if (resPending) applyRes();   // 予約中のリサイズを先に＝撮影サイズと canvas を一致させる（frame() と同じ掟）
 		const s = RES_STEPS[resIdx];
 		const glCam = s === 1 ? cam : { ...cam, dpr: (cam.dpr || 1) * s };
-		renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
-		if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		let sBegun = false;   // 後処理（PR-8）や深度の FBO が開いている地図＝撮影も同じ経路（begin〜end）で描く＝画面と同じ絵（bloom・vignette 込み）
+		if (dOutH) { try { sBegun = dOutH.begin(); } catch (e) { depthOff(e); } }
+		try {
+			renderer.draw(glCam, noBld ? { ...opts, noBld: 1 } : opts);   // 基図の建物を伏せている時（層 building-extrusion）は撮影でも伏せる＝画面と同じ絵
+			if (gint) gint.draw(glCam, renderer.gintCtx());   // 知性の層も同じ1枚に載せる＝旧・別撮り合成（wantGint）は不要
+		} finally { if (sBegun) { try { dOutH.end({ depth: false }); } catch (e) { depthOff(e); } } }
 		labelLayer && labelLayer.draw(cam);
 		// readPixels＝GLキャンバスを確実に読む唯一の手（createImageBitmap/transferToImageBitmap は headless GL で詰まる）。
 		// 生画面は消さない（読むだけ）＝復元不要。GL は上下反転で返るので flip:true で main が戻す。
@@ -751,7 +757,8 @@ function frame() {
 			let dOpts = noBld ? { ...opts, noBld: 1 } : opts;
 			if (aaDyn && !aaOn) dOpts = { ...dOpts, aa: false };
 			// シーンの深度の書き出し（#47）：申し出たオーバーレイがある間だけ。GL2＝begin〜end の間は本体を FBO へ描く／WebGPU＝end が 1 パス足す
-			const dWant = depthOk && !!renderer.depthOut && overlayWantsDepth();
+			const ovDepth = overlayWantsDepth();
+			const dWant = depthOk && !!renderer.depthOut && (ovDepth || (postOn && !!glRef));   // 後処理（PR-8）は GL2 だけ FBO を要る（WebGPU は flush で掛ける）
 			if (dWant !== !!dOutH) {
 				try { dOutH = renderer.depthOut(dWant); if (dWant && !dOutH) depthOff("unavailable"); }   // null＝この環境では作れない＝以後申し出ても作らない
 				catch (e) { depthOff(e); }
@@ -763,7 +770,7 @@ function frame() {
 			tqSpan("gint", () => { if (gint) gint.draw(glCam, renderer.gintCtx()); });   // 知性の層＝同フレーム同カメラで1パス（泳ぎ根治）。山岳ビューは地形深度に参加（隠線＝淡破線）
 			renderer.flush?.();   // webgpu＝gint パスまで積んだフレームを resolve→submit（WebGL は undefined＝無縁）
 			let depthFrame = null;   // GL2＝FBO を閉じて画面へ写す・深度を詰めて読む／WebGPU＝submit 後に 1 パス
-			if (dBegun) { try { depthFrame = dOutH.end(); depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }
+			if (dBegun) { try { depthFrame = dOutH.end({ depth: ovDepth }); if (depthFrame && !depthFrame.pixels && !depthFrame.bitmap) depthFrame = null; depthBmp = depthFrame?.bitmap || null; } catch (e) { depthOff(e); } }   // 後処理だけ＝深度は詰めない（pixels null）
 			if (perfOn) {
 				const pfT2 = performance.now();
 				pfN++; pfMap += pfT1 - pfT0; pfGint += pfT2 - pfT1;

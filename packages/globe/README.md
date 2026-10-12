@@ -41,6 +41,11 @@ map.flyTo({ center: [139.767, 35.681], zoom: 14, pitch: 60 });
   `map.addControl(overlay)`: the camera follows the `render` event, picking and `onClick` go through the container's mouse and drag events.
   `interleaved: true` falls back to overlaid (the map is drawn in a worker, so deck.gl cannot share its GL context). deck.gl is not a dependency; it is
   a devDependency for `tests/t-deckgl.html` only.
+- **Post-processing**: `map.setPostProcess({ bloom: { threshold: 0.75, strength: 0.5, radius: 1 }, vignette: { strength: 0.5, radius: 0.8, softness: 0.5 } })`
+  (or `bloom: true` / `vignette: true` for the defaults, `null` to turn it off; `postProcess` in `createGlobe` options) applies a bloom (bright pass at
+  half resolution, separable Gaussian blur, additive composite) and a vignette to the base scene. Labels and same-frame overlays are separate canvases and
+  are not affected. WebGL2 runs it in the FBO copy stage shared with the scene-depth hand-off; WebGPU runs it at the end of `flush()`. `map.getPostProcess()`
+  returns the normalized settings.
 - **Data layers**: `map.addData(array, { kind, getPosition, getColor, getRadius, … })` takes an array (or GeoJSON) plus deck.gl-style
   accessors. `kind: "points"` and `"arcs"` (great circles with optional height, `getSourcePosition` / `getTargetPosition`) are GPU
   overlays with picking; `"polygons"`, `"paths"` and `"columns"` ride the ordinary `fill` / `line` / `fill-extrusion` layer route.
