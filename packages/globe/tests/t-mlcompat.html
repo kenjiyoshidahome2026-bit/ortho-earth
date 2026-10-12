@@ -1125,6 +1125,23 @@ try {
 			const roof = await pixelUntil(at(0, 0, 200), isRed), wall = await pixelUntil(at(0, -30, 100), isRed), hid = await pixelUntil(at(0, -30, 10), isBlue);
 			return [isRed(roof) && isRed(wall) && isBlue(hid), `roof=${roof} wall=${wall} occluded=${hid}`];
 		});
+		// ── style の light（B3・2026-10-12）：T の南の壁（法線＝南）は、光が南（方位 180）なら明るく・北（方位 0）なら暗い（MapLibre の式 mix(1−強さ, 1, max(dot, 0))）。
+		//    anchor:"map"＝方位は真北基準。getLight は既定を補って返す。setLight(null)＝従来の固定光に戻る（壁は赤のまま）
+		await scene("light-south-vs-north", async () => {
+			map.setLight({ anchor: "map", position: [1.15, 180, 60], intensity: 0.8 });
+			const lit = await pixelUntil(at(0, -30, 100), p => p[0] > 200 && p[1] < 60);
+			map.setLight({ anchor: "map", position: [1.15, 0, 60], intensity: 0.8 });
+			const dark = await pixelUntil(at(0, -30, 100), p => p[0] < 120 && p[1] < 60 && p[2] < 60);
+			map.setLight(null);
+			const back = await pixelUntil(at(0, -30, 100), isRed);
+			return [lit[0] > 200 && dark[0] < 120 && dark[0] > 20 && isRed(back), `south=${lit} north=${dark} off=${back}`];
+		});
+		await scene("light-get-roundtrip", () => {
+			const d = map.getLight();
+			map.setLight({ anchor: "viewport", color: "#ff0000", intensity: 0.3, position: [1, 45, 20] });
+			const g = map.getLight(); map.setLight(null);
+			return [JSON.stringify(d) === JSON.stringify({ anchor: "viewport", color: "#ffffff", intensity: 0.5, position: [1.15, 210, 30] }) && JSON.stringify(g) === JSON.stringify({ anchor: "viewport", color: "#ff0000", intensity: 0.3, position: [1, 45, 20] }), `${JSON.stringify(d)} ${JSON.stringify(g)}`];
+		});
 		// ── 描き直しの鍵（R22）＝押し出しの呼び出しを数える。止まりの外（lo/hi）は止まっても評価し直さない・中と段は従来どおり ──
 		map.addSource("zk", { type: "geojson", data: fc([rect(0, 260, 20, { name: "Z" })]) });
 		await map.addLayer({ id: "zk", type: "fill-extrusion", source: "zk", paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 80], "fill-extrusion-color": "#00aa00" } });
