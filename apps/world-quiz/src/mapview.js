@@ -4,6 +4,7 @@
 //   押した所の国＝worldlayers.query（ne-cultural base＝初回 16.5MB・以降 IDB）＝Lv.3 の地図モードを始めた時だけ読む。
 // エンジンは一度だけ起動して使い回す。起動できない環境（WebGL 無し等）は null を返し、呼び手は地図なしで続ける。
 import { countryLayers } from "../../world/src/worldlayers.js";
+import { reachOf } from "./quiz.js";
 const ZMAX = 7;
 const engineP = () => window.__orthoEngine ? Promise.resolve(window.__orthoEngine) : import("@ortho-earth/globe");
 const REGION_VIEW = { "0": [1.6, 20, 0], "3": [2.4, 32, 90], "1": [3.2, 52, 15], "2": [2.6, 2, 20], "4": [2.3, 42, -95], "5": [2.6, -18, -60], "6": [2.4, -22, 150] };   // [zoom, lat, lon]
@@ -49,6 +50,13 @@ async function build(host, lang) {
 			onTap = cb; return true;
 		},
 		disarm() { onTap = null; },
+		/** 押した点から国の形までの画面上の距離（小さい国の押し損ねを救う）。戻り＝{ px, size } | null */
+		async reach(c, lngLat) {
+			const sh = await layers().shape(c.key, c).catch(() => null);
+			if (!sh && !c.coord) return null;
+			const [tx, ty] = map.projectLL(lngLat[0], lngLat[1]);
+			return reachOf(sh?.fc, (lon, lat) => map.projectLL(lon, lat), [tx, ty], c.coord);
+		},
 		/** 押した所に印（赤い輪郭） */
 		async mark(key, lngLat) {
 			map.gadget.outline(null);
