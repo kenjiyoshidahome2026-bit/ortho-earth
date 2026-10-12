@@ -4,7 +4,9 @@
 // 1 枚ごとにタイルを焼き直す＝毎コマでは重すぎる。ゆえに重ね順は「基図と gint の上・注記の下」の専用オーバーレイ。
 // ⚠「紙の遺物を捨てる」原則は維持＝互換の口として受けるだけ（既定の見た目には使わない）。
 //
-// createVideoQuads({ overlay, maxSide }) → { add(id, { video|urls, corners, opacity }), remove(id), get(id), clear() }
+// canvas（MapLibre の canvas source・C3・2026-10-12）＝同じ覆いへ。canvas＝HTMLCanvasElement|OffscreenCanvas・animate（既定 true）＝毎フレーム（rAF）1 枚、false＝1 枚だけ。
+//   顔は CanvasSource と同じ getCanvas/play/pause（play＝毎フレームの更新を再開・pause＝止める＝最後のコマが残る）・setCoordinates/getCoordinates
+// createVideoQuads({ overlay, maxSide }) → { add(id, { video|urls|canvas, corners, opacity, animate }), remove(id), get(id), clear() }
 //   video＝HTMLVideoElement（呼び手が持つ）か urls＝[URL…]（ここで <video muted loop playsinline> を作る＝自動再生の許可が要らない形）
 //   get(id)＝MapLibre の VideoSource の顔：{ getVideo, play, pause, seek, setCoordinates }
 const cornersOk = c => Array.isArray(c) && c.length === 4 && c.every(p => Array.isArray(p) && isFinite(p[0]) && isFinite(p[1]));
@@ -34,10 +36,36 @@ export function createVideoQuads({ overlay, maxSide = 2048 }) {
 		next();
 		return () => { alive = false; if (rvfc) v.cancelVideoFrameCallback?.(h); else cancelAnimationFrame(h); v.removeEventListener("seeked", kick); v.removeEventListener("loadeddata", kick); v.removeEventListener("play", kick); };
 	}
+	function pumpCanvas(id, rec) {   // canvas＝rAF ごとに 1 枚（前の 1 枚が着く前は作らない）。animate=false は 1 枚だけ・play() で再開
+		let busy = false, alive = true, h = 0;
+		const cv = rec.canvas;
+		const send = async () => {
+			if (!alive || busy || !(cv.width > 0 && cv.height > 0)) return;
+			busy = true;
+			try {
+				const s = Math.min(1, maxSide / Math.max(cv.width, cv.height));
+				const bm = await createImageBitmap(cv, s < 1 ? { resizeWidth: Math.round(cv.width * s), resizeHeight: Math.round(cv.height * s) } : undefined);
+				if (alive && recs.get(id) === rec) ovGet().post({ type: "set", id, bitmap: bm, corners: rec.corners, opacity: rec.opacity }, [bm]); else bm.close();
+			} catch (err) { if (alive) console.warn("[canvas] frame", id, err?.message || err); }
+			busy = false;
+		};
+		const tick = async () => { if (!alive) return; await send(); if (alive && rec.playing) h = requestAnimationFrame(tick); else h = 0; };
+		rec.playing = rec.animate !== false;
+		rec.kick = () => { if (!alive) return; if (rec.playing) { if (!h) h = requestAnimationFrame(tick); } else send(); };   // play()＝鎖を 1 本だけ起こす・pause 中の 1 枚（setCoordinates の後など）
+		send().then(() => { if (alive && rec.playing && !h) h = requestAnimationFrame(tick); });
+		return () => { alive = false; if (h) cancelAnimationFrame(h); h = 0; };
+	}
 	const api = {
-		add(id, { video, urls, corners, opacity = 1 } = {}) {
+		add(id, { video, urls, canvas, corners, opacity = 1, animate = true } = {}) {
 			if (!cornersOk(corners)) throw new Error("video: corners must be 4 [lon,lat] (top-left, top-right, bottom-right, bottom-left)");
 			api.remove(id);
+			if (canvas) {   // canvas source（C3）
+				if (!(canvas.width > 0 && canvas.height > 0) && typeof canvas.getContext !== "function") throw new Error("canvas: a canvas element (or OffscreenCanvas) is required");
+				const rec = { canvas, own: false, corners: corners.map(p => [+p[0], +p[1]]), opacity, animate: animate !== false };
+				recs.set(id, rec);
+				rec.stop = pumpCanvas(id, rec);
+				return api.get(id);
+			}
 			let own = false;
 			if (!video) {
 				const list = (Array.isArray(urls) ? urls : [urls]).filter(Boolean);
@@ -56,13 +84,21 @@ export function createVideoQuads({ overlay, maxSide = 2048 }) {
 		remove(id) {
 			const rec = recs.get(id); if (!rec) return false;
 			recs.delete(id); rec.stop?.();
-			if (rec.own) { rec.video.pause(); rec.video.removeAttribute("src"); for (const s of [...rec.video.children]) s.remove(); rec.video.load(); }
+			if (rec.own && rec.video) { rec.video.pause(); rec.video.removeAttribute("src"); for (const s of [...rec.video.children]) s.remove(); rec.video.load(); }
 			ov?.post({ type: "remove", id });
 			return true;
 		},
 		setOpacity(id, opacity) { const rec = recs.get(id); if (!rec) return false; rec.opacity = opacity; ov?.post({ type: "opacity", id, opacity }); return true; },
 		get(id) {
 			const rec = recs.get(id); if (!rec) return undefined;
+			if (rec.canvas) return {   // CanvasSource の顔（C3）
+				getCanvas: () => rec.canvas,
+				play() { rec.playing = true; rec.kick?.(); },
+				pause() { rec.playing = false; },
+				get playing() { return rec.playing; },
+				setCoordinates(c) { if (!cornersOk(c)) throw new Error("canvas: corners must be 4 [lon,lat]"); rec.corners = c.map(p => [+p[0], +p[1]]); ov?.post({ type: "corners", id, corners: rec.corners }); return this; },
+				getCoordinates: () => rec.corners.map(p => p.slice()),
+			};
 			return {
 				getVideo: () => rec.video,
 				play: () => rec.video.play(),

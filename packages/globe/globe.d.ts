@@ -482,7 +482,11 @@ export type RasterSpec =
 	| { iiif: string | object; name?: string; attribution?: string }
 	/** 四隅で貼る動画（MapLibre の video source 相当・#49）。video＝動画要素（呼び手が持つ）か URL（の列）＝muted・loop・playsinline で自動再生。
 	 *  地面に焼かず毎コマ覆う（基図と gint の上・注記の下）＝地形の遮蔽は無い。add の戻り値は VideoHandle */
-	| { video: HTMLVideoElement | string | string[]; corners: [LonLat, LonLat, LonLat, LonLat] };
+	| { video: HTMLVideoElement | string | string[]; corners: [LonLat, LonLat, LonLat, LonLat] }
+	/** 四隅の canvas（MapLibre の canvas source 相当・C3）。animate 既定 true＝毎フレーム写す・false＝1 枚。戻り＝CanvasHandle */
+	| { canvas: HTMLCanvasElement | OffscreenCanvas; corners: [LonLat, LonLat, LonLat, LonLat]; animate?: boolean };
+/** 四隅の canvas の手綱（MapLibre の CanvasSource と同じ名前・C3）。play＝毎フレームの写しを再開・pause＝止める（最後のコマが残る） */
+export interface CanvasHandle { getCanvas(): HTMLCanvasElement | OffscreenCanvas; play(): void; pause(): void; readonly playing: boolean; setCoordinates(c: [LonLat, LonLat, LonLat, LonLat]): CanvasHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 /** 四隅の動画の手綱（MapLibre の VideoSource と同じ名前）。setCoordinates＝四隅を差し替え（止まっていても動く） */
 export interface VideoHandle { getVideo(): HTMLVideoElement; play(): Promise<void>; pause(): void; seek(seconds: number): void; setCoordinates(corners: [LonLat, LonLat, LonLat, LonLat]): VideoHandle; getCoordinates(): [LonLat, LonLat, LonLat, LonLat] }
 export interface RasterOptions { order?: "under" | "over"; opacity?: number; visible?: boolean; hideFills?: boolean; minZoom?: number; maxZoom?: number }
@@ -490,6 +494,7 @@ export interface RasterInfo { id: string; kind: string; tileSize: number; minZoo
 export interface RasterAPI {
 	/** 足す（同じ id は置き換え）。戻り値＝ソースの自己申告（タイル寸・ズーム域・範囲・出典）。{ video } は VideoHandle */
 	add(id: string, spec: Extract<RasterSpec, { video: unknown }>, opts?: RasterOptions): Promise<VideoHandle>;
+	add(id: string, spec: Extract<RasterSpec, { canvas: unknown }>, opts?: RasterOptions): Promise<CanvasHandle>;
 	add(id: string, spec: RasterSpec, opts?: RasterOptions): Promise<RasterInfo>;
 	remove(id: string): boolean;
 	/** 表示の変更（不透明度・重ね順・表示/非表示） */
@@ -568,6 +573,8 @@ export type MapLibreSource =
 	| { type: "image"; url: string; coordinates: [LonLat, LonLat, LonLat, LonLat] }
 	/** 四隅の動画（#49）＝raster の層で描く。getSource(id) は VideoHandle の口（getVideo/play/pause/seek/setCoordinates）も持つ */
 	| { type: "video"; urls: string[]; coordinates: [LonLat, LonLat, LonLat, LonLat] }
+	/** 四隅の canvas（MapLibre の canvas source・C3）＝raster の層で描く。canvas＝要素の id か要素。animate（既定 true）＝毎フレーム写す。getSource(id) は getCanvas/play/pause/setCoordinates も持つ */
+	| { type: "canvas"; canvas: string | HTMLCanvasElement | OffscreenCanvas; coordinates: [LonLat, LonLat, LonLat, LonLat]; animate?: boolean }
 	/** url＝TileJSON（1.3.0〜 取りに行く）。既定値は MapLibre どおり tileSize 512・maxzoom 22（1.3.0〜・以前は 256/18）。タイルの型紙は {quadkey} も可 */
 	| { type: "raster"; tiles?: string[]; url?: string; tileSize?: number; minzoom?: number; maxzoom?: number; bounds?: Bbox; attribution?: string; scheme?: "xyz" | "tms" }
 	/** ベクタタイル（MVT・1.3.0〜）＝今は fill-extrusion の層だけが読む（fill/line/circle/symbol は名前を挙げて投げる）。url＝TileJSON か pmtiles://・tiles＝型紙（{quadkey} 可・独自スキームは addProtocol）。

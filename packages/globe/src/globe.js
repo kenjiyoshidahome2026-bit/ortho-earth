@@ -2961,6 +2961,7 @@ map.raster = {
 	//                     opts＝{ order:"under"|"over", opacity, visible, hideFills（under 既定 true）, minZoom, maxZoom（表示域） }。戻り＝ソースの自己申告（info）
 	async add(id, spec, o = {}) {
 		if (rasterReg.has(id) || videoCtl?.get(id)) map.raster.remove(id);
+		if (spec?.canvas) return (await videoGet()).add(id, { canvas: spec.canvas, corners: spec.corners, opacity: o.opacity ?? 1, animate: spec.animate !== false });   // 四隅の canvas（MapLibre の canvas source・C3）＝動画と同じ覆い
 		if (spec?.video) {   // 四隅の動画＝毎コマ差し替える覆いの口（gadgets/videoquad.js・遅延 chunk）
 			const v = spec.video, isEl = typeof HTMLVideoElement !== "undefined" && v instanceof HTMLVideoElement;
 			return (await videoGet()).add(id, { video: isEl ? v : null, urls: isEl ? null : v, corners: spec.corners, opacity: o.opacity ?? 1 });
@@ -4523,6 +4524,11 @@ const mountLayerRaw = async v => {
 		const ro = { order: "over", opacity: layer.paint?.["raster-opacity"] ?? 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) }, adjust = rasterAdjust(layer.paint);
 		if (sp.type === "image") { const b = await (await fetch(sp.url, { credentials: "omit" })).blob(); return map.raster.add(layer.id, { image: b, corners: sp.coordinates, name: layer.id }, ro); }
 		if (sp.type === "video") return map.raster.add(layer.id, { video: sp.urls, corners: sp.coordinates }, ro);   // #49
+		if (sp.type === "canvas") {   // MapLibre の canvas source（C3）＝canvas は id の文字列か要素・animate（既定 true）
+			const el = typeof sp.canvas === "string" ? document.getElementById(sp.canvas) : sp.canvas;
+			if (!el) throw new Error(`addLayer: canvas source "${srcId(layer)}": canvas "${sp.canvas}" not found`);
+			return map.raster.add(layer.id, { canvas: el, corners: sp.coordinates, animate: sp.animate !== false }, ro);
+		}
 		// url＝TileJSON（MapLibre）＝取りに行って tiles を得る（段 6・旧＝url を型紙として使っていた）。既定値は MapLibre の raster source（tileSize 512・maxzoom 22）
 		let rs = sp;
 		if (!sp.tiles?.length && sp.url) { const r = await resolveVectorSource(sp, location.href, { fetchFn: (u, init) => requester.fetch(u, "Source", init) }); rs = { ...sp, tiles: r.tiles, minzoom: sp.minzoom ?? r.minzoom, maxzoom: sp.maxzoom ?? r.maxzoom, bounds: sp.bounds ?? r.bounds, attribution: sp.attribution ?? r.attribution, scheme: sp.scheme ?? r.scheme, tileSize: sp.tileSize ?? r.tileSize ?? undefined }; }
@@ -4632,9 +4638,11 @@ map.addSource = (id, spec) => addSourceAt(id, spec, PUBLIC_DZ);
 map.getSource = id => {
 	const sp = mlSources.get(id);
 	if (!sp) return baseSrcSpec(id) ? { type: "vector", ...(EXT?.ms.sources[id] || {}) } : undefined;   // 基図の source（段 8①）＝読むだけ
-	if (sp.type === "video") {   // MapLibre の VideoSource の顔（#49）＝この source を使う最初の層の動画
+	if (sp.type === "video" || sp.type === "canvas") {   // MapLibre の VideoSource／CanvasSource の顔（#49・C3）＝この source を使う最初の層の動画／canvas
 		const v = [...mlLayers.values()].find(x => srcId(x.layer) === id && x.kind === "raster"), h = v ? videoCtl?.get(v.layer.id) : null;
-		return { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
+		const face = { ...sp, ...(h || {}), setCoordinates(c) { sp.coordinates = c; h?.setCoordinates(c); return this; } };
+		if (sp.type === "canvas") { face.getCanvas = () => h?.getCanvas?.() ?? (typeof sp.canvas === "string" ? document.getElementById(sp.canvas) : sp.canvas); face.play = () => { sp.animate = true; h?.play?.(); }; face.pause = () => { sp.animate = false; h?.pause?.(); }; }   // 層が無い間は記録だけ
+		return face;
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
 	const remount = (dataChanged = true) => remountSource(id, dataChanged);   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
