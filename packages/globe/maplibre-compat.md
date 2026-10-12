@@ -58,6 +58,7 @@
 
 ## 4. 文書に書く違い（意図した違い）
 
+- **常に地球儀（2026-10-12 本人裁定「Mercator は不要・売りにする」）**：平面メルカトルの描画・`renderWorldCopies`・globe⇄mercator の遷移・`vertical-perspective`・`addProjection`／identity 投影は作らない。style の `projection` と `setProjection` は申告として受け、絵は常に球（正射↔透視の連続・楕円体は opts.ellipsoid）。README の「Why Ortho Earth」に売りとして書いた。MapLibre・Navara との差の台帳と計画＝`/mnt/project-files/compare/`（compare-maplibre-navara-2026-10-12.md・parity-plan-2026-10-12.md）。
 - z の目盛り（旗なしの既定）と緯度の差：MapLibre の globe はメルカトル等価（中心緯度の sec φ を含む）＝一律 ±1 は赤道でだけ正確（東京で約 0.3 段・北緯 60° で 1 段）。カメラに cos(lat) を戻さない既存の裁定は守る。
 - queryRenderedFeatures は非同期。当たり方は MapLibre と同じ（2026-09-27・§8 B：線は線幅の半分＋|ずらし|・円は半径＋縁・面は内側・既定の許し 0）。`tolerance`（足す px）は拡張。GeoJSON（gint）の線の当たりは南北に 1/cos(緯度) だけ広い（識別が度の空間の円＝東西を取りこぼさない側に寄せた・点は画面の距離で締め直す）。単一スロットの user 層（内製）は従来の 3px。
 - getStyle は外来 style の全ての層を元の順で返す（§8 A）。描かない層（線に沿う注記・アイコン・hillshade・塗りより下の画像・知らない型）は `metadata["ortho:drawn"]:false`。set 系は記録だけ（絵は変わらない）。利用者の層の beforeId が style の層を指す時は getStyle の順だけその前（描く段は基図の上）。
