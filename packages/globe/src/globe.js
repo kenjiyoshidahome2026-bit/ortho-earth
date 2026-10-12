@@ -9,7 +9,13 @@ import {
 import { createGeopbf, geopbf, geopbfCached, geopbfCachePrune } from "geopbf";
 import { hasHeightKey } from "./extrude-keys.js";
 import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
-import patUrl from "./pattern-2d.js?url";   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
+import patUrl from "./pattern-2d.js?url";
+import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
+import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
+import tripsUrl from "./gadgets/trips-gl.js?url";     // map.addData の軌跡（kind:"trips"・PR-6）
+import customglUrl from "./gadgets/customgl-draw.js?url";
+import { normPost } from "@ortho-earth/core/postfx";   // 後処理の設定の正規化（PR-8）   // MapLibre の custom 層を worker で描く（addLayer の url・深度の前置き・PR-7）
+import screengridUrl from "./gadgets/screengrid-draw.js?url";   // 画面格子の集約（map.addScreenGrid・PR-5）   // 塗り/線の模様（fill-pattern/line-pattern）のオーバーレイ＝依存ゼロ（worker が URL で import）   // ドロップ図形の自動押し出し判定（鍵の表は gadgets/model.js と共有）
 import { nativeBucket } from "native-bucket";
 import { createGetHeight, createTileLoader, setApiUrl as setAltApiUrl, setWorkerFactory as setCoreWorkerFactory } from "@ortho-earth/core/elevation";   // 標高のローダ＝core（2026-09-25 に altpbf から移設）
 import { setWorkerFactory as setGeoeditWorkerFactory } from "geoedit/worker-factory";   // 口だけの小さな入口（geoedit 本体は遅延 chunk のまま）＝起動時に設定＝initEditor を直に呼ぶ検定ページも入口を通る
@@ -735,6 +741,7 @@ renderWorker.onmessage = e => {
 	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
 	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
+	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
 	if (d.type === "overlayStage") { (dbgHost.__overlay ??= {})[d.name] = d; if (d.stage === "failed") console.error("[overlay]", d.name, "failed:", d.error, d.url); return; }   // 読み込み段階（importing/imported/ready/failed）＝沈黙故障の診断
 	if (d.type === "frame1") {
@@ -2457,6 +2464,12 @@ map.setEditClick = fn => { editClick = fn; };   // 派生アプリのクリッ�
 map.t = (key, ...args) => t(key, ...args);   // UI 文言の訳（SDK が起動時に読んだ辞書で引く＝器の頁が i18n と辞書をもう一度読まない・1.2.0〜 2026-09-22）
 Object.defineProperty(map, "lang", { get: () => getLang(), enumerable: true });   // 表示言語（ja/en/…）
 map.requestDraw = () => { needsDraw = true; };  // オーバレイ更新後の1フレーム点火（派生アプリの編集描画用）
+// 後処理（deck.gl の PostProcessEffect 相当・差分 PR-8・2026-10-12）：map.setPostProcess({ bloom: { threshold, strength, radius }, vignette: { strength, radius, softness } } | null)
+//   本体の絵（基図・地形・建物・gint）に掛かる。注記と同一フレームのオーバーレイは別 canvas＝掛からない（順番の裁定＝本体の後・注記の前）。GL2＝深度と同じ FBO の写しの段で合成・WebGPU＝flush の終端
+let postCur = null;
+map.setPostProcess = p => { postCur = normPost(p); renderer.set("post", postCur); needsDraw = true; return map; };
+map.getPostProcess = () => postCur;
+if (opts.postProcess) map.setPostProcess(opts.postProcess);
 map.setOpacity = ({ base, globe, hypso } = {}) => { const v = {}; if (base != null) v.baseAlpha = base; if (globe != null) v.globeAlpha = globe; if (hypso != null) v.worldHypsoOpacity = hypso; renderer.set("view", v); needsDraw = true; };   // hypso＝全球ハイプソ（低ズームの段彩）の濃さ＝0 で陸の地色だけ（2026-10-01）   // 基図（紙・線）と球体（globe/terrain）の不透明度＝表示パネルのスライダーと同じ口（0..1）
 // チルト上限の実行時変更（編集ガジェット＝真上固定 setMaxPitch(0)・null=起動時の上限へ戻す）。入力・飛行・共有hashの3経路が同じ値に従う
 map.setMaxPitch = rad => {
@@ -2600,6 +2613,8 @@ map.onFrame = fn => { frameHooks.add(fn); return () => frameHooks.delete(fn); };
 // 戻り値＝{ post(data, transfer), onmessage, remove() }。post は worker 側で dirty を立てる＝描画要求を兼ねる。canvas は #c と #labels の間。
 // モジュールには host（requestDraw/post）と、frame には api（project/projectH＝makeProjector/makeProjectorH と同じ規約・地形は worker で同期）が渡る。
 const overlays = new Map();
+const pickWait = new Map();   // seq → resolve（統一 picking の往復・下の map.pickOverlays）
+let pickSeq = 0;
 map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 	name ??= "ov" + (overlays.size + 1);
 	if (overlays.has(name)) throw new Error(`overlay "${name}" already exists`);
@@ -2614,10 +2629,24 @@ map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（�
 		name, el: cv, onmessage: null,   // onmessage＝worker 側モジュールの host.post(data) を受ける口
 		post: (data, transfer) => { if (overlays.get(name) === h) wPost({ type: "overlayMsg", name, data }, transfer); },
 		remove() { if (overlays.get(name) !== h) return; overlays.delete(name); wPost({ type: "overlayRemove", name }); cv.remove(); },
+		pick: (x, y, radius) => map.pickOverlays(x, y, { radius, names: [name] }),   // このオーバーレイだけに当てる（統一 picking・PR-1）
 	};
 	overlays.set(name, h);
 	return h;
 };
+// 統一 picking（deck.gl の onHover/onClick（object が返る）相当・deck.gl 差分 PR-1・2026-10-11）：
+//   map.pickOverlays(x, y, { radius=6, names })→Promise<[{ name, id, distance, lngLat, properties, … }]>（x, y, radius＝CSS px・手前のオーバーレイから）
+//   モジュールが pick(x, y, r, ctx) を持つ物だけ答える（points-gl・czml-draw・columnar の draw-gl…）。ctx＝render worker が最後に描いたフレームの cam＝描いた絵と同じ位置で当たる。
+//   層イベント（map.on("click"|"mousemove"|…, overlayName, cb)）と queryRenderedFeatures({ layers:[overlayName] }) にもこの答えが Feature の形（layer.id＝名前・source＝名前）で混ざる
+const overlayOrder = () => [...mapEl.querySelectorAll("canvas.overlay-gl")].reverse().map(c => c.dataset.overlay).filter(n => overlays.has(n));   // DOM の後ろ＝上＝手前から
+map.pickOverlays = (x, y, { radius = 6, names } = {}) => new Promise(res => {
+	const list = (names ?? overlayOrder()).filter(n => overlays.has(n));
+	if (!list.length) return res([]);
+	const seq = ++pickSeq, tm = setTimeout(() => { pickWait.delete(seq); res([]); }, 3000);
+	pickWait.set(seq, hits => { clearTimeout(tm); res(hits); });
+	wPost({ type: "overlayPick", seq, x, y, r: radius, names: list });
+});
+const overlayFeature = h => ({ type: "Feature", id: h.id ?? null, geometry: h.lngLat ? { type: "Point", coordinates: h.lngLat } : null, properties: h.properties || {}, layer: { id: h.name, type: "overlay" }, source: h.name, overlay: { name: h.name, distance: h.distance, q: h.q, index: h.index } });
 // ★互換：map.overlay は 9/20（c246591a）まで「estat 小地域・geopbf オーバーレイ・選択マスク・identify の手綱」（上の overlay）だった。
 // 同一フレーム overlay の関数で上書きした結果、census2020（bind.js の map.overlay.loadEstat/setIdentifyHandler、
 // choropleth.js の setSelectionMask）が本番で起動に失敗していた（2026-09-23 実測）。関数のまま器のメソッドも載せる＝
@@ -3306,6 +3335,120 @@ map.addColumnar = async (src, o = {}) => {
 	const m = await import("@ortho-earth/columnar");
 	return m.createColumnarView(map, src, { t: tr(), workerFactory: hostWorker, rAx: ELL_ON ? 1 - 1 / 298.257223563 : 1, status: false, ...o });
 };
+// three.js を render worker の中で描く口（deck.gl 差分 PR-3・2026-10-11・gadgets/three-draw.js）：
+//   map.addThree({ three: URL（three.module.js・利用者が持ち込む＝repo の依存にしない）, module: URL（export setup(THREE, scene, h) / update?(dt, h) / onMessage?(d, h) / dispose?(h)）,
+//                  origin: [lon, lat, hM]（既定＝今の中心・シーンの ENU m の原点＝RTE）, depth: true（地形・建物に隠れる）, params, name, above })
+//   → 手綱＝{ post(data)（利用者の onMessage へ）, pick(x, y), ready（Promise）, remove() }。既存の customgl（MapLibre の custom 層・main の canvas・深度なし）はそのまま残す
+map.addThree = ({ three, module, origin, depth = true, params, name = "three", above = false } = {}) => {
+	if (!three) throw new Error("addThree: three (URL of three.module.js) is required");
+	const abs = u => u == null ? u : new URL(u, location.href).href;
+	const h = map.overlay({ builtin: "three" }, { name, above, opts: { three: abs(three), module: abs(module), origin: origin || [cam.center[0], cam.center[1], 0], depth, params } });
+	h.ready = new Promise((res, rej) => {
+		const prev = h.onmessage;
+		h.onmessage = d => { if (d?.type === "error") { h.onmessage = prev; rej(new Error(d.error)); } else prev?.(d); };
+		const poll = () => { const st = dbgHost.__overlay?.[name]; if (st?.stage === "failed") { rej(new Error(st.error)); return; } if (!overlays.has(name)) { rej(new Error("removed")); return; } if (st?.stage === "ready") res(h); else setTimeout(poll, 100); };
+		poll();
+	});
+	return h;
+};
+// H3 のセル（@ortho-earth/h3・deck.gl 差分 PR-2・2026-10-11）：map.addH3(cells | points, { id, res, weight, paint, extrude, outline }) → 手綱（setData/setPaint/setRes/remove）。
+// セル id → 面・点 → セルへの集約（count/sum/mean/min/max）を GeoJSON にして addSource/addLayer（fill か fill-extrusion）へ＝描画・当たりは既存の層経路。本体（h3-js）は遅延 import
+map.addH3 = async (src, o = {}) => {
+	const m = await import("@ortho-earth/h3");
+	return m.createH3Layer(map, src, { evalExpr, ...o });
+};
+// deck.gl の Layer（配列＋accessor）の相当（差分 PR-4・2026-10-12・src/adddata.js）：map.addData(data, { kind, …accessors, id, before, above, paint })
+//   kind "points"（getPosition／getColor [r,g,b,a 0〜255]／getRadius px）→ points-gl、"arcs"（getSourcePosition／getTargetPosition／getSourceColor／getTargetColor／getWidth px／getHeight 弦長比）→ arcs-gl
+//     ＝同一フレームの overlay（RTE・統一 picking＝map.on(ev, id, cb)・queryRenderedFeatures({ layers:[id] })・h.pick）。main で accessor を評価して typed array に焼き worker へ transfer
+//   "polygons"（getPolygon）／"paths"（getPath）／"columns"（getPosition＋getRadius m）＋ getFillColor／getLineColor／getLineWidth／getElevation m → GeoJSON の addSource/addLayer（fill／line／fill-extrusion＝H3 と同じ既存の層経路）
+//   "trips"（getPath [[lon,lat,h?]…]／getTimestamps／getColor／getWidth・currentTime・trailLength・fadeTrail・clock）→ trips-gl（PR-6）＝h.setCurrentTime / setTrail / animate({ from, to, speed, loop }) / useClock
+//   点・弧・軌跡の共通（PR-6）：getFilterValue＋h.setFilter([lo, hi])（GPU の範囲フィルタ）、h.brush(true, r)／h.setBrush(x, y, r)（ポインタのブラシ）、h.setMask(polygon)（多角形のマスク）、points の transition: { duration }（setData で位置・色・半径を混ぜる）
+//   → 手綱 { id, kind, ready, setData(data), setProps(accessors), setVisible(on), pick(x, y), remove() }。setData は差分でなく全焼き（deck.gl と同じ）。data＝配列・GeoJSON FeatureCollection（位置の既定＝geometry）・iterable
+let dataSeq = 0;
+map.addData = (data, o = {}) => {
+	const { kind = "points", id, before, above = false, paint, ...acc } = o;
+	const name = id ?? `data${++dataSeq}`;
+	let props = acc, cur = data, removed = false;
+	const modP = import("./adddata.js");
+	const h = { id: name, kind };
+	if (kind === "points" || kind === "arcs" || kind === "trips") {
+		const ov = map.overlay(kind === "points" ? pointsUrl : kind === "arcs" ? arcsUrl : tripsUrl, { name, above });
+		const style = {}; if (acc.radius != null) style.size = acc.radius; if (acc.width != null) style.width = acc.width; if (acc.height != null) style.height = acc.height; if (acc.segments != null) style.segments = acc.segments;
+		if (acc.trailLength != null) style.trail = acc.trailLength; if (acc.fadeTrail != null) style.fade = acc.fadeTrail;
+		if (acc.color) style.color = [acc.color[0] / 255, acc.color[1] / 255, acc.color[2] / 255, (acc.color[3] ?? 255) / 255];   // accessor の無い層の色（deck.gl と同じ 0〜255）
+		if (Object.keys(style).length) ov.post({ type: "style", ...style });
+		if (kind === "trips") { if (acc.currentTime != null) ov.post({ type: "time", t: acc.currentTime }); if (acc.clock) ov.post({ type: "clock", on: true }); }
+		const transOf = () => props.transition ? (typeof props.transition === "object" ? props.transition : { duration: +props.transition }) : null;
+		const bake = async () => {
+			const m = await modP; if (removed) return;
+			if (kind === "points") { const b = m.bakePoints(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, pos: b.pos, rgba: b.rgba, size: b.size, f: b.f, origin: b.origin, transition: transOf() }, [b.pos.buffer]); }
+			else if (kind === "arcs") { const b = m.bakeArcs(cur, props); h.n = b.n; ov.post({ type: "layer", q: "d", n: b.n, src: b.src, dst: b.dst, theta: b.theta, rgba: b.rgba, rgba2: b.rgba2, width: b.width, height: b.height, f: b.f, origin: b.origin }, [b.src.buffer, b.dst.buffer]); }
+			else { const b = m.bakeTrips(cur, props); h.n = b.n; h.timeRange = [b.tMin, b.tMax]; ov.post({ type: "layer", q: "d", nv: b.nv, ni: b.ni, pos: b.pos, oth: b.oth, side: b.side, time: b.time, id: b.id, index: b.index, rgba: b.rgba, width: b.width, f: b.f, origin: b.origin, trips: b.trips, tMin: b.tMin, tMax: b.tMax }, [b.pos.buffer, b.oth.buffer, b.index.buffer]); }
+		};
+		h.ready = bake();
+		h.setData = d => { cur = d; return (h.ready = bake()); };
+		h.setProps = p => { props = { ...props, ...p }; return (h.ready = bake()); };
+		h.setVisible = on => { ov.post({ type: "vis", q: "d", on: !!on }); return h; };
+		h.pick = (x, y, r) => ov.pick(x, y, r);
+		// GPU の範囲フィルタ・ブラシ・マスク（deck.gl の DataFilter／Brushing／Mask の各 Extension 相当・PR-6）
+		h.setFilter = range => { ov.post({ type: "filter", q: "d", range: range || null }); return h; };
+		h.setBrush = (x, y, r) => { ov.post(x == null ? { type: "brush" } : { type: "brush", x, y, r: r ?? acc.brushRadius ?? 60 }); return h; };
+		let brushOff = null;
+		h.brush = (on = true, r) => {   // ポインタに追従するブラシ（CSS px）。off でポインタを離れた時は消す
+			brushOff?.(); brushOff = null;
+			if (!on) { h.setBrush(null); return h; }
+			const mv = e => { const rc = canvas.getBoundingClientRect(); h.setBrush(e.clientX - rc.left, e.clientY - rc.top, r ?? acc.brushRadius ?? 60); }, lv = () => h.setBrush(null);
+			mapEl.addEventListener("pointermove", mv, { passive: true }); mapEl.addEventListener("pointerleave", lv, { passive: true });
+			brushOff = () => { mapEl.removeEventListener("pointermove", mv); mapEl.removeEventListener("pointerleave", lv); };
+			return h;
+		};
+		h.setMask = async (polygon, o2 = {}) => { const m = await modP; const mk = polygon ? m.rasterMask(polygon, o2) : null; ov.post(mk ? { type: "mask", ...mk } : { type: "mask" }, mk ? [mk.data.buffer] : []); return h; };
+		if (acc.filterRange) h.setFilter(acc.filterRange); if (acc.mask) h.setMask(acc.mask); if (acc.brush) h.brush(true, acc.brushRadius);
+		if (kind === "trips") {   // 時刻（deck.gl の currentTime / trailLength）
+			h.setCurrentTime = t => { ov.post({ type: "time", t }); return h; };
+			h.setTrail = (len, fade) => { ov.post({ type: "style", trail: len, ...(fade != null ? { fade } : {}) }); return h; };
+			h.animate = (o2 = {}) => { ov.post(o2 === false || o2.on === false ? { type: "animate", on: false } : { type: "animate", from: o2.from ?? h.timeRange?.[0] ?? 0, to: o2.to ?? h.timeRange?.[1] ?? 1, speed: o2.speed ?? 1, loop: o2.loop !== false }); return h; };
+			h.useClock = (on = true) => { ov.post({ type: "clock", on }); return h; };
+		}
+		h.remove = () => { removed = true; brushOff?.(); ov.remove(); };
+		h.overlay = ov;
+		return h;
+	}
+	const ids = [name, name + "-line"];
+	const specs = () => {
+		const ext = kind === "columns" || props.getElevation !== undefined, gf = props.getFillColor !== undefined, gl = props.getLineColor !== undefined, gw = props.getLineWidth !== undefined;
+		const out = [];
+		if (kind !== "paths") out.push(ext
+			? { id: name, type: "fill-extrusion", source: name, paint: { "fill-extrusion-color": gf ? ["get", "_fill"] : "#3182bd", "fill-extrusion-opacity": 0.85, "fill-extrusion-height": props.getElevation !== undefined ? ["get", "_h"] : (props.elevation ?? 100), "fill-extrusion-base": 0, ...(paint || {}) } }
+			: { id: name, type: "fill", source: name, paint: { "fill-color": gf ? ["get", "_fill"] : "rgba(49,130,189,0.6)", ...(paint || {}) } });
+		if (kind === "paths" || (gl && !ext)) out.push({ id: kind === "paths" ? name : name + "-line", type: "line", source: name, paint: { "line-color": gl ? ["get", "_line"] : "#1f3b73", "line-width": gw ? ["get", "_lw"] : (props.lineWidth ?? 1.5), ...(kind === "paths" ? (paint || {}) : {}) } });
+		return out;
+	};
+	let mounted = false;
+	const bake = async () => {
+		const m = await modP; if (removed) return;
+		const gj = m.toGeoJSON(cur, kind, props); h.n = gj.features.length;
+		if (!mounted) { map.addSource(name, { type: "geojson", data: gj }); for (const sp of specs()) await map.addLayer(sp, before); mounted = true; }
+		else await map.getSource(name)?.setData(gj);
+	};
+	h.ready = bake();
+	h.setData = d => { cur = d; return (h.ready = bake()); };
+	h.setProps = p => { props = { ...props, ...p }; return (h.ready = bake()); };
+	h.setVisible = on => { for (const i of ids) if (map.getLayer(i)) map.setLayoutProperty(i, "visibility", on ? "visible" : "none"); return h; };
+	h.pick = async (x, y) => map.queryRenderedFeatures([x, y], { layers: ids.filter(i => map.getLayer(i)) });
+	h.remove = () => { removed = true; for (const i of ids) if (map.getLayer(i)) map.removeLayer(i); if (map.getSource(name)) map.removeSource(name); };
+	return h;
+};
+// セル・等高線・画面格子（deck.gl の GridLayer／GeohashLayer／QuadkeyLayer／S2Layer／ContourLayer／ScreenGridLayer 相当・差分 PR-5・2026-10-12・src/cells/）：
+//   map.addCells(cells | points, { kind:"grid"|"mesh"|"geohash"|"quadkey"|"s2", res|"auto", weight, paint, extrude, outline })＝id → 多角形・点 → セルの集約（count/sum/mean/min/max）→ fill／fill-extrusion（H3 と同じ既存の層経路）
+//   map.addContour(points, { cellSize, thresholds | bands, weight, agg, smooth, paint })＝格子の場 → 等値線（line）／等値帯（fill）
+//   map.addScreenGrid(points, { cellPx, colorRange, weight, agg })＝画面に固定の格子（overlay・毎フレーム投影して数える・統一 picking で count）
+//   map.addAggregate(src, { kind:"h3"|…|"screen"|"contour", … })＝振り分け。本体は遅延 import（純 JS・依存ゼロ）
+const cellsMod = () => import("./cells/layer.js");
+map.addCells = async (src, o = {}) => (await cellsMod()).createCellsLayer(map, src, { evalExpr, ...o });
+map.addContour = async (src, o = {}) => (await cellsMod()).createContourLayer(map, src, { evalExpr, ...o });
+map.addScreenGrid = async (src, o = {}) => (await cellsMod()).createScreenGrid(map, src, { ...o, screengridUrl });
+map.addAggregate = async (src, o = {}) => (await cellsMod()).addAggregate(map, src, { evalExpr, ...o }, { screengrid: screengridUrl });
 // 注釈レイヤ（geoedit の @スタイル付き geopbf を canvas2D で再生・単一スロット）＝本体は遅延chunk（起動を重くしない）
 let annoCtl = null;
 map.gadget("anno", async function (pbf) {
@@ -4182,7 +4325,16 @@ const mountLayerRaw = async v => {
 		const tpl = /^[a-z][\w+.-]*:/i.test(rs.tiles?.[0] ?? "") ? rs.tiles[0] : new URL(rs.tiles?.[0] ?? "", location.href).href.replace(/%7B/gi, "{").replace(/%7D/gi, "}");
 		return map.raster.add(layer.id, { url: tpl, tileSize: rs.tileSize ?? 512, minZoom: rs.minzoom ?? 0, maxZoom: rs.maxzoom ?? 22, bbox: rs.bounds, attribution: rs.attribution, tms: rs.scheme === "tms", adjust }, ro);
 	}
-	if (kind === "custom") { customGet().add(v.layer, order); return null; }   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
+	if (kind === "custom") {
+		// url＝層のモジュール（worker 経路・gadgets/customgl-draw.js・PR-7）＝render worker の同一フレームで描き、renderingMode "3d" は本体の深度を深度バッファに前置き＝shader 無改修で地形・建物に隠れる
+		if (typeof v.layer.url === "string") {
+			v.ov?.remove();
+			const abs = u => new URL(u, location.href).href;
+			v.ov = map.overlay(customglUrl, { name: v.layer.id, opts: { module: abs(v.layer.url), params: v.layer.params, renderingMode: v.layer.renderingMode ?? "3d", depth: v.layer.depth !== false, projection: customHost?.getProjection?.()?.type ?? "mercator" } });
+			return null;
+		}
+		customGet().add(v.layer, order); return null;
+	}   // main の WebGL2 canvas（customgl.js）。層の object そのまま（this＝層＝onAdd で this.prog 等を持つ書き方）
 	if (kind === "hillshade" || kind === "colorrelief") {   // raster-dem のタイルから陰影（hillshade.js）／段彩（colorrelief.js）の画像タイルを作る port プロバイダ→画像タイル層（基図の上・注記の下）
 		const ro = { order: "over", opacity: kind === "colorrelief" ? reliefOpacity(layer) : 1, hideFills: false, ...(layer.minzoom != null ? { minZoom: layer.minzoom } : {}), ...(layer.maxzoom != null ? { maxZoom: layer.maxzoom - 1e-6 } : {}) };
 		let ds = sp;
@@ -4231,7 +4383,7 @@ const reliefOpacity = L => { const x = L.paint?.["color-relief-opacity"]; if (x 
 const unmountLayer = v => {
 	const { layer, kind } = v, id = layer.id, sid = srcId(layer);
 	if (kind === "raster") map.raster.remove(id);
-	else if (kind === "custom") customCtl?.remove(id);
+	else if (kind === "custom") { if (v.ov) { v.ov.remove(); v.ov = null; } else customCtl?.remove(id); }
 	else if (kind === "hillshade") { map.raster.remove(id); v.hs?.close(); v.hs = null; demTilesDrop(id); }
 	else if (kind === "colorrelief") { map.raster.remove(id); v.cr?.close(); v.cr = null; demTilesDrop(id); }
 	else if (kind === "extrude") modelCtl?.clearExtrude(id);
@@ -4264,6 +4416,7 @@ dbgHost.__onWorkerFrame = onWorkerFrame;   // 切り分けの窓＝main の cam 
 const customGet = () => customCtl ??= createCustomGL({ mapEl, before: labelCanvas, size: () => size, cam, earthM: EARTH_M, requestDraw: () => { needsDraw = true; }, onFrame: fn => map.onFrame(fn), onWorkerFrame, get hostMap() { return customHost ?? map; } });
 map.setCustomLayerHost = h => { customHost = h; return map; };
 map.getCustomLayerCanvas = () => customCtl?.canvas ?? null;
+map.getCustomLayerHandle = id => mlLayers.get(id)?.ov ?? null;   // worker 経路の custom 層（addLayer の url）のオーバーレイの手綱（post/onmessage/remove）＝検定・利用者の層へのメッセージ
 // この source を使う層を載せ直す（setData・updateData・updateImage・視野追従の読み足し＝#176）
 const remountSource = async (id, dataChanged = true) => {
 	const vs = [...mlLayers.values()].filter(v => srcId(v.layer) === id && mlVisible(v));
@@ -4360,7 +4513,7 @@ const addLayerAt = async (layer, beforeId, dz) => {
 	// source に object を書いた層＝MapLibre は層の id で source を足してから層を足す（後の層が "source": その id で引ける・公式例の門 2 巡目）
 	if (layer?.source && typeof layer.source === "object" && layer.id != null && !mlSources.has(layer.id)) { addSourceAt(layer.id, layer.source, layerDzOf(layer, dz)); layer = { ...layer, source: layer.id }; }
 	const sp = layer?.type === "custom" ? { type: "custom" } : srcOf(layer); if (!sp) throw new Error(`addLayer: source "${layer.source}" not found`);
-	if (layer?.type === "custom" && typeof layer.render !== "function") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method`);
+	if (layer?.type === "custom" && typeof layer.render !== "function" && typeof layer.url !== "string") throw new Error(`addLayer: custom layer "${layer.id}" needs a render(gl, args) method (or url of a layer module for the worker route)`);
 	assertMLLayer(layer, "addLayer");
 	const v = { layer: layer?.type === "custom" ? layer : { ...layer, paint: { ...(layer.paint || {}) }, layout: { ...(layer.layout || {}) } }, src: sp, dz: layerDzOf(layer, dz) };   // custom 層は object そのまま（this が層＝onAdd/render の書き方）
 	v.kind = kindOf(drawLayerOf(v), sp);
@@ -4945,7 +5098,11 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 {
 	const qRF0 = map.queryRenderedFeatures;
 	map.queryRenderedFeatures = async (geometry, qo) => {
-		const r = await qRF0(geometry, qo);
+		// layers にオーバーレイの名前（map.overlay の name）があれば統一 picking（PR-1）の答えを先頭に混ぜる（点の問い合わせだけ・箱は当てない）
+		const ovNames = Array.isArray(qo?.layers) ? qo.layers.filter(n => overlays.has(n)) : [];
+		const ovHits = ovNames.length && Array.isArray(geometry) && typeof geometry[0] === "number" ? map.pickOverlays(geometry[0], geometry[1], { names: ovNames }) : null;
+		const r0 = ovNames.length ? (qo.layers.length === ovNames.length ? [] : await qRF0(geometry, { ...qo, layers: qo.layers.filter(n => !overlays.has(n)) })) : await qRF0(geometry, qo);
+		const r = ovHits ? [...(await ovHits).map(overlayFeature), ...r0] : r0;
 		if (!clipMain) return r;   // 地面の地物＝vector の面（押し出しは extrudeHits が models の面で外す）
 		const ptCut = Array.isArray(geometry) && typeof geometry[0] === "number" && clipCutXY(geometry[0], geometry[1]);
 		return r.filter(f => f.layer?.type === "fill-extrusion" || (!ptCut && !clipAllCut(f.geometry)));
@@ -4957,7 +5114,11 @@ map.queryRenderedFeatures = async (geometry, qo = {}) => {
 const layerEvs = [];   // { ev, ids:Set, cb, inside }
 const onPlain = map.on, offPlain = map.off;
 const lngLatObj = ll => ll ? { lng: ll[0], lat: ll[1] } : null;
-const hitsFor = async (x, y, ids) => { const fs = await map.queryRenderedFeatures([x, y], { layers: [...ids] }); return fs; };
+const hitsFor = async (x, y, ids) => {   // 層 id のうちオーバーレイの名前は統一 picking（PR-1）へ・それ以外は queryRenderedFeatures へ＝一つの列（オーバーレイは手前＝先）
+	const ov = [...ids].filter(i => overlays.has(i)), rest = [...ids].filter(i => !overlays.has(i));
+	const [fs, hits] = await Promise.all([rest.length ? map.queryRenderedFeatures([x, y], { layers: rest }) : [], ov.length ? map.pickOverlays(x, y, { names: ov }) : []]);
+	return [...hits.map(overlayFeature), ...fs];
+};
 let downAt = null, hovSeq = 0, hovRaf = 0, hovLast = null;
 canvas.addEventListener("pointerdown", e => { downAt = evXY(e); }, { signal: ac.signal });
 canvas.addEventListener("click", async e => {
