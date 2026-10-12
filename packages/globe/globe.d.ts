@@ -58,9 +58,10 @@ export interface BodyPosition { time: number; subpoint: { lng: number; lat: numb
 /** map.setSun の引数。{ follow: "clock" }（既定・true も同じ）＝共通の時計の太陽の向きに directional の光を合わせる（時計の変化・静止・実時間なら 60 秒ごと）。{ azimuth, altitude }＝固定（度）。
  *  intensity（0〜1）・color を指定すれば高度からの自動（高い＝白く強く・地平＝橙に弱く・地平の下＝薄い青）を上書き。minAltitude＝光の向きの下限（既定 2°・陰影が消えないため） */
 export interface SunSpec { follow?: "clock" | null; azimuth?: number; altitude?: number; intensity?: number; color?: string; minAltitude?: number }
-/** map.setClouds の引数（F2）。受けて保つだけ＝描かない（map.supports("clouds") は false）。plugin が registry.clouds に { apply(map, clouds) } を足せば描く。
+/** map.setClouds の引数（F2・W6）。type "image"＝url の全球の雲量の画像（等経緯度・左上＝西経 180°／北緯 90°）を altitude（m）の殻として描く（builtin）：α は画像の α（色は画像×color）か、無ければ輝度（色は color）＝alphaFrom・opacity を掛ける・wind＝[東 m/s, 北 m/s] で殻が流れる（時計＝map.getNow）。
+ *  coverage/density/thickness（手続きの雲）と precipitation は受けて保つだけ（spec）。plugin が registry.clouds に { apply(map, clouds) } を足せば代わりに描ける。
  *  coverage＝空を覆う割合 0〜1・altitude＝雲底 m・thickness＝厚み m・density＝濃さ 0〜1・wind＝[東 m/s, 北 m/s]・precipitation＝{ type: "rain"|"snow", intensity 0〜1 } */
-export interface CloudsSpec { coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
+export interface CloudsSpec { type?: "image" | null; url?: string | null; opacity?: number; alphaFrom?: "auto" | "alpha" | "luminance"; coverage?: number; altitude?: number; thickness?: number; density?: number; color?: string; wind?: [number, number]; precipitation?: { type: "rain" | "snow"; intensity?: number } | null }
 /** registry.handlers の契約（F6）：create(map, opts) が { start, stop, active } を返す。"walk" は map.walk(opts) の中身 */
 export interface HandlerImpl { create(map: OrthoJapanMap, opts: Record<string, unknown>): { start?(): void; stop?(): void; readonly active?: boolean } }
 /** map.walk の引数（F6 の口・W3 で中身）。speed＝m/s（既定 1.4）・eyeHeight＝目の高さ m（既定 1.7）・collide＝基図の建物・押し出しに当たる（既定 true）・keys＝W/↑ 前・S/↓ 後・A/D 横・←/→ か Q/E 回る・R/F 見上げ/見下ろし・Shift で run 倍・Esc で止める（既定 true）・
@@ -881,7 +882,7 @@ export interface OrthoJapanMap {
 	/** directional の光（setLight と同じ 1 本）を太陽に合わせる。null＝外す（setLight(null)＝従来の固定光） */
 	setSun(sun: SunSpec | true | null): OrthoJapanMap;
 	getSun(): (Required<Pick<SunSpec, "follow" | "minAltitude">> & SunSpec) | null;
-	/** 雲・降水の spec を受けて保つ（描かない＝plugin の registry.clouds が描く）。null で外す */
+	/** 雲の spec。type "image" は builtin が描く（W6・読めたら on("clouds") に { state:"ready", tris, image }・失敗は { state:"error" }）。手続きの雲・降水は受けて保つだけ（plugin の registry.clouds が描ける）。null で外す */
 	setClouds(clouds: CloudsSpec | true | null): OrthoJapanMap;
 	getClouds(): Required<CloudsSpec> | null;
 	/** 地形の一括標本（F6・2026-10-12・実装つき）。出どころは描いている地形と同じ（setTerrain／style の terrain の DEM が先・無い所は既定の DTM＝getHeight）。到着を待つ。
