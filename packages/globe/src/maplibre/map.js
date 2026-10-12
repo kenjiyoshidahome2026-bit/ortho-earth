@@ -75,6 +75,37 @@ function bindDom(self, st, type) {
 	});
 }
 
+// 同期の queryRenderedFeatures の道具（C7）。幾何＝undefined（画面全体）｜{x,y}／[x,y]（点）｜[a, b]（箱）
+const syncGeom = g => { if (g == null) return undefined; if (!Array.isArray(g)) return [g.x, g.y]; if (typeof g[0] === "number") return [g[0], g[1]]; const a = Array.isArray(g[0]) ? g[0] : [g[0].x, g[0].y], b = Array.isArray(g[1]) ? g[1] : [g[1].x, g[1].y]; return [a, b]; };
+const syncKey = o => (o.layers ? [...o.layers].sort().join(",") : "") + (o.filter != null ? "|" + JSON.stringify(o.filter) : "");
+const camSig = eng => { const c = eng.getCenter(); return `${eng.getZoom().toFixed(4)}|${c.lng.toFixed(6)}|${c.lat.toFixed(6)}|${eng.getBearing().toFixed(2)}|${eng.getPitch().toFixed(2)}`; };
+const syncMatch = (a, b) => {
+	if (a === undefined || b === undefined) return a === b;
+	const pa = typeof a[0] === "number", pb = typeof b[0] === "number";
+	if (pa !== pb) return false;
+	if (pa) return Math.hypot(a[0] - b[0], a[1] - b[1]) <= 8;
+	return Math.abs(a[0][0] - b[0][0]) <= 2 && Math.abs(a[0][1] - b[0][1]) <= 2 && Math.abs(a[1][0] - b[1][0]) <= 2 && Math.abs(a[1][1] - b[1][1]) <= 2;
+};
+// 裏で走らせる（鍵ごとに 1 本＝走っている間に来た物は最新の 1 つだけ覚えて続けて走らせる）
+function syncKick(st, key, g, o, cam) {
+	const q = st.sq, p = q.pending.get(key);
+	if (p) { p.next = { g, o, cam }; return; }
+	const job = { next: null }; q.pending.set(key, job);
+	const run = (g2, o2, cam2) => Promise.resolve().then(() => st.engine.queryRenderedFeatures(g2, { ...o2 })).then(r => { q.cache.set(key, { g: g2, cam: cam2, result: r, t: performance.now() }); }, () => {}).then(() => {
+		if (job.next) { const n = job.next; job.next = null; return run(n.g, n.o, n.cam); }
+		q.pending.delete(key);
+	});
+	run(g, o, cam);
+}
+function armPrewarm(self, st) {
+	let raf = 0, last = null;
+	st.container.addEventListener("mousemove", e => {
+		const r = st.container.getBoundingClientRect(); last = [e.clientX - r.left, e.clientY - r.top];
+		if (raf) return;
+		raf = requestAnimationFrame(() => { raf = 0; if (st.engine && last) syncKick(st, "", last, {}, camSig(st.engine)); });
+	}, { passive: true });
+}
+
 // エンジンの事象 → MapLibre の事象（move は zoom/rotate/pitch に分け、start/end を付ける＝end はエンジンの settle）
 function wireEngine(self, st) {
 	const eng = st.engine;
@@ -363,8 +394,25 @@ export class Map {
 	setFeatureState(f, s) { ask(this, "setFeatureState", [f, s]); return this; }
 	removeFeatureState(f, k) { ask(this, "removeFeatureState", [f, k]); return this; }
 	getFeatureState(f) { return ask(this, "getFeatureState", [f]); }
-	// 問い合わせ＝この地図は非同期（台帳 §4）＝MapLibre の同期の答えは返せない。空で返し、差として記録する（通訳で隠さない）
-	queryRenderedFeatures() { unsupported(this, "queryRenderedFeatures (synchronous result)"); return []; }
+	// 同期の queryRenderedFeatures（C7・2026-10-12・本人裁定「直近の描画のヒット索引で近似」）：エンジンの答えは非同期（タイルを取り直す）＝この口は
+	// 「同じ視点で・同じ所（点は 8px 以内・箱は 2px 以内）・同じ層と filter で直近に済んだ答え」を同期で返し、裏で今の問い合わせを走らせて次の呼び出しに備える。
+	// 初回は []（MapLibre 用の hover のコードは次の mousemove で埋まる）。一度でもこの口が呼ばれた地図は容れ物の mousemove で先回りして全層を問い合わせる（rAF に畳む）＝
+	// click の直後の同期の呼び出し（layers で絞る物）はその答えから作る。filter つきは先回りから作らない（エンジンの filter の評価を待つ）。正確な答えが要る時はエンジンの非同期の口（await）か層のイベント
+	queryRenderedFeatures(geometry, opts) {
+		const st = S.get(this); if (st.inert) return [];
+		if (geometry && !Array.isArray(geometry) && typeof geometry.x !== "number") { opts = geometry; geometry = undefined; }
+		const g = syncGeom(geometry), q = (st.sq ||= { cache: new globalThis.Map(), pending: new globalThis.Map(), armed: false });
+		if (!st.engine) return [];
+		if (!q.armed) { q.armed = true; armPrewarm(this, st); }
+		const o = opts || {}, key = syncKey(o), cam = camSig(st.engine);
+		syncKick(st, key, g, o, cam);
+		const c = q.cache.get(key);
+		if (c && c.cam === cam && syncMatch(c.g, g)) return c.result;
+		if (key !== "" && o.filter == null) {   // 層で絞るだけ＝先回り（全層）の答えから（順は全層の順のまま＝MapLibre の層の順）
+			const a = q.cache.get(""); if (a && a.cam === cam && syncMatch(a.g, g)) { const want = new Set(o.layers); return a.result.filter(f => want.has(f.layer?.id)); }
+		}
+		return [];
+	}
 	querySourceFeatures(id, o) { return ask(this, "querySourceFeatures", [id, o], { before: [] }) ?? []; }   // 同期（集約の丸・geojson の地物）
 	queryTerrainElevation(ll) { const p = lngArr(ll); return ask(this, "queryTerrainElevation", [p[0], p[1]], { before: null }) ?? null; }   // 同期＝エンジンの標高のメモ（地形がある時・未着は null＝MapLibre と同じ）
 	// MapLibre 同名＝目の位置（from・高さ m）から注視点（to・高さ m）を見るカメラ（純粋な計算・MapLibre の式のまま：メルカトルの距離と cameraToCenterDistance＝0.5/tan(fov/2)·高さ px・fov 36.87°）

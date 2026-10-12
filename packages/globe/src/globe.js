@@ -13,7 +13,8 @@ import { createTransitions, transitionOf, interpolable, PAINT_DEFAULTS } from ".
 import { normLight, lightPayload } from "./light.js";
 import { normSky, skyHasExpr, skyPayload } from "./sky-spec.js";
 import { normSprite, spriteEcho, spritePrefix, tilesFromPoints, fontFaceArgs } from "./mlsmall.js";   // MapLibre の小口（B6・2026-10-12）   // style の sky（B4・2026-10-12）＝簡易の空と霧の色・濃さ（エンジンの名 sky は星空劇場＝こちらは mlSky）   // style の light（B3・2026-10-12）   // paint の transition（B1・2026-10-12）＝main 側の走者   // follow の的＝CZML/GPX の軌跡（時計の時刻の位置・A4）
-import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
+import { curveZoomKey, hitExtrusion } from "./extrude-ml.js";
+import { createRawStore } from "./vtraw.js";   // vector source の生のタイルの写し（querySourceFeatures・C7）   // 押し出し（fill-extrusion）の描き直しの鍵と立体の当たり（純関数・台帳 R22/R23）
 import patUrl from "./pattern-2d.js?url";
 import pointsUrl from "./gadgets/points-gl.js?url";   // map.addData の点（deck.gl 差分 PR-4）＝依存ゼロの overlay（worker が URL で import）
 import arcsUrl from "./gadgets/arcs-gl.js?url";       // map.addData の弧（同）
@@ -49,7 +50,7 @@ import { createThemes, defaultLayerState, isFacility, isTerrain, CHOME_MINZOOM, 
 import { createOverlay } from "./overlay.js";
 
 // planets.js と星座/メシエ名（bucket GIS/space）は z<4（星空）でしか使わない＝初期バンドルから外し、下の ensureSkyMod で動的読込。
-import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
+import { createPipeline, pmtilesInfo, isRasterTileType, queryTiles, sourceFeatures, fetchMVT, fetchPMTilesRaw, decodeTile, loadTileFormat, splitMapLibreStyle, loadMapLibreStyle, resolveVectorSource, tileUrlOf, expandTemplate, wmsTemplate, createDemSource, normalizeMLLayer, layerDzOf, rescaleZoomExpr, rescaleZoomNum, DZ_KEY, shiftZoomExpr, originOfLayer, packMLLayers, buildMLTable, zoomSensitivity, mlUnknownOps, ML_ID_KEY, ML_IX_KEY, setGlobalState, usesGlobalState, mlTileZoomOf } from "@ortho-earth/core";
 import { zoomScaleOf, bootOptsIn, ML_DZ, mercatorDz } from "./zoomscale.js";
 import { createFacade } from "./mlfacade.js";
 export { RAW, mercatorDz } from "./zoomscale.js";   // 旗つきの地図（外側の顔）から素の map へ＝map[RAW]（部品が入口で使う）・mercatorDz＝"mercator" の目盛り（MapLibre の口が view を組む）
@@ -4420,6 +4421,7 @@ const vtxGet = async () => {
 	const ch = new MessageChannel();   // 押し出し専用の送り口（PLATEAU と同じ meshPort＝render worker は適用ごとに受け取りの印を返す＝背圧と「載った」の判定）
 	wPost({ type: "meshPort", port: ch.port2 }, [ch.port2]);
 	return vtxCtl = dbgHost.__vtx = m.createVTExtrude(map, {
+		raw: vtRaw,   // 生のタイルの写し（querySourceFeatures・C7）
 		gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）   // __vtx＝検証窓（debugGlobals の時だけ）
 		meshPort: ch.port1, requestDraw: () => { needsDraw = true; },
 		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, ell: ELL_ON, isFlying: () => flying, fstate: vtxFS, fsKey: vtxFSKey, tileBias: TILE_BIAS, zoomOf: mlZoomOf,
@@ -4451,6 +4453,8 @@ const vtxDescOf = async (sid, sp) => {
 	}
 	return p;
 };
+const vtRaw = createRawStore();   // vector source の生のタイルの写し（main・C7）＝querySourceFeatures が同期で解く。vtdraw／vtextrude の両方が入れ、両方が捨てたら消える
+dbgHost.__vtraw = vtRaw;
 const vtxWarned = new Set();
 const vtxMount = async (v, layer) => {
 	const sid = srcId(layer), desc = await vtxDescOf(sid, v.src);
@@ -4473,6 +4477,7 @@ const vtdGet = async () => {
 	if (vtdCtl) return vtdCtl;
 	ownDestroy.push(() => vtdCtl?.destroy());   // 組み役・結合役の worker・リスナー（map.destroy）
 	vtdCtl = dbgHost.__vtd = m.createVTDraw(map, {
+		raw: vtRaw,   // 生のタイルの写し（querySourceFeatures・C7）
 		gs: () => MAP_GS,   // 地図の global-state（#173 段 3b）   // __vtd＝検証窓（debugGlobals の時だけ）
 		cam, size: () => size, dpr, lowMem: LOW_MEM, requester, isFlying: () => flying, requestDraw: () => { needsDraw = true; }, tileBias: TILE_BIAS, zoomOf: mlZoomOf, fstate: vtxFS, fsKey: vtxFSKey,   // feature-state の置き場は押し出しと同じ（#109）
 		sendScene: (scene, transfer) => { wPost({ type: "set", cmd: "scene", data: scene, prop: "user" }, transfer); needsDraw = true; },
@@ -5174,9 +5179,21 @@ map.setStyle = async (spec, o = {}) => {
 // source の地物（MapLibre の querySourceFeatures・同期・公式例の門 3 巡目）：集約の source＝今の段の丸と単点（画面の内側＋余白）＝properties に cluster/cluster_id/point_count・
 // geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝おおよそ見えている所＋余白・こちらは全部＝上位互換）。vector の source は空（未対応・記録）
 map.querySourceFeatures = (sid, qo = {}) => {
-	const sp = mlSources.get(sid); if (!sp) return [];
+	const sp = mlSources.get(sid), isVec = sp ? sp.type === "vector" : vtdDesc.has(sid) || vtxDescs.has(sid) || vtRaw.keys(sid).length > 0;   // style.json の vector source（基図の source 名）は mlSources に無い＝写し／記述子で見る
+	if (!sp && !isVec) return [];
 	const qf = fs => qo.filter ? fs.filter(f => truthy(evalExpr(normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter, { zoom: cam.zoom, props: f.properties, geom: f.geometry?.type?.replace("Multi", ""), vars: {}, gs: MAP_GS, geojson: f.geometry, pitch: cam.pitch * R2D, origin: "ml" }))) : fs;
-	if (sp.type === "vector") { console.warn(`[querySourceFeatures] vector source "${sid}" is not supported yet (returns [])`); return []; }
+	if (isVec) {   // C7（2026-10-12）：出しているタイル（vtdraw／vtextrude が取った写し）を同期で解く。sourceLayer 必須（MapLibre と同じ）・タイルをまたぐ地物は枚数ぶん重複（同じ）
+		const sl = qo.sourceLayer; if (!sl) { console.warn(`[querySourceFeatures] vector source "${sid}": sourceLayer is required`); return []; }
+		const keys = new Set([...(vtdCtl?.shownTiles(sid) || []).map(o => o.key), ...(vtxCtl?.shownTiles(sid) || [])]);
+		if (!keys.size) for (const k of vtRaw.keys(sid)) keys.add(k);   // 出している物が無い（層が外れた直後など）＝写しに残っている分
+		const filter = qo.filter ? normalizeMLLayer({ filter: qo.filter }, PUBLIC_DZ).filter : null, promoteId = vtdDesc.get(sid)?.promoteId ?? sp?.promoteId ?? null, out = [];
+		for (const key of keys) {
+			const data = vtRaw.decoded(sid, key); if (!data) continue;
+			const [z, x, y] = key.split("/").map(Number);
+			for (const f of sourceFeatures(data, { z, x, y, key }, { sourceLayer: sl, filter, zoom: cam.zoom, gs: MAP_GS, promoteId, source: sid, pitch: cam.pitch * R2D })) { f.state = vtxStateOf(sid, sl, f.id); delete f.tile; out.push(f); }
+		}
+		return out;
+	}
 	if (sp.cluster && aggCtl && [...mlLayers.values()].some(v => srcId(v.layer) === sid && v.kind === "cluster")) return qf(aggCtl.sourceFeatures(sid, size.w / dpr, size.h / dpr).map(f => ({ ...f, source: sid })));
 	const d = sp.data; if (!d || typeof d !== "object") return [];
 	const fs = d.type === "FeatureCollection" ? d.features : d.type === "Feature" ? [d] : [];

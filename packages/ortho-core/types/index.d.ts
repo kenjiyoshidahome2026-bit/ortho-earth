@@ -46,6 +46,8 @@ export function tileLocalToLonLat(x: number, y: number, z: number, px: number, p
 export function tileBounds(x: number, y: number, z: number): number[];
 /** 描いているタイルへの問い合わせ（queryRenderedFeatures 相当・非同期）。 */
 export function queryTiles(opts: Record<string, unknown>): Promise<unknown[]>;
+/** 解読済みタイル 1 枚の source-layer の地物を全部 GeoJSON で（querySourceFeatures 相当・同期・C7）。 */
+export function sourceFeatures(data: Record<string, unknown>, tile: { z: number; x: number; y: number; key?: string }, opts: { sourceLayer: string; filter?: unknown; zoom?: number; gs?: unknown; promoteId?: unknown; source?: string; pitch?: number }): unknown[];
 export function selectLOD(cam: import("./camera.js").CameraPose, W: number, H: number, opts?: Record<string, unknown>): unknown;
 /** MapLibre の既定の縦の視野角（2·atan(3/4)）≈ 36.87°。 */
 export const ML_FOV_DEG: number;

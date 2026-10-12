@@ -1008,7 +1008,7 @@ export interface OrthoJapanMap {
 	 *  MapLibre と違い**非同期**（描いている基図タイルを取り直して今のスタイルで当てる・キャッシュ命中で ~1ms）。箱は外接箱の重なりで判定 */
 	queryRenderedFeatures(geometry?: [number, number] | [[number, number], [number, number]] | QueryOptions, opts?: QueryOptions): Promise<RenderedFeature[]>;
 	/** source の地物（MapLibre 同名・同期・1.5.0〜）。集約（cluster）の source＝今の段の丸と単点で画面の内側（余白 1/4）に居る物（properties に cluster/cluster_id/point_count）／
-	 *  geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝こちらは上位互換）／vector の source は未対応（[]・警告） */
+	 *  geojson の source（data が object）＝全部の地物（MapLibre は読んだタイルの分＝こちらは上位互換）／vector の source（C7）＝出しているタイル（addLayer の層が取った写し）の sourceLayer の地物を全部（sourceLayer 必須・タイルをまたぐ地物は枚数ぶん・写しの予算 24MiB を超えた分は出ない） */
 	querySourceFeatures(sourceId: string, opts?: { filter?: StyleExpression; sourceLayer?: string }): RenderedFeature[];
 	/** MapLibre の custom 層（addLayer({ type:"custom", onAdd, render, renderingMode })・1.5.0〜）の onAdd/render に渡す map（既定＝この map・MapLibre の口が自分を差す）。
 	 *  custom 層は main の透明な WebGL2 canvas（注記の下）に描く＝地図と深度を共有しない（模型は建物・地形に隠れない）。行列（args.defaultProjectionData.mainMatrix）は
