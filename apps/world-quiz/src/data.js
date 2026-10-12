@@ -15,7 +15,7 @@ export async function loadCountries(lang) {
 		const flagKey = hasFlag(n.key) ? n.key : (n.territory && hasFlag(n.territory)) ? n.territory : (data.flags.size ? null : n.key);   // 一覧が取れていない時は自分の旗を信じる
 		return {
 			key: n.key, iso2: n.iso ? n.iso[0] : "", qid: n.qid,
-			name: e.name || n.name?.en || n.key, nameEn: n.name?.en || n.key, yomi: e.yomi || "",
+			name: e.name || n.name?.en || n.key, nameEn: n.name?.en || n.key,
 			capital: city ? (ce.name || city.name?.en || "") : "", capitalEn: city?.name?.en || "", capitalCoord: city?.coords || null,
 			region: String(n.region ?? ""), population: latest(n.population), area: n.area || 0, un: n.un || null,
 			territory: n.territory || null, conflict: n.conflict || null, flagKey, coord: n.coord || null, wiki: e.wiki ? [lang, e.wiki] : n.wiki?.en ? ["en", n.wiki.en] : null,

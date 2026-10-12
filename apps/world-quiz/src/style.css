@@ -5,6 +5,7 @@
 	--radius: 18px; --shadow: 0 6px 20px rgba(120, 80, 20, .10);
 }
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }   /* display を持つ部品（.q-next 等）でも hidden を効かせる＝答える前に「次へ」が出ていた */
 html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); font: 17px/1.55 "Hiragino Maru Gothic ProN", "Rounded Mplus 1c", "Noto Sans JP", system-ui, -apple-system, "Segoe UI", sans-serif; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
 #app { min-height: 100%; display: flex; flex-direction: column; }
 button { font: inherit; color: inherit; cursor: pointer; }
@@ -14,7 +15,6 @@ img.q-flag { display: block; height: 1.4em; width: auto; max-width: 2.3em; objec
 img.q-flag.big { height: 120px; max-width: 220px; margin: 0 auto 10px; border-radius: 8px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); }
 img.q-flag.small { height: 44px; max-width: 72px; }
 img.q-flag.choice { height: 64px; max-width: 110px; margin: 0 auto; }
-ruby rt { font-size: .55em; color: var(--muted); }
 
 /* 上の帯 */
 .q-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; background: var(--paper); border-bottom: 2px solid var(--line); position: sticky; top: 0; z-index: 5; }
@@ -110,6 +110,8 @@ ruby rt { font-size: .55em; color: var(--muted); }
 .q-new-badges { margin: 12px 0; }
 .q-new-badges h3 { margin: 0 0 6px; color: var(--accent); }
 .q-actions .q-start { margin-top: 10px; }
+.q-start.q-home-btn { background: var(--paper); color: var(--ink); border: 3px solid var(--line); box-shadow: 0 5px 0 var(--line); font-size: 17px; padding: 12px; }
+.q-start.q-home-btn:active { box-shadow: 0 2px 0 var(--line); }
 .q-missed { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 8px; }
 .q-missed li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px; background: var(--bg); cursor: pointer; font-weight: 700; }
 .q-missed li small { color: var(--muted); font-weight: 400; }

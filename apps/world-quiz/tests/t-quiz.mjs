@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, needsRuby, roundPopulation, SET_SIZE } from "../src/quiz.js";
+import { tierOf, pool, pickSet, choicesFor, makeQuestion, buildSet, stars, updateMistake, roundPopulation, SET_SIZE } from "../src/quiz.js";
 
 const csv = fs.readFileSync(path.resolve(import.meta.dirname, "../../../packages/world/seed/nations.csv"), "utf8").trim().split("\n").slice(1);
 let seed = 1; const rnd = () => (seed = (seed * 48271) % 2147483647) / 2147483647;   // 固定の列
@@ -65,10 +65,6 @@ m = updateMistake(m, true, now); assert.equal(m.due, now + 2 * DAY);
 assert.equal(updateMistake(m, true, now), null, "3 回続けて正解なら台帳から消える");
 assert.equal(updateMistake(m, false, now).streak, 0);
 
-// 読み・人口
-assert.equal(needsRuby("日本", "にほん"), true);
-assert.equal(needsRuby("アメリカ合衆国", "あめりかがっしゅうこく"), false, "カナ始まりは振らない");
-assert.equal(needsRuby("南アフリカ", "みなみあふりか"), true);
-assert.equal(needsRuby("日本", null), false);
+// 人口
 assert.equal(roundPopulation(125416877), 125000000); assert.equal(roundPopulation(9876), 9880); assert.equal(roundPopulation(0), null);
 console.log("t-quiz: ok");
