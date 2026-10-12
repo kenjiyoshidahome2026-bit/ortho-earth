@@ -10,7 +10,31 @@ import { createGlobe, definePlugin, RAW } from "@ortho-earth/globe";
 const t = [];
 const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
 const throws = f => { try { f(); return false; } catch { return true; } };
+const V = new URLSearchParams(location.search).get("v") || "default";
 try {
+	if (V === "lights") {   // ⑦ 光源の口（F1）：setLights/getLights・directional は setLight と同じ経路・他の type は保つだけ・plugin の type は apply が呼ばれる
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		ok("l.empty", map.getLights().length === 0 && map.getLight().intensity === 0.5);
+		map.setLights([{ type: "directional", anchor: "map", intensity: 0.8, position: [1, 90, 45] }, { id: "p1", type: "point", position: [139.76, 35.68, 50], range: 500 }, { type: "ambient" }]);
+		const L = map.getLights();
+		ok("l.kept", L.length === 3 && L[0].type === "directional" && L[1].id === "p1" && L[1].position[2] === 50 && L[2].intensity === 0.2, JSON.stringify(L));
+		ok("l.dirAlias", map.getLight().anchor === "map" && map.getLight().intensity === 0.8 && map.getLight().position[1] === 90);
+		map.setLight({ intensity: 0.3 });
+		ok("l.setLightUpdates", map.getLights()[0].intensity === 0.3 && map.getLights().length === 3);
+		ok("l.unknownThrows", throws(() => map.setLights([{ type: "laser" }])) && map.getLights().length === 3);
+		ok("l.twoDirThrows", throws(() => map.setLights([{}, {}])));
+		ok("l.caps", map.supports("light.directional") && !map.supports("light.point") && map.capabilities()["light.point"].status === "spec" && map.registry.lights.wired === true);
+		let applied = null;
+		map.use({ name: "laser", install(m) { m.registry.lights.add("laser", { apply: (mm, ls) => { applied = ls; } }); } });
+		map.setLights([{ type: "laser", power: 9 }, { type: "point", position: [0, 0] }]);
+		ok("l.pluginApply", applied?.length === 1 && applied[0].power === 9 && map.getLights().length === 2 && map.getLights()[0].type === "laser" && map.supports("light.laser"), JSON.stringify(applied));
+		ok("l.dirCleared", map.getLights().every(l => l.type !== "directional") && map.getLight().intensity === 0.5);   // directional 無し＝従来の固定光（getLight は既定を返す）
+		map.setLights([]); ok("l.clear", map.getLights().length === 0 && applied.length === 0);
+		map.unuse("laser"); ok("l.afterUnuse", throws(() => map.setLights([{ type: "laser" }])));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
 	let bootMap = null, bootLoaded = null;
 	const boot = definePlugin({ name: "boot", provides: ["gadget.hello"], install(m, o) { bootMap = m; bootLoaded = o.flag; m.registry.gadgets.add("hello", function () { return "hi:" + this.getZoom().toFixed(1); }); } });
 	const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false, plugins: [[boot, { flag: 7 }]] });
@@ -24,7 +48,8 @@ try {
 	const be = [c["render.webgl2"].status, c["render.webgpu"].status];
 	ok("cap.backendOne", be.filter(s => s === "builtin").length === 1 && be.filter(s => s === "no").length === 1, be.join("/"));
 	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
-	ok("cap.no", ["light.point", "post.ssr", "camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
+	ok("cap.spec", c["light.point"].status === "spec" && !map.supports("light.point"));
+	ok("cap.no", ["post.ssr", "camera.walk", "data.splat", "react", "types.shim", "tiles3d.requestTransform", "terrain.sample"].every(k => c[k]?.status === "no" && !map.supports(k)));
 	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
 	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
 	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
@@ -63,6 +88,6 @@ try {
 	map2.destroy();
 	ok("destroy.unuses", map2[RAW].plugins().length === 0);
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
-} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+} catch (e) { if (e !== null) document.title = "FAIL " + (e && e.stack || e); }
 </script>
 </body></html>

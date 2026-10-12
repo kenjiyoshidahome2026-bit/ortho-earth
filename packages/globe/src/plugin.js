@@ -4,7 +4,7 @@
 //   definePlugin({ name, install(map, opts), uninstall? })  … 拡張の形を 1 つに（地域パック・gadget・addData の kind・タイル形式・後処理・光源が同じ門をくぐる）
 //   map.use(p, opts) / map.unuse(name) / map.plugins()      … 搭載・撤去・一覧。install が返した関数は撤去の時に呼ぶ（uninstall が無い時）
 //   map.registry.<kind>                                      … 名前→実装の表。dataKinds（map.addData の kind）・gadgets（map.gadget）・tileFormats（core の registerTileFormat）は結線済み、
-//                                                              lights（F1）・postEffects（F3）・textureTranscoders（F4）は表だけ先に在る（登録は受けて保つ・絵はまだ変わらない＝capabilities は "spec"）
+//                                                              lights は F1 で結線（plugin の type＝{ apply(map, lights) } を setLights が呼ぶ）、postEffects（F3）・textureTranscoders（F4）は表だけ先に在る（登録は受けて保つ・絵はまだ変わらない＝capabilities は "spec"）
 //   map.supports(key) / map.capabilities()                   … 正直な答え。"builtin"＝今の版で絵が出る・"plugin"＝搭載した plugin が担う・"spec"＝口は受けて保つが絵は変わらない・
 //                                                              "no"＝口も無い（後の PR の番号を note に）・"never"＝作らない（Mercator＝常に地球儀）。supports は builtin|plugin の時だけ true
 // 台帳＝packages/globe/maplibre-compat.md §9「拡張点の台帳」。DOM も worker も触らない純関数＝tests/plugin.mjs（node）で検める。
@@ -66,10 +66,12 @@ export const STATIC_CAPABILITIES = Object.freeze({
 	"handlers": { status: "builtin", note: "inertia, double-click, box zoom, keyboard, setHandler (A2)" },
 	"style.transition": { status: "builtin", note: "paint transitions, default 300ms (B1)" },
 	"style.diff": { status: "builtin", note: "setStyle diff (B2)" },
-	"light.directional": { status: "builtin", note: "setLight = MapLibre light (B3); becomes a registry.lights member in PR-F1" },
-	"light.point": { status: "no", note: "point light: PR-F1 opening (registry.lights)" },
-	"light.spot": { status: "no", note: "spot light: PR-F1 opening" },
-	"light.ibl": { status: "no", note: "HDR image-based lighting: PR-F1 opening" },
+	"light.directional": { status: "builtin", note: "setLight = MapLibre light (B3); also setLights([{ type: \"directional\" }]) (F1)" },
+	"light.point": { status: "spec", note: "accepted and kept by setLights (F1); not shaded yet. A plugin can render it via registry.lights" },
+	"light.spot": { status: "spec", note: "accepted and kept by setLights (F1); not shaded yet" },
+	"light.ambient": { status: "spec", note: "accepted and kept by setLights (F1); not shaded yet" },
+	"light.hemisphere": { status: "spec", note: "accepted and kept by setLights (F1); not shaded yet" },
+	"light.ibl": { status: "spec", note: "accepted and kept by setLights (F1); HDR environment not loaded yet" },
 	"sky": { status: "builtin", note: "setSky (B4): simple sky on GL2, fog on both renderers" },
 	"sun.direction": { status: "no", note: "sun/moon direction: PR-F2 (implemented from ephem)" },
 	"clouds": { status: "no", note: "volumetric clouds / precipitation: PR-F2 opening" },
@@ -107,7 +109,7 @@ export function createPluginHost(map, { getBackend = () => null, gadgetNames = (
 		dataKinds: createRegistry("dataKinds", { builtin: builtinDataKinds }),
 		gadgets: createRegistry("gadgets", { liveBuiltin: gadgetNames, onAdd: (name, impl) => { if (typeof impl !== "function") throw new Error(`registry.gadgets.add("${name}"): a function is required`); defineGadget?.(name, impl); }, onRemove: name => removeGadget?.(name) }),
 		tileFormats: createRegistry("tileFormats", { builtin: builtinTileFormats, onAdd: (name, impl) => { if (!tileFormats) throw new Error("registry.tileFormats: core decode is not available"); tileFormats.register({ name, ...impl }); }, onRemove: name => { throw new Error(`registry.tileFormats: "${name}" is process-wide (core registerTileFormat has no unregister)`); } }),
-		lights: createRegistry("lights", { wired: false, pending: "PR-F1", builtin: builtinLights }),
+		lights: createRegistry("lights", { builtin: builtinLights, onAdd: (name, impl) => { if (typeof impl !== "object" || typeof impl.apply !== "function") throw new Error(`registry.lights.add("${name}"): { apply(map, lights) } is required`); } }),   // F1 で結線＝setLights が type ごとに impl.apply(map, lightsOfThatType) を呼ぶ
 		postEffects: createRegistry("postEffects", { wired: false, pending: "PR-F3", builtin: builtinPostEffects }),
 		textureTranscoders: createRegistry("textureTranscoders", { wired: false, pending: "PR-F4" }),
 	});
@@ -143,7 +145,7 @@ export function createPluginHost(map, { getBackend = () => null, gadgetNames = (
 		for (const n of registry.gadgets.names()) out[`gadget.${n}`] = registry.gadgets.isBuiltin(n) ? { status: "builtin", note: "map.gadget" } : { status: "plugin", via: registry.gadgets.ownerOf(n), note: "registry.gadgets" };
 		for (const n of registry.tileFormats.names()) out[`tiles.${n}`] = registry.tileFormats.isBuiltin(n) ? { status: "builtin", note: "core decode" } : { status: "plugin", via: registry.tileFormats.ownerOf(n), note: "registry.tileFormats (core registerTileFormat)" };
 		for (const n of registry.postEffects.names()) out[`post.${n}`] = registry.postEffects.isBuiltin(n) ? { status: "builtin", note: "setPostProcess" } : specOf(registry.postEffects, n);
-		for (const n of registry.lights.names()) if (!registry.lights.isBuiltin(n)) out[`light.${n}`] = specOf(registry.lights, n);   // builtin の directional は静的な表にある
+		for (const n of registry.lights.names()) if (!registry.lights.isBuiltin(n)) out[`light.${n}`] = { status: "plugin", via: registry.lights.ownerOf(n), note: "registry.lights (rendered by the plugin's apply)" };   // builtin の type は静的な表にある
 		for (const n of registry.textureTranscoders.names()) out[`texture.${n}`] = specOf(registry.textureTranscoders, n);
 		out["pointcloud.laz"] = pointcloud && pointcloud.laz ? { status: "builtin", note: 'laz-perf bundled via the "#pointcloud-formats" alias' } : { status: "no", note: 'alias "#pointcloud-formats" to @ortho-earth/tile-formats/pointcloud to read COPC (LAZ)' };
 		return out;
