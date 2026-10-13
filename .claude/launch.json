@@ -222,6 +222,18 @@
         "--strictPort"
       ],
       "port": 5186
+    },
+    {
+      "name": "ortho-nl",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--port",
+        "5388",
+        "--strictPort"
+      ],
+      "port": 5388,
+      "cwd": "apps/ortho-nl"
     }
   ]
 }
