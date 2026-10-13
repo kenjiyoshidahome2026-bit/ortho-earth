@@ -98,12 +98,12 @@ npm run publish:pages -w world-data -- --scope=japan --write
 3. **japan・nl・census2020 を出し直す**：新しい読み先・wasm の直し・`llms.txt` が入る。
 4. **`japan/` の残り**：bucket `GIS/pbf/nps_all`（日本の自然公園 10MB・/japan/parks の地種区分）。鍵が要る置き場に
    残っているのはこれ＝移す値打ちがある。
-5. **`terrain.geopbf` の川の線＝国土数値情報 W05（河川）は「非商用」**（本人の判断待ち・10/13 に README を書く時に一次資料で確認）。
-   W05 の使用許諾は非商用のみ・複製物の再配布は不可・GIS 形式（データベース）での利用は事務局へ問い合わせ。川の線は W05 から
-   名前で切り出して間引いた加工物で、以前から /japan/terrain.geopbf として出ていた（今回の移動で生じた話ではない）。
-   道は 3 つ＝(a) 事務局に問い合わせる (b) 川の線を別の出所（OSM＝ODbL・地理院ベクトルタイル）で組み直す (c) そのまま。
-   湖（W09）は「商用可」。ortho-data の README には出典と「非商用」を書き、CC BY-SA 4.0 の一文は `globe/` だけに掛かると明記した。
-   未確認＝地震本部と環境省（nps_all）の利用規約の名前（README には出所だけ書いた）。気象庁は公共データ利用規約 1.0。
+5. **`terrain.geopbf` の川の線**：国土数値情報 W05（河川）は「非商用」（複製物の再配布不可）と 10/13 に一次資料で確認 →
+   同日 **OpenStreetMap の川の関係で組み直した**（本人裁定＝別の出所で組み直す・`scripts/terrain-ledger/shapes-osm.mjs`・
+   関係の wikidata タグ＝台帳の qid で結ぶ・298 本中 297 本）。川の線は © OpenStreetMap contributors・**ODbL**＝頁の出典と
+   ortho-data の README に書いた。W05 で組んだ前の版は `apps/ortho-japan/scripts/terrain-ledger/keep/terrain.w05.geopbf` に
+   残してある（本人の指示・見比べと差し戻し用＝配らない）。**本番の japan は出し直すまで www の旧い写し（W05 の川）を読む**。
+   未確認＝地震本部と環境省（nps_all）の利用規約の名前（README には出所だけ書いた）。気象庁は公共データ利用規約 1.0。湖（W09）は「商用可」。
    `showcase/` は japan の `public/` に残す（本人裁定 10/13＝www のデモの `?g=showcase/…` は公開済みの URL・移すと切れる）。
 6. **地震の archive**：移すなら 1 ファイル置いて読み先 1 行。ただし初回 1 人 23MB＝月 4,300 人ほどで帯域の目安。
    Claude の見立ては「R2 に残す」（wrangler で置ける＝鍵は元々不要）。本人の判断待ち。
