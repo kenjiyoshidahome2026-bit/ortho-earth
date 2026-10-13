@@ -59,6 +59,7 @@ try {
 	post({ type: "init", canvas: offC, labelCanvas: offL, elevBase: 0, terrainExag: 1, earthM: 6371008.8,
 		apiUrl: location.origin + "/nope", noMultiDraw: true }, [offC, offL]);
 	post({ type: "resize", width: 256, height: 256 });
+	post({ type: "pinRes", on: true });   // 動的解像度を止める＝画素を数える頁（dpr 2 の描画が重いと 0.85 段へ降り、数が 0.72 倍に化ける＝②b の 2 枚の間で段が変わると落ちる・2026-10-14）
 
 	// ── ① gintAdd×2（ack に error 無し＝GL2 でも多層が生きている）＋層指名 set ──
 	const C = [139.7, 35.7], dx = 0.05, d = 0.03;
