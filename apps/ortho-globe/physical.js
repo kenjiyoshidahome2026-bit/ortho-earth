@@ -169,6 +169,14 @@ const ICON = { peak: "ph-peak", volcano: "ph-volcano", pass: "ph-pass", waterfal
 const LINE_LABEL = new Set(["river", "current", "canal"]);   // 名前を線に沿わせる
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
+// 焼きの控えの鍵＝地図へ渡す地物そのものの要約（SHA-256 の頭 12 バイト）。エンジンは source の cacheKey が同じなら、焼いた GeoPBF＋GintBUF を IDB から戻して
+// 焼かない（本体 25 万頂点の焼き＝毎回 10 秒・2026-10-13）。中身から作る＝データ・言語（属性の名前）・この頁の作り方（単純化・帯の幅）のどれが変わっても鍵が変わる
+async function sourceKey(id, features) {
+	const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(features))));
+	return `physical/${id}/` + Array.from(h.subarray(0, 12), x => x.toString(16).padStart(2, "0")).join("");
+}
+const geojsonSource = async (id, features) => ({ type: "geojson", data: { type: "FeatureCollection", features }, cacheKey: await sourceKey(id, features) });
+
 export async function mountPhysical(map, { geopbf, data } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/physical/${c}.json`));
 	document.title = t("Physical world — ortho-globe");
@@ -259,7 +267,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// gint に積むのは描く物と当たり判定に使う物だけ（川・運河・海流の線・山脈の帯・乾燥と氷の面）。大陸・湖・海・島…の面は名前だけ＝積まない
 	//（寄り先の範囲と選択の縁取り＝anno は shapes から引く）
 	const drawnShape = f => /LineString$/.test(f.geometry.type) || f.properties.shape === "axis" || !!FILL_CATS[f.properties.category];
-	map.addSource("ph", { type: "geojson", data: { type: "FeatureCollection", features: shapes.filter(drawnShape) } });
+	map.addSource("ph", await geojsonSource("ph", shapes.filter(drawnShape)));
 	map.addSource("ph-pts", { type: "geojson", data: { type: "FeatureCollection", features: points } });
 	map.addSource("ph-lab", { type: "geojson", data: { type: "FeatureCollection", features: lineLabels } });
 	const polyF = ["==", ["geometry-type"], "Polygon"];
@@ -472,7 +480,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 					if (id === "lines" && pr.kind === "dateline") continue;   // 日付変更線は人が決めた線＝地形の地図には入れない（赤道・回帰線・極圏＝自転軸の傾きで決まる線だけ・本人 2026-10-01）
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
 						: { kind: pr.kind, name: pr["name_" + lang] || pr.name } }); }
-				map.addSource("ph-" + id, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+				map.addSource("ph-" + id, await geojsonSource(id, feats));
 				const L = id === "plates" ? [
 					{ id: "ph-plates", type: "line", source: "ph-plates", filter: ["==", ["get", "kind"], "boundary"],
 						paint: { "line-color": ["match", ["get", "cls"], ...PLATE_KINDS.flatMap(k => [k.id, k.color]), "#5a6472"], "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.2, 6, 2.6], "line-opacity": 0.85 } },
@@ -510,7 +518,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { koppen: pr.code, group: pr.group, kname: pr["name_" + lang] || pr.name, kc } });
 				const chips = panel.querySelector(`.kg[data-g="${pr.group}"] .kcs`);
 				if (chips) chips.insertAdjacentHTML("beforeend", `<span class="kc" title="${esc(pr["name_" + lang] || pr.name)}"><i style="background:${kc}"></i>${esc(pr.code)}</span>`); }
-			map.addSource("ph-koppen", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+			map.addSource("ph-koppen", await geojsonSource("koppen", feats));
 			await map.addLayer({ id: "ph-koppen", type: "fill", source: "ph-koppen",
 				paint: { "fill-color": koppenColor(), "fill-opacity": 0.42 } }, "ph-fill");   // いちばん下（地形の面・線・名前の下）
 		})();
