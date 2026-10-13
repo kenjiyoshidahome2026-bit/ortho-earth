@@ -23,11 +23,12 @@ import { createLabelLayer, boxGrid } from "../src/labels2d.js";
 }
 
 // ── 偽の 2D 文脈（描いた字と書体を記録する）
-globalThis.OffscreenCanvas ??= class { constructor(w, h) { this.width = w; this.height = h; } getContext() { return fakeCtx(this); } };
+const offCtxs = [];   // 偽の OffscreenCanvas の文脈（字の版の頁＝焼いた字を数える）
+globalThis.OffscreenCanvas ??= class { constructor(w, h) { this.width = w; this.height = h; } getContext() { const c = fakeCtx(this); offCtxs.push(c); return c; } };
 function fakeCtx(canvas) {
 	const log = [];
 	const st = { font: "10px sans-serif", letterSpacing: "0px", textAlign: "start", textBaseline: "alphabetic" };
-	const t = { x: 0, y: 0 }, stack = [];
+	const t = { x: 0, y: 0 }, stack = []; let tm = null, m6 = null;   // tm＝直近の transform（字ごとの行列＝線に沿う注記の検定）・m6＝直近の setTransform（字の版から貼る時の行列）
 	const ctx = {
 		canvas, log,
 		get font() { return st.font; }, set font(v) { st.font = v; },
@@ -35,9 +36,9 @@ function fakeCtx(canvas) {
 		get textAlign() { return st.textAlign; }, set textAlign(v) { st.textAlign = v; },
 		get textBaseline() { return st.textBaseline; }, set textBaseline(v) { st.textBaseline = v; },
 		measureText: s => ({ width: [...String(s)].length * parseFloat(st.font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 10) * 0.6 }),
-		fillText: (s, x, y) => log.push({ op: "fill", s, x: x + t.x, y: y + t.y, font: st.font, alpha: ctx.globalAlpha, fill: ctx.fillStyle }),
-		strokeText() {}, setTransform() { t.x = 0; t.y = 0; }, translate(x, y) { t.x += x; t.y += y; }, save() { stack.push({ ...t, ...st }); }, restore() { const s = stack.pop(); if (s) { t.x = s.x; t.y = s.y; st.font = s.font; st.textAlign = s.textAlign; st.textBaseline = s.textBaseline; } },
-		drawImage: (src, ...a) => log.push({ op: "img", src, a }),
+		fillText: (s, x, y) => log.push({ op: "fill", s, x: x + t.x, y: y + t.y, font: st.font, alpha: ctx.globalAlpha, fill: ctx.fillStyle, m: tm }),
+		strokeText() {}, setTransform(...a) { t.x = 0; t.y = 0; tm = null; m6 = a; }, transform(a, b, c, d) { tm = [a, b, c, d]; }, translate(x, y) { t.x += x; t.y += y; }, save() { stack.push({ ...t, ...st }); }, restore() { const s = stack.pop(); if (s) { t.x = s.x; t.y = s.y; st.font = s.font; st.textAlign = s.textAlign; st.textBaseline = s.textBaseline; } },
+		drawImage: (src, ...a) => log.push({ op: "img", src, a, m6 }),
 		getImageData: (x, y, w, h) => ({ data: new Uint8ClampedArray(w * h * 4).fill(255) }),
 		globalAlpha: 1,
 	};
@@ -45,7 +46,7 @@ function fakeCtx(canvas) {
 }
 const W = 800, H = 600;
 const cam = { center: [139.7, 35.68], zoom: 14, pitch: 0, bearing: 0, dpr: 1 };
-const mkLayer = (opts) => { const canvas = { width: W, height: H }; const ctx = fakeCtx(canvas); canvas.getContext = () => ctx; return { layer: createLabelLayer(canvas, { recollideMs: 1e9, ...opts }), ctx }; };
+const mkLayer = (opts) => { const canvas = { width: W, height: H }; const ctx = fakeCtx(canvas); canvas.getContext = () => ctx; return { layer: createLabelLayer(canvas, { recollideMs: 1e9, glyphAtlas: false, ...opts }), ctx }; };   // glyphAtlas false＝字ごとの fillText を記録して位置を検める（版から貼る経路は 13）
 const lab = (text, lon, lat, extra = {}) => ({ anchor: [lon, lat], text, size: 12, color: [0, 0, 0, 1], halo: [1, 1, 1, 1], haloW: 1, sort: 0, ...extra });
 const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 
@@ -249,6 +250,74 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	// 字送りの倍率（szn）＝"RoadName" は z15 で 2 倍（115.2px）・spacing−長さ＜spacing/4 なら間隔＝長さ＋spacing/4＝140.2（MapLibre の getAnchors）
 	const { layer: l6 } = mkLayer(); l6.setLabels([road(139.68, 139.72, { text: "RoadName", szn: [6, 24] })]); l6.draw({ ...cam, zoom: 15 }); const f = lines(l6);
 	assert.ok(f.length === 5 && Math.abs(f[1].x - f[0].x - 140.2) < 1.5, `長い文字＝間隔は文字＋spacing/4（${f.length}・${f.length > 1 ? (f[1].x - f[0].x).toFixed(1) : "?"}）`);
+}
+
+// ── 12. 傾けた地図の線に沿う注記＝字は地面に寝る：字の行列は鏡像にならず（det＞0）・どの向きにも 1 を超えて伸びない・奥へ向かう道の名は字送りが縮み、横の道は縮まない。
+// 旧＝地面の基底を「線に収めるために滑らせた後の位置」から測っていた＝短い道（傾けると画面でさらに縮む）で基底が壊れ、字が鏡像・数倍に化けた
+{
+	const D = Math.PI / 180, lat0 = 52.01, lon0 = 4.36, Z = 16, PXM = 256 * 2 ** Z / 360, cl = Math.cos(lat0 * D);
+	const road = (lenPx, az) => {   // 長さ（真俯瞰の画面 px）・方位（北から時計回り）
+		const dlon = Math.sin(az * D) * lenPx / 2 / (PXM * cl), dlat = Math.cos(az * D) * lenPx / 2 / (PXM * cl);
+		return lab("Westplantsoen", lon0, lat0, { lp: 2, path: new Float64Array([lon0 - dlon, lat0 - dlat, lon0 + dlon, lat0 + dlat]), cum: new Float32Array([0, lenPx / cl * 16]), tz: Z, upp: 16, tbx: [4, 51, 5, 53], lc: 0, sp: 250, ov: true, key: "w" + lenPx + "_" + az });
+	};
+	const glyphs = (lenPx, az, c) => { const { layer, ctx } = mkLayer(); layer.setLabels([road(lenPx, az)]); layer.draw({ center: [lon0, lat0], dpr: 1, zoom: Z, pitch: 0, bearing: 0, ...c }); return ctx.log.filter(e => e.op === "fill"); };
+	let n = 0;
+	for (const pitch of [0, 45, 60]) for (const bearing of [0, 30, 120, 200]) for (const az of [0, 30, 60, 90, 135]) for (const len of [100, 130, 200, 400]) for (const zoom of [16, 16.4, 16.9])
+		for (const e of glyphs(len, az, { zoom, pitch: pitch * D, bearing: bearing * D })) {
+			const [a, b, c, d] = e.m; n++;
+			assert.ok(a * d - b * c > 0 && Math.hypot(a, b) < 1.02 && Math.hypot(c, d) < 1.02, `字の行列（傾き ${pitch}・回転 ${bearing}・道の方位 ${az}・長さ ${len}・z${zoom}）: ${e.m.map(v => v.toFixed(2))}`);
+		}
+	assert.ok(n > 5000, `字が描かれている（${n}）`);
+	const step = g => Math.hypot(g[1].x - g[0].x, g[1].y - g[0].y);
+	const flat = step(glyphs(400, 0, {})), deep = step(glyphs(400, 0, { pitch: 60 * D })), across = step(glyphs(400, 90, { pitch: 60 * D }));
+	assert.ok(deep < flat * 0.6, `奥へ向かう道＝字送りが縮む（${flat.toFixed(2)}→${deep.toFixed(2)}）`);
+	assert.ok(Math.abs(across - flat) < flat * 0.02, `横の道＝字送りはそのまま（${flat.toFixed(2)}→${across.toFixed(2)}）`);
+	assert.ok(Math.abs(flat - step(glyphs(400, 90, {}))) < 1e-9, "真俯瞰＝道の向きで字送りは変わらない");
+}
+
+// ── 13. 字の版（線に沿う注記の既定の描き方）＝字ごとの fillText と同じ位置・同じ行列で drawImage・字は 1 回だけ焼く（次のフレームは焼かない）・空白は貼らない・
+// 貼る箱は字の中心（錨）を挟む・書体が載ったら（clearFontCache）焼き直す
+{
+	const D = Math.PI / 180, lat0 = 52.01, lon0 = 4.36, Z = 16, PXM = 256 * 2 ** Z / 360, cl = Math.cos(lat0 * D);
+	const dlon = 200 / (PXM * cl), text = "Hugo de Grootstraat";
+	const road = () => lab(text, lon0, lat0, { lp: 2, path: new Float64Array([lon0 - dlon, lat0 - dlon * 0.3, lon0 + dlon, lat0 + dlon * 0.3]), cum: new Float32Array([0, 420 / cl * 16]), tz: Z, upp: 16, tbx: [4, 51, 5, 53], lc: 0, sp: 250, ov: true, key: "hugo" });
+	const camP = { center: [lon0, lat0], dpr: 1, zoom: Z, pitch: 55 * D, bearing: 20 * D };
+	const v = mkLayer(), a = mkLayer({ glyphAtlas: true });
+	v.layer.setLabels([road()]); v.layer.draw(camP); a.layer.setLabels([road()]);
+	const baked = () => offCtxs.reduce((n, c) => n + c.log.filter(e => e.op === "fill").length, 0), b0 = baked();
+	a.layer.draw(camP);
+	const fv = v.ctx.log.filter(e => e.op === "fill" && e.s.trim()), ia = a.ctx.log.filter(e => e.op === "img");
+	assert.ok(fv.length > 0 && fv.length % [...text].filter(c => c.trim()).length === 0 && ia.length === fv.length, `字の数（空白は貼らない）: fillText ${fv.length}・drawImage ${ia.length}`);
+	assert.equal(a.ctx.log.filter(e => e.op === "fill").length, 0, "版から貼る時は注記の canvas に fillText しない");
+	for (let i = 0; i < fv.length; i++) {
+		const m = ia[i].m6, w = [...fv[i].m, fv[i].x, fv[i].y];
+		assert.ok(m.every((q, j) => Math.abs(q - w[j]) < 1e-9), `字 ${i}（${fv[i].s}）の行列と位置が同じ: ${m.map(q => q.toFixed(3))} vs ${w.map(q => q.toFixed(3))}`);
+		const [, sx, sy, sw, sh, dx, dy, dw, dh] = [ia[i].src, ...ia[i].a];
+		assert.ok(dx < 0 && dx + dw > 0 && dy < 0 && dy + dh > 0 && Math.abs(sw / dw - 2) < 0.2 && Math.abs(sh / dh - 2) < 0.2 && sx >= 1 && sy >= 1, `貼る箱＝錨を挟む・版は 2 倍（${[sx, sy, sw, sh, dx, dy, dw, dh].map(q => +q.toFixed(1))}）`);
+	}
+	const distinct = new Set([...text].filter(c => c.trim())).size, b1 = baked();
+	assert.equal(b1 - b0, distinct, `字は種類ごとに 1 回だけ焼く（${b1 - b0} vs ${distinct}）`);
+	a.ctx.log.length = 0; a.layer.draw({ ...camP, bearing: 21 * D });
+	assert.ok(a.ctx.log.filter(e => e.op === "img").length === fv.length && baked() === b1, "次のフレーム＝貼るだけ（焼かない）");
+	a.layer.clearFontCache(); a.ctx.log.length = 0; a.layer.draw({ ...camP, bearing: 22 * D });
+	assert.equal(baked() - b1, distinct, "書体が載ったら焼き直す");
+}
+
+// ── 14. 傾きで潰れた線の注記は出さない（lineFlatPx＝[消える, 全部出る]・潰れた向きの字の高さ CSS px）：潰れは線の向きに依らない・大きい字は残る・null＝潰れても出す・間は薄く
+{
+	const D = Math.PI / 180, lat0 = 52.01, lon0 = 4.36, Z = 16, PXM = 256 * 2 ** Z / 360, cl = Math.cos(lat0 * D);
+	const road = (az, extra = {}) => { const dlon = Math.sin(az * D) * 200 / (PXM * cl), dlat = Math.cos(az * D) * 200 / (PXM * cl); return lab("Straat", lon0, lat0, { lp: 2, path: new Float64Array([lon0 - dlon, lat0 - dlat, lon0 + dlon, lat0 + dlat]), cum: new Float32Array([0, 400 / cl * 16]), tz: Z, upp: 16, tbx: [4, 51, 5, 53], lc: 0, sp: 250, ov: true, key: "f" + az, ...extra }); };
+	const run = (pitch, az, opts, extra) => { const { layer, ctx } = mkLayer(opts); layer.setLabels([road(az, extra)]); layer.draw({ center: [lon0, lat0], dpr: 1, zoom: Z, pitch: pitch * D, bearing: 0 }); return { n: ctx.log.filter(e => e.op === "fill").length, flat: layer.placedDebug().line.flat || 0, alpha: ctx.log.find(e => e.op === "fill")?.fill }; };
+	for (const az of [0, 45, 90]) {
+		assert.ok(run(50, az).n > 0, `傾き 50°＝出る（道の方位 ${az}）`);
+		const r = run(80, az); assert.ok(r.n === 0 && r.flat > 0, `傾き 80°＝12px の字は潰れて出さない（道の方位 ${az}・${r.n}・flat ${r.flat}）`);
+		assert.ok(run(80, az, { lineFlatPx: null }).n > 0, "lineFlatPx null＝潰れても出す");
+		assert.ok(run(80, az, {}, { size: 48 }).n > 0, "大きい字（48px）は同じ傾きでも残る");
+	}
+	// 間（消える〜全部出る）＝薄く：幅の広い帯にして、濃さが傾きで単調に下がる
+	const al = p => { const m = /rgba?\(([^)]+)\)/.exec(run(p, 90, { lineFlatPx: [2, 11] }).alpha || ""), q = m ? m[1].split(",") : []; return q.length > 3 ? +q[3] : m ? 1 : 0; };
+	const a40 = al(40), a55 = al(55), a65 = al(65);
+	assert.ok(a40 > a55 && a55 > a65 && a65 > 0, `潰れるほど薄く（${a40}・${a55}・${a65}）`);
 }
 
 console.log("labels2d: ok");
