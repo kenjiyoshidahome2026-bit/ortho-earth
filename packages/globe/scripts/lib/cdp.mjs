@@ -6,8 +6,9 @@
 // connect は browser の WebSocket（flat session＝sessionId つきで worker にも話せる）にも頁の WebSocket にも使える。
 import { spawn } from "node:child_process";
 import { rm, readFile } from "node:fs/promises";
+import { resolveChrome } from "./chrome.mjs";
 
-export const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+export const CHROME = await resolveChrome();   // env CHROME → 検定専用の Chrome for Testing（無ければ取る）→ /Applications（chrome.mjs）
 // ソフトウェア GL（仮想時間と両立しない頁）＝既定の旗
 export const SWIFTSHADER = ["--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"];
 // 実 GPU（WebGPU バックエンドの検分）＝WebGPU の async init は仮想時間と両立しない＝ここも実時間

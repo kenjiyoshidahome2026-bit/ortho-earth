@@ -8,11 +8,12 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 const base = process.argv[2], outDir = process.argv[3];
 const ids = JSON.parse(fs.readFileSync(process.argv[4], "utf8")).models.map(m => m.id);
 fs.mkdirSync(outDir, { recursive: true });
 const PORT = 9479;
-const chrome = spawn("/Applications/Google Chrome.app/Contents/MacOS/Google Chrome", ["--headless=new", `--remote-debugging-port=${PORT}`, "--window-size=1280,800",
+const chrome = spawn(await resolveChrome(), ["--headless=new", `--remote-debugging-port=${PORT}`, "--window-size=1280,800",
 	"--use-angle=metal", "--ignore-gpu-blocklist", "--enable-unsafe-swiftshader", "--hide-scrollbars", "--force-device-scale-factor=1",
 	"--user-data-dir=" + os.tmpdir() + "/ortho-thumbs-" + Date.now(), "about:blank"], { stdio: "ignore" });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
