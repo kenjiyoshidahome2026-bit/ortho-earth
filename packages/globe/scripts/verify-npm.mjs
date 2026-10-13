@@ -13,6 +13,7 @@ import { writeFileSync, rmSync, mkdirSync, readFileSync, existsSync, statSync } 
 import path from "node:path";
 import os from "node:os";
 import { setTimeout as sleep } from "node:timers/promises";
+import { resolveChrome } from "./lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const GLOBE = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const ROOT = path.resolve(GLOBE, "../..");
@@ -58,7 +59,6 @@ for (const b of [mainA3, a5, a6]) for (const line of b.split("\n")) {
 }
 writeFileSync(path.join(WORK, "vite.config.js"), `
 import { writeFileSync } from "node:fs";
-import { resolveChrome } from "./lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 const beacon = { name: "beacon", configureServer(s) { s.middlewares.use((req, res, next) => {
 	if (!req.url?.startsWith("/__result")) return next();
 	const q = new URL(req.url, "http://x").searchParams; writeFileSync(${JSON.stringify(RESULT)} + (q.get("k") ? "." + q.get("k") : ""), q.get("t") || ""); res.statusCode = 204; res.end(); }); } };
