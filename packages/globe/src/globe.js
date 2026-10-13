@@ -771,7 +771,7 @@ renderWorker.onmessage = e => {
 		return void console.log("[gint] fid=%s  lng=%s lat=%s", d.featureId, d.lng?.toFixed?.(6), d.lat?.toFixed?.(6));
 	}
 	if (d.action === "tiers") return;   // gint LOD tier 構築完了の報告（ベンチ用メタ）＝アプリでは使わない
-	if (d.type === "snapshot") return snapPart(d.id, "render", d);   // shot 用：基図+ラベルの ImageBitmap
+	if (d.type === "snapshot") return snapPart(d.id, "render", orderSnapOverlays(d));   // shot 用：基図+ラベル(+同一フレームのオーバーレイ)の生画素
 	if (d.type === "dlApplied") return onSceneApplied(d.slot, d.sig);   // multi_draw の ack＝renderer が draw list を適用した瞬間（＝画面に載った）
 	if (d.type === "overlayPickResult") { const f = pickWait.get(d.seq); pickWait.delete(d.seq); f?.(d.hits || []); return; }   // 統一 picking（PR-1）の答え
 	if (d.type === "overlayEvent") return overlays.get(d.name)?.onmessage?.(d.data);   // 同一フレームのオーバーレイ → main（hit 矩形・画素の返送など）
@@ -2934,6 +2934,20 @@ const ovLayerIds = new Map();
 const isOv = n => overlays.has(n) || ovLayerIds.has(n);
 const pickWait = new Map();   // seq → resolve（統一 picking の往復・下の map.pickOverlays）
 let pickSeq = 0;
+// スナップショットのオーバーレイ画素（worker は名前付きで返す）を画面の重ね順へ：DOM 順・注記より上（above）か下か・
+// 非表示（display:none 等＝画面に出ていない）は落とす。compose.js はこの順（below→注記→above）で重ねるだけ
+function orderSnapOverlays(d) {
+	const byName = new Map((d.overlays || []).map(o => [o.name, o]));
+	const below = [], above = [];
+	for (const cv of mapEl.querySelectorAll("canvas.overlay-gl")) {
+		const o = byName.get(cv.dataset.overlay);
+		if (!o || overlays.get(o.name)?.el !== cv) continue;
+		const cs = getComputedStyle(cv);   // 自身の display/visibility だけ見る（地図ごと隠れた撮影でも落とさない）
+		if (cs.display === "none" || cs.visibility === "hidden") continue;
+		(labelCanvas.compareDocumentPosition(cv) & Node.DOCUMENT_POSITION_FOLLOWING ? above : below).push(o);
+	}
+	return { ...d, overlays: below, overlaysAbove: above };
+}
 map.overlay = (src, { name, opts, above = false } = {}) => {   // src＝URL（依存ゼロのモジュール・?url）か { builtin: "anno" }（render worker のバンドル内）。above＝注記の canvas より上に重ねる（覆う画像・2026-09-21）
 	name ??= "ov" + (overlays.size + 1);
 	if (overlays.has(name) || ovLayerIds.has(name)) throw new Error(`overlay "${name}" already exists`);
