@@ -21,7 +21,7 @@ import os from "node:os";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5248, CDP = 9348;
-const CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
+const CHROME = await resolveChrome();
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".map": "application/json" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
@@ -61,6 +61,7 @@ writeFileSync(path.join(WORK, "index.html"), `<!DOCTYPE html><html><head><meta c
 // ここで .then() を通しておけば「普通の設定の普通のアプリ」で動くことの証明になる。
 writeFileSync(path.join(WORK, "src/main.js"), `import world from "ortho-world";
 import "ortho-world/ortho-world.css";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 window.__log = [];
 world({ target: "#box", lang: "en" }).then(w => {
 	["map", "select", "hover"].forEach(k => w.on(k, e => window.__log.push([k, e && (e.iso2 || e.key)])));

@@ -113,7 +113,9 @@ workspace are unrolled to their test files, about 190 of them, and run in parall
 `npm run test:list` shows the files, `npm test -- geopbf` runs a subset, `TEST_JOBS=1` runs them one by one).
 `npm run verify:i18n` at the root runs the i18n gates of all apps. Browser suites stay per package: `npm run verify:ui` / `verify:webgpu` / `verify:nocoi` / `verify:examples` in `packages/globe`,
 `npm run verify:ui` / `verify:webgpu` / `verify:prod` in `apps/ortho-japan`, `npm run verify:pages` in `packages/geopbf`,
-`npm run verify:gpu` in `apps/equal`. They drive a local Google Chrome, and the WebGPU suites need a real GPU.
+`npm run verify:gpu` in `apps/equal`. They drive a pinned headless Chrome for Testing (downloaded once, about 150 MB, to `~/.cache/ortho-earth/chrome-for-testing`;
+`npm run chrome:install` in `packages/globe` fetches it ahead of time, `CHROME=<path>` overrides it). It is a separate app from your everyday Google Chrome,
+so a running suite never blocks you from opening Chrome. The WebGPU suites need a real GPU.
 
 ## Deploying
 
