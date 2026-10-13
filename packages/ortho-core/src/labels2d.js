@@ -9,6 +9,7 @@ import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切ら�
 import { fontCss } from "./fontstack.js";
 import { charRotated, verticalize } from "./vertical.js";   // 縦書き（text-writing-mode・2026-10-03）
 import { labelKey } from "./labelkey.js";
+import { parseRGBA } from "./color.js";
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝星空の注記も星（renderer）と同じ時刻で回す
 import { gmstAt } from "@ortho-earth/ephem/sun";       // 恒星時の正本（renderer の星と同じ式）
 
@@ -355,11 +356,14 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	// symbol-z-order（C5）：zo＝"viewport-y"｜"source"（無指定＝auto）・sk＝sort-key あり。MapLibre の sortFeaturesByY＝(viewport-y か auto で sort-key 無し) かつ (allow-overlap か ignore-placement)
 	const zoY = L => (L.zo === "viewport-y" || (L.zo !== "source" && !L.sk)) && !!(L.ov || L.ig || L.iov || L.iig);
 	let zoAny = false;
+	// 利用者の層の色＝[r,g,b,a]（0〜1）に揃えて持つ（描く側の css() は配列だけを受ける＝毎フレームは裁かない）。無い物は既定・CSS の色（文字列）で届いた物はここで読む
+	const UCOL0 = [0.15, 0.18, 0.22, 1], UHALO0 = [1, 1, 1, 0.9];
+	const rgbaOr = (c, d) => c == null ? d : typeof c === "object" ? c : parseRGBA(c);
 	function setUserLabels(id, list, meta = {}) {
 		if (!list?.length) userSets.delete(id);
 		else userSets.set(id, {
 			visible: userSets.get(id)?.visible ?? true,
-			list: list.map(L => ({ sort: -1, size: 12, color: [0.15, 0.18, 0.22, 1], halo: [1, 1, 1, 0.9], haloW: 2, ...L,
+			list: list.map(L => ({ sort: -1, size: 12, haloW: 2, ...L, color: rgbaOr(L.color, UCOL0), halo: rgbaOr(L.halo, UHALO0),
 				k: String(id), minZ: meta.minZoom ?? null, maxZ: meta.maxZoom ?? null })),
 		});
 		rebuild();
