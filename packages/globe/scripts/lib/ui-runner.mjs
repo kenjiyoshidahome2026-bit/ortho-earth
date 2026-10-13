@@ -6,6 +6,7 @@
 //     IDB/localStorage/GPU が次へ漏れない（9/24 に verify-webgpu 側で踏んだ轍と同じ手当て）
 import { spawn, execFile } from "node:child_process";
 import net from "node:net";
+import { startBucketCache } from "./bucket-cache.mjs";
 import { CHROME, SWIFTSHADER, REALGPU, waitExit, launchChrome, newTab, connect } from "./cdp.mjs";
 
 export { CHROME, SWIFTSHADER, REALGPU, waitExit };   // 2026-09-27 に cdp.mjs へ移した＝ここからも従来どおり取れる
@@ -60,11 +61,11 @@ export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "",
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
 // backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
 // worlds：配列を渡すと起動ログ "[geo] world=…" から "ellipsoid"／"sphere" を積む（runPages の世界の検め・#43 段 0）。
-export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null, worlds = null } = {}) {
+export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null, worlds = null, chromeArgs = [] } = {}) {   // chromeArgs＝Chrome に足す旗（runPages の bucket の中継）
 	// Chrome の起動・タブ・WebSocket は cdp.mjs（port は Chrome が選ぶ・頁ごとに別プロファイル・kill の exit を待つ）
 	let ch = null;
 	try {
-		try { ch = await launchChrome({ flags, profilePrefix, seq }); } catch (e) { return "FAIL " + e.message; }
+		try { ch = await launchChrome({ flags, profilePrefix, seq, extraArgs: chromeArgs }); } catch (e) { return "FAIL " + e.message; }
 		let target;
 		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
 		const cdp = await connect(target.webSocketDebuggerUrl);
@@ -132,11 +133,11 @@ const runVirtualDump = url => new Promise(res => execFile(CHROME,
 	["--headless=new", ...SWIFTSHADER, "--virtual-time-budget=" + VIRTUAL_BUDGET_MS, "--dump-dom", url],
 	{ timeout: 90000, maxBuffer: 64 * 1024 * 1024 },
 	(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));
-export async function runVirtual(url, { limitS = 90, profilePrefix = "oe-virt", seq = 1 } = {}) {
+export async function runVirtual(url, { limitS = 90, profilePrefix = "oe-virt", seq = 1, chromeArgs = [] } = {}) {
 	if (process.env.VG_VIRTUAL === "dump") return runVirtualDump(url);
 	let ch = null;
 	try {
-		try { ch = await launchChrome({ flags: SWIFTSHADER, profilePrefix, seq }); } catch (e) { return "FAIL " + e.message; }
+		try { ch = await launchChrome({ flags: SWIFTSHADER, profilePrefix, seq, extraArgs: chromeArgs }); } catch (e) { return "FAIL " + e.message; }
 		let target;
 		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
 		const cdp = await connect(ch.browserWs);   // browser の WebSocket＝flat session で頁にも worker にも話せる
@@ -192,7 +193,8 @@ export async function runVirtual(url, { limitS = 90, profilePrefix = "oe-virt", 
 //   ・noBoot の頁（地球儀を起こさない＝createRenderer 直叩き・OPFS 等）は起動ログを求めない
 //   ・どの頁も表題に skip／スキップ（WebGPU 不在で素通りする印）があれば FAIL
 export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, shotLast = process.env.SHOT || null,
-	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set(), jobs = +process.env.VG_JOBS || 1, serial = new Set() }) {
+	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set(), jobs = +process.env.VG_JOBS || 1, serial = new Set(), bucketCache = true }) {   // bucketCache＝bucket の応答を手元の中継から返す（lib/bucket-cache.mjs・回線の細さで idle 待ちが落ちない）。回線や初回の速さそのものを測る走り（verify:net・perf）は false
+	const relay = bucketCache ? await startBucketCache() : null, chromeArgs = relay ? relay.chromeArgs : [];
 	let seq = 0;
 	const t0 = Date.now();
 	const one = async p => {
@@ -205,8 +207,8 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 		const backends = expectBackend && rt ? [] : null;
 		// 世界の検め（#43）：頁の URL に ell= があれば、起動ログの世界（[geo] world=）が全部それに合うこと。頁の中で読み直す頁（t-ellparity?g=cache）は ell を付けない
 		const wantWorld = rt && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
-		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
-		let title = rt ? await runRealtime(url, opt) : await runVirtual(url, { limitS: long[page] ?? 90, seq: opt.seq, ...(profilePrefix ? { profilePrefix: profilePrefix + "-v" } : {}) });
+		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, chromeArgs, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
+		let title = rt ? await runRealtime(url, opt) : await runVirtual(url, { limitS: long[page] ?? 90, seq: opt.seq, chromeArgs, ...(profilePrefix ? { profilePrefix: profilePrefix + "-v" } : {}) });
 		if (backends && title.startsWith("PASS")) {
 			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;
 			const seen = [...new Set(backends)].join("+") || "なし";
@@ -242,6 +244,7 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 	await Promise.all(Array.from({ length: N }, async () => { while (k < par.length) { const i = par[k++]; res[i] = await one(pages[i]); flush(); } }));
 	for (const i of ser) { res[i] = await one(pages[i]); flush(); }
 	flush();
+	if (relay) { const t = relay.stats; console.log(`bucket の中継：手元 ${t.hit}・新規 ${t.miss}・確かめ直し ${t.revalidated}・古い物で代用 ${t.stale}・素通し ${t.pass}・失敗 ${t.error}`); if (process.env.OE_BUCKET_CACHE_LOG) console.log(JSON.stringify({ passBy: t.passBy, errors: t.errors }, null, 1)); else if (t.errors.length) console.log("  失敗：" + t.errors.slice(0, 5).join(" ｜ ")); await relay.close(); }
 	const slow = pages.map((p, i) => [p, res[i].s]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p, s]) => `${p} ${s.toFixed(0)}s`).join("・");
 	console.log(`\n壁時計 ${((Date.now() - t0) / 60000).toFixed(1)} 分（${N} 本ずつ）・遅い頁：${slow}`);
 	console.log(fail ? `\n✗ ${fail}/${pages.length} ページ失敗` : `\n✓ 全${pages.length}ページ PASS`);
