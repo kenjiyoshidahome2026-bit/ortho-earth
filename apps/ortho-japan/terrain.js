@@ -94,7 +94,7 @@ const kmOf = (a, b) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]
 async function loadPbf(geopbf, url) {
 	const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
 	const b = await r.blob();
-	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer());
+	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { gint: false });   // 地物を引くだけ（getFeature）＝GintBUF は焼かない（1.6MB の台帳で初回の待ちが縮む）
 }
 // 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）＝anno の段ごとの粗い版に使う
 function simplifyPts(P, tol, closed) {
