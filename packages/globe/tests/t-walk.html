@@ -37,13 +37,23 @@ try {
 	ok("turnEast", p3.bearing === 90 && Math.abs(mE(p3, p2) - 10) < 0.05 && Math.abs(mN(p3, p2)) < 0.05 && Math.abs(map.getCamera().heading - 90) < 0.01, `dE=${J(mE(p3, p2))} dN=${J(mN(p3, p2))} heading=${J(map.getCamera().heading)}`);
 	w.look(10); ok("look", w.position().lookDown === 15 && Math.abs(map.getCamera().pitch - 75) < 0.01, `pitch=${J(map.getCamera().pitch)}`);
 	w.look(-10);
-	// ④ 鍵
-	key("w", true); await sleep(600); key("w", false); await sleep(50);
+	// ④ 鍵＝壁時計でなく届いた rAF の刻みで測る（2026-10-14）。ソフトウェア描画が詰まると rAF が 1〜2 秒届かず（負荷時に実測・timer は進む）、
+	//   歩行は 1 刻みを 0.1 秒で切る＝「600ms 押して 0.4m 以上」は描画の速さで落ちた。歩行と同じ rAF の時刻から「積むはずの秒」を出し、進んだ距離と突き合わせる
+	const frames = n => new Promise(res => { const tick = () => (--n < 0 ? res() : requestAnimationFrame(tick)); requestAnimationFrame(tick); });
+	const hold = async (k, shift, n) => {   // 押してから rAF が n 刻み届くまで押す。戻り＝Σ min(0.1, dt)（歩行の frame と同じ式・最初の 1 回は 0）
+		let sum = 0, last = 0;
+		key(k, true, shift);   // 先に押す＝歩行の rAF が同じフレームの中で先に走る
+		await new Promise(res => { const tick = tt => { if (last) sum += Math.min(0.1, (tt - last) / 1000); last = tt; if (--n < 0) return res(); requestAnimationFrame(tick); }; requestAnimationFrame(tick); });
+		key(k, false);
+		await frames(2);   // 歩行の rAF が空の鍵を見て止まるまで（次の押下が前の刻みを引きずらない）
+		return sum;
+	};
+	const s4 = await hold("w", false, 20);
 	const p4 = w.position(), dKey = mE(p4, p3);
-	ok("keyForward", dKey > 0.4 && dKey < 1.4, `dE=${J(dKey)}m in 600ms @1.4m/s`);
-	key("w", true, true); await sleep(400); key("w", false); await sleep(50);
+	ok("keyForward", s4 > 0.1 && Math.abs(dKey - 1.4 * s4) < 0.02, `dE=${J(dKey)}m in ${J(s4)}s @1.4m/s`);
+	const s4b = await hold("w", true, 12);
 	const p4b = w.position(), dRun = mE(p4b, p4);
-	ok("keyRun", dRun > dKey * 1.2, `shift dE=${J(dRun)}m in 400ms`);
+	ok("keyRun", s4b > 0.05 && Math.abs(dRun - 1.4 * 3 * s4b) < 0.02, `shift dE=${J(dRun)}m in ${J(s4b)}s @4.2m/s`);
 	// ⑤ 衝突：東 30m に 20m 角×高さ 20m の白い押し出し（足跡は E 20〜40m）。足元を押し出しの西 15m（E=5）に置いて東へ 30m 歩く＝足跡の手前（E<20.5）で止まる
 	const sq = [ll(20, -10), ll(40, -10), ll(40, 10), ll(20, 10), ll(20, -10)];
 	await map.gadget.extrude({ type: "Feature", properties: { height: 20 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#ffffff", fit: false, mask: false });
