@@ -154,6 +154,7 @@ export async function runVirtual(url, { limitS = 90, profilePrefix = "oe-virt", 
 		await cdp.call("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, P);   // worker の fetch も数える
 		await cdp.call("Network.enable", {}, P); await cdp.call("Page.enable", {}, P); await cdp.call("Runtime.enable", {}, P);
 		await cdp.call("Emulation.setVirtualTimePolicy", { policy: "pause" }, P);   // 遷移の前に止める＝頁の最初の timer から仮想時計
+		await cdp.send("Emulation.setFocusEmulationEnabled", { enabled: true }, P);   // CDP で作ったタブは焦点を持たない（document.hasFocus()＝false）＝el.focus() しても focus 事象が飛ばず、検索窓の履歴が開かない（t-gadgets の list・2026-10-13）。旧 dump-dom と人の手のタブは焦点あり＝揃える
 		await cdp.call("Page.navigate", { url }, P);
 		const tWall = Date.now();
 		let title = "", used = 0;
