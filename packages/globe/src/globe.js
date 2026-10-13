@@ -3479,7 +3479,7 @@ const placeImages = async (pbf, name) => {
 };
 // 自動押し出し＝本道の続き。前の押し出しは外す（「最後の 1 枚が勝つ」）。高さの鍵が無ければ遅延 chunk も降ろさない
 const extrudeQ = (() => { const v = new URLSearchParams(location.search).get("extrude"); if (v == null) return null; const [k, sc] = v.split(","); return { off: k === "0" || k === "off", key: k || undefined, scale: +sc > 0 ? +sc : 1 }; })();
-const BOTTOM_Q = (v => v === "drape" ? v : v != null && v !== "" && isFinite(+v) ? +v : null)(new URLSearchParams(location.search).get("bottom"));   // ?bottom=<m>＝ドロップ/?g= の自動押し出しの床の高さ（既定 2000m の平面）・?bottom=drape＝地形に沿わせる
+const BOTTOM_Q = (v => v === "drape" || v === "ground" ? v : v != null && v !== "" && isFinite(+v) ? +v : null)(new URLSearchParams(location.search).get("bottom"));   // ?bottom=<m>＝ドロップ/?g= の自動押し出しの床の高さ（既定 2000m の平面）・?bottom=drape＝地形に沿わせる・?bottom=ground＝建物と同じ接地
 const autoExtrude = async pbf => {
 	modelCtl?.clearExtrude();
 	if (extrudeQ?.off || !(extrudeQ?.key ? pbf.keys?.includes(extrudeQ.key) : hasHeightKey(pbf.keys))) return null;

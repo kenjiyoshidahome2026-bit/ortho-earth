@@ -1,9 +1,11 @@
 <!doctype html>
-<!-- 押し出しの床と大きさ（map.gadget.extrude の既定の bottom）＝地域なしの球で、建物らしい面は接地・広い面は 2,000m の平面（本人裁定 9/22）。
-     再現（2026-09-30・claude/issue-178）：自由の女神の 420×390m の箱（対角 約 573m）に height 400 を立てると stats は返るのに、z16.8・45° の視点では
-     足元の画素が地面の色のまま＝消えたように見える。真因＝面の対角の中央値が 500m 以上＝「広い面（統計）」と見なされ床 2,000m の平面へ（屋根 2,400m）＝
-     カメラより上・画面の外。mask:false は床に効かない（伏せるかどうかだけ）。130m の箱（fill-extrusion の層で試した方）は接地＝立つ。
-     見張るもの：大きさの門で床が決まること／床の上（2,400m）には立っていること／bottom:"drape"・bottom:0 で接地に戻せること。実時間。 -->
+<!-- 押し出しの床と大きさ（map.gadget.extrude の既定の bottom）＝地域なしの球で。
+     ネイティブの呼び方（height/color）＝建物らしい面（対角の中央値 < 500m）は接地・広い面は 2,000m の平面（本人裁定 9/22）。
+     MapLibre 形（paint つき・addLayer の fill-extrusion）＝大きさに関わらず接地（本人裁定 2026-10-14＝MapLibre は常に地面から）。
+     bottom:"ground"＝ネイティブでも大きさに関わらず建物と同じ接地。bottom:<m>＝MapLibre 形でもその高さの平面。
+     発端（2026-09-30・claude/issue-178）：自由の女神の 420×390m の箱（対角 約 573m）に height 400 を立てると stats は返るのに、z16.8・45° の視点では
+     足元の画素が地面の色のまま＝消えたように見える。真因＝「広い面（統計）」と見なされ床 2,000m の平面へ（屋根 2,400m）＝カメラより上・画面の外。
+     mask:false は床に効かない（伏せるかどうかだけ）。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-extrude-size</title></head>
 <body><div id="map"></div>
 <script type="module">
@@ -54,19 +56,24 @@ try {
 	ok("big-drape-ground", r.s?.mode === "drape" && isRed(await pixelUntil(200)), `${r.s?.mode}`);
 	r = await run(BIG, { bottom: 0 });
 	ok("big-bottom0-ground", r.s?.mode === "plane" && r.s?.lift === 0 && isRed(await pixelUntil(200)), `${r.s?.mode}/${r.s?.lift}`);
+	r = await run(BIG, { bottom: "ground" });   // 大きさに関わらず建物と同じ接地（2026-10-14）
+	ok("big-bottom-ground", r.s?.mode === "ground" && r.s?.lift === 0 && isRed(await pixelUntil(200)), `${r.s?.mode}/${r.s?.lift}`);
 	// 5. 建物らしい大きさ（130m 級）は既定のまま接地
 	r = await run(SMALL, {});
 	ok("small-default-ground", r.s?.mode === "ground" && isRed(await pixelUntil(200)), `${r.s?.mode}`);
 	await map.gadget.extrude(null);
-	// 6. MapLibre 形（addLayer の fill-extrusion）も同じ既定・層に bottom を添えれば接地（d.ts の約束）
+	// 6. MapLibre 形＝大きさに関わらず接地（MapLibre と同じ）・層に bottom:<m> を添えれば平面（統計の浮かせ方）
 	const setOf = id => window.__model.extrudeSets.find(s => s.slot === id);
-	map.addSource("bigsrc", { type: "geojson", data: BIG });
 	const PAINT = { "fill-extrusion-height": 400, "fill-extrusion-color": "#ff0000" };
-	await map.addLayer({ id: "mlbig", type: "fill-extrusion", source: "bigsrc", paint: PAINT }); map.jumpTo(VIEW); await sleep(1500);
-	ok("ml-big-default-plane", setOf("mlbig")?.mode === "plane" && setOf("mlbig")?.lift === 2000, `${setOf("mlbig")?.mode}/${setOf("mlbig")?.lift}`);
+	await map.gadget.extrude(BIG, { paint: PAINT, fit: false }); map.jumpTo(VIEW); await sleep(1500);   // ガジェットの MapLibre 形
+	ok("ml-gadget-big-ground", set0()?.mode === "ground" && isRed(await pixelUntil(200)), `${set0()?.mode}/${set0()?.lift}`);
+	await map.gadget.extrude(null);
+	map.addSource("bigsrc", { type: "geojson", data: BIG });
+	await map.addLayer({ id: "mlbig", type: "fill-extrusion", source: "bigsrc", paint: PAINT }); map.jumpTo(VIEW); await sleep(1500);   // addLayer
+	ok("ml-layer-big-ground", setOf("mlbig")?.mode === "ground" && setOf("mlbig")?.lift === 0 && isRed(await pixelUntil(200)), `${setOf("mlbig")?.mode}/${setOf("mlbig")?.lift}`);
 	map.removeLayer("mlbig");
-	await map.addLayer({ id: "mlbig0", type: "fill-extrusion", source: "bigsrc", paint: PAINT, bottom: 0 }); map.jumpTo(VIEW); await sleep(1500);
-	ok("ml-big-bottom0-ground", setOf("mlbig0")?.lift === 0 && isRed(await pixelUntil(200)), `${setOf("mlbig0")?.mode}/${setOf("mlbig0")?.lift}`);
+	await map.addLayer({ id: "mlbig2k", type: "fill-extrusion", source: "bigsrc", paint: PAINT, bottom: 2000 }); map.jumpTo(VIEW); await sleep(1500);
+	ok("ml-layer-bottom2000-plane", setOf("mlbig2k")?.mode === "plane" && setOf("mlbig2k")?.lift === 2000 && !isRed(px(await snap(map), ...at(0))), `${setOf("mlbig2k")?.mode}/${setOf("mlbig2k")?.lift}`);
 	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
 </script>

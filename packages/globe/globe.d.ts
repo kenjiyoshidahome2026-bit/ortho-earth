@@ -276,10 +276,11 @@ export interface Gadgets {
 	 *  height＝列名 | 定数 | (props)=>メートル（省略＝height / building:height / measuredHeight / 高さ … を自動・階数だけなら ×3m）。
 	 *  base＝下端（min_height 相当・省略＝min_height / base_height を自動）。color＝CSS 色 | (props, h)=>CSS 色（省略＝@fill → color → 高さの段彩）。
 	 *  scale＝高さの倍率。mask＝足元の基図建物を伏せる（既定 "auto"＝面の中央値が 500m 未満の建物らしいデータの時だけ・市区町村のような広い面では伏せない）。fit＝寄る（既定 true・傾きは今のまま。真俯瞰では建物を描かない＝立体は傾けた時に見える）。
-	 *  ⚠ 床（bottom）の既定は大きさで決まる：面の外接矩形の対角の中央値が 500m 未満＝建物らしい＝接地／500m 以上＝統計の面と見なし 2,000m の平面に浮かせる
-	 *  （高さはその平面から測る＝height 400 なら屋根は 2,400m）。例：400×400m の箱（対角 約 570m）は 2,000m に立つ＝z16 級に寄った視点ではカメラより上で見えない
-	 *  （stats は返る）。地面に立てたい大きな面は bottom:"drape"（地形に沿わせる）か bottom:0（海抜 0m の平面）を渡す。mask はこの床に効かない。
-	 *  MapLibre 形（fill-extrusion の層・addLayer）も同じ既定＝MapLibre（常に地面から）と違う所。
+	 *  ⚠ 床（bottom）の既定は書き方と大きさで決まる：
+	 *  ・ネイティブの書き方（height/color）＝面の外接矩形の対角の中央値が 500m 未満＝建物らしい＝接地／500m 以上＝統計の面と見なし 2,000m の平面に浮かせる
+	 *  　（高さはその平面から測る＝height 400 なら屋根は 2,400m）。例：400×400m の箱（対角 約 570m）は 2,000m に立つ＝z16 級に寄った視点ではカメラより上で見えない
+	 *  　（stats は返る）。地面に立てたい大きな面は bottom:"ground"（建物と同じ接地）・"drape"（全ズームで地形に沿わせる）・0（海抜 0m の平面）のどれかを渡す。mask はこの床に効かない。
+	 *  ・MapLibre 形（paint つき・fill-extrusion の層・addLayer）＝大きさに関わらず接地（MapLibre と同じ＝常に地面から）。統計のように浮かせたい時は層に bottom:<m> を添える。
 	 *  null を渡すと外す。戻り値＝stats、立つ面が無ければ null。ドロップ/?g= の図形に高さの列があれば自動で立つ（?extrude=0 で止める／?extrude=<列名>[,倍率]）。 */
 	extrude(src: GeoJSONFeatureCollection | GeoJSONFeature | GeoJSONFeature[] | File | string | { geojson: GeoJSONFeatureCollection } | FillExtrusionLayer | null, opts?: ExtrudeOptions | FillExtrusionLayer): Promise<{ polygons: number; vertices: number; triangles: number; bbox: [number, number, number, number] } | null>;
 	/** スポットライト＝「その国（その面）を指す」。周りを薄い黒で覆い、指した形だけ素の地図を残す。
@@ -480,9 +481,11 @@ export interface RasterAPI {
  *  get の欠損は null。to-number／number／string／boolean は予備の引数へ落ちる。map.paint・addGint のネイティブの式は従来の寛容な意味のまま。within/distance は未対応 */
 export type StyleExpression = unknown[] | number | string | boolean;
 export interface ExtrudeOptions { height?: string | number | ((props: Record<string, unknown>) => number); base?: string | number | ((props: Record<string, unknown>) => number); color?: string | ((props: Record<string, unknown>, height: number) => string); scale?: number; mask?: boolean | "auto"; fit?: boolean;
-	/** 床の高さ[m]＝その高さの平面に浮かせる（1.2.0〜・高さはその平面から測る）。"drape"＝地形に沿わせる。
-	 *  無指定＝面の外接矩形の対角の中央値で決まる：500m 以上（統計の面）は 2000m の平面・500m 未満（建物らしい面）は接地。大きな面を地面に立てるなら "drape" か 0 */
-	bottom?: number | "drape" }
+	/** 床の高さ[m]＝その高さの平面に浮かせる（1.2.0〜・高さはその平面から測る）。"drape"＝地形に沿わせる（全ズーム・頂点ごと）。
+	 *  "ground"＝大きさに関わらず建物と同じ接地（標高の申告域の中で地表へ・外は海抜 0m。広い面は引いた視点で山に埋もれ得る）。
+	 *  無指定＝ネイティブの書き方は面の外接矩形の対角の中央値で決まる：500m 以上（統計の面）は 2000m の平面・500m 未満（建物らしい面）は接地。
+	 *  MapLibre 形（paint つき・fill-extrusion の層）の無指定は大きさに関わらず接地（MapLibre と同じ） */
+	bottom?: number | "drape" | "ground" }
 /** 同一フレームのオーバーレイ（map.overlay）の frame(cam, camState, size, api) の api（worker 内で渡る） */
 export interface OverlayFrameApi {
 	/** 経緯度 → [x, y（CSS px）, front（<0＝裏側）]（地形リフト込み） */
@@ -516,7 +519,7 @@ export interface OverlayDepth {
 	bind(gl: WebGL2RenderingContext, prog: WebGLProgram, unit?: number, eps?: number): void;
 }
 /** MapLibre の fill-extrusion 層をそのまま（extrude の第 2 引数、または source つきで第 1 引数に）。意味・既定値は MapLibre の仕様どおり（height/base 0・color "#000000"・opacity 1）。
- *  例外＝床：対角の中央値が 500m 以上の面は 2000m の平面から立つ（ExtrudeOptions.bottom・MapLibre は常に地面から）。地面に立てるなら bottom:"drape" か 0 を層に添える。
+ *  床も MapLibre と同じ＝大きさに関わらず地面から（以前は対角の中央値が 500m 以上の面を 2000m の平面に浮かせた）。浮かせたい時は bottom:<m>・地形に沿わせるなら bottom:"drape" を層に添える（ExtrudeOptions.bottom）。
  *  式は呼んだ時に一度評価（["zoom"] はその時のズーム）。color の interpolate は色として補間。legacy filter（["==","key",v] の旧式）は非対応＝現代式で */
 export interface FillExtrusionLayer extends Omit<ExtrudeOptions, "height" | "base" | "color"> {
 	type: "fill-extrusion"; id?: string;
