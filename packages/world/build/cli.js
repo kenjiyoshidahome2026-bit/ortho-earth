@@ -17,6 +17,10 @@ const today = new Date().toISOString().slice(0, 10);
 for (const n of ["NationDB", "CityDB", "TerrainDB", "LanguageDB", "CurrencyDB", "Conflicts"])
 	await fs.writeFile(path.join(outDir, n + ".json"), JSON.stringify({ updated: today, count: r[n].length, items: r[n] }));
 for (const [lang, v] of Object.entries(r.i18n)) await fs.writeFile(path.join(outDir, "i18n", lang + ".json"), JSON.stringify(v));
+// DB ごとの名前表＝DB の隣（<DB>.i18n/<lang>.json）＝その DB だけを読む頁が自分の分だけ取る（地形の頁 /globe/physical・2026-10-13）。
+// 中身は i18n/<lang>.json の同じ節＝DB と同じビルド・同じ push で置く（DB は新しいのに名前が古い、を作らない）
+await fs.mkdir(path.join(outDir, "TerrainDB.i18n"), { recursive: true });
+for (const [lang, v] of Object.entries(r.i18n)) await fs.writeFile(path.join(outDir, "TerrainDB.i18n", lang + ".json"), JSON.stringify({ updated: v.updated, lang, terrains: v.terrains }));
 r.rivers && await fs.writeFile(path.join(outDir, "rivers.geojson"), JSON.stringify(r.rivers));
 r.ranges && await fs.writeFile(path.join(outDir, "range.geojson"), JSON.stringify(r.ranges));
 console.log(`\n出力: ${outDir}  国 ${r.NationDB.length} 都市 ${r.CityDB.length} 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}・山脈の軸線 ${r.ranges ? r.ranges.features.length : 0}）言語 ${r.LanguageDB.length} 通貨 ${r.CurrencyDB.length} 係争 ${r.Conflicts.length} i18n ${Object.keys(r.i18n).length} 言語（${((Date.now() - t0) / 1000).toFixed(1)}s）`);

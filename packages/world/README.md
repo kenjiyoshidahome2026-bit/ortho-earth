@@ -42,7 +42,10 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 - ローカル: `npm run build -w world-data`（`packages/world/out/` へ。取得結果は `.cache/` に残る＝`--fresh` で捨てる）
 - uploader（DB Updater の「国別DB (world)」節）の **「全部作る」**: 同じ build をブラウザで回して bucket `GIS/world/` に保存（取得キャッシュは IDB `worldBuild`）。
   HDR の CSV だけ CORS が無いので api.ortho-earth.com の proxy 経由（allowlist に hdr.undp.org）。
-- **地形の頁（/globe/physical）の分だけ置く**: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
+- **地形の頁（/globe/physical）のデータを置く（2026-10-13〜）**: `npm run publish:pages -w world-data`（予行＝今の Pages と比べて 新規／変更／同じ を出す）→ `-- --write` で commit して push（scripts/publish-pages.mjs）。
+  置き場＝GitHub Pages（リポ `ortho-data` の gh-pages 枝・`globe/`）＝**bucket の鍵が要らない**（git が通る機械ならどこからでも）。置くのは TerrainDB.json・形状台帳 4 本・
+  `TerrainDB.i18n/<lang>.json` 25 本（地形の名前だけ＝DB の隣・同じ push）。手元の JSON の `updated` が Pages より古いと止まる（`--allow-older`）。`--only=` は publish:physical と同じ。
+- **bucket の地形のファイルを置く**（world・equal の `i18n/`・japan の地形の plates・検索の索引の TerrainDB が読む）: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
   置くのは TerrainDB.json・形状台帳 5 本・`i18n/<lang>.json` 25 本だけ（NationDB などは触らない）。先に `build` → `plates` → `ne:physical` → `koppen` を回す
   （`out/` と `.cache/` は git に入らない＝機械ごとに作り直す。koppen は `.cache/koppen/` に figshare 21789074 の `koppen_geiger_tif.zip` から
   `1991_2020/koppen_geiger_0p1.tif` と `legend.txt` を展開しておく）。鍵は API_KEY か apps/uploader/.env.local（**機械ごとに違うことがある＝401 ならその機械の鍵**）

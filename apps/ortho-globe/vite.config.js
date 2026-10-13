@@ -9,7 +9,7 @@ import { crossOriginIsolation, noChunkOptimization, engineAliases } from "../../
 //   /globe/quakes  … 世界の地震（データ＝apps/quakes-mirror の /quakes/*）
 //   /globe/sats    … 人工衛星（データ＝apps/sats-mirror の /sats/active.csv）
 //   /globe/clouds  … いまの雲（試作・データ＝NASA GIBS の静止気象衛星の赤外を直読み）
-//   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は bucket GIS/world/）
+//   /globe/physical … 世界の地形（山・川・湖…＝packages/world の TerrainDB と形状台帳 ne-physical.geopbf・本番は GitHub Pages の ortho-data/globe/）
 //   /globe/parks    … アメリカ合衆国の国立公園 63（/japan/parks と同型・台帳 public/parks-us.json・外周 public/parks-us.geopbf・他ユニット public/nps-units.geopbf）
 // エンジンは共有エンジン（/globe/engine/<版>/・縮小計画 項目 9・本人裁定 2026-09-30）を URL で読む＝build の時だけ（dev はソース直）。
 // 共有エンジンの置き場はこの家（/globe/*）＝build の最後に dist/engine/<版>/ を dist/site/globe/engine/<版>/ へ写す。japan の殻（app.js）も jp パックも通らない。
@@ -23,7 +23,7 @@ const dropDevData = { name: "drop-dev-data", apply: "build", closeBundle() { rmS
 
 export default defineConfig(({ command }) => ({
 	base: "/globe/",
-	// 地形の頁（physical.js）のデータ置き場：dev＝手元の packages/world/out/（npm run build / ne:physical の生成物を bucket に置く前に見る）・本番＝空＝bucket GIS/world/
+	// 地形の頁（physical.js）のデータ置き場：dev＝手元の packages/world/out/（npm run build / ne:physical の生成物を置く前に見る）・本番＝空＝GitHub Pages の ortho-data/globe/（physical.js の DATA）
 	define: { __WORLD_OUT__: JSON.stringify(command === "serve" ? "/globe/@fs" + resolve(import.meta.dirname, "../../packages/world/out") + "/" : "") },
 	server: { port: 5186 },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引く＝dist/site/ をルートに globe/ へ出す（wrangler.toml の directory＝dist/site）
