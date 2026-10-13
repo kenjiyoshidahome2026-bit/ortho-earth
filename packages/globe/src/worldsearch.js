@@ -1,13 +1,13 @@
 // 世界の地名検索（#175・maplibre-gl-geocoder 相当の既定の問い合わせ先）＝国・州・都市・地形を 26 言語で引く。サーバーを使わない。
-// 索引＝bucket GIS/world/search/（packages/world/build/search.js が焼く）：base.json（英語名・座標・範囲・別名）＋ <lang>.json（その言語の名前）。
+// 索引＝GitHub Pages の ortho-data/globe/search/（packages/world/build/search.js が焼く・置く＝publish-pages.mjs。2026-10-13 まで bucket GIS/world/search/ を指していたが置かれていなかった）：base.json（英語名・座標・範囲・別名）＋ <lang>.json（その言語の名前）。
 // 初めて問い合わせた時に base と今の言語の 1 本だけを読む＝起動の重さは 0（検索窓の搭載も索引を読まない）。
 // 照合＝正規化した名前の 完全一致 → 前方一致（名前の頭か語の頭）→ 部分一致。同じ段は重み（国 ＞ 大都市 ＞ 州 ＞ 小都市）で並べる。
 // 英語名と今の言語の名前・別名（ISO コード・略称・現地名・読み）を同時に引く＝「Paris」「パリ」「巴黎」が同じ所へ飛ぶ（巴黎は zh の窓で）。
 // 返りは検索窓の供給元の形（search.js）＝{ title, note, lon, lat, bbox?, zoom?, tilt?, kind, id }。国と州は bbox＝範囲に寄る。
-import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
+import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { getLang } from "./i18n.js";
 
-export const WORLD_SEARCH_URL = WORLD_GIS + "search/";
+export const WORLD_SEARCH_URL = WORLD_DATA + "search/";
 const FORMAT = 1;   // 索引の形の版（build/search.js の SEARCH_VERSION と対）
 
 // ── 正規化（照合の両側に掛ける）──

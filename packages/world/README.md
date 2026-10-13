@@ -42,10 +42,14 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 - ローカル: `npm run build -w world-data`（`packages/world/out/` へ。取得結果は `.cache/` に残る＝`--fresh` で捨てる）
 - uploader（DB Updater の「国別DB (world)」節）の **「全部作る」**: 同じ build をブラウザで回して bucket `GIS/world/` に保存（取得キャッシュは IDB `worldBuild`）。
   HDR の CSV だけ CORS が無いので api.ortho-earth.com の proxy 経由（allowlist に hdr.undp.org）。
-- **地形の頁（/globe/physical）のデータを置く（2026-10-13〜）**: `npm run publish:pages -w world-data`（予行＝今の Pages と比べて 新規／変更／同じ を出す）→ `-- --write` で commit して push（scripts/publish-pages.mjs）。
-  置き場＝GitHub Pages（リポ `ortho-data` の gh-pages 枝・`globe/`）＝**bucket の鍵が要らない**（git が通る機械ならどこからでも）。置くのは TerrainDB.json・形状台帳 4 本・
-  `TerrainDB.i18n/<lang>.json` 25 本（地形の名前だけ＝DB の隣・同じ push）。手元の JSON の `updated` が Pages より古いと止まる（`--allow-older`）。`--only=` は publish:physical と同じ。
-- **bucket の地形のファイルを置く**（world・equal の `i18n/`・japan の地形の plates・検索の索引の TerrainDB が読む）: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
+- **配信＝GitHub Pages（2026-10-13〜）**: `npm run publish:pages -w world-data`（予行＝今の Pages と比べて 新規／変更／同じ を出す）→ `-- --write` で commit して push（scripts/publish-pages.mjs）。
+  置き場＝リポ `ortho-data` の gh-pages 枝の `globe/`（https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/）＝**bucket の鍵が要らない**（git が通る機械ならどこからでも）。
+  置くのは out/ に在る物：DB 6 本（NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・TerrainDB）・**名前表 `<DB>.i18n/<lang>.json`（DB の隣・同じ push・build/names.js）**・
+  地形の形状台帳 4 本・検索の索引 `search/`（`node scripts/search-index.mjs`）・資産（ne-cities・flags・geoms・sfx.zip＝uploader が作る物・手元に在れば）＋目録 `manifest.json`
+  （置くたびに作り直す＝world の頁が「変わったファイル」と「在る国旗」を知る 1 本・Pages に一覧 API は無い）。手元の JSON の `updated` が Pages より古いと止まる（`--allow-older`）。
+  読み手＝world・world-quiz（apps/world/src/data.js）・equal と地球儀の世界帯（ortho-core worldcontent の `WORLD_DATA`）・地形の頁・検索。**画面の文言（ui）は配信しない**＝`i18n/ui.json` を
+  頁が直に読む（`i18n/ui-table.js`）。**bucket `GIS/world/` に残るのは形状だけ**（ne-cultural-base／detail・rivers.json＝全アプリが初回に読む 16MB は Pages の帯域の目安 月 100GB に載せない）。
+- **bucket の地形のファイルを置く**（2026-10-13 より前に deploy された頁だけが読む＝各アプリを出し直せば読み手は居なくなる）: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
   置くのは TerrainDB.json・形状台帳 5 本・`i18n/<lang>.json` 25 本だけ（NationDB などは触らない）。先に `build` → `plates` → `ne:physical` → `koppen` を回す
   （`out/` と `.cache/` は git に入らない＝機械ごとに作り直す。koppen は `.cache/koppen/` に figshare 21789074 の `koppen_geiger_tif.zip` から
   `1991_2020/koppen_geiger_0p1.tif` と `legend.txt` を展開しておく）。鍵は API_KEY か apps/uploader/.env.local（**機械ごとに違うことがある＝401 ならその機械の鍵**）

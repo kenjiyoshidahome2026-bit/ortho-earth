@@ -33,7 +33,7 @@ const SEL = "#d7263d";   // 選択の縁取り（どの系統の色とも違う�
 const PLATE_KINDS = [{ id: "divergent", color: "#e0a020" }, { id: "convergent", color: "#b04a9c" }, { id: "transform", color: "#5a6472" }];
 const PLATE_KIND_OF = { OSR: "divergent", CRB: "divergent", SUB: "convergent", OCB: "convergent", CCB: "convergent", OTF: "transform", CTF: "transform" };
 const plateKindName = id => ({ divergent: t("Spreading (ridges, rifts)"), convergent: t("Converging (subduction, collision)"), transform: t("Sliding (transform faults)") })[id];
-const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";   // プレート境界（world の生成物）＝@ortho-earth/core/worldcontent の WORLD_GIS と同じ
+const WORLD_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/";   // プレート境界（world の生成物・全世界のデータ＝globe/）＝@ortho-earth/core/worldcontent の WORLD_DATA と同じ
 
 // ── 物理量 ─────────────────────────────────────────────────────────────────
 const METRICS = {
@@ -361,7 +361,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 		if (id === "currents") { on ? shown.add("current") : shown.delete("current"); return applyGroups(); }
 		on ? shown.add("plate") : shown.delete("plate"); applyGroups();   // 構造線とプレートの名前は境界の重ねと一緒に
 		platesP ??= (async () => {
-			const p = await loadPbf(geopbf, WORLD_GIS + "plates.geopbf"), feats = [];
+			const p = await loadPbf(geopbf, WORLD_DATA + "plates.geopbf"), feats = [];
 			for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue; const pr = f.properties || p.getProperties(i) || {};
 				if (pr.kind !== "boundary") continue;
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { cls: PLATE_KIND_OF[pr.class] || "other" } }); }
