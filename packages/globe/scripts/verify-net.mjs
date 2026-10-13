@@ -13,7 +13,7 @@ const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const PAGES = ARGS.length ? ARGS : ALL_PAGES;
 
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGN_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
-const fail = await runPages({
+const fail = await runPages({ bucketCache: false,
 	pages: PAGES, realtime: new Set(PAGES.map(p => p.split("?")[0])),   // 外部取得の到着待ち＝全頁実時間
 	long: { "t-ogc": 60, "t-i3s": 110, "t-czml-ref": 120, "t-featureservice": 120, "t-iiif": 150, "t-copc": 150 }, profilePrefix: "og-net", cdpBase: +process.env.VGN_CDP || 9435, pad: 16,
 	urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}`,

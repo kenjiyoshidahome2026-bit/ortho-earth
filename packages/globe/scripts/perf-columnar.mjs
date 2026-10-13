@@ -12,6 +12,6 @@ const ARGS = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const VARIANTS = ARGS.length ? ARGS : ["n=20000", "n=60000", "n=150000", "kind=points&n=1000000"];
 const PAGES = VARIANTS.map(v => `t-columnar?g=perf&${v}`);
 const stop = await startVite({ cwd: PKG, port: PORT, portEnv: "VGP_PORT", readyUrl: `http://localhost:${PORT}/tests/` });
-const fail = await runPages({ pages: PAGES, realtime: new Set(["t-columnar"]), long: { "t-columnar": 600 }, urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
+const fail = await runPages({ bucketCache: false, pages: PAGES, realtime: new Set(["t-columnar"]), long: { "t-columnar": 600 }, urlOf: (page, q) => `http://localhost:${PORT}/tests/${page}.html?${q}` });
 stop();
 process.exit(fail ? 1 : 0);
