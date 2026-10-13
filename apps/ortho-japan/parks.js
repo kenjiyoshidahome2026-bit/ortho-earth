@@ -1,8 +1,8 @@
 // 日本の国立公園 35 の showcase（parks.html から遅延 import）。
 // models（名所 3D 模型）と同じ骨格：器＝parks.html／一覧・飛行・配線＝ここ／描画＝エンジンの addGint（外周）＋ spotlight（選択）＋ outline（ホバー）。
 //
-// 台帳＝public/parks.json（scripts/parks-ledger で組む・名前 26 言語＝Wikidata／写真＝Wikimedia Commons／面積・指定日・都道府県＝環境省）。
-// 外周＝public/parks.geopbf（環境省 nps_all の地種区分 1.1 万面を公園ごとに溶かした 35 面・0.2MB）＝全公園を薄い緑で常時描き、
+// 台帳＝ortho-data/japan/parks.json（scripts/parks-ledger で組む・名前 26 言語＝Wikidata／写真＝Wikimedia Commons／面積・指定日・都道府県＝環境省）。
+// 外周＝ortho-data/japan/parks.geopbf（環境省 nps_all の地種区分 1.1 万面を公園ごとに溶かした 35 面・0.2MB）＝全公園を薄い緑で常時描き、
 // 選んだ公園は spotlight（周りを暗く・その形だけ素の地図）で指す。写真と Wikipedia の本文は実行時に直読み（bucket に置かない＝直接取れる物は置かない方針）。
 // 一覧のカード＝写真そのもの（Commons のサムネ）。クリック＝①視点へ飛ぶ ②spotlight ③詳細（写真大・指定日・面積・都道府県・Wikipedia の冒頭・リンク）。
 // Wikipedia の記事＝頁の上の iframe（world・census・physical と同じ・共通の芯 @ortho-earth/globe/wiki.js・2026-10-03）。

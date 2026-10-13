@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// 日本の温泉の台帳（public/onsen.json）の常設検定＝scripts/onsen-ledger の生成物が onsen.js の前提を満たすか。
+// 日本の温泉の台帳（ortho-data/japan/onsen.json）の常設検定＝scripts/onsen-ledger の生成物が onsen.js の前提を満たすか。
 //   ①台帳の形（id・種別・名前・座標・精度）②座標は日本の範囲 ③泉質の分類は 10 種の番号 ④温泉郷は閉じた面を持ち、所属の id は郷を指す
 //   ⑤源泉が離れている物（岳温泉）・会員宿は温泉に結ぶ ⑥都道府県名は 47 ⑦辞書（i18n/pages/onsen.json）は 25 言語揃い・onsen.js の t() を全部持つ
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "public");
+const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 

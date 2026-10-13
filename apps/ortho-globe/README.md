@@ -9,7 +9,7 @@ Served at `www.ortho-earth.com/globe/` by this app's own Worker.
 | World earthquakes | `/globe/quakes` | `/quakes/*` (`apps/quakes-mirror`) + USGS FDSN, fetched by the browser |
 | Satellites | `/globe/sats` | `/sats/active.csv` (`apps/sats-mirror`), CelesTrak as fallback |
 | Landforms of the World | `/globe/physical` (`?data=URL` swaps the catalogue) | GitHub Pages `ortho-data/globe/` (`packages/world` TerrainDB + `ne-physical.geopbf`), Köppen grid, PB2002 plates |
-| National Parks of the United States | `/globe/parks` (`?p=<id>` opens a park, e.g. `?p=yellowstone`) | `public/parks-us.json` + `public/parks-us.geopbf` (NPS boundaries, public domain) + `public/nps-units.geopbf`; names from Wikidata, photos from Wikimedia Commons, Wikipedia read by the browser. Built by `scripts/parks-ledger/` — same shape as `/japan/parks` |
+| National Parks of the United States | `/globe/parks` (`?p=<id>` opens a park, e.g. `?p=yellowstone`) | `ortho-data/us/parks-us.json` + `ortho-data/us/parks-us.geopbf` (NPS boundaries, public domain) + `ortho-data/us/nps-units.geopbf`; names from Wikidata, photos from Wikimedia Commons, Wikipedia read by the browser. Built by `scripts/parks-ledger/` — same shape as `/japan/parks` |
 | Clouds | `/globe/clouds` (`?vol=0` flat shell · `?lv=2..5` detail · `?perf=1` GPU time) | Geostationary infrared read by the browser: NASA GIBS WMTS (Himawari, GOES-West, GOES-East) + EUMETSAT EUMETView WMS (Meteosat 0°, Meteosat IODC) — no mirror |
 
 Each page bundles `@ortho-earth/globe` itself. It never loads the Japan SDK (`/japan/lib/`) or the Japan shell (`apps/ortho-japan/app.js`),

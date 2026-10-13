@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 日本の地形の台帳（public/terrain.json・terrain-i18n/・terrain.geopbf）の常設検定＝scripts/terrain-ledger の生成物が terrain.js の前提を満たすか。
+// 日本の地形の台帳（ortho-data/japan/ の terrain.json・terrain.i18n/・terrain.geopbf）の常設検定＝scripts/terrain-ledger の生成物が terrain.js の前提を満たすか。
 //   ①台帳の形（qid・分類・rank・name.ja・wiki.ja・coord）②座標は日本の範囲 ③分類ごとの最低件数（富士山・琵琶湖・信濃川・関東平野・日本海溝が居る）
 //   ④形状台帳は全部台帳の qid に結ぶ・軸線は幅を持つ ⑤分類名は 26 言語 ⑥名前表は台帳の qid だけ ⑦手動層の軸線は台帳の名に結ぶ
 import fs from "node:fs";
@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { gunzipSync } from "node:zlib";
 import { GeoPBF } from "../../../packages/geopbf/src/pbf-base.js";
-const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "public");
+const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url))), PUB = path.join(APP, "../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 let ok = 0, ng = 0;
 const t = (name, cond, extra = "") => { if (cond) { ok++; console.log("✓ " + name); } else { ng++; console.error("✗ " + name + (extra ? "  " + extra : "")); } };
 
@@ -30,7 +30,7 @@ const LANGS = ["ja", "en", "zh", "ko", "fr", "de", "es", "pt", "it", "nl", "pl",
 t("分類名：台帳の全分類に 26 言語（英語と日本語は必須）", Object.keys(cnt).every(c => db.catNames[c]?.en && db.catNames[c]?.ja), JSON.stringify(Object.keys(cnt).filter(c => !(db.catNames[c]?.en && db.catNames[c]?.ja))));
 // 名前表
 const byQ = new Set(items.map(d => d.qid));
-for (const l of LANGS) { if (l === "ja" || l === "en") continue; const f = path.join(PUB, "terrain-i18n", l + ".json"); if (!fs.existsSync(f)) { t(`名前表 ${l}`, false, "無い"); continue; }
+for (const l of LANGS) { if (l === "ja" || l === "en") continue; const f = path.join(PUB, "terrain.i18n", l + ".json"); if (!fs.existsSync(f)) { t(`名前表 ${l}`, false, "無い"); continue; }
 	const m = JSON.parse(fs.readFileSync(f, "utf8")), ks = Object.keys(m);
 	t(`名前表 ${l}：台帳の qid だけ・[名前, 記事名] の対・${ks.length} 件`, ks.length >= 20 && ks.every(q => byQ.has(q) && Array.isArray(m[q]) && m[q].length === 2)); }
 // 形状台帳
