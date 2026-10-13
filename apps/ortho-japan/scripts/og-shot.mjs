@@ -17,7 +17,7 @@ const PAGES = {
 	models:  { url: "/models.html", view: "", pick: "tokyo-tower", ready: "window.__models && window.__models.stats", wait: 10000 },
 	parks:   { url: "/parks.html",  view: "", pick: "daisetsuzan", ready: "window.__parks && window.__parks.layer", wait: 12000 },
 	tellus:  { url: "/tellus.html",   view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 14000 },
-	terrain: { url: "/terrain.html",  view: "",                    ready: "window.__terrain && window.__terrain.items", wait: 12000 },
+	terrain: { url: "/terrain.html",  view: "#5.2/36.5/138/30t/t=2026-10-13T03:00:00Z", ready: "window.__terrain && window.__terrain.items", wait: 25000 },   // 陸の塗り（Natural Earth）は 15〜30 秒で載る＝長めに待つ。z5.2＝陸の起伏と山の記号が出る寄り・t=＝日本の昼に固定（夜側だと灰色の球になる）
 	onsen:   { url: "/onsen.html",    view: "",                    ready: "window.__onsen && window.__onsen.items", wait: 12000 },
 	geoedit: { url: "/geoedit.html",  view: "",                    ready: "!!document.querySelector('#map canvas')", wait: 12000 },
 };
