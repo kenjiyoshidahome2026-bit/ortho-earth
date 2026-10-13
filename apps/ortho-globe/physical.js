@@ -1,9 +1,9 @@
 // 世界の地形（山・川・湖・海・砂漠…約 1,000 件）を地球儀（@ortho-earth/globe）に（physical.html から遅延 import）。
 //
-// データ（packages/world の生成物＝本番は bucket GIS/world/・dev は手元の out/）
-//   TerrainDB.json        … qid ごとの分類・代表点・物理量（標高・長さ・面積・深さ・流量・流域面積・落差・プロミネンス・体積）
-//   i18n/<lang>.json      … terrains[qid] の名前と Wikipedia 記事名（英語は TerrainDB の name.en）
-//   ne-physical.geopbf    … 形状台帳（面・線・点・山脈の軸線＝qid で TerrainDB と結ぶ）
+// データ（packages/world の生成物＝本番は GitHub Pages の ortho-data/globe/・dev は手元の out/）
+//   TerrainDB.json              … qid ごとの分類・代表点・物理量（標高・長さ・面積・深さ・流量・流域面積・落差・プロミネンス・体積）
+//   TerrainDB.i18n/<lang>.json  … terrains[qid] の名前と Wikipedia 記事名（英語は TerrainDB の name.en）＝DB の隣・同じ push で置く
+//   ne-physical.geopbf          … 形状台帳（面・線・点・山脈の軸線＝qid で TerrainDB と結ぶ）
 // 描き方＝エンジンの MapLibre 互換の口（addSource／addLayer）だけ：面＝fill・川と山脈の軸と海流＝line・名前と記号＝symbol（川と海流は線に沿わせる）。
 //
 // 表現の決め事
@@ -13,7 +13,7 @@
 //   出し … NE の scalerank（rank）で名前の出しズームを決める＝大きな物ほど遠くから
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
-import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
+import { WORLD_DATA, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
@@ -124,7 +124,7 @@ function joinParts(g) {
 async function loadPbf(geopbf, url) {
 	const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
 	const b = await r.blob();
-	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer());
+	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { gint: false });   // 地物を引くだけ（getFeature）＝GintBUF は焼かない（1.6MB の台帳で初回の待ちが縮む）
 }
 
 // ── 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）────────────────
@@ -165,17 +165,25 @@ const ICON = { peak: "ph-peak", volcano: "ph-volcano", pass: "ph-pass", waterfal
 const LINE_LABEL = new Set(["river", "current", "canal"]);   // 名前を線に沿わせる
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
+// 焼きの控えの鍵＝地図へ渡す地物そのものの要約（SHA-256 の頭 12 バイト）。エンジンは source の cacheKey が同じなら、焼いた GeoPBF＋GintBUF を IDB から戻して
+// 焼かない（本体 25 万頂点の焼き＝毎回 10 秒・2026-10-13）。中身から作る＝データ・言語（属性の名前）・この頁の作り方（単純化・帯の幅）のどれが変わっても鍵が変わる
+async function sourceKey(id, features) {
+	const h = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(features))));
+	return `physical/${id}/` + Array.from(h.subarray(0, 12), x => x.toString(16).padStart(2, "0")).join("");
+}
+const geojsonSource = async (id, features) => ({ type: "geojson", data: { type: "FeatureCollection", features }, cacheKey: await sourceKey(id, features) });
+
 export async function mountPhysical(map, { geopbf, data } = {}) {
 	await setLang(); await loadPage(c => import(`./i18n/lang/physical/${c}.json`));
 	document.title = t("Physical world — ortho-globe");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Mountains, rivers, lakes, seas and deserts of the world on a 3D globe, with their heights, lengths, areas and depths side by side."));
 	const lang = getLang(), mapEl = map.mapEl;
-	const base = data || (typeof __WORLD_OUT__ !== "undefined" && __WORLD_OUT__) || WORLD_GIS;
+	const base = data || (typeof __WORLD_OUT__ !== "undefined" && __WORLD_OUT__) || WORLD_DATA;   // GitHub Pages（リポ ortho-data の globe/・置く＝npm run publish:pages -w world-data）
 
 	// データ（3 本を並行に）。名前表の失敗は英語で出すだけ（地図は止めない）
 	const [db, i18n, pbf] = await Promise.all([
 		fetchJsonMaybeGz(base + "TerrainDB.json"),
-		lang === "en" ? null : fetchJsonMaybeGz(`${base}i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
+		lang === "en" ? null : fetchJsonMaybeGz(`${base}TerrainDB.i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
 		loadPbf(geopbf, base + "ne-physical.geopbf"),
 	]);
 	const items = (db.items || db).filter(d => d.coord);
@@ -255,7 +263,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	// gint に積むのは描く物と当たり判定に使う物だけ（川・運河・海流の線・山脈の帯・乾燥と氷の面）。大陸・湖・海・島…の面は名前だけ＝積まない
 	//（寄り先の範囲と選択の縁取り＝anno は shapes から引く）
 	const drawnShape = f => /LineString$/.test(f.geometry.type) || f.properties.shape === "axis" || !!FILL_CATS[f.properties.category];
-	map.addSource("ph", { type: "geojson", data: { type: "FeatureCollection", features: shapes.filter(drawnShape) } });
+	map.addSource("ph", await geojsonSource("ph", shapes.filter(drawnShape)));
 	map.addSource("ph-pts", { type: "geojson", data: { type: "FeatureCollection", features: points } });
 	map.addSource("ph-lab", { type: "geojson", data: { type: "FeatureCollection", features: lineLabels } });
 	const polyF = ["==", ["geometry-type"], "Polygon"];
@@ -468,7 +476,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 					if (id === "lines" && pr.kind === "dateline") continue;   // 日付変更線は人が決めた線＝地形の地図には入れない（赤道・回帰線・極圏＝自転軸の傾きで決まる線だけ・本人 2026-10-01）
 					feats.push({ type: "Feature", geometry: f.geometry, properties: id === "plates" ? { kind: pr.kind, cls: PLATE_KIND_OF[pr.class] || "other", name: pr.name ?? "" }
 						: { kind: pr.kind, name: pr["name_" + lang] || pr.name } }); }
-				map.addSource("ph-" + id, { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+				map.addSource("ph-" + id, await geojsonSource(id, feats));
 				const L = id === "plates" ? [
 					{ id: "ph-plates", type: "line", source: "ph-plates", filter: ["==", ["get", "kind"], "boundary"],
 						paint: { "line-color": ["match", ["get", "cls"], ...PLATE_KINDS.flatMap(k => [k.id, k.color]), "#5a6472"], "line-width": ["interpolate", ["linear"], ["zoom"], 1, 1.2, 6, 2.6], "line-opacity": 0.85 } },
@@ -506,7 +514,7 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { koppen: pr.code, group: pr.group, kname: pr["name_" + lang] || pr.name, kc } });
 				const chips = panel.querySelector(`.kg[data-g="${pr.group}"] .kcs`);
 				if (chips) chips.insertAdjacentHTML("beforeend", `<span class="kc" title="${esc(pr["name_" + lang] || pr.name)}"><i style="background:${kc}"></i>${esc(pr.code)}</span>`); }
-			map.addSource("ph-koppen", { type: "geojson", data: { type: "FeatureCollection", features: feats } });
+			map.addSource("ph-koppen", await geojsonSource("koppen", feats));
 			await map.addLayer({ id: "ph-koppen", type: "fill", source: "ph-koppen",
 				paint: { "fill-color": koppenColor(), "fill-opacity": 0.42 } }, "ph-fill");   // いちばん下（地形の面・線・名前の下）
 		})();

@@ -33,7 +33,7 @@ const SEL = "#d7263d";   // 選択の縁取り（どの系統の色とも違う�
 const PLATE_KINDS = [{ id: "divergent", color: "#e0a020" }, { id: "convergent", color: "#b04a9c" }, { id: "transform", color: "#5a6472" }];
 const PLATE_KIND_OF = { OSR: "divergent", CRB: "divergent", SUB: "convergent", OCB: "convergent", CCB: "convergent", OTF: "transform", CTF: "transform" };
 const plateKindName = id => ({ divergent: t("Spreading (ridges, rifts)"), convergent: t("Converging (subduction, collision)"), transform: t("Sliding (transform faults)") })[id];
-const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";   // プレート境界（world の生成物）＝@ortho-earth/core/worldcontent の WORLD_GIS と同じ
+const WORLD_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/";   // プレート境界（world の生成物・全世界のデータ＝globe/）＝@ortho-earth/core/worldcontent の WORLD_DATA と同じ
 
 // ── 物理量 ─────────────────────────────────────────────────────────────────
 const METRICS = {
@@ -94,7 +94,7 @@ const kmOf = (a, b) => Math.hypot((b[0] - a[0]) * 111.32 * Math.cos((a[1] + b[1]
 async function loadPbf(geopbf, url) {
 	const r = await fetch(url, { cache: "no-cache" }); if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
 	const b = await r.blob();
-	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer());
+	return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { gint: false });   // 地物を引くだけ（getFeature）＝GintBUF は焼かない（1.6MB の台帳で初回の待ちが縮む）
 }
 // 単純化（Douglas–Peucker・経度は cos(緯度) で縮めた画面の尺で測る）＝anno の段ごとの粗い版に使う
 function simplifyPts(P, tol, closed) {
@@ -361,7 +361,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 		if (id === "currents") { on ? shown.add("current") : shown.delete("current"); return applyGroups(); }
 		on ? shown.add("plate") : shown.delete("plate"); applyGroups();   // 構造線とプレートの名前は境界の重ねと一緒に
 		platesP ??= (async () => {
-			const p = await loadPbf(geopbf, WORLD_GIS + "plates.geopbf"), feats = [];
+			const p = await loadPbf(geopbf, WORLD_DATA + "plates.geopbf"), feats = [];
 			for (let i = 0, n = p.fmap?.length ?? 0; i < n; i++) { const f = p.getFeature(i); if (!f?.geometry) continue; const pr = f.properties || p.getProperties(i) || {};
 				if (pr.kind !== "boundary") continue;
 				feats.push({ type: "Feature", geometry: f.geometry, properties: { cls: PLATE_KIND_OF[pr.class] || "other" } }); }

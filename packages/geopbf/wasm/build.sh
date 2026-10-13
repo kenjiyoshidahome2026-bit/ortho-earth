@@ -27,11 +27,11 @@ OPTV="$("$WASM_OPT" --version | sed -n 's/^wasm-opt version \([0-9]*\).*/\1/p')"
 [[ "$OPTV" == "$WASM_OPT_VERSION" ]] || { echo "✗ wasm-opt version $OPTV ≠ $WASM_OPT_VERSION（build.sh の WASM_OPT_VERSION）: npm i -g binaryen@$WASM_OPT_VERSION"; exit 1; }
 
 cd "$HERE"
-echo "… cargo build（$(rustc --version)・wasm-bindgen $HAVE）"
+echo "… cargo build（$(rustc --version)・wasm-bindgen ${HAVE}）"
 cargo build --release --target wasm32-unknown-unknown --locked
 echo "… wasm-bindgen --target web → pkg/"
 wasm-bindgen --target web --out-dir pkg --out-name gint_wasm target/wasm32-unknown-unknown/release/gint_wasm.wasm
-echo "… wasm-opt -O（binaryen $OPTV）"
+echo "… wasm-opt -O（binaryen ${OPTV}）"
 "$WASM_OPT" -O pkg/gint_wasm_bg.wasm -o pkg/gint_wasm_bg.wasm
 # wasm-pack が書いていた物を同じ内容で（package.json・LICENSE）。.gitignore は書かない（npm pack に載せる物＝prepack が消していた）
 cat > pkg/package.json <<'JSON'
