@@ -42,7 +42,7 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 - ローカル: `npm run build -w world-data`（`packages/world/out/` へ。取得結果は `.cache/` に残る＝`--fresh` で捨てる）
 - uploader（DB Updater の「国別DB (world)」節）の **「全部作る」**: 同じ build をブラウザで回して bucket `GIS/world/` に保存（取得キャッシュは IDB `worldBuild`）。
   HDR の CSV だけ CORS が無いので api.ortho-earth.com の proxy 経由（allowlist に hdr.undp.org）。
-- **地形の頁（/globe/physical）の分だけ置く**: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。
+- **地形の頁（/globe/physical）の分だけ置く**: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
   置くのは TerrainDB.json・形状台帳 5 本・`i18n/<lang>.json` 25 本だけ（NationDB などは触らない）。先に `build` → `plates` → `ne:physical` → `koppen` を回す
   （`out/` と `.cache/` は git に入らない＝機械ごとに作り直す。koppen は `.cache/koppen/` に figshare 21789074 の `koppen_geiger_tif.zip` から
   `1991_2020/koppen_geiger_0p1.tif` と `legend.txt` を展開しておく）。鍵は API_KEY か apps/uploader/.env.local（**機械ごとに違うことがある＝401 ならその機械の鍵**）

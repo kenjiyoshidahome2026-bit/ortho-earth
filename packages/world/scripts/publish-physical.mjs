@@ -4,6 +4,8 @@
 //           ＋ i18n/<lang>.json（25 本＝地形名 terrains が入った版）。NationDB など他の DB は触らない（本人裁定 2026-10-01）＝棚ごと揃えるなら uploader の「全部作る」
 //   使い方: node scripts/publish-physical.mjs            … 予行（何も書かない＝置く物と今の bucket の有無を出す）
 //           node scripts/publish-physical.mjs --write    … 実際に置く（上書きする i18n は先に .cache/bucket-backup/ へ退避）
+//           node scripts/publish-physical.mjs --only=climate-koppen.geopbf [--write] … 名指しした物だけ（カンマ区切り）。
+//             1 本だけ焼き直した時はこれで＝out/ の他の物が bucket より古いと、全部置くと逆に古い版で上書きする（2026-10-13 に実際にそうなりかけた）
 //   鍵: 環境変数 API_KEY → 無ければ apps/uploader/.env.local の VITE_API_KEY（鍵は機械ごとに違うことがある＝401 ならその機械の鍵を確かめる）
 //   先に作る物: npm run build → npm run plates → npm run ne:physical → npm run koppen（koppen は .cache/koppen/ に figshare 21789074 の tif が要る）
 // JSON は gzip して X-Content-Encoding: gzip・.geopbf は gzip のまま素通し（Content-Encoding なし＝読む側が解く）。
@@ -14,18 +16,24 @@ const BASE = "https://api.ortho-earth.com/bucket/GIS/world/";
 const envFile = path.join(ROOT, "../../apps/uploader/.env.local");
 const key = process.env.API_KEY || (fs.existsSync(envFile) ? (fs.readFileSync(envFile, "utf8").match(/^VITE_API_KEY=(.+)$/m) || [])[1]?.trim() : "");
 const NEW = ["TerrainDB.json", "ne-physical.json", "ne-physical.geopbf", "plates.geopbf", "ne-physical-lines.geopbf", "climate-koppen.geopbf"];
-const missing = NEW.filter(f => !fs.existsSync(path.join(OUT, f)));
-if (missing.length || !fs.existsSync(path.join(OUT, "i18n"))) { console.error(`out/ に無い: ${missing.join(", ") || "i18n/"}＝先に build・plates・ne:physical・koppen を回す`); process.exit(1); }
-const I18N = fs.readdirSync(path.join(OUT, "i18n")).filter(f => f.endsWith(".json")).map(f => "i18n/" + f);
+const ONLY = (process.argv.find(a => a.startsWith("--only=")) ?? "").slice(7).split(",").filter(Boolean);
+const missing = NEW.filter(f => !fs.existsSync(path.join(OUT, f)) && (!ONLY.length || ONLY.includes(f)));
+if (missing.length || (!ONLY.length && !fs.existsSync(path.join(OUT, "i18n")))) { console.error(`out/ に無い: ${missing.join(", ") || "i18n/"}＝先に build・plates・ne:physical・koppen を回す`); process.exit(1); }
+const I18N = fs.existsSync(path.join(OUT, "i18n")) ? fs.readdirSync(path.join(OUT, "i18n")).filter(f => f.endsWith(".json")).map(f => "i18n/" + f) : [];
+const LIST = [...NEW, ...I18N].filter(f => !ONLY.length || ONLY.includes(f));
+{ const unknown = ONLY.filter(f => !LIST.includes(f)); if (unknown.length) { console.error(`--only に知らない名前: ${unknown.join(", ")}`); process.exit(1); } }
 const readJson = b => JSON.parse((b[0] === 0x1f && b[1] === 0x8b ? gunzipSync(b) : b).toString("utf8"));
 const counts = j => ["nations", "cities", "languages", "currencies", "conflicts", "terrains"].map(k => Object.keys(j[k] || {}).length).join("/");
 
 // 検札（置く前）：地形の件数と物理量・名前表の顔ぶれ（国が欠けていないか＝world・equal が同じ表を読む）
-const T = readJson(fs.readFileSync(path.join(OUT, "TerrainDB.json"))), items = T.items || T;
-if (items.length < 900 || !items.some(d => d.discharge > 0)) { console.error(`TerrainDB が古い（${items.length} 件・物理量なし）＝npm run build を回す`); process.exit(1); }
-console.log(`TerrainDB ${items.length} 件（${T.updated ?? "?"}）・置く物 ${NEW.length + I18N.length} 本・${WRITE ? "書き込む" : "予行（--write で実際に置く）"}`);
+const MODE = WRITE ? "書き込む" : "予行（--write で実際に置く）";
+if (LIST.includes("TerrainDB.json")) {   // TerrainDB を置く時だけ検める（--only で他の 1 本だけ置く時は out/ に無くてよい）
+	const T = readJson(fs.readFileSync(path.join(OUT, "TerrainDB.json"))), items = T.items || T;
+	if (items.length < 900 || !items.some(d => d.discharge > 0)) { console.error(`TerrainDB が古い（${items.length} 件・物理量なし）＝npm run build を回す`); process.exit(1); }
+	console.log(`TerrainDB ${items.length} 件（${T.updated ?? "?"}）・置く物 ${LIST.length} 本・${MODE}`);
+} else console.log(`置く物 ${LIST.length} 本・${MODE}`);
 let bad = 0;
-for (const name of [...NEW, ...I18N]) {
+for (const name of LIST) {
 	const local = fs.readFileSync(path.join(OUT, name)), isJson = name.endsWith(".json");
 	const cur = await fetch(BASE + name).then(async r => r.ok ? Buffer.from(await r.arrayBuffer()) : null).catch(() => null);
 	let note = cur ? `上書き（今 ${(cur.length / 1024).toFixed(0)} KB）` : "新規";
