@@ -1,4 +1,4 @@
-# onsen-ledger — 日本の温泉の台帳（`public/onsen.json`）を組む
+# onsen-ledger — 日本の温泉の台帳（`ortho-data/japan/onsen.json`）を組む
 
 `/japan/onsen`（`onsen.html` + `onsen.js`）が読む台帳を、Wikipedia 日本語版を軸に集めて組む工程。依存パッケージは無い（Node 22 以上）。
 
@@ -21,7 +21,7 @@ node ledger-build.mjs --data DIR   # 既にある data/（onsen.csv ほか）か
 | `05-geocode.mjs` | 座標の無い行を OSM（Nominatim）名称検索 → 地理院 住所検索 → 市町村の順に推定。精度と根拠を残す |
 | `06-hitou.mjs` | 日本秘湯を守る会の会員宿一覧と各宿頁の JSON-LD（宿名・住所・座標）。紹介文は持たない |
 | `04-build.mjs` | 突き合わせ・篩（駅・ダム・ホテル・概念記事などを落とす）・温泉郷の結び付けと面・源泉・会員宿の対応 → `data/` |
-| `ledger-build.mjs` | `data/` → `public/onsen.json`（短い鍵の台帳・形は先頭の註）。泉質を 10 分類の番号に、よみからローマ字の英語名を作る。後始末として、地域しか分からない推定は県の中心へ寄せ、郷から 25 km 超の所属は外し（推定の点は郷の位置へ置き直す）、郷の面を作り直す |
+| `ledger-build.mjs` | `data/` → `ortho-data/japan/onsen.json`（短い鍵の台帳・形は先頭の註）。泉質を 10 分類の番号に、よみからローマ字の英語名を作る。後始末として、地域しか分からない推定は県の中心へ寄せ、郷から 25 km 超の所属は外し（推定の点は郷の位置へ置き直す）、郷の面を作り直す |
 
 ## 決め事
 
