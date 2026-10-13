@@ -59,7 +59,8 @@ function overlayAdd(m) {
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
-	const instUrl = u => { try { const x = new URL(u); x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
+	// blob:／data: は問いを足すと引けなくなる（blob の実体は URL の丸ごと一致・data は本文に混ざる）＝断片（#ov=）で分ける。断片は取得では落ち、module map の鍵には残る
+	const instUrl = u => { try { const x = new URL(u); if (x.protocol === "blob:" || x.protocol === "data:") x.hash = "ov=" + encodeURIComponent(m.name); else x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
 	// builtin は表にある名前だけ（Object.hasOwn＝"constructor" 等の継承した名前で別の物を呼ばない・CodeQL js/unvalidated-dynamic-method-call）
 	const builtinLoad = name => typeof name === "string" && Object.hasOwn(BUILTIN_OVERLAYS, name) ? BUILTIN_OVERLAYS[name]() : Promise.reject(new Error(`unknown builtin overlay "${name}"`));
 	(m.builtin ? builtinLoad(m.builtin) : import(/* @vite-ignore */ instUrl(m.url))).then(mod => {
