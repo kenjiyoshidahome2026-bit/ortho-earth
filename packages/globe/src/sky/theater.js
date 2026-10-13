@@ -5,7 +5,8 @@
 // 戻り値 … ensureStars（z<STARSKY_Z に初めて出た時に一度だけ読む）／toggleConstellations・applyConstellations（星座の点灯）／
 //          solarFrame(w,h)（render() 毎の太陽系圏の出入り）／terminate()（惑星・日時計のタイマー＝destroy）
 import { geopbf } from "geopbf";
-import { skyNames as loadSkyNames } from "./names.js";   // 天体の名前（bucket GIS/space・UI の言語）
+import { skyNames as loadSkyNames } from "./names.js";   // 天体の名前（ortho-data の sky/names・UI の言語）
+import { skyPbf } from "./data.js";   // 星表・星座線・メシエ＝GitHub Pages の ortho-data/globe/sky/
 import { getLang } from "../i18n.js";
 
 const D2R = Math.PI / 180;
@@ -109,7 +110,7 @@ function startPlanets() {
 	renderer.set("celequator", Float32Array.from(qs));
 }
 async function loadStars() {
-	const pbf = await geopbf("stars.6", { gint: false }).catch(e => { console.warn("[stars] load failed", e); return null; });
+	const pbf = await skyPbf(geopbf, "stars.6").catch(e => { console.warn("[stars] load failed", e); return null; });
 	const g = pbf && pbf.geojson;
 	if (!g) { starsArmed = true; return; }   // 一過性失敗は次の機会に再試行
 	const fs = g.features;
@@ -156,8 +157,8 @@ async function toggleConstellations() {
 	constelState = 1;
 	await ensureSkyMod();   // 星座名(skyNames)を使う前に星空モジュールの読込を保証（初回z<4で通常は既済）
 	const [cl, ms] = await Promise.all([
-		geopbf("constellation_lines", { gint: false }).catch(e => { console.warn("[constellation] load failed", e); return null; }),
-		geopbf("messier", { gint: false }).catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
+		skyPbf(geopbf, "constellation_lines").catch(e => { console.warn("[constellation] load failed", e); return null; }),
+		skyPbf(geopbf, "messier").catch(() => null),   // 任意（v1と同じ＝無ければ星座線と名前だけ）
 	]);
 	const g = cl && cl.geojson;
 	if (!g) { constelState = 0; return; }
