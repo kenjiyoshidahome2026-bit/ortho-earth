@@ -12,7 +12,7 @@
 // 戻り値＝関数と、外（識別の ack・入力・render・overlay・公開面）が読み書きする状態のアクセサ（移設前の let を同名で覗く）。
 import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正本（段階 3・2026-09-23）
 import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の出しズームの正本（equal と同値）
-import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
+import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr, parseRGBA } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
 // 利用者の入口が top-level await の最中に await import(core) すると、束ねた後は入口の chunk の評価待ちで互いに待ち合う（addLayer が永久に返らない）
 import { compileFidStyleWGSL, dictTables, Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "@ortho-earth/core/fidexpr";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import { geopbf } from "geopbf";
@@ -342,6 +342,9 @@ function addGint(pbf, opts = {}) {
 	const refreshLabels = async () => {
 		if (!labelOpt?.field) { h.labelCount = 0; renderer.set("gintLabels", { list: null }, undefined, id); return 0; }
 		const lb = labelOpt, n = pbf.fmap?.length ?? 0, list = [];
+		// 色は [r,g,b,a]（0〜1）で渡す＝描く側（labels2d）の約束。公開面は CSS の色（文字列）＝ここで一度だけ読む
+		//（旧＝文字列のまま渡していた＝labels2d の css() が配列前提＝色が効かず、覚え（WeakMap）を入れてからは毎フレーム例外で描画を落としていた・2026-10-13）
+		const color = lb.color ? parseRGBA(lb.color) : null, halo = lb.halo ? parseRGBA(lb.halo) : null;
 		for (let i = 0; i < n; i++) {
 			if (lastTable && !(lastTable[i * 4 + 2] & 1)) continue;   // filter 連動＝fid 表の visible ビット（bit0）を尊重（paint/filter 未設定＝全通し）
 			let pr = {}; try { pr = pbf.getProperties(i) ?? {}; } catch { /* 壊れfeature */ }
@@ -349,8 +352,8 @@ function addGint(pbf, opts = {}) {
 			if (txt == null || txt === "") continue;
 			const a = anchorOf(i);
 			if (!a) continue;
-			list.push({ anchor: a, text: String(txt), ...(lb.size ? { size: lb.size } : {}), ...(lb.color ? { color: lb.color } : {}),
-				...(lb.halo ? { halo: lb.halo } : {}), ...(lb.haloW != null ? { haloW: lb.haloW } : {}), ...(lb.sort != null ? { sort: lb.sort } : {}) });
+			list.push({ anchor: a, text: String(txt), ...(lb.size ? { size: lb.size } : {}), ...(color ? { color } : {}),
+				...(halo ? { halo } : {}), ...(lb.haloW != null ? { haloW: lb.haloW } : {}), ...(lb.sort != null ? { sort: lb.sort } : {}) });
 		}
 		renderer.set("gintLabels", { list, minZoom: lb.minZoom ?? opts.minZoom ?? null, maxZoom: lb.maxZoom ?? opts.maxZoom ?? null }, undefined, id);
 		h.labelCount = list.length;   // 検定/デバッグ窓（t-gintlayers＝filter 連動・式全域の物差し）
