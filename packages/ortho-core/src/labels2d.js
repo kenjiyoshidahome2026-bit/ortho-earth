@@ -87,7 +87,9 @@ export function boxGrid() {
 // 国道おにぎり等の標識をアプリ側で供給する差し込み口（エンジンは汎用のまま）。
 // elevBase = 誇張/地球半径m（地物の u_elevScale の pitch非依存部分）。各ラベルを L.elev(m) 分だけ
 // 地形に乗せて投影＝傾き時に地物とラベルの位置が一致する（標高視差のズレを解消）。
-export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0 } = {}) {
+// glyphAtlas＝線に沿う注記の字を版（字を 1 回だけ焼いた画像）から貼る（既定）。false＝字ごとに strokeText／fillText（検定・切り分け）
+// lineFlatPx＝[消える, 全部出る]（CSS px）＝地面に寝た線の注記の字が、傾きで潰れた向きにこの高さ（書体の大きさ×潰れ）を下回ると薄くなり、消える（読めない字はノイズ）。null＝潰れても出す（MapLibre と同じ）
+export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 150, shieldFor = null, elevBase = 0, glyphAtlas = true, lineFlatPx = [4.5, 5.5] } = {}) {
 	// pitch ゲート（renderer の elevScaleEff=elev.scale×pf と同式）。真俯瞰0→11.5°で全開。
 	// 旧 cityFlat 項（z13.5→16でラベル標高を畳む）は撤去＝地形側の cityFlat 撤去（renderer 2026-07-26・
 	// DEM10B=DTM化）に追随。残すと都市ズームのチルトで地形は起伏のまま・ラベルだけ楕円体へ沈み位置がズレる。
@@ -200,6 +202,51 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	const advCache = new Map();
 	const advOf = (font, ch) => { const k = font + "\u0001" + ch; let v = advCache.get(k); if (v == null) { if (advCache.size > 8192) advCache.clear(); setFont(font); if (hasLS) ctx.letterSpacing = "0px"; v = ctx.measureText(ch).width; advCache.set(k, v); } return v; };
 	// 記号（icon）は錨に置く＝線の向きに回す（icon-rotation-alignment auto/map＋icon-rotate）か正立（viewport）。文字が無い層（road_oneway の矢印）は記号だけ
+	// ── 字の版（線に沿う注記・2026-10-13）＝（書体・色・縁）ごとに字を 1 回だけ焼き、字ごとの描画は drawImage（字の変換つき）。
+	// 旧＝字ごとに変換を据えて strokeText＋fillText（縁のぼかしは shadowBlur）＝Canvas2D は変換の違う字を使い回せず毎フレーム字の形から塗り直す＝
+	// 傾けた街（道の名 100 本余・字 600 個）で描画が 60→20fps に落ちていた（JS は 3ms＝重いのは塗り）。版から貼れば同じ画面で 60fps。
+	// 版＝1024² の頁（字を足すたび棚に詰める）・倍率 ss（画面の 2 倍＝回しても縮めても字が痩せない）・頁が尽きたら全部捨てて焼き直す。
+	// 貼る元は頁の写し（ImageBitmap）＝字を足している最中の canvas を元にすると貼るたびに写しを取り直す＝足し終えたフレームの後で写しを作り、次から使う
+	const GA_PAGE = 1024, GA_MAX = 6, GA_ON = glyphAtlas && typeof OffscreenCanvas === "function";
+	const ga = { pages: [], sets: new Map(), pi: 0, x: 1, y: 1, rowH: 0, ss: 0, epoch: 0 };
+	function gaReset(ss) { for (const pg of ga.pages) { pg.ctx.setTransform(1, 0, 0, 1, 0, 0); pg.ctx.clearRect(0, 0, GA_PAGE, GA_PAGE); pg.bm?.close?.(); pg.bm = null; pg.gen = 0; pg.bmGen = -1; } ga.sets.clear(); ga.pi = 0; ga.x = 1; ga.y = 1; ga.rowH = 0; ga.ss = ss; ga.epoch++; }
+	// 字の組（書体・塗り・縁の色と幅・ぼかし）＝字 → 版の中の位置。注記 1 本につき 1 回引く
+	function glyphSet(font, fill, halo, haloW, blur, dpr) {
+		const ss = dpr >= 1.5 ? 3 : 2; if (ss !== ga.ss) gaReset(ss);   // 動的解像度で dpr が細かく動いても焼き直さない（境は 1.5 だけ）
+		const key = font + "\u0001" + fill + "\u0001" + (halo || "") + "\u0001" + haloW + "\u0001" + blur;
+		let set = ga.sets.get(key); if (!set) ga.sets.set(key, set = { font, fill, halo, haloW, blur, px: parseFloat(font.match(/(\d+(?:\.\d+)?)px/)?.[1] ?? 12), m: new Map(), epoch: ga.epoch });
+		return set;
+	}
+	function glyphSprite(set, ch) {
+		let sp = set.m.get(ch); if (sp) return sp;
+		let pg = ga.pages[ga.pi] ??= (cv => ({ cv, ctx: cv.getContext("2d"), bm: null, gen: 0, bmGen: -1, busy: false }))(new OffscreenCanvas(GA_PAGE, GA_PAGE)), c = pg.ctx;
+		const pad = (set.halo ? set.haloW : 0) + set.blur + 1, hw0 = set.px * 0.3;
+		c.setTransform(1, 0, 0, 1, 0, 0); c.font = set.font; c.textAlign = "center"; c.textBaseline = "middle";
+		const mt = c.measureText(ch), hw = (mt.width || 0) / 2 || hw0;   // 字の箱＝実際の字の形（斜体のはみ出し・上下の飾り）＋縁。測れない環境は字送りと書体の大きさから
+		const l = Math.max(mt.actualBoundingBoxLeft ?? hw, hw) + pad, r = Math.max(mt.actualBoundingBoxRight ?? hw, hw) + pad, up = (mt.actualBoundingBoxAscent ?? set.px * 0.85) + pad, dn = (mt.actualBoundingBoxDescent ?? set.px * 0.85) + pad;
+		const k = Math.min(ga.ss, (GA_PAGE - 2) / (l + r), (GA_PAGE - 2) / (up + dn)), W = Math.ceil((l + r) * k), H = Math.ceil((up + dn) * k);   // 頁に収まらない大きな字は倍率を落とす
+		if (ga.x + W + 1 > GA_PAGE) { ga.x = 1; ga.y += ga.rowH + 1; ga.rowH = 0; }
+		if (ga.y + H + 1 > GA_PAGE) {
+			if (ga.pi + 1 >= GA_MAX) { const ss = ga.ss; gaReset(ss); set.m = new Map(); set.epoch = ga.epoch; ga.sets.set(set.font + "\u0001" + set.fill + "\u0001" + (set.halo || "") + "\u0001" + set.haloW + "\u0001" + set.blur, set); }   // 尽きた＝全部捨てる（今引いている組は残して詰め直す）
+			else { ga.pi++; ga.x = 1; ga.y = 1; ga.rowH = 0; }
+			pg = ga.pages[ga.pi] ??= (cv => ({ cv, ctx: cv.getContext("2d"), bm: null, gen: 0, bmGen: -1, busy: false }))(new OffscreenCanvas(GA_PAGE, GA_PAGE)); c = pg.ctx;
+			c.font = set.font; c.textAlign = "center"; c.textBaseline = "middle";
+		}
+		c.setTransform(k, 0, 0, k, ga.x + l * k, ga.y + up * k); c.lineJoin = "round"; c.miterLimit = 2;
+		if (set.blur > 0 && set.halo) { c.shadowColor = set.halo; c.shadowBlur = set.blur * k; } else c.shadowBlur = 0;   // 縁のぼかし（text-halo-blur）は焼き込む（shadowBlur は変換が掛からない＝倍率を掛ける）
+		if (set.halo) { c.strokeStyle = set.halo; c.lineWidth = set.haloW * 2; c.strokeText(ch, 0, 0); }
+		c.fillStyle = set.fill; c.fillText(ch, 0, 0); c.shadowBlur = 0;
+		sp = { pg, gen: ++pg.gen, x: ga.x, y: ga.y, W, H, ox: -l, oy: -up, w: W / k, h: H / k };
+		set.m.set(ch, sp); ga.x += W + 1; if (H > ga.rowH) ga.rowH = H;
+		return sp;
+	}
+	// 字を足した頁の写しを作る（描き終えた後）。写しが出来るまでは canvas から貼る（遅いが正しい）
+	function gaBake() {
+		if (typeof createImageBitmap !== "function") return;
+		for (const pg of ga.pages) if (pg.bmGen !== pg.gen && !pg.busy) { const g = pg.gen, e = ga.epoch; pg.busy = true; createImageBitmap(pg.cv).then(bm => { pg.busy = false; if (e !== ga.epoch) { bm.close?.(); return; } pg.bm?.close?.(); pg.bm = bm; pg.bmGen = g; }, () => { pg.busy = false; }); }   // 古い写しは閉じる（貼り終えたフレームの後＝描画には残らない）
+	}
+	// 潰れた線の注記の濃さ（0＝出さない〜1）＝lineFlatPx の間を滑らかに
+	const flatK = sq => { if (!lineFlatPx || sq >= lineFlatPx[1]) return 1; const t = (sq - lineFlatPx[0]) / ((lineFlatPx[1] - lineFlatPx[0]) || 1); return t <= 0 ? 0 : t * t * (3 - 2 * t); };
 	let nullWhy = "", fitDbg = null, angDbg = null;   // 診断＝lineLayout が null を返した理由（placedDebug の line）
 	// 線の字送り（ラベルごとに覚える・書体の世代・書体で有効）＝毎フレーム（線の注記は毎フレーム敷き直す）measureText の覚えを引き直さない。区間（format）があれば字ごとの書体（fonts）・大きさ（fs）。
 	// 部分を丸ごと持つ注記（lp 2）の錨（子）は親の覚えを共有する（par）
@@ -253,46 +300,64 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		const size0 = L.size || 12, sk = sizeK(L, zoom), size = size0 * sk, font = fontOf(L, size0), ls = (L.ls || 0) * size0;
 		const la = advancesOf(L, chars, csi, size0, font, ls);
 		let adv = la.adv, W = la.W * sk, vert = false;
+		// 地面の基底（pitch-alignment map）＝錨そのものの投影を原点に測る（旧＝線に収めるために滑らせた後の位置 m を原点にしていた＝滑った分（〜文字の 3/4）が 20px の基線に混ざり、
+		// 基底が壊れて字が鏡像・数倍に化けた＝傾けた街路で頻発）。裏返った基底（det ≤ 0）は使わない＝画面で回すだけ
+		const paMap = L.ra !== "viewport-glyph" && (L.pa ?? "auto") !== "viewport";
+		let M = null, det = 0, smax = 1;
+		if (paMap && chars.length) {
+			projectInto(st, L.anchor[0], L.anchor[1], r, PJ);
+			if (PJ[2] >= 0) { M = groundBasis(st, L.anchor[0], L.anchor[1], r, PJ[0] / dpr, PJ[1] / dpr, dpr, zoom); det = M ? M.a * M.d - M.b * M.c : 0; if (det > 1e-9) smax = sigMax(M) || 1; else M = null; }
+		}
+		// 画面の向き (dx, dy)（単位）へ地面で 1 進んだ時の画面の長さ（一番伸びている向きを 1 に正規化＝奥へ向かう線は cos(pitch) に縮む）。
+		// 1% までの縮みは 1 に丸める＝真俯瞰でも基底は東西と南北で僅かに違う（楕円体の曲率半径の差 〜0.7%）＝傾けていない地図の字送りを向きで変えない
+		const shrink = (dx, dy) => { const gx = (M.d * dx - M.c * dy) / det, gy = (-M.b * dx + M.a * dy) / det, n = Math.hypot(gx, gy) * smax / 1.01; return n > 1 ? 1 / n : 1; };
 		// 弧長 q の点と向き＝二分探索（部分を丸ごと持つ線は頂点が多い＝字ごとの線形探索をしない）
 		const at_ = q => { let a = 1, b = m_n - 1; while (a < b) { const c = (a + b) >> 1; if (cum[c] < q) a = c + 1; else b = c; } const i = a, t = (q - cum[i - 1]) / ((cum[i] - cum[i - 1]) || 1); return [xs[i - 1] + (xs[i] - xs[i - 1]) * t, ys[i - 1] + (ys[i] - ys[i - 1]) * t, Math.atan2(ys[i] - ys[i - 1], xs[i] - xs[i - 1])]; };
 		// 縦書き（MapLibre の線の注記＝横と縦の両方を組み、錨の所の線の向きが縦に近い（45° 超）なら縦）＝字送りを縦の物に替える・読む向きは上→下
 		if (la.vadv && chars.length) { const q0 = Math.max(0, s0 - W / 2), q1 = Math.min(total, s0 + W / 2), p0 = at_(q0), p1 = at_(q1); if (Math.abs(p1[1] - p0[1]) > Math.abs(p1[0] - p0[0])) { vert = true; adv = la.vadv; W = la.VW * sk; } }
+		// 字は地面に寝る＝字送りも地面の長さ（旧＝字送りは画面 px のまま・字の高さだけ地面＝奥へ向かう道の名が 1/cos(pitch) 倍に膨れた）。f＝錨の所の線の向きの縮み（文字 1 本で 1 つ）
+		let f = 1;
+		if (M) { const p0 = at_(Math.max(0, sA - W / 2)), p1 = at_(Math.min(total, sA + W / 2)), dx = p1[0] - p0[0], dy = p1[1] - p0[1], dn = Math.hypot(dx, dy), a = at_(sA)[2]; f = dn > 1e-3 ? shrink(dx / dn, dy / dn) : shrink(Math.cos(a), Math.sin(a)); W *= f; }
+		const skf = sk * f, sizeF = size * f;
 		if (W > total) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
 		// 錨の弧長 s0 は、文字が線（地球の縁で切れた分も）に収まる範囲へ寄せる（旧＝錨に固定＝縁の近くや短い窓で「fit」で落ちた。symbol-spacing は寄せた後の位置で裁く）。
 		// 部分を丸ごと持つ線（lp 2）は錨から文字の 3/4＋2 字分まで（窓）＝隣の錨の持ち場へ滑らない
-		const win = L.lp === 2 ? W * 0.75 + size * 2 : Infinity, qlo = Math.max(W / 2, sA - win), qhi = Math.min(total - W / 2, sA + win);
+		const win = L.lp === 2 ? W * 0.75 + sizeF * 2 : Infinity, qlo = Math.max(W / 2, sA - win), qhi = Math.min(total - W / 2, sA + win);
 		if (qlo > qhi) { nullWhy = "fit"; fitDbg = [Math.round(s0), Math.round(W), Math.round(total), L.text, size, L.ls || 0, n, lo, hi]; return null; }
 		s0 = Math.min(Math.max(s0, qlo), qhi);
 		const m = at_(s0);
 		let rev = false;
 		if (chars.length && vert) { const a = at_(s0 - W / 2), b = at_(s0 + W / 2); rev = b[1] < a[1]; }   // 縦書き＝常に上から下へ
-		else if (chars.length && L.ku !== false) { const a = at_(s0 - W / 2), b = at_(s0 + W / 2); rev = b[0] < a[0]; }
+		else if (chars.length && L.ku !== false) {   // 縦に近い線は向きが 1 フレームごとに入れ替わり得る＝前の向きを覚え、縦から 6° 余り越えるまで替えない（最初は素の判定＝MapLibre と同じ）
+			const a = at_(s0 - W / 2), b = at_(s0 + W / 2), ddx = b[0] - a[0], tol = Math.abs(b[1] - a[1]) * 0.11;
+			rev = L.__rev == null ? ddx < 0 : L.__rev ? ddx < tol : ddx < -tol; L.__rev = rev;
+		}
 		const g = [], ma = (L.ma ?? 45) * Math.PI / 180, oy = (L.off?.[1] || 0) * size;
 		let q = s0 - W / 2, prev = null;
 		// 字の向き＝字の中心を挟む弦（幅＝max(字送り, 1.5 字)＝微小な線分の向きは字ごとに振れる＝小川のジグザグで max-angle に当たっていた・タイルの z が MapLibre より細かい分だけ折れ線が粗い）。弦が潰れていれば線分の向き
 		const chord = (q0, q1) => { const p0 = at_(Math.max(0, q0)), p1 = at_(Math.min(total, q1)), dx = p1[0] - p0[0], dy = p1[1] - p0[1]; return dx * dx + dy * dy > 1e-6 ? Math.atan2(dy, dx) : p1[2]; };
 		for (let i = 0; i < chars.length; i++) {
-			const k = rev ? chars.length - 1 - i : i, ak = adv[k] * sk, half = ak / 2, cw = Math.max(ak, size * 1.5) / 2;
+			const k = rev ? chars.length - 1 - i : i, ak = adv[k] * skf, half = ak / 2, cw = Math.max(ak, sizeF * 1.5) / 2;
 			const [x, y] = at_(q + half), a0 = chord(q + half - cw, q + half + cw), a = rev ? a0 + Math.PI : a0;
 			if (prev != null) { let d = a - prev; while (d > Math.PI) d -= 2 * Math.PI; while (d < -Math.PI) d += 2 * Math.PI; if (Math.abs(d) > ma) { nullWhy = "angle"; if (!angDbg) angDbg = { text: L.text, i, q: Math.round(q), s0: Math.round(s0), W: Math.round(W), total: Math.round(total), a: Math.round(a * 180 / Math.PI), prev: Math.round(prev * 180 / Math.PI), rev, pts: xs.map((x, j) => [Math.round(x), Math.round(ys[j]), Math.round(cum[j])]), gl: g.map(c => [Math.round(c.x), Math.round(c.y), Math.round(c.a * 180 / Math.PI)]) }; return null; } }
 			prev = a;
 			// 縦書きの正立の字＝字の上を「線の進む向きの逆（上）」へ＝向きを 90° 戻す（線が真下へ向く時に字が正立）。回す字（ラテン）は横書きと同じ向き（線に沿って寝る）・句読点は縦の形
 			const vr = vert && !charRotated(chars[k]);
-			g.push({ ch: vert ? verticalize(chars[k]) : chars[k], x: x - Math.sin(a) * oy, y: y + Math.cos(a) * oy, a: vr ? a - Math.PI / 2 : a, w: ak - ls * sk, ...(la.fonts ? { f: la.fonts[k], col: la.cols[k] } : {}) });
+			g.push({ ch: vert ? verticalize(chars[k]) : chars[k], x: x - Math.sin(a) * oy, y: y + Math.cos(a) * oy, a: vr ? a - Math.PI / 2 : a, w: adv[k] - ls, ...(la.fonts ? { f: la.fonts[k], col: la.cols[k] } : {}) });
 			q += ak;
 		}
 		if (rev) g.reverse();
 		// 字の transform（段 5）：pitch-alignment map（既定）＝字の上向きを「地面で線と直角」の向きへ（傾けると字が地面に寝る）。viewport＝画面で直角（回すだけ）。rotation-alignment viewport-glyph＝字は正立のまま線に沿って並ぶ
-		const paMap = L.ra !== "viewport-glyph" && (L.pa ?? "auto") !== "viewport", M = paMap && g.length ? groundBasis(st, L.anchor[0], L.anchor[1], r, m[0], m[1], dpr, zoom) : null, det = M ? M.a * M.d - M.b * M.c : 0;
 		for (const c of g) {
 			if (L.ra === "viewport-glyph") { c.a = 0; c.t = scaleT(null, sk); continue; }
-			if (M && Math.abs(det) > 1e-9) { const dx = Math.cos(c.a), dy = Math.sin(c.a), gx = (M.d * dx - M.c * dy) / det, gy = (-M.b * dx + M.a * dy) / det, px = -gy, py = gx; c.t = scaleT({ a: dx, b: dy, c: M.a * px + M.c * py, d: M.b * px + M.d * py }, sk); }   // 地面の向き d_g＝M⁻¹d_s・直角 p_g＝rot90(d_g)・画面へ M（大きさの倍率込み）
+			if (M) { const dx = Math.cos(c.a), dy = Math.sin(c.a), gx = (M.d * dx - M.c * dy) / det, gy = (-M.b * dx + M.a * dy) / det, px = -gy, py = gx; c.t = scaleT({ a: dx, b: dy, c: M.a * px + M.c * py, d: M.b * px + M.d * py }, skf); }   // 地面の向き d_g＝M⁻¹d_s・直角 p_g＝rot90(d_g)・画面へ M（大きさの倍率と地面の縮み込み）
 			else c.t = scaleT(rotM(c.a), sk);
 		}
 		let icon = null;
 		if (im) { const sz = L.isz ?? 1, iw = im.bm.width / im.pr * sz, ih = im.bm.height / im.pr * sz, a0 = chord(Math.max(0, s0 - iw / 2), Math.min(total, s0 + iw / 2)), a = (L.ira === "viewport" ? 0 : (rev ? a0 + Math.PI : a0)) + (L.irot || 0) * Math.PI / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a)); icon = { x: m[0], y: m[1], a, w: iw, h: ih, bw: iw * c + ih * sn, bh: iw * sn + ih * c }; }   // bw/bh＝回した記号を囲む箱
 		const ang = prev ?? m[2];
-		return { g, w: W, h: size * la.hmax, x: m[0] - Math.sin(ang) * oy, y: m[1] + Math.cos(ang) * oy, font, icon, vert };
+		// 潰れ＝字の行列の縮む側の倍率（＝基底の σmin/σmax＝線の向きに依らず錨の画面位置で決まる）×書体の大きさ＝潰れた向きの字の高さ（CSS px）。地面に寝ない字は潰れない
+		return { g, w: W, h: size * la.hmax, hl: size0 * la.hmax, sq: M ? det / (smax * smax) * size : Infinity, x: m[0] - Math.sin(ang) * oy, y: m[1] + Math.cos(ang) * oy, font, icon, vert };
 	}
 	// 部分を丸ごと持つ線の注記（lp 2）の錨＝表示の整数 z（zi）で symbol-spacing の間隔に置く（MapLibre の getAnchors＝過拡大のタイルごとに組み直すのと同じ答え）。整数 z ごとに覚える（鍵＝親の鍵＋"#zi:番号"＝z を跨ぐと入れ替わりフェード）。
 	// 間隔＝文字の長さに対して spacing−長さ＜spacing/4 なら 長さ＋spacing/4・最初の錨＝枠に続く線は spacing/2・そうでなければ（長さ/2＋2 字分）% spacing（T 字路の衝突を避ける）・
@@ -411,7 +476,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 				const dl = dbg.line; dl.n++;
 				const lb = (dbg.lineBy ??= {})[L.k ?? ("li" + L.li)] ??= { n: 0, layout: 0, off: 0, overlap: 0, spacing: 0, ok: 0 }; lb.n++;   // 層ごと（診断）
 				const ll = lineLayout(L, st, dpr, rad, zoomV); if (!ll) { dl.layout++; lb.layout++; dl[nullWhy] = (dl[nullWhy] || 0) + 1; if (nullWhy === "fit" && !dl.fitEg) dl.fitEg = fitDbg; if (angDbg && !dl.angEg) dl.angEg = angDbg; continue; }
-				const padL = L.pad ?? pad, boxes = ll.g.map(c => grow(c.t ? aabb(c.t, c.x, c.y, -c.w / 2, -ll.h / 2, c.w, ll.h) : [c.x - c.w / 2, c.y - ll.h / 2, c.x + c.w / 2, c.y + ll.h / 2], padL));
+				if (ll.g.length && flatK(ll.sq) <= 0) { dl.layout++; lb.layout++; dl.flat = (dl.flat || 0) + 1; continue; }   // 潰れて読めない＝出さない（場所も取らない）
+				const padL = L.pad ?? pad, boxes = ll.g.map(c => grow(c.t ? aabb(c.t, c.x, c.y, -c.w / 2, -ll.hl / 2, c.w, ll.hl) : [c.x - c.w / 2, c.y - ll.hl / 2, c.x + c.w / 2, c.y + ll.hl / 2], padL));
 				let bb = null; for (const b of boxes) bb = bb ? [Math.min(bb[0], b[0]), Math.min(bb[1], b[1]), Math.max(bb[2], b[2]), Math.max(bb[3], b[3])] : b.slice();   // 全部の字を囲む箱（placed の w/h）
 				if (ll.icon) { const ic = ll.icon, ip = L.ipad ?? 2; boxes.push([ic.x - ic.bw / 2 - ip, ic.y - ic.bh / 2 - ip, ic.x + ic.bw / 2 + ip, ic.y + ic.bh / 2 + ip]); }   // 記号の箱（icon-padding）＝文字と一緒に裁く（両方置けなければ出さない）
 				if (boxes.every(b => b[2] < 0 || b[0] > Wc || b[3] < 0 || b[1] > Hc)) { dl.off++; lb.off++; continue; }
@@ -621,6 +687,7 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		}
 		for (const k of order) drawOne(k);
 		for (const k of fades.keys()) if (!winners.has(k)) drawOne(k);
+		if (GA_ON) gaBake();
 		function drawOne(k) {
 			const L = winners.get(k) || labelByKey.get(k) || kidByKey.get(k);   // 子（lp 2 の錨）はフェードアウト中も鍵で引く
 			if (!L) { fades.delete(k); return; }
@@ -651,15 +718,30 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 					if (im && oi > 0.01) { const src = im.sdf ? sdfTint(L.icon, im, css(L.icol || ICOL0), haloOf(L, im)) : im.bm; ctx.save(); ctx.globalAlpha = oi; ctx.translate(ic.x, ic.y); ctx.rotate(ic.a); ctx.drawImage(src, -ic.w / 2, -ic.h / 2, ic.w, ic.h); ctx.restore(); }
 				}
 				if (!ll.g.length) return;
+				const oL = o * flatK(ll.sq); if (oL <= 0.003) return;   // 傾きで潰れた字は薄く（lineFlatPx）
+				if (GA_ON) {   // 字の版から貼る（色は版に焼いた不透明の色・フェードは globalAlpha）
+					const haloA = L.haloW > 0 ? css(L.halo, 1) : null, fillA = css(L.color, 1), hW = haloA ? L.haloW : 0, blur = haloA && L.blur > 0 ? L.blur : 0;
+					const set0 = glyphSet(ll.font, fillA, haloA, hW, blur, dpr);
+					ctx.shadowBlur = 0; ctx.globalAlpha = oL;
+					for (const c of ll.g) {
+						if (!c.ch.trim()) continue;   // 空白は貼らない
+						let set = c.f || c.col ? glyphSet(c.f || ll.font, c.col ? css(c.col, 1) : fillA, haloA, hW, blur, dpr) : set0; if (set.epoch !== ga.epoch) set = glyphSet(set.font, set.fill, set.halo, set.haloW, set.blur, dpr);   // 版を捨てた後の組は引き直す
+						const sp = glyphSprite(set, c.ch), src = sp.pg.bm && sp.gen <= sp.pg.bmGen ? sp.pg.bm : sp.pg.cv;
+						if (c.t) ctx.setTransform(dpr * c.t.a, dpr * c.t.b, dpr * c.t.c, dpr * c.t.d, dpr * c.x, dpr * c.y); else { const cs = Math.cos(c.a) * dpr, sn = Math.sin(c.a) * dpr; ctx.setTransform(cs, sn, -sn, cs, dpr * c.x, dpr * c.y); }
+						ctx.drawImage(src, sp.x, sp.y, sp.W, sp.H, sp.ox, sp.oy, sp.w, sp.h);
+					}
+					ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.globalAlpha = 1;
+					return;
+				}
 				setFont(ll.font); if (hasLS) ctx.letterSpacing = "0px";
 				ctx.textAlign = "center"; ctx.textBaseline = "middle";
-				if (L.blur > 0) { ctx.shadowColor = css(L.halo, o); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
-				const halo = L.haloW > 0 ? css(L.halo, o) : null, fill = css(L.color, o);
+				if (L.blur > 0) { ctx.shadowColor = css(L.halo, oL); ctx.shadowBlur = L.blur; } else ctx.shadowBlur = 0;
+				const halo = L.haloW > 0 ? css(L.halo, oL) : null, fill = css(L.color, oL);
 				for (const c of ll.g) {   // 字ごとに錨へ移して回す＝終わりは基底の変換（dpr の拡大）へ据え直す（旧＝save/restore＝字ごとに描画状態を丸ごと積み下ろし）
 					ctx.translate(c.x, c.y); if (c.t) ctx.transform(c.t.a, c.t.b, c.t.c, c.t.d, 0, 0); else ctx.rotate(c.a);
 					if (c.f) setFont(c.f);   // 区間（format）の書体
 					if (halo) { ctx.strokeStyle = halo; ctx.lineWidth = L.haloW * 2; ctx.strokeText(c.ch, 0, 0); }
-					ctx.fillStyle = c.col ? css(c.col, o) : fill; ctx.fillText(c.ch, 0, 0);
+					ctx.fillStyle = c.col ? css(c.col, oL) : fill; ctx.fillText(c.ch, 0, 0);
 					ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 				}
 				ctx.shadowBlur = 0;
@@ -818,6 +900,6 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 	}
 
 	function placedDebug() { return dbg; }
-	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; curFont = ""; dirty = true; }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
+	function clearFontCache() { widthCache.clear(); advCache.clear(); fontGen++; curFont = ""; dirty = true; if (ga.ss) gaReset(ga.ss); }   // 書体が載った（addFontFace）＝幅の覚え（行の束・線の字送り）を捨てて衝突判定からやり直す（旧＝字送りの覚えが代替書体の幅のまま残った）
 	return { setLabels, setUserLabels, setUserVisible, setElev, setSky, setClip, setMoon, setClock, setImage, removeImage, takeMissing, draw, clear, placed, placedDebug, clearFontCache };
 }
