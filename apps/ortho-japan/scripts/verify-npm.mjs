@@ -17,6 +17,7 @@ import { promisify } from "node:util";
 import { setTimeout as sleep } from "node:timers/promises";
 import path from "node:path";
 import os from "node:os";
+import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const PORT = 5246, CHROME = await resolveChrome();
@@ -52,7 +53,6 @@ const host = `<!doctype html><meta charset="utf-8"><title>npm-embed</title>
 <div id="here" style="width:480px;height:320px"></div>
 <script type="module">
 import orthoJapan from "/lib/ortho-japan.js";
-import { resolveChrome } from "@ortho-earth/globe/scripts/lib/chrome.mjs";   // 検定専用の Chrome for Testing（普段の Chrome とぶつからない・2026-09-30）
 orthoJapan({ target: "#here", assetBase: "/assets/", mesh: false }).then(() => { document.title = "PASS npm-embed"; });
 </script>`;
 const read = promisify(readFile);

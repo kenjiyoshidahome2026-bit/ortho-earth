@@ -1,6 +1,6 @@
 {
 	"name": "himekuri",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "日めくりカレンダー（旧暦・六曜・二十四節気・七十二候・暦注・祝日）と世界時計の SVG ウィジェット。依存なし",
 	"keywords": [
 		"calendar",
