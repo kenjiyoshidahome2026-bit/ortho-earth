@@ -15,9 +15,9 @@ function downsampleFlipped(tile, N) {
 	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };
 	const M = 2;
 	for (let j = 0; j < N; j++) {
-		const gy = Math.min(Math.max((j + 0.5) / N * (h - 1), M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		for (let i = 0; i < N; i++) {
-			const gx = Math.min(Math.max((i + 0.5) / N * (w - 1), M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
+			const gx = Math.min(Math.max((i + 0.5) / N * w - 0.5, M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
 			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 			const v = (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
 			out[j * N + i] = v < 0 ? 0 : v;

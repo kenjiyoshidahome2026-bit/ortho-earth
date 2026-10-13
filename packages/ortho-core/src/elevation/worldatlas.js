@@ -9,7 +9,8 @@ export const WORLD_ATLAS = "WORLD1024_1";
 export const WORLD_ATLAS_CELL = 1024;   // 90° セルあたりの texel（4 × 2 セル＝4096 × 2048）
 
 // タイル 1 枚を N×N へバイリニア再標本化して out（Int16・row0=北＝altpbf の格納規約）の (ox,oy) へ置く。
-// 標本規約は ortho-core elevation.js downsampleFlipped と同一：texel 中心 (i+0.5)/N・最外周 M=2px（縁の fill 値）を読まない・
+// 標本規約は ortho-core elevation.js downsampleFlipped と同一：texel 中心 (i+0.5)/N・入力も画素中心（gx=u·w−0.5・2026-10-02 に (w-1) 等分を改めた＝
+// 90° 境界の 1 画素（R90 で 3.3km）の段差を断つ。⚠ これは焼き側＝bucket の WORLD1024_1 は旧規約のまま＝焼き直す時に WORLD_ATLAS の版を上げる）・最外周 M=2px（縁の fill 値）を読まない・
 // 異常値（<-420 / >9000）は 0＝深海も 0 になる（downsampleFlipped と同じ規約＝海底地形は持たない）。-420..0 の負値（死海・海面下の陸）は
 // 保持し、消費側（worldAtlasCell/sampleWorldAtlas）が 0 へ寄せる＝出力は従来と同一。海底が要る用途は R90 生タイルから別に焼くこと。
 // Int16 格納＝丸めで ±0.5m（R90 の格子 3.7km に対し無視できる）。
@@ -18,10 +19,10 @@ export function resampleTile(tile, N, out, W, ox, oy) {
 	const H = (x, y) => { const v = data[(h - 1 - y) * w + x]; return (v < -420 || v > 9000) ? 0 : v; };   // y:0=南
 	const M = 2;
 	for (let j = 0; j < N; j++) {   // j＝南から
-		const gy = Math.min(Math.max((j + 0.5) / N * (h - 1), M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
+		const gy = Math.min(Math.max((j + 0.5) / N * h - 0.5, M), h - 1 - M), y0 = Math.min(gy | 0, h - 2), fy = gy - y0;
 		const row = (oy + (N - 1 - j)) * W + ox;   // 出力は北上げ
 		for (let i = 0; i < N; i++) {
-			const gx = Math.min(Math.max((i + 0.5) / N * (w - 1), M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
+			const gx = Math.min(Math.max((i + 0.5) / N * w - 0.5, M), w - 1 - M), x0 = Math.min(gx | 0, w - 2), fx = gx - x0;
 			const a = H(x0, y0), b = H(x0 + 1, y0), c = H(x0, y0 + 1), d = H(x0 + 1, y0 + 1);
 			const top = a + (b - a) * fx;
 			out[row + i] = Math.round(top + ((c + (d - c) * fx) - top) * fy);

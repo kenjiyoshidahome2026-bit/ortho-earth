@@ -63,7 +63,7 @@ export const fontCss: (f: FontStack | null | undefined, size: number, fallback?:
 export function buildBuildings(tile: { layers: unknown; z: number; x: number; y: number }, origin: number[], schema?: unknown): unknown;
 export function buildExtrudedParcels(features: unknown[], origin: number[], opts?: { heightM?: number; exag?: number }): unknown;
 export function buildDrapedGeometry(features: unknown[], origin: number[], opts?: { liftM?: number; exag?: number }): unknown;
-export function downsampleFlipped(tile: unknown, N: number): unknown;
+export function downsampleFlipped(tile: unknown, N: number, M?: number): unknown;
 export function mergeTiles(order: unknown[], geomOf: (id: unknown) => unknown, opts?: Record<string, unknown>): unknown;
 
 // ── 工場（render worker・main の配管。戻りの形は各モジュールの注記が正典）
