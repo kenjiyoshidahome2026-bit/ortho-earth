@@ -35,6 +35,10 @@ struct GF {
 	meshP: vec4f,      // 案A: (格子の頂点数 G, near.x, near.y, skipE7)。G=0＝量子化オフ。yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・0=飛ばさない）（⚠GF スロットは 512B へ拡張済み）
 	atlas: vec4f,      // 地面アトラスへの焼き込み（窓座標モード）：xy＝原点−窓南西隅(deg)・zw＝1/窓幅（gl/gint u_atlas と対・packGF 72-75）
 	atlasQ: vec4f,     // x＝窓座標モード(1)。塗り扇だけ＝球面投影・地平クランプ・ドレープ無し（地形には FS の標本化で乗る・packGF 76-79）
+	gfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない
+	farA: vec4f,       // 遠方の要（塗り扇の画面カリング・gl/gint/utility.js farPivotParams）：NDC の東(xy)・北(zw)（packGF 128-131）
+	farQ: vec4f,       // (経度差の重み, 緯度差の重み, 有効(1), 距離 K)＝z=0 は無効＝従来の bbox 中心・z=2＝単一要を farA.xy（NDC）へ（packGF 132-135）
+	farBig: vec4u,     // xy＝要を遠方へ置く feature の幅/高さ下限（e7）（packGF 136-139）
 };
 @group(0) @binding(0) var<uniform> F: GF;
 struct Styles { style: array<vec4f, 256>, dash: array<vec4f, 256> };   // dash は xy のみ使用（uniform 配列は 16B stride）
@@ -365,9 +369,23 @@ fn bboxVisible(fid: u32) -> bool {
 }
 // stencil 塗りの扇要（feature bbox 中心）＝TBDR パラメータバッファ対策。無し＝クリップ原点（z01写像済み）
 fn pivotClip(fid: u32) -> vec4f {
-	if (F.flags.x == 0u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // クリップ原点（z は WebGPU [0,w] の中央）
+	if (F.flags.x == 0u) {   // 単一要（境界メタ）＝クリップ原点（z は WebGPU [0,w] の中央）か遠方の 1 点（farQ.z=2・GL と同じ）
+		if (F.farQ.z > 1.5) { return vec4f(F.farA.xy, 0.5, 1.0); }
+		return vec4f(0.0, 0.0, 0.5, 1.0);
+	}
 	let bb = fetchFidBbox(fid);
 	if (bb.z - bb.x >= 1800000000u) { return vec4f(0.0, 0.0, 0.5, 1.0); }   // 経度全幅＝中心が裏側＝遠クリップの円盤→クリップ原点（GL と同じ・9/15）
+	// 視野より大きい feature＝要を遠方へ（画面外の辺の三角形を画面外に収める＝GPU が捨てる・GL pivotClip と同式）。
+	// 張り出し最小の側へ帯が伸びるよう、要はその反対側の遠方。縫い目跨ぎ（x>360e7）は従来どおり
+	if (F.farQ.z > 0.5 && F.flags.y != 0u && bb.z <= 3600000000u && (bb.z - bb.x > F.farBig.x || bb.w - bb.y > F.farBig.y)) {
+		let oL = (f32(F.vbb.x) - f32(bb.x)) * F.farQ.x; let oR = (f32(bb.z) - f32(F.vbb.z)) * F.farQ.x;
+		let oB = (f32(F.vbb.y) - f32(bb.y)) * F.farQ.y; let oT = (f32(bb.w) - f32(F.vbb.w)) * F.farQ.y;
+		var d = F.farA.xy; var m = oL;   // 西が最小＝帯は西へ・要は東の遠方
+		if (oR < m) { m = oR; d = -F.farA.xy; }
+		if (oB < m) { m = oB; d = F.farA.zw; }
+		if (oT < m) { d = -F.farA.zw; }
+		return vec4f(d * F.farQ.w, 0.5, 1.0);
+	}
 	let cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u; let cy = bb.y + (bb.w - bb.y) / 2u;   // 周期対応 bbox＝中心を [0,360e7) へ
 	let dlon = dlonE7(cx, F.centers.x) * 1e-7;
 	let dlat = f32(i32(cy - F.centers.y)) * 1e-7;
@@ -895,8 +913,8 @@ export function quad6WGSL(code) {
 }
 
 // ── 断面とクリッピング平面（#111 段 3・2026-09-29）＝切っている時だけ使う派生（本体は不変）。
-// gint は bind group を 4 枚とも使い切っている＝面と視線の基底は GF の末尾（スロット 512B の空き＝float 80〜127）に載せる。
-// 派生の GF だけがその欄を宣言する（素の GF は 320B のまま＝同じ buffer を読んでも何も変わらない）。K＝n·(gint の原点) − c（CPU f64・gint.js packClipGF）。
+// gint は bind group を 4 枚とも使い切っている＝面と視線の基底は GF の予約欄（gfRsv＝float 80〜127）に載せる。
+// 派生の GF だけがその欄を名前つきで宣言し直す（素の GF は gfRsv のまま読まない＝同じ buffer を読んでも何も変わらない）。K＝n·(gint の原点) − c（CPU f64・gint.js packClipGF）。
 // 線＝端点ごとにドレープ後の位置（relW）で面ごとの距離を運び画素で最小（renderer と同じ作法）・点＝原点相対の位置・
 // 塗り（扇の cover）と ID 塗りの解決＝画素から全画面レイで海抜 0 の球の交点を作って測る（扇の画素は地表の点でない）。3D の塗りは地面アトラス側＝地形の派生で切れている
 const GINT_CLIP_FIELDS = "\tclipPl: array<vec4f, 6>,   // 面（xyz＝法線・w＝K）＝#111 段 3\n\tclipP: vec4f,              // x＝面の枚数\n\trayF: vec4f, rayX: vec4f, rayY: vec4f, eyeC: vec4f, eyeO: vec4f,   // 全画面レイ（renderer と同じ視線の基底・eyeO＝目−gint 原点）\n";
@@ -926,7 +944,8 @@ const gDerive = (src, pairs, label) => pairs.reduce((s, [a, b, all]) => {
 	if (all ? k < 1 : k !== 1) throw new Error(`gint clip derive(${label}): anchor ${k ? "ambiguous" : "missing"}: ${a.slice(0, 50)}`);
 	return all ? s.split(a).join(b) : s.replace(a, b);
 }, src);
-const GF_CLIP = ["};\n@group(0) @binding(0) var<uniform> F: GF;", GINT_CLIP_FIELDS + "};\n@group(0) @binding(0) var<uniform> F: GF;"];
+const GF_RSV = "\tgfRsv: array<vec4f, 12>,   // float 80〜127＝断面（#111 段 3）の派生だけが clipPl/clipP/ray… として宣言し直す欄（GINT_CLIP_FIELDS）。素の GF は読まない\n";
+const GF_CLIP = [GF_RSV, GINT_CLIP_FIELDS];   // 予約欄（12×vec4＝48 float）を同じ大きさの断面の欄へ差し替える＝後ろの遠方の要（float 128〜）の位置は動かない
 export function gintClipWGSL(src, kind) {
 	if (kind === "line") return gDerive(src, [GF_CLIP,
 		["\t@location(8) @interpolate(flat) eb: vec2f,\n};", "\t@location(8) @interpolate(flat) eb: vec2f,\n\t@location(9) cdA: vec4f,\n\t@location(10) cdB: vec2f,\n};"],

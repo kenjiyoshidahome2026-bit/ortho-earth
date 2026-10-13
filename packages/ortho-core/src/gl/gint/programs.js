@@ -250,6 +250,11 @@ uniform int        u_pivot_w;
 uniform int        u_has_pivot;
 uniform uvec4      u_view_bbox;   // 視野 bbox（e7整数・保守的＝地平キャップ fallback 込み）
 uniform int        u_use_vbb;     // 1＝bboxカリング有効（bboxテクスチャと視野bboxが両方ある時だけ）
+// 遠方の要（塗り扇の画面カリング・utility.js farPivotParams）：axes＝NDC の東(xy)・北(zw)、q＝(経度差の重み, 緯度差の重み, 有効, 距離 K)、
+// big＝要を遠方へ置く feature の幅/高さ下限（e7）。q.z=0＝無効（従来の bbox 中心）・q.z=2＝境界メタ（単一要）の要を axes.xy（NDC）へ（farPivotGlobal）
+uniform vec4       u_far_axes;
+uniform vec4       u_far_q;
+uniform uvec2      u_far_big;
 // 地面アトラスへの焼き込み（RTT ドレープ・2026-09-21）：窓座標モード＝原点相対 dLL（deg）を経緯度整列の窓へ線形写像。
 // 球面投影・地平クランプ・ドレープ・視野カリングは無効（窓の外は FBO の外＝クリップ）。塗り扇（stencil/idfill）だけが使う。
 uniform vec4       u_atlas;       // xy＝原点−窓南西隅(deg・CPU f64)・zw＝1/窓幅
@@ -303,11 +308,22 @@ bool bboxVisible(uint fid) {
 	return capVisible(bb);
 }
 vec4 pivotClip(uint fid) {
-	if (u_has_pivot == 0) return vec4(0.0, 0.0, 0.0, 1.0);
+	if (u_has_pivot == 0) return u_far_q.z > 1.5 ? vec4(u_far_axes.xy, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);   // 単一要＝遠方の 1 点か画面中心
 	uvec4 bb = fetchFidBbox(fid);
 	// 縫い目跨ぎ（bbox 経度全幅）＝bbox 中心は経度 0°＝地球の裏側。裏側の要から手前の辺へ張る扇は遠クリップ面で深い側が切られ、
 	// 要の投影位置を中心に環の大きさ比例の円盤が塗り残る（本人スクショ 2026-09-15「自分自身の影」）。要はクリップ原点（常に手前）へ
 	if (bb.z - bb.x >= 1800000000u) return vec4(0.0, 0.0, 0.0, 1.0);
+	// 視野より大きい feature＝要を遠方へ（画面外の辺の三角形を画面外に収める＝GPU が捨てる）。巻き数は閉環なら要に依らない。
+	// 張り出し（視野の外へ出ている量）が最小の側へ帯が伸びるよう、要はその反対側の遠方。縫い目跨ぎ（x>360e7）は従来どおり
+	if (u_far_q.z > 0.5 && u_use_vbb != 0 && bb.z <= 3600000000u && (bb.z - bb.x > u_far_big.x || bb.w - bb.y > u_far_big.y)) {
+		float oL = (float(u_view_bbox.x) - float(bb.x)) * u_far_q.x, oR = (float(bb.z) - float(u_view_bbox.z)) * u_far_q.x;
+		float oB = (float(u_view_bbox.y) - float(bb.y)) * u_far_q.y, oT = (float(bb.w) - float(u_view_bbox.w)) * u_far_q.y;
+		vec2 d = u_far_axes.xy; float m = oL;            // 西が最小＝帯は西へ・要は東の遠方
+		if (oR < m) { m = oR; d = -u_far_axes.xy; }
+		if (oB < m) { m = oB; d = u_far_axes.zw; }
+		if (oT < m) { d = -u_far_axes.zw; }
+		return vec4(d * u_far_q.w, 0.0, 1.0);
+	}
 	uint cx = (bb.x + (bb.z - bb.x) / 2u) % 3600000000u, cy = bb.y + (bb.w - bb.y) / 2u;   // 中点（和は u32 を溢れる＝差分で）。周期対応 bbox＝[0,360e7) へ
 	float dlon = dlonE7(cx, u_ix_center) * 1e-7;
 	float dlat = float(int(cy - u_iy_center)) * 1e-7;
@@ -960,7 +976,7 @@ export function createGintPrograms(gl, { quad4 = true } = {}) {
 		...DEPTH_UNIFORM_NAMES,   // 深度統合（段階B）用＝未設定なら全0=従来動作
 		'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',   // feature bbox カリング
 		'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle', 'u_width_add', 'u_fid_wscale']);        // per-fid スタイル（paint）
-	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb']);   // 深度＝fetchClipDrape（面ドレープ）
+	const uStencil     = getUniforms(gl, stencilProgram,     [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES, 'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big']);   // 深度＝fetchClipDrape（面ドレープ）・遠方の要
 	const uFill        = getUniforms(gl, fillProgram,        ['u_fill_color']);
 	const uPoint       = getUniforms(gl, pointProgram,       [...PT_UNIFORM_NAMES, 'u_active_id']);
 	const uPickLine    = getUniforms(gl, pickLineProgram,    [...SHARED_UNIFORM_NAMES, 'u_line_width', 'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']);
