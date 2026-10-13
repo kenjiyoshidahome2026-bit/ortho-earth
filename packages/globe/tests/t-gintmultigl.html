@@ -154,18 +154,16 @@ try {
 	post({ type: "set", cmd: "gintRemove", layer: "C" });
 
 	// ── ⑥ gintLabels＝層ラベル（text-field）＝基図注記の衝突/フェード系へ相乗り・gintVis 連動 ──
-	post({ type: "set", cmd: "gintLabels", layer: "A", data: { list: [{ anchor: Ca, text: "農地テスト", size: 16 }], minZoom: 2 } });
-	post({ type: "draw", cam, opts: { noTerrain: true } });
+	// フェードは時計（300ms の線形・1 フレームで進むのは最大 100ms 分）＝間を置いて数回描いてから撮る（1 回描いただけでは字がまだ透明）
+	const fade = async () => { for (let i = 0; i < 6; i++) { post({ type: "draw", cam, opts: { noTerrain: true } }); await pump(new Promise(r => setTimeout(r, 110))); } };
+	post({ type: "set", cmd: "gintLabels", layer: "A", data: { list: [{ anchor: Ca, text: "農地テスト", size: 16, color: "#204020", halo: "#ffffff" }], minZoom: 2 } });   // 色は CSS の文字列（層の label の型どおり＝文字列のまま描く側へ流して毎フレーム落ちていた）
+	await fade();
 	const sn6 = await snapshot();
 	const lab6 = sn6.labels ? new Uint8Array(sn6.labels) : null;
 	let lpx = 0; if (lab6) for (let i = 3; i < lab6.length; i += 4) if (lab6[i] > 40) lpx++;
 	ok(`層ラベル(px=${lpx})`, lpx > 50);
 	post({ type: "set", cmd: "gintVis", layer: "A", data: false });   // 層消灯＝ラベルも連動で消える
-	post({ type: "draw", cam, opts: { noTerrain: true } });
-	await snapshot();   // フェード1枚目（labels2d は 0.3/フレームで減衰）
-	post({ type: "draw", cam, opts: { noTerrain: true } });
-	post({ type: "draw", cam, opts: { noTerrain: true } });
-	for (let i = 0; i < 12; i++) { post({ type: "draw", cam, opts: { noTerrain: true } }); }   // フェード消化
+	await fade();   // フェード消化（時計で 300ms）
 	const sn7 = await snapshot();
 	const lab7 = sn7.labels ? new Uint8Array(sn7.labels) : null;
 	let lpx7 = 0; if (lab7) for (let i = 3; i < lab7.length; i += 4) if (lab7[i] > 40) lpx7++;

@@ -320,7 +320,21 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.ok(a40 > a55 && a55 > a65 && a65 > 0, `潰れるほど薄く（${a40}・${a55}・${a65}）`);
 }
 
-// ── 15. 利用者の層（setUserLabels）の色＝CSS の色（文字列）で届いても [r,g,b,a] に揃える・無い（undefined）は既定。
+// ── 15. 利用者層の注記（setUserLabels）＝色は CSS の文字列でも配列でも（公開の型は string）。文字列のまま描く側へ流すと色の控え（WeakMap）の鍵にならず毎フレーム落ちていた
+{
+	const { layer, ctx } = mkLayer();
+	layer.setUserLabels("parks", [{ anchor: [139.7, 35.68], text: "Park", color: "#dff5e3", halo: "#0b1021", haloW: 2 }, { anchor: [139.71, 35.69], text: "Array", color: [1, 0, 0, 1] }]);
+	for (let i = 0; i < 30; i++) { ctx.log.length = 0; layer.draw(cam); }
+	const park = ctx.log.find(e => e.op === "fill" && e.s === "Park"), arr = ctx.log.find(e => e.op === "fill" && e.s === "Array");
+	assert.ok(park && arr, "色が文字列の注記も配列の注記も描かれる");
+	assert.equal(park.fill, "rgba(223,245,227,1)", `文字列の色がそのまま効く（${park.fill}）`);
+	assert.equal(arr.fill, "rgba(255,0,0,1)");
+	// 読めない色・色でない値でも描画は落ちない（黒に落とす＝parseRGBA と同じ）
+	layer.setUserLabels("bad", [{ anchor: [139.69, 35.67], text: "Bad", color: 7, halo: null, haloW: 2 }]);
+	assert.doesNotThrow(() => { for (let i = 0; i < 3; i++) layer.draw(cam); });
+}
+
+// ── 16. 利用者の層（setUserLabels）の色＝CSS の色（文字列）で届いても [r,g,b,a] に揃える・無い（undefined）は既定。
 // 旧＝文字列のまま持って css()（配列前提・WeakMap の覚え）が毎フレーム例外＝render worker がフレームを丸ごと落としていた（2026-10-13）
 {
 	const { layer, ctx } = mkLayer();
