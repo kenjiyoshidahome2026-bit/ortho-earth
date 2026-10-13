@@ -4,7 +4,7 @@
 // データ（scripts/terrain-ledger が組む・正本＝リポの根の ortho-data/japan/・本番は GitHub Pages の ortho-data/japan/）
 //   terrain.json            … items[]（qid・分類・rank・name{ja,en}・wiki{ja,en}・coord・物理量）＋ catNames（分類名 26 言語）
 //   terrain.i18n/<lang>.json … { qid: [名前, 記事名] }（ja/en 以外・言語を選んだ時だけ読む）
-//   terrain.geopbf          … 形状台帳（湖の面＝国土数値情報 W09・川の線＝W05・山地と海溝の軸線＝手書き・海流＝手書き・構造線）
+//   terrain.geopbf          … 形状台帳（湖の面＝国土数値情報 W09・川の線＝OpenStreetMap の川の関係（ODbL）・山地と海溝の軸線＝手書き・海流＝手書き・構造線）
 // 選抜＝地理院ベクトルタイルの注記（z4〜9）に名前が置かれる物＝「地図帳に載る地形」（world の NE scalerank に相当）＋手動層（平野・盆地・滝・砂丘・湿原・海流・構造線…）。
 //
 // 表現の決め事（physical と同じ）
@@ -335,7 +335,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 				<label class="grp"><input type="checkbox" data-ov="plates"><span class="sw ln" style="background:linear-gradient(90deg,#e0a020 33%,#b04a9c 33% 66%,#5a6472 66%)"></span>${esc(t("Plate boundaries & faults"))}</label>
 				<div class="leg" data-leg="plates" hidden>${PLATE_KINDS.map(k => `<span><i style="background:${k.color}"></i>${esc(plateKindName(k.id))}</span>`).join("")}<span><i style="background:#b04a9c;height:2px;border-top:2px dashed #b04a9c;background:none"></i>${esc(t("Tectonic lines (faults)"))}</span></div>
 				<p class="note">${esc(t("Symbol size and line width follow height and length. Names appear as you zoom in, larger features first."))}</p>
-				<p class="src">${esc(t("Data: Wikidata (CC0), GSI vector tiles, MLIT National Land Numerical Information (rivers, lakes)"))}</p>
+				<p class="src">${esc(t("Data: Wikidata (CC0), GSI vector tiles, MLIT National Land Numerical Information (lakes), rivers © OpenStreetMap contributors (ODbL)"))}</p>
 			</div>
 			<div class="pane" data-pane="rank" hidden>
 				<div class="ctl"><select class="cat"></select><select class="met"></select></div>
