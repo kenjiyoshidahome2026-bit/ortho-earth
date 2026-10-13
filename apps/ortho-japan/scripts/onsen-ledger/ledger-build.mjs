@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 7) 04-build の出力（data/onsen.csv・onsen-kyo.geojson・hitou-inns.csv）→ 頁が読む台帳 public/onsen.json
+// 7) 04-build の出力（data/onsen.csv・onsen-kyo.geojson・hitou-inns.csv）→ 頁が読む台帳 ortho-data/japan/onsen.json
 //    node ledger-build.mjs [--data DIR]   既定の DIR＝$ONSEN_ROOT/data（= .cache/data）
 //
 // 台帳の形（onsen.js が読む・短い鍵＝2,000 件で 0.6 MB 程度に収める）
@@ -9,7 +9,7 @@
 //                s:{ c:[lon,lat]|null, d:m, k:種別, f:引湯元の id, x:根拠の文 }（源泉が離れている時だけ）, poly:[[lon,lat]…]（郷の面）}
 //   classes  : 泉質 10 分類の日本語名（qc の番号の表）
 //   inns[]   : 日本秘湯を守る会の会員宿 { n, c, u, o:温泉の id|null, q }
-//   prefNames: 都道府県名 26 言語（public/parks.json と同じ表を写す）
+//   prefNames: 都道府県名 26 言語（ortho-data/japan/parks.json と同じ表を写す）
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,7 +17,7 @@ import { ROOT } from "./lib.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), APP = path.resolve(HERE, "../..");
 const ai = process.argv.indexOf("--data"), DATA = ai > 0 ? path.resolve(process.argv[ai + 1]) : path.join(ROOT, "data");
-const OUT = path.join(APP, "public/onsen.json");
+const DATA = path.join(APP, "../../ortho-data/japan"), OUT = path.join(DATA, "onsen.json");   // 正本＝リポの根の ortho-data/japan/（置く＝npm run publish:pages -w world-data -- --scope=japan）
 
 // ── CSV（BOM 付き・引用符の中の改行と "" に対応）──
 function readCsv(file) {
@@ -65,7 +65,7 @@ function enFromReading(r) {
 const rows = readCsv(path.join(DATA, "onsen.csv"));
 const kyoGeo = JSON.parse(fs.readFileSync(path.join(DATA, "onsen-kyo.geojson"), "utf8"));
 const innsCsv = fs.existsSync(path.join(DATA, "hitou-inns.csv")) ? readCsv(path.join(DATA, "hitou-inns.csv")) : [];
-const parks = JSON.parse(fs.readFileSync(path.join(APP, "public/parks.json"), "utf8"));
+const parks = JSON.parse(fs.readFileSync(path.join(DATA, "parks.json"), "utf8"));
 const prefNames = parks.prefNames, prefCode = Object.fromEntries(Object.entries(prefNames).map(([c, v]) => [v.ja, +c]));
 const CLASSES = ["単純温泉", "塩化物泉", "炭酸水素塩泉", "硫酸塩泉", "二酸化炭素泉", "含鉄泉", "酸性泉", "含よう素泉", "硫黄泉", "放射能泉"];
 

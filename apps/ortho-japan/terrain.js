@@ -1,9 +1,9 @@
 // 日本の地形（山・火山・山地・平野・盆地・川・湖・滝・半島・岬・島・湾・海峡・海溝…約 1,500 件）を日本の 3D 地図（ortho-japan）に（terrain.html から遅延 import）。
 // /globe/physical（世界の地形）と同じ骨格＝台帳（物理量）＋形状台帳（geopbf）＋名前表（言語別）を、エンジンの MapLibre 互換の口（addSource／addLayer）と anno（面の絵）で描く。
 //
-// データ（scripts/terrain-ledger が組む・public/ に置く）
+// データ（scripts/terrain-ledger が組む・正本＝リポの根の ortho-data/japan/・本番は GitHub Pages の ortho-data/japan/）
 //   terrain.json            … items[]（qid・分類・rank・name{ja,en}・wiki{ja,en}・coord・物理量）＋ catNames（分類名 26 言語）
-//   terrain-i18n/<lang>.json … { qid: [名前, 記事名] }（ja/en 以外・言語を選んだ時だけ読む）
+//   terrain.i18n/<lang>.json … { qid: [名前, 記事名] }（ja/en 以外・言語を選んだ時だけ読む）
 //   terrain.geopbf          … 形状台帳（湖の面＝国土数値情報 W09・川の線＝W05・山地と海溝の軸線＝手書き・海流＝手書き・構造線）
 // 選抜＝地理院ベクトルタイルの注記（z4〜9）に名前が置かれる物＝「地図帳に載る地形」（world の NE scalerank に相当）＋手動層（平野・盆地・滝・砂丘・湿原・海流・構造線…）。
 //
@@ -133,7 +133,7 @@ export async function mountTerrain(map, { geopbf, base = "./" } = {}) {
 	// データ（3 本を並行に）。名前表の失敗は英語／日本語で出すだけ（地図は止めない）
 	const [db, i18n, pbf] = await Promise.all([
 		fetch(base + "terrain.json", { credentials: "omit" }).then(r => { if (!r.ok) throw new Error("terrain.json HTTP " + r.status); return r.json(); }),
-		lang === "ja" || lang === "en" ? null : fetch(`${base}terrain-i18n/${lang}.json`, { credentials: "omit" }).then(r => r.ok ? r.json() : null).catch(e => (console.warn("[terrain] i18n", lang, e), null)),
+		lang === "ja" || lang === "en" ? null : fetch(`${base}terrain.i18n/${lang}.json`, { credentials: "omit" }).then(r => r.ok ? r.json() : null).catch(e => (console.warn("[terrain] i18n", lang, e), null)),
 		loadPbf(geopbf, base + "terrain.geopbf"),
 	]);
 	const items = db.items.filter(d => d.coord);

@@ -29,7 +29,7 @@
 	try {
 		let meta = null;
 		const source = new VectorSource({
-			loader: makeGeopbfLoader("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf", new GeoJSON(), {
+			loader: makeGeopbfLoader("geopbf://../../../ortho-data/japan/jma/amedas.geopbf", new GeoJSON(), {
 				onMeta: m => meta = m,
 				onError: e => done(`FAIL load error: ${e.message}`),
 			}),

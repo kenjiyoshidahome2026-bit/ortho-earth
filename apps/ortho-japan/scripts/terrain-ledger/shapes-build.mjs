@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 形状台帳 public/terrain.geopbf を組む（台帳 terrain.json の qid で結ぶ・混在ジオメトリ・precision 5・gzip）
+// 形状台帳 ortho-data/japan/terrain.geopbf を組む（台帳 terrain.json の qid で結ぶ・混在ジオメトリ・precision 5・gzip）
 //   湖＝.cache/shapes-lakes.json（W09 の面）／川＝.cache/shapes-rivers.json（W05 の線）／
 //   山地・海溝＝手動層の axis（shape=axis・width km＝表示側が帯の面にする・world の range と同じ作法）／海流＝axis＋flow／構造線＝line
 //   属性: qid / category / shape（polygon・line・axis）/ width / flow / name（日本語＝検証用）
@@ -7,7 +7,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFileSync } from "node:child_process";
 import { DIR, CACHE, readManual } from "./lib.mjs";
-const PUB = path.join(DIR, "../../public");
+const PUB = path.join(DIR, "../../../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/
 const db = JSON.parse(fs.readFileSync(path.join(PUB, "terrain.json"), "utf8")), manual = readManual();
 const byJa = new Map(db.items.map(it => [it.name.ja, it])), byQ = new Map(db.items.map(it => [it.qid, it]));
 const lakes = JSON.parse(fs.readFileSync(path.join(CACHE, "shapes-lakes.json"), "utf8")), rivers = JSON.parse(fs.readFileSync(path.join(CACHE, "shapes-rivers.json"), "utf8"));

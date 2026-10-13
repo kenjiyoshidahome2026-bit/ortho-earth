@@ -1,11 +1,11 @@
 // アメリカ合衆国の国立公園 63 の showcase（parks.html から遅延 import）＝/japan/parks（apps/ortho-japan/parks.js）と同型の器を世界側に。
 // 骨格：器＝parks.html／一覧・飛行・配線＝ここ／描画＝エンジンの addGint（外周）＋ spotlight（選択）＋ outline（ホバー）。
 //
-// 台帳＝public/parks-us.json（scripts/parks-ledger で組む・名前 26 言語＝Wikidata／写真＝Wikimedia Commons／指定日・面積・来訪者・州＝NPS（英語版 Wikipedia の一覧経由））。
-// 外周＝public/parks-us.geopbf（NPS Land Resources Division の境界・パブリックドメイン・公園 63＋付属の保護区（Preserve）7＝70 面・0.14MB）
+// 台帳＝ortho-data/us/parks-us.json（scripts/parks-ledger で組む・名前 26 言語＝Wikidata／写真＝Wikimedia Commons／指定日・面積・来訪者・州＝NPS（英語版 Wikipedia の一覧経由））。
+// 外周＝ortho-data/us/parks-us.geopbf（NPS Land Resources Division の境界・パブリックドメイン・公園 63＋付属の保護区（Preserve）7＝70 面・0.14MB）
 // ＝全公園を薄い緑で常時描き（Preserve はさらに薄く）、選んだ公園は spotlight（周りを暗く・その形だけ素の地図）で指す。
 // 写真と Wikipedia の本文は実行時に直読み（直接取れる物は置かない方針）。Wikipedia の記事＝頁の上の iframe（共通の芯 @ortho-earth/globe/wiki.js）。
-// 「他の NPS ユニット」＝国立公園以外の 380（国定記念物・史跡・海岸・保養地…）を public/nps-units.geopbf（0.11MB）から押した時だけ読む（日本版の地種区分と同じ口）。
+// 「他の NPS ユニット」＝国立公園以外の 380（国定記念物・史跡・海岸・保養地…）を ortho-data/us/nps-units.geopbf（0.11MB）から押した時だけ読む（日本版の地種区分と同じ口）。
 // ?p=<id> で起動時に選ぶ（共有）。←/→ で隣の公園・Esc で一覧へ。
 import { tr, getLang, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語（i18n.js の作法）。モジュール評価時に t() を呼ばない。辞書は startPage（page.js）が足す
 import { createWikiFrame, summaryIn, langChain, pickTitle, wikiUrl as wikiHref, DEFAULT_FALLBACK as WIKI_FALLBACK } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠・冒頭・URL の共通の芯
