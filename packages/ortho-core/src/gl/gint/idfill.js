@@ -187,7 +187,7 @@ function ensurePrograms(gl) {
 	gS._idPrograms = {
 		idProgram, resolveProgram,
 		uId:      getUniforms(gl, idProgram, [...SHARED_UNIFORM_NAMES, ...DEPTH_UNIFORM_NAMES,   // 深度＝fetchClipDrape（面ドレープ）
-					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb',
+					'u_pivot_tex', 'u_pivot_w', 'u_has_pivot', 'u_view_bbox', 'u_use_vbb', 'u_far_axes', 'u_far_q', 'u_far_big',   // 遠方の要
 					'u_fid_style', 'u_fidstyle_w', 'u_has_fidstyle']),   // 蓄積で不可視fidを弾く（重複被覆汚染防止）
 		uResolve: getUniforms(gl, resolveProgram, ['u_id_tex', 'u_fid_style', 'u_fid_w', 'u_fid_count', 'u_overlap']),
 	};
@@ -244,7 +244,7 @@ export function renderIdFill(s, data, targetFBO) {
 	gl.useProgram(idProgram);
 	bindSharedUniforms(gl, uId, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
 	bindDepthUniforms(gl, uId, data);   // 面ドレープ＝蓄積扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
-	bindPivot(s, gl, uId);
+	bindPivot(s, gl, uId, data);   // data＝遠方の要（画面カリング）の向き
 	// fid スタイル表を蓄積VSへも結線＝不可視fid(filter)を winding から除外（bindFidStyle passes.js:111 と同処理）。
 	gl.uniform1i(uId.u_has_fidstyle, s.fidStyleTex ? 1 : 0);
 	if (s.fidStyleTex) {
