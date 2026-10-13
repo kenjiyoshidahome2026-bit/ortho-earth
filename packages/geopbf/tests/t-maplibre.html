@@ -32,7 +32,7 @@
 		});
 		map.on("error", e => done(`FAIL map error: ${e.error?.message || e}`));
 		// 注意: "geopbf://../x" の形は URL の authority 解釈で ../ が食われるため、内側は絶対URLで渡す（pmtiles と同じ契約）
-		const dataUrl = "geopbf://" + new URL("../../../apps/gishub-jp/public/jma/amedas.geopbf", location.href).href;
+		const dataUrl = "geopbf://" + new URL("../../../ortho-data/japan/jma/amedas.geopbf", location.href).href;
 		map.on("load", () => {
 			map.addSource("amedas", { type: "geojson", data: dataUrl });
 			map.addLayer({ id: "amedas", type: "circle", source: "amedas",
@@ -44,7 +44,7 @@
 			const n = map.getLayer("amedas") ? map.queryRenderedFeatures({ layers: ["amedas"] }).length : 0;
 			if (n === 0) return; // 30s の timeout ガードが FAIL を出す
 			// loadGeopbf は MapLibre を経ないので相対URL（location 基準解決）も検定
-			const meta = await loadGeopbf("geopbf://../../../apps/gishub-jp/public/jma/amedas.geopbf");
+			const meta = await loadGeopbf("geopbf://../../../ortho-data/japan/jma/amedas.geopbf");
 			const m = meta.geojson.features.length;
 			done(m > 0 ? `PASS rendered=${n} loaded=${m} name=${meta.name}` : `FAIL rendered=${n} loaded=${m}`);
 		});

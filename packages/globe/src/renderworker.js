@@ -307,7 +307,7 @@ const dispatch = e => {
 			if (m.ell) setEllipsoid(true);   // 楕円体（?ell=1）＝renderer/terrain 生成より前に（camera.js のモジュール状態＝この worker 文脈でも main と同値に）
 			canvas = m.canvas;                                   // GL/GPU 用 OffscreenCanvas
 			labelCanvas = m.labelCanvas;                         // ラベル用 OffscreenCanvas（2D）＝バックエンド非依存
-			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase });
+			labelLayer = createLabelLayer(labelCanvas, { shieldFor, elevBase: m.elevBase, ...(m.lineFlatPx !== undefined ? { lineFlatPx: m.lineFlatPx } : {}) });   // lineFlatPx＝潰れた道の名を消す高さ（?flat=・無指定＝注記層の既定）
 			labelLayer.setClock(clockA);   // 時計の基準が注記層より先に届いていた時
 			elevBase = m.elevBase || 0;   // オーバーレイの地形リフト・3D ピンの高さ（上の overlayFrame）
 			perfOn = !!m.perf;

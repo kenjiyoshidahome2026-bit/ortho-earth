@@ -65,6 +65,12 @@ export const dropUnusedPublic = (dir, files) => ({
 	closeBundle() { for (const f of files) rmSync(resolve(dir, f), { recursive: true, force: true }); },
 });
 
+// 頁のデータの置き場（DATA.md・2026-10-13）＝本番は GitHub Pages（リポ ortho-data の <範囲>/・置く＝npm run publish:pages -w world-data -- --scope=<範囲>）・
+// dev は手元の正本（リポの根の ortho-data/<範囲>/）を /@fs で読む＝置く前に見られる。vite の define に渡す値（文字列リテラル）を返す＝頁は __DATA_JAPAN__ のように書くだけ。
+// command＝vite の command（"serve"＝dev）・base＝アプリの base（"/japan/" など）・root＝リポジトリの根・scope＝"us" | "japan"
+export const ORTHO_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/";
+export const orthoData = (command, base, root, scope) => JSON.stringify(command === "serve" ? `${base}@fs${resolve(root, "ortho-data", scope)}/` : `${ORTHO_DATA}${scope}/`);
+
 // 部品（geopbf・ortho-core・altpbf・geoedit）の worker はアプリの入口（globe の worker.js）で走らせる＝各部品の builtinWorkers.js（new Worker の
 // 唯一の直書き）を「作らない版」に差し替える（2026-09-22・標準の作法）。#tile-formats＝MLT（#88）・#pointcloud-formats＝COPC の LAZ（#178）＝
 // どちらも最初のタイル／節で動的 import（起動の束には入らない）。root＝リポジトリの根（packages/ の親・絶対パス）

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 台帳を組む＝種（seed）× 結び（.cache/match.json）× Wikidata の中身（.cache/entities.json）→
-//   public/terrain.json               … items[]（qid・category・rank・name{ja,en}・wiki{ja,en}・coord・物理量・kana）＝起動時に読む
-//   public/terrain-i18n/<lang>.json   … { qid: [名前, 記事名] }（ja/en 以外の 24 言語・言語を選んだ時だけ読む）
+//   ortho-data/japan/terrain.json               … items[]（qid・category・rank・name{ja,en}・wiki{ja,en}・coord・物理量・kana）＝起動時に読む
+//   ortho-data/japan/terrain.i18n/<lang>.json   … { qid: [名前, 記事名] }（ja/en 以外の 24 言語・言語を選んだ時だけ読む）
 // 決め事（world の TerrainDB と同じ）: 日本語版 Wikipedia の記事が無い物は入れない（名前と記事が揃う＝「地図で選んで読める」が最低線）。
 //   同じ QID に複数の種が結ばれた時（日本海溝 z6/z8・立山 311/314）は小さい rank を取る。位置＝Wikidata の P625。
 //   海域・海底・列島（名前だけで結んだ分類）は P625 が海域の中心や遠い代表点＝地理院の注記の位置を使う。面の地形（山地・平野・盆地・高原）も
@@ -10,7 +10,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { DIR, CACHE, readSeed, kmOf } from "./lib.mjs";
 import { LANGS } from "./wikidata-fetch.mjs";
-const PUB = path.join(DIR, "../../public");
+const PUB = path.join(DIR, "../../../../ortho-data/japan");   // 正本＝リポの根の ortho-data/japan/（置く＝npm run publish:pages -w world-data -- --scope=japan）
 const seed = readSeed(), match = JSON.parse(fs.readFileSync(path.join(CACHE, "match.json"), "utf8")), ents = JSON.parse(fs.readFileSync(path.join(CACHE, "entities.json"), "utf8"));
 const VOLCANO = new Set(JSON.parse(fs.readFileSync(path.join(CACHE, "volcano-classes.json"), "utf8")));
 const BY_NAME = new Set(["sea", "strait", "trench", "ridge", "seamount", "islands", "reef", "current", "plate", "fault"]);
@@ -51,10 +51,10 @@ const catNames = {}; for (const [c, v] of Object.entries(worldCats)) { const { q
 for (const [c, q] of Object.entries(EXTRA)) catNames[c] = extraLabels[q] || { en: c };
 const list = [...items.values()].sort((a, b) => a.rank - b.rank || a.category.localeCompare(b.category) || a.name.ja.localeCompare(b.name.ja, "ja"));
 const cnt = {}; for (const it of list) cnt[it.category] = (cnt[it.category] || 0) + 1;
-fs.mkdirSync(path.join(PUB, "terrain-i18n"), { recursive: true });
+fs.mkdirSync(path.join(PUB, "terrain.i18n"), { recursive: true });
 fs.writeFileSync(path.join(PUB, "terrain.json"), JSON.stringify({ _: "日本の地形の台帳（scripts/terrain-ledger が組む・手で編集しない）。名前と記事＝Wikidata/Wikipedia（CC BY-SA）・選抜＝地理院ベクトルタイルの注記（z4〜9）＋手動層・物理量＝Wikidata", built: new Date().toISOString().slice(0, 10), categories: cnt, catNames: Object.fromEntries(Object.keys(cnt).map(c => [c, catNames[c] || { en: c }])), items: list }, null, 0));
 for (const l of LANGS) { if (l === "ja" || l === "en") continue; const t = {};
 	for (const it of list) { const e = ents[it.qid]; const n = e.labels[l], w = e.wiki[l]; if (n || w) t[it.qid] = [n || "", w || ""]; }
-	fs.writeFileSync(path.join(PUB, "terrain-i18n", l + ".json"), JSON.stringify(t)); }
+	fs.writeFileSync(path.join(PUB, "terrain.i18n", l + ".json"), JSON.stringify(t)); }
 fs.writeFileSync(path.join(CACHE, "dropped.json"), JSON.stringify(drop, null, 1));
 console.log(list.length, "件", JSON.stringify(cnt)); console.log("落とした: 記事なし", drop.nowiki.length, "項目なし", drop.noent.length);
