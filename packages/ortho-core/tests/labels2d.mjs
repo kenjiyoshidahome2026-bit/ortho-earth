@@ -334,4 +334,20 @@ const texts = ctx => ctx.log.filter(e => e.op === "fill").map(e => e.s);
 	assert.doesNotThrow(() => { for (let i = 0; i < 3; i++) layer.draw(cam); });
 }
 
+// ── 16. 利用者の層（setUserLabels）の色＝CSS の色（文字列）で届いても [r,g,b,a] に揃える・無い（undefined）は既定。
+// 旧＝文字列のまま持って css()（配列前提・WeakMap の覚え）が毎フレーム例外＝render worker がフレームを丸ごと落としていた（2026-10-13）
+{
+	const { layer, ctx } = mkLayer();
+	layer.setUserLabels("u", [
+		{ anchor: [139.7, 35.68], text: "Str", color: "#dff5e3", halo: "#0b1021", haloW: 2 },
+		{ anchor: [139.71, 35.69], text: "Def", color: undefined, halo: undefined },
+		{ anchor: [139.69, 35.67], text: "Arr", color: [1, 0, 0, 1], halo: [0, 0, 0, 1] },
+	]);
+	assert.doesNotThrow(() => { for (let i = 0; i < 30; i++) { ctx.log.length = 0; layer.draw(cam); } }, "文字列の色でも描画は落ちない");
+	const fillOf = t => ctx.log.find(e => e.op === "fill" && e.s === t)?.fill;
+	assert.equal(fillOf("Str"), "rgba(223,245,227,1)", "CSS の色（#dff5e3）が効く");
+	assert.equal(fillOf("Def"), "rgba(38,46,56,1)", "色の無い注記＝既定の色");
+	assert.equal(fillOf("Arr"), "rgba(255,0,0,1)", "配列の色は従来どおり");
+}
+
 console.log("labels2d: ok");
