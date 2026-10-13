@@ -38,7 +38,7 @@
 		// 日本の地形（山・川・湖・平野・島・海…約 1,500 件）を日本の 3D 地図に。物理量（標高・長さ・面積・深さ…）で記号の大きさを変え、
 		// 一覧（並べ替え）と比較図（高さ比べ・長さ比べ）を地図と連動させる＝/globe/physical（世界の地形）の日本版。
 		// このページは器だけ：./app.js（本番のエンジンは共有エンジン）でエンジンを起こし、描画と案内板は ./terrain.js（遅延 chunk）。
-		// データ＝public/terrain.json（台帳）・terrain-i18n/<lang>.json（名前表）・terrain.geopbf（形状台帳）＝scripts/terrain-ledger が組む。
+		// データ＝GitHub Pages の ortho-data/japan/（dev は手元の正本・vite.config の __DATA_JAPAN__）：terrain.json（台帳）・terrain.i18n/<lang>.json（名前表）・terrain.geopbf（形状台帳）＝scripts/terrain-ledger が組む。
 		(async () => {
 			const { setLang, getLang, isRTL } = await import("@ortho-earth/globe/i18n.js");
 			await setLang();
@@ -53,7 +53,7 @@
 					layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 				dismissBoot();
 				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
-				const terrain = await mountTerrain(map, { geopbf, base: new URLSearchParams(location.search).get("data") || import.meta.env.BASE_URL });   // ?data=URL で台帳を差し替え
+				const terrain = await mountTerrain(map, { geopbf, base: new URLSearchParams(location.search).get("data") || __DATA_JAPAN__ });   // ?data=URL で台帳を差し替え
 				window.__map = map; window.__terrain = terrain;   // console 検証用
 			} catch (e) { console.error("[terrain] startup failed", e); dismissBoot(); }
 		})();

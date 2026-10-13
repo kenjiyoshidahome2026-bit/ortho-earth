@@ -1,7 +1,7 @@
 // 日本の温泉（Wikipedia 日本語版の温泉地 約 2,000 件＋温泉郷 70）を日本の 3D 地図（ortho-japan）に（onsen.html から遅延 import）。
-// terrain.js と同じ骨格＝台帳（public/onsen.json）を、エンジンの MapLibre 互換の口（addSource／addLayer）と anno（面の絵）で描く。
+// terrain.js と同じ骨格＝台帳（ortho-data/japan/onsen.json）を、エンジンの MapLibre 互換の口（addSource／addLayer）と anno（面の絵）で描く。
 //
-// データ（scripts/onsen-ledger が組む・public/onsen.json）
+// データ（scripts/onsen-ledger が組む・ortho-data/japan/onsen.json）
 //   items[] … 温泉（k:"o"）と温泉郷（k:"g"・poly＝構成する温泉を包む面）。座標の無い記事は検索で推定した（a＝精度 m・e＝推定の方法）
 //   inns[]  … 日本秘湯を守る会の会員宿（o＝どの温泉の宿か）
 //   s       … 源泉が温泉地から離れている物（岳温泉＝8 km 上の鉄山の麓から引湯）。s.c があれば源泉の位置まで線を引く

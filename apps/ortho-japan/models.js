@@ -2,7 +2,7 @@
 // quakes（地下）・sats（地上）と同じ骨格：器＝models.html／一覧と飛行と配線＝ここ／読み込みと描画＝エンジンの model ガジェット（gadgets/model.js＝
 // loaders.gl → PLATEAU と同じ建物メッシュ経路・renderer の meshSet スロット）。
 //
-// 台帳＝public/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
+// 台帳＝ortho-data/japan/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
 // 中身＝PLATEAU の建築物 LOD3（テクスチャ付き）を 3D Tiles 配信から名所のぶんだけ抜いて束ねた物（apps/uploader の npm run landmarks）。
 // 置き場所は glb 自身が持つ（CESIUM_RTC／絶対 ECEF）＝lon/lat は飛び先の指定であって錨ではない。
 // 一覧のカードをクリック＝①先に視点へ飛ぶ（遷移の時間＝読み込みの準備時間）②並行で GLB を取りに行き、届いたら設置点に立てる（fit はしない＝視点は台帳が正）。

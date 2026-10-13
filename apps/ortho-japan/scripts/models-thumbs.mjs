@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // 名所カードのサムネを作る：アプリ自身の描画を実時間 CDP で撮り、bucket GIS/models/thumbs/<id>.jpg へ置く元を出す。
 //   node scripts/models-thumbs.mjs <ページURL> <出力ディレクトリ> <台帳 models.json>
-// 例）node scripts/models-thumbs.mjs http://localhost:5188/japan/models.html out/thumbs public/models.json
+// 例）node scripts/models-thumbs.mjs http://localhost:5188/japan/models.html out/thumbs ../../ortho-data/japan/models.json
 // ⚠カードを押す前に glb の URL へ ?v= を付ける＝HTTP キャッシュの古い glb（テクスチャ無し）で撮らないため（2026-09-21 に二度踏んだ）。
 // 名所カードのサムネ＝アプリ自身の描画から撮る（実時間 CDP）。パネルを隠し、画面中央を 16:9 で切って jpeg へ。
 import { spawn } from "node:child_process";

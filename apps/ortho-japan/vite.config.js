@@ -1,7 +1,7 @@
 import { defineConfig } from "vite";
 import { resolve } from "node:path";
 import { sharedEngine } from "../../packages/globe/scripts/lib/shared-engine.mjs";   // 共有エンジン（LAYERS.md 掟 3）
-import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPublic, engineAliases } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
+import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPublic, engineAliases, orthoData } from "../../packages/globe/scripts/lib/vite-app.mjs";   // アプリ共通の決まり（2026-10-03）
 
 // worker は全て new Worker(..., { type: "module" }) で生成している＝ES module worker。
 // vite 既定の worker.format="iife" は code-splitting（worker 内で worker を割る/動的 import）を弾くため、
@@ -17,17 +17,19 @@ import { crossOriginIsolation, noChunkOptimization, asyncMainCss, dropUnusedPubl
 const ROOT = resolve(import.meta.dirname, "../..");
 const OUT = resolve(import.meta.dirname, "dist/site/japan");
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
 	// 配信先＝ www.ortho-earth.com/japan/ （サブパス。地域なしの頁は /globe/＝apps/ortho-globe）。ルート相対の import/asset は base が面倒を見る。
 	// 実行時 fetch は main.js 側で import.meta.env.BASE_URL を前置（vite は文字列リテラルの fetch を書き換えない）。
 	base: "/japan/",
+	// 頁のデータ（国立公園・地形・温泉・名所 3D 模型の台帳）の置き場：dev＝手元の正本 ortho-data/japan/・本番＝GitHub Pages の ortho-data/japan/（vite-app.mjs の orthoData・DATA.md）
+	define: { __DATA_JAPAN__: orthoData(command, "/japan/", ROOT, "japan") },
 	// クラウド保存（apps/account の wrangler dev :8787）＝dev も同一オリジン化＝CORS 不要（本番は route が同居）。scene.html のクラウド保存が使う
 	server: { proxy: { "/auth": "http://localhost:8787", "/me": "http://localhost:8787" } },
 	// Workers assets は「リクエストのパス名＝assets ディレクトリ内の相対パス」で引くため、
 	// dist/site/ をルートに japan/ サブフォルダへ出力（wrangler.toml の directory = dist/site）。
 	// マルチページ：scene.html＝scenes エディタ（/japan/scene.html・最初のアプリ）。tellus.html＝Tellus 衛星データ専用ビューア（/japan/tellus）。
 	// 地域の申告を持たない頁（Globe ⇄ Equal Earth・世界の地震・人工衛星）は 2026-09-24 に globe の家へ移設＝apps/ortho-globe（/globe/…・旧 URL は deploy-worker.js が 301）。
-	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 public/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。parks.html＝国立公園 35 の showcase（/japan/parks・台帳 public/parks.json・外周 public/parks.geopbf）。onsen.html＝日本の温泉約 2,000 件（/japan/onsen・台帳 public/onsen.json＝scripts/onsen-ledger）。terrain.html＝日本の地形約 1,500 件（/japan/terrain・台帳 public/terrain.json・形状 public/terrain.geopbf・名前表 public/terrain-i18n/）。
+	// models.html＝名所 3D 模型 showcase（/japan/models.html・台帳 ortho-data/japan/models.json・GLB は bucket GIS/models/）。fireworks.html＝打ち上げ花火（シーンの深度 #47 の見本・/japan/fireworks）。parks.html＝国立公園 35 の showcase（/japan/parks・台帳 ortho-data/japan/parks.json・外周 ortho-data/japan/parks.geopbf）。onsen.html＝日本の温泉約 2,000 件（/japan/onsen・台帳 ortho-data/japan/onsen.json＝scripts/onsen-ledger）。terrain.html＝日本の地形約 1,500 件（/japan/terrain・台帳 ortho-data/japan/terrain.json・形状 ortho-data/japan/terrain.geopbf・名前表 ortho-data/japan/terrain.i18n/）。
 	// エンジン（globe・i18n・core・geopbf）は sharedEngine() が /globe/engine/<版>/ へ外に出す（2026-09-30・旧＝本番だけ /japan/lib/ の SDK を実行時に食う二重構成）。
 	// SDK（dist/lib）は外へ配る物＝build:prod が従来どおり /japan/lib/ に置く。
 	// noChunkOptimization＝rolldown（vite 8）の決まり（2026-09-25・vite-app.mjs に理由）。worker は別ビルド＝下の worker.rolldownOptions にも同じ物。
@@ -40,4 +42,4 @@ export default defineConfig({
 	worker: { format: "es", rolldownOptions: noChunkOptimization },
 	// plateau-names.json（2.9MB）＝台帳づくりの中間（scripts/plateau-names-*.mjs が読む）で実行時は読まない＝出力から外す（deploy.mjs の rm と同じ・2026-09-30 に build 側へ）
 	plugins: [crossOriginIsolation(), sharedEngine(), asyncMainCss, dropUnusedPublic(OUT, ["plateau-names.json"])],
-});
+}));

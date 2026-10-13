@@ -88,9 +88,9 @@ for language / boot cover / visible startup failure, and the common gadgets `zoo
 
 | Page | URL | Code | Languages |
 |---|---|---|---|
-| National Parks of Japan | `/japan/parks` (`?p=<id>`) | `parks.html` + `parks.js`, catalogue `public/parks.json` | 26 (language `<select>` in the panel) |
-| Hot springs of Japan | `/japan/onsen` (`?o=<id>`) | `onsen.html` + `onsen.js`, catalogue `public/onsen.json` (built by `scripts/onsen-ledger`) | 26 (language `<select>` in the panel) |
-| Landmarks in GLB | `/japan/models` (`?m=<id>`) | `models.html` + `models.js`, catalogue `public/models.json` | 26 |
+| National Parks of Japan | `/japan/parks` (`?p=<id>`) | `parks.html` + `parks.js`, catalogue `ortho-data/japan/parks.json` | 26 (language `<select>` in the panel) |
+| Hot springs of Japan | `/japan/onsen` (`?o=<id>`) | `onsen.html` + `onsen.js`, catalogue `ortho-data/japan/onsen.json` (built by `scripts/onsen-ledger`) | 26 (language `<select>` in the panel) |
+| Landmarks in GLB | `/japan/models` (`?m=<id>`) | `models.html` + `models.js`, catalogue `ortho-data/japan/models.json` | 26 |
 | Fireworks over Sumida | `/japan/fireworks` | `fireworks.html` + `fireworks.js` / `fireworks-gl.js` | 26 |
 | Scenes editor | `/japan/scene` | `scene.html` + `demo/editor.js` (desktop only) | 26 (UI), ja/en tab title |
 | geoedit | `/japan/geoedit` | `geoedit.html` → `map.gadget.geoedit()` (`packages/geoedit`) | 26 |

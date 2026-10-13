@@ -3,7 +3,7 @@
 // GLB は npm run landmarks（PLATEAU 3D Tiles → glb）が out/ に作る。
 //
 //   npm run models -- --dir out/ --any          … フォルダの *.glb を名前のまま全部置く（台帳外も）
-//   npm run models -- --dir <folder>            … 台帳（apps/ortho-japan/public/models.json）の id だけ <id>.glb を探して置く
+//   npm run models -- --dir <folder>            … 台帳（ortho-data/japan/models.json）の id だけ <id>.glb を探して置く
 //   npm run models -- --dir <folder> tokyo-tower …  … id を指定
 //   --force                                     … bucket に既にあっても置き直す（既定は飛ばす）
 //
@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
 import { Bucket } from "../../../packages/native-bucket/src/Bucket.js";   // Cache（IndexedDB）を持つ index.js は Node で読まない＝Bucket だけ（exports はルートだけ＝相対で）
 
 const HERE = path.dirname(fileURLToPath(import.meta.url)), APP = path.join(HERE, "..");
-const CATALOG = path.join(APP, "../ortho-japan/public/models.json");
+const CATALOG = path.join(APP, "../../ortho-data/japan/models.json");
 const API_BASE = "https://api.ortho-earth.com";
 const DIRE = "GIS/models";
 
