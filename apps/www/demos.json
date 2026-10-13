@@ -286,6 +286,20 @@
 			}
 		},
 		{
+			"id": "onsen",
+			"href": "/japan/onsen",
+			"group": "japan",
+			"icon": "♨️",
+			"title": "Hot springs of Japan",
+			"lang": "26",
+			"desc": "About 2,000 hot springs of Japan from Wikipedia on a 3D map, colored by spring type, with onsen districts, distant sources and member inns of the Japan Secluded Hot Spring Association.",
+			"img": "/thumbs/onsen.webp",
+			"shot": {
+				"url": "/japan/onsen",
+				"wait": 18
+			}
+		},
+		{
 			"id": "models",
 			"href": "/japan/models",
 			"group": "japan",
