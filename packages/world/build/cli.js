@@ -5,6 +5,7 @@ import path from "node:path";
 import { nodeEnv } from "./env.js";
 import { loadSeed } from "./seed.js";
 import { buildAll } from "./index.js";
+import { splitNames } from "./names.js";
 
 const args = process.argv.slice(2), root = path.resolve(import.meta.dirname, "..");
 const outDir = args.includes("--out") ? path.resolve(args[args.indexOf("--out") + 1]) : path.join(root, "out");
@@ -17,6 +18,12 @@ const today = new Date().toISOString().slice(0, 10);
 for (const n of ["NationDB", "CityDB", "TerrainDB", "LanguageDB", "CurrencyDB", "Conflicts"])
 	await fs.writeFile(path.join(outDir, n + ".json"), JSON.stringify({ updated: today, count: r[n].length, items: r[n] }));
 for (const [lang, v] of Object.entries(r.i18n)) await fs.writeFile(path.join(outDir, "i18n", lang + ".json"), JSON.stringify(v));
+// DB ごとの名前表＝DB の隣（<DB>.i18n/<lang>.json・build/names.js）＝配信（GitHub Pages の ortho-data/globe/）と同じ並び。i18n/<lang>.json（全部入り）は
+// 検索の索引づくり（scripts/search-index.mjs）と bucket の旧い読み手のために残す
+for (const [lang, v] of Object.entries(r.i18n)) for (const [db, t] of Object.entries(splitNames(v, lang))) {
+	await fs.mkdir(path.join(outDir, db + ".i18n"), { recursive: true });
+	await fs.writeFile(path.join(outDir, db + ".i18n", lang + ".json"), JSON.stringify(t));
+}
 r.rivers && await fs.writeFile(path.join(outDir, "rivers.geojson"), JSON.stringify(r.rivers));
 r.ranges && await fs.writeFile(path.join(outDir, "range.geojson"), JSON.stringify(r.ranges));
 console.log(`\n出力: ${outDir}  国 ${r.NationDB.length} 都市 ${r.CityDB.length} 地形 ${r.TerrainDB.length}（川の形状 ${r.rivers ? r.rivers.features.length : 0}・山脈の軸線 ${r.ranges ? r.ranges.features.length : 0}）言語 ${r.LanguageDB.length} 通貨 ${r.CurrencyDB.length} 係争 ${r.Conflicts.length} i18n ${Object.keys(r.i18n).length} 言語（${((Date.now() - t0) / 1000).toFixed(1)}s）`);

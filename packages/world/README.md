@@ -42,6 +42,17 @@ legacy/           README-v1.md＝v1 の経緯と移植台帳のみ。原典と v
 - ローカル: `npm run build -w world-data`（`packages/world/out/` へ。取得結果は `.cache/` に残る＝`--fresh` で捨てる）
 - uploader（DB Updater の「国別DB (world)」節）の **「全部作る」**: 同じ build をブラウザで回して bucket `GIS/world/` に保存（取得キャッシュは IDB `worldBuild`）。
   HDR の CSV だけ CORS が無いので api.ortho-earth.com の proxy 経由（allowlist に hdr.undp.org）。
+- **配信＝GitHub Pages（2026-10-13〜）**: `npm run publish:pages -w world-data`（予行＝今の Pages と比べて 新規／変更／同じ を出す）→ `-- --write` で commit して push（scripts/publish-pages.mjs）。
+  置き場＝リポ `ortho-data` の gh-pages 枝の `globe/`（https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/）＝**bucket の鍵が要らない**（git が通る機械ならどこからでも）。
+  置くのは out/ に在る物：DB 6 本（NationDB・CityDB・LanguageDB・CurrencyDB・Conflicts・TerrainDB）・**名前表 `<DB>.i18n/<lang>.json`（DB の隣・同じ push・build/names.js）**・
+  地形の形状台帳 4 本・検索の索引 `search/`（`node scripts/search-index.mjs`）・資産（ne-cities・flags・geoms・sfx.zip＝uploader が作る物・手元に在れば）＋目録 `manifest.json`
+  （置くたびに作り直す＝world の頁が「変わったファイル」と「在る国旗」を知る 1 本・Pages に一覧 API は無い）。手元の JSON の `updated` が Pages より古いと止まる（`--allow-older`）。
+  読み手＝world・world-quiz（apps/world/src/data.js）・equal と地球儀の世界帯（ortho-core worldcontent の `WORLD_DATA`）・地形の頁・検索。**画面の文言（ui）は配信しない**＝`i18n/ui.json` を
+  頁が直に読む（`i18n/ui-table.js`）。**bucket `GIS/world/` に残るのは形状だけ**（ne-cultural-base／detail・rivers.json＝全アプリが初回に読む 16MB は Pages の帯域の目安 月 100GB に載せない）。
+- **bucket の地形のファイルを置く**（2026-10-13 より前に deploy された頁だけが読む＝各アプリを出し直せば読み手は居なくなる）: `npm run publish:physical -w world-data`（予行＝何も書かない）→ `-- --write` で実際に置く（scripts/publish-physical.mjs・2026-10-01）。1 本だけ焼き直した時は `-- --only=climate-koppen.geopbf --write`（out/ の他の物が bucket より古いと、全部置くと古い版で上書きする）。
+  置くのは TerrainDB.json・形状台帳 5 本・`i18n/<lang>.json` 25 本だけ（NationDB などは触らない）。先に `build` → `plates` → `ne:physical` → `koppen` を回す
+  （`out/` と `.cache/` は git に入らない＝機械ごとに作り直す。koppen は `.cache/koppen/` に figshare 21789074 の `koppen_geiger_tif.zip` から
+  `1991_2020/koppen_geiger_0p1.tif` と `legend.txt` を展開しておく）。鍵は API_KEY か apps/uploader/.env.local（**機械ごとに違うことがある＝401 ならその機械の鍵**）
 - 形状台帳（`ne-physical.geopbf`・`ne-physical-lines.geopbf`・`plates.geopbf`・`climate-koppen.geopbf`・`ne-physical.json`）は Node の scripts で out/ に作り、uploader の国別DB節に**ドロップ**して `GIS/world/` へ素通しで置く（2026-10-01）。順序＝`npm run plates` → `npm run ne:physical`（プレートの面は PB2002 の取得が先）
 - 旗（flags.zip → flags/<key>.svg）・音源（音源.zip）・地形 PNG（geoPNG 作成 → geoms/<key>.png）は資産として別に置く。
 - ビューアは起動時に IDB の写しで即描画し、裏で一覧（ETag）を突合して変わったファイルだけ取り直す（`apps/world/src/data.js`）。
@@ -116,7 +127,7 @@ B45 シアチェン・B46 南沙は nations.csv に無いので落とす。AFX �
   海溝の軸線（trench・16 本・2026-10-01）: 海溝は点しか無い（Wikidata P625）＝PB2002 の沈み込み境界（SUB）を代表点の最寄りから両側へ長さの半分ずつたどった `shape=axis`（source=pb2002・幅 140 km）を足す＝表示側で山脈と同じ帯。たどるのは「沈み込むプレート」が同じ SUB だけ（境界名の向き＝"A/B" は B・"A\\B" は A が沈む＝アリューシャン西端で OK/NA へ逸れない）・分岐は最も真っすぐ（90° まで）・SUB の間の 120 km 未満の別種別は渡った先に SUB が続く時だけ 1 区間橋渡し（マリアナ南端の OTF）・片側が尽きたら残りを反対側へ・50 km 内に SUB が無い海溝（ヤップ＝OCB・プエルトリコ）は種別を問わず。長さ＝手動層 `axis_len`（km・概数・en.wikipedia）
   海嶺の軸線（ridge・8 本・2026-10-01）: 代表点は三重会合点に置かれた物がある（南東・南西インド洋海嶺がどちらも 70°E 25.5°S）＝点からはたどらず、手動層 `ridge_plates` のプレートの組（順不同・lon で絞れる＝大西洋中央海嶺の NA-EU から北極海のガッケル海嶺を外す）の拡大軸 OSR とトランスフォーム断層 OTF を集め、いちばん大きな塊の中の最長の道筋（二度掃き）を 1 本に。断層のジグザグは 1° の Douglas–Peucker でならす。`shape=axis`（source=pb2002・幅 300 km・length は断層込みの道のり）
   プレート（plate・主要 16 枚）: 面は PB2002（Bird 2003）の "~PB2002:記号" を merge で結ぶ。位置＝面の頂点平均。全 52 枚と境界線（種別 OSR/OTF/OCB/CRB/CTF/CCB/SUB）は `scripts/plates.mjs` → `out/plates.geopbf`。
-  気候（`scripts/koppen.mjs` → `out/climate-koppen.geopbf`）: Beck et al. 2023（CC BY 4.0）の 1991–2020・0.1° ラスタを区分ごとの面に（30 区分＝1 地物ずつ・属性 id/code/group/name/color・塗りは group）。境界セル辺を環に繋ぐ方式＝隣接区分と辺を共有（面積検算でセル数と完全一致）。TIFF は geopbf の COG 読み口で読む。
+  気候（`scripts/koppen.mjs` → `out/climate-koppen.geopbf`）: Beck et al. 2023（CC BY 4.0）の 1991–2020・0.1° ラスタを区分ごとの面に（30 区分＝1 地物ずつ・属性 id/code/group/name/color・塗りは group）。境界セル辺を環に繋ぐ方式＝隣接区分と辺を共有（面積検算でセル数と完全一致）。同じ頂点を 2 回通る輪（8 の字・1,433 輪）はその頂点で単純な輪に切り分ける（2026-10-01・gint の塗りが壊れた）＝生成のたびに「頂点の重複 0・面積＝セル数」を検める。TIFF は geopbf の COG 読み口で読む。
   地理線 `out/ne-physical-lines.geopbf`（⑤ 2026-09-15）: 赤道・回帰線・極圏は黄道傾斜角 ε（IAU 2006・2026 年評価）から計算（NE v5.1.2 は北回帰線 23.50°/南 −23.56° と不揃い）、日付変更線は NE。属性 name / kind / lat / epoch / wikidataid。
   NE に線が無い川＝Hooghly・Iguazu・Paraguay・Shinano は seed の手書きの軸線で描く（旧＝Wikidata の点のまま・今は seed/terrains.csv に 5〜8 点の軸線）。NE が短い川（Han 50 km・St. Lawrence 106 km・Huai・Liao・Tarim…）は NE の描き方の限界としてそのまま
   内訳（9/15）: 面 570・線 151・点 191（うち Wikidata 位置のみ 116）・軸線 85。rivers.geojson / range.geojson はこの台帳に吸収できる（build 側の撤去はビューアが台帳を読むようになってから）

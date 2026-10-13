@@ -48,6 +48,19 @@ function vectorize(c) {
 		if (at(x, y + 1) !== c) add(x + 1, y + 1, x, y + 1); if (at(x - 1, y) !== c) add(x, y + 1, x, y);
 	}
 	const rings = [];
+	// 同じ頂点を 2 回通る輪（8 の字）を、その頂点で単純な輪に切り分ける（2026-10-01・gint の塗りがよく壊れた＝本人「ねじれがないか」）。
+	// 右折優先は斜めに接する同区分のセルを別の輪に分けるが、C の字の両端が角で接する形では外周が内側の縁とその 1 点でつながり、1 本の輪が頂点を 2 回通る
+	//（左折優先でも別の形で同じ＝規則では無くせない）。切った輪は向きで外環／穴に分かれる＝下の割り当てに乗る。30 区分・26,114 輪のうち 1,433 輪・3,887 点が該当していた
+	const splitPinched = ring => {
+		const out = [], stack = [], at = new Map();
+		for (let i = 0; i < ring.length - 1; i++) {   // 末尾は先頭の重複＝除く
+			const k = ring[i], j = at.get(k);
+			if (j !== undefined) { const loop = stack.splice(j); for (const v of loop) at.delete(v); loop.push(k); out.push(loop); }
+			at.set(k, stack.length); stack.push(k);
+		}
+		stack.push(stack[0]); out.push(stack);
+		return out;
+	};
 	const dirOf = (a, b) => { const ax = a % (W + 1), ay = (a - ax) / (W + 1), bx = b % (W + 1), by = (b - bx) / (W + 1); return [bx - ax, by - ay]; };
 	for (const [start, list] of outE) {
 		while (list.length) {
@@ -61,7 +74,7 @@ function vectorize(c) {
 				}
 				const next = cand.splice(pick, 1)[0]; prev = cur; cur = next; ring.push(cur);
 			}
-			if (ring.length) rings.push(ring);
+			if (ring.length) for (const r of splitPinched(ring)) rings.push(r);
 		}
 	}
 	// 共線の頂点を落とし、経緯度へ
@@ -77,11 +90,15 @@ function vectorize(c) {
 	for (const o of outers) { o.bb = bbox(o); o.holes = []; }
 	const pip = (pts, x, y) => { let ins = false; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) { const [xi, yi] = pts[i], [xj, yj] = pts[j]; if ((yi > y) !== (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi) ins = !ins; } return ins; };
 	for (const h of holes) {   // 穴＝それを含む最小の外環へ（外環は面積降順なので最後に当たったものが最小）
-		const [hx, hy] = h.pts[0]; const cx = hx + 0.5, cy = hy + 0.5;   // 頂点は外環上に乗り得るので少し内側の点で判定
+		// 判定の点＝穴の中に確実に入る点：最初の辺の中点から、進行方向の左（辺は区分のセルを右に見て回る＝左が穴の側）へ半セル。
+		// 旧＝先頭の頂点から (+0.5,+0.5)＝穴の外（区分のセルの中）に落ちることがあり、穴が別の外環に付く／どこにも付かないことがあった
+		const [ax, ay] = h.pts[0], [bx, by] = h.pts[1], L = Math.hypot(bx - ax, by - ay) || 1, ux = (bx - ax) / L, uy = (by - ay) / L;
+		const cx = ax + ux * 0.5 + uy * 0.5, cy = ay + uy * 0.5 - ux * 0.5;
 		let owner = null; for (const o of outers) if (cx >= o.bb[0] && cx <= o.bb[2] && cy >= o.bb[1] && cy <= o.bb[3] && pip(o.pts, cx, cy)) owner = o;
 		if (owner) owner.holes.push(h); 
 	}
-	const toLL = pts => { const r = pts.map(([x, y]) => [lon(x), lat(y)]); r.push(r[0]); return r; };
+	// 経緯度へ。向きは GeoJSON（RFC 7946）＝外環は反時計回り・穴は時計回り（画面座標は y 下向き＝時計回りの外環は経緯度でも時計回り＝逆順にして出す）
+	const toLL = pts => { const r = pts.map(([x, y]) => [lon(x), lat(y)]).reverse(); r.push(r[0]); return r; };
 	return outers.map(o => [toLL(o.pts), ...o.holes.map(h => toLL(h.pts))]);
 }
 const clsPath = path.join(ROOT, ".cache/wikidata-labels-classes.json");
@@ -90,6 +107,16 @@ const features = [];
 for (let c = 1; c <= 30; c++) {
 	if (!hist[c]) continue;
 	const polys = vectorize(c), lg = legend[c];
+	// 検札（区分ごと）：①輪が同じ頂点を 2 回通らない（8 の字なし）②外環−穴の面積＝セル数（輪の切り分け・穴の割り当てで面が壊れていない）
+	{
+		let cells = 0, pinch = 0;
+		for (const poly of polys) poly.forEach((r, ri) => {
+			let a = 0; const seen = new Set();
+			for (let i = 0; i < r.length - 1; i++) { a += r[i][0] * r[i + 1][1] - r[i + 1][0] * r[i][1]; const k = r[i][0] + "," + r[i][1]; if (seen.has(k)) pinch++; seen.add(k); }
+			cells += (ri ? -1 : 1) * Math.abs(a) / 2 / (dx * dy);
+		});
+		if (pinch || Math.round(cells) !== hist[c]) throw new Error(`${lg.code}: 面が壊れている（頂点の重複 ${pinch}・面積 ${Math.round(cells)} セル ≠ ${hist[c]}）`);
+	}
 	const kl = KL[lg.code] || {}, names = Object.fromEntries(Object.entries(kl).filter(([k]) => k !== "qid" && k !== "en").map(([k, v]) => ["name_" + k, v]));
 	features.push({ type: "Feature", properties: { id: c, code: lg.code, group: lg.code[0], name: lg.name, wikidataid: kl.qid, name_en: kl.en, ...names, color: lg.color, period: PERIOD.replace("_", "–"), cells: hist[c] }, geometry: { type: "MultiPolygon", coordinates: polys } });
 	log(`${lg.code.padEnd(4)} ${lg.name.padEnd(38)} cells ${String(hist[c]).padStart(7)} polygons ${polys.length}`);

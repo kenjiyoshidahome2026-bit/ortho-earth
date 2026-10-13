@@ -1,0 +1,7 @@
+// 画面の文言の言語別の表＝ui.json（正本）から。データに結びつく名前（国・都市…）は DB の隣（<DB>.i18n/<lang>.json＝配信）・文言はプログラム（本人裁定 2026-10-13）。
+// 旧＝配信の i18n/<lang>.json に ui・categories・plateBoundaries の節として同梱（build/i18n.js が同じ切り方で作る）＝頁はそれを読んでいた。
+import UI from "./ui.json";
+
+const slice = (table, lang) => Object.fromEntries(Object.entries(table || {}).map(([k, v]) => [k, v[lang]]).filter(([, v]) => v));
+/** { ui, categories, plateBoundaries }＝英語キー → その言語（未訳は入らない＝読む側が英語キーへ落とす）。en は空 */
+export const uiTable = lang => ({ ui: slice(UI.ui, lang), categories: slice(UI.categories, lang), plateBoundaries: slice(UI.plateBoundaries, lang) });
