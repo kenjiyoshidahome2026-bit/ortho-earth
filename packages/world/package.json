@@ -13,6 +13,7 @@
 		"plates": "node scripts/plates.mjs",
 		"koppen": "node scripts/koppen.mjs",
 		"publish:physical": "node scripts/publish-physical.mjs",
+		"publish:pages": "node scripts/publish-pages.mjs",
 		"i18n:classes": "node scripts/i18n-classes.mjs"
 	},
 	"engines": {

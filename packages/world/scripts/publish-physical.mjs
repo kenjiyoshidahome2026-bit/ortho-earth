@@ -1,5 +1,7 @@
 #!/usr/bin/env node
-// 地形の頁（/globe/physical）が読むファイルを bucket GIS/world/ へ置く（Node から・uploader の Bucket.put と同じ手順）。
+// 地形のファイルを bucket GIS/world/ へ置く（Node から・uploader の Bucket.put と同じ手順）。
+// 地形の頁（/globe/physical）自身は 2026-10-13 から GitHub Pages（ortho-data/globe/）を読む＝そちらへ置くのは publish-pages.mjs（鍵が要らない）。
+// ここが置く bucket の物を読むのは world・equal（i18n）・japan の地形（plates）・検索の索引（TerrainDB）。
 //   置く物＝out/ の TerrainDB.json・ne-physical.json・ne-physical.geopbf・plates.geopbf・ne-physical-lines.geopbf・climate-koppen.geopbf（6 本）
 //           ＋ i18n/<lang>.json（25 本＝地形名 terrains が入った版）。NationDB など他の DB は触らない（本人裁定 2026-10-01）＝棚ごと揃えるなら uploader の「全部作る」
 //   使い方: node scripts/publish-physical.mjs            … 予行（何も書かない＝置く物と今の bucket の有無を出す）
