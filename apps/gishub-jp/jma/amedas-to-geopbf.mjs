@@ -24,7 +24,7 @@
  *
  * 出力:
  *   jma/amedas.geojson         … canonical（type/elems も保持）
- *   public/jma/amedas.geopbf   … 描画用（PRECISION=7）
+ *   ortho-data/japan/jma/amedas.geopbf   … 描画用（PRECISION=7）
  *
  * node jma/amedas-to-geopbf.mjs
  */
@@ -151,15 +151,15 @@ async function main() {
         license: '出典の明示等（気象庁ホームページ利用規約）',
         attribution: '気象庁 アメダス・地域気象観測所一覧',
     });
-    mkdirSync(join(__dir, '../public/jma'), { recursive: true });
-    writeFileSync(join(__dir, '../public/jma/amedas.geopbf'), raw);
+    mkdirSync(join(__dir, '../../../ortho-data/japan/jma'), { recursive: true });
+    writeFileSync(join(__dir, '../../../ortho-data/japan/jma/amedas.geopbf'), raw);
 
     const kinds = {};
     for (const f of features) kinds[f.properties.kind ?? '（一覧に無い）'] = (kinds[f.properties.kind ?? '（一覧に無い）'] || 0) + 1;
     console.log(`観測所: ${features.length}（公式一覧と突合 ${matched}／観測地点が複数 ${split2}）`);
     console.log('種類:', kinds);
     console.log(`GeoJSON: jma/amedas.geojson (${(Buffer.byteLength(JSON.stringify(geojson))/1024).toFixed(0)} KB)`);
-    console.log(`GeoPBF : public/jma/amedas.geopbf (${(raw.length/1024).toFixed(0)} KB)`);
+    console.log(`GeoPBF : ortho-data/japan/jma/amedas.geopbf (${(raw.length/1024).toFixed(0)} KB)`);
     console.log('例:', JSON.stringify(features[0].properties));
 }
 
