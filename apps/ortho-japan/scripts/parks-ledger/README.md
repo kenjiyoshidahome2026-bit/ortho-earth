@@ -8,3 +8,5 @@
 4. `node patch-thumbs.mjs ortho-data/japan/parks.json` — Commons の API に 640px のサムネを作らせて `photo.thumb` に（任意幅の URL 直叩きは 400）。全 URL を HEAD で確かめる。
 
 ⚠ 面積・指定日は Wikidata を信用しない（単位違い・国定公園時代の日付が混じる）＝build-ledger.py の OFF 表が正。
+
+⚠ 公式サイトも Wikidata（P856）を信用しない（見どころの頁 `/point/`・英語版・観光協会が混じり、無い公園もあった・2026-10-14）＝OFF 表の末尾の名前から環境省の頁を組む：`site`＝`https://www.env.go.jp/park/<名前>/index.html`（日本語）・`siteEn`＝`https://www.env.go.jp/en/nature/nps/park/<名前>/index.html`（英語）。35 公園とも両方の頁があることを確かめた。

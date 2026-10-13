@@ -242,7 +242,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 	// ── 詳細 ──
 	let seq = 0;
 	const renderDetail = async p => {
-		const my = ++seq, w = wikiOf(p), url = wikiUrl(w);
+		const my = ++seq, w = wikiOf(p), url = wikiUrl(w), site = lang === "ja" ? p.site : (p.siteEn || p.site);   // 公式サイト＝環境省の公園の頁（日本語／それ以外の言語は英語版）
 		$("list").innerHTML = `<div class="detail">
 			<div class="nav"><button type="button" data-nav="back">← ${t("Back to list")}</button><span><button type="button" data-nav="prev" aria-label="${t("Previous park")}">‹</button> <button type="button" data-nav="next" aria-label="${t("Next park")}">›</button></span></div>
 			<div class="hero">${p.photo?.src ? `<img src="${esc(p.photo.src)}" alt="${esc(nameOf(p))}" decoding="async" referrerpolicy="no-referrer">` : ""}<div class="shade"></div>
@@ -254,7 +254,7 @@ export async function mountParks(map, geopbf, { catalog, boundary, panelHost } =
 				<div class="fact wide"><small>${t("Prefectures")}</small>${p.prefs.map(c => `<span class="pref">${esc(prefName(c))}</span>`).join("")}</div>
 			</div>
 			<div class="extract wait" data-k="extract">${t("Loading…")}</div>
-			<div class="links">${url ? `<a class="wp">${t("Read on Wikipedia")}</a>` : ""}${p.site ? `<a href="${esc(p.site)}" target="_blank" rel="noopener">${t("Official site")} ↗</a>` : ""}</div>
+			<div class="links">${url ? `<a class="wp">${t("Read on Wikipedia")}</a>` : ""}${site ? `<a href="${esc(site)}" target="_blank" rel="noopener">${t("Official site")} ↗</a>` : ""}</div>
 			${p.photo?.src ? `<div class="credit">${t("Photo: $1 ($2)", esc(p.photo.artist || "Wikimedia Commons"), p.photo.licenseUrl ? `<a href="${esc(p.photo.licenseUrl)}" target="_blank" rel="noopener">${esc(p.photo.license || "")}</a>` : esc(p.photo.license || ""))}${p.photo.page ? ` · <a href="${esc(p.photo.page)}" target="_blank" rel="noopener">Wikimedia Commons</a>` : ""}</div>` : ""}
 		</div>`;
 		body.scrollTop = 0;
