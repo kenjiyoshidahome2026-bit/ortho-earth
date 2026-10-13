@@ -306,6 +306,20 @@
 			}
 		},
 		{
+			"id": "terrain",
+			"href": "/japan/terrain",
+			"group": "japan",
+			"icon": "⛰️",
+			"title": "Landforms of Japan",
+			"lang": "26",
+			"desc": "Mountains, volcanoes, rivers, lakes, plains, islands and seas of Japan on a 3D map, with their heights, lengths, areas and depths side by side.",
+			"img": "/thumbs/terrain.webp",
+			"shot": {
+				"url": "/japan/terrain",
+				"wait": 18
+			}
+		},
+		{
 			"id": "models",
 			"href": "/japan/models",
 			"group": "japan",
