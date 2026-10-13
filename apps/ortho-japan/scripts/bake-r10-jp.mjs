@@ -13,7 +13,9 @@
 //   node scripts/bake-r10-jp.mjs --verify        # 焼いた E130N30 の琵琶湖域を再サンプル（偽山消滅の確認）
 // 出力: apps/ortho-japan/r10-out/（R01 のダウンロードキャッシュは r10-src/）
 //
-// ※クライアント側の追随: altpbf createGetHeight.js の staleDSM を拡張し、日本bboxに掛かる R10 で
+// ※動機 2: 東北 140°E の縦の継ぎ目（2026-10-02 本人発見）＝GEBCO 由来の R10 は 10° タイルの境で段差を持つ（境界の段差 55.9m / 内部 34.8m・DEM10B の真値は 48.7/42.6）
+//   ＝DEM10B の転写で境界が真値どおりに繋がる。
+// ※クライアント側の追随: ortho-core createGetHeight.js の staleDSM を拡張し、日本bboxに掛かる R10 で
 //   source に DEM10B を含まない旧タイルを失効させる（IDB は upload 後の初回訪問で自己修復）。
 
 import Pbf from "geopbf/pbf";
@@ -118,7 +120,9 @@ async function bakeR10(lngT, latT) {
 			}
 		}
 	}
-	if (!subs) { console.log(`${name}: R01 サブセル無し＝焼かない（GEBCO のまま）`); return null; }
+	// R01 サブセルが無い（海だけ・日本 bbox の縁のセル）も**同じ銘で焼き直す**（中身は GEBCO のまま）＝クライアントの失効判定（createGetHeight の staleDSM＝
+	// 日本 bbox 内の R10 で brand 銘が無い物は捨てて bucket を見直す・2026-10-02）が、海だけのセルを毎セッション取り直さないため。
+	if (!subs) console.log(`${name}: R01 サブセル無し＝中身は GEBCO のまま・銘だけ付け直す`);
 	const source = `GEBCO 2026 + GSI DEM10B(JP)`;
 	const bin = encodeAltpbf({ name, source, lng: lngT, lat: latT, range: 10, width: R10W, height: R10W, data: grid });
 	writeFileSync(path.join(OUT, name + '.gz'), gzipSync(bin, { level: 9 }));
