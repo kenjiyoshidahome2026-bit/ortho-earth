@@ -24,8 +24,8 @@ const PAGES = {
 const HIDE = `for (const s of ["#sky-clock",".models-panel",".parks-panel",".tr-panel",".on-panel","#gadgets","#chips","#pos","#scale","#attr","#layers-btn","#side",".qm-attr","#hint","#dock","#cloudPanel"])
 	document.querySelectorAll(s).forEach(e => e.style.display = "none");
 document.querySelectorAll(".sats-tag,.quakes-tag,.sats-tip,.quakes-info").forEach(e => e.style.display = "none");
-const app = document.getElementById("app"); if (app) app.style.gridTemplateColumns = "1fr";   // Tellus＝左の案内板を伏せたら地図を全幅へ（格子が 352px の列を残す）
-window.dispatchEvent(new Event("resize")); 1`;
+const app = document.getElementById("app"); if (app) { app.style.gridTemplateColumns = "1fr"; window.dispatchEvent(new Event("resize")); }   // Tellus＝左の案内板を伏せたら地図を全幅へ（格子が 352px の列を残す）
+1`;   // ⚠resize は Tellus だけ＝他の頁で発火すると全球の陸の塗り（Natural Earth）が消えて淡青の球になる（onsen 10/13 実測）
 
 const want = process.argv.slice(2).filter(a => !a.startsWith("--"));
 const pages = Object.keys(PAGES).filter(p => !want.length || want.includes(p));
