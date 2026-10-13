@@ -146,6 +146,7 @@
   - 問い合わせの結果の中で押し出し（geojson と vector）は一塊（上の段の順の中の「押し出し」の位置）で、その中が近い順。MapLibre は 3D の地物を 2D の層の間へ層の順で差し込む（押し出しの層の上にある 2D の層の地物が先）＝ここは描画の段の順（§4 の上の項）。
   - 壁は元の頂点どうしを結ぶ四角で当てる（描画は長い辺を刻む＝地形に沿わせる広い面の壁の上端は起伏の分だけずれ得る）。屋根は光線を屋根の高さで受ける＝平らな屋根は厳密。
   - 地面：床の平面（統計の既定）は持ち上げない・drape はどこでも地表・接地（建物らしい面）は renderer の接地リフトの規則の写し（DTM の申告域 ∩ R01 の窓）。標高は届くまで 0m（projectLL と同じ）。
+  - 既定の床（2026-10-14 本人裁定）：MapLibre 形の層（paint つき・addLayer の fill-extrusion）は大きさに関わらず接地＝MapLibre と同じ（旧＝対角の中央値 500m 以上は 2,000m の平面＝420m 角の箱が画面の外に浮いた・claude/issue-178）。統計のように浮かせるなら層に `bottom:<m>`。ネイティブの書き方（height/color）は従来どおり大きさで決まり、`bottom:"ground"` で接地を名指しできる。門＝t-extrude-size。
 
 - `semiliteral`（C2・2026-10-12・spec 26.4.4 `src/expression/definitions/semiliteral.ts`・v8.json「Provides an array value, evaluating expressions in the elements of the array」・sdk-support js 6.6.0・native 未対応）＝引数が配列なら各要素を式として評価して配列を返す（型が混ざれば value）、配列でなければ literal と同じ。ここの実装は同じ意味：要素のうち「先頭が演算子の文字列の配列」を式として評価し、素の値（数・文字列・真偽・null）はそのまま返す。違いは入力が spec の外のときだけ＝本物は要素の素の配列（例 `[1,2]`）や演算子でない文字列先頭の配列を parse 誤りにするが、ここはそのまま値として通し、object の中の式も評価する（本物は object 引数を literal に落とす）。`distance-from-center` は演算子としては読めるが、注記の置き場（labels2d）からの値は未配線＝0。
 

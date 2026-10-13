@@ -1322,9 +1322,10 @@ try {
 			return [isRed(shaded) && isRed(flat) && flat[0] - shaded[0] >= 8 && Math.abs(back[0] - shaded[0]) <= 2, `shaded=${shaded} flat=${flat} back=${back}`];
 		});
 		// 広い面（統計の押し出し＝床 2,000m の平面）に寄って傾ける＝面の頂点がカメラの後ろへ回っても屋根に当たる（見張り＝頂点の投影だけの当て方は外す）
+		// 床は層に bottom:2000 で名指し（2026-10-14〜 MapLibre 形の既定は大きさに関わらず接地＝MapLibre と同じ・t-extrude-size）
 		const C2 = [140.5, 31.0];
 		map.addSource("big", { type: "geojson", data: fc([rect(0, 0, 20000, { name: "BIG", h: 500 }, 0, C2)]) });
-		await map.addLayer({ id: "big", type: "fill-extrusion", source: "big", paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#aa00aa" } });
+		await map.addLayer({ id: "big", type: "fill-extrusion", source: "big", bottom: 2000, paint: { "fill-extrusion-height": ["get", "h"], "fill-extrusion-color": "#aa00aa" } });
 		map.jumpTo({ center: C2, zoom: 13, pitch: 60 }); await sleep(3000);
 		await scene("large-roof-camera-inside", async () => { const r = await q([el.clientWidth / 2, el.clientHeight / 2], ["big"]); return [r.includes("BIG"), String(r)]; });
 	} else if (G === "mlt") {

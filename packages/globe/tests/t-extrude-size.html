@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- 押し出しの床と大きさ（map.gadget.extrude の既定の bottom）＝地域なしの球で。
+     ネイティブの呼び方（height/color）＝建物らしい面（対角の中央値 < 500m）は接地・広い面は 2,000m の平面（本人裁定 9/22）。
+     MapLibre 形（paint つき・addLayer の fill-extrusion）＝大きさに関わらず接地（本人裁定 2026-10-14＝MapLibre は常に地面から）。
+     bottom:"ground"＝ネイティブでも大きさに関わらず建物と同じ接地。bottom:<m>＝MapLibre 形でもその高さの平面。
+     発端（2026-09-30・claude/issue-178）：自由の女神の 420×390m の箱（対角 約 573m）に height 400 を立てると stats は返るのに、z16.8・45° の視点では
+     足元の画素が地面の色のまま＝消えたように見える。真因＝「広い面（統計）」と見なされ床 2,000m の平面へ（屋根 2,400m）＝カメラより上・画面の外。
+     mask:false は床に効かない（伏せるかどうかだけ）。実時間。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-extrude-size</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+import { cameraState, project, worldRadiusM } from "@ortho-earth/core";
+const t = [];
+const ok = (name, cond, note = "") => { t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`); document.title = "… " + t.join(" "); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function snap(map) {
+	const s = await Promise.race([map.requestSnapshot(), sleep(20000).then(() => { throw new Error("snapshot timeout"); })]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => {
+	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
+	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
+	return [img.data[i], img.data[i + 1], img.data[i + 2]];
+};
+const isRed = p => p[0] > 110 && p[1] < 90 && p[2] < 90;
+const box = (x0, y0, x1, y1) => ({ type: "FeatureCollection", features: [{ type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]] } }] });
+const BIG = box(-74.0470, 40.6875, -74.0420, 40.6910);   // 報告の箱＝約 422×387m・対角 約 573m
+const C = [-74.0445, 40.68925], d = 0.00065;
+const SMALL = box(C[0] - d, C[1] - d * 0.76, C[0] + d, C[1] + d * 0.76);   // 約 110×115m＝建物らしい大きさ
+const VIEW = { center: C, zoom: 16.8, pitch: 45, bearing: 0 };
+try {
+	const map = await createGlobe({ target: "#map", view: "#16.8/40.6892/-74.0445/45", chips: false, debugGlobals: true });
+	await sleep(4000);
+	const el = map.mapEl;
+	const at = (h, ll = C) => { const dp = map.cam.dpr || 1, st = cameraState(map.cam, el.clientWidth * dp, el.clientHeight * dp), [x, y] = project(st, ll[0], ll[1], 1 + h / worldRadiusM()); return [x / dp, y / dp]; };
+	const pixelUntil = async (h, pred = isRed) => { let p = null; for (let k = 0; k < 6; k++) { p = px(await snap(map), ...at(h)); if (pred(p)) break; await sleep(1000); } return p; };
+	const set0 = () => window.__model.extrudeSets.find(s => s.slot === "default");
+	const run = async (src, opts) => { const st = await map.gadget.extrude(src, { height: 400, color: "#ff0000", fit: false, ...opts }); map.jumpTo(VIEW); await sleep(1500); return { st, s: set0() }; };
+
+	// 1. 報告どおり（既定）＝stats は返る・床は 2,000m の平面・足元は地面の色
+	let r = await run(BIG, {});
+	ok("big-stats", r.st?.polygons === 1 && r.st?.triangles > 0, JSON.stringify(r.st && { p: r.st.polygons, t: r.st.triangles }));
+	ok("big-default-plane-2000", r.s?.mode === "plane" && r.s?.lift === 2000, `${r.s?.mode}/${r.s?.lift}`);
+	const g = px(await snap(map), ...at(0));
+	ok("big-default-not-at-ground", !isRed(g), `ground=${g}`);
+	// 2. mask:false は床を変えない
+	r = await run(BIG, { mask: false });
+	ok("big-mask-false-still-plane", r.s?.mode === "plane" && r.s?.lift === 2000, `${r.s?.mode}/${r.s?.lift}`);
+	// 3. 床の上には立っている＝真俯瞰で引く（カメラが屋根 2,400m より上）と屋根が赤
+	map.jumpTo({ center: C, zoom: 13.5, pitch: 0, bearing: 0 }); await sleep(2000);
+	ok("big-roof-on-plane", isRed(await pixelUntil(2400)), "roof@2400m");
+	// 4. bottom:"drape"／bottom:0 で接地に戻せる
+	r = await run(BIG, { bottom: "drape" });
+	ok("big-drape-ground", r.s?.mode === "drape" && isRed(await pixelUntil(200)), `${r.s?.mode}`);
+	r = await run(BIG, { bottom: 0 });
+	ok("big-bottom0-ground", r.s?.mode === "plane" && r.s?.lift === 0 && isRed(await pixelUntil(200)), `${r.s?.mode}/${r.s?.lift}`);
+	r = await run(BIG, { bottom: "ground" });   // 大きさに関わらず建物と同じ接地（2026-10-14）
+	ok("big-bottom-ground", r.s?.mode === "ground" && r.s?.lift === 0 && isRed(await pixelUntil(200)), `${r.s?.mode}/${r.s?.lift}`);
+	// 5. 建物らしい大きさ（130m 級）は既定のまま接地
+	r = await run(SMALL, {});
+	ok("small-default-ground", r.s?.mode === "ground" && isRed(await pixelUntil(200)), `${r.s?.mode}`);
+	await map.gadget.extrude(null);
+	// 6. MapLibre 形＝大きさに関わらず接地（MapLibre と同じ）・層に bottom:<m> を添えれば平面（統計の浮かせ方）
+	const setOf = id => window.__model.extrudeSets.find(s => s.slot === id);
+	const PAINT = { "fill-extrusion-height": 400, "fill-extrusion-color": "#ff0000" };
+	await map.gadget.extrude(BIG, { paint: PAINT, fit: false }); map.jumpTo(VIEW); await sleep(1500);   // ガジェットの MapLibre 形
+	ok("ml-gadget-big-ground", set0()?.mode === "ground" && isRed(await pixelUntil(200)), `${set0()?.mode}/${set0()?.lift}`);
+	await map.gadget.extrude(null);
+	map.addSource("bigsrc", { type: "geojson", data: BIG });
+	await map.addLayer({ id: "mlbig", type: "fill-extrusion", source: "bigsrc", paint: PAINT }); map.jumpTo(VIEW); await sleep(1500);   // addLayer
+	ok("ml-layer-big-ground", setOf("mlbig")?.mode === "ground" && setOf("mlbig")?.lift === 0 && isRed(await pixelUntil(200)), `${setOf("mlbig")?.mode}/${setOf("mlbig")?.lift}`);
+	map.removeLayer("mlbig");
+	await map.addLayer({ id: "mlbig2k", type: "fill-extrusion", source: "bigsrc", paint: PAINT, bottom: 2000 }); map.jumpTo(VIEW); await sleep(1500);
+	ok("ml-layer-bottom2000-plane", setOf("mlbig2k")?.mode === "plane" && setOf("mlbig2k")?.lift === 2000 && !isRed(px(await snap(map), ...at(0))), `${setOf("mlbig2k")?.mode}/${setOf("mlbig2k")?.lift}`);
+	document.title = (t.every(x => x.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>
