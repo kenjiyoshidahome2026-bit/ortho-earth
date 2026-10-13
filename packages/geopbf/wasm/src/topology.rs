@@ -669,15 +669,15 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     if ranges.is_empty() { return; }
     let total_segs: usize = ranges.iter().map(|&(_, len)| len.saturating_sub(1)).sum();
     if total_segs == 0 || total_segs > 80_000 { return; }
-    const GRID_SHIFT: u32 = 16;
+    const BASE_SHIFT: u32 = 16;   // 格子の基準＝セル 2^16 単位（約 730 m）
+    const MAX_CELL: usize = 1500; // これを超えるセルは総当たりしない（JS と同じ）
+    const COVER: u64 = 8;         // 登録の総数の上限＝線分数の何倍まで
     const SNAP: i128 = 125;   // 11 cm
     const UNIT: i128 = 10;    // 10 cm grid
 
     // セグメント展開（連続重複点の辺は作らない＝JS と同じ）
     let mut segs: Vec<PSeg> = Vec::with_capacity(total_segs);
     let mut seg_of: Vec<Vec<i32>> = Vec::with_capacity(ranges.len());   // line → sidx → seg index（-1＝無し）
-    let mut cells: Vec<Vec<u32>> = Vec::new();                          // 格子セル（初出順）
-    let mut cell_of: FxHashMap<u64, u32> = FxHashMap::default();
     for (li, &(off, len)) in ranges.iter().enumerate() {
         let mut so = vec![-1i32; len.saturating_sub(1)];
         for i in 0..len.saturating_sub(1) {
@@ -685,21 +685,42 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
             if a == b { continue; }
             let (ax, ay) = crate::unpack_to_int(a); let (bx, by) = crate::unpack_to_int(b);
             let (x1, y1, x2, y2) = (ax as i64, ay as i64, bx as i64, by as i64);
-            let sid = segs.len() as u32;
-            let sg = PSeg { line: li, sidx: i, x1, y1, x2, y2, bx1: x1.min(x2), bx2: x1.max(x2), by1: y1.min(y2), by2: y1.max(y2), p1: a, p2: b, hits: Vec::new() };
-            for gx in (sg.bx1 as u64 >> GRID_SHIFT)..=(sg.bx2 as u64 >> GRID_SHIFT) {
-                for gy in (sg.by1 as u64 >> GRID_SHIFT)..=(sg.by2 as u64 >> GRID_SHIFT) {
-                    let key = (gx << 16) | gy;
-                    let ci = *cell_of.entry(key).or_insert_with(|| { cells.push(Vec::new()); (cells.len() - 1) as u32 });
-                    cells[ci as usize].push(sid);
-                }
-            }
-            segs.push(sg);
-            so[i] = sid as i32;
+            so[i] = segs.len() as i32;
+            segs.push(PSeg { line: li, sidx: i, x1, y1, x2, y2, bx1: x1.min(x2), bx2: x1.max(x2), by1: y1.min(y2), by2: y1.max(y2), p1: a, p2: b, hits: Vec::new() });
         }
         seg_of.push(so);
     }
     if segs.len() < 2 { return; }
+
+    // 格子（セル＝2^shift 単位）へ登録＝線分は bbox が覆う全セルへ（線分の番号順・セルは初出順＝shift 16 なら従来と同じ並び）
+    let build = |shift: u32| -> Vec<Vec<u32>> {
+        let mut cells: Vec<Vec<u32>> = Vec::new();
+        let mut cell_of: FxHashMap<u64, u32> = FxHashMap::default();
+        for (sid, sg) in segs.iter().enumerate() {
+            for gx in (sg.bx1 as u64 >> shift)..=(sg.bx2 as u64 >> shift) {
+                for gy in (sg.by1 as u64 >> shift)..=(sg.by2 as u64 >> shift) {
+                    let key = (gx << 16) | gy;
+                    let ci = *cell_of.entry(key).or_insert_with(|| { cells.push(Vec::new()); (cells.len() - 1) as u32 });
+                    cells[ci as usize].push(sid as u32);
+                }
+            }
+        }
+        cells
+    };
+    // 格子の細かさをデータに合わせる（2026-10-13）。基準の 730 m は街路・筆界の規模の物差し＝世界規模の長い線分（川・プレート境界・回帰線）は
+    // 1 本が数千〜数百万セルに跨り、登録だけで秒〜分の桁になっていた（世界の川 4.8 万線分＝登録 5,000 万回・8.5 秒／88KB のプレート境界に 1.1 秒）。
+    // 登録の総数が線分数の COVER 倍に収まる最小の shift を選ぶ。基準で収まるデータは従来と同じ道（同じ格子・同じ順）。
+    // 粗くしても結果は同じ：
+    //   ・処理する組＝「bbox が重なる組」＝格子に依らない（重なる bbox は必ずどこかのセルを共有し、共有しても重ならない組は下の bbox 検査が落とす）
+    //   ・ただし MAX_CELL 超のセルを飛ばす決まりが粗い格子で効くと組が減る＝その時は基準に戻す（細かいセルの数 ≤ 粗いセルの数＝粗い側が全部
+    //     MAX_CELL 以下なら、基準でも飛ばすセルは無い）
+    //   ・交点の値は座標だけで決まる（端点も内挿点も pure_morton|TERMINAL_BIT）＝見つける順が変わっても線分ごとの hits の集合は同じ。
+    //     並べは始点からの距離の安定ソート＝同じ線分に同距離の別の点が載った時だけ、その 2 点の順が従来と入れ替わり得る
+    let cover = |shift: u32| -> u64 { segs.iter().map(|g| ((g.bx2 as u64 >> shift) - (g.bx1 as u64 >> shift) + 1) * ((g.by2 as u64 >> shift) - (g.by1 as u64 >> shift) + 1)).sum() };
+    let mut shift = BASE_SHIFT;
+    while shift < 31 && cover(shift) > segs.len() as u64 * COVER { shift += 1; }
+    let mut cells = build(shift);                                       // 格子セル（初出順）
+    if shift > BASE_SHIFT && cells.iter().any(|c| c.len() > MAX_CELL) { cells = build(BASE_SHIFT); }
 
     // 端点スナップ／格子スナップ（JS getPt）
     let get_pt = |ix: i128, iy: i128, eps: &[(i64, i64, u64); 4]| -> (i64, i64, u64) {
@@ -762,7 +783,7 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut pts: Vec<(i64, i64, u64)> = Vec::new();
     let add_hit = |s: &mut PSeg, p: (i64, i64, u64)| { if !s.hits.iter().any(|h| h.0 == p.0 && h.1 == p.1) { s.hits.push(p); } };   // JS Map.set＝同キーは初出位置を保つ
     for cell in &cells {
-        if cell.len() < 2 || cell.len() > 1500 { continue; }
+        if cell.len() < 2 || cell.len() > MAX_CELL { continue; }
         for i in 0..cell.len() {
             for j in (i + 1)..cell.len() {
                 let (a, b) = (cell[i] as usize, cell[j] as usize);
