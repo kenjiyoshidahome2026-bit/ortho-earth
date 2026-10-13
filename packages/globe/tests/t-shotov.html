@@ -1,0 +1,80 @@
+<!doctype html>
+<!-- 回帰：画面保存（shot/print/サムネ）のスナップショットに「同一フレームのオーバーレイ」（map.overlay(url)＝render worker 内で描く
+     地震・衛星・点群・ヒートマップ等）が写る事（2026-09-23 以前は基図とラベルだけ＝保存画像から地震の点が消えていた）。
+     依存ゼロのテスト用モジュールを blob URL で3枚：
+       gl   ＝webgl2・注記の下・画面の左上 1/4 を不透明な緑／その右隣を 50% の緑（premultiplied → 非乗算へ戻す・GL の上下反転を戻す）
+       top  ＝2D・above（注記の上）・右上 1/4 をマゼンタ
+       hide ＝2D・el を display:none＝画面に出ていない＝撮らない（左下 1/4 をシアン）
+     判定は map.requestSnapshot() → composeLayersToCanvas の画素（shot/print/palette の共用合成）。
+     実時間ページ（worker の import() は仮想時間で解決しない＝t-anno と同じ轍）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021;width:640px;height:420px}</style><title>t-shotov</title></head>
+<body>
+<script>window.requestAnimationFrame = cb => setTimeout(() => cb(performance.now()), 30); localStorage.setItem("oj.hint", "closed");</script>
+<script type="module">
+import { composeLayersToCanvas } from "@ortho-earth/globe/gadgets/compose.js";
+const t = [], ok = (n, c, x = "") => t.push((c ? "ok:" : "NG:") + n + (x !== "" ? `(${x})` : ""));
+const fin = () => document.title = t.some(s => s.startsWith("NG")) ? "FAIL " + t.join(" ") : "PASS " + t.join(" ");
+const mod = src => URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+const GL = mod(`let gl;
+export function init(canvas) { gl = canvas.getContext("webgl2", { premultipliedAlpha: true, antialias: true, alpha: true, depth: false }); }
+export function message() {}
+export function frame(cam, s, size) {
+	const w = size.w, h = size.h, q = Math.floor(w / 4), r = Math.floor(h / 4);
+	gl.viewport(0, 0, w, h); gl.disable(gl.SCISSOR_TEST); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+	gl.enable(gl.SCISSOR_TEST);
+	gl.scissor(0, h - r, q, r); gl.clearColor(0, 1, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);          // 画面の左上（GL は原点左下）
+	gl.scissor(q, h - r, q, r); gl.clearColor(0, 0.5, 0, 0.5); gl.clear(gl.COLOR_BUFFER_BIT);      // 50% 緑（premultiplied）
+	gl.disable(gl.SCISSOR_TEST);
+	return false;
+}
+export function destroy() {}`);
+const fill2d = color => mod(`let ctx;
+export function init(canvas) { ctx = canvas.getContext("2d"); }
+export function message() {}
+export function frame(cam, s, size) { ctx.clearRect(0, 0, size.w, size.h); ctx.fillStyle = "${color.c}"; ctx.fillRect(${color.x} * size.w, ${color.y} * size.h, size.w / 4, size.h / 4); return false; }
+export function destroy() {}`);
+try {
+	const { createGlobe } = await import("@ortho-earth/globe");   // 地域なしの地球儀（globe の門・t-anno と同じ起動）
+	const map = await createGlobe({ view: "#5/36/138", mesh: false });
+	const f1 = await Promise.race([new Promise(r => map.on("load", () => r(true))), new Promise(r => setTimeout(() => r(false), 20000))]);
+	ok("frame1", f1);
+	const hGl = map.overlay(GL, { name: "t-gl" });
+	const hTop = map.overlay(fill2d({ c: "#ff00ff", x: 0.75, y: 0 }), { name: "t-top", above: true });
+	const hHide = map.overlay(fill2d({ c: "#00ffff", x: 0, y: 0.75 }), { name: "t-hide" });
+	hHide.el.style.display = "none";
+	const ready = () => ["t-gl", "t-top", "t-hide"].every(n => window.__overlay?.[n]?.stage === "ready");
+	for (let i = 0; i < 100 && !ready(); i++) await new Promise(r => setTimeout(r, 200));
+	ok("ready", ready(), JSON.stringify(Object.fromEntries(["t-gl", "t-top", "t-hide"].map(n => [n, window.__overlay?.[n]?.stage]))));
+	await new Promise(r => setTimeout(r, 300));
+
+	const snap = await Promise.race([map.requestSnapshot(), new Promise(r => setTimeout(() => r(null), 15000))]);
+	ok("snapshot", !!snap?.render);
+	const below = snap?.render?.overlays?.map(o => o.name) || [], above = snap?.render?.overlaysAbove?.map(o => o.name) || [];
+	ok("順序", below.join() === "t-gl" && above.join() === "t-top", `below=${below} above=${above}`);
+
+	const out = composeLayersToCanvas(snap);
+	const W = out.width, H = out.height;
+	let px = out.getContext("2d").getImageData(0, 0, W, H).data;
+	// 領域の中心付近 20×20 の平均色（注記の文字が掠っても平均で潰れる）
+	const avg = (fx, fy) => {
+		const cx = Math.floor(fx * W), cy = Math.floor(fy * H), s = [0, 0, 0];
+		for (let y = cy - 10; y < cy + 10; y++) for (let x = cx - 10; x < cx + 10; x++) { const i = (y * W + x) * 4; s[0] += px[i]; s[1] += px[i + 1]; s[2] += px[i + 2]; }
+		return s.map(v => Math.round(v / 400));
+	};
+	const green = avg(0.125, 0.125), half = avg(0.375, 0.125), mag = avg(0.875, 0.125), hid = avg(0.125, 0.875), ref = avg(0.125, 0.625);
+	ok("GL(不透明・上下)", green[1] > 230 && green[0] < 25 && green[2] < 25, green);
+	ok("above(注記の上)", mag[0] > 230 && mag[2] > 230 && mag[1] < 25, mag);
+	ok("非表示は撮らない", !(hid[1] > 200 && hid[2] > 200 && hid[0] < 60), `${hid} ref=${ref}`);
+
+	hGl.remove(); hTop.remove(); hHide.remove();
+	const snap2 = await Promise.race([map.requestSnapshot(), new Promise(r => setTimeout(() => r(null), 15000))]);
+	ok("remove後は空", !!snap2 && !snap2.render.overlays.length && !snap2.render.overlaysAbove.length);
+	// 50% 緑＝同じ場所の素の基図（remove 後の撮影）と半々：期待 G＝127.5＋基図/2・R＝基図/2。
+	// 乗算済み（0,128,0,128）のまま重ねると G＝64＋基図/2 に落ちる＝非乗算へ戻したかをここで見分ける
+	px = composeLayersToCanvas(snap2).getContext("2d").getImageData(0, 0, W, H).data;
+	const bg = avg(0.375, 0.125), eg = 127.5 + bg[1] / 2, er = bg[0] / 2;
+	ok("GL(半透明・非乗算)", Math.abs(half[1] - eg) < 16 && Math.abs(half[0] - er) < 16, `${half} 期待G=${eg.toFixed(0)} R=${er.toFixed(0)}`);
+	map.destroy();
+} catch (e) { ok("boot:" + (e && e.message || e), false); }
+fin();
+</script></body></html>

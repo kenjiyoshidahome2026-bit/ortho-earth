@@ -52,12 +52,15 @@ const BUILTIN_OVERLAYS = { anno: () => import("./gadgets/anno-draw.js"), imagequ
 function overlayAdd(m) {
 	const o = { canvas: m.canvas, mod: null, queue: [], depth: !!m.opts?.depth };
 	overlays.set(m.name, o);
+	// モジュールが取った文脈を覚える（撮影＝readOverlays が読む・後から getContext で探ると、まだ文脈の無い canvas に 2d を作って横取りしてしまう）
+	{ const gc = o.canvas.getContext.bind(o.canvas); o.canvas.getContext = (type, attrs) => { const c = gc(type, attrs); if (c) { o.kind = type; o.ctx = c; } return c; }; }
 	if (baseW && (o.canvas.width !== baseW || o.canvas.height !== baseH)) { o.canvas.width = baseW; o.canvas.height = baseH; }
 	const host = { requestDraw: () => { dirty = true; armRaf(); }, post: data => postMessage({ type: "overlayEvent", name: m.name, data }), depthGLSL: DEPTH_GLSL };
 	const stage = (st, extra) => postMessage({ type: "overlayStage", name: m.name, stage: st, ...extra });   // 沈黙故障の可視化（main の __overlay に残る）
 	stage("importing", { url: m.url || `builtin:${m.builtin}` });
 	// URL のモジュールは overlay ごとに別のインスタンスで import する（同じ URL は module map で 1 つ＝points-gl を 2 層同時に使うと gl・layers が混ざった・PR-6 2026-10-12）。問いの ov= は静的配信では無視される
-	const instUrl = u => { try { const x = new URL(u); x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
+	// blob:／data: は問いを足すと引けなくなる（blob の実体は URL の丸ごと一致・data は本文に混ざる）＝断片（#ov=）で分ける。断片は取得では落ち、module map の鍵には残る
+	const instUrl = u => { try { const x = new URL(u); if (x.protocol === "blob:" || x.protocol === "data:") x.hash = "ov=" + encodeURIComponent(m.name); else x.searchParams.set("ov", m.name); return x.href; } catch { return u + (u.includes("?") ? "&" : "?") + "ov=" + encodeURIComponent(m.name); } };
 	// builtin は表にある名前だけ（Object.hasOwn＝"constructor" 等の継承した名前で別の物を呼ばない・CodeQL js/unvalidated-dynamic-method-call）
 	const builtinLoad = name => typeof name === "string" && Object.hasOwn(BUILTIN_OVERLAYS, name) ? BUILTIN_OVERLAYS[name]() : Promise.reject(new Error(`unknown builtin overlay "${name}"`));
 	(m.builtin ? builtinLoad(m.builtin) : import(/* @vite-ignore */ instUrl(m.url))).then(mod => {
@@ -493,6 +496,42 @@ function readLabels() {   // ラベル(2D)＝getImageDataで上下正のまま�
 	const lw = labelCanvas.width, lh = labelCanvas.height;
 	return { labels: new Uint8Array(labelCanvas.getContext("2d").getImageData(0, 0, lw, lh).data.buffer), lw, lh };
 }
+// 同一フレームのオーバーレイも撮る（shot/print/サムネが画面と一致）：モジュール契約（init/message/frame/destroy）は無傷のまま、
+// worker が各 canvas を読む。GL 系（webgl2）は preserveDrawingBuffer 無し＝直前の overlayFrame と同一タスクで readPixels
+//（createImageBitmap/transferToImageBitmap は headless GL で詰まる＝基図と同じ手）。premultipliedAlpha の画素は ImageData
+//（非乗算）へ戻す。2D は getImageData。重ね順（注記の上下・DOM 順）と表示/非表示は main が知っている＝名前付きで返して main が並べる。
+// 文脈はモジュールが取った物（overlayAdd が覚えた o.kind／o.ctx）を読むだけ＝まだ取っていない canvas と WebGPU の canvas は撮らない
+function readOverlays() {
+	const out = [], transfer = [];
+	for (const [name, o] of overlays) {
+		if (!o.mod || !o.canvas.width || !o.canvas.height) continue;
+		try {
+			const w = o.canvas.width, h = o.canvas.height;
+			if (o.kind === "2d") {
+				const px = new Uint8Array(o.ctx.getImageData(0, 0, w, h).data.buffer);
+				out.push({ name, buf: px.buffer, w, h, flip: false }); transfer.push(px.buffer);
+			} else if (o.kind === "webgl2" || o.kind === "webgl") {
+				const gl = o.ctx;
+				if (gl.isContextLost()) continue;
+				const px = new Uint8Array(w * h * 4);
+				gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+				gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+				if (gl.getContextAttributes()?.premultipliedAlpha !== false) {
+					for (let i = 0; i < px.length; i += 4) { const a = px[i + 3]; if (a && a < 255) { const k = 255 / a; px[i] = Math.min(255, px[i] * k); px[i + 1] = Math.min(255, px[i + 1] * k); px[i + 2] = Math.min(255, px[i + 2] * k); } }
+				}
+				out.push({ name, buf: px.buffer, w, h, flip: true }); transfer.push(px.buffer);
+			}
+		} catch (e) { console.error("[render] overlay", name, "snapshot failed", e?.message); }
+	}
+	return { overlays: out, transfer };
+}
+// 撮影用に今の cam で描き直し→同一タスクで読む（GL の描画バッファは次タスクで消える）。
+// ⚠シーンの深度（#47）は渡さない＝深度で隠すオーバーレイは隠れないまま写る。画面にもその絵が残るので、深度を使う物がある時は必ず次フレームで描き直す
+function snapOverlays() {
+	if (!overlays.size) return { overlays: [], transfer: [] };
+	if (overlayFrame(cam) || overlayWantsDepth()) { dirty = true; armRaf(); }
+	return readOverlays();
+}
 // 撮影の依頼には必ず返事する（main の requestSnapshot を宙吊りにしない）。renderer と cam が揃い最初の実描画（frame1）が
 // 済むまでは snapWait に預け、frame() の末尾でまとめて撮る（旧＝await createGlobe 直後の撮影は、WebGPU では最初の draw＝cam が
 // まだ届いておらず黙って捨てられ promise が永久に残った・GL2 は cam 無しのまま空の canvas を読んでいた）。撮れない時（例外・
@@ -531,8 +570,9 @@ function snapshot(id) {
 		gl.bindFramebuffer(gl.FRAMEBUFFER, null);
 		gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, base);
 		const { labels, lw, lh } = readLabels();
-		const transfer = [base.buffer]; if (labels) transfer.push(labels.buffer);
-		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true }, transfer);
+		const ov = snapOverlays();
+		const transfer = [base.buffer, ...ov.transfer]; if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: base.buffer, w, h, labels: labels ? labels.buffer : null, lw, lh, flip: true, overlays: ov.overlays }, transfer);
 	} catch (e) { console.error("[render] snapshot exception", e?.message, e?.stack); snapNull(id); }
 }
 // WebGPU snapshot：draw→gint→flush→readback（copyTextureToBuffer+mapAsync）＝top-down（flip:false）。RGBA へ swizzle 済み。
@@ -545,10 +585,11 @@ async function snapshotGPU(id) {   // 呼び手（snapshot）が renderer/cam/fr
 		if (gint) gint.draw(glCam, renderer.gintCtx());
 		renderer.flush();
 		labelLayer && labelLayer.draw(cam);
+		const ov = snapOverlays();   // await の前＝GL オーバーレイの描画バッファが生きているタスク内で読む
 		const rb = await renderer.readback();   // { base:ArrayBuffer(RGBA), w, h }
 		const { labels, lw, lh } = readLabels();
-		const transfer = []; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
-		postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false }, transfer);
+		const transfer = [...ov.transfer]; if (rb?.base) transfer.push(rb.base); if (labels) transfer.push(labels.buffer);
+		postMessage({ type: "snapshot", id, base: rb?.base ?? null, w: rb?.w ?? 0, h: rb?.h ?? 0, labels: labels ? labels.buffer : null, lw, lh, flip: false, overlays: ov.overlays }, transfer);
 	} catch (e) { console.error("[render] snapshotGPU exception", e?.message, e?.stack); snapNull(id); }
 }
 
