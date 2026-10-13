@@ -50,7 +50,7 @@
 				const [{ default: orthoJapan, geopbf }, { mountTerrain }] = await Promise.all([engineP, import("./terrain.js")]);
 				// 初期視点＝日本列島を少し傾けて眺める（共有 URL の hash があればそちら）。建物 3D は出さない（地形が主役・起動も軽い）。
 				// 基図の地形チップ（地理院の地形名・等高線・水系）は固定で消す＝地形名はこの頁の台帳が描く（二重に出さない）・地名（都市名）は残す
-				const map = await orthoJapan({ target: "#map", view: location.hash || "#4.6/36.5/137.5/30t", chips: false, mesh: false,
+				const map = await orthoJapan({ target: "#map", view: location.hash || "#5.2/36.5/138/30t", chips: false, mesh: false,
 					layers: { terrain: false, facility: false, rail: false, road: false }, instruments: ["pos", "scale", "attr"], urlHash: true, assetBase: import.meta.env.BASE_URL });
 				dismissBoot();
 				map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint();
