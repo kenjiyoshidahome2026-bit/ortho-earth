@@ -7,7 +7,7 @@ export const isNumber = _ => typeof _ === 'number' && Number.isFinite(_);
 export const isFloat = _ => isNumber(_) && (_ % 1 !== 0);
 export const isString = _ => typeof _ === 'string';
 export const isFunction = _ => typeof _ == 'function';
-export const isImageData = _ => _ instanceof ImageData;
+export const isImageData = _ => typeof ImageData !== 'undefined' && _ instanceof ImageData;   // Node に ImageData は無い（2026-10-11）
 export const isDate = _ => _ instanceof Date;
 export const isObject = _ => _ !== null && typeof _ === 'object' && !isArray(_);
 export const isSimpleObject = _ => Object.prototype.toString.call(_) === '[object Object]' && Object.keys(_).length;

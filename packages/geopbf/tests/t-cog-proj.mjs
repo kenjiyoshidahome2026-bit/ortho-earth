@@ -41,6 +41,15 @@ const ok = (cond, msg) => { if (!cond) { console.error("✗", msg); fails++; } e
 	ok(projFor(32754).forward([141, -35])[1] > 6e6, "南半球 FN=10,000,000 が効く");
 }
 
+// ---- 一本化（2026-10-12・改良点 15）: 平面直角座標系・JGD の UTM・ETRS89/NAD83 の経緯度も読め、旧日本測地系は null ----
+{
+	const ix = projFor(6677), t = ix.forward([139.767125, 35.681236]), b = ix.inverse(t);
+	ok(Math.abs(t[0] + 5992.9196) < 5e-4 && Math.abs(t[1] + 35363.2377) < 5e-4 && Math.abs(b[0] - 139.767125) < 1e-11 && Math.abs(b[1] - 35.681236) < 1e-11, `EPSG:6677（平面直角 IX）: 東京駅 → (${t[0].toFixed(4)}, ${t[1].toFixed(4)})・往復 1e-11 度`);
+	ok(projFor(6690) && Math.abs(projFor(6690).forward([135, 35])[0] - 500000) < 1e-9, "EPSG:6690（JGD2011 / UTM 53N・中央経線 135°E）: E=500000");
+	for (const code of [4258, 4269, 4019, 6668]) { const p = projFor(code); ok(p && p.forward([1, 2])[0] === 1 && p.inverse([3, 4])[1] === 4, `EPSG:${code}: 経緯度はそのまま`); }
+	ok(projFor(30169) === null && projFor(4301) === null && projFor(99999) === null, "旧日本測地系（30169・4301）と未収録は null（呼び手が明示エラー）");
+}
+
 // ---- 3857 の定数照合 -------------------------------------------------------------------------
 {
 	const m = projFor(3857);

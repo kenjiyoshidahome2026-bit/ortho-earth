@@ -180,6 +180,7 @@ Q131716,strait,Kattegat,,,5,11.7,56.727
 Q208054,strait,La Pérouse Strait,,,5,141.835,45.452
 Q179188,strait,Torres Strait,,,5,142.254,-9.857
 Q193260,strait,Yucatán Channel,,,5,-86.939,21.505
+Q83318,strait,Bab al-Mandab Strait,,,,,
 Q202671,strait,Beagle Channel,,,,,
 Q11769,strait,Bering Strait,,,,,
 Q1024939,strait,Cabot Strait,,,,,
@@ -191,7 +192,6 @@ Q745025,strait,Lombok Strait,,,,,
 Q1418401,strait,Mona Passage,,,,,
 Q186299,strait,Palk Strait,,,,,
 Q1695,strait,Skagerrak,,,,,
-Q83318,strait,Strait of Bab al-Mandab,,,,,
 Q815831,strait,Strait of Belle Isle,,,,,
 Q207911,strait,Strait of Bonifacio,,,,,
 Q159898,strait,Strait of Dover,,,,,
@@ -273,8 +273,10 @@ Q219737,island,Samar,,,4,125.198,11.823
 Q185532,island,Seram Island,,,4,129.22,-3.197
 Q83067,island,Timor,,,4,125.118,-9.23
 Q128323,island,Trinidad,,,4,-61.338,10.432
+Q46197,island,Ascension Island,,,,,
 Q207666,island,Axel Heiberg Island,,,,,
 Q4648,island,Bali,,,,,
+Q205022,island,Bioko,,,,,
 Q34374,island,Crete,,,,,
 Q186841,island,Devon Island,,,,,
 Q14452,island,Easter Island,,,,,
@@ -287,11 +289,13 @@ Q134116,island,Melville Island,,,,,
 Q215089,island,New Ireland,,,,,
 Q600614,island,Okinawa Island,,,,,
 Q131347,island,Oʻahu,,,,,
+Q34497,island,Saint Helena,,,,,
 Q1137202,island,South Georgia,,,,,
 Q207751,island,Southampton Island,,,,,
 Q21162,island,Spitsbergen,,,,,
 Q206368,island,Sumba,,,,,
 Q186367,island,Sumbawa,,,,,
+Q233124,island,São Tomé,,,,,
 Q34366,island,Tasmania,,,,,
 Q106594,island,Wrangel Island,,,,,
 Q25535,island,Zealand,,,,,
@@ -326,9 +330,13 @@ Q148966,islands,Solomon Islands,,,3,160.866,-8.594
 Q215664,islands,Spratly Islands,,,3,114.727,10.258
 Q25231,islands,Svalbard,,,3,22.072,77.856
 Q183963,islands,Tuamotus,,,3,-142.007,-18.04
+Q23635,islands,Bermuda,,,,,
+Q664687,islands,Bijagós Islands,,,,,
 Q5813,islands,Canary Islands,,,,,
+Q1011,islands,Cape Verde,,,,,
 Q171132,islands,Cyclades,,,,,
 Q131555,islands,Dodecanese,,,,,
+Q175057,islands,Fernando de Noronha,,,,,
 Q38095,islands,Galápagos Islands,,,,,
 Q123377,islands,Hebrides,,,,,
 Q841337,islands,Japanese archipelago,,,,,
@@ -338,6 +346,7 @@ Q26253,islands,Madeira,,,,,
 Q153732,islands,Mariana Islands,,,,,
 Q162126,islands,Samoan Islands,,,,,
 Q118920,islands,Society Islands,,,,,
+Q220982,islands,Tristan da Cunha,,,,,
 Q31945,peninsula,Arabian Peninsula,,,1,48.628,22.003
 Q12837,peninsula,Iberian Peninsula,,,1,-5.602,40.351
 Q60140,peninsula,Indian subcontinent,,,1,79.012,19.982

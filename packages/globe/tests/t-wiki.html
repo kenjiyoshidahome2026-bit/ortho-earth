@@ -1,0 +1,78 @@
+<!doctype html>
+<!-- Wikipedia の枠（src/wiki.js createWikiFrame・アプリ横断の統一 2026-10-03）。網は使わない（iframe の先は読まなくてよい・DOM の状態だけ見る）。
+     ① 置く＝host の末尾に .oe-wiki（hidden）・基底 CSS は 1 本だけ（枠を 2 つ作っても増えない）
+     ② 開く＝題・↗ は通常版・iframe は m. 版・credentialless・文言（labels）・onOpen
+     ③ 閉じる＝✕ と Escape・iframe は about:blank・onClose。esc:false の枠は Escape で閉じない
+     ④ link()＝クリックで枠・修飾キーはブラウザの既定（枠は開かない）・href は通常版
+     ⑤ 文言＝関数なら open() の度に引き直す（言語切替）・題が無ければ URL から
+     ⑥ 枠の上の pointerdown は host に届かない・remove() で消える -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{position:relative;width:800px;height:500px}</style><title>t-wiki</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createWikiFrame, CAN_FRAME, LOGO } from "../src/wiki.js";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+addEventListener("click", e => { if (e.target.closest("a")) e.preventDefault(); });   // 検定＝実際の遷移・別タブは起こさない（枠の handler の後に走る）
+try {
+	const host = document.getElementById("map");
+	let opened = [], closed = 0;
+	ok("canFrame", CAN_FRAME === true, String(CAN_FRAME));
+	const fr = createWikiFrame({ host, className: "mine", labels: { newTab: "NT", close: "CL" }, onOpen: (u, n) => opened.push([u, n]), onClose: () => closed++ });
+	const fr2 = createWikiFrame({ host, esc: false, labels: () => ({ newTab: "N" + closed, close: "C" + closed }) });
+	// ①
+	const el = fr.el, bar = el.querySelector(".oe-wiki-bar"), ifr = el.querySelector("iframe"), nt = el.querySelector(".oe-wiki-newtab"), x = el.querySelector(".oe-wiki-close");
+	ok("placed", el.parentElement === host && host.lastElementChild === fr2.el && el.hidden && el.classList.contains("oe-wiki") && el.classList.contains("mine") && !fr.isOpen);
+	ok("css-once", document.querySelectorAll("style[data-oe-wiki]").length === 1 && getComputedStyle(el).display === "none");
+	ok("markup", !!bar && ifr?.getAttribute("credentialless") !== null && ifr.getAttribute("referrerpolicy") === "no-referrer" && el.querySelector(".oe-wiki-logo")?.getAttribute("src") === LOGO && nt.target === "_blank" && /noopener/.test(nt.rel));
+	ok("labels", nt.title === "NT" && nt.getAttribute("aria-label") === "NT" && x.title === "CL" && x.getAttribute("aria-label") === "CL");
+	// ②
+	const U = "https://ja.wikipedia.org/wiki/%E5%AF%8C%E5%A3%AB%E5%B1%B1";
+	ok("open", fr.open(U, "富士山") === true && fr.isOpen && !el.hidden && getComputedStyle(el).display === "flex" && fr.url === U);
+	ok("open-parts", el.querySelector(".oe-wiki-title").textContent === "富士山" && nt.href === U && ifr.getAttribute("src") === "https://ja.m.wikipedia.org/wiki/%E5%AF%8C%E5%A3%AB%E5%B1%B1");
+	ok("onOpen", opened.length === 1 && opened[0][0] === U && opened[0][1] === "富士山");
+	ok("open-empty", fr.open("") === false);
+	// ③
+	x.click();
+	ok("close-x", !fr.isOpen && el.hidden && ifr.getAttribute("src") === "about:blank" && closed === 1 && fr.url === null);
+	ok("close-twice", fr.close() === false && closed === 1);
+	fr.open("https://en.m.wikipedia.org/wiki/Mount_Fuji", "Mount Fuji");
+	ok("open-mobile-in", nt.href === "https://en.wikipedia.org/wiki/Mount_Fuji" && ifr.getAttribute("src") === "https://en.m.wikipedia.org/wiki/Mount_Fuji");   // m. で渡しても ↗ は通常版
+	dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	ok("close-esc", !fr.isOpen && closed === 2);
+	dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	ok("esc-idle", closed === 2);   // 閉じている時の Escape は何もしない（listener は外れている）
+	fr2.open("https://en.wikipedia.org/wiki/Tokyo", "Tokyo");
+	dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+	ok("esc-off", fr2.isOpen);
+	fr2.close();
+	// ④
+	const a = document.createElement("a"); a.textContent = "Wikipedia"; host.appendChild(a);
+	fr.link(a, "https://en.wikipedia.org/wiki/Kyoto", "Kyoto");
+	ok("link-attrs", a.getAttribute("href") === "https://en.wikipedia.org/wiki/Kyoto" && a.target === "_blank" && /noopener/.test(a.rel));
+	a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ctrlKey: true }));
+	ok("link-modifier", !fr.isOpen);
+	a.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+	ok("link-click", fr.isOpen && el.querySelector(".oe-wiki-title").textContent === "Kyoto" && ifr.getAttribute("src") === "https://en.m.wikipedia.org/wiki/Kyoto");
+	fr.close();
+	// ⑤
+	const nt2 = fr2.el.querySelector(".oe-wiki-newtab");
+	ok("labels-fn-prev", nt2.title === "N2");   // ③ で開いた時（closed=2）の文言のまま
+	fr2.open("https://en.wikipedia.org/wiki/Osaka");
+	ok("labels-fn-open", nt2.title === "N3" && fr2.el.querySelector(".oe-wiki-close").title === "C3" && fr2.el.querySelector(".oe-wiki-title").textContent === "Osaka");   // 題は URL から
+	fr2.close();
+	// ⑥
+	let reached = 0; host.addEventListener("pointerdown", () => reached++);
+	fr.open(U, "x"); bar.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+	ok("stopEvents", reached === 0);
+	a.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+	ok("stopEvents-only-frame", reached === 1);
+	fr.remove(); fr2.remove();
+	ok("removed", !host.querySelector(".oe-wiki") && !fr.isOpen);
+	await new Promise(r => setTimeout(r, 200));
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

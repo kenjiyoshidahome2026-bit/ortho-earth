@@ -10,6 +10,15 @@
 		],
 		"fireworks": [
 			"fireworks.js"
+		],
+		"parks": [
+			"parks.js"
+		],
+		"terrain": [
+			"terrain.js"
+		],
+		"onsen": [
+			"onsen.js"
 		]
 	}
 }

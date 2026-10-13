@@ -1,0 +1,112 @@
+<!doctype html>
+<!-- IIIF の古地図を基準点で重ねる（#177）。試料＝fixtures/iiif（scripts/bake-iiif-fixture.mjs＝IIIF v2 level0 の静的タイル・PNG・段 1/2/4 ＋ Allmaps の形の注記・TPS）。
+     印の四角（赤・緑・青・黄・紫）の中心を基準点にした＝その経緯度の画素が印の色になれば「歪みを直して正しい所に貼れた」。
+     ?v=raster＝map.raster.add(id, { iiif: 注記の URL })：情報（範囲・残差 0＝TPS）・5 つの印の色・枠（resourceMask）の外は透明・出典（info.json の attribution）
+     ?v=drop＝注記の JSON を落とす＝重ねの画像タイル層に・注記でない .json は従来どおり本道（gint）
+     ?v=url&iiif=…＝?iiif= の入口 -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-iiif</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search), V = Q.get("v") || "raster";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const until = async (fn, ms = 20000, step = 200) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+async function snap(map) {
+	const s = await Promise.race([map.requestSnapshot(), new Promise((_, x) => setTimeout(() => x(new Error("snapshot timeout")), 20000))]);
+	const r = s.render; if (!r?.base) throw new Error("no base pixels");
+	return { w: r.w, h: r.h, data: new Uint8ClampedArray(r.base), flip: r.flip !== false, W: map.mapEl.clientWidth, H: map.mapEl.clientHeight };
+}
+const px = (img, x, y) => { const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H))); const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2]]; };
+const diff = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
+const FX = new URL("./fixtures/iiif/", location.href).href;
+// 試料の印（bake-iiif-fixture.mjs の MARKS と同じ）
+const MARKS = [["red", [230, 30, 30], 139.700, 35.720], ["green", [30, 170, 60], 139.800, 35.721], ["blue", [40, 60, 220], 139.802, 35.650], ["yellow", [240, 200, 20], 139.699, 35.651], ["purple", [170, 40, 200], 139.7535, 35.6880]];
+const PAPER = [240, 230, 210];
+async function checkMarks(map, tag, only = null) {
+	const marks = only ? MARKS.filter(m => only.includes(m[0])) : MARKS;
+	let img = null, bad = [];
+	await until(async () => { img = await snap(map); bad = marks.filter(([, c, lon, lat]) => diff(px(img, ...map.projectLL(lon, lat)), c) > 40); return !bad.length; }, 25000, 700);
+	ok(`${tag}-marks`, !bad.length, marks.map(([n, , lon, lat]) => `${n}=${px(img, ...map.projectLL(lon, lat))}`).join(" "));
+	return img;
+}
+
+try {
+	await (await import("../src/i18n.js")).setLang("en");
+	const { createGlobe } = await import("@ortho-earth/globe");
+	if (V === "raster") {
+		const map = await createGlobe({ target: "#map", view: "#12.3/35.686/139.751", chips: false, debugGlobals: true });
+		await map.once("load");
+		map.pinRes(true);
+		const info = await map.raster.add("iiif", { iiif: FX + "annotation.json" }, { order: "over", opacity: 1, hideFills: false });
+		const b = info?.bbox;
+		ok("info", b && b[0] < 139.699 && b[2] > 139.802 && b[1] < 35.65 && b[3] > 35.721 && b[2] - b[0] < 0.2 && b[3] - b[1] < 0.15 && info.maxZoom >= 12, JSON.stringify({ b, z: info?.maxZoom }));   // 範囲＝枠（印の外側の縁まで）
+		const img = await checkMarks(map, "raster");
+		// 紙の地（印と印の間）＝薄茶・枠の外（画像の角＝周り 20px の内側の外）＝透明（下地が見える）
+		const mid = px(img, ...map.projectLL(139.725, 35.705));
+		const W = 1024, H = 768;   // 画像の角 (5,5) を順写像で経緯度へ＝注記の写像で
+		const G = await import("geopbf/georef"), g = G.parseGeoreference(await (await fetch(FX + "annotation.json")).json())[0];
+		const corner = G.worldToLonLat(G.georefMapping({ ...g, image: { ...g.image, width: W, height: H } }).toWorld([5, 5]));
+		const out = px(img, ...map.projectLL(corner[0], corner[1]));
+		ok("paper-and-mask", diff(mid, PAPER) <= 25 && diff(out, PAPER) > 25, `mid=${mid} outside-mask=${out} at ${corner.map(v => v.toFixed(4))}`);
+		const attr = await until(() => /Fixture map © Nobody/.test(map.mapEl.querySelector("#attr")?.textContent || "") ? true : null, 8000);
+		ok("attribution", !!attr, map.mapEl.querySelector("#attr")?.textContent?.slice(0, 160));
+		// 寄っても引いても（段 1 と 4）印は同じ所
+		map.jumpTo({ center: [139.70, 35.72], zoom: 15 });   // 段 1（原寸）＝赤だけが画面に
+		await checkMarks(map, "zoom15", ["red"]);
+		map.jumpTo({ center: [139.751, 35.686], zoom: 11 });
+		await checkMarks(map, "zoom11");
+		map.raster.remove("iiif");
+		map.destroy();
+	} else if (V === "drop") {
+		const map = await createGlobe({ target: "#map", view: "#12.3/35.686/139.751", chips: false, debugGlobals: true });
+		await map.once("load");
+		map.pinRes(true);
+		const ann = await (await fetch(FX + "annotation.json")).json();
+		ann.target.source.id = FX + "img";   // 落とした JSON には置き場所が無い＝画像の id は絶対で
+		const r = await window.__loadUserFile(new File([JSON.stringify(ann)], "map.json"), { fit: false });
+		ok("drop-raster", r?.length === 1 && !!map.raster.info("iiif"), JSON.stringify(r));
+		await checkMarks(map, "drop");
+		// 注記でない .json は従来どおり本道（gint）
+		const fc = { type: "FeatureCollection", features: [{ type: "Feature", properties: { name: "p" }, geometry: { type: "Point", coordinates: [139.75, 35.69] } }] };
+		const r2 = await window.__loadUserFile(new File([JSON.stringify(fc)], "points.json"), { fit: false });
+		ok("drop-json-legacy", map.userPbf()?.length === 1 && r2 != null, `user=${map.userPbf()?.length}`);
+		map.destroy();
+	} else if (V === "net") {   // 実物（verify:net だけ）：Allmaps の公開注記＝Internet Archive（IIIF v3）と UChicago（IIIF v2・基準点 12）
+		const map = await createGlobe({ target: "#map", view: "#2/0/0", chips: false, debugGlobals: true });
+		await map.once("load");
+		map.pinRes(true);
+		for (const [name, url] of [["archive-v3", "https://annotations.allmaps.org/maps/964600a0f33a5cd4"], ["uchicago-v2", "https://annotations.allmaps.org/images/0b9aef31f14cb5bf"]]) {
+			const info = await map.raster.add(name, { iiif: url }, { order: "over", opacity: 1, hideFills: false }).catch(e => ({ error: e.message }));
+			const b = info?.bbox;
+			if (!b) { ok(`net-${name}`, false, JSON.stringify(info)); continue; }
+			map.jumpTo(map.cameraForBounds(b, { padding: 40 }));
+			await sleep(500);
+			const before = await snap(map);
+			map.raster.set(name, { opacity: 0 }); await sleep(1500);
+			const hidden = await snap(map);
+			map.raster.set(name, { opacity: 1 });
+			let n = 0;
+			await until(async () => { const a = await snap(map); n = 0; for (let i = 0; i < a.data.length; i += 16) if (Math.abs(a.data[i] - hidden.data[i]) + Math.abs(a.data[i + 1] - hidden.data[i + 1]) > 30) n++; return n > a.data.length / 16 * 0.05; }, 40000, 1500);
+			ok(`net-${name}`, n > 0, `bbox=${b.map(v => v.toFixed(3))} changed=${n} attr=${(map.mapEl.querySelector("#attr")?.textContent || "").slice(0, 120)}`);
+			map.raster.remove(name);
+		}
+		map.destroy();
+	} else if (V === "url") {
+		const map = await createGlobe({ target: "#map", chips: false, debugGlobals: true });
+		await map.once("load");
+		map.pinRes(true);
+		const info = await until(() => map.raster.info("iiif"), 20000);
+		const moved = await until(() => { const c = map.getCenter(); return Math.abs(c.lng - 139.75) < 0.05 && Math.abs(c.lat - 35.685) < 0.05 && !map.isMoving() ? c : null; }, 20000);
+		ok("url-open", !!info && !!moved, JSON.stringify(map.getCenter()));
+		await checkMarks(map, "url");
+		map.destroy();
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

@@ -1,0 +1,69 @@
+<!doctype html>
+<!-- 実描画の検分：一人称歩行の中身（map.walk・第 3 波 W3・2026-10-12）。東京駅・z18。
+     ①start＝pitch が 80° を超え、注視点は足元の前（lookDistance）・maxPitch が 89 に ②step(10) 北へ 10m＝position の lat が +10/111320・getCamera の注視点も北へ ③turn(90)→step(10)＝東へ
+     ④鍵＝keydown "w" を 600ms＝1.4 m/s で約 0.8m 進む・Shift で速い ⑤衝突＝白い押し出し（gadget.extrude・高さ 20m）へ歩くと足跡の手前で止まる・collide:false なら抜ける
+     ⑥stop＝handler（keyboard・dragPan）と maxPitch が元へ・鍵が効かない。GL2（verify:ui）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-walk</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const LON = 139.7671, LAT = 35.6812, K = 111320, KX = K * Math.cos(LAT * Math.PI / 180), ll = (e, n) => [LON + e / KX, LAT + n / K];
+const J = v => +v.toFixed(2), mE = (a, b) => (a.lng - b.lng) * KX, mN = (a, b) => (a.lat - b.lat) * K;
+const key = (k, down, shift = false) => window.dispatchEvent(new KeyboardEvent(down ? "keydown" : "keyup", { key: k, shiftKey: shift, bubbles: true, cancelable: true }));
+try {
+	const map = await createGlobe({ target: "#map", view: "#18/35.6812/139.7671", theme: "dark", chips: false, persistView: false });
+	await new Promise(r => map.on("load", r));
+	map.jumpTo({ center: [LON, LAT], zoom: 18, pitch: 0, bearing: 0 });
+	await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]);
+	const maxPitch0 = map.getMaxPitch(), kb0 = map.handlerOn("keyboard");
+	ok("caps", map.supports("camera.walk") && map.capabilities()["camera.walk"].status === "builtin");
+	// ① start
+	const w = map.walk({ mouse: false });
+	ok("start", w.start() === true && w.active === true);
+	const c1 = map.getCamera(), p1 = w.position();
+	ok("firstPerson", c1.pitch > 80 && c1.pitch <= 89 && map.getMaxPitch() >= 88.9 && Math.abs(c1.lat - p1.lat) * K > 20 && Math.abs(c1.lat - p1.lat) * K < 40, `pitch=${J(c1.pitch)} ahead=${J((c1.lat - p1.lat) * K)}m maxPitch=${J(map.getMaxPitch())}`);
+	ok("handlersOff", !map.handlerOn("keyboard") && !map.handlerOn("dragPan"));
+	ok("feet", Math.abs(p1.lng - LON) < 1e-7 && Math.abs(p1.lat - LAT) < 1e-7 && p1.eyeHeight === 1.7 && p1.bearing === 0);
+	// ② step 北へ 10m
+	const moved = w.step(10);
+	const p2 = w.position(), c2 = map.getCamera();
+	ok("stepNorth", Math.abs(moved - 10) < 0.01 && Math.abs(mN(p2, p1) - 10) < 0.05 && Math.abs(mE(p2, p1)) < 0.01 && Math.abs(mN(c2, c1) - 10) < 0.2, `moved=${J(moved)} dN=${J(mN(p2, p1))} dE=${J(mE(p2, p1))} camDN=${J(mN(c2, c1))}`);
+	// ③ turn 90 → 東へ
+	w.turn(90); w.step(10);
+	const p3 = w.position();
+	ok("turnEast", p3.bearing === 90 && Math.abs(mE(p3, p2) - 10) < 0.05 && Math.abs(mN(p3, p2)) < 0.05 && Math.abs(map.getCamera().heading - 90) < 0.01, `dE=${J(mE(p3, p2))} dN=${J(mN(p3, p2))} heading=${J(map.getCamera().heading)}`);
+	w.look(10); ok("look", w.position().lookDown === 15 && Math.abs(map.getCamera().pitch - 75) < 0.01, `pitch=${J(map.getCamera().pitch)}`);
+	w.look(-10);
+	// ④ 鍵
+	key("w", true); await sleep(600); key("w", false); await sleep(50);
+	const p4 = w.position(), dKey = mE(p4, p3);
+	ok("keyForward", dKey > 0.4 && dKey < 1.4, `dE=${J(dKey)}m in 600ms @1.4m/s`);
+	key("w", true, true); await sleep(400); key("w", false); await sleep(50);
+	const p4b = w.position(), dRun = mE(p4b, p4);
+	ok("keyRun", dRun > dKey * 1.2, `shift dE=${J(dRun)}m in 400ms`);
+	// ⑤ 衝突：東 30m に 20m 角×高さ 20m の白い押し出し（足跡は E 20〜40m）。足元を押し出しの西 15m（E=5）に置いて東へ 30m 歩く＝足跡の手前（E<20.5）で止まる
+	const sq = [ll(20, -10), ll(40, -10), ll(40, 10), ll(20, 10), ll(20, -10)];
+	await map.gadget.extrude({ type: "Feature", properties: { height: 20 }, geometry: { type: "Polygon", coordinates: [sq] } }, { color: "#ffffff", fit: false, mask: false });
+	await sleep(300);
+	w.stop();
+	map.jumpTo({ center: ll(5, 0), zoom: 18, pitch: 0, bearing: 0 });
+	const w2 = map.walk({ mouse: false, keys: false }); w2.start(); w2.turn(90);
+	const m5 = w2.step(30), p5 = w2.position(), e5 = (p5.lng - LON) * KX;
+	ok("collideStops", m5 < 16 && m5 > 13 && e5 < 20.5 && e5 > 18, `moved=${J(m5)} E=${J(e5)}`);
+	w2.stop();
+	map.jumpTo({ center: ll(5, 0), zoom: 18, pitch: 0, bearing: 0 });
+	const w3 = map.walk({ mouse: false, keys: false, collide: false }); w3.start(); w3.turn(90);
+	const m6 = w3.step(30), e6 = (w3.position().lng - LON) * KX;
+	ok("noCollidePasses", Math.abs(m6 - 30) < 0.01 && e6 > 34, `moved=${J(m6)} E=${J(e6)}`);
+	// ⑥ stop
+	w3.stop();
+	ok("stopped", w3.active === false && Math.abs(map.getMaxPitch() - maxPitch0) < 1e-9 && map.handlerOn("keyboard") === kb0 && map.handlerOn("dragPan"));
+	const before = map.getCamera().lng; key("w", true); await sleep(200); key("w", false);
+	ok("keysOffAfterStop", map.getCamera().lng === before);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>

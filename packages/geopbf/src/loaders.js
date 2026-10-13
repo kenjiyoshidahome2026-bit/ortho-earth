@@ -18,10 +18,12 @@ export const GeoPBFLoader = {
 	name: "GeoPBF",
 	id: "geopbf",
 	module: "geopbf",
-	version: "1.17.0", // package.json の version と揃える＝t-loaders が突き合わせる（旧＝手で揃える約束で 1.7.0 のまま 7 版ずれていた）
+	version: "1.19.0", // package.json の version と揃える＝t-loaders が突き合わせる（旧＝手で揃える約束で 1.7.0 のまま 7 版ずれていた）
 	worker: false,
 	extensions: ["geopbf"],
-	mimeTypes: ["application/octet-stream", "application/x-geopbf"],
+	// application/gzip も受ける（2026-10-12・改良点 17 の煙試験が発見）: 配布物は gzip 丸ごと＝R2 等が "application/gzip" を付けて配り、
+	// 拡張子の無い URL では loaders.gl が mime で選ぶ＝旧は「No valid loader found」で deckgl の例が死んでいた。parse は gzip 透過。
+	mimeTypes: ["application/octet-stream", "application/x-geopbf", "application/gzip", "application/x-gzip"],
 	binary: true,
 	category: "geometry",
 	options: { geopbf: { sanitize: true } },

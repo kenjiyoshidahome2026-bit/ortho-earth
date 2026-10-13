@@ -8,6 +8,12 @@
 //         （key=名前#k・ward=名前）＝uv・頂点色（baseColorFactor×COLOR_0）・baseColorTexture を持つ派生パイプラインで描く（両バックエンド）。
 //         PLATEAU の manager は関与しない（登録簿に無い名前は evict されない）。真俯瞰（pitch<0.02）では建物ごと描かれない＝fit はチルト付き。
 //   単一スロット＝次の模型は前を置き換える（ドロップの掟「最後の 1 枚が勝つ」）。clear()＝外す。destroy()＝worker も畳む。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
+import { normAnimation } from "../gltf-meta.js";   // アニメの spec（F4）
+import { samplePose, worldXf, batchXf, wrapTime } from "../gltf-anim.js";
+import { pickMeshes, tintColors, lngLatOfWorld } from "../meshpick.js";   // 当たりと feature state の色（W7）
+import { featureProperties } from "../mesh-features.js";
+import { transcodersOf } from "../transcoders.js";   // registry.textureTranscoders の写し（W5）＝worker が import() する変換器の { name, url }   // rigid アニメの再生（W4）＝worker の rig/place から、時計ごとにバッチの剛体変換を出す
 import { tr } from "../i18n.js";
 import { HEIGHT_KEYS, LEVEL_KEYS } from "../extrude-keys.js";
 import { evalExpr, truthy, parseRGBA, originOfLayer } from "@ortho-earth/core";   // MapLibre 式の評価器（基図スタイルと同じ一本）
@@ -84,12 +90,16 @@ function rampOf(h) {
 	return RAMP[RAMP.length - 1][1].concat(255);
 }
 // GeoJSON（Feature/FeatureCollection/features 配列）→ worker へ渡す面の列（環は度の平坦 Float64Array）
-export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null, origin = undefined, gs = undefined } = {}) {   // gs＝地図の global-state（#173 段 3b）・origin＝"ml"（MapLibre の層＝MapLibre の意味で評価）
+export function extrudePolys(src, { height, base, color, scale = 1, paint = null, filter = null, zoom = 16, type = null, origin = undefined, gs = undefined, layout = null } = {}) {   // gs＝地図の global-state（#173 段 3b）・origin＝"ml"（MapLibre の層＝MapLibre の意味で評価）
 	const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 	const out = [];
 	const ml = isMapLibreLayer({ type, paint });
 	const op0 = ml ? evalExpr(paint[FX.opacity] ?? 1, { zoom, props: {}, geom: null, vars: {}, gs, origin }) : 1;
 	const opacity = ml ? Math.max(0, Math.min(1, +(op0 === undefined && origin ? 1 : op0))) : 1;   // ML の評価エラー＝既定 1   // MapLibre では層単位（データ駆動しない）
+	// C6（2026-10-12）：壁の縦の陰影（fill-extrusion-vertical-gradient・既定 true・層単位）と角の丸め（layout の fill-extrusion-rounded-corner-distance・m・既定 0）＝MapLibre の層だけ（ネイティブの opts は従来どおり平らな壁・角のまま）
+	const lctx = { zoom, props: {}, geom: null, vars: {}, gs, origin };
+	const grad = ml ? evalExpr(paint["fill-extrusion-vertical-gradient"] ?? true, lctx) !== false : false;
+	const round = ml ? Math.max(0, +evalExpr(layout?.["fill-extrusion-rounded-corner-distance"] ?? 0, lctx) * scale || 0) : 0;
 	for (let fi = 0; fi < feats.length; fi++) {
 		const f = feats[fi];
 		const g = f?.geometry; if (!g) continue;
@@ -107,7 +117,7 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 				for (const rings of polys) {
 					const rs = [];
 					for (const r of rings || []) { if (!r || r.length < 3) continue; const a = new Float64Array(r.length * 2); r.forEach((q, i) => { a[i*2] = q[0]; a[i*2+1] = q[1]; }); rs.push(a); }
-					if (rs.length) out.push({ rings: rs, h, base: b, rgba, fi });
+					if (rs.length) out.push({ rings: rs, h, base: b, rgba, fi, grad, round });
 				}
 				continue;
 			}
@@ -129,20 +139,41 @@ export function extrudePolys(src, { height, base, color, scale = 1, paint = null
 }
 
 const DEFAULT_BOTTOM = 2000;   // 統計の押し出しの既定の床[m]（本人裁定 2026-09-22「bottom=2000 ぐらい」＝日本の大半の山地より上・超える峰は寄ると頭が出る）
-export function createModel(map, { setMesh, fit, center, ell = false, signal } = {}) {
+export function createModel(map, { setMesh, setMeshXf = null, setMeshCol = null, pickEnv = null, fit, center, ell = false, signal } = {}) {   // setMeshCol・pickEnv＝当たりと feature state の色（W7）
 	const t = tr();
-	let worker = null, seq = 0, cur = null;   // cur＝{ name, stats, src }
-	const waiting = new Map();
-	const rpc = (msg, transfer) => new Promise((res, rej) => {
-		worker ??= (() => {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）
-			w.onmessage = e => { const d = e.data, p = waiting.get(d.id); if (!p) return; waiting.delete(d.id); d.error ? p.rej(new Error(d.error)) : p.res(d); };
-			w.onerror = e => console.error("[model] worker error", e.message);
-			return w;
-		})();
-		const id = ++seq; waiting.set(id, { res, rej }); worker.postMessage({ id, ...msg }, transfer || []);
-	});
-	const clear = () => { if (cur) { setMesh(cur.name, null); cur = null; } };
+	let seq = 0, cur = null;   // seq＝模型・押し出しの名前の連番・cur＝{ name, stats, src }
+	const animListeners = new Set();   // setAnimation の合図（F4）
+	// rigid アニメの再生（W4）：cur.rig（ノードの親子・静止 TRS・channel）・cur.place（ローカル→ECEF→世界座標の写し）・cur.batches（束ごとのノード番号と原点）から、
+	// アニメの時刻でノードの world 行列を標本化し、束ごとの剛体変換（L 3x3＋原点相対の平行移動）を renderer の "meshXf" へ。頂点は焼き直さない。
+	// 時計＝map.getNow（setNow で止められる＝決定論の撮影）。playing の間は rAF で進め、loop 無しは端で止まる（playing=false）。skin／morph は読まない（spec のまま）
+	let animRaf = 0, animLast = null;
+	const nowMs = () => map?.getNow?.() ?? performance.now();
+	const poseAt = time => {   // → 束ごとの Float32Array(12)|null（アニメが無い／動かない束は null）
+		const a = cur?.animation; if (!cur?.rig || !cur.place || !a || a.index == null) return null;
+		const pose = samplePose(cur.rig, a.index, wrapTime(time, a.duration, a.loop)); if (!pose) return null;
+		return cur.batches.map(b => b.node >= 0 ? batchXf(worldXf(pose, b.node, cur.place), b.origin) : null);
+	};
+	const applyPose = time => { const xs = poseAt(time); if (!cur || !setMeshXf) return; cur.batches.forEach((b, k) => { const xf = xs ? xs[k] : null; b.xf = xf; if (xf || b.xfOn) { setMeshXf(`${cur.name}#${k}`, xf); b.xfOn = !!xf; } }); };   // b.xf＝当たり（W7）も同じ姿勢で
+	const stopLoop = () => { if (animRaf) cancelAnimationFrame(animRaf); animRaf = 0; animLast = null; };
+	const tick = () => {
+		animRaf = 0; const a = cur?.animation; if (!a || !a.playing) { animLast = null; return; }
+		const t = nowMs(), dt = animLast == null ? 0 : Math.min(0.25, Math.max(0, (t - animLast) / 1000)); animLast = t;
+		let time = a.time + dt * a.speed, playing = true;
+		if (!a.loop && a.duration > 0 && (time >= a.duration || time <= 0)) { time = time <= 0 ? 0 : a.duration; playing = false; }   // 端で止まる
+		else time = wrapTime(time, a.duration, a.loop);
+		cur.animation = { ...a, time, playing };
+		applyPose(time);
+		if (playing) animRaf = requestAnimationFrame(tick); else animLast = null;
+	};
+	const repaintStates = () => {   // feature state の色（W7）＝束ごとに元の頂点色から差し替えた列を renderer の "meshCol" へ（state の無い束も一度戻す）
+		if (!cur || !setMeshCol) return;
+		const colorOf = id => { const c = cur.states.get(id)?.color; const v = c ? rgbaOf(String(c)) : null; return v ? v.slice(0, 3) : null; };
+		cur.batches.forEach((b, k) => { if (!b.col0 || !b.features) return; setMeshCol(`${cur.name}#${k}`, tintColors(b.col0, b.features.ids, colorOf)); });
+	};
+	const syncAnim = () => { if (!cur) return; const a = cur.animation; stopLoop(); applyPose(a ? a.time : 0); if (a?.playing && cur.rig && typeof requestAnimationFrame === "function") animRaf = requestAnimationFrame(tick); };
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "model" }), { tag: "model" });   // 入口 1 本（worker.js）＝役割は name（model-worker.js）・最初の rpc で作る
+	const rpc = pool.rpc;
+	const clear = () => { stopLoop(); if (cur) { setMesh(cur.name, null); cur = null; } };
 	// 押し出しの今＝slot → { name, stats, used }（模型とは別スロット＝GLB と並べて立てられる）。
 	// slot＝層の名前（map.addLayer の fill-extrusion は層 id ごと＝複数並べられる・#34）。ガジェット直呼びは "default"＝従来どおり置き換え
 	const exts = new Map();
@@ -151,6 +182,17 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 	};
 	const ctl = {
 		get stats() { return cur?.stats || null; },
+		// glTF の口（F4・2026-10-12・src/gltf-meta.js）：animations＝模型に入っているアニメの見出し（name/duration/paths）・setAnimation(spec)＝再生の spec を受けて保つ（描くのは第 3 波か plugin＝capabilities "gltf.animation" は spec）
+		get animations() { return (cur?.stats?.gltf?.animations || []).map(a => ({ ...a, paths: [...a.paths] })); },
+		get gltf() { return cur?.stats?.gltf ? { ...cur.stats.gltf, animations: ctl.animations } : null; },
+		setAnimation(spec) { if (!cur) throw new Error("setAnimation: no model loaded"); cur.animation = normAnimation(spec, cur.stats.gltf?.animations || []); syncAnim(); for (const f of animListeners) { try { f(cur.animation, ctl); } catch (e) { console.warn("[model] animation listener", e); } } return ctl; },
+		getAnimation() { return cur?.animation ? { ...cur.animation } : null; },
+		play(nameOrSpec) { return ctl.setAnimation(typeof nameOrSpec === "object" && nameOrSpec ? { ...nameOrSpec, playing: true } : { name: nameOrSpec ?? undefined, playing: true }); },
+		stop() { if (cur?.animation) { cur.animation = { ...cur.animation, playing: false }; stopLoop(); } return ctl; },
+		// 再生の時刻での束ごとの剛体変換（検定・台本の口）：time 省略＝今の spec の時刻。[Float32Array(12)|null]（L 3x3 列優先＋原点相対の平行移動）｜null（アニメ無し）
+		pose(time) { return poseAt(time ?? cur?.animation?.time ?? 0); },
+		get animating() { return !!animRaf; },
+		onAnimation(f) { animListeners.add(f); return () => animListeners.delete(f); },   // plugin が再生を担う時の合図（spec が変わるたび）
 		get bbox() { return cur?.stats?.bbox || null; },
 		get name() { return cur?.name || null; },
 		clear,
@@ -163,8 +205,8 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 		// 押し出し：src＝GeoJSON（Feature/FeatureCollection/features 配列）。opts＝{ height: 鍵名|数|fn, base, color: css|fn, scale, mask, fit }
 		//   または MapLibre の層そのもの（{ type:"fill-extrusion", paint:{ "fill-extrusion-height": 式, … }, filter: 式 }）＝MapLibre と同じ意味で評価
 		// 高さ無し（自動の鍵に当たらない）の面は立てない。戻り値＝stats（polygons/triangles/bbox）か、立つ面が無ければ null
-		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。"ground"＝大きさに関わらず建物と同じ接地。無指定で MapLibre 形の層＝接地。それ以外の無指定＝広い面（対角の中央値 ≥ 500m＝下の buildingLike）は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）＝400m 角の箱でも 2,000m に立つ（t-extrude-size）   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
-			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }), gs: map.getGlobalState?.() });
+		async extrude(src, { height, base, color, scale = 1, mask = "auto", bottom = null, fit: doFit = false, paint = null, filter = null, zoom = 16, type = null, slot = "default", metadata = null, layout = null } = {}) {   // bottom＝床の高さ[m]＝その高さの平面に浮かせる（全体の床・面ごとの base とは別）。"drape"＝地形に沿わせる。"ground"＝大きさに関わらず建物と同じ接地。無指定で MapLibre 形の層＝接地。それ以外の無指定＝広い面（対角の中央値 ≥ 500m＝下の buildingLike）は 2,000m の平面・建物らしい面は接地（地形に沿わせない＝山が突き抜けない・高さ＝値はその平面から測る）＝400m 角の箱でも 2,000m に立つ（t-extrude-size）   // mask="auto"＝建物らしい大きさ（面の中央値 < 500m）の時だけ足元の基図建物を伏せる
+			const polys = extrudePolys(src, { height, base, color, scale, paint, filter, zoom, type, origin: originOfLayer({ metadata }), gs: map.getGlobalState?.(), layout });
 			const feats = Array.isArray(src) ? src : src?.type === "FeatureCollection" ? src.features : src?.type === "Feature" ? [src] : src?.features || [];
 			const first = new Map(); for (const p of polys) if (!first.has(p.fi)) first.set(p.fi, p);
 			const used = [...first].map(([fi, p]) => ({ f: feats[fi], h: p.h, base: p.base }));   // 立てた地物（問い合わせ用・幾何と属性は元の参照・h/base は床の持ち上げ前）
@@ -196,11 +238,11 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 			if (doFit && fit) fit(r.stats.bbox);
 			return r.stats;
 		},
-		destroy() { clear(); clearExtrude(); worker?.terminate(); worker = null; waiting.clear(); },
+		destroy() { clear(); clearExtrude(); pool.destroy(); },
 		// src＝File | URL 文字列。戻り値＝ctl（stats/bbox）。失敗は throw（dropFile がトーストへ出す）
 		// ground="each"＝連結成分ごとに接地（街の一区画を切り出した模型＝高台の建物が浮かない）。既定 "batch"＝一体で接地
 		// mask=true＝模型の足元の基図建物を伏せる（街の一区画を切り出した模型＝白い箱と二重に描いて壁が明滅するのを断つ）
-		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false } = {}) {   // textures=false＝形だけ（画像を読まない）
+		async load(src, { at = null, heading = 0, scale = 1, name = null, fit: doFit = true, textures = true, ground = "batch", mask = false, pickable = true, featureIdSet = 0 } = {}) {   // pickable＝当たりの写し（頂点・index）を main に持つ（W7・false＝持たない＝pick は null）   // textures=false＝形だけ（画像を読まない）
 			let ab, baseUri = null;
 			if (typeof src === "string") {
 				const r = await fetch(src, { credentials: "omit" });
@@ -215,18 +257,46 @@ export function createModel(map, { setMesh, fit, center, ell = false, signal } =
 				name ??= src.name || "model.glb";
 			}
 			const anchor = at || center?.() || null;
-			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask }, [ab]).catch(err => {
+			const r = await rpc({ ab, at: anchor, heading, scale, baseUri, ell, textures, ground, mask, featureIdSet, transcoders: transcodersOf(map) }, [ab]).catch(err => {
 				if (err.message === "no-triangles") throw new Error(t("3D model has no triangles"));
 				throw err;
 			});
 			clear();
 			const key = `model/${++seq}`;
-			cur = { name: key, stats: r.stats, src: name };
+			cur = { name: key, stats: r.stats, src: name, animation: null, rig: r.rig || null, place: r.place || null, batches: r.batches.map(b => ({ node: b.node ?? -1, origin: b.mesh.origin ? [...b.mesh.origin] : [0, 0, 0], xfOn: false, xf: null,
+				...(pickable ? { pos: b.mesh.pos.slice(), idx: b.mesh.idx.slice(), features: b.features || null, col0: b.features && b.mesh.col ? b.mesh.col.slice() : null } : {}) })), pickable, states: new Map() };   // 当たりの写し（W7）＝setMesh が transfer する前に取る   // rig/place/batches＝rigid アニメ（W4）
 			r.batches.forEach((b, k) => setMesh(`${key}#${k}`, { ...b.mesh, ward: key, tex: b.tex, texMR: b.texMR, texN: b.texN, texOcc: b.texOcc, texEm: b.texEm, pbr: b.pbr, alphaMode: b.alphaMode, alphaCutoff: b.alphaCutoff, maskBbox: r.mask?.bbox || null, maskN: r.mask?.n || 0 }));   // pbr＋材質 4 枚＝#46 段 2   // ward＝自分の名前（解放は名前#* の一括・マスク不参加）。バッチ＝マテリアル
 			console.info(`[model] ${name}: ${r.stats.triangles} tris, ${r.stats.vertices} verts, ${r.stats.instances} instances, ${r.stats.materials} materials (${r.stats.textures} textured, ${r.stats.blended} blended), placed by ${r.stats.mode}`, r.stats.bbox);
 			if (doFit && fit) fit(r.stats.bbox);
 			return ctl;
 		},
+		// ── 当たりと feature state（第 3 波 W7）──────────────────────────────────────
+		// pick(x, y)＝画面の点（CSS px）に一番手前の三角形 → { featureId, properties, table, batch, distance, lngLat } | null。
+		// featureId＝EXT_mesh_features（組は load の featureIdSet・attribute／implicit）か _BATCHID の番号（無ければ null＝模型そのものに当たった）
+		pick(x, y) {
+			if (!cur?.pickable || !pickEnv) return null;
+			const env = pickEnv(); if (!env) return null;
+			if (!env.show3d) return null;   // 真俯瞰＝模型は描かれない（renderer の show3d）＝当てない
+			const items = cur.batches.map(b => b.pos ? { pos: b.pos, idx: b.idx, origin: b.origin, xf: b.xf, lift: env.lift(b.origin), features: b.features } : null);
+			const h = pickMeshes(items, env.view, x, y); if (!h) return null;
+			const b = cur.batches[h.item], f = b.features, tIdx = f ? (f.tblV ? f.tblV[h.vertex] : f.table) : null, table = tIdx != null && tIdx >= 0 ? f.tables?.[tIdx] : null;
+			return { featureId: h.featureId, properties: h.featureId != null ? featureProperties(table, h.featureId) : {}, table: table ? { index: tIdx, name: table.name, class: table.class } : null,
+				batch: h.item, distance: h.w, lngLat: lngLatOfWorld(h.world), state: h.featureId != null ? { ...(cur.states.get(h.featureId) || {}) } : {} };
+		},
+		// 地物の一覧の見出し＝{ primitives, tables: [{ name, class, count, columns }] } | null
+		get features() {
+			const fb = cur?.batches?.find(b => b.features); if (!fb) return cur?.stats?.features ? { ...cur.stats.features, tables: [] } : null;
+			return { ...(cur.stats.features || {}), tables: (fb.features.tables || []).map(T => ({ name: T.name, class: T.class, count: T.count, columns: Object.keys(T.columns) })) };
+		},
+		// feature state（MapLibre の setFeatureState と同じ置き場の考え方）＝{ color: CSS 色 } を描きに効かせる（頂点色を差し替え＝テクスチャに掛かる）。他の鍵は保つだけ
+		setFeatureState(id, state) {
+			if (!cur || id == null) return ctl;
+			const prev = cur.states.get(+id) || {}, next = state == null ? {} : { ...prev, ...state };
+			if (Object.keys(next).length) cur.states.set(+id, next); else cur.states.delete(+id);
+			repaintStates(); return ctl;
+		},
+		getFeatureState(id) { return { ...(cur?.states.get(+id) || {}) }; },
+		removeFeatureState(id) { if (!cur) return ctl; if (id == null) cur.states.clear(); else cur.states.delete(+id); repaintStates(); return ctl; },
 		toastLength() { return cur ? t("$1 triangles", cur.stats.triangles) : "?"; },
 	};
 	signal?.addEventListener("abort", () => ctl.destroy(), { once: true });

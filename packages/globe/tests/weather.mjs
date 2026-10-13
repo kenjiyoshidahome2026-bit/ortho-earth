@@ -1,0 +1,23 @@
+// 太陽・雲の口の spec（src/weather.js・F2 2026-10-12）＝既定・固定／追従・高度→色と強さ・setLight の形・雲の既定
+import { normSun, sunToLight, sunLightColor, sunLightIntensity, normClouds } from "../src/weather.js";
+let fail = 0; const ok = (name, c, note = "") => { console.log(`${c ? "✓" : "✗"} ${name}${note ? `（${note}）` : ""}`); if (!c) fail++; };
+ok("sun.default", JSON.stringify(normSun(true)) === JSON.stringify({ follow: "clock", minAltitude: 2 }) && normSun({}).follow === "clock");
+ok("sun.fixed", JSON.stringify(normSun({ azimuth: -90, altitude: 120 })) === JSON.stringify({ follow: null, azimuth: 270, altitude: 90, minAltitude: 2 }));
+ok("sun.override", normSun({ follow: "clock", intensity: 3, color: "#abc" }).intensity === 1 && normSun({ color: "#abc" }).color === "#abc");
+ok("color.highWhite", sunLightColor(30) === "#ffffff" && sunLightColor(90) === "#ffffff");
+ok("color.horizonWarm", /^#ffb[0-9a-f]7[0-9a-f]$/.test(sunLightColor(0.01)), sunLightColor(0.01));
+ok("color.night", sunLightColor(-5) === "#7f8cb0");
+ok("intensity", sunLightIntensity(-1) === 0.12 && Math.abs(sunLightIntensity(90) - 0.8) < 1e-9 && sunLightIntensity(10) > 0.2 && sunLightIntensity(10) < 0.8);
+const L = sunToLight(normSun({}), { azimuth: 135, altitude: 40 });
+ok("toLight", L.anchor === "map" && L.position[1] === 135 && L.position[2] === 50 && L.color === "#ffffff" && Math.abs(L.intensity - sunLightIntensity(40)) < 1e-9, JSON.stringify(L));
+const N = sunToLight(normSun({}), { azimuth: 10, altitude: -20 });
+ok("toLight.belowHorizon", N.position[2] === 88 && N.color === "#7f8cb0" && N.intensity === 0.12);
+ok("toLight.fixedOverride", sunToLight(normSun({ azimuth: 90, altitude: 60, intensity: 0.9, color: "#123456" }), { azimuth: 90, altitude: 60 }).color === "#123456");
+ok("clouds.null", normClouds(null) === null && normClouds(false) === null);
+ok("clouds.default", JSON.stringify(normClouds(true)) === JSON.stringify({ type: null, url: null, opacity: 1, alphaFrom: "auto", coverage: 0.5, altitude: 2000, thickness: 800, density: 0.6, color: "#ffffff", wind: [0, 0], precipitation: null }), JSON.stringify(normClouds(true)));
+ok("clouds.image", (() => { const c = normClouds({ url: "/clouds.png", altitude: 3000, opacity: 2, alphaFrom: "luminance" }); return c.type === "image" && c.url === "/clouds.png" && c.altitude === 3000 && c.opacity === 1 && c.alphaFrom === "luminance"; })());
+ok("clouds.imageNoUrl", normClouds({ type: "image" }).type === null && normClouds({ type: "image" }).url === null && normClouds({ alphaFrom: "x" }).alphaFrom === "auto");
+ok("clouds.rain", JSON.stringify(normClouds({ coverage: 2, precipitation: { type: "rain" }, wind: [3, -4] }).precipitation) === JSON.stringify({ type: "rain", intensity: 0.5 }) && normClouds({ coverage: 2 }).coverage === 1);
+ok("clouds.badPrecip", normClouds({ precipitation: { type: "hail" } }).precipitation === null);
+console.log(fail ? `weather: ${fail} failed` : "✓ weather PASS");
+process.exit(fail ? 1 : 0);

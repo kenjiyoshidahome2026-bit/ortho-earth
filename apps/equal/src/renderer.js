@@ -1,4 +1,5 @@
 // Equal Earth の WebGL2 描画。ortho-core（球専用）には触らない＝アプリ内の専用描画（本人裁定 2026-09-18）。
+// WebGPU 版＝renderer-gpu.js（同じ API・同じ式の WGSL）。式を直す時は両方を直し、tests/gpu-parity.html で突き合わせる。
 // 流儀は gint と同じ：頂点は整数 (ix,iy) のテクスチャ・経度は中心からの整数差 dlonE7（360e7 周期で最短）＝
 // 中央経線を毎フレーム動かしても頂点データは不変。投影（Equal Earth）は頂点シェーダ。
 //
@@ -607,5 +608,6 @@ export function createRenderer(canvas) {
 		gl.bindVertexArray(null);
 	}
 
-	return { gl, hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawVeil, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint };
+	const destroy = () => gl.getExtension("WEBGL_lose_context")?.loseContext();
+	return { gl, backend: "webgl2", maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE), hasFloatId, uploadVertices, instanceVAO, freeVAO, beginFrame, drawSea, drawLines, drawFill, drawVeil, drawIds, drawLand, drawChoropleth, drawPoints, readFid, setElevation, setNearElevation, setClimate, setPaint, flush() {}, destroy };
 }

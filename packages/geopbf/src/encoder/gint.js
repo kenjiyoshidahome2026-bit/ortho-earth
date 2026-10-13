@@ -22,9 +22,10 @@ onmessage = async (e) => {
 		if (!wasmInitPromise) wasmInitPromise = _gint.initialize();
 		await wasmInitPromise;
 		const pbf = await new _GeoPBF().set(e.data.buf);
-		let gintBuffer = _topology(pbf);
+		// shared＝main が SAB を使える時は GintBUF を SAB に直に組む（setGintBUF の写しが消える）。clean を掛けると repack の ArrayBuffer
+		let gintBuffer = _topology(pbf, { shared: !!e.data.opts?.shared && !e.data.opts?.clean });
 		if (e.data.opts?.clean) gintBuffer = _cleanGintBuffer(gintBuffer, e.data.opts.clean);
-		postMessage(gintBuffer, [gintBuffer]);
+		postMessage(gintBuffer, gintBuffer instanceof ArrayBuffer ? [gintBuffer] : []);   // SAB は transfer 不可＝共有のまま渡す
 	} catch (err) {
 		console.error("gint encode Worker Error:", err);
 		postMessage(null);

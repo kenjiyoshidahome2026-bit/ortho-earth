@@ -4,7 +4,7 @@
 //   /globe/ の外（データのミラー /quakes/・/sats/、往復の相手 /equal/、ルートの favicon 等）は本番へ中継する＝同一オリジンの形のまま。
 // 検査項目:
 //   ① 静的: 束に japan の SDK（/japan/lib/）と地域の申告（地理院の URL・3DBAG）が混ざっていない＝この家は地域を持たない
-//   ② 実走: 5 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds）＝地球儀が立ち、地震・衛星・雲はデータが載る
+//   ② 実走: 6 頁が起動する（/globe/・/globe/?start=equal・/globe/quakes・/globe/sats・/globe/clouds・/globe/physical）＝地球儀が立ち、地震・衛星・雲・地形はデータが載る
 //   ③ 住所: 実行中の要求が /japan/ に一度も行かない（worker の要求も含む＝このサーバの受付簿で見る）
 //   ④ コンソール: 自分のオリジンの例外/error ゼロ
 import { spawn } from "node:child_process";
@@ -45,7 +45,9 @@ server = createServer(async (req, res) => {
 		if (p.startsWith("/globe/")) {
 			let f = path.join(SITE, p);
 			if (p.endsWith("/")) f = path.join(f, "index.html");
-			else if (!fs.existsSync(f) && fs.existsSync(f + ".html")) f += ".html";
+			// 拡張子なし＝<名前>.html（本番の Workers assets と同じ）。同名のフォルダがあっても .html が勝つ＝dev の地震データ public/quakes/（gitignore）が
+			// ある機械では dist に quakes/ ができ、旧＝「在るがファイルでない」で 404＝quakes だけ「起動しない」で落ちていた（2026-10-01）
+			else if ((!fs.existsSync(f) || fs.statSync(f).isDirectory()) && fs.existsSync(f + ".html")) f += ".html";
 			if (!f.startsWith(SITE) || !fs.existsSync(f) || !fs.statSync(f).isFile()) { res.writeHead(404, COI); return res.end(); }
 			res.writeHead(200, { ...COI, "Content-Type": MIME[path.extname(f)] || "application/octet-stream" });
 			return fs.createReadStream(f).pipe(res);
@@ -91,13 +93,16 @@ async function open(url) {
 const BOOTED = `!!document.querySelector('#map canvas') && !document.querySelector('#boot:not(.gone)')`;
 const PAGES = [
 	{ name: "globe", url: "/globe/", ready: BOOTED, ms: 45000 },
-	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && !!document.querySelector('iframe[src*="/equal/"]')`, ms: 60000 },
+	// Equal Earth は同じ頁の div（#equal-frame）に組む（PR #218・2026-10-04）＝重なり切る（opacity 1＝最初の 1 枚が描けた）まで待つ。load が無い頁は旧来の iframe
+	{ name: "globe?start=equal", url: "/globe/?start=equal", ready: `${BOOTED} && (() => { const f = document.querySelector('#equal-frame'); return !!f && (f.tagName === 'IFRAME' ? f.src.includes('/equal/') : !!f.querySelector('canvas') && f.style.opacity === '1'); })()`, ms: 60000 },
 	{ name: "quakes", url: "/globe/quakes", ready: `${BOOTED} && window.__quakes && window.__quakes.count > 1000`, ms: 120000 },
 	{ name: "sats", url: "/globe/sats", ready: `${BOOTED} && window.__sats && window.__sats.count > 1000`, ms: 60000 },
-	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 120000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える
+	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 240000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える。GIBS の応答が夜に 9 秒級まで揺れる（2026-10-12 に 120s で 2 回落ち・3 回目 54s）＝上限 240s
+	// 地形＝GitHub Pages（ortho-data/globe/）の TerrainDB・ne-physical.geopbf（npm run publish:pages -w world-data で置いてから）。物理量（流量など）が載った版かも見る
+	{ name: "physical", url: "/globe/physical", ready: `${BOOTED} && window.__physical && window.__physical.items.length > 900 && window.__physical.shapes.length > 1000 && window.__physical.items.some(d => d.discharge > 0)`, ms: 60000 },
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {
-	const p = await open(ORIGIN + pg.url);
+	const p = await open(ORIGIN + pg.url), t0 = Date.now();
 	const ok = await p.until(pg.ready, pg.ms);
 	const n = await p.ev(`window.__quakes?.count ?? window.__sats?.count ?? null`);
 	if (!ok) {
@@ -107,7 +112,7 @@ for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.O
 	await sleep(1500);   // 起動直後の遅れた error も拾う
 	// ④
 	if (p.errs.length) fail(`console: ${pg.name} で例外/error ${p.errs.length} 件\n  ${[...new Set(p.errs)].slice(0, 6).join("\n  ")}`);
-	console.log(`ok:run（${pg.name}${n != null ? `・${n} 件` : ""}）`);
+	console.log(`ok:run（${pg.name}${n != null ? `・${n} 件` : ""}・${((Date.now() - t0) / 1000).toFixed(0)}s）`);
 	p.close();
 }
 // ③ 住所

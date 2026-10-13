@@ -49,6 +49,17 @@ try {
 		await sleep(600);
 		const pop = [...document.querySelectorAll(".maplibregl-popup, .oe-popup, [class*=popup]")].map(e => e.textContent).join("|");
 		ok("popup", /Flight A/.test(pop), pop.slice(0, 60) || "none");
+		// ③b follow＝軌跡の名前で追う（A4）：時計の時刻の位置が注視点に・時刻を進めると付いて来る・follow(null) で止まる
+		const llAt = ms => { const q = positionAt(tr, ms); return q ? ecefToLlh(...q) : null; };
+		map.follow("Flight A", { distance: 50000 });
+		await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		const c1 = map.getCenter(), e1 = llAt(T(2400));
+		map.clock.setTime(T(3000));
+		await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		const c2 = map.getCenter(), e2 = llAt(T(3000));
+		map.follow(null);
+		ok("follow", !!e1 && !!e2 && Math.abs(c1.lng - e1[0]) < 1e-6 && Math.abs(c1.lat - e1[1]) < 1e-6 && Math.abs(c2.lng - e2[0]) < 1e-6 && Math.abs(c2.lat - e2[1]) < 1e-6 && !map.isFollowing() && Math.abs(map.view.eye.distM - 50000) < 50, `${c1.lng.toFixed(4)},${c1.lat.toFixed(4)} → ${c2.lng.toFixed(4)},${c2.lat.toFixed(4)} dist ${map.view.eye.distM.toFixed(0)}`);
+		map.clock.setTime(T(2400));
 		// ④ GPX＝既定の時計
 		const g = await load("dateline.gpx");
 		ok("gpxLoaded", g?.length === 1, JSON.stringify(g));

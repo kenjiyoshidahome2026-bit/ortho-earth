@@ -6,7 +6,7 @@
 //   を組むだけ＝CPU memcpy もフルシーンの GPU 再アップロードも無い。プール配置（アロケータ）の権限はここ：
 //   renderer には grow（成長）/ up（タイルブロック転送）/ dl（draw list）を順に流すだけ（FIFO＝dl が up を追い越さない）。
 // - fallback（WEBGL_multi_draw 非対応 or ?nomd=1）：従来どおり mergeTiles で結合した scene を送る。
-import { mergeTiles, coveredTiles, seaFbReal } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
+import { mergeTiles, coveredTiles, seaFbReal, opBuffers } from "../scene.js";   // index直引きはworker循環になる（tileworker側コメント参照）
 
 // geometry は main のタイルキャッシュのバイト予算の鏡：追加＝tile メッセージ／削除＝evict メッセージ（tilemanager の
 // onEvict と同期）。独自の上限退避は持たない——mainが ready と思っているタイルをこちらだけ捨てると、
@@ -90,8 +90,8 @@ function dropRec(key) {   // res からの除去（evict / 同キー再着）。
 // タイルを GPU プールへ常駐させる（未常駐なら payload を整形して renderer へ）。ここが唯一の「タイル1回きり」の
 // CPU 変換：fill は pos+col を 12B interleave・index をプール絶対値へ再ベース、line は RGBA32UI 2texel/線分
 // （float は bit をそのまま uint 格納＝RGBA32F の NaN 正規化を回避）、建物は 24B interleave。
-const F1 = new Float32Array(1), U1 = new Uint32Array(F1.buffer);
-const fbits = x => (F1[0] = x, U1[0]);
+// 型付き配列の 32bit 語の見方（同じバッファ・写さない）。byteOffset が 4 の倍数でない時（ふつうは無い＝各 op は自分のバッファ）は写してから
+const u32of = a => a.byteOffset % 4 === 0 && a.byteLength % 4 === 0 ? new Uint32Array(a.buffer, a.byteOffset, a.byteLength >> 2) : new Uint32Array(new Uint8Array(a).buffer);
 const snorm16 = v => Math.round(Math.max(-1, Math.min(1, v)) * 32767) & 0xffff;   // GLSL unpackSnorm2x16 の対（下位 16bit＝x）
 function ensureUploaded(key) {
 	let rec = md.res.get(key);
@@ -104,18 +104,13 @@ function ensureUploaded(key) {
 	rec = { key, fv: alloc2(md.pools.fillV, fv), fi: alloc2(md.pools.fillI, fi), ls: alloc2(md.pools.line, ls), bv: alloc2(md.pools.bldV, bv), subs: [] };
 	const up = { type: "up", key }, transfer = [];   // key は診断用（renderer は使わない）
 	if (fv) {
-		const ab = new ArrayBuffer(fv * 12), f32 = new Float32Array(ab), u8 = new Uint8Array(ab);
+		const ab = new ArrayBuffer(fv * 12), w32 = new Uint32Array(ab);   // 12B＝[x, y（float の bit）, RGBA8]＝語ごとに写す（旧＝色をバイトずつ）
 		const idx = new Uint32Array(fi);
 		let vc = 0, ic = 0;
 		for (const op of g.ops) {
 			if (op.kind !== "fill") continue;
-			const n = op.pos.length >> 1;
-			for (let i = 0; i < n; i++) {
-				const v = vc + i;
-				f32[v * 3] = op.pos[i * 2]; f32[v * 3 + 1] = op.pos[i * 2 + 1];
-				const o = v * 12 + 8, s = i * 4;
-				u8[o] = op.col[s]; u8[o + 1] = op.col[s + 1]; u8[o + 2] = op.col[s + 2]; u8[o + 3] = op.col[s + 3];
-			}
+			const n = op.pos.length >> 1, p32 = u32of(op.pos), c32 = u32of(op.col);
+			for (let i = 0, o = vc * 3; i < n; i++, o += 3) { w32[o] = p32[i * 2]; w32[o + 1] = p32[i * 2 + 1]; w32[o + 2] = c32[i]; }
 			const base = rec.fv.off + vc;   // index はプール絶対頂点番号へ（WEBGL_multi_draw に baseVertex は無い）
 			for (let i = 0; i < op.idx.length; i++) idx[ic + i] = op.idx[i] + base;
 			rec.subs.push({ li: op.li, kind: "fill", idxOff: rec.fi.off + ic, idxN: op.idx.length });
@@ -130,15 +125,15 @@ function ensureUploaded(key) {
 		let sc = 0;
 		for (const op of g.ops) {
 			if (op.kind !== "line") continue;
-			const n = op.half.length;
+			const n = op.half.length, a1 = u32of(op.P1), a2 = u32of(op.P2), c32 = u32of(op.col), h32 = u32of(op.half), f32 = op.off ? u32of(op.off) : null;   // float は bit のまま語で写す（旧＝1 値ずつ F1 経由）
 			for (let i = 0; i < n; i++) {
 				const o = (sc + i) * 8;
-				seg[o] = fbits(op.P1[i * 2]); seg[o + 1] = fbits(op.P1[i * 2 + 1]);
-				seg[o + 2] = fbits(op.P2[i * 2]); seg[o + 3] = fbits(op.P2[i * 2 + 1]);
-				seg[o + 4] = (op.col[i * 4] | (op.col[i * 4 + 1] << 8) | (op.col[i * 4 + 2] << 16) | (op.col[i * 4 + 3] << 24)) >>> 0;
-				seg[o + 5] = fbits(op.half[i]);
-				if (op.off) {   // line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
-					seg[o + 6] = fbits(op.off[i * 3]);
+				seg[o] = a1[i * 2]; seg[o + 1] = a1[i * 2 + 1];
+				seg[o + 2] = a2[i * 2]; seg[o + 3] = a2[i * 2 + 1];
+				seg[o + 4] = c32[i];   // RGBA8（リトルエンディアン＝旧の r | g<<8 | b<<16 | a<<24 と同じ語）
+				seg[o + 5] = h32[i];
+				if (f32) {   // line-offset（#49）＝空いていた 2 語：[bits(off px), snorm16×2(tS/2, tE/2)]（角の継ぎ・|t|≤2）
+					seg[o + 6] = f32[i * 3];
 					seg[o + 7] = (snorm16(op.off[i * 3 + 1] * 0.5) | (snorm16(op.off[i * 3 + 2] * 0.5) << 16)) >>> 0;
 				}
 			}
@@ -287,12 +282,4 @@ self.onmessage = (e) => {
 	}
 };
 
-function collectSceneBuffers(scene) {
-	const bufs = [];
-	for (const L of scene.layers) {
-		if (L.kind === "fill") bufs.push(L.pos.buffer, L.col.buffer, L.idx.buffer);
-		else { bufs.push(L.P1.buffer, L.P2.buffer, L.col.buffer, L.half.buffer); if (L.off) bufs.push(L.off.buffer); }
-	}
-	if (scene.buildings) bufs.push(scene.buildings.pos.buffer, scene.buildings.shade.buffer, scene.buildings.anchor.buffer);
-	return bufs;
-}
+const collectSceneBuffers = scene => opBuffers(scene.layers, scene.buildings);

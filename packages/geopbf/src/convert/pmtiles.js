@@ -4,6 +4,7 @@
 // 連続 id の同一内容は runLength に畳む（海の空タイル等）。内部圧縮・タイル圧縮は gzip（gzip.js＝Node は zlib・ブラウザは
 // CompressionStream・pako 不使用）。
 import { gzip, gunzip, gzipMany } from "./gzip.js";
+import { readUvarint, writeUvarint } from "../modules/varint.js";
 
 const tzValues = [0, 1, 5, 21, 85, 341, 1365, 5461, 21845, 87381, 349525, 1398101, 5592405, 22369621, 89478485, 357913941, 1431655765, 5726623061, 22906492245, 91625968981, 366503875925, 1466015503701, 5864062014805, 23456248059221, 93824992236885, 375299968947541, 1501199875790165];
 function rotate(n, xy, rx, ry) {
@@ -43,19 +44,11 @@ export function tileIdToZxy(id) {
 class Writer {
 	constructor(cap = 1024) { this.buf = new Uint8Array(cap); this.pos = 0; }
 	need(n) { if (this.pos + n > this.buf.length) { const b = new Uint8Array(Math.max(this.buf.length * 2, this.pos + n)); b.set(this.buf); this.buf = b; } }
-	varint(v) {   // 64bit までを double のまま（2^53 未満）
-		this.need(10);
-		while (v >= 0x80) { this.buf[this.pos++] = (v % 128) | 0x80; v = Math.floor(v / 128); }
-		this.buf[this.pos++] = v;
-	}
+	varint(v) { this.need(10); this.pos = writeUvarint(this.buf, this.pos, v); }   // 64bit までを double のまま（2^53 未満）
 	bytes(u8) { this.need(u8.length); this.buf.set(u8, this.pos); this.pos += u8.length; }
 	finish() { return this.buf.subarray(0, this.pos); }
 }
-function readVarint(u8, p) {   // → [value, nextPos]
-	let v = 0, m = 1, b;
-	do { b = u8[p.i++]; v += (b & 0x7f) * m; m *= 128; } while (b & 0x80);
-	return v;
-}
+const readVarint = readUvarint;   // (u8, cursor{pos}) → value
 
 export function serializeDirectory(entries) {
 	const w = new Writer(entries.length * 8 + 16);
@@ -71,7 +64,7 @@ export function serializeDirectory(entries) {
 	return w.finish();
 }
 export function deserializeDirectory(u8) {
-	const p = { i: 0 }, n = readVarint(u8, p), entries = [];
+	const p = { pos: 0 }, n = readVarint(u8, p), entries = [];
 	let last = 0;
 	for (let i = 0; i < n; i++) { last += readVarint(u8, p); entries.push({ tileId: last, offset: 0, length: 0, runLength: 0 }); }
 	for (let i = 0; i < n; i++) entries[i].runLength = readVarint(u8, p);

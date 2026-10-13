@@ -6,19 +6,19 @@
 //   ・同期のコンストラクタ（createGlobe は非同期）＝準備ができるまでの呼び出しは列に溜め、load の前に順に流す
 //   ・1 頁 1 地図（エンジンの canvas の id が固定）＝2 枚目は何もしない実体（load は来ない）
 import { createGlobe, Marker as OrthoMarker, Popup as OrthoPopup, mercatorDz } from "../globe.js";
-import { LngLat, LngLatBounds, MercatorCoordinate } from "./geo.js";
+import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "./geo.js";
 import { unsupported } from "./report.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "./util.js";
 import { GRANULARITY_GLOBE } from "./tilemesh.js";
 
 // MapLibre GL JS 6.11.2 の Map の公開の口（型定義から）。ここに実装の無い口は「unsupported を記録して this」を返す
-const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "migrateProjection", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
+const ML_METHODS = new Set(["addControl", "addImage", "addLayer", "addSource", "addSprite", "areTilesLoaded", "calculateAnchoredCameraOptions", "calculateCameraOptionsFromCameraLngLatAltRotation", "calculateCameraOptionsFromTo", "cameraForBounds", "coveringTiles", "easeTo", "fire", "fitBounds", "fitScreenCoordinates", "flyTo", "getAnisotropicFilterPitch", "getBearing", "getBounds", "getCameraTargetElevation", "getCanvas", "getCanvasContainer", "getCenter", "getCenterClampedToGround", "getCenterElevation", "getContainer", "getFeatureState", "getFilter", "getFontFaces", "getGlobalState", "getGlyphs", "getImage", "getLayer", "getLayersOrder", "getLayoutProperty", "getLight", "getMaxBounds", "getMaxPitch", "getMaxZoom", "getMinPitch", "getMinZoom", "getPadding", "getPaintProperty", "getPitch", "getPixelRatio", "getProjection", "getRenderWorldCopies", "getRoll", "getSky", "getSource", "getSprite", "getStyle", "getStyleUrl", "getTerrain", "getVerticalFieldOfView", "getZoom", "getZoomSnap", "hasControl", "hasImage", "isMoving", "isRotating", "isSourceLoaded", "isStyleLoaded", "isZooming", "jumpTo", "listImages", "listens", "loadImage", "loaded", "moveLayer", "off", "on", "once", "panBy", "panTo", "project", "queryRenderedFeatures", "querySourceFeatures", "queryTerrainElevation", "redraw", "refreshTiles", "remove", "removeControl", "removeFeatureState", "removeImage", "removeLayer", "removeSource", "removeSprite", "repaint", "resetNorth", "resetNorthPitch", "resize", "rotateTo", "setAnisotropicFilterPitch", "setBearing", "setCenter", "setCenterClampedToGround", "setCenterElevation", "setEventedParent", "setFeatureState", "setFilter", "setFontFaces", "setGlobalStateProperty", "setGlyphs", "setLayerZoomRange", "setLayoutProperty", "setLight", "setMaxBounds", "setMaxPitch", "setMaxZoom", "setMinPitch", "setMinZoom", "setPadding", "setPaintProperty", "setPitch", "setPixelRatio", "setProjection", "setRenderWorldCopies", "setRoll", "setSky", "setSourceTileLodParams", "setSprite", "setStyle", "setTerrain", "setTransformCameraUpdate", "setTransformConstrain", "setTransformRequest", "setVerticalFieldOfView", "setZoom", "setZoomSnap", "showCollisionBoxes", "showOverdrawInspector", "showPadding", "showTileBoundaries", "snapToNorth", "stop", "triggerRepaint", "unproject", "updateImage", "version", "vertices", "zoomIn", "zoomOut", "zoomTo"]);
 const HANDLERS = ["scrollZoom", "boxZoom", "dragRotate", "dragPan", "keyboard", "doubleClickZoom", "touchZoomRotate", "touchPitch", "cooperativeGestures"];
 // 事象：エンジンの事象から作る物／容れ物の DOM から作る物（点と経緯度は公開の unproject）
 const ENGINE_EVENTS = new Set(["load", "style.load", "styledata", "data", "sourcedata", "idle", "error", "resize", "remove", "render", "styleimagemissing",
-	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "dragstart", "drag", "dragend"]);
+	"move", "movestart", "moveend", "zoom", "zoomstart", "zoomend", "rotate", "rotatestart", "rotateend", "pitch", "pitchstart", "pitchend", "roll", "rollstart", "rollend", "dragstart", "drag", "dragend", "boxzoomstart", "boxzoomend", "boxzoomcancel", "cooperativegestureprevented"]);
 const DOM_EVENTS = new Set(["click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "contextmenu", "wheel", "touchstart", "touchend", "touchmove", "touchcancel"]);
-const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave"]);   // エンジンが層ごとに持つ事象（#34）
+const LAYER_EVENTS = new Set(["click", "mousemove", "mouseenter", "mouseleave", "mousedown", "mouseup", "touchstart", "touchend", "dblclick", "contextmenu"]);   // C8＝押し系も（エンジンの同期当たり・preventDefault でパン止め）   // エンジンが層ごとに持つ事象（#34）
 
 const S = new WeakMap();   // 通訳の地図（と Proxy）→ 状態
 let liveMaps = 0;
@@ -75,6 +75,37 @@ function bindDom(self, st, type) {
 	});
 }
 
+// 同期の queryRenderedFeatures の道具（C7）。幾何＝undefined（画面全体）｜{x,y}／[x,y]（点）｜[a, b]（箱）
+const syncGeom = g => { if (g == null) return undefined; if (!Array.isArray(g)) return [g.x, g.y]; if (typeof g[0] === "number") return [g[0], g[1]]; const a = Array.isArray(g[0]) ? g[0] : [g[0].x, g[0].y], b = Array.isArray(g[1]) ? g[1] : [g[1].x, g[1].y]; return [a, b]; };
+const syncKey = o => (o.layers ? [...o.layers].sort().join(",") : "") + (o.filter != null ? "|" + JSON.stringify(o.filter) : "");
+const camSig = eng => { const c = eng.getCenter(); return `${eng.getZoom().toFixed(4)}|${c.lng.toFixed(6)}|${c.lat.toFixed(6)}|${eng.getBearing().toFixed(2)}|${eng.getPitch().toFixed(2)}`; };
+const syncMatch = (a, b) => {
+	if (a === undefined || b === undefined) return a === b;
+	const pa = typeof a[0] === "number", pb = typeof b[0] === "number";
+	if (pa !== pb) return false;
+	if (pa) return Math.hypot(a[0] - b[0], a[1] - b[1]) <= 8;
+	return Math.abs(a[0][0] - b[0][0]) <= 2 && Math.abs(a[0][1] - b[0][1]) <= 2 && Math.abs(a[1][0] - b[1][0]) <= 2 && Math.abs(a[1][1] - b[1][1]) <= 2;
+};
+// 裏で走らせる（鍵ごとに 1 本＝走っている間に来た物は最新の 1 つだけ覚えて続けて走らせる）
+function syncKick(st, key, g, o, cam) {
+	const q = st.sq, p = q.pending.get(key);
+	if (p) { p.next = { g, o, cam }; return; }
+	const job = { next: null }; q.pending.set(key, job);
+	const run = (g2, o2, cam2) => Promise.resolve().then(() => st.engine.queryRenderedFeatures(g2, { ...o2 })).then(r => { q.cache.set(key, { g: g2, cam: cam2, result: r, t: performance.now() }); }, () => {}).then(() => {
+		if (job.next) { const n = job.next; job.next = null; return run(n.g, n.o, n.cam); }
+		q.pending.delete(key);
+	});
+	run(g, o, cam);
+}
+function armPrewarm(self, st) {
+	let raf = 0, last = null;
+	st.container.addEventListener("mousemove", e => {
+		const r = st.container.getBoundingClientRect(); last = [e.clientX - r.left, e.clientY - r.top];
+		if (raf) return;
+		raf = requestAnimationFrame(() => { raf = 0; if (st.engine && last) syncKick(st, "", last, {}, camSig(st.engine)); });
+	}, { passive: true });
+}
+
 // エンジンの事象 → MapLibre の事象（move は zoom/rotate/pitch に分け、start/end を付ける＝end はエンジンの settle）
 function wireEngine(self, st) {
 	const eng = st.engine;
@@ -85,11 +116,11 @@ function wireEngine(self, st) {
 	for (const t of ["pointerup", "pointercancel"]) window.addEventListener(t, dragEnd, { passive: true });
 	eng.on("move", e => {
 		st.idle = false;
-		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch() };
-		if (!moving) { moving = { from: st.last ?? c, zoom: false, rotate: false, pitch: false }; emit(self, "movestart"); }
+		const c = { zoom: eng.getZoom(), bearing: eng.getBearing(), pitch: eng.getPitch(), roll: eng.getRoll() };
+		if (!moving) { moving = { from: st.last ?? c, zoom: false, rotate: false, pitch: false, roll: false }; emit(self, "movestart"); }
 		if (dragArm) { if (!dragging) { dragging = true; emit(self, "dragstart"); } emit(self, "drag"); }
 		const p = st.last ?? moving.from;
-		for (const [k, name] of [["zoom", "zoom"], ["bearing", "rotate"], ["pitch", "pitch"]]) {
+		for (const [k, name] of [["zoom", "zoom"], ["bearing", "rotate"], ["pitch", "pitch"], ["roll", "roll"]]) {
 			if (Math.abs(c[k] - p[k]) < 1e-9) continue;
 			if (!moving[name]) { moving[name] = true; emit(self, `${name}start`); }
 			emit(self, name);
@@ -104,9 +135,14 @@ function wireEngine(self, st) {
 		emit(self, "moveend");
 	});
 	eng.on("styleimagemissing", e => emit(self, "styleimagemissing", { id: e.id }));   // 記号帳に無い名前（名前ごとに 1 回）
+	eng.on("sourcedata", e => { if (st.sources.has(e.sourceId)) self._sourceLoaded(e.sourceId); });   // C8＝setData／層が載った合図（エンジンの sourcedata）を sourcedata/data（isSourceLoaded:true）に
+	eng.on("boxzoomstart", () => emit(self, "boxzoomstart"));
+	eng.on("boxzoomend", e => emit(self, "boxzoomend", { boxZoomBounds: new LngLatBounds([e.bbox[0], e.bbox[1]], [e.bbox[2], e.bbox[3]]) }));   // MapLibre の boxzoomend＝boxZoomBounds（例 select-features-with-boxzoomend-callback）
+	eng.on("boxzoomcancel", () => emit(self, "boxzoomcancel"));
+	eng.on("cooperativegestureprevented", e => emit(self, "cooperativegestureprevented", { gestureType: e.kind === "touch" ? "touch_pan" : "wheel_zoom" }));
 	eng.on("idle", () => {
 		st.idle = true;
-		for (const id of st.sources) { emit(self, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "idle" }); emit(self, "data", { dataType: "source", sourceId: id }); }
+		for (const id of st.sources) { emit(self, "sourcedata", { dataType: "source", sourceId: id, isSourceLoaded: true, sourceDataType: "idle" }); emit(self, "data", { dataType: "source", sourceId: id, isSourceLoaded: true }); }
 		emit(self, "idle");
 	});
 	if (typeof ResizeObserver === "function") new ResizeObserver(() => emit(self, "resize")).observe(st.container);
@@ -126,18 +162,26 @@ export class Map {
 		if (!container) throw new Error(`Container '${options.container}' not found.`);
 		const st = { options, container, engine: null, loaded: false, idle: false, inert: false, queue: [], engineFns: [], ev: new globalThis.Map(), dom: new Set(),
 			layerSubs: [], sources: new Set(), controls: new globalThis.Map(), corners: null, last: null, raf: 0, projection: options.style?.projection?.type === "globe" ? "globe" : "mercator",   // style の projection（object の style）も申告に数える
-			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0 } };
+			init: { center: LngLat.convert(options.center ?? [0, 0]), zoom: options.zoom ?? 0, bearing: options.bearing ?? 0, pitch: options.pitch ?? 0, roll: options.roll ?? 0 } };
 		const self = new Proxy(this, TRAP);
 		S.set(this, st); S.set(self, st);
-		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝どの口も受ける。止める系は見た目の記録（操作の手触り＝最初の絵は変わらない）
-		const handler = h => new Proxy({ isEnabled: () => true, isActive: () => false }, { get: (o, k) => k in o ? o[k] : typeof k !== "string" ? undefined
-			: (...a) => { if (/^disable/.test(k)) unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		// 操作ハンドラ（scrollZoom.disable()・touchZoomRotate.disableRotation() …）＝エンジンの handler の旗を叩く実体（A2・2026-10-12。旧＝記録だけ）。
+		// touchZoomRotate.enableRotation/disableRotation＝旗 touchRotate。isActive は false（掴んでいる最中の判定は持たない）
+		const flag = (h, k) => h === "touchZoomRotate" && /Rotation$/.test(k) ? "touchRotate" : h;
+		const handler = h => new Proxy({}, { get: (o, k) => typeof k !== "string" ? undefined
+			: k === "isEnabled" ? () => (st.engine ? st.engine.handlerOn(h) : st.handlerInit[h] !== false)
+			: k === "isActive" ? () => false
+			: /^(enable|disable)/.test(k) ? () => { const on = /^enable/.test(k), f = flag(h, k); st.handlerInit[f] = on; onEngine(st, eng => eng.setHandler(f, on)); return undefined; }
+			: () => { unsupported(self, `${h}.${k}()`, "cosmetic"); return undefined; } });
+		st.handlerInit = Object.fromEntries(HANDLERS.map(h => [h, options[h] !== false && options.interactive !== false]));
+		st.handlerInit.touchRotate = st.handlerInit.touchZoomRotate;
+		st.handlerInit.cooperativeGestures = !!options.cooperativeGestures;
 		st.handlers = Object.fromEntries(HANDLERS.map(h => [h, handler(h)]));
 		if (liveMaps++ > 3) { liveMaps--; st.inert = true; unsupported(self, "fifth Map on the page (at most four live maps)"); return self; }   // 1 頁に 4 枚まで（#173 の裁定 2 枚→2026-09-30 本人「4 枚まで」＝sync-movement-of-multiple-maps の 3 枚が生きる。GL の文脈は 1 枚 2 本＝8 本 < 16）
 		if (options.maplibreLogo) unsupported(self, "option maplibreLogo", "cosmetic");
 		if (options.hash) unsupported(self, "option hash", "cosmetic");
-		if (options.interactive === false) unsupported(self, "option interactive: false", "cosmetic");
 		if (options.renderWorldCopies === false) unsupported(self, "option renderWorldCopies: false (the globe has no world copies)", "cosmetic");
+		st.dz = (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1;   // 公開の z とエンジンの z の差（setTransformConstrain の往復に）
 		const o = {
 			// 目盛り＝"mercator"（MapLibre のメルカトルの縮尺＝起動の中心緯度で log2(sec φ) 寄る・style は MapLibre の z で評価）。options.ortho.zoomScale で "maplibre"（一律 +1）にもできる
 			target: container, view: viewOf(st.init, (options.ortho?.zoomScale ?? "mercator") === "mercator" ? mercatorDz(st.init.center.lat) : 1), zoomScale: "mercator",
@@ -147,13 +191,21 @@ export class Map {
 			instruments: options.attributionControl === false ? false : ["attr"],
 			style: options.style ?? { version: 8, sources: {}, layers: [] },   // style 無しの Map＝空の style（MapLibre と同じく後から setStyle できる・エンジンは起動時の style が要る）
 			...(options.maxZoom != null && { zoomMax: options.maxZoom }),
-			...(options.maxPitch != null && { maxPitch: options.maxPitch }),
+			handlers: st.handlerInit, interactive: options.interactive, cooperativeGestures: !!options.cooperativeGestures,   // 手触りの旗（A2）
+			maxPitch: options.maxPitch ?? 85,   // MapLibre の既定は 60・この口の既定は 85（MapLibre 6.x が許す 180 の手前・地平線まで見せる・2026-10-12 本人裁定 A1）。ortho の口（createGlobe）の既定 75 は変えない
 			...(options.transformRequest && { transformRequest: options.transformRequest }),
 			...options.ortho,   // この地図の起動オプションへの逃げ道（夜面・星空を点ける・時計を止める…）
 		};
 		st.ready = createGlobe(o).then(async eng => {
 			st.engine = eng;
 			wireEngine(self, st);
+			if (options.cooperativeGestures) {   // MapLibre の協調モードの案内（.maplibregl-cooperative-gesture-screen 相当・修飾キー無しのホイール／1 本指で 1 秒出す）
+				const mac = /Mac|iPhone|iPad/.test(navigator.platform), txt = { wheel: `Use ${mac ? "⌘" : "Ctrl"} + scroll to zoom the map`, touch: "Use two fingers to move the map" };
+				const scr = document.createElement("div"); scr.className = "maplibregl-cooperative-gesture-screen";
+				Object.assign(scr.style, { position: "absolute", inset: "0", display: "none", alignItems: "center", justifyContent: "center", background: "rgba(0,0,0,.4)", color: "#fff", font: "20px/1.4 sans-serif", textAlign: "center", pointerEvents: "none", zIndex: 99 });
+				container.appendChild(scr); let t = 0;
+				eng.on("cooperativegestureprevented", e => { scr.textContent = txt[e.kind] || txt.wheel; scr.style.display = "flex"; clearTimeout(t); t = setTimeout(() => { scr.style.display = "none"; }, 1000); });
+			}
 			for (const f of st.engineFns.splice(0)) f(eng);
 			if (options.minZoom != null) eng.setMinZoom(options.minZoom);
 			if (options.maxBounds) eng.setMaxBounds(boundsArr(options.maxBounds));
@@ -219,6 +271,10 @@ export class Map {
 	getZoom() { const st = S.get(this); return st.engine ? st.engine.getZoom() : st.init.zoom; }
 	getBearing() { const st = S.get(this); return st.engine ? st.engine.getBearing() : st.init.bearing; }
 	getPitch() { const st = S.get(this); return st.engine ? st.engine.getPitch() : st.init.pitch; }
+	getRoll() { const st = S.get(this); return st.engine ? st.engine.getRoll() : st.init.roll; }
+	setRoll(r, e) { return this.jumpTo({ roll: r }, e); }
+	getVerticalFieldOfView() { return ask(this, "getVerticalFieldOfView", [], { before: 50 }); }   // エンジンの既定 50°（MapLibre は 36.87°＝絵の奥行きの差は §4）
+	setVerticalFieldOfView(deg) { ask(this, "setVerticalFieldOfView", [deg]); return this; }
 	setCenter(c, e) { return this.jumpTo({ center: c }, e); }
 	setZoom(z, e) { return this.jumpTo({ zoom: z }, e); }
 	setBearing(b, e) { return this.jumpTo({ bearing: b }, e); }
@@ -249,9 +305,52 @@ export class Map {
 	setMaxZoom(z) { ask(this, "setMaxZoom", [z]); return this; }
 	getMaxZoom() { return ask(this, "getMaxZoom", [], { before: 22 }); }
 	setMaxPitch(p) { ask(this, "setMaxPitch", [p]); return this; }
-	getMaxPitch() { return ask(this, "getMaxPitch", [], { before: 60 }); }
+	getMaxPitch() { return ask(this, "getMaxPitch", [], { before: 85 }); }
 	setPadding(p) { ask(this, "setPadding", [p]); return this; }
 	getPadding() { return ask(this, "getPadding", [], { before: { top: 0, bottom: 0, left: 0, right: 0 } }); }
+	fitScreenCoordinates(p0, p1, bearing, o = {}) { const xy = p => Array.isArray(p) ? p : [p.x, p.y]; ask(this, "fitScreenCoordinates", [xy(p0), xy(p1), bearing, o]); return this; }
+	// 注視点の高さ（A3・2026-10-12）＝エンジンの centerElevation を実行時に
+	setCenterClampedToGround(b) { ask(this, "setCenterClampedToGround", [!!b]); return this; }
+	getCenterClampedToGround() { return !!ask(this, "getCenterClampedToGround", [], { before: S.get(this).options.centerClampedToGround !== false }); }
+	setCenterElevation(m) { ask(this, "setCenterElevation", [m]); return this; }
+	getCenterElevation() { return ask(this, "getCenterElevation", [], { before: 0 }) ?? 0; }
+	getCameraTargetElevation() { return this.getCenterElevation(); }
+	// 可動域の自作（MapLibre 同名・A3）：fn(LngLat, zoom) → { center, zoom }（MapLibre の z）。エンジンの口はエンジンの z＝dz を往復させる
+	setTransformConstrain(fn) {
+		const st = S.get(this), dz = st.dz ?? 1;
+		ask(this, "setConstrain", [typeof fn === "function" ? v => { const r = fn(new LngLat(v.center[0], v.center[1]), v.zoom - dz); return r ? { center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : null]);
+		return this;
+	}
+	// 自由カメラ（MapLibre 同名・A3）：位置＝目の経緯度と高さ（MercatorCoordinate）・向き＝四元数（geo.js の約束）。set は位置と向きから center/zoom/pitch/bearing/roll へ分解して jumpTo
+	getFreeCameraOptions() {
+		const st = S.get(this), eng = st.engine;
+		if (!eng) return new FreeCameraOptions(MercatorCoordinate.fromLngLat(st.init.center, 0), orientationFromPitchBearing(st.init.pitch, st.init.bearing, st.init.roll));
+		const e = eng.view.eye;
+		return new FreeCameraOptions(MercatorCoordinate.fromLngLat([e.lon, e.lat], e.altM), orientationFromPitchBearing(eng.getPitch(), eng.getBearing(), eng.getRoll()));
+	}
+	setFreeCameraOptions(o) {
+		if (!o || !o.position) return this;
+		const ll = o.position.toLngLat(), alt = o.position.toAltitude();
+		const pbr = o.orientation ? pitchBearingRollFromOrientation(o.orientation) : { pitch: this.getPitch(), bearing: this.getBearing(), roll: this.getRoll() };
+		return this.jumpTo(this.calculateCameraOptionsFromCameraLngLatAltRotation(ll, alt, pbr.bearing, pbr.pitch, pbr.roll));
+	}
+	// MapLibre 同名（6.x・例 walk-around-a-map-in-first-person）＝目の経緯度・高さ［m］・方位・チルト・roll → 地面の注視点と zoom（純粋な計算・MapLibre の cameraToCenterDistance＝0.5/tan(fov/2)·高さ px・fov 36.87°）。
+	// pitch が 89° を超える（地面を見ない）時は注視点＝目の真下の点を目の高さに置く（elevation＝alt）
+	calculateCameraOptionsFromCameraLngLatAltRotation(cameraLngLat, cameraAlt, bearing, pitch, roll = 0) {
+		const c = LngLat.convert(cameraLngLat), H = S.get(this).container?.clientHeight || 600, fov = 36.86989764584402 * Math.PI / 180, c2c = 0.5 / Math.tan(fov / 2) * H;
+		const R = 6371008.8, p = Math.max(0, Math.min(89, pitch)) * Math.PI / 180, alt = Math.max(1, +cameraAlt || 0);
+		if (pitch > 89) {   // 地平線より上＝注視点は目の高さの先（距離は目の高さ分）
+			const zoom = Math.log2(c2c * 2 * Math.PI * R * Math.cos(c.lat * Math.PI / 180) / (512 * alt));
+			return { center: new LngLat(c.lng, c.lat), elevation: alt, zoom, bearing, pitch, roll };
+		}
+		const hor = alt * Math.tan(p), dist = alt / Math.cos(p);   // 地面までの水平距離・直線距離［m］
+		const d = hor / R, b = bearing * Math.PI / 180, la1 = c.lat * Math.PI / 180, lo1 = c.lng * Math.PI / 180;
+		const la2 = Math.asin(Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(b));
+		const lo2 = lo1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(la1), Math.cos(d) - Math.sin(la1) * Math.sin(la2));
+		const center = new LngLat(((lo2 * 180 / Math.PI + 540) % 360) - 180, la2 * 180 / Math.PI);
+		const zoom = Math.log2(c2c * 2 * Math.PI * R * Math.cos(la2) / (512 * dist));
+		return { center, elevation: 0, zoom, bearing, pitch, roll };
+	}
 	isMoving() { return !!ask(this, "isMoving", [], { before: false }); }
 	isZooming() { return this.isMoving(); }
 	isRotating() { return this.isMoving(); }
@@ -274,7 +373,7 @@ export class Map {
 	addLayer(layer, before) {
 		if (layer?.type === "custom") {   // CustomLayerInterface＝エンジンの main の WebGL2 canvas に描く（onAdd/render の map はこの口＝setCustomLayerHost）
 			const st = S.get(this); if (!st.customHost) { st.customHost = true; ask(this, "setCustomLayerHost", [this]); }
-			if (layer.renderingMode === "3d") unsupported(this, "custom layer depth shared with the map (3d models are drawn above the map)", "cosmetic");
+			if (layer.renderingMode === "3d" && typeof layer.url !== "string") unsupported(this, "custom layer depth shared with the map (3d models are drawn above the map; pass url of a layer module to draw in the worker with depth)", "cosmetic");
 			ask(this, "addLayer", before != null ? [layer, before] : [layer]); return this;
 		}
 		const sid = typeof layer?.source === "string" ? layer.source : layer?.id;
@@ -296,8 +395,25 @@ export class Map {
 	setFeatureState(f, s) { ask(this, "setFeatureState", [f, s]); return this; }
 	removeFeatureState(f, k) { ask(this, "removeFeatureState", [f, k]); return this; }
 	getFeatureState(f) { return ask(this, "getFeatureState", [f]); }
-	// 問い合わせ＝この地図は非同期（台帳 §4）＝MapLibre の同期の答えは返せない。空で返し、差として記録する（通訳で隠さない）
-	queryRenderedFeatures() { unsupported(this, "queryRenderedFeatures (synchronous result)"); return []; }
+	// 同期の queryRenderedFeatures（C7・2026-10-12・本人裁定「直近の描画のヒット索引で近似」）：エンジンの答えは非同期（タイルを取り直す）＝この口は
+	// 「同じ視点で・同じ所（点は 8px 以内・箱は 2px 以内）・同じ層と filter で直近に済んだ答え」を同期で返し、裏で今の問い合わせを走らせて次の呼び出しに備える。
+	// 初回は []（MapLibre 用の hover のコードは次の mousemove で埋まる）。一度でもこの口が呼ばれた地図は容れ物の mousemove で先回りして全層を問い合わせる（rAF に畳む）＝
+	// click の直後の同期の呼び出し（layers で絞る物）はその答えから作る。filter つきは先回りから作らない（エンジンの filter の評価を待つ）。正確な答えが要る時はエンジンの非同期の口（await）か層のイベント
+	queryRenderedFeatures(geometry, opts) {
+		const st = S.get(this); if (st.inert) return [];
+		if (geometry && !Array.isArray(geometry) && typeof geometry.x !== "number") { opts = geometry; geometry = undefined; }
+		const g = syncGeom(geometry), q = (st.sq ||= { cache: new globalThis.Map(), pending: new globalThis.Map(), armed: false });
+		if (!st.engine) return [];
+		if (!q.armed) { q.armed = true; armPrewarm(this, st); }
+		const o = opts || {}, key = syncKey(o), cam = camSig(st.engine);
+		syncKick(st, key, g, o, cam);
+		const c = q.cache.get(key);
+		if (c && c.cam === cam && syncMatch(c.g, g)) return c.result;
+		if (key !== "" && o.filter == null) {   // 層で絞るだけ＝先回り（全層）の答えから（順は全層の順のまま＝MapLibre の層の順）
+			const a = q.cache.get(""); if (a && a.cam === cam && syncMatch(a.g, g)) { const want = new Set(o.layers); return a.result.filter(f => want.has(f.layer?.id)); }
+		}
+		return [];
+	}
 	querySourceFeatures(id, o) { return ask(this, "querySourceFeatures", [id, o], { before: [] }) ?? []; }   // 同期（集約の丸・geojson の地物）
 	queryTerrainElevation(ll) { const p = lngArr(ll); return ask(this, "queryTerrainElevation", [p[0], p[1]], { before: null }) ?? null; }   // 同期＝エンジンの標高のメモ（地形がある時・未着は null＝MapLibre と同じ）
 	// MapLibre 同名＝目の位置（from・高さ m）から注視点（to・高さ m）を見るカメラ（純粋な計算・MapLibre の式のまま：メルカトルの距離と cameraToCenterDistance＝0.5/tan(fov/2)·高さ px・fov 36.87°）
@@ -312,8 +428,50 @@ export class Map {
 	}
 	setTerrain(t) { ask(this, "setTerrain", [t]); return this; }
 	getTerrain() { return ask(this, "getTerrain", [], { before: null }); }
-	setSky(sky) { unsupported(this, `setSky (this map draws its own atmosphere)`, "cosmetic"); S.get(this).sky = sky; return this; }   // 空の色＝見た目（球の外・標本の外）
-	getSky() { return S.get(this).sky ?? {}; }
+	setLight(light, o) { ask(this, "setLight", [light]); return this; }   // style の light（B3・2026-10-12）＝エンジンの押し出し・glTF の陰影（GL2）
+	getLight() { return ask(this, "getLight", [], { before: { anchor: "viewport", color: "#ffffff", intensity: 0.5, position: [1.15, 210, 30] } }); }
+	setSky(sky, o) { ask(this, "setSky", [sky]); return this; }   // style の sky（B4・2026-10-12）＝エンジンの簡易の空（GL2）と霧の色・濃さ
+	getSky() { return ask(this, "getSky", [], { before: undefined }); }
+	// ── 小口の束（B6・2026-10-12）＝旧 stub をエンジンの口へ ──
+	getSprite() { return ask(this, "getSprite", [], { before: [] }) ?? []; }
+	setSprite(url, o) { ask(this, "setSprite", [url]); return this; }
+	addSprite(id, url, o) { ask(this, "addSprite", [id, url]); return this; }
+	removeSprite(id) { ask(this, "removeSprite", [id]); return this; }
+	getImage(id) { return ask(this, "getImage", [id], { before: undefined }); }
+	getGlyphs() { return ask(this, "getGlyphs", [], { before: undefined }); }
+	setGlyphs(url, o) { ask(this, "setGlyphs", [url]); return this; }
+	getStyleUrl() { return ask(this, "getStyleUrl", [], { before: typeof S.get(this).options.style === "string" ? S.get(this).options.style : undefined }); }
+	getFontFaces() { return ask(this, "getFontFaces", [], { before: [] }) ?? []; }
+	setFontFaces(list) { ask(this, "setFontFaces", [list]); return this; }
+	refreshTiles(sourceId, tileIds) { ask(this, "refreshTiles", [sourceId]); return this; }   // tileIds（一部だけ）は読まない＝source 全体
+	coveringTiles(o) { return ask(this, "coveringTiles", [o], { before: [] }) ?? []; }
+	setSourceTileLodParams(a, b) { ask(this, "setSourceTileLodParams", [a, b]); return this; }
+	setTransformCameraUpdate(fn) {   // 制約の後にカメラを書き換える（zoom は公開の z で往復・角は度・elevation は m）
+		const st = S.get(this), dz = st.dz ?? 1;
+		ask(this, "setCameraUpdate", [typeof fn === "function" ? v => { const r = fn({ center: new LngLat(v.center[0], v.center[1]), zoom: v.zoom - dz, pitch: v.pitch, bearing: v.bearing, roll: v.roll, elevation: v.elevation }); return r ? { ...r, center: r.center != null ? lngArr(r.center) : undefined, zoom: r.zoom != null ? r.zoom + dz : undefined } : null; } : null]);
+		return this;
+	}
+	setMinPitch(p) { ask(this, "setMinPitch", [p ?? 0]); return this; }
+	getMinPitch() { return ask(this, "getMinPitch", [], { before: 0 }); }
+	setPixelRatio(r) { ask(this, "setPixelRatio", [r]); return this; }
+	setZoomSnap(v) { ask(this, "setZoomSnap", [v]); return this; }   // 目盛りの刻み（A2 のエンジンの口・zoom の数ではない＝換算なし）
+	getZoomSnap() { return ask(this, "getZoomSnap", [], { before: 0 }); }
+	setAnisotropicFilterPitch(p) { S.get(this).anisoPitch = p; unsupported(this, "setAnisotropicFilterPitch (raster filtering is not configurable)", "cosmetic"); return this; }
+	getAnisotropicFilterPitch() { return S.get(this).anisoPitch ?? 60; }   // 既定 60 は本物と未照合
+	setEventedParent(parent, data) { S.get(this).eventedParent = parent ? { parent, data } : null; unsupported(this, "setEventedParent", "cosmetic"); return this; }
+	// property の口（MapLibre は map.showTileBoundaries = true と書く）
+	get showTileBoundaries() { return !!S.get(this).dbg?.tileBoundaries; }
+	set showTileBoundaries(v) { const st = S.get(this); (st.dbg ??= {}).tileBoundaries = !!v; ask(this, "setDebug", [{ tileBoundaries: !!v }]); }
+	get showPadding() { return !!S.get(this).dbg?.padding; }
+	set showPadding(v) { const st = S.get(this); (st.dbg ??= {}).padding = !!v; ask(this, "setDebug", [{ padding: !!v }]); }
+	get showCollisionBoxes() { return !!S.get(this).dbg?.collision; }
+	set showCollisionBoxes(v) { const st = S.get(this); (st.dbg ??= {}).collision = !!v; if (v) unsupported(this, "showCollisionBoxes", "cosmetic"); }
+	get showOverdrawInspector() { return !!S.get(this).dbg?.overdraw; }
+	set showOverdrawInspector(v) { const st = S.get(this); (st.dbg ??= {}).overdraw = !!v; if (v) unsupported(this, "showOverdrawInspector", "cosmetic"); }
+	get vertices() { return !!S.get(this).dbg?.vertices; }
+	set vertices(v) { const st = S.get(this); (st.dbg ??= {}).vertices = !!v; if (v) unsupported(this, "vertices (wireframe)", "cosmetic"); }
+	get repaint() { return !!S.get(this).repaint; }
+	set repaint(v) { S.get(this).repaint = !!v; ask(this, "setRepaint", [!!v]); }
 	// 投影＝頼まれた物を覚える（MapLibre の既定は mercator・setProjection({type:"globe"}) で globe）。絵はどちらも球（文書の違い）だが、custom 層の variant（mercator の行列か球の prelude か）はこの申告に従う（2026-09-30）
 	setProjection(p) { const t = p?.type ?? p ?? "mercator"; S.get(this).projection = t === "globe" ? "globe" : "mercator"; return this; }
 	getProjection() { return { type: S.get(this).projection ?? "mercator" }; }
@@ -390,6 +548,10 @@ export class Map {
 
 	// ── 容れ物・描画・後片付け ──
 	getContainer() { return S.get(this).container; }
+	get transform() {   // MapLibre の内部（公式の口ではない）。deck.gl の MapboxOverlay が地形のある地図で transform.elevation・height を読む＝最小の写し
+		const st = S.get(this), c = st.container;
+		return { width: c?.clientWidth ?? 0, height: c?.clientHeight ?? 0, elevation: 0, center: this.getCenter(), zoom: this.getZoom(), bearing: this.getBearing(), pitch: this.getPitch() };
+	}
 	getCanvasContainer() { return S.get(this).container; }
 	getCanvas() {
 		const st = S.get(this), cg = st.engine?.getCustomLayerCanvas?.();
@@ -399,7 +561,7 @@ export class Map {
 		unsupported(this, "getCanvas before the map is ready");
 		return (st.placeholder ??= document.createElement("canvas"));
 	}
-	getPixelRatio() { return window.devicePixelRatio || 1; }
+	getPixelRatio() { return ask(this, "getPixelRatio", [], { before: window.devicePixelRatio || 1 }); }
 	triggerRepaint() { S.get(this).engine?.requestDraw?.(); }
 	redraw() { this.triggerRepaint(); return this; }
 	resize() { return this; }   // 容れ物の大きさはエンジンが ResizeObserver で追う
@@ -421,6 +583,8 @@ export class Map {
 			st.corners = Object.fromEntries(["top-left", "top-right", "bottom-left", "bottom-right"].map(k => { const d = document.createElement("div"); d.className = `maplibregl-ctrl-${k}`; root.appendChild(d); return [k, d]; }));
 			st.container.appendChild(root);
 		}
+		// deck.gl の MapboxOverlay（PR-7）：interleaved（地図の GL 文脈へ描く）はこの地図では成り立たない（地図は worker が描く）＝overlaid に倒す。overlaid は render／resize／mouse・drag 系の事象と getCenter/getZoom/getBearing/getPitch/getPadding/getRenderWorldCopies で追従する
+		if (ctrl._interleaved === true && ctrl._props && typeof ctrl.setProps === "function") { unsupported(this, "MapboxOverlay interleaved (deck.gl cannot draw into this map's GL context; falling back to overlaid)", "cosmetic"); ctrl._interleaved = false; }
 		const where = pos || ctrl.getDefaultPosition?.() || "top-right", el = ctrl.onAdd(this);
 		const corner = st.corners[where] || st.corners["top-right"];
 		if (where.startsWith("bottom")) corner.insertBefore(el, corner.firstChild); else corner.appendChild(el);
@@ -453,5 +617,4 @@ export class Popup extends OrthoPopup {
 	}
 	setLngLat(ll) { return super.setLngLat(lngArr(ll)); }
 	getLngLat() { const v = super.getLngLat?.(); return v ? LngLat.convert(v) : v; }
-	trackPointer() { unsupported(this, "Popup.trackPointer", "cosmetic"); return this; }
 }

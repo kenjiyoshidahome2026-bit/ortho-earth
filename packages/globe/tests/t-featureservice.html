@@ -1,0 +1,210 @@
+<!doctype html>
+<!-- 公開のフィーチャーサービスを URL で直に読む（#176）。模擬のサーバー＝頁の fetch を https://fs.mock/ だけ差し替える（網に出ない）：
+       Pts   … ArcGIS FeatureServer・10 点・query は token 必須（transformRequest で付ける）・copyrightText・版（lastEditDate）
+       Big   … ArcGIS FeatureServer・0.02° 格子の点 251,001 件（130〜140°E・30〜40°N）＝件数で視野追従へ
+       lakes … OGC API – Features・面 3・next でページング・license
+       plain … 拡張子の無い GeoJSON（…/data/plain）
+     ?v=source＝MapLibre の addSource({ type:"geojson", data:"<URL>" })：
+       ① 丸ごと（Pts）＝描かれる・鍵は transformRequest（token・型は Source）・proxy へ行かない・出典が #attr に
+       ② 素の URL（plain）＝従来の道のまま（geopbf(URL)＝proxy 確認→許可外なら直に）・鍵つきの URL（?key=）だけ requester（transformRequest・proxy へ行かない）
+       ③ OGC（lakes）＝next をたどって 3 面・出典（license）
+       ④ 控え（IDB）＝外して足し直すと query を投げない・外すと出典が下がる
+       ⑤ 掃除＝map.clearFeatureServiceCache() は FS1:: の控えだけを消す（他の鍵の控えは残る）→ 足し直すと読み直す
+     ?v=view＝件数の多い層（Big）＝視野の枡だけ読む・動けば足す（前の分は残る）・引きすぎは読まない・外して足し直すと枡は控えから
+     ?v=g＝?g=<Pts>＝利用者の gint 枠へ丸ごと・出典の行
+     ?v=gbig＝?g=<Big>＝全体へ寄る（引きすぎ＝「寄れば読む」の札）→ 寄ると枠に点が入る
+     ?v=net＝実サービス（verify:net だけ）：Esri の World Countries (Generalized)（ArcGIS・251 面）と pygeoapi のデモ（OGC・lakes）をブラウザから直に -->
+<html lang="en"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-featureservice</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search), V = Q.get("v") || "source";
+const t = [], errs = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+addEventListener("error", e => errs.push(String(e.message || e)));
+addEventListener("unhandledrejection", e => errs.push(String(e.reason?.message || e.reason)));
+const until = async (fn, ms = 20000, step = 150) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await fn(); if (v) return v; await sleep(step); } return null; };
+
+// ── 模擬のサーバー ──
+const LOG = [];
+const realFetch = window.fetch.bind(window);
+const J = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
+const PTS = Array.from({ length: 10 }, (_, i) => ({ id: i + 1, lon: 139 + i * 0.1, lat: 35 + i * 0.1 }));
+const STEP = 0.02, N = 501;   // Big：lon 130 + i·0.02・lat 30 + j·0.02（i, j ＝ 0..500）・id ＝ i·N + j + 1
+const big = b => {   // 範囲の中の格子の添字の区間
+	const lo = (v, o) => Math.max(0, Math.ceil((v - o) / STEP - 1e-9)), hi = (v, o) => Math.min(N - 1, Math.floor((v - o) / STEP + 1e-9));
+	return b ? { i0: lo(b[0], 130), i1: hi(b[2], 130), j0: lo(b[1], 30), j1: hi(b[3], 30) } : { i0: 0, i1: N - 1, j0: 0, j1: N - 1 };
+};
+const LAKES = [[137, 36], [137.5, 36.2], [138, 36.4]].map(([x, y], k) => ({ type: "Feature", id: "lake-" + k, properties: { name: "Lake " + k }, geometry: { type: "Polygon", coordinates: [[[x, y], [x + 0.2, y], [x + 0.2, y + 0.1], [x, y + 0.1], [x, y]]] } }));
+const arcMeta = (name, extra) => ({ name, maxRecordCount: 2000, supportedQueryFormats: "JSON, geoJSON", advancedQueryCapabilities: { supportsPagination: true }, objectIdField: "OBJECTID", geometryType: "esriGeometryPoint", fields: [{ name: "OBJECTID", type: "esriFieldTypeOID" }], ...extra });
+window.fetch = async (input, init = {}) => {
+	const url = typeof input === "string" ? input : input.url;
+	if (/api\.ortho-earth\.com\/proxy/.test(url)) {
+		LOG.push({ url, proxy: true });
+		if (/fs\.mock/.test(decodeURIComponent(url))) return J({ error: "host not allowed" }, 403);   // 許可外＝native-bucket は直 fetch へ縮退（従来の挙動）
+	}
+	if (!url.startsWith("https://fs.mock/")) return realFetch(input, init);
+	const h = init.headers instanceof Headers ? Object.fromEntries(init.headers) : { ...(init.headers || {}) };
+	LOG.push({ url, type: h["X-Req-Type"] || h["x-req-type"] || null });
+	const u = new URL(url), q = u.searchParams, p = u.pathname;
+	const bbox = q.get("geometry") ? q.get("geometry").split(",").map(Number) : q.get("bbox") ? q.get("bbox").split(",").map(Number) : null;
+	if (p === "/arcgis/rest/services/Pts/FeatureServer/0") return J(arcMeta("Pts", { copyrightText: "Pts © Somebody", editingInfo: { lastEditDate: 1790000000000 }, extent: { xmin: 139, ymin: 35, xmax: 140, ymax: 36, spatialReference: { wkid: 4326 } } }));
+	if (p === "/arcgis/rest/services/Pts/FeatureServer/0/query") {
+		if (q.get("token") !== "SECRET") return J({ error: { code: 499, message: "Token Required" } });
+		const sel = PTS.filter(x => !bbox || (x.lon >= bbox[0] && x.lon <= bbox[2] && x.lat >= bbox[1] && x.lat <= bbox[3]));
+		if (q.get("returnCountOnly") === "true") return J({ count: sel.length });
+		return J({ type: "FeatureCollection", features: sel.map(x => ({ type: "Feature", id: x.id, properties: { OBJECTID: x.id, name: "P" + x.id }, geometry: { type: "Point", coordinates: [x.lon, x.lat] } })) });
+	}
+	if (p === "/arcgis/rest/services/Big/FeatureServer/0") return J(arcMeta("Big", { copyrightText: "Big grid", extent: { xmin: 130, ymin: 30, xmax: 140, ymax: 40, spatialReference: { wkid: 4326 } } }));
+	if (p === "/arcgis/rest/services/Big/FeatureServer/0/query") {
+		const r = big(bbox), ni = Math.max(0, r.i1 - r.i0 + 1), nj = Math.max(0, r.j1 - r.j0 + 1), total = ni * nj;
+		if (q.get("returnCountOnly") === "true") return J({ count: total });
+		const off = +q.get("resultOffset") || 0, n = Math.min(+q.get("resultRecordCount") || 2000, 2000), feats = [];
+		for (let k = off; k < Math.min(total, off + n); k++) { const i = r.i0 + Math.floor(k / nj), j = r.j0 + k % nj, id = i * N + j + 1; feats.push({ type: "Feature", id, properties: { OBJECTID: id }, geometry: { type: "Point", coordinates: [130 + i * STEP, 30 + j * STEP] } }); }
+		return J({ type: "FeatureCollection", features: feats, properties: { exceededTransferLimit: off + n < total } });
+	}
+	if (p === "/ogc/collections/lakes") return J({ id: "lakes", title: "Lakes", extent: { spatial: { bbox: [[137, 36, 138.2, 36.5]] } }, links: [{ rel: "license", title: "CC BY 4.0", href: "https://creativecommons.org/licenses/by/4.0/" }] });
+	if (p === "/ogc/collections/lakes/items") {
+		const lim = +q.get("limit") || 10, off = +q.get("offset") || 0, sel = LAKES.slice(off, off + Math.min(lim, 2));   // 1 頁 2 件まで＝next をたどらせる
+		const next = off + sel.length < LAKES.length ? [{ rel: "next", href: `items?limit=${lim}&offset=${off + sel.length}` }] : [];
+		return J({ type: "FeatureCollection", numberMatched: LAKES.length, features: sel, links: next });
+	}
+	if (p === "/data/plain" || p === "/data/plain.geojson") return J({ type: "FeatureCollection", features: [{ type: "Feature", properties: { k: 1 }, geometry: { type: "LineString", coordinates: [[135, 34], [136, 35]] } }, { type: "Feature", properties: { k: 2 }, geometry: { type: "LineString", coordinates: [[135, 35], [136, 34]] } }] });
+	return J({ error: { message: "not found" } }, 404);
+};
+const PTS_URL = "https://fs.mock/arcgis/rest/services/Pts/FeatureServer/0", BIG_URL = "https://fs.mock/arcgis/rest/services/Big/FeatureServer/0";
+const LAKES_URL = "https://fs.mock/ogc/collections/lakes/items", PLAIN_URL = "https://fs.mock/data/plain";
+// 鍵は利用者が付ける（MapLibre の transformRequest と同じ）＝fs.mock 宛てだけ token と型の印
+const transformRequest = (url, type) => url.startsWith("https://fs.mock/") ? { url: url + (url.includes("?") ? "&" : "?") + "token=SECRET", headers: { "X-Req-Type": type } } : undefined;
+const attrText = map => map.mapEl.querySelector("#attr")?.textContent || "";
+const follow = () => window.__fsFollow?.() || [];
+const geojsonQueries = () => LOG.filter(l => /\/query/.test(l.url) && /f=geojson/.test(l.url)).length;
+
+try {
+	await (await import("../src/i18n.js")).setLang("en");
+	const { createGlobe } = await import("@ortho-earth/globe");
+	if (V === "source") {
+		const map = await createGlobe({ target: "#map", view: "#6/35.5/137.5", chips: false, debugGlobals: true, transformRequest });
+		await map.once("load");
+		// ① 丸ごと（Pts）
+		map.addSource("pts", { type: "geojson", data: PTS_URL });
+		await map.addLayer({ id: "pts", type: "circle", source: "pts", paint: { "circle-radius": 6, "circle-color": "#ff0000" } });
+		const f1 = await until(() => follow().find(e => e.sid === "pts" && e.n === 10));
+		const fsReq = LOG.filter(l => !l.proxy);
+		ok("whole", !!f1 && fsReq.length >= 3 && fsReq.every(l => /token=SECRET/.test(l.url) && l.type === "Source"), `n=${f1?.n} req=${fsReq.length} ${fsReq.map(l => l.type).join(",")}`);
+		const [x, y] = map.projectLL(139.4, 35.4);
+		const hit = await until(async () => { const r = await map.queryRenderedFeatures([x, y], { layers: ["pts"] }); return r.length ? r : null; }, 10000);
+		ok("drawn", /^P[3-7]$/.test(hit?.[0]?.properties?.name || ""), JSON.stringify(hit?.[0]?.properties));
+		ok("attr", await until(() => /Pts © Somebody/.test(attrText(map))), attrText(map).slice(0, 120));
+		// ② 素の URL＝従来の道（proxy 確認 → 許可外 → 直）・鍵つき＝requester
+		const RUN = Date.now();   // URL の IDB 控え（従来の道の控え）に当たらないよう毎回別の URL
+		const legacy = `${PLAIN_URL}.geojson?run=${RUN}`, keyed = `${PLAIN_URL}?run=${RUN}k&key=K`;   // 従来の道は拡張子で形式を決める（拡張子なしは従来どおり未対応）・鍵つきは中身の頭で
+		map.addSource("plain", { type: "geojson", data: legacy });
+		await map.addLayer({ id: "plain", type: "line", source: "plain", paint: { "line-color": "#00ff00", "line-width": 4 } });
+		const [lx, ly] = map.projectLL(135.5, 34.5);
+		const lh = await until(async () => { const r = await map.queryRenderedFeatures([lx, ly], { layers: ["plain"] }); return r.length ? r : null; }, 15000);
+		const legacyProxy = LOG.some(l => l.proxy && decodeURIComponent(l.url).includes(legacy)), legacyGet = LOG.find(l => !l.proxy && l.url.includes(`run=${RUN}`) && !l.url.includes("key=K"));
+		ok("plain-legacy", lh?.length >= 1 && legacyProxy && legacyGet && !/token=SECRET/.test(legacyGet.url), `hits=${lh?.length} proxy=${legacyProxy} get=${legacyGet?.url}`);
+		map.addSource("plainkey", { type: "geojson", data: keyed });
+		await map.addLayer({ id: "plainkey", type: "line", source: "plainkey", paint: { "line-color": "#00ffff", "line-width": 4 } });
+		const pk = await until(() => LOG.find(l => !l.proxy && l.url.includes(`run=${RUN}k`)));
+		ok("plain-keyed", pk && /token=SECRET/.test(pk.url) && pk.type === "Source" && !LOG.some(l => l.proxy && decodeURIComponent(l.url).includes(`run=${RUN}k`)), pk?.url);
+		// ③ OGC
+		map.addSource("lakes", { type: "geojson", data: LAKES_URL });
+		await map.addLayer({ id: "lakes", type: "fill", source: "lakes", paint: { "fill-color": "#0000ff" } });
+		const f3 = await until(() => follow().find(e => e.sid === "lakes" && e.n === 3));
+		const items = LOG.filter(l => /\/items/.test(l.url));
+		ok("ogc", !!f3 && items.length >= 3 && items.some(l => /offset=2/.test(l.url)) && await until(() => /CC BY 4\.0/.test(attrText(map))), `n=${f3?.n} items=${items.length} attr=${attrText(map).slice(0, 80)}`);
+		ok("no-proxy", !LOG.some(l => l.proxy && /(FeatureServer|collections|key=K)/.test(decodeURIComponent(l.url))), LOG.filter(l => l.proxy).map(l => l.url).join(" "));
+		// ④ 控え：外して足し直す＝query を投げない・外すと出典が下がる
+		map.removeLayer("pts"); map.removeSource("pts");
+		const gone = await until(() => !/Pts © Somebody/.test(attrText(map)));
+		const q0 = geojsonQueries();
+		map.addSource("pts", { type: "geojson", data: PTS_URL });
+		await map.addLayer({ id: "pts", type: "circle", source: "pts", paint: { "circle-radius": 6, "circle-color": "#ff0000" } });
+		const f4 = await until(() => follow().find(e => e.sid === "pts" && e.n === 10));
+		ok("cache-whole", gone && !!f4 && geojsonQueries() === q0, `gone=${!!gone} queries ${q0}→${geojsonQueries()}`);
+		// ⑤ 掃除＝FS1:: だけ
+		const G = await import("geopbf");
+		await G.geopbf({ type: "FeatureCollection", features: [{ type: "Feature", properties: { a: 1 }, geometry: { type: "Point", coordinates: [1, 2] } }] }, { gint: false, cacheKey: "TEST::keep" });
+		const kept0 = await until(() => G.geopbfCached("TEST::keep", { gint: false }), 5000);
+		map.removeLayer("pts"); map.removeSource("pts");
+		const r = await map.clearFeatureServiceCache();
+		const kept1 = await G.geopbfCached("TEST::keep", { gint: false });
+		const q1 = geojsonQueries();
+		map.addSource("pts", { type: "geojson", data: PTS_URL });
+		await map.addLayer({ id: "pts", type: "circle", source: "pts", paint: { "circle-radius": 6, "circle-color": "#ff0000" } });
+		await until(() => follow().find(e => e.sid === "pts" && e.n === 10));
+		let bad = null; try { await G.geopbfCachePrune({ maxEntries: 0 }); } catch (e) { bad = e; }
+		ok("cache-prune", kept0 && r?.removed >= 2 && r.kept === 0 && kept1?.length === 1 && geojsonQueries() > q1 && /prefix is required/.test(bad?.message || ""), `removed=${r?.removed} kept=${r?.kept} keep=${kept1?.length} queries ${q1}→${geojsonQueries()} bad=${bad?.message}`);
+		map.destroy();
+	} else if (V === "view") {
+		const map = await createGlobe({ target: "#map", view: "#10/35.5/135.5", chips: false, debugGlobals: true, transformRequest });
+		await map.once("load");
+		map.addSource("big", { type: "geojson", data: BIG_URL });
+		await map.addLayer({ id: "big", type: "circle", source: "big", paint: { "circle-radius": 2, "circle-color": "#ff0000" } });
+		const settled = async pred => until(() => { const e = follow().find(x => x.sid === "big"); return e && e.stats && e.stats.pending === 0 && pred(e) ? e : null; }, 30000, 250);
+		const e1 = await settled(e => e.n > 0);
+		const b1 = map.getBounds();
+		ok("view-first", e1 && e1.n < 100000 && e1.stats.cells > 0, JSON.stringify(e1?.stats) + ` n=${e1?.n} bounds=${b1?.map(v => v.toFixed(2))}`);
+		const [px, py] = map.projectLL(135.5, 35.5);
+		const hit = await until(async () => { const r = await map.queryRenderedFeatures([[px - 4, py - 4], [px + 4, py + 4]], { layers: ["big"] }); return r.length ? r : null; }, 10000);
+		ok("view-drawn", hit?.length > 0, `hits=${hit?.length}`);
+		const n1 = e1?.n ?? 0, cells1 = e1?.stats?.cells ?? 0;
+		map.jumpTo({ center: [138, 38], zoom: map.getZoom() });
+		const e2 = await settled(e => e.stats.cells > cells1 && e.n > n1);
+		ok("view-follow", e2 && e2.n > n1, `n ${n1}→${e2?.n} cells ${cells1}→${e2?.stats?.cells}`);
+		map.jumpTo({ center: [135, 35], zoom: 4.5 });   // 範囲の全部が入る＝25 万件＞上限＝読まない
+		const e3 = await settled(e => e.stats.skippedTooMany > 0);
+		ok("view-too-many", e3 && e3.n === e2?.n, `skipped=${e3?.stats?.skippedTooMany} n=${e3?.n} now=${JSON.stringify(follow().find(x => x.sid === "big")?.stats)} zoom=${map.getZoom()} bounds=${map.getBounds()}`);
+		// 控え：外して足し直し、最初の所へ戻る＝枡は IDB から（query を投げない）
+		map.jumpTo({ center: [135.5, 35.5], zoom: 10 });
+		await sleep(300);
+		map.removeLayer("big"); map.removeSource("big");
+		ok("view-removed", !follow().some(x => x.sid === "big"));
+		await sleep(1500);   // 控えの書き込み（非同期）を待つ
+		const q0 = geojsonQueries();
+		map.addSource("big", { type: "geojson", data: BIG_URL });
+		await map.addLayer({ id: "big", type: "circle", source: "big", paint: { "circle-radius": 2, "circle-color": "#ff0000" } });
+		const e4 = await settled(e => e.n > 0);
+		ok("view-cache", e4 && e4.stats.cacheHits > 0 && e4.stats.requests === 0 && geojsonQueries() === q0, JSON.stringify(e4?.stats) + ` queries ${q0}→${geojsonQueries()}`);
+		map.destroy();
+	} else if (V === "net") {
+		const map = await createGlobe({ target: "#map", view: "#2/20/0", chips: false, debugGlobals: true });
+		await map.once("load");
+		const ARC = "https://services.arcgis.com/P3ePLMYs2RVChkJx/arcgis/rest/services/World_Countries_(Generalized)/FeatureServer/0";
+		const OGCU = "https://demo.pygeoapi.io/master/collections/lakes/items";
+		map.addSource("countries", { type: "geojson", data: ARC });
+		await map.addLayer({ id: "countries", type: "line", source: "countries", paint: { "line-color": "#ff0000" } });
+		map.addSource("lakes", { type: "geojson", data: OGCU });
+		await map.addLayer({ id: "lakes", type: "fill", source: "lakes", paint: { "fill-color": "#0000ff" } });
+		const a = await until(() => follow().find(e => e.sid === "countries" && e.n > 200), 60000);
+		const o = await until(() => follow().find(e => e.sid === "lakes" && e.n >= 10), 60000);
+		ok("net-arcgis", !!a, JSON.stringify(follow()));
+		ok("net-ogc", !!o, JSON.stringify(follow()));
+		ok("net-no-proxy", !LOG.some(l => l.proxy && /(arcgis|pygeoapi)/.test(decodeURIComponent(l.url))));
+		map.destroy();
+	} else if (V === "g" || V === "gbig") {
+		const map = await createGlobe({ target: "#map", chips: false, debugGlobals: true, transformRequest });
+		await map.once("load");
+		if (V === "g") {
+			const pbf = await until(() => map.userPbf()?.length === 10 ? map.userPbf() : null, 20000);
+			const line = await until(() => map.mapEl.querySelector("#attr .g-src"));
+			ok("g-whole", !!pbf && /Map data: Pts © Somebody/.test(line?.textContent || ""), `n=${map.userPbf()?.length} line=${line?.textContent}`);
+			ok("g-no-proxy", !LOG.some(l => l.proxy && /fs\.mock/.test(decodeURIComponent(l.url))) && LOG.filter(l => /\/query/.test(l.url)).every(l => /token=SECRET/.test(l.url)));
+		} else {
+			const line = await until(() => { const l = map.mapEl.querySelector("#attr .g-src"); return l && /Zoom in to load features/.test(l.textContent) ? l : null; }, 30000);
+			ok("gbig-hint", !!line && /Big grid/.test(line.textContent), line?.textContent);
+			map.jumpTo({ center: [135.5, 35.5], zoom: 10 });
+			const pbf = await until(() => map.userPbf()?.length > 0 ? map.userPbf() : null, 30000);
+			const line2 = map.mapEl.querySelector("#attr .g-src");
+			ok("gbig-follow", pbf && pbf.length < 100000 && !/Zoom in/.test(line2?.textContent || ""), `n=${pbf?.length} line=${line2?.textContent}`);
+		}
+		map.destroy();
+	}
+	await sleep(300);
+	ok("noErrors", errs.length === 0, errs.slice(0, 2).join(" | "));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + `[${V}] ` + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

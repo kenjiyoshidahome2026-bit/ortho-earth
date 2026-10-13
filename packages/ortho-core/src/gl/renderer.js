@@ -9,11 +9,12 @@ import { ELEV_RESAMPLE_VS, ELEV_RESAMPLE_FS } from "./glsl.js";   // 標高セ�
 import { downsampleFlipped, cropResample } from "../elevation.js";   // 同・CPU 退避（EXT_color_buffer_float 無し・?cpuelev=1・型が想定外）
 import { worldAtlasCell } from "../elevation/worldatlas.js";
 import { seaFbReal } from "../scene.js";   // 図郭外フォールバック水域の擬似li帯判定（build.js buildEmptySeaOps と対）
-import { resolveWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
+import { resolveWorldPal, fadeWorldPal } from "../worldpal.js";   // 全球ハイプソの正準パレット（テーマ＝view.worldHypso の部分上書き）
 import * as mat from "../mat.js";
 import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
+import { FAR_PIVOT } from "./gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一（gpu/renderer.js と対）
@@ -153,7 +154,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.bindTexture(gl.TEXTURE_2D, null); gl.activeTexture(gl.TEXTURE0);
 		const bytes = Math.round(bitmap.width * bitmap.height * 4 * 4 / 3);
 		memRaster += bytes;
-		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height };
+		return { kind: "tex", tex, bytes, w: bitmap.width, h: bitmap.height, nearest: false };
 	}
 	function rasterMesh({ pos, uv, idx }) {
 		const vao = gl.createVertexArray();
@@ -206,13 +207,19 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.activeTexture(gl.TEXTURE10);
 		for (const L of rasterDraws.layers) {
 			if (L.order !== order) continue;
-			gl.uniform1f(loc(gl, rasAtlasProg, "u_opacity"), L.opacity);
+			const nearest = L.resampling === "nearest";   // raster-resampling（C4）＝層の設定をテクスチャに掛ける（1 枚のテクスチャは 1 層のもの＝毎回掛け直して安い）
 			for (const d of L.draws) {
 				const b = d.bounds;
 				if (b[2] <= bb[0] || b[0] >= bb[2] || b[3] <= bb[1] || b[1] >= bb[3]) continue;   // 窓と重ならない
+				gl.uniform1f(loc(gl, rasAtlasProg, "u_opacity"), L.opacity * (d.a ?? 1));   // a＝到着フェード（raster-fade-duration）
 				gl.uniform2f(loc(gl, rasAtlasProg, "u_tileOff"), d.nw[0] - a.win[0], d.nw[1] - a.win[1]);   // CPU f64 で差を取ってから f32
 				gl.uniform4f(loc(gl, rasAtlasProg, "u_uvT"), d.uvT[0], d.uvT[1], d.uvT[2], d.uvT[3]);
 				gl.bindTexture(gl.TEXTURE_2D, d.tex.tex);
+				if (d.tex.nearest !== nearest) {   // nearest＝拡大は最近傍・縮小は最近傍の mip（MapLibre は mip 無しの NEAREST＝球では遠景が暴れるので mip は残す・文書 §4）
+					d.tex.nearest = nearest;
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, nearest ? gl.NEAREST_MIPMAP_NEAREST : gl.LINEAR_MIPMAP_LINEAR);
+					gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, nearest ? gl.NEAREST : gl.LINEAR);
+				}
 				gl.bindVertexArray(d.mesh.vao);
 				gl.drawElements(gl.TRIANGLES, d.mesh.count, gl.UNSIGNED_SHORT, 0);
 				gnd.tiles++;
@@ -347,9 +354,10 @@ export function createRenderer(canvas, rOpts = {}) {
 	}
 	// 世界パレット（view.worldHypso の参照変化でだけ再解決＝setView は浅マージでオブジェクト丸ごと差し替わる）。
 	// globe/terrain/wdepr は同一フレームの同一戻り値を使う＝wdepr⇄globe の縫い目（色の bit 一致契約）が構造的に保たれる。
-	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null;
+	let wpal = resolveWorldPal(null), wpalSrc = null, seaSrc = null, wpalA = 1, wpalLand = null;
 	const worldPal = () => {
-		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpal = resolveWorldPal(wpalSrc); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
+		const a = view.worldHypsoOpacity ?? 1;
+		if (view.worldHypso !== wpalSrc || (view.sea ?? null) !== seaSrc || a !== wpalA || view.land !== wpalLand) { wpalSrc = view.worldHypso; seaSrc = view.sea ?? null; wpalA = a; wpalLand = view.land; wpal = fadeWorldPal(resolveWorldPal(wpalSrc), a, view.land || [0.96, 0.96, 0.95]); if (seaSrc) wpal.sea = seaSrc; }   // view.sea＝海の色の上書き（gpu と同じ）
 		return wpal;
 	};
 	function bindWorldPal(prog) {   // 要 useProgram 済み。8色＝WORLD_HYPSO チャンクの uniform
@@ -377,8 +385,14 @@ export function createRenderer(canvas, rOpts = {}) {
 	// 静的 view（色・見た目）：初期化時に一度 setView でアップロード。draw は毎フレーム幾何(cam)だけ受け、
 	// 色は view から読む＝描画パラメータを「幾何(動的)」と「見た目(静的)」に分離。将来の worker payload 境界。
 	let view = { clear: null, land: null, atmo: null, bldColor: null };
-	const fogK = () => (view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
+	// style の sky（B4）＝{ sky, horizon, fog:[r,g,b], groundBlend, horizonFogBlend, skyHorizonBlend, atmosphereBlend }｜null（従来＝宇宙へ抜けるリム光・霧は land 色）
+	// 霧：sky の fog-color が霧の色（基図・建物・地形の遠山ブルーも）。fog-ground-blend＝濃さ（0＝霧なし・0.5＝従来の距離・1＝半分の距離から）＝view.fog:false より優先
+	let sky = null;
+	const fogK = () => (sky ? (sky.groundBlend <= 0 ? 1e6 : 0.5 / sky.groundBlend) : view.fog === false ? 1e6 : 1);   // view.fog:false＝霧を焚かない（gpu/renderer.js と同じ・2026-09-30）
+	const fogColorOf = c => (sky ? sky.fog : c);
 	function setView(v) { view = { ...view, ...v }; }
+	let lights = null;   // 局所の光源（第 3 波 W2）＝{ n, data: Float32Array(8×16) }（light.js localLightsPayload）｜null＝無し。メッシュ（模型・LOD2）の陰影に足す
+	let light = null;   // style の light（B3）＝{ dir:[東,北,上], color:[r,g,b], intensity }｜null（従来の固定光）。メッシュ（押し出し・glTF・LOD2）の陰影に効く
 	// 海：水レイヤ(li)を cam.zoom で一律にゲート＝ビュー単位で描く/描かない（タイル毎の presence まだらを排す）。
 	// cam.zoom < minzoom では水を描かない＝海は球の基色(紙)のまま。以上で一律の色を点火。
 	let sea = { li: -1, minzoom: Infinity };
@@ -1138,6 +1152,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		gl.uniform2f(loc(gl, prog, "u_viewport"), canvas.width, canvas.height);
 		gl.uniform1f(loc(gl, prog, "u_fogNear"), (st.fogDist || st.camDist) * 2.5 * fogK());
 		gl.uniform1f(loc(gl, prog, "u_fogFar"), (st.fogDist || st.camDist) * 14.0 * fogK());
+		fog = fogColorOf(fog);
 		gl.uniform3f(loc(gl, prog, "u_fogColor"), fog[0], fog[1], fog[2]);
 		// 対数深度係数（cameraState と同じ far＝地平線 limb×1.15+camDist）。球+局所(建物)の z-fight 対策。
 		gl.uniform1f(loc(gl, prog, "u_logCoef"), logCoefOf(st));
@@ -1194,7 +1209,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		const whZ = view.worldHypsoZ ?? 6.5;
 		const worldHypsoK = view.worldHypso && elev.has ? Math.max(0, Math.min(1, (whZ - cam.zoom) / 0.8)) : 0;
 		const flat2d = (cam.pitch || 0) < 0.02 && cam.zoom >= 9 && !cogSt.has && !gnd.rasterOn;   // COG/画像タイル層の搭載中は真俯瞰でも globe パスを通す（陸の下地に画像を敷く唯一の層）
-		const c = flat2d ? [land[0], land[1], land[2], 1] : (view.clear || [1, 1, 1, 1]);
+		const c = flat2d ? [land[0], land[1], land[2], land[3] ?? 1] : (view.clear || [1, 1, 1, 1]);   // 2D の床も land の不透明度（B5）＝background 層の無い MapLibre の地図は透明
 		gl.clearColor(c[0] * c[3], c[1] * c[3], c[2] * c[3], c[3]);
 		gl.clear(gl.COLOR_BUFFER_BIT);
 		gl.enable(gl.BLEND);
@@ -1256,6 +1271,13 @@ export function createRenderer(canvas, rOpts = {}) {
 			setRayUniforms(globeProg, st);   // #65：視線の基底（f64）＋目＋c
 			gl.uniform4f(loc(gl, globeProg, "u_land"), land[0], land[1], land[2], land[3]);
 			gl.uniform4f(loc(gl, globeProg, "u_atmo"), atmo[0], atmo[1], atmo[2], atmo[3]);
+			gl.uniform1f(loc(gl, globeProg, "u_skyOn"), sky ? 1 : 0);   // style の sky（B4）＝簡易の空。無指定＝従来の絵
+			if (sky) {
+				gl.uniform3f(loc(gl, globeProg, "u_skyColor"), sky.sky[0], sky.sky[1], sky.sky[2]);
+				gl.uniform3f(loc(gl, globeProg, "u_horizonColor"), sky.horizon[0], sky.horizon[1], sky.horizon[2]);
+				gl.uniform3f(loc(gl, globeProg, "u_skyFogColor"), sky.fog[0], sky.fog[1], sky.fog[2]);
+				gl.uniform4f(loc(gl, globeProg, "u_skyBlend"), sky.skyHorizonBlend, sky.horizonFogBlend, sky.atmosphereBlend, 0);
+			}
 			gl.uniform1f(loc(gl, globeProg, "u_globeAlpha"), globeA);
 			// 全球ハイプソ（view.worldHypso＝テーマ/アプリのknob）：z5.5 まで全開→z6.3 で消灯。
 			// 終端 6.3＝R90 全球窓の終わり（z6.5 でアトラスがビュー窓へ切替＝窓の外の陸が「標高0＝海」に化ける）
@@ -1344,13 +1366,14 @@ export function createRenderer(canvas, rOpts = {}) {
 			// 距離も地形だけ半分に詰める＝中景の山並み（80-150km）にしっかり青が乗る。
 			// 距離は camDist 比例に「実距離の下限＝視程」を併用：ズームを寄せても 50km 手前から
 			// 165km（快晴の山岳視程）までは霞み切らない＝八ヶ岳から中央・北アルプスが青い山並みとして残る。
-			const dc = view.distColor || [0.63, 0.72, 0.83];
+			const dc = fogColorOf(view.distColor || [0.63, 0.72, 0.83]);   // sky の fog-color（B4）が最優先
 			gl.uniform3f(loc(gl, terrainProg, "u_fogColor"), dc[0], dc[1], dc[2]);
 			// 視程の下限（50km/165km）はチルト連動：真俯瞰では0＝純camDist比例（見下ろす平面地図の縁が
 			// 青く染まるのを防ぐ）。傾けるほど（20°→46°）横に大気を見通す＝実距離の視程が効く。
 			gl.uniform1f(loc(gl, terrainProg, "u_fogNear"), Math.max(st.fogDist * 1.2, 0.008 * pfFog) * fogK());
 			gl.uniform1f(loc(gl, terrainProg, "u_fogFar"), Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK());
 			gl.uniform3f(loc(gl, terrainProg, "u_land"), land[0], land[1], land[2]);
+			gl.uniform1f(loc(gl, terrainProg, "u_landA"), land[3] ?? 1);   // 床の不透明度（B5）
 			// 標高ティント（view.hypso={color,max,amount}＝テーマのノブ）。未指定は amount=0＝恒等（従来の単色陰影）
 			const hy = view.hypso;
 			gl.uniform3f(loc(gl, terrainProg, "u_hypso"), hy ? hy.color[0] : 0, hy ? hy.color[1] : 0, hy ? hy.color[2] : 0);
@@ -1447,6 +1470,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK();   // fog:false＝無限（gpu と同じ）
+		FAR_PIVOT.on = view.gintFarPivot !== false;   // 塗り扇の遠方の要（画面カリング）の逃げ道（view.gintFarPivot=false＝?nofarpivot=1・比較用）
 		// gint（1canvas統合・埋込パス）向けの frame コンテキスト：山岳ビュー（terrainDepth）の間だけ、
 		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
 		// 基図の線と同じ高さ・同じ深度空間で地形に参加（尾根の向こうは隠線＝淡破線）。それ以外は null＝最前面。
@@ -1683,6 +1707,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			const ex = st.eye, d2 = p => (p.origin[0] - ex[0]) ** 2 + (p.origin[1] - ex[1]) ** 2 + (p.origin[2] - ex[2]) ** 2;
 			const order = [...vis.filter(v => !v.p.textured), ...vis.filter(v => v.p.textured && !v.p.blend), ...vis.filter(v => v.p.blend).sort((x, y) => d2(y.p) - d2(x.p))];
 			let zOff = false;
+			const common = new Set();   // 共通 uniform（カメラ・霧・標高窓・建物色）を入れ終えたプログラム＝バッチ毎でなくプログラム毎に 1 回（GL の uniform はプログラムに残る）
 			for (const { p, count } of order) {
 				const pg = p.textured ? meshTexProg : meshProg;   // 模型（uv＋頂点色＋テクスチャ）は派生プログラム＝切替は模型の分だけ
 				if (pg !== curProg) { gl.useProgram(pg); curProg = pg; }
@@ -1691,12 +1716,19 @@ export function createRenderer(canvas, rOpts = {}) {
 					gl.uniform1f(loc(gl, pg, "u_alphaCut"), p.cut); gl.uniform1f(loc(gl, pg, "u_blend"), p.blend ? 1 : 0);
 				}
 				if (!!p.blend !== zOff) { zOff = !!p.blend; gl.depthMask(!zOff); }   // 半透明＝深度を書かない（後ろの半透明が消えない）
-				setCommonUniforms(pg, st, [0, 0], land);
+				if (!common.has(pg)) {
+					common.add(pg); setCommonUniforms(pg, st, [0, 0], land); gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
+					gl.uniform1f(loc(gl, pg, "u_lightOn"), light ? 1 : 0);   // style の light（B3）＝無ければ従来の固定光
+					if (light) { gl.uniform3f(loc(gl, pg, "u_lightDir"), light.dir[0], light.dir[1], light.dir[2]); gl.uniform1f(loc(gl, pg, "u_lightI"), light.intensity ?? 0.5); const lc = light.color || [1, 1, 1]; gl.uniform3f(loc(gl, pg, "u_lightColor"), lc[0], lc[1], lc[2]); }
+					gl.uniform1i(loc(gl, pg, "u_lightN"), lights ? lights.n : 0);   // 局所の光源（W2）＝4 本の vec4[8] をそのまま流す
+					if (lights) { const d = lights.data; for (let i = 0; i < 4; i++) { const a = new Float32Array(32); for (let k = 0; k < 8; k++) a.set(d.subarray(k * 16 + i * 4, k * 16 + i * 4 + 4), k * 4); gl.uniform4fv(loc(gl, pg, ["u_lA", "u_lB", "u_lC", "u_lD"][i]), a); } }
+				}
 				const lb = p.noLift ? null : p.drape ? DRAPE_ALL : elev.liftBounds;   // DTM保証域（無ければ全0＝リフトなし）・noLift＝持ち上げない（平面の統計）・drape＝全域で持ち上げる
 				gl.uniform4f(loc(gl, pg, "u_liftBounds"), lb ? lb[0] : 0, lb ? lb[1] : 0, lb ? lb[2] : 0, lb ? lb[3] : 0);
-				gl.uniform3f(loc(gl, pg, "u_bldColor"), c[0], c[1], c[2]);
 				gl.uniform1f(loc(gl, pg, "u_cullBack"), p.two ? 0 : 1);   // 橋梁＝両面（開いた薄面が裏から消えない）
 				gl.uniform3f(loc(gl, pg, "u_meshOrigin"), p.origin[0], p.origin[1], p.origin[2]);  // RTE 錨（頂点は重心相対 delta）
+				gl.uniform1f(loc(gl, pg, "u_xfOn"), p.xf ? 1 : 0);   // バッチの剛体変換（glTF の rigid アニメ・W4）＝L（3x3 列優先）と原点相対の平行移動
+				if (p.xf) { gl.uniformMatrix3fv(loc(gl, pg, "u_xfL"), false, p.xf.subarray(0, 9)); gl.uniform3f(loc(gl, pg, "u_xfT"), p.xf[9], p.xf[10], p.xf[11]); }
 				const cM = mat.transform(st.mvp, [p.origin[0], p.origin[1], p.origin[2], 1]);   // clip錨を CPU(double) で（旧: シェーダ float32 で mvp*meshOrigin＝相殺）
 				gl.uniform4f(loc(gl, pg, "u_clipMesh"), cM[0], cM[1], cM[2], cM[3]);
 				gl.bindVertexArray(p.vao);
@@ -1736,6 +1768,9 @@ export function createRenderer(canvas, rOpts = {}) {
 	function set(cmd, data, prop) {
 		switch (cmd) {
 			case "view":      setView(data); break;                                            // data={clear,land,atmo,bldColor}
+			case "light":     light = data && Array.isArray(data.dir) ? data : null; break;      // style の light（B3・MapLibre の setLight）
+			case "lights":    lights = data && data.n > 0 && data.data ? data : null; break;      // 局所の光源（W2・light.js localLightsPayload）
+			case "sky":       sky = data && Array.isArray(data.sky) ? data : null; break;        // style の sky（B4・MapLibre の setSky）＝簡易の空と霧の色・濃さ
 			case "sea":       sea = { ...sea, ...data }; break;                                  // data={li, minzoom} 海の点火ゲート
 			case "bldFill":   bldFill = { ...bldFill, ...data }; break;
 			case "userAnchor": userAnchor = { ranges: Array.isArray(data?.ranges) ? data.ranges : [], rev: userAnchor.rev + 1 }; break;   // 基図の層の間への差し込み（#123）                          // data={li} 建物フットプリント塗り（3D時に伏せる）
@@ -1760,6 +1795,8 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "terrLod": TERR_LOD = data !== false; break;   // 地形チャンク刈りの実行時切替（P4 step B・門 t-terrcull の A/B）
 			case "elevAtlasFarOff": clearElevationFar(); break;                                 // 深ズーム離脱＝GPUメモリ返却
 			case "meshSet": setMeshSet(prop, data); break;                             // prop=地区名(key)、data={pos,idx} 建物メッシュ（LOD2 等）（null=解放）
+			case "meshXf": { const p = meshes.get(prop); if (p) p.xf = data && data.length >= 12 ? data : null; break; }   // バッチの剛体変換（W4）＝Float32Array(12)（L 9＋xt 3）｜null
+			case "meshCol": { const p = meshes.get(prop); if (p?.textured && data?.length && p.bufs[4]) { gl.bindBuffer(gl.ARRAY_BUFFER, p.bufs[4]); gl.bufferSubData(gl.ARRAY_BUFFER, 0, data); gl.bindBuffer(gl.ARRAY_BUFFER, null); } break; }   // 頂点色だけ書き換える（feature state の色・W7）＝Uint8Array RGBA×頂点（長さは meshSet と同じ）
 			case "meshVis":  setMeshVis(prop, data); break;                              // prop=区名、data=真偽（GPU常駐のまま表示切替＝再訪の再アップロード不要）
 			case "stars":     setStars(data); break;                                           // data=Float32Array [cel.xyz,rgb,a,size]×n
 			case "constellations": setConstellations(data); break;                             // data=Float32Array [cel.xyz]×2n（LINES端点列）表示は view.showConst
@@ -1767,6 +1804,7 @@ export function createRenderer(canvas, rOpts = {}) {
 			case "ecliptic":  setEcliptic(data); break;                                        // data=Float32Array [cel.xyz]×2n（黄道の大円・LINES）表示は view.showConst
 			case "celequator": setCelEquator(data); break;                                     // data=同上（天の赤道の大円）
 			case "cogTex":    setCogTex(data); break;                                          // data={rgba,w,h,bboxLL}|null ユーザ COG（等経緯度整列 RGBA）
+			case "post":   post = data || null; dOut?.setPost(post); break;   // 後処理 bloom・vignette（PR-8）・fxaa/tonemap/lut（W1）＝renderworker が FBO（depthOut）を開いて end で合成
 			case "shadow": break;   // 建物の影＝WebGPU 専用。GL2 はフォールバック＝影をかけない仕様（2026-09-24 裁定）＝素通し・警告しない
 			case "clip": break;     // 断面（#111）＝WebGPU 専用（本人裁定 2026-09-29・影と同じ扱い）＝素通し・警告しない
 			default: console.warn("renderer.set: unknown cmd", cmd);
@@ -1778,12 +1816,12 @@ export function createRenderer(canvas, rOpts = {}) {
 	const memEstimate = () => ({ atlas: memAtlas + memStage + memFar, mesh: memMesh, msaa: 0, raster: memRaster + gnd.bytes, depthOut: dOut ? dOut.bytes() : 0 });
 	// シーンの深度の書き出し（#47）：depthOut(true)＝口 { begin(), end() → { pixels, w, h, logCoef }, abort() }（初回に FBO 一式を作る）／
 	// depthOut(false)＝畳む（資産を返す・従来の経路へ）。begin は renderer.draw の前・end は gint.draw の後（renderworker が挟む）
-	let dOut = null, lastLogCoef = 0;
+	let dOut = null, lastLogCoef = 0, post = null;   // post＝後処理の設定（PR-8・normPost 済み）＝depthOut の FBO の写しの段で掛ける
 	function depthOut(on) {
 		if (!on) { if (dOut) { dOut.dispose(); dOut = null; } return null; }
-		if (!dOut) dOut = createDepthOutGL(gl, canvas);
+		if (!dOut) { dOut = createDepthOutGL(gl, canvas, () => rOpts.requestDraw?.()); dOut.setPost(post); }
 		const d = dOut;
-		return { begin: d.begin, abort: d.abort, end: () => { const f = d.end(); return f ? { ...f, logCoef: lastLogCoef } : null; } };
+		return { begin: d.begin, abort: d.abort, end: o => { const f = d.end(o); return f ? { ...f, logCoef: lastLogCoef } : null; } };
 	}
 	return { gl, set, draw, dispose, depthOut, md: !!md, mdMax: MD_MAX_DRAWS, gintCtx: () => gintCtx, memEstimate, maxTex: gl.getParameter(gl.MAX_TEXTURE_SIZE),
 		terrStats: () => terrStat,   // 地形チャンクの刈り（P4 step B）：直近フレームの near/far の描いたチャンク数/総数

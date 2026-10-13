@@ -8,6 +8,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey）を見て、変わった層だけ出ているタイルから組み直す（幾何は worker に残す＝高さと色だけ）。
 //   メッシュ＝1 タイル・1 層・1 本（名前 vtx:<層 id>:<z/x/y>#0）・drape（どこでも地表の標高へ）・keep2d（真上からも屋根）・伏せ枠なし・半透明は BLEND。
 // 問い合わせ＝worker に残した「描いた地物」から、光線の地面の区間で候補を絞り、屋根と壁の画面の投影で当てる（MapLibre の押し出しの当て方）。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { hitExtrusion } from "../extrude-ml.js";   // 当たり＝geojson の押し出しと同じ（屋根と壁・奥行き）
@@ -21,7 +22,7 @@ const meshBytes = d => d.pos.byteLength + d.nrm.byteLength + d.idx.byteLength + 
 // desc（source の記述子・globe が作る）＝{ tileUrl:(z,x,y)=>URL|null, pmtiles: URL|null, minzoom, maxzoom, bounds:[w,s,e,n]|null, coverage:[w,s,e,n]|null, promoteId, tag（同じ source かの印） }
 // 呼び手の口：size()＝{ w, h }（device px）・hitEnv()＝今の視点の当たりの口（extrude-ml.js の env＝vtx/roof・地形の持ち上げ込み・奥行き＝clip の w）・
 //             unprojectAt(x, y, 高さ m)→[lon, lat]|null（候補の区間）・isFlying()
-export function createVTExtrude(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
+export function createVTExtrude(map, { raw = null, cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, setMesh, meshVis, meshPort = null, requestDraw = () => {}, isFlying = () => false, hitEnv, unprojectAt, ell = false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const MESH_BUDGET = (lowMem ? 96 : 256) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3;
@@ -46,22 +47,13 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const sendVis = (ward, on) => { if (!meshPort) { meshVis(ward, on); return; } meshPort.postMessage({ vis: !!on, name: ward }); requestDraw(); };
 
 	// ── worker 2 本（タイルの鍵で振る＝同じタイルの層は同じ worker＝解読と幾何を共有）──
-	const workers = [], waiting = new Map(); let rpcSeq = 0;
-	const workerOf = k => {
-		let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
-		const i = Math.abs(h) % 2;
-		if (!workers[i]) {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
-			w.onmessage = e => { const p = waiting.get(e.data.id); if (!p) return; waiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); };
-			w.onerror = e => console.error("[vtextrude] worker error", e.message);
-			workers[i] = w;
-		}
-		return { w: workers[i], i };
-	};
-	const rpc = (w, msg, transfer = []) => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); w.postMessage({ id, ...msg }, transfer); });
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtextrude" }), { size: 2, tag: "vtextrude" });   // 入口 1 本（worker.js）＝役割は name
+	const workerOf = pool.pick, rpc = pool.rpc;
 
 	const schedule = () => { if (!rafU) rafU = requestAnimationFrame(() => { rafU = 0; update(); }); };
-	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else setTimeout(schedule, 130); };
+	// 間引き：120ms 以内の move は 130ms 後に 1 回だけ（保留は 1 本）。旧＝move の度に setTimeout を積んだ＝ドラッグ中は 1 フレームに何本も溜まって destroy でも消えなかった
+	let moveT = 0;
+	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else if (!moveT) moveT = setTimeout(() => { moveT = 0; schedule(); }, 130); };
 	const onSettle = () => { moving = false; settledZoom = cam.zoom; schedule(); };
 	map.on("move", onMove); map.on("settle", onSettle);
 
@@ -118,7 +110,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
+			if (T.bytes) { raw?.put("vtextrude", src.sid, key, ab.slice(0), enc); await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]); }   // raw＝main の写し（querySourceFeatures・C7）
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -215,7 +207,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			let rawTotal = 0; const rc = [];
 			for (const [k, T] of src.tiles) { rawTotal += T.bytes; if (T.state === "ready" && T.used < clock) rc.push([T.used, k, T]); }
 			rc.sort((a, b) => a[0] - b[0]);
-			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); raw?.drop("vtextrude", sid, k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		}
 	}
 	// 状態が変わった地物（fid＝undefined は全部）を含むタイルに印＝次の選びで組み直す（paint に ["feature-state"] がある層だけ・残したタイルも印＝出す時に直る）
@@ -230,6 +222,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	function dropSource(sid) {
 		const src = sources.get(sid); if (!src) return;
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+		raw?.dropSource("vtextrude", sid);
 		sources.delete(sid);
 	}
 	const ctl = {
@@ -259,7 +252,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		remove(id) {
 			const s = layers.get(id); if (!s) return;
 			for (const lt of s.tiles.values()) dropMesh(lt);
-			for (const w of workers) w?.postMessage({ kind: "dropLayer", lid: id });
+			for (const w of pool.workers) w?.postMessage({ kind: "dropLayer", lid: id });
 			layers.delete(id);
 			for (let i = uploads.length - 1; i >= 0; i--) if (uploads[i].id === id) uploads.splice(i, 1);
 			if (![...layers.values()].some(x => x.sid === s.sid)) dropSource(s.sid);
@@ -268,6 +261,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		// 状態が変わった（setFeatureState / removeFeatureState）＝その地物を含むタイルだけ組み直す（幾何は残す＝高さと色だけ）。fid＝undefined は全部
 		touchFS: (sid, sl, fid) => touchFS(sid, sl, fid),
 		has: id => layers.has(id),
+		shownTiles(sid) { const ks = new Set(); for (const s of layers.values()) if (s.sid === sid) for (const [k, lt] of s.tiles) if (lt.on && lt.bytes) ks.add(k); return [...ks]; },   // 出しているタイルの鍵（querySourceFeatures・C7）
 		// MapLibre の isSourceLoaded 相当：見えている層の wanted が全部「今の式で」組み上がって送り終わり、出しているか（組み直し待ち＝まだ）
 		loaded(sid) {
 			const src = sources.get(sid); if (!src) return true;
@@ -321,9 +315,9 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		destroy() {
 			for (const id of [...layers.keys()]) ctl.remove(id);
 			map.off("move", onMove); map.off("settle", onSettle);
+			clearTimeout(moveT); moveT = 0; if (rafU) { globalThis.cancelAnimationFrame?.(rafU); rafU = 0; }
 			if (meshPort) { meshPort.onmessage = null; meshPort.close(); }
-			for (const w of workers) w?.terminate();
-			workers.length = 0; waiting.clear();
+			pool.destroy();
 		},
 	};
 	return ctl;

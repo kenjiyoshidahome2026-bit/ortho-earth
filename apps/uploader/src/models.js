@@ -1,11 +1,11 @@
 // 名所 3D 模型（GLB）の一括アップロード → bucket GIS/models/<id>.glb（ortho-japan の /japan/models.html が読む）。
-// 台帳＝apps/ortho-japan/public/models.json（monorepo 直読み＝正本は japan 側）。GLB（npm run landmarks が作る）を選ぶ→
+// 台帳＝ortho-data/japan/models.json（monorepo 直読み＝正本はリポの根の ortho-data/japan/）。GLB（npm run landmarks が作る）を選ぶ→
 // ファイル名から台帳の id を推定（手で直せる）→「全部アップロード」＝順に put（50 MB 以上は native-bucket が multipart）。
 // 置き物は native-bucket の put が gzip で置く（.glb は圧縮対象）＝読む側（models.js）は自分で gunzip する。
 // 台帳に無い模型は「ファイル名のまま」で置ける（後で台帳へ行を足す）。
 import * as d3 from "d3";
 import { comma } from "common";
-import catalog from "../../ortho-japan/public/models.json";
+import catalog from "../../../ortho-data/japan/models.json";
 
 const DIRE = "GIS/models";
 const norm = s => String(s).toLowerCase().normalize("NFKC").replace(/\.(glb|gltf|zip)$/i, "").replace(/[^a-z0-9぀-ヿ一-鿿]+/g, " ").trim();
@@ -33,7 +33,7 @@ export function modelsUI({ CMD, q, Bucket }) {
 		if (!bucket) throw new Error(`Bucket(${DIRE}) に到達できない`);
 		const models = catalog.models || [];
 		const root = q.target.append("div").style("padding", "0 1em 1em").style("font", "13px/1.6 system-ui, sans-serif");
-		root.append("p").html(`台帳＝apps/ortho-japan/public/models.json（${models.length} 件）。GLB を選ぶ → id を確かめる → 全部アップロード。<br>
+		root.append("p").html(`台帳＝ortho-data/japan/models.json（${models.length} 件）。GLB を選ぶ → id を確かめる → 全部アップロード。<br>
 			読む側の URL＝<code>${catalog.base}&lt;id&gt;.glb</code>（50 MB 以上は multipart・置き物は gzip）`);
 
 		// 台帳と bucket の突き合わせ（在庫）

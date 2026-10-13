@@ -3,11 +3,13 @@
 //
 // 依存はこのパッケージ自身と Node 組み込みのみ（pbf は geopbf の既存依存・圧縮は node:zlib）。
 // Worker と DOM を使う src/index.js は通さず、Node でそのまま動く pbf-base / extension/gint を直に叩く。
-// ImageData は pbf-base のエンコード経路が参照するが Node に無いので、tests/t-loaders.mjs と同じ手で補う。
+// ImageData は Node に無い。エンコード側は pbf-base が存在を見てから使う（1.19〜）ので、ここで補うのは IMAGE 型（型 11）の値が
+// 入ったファイルを読み戻す時（readValue の image()）の器だけ。
 import { readFile, writeFile } from "node:fs/promises";
 import { gunzipSync, gzipSync, deflateSync } from "node:zlib";
 import { GeoPBF } from "../src/pbf-base.js";
-import { t } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
+import { t, usageFor } from "./messages.mjs";   // 表示文（英語基軸・GEOPBF_LANG=ja で日本語）
+import { parseArgs, numOpt, precisionOpt, UsageError, SPEC } from "./args.mjs";   // 引数の表と読み手（未知の --flag は拒む）
 
 globalThis.ImageData ??= class ImageData {
 	constructor(data, width, height) { this.data = data; this.width = width; this.height = height; }
@@ -52,27 +54,13 @@ const pbfOut = (outPath, out, gzip, s) => t("pbfOut", { out: outPath, size: mb(o
 const skippedList = (skipped) => skipped.map(k => `${k.name}(${k.reason})`).join(" ");
 const othersNote = (s) => s.layers.length > 1 ? t("others", { list: s.layers.filter(l => l !== s.layer).join(", ") }) : "";
 
-// 引数を「位置引数」と「オプション」に一度で分ける（--name value 形式・--name 単独は真）
-const parseArgs = (argv, valued = []) => {
-	const pos = [], opts = {};
-	for (let i = 0; i < argv.length; i++) {
-		const a = argv[i];
-		if (!a.startsWith("--")) { pos.push(a); continue; }
-		const name = a.slice(2);
-		opts[name] = valued.includes(name) ? argv[++i] : true;
-	}
-	return { pos, opts };
-};
 
 // ── enc ───────────────────────────────────────────────────────────────────────
 
 async function enc(argv) {
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name"]);
-	if (!inPath || !outPath) throw new Error("enc <in.geojson|in.ndjson> <out.geopbf>");
+	const { pos: [inPath, outPath], opts } = parseArgs("enc", argv);
 
-	const precision = opts.precision === undefined ? undefined : Number(opts.precision);
-	if (precision !== undefined && !(Number.isInteger(precision) && precision >= 1 && precision <= 9))
-		throw new Error(t("precisionRange"));   // 0 は pbf-base の `precision || 6` が黙って 6 に落とすので範囲外
+	const precision = precisionOpt(opts);   // 1〜9 の整数（args.mjs に一元化）
 
 	const src = await readMaybeGzip(inPath);
 	const t0 = Date.now();
@@ -98,8 +86,7 @@ async function enc(argv) {
 // ── dec ───────────────────────────────────────────────────────────────────────
 
 async function dec(argv) {
-	const { pos: [inPath, outPath] } = parseArgs(argv);
-	if (!inPath || !outPath) throw new Error("dec <in.geopbf> <out.geojson>");
+	const { pos: [inPath, outPath] } = parseArgs("dec", argv);
 	const gj = (await openPbf(inPath)).geojson;
 	await writeFile(outPath, JSON.stringify(gj));
 	console.log(t("decDone", { out: outPath, features: num(gj.features.length), vertices: num(countVertices(gj.features)) }));
@@ -108,8 +95,7 @@ async function dec(argv) {
 // ── info ──────────────────────────────────────────────────────────────────────
 
 async function info(argv) {
-	const { pos: [inPath] } = parseArgs(argv);
-	if (!inPath) throw new Error("info <in.geopbf>");
+	const { pos: [inPath] } = parseArgs("info", argv);
 	const raw = await readFile(inPath);
 	const gzipped = raw[0] === 0x1f && raw[1] === 0x8b;
 	const pbf = await openPbf(inPath);
@@ -138,8 +124,7 @@ async function info(argv) {
 
 async function lod(argv) {
 	const { gint } = await import("../src/extension/gint.js");   // wasm 無しでも純JS経路で動く
-	const { pos: [inPath] } = parseArgs(argv);
-	if (!inPath) throw new Error("lod <in.geopbf>");
+	const { pos: [inPath] } = parseArgs("lod", argv);
 
 	const gj = (await openPbf(inPath)).geojson;
 	const hist = new Array(64).fill(0);
@@ -176,8 +161,7 @@ async function lod(argv) {
 
 async function cog(argv) {
 	const { openCog, lonlatTarget } = await import("../src/cog/core.js");
-	const { pos: [sub, inPath, outPath], opts } = parseArgs(argv, ["level", "width"]);
-	if (!sub || !inPath) throw new Error("cog info <url|file.tif> | cog png <url|file.tif> <out.png>");
+	const { pos: [sub, inPath, outPath], opts } = parseArgs("cog", argv);
 	const src = /^https?:\/\//.test(inPath) ? inPath : new Blob([await readFile(inPath)]);
 	const t0 = Date.now();
 	const c = await openCog(src);
@@ -204,17 +188,17 @@ async function cog(argv) {
 		return;
 	}
 	if (sub === "png") {
-		if (!outPath) throw new Error("cog png <url|file.tif> <out.png>");
-		const level = opts.level !== undefined ? +opts.level : c.overviews.length - 1;
+		if (!outPath) throw new UsageError(t("missingArgs", { usage: "cog png <url|file.tif> <out.png>" }));
+		const level = numOpt(opts, "level", { int: true, min: 0, max: c.overviews.length - 1 }) ?? c.overviews.length - 1;
 		const [w, s, e, n] = c.bboxLL;
-		const W = opts.width ? +opts.width : 768, H = Math.max(16, Math.round(W * (n - s) / (e - w)));
+		const W = numOpt(opts, "width", { int: true, min: 16, max: 16384 }) ?? 768, H = Math.max(16, Math.round(W * (n - s) / (e - w)));
 		const rgba = await c.render(lonlatTarget([w, s, e, n], W, H), { level });
 		if (!rgba) throw new Error(t("cogEmpty"));
 		await writeFile(outPath, encodePNG(rgba, W, H));
 		console.log(`${outPath}  ${W} x ${H}  level ${level}/${c.overviews.length - 1}  ${Date.now() - t0} ms`);
 		return;
 	}
-	throw new Error(t("cogUnknownSub", { sub }));
+	throw new UsageError(t("cogUnknownSub", { sub }));
 }
 
 // 最小 PNG エンコーダ（8bit RGBA・filter 0・node:zlib）＝依存ゼロ維持
@@ -266,8 +250,14 @@ const engineNote = (st) => st.engine === "gpu" ? `GPU ${[st.gpu?.vendor, st.gpu?
 
 async function pmtiles(argv) {
 	const { toPMTiles } = await import("../src/convert/tiler.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["minzoom", "maxzoom", "extent", "buffer", "layer", "gint", "lod-bias", "workers", "drop-rate", "tiny-polygon", "tiny-line", "include", "exclude", "simplification"]);
-	if (!inPath || !outPath) throw new Error("pmtiles <in.geopbf> <out.pmtiles>");
+	const { pos: [inPath, outPath], opts } = parseArgs("pmtiles", argv);
+	const tileOpts = {   // 数値は読み込みの前に検査（NaN が黙って通らない・args.mjs の numOpt）
+		minZoom: numOpt(opts, "minzoom", { int: true, min: 0, max: 30 }) ?? 0, maxZoom: numOpt(opts, "maxzoom", { int: true, min: 0, max: 30 }) ?? 14,
+		extent: numOpt(opts, "extent", { int: true, min: 256, max: 65536 }), buffer: numOpt(opts, "buffer", { int: true, min: 0, max: 65536 }),
+		layer: opts.layer, lodBias: numOpt(opts, "lod-bias", { min: -64, max: 64 }), workers: numOpt(opts, "workers", { int: true, min: 0, max: 1024 }), dropRate: numOpt(opts, "drop-rate", { min: 1 }),
+		simplification: opts.simplification === undefined ? undefined : opts.simplification === "off" ? false : numOpt(opts, "simplification", { min: 0 }),
+		tinyPolygon: numOpt(opts, "tiny-polygon", { min: 0 }), tinyLine: numOpt(opts, "tiny-line", { min: 0 }), ...attrOpts(opts) };
+	if (tileOpts.minZoom > tileOpts.maxZoom) throw new UsageError(t("numberOption", { opt: "--minzoom", kind: t("integer"), range: ` 0..${tileOpts.maxZoom} (--maxzoom)`, got: String(tileOpts.minZoom) }));
 	const t0 = Date.now();
 	const pbf = await openPbf(inPath);
 	let gint;
@@ -276,12 +266,7 @@ async function pmtiles(argv) {
 	const t1 = Date.now();
 	const wantGpu = gpuOpt(opts);
 	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error(t("gpuMissing")); }
-	const r = await toPMTiles(pbf, { gint, gpu: wantGpu,
-		minZoom: opts.minzoom !== undefined ? +opts.minzoom : 0, maxZoom: opts.maxzoom !== undefined ? +opts.maxzoom : 14,
-		extent: opts.extent ? +opts.extent : undefined, buffer: opts.buffer !== undefined ? +opts.buffer : undefined,
-		layer: opts.layer, lodBias: opts["lod-bias"] !== undefined ? +opts["lod-bias"] : undefined, workers: opts.workers !== undefined ? +opts.workers : undefined, dropRate: opts["drop-rate"] !== undefined ? +opts["drop-rate"] : undefined,
-		simplification: opts.simplification === undefined ? undefined : opts.simplification === "off" ? false : +opts.simplification,
-		tinyPolygon: opts["tiny-polygon"] !== undefined ? +opts["tiny-polygon"] : undefined, tinyLine: opts["tiny-line"] !== undefined ? +opts["tiny-line"] : undefined, ...attrOpts(opts) });
+	const r = await toPMTiles(pbf, { gint, gpu: wantGpu, ...tileOpts });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
 	console.log(t("pmIn", { in: inPath, features: num(pbf.length), how: t(opts.gint ? "gintLoaded" : "gintBaked"), ms: t1 - t0, arcs: num(s.arcs), vertices: num(s.vertices) }));
@@ -291,12 +276,14 @@ async function pmtiles(argv) {
 
 async function parquet(argv) {
 	const { toGeoParquet } = await import("../src/convert/geoparquet.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["compression", "row-group", "order", "include", "exclude"]);
-	if (!inPath || !outPath) throw new Error("parquet <in.geopbf> <out.parquet>");
+	const { pos: [inPath, outPath], opts } = parseArgs("parquet", argv);
+	const rowGroupSize = numOpt(opts, "row-group", { int: true, min: 1 });
+	if (opts.compression !== undefined && !["zstd", "gzip", "none"].includes(opts.compression)) throw new UsageError(t("numberOption", { opt: "--compression", kind: "zstd|gzip|none", range: "", got: opts.compression }));
+	if (opts.order !== undefined && !["str", "hilbert", "morton", "none"].includes(opts.order)) throw new UsageError(t("numberOption", { opt: "--order", kind: "str|hilbert|morton|none", range: "", got: opts.order }));
 	const pbf = await openPbf(inPath);
 	const wantGpu = gpuOpt(opts);
 	if (wantGpu === true) { await injectDawn(); const { findGPU } = await import("../src/convert/gpu.js"); if (!(await findGPU())) console.error(t("gpuMissing")); }
-	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize: opts["row-group"] ? +opts["row-group"] : undefined, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
+	const r = await toGeoParquet(pbf, { gpu: wantGpu, codec: opts.compression || undefined, rowGroupSize, order: opts.order, bboxColumn: opts["no-bbox"] ? false : undefined, ...attrOpts(opts) });
 	await writeFile(outPath, r.buffer);
 	const s = r.stats;
 	console.log(t("pqIn", { in: inPath, features: num(s.features), vertices: num(s.vertices) }));
@@ -306,9 +293,8 @@ async function parquet(argv) {
 
 async function parquet2pbf(argv) {
 	const { fromGeoParquet } = await import("../src/convert/geoparquet.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "geometry", "include", "exclude"]);
-	if (!inPath || !outPath) throw new Error("parquet2pbf <in.parquet> <out.geopbf>");
-	const r = await fromGeoParquet(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, geometryColumn: opts.geometry, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
+	const { pos: [inPath, outPath], opts } = parseArgs("parquet2pbf", argv);
+	const r = await fromGeoParquet(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name, geometryColumn: opts.geometry, ignoreCrs: !!opts["ignore-crs"], ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -321,8 +307,7 @@ async function parquet2pbf(argv) {
 
 async function gpkg2pbf(argv) {
 	const { fromGeoPackage, readGeoPackage } = await import("../src/convert/gpkg.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd", "patchjgd"]);
-	if (!inPath) throw new Error("gpkg2pbf <in.gpkg> [out.geopbf] [--layer name]");
+	const { pos: [inPath, outPath], opts } = parseArgs("gpkg2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const g = readGeoPackage(u8);
@@ -333,7 +318,7 @@ async function gpkg2pbf(argv) {
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
 	}
-	const r = await fromGeoPackage(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
+	const r = await fromGeoPackage(u8, { layer: opts.layer, precision: precisionOpt(opts), name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -348,8 +333,7 @@ async function gpkg2pbf(argv) {
 
 async function spatialite2pbf(argv) {
 	const { fromSpatiaLite, readSpatiaLite } = await import("../src/convert/spatialite.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd", "patchjgd"]);
-	if (!inPath) throw new Error("spatialite2pbf <in.sqlite> [out.geopbf] [--layer name]");
+	const { pos: [inPath, outPath], opts } = parseArgs("spatialite2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const g = readSpatiaLite(u8);
@@ -359,7 +343,7 @@ async function spatialite2pbf(argv) {
 		for (const w of g.warnings) console.log(`  ⚠ ${w}`);
 		return;
 	}
-	const r = await fromSpatiaLite(u8, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
+	const r = await fromSpatiaLite(u8, { layer: opts.layer, precision: precisionOpt(opts), name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -374,8 +358,7 @@ async function spatialite2pbf(argv) {
 
 async function dxf2pbf(argv) {
 	const { fromDxf, readDxf } = await import("../src/convert/dxf.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "crs", "unit", "encoding", "tky2jgd", "patchjgd"]);
-	if (!inPath) throw new Error("dxf2pbf <in.dxf> [out.geopbf] [--crs 6677]");
+	const { pos: [inPath, outPath], opts } = parseArgs("dxf2pbf", argv);
 	const u8 = new Uint8Array(await readFile(inPath));
 	if (!outPath) {
 		const d = readDxf(u8, { encoding: opts.encoding });
@@ -384,8 +367,8 @@ async function dxf2pbf(argv) {
 		console.log(t("dxfLayers", { list: d.layers.map(l => l.name).join(", ") || t("dxfNoLayerTable") }));
 		return;
 	}
-	const r = await fromDxf(u8, { crs: opts.crs, ignoreCrs: !!opts["ignore-crs"], unitScale: opts.unit !== undefined ? +opts.unit : undefined, encoding: opts.encoding, closedAsPolygon: !opts["closed-lines"],
-		precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd) });
+	const r = await fromDxf(u8, { crs: opts.crs, ignoreCrs: !!opts["ignore-crs"], unitScale: numOpt(opts, "unit", { min: 0 }), encoding: opts.encoding, closedAsPolygon: !opts["closed-lines"],
+		precision: precisionOpt(opts), name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -399,9 +382,8 @@ async function dxf2pbf(argv) {
 
 async function csv2pbf(argv) {
 	const { fromTable } = await import("../src/convert/table.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "lon", "lat", "wkt", "sheet", "encoding", "fallback-encoding", "delimiter", "include", "exclude"]);
-	if (!inPath || !outPath) throw new Error("csv2pbf <in.csv|tsv|xlsx> <out.geopbf>");
-	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, fallbackEncoding: opts["fallback-encoding"], delimiter: opts.delimiter, ...attrOpts(opts) });
+	const { pos: [inPath, outPath], opts } = parseArgs("csv2pbf", argv);
+	const r = await fromTable(new Uint8Array(await readFile(inPath)), { precision: precisionOpt(opts), name: opts.name ?? inPath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, ""), lon: opts.lon, lat: opts.lat, wkt: opts.wkt, sheet: opts.sheet, encoding: opts.encoding, fallbackEncoding: opts["fallback-encoding"], delimiter: opts.delimiter, ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -414,8 +396,7 @@ async function csv2pbf(argv) {
 
 async function gdb2pbf(argv) {
 	const { openFileGDB, fromFileGDB, gdbSourceFromFiles } = await import("../src/convert/filegdb.js");
-	const { pos: [inPath, outPath], opts } = parseArgs(argv, ["precision", "name", "layer", "include", "exclude", "tky2jgd", "patchjgd"]);
-	if (!inPath) throw new Error("gdb2pbf <in.gdb|in.zip> [out.geopbf] [--layer name]");
+	const { pos: [inPath, outPath], opts } = parseArgs("gdb2pbf", argv);
 	const { statSync, readdirSync, openSync, readSync, closeSync } = await import("node:fs");
 	const { join } = await import("node:path");
 	let source;
@@ -434,7 +415,7 @@ async function gdb2pbf(argv) {
 		for (const x of g.tables) console.log(`  ${x.name}  ${x.error ? `⚠ ${x.error}` : x.geometryType ? `${x.geometryType}${x.hasZ ? "Z" : ""}${x.hasM ? "M" : ""}  ${x.crs.label}${x.crs.kind === "other" ? t("cannotToLonLat") : ""}` : "(table)"}  ${t("rows", { n: num(x.rows) })}  ${t("columns", { list: x.fields.filter(f => f.type !== "geometry").map(f => f.name).join(",") })}`);
 		return;
 	}
-	const r = await fromFileGDB(source, { layer: opts.layer, precision: opts.precision !== undefined ? +opts.precision : undefined, name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
+	const r = await fromFileGDB(source, { layer: opts.layer, precision: precisionOpt(opts), name: opts.name, ignoreCrs: !!opts["ignore-crs"], tky2jgd: await tkyArg(opts.tky2jgd), patchjgd: await tkyArg(opts.patchjgd), ...attrOpts(opts) });
 	const gzip = !opts["no-gzip"];
 	let out = Buffer.from(r.pbf.arrayBuffer);
 	if (gzip) out = gzipSync(out, { level: 9 });
@@ -453,10 +434,13 @@ async function gdb2pbf(argv) {
 const [cmd, ...argv] = process.argv.slice(2);
 const commands = { enc, dec, info, lod, cog, pmtiles, parquet, parquet2pbf, gpkg2pbf, spatialite2pbf, dxf2pbf, csv2pbf, gdb2pbf };
 if (!cmd || cmd === "--help" || cmd === "-h") { console.log(t("usage")); process.exit(0); }
-if (!commands[cmd]) { console.error(t("unknownCommand", { cmd })); console.error(t("usage")); process.exit(1); }
+if (!commands[cmd]) { console.error(t("unknownCommand", { cmd })); console.error(t("usage")); process.exit(2); }
+if (argv.includes("--help") || argv.includes("-h")) { console.log(usageFor(cmd)); process.exit(0); }   // <cmd> --help＝そのコマンドの段だけ
 try {
 	await commands[cmd](argv);
 } catch (e) {
 	console.error(`geopbf ${cmd}: ${e.message}`);
-	process.exit(1);
+	if (e instanceof UsageError) console.error(t("seeHelp", { cmd }));
+	process.exit(e instanceof UsageError ? 2 : 1);   // 使い方の誤り＝2・実行時の失敗＝1
 }
+void SPEC;

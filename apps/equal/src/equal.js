@@ -15,7 +15,7 @@ import { parseViewHash, buildViewHash } from "@ortho-earth/core/viewurl";
 import { resolveWorldPal } from "@ortho-earth/core/worldpal";
 import { unproject, anchorView, clampView, minZoomFor, pxPerUnit, wrapLon } from "./equalearth.js";
 import { bakeLayer, bakeGraticule } from "./bake.js";
-import { createRenderer } from "./renderer.js";
+import { createBackend } from "./backend.js";   // WebGPU 既定・WebGL2 へ落ちる（globe と同じ掟）
 import { LAYERS, GRATICULE, PALETTE } from "./layers.js";
 import { THEMES, THEME_NAMES, normTheme, hex } from "./themes.js";   // 配色テーマ＝japan と同じ名前・同じ c= トークン（世界パレットは ortho-core の共有正本）
 import { loadWorldElevation, loadClimate, createNearElevation } from "./hypso.js";
@@ -41,18 +41,23 @@ const num01 = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? M
 // target＝置き場（要素か CSS セレクタ・大きさは持ち主が決める）。lang＝UI と地名の言語（省略＝params の lang → ブラウザ）。
 // params＝設定（?labels ?hypso ?choro ?choroA ?year ?g ?csv と同じ書式の文字列/URLSearchParams）。view＝初期視点（"#z/lat/lon/l=…" 書式）。
 // hash＝頁の URL と往復する（殻＝true・埋め込み＝false）。keyboard＝矢印/+/− を聞く。assetBase＝koppen-clim.png の置き場（既定＝この頁）
-export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = new URL(import.meta.env.BASE_URL, location.href) } = {}) {
+// geopbf＝false なら bucket 基盤（createGeopbf）を起こさない＝持ち主（globe のエンジン）が同じ geopbf を既に起こしている頁（japan の上に div で重ねる時）
+export async function createEqual({ target, lang: langOpt, params = "", view: view0, hash = false, keyboard = true, assetBase = new URL(import.meta.env.BASE_URL, location.href), geopbf: ownGeopbf = true } = {}) {
 	const host = typeof target === "string" ? document.querySelector(target) : target;
 	if (!host) throw new Error("createEqual: target not found");
 	const q = params instanceof URLSearchParams ? params : new URLSearchParams(params || "");   // 殻＝location.search・埋め込み＝持ち主の指定
-	ensureGeopbf();
+	if (ownGeopbf) ensureGeopbf();
 
 	let lang = norm(langOpt) || norm(q.get("lang")) || norm(navigator.language) || "en";   // UI と地名の言語（26 言語・本人裁定 2026-09-18「操作系の UI も i18n」）
 	await setLang(lang);   // UI を組む前に訳を揃える（japan と同じ掟＝モジュール評価時に t() を呼ばない）
-	// 預かった div を生きている間だけ #map にする（quiet-mono の家具規格＝#map の中の #gadgets/#dock/#c…・japan の SDK と同じ作法）。
-	// destroy で id/class/dir を返す＝同じ頁で地図は 1 つ（家具規格の前提）
+	// 預かった div を生きている間だけ #map にする（quiet-mono の家具規格＝#map の中の #gadgets/#dock/#c…・japan の SDK と同じ作法＝従来の頁の互換）。
+	// ただし別の地図の容れ物（.qm／#map）の中に置かれた時＝japan の地図の上に div で重ねる時（2026-10-04）は id を触らない＝頁の #map は 1 つのまま。
+	// 意匠は .qm で当たる（:is(.qm, #map)・#173）＝id に依らない。.eq＝equal 固有の規則（style.scss）の印＝持ち主の家具へ漏らさない。
+	// destroy で id/class/dir を返す
 	const mapEl = host, prevId = host.id, prevClass = host.className;
-	mapEl.id = "map"; mapEl.classList.add("ui-dark", "qm");   // .qm＝quiet-mono の容れ物の印（意匠は :is(.qm, #map) で当たる・#173）
+	const nested = !!host.parentElement?.closest(".qm, #map");
+	if (!nested) mapEl.id = "map";
+	mapEl.classList.add("ui-dark", "qm", "eq");   // .qm＝quiet-mono の容れ物の印（意匠は :is(.qm, #map) で当たる・#173）
 	mapEl.insertAdjacentHTML("beforeend", `<canvas id="c"></canvas><canvas id="labels"></canvas>`);
 	mapEl.dir = isRTL() ? "rtl" : "ltr";   // RTL（アラビア・ヘブライ・ペルシア・ウルドゥー）＝quiet-mono の論理プロパティで家具が鏡像になる
 	const canvas = mapEl.querySelector("#c");
@@ -61,7 +66,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	let destroyed = false;
 	const handlers = {};
 	const emit = (type, v) => { for (const fn of handlers[type] || []) try { fn(v); } catch (e) { console.error(e); } };
-	const R = createRenderer(canvas);
+	const R = await createBackend(canvas, q);
 	if (!R) { mapEl.insertAdjacentHTML("beforeend", `<div id="net-toast" style="display:block">${esc(t("WebGL2 is required."))}</div>`); throw new Error("WebGL2 unavailable"); }
 
 	// ── 状態 ──
@@ -175,7 +180,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		const clim = loadClimate(new URL("koppen-clim.png", assetBase).href)
 			.then(img => { R.setClimate(img); requestDraw(); })
 			.catch(e => console.warn("[hypso] climate texture failed (latitude approximation)", e));
-		const maxTex = R.gl.getParameter(R.gl.MAX_TEXTURE_SIZE);
+		const maxTex = R.maxTex;
 		let upT = 0;   // セル到着ごとの再アップロードは 1 フレームにまとめる
 		await loadWorldElevation({ apiUrl: API, cellRes: Math.min(1024, Math.floor(maxTex / 4)),
 			onUpdate: a => { cancelAnimationFrame(upT); upT = requestAnimationFrame(() => { R.setElevation(a.data, a.width, a.height); requestDraw(); }); } })
@@ -391,8 +396,15 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	}
 	// ホバー識別＝国 ID バッファ（最後の描画のもの＝視点が同じ間は有効）の 1px 直読み。
 	// 国が変わった時だけ再描画する（旧＝pointermove ごとに全層を描き直していた＝マウスを動かすだけで GPU が全開）
+	// WebGPU の readFid は Promise＝追い越し（古い読みが後から着く）は番号で捨てる。着いた時に指が離れていれば -1
+	let identSeq = 0;
 	function identify() {
-		let fid = pointer && !dragging && unproject(view, pointer.sx, pointer.sy) ? R.readFid(pointer.cx, pointer.cy) : -1;   // 外形の外は ID バッファに扇の余りが残る＝読まない
+		const r = pointer && !dragging && unproject(view, pointer.sx, pointer.sy) ? R.readFid(pointer.cx, pointer.cy) : -1;   // 外形の外は ID バッファに扇の余りが残る＝読まない
+		const seq = ++identSeq;
+		if (typeof r === "number") applyHover(r);
+		else r.then(fid => { if (seq === identSeq && !destroyed) applyHover(pointer && !dragging ? fid : -1); });
+	}
+	function applyHover(fid) {
 		if (fid >= NONE) fid = -1;   // world に無い陸＝識別しない
 		if (fid !== hoverFid) { hoverFid = fid; requestDraw(); }
 		setTip(fid >= 0 ? tipText(fid) : null);
@@ -904,7 +916,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 	let tapStart = null, coarseTip = false;
 	canvas.addEventListener("pointerup", release);
 	canvas.addEventListener("pointercancel", release);
-	canvas.addEventListener("pointerleave", () => { pointer = null; hoverFid = -1; setTip(null); requestDraw(); });
+	canvas.addEventListener("pointerleave", () => { pointer = null; identSeq++; hoverFid = -1; setTip(null); requestDraw(); });
 	canvas.addEventListener("wheel", e => {
 		e.preventDefault();
 		const k = e.deltaMode === 1 ? 0.05 : e.deltaMode === 2 ? 1 : 0.0025;
@@ -949,8 +961,9 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 		labels: labelsLayer,
 		get world() { return world; },
 		get busy() { return [...busy]; },
-		fidAt: (cx, cy) => R.readFid(cx, cy),
+		fidAt: async (cx, cy) => R.readFid(cx, cy),   // Promise<fid|-1>（WebGPU の読み戻しは非同期）
 		morphIn, morphOut, releaseMorph, close: closeToHost,   // 球 ⇄ Equal Earth の変形（Promise＝着いたら解決）。releaseMorph＝hold を解いて開き始める。close＝球へ畳んで emit("closed", view)
+		get backend() { return R.backend; },   // "webgpu" | "webgl2"
 		get drawn() { return firstFrame; },   // 最初の 1 枚を描いた後か（殻が on("frame") を結ぶ前に描き終えている場合の取りこぼし防止）
 		get sphereView() { return morph ? { zoom: morph.sphere.zoom, lat: morph.sphere.lat, lon: sphereLon() } : null; },
 		get morphing() { return morph ? (morph.phase === "park" ? "globe" : "morphing") : "map"; },
@@ -973,7 +986,7 @@ export async function createEqual({ target, lang: langOpt, params = "", view: vi
 			ac.abort();
 			for (const o of observers) o.disconnect();
 			near?.stop();
-			R.gl.getExtension("WEBGL_lose_context")?.loseContext();
+			R.destroy();
 			mapEl.replaceChildren(); mapEl.removeAttribute("dir");
 			if (prevId) mapEl.id = prevId; else mapEl.removeAttribute("id");
 			mapEl.className = prevClass;

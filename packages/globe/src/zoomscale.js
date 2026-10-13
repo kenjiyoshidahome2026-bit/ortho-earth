@@ -42,6 +42,16 @@ export const MAP_MEMBERS = {
 	getCenter: "none", setCenter: "none", getPitch: "none", setPitch: "none", getBearing: "none", setBearing: "none",
 	getBounds: "none", setMaxBounds: "none", getMaxBounds: "none", setPadding: "none", getPadding: "none",
 	isMoving: "none", stop: "none", maxPitch: "none", setMaxPitch: "none", getMaxPitch: "none", ellipsoidOn: "none",
+	getRoll: "none", setRoll: "none", getVerticalFieldOfView: "none", setVerticalFieldOfView: "none",   // A1（2026-10-12）＝角度・度。zoom は運ばない
+	setHandler: "none", handlerOn: "none", setZoomSnap: "none", getZoomSnap: "none",
+	setNow: "none", restoreNow: "none", getNow: "none", setReduceMotion: "none", getReduceMotion: "none",   // C10（2026-10-12）＝動きの時計と動きを減らす旗   // A2（2026-10-12）＝handler の旗・zoomSnap は目盛りの刻み（zoom の数ではない）
+	fitScreenCoordinates: "in", setCenterClampedToGround: "none", getCenterClampedToGround: "none", setCenterElevation: "none", getCenterElevation: "none", getCameraTargetElevation: "none",   // A3（2026-10-12）
+	setConstrain: "engine",
+	lookAt: "in", follow: "in", setCamera: "in", getCamera: "none", isFollowing: "none",
+	setLight: "none", getLight: "none", setSky: "none", getSky: "none", setClearColor: "none",
+	// B6（2026-10-12）＝MapLibre の小口。coveringTiles の minzoom/maxzoom と答えの z は MapLibre の z（mlcover の規則）＝換算しない。setCameraUpdate は setConstrain と同じ engine（fn が受け取る zoom はエンジンの z）
+	getSprite: "none", addSprite: "none", removeSprite: "none", setSprite: "none", getImage: "none", getGlyphs: "none", setGlyphs: "none", getStyleUrl: "none", getFontFaces: "none", setFontFaces: "none",
+	refreshTiles: "none", coveringTiles: "none", setSourceTileLodParams: "none", setCameraUpdate: "engine", setMinPitch: "none", getMinPitch: "none", setPixelRatio: "none", getPixelRatio: "none", setRepaint: "none", getRepaint: "none", setDebug: "none", getDebug: "none",   // B3・B4（2026-10-12）   // A4（2026-10-12）＝options.zoom を換算（distance は m のまま）・getCamera は zoom を返さない   // A3＝fn が受け取る zoom はエンジンの z（文書に明記・MapLibre の口 setTransformConstrain が dz を往復させる）
 	cam: "engine",   // 内部の生の状態（書き換え可能な物）＝換算しない
 	// イベント
 	on: "event", off: "event", once: "event",
@@ -58,7 +68,7 @@ export const MAP_MEMBERS = {
 	addFontFace: "none",   // Web フォントを差す（段 2）
 	setGlobalStateProperty: "none", getGlobalState: "none",   // global-state（記号の残件③）
 	setTerrain: "none", getTerrain: "none", queryTerrainElevation: "none",   // raster-dem の minzoom/maxzoom は source の tile z＝MapLibre と同義
-	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none",
+	setTransformRequest: "none", addProtocol: "none", removeProtocol: "none", fetchResource: "none", clearFeatureServiceCache: "none", addCOPC: "none", removeCOPC: "none",   // clearFeatureServiceCache＝フィーチャーサービスの控えの掃除（#176）
 	Marker: "none", Popup: "none",
 	// gint（ネイティブ）
 	addGint: "in", applyGintData: "in", paint: "in", paintTable: "none", queryAll: "none", clearUserGint: "none",
@@ -73,6 +83,15 @@ export const MAP_MEMBERS = {
 	project: "none", unproject: "none", projectLL: "none", unprojectXY: "none", makeProjector: "none", makeProjectorH: "none",
 	onFrame: "none", requestDraw: "none", requestSnapshot: "none", setOpacity: "none", setEditClick: "none", pinRes: "none",
 	overlay: "engine",   // worker の overlay 契約の cam はエンジン z
+	// deck.gl 差分（PR-1〜8・2026-10-11〜12）：overlay の統一 picking・H3・three.js・addData・セル／等高線／画面格子／集約・custom 層の口・後処理。座標は lon/lat・画素＝z の換算なし
+	pickOverlays: "none", addThree: "none", addH3: "none", addData: "none", addCells: "none", addContour: "none", addScreenGrid: "none", addAggregate: "none", getCustomLayerHandle: "none",
+	setPostProcess: "none", getPostProcess: "none",
+	// plugin 契約・registry・capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12）＝zoom を運ばない（plugin の install は素の map を受ける＝地域パックと同じ）
+	use: "none", unuse: "none", plugins: "none", registry: "none", supports: "none", capabilities: "none",
+	setLights: "none", getLights: "none",   // 光源の口（F1）＝位置は lon/lat/alt・zoom を運ばない
+	getSunPosition: "none", getMoonPosition: "none", setSun: "none", getSun: "none", setClouds: "none", getClouds: "none",   // 太陽・月・雲の口（F2）＝度と m
+	setPostChain: "none", getPostChain: "none",   // 後処理の鎖（F3）
+	sampleTerrain: "none", walk: "none",   // 地形の一括標本・一人称歩行の口（F6）＝lon/lat と m
 	// 台本の族（台本の書式＝hash 文字列に属する）
 	playScenes: "engine", stopScenes: "none", sceneTimeline: "engine",
 	// その他
@@ -92,6 +111,7 @@ export const GADGET_MEMBERS = {
 	search: "none", compass: "none", full: "none", shot: "none", measure: "none", profile: "none", contextmenu: "none",
 	legend: "none", palette: "none", hint: "none", qr: "none", print: "none", cpos: "none", mesh: "none", plateau: "none",
 	dropFile: "none", model: "none", tip: "none", pop: "none", clock: "none", tiles3d: "none", inspect: "none",   // inspect＝検査表示（#174）
+	lang: "none",   // UI 言語の切替（オプトイン・#219 デモ品質の段）＝zoom を運ばない
 	// 実行時にだけ在るガジェット（d.ts に無い＝t-mlcompat の実行時キーが拾う）。中でエンジン z を使う物（equal・anno・cog・stac・geoedit）は
 	// 素の map（func.apply(map)）で動く＝利用者の opts に zoom が無い限り換算は要らない（段 2 で opts を見直す）
 	equal: "none", equalHere: "none", equalStart: "none", solar: "none", explain: "none", close: "none", anno: "none",

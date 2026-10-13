@@ -3,7 +3,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { LngLat, LngLatBounds, MercatorCoordinate } from "../src/maplibre/geo.js";
+import { LngLat, LngLatBounds, MercatorCoordinate, FreeCameraOptions, orientationFromPitchBearing, pitchBearingRollFromOrientation } from "../src/maplibre/geo.js";
 import { lngArr, boundsArr, camOpts, viewOf } from "../src/maplibre/util.js";
 import { mercatorDz } from "../src/zoomscale.js";
 import { unsupported } from "../src/maplibre/report.js";
@@ -37,6 +37,19 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 	ok("LngLatBounds.fromLngLat 半径", near(r.getNorth(), 1, 1e-3) && near(r.getEast(), 1, 1e-3));
 }
 
+// ── FreeCameraOptions（A3）＝向きの往復は恒等・lookAtPoint の方位と俯角 ──
+{
+	const w = a => ((a + 180) % 360 + 360) % 360 - 180;
+	const rt = [[0, 0, 0], [30, 45, 0], [60, -120, 15], [85, 170, -40], [45, 0, 90], [10, -179, 179]].every(([p, b, r]) => { const d = pitchBearingRollFromOrientation(orientationFromPitchBearing(p, b, r)); return near(d.pitch, p, 1e-9) && near(w(d.bearing - b), 0, 1e-9) && near(w(d.roll - r), 0, 1e-9); });
+	ok("FreeCameraOptions の向き＝pitch/bearing/roll の往復は恒等", rt);
+	const f = new FreeCameraOptions(MercatorCoordinate.fromLngLat([139.76, 35.68], 1000));
+	f.lookAtPoint([139.77, 35.68]); const e = pitchBearingRollFromOrientation(f.orientation);
+	f.lookAtPoint([139.76, 35.70]); const n = pitchBearingRollFromOrientation(f.orientation);
+	ok("lookAtPoint＝東は方位 90・北は 0・遠い方が寝る・roll 0", near(e.bearing, 90, 1e-9) && near(n.bearing, 0, 1e-9) && n.pitch > e.pitch && e.roll === 0 && e.pitch > 0 && e.pitch < 90, `${e.pitch.toFixed(1)} ${n.pitch.toFixed(1)}`);
+	f.setPitchBearing(30, -45); const s = pitchBearingRollFromOrientation(f.orientation);
+	ok("setPitchBearing の往復", near(s.pitch, 30, 1e-9) && near(s.bearing, -45, 1e-9));
+}
+
 // ── MercatorCoordinate ──
 {
 	const m0 = MercatorCoordinate.fromLngLat([0, 0]);
@@ -51,6 +64,8 @@ ok("LngLat.toArray・toString", JSON.stringify(new LngLat(3, 4).toArray()) === "
 {
 	const v = parseViewHash(viewOf({ center: new LngLat(139.5, 35.25), zoom: 6, pitch: 45, bearing: -30 }));
 	ok("viewOf＝エンジンの z（MapLibre の z＋dz）・緯度が先・度", near(v.zoom, 7) && v.lat === 35.25 && v.lon === 139.5 && near(v.pitch, 45 * Math.PI / 180) && near(v.bearing, -30 * Math.PI / 180));
+	ok("viewOf の roll＝0 なら書かない・あれば roll トークン（A1）", v.roll === 0 && !viewOf({ center: new LngLat(0, 0), zoom: 1, pitch: 0, bearing: 0, roll: 0 }).includes("roll")
+		&& near(parseViewHash(viewOf({ center: new LngLat(0, 0), zoom: 1, pitch: 0, bearing: 0, roll: 15 })).roll, 15 * Math.PI / 180));
 	const vm = parseViewHash(viewOf({ center: new LngLat(0, 60), zoom: 6, pitch: 0, bearing: 0 }, mercatorDz(60)));
 	ok("viewOf の mercator＝北緯 60° で +2（log2 sec 60°＝1）", near(vm.zoom, 8, 1e-6), vm.zoom.toFixed(4));
 	const vx = parseViewHash(viewOf({ center: new LngLat(-121.403732, 40.492392), zoom: 10, pitch: 0, bearing: 0 }, mercatorDz(40.492392)));
@@ -99,6 +114,17 @@ console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 	ok("粒度の式＝max(floor(base/2^z), min, 1)", new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(0) === 128 && new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(3) === 32 && new SubdivisionGranularityExpression(128, 32).getGranularityForZoomLevel(9) === 32 && new SubdivisionGranularityExpression(4, 0).getGranularityForZoomLevel(9) === 1);
 	ok("球の既定＝tile (128, 32)", GRANULARITY_GLOBE.tile.getGranularityForZoomLevel(1) === 64 && GRANULARITY_GLOBE.circle === 3);
 	ok("min > base は投げる", throws(() => new SubdivisionGranularityExpression(1, 2)));
+}
+// ── stub の一覧（B6・2026-10-12）＝ML_METHODS にあって class Map に無い口は Proxy が unsupported を記録して何もしない。残る stub はここに列挙＝増えたら気づく（計画の付録 B の照合）
+{
+	const src = fs.readFileSync(path.join(HERE, "../src/maplibre/map.js"), "utf8");
+	const ml = JSON.parse(src.match(/const ML_METHODS = new Set\((\[.*?\])\);/s)[1]);
+	const cls = src.slice(src.indexOf("export class Map"), src.indexOf("\n}\n", src.indexOf("export class Map")));
+	const defined = new Set([...cls.matchAll(/^\t(?:get |set |async )?([A-Za-z_]\w*)\s*\(/gm)].map(m => m[1]));
+	const stubs = ml.filter(m => !defined.has(m)).sort();
+	ok("shim の stub は calculateAnchoredCameraOptions だけ（増えたらここを更新＝台帳 §3 に行を足す）", JSON.stringify(stubs) === JSON.stringify(["calculateAnchoredCameraOptions"]), stubs.join(" "));
+	const acc = ["showTileBoundaries", "showPadding", "showCollisionBoxes", "showOverdrawInspector", "vertices", "repaint"];
+	ok("property の口が accessor（get/set）", acc.every(k => cls.includes(`\tget ${k}()`) && cls.includes(`\tset ${k}(`)));
 }
 console.log(fail ? `\n✗ ${fail} 件失敗` : "\n✓ mlshim 全 PASS");
 process.exit(fail ? 1 : 0);

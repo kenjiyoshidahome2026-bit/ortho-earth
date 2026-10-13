@@ -62,6 +62,14 @@ export function lonlatTo3D(lon, lat) {
 	return [cb * Math.cos(a), sb, cb * Math.sin(a)];
 }
 
+// 経緯度 → 点 p（β空間）までの距離（割り当てなし）＝lonlatTo3D と同じ式・同じ順（注記の標高フェード・距離フェード＝毎フレーム数千回）
+export function distTo(lon, lat, p) {
+	const a = lon * D2R, b = lat * D2R;
+	let sb = Math.sin(b), cb = Math.cos(b);
+	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
+	return Math.hypot(cb * Math.cos(a) - p[0], sb - p[1], cb * Math.sin(a) - p[2]);
+}
+
 // 測地法線（楕円体の「上」）の β空間像 m = S⁻¹·n_geo = (cosφcosλ, sinφ/r, cosφsinλ)。
 // 標高 h[m] の変位＝world で (h/a)·n_geo ＝ β空間で (h/a)·m（S を通すと単位法線に戻る）。球では m=u(φ)＝動径。
 export function ellNormal3D(lon, lat) {
@@ -69,9 +77,13 @@ export function ellNormal3D(lon, lat) {
 	return [cb * Math.cos(a), Math.sin(b) / R_AX, cb * Math.sin(a)];
 }
 
-// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), fovy(rad), dpr }
+// カメラ状態を作る。cam: { center:[lon,lat], zoom, pitch(rad), bearing(rad), roll(rad), fovy(rad), dpr, offset:[x,y] }
+// roll＝視線（boresight）まわりの回転［rad］（MapLibre の roll と同じ向き＝正で絵が時計回りに回る・2026-10-12 A1）。0＝従来とビット同値
+// offset＝注視点（center）を画面の中心からずらす量［CSS px・右・下が正］＝MapLibre の transform.centerOffset（padding の中身の中心）。消失点も一緒に動く
+//   （clip 空間の平行移動＝x'＝x＋dx·w）。無指定・[0,0]＝従来とビット同値（2026-10-12 A3）
 export function cameraState(cam, W, H) {
 	const { center, zoom, pitch = 0, bearing = 0, fovy = 50 * D2R, dpr = 1 } = cam;
+	const roll = cam.roll || 0;
 	const [lon, lat] = center;
 	const Tb = lonlatTo3D(lon, lat);                                // β単位球上の注視点
 	const T0 = R_AX === 1 ? Tb : [Tb[0], R_AX * Tb[1], Tb[2]];      // world（楕円体面）＝S·u(β)。球では同一
@@ -94,7 +106,9 @@ export function cameraState(cam, W, H) {
 	// カメラ基底を pitch/bearing から明示構築（退化なし）:
 	//   pitch=0 で真上・screen-up=北。pitch>0 で fwdH 方向の地平へ傾く。
 	const back = mat.add(mat.scale(nrm, Math.cos(pitch)), mat.scale(fwdH, -Math.sin(pitch)));   // 対象→カメラ
-	const upCam = mat.add(mat.scale(nrm, Math.sin(pitch)), mat.scale(fwdH, Math.cos(pitch)));   // 画面上方向
+	let upCam = mat.add(mat.scale(nrm, Math.sin(pitch)), mat.scale(fwdH, Math.cos(pitch)));   // 画面上方向
+	// roll＝画面上方向を視線軸（back）まわりに回す（Rodrigues・back と upCam は直交・clip.x の鏡像反転の後で正の roll＝絵が時計回り）。roll=0 はこの枝を通らない＝ビット同値
+	if (roll) upCam = mat.add(mat.scale(upCam, Math.cos(roll)), mat.scale(mat.cross(upCam, back), Math.sin(roll)));
 	// 地形クランプ（eye の押し上げ）は廃止（2026-07-28）：山頂×高チルトで eye が sea-level 軌道ごと山体に
 	// 埋まり、eye直下サンプルは下った斜面＝山頂を見ないため効かなかった（富士 z15/75° で裏面を見上げる絵）。
 	// 代替＝カメラは一切動かさず、地表より下に潜ったら app が全画面 DOM オーバーレイ(#underground)を暗くする。
@@ -120,6 +134,11 @@ export function cameraState(cam, W, H) {
 	}
 	const focal = (H / 2) / Math.tan(fovy / 2);   // 距離ベースLOD用の焦点距離(device px)
 	const projection = Float64Array.from(proj); projection[0] = -projection[0];   // 透視だけ（clip.x の反転込み＝mvp＝projection·view·S）。MapLibre の custom 層の args.projectionMatrix（inv(P)·mainMatrix で視点を取り出す書き方）用（2026-09-30）
+	const off = cam.offset;
+	if (off && (off[0] || off[1])) {   // 消失点のずらし＝clip の x,y に w の倍を足す（ndc で +dx,+dy）。行 0・1 に行 3 を足す（列優先＝添字 r, 4+r, 8+r, 12+r）
+		const dx = 2 * off[0] * dpr / W, dy = -2 * off[1] * dpr / H;
+		for (const m of [mvp, projection]) for (let c = 0; c < 4; c++) { m[4 * c] += dx * m[4 * c + 3]; m[4 * c + 1] += dy * m[4 * c + 3]; }
+	}
 	return { mvp, invMvp: mat.invert(mvp), eye, W, H, dpr, camDist, focal, projection };
 }
 
@@ -163,12 +182,36 @@ export function projectClip(state, lon, lat, radius = 1) {
 	return mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
 }
 // 経緯度 → [screenX, screenY(devicePx), front]。front>0 で手前半球かつカメラ前方。
-export function project(state, lon, lat, radius = 1) {
+export function project(state, lon, lat, radius = 1) { return projectInto(state, lon, lat, radius, new Array(3)); }
+// project の割り当てなし版：out[0..2] に書いて out を返す（タイル選抜＝1 update で数千点＝旧 project は 1 点 5 配列）。
+// 見える点の経路は lonlatTo3D・liftedPos・mat.transform・mat.dot と同じ式・同じ順＝ビット同値。見えない点（稀）は従来の経路へ
+export function projectInto(state, lon, lat, radius, out) {
+	const a = lon * D2R, b = lat * D2R;
+	let sb = Math.sin(b), cb = Math.cos(b);
+	if (R_AX !== 1) { const w = Math.hypot(cb, R_AX * sb); sb = R_AX * sb / w; cb = cb / w; }
+	const u0 = cb * Math.cos(a), u1 = sb, u2 = cb * Math.sin(a);
+	let w0 = u0, w1 = u1, w2 = u2;
+	if (radius !== 1) {
+		if (R_AX === 1) { w0 = u0 * radius; w1 = u1 * radius; w2 = u2 * radius; }
+		else { const m = ellNormal3D(lon, lat); w0 = u0 + (radius - 1) * m[0]; w1 = u1 + (radius - 1) * m[1]; w2 = u2 + (radius - 1) * m[2]; }
+	}
+	const m = state.mvp, E = state.eye;
+	const c3 = m[3] * w0 + m[7] * w1 + m[11] * w2 + m[15] * 1;
+	const frontHemi = u0 * E[0] + u1 * E[1] + u2 * E[2] - 1;          // >0 手前半球（基準球方向で判定）
+	if (c3 <= 1e-6 || frontHemi < 0) { const r = projectClamped(state, lon, lat, radius); out[0] = r[0]; out[1] = r[1]; out[2] = r[2]; return out; }
+	const c0 = m[0] * w0 + m[4] * w1 + m[8] * w2 + m[12] * 1, c1 = m[1] * w0 + m[5] * w1 + m[9] * w2 + m[13] * 1;
+	out[0] = (c0 / c3 * 0.5 + 0.5) * state.W;
+	out[1] = (1 - (c1 / c3 * 0.5 + 0.5)) * state.H;
+	out[2] = frontHemi;
+	return out;
+}
+// 見えない点（地平線の向こう・カメラ後方）の射影クランプ＝project の遅い枝（呼び手は projectInto）
+function projectClamped(state, lon, lat, radius) {
 	const u = lonlatTo3D(lon, lat);
 	const w = liftedPos(u, lon, lat, radius);
 	const c = mat.transform(state.mvp, [w[0], w[1], w[2], 1]);
-	const frontHemi = mat.dot(u, state.eye) - 1;                     // >0 手前半球（基準球方向で判定）
-	if (c[3] <= 1e-6 || frontHemi < 0) {
+	const frontHemi = mat.dot(u, state.eye) - 1;
+	{
 		// 見えない点（地平線の向こう＝dot(u,E)<1・カメラ後方）は捨てずに、可視キャップの縁（地平円：中心 E/|E|²・半径 √(1−1/|E|²)）
 		// の少し内側へ射影クランプして写す＝符号は負のまま（呼び手は符号で可視判定＝従来どおり）、x,y は「地平線上の最寄り点」。
 		// 塗りの経路（geoedit オーバレイ/注記/計測）はこれで可視部＋地平線沿いの一本の閉路になる＝旧 [0,0,-1] で path を

@@ -1,3 +1,4 @@
+import { propsKeyOf } from "../pbf-base.js";
 import init, { L1toL2_wasm, alloc_wasm_memory, free_wasm_memory, init_panic_hook, detect_intersections_wasm, topology_full_wasm } from "../../wasm/pkg/gint_wasm.js";
 let wasmReady = false;
 let wasmMemoryBuffer = null;
@@ -308,11 +309,12 @@ export class gint {
 	// topology() の全量 wasm 版：feature 台帳（[fid,type,geomPos]×n）と PBF 生バイトを1回渡し、
 	// GintBUF 完成品を1回で受け取る。デルタ復号→fit→densify→位相→レイアウト組立まで全部 Rust＝
 	// JS に残るのは props 由来の fid 台帳組立だけ。wasm 不在なら null（従来経路へ）。
-	static topologyFullWasm(self, formatVersion) {
+	static topologyFullWasm(self, formatVersion, shared = false) {
 		if (!wasmReady || typeof topology_full_wasm !== 'function') return null;
 		const dir = [];
 		let tub = new Map();
-		self.forEach((i, map) => { const key = self.props[i].join("|");
+		// 同じ属性の地物は同じ fid（propsKeyOf＝型ごとの鍵）。旧 props[i].join("|")＝worker 復号の遅延 props（未復号＝undefined）で投げ、["a|","b"] と ["a","|b"] も同じ地物にした
+		self.forEach((i, map) => { const key = propsKeyOf(self.propsRow(i));
 			if (!tub.has(key)) tub.set(key, i);
 			const id = tub.get(key);
 			(map[2] === 6) ? map[3].forEach((p, j) => dir.push(id, map[4][j], p)) : dir.push(id, map[2], map[1]);
@@ -320,7 +322,9 @@ export class gint {
 		tub = null;
 		const res = topology_full_wasm(self.pbf.buf, new Uint32Array(dir), self.e, formatVersion);
 		const len = res.len();
-		const out = new Uint8Array(len);
+		// wasm メモリからの写し 1 回は必須（wasm の線形メモリは外へ出せない）。shared＝写す先を SharedArrayBuffer にする＝
+		// main の setGintBUF がもう一度 SAB へ写す分（旧＝GintBUF 1 本ぶんの main スレッド同期コピー）が消える
+		const out = new Uint8Array(shared && typeof SharedArrayBuffer !== "undefined" ? new SharedArrayBuffer(len) : len);
 		out.set(new Uint8Array(wasmMemoryBuffer.buffer, res.ptr(), len));
 		res.free();
 		return out.buffer;

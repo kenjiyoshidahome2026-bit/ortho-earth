@@ -14,7 +14,7 @@
  *
  * 出力:
  *   jishin/fault.geojson         … canonical
- *   public/jishin/fault.geopbf   … 描画用
+ *   ortho-data/japan/jishin/fault.geopbf   … 描画用
  *
  * node jishin/fault-to-geopbf.mjs
  */
@@ -117,12 +117,12 @@ async function main() {
         license: '地震調査研究推進本部',
         attribution: '地震調査研究推進本部（地震本部）',
     });
-    mkdirSync(join(__dir, '../public/jishin'), { recursive: true });
-    writeFileSync(join(__dir, '../public/jishin/fault.geopbf'), raw);
+    mkdirSync(join(__dir, '../../../ortho-data/japan/jishin'), { recursive: true });
+    writeFileSync(join(__dir, '../../../ortho-data/japan/jishin/fault.geopbf'), raw);
 
     const bands = new Set(features.map(f => f.properties.band).filter(Boolean));
     console.log(`区間: ${features.length}（うち直前から連結 ${chainedN} / 座標も走向も無く落とした行 ${skipped}）`);
     console.log(`断層帯: ${bands.size}`);
-    console.log(`GeoPBF : public/jishin/fault.geopbf (${(raw.length/1024).toFixed(1)} KB)`);
+    console.log(`GeoPBF : ortho-data/japan/jishin/fault.geopbf (${(raw.length/1024).toFixed(1)} KB)`);
 }
 main().catch(e => { console.error(e); process.exit(1); });

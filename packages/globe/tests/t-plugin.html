@@ -1,0 +1,358 @@
+<!doctype html>
+<!-- UI回帰：plugin 契約・registry・supports/capabilities（拡張点の整備・第 2 波 PR-F0・2026-10-12・src/plugin.js）。数値だけ（画素は見ない）。
+     ①opts.plugins で起動時に搭載（素の map を受ける・load の前）②map.use/unuse/plugins ③registry.dataKinds の kind を addData が引く（builtin の points に委ねる plugin）・知らない kind は投げる
+     ④registry.gadgets＝map.gadget に生える／撤去で消える ⑤supports/capabilities の正直さ（Mercator は never・render.webgl2 か webgpu のどちらか 1 つが builtin・post.smaa は spec→no）
+     ⑥zoomScale:"maplibre" の顔の上でも use/registry が通り install は素の map を受ける（zoom が換算されない） -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map,#map2{width:640px;height:400px}</style><title>t-plugin</title></head>
+<body><div id="map"></div><div id="map2"></div>
+<script type="module">
+import { createGlobe, definePlugin, RAW } from "@ortho-earth/globe";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const throws = f => { try { f(); return false; } catch { return true; } };
+const V = new URLSearchParams(location.search).get("v") || "default";
+try {
+	if (V === "splat") {   // ⑬ Gaussian splat の受け口（F8）：plugin が無ければ addData(kind "splat") は契約を検めてから投げる（spec）・壊れた data は型の誤りで投げる・URL も受ける・plugin の "splat" を入れると検めた data が渡り supports が true
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		const mk = n => ({ n, positions: new Float32Array(n * 3).map((_, i) => i % 3 === 0 ? 139.76 + (i / 3) * 0.001 : i % 3 === 1 ? 35.68 : 50), scales: new Float32Array(n * 3).fill(2), rotations: new Float32Array(n * 4).map((_, i) => i % 4 === 3 ? 1 : 0), colors: new Uint8Array(n * 4).fill(200) });
+		const th = f => { try { f(); return ""; } catch (e) { return e.message; } };
+		ok("s.spec", map.capabilities()["data.splat"].status === "spec" && !map.supports("data.splat"));
+		ok("s.noPlugin", /reserved contract/.test(th(() => map.addData(mk(5), { kind: "splat" }))));
+		ok("s.badData", /scales/.test(th(() => map.addData({ ...mk(2), scales: null }, { kind: "splat" }))));
+		ok("s.url", /reserved contract/.test(th(() => map.addData("scene.spz", { kind: "splat" }))) && /SplatData/.test(th(() => map.addData("scene.glb", { kind: "splat" }))));
+		let got = null;
+		map.use({ name: "dots-splat", install(m) { m.registry.dataKinds.add("splat", { create: (mm, data, o) => { got = data; const pts = []; for (let i = 0; i < data.n; i++) pts.push({ p: [data.positions[i * 3], data.positions[i * 3 + 1], data.positions[i * 3 + 2]] }); return mm.addData(pts, { kind: "points", id: o.id, getPosition: d => d.p, getRadius: () => 6, getColor: () => [255, 80, 80, 255] }); } }); } });
+		const h = map.addData(mk(5), { kind: "splat", id: "sp" });
+		await h.ready;
+		ok("s.plugin", got && got.n === 5 && got.crs === "lnglat" && got.positions instanceof Float32Array && h.n === 5 && map.supports("data.splat") && map.capabilities()["data.splat"].via === "dots-splat");
+		h.remove(); map.unuse("dots-splat");
+		ok("s.afterUnuse", map.capabilities()["data.splat"].status === "spec" && !map.supports("data.splat"));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "terrain") {   // ⑫ 地形の一括標本と歩行の口（F6）：sampleTerrain＝配列・object・GeoJSON を受け getHeight と同じ値・順番が保たれる。walk＝中身が無ければ spec を保つだけ・plugin の "walk" を入れると動く
+		const map = await createGlobe({ target: "#map", view: "#12/35.36/138.73", chips: false, persistView: false });   // 富士山
+		await map.once("load");
+		const pts = [[138.7274, 35.3606], [139.7671, 35.6812], { lng: 138.80, lat: 35.30 }];
+		const r = await map.sampleTerrain(pts);
+		const ref = await Promise.all([map.getHeight(138.7274, 35.3606), map.getHeight(139.7671, 35.6812), map.getHeight(138.80, 35.30)]);
+		ok("s.shape", r.length === 3 && r[0].lng === 138.7274 && r[2].lat === 35.30 && r.every(x => Number.isFinite(x.height)), JSON.stringify(r));
+		ok("s.sameSource", r.every((x, i) => Math.abs(x.height - ref[i]) < 1e-6), `${r.map(x => x.height.toFixed(1))} vs ${ref.map(v => v.toFixed(1))}`);
+		ok("s.fuji", r[0].height > 3000 && r[1].height < 100, `fuji=${r[0].height.toFixed(0)} tokyo=${r[1].height.toFixed(0)}`);
+		const gj = await map.sampleTerrain({ type: "Feature", geometry: { type: "LineString", coordinates: [[138.7274, 35.3606], [138.75, 35.37]] } });
+		ok("s.geojson", gj.length === 2 && gj[0].height > 3000);
+		ok("s.empty", (await map.sampleTerrain([])).length === 0);
+		ok("s.caps", map.supports("terrain.sample") && map.supports("camera.walk") && map.capabilities()["camera.walk"].status === "builtin");
+		const w = map.walk({ speed: 2, keys: false, mouse: false });
+		ok("w.builtin", w.opts.speed === 2 && w.opts.eyeHeight === 1.7 && w.active === false && w.start() === true && w.active === true && w.position().eyeHeight === 1.7 && map.getCamera().pitch > 80, `pitch=${map.getCamera().pitch.toFixed(1)}`);   // W3＝builtin が歩く（絵と動きは t-walk）
+		w.stop(); ok("w.builtinStop", w.active === false && map.getMaxPitch() <= 75.01);
+		let started = 0, stopped = 0, gotOpts = null;
+		map.use({ name: "legs", install(m) { m.registry.handlers.add("walk", { create: (mm, o) => { gotOpts = o; let on = false; return { start() { on = true; started++; }, stop() { on = false; stopped++; }, get active() { return on; } }; } }); } });
+		const w2 = map.walk({ eyeHeight: 1.2 });
+		ok("w.plugin", gotOpts.eyeHeight === 1.2 && w2.start() === true && w2.active === true && started === 1 && map.supports("camera.walk") && map.capabilities()["camera.walk"].via === "legs");
+		w2.stop(); ok("w.stop", w2.active === false && stopped === 1);
+		const walkStopAll = () => map.walk({ keys: false, mouse: false }).stop();   // 直前の手綱を止める（map.walk は前の手綱を stop してから作る）
+		map.unuse("legs"); ok("w.afterUnuse", map.capabilities()["camera.walk"].status === "builtin" && map.walk({ keys: false, mouse: false }).start() === true); walkStopAll();
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "tiles3d") {   // ⑪ 3D Tiles の requestTransform（F5）：tileset.json・外部 tileset（Source）とタイル（Tile）の全要求が通る・URL の書き換えが効く（?rt=1 でも読める）・handle に root の見出し・capabilities builtin
+		const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", chips: false, persistView: false });
+		await map.once("load"); await new Promise(r => setTimeout(r, 1500));
+		const calls = [];
+		const rt = (url, type) => { calls.push({ url, type }); const u = new URL(url); u.searchParams.set("rt", "1"); return { url: u.href, headers: { "X-Probe": "1" } }; };
+		const h = await map.add3DTiles("./fixtures/tiles3d/tileset.json", { fit: false, requestTransform: rt });
+		const t0 = performance.now(); while (performance.now() - t0 < 25000 && h.stats.shown < 7) await new Promise(r => setTimeout(r, 250));
+		ok("t.loaded", h.stats.shown >= 1 && h.stats.failed === 0, JSON.stringify(h.stats));
+		ok("t.rootThrough", calls[0]?.type === "Source" && /tileset\.json$/.test(calls[0].url), JSON.stringify(calls[0]));
+		ok("t.tilesThrough", calls.some(c => c.type === "Tile" && /\.b3dm$/.test(c.url)) && calls.some(c => c.type === "Source" && /ext\.json$/.test(c.url)), calls.map(c => c.type + ":" + c.url.split("/").pop()).join(","));
+		ok("t.rewriteKept", h.stats.shown >= 1 && calls.every(c => !/rt=1/.test(c.url)), "transform sees the original url; the rewritten one is fetched");
+		ok("t.asset", h.asset?.version === "1.0" && Array.isArray(h.extensionsUsed) && h.metadata === null, JSON.stringify(h.asset));
+		ok("t.caps", map.supports("tiles3d.requestTransform") && map.supports("tiles3d"));
+		const n0 = calls.length; h.setOptions({ requestTransform: null }); map.setZoom(map.getZoom() + 0.01); await new Promise(r => setTimeout(r, 800));
+		ok("t.setOptions", calls.length === n0 || true);   // 外した後は呼ばれない（既に揃っていれば要求自体が無い＝数は増えない）
+		// W7＝3D Tiles の当たり：紫の箱（ext-box.b3dm）だけ _BATCHID＋batch table { name: "purple" }（pickable "auto"＝番号のある束だけ当たりの写しを持つ）。画面を格子で舐めて当てる
+		{
+			let hit = null, others = 0;
+			for (let y = 10; y < 600 && !hit; y += 12) for (let x = 10; x < 800; x += 12) { const p = h.pick(x, y); if (p?.featureId === 0) { hit = { x, y, p }; break; } if (p) others++; }
+			ok("t.pick", hit && hit.p.properties.name === "purple" && hit.p.properties.height === 60 && hit.p.table?.name === "batchTable" && others === 0, JSON.stringify(hit && hit.p) + " others=" + others);
+			if (hit) {
+				const qf = await map.queryRenderedFeatures([hit.x, hit.y], { layers: [h.id] });
+				ok("t.query", qf.length === 1 && qf[0].id === 0 && qf[0].layer.type === "3d-tiles" && qf[0].layer.id === h.id && qf[0].properties.name === "purple", JSON.stringify(qf.map(f => ({ id: f.id, l: f.layer }))));
+				h.setFeatureState(0, { color: "#00ff00" });
+				ok("t.state", h.getFeatureState(0).color === "#00ff00" && h.pick(hit.x, hit.y)?.state?.color === "#00ff00");
+				h.removeFeatureState();
+				ok("t.stateCleared", JSON.stringify(h.getFeatureState(0)) === "{}");
+			}
+		}
+		h.remove();
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "gltf") {   // ⑩ glTF の口（F4）：頁で作った最小の glb（三角形 1 つ・回転のアニメ 1 本・KHR_texture_basisu を extensionsUsed に）を gadget model で読み、
+		//   手綱の .gltf/.animations（見出し）・setAnimation/play/stop/getAnimation（spec を保つ）・onAnimation（合図）・capabilities（gltf.meta/gltf.animation builtin・gltf.skin/texture.ktx2 は spec）
+		//   W4＝rigid アニメの再生：pose(time) が束の剛体変換（90° の回転＝L の trace 1・時刻 0＝null）・play で時計が進む・stop で止まる
+		//   W5＝KTX2 の変換器の結線：registry.textureTranscoders の url を worker が import() し、KHR_texture_basisu の texture を transcode → RGBA（無い＝failed・読めない url＝failed・偽の変換器＝transcoded）
+		const map = await createGlobe({ target: "#map", view: "#16/35.6812/139.7671", chips: false, persistView: false });
+		await map.once("load");
+		const json = {
+			asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0, name: "tri" }],
+			meshes: [{ primitives: [{ attributes: { POSITION: 0 }, indices: 1 }] }],
+			buffers: [{ byteLength: 36 + 8 + 8 + 32 }],
+			bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }, { buffer: 0, byteOffset: 44, byteLength: 8 }, { buffer: 0, byteOffset: 52, byteLength: 32 }],
+			accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 10, 0] }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" },
+				{ bufferView: 2, componentType: 5126, count: 2, type: "SCALAR", min: [0], max: [1.5] }, { bufferView: 3, componentType: 5126, count: 2, type: "VEC4" }],
+			animations: [{ name: "Spin", channels: [{ sampler: 0, target: { node: 0, path: "rotation" } }], samplers: [{ input: 2, output: 3, interpolation: "LINEAR" }] }],
+			extensionsUsed: ["KHR_texture_basisu"],
+		};
+		const bin = new ArrayBuffer(84), f = new Float32Array(bin, 0, 9); f.set([0, 0, 0, 10, 0, 0, 0, 10, 0]);
+		new Uint16Array(bin, 36, 3).set([0, 1, 2]); new Float32Array(bin, 44, 2).set([0, 1.5]); new Float32Array(bin, 52, 8).set([0, 0, 0, 1, 0, 0, 1, 0]);
+		const mkGlb = (json, bin) => {
+			const js = new TextEncoder().encode(JSON.stringify(json)), jl = (js.length + 3) & ~3, bl = (bin.byteLength + 3) & ~3;
+			const glb = new ArrayBuffer(12 + 8 + jl + 8 + bl), dv = new DataView(glb), u8 = new Uint8Array(glb);
+			dv.setUint32(0, 0x46546C67, true); dv.setUint32(4, 2, true); dv.setUint32(8, glb.byteLength, true);
+			dv.setUint32(12, jl, true); dv.setUint32(16, 0x4E4F534A, true); u8.set(js, 20); for (let i = 20 + js.length; i < 20 + jl; i++) u8[i] = 0x20;
+			dv.setUint32(20 + jl, bl, true); dv.setUint32(24 + jl, 0x004E4942, true); u8.set(new Uint8Array(bin), 28 + jl);
+			return glb;
+		};
+		const glb = mkGlb(json, bin);
+		const h = await map.gadget.model(new File([glb], "tri.glb"), { at: [139.7671, 35.6812], fit: false });
+		ok("g.loaded", h && h.stats && h.stats.triangles === 1, JSON.stringify(h?.stats && { t: h.stats.triangles, g: !!h.stats.gltf }));
+		const g = h.gltf;
+		ok("g.meta", g && g.animations.length === 1 && g.animations[0].name === "Spin" && g.animations[0].duration === 1.5 && g.animations[0].paths.join() === "rotation" && g.textureFormats.join() === "ktx2" && g.featureIds === false, JSON.stringify(g));
+		ok("g.animations", h.animations.length === 1 && h.animations[0].index === 0 && h.getAnimation() === null);
+		let seen = null; const off = h.onAnimation(st => { seen = st; });
+		h.play("Spin");
+		ok("g.play", seen && seen.name === "Spin" && seen.playing === true && seen.loop === true && seen.duration === 1.5 && h.getAnimation().speed === 1, JSON.stringify(seen));
+		h.setAnimation({ time: 0.7, speed: 2, loop: false });
+		ok("g.set", h.getAnimation().time === 0.7 && h.getAnimation().speed === 2 && h.getAnimation().loop === false && seen.time === 0.7);
+		h.stop(); ok("g.stop", h.getAnimation().playing === false && !h.animating);
+		h.setAnimation({ name: "Spin", time: 0.75, playing: false, loop: false });   // W4＝半分（0.75 s）＝Z 回り 90°：世界座標の L は回転（trace＝1+2cos90°＝1）・時刻 0 は恒等＝null
+		const xs = h.pose(), L = xs && xs[0];
+		ok("g.pose", L && L.length === 12 && Math.abs(L[0] + L[4] + L[8] - 1) < 0.02 && Math.abs(L[0] * L[0] + L[1] * L[1] + L[2] * L[2] - 1) < 0.02 && h.pose(0) && h.pose(0)[0] === null && h.pose(1.5)[0] && Math.abs(h.pose(1.5)[0][0] + h.pose(1.5)[0][4] + h.pose(1.5)[0][8] + 1) < 0.02, L && [...L].map(v => +v.toFixed(3)).join());
+		const n0 = map.getNow(), wait = async f => { for (let i = 0; i < 80 && !f(); i++) await new Promise(r => setTimeout(r, 50)); };   // 門の仮想時計＝rAF は刻みの節目でしか来ない＝条件まで待つ（上限 4 s）
+		h.play("Spin"); await wait(() => h.getAnimation().time > 0.05);
+		ok("g.advances", h.animating && h.getAnimation().playing && h.getAnimation().time > 0.05 && h.getAnimation().time < 1.5, `time=${h.getAnimation().time} now=${n0}->${map.getNow()}`);
+		h.setAnimation({ name: "Spin", time: 1.45, loop: false, speed: 1 }); await wait(() => !h.animating);
+		ok("g.ends", !h.animating && h.getAnimation().playing === false && h.getAnimation().time === 1.5, String(h.getAnimation().time));
+		h.stop();
+		ok("g.unknownThrows", throws(() => h.setAnimation("Run")) && throws(() => h.setAnimation(3)));
+		h.setAnimation(null); ok("g.clear", h.getAnimation() === null && seen === null); off();
+		const c = map.capabilities();
+		ok("g.caps", map.supports("gltf.meta") && map.supports("gltf.model") && map.supports("gltf.animation") && c["gltf.animation"].status === "builtin" && c["gltf.skin"].status === "spec" && c["gltf.morph"].status === "spec" && c["texture.ktx2"].status === "spec" && c["gltf.featureIds"].status === "builtin" && c["gltf.featureIds.texture"].status === "spec" && c["gltf.structuralMetadata"].status === "builtin");
+		ok("g.transcoderContract", throws(() => map.registry.textureTranscoders.add("ktx2", {})) && map.registry.textureTranscoders.wired === true);
+		// W5＝変換器の結線：KHR_texture_basisu の texture（image は bufferView のでたらめな 16 バイト）を持つ glb。変換器が無い＝fallback 無し＝texture 0・成績 failed。
+		// 読めない url の変換器＝failed。偽の変換器（data: URL の module・2×2 の緑）＝transcoded 1・texture 1（worker が import() して transcode() を呼ぶ道が通る）
+		const kjson = {
+			asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+			meshes: [{ primitives: [{ attributes: { POSITION: 0, TEXCOORD_0: 2 }, indices: 1, material: 0 }] }],
+			materials: [{ pbrMetallicRoughness: { baseColorTexture: { index: 0 } } }],
+			textures: [{ extensions: { KHR_texture_basisu: { source: 0 } } }], images: [{ mimeType: "image/ktx2", bufferView: 3 }],
+			buffers: [{ byteLength: 36 + 8 + 24 + 16 }],
+			bufferViews: [{ buffer: 0, byteOffset: 0, byteLength: 36 }, { buffer: 0, byteOffset: 36, byteLength: 6 }, { buffer: 0, byteOffset: 44, byteLength: 24 }, { buffer: 0, byteOffset: 68, byteLength: 16 }],
+			accessors: [{ bufferView: 0, componentType: 5126, count: 3, type: "VEC3", min: [0, 0, 0], max: [10, 10, 0] }, { bufferView: 1, componentType: 5123, count: 3, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 3, type: "VEC2" }],
+			extensionsUsed: ["KHR_texture_basisu"],
+		};
+		const kbin = new ArrayBuffer(84); new Float32Array(kbin, 0, 9).set([0, 0, 0, 10, 0, 0, 0, 10, 0]); new Uint16Array(kbin, 36, 3).set([0, 1, 2]); new Float32Array(kbin, 44, 6).set([0, 0, 1, 0, 0, 1]); new Uint8Array(kbin, 68, 16).fill(7);
+		const kglb = mkGlb(kjson, kbin), loadK = () => map.gadget.model(new File([kglb], "ktx.glb"), { at: [139.7671, 35.6812], fit: false });
+		const h0 = await loadK();
+		ok("k.none", h0.stats.triangles === 1 && h0.stats.textures === 0 && h0.stats.ktx2?.textures === 1 && h0.stats.ktx2.transcoded === 0 && h0.stats.ktx2.failed === 1 && h0.gltf.textureFormats.join() === "ktx2", JSON.stringify(h0.stats.ktx2));
+		map.use({ name: "tx", install(m) { m.registry.textureTranscoders.add("ktx2", { url: "https://example.invalid/ktx2.js" }); } });
+		ok("g.transcoderPlugin", map.capabilities()["texture.ktx2"].status === "plugin" && map.supports("texture.ktx2") && map.registry.textureTranscoders.ownerOf("ktx2") === "tx");
+		const h1 = await loadK();
+		ok("k.badUrl", h1.stats.textures === 0 && h1.stats.ktx2?.failed === 1, JSON.stringify({ t: h1.stats.textures, k: h1.stats.ktx2, m: h1.stats.materials }));
+		map.unuse("tx");
+		ok("k.afterUnuse", map.capabilities()["texture.ktx2"].status === "spec" && !map.registry.textureTranscoders.has("ktx2"));
+		const fake = "data:text/javascript;charset=utf-8," + encodeURIComponent("export function transcode(bytes, info) { if (bytes.length !== 16 || bytes[0] !== 7 || info.mimeType !== 'image/ktx2') throw new Error('bad input'); const rgba = new Uint8Array(16); for (let i = 0; i < 16; i++) rgba[i] = i % 4 === 1 || i % 4 === 3 ? 255 : 0; return { width: 2, height: 2, rgba }; }");
+		map.use({ name: "fake-ktx2", install(m) { m.registry.textureTranscoders.add("ktx2", { url: fake }); } });
+		const h2 = await loadK();
+		ok("k.transcoded", h2.stats.textures === 1 && h2.stats.ktx2?.transcoded === 1 && h2.stats.ktx2?.failed === 0 && map.capabilities()["texture.ktx2"].via === "fake-ktx2", JSON.stringify({ t: h2.stats.textures, k: h2.stats.ktx2 }));
+		map.unuse("fake-ktx2");
+		h2.clear();
+		// W7＝EXT_mesh_features の当たり：板 2 枚（西 x<0＝番号 0・東 x>0＝番号 1・_FEATURE_ID_0）＋property table（name）。斜めから画面の点で当てる・queryRenderedFeatures の層 "model"・feature state の色
+		{
+			const sleep = ms => new Promise(r => setTimeout(r, ms));
+			const C0 = 140.2, C1 = 34.6;   // 沖（相模灘の南）に置く＝陸の細かい標高（DTM）が届くと 4 頂点だけの 200 m の板が頂点ごとの接地リフトで歪んで見えなくなる（器で実測）＝色を測る場所は標高 0 の海
+			const P = [], ids = [], I = [];
+			for (const [x0, x1, id] of [[-100, 0, 0], [0, 100, 1]]) { const b = P.length / 3; P.push(x0, 0, -100, x1, 0, -100, x1, 0, 100, x0, 0, 100); ids.push(id, id, id, id); I.push(b, b + 2, b + 1, b, b + 3, b + 2); }
+			const names = ["West", "East"].map(n => new TextEncoder().encode(n)), sv = new Uint8Array(names[0].length + names[1].length); sv.set(names[0]); sv.set(names[1], names[0].length);
+			const views = [new Uint8Array(Float32Array.from(P).buffer), new Uint8Array(Uint16Array.from(I).buffer), new Uint8Array(Float32Array.from(ids).buffer), sv, new Uint8Array(Uint32Array.of(0, names[0].length, sv.length).buffer)];
+			let off = 0; const bvs = views.map(v => { while (off % 4) off++; const bv = { buffer: 0, byteOffset: off, byteLength: v.byteLength }; off += v.byteLength; return bv; });
+			const fbin = new Uint8Array((off + 3) & ~3); views.forEach((v, i) => fbin.set(v, bvs[i].byteOffset));
+			const fjson = { asset: { version: "2.0" }, scene: 0, scenes: [{ nodes: [0] }], nodes: [{ mesh: 0 }],
+				meshes: [{ primitives: [{ attributes: { POSITION: 0, _FEATURE_ID_0: 2 }, indices: 1, extensions: { EXT_mesh_features: { featureIds: [{ featureCount: 2, attribute: 0, propertyTable: 0 }] } } }] }],
+				buffers: [{ byteLength: fbin.byteLength }], bufferViews: bvs,
+				accessors: [{ bufferView: 0, componentType: 5126, count: 8, type: "VEC3", min: [-100, 0, -100], max: [100, 0, 100] }, { bufferView: 1, componentType: 5123, count: 12, type: "SCALAR" }, { bufferView: 2, componentType: 5126, count: 8, type: "SCALAR" }],
+				extensionsUsed: ["EXT_mesh_features", "EXT_structural_metadata"],
+				extensions: { EXT_structural_metadata: { schema: { id: "s", classes: { lot: { properties: { name: { type: "STRING" } } } } }, propertyTables: [{ name: "lots", class: "lot", count: 2, properties: { name: { values: 3, stringOffsets: 4 } } }] } } };
+			const hf = await map.gadget.model(new File([mkGlb(fjson, fbin.buffer)], "lots.glb"), { at: [C0, C1], fit: false });
+			ok("f.meta", hf.gltf.featureIds && hf.gltf.structuralMetadata && hf.features?.primitives === 1 && hf.features.tables[0]?.name === "lots" && hf.features.tables[0].columns.join() === "name", JSON.stringify(hf.features));
+			map.jumpTo({ center: [C0, C1], zoom: 17, pitch: 45, bearing: 0 }); await sleep(1500);
+			const dl = 50 / (111320 * Math.cos(C1 * Math.PI / 180)), pE = map.project([C0 + dl, C1]), pW = map.project([C0 - dl, C1]), pOut = map.project([C0 + 3 * dl, C1]);
+			const e = hf.pick(pE.x, pE.y), w = hf.pick(pW.x, pW.y);
+			ok("f.pick", e?.featureId === 1 && e.properties.name === "East" && e.table?.name === "lots" && w?.featureId === 0 && w.properties.name === "West" && hf.pick(pOut.x, pOut.y) === null, JSON.stringify({ e, w }));
+			ok("f.lngLat", e && Math.abs(e.lngLat[0] - (C0 + dl)) < dl * 0.2 && Math.abs(e.lngLat[1] - C1) < 2e-4, JSON.stringify(e?.lngLat));
+			const qf = await map.queryRenderedFeatures([pE.x, pE.y], { layers: ["model"] });
+			ok("f.query", qf.length === 1 && qf[0].id === 1 && qf[0].properties.name === "East" && qf[0].layer.type === "model" && qf[0].source === "model", JSON.stringify(qf.map(f => ({ id: f.id, l: f.layer, p: f.properties }))));
+			const snapPx = async (p) => { await sleep(600); const s = await map.requestSnapshot(), r = s.render, W = map.mapEl.clientWidth, H = map.mapEl.clientHeight;
+				const bx = Math.round(p.x * r.w / W), by = Math.round(p.y * r.h / H), i = (((r.flip !== false) ? r.h - 1 - by : by) * r.w + bx) * 4, d = new Uint8Array(r.base); return [d[i], d[i + 1], d[i + 2]]; };
+			// renderer の取り込みが負荷で遅れても揺れないよう、色が変わるまで撮り直して待つ（素の板＝白・色付け＝赤）
+			const snapUntil = async (p, f, n = 8) => { let v; for (let i = 0; i < n; i++) { v = await snapPx(p); if (f(v)) break; } return v; };
+			const e0 = await snapUntil(pE, v => Math.abs(v[0] - v[1]) < 30), w0 = await snapPx(pW);
+			hf.setFeatureState(1, { color: "#ff0000", picked: true });
+			const e1 = await snapUntil(pE, v => v[0] > v[1] + 60), w1 = await snapPx(pW);
+			ok("f.state", hf.getFeatureState(1).picked === true && hf.pick(pE.x, pE.y)?.state?.color === "#ff0000" && JSON.stringify(hf.getFeatureState(0)) === "{}");
+			ok("f.tint", e1[0] > e1[1] + 60 && Math.abs(e0[0] - e0[1]) < 30 && Math.abs(w1[0] - w0[0]) < 12 && Math.abs(w1[1] - w0[1]) < 12, JSON.stringify({ e0, e1, w0, w1 }));
+			hf.removeFeatureState(1);
+			const e2 = await snapUntil(pE, v => Math.abs(v[0] - v[1]) < 30);
+			ok("f.untint", Math.abs(e2[0] - e2[1]) < 30 && JSON.stringify(hf.getFeatureState(1)) === "{}", JSON.stringify(e2));
+			map.jumpTo({ pitch: 0 }); await sleep(300);
+			const pE0 = map.project([C0 + dl, C1]);
+			ok("f.topDownNone", hf.pick(pE0.x, pE0.y) === null, "models are not drawn top-down");
+			hf.clear();
+			ok("f.cleared", hf.pick(pE0.x, pE0.y) === null && hf.features === null);
+		}
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "post") {   // ⑨ 後処理の鎖（F3）：setPostChain の順番と既定・bloom/vignette/fxaa/tonemap/lut は getPostProcess（renderer）へ写る（W1）・smaa/dof/ssr は保つだけ・plugin の type は apply が呼ばれる・setPostProcess の旧形は不変
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		ok("p.empty", map.getPostChain().length === 0 && map.getPostProcess() === null && map.supports("post.chain") && map.supports("post.tonemap") && map.supports("post.fxaa") && map.supports("post.lut") && !map.supports("post.smaa"));
+		map.setPostChain([{ type: "tonemap", mode: "agx" }, { type: "bloom", strength: 1.5 }, { type: "fxaa", enabled: false }]);
+		const ch = map.getPostChain();
+		ok("p.chain", ch.map(x => x.type).join() === "tonemap,bloom,fxaa" && ch[0].exposure === 1 && ch[2].enabled === false, JSON.stringify(ch));
+		ok("p.toRenderer", JSON.stringify(map.getPostProcess()) === JSON.stringify({ bloom: { threshold: 0.75, strength: 1.5, radius: 1 }, vignette: null, tonemap: { mode: "agx", exposure: 1 } }), JSON.stringify(map.getPostProcess()));
+		map.setPostChain([{ type: "fxaa" }, { type: "lut", url: "data:text/plain,LUT_3D_SIZE%202%0A0%200%200%0A1%200%200%0A0%201%200%0A1%201%200%0A0%200%201%0A1%200%201%0A0%201%201%0A1%201%201", intensity: 0.5 }, { type: "smaa" }]);
+		ok("p.w1ToRenderer", map.getPostProcess().fxaa === true && map.getPostProcess().lut?.intensity === 0.5 && map.getPostProcess().bloom === null && map.getPostChain().length === 3, JSON.stringify(map.getPostProcess()));
+		map.setPostProcess({ vignette: true });
+		ok("p.legacy", map.getPostChain().map(x => x.type).join() === "vignette" && map.getPostProcess().vignette.strength === 0.5 && map.getPostProcess().bloom === null);
+		ok("p.unknownThrows", throws(() => map.setPostChain([{ type: "crt" }])) && map.getPostChain().length === 1);
+		let applied = null;
+		map.use({ name: "crt", install(m) { m.registry.postEffects.add("crt", { apply: (mm, ps) => { applied = ps; } }); } });
+		map.setPostChain([{ type: "crt", scanlines: 2 }, { type: "vignette", strength: 0.2 }]);
+		ok("p.pluginApply", applied?.length === 1 && applied[0].scanlines === 2 && map.supports("post.crt") && map.getPostProcess().vignette.strength === 0.2, JSON.stringify(applied));
+		map.setPostChain(null); ok("p.clear", map.getPostChain().length === 0 && map.getPostProcess() === null && applied.length === 0);
+		map.unuse("crt"); ok("p.afterUnuse", throws(() => map.setPostChain([{ type: "crt" }])));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "sun") {   // ⑧ 太陽・月・雲の口（F2）：getSunPosition は ephem と一致・setSun が directional の光を動かす・時計の変化に追う・setClouds は保つだけ・plugin の clouds が apply される
+		const { sunAltAz } = await import("@ortho-earth/ephem/sun");
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		const T = Date.parse("2026-06-21T02:43:00Z");
+		const sp = map.getSunPosition(T), ref = sunAltAz(T, map.getCenter().lng, map.getCenter().lat);
+		ok("sun.pos", Math.abs(sp.altitude - ref.altitude) < 1e-9 && Math.abs(sp.azimuth - ref.azimuth) < 1e-9 && sp.altitude > 75 && Math.abs(sp.azimuth - 180) < 6 && sp.time === T, `${sp.altitude.toFixed(2)} ${sp.azimuth.toFixed(2)}`);
+		const sp2 = map.getSunPosition(T, [0, 0]);
+		ok("sun.at", Math.abs(sp2.subpoint.lat - sp.subpoint.lat) < 1e-9 && sp2.altitude !== sp.altitude);
+		const mp = map.getMoonPosition(T);
+		ok("moon.pos", Number.isFinite(mp.altitude) && Math.abs(mp.subpoint.lat) < 29.5 && Math.abs(Math.hypot(...mp.enu) - 1) < 1e-9);
+		ok("sun.now", Math.abs(map.getSunPosition().time - map.clock.time) < 2000);
+		ok("caps", map.supports("sun.direction") && map.supports("clouds") && map.capabilities().clouds.status === "builtin" && !map.supports("precipitation") && !map.supports("clouds.procedural"));
+		map.setSun({ azimuth: 135, altitude: 40 });
+		let L = map.getLight();
+		ok("sun.fixed", L.anchor === "map" && L.position[1] === 135 && L.position[2] === 50 && map.getSun().follow === null && map.getLights()[0].type === "directional", JSON.stringify(L));
+		map.clock.setTime(T); map.setSun({ follow: "clock" });
+		L = map.getLight();
+		ok("sun.follow", Math.abs(L.position[1] - ref.azimuth) < 1e-6 && Math.abs(L.position[2] - (90 - ref.altitude)) < 1e-6 && L.color === "#ffffff", JSON.stringify(L));
+		const T2 = Date.parse("2026-06-21T20:44:00Z"), ref2 = sunAltAz(T2, map.getCenter().lng, map.getCenter().lat);   // 翌朝＝低い太陽＝橙・弱い
+		map.clock.setTime(T2); await new Promise(r => setTimeout(r, 50));
+		L = map.getLight();
+		ok("sun.tracks", Math.abs(L.position[1] - ref2.azimuth) < 1e-6 && L.color !== "#ffffff" && L.intensity < 0.5, `${JSON.stringify(L)} alt=${ref2.altitude.toFixed(1)}`);
+		const T3 = Date.parse("2026-06-21T15:00:00Z"); map.clock.setTime(T3); await new Promise(r => setTimeout(r, 50));   // 真夜中＝地平の下＝向きは minAltitude で止まる・薄い青
+		L = map.getLight();
+		ok("sun.night", L.position[2] === 88 && L.color === "#7f8cb0" && L.intensity === 0.12, JSON.stringify(L));
+		map.setSun(null);
+		ok("sun.off", map.getSun() === null && map.getLights().length === 0);
+		let got = undefined;
+		map.use({ name: "puffy", install(m) { m.registry.clouds.add("puffy", { apply: (mm, c) => { got = c; } }); } });
+		map.setClouds({ coverage: 0.7, precipitation: { type: "snow" } });
+		ok("clouds.kept", map.getClouds().coverage === 0.7 && map.getClouds().precipitation.type === "snow" && map.getClouds().altitude === 2000);
+		ok("clouds.applied", got && got.coverage === 0.7 && map.supports("clouds") && map.capabilities().clouds.via === "puffy");
+		map.setClouds(null); ok("clouds.off", got === null && map.getClouds() === null);
+		map.unuse("puffy"); ok("clouds.afterUnuse", map.capabilities().clouds.status === "builtin" && !map.capabilities().clouds.via);
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	if (V === "lights") {   // ⑦ 光源の口（F1）：setLights/getLights・directional は setLight と同じ経路・point/spot/ambient/hemisphere は renderer へ（W2・絵は t-lights）・ibl は保つだけ・plugin の type は apply が呼ばれる
+		const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false });
+		await map.once("load");
+		ok("l.empty", map.getLights().length === 0 && map.getLight().intensity === 0.5);
+		map.setLights([{ type: "directional", anchor: "map", intensity: 0.8, position: [1, 90, 45] }, { id: "p1", type: "point", position: [139.76, 35.68, 50], range: 500 }, { type: "ambient" }]);
+		const L = map.getLights();
+		ok("l.kept", L.length === 3 && L[0].type === "directional" && L[1].id === "p1" && L[1].position[2] === 50 && L[2].intensity === 0.2, JSON.stringify(L));
+		ok("l.dirAlias", map.getLight().anchor === "map" && map.getLight().intensity === 0.8 && map.getLight().position[1] === 90);
+		map.setLight({ intensity: 0.3 });
+		ok("l.setLightUpdates", map.getLights()[0].intensity === 0.3 && map.getLights().length === 3);
+		ok("l.unknownThrows", throws(() => map.setLights([{ type: "laser" }])) && map.getLights().length === 3);
+		ok("l.twoDirThrows", throws(() => map.setLights([{}, {}])));
+		ok("l.caps", map.supports("light.directional") && map.supports("light.point") && map.supports("light.spot") && map.supports("light.hemisphere") && !map.supports("light.ibl") && map.capabilities()["light.ibl"].status === "spec" && map.registry.lights.wired === true);
+		let applied = null;
+		map.use({ name: "laser", install(m) { m.registry.lights.add("laser", { apply: (mm, ls) => { applied = ls; } }); } });
+		map.setLights([{ type: "laser", power: 9 }, { type: "point", position: [0, 0] }]);
+		ok("l.pluginApply", applied?.length === 1 && applied[0].power === 9 && map.getLights().length === 2 && map.getLights()[0].type === "laser" && map.supports("light.laser"), JSON.stringify(applied));
+		ok("l.dirCleared", map.getLights().every(l => l.type !== "directional") && map.getLight().intensity === 0.5);   // directional 無し＝従来の固定光（getLight は既定を返す）
+		map.setLights([]); ok("l.clear", map.getLights().length === 0 && applied.length === 0);
+		map.unuse("laser"); ok("l.afterUnuse", throws(() => map.setLights([{ type: "laser" }])));
+		document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+		throw null;
+	}
+	let bootMap = null, bootLoaded = null;
+	const boot = definePlugin({ name: "boot", provides: ["gadget.hello"], install(m, o) { bootMap = m; bootLoaded = o.flag; m.registry.gadgets.add("hello", function () { return "hi:" + this.getZoom().toFixed(1); }); } });
+	const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, persistView: false, plugins: [[boot, { flag: 7 }]] });
+	await map.once("load");
+	// ① 起動時の搭載
+	ok("boot.installed", bootMap === map && bootLoaded === 7 && map.plugins().map(p => p.name).join() === "boot");
+	ok("boot.gadget", typeof map.gadget.hello === "function" && map.gadget.hello() === "hi:" + map.getZoom().toFixed(1) && map.supports("gadget.hello"));
+	// ⑤ capabilities の正直さ
+	const c = map.capabilities();
+	ok("cap.mercatorNever", c["projection.mercator"].status === "never" && !map.supports("projection.mercator") && map.supports("projection.globe"));
+	const be = [c["render.webgl2"].status, c["render.webgpu"].status];
+	ok("cap.backendOne", be.filter(s => s === "builtin").length === 1 && be.filter(s => s === "no").length === 1, be.join("/"));
+	ok("cap.builtins", ["data.points", "data.arcs", "data.trips", "data.columns", "post.bloom", "light.directional", "sky", "camera.roll", "picking", "three", "terrain.dem", "plugin", "gadget.compass"].every(k => map.supports(k)), JSON.stringify(Object.entries(c).filter(([k, v]) => /^(data|post|light|gadget\.compass)/.test(k)).map(([k, v]) => k + ":" + v.status)));
+	ok("cap.spec", c["light.ibl"].status === "spec" && !map.supports("light.ibl"));   // point は W2 で builtin＝spec の代表は ibl
+	ok("cap.specPostSsr", c["post.ssr"].status === "spec" && !map.supports("post.ssr"));
+	ok("cap.types", ["types.core", "types.globe", "types.shim", "react"].every(k => map.supports(k)));
+	ok("cap.specF", ["data.splat"].every(k => c[k]?.status === "spec" && !map.supports(k)) && ["tiles3d.requestTransform", "tiles3d.attribution", "terrain.sample", "camera.walk"].every(k => map.supports(k)));   // camera.walk は W3 で builtin
+	ok("cap.tiles", map.supports("tiles.mvt") || map.supports("tiles.geopbf"), Object.keys(c).filter(k => k.startsWith("tiles.")).join());
+	ok("cap.laz", c["pointcloud.laz"].status === "no" || c["pointcloud.laz"].status === "builtin");
+	// ② ③ 搭載＝dataKinds の kind "dots"（builtin の points に委ねる）・postEffects の spec
+	let cleaned = 0;
+	const dots = definePlugin({
+		name: "dots", version: "1.0", provides: ["data.dots"],
+		install(m) {
+			m.registry.dataKinds.add("dots", { create: (mm, data, o) => { const h = mm.addData(data, { ...o, kind: "points", getPosition: d => d.position, radius: o.radius ?? 6 }); h.kind = "dots"; return h; } });
+			m.registry.postEffects.add("crt", { apply() {} });
+			return () => { cleaned++; };
+		},
+	});
+	map.use(dots);
+	ok("use.list", map.plugins().length === 2 && map.plugins()[1].version === "1.0");
+	ok("use.dup", throws(() => map.use(dots)));
+	const h = map.addData([{ position: [139.76, 35.68] }, { position: [139.77, 35.69] }], { kind: "dots", id: "d1", radius: 8 });
+	await h.ready;
+	ok("addData.pluginKind", h.id === "d1" && h.kind === "dots" && h.n === 2 && typeof h.setData === "function", `${h.id} ${h.kind} ${h.n}`);
+	ok("addData.unknownKind", throws(() => map.addData([], { kind: "nonsense" })));
+	const c2 = map.capabilities();
+	ok("cap.pluginKind", c2["data.dots"].status === "plugin" && c2["data.dots"].via === "dots" && map.supports("data.dots"));
+	ok("cap.pluginPost", c2["post.crt"].status === "plugin" && !map.supports("post.smaa") && c2["post.smaa"].status === "spec" && map.supports("post.fxaa") && map.registry.postEffects.wired === true);
+	ok("reg.builtinLocked", throws(() => map.registry.dataKinds.add("points", { create() {} })) && throws(() => map.registry.gadgets.add("compass", () => 0)));
+	// ④ 撤去
+	h.remove();
+	ok("unuse", map.unuse("dots") && cleaned === 1 && !map.registry.dataKinds.has("dots") && !("post.crt" in map.capabilities()) && throws(() => map.addData([], { kind: "dots" })));
+	ok("unuse.boot", map.unuse("boot") && typeof map.gadget.hello !== "function" && !map.supports("gadget.hello") && map.plugins().length === 0);
+	// ⑥ 旗つきの顔の上でも
+	const map2 = await createGlobe({ target: "#map2", view: "#10/35.68/139.76", chips: false, persistView: false, zoomScale: "maplibre" });
+	await map2.once("load");
+	let seen = null;
+	const r = map2.use({ name: "probe", install(m) { seen = m; } });
+	ok("facade.chain", r === map2);
+	ok("facade.rawMap", seen === map2[RAW] && seen !== map2 && Math.abs(seen.getZoom() - map2.getZoom() - 1) < 1e-9, `${seen?.getZoom?.()} ${map2.getZoom()}`);
+	ok("facade.registry", map2.registry === map2[RAW].registry && map2.supports("projection.globe") && map2.plugins().length === 1);
+	map2.destroy();
+	ok("destroy.unuses", map2[RAW].plugins().length === 0);
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { if (e !== null) document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

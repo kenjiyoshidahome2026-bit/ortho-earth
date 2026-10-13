@@ -9,8 +9,8 @@
 // URL に ?query を足す方式は vite の静的検出（new Worker(new URL('…', import.meta.url), {静的 options})）を壊すので使わない。
 // 各 worker 脚本（renderworker.js …）は従来どおり「自分で self.onmessage を張る」まま無改修。ここは指名された脚本を読み込み、
 // 読み込み中に届いたメッセージを順序を保って手渡すだけ（renderworker の init → 以降の順序契約はそのまま）。
-// 地域の役（e-Stat 等）は "#extra-roles"（既定＝worker-roles-extra.js の {}・アプリの vite alias で地域の役表に差し替え）＝地球儀のホストは地域の worker を知らない（LAYERS.md 段階 2 S3d ④／S4）
-import { EXTRA_ROLES } from "#extra-roles";
+// 地域の役は置かない＝地域パックの worker は自前の入口（e-Stat＝@ortho-earth/jp の estat-worker.js・2026-09-30）。
+// 共有エンジンに焼かれた入口が地域を知らないまま、japan 系のアプリも同じ入口を使える（LAYERS.md 掟 3）。
 const ROLES = {
 	render:         () => import("./renderworker.js"),
 	mesh:           () => import("./meshworker.js"),
@@ -18,6 +18,8 @@ const ROLES = {
 	gintbake:       () => import("./gintbakeworker.js"),
 	rastertiles:    () => import("./rastertiles-worker.js"),   // ローカル GeoPackage/MBTiles の画像タイルを配る（画像タイル層の "port" プロバイダ・2026-09-21）
 	imagequad:      () => import("./imagequad-worker.js"),     // 四隅で貼った画像をタイルに焼いて配る（同じ "port" 契約・2026-09-21）
+	iiif:           () => import("./iiif-worker.js"),          // 基準点で歪みを直した IIIF の地図画像をタイルに焼いて配る（同じ "port" 契約・#177）
+	copc:           () => import("./copc-worker.js"),          // COPC の点群＝節だけ Range で取って LAZ を laz-perf で解く（#178・解読器は "#pointcloud-formats" のプラグイン）
 	model:          () => import("./model-worker.js"),         // glTF/GLB と押し出しを建物メッシュへ（2026-09-22 に入口へ統合＝loaders.gl・meshdecode・earcut を render/plateau と共有＝別ビルドの複製を断つ）
 	columnar:       () => import("@ortho-earth/columnar/worker"),  // 列チャンク層の読み手（GeoParquet の Range 読み・GeoPBF の切り分け・三角形分割・#90）＝旧 parquet 役の後継
 	vtextrude:      () => import("./vtextrude-worker.js"),         // ベクタタイルの押し出し（MapLibre の fill-extrusion を vector source で・段 8①・2026-09-26）
@@ -27,7 +29,6 @@ const ROLES = {
 	"ortho:scene":   () => import("@ortho-earth/core/workers/scene"),     // シーンの結合
 	"ortho:height":  () => import("@ortho-earth/core/workers/elevation"),                // 標高タイルの復号（main の createGetHeight・render worker の terrain）
 	"geoedit:model": () => import("geoedit/model-worker"),         // geoedit の編集モデル
-	...EXTRA_ROLES,
 };
 
 const pending = [];

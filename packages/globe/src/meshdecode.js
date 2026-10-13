@@ -9,7 +9,48 @@
 // 起動ベースラインとして丸ごと乗っていた。デコード以外（葉走査・fetch・接地・マスク）はこのファイルの軽い部分だけで動く。
 let _loaders = null;
 const loaders = () => _loaders ??= import("./mesh-loaders.js");   // 名前付き再輸出の薄い入口＝遅延チャンク内で tree-shaking が効く
-import { weldMesh } from "./meshq.js";   // 頂点溶接（焼きと共用）
+import { weldMesh } from "./meshq.js";
+import { gltfMeta, rawGltfJson } from "./gltf-meta.js";   // 模型の見出し（アニメ・拡張・テクスチャ形式・feature ID＝F4・口だけ）   // 頂点溶接（焼きと共用）
+import { rigFromGltf } from "./gltf-anim.js";   // rigid アニメ（W4）＝アニメの掛かるノードごとに束を分け、rig と place を返す
+import { featureSetOf, featureIdsOf, decodePropertyTables, batchTableOf, NO_FEATURE } from "./mesh-features.js";   // 地物の番号と属性（W7）＝EXT_mesh_features／EXT_structural_metadata／b3dm
+// テクスチャの変換器（第 3 波 W5・2026-10-12）＝main の registry.textureTranscoders の写し [{ name, url }]。worker はこの url を import() し、
+// KHR_texture_basisu（KTX2/Basis）の画像を transcode(bytes, { mimeType }) → { width, height, rgba } で素の RGBA にして、普通の画像と同じ道（textureOf）へ流す。
+// loaders.gl の KHR_texture_basisu（CDN の WASM を勝手に取りに行き、圧縮のままの形で返す）は使わない＝excludeExtensions で外す。変換器が無ければ fallback の画像（texture.source）のまま
+let transcoders = [];
+const transcoderMods = new Map();   // url → Promise<module>（失敗したら外す＝次の読みで再挑戦）
+export function setTextureTranscoders(list) { transcoders = Array.isArray(list) ? list.filter(t => t && typeof t.name === "string" && typeof t.url === "string") : []; }
+const transcoderFor = name => {
+	const t = transcoders.find(x => x.name === name); if (!t) return null;
+	let p = transcoderMods.get(t.url);
+	if (!p) transcoderMods.set(t.url, p = import(/* @vite-ignore */ t.url).then(m => { if (typeof m?.transcode !== "function") throw new Error(`texture transcoder "${name}": module has no transcode()`); return m; }).catch(e => { transcoderMods.delete(t.url); throw e; }));
+	return p;
+};
+// KHR_texture_basisu の texture を変換器で素の RGBA に。raw＝生の json（loaders.gl が拡張を外す前）・gltf＝postProcess 後。戻り＝{ textures, transcoded, failed }
+async function transcodeBasisu(gltf, raw, baseUri) {
+	const out = { textures: 0, transcoded: 0, failed: 0 }, todo = [];
+	(raw?.textures || []).forEach((t, i) => { const src = t?.extensions?.KHR_texture_basisu?.source; if (Number.isInteger(src)) { out.textures++; todo.push([i, src]); } });
+	if (!todo.length) return out;
+	const mod = await (transcoderFor("ktx2") ?? Promise.resolve(null)).catch(e => { console.warn("[model] ktx2 transcoder unavailable:", e?.message); return null; });
+	if (!mod) { out.failed = out.textures; return out; }
+	const bytesOf = async img => {
+		if (Number.isInteger(img.bufferView)) { const bv = gltf.bufferViews?.[img.bufferView], b = bv?.buffer; return b?.arrayBuffer ? new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv.byteOffset || 0), bv.byteLength) : null; }
+		if (typeof img.uri === "string") { const u = new URL(img.uri, baseUri || self.location?.href), r = await fetch(u, { credentials: "omit" }); if (!r.ok) throw new Error(`HTTP ${r.status}`); return new Uint8Array(await r.arrayBuffer()); }
+		return null;
+	};
+	const imgs = new Map();   // image 番号 → Promise<{ data, width, height } | null>（同じ画像は 1 回）
+	for (const [ti, si] of todo) {
+		let p = imgs.get(si);
+		if (!p) imgs.set(si, p = (async () => {
+			const img = raw.images?.[si], bytes = img ? await bytesOf(img) : null; if (!bytes) return null;
+			const r = await mod.transcode(bytes, { mimeType: img.mimeType || "image/ktx2" }), n = (r?.width | 0) * (r?.height | 0) * 4;
+			if (!r || !(r.width > 0) || !(r.height > 0) || !(r.rgba instanceof Uint8Array || r.rgba instanceof Uint8ClampedArray) || r.rgba.length < n) throw new Error("transcode() must return { width, height, rgba: Uint8Array(width*height*4) }");
+			return { data: r.rgba.length === n ? r.rgba : r.rgba.subarray(0, n), width: r.width, height: r.height };
+		})().catch(e => { console.warn("[model] ktx2 transcode failed:", e?.message); return null; }));
+		const im = await p, tex = gltf.textures?.[ti];
+		if (im && tex) { tex.source = { image: im }; out.transcoded++; } else out.failed++;
+	}
+	return out;
+}
 
 const R2D = 180 / Math.PI;
 // デコードパイプライン（接地・dedup・LOD・軸変換）の版＝焼きの互換単位。変えたら上げる＝ブラウザの IDB/OPFS 焼き（meshworker の
@@ -617,9 +658,10 @@ const dequant = A => A instanceof Int8Array ? 1 / 127 : A instanceof Uint8Array 
 // tile＝3D Tiles のタイルとして置く（#41・2026-09-23）＝{ places:[{ L:列優先3x3, t:[x,y,z] }]（タイル変換×インスタンス・ECEF）, rtc:[x,y,z]|null, baseH:m, points:true }。
 //   頂点 ECEF = L·(rtc + Y2Z·W·p) + t（仕様どおり glTF の Y-up→Z-up はノード変換の後・RTC とタイル変換の前）。
 //   baseH＝高さの基準（接地しない＝絶対高さ − baseH をそのまま持つ・呼び手は noLift で置く）。points＝点のプリミティブ（mode 0）を別に返す。
-export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null } = {}) {
+export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseUri = null, textures = true, ground = "batch", mask = false, tile = null, featureIdSet = 0 } = {}) {   // featureIdSet＝EXT_mesh_features の何組目の番号で当てるか（W7）
 	const { loadParse, GLTFLoader, postProcessGLTF } = await loaders();
-	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false } }, ...(baseUri ? { baseUri } : {}) });
+	const parseOpts = img => ({ gltf: { loadImages: img, decompressMeshes: true, excludeExtensions: { EXT_mesh_features: false, EXT_structural_metadata: false, EXT_texture_webp: false, KHR_texture_basisu: false } }, ...(baseUri ? { baseUri } : {}) });   // KHR_texture_basisu: false＝loaders.gl の excludeExtensions は false が「外す」（W5＝自前の変換器で読む）
+	const raw = rawGltfJson(ab);   // 生の json（見出し＝F4・KHR_texture_basisu の texture→image＝W5）
 	let gltf;
 	try { gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(textures))); }
 	catch (e) {   // 画像のデコードで倒れた（壊れた画像・worker で解けない形式）＝画像なしで読み直す（形は出す）
@@ -627,15 +669,17 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		console.warn("[model] parse with images failed = retry without textures:", e?.message);
 		textures = false; gltf = postProcessGLTF(await loadParse(ab, GLTFLoader, parseOpts(false)));
 	}
+	const ktx2 = textures ? await transcodeBasisu(gltf, raw, baseUri) : { textures: 0, transcoded: 0, failed: 0 };   // KTX2/Basis の texture を変換器で素の RGBA に（W5・無ければ fallback の画像）
 	// シーン木を根から歩き、mesh を持つノードごとに world 行列（Y-up ローカル）を確定。scene 無しの glb は「親を持たないノード」を根とみなす
 	const nodes = gltf.nodes || [];
 	let roots = gltf.scene?.nodes || gltf.scenes?.[0]?.nodes;
 	if (!roots) { const kids = new Set(); for (const n of nodes) for (const c of n.children || []) kids.add(c); roots = nodes.filter(n => !kids.has(n)); }
 	const inst = [];
+	const nodeIdx = new Map(nodes.map((n, i) => [n, i]));
 	const visit = (nd, P, depth) => {
 		if (!nd || depth > 64) return;   // 循環/異常な深さの保険
 		const W = m4mul(P, nd.matrix ? Float64Array.from(nd.matrix) : m4trs(nd.translation, nd.rotation, nd.scale));
-		if (nd.mesh) inst.push({ mesh: nd.mesh, W });
+		if (nd.mesh) inst.push({ mesh: nd.mesh, W, node: nodeIdx.get(nd) ?? -1 });
 		for (const c of nd.children || []) visit(c, W, depth + 1);
 	};
 	for (const r of roots) visit(r, I4, 0);
@@ -661,12 +705,17 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		if (scale !== 1) for (let i = 0; i < 9; i++) A[i] *= scale;
 		mode = "anchor";
 	}
-	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）
-	const groups = new Map();   // material → { segs, totalV, totalI, mat }
-	let minH = Infinity, nTri = 0, nVert = 0;
+	// rigid アニメ（W4）：アニメの掛かるノード（と子孫）の下の mesh は、ノードごとに別の束にする＝renderer がバッチ単位の変換（meshXf）で動かせる。
+	// 3D Tiles のタイル（tile）はインスタンス配置＝アニメは読まない。rig（ノードの親子・静止の TRS・channel の数列）は main へ返す
+	const rig = tile ? null : rigFromGltf(gltf);
+	const animated = new Set(rig?.animated || []);
+	// マテリアルごとに束ねる（テクスチャは描画バッチ単位でしか替えられない）。鍵＝material オブジェクト（無し＝null）。アニメするノードは (material, node) ごと
+	const groups = new Map();   // material|node → { segs, totalV, totalI, mat, node }
+	const matNo = new Map(); const gkOf = (prefix, mat) => { if (!matNo.has(mat)) matNo.set(mat, matNo.size); return prefix + matNo.get(mat); };
+	let minH = Infinity, nTri = 0, nVert = 0, nFid = 0, nFidTex = 0;
 	const pts = tile?.points ? { geo: [], rgba: [] } : null;   // 点のプリミティブ（3D Tiles 1.1 の点群 glTF）
-	for (const pl of places || [{ A, T }]) for (const { mesh, W } of inst) {
-		const A = pl.A, T = pl.T;
+	for (const pl of places || [{ A, T }]) for (const { mesh, W, node } of inst) {
+		const A = pl.A, T = pl.T, animNode = animated.has(node) ? node : -1;
 		const Wlin = Float64Array.of(W[0], W[1], W[2], W[4], W[5], W[6], W[8], W[9], W[10]);
 		const lin = m3mul(A, Wlin), o = m3v(A, [W[12], W[13], W[14]]), ox = o[0] + T[0], oy = o[1] + T[1], oz = o[2] + T[2];
 		const cof = [   // 法線＝余因子（非等方スケールでも面の向きが狂わない。長さは後で正規化）
@@ -693,8 +742,8 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 			const q = acc.normalized ? dequant(P) : 1;
 			const qLo = (P instanceof Int8Array || P instanceof Int16Array) ? -1 : 0;
 			const n = P.length / 3;
-			const mat = pr.material || null;
-			let g = groups.get(mat); if (!g) groups.set(mat, g = { segs: [], totalV: 0, totalI: 0, mat });
+			const mat = pr.material || null, gk = animNode >= 0 ? gkOf(`${animNode}|`, mat) : mat;   // アニメするノードは別の束（鍵＝ノード番号＋material）
+			let g = groups.get(gk); if (!g) groups.set(gk, g = { segs: [], totalV: 0, totalI: 0, mat, node: animNode });
 			const base = g.totalV;
 			const geoSeg = new Float64Array(n * 3), nrmSeg = new Int8Array(n * 4), ecef = new Float64Array(n * 3);
 			for (let i = 0; i < n; i++) {
@@ -761,7 +810,10 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 				colSeg[i*4+2] = Math.max(0, Math.min(255, Math.round(f[2] * cb * 255)));
 				colSeg[i*4+3] = opaque ? 255 : Math.max(0, Math.min(255, Math.round((f[3] ?? 1) * ca * 255)));
 			}
-			g.segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg });
+			// 地物の番号（W7）＝EXT_mesh_features の attribute／implicit、無ければ _BATCHID（b3dm）。texture の番号は読まない（NO_FEATURE）
+			const fset = featureSetOf(pr, featureIdSet);
+			if (fset) { nFid++; if (fset.texture) nFidTex++; }
+			g.segs.push({ geo: geoSeg, nrm: nrmSeg, idx: idxSeg, uv: uvSeg, col: colSeg, fid: fset ? featureIdsOf(fset, n) : null, tbl: fset ? fset.propertyTable : null });
 			g.totalV += n; g.totalI += idxSeg.length; nVert += n; nTri += idxSeg.length / 3;
 		}
 	}
@@ -785,15 +837,33 @@ export async function decodeModel(ab, { at = null, heading = 0, scale = 1, baseU
 		if (!g.totalI) continue;
 		const geo = new Float64Array(g.totalV * 3), outNrm = new Int8Array(g.totalV * 4), rawIdx = new Uint32Array(g.totalI), uv = new Float32Array(g.totalV * 2), col = new Uint8Array(g.totalV * 4);
 		let vtx = 0, io = 0;
-		for (const s of g.segs) { geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); vtx += s.geo.length / 3; io += s.idx.length; }
+		const withF = g.segs.filter(s => s.fid), tbls = [...new Set(withF.map(s => s.tbl))];
+		const fids = withF.length ? new Uint32Array(g.totalV).fill(NO_FEATURE) : null, tblV = tbls.length > 1 ? new Int16Array(g.totalV).fill(-1) : null;   // 表が混ざる束だけ頂点ごとの表番号
+		for (const s of g.segs) { const nv = s.geo.length / 3; geo.set(s.geo, vtx * 3); outNrm.set(s.nrm, vtx * 4); rawIdx.set(s.idx, io); uv.set(s.uv, vtx * 2); col.set(s.col, vtx * 4); if (s.fid) { fids.set(s.fid, vtx); if (tblV) tblV.fill(s.tbl ?? -1, vtx, vtx + nv); } vtx += nv; io += s.idx.length; }
 		g.segs.length = 0;
 		const mesh = finishMesh(geo, outNrm, rawIdx, minH, null, maskBbox, true, { uv, col }, ground !== "each");   // brid=true＝両面。接地の単位は ground・マスクは maskBbox があれば出す
 		const tex = textures ? await textureOf(baseColorOf(g.mat, gltf).texture, imgCache) : null;
 		const pb = pbrOf(g.mat, gltf);   // #46 段 2＝材質（数値）と 4 枚のテクスチャ（無ければ null）
 		const [texMR, texN, texOcc, texEm] = textures ? await Promise.all([pb.texMR, pb.texN, pb.texOcc, pb.texEm].map(t => textureOf(t, imgCache))) : [null, null, null, null];
 		batches.push({ mesh, tex, texMR, texN, texOcc, texEm, pbr: { metallic: pb.metallic, roughness: pb.roughness, normalScale: pb.normalScale, occlusion: pb.occlusion, emissive: pb.emissive },
-			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5 });   // α の扱い＝renderer が cut/blend に畳む
+			alphaMode: g.mat?.alphaMode || "OPAQUE", alphaCutoff: g.mat?.alphaCutoff ?? 0.5, node: g.node ?? -1,
+			features: fids ? { ids: fids, table: tbls.length === 1 ? tbls[0] : null, tblV } : null });   // features（W7）＝頂点ごとの地物の番号（NO_FEATURE＝無し）と property table の番号   // α の扱い＝renderer が cut/blend に畳む。node＝アニメするノード（−1＝動かない束）
 		bbox[0] = Math.min(bbox[0], mesh.bbox[0]); bbox[1] = Math.min(bbox[1], mesh.bbox[1]); bbox[2] = Math.max(bbox[2], mesh.bbox[2]); bbox[3] = Math.max(bbox[3], mesh.bbox[3]);
 	}
-	return { batches, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length } };
+	// property table（W7）＝EXT_structural_metadata（無ければ b3dm の batch table）を素の列へ
+	const fWarn = [], meta = gltf.extensions?.EXT_structural_metadata || raw?.extensions?.EXT_structural_metadata || null;
+	const bytesOf = i => { const bv = gltf.bufferViews?.[i]; if (!bv) throw new Error(`bufferView ${i}`); if (bv.data instanceof Uint8Array) return bv.data; const b = bv.buffer; return new Uint8Array(b.arrayBuffer, (b.byteOffset || 0) + (bv.byteOffset || 0), bv.byteLength); };
+	const tables = nFid ? (meta ? decodePropertyTables(meta, bytesOf, fWarn) : tile?.batchTable ? [batchTableOf(tile.batchTable.json, tile.batchTable.bin, tile.batchTable.count)].filter(Boolean) : []) : [];
+	if (fWarn.length) console.warn("[model] property tables:", fWarn.join("; "));
+	for (const b of batches) if (b.features) b.features.tables = tables;   // 束ごとに表の参照（cmpt で結果が混ざっても番号が迷わない・postMessage は同じ参照を 1 回だけ写す）
+	// place（W4）＝G：glTF のローカル → ECEF（A・T）、F：ECEF → 単位球の世界座標の局所線形化（模型の錨 T の周りで 1 m の差分＝接地の minH 込み・ecef2geo＋geoWorld と同じ道）
+	const place = rig && !places ? (() => {
+		const w = e => { const g = ecef2geo(e[0], e[1], e[2]); return geoWorld(g[0], g[1], (g[2] - minH) / EARTH_W, [0, 0, 0]); };
+		const c = inst.length ? (() => { const o = m3v(A, [inst[0].W[12], inst[0].W[13], inst[0].W[14]]); return [o[0] + T[0], o[1] + T[1], o[2] + T[2]]; })() : T;
+		const w0 = w(c), L = new Float64Array(9);
+		for (let k = 0; k < 3; k++) { const e = [...c]; e[k] += 1; const wk = w(e); L[k*3] = wk[0] - w0[0]; L[k*3+1] = wk[1] - w0[1]; L[k*3+2] = wk[2] - w0[2]; }
+		return { G: { A: [...A], T: [...T] }, F: { L: [...L], t: [w0[0] - (L[0]*c[0] + L[3]*c[1] + L[6]*c[2]), w0[1] - (L[1]*c[0] + L[4]*c[1] + L[7]*c[2]), w0[2] - (L[2]*c[0] + L[5]*c[1] + L[8]*c[2])] } };
+	})() : null;
+	const features = nFid ? { tables, primitives: nFid, texture: nFidTex, warnings: fWarn } : null;
+	return { batches, rig, place, features, mask: maskBbox ? { bbox: maskBbox, n: MASK_N } : null, points: pts?.geo.length ? pts : null, stats: { vertices: nVert, triangles: nTri, instances: inst.length, mode, bbox, materials: batches.length, textures: batches.filter(b => b.tex).length, blended: batches.filter(b => b.alphaMode === "BLEND").length, gltf: gltfMeta(raw ?? gltf.json ?? gltf), ...(ktx2.textures ? { ktx2 } : {}), ...(nFid ? { features: { primitives: nFid, texture: nFidTex, tables: tables.length } } : {}) } };   // gltf＝見出し（F4・loaders.gl が外す前の生の json から）・ktx2＝変換器の成績（W5・KTX2 の texture がある時だけ）
 }

@@ -1,10 +1,11 @@
 // @ortho-earth/core: 球面ベクタタイル描画エンジン（MVT を正射の球面に直描き・WebGPU/GL2）。地域を知らない硬い層（LAYERS.md）。
 // 地球儀のホストは @ortho-earth/globe、日本の地図は @ortho-earth/japan（SDK）がこれを包む。v1 の ortho-map とは無関係。
 export { evalExpr, truthy, originOfLayer, ORIGIN_KEY, KNOWN_OPS, unknownOps, setGlobalState, getGlobalState, usesGlobalState } from "./expr.js";
+export { featureGeomLL, withinGeom, distanceGeom } from "./expr-geo.js";   // within/distance の中身（C2）
 export { packMLLayers, buildMLTable, zoomSensitivity, ML_DEFAULTS, ML_ID_KEY, ML_IX_KEY } from "./mltables.js";   // MapLibre 形の fill/line/circle → gint の表（互換の段 4）
-export { parseRGBA } from "./color.js";
+export { parseRGBA, isColor } from "./color.js";
 export { fetchMVT, decodeTile, loadTileFormat, registerTileFormat } from "./decode.js";   // タイル形式の登録簿（MVT 既定・MLT は @ortho-earth/tile-formats・#88）
-export { queryTiles } from "./query.js";   // 描画結果への問い合わせ（queryRenderedFeatures 相当＝描いているタイルを取り直して今のスタイルで当てる）
+export { queryTiles, sourceFeatures } from "./query.js";   // 描画結果への問い合わせ（queryRenderedFeatures 相当＝描いているタイルを取り直して今のスタイルで当てる）
 export { lonLatToTile, tileLocalToLonLat, tileBounds } from "./tile.js";
 export { buildTileDrawList } from "./build.js";
 export { createRenderer } from "./gl/renderer.js";
@@ -19,7 +20,7 @@ export { createLabelLayer } from "./labels2d.js";
 export { cameraState, project, unproject, lonlatTo3D, WORLD_PX,
 	setEllipsoid, ellipsoidOn, worldRadiusM, betaOf, geodeticOf, ellNormal3D, worldToLonLat, betaToLonLat } from "./camera.js";
 export { createFlight, shortBearingOf, flyPlan, glidePlan, glidePathPlan, easePlan } from "./flight.js";
-export { createInput, isTypingTarget } from "./input.js";
+export { createInput, isTypingTarget, INERTIA, INERTIA_WINDOW_MS, HANDLER_NAMES, bezierEase, inertiaOf, inertiaOf2, snapZoom } from "./input.js";
 export { parseViewHash, buildViewHash, wrapLon } from "./viewurl.js";
 export { selectLOD } from "./tilecover.js";
 export { mlTileZoomOf, mlCalculateTileZoom, ML_FOV_DEG } from "./mlcover.js";   // MapLibre のタイルの z の選び方（目盛り mercator／maplibre）

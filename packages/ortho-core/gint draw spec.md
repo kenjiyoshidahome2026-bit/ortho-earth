@@ -273,6 +273,7 @@ Gint の評価文脈に `id` は無い（`["id"]`＝undefined）。契約に足�
 - width=0＝線を描かない（VS で棄却）／radius=0＝点を描かない。線色・点色の α=0＝既定色（§5）
 - 更新は同寸なら `texSubImage2D`（WebGPU は `writeTexture`）1 回。メタ・tier・幾何に触れることを**仕様として禁止**。context lost 用に CPU 側の写しを保持
 - 規模：16 B/fid＝1,919 市区町村で 31 KB／100 万 feature で 16 MB
+- **表を GPU で組む経路（2026-10-12・geopbf 改良点 ⑦・opt-in）**：`createGlobe({ gpuExpr: true })`／`?gintexpr=1` の WebGPU の層は、main が式を WGSL compute に（`gpu/gintexpr.js compileFidStyleWGSL`）、属性を鍵ごとの列（`gl/gint/attrcols.js`＝vec2u「型・中身」＋層の文字列辞書＋geometry-type 列）に一度だけ組んで送り、render worker の走者（`gpu/gintexprgpu.js`・`paintExpr`）が fid ごとに評価して `copyBufferToTexture` で表へ写す。feature-state の差し替え（`exprState`）＝列の該当セル 8 B を `writeBuffer` して走らせ直すだけ（旧＝全 fid を CPU で再評価）、zoom の差し替え＝uniform 1 本。main の `lastTable`（ラベルの filter 連動・照会の `accept`）は ack の読み戻し（filter が state／zoom を読む時だけ差し替え時にも読む）。意味論はネイティブ出自（expr.js の JS 流儀＝ToNumber・truthy・===・±Infinity・NaN・入れ子の色の補間の丸め）を写し、載らない式（MapLibre 出自・文字列どうしの大小比較・文字列を足す +・配列の値・動的な鍵・2^24 超の整数リテラル）と GL2・旧エンジンは ack の `error` で CPU の `buildFidStyle` へ自動で落ちる＝見た目は不変。数は f32（JS は f64）＝.5 の境で ±1/255。門＝ortho-core `tests/gint-exprgpu.mjs`（列・辞書・WGSL の形・断る式）・globe `t-gintexpr`（本物の走者で GPU の表を読み戻して CPU と突き合わせ＝契約の式 43 組＋乱数 120 本・swiftshader でも回る）・`t-gintexprdraw`（実描画＝実 GPU。GL2 では落ちる経路の検分）
 - **visible ビットを見る所**：線の描画と強調・線の pick・点の描画と pick・ID 塗りの蓄積と解決・ラベル・`findPolygon`／`identifyAt`（`accept`＝ホバーの面と照会・2026-09-26）。
   **見ない所**：stencil 単色の塗り（`VS_STENCIL` は表を読まない＝ID 塗りが使えない時の縮退で隠した面も単色で塗る＝U13）
 
@@ -370,11 +371,14 @@ fid が上限を超える層は地物ごとの塗りを失う。回避は「同�
 - ホバーの間引き `MOVE_THROTTLE_MS=32`（先頭＋末尾）。pick の余白 `12×dpr`（線＝幅＋余白・点＝`max(ptRadius, 余白/2)`・fid 別の幅は pick では見ない）
 - 強調：+2 device px（`hiliteWidth` があればそれ）・色 `hiliteColor` か黄・点は半径 ×1.6。マスク＝アクティブな面の外を α0.4 で暗く
 - `findPolygon` の smallest-wins と `identifyAt` の順序は §4.5
+- **格子索引（2026-10-12・geopbf 改良点 ⑧）**：`findPolygon`／線の `identifyAt` は geopbf `extension/hitgrid.js` の一様格子（層の bbox を √地物数 ×√地物数 の cell に割り、bbox が掛かる cell に fid を積む CSR。多くの cell に掛かる大物と縫い目跨ぎは「常に見る」側）で候補だけを照合する。索引は流れ（polyStream／lineStream の identity）ごとに一度だけ遅延で組み WeakMap に持つ＝render worker の `gintData` と main の `unPackGint` の両方で効く。答えは全走査と同じ（面＝候補のうち流れの位置が最大の物＝最小の地物、線＝位置が最小の物）。門＝geopbf `tests/t-hitgrid.mjs`（面 6,001 × 3,000 点・線 3,001 × 3,000 点で一致・速さ）
 
 ### 7.8 WebGPU の storage 経路（2026-09-09）
 
 - 既定 ON：`maxStorageBufferBindingSize > 0 ∧ maxStorageBuffersPerShaderStage ≥ 2`。group(2)（arc・meta・metaB・tier・pt・ptMeta）を storage buffer へ。扇の要・fid 表・標高はテクスチャのまま
 - buffer ごとに `byteLength ≤ device の上限`（既定 128 MiB）の時だけ写す＝超えればその層はテクスチャ経路。`sbReady(L)` を draw/drawn/bakeFaces の頭で層ごとにラッチ＝同じフレームで混在しても各層のパスは自己完結
+- 上限は renderer が `requestDevice` でアダプタの実力値（`maxStorageBufferBindingSize`／`maxBufferSize`）を要求＝Apple/Windows は GiB 級・ソフトウェア実装は既定のまま（2026-10-12・geopbf 改良点 ⑤）
+- **テクスチャ経路は 2D 配列**（2026-10-12・分割送り）：group(2)（arc・meta・metaB・tier・pt・ptMeta）は `texture_2d_array<u32>`＝幅 4096×層ごと `TEX_LAYER_H=4096` 行（arc 128 MiB・meta 256 MiB／層）。層数の上限 `maxTextureArrayLayers`（≥256）＝実質天井なし（旧＝1 枚 2D で高さ ≤ 8192＝arc 268 MB が天井・超えると createTexture が即死）。読みは `arcAt/metaAt/ptAt/ptMetaAt` の 4 アクセサに閉じ、storage 版は `toStorageWGSL` がその本体だけを添字 1 回に変える。送りは `texLayerWrites`（純関数）の計画どおり層ごと＝満杯の行は生配列の view のまま `writeTexture`・半端な 1 行だけ詰め物（旧＝生配列と同じ大きさの padding 済み写しをもう 1 本作っていた）。`?gintlh=N`／`createGintLayerGPU({ layerH })`＝層の高さを下げて小データで複数層を踏む検定用（`withLayerH`）。検札＝`stats().layers`／`layerH`。門＝ortho-core `tests/gint-texlayers.mjs`（計画・変換）・globe `t-gintlayers`（実機で読み戻し一致＝swiftshader でも回る）・`t-gintgpu?gintlh=16`（絵の一致・実 GPU）
 - パイプラインは storage × MSAA で引く。storage 用 WGSL はテクスチャ版から `toStorageWGSL` で生成（`textureLoad` が残れば throw）
 - `?gintsb=0`＝テクスチャ経路（globe.js `noGintSB` → renderworker → `createGintLayerGPU({ noSB })`）。WebGL2 に storage 経路は無い
 - 検札口 `stats().sb`＝−1（経路なし）/0（この層はテクスチャ）/1（storage）・render worker の `self.__gintStats`
@@ -533,7 +537,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - TF 前段（復号・投影・lodSnap を辺ごとに 1 回・全パス共有）と Morton の入口一回展開＝ID 塗り（全密度）を軽くする本命
 - 派生物の IndexedDB 焼き（再訪で bake を飛ばす）
 - ID バッファを面の pick に使う（findPolygon の GPU 化）
-- storage 一本化（案 3・複数 binding で 128 MiB 上限を回避）
+- storage 一本化（案 3・複数 binding で binding 上限を回避。上限はアダプタの実力値を要求済み・超える層は 2D 配列テクスチャで受ける＝2026-10-12）
 - 契約の式の拡張（`["id"]` を fid として評価文脈へ 等）
 
 ### 12-B 未決（実装と意図がずれている所＝本人裁定待ち・説明書は現状を書いた）
@@ -551,7 +555,7 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 | U9 | 予算で飛ばした非アクティブ層 | 静止時に自前でフレームを要求しない | drawn の復帰を全層へ |
 | U10 | order 0 | GL＝既定スロットの上・WebGPU＝下 | 既定層の order を揃える |
 | ~~U11~~ | d.ts のずれ | **解決 2026-09-26**：`label.field`＝式・関数・文字列／`label.sort`＝number／`map.on('click')` の hits に `layer: GintLayerHandle \| null` と `feature`（型だけ・版上げで npm に届く） | — |
-| U12 | fid の束ね方の鍵 | geopbf `topologyFullWasm` は properties を `join("\|")` で束ねる＝`dissolve` が 9/25 に直した「1 と "1"・"" と null を同じ地物に」を GintBUF の fid でまだ起こす（併合されずに残った別の地物が同じ fid を指す） | `dissolve` と同じ型つきの鍵（valKey）に揃える（geopbf・版上げ） |
+| ~~U12~~ | fid の束ね方の鍵 | **解決済み**（geopbf `extension/gint.js` が `propsKeyOf`＝`dissolve` と同じ型つきの鍵で束ねる。表が古いままだったのを 2026-10-11 に訂正） | — |
 | U13 | 縮退した塗りと filter | ID 塗りが使えない時（能力なし・fid 上限超え・移動中の安表現・3D の窓）の stencil 単色は fid 表を読まない＝隠した面も単色で塗る | stencil 扇の VS で visible ビットを見る（表がある時だけ） |
 
 ## 13. 変更履歴
@@ -568,3 +572,4 @@ admin0（NE admin_0_countries＝海岸線＋国境）は 2026-09-09 から**独�
 - **2026-09-26** **1.0**：実装に合わせて全面改稿（Issue #10）。公開の線（本人裁定）・draft からの差（§4.10）・実測（§8）・検定（§11）・未決の一覧（§12-B）
 - **2026-09-26** 1.0 の後の直し（本人「2,3,1」）：U2＝interactive:false の追加でカーソルが動かない／U3・U4＝照会の意味（§4.5 の表・geopbf の accept・エンジンが ack で実レンジを返す・地球儀の内部層を照会から外す）／
   MapLibre 形の層の出しズームを MapLibre の既定に／d.ts の型（U11）。U12・U13 を未決に足した／U1＝表の line-width を CSS px に（既存アプリは半分にして見た目を保つ）
+- **2026-10-12** fid 表を GPU で組む経路（§7.1・geopbf 改良点 ⑦・opt-in `gpuExpr`／`?gintexpr=1`）＝式→WGSL compute・属性列と辞書・feature-state は列の 1 セル書き・載らない式と GL2 は CPU へ自動で落ちる

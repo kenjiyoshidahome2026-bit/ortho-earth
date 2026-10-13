@@ -1,5 +1,5 @@
-// 共有URL（パーマリンク）codec：#zoom/lat/lon[/45t][/-30r][/l=a.b][/c=dark][/c]。語順は地理院地図・OSMと同じ。
-// 後置トークン＝ t:チルト(度) / r:方位(度) / l=点火チップのON集合 / c=配色テーマ名 / c:等高線（旧互換・裸のc＝別トークン）／
+// 共有URL（パーマリンク）codec：#zoom/lat/lon[/45t][/-30r][/15roll][/l=a.b][/c=dark][/c]。語順は地理院地図・OSMと同じ。
+// 後置トークン＝ t:チルト(度) / r:方位(度) / roll:視線まわりの回転(度・2026-10-12・0 なら書かない) / l=点火チップのON集合 / c=配色テーマ名 / c:等高線（旧互換・裸のc＝別トークン）／
 // t=時計の時刻（UTC・末尾 Z）/ s=時計の速度段（共通の時計＝#42・ortho-solar の hash と同じ書式）。無ければ実時間。
 const D2R = Math.PI / 180, R2D = 180 / Math.PI;
 
@@ -13,11 +13,12 @@ export function parseViewHash(h) {
 	if (p.length < 3) return null;
 	const zoom = +p[0], lat = +p[1], lon = +p[2];
 	if (!Number.isFinite(zoom) || !Number.isFinite(lat) || !Number.isFinite(lon)) return null;
-	const v = { zoom, lat, lon, pitch: 0, bearing: 0, layers: null, contour: false, theme: null, time: null, speed: null };
+	const v = { zoom, lat, lon, pitch: 0, bearing: 0, roll: 0, layers: null, contour: false, theme: null, time: null, speed: null };
 	for (const t of p.slice(3)) {
 		let m;
 		if ((m = /^(-?[\d.]+)t$/.exec(t))) v.pitch = +m[1] * D2R;
 		else if ((m = /^(-?[\d.]+)r$/.exec(t))) v.bearing = +m[1] * D2R;
+		else if ((m = /^(-?[\d.]+)roll$/.exec(t))) v.roll = +m[1] * D2R;
 		else if ((m = /^l=(.*)$/.exec(t))) v.layers = m[1] ? m[1].split(".") : [];   // l=（空）＝全チップOFF も区別する
 		else if ((m = /^t=([\dT:.+Z-]+)$/.exec(t))) v.time = m[1];   // 時計の時刻（UTC）＝"45t"（チルト）とは別トークン
 		else if ((m = /^s=(-?\d+)$/.exec(t))) v.speed = +m[1];   // 時計の速度段
@@ -33,6 +34,7 @@ export function buildViewHash(cam, extras = []) {
 	const parts = [cam.zoom.toFixed(2), cam.center[1].toFixed(5), cam.center[0].toFixed(5)];
 	if (cam.pitch > 0.001) parts.push(Math.round(cam.pitch * R2D) + "t");
 	if (Math.abs(cam.bearing) > 0.001) parts.push(Math.round(cam.bearing * R2D) + "r");
+	if (Math.abs(cam.roll || 0) > 0.001) parts.push(Math.round(cam.roll * R2D) + "roll");
 	for (const t of extras) parts.push(t);
 	return "#" + parts.join("/");
 }

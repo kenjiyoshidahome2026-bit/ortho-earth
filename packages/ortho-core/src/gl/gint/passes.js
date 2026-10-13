@@ -5,7 +5,7 @@
 // 単位は device px 一本（u_dpr=1、線幅/半径は worker が ×dpr 済み、blit は width 直）。
 
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK } from './state.js';
-import { bindSharedUniforms, bindPivot, bindDepthUniforms } from './utility.js';
+import { bindSharedUniforms, bindPivot, bindDepthUniforms, farPivotGlobal, layerBboxOf } from './utility.js';
 import { drapeSubs, subPlan } from './drawdata.js';
 import { SUB_NB } from './utility.js';
 import { betaOf, ellipsoidOn } from '../../camera.js';
@@ -100,9 +100,14 @@ function subListRuns(list) {
 // 別々の要から扇られて閉じず、巻き数の閉じ残しが巨大な楔として漏れる（札幌 大字圏で実測）。
 // 同様に fid bbox カリングは視界外 fid 帰属の arc を落とし、視界内ループを破る＝両方無効化が正解。
 // v1 は常に単一要・カリング無し＝この流儀そのもの。境界メタは辺数が桁減済みなので TBDR も安全。
-function bindPivotBoundary(gl, u) {
-	gl.uniform1i(u.u_has_pivot, 0);   // pivotClip → クリップ原点 vec4(0,0,0,1)
+// 塗り（s・data を渡す）は層が視野よりずっと大きい時だけ単一要を遠方の 1 点へ（farPivotGlobal＝環は閉じている＝巻き数不変・画面外の辺の三角形は画面外）
+function bindPivotBoundary(gl, u, s = null, data = null) {
+	gl.uniform1i(u.u_has_pivot, 0);   // pivotClip → クリップ原点 vec4(0,0,0,1)（遠方の要があればその点）
 	gl.uniform1i(u.u_use_vbb, 0);     // bboxVisible → 常に true
+	if (!u.u_far_q) return;
+	const P = s && data ? farPivotGlobal(data, s.lastViewBbox, layerBboxOf(s.polyBboxByFid)) : null;
+	gl.uniform4f(u.u_far_q, 0, 0, P ? 2 : 0, 0);
+	if (P) gl.uniform4f(u.u_far_axes, P[0], P[1], 0, 0);
 }
 
 // per-fid スタイル表（paint 時のみ・unit5）：visibility（filter）/line色/width を VS が引く。
@@ -218,7 +223,7 @@ export function renderCleanScene(s, data, targetFBO = null) {
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, stTex, TEX_ARC_W, TEX_META_W, width, height);
 		bindDepthUniforms(gl, uStencil, data);   // 面ドレープ＝塗り扇の辺端点を地形高へ（fetchClipDrape・真俯瞰=全0=無変化）
-		if (hasB) bindPivotBoundary(gl, uStencil); else bindPivot(s, gl, uStencil);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
+		if (hasB) bindPivotBoundary(gl, uStencil, s, data); else bindPivot(s, gl, uStencil, data);   // 境界メタ＝単一要・カリング無効（fid混成ループ）
 		gl.uniform1f(uStencil.u_lod_rank, 0);   // 塗りstencilは全密度＝LOD簡略化の自己交差による斑点(winding反転)を防ぐ
 		// ポリゴン辺（メタ先頭連続）のみ winding にファン＝折れ線辺を混ぜない（ortho-map と同規約）
 		gl.drawArrays(gl.TRIANGLES, 0, stCount * 3);
@@ -404,19 +409,20 @@ export function drawHighlight(s, data) {
 	const mc = data.maskColor ?? DEF_MASK;
 	if (mc[3] > 0 && hasRange) {
 		gl.enable(gl.STENCIL_TEST);
-		gl.stencilMask(0xFF);
+		// winding はビット0-6 だけ（塗りのパスと同じ）＝bit7（renderer の建物マスク）を消さない。旧＝0xFF で clear/書き込み＝ホバーの暗幕の後は建物の遮蔽が効かなかった（WebGPU は 0x7F）
+		gl.stencilMask(0x7F);
 		gl.clear(gl.STENCIL_BUFFER_BIT);
 		gl.colorMask(false, false, false, false);
-		gl.stencilFunc(gl.ALWAYS, 0, 0xFF);
+		gl.stencilFunc(gl.ALWAYS, 0, 0x7F);
 		gl.stencilOpSeparate(gl.FRONT, gl.KEEP, gl.KEEP, gl.INCR_WRAP);
 		gl.stencilOpSeparate(gl.BACK,  gl.KEEP, gl.KEEP, gl.DECR_WRAP);
 		gl.useProgram(stencilProgram);
 		bindSharedUniforms(gl, uStencil, data, arcTex, metaTex, TEX_ARC_W, TEX_META_W, width, height);
-		bindPivot(s, gl, uStencil);
+		bindPivot(s, gl, uStencil, data);
 		gl.drawArrays(gl.TRIANGLES, eStart * 3, eCount * 3);
 		gl.colorMask(true, true, true, true);
 		gl.stencilMask(0x00);
-		gl.stencilFunc(gl.EQUAL, 0, 0xFF);
+		gl.stencilFunc(gl.EQUAL, 0, 0x7F);
 		gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
 		gl.useProgram(fillProgram);
 		gl.uniform4fv(uFill.u_fill_color, mc);
