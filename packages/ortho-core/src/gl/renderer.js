@@ -14,6 +14,7 @@ import * as mat from "../mat.js";
 import { createDepthOutGL } from "./depthout.js";   // シーンの深度をオーバーレイへ（#47）＝申し出がある時だけ FBO 経由で描く
 import { clockNow } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝view.clock（{sim,wall,rate}）からその時刻。無ければ実時刻
 import { gmstAt, sunSubpoint } from "@ortho-earth/ephem/sun";   // 恒星時と太陽直下点の正本（solar と同じ式）
+import { FAR_PIVOT } from "./gint/utility.js";   // 塗り扇の遠方の要の旗（?nofarpivot=1）
 
 const CORNERS = new Float32Array([0, -1, 0, 1, 1, -1, 1, -1, 0, 1, 1, 1]); // 6頂点×(end,side)（?quad4=0 の旧経路）
 const CORNERS4 = new Float32Array([0, -1, 0, 1, 1, -1, 1, 1]);            // 4 隅 A−,A+,B−,B+（perf plan P3）＝index [0,1,2,2,1,3] で旧 CORNERS の三角形 (A−,A+,B−)(B−,A+,B+) と同一（gpu/renderer.js と対）
@@ -1469,6 +1470,7 @@ export function createRenderer(canvas, rOpts = {}) {
 		// 線・塗りのフォグ終端は地形と同一式＝地形が完全に霞んだ先に線だけ生き残って「空に浮く白線」に
 		// なるのを構造的に防ぐ。シェーダの遠景平ら化(df)も u_fogFar 基準なので、同値なら線は地形に厳密追随する。
 		const fogFarCap = Math.max(st.fogDist * 5.0, 0.026 * pfFog) * fogK();   // fog:false＝無限（gpu と同じ）
+		FAR_PIVOT.on = view.gintFarPivot !== false;   // 塗り扇の遠方の要（画面カリング）の逃げ道（view.gintFarPivot=false＝?nofarpivot=1・比較用）
 		// gint（1canvas統合・埋込パス）向けの frame コンテキスト：山岳ビュー（terrainDepth）の間だけ、
 		// 対数深度係数（setCommonUniforms の u_logCoef と同式）と標高ドレープ一式を渡す＝gint 線が
 		// 基図の線と同じ高さ・同じ深度空間で地形に参加（尾根の向こうは隠線＝淡破線）。それ以外は null＝最前面。

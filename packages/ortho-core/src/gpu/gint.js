@@ -21,7 +21,7 @@
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
 import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gl/gint/state.js";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
-import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gl/gint/utility.js";
 import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
@@ -484,7 +484,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	const layers = [];       // 描画順（後の層が上）
 	let act = null;          // カーソルを持つ層（§4.1 常に1層。既定＝最後に addLayer した層）
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;
-	const GF_SLOT = 512;   // 案A: meshQ/meshP 追加で 64f 超過＝512B ストライド（dynamic offset は 256 倍数制約）
+	const GF_SLOT = 768;   // 案A: meshQ/meshP 追加で 64f 超過＝512B→遠方の要（float 128〜139）で 768B ストライド（dynamic offset は 256 倍数制約）
 	function makeLayer() {
 		const L = {
 			...emptySlot(),
@@ -718,6 +718,15 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;
 		gfF[o + 72] = atlas ? atlas.off[0] : 0; gfF[o + 73] = atlas ? atlas.off[1] : 0; gfF[o + 74] = atlas ? atlas.inv[0] : 1; gfF[o + 75] = atlas ? atlas.inv[1] : 1;
 		gfF[o + 76] = atlas ? 1 : 0; gfF[o + 77] = 0; gfF[o + 78] = 0; gfF[o + 79] = 0;
+		// 遠方の要（塗り扇の画面カリング・float 128〜139＝断面の予約欄 80〜127 の後ろ）：per-fid の要は pivot 有効の時だけ（線の GF は要を使わない＝書いても無害）
+		// 単一要（noPivot＝境界メタ）は層が視野よりずっと大きい時だけ遠方の 1 点（farPivotGlobal・環は fid を跨いで閉じる＝巻き数不変）
+		const dd = atlas ? { atlas } : d;
+		const fp = (!noPivot && L.pivotTex) ? farPivotParams(dd, vb) : null;
+		const gP = noPivot ? farPivotGlobal(dd, vb, layerBboxOf(L.polyBboxByFid)) : null;
+		if (fp) { gfF[o + 128] = fp.axes[0]; gfF[o + 129] = fp.axes[1]; gfF[o + 130] = fp.axes[2]; gfF[o + 131] = fp.axes[3]; }
+		else if (gP) { gfF[o + 128] = gP[0]; gfF[o + 129] = gP[1]; gfF[o + 130] = 0; gfF[o + 131] = 0; }
+		gfF[o + 132] = fp ? fp.q[0] : 0; gfF[o + 133] = fp ? fp.q[1] : 0; gfF[o + 134] = fp ? 1 : gP ? 2 : 0; gfF[o + 135] = FAR_K;
+		gfU[o + 136] = fp ? fp.big[0] : 0; gfU[o + 137] = fp ? fp.big[1] : 0; gfU[o + 138] = 0; gfU[o + 139] = 0;
 		const ci = clipInfo();   // 断面（#111 段 3）＝派生の GF だけが読む末尾（float 80〜127）
 		if (ci) packClip(gfF, o + 80, d.origin, ci);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}
