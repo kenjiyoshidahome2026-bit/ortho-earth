@@ -7,6 +7,7 @@
 //     形状台帳      ne-physical.geopbf・plates.geopbf・ne-physical-lines.geopbf・climate-koppen.geopbf（地形の頁）
 //     検索の索引    search/base.json・search/<lang>.json（scripts/search-index.mjs）
 //     資産          ne-cities/<lang>.json・flags/<key>.svg・geoms/<key>.png・sfx.zip（uploader が作る物＝手元に在れば）
+//     宇宙          sky/＝星表 stars.6・星座線・メシエ・月の地名（.geopbf）・名前 sky/names/<lang>.json・sky/moon_nomenclature.i18n/<lang>.json（正本 packages/space）
 //   目録            manifest.json＝{ updated, files: { 相対パス: 中身の sha1 の頭 12 桁 } }＝置くたびに globe/ 全体から作り直す。
 //                   Pages に一覧 API は無い＝world の頁はこれ 1 本で「変わったファイル」と「在る国旗」を知る（apps/world/src/data.js）
 //   使い方: node scripts/publish-pages.mjs            … 予行（何も書かない＝今の Pages と比べて 新規／変更／同じ を出す）
@@ -25,7 +26,7 @@ const WRITE = process.argv.includes("--write"), ALLOW_OLDER = process.argv.inclu
 const ONLY = arg("only").split(",").filter(Boolean);
 const DBS = ["NationDB", "CityDB", "LanguageDB", "CurrencyDB", "Conflicts", "TerrainDB"];
 const FILES = [...DBS.map(d => d + ".json"), "ne-physical.geopbf", "plates.geopbf", "ne-physical-lines.geopbf", "climate-koppen.geopbf", "sfx.zip"];
-const FOLDERS = [...DBS.map(d => d + ".i18n"), "search", "ne-cities", "flags", "geoms"];
+const FOLDERS = [...DBS.map(d => d + ".i18n"), "search", "ne-cities", "flags", "geoms", "sky"];
 const walk = (d, rel = "") => fs.readdirSync(path.join(d, rel), { withFileTypes: true }).flatMap(e => e.name.startsWith(".") ? [] : e.isDirectory() ? walk(d, rel + e.name + "/") : [rel + e.name]);
 const have = [...FILES.filter(f => fs.existsSync(path.join(SRC, f))), ...FOLDERS.filter(f => fs.existsSync(path.join(SRC, f))).flatMap(f => walk(SRC, f + "/"))].sort();
 const LIST = have.filter(f => !ONLY.length || ONLY.some(o => f === o || f.startsWith(o.replace(/\/$/, "") + "/")));
