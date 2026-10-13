@@ -98,7 +98,7 @@ const PAGES = [
 	{ name: "quakes", url: "/globe/quakes", ready: `${BOOTED} && window.__quakes && window.__quakes.count > 1000`, ms: 120000 },
 	{ name: "sats", url: "/globe/sats", ready: `${BOOTED} && window.__sats && window.__sats.count > 1000`, ms: 60000 },
 	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 240000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える。GIBS の応答が夜に 9 秒級まで揺れる（2026-10-12 に 120s で 2 回落ち・3 回目 54s）＝上限 240s
-	// 地形＝bucket GIS/world/ の TerrainDB・ne-physical.geopbf（uploader に out/ の生成物を落としてから）。物理量（流量など）が載った版かも見る
+	// 地形＝GitHub Pages（ortho-data/globe/）の TerrainDB・ne-physical.geopbf（npm run publish:pages -w world-data で置いてから）。物理量（流量など）が載った版かも見る
 	{ name: "physical", url: "/globe/physical", ready: `${BOOTED} && window.__physical && window.__physical.items.length > 900 && window.__physical.shapes.length > 1000 && window.__physical.items.some(d => d.discharge > 0)`, ms: 60000 },
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {

@@ -1,9 +1,9 @@
 // 世界の地形（山・川・湖・海・砂漠…約 1,000 件）を地球儀（@ortho-earth/globe）に（physical.html から遅延 import）。
 //
-// データ（packages/world の生成物＝本番は bucket GIS/world/・dev は手元の out/）
-//   TerrainDB.json        … qid ごとの分類・代表点・物理量（標高・長さ・面積・深さ・流量・流域面積・落差・プロミネンス・体積）
-//   i18n/<lang>.json      … terrains[qid] の名前と Wikipedia 記事名（英語は TerrainDB の name.en）
-//   ne-physical.geopbf    … 形状台帳（面・線・点・山脈の軸線＝qid で TerrainDB と結ぶ）
+// データ（packages/world の生成物＝本番は GitHub Pages の ortho-data/globe/・dev は手元の out/）
+//   TerrainDB.json              … qid ごとの分類・代表点・物理量（標高・長さ・面積・深さ・流量・流域面積・落差・プロミネンス・体積）
+//   TerrainDB.i18n/<lang>.json  … terrains[qid] の名前と Wikipedia 記事名（英語は TerrainDB の name.en）＝DB の隣・同じ push で置く
+//   ne-physical.geopbf          … 形状台帳（面・線・点・山脈の軸線＝qid で TerrainDB と結ぶ）
 // 描き方＝エンジンの MapLibre 互換の口（addSource／addLayer）だけ：面＝fill・川と山脈の軸と海流＝line・名前と記号＝symbol（川と海流は線に沿わせる）。
 //
 // 表現の決め事
@@ -13,7 +13,7 @@
 //   出し … NE の scalerank（rank）で名前の出しズームを決める＝大きな物ほど遠くから
 //   選択 … 地図・一覧・比較図のどこで選んでも同じ（赤の縁取り＋詳細カード＋そこへ飛ぶ）。?q=QID で共有できる
 import { tr, setLang, getLang, loadPage, LANGUAGES } from "@ortho-earth/globe/i18n.js";   // UI 文言＝英語キー・26 言語。モジュール評価時に t() を呼ばない
-import { WORLD_GIS, fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
+import { fetchJsonMaybeGz } from "@ortho-earth/core/worldcontent";
 import { gunzip, isGzip } from "geopbf/gzip";
 import { createWikiFrame, wikiUrl as wikiHref } from "@ortho-earth/globe/wiki.js";   // Wikipedia＝枠と URL の共通の芯（2026-10-03）
 import { categories as CATEGORY_NAMES } from "world-data/i18n/ui.json";   // 分類名（Wikidata のクラスのラベル・26 言語）
@@ -119,6 +119,10 @@ function joinParts(g) {
 	return out.length >= 2 ? out : null;
 }
 
+// データの置き場＝GitHub Pages（リポ ortho-data の gh-pages 枝・globe/＝全世界のデータ）。置く＝git push だけ（bucket の鍵が要らない・2026-10-13）＝
+// npm run publish:pages -w world-data。Pages は全ファイルに access-control-allow-origin: * と ETag を付ける（キャッシュは 10 分固定）
+const DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/";
+
 // 形状台帳を読む＝fetch（HTTP キャッシュが ETag で新旧を確かめる）→ 中身を geopbf へ。geopbf(URL) は URL ごとに IDB へ写して以後は版を見ずに使い回す
 //（bucket の名前読み＝GIS/pbf だけが版を突き合わせる）＝台帳を作り直しても開いたことのあるブラウザに届かなかった（海溝・海嶺の帯が出ない・本人 2026-10-01）
 async function loadPbf(geopbf, url) {
@@ -170,12 +174,12 @@ export async function mountPhysical(map, { geopbf, data } = {}) {
 	document.title = t("Physical world — ortho-globe");
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Mountains, rivers, lakes, seas and deserts of the world on a 3D globe, with their heights, lengths, areas and depths side by side."));
 	const lang = getLang(), mapEl = map.mapEl;
-	const base = data || (typeof __WORLD_OUT__ !== "undefined" && __WORLD_OUT__) || WORLD_GIS;
+	const base = data || (typeof __WORLD_OUT__ !== "undefined" && __WORLD_OUT__) || DATA;
 
 	// データ（3 本を並行に）。名前表の失敗は英語で出すだけ（地図は止めない）
 	const [db, i18n, pbf] = await Promise.all([
 		fetchJsonMaybeGz(base + "TerrainDB.json"),
-		lang === "en" ? null : fetchJsonMaybeGz(`${base}i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
+		lang === "en" ? null : fetchJsonMaybeGz(`${base}TerrainDB.i18n/${lang}.json`).catch(e => (console.warn("[physical] i18n", lang, e), null)),
 		loadPbf(geopbf, base + "ne-physical.geopbf"),
 	]);
 	const items = (db.items || db).filter(d => d.coord);
