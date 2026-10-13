@@ -5,6 +5,7 @@
 // 線に沿う注記（symbol-placement line・段 4）も同じ経路＝折れ線を毎フレーム投影して字を線に沿わせる（lineLayout）・字ごとの箱で衝突。
 // 記号（icon-image・段 3）も同じ経路＝記号帳（setImage）を名前で引き、文字の箱と一緒に裁く（icon-text-fit・text/icon-optional・icon-allow-overlap/ignore-placement・icon-padding）。
 import { cameraState, projectInto, unproject, distTo, worldRadiusM } from "./camera.js";
+import { parseRGBA } from "./color.js";
 import { clipDistanceM } from "./clip.js";   // 断面（#111 段 3）＝切られた側に錨がある注記は出さない
 import { fontCss } from "./fontstack.js";
 import { charRotated, verticalize } from "./vertical.js";   // 縦書き（text-writing-mode・2026-10-03）
@@ -17,6 +18,7 @@ const ANCH = { center: [0.5, 0.5], top: [0.5, 0], bottom: [0.5, 1], left: [0, 0.
 // 色の文字列＝色の配列ごとに直前の (不透明度, 文字列) を覚える（静止中は毎フレーム同じ＝文字列を組み直さない。フェード中だけ組む）
 const cssMemo = new WeakMap();
 const css = (c, op = 1) => {
+	if (typeof c !== "object" || c === null) c = parseRGBA(c);   // 配列でない色（文字列・欠け）は WeakMap の鍵にならない＝描画の途中で落とさない（入口で直すのが本筋・ここは保険）
 	let m = cssMemo.get(c);
 	if (m !== undefined && m.op === op) return m.s;
 	const s = `rgba(${Math.round(c[0] * 255)},${Math.round(c[1] * 255)},${Math.round(c[2] * 255)},${c[3] * op})`;
@@ -424,7 +426,8 @@ export function createLabelLayer(canvas, { pad = 5, fadeMs = 300, recollideMs = 
 		if (!list?.length) userSets.delete(id);
 		else userSets.set(id, {
 			visible: userSets.get(id)?.visible ?? true,
-			list: list.map(L => ({ sort: -1, size: 12, color: [0.15, 0.18, 0.22, 1], halo: [1, 1, 1, 0.9], haloW: 2, ...L,
+			list: list.map(L => ({ sort: -1, size: 12, haloW: 2, ...L,
+				color: L.color == null ? [0.15, 0.18, 0.22, 1] : parseRGBA(L.color), halo: L.halo == null ? [1, 1, 1, 0.9] : parseRGBA(L.halo),   // 色は CSS の文字列でも配列でも（層の label の型は string）＝描く側は配列だけ
 				k: String(id), minZ: meta.minZoom ?? null, maxZ: meta.maxZoom ?? null })),
 		});
 		rebuild();
