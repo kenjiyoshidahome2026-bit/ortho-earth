@@ -37,10 +37,57 @@ export function bindSharedUniforms(gl, u, data, arcTex, metaTex, arcW, metaW, wi
 	if (u.u_atlas) gl.uniform4f(u.u_atlas, data.atlas ? data.atlas.off[0] : 0, data.atlas ? data.atlas.off[1] : 0, data.atlas ? data.atlas.inv[0] : 1, data.atlas ? data.atlas.inv[1] : 1);
 }
 
+// ── 塗り扇の画面カリング＝遠方の要（2026-10-13）──
+// 塗り（stencil／idfill）は feature ごとの要から各辺へ三角形を張り、巻き数で内側を決める。要が bbox 中心だと、視野より
+// ずっと大きい feature（国立公園＝1 feature 28 万辺・4°×1.5°）に寄った時、画面外の辺の三角形も要から画面を横切る＝
+// 画面外の辺を捨てられず、視野内の feature の全辺がラスタへ流れた（nps_all z13 の平面近似の見積り：42 万三角形）。
+// 巻き数は閉じた環なら要の位置に依らない（画面上のどこでも・画面外でも）。視野の FAR_BIG 倍を超える feature だけ、
+// 要を「張り出しが最小の側の反対」の遠方（NDC で FAR_K）へ置く＝画面外の辺の三角形は画面外に収まり GPU が捨てる。
+// 残るのは視野から張り出し最小の側へ伸びる帯の辺だけ（同見積り 0.4〜4.7 万）。小さい feature は従来の bbox 中心
+//（TBDR のパラメータバッファ対策＝細い長三角形を作らない）。FAR_PIVOT.on＝false で旧挙動（比較用）。
+export const FAR_PIVOT = { on: true };
+export const FAR_K = 64, FAR_BIG = 2;
+// uniform 一式（GL bindPivot・WebGPU packGF 共通・d.farAxes は drawdata.js computeDrawData が作る）。vbb＝視野（窓座標モードは窓）の bbox e7。null＝無効
+// axes＝NDC での東・北の向き（窓座標モードは経緯度そのもの）・q＝(経度差の重み, 緯度差の重み)・big＝要を遠方へ置く feature の幅/高さ下限（e7）
+export function farPivotParams(d, vbb) {
+	if (!FAR_PIVOT.on || !vbb) return null;
+	let axes, q;
+	if (d.atlas) { axes = [1, 0, 0, 1]; q = [d.atlas.inv[0], d.atlas.inv[1]]; }   // 窓座標＝x が経度・y が緯度に線形（重みは窓の縦横比）
+	else if (d.farAxes) { axes = d.farAxes; q = d.farScale; }
+	else return null;   // 画面中心が地球を外れる（空を向く）＝向きが決まらない
+	const big = [Math.min(0xFFFFFFFF, (vbb[2] - vbb[0]) * FAR_BIG), Math.min(0xFFFFFFFF, (vbb[3] - vbb[1]) * FAR_BIG)];
+	return { axes, q, big };
+}
+// 境界メタ（単一要）の遠方の要：境界メタの環は fid を跨いで閉じる＝要は 1 点ならどこでも巻き数は同じ（旧＝画面中心＝全三角形が画面を横切る）。
+// 層全体の bbox が視野の FAR_BIG 倍を超える時だけ、per-fid と同じ「張り出し最小の側の反対」の遠方の 1 点（NDC）を返す。null＝従来の画面中心
+const _layerBbox = new WeakMap();   // polyBboxByFid（Map）→ 層 bbox（e7）。縫い目跨ぎ（x>360e7）を含む層は null
+export function layerBboxOf(polyBboxByFid) {
+	if (!polyBboxByFid?.size) return null;
+	if (_layerBbox.has(polyBboxByFid)) return _layerBbox.get(polyBboxByFid);
+	let b = [0xFFFFFFFF, 0xFFFFFFFF, 0, 0];
+	for (const bb of polyBboxByFid.values()) {
+		if (bb[2] > 3600000000) { b = null; break; }
+		if (bb[0] < b[0]) b[0] = bb[0]; if (bb[1] < b[1]) b[1] = bb[1]; if (bb[2] > b[2]) b[2] = bb[2]; if (bb[3] > b[3]) b[3] = bb[3];
+	}
+	_layerBbox.set(polyBboxByFid, b);
+	return b;
+}
+export function farPivotGlobal(d, vbb, lb) {
+	const fp = lb ? farPivotParams(d, vbb) : null;
+	if (!fp || !(lb[2] - lb[0] > fp.big[0] || lb[3] - lb[1] > fp.big[1])) return null;
+	const oL = (vbb[0] - lb[0]) * fp.q[0], oR = (lb[2] - vbb[2]) * fp.q[0], oB = (vbb[1] - lb[1]) * fp.q[1], oT = (lb[3] - vbb[3]) * fp.q[1];
+	let dx = fp.axes[0], dy = fp.axes[1], m = oL;   // pivotClip（GLSL/WGSL）と同じ選び方
+	if (oR < m) { m = oR; dx = -fp.axes[0]; dy = -fp.axes[1]; }
+	if (oB < m) { m = oB; dx = fp.axes[2]; dy = fp.axes[3]; }
+	if (oT < m) { dx = -fp.axes[2]; dy = -fp.axes[3]; }
+	return [dx * FAR_K, dy * FAR_K];
+}
+
 // feature bbox テクスチャ（扇要＋GPU bbox カリング）を unit2 へ。無いデータ（線のみ/疎fid）は
 // 従来のクリップ原点＆カリング無効。視野bbox は visibleRuns と同じ線幅マージン（e7 で 10000≈0.001°）。
 // （passes.js から移設＝idfill.js の ID 塗りパスと共用）
-export function bindPivot(s, gl, u) {
+// data（任意）＝塗り扇の遠方の要（画面カリング・farPivotParams）の向き。無し・線パス＝無効（従来の bbox 中心）
+export function bindPivot(s, gl, u, data = null) {
 	gl.uniform1i(u.u_pivot_tex, 2);
 	gl.uniform1i(u.u_pivot_w, s.pivotW || 1);
 	gl.uniform1i(u.u_has_pivot, s.pivotTex ? 1 : 0);
@@ -49,6 +96,11 @@ export function bindPivot(s, gl, u) {
 	if (vb) gl.uniform4ui(u.u_view_bbox,
 		Math.max(0, vb[0] - 10000), Math.max(0, vb[1] - 10000),
 		Math.min(0xFFFFFFFF, vb[2] + 10000), Math.min(0xFFFFFFFF, vb[3] + 10000));
+	if (u.u_far_q) {
+		const fp = data && s.pivotTex ? farPivotParams(data, vb) : null;
+		gl.uniform4f(u.u_far_q, fp ? fp.q[0] : 0, fp ? fp.q[1] : 0, fp ? 1 : 0, FAR_K);
+		if (fp) { gl.uniform4f(u.u_far_axes, fp.axes[0], fp.axes[1], fp.axes[2], fp.axes[3]); gl.uniform2ui(u.u_far_big, fp.big[0], fp.big[1]); }
+	}
 	// pivot 無しでも「null を」バインド＝unit2 は基図の メッシュマスク（float）と共用。残留 float を
 	// usampler(u_pivot_tex) が掴むと sampler型不整合で draw 全滅（renderer unit1 の標高と対の同病）。
 	gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, s.pivotTex || null); gl.activeTexture(gl.TEXTURE0);

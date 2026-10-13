@@ -112,6 +112,61 @@ try {
 		ok(`チルト部分表示stencil(穴=${hole} 環=${ann} 外=${outv})`, hole === 0 && ann > 5 && outv === 0);
 	}
 
+	// ── ②c 遠方の要（塗り扇の画面カリング・2026-10-13）：視野よりずっと大きい凹の環（穴・離れ島つき）に寄った構図で、
+	// 塗りの画素が CPU の内外判定（点の内包）と一致するか。要を画面外の遠方へ置いても巻き数は変わらない（閉環）＝境界付近を除き完全一致が門。
+	// 構図＝境界が画面を横切る／穴の縁／回転／チルト。stencil 単色（fillColor）と ID 塗り（paint の fill-color）の両経路 ──
+	{
+		const { cameraState, unproject } = await import("../../../packages/ortho-core/src/camera.js");
+		const C = [139.7, 35.7], N = 1800;
+		// 外環：星形（半径 1.6°±0.5°・7 回のうねり＋細かいギザ）＝凹・視野（z11 で 0.18°）の何十倍。穴：半径 0.25°（CW）。島：別 fid の小さな四角
+		const outer = [], hole = [];
+		for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, r = 1.6 + 0.5 * Math.sin(7 * a) + 0.03 * Math.sin(97 * a);
+			outer.push([C[0] + r * Math.cos(a) * 1.4, C[1] + r * Math.sin(a) * 0.7]); }
+		outer.push(outer[0]);
+		for (let i = 0; i <= 64; i++) { const a = -i / 64 * Math.PI * 2; hole.push([C[0] + 0.25 * Math.cos(a), C[1] + 0.2 * Math.sin(a)]); }
+		const isl = [[C[0] + 2.6, C[1] + 1.2], [C[0] + 2.7, C[1] + 1.2], [C[0] + 2.7, C[1] + 1.3], [C[0] + 2.6, C[1] + 1.3], [C[0] + 2.6, C[1] + 1.2]];
+		const rings = [outer, hole, isl], vs = rings.flat();
+		const arcBuffer = BigUint64Array.from(vs.map(([lo, la], i) => pack(lo, la, true)));
+		const arcMeta = new Uint32Array(rings.length * 8);
+		let o = 0;
+		rings.forEach((rg, aid) => { arcMeta[aid * 8] = o; arcMeta[aid * 8 + 1] = rg.length; o += rg.length;
+			arcMeta[aid * 8 + 4] = Math.min(...rg.map(p => e7(p[0] + 180))); arcMeta[aid * 8 + 5] = Math.min(...rg.map(p => e7(p[1] + 90)));
+			arcMeta[aid * 8 + 6] = Math.max(...rg.map(p => e7(p[0] + 180))); arcMeta[aid * 8 + 7] = Math.max(...rg.map(p => e7(p[1] + 90))); });
+		await roundtrip({ type: "set", cmd: "gint", data: { arcBuffer, arcMeta, polyStream: Int32Array.from([3, 2, 1, 0, 1, 1, 4, 1, 1, 2]), minZoom: 2 } }, "set");
+		const pip = (p, rg) => { let c = false; for (let i = 0, j = rg.length - 1; i < rg.length; j = i++) {
+			const [xi, yi] = rg[i], [xj, yj] = rg[j];
+			if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+		const inside = p => (pip(p, outer) && !pip(p, hole)) || pip(p, isl);
+		const views = [
+			["境界", { center: [outer[0][0] - 0.02, outer[0][1]], zoom: 11, pitch: 0, bearing: 0 }],
+			["穴の縁", { center: [C[0] + 0.25, C[1]], zoom: 11.5, pitch: 0, bearing: 0 }],
+			["回転", { center: [outer[N / 4 | 0][0], outer[N / 4 | 0][1] - 0.02], zoom: 11, pitch: 0, bearing: 0.7 }],
+			["チルト", { center: [outer[N / 2 | 0][0] + 0.03, outer[N / 2 | 0][1]], zoom: 11, pitch: 0.9, bearing: 2.2 }],
+			["島の近く", { center: [C[0] + 2.62, C[1] + 1.22], zoom: 10, pitch: 0, bearing: 0 }],
+		];
+		const check = async (label, colorOf) => {
+			for (const [nm, cam] of views) {
+				post({ type: "drawing", cam, panning: false, fillColor: [1, 0, 0, 0.6] }); post({ type: "drawn" });
+				const a8 = new Uint8Array((await snapshot()).base), st = cameraState(cam, 256, 256);
+				let nIn = 0, nOut = 0, bad = 0;
+				for (let y = 8; y < 248; y += 8) for (let x = 8; x < 248; x += 8) {
+					const ins = [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3]].map(([dx, dy]) => { const g = unproject(st, x + dx, y + dy); return g ? inside(g) : null; });
+					if (ins.some(v => v === null) || ins.some(v => v !== ins[0])) continue;   // 境界から 3px 以内・地球外は判定しない
+					const i = ((255 - y) * 256 + x) * 4, filled = colorOf(a8, i);
+					if (ins[0]) nIn++; else nOut++;
+					if (filled !== ins[0]) bad++;
+				}
+				ok(`遠方の要${label}:${nm}(内=${nIn} 外=${nOut} 不一致=${bad})`, bad === 0 && nIn > 20 && nOut > 20);
+			}
+		};
+		await check("stencil", (a8, i) => a8[i] > 120 && a8[i + 3] > 60 && a8[i + 1] < 90);
+		const table = new Uint32Array(5 * 4);   // fid3/4：塗り＝緑・線は透明（ID 塗りの経路）
+		for (const f of [3, 4]) { table[f * 4] = 0x00FF00FF; table[f * 4 + 1] = 0; table[f * 4 + 2] = ((8 << 24) | (6 << 8) | 1) >>> 0; }
+		post({ type: "paint", table, count: 5 });
+		await check("ID塗り", (a8, i) => a8[i + 1] > 120 && a8[i] < 90 && a8[i + 3] > 60);
+		post({ type: "paint", table: null, count: 0 });
+	}
+
 	// ── ③ 大データ：>200k辺 → tier 梯子が worker 内で構築され、低ズームは tier 経路で描く ──
 	{
 		const nArcs = 500, len = 500, total = nArcs * len;
