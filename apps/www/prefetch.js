@@ -11,7 +11,7 @@
 //   ・ne_10m_lakes …………… globe.js loadLakes（gint:false）と equal layers.js（gint あり）＝gint ありで入れれば両方が IDB から即立つ
 //   ・ne_50m_lakes …………… globe.js loadLakes の省メモリ版（gint:false）
 //   ・below_sea_land ………… globe.js loadBelowSea（gint:false）
-//   ・stars.6 ……………………… globe sky/theater.js・solar（gint:false）
+//   ・stars.6 ……………………… globe sky/theater.js・solar＝GitHub Pages の sky/stars.6.geopbf（2026-10-13〜・HTTP キャッシュ）
 //   ・ne_110m_land …………… globe gadgets/globe.js＝ミニ地球儀（gint:false）
 //   ・ne_10m_rivers_… / maritime … gint/layers.js loadWorldLines（LOW_MEM は読まない）と equal layers.js（どちらも gint あり）
 //   ・ne-cultural-{base,detail} … equal.js getCultural・world worldlayers.js fetchGroup（URL が鍵・name 付き・gint あり）
@@ -24,6 +24,7 @@ import { lowMem } from "@ortho-earth/globe/boot/tier.js";   // 地球儀のホ�
 
 export const API = "https://api.ortho-earth.com";
 const CULTURAL = g => `${API}/bucket/GIS/world/ne-cultural-${g}.geopbf`;
+const SKY_STARS = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/stars.6.geopbf";
 const WORLD_ATLAS_KEY = "WORLD1024_1";   // altpbf WORLD_ATLAS と同値（import すると 1 段目の前に altpbf を読む＝plan は純関数に保つ）
 const MB = 1 << 20;
 const TIER2_FREE = 512 * MB;   // 2 段目＝保存領域の空きがこれ未満なら見送る（ne-cultural-detail は十数 MB・GINT 込みでその倍）
@@ -47,7 +48,7 @@ export function planPrefetch({ low = false, effectiveType = null, free = null } 
 		url("cultural-base", "base"),
 		low ? pbf("lakes-50m", "ne_50m_lakes", false) : pbf("lakes-10m", "ne_10m_lakes"),
 		pbf("below-sea", "below_sea_land", false),
-		pbf("stars", "stars.6", false),
+		{ id: "stars", kind: "fetch", url: SKY_STARS },   // 星表＝GitHub Pages（ortho-data/globe/sky/）＝HTTP キャッシュを温める（読み手は IDB を使わない・sky/data.js）
 		pbf("minimap-land", "ne_110m_land", false),   // ミニ地球儀（gadgets/globe.js）＝japan 系の起動で読む・小さい
 		...(low ? [] : [
 			pbf("rivers", "ne_10m_rivers_lake_centerlines"),
@@ -101,6 +102,7 @@ export async function prefetchWorldData(nav = navigator) {
 			const a = await loadTile.byName(job.key);
 			return a?.data?.byteLength ?? 0;
 		}
+		if (job.kind === "fetch") return (await (await fetch(job.url)).arrayBuffer()).byteLength;
 		const pbf = await geopbf(job.name, job.opts);
 		const n = pbf?.size ?? 0; pbf?.destroy?.();
 		return n;
