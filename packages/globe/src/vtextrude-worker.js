@@ -65,7 +65,10 @@ function build(m) {
 	if (L === undefined) { self.postMessage({ id: m.id, miss: true }); return; }
 	if (!L || !L.features.length) { geoCache.delete(`${lid}|${key}`); self.postMessage({ id: m.id, empty: true }); return; }
 	const E = L.extent || 4096;
-	const fkey = JSON.stringify(layer.filter ?? null) + "@" + m.fzoom + "|" + JSON.stringify(m.promoteId ?? null);
+	// 角の丸め（C6）＝layout の m を、このタイルの幅（中心の緯度）でタイル座標の単位へ。幾何の覚えの鍵に入れる（変えたら earcut からやり直し）
+	const rcd = Math.max(0, num(layer.layout?.["fill-extrusion-rounded-corner-distance"], { zoom: m.zoom, props: {}, geom: null, vars: {}, origin: ML }, 0));
+	const round = rcd > 0 ? rcd * E / (40075016.686 * Math.cos(tileToLonLat(z, x, y, E, E / 2, E / 2)[1] * Math.PI / 180) / 2 ** z) : 0;
+	const fkey = JSON.stringify(layer.filter ?? null) + "@" + m.fzoom + "|" + JSON.stringify(m.promoteId ?? null) + "|r" + round.toFixed(3);
 	let G = geoCache.get(`${lid}|${key}`);
 	if (!G || G.fkey !== fkey || G.sl !== sl) {
 		const geos = [], feats = [];
@@ -76,7 +79,7 @@ function build(m) {
 			if (layer.filter != null && !truthy(evalExpr(layer.filter, ctxOf(m.fzoom, f, id)))) continue;
 			const fi = feats.length;
 			feats.push({ id, props: f.props });
-			for (const rings of classifyRings(f.geom)) { const g = tessellatePolygon(rings, E); if (g) geos.push({ fi, ...g }); }
+			for (const rings of classifyRings(f.geom)) { const g = tessellatePolygon(rings, E, { round }); if (g) geos.push({ fi, ...g }); }
 		}
 		G = { fkey, sl, geos, feats, E, styles: new Map() };
 		geoCache.set(`${lid}|${key}`, G);

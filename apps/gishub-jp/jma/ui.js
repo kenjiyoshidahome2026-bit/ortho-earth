@@ -1,5 +1,5 @@
 // 気象庁 アメダス観測所レイヤー（静的GeoPBF配信・独立モジュール）
-// public/jma/amedas.geopbf を自前fetch → geopbf(buffer) でデコード（bucket不要）→
+// ortho-data/japan/jma/amedas.geopbf（本番＝GitHub Pages・dev＝手元の正本＝vite.config の __DATA_JAPAN__）を自前fetch → geopbf(buffer) でデコード（bucket不要）→
 // 既存の execGlobeView で地図描画。生成は jma/amedas-to-geopbf.mjs。
 import { geopbf } from '../ui/gpbf.js';
 import { execGlobeView } from '../ui/globe.js';
@@ -50,7 +50,7 @@ const AMEDAS_LEGEND =
 let _pbf = null;
 export async function showAmedas() {
     if (!_pbf) {
-        const res = await fetch(`${import.meta.env.BASE_URL}jma/amedas.geopbf`);
+        const res = await fetch(`${__DATA_JAPAN__}jma/amedas.geopbf`);
         if (!res.ok) throw new Error(`amedas.geopbf HTTP ${res.status}`);
         // ArrayBuffer を渡すとサーバ(bucket)を介さず直接デコードされる（geopbf の isBuffer 分岐）
         _pbf = await geopbf(await res.arrayBuffer(), { name: 'amedas' });

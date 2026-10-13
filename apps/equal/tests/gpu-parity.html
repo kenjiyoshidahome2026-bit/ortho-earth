@@ -1,0 +1,11 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>equal GL ⇄ GPU parity</title>
+<!-- WebGL2（renderer.js）と WebGPU（renderer-gpu.js）へ同じ合成データ・同じ視点を描かせて画素と国 ID を突き合わせる。
+     実ブラウザ専用（npm run dev → /tests/gpu-parity.html）。結果は画面と window.__parity。 -->
+<style>body{margin:0;background:#222;color:#ddd;font:12px monospace} canvas{width:480px;height:300px;display:inline-block;margin:2px} pre{margin:4px}</style>
+<body>
+<div id="row"></div>
+<pre id="out">running…</pre>
+<script type="module" src="./gpu-parity.js"></script>
+</body>

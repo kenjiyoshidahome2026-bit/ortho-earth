@@ -6,6 +6,7 @@
 // 対応する列型: BOOLEAN / INT64 / DOUBLE / BYTE_ARRAY（UTF8・JSON・生バイト）。
 // スキーマは depth-first の SchemaElement 列で受ける（GeoParquet の bbox = optional group { required double ×4 }）。
 import { gzip, zstd } from "./gzip.js";
+import { writeUvarint, zigzagEncode } from "../modules/varint.js";
 
 // ── Thrift compact protocol ──
 const CT = { BOOL_TRUE: 1, BOOL_FALSE: 2, BYTE: 3, I16: 4, I32: 5, I64: 6, DOUBLE: 7, BINARY: 8, LIST: 9, SET: 10, MAP: 11, STRUCT: 12 };
@@ -13,8 +14,8 @@ export class TWriter {
 	constructor(cap = 4096) { this.buf = new Uint8Array(cap); this.pos = 0; this.last = 0; this.stack = []; }
 	need(n) { if (this.pos + n > this.buf.length) { const b = new Uint8Array(Math.max(this.buf.length * 2, this.pos + n)); b.set(this.buf); this.buf = b; } }
 	byte(v) { this.need(1); this.buf[this.pos++] = v & 255; }
-	varint(v) { this.need(10); while (v >= 128) { this.buf[this.pos++] = (v % 128) | 128; v = Math.floor(v / 128); } this.buf[this.pos++] = v; }
-	zig(v) { this.varint(v >= 0 ? v * 2 : -v * 2 - 1); }
+	varint(v) { this.need(10); this.pos = writeUvarint(this.buf, this.pos, v); }
+	zig(v) { this.varint(zigzagEncode(v)); }
 	structBegin() { this.stack.push(this.last); this.last = 0; }
 	structEnd() { this.byte(0); this.last = this.stack.pop(); }
 	header(id, type) { const d = id - this.last; if (d > 0 && d <= 15) this.byte((d << 4) | type); else { this.byte(type); this.zig(id); } this.last = id; }

@@ -59,7 +59,7 @@ type MixMap<K, V> = std::collections::HashMap<K, V, MixBuild>;
 type MixSet<K> = std::collections::HashSet<K, MixBuild>;
 
 // ── 出力コンテナ：JS は ptr/len 越しに wasm メモリを直接読む（slice→GintBUF へ 1 copy）──
-#[wasm_bindgen]
+// 2026-10-12（改良点 11）: JS へ渡す class ではなく crate 内の中間値に（build_polygons_wasm／build_polylines_wasm と ptr/len の getter は撤去＝呼び手無し）
 pub struct PolyTopology {
     arc_buffer: Vec<u64>,
     arc_meta: Vec<u32>,
@@ -68,18 +68,6 @@ pub struct PolyTopology {
     count: u32,
 }
 
-#[wasm_bindgen]
-impl PolyTopology {
-    pub fn count(&self) -> u32 { self.count }
-    pub fn arc_buffer_ptr(&self) -> u32 { self.arc_buffer.as_ptr() as u32 }
-    pub fn arc_buffer_len(&self) -> u32 { self.arc_buffer.len() as u32 }
-    pub fn arc_meta_ptr(&self) -> u32 { self.arc_meta.as_ptr() as u32 }
-    pub fn arc_meta_len(&self) -> u32 { self.arc_meta.len() as u32 }
-    pub fn poly_stream_ptr(&self) -> u32 { self.poly_stream.as_ptr() as u32 }
-    pub fn poly_stream_len(&self) -> u32 { self.poly_stream.len() as u32 }
-    pub fn neighbor_stream_ptr(&self) -> u32 { self.neighbor_stream.as_ptr() as u32 }
-    pub fn neighbor_stream_len(&self) -> u32 { self.neighbor_stream.len() as u32 }
-}
 
 // リング実長：末尾の閉合重複（複数個あり得る）を除いた頂点数（JS visit/splitRing と同じ）
 #[inline]
@@ -263,7 +251,6 @@ struct Comp {
 // 入力は L1 Morton(u64) 連結バッファ（purifier は JS 側で適用済み＝80kセグ以下の小データ専用）。
 // cutPolyline の掟：arc 照合は「端点キー＋頂点数」のみ（ポリゴンと違い内容照合なし＝JS と同じ）。
 
-#[wasm_bindgen]
 pub struct LineTopology {
     arc_buffer: Vec<u64>,
     arc_meta: Vec<u32>,
@@ -271,16 +258,6 @@ pub struct LineTopology {
     count: u32,
 }
 
-#[wasm_bindgen]
-impl LineTopology {
-    pub fn count(&self) -> u32 { self.count }
-    pub fn arc_buffer_ptr(&self) -> u32 { self.arc_buffer.as_ptr() as u32 }
-    pub fn arc_buffer_len(&self) -> u32 { self.arc_buffer.len() as u32 }
-    pub fn arc_meta_ptr(&self) -> u32 { self.arc_meta.as_ptr() as u32 }
-    pub fn arc_meta_len(&self) -> u32 { self.arc_meta.len() as u32 }
-    pub fn line_stream_ptr(&self) -> u32 { self.line_stream.as_ptr() as u32 }
-    pub fn line_stream_len(&self) -> u32 { self.line_stream.len() as u32 }
-}
 
 // metaArc calcMeta の u64(L1 Morton) 経路：unpack しつつ長さ/面積/bbox（JS と同一の f64 経路）
 fn calc_meta_u64(buff: &[u64], aid: usize) -> ArcMeta {
@@ -321,16 +298,6 @@ fn calc_meta_u64(buff: &[u64], aid: usize) -> ArcMeta {
 // lines  : ラインごとの [offset(要素), len(要素)]
 // fids   : ラインごとの feature id
 // n_poly / vertex_offset : ポリゴン arc 数・頂点数（グローバル index / offset への繰上げ）
-#[wasm_bindgen]
-pub fn build_polylines_wasm(coords: &[u64], lines: &[u32], fids: &[u32], n_poly: u32, vertex_offset: u32) -> LineTopology {
-    let line_ranges: Vec<(usize, usize)> = lines
-        .chunks_exact(2)
-        .map(|c| (c[0] as usize, c[1] as usize))
-        .collect();
-    let fids_i32: Vec<i32> = fids.iter().map(|&f| f as i32).collect();
-    polylines_core(coords, &line_ranges, &fids_i32, n_poly, vertex_offset)
-}
-
 fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], n_poly: u32, vertex_offset: u32) -> LineTopology {
     // 1. 頂点出現回数（cutPolyline setHash 相当。キーは raw u64＝JS の BigInt 値と同一）
     let mut hash: MixMap<u64, u32> = MixMap::default();
@@ -427,19 +394,6 @@ fn polylines_core(coords: &[u64], line_ranges: &[(usize, usize)], fids: &[i32], 
 // xy    : 全リング連結 XY（u32 ペア・densify/fit/offset 適用済みの gint 整数座標）
 // rings : リングごとの [offset(頂点), len(頂点)]
 // comps : コンポーネント（MultiPolygon の島）ごとの [fid, ringCount]。リングは出現順に消費。
-#[wasm_bindgen]
-pub fn build_polygons_wasm(xy: &[u32], rings: &[u32], comps: &[u32]) -> PolyTopology {
-    let ring_ranges: Vec<(usize, usize)> = rings
-        .chunks_exact(2)
-        .map(|c| (c[0] as usize, c[1] as usize))
-        .collect();
-    let comp_pairs: Vec<(i32, usize)> = comps
-        .chunks_exact(2)
-        .map(|c| (c[0] as i32, c[1] as usize))
-        .collect();
-    polygons_core(xy, &ring_ranges, &comp_pairs)
-}
-
 fn polygons_core(xy: &[u32], ring_ranges: &[(usize, usize)], comps: &[(i32, usize)]) -> PolyTopology {
     // 1. 接合点判定
     let junctions = compute_junctions(xy, ring_ranges);
@@ -715,15 +669,15 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     if ranges.is_empty() { return; }
     let total_segs: usize = ranges.iter().map(|&(_, len)| len.saturating_sub(1)).sum();
     if total_segs == 0 || total_segs > 80_000 { return; }
-    const GRID_SHIFT: u32 = 16;
+    const BASE_SHIFT: u32 = 16;   // 格子の基準＝セル 2^16 単位（約 730 m）
+    const MAX_CELL: usize = 1500; // これを超えるセルは総当たりしない（JS と同じ）
+    const COVER: u64 = 8;         // 登録の総数の上限＝線分数の何倍まで
     const SNAP: i128 = 125;   // 11 cm
     const UNIT: i128 = 10;    // 10 cm grid
 
     // セグメント展開（連続重複点の辺は作らない＝JS と同じ）
     let mut segs: Vec<PSeg> = Vec::with_capacity(total_segs);
     let mut seg_of: Vec<Vec<i32>> = Vec::with_capacity(ranges.len());   // line → sidx → seg index（-1＝無し）
-    let mut cells: Vec<Vec<u32>> = Vec::new();                          // 格子セル（初出順）
-    let mut cell_of: FxHashMap<u64, u32> = FxHashMap::default();
     for (li, &(off, len)) in ranges.iter().enumerate() {
         let mut so = vec![-1i32; len.saturating_sub(1)];
         for i in 0..len.saturating_sub(1) {
@@ -731,21 +685,42 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
             if a == b { continue; }
             let (ax, ay) = crate::unpack_to_int(a); let (bx, by) = crate::unpack_to_int(b);
             let (x1, y1, x2, y2) = (ax as i64, ay as i64, bx as i64, by as i64);
-            let sid = segs.len() as u32;
-            let sg = PSeg { line: li, sidx: i, x1, y1, x2, y2, bx1: x1.min(x2), bx2: x1.max(x2), by1: y1.min(y2), by2: y1.max(y2), p1: a, p2: b, hits: Vec::new() };
-            for gx in (sg.bx1 as u64 >> GRID_SHIFT)..=(sg.bx2 as u64 >> GRID_SHIFT) {
-                for gy in (sg.by1 as u64 >> GRID_SHIFT)..=(sg.by2 as u64 >> GRID_SHIFT) {
-                    let key = (gx << 16) | gy;
-                    let ci = *cell_of.entry(key).or_insert_with(|| { cells.push(Vec::new()); (cells.len() - 1) as u32 });
-                    cells[ci as usize].push(sid);
-                }
-            }
-            segs.push(sg);
-            so[i] = sid as i32;
+            so[i] = segs.len() as i32;
+            segs.push(PSeg { line: li, sidx: i, x1, y1, x2, y2, bx1: x1.min(x2), bx2: x1.max(x2), by1: y1.min(y2), by2: y1.max(y2), p1: a, p2: b, hits: Vec::new() });
         }
         seg_of.push(so);
     }
     if segs.len() < 2 { return; }
+
+    // 格子（セル＝2^shift 単位）へ登録＝線分は bbox が覆う全セルへ（線分の番号順・セルは初出順＝shift 16 なら従来と同じ並び）
+    let build = |shift: u32| -> Vec<Vec<u32>> {
+        let mut cells: Vec<Vec<u32>> = Vec::new();
+        let mut cell_of: FxHashMap<u64, u32> = FxHashMap::default();
+        for (sid, sg) in segs.iter().enumerate() {
+            for gx in (sg.bx1 as u64 >> shift)..=(sg.bx2 as u64 >> shift) {
+                for gy in (sg.by1 as u64 >> shift)..=(sg.by2 as u64 >> shift) {
+                    let key = (gx << 16) | gy;
+                    let ci = *cell_of.entry(key).or_insert_with(|| { cells.push(Vec::new()); (cells.len() - 1) as u32 });
+                    cells[ci as usize].push(sid as u32);
+                }
+            }
+        }
+        cells
+    };
+    // 格子の細かさをデータに合わせる（2026-10-13）。基準の 730 m は街路・筆界の規模の物差し＝世界規模の長い線分（川・プレート境界・回帰線）は
+    // 1 本が数千〜数百万セルに跨り、登録だけで秒〜分の桁になっていた（世界の川 4.8 万線分＝登録 5,000 万回・8.5 秒／88KB のプレート境界に 1.1 秒）。
+    // 登録の総数が線分数の COVER 倍に収まる最小の shift を選ぶ。基準で収まるデータは従来と同じ道（同じ格子・同じ順）。
+    // 粗くしても結果は同じ：
+    //   ・処理する組＝「bbox が重なる組」＝格子に依らない（重なる bbox は必ずどこかのセルを共有し、共有しても重ならない組は下の bbox 検査が落とす）
+    //   ・ただし MAX_CELL 超のセルを飛ばす決まりが粗い格子で効くと組が減る＝その時は基準に戻す（細かいセルの数 ≤ 粗いセルの数＝粗い側が全部
+    //     MAX_CELL 以下なら、基準でも飛ばすセルは無い）
+    //   ・交点の値は座標だけで決まる（端点も内挿点も pure_morton|TERMINAL_BIT）＝見つける順が変わっても線分ごとの hits の集合は同じ。
+    //     並べは始点からの距離の安定ソート＝同じ線分に同距離の別の点が載った時だけ、その 2 点の順が従来と入れ替わり得る
+    let cover = |shift: u32| -> u64 { segs.iter().map(|g| ((g.bx2 as u64 >> shift) - (g.bx1 as u64 >> shift) + 1) * ((g.by2 as u64 >> shift) - (g.by1 as u64 >> shift) + 1)).sum() };
+    let mut shift = BASE_SHIFT;
+    while shift < 31 && cover(shift) > segs.len() as u64 * COVER { shift += 1; }
+    let mut cells = build(shift);                                       // 格子セル（初出順）
+    if shift > BASE_SHIFT && cells.iter().any(|c| c.len() > MAX_CELL) { cells = build(BASE_SHIFT); }
 
     // 端点スナップ／格子スナップ（JS getPt）
     let get_pt = |ix: i128, iy: i128, eps: &[(i64, i64, u64); 4]| -> (i64, i64, u64) {
@@ -808,7 +783,7 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut pts: Vec<(i64, i64, u64)> = Vec::new();
     let add_hit = |s: &mut PSeg, p: (i64, i64, u64)| { if !s.hits.iter().any(|h| h.0 == p.0 && h.1 == p.1) { s.hits.push(p); } };   // JS Map.set＝同キーは初出位置を保つ
     for cell in &cells {
-        if cell.len() < 2 || cell.len() > 1500 { continue; }
+        if cell.len() < 2 || cell.len() > MAX_CELL { continue; }
         for i in 0..cell.len() {
             for j in (i + 1)..cell.len() {
                 let (a, b) = (cell[i] as usize, cell[j] as usize);
@@ -835,7 +810,7 @@ fn purify_lines(coords: &mut Vec<u64>, ranges: &mut Vec<(usize, usize)>) {
     let mut final_: Vec<u64> = Vec::new();
     for (li, &(off, len)) in ranges.iter().enumerate() {
         final_.clear();
-        let mut push_clean = |p: u64, f: &mut Vec<u64>| {
+        let push_clean = |p: u64, f: &mut Vec<u64>| {
             let n = f.len();
             if n > 0 && f[n - 1] == p { return; }
             if n > 1 && f[n - 2] == p { f.pop(); return; }

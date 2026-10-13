@@ -2,7 +2,7 @@
 // quakes（地下）・sats（地上）と同じ骨格：器＝models.html／一覧と飛行と配線＝ここ／読み込みと描画＝エンジンの model ガジェット（gadgets/model.js＝
 // loaders.gl → PLATEAU と同じ建物メッシュ経路・renderer の meshSet スロット）。
 //
-// 台帳＝public/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
+// 台帳＝ortho-data/japan/models.json（id・名前 ja/en・飛び先・出典）。GLB 本体は台帳の base（bucket GIS/models/<id>.glb）から fetch。
 // 中身＝PLATEAU の建築物 LOD3（テクスチャ付き）を 3D Tiles 配信から名所のぶんだけ抜いて束ねた物（apps/uploader の npm run landmarks）。
 // 置き場所は glb 自身が持つ（CESIUM_RTC／絶対 ECEF）＝lon/lat は飛び先の指定であって錨ではない。
 // 一覧のカードをクリック＝①先に視点へ飛ぶ（遷移の時間＝読み込みの準備時間）②並行で GLB を取りに行き、届いたら設置点に立てる（fit はしない＝視点は台帳が正）。
@@ -18,7 +18,7 @@ const fmt = n => n.toLocaleString(getLang());
 
 // ── 本体 ─────────────────────────────────────────────────────────────────────
 export async function mountModels(map, { catalog, panelHost } = {}) {
-	await setLang(); await loadPage(c => import(`./i18n/lang/models/${c}.json`));   // 本番はこのチャンクの i18n.js が SDK と別実体＝自分で訳を用意してから UI を組む。ページの辞書（i18n/pages/models.json）も足す
+	await setLang(); await loadPage(c => import(`./i18n/lang/models/${c}.json`));   // 訳を用意してから UI を組む（i18n は共有エンジンの実体＝エンジンと同じ言語状態）。ページの辞書（i18n/pages/models.json）も足す
 	document.title = t("Landmarks in GLB — ortho-japan");   // 器（models.html）の題名と説明もここで＝i18n の走査器は .js だけ読む
 	document.querySelector('meta[name="description"]')?.setAttribute("content", t("Japanese landmarks as PLATEAU LOD3 city models, read straight from GLB on a 3D globe. Download each one as GLB or glTF."));
 	const mapEl = map.mapEl;

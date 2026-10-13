@@ -3,13 +3,15 @@
 	"version": "0.1.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
-	"description": "MLT (MapLibre Tile) plugin for @ortho-earth/core: registers the \"mlt\" tile format (vector source encoding \"mlt\" / PMTiles tileType 6) on top of @maplibre/mlt, decoded lazily on the first MLT tile.",
+	"description": "Format plugins for @ortho-earth/core and @ortho-earth/globe: MLT (MapLibre Tile) as the \"mlt\" tile format on top of @maplibre/mlt, and LAZ point records for COPC point clouds on top of laz-perf — each decoder loaded lazily on first use.",
 	"main": "src/index.js",
 	"exports": {
 		".": "./src/index.js",
 		"./register": "./src/register.js",
 		"./format": "./src/format.js",
 		"./decode": "./src/mlt.js",
+		"./pointcloud": "./src/pointcloud.js",
+		"./laz": "./src/laz.js",
 		"./node-hook": "./src/node-hook.mjs",
 		"./node-register": "./src/node-register.mjs",
 		"./scripts/*": "./scripts/*"
@@ -19,11 +21,12 @@
 		"./src/node-register.mjs"
 	],
 	"scripts": {
-		"test": "node tests/t-mlt.mjs",
+		"test": "node tests/t-mlt.mjs && node tests/t-laz.mjs",
 		"mvt2mlt": "node scripts/mvt2mlt.mjs"
 	},
 	"dependencies": {
-		"@maplibre/mlt": "^1.3.0"
+		"@maplibre/mlt": "^1.3.0",
+		"laz-perf": "^0.0.7"
 	},
 	"peerDependencies": {
 		"@ortho-earth/core": "^1.4.0"
@@ -39,6 +42,9 @@
 		"vector-tiles",
 		"mvt",
 		"pmtiles",
+		"laz",
+		"copc",
+		"point-cloud",
 		"ortho-earth"
 	],
 	"repository": {

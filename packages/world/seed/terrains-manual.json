@@ -1,6 +1,15 @@
 {
- "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
+ "_doc": "手動層。generator（scripts/terrains-from-ne.py）が Natural Earth の閾値選定に重ねる。add=NE 閾値外でも入れる（QID 基軸・category 必須）、drop=QID か NE の name_en で除外、category=分類の上書き（QID か NE name_en）、merge=形状を結合する NE 側の別 QID（川・山脈）、axis=山脈の手書き軸線。axis_len=海溝の軸線の長さ（km・PB2002 の沈み込み境界をたどる長さ）。drop は QID・NE name_en・enwiki 記事名のいずれでも可。allow_nation=国の QID でも地形として残す（グリーンランド）。alias=NE の wikidataid（英語記事の無い重複項目）→ 正規の QID。noshape=NE の形を使わない QID（形状台帳では Wikidata P625 の点だけ。NE のポリゴンが誤っているもの＝Cordillera Blanca）。2026-09-15 ②分類の穴埋め: pass/waterfall/reef/ice を手動層で肉付け・saltflat（塩原）を新設（generator が NE playas scalerank≤1 を拾う＋手動で Etosha/Djerid/Lop Nur/Atacama/Makgadikgadi/Bonneville）・氷河/棚氷の形は merge の \"~NE 名\" で glaciated_areas / antarctic_ice_shelves から結ぶ。alias_geo=位置条件付きの wikidataid 読み替え [{from,to,latMin/latMax/lonMin/lonMax}]（NE が別の同名河川の QID を付けている区間を直す）。current=海流（category current・axis に手書きの線＝向きは流れ・\"|\" で複数の線・flow={qid: warm|cold}）（Kenji 2026-09-15）。picture=true の add は英語記事が無くても seed/terrains-pictures.csv に書く＝形状台帳に絵として載る（TerrainDB には入れない・Kenji 2026-09-15「wiki に無いものも絵として収録」）。axis は全分類で使える（NE に形が無い川の手書き線など）。volcano=火山（新分類・既に peak にある山は peak のまま・火山かどうかは台帳が Wikidata P31 で volcano:true を付ける）。plate=プレート（主要 16 枚・面は merge の \"~PB2002:記号\" で PB2002（Bird 2003）から・全 52 枚と境界線は scripts/plates.mjs → out/plates.geopbf）",
  "add": [
+  { "qid": "Q1011", "category": "islands", "name": "Cape Verde" },
+  { "qid": "Q664687", "category": "islands", "name": "Bijagós Islands" },
+  { "qid": "Q34497", "category": "island", "name": "Saint Helena" },
+  { "qid": "Q46197", "category": "island", "name": "Ascension Island" },
+  { "qid": "Q220982", "category": "islands", "name": "Tristan da Cunha" },
+  { "qid": "Q175057", "category": "islands", "name": "Fernando de Noronha" },
+  { "qid": "Q205022", "category": "island", "name": "Bioko" },
+  { "qid": "Q233124", "category": "island", "name": "São Tomé Island" },
+  { "qid": "Q23635", "category": "islands", "name": "Bermuda" },
   {
    "qid": "Q130135",
    "category": "range",
@@ -4074,9 +4083,7 @@
   "Sudd": "wetland",
   "Zambezi Delta": "delta"
  },
- "allow_nation": [
-  "Q223"
- ],
+ "allow_nation": ["Q223", "Q1011", "Q23635"],
  "alias": {
   "Q15120268": "Q1978",
   "Q23945221": "Q66065",
@@ -4125,5 +4132,35 @@
   "Q58708": "warm",
   "Q924509": "cold",
   "Q600069": "warm"
+ },
+ "axis_len": {
+  "_why": "海溝の軸線の長さ（km・概数）＝scripts/ne-physical.mjs が PB2002 の沈み込み境界を代表点から両側へたどる長さ。出典は en.wikipedia の記事の記載（Aleutian・Ryukyu は Wikidata P2043 と同じ値）。表示の範囲を決めるだけ＝量としては出さない（2026-10-01）",
+  "Q119177": 3400,
+  "Q118544": 1000,
+  "Q118537": 800,
+  "Q119196": 1000,
+  "Q118525": 2200,
+  "Q510": 2550,
+  "Q164040": 2750,
+  "Q3249284": 900,
+  "Q118873": 5900,
+  "Q656364": 1320,
+  "Q666090": 800,
+  "Q702908": 1398,
+  "Q118518": 965,
+  "Q118394": 3200,
+  "Q119294": 1375,
+  "Q1423293": 700
+ },
+ "ridge_plates": {
+  "_why": "海嶺の軸線＝PB2002 の拡大軸（OSR）とトランスフォーム断層（OTF）のうち、この組（A-B＝順不同）の境界を集めて最長の道筋をつなぐ（scripts/ne-physical.mjs）。lon＝経度の範囲で絞る（大西洋中央海嶺の NA-EU から北極海のガッケル海嶺を外す）。代表点（Wikidata P625）は三重会合点に置かれた物があり（南東・南西インド洋海嶺がどちらも 70°E 25.5°S）たどりの起点に使えない（2026-10-01）",
+  "Q207313": { "pairs": ["NA-EU", "NA-AF", "AF-SA"], "lon": [-60, 20] },
+  "Q604529": { "pairs": ["NA-PA", "RI-PA", "CO-PA", "GP-PA", "NZ-PA", "EA-PA", "EA-NZ", "JZ-PA", "JZ-NZ"] },
+  "Q558800": { "pairs": ["PA-AN"] },
+  "Q603531": { "pairs": ["AN-NZ"] },
+  "Q468239": { "pairs": ["AN-SA"] },
+  "Q153840": { "pairs": ["AF-AN", "SO-AN"] },
+  "Q558898": { "pairs": ["AU-AN"] },
+  "Q190604": { "pairs": ["AU-SO", "IN-SO"] }
  }
 }

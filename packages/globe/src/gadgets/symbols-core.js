@@ -48,7 +48,7 @@ export function symbolItems(src, layer = {}, zoom = 10, images = null, missing =
 			: g.type === "LineString" ? [g.coordinates[0]] : g.type === "MultiLineString" ? g.coordinates.map(l => l[0])
 			: g.type === "Polygon" ? [poleOf(g.coordinates)] : g.type === "MultiPolygon" ? g.coordinates.map(poleOf) : null;
 		if (!pts?.length || pts.some(p => !p)) continue;
-		const props = f.properties || {}, ctx = { zoom, props, geom: g.type, vars: {}, gs, origin };
+		const props = f.properties || {}, ctx = { zoom, props, geom: g.type, vars: {}, gs, origin, geojson: g };   // geojson＝within/distance（C2）
 		if (layer.filter != null && !truthy(evalExpr(layer.filter, ctx))) continue;
 		const ev = (e, d) => e == null ? d : evalExpr(e, ctx);
 		const strs = e => e == null ? null : Array.isArray(e) && e.length && e.every(x => typeof x === "string") && !["literal", "match", "case", "step", "get", "coalesce"].includes(e[0]) ? e : (v => Array.isArray(v) ? v : null)(evalExpr(e, ctx));   // 文字列の配列リテラル（["top","bottom"]）は式でない

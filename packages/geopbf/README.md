@@ -88,6 +88,16 @@ pbf.arrayBuffer     // → the GeoPBF binary (store it, ship it, re-load it)
 pbf.contain(lng, lat)   // → which feature contains this point (smallest-wins)
 ```
 
+For code that only reads or writes `.geopbf` files there is a light entry, `geopbf/core` (1.20): the `GeoPBF` container, the
+`loadGeopbf` / `decodeToGeojson` loader and gzip helpers, without the WASM glue, identify, dissolve or the worker entry
+(14 files / 77 KB of source in the static import closure, against 30 / 218 KB for `geopbf`). TypeScript declarations ship
+with the package (`types/`); the converter subpaths are declared as `any` for now.
+
+The same entry works in Node (≥ 22): `createGeopbf()` decodes and bakes Gint on the calling thread when there is no
+`Worker` (initialise the WASM once with `initGintWasm()` from `geopbf/convert/node-gint`), and `new GeoPBF().set(geojson)`
+needs no `ImageData` shim. Format conversion (shapefile, KML, …) still needs a worker; in Node use the `geopbf` CLI or the
+converters under `geopbf/convert`.
+
 | | |
 | :-- | :-- |
 | **Converters** (worker per format, lazily loaded) | GeoJSON · NDJSON / GeoJSON Text Sequence · Shapefile (zip) · SpatiaLite · DXF · KML/KMZ · GPX · CZML (Cesium) · GML · FlatGeobuf · TopoJSON · MOJ 登記所備付地図 — in, and back out (`geojsonFile`, `kmzFile`, `gpxFile`, `czmlFile`, `gmlFile`, `fgbFile`, `shapeFile`, `topojsonFile`). GPX keeps per-point `<ele>`/`<time>` of tracks and routes as same-length array properties (`ele`, `time`; nested per `<trkseg>` for MultiLineString) and marks `<rte>` with `route: true`, so a track round-trips with its timestamps. CZML uses the same convention: static `position` → Point (`ele` = height), a time-sampled `position` → LineString + `time` array, `polyline` / `polygon` (+ `holes`) / `rectangle` → line / polygon, ECEF `cartesian` → WGS84 lon/lat; everything else in the packet (billboard, label, model, path, styles, time-varying `properties`) is kept verbatim in a `czml` property and unfolded on export, so a static CZML round-trips and a GPX track exports as a sampled position. The document `clock` is not kept (Cesium derives one from availability) |
@@ -205,7 +215,11 @@ npx geopbf csv2pbf book.xlsx parcels.geopbf --sheet 筆 --wkt geometry
 npx geopbf cog info https://…/TCI.tif                              # remote COG structure over HTTP Range
 ```
 
-Output is gzipped by default, matching the GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
+`npx geopbf <command> --help` prints that command's section of the usage. Options take `--name value` or
+`--name=value`; `--min-zoom` / `--max-zoom` are aliases of `--minzoom` / `--maxzoom`. An option a command does not
+know is rejected (exit code 2, like every usage error — missing arguments, `--precision` outside 1–9, a non-numeric
+`--minzoom`), before any file is read; a failure while running exits 1. Output is gzipped by default, matching the
+GDAL driver's `COMPRESS=GZIP` and the usual distribution form; pass
 `--no-gzip` for a raw file. Gzip input is detected by signature, not by extension, for every command including
 `enc`. For inputs other than GeoJSON, GeoParquet, GeoPackage, File Geodatabase and tables — PostGIS and everything
 else GDAL reads — use the [GDAL/OGR driver](https://github.com/kenjiyoshidahome2026-bit/gdal-geopbf) (`ogr2ogr -f GeoPBF`,
@@ -253,8 +267,9 @@ ortho-core uses at draw time — and two neighbouring polygons are simplified to
    stitches rings and lines from the arcs (`polyStream`/`lineStream`), bisects them into tiles with buffer, encodes
    MVT, gzips and content-hashes its tiles. The main thread merges by content key and packs PMTiles v3: Hilbert tile
    ids, run-length plus content de-duplication for interior tiles, leaf directories once the root exceeds 16 KB.
-   Sharding only prunes the bisection tree, so **the output is byte-identical at any worker count** (`workers: 0`
-   runs inline).
+   Sharding only prunes the bisection tree, and the tiny-polygon accumulator is decided on the main thread per zoom
+   (1.20; before, a cluster of islets straddling a shard boundary could change the replacement squares), so **the output
+   is byte-identical at any worker count** (`workers: 0` runs inline).
 
 The assembly stage is typed-array based, stops bisecting as soon as a sub-range of tiles is provably interior to a
 polygon (one range event instead of one clip per tile), encodes the attribute section once per feature, and hashes
@@ -266,7 +281,8 @@ writer/reader directly in browsers (≈4× cheaper per tile than the `Blob`→`R
 
 Points skip the clipping tree entirely (tile index by shift, buffer copies to neighbours) and are thinned at lower
 zooms like tippecanoe's `-r`: `dropRate` 2.5 keeps 1/2.5 of the points per zoom step below `maxZoom`, chosen by a
-hash of the feature id so the kept sets nest. `dropRate: 1` keeps every point in every tile.
+hash of (feature id, ordinal of the point within the feature) so the kept sets nest and a MultiPoint is thinned point by
+point (1.20; before, all points of a feature stood or fell together). `dropRate: 1` keeps every point in every tile.
 
 ### 5.2 Simplification is calibrated to tippecanoe's, per arc
 
@@ -368,8 +384,12 @@ The `bbox` column is written by default because it is what the pruning keys on. 
 repeats the coordinates, so `bboxColumn: "auto"` drops it there (half the size, no pruning); `false` drops it always.
 
 **And back again.** `fromGeoParquet(u8)` / `geopbf parquet2pbf` turns a GeoParquet file into a GeoPBF: a
-dependency-free Parquet reader (Thrift compact footer, DataPage v1/v2, PLAIN and dictionary encodings, none/gzip/zstd
-and a built-in snappy decoder for pyarrow's default) plus a WKB parser (all seven types, EWKB flags, Z/M dropped). A
+dependency-free Parquet reader (Thrift compact footer, DataPage v1/v2, every value encoding a writer uses today —
+PLAIN, the two dictionary encodings, `DELTA_BINARY_PACKED`, `DELTA_LENGTH_BYTE_ARRAY`, `DELTA_BYTE_ARRAY`,
+`BYTE_STREAM_SPLIT` and `RLE` booleans, so parquet-java, DuckDB and pyarrow v2 pages keep their attributes — the
+physical types `BOOLEAN`/`INT32`/`INT64`/`INT96`/`FLOAT`/`DOUBLE`/`BYTE_ARRAY`/`FIXED_LEN_BYTE_ARRAY`, none/gzip/zstd
+and a built-in snappy decoder for pyarrow's default; a column the reader cannot decode is skipped with its reason
+in `stats.skipped`, never silently emptied) plus a WKB parser (all seven types, EWKB flags, Z/M dropped). A
 file geopbf wrote comes back bit-identical — coordinates are `round(x·10^precision)` with the precision recorded in
 the file — and files written by geopandas, pyarrow (v2 pages, zstd) and DuckDB read back to the same features
 (Natural Earth: all 258 identical across the three writers). ZCTA5 2010 (33,092 features, 52M vertices, zstd) comes back
@@ -529,7 +549,7 @@ const { pbf, stats } = await fromFileGDB(source, { layer: "筆界" });
 | Datum | Tokyo Datum and JGD2000 are shifted onto JGD2011 — see below |
 | Rows | deleted rows skipped; sparse 1024-row blocks handled; only the catalog and the chosen layer's two files are read |
 
-`geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
+`geopbf/proj` reads the GEOGCS angular unit and prime meridian too (grads, Paris), and every projection it inverts also comes with `fromLonLat`, the forward transform the COG reader uses to warp. `geopbf/proj` is small on purpose: it answers "can this be put back on the globe without a library?" for the
 projections that cover Japanese administrative data, and nothing more. The same classifier reads a GeoPackage's
 `gpkg_spatial_ref_sys.definition`, so a `.gpkg` in EPSG:6677 or EPSG:4301 comes back on the globe too.
 
@@ -626,7 +646,7 @@ npx geopbf cog png  https://…/TCI.tif out.png   # quick-look render
 | Layout | tiled and stripped TIFF, BigTIFF |
 | Compression | none · deflate · LZW · JPEG · WebP *(JPEG/WebP decode in browser only)* · predictor 2 |
 | Samples | uint8 RGB(A) · RGB+NIR *(4th band drawn as alpha only when `ExtraSamples` says so)* · palette · single-band uint8/16 · int16 · float32 *(auto percentile stretch, `GDAL_NODATA` → transparent)* · 2-band gray+extra *(first band drawn by default; e.g. Tellus PALSAR-2 HH/HV)* |
-| CRS | EPSG:4326 · EPSG:3857 · UTM 326xx–327xx *(Krüger n-series, nm-accurate)* |
+| CRS | lon/lat (EPSG:4326, 4258, 4269, 4612, 6668) · EPSG:3857 · UTM 326xx–327xx, JGD 6688–6691 / 3097–3101 · 平面直角座標系 I–XIX (6669–6687, 2443–2461) *(one Krüger n-series shared with `geopbf/proj`, nm-accurate)* |
 
 Single- and two-band rasters take rendering options (the same object for browser and Node):
 
@@ -728,9 +748,94 @@ map.addSource("rail", { type: "geojson",
   feature-state, set `promoteId` on the source (GeoPBF features carry no `id`).
 - A GeoPBF file is one whole dataset, not z/x/y tiles, so MapLibre's built-in geojson-vt does the tiling and
   simplification. Comfortable up to tens of MB of resulting GeoJSON; for very large datasets, tile it first with
-  [§5](#5-vector-tiles-and-geoparquet).
+  [§5](#5-vector-tiles-and-geoparquet) — or let the same protocol serve **vector tiles on demand** (below).
+
+**Vector tiles from the same URL** — append `/{z}/{x}/{y}` and use a `vector` source. The handler then builds only the
+requested tiles from the file's Gint (the same code path as `toPMTiles`: shared borders are one arc, so adjacent
+polygons never gap or overlap at any zoom; `feature.id` is the GeoPBF fid, so feature-state works without `promoteId`;
+the first tile arrives before the whole dataset would have been converted to GeoJSON). The source layer is the file's
+header `name` (override with `makeGeopbfProtocol({ tiler: { layer } })`; `tiler` takes every `toPMTiles` option).
+
+```js
+maplibregl.addProtocol("geopbf", geopbfProtocol);
+map.addSource("rail", { type: "vector", maxzoom: 14,
+  tiles: ["geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection/{z}/{x}/{y}"] });
+map.addLayer({ id: "rail", type: "line", source: "rail", "source-layer": "N02-25_RailroadSection" });
+```
+
+One tile source per inner URL is kept (fetched, baked and projected once; `handler.tiles.dispose(url)` releases it).
+`createTileSource(pbf, options)` (`geopbf/tilesource`) is the protocol-free form: `await src.tile(z, x, y)` → MVT bytes.
 
 See `examples/maplibre.html` for a standalone demo (base map + protocol source + `loadGeopbf` metadata wiring).
+
+### 8.1.1 Public feature services (ArcGIS FeatureServer, OGC API – Features)
+
+`geopbf/featureservice` reads a public feature service straight from the browser — no proxy, no server of ours in
+between. It understands two dialects:
+
+- **ArcGIS REST** — `…/FeatureServer/N` and `…/MapServer/N` (a trailing `/query` is fine). Metadata from `?f=json`,
+  count from `returnCountOnly`, paging with `resultOffset` + `exceededTransferLimit` (or `objectIds` batches when the
+  server cannot page), `f=geojson` where supported and Esri JSON (`f=json`) otherwise.
+- **OGC API – Features** — `…/collections/{id}` (a trailing `/items` is fine). Count from `numberMatched`, paging by
+  following `rel="next"` links.
+
+```js
+import { openFeatureService, makeFeatureServiceProtocol } from "geopbf/featureservice";
+
+const svc = await openFeatureService("https://…/FeatureServer/0", { fetch: myFetch });   // meta + count, no features yet
+svc.name; svc.count; svc.bbox; svc.attribution; svc.version;
+const all = await svc.readAll({ max: 50000 });              // FeatureCollection (+ truncated), de-duplicated by id
+const box = await svc.readAll({ bbox: [139, 35, 140, 36] }); // only what intersects; a bbox across ±180 is split in two
+
+// MapLibre: the whole layer as one geojson source
+maplibregl.addProtocol("featureservice", makeFeatureServiceProtocol({ max: 50000 }));
+map.addSource("x", { type: "geojson", data: "featureservice://https://…/FeatureServer/0" });
+```
+
+- **Keys** — every request goes through the `fetch` you pass (default `globalThis.fetch`), so tokens and headers are
+  yours to add. Query parameters on the URL you pass (e.g. `?token=…`) are carried to every request.
+- **Politeness** — HTTP 429/503 is retried up to 3 times, honouring `Retry-After`.
+- **Caching** — `svc.cacheKey(part)` gives a stable key (service, carried parameters minus secrets, `version`, part);
+  with a bucket provider, `geopbf(fc, { cacheKey })` stores the GeoPBF (+ GintBUF) in IndexedDB and
+  `geopbfCached(key, { maxAge })` reads it back without touching the network. Every entry stored this way is recorded
+  in a small index (stored time, last use, bytes); `geopbfCachePrune({ prefix, maxAge, maxEntries, maxBytes })` removes
+  what is too old or too much (least recently used first). The prefix is required and only keys with it are touched —
+  the other cached entries (bucket names, URLs, files) are never pruned.
+- Not yet: Esri PBF (`f=pbf`), OGC API – Tiles/Maps.
+
+### 8.1.2 Georeferenced IIIF maps (Georeference Annotation, Allmaps-compatible)
+
+`geopbf/georef` holds the map-library-independent half of "put a scanned map where it belongs": reading and
+writing Georeference Annotations (the W3C Web Annotation form Allmaps uses — `resourceCoords`, older `pixelCoords`,
+SVG `resourceMask`), fitting the transformation from ground control points, and choosing IIIF Image API levels and
+tiles. No dependencies.
+
+```js
+import { parseGeoreference, georefMapping, iiifImage, infoUrl, fitTransform } from "geopbf/georef";
+
+const [g] = parseGeoreference(await (await fetch("https://annotations.allmaps.org/maps/…")).json());
+const m = georefMapping(g);            // both directions between image pixels and Web Mercator (0..1, y down)
+m.toResource([x, y]); m.toWorld([px, py]); m.bbox; m.residuals;   // residuals in metres at the control points
+const img = iiifImage(await (await fetch(infoUrl(g.image.id))).json(), { base: infoUrl(g.image.id) });
+const L = img.levelFor(footprint); img.tilesIn(L, [x0, y0, x1, y1]).map(([c, r]) => img.tile(L, c, r).url);
+```
+
+- **Transformations** — `polynomial` (order 1–3, least squares), `thinPlateSpline` (passes through every point),
+  `projective` (8-parameter), `helmert` (similarity). Each is fitted in one direction; the inverse is a second fit
+  in the other direction (thin-plate splines have no closed-form inverse — the same approach as Allmaps).
+  Too few points for the requested type fall back to a simpler one instead of failing.
+- **IIIF** — Image API v2 and v3, `tiles` + `scaleFactors`, level0 static tiles (canonical URL forms), `sizes`-only
+  images, and level1/2 servers that declare no tiles (512-px virtual tiles). Only browser-decodable formats are used.
+- The ortho globe renders it with `map.raster.add(id, { iiif })` (packages/globe `iiif-worker.js`).
+
+### 8.1.3 Projections added for point clouds (v1.18)
+
+`geopbf/proj`'s `crsFromWKT` now also inverts **Lambert Conformal Conic** (1SP/2SP — most US State Plane zones) and
+**Albers Equal Area** (e.g. CONUS Albers), checked against the EPSG Guidance Note 7-2 and Snyder worked examples
+(`lccInverse`/`lccForward`, `albersInverse`/`albersForward`). GDAL's WKT1 for EPSG:3857 (`Mercator_1SP` on the WGS 84
+ellipsoid, recognisable only by its name, authority or PROJ4 extension) is now treated as spherical Web Mercator —
+before, it was inverted as ellipsoidal Mercator and landed about 0.19° off in latitude at 40°N.
+`geopbf/cog/source` exports the HTTP Range reader (`openSource`) used by COG, GeoParquet and the ortho COPC reader.
 
 ### 8.2 Leaflet
 
@@ -783,7 +888,10 @@ new GeoJsonLayer({ data: "https://…/N02-25_RailroadSection", loaders: [GeoPBFL
 ```
 
 `parse` returns a GeoJSON FeatureCollection with the header metadata attached as `geopbfMeta`; pass
-`loadOptions: { geopbf: { sanitize: false } }` to opt out of property sanitizing. See `examples/deckgl.html`.
+`loadOptions: { geopbf: { sanitize: false } }` to opt out of property sanitizing. The loader claims the `.geopbf`
+extension and the MIME types `application/x-geopbf`, `application/octet-stream` and `application/gzip` (a whole-file
+gzipped `.geopbf` served from object storage usually carries the last one, and an extension-less URL is matched by
+MIME alone). See `examples/deckgl.html`.
 
 ### 8.5 Cesium, D3, and everything else
 
@@ -858,7 +966,7 @@ GeoPBF, ZIP/Shapefile/MOJ decoders, COG tiles, PMTiles and Parquet — go throug
 Requires a browser with `CompressionStream` (all evergreen browsers). zstd in Node needs 22.15+.
 
 Workers are declared as `new Worker(new URL("./…", import.meta.url), { type: "module" })` and the WASM ships as a
-regular asset — Vite and other modern bundlers handle both natively, no plugins. One setting is required in the
+regular asset (prebuilt in `wasm/pkg`; `npm run build:wasm` rebuilds it with the pinned toolchain and `npm test` checks the ledger, see reference.md § Verification) — Vite and other modern bundlers handle both natively, no plugins. One setting is required in the
 consumer's Vite config, because the workers use dynamic imports internally and Vite's default `iife` worker format
 rejects them:
 

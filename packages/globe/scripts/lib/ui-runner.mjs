@@ -1,11 +1,12 @@
 // UI 検定の走らせ方（globe と japan で共有する仕掛け・2026-09-24 に apps/ortho-japan/scripts/verify-ui.mjs から抽出）。
 // 頁の一覧と器（vite の root・base）は呼ぶ側が持ち、ここは「どう走らせるか」だけを持つ＝複製を作らない。
-//   ・既定は仮想時間（--virtual-time-budget＝速い・決定的）
+//   ・既定は仮想時間（CDP で仮想時計を刻む＝速い・決定的。旧の --virtual-time-budget --dump-dom は VG_VIRTUAL=dump）
 //   ・realtime の頁だけ実時間で CDP 越しに見る（render worker 内の動的 import・WebGPU async init は仮想時計と両立しない）
 //   ・実時間は**頁ごとに Chrome を立て直す**（別ポート・別プロファイル・kill の exit を待つ）＝前の頁の
 //     IDB/localStorage/GPU が次へ漏れない（9/24 に verify-webgpu 側で踏んだ轍と同じ手当て）
 import { spawn, execFile } from "node:child_process";
 import net from "node:net";
+import { startBucketCache } from "./bucket-cache.mjs";
 import { CHROME, SWIFTSHADER, REALGPU, waitExit, launchChrome, newTab, connect } from "./cdp.mjs";
 
 export { CHROME, SWIFTSHADER, REALGPU, waitExit };   // 2026-09-27 に cdp.mjs へ移した＝ここからも従来どおり取れる
@@ -60,11 +61,11 @@ export async function startVite({ cwd, port, readyUrl, env = null, portEnv = "",
 // setTimeout から __cam() を叩く方式では再現できない＝実機と違う結果になる・2026-09-03 実測）。
 // backends：配列を渡すと globe.js の起動ログ "[boot] frame1 received backend=…" の値を積む（runPages の backend 検め・T1）。
 // worlds：配列を渡すと起動ログ "[geo] world=…" から "ellipsoid"／"sphere" を積む（runPages の世界の検め・#43 段 0）。
-export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null, worlds = null } = {}) {
+export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", seq = 1, flags = SWIFTSHADER, drag = false, shot = null, backends = null, worlds = null, chromeArgs = [] } = {}) {   // chromeArgs＝Chrome に足す旗（runPages の bucket の中継）
 	// Chrome の起動・タブ・WebSocket は cdp.mjs（port は Chrome が選ぶ・頁ごとに別プロファイル・kill の exit を待つ）
 	let ch = null;
 	try {
-		try { ch = await launchChrome({ flags, profilePrefix, seq }); } catch (e) { return "FAIL " + e.message; }
+		try { ch = await launchChrome({ flags, profilePrefix, seq, extraArgs: chromeArgs }); } catch (e) { return "FAIL " + e.message; }
 		let target;
 		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
 		const cdp = await connect(target.webSocketDebuggerUrl);
@@ -111,11 +112,75 @@ export async function runRealtime(url, { limitS = 60, profilePrefix = "oj-vui", 
 	}
 }
 
-// 仮想時間＝--dump-dom の <title> を読むだけ（速い・決定的）
-export const runVirtual = url => new Promise(res => execFile(CHROME,
-	["--headless=new", "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--virtual-time-budget=75000", "--dump-dom", url],
+// 仮想時間＝CDP で仮想時計を刻む（2026-10-03・関門の最適化 段 3）。
+// 旧＝`--virtual-time-budget=75000 --dump-dom`（budget を使い切ってから <title> を読む）。クラウドの Chromium（Playwright 1194）では
+//   vite の worker の script（?worker_file）の取得が「未完の fetch」として残り、仮想時計が止まったまま budget が尽きず、90 秒の timeout で
+//   no-title＝japan の verify:ui で main でも 7 頁が落ちていた（2026-10-03 実測）。dump-dom は表題が PASS に変わっても budget の終わりまで待つ＝遅い。
+// ここは
+//   ・policy "advance" で STEP ms（既定 500）ずつ budget を与える＝未完の fetch があっても時計は進む。ただし刻む前に**自分で**網の静けさを待つ
+//     （Network の requestWillBeSent／loadingFinished を頁と worker の全 session で数え、飛んでいる要求が無くなるまで・最長 IDLE ms）
+//     ＝iframe・JSON・タイルの到着は実時間で待ち、頁の timer/rAF は仮想時計で一気に進む（旧と同じ 75 秒ぶんまで）。刻みの後は YIELD ms 実時間を譲る
+//     （worker の postMessage が次の刻みの前に届く）。
+//     pauseIfNetworkFetchesPending（旧 dump-dom の意味）は使えない＝この Chromium では worker の script（?worker_file）の取得が「未完」のまま残り
+//     時計が二度と進まない（t-gadgets で 90 秒・t-gintmultigl では render worker 自体が立たない・2026-10-03 実測）。
+//     頁が worker の返事を待つ間 fetch を回す「pump」の頁（globe の t-gint*）は網が静まらず、刻みの幅で絵の画素数が揺れた（t-gintmultigl）
+//     ＝それらは実時間で回す（verify-nocoi が同じ頁を実時間で回している前例）。?worker_file の要求は数えない。外の鯖へ出て返らない要求は IDLE ms で見切る。
+//   ・表題が PASS/FAIL になった瞬間に返す（budget の残りは待たない）＝t-opts 4 秒・t-demo 10〜60 秒（旧＝頁ごとに 90 秒）
+//   ・壁時計 limitS で必ず切る（刻みが進まない・タブが死んだ時）。旧の dump-dom は VG_VIRTUAL=dump で残す（比べる時に）
+// 旗は旧と同じ（ソフトウェア GL）。頁ごとに別プロファイル・kill の exit 待ちは cdp.mjs の作法のまま。
+const VIRTUAL_BUDGET_MS = 75000, VIRTUAL_STEP_MS = +process.env.VG_VSTEP || 500, VIRTUAL_IDLE_MS = +process.env.VG_VIDLE || 1500, VIRTUAL_YIELD_MS = +process.env.VG_VYIELD || 50;
+const runVirtualDump = url => new Promise(res => execFile(CHROME,
+	["--headless=new", ...SWIFTSHADER, "--virtual-time-budget=" + VIRTUAL_BUDGET_MS, "--dump-dom", url],
 	{ timeout: 90000, maxBuffer: 64 * 1024 * 1024 },
 	(e, out) => res(e && !out ? `FAIL chrome: ${e.message}` : (String(out).match(/<title>([^<]*)<\/title>/) || [, "FAIL no-title"])[1])));
+export async function runVirtual(url, { limitS = 90, profilePrefix = "oe-virt", seq = 1, chromeArgs = [] } = {}) {
+	if (process.env.VG_VIRTUAL === "dump") return runVirtualDump(url);
+	let ch = null;
+	try {
+		try { ch = await launchChrome({ flags: SWIFTSHADER, profilePrefix, seq, extraArgs: chromeArgs }); } catch (e) { return "FAIL " + e.message; }
+		let target;
+		try { target = await newTab(ch.port); } catch (e) { return "FAIL chrome: " + e.message; }
+		const cdp = await connect(ch.browserWs);   // browser の WebSocket＝flat session で頁にも worker にも話せる
+		const { sessionId: page } = await cdp.call("Target.attachToTarget", { targetId: target.id, flatten: true });
+		let expired = 0;
+		const pending = new Map(), urls = new Map();   // requestId → 出した時刻・url（頁・worker の全 session）
+		cdp.on(m => {
+			if (m.method === "Emulation.virtualTimeBudgetExpired") expired++;
+			else if (m.method === "Network.requestWillBeSent") { const r = m.params; if (r.requestId !== r.loaderId && !/[?&]worker_file\b/.test(r.request.url)) { pending.set(r.requestId, Date.now()); urls.set(r.requestId, r.request.url); } }   // 主文書（requestId＝loaderId）と vite の worker_file は数えない
+			else if (m.method === "Network.loadingFinished" || m.method === "Network.loadingFailed") pending.delete(m.params.requestId);
+			else if (m.method === "Target.attachedToTarget") { const s = m.params.sessionId; cdp.send("Network.enable", {}, { session: s }); cdp.send("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, { session: s }); cdp.send("Runtime.runIfWaitingForDebugger", {}, { session: s }); }   // worker の中の worker も
+		});
+		const P = { session: page };
+		await cdp.call("Target.setAutoAttach", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }, P);   // worker の fetch も数える
+		await cdp.call("Network.enable", {}, P); await cdp.call("Page.enable", {}, P); await cdp.call("Runtime.enable", {}, P);
+		await cdp.call("Emulation.setVirtualTimePolicy", { policy: "pause" }, P);   // 遷移の前に止める＝頁の最初の timer から仮想時計
+		await cdp.call("Page.navigate", { url }, P);
+		const tWall = Date.now();
+		let title = "", used = 0;
+		while (used < VIRTUAL_BUDGET_MS) {
+			if (cdp.dead()) { title = "FAIL chrome: WebSocket closed（タブが死んだ＝GPU プロセス落ち/OOM の疑い）"; break; }
+			if (Date.now() - tWall > limitS * 1000) { title = `FAIL no-title(virtual ${limitS}s・${used / 1000}s 進めた): ` + title; break; }
+			const tIdle = Date.now();
+			while (pending.size && Date.now() - tIdle < VIRTUAL_IDLE_MS && !cdp.dead()) await sleep(10);   // 網が静まるのを待つ（返らない要求・pump は見切る）
+			const want = expired + 1;
+			await cdp.send("Emulation.setVirtualTimePolicy", { policy: "advance", budget: VIRTUAL_STEP_MS }, P);
+			const tStep = Date.now();
+			while (expired < want && !cdp.dead() && Date.now() - tStep < 5000) await sleep(5);   // 刻みが尽きるのを待つ（5 秒で諦めて次へ＝重い刻みでも止まらない）
+			used += VIRTUAL_STEP_MS;
+			await sleep(VIRTUAL_YIELD_MS);   // 刻みの後に実時間を少し譲る＝render worker の postMessage（描いた絵・返事）が次の刻みの前に届く（t-gintmultigl の line-width の画素数が揺れた・2026-10-03）
+			title = (await cdp.send("Runtime.evaluate", { expression: "document.title", returnByValue: true }, { session: page, timeoutMs: 2000 }))?.result?.value || "";
+			if (/^(PASS|FAIL)/.test(title)) break;
+		}
+		if (!/^(PASS|FAIL)/.test(title)) title = `FAIL no-title(virtual ${VIRTUAL_BUDGET_MS / 1000}s): ` + title;
+		if (process.env.VG_VDEBUG && pending.size) console.error(`[virtual] 飛んだままの要求 ${pending.size}：` + [...pending.keys()].slice(0, 6).map(id => urls.get(id)?.slice(-80)).join(" ・ "));
+		cdp.close();
+		return title;
+	} catch (e) {
+		return "FAIL chrome: " + String(e?.message || e).slice(0, 120);
+	} finally {
+		if (ch) await ch.close();
+	}
+}
 
 // 頁の列を回して PASS/FAIL を出す。urlOf(page,query) は呼ぶ側の器が決める。
 // jobs＝同時に回す頁の数（既定＝環境変数 VG_JOBS か 1）。頁ごとに別の Chrome・別プロファイル・Chrome が選ぶ CDP の口＝並べても互いに漏れない。
@@ -128,20 +193,22 @@ export const runVirtual = url => new Promise(res => execFile(CHROME,
 //   ・noBoot の頁（地球儀を起こさない＝createRenderer 直叩き・OPFS 等）は起動ログを求めない
 //   ・どの頁も表題に skip／スキップ（WebGPU 不在で素通りする印）があれば FAIL
 export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, flags, drag = false, profilePrefix, shotLast = process.env.SHOT || null,
-	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set(), jobs = +process.env.VG_JOBS || 1, serial = new Set() }) {
+	base = "gl2=1&lang=ja", expectBackend = null, noBoot = new Set(), jobs = +process.env.VG_JOBS || 1, serial = new Set(), bucketCache = true }) {   // bucketCache＝bucket の応答を手元の中継から返す（lib/bucket-cache.mjs・回線の細さで idle 待ちが落ちない）。回線や初回の速さそのものを測る走り（verify:net・perf）は false
+	const relay = bucketCache ? await startBucketCache() : null, chromeArgs = relay ? relay.chromeArgs : [];
 	let seq = 0;
 	const t0 = Date.now();
 	const one = async p => {
 		const tp = Date.now();
 		const [page, extra = ""] = p.split("?");
+		const rt = realtime.has(page) || realtime.has(p);   // 頁名か変種（t-plugin?v=gltf）のどちらでも実時間にできる
 		const q = new URLSearchParams(base);
 		for (const [k, v] of new URLSearchParams(extra)) q.set(k, v);   // 同じ鍵を二度書かない＝頁側の指定が勝つ
 		const url = urlOf(page, q.toString());
-		const backends = expectBackend && realtime.has(page) ? [] : null;
+		const backends = expectBackend && rt ? [] : null;
 		// 世界の検め（#43）：頁の URL に ell= があれば、起動ログの世界（[geo] world=）が全部それに合うこと。頁の中で読み直す頁（t-ellparity?g=cache）は ell を付けない
-		const wantWorld = realtime.has(page) && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
-		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
-		let title = realtime.has(page) ? await runRealtime(url, opt) : await runVirtual(url);
+		const wantWorld = rt && q.has("ell") ? (q.get("ell") === "1" ? "ellipsoid" : "sphere") : null, worlds = wantWorld ? [] : null;
+		const opt = { limitS: long[page] ?? 60, seq: ++seq, drag, backends, worlds, chromeArgs, ...(flags ? { flags } : {}), ...(profilePrefix ? { profilePrefix } : {}), shot: (shotLast && p === pages[pages.length - 1]) ? shotLast : null };
+		let title = rt ? await runRealtime(url, opt) : await runVirtual(url, { limitS: long[page] ?? 90, seq: opt.seq, chromeArgs, ...(profilePrefix ? { profilePrefix: profilePrefix + "-v" } : {}) });
 		if (backends && title.startsWith("PASS")) {
 			const want = q.get("gl2") === "1" ? "webgl2" : expectBackend;
 			const seen = [...new Set(backends)].join("+") || "なし";
@@ -177,6 +244,7 @@ export async function runPages({ pages, urlOf, realtime, long = {}, pad = 14, fl
 	await Promise.all(Array.from({ length: N }, async () => { while (k < par.length) { const i = par[k++]; res[i] = await one(pages[i]); flush(); } }));
 	for (const i of ser) { res[i] = await one(pages[i]); flush(); }
 	flush();
+	if (relay) { const t = relay.stats; console.log(`bucket の中継：手元 ${t.hit}・新規 ${t.miss}・確かめ直し ${t.revalidated}・古い物で代用 ${t.stale}・素通し ${t.pass}・失敗 ${t.error}`); if (process.env.OE_BUCKET_CACHE_LOG) console.log(JSON.stringify({ passBy: t.passBy, errors: t.errors }, null, 1)); else if (t.errors.length) console.log("  失敗：" + t.errors.slice(0, 5).join(" ｜ ")); await relay.close(); }
 	const slow = pages.map((p, i) => [p, res[i].s]).sort((a, b) => b[1] - a[1]).slice(0, 5).map(([p, s]) => `${p} ${s.toFixed(0)}s`).join("・");
 	console.log(`\n壁時計 ${((Date.now() - t0) / 60000).toFixed(1)} 分（${N} 本ずつ）・遅い頁：${slow}`);
 	console.log(fail ? `\n✗ ${fail}/${pages.length} ページ失敗` : `\n✓ 全${pages.length}ページ PASS`);

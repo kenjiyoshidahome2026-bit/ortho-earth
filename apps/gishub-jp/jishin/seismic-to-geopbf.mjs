@@ -19,7 +19,7 @@
  *
  * 出力:
  *   jishin/seismic.geojson         … canonical（uid・alias つき＝突合の正本）
- *   public/jishin/seismic.geopbf   … 描画用（PRECISION=7・uid を落とし net は符号）
+ *   ortho-data/japan/jishin/seismic.geopbf   … 描画用（PRECISION=7・uid を落とし net は符号）
  *
  * node jishin/seismic-to-geopbf.mjs [最新年] [起点年]   … 既定 2026 2013（単年にするなら同じ年を 2 つ）
  */
@@ -192,8 +192,8 @@ async function main() {
         license: '地震調査研究推進本部',
         attribution: '地震調査研究推進本部（地震本部）',
     });
-    mkdirSync(join(__dir, '../public/jishin'), { recursive: true });
-    writeFileSync(join(__dir, '../public/jishin/seismic.geopbf'), raw);
+    mkdirSync(join(__dir, '../../../ortho-data/japan/jishin'), { recursive: true });
+    writeFileSync(join(__dir, '../../../ortho-data/japan/jishin/seismic.geopbf'), raw);
 
     const live = features.filter(f => f.properties.last === LATEST).length;
     const perNet = {};
@@ -201,7 +201,7 @@ async function main() {
     console.log(`のべ観測点: ${features.length}（${LATEST}年版に現存 ${live} / 掲載終了 ${features.length - live} / ${FROM}年版より後の新設 ${features.filter(f => f.properties.first > FROM).length}）`);
     console.log('観測網:', perNet);
     console.log(`GeoJSON: jishin/seismic.geojson (${(Buffer.byteLength(JSON.stringify(geojson))/1024).toFixed(0)} KB)`);
-    console.log(`GeoPBF : public/jishin/seismic.geopbf (${(raw.length/1024).toFixed(0)} KB)`);
+    console.log(`GeoPBF : ortho-data/japan/jishin/seismic.geopbf (${(raw.length/1024).toFixed(0)} KB)`);
 }
 
 main().catch(e => { console.error(e); process.exit(1); });

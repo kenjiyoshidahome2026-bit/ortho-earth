@@ -1,0 +1,6 @@
+# wasm build の toolchain 固定（geopbf 改良点 11・2026-10-12）。同梱 pkg/gint_wasm_bg.wasm の producers（rustc 1.96.0・wasm-bindgen 0.2.122）と揃える。
+# rustup が wasm/ 配下の cargo でこの版を自動で使う（無ければ取りに行く）。wasm-bindgen CLI の版は Cargo.lock の wasm-bindgen と同じであること（build.sh が検める）
+[toolchain]
+channel = "1.96.0"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"

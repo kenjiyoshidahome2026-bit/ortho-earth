@@ -1,0 +1,21 @@
+{
+	"name": "himekuri-demo",
+	"version": "0.1.0",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "日めくりカレンダー（himekuri）に現在地の日の出・日の入り・月の出入りを添える頁（www.ortho-earth.com/himekuri/）",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"preview": "vite preview",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node tests/t-astro.mjs && node tests/t-elevation.mjs && node tests/t-ical.mjs && node tests/t-week.mjs && node scripts/verify-i18n.mjs",
+		"deploy": "npm run build && wrangler deploy"
+	},
+	"dependencies": {
+		"himekuri": "*",
+		"@ortho-earth/globe": "*"
+	}
+}

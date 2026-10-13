@@ -4,6 +4,7 @@ A step-by-step recipe for putting the Ortho Earth globe in your own web page —
 Every step below is checked by an automated test that installs the published npm packages into an empty project and runs them.
 
 - No API key, no account, no server of your own. Public data is fetched by the visitor's browser and cached there.
+- MapLibre GL JS compatible: existing MapLibre code runs on the globe by changing one import (A8).
 - The globe draws with WebGPU and falls back to WebGL2 automatically.
 - License: the engine is GPL-3.0-or-later (a commercial license is available: kenji.yoshida.home.2026@gmail.com). The data format `geopbf` is MIT.
 
@@ -121,6 +122,35 @@ await map.flyTo({ center: [139.77, 35.68], zoom: 12, pitch: 60 });   // resolves
 ```
 
 Camera: `jumpTo`, `easeTo`, `flyTo`, `fitBounds`, `getCenter`, `getZoom`. Events: `map.on("move" | "settle" | "click" | "time", …)`.
+
+### A8. Already have MapLibre GL JS code?
+
+Change one import. `@ortho-earth/globe/maplibre` is the MapLibre GL JS API — `Map`, `Marker`, `Popup`, `addProtocol`, the controls — drawn on the globe engine. Keep `vite.config.js` and `index.html` from A2 and A3 and put your MapLibre code in `src/main.js`:
+
+```js
+import * as maplibregl from "@ortho-earth/globe/maplibre";
+
+const map = new maplibregl.Map({
+  container: "map",
+  style: "https://demotiles.maplibre.org/style.json",
+  center: [139.77, 35.68],
+  zoom: 4,
+});
+
+map.on("load", () => {
+  map.addSource("cities", {
+    type: "geojson",
+    data: { type: "FeatureCollection", features: [
+      { type: "Feature", properties: { name: "Tokyo" }, geometry: { type: "Point", coordinates: [139.77, 35.68] } },
+    ] },
+  });
+  map.addLayer({ id: "cities", type: "circle", source: "cities",
+    paint: { "circle-radius": 6, "circle-color": "#e4572e" } });
+});
+```
+
+Zoom levels follow MapLibre's, so `zoom`, `minzoom`/`maxzoom` and tile levels mean the same as in your existing code. If you use MapLibre's controls, keep linking `maplibre-gl.css`.
+All 139 official MapLibre GL JS examples run on it with their code unchanged — each one with its source, how closely it matches MapLibre, and a Run button: https://www.ortho-earth.com/maplibre/
 
 ### A7. More
 

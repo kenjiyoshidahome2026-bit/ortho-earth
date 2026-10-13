@@ -33,7 +33,6 @@ pub fn free_wasm_memory(ptr: *mut u8, size: usize) {
 // 🌟 低レイヤ・ビット演算（モートンコード）ユーティリティ
 // =========================================================================
 
-pub(crate) mod identify;
 pub(crate) mod topology;
 
 #[inline(always)]
@@ -146,28 +145,7 @@ fn down_heap(mut i: usize, heap_size: usize, areas: &[f64], heap: &mut [usize], 
 // 🌟 WASM メインエクスポート
 // =========================================================================
 
-#[wasm_bindgen]
-#[allow(non_snake_case)]
-pub fn XYtoL1_wasm(ptr: *mut i32, vertex_count: usize) {
-    if vertex_count == 0 { return; }
-
-    // X, Yが隙間なく詰まった i32 のスライス (要素数は 頂点数 * 2)
-    let xy_slice = unsafe { std::slice::from_raw_parts_mut(ptr, vertex_count * 2) };
-    // 同じアドレスを u64 の出力スライスとしてリキャスト
-    let out_slice = unsafe { std::slice::from_raw_parts_mut(ptr as *mut u64, vertex_count) };
-
-    // 🌟 核心：末尾（vertex_count - 1）から逆順にループを回す！
-    // これにより、自分の書き戻し（out_slice[i]）が、これから読み込む手前のデータ（xy_slice[i*2]）を
-    // 破壊することが幾何学・メモリ空間的に100%発生しなくなります。
-    for i in (0..vertex_count).rev() {
-        let ix = xy_slice[i * 2] as u32;
-        let iy = xy_slice[i * 2 + 1] as u32;
-        
-        // 1ビットの狂いもない、正しいJS互換モートンコードを生成
-        out_slice[i] = pure_morton_from_int(ix, iy) | TERMINAL_BIT;
-    }
-}
-
+// XYtoL1_wasm（XY → L1 Morton の一括変換）は 2026-10-12 に撤去（改良点 11・死蔵 Rust）。JS は gint.pack／topology_full_wasm の中で変換する＝呼び手が無かった。
 #[wasm_bindgen]
 #[allow(non_snake_case)]
 pub fn L1toL2_wasm(ptr: *mut u64, length: usize) {
@@ -444,4 +422,3 @@ pub(crate) fn l2_to_l2(arc: &mut [u64]) {
     }
 }
 
-//pub mod identify;

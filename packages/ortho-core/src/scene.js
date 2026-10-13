@@ -88,3 +88,16 @@ export function mergeTiles(order, geomOf, opts = {}) {
 	return { origin, layers, buildings };
 }
 const EMPTY = new Set();
+
+// op 列（＋建物）の型付き配列のバッファ＝transfer の対象・実バイトの数え上げ（tile worker・pipeline・tilemanager・scene worker で共用）。
+// op＝fill { pos, col, idx } ／ line { P1, P2, col, half, off? }・シーン（結合後の layers）も同じ形
+export function opBuffers(ops, buildings) {
+	const bufs = [];
+	for (const op of ops) {
+		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
+		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); }
+	}
+	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
+	return bufs;
+}
+

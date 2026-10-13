@@ -30,8 +30,8 @@ function loadCityCodeSets(file) {
     return m;
 }
 
-const a = loadCityCodeSets('public/census/2015-small.csv');
-const b = loadCityCodeSets('public/census/2020-small.csv');
+const a = loadCityCodeSets('shared-data/census/2015-small.csv');
+const b = loadCityCodeSets('shared-data/census/2020-small.csv');
 
 const out = {};
 let changed = 0;

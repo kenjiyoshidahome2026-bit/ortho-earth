@@ -1,4 +1,4 @@
-import { GeoPBF } from "../pbf-base.js";
+import { GeoPBF, propsKeyOf } from "../pbf-base.js";
 
 const { geometryTypes, geometryMap } = GeoPBF;
 
@@ -7,9 +7,9 @@ export async function dissolve(pbfInstance, key = false) {
 		key = pbfInstance.keys.indexOf(key);
 		if (key < 0) key = false;
 	}
-	// 全属性のキーは型ごとに（2026-09-25・B7）：旧 join("|") は 1 と "1"、"" と null、["a|","b"] と ["a","|b"] を同じ地物として併合した
-	const valKey = v => v === null || v === undefined ? "n" : v instanceof Date ? "d" + v.getTime() : typeof v === "object" ? "o" + JSON.stringify(v) : (typeof v)[0] + String(v);
-	const keyAt = i => typeof key === "number" ? pbfInstance.props[i][key] : key === true ? "" : JSON.stringify(pbfInstance.props[i].map(valKey));
+	// 全属性のキーは型ごとに（2026-09-25・B7）：旧 join("|") は 1 と "1"、"" と null、["a|","b"] と ["a","|b"] を同じ地物として併合した（propsKeyOf）
+	// 行は propsRow＝worker 復号の遅延 props でも読める
+	const keyAt = i => typeof key === "number" ? pbfInstance.propsRow(i)[key] : key === true ? "" : propsKeyOf(pbfInstance.propsRow(i));
 	// 併合ゼロの先行判定（props のみ・ジオメトリ復号なし）：全キーが一意なら dissolve は
 	// 「全地物デコード→全再エンコード→再インデックス」の空回り（実測 1.4s/57k 地物）。
 	// 地番を持つ地籍・建物・住所系は本質的に全キー一意＝ここで即帰る。重複が1つでもあれば従来経路。
@@ -48,7 +48,7 @@ export async function dissolve(pbfInstance, key = false) {
 	pbfInstance.setBody(() => {
 		for (const [id, a] of propTub.values()) {
 			const properties = key === false ? pbfInstance.getProperties(id) : {};
-			if (typeof key === "number") properties[pbfInstance.keys[key]] = pbfInstance.props[id][key];
+			if (typeof key === "number") properties[pbfInstance.keys[key]] = pbfInstance.propsRow(id)[key];
 			const active = [];
 			[0, 1, 2].forEach(n => a[n].length && active.push(n));
 			if (active.length === 1) {

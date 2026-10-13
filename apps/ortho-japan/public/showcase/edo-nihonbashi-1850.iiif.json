@@ -1,0 +1,116 @@
+{
+	"@context": [
+		"http://iiif.io/api/extension/georef/1/context.json",
+		"http://iiif.io/api/presentation/3/context.json"
+	],
+	"type": "Annotation",
+	"motivation": "georeferencing",
+	"target": {
+		"type": "SpecificResource",
+		"source": {
+			"id": "https://dl.ndl.go.jp/api/iiif/1286645/R0000001",
+			"type": "ImageService2",
+			"width": 6144,
+			"height": 4096,
+			"partOf": [
+				{
+					"id": "https://dl.ndl.go.jp/api/iiif/1286645/manifest.json",
+					"type": "Manifest",
+					"label": {
+						"ja": [
+							"〔江戸切絵図〕. 日本橋北神田浜町絵図"
+						]
+					}
+				}
+			]
+		},
+		"selector": {
+			"type": "SvgSelector",
+			"value": "<svg width=\"6144\" height=\"4096\"><polygon points=\"1264,368 4952,368 4952,3728 1264,3728\" /></svg>"
+		}
+	},
+	"body": {
+		"type": "FeatureCollection",
+		"transformation": {
+			"type": "polynomial",
+			"options": {
+				"order": 1
+			}
+		},
+		"features": [
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						1208,
+						205
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						139.769182,
+						35.699613
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						5007,
+						205
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						139.791652,
+						35.699797
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						5007,
+						3779
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						139.787049,
+						35.679997
+					]
+				}
+			},
+			{
+				"type": "Feature",
+				"properties": {
+					"resourceCoords": [
+						1208,
+						3779
+					]
+				},
+				"geometry": {
+					"type": "Point",
+					"coordinates": [
+						139.76458,
+						35.679813
+					]
+				}
+			}
+		]
+	},
+	"label": {
+		"en": [
+			"Edo kiriezu: Nihonbashi-kita, Kanda and Hamachō (1850)"
+		],
+		"ja": [
+			"江戸切絵図 日本橋北神田浜町絵図（嘉永3年・1850）"
+		]
+	},
+	"attribution": "江戸切絵図「日本橋北神田浜町絵図」嘉永3年（1850）／国立国会図書館デジタルコレクション（パブリックドメイン）"
+}

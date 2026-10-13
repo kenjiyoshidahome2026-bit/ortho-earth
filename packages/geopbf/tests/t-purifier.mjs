@@ -57,5 +57,24 @@ const shared = (a, b) => a.filter(m => b.some(n => near(m, n)));
 	const d = await bake(big);
 	ok(lineOf(d, 0).length === 2 && lineOf(d, 1).length === 2, "80k セグ超は purifier を飛ばす（交点未挿入）");
 }
+{	// 世界規模の長い線分（2026-10-13）＝格子をデータに合わせて粗くする。旧＝730 m の格子に bbox の全セルを登録＝1 本が数百万セルに跨り、
+	// 世界の川（4.8 万線分）で 8.5 秒・この放射 200 本で 36 秒・星座線は 7.5 秒かけて wasm が落ちた。結果は旧と同じ（実データ 24 件で GintBUF の一致を確認）
+	const star = Array.from({ length: 200 }, (_, i) => { const a = Math.PI * i / 200; return L([[10 - 5 * Math.cos(a), 50 - 5 * Math.sin(a)], [10 + 5 * Math.cos(a), 50 + 5 * Math.sin(a)]], i); });
+	const t0 = performance.now(), d = await bake(star), ms = performance.now() - t0;
+	const lines = star.map((_, i) => lineOf(d, i));
+	ok(ms < 2000, `長い線分 200 本（各 10°・1 点で交わる）が 2 秒以内（${ms.toFixed(0)} ms）`);
+	// 長い辺には位相の後で大円のアンカーが入る（v5）＝頂点数では見ない。交点＝全線が共有するただ 1 点
+	const hub = shared(lines[0], lines[1]);
+	ok(hub.length === 1, `交点が線に入る（線 0 と線 1 の共有 ${hub.length} 点）`);
+	ok(hub.length === 1 && lines.every(l => l.some(m => near(m, hub[0]))), `その交点を 200 本すべてが持つ（${hub.length === 1 ? lines.filter(l => l.some(m => near(m, hub[0]))).length : 0}/200）`);
+}
+{	// 長い線分どうしの X 交差・T 字＝粗い格子でも基準の格子と同じ結果（交点 1 つ・T 字は幹にだけ）
+	const d = await bake([L([[100, 10], [160, 40]], 1), L([[100, 40], [160, 10]], 2), L([[130, 25], [130, 60]], 3), L([[-170, -30], [-120, -30]], 4), L([[-150, -30], [-150, 20]], 5)]);
+	const [a, b, c, e, f] = [0, 1, 2, 3, 4].map(i => lineOf(d, i));
+	const x = shared(a, b);
+	ok(x.length === 1, `長い X 交差: 交点が両線に 1 つ（共有 ${x.length}）`);
+	ok(x.length === 1 && near(c[0], x[0]), "交点から出る線の端点＝その交点");
+	ok(shared(e, f).length === 1 && near(shared(e, f)[0], f[0]) && !near(e[0], f[0]) && !near(e.at(-1), f[0]), `長い T 字: 枝の端点が幹の途中に入る（共有 ${shared(e, f).length}）`);
+}
 console.log(fails ? `\n${fails} 件失敗` : "\n全件通過");
 process.exit(fails ? 1 : 0);

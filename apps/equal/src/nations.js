@@ -1,11 +1,15 @@
 // 国の定義＝packages/world（国別 DB v2）に合わせる（本人 2026-09-18「国等の定義は world にあります。合わせて」）。
 //   ・国の単位＝NationDB の key（ISO 3166-1 alpha-2・非 ISO 主体は B コード）
 //   ・国の形＝packages/world の ne-cultural（NE admin_1 を world key で束ね済み）
-//   ・名前/コード/統計＝bucket GIS/world の NationDB.json（英語が基軸）＋ i18n/ja.json（日本語名＝CSV の名寄せ用）
+//   ・名前/コード/統計＝GitHub Pages（ortho-data/globe/）の NationDB.json（英語が基軸）＋ NationDB.i18n/ja.json（日本語名＝CSV の名寄せ用）
 // 項目のラベル・単位・出所は apps/world の SORTS と同じ。
 
 // 読み込み（NationDB・言語別の国名/都市名・NE の小さな都市名）＝世界帯の中身の正本 ortho-core worldcontent（globe・world と同じ URL・同じ作法）
-export { loadNations, loadI18n, loadNeCities } from "@ortho-earth/core/worldcontent";
+import { loadI18n as loadNameTable } from "@ortho-earth/core/worldcontent";
+import { uiTable } from "../../../packages/world/i18n/ui-table.js";
+export { loadNations, loadNeCities } from "@ortho-earth/core/worldcontent";
+// 名前表（国・台帳の都市＝DB の隣・配信）に画面の文言（ui＝プログラム・packages/world/i18n/ui.json）を重ねる＝旧来の i18n/<lang>.json と同じ形
+export const loadI18n = async lang => { const names = await loadNameTable(lang); return names && { ...names, ...uiTable(lang) }; };
 // 地図の中身の語（統計名・地域名・単位）を world の ui 表で引く（無い語は英語のまま＝world のビューアと同じ縮退）。
 // 操作系の UI 文言は英語のまま＝globe と同じ基軸（本人裁定「globe は英語ベース」）
 export const tr = (i18n, s) => (s != null && i18n?.ui?.[s]) || s;

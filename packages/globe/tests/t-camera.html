@@ -75,6 +75,63 @@ try {
 	// ⑪ getBounds＝見えている範囲が中心を含み、ズームに見合う幅
 	const b = map.getBounds();
 	ok("getBounds", !!b && b[0] < 139.76 && b[2] > 139.76 && b[1] < 35.68 && b[3] > 35.68 && (b[2] - b[0]) < 1, b ? b.map(v => v.toFixed(3)).join(",") : "null");
+	// ⑫ roll（A1・2026-10-12）＝正の roll で絵が時計回り（北の点が右へ）・注視点は中心のまま・hash に "90roll"・0 に戻せば hash から消える
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 0, bearing: 0, roll: 0 });
+	const [nx0, ny0] = map.projectLL(139.76, 35.69);
+	map.setRoll(90);
+	const [nx, ny] = map.projectLL(139.76, 35.69), [cx, cy] = map.projectLL(139.76, 35.68);
+	ok("roll", near(map.getRoll(), 90, 1e-9) && near(nx0, 480, 1) && ny0 < 290 && nx > 490 && near(ny, 300, 1) && near(cx, 480, 1) && near(cy, 300, 1) && map.view.hash.endsWith("/90roll"), `${nx0.toFixed(0)},${ny0.toFixed(0)} -> ${nx.toFixed(0)},${ny.toFixed(0)} ${map.view.hash}`);
+	map.setRoll(0);
+	ok("roll0", map.getRoll() === 0 && !map.view.hash.includes("roll"), map.view.hash);
+	// ⑬ 縦の視野角＝既定 50°・30° にすると同じ zoom で地表の縮尺は変わらず（真俯瞰の中心付近）カメラの距離が tan 比で伸びる
+	const d50 = map.view.eye.distM;
+	map.setVerticalFieldOfView(30);
+	const [fx, fy] = map.projectLL(139.76, 35.69), d30 = map.view.eye.distM;
+	ok("fov", near(map.getVerticalFieldOfView(), 30, 1e-9) && near(fx, nx0, 0.5) && near(fy, ny0, 0.5) && near(d30 / d50, Math.tan(25 * Math.PI / 180) / Math.tan(15 * Math.PI / 180), 1e-6), `${fx.toFixed(1)},${fy.toFixed(1)} ${(d30 / d50).toFixed(4)}`);
+	map.setVerticalFieldOfView(50);
+	ok("fov50", near(map.getVerticalFieldOfView(), 50, 1e-9));
+	// ⑭ padding（A3）＝getCenter は頼んだ中心のまま（MapLibre と同じ）・中身の中心に写る・消失点も動く（傾けた時に中心の経緯度が中身の中心に写る）
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12, pitch: 50, bearing: 20, padding: { left: 300 } });
+	const pc = map.getCenter(); [x, y] = map.projectLL(139.76, 35.68);
+	ok("paddingCenter", near(pc.lng, 139.76, 1e-9) && near(pc.lat, 35.68, 1e-9) && near(x, 630, 1) && near(y, 300, 1), `${pc.lng.toFixed(5)},${pc.lat.toFixed(5)} ${x.toFixed(1)},${y.toFixed(1)}`);
+	map.setPadding(0); map.jumpTo({ pitch: 0, bearing: 0 });
+	// ⑮ fitScreenCoordinates＝画面の 2 点が収まる（北向き・真俯瞰）
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12 });
+	const q0 = map.unprojectXY(300, 200), q1 = map.unprojectXY(660, 400);
+	await map.fitScreenCoordinates([300, 200], [660, 400], 0, { animate: false });
+	const qa = map.projectLL(q0[0], q0[1]), qb = map.projectLL(q1[0], q1[1]);
+	ok("fitScreenCoordinates", map.getZoom() > 12.3 && qa[0] >= -1 && qb[0] <= W + 1 && Math.min(qa[0], W - qb[0], qa[1], H - qb[1]) < 60, `z${map.getZoom().toFixed(2)} ${qa.map(v => v.toFixed(0))} ${qb.map(v => v.toFixed(0))}`);
+	// ⑯ setConstrain＝緯度を 35.7〜36 に・zoom を 11 以下に締める（毎移動）
+	map.setConstrain(v => ({ center: [v.center[0], Math.max(35.7, Math.min(36, v.center[1]))], zoom: Math.min(11, v.zoom) }));
+	map.jumpTo({ center: [139.76, 35.68], zoom: 12 });
+	const cc1 = map.getCenter();
+	ok("constrain", near(cc1.lat, 35.7, 1e-9) && near(map.getZoom(), 11, 1e-9), `${cc1.lat.toFixed(3)} z${map.getZoom().toFixed(2)}`);
+	map.setConstrain(null); map.jumpTo({ center: [139.76, 35.68], zoom: 12 });
+	ok("constrainOff", near(map.getCenter().lat, 35.68, 1e-9) && near(map.getZoom(), 12, 1e-9));
+	// ⑰ 注視点の高さの実行時変更＝固定 500m にすると cam.centerAlt が 500・clamped に戻すと地形なしの地図では 0
+	map.setCenterElevation(500);
+	ok("centerElevation", near(map.getCenterElevation(), 500, 1e-9) && !map.getCenterClampedToGround() && near(map.getCameraTargetElevation(), 500, 1e-9));
+	map.setCenterClampedToGround(true);
+	ok("clampedToGround", map.getCenterClampedToGround() && map.getCenterElevation() < 1);
+	// ⑱ lookAt＝的が注視点・distance（m）が view.eye.distM と一致（A4）
+	await map.lookAt([135.5, 34.7, 300], { distance: 8000, bearing: 45, pitch: 30, roll: 5 });
+	const ec = map.getCenter(), ey = map.view.eye;
+	ok("lookAt", near(ec.lng, 135.5, 1e-9) && near(ec.lat, 34.7, 1e-9) && near(ey.distM, 8000, 8) && near(map.getBearing(), 45, 1e-9) && near(map.getPitch(), 30, 1e-9) && near(map.getRoll(), 5, 1e-9) && near(map.getCenterElevation(), 300, 1e-9) && !map.getCenterClampedToGround(), `dist ${ey.distM.toFixed(1)} h ${map.getCenterElevation()}`);   // 高さのある的＝地面の上の中心点を離れる
+	// ⑲ setCamera（Navara の形）＝getCamera で往復・負の pitch は Cesium の意味（−60 → 30）
+	map.setCamera({ lng: 139.7, lat: 35.6, height: 0, distance: 20000, heading: -90, pitch: -60, roll: 0 });
+	const nc = map.getCamera();
+	ok("setCamera", near(nc.lng, 139.7, 1e-9) && near(nc.lat, 35.6, 1e-9) && near(nc.distance, 20000, 20) && near(nc.heading, -90, 1e-9) && near(nc.pitch, 30, 1e-9) && near(nc.roll, 0, 1e-9), JSON.stringify(nc));
+	// ⑳ follow＝関数の的を毎フレーム追う（lerp 1）・follow(null) で止まる・追従中の setZoom は効く
+	let tx = 139.0; const fh = map.follow(() => [tx, 35.0], { pitch: 0 });
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	const f1 = map.getCenter();
+	tx = 139.2; map.setZoom(9);
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	const f2 = map.getCenter();
+	ok("follow", fh.active && map.isFollowing() && near(f1.lng, 139.0, 1e-9) && near(f2.lng, 139.2, 1e-9) && near(f2.lat, 35.0, 1e-9) && near(map.getZoom(), 9, 1e-9), `${f1.lng.toFixed(3)} → ${f2.lng.toFixed(3)} z${map.getZoom()}`);
+	map.follow(null); tx = 140.0;
+	await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+	ok("followStop", !fh.active && !map.isFollowing() && near(map.getCenter().lng, 139.2, 1e-9));
 	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
 } catch (e) { document.title = "FAIL " + (e && e.stack || e); }
 </script>

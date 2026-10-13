@@ -85,6 +85,14 @@ export function computeDrawData(s, data) {
 			// イガイガ対策は丸キャップ(capsule SDF)で幾何的に解決済なので、bias は 0 でよい（正なら滑らか寄り・LODは弱まる）。
 			const LOD_BIAS = 0;
 			if (pxArea > 0) rank = Math.max(0, Math.min(63, Math.floor(1.5 * Math.log2(pxArea) + 61.524) - LOD_BIAS));
+			// 遠方の要（塗り扇の画面カリング）の向き：画面中心での東・北の向きを NDC で（画面 px→地表の 2×2 を逆に引く）。
+			// 地表（経度×cosφ, 緯度）＝J·画面px、J＝[[ax,bx],[ay,by]] → 東(1,0)＝(by,−ay)/det・北(0,1)＝(−bx,ax)/det。NDC は y 上向き
+			const det = ax * by - bx * ay;
+			if (Math.abs(det) > 0) {
+				const nd = (px, py) => { const x = px * 2 / s.width, y = -py * 2 / s.height, l = Math.hypot(x, y); return l > 0 ? [x / l, y / l] : null; };
+				const E = nd(by / det, -ay / det), N = nd(-bx / det, ax / det);
+				if (E && N) { drawData.farAxes = [E[0], E[1], N[0], N[1]]; drawData.farScale = [cl, 1]; }
+			}
 		}
 		drawData.lodRank = rank;
 	}

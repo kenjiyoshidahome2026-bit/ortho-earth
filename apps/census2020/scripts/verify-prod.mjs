@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-// census2020 本番組立の検定（SDK二重構成＝main.js冒頭の分岐）。deploy の必須ゲート。
-//   本番の census は /japan/lib/ のSDK（ortho-japan Worker が配る）を実行時に食う＝ここでは
-//   隣の apps/ortho-japan/dist/lib を /japan/lib/ にマウントした静的サーバで本番の形を再現する。
+// census2020 本番組立の検定（共有エンジン＝LAYERS.md 掟 3・2026-09-30）。deploy の必須ゲート。
+//   本番の census はエンジン（globe・i18n・core・geopbf）を /globe/engine/<版>/（ortho-globe Worker が配る）から読む＝ここでは
+//   build の頭で焼かれた apps/ortho-globe/dist/engine を /globe/engine/ にマウントした静的サーバで本番の形を再現する。
 // 検査項目：
-//   ①静的: 入口チャンクが lib のURLを import し、エンジンを再バンドルしていない
-//          （判定＝エンジン固有のUI文字列「互換描画(WebGL2)」が census 資産に**居ない**こと。
-//           minifyでも文字列リテラルは生き残る＝サイズ閾値より頑丈な指紋）
-//   ②実走: census ページが SDK 経由で起動（チップ点灯・canvas生成・censusパネル存在）
+//   ①静的: census の束がエンジンを**焼いていない**（指紋＝エンジン固有の UI 文字列「互換描画(WebGL2)」が居ない。
+//          minify でも文字列リテラルは生き残る＝サイズ閾値より頑丈な指紋）・/globe/engine/<今の版>/globe.js を指す・/japan/lib/ を指さない
+//   ②実走: census ページが共有エンジン経由で起動（エンジン入口→render worker→共有棚の取得＋404ゼロ＋起動後の例外ゼロ）
 import { spawn, execFileSync } from "node:child_process";
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -17,30 +16,33 @@ import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const JAPAN = path.resolve(APP, "../ortho-japan");
+const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（apps/ortho-globe/scripts/build-engine.mjs）
 const OUT = path.join(APP, "dist/site");
 const PORT = 5242, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".csv": "text/csv", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 
-console.log("… build（census＝エンジン同梱・A 裁定 2026-09-23）");
+console.log("… build（census＝共有エンジンを版つき URL で読む・2026-09-30）");
 execFileSync("npx", ["vite", "build", "--logLevel", "warn"], { cwd: APP, stdio: "inherit" });
+const VERSION = JSON.parse(readFileSync(path.join(ENGINE, "current.json"), "utf8")).version;
 
-// ① 入口＝エンジン同梱（指紋＝エンジン辞書のUI文字列が census の束の中に在る）・/japan/lib/ への参照が無い（旧・実行時 SDK の逆戻り検知）
+// ① 束＝エンジンを焼いていない（指紋が居ない）・今の版の入口を指す・/japan/lib/ への参照が無い（旧・実行時 SDK の逆戻り検知）
 const assetsDir = path.join(OUT, "japan/census2020/assets");
 const chunks = readdirSync(assetsDir).filter(f => f.endsWith(".js"));
-let engineIn = false;
+let pointsAtEngine = false;
 for (const f of chunks) {
 	const src = readFileSync(path.join(assetsDir, f), "utf8");
 	if (src.includes("/japan/lib/ortho-japan.js")) fail(`${f} が /japan/lib/ortho-japan.js を import している（実行時 SDK への逆戻り＝japan を出さないと動かない形）`);
-	if (src.includes("互換描画(WebGL2)")) engineIn = true;
+	if (src.includes("互換描画(WebGL2)")) fail(`${f} にエンジンが焼かれている（共有エンジンの外出しが効いていない）`);
+	if (src.includes(`/globe/engine/${VERSION}/globe.js`)) pointsAtEngine = true;
 }
-if (!engineIn) fail("どのチャンクにもエンジンが無い（同梱されていない）");
-console.log(`ok:entry（${chunks.length}チャンク・エンジン同梱・lib参照なし）`);
+if (!pointsAtEngine) fail(`どのチャンクも /globe/engine/${VERSION}/globe.js を指していない`);
+console.log(`ok:entry（${chunks.length}チャンク・エンジン非同梱・/globe/engine/${VERSION}/ を指す・lib参照なし）`);
 
-// ② 実走：census dist ＋ /japan/lib/（隣のdist/lib）＋ /japan/*（共有棚 public）を一つの静的サーバで
+// ② 実走：census dist ＋ /globe/engine/（ortho-globe の dist/engine）＋ /japan/*（共有棚 public）を一つの静的サーバで
 const read = promisify(readFile);
 const roots = p =>
-	p.startsWith("/japan/lib/") ? path.join(JAPAN, "dist/lib", p.slice("/japan/lib/".length))
+	p.startsWith("/globe/engine/") ? path.join(ENGINE, p.slice("/globe/engine/".length))
 	: p.startsWith("/japan/census2020") ? path.join(OUT, p.endsWith("/") ? p + "index.html" : p)
 	: path.join(JAPAN, "public", p.replace(/^\/japan\//, ""));   // plateau-sets.json 等＝本番はortho-japan Workerの棚
 const requests = [];   // 「ブラウザが実際に何を取りに来たか」の台帳＝実走判定の根拠
@@ -58,8 +60,8 @@ const server = createServer(async (req, res) => {
 
 // census 頁は headless+SwiftShader で main スレッドが飽和し、DOM 安定待ち（dump-dom虚時間/CDP evaluate）が
 // 成立しない（全国コロプレス視点＝ソフトウェアラスタ最重量級）。ここでの検定目的は
-// 「本番形（SDK外部参照）の配線が生きて起動プロセスが走る」こと＝**サーバ側の実観測**で判定する：
-//   ブラウザが実際に何を取りに来たか（lib入口→エンジン→worker→assetBase棚）＋404ゼロ。
+// 「本番形（共有エンジンの外部参照）の配線が生きて起動プロセスが走る」こと＝**サーバ側の実観測**で判定する：
+//   ブラウザが実際に何を取りに来たか（エンジン入口→worker→assetBase棚）＋404ゼロ。
 //   ネットワーク要求は main スレッドの混み具合と無関係に必ず観測できる＝ハングしない検定。
 // --remote-debugging-port=0＝「アクションフラグ無しのheadlessは即exit」を防ぐ生存錨（接続はしない・ポートも使わない）
 // ＋受動的なコンソール監視（2026-09-23）：起動プロセスが走っても、その後に「エンジン起動失敗」で死ぬ壊れ方を台帳は見抜けない
@@ -70,8 +72,9 @@ const chrome = spawn(CHROME, ["--headless=new", `--user-data-dir=/tmp/census-vpr
 	`http://localhost:${PORT}/japan/census2020/?gl2=1&verify=1`], { stdio: "ignore" });
 process.on("exit", () => { server.close(); chrome.kill(); });
 const need = [
-	["/japan/census2020/assets/index-", "census入口チャンク（エンジン同梱）"],
-	["/japan/census2020/assets/renderworker-", "render worker（同梱）"],
+	["/japan/census2020/assets/index-", "census入口チャンク"],
+	[`/globe/engine/${VERSION}/globe.js`, "共有エンジンの入口"],
+	[`/globe/engine/${VERSION}/assets/renderworker-`, "render worker（共有エンジン）"],
 	["/japan/airports.json", "assetBase（/japan/共有棚）"],   // 証拠＝起動時に必ず読む共有棚のファイル（旧 plateau-sets.json は 2026-09-22 から寄った時だけ読む）
 ];
 // 必須6点が台帳に揃うまで毎秒見る（上限90秒・揃ったら即終了）＝SwiftShaderの遅い起動にもハングにも強い
@@ -104,6 +107,6 @@ console.log(`  取得台帳 ${requests.length}件・${((Date.now() - t0) / 1000)
 if (missing.length) { console.error("  台帳全行:\n  " + requests.join("\n  ")); fail(`実走: ${missing.map(([f, l]) => `${l}（${f}…）`).join("・")}が取得されていない`); }
 const notFound = requests.filter(r => r.startsWith("404 "));
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
-console.log(`ok:boot（要求${requests.length}件＝SDK入口→エンジン→worker→共有棚の取得を実観測・404ゼロ）`);
+console.log(`ok:boot（要求${requests.length}件＝共有エンジン入口→worker→共有棚の取得を実観測・404ゼロ）`);
 console.log("✓ census2020 本番組立の検定PASS");
 process.exit(0);

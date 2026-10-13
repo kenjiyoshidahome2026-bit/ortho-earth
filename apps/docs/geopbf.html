@@ -120,8 +120,17 @@ A GeoPBF file consists of two parts: a <strong>Header Section</strong> and a <st
 	<tr><td>LENGTH</td><td>9</td><td class="dim">Packed Varint</td><td>Vertex counts for rings and multi-part geometries</td></tr>
 	<tr><td>COORDS</td><td>10</td><td class="dim">Packed SVarint</td><td>Delta-compressed coordinate stream X₀,Y₀,ΔX₁,ΔY₁,... (see below)</td></tr>
 	<tr><td>INDEX</td><td>12</td><td class="dim">Packed Varint</td><td>Indices into the global KEYS dictionary</td></tr>
-	<tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/JSON/BLOB/IMAGE</td></tr>
+	<tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/FUNC/JSON/BBOX/BLOB/IMAGE — one field per message, numbered by type</td></tr>
+	<tr><td>GARRAY</td><td>13</td><td class="dim">Message</td><td>GeometryCollection members as nested GEOMETRY messages</td></tr>
 </table>
+
+<p class="dim" style="font-size:0.85rem">
+Details a reader must know (all in the <a href="https://github.com/kenjiyoshidahome2026-bit/geopbf/blob/main/pbf%20spec.md">wire specification</a>):
+the delta chain restarts at (0,0) for every ring, polygon rings omit the closing vertex, a <code>Multi*</code> with
+one member is written as the singular type, <code>BUFS</code> entries are individually raw-DEFLATE compressed,
+<code>COLOR</code> is used only for the canonical <code>rgb()</code>/<code>rgba()</code> strings, and <code>DATE</code>
+has second precision.
+</p>
 
 <div class="callout callout-note">
 	<div class="callout-head">O(1) Header Updates</div>
@@ -226,6 +235,13 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS tracks &amp; waypoints</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Streaming-friendly binary</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">Topology-preserving I/O</td></tr>
+	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="good">✓</td><td class="dim">one feature per line (<code>.ndjson .geojsonl .geojsons .jsonl</code>)</td></tr>
+	<tr><td><strong>CZML</strong> (Cesium)</td><td class="good">✓</td><td class="good">✓</td><td class="dim">time-sampled positions kept as <code>time</code> arrays; the rest of the packet round-trips in a <code>czml</code> property</td></tr>
+	<tr><td><strong>GeoPackage</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">dependency-free SQLite reader, one layer (<code>{ layer }</code>); <code>geopbf/gpkg</code> also opens tile tables</td></tr>
+	<tr><td><strong>SpatiaLite</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim"><code>.sqlite .sqlite3 .spatialite .db</code>; same reader, SpatiaLite BLOB geometry</td></tr>
+	<tr><td><strong>File Geodatabase</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Esri <code>.gdb</code> folder zipped; detected by <code>*.gdbtable</code> inside the archive, <code>{ layer }</code> picks the table</td></tr>
+	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">lon/lat columns or a WKT column (<code>{ lon, lat, wkt, sheet, delimiter }</code>); export writes attributes + lon/lat or WKT</td></tr>
+	<tr><td><strong>DXF</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">AutoCAD DXF with <code>{ crs, unitScale, closedAsPolygon }</code>; JGD plane-rectangular zones via <code>geopbf/proj</code></td></tr>
 	<tr><td><strong>MOJ 登記所備付地図</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Japanese cadastral parcels; JGD2011 plane-rectangular (19 zones) → WGS84 on decode. Opt in with <code>{ format: "moj" }</code>, since the extension is also <code>.zip</code></td></tr>
 	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox covering column, spatially ordered rows. Dependency-free reader accepts geopandas / pyarrow / DuckDB output — §13</td></tr>
 	<tr><td><strong>PMTiles</strong> (MVT) <span class="dim">(v1.5)</span></td><td class="bad">—</td><td class="good">✓</td><td class="dim">Tiles are cut from Gint, so per-zoom simplification is a rank filter — §13. No inverse: tiles are simplified and quantized</td></tr>
@@ -235,9 +251,10 @@ Placing GeoPBF at the center enables any-to-any format conversion in a single st
 </div>
 
 <p>
-The first eight rows go through the auto-detecting entry point <code>geopbf(input)</code>. GeoParquet and
-PMTiles are large enough to be worth loading on demand, so they live behind their own subpath exports
-(<code>geopbf/geoparquet</code>, <code>geopbf/pmtiles</code>) and are covered in §13. Rasters travel a
+Every row with a ✓ under <em>Read</em> goes through the auto-detecting entry point <code>geopbf(input)</code>
+(GeoParquet included; the dependency-free reader lives in <code>geopbf/geoparquet</code>). PMTiles writing is
+large enough to be worth loading on demand, so it lives behind its own subpath export
+(<code>geopbf/pmtiles</code>) and is covered in §13. Rasters travel a
 separate path again: <code>geopbf/cog</code> reads Cloud Optimized GeoTIFF by HTTP Range without converting
 it at all (§12). Everything here also has a CLI equivalent — <code>npx geopbf enc / dec / pmtiles / parquet /
 parquet2pbf</code> — running on plain Node with no GDAL.
@@ -249,10 +266,12 @@ parquet2pbf</code> — running on plain Node with no GDAL.
 		Whatever you pass to <code>geopbf(input)</code> — a <code>File</code>, <code>Blob</code>,
 		<code>ArrayBuffer</code>, or plain <code>Object</code> — the library auto-detects the format
 		from the file extension, MIME type, or magic bytes and routes to the correct decoder. Accepted:
-		<code>.geopbf .pbf .geojson .json .topojson .fgb .zip .kml .kmz .gpx .gml .xml</code>, each
+		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .jsonl .fgb .gpkg .sqlite .db .parquet
+		.csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>, each
 		optionally <code>.gz</code> (gzip is recognised by signature, not extension). The caller never has
-		to think about format. The one exception is the MOJ cadastral archive, whose <code>.zip</code>
-		extension collides with Shapefile and so is selected with <code>{ format: "moj" }</code>. A <code>File</code>
+		to think about format. A <code>.zip</code> is looked into: <code>*.gdbtable</code> means File Geodatabase,
+		otherwise Shapefile; the one exception is the MOJ cadastral archive, whose <code>.zip</code>
+		extension collides with both and so is selected with <code>{ format: "moj" }</code>. A <code>File</code>
 		that cannot be decoded raises an explicit error rather than silently yielding an empty
 		FeatureCollection.
 	</p>
@@ -264,13 +283,13 @@ parquet2pbf</code> — running on plain Node with no GDAL.
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(geojsonObject);  <span class="cm">// GeoJSON object directly</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(zip, { format: <span class="st">"moj"</span> });   <span class="cm">// cadastral .zip — plane-rectangular → WGS84</span>
 
-<span class="cm">// Export to any format</span>
-<span class="kw">const</span> geojson  = pbf.geojson;    <span class="cm">// → GeoJSON object</span>
-<span class="kw">const</span> topojson = pbf.topojson;   <span class="cm">// → TopoJSON (topology-preserving)</span>
-<span class="kw">const</span> shp      = pbf.<span class="fn">shape</span>();    <span class="cm">// → Shapefile (.zip Blob)</span>
-<span class="kw">const</span> kmz      = pbf.<span class="fn">kmz</span>();      <span class="cm">// → KMZ Blob</span>
-<span class="kw">const</span> gml      = pbf.<span class="fn">gml</span>();      <span class="cm">// → GML string</span>
-<span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgb</span>(); <span class="cm">// → FlatGeoBuf ArrayBuffer</span>
+<span class="cm">// Export to any format (each *File() encodes in a worker and resolves to a File)</span>
+<span class="kw">const</span> geojson  = pbf.geojson;                 <span class="cm">// → GeoJSON object (synchronous)</span>
+<span class="kw">const</span> topojson = pbf.<span class="fn">topojson</span>();              <span class="cm">// → TopoJSON (topology-preserving, needs { gint: true })</span>
+<span class="kw">const</span> shp      = <span class="kw">await</span> pbf.<span class="fn">shapeFile</span>();   <span class="cm">// → Shapefile (.zip)</span>
+<span class="kw">const</span> kmz      = <span class="kw">await</span> pbf.<span class="fn">kmzFile</span>();     <span class="cm">// → KMZ</span>
+<span class="kw">const</span> gml      = <span class="kw">await</span> pbf.<span class="fn">gmlFile</span>();     <span class="cm">// → GML   (also gpxFile, czmlFile, geojsonFile, topojsonFile)</span>
+<span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgbFile</span>();     <span class="cm">// → FlatGeobuf</span>
 
 <span class="cm">// v1.5 — the two large formats, behind their own subpath exports (§13)</span>
 <span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
@@ -626,27 +645,36 @@ directly comparable. The shapefiles hold the original full-precision doubles, bu
 <span class="cm">//   nocache: true  → bypass IndexedDB cache and re-fetch</span>
 <span class="cm">//   clean:   true  → run topology integrity clean pass</span>
 
+<span class="cm">//   noeval:  false → revive FUNC-typed values with new Function (default true since 1.19: source strings)</span>
+<span class="cm">//   worker:  false → decode on the calling thread (automatic in Node, where there is no Worker)</span>
+
 <span class="cm">// ── Data access ────────────────────────────────────────</span>
 pbf.length          <span class="cm">// feature count</span>
 pbf.keys            <span class="cm">// attribute name array ['name', 'rank', ...]</span>
-pbf.arrayBuffer     <span class="cm">// raw ArrayBuffer (for Worker transfer)</span>
+pbf.arrayBuffer     <span class="cm">// raw ArrayBuffer (for Worker transfer; set(ArrayBuffer) transfers it to the decoder worker)</span>
 pbf.geojson         <span class="cm">// convert to GeoJSON FeatureCollection</span>
-pbf.topojson        <span class="cm">// convert to TopoJSON (topology-preserving)</span>
-pbf.<span class="fn">getFeature</span>(i)   <span class="cm">// decode only the i-th feature</span>
+pbf.<span class="fn">topojson</span>()      <span class="cm">// convert to TopoJSON (topology-preserving; needs Gint)</span>
+pbf.<span class="fn">getFeature</span>(i)   <span class="cm">// decode only the i-th feature (getGeometry / getProperties / propsRow likewise)</span>
+pbf.<span class="fn">contain</span>([lng, lat])          <span class="cm">// smallest polygon containing the point (fid or null)</span>
+pbf.<span class="fn">identifyAt</span>(lng, lat, opts)   <span class="cm">// point / line / polygon hit test, radii in metres</span>
 
 <span class="cm">// ── Export ─────────────────────────────────────────────</span>
-<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'name'</span>)      <span class="cm">// download as .geopbf (gzip)</span>
-pbf.<span class="fn">shape</span>()               <span class="cm">// Shapefile .zip</span>
-pbf.<span class="fn">kmz</span>()                 <span class="cm">// KMZ</span>
-pbf.<span class="fn">gml</span>()                 <span class="cm">// GML string</span>
-pbf.<span class="fn">gpx</span>()                 <span class="cm">// GPX string</span>
-<span class="kw">await</span> pbf.<span class="fn">fgb</span>()           <span class="cm">// FlatGeoBuf ArrayBuffer</span>
+<span class="kw">await</span> pbf.<span class="fn">save</span>()             <span class="cm">// store to the configured bucket (createGeopbf(apiBase, { bucket }))</span>
+<span class="kw">await</span> pbf.<span class="fn">geopbfFile</span>()       <span class="cm">// .geopbf File  (geojsonFile / topojsonFile / shapeFile / kmzFile / gpxFile / czmlFile / gmlFile / fgbFile)</span>
+<span class="kw">await</span> pbf.<span class="fn">preview</span>(canvas)    <span class="cm">// thumbnail drawn in a worker (OffscreenCanvas / ImageBitmap)</span>
 
 <span class="cm">// ── O(1) metadata update ───────────────────────────────</span>
-pbf.<span class="fn">header</span>({ name: <span class="st">'New Name'</span>, description: <span class="st">'...'</span>, license: <span class="st">'MIT'</span> });
+pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span class="fn">description</span>(<span class="st">'...'</span>); pbf.<span class="fn">license</span>(<span class="st">'MIT'</span>);   <span class="cm">// or pbf.updateHeader({ … })</span>
 
-<span class="cm">// ── Render ─────────────────────────────────────────────</span>
-pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</span>, stroke: <span class="st">'#a8d47e'</span> });</code></pre>
+<span class="cm">// ── Lower-level entry points (package subpaths) ────────</span>
+<span class="cm">// geopbf/pbf        GeoPBF class (new GeoPBF(opts).set(…))      geopbf/gint · /topology · /identify   Gint baking, GintBUF, hit tests</span>
+<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       writers and readers (§13)</span>
+<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   format readers, usable without the auto-detecting entry</span>
+<span class="cm">// geopbf/proj · /datum       EPSG projections, TKY2JGD / PatchJGD datum shifts        geopbf/convert/node-gint   Gint from Node</span>
+<span class="cm">// geopbf/cog · /cog/core · /cog/source · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF (§12)</span>
+<span class="cm">// geopbf/featureservice      ArcGIS FeatureServer / OGC API – Features as a source   geopbf/georef   IIIF Georeference Annotation</span>
+<span class="cm">// geopbf/edit · /edit/*      the editing model (DOM-free)         geopbf/worker · /no-builtin-workers   the worker entry and its opt-out</span>
+<span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   utilities</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="integrations">10. Map Library Integrations (v1.1)</h2>
@@ -668,7 +696,7 @@ survive each library's worker handoff.
 	</tr>
 	<tr>
 		<td><code>geopbf/maplibre</code></td>
-		<td class="dim">addProtocol handler</td>
+		<td class="dim">addProtocol handler (GeoJSON source, or vector tiles with <code>/{z}/{x}/{y}</code>)</td>
 		<td>MapLibre GL JS (v4+)</td>
 	</tr>
 	<tr>
@@ -697,6 +725,7 @@ survive each library's worker handoff.
 <span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
 maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
 map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+map.<span class="fn">addSource</span>(<span class="st">"rail-tiles"</span>, { type: <span class="st">"vector"</span>, tiles: [<span class="st">"geopbf://https://…/N02-25_RailroadSection/{z}/{x}/{y}"</span>] });   <span class="cm">// same URL + /{z}/{x}/{y} = on-demand MVT from the Gint (seamless shared borders, feature.id = fid)</span>
 
 <span class="cm">// ── Leaflet — layer plugin ─────────────────────────────</span>
 <span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;
@@ -856,7 +885,7 @@ pretend otherwise.
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.5.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.19.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

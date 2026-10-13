@@ -1,7 +1,7 @@
 // 地震観測施設レイヤー（静的GeoPBF配信・独立モジュール）
 // 出所は地震調査研究推進本部（地震本部）。11 観測網（地震計・GNSS・重力・電磁気・海底・歪・検潮・地下水）を統合し、
 // 2013〜2026 年版を重ね合わせて「掲載初年／最終年」を持たせてある（最終年が最新でない点＝その後の版から消えた観測点）。
-// public/jishin/seismic.geopbf を自前fetch → geopbf(buffer) デコード → execGlobeView 描画。
+// ortho-data/japan/jishin/seismic.geopbf（本番＝GitHub Pages・dev＝手元の正本＝vite.config の __DATA_JAPAN__）を自前fetch → geopbf(buffer) デコード → execGlobeView 描画。
 // 生成は jishin/seismic-to-geopbf.mjs。突合の正本は jishin/seismic.geojson（uid を持つ）。
 import { geopbf } from '../ui/gpbf.js';
 import { execGlobeView } from '../ui/globe.js';
@@ -46,7 +46,7 @@ const SEISMIC_LEGEND =
 let _pbf = null;
 export async function showSeismic() {
     if (!_pbf) {
-        const res = await fetch(`${import.meta.env.BASE_URL}jishin/seismic.geopbf`);
+        const res = await fetch(`${__DATA_JAPAN__}jishin/seismic.geopbf`);
         if (!res.ok) throw new Error(`seismic.geopbf HTTP ${res.status}`);
         _pbf = await geopbf(await res.arrayBuffer(), { name: 'seismic' });
     }
@@ -138,7 +138,7 @@ function popHtml(rows, lon, lat, shown, grabbed = null) {
 
 export async function showFault() {
     if (!_fault) {
-        const res = await fetch(`${import.meta.env.BASE_URL}jishin/fault.geopbf`);
+        const res = await fetch(`${__DATA_JAPAN__}jishin/fault.geopbf`);
         if (!res.ok) throw new Error(`fault.geopbf HTTP ${res.status}`);
         _fault = await geopbf(await res.arrayBuffer(), { name: 'fault' });
     }

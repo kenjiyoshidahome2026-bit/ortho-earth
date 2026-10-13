@@ -1,0 +1,24 @@
+{
+	"name": "world-quiz",
+	"version": "0.1.0",
+	"license": "GPL-3.0-or-later",
+	"private": true,
+	"type": "module",
+	"description": "世界クイズ＝World の国名・国旗・首都・位置で遊ぶ教育用クイズ（www.ortho-earth.com/quiz/）。難易度 3 段・世界／地域・3 モード・間隔反復・星とバッジ",
+	"scripts": {
+		"dev": "vite",
+		"build": "node scripts/verify-i18n.mjs && vite build",
+		"preview": "vite preview",
+		"i18n:build": "node scripts/i18n-build.mjs",
+		"verify:i18n": "node scripts/verify-i18n.mjs",
+		"test": "node tests/t-quiz.mjs && node tests/t-progress.mjs && node scripts/verify-i18n.mjs",
+		"deploy": "npm run build && wrangler deploy"
+	},
+	"devDependencies": {
+		"@ortho-earth/core": "*",
+		"@ortho-earth/globe": "*",
+		"common": "*",
+		"native-bucket": "*",
+		"vite": "^8.3.1"
+	}
+}

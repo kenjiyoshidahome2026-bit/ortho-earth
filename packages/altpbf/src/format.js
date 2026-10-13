@@ -29,11 +29,11 @@ export async function encode(obj) {
 	pbf.writeSVarintField(TAGS.RANGE, range);
 	pbf.writeVarintField(TAGS.WIDTH, width);
 	pbf.writeVarintField(TAGS.HEIGHT, height);
-	let sum = 0;
-	const deltas = data.map(t => { const v = t - sum; sum = t; return v; });
+	// 差分は型付き配列へループで（旧 data.map＝JS の中間配列・Int16Array なら差分が折り返す＝decode も Int16 で折り返すので値は戻るが、varint の長さが入力の型次第だった）
+	const deltas = new Int32Array(data.length);
+	for (let i = 0, sum = 0; i < data.length; i++) { const t = data[i]; deltas[i] = t - sum; sum = t; }
 	pbf.writePackedSVarint(TAGS.DATA, deltas);
-	pbf.finish();
-	return deflateRaw(pbf.buf);
+	return deflateRaw(pbf.finish());   // 書いた分だけ（旧＝pbf.buf＝確保容量ぶんの末尾のゼロまで圧縮していた＝読めるが余計な 0 フィールドを読む）
 }
 
 // 標高本体は「varint を読みながら Int16Array へ直書き」＝中間の JS 配列を作らない。

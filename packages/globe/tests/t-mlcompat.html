@@ -7,6 +7,11 @@
      ?g=relief＝標高の段彩（color-relief・#114）＝style で起動・試料 fixtures/dem の円錐に段の色・step は透明・不透明度・外す・addLayer。実時間。
      ?g=before＝基図の層の間への差し込み（#123）＝beforeId／moveLayer が基図の層を指す時の描く順（vector の描く層・2D と 3D）・style の 2 本目の source の層は style の順。実時間。
      ?g=extrude＝geojson の押し出し（fill-extrusion）の問い合わせは立体（屋根と壁・近い順）・["zoom"] の式の描き直しは曲線の鍵（台帳 R22/R23）。海の上・傾けた視点。
+     ?g=sky＝style の sky（B4・setSky/getSky）＝海の上を 80° 傾けて見上げ、画面の上（球に当たらない視線）が sky-color・地平線の際が fog-color・外すと元の絵。GL2 の簡易の空。
+     ?g=bg＝background 層（B5）＝MapLibre の目盛りの地図で background の無い style は床も宇宙も透明（α 0）・addLayer({type:"background"}) で床が塗られ background-opacity と visibility が効く・removeLayer で透明に戻る・setClearColor。
+     ?g=small＝shim の小口の束（B6）＝sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces・coveringTiles・setCameraUpdate・minPitch・pixelRatio・repaint・debug の表示・refreshTiles。
+     ?g=canvas＝canvas source（C3）＝四隅の覆い（videoquad）に毎フレーム写す・pause/play・id の文字列・animate:false・setCoordinates・raster-opacity。
+     ?g=raster＝raster-resampling／resampling・raster-fade-duration（C4）＝2×2 市松のタイル＝nearest は赤/青だけ・linear は混ざる・別名 resampling・既定 300ms・長いフェードを idle が待つ・hillshade の resampling。
      ?g=cover＝タイルの z（core mlcover.js）＝zoomScale "mercator" の地図は MapLibre の coveringTiles と同じ z（floor）・整数の z を換算の誤差で落とさない。実時間。 -->
 <html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-mlcompat</title></head>
 <body><div id="map"></div>
@@ -36,6 +41,11 @@ const px = (img, x, y) => {
 	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
 	return [img.data[i], img.data[i + 1], img.data[i + 2]];
 };
+const pxa = (img, x, y) => {   // α も（B5＝透明の床）
+	const bx = Math.min(img.w - 1, Math.max(0, Math.round(x * img.w / img.W))), by0 = Math.min(img.h - 1, Math.max(0, Math.round(y * img.h / img.H)));
+	const i = ((img.flip ? img.h - 1 - by0 : by0) * img.w + bx) * 4;
+	return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]];
+};
 const diff = (a, b) => Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]));
 const near = (a, c, tol = 70) => diff(a, c) <= tol;
 const around = (x, y, r = 1) => { const o = []; for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) o.push([x + dx, y + dy]); return o; };
@@ -50,7 +60,25 @@ const explained = (p, b, m, tol = 45) => {
 try {
 	if (G === "layers") {
 		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false, debugGlobals: true });   // debugGlobals＝__placed（global-state-filter の記号の数え方）
-		await sleep(7000);
+		// 写しは基図が落ち着いてから＝①世界の層（admin0 の海岸線・国境＝cover の陸マスクにもなる・世界の線）が載る ②idle（見えている基図のタイルが全部載った）
+		// ③2 枚の写しが同じ（まだ流れ込んでいない）。旧＝固定の sleep(7000)／sleep(3000) は japan の deploy で editor‖globe‖prod を並行に回すと早すぎ、
+		// before と after の間に admin0 や基図のタイルが届いて「層を足していない所」の色が変わり fill-no-outline・circle-opacity が落ちた
+		// （2026-10-11・単独は毎回 PASS・relief の群と同じ轍）。器（網の閉じた SwiftShader）でも admin0 が 8 秒前後に届いて陸の色が変わる＝同じ落ち方を再現。
+		const worldReady = () => (window.__a0?.().layer ?? true) && ((window.__worldLines?.() ?? 2) >= 2);   // debugGlobals の窓（無ければ待たない）
+		const stillSnap = async (idleMs, tag) => {
+			for (const t0 = performance.now(); !worldReady() && performance.now() - t0 < 20000;) await sleep(250);
+			if (!worldReady()) console.log(`[t-mlcompat] ${tag}：世界の層が 20 秒で載らない（a0=${JSON.stringify(window.__a0?.())} lines=${window.__worldLines?.()}）＝待たずに撮る`);
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(idleMs)]); await sleep(300);
+			let a = await snap(map);
+			for (let k = 0; k < 8; k++) {   // 2 枚が一致するまで（並行負荷で idle の後にもタイルや焼きが届くことがある）・最長 ≈ 8×2 秒
+				await sleep(2000); const b = await snap(map);
+				let same = true; for (let i = 0; i < a.data.length && same; i += 4) if (Math.abs(a.data[i] - b.data[i]) > 8 || Math.abs(a.data[i + 1] - b.data[i + 1]) > 8 || Math.abs(a.data[i + 2] - b.data[i + 2]) > 8) same = false;
+				if (same) return b;
+				console.log(`[t-mlcompat] ${tag} の写しがまだ動いている（${k + 1} 回目）＝待って撮り直す`); a = b;
+			}
+			return a;
+		};
+		await sleep(2000);
 		const P = (lon, lat) => { const [x, y] = map.projectLL(lon, lat); return [x, y]; };
 		const at = async (lon, lat, layers) => { const [x, y] = P(lon, lat); return (await map.queryRenderedFeatures([x, y], layers ? { layers } : {})).map(f => f.layer.id); };
 
@@ -66,7 +94,7 @@ try {
 			put("zoomscale-runtime-keys", unc.length === 0, unc.join(","));
 		}
 
-		const before = await snap(map);
+		const before = await stillSnap(15000, "before");
 		// ── 層を並べる（1 枚の絵で判定）──
 		// S1 ハイライト層＝同じ source に filter つきの層を重ねる（MapLibre の定番）
 		map.addSource("hl", { type: "geojson", data: fc([sq(133.8, 37.2, 0.3, { name: "A" }), sq(134.8, 37.2, 0.3, { name: "B" })]) });
@@ -104,8 +132,8 @@ try {
 		await map.addLayer({ id: "cs2-c", type: "circle", source: "cs2", paint: { "circle-color": "#ffff00", "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
 		map.addSource("ch", { type: "geojson", data: fc([pt(141.8, 35.3, {})]) });   // 中空の円（塗り無し・縁だけ＝MapLibre の定番）
 		await map.addLayer({ id: "ch-c", type: "circle", source: "ch", paint: { "circle-opacity": 0, "circle-radius": 6, "circle-stroke-color": "#ff0000", "circle-stroke-width": 4 } });
-		await sleep(3000);
-		const after = await snap(map);
+		await sleep(1000);
+		const after = await stillSnap(10000, "after");
 
 		await scene("highlight-same-source", () => {
 			const a = px(after, ...P(133.8, 37.2)), b = px(after, ...P(134.8, 37.2));
@@ -365,7 +393,7 @@ try {
 				// zoom を持つ基図の層＝往復のずれが見える。filter＝MapLibre では欠損の get は null＝真（ネイティブの意味なら undefined≠null＝偽＝水が消える）＝基図の worker と問い合わせに ML の意味が届くか（段 3）
 				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", minzoom: 5, filter: ["==", ["get", "no_such_attr"], null], paint: { "fill-color": "#9ec3e6", "fill-opacity": ["interpolate", ["linear"], ["zoom"], 5, 0.6, 14, 1] } },
 				{ id: "rd-lbl", type: "symbol", source: "gsi", "source-layer": "RdCL", layout: { "symbol-placement": "line", "text-field": "{name}" } },   // 線に沿う注記＝段 4 から描く層
-				{ id: "hm", type: "heatmap", source: "gsi", "source-layer": "WA" },   // 描かない層（§8 A＝基図では描けない型）
+				{ id: "hm", type: "heatmap", source: "gsi", "source-layer": "WA", layout: { visibility: "none" } },   // 基図の source の heatmap＝C1 から vtdraw（点集め）＋heatmap-gl が描く層＝隠して置く（下の get/set の的）
 				{ id: "g", type: "circle", source: "pts", minzoom: 11, paint: { "circle-radius": 8, "circle-color": "#ff00ff" } },
 				{ id: "ic-s", type: "symbol", source: "ic", layout: { "icon-image": "alt:sq" } },
 			],
@@ -378,9 +406,9 @@ try {
 		// ── getStyle は style の全ての層を元の順で（描かない層も・§8 A）＝MapLibre の getStyle と同じ答え ──
 		await scene("getstyle-all-layers-in-order", () => {
 			const ls = map.getStyle().layers, ids = ls.map(L => L.id).join(","), und = ls.filter(L => L.metadata?.["ortho:drawn"] === false).map(L => L.id).join(",");
-			return [ids === "bg,hs,water,rd-lbl,hm,g,ic-s" && und === "hm", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から・rd-lbl（線に沿う注記）は段 4 から描く層
+			return [ids === "bg,hs,water,rd-lbl,hm,g,ic-s" && und === "", `ids=${ids} undrawn=${und}`];   // hs（hillshade）は 3 巡目から・rd-lbl（線に沿う注記）は段 4 から・hm（heatmap）は C1 から描く層＝描かない層は無くなった
 		});
-		await scene("undrawn-layer-get-set", () => {
+		await scene("drawn-layer-get-set", () => {   // 旧 undrawn-layer-get-set＝hm が描く層になっても get/set の往復は同じ
 			const r = [];
 			r.push(map.getLayer("hm")?.type === "heatmap");
 			try { map.setLayoutProperty("hm", "visibility", "none"); map.setPaintProperty("hs", "hillshade-exaggeration", 0.3); map.setFilter("hm", ["==", ["get", "k"], 1]); map.setLayerZoomRange("hm", 5, 12); r.push(true); } catch (e) { r.push(String(e.message)); }
@@ -588,6 +616,18 @@ try {
 			map.removeLayer("b3d-base"); await sleep(500);
 			return [a.some(f => f.properties?.name === "L"), names(a)];
 		});
+		// ── 角の丸め（C6・2026-10-12）＝layout の fill-extrusion-rounded-corner-distance（m）。court（80m 角）を 40m で丸める＝真上から屋根の角（辺から 6m 内）の画素が背景に・辺の中ほどは赤のまま・0 に戻すと角も赤に ──
+		await vscene("rounded-corner-vector", async () => {
+			const cb = bOf("court"), kx = 1 / (111320 * Math.cos(C[1] * Math.PI / 180)), corner = { center: [cb.center[0] + 34 * kx, cb.center[1] + 34 / 110574] }, edge = { center: [cb.center[0] + 34 * kx, cb.center[1]] };
+			map.jumpTo({ center: cb.center, zoom: 18, pitch: 0 }); await loaded("omt");
+			const sq = await pixelUntil(corner, 50, isRed);
+			map.setLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance", 40); await loaded("omt");
+			const rd = await pixelUntil(corner, 50, p => !isRed(p)), mid = await pixelUntil(edge, 50, isRed), got = map.getLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance");
+			map.setLayoutProperty("b3d", "fill-extrusion-rounded-corner-distance", 0); await loaded("omt");
+			const back = await pixelUntil(corner, 50, isRed);
+			map.jumpTo({ center: C, zoom: 16.5, pitch: 50 }); await loaded("omt");
+			return [isRed(sq) && !isRed(rd) && isRed(mid) && isRed(back) && got === 40, `square=${sq} rounded=${rd} edgeMid=${mid} back=${back} get=${got}`];
+		});
 		// ── vector source の描く層（fill／line／circle／symbol・段 8⑤）＝基図の塗りと線の上・注記は基図と同じ衝突。真上から＝地面の画素で判定 ──
 		const D = VB.draw;
 		const atG = ll => { const d = map.cam.dpr || 1, st = cameraState(map.cam, cv.clientWidth * d, cv.clientHeight * d); const [x, y] = project(st, ll[0], ll[1], 1); return [x / d, y / d]; };
@@ -605,18 +645,55 @@ try {
 			return n;
 		};
 		map.jumpTo({ pitch: 0 }); await loaded("omt");
-		await vscene("vector-heatmap-throws-names-source", async () => { try { await map.addLayer({ id: "vh", type: "heatmap", source: "omt", "source-layer": "poi" }); map.removeLayer("vh"); return [false, "did not throw"]; } catch (e) { return [/vector source "omt"/.test(e.message), e.message]; } });
+		// ── heatmap を vector source に（C1・2026-10-12）＝vtdraw-worker が poi の点と heatmap-weight を集め、heatmap-gl（層 id の枠のオーバーレイ）が画面単位の密度で描く。問い合わせには出ない（MapLibre と同じ）──
+		await vscene("vector-heatmap-draws", async () => {
+			await map.addLayer({ id: "vh", type: "heatmap", source: "omt", "source-layer": "poi", paint: { "heatmap-radius": 40, "heatmap-intensity": 3, "heatmap-weight": ["case", ["==", ["get", "class"], "cafe"], 1, 0.5],
+				"heatmap-color": ["interpolate", ["linear"], ["heatmap-density"], 0, "rgba(255,0,0,0)", 0.05, "rgba(255,0,0,1)", 1, "rgba(255,0,0,1)"] } });
+			await loaded("omt");
+			for (let k = 0; k < 40 && window.__overlay?.["heatmap:vh"]?.stage !== "ready"; k++) await sleep(250);
+			const ovAt = (img, [x, y]) => { if (!img?.data) return null; const kx = img.w / cv.clientWidth, ky = img.h / cv.clientHeight, bx = Math.min(img.w - 1, Math.round(x * kx)), by = Math.min(img.h - 1, Math.round(y * ky)), i = ((img.flipY ? img.h - 1 - by : by) * img.w + bx) * 4; return [img.data[i], img.data[i + 1], img.data[i + 2], img.data[i + 3]]; };
+			let cafe = null, out = null;
+			for (let k = 0; k < 8; k++) { await sleep(800); const img = await window.__ovPixels?.("heatmap:vh"); cafe = ovAt(img, at({ center: D.cafe }, 0)); out = ovAt(img, at({ center: D.outside }, 0)); if (cafe && cafe[3] > 100) break; }
+			const q = (await map.queryRenderedFeatures(at({ center: D.cafe }, 0), { layers: ["vh"] })).length;
+			map.setLayoutProperty("vh", "visibility", "none"); await sleep(600); const hidden = await window.__ovPixels?.("heatmap:vh");
+			map.removeLayer("vh"); await sleep(500); const gone = (await window.__ovPixels?.("heatmap:vh")) == null;
+			return [!!cafe && cafe[3] > 100 && cafe[0] > 150 && cafe[1] < 60 && !!out && out[3] < 20 && q === 0 && hidden == null && gone, `cafe=${cafe} outside=${out} q=${q} hidden=${hidden == null} gone=${gone}`];
+		});
 		await vscene("vector-fill-draws", async () => {
 			await map.addLayer({ id: "vf", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } });
 			await loaded("omt");
 			const a = await gUntil(D.park, isBlue, 0, -3), b = await gUntil(D.park, isBlue, 0, 3), out = await gUntil(D.outside, p => !isBlue(p));   // 横の継ぎ目の上と下（2 枚のタイル）
 			return [isBlue(a) && isBlue(b) && !isBlue(out), `above=${a} below=${b} outside=${out}`];
 		});
+		await vscene("fill-layer-opacity", async () => {   // 層単位の α（C6）＝公園の青い塗りの上に半分の赤＝紫がかる・外すと青に戻る（line-layer-opacity も同じ畳み）
+			await map.addLayer({ id: "vlo", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#ff0000", "fill-layer-opacity": 0.5 } });
+			await loaded("omt");
+			const mix = await gUntil(D.park, p => p[0] > 90 && p[2] > 90 && p[1] < 90, 0, -3);
+			map.removeLayer("vlo"); await loaded("omt");
+			const back = await gUntil(D.park, isBlue, 0, -3);
+			return [mix[0] > 90 && mix[0] < 200 && mix[2] > 90 && mix[2] < 200 && isBlue(back), `mix=${mix} back=${back}`];
+		});
+		await vscene("query-source-features-vector", async () => {   // querySourceFeatures（C7）＝出しているタイルの写し（main）を同期で解く。sourceLayer 必須・filter は ML の式・id は MVT の id（promoteId なし）・タイルをまたぐ地物は枚数ぶん
+			const parks = map.querySourceFeatures("omt", { sourceLayer: "landuse", filter: ["==", ["get", "class"], "park"] }), blds = map.querySourceFeatures("omt", { sourceLayer: "building" }), none = map.querySourceFeatures("omt", {});
+			const p = parks.find(f => f.properties?.name === "Park"), t = blds.find(f => f.properties?.name === "tall");
+			return [!!p && p.geometry?.type === "Polygon" && p.source === "omt" && p.sourceLayer === "landuse" && parks.every(f => f.properties?.class === "park") && t?.id === 1 && blds.length >= 6 && none.length === 0, `parks=${parks.length} blds=${blds.length} tall=${t?.id} noSourceLayer=${none.length}`];
+		});
 		await vscene("vector-line-draws", async () => {
 			await map.addLayer({ id: "vl", type: "line", source: "omt", "source-layer": "road", filter: ["==", ["get", "class"], "primary"], paint: { "line-color": "#ff00ff", "line-width": 6 } });
 			await loaded("omt");
 			const on = await gUntil(D.main, isMag), off = await gUntil(D.mainOff, p => !isMag(p));
 			return [isMag(on) && !isMag(off), `on=${on} off=${off}`];
+		});
+		// ── 式の残り（C2・2026-10-12）＝within（GeoJSON の中の点）と distance（m）を vector の層の filter に＝worker（組み立て）と問い合わせ（queryTiles）の両方が地物の形を経緯度へ ──
+		await vscene("vector-filter-within-distance", async () => {
+			const box = { type: "Polygon", coordinates: [[[139.990, 30.0110], [139.993, 30.0110], [139.993, 30.0125], [139.990, 30.0125], [139.990, 30.0110]]] };   // cafe を含み shop を含まない
+			await map.addLayer({ id: "vw", type: "circle", source: "omt", "source-layer": "poi", filter: ["all", ["within", box], ["<", ["distance", { type: "Point", coordinates: D.cafe }], 200]], paint: { "circle-color": "#ff00ff", "circle-radius": 8 } });
+			await loaded("omt");
+			const isMag = p => p[0] > 150 && p[1] < 90 && p[2] > 150;
+			const c = await gUntil(D.cafe, isMag), sh = await gUntil(D.shop, p => !isMag(p));
+			const q = (await map.queryRenderedFeatures(atG(D.cafe), { layers: ["vw"] })).map(f => f.properties?.name).join(), qs = (await map.queryRenderedFeatures(atG(D.shop), { layers: ["vw"] })).length;
+			map.removeLayer("vw"); await sleep(300);
+			return [isMag(c) && !isMag(sh) && q === "Cafe" && qs === 0, `cafe=${c} shop=${sh} q=${q} qShop=${qs}`];
 		});
 		await vscene("vector-circle-draws", async () => {
 			await map.addLayer({ id: "vc", type: "circle", source: "omt", "source-layer": "poi", paint: { "circle-color": "#00ff00", "circle-radius": 8, "circle-stroke-color": "#000000", "circle-stroke-width": 4 } });
@@ -825,6 +902,17 @@ try {
 				const c = await one("wr0", { "text-field": "a rather long label that wraps", "text-max-width": 0 });
 				return [!!a && Math.abs(a.h - 3 * 1.2 * 16) < 1 && !!b && b.h >= 2 * 1.2 * 16 - 1 && b.w <= 10 * 16 + 1 && !!c && Math.abs(c.h - 1.2 * 16) < 1 && c.w > b.w, `newline=${a ? `${a.w.toFixed(0)}x${a.h.toFixed(1)}` : "none"} wrap=${b ? `${b.w.toFixed(0)}x${b.h.toFixed(1)}` : "none"} nowrap=${c ? `${c.w.toFixed(0)}x${c.h.toFixed(1)}` : "none"}`];
 			});
+			await vscene("symbol-geojson-line-placement", async () => {   // geojson の symbol の線沿い（C9）＝symbol-placement line は線の上に（y≒線の y・line:true）・点の地物は置かない・line-center は 1 つ（中心）
+				const [lx, ly] = map.projectLL(D.cafe[0], D.cafe[1]);
+				map.addSource("gln", { type: "geojson", data: fc([F({ type: "LineString", coordinates: [[D.cafe[0] - 0.004, D.cafe[1]], [D.cafe[0] + 0.004, D.cafe[1]]] }, { name: "Geo Rd" }), pt(D.cafe[0], D.cafe[1] + 0.001, { name: "Geo Rd" })]) });
+				await map.addLayer({ id: "gl1", type: "symbol", source: "gln", layout: { "symbol-placement": "line", "text-field": ["get", "name"], "text-size": 14 }, paint: { "text-color": "#000" } });
+				const a = await untilN("gl1", n => n > 0); await drop("gl1");
+				await map.addLayer({ id: "gl2", type: "symbol", source: "gln", layout: { "symbol-placement": "line-center", "text-field": ["get", "name"], "text-size": 14 }, paint: { "text-color": "#000" } });
+				const b = await untilN("gl2", n => n > 0); await drop("gl2"); map.removeSource("gln");
+				const onLine = q => q.line && Math.abs(q.y - ly) < 6;
+				const [rx] = map.projectLL(D.cafe[0] + 0.004, D.cafe[1]), half = Math.abs(rx - lx);   // line-center はタイルごとの中心（MapLibre と同じ＝タイルの枠で切れた線はその部分の中心）＝線の範囲の中・1〜2 個
+				return [a.length > 0 && a.every(onLine) && b.length >= 1 && b.length <= 2 && b.every(q => onLine(q) && Math.abs(q.x - lx) < half), `line n=${a.length} y=${a.map(q => q.y.toFixed(0)).join("/")} (want ${ly.toFixed(0)}) · center n=${b.length} x=${b.map(q => q.x.toFixed(0)).join("/")} (line ${lx.toFixed(0)}±${half.toFixed(0)}) y=${b[0]?.y?.toFixed(0)}`];
+			});
 			await vscene("symbol-text-overlap-always", async () => {   // text-overlap "always"（MapLibre 新）＝allow-overlap と同じ：同じ点に 2 層＝後の層だけ → 前の層に always で両方
 				await sym("ta1", {}); await sym("ta2", { "text-field": ["concat", ["get", "name"], "2"] });
 				const n0 = (await untilN("ta2", n => n >= 2), await placedOf("ta1")).length;
@@ -972,7 +1060,77 @@ try {
 				return [a?.hl === true && a?.n === 3 && empty(c) && empty(b) && empty(g), `set=${JSON.stringify(a)} other=${JSON.stringify(c)} removed=${JSON.stringify(b)} get=${JSON.stringify(g)}`];
 			});
 		}
-		for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
+		// ── symbol の残り（C5・2026-10-12）＝format の ["image"] 区間・vertical-align・icon-halo-*（SDF）・symbol-z-order viewport-y・symbol-height-offset。注記の画素は requestSnapshot の labels（Canvas2D の層）
+		{
+			const inkStat = async (ll, pred, r = 40) => {   // 錨の周り r px の、pred に合う画素の数と y の重心（CSS px）
+				const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return { n: -1, cy: 0 };
+				const L = new Uint8ClampedArray(R0.labels), W = map.mapEl.clientWidth, H = map.mapEl.clientHeight, [x, y] = atG(ll);
+				let n = 0, sy = 0;
+				for (let yy = Math.max(0, Math.round((y - r) * R0.lh / H)); yy < Math.min(R0.lh, Math.round((y + r) * R0.lh / H)); yy++)
+					for (let xx = Math.max(0, Math.round((x - r) * R0.lw / W)); xx < Math.min(R0.lw, Math.round((x + r) * R0.lw / W)); xx++) { const i = (yy * R0.lw + xx) * 4; if (L[i + 3] > 200 && pred(L[i], L[i + 1], L[i + 2])) { n++; sy += yy * H / R0.lh; } }
+				return { n, cy: n ? sy / n : 0 };
+			};
+			const inkUntil = async (ll, pred, min, r = 40) => { let st = { n: 0 }; for (let k = 0; k < 10; k++) { await sleep(500); st = await inkStat(ll, pred, r); if (st.n >= min) break; } return st; };
+			const pixelAt = async (ll, ddx = 0, ddy = 0) => { const s = await map.requestSnapshot(), R0 = s.render; if (!R0?.labels) return null; const L = new Uint8ClampedArray(R0.labels), [x0, y0] = atG(ll), x = x0 + ddx, y = y0 + ddy; const i = (Math.round(y * R0.lh / map.mapEl.clientHeight) * R0.lw + Math.round(x * R0.lw / map.mapEl.clientWidth)) * 4; return [L[i], L[i + 1], L[i + 2], L[i + 3]]; };
+			const red = (r, g, b) => r > 150 && g < 80 && b < 80, blue = (r, g, b) => b > 150 && r < 80 && g < 80, dark = (r, g, b) => r < 80 && g < 80 && b < 80;
+			const placedOf = async id => (await window.__placed()).filter(L => L.layer === id);
+			const untilN = async (id, pred) => { let p = []; for (let k = 0; k < 20; k++) { await sleep(300); p = await placedOf(id); if (pred(p.length)) break; } return p; };
+			const onlyCafe = ["==", ["get", "name"], "Cafe"];
+			const sym = (id, layout, paint = {}, filter = onlyCafe) => map.addLayer({ id, type: "symbol", source: "omt", "source-layer": "poi", filter, layout: { "text-allow-overlap": true, "text-ignore-placement": true, "icon-allow-overlap": true, "icon-ignore-placement": true, ...layout }, paint: { "text-color": "#000", ...paint } });
+			const drop = async (...ids) => { for (const id of ids) if (map.getLayer(id)) map.removeLayer(id); await sleep(400); };
+			for (const id of ["vf", "vl", "vc", "vs"]) if (map.getLayer(id)) map.removeLayer(id);
+			for (const id of ["poi-ico", "poi-lbl"]) map.setLayoutProperty(id, "visibility", "none");   // 基図の赤い記号（sq）と注記を伏せる＝錨の周りの赤いインクは自分の層だけ
+			map.jumpTo({ pitch: 0 }); await loaded("omt"); await sleep(800);
+			await vscene("symbol-format-image-section", async () => {   // ["image","sq"]（sprite の赤い 16×16・非 SDF）が字の列に差し込まれる＝錨の周りに赤いインク
+				const z0 = await inkStat(D.cafe, red);
+				await sym("fi", { "text-field": ["format", "AB", {}, ["image", "sq"], {}, "CD"], "text-size": 24 });
+				const st = await inkUntil(D.cafe, red, 40), p = await placedOf("fi");
+				await drop("fi");
+				return [z0.n === 0 && st.n >= 40 && p.length > 0, `red before=${z0.n} after=${st.n} placed=${p.length} w=${p[0]?.w?.toFixed(0)}`];
+			});
+			await vscene("symbol-format-vertical-align", async () => {   // 2.5 倍の █ の行に 1 倍の赤い I を top／bottom で揃える＝赤の重心が top は上・bottom は下
+				await sym("vt", { "text-field": ["format", "\u2588", { "font-scale": 2.5 }, "I", { "vertical-align": "top", "text-color": "#ff0000" }], "text-size": 20 });
+				const top = await inkUntil(D.cafe, red, 10, 60);
+				await drop("vt");
+				await sym("vb", { "text-field": ["format", "\u2588", { "font-scale": 2.5 }, "I", { "vertical-align": "bottom", "text-color": "#ff0000" }], "text-size": 20 });
+				const bot = await inkUntil(D.cafe, red, 10, 60);
+				await drop("vb");
+				return [top.n >= 10 && bot.n >= 10 && bot.cy - top.cy > 12, `top n=${top.n} cy=${top.cy.toFixed(1)} · bottom n=${bot.n} cy=${bot.cy.toFixed(1)}`];
+			});
+			await vscene("symbol-icon-halo", async () => {   // SDF の円（縁 0.75・1px＝1/8）＝icon-color 青・icon-halo-color 赤・幅 4px → 赤い輪が出る・幅 0 → 消える
+				const N = 48, R0 = 12, im = new ImageData(N, N); for (let y = 0; y < N; y++) for (let x = 0; x < N; x++) { const d = Math.hypot(x + 0.5 - N / 2, y + 0.5 - N / 2), a = Math.max(0, Math.min(1, 0.75 + (R0 - d) / 8)); const i = (y * N + x) * 4; im.data[i] = im.data[i + 1] = im.data[i + 2] = 0; im.data[i + 3] = Math.round(a * 255); }
+				await map.addImage("sdfc", im, { sdf: true });
+				await sym("ih", { "icon-image": "sdfc" }, { "icon-color": "#0000ff", "icon-halo-color": "#ff0000", "icon-halo-width": 4 });
+				const r1 = await inkUntil(D.cafe, red, 30), b1 = await inkStat(D.cafe, blue);
+				map.setPaintProperty("ih", "icon-halo-width", 0, { transition: false }); await sleep(800);
+				let r2 = { n: 99 }; for (let k = 0; k < 8 && r2.n > 0; k++) { await sleep(400); r2 = await inkStat(D.cafe, red); }
+				await drop("ih"); map.removeImage("sdfc");
+				return [r1.n >= 30 && b1.n >= 30 && r2.n === 0, `halo red=${r1.n} blue=${b1.n} → width 0 red=${r2.n}`];
+			});
+			await vscene("symbol-z-order-viewport-y", async () => {   // Shop の █ を text-offset で Cafe の █ に重ねる（箱は 0.4em 下・錨は Shop が画面の上）。source＝sort-key の順（Shop 2 が後＝上＝赤）・viewport-y＝錨の画面 y（Cafe が下＝手前）が上＝黒
+				const [cx, cy] = atG(D.cafe), [sx, sy] = atG(D.shop), S = 30, ex = +((cx - sx) / S).toFixed(3), ey = +((cy - sy) / S + 0.4).toFixed(3);
+				const lay = { "text-field": "\u2588\u2588\u2588\u2588", "text-size": S, "text-offset": ["case", onlyCafe, ["literal", [0, 0]], ["literal", [ex, ey]]], "symbol-sort-key": ["case", onlyCafe, 1, 2], "symbol-z-order": "source" };
+				await sym("zo", lay, { "text-color": ["case", onlyCafe, "#000000", "#ff0000"] }, ["in", ["get", "name"], ["literal", ["Cafe", "Shop"]]]);
+				await untilN("zo", n => n >= 2);
+				let a = null; for (let k = 0; k < 8; k++) { await sleep(400); a = await pixelAt(D.cafe); if (a && a[3] > 200 && red(a[0], a[1], a[2])) break; }
+				map.setLayoutProperty("zo", "symbol-z-order", "viewport-y");
+				let b = null; for (let k = 0; k < 10; k++) { await sleep(400); b = await pixelAt(D.cafe); if (b && b[3] > 200 && dark(b[0], b[1], b[2])) break; }
+				const pz = (await placedOf("zo")).map(q => `${q.text}@${q.x.toFixed(0)},${q.y.toFixed(0)}`).join(" "), up = await pixelAt([D.cafe[0], D.cafe[1]], 0, -14);   // up＝Cafe の █ だけの所（Shop は 12px 下）
+				await drop("zo");
+				return [!!a && a[3] > 200 && red(a[0], a[1], a[2]) && !!b && b[3] > 200 && dark(b[0], b[1], b[2]) && ey > 0.4, `source=${a} viewport-y=${b} off=[${ex},${ey}] placed=${pz} cafeOnly=${up}`];
+			});
+			await vscene("symbol-height-offset", async () => {   // 傾けて（60°）60m 浮かす＝置いた箱が画面で上に動く・absolute は地表を読まない（傾き 0 では効かない＝標高の門と同じ）
+				map.jumpTo({ pitch: 60 }); await loaded("omt");
+				await sym("h0", { "text-field": "H", "text-size": 16 }); await sym("h1", { "text-field": "H", "text-size": 16, "symbol-height-offset": 60 }); await sym("h2", { "text-field": "H", "text-size": 16, "symbol-height-offset": 60, "symbol-height-anchor": "absolute" });
+				const p0 = await untilN("h0", n => n > 0), p1 = await untilN("h1", n => n > 0), p2 = await untilN("h2", n => n > 0);
+				const y0 = p0[0]?.y, y1 = p1[0]?.y, y2 = p2[0]?.y;
+				map.jumpTo({ pitch: 0 }); await loaded("omt");
+				const q0 = await untilN("h0", n => n > 0), q1 = await untilN("h1", n => n > 0);
+				await drop("h0", "h1", "h2");
+				for (const id of ["poi-ico", "poi-lbl"]) map.setLayoutProperty(id, "visibility", "visible");
+				return [y0 != null && y1 != null && y0 - y1 > 8 && Math.abs(y1 - y2) < 2 && q0[0] && q1[0] && Math.abs(q0[0].y - q1[0].y) < 1.5, `pitch60 y0=${y0?.toFixed(1)} y1=${y1?.toFixed(1)} y2=${y2?.toFixed(1)} · pitch0 ${q0[0]?.y?.toFixed(1)}/${q1[0]?.y?.toFixed(1)}`];
+			});
+		}
 		map.jumpTo({ pitch: 50 }); await loaded("omt");
 		// feature-state で色（MapLibre の定番のホバー・段 8①b）＝状態が変わった地物を含むタイルだけ組み直す。他の棟は変わらない・外すと戻る・sourceLayer 無しは投げる（MapLibre と同じ）
 		await vscene("feature-state-color", async () => {
@@ -1107,6 +1265,23 @@ try {
 			const roof = await pixelUntil(at(0, 0, 200), isRed), wall = await pixelUntil(at(0, -30, 100), isRed), hid = await pixelUntil(at(0, -30, 10), isBlue);
 			return [isRed(roof) && isRed(wall) && isBlue(hid), `roof=${roof} wall=${wall} occluded=${hid}`];
 		});
+		// ── style の light（B3・2026-10-12）：T の南の壁（法線＝南）は、光が南（方位 180）なら明るく・北（方位 0）なら暗い（MapLibre の式 mix(1−強さ, 1, max(dot, 0))）。
+		//    anchor:"map"＝方位は真北基準。getLight は既定を補って返す。setLight(null)＝従来の固定光に戻る（壁は赤のまま）
+		await scene("light-south-vs-north", async () => {
+			map.setLight({ anchor: "map", position: [1.15, 180, 60], intensity: 0.8 });
+			const lit = await pixelUntil(at(0, -30, 100), p => p[0] > 200 && p[1] < 60);
+			map.setLight({ anchor: "map", position: [1.15, 0, 60], intensity: 0.8 });
+			const dark = await pixelUntil(at(0, -30, 100), p => p[0] < 120 && p[1] < 60 && p[2] < 60);
+			map.setLight(null);
+			const back = await pixelUntil(at(0, -30, 100), isRed);
+			return [lit[0] > 200 && dark[0] < 120 && dark[0] > 20 && isRed(back), `south=${lit} north=${dark} off=${back}`];
+		});
+		await scene("light-get-roundtrip", () => {
+			const d = map.getLight();
+			map.setLight({ anchor: "viewport", color: "#ff0000", intensity: 0.3, position: [1, 45, 20] });
+			const g = map.getLight(); map.setLight(null);
+			return [JSON.stringify(d) === JSON.stringify({ anchor: "viewport", color: "#ffffff", intensity: 0.5, position: [1.15, 210, 30] }) && JSON.stringify(g) === JSON.stringify({ anchor: "viewport", color: "#ff0000", intensity: 0.3, position: [1, 45, 20] }), `${JSON.stringify(d)} ${JSON.stringify(g)}`];
+		});
 		// ── 描き直しの鍵（R22）＝押し出しの呼び出しを数える。止まりの外（lo/hi）は止まっても評価し直さない・中と段は従来どおり ──
 		map.addSource("zk", { type: "geojson", data: fc([rect(0, 260, 20, { name: "Z" })]) });
 		await map.addLayer({ id: "zk", type: "fill-extrusion", source: "zk", paint: { "fill-extrusion-height": ["interpolate", ["linear"], ["zoom"], 15, 0, 16, 80], "fill-extrusion-color": "#00aa00" } });
@@ -1124,6 +1299,28 @@ try {
 		// 中庭（穴）＝真上から＝穴の地面は当たらず・縁の屋根は当たる（見張り）
 		map.jumpTo({ zoom: 17, pitch: 0 }); await sleep(2500);
 		await scene("courtyard-hole", async () => { const h = await q(at(220, 0, 40), ["bx"]), r = await q(at(220 + 40, 0, 40), ["bx"]); return [!h.includes("K") && r.includes("K"), `hole=${h} rim=${r}`]; });
+		// ── 小口（C6・2026-10-12）：角の丸め（layout の fill-extrusion-rounded-corner-distance・m）＝真上から 120m 角の屋根の角（辺から 8m 内）の画素が背景に・0 に戻すと屋根の色。
+		//    壁の縦の陰影（fill-extrusion-vertical-gradient・既定 true＝vector の押し出しと同じ verticalShade）＝false にすると壁が素の色（明るく）に ──
+		map.addSource("rc", { type: "geojson", data: fc([rect(0, 600, 60, { name: "RC" })]) });
+		await map.addLayer({ id: "rc", type: "fill-extrusion", source: "rc", layout: { "fill-extrusion-rounded-corner-distance": 60 }, paint: { "fill-extrusion-height": 20, "fill-extrusion-color": "#ff00ff" } });
+		map.jumpTo({ center: off(0, 600), zoom: 18, pitch: 0 }); await sleep(2500);
+		const isMag = p => p[0] > 150 && p[2] > 150 && p[1] < 90;
+		await scene("rounded-corner-distance", async () => {
+			const mid = await pixelUntil(at(0, 600, 20), isMag), corner = await pixelUntil(at(52, 652, 20), p => !isMag(p));
+			map.setLayoutProperty("rc", "fill-extrusion-rounded-corner-distance", 0); await sleep(1500);
+			const square = await pixelUntil(at(52, 652, 20), isMag);
+			return [isMag(mid) && !isMag(corner) && isMag(square), `mid=${mid} corner(round60)=${corner} corner(square)=${square}`];
+		});
+		map.jumpTo({ center: C, zoom: 17, pitch: 60 }); await sleep(2500);
+		await scene("vertical-gradient-geojson", async () => {
+			// T（200m）の南の壁の高さ 100m＝縦の陰影 0.92（下 0.84・上 1.0）に固定光の陰影が掛かる（実測 169）。false＝素の色×固定光（実測 184）＝8 以上明るい
+			const shaded = await pixelUntil(at(0, -30, 100), isRed);
+			map.setPaintProperty("bx", "fill-extrusion-vertical-gradient", false); await sleep(1500);
+			const flat = await pixelUntil(at(0, -30, 100), p => isRed(p) && p[0] >= shaded[0] + 8);
+			map.setPaintProperty("bx", "fill-extrusion-vertical-gradient", true); await sleep(1500);
+			const back = await pixelUntil(at(0, -30, 100), p => isRed(p) && p[0] <= shaded[0] + 2);
+			return [isRed(shaded) && isRed(flat) && flat[0] - shaded[0] >= 8 && Math.abs(back[0] - shaded[0]) <= 2, `shaded=${shaded} flat=${flat} back=${back}`];
+		});
 		// 広い面（統計の押し出し＝床 2,000m の平面）に寄って傾ける＝面の頂点がカメラの後ろへ回っても屋根に当たる（見張り＝頂点の投影だけの当て方は外す）
 		// 床は層に bottom:2000 で名指し（2026-10-14〜 MapLibre 形の既定は大きさに関わらず接地＝MapLibre と同じ・t-extrude-size）
 		const C2 = [140.5, 31.0];
@@ -1250,6 +1447,497 @@ try {
 			const dup = [...n.values()].filter(c => c > 1).length, drawnNow = near(px(await snap(map), ...PEAK), RED, 60);
 			map.removeLayer("hs3"); map.removeLayer("cr3");
 			return [n.size > 0 && dup === 0 && drawnNow, `urls=${n.size} fetchedTwice=${dup} drawn=${drawnNow}`];
+		});
+	} else if (G === "transition") {
+		// ── paint の transition（B1・2026-10-12・src/transition.js）：fill-opacity を 1→0 に 4 秒で＝途中の写しが「赤と地の間」・終わりは地と同じ。
+		//    getPaintProperty は set した目標をすぐ返す（MapLibre と同じ）。式は補間しない＝すぐ当たる。既定 300ms＝set の 1 秒後には着いている
+		const map = await createGlobe({ target: "#map", view: "#7/35.9/137.2", chips: false });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const C = [137.2, 35.9], [cx, cy] = map.projectLL(C[0], C[1]);
+		const pxAt = img => px(img, cx, cy);
+		// 地の色は層を opacity 0 で載せた状態で、2 枚の写しが同じになるまで待って取る（基図のタイル・世界の層が後から届いて地の色が変わる＝layers 変種と同じ轍）
+		map.addSource("tr", { type: "geojson", data: fc([sq(C[0], C[1], 0.6, {})]) });
+		await map.addLayer({ id: "tr-f", type: "fill", source: "tr", paint: { "fill-color": "#ff0000", "fill-opacity": 0 } });
+		const still = async () => { let a = pxAt(await snap(map)); for (let k = 0; k < 8; k++) { await sleep(1500); const b = pxAt(await snap(map)); if (diff(a, b) <= 6) return b; a = b; } return a; };
+		await sleep(2000);
+		const before = await still();
+		map.setPaintProperty("tr-f", "fill-opacity", 1, { transition: false });
+		await sleep(1500);
+		const red = await still();
+		put("drawn", red[0] > 180 && red[1] < 90 && red[2] < 90 && diff(red, before) > 60, `${red} vs ${before}`);
+		map.setPaintProperty("tr-f", "fill-opacity-transition", { duration: 4000 });
+		const t0 = performance.now();
+		map.setPaintProperty("tr-f", "fill-opacity", 0);
+		put("target-immediate", map.getPaintProperty("tr-f", "fill-opacity") === 0 && map.getPaintProperty("tr-f", "fill-opacity-transition")?.duration === 4000, `${map.getPaintProperty("tr-f", "fill-opacity")}`);
+		await sleep(1000);
+		const mid = pxAt(await snap(map)), tMid = performance.now() - t0;
+		put("mid", tMid < 3600 && diff(mid, red) > 25 && diff(mid, before) > 25, `${mid} at ${tMid.toFixed(0)}ms (red ${red} / base ${before})`);
+		await sleep(Math.max(0, 4800 - (performance.now() - t0)));
+		const end = pxAt(await snap(map));
+		put("end", diff(end, before) <= 24 && diff(end, red) > 60, `${end} vs ${before}`);
+		// 既定 300ms＝*-transition を外して戻すと 1 秒後には赤
+		map.setPaintProperty("tr-f", "fill-opacity-transition", undefined);
+		map.setPaintProperty("tr-f", "fill-opacity", 1);
+		await sleep(1200);
+		const back = pxAt(await snap(map));
+		put("default-300", diff(back, red) <= 24, `${back} vs ${red}`);
+		// 式は補間しない＝すぐ当たる（青）
+		map.setPaintProperty("tr-f", "fill-color-transition", { duration: 4000 });
+		map.setPaintProperty("tr-f", "fill-color", ["case", true, "#0000ff", "#000000"]);
+		await sleep(900);
+		const blue = pxAt(await snap(map));
+		put("expr-immediate", blue[2] > 180 && blue[0] < 90, `${blue}`);
+		// style の根の transition が getStyle に出る（外来 style でない地図＝無い）・options.transition:false＝即時
+		map.setPaintProperty("tr-f", "fill-color", "#00ff00", { transition: false });
+		await sleep(700);
+		const green = pxAt(await snap(map));
+		put("option-off", green[1] > 180 && green[2] < 90 && map.getStyle().transition === undefined, `${green}`);
+	} else if (G === "diff") {
+		// ── setStyle の差分適用（B2・2026-10-12・MapLibre の options.diff＝既定 true）：同じ style の往復＝建て直し 0・基図の paint の差＝組み直し 1 回（建て直しは 0）・
+		//    geojson の層の追加／paint の差＝その層だけ・diff:false と基図の source の差＝従来の建て直し。窓＝window.__styleStats { full, diff, rebuilds }（debugGlobals）
+		const mk = (over = {}) => ({
+			version: 8, name: "t-mlcompat-diff",
+			sources: {
+				gsi: { type: "vector", tiles: [new URL("./fixtures/optbv/", location.href).href + "{z}/{x}/{y}.pbf" + (over.v ? "?v=" + over.v : "")], minzoom: 4, maxzoom: 16 },
+				pts: { type: "geojson", data: fc([pt(139.85, 35.45, { n: 1 })]) },
+				...(over.pts2 ? { pts2: { type: "geojson", data: fc([pt(139.87, 35.45, {})]) } } : {}),
+			},
+			layers: [
+				{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+				{ id: "water", type: "fill", source: "gsi", "source-layer": "WA", paint: { "fill-color": over.water ?? "#9ec3e6" } },
+				{ id: "g", type: "circle", source: "pts", paint: { "circle-radius": 8, "circle-color": over.g ?? "#ff00ff" } },
+				...(over.pts2 ? [{ id: "g2", type: "circle", source: "pts2", paint: { "circle-radius": 8, "circle-color": "#00ffff" } }] : []),
+			],
+		});
+		const map = await createGlobe({ target: "#map", view: "#12.5/35.45/139.85", chips: false, style: mk(), debugGlobals: true });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const st = () => ({ ...window.__styleStats });
+		const hitAt = async (lon, lat, id) => { const [x, y] = map.projectLL(lon, lat); return (await map.queryRenderedFeatures([x, y], { layers: [id] })).map(f => f.layer.id); };
+		await scene("roundtrip-noop", async () => {
+			const a = st(); const s1 = map.getStyle(); await map.setStyle(s1); await sleep(1500); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && b.diff === a.diff + 1 && h.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g", `${JSON.stringify(a)}→${JSON.stringify(b)} hit=${h} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("base-paint-one-rebuild", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000" })); await sleep(1500); const b = st();
+			return [b.full === a.full && b.rebuilds === a.rebuilds + 1 && b.diff === a.diff + 1 && map.getPaintProperty("water", "fill-color") === "#ff0000", `${JSON.stringify(a)}→${JSON.stringify(b)} water=${map.getPaintProperty("water", "fill-color")}`];
+		});
+		await scene("user-layer-add", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", pts2: true })); await sleep(2000); const b = st();
+			const h2 = await hitAt(139.87, 35.45, "g2"), h1 = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && h2.includes("g2") && h1.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g,g2", `${JSON.stringify(a)}→${JSON.stringify(b)} g2=${h2} g=${h1} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("user-layer-paint", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", pts2: true, g: "#00ff00" })); await sleep(2000); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full && b.rebuilds === a.rebuilds && map.getPaintProperty("g", "circle-color") === "#00ff00" && h.includes("g") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g,g2", `${JSON.stringify(a)}→${JSON.stringify(b)} g=${map.getPaintProperty("g", "circle-color")} ids=${map.getStyle().layers.map(L => L.id)}`];
+		});
+		await scene("user-layer-remove", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00" })); await sleep(1500); const b = st();
+			return [b.full === a.full && !map.getLayer("g2") && !map.getSource("pts2") && map.getStyle().layers.map(L => L.id).join(",") === "bg,water,g", `${JSON.stringify(a)}→${JSON.stringify(b)} ids=${map.getStyle().layers.map(L => L.id)} src=${!!map.getSource("pts2")}`];
+		});
+		await scene("diff-false-rebuilds", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00" }), { diff: false }); await sleep(2500); const b = st();
+			const h = await hitAt(139.85, 35.45, "g");
+			return [b.full === a.full + 1 && h.includes("g"), `${JSON.stringify(a)}→${JSON.stringify(b)} g=${h}`];
+		});
+		await scene("source-change-rebuilds", async () => {
+			const a = st(); await map.setStyle(mk({ water: "#ff0000", g: "#00ff00", v: 2 })); await sleep(2500); const b = st();
+			return [b.full === a.full + 1 && map.getStyle().sources.gsi.tiles[0].endsWith("?v=2"), `${JSON.stringify(a)}→${JSON.stringify(b)}`];
+		});
+	} else if (G === "sky") {
+		// ── style の sky（B4・2026-10-12・src/sky-spec.js）：海の上（地形なし）を 80° 傾けて見上げる＝画面の上半分は球に当たらない視線。
+		//    setSky の sky-color が画面の上の色・horizon-color と fog-color（horizon-fog-blend 1）が地平線の際・atmosphere-blend 0＝リム光を重ねない。
+		//    getSky は無指定なら undefined・指定があれば既定を補った物。setSky(null)＝従来の絵（宇宙へ抜ける＝起動時の画素）に戻る。getStyle に根の sky が echo される
+		const C = [138.5, 32.5];
+		const map = await createGlobe({ target: "#map", view: `#12/${C[1]}/${C[0]}/80t`, chips: false });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const TOP = [480, 6];
+		const pixelUntil = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = px(await snap(map), ...p); if (pred(c)) break; await sleep(1200); } return c; };
+		const isRed = p => p[0] > 200 && p[1] < 60 && p[2] < 60, isBlue = p => p[2] > 180 && p[0] < 80 && p[1] < 80;
+		const before = await pixelUntil(TOP, () => false);
+		await scene("no-sky-top-not-red", () => [!isRed(before) && map.getSky() === undefined, `top=${before} pitch=${map.getPitch().toFixed(1)}`]);
+		const SKY = { "sky-color": "#ff0000", "horizon-color": "#00ff00", "fog-color": "#0000ff", "sky-horizon-blend": 0.05, "horizon-fog-blend": 1, "atmosphere-blend": 0, "fog-ground-blend": 0.5 };
+		await scene("sky-color-top", async () => { map.setSky(SKY); const c = await pixelUntil(TOP, isRed); return [isRed(c), `top=${c}`]; });
+		await scene("horizon-fog-band", async () => {   // 画面の上から下へ：赤（空）→ 青（地平線の際の fog-color）→ 地。緑（horizon-color）は 15% の帯で青に隠れる＝青が出ればよい
+			const img = await snap(map); let red = 0, blue = 0, firstBlue = -1;
+			for (let y = 0; y < 600; y += 2) { const c = px(img, 480, y); if (isRed(c)) red++; else if (isBlue(c)) { blue++; if (firstBlue < 0) firstBlue = y; } }
+			return [red > 20 && blue > 0 && firstBlue > 20, `red=${red} blue=${blue} firstBlue=${firstBlue}`];
+		});
+		await scene("get-roundtrip", () => {
+			const g = map.getSky(), st = map.getStyle().sky;
+			const want = { "sky-color": "#ff0000", "horizon-color": "#00ff00", "fog-color": "#0000ff", "fog-ground-blend": 0.5, "horizon-fog-blend": 1, "sky-horizon-blend": 0.05, "atmosphere-blend": 0 };
+			return [JSON.stringify(g) === JSON.stringify(want) && JSON.stringify(st) === JSON.stringify(want), JSON.stringify(g)];
+		});
+		await scene("partial-filled-with-defaults", () => { map.setSky({ "sky-color": "#123456" }); const g = map.getSky(); map.setSky(SKY); return [g["sky-color"] === "#123456" && g["horizon-color"] === "#ffffff" && g["fog-ground-blend"] === 0.5 && g["atmosphere-blend"] === 0.8, JSON.stringify(g)]; });
+		await scene("set-null-restores", async () => { map.setSky(null); const c = await pixelUntil(TOP, p => diff(p, before) <= 8); return [diff(c, before) <= 8 && map.getSky() === undefined && !("sky" in map.getStyle()), `top=${c} before=${before}`]; });
+	} else if (G === "bg") {
+		// ── background 層（B5・2026-10-12・本人裁定「ML の口では background 無し＝透明」）：MapLibre の目盛り（zoomScale mercator）＋ background の無い空の style。
+		//    床（海の上・z12・75° 傾け）も宇宙（画面の上）も α 0＝頁の色。addLayer({type:"background"}) は基図の層として持つ（getStyle の先頭・get/setPaintProperty・visibility・removeLayer）。
+		//    setClearColor＝宇宙の色（エンジンの口）。GL2 の門（WebGPU は白に畳む＝この頁は GL2）
+		const C = [138.5, 32.5];
+		const map = await createGlobe({ target: "#map", view: `#12/${C[1]}/${C[0]}/75t`, zoomScale: "mercator", chips: false, style: { version: 8, sources: {}, layers: [] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1500);
+		const GROUND = [480, 520], TOP = [480, 6];
+		const until = async (p, pred) => { let c = null; for (let k = 0; k < 6; k++) { c = pxa(await snap(map), ...p); if (pred(c)) break; await sleep(1200); } return c; };
+		const clear = c => c[3] <= 2, red = c => c[3] >= 250 && c[0] > 200 && c[1] < 60 && c[2] < 60;
+		await scene("no-bg-transparent", async () => { const g = await until(GROUND, clear), t = await until(TOP, clear); return [clear(g) && clear(t), `ground=${g} top=${t}`]; });
+		await scene("add-background-paints-ground", async () => {
+			await map.addLayer({ id: "bg2", type: "background", paint: { "background-color": "#ff0000" } });
+			const g = await until(GROUND, red), t = await until(TOP, clear), L = map.getLayer("bg2"), ids = map.getStyle().layers.map(l => l.id);
+			return [red(g) && clear(t) && L?.type === "background" && ids[0] === "bg2", `ground=${g} top=${t} layer=${JSON.stringify(L)} ids=${ids}`];
+		});
+		await scene("background-opacity", async () => {
+			map.setPaintProperty("bg2", "background-opacity", 0.5);
+			const g = await until(GROUND, c => Math.abs(c[3] - 128) <= 14);
+			const v = map.getPaintProperty("bg2", "background-opacity"); map.setPaintProperty("bg2", "background-opacity", 1);
+			return [Math.abs(g[3] - 128) <= 14 && g[0] > 100 && v === 0.5, `ground=${g} get=${v}`];
+		});
+		await scene("background-visibility", async () => {
+			map.setLayoutProperty("bg2", "visibility", "none"); const a = await until(GROUND, clear);
+			map.setLayoutProperty("bg2", "visibility", "visible"); const b = await until(GROUND, red);
+			return [clear(a) && red(b) && map.getLayoutProperty("bg2", "visibility") !== "none", `none=${a} visible=${b}`];
+		});
+		await scene("remove-background-transparent-again", async () => { map.removeLayer("bg2"); const g = await until(GROUND, clear); return [clear(g) && map.getLayer("bg2") === undefined && !map.getStyle().layers.some(l => l.id === "bg2"), `ground=${g}`]; });
+		await scene("set-clear-color", async () => {   // 宇宙の色＝描かない所の色。background の無い床は透明＝床の下にも同じ色が見える（MapLibre の canvas の後ろに頁の色が見えるのと同じ）
+			map.setClearColor("#00ff00"); const green = c => c[3] >= 250 && c[1] > 200 && c[0] < 60 && c[2] < 60;
+			const t = await until(TOP, green), g = pxa(await snap(map), ...GROUND);
+			map.setClearColor(null); const t2 = await until(TOP, clear);
+			return [green(t) && green(g) && clear(t2), `top=${t} ground=${g} reset=${t2}`];
+		});
+	} else if (G === "small") {
+		// ── shim の小口の束（B6・2026-10-12）＝エンジンの口を直に：sprite の出し入れ・getImage・glyphs/styleUrl/fontFaces の記録・coveringTiles（近似）・
+		//    setCameraUpdate（制約の後）・minPitch・pixelRatio・repaint・debug の表示（#debug の canvas2D）・refreshTiles
+		const C = [139.76, 35.68], SP = new URL("fixtures/mlcompat/sprite-a", location.href).href, SPB = new URL("fixtures/mlcompat/sprite-b", location.href).href;
+		const map = await createGlobe({ target: "#map", view: `#10/${C[1]}/${C[0]}`, zoomScale: "mercator", chips: false, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1000);
+		const waitFor = async (pred, ms = 8000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (pred()) return true; await sleep(200); } return pred(); };
+		const tileOf = (lon, lat, z) => { const n = 2 ** z, la = lat * Math.PI / 180; return [Math.floor((lon + 180) / 360 * n), Math.floor((1 - Math.log(Math.tan(la) + 1 / Math.cos(la)) / Math.PI) / 2 * n)]; };
+		await scene("sprite-add-remove", async () => {
+			map.addSprite("alt", SPB); const got = await waitFor(() => map.hasImage("alt:sq"));
+			const g = map.getSprite(), st = map.getStyle().sprite;
+			map.removeSprite("alt"); const gone = !map.hasImage("alt:sq") && map.getSprite().length === 0 && map.getStyle().sprite === undefined;
+			return [got && g.length === 1 && g[0].id === "alt" && g[0].url === SPB && Array.isArray(st) && st[0].id === "alt" && gone, `got=${got} sprite=${JSON.stringify(g)} style=${JSON.stringify(st)} gone=${gone}`];
+		});
+		await scene("sprite-set-default-getimage", async () => {
+			map.setSprite(SP); const got = await waitFor(() => map.hasImage("sq"));
+			const im = map.getImage("sq"), st = map.getStyle().sprite;
+			map.setSprite(null); const gone = !map.hasImage("sq") && map.getImage("sq") === undefined;
+			return [got && im && im.data.width === 16 && im.data.height === 16 && im.data.data[0] > 200 && im.data.data[1] < 60 && im.pixelRatio === 1 && st === SP && gone, `got=${got} im=${im && `${im.data.width}x${im.data.height} rgba=${[...im.data.data.slice(0, 4)]}`} style=${st} gone=${gone}`];
+		});
+		await scene("glyphs-styleurl-fontfaces", async () => {
+			map.setGlyphs("https://example.invalid/{fontstack}/{range}.pbf");
+			const g = map.getGlyphs(), sg = map.getStyle().glyphs, u = map.getStyleUrl();
+			await map.setFontFaces([{ "font-family": "TestFace", src: "url(fixtures/mlcompat/nothing.woff2)", "font-weight": 700 }]);   // 無いファイル＝読めないが記録は残る
+			const ff = map.getFontFaces(); map.setGlyphs(null);
+			return [g === "https://example.invalid/{fontstack}/{range}.pbf" && sg === g && u === undefined && ff.length === 1 && ff[0]["font-family"] === "TestFace" && map.getGlyphs() === undefined, `glyphs=${g} styleUrl=${u} faces=${JSON.stringify(ff)}`];
+		});
+		await scene("covering-tiles", async () => {
+			map.jumpTo({ zoom: 10, pitch: 0 }); await sleep(100);   // view の # は内製の目盛り＝MapLibre の 10 に揃える（傾き 0・地形なし＝floor(10)）
+			const t = map.coveringTiles(), z = 10, [cx, cy] = tileOf(C[0], C[1], z), hasC = t.some(k => k.canonical.z === z && k.canonical.x === cx && k.canonical.y === cy);   // 地形あり＝距離の式＝縁は一段粗くてよい（MapLibre も同じ）
+			const t3 = map.coveringTiles({ maxzoom: 3 });
+			return [t.length >= 4 && t.every(k => k.canonical.z >= z - 1 && k.canonical.z <= z && k.wrap === 0 && k.key === `${k.canonical.z}/${k.canonical.x}/${k.canonical.y}`) && hasC && t3.length > 0 && t3.every(k => k.canonical.z === 3) && map.setSourceTileLodParams(2, 1) === map, `n=${t.length} zs=${[...new Set(t.map(k => k.canonical.z))]} center=${hasC} z3=${t3.length}`];
+		});
+		await scene("camera-update", async () => {
+			map.setCameraUpdate(v => ({ zoom: v.zoom - 1 })); map.jumpTo({ zoom: 10 }); await sleep(100); const a = map.getZoom();   // v.zoom は内製の目盛り＝差で見る
+			map.setCameraUpdate(null); map.jumpTo({ zoom: 10 }); await sleep(100); const b = map.getZoom();
+			return [Math.abs(a - 9) < 1e-6 && Math.abs(b - 10) < 1e-6, `minus1=${a.toFixed(3)} free=${b.toFixed(3)}`];
+		});
+		await scene("min-pitch", async () => {
+			map.setMinPitch(30); map.jumpTo({ pitch: 10 }); await sleep(100); const a = map.getPitch(), g = map.getMinPitch();
+			map.setMinPitch(0); map.jumpTo({ pitch: 10 }); await sleep(100); const b = map.getPitch();
+			return [Math.abs(a - 30) < 0.01 && Math.abs(g - 30) < 1e-6 && Math.abs(b - 10) < 0.01, `min=${a.toFixed(2)} get=${g} free=${b.toFixed(2)}`];
+		});
+		await scene("pixel-ratio-repaint", async () => {
+			const d0 = map.getPixelRatio(); map.setPixelRatio(0.5); await sleep(300); const a = map.getPixelRatio(), cd = map.cam.dpr; map.setPixelRatio(d0); await sleep(300);
+			map.setRepaint(true); const r = map.getRepaint(); map.setRepaint(false);
+			return [a === 0.5 && cd === 0.5 && map.getPixelRatio() === d0 && r === true && map.getRepaint() === false, `dpr=${a} cam.dpr=${cd} back=${map.getPixelRatio()} repaint=${r}`];
+		});
+		await scene("debug-tiles-padding", async () => {
+			map.setDebug({ tileBoundaries: true }); await sleep(2000);
+			const cv = map.mapEl.querySelector("#debug"); if (!cv) return [false, "no #debug canvas"];
+			const g = cv.getContext("2d"), scan = pred => { const d = g.getImageData(0, 0, cv.width, cv.height).data; let n = 0; for (let i = 0; i < d.length; i += 16) if (pred(d[i], d[i + 1], d[i + 2], d[i + 3])) n++; return n; };
+			const red = scan((r, gg, b, a) => a > 100 && r > 200 && gg < 80);
+			map.setPadding({ top: 100, left: 0, right: 0, bottom: 0 }); map.setDebug({ tileBoundaries: false, padding: true }); await sleep(800);
+			const blue = scan((r, gg, b, a) => a > 20 && b > 150 && r < 80), redAfter = scan((r, gg, b, a) => a > 100 && r > 200 && gg < 80);
+			map.setDebug({ padding: false }); map.setPadding(0); await sleep(500); const clear = scan((r, gg, b, a) => a > 0);
+			return [red > 50 && blue > 50 && redAfter === 0 && clear === 0 && JSON.stringify(map.getDebug()) === JSON.stringify({ tileBoundaries: false, padding: false }), `red=${red} blue=${blue} redAfter=${redAfter} clear=${clear}`];
+		});
+		await scene("refresh-tiles", async () => {
+			map.addSource("rs", { type: "geojson", data: fc([sq(C[0], C[1], 0.05, { name: "R" })]) });
+			await map.addLayer({ id: "rs-f", type: "fill", source: "rs", paint: { "fill-color": "#00ff00" } }); await sleep(1500);
+			const hit = async () => (await map.queryRenderedFeatures(map.projectLL(C[0], C[1]), { layers: ["rs-f"] })).length;
+			const a = await hit(); await map.refreshTiles("rs"); await sleep(1500); const b = await hit(); await map.refreshTiles(); await sleep(1000);
+			return [a > 0 && b > 0 && map.getLayer("rs-f")?.id === "rs-f", `before=${a} after=${b}`];
+		});
+	} else if (G === "canvas") {
+		// ── canvas source（C3・2026-10-12）＝MapLibre の CanvasSource：{ type:"canvas", canvas: id|要素, coordinates, animate }。動画と同じ覆い（videoquad・注記の下）＝毎フレーム写す。
+		//    顔＝getSource(id).getCanvas/play/pause/setCoordinates。画素はオーバーレイ "videoquad" の実画素（__ovPixels・canvas2D＝上が先）
+		const C = [139.76, 35.68];
+		const map = await createGlobe({ target: "#map", view: `#11/${C[1]}/${C[0]}`, chips: false, debugGlobals: true, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const cv = Object.assign(document.createElement("canvas"), { width: 64, height: 64, id: "src-canvas" }); document.body.appendChild(cv); cv.style.cssText = "position:absolute;left:-200px;top:0";
+		const g2 = cv.getContext("2d"), paint = col => { g2.fillStyle = col; g2.fillRect(0, 0, 64, 64); };
+		const quad = d => [[C[0] - 0.1 + d, C[1] + 0.06], [C[0] + 0.1 + d, C[1] + 0.06], [C[0] + 0.1 + d, C[1] - 0.06], [C[0] - 0.1 + d, C[1] - 0.06]];
+		const at = (p, x, y) => { if (!p?.data) return null; const s = p.w / map.mapEl.clientWidth, i = (Math.round(y * s) * p.w + Math.round(x * s)) * 4; return [p.data[i], p.data[i + 1], p.data[i + 2], p.data[i + 3]]; };
+		const ov = async (x, y, test, ms = 8000) => { let c = null; for (const t0 = performance.now(); performance.now() - t0 < ms; await sleep(200)) { c = at(await window.__ovPixels?.("videoquad"), x, y); if (c && test(c)) break; } return c; };
+		const isRed = c => c && c[3] > 200 && c[0] > 190 && c[1] < 80 && c[2] < 80, isBlue = c => c && c[3] > 200 && c[2] > 190 && c[0] < 80, isGreen = c => c && c[3] > 200 && c[1] > 190 && c[0] < 80 && c[2] < 80;
+		const [cx, cy] = map.projectLL(C[0], C[1]);
+		await scene("canvas-draws", async () => {
+			paint("#ff0000");
+			map.addSource("cs", { type: "canvas", canvas: cv, coordinates: quad(0), animate: true });
+			await map.addLayer({ id: "cl", type: "raster", source: "cs" });
+			const c = await ov(cx, cy, isRed), src = map.getSource("cs");
+			return [isRed(c) && src?.getCanvas?.() === cv && typeof src.play === "function" && typeof src.pause === "function", `center=${c} getCanvas=${src?.getCanvas?.() === cv}`];
+		});
+		await scene("canvas-animates", async () => { paint("#0000ff"); const c = await ov(cx, cy, isBlue); return [isBlue(c), `center=${c}`]; });
+		await scene("canvas-pause-play", async () => {
+			map.getSource("cs").pause(); await sleep(300); paint("#00ff00"); await sleep(1200);
+			const stale = at(await window.__ovPixels?.("videoquad"), cx, cy);
+			map.getSource("cs").play(); const fresh = await ov(cx, cy, isGreen);
+			return [isBlue(stale) && isGreen(fresh), `paused=${stale} played=${fresh}`];
+		});
+		await scene("canvas-set-coordinates", async () => {
+			map.getSource("cs").setCoordinates(quad(0.3)); await sleep(100);
+			const [mx, my] = map.projectLL(C[0] + 0.3, C[1]);
+			const moved = await ov(mx, my, isGreen), old = await ov(cx, cy, c => !isGreen(c), 3000);
+			return [isGreen(moved) && !isGreen(old), `moved=${moved} old=${old}`];
+		});
+		await scene("canvas-remove", async () => {
+			map.removeLayer("cl"); map.removeSource("cs");
+			const [mx, my] = map.projectLL(C[0] + 0.3, C[1]); const c = await ov(mx, my, x => !x || x[3] < 20, 3000);
+			return [!c || c[3] < 20, `after=${c}`];
+		});
+		await scene("canvas-by-id-animate-false", async () => {
+			paint("#ff0000");
+			map.addSource("cs2", { type: "canvas", canvas: "src-canvas", coordinates: quad(0), animate: false });
+			await map.addLayer({ id: "cl2", type: "raster", source: "cs2", paint: { "raster-opacity": 1 } });
+			const first = await ov(cx, cy, isRed);
+			paint("#0000ff"); await sleep(1000); const still = at(await window.__ovPixels?.("videoquad"), cx, cy);   // animate:false＝1 枚だけ
+			map.getSource("cs2").play(); const after = await ov(cx, cy, isBlue);
+			return [isRed(first) && isRed(still) && isBlue(after) && map.getSource("cs2").getCanvas() === cv, `first=${first} still=${still} afterPlay=${after}`];
+		});
+		await scene("canvas-raster-opacity", async () => {
+			map.setPaintProperty("cl2", "raster-opacity", 0.5); const c = await ov(cx + 9, cy + 7, x => x && x[3] > 100 && x[3] < 160);   // 中心は格子の継ぎ目（セルの重なりで α が足される）＝少し外す
+			return [!!c && c[3] > 100 && c[3] < 160, `near-center=${c}`];
+		});
+	} else if (G === "raster") {
+		// ── raster-resampling／resampling・raster-fade-duration（C4・2026-10-12）＝層ごとの標本化（nearest/linear）と到着フェード。
+		//    2×2 の市松（赤/青）をタイルにして z10 で見る＝1 texel が画面で百数十 px：nearest は赤か青しか無い・linear は texel の中心の間が混ざる（半分ほどが紫）。
+		//    フェードは idle が待つ（MapLibre の hasTransition と同じ）＝__idleWhy().rasterFading で最中を見る
+		const C = [139.76, 35.68];
+		const map = await createGlobe({ target: "#map", view: `#10/${C[1]}/${C[0]}`, chips: false, debugGlobals: true, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(300);
+		const ck = document.createElement("canvas"); ck.width = 2; ck.height = 2;
+		const g2 = ck.getContext("2d"); g2.fillStyle = "#ff0000"; g2.fillRect(0, 0, 2, 2); g2.fillStyle = "#0000ff"; g2.fillRect(1, 0, 1, 1); g2.fillRect(0, 1, 1, 1);
+		const tiles = [ck.toDataURL("image/png") + "#{z}/{x}/{y}"];   // data: URL＝どのタイルも同じ市松（# の後ろの型紙は fetch が捨てる）
+		const idle = () => Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]);
+		const pure = c => (c[0] > 200 && c[1] < 45 && c[2] < 45) || (c[2] > 200 && c[1] < 45 && c[0] < 45);
+		const mixed = c => c[0] > 60 && c[2] > 60 && c[1] < 45;   // 赤と青の混ざり（紫）
+		const scan = async () => { const img = await snap(map); let p = 0, m = 0, o = 0; for (let x = 180; x < 780; x += 3) { const c = px(img, x, 300); if (pure(c)) p++; else if (mixed(c)) m++; else o++; } return { p, m, o, n: p + m + o }; };
+		let entry = () => map.raster.list().find(r => r.id === "rr");
+		await scene("raster-resampling-paint", async () => {
+			map.addSource("ck", { type: "raster", tiles, tileSize: 256, minzoom: 0, maxzoom: 12 });
+			await Promise.race([map.addLayer({ id: "rr", type: "raster", source: "ck", paint: { "raster-resampling": "nearest", "raster-fade-duration": 0 } }), sleep(5000)]);
+			const e = entry();
+			return [e?.opts?.resampling === "nearest" && e?.opts?.fadeDuration === 0 && map.getPaintProperty("rr", "raster-resampling") === "nearest", e ? JSON.stringify(e.opts) : "no raster entry"];
+		});
+		await scene("raster-nearest-pixels", async () => {
+			await idle(); await sleep(400);
+			const r = await scan();
+			return [r.n > 0 && r.p >= r.n * 0.85 && r.m <= r.n * 0.1, `pure=${r.p} mixed=${r.m} other=${r.o} of ${r.n}`];
+		});
+		await scene("raster-linear-pixels", async () => {
+			map.setPaintProperty("rr", "raster-resampling", "linear"); await idle(); await sleep(400);
+			const r = await scan(), e = entry();
+			return [e?.opts?.resampling === "linear" && r.m >= r.n * 0.25 && r.p <= r.n * 0.75, `pure=${r.p} mixed=${r.m} other=${r.o} of ${r.n} opts=${JSON.stringify(e?.opts)}`];
+		});
+		await scene("resampling-alias", async () => {   // paint_raster の `resampling`（raster-resampling の別名）
+			map.setPaintProperty("rr", "resampling", "nearest"); await idle(); await sleep(400);
+			const r = await scan(), e = entry();
+			return [e?.opts?.resampling === "nearest" && r.p >= r.n * 0.85, `pure=${r.p} mixed=${r.m} of ${r.n} opts=${JSON.stringify(e?.opts)}`];
+		});
+		await scene("raster-fade-default", async () => {   // 指定なし＝worker の既定（linear・300ms）が info に戻る
+			await Promise.race([map.addLayer({ id: "rf", type: "raster", source: "ck", paint: { "raster-opacity": 0.01 } }), sleep(5000)]);
+			const e = map.raster.list().find(r => r.id === "rf");
+			return [e?.info?.resampling === "linear" && e?.info?.fadeDuration === 300 && e.opts.fadeDuration === undefined, e ? JSON.stringify({ info: { r: e.info?.resampling, f: e.info?.fadeDuration }, opts: e.opts }) : "no entry"];
+		});
+		await scene("raster-fade-idle-waits", async () => {   // 長いフェード＝最中は rasterFading・idle はフェードの終わりまで来ない
+			map.removeLayer("rf"); map.removeLayer("rr"); await idle();
+			const t0 = performance.now();
+			await Promise.race([map.addLayer({ id: "rf2", type: "raster", source: "ck", paint: { "raster-fade-duration": 1500 } }), sleep(5000)]);
+			let seen = false; for (let i = 0; i < 100 && !seen; i++) { if (window.__idleWhy?.().rasterFading) seen = true; else await sleep(30); }
+			await idle(); const dt = performance.now() - t0, after = window.__idleWhy?.().rasterFading;
+			return [seen && after === false && dt >= 1400, `fadingSeen=${seen} after=${after} idleAfter=${dt.toFixed(0)}ms`];
+		});
+		await scene("raster-fade-setpaint", async () => {
+			map.setPaintProperty("rf2", "raster-fade-duration", 0);
+			const e = map.raster.list().find(r => r.id === "rf2");
+			return [e?.opts?.fadeDuration === 0 && map.getPaintProperty("rf2", "raster-fade-duration") === 0, JSON.stringify(e?.opts)];
+		});
+		await scene("hillshade-resampling", async () => {   // paint_hillshade の resampling も同じ口（タイルは作り直さない）
+			await map.addSource("hsd", { type: "raster-dem", tiles: [new URL("./fixtures/dem/{z}/{x}/{y}.png", location.href).href], encoding: "terrarium", tileSize: 256, maxzoom: 10 });
+			await Promise.race([map.addLayer({ id: "hs", type: "hillshade", source: "hsd", paint: { resampling: "nearest" } }), sleep(8000)]);
+			const o1 = { ...(map.raster.list().find(r => r.id === "hs")?.opts || {}) };   // list() の opts は生きた参照＝写してから set
+			map.setPaintProperty("hs", "resampling", "linear");
+			const o2 = map.raster.list().find(r => r.id === "hs")?.opts;
+			return [o1.resampling === "nearest" && o2?.resampling === "linear", `mount=${o1.resampling} set=${o2?.resampling}`];
+		});
+	} else if (G === "query") {
+		// ── MapLibre の口（通訳・@ortho-earth/globe/maplibre）の同期の問い合わせ（C7・2026-10-12・本人裁定「直近の描画の索引で近似」）：初回は []・裏の答えが着けば同じ所（8px）・同じ視点の
+		//    次の呼び出しで返る・層で絞る物は先回り（全層）の答えから同期に・視点が変われば []・querySourceFeatures（vector）は同期 ──
+		const ml = await import("@ortho-earth/globe/maplibre");
+		const FX = new URL("./fixtures/mlcompat/", location.href).href;
+		const VB = await (await fetch(FX + "vt-buildings.json")).json(), bOf = n => VB.buildings.find(b => b.name === n), C = VB.corner;
+		const style = { version: 8, sources: { omt: { type: "vector", tiles: [FX + "vt/{z}/{x}/{y}.pbf"], minzoom: 13, maxzoom: 14 } }, layers: [
+			{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } },
+			{ id: "park", type: "fill", source: "omt", "source-layer": "landuse", filter: ["==", ["get", "class"], "park"], paint: { "fill-color": "#0000ff" } },
+			{ id: "b3d", type: "fill-extrusion", source: "omt", "source-layer": "building", minzoom: 14, paint: { "fill-extrusion-color": "#ff0000", "fill-extrusion-height": ["get", "render_height"] } } ] };
+		const map = new ml.Map({ container: "map", style, center: C, zoom: 15.5, pitch: 0 });
+		await Promise.race([new Promise(r => map.once("load", r)), sleep(30000)]);
+		const srcLoaded = async (ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { if (map.isSourceLoaded("omt")) return true; await sleep(200); } return false; };
+		await srcLoaded(); await sleep(3000);
+		const pt = () => map.project(bOf("tall").center), names = fs => fs.map(f => `${f.layer?.id}/${f.properties?.name}`).join(",");
+		await scene("sync-qrf-first-then-filled", async () => {
+			const first = map.queryRenderedFeatures(pt());
+			let later = []; for (let k = 0; k < 12 && !later.some(f => f.layer?.id === "b3d"); k++) { await sleep(500); later = map.queryRenderedFeatures(pt()); }
+			return [Array.isArray(first) && later.some(f => f.layer?.id === "b3d" && f.properties?.name === "tall"), `first=${names(first)} later=${names(later)}`];
+		});
+		await scene("sync-qrf-layers-from-prewarm", async () => {   // 層で絞る＝全層の答え（上の呼び出し・同じ所・同じ視点）から同期に
+			const r = map.queryRenderedFeatures(pt(), { layers: ["b3d"] });
+			return [r.length === 1 && r[0].properties?.name === "tall", names(r)];
+		});
+		await scene("sync-qrf-box", async () => {   // 箱＝鍵が別（層つき）＝初回は []・着けば返る
+			const p = pt(), box = [[p.x - 5, p.y - 5], [p.x + 5, p.y + 5]];
+			const first = map.queryRenderedFeatures(box, { layers: ["b3d"] });
+			let later = []; for (let k = 0; k < 12 && !later.some(f => f.properties?.name === "tall"); k++) { await sleep(500); later = map.queryRenderedFeatures(box, { layers: ["b3d"] }); }
+			return [first.length === 0 && later.some(f => f.properties?.name === "tall"), `first=${names(first)} later=${names(later)}`];
+		});
+		await scene("sync-qrf-camera-change-empties", async () => {   // 視点が変われば直近の答えは使わない
+			map.jumpTo({ center: C, zoom: 15.6 }); await sleep(100);
+			const r = map.queryRenderedFeatures(pt(), { layers: ["b3d"] });
+			map.jumpTo({ center: C, zoom: 15.5 }); await sleep(1500);
+			return [r.length === 0, names(r)];
+		});
+		await scene("query-source-features-shim", async () => {
+			const parks = map.querySourceFeatures("omt", { sourceLayer: "landuse", filter: ["==", ["get", "class"], "park"] }), blds = map.querySourceFeatures("omt", { sourceLayer: "building" });
+			return [parks.some(f => f.properties?.name === "Park") && blds.some(f => f.properties?.name === "tall" && f.id === 1), `parks=${parks.length} blds=${blds.length}`];
+		});
+	} else if (G === "live") {
+		// ── 生きた geojson・層の押し系・集約の HTML 札（C8・2026-10-12）＝MapLibre の口（通訳）で：setData の連打は畳む（例 update-a-feature-in-realtime）・
+		//    層の mousedown/touchstart は同期に当たり preventDefault で地図のドラッグを捨てる（例 create-a-draggable-point）・data 事象に isSourceLoaded（例 display-html-clusters-with-custom-properties）・
+		//    集約の丸の層が無ければ既定の丸を描かない・Popup.trackPointer ──
+		const ml = await import("@ortho-earth/globe/maplibre");
+		const C = [139.76, 35.68];
+		const style = { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] };
+		const map = new ml.Map({ container: "map", style, center: C, zoom: 11, pitch: 0, ortho: { debugGlobals: true } });   // debugGlobals＝window.__map（エンジン）で手で覗く窓（判定には使わない）
+		await Promise.race([new Promise(r => map.once("load", r)), sleep(30000)]);
+		const ptAt = (lon, lat) => ({ type: "FeatureCollection", features: [{ type: "Feature", properties: { k: 1 }, geometry: { type: "Point", coordinates: [lon, lat] } }] });
+		const srcEvs = [];
+		map.on("sourcedata", e => { if (e.sourceId === "pt" && e.sourceDataType === "content") srcEvs.push(e); });
+		map.addSource("pt", { type: "geojson", data: ptAt(C[0], C[1]) });
+		map.addLayer({ id: "pt", type: "circle", source: "pt", paint: { "circle-radius": 14, "circle-color": "#ff0000" } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const cv = document.querySelector("#map canvas#c"), R = () => cv.getBoundingClientRect();
+		const pe = (type, x, y, o = {}) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: R().left + x, clientY: R().top + y, ...o }));
+		const drag = (x0, y0, dx, dy, o = {}) => { pe("pointerdown", x0, y0, o); for (let i = 1; i <= 8; i++) pe("pointermove", x0 + dx * i / 8, y0 + dy * i / 8, o); pe("pointerup", x0 + dx, y0 + dy, o); };
+		const srcPt = () => map.querySourceFeatures("pt")[0]?.geometry?.coordinates;
+		await scene("setdata-stream-coalesced", async () => {   // 30 連打＝載せ直しは数回・最後の約束が解けた時に最後の中身が載っている
+			const n0 = srcEvs.length; let last = null;
+			for (let i = 1; i <= 30; i++) last = map.getSource("pt").setData(ptAt(C[0] + i * 0.001, C[1]));
+			await Promise.race([last, sleep(10000)]);
+			const p = srcPt(), ev = srcEvs.length - n0;
+			return [!!p && Math.abs(p[0] - (C[0] + 0.03)) < 1e-9 && ev >= 1 && ev < 30, `lon=${p?.[0]} sourcedata=${ev}`];
+		});
+		await scene("data-event-isSourceLoaded", async () => {   // setData の後に data（dataType source・isSourceLoaded:true）が来る
+			let got = null; const h = e => { if (e.sourceId === "pt" && e.isSourceLoaded) got = e; }; map.on("data", h);
+			await Promise.race([map.getSource("pt").setData(ptAt(C[0], C[1])), sleep(10000)]); await sleep(50); map.off("data", h);
+			return [!!got && got.dataType === "source", `got=${JSON.stringify(got && { dataType: got.dataType, isSourceLoaded: got.isSourceLoaded })}`];
+		});
+		await sleep(800);
+		await scene("layer-mousedown-prevents-pan", async () => {   // 点の上で mousedown＋preventDefault → 80px 引いても中心は動かない。点の外では動く
+			const evs = []; const h = e => { evs.push(e); e.preventDefault(); }; map.on("mousedown", "pt", h);
+			const c0 = map.getCenter(), p = map.project(C);
+			drag(p.x, p.y, 80, 0); await sleep(300);
+			const c1 = map.getCenter(), held = Math.abs(c1.lng - c0.lng) < 1e-6 && Math.abs(c1.lat - c0.lat) < 1e-6;
+			drag(p.x + 200, p.y + 120, 80, 0); await sleep(300);
+			const c2 = map.getCenter(), moved = Math.abs(c2.lng - c1.lng) > 1e-4;
+			map.off("mousedown", "pt", h); map.jumpTo({ center: C }); await sleep(200);
+			return [evs.length === 1 && evs[0].features?.[0]?.properties?.k === 1 && evs[0].point && held && moved, `evs=${evs.length} held=${held} moved=${moved} dlng=${(c2.lng - c1.lng).toFixed(5)}`];
+		});
+		await scene("layer-touchstart-points", async () => {   // touch の押し＝touchstart に points/lngLats（配列）。mouseup も層で来る
+			let t = null, u = 0; const h = e => { t = e; e.preventDefault(); }, hu = () => u++; map.on("touchstart", "pt", h); map.on("mouseup", "pt", hu);
+			const p = map.project(C);
+			pe("pointerdown", p.x, p.y, { pointerType: "touch" }); pe("pointerup", p.x, p.y, { pointerType: "touch" });
+			pe("pointerdown", p.x, p.y); pe("pointerup", p.x, p.y); await sleep(100);
+			map.off("touchstart", "pt", h); map.off("mouseup", "pt", hu);
+			return [!!t && t.points?.length === 1 && t.lngLats?.length === 1 && Math.abs(t.lngLats[0].lng - C[0]) < 0.01 && u === 1, `points=${t?.points?.length} lngLats=${t?.lngLats?.length} mouseup=${u}`];
+		});
+		await scene("cluster-without-circle-layer", async () => {   // 丸の層が無い集約＝querySourceFeatures は集約を返すが、画面の当たり（queryRenderedFeatures）に既定の丸は居ない
+			const P2 = [C[0] + 0.1, C[1] - 0.05], P1 = [C[0] - 0.12, C[1] - 0.05];   // P2＝2 点が重なる（集約）・P1＝単点（対照＝当たりの索引が埋まった証）
+			const fc = { type: "FeatureCollection", features: [[P2[0], P2[1]], [P2[0] + 0.0005, P2[1]], P1].map((c, i) => ({ type: "Feature", properties: { i }, geometry: { type: "Point", coordinates: c } })) };
+			map.addSource("eq", { type: "geojson", data: fc, cluster: true, clusterRadius: 50, clusterMaxZoom: 14 });
+			map.addLayer({ id: "eq-single", type: "circle", source: "eq", filter: ["!", ["has", "point_count"]], paint: { "circle-radius": 8, "circle-color": "#00ff00" } });
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(1000);
+			const sf = map.querySourceFeatures("eq"), cl = sf.find(f => f.properties?.cluster);
+			const q = async pt => { const p = map.project(pt); let r = []; for (let k = 0; k < 10 && !r.length; k++) { r = map.queryRenderedFeatures([p.x, p.y]); if (!r.length) await sleep(400); } return r; };
+			const single = await q(P1), hit = await q(P2);
+			return [!!cl && cl.properties.point_count === 2 && single.some(f => f.layer?.id === "eq-single") && !hit.some(f => f.properties?.cluster), `source=${sf.length} cluster=${cl?.properties?.point_count} single=${single.map(f => f.layer?.id).join(",") || "none"} atCluster=${hit.map(f => f.layer?.id).join(",") || "none"}`];
+		});
+		await scene("popup-trackpointer", async () => {   // trackPointer＝pointermove で lngLat が付いて回る・pointer-events none
+			const pop = new ml.Popup({ closeButton: false, closeOnClick: false }).trackPointer().setHTML("t").addTo(map);
+			const el = pop.getElement(), mapEl = document.querySelector("#map"), r = mapEl.getBoundingClientRect();
+			mapEl.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: r.left + 300, clientY: r.top + 200 }));
+			await sleep(50);
+			const ll = pop.getLngLat(), want = map.unproject([300, 200]), pen = getComputedStyle(el).pointerEvents;
+			pop.remove();
+			return [!!ll && !!want && Math.abs(ll.lng - want.lng) < 1e-6 && Math.abs(ll.lat - want.lat) < 1e-6 && pen === "none", `ll=${ll?.lng?.toFixed(4)},${ll?.lat?.toFixed(4)} want=${want?.lng?.toFixed(4)},${want?.lat?.toFixed(4)} pe=${pen}`];
+		});
+	} else if (G === "motion") {
+		// ── 動きを減らす・動きの時計（C10・2026-10-12）：reduceMotion＝easeTo/flyTo は essential:true でなければ即座に・無指定は OS の prefers-reduced-motion を追う。
+		//    setNow(ms)＝飛行と paint の transition がその時刻で止まる／進む（決定論の撮影）・restoreNow で実時間へ ──
+		const C = [139.76, 35.68], C2 = [139.90, 35.60], C3 = [139.60, 35.75];
+		const map = await createGlobe({ target: "#map", view: `#11/${C[1]}/${C[0]}`, chips: false, style: { version: 8, sources: {}, layers: [{ id: "bg", type: "background", paint: { "background-color": "#f4f1ea" } }] } });
+		await Promise.race([new Promise(r => map.once("idle", r)), sleep(15000)]); await sleep(500);
+		const near = (a, b, eps = 1e-6) => Math.abs(a.lng - b[0]) < eps && Math.abs(a.lat - b[1]) < eps;
+		const raf = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+		await scene("reduce-motion-default-follows-media", async () => {
+			map.setReduceMotion(null);
+			const mq = matchMedia("(prefers-reduced-motion: reduce)").matches;
+			return [map.getReduceMotion() === mq, `media=${mq} get=${map.getReduceMotion()}`];
+		});
+		await scene("reduce-motion-ease-jumps-unless-essential", async () => {
+			map.setReduceMotion(true);
+			const p = map.easeTo({ center: C2, duration: 2000 }); const c1 = map.getCenter(); await p;
+			map.jumpTo({ center: C });
+			map.easeTo({ center: C3, duration: 2000, essential: true }); await raf(); const c2 = map.getCenter();
+			map.setReduceMotion(false); map.jumpTo({ center: C }); await sleep(100);
+			return [near(c1, C2) && !near(c2, C3, 1e-3), `reduced: at=${c1.lng.toFixed(4)},${c1.lat.toFixed(4)} (want ${C2}) · essential mid=${c2.lng.toFixed(4)},${c2.lat.toFixed(4)}`];
+		});
+		await scene("setnow-freezes-and-steps-flight", async () => {
+			map.setReduceMotion(false); map.setNow(1000);
+			const p = map.easeTo({ center: C2, duration: 1000 }); await sleep(300);
+			const frozen = map.getCenter();   // 実時間が 300ms 流れても動きの時計は 1000 のまま＝出発点
+			map.setNow(1500); await raf(); await raf(); const mid = map.getCenter();
+			map.setNow(2100); await raf(); await raf(); await Promise.race([p, sleep(2000)]); const end = map.getCenter();
+			map.restoreNow(); map.jumpTo({ center: C }); await sleep(100);
+			const midOk = !near(mid, C, 1e-4) && !near(mid, C2, 1e-4);
+			return [near(frozen, C, 1e-6) && midOk && near(end, C2, 1e-6), `frozen=${frozen.lng.toFixed(5)} (start ${C[0]}) mid=${mid.lng.toFixed(5)} end=${end.lng.toFixed(5)} (want ${C2[0]})`];
+		});
+		await scene("setnow-freezes-and-steps-transition", async () => {
+			const d = 0.06, sq = { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: [[[C[0] - d, C[1] - d], [C[0] + d, C[1] - d], [C[0] + d, C[1] + d], [C[0] - d, C[1] + d], [C[0] - d, C[1] - d]]] } };
+			map.addSource("tq", { type: "geojson", data: sq }); await map.addLayer({ id: "tq", type: "fill", source: "tq", paint: { "fill-color": "#ff0000" } });
+			await Promise.race([new Promise(r => map.once("idle", r)), sleep(8000)]); await sleep(500);
+			const [x, y] = map.projectLL(C[0], C[1]);
+			const pix = async () => px(await snap(map), x, y);
+			const isRed = c => c[0] > 200 && c[2] < 60, isBlue = c => c[2] > 235 && c[0] < 20;
+			const a = await pix();
+			map.setNow(5000); map.setPaintProperty("tq", "fill-color", "#0000ff"); await sleep(500);   // transition 300ms（既定）＝実時間が流れても t0 のまま＝赤
+			const b = await pix();
+			map.setNow(5090); await raf(); await raf(); await sleep(200); const m = await pix();   // 途中（90/300・緩急の曲線で 3〜4 割）＝混ざった色
+			map.setNow(5400); await raf(); await raf(); await sleep(200); const e = await pix();
+			map.restoreNow(); map.removeLayer("tq"); map.removeSource("tq");
+			return [isRed(a) && isRed(b) && !isRed(m) && !isBlue(m) && isBlue(e), `before=${a} frozen=${b} mid=${m} end=${e}`];
 		});
 	} else if (G === "cover") {
 		// ── タイルの z（2026-09-29・core mlcover.js）：MapLibre の目盛り（zoomScale "mercator"）の地図は MapLibre の coveringTiles と同じ z＝floor(公開の z)（傾き 60° 以下・地形なし）。

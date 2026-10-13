@@ -19,6 +19,7 @@ export function assembleZoom(S, J) {
 	const { arcCount, nPts, point, polyStream: ps, lineStream: ls, extent, buffer, layerName } = S;
 	const tagsOf = S._tagsOf ??= S.tagTable ? tagReader(S.tagTable) : (fid) => S.tags[fid];
 	const { z, counts, bbox, offs, out } = J;
+	const tinyDec = J.tiny ?? null;   // 極小面の決定表（tiler.js tinyDecisions・main 側で shard に依らず決めた物）。無ければ旧の job 内積算
 	const tinyA2 = 2 * (S.tinyPolygon ?? 0), tinyL = S.tinyLine ?? 0;   // 面積 ×2 で比べる（signedArea2 と同じ尺度）
 	const compArea = tinyA2 ? S.compArea : null, areaScale = Math.pow(4, z + (S.extentShift ?? 12) - 32);   // 世界座標尺 → このズームのタイル座標尺
 	const txRange = [J.txFrom, J.txTo];
@@ -56,13 +57,18 @@ export function assembleZoom(S, J) {
 	// 極小ポリゴン（tippecanoe の --tiny-polygon-size と同じ考え方）：このズームで元解像度の面積が閾値未満の成分は落とし、落とした
 	// 面積を fid 毎に積む。積算が閾値に達したら、そこに閾値面積の正方形を 1 つ置く＝点在する小島の群れが「何も無い」にならず密度として残る。
 	// 判定は簡略化前の面積（compArea）＝LOD で環が潰れた成分も積算に入る。
+	// 決定は main 側の表（tinyDec）が正＝列の分担に依らない。表が無い呼び手（旧 J）だけ job 内で積算する
 	const tinyAcc = new Map();
-	const tinySquare = (fid, rb, a2full) => {
+	const squareAt = (rb) => {
+		const h = Math.sqrt(tinyA2 / 2) / 2, cx = (rb[0] + rb[2]) / 2, cy = (rb[1] + rb[3]) / 2;
+		return { line: new Float64Array([cx - h, cy - h, cx - h, cy + h, cx + h, cy + h, cx + h, cy - h]), bbox: [cx - h, cy - h, cx + h, cy + h] };   // 外環＝y 下向きで面積正
+	};
+	const tinySquare = (fid, comp, rb, a2full) => {
+		if (tinyDec) return tinyDec[comp] === 2 ? squareAt(rb) : null;
 		const acc = (tinyAcc.get(fid) ?? 0) + Math.abs(a2full) / 2;
 		if (acc < tinyA2 / 2) { tinyAcc.set(fid, acc); return null; }
 		tinyAcc.set(fid, acc - tinyA2 / 2);
-		const h = Math.sqrt(tinyA2 / 2) / 2, cx = (rb[0] + rb[2]) / 2, cy = (rb[1] + rb[3]) / 2;
-		return { line: new Float64Array([cx - h, cy - h, cx - h, cy + h, cx + h, cy + h, cx + h, cy - h]), bbox: [cx - h, cy - h, cx + h, cy + h] };   // 外環＝y 下向きで面積正
+		return squareAt(rb);
 	};
 	// クリップ後の切片：外環が閾値未満なら捨てる（隣のタイルへ続く縁の欠片・バッファ帯だけに掛かる欠片）
 	const sinkPoly = (fid, rings0) => (tx, ty, parts) => {
@@ -87,7 +93,7 @@ export function assembleZoom(S, J) {
 			let a2 = line.length < 6 ? 0 : signedArea2(line);
 			const a2full = r === 0 && compArea ? compArea[comp] * areaScale : a2;
 			if (r === 0 && compArea && Math.abs(a2full) < tinyA2) {   // 極小（元解像度で）：積算して代わりの正方形か無し
-				const sq = tinySquare(fid, rb, a2full);
+				const sq = tinySquare(fid, comp, rb, a2full);
 				if (!sq) { skipRest(); break; }
 				line = sq.line; rb = sq.bbox; a2 = signedArea2(line);
 			} else if (a2 === 0) { if (r === 0) { skipRest(); break; } continue; }   // 潰れた環（穴なら穴だけ消える）
@@ -110,14 +116,17 @@ export function assembleZoom(S, J) {
 		}
 	}
 	// 点：クリップ木を通さず、タイル座標のシフトで直接タイルへ振り分ける（バッファ帯は隣接タイルにも複製）。
-	// 低ズームの間引き＝tippecanoe の -r と同じ考え方：z < maxZoom では fid のハッシュで dropRate^-(maxZoom-z) の割合だけ残す
+	// 低ズームの間引き＝tippecanoe の -r と同じ考え方：z < maxZoom では点ごとのハッシュで dropRate^-(maxZoom-z) の割合だけ残す
 	//（閾値がズームで単調＝残る点はズームを上げても消えない入れ子集合）。dropRate 1 で全点保持。
+	// 鍵は (fid, その feature 内で何番目の点か)（改良点 13・2026-10-12）＝MultiPoint の点が全部一蓮托生にならない（tippecanoe は点単位）。
+	// 単独の点（0 番目）は旧と同じ fid だけの鍵＝Point データの出力は変わらない。番目は pointBuffer（Morton 順）の出現順＝どの shard でも同じ
 	const pointTiles = new Map();   // tile key → Map(fid → [x,y,…]) （fid 毎に束ねて MultiPoint）
 	if (nPts) {
 		const maxZoom = S.maxZoom ?? z, rate = S.dropRate ?? 1;
 		const keepFrac = rate > 1 && z < maxZoom ? Math.pow(rate, -(maxZoom - z)) : 1;
 		const keepMax = Math.floor(keepFrac * 4294967296);
 		const nmaxT = (1 << z) - 1;
+		const ord = keepFrac < 1 ? new Map() : null;   // fid → これまでに見た点の数
 		const put = (tx, ty, fid, x, y) => {
 			if (tx < txRange[0] || tx > txRange[1] || tx < 0 || tx > nmaxT || ty < 0 || ty > nmaxT) return;
 			const key = tx * 4294967296 + ty;
@@ -128,7 +137,12 @@ export function assembleZoom(S, J) {
 			const a = arcCount + i;
 			if (!counts[a]) continue;
 			const fid = point[i];
-			if (keepFrac < 1 && (Math.imul(fid + 1, 0x9E3779B1) >>> 0) >= keepMax) continue;
+			if (ord) {
+				const k = ord.get(fid) ?? 0; ord.set(fid, k + 1);
+				let h = Math.imul(fid + 1, 0x9E3779B1);
+				if (k) h = Math.imul(h ^ Math.imul(k, 0x85EBCA6B), 0xC2B2AE35);   // 2 番目以降の点＝番目を混ぜる（0 番目は旧と同じ鍵）
+				if ((h >>> 0) >= keepMax) continue;
+			}
 			const o = offs[a], x = out[o * 2], y = out[o * 2 + 1];
 			const tx = Math.floor(x / extent), ty = Math.floor(y / extent), lx = x - tx * extent, ly = y - ty * extent;
 			put(tx, ty, fid, x, y);

@@ -1,0 +1,93 @@
+<!doctype html>
+<!-- UI回帰：操作の手触り（A2・2026-10-12・MapLibre 整合）。合成の PointerEvent/WheelEvent/MouseEvent/KeyboardEvent を地図の canvas に打ち、
+     ダブルクリックズーム（アンカー固定・zoomSnap）・shift＋ドラッグのボックスズーム（boxzoomend の bbox・fitBounds）・慣性（離した後も中心が進む）・
+     handler の on/off（scrollZoom・dragPan）・キーボード +/−・?v=noint＝interactive:false（全部 off）を数値だけで確かめる（画素は見ない）。実時間で回す。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px}</style><title>t-handlers</title></head>
+<body><div id="map"></div>
+<script type="module">
+import { createGlobe } from "@ortho-earth/globe";
+const V = new URLSearchParams(location.search).get("v") || "default";
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const near = (a, b, e) => Math.abs(a - b) <= e;
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+try {
+	const map = await createGlobe({ target: "#map", view: "#10/35.68/139.76", chips: false, ...(V === "noint" ? { interactive: false } : {}) });
+	await map.once("load");
+	const cv = map.mapEl.querySelector("canvas"), R = () => cv.getBoundingClientRect();
+	const pe = (type, x, y, o = {}) => cv.dispatchEvent(new PointerEvent(type, { bubbles: true, pointerId: 1, pointerType: "mouse", button: 0, buttons: type === "pointerup" ? 0 : 1, clientX: R().left + x, clientY: R().top + y, ...o }));
+	const wheel = (x, y, dy, o = {}) => cv.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY: dy, clientX: R().left + x, clientY: R().top + y, ...o }));
+	const drag = async (x0, y0, dx, dy, n, ms, o = {}) => { pe("pointerdown", x0, y0, o); for (let i = 1; i <= n; i++) { pe("pointermove", x0 + dx * i / n, y0 + dy * i / n, o); if (ms) await sleep(ms); } pe("pointerup", x0 + dx, y0 + dy, o); };
+	if (V === "noint") {
+		ok("allOff", ["scrollZoom", "dragPan", "dragRotate", "keyboard", "doubleClickZoom", "boxZoom", "touchZoomRotate", "touchPitch"].every(n => !map.handlerOn(n)));
+		const z0 = map.getZoom(), c0 = map.getCenter();
+		wheel(480, 300, -100); await sleep(300);
+		cv.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: R().left + 300, clientY: R().top + 200 })); await sleep(400);
+		await drag(480, 300, 120, 60, 6, 16); await sleep(300);
+		const c1 = map.getCenter();
+		ok("noMove", near(map.getZoom(), z0, 1e-9) && near(c1.lng, c0.lng, 1e-9) && near(c1.lat, c0.lat, 1e-9), `${map.getZoom().toFixed(3)} ${c1.lng.toFixed(5)},${c1.lat.toFixed(5)}`);
+		map.setHandler("scrollZoom", true); wheel(480, 300, -100); await sleep(300);
+		ok("reEnable", map.handlerOn("scrollZoom") && map.getZoom() > z0 + 0.05, map.getZoom().toFixed(3));
+	} else {
+		// ① ダブルクリック＝z+1（300ms）・カーソル下の地点は動かない
+		const [ax, ay] = [300, 200], ll = map.unprojectXY ? map.unprojectXY(ax, ay) : null;
+		const z0 = map.getZoom();
+		cv.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: R().left + ax, clientY: R().top + ay }));
+		await sleep(450);
+		const p = ll ? map.projectLL(ll.lng ?? ll[0], ll.lat ?? ll[1]) : [ax, ay];
+		ok("dblclick", near(map.getZoom(), z0 + 1, 1e-6) && near(p[0], ax, 2) && near(p[1], ay, 2), `${map.getZoom().toFixed(3)} ${p[0].toFixed(1)},${p[1].toFixed(1)}`);
+		// shift＋ダブルクリック＝z−1
+		cv.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, shiftKey: true, clientX: R().left + ax, clientY: R().top + ay }));
+		await sleep(450);
+		ok("shiftDblclick", near(map.getZoom(), z0, 1e-6), map.getZoom().toFixed(3));
+		// ② zoomSnap＝0.5 の目盛りへ吸着（10.3 からダブルクリック→ 11.5）
+		map.jumpTo({ zoom: 10.3 }); map.setZoomSnap(0.5);
+		cv.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, clientX: R().left + 480, clientY: R().top + 300 }));
+		await sleep(450);
+		ok("zoomSnap", near(map.getZoom(), 11.5, 1e-6) && map.getZoomSnap() === 0.5, map.getZoom().toFixed(3));
+		map.setZoomSnap(0);
+		// ③ ボックスズーム（shift＋ドラッグ）：boxzoomstart/end が出て bbox の中心へ寄る・ズームは上がる
+		map.jumpTo({ center: [139.76, 35.68], zoom: 10, pitch: 0, bearing: 0 });
+		let started = 0, ended = null; map.on("boxzoomstart", () => started++); map.on("boxzoomend", e => { ended = e; });
+		await drag(380, 220, 200, 160, 4, 0, { shiftKey: true });
+		await sleep(50);
+		const el = map.mapEl.querySelector(".ortho-boxzoom");
+		await sleep(800);
+		const c = map.getCenter(), bb = ended && ended.bbox;
+		ok("boxZoom", started === 1 && !!bb && !el && map.getZoom() > 10.5 && bb[0] < c.lng && c.lng < bb[2] && bb[1] < c.lat && c.lat < bb[3] && ended.x0 === 380 && ended.y1 === 380,
+			`${map.getZoom().toFixed(2)} ${bb ? bb.map(v => v.toFixed(3)).join(",") : "null"} c=${c.lng.toFixed(3)},${c.lat.toFixed(3)}`);
+		// ④ 慣性：速くドラッグして離す＝離した直後より 200ms 後の中心がさらに進んでいる・やがて止まる
+		map.jumpTo({ center: [139.76, 35.68], zoom: 10, pitch: 0, bearing: 0 });
+		await drag(480, 300, 180, 0, 6, 16);
+		const c1 = map.getCenter(); await sleep(200); const c2 = map.getCenter(); await sleep(900); const c3 = map.getCenter(); await sleep(100); const c4 = map.getCenter();
+		ok("inertia", c1.lng < 139.76 && c2.lng < c1.lng - 0.002 && near(c3.lng, c4.lng, 1e-9), `${c1.lng.toFixed(4)} -> ${c2.lng.toFixed(4)} -> ${c3.lng.toFixed(4)}`);
+		// ⑤ 掴んだら慣性は止まる（離した直後に掴み直して動かさず離す＝それ以上進まない）
+		await drag(480, 300, 180, 0, 6, 16);
+		pe("pointerdown", 480, 300); const c5 = map.getCenter(); await sleep(200); pe("pointerup", 480, 300); const c6 = map.getCenter();
+		ok("grabStops", near(c5.lng, c6.lng, 1e-9), `${c5.lng.toFixed(5)} ${c6.lng.toFixed(5)}`);
+		// ⑥ scrollZoom の off/on
+		map.jumpTo({ center: [139.76, 35.68], zoom: 10 });
+		map.setHandler("scrollZoom", false); wheel(480, 300, -100); await sleep(300);
+		ok("scrollOff", !map.handlerOn("scrollZoom") && near(map.getZoom(), 10, 1e-9), map.getZoom().toFixed(3));
+		map.setHandler("scrollZoom", true); wheel(480, 300, -100); await sleep(300);
+		ok("scrollOn", map.getZoom() > 10.05, map.getZoom().toFixed(3));
+		// ⑦ dragPan の off（掴んでも動かない）→ on
+		map.jumpTo({ center: [139.76, 35.68], zoom: 10 });
+		map.setHandler("dragPan", false); await drag(480, 300, 120, 60, 6, 0); await sleep(100);
+		const c7 = map.getCenter();
+		ok("dragPanOff", near(c7.lng, 139.76, 1e-9) && near(c7.lat, 35.68, 1e-9));
+		map.setHandler("dragPan", true); await drag(480, 300, 120, 60, 6, 0); await sleep(50);
+		ok("dragPanOn", !near(map.getCenter().lng, 139.76, 1e-4));
+		// ⑧ キーボード +/−（マウスが地図外＝画面中心アンカー）
+		map.jumpTo({ center: [139.76, 35.68], zoom: 10 }); cv.dispatchEvent(new PointerEvent("pointerleave", { bubbles: true, pointerType: "mouse" }));
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "+", bubbles: true })); await sleep(450);
+		const z8 = map.getZoom();
+		window.dispatchEvent(new KeyboardEvent("keydown", { key: "-", bubbles: true })); await sleep(450);
+		ok("keyboardZoom", near(z8, 11, 1e-6) && near(map.getZoom(), 10, 1e-6), `${z8.toFixed(3)} ${map.getZoom().toFixed(3)}`);
+		map.setHandler("keyboard", false); window.dispatchEvent(new KeyboardEvent("keydown", { key: "+", bubbles: true })); await sleep(400);
+		ok("keyboardOff", near(map.getZoom(), 10, 1e-6));
+	}
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e); }
+</script>
+</body></html>

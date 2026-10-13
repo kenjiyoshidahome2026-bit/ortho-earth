@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- geopbf × OpenLayers の最小デモ（単独HTML・ビルド不要）。
-     ol とプラグインを esm.sh 経由で読むので、静的サーバに置くだけで動く。
+     ol は jsDelivr の全部入り、geopbf は esm.sh 経由で読むので、静的サーバに置くだけで動く。
      モノレポ内で未公開版を試す場合はリポジトリルートで `npx vite` を起こし、
      import を "../src/openlayers.js" と bare "ol/…" に替える。
      データは実配信の国土数値情報 N02（鉄道）。attribution はファイルヘッダから自動配線される。 -->
@@ -13,17 +13,17 @@
 </head>
 <body>
 <div id="map"></div>
+<!-- ol は dist/ol.js（全部入り・1 本）で読む。esm.sh の "ol@10/Map.js" + "ol@10/View.js" のような分割 import は
+     各ファイルが自分用に内部クラスを抱え込む＝Map 側の View/Style と別実体になり「t.view.then is not a function」で落ちる
+     （2026-10-12・examples の煙試験が発見）。バンドラで使う時は bare "ol/…" import に替えればよい。 -->
+<script src="https://cdn.jsdelivr.net/npm/ol@10/dist/ol.js"></script>
 <script type="module">
-	import Map from "https://esm.sh/ol@10/Map.js";
-	import View from "https://esm.sh/ol@10/View.js";
-	import TileLayer from "https://esm.sh/ol@10/layer/Tile.js";
-	import VectorLayer from "https://esm.sh/ol@10/layer/Vector.js";
-	import XYZ from "https://esm.sh/ol@10/source/XYZ.js";
-	import VectorSource from "https://esm.sh/ol@10/source/Vector.js";
-	import GeoJSON from "https://esm.sh/ol@10/format/GeoJSON.js";
-	import { fromLonLat } from "https://esm.sh/ol@10/proj.js";
-	import { Stroke, Style } from "https://esm.sh/ol@10/style.js";
 	import { makeGeopbfLoader } from "https://esm.sh/geopbf@1.1.0/openlayers";
+	const { Map, View } = ol;
+	const { Tile: TileLayer, Vector: VectorLayer } = ol.layer;
+	const { XYZ, Vector: VectorSource } = ol.source;
+	const { GeoJSON } = ol.format;
+	const { fromLonLat } = ol.proj;
 
 	const rail = new VectorSource({
 		loader: makeGeopbfLoader("geopbf://https://api.ortho-earth.com/bucket/GIS/pbf/N02-25_RailroadSection", new GeoJSON(), {
@@ -34,7 +34,7 @@
 		target: "map",
 		layers: [
 			new TileLayer({ source: new XYZ({ url: "https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png", attributions: "国土地理院" }) }),
-			new VectorLayer({ source: rail, style: new Style({ stroke: new Stroke({ color: "#3564c0", width: 1.5 }) }) }),
+			new VectorLayer({ source: rail, style: { "stroke-color": "#3564c0", "stroke-width": 1.5 } }),
 		],
 		view: new View({ center: fromLonLat([139.75, 35.68]), zoom: 9 }),
 	});

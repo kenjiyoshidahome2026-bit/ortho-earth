@@ -20,7 +20,7 @@
 	"demos": [
 		{
 			"id": "japan-demo",
-			"href": "/japan/?demo=1",
+			"href": "/japan/?demo=1#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "▶️",
 			"title": "japan(demo)",
@@ -48,8 +48,28 @@
 			"proper": true
 		},
 		{
+			"id": "quiz",
+			"href": "/quiz/",
+			"group": "earth",
+			"icon": "🧠",
+			"title": "World quiz",
+			"lang": "26",
+			"desc": "A geography quiz for kids and grown-ups: flags, capitals and where countries are on the 3D globe. Three levels, the whole world or one region, stars and badges — and the countries you miss come back until you know them.",
+			"img": "/thumbs/quiz.webp",
+			"shot": {
+				"url": "/quiz/?mode=flag&level=1&start",
+				"wait": 12,
+				"size": [
+					1056,
+					660
+				],
+				"eval": "(async () => { const want = 'IT', wait = ms => new Promise(r => setTimeout(r, ms)); const key = () => decodeURIComponent((document.querySelector('#view-quiz .q-prompt img.q-flag')?.src.split('/flags/')[1] ?? '').replace(/\\.svg.*$/, '')); for (let n = 0; n < 800 && key() !== want; n++) { document.querySelector('#view-quiz .q-quit').click(); document.querySelector('#view-home .q-start').click(); await wait(20); } const b = document.querySelector('#view-quiz .q-choice[data-key=\"' + want + '\"]'); if (!b) return; const st = window.setTimeout; window.setTimeout = (f, ms, ...a) => ms === 1600 ? 0 : st(f, ms, ...a); b.click(); window.setTimeout = st; await wait(8000); for (const e of document.querySelectorAll('#map *')) if (!e.children.length && /^\\d{4}\\/\\d\\d\\/\\d\\d/.test(e.textContent.trim())) e.style.visibility = 'hidden'; })()",
+				"after": 1
+			}
+		},
+		{
 			"id": "geoedit",
-			"href": "/japan/geoedit",
+			"href": "/japan/geoedit#5.1/38.2/136.9",
 			"group": "tools",
 			"icon": "✏️",
 			"title": "geoedit",
@@ -74,6 +94,34 @@
 			"img": "/thumbs/world.webp",
 			"shot": {
 				"wait": 8
+			}
+		},
+		{
+			"id": "physical",
+			"href": "/globe/physical",
+			"group": "earth",
+			"icon": "🏔️",
+			"title": "Landforms of the World",
+			"lang": "26",
+			"desc": "Mountains, rivers, lakes, seas and deserts of the world on a 3D globe — rank them, compare their heights and lengths, and overlay ocean currents, plate boundaries and climate zones.",
+			"img": "/thumbs/physical.webp",
+			"shot": {
+				"url": "/globe/physical?lang=en#3.35/26/88",
+				"wait": 20
+			}
+		},
+		{
+			"id": "parks-us",
+			"href": "/globe/parks",
+			"group": "earth",
+			"icon": "🏞️",
+			"title": "National Parks of the United States",
+			"lang": "26",
+			"desc": "All 63 national parks of the United States on a 3D globe — photos, the National Park Service's boundaries, facts and Wikipedia links.",
+			"img": "/thumbs/parks-us.webp",
+			"shot": {
+				"url": "/globe/parks?p=yellowstone",
+				"wait": 16
 			}
 		},
 		{
@@ -105,6 +153,22 @@
 			}
 		},
 		{
+			"id": "clouds",
+			"href": "/globe/clouds#3.2/18/135",
+			"group": "earth",
+			"icon": "☁️",
+			"title": "Clouds now",
+			"lang": "26",
+			"desc": "Infrared images from five geostationary weather satellites (Himawari, GOES, Meteosat), read straight from NASA GIBS and EUMETSAT and drawn in 3D over the globe.",
+			"img": "/thumbs/clouds.webp",
+			"shot": {
+				"url": "/globe/clouds#3.2/18/135",
+				"wait": 60,
+				"eval": "document.querySelector('button.fold')?.click()",
+				"after": 2
+			}
+		},
+		{
 			"id": "solar",
 			"href": "/solar/",
 			"group": "space",
@@ -118,8 +182,22 @@
 			}
 		},
 		{
+			"id": "himekuri",
+			"href": "/himekuri/",
+			"group": "japan",
+			"icon": "📅",
+			"title": "Daily calendar",
+			"lang": "26",
+			"desc": "A Japanese tear-off calendar (lunisolar date, rokuyō, solar terms, holidays) with sunrise, sunset, twilight and the Moon for where you stand, computed with your elevation. Scroll a week without end; add your own iCal.",
+			"img": "/thumbs/himekuri.webp",
+			"shot": {
+				"url": "/himekuri/?d=2026-10-08&lat=35.6812&lon=139.7671&alt=3",
+				"wait": 6
+			}
+		},
+		{
 			"id": "scene",
-			"href": "/japan/scene",
+			"href": "/japan/scene#5.2/36.2/137.8",
 			"group": "tools",
 			"icon": "🎥",
 			"title": "Make a video",
@@ -159,7 +237,7 @@
 		},
 		{
 			"id": "census2020",
-			"href": "/japan/census2020/",
+			"href": "/japan/census2020/#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "📊",
 			"title": "census2020",
@@ -185,7 +263,7 @@
 		},
 		{
 			"id": "japan",
-			"href": "/japan/",
+			"href": "/japan/#5.2/36.2/137.8",
 			"group": "japan",
 			"icon": "🗾",
 			"title": "ortho-japan",
@@ -197,6 +275,34 @@
 				"wait": 10,
 				"eval": "document.getElementById('demo-play')?.getAttribute('aria-pressed')==='true' && document.getElementById('demo-play').click(); [...document.querySelectorAll('#demo-bar button[data-i]')].find(b=>/Mt\\. Fuji/.test(b.textContent))?.click()",
 				"after": 30
+			}
+		},
+		{
+			"id": "parks",
+			"href": "/japan/parks",
+			"group": "japan",
+			"icon": "🏞️",
+			"title": "National Parks of Japan",
+			"lang": "26",
+			"desc": "All 35 national parks of Japan on a 3D globe — photos, the official boundaries, facts and Wikipedia links.",
+			"img": "/thumbs/parks.webp",
+			"shot": {
+				"url": "/japan/parks?p=daisetsuzan",
+				"wait": 16
+			}
+		},
+		{
+			"id": "onsen",
+			"href": "/japan/onsen",
+			"group": "japan",
+			"icon": "♨️",
+			"title": "Hot springs of Japan",
+			"lang": "26",
+			"desc": "About 2,000 hot springs of Japan from Wikipedia on a 3D map, colored by spring type, with onsen districts, distant sources and member inns of the Japan Secluded Hot Spring Association.",
+			"img": "/thumbs/onsen.webp",
+			"shot": {
+				"url": "/japan/onsen",
+				"wait": 18
 			}
 		},
 		{
@@ -230,19 +336,6 @@
 			}
 		},
 		{
-			"id": "maps",
-			"href": "/japan/?r=gsi-photo&hud=1#13.01/35.33664/138.66888/74t/-18r",
-			"group": "tools",
-			"icon": "📚",
-			"title": "Aerial photo tiles",
-			"lang": "26",
-			"desc": "GSI aerial photo tiles. Any XYZ tiles or PMTiles can be shown in 3D.",
-			"img": "/thumbs/maps.webp",
-			"shot": {
-				"wait": 15
-			}
-		},
-		{
 			"id": "pop-density",
 			"href": "/japan/?g=showcase/pop-density-2020.geopbf#7.6/35.3/139.1/62t/-25r",
 			"group": "japan",
@@ -257,12 +350,12 @@
 		},
 		{
 			"id": "edo-map",
-			"href": "/japan/?g=showcase/edo-nihonbashi-1850.geopbf",
+			"href": "/japan/?iiif=/japan/showcase/edo-nihonbashi-1850.iiif.json#15.7/35.6895/139.778",
 			"group": "japan",
 			"icon": "🗺️",
 			"title": "An old map of Edo",
 			"lang": "26",
-			"desc": "A woodblock map of Nihonbashi from 1850 (National Diet Library), laid on today's Tokyo.",
+			"desc": "A woodblock map of Nihonbashi from 1850, read as IIIF tiles straight from the National Diet Library and laid on today's Tokyo by its control points.",
 			"img": "/thumbs/edo-map.webp",
 			"shot": {
 				"wait": 25
@@ -275,11 +368,12 @@
 			"icon": "🇳🇱",
 			"title": "ortho-nl",
 			"lang": "26",
-			"desc": "The Netherlands, drawn with 3DBAG data.",
+			"desc": "The Netherlands in 3D — 3DBAG buildings standing on OpenStreetMap vector tiles and terrain. Hop between eight cities, from Delft to Maastricht.",
 			"img": "/thumbs/nl.webp",
 			"shot": {
-				"wait": 25,
-				"eval": "document.getElementById('net-toast')?.remove()"
+				"url": "/nl/#15.9/51.9120/4.4870/66t/-25r",
+				"wait": 55,
+				"eval": "document.getElementById('net-toast')?.remove(); document.getElementById('nl-places')?.remove()"
 			}
 		}
 	]

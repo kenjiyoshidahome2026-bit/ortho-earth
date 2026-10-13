@@ -4,6 +4,8 @@
 // ・T001082 (年齢別) → 都道府県ZIPを初回のみ e-Stat 取得 → 市区町村単位で IDB 永続化
 //   以降は pyrIdbGet(cityCode5) で瞬時参照。UIは人口を先に描画し年齢は後追い（非ブロッキング）
 
+import { fetchSharedData } from 'gishub-jp/shared-data/index.js';
+import { API_BASE } from '../ui/config.js';
 const GIS_STATS_BASE = 'https://www.e-stat.go.jp/gis/statmap-search/data';
 const DB_NAME   = 'gishub-census';
 
@@ -125,8 +127,7 @@ async function _populate(year) {
     const cfg = _cfg(year);
     if (await idbCount(cfg.sa) > 0) return;     // already stored
 
-    const url  = `${import.meta.env.BASE_URL}census/${cfg.csv}`;
-    const text = await (await fetch(url)).text();
+    const text = await fetchSharedData(`census/${cfg.csv}`, API_BASE);   // 正本は R2（gishub-jp/shared-data・2026-09-30）
     const map  = new Map();
     for (const line of text.split('\n')) {
         if (!line) continue;

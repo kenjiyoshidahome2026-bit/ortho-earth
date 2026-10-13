@@ -19,22 +19,59 @@
 //    blend/stencil はパイプライン焼き込み＝GL の「状態切替と退避復元」の踊りが構造ごと消える。
 //  ・stencil はパス先頭 stencilLoadOp:"clear"＋中間クリアは「フルスクリーン replace(0) 描き」（mid-pass clear が無いため）。
 //  ・picking は非MSAA rgba8 テクスチャへ別パス→copyTextureToBuffer＋mapAsync（GL の PBO+fence 非同期読みと同族）。
-import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS } from "../gl/gint/state.js";
+import { DEF_STYLE, DEF_DASH, DEF_FILL, DEF_MASK, MOVE_THROTTLE_MS, SLOT_FIELDS, emptySlot } from "../gl/gint/state.js";
 import { computeDrawData, zoomInRange, drapeSubs, subPlan } from "../gl/gint/drawdata.js";
-import { checkZoomRange, SUB_NB, fidVisible } from "../gl/gint/utility.js";
-import { bakeBase, bakeTier, tierPlan } from "../gl/gint/bake.js";
+import { checkZoomRange, SUB_NB, fidVisible, farPivotParams, farPivotGlobal, layerBboxOf, FAR_K } from "../gl/gint/utility.js";
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from "../gl/gint/bake.js";
 import { findPolygon } from "geopbf/identify";
 import { unproject, betaOf, ellipsoidOn, lonlatTo3D, sphereRayUniforms } from "../camera.js";
 import { clipDistanceM } from "../clip.js";   // 断面（#111 段 3）＝JS の識別（面の塗りの当たり）も切った側を返さない
-import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, quad6WGSL,
+import { GINT_LINE_WGSL, GINT_STENCIL_WGSL, GINT_POINT_WGSL, GINT_IDRESOLVE_WGSL, toStorageWGSL, withLayerH, quad6WGSL,
 	GINT_LINE_CLIP_WGSL, GINT_STENCIL_CLIP_WGSL, GINT_POINT_CLIP_WGSL, GINT_IDRESOLVE_CLIP_WGSL } from "./gintwgsl.js";
+import { createFidExprRunner } from "./gintexprgpu.js";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 
 const OUTLINE_ZOOM = 13;   // 既定の切替z（passes.js と同値）
 const GP_SLOT = 256;
 const TEX_ARC_W = 4096, TEX_META_W = 4096;   // テクスチャ経路の折り返し幅（旧 s.TEX_ARC_W/TEX_META_W）
+// group(2) のテクスチャは 2D 配列＝層ごと TEX_LAYER_H 行（4096×4096＝arc 128 MiB・meta 256 MiB）で分けて送る（2026-10-12・改良点 ⑤）。
+// 旧＝1 枚の 2D（高さ ≤ maxTextureDimension2D＝8192 で arc 268 MB が天井・超えると createTexture が即死）。層数の上限は
+// maxTextureArrayLayers（≥256）＝実質無限。層の高さは maxTextureDimension2D の最小保証 8192 の内＝どの機でも載る。
+// 送りは層ごと＝丸ごとの padding 済み写し（旧 arcPad＝生配列と同じ大きさをもう 1 本）を作らない（端の 1 行だけ詰める）
+const TEX_LAYER_H = 4096;
+// 分割送りの計画（純関数＝tests/gint-texlayers.mjs が検める）: raw（u32 の個数 rawLen・texel = comps 個）を幅 w・層 LH 行へ。
+// 戻り＝{ w, h, layers, rows, writes }。writes＝writeTexture 1 回ぶん { layer, y, rows, from, to, tail }（from/to＝raw の u32 添字）。
+// 満杯の行は raw の view をそのまま、最後の半端な 1 行だけ tail＝小さな詰め物で送る。minTexels＝載せる texel 数の下限（meta の複製行）
+export function texLayerWrites(rawLen, comps, w, LH, minTexels = 0) {
+	const texels = Math.max(minTexels, Math.ceil(rawLen / comps));
+	const rows = Math.max(1, Math.ceil(texels / w)), layers = Math.ceil(rows / LH), h = layers > 1 ? LH : rows;
+	const rowLen = w * comps, fullRows = Math.floor(rawLen / rowLen), tailLen = rawLen - fullRows * rowLen;
+	const writes = [];
+	for (let l = 0; l < layers; l++) {
+		const r0 = l * LH, r1 = Math.min(rows, r0 + LH), f1 = Math.min(r1, fullRows);
+		if (f1 > r0) writes.push({ layer: l, y: 0, rows: f1 - r0, from: r0 * rowLen, to: f1 * rowLen, tail: false });
+		if (tailLen && fullRows >= r0 && fullRows < r1) writes.push({ layer: l, y: fullRows - r0, rows: 1, from: fullRows * rowLen, to: rawLen, tail: true });
+	}
+	return { w, h, layers, rows, writes };
+}
+// raw は SharedArrayBuffer 裏の view のことがある（geopbf ゼロコピー・2026-10-11）。writeBuffer/writeTexture は AllowSharedBufferSource＝
+// 今の Chrome/Safari は受けるが、受けない版は TypeError＝その時だけ写して渡す（黙って写さない）
+const plainOr = (v, f) => { try { return f(v); } catch (e) { if (!(e instanceof TypeError) || !(typeof SharedArrayBuffer !== "undefined" && v.buffer instanceof SharedArrayBuffer)) throw e; return f(v.slice()); } };
+// 2D 配列テクスチャの分割送り（texLayerWrites の計画どおりに writeTexture）。満杯の行は raw の view のまま・半端な 1 行だけ詰め物。
+// 検定頁 globe/tests/t-gintlayers.html がこの関数そのものを使う（アクセサ WGSL との対＝層・行・列の添字が合うことを実機で読み戻す）
+export function uploadTexArrU32(device, raw, w, fmt, comps, LH = TEX_LAYER_H, minTexels = 0) {
+	const { h, layers, writes } = texLayerWrites(raw.length, comps, w, LH, minTexels);
+	const tex = device.createTexture({ size: [w, h, layers], format: fmt, usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+	const bpr = w * comps * 4;
+	for (const x of writes) {
+		let v = raw.subarray(x.from, x.to);
+		if (x.tail) { const t = new Uint32Array(w * comps); t.set(v); v = t; }   // 半端な 1 行だけ詰め物（残りは createTexture の零）
+		plainOr(v, d => device.queue.writeTexture({ texture: tex, origin: [0, x.y, x.layer] }, d, { bytesPerRow: bpr, rowsPerImage: x.rows }, [w, x.rows, 1]));
+	}
+	return tex;
+}
 const ROLE = { stencil: 0, fill: 1, line: 2, lineHidden: 3, hilite: 4, maskStencil: 5, maskFill: 6, point: 7, pointHi: 8, pickLine: 9, pickPoint: 10 };
 
-export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4 !== false } = {}) {   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
+export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4 !== false, layerH = 0 } = {}) {   // layerH＝2D 配列の層の高さの上書き（検定用・?gintlh=）   // quad4＝線・点を index の 4 頂点で描く（perf plan P3・既定 true・?quad4=0 で旧 6 頂点）
 	const { device, format } = host;
 	let bakeRev = 0;   // 地面アトラスへ焼いた面の失効世代（内容・スタイル・表示・層構成が変わるたび +1＝renderer の合成鍵）
 	const bump = () => { bakeRev++; requestDraw?.(); };
@@ -54,9 +91,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		{ binding: 1, visibility: VF, buffer: {} },
 	] });
 	const bglParam = device.createBindGroupLayout({ entries: [{ binding: 0, visibility: VF, buffer: {} }] });
-	const bglTex2 = device.createBindGroupLayout({ entries: [
-		{ binding: 0, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } },
-		{ binding: 1, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } },
+	const bglTex2 = device.createBindGroupLayout({ entries: [   // group(2)＝2D 配列（texArrU32・層ごと分割送り）
+		{ binding: 0, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint", viewDimension: "2d-array" } },
+		{ binding: 1, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint", viewDimension: "2d-array" } },
 	] });
 	const bglAux = device.createBindGroupLayout({ entries: [
 		{ binding: 0, visibility: GPUShaderStage.VERTEX, texture: { sampleType: "uint" } },
@@ -78,14 +115,15 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		return m;
 	};
 	// 線・点の VS は原本＝index の 4 頂点（P3）。?quad4=0 は quad6WGSL で旧 6 頂点へ機械変換（二重管理をしない・変換漏れは例外）
-	const QW = quad4 ? c => c : quad6WGSL;
-	const LINE_SRC = QW(GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL);
+	const LH = (layerH | 0) > 0 ? Math.min(layerH | 0, TEX_LAYER_H) : TEX_LAYER_H;   // 層の高さ（検定で小さくして複数層を踏む）
+	const QW = quad4 ? c => withLayerH(c, LH) : c => withLayerH(quad6WGSL(c), LH);
+	const LINE_SRC = QW(GINT_LINE_WGSL), POINT_SRC = QW(GINT_POINT_WGSL), STENCIL_SRC = withLayerH(GINT_STENCIL_WGSL, LH);
 	const lineMod = mkMod(LINE_SRC, "line");
-	const stencilMod = mkMod(GINT_STENCIL_WGSL, "stencil");
+	const stencilMod = mkMod(STENCIL_SRC, "stencil");
 	const pointMod = mkMod(POINT_SRC, "point");
 	// storage 版は原本の機械変換＝二重管理をしない（toStorageWGSL が変換漏れを例外で知らせる）
 	const lineModSB = SB ? mkMod(toStorageWGSL(LINE_SRC), "line-sb") : null;
-	const stencilModSB = SB ? mkMod(toStorageWGSL(GINT_STENCIL_WGSL), "stencil-sb") : null;
+	const stencilModSB = SB ? mkMod(toStorageWGSL(STENCIL_SRC), "stencil-sb") : null;
 	const pointModSB = SB ? mkMod(toStorageWGSL(POINT_SRC), "point-sb") : null;
 	// gint は straight alpha（GL blendFuncSeparate(SRC_ALPHA, 1-SA, ONE, 1-SA) と同じ）
 	const SBLEND = {
@@ -124,9 +162,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	const clipInfo = () => host.clipInfo?.() || null;
 	let clipM = null;
 	const clipMods = () => clipM ??= (() => {
-		const Ls = QW(GINT_LINE_CLIP_WGSL), Ps = QW(GINT_POINT_CLIP_WGSL);
-		return { line: mkMod(Ls, "line-clip"), stencil: mkMod(GINT_STENCIL_CLIP_WGSL, "stencil-clip"), point: mkMod(Ps, "point-clip"),
-			lineSB: SB ? mkMod(toStorageWGSL(Ls), "line-clip-sb") : null, stencilSB: SB ? mkMod(toStorageWGSL(GINT_STENCIL_CLIP_WGSL), "stencil-clip-sb") : null,
+		const Ls = QW(GINT_LINE_CLIP_WGSL), Ps = QW(GINT_POINT_CLIP_WGSL), Ss = withLayerH(GINT_STENCIL_CLIP_WGSL, LH);
+		return { line: mkMod(Ls, "line-clip"), stencil: mkMod(Ss, "stencil-clip"), point: mkMod(Ps, "point-clip"),
+			lineSB: SB ? mkMod(toStorageWGSL(Ls), "line-clip-sb") : null, stencilSB: SB ? mkMod(toStorageWGSL(Ss), "stencil-clip-sb") : null,
 			pointSB: SB ? mkMod(toStorageWGSL(Ps), "point-clip-sb") : null, resolve: mkMod(GINT_IDRESOLVE_CLIP_WGSL, "idresolve-clip") };
 	})();
 	const pickClip = {};
@@ -171,7 +209,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	// ── main パス行きパイプラインのセット（遷移時AA）：renderer のフレーム段数（frameInfo().samples＝遷移中1x／
 	// 静止4x）に multisample count を揃える＝焼き込みゆえセット取替。sampleCount 毎に遅延生成・恒久キャッシュ。
 	// pick 系（別パス・rgba8・非MSAA）と idAccum（rg16/32float 蓄積）は従来どおり 1x 固定＝セット外。
-	// VS_STENCIL_MASK 系は GL 側でも現行パスで未使用（drawHighlight の mask fan は stencilProgram＝レンジ描画）＝パイプライン化しない
+	// マスク専用の stencil シェーダ（旧 GL の VS_STENCIL_MASK）は持たない：drawHighlight の mask fan は stencilProgram＝レンジ描画（GL 側の未使用の写しも撤去済み）
 	const buildPipes = (sc, sb, clip) => { const cm = clip ? clipMods() : null;   // clip＝断面の派生（#111 段 3）
 		const [lm, sm, pm, lay] = sb ? (cm ? [cm.lineSB, cm.stencilSB, cm.pointSB, layoutSB] : [lineModSB, stencilModSB, pointModSB, layoutSB]) : (cm ? [cm.line, cm.stencil, cm.point, layout] : [lineMod, stencilMod, pointMod, layout]);
 		const rm = cm ? cm.resolve : idResolveMod; return ({
@@ -247,8 +285,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	// テクスチャ1枚につき同内容の storage buffer を1本持ち、対応表で引く＝描画側の呼び出し
 	// （texBG(sb, L.arcTex, lnSel.tex) 等）を書き換えずにモードを切り替えられる。
 	const bufOf = new WeakMap();   // texture → 同内容の storage buffer
-	const bufU32 = raw => { const b = device.createBuffer({ size: Math.max(4, raw.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); device.queue.writeBuffer(b, 0, raw); return b; };
-	// raw＝padding 前の生配列（storage は 4096 幅の折り返しが要らない）。128MB を超える層はテクスチャのまま。
+	const bufU32 = raw => { const b = device.createBuffer({ size: Math.max(4, raw.byteLength), usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST }); plainOr(raw, v => device.queue.writeBuffer(b, 0, v)); return b; };
+	// raw＝padding 前の生配列（storage は 4096 幅の折り返しが要らない）。binding 上限（既定 128 MiB・renderer がアダプタの実力値を要求＝Apple は 4 GiB 級）を超える層はテクスチャ（2D 配列）のまま。
 	const regBuf = (tex, raw) => { if (SB && raw && raw.byteLength <= SB_LIMIT) bufOf.set(tex, bufU32(raw)); return tex; };
 	// 破棄はテクスチャと対で（WeakMap の自然回収待ち＝GC まで VRAM を掴む）。buffer の無いテクスチャにも安全
 	const dropTex = tex => { if (!tex) return; const b = bufOf.get(tex); if (b) { b.destroy(); bufOf.delete(tex); } tex.destroy(); };
@@ -273,8 +311,8 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		}
 		let m = texBGs.get(a); if (!m) texBGs.set(a, m = new WeakMap());
 		let bg = m.get(b);
-		if (!bg) m.set(b, bg = device.createBindGroup({ layout: bglTex2, entries: [
-			{ binding: 0, resource: a.createView() }, { binding: 1, resource: b.createView() }] }));
+		if (!bg) m.set(b, bg = device.createBindGroup({ layout: bglTex2, entries: [   // 1 層でも 2d-array の view（既定は 2d＝レイアウト不一致）
+			{ binding: 0, resource: a.createView({ dimension: "2d-array" }) }, { binding: 1, resource: b.createView({ dimension: "2d-array" }) }] }));
 		return bg;
 	};
 	// group(3)＝pivot/fidStyle/標高（層ごとキャッシュ＝何かが差し替わった時だけ作り直す）
@@ -295,12 +333,11 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		device.queue.writeTexture({ texture: tex }, data, { bytesPerRow: w * comps * 4, rowsPerImage: h }, [w, h]);
 		return tex;
 	}
+	// group(2) の 2D 配列＝raw（u32 の生配列・texel = comps 個）を幅 w・層 LH 行で分割送り。minTexels＝載せる texel 数の下限（meta の複製行）
+	// 丸ごとの padding 済み写しは作らない（uploadTexArrU32＝満杯の行は raw の view をそのまま writeTexture、端の半端な 1 行だけ詰め物）
+	const texArrU32 = (raw, w, fmt, comps, minTexels = 0) => uploadTexArrU32(device, raw, w, fmt, comps, LH, minTexels);
 	function uploadMetaTex(metaU32, edgeCount) {
-		const rows = Math.max(edgeCount, metaU32.length >> 2);   // 複製行（長辺の細分用・メタ末尾）も載せる
-		const h = Math.ceil(rows / TEX_META_W);
-		const pad = new Uint32Array(TEX_META_W * h * 4);
-		pad.set(metaU32);
-		return regBuf(texU32(pad, TEX_META_W, h, "rgba32uint", 4), metaU32);
+		return regBuf(texArrU32(metaU32, TEX_META_W, "rgba32uint", 4, edgeCount), metaU32);   // 複製行（長辺の細分用・メタ末尾）も載せる＝minTexels は edgeCount
 	}
 	function applyArtifacts(L, art) {
 		const { gintData } = L;
@@ -309,10 +346,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		L.arcTex = null;
 		if (ab?.length) {
 			const arcU32 = new Uint32Array(ab.buffer, ab.byteOffset, ab.byteLength / 4);
-			const arcH = Math.ceil(arcU32.length / 2 / TEX_ARC_W);
-			const arcPad = new Uint32Array(TEX_ARC_W * arcH * 2);
-			arcPad.set(arcU32);
-			L.arcTex = regBuf(texU32(arcPad, TEX_ARC_W, arcH, "rg32uint", 2), arcU32);
+			L.arcTex = regBuf(texArrU32(arcU32, TEX_ARC_W, "rg32uint", 2), arcU32);
 		}
 		dropTex(L.metaTex);
 		L.metaTex = null;
@@ -348,14 +382,9 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		if (pb?.length) {
 			const ptU32 = new Uint32Array(pb.buffer, pb.byteOffset, pb.byteLength / 4);
 			L.totalPoints = ptU32.length / 2;
-			const ptH = Math.ceil(L.totalPoints / TEX_ARC_W);
-			const ptPad = new Uint32Array(TEX_ARC_W * ptH * 2);
-			ptPad.set(ptU32);
-			L.ptTex = regBuf(texU32(ptPad, TEX_ARC_W, ptH, "rg32uint", 2), ptU32);
+			L.ptTex = regBuf(texArrU32(ptU32, TEX_ARC_W, "rg32uint", 2), ptU32);
 			const ptMetaRaw = gintData.point.subarray(0, L.totalPoints);
-			const ptMetaPad = new Uint32Array(TEX_ARC_W * ptH);
-			ptMetaPad.set(ptMetaRaw);
-			L.ptMetaTex = regBuf(texU32(ptMetaPad, TEX_ARC_W, ptH, "r32uint", 1), ptMetaRaw);
+			L.ptMetaTex = regBuf(texArrU32(ptMetaRaw, TEX_ARC_W, "r32uint", 1), ptMetaRaw);
 		} else L.totalPoints = 0;
 		if (L.lodTiers?.length) L.lodTiers.forEach(t => dropTex(t.tex));
 		L.lodTiers = [];
@@ -419,26 +448,43 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	function clearFidStyle(L) {
 		if (L.fidStyleTex) L.fidStyleTex.destroy();
 		L.fidStyleTex = null; L.fidStyleW = 0; L._fidStyleH = 0; L.fidStyleCount = 0; L._fidStyleData = null;
+		dropExpr(L);
+	}
+	// ── fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）＝main が式を WGSL に（gpu/gintexpr.js）・属性列と辞書表を送り、ここで compute → fidStyleTex へ copy。
+	// feature-state の差し替え（exprState）は列の該当セルを writeBuffer して走らせ直すだけ＝CPU の全 fid 再評価が無い。zoom の差し替えも同じ（uniform 1 本）
+	let exprRunner = null;
+	const dropExpr = L => { if (L._exprJob) { L._exprJob.destroy(); L._exprJob = null; } };
+	async function paintExpr(L, d) {   // d＝{ prog, count, props, states, geom, dnum, dcol, zoom, overlap, table }（table＝表を読み戻して返す＝main の lastTable）
+		if (!d?.prog || !(d.count > 0)) { clearFidStyle(L); L.idOverlapMode = !!d?.overlap; bump(); return null; }
+		exprRunner ||= createFidExprRunner(device, { texW: Math.min(4096, TEX_ARC_W) });
+		const job = await exprRunner.create(d.prog, d);   // WGSL のエラーは throw（呼び手が ack の error に載せ、main は CPU の表へ落ちる）
+		dropExpr(L); L._exprJob = job;
+		const W = job.texW, H = job.H;
+		if (!L.fidStyleTex || L.fidStyleW !== W || L._fidStyleH !== H) {
+			if (L.fidStyleTex) L.fidStyleTex.destroy();
+			L.fidStyleTex = device.createTexture({ size: [W, H], format: "rgba32uint", usage: GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.COPY_DST });
+		}
+		job.run({ tex: L.fidStyleTex });
+		L.fidStyleW = W; L._fidStyleH = H; L.fidStyleCount = d.count; L._fidStyleData = null;
+		L.idOverlapMode = !!d.overlap;
+		bump();
+		return d.table ? job.readback() : null;
+	}
+	function exprState(L, d) {   // d＝{ rows: [[fid, cells]…], dnum?, dcol?（辞書が伸びた時）, zoom?, table }。走者が無い（CPU の表の層）＝false＝main が CPU 経路へ
+		const job = L._exprJob; if (!job || !L.fidStyleTex) return null;
+		if (d?.dnum) job.growDict(d.dnum, d.dcol);
+		if (d?.rows) for (const [fid, cells] of d.rows) job.setState(fid, cells);
+		job.run({ tex: L.fidStyleTex, zoom: d?.zoom });
+		bump();
+		return d?.table ? job.readback() : Promise.resolve(null);
 	}
 
 	// ── 層状態（§10.1 第1ブロック＝層ごとに割る）とスロット束 ────────────────
-	// SLOT_FIELDS＝スロット束が退避/復元する層のデータ・スタイル面（embed.js と同形＝ベイク済み GPU/台帳資産のキャッシュ）
-	const SLOT_FIELDS = [
-		"gintData", "arcTex", "metaTex", "metaTexB", "ptTex", "ptMetaTex", "pivotTex", "pivotW",
-		"totalEdges", "totalPoints", "polyEdges", "totalEdgesB", "polyEdgesB",
-		"fillOff", "lowFill", "tiersDone", "lodTiers", "metaChunks",
-		"polyEdgeByFid", "polyBboxByFid", "outlineZoom", "minZoom", "maxZoom",
-		"fidStyleTex", "fidStyleW", "_fidStyleH", "fidStyleCount", "_fidStyleData",
-	];
-	const emptySlot = () => ({ gintData: null, arcTex: null, metaTex: null, metaTexB: null, ptTex: null, ptMetaTex: null,
-		pivotTex: null, pivotW: 0, totalEdges: 0, totalPoints: 0, polyEdges: 0, totalEdgesB: 0, polyEdgesB: 0,
-		fillOff: false, lowFill: false, tiersDone: false, lodTiers: [], metaChunks: null,
-		polyEdgeByFid: null, polyBboxByFid: null, outlineZoom: null, minZoom: null, maxZoom: null,
-		fidStyleTex: null, fidStyleW: 0, _fidStyleH: 0, fidStyleCount: 0, _fidStyleData: null });
+	// SLOT_FIELDS／emptySlot＝スロット束が退避/復元する層のデータ・スタイル面（gl/gint/state.js・GL と共通＝ベイク済み GPU/台帳資産のキャッシュ）
 	const layers = [];       // 描画順（後の層が上）
 	let act = null;          // カーソルを持つ層（§4.1 常に1層。既定＝最後に addLayer した層）
 	const GF_LINE = 0, GF_FILL = 1, GF_LINE_B = 2, GF_FILL_B = 3;
-	const GF_SLOT = 512;   // 案A: meshQ/meshP 追加で 64f 超過＝512B ストライド（dynamic offset は 256 倍数制約）
+	const GF_SLOT = 768;   // 案A: meshQ/meshP 追加で 64f 超過＝512B→遠方の要（float 128〜139）で 768B ストライド（dynamic offset は 256 倍数制約）
 	function makeLayer() {
 		const L = {
 			...emptySlot(),
@@ -511,17 +557,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 			if (key === L.activeKey) deleteTextures(L);
 			loadBundle(L, emptySlot());
 			L.activeKey = key;
-			L.gintData = {
-				arcBuffer: data.arcBuffer ?? null,
-				arcMeta: data.arcMeta ?? null,
-				polyStream: data.polyStream?.length ? data.polyStream : null,
-				lineStream: data.lineStream?.length ? data.lineStream : null,
-				pointBuffer: data.pointBuffer?.length ? data.pointBuffer : null,
-				point: data.point ?? null,
-				polyCompBbox: data.polyCompBbox ?? null,
-				fillMaxEdges: data.fillMaxEdges ?? null,   // 同期経路でも層別の塗り上限/低ズーム塗りを落とさない（gl/worker.js と同修理）
-				lowFill:      data.lowFill      ?? false,
-			};
+			L.gintData = gintDataOf(data);
 			const art = bakeBase(L.gintData);
 			applyArtifacts(L, art);
 			scheduleTierBuild(L, { weightHist: art.weightHist });
@@ -574,7 +610,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 	function style(L, data) { L.drawStyle = data ?? null; L.stylesDirty = true; bump(); }
 	function setVisible(L, v) { L.visible = !!v; bump(); }
 	function paint(L, data) {
-		if (data?.table && data.count > 0) uploadFidStyle(L, data.table, data.count);
+		if (data?.table && data.count > 0) { dropExpr(L); uploadFidStyle(L, data.table, data.count); }   // CPU の表＝GPU の走者は捨てる（⑦）
 		else clearFidStyle(L);
 		L.idOverlapMode = !!data?.overlap;
 		bump();
@@ -682,6 +718,15 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		gfF[o + 68] = dep?.meshG ?? 0; gfF[o + 69] = d.near?.[0] ?? 0; gfF[o + 70] = d.near?.[1] ?? 0; gfF[o + 71] = skipE7;
 		gfF[o + 72] = atlas ? atlas.off[0] : 0; gfF[o + 73] = atlas ? atlas.off[1] : 0; gfF[o + 74] = atlas ? atlas.inv[0] : 1; gfF[o + 75] = atlas ? atlas.inv[1] : 1;
 		gfF[o + 76] = atlas ? 1 : 0; gfF[o + 77] = 0; gfF[o + 78] = 0; gfF[o + 79] = 0;
+		// 遠方の要（塗り扇の画面カリング・float 128〜139＝断面の予約欄 80〜127 の後ろ）：per-fid の要は pivot 有効の時だけ（線の GF は要を使わない＝書いても無害）
+		// 単一要（noPivot＝境界メタ）は層が視野よりずっと大きい時だけ遠方の 1 点（farPivotGlobal・環は fid を跨いで閉じる＝巻き数不変）
+		const dd = atlas ? { atlas } : d;
+		const fp = (!noPivot && L.pivotTex) ? farPivotParams(dd, vb) : null;
+		const gP = noPivot ? farPivotGlobal(dd, vb, layerBboxOf(L.polyBboxByFid)) : null;
+		if (fp) { gfF[o + 128] = fp.axes[0]; gfF[o + 129] = fp.axes[1]; gfF[o + 130] = fp.axes[2]; gfF[o + 131] = fp.axes[3]; }
+		else if (gP) { gfF[o + 128] = gP[0]; gfF[o + 129] = gP[1]; gfF[o + 130] = 0; gfF[o + 131] = 0; }
+		gfF[o + 132] = fp ? fp.q[0] : 0; gfF[o + 133] = fp ? fp.q[1] : 0; gfF[o + 134] = fp ? 1 : gP ? 2 : 0; gfF[o + 135] = FAR_K;
+		gfU[o + 136] = fp ? fp.big[0] : 0; gfU[o + 137] = fp ? fp.big[1] : 0; gfU[o + 138] = 0; gfU[o + 139] = 0;
 		const ci = clipInfo();   // 断面（#111 段 3）＝派生の GF だけが読む末尾（float 80〜127）
 		if (ci) packClip(gfF, o + 80, d.origin, ci);   // atlasQ.x＝窓座標モード   // meshP.yz＝地形適応細分の近傍窓（deg 半幅・0=集中なし）・w＝メイン描画が飛ばす長辺の下限スパン（e7・S0·2^b は f32 で厳密）
 	}
@@ -1145,6 +1190,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 			rank: L.lastDrawData?.lodRank ?? -1, tierW: L._pfTierW ?? -1, edges: L._pfLineEdges ?? 0, dbg: L._dbg ?? null, ring: (L._dbgRing ?? []).slice(-40).join(" "),
 			style: L.drawStyle ? { oz: L.drawStyle.outlineZoom, mb: L.drawStyle.moveBudget, nd: L.drawStyle.noDepth, lw: L.drawStyle.lineWidth } : null,
 			tiers: L.lodTiers?.length ?? 0, tiersDone: !!L.tiersDone, total: L.totalEdges,
+			expr: L._exprJob ? 1 : 0, layers: Math.max(L.arcTex?.depthOrArrayLayers ?? 0, L.metaTex?.depthOrArrayLayers ?? 0, L.ptTex?.depthOrArrayLayers ?? 0), layerH: LH, sbLimit: SB_LIMIT,   // 2D 配列の層数（分割送りの検札）
 			runs: L._pfRuns ?? -1, chunks: L._pfChunks ?? -1, vb: V.lastViewBbox };
 	}
 	// 層ハンドル（§4 addGint の土台＝データ・スタイル面の動詞を層に束ねる。カーソルはエンジン＝activate で移す）
@@ -1152,6 +1198,7 @@ export function createGintLayerGPU(host, { requestDraw, noSB, quad4 = host.quad4
 		return {
 			set: (d, k) => set(L, d, k), setSlot: k => setSlot(L, k), setBaked: (p, k) => setBaked(L, p, k),
 			style: d => style(L, d), setVisible: v => setVisible(L, v), paint: d => paint(L, d),
+			paintExpr: d => paintExpr(L, d), exprState: d => exprState(L, d),   // fid 表を GPU で組む（⑦）・feature-state／zoom の差し替え
 			stats: () => statsFor(L),
 			range: () => ({ minZoom: L.minZoom ?? null, maxZoom: L.maxZoom ?? null }),   // 実描画レンジ（データ導出×指定）＝main の照会が「見えている層」を判定する物差し（ack で返す）
 			activate: () => { if (act !== L) { act = L; activeId = -1; } },

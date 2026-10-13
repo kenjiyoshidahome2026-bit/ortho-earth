@@ -1,21 +1,10 @@
 // スタンドアロン /japan/ サイトの配線（index.html のインライン script から移設 2026-08-20）。
-// ★二重構成の分岐点＝ここ1か所：
-//   dev（vite dev）        … ./app.js（ソース直＝HMR・編集即反映＝従来どおり）
-//   本番（vite build）     … /japan/lib/ortho-japan.js（SDK配布物そのもの＝pack:sdk が配る物と同一バイト列）
-// 仕組み＝import.meta.env.PROD は build 時に定数化 → 死んだ側の分岐は rollup が丸ごと落とす
-//   （＝本番バンドルに app.js は入らない・dev は lib を見ない）。verify:prod がこの確約を毎回検査する。
-// lib のURLは**変数経由**で import＝vite の import 解析（devでもリテラルは解決を試みて 404 で落ちる）を
-// 素通りさせ、実行時にブラウザが /japan/lib/ から取る。@vite-ignore は「解析しない」警告の抑止。
-let engineP;
-if (import.meta.env.PROD) {
-	// CSS は lib 側で抽出されている＝ページが自分で貼る（dev は app.js の import が面倒を見る）。
-	// #boot（不透明カバー）が初回フレームまで全面を覆う＝CSS到着の遅速は見えない。
-	document.head.appendChild(Object.assign(document.createElement("link"), { rel: "stylesheet", href: "lib/ortho-japan.css" }));
-	const LIB = "/japan/lib/ortho-japan.js";
-	engineP = import(/* @vite-ignore */ LIB);
-} else {
-	engineP = import("./app.js");
-}
+// エンジン＝./app.js（orthoJapan＝globe＋jp パック）。dev はソース直、本番の build は globe・i18n・core・geopbf を
+// 共有エンジン（/globe/engine/<版>/・ortho-globe の Worker が配る）から読む＝/globe/ や /world/ とブラウザのキャッシュを分かち合う
+// （2026-09-30・本人裁定「A」・LAYERS.md 掟 3）。旧＝本番だけ /japan/lib/ の SDK 配布物を実行時に食う二重構成。
+// SDK（/japan/lib/・npm）は外へ配る物なので自己完結のまま build:prod が従来どおり置く。
+const engineP = import("./app.js");
+const failedP = import("@ortho-earth/globe/page.js");   // 起動失敗の表示（共通の器・2026-10-04）＝旧は catch 無し＝起動画面が永久に残った
 // 台本（demo/scenes.js）は起動バンドルに載せない＝下で動的 import()。編集はあのファイル1枚・site.jsは触らない。
 const dismissBoot = () => {   // 地図の初回フレームが描かれてから起動画面を退場（空canvasのちらつきを避ける＝2フレーム待ち）
 	requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -23,7 +12,7 @@ const dismissBoot = () => {   // 地図の初回フレームが描かれてか�
 		if (boot) { boot.classList.add("gone"); setTimeout(() => boot.remove(), 250); }
 	}));
 };
-// assetBase＝自分の配信ベース（dev/本番とも /japan/）。lib は base:"/" で焼かれている＝ここで指し直すのが埋め込み作法どおり。
+// assetBase＝自分の配信ベース（dev/本番とも /japan/）。
 // top-level await は使わない＝既定ビルドターゲット(es2020)の掟。then連鎖で同じ流れ。
 engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map => {   // 1行＝日本が立ち上がる（divも自作。埋め込みは orthoJapan({ target: "#…" })）
 	dismissBoot();
@@ -42,7 +31,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 	map.gadget.zoom({ narrow: false });   // ズーム＋/−（縦2連の一体ボタン）。狭画面＝出さない（ピンチが担う・左上溢れ対策）
 	map.gadget.full({ narrow: false });   // 全画面トグル（非対応端末では出ない）。狭画面＝出さない（同上）
 	map.gadget.home();        // 日本全体へ（真俯瞰・北向きに戻る）＝地域宣言 home（旧名 japan）
-	map.gadget.equal({ zoom: [-99, 5] });      // 全球図（Equal Earth）へ＝地球全体を眺める距離だけ（球のフレームから開く受け渡し・2026-09-20）
+	map.gadget.equal({ zoom: [-99, 5], load: () => import("ortho-equal/src/equal.js") });   // 全球図（Equal Earth）へ＝地球全体を眺める距離だけ（球のフレームから開く受け渡し・2026-09-20）。load＝部品をこの頁の div に組む（iframe でなく・2026-10-04）＝equalStart／equalHere も同じ口
 	if (new URLSearchParams(location.search).get("start") === "equal") map.gadget.equalStart({ view: { zoom: 1, lat: 0, lon: 138 } });   // 入口＝紙の全球図（本人 9/20「規定を EE に」の体感用・既定化は裁定待ち）。z は equal 側が画面幅に合わせる
 	map.gadget.solar({ zoom: [-99, 5] });      // 太陽系へ＝星空圏(z<5)のみ（低ズームの扉。34px土星アイコン）
 	map.gadget.clock({ zoom: [-99, 5] });      // 時計（#42）＝夜の側・星空・太陽系圏が時計の時刻で描かれる圏だけ（時間バーはボタンと一緒に出入り）
@@ -79,7 +68,7 @@ engineP.then(m => m.default({ assetBase: import.meta.env.BASE_URL })).then(map =
 		});
 	}
 	map.gadget.hint();        // 操作説明カード（最下段＝カードが開いても上の段を動かさない）
-});
+}).catch(e => failedP.then(m => m.startupFailed("japan", e), () => console.error("[japan] startup failed", e)));
 // サービスワーカー登録（public/sw.js＝ビルド資産を Cache API で版管理＝再訪の無通信起動/オフライン）。
 // 本番 https と localhost（検定の頁 tests/*.html は site.js を読まない＝掛からない）。app.js でなくページ側に置く＝埋め込みを汚さない。
 // updateViaCache:none＝SWスクリプト自体は毎回検証（版番号を上げたら確実に更新される）。load 後＝起動描画を邪魔しない。

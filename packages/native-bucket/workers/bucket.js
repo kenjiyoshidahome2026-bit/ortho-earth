@@ -1,5 +1,9 @@
 import { keyMatches } from './proxy.js';
 
+// 中身のハッシュ（8 桁以上の 16 進）を名前に持つ共有データ（GIS/shared/…・uploader の「共有データ」ボタンが上げる）は
+// 中身が変わればキーが変わる＝ブラウザに 1 年持たせてよい（2026-09-30・縮小計画 項目6b。他のキーは従来どおり max-age=60）
+const IMMUTABLE = /^GIS\/shared\/.+\.[0-9a-f]{8,}\.[a-z0-9]+$/;
+
 export async function bucket(request, bucket, ctx, env = {}) {
 	const url = new URL(request.url);
 	const path = decodeURIComponent(url.pathname.split('/bucket/').pop());
@@ -54,7 +58,7 @@ export async function bucket(request, bucket, ctx, env = {}) {
 					"Content-Type": obj.httpMetadata?.contentType || "application/octet-stream",
 					"Content-Encoding": obj.httpMetadata?.contentEncoding || "",
 					"Content-Length": obj.size, "ETag": obj.httpEtag,
-					"Cache-Control": "public, s-maxage=3600, max-age=60"
+					"Cache-Control": IMMUTABLE.test(path) ? "public, max-age=31536000, immutable" : "public, s-maxage=3600, max-age=60"
 				}
 			});
 			(response.status === 200) && ctx.waitUntil(cache.put(request, response.clone()));

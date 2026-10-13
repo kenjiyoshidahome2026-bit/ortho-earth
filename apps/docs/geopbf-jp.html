@@ -129,8 +129,16 @@ GeoPBF ファイルは <strong>Header Section</strong> と <strong>Body Section�
 	<tr><td>LENGTH</td><td>9</td><td class="dim">Packed Varint</td><td>リング・マルチパートの頂点数列</td></tr>
 	<tr><td>COORDS</td><td>10</td><td class="dim">Packed SVarint</td><td>デルタ圧縮座標列 X₀,Y₀,ΔX₁,ΔY₁,...（後述）</td></tr>
 	<tr><td>INDEX</td><td>12</td><td class="dim">Packed Varint</td><td>グローバル KEYS 辞書へのインデックス</td></tr>
-	<tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/JSON/BLOB/IMAGE</td></tr>
+	<tr><td>VALUE</td><td>11</td><td class="dim">Repeated Message</td><td>NULL/BOOL/INTEGER/FLOAT/STRING/DATE/COLOR/FUNC/JSON/BBOX/BLOB/IMAGE — メッセージ 1 つに 1 フィールド、フィールド番号が型</td></tr>
+	<tr><td>GARRAY</td><td>13</td><td class="dim">Message</td><td>GeometryCollection の要素を入れ子の GEOMETRY メッセージで</td></tr>
 </table>
+
+<p class="dim" style="font-size:0.85rem">
+リーダが知っておくべき細部（すべて<a href="https://github.com/kenjiyoshidahome2026-bit/geopbf/blob/main/pbf%20spec.md">ワイヤ仕様</a>に）：
+デルタの鎖はリングごとに (0,0) から始まる、ポリゴンのリングは閉点を省く、要素 1 つの <code>Multi*</code> は単数型で書く、
+<code>BUFS</code> の各要素は個別に raw DEFLATE 圧縮、<code>COLOR</code> は正規形の <code>rgb()</code>/<code>rgba()</code> 文字列だけ、
+<code>DATE</code> は秒精度。
+</p>
 
 <div class="callout callout-note">
 	<div class="callout-head">O(1) ヘッダー更新</div>
@@ -232,6 +240,13 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 	<tr><td><strong>GPX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">GPS トラック・ウェイポイント</td></tr>
 	<tr><td><strong>FlatGeoBuf</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">高速ストリーミング対応</td></tr>
 	<tr><td><strong>TopoJSON</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">トポロジー保持 入出力</td></tr>
+	<tr><td><strong>NDJSON</strong> / GeoJSON Text Sequence</td><td class="good">✓</td><td class="good">✓</td><td class="dim">1 行 1 地物（<code>.ndjson .geojsonl .geojsons .jsonl</code>）</td></tr>
+	<tr><td><strong>CZML</strong>（Cesium）</td><td class="good">✓</td><td class="good">✓</td><td class="dim">時刻つき位置は <code>time</code> 配列に、パケットの残りは <code>czml</code> 属性で往復</td></tr>
+	<tr><td><strong>GeoPackage</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">依存ゼロの SQLite リーダで 1 層（<code>{ layer }</code>）。<code>geopbf/gpkg</code> はタイル表も開く</td></tr>
+	<tr><td><strong>SpatiaLite</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim"><code>.sqlite .sqlite3 .spatialite .db</code>。同じリーダ・SpatiaLite の BLOB ジオメトリ</td></tr>
+	<tr><td><strong>File Geodatabase</strong></td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">Esri の <code>.gdb</code> フォルダを zip したもの。中の <code>*.gdbtable</code> で判別、<code>{ layer }</code> で表を選ぶ</td></tr>
+	<tr><td><strong>CSV / TSV / XLSX</strong></td><td class="good">✓</td><td class="good">✓</td><td class="dim">経緯度列か WKT 列（<code>{ lon, lat, wkt, sheet, delimiter }</code>）。書き出しは属性＋経緯度か WKT</td></tr>
+	<tr><td><strong>DXF</strong></td><td class="good">✓</td><td class="bad">—</td><td class="dim">AutoCAD DXF（<code>{ crs, unitScale, closedAsPolygon }</code>）。平面直角座標系は <code>geopbf/proj</code></td></tr>
 	<tr><td><strong>登記所備付地図</strong>（法務省）</td><td class="good">✓ (.zip)</td><td class="bad">—</td><td class="dim">14条地図・筆ポリゴン。デコード時に JGD2011 平面直角座標（19 系）→ WGS84 を実施。拡張子が <code>.zip</code> で Shapefile と競合するため <code>{ format: "moj" }</code> で明示指定</td></tr>
 	<tr><td><strong>GeoParquet</strong> <span class="dim">(v1.5)</span></td><td class="good">✓</td><td class="good">✓</td><td class="dim">WKB + bbox 覆域列・行は空間順。依存ゼロのリーダは geopandas / pyarrow / DuckDB の出力も読む — §13</td></tr>
 	<tr><td><strong>PMTiles</strong>（MVT）<span class="dim">(v1.5)</span></td><td class="bad">—</td><td class="good">✓</td><td class="dim">タイルは Gint から切るため、ズーム別簡略化はランクのフィルタ 1 つ — §13。逆変換は無い（タイルは簡略化・量子化済み）</td></tr>
@@ -241,9 +256,9 @@ GeoPBF を中心に置くことで任意フォーマット間の相互変換が 
 </div>
 
 <p>
-上 8 行は自動判定の入口 <code>geopbf(input)</code> を通る。GeoParquet と PMTiles は規模が大きく必要時に
-読めば足りるため、それぞれ専用のサブパス export（<code>geopbf/geoparquet</code>・<code>geopbf/pmtiles</code>）
-に分けてある（詳細は §13）。ラスタはさらに別経路で、<code>geopbf/cog</code> は Cloud Optimized GeoTIFF を
+「読み込み」に ✓ のある行はすべて自動判定の入口 <code>geopbf(input)</code> を通る（GeoParquet も。依存ゼロの
+リーダは <code>geopbf/geoparquet</code> にある）。PMTiles の書き出しは規模が大きく必要時に読めば足りるため、
+専用のサブパス export（<code>geopbf/pmtiles</code>）に分けてある（詳細は §13）。ラスタはさらに別経路で、<code>geopbf/cog</code> は Cloud Optimized GeoTIFF を
 HTTP Range で直接読み、変換自体を行わない（§12）。いずれも CLI に対応物があり、
 <code>npx geopbf enc / dec / pmtiles / parquet / parquet2pbf</code> が GDAL 無しの素の Node で動く。
 </p>
@@ -254,9 +269,11 @@ HTTP Range で直接読み、変換自体を行わない（§12）。いずれ�
 		<code>geopbf(input)</code> に <code>File</code>・<code>Blob</code>・<code>ArrayBuffer</code>・
 		<code>Object</code> のいずれを渡しても、拡張子・MIME タイプ・マジックバイトから
 		フォーマットを自動判定して適切なデコーダを呼び出す。対応は
-		<code>.geopbf .pbf .geojson .json .topojson .fgb .zip .kml .kmz .gpx .gml .xml</code>
+		<code>.geopbf .pbf .geojson .json .topojson .ndjson .geojsonl .jsonl .fgb .gpkg .sqlite .db .parquet
+		.csv .tsv .xlsx .zip .kml .kmz .gpx .gml .xml .czml .dxf</code>
 		（いずれも <code>.gz</code> 可・gzip は署名で判別）。呼び出し側はフォーマットを意識する必要がない。
-		唯一の例外が登記所備付地図で、拡張子 <code>.zip</code> が Shapefile と重なるため
+		<code>.zip</code> は中身を見る（<code>*.gdbtable</code> があれば File Geodatabase、無ければ Shapefile）。
+		唯一の例外が登記所備付地図で、拡張子 <code>.zip</code> が両方と重なるため
 		<code>{ format: "moj" }</code> で明示する。デコードできない <code>File</code> は黙って空の
 		FeatureCollection を返さず、明示エラーで落とす。
 	</p>
@@ -268,13 +285,13 @@ HTTP Range で直接読み、変換自体を行わない（§12）。いずれ�
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(geojsonObject);  <span class="cm">// GeoJSON オブジェクト直接</span>
 <span class="kw">const</span> pbf = <span class="kw">await</span> <span class="fn">geopbf</span>(zip, { format: <span class="st">"moj"</span> });   <span class="cm">// 登記所備付地図 .zip（平面直角→WGS84）</span>
 
-<span class="cm">// 各フォーマットへのエクスポート</span>
-<span class="kw">const</span> geojson  = pbf.geojson;    <span class="cm">// → GeoJSON オブジェクト</span>
-<span class="kw">const</span> topojson = pbf.topojson;   <span class="cm">// → TopoJSON（トポロジー保持）</span>
-<span class="kw">const</span> shp      = pbf.<span class="fn">shape</span>();    <span class="cm">// → Shapefile (.zip Blob)</span>
-<span class="kw">const</span> kmz      = pbf.<span class="fn">kmz</span>();      <span class="cm">// → KMZ Blob</span>
-<span class="kw">const</span> gml      = pbf.<span class="fn">gml</span>();      <span class="cm">// → GML 文字列</span>
-<span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgb</span>(); <span class="cm">// → FlatGeoBuf ArrayBuffer</span>
+<span class="cm">// 各フォーマットへのエクスポート（*File() は worker でエンコードして File を返す）</span>
+<span class="kw">const</span> geojson  = pbf.geojson;                 <span class="cm">// → GeoJSON オブジェクト（同期）</span>
+<span class="kw">const</span> topojson = pbf.<span class="fn">topojson</span>();              <span class="cm">// → TopoJSON（トポロジー保持・{ gint: true } が要る）</span>
+<span class="kw">const</span> shp      = <span class="kw">await</span> pbf.<span class="fn">shapeFile</span>();   <span class="cm">// → Shapefile (.zip)</span>
+<span class="kw">const</span> kmz      = <span class="kw">await</span> pbf.<span class="fn">kmzFile</span>();     <span class="cm">// → KMZ</span>
+<span class="kw">const</span> gml      = <span class="kw">await</span> pbf.<span class="fn">gmlFile</span>();     <span class="cm">// → GML（gpxFile・czmlFile・geojsonFile・topojsonFile も同様）</span>
+<span class="kw">const</span> fgb      = <span class="kw">await</span> pbf.<span class="fn">fgbFile</span>();     <span class="cm">// → FlatGeobuf</span>
 
 <span class="cm">// v1.5 — 大きい 2 形式は専用のサブパス export から（§13）</span>
 <span class="kw">import</span> { toPMTiles } <span class="kw">from</span> <span class="st">"geopbf/pmtiles"</span>;
@@ -629,27 +646,36 @@ shapefile は原典の double をそのまま持つが、精度によらず 1 �
 <span class="cm">//   nocache: true  → IndexedDB キャッシュを無視して再取得</span>
 <span class="cm">//   clean:   true  → トポロジー整合クリーン処理を実行</span>
 
+<span class="cm">//   noeval:  false → FUNC 型の値を new Function で復元（1.19 から既定 true＝ソース文字列のまま）</span>
+<span class="cm">//   worker:  false → 呼び出しスレッドで復号（Worker の無い Node では自動）</span>
+
 <span class="cm">// ── データアクセス ──────────────────────────────────────────</span>
 pbf.length          <span class="cm">// フィーチャ数</span>
 pbf.keys            <span class="cm">// 属性名配列 ['name', 'rank', ...]</span>
-pbf.arrayBuffer     <span class="cm">// 生 ArrayBuffer（Worker 転送用）</span>
+pbf.arrayBuffer     <span class="cm">// 生 ArrayBuffer（Worker 転送用。set(ArrayBuffer) は復号 worker へ transfer する）</span>
 pbf.geojson         <span class="cm">// GeoJSON FeatureCollection に変換</span>
-pbf.topojson        <span class="cm">// TopoJSON に変換（トポロジー保持）</span>
-pbf.<span class="fn">getFeature</span>(i)   <span class="cm">// i 番目のフィーチャだけをデコード</span>
+pbf.<span class="fn">topojson</span>()      <span class="cm">// TopoJSON に変換（トポロジー保持・Gint が要る）</span>
+pbf.<span class="fn">getFeature</span>(i)   <span class="cm">// i 番目のフィーチャだけをデコード（getGeometry / getProperties / propsRow も同様）</span>
+pbf.<span class="fn">contain</span>([lng, lat])          <span class="cm">// 点を含む最小の面（fid か null）</span>
+pbf.<span class="fn">identifyAt</span>(lng, lat, opts)   <span class="cm">// 点・線・面の当たり判定（半径はメートル）</span>
 
 <span class="cm">// ── エクスポート ────────────────────────────────────────────</span>
-<span class="kw">await</span> pbf.<span class="fn">save</span>(<span class="st">'name'</span>)      <span class="cm">// .geopbf（gzip）としてダウンロード</span>
-pbf.<span class="fn">shape</span>()               <span class="cm">// Shapefile .zip</span>
-pbf.<span class="fn">kmz</span>()                 <span class="cm">// KMZ</span>
-pbf.<span class="fn">gml</span>()                 <span class="cm">// GML 文字列</span>
-pbf.<span class="fn">gpx</span>()                 <span class="cm">// GPX 文字列</span>
-<span class="kw">await</span> pbf.<span class="fn">fgb</span>()           <span class="cm">// FlatGeoBuf ArrayBuffer</span>
+<span class="kw">await</span> pbf.<span class="fn">save</span>()             <span class="cm">// 設定した bucket へ保存（createGeopbf(apiBase, { bucket })）</span>
+<span class="kw">await</span> pbf.<span class="fn">geopbfFile</span>()       <span class="cm">// .geopbf の File（geojsonFile / topojsonFile / shapeFile / kmzFile / gpxFile / czmlFile / gmlFile / fgbFile）</span>
+<span class="kw">await</span> pbf.<span class="fn">preview</span>(canvas)    <span class="cm">// worker で描くサムネイル（OffscreenCanvas / ImageBitmap）</span>
 
 <span class="cm">// ── メタデータ O(1) 更新 ────────────────────────────────────</span>
-pbf.<span class="fn">header</span>({ name: <span class="st">'New Name'</span>, description: <span class="st">'...'</span>, license: <span class="st">'MIT'</span> });
+pbf.<span class="fn">name</span>(<span class="st">'New Name'</span>); pbf.<span class="fn">description</span>(<span class="st">'...'</span>); pbf.<span class="fn">license</span>(<span class="st">'MIT'</span>);   <span class="cm">// または pbf.updateHeader({ … })</span>
 
-<span class="cm">// ── 描画 ───────────────────────────────────────────────────</span>
-pbf.<span class="fn">draw</span>(canvasCtx, { fill: <span class="st">'#5a8050'</span>, stroke: <span class="st">'#a8d47e'</span> });</code></pre>
+<span class="cm">// ── 低いレベルの入口（パッケージのサブパス） ────────────────</span>
+<span class="cm">// geopbf/pbf        GeoPBF クラス（new GeoPBF(opts).set(…)）      geopbf/gint · /topology · /identify   Gint の焼き込み・GintBUF・当たり判定</span>
+<span class="cm">// geopbf/pmtiles · /geoparquet · /parquet · /spatial-order       書き出しと読み込み（§13）</span>
+<span class="cm">// geopbf/gpkg · /sqlite · /spatialite · /mbtiles · /filegdb · /fgb · /dxf · /table   形式リーダ（自動判定の入口を通さず使える）</span>
+<span class="cm">// geopbf/proj · /datum       EPSG 投影・TKY2JGD / PatchJGD の測地系変換        geopbf/convert/node-gint   Node で Gint を焼く</span>
+<span class="cm">// geopbf/cog · /cog/core · /cog/source · /maplibre-cog · /leaflet-cog   Cloud Optimized GeoTIFF（§12）</span>
+<span class="cm">// geopbf/featureservice      ArcGIS FeatureServer / OGC API – Features をソースに   geopbf/georef   IIIF Georeference Annotation</span>
+<span class="cm">// geopbf/edit · /edit/*      編集モデル（DOM 非依存）         geopbf/worker · /no-builtin-workers   worker の入口とその外し方</span>
+<span class="cm">// geopbf/sanitize · /czml · /gzip · /encodeZIP · /decodeZIP · /encodeXLSX · /fname2mime   ユーティリティ</span></code></pre>
 
 <!-- ──────────────────────────────────────────────────── -->
 <h2 id="integrations">10. 地図ライブラリ統合（v1.1）</h2>
@@ -671,7 +697,7 @@ JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素�
 	</tr>
 	<tr>
 		<td><code>geopbf/maplibre</code></td>
-		<td class="dim">addProtocol ハンドラ</td>
+		<td class="dim">addProtocol ハンドラ（GeoJSON ソース、または <code>/{z}/{x}/{y}</code> でベクタタイル）</td>
 		<td>MapLibre GL JS (v4+)</td>
 	</tr>
 	<tr>
@@ -700,6 +726,7 @@ JSON-safe へ写像する（<code>Date</code> → ISO 文字列、bbox → 素�
 <span class="kw">import</span> { geopbfProtocol } <span class="kw">from</span> <span class="st">"geopbf/maplibre"</span>;
 maplibregl.<span class="fn">addProtocol</span>(<span class="st">"geopbf"</span>, geopbfProtocol);
 map.<span class="fn">addSource</span>(<span class="st">"rail"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"geopbf://https://…/N02-25_RailroadSection"</span> });
+map.<span class="fn">addSource</span>(<span class="st">"rail-tiles"</span>, { type: <span class="st">"vector"</span>, tiles: [<span class="st">"geopbf://https://…/N02-25_RailroadSection/{z}/{x}/{y}"</span>] });   <span class="cm">// 同じ URL に /{z}/{x}/{y}＝Gint から要求タイルだけ MVT に（共有境界は継ぎ目無し・feature.id＝fid）</span>
 
 <span class="cm">// ── Leaflet — レイヤープラグイン ───────────────────────────</span>
 <span class="kw">import</span> { extendLeaflet } <span class="kw">from</span> <span class="st">"geopbf/leaflet"</span>;
@@ -856,7 +883,7 @@ PMTiles に同等の逆変換は用意していない。タイルは簡略化さ
 <hr class="rule">
 
 <div style="font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
-	geopbf v1.5.0 · Kenji Yoshida · MIT License · 2026
+	geopbf v1.19.0 · Kenji Yoshida · MIT License · 2026
 </div>
 
 </div>

@@ -1,6 +1,6 @@
 {
 	"name": "@ortho-earth/globe",
-	"version": "1.13.0",
+	"version": "1.14.0",
 	"license": "GPL-3.0-or-later",
 	"type": "module",
 	"description": "A 3D globe for the web: createGlobe() draws the whole Earth with WebGPU (WebGL2 fallback) and takes your data through a MapLibre-style API. No API key, no server of your own.",
@@ -10,12 +10,15 @@
 			"types": "./globe.d.ts",
 			"default": "./src/globe.js"
 		},
-		"./maplibre": "./src/maplibre/index.js",
+		"./maplibre": {
+			"types": "./maplibre.d.ts",
+			"default": "./src/maplibre/index.js"
+		},
 		"./scripts/*": "./scripts/*",
 		"./*": "./src/*"
 	},
 	"imports": {
-		"#extra-roles": "./src/worker-roles-extra.js"
+		"#pointcloud-formats": "./src/pointcloud-formats-none.js"
 	},
 	"dependencies": {
 		"@loaders.gl/3d-tiles": "^4.3.0",
@@ -26,21 +29,26 @@
 		"@ortho-earth/columnar": "^0.1.0",
 		"@ortho-earth/core": "^1.14.0",
 		"@ortho-earth/ephem": "^1.1.0",
+		"@ortho-earth/h3": "^0.1.0",
 		"earcut": "^3.2.3",
 		"fzstd": "^0.1.1",
 		"geoedit": "^0.3.1",
-		"geopbf": "^1.17.0",
+		"geopbf": "^1.18.0",
 		"native-bucket": "^1.0.0"
 	},
 	"devDependencies": {
+		"@deck.gl/core": "^9.4.0",
+		"@deck.gl/layers": "^9.4.0",
+		"@deck.gl/mapbox": "^9.4.0",
 		"@ortho-earth/tile-formats": "*",
 		"quiet-mono": "^1.0.0",
-		"sass": "^1.93.0"
+		"sass": "^1.93.0",
+		"three": "^0.186.1"
 	},
 	"scripts": {
 		"build:css": "node scripts/build-css.mjs",
 		"prepack": "node scripts/build-css.mjs",
-		"test": "node tests/zoomscale.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/hillshade.mjs && node tests/mlshim.mjs && node tests/czml-time.mjs",
+		"test": "node tests/zoomscale.mjs && node tests/transition.mjs && node tests/light.mjs && node tests/sky-spec.mjs && node tests/mlsmall.mjs && node tests/mlfacade.mjs && node tests/internal-callers.mjs && node tests/expr-golden.mjs && node tests/mlcompat.mjs && node tests/vtextrude.mjs && node tests/vtdraw.mjs && node tests/mlexamples-compare.mjs && node tests/hillshade.mjs && node tests/mlshim.mjs && node tests/czml-time.mjs && node tests/copc-noplugin.mjs && node tests/wiki.mjs && node tests/pick.mjs && node tests/arcs.mjs && node tests/cells.mjs && node tests/contour.mjs && node tests/trips.mjs && node tests/plugin.mjs && node tests/weather.mjs && node tests/postchain.mjs && node tests/gltf-meta.mjs && node tests/gltf-anim.mjs && node tests/clouds.mjs && node tests/mesh-features.mjs && node tests/splat.mjs && node tests/mlshim-dts.mjs",
 		"verify": "node scripts/build-css.mjs --check && npm run verify:regionless && npm run verify:ui && npm run verify:webgpu",
 		"verify:ui": "node scripts/verify-ui.mjs",
 		"verify:webgpu": "node scripts/verify-webgpu.mjs",
@@ -70,8 +78,9 @@
 	"homepage": "https://www.ortho-earth.com/",
 	"files": [
 		"src",
+		"!src/i18n/ui.json",
 		"globe.d.ts",
-		"scripts",
+		"maplibre.d.ts",
 		"LICENSE",
 		"README.md"
 	],
@@ -85,6 +94,8 @@
 		"./src/gintbakeworker.js",
 		"./src/rastertiles-worker.js",
 		"./src/imagequad-worker.js",
+		"./src/iiif-worker.js",
+		"./src/copc-worker.js",
 		"./src/model-worker.js",
 		"./src/vtextrude-worker.js",
 		"./src/vtdraw-worker.js"

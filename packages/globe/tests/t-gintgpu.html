@@ -27,7 +27,8 @@ try {
 	const canvas = document.getElementById("g");
 	const r = await createRendererGPU(canvas);
 	const noSB = /[?&]gintsb=0/.test(location.search);   // verify が両経路を回す（既定=storage・?gintsb=0=テクスチャ）
-	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB });
+	const layerH = +(location.search.match(/[?&]gintlh=(\d+)/)?.[1] || 0);   // 2D 配列の層の高さ（分割送り・改良点 ⑤）＝小さくして複数層を踏む
+	const gint = createGintLayerGPU(r, { requestDraw: () => {}, noSB, layerH });
 	ok("boot(webgpu+gint)", !!r.device);
 	const rd = document.createElement("canvas"); rd.width = 256; rd.height = 256;
 	const rctx = rd.getContext("2d", { willReadFrequently: true });
@@ -130,6 +131,58 @@ try {
 		ok(`チルト部分表示stencil(穴=${hole} 環=${ann} 外=${outv})`, hole === 0 && ann > 5 && outv === 0);
 	}
 
+	// ── ②c 遠方の要（塗り扇の画面カリング・2026-10-13・t-gintlod ②c の WebGPU 対）：視野よりずっと大きい凹の環（穴・離れ島つき）に寄って、
+	// 塗りの画素が CPU の内外判定と一致するか（境界から 3px 以内は判定しない）。stencil 単色（境界メタ＝単一要）と ID 塗り（per-fid の要）の両経路 ──
+	{
+		const { unproject } = await import("../../../packages/ortho-core/src/camera.js");
+		const N = 1800, outer = [], hole = [];
+		for (let i = 0; i < N; i++) { const a = i / N * Math.PI * 2, rr = 1.6 + 0.5 * Math.sin(7 * a) + 0.03 * Math.sin(97 * a);
+			outer.push([C[0] + rr * Math.cos(a) * 1.4, C[1] + rr * Math.sin(a) * 0.7]); }
+		outer.push(outer[0]);
+		for (let i = 0; i <= 64; i++) { const a = -i / 64 * Math.PI * 2; hole.push([C[0] + 0.25 * Math.cos(a), C[1] + 0.2 * Math.sin(a)]); }
+		const isl = [[C[0] + 2.6, C[1] + 1.2], [C[0] + 2.7, C[1] + 1.2], [C[0] + 2.7, C[1] + 1.3], [C[0] + 2.6, C[1] + 1.3], [C[0] + 2.6, C[1] + 1.2]];
+		const rings = [outer, hole, isl];
+		const arcBuffer = BigUint64Array.from(rings.flat().map(([lo, la]) => pack(lo, la, true)));
+		const arcMeta = new Uint32Array(rings.length * 8);
+		let o = 0;
+		rings.forEach((rg, aid) => { arcMeta[aid * 8] = o; arcMeta[aid * 8 + 1] = rg.length; o += rg.length;
+			arcMeta[aid * 8 + 4] = Math.min(...rg.map(p => e7(p[0] + 180))); arcMeta[aid * 8 + 5] = Math.min(...rg.map(p => e7(p[1] + 90)));
+			arcMeta[aid * 8 + 6] = Math.max(...rg.map(p => e7(p[0] + 180))); arcMeta[aid * 8 + 7] = Math.max(...rg.map(p => e7(p[1] + 90))); });
+		gint.set({ arcBuffer, arcMeta, polyStream: Int32Array.from([3, 2, 1, 0, 1, 1, 4, 1, 1, 2]), minZoom: 2 });
+		gint.style({ fillColor: [1, 0, 0, 0.6] });
+		const pip = (p, rg) => { let c = false; for (let i = 0, j = rg.length - 1; i < rg.length; j = i++) {
+			const [xi, yi] = rg[i], [xj, yj] = rg[j];
+			if ((yi > p[1]) !== (yj > p[1]) && p[0] < (xj - xi) * (p[1] - yi) / (yj - yi) + xi) c = !c; } return c; };
+		const inside = p => (pip(p, outer) && !pip(p, hole)) || pip(p, isl);
+		const views = [
+			["境界", { center: [outer[0][0] - 0.02, outer[0][1]], zoom: 11, pitch: 0, bearing: 0, dpr: 1 }],
+			["穴の縁", { center: [C[0] + 0.25, C[1]], zoom: 11.5, pitch: 0, bearing: 0, dpr: 1 }],
+			["回転", { center: [outer[N / 4 | 0][0], outer[N / 4 | 0][1] - 0.02], zoom: 11, pitch: 0, bearing: 0.7, dpr: 1 }],
+			["チルト", { center: [outer[N / 2 | 0][0] + 0.03, outer[N / 2 | 0][1]], zoom: 11, pitch: 0.9, bearing: 2.2, dpr: 1 }],
+			["島の近く", { center: [C[0] + 2.62, C[1] + 1.22], zoom: 10, pitch: 0, bearing: 0, dpr: 1 }],
+		];
+		const check = async (label, colorOf) => {
+			for (const [nm, cam] of views) {
+				const a8 = await shot(cam), st = cameraState(cam, 256, 256);
+				let nIn = 0, nOut = 0, bad = 0;
+				for (let y = 8; y < 248; y += 8) for (let x = 8; x < 248; x += 8) {
+					const ins = [[0, 0], [3, 0], [-3, 0], [0, 3], [0, -3]].map(([dx, dy]) => { const g = unproject(st, x + dx, y + dy); return g ? inside(g) : null; });
+					if (ins.some(v => v === null) || ins.some(v => v !== ins[0])) continue;
+					const i = (y * 256 + x) * 4;
+					if (ins[0]) nIn++; else nOut++;
+					if (colorOf(a8, i) !== ins[0]) bad++;
+				}
+				ok(`遠方の要${label}:${nm}(内=${nIn} 外=${nOut} 不一致=${bad})`, bad === 0 && nIn > 20 && nOut > 20);
+			}
+		};
+		await check("stencil", (a8, i) => a8[i] > 150 && a8[i + 1] < 130);
+		const table = new Uint32Array(5 * 4);   // fid3/4：塗り＝緑・線は透明（ID 塗りの経路）
+		for (const f of [3, 4]) { table[f * 4] = 0x00FF00FF; table[f * 4 + 1] = 0; table[f * 4 + 2] = ((8 << 24) | (6 << 8) | 1) >>> 0; }
+		gint.paint({ table, count: 5 });
+		await check("ID塗り", (a8, i) => a8[i + 1] > 150 && a8[i] < 130);
+		gint.paint(null);
+	}
+
 	// ── ③ 大データ：>200k辺 → tier 梯子（macrotask 遅延構築）→ tier 経路描画 ──
 	{
 		const nArcs = 500, len = 500, total = nArcs * len;
@@ -165,6 +218,9 @@ try {
 		let px = 0;   // style1（折れ線 #00B4D8＝シアン系）
 		for (let i = 0; i < a8.length; i += 4) if (a8[i + 2] > 150 && a8[i] < 130) px++;
 		ok(`大データtier描画(px=${px})`, px > 50);
+		// 分割送りの検札：?gintlh=N＝層 N 行の 2D 配列＝250k 頂点（4096 幅で 62 行）が複数層に跨って同じ絵（?gintsb=0 で描画もその層から読む）
+		if (layerH) ok(`2D配列の層(${gint.stats().layers}層・層高${gint.stats().layerH})`, gint.stats().layers > 1 && gint.stats().layerH === layerH);
+		else ok(`2D配列1層(${gint.stats().layers})`, gint.stats().layers === 1);
 	}
 
 	// ── ⑤ overlay：stencil-then-cover 塗り（純赤の正方形ポリゴン）＝面パスの検定 ──

@@ -1,15 +1,17 @@
 // e-Stat 小地域（町丁目）の器＝日本の地域パックの部品（LAYERS.md 段階 2 S3・2026-09-23。旧＝apps/ortho-japan/overlay.js に同居）。
 // worker（estat-worker.js）が fetch→gunzip→parse→ジオメトリ生成→transfer＝main をブロックしない。
-// ホストからは拡張面（env）だけを受ける：renderer のスロット・cam・size/dpr・requestDraw・tip・say・t・spawnWorker・HI_MASK。
+// ホストからは拡張面（env）だけを受ける：renderer のスロット・cam・size/dpr・requestDraw・tip・say・t・HI_MASK。
 // 消費者（census2020）は map.estat（install.js が置く）で loadEstat / highlightKey / setIdentifyHandler / clearOverlay を呼ぶ。
-export function createEstat({ renderer, cam, size, dpr, requestDraw, tip, say, t, spawnWorker, hiMask, unproject, cameraState }) {
+export function createEstat({ renderer, cam, size, dpr, requestDraw, tip, say, t, hiMask, unproject, cameraState }) {
 	let estatActive = false;      // e-Stat 経路がアクティブ＝identify は worker へ
 	let estatOpts = {};           // 直近 loadEstat の opts（moveCamera/quiet/onLoaded）＝派生アプリ用。既定は従来挙動
 	let identifyHandler = null;   // identify 結果の派生アプリ受け口（setIdentifyHandler）。未登録なら従来の say パネル
 	let highlightWait = null;     // highlightKey の完了待ち（worker 返信は直列＝最後の呼びが勝つで足りる）
-	// worker は初めて要る時（loadEstat）に立てる＝census2020 以外の頁では起動しない
+	// worker は初めて要る時（loadEstat）に立てる＝census2020 以外の頁では起動しない。
+	// 自前の入口（2026-09-30）＝globe の worker.js へ役を差し込まない。共有エンジンの worker は地域の役を持たない（LAYERS.md 掟 3）。
+	// 束に入るのは core/geojson の純関数だけ（数 KB）＝globe の worker と共有しなくても重複は小さい。
 	let estatW = null;
-	const estatWorker = () => estatW ??= Object.assign(spawnWorker("estat"), { onmessage: onEstatMessage });
+	const estatWorker = () => estatW ??= Object.assign(new Worker(new URL("./estat-worker.js", import.meta.url), { type: "module", name: "estat" }), { onmessage: onEstatMessage });
 	const onEstatMessage = e => {
 		const m = e.data;
 		if (m.type === "loaded") {

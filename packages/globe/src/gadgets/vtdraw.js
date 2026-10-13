@@ -1,4 +1,4 @@
-// vector source の描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27）の main 側。中身は vtdraw-worker.js・前処理は vtops.js。
+// vector source の描く層（MapLibre の fill／line／circle／symbol を vector source で・段 8⑤・2026-09-27。heatmap は点集めだけ＝C1・2026-10-12）の main 側。中身は vtdraw-worker.js・前処理は vtops.js。
 // 本人の裁定「別の流れ・基図の上」：基図の配管（core の pipeline）は触らない。利用者の層は renderer の "user" の枠へ＝基図の塗りと線の上・注記は基図と同じ衝突。
 //   選び＝段 8①（vtextrude.js）と同じ作法：core selectLOD を MapLibre の vector source の尺で（tilePx 512√2）・source の min/maxzoom・範囲・遠景の打ち切り・予算。
 //   取得＝main が requester で（transformRequest・addProtocol の読み口）・PMTiles は core の生バイトの口。生バイトは組み役の worker が預かる。
@@ -9,6 +9,7 @@
 //   ズームの式＝止まった時に曲線の鍵（vtmesh.paintZoomKey・layout も）を見て、変わった source を出ているタイルから組み直す（0.25 刻みの z で組む）。
 //   feature-state（#109・押し出し 8①b と同じ作法）＝置き場は呼び手（globe の vtxFS）・ここは読むだけ。状態が変わった地物を含むタイルに印（touchFS）＝そのタイルだけ組み直す。
 //         paint に ["feature-state"] がある層だけが読む（filter は読まない＝MapLibre と同じ）。タイルごとに「含む地物の id」（ids）を worker から受け取って持つ。
+import { workerPool } from "../worker-rpc.js";   // worker への往復（id つき postMessage）＝ガジェット共通
 import { selectLOD, fetchPMTilesRaw, pmtilesInfo, isRasterTileType, evalExpr, getGlobalState } from "@ortho-earth/core";
 import { retainTiles, paintZoomKey, filterZoom, hasZoom, tileKey } from "../vtmesh.js";
 import { liOf, styleZoomProps, quantZoom } from "../vtops.js";
@@ -24,7 +25,7 @@ export const usesFS = L => JSON.stringify(L?.paint ?? null).includes('"feature-s
 
 // desc＝vtextrude.js と同じ source の記述子（globe の vtxDescOf）。呼び手の口：size()＝{ w, h }（device px）・sendScene(scene, transfer)・sendLabels(id, list|null, meta)・isFlying()
 // fstate＝feature-state の置き場（sid → Map<fsKey(sourceLayer, id), { id, state }>・押し出しと同じ物）
-export function createVTDraw(map, { cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // gs＝地図の global-state の取り出し（#173 段 3b）
+export function createVTDraw(map, { raw = null, cam, size, dpr = 1, lowMem = false, tileBias = 1, zoomOf = null, requester, sendScene, sendLabels, sendHeat = () => {}, requestDraw = () => {}, isFlying = () => false, fstate = new Map(), fsKey = (sl, id) => `${sl}\u0000${typeof id}:${id}`, gs = null } = {}) {   // sendHeat(id, ll|null, w)＝heatmap 層の点（C1）＝出しているタイルの和を呼び手（globe→heatmap-gl）へ   // gs＝地図の global-state の取り出し（#173 段 3b）
 const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {}, gs: gs?.(), origin: "ml" });   // ズームの鍵の見直し＝地図の global-state で
 	const OPS_BUDGET = (lowMem ? 48 : 128) * 2 ** 20, RAW_BUDGET = (lowMem ? 16 : 48) * 2 ** 20;
 	const MAX_TILES = lowMem ? 24 : 48, MAX_FETCH = lowMem ? 3 : 6, MAX_BUILD = 4, TILE_PX = 512 * Math.SQRT2, RETRY_MS = 2000, TRIES = 3, MERGE_MS = 120, MERGE_FS_MS = 32;   // MERGE_FS_MS＝状態の変化を待っている間の間引き（#109 段 4：ホバーの移りで 2 枚目の結合が 120ms 待たされていた＝実測の外れ値 150〜190ms）
@@ -38,20 +39,9 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const warned = new Set();
 	const warnOnce = (k, msg) => { if (!warned.has(k)) { warned.add(k); console.warn(msg); } };
 
-	// ── 組み役 worker（タイルの鍵で振る）──
-	const NB = lowMem ? 1 : 2, workers = [], waiting = new Map(); let rpcSeq = 0;
-	const workerOf = k => {
-		let h = 0; for (let i = 0; i < k.length; i++) h = (h * 31 + k.charCodeAt(i)) | 0;
-		const i = Math.abs(h) % NB;
-		if (!workers[i]) {
-			const w = new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
-			w.onmessage = e => { const p = waiting.get(e.data.id); if (!p) return; waiting.delete(e.data.id); e.data.error ? p.rej(new Error(e.data.error)) : p.res(e.data); };
-			w.onerror = e => console.error("[vtdraw] worker error", e.message);
-			workers[i] = w;
-		}
-		return { w: workers[i], i };
-	};
-	const rpc = (w, msg, transfer = []) => new Promise((res, rej) => { const id = ++rpcSeq; waiting.set(id, { res, rej }); w.postMessage({ id, ...msg }, transfer); });
+	// ── 組み役 worker（タイルの鍵で振る＝lowMem は 1 本）──
+	const pool = workerPool(() => new Worker(new URL("../worker.js", import.meta.url), { type: "module", name: "vtdraw" }), { size: lowMem ? 1 : 2, tag: "vtdraw" });   // 入口 1 本（worker.js）＝役割は name
+	const workerOf = pool.pick, rpc = pool.rpc;
 
 	// ── 結合役＝core の scene worker（md:false＝CPU 結合）。render worker への口の代わりに main が端を持つ ──
 	let merger = null;
@@ -70,10 +60,13 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 	const mkey = (sid, k) => `${k}/${sid}`;   // z/x/y を先頭に（core の coveredTiles が z/x/y で読む＝祖先の鍵と重ならない）
 
 	const schedule = () => { if (!rafU) rafU = requestAnimationFrame(() => { rafU = 0; update(); }); };
-	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else setTimeout(schedule, 130); };
+	// 間引き：120ms 以内の move は 130ms 後に 1 回だけ（保留は 1 本）。旧＝move の度に setTimeout を積んだ＝ドラッグ中は 1 フレームに何本も溜まって destroy でも消えなかった
+	let moveT = 0;
+	const onMove = () => { moving = true; if (performance.now() - lastUpd > 120) schedule(); else if (!moveT) moveT = setTimeout(() => { moveT = 0; schedule(); }, 130); };
 	const onSettle = () => { moving = false; settledZoom = cam.zoom; schedule(); };
 	map.on("move", onMove); map.on("settle", onSettle);
 	const srcReady = T => T && (T.state === "ready" || T.state === "empty" || (T.state === "failed" && T.tries >= TRIES));
+	let layerRev = 0;   // 層の版（set のたびに進む）
 	const layersOf = sid => [...layers.values()].filter(s => s.sid === sid);
 	const fzOf = (src, z) => layersOf(src.sid).some(s => hasZoom(s.layer.filter)) ? filterZoom(z, src.desc.maxzoom ?? 22, settledZoom) : z + 1;
 
@@ -119,7 +112,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			}
 			if (sources.get(src.sid) !== src || src.tiles.get(key) !== T) return;
 			T.bytes = ab?.byteLength || 0;
-			if (T.bytes) await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]);
+			if (T.bytes) { raw?.put("vtdraw", src.sid, key, ab.slice(0), enc); await rpc(w, { kind: "put", sid: src.sid, key, ab, enc }, [ab]); }   // raw＝main の写し（querySourceFeatures・C7）
 			T.state = T.bytes ? "ready" : "empty";
 		})().catch(err => {
 			if (src.tiles.get(key) !== T) return;
@@ -149,12 +142,12 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		B.building = true; building++;
 		const fs = fsFor(src, B, gen, fz), t0 = performance.now();
 		B.fsDirty = false;   // 組み立て中に状態が変わったら touchFS がまた立てる＝着いた後にもう一度
-		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key }));
-		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs }).then(r => {
+		const ls = layersOf(sid).map(s => ({ id: s.id, layer: s.layer, key: s.key, rev: s.rev }));
+		rpc(workerOf(`${sid}|${key}`).w, { kind: "build", gs: gs ? { ...gs() } : getGlobalState(), sid, key, z: t.z, x: t.x, y: t.y, layers: ls, fz, pz, promoteId: src.desc.promoteId ?? null, fs, pitch: (cam.pitch || 0) * R2D }).then(r => {   // pitch＝["pitch"]（C2）
 			if (sources.get(sid) !== src || src.built.get(key) !== B) { if (r.ops?.length) {/* 捨てる（transfer 済みの配列は GC） */} return; }
 			if (r.miss) { src.tiles.delete(key); B.gen = -1; return; }   // 生バイトが無い（捨てた後）＝取り直す
 			tm.builds++; tm.rttMs = performance.now() - t0; tm.decodeMs = r.stats?.decodeMs ?? 0; tm.buildMs = r.stats?.buildMs ?? 0;
-			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.ver++;
+			B.gen = gen; B.zsig = zsig; B.fz = fz; B.used = clock; B.labels = r.labels || {}; B.heat = r.heat || {}; B.ver++;
 			B.ids = r.ids ? new Set(Object.entries(r.ids).flatMap(([sl, a]) => a.map(id => fsKey(sl, id)))) : null;   // このタイルが含む地物（feature-state を読む層の分）＝touchFS がどのタイルを組み直すか
 			for (const k of r.warn || []) warnOnce(`${sid}:${k}`, `[vtdraw] source "${sid}": ${k} is not supported yet on vector sources`);
 			const mk = mkey(sid, key);
@@ -164,7 +157,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		}).catch(err => { B.state = B.state === "ready" ? "ready" : "failed"; console.warn("[vtdraw] build", sid, key, err.message); })
 			.finally(() => { B.building = false; building--; schedule(); });
 	}
-	const emptyB = () => ({ state: "none", gen: -1, zsig: null, fz: null, ops: false, bytes: 0, labels: {}, origin: null, z: 0, ver: 0, building: false, used: clock, ids: null, fsDirty: false });
+	const emptyB = () => ({ state: "none", gen: -1, zsig: null, fz: null, ops: false, bytes: 0, labels: {}, heat: {}, origin: null, z: 0, ver: 0, building: false, used: clock, ids: null, fsDirty: false });
 
 	// ── 毎回の選び（rAF に畳む）──
 	function update() {
@@ -194,7 +187,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 				if (!B) src.built.set(k, B = emptyB());
 				B.used = clock;
 				if (B.building) continue;
-				if (T.state !== "ready") { if (B.state !== "ready" || B.ops || B.gen !== src.gen) { if (B.ops) mergerW().w.postMessage({ type: "evict", keys: [mkey(src.sid, k)] }); Object.assign(B, { state: "ready", ops: false, bytes: 0, labels: {}, gen: src.gen, zsig: src.zsig, fz: fzOf(src, t.z), ids: null }); B.ver++; } B.fsDirty = false; continue; }   // 空・諦めたタイル
+				if (T.state !== "ready") { if (B.state !== "ready" || B.ops || B.gen !== src.gen) { if (B.ops) mergerW().w.postMessage({ type: "evict", keys: [mkey(src.sid, k)] }); Object.assign(B, { state: "ready", ops: false, bytes: 0, labels: {}, heat: {}, gen: src.gen, zsig: src.zsig, fz: fzOf(src, t.z), ids: null }); B.ver++; } B.fsDirty = false; continue; }   // 空・諦めたタイル
 				if (B.state !== "ready" || B.gen !== src.gen || B.zsig !== src.zsig || B.fz !== fzOf(src, t.z) || B.fsDirty) buildTile(src, t, B);
 			}
 			const ready = k => src.built.get(k)?.state === "ready";
@@ -203,6 +196,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		}
 		mergeMaybe();
 		labelsMaybe();
+		heatMaybe();
 		evict();
 		fsDone();
 	}
@@ -260,6 +254,25 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		}
 	}
 
+	// ── ヒートマップ（C1・層ごと・出しているタイルの点の和）＝呼び手が heatmap-gl（画面単位の密度）へ渡す。署名はタイル×版＝組み直し（paint・zoom・feature-state）で送り直す ──
+	const heatSig = new Map();   // id → 署名
+	function heatMaybe() {
+		for (const s of layers.values()) {
+			if (s.layer.type !== "heatmap") continue;
+			const src = sources.get(s.sid), on = s.on && !!src && inZoom(s.layer, cam.zoom);
+			const keys = on ? [...src.show].sort() : [];
+			const sig = on ? keys.map(k => `${k}:${src.built.get(k)?.ver ?? 0}`).join(",") : "off";
+			if (heatSig.get(s.id) === sig) continue;
+			heatSig.set(s.id, sig);
+			let n = 0; const parts = [];
+			for (const k of keys) { const h = src.built.get(k)?.heat?.[s.id]; if (h) { parts.push(h); n += h.w.length; } }
+			if (!n) { sendHeat(s.id, null, null); continue; }
+			const ll = new Float64Array(n * 2), w = new Float32Array(n); let o = 0;
+			for (const h of parts) { ll.set(h.ll, o * 2); w.set(h.w, o); o += h.w.length; }
+			sendHeat(s.id, ll, w);
+		}
+	}
+
 	// ── 予算：出していないタイルの op から古い順に捨てる（結合役も同時）・生バイトも同じ（今 wanted の物は捨てない）──
 	function evict() {
 		let total = 0; const cand = [];
@@ -272,13 +285,14 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			let rawTotal = 0; const rc = [];
 			for (const [k, T] of src.tiles) { rawTotal += T.bytes; if (T.state === "ready" && T.used < clock) rc.push([T.used, k, T]); }
 			rc.sort((a, b) => a[0] - b[0]);
-			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+			for (const [, k, T] of rc) { if (rawTotal <= RAW_BUDGET) break; rawTotal -= T.bytes; src.tiles.delete(k); raw?.drop("vtdraw", sid, k); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
 		}
 	}
 	const sigOf = d => JSON.stringify([d.tag ?? null, d.pmtiles ?? null, d.minzoom ?? null, d.maxzoom ?? null, d.bounds ?? null, d.coverage ?? null, d.promoteId ?? null]);
 	function dropSource(sid) {
 		const src = sources.get(sid); if (!src) return;
 		for (const [k, T] of src.tiles) { T.ac?.abort(); workerOf(`${sid}|${k}`).w.postMessage({ kind: "drop", sid, key: k }); }
+		raw?.dropSource("vtdraw", sid);
 		const keys = [...src.built].filter(([, B]) => B.ops).map(([k]) => mkey(sid, k));
 		if (keys.length && merger) merger.w.postMessage({ type: "evict", keys });
 		sources.delete(sid);
@@ -313,7 +327,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			const old = layers.get(id);
 			if (old && old.sid !== sid) ctl.remove(id);
 			const s = layers.get(id) || { id, sid, on: true, key: null };   // 順の鍵は呼び手の setOrder が振る（同じ手番で呼ぶ＝組み立ては rAF の後）
-			s.layer = layer; s.sid = sid; s.fs = usesFS(layer);
+			s.layer = layer; s.sid = sid; s.fs = usesFS(layer); s.rev = ++layerRev;   // rev＝層の中身の版（worker が ["zoom"] を置き換えた写しを層×版×pz で覚える＝式のコンパイルの覚えが効く）
 			layers.set(id, s);
 			src.zsig = layersOf(sid).map(x => x.id + "=" + paintZoomKey(styleZoomProps(x.layer), settledZoom, evalIn)).join(";");
 			touchSource(sid);
@@ -322,6 +336,7 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 			const s = layers.get(id); if (!s) return;
 			layers.delete(id); retired.add(s.key);
 			if (labelSig.has(id)) { labelSig.delete(id); sendLabels(id, null, {}); }
+			if (heatSig.has(id)) { heatSig.delete(id); sendHeat(id, null, null); }
 			if (!layersOf(s.sid).length) dropSource(s.sid); else touchSource(s.sid);
 			schedule();
 		},
@@ -375,10 +390,10 @@ const evalIn = (e, z) => evalExpr(e, { zoom: z, props: {}, geom: null, vars: {},
 		destroy() {
 			for (const id of [...layers.keys()]) ctl.remove(id);
 			map.off("move", onMove); map.off("settle", onSettle);
+			clearTimeout(moveT); moveT = 0; if (rafU) { globalThis.cancelAnimationFrame?.(rafU); rafU = 0; }
 			clearTimeout(mg.timer);
-			for (const w of workers) w?.terminate();
+			pool.destroy();
 			if (merger) { merger.port.onmessage = null; merger.port.close(); merger.w.terminate(); merger = null; }
-			workers.length = 0; waiting.clear();
 		},
 	};
 	return ctl;

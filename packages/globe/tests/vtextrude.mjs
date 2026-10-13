@@ -1,6 +1,7 @@
 // ベクタタイルの押し出し（段 8①・src/vtmesh.js）の単体検定：輪の分類・枠で切る・縁の壁・屋根の面積・外向きの法線・縦の陰影・置き換え・ズームの鍵・filter の zoom。
 // 実描画は t-mlcompat.html?g=vector。使い方：node packages/globe/tests/vtextrude.mjs
-import { classifyRings, clipRing, ringArea2, tessellatePolygon, buildMesh, verticalShade, retainTiles, paintZoomKey, filterZoom, tileToLonLat } from "../src/vtmesh.js";
+import { classifyRings, clipRing, ringArea2, tessellatePolygon, buildMesh, verticalShade, retainTiles, paintZoomKey, filterZoom, tileToLonLat, roundRing } from "../src/vtmesh.js";
+import { extrudeMesh } from "../src/extrude.js";
 import { evalExpr } from "../../ortho-core/src/expr.js";
 
 let bad = 0, n = 0;
@@ -50,6 +51,33 @@ const triArea = (xy, t) => { let s = 0; for (let i = 0; i < t.length; i += 3) { 
 	ok("concave-area", near(triArea(lg.xy, lg.tris), 200 * 200 - 100 * 100));
 	// 外周が枠の外＝面ごと消える
 	ok("outer-gone", tessellatePolygon(classifyRings(geomOf([cw(4200, 100, 4300, 200)]))[0], E) === null);
+}
+// ── 角の丸め（C6・fill-extrusion-rounded-corner-distance）＝正方形の角が弧になる：点が増え・全部が元の中に入り・面積は角を三角に落とした物より大きく元より小さい。直進の点は不変・d は辺の半分で止まる ──
+{
+	const sq = Float64Array.from([100, 100, 300, 100, 300, 300, 100, 300]);   // 200×200
+	const r = roundRing(sq, 50), n = r.length / 2;
+	let inside = true; for (let i = 0; i < r.length; i += 2) if (r[i] < 100 - 1e-9 || r[i] > 300 + 1e-9 || r[i + 1] < 100 - 1e-9 || r[i + 1] > 300 + 1e-9) inside = false;
+	const a = Math.abs(ringArea2(r)) / 2;
+	ok("round-more-points", n > 8 && inside, `n=${n} inside=${inside}`);
+	ok("round-area", a > 40000 - 4 * 1250 && a < 40000, `area=${a}`);
+	ok("round-zero-identity", roundRing(sq, 0) === sq && roundRing(sq, -1) === sq);
+	const big = roundRing(sq, 1000), ab = Math.abs(ringArea2(big)) / 2;   // 辺の半分で止まる＝丸い角が辺の中点で接する
+	ok("round-clamps-half-edge", ab > 40000 - 4 * 10000 && ab < 40000 && big.length / 2 >= 16, `area=${ab} n=${big.length / 2}`);
+	const col = Float64Array.from([0, 0, 100, 0, 200, 0, 200, 100]);   // 途中の直進の点（100,0）は残る
+	const rc = roundRing(col, 10);
+	ok("round-keeps-collinear", Array.from(rc).some((v, i) => i % 2 === 0 && v === 100 && rc[i + 1] === 0));
+	// vector の経路＝tessellatePolygon に round を渡すと壁（辺）の数が増え・屋根の面積が減る
+	const g0 = tessellatePolygon(classifyRings(geomOf([cw(1000, 1000, 1200, 1200)]))[0], E), g1 = tessellatePolygon(classifyRings(geomOf([cw(1000, 1000, 1200, 1200)]))[0], E, { round: 50 });
+	ok("round-tessellate", g1.xy.length > g0.xy.length && triArea(g1.xy, g1.tris) < triArea(g0.xy, g0.tris) && g1.wall.every(w => w === 1), `n=${g1.xy.length / 2} area=${triArea(g1.xy, g1.tris)}`);
+	// geojson の経路＝extrude.js の面ごとの round（m）と grad（壁の縦の陰影）
+	const D = 1 / 111320, sqLL = Float64Array.from([0, 0, 40 * D, 0, 40 * D, 40 * D, 0, 40 * D]);   // 約 40m 角（赤道）
+	const flat = extrudeMesh([{ rings: [sqLL], h: 30, base: 0, rgba: [200, 100, 50, 255] }], { mask: false });
+	const rounded = extrudeMesh([{ rings: [sqLL], h: 30, base: 0, rgba: [200, 100, 50, 255], round: 10 }], { mask: false });
+	ok("extrude-round-more-walls", rounded.stats.triangles > flat.stats.triangles && rounded.stats.vertices > flat.stats.vertices, `${flat.stats.triangles}→${rounded.stats.triangles}`);
+	const grad = extrudeMesh([{ rings: [sqLL], h: 30, base: 0, rgba: [200, 100, 50, 255], grad: true }], { mask: false });
+	const colOf = (m, i) => [m.col[i * 4], m.col[i * 4 + 1], m.col[i * 4 + 2]];
+	ok("extrude-flat-walls-unshaded", colOf(flat.mesh, 4).join() === "200,100,50" && colOf(flat.mesh, 6).join() === "200,100,50");   // 屋根 4 点のあとに壁 4 点ずつ（下・下・上・上）
+	ok("extrude-grad-walls-shaded", colOf(grad.mesh, 0).join() === "200,100,50" && colOf(grad.mesh, 4)[0] === Math.round(200 * verticalShade(false, 0, 30)) && colOf(grad.mesh, 6)[0] === Math.round(200 * verticalShade(true, 0, 30)), `${colOf(grad.mesh, 4)} ${colOf(grad.mesh, 6)}`);
 }
 // ── メッシュ：外向きの法線・色・高さ・形 ──
 {

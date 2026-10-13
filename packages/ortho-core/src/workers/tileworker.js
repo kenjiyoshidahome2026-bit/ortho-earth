@@ -7,10 +7,8 @@ import { setGlobalState } from "../expr.js";   // style.globalState（main の s
 import { fetchMVT, neededSourceLayers } from "../decode.js";
 // PMTiles の読み口は pmtiles:// の源が来た時だけ読む（動的 import＝GSI 等の XYZ だけの起動では worker に乗せない・2026-09-22）
 const pmSrc = () => import("../pmtiles-src.js");
-import { buildTileDrawList, buildEmptySeaOps } from "../build.js";
-import { buildLabels } from "../labels.js";
-import { buildBuildings } from "../buildings.js";
-import { tileBounds, tileOutsideCoverage } from "../tile.js";
+import { buildTilePayload, opBuffers } from "../tilepayload.js";   // 組み立て（drawlist・水域・ラベル・建物）は main の既定経路と共通
+import { tileOutsideCoverage } from "../tile.js";
 import { setEllipsoid } from "../camera.js";
 
 let style = null, need = null, coverage = null, encoding = "mvt";   // need＝styleが参照する source-layer 集合（未参照層は decode 省略）。coverage＝配信圏 bbox。encoding＝タイルの形式（mvt｜mlt・#88）
@@ -31,30 +29,11 @@ self.onmessage = async (e) => {
 		const layers = body ? await fetchMVT(url, ac.signal, need, null, body, encoding)
 			: url.startsWith("pmtiles://") ? await (await pmSrc()).fetchPMTiles(url, z, x, y, ac.signal, need)   // 全球ソース（PMTiles）＝配信圏(coverage)の外でも正当。形式はアーカイブのヘッダ（tileType）が決める
 			: tileOutsideCoverage(x, y, z, coverage) ? { __empty: true } : await fetchMVT(url, ac.signal, need, init, null, encoding);
-		const [w, , , n] = tileBounds(x, y, z);
-		const origin = [w, n];
-		const dl = buildTileDrawList({ layers, z, x, y }, style, origin);
-		// 図郭外（404/図郭縁の WA スライバ）＝標高ゲート付き全面水域を敷く（詳細は buildEmptySeaOps。style.emptySea 未設定なら不発）
-		const seaOps = buildEmptySeaOps(layers, { z, x, y }, style, origin); if (seaOps) dl.ops.unshift(...seaOps);
-		const { labels } = buildLabels({ layers, z, x, y }, style);
-		const buildings = buildBuildings({ layers, z, x, y }, origin, style.schema);
-		const bufs = collectBuffers(dl, buildings);
-		let bytes = 0; for (const b of bufs) bytes += b.byteLength;   // scene worker が保持する geometry の実バイト＝main のメモリ予算/退避の基準
-		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z, bytes }, bufs);
+		const { origin, dl, labels, buildings, bytes } = buildTilePayload(layers, { z, x, y }, style);   // bytes＝scene worker が保持する geometry の実バイト
+		self.postMessage({ id, ok: true, origin, dl, labels, buildings, z, bytes }, opBuffers(dl.ops, buildings));   // transfer＝境界跨ぎのコピーを避ける
 	} catch (err) {
 		self.postMessage({ id, ok: false, error: String(err && err.message || err) });
 	} finally {
 		aborts.delete(id);
 	}
 };
-
-// transfer 対象の ArrayBuffer を集める（境界跨ぎのコピーを避ける）。
-function collectBuffers(dl, buildings) {
-	const bufs = [];
-	for (const op of dl.ops) {
-		if (op.kind === "fill") bufs.push(op.pos.buffer, op.col.buffer, op.idx.buffer);
-		else { bufs.push(op.P1.buffer, op.P2.buffer, op.col.buffer, op.half.buffer); if (op.off) bufs.push(op.off.buffer); }
-	}
-	if (buildings) bufs.push(buildings.pos.buffer, buildings.shade.buffer, buildings.anchor.buffer);
-	return bufs;
-}

@@ -1,0 +1,26 @@
+{
+ "@context": "http://iiif.io/api/image/2/context.json",
+ "@id": "../img",
+ "protocol": "http://iiif.io/api/image",
+ "width": 1024,
+ "height": 768,
+ "profile": [
+  "http://iiif.io/api/image/2/level0.json",
+  {
+   "formats": [
+    "png"
+   ]
+  }
+ ],
+ "tiles": [
+  {
+   "width": 256,
+   "scaleFactors": [
+    1,
+    2,
+    4
+   ]
+  }
+ ],
+ "attribution": "Fixture map © Nobody (public domain)"
+}

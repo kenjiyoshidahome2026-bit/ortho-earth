@@ -15,11 +15,19 @@
 // （WebGL のコンテキストには上限がある）。言語は頁で 1 つ（i18n.js の既定＝最初に来た lang）。
 import { createGeopbf, geopbf } from "geopbf";
 import { nativeBucket } from "native-bucket";
+import { gunzip, isGzip } from "geopbf/gzip";
 import { BODIES, byId, bodyPos, orientation, orbitPointsRel, moonOrbitPoints, eqToEcl, AU_KM, LIGHT_MIN_PER_AU, D2R,
 	SATELLITES, satById, satPos, satOrbitPoints } from "@ortho-earth/ephem";   // packages/ephem へ昇格（japan太陽系圏と共用）
 import { tr, setLang, getLang, isRTL, applyDom } from "./i18n.js";
 import { createClock, fmtUTC } from "@ortho-earth/ephem/clock";   // 共通の時計（#42）＝地図（globe）と同じ部品
 
+// 星空・太陽系のデータ＝GitHub Pages（リポ ortho-data の globe/sky/・2026-10-13〜。旧＝bucket の GIS/pbf と GIS/space）＝置くのは git push だけ。
+// globe の sky/data.js と同じ URL を自前の数行で読む（コードを共有しない＝データで繋ぐ）。写しは HTTP キャッシュ任せ・回線が無ければ古い写しで出す
+const SKY_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/sky/";
+const skyGet = url => fetch(url).catch(() => fetch(url, { cache: "force-cache" }));
+const skyPbf = async name => { const r = await skyGet(`${SKY_DATA}${name}.geopbf`); if (!r.ok) throw new Error(`sky/${name}: HTTP ${r.status}`);
+	const b = await r.blob(); return geopbf(await (await isGzip(b) ? await gunzip(b) : b).arrayBuffer(), { name, gint: false }); };
+const skyJson = path => skyGet(SKY_DATA + path).then(r => r.ok ? r.json() : null).catch(() => null);
 // bucket 基盤は頁で一度（ortho-japan と同じ・読み出しキー不要）＝部品を何度作り直しても 1 回
 let geopbfReady = false;
 const ensureGeopbf = () => { if (!geopbfReady) { createGeopbf("https://api.ortho-earth.com", { bucket: nativeBucket }); geopbfReady = true; } };
@@ -486,6 +494,10 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			new Uint8Array([color[0] * 255, color[1] * 255, color[2] * 255, 255]));
 		return t;
 	}
+	// 絵の形式（2026-09-30・縮小計画 項目7）：ephem の台帳の名前は .jpg のまま（公開データの名前は変えない）で、置き場の実体は WebP（q85・
+	// 元の JPEG との差は PSNR 36〜48dB）＝6.1MB → 2.9MB。雲だけは WebP の方が大きい（432→473KB）ので JPEG のまま。
+	const JPEG_KEPT = new Set(["2k_earth_clouds.jpg"]);
+	const texUrl = src => texBase + (JPEG_KEPT.has(src) ? src : src.replace(/\.jpe?g$/, ".webp"));
 	function loadInto(tex, src, clampS) {
 		const img = new Image();
 		img.onload = () => {
@@ -497,7 +509,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 			if (clampS) gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
 			needsDraw = true;
 		};
-		img.src = texBase + src;
+		img.src = texUrl(src);
 	}
 	const textures = {}, texAsked = new Set();
 	const TEX_PX = 3;   // 見かけの半径がこの px を超えたら絵を取りに行く（クランプの点 2.6px より上＝点の間は取らない）
@@ -517,7 +529,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 				gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
 				b[slot] = tex; needsDraw = true;
 			};
-			img.src = texBase + b[key];
+			img.src = texUrl(b[key]);
 		}
 	}
 	for (const b of ALL) {
@@ -536,7 +548,7 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 		v < 0.8 ? [1, 0.95, 0.78] : v < 1.1 ? [1, 0.88, 0.71] : v < 1.4 ? [1, 0.80, 0.60] : [1, 0.67, 0.57];
 	(async () => {
 		try {
-			const pbf = await geopbf("stars.6", { gint: false });
+			const pbf = await skyPbf("stars.6");
 			const fs = pbf?.geojson?.features; if (!fs || destroyed) return;
 			const dpr = Math.min(2, devicePixelRatio || 1);
 			const data = new Float32Array(fs.length * 8);
@@ -564,14 +576,12 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 状態は URL の c=1（writeHash）・ボタンと c キーで切替
 	let constOn = false, constVao = null, constN = 0, constLoad = null, skyLab = null;
 	// その言語の 1 本＋英語（欠けは英語で補う＝星座は IAU 名・メシエは英語の通称。英語も取れなければ略号/番号のまま＝壊れない）。
-	// 読み口は native-bucket の get＝uploader の put は .json を gzip で置く（Content-Type も application/gzip）＝素の fetch では読めない
-	// （world の i18n は別経路で素の JSON＝apps/equal は fetch で読めている・2026-09-19 実測）。lazy＝到達確認の一覧 1 本を省く
+	// 置き場＝ortho-data の sky/names/<lang>.json（素の JSON）
 	async function loadSkyNames(lang) {
-		const space = nativeBucket("https://api.ortho-earth.com").Bucket("GIS/space", { lazy: true, silent: true });
-		const get = l => space.then(b => b?.get(`i18n/${l}.json`, "json")).catch(() => null);
+		const get = l => skyJson(`names/${l}.json`);
 		const [p, en] = await Promise.all([lang === "en" ? null : get(lang), get("en")]);
 		const E = en || { c: {}, m: {} }, L = p || E;
-		if (!en) console.warn("[space] names not reachable (bucket GIS/space/i18n) — showing IAU abbreviations");
+		if (!en) console.warn("[space] names not reachable (ortho-data sky/names) — showing IAU abbreviations");
 		return {
 			lang: p ? lang : "en",
 			constellation: a => L.c[a] || E.c[a] || String(a ?? ""),
@@ -583,8 +593,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	const constBtn = $("const-btn");
 	function ensureConst() {
 		constLoad ||= Promise.all([
-			geopbf("constellation_lines", { gint: false }),
-			geopbf("messier", { gint: false }).catch(() => null),   // 任意（無ければ線と星座名だけ）
+			skyPbf("constellation_lines"),
+			skyPbf("messier").catch(() => null),   // 任意（無ければ線と星座名だけ）
 			loadSkyNames(LANG),
 		]).then(([pbf, ms, n]) => {
 			if (destroyed) return;
@@ -623,9 +633,8 @@ export async function createSolar({ target, lang, view, hash = false, keyboard =
 	// 宇宙飛行士の命名（LF＝アポロ着陸地点まわりの数 km の小地形）は大きさで判定＝着陸地点へ深く寄った時だけ出る
 	function ensureMoonNames() {
 		moonNamesLoad ||= Promise.all([
-			geopbf("moon_nomenclature", { gint: false }),
-			nativeBucket("https://api.ortho-earth.com").Bucket("GIS/space", { lazy: true, silent: true })
-				.then(b => LANG === "en" ? null : b?.get(`i18n/moon/${LANG}.json`, "json")).catch(() => null),
+			skyPbf("moon_nomenclature"),
+			LANG === "en" ? null : skyJson(`moon_nomenclature.i18n/${LANG}.json`),
 		]).then(([pbf, pack]) => {
 			const L = pack?.names || {};
 			const list = (pbf?.geojson?.features || []).map(f => {

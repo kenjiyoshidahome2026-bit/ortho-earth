@@ -14,6 +14,7 @@ import { css } from "@ortho-earth/core/worldstyle";   // 世界線の色＝正�
 import { WORLD_Z } from "@ortho-earth/core/worldcontent";   // 世界帯の出しズームの正本（equal と同値）
 import { WORLD_PX, buildDrapedGeometry, buildFidStyle, evalExpr, shiftZoomExpr } from "@ortho-earth/core";   // 静的に（2026-09-25）：core は globe.js が既に静的に読む＝動的 import しても遅延の得は無く、
 // 利用者の入口が top-level await の最中に await import(core) すると、束ねた後は入口の chunk の評価待ちで互いに待ち合う（addLayer が永久に返らない）
+import { compileFidStyleWGSL, dictTables, Dict, paintKeys, buildPropColumns, buildStateColumns, buildGeomColumn, encodeStateRow } from "@ortho-earth/core/fidexpr";   // fid 表を GPU で組む（geopbf 改良点 ⑦）
 import { geopbf } from "geopbf";
 import { zIn } from "../zoomscale.js";
 
@@ -311,6 +312,15 @@ function addGint(pbf, opts = {}) {
 	// opts.zoomKey(z)＝その値が変わったら settle で作り直す（層の zoom 域の境・["zoom"] の式＝0.25 の閾値だけに頼らない・台帳 R16）   // ③ zoom×data-driven 合成＝settle 再評価（式は snapshot 評価・§6-3 の逃げ道を自動化）
 	let labelOpt = opts.label ?? null;   // ② ラベル（text-field 相当）＝{ field, size?, color?, halo?, haloW?, sort?, minZoom?, maxZoom? }
 	let lastTable = null;                // 直近の fid 表（setPaint の評価結果）＝ラベルの filter 連動が visible ビット(bit0)を読む
+	// ── fid 表を GPU で組む（geopbf 改良点 ⑦・2026-10-12）＝env.gpuExpr（?gintexpr=1／opts.gpuExpr）の時、式を WGSL に、属性列（鍵ごとの vec2u 列・辞書）を
+	// 一度だけ組んで render worker へ送り、compute が表を組む。feature-state の差し替えは列の 1 セル書き＝CPU の全 fid 再評価が消える（本題）。
+	// 載らない式（MapLibre 出自・文字列の大小比較…）・GL2・旧エンジン＝ack の error で CPU の buildFidStyle へ落ちる（見た目は同じ＝t-gintexpr が突き合わせる）
+	let gpuExpr = !!env.gpuExpr && hOrigin !== "ml" && !opts.buildTable;
+	let exprCols = null;                 // { pbf, key, propKeys, cols, geom, dict } 列のキャッシュ（pbf と鍵の組が同じ間は使い回す）
+	let exprActive = null;               // GPU の走者が持つ式 { prog, stateKeys, dict, dictN, pbf, paint, filter }＝差し替えの小径が効く印
+	let exprSeq = 0; const exprAcks = new Map();   // seq → resolve（gintPaintExpr／gintExprState の ack）
+	const exprSend = (cmd, data) => new Promise(res => { const seq = ++exprSeq; exprAcks.set(seq, res); renderer.set(cmd, { ...data, seq }, undefined, id); });
+	const pendingStates = new Set();     // setFeatureState の束ね（microtask）＝GPU の小径で送る fid
 	const fstates = new Map();           // fid → feature-state（['feature-state', key] の実体・maplibre 同名）
 	let shown = true;                    // setVisible の台帳（照会＝見えている層だけ）
 	let zr = null;                       // エンジンが焼きの ack で返す実描画レンジ（データ導出×指定）。null＝未着地＝まだ描いていない
@@ -352,7 +362,7 @@ function addGint(pbf, opts = {}) {
 	const tipFmt = opts.tip === true ? pr => Object.entries(pr).map(([k, v]) => `${k}: ${v}`) : (typeof opts.tip === "function" ? opts.tip : null);
 	const h = {
 		id, ready, order: opts.order ?? null, _seq: seq,
-		_ack: d => { if (d.error) { console.warn("[addGint] %s: %s (legacy build without addLayer)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") { zr = { min: d.minZoom ?? null, max: d.maxZoom ?? null }; ackQ.shift()?.(true); } },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）。range を持たない旧エンジン＝null＝全ズーム
+		_ack: d => { if (d.cmd === "gintPaintExpr" || d.cmd === "gintExprState") { exprAcks.get(d.seq)?.(d); exprAcks.delete(d.seq); return; } if (d.error) { console.warn("[addGint] %s: %s (legacy build without addLayer)", id, d.error); ackQ.shift()?.(false); } else if (d.cmd === "gint" || d.cmd === "gintBaked") { zr = { min: d.minZoom ?? null, max: d.maxZoom ?? null }; ackQ.shift()?.(true); } },   // gintAdd の ack は消費しない（ロード ack だけが待ち行列を進める）。range を持たない旧エンジン＝null＝全ズーム
 		// いま見えているか（queryAll・queryRenderedFeatures の門）＝表示・内部層でない・焼き着地済み・ズーム域（エンジンの zoomInRange と同じ積）
 		_shown: z => shown && !internal && zr !== null
 			&& z >= Math.max(zr.min ?? 0, styleZ?.minZoom ?? 0) && z <= Math.min(zr.max ?? 22, styleZ?.maxZoom ?? 22),
@@ -384,9 +394,10 @@ function addGint(pbf, opts = {}) {
 		setFeatureState: (fid, st) => {   // 一時状態（hover/選択…）＝['feature-state', key] の実体（maplibre 同名・restyle は §8.1 のとおり安い）
 			if (st == null) fstates.delete(fid);
 			else fstates.set(fid, { ...fstates.get(fid), ...st });
-			if (!h._fsQ) { h._fsQ = true; queueMicrotask(() => { h._fsQ = false; if (lastPaint) paintNow(lastPaint, lastFilter); }); }   // 連打（hover毎）を1フレームに束ねる
+			pendingStates.add(fid);
+			if (!h._fsQ) { h._fsQ = true; queueMicrotask(() => { h._fsQ = false; if (lastPaint) paintNow(lastPaint, lastFilter); }); }   // 連打（hover毎）を1フレームに束ねる（GPU の走者がある層は列の該当セルだけ送る）
 		},
-		removeFeatureState: fid => { if (fid == null) fstates.clear(); else fstates.delete(fid); if (lastPaint) paintNow(lastPaint, lastFilter); },
+		removeFeatureState: fid => { if (fid == null) { fstates.clear(); pendingStates.clear(); exprActive = null; } else { fstates.delete(fid); pendingStates.add(fid); } if (lastPaint) paintNow(lastPaint, lastFilter); },
 		setFilter: f => {   // ③ 単独動詞（maplibre 同名）＝visibility ビットの再評価（paint 未設定は預かり＝次の setPaint で効く）
 			lastFilter = zx(f) ?? null;
 			if (lastPaint) return paintNow(lastPaint, lastFilter);
@@ -412,6 +423,7 @@ function addGint(pbf, opts = {}) {
 		style: o => { const o1 = zRange(o); styleZ = o1 ?? null; renderer.set("gintStyle", o1, undefined, id); requestDraw(); },   // 描画スタイル（fillColor/lineWidth/styleTable 等＝層の drawStyle）
 		setVisible: v => { shown = !!v; sendVis(); requestDraw(); },
 		_internal: internal, _sendVis: () => sendVis(),
+		_gpuExpr: () => !!exprActive,   // 検定用＝fid 表が GPU の走者に載っているか（⑦・t-gintexprdraw）
 		activate: () => { layers.active = id; renderer.set("gintActivate", null, undefined, id); },
 		remove: () => { cancelBake(id); extGint.delete(id); if (layers.active === id) layers.active = null; if (tipFmt) gintHoverTip?.(null); renderer.set("gintRemove", null, undefined, id); requestDraw(); },
 	};
@@ -421,14 +433,61 @@ function addGint(pbf, opts = {}) {
 			// フィルタ側の ["zoom"]（地物ごとの出しズーム＝NE の min_zoom 等）も同じ扱い＝旧は paint だけ見ていて、フィルタにだけズームがある層は
 			// 読み込んだ瞬間のズームの判定のまま固まった（世界帯の道路/鉄道が寄っても出ない・河川の段階表示も止まる・2026-09-24）
 			zoomDriven = !!paint && JSON.stringify([paint, filter]).includes('["zoom"'); lastEvalZoom = cam.zoom; lastZoomKey = opts.zoomKey?.(cam.zoom) ?? null;
-			if (!paint) { lastTable = null; renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
+			if (!paint) { lastTable = null; exprActive = null; pendingStates.clear(); renderer.set("gintPaint", null, undefined, id); if (labelOpt?.field) await refreshLabels(); requestDraw(); return; }
 			const feats = fidFeaturesOf(pbf);
 			if (!feats) { console.warn("[addGint] %s: no features for paint", id); return; }
-			const { u32, count } = opts.buildTable ? opts.buildTable({ feats, zoom: cam.zoom, states: fstates }) : buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
-			lastTable = u32;
-			renderer.set("gintPaint", { table: u32, count }, undefined, id);
+			let done = false;
+			if (gpuExpr) {   // GPU で組む（⑦）：走者が同じ式を持っていれば feature-state／zoom の差し替えだけ送る（小径）、無ければ列と式を送る。失敗＝CPU へ
+				const r = await paintGPU(paint, feats);
+				if (r === "ok") done = true;
+				else if (r === "off") { gpuExpr = false; }   // この層では使えない（GL2／旧エンジン）＝以後は CPU
+			}
+			if (!done) {
+				exprActive = null; pendingStates.clear();
+				const { u32, count } = opts.buildTable ? opts.buildTable({ feats, zoom: cam.zoom, states: fstates }) : buildFidStyle(paint, feats, { filter: lastFilter, zoom: cam.zoom, states: fstates, origin: hOrigin });
+				lastTable = u32;
+				renderer.set("gintPaint", { table: u32, count }, undefined, id);
+			}
 			if (labelOpt?.field) await refreshLabels();   // filter/式の変化にラベルも追随（await＝setFilter/setPaint の解決時に labelCount 確定）
 			requestDraw();
+	}
+	// GPU で fid 表を組む（⑦）。戻り値 "ok"＝表は GPU に載った（lastTable は ack の読み戻し）・"cpu"＝この式は載らない（CPU へ）・"off"＝この層の描き手に走者が無い
+	async function paintGPU(paint, feats) {
+		const count = feats.length, zoom = cam.zoom;
+		// 小径＝走者が同じ paint/filter/pbf を持つ：feature-state の差分と zoom だけ送る
+		if (exprActive && exprActive.paint === paint && exprActive.filter === lastFilter && exprActive.pbf === pbf && exprActive.count === count) {
+			const A = exprActive, rows = [];
+			for (const fid of pendingStates) if (fid >= 0 && fid < count) rows.push([fid, encodeStateRow(fstates.get(fid), A.stateKeys, A.dict)]);
+			pendingStates.clear();
+			const grew = A.dict.size > A.dictN;
+			const tabs = grew ? dictTables(A.dict) : null; if (grew) A.dictN = A.dict.size;
+			const wantTable = (rows.length && A.prog.filterUsesState) || (A.prog.filterUsesZoom && zoom !== A.zoom);
+			A.zoom = zoom;
+			const d = await exprSend("gintExprState", { rows, zoom, table: !!wantTable, ...(tabs ? { dnum: tabs.dnum, dcol: tabs.dcol } : {}) });
+			if (d.error) { console.warn("[addGint] %s: gpu expr state failed (%s) = CPU table", id, d.error); exprActive = null; return d.error === "no-gpu-expr" ? "off" : "cpu"; }
+			if (d.table) lastTable = d.table;
+			return "ok";
+		}
+		// 本径＝列（キャッシュ）と式
+		const keys = paintKeys(paint, lastFilter);
+		if (keys.dyn) return "cpu";
+		const propKeys = [...keys.props].sort(), ckey = propKeys.join("\u0000");
+		if (!exprCols || exprCols.pbf !== pbf || exprCols.key !== ckey || exprCols.count !== count) {
+			const dict = new Dict();
+			exprCols = { pbf, key: ckey, count, propKeys, dict, cols: buildPropColumns(feats, propKeys, dict), geom: keys.geom ? buildGeomColumn(feats, dict) : new Uint32Array(1) };
+		}
+		const { dict, cols, geom } = exprCols, stateKeys = [...keys.states].sort();
+		const prog = compileFidStyleWGSL(paint, lastFilter, { propKeys, stateKeys, kinds: cols.kinds, dict, origin: hOrigin });
+		if (prog.error) { if (!h._exprWarned) { h._exprWarned = true; console.info("[addGint] %s: expression not on GPU (%s) = CPU table", id, prog.error); } return "cpu"; }
+		const states = buildStateColumns(fstates, stateKeys, count, dict);
+		const { dnum, dcol } = dictTables(dict);
+		pendingStates.clear();
+		const d = await exprSend("gintPaintExpr", { prog: { wgsl: prog.wgsl, stateKeys }, count, props: cols.data, states, geom, dnum, dcol, zoom, table: true });
+		if (d.error) { if (d.error !== "no-gpu-expr") console.warn("[addGint] %s: gpu expr failed (%s) = CPU table", id, d.error); return d.error === "no-gpu-expr" ? "off" : "cpu"; }
+		if (!d.table) return "cpu";
+		lastTable = d.table;
+		exprActive = { prog, stateKeys, dict, dictN: dict.size, pbf, count, paint, filter: lastFilter, zoom };
+		return "ok";
 	}
 	extGint.set(id, h);
 	renderer.set("gintAdd", { order: opts.order ?? null }, undefined, id);   // order＝重ね順（小さいほど下・未指定=追加順）＝トグル順に依らない決定的 z-order
@@ -534,7 +593,7 @@ function ensureBakeWorker() {
 		if (d.kind !== "done") return;
 		// 完成品をゼロコピー中継（TypedArray の underlying buffer を transfer。共有 buffer は Set で重複除去）
 		const bufs = new Set();
-		const collect = o => { for (const v of Object.values(o ?? {})) if (ArrayBuffer.isView(v)) bufs.add(v.buffer); };
+		const collect = o => { for (const v of Object.values(o ?? {})) if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) bufs.add(v.buffer); };   // SAB の view は transfer 不可＝共有のまま
 		collect(d.gint); collect(d.artifacts?.base); collect(d.artifacts?.boundary);
 		if (d.artifacts?.pivot?.px) bufs.add(d.artifacts.pivot.px.buffer);
 		for (const t of d.tiers ?? []) if (t.metaU32) bufs.add(t.metaU32.buffer);
@@ -561,7 +620,7 @@ function bakeAndSend(key, raw, meta, onDone, layer = null) {
 	bakePending.set(id, p);
 	w.postMessage({ id, data: {
 		arcBuffer: raw.arcBuffer, arcMeta: raw.arcMeta, polyStream: raw.polyStream, lineStream: raw.lineStream,
-		pointBuffer: raw.pointBuffer, point: raw.point, polyCompBbox: raw.polyCompBbox, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });
+		pointBuffer: raw.pointBuffer, point: raw.point, fillMaxEdges: raw.fillMaxEdges, lowFill: raw.lowFill } });   // polyCompBbox は読み手が無い＝運ばない（geopbf 1.19 で遅延生成になった台帳を main で組ませない）
 }
 // 海岸線のベイク発火（初回ロード後と、LOW_MEM で束を破棄した後の再入の両方から）。
 // ユーザー層のベイク発火（applyGintData の初回と、LOW_MEM で束を破棄した後の再入の両方から）。
@@ -708,7 +767,7 @@ async function loadAdmin0Now(res = "50m") {
 	admin0Gint = {   // maxZoom:9＝z≤9 で点火＝低ズームの世界図専用（worker が範囲外をカリング）
 		arcBuffer: g.arcBuffer, arcMeta: g.arcMeta,
 		polyStream: g.polyStream, lineStream: g.lineStream,
-		pointBuffer: g.pointBuffer, point: g.point, polyCompBbox: g.polyCompBbox,
+		pointBuffer: g.pointBuffer, point: g.point,
 		maxZoom: 9,
 		fillMaxEdges: 0,   // fillOff 強制＝国ポリゴンはアウトライン専用（低ズームのベタ塗り切替に入れない。塗りはハイプソの領分）
 	};
@@ -726,18 +785,21 @@ let worldLinesState = 0;   // 0=未 1=読込中 2=搭載 3=見送り
 const worldLineHandles = [];   // テーマ切替で塗り直す（色＝ortho-core worldstyle の正本・env.worldStyle）
 const repaintWorldLines = () => { const T = env.worldStyle; for (const { h, def } of worldLineHandles) h.setPaint(def.paint(T), def.filter).catch(() => {}); };
 const WORLD_LINES = [
-	{ name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
+	{ key: "rivers", name: "ne_10m_rivers_lake_centerlines", dir: "10m_physical", order: -9,
 		paint: T => ({ "line-color": css(T.river), "line-width": ["step", ["to-number", ["coalesce", ["get", "scalerank"], ["get", "SCALERANK"], 8]], 0.6, 5, 0.45, 8, 0.3] }),   // CSS px（2026-09-26・旧 device px の値の半分＝同じ見た目）
 		filter: ["all", ["!", ["in", "Lake Centerline", ["to-string", ["coalesce", ["get", "featurecla"], ["get", "FEATURECLA"], ""]]]],
 			["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 6]], ["zoom"]]] },
-	{ name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
+	{ key: "maritime", name: "ne_10m_admin_0_boundary_lines_maritime_indicator", dir: "10m_cultural", order: -9,
 		paint: T => ({ "line-color": css(T.maritime), "line-width": 0.3 }),
 		filter: ["<=", ["to-number", ["coalesce", ["get", "min_zoom"], ["get", "MIN_ZOOM"], 4]], ["zoom"]] },
 ];
 async function loadWorldLines() {
 	if (worldLinesState || LOW_MEM) { worldLinesState ||= 3; return; }
 	worldLinesState = 1;
+	// opts.worldLines＝false で読まない・["rivers"|"maritime"] でその種類だけ（自前の川を描く頁が二重に描かない・2026-10-01 /globe/physical）
+	const want = env.worldLines ?? true;
 	for (const def of WORLD_LINES) {
+		if (want !== true && !(Array.isArray(want) && want.includes(def.key))) continue;
 		let pbf = await geopbf(def.name).catch(() => null);
 		if (!pbf?.unPackGint) pbf = await geopbf(`https://naturalearth.s3.amazonaws.com/${def.dir}/${def.name}.zip`, { name: def.name }).catch(e => { console.warn("[world-lines]", def.name, e); return null; });
 		if (!pbf?.unPackGint) continue;

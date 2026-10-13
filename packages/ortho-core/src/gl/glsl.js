@@ -24,6 +24,7 @@ float elevFadeAt(vec2 uv) {
 }
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	float f = 1.0;
@@ -237,15 +238,20 @@ in vec3 a_normal;   // glTF 実法線を ortho へ変換済
 uniform vec3 u_meshOrigin;   // メッシュ重心＝単位球の錨。絶対位置 = u_meshOrigin + a_pos
 uniform vec4 u_clipMesh;     // mvp*[u_meshOrigin,1]（CPU double）＝MVP相殺回避の錨（旧: シェーダ内 float32 で算出＝錨が相殺）
 uniform vec4 u_liftBounds;   // DTM(裸地=DEM10B)保証域 [lng0,lat0,spanLng,spanLat]。外＝接地リフトしない（DSM=ビル天端でリフトすると屋根が斜面に裂ける）
+uniform float u_xfOn;        // バッチの剛体変換（glTF の rigid アニメ・W4）：1＝a_pos を u_xfL·a_pos + u_xfT（原点相対）に写し法線も回す。0＝素通し（ビット同一）
+uniform mat3 u_xfL;
+uniform vec3 u_xfT;
 ${PROJECT}
 out vec3  v_n;      // 実法線
 out vec3  v_toEye;  // 視線ベクトル（巻き順に依存せず法線を表向きへ）
 out float v_front;  // >0 で手前半球
 out float v_fog;
 void main() {
-	vec3 wp = u_meshOrigin + a_pos;                              // 絶対位置（陰影・フォグ・半球判定用＝粗くて可）
+	vec3 ap = u_xfOn > 0.5 ? u_xfL * a_pos + u_xfT : a_pos;      // バッチの剛体変換（W4）＝原点相対のまま
+	vec3 wp = u_meshOrigin + ap;                                 // 絶対位置（陰影・フォグ・半球判定用＝粗くて可）
 	vec3 dir = normalize(wp);
 	v_n = a_normal;
+	if (u_xfOn > 0.5) v_n = u_xfL * a_normal;
 	v_toEye = u_eye - wp;
 	v_front = dot(dir, u_eye) - 1.0;
 	v_fog = fogOf(wp);
@@ -266,7 +272,7 @@ void main() {
 	float inX = smoothstep(0.0, 0.05, min(lon - u_liftBounds.x, u_liftBounds.x + u_liftBounds.z - lon));
 	float inY = smoothstep(0.0, 0.05, min(lat - u_liftBounds.y, u_liftBounds.y + u_liftBounds.w - lat));
 	float h = elev(vec2(lon, lat)) * u_elevScale * inX * inY;
-	gl_Position = u_clipMesh + u_mvp * vec4(a_pos + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
+	gl_Position = u_clipMesh + u_mvp * vec4(ap + h * liftDir(vec2(lon, lat), dir), 0.0);   // 楕円体＝測地法線で接地リフト
 	applyLogDepth();
 }`;
 
@@ -275,11 +281,39 @@ precision highp float;
 uniform vec3 u_bldColor;
 uniform vec3 u_fogColor;
 uniform float u_cullBack;   // 1=裏面discard（建物＝閉じた体積）、0=両面（橋梁＝ケーブル/柵の開いた薄面。dedupで片面化済みのため）
+uniform vec3  u_eye;        // カメラ位置（接地の局所系＝画素の動径を出す・light 用）
+uniform float u_lightOn;    // style の light（MapLibre・B3 2026-10-12）：1＝u_lightDir（東・北・上の単位ベクトル）・u_lightI（強さ）・u_lightColor で陰影。0＝従来の固定光（ビット同一）
+uniform vec3  u_lightDir;
+uniform float u_lightI;
+uniform vec3  u_lightColor;
+uniform int   u_lightN;       // 局所の光源（第 3 波 W2・2026-10-12）＝point/spot/ambient/hemisphere・上限 8。並びは light.js localLightsPayload（A＝位置+kind・B＝色+強さ・C＝向き／地面色+range・D＝cos 内外+decay）
+uniform vec4  u_lA[8];
+uniform vec4  u_lB[8];
+uniform vec4  u_lC[8];
+uniform vec4  u_lD[8];
 in vec3  v_n;
 in vec3  v_toEye;
 in float v_front;
 in float v_fog;
 out vec4 fragColor;
+// 局所の光の寄与＝陰影の係数 d に足す（色×(d＋Σ光)）。pos＝画素の世界座標（単位球）・up＝その動径。ambient は向きに依らず・hemisphere は上向き具合で空色と地面色・point/spot は (1−dist/range)^decay と cos の smoothstep
+vec3 localLights(vec3 n, vec3 pos, vec3 up) {
+	vec3 acc = vec3(0.0);
+	for (int i = 0; i < 8; i++) {
+		if (i >= u_lightN) break;
+		vec4 A = u_lA[i], B = u_lB[i], C = u_lC[i], D = u_lD[i];
+		int kind = int(A.w + 0.5);
+		if (kind == 3) acc += B.rgb * B.w;
+		else if (kind == 4) acc += mix(C.rgb, B.rgb, dot(n, up) * 0.5 + 0.5) * B.w;
+		else {
+			vec3 dv = A.xyz - pos; float dist = length(dv); vec3 L = dv / max(dist, 1e-9);
+			float at = C.w > 0.0 ? pow(clamp(1.0 - dist / C.w, 0.0, 1.0), D.z) : 1.0;
+			if (kind == 2) at *= smoothstep(D.x, D.y, dot(-L, C.xyz));
+			acc += B.rgb * B.w * at * max(dot(n, L), 0.0);
+		}
+	}
+	return acc;
+}
 void main() {
 	// 面の幾何法線＝スクリーン微分（discard より前＝隣接ヘルパー画素が生きているうちに取る）。
 	// v_toEye = eye − pos で eye は定数＝微分は −dPos、cross で符号が相殺し位置微分の面法線と等価＝varying追加不要。
@@ -295,7 +329,14 @@ void main() {
 	if (u_cullBack > 0.5 && fe < -0.02) discard;
 	if (fe < 0.0) n = -n;                                         // 両面時は法線を視線側へ＝裏から見ても陰影が成立
 	vec3 L = normalize(vec3(-0.35, 0.85, 0.30));                  // 斜め上の光＝屋根が立つ
-	float d = clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0);         // 基図建物の屋根1.0/壁0.76に合わせる（up向き屋根→~1.0、垂直壁→~0.76）
+	vec3 d = vec3(clamp(dot(n, L) * 0.28 + 0.76, 0.72, 1.0));    // 基図建物の屋根1.0/壁0.76に合わせる（up向き屋根→~1.0、垂直壁→~0.76）
+	if (u_lightOn > 0.5) {   // style の light＝接地の局所系（上＝画素の動径・東・北）で向きを写し、MapLibre の式 mix(1−強さ, 1, max(dot, 0))×色
+		vec3 up = normalize(u_eye - v_toEye); vec3 e0 = cross(vec3(0.0, 1.0, 0.0), up);
+		vec3 east = dot(e0, e0) < 1e-12 ? vec3(1.0, 0.0, 0.0) : normalize(e0); vec3 north = cross(up, east);
+		vec3 Ls = normalize(east * u_lightDir.x + north * u_lightDir.y + up * u_lightDir.z);
+		d = u_lightColor * mix(1.0 - u_lightI, 1.0, clamp(dot(n, Ls), 0.0, 1.0));
+	}
+	if (u_lightN > 0) { vec3 pw = u_eye - v_toEye; d += localLights(n, pw, normalize(pw)); }   // 局所の光源（W2）
 	vec3 c = mix(u_bldColor * d, u_fogColor, v_fog);
 	fragColor = vec4(c, 1.0);
 }`;
@@ -406,6 +447,17 @@ vec3 gndMix(vec3 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
 	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
 	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
 	return col * (1.0 - c.a) + c.rgb;   // アトラスは前乗算＝over 合成
+}
+// 前乗算の床（rgb·a, a）の上にアトラスを over（B5＝background 層の無い MapLibre の地図は床が透明＝塗りだけが残る。a=1 なら gndMix と同じ値）
+vec4 gndOver(vec4 col, vec2 uv0, vec2 uv1, vec2 uv2, vec2 uv3) {
+	if (u_gndN < 0.5) return col;
+	vec4 c0 = texture(u_gnd0, clamp(uv0, 0.0, 1.0));
+	vec4 c1 = texture(u_gnd1, clamp(uv1, 0.0, 1.0));
+	vec4 c2 = texture(u_gnd2, clamp(uv2, 0.0, 1.0));
+	vec4 c3 = texture(u_gnd3, clamp(uv3, 0.0, 1.0));
+	float w0 = gndEdge(uv0), w1 = u_gndN > 1.5 ? gndEdge(uv1) : 0.0, w2 = u_gndN > 2.5 ? gndEdge(uv2) : 0.0, w3 = u_gndN > 3.5 ? gndEdge(uv3) : 0.0;
+	vec4 c = mix(mix(mix(mix(vec4(0.0), c3, w3), c2, w2), c1, w1), c0, w0);
+	return col * (1.0 - c.a) + c;
 }`;
 
 const WORLD_HYPSO = /* glsl */`
@@ -426,7 +478,7 @@ vec3 worldHypso(float e, vec2 ll) {
 	float arid, pol;
 	if (u_hasClim > 0.5) {
 		// 本物の cross-blend：気候場テクスチャ（海は焼き時に最寄り陸の値で充填済＝海岸で値が落ちない）
-		vec2 c2 = texture(u_climTex, vec2(ll.x / 360.0 + 0.5, 0.5 - latD / 180.0)).rg;
+		vec2 c2 = texture(u_climTex, vec2(fract(ll.x / 360.0 + 0.5), 0.5 - latD / 180.0)).rg;   // 経度は一周で折り返す
 		arid = c2.r; pol = c2.g;
 	} else {
 		// フォールバック＝緯度近似（馬緯度の乾燥帯×湿潤東岸の打ち消し箱）。気候場が届くまでの1-2フレーム用
@@ -456,6 +508,7 @@ export const TERRAIN_FS = `#version 300 es
 precision highp float;
 uniform vec3 u_fogColor;
 uniform vec3 u_land;
+uniform float u_landA;   // 床の不透明度（B5）＝globe パスの u_land.a と同じ（background 層の無い MapLibre の地図＝0）。1＝従来とビット同一
 uniform vec3 u_hypso;    // 標高ティント色（高所を land からこの色へ寄せる＝控えめな標高彩色）
 uniform vec2 u_hypsoP;   // x=1/最大標高(m)（この高さで寄せ切る） y=寄せ量(0=無効…1=全置換)
 uniform float u_globeAlpha;   // 球体の不透明度（globe パスと同じ値＝地形面も一緒に透ける）
@@ -504,9 +557,10 @@ void main() {
 	// 深度は VS の applyLogDepth() が焼き済み（mesh/building と一貫。FSで書くと early-Z が死ぬ）
 	// 陰影の立ち上がりは従来の 1〜100m 帯のまま（低地＝陰影なしの紙色）＝不透明化した分を床と同色で埋める（wgsl.js と同式・低ズームは旧式と恒等）
 	float tS = smoothstep(1.0, 100.0, v_h);
-	vec3 colBase = gndMix(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
-	vec3 col = mix(colBase, u_fogColor, v_fog);
-	fragColor = vec4(col * t * u_globeAlpha, t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
+	float ba = mix(u_landA, 1.0, max(u_whK, u_hasCog));   // 床の不透明度（B5）＝全球ハイプソ・COG は不透明
+	vec4 g = gndOver(vec4(cogTexMix(landC * mix(1.0, shade, min(tS / t, 1.0)), v_cuv) * ba, ba), v_guv0, v_guv1, v_guv2, v_guv3);   // ユーザ COG／地面アトラス（ラスタ＋3D の塗り）＝陰影の上・フォグの下
+	vec3 col = g.rgb * (1.0 - v_fog) + u_fogColor * v_fog * g.a;   // ＝mix(colBase, fog, v_fog) を前乗算で
+	fragColor = vec4(col * t * u_globeAlpha, g.a * t * u_globeAlpha);   // premultiplied（globe基色→地形へ滑らかに）× 球体の不透明度
 }`;
 
 // stencil-then-cover の塗り（earcut不要でロバスト）。ortho-map の 2-sided winding を透視mat4へ移植。
@@ -589,6 +643,13 @@ vec2 deltaLL(vec3 dl, float ell) {
 }
 uniform vec4 u_land;
 uniform vec4 u_atmo;   // 大気色 rgb + 強さ(a)
+// style の sky（B4・MapLibre の setSky）＝簡易の空：地平線の horizon-color から天頂の sky-color へのグラデーション（球に当たらない光線だけ・不透明）。
+// 無指定（u_skyOn=0）＝従来の宇宙へ抜けるリム光とビット同一。u_skyBlend＝(sky-horizon-blend, horizon-fog-blend, atmosphere-blend, 0)
+uniform float u_skyOn;
+uniform vec3 u_skyColor;
+uniform vec3 u_horizonColor;
+uniform vec3 u_skyFogColor;
+uniform vec4 u_skyBlend;
 // 全球ハイプソ（NEラスタの美しさを標高から計算で作る＝ラスタタイル配布ゼロ）：
 // レイ→球→測地緯度→elev() は CONTOUR_FS と同式。R90 全球窓（z<6.5 は bounds=[-180,-90,360,180]）を引く。
 // 配色本体は WORLD_HYPSO（TERRAIN_FS と共有＝ピッチで色が変わらない）。
@@ -609,11 +670,13 @@ uniform float u_hasFar;
 uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
 float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+	if (u_elevBounds.z > 359.0) uv.x = fract(uv.x);   // 全球の窓（R90）は経度が一周＝原点から 180° 超回った先の uv を折り返す（gpu/wgsl.js gElevUV と同じ・2026-10-01）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {
@@ -648,8 +711,24 @@ void main() {
 		float g = smoothstep(1.09, 1.0, m);
 		// 高度角フェード：見上げるほど大気は薄く＝天頂へ滑らかに宇宙色。低高度では m≈lenA が一様なので、
 		// これが無いと今度は空全体が一枚の紺に塗り潰される。
-		g *= 1.0 - smoothstep(0.0, 0.55, dot(normalize(d), A / lenA));
-		if (g <= 0.0) discard;
+		float alt = dot(normalize(d), A / lenA);   // 視線の高度（上向きの余弦・地平線は水平より少し下）
+		g *= 1.0 - smoothstep(0.0, 0.55, alt);
+		if (u_skyOn > 0.5) {
+			// 簡易の空（B4）：地平線（球に接する視線＝sin(俯角)=sqrt(1−1/|A|²)）を 0・天頂を 1 とした高さ u で horizon-color → sky-color。
+			// sky-horizon-blend＝混ざる幅（1＝天頂まで・0＝地平線でスパッと）。地平線の際は fog-color を horizon-fog-blend の分だけ重ねる（15% の高さで消える）。
+			// atmosphere-blend＝従来のリム光（大気の霞）を空の上に重ねる度合い。空は不透明＝星空は隠れる（MapLibre と同じ）
+			float hz = -sqrt(max(1.0 - 1.0 / (lenA * lenA), 0.0));
+			float u = clamp((alt - hz) / max(1.0 - hz, 1e-6), 0.0, 1.0);
+			float w = u_skyBlend.x;
+			float k = w <= 0.0 ? step(1e-6, u) : smoothstep(0.0, w, u);
+			vec3 col = mix(u_horizonColor, u_skyColor, k);
+			col = mix(col, u_skyFogColor, u_skyBlend.y * (1.0 - smoothstep(0.0, 0.15, u)));
+			vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
+			float a = max(g, 0.0); a = a * a * mix(u_atmo.a, 1.0, a) * u_skyBlend.z;
+			fragColor = vec4(col * (1.0 - a) + mix(u_atmo.rgb, limbCol, max(g, 0.0)) * a, 1.0);   // premultiplied・不透明
+			return;
+		}
+		if (g <= 0.0 || u_atmo.a <= 0.0) discard;   // 大気の強さ 0（MapLibre の口＝sky の無い style）＝リム光も描かない（B5・旧＝強さ 0 でも床色の帯が宇宙へ滲んだ）
 		// 縁(g=1)は球面リム内側の霞と同色・不透明＝地平線で色が連続。外側へ大気色→透明へフェード。
 		vec3 limbCol = mix(u_land.rgb, u_atmo.rgb, u_atmo.a * 0.9);
 		float a = g * g * mix(u_atmo.a, 1.0, g);
@@ -674,17 +753,21 @@ void main() {
 		vec3 hyp = mix(u_seaC, worldHypso(e, ll) * shade, landK);
 		base = mix(base, hyp, u_whK);
 	}
+	// 床の不透明度（B5）＝u_land.a（background 層の無い MapLibre の地図＝0＝透明・頁の色が見える。全球ハイプソ・COG は不透明）。a=1 なら従来とビット同一
+	float ba = mix(u_land.a, 1.0, u_whK);
 	if (u_hasCog > 0.5) {   // ユーザ COG＝基球でも羽織る（地形パスは低地 t フェードで穴が開くためここが床）。uv＝原点相対の係数（#65）
-		base = cogTexMix(base, u_cogOff.xy + dll * u_cogOff.zw);
+		base = cogTexMix(base, u_cogOff.xy + dll * u_cogOff.zw); ba = 1.0;
 	}
+	vec4 g = vec4(base * ba, ba);   // 前乗算の床
 	if (u_gndN > 0.5) {   // 地面アトラス＝基球の床（地形パスの低地 t フェードの穴と真俯瞰 2D の下地）。uv＝原点相対の係数（#65＝写真の床がズーム摂動で揺れない）
-		base = gndMix(base, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
+		g = gndOver(g, u_gndOff0.xy + dll * u_gndOff0.zw, u_gndOff1.xy + dll * u_gndOff1.zw, u_gndOff2.xy + dll * u_gndOff2.zw, u_gndOff3.xy + dll * u_gndOff3.zw);
 	}
 	vec3 viewDir = normalize(A - P);              // 面→カメラ
 	float ndv = clamp(dot(P, viewDir), 0.0, 1.0);
 	float haze = pow(1.0 - ndv, 3.0);             // 縁ほど強い内側リムの霞
-	vec3 col = mix(base, u_atmo.rgb, haze * u_atmo.a * 0.9);
-	fragColor = vec4(col * u_globeAlpha, u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
+	float hz = haze * u_atmo.a * 0.9;
+	vec3 col = g.rgb * (1.0 - hz) + u_atmo.rgb * hz * g.a;   // ＝mix(base, atmo, hz) を前乗算で（a=1 で同値）
+	fragColor = vec4(col * u_globeAlpha, g.a * u_globeAlpha);   // 球体の不透明度（地中の震源等を透かす）
 }`;
 
 // 海面下の陸地（wdepr）カバー：stencil-then-cover の cover 側をフラット色でなく「landK=1 強制のハイプソ本体」で
@@ -732,11 +815,13 @@ uniform float u_hasFar;
 uniform float u_elevEdgeFade;   // 近窓縁＝far値へ溶かす幅(deg)。R90全球窓=0（縁は極/±180のみ）
 float elevFar(vec2 ll) {
 	if (u_hasFar < 0.5) return 0.0;
+	ll.x -= 360.0 * floor((ll.x + 180.0) / 360.0);   // 経度を -180..180 へ（原点相対の経度は ±180 を越えうる）
 	vec2 uv = (ll - u_farBounds.xy) / u_farBounds.zw;
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return 0.0;
 	return texture(u_farElevTex, uv).r;
 }
 float elevUV(vec2 uv, vec2 ll) {   // uv＝原点相対で作った近窓の uv（#65）・ll＝far 床の受け（粗くて可）
+	if (u_elevBounds.z > 359.0) uv.x = fract(uv.x);   // 全球の窓（R90）は経度が一周＝原点から 180° 超回った先の uv を折り返す（gpu/wgsl.js gElevUV と同じ・2026-10-01）
 	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) return elevFar(ll);
 	float fade = 1.0;
 	if (u_elevEdgeFade > 0.0) {

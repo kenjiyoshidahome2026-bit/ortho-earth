@@ -7,7 +7,7 @@ import { unproject, cameraState } from "@ortho-earth/core";
 
 export function installJapan(map, host) {
 	const estat = createEstat({ renderer: host.renderer, cam: host.cam, size: host.size, dpr: host.dpr, requestDraw: host.requestDraw,
-		tip: host.ownTip, say: host.overlay.say, t: host.t, spawnWorker: host.spawnWorker, hiMask: host.overlay.HI_MASK, unproject, cameraState });
+		tip: host.ownTip, say: host.overlay.say, t: host.t, hiMask: host.overlay.HI_MASK, unproject, cameraState });
 	host.overlay.use({ active: estat.isEstatActive, identify: estat.identify, clear: estat.clear });   // クリック識別と clearOverlay を e-Stat が引き受ける
 	// ホバー：smallAreaHover（census2020 限定）＝estat 中は町丁目を点in面で識別し名前 tip＋境界太線（ミスは gint へフォールバック）
 	host.hooks.hover.push((x, y) => !!host.opts.smallAreaHover && estat.isEstatActive() && estat.hoverAt(x, y));

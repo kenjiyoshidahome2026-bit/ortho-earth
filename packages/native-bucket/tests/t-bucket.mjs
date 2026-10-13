@@ -65,5 +65,14 @@ await t("鍵が無ければ書けず、キャッシュも残る", async () => {
 	eq(await get("b/y.txt"), "keep", "中身");
 });
 
+const cc = async path => (await bucket(new Request(BASE + path), R2, ctx, ENV)).headers.get("Cache-Control");
+await t("中身のハッシュ入りの共有データは immutable、他は従来どおり（2026-09-30）", async () => {
+	objs.set("GIS/shared/census/2020-small.8d2ee2ae.csv", "a,b"); objs.set("GIS/shared/census/2020-small.csv", "a,b");
+	eq(await cc("GIS/shared/census/2020-small.8d2ee2ae.csv"), "public, max-age=31536000, immutable", "ハッシュ入り");
+	eq(await cc("GIS/shared/census/2020-small.csv"), "public, s-maxage=3600, max-age=60", "ハッシュ無し");
+	eq(await cc("b/y.txt"), "public, s-maxage=3600, max-age=60", "他の道");
+	await settle();
+});
+
 console.log(`\nt-bucket: ${pass} ok, ${fail} fail`);
 if (fail) process.exit(1);

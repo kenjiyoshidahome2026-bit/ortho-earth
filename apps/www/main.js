@@ -1,4 +1,4 @@
-import * as d3 from "d3";
+import * as d3 from "d3-selection";   // select／selectAll だけ＝d3 全体を名前空間で読むと d3-transition・d3-brush の副作用まで束に入る（index 49.7KB → 24.8KB・2026-09-30 実測）
 import './main.scss';
 import { liteGlobe } from "./globe-lite.js";
 import { t, has, setLang, norm, LANGUAGES, getLang } from "./i18n.js";

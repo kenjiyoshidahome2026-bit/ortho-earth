@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-// 本番組立（SDK二重構成）の検定：build:prod で組んだ dist/site を「本番の形のまま」検査する。
-//   背景＝dev はソース直・本番は SDK（/japan/lib/）という二重構成（site.js 冒頭の分岐）。
+// 本番組立の検定：build:prod で組んだ dist/site を「本番の形のまま」検査する。
+//   背景＝dev はソース直・本番はエンジン（globe・i18n・core・geopbf）を共有エンジン /globe/engine/<版>/ から読む（2026-09-30・LAYERS.md 掟 3）。
+//   SDK（/japan/lib/）は外へ配る物として従来どおり同梱する（サイトはもう食わない）。
 //   dev で全緑でも本番だけ壊れる事故（worker data:URL 事件の型）をデプロイ前に必ず捕まえるのがこの関門。
 //   deploy スクリプトはこの検定を通らないと wrangler に到達しない（必須ゲート）。
 // 検査項目：
-//   ①静的: index の入口チャンクが lib のURLを import し、エンジンを再バンドルしていない（サイズ上限＝DCEの証明）
+//   ①静的: サイトのチャンクが今の版の共有エンジンを指し、エンジンを再バンドルしていない（入口のサイズ上限・指紋）
 //   ②静的: dist/site/japan/lib/ に SDK 実体（ortho-japan.js/.css）が居る
 //   ③実走: dist/site を素の静的サーバ（COOP/COEP付き＝本番Workerと同じ頭）で配り、headless Chrome で
 //          起動→チップ点灯まで確認（ja）。vite を挟まない＝出荷物そのものを食う
@@ -25,6 +26,7 @@ import path from "node:path";
 
 const APP = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const SITE = path.join(APP, "dist/site");
+const ENGINE = path.resolve(APP, "../ortho-globe/dist/engine");   // build の頭で sharedEngine() が焼く（本番は ortho-globe の Worker が /globe/engine/ で配る）
 const PORT = 5241, CHROME = process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const MIME = { ".js": "text/javascript", ".css": "text/css", ".html": "text/html", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".wasm": "application/wasm", ".webp": "image/webp" };
 const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
@@ -32,20 +34,23 @@ const fail = msg => { console.error(`✗ ${msg}`); process.exit(1); };
 console.log("… build:prod");
 execFileSync("npm", ["run", "build:prod"], { cwd: APP, stdio: "inherit" });
 
-// ① 入口チャンク＝lib参照・エンジン非同梱（100KB上限＝app.js本体(330KB+)が紛れたら即破裂する閾値）
+const VERSION = JSON.parse(readFileSync(path.join(ENGINE, "current.json"), "utf8")).version;
+// ① 入口チャンク＝エンジン非同梱（100KB上限＝エンジン本体が紛れたら即破裂する閾値）・サイトのチャンクが今の版の共有エンジンを指す
 const html = readFileSync(path.join(SITE, "japan/index.html"), "utf8");
 const entry = html.match(/<script type="module"[^>]*src="([^"]+\.js)"/)?.[1];
 if (!entry) fail("index.html に module script が見つからない");
 const entryPath = path.join(SITE, "japan", entry.replace(/^\/japan\//, ""));
 const entrySrc = readFileSync(entryPath, "utf8");
-if (!entrySrc.includes("/japan/lib/ortho-japan.js")) fail(`入口チャンク ${entry} が lib を import していない（devのソース直が紛れた疑い）`);
+if (entrySrc.includes("/japan/lib/ortho-japan.js")) fail(`入口チャンク ${entry} が /japan/lib/ を import している（旧・SDK 二重構成への逆戻り）`);
 const entryKB = statSync(entryPath).size / 1024;
-if (entryKB > 100) fail(`入口チャンクが ${entryKB.toFixed(0)}KB＝エンジンが再バンドルされている疑い（DCE失敗）`);
-console.log(`ok:entry（${entry} ${entryKB.toFixed(1)}KB・lib参照）`);
+if (entryKB > 100) fail(`入口チャンクが ${entryKB.toFixed(0)}KB＝エンジンが再バンドルされている疑い（共有エンジンの外出し失敗）`);
+const siteJs = readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsWith(".js"));
+if (!siteJs.some(f => readFileSync(path.join(SITE, "japan/assets", f), "utf8").includes(`/globe/engine/${VERSION}/globe.js`))) fail(`どのサイトチャンクも /globe/engine/${VERSION}/globe.js を指していない`);
+console.log(`ok:entry（${entry} ${entryKB.toFixed(1)}KB・共有エンジン /globe/engine/${VERSION}/ を指す）`);
 // 全サイトチャンク＝エンジン指紋なし（scene.html含むどのページもエンジンをソース直で再バンドルしていない証明。
 // 指紋＝エンジンの console 文字列＝minifyでも生き残り、訳の表には載らない（console は英語＝i18n 対象外）。
 // ⚠ UI 文字列を指紋にすると、サイト側のページが i18n の言語表（assets/ja-*.js 等）を持っただけで偽陽性になる（2026-09-19 quakes で踏んだ）
-for (const f of readdirSync(path.join(SITE, "japan/assets")).filter(f => f.endsWith(".js"))) {
+for (const f of siteJs) {
 	if (readFileSync(path.join(SITE, "japan/assets", f), "utf8").includes("[boot] frame1 received backend="))
 		fail(`assets/${f} にエンジンが再バンドルされている（index/sceneのどちらかがソース直参照に戻った疑い）`);
 }
@@ -73,7 +78,7 @@ const read = promisify(readFile);
 const requests = [];
 const server = createServer(async (req, res) => {
 	const p = new URL(req.url, "http://x").pathname;
-	const file = path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
+	const file = p.startsWith("/globe/engine/") ? path.join(ENGINE, p.slice("/globe/engine/".length)) : path.join(SITE, p.endsWith("/") ? p + "index.html" : p);
 	try {
 		const body = await read(file);
 		requests.push("200 " + p);
@@ -91,9 +96,9 @@ const pages = [
 	{ name: "boot", url: `http://localhost:${PORT}/japan/?gl2=1&lang=ja`, ready: `document.title.includes("ortho-japan") && !!document.getElementById("chips") && document.documentElement.outerHTML.includes("地名") && !!document.querySelector("canvas#c")`,
 		fails: [[`document.title.includes("ortho-japan")`, "実走: タイトル不在＝ページが立っていない"], [`!!document.getElementById("chips") && document.documentElement.outerHTML.includes("地名")`, "実走: チップ列が出ていない＝エンジン起動失敗の疑い"], [`!!document.querySelector("canvas#c")`, "実走: 描画canvas不在"]] },
 	{ name: "scene", url: `http://localhost:${PORT}/japan/scene.html?gl2=1&lang=ja`, ready: `!!document.querySelector("canvas#c") && !!document.getElementById("sc-shoot")`,
-		fails: [[`!!document.querySelector("canvas#c")`, "scene実走: 描画canvas不在（SDK経由の起動失敗）"], [`!!document.getElementById("sc-shoot")`, "scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）"]] },
+		fails: [[`!!document.querySelector("canvas#c")`, "scene実走: 描画canvas不在（共有エンジン経由の起動失敗）"], [`!!document.getElementById("sc-shoot")`, "scene実走: エディタUI不在（editor.jsチャンク疎通の疑い）"]] },
 	{ name: "geoedit", url: `http://localhost:${PORT}/japan/geoedit.html?gl2=1&lang=ja`, ready: `!!document.querySelector("canvas#c") && !!document.getElementById("ge-toolbar")`,
-		fails: [[`!!document.querySelector("canvas#c")`, "geoedit実走: 描画canvas不在（SDK経由の起動失敗）"], [`!!document.getElementById("ge-toolbar")`, "geoedit実走: エディタUI不在（gadget geoedit の遅延chunk疎通の疑い）"]] },
+		fails: [[`!!document.querySelector("canvas#c")`, "geoedit実走: 描画canvas不在（共有エンジン経由の起動失敗）"], [`!!document.getElementById("ge-toolbar")`, "geoedit実走: エディタUI不在（gadget geoedit の遅延chunk疎通の疑い）"]] },
 ];
 {
 	const chrome = spawn(CHROME, ["--headless=new", `--remote-debugging-port=${CDP0}`, "--disable-gpu", "--use-angle=swiftshader", "--enable-unsafe-swiftshader",
@@ -126,10 +131,11 @@ const pages = [
 	chrome.kill();
 	for (const r of results) if (!r.ok) fail(r.missing[0] || `${r.name}実走: 60 s で証拠が出ない`);
 	const got = requests.join("\n");
-	if (!got.includes("/japan/lib/assets/renderworker-")) { console.error("  台帳:\n  " + requests.join("\n  ")); fail("実走: render worker が /japan/lib/assets/ から取得されていない（base相対の事故＝本番SPAフォールバックHTMLを掴む型）"); }
-	console.log(`ok:boot（SDK経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
-	console.log("ok:scene（エディタページもSDK経由で起動・editor UI点灯）");
-	console.log("ok:geoedit（GeoPBF エディタページも SDK 経由で起動・ツールバー点灯）");
+	if (!got.includes(`/globe/engine/${VERSION}/assets/renderworker-`)) { console.error("  台帳:\n  " + requests.join("\n  ")); fail(`実走: render worker が /globe/engine/${VERSION}/assets/ から取得されていない（base相対の事故＝本番SPAフォールバックHTMLを掴む型）`); }
+	if (got.includes("/japan/lib/")) fail("実走: サイトが /japan/lib/ の SDK を取りに来た（旧・二重構成への逆戻り）");
+	console.log(`ok:boot（共有エンジン経由で起動・チップ点灯・canvas生成・worker取得実観測 / 要求${requests.length}件）`);
+	console.log("ok:scene（エディタページも共有エンジン経由で起動・editor UI点灯）");
+	console.log("ok:geoedit（GeoPBF エディタページも共有エンジン経由で起動・ツールバー点灯）");
 }
 
 // ④ ガジェット実クリック（生CDP・実時間）：遅延ロード系＝押した瞬間に動的importが走るボタンを実際に押す。
@@ -195,7 +201,7 @@ server.close();
 const notFound = requests.filter(r => r.startsWith("404 ") && !r.includes("/favicon.svg"));   // ルートfaviconはwwwの持ち物＝検定対象外
 if (notFound.length) fail(`実走: 404が${notFound.length}件＝${[...new Set(notFound)].slice(0, 5).join(" / ")}`);
 console.log(`ok:ledger（クリック中の動的importチャンク含め404ゼロ / 総要求${requests.length}件）`);
-console.log("✓ 本番組立の検定PASS（入口=SDK・エンジン非再バンドル・実走OK・ガジェット実クリックOK）");
+console.log("✓ 本番組立の検定PASS（入口=共有エンジン・エンジン非再バンドル・実走OK・ガジェット実クリックOK）");
 
 // per-pid の Chrome プロファイル（scene/geoedit/click＝各 ~500MB）は終了時に掃除（/tmp 満杯の轍・2026-09-15）
 process.on("exit", () => { for (const k of ["pages", "scene", "geoedit", "click"]) { try { fsSync.rmSync(`/tmp/oj-vprod-${k}-${process.pid}`, { recursive: true, force: true }); } catch { /* 無害 */ } } });

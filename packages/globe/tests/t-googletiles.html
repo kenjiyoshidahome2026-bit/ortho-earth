@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- 実描画の検分：@ortho-earth/google-tiles（第 3 波 W8・2026-10-12）。偽の Google（tests/fixtures/google）＝root.json は子の tileset の URI に session=S1 を載せ、
+     子（datasets/A/files/sub.json）の中身は相対の box.b3dm（session 無し・tiles3d/ext-box.b3dm の写し＝asset.copyright "Fixture Survey; Test Imagery"）。
+     ①requestTransform（hosts＝この頁の host）：全要求に key・box.b3dm に session が付け回される・rt.session＝S1
+     ②出典：handle.copyrights＝多い順・#attr に "Google; Fixture Survey; Test Imagery"・remove で消える
+     ③plugin の形：map.use(googleTilesPlugin({ key, root })) → map.gadget.googleTiles() で読める・capabilities "gadget.googleTiles"＝plugin・unuse で外れる。
+     鍵は偽物（TEST_KEY）＝本物の鍵は repo に置かない（実データの確認は手元）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:800px;height:600px}</style><title>t-googletiles</title></head>
+<body><div id="map"></div>
+<script type="module">
+const { createGlobe } = await import("@ortho-earth/globe");
+const { googleRequestTransform, googleAttribution, googleTilesPlugin } = await import("@ortho-earth/google-tiles");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms = 20000) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = f(); if (v) return v; await sleep(200); } return null; };
+const attrText = map => map.mapEl.querySelector("#attr")?.textContent || "";
+try {
+	const map = await createGlobe({ target: "#map", view: "#16.6/35.6812/139.7671/45t", theme: "dark", chips: false, persistView: false });
+	await map.once("load"); await sleep(1000);
+	const root = new URL("./fixtures/google/root.json", location.href).href, K = "TEST_KEY";
+	// ① 要求の加工
+	const rt = googleRequestTransform({ key: K, hosts: [location.host] }), log = [];
+	const wrapped = (url, type) => { const r = rt(url, type); log.push({ type, in: url, out: r?.url ?? url }); return r; };
+	const h = await map.add3DTiles(root, { fit: false, requestTransform: wrapped, attribution: googleAttribution });
+	await until(() => h.stats.shown >= 1);
+	const q = s => new URL(s).searchParams;
+	const box = log.find(l => /box\.b3dm/.test(l.in)), sub = log.find(l => /sub\.json/.test(l.in));
+	ok("loaded", h.stats.shown >= 1 && h.stats.failed === 0, JSON.stringify(h.stats));
+	ok("keyAll", log.length >= 3 && log.every(l => q(l.out).get("key") === K), JSON.stringify(log.map(l => l.out.replace(location.origin, ""))));
+	ok("sessionFromUri", sub && q(sub.in).get("session") === "S1" && rt.session === "S1");
+	ok("sessionCarried", box && !q(box.in).has("session") && q(box.out).get("session") === "S1" && box.type === "Tile", JSON.stringify(box));
+	ok("rootNoSession", !q(log[0].out).has("session") && log[0].type === "Source");
+	// ② 出典
+	const attr = await until(() => /Google; Fixture Survey; Test Imagery/.test(attrText(map)) ? attrText(map) : null, 8000);
+	ok("copyrights", JSON.stringify(h.copyrights) === JSON.stringify(["Fixture Survey", "Test Imagery"]), JSON.stringify(h.copyrights));
+	ok("attribution", !!attr, attrText(map).slice(0, 200));
+	h.remove(); await sleep(400);
+	ok("attributionRemoved", !/Fixture Survey/.test(attrText(map)), attrText(map).slice(0, 200));
+	// ③ plugin の形
+	map.use(googleTilesPlugin({ key: K, root }));
+	ok("plugin.caps", map.supports("gadget.googleTiles") && map.capabilities()["gadget.googleTiles"].status === "plugin" && map.capabilities()["gadget.googleTiles"].via === "google-tiles");
+	const h2 = await map.gadget.googleTiles({ fit: false });
+	await until(() => h2.stats.shown >= 1);
+	ok("plugin.loaded", h2.id === "google-3d" && h2.stats.shown >= 1 && h2.stats.failed === 0 && h2.copyrights.length === 2, JSON.stringify(h2.stats));
+	map.unuse("google-tiles");
+	ok("plugin.unuse", !map.supports("gadget.googleTiles"));
+	h2.remove();
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e?.stack || e) + " " + t.join(" "); }
+</script></body></html>

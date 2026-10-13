@@ -2,6 +2,7 @@ import { GeoPBF } from "./pbf.js";
 import { createPbfio } from "./pbf-io.js";
 import { spawnWorker, setWorkerFactory } from "./modules/workerFactory.js";
 import { builtinWorker } from "./modules/builtinWorkers.js";   // geopbf 自身の worker（new Worker の直書きはここ 1 か所＝ホストはビルドの alias で「作らない版」に差し替えられる）
+export { GeoPBF };   // 拡張メソッド付きの GeoPBF（1.20〜・改良点 10）。旧＝どの subpath からも拡張付きの class が取れなかった（pbf-base は器だけ・geopbf/pbf は protobuf の wire 読み書き）
 export { setWorkerFactory };   // worker の入口を外から差し替える（役割名 → Worker・null＝既定）
 // 変換 worker は入口 1 本（./worker.js）＝形式は Worker の name で指名する（処方②・ortho-earth#12・2026-09-14）。
 // 形式ごとに worker ファイルを分けると、バンドラ（vite）が worker ごとに独立ビルドして核（pbf-base 等）を 25〜29 回複製した。
@@ -20,11 +21,75 @@ import { decodeZIP } from "./modules/decodeZIP.js";
 import { isString, isURL, isFile, isObject, isBuffer } from "./modules/utility.js"
 import { prewarmWorkers } from "./modules/workerPool.js";
 
+// Worker を作る（ホストの入口 → geopbf 自身の入口）。Worker 自体が無い環境（Node の main スレッド）は null＝呼び手が main スレッドの道へ落とす
+const spawnWorkerOrNull = role => { try { return spawnWorker(role, () => builtinWorker(role)); } catch (e) { if (typeof Worker === "undefined") return null; throw e; } };
+
 // prototype メソッドとレガシー geopbf が使うアクティブインスタンス
 let _activeGetServer = null;
 let _activeGeopbf   = null;
 
 // レガシー互換エクスポート（createGeopbf 呼び出し後に使用可能）
+// ── 呼び手の鍵で置く控え（#176）の台帳＝掃除の物差し。IDB の同じ棚に 1 件（"KEYS::cacheKey"）＝{ entries: { 鍵: { t: 置いた時刻, u: 最後に使った時刻, bytes } } }。
+// 台帳を書くのはここだけ（読み書きを 1 本の鎖に並べる＝同時の書き込みで消し合わない）。既存の控え（bucket 名・URL・File）は台帳に載らず、掃除も触らない
+const KEYS_REC = "KEYS::cacheKey";
+// IDB へ置く GintBUF: SAB は IDB に入らない＝ArrayBuffer へ写す。ArrayBuffer ならそのまま（put が structured clone で写す＝旧の .slice() は二重の写し・2026-10-11）
+const idbGint = b => !b ? null : b instanceof ArrayBuffer ? b : new Uint8Array(b).slice().buffer;
+let keysChain = Promise.resolve();
+const withKeys = (server, fn) => (keysChain = keysChain.then(async () => {
+    const rec = (await server.cache(KEYS_REC).catch(() => null))?.entries || {};
+    const out = await fn(rec);
+    await server.cache(KEYS_REC, { entries: rec });
+    return out;
+}).catch(e => { console.error("[geopbf] cache index", e); return null; }));
+
+/**
+ * 呼び手の鍵で置いた控えを掃除する（#176）。prefix は必須＝その接頭辞の鍵だけを見る（他の控えには触らない）。
+ * maxAge＝置いてからの時間（ms）を超えた物・maxEntries／maxBytes＝超えた分を最後に使ったのが古い順に。台帳に無い同じ接頭辞の鍵（書きかけ）も消す。
+ * @returns {Promise<{ removed: number, kept: number, bytes: number } | null>}（bucket provider が無ければ null）
+ */
+export async function geopbfCachePrune({ prefix, maxAge = Infinity, maxEntries = Infinity, maxBytes = Infinity } = {}) {
+    if (typeof prefix !== "string" || prefix.length < 3) throw new Error("geopbfCachePrune: prefix is required (at least 3 characters) — only keys with this prefix are touched");
+    const server = _activeGetServer ? await _activeGetServer().catch(() => null) : null;
+    if (!server) return null;
+    return withKeys(server, async rec => {
+        const keys = new Set(((await server.cache().catch(() => [])) || []).filter(k => typeof k === "string" && k.startsWith(prefix) && k !== KEYS_REC));
+        let removed = 0;
+        const drop = async k => { await server.cache(k, null).catch(() => {}); delete rec[k]; removed++; };
+        for (const k of keys) if (!rec[k]) await drop(k);                                   // 台帳に無い＝書きかけ・旧版
+        for (const k of Object.keys(rec)) if (k.startsWith(prefix) && !keys.has(k)) delete rec[k];   // 台帳だけ残った
+        const now = Date.now();
+        const live = Object.entries(rec).filter(([k]) => k.startsWith(prefix) && keys.has(k));
+        for (const [k, e] of live) if (now - (e.t || 0) > maxAge) await drop(k);
+        const rest = Object.entries(rec).filter(([k]) => k.startsWith(prefix)).sort((a, b) => (a[1].u || a[1].t || 0) - (b[1].u || b[1].t || 0));
+        let bytes = rest.reduce((s, [, e]) => s + (e.bytes || 0), 0), n = rest.length;
+        for (const [k, e] of rest) { if (n <= maxEntries && bytes <= maxBytes) break; await drop(k); n--; bytes -= e.bytes || 0; }
+        return { removed, kept: n, bytes };
+    });
+}
+
+/**
+ * 鍵で控えた GeoPBF（＋GintBUF）を IDB から引く（#176・一度読んだ物を網に出ずに使い回す）。無い・古い（maxAge 超え）・壊れている＝null。
+ * 置く側＝geopbf(data, { cacheKey, cacheMeta })。鍵は呼び手が決める（フィーチャーサービス＝サービス・版・枡）。bucket provider が無ければ常に null。
+ * @param {string} key
+ * @param {{ gint?: boolean, maxAge?: number }} [opts]  maxAge＝ms（既定＝期限なし）
+ */
+export async function geopbfCached(key, opts = {}) {
+    const server = _activeGetServer ? await _activeGetServer().catch(() => null) : null;
+    if (!server) return null;
+    const val = await server.cache(key).catch(() => null);
+    if (!val?.PBF?.byteLength) return null;
+    if (opts.maxAge != null && !(Date.now() - (val.meta?.t || 0) <= opts.maxAge)) return null;
+    const pbf = await new GeoPBF({ name: opts.name }).set(val.PBF).catch(() => null);
+    if (!pbf?.length) return null;
+    if (opts.gint !== false) {
+        if (val.GINT) await pbf.setGintBUF(val.GINT).catch(() => {});
+        if (!pbf.unPackGint) await pbf.gint({ gint: true });   // GINT 無し（gint:false で置いた）か旧版＝ここで焼く（置き直しはしない）
+    }
+    pbf._cacheKey = key; pbf.cacheMeta = val.meta || null;
+    withKeys(server, rec => { if (rec[key]) rec[key].u = Date.now(); });   // 使った＝掃除の順で後ろへ
+    return pbf;
+}
+
 export async function geopbf(data, opts) {
     if (!_activeGeopbf) throw new Error("geopbf: call createGeopbf(apiBase) before use");
     return _activeGeopbf(data, opts);
@@ -56,6 +121,7 @@ export function createGeopbf(apiBase, options = {}) {
     _activeGetServer = getServer;
 
     const geopbfFn = async function geopbf(data, opts = {}) { if (isString(opts)) opts = { name: opts };
+        if (options.worker === false && opts.worker === undefined) opts.worker = false;   // この入口の worker:false を各インスタンスへ（2026-10-11）
         // 相対パス（"/data/x.gpx" "./x.geojson" "../y.zip"）＝自サイトの URL。旧＝bucket 名と誤認して api/bucket/GIS/pbf//data/… を取りに行き
         // 404→0 件を黙って返した（2026-09-10 SDK ドッグフード）。ブラウザなら location 基準で絶対 URL へ。
         if (isString(data) && /^\.{0,2}\//.test(data) && typeof location !== "undefined") data = new URL(data, location.href).href;
@@ -73,8 +139,8 @@ export function createGeopbf(apiBase, options = {}) {
             const params = { file, name, precision, encoding, description, license, attribution, ...extra };
             const event = `convrsion from ${type} to GeoPBF`;
             throwEvent("ConvertStart",{name, event});
-            const w = DECODERS.has(type) ? spawnWorker(`decoder:${type}`, () => builtinWorker(`decoder:${type}`)) : null;   // ホストの入口が勝つ（setWorkerFactory）
-            if (!w) return null;   // ホストの factory が役割を断った（旧＝スコープ外の resolve で ReferenceError・B9b）
+            const w = DECODERS.has(type) ? spawnWorkerOrNull(`decoder:${type}`) : null;   // ホストの入口が勝つ（setWorkerFactory）
+            if (!w) { throwEvent("ConvertEnd", { name, error: `no worker for [${type}]` }); throw new Error(`geopbf: decoding ${type} needs a Worker (none in this environment; in Node use the CLI or the converters under geopbf/convert)`); }   // 旧＝黙って null＝空 pbf
             return new Promise(resolve => {
                 w.onmessage = async e => {
                     if (e.data?.type === 'progress') {
@@ -101,17 +167,27 @@ export function createGeopbf(apiBase, options = {}) {
             // 0 件の結果は保存しない（旧 fgb デコーダの 0 件を IDB が覚えて、直した後も「Failed to load」を返し続けた・2026-09-22）
             // clean 済みの GINT も保存しない＝同じ URL/File を clean なしで読んだ時に clean 済みが返らないように
             if (!pbf.length || opts.clean) { /* 保存しない */ }
+            else if (opts.cacheKey && !pbf._cacheKey) {   // 呼び手の鍵で置く（geopbfCached で引く・#176）。meta.t＝置いた時刻（maxAge の物差し）
+                const server = await getServer().catch(() => null);
+                if (server && opts.nocache !== true) {
+                    const GINT = pbf._gintBuffer ? idbGint(pbf._gintBuffer) : null;
+                    const key = opts.cacheKey, t = Date.now(), bytes = (pbf.arrayBuffer?.byteLength || 0) + (GINT?.byteLength || 0);
+                    server.cache(key, { PBF: pbf.arrayBuffer, GINT, meta: { ...(opts.cacheMeta || {}), t } })
+                        .then(() => withKeys(server, rec => { rec[key] = { t, u: t, bytes }; }))   // 台帳へ（掃除の物差し）
+                        .catch(console.error);
+                }
+            }
             else if (isURL(data) && (!pbf.originalURL || pbf._staleGint)) {
                 const server = await getServer();
                 if (server) {
-                    const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                    const GINT = idbGint(pbf._gintBuffer);
                     server.cache(data, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
             } else if (isFile(data) && (!pbf._fileKey || pbf._staleGint)) {
                 const server = await getServer().catch(() => null);
                 if (server && opts.nocache !== true) {
                     const fileKey = `FILE::${data.name}::${data.size}::${data.lastModified}`;
-                    const GINT = new Uint8Array(pbf._gintBuffer).slice().buffer;
+                    const GINT = idbGint(pbf._gintBuffer);
                     server.cache(fileKey, { PBF: pbf.arrayBuffer, GINT }).catch(console.error);
                 }
             }
@@ -226,8 +302,8 @@ const encoder = async (pbf, type, opts = {}) => {
     const event = type =="profile"? `profiling` : `conversion from GeoPBF to ${type}`;
     const throwEvent = (type, detail) => eventTarget && !opts.silent && eventTarget.dispatchEvent(new CustomEvent(type, { detail }));
     opts.message == false || throwEvent("ConvertStart", { name, event });
-    const w = ENCODERS.has(type) ? spawnWorker(`encoder:${type}`, () => builtinWorker(`encoder:${type}`)) : null;
-    if (!w) return null;
+    const w = ENCODERS.has(type) ? spawnWorkerOrNull(`encoder:${type}`) : null;
+    if (!w) return null;   // Worker が作れない（Node の main 等）＝null＝gint() は main スレッドの topology へ落ちる
     return new Promise(resolve => {
         w.onmessage = e => {
             opts.message == false || throwEvent("ConvertEnd", { name, event });
@@ -248,7 +324,8 @@ const methods = {
         else if (isObject(canvas)) { props = canvas; canvas = null; }
         const offscreen = canvas || null;
         const buf = this.arrayBuffer, name = this._name;
-        const w = spawnWorker("encoder:preview", () => builtinWorker("encoder:preview"));
+        const w = spawnWorkerOrNull("encoder:preview");
+        if (!w) return null;   // 旧＝factory が拒んだ・Worker が無い時に null を参照して落ちた
         const transferables = offscreen ? [buf, offscreen] : [buf];
         const bitmap = await new Promise(resolve => {
             w.onmessage = e => { w.terminate(); resolve(e.data); };
@@ -278,7 +355,7 @@ const methods = {
     async fgbFile(opts = {}) { return encoder(this, "fgb", opts); },
     async gint(opts = {}) { if (opts.gint === false) return this;
         if (!this.unPackGint) {
-            let buf = await encoder(this, "gint", opts);
+            let buf = await encoder(this, "gint", { ...opts, shared: typeof SharedArrayBuffer !== "undefined" });   // Worker が SAB に直に組む（setGintBUF の写しが消える）
             if (!buf) { await gint.initialize(); buf = topology(this); if (opts.clean) buf = cleanGintBuffer(buf, opts.clean); }   // Worker 不成立の予備でも clean を落とさない
             await this.setGintBUF(buf);
         } else if (opts.clean) this.cleanTopology(opts.clean);   // 焼き済み（キャッシュ由来・先の gint()）にも clean を掛ける

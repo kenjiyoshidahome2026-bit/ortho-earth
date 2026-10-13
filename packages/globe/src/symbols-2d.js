@@ -11,7 +11,7 @@ export function init(canvas) { ctx = canvas.getContext("2d"); }
 // data＝{ type:"image", name, bitmap, pixelRatio, sdf } | { type:"removeImage", name } | { type:"layer", id, items:[…], order } | { type:"removeLayer", id }
 export function message(d) {
 	if (d.type === "image") { images.get(d.name)?.bm?.close?.(); images.set(d.name, { bm: d.bitmap, pr: d.pixelRatio || 1, sdf: !!d.sdf, sx: d.stretchX || null, sy: d.stretchY || null, ct: d.content || null }); for (const k of [...tinted.keys()]) if (k.startsWith(d.name + "|")) tinted.delete(k); }   // 古い絵は閉じる（動く記号＝毎フレーム差し替え）
-	else if (d.type === "removeImage") images.delete(d.name);
+	else if (d.type === "removeImage") { images.get(d.name)?.bm?.close?.(); images.delete(d.name); for (const k of [...tinted.keys()]) if (k.startsWith(d.name + "|")) tinted.delete(k); }   // 消した記号＝絵を閉じ、SDF の写しも捨てる（旧＝残って同じ名前の新しい記号に古い色の写しが使われた）
 	else if (d.type === "layer") layers.set(d.id, { id: d.id, items: d.items, order: d.order ?? 0 });
 	else if (d.type === "removeLayer") layers.delete(d.id);
 }

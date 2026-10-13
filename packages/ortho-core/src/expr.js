@@ -8,6 +8,42 @@
 // 以後は feature 毎にコンパイル済み関数を呼ぶだけ。意味論は旧インタプリタと完全一致（node で全出力突合済み）。
 
 import { parseRGBA, isColor } from "./color.js";
+import { featureGeomLL, ringsOf, withinGeom, distanceGeom } from "./expr-geo.js";   // within・distance（C2・2026-10-12）
+
+// ── 色空間（C2）＝interpolate-lab／interpolate-hcl を本物の色空間で（旧＝rgb の線形で近似）。sRGB(0..1) ⇄ CIE Lab（D65）⇄ LCH（hcl）。MapLibre の color_spaces.ts と同じ式
+const Xn = 0.950470, Yn = 1, Zn = 1.088830, T0 = 4 / 29, T1 = 6 / 29, T2 = 3 * T1 * T1, T3 = T1 * T1 * T1;
+const rgb2xyz = r => { r /= 255; return r <= 0.04045 ? r / 12.92 : Math.pow((r + 0.055) / 1.055, 2.4); };
+const xyz2rgb = r => { r = r <= 0.0031308 ? 12.92 * r : 1.055 * Math.pow(r, 1 / 2.4) - 0.055; return Math.max(0, Math.min(255, Math.round(r * 255))); };
+const xyz2lab = t => t > T3 ? Math.pow(t, 1 / 3) : t / T2 + T0;
+const lab2xyz = t => t > T1 ? t * t * t : T2 * (t - T0);
+function rgbToLab(c) {   // c＝parseRGBA の [r,g,b(0..1),a]
+	const r = rgb2xyz(c[0] * 255), g = rgb2xyz(c[1] * 255), b = rgb2xyz(c[2] * 255);
+	const x = xyz2lab((0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / Xn), y = xyz2lab((0.2126729 * r + 0.7151522 * g + 0.0721750 * b) / Yn), z = xyz2lab((0.0193339 * r + 0.1191920 * g + 0.9503041 * b) / Zn);
+	return { l: 116 * y - 16, a: 500 * (x - y), b: 200 * (y - z), alpha: c[3] };
+}
+function labToRgb(L) {
+	let y = (L.l + 16) / 116, x = isNaN(L.a) ? y : y + L.a / 500, z = isNaN(L.b) ? y : y - L.b / 200;
+	y = Yn * lab2xyz(y); x = Xn * lab2xyz(x); z = Zn * lab2xyz(z);
+	return `rgba(${xyz2rgb(3.2404542 * x - 1.5371385 * y - 0.4985314 * z)},${xyz2rgb(-0.9692660 * x + 1.8760108 * y + 0.0415560 * z)},${xyz2rgb(0.0556434 * x - 0.2040259 * y + 1.0572252 * z)},${+L.alpha.toFixed(4)})`;
+}
+const lerpNum = (a, b, t) => a + t * (b - a);
+const lerpHue = (a, b, t) => { const d = b - a; return a + t * (d > 180 || d < -180 ? d - 360 * Math.round(d / 360) : d); };   // 色相は近い方へ回る（MapLibre の interpolateHue）
+export function lerpColorLab(a, b, t) { const p = rgbToLab(parseRGBA(a)), q = rgbToLab(parseRGBA(b)); return labToRgb({ l: lerpNum(p.l, q.l, t), a: lerpNum(p.a, q.a, t), b: lerpNum(p.b, q.b, t), alpha: lerpNum(p.alpha, q.alpha, t) }); }
+export function lerpColorHcl(a, b, t) {
+	const toHcl = c => { const L = rgbToLab(c), h = Math.atan2(L.b, L.a) * 180 / Math.PI; return { h: h < 0 ? h + 360 : h, c: Math.sqrt(L.a * L.a + L.b * L.b), l: L.l, alpha: L.alpha }; };
+	const p = toHcl(parseRGBA(a)), q = toHcl(parseRGBA(b));
+	const h = isNaN(p.h) ? q.h : isNaN(q.h) ? p.h : lerpHue(p.h, q.h, t), c = lerpNum(p.c, q.c, t), rad = h * Math.PI / 180;   // 彩度 0（灰）の色相は相手の色相
+	return labToRgb({ l: lerpNum(p.l, q.l, t), a: Math.cos(rad) * c, b: Math.sin(rad) * c, alpha: lerpNum(p.alpha, q.alpha, t) });
+}
+const lerpAnyIn = (space, y0, y1, t) => typeof y0 === "string" && typeof y1 === "string" && isColor(y0) && isColor(y1) ? (space === "lab" ? lerpColorLab : lerpColorHcl)(y0, y1, t) : lerpAny(y0, y1, t);
+// collator（C2）＝["collator", { case-sensitive, diacritic-sensitive, locale }] → 比較の道具。比較（== != < <= > >=）の 3 つ目の引数と resolved-locale が読む
+const makeCollator = o => {
+	const cs = !!o?.["case-sensitive"], ds = !!o?.["diacritic-sensitive"], loc = o?.locale || undefined;
+	const col = new Intl.Collator(loc, { sensitivity: cs && ds ? "variant" : cs ? "case" : ds ? "accent" : "base", usage: "search" });
+	return { compare: (a, b) => col.compare(String(a), String(b)), resolvedLocale: () => col.resolvedOptions().locale, isCollator: true };
+};
+// semiliteral（C2・spec 26.4.4 の definitions/semiliteral.ts と照合済み）＝引数が配列なら各要素を式として評価して配列を返し、配列でなければ literal と同じ。要素のうち「先頭が演算子の文字列の配列」だけ式として評価する（素の値は literal として通す）。本物は配列でない引数を literal に落とすだけ＝object の中は見ないが、ここは中も見る＝spec 内の入力では同じ答え（compat.md §4）
+const semiEval = (v, ctx, o) => Array.isArray(v) ? (typeof v[0] === "string" && KNOWN_OPS.has(v[0]) ? compile(v, o)(ctx) : v.map(x => semiEval(x, ctx, o))) : v && typeof v === "object" ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, semiEval(x, ctx, o)])) : v;
 
 // 色の補間（interpolate の出力が色文字列の時・#33）＝rgba の各成分を線形に。出力は "rgba(r,g,b,a)"（parseRGBA が読む形）
 const lerpColor = (a, b, t) => { const p = parseRGBA(a), q = parseRGBA(b); const c = i => p[i] + t * (q[i] - p[i]); return `rgba(${Math.round(c(0) * 255)},${Math.round(c(1) * 255)},${Math.round(c(2) * 255)},${+c(3).toFixed(4)})`; };
@@ -77,8 +113,34 @@ export function evalExpr(e, ctx) {
 	try { return fn(ctx); } catch (err) { if (err === ML_ERR) return undefined; throw err; }
 }
 
+// format の区間（MapLibre の formatted・2026-10-03 互換の段）：text-field の根が ["format", 中身, {書式}, 中身, {書式}, …] の時だけ、区間ごとの文字と書式を返す
+// → [{ t（文字）, fs（font-scale・無ければ null）, col（text-color の評価値・無ければ null）, fnt（text-font の名前の列・無ければ null）, img（["image", 名] の区間＝記号の名前・文字は ""） }]。
+// 文字の連結は従来の evalExpr（"format" は文字だけを連結）と同じ順＝鍵・重複排除は不変。labels.js が読んで区間の書式を焼く（labels2d が区間ごとの書体・大きさ・色で描く）
+const fmtCaches = { native: new WeakMap(), ml: new WeakMap() };
+export function formatSections(e, ctx) {
+	if (!Array.isArray(e) || e[0] !== "format") return null;
+	const o = originOfCtx(ctx), cache = fmtCaches[o];
+	let fn = cache.get(e);
+	if (fn === undefined) {
+		const secs = [];
+		for (let i = 1; i < e.length; i++) {
+			const x = e[i]; if (x && typeof x === "object" && !Array.isArray(x)) continue;
+			const opt = e[i + 1] && typeof e[i + 1] === "object" && !Array.isArray(e[i + 1]) ? e[i + 1] : null;
+			secs.push({ v: compile(x, o), img: Array.isArray(x) && x[0] === "image", fs: opt?.["font-scale"] != null ? compile(opt["font-scale"], o) : null, col: opt?.["text-color"] != null ? compile(opt["text-color"], o) : null, fnt: opt?.["text-font"] != null ? compile(opt["text-font"], o) : null, va: typeof opt?.["vertical-align"] === "string" ? opt["vertical-align"] : null });   // va＝vertical-align（bottom|center|top・C5）
+		}
+		fn = ctx => secs.map(s => {
+			const v = s.v(ctx), t = s.img || v == null ? "" : String(v);
+			const fs = s.fs ? +s.fs(ctx) : null, col = s.col ? s.col(ctx) : null, fnt = s.fnt ? s.fnt(ctx) : null;
+			return { t, fs: Number.isFinite(fs) && fs > 0 ? fs : null, col: col ?? null, fnt: Array.isArray(fnt) && fnt.length ? fnt : typeof fnt === "string" && fnt ? [fnt] : null, img: s.img && v != null ? String(v) : null, va: s.va };
+		});
+		cache.set(e, fn);
+	}
+	if (o === "native") return fn(ctx);
+	try { return fn(ctx); } catch (err) { if (err === ML_ERR) return null; throw err; }
+}
+
 // 評価器が知っている演算子（build の case と同じ顔ぶれ＝tests/mlcompat.mjs の op-known-matches-build が突き合わせる）
-export const KNOWN_OPS = new Set(["literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation"]);
+export const KNOWN_OPS = new Set(["within", "distance", "config", "semiliteral", "pitch", "distance-from-center", "literal", "global-state", "get", "has", "!", "all", "any", "==", "!=", ">", ">=", "<", "<=", "in", "geometry-type", "zoom", "match", "step", "case", "let", "var", "interpolate", "+", "-", "*", "/", "%", "^", "min", "max", "to-number", "coalesce", "feature-state", "concat", "to-string", "interpolate-hcl", "interpolate-lab", "id", "properties", "to-boolean", "to-color", "string", "number", "boolean", "object", "array", "rgb", "rgba", "typeof", "downcase", "upcase", "length", "slice", "index-of", "abs", "floor", "ceil", "round", "sqrt", "log10", "log2", "sin", "cos", "tan", "asin", "acos", "atan", "at", "to-rgba", "ln", "e", "pi", "image", "format", "number-format", "is-supported-script", "resolved-locale", "collator", "accumulated", "line-progress", "heatmap-density", "elevation", "ln2", "split", "join"]);
 
 // MapLibre 形の式の検査＝知らない演算子を集める（MapLibre は addLayer でその名を挙げて層を足さない・2026-09-26 段 5）。
 // 式の位置だけを見る：literal の中・match のラベル・interpolate の補間型と停留値・step の閾値・let の名前・var・format/number-format/collator の設定は式でない。
@@ -88,7 +150,7 @@ export function unknownOps(e, out = new Set()) {
 	const op = e[0], x = v => unknownOps(v, out);
 	if (!KNOWN_OPS.has(op)) out.add(op);
 	switch (op) {
-		case "literal": case "var": case "collator": return out;
+		case "literal": case "var": case "collator": case "within": case "distance": case "semiliteral": return out;   // within/distance の GeoJSON・semiliteral の中身はデータ（C2）
 		case "match": { x(e[1]); for (let i = 3; i < e.length - 1; i += 2) x(e[i]); x(e[e.length - 1]); return out; }
 		case "interpolate": case "interpolate-hcl": case "interpolate-lab": { x(e[2]); for (let i = 4; i < e.length; i += 2) x(e[i]); return out; }
 		case "step": { x(e[1]); x(e[2]); for (let i = 4; i < e.length; i += 2) x(e[i]); return out; }
@@ -114,8 +176,8 @@ function cubicBezier(x1, y1, x2, y2) {
 }
 
 // 式ノード → クロージャ。子式は compile() で一度だけ関数化して捕獲する（switch は compile 時に1回だけ通る）。
-function build(e, o = "native") {
-	const op = e[0], ML = o === "ml";
+function build(e, o = "native", opAs = null) {
+	const op = opAs || e[0], ML = o === "ml";
 	const compile_ = x => compile(x, o);
 	switch (op) {
 		case "literal": { const v = e[1]; return () => v; }
@@ -131,12 +193,12 @@ function build(e, o = "native") {
 		case "!": { const a = compile_(e[1]); return ML ? ctx => !bool(a(ctx)) : ctx => !truthy(a(ctx)); }
 		case "all": { const xs = e.slice(1).map(compile_); return ML ? ctx => { for (const f of xs) if (!bool(f(ctx))) return false; return true; } : ctx => { for (const f of xs) if (!truthy(f(ctx))) return false; return true; }; }
 		case "any": { const xs = e.slice(1).map(compile_); return ML ? ctx => { for (const f of xs) if (bool(f(ctx))) return true; return false; } : ctx => { for (const f of xs) if (truthy(f(ctx))) return true; return false; }; }
-		case "==": { const a = compile_(e[1]), b = compile_(e[2]); return ctx => a(ctx) === b(ctx); }
-		case "!=": { const a = compile_(e[1]), b = compile_(e[2]); return ctx => a(ctx) !== b(ctx); }
-		case ">": { const a = compile_(e[1]), b = compile_(e[2]); return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x > y; } : ctx => a(ctx) > b(ctx); }
-		case ">=": { const a = compile_(e[1]), b = compile_(e[2]); return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x >= y; } : ctx => a(ctx) >= b(ctx); }
-		case "<": { const a = compile_(e[1]), b = compile_(e[2]); return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x < y; } : ctx => a(ctx) < b(ctx); }
-		case "<=": { const a = compile_(e[1]), b = compile_(e[2]); return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x <= y; } : ctx => a(ctx) <= b(ctx); }
+		case "==": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return (k?.isCollator ? k.compare(a(ctx), b(ctx)) === 0 : a(ctx) === b(ctx)) ; }; return ctx => a(ctx) === b(ctx); }   // 3 つ目＝collator（C2）
+		case "!=": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return (k?.isCollator ? k.compare(a(ctx), b(ctx)) === 0 : a(ctx) === b(ctx)) === false; }; return ctx => a(ctx) !== b(ctx); }   // 3 つ目＝collator（C2）
+		case ">": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return k?.isCollator ? k.compare(a(ctx), b(ctx)) > 0 : a(ctx) > b(ctx); }; return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x > y; } : ctx => a(ctx) > b(ctx); }
+		case ">=": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return k?.isCollator ? k.compare(a(ctx), b(ctx)) >= 0 : a(ctx) >= b(ctx); }; return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x >= y; } : ctx => a(ctx) >= b(ctx); }
+		case "<": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return k?.isCollator ? k.compare(a(ctx), b(ctx)) < 0 : a(ctx) < b(ctx); }; return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x < y; } : ctx => a(ctx) < b(ctx); }
+		case "<=": { const a = compile_(e[1]), b = compile_(e[2]), c = e.length > 3 ? compile_(e[3]) : null; if (c) return ctx => { const k = c(ctx); return k?.isCollator ? k.compare(a(ctx), b(ctx)) <= 0 : a(ctx) <= b(ctx); }; return ML ? ctx => { const x = a(ctx), y = b(ctx); ord(x, y); return x <= y; } : ctx => a(ctx) <= b(ctx); }
 		case "in": {
 			const a = compile_(e[1]), b = compile_(e[2]);
 			return ctx => { const v = a(ctx), c = b(ctx); return Array.isArray(c) ? c.includes(v) : typeof c === "string" ? c.includes(v) : false; };
@@ -180,7 +242,7 @@ function build(e, o = "native") {
 		case "interpolate": {
 			const type = e[1], inf = compile_(e[2]), sk = [], sv = [];
 			for (let i = 3; i < e.length; i += 2) { sk.push(e[i]); sv.push(compile_(e[i + 1])); }
-			const n = sk.length, expo = type[0] === "exponential", base = expo ? type[1] : 1;
+			const n = sk.length, expo = type[0] === "exponential", base = expo ? type[1] : 1, space = e[0] === "interpolate-lab" ? "lab" : e[0] === "interpolate-hcl" ? "hcl" : null;   // 色空間（C2）
 			const bez = type[0] === "cubic-bezier" ? cubicBezier(type[1], type[2], type[3], type[4]) : null;   // 両方（2026-09-26・旧＝黙って線形）
 			return ctx => {
 				const input = inf(ctx);
@@ -192,7 +254,7 @@ function build(e, o = "native") {
 				let t = (input - x0) / (x1 - x0);
 				if (expo && base !== 1) t = (Math.pow(base, input - x0) - 1) / (Math.pow(base, x1 - x0) - 1);
 				else if (bez) t = bez(t);
-				return typeof y0 === "number" && typeof y1 === "number" ? y0 + t * (y1 - y0) : lerpAny(y0, y1, t);   // 色（文字列）・配列も補間（#33）
+				return typeof y0 === "number" && typeof y1 === "number" ? y0 + t * (y1 - y0) : space ? lerpAnyIn(space, y0, y1, t) : lerpAny(y0, y1, t);   // 色（文字列）・配列も補間（#33）・lab/hcl は本物の色空間（C2）
 			};
 		}
 		case "+": { const xs = e.slice(1).map(compile_); return ctx => { let s = 0; for (const f of xs) s += f(ctx); return s; }; }
@@ -214,7 +276,7 @@ function build(e, o = "native") {
 		case "concat": { const xs = e.slice(1).map(compile_); return ctx => xs.map(f => f(ctx) ?? "").join(""); }   // text-field 用（maplibre 同名）
 		case "to-string": { const a = compile_(e[1]); return ctx => { const v = a(ctx); return v == null ? "" : String(v); }; }
 		// ── 外来 style.json の常用分（#33・2026-09-23）──
-		case "interpolate-hcl": case "interpolate-lab": return build(["interpolate", ...e.slice(1)], o);   // 色空間の違いは rgb の線形で近似
+		case "interpolate-hcl": case "interpolate-lab": return build(e, o, "interpolate");   // 色空間＝interpolate の枝が e[0] で見分ける（C2・旧＝rgb の線形で近似）
 		case "id": return ctx => ctx.id;
 		case "properties": return ctx => ctx.props;
 		case "to-boolean": { const a = compile_(e[1]); return ctx => truthy(a(ctx)); }
@@ -245,6 +307,10 @@ function build(e, o = "native") {
 			return ctx => { const v = a(ctx); if (ML && !isColor(v)) mlFail(); const c = parseRGBA(v); return [Math.round(c[0] * 255), Math.round(c[1] * 255), Math.round(c[2] * 255), c[3]]; };
 		}
 		case "ln": { const a = compile_(e[1]); return ctx => Math.log(a(ctx)); }
+		case "ln2": return () => Math.LN2;
+		// split／join（MapLibre v5）：文字列 → 区切りで配列／配列 → 区切りで文字列（2026-10-03・互換の段）
+		case "split": { const a = compile_(e[1]), d = compile_(e[2]); return ctx => { const v = a(ctx); if (typeof v !== "string") return ML ? mlFail() : []; return v.split(String(d(ctx) ?? "")); }; }
+		case "join": { const a = compile_(e[1]), d = compile_(e[2]); return ctx => { const v = a(ctx); if (!Array.isArray(v)) return ML ? mlFail() : ""; return v.map(x => x == null ? "" : String(x)).join(String(d(ctx) ?? "")); }; }
 		case "e": return () => Math.E;
 		case "pi": return () => Math.PI;
 		case "image": { const a = compile_(e[1]); return ctx => a(ctx); }   // 記号の名前をそのまま（記号帳が引く）
@@ -252,10 +318,26 @@ function build(e, o = "native") {
 			const parts = []; for (let i = 1; i < e.length; i++) { const x = e[i]; if (x && typeof x === "object" && !Array.isArray(x)) continue; parts.push(compile_(x)); }
 			return ctx => parts.map(f => { const v = f(ctx); return v == null ? "" : String(v); }).join("");
 		}
-		case "number-format": { const a = compile_(e[1]), nf = e[2] || {}; return ctx => { const v = a(ctx); return v == null ? "" : Number(v).toLocaleString(nf.locale || undefined, { minimumFractionDigits: nf["min-fraction-digits"], maximumFractionDigits: nf["max-fraction-digits"] }); }; }
+		case "number-format": {   // locale・currency・unit（C2）・min/max-fraction-digits＝設定の値も式でよい（MapLibre と同じ）
+			const a = compile_(e[1]), nf = e[2] || {}, cf = v => v == null ? () => undefined : compile_(v);
+			const loc = cf(nf.locale), cur = cf(nf.currency), unit = cf(nf.unit), mn = cf(nf["min-fraction-digits"]), mx = cf(nf["max-fraction-digits"]);
+			return ctx => {
+				const v = a(ctx); if (v == null) return "";
+				const c = cur(ctx), u = unit(ctx), opt = { minimumFractionDigits: mn(ctx), maximumFractionDigits: mx(ctx) };
+				if (typeof c === "string" && c) { opt.style = "currency"; opt.currency = c; } else if (typeof u === "string" && u) { opt.style = "unit"; opt.unit = u; }
+				try { return new Intl.NumberFormat(loc(ctx) || undefined, opt).format(Number(v)); } catch { return Number(v).toLocaleString(); }   // 知らない単位・通貨＝素の数（評価エラーにしない）
+			};
+		}
 		case "is-supported-script": return () => true;
-		case "resolved-locale": return () => (typeof navigator !== "undefined" && navigator.language) || "en";
-		case "collator": return () => null;
+		case "resolved-locale": { const c = e.length > 1 ? compile_(e[1]) : null; return ctx => { const k = c?.(ctx); return k?.isCollator ? k.resolvedLocale() : (typeof navigator !== "undefined" && navigator.language) || "en"; }; }   // collator の locale（C2）
+		case "collator": { const o2 = e[1] || {}, cs = compile_(o2["case-sensitive"] ?? false), ds = compile_(o2["diacritic-sensitive"] ?? false), lc = o2.locale != null ? compile_(o2.locale) : null; return ctx => makeCollator({ "case-sensitive": cs(ctx), "diacritic-sensitive": ds(ctx), locale: lc?.(ctx) }); }
+		// ── 地理と地図の状態（C2・2026-10-12）──
+		case "within": { const rings = ringsOf(e[1]); return ctx => withinGeom(featureGeomLL(ctx), rings); }   // 入力は GeoJSON の定数（MapLibre と同じ）。地物の形が無い ctx＝偽
+		case "distance": { const g = e[1]; return ctx => { const d = distanceGeom(featureGeomLL(ctx), g); return d == null ? (ML ? mlFail() : undefined) : d; }; }   // m。形が無ければ ML は評価エラー
+		case "config": { const k = e[1]; return ctx => { const g = ctx?.gs ?? GS; return typeof k === "string" && k in g ? g[k] : null; }; }   // ["config", key]＝global-state と同じ置き場（setGlobalStateProperty）＝別名
+		case "semiliteral": { const v = e[1]; return ctx => semiEval(v, ctx, o); }
+		case "pitch": return ctx => ctx.pitch ?? 0;   // 地図の傾き（度）＝main の評価は呼び手が cam から渡す・worker は組み立ての伝言（vtdraw の build）に乗る・無ければ 0
+		case "distance-from-center": return ctx => ctx.dfc ?? 0;   // 画面の中心からの距離（画面の高さ＝1・手前が負）＝注記の置き場で渡す。無ければ 0
 		case "accumulated": case "line-progress": case "heatmap-density": case "elevation": return ctx => ctx.vars?.[op] ?? 0;   // elevation＝color-relief の段の標高（m・#114）
 		default: (globalThis.__orthovtUnknownOps ||= new Set()).add(op); return () => undefined;
 	}

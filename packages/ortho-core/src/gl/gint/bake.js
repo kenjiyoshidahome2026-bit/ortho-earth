@@ -30,16 +30,34 @@ export const TIER_MAX_EDGES = 600_000;
 // 空間カリング用チャンク粒度（旧65536は筆層でカリングがほぼ効かなかった＝16384で可視1-3チャンクへ）。
 export const CHUNK_EDGES = 16384;
 
+// 受け取った gint ペイロード（unPackGint の形）→ ベイクが読む gintData。空の流れは null・層別の塗り上限（fillMaxEdges）と低ズーム塗り（lowFill）も運ぶ。
+// 旧＝同じ写しが 5 か所（GL embed の set/addLayer・GL worker・bakeworker・WebGPU の同期経路）にあり、GL embed の set だけ fillMaxEdges/lowFill を落としていた
+export function gintDataOf(data) {
+	return {
+		arcBuffer:    data.arcBuffer   ?? null,
+		arcMeta:      data.arcMeta     ?? null,
+		polyStream:   data.polyStream?.length  ? data.polyStream  : null,
+		lineStream:   data.lineStream?.length  ? data.lineStream  : null,
+		pointBuffer:  data.pointBuffer?.length ? data.pointBuffer : null,
+		point:        data.point ?? null,
+		polyCompBbox: data.polyCompBbox ?? null,
+		fillMaxEdges: data.fillMaxEdges ?? null,   // 層ごとの塗り上限上書き（コロプレス土台＝全密度塗りを通す）
+		lowFill:      data.lowFill      ?? false,  // fillOff でも低ズーム単色塗りは生かす（geoedit 大規模モード）
+	};
+}
+
 // 基準メタ＋境界メタ＋台帳一式。gintData は {arcBuffer, arcMeta, polyStream, lineStream} を読む
 //（polyStream は正規化で符号がその場で書き換わる＝呼び出し側のバッファがそのまま真実になる）。
 export function bakeBase(gintData) {
-	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
-
 	// 逆巻きリングの参照符号を正規化（境界メタ netting の前提＋IDバッファ塗りの符号一貫）。データごとに一回。
 	if (!gintData._ringsNormalized) {
-		normalizeRingOrientation(ab, am, ps);
+		// polyStream が SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack＝main の unPackGint と同じメモリ）なら
+		// 写してから書く＝main の原本（identify・IDB の控え）を worker から黙って書き換えない。ArrayBuffer（structured clone の写し）は従来どおりその場
+		if (typeof SharedArrayBuffer !== "undefined" && gintData.polyStream?.buffer instanceof SharedArrayBuffer) gintData.polyStream = gintData.polyStream.slice();
+		normalizeRingOrientation(gintData.arcBuffer, gintData.arcMeta, gintData.polyStream);
 		gintData._ringsNormalized = true;
 	}
+	const { arcBuffer: ab, arcMeta: am, polyStream: ps, lineStream: ls } = gintData;
 
 	const polyBboxByFid = buildPolyBboxByFid(ps, am);   // 並べ替えキーに使うため先に計算
 	const metaOpts = { orderBbox: polyBboxByFid, chunkEdges: CHUNK_EDGES };

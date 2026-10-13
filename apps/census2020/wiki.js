@@ -1,16 +1,17 @@
 // Wikipedia 連動（都道府県・市区町村ビューの顔）。日本語版のみ（裁定 2026-08-12）。
 // タイトル解決は実行時に推測しない＝Wikidata P429（全国地方公共団体コード）から焼いた対応表
 // （data/wiki-titles.json・scripts/build-wiki-titles.mjs）＝同名市区町村（府中市×2・伊達市×2・池田町×4…）を
-// 構造的に封じる。取得は Wikimedia REST summary（CORS開放済み・proxy不要）＋IDBキャッシュ TTL30日。
+// 構造的に封じる。取得と枠＝@ortho-earth/globe/wiki.js の共通の芯（2026-10-03・アプリ横断の統一）：
+// 冒頭＝Wikimedia REST summary（IDB 30 日）、記事＝頁の上の <iframe credentialless>（この頁は COEP credentialless＝
+// 素の iframe は遮断される・非対応ブラウザは別タブ）。
 // 差し込みは onDrill 購読の後追い（_fillTrends と同じ作法）＝ドリルUI本体は Wikipedia を知らない。
 import { onDrill } from "./census/ui.js";
 import { escHtml } from "./ui/shared.js";
-import { nativeBucket } from "native-bucket";
+import { createWikiFrame, summary, CAN_FRAME } from "@ortho-earth/globe/wiki.js";
 import WIKI_TITLES from "./data/wiki-titles.json" with { type: "json" };
 
-const TTL = 30 * 24 * 3600 * 1000;
-let _cacheP = null;
-const getCache = () => (_cacheP ||= nativeBucket("https://api.ortho-earth.com").Cache("census2020/wiki"));
+let frame = null;   // 記事の枠（#stage の末尾＝DOM順で canvas/計器より上・z-index 不使用の掟）。✕ か Esc で閉じる
+const getFrame = () => frame ||= createWikiFrame({ host: document.getElementById("stage"), className: "c20-wiki-frame", labels: { newTab: "新しいタブで開く", close: "閉じる" } });
 
 export function initWiki() {
 	onDrill(e => {
@@ -24,8 +25,7 @@ export function initWiki() {
 	document.getElementById("panel")?.addEventListener("click", () => closeFrame(), { capture: true });
 }
 
-let _closeFrame = null;   // 現在開いている記事オーバーレイの閉じ手（Esc リスナ解除込み）
-function closeFrame() { _closeFrame?.(); }
+function closeFrame() { frame?.close(); }
 
 async function inject(title) {
 	const wrap = document.querySelector("#panel-body .cs-drill-wrap");
@@ -37,7 +37,7 @@ async function inject(title) {
 	head ? head.after(div) : wrap.appendChild(div);   // タイトル直下＝国勢調査の上（目立つ位置・本人要望2026-08-14）
 	const body = div.querySelector(".c20-wiki-body");
 	try {
-		const s = await summary(title);
+		const s = await summary(title, "ja");
 		if (!body.isConnected) return;   // 取得中に画面遷移＝捨てる
 		if (!s?.extract) { div.remove(); return; }
 		body.innerHTML = `
@@ -45,48 +45,6 @@ async function inject(title) {
 			<p>${escHtml(s.extract)}</p>
 			<div style="clear:both;padding-top:5px;font-size:10px;color:#89a">テキスト: CC BY-SA 4.0</div>`;
 		if (!CAN_FRAME) div.classList.add("c20-wiki-tab");   // credentialless iframe 非対応（Safari等）＝新しいタブへ（カードの文言も切替）
-		div.addEventListener("click", () => CAN_FRAME ? openFrame(title, s.url) : window.open(s.url, "_blank", "noopener"));   // カード全体がリンク
+		div.addEventListener("click", () => { if (document.getElementById("stage")) getFrame().open(s.url, title); else window.open(s.url, "_blank", "noopener"); });   // カード全体がリンク
 	} catch { div.remove(); }
-}
-
-// 記事を地図の上に iframe で重ねて表示（ja.wikipedia.org 通常ページは frame-ancestors/X-Frame-Options
-// 無し＝埋め込み可を実測確認 2026-08-14。REST 版 mobile-html は SAMEORIGIN で不可）。
-// ★本アプリは SAB のため COEP:credentialless＝入れ子 iframe には CORP が要求され通常の iframe は
-// エッジで遮断される（ERR_BLOCKED_BY_RESPONSE corp-…-by-coep を実測）。正式な逃げ道＝
-// <iframe credentialless>（無資格・使い捨てコンテキスト＝COEP の埋め込み制約を免除・Chrome/Edge）。
-// #stage の末尾に append＝DOM順で canvas/計器より上（z-index 不使用の掟）。✕ か Esc で閉じる。
-const CAN_FRAME = "credentialless" in HTMLIFrameElement.prototype;
-function openFrame(title, url) {
-	const stage = document.getElementById("stage");
-	if (!stage) return;
-	closeFrame();   // 開き直し＝前の記事の Esc リスナごと確実に畳む
-	const f = document.createElement("div");
-	f.className = "c20-wiki-frame";
-	f.innerHTML = `<div class="c20-wf-bar"><span class="c20-wf-title">Wikipedia — ${escHtml(title)}</span>
-		<a href="${escHtml(url)}" target="_blank" rel="noopener">新しいタブで開く ↗</a>
-		<button type="button" aria-label="閉じる">✕</button></div>
-		<iframe credentialless src="${escHtml(url)}" referrerpolicy="no-referrer" title="Wikipedia: ${escHtml(title)}"></iframe>`;
-	const close = () => { f.remove(); removeEventListener("keydown", esc); if (_closeFrame === close) _closeFrame = null; };
-	const esc = e => { if (e.key === "Escape") close(); };
-	f.querySelector("button").addEventListener("click", close);
-	addEventListener("keydown", esc);
-	stage.appendChild(f);
-	_closeFrame = close;
-}
-
-async function summary(title) {
-	const cache = await getCache();
-	const key = `sum::${title}`;
-	const hit = await cache(key).catch(() => null);
-	if (hit?.data && Date.now() - hit.t < TTL) return hit.data;
-	const r = await fetch(`https://ja.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`);
-	if (!r.ok) return hit?.data ?? null;   // 失敗時は期限切れキャッシュでも出す（無いよりまし）
-	const j = await r.json();
-	const data = {
-		extract: j.extract || "",
-		thumbnail: j.thumbnail?.source || null,
-		url: j.content_urls?.desktop?.page || `https://ja.wikipedia.org/wiki/${encodeURIComponent(title)}`,
-	};
-	cache(key, { t: Date.now(), data }).catch(() => {});
-	return data;
 }

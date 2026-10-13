@@ -1,0 +1,64 @@
+<!doctype html>
+<!-- 実描画の検分：deck.gl の MapboxOverlay（overlaid）が MapLibre の口（@ortho-earth/globe/maplibre）の上で動く門（deck.gl 差分 PR-7・計画 段 C4・2026-10-12）。
+     deck.gl は検定だけの devDependency（@deck.gl/core・layers・mapbox）。利用者は CDN から読む。
+     ①addControl で deck の canvas が容れ物に入り、ScatterplotLayer（3 点・半径 20px）が pickObject で当たる（描けている＝picking は描画パス）
+     ②jumpTo の後も当たる（render 事象で viewState が追従）・古い位置には当たらない ③容れ物の mousedown→click が層の onClick に届く（mouse・drag 系の通訳）
+     ④interleaved:true は overlaid に倒す（unsupported を記録＝worker 描画と相容れない）⑤getRenderWorldCopies()＝false（repeat なし）⑥removeControl で deck が畳まれる
+     実時間。GL2（verify:ui）。 -->
+<html lang="ja"><head><meta charset="utf-8"><style>html,body{margin:0;background:#0b1021}#map{width:960px;height:600px;position:relative}</style><title>t-deckgl</title></head>
+<body><div id="map"></div>
+<script type="module">
+const Q = new URLSearchParams(location.search);
+const WAIT = +Q.get("wait") || 40000;
+const ml = await import("@ortho-earth/globe/maplibre");
+const { MapboxOverlay } = await import("@deck.gl/mapbox");
+const { ScatterplotLayer } = await import("@deck.gl/layers");
+const t = [];
+const ok = (name, cond, note = "") => t.push(`${cond ? "ok" : "NG"}:${name}${note ? `(${note})` : ""}`);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const until = async (f, ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) { const v = await f(); if (v) return v; await sleep(150); } return null; };
+const LON = 139.7671, LAT = 35.6812;
+try {
+	const map = new ml.Map({ container: "map", center: [LON, LAT], zoom: 12 });
+	await new Promise(r => map.on("load", r));
+	const pts = [[LON - 0.03, LAT], [LON, LAT], [LON + 0.03, LAT]].map((p, i) => ({ p, i }));
+	let clicked = null;
+	const layer = (id = "pts") => new ScatterplotLayer({ id, data: pts, getPosition: d => d.p, getFillColor: [255, 40, 40], radiusUnits: "pixels", getRadius: 20, pickable: true, onClick: info => { clicked = info; } });
+	const ov = new MapboxOverlay({ layers: [layer()] });
+	map.addControl(ov);
+	await until(() => ov._deck?.isInitialized, WAIT); window.__t = { map, ov };
+	const cv = ov.getCanvas();
+	ok("canvas", cv instanceof HTMLCanvasElement && map.getContainer().contains(cv), cv && `${cv.width}x${cv.height}`);
+	const pickAt = (lon, lat) => { const p = map.project([lon, lat]); try { return ov.pickObject({ x: p.x, y: p.y, radius: 4 }); } catch { return null; } };
+	const hit1 = await until(() => pickAt(LON, LAT), WAIT);
+	ok("pick", hit1?.index === 1 && hit1?.object?.i === 1, JSON.stringify({ index: hit1?.index, layer: hit1?.layer?.id }));
+	ok("pickMiss", !pickAt(LON, LAT + 0.02));
+	// ② カメラ追従
+	map.jumpTo({ center: [LON + 0.01, LAT + 0.004], zoom: 13 });   // 3 点が画面に残る範囲で動かす（z13・960×600）
+	await sleep(600);
+	const hit2 = await until(() => pickAt(LON + 0.03, LAT), WAIT);
+	const vp = ov._deck?.getViewports?.()[0], mp = map.project([LON + 0.03, LAT]), dp = vp?.project([LON + 0.03, LAT]);
+	ok("pickAfterMove", hit2?.index === 2, JSON.stringify({ index: hit2?.index, mapProject: [mp.x, mp.y].map(v => +v.toFixed(1)), deckProject: dp?.map(v => +v.toFixed(1)), deckZoom: vp?.zoom, mapZoom: map.getZoom() }));
+	const vs = ov._deck?.props?.viewState;
+	ok("viewState", vs && Math.abs(vs.longitude - (LON + 0.01)) < 1e-6 && Math.abs(vs.zoom - map.getZoom()) < 1e-6 && vs.repeat === false, JSON.stringify(vs));
+	// ③ 容れ物の click → 層の onClick
+	{ const p = map.project([LON + 0.03, LAT]), r = map.getContainer().getBoundingClientRect();
+		const ev = o => new MouseEvent(o, { clientX: r.left + p.x, clientY: r.top + p.y, bubbles: true, button: 0 });
+		for (const o of ["mousedown", "mouseup", "click"]) map.getContainer().dispatchEvent(ev(o));   // deck 9.4 の click は直前の pointerdown の当たりを使う（MapboxOverlay が mousedown も転送）＝実際の操作と同じ並びで出す
+		await until(() => clicked, 5000);
+		ok("click", clicked?.index === 2, JSON.stringify({ index: clicked?.index })); }
+	// ④ interleaved は overlaid に倒す
+	const ov2 = new MapboxOverlay({ interleaved: true, layers: [layer("pts2")] });
+	let threw = null; try { map.addControl(ov2); } catch (e) { threw = e; }
+	await until(() => ov2._deck?.isInitialized, WAIT);
+	const hit3 = await until(() => { try { return ov2.pickObject({ ...map.project([LON + 0.03, LAT]), radius: 4 }); } catch { return null; } }, WAIT);
+	ok("interleavedFallback", !threw && ov2._interleaved === false && hit3?.index === 2, `${threw?.message ?? ""} index=${hit3?.index}`);
+	ok("noRepeat", map.getRenderWorldCopies() === false);
+	// ⑥ 外す
+	if (Q.get("keep")) throw new Error("keep");
+	map.removeControl(ov); map.removeControl(ov2); await sleep(200);
+	ok("removed", ov._deck === undefined && !map.getContainer().contains(cv));
+	document.title = (t.every(s => s.startsWith("ok:")) ? "PASS " : "FAIL ") + t.join(" ");
+} catch (e) { document.title = "FAIL " + (e && e.stack || e) + " " + t.join(" "); }
+</script>
+</body></html>

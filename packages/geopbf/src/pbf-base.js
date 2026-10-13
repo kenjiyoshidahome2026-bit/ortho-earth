@@ -4,6 +4,11 @@ import { isString, isSimpleObject, isFloat, isBbox } from "./modules/utility.js"
 import { antimeridianFeature } from "./modules/antimeridianFeature.js";
 import { cleanCoords, } from "./modules/cleanCoords.js";
 import { runInWorker } from "./modules/workerPool.js";
+import { hasWorkerFactory } from "./modules/workerFactory.js";
+
+// Node（main / worker_threads）には ImageData が無い＝参照するだけで ReferenceError。instanceof の前に存在を見る（2026-10-11・俯瞰 §2-B 4）。
+// 旧＝CLI と試験 20 本が globalThis.ImageData のスタブで隠していた。読む側（image()）はファイルに IMAGE 型が入っている時だけ参照する
+const isImageData = v => typeof ImageData !== "undefined" && v instanceof ImageData;
 
 
 const TAGS = { NAME: 1, KEYS: 2, PRECISION: 3, BUFS: 4, FARRAY: 5, FEATURE: 6, GEOMETRY: 7, GTYPE: 8, LENGTH: 9, COORDS: 10, VALUE: 11, INDEX: 12, GARRAY: 13, DESCRIPTION: 14, LICENSE: 15, ATTRIBUTION: 16, MIN_ZOOM: 17, MAX_ZOOM: 18 };
@@ -28,8 +33,30 @@ class GeoPBF {
 		// 器」として使う時（geoedit のセッション保存）。既定は切断（表示/識別/相互運用の正典）。cutCount＝切断した feature 数。
 		this.cutCount = 0;
 		this._am = { cut: options.cut !== false, onCut: () => { this.cutCount++; } };
-		this.noeval = !!options.noeval; // FUNC値をnew Functionせず関数ソース文字列のまま返す（CSP unsafe-eval なし環境向け）
+		// noeval＝FUNC 値（型 7）を new Function で復元せず、関数ソース文字列のまま返す。既定 true（2026-10-11・安全既定）＝
+		// 未知のファイルの属性を呼ぶだけで任意コードが走る経路を閉じ、CSP（unsafe-eval 無し）でも復号が落ちない。
+		// 旧挙動（関数へ復元）は { noeval: false } の明示 opt-in。書く側（dataType/writeValue）は従来どおり関数のソースを FUNC で書く。
+		this.noeval = options.noeval !== false;
+		// worker:false＝このインスタンスの set(ArrayBuffer)／setGintBUF を main スレッドで解く（createGeopbf の { worker:false } が各インスタンスへ渡す）。
+		// 旧＝クラス静的な _workerFactory だけを見ていた＝一度 createGeopbf() を呼ぶと以後の全インスタンスが worker 経路に固定され、
+		// Node では `Worker is not defined` で落ちた（2026-10-11・俯瞰 §2-B 5）。undefined＝クラス既定（createGeopbf が配線していれば worker）
+		this._useWorker = options.worker === false ? false : undefined;
+		// validate＝符号化の検証層（geopbf 改良点 ⑧'・2026-10-12・俯瞰 §2-C 8「黙った欠損」）。set(geojson)／setFeature が地物を書く前に幾何と属性を検める。
+		//   "lenient"（既定）＝直せる物は直して数える（NaN／±Infinity の属性 → null、壊れた座標・空の座標・退化した環 → 落とす、
+		//                     幾何なし → 落とす。緯度の範囲外は数えるだけで値は変えない）。何を何件直したかは pbf.issues（先頭 100 件＝{ kind, index, detail }）と pbf.issueCount（種別ごと）に残り、close() で 1 行だけ warn
+		//   "strict"        ＝最初の問題で throw（Error.issue に { kind, index, detail }）＝取り込みの門にする時
+		//   "legacy"        ＝1.19 までの挙動（NaN → 0、Infinity → 例外、Point の [] → (0,0)、緯度は丸めない、幾何なしは warn 1 行で落とす）
+		// 単要素の Multi* を単数型に落とす（ワイヤの約束）のは問題ではない＝issueCount.multiDegraded に数えるだけ（throw しない）
+		this.validate = options.validate === "strict" ? "strict" : options.validate === "legacy" ? "legacy" : "lenient";
+		this.issues = []; this.issueCount = {}; this._fi = 0;   // _fi＝setFeature が見た地物の通し番号（issues の index）
 		this.keys = [], this.bufs = [], this.fmap = [], this.bin = {}; this.props = [];
+	}
+	// 検証層の記録（lenient＝数える／strict＝throw）。info＝真なら strict でも投げない（multiDegraded）
+	_issue(kind, detail, info = false) {
+		this.issueCount[kind] = (this.issueCount[kind] || 0) + 1;
+		const index = this._fi - 1;   // setFeature が先に進めた通し番号＝今の地物
+		if (this.issues.length < 100) this.issues.push({ kind, index, detail });
+		if (this.validate === "strict" && !info) { const e = new Error(`GeoPBF validate: ${kind} at feature ${index}${detail ? ` (${detail})` : ""}`); e.issue = { kind, index, detail }; throw e; }
 	}
 	static setProperty(name, value) {
 		if (isString(name)) {
@@ -61,7 +88,8 @@ class GeoPBF {
 	}
 	async set(q) {
 		if (q instanceof ArrayBuffer || ArrayBuffer.isView(q)) {
-			if (GeoPBF._workerFactory || GeoPBF._workerUrl) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
+			// ArrayBuffer は worker へ transfer される＝呼び手の q は detach（byteLength 0）。残したい時は q.slice(0) を渡す（reference.md §2）
+			if (canUseWorker(this, GeoPBF._workerFactory, GeoPBF._workerUrl)) return _setViaWorker(this, q instanceof ArrayBuffer ? q : q.buffer.slice(q.byteOffset, q.byteOffset + q.byteLength));
 			this.pbf = new Pbf(q);
 		} else if (isSimpleObject(q)) {
 			const [keys, buffs] = this.noprop ? [[], []] : await makeKeys(q.features.map(t => t.properties));
@@ -209,15 +237,30 @@ class GeoPBF {
 		return this;
 	}
 	setFeature(q) {
+		const fi = this._fi++;
 		// 幾何なし（null / 型不明）の地物はワイヤに載せられない＝書かずに数える（旧＝GTYPE 抜けの壊れたレコードを書き、読み側が TypeError で飛ばしていた）
-		if (!q.geometry || geometryMap[q.geometry.type] == null) { if (!this.dropped++) console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`); return this; }
+		if (!q.geometry || geometryMap[q.geometry.type] == null) {
+			if (this.validate !== "legacy") this._issue("nullGeometry", q.geometry ? `type ${q.geometry.type}` : "geometry null");
+			if (!this.dropped++ && this.validate === "legacy") console.warn(`GeoPBF: feature without geometry dropped (type: ${q.geometry?.type})`);
+			return this;
+		}
+		if (this.validate !== "legacy") {   // 検証層：壊れた座標・空の座標・退化した環・緯度の範囲外を直すか落とす（幾何が空になった地物は書かない）
+			const g = normalizeGeometry(this, q.geometry);
+			if (!g) { this.dropped++; return this; }
+			if (g !== q.geometry) q = { ...q, geometry: g };
+		}
 		q.geometry.coordinates = q.geometry.coordinates ||[];
 		antimeridianFeature(q, this._am);
 		return this.setMessage(TAGS.FEATURE, () => this.setGeometry(q.geometry).setProperties(q.properties));
 	}
 	setGeometry(q) { return writeGeometry(this, q); }
 	setProperties(q) { return writeProperties(this, q); }
-	close() { this.end = this.pbf.pos; this.pbf.finish(); return this; }
+	close() {
+		this.end = this.pbf.pos; this.pbf.finish();
+		const kinds = Object.entries(this.issueCount).filter(([k]) => k !== "multiDegraded");
+		if (kinds.length && this.validate === "lenient") console.warn(`GeoPBF: ${kinds.reduce((a, [, n]) => a + n, 0)} issue(s) found while encoding (${kinds.map(([k, n]) => `${k} ${n}`).join(", ")}) = see pbf.issues`);
+		return this;
+	}
 
 	getFeature(i) { return { type: "Feature", geometry: this.getGeometry(i), properties: this.getProperties(i) }; }
 	getGeometry(i, j) { return readGeometry(this, i, j); }
@@ -236,6 +279,8 @@ class GeoPBF {
 	get features() { return this.each(i => this.getFeature(i)); }
 	get geometries() { return this.each(i => this.getGeometry(i)); }
 	get properties() { return this.each(i => this.getProperties(i)); }
+	// 地物 i の属性の行（keys 順の値の配列）。worker 復号は props を遅延で埋める＝props[i] を直に読むと未復号の undefined を掴む
+	propsRow(i) { return this.props[i] !== undefined ? this.props[i] : decodePropsAt(this, i); }
 	get propertiesTable() {
 		if (this.props) for (let i = 0; i < this.fmap.length; i++) {
 			if (this.props[i] === undefined) decodePropsAt(this, i);
@@ -273,12 +318,12 @@ async function makeKeys(q) {
 		for (let key in item) {
 			const v = item[key]; tub[key] = true;
 			if (v instanceof Blob) item[key].id = buffs.set(await v.arrayBuffer());
-			else if (v instanceof ImageData) item[key].id = buffs.set(v.data.buffer);
+			else if (isImageData(v)) item[key].id = buffs.set(v.data.buffer);
 			else if (isSimpleObject(v)) {
 				for (let k in v) {
 					const u = v[k]; tub[`${key}.${k}`] = true;
 					if (u instanceof Blob) u.id = buffs.set(await u.arrayBuffer());
-					if (u instanceof ImageData) u.id = buffs.set(u.data.buffer);
+					if (isImageData(u)) u.id = buffs.set(u.data.buffer);
 				}
 			}
 		}
@@ -302,12 +347,14 @@ function dataType(q) {
 	if (q == null) return DATATYPE.NULL;
 	const type = typeof q;
 	if (type === "string") return isColor(q) ? DATATYPE.COLOR : DATATYPE.STRING;
-	else if (type === "number") return isFloat(q) ? DATATYPE.FLOAT : DATATYPE.INTEGER;
+	// 整数でも |q| > 2^52 は FLOAT（double＝bit 同一）で書く。INTEGER の zigzag は 2 倍して varint に乗せるので 2^53 を越えると
+	// 読み戻しの Number で丸まり（-(2^53-1) が +(2^53-2) に化けた）、2^64 以上は varint に入らず例外だった（2026-10-12・t-encode-edge）
+	else if (type === "number") return isFloat(q) || (Number.isFinite(q) && Math.abs(q) > 4503599627370496) ? DATATYPE.FLOAT : DATATYPE.INTEGER;   // NaN／±Infinity は validate 層が先に裁く（legacy＝NaN → 0・Infinity → 例外のまま）
 	else if (type === "boolean") return DATATYPE.BOOL;
 	else if (type === "function") return DATATYPE.FUNC;
 	else if (q instanceof Date) return DATATYPE.DATE;
 	else if (q instanceof Blob) return DATATYPE.BLOB;
-	else if (q instanceof ImageData) return DATATYPE.IMAGE;
+	else if (isImageData(q)) return DATATYPE.IMAGE;
 	else if (type === "object") return isBbox(q) ? DATATYPE.BBOX : DATATYPE.JSON;
 	return DATATYPE.UNKNOWN;
 }
@@ -362,11 +409,12 @@ function readValue(self) {
 function writeProperties(self, q) {
 	const { pbf, keytub } = self;
 	var index = []; if (self.noprop) return
+	const badNum = (v, k) => typeof v === "number" && !Number.isFinite(v) && self.validate !== "legacy" && (self._issue("badNumber", `${k}: ${v}`), true);   // NaN／±Infinity → null（書かない）。legacy＝NaN → 0・Infinity → 例外
 	for (var key in q) if (q[key] != null) {
 		var v = q[key];
 		if (isSimpleObject(v) && Object.keys(v).every(k => `${key}.${k}` in keytub)) {
-			for (let k in v) if (v[k] != null) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v[k])); index.push(keytub[`${key}.${k}`]); }
-		} else { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v)); index.push(keytub[key]); }
+			for (let k in v) if (v[k] != null && !badNum(v[k], `${key}.${k}`)) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v[k])); index.push(keytub[`${key}.${k}`]); }
+		} else if (!badNum(v, key)) { pbf.writeMessage(TAGS.VALUE, () => writeValue(self, v)); index.push(keytub[key]); }
 	}
 	pbf.writePackedVarint(TAGS.INDEX, index);
 }
@@ -399,13 +447,42 @@ function readProperties(self, n) {
 	return q;
 }
 
+// 検証層（validate: lenient／strict）：座標を検めて直した幾何を返す（元のまま使える時は同じオブジェクト）。空になった幾何＝null（呼び手が地物を落とす）
+//   位置＝[x, y, …] で x・y が有限の数。そうでない位置は落とす（badCoordinate）。|緯度| > 90 は数えるだけ（latitude・値は不変）。経度は writeGeometry の fix が ±180 に畳む
+//   Point: 位置でない → emptyCoords。MultiPoint/LineString: 位置を濾す（LineString は 2 点未満 → emptyCoords）。
+//   Polygon: 環ごとに濾し、4 位置未満（閉合込み・= 3 頂点未満）の環は落とす（degenerateRing）。外環が落ちた多角形は落ちる。Multi*: 要素ごと・空になれば落とす。GeometryCollection: 要素ごと
+function normalizeGeometry(self, g) {
+	const type = g.type, c = g.coordinates;
+	let changed = false;
+	const pos = p => {
+		if (!Array.isArray(p) || p.length < 2 || typeof p[0] !== "number" || typeof p[1] !== "number" || !Number.isFinite(p[0]) || !Number.isFinite(p[1])) { self._issue("badCoordinate", JSON.stringify(p)?.slice(0, 40)); changed = true; return null; }
+		if (p[1] > 90 || p[1] < -90) self._issue("latitude", String(p[1]), true);   // 範囲外の緯度＝数えるだけ（値は変えない＝CRS 無しの図面などを壊さない。strict でも投げない）
+		return p;
+	};
+	const line = (l, min, what) => { if (!Array.isArray(l)) { self._issue(what, "not an array"); changed = true; return null; } const out = l.map(pos).filter(Boolean); if (out.length < min) { if (out.length === l.length) { self._issue(what, `${out.length} position(s)`); changed = true; } return null; } if (out.length !== l.length) changed = true; return out; };
+	const ring = r => line(r, 4, "degenerateRing");
+	const poly = rs => { if (!Array.isArray(rs) || !rs.length) { self._issue("emptyCoords", "Polygon without rings"); changed = true; return null; } const outer = ring(rs[0]); if (!outer) return null; const holes = rs.slice(1).map(ring).filter(Boolean); if (holes.length !== rs.length - 1) changed = true; return [outer, ...holes]; };
+	let out;
+	switch (type) {
+		case "Point": if (!Array.isArray(c) || !c.length) { self._issue("emptyCoords", "Point []"); return null; } out = pos(c); if (!out) return null; break;
+		case "MultiPoint": out = line(c, 1, "emptyCoords"); if (!out) return null; break;
+		case "LineString": out = line(c, 2, "emptyCoords"); if (!out) return null; break;
+		case "MultiLineString": { if (!Array.isArray(c)) { self._issue("emptyCoords", "not an array"); return null; } out = c.map(l => line(l, 2, "emptyCoords")).filter(Boolean); if (!out.length) { if (!c.length) self._issue("emptyCoords", "MultiLineString []"); return null; } if (out.length !== c.length) changed = true; break; }
+		case "Polygon": out = poly(c); if (!out) return null; break;
+		case "MultiPolygon": { if (!Array.isArray(c)) { self._issue("emptyCoords", "not an array"); return null; } out = c.map(poly).filter(Boolean); if (!out.length) { if (!c.length) self._issue("emptyCoords", "MultiPolygon []"); return null; } if (out.length !== c.length) changed = true; break; }
+		case "GeometryCollection": { const gs = (g.geometries || []).map(x => geometryMap[x.type] == null ? (self._issue("nullGeometry", `type ${x.type}`), null) : normalizeGeometry(self, x)).filter(Boolean); if (!gs.length) { self._issue("emptyCoords", "GeometryCollection []"); return null; } return gs.length === (g.geometries || []).length && gs.every((x, i) => x === g.geometries[i]) ? g : { ...g, geometries: gs }; }
+		default: return g;
+	}
+	return changed ? { ...g, coordinates: out } : g;
+}
+
 function writeGeometry(self, q) {
 	const { pbf, e } = self;
 	return self.setMessage(TAGS.GEOMETRY, () => {
 		const fix = n => { while (n < -180) n += 360; while (n > 180) n -= 360; return n; };
 		let type = geometryMap[q.type], c = q.coordinates;
 		if (type == null) return console.error("illegal geometry type: ", q.type);
-		if (type % 2 == 1 && c.length == 1) { type--; c = c[0];}
+		if (type % 2 == 1 && c.length == 1) { type--; c = c[0]; if (self.validate !== "legacy") self._issue("multiDegraded", q.type, true); }   // 単要素の Multi* → 単数型（ワイヤの約束・数えるだけ）
 		pbf.writeVarintField(TAGS.GTYPE, type);
 		if (type == 6) return pbf.writeMessage(TAGS.GARRAY, () => q.geometries.forEach(t => writeGeometry(self, t)));
 		[write0, write1, write1, write2, write2, write3][type]();
@@ -458,6 +535,15 @@ function readGeometry(self, n, m) {
 
 GeoPBF.setProperty({ TAGS, makeKeys, dataType, dataTypeNames, geometryTypes, geometryMap });
 
+// worker 経路を使うか：インスタンスの worker:false が最優先。次にクラスに配線（createGeopbf）があるか。配線が geopbf 自身の
+// 入口（builtinWorker＝new Worker）に頼る時は、その場に Worker が居る時だけ（Node の main には無い＝main スレッドで解く）。
+// ホストの入口（setWorkerFactory）があれば Worker の有無はホストの責任
+export function canUseWorker(self, factory, url) {
+	if (self._useWorker === false) return false;
+	if (!factory && !url) return false;
+	return hasWorkerFactory() || typeof Worker !== "undefined";
+}
+
 function _setViaWorker(self, buf) {
 	// ファクトリ優先＝new Worker(new URL(…)) 直書きをバンドラに見せる（URL変数経由はビルドでdata:URL化して死ぬ）。
 	// 生成はプールが握る＝1 件ごとの new Worker/terminate をやめ、レーンを使い回す（modules/workerPool.js の由来書き参照）
@@ -483,4 +569,7 @@ function _setViaWorker(self, buf) {
 		});
 }
 
+// 属性の行 → 同一判定の鍵（型ごと：1 と "1"、"" と null、["a|","b"] と ["a","|b"] を別にする）。dissolve・gint の地物台帳で共通
+const valKey = v => v === null || v === undefined ? "n" : v instanceof Date ? "d" + v.getTime() : typeof v === "object" ? "o" + JSON.stringify(v) : (typeof v)[0] + String(v);
+export const propsKeyOf = row => JSON.stringify(row.map(valKey));
 export { GeoPBF, makeKeys };   // makeKeys＝ストリームエンコード（set() を自前でなぞる呼び出し側＝geoedit）用に公開 2026-08-20

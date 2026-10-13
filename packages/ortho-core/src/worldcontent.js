@@ -1,14 +1,17 @@
 // 世界帯の中身＝規則の正本 1 本（2026-09-24・本人「equal に入れた情報は最終的に globe に同じ情報を入れるため」「同じデータを 2 つ持ちしない」）。
 // 引く側：apps/equal（Equal Earth）・apps/world（国の地図パネル）・packages/globe（世界帯 z<8 の worldContent）。
 // ここにあるのは「どのデータを・どの名前で・どのズームから・どの大きさで」という**規則**だけ＝描き方（GL の baker・gint・canvas2D）は各アプリの持ち物。
-// データは bucket GIS/world/ の同じファイルを同じキャッシュ名で読む＝equal と globe が同じ IDB の実体を共有する（焼き直した配信物を作らない）。
+// 形状は bucket GIS/world/ の同じファイルを同じキャッシュ名で読む＝equal と globe が同じ IDB の実体を共有する（焼き直した配信物を作らない）。
 //   ne-cultural-base.geopbf   … admin_1（州＝束ねれば国）・admin_0（係争主体）・populated_places（都市）
 //   ne-cultural-detail.geopbf … roads / railroads / urban_areas / airports（国境で切って key ごと）
-//   NationDB.json（国の台帳＝代表点 coord・面積 area）・i18n/<lang>.json（国名・台帳の都市名）・ne-cities/<lang>.json（NE の小さな都市の名前）
+// 台帳と名前は GitHub Pages（リポ ortho-data の globe/・2026-10-13〜）＝置くのは git push だけ（bucket の鍵が要らない・packages/world/scripts/publish-pages.mjs）。
+//   NationDB.json（国の台帳＝代表点 coord・面積 area）・<DB>.i18n/<lang>.json（DB の隣の名前表＝国名・台帳の都市名）・ne-cities/<lang>.json（NE の小さな都市の名前）
+// 形状（全アプリが初回に読む 16MB）は Pages の帯域（月 100GB の目安）に載せない＝bucket に残す。
 // 配色は worldstyle.js（同じ正本の作法）。
 import { gunzip, isGzip } from "geopbf/gzip";
 
-export const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";
+export const WORLD_GIS = "https://api.ortho-earth.com/bucket/GIS/world/";                           // 形状（ne-cultural）
+export const WORLD_DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/";           // 台帳・名前・検索の索引（全ファイルに access-control-allow-origin: *）
 /** ne-cultural の配信物（group＝"base" | "detail"）の URL と、geopbf のキャッシュ名（IDB の鍵＝全アプリで同じ綴り） */
 export const culturalUrl = g => `${WORLD_GIS}ne-cultural-${g}.geopbf`;
 export const culturalName = g => `ne-cultural-${g}.geopbf`;
@@ -47,18 +50,20 @@ export const fetchJsonMaybeGz = async url => {
 };
 /** 国の台帳（NationDB）＝{ items, byKey, ja, updated }。ja＝日本語の国名表（CSV の名寄せ用・equal） */
 export async function loadNations() {
-	const [db, ja] = await Promise.all([fetchJsonMaybeGz(WORLD_GIS + "NationDB.json"), fetchJsonMaybeGz(WORLD_GIS + "i18n/ja.json").catch(() => null)]);
+	const [db, ja] = await Promise.all([fetchJsonMaybeGz(WORLD_DATA + "NationDB.json"), fetchJsonMaybeGz(WORLD_DATA + "NationDB.i18n/ja.json").catch(() => null)]);
 	const items = db.items || db;
 	return { items, byKey: new Map(items.map((n, i) => [n.key, i])), ja: ja?.nations || {}, updated: db.updated };
 }
-/** 言語別の名前表（World DB の i18n/<lang>.json）＝{ nations[key].name, cities[qid].name, ui }。英語は不要＝null */
-export const loadI18n = lang => lang === "en" ? Promise.resolve(null) : fetchJsonMaybeGz(`${WORLD_GIS}i18n/${lang}.json`);
+/** DB の隣の名前表（<DB>.i18n/<lang>.json＝{ updated, lang, <節>: { ID: { name, wiki… } } }）を重ねて 1 つに＝{ nations, cities, … }（dbs の分だけ） */
+export const loadNames = async (lang, dbs) => Object.assign({}, ...await Promise.all(dbs.map(db => fetchJsonMaybeGz(`${WORLD_DATA}${db}.i18n/${lang}.json`))));
+/** 言語別の名前表＝{ nations[key].name, cities[qid].name }（国と台帳の都市）。英語は不要＝null。画面の文言（ui）は入らない＝packages/world/i18n/ui.json から */
+export const loadI18n = lang => lang === "en" ? Promise.resolve(null) : loadNames(lang, ["NationDB", "CityDB"]);
 // NE 由来の都市名（言語別・約 6,600 の小さな都市）。en＝基軸・ja＝NAME_JA が配信 geopbf に同梱済み・th＝NE に列が無い＝取りに行かない。
 // 失敗は null＝地名が英語で出るだけ（地図は止めない）
 const NE_CITY_SKIP = new Set(["en", "ja", "th"]);
 export async function loadNeCities(lang) {
 	if (NE_CITY_SKIP.has(lang)) return null;
-	try { return (await fetchJsonMaybeGz(`${WORLD_GIS}ne-cities/${lang}.json`))?.names || null; }
+	try { return (await fetchJsonMaybeGz(`${WORLD_DATA}ne-cities/${lang}.json`))?.names || null; }
 	catch (e) { console.warn(`[world] ne-cities/${lang}: ${e.message ?? e}（都市名は英語のまま）`); return null; }
 }
 

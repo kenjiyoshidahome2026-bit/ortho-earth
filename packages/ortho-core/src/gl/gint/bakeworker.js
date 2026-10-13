@@ -11,29 +11,20 @@
 // 正規化（リング向き）は clone されたこちらの polyStream に施される＝render worker には正規化済みが届き、
 // main の原本（unPackGint）は素のまま残る（冪等なので万一の同期経路フォールバックでも正しい）。
 
-import { bakeBase, bakeTier, tierPlan } from './bake.js';
+import { bakeBase, bakeTier, tierPlan, gintDataOf } from './bake.js';
 
 onmessage = e => {
 	const { id, data } = e.data;
 	try {
-		const gintData = {
-			arcBuffer:    data.arcBuffer   ?? null,
-			arcMeta:      data.arcMeta     ?? null,
-			polyStream:   data.polyStream?.length  ? data.polyStream  : null,
-			lineStream:   data.lineStream?.length  ? data.lineStream  : null,
-			pointBuffer:  data.pointBuffer?.length ? data.pointBuffer : null,
-			point:        data.point ?? null,
-			polyCompBbox: data.polyCompBbox ?? null,
-			fillMaxEdges: data.fillMaxEdges ?? null,   // 層ごとの塗り上限上書き（コロプレス土台＝全密度塗りを通す）
-			lowFill:      data.lowFill      ?? false,  // fillOff でも低ズーム単色塗りは生かす（geoedit 大規模モード）
-		};
+		const gintData = gintDataOf(data);
 		const art = bakeBase(gintData);
 		const plan = tierPlan(gintData, art.base.edgeCount, art.weightHist);
 		const tiers = [];
 		for (const w of [...plan].reverse()) tiers.push(bakeTier(gintData, w, art.polyBboxByFid));   // 粗い側から（台帳は minW ソートなので順序は表示に無関係）
 		const { weightHist, ...artifacts } = art;   // hist は下流不要（tier まで焼き切った）＝落とす
+		// transfer できるのは ArrayBuffer だけ＝SharedArrayBuffer の上の view（geopbf 1.19 のゼロコピー unpack）は共有のまま渡す（リストに入れると DataCloneError）
 		const bufs = new Set();
-		for (const v of Object.values(gintData)) if (ArrayBuffer.isView(v)) bufs.add(v.buffer);
+		for (const v of Object.values(gintData)) if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) bufs.add(v.buffer);
 		if (artifacts.base?.metaU32)     bufs.add(artifacts.base.metaU32.buffer);
 		if (artifacts.boundary?.metaU32) bufs.add(artifacts.boundary.metaU32.buffer);
 		if (artifacts.pivot?.px)         bufs.add(artifacts.pivot.px.buffer);
