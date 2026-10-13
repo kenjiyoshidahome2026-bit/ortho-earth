@@ -4437,6 +4437,11 @@ const ML_ORDER_BASE = 1000;
 const mlGintData = new Map();      // sid → { data, pbf }
 const mlPasses = new Map();        // 署名（sid|層 id…|出しズーム）→ { sid, h, holder: { pass, zs, drawn }, order, pbf }
 const mlFeatureState = new Map();  // sid → Map<fid, state>（source に住む＝pass を作り直しても残す）
+// geojson source の焼きの控え（2026-10-13・地形の頁＝25 万頂点の焼き 10 秒を毎回払っていた）＝source の cacheKey で GeoPBF＋GintBUF を IDB へ（geopbf の鍵つきの控え #176）。
+// 掃除＝鍵の接頭辞 ML1:: だけ・頁で最初に使う時に一度：置いてから 30 日を超えた物・200 件／256MB を超えた分（最後に使ったのが古い順）
+const ML_CACHE_PREFIX = "ML1::", ML_CACHE_PRUNE = { maxAge: 30 * 864e5, maxEntries: 200, maxBytes: 256 * 2 ** 20 };
+let mlCachePruned = null;
+const pruneMlCache = () => mlCachePruned ??= geopbfCachePrune({ prefix: ML_CACHE_PREFIX, ...ML_CACHE_PRUNE }).catch(err => { console.warn("[addSource] cache prune", err); return null; });
 const planGint = () => {   // 全体の詰め方＝gint の層だけを登録順に見て、同じ source が続く所を 1 本にし、その中を packMLLayers
 	const runs = []; let run = null;
 	for (const v of mlLayers.values()) {
@@ -4454,7 +4459,13 @@ const gintDataOf = async (sid, force, gen) => {
 	let d = dataOf(sp); const raw = d;
 	if (typeof d === "string") d = await sourceData(sid, d, sp);   // URL＝requester で直に・サービス＝丸ごとか視野追従（#176）
 	else { dropFollow(sid); setSrcAttr(sid, null); }
-	const pbf = await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}` });
+	// 焼いた結果の控え（source の cacheKey・data が object の時だけ）＝鍵が同じなら IDB の GeoPBF＋GintBUF を戻して焼かない。
+	// 鍵は呼び手が決める＝中身が変われば鍵も変える約束（中身を見比べない）。setData／updateData は鍵を外す＝控えは足した時の data だけ。
+	// URL の data は geopbf／サービスの側が自分の控えを持つ
+	const ck = typeof raw !== "string" && typeof sp?.cacheKey === "string" && sp.cacheKey ? ML_CACHE_PREFIX + sp.cacheKey : null;
+	if (ck) pruneMlCache();
+	const pbf = (ck && await geopbfCached(ck, { gint: true, name: `ml/${sid}` }).catch(() => null))
+		|| await geopbf(withMlIds(d, sp), { gint: true, name: `ml/${sid}`, ...(ck ? { cacheKey: ck } : {}) });
 	if (mlGen.get("gint") !== gen) return null;
 	const idToFid = new Map(), fidToId = [];
 	for (let i = 0; i < (pbf?.length ?? 0); i++) { const id = pbf.getFeature?.(i)?.properties?.[ML_ID_KEY]; fidToId[i] = id; if (id != null && !idToFid.has(id)) idToFid.set(id, i); }
@@ -4862,7 +4873,7 @@ map.getSource = id => {
 	}
 	const extra = sp.cluster ? { getClusterExpansionZoom: async cid => { const ez = aggCtl?.expansionZoom(id, cid); if (ez == null) throw new Error(`getClusterExpansionZoom: no cluster ${cid} in source "${id}"`); return rescaleZoomNum(ez, 0, PUBLIC_DZ); } } : {};   // MapLibre 同名（段 6・公開の口の目盛り）
 	const remount = (dataChanged = true) => remountSource(id, dataChanged);   // この source を使う層を載せ直す（setData・updateData・updateImage の共通）
-	const self = { ...sp, ...extra, setData: data => { sp.data = data; return setDataLive(id); } };
+	const self = { ...sp, ...extra, setData: data => { sp.data = data; delete sp.cacheKey; return setDataLive(id); } };   // cacheKey＝足した時の data の鍵＝入れ替えたら外す（古い控えを掴まない）
 	// MapLibre 同名（公式例の門 2 巡目）：GeoJSONSource.updateData（差分＝remove/add/update・地物の id で当てる）・ImageSource.updateImage／setCoordinates
 	if (sp.type === "geojson") self.updateData = async diff => {
 		const d = sp.data;
@@ -4881,7 +4892,7 @@ map.getSource = id => {
 			fs[i] = f;
 		}
 		if (diff?.add?.length) { const add = new Set(diff.add.map(idOf)); fs = fs.filter(f => !add.has(idOf(f))).concat(diff.add); }
-		sp.data = { ...fc, features: fs }; await remount();
+		sp.data = { ...fc, features: fs }; delete sp.cacheKey; await remount();
 	};
 	if (sp.type === "image") {
 		self.updateImage = o => { if (o?.url) sp.url = o.url; if (o?.coordinates) sp.coordinates = o.coordinates; remount(false); return self; };
