@@ -10,6 +10,8 @@ export type LonLat = [lon: number, lat: number];
 export type Bbox = [w: number, s: number, e: number, n: number];
 /** 画面の縁から中身を寄せる余白（CSS px）＝UI パネルに隠れる分（#35） */
 export interface PaddingOptions { top: number; right: number; bottom: number; left: number }
+/** 撮影（requestSnapshot）に写った同一フレームのオーバーレイ 1 枚＝RGBA の生画素（非乗算）。flip＝上下が逆（WebGL） */
+export interface SnapshotOverlay { name: string; buf: ArrayBuffer; w: number; h: number; flip: boolean }
 /** style の light（MapLibre 同名・1.16.0〜）。position＝[r, 方位（0＝anchor:"map" なら北・"viewport" なら画面の上・時計回り）, 天頂からの角]（度） */
 export interface LightSpecification { anchor?: "map" | "viewport"; color?: string; intensity?: number; position?: [number, number, number] }
 /** style の sky（MapLibre 同名・1.16.0〜）。色は文字列か ["zoom"] の式。blend は 0..1。空＝地平線の horizon-color から天頂の sky-color へ（sky-horizon-blend＝混ざる幅）・地平線の際に fog-color を horizon-fog-blend の分・atmosphere-blend＝従来のリム光を重ねる度合い・fog-ground-blend＝地面の霧の濃さ（0＝霧なし・0.5＝従来・1＝近くから） */
@@ -1279,7 +1281,7 @@ export interface OrthoJapanMap {
 	supports(key: CapabilityKey): boolean;
 	/** 鍵ごとの正直な答え（台帳 §9「拡張点の台帳」の実行時の写し）。render.webgpu は実際のバックエンド・data.*／gadget.*／tiles.* は registry の今 */
 	capabilities(): Record<CapabilityKey, Capability>;
-	requestSnapshot(): Promise<{ W: number; H: number; render: { base: ArrayBuffer | null; w: number; h: number; labels: ArrayBuffer | null; lw: number; lh: number; flip: boolean } }>;
+	requestSnapshot(): Promise<{ W: number; H: number; render: { base: ArrayBuffer | null; w: number; h: number; labels: ArrayBuffer | null; lw: number; lh: number; flip: boolean; overlays: SnapshotOverlay[]; overlaysAbove: SnapshotOverlay[] } }>;
 
 	// ---- gint 多層（addGint＝追加・層ごとのハンドル・両バックエンド）----
 	/** gint 層を**追加**する（置換ではない＝applyGintData の単一スロットとは別系統）。pbf は geopbf(…, { gint: true }) 済み（unPackGint 必須・無ければ null）。

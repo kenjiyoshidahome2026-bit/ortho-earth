@@ -18,7 +18,7 @@ const PORT = +process.env.VGW_PORT || 5246;
 const ALL_PAGES = ["t-shadow", "t-shadow-terrain", "t-clip", "t-clipgint", "t-clipgint?gintsb=0", "t-clipmap", "t-qmesh", "t-meshmask", "t-gintgpu", "t-gintgpu?gintsb=0", "t-gintgpu?gintsb=0&gintlh=16", "t-gintgpu?gintlh=16", "t-gintlayers", "t-gintexpr", "t-gintexprdraw", "t-gintmulti", "t-backfill", "t-anchorfill", "t-rectlook",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-170,9&zs=7,6,5,4,3",
 	"t-rectlook?tool=circle&v=%235/9/-175&a=-178,9&b=-162,9&zs=6&probe=450,325&far=2,-9,3",
-	"t-spotlight", "t-linedeco",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
+	"t-spotlight", "t-linedeco", "t-shotov",   // t-linedeco＝基図の line-offset を WGSL でも（#49）
 	"t-overlaydepth", "t-overlaydepth?lowmem=1",   // オーバーレイへシーンの深度（#47）＝WebGPU の詰めパス・lowmem=1＝LOW_MEM では作らない
 	"t-wgsl", "t-light", "t-atmo", "t-pbr", "t-ao", "t-globefloor",
 	"t-elevcell", "t-elevcell?cpuelev=1",   // 標高セルの GPU 再標本化＝CPU 経路と |Δ|≤f16 1ulp（perf plan P1 step 1）・cpuelev=1＝逃げ道は bit 一致
