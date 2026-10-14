@@ -4,6 +4,8 @@
 
 *A Japanese tear-off calendar (lunisolar date, rokuyō, 24 solar terms, 72 pentads, almanac notes, national holidays) and an analog world clock, drawn as SVG with no runtime dependencies.*
 
+Live: [www.ortho-earth.com/himekuri/](https://www.ortho-earth.com/himekuri/) — part of [Ortho Earth](https://www.ortho-earth.com/).
+
 ![日めくりカレンダーと世界時計](docs/screenshot.png)
 
 ## 載っているもの

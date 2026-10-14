@@ -23,6 +23,12 @@ from the whole Earth to street level. The MapLibre face (`@ortho-earth/globe/map
 139 examples: 70 same picture · 42 same answer · 25 run · 0 fail to run (`npm run verify:examples`; ledger in
 [`maplibre-compat.md`](maplibre-compat.md)).
 
+## Guides
+
+- [MapLibre GL JS code on a 3D globe](https://www.ortho-earth.com/docs/from-maplibre.html) — change one import
+- [Coming from CesiumJS](https://www.ortho-earth.com/docs/from-cesium.html) — 3D Tiles, quantized-mesh, glTF, the ellipsoid, CZML and the clock, side by side
+- [Equal Earth on the GPU](https://www.ortho-earth.com/docs/equal-earth.html) — the flat world map of this project
+
 ## Plugins
 
 Every extension has one shape: `definePlugin({ name, install(map, opts) })`, installed with `map.use(plugin)` or
