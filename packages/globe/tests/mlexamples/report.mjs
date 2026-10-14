@@ -84,8 +84,9 @@ export const toOrthoForm = src => src
 // 走らせる頁＝ortho の形の本文に import map を 1 つ差すだけ（bare の "@ortho-earth/globe/maplibre" → 共有エンジンの maplibre 入口）
 export const runnableForm = (src, engineUrl) => toOrthoForm(src).replace(/<head([^>]*)>/i, (m) => `${m}\n<script type="importmap">{"imports":{"@ortho-earth/globe/maplibre":${JSON.stringify(engineUrl)}}}</script>`);
 // 公開の頁の head（www のデモ一覧に載る頁の作法＝apps/www/tests/t-demo-pages.mjs・2026-10-14 本人「このページも一つのアプリとして www に」）
-const PUBLISH_DESC = "All 139 official MapLibre GL JS examples, run unchanged on the ortho-earth globe, with how closely each one matches MapLibre.";
-const PUBLISH_HEAD = `<meta name="description" content="${PUBLISH_DESC}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/maplibre/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="MapLibre examples on ortho-earth"><meta property="og:description" content="${PUBLISH_DESC}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/maplibre.webp"><meta property="og:url" content="https://www.ortho-earth.com/maplibre/"><meta name="twitter:card" content="summary_large_image">`;
+const PUBLISH_DESC = "All 139 official MapLibre GL JS examples, run unchanged on the Ortho Earth 3D globe (WebGPU) by changing one import — each with its source, a Run button and how closely it matches MapLibre.";
+const PUBLISH_TITLE = "MapLibre GL JS examples on a 3D globe — Ortho Earth";   // 公開の頁の title（Issue #308 段 2＝MapLibre の語で着く頁・見出しと本文は変えない）
+const PUBLISH_HEAD = `<meta name="description" content="${PUBLISH_DESC}"><meta name="theme-color" content="#f7f7f5"><link rel="canonical" href="https://www.ortho-earth.com/maplibre/"><link rel="icon" type="image/svg+xml" href="/favicon.svg"><meta property="og:title" content="${PUBLISH_TITLE}"><meta property="og:description" content="${PUBLISH_DESC}"><meta property="og:image" content="https://www.ortho-earth.com/thumbs/maplibre.webp"><meta property="og:url" content="https://www.ortho-earth.com/maplibre/"><meta name="twitter:card" content="summary_large_image">`;
 export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sources = {}, base = "http://localhost:5253", publish = null, engine = "" }) {
 	// 段（同じ絵／同じ答え）はこちらの解釈＝載せない（2026-09-30 本人）。載せるのは写し・題・分類 (一致度 %)。カードを押すと覗き窓＝ortho で動く形の本文（例の 2 つの道だけ替えた物）＋英日の注釈＋ Run（走らせ台の頁を iframe で・タブを増やさない）＋コピー／ダウンロード
 	const cats = [...new Set(rows.map(r => r.category).filter(Boolean))].sort();
@@ -103,7 +104,7 @@ export function buildGallery({ rows, refLabel, orthoLabel, when, notes = {}, sou
 <p class="meta"><button type="button" class="cat" data-cat="${esc(r.category || "")}" title="Show this category">${esc(r.category || "")}</button> ${pct}${note ? ` <span class="nt" title="Has a note">note</span>` : ""}</p>
 </div></article>`;
 	};
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MapLibre examples on ortho-earth</title>${publish ? PUBLISH_HEAD : ""}
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${publish ? PUBLISH_TITLE : "MapLibre examples on ortho-earth"}</title>${publish ? PUBLISH_HEAD : ""}
 <style>
 :root{--bg:#f7f7f5;--fg:#17170f;--muted:#6f6e68;--card:#ffffff;--line:#e6e5e0;--acc:#d99a2b;--code:#f1f0ec;--shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -12px rgba(0,0,0,.18)}
 @media (prefers-color-scheme:dark){:root{--bg:#121211;--fg:#eeede8;--muted:#9c9b94;--card:#1c1c1a;--line:#2d2d2a;--code:#161615;--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.7)}}

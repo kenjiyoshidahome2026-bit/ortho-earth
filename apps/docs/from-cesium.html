@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Coming from CesiumJS — the same things in Ortho Earth</title>
+<meta name="description" content="A table for CesiumJS users: 3D Tiles, I3S, quantized-mesh terrain, glTF/GLB models, the WGS84 ellipsoid, CZML and the clock — and how to write each one with Ortho Earth's MapLibre-shaped API, with a live example for each row.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-cesium.html">
+<meta property="og:title" content="Coming from CesiumJS — the same things in Ortho Earth">
+<meta property="og:description" content="3D Tiles, quantized-mesh terrain, glTF/GLB, the WGS84 ellipsoid, CZML and the clock: how to write each one in Ortho Earth.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-cesium.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">From CesiumJS</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<span class="nav-cur">From CesiumJS</span>
+		<a href="from-maplibre.html">From MapLibre</a>
+		<a href="equal-earth.html">Equal Earth</a>
+		<a href="from-cesium-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Coming from CesiumJS</h1>
+<p class="lead">The same things, written with Ortho Earth<br>
+<span style="font-size:0.85em">
+3D Tiles &middot; I3S &middot; quantized-mesh terrain &middot; glTF/GLB &middot; WGS84 ellipsoid &middot; CZML &middot; the clock
+</span></p>
+
+<p>
+Ortho Earth is a 3D globe map engine for the browser (WebGPU with a WebGL2 fallback) whose API follows MapLibre GL JS.
+Many of the things you do in CesiumJS have a counterpart here. This page lists them side by side: what you write in CesiumJS, what you write in Ortho Earth,
+and a page where you can see it running. All examples assume <code>const map = await createGlobe({ target: "#map" })</code>
+from <code>npm i @ortho-earth/globe</code>.
+</p>
+
+<h2 id="data">3D data and terrain</h2>
+
+<table>
+	<tr><th>Topic</th><th>CesiumJS</th><th>Ortho Earth</th><th>See it</th></tr>
+	<tr><td>3D Tiles</td><td><code>await Cesium3DTileset.fromUrl(url)</code> + <code>scene.primitives.add(tileset)</code></td><td><code>await map.add3DTiles(url)</code></td><td><a href="/nl/">The Netherlands in 3D</a> (3DBAG tileset)</td></tr>
+	<tr><td>I3S scene layers</td><td><code>I3SDataProvider.fromUrl(url)</code></td><td><code>await map.addI3S(url)</code></td><td>—</td></tr>
+	<tr><td>quantized-mesh terrain</td><td><code>CesiumTerrainProvider.fromUrl(url)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", url: ".../layer.json" } })</code></td><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">quantized-mesh example</a></td></tr>
+	<tr><td>Cesium ion terrain</td><td><code>CesiumTerrainProvider.fromIonAssetId(id)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", ion: { assetId, accessToken } } })</code></td><td>—</td></tr>
+	<tr><td>Ellipsoidal vs orthometric heights</td><td>heights above the ellipsoid</td><td><code>heights: "ellipsoidal"</code> (default; a bundled EGM96 geoid turns them into elevations) or <code>"orthometric"</code></td><td>—</td></tr>
+	<tr><td>glTF / GLB models</td><td><code>Model.fromGltfAsync({ url, modelMatrix })</code></td><td><code>await map.gadget.model(url, { at: [lon, lat], heading, scale })</code> — a <code>CESIUM_RTC</code> or ECEF placement in the file wins</td><td><a href="/japan/models">GLB models</a></td></tr>
+	<tr><td>three.js in the scene</td><td>—</td><td><code>map.addThree({ three, module })</code> — runs in the render worker, on the same camera, hidden by terrain and buildings</td><td><a href="/maplibre/examples/add-3d-tiles-using-threejs.html">3D Tiles with three.js</a></td></tr>
+</table>
+
+<h2 id="globe">The globe and the camera</h2>
+
+<table>
+	<tr><th>Topic</th><th>CesiumJS</th><th>Ortho Earth</th><th>See it</th></tr>
+	<tr><td>WGS84 ellipsoid</td><td><code>Ellipsoid.WGS84</code> (always)</td><td><code>createGlobe({ ellipsoid: true })</code> or <code>?ell=1</code>; <code>"auto"</code> (default) uses the ellipsoid on capable desktops. Measurements are always WGS84</td><td><a href="/japan/?ell=1">Japan on the ellipsoid</a></td></tr>
+	<tr><td>Fly the camera</td><td><code>camera.flyTo({ destination })</code></td><td><code>map.flyTo({ center: [lon, lat], zoom, pitch, bearing })</code></td><td><a href="/globe/">Globe</a></td></tr>
+	<tr><td>Set the camera</td><td><code>camera.setView({ destination, orientation })</code></td><td><code>map.jumpTo({ … })</code> or <code>map.setCamera({ lng, lat, height, heading, pitch, roll })</code></td><td>—</td></tr>
+	<tr><td>Follow a moving object</td><td><code>viewer.trackedEntity = entity</code></td><td><code>map.follow(target)</code> — a point, a function of time, or the id of a loaded CZML track</td><td><a href="/globe/sats">Satellites</a></td></tr>
+	<tr><td>Look at a point</td><td><code>camera.lookAt(target, offset)</code></td><td><code>await map.lookAt(target)</code></td><td>—</td></tr>
+</table>
+
+<h2 id="time">Time</h2>
+
+<table>
+	<tr><th>Topic</th><th>CesiumJS</th><th>Ortho Earth</th><th>See it</th></tr>
+	<tr><td>The clock</td><td><code>viewer.clock</code></td><td><code>map.clock</code> — one clock for the night side, the stars, satellites and timed data</td><td><a href="/globe/clock">World clock</a></td></tr>
+	<tr><td>Clock range</td><td><code>clock.clockRange = ClockRange.LOOP_STOP</code></td><td><code>map.clock.setRange(start, end, "loop")</code> — <code>"clamped"</code>, <code>"loop"</code>, <code>"unbounded"</code> (the CZML names are accepted too)</td><td>—</td></tr>
+	<tr><td>CZML</td><td><code>CzmlDataSource.load(url)</code></td><td>Drop a <code>.czml</code> file on the map (<code>map.gadget.dropFile()</code>): sampled positions play on <code>map.clock</code> with the same interpolation (ECEF, linear / Lagrange); billboards, labels and paths are drawn while available; the document clock is copied to the map clock</td><td><a href="/japan/">ortho-japan</a> (drop a file)</td></tr>
+	<tr><td>Sun and shadows</td><td><code>viewer.shadows = true</code></td><td><code>await map.sunShadow({ mode: "instant" })</code> or <code>"duration"</code> (hours of shadow)</td><td>—</td></tr>
+	<tr><td>Visibility analysis</td><td>—</td><td><code>map.viewshed()</code> · <code>map.lineOfSight(a, b)</code></td><td>—</td></tr>
+</table>
+
+<h2 id="different">What works differently</h2>
+
+<ul>
+	<li><strong>The API is MapLibre-shaped.</strong> Sources and layers, <code>style.json</code>, <code>setPaintProperty</code> and <code>queryRenderedFeatures</code> work as in MapLibre GL JS. If you also know MapLibre, see <a href="from-maplibre.html">From MapLibre GL JS</a>.</li>
+	<li><strong>Drawing happens in a worker.</strong> The map is drawn on an OffscreenCanvas in a render worker, so your own drawing joins through <code>map.overlay(module)</code>, <code>map.addThree()</code> or a custom layer with a <code>url</code>.</li>
+	<li><strong>No server, no account.</strong> The engine reads public data directly; there is no token unless the data you read needs one.</li>
+	<li><strong>The flat world map is Equal Earth</strong>, not Web Mercator. See <a href="equal-earth.html">Equal Earth on the GPU</a>.</li>
+</ul>
+
+<p>
+The full list of methods is in the package's type definitions (<code>@ortho-earth/globe/globe.d.ts</code>) and the
+<a href="core.html">engine overview</a>. Step-by-step setup is in <a href="/start.md">Build with Ortho Earth</a>.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
