@@ -11,6 +11,7 @@ import { loadMoj, mojSource, probeBucket } from "./moj.js";
 import { loadMaff, maffCode } from "./maff.js";
 import { escHtml } from "./ui/shared.js";
 import { DESIGNATED_CITIES } from "./jp/codes.js";
+import { cityClipper } from "./clip-city.js";   // 洪水浸水を区の境界で切り抜く（2026-10-14）
 
 const API = "https://api.ortho-earth.com";
 const HINAN_MAX = 1500;                        // 市区町村 bbox 内マーカー上限（DOM 予算）
@@ -254,6 +255,9 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		const targets = meshesForBbox(bb).filter(m => cat.has(m)).flatMap(m => cat.get(m));
 		if (!targets.length) { if (mode === "plan") say("この市区町村の計画規模データは未整備です"); return null; }
 		const zoneHitsCity = makeCityClip(code);
+		// 区の境界で切り抜く（本人裁定 2026-10-14「境界で切る」）＝A31b は区域が大きな面にまとまっていて、丸ごと採ると区外まで塗れた。
+		// 市ポリゴンが無い時だけ従来の「少しでもかかれば丸ごと」
+		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;
 		const groups = new Map();
 		const N = targets.length;
 		for (let mi = 0; mi < N; mi++) {
@@ -277,9 +281,10 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 				const k = `r${rank}`;
 				let bkt = groups.get(k);
 				for (const poly of polys) {
-					if (!zoneHitsCity([poly])) continue;   // セル単位の市クリップ（外周頂点が1つでも市内→採用）
+					const parts = cut ? cut(poly) : zoneHitsCity([poly]) ? [poly] : [];   // 区の境界で切った切れ端（市ポリゴン無し＝外周頂点が1つでも市内→丸ごと）
+					if (!parts.length) continue;
 					if (!bkt) { bkt = { props: { _src: "a31", mode, rank, depth: A31_DEPTH[rank] ?? "" }, comps: [] }; groups.set(k, bkt); }
-					bkt.comps.push(poly);   // 単一push＝スプレッド無し
+					for (const q of parts) bkt.comps.push(q);   // 単一push＝スプレッド無し
 				}
 			}
 		}
