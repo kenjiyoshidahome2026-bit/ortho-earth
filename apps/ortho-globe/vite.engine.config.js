@@ -9,11 +9,12 @@ const assetAsFile = assetUrlAsFile(["bin", "png"], "asset-url-as-file");   // EG
 // 地域の無いアプリ（ortho-globe・world・geopbf-demo）は build の時だけ下の入口を URL で import する（scripts/lib/shared-engine.mjs）。
 // 同じ URL の同じチャンク＝ブラウザのキャッシュがアプリを跨いで効く。<版>＝出力の中身のハッシュ（scripts/build-engine.mjs が決める）。
 //
-// 入口を 4 本に分ける訳＝モジュールの状態を 1 つに保つため。アプリがエンジンと別に束ねると別の実体になる：
+// 入口を分ける訳＝モジュールの状態を 1 つに保つため。アプリがエンジンと別に束ねると別の実体になる：
 //   globe  … createGlobe（CSS はこの入口が貼る＝engine/globe.js）
 //   i18n   … 言語の状態（setLang）＝頁とエンジンが同じ辞書を見る
 //   core   … 楕円体の切替（ellipsoidOn）等の状態＝quakes/sats が読む
 //   geopbf … worker の口（setWorkerFactory）と既定の bucket（createGeopbf）＝geopbf-demo が設定する
+//   h3     … h3-js（@ortho-earth/h3/core）＝状態は無いが重い（約 65KB）。エンジンの map.addH3 も同じ実体を読む＝/globe/hex が 2 つ目を束に持たない（2026-10-14）
 const ROOT = resolve(import.meta.dirname, "../..");
 export default defineConfig({
 	root: import.meta.dirname,   // outDir はここ起点（どこから呼んでも apps/ortho-globe/dist/engine）
@@ -30,6 +31,7 @@ export default defineConfig({
 				i18n: resolve(ROOT, "packages/globe/src/i18n.js"),
 				core: resolve(ROOT, "packages/ortho-core/src/index.js"),
 				geopbf: resolve(ROOT, "packages/geopbf/src/index.js"),
+				h3: resolve(ROOT, "packages/h3/src/core.js"),
 			},
 			formats: ["es"],
 		},
