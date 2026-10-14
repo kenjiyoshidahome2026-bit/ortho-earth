@@ -19,6 +19,9 @@
 		],
 		"parks": [
 			"parks.js"
+		],
+		"hex": [
+			"hex.js"
 		]
 	}
 }
