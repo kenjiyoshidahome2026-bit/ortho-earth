@@ -26,6 +26,11 @@
 		],
 		"hex": [
 			"hex.js"
+		],
+		"arcs": [
+			"arcs.js",
+			"arcs-mini.js",
+			"arcs-data.js"
 		]
 	}
 }
