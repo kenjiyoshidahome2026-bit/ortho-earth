@@ -1,0 +1,24 @@
+{
+	"_": "アプリ→アプリの参照の許可表（scripts/check-app-imports.mjs の爪車・2026-10-14 の凍結）。どれも負債＝消す予定。移し先は why に書く（2 つ以上で使う物は packages/*・実行時の共有は /globe/engine/<版>/ の入口）。消したら --ratchet で枠を下げる。足すのは禁止（例外は www だけ＝門の外）",
+	"allow": {
+		"census2020 → gishub-jp": { "n": 6, "why": "shared-data の読み口・jp/codes.js・maff＝jp の知識が gishub-jp に住んでいる → packages/jp（実行時は engine の jp.js）" },
+		"census2020 → ortho-globe": { "n": 1, "why": "verify-prod がエンジンの dist を読む → エンジンを独立デプロイ（apps/engine）にした時に道を移す" },
+		"census2020 → ortho-japan": { "n": 3, "why": "orthoJapan（app.js）と publicDir＝japan の棚 → engine の jp.js と packages/jp の実行時データ" },
+		"choju → ortho-japan": { "n": 2, "why": "orthoJapan（app.js）と publicDir → engine の jp.js と packages/jp の実行時データ" },
+		"geopbf-demo → ortho-globe": { "n": 1, "why": "ortho-globe/public（koppen-clim.png 等）を dev で読む → エンジンの資産へ" },
+		"gishub-jp → ortho-japan": { "n": 2, "why": "orthoJapan（app.js）と publicDir → engine の jp.js と packages/jp の実行時データ" },
+		"gishub-jp → uploader": { "n": 1, "why": "焼きスクリプトが uploader/.env.local（鍵）を読む → 鍵の置き場を root に" },
+		"ortho-globe → equal": { "n": 1, "why": "Equal Earth の殻を束に焼く（globe の i18n の写しも連れてくる）→ engine の equal.js" },
+		"ortho-globe → quakes-mirror": { "n": 1, "why": "地震の焼き規則 usgs.js → packages/quakes" },
+		"ortho-japan → census2020": { "n": 1, "why": "showcase スクリプトが census の manifest を読む → packages/jp の実行時データ" },
+		"ortho-japan → equal": { "n": 1, "why": "Equal Earth の殻を束に焼く → engine の equal.js" },
+		"ortho-japan → ortho-globe": { "n": 1, "why": "verify-prod がエンジンの dist を読む → エンジンを独立デプロイにした時に道を移す" },
+		"ortho-japan → uploader": { "n": 3, "why": "焼きスクリプトが uploader/.env.local（鍵）を読む・テストが poi/schema.js を読む → 鍵は root・schema は packages/jp" },
+		"ortho-nl → ortho-japan": { "n": 3, "why": "orthoJapan（app.js）・nl/region.js・publicDir → engine の jp.js／nl.js と packages/jp の実行時データ" },
+		"quakes-mirror → ortho-globe": { "n": 1, "why": "テストが ortho-globe の quakes-worker を読む → packages/quakes" },
+		"uploader → gishub-jp": { "n": 2, "why": "shared-data の台帳 → packages/jp（shared-data）" },
+		"world → ortho-globe": { "n": 1, "why": "ortho-globe/public（koppen-clim.png 等）を dev で読む → エンジンの資産へ" },
+		"world-quiz → ortho-globe": { "n": 1, "why": "ortho-globe/public（koppen-clim.png 等）を dev で読む → エンジンの資産へ" },
+		"world-quiz → world": { "n": 2, "why": "world の data.js・worldlayers.js → packages/world（実行時は engine の world.js）" }
+	}
+}
