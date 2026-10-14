@@ -145,7 +145,7 @@
 			"default": "./src/elevation/worker.js"
 		}
 	},
-	"description": "球面ベクタタイル描画エンジン（ortho系アプリ共通の核）",
+	"description": "The core of the Ortho Earth 3D globe map engine: draws vector tiles, terrain at true scale, rasters and labels on a sphere with WebGPU (WebGL2 fallback). Used through @ortho-earth/globe.",
 	"dependencies": {
 		"@ortho-earth/ephem": "^1.0.0",
 		"altpbf": "^1.1.1",
@@ -164,7 +164,12 @@
 		"terrain",
 		"orthographic",
 		"sphere",
-		"gis"
+		"gis",
+		"3d-globe",
+		"maplibre",
+		"quantized-mesh",
+		"equal-earth",
+		"ortho-earth"
 	],
 	"repository": {
 		"type": "git",

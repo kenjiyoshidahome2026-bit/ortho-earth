@@ -6,6 +6,8 @@ moves are rotations, circles are small circles), `@style` annotations (pins, ban
 drawn with the same primitives the viewer uses (`geopbf/edit/draw`), and a large-file mode edits a GintBUF-backed
 model in place. MIT, like geopbf. Split out of `apps/ortho-japan/gadgets/geoedit` on 2026-09-20.
 
+Live: [www.ortho-earth.com/japan/geoedit](https://www.ortho-earth.com/japan/geoedit) — part of [Ortho Earth](https://www.ortho-earth.com/).
+
 This repository is a read-only mirror of `packages/geoedit` in the [ortho-earth monorepo](https://github.com/kenjiyoshidahome2026-bit/ortho-earth) (`npm run mirror`); issues and pull requests go there.
 
 ```js
