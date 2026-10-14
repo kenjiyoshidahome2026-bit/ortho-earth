@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+	<meta name="color-scheme" content="only light">
+	<style>
+		html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscroll-behavior:none;background:#0b1021}
+		#map{position:fixed;inset:0}
+		#boot{position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;background:#0b1021;transition:opacity .2s ease}
+		#boot.gone{opacity:0;pointer-events:none}
+		#boot svg{width:72px;height:72px;animation:boot-breathe 1.6s ease-in-out infinite}
+		@keyframes boot-breathe{0%,100%{opacity:.35}50%{opacity:1}}
+		@media (prefers-reduced-motion:reduce){#boot svg{animation:none;opacity:.8}}
+	</style>
+	<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+	<meta name="theme-color" content="#0b1021">
+	<title>The shortest way is an arc — ortho-globe</title>
+	<meta name="description" content="On a globe the shortest way between two places is a great circle. Arcs from anywhere to every capital, 37,000 air routes, great circle vs rhumb line, and your own CSV.">
+	<!-- 共有カード（X/Slack/LINE の展開器は JS を動かさない＝ここに書いた英語がそのまま出る）。画像は scripts/og-shot.mjs で実描画から撮る（1200×630） -->
+	<link rel="canonical" href="https://www.ortho-earth.com/globe/arcs">
+	<meta property="og:type" content="website">
+	<meta property="og:site_name" content="ortho-earth">
+	<meta property="og:locale" content="en_US">
+	<meta property="og:title" content="The shortest way is an arc — ortho-globe">
+	<meta property="og:description" content="The shortest way between two places is a great circle: straight on the globe, bent on a flat map. Arcs to every capital, 37,000 air routes, and a Mercator inset to compare.">
+	<meta property="og:url" content="https://www.ortho-earth.com/globe/arcs">
+	<meta property="og:image" content="https://www.ortho-earth.com/globe/og/arcs.jpg">
+	<meta property="og:image:width" content="1200">
+	<meta property="og:image:height" content="630">
+	<meta name="twitter:card" content="summary_large_image">
+	<meta name="twitter:title" content="The shortest way is an arc — ortho-globe">
+	<meta name="twitter:description" content="The shortest way between two places is a great circle: straight on the globe, bent on a flat map. Arcs to every capital, 37,000 air routes, and a Mercator inset to compare.">
+	<meta name="twitter:image" content="https://www.ortho-earth.com/globe/og/arcs.jpg">
+</head>
+<body>
+	<div id="boot"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" role="img" aria-label="Loading"><g fill="none" stroke="#cdd6e6" stroke-width="6"><ellipse cx="50" cy="50" rx="45" ry="45"/><ellipse cx="50" cy="50" rx="25" ry="45"/><path d="M11 28H88 M11 72H88M50 5V95M5 50 H95"/></g></svg></div>
+	<div id="map"></div>
+	<script type="module">
+		// 弧の頁（issue #311）＝いちばん近い道は弧になる。deck.gl の ArcLayer・GreatCircleLayer に当たる map.addData(…, { kind: "arcs" }) を球の上で見せる。
+		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域なし）を起こし、案内板・層・小さなメルカトル図は ./arcs.js（遅延 chunk）。
+		// データ＝首都は world の台帳（GitHub Pages）・空港と路線は OpenFlights をブラウザが直読み（Cache API に置く）・国の形は NE admin_0 50m（エンジンと同じ geopbf）。
+		// ?mode=here|cmp|air|csv で起動する見方・?csv=URL で表を読む。
+		// glOverlay＝同一フレームのオーバーレイ（弧・点・光の粒）を重ねる宣言。WebKit は本体が WebGPU だとこの 2 枚目が描かれない（sats・quakes と同じ）
+		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
+		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
+		startPage("arcs", async () => {
+			const [{ createGlobe, geopbf }, { mountArcs }] = await Promise.all([import("@ortho-earth/globe"), import("./arcs.js")]);
+			const map = await createGlobe({ target: "#map", view: location.hash || "#1.9/20/140", chips: false, zoomMax: 8,
+				mesh: false, glOverlay: true, stars: false, countryTip: false, instruments: ["pos", "scale", "attr"], urlHash: true, persistView: false, assetBase: import.meta.env.BASE_URL });
+			dismissBoot();
+			map.gadget.zoom(); map.gadget.compass(); map.gadget.full(); map.gadget.shot(); map.gadget.hint(); map.gadget.lang();
+			const q = new URLSearchParams(location.search);
+			const arcs = await mountArcs(map, geopbf, { csv: q.get("csv"), mode: q.get("mode") });
+			window.__map = map; window.__arcs = arcs;   // console 検証用
+			return map;
+		}, { page: c => import(`./i18n/lang/arcs/${c}.json`) });
+	</script>
+</body>
+</html>
