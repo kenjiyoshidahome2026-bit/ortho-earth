@@ -42,8 +42,8 @@ const name = (html, n) => meta(html, new RegExp(`<meta\\s+name="${n}"\\s+content
 const pages = new Map();   // 入口 HTML → それを使うデモ（同じ頁を複数のカードが指す＝japan の 4 枚）
 for (const d of demos) { const e = entryOf(d.href); assert.ok(e, `demos.json: no entry page for ${d.id} (${d.href}) — add a rule to ENTRY`); (pages.get(e) ?? pages.set(e, []).get(e)).push(d); }
 
-test("demos.json の全カードが入口 HTML に辿り着く（29 枚・15 頁以上）", () => {
-	assert.equal(demos.length, 29);
+test("demos.json の全カードが入口 HTML に辿り着く（30 枚・15 頁以上）", () => {
+	assert.equal(demos.length, 30);
 	assert.ok(pages.size >= 15, `${pages.size} pages`);
 	for (const e of pages.keys()) assert.ok(existsSync(path.join(APPS, e)), `${e} missing`);
 });
