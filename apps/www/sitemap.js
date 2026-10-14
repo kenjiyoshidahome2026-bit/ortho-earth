@@ -7,9 +7,11 @@ import { readFileSync, readdirSync } from 'node:fs';
 export const ORIGIN = 'https://www.ortho-earth.com';
 const EXTRA = ['/', '/maplibre/', '/equal/'];
 
-export const docsUrls = (dir) => readdirSync(dir).filter(f => f.endsWith('.html')).sort()
-	.filter(f => !/<link rel="canonical"/.test(readFileSync(new URL(f, dir), 'utf8')))
-	.map(f => `/docs/${f}`);
+// canonical が無い頁か、canonical が自分自身を指す頁だけ（段 2 の新しい頁は自分を指す canonical を持つ）
+export const docsUrls = (dir) => readdirSync(dir).filter(f => f.endsWith('.html')).sort().filter(f => {
+	const canon = readFileSync(new URL(f, dir), 'utf8').match(/<link rel="canonical" href="([^"]*)"/)?.[1];
+	return !canon || new URL(canon, `${ORIGIN}/docs/${f}`).href === `${ORIGIN}/docs/${f}`;
+}).map(f => `/docs/${f}`);
 
 export const sitemapUrls = (demos, docs) => [...new Set([...EXTRA, ...demos.map(d => d.href.replace(/[?#].*$/, '')), ...docs])].map(p => ORIGIN + p);
 

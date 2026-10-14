@@ -23,3 +23,13 @@ test("トップ・/maplibre/・/equal/・アプリ・docs が載る", () => {
 test("canonical が別の頁を指す docs は載せない", () => {
 	for (const p of ["/docs/index.html", "/docs/GC.html", "/docs/MO.html", "/docs/ST.html"]) assert.ok(!locs.includes(ORIGIN + p), p);
 });
+test("canonical が自分を指す docs は載せる（段 2 の頁の形）", async () => {
+	const { mkdtempSync, writeFileSync } = await import("node:fs");
+	const { tmpdir } = await import("node:os");
+	const { docsUrls } = await import("../sitemap.js");
+	const dir = mkdtempSync(`${tmpdir()}/sitemap-`) + "/";
+	writeFileSync(dir + "self.html", `<link rel="canonical" href="${ORIGIN}/docs/self.html">`);
+	writeFileSync(dir + "other.html", `<link rel="canonical" href="gint.html#lod">`);
+	writeFileSync(dir + "none.html", "");
+	assert.deepEqual(docsUrls(new URL(`file://${dir}`)), ["/docs/none.html", "/docs/self.html"]);
+});
