@@ -38,26 +38,34 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		g.fill("evenodd");
 		landStrip = c;
 	};
-	// 地球儀に今見えている所。引いている時＝経緯度の格子（STEP 度）の升の中心を投影し、手前の半球で画面の中にある升を塗る。
-	// 寄っている時（当たる升が少ない）＝画面の格子を逆投影し、4 隅が全部地球に当たる升をメルカトルの四辺形にして塗る
-	const STEP = 3;
+	// 地球儀に今見えている所。引いている時＝図の画素（CSS px）ごとに経緯度へ戻して投影し、手前の半球で画面の中にある画素を塗る
+	// （緯度経度の升で塗ると縁が階段になる＝本人 2026-10-14「荒すぎ」。画素で持てば縁は図の解像度そのまま・拡大時に補間でなめらか）。
+	// 寄っている時（当たる画素が少ない）＝画面の格子を逆投影し、4 隅が全部地球に当たる升をメルカトルの四辺形にして塗る
+	const R2D = 180 / Math.PI;
+	let maskCv = null, maskImg = null, latOfRow = null;
 	const footprint = () => {
-		const mw = map.mapEl.clientWidth, mh = map.mapEl.clientHeight, prj = map.makeProjector(), cells = [];
-		for (let lat = -LAT_MAX; lat < LAT_MAX; lat += STEP) for (let lon = -180; lon < 180; lon += STEP) {
-			const p = prj(lon + STEP / 2, lat + STEP / 2);
-			if (p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh) cells.push(lon, lat);
+		const mw = map.mapEl.clientWidth, mh = map.mapEl.clientHeight, prj = map.makeProjector();
+		if (!maskCv || maskCv.width !== W || maskCv.height !== H) {
+			maskCv = document.createElement("canvas"); maskCv.width = W; maskCv.height = H;
+			maskImg = maskCv.getContext("2d").createImageData(W, H);
+			for (let k = 0; k < maskImg.data.length; k += 4) maskImg.data[k] = maskImg.data[k + 1] = maskImg.data[k + 2] = 255;
+			latOfRow = new Float64Array(H);
+			for (let j = 0; j < H; j++) latOfRow[j] = Math.atan(Math.sinh((1 - (j + 0.5) / H * 2) * Y_MAX)) * R2D;
 		}
-		if (cells.length >= 12) return { cells };
+		const d = maskImg.data, lon0 = map.getCenter().lng;
+		let hit = 0;
+		for (let j = 0, k = 3; j < H; j++) for (let i = 0; i < W; i++, k += 4) {
+			const p = prj(lon0 + ((i + 0.5) / W - 0.5) * 360, latOfRow[j]);
+			const on = p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh;
+			d[k] = on ? 255 : 0; hit += on;
+		}
+		if (hit >= 40) { maskCv.getContext("2d").putImageData(maskImg, 0, 0); return { mask: maskCv }; }
 		const ll = new Array((GX + 1) * (GY + 1));
 		for (let j = 0; j <= GY; j++) for (let i = 0; i <= GX; i++) { const p = map.unproject([i / GX * mw, j / GY * mh]); ll[j * (GX + 1) + i] = p ? [p.lng, p.lat] : null; }
 		return { ll };
 	};
 	const drawFoot = (g, F) => {
-		if (F.cells) {
-			const c = F.cells, w = STEP / 360 * W + 0.6;
-			for (let k = 0; k < c.length; k += 2) { const y0 = yOf(c[k + 1] + STEP), y1 = yOf(c[k + 1]); g.fillRect(xOf(c[k]) - 0.3, y0 - 0.3, w, y1 - y0 + 0.6); }
-			return;
-		}
+		if (F.mask) { g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; g.drawImage(F.mask, 0, 0, W, H); return; }   // 中心の経度は撮った時のまま＝footKey が同じ間だけ使う
 		const ll = F.ll;
 		const quad = (a, b, c, d) => {
 			const base = a[0], pts = [a, b, c, d].map(p => [base + wrap180(p[0] - base), p[1]]);   // 升の中は連続に（日付変更線）
