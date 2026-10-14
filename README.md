@@ -57,14 +57,14 @@ Region names never appear in core or globe code (the `verify:regionless` gate co
 
 | Package | Version | License | What it is |
 |---|---|---|---|
-| [`@ortho-earth/core`](packages/ortho-core) | 1.14.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
-| [`@ortho-earth/globe`](packages/globe) | 1.14.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
+| [`@ortho-earth/core`](packages/ortho-core) | 1.15.0 | GPL-3.0-or-later | Spherical vector-tile rendering engine shared by every ortho app |
+| [`@ortho-earth/globe`](packages/globe) | 1.16.0 | GPL-3.0-or-later | The 3D globe: `createGlobe()`, MapLibre-shaped API, plugins, data layers, analysis |
 | [`@ortho-earth/jp`](packages/jp) | 0.0.1 | GPL-3.0-or-later | Japan region pack |
 | [`@ortho-earth/react`](packages/react) | 0.1.0 | GPL-3.0-or-later | React bindings for the globe |
 | [`@ortho-earth/columnar`](packages/columnar) | 0.1.1 | GPL-3.0-or-later | Column-chunk layer: GeoPBF / GeoParquet without the topology pass |
 | [`@ortho-earth/h3`](packages/h3) | 0.1.0 | GPL-3.0-or-later | H3 cells, binning and `map.addH3()` |
 | [`@ortho-earth/tile-formats`](packages/tile-formats) | 0.1.0 | GPL-3.0-or-later | Format plugins loaded on demand: MLT tiles, LAZ records for COPC |
-| [`@ortho-earth/ephem`](packages/ephem) | 1.1.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
+| [`@ortho-earth/ephem`](packages/ephem) | 1.2.0 | GPL-3.0-or-later | Solar-system ephemeris, shared clock, SGP4/SDP4 satellites |
 | [`geopbf`](packages/geopbf) | 1.19.0 | MIT | GeoPBF container + Gint topology; converts 18 GIS formats in the browser (workers + WASM) |
 | [`geoedit`](packages/geoedit) | 0.3.2 | MIT | Topological GeoPBF editor on the sphere, mounted as a map gadget |
 | [`altpbf`](packages/altpbf) | 1.1.1 | MIT | Binary elevation tiles: delta-coded SVarint grids, decoded straight into `Int16Array` |
