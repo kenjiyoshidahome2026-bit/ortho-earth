@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CesiumJS から来た人へ — 同じことを Ortho Earth で書く</title>
+<meta name="description" content="CesiumJS を使っている人向けの対応表：3D Tiles・I3S・quantized-mesh の地形・glTF/GLB・WGS84 楕円体・CZML・時計を、Ortho Earth の MapLibre 形の API でどう書くか。各行に動く例。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-cesium-jp.html">
+<meta property="og:title" content="CesiumJS から来た人へ — 同じことを Ortho Earth で書く">
+<meta property="og:description" content="3D Tiles・quantized-mesh の地形・glTF/GLB・WGS84 楕円体・CZML・時計を Ortho Earth でどう書くか。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-cesium-jp.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">CesiumJS から</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<span class="nav-cur">CesiumJS から</span>
+		<a href="from-maplibre-jp.html">MapLibre から</a>
+		<a href="equal-earth-jp.html">Equal Earth</a>
+		<a href="from-cesium.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>CesiumJS から来た人へ</h1>
+<p class="lead">同じことを Ortho Earth で書く<br>
+<span style="font-size:0.85em">
+3D Tiles &middot; I3S &middot; quantized-mesh の地形 &middot; glTF/GLB &middot; WGS84 楕円体 &middot; CZML &middot; 時計
+</span></p>
+
+<p>
+Ortho Earth はブラウザで動く 3D 地球儀の地図エンジン（WebGPU、無ければ WebGL2）で、API は MapLibre GL JS に合わせています。
+CesiumJS でしていることの多くに、ここでの書き方があります。この頁はそれを並べたものです：CesiumJS での書き方、Ortho Earth での書き方、動いている頁。
+例はどれも <code>npm i @ortho-earth/globe</code> のあと <code>const map = await createGlobe({ target: "#map" })</code> とした前提です。
+</p>
+
+<h2 id="data">3D データと地形</h2>
+
+<table>
+	<tr><th>項目</th><th>CesiumJS</th><th>Ortho Earth</th><th>動く例</th></tr>
+	<tr><td>3D Tiles</td><td><code>await Cesium3DTileset.fromUrl(url)</code> ＋ <code>scene.primitives.add(tileset)</code></td><td><code>await map.add3DTiles(url)</code></td><td><a href="/nl/">オランダの 3D</a>（3DBAG のタイルセット）</td></tr>
+	<tr><td>I3S</td><td><code>I3SDataProvider.fromUrl(url)</code></td><td><code>await map.addI3S(url)</code></td><td>—</td></tr>
+	<tr><td>quantized-mesh の地形</td><td><code>CesiumTerrainProvider.fromUrl(url)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", url: ".../layer.json" } })</code></td><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">quantized-mesh の例</a></td></tr>
+	<tr><td>Cesium ion の地形</td><td><code>CesiumTerrainProvider.fromIonAssetId(id)</code></td><td><code>map.setTerrain({ source: { type: "quantized-mesh", ion: { assetId, accessToken } } })</code></td><td>—</td></tr>
+	<tr><td>楕円体高と標高</td><td>楕円体からの高さ</td><td><code>heights: "ellipsoidal"</code>（既定・同梱の EGM96 ジオイドで標高に直す）か <code>"orthometric"</code></td><td>—</td></tr>
+	<tr><td>glTF / GLB の模型</td><td><code>Model.fromGltfAsync({ url, modelMatrix })</code></td><td><code>await map.gadget.model(url, { at: [lon, lat], heading, scale })</code>（ファイルに <code>CESIUM_RTC</code>・ECEF の置き場所があればそちらが勝つ）</td><td><a href="/japan/models">GLB の模型</a></td></tr>
+	<tr><td>three.js を場面に</td><td>—</td><td><code>map.addThree({ three, module })</code>（描画 worker の中で同じカメラ・地形と建物に隠れる）</td><td><a href="/maplibre/examples/add-3d-tiles-using-threejs.html">three.js で 3D Tiles</a></td></tr>
+</table>
+
+<h2 id="globe">地球儀とカメラ</h2>
+
+<table>
+	<tr><th>項目</th><th>CesiumJS</th><th>Ortho Earth</th><th>動く例</th></tr>
+	<tr><td>WGS84 楕円体</td><td><code>Ellipsoid.WGS84</code>（常に）</td><td><code>createGlobe({ ellipsoid: true })</code> か <code>?ell=1</code>。既定の <code>"auto"</code> は力のあるデスクトップで楕円体。計測は常に WGS84</td><td><a href="/japan/?ell=1">楕円体の日本</a></td></tr>
+	<tr><td>カメラを飛ばす</td><td><code>camera.flyTo({ destination })</code></td><td><code>map.flyTo({ center: [lon, lat], zoom, pitch, bearing })</code></td><td><a href="/globe/">地球儀</a></td></tr>
+	<tr><td>カメラを置く</td><td><code>camera.setView({ destination, orientation })</code></td><td><code>map.jumpTo({ … })</code> か <code>map.setCamera({ lng, lat, height, heading, pitch, roll })</code></td><td>—</td></tr>
+	<tr><td>動く物を追う</td><td><code>viewer.trackedEntity = entity</code></td><td><code>map.follow(target)</code>（点・時刻の関数・読み込んだ CZML の軌跡の id）</td><td><a href="/globe/sats">人工衛星</a></td></tr>
+	<tr><td>点を見る</td><td><code>camera.lookAt(target, offset)</code></td><td><code>await map.lookAt(target)</code></td><td>—</td></tr>
+</table>
+
+<h2 id="time">時間</h2>
+
+<table>
+	<tr><th>項目</th><th>CesiumJS</th><th>Ortho Earth</th><th>動く例</th></tr>
+	<tr><td>時計</td><td><code>viewer.clock</code></td><td><code>map.clock</code>（夜の側・星・衛星・時刻付きのデータが同じ 1 つの時計で動く）</td><td><a href="/globe/clock">世界時計</a></td></tr>
+	<tr><td>時計の範囲</td><td><code>clock.clockRange = ClockRange.LOOP_STOP</code></td><td><code>map.clock.setRange(start, end, "loop")</code>（<code>"clamped"</code>・<code>"loop"</code>・<code>"unbounded"</code>。CZML の名前も受ける）</td><td>—</td></tr>
+	<tr><td>CZML</td><td><code>CzmlDataSource.load(url)</code></td><td><code>.czml</code> を地図に落とす（<code>map.gadget.dropFile()</code>）：sampled position は <code>map.clock</code> で同じ補間（ECEF・線形／Lagrange）で再生し、出ている区間だけ billboard・label・path を描く。document の clock は地図の時計へ写す</td><td><a href="/japan/">ortho-japan</a>（ファイルを落とす）</td></tr>
+	<tr><td>太陽と影</td><td><code>viewer.shadows = true</code></td><td><code>await map.sunShadow({ mode: "instant" })</code> か <code>"duration"</code>（日影の時間）</td><td>—</td></tr>
+	<tr><td>見通しの解析</td><td>—</td><td><code>map.viewshed()</code> · <code>map.lineOfSight(a, b)</code></td><td>—</td></tr>
+</table>
+
+<h2 id="different">違う所</h2>
+
+<ul>
+	<li><strong>API は MapLibre の形です。</strong>source と layer・<code>style.json</code>・<code>setPaintProperty</code>・<code>queryRenderedFeatures</code> は MapLibre GL JS と同じ書き方です。MapLibre も使っているなら <a href="from-maplibre-jp.html">MapLibre GL JS のコードを球へ</a> を見てください。</li>
+	<li><strong>描くのは worker です。</strong>地図は描画 worker の OffscreenCanvas に描かれます。自分の描画は <code>map.overlay(module)</code>・<code>map.addThree()</code>・<code>url</code> を持つ custom layer で加わります。</li>
+	<li><strong>サーバーもアカウントも要りません。</strong>エンジンは公開データを直接読みます。読むデータが求めない限り、鍵は要りません。</li>
+	<li><strong>平らな世界図は Equal Earth</strong> です（Web メルカトルではない）。<a href="equal-earth-jp.html">Equal Earth 図法を GPU で描く</a> を見てください。</li>
+</ul>
+
+<p>
+全ての口はパッケージの型定義（<code>@ortho-earth/globe/globe.d.ts</code>）と <a href="core-jp.html">エンジンの概要</a> にあります。
+手順は <a href="/start.md">Build with Ortho Earth</a>（英語）にあります。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
