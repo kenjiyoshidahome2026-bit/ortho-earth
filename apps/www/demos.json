@@ -125,6 +125,20 @@
 			}
 		},
 		{
+			"id": "clock",
+			"href": "/globe/clock",
+			"group": "earth",
+			"icon": "🕰️",
+			"title": "World clock",
+			"lang": "26",
+			"desc": "What time is it there? The local time of every time zone on a 3D globe, with daylight saving time and the night side — hover a place, or hold Shift for a whole country.",
+			"img": "/thumbs/clock.webp",
+			"shot": {
+				"url": "/globe/clock?lang=en#2.4/25/20",
+				"wait": 14
+			}
+		},
+		{
 			"id": "hex",
 			"href": "/globe/hex",
 			"group": "earth",
@@ -234,6 +248,19 @@
 			"img": "/thumbs/geopbf.webp",
 			"shot": {
 				"wait": 6
+			}
+		},
+		{
+			"id": "maplibre",
+			"href": "/maplibre/",
+			"group": "tools",
+			"icon": "🧩",
+			"title": "MapLibre examples",
+			"lang": "en",
+			"desc": "All 139 official MapLibre GL JS examples, run unchanged on the ortho-earth globe. Each card shows how closely it matches MapLibre; press Run to try it, or copy the code.",
+			"img": "/thumbs/maplibre.webp",
+			"shot": {
+				"wait": 3
 			}
 		},
 		{
