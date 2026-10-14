@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MapLibre GL JS code on a 3D globe — change one import</title>
+<meta name="description" content="Run your MapLibre GL JS code on Ortho Earth's 3D globe by changing one import. Map, Marker, Popup, addProtocol, style.json and the controls carry over; all 139 official MapLibre examples run unchanged, with how closely each one matches.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-maplibre.html">
+<meta property="og:title" content="MapLibre GL JS code on a 3D globe — change one import">
+<meta property="og:description" content="Change one import and your MapLibre GL JS code runs on the Ortho Earth globe, with 3D Tiles, true-scale terrain and WebGPU.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-maplibre.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">From MapLibre</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium.html">From CesiumJS</a>
+		<span class="nav-cur">From MapLibre</span>
+		<a href="equal-earth.html">Equal Earth</a>
+		<a href="from-maplibre-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>MapLibre GL JS code on a 3D globe</h1>
+<p class="lead">Change one import<br>
+<span style="font-size:0.85em">
+@ortho-earth/globe/maplibre &middot; Map &middot; Marker &middot; Popup &middot; addProtocol &middot; style.json &middot; the controls
+</span></p>
+
+<p>
+<code>@ortho-earth/globe/maplibre</code> is the MapLibre GL JS API drawn on the Ortho Earth globe engine (WebGPU with a WebGL2 fallback).
+Code you wrote for MapLibre keeps working; the map it draws is a round Earth with terrain at true scale, and the same map can also show 3D Tiles, I3S, glTF models and the sky.
+</p>
+
+<h2 id="import">1. The one line</h2>
+
+<pre><code><span class="kw">import</span> * <span class="kw">as</span> maplibregl <span class="kw">from</span> <span class="st">"@ortho-earth/globe/maplibre"</span>;   <span class="cm">// was: from "maplibre-gl"</span>
+
+<span class="kw">const</span> map = <span class="kw">new</span> maplibregl.Map({
+  container: <span class="st">"map"</span>,
+  style: <span class="st">"https://demotiles.maplibre.org/style.json"</span>,
+  center: [<span class="nm">139.77</span>, <span class="nm">35.68</span>],
+  zoom: <span class="nm">4</span>,
+});
+
+map.on(<span class="st">"load"</span>, () =&gt; {
+  map.addSource(<span class="st">"cities"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"cities.geojson"</span> });
+  map.addLayer({ id: <span class="st">"cities"</span>, type: <span class="st">"circle"</span>, source: <span class="st">"cities"</span>,
+    paint: { <span class="st">"circle-radius"</span>: <span class="nm">6</span>, <span class="st">"circle-color"</span>: <span class="st">"#e4572e"</span> } });
+});</code></pre>
+
+<p>
+Install with <code>npm i @ortho-earth/globe</code> and build with Vite. Zoom levels follow MapLibre's, so <code>zoom</code>, <code>minzoom</code>/<code>maxzoom</code>
+and tile levels mean the same as in your code. If you use MapLibre's controls, keep linking <code>maplibre-gl.css</code>.
+The full recipe, run by an automated test against the published package, is section A8 of <a href="/start.md">Build with Ortho Earth</a>.
+</p>
+
+<h2 id="examples">2. The 139 official examples</h2>
+
+<p>
+Every official MapLibre GL JS example runs on the globe with its code unchanged — only the import is switched.
+The <a href="/maplibre/">MapLibre examples page</a> shows each one with its source, a Run button, and how closely the picture matches MapLibre's.
+On the grading of 12 October 2026, 66 draw the same picture, 50 give the same answers to queries, 21 run with visible differences, and none fail to run
+(2 have no MapLibre picture to compare with).
+</p>
+
+<table>
+	<tr><th>Example</th><th>What it shows here</th></tr>
+	<tr><td><a href="/maplibre/examples/3d-terrain.html">3D terrain</a></td><td><code>setTerrain</code> with a <code>raster-dem</code> source, on the sphere</td></tr>
+	<tr><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">Terrain from quantized-mesh tiles</a></td><td>Cesium's terrain format, read directly</td></tr>
+	<tr><td><a href="/maplibre/examples/display-buildings-in-3d.html">Buildings in 3D</a></td><td><code>fill-extrusion</code> on the globe</td></tr>
+	<tr><td><a href="/maplibre/examples/add-3d-tiles-using-threejs.html">3D Tiles with three.js</a></td><td>three.js drawn in the same frame as the map</td></tr>
+</table>
+
+<h2 id="different">3. What works differently</h2>
+
+<ul>
+	<li><strong>Always a globe.</strong> There is no flat Mercator mode: <code>projection</code> is read as globe whatever it says, and <code>renderWorldCopies</code> has nothing to copy. The flat world map of this project is <a href="equal-earth.html">Equal Earth</a>.</li>
+	<li><strong>Drawing happens in a worker.</strong> A custom layer passed as an object is drawn on top of the map; a custom layer with a <code>url</code> runs inside the render worker and is hidden by terrain and buildings. deck.gl's <code>MapboxOverlay</code> works as an overlay (<code>interleaved: true</code> falls back to overlaid).</li>
+	<li><strong>More than MapLibre.</strong> The same map takes 3D Tiles (<code>map.add3DTiles</code>), I3S, quantized-mesh terrain, glTF models, a shared clock with the night side and the stars, and analysis such as sun shadow and viewshed. Coming from CesiumJS too? See <a href="from-cesium.html">From CesiumJS</a>.</li>
+</ul>
+
+<p>
+The ledger of every difference, kept as the work goes on, is <code>packages/globe/maplibre-compat.md</code> in the repository.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

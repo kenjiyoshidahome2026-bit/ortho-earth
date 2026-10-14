@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Equal Earth projection on the GPU — an interactive world map</title>
+<meta name="description" content="How Ortho Earth draws an interactive Equal Earth world map with WebGPU and WebGL2: the projection in the shader, a central meridian that follows the view, and a morph from the 3D globe.">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/equal-earth.html">
+<meta property="og:title" content="Equal Earth projection on the GPU — an interactive world map">
+<meta property="og:description" content="The Equal Earth projection in the shader, a central meridian that follows the view, and a morph from the 3D globe.">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/equal-earth.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">Equal Earth</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium.html">From CesiumJS</a>
+		<a href="from-maplibre.html">From MapLibre</a>
+		<span class="nav-cur">Equal Earth</span>
+		<a href="equal-earth-jp.html" class="nav-flag" aria-label="日本語">🇯🇵</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>Equal Earth on the GPU</h1>
+<p class="lead">An interactive world map in the Equal Earth projection<br>
+<span style="font-size:0.85em">
+equal-area &middot; WebGPU with a WebGL2 fallback &middot; central meridian follows the view &middot; morph from the globe
+</span></p>
+
+<p>
+A globe shows only half of the Earth at a time. For the whole Earth on one sheet, Ortho Earth uses the
+<strong>Equal Earth</strong> projection (Šavrič, Patterson and Jenny, 2018): an equal-area pseudocylindrical projection,
+so every country is drawn at its true relative size. You can try it at <a href="/equal/">/equal/</a>, or open the globe on its Equal Earth side at
+<a href="/globe/?start=equal">/globe/?start=equal</a>.
+</p>
+
+<h2 id="shader">1. The projection in the shader</h2>
+
+<p>
+The world data (Natural Earth 10m borders, coasts, lakes, rivers and cities, read as Gint) is sent to the GPU once, in longitude and latitude.
+The projection itself is in the shader: the vertex stage turns each point into Equal Earth coordinates every frame.
+The same formulas run on the CPU only for the camera (the center, the anchor under the pointer, and the smallest zoom).
+</p>
+
+<pre><code><span class="cm">// Equal Earth (unit sphere). θ = parametric latitude, Δλ = longitude minus the central meridian</span>
+sin θ = (√3 / 2) · sin φ
+y  = θ · (A1 + A2·θ² + θ⁶·(A3 + A4·θ²))
+x  = Δλ · cos θ / ((√3 / 2) · (A1 + 3·A2·θ² + θ⁶·(7·A3 + 9·A4·θ²)))
+<span class="cm">// A1 = 1.340264, A2 = −0.081106, A3 = 0.000893, A4 = 0.003796</span></code></pre>
+
+<p>
+Both backends draw the same picture: WebGPU by default, WebGL2 when WebGPU is not there, compared against each other on a real GPU.
+</p>
+
+<h2 id="meridian">2. The central meridian follows the view</h2>
+
+<p>
+The central meridian is always the longitude at the center of the screen. Longitude enters the projection only as Δλ, the difference from that center,
+so when you scroll sideways the map is projected again around the new center: it goes on east and west without a seam,
+and the place you are looking at is always where the projection distorts least. Zoom and scroll never show empty space outside the map's outline.
+</p>
+
+<h2 id="morph">3. A morph from the globe</h2>
+
+<p>
+In the globe pages, the Equal Earth map opens out of the globe you are looking at. Its first frame is the same globe, with the same camera,
+matched to the pixel; the sphere then unfolds into the Equal Earth sheet in a little over a second, and the map data loads while it moves.
+Right-click a point on the globe and choose to center the world map there; going back folds the sheet into a globe at your current view.
+Both run in the same page and share one engine, so nothing is loaded twice.
+</p>
+
+<h2 id="data">4. On the map</h2>
+
+<ul>
+	<li>Country and city names in 26 languages.</li>
+	<li>Choropleths from the world ledger, or from your own CSV joined by country.</li>
+	<li>Relief (GEBCO) and climate (Köppen) layers.</li>
+</ul>
+
+<p>
+Coming from another library? See <a href="from-maplibre.html">MapLibre GL JS code on a 3D globe</a> and <a href="from-cesium.html">Coming from CesiumJS</a>.
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	ortho-equal · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>

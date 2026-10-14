@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MapLibre GL JS のコードをそのまま 3D の球へ — import を 1 行替える</title>
+<meta name="description" content="import を 1 行替えるだけで、MapLibre GL JS のコードが Ortho Earth の 3D 地球儀で動く。Map・Marker・Popup・addProtocol・style.json・コントロールはそのまま。公式例 139 本がコードを変えずに動き、それぞれの一致度を載せている。">
+<link rel="canonical" href="https://www.ortho-earth.com/docs/from-maplibre-jp.html">
+<meta property="og:title" content="MapLibre GL JS のコードをそのまま 3D の球へ — import を 1 行替える">
+<meta property="og:description" content="import を 1 行替えれば、MapLibre GL JS のコードが Ortho Earth の地球儀で動く。3D Tiles・実スケールの地形・WebGPU も同じ地図で。">
+<meta property="og:url" content="https://www.ortho-earth.com/docs/from-maplibre-jp.html">
+<meta property="og:type" content="article">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="doc.css">
+</head>
+<body>
+
+<div class="header-bar">
+	<img src="favicon.svg" width="24" height="24" style="flex-shrink:0" alt="">
+	<a href="/#technologies" class="logo">Technologies</a>
+	<span class="sep">/</span>
+	<span class="crumb-cur">MapLibre から</span>
+	<div class="nav-links">
+		<a href="/#technologies" class="nav-top">top ⇧</a>
+		<a href="from-cesium-jp.html">CesiumJS から</a>
+		<span class="nav-cur">MapLibre から</span>
+		<a href="equal-earth-jp.html">Equal Earth</a>
+		<a href="from-maplibre.html" class="nav-flag" aria-label="English">🇬🇧</a>
+	</div>
+</div>
+
+<div class="page">
+
+<h1>MapLibre GL JS のコードを 3D の球へ</h1>
+<p class="lead">import を 1 行替える<br>
+<span style="font-size:0.85em">
+@ortho-earth/globe/maplibre &middot; Map &middot; Marker &middot; Popup &middot; addProtocol &middot; style.json &middot; コントロール
+</span></p>
+
+<p>
+<code>@ortho-earth/globe/maplibre</code> は、MapLibre GL JS の API を Ortho Earth の地球儀エンジン（WebGPU、無ければ WebGL2）で描くものです。
+MapLibre 向けに書いたコードはそのまま動きます。描かれるのは実スケールの地形を持つ丸い地球で、同じ地図に 3D Tiles・I3S・glTF の模型・空も載せられます。
+</p>
+
+<h2 id="import">1. 替えるのは 1 行</h2>
+
+<pre><code><span class="kw">import</span> * <span class="kw">as</span> maplibregl <span class="kw">from</span> <span class="st">"@ortho-earth/globe/maplibre"</span>;   <span class="cm">// 元は from "maplibre-gl"</span>
+
+<span class="kw">const</span> map = <span class="kw">new</span> maplibregl.Map({
+  container: <span class="st">"map"</span>,
+  style: <span class="st">"https://demotiles.maplibre.org/style.json"</span>,
+  center: [<span class="nm">139.77</span>, <span class="nm">35.68</span>],
+  zoom: <span class="nm">4</span>,
+});
+
+map.on(<span class="st">"load"</span>, () =&gt; {
+  map.addSource(<span class="st">"cities"</span>, { type: <span class="st">"geojson"</span>, data: <span class="st">"cities.geojson"</span> });
+  map.addLayer({ id: <span class="st">"cities"</span>, type: <span class="st">"circle"</span>, source: <span class="st">"cities"</span>,
+    paint: { <span class="st">"circle-radius"</span>: <span class="nm">6</span>, <span class="st">"circle-color"</span>: <span class="st">"#e4572e"</span> } });
+});</code></pre>
+
+<p>
+<code>npm i @ortho-earth/globe</code> で入れて Vite で組みます。ズームの段は MapLibre と同じなので、<code>zoom</code>・<code>minzoom</code>/<code>maxzoom</code>・タイルの段はコードのままの意味です。
+MapLibre のコントロールを使うなら <code>maplibre-gl.css</code> はそのまま読んでください。
+公開物に対して自動の試験で走らせている手順の全文は、<a href="/start.md">Build with Ortho Earth</a>（英語）の A8 にあります。
+</p>
+
+<h2 id="examples">2. 公式例 139 本</h2>
+
+<p>
+MapLibre GL JS の公式例はすべて、コードを変えずに（import だけ替えて）球の上で動きます。
+<a href="/maplibre/">MapLibre の例の頁</a> は 1 本ずつ、ソース・Run の釦・MapLibre の絵とどれだけ同じかを載せています。
+2026 年 10 月 12 日の検定では、同じ絵が 66 本、問い合わせに同じ答えを返すのが 50 本、違いが見えるが動くのが 21 本、動かないのは 0 本でした（MapLibre の絵が取れず比べられないのが 2 本）。
+</p>
+
+<table>
+	<tr><th>例</th><th>ここで見えること</th></tr>
+	<tr><td><a href="/maplibre/examples/3d-terrain.html">3D terrain</a></td><td><code>raster-dem</code> の source で <code>setTerrain</code>・球の上で</td></tr>
+	<tr><td><a href="/maplibre/examples/add-3d-terrain-from-quantized-mesh-tiles.html">quantized-mesh の地形</a></td><td>Cesium の地形の形式をそのまま読む</td></tr>
+	<tr><td><a href="/maplibre/examples/display-buildings-in-3d.html">Buildings in 3D</a></td><td>球の上の <code>fill-extrusion</code></td></tr>
+	<tr><td><a href="/maplibre/examples/add-3d-tiles-using-threejs.html">three.js で 3D Tiles</a></td><td>three.js を地図と同じフレームで描く</td></tr>
+</table>
+
+<h2 id="different">3. 違う所</h2>
+
+<ul>
+	<li><strong>いつも球です。</strong>平らなメルカトルの表示はありません。<code>projection</code> は何と書いても球として読み、<code>renderWorldCopies</code> は写す物がありません。この project の平らな世界図は <a href="equal-earth-jp.html">Equal Earth</a> です。</li>
+	<li><strong>描くのは worker です。</strong>物として渡した custom layer は地図の上に描かれます。<code>url</code> を持つ custom layer は描画 worker の中で走り、地形と建物に隠れます。deck.gl の <code>MapboxOverlay</code> は重ねる形で動きます（<code>interleaved: true</code> は重ねる形に落ちる）。</li>
+	<li><strong>MapLibre より多くのこと。</strong>同じ地図に 3D Tiles（<code>map.add3DTiles</code>）・I3S・quantized-mesh の地形・glTF の模型・夜の側と星を動かす共通の時計・日影や見通しの解析を載せられます。CesiumJS も使っているなら <a href="from-cesium-jp.html">CesiumJS から来た人へ</a> を見てください。</li>
+</ul>
+
+<p>
+違いの全部は、仕事のたびに書き足している台帳 <code>packages/globe/maplibre-compat.md</code>（リポジトリの中）にあります。
+</p>
+
+<div style="margin-top:48px;font-size:0.72rem;color:var(--dim);font-family:var(--mono);text-align:center">
+	@ortho-earth/globe · GPL-3.0 · Kenji Yoshida · 2026
+</div>
+
+</div><!-- .page -->
+</body>
+</html>
