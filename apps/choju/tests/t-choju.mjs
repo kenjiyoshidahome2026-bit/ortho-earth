@@ -19,7 +19,7 @@ t("変換：獣種・利用区分・日付・市区町村", recs[0].s === 1 && r
 t("変換：座標の出所と体長・体重（空は null）", recs[0].o === 0 && recs[0].len === 125.2 && recs[1].o === 1 && recs[1].len === null && recs[1].wt === null);
 t("変換：受付番号・捕獲者 ID", recs[0].rno === "202501010001" && recs[0].uid === "10444a18");
 t("変換：通し番号は詰めて振る", recs.map(d => d.i).join() === "0,1");
-t("大分類：利用区分 5 つは 3 つの大分類のどれか 1 つに入る", [0, 1, 2, 3, 4].every(k => GROUPS.filter(g => g.ks.includes(k)).length === 1));
-t("大分類：ジビエ＝施設搬入・食肉利用・ジビエ用アプリ／捕獲のみ＝廃棄", groupOf(0) === 0 && groupOf(1) === 0 && groupOf(3) === 0 && groupOf(2) === 1 && groupOf(4) === 2);
+t("大分類：利用区分 5 つは 2 つの大分類のどれか 1 つに入る", GROUPS.length === 2 && [0, 1, 2, 3, 4].every(k => GROUPS.filter(g => g.ks.includes(k)).length === 1));
+t("大分類：ジビエ＝施設搬入・食肉利用・ジビエ用アプリ／捕獲＝廃棄・不明", groupOf(0) === 0 && groupOf(1) === 0 && groupOf(3) === 0 && groupOf(2) === 1 && groupOf(4) === 1);
 console.log(`\n${ng ? "✗" : "✓"} choju: ${ok} ok, ${ng} ng`);
 process.exit(ng ? 1 : 0);
