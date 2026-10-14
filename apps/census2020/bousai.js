@@ -196,14 +196,16 @@ export function initBousai(map, { bboxForCode, cityGeomForCode, legend, onStackA
 		if (!raw) return null;
 		// ②生KSJ props(A33_002区分/A33_001現象)→{kbn,gensho} へ写像し kbn/gensho で束ねて fid を1桁に（gint idfill fid≤2047）。
 		const zoneHitsCity = makeCityClip(code);
+		const cityGeom = cityGeomForCode?.(code) ?? null, cut = cityGeom ? cityClipper(cityGeom) : null;   // 浸水と同じく区の境界で切り抜く（2026-10-14）
 		const groups = new Map();
 		for (const f of raw) {
-			const comps = compsOf(f.geometry ?? {});
-			if (!comps.length || !zoneHitsCity(comps)) continue;   // 境界クリップ（少しでも市にかかる区域だけ・feature 単位で丸ごと）
+			let comps = compsOf(f.geometry ?? {});
+			if (!comps.length || !zoneHitsCity(comps)) continue;   // 少しでも市にかかる区域だけ（安い前ふるい）
+			if (cut) { comps = comps.flatMap(cut); if (!comps.length) continue; }   // 区の境界で切った切れ端（市ポリゴン無し＝feature 単位で丸ごと）
 			const kbn = +f.properties?.A33_002 === 2 ? 2 : 1, gensho = A33_GENSHO[+f.properties?.A33_001] ?? "";
 			const k = `${kbn}/${gensho}`;
 			if (!groups.has(k)) groups.set(k, { props: { _src: "a33", kbn, gensho }, comps: [] });
-			groups.get(k).comps.push(...comps);
+			for (const q of comps) groups.get(k).comps.push(q);
 		}
 		return groupsToFeats(groups);
 	}
