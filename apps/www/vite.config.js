@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { readFileSync } from 'node:fs';
 import { renderDemos } from './cards.js';
+import { buildSitemap } from './sitemap.js';
 import { crossOriginIsolation, CSS_TARGET } from '../../packages/globe/scripts/lib/vite-app.mjs';   // アプリ共通の決まり（2026-10-03）
 
 // デモカード＝demos.json から静的 HTML に焼く（<!--DEMOS-->）。dev でも毎回読む＝demos.json を足せば即反映
@@ -12,8 +13,9 @@ const demosHtml = () => ({
 		return html.replace('<!--DEMOS-->', renderDemos(readDemos()))
 			.replace('__LANG_CODES__', langs.map(l => l.code).join(' ')).replace('__RTL_CODES__', langs.filter(l => l.rtl).map(l => l.code).join(' '));
 	},
-	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）
+	// llms.txt の Apps 節も demos.json から（サンプルが増えても目次が古びない）。sitemap.xml も同じ所で（sitemap.js・Issue #308）
 	generateBundle() {
+		this.emitFile({ type: 'asset', fileName: 'sitemap.xml', source: buildSitemap() });
 		const apps = readDemos().demos.map(d => `- [${d.title}](https://www.ortho-earth.com${d.href}): ${d.desc}`).join('\n');
 		this.emitFile({ type: 'asset', fileName: 'llms.txt', source: readFileSync(new URL('./llms.template.txt', import.meta.url), 'utf8').replace('<!--APPS-->', apps) });
 	},
