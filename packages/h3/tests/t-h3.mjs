@@ -58,7 +58,7 @@ const fakeMap = (zoom = 5) => {
 		getZoom: () => zoom, setZoom(z) { zoom = z; for (const f of handlers.idle || []) f(); },
 		addSource(id, spec) { log.push(["addSource", id, spec.type]); sources.set(id, { spec, async setData(d) { spec.data = d; log.push(["setData", id, d.features.length]); } }); },
 		getSource: id => sources.get(id), removeSource(id) { log.push(["removeSource", id]); sources.delete(id); },
-		async addLayer(l, before) { log.push(["addLayer", l.id, l.type, l.paint, before]); }, removeLayer(id) { log.push(["removeLayer", id]); },
+		async addLayer(l, before) { log.push(["addLayer", l.id, l.type, l.paint, before, l.bottom]); }, removeLayer(id) { log.push(["removeLayer", id]); },
 		setPaintProperty(id, k, v) { log.push(["setPaint", id, k, v]); },
 		on(ev, f) { (handlers[ev] ??= []).push(f); }, off(ev, f) { handlers[ev] = (handlers[ev] || []).filter(g => g !== f); },
 	};
@@ -84,6 +84,9 @@ await t("createH3Layer＝fill-extrusion（paint の写し替え）・セル id �
 	const L = map.log[1]; assert.equal(L[2], "fill-extrusion"); assert.equal(L[3]["fill-extrusion-color"], "#0f0"); assert.deepEqual(L[3]["fill-extrusion-height"], ["*", ["get", "count"], 50]); assert.equal(L[3]["fill-extrusion-base"], 0);
 	assert.equal(h.cells.get(a).res, 4); assert.equal(h.geojson.features[0].properties.count, 10);
 	h.setPaint({ "fill-color": "#00f" }); assert.deepEqual(map.log.at(-1).slice(2), ["fill-extrusion-color", "#00f"]);
+	assert.equal(L[5], undefined, "bottom を渡さない＝層にも付けない（地面から）");
+	const m2 = fakeMap(); await createH3Layer(m2, { [a]: { count: 1 } }, { id: "eb", extrude: { height: 1, bottom: 0 } });
+	assert.equal(m2.log[1][5], 0, "extrude.bottom＝層の bottom（床の平面）");
 });
 await t("res \"auto\"＝idle で解像度が変わった時だけ集約し直す", async () => {
 	const map = fakeMap(4);

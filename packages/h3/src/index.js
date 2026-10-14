@@ -8,7 +8,8 @@
 //     res: 7 | "auto",               // 解像度。"auto"＝表示のズームから（resForZoom・ズームで変わる＝点の時だけ・セル id を渡した時は固定）
 //     weight: "pop" | 2 | fn | 式,    // 点の集約の重み（既定 1＝count）
 //     paint: { "fill-color": ["interpolate", ["linear"], ["get", "count"], 0, "#ffffb2", 100, "#bd0026"], "fill-opacity": 0.7 },
-//     extrude: { height: ["*", ["get", "count"], 50], base: 0 } | null,   // 立てる（fill-extrusion）・式は MapLibre のまま
+//     extrude: { height: ["*", ["get", "count"], 50], base: 0, bottom: 0 } | null,   // 立てる（fill-extrusion）・式は MapLibre のまま。bottom＝床の高さ m（globe の押し出しの層の bottom＝その平面に立てる・
+//                                     屋根の細分が粗い＝広いセルが軽い。無し＝MapLibre と同じく地面から＝屋根を 1.5 km 刻みで地形に沿わせる＝粗い段の大きな六角形では重い）
 //     outline: { "line-color": "#333", "line-width": 0.5 } | false,
 //     props: (cell, i, agg) => ({ … }),   // 属性の足し込み
 //   });
@@ -34,7 +35,7 @@ export async function createH3Layer(map, src, { id = "h3", res = 7, weight = nul
 		return geojson;
 	};
 	const layerSpec = () => extrude
-		? { id, type: "fill-extrusion", source: id, paint: { "fill-extrusion-color": paint?.["fill-color"] ?? paint?.["fill-extrusion-color"] ?? "#3182bd", "fill-extrusion-opacity": paint?.["fill-opacity"] ?? paint?.["fill-extrusion-opacity"] ?? 0.8, "fill-extrusion-height": extrude.height ?? ["*", ["get", "count"], 100], "fill-extrusion-base": extrude.base ?? 0, ...(paint || {}) }, ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) }
+		? { id, type: "fill-extrusion", source: id, paint: { "fill-extrusion-color": paint?.["fill-color"] ?? paint?.["fill-extrusion-color"] ?? "#3182bd", "fill-extrusion-opacity": paint?.["fill-opacity"] ?? paint?.["fill-extrusion-opacity"] ?? 0.8, "fill-extrusion-height": extrude.height ?? ["*", ["get", "count"], 100], "fill-extrusion-base": extrude.base ?? 0, ...(paint || {}) }, ...(extrude.bottom != null ? { bottom: extrude.bottom } : {}), ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) }
 		: { id, type: "fill", source: id, paint: { "fill-color": "#3182bd", "fill-opacity": 0.6, ...(paint || {}) }, ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) };
 	const add = async () => {
 		build();

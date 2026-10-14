@@ -25,8 +25,8 @@ const GATES = {
 	test: [
 		["@ortho-earth/core", "test"], ["@ortho-earth/tile-formats", "test"], ["@ortho-earth/columnar", "test"], ["@ortho-earth/h3", "test"], ["@ortho-earth/react", "test"], ["@ortho-earth/ktx2", "test"], ["@ortho-earth/google-tiles", "test"], ["@ortho-earth/plugin-scene", "test"], ["@ortho-earth/plugin-splat", "test"], ["geopbf", "test"], ["altpbf", "test"],
 		["@ortho-earth/ephem", "test"], ["space-data", "test"], ["glbconv", "test"], ["@ortho-earth/japan", "test"], ["ortho-equal", "test"], ["solar", "test"], ["himekuri-demo", "test"], ["world-quiz", "test"],
-		["account", "test"], ["ortho-globe", "test"], ["www", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"],
-		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], [".", "test:mirrors"],
+		["account", "test"], ["www", "test"], ["native-bucket", "test:proxy"], ["native-bucket", "test:tellus"], ["native-bucket", "test:bucket"],
+		["@ortho-earth/globe", "test"], ["@ortho-earth/globe", "verify:regionless"], ["ortho-globe", "test"], [".", "test:mirrors"],
 	],
 	i18n: [["@ortho-earth/japan", "verify:i18n"], ["ortho-globe", "verify:i18n"], ["www", "verify:i18n"], ["solar", "verify:i18n"], ["geopbf-demo", "verify:i18n"]],
 };
