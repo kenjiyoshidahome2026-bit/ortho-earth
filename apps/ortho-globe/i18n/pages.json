@@ -19,6 +19,10 @@
 		],
 		"parks": [
 			"parks.js"
+		],
+		"clock": [
+			"clock.js",
+			"clock-zones.js"
 		]
 	}
 }
