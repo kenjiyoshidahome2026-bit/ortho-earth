@@ -499,6 +499,9 @@ function addGint(pbf, opts = {}) {
 	// render worker の同期ベイクで地図フレームを塞がない。worker 不成立/失敗は同期経路へ自動フォールバック
 	//（legacyGintSend が layer と meta を運ぶ）。ready はどちらの ack でも解決。
 	bakeAndSend(id, g, { minZoom: opts.minZoom ?? null, maxZoom: opts.maxZoom ?? null, precision: g.precision ?? null }, null, id);
+	// 足した直後の setPaint は焼き上がり（ack）より先に render worker へ着き、層の搭載（setBaked/set）が状態を初期化して色を消す＝
+	// 既定色の輪郭だけになる（census の洪水浸水・2026-10-14）。setData と同じく、焼き上がったら直近の paint を送り直す
+	ready.then(ok => { if (ok && lastPaint) paintNow(lastPaint, lastFilter); });
 	if (opts.style) h.style(opts.style);
 	if (labelOpt?.field) refreshLabels();   // ② ラベル（text-field）＝基図注記と同じ衝突/フェード/標高投影
 	layers.active = id;   // エンジンは addLayer で自動アクティブ（§4.1）＝main のゲートも同期
