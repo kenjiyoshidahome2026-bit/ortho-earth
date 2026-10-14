@@ -101,7 +101,7 @@ const PAGES = [
 	{ name: "clouds", url: "/globe/clouds", ready: `${BOOTED} && window.__clouds && window.__clouds.loaded`, ms: 240000 },   // 雲＝GIBS と EUMETView を直読みして全タイルを読み終える。GIBS の応答が夜に 9 秒級まで揺れる（2026-10-12 に 120s で 2 回落ち・3 回目 54s）＝上限 240s
 	// 地形＝GitHub Pages（ortho-data/globe/）の TerrainDB・ne-physical.geopbf（npm run publish:pages -w world-data で置いてから）。物理量（流量など）が載った版かも見る
 	{ name: "physical", url: "/globe/physical", ready: `${BOOTED} && window.__physical && window.__physical.items.length > 900 && window.__physical.shapes.length > 1000 && window.__physical.items.some(d => d.discharge > 0)`, ms: 60000 },
-	// 人口の六角形＝bucket GIS/h3/kontur-20231101/（uploader の「Kontur population r4／r6」で置いてから）。全景で解像度 3 の柱が 1 万本以上立つ
+	// 人口の六角形＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/（scripts/kontur-h3.mjs → publish-pages.mjs）。全景で解像度 3 の柱が 1 万本以上立つ
 	{ name: "hex", url: "/globe/hex", ready: `${BOOTED} && window.__hex && window.__hex.cells > 10000`, ms: 90000 },
 ];
 for (const pg of PAGES.filter(x => !process.env.ONLY || x.name === process.env.ONLY)) {

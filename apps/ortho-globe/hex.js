@@ -20,7 +20,7 @@ import { h3, EDGE_M } from "@ortho-earth/h3/core";
 import { decodeHexPop, sumToParent, bytesOf } from "./hex-pop.js";
 const t = tr();
 
-export const DATA = "https://api.ortho-earth.com/bucket/GIS/h3/kontur-20231101/";   // uploader の「Kontur population」が置く
+export const DATA = "https://kenjiyoshidahome2026-bit.github.io/ortho-data/globe/h3/kontur-20231101/";   // GitHub Pages（焼く＝scripts/kontur-h3.mjs・置く＝world の publish-pages.mjs）
 const SOURCE_URL = "https://data.humdata.org/dataset/kontur-population-dataset";
 const TARGET_PX = 6;          // 六角形の一辺が画面で約何 px になる段を選ぶか（小さいほど細かい）
 const R_KM = 6371.0088;
@@ -141,7 +141,7 @@ export async function mountHex(map, { geopbf, data } = {}) {
 	// ── データ（r4＝全球・r6＝res 1 の親ごと）──
 	const fetchBin = async url => { const r = await fetch(url); if (!r.ok) throw new Error(`${r.status} ${url}`); return decodeHexPop(await bytesOf(r)); };
 	const t0 = performance.now();
-	const r4 = await fetchBin(`${base}r4.h3p`);
+	const r4 = await fetchBin(`${base}r4.h3p.gz`);
 	const total = r4.pop.reduce((a, b) => a + b, 0);
 	const tLoad = performance.now() - t0;
 	// 段ごとの表：{ cells: string[], pop: number[], lat?, lng? }
@@ -153,7 +153,7 @@ export async function mountHex(map, { geopbf, data } = {}) {
 	let r6index = null;
 	const r6 = new Map();   // 親 → Promise<{ cells, pop, lat, lng }>
 	const r6ready = fetch(`${base}r6/index.json`).then(r => r.ok ? r.json() : null).then(j => { r6index = j?.parents || null; }).catch(() => { r6index = null; });
-	const loadR6 = p => r6.get(p) ?? r6.set(p, fetchBin(`${base}r6/${p}.h3p`).then(d => centersOf({ cells: d.cells, pop: d.pop })).catch(e => { console.warn("[hex] r6", p, e); return { cells: [], pop: [], lat: new Float32Array(0), lng: new Float32Array(0) }; })).get(p);
+	const loadR6 = p => r6.get(p) ?? r6.set(p, fetchBin(`${base}r6/${p}.h3p.gz`).then(d => centersOf({ cells: d.cells, pop: d.pop })).catch(e => { console.warn("[hex] r6", p, e); return { cells: [], pop: [], lat: new Float32Array(0), lng: new Float32Array(0) }; })).get(p);
 
 	// ── 視野の周りの角距離（ラジアン）＝画面の対角の半分 × 1px の長さ × ゆとり（傾けた時は奥へ伸ばす）
 	const capOf = () => {

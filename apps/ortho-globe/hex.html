@@ -39,7 +39,7 @@
 	<script type="module">
 		// 世界の人口を H3 の六角形の柱で（issue #310・deck.gl の H3HexagonLayer／HexagonLayer 相当＝map.addH3・map.addCells を見せる頁）。
 		// このページは器だけ：地球儀のホスト（@ortho-earth/globe・地域の申告なし）を自分の束に焼いてエンジンを起こし、柱と案内板は ./hex.js（遅延 chunk）。
-		// データ＝bucket GIS/h3/kontur-20231101/（uploader の「Kontur population」ボタンが Kontur の gpkg から焼いて置く＝r4.h3p と r6/<res1 の親>.h3p）。?data=URL で差し替え可。
+		// データ＝GitHub Pages の ortho-data/globe/h3/kontur-20231101/（scripts/kontur-h3.mjs が Kontur の gpkg から焼き、world の publish-pages.mjs が置く＝r4.h3p.gz と r6/<res1 の親>.h3p.gz）。?data=URL で差し替え可。
 		// 言語・起動画面・起動失敗の表示＝共通の器（@ortho-earth/globe/page.js）
 		import { startPage, dismissBoot } from "@ortho-earth/globe/page.js";
 		startPage("hex", async () => {
