@@ -705,6 +705,8 @@ ${GF}
 @group(2) @binding(0) var ptTex: texture_2d_array<u32>;
 @group(2) @binding(1) var ptMetaTex: texture_2d_array<u32>;
 @group(3) @binding(1) var fidTex: texture_2d<u32>;   // fid スタイル表（線系と同じ group(3) スロット＝aux bind group を共有）
+@group(3) @binding(2) var elevTex: texture_2d<f32>;   // 標高（線系と同じ aux bind group）＝点も地形へドレープ
+@group(3) @binding(3) var elevSamp: sampler;
 const TEX_LAYER_H: i32 = 4096;   // 線系 HEADER と同じ（2D 配列の層の高さ）
 fn ptAt(ptId: i32) -> vec2u {
 	let r = ptId / F.texw.x;
@@ -752,6 +754,46 @@ fn dlonE7(a: u32, b: u32) -> f32 {
 	if (d > 1800000000u) { d = 3600000000u - d; sg = -sg; }
 	return f32(d) * sg;
 }
+// 点を地形へドレープ（GL programs.js ptDrapeRelW と 1:1・線系 HEADER の elevAt/elevQAt/drapeRelW と同式）。
+// elevScale=0（真俯瞰・地形なし）なら rel のまま＝従来どおり（choju 本人指摘 2026-10-14＝傾けると点が地形からずれる）
+fn elevAt(ll: vec2f) -> f32 {
+	if (F.depthP.w < 0.5) { return 0.0; }
+	let uv = (ll - F.elevBounds.xy) / F.elevBounds.zw;
+	if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0) { return 0.0; }
+	var fade = 1.0;
+	if (F.elevP.x > 0.0) {
+		let w = vec2f(F.elevP.x) / F.elevBounds.zw;
+		fade = min(smoothstep(0.0, w.x, min(uv.x, 1.0 - uv.x)), smoothstep(0.0, w.y, min(uv.y, 1.0 - uv.y)));
+	}
+	return textureSampleLevel(elevTex, elevSamp, uv, 0.0).r * fade;
+}
+fn elevQAt(ll: vec2f) -> f32 {
+	let G = F.meshP.x;
+	if (G < 1.5) { return elevAt(ll); }
+	let g = (ll - F.meshQ.xy) / F.meshQ.zw;
+	if (g.x < 0.0 || g.x > 1.0 || g.y < 0.0 || g.y > 1.0) { return elevAt(ll); }
+	let N = G - 1.0;
+	let gc = min(g * N, vec2f(N - 1e-4));
+	let gi = floor(gc);
+	let gf = gc - gi;
+	let st = F.meshQ.zw / N;
+	let b0 = F.meshQ.xy + gi * st;
+	let h00 = elevAt(b0);
+	let h10 = elevAt(b0 + vec2f(st.x, 0.0));
+	let h01 = elevAt(b0 + vec2f(0.0, st.y));
+	let h11 = elevAt(b0 + st);
+	if (gf.x + gf.y < 1.0) { return h00 + gf.x * (h10 - h00) + gf.y * (h01 - h00); }
+	return h11 + (1.0 - gf.x) * (h01 - h11) + (1.0 - gf.y) * (h10 - h11);
+}
+fn ptDrapeRelW(rel: vec3f, dLL: vec2f) -> vec3f {
+	if (!(F.depthP.z > 0.0 && F.depthP.w > 0.5)) { return rel; }
+	var dir = F.originPt + rel;
+	let df = 1.0 - smoothstep(F.depthP.y * 0.8, F.depthP.y * 2.0, distance(F.eye, dir));
+	let ll = F.origin + dLL;
+	let h = elevQAt(ll) * F.depthP.z * df;
+	if (F.elevP.w > 0.5) { let p = ll.y * D2R; let l = ll.x * D2R; let cp = cos(p); dir = vec3f(cp * cos(l), sin(p) * 1.0033640898209764, cp * sin(l)); }
+	return rel + h * dir;
+}
 struct Pt { xy: vec2f, zr: f32 };
 fn fetchPoint(ptId: i32) -> Pt {
 	let px = ptAt(ptId);
@@ -762,7 +804,7 @@ fn fetchPoint(ptId: i32) -> Pt {
 	let dlat = f32(i32(iy - F.centers.y)) * 1e-7;
 	let rel = deltaToRel(dlon, dlat);
 	let zr = F.originZr + dot(rel, F.eye);
-	let clip = F.clipT + F.mvp * vec4f(rel, 0.0);
+	let clip = F.clipT + F.mvp * vec4f(ptDrapeRelW(rel, vec2f(dlon, dlat)), 0.0);   // 地形の高さへ（線の drapeRelW と同式）
 	if (clip.w <= 0.0) { return Pt(F.viewport * 0.5, -1.0); }
 	let ndc = clip.xy / clip.w;
 	return Pt(vec2f((ndc.x * 0.5 + 0.5) * F.viewport.x, (1.0 - (ndc.y * 0.5 + 0.5)) * F.viewport.y), zr);
