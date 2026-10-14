@@ -46,15 +46,17 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		const s = Math.min(dpr, Math.sqrt(PIX_MAX / (W * H)));
 		const fw = Math.max(1, Math.round(W * s)), fh = Math.max(1, Math.round(H * s));
 		const img = new ImageData(fw, fh), d = img.data, lats = new Float64Array(fh);
+		let hit = 0;
 		for (let j = 0; j < fh; j++) lats[j] = invMercY(Y_MAX - (j + 0.5) / fh * 2 * Y_MAX);
 		for (let i = 0; i < fw; i++) {
 			const lon = wrap180(centerLon + ((i + 0.5) / fw - 0.5) * 360);
 			for (let j = 0; j < fh; j++) {
 				const p = prj(lon, lats[j], 0);
-				if (p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh) d[(j * fw + i) * 4 + 3] = 255;
+				if (p[2] > 0 && p[0] >= 0 && p[1] >= 0 && p[0] <= mw && p[1] <= mh) { d[(j * fw + i) * 4 + 3] = 255; hit++; }
 			}
 		}
 		for (let k = 0; k < d.length; k += 4) d[k] = d[k + 1] = d[k + 2] = 255;
+		if (!hit) return null;   // 見えている所が図の 1 画素より小さい（強く寄った）＝面は描かず、中心の印だけ（draw）
 		const c = document.createElement("canvas"); c.width = fw; c.height = fh; c.getContext("2d").putImageData(img, 0, 0);
 		return c;
 	};
@@ -73,6 +75,7 @@ export function createMini(map, { host, label = "Mercator", hideLabel = "Hide ma
 		if (landStrip) { const x0 = W / 2 - (centerLon + 180) / 360 * W; for (const o of [-W, 0, W]) ctx.drawImage(landStrip, x0 + o, 0, W, H); }
 		// 見えている所（図の中心の経度で焼いた画素の面を薄く重ねる）
 		if (foot) { ctx.save(); ctx.globalAlpha = 0.22; ctx.imageSmoothingEnabled = true; ctx.drawImage(foot, 0, 0, W, H); ctx.restore(); }
+		else if (footKey) { const x = xOf(c.lng), y = yOf(c.lat); ctx.strokeStyle = "rgba(255,255,255,.7)"; ctx.lineWidth = 1; ctx.strokeRect(Math.round(x) - 3.5, Math.round(y) - 3.5, 7, 7); }   // 強く寄った時＝見ている所に小さな枠
 		// 線（頁が渡す）＝経度は連続の点列。図の中心に寄せてから −W/0/+W の 3 回描く（日付変更線を跨いでも途切れない）
 		ctx.lineCap = "round"; ctx.lineJoin = "round";
 		for (const L of lines) {
