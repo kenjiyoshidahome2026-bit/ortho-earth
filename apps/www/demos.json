@@ -139,6 +139,20 @@
 			}
 		},
 		{
+			"id": "hex",
+			"href": "/globe/hex",
+			"group": "earth",
+			"icon": "⬡",
+			"title": "World population in hexagons",
+			"lang": "26",
+			"desc": "Where the world's 8 billion people live, as hexagonal columns on a 3D globe (H3 cells, Kontur Population). Zoom in for finer hexagons, drop your own points to count them.",
+			"img": "/thumbs/hex.webp",
+			"shot": {
+				"url": "/globe/hex?lang=en#4.2/22/86/55t",
+				"wait": 25
+			}
+		},
+		{
 			"id": "quakes",
 			"href": "/globe/quakes",
 			"group": "earth",

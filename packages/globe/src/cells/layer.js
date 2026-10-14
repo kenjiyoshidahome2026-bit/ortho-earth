@@ -1,6 +1,6 @@
 // セル・等高線・画面格子の層（deck.gl 差分 PR-5・2026-10-12）＝globe が遅延 import する手綱。計算は core.js／contour.js（node の検定が読む）。
 // 多角形になる物（セル・等値帯）と線（等値線）は既存の層経路（addSource/addLayer＝fill／fill-extrusion／line）へ流す＝H3（@ortho-earth/h3）と同じ流儀。画面格子だけ overlay（gadgets/screengrid-draw.js）。
-//   map.addCells(cells | points, { kind:"grid"|"mesh"|"geohash"|"quadkey"|"s2", id, res|"auto", weight, paint, extrude, outline, props, before }) → { id, lineId, cells, geojson, res, setData, setPaint, setRes, remove }
+//   map.addCells(cells | points, { kind:"grid"|"mesh"|"geohash"|"quadkey"|"s2", id, res|"auto", weight, paint, extrude, outline, props, before })＝extrude＝{ height, base, bottom }（bottom＝床の高さ m＝@ortho-earth/h3 と同じ） → { id, lineId, cells, geojson, res, setData, setPaint, setRes, remove }
 //   map.addContour(points, { id, cellSize（m か {dLon,dLat}）, thresholds|bands, weight, agg, smooth, paint, linePaint, before }) → { id, field, geojson, setData, setThresholds, remove }
 //   map.addScreenGrid(points, { id, cellPx, colorRange, weight, agg, opacity, above }) → { id, overlay, setData, setStyle, pick, remove }
 //   map.addAggregate(src, { kind:"h3"|"grid"|"mesh"|"geohash"|"quadkey"|"s2"|"screen"|"contour", … })＝上の 3 つと map.addH3 への振り分け（計画の入口案）
@@ -25,7 +25,7 @@ export async function createCellsLayer(map, src, { kind = "grid", id = kind, res
 		return geojson;
 	};
 	const layerSpec = () => extrude
-		? { id, type: "fill-extrusion", source: id, paint: { "fill-extrusion-color": paint?.["fill-color"] ?? paint?.["fill-extrusion-color"] ?? "#3182bd", "fill-extrusion-opacity": paint?.["fill-opacity"] ?? paint?.["fill-extrusion-opacity"] ?? 0.8, "fill-extrusion-height": extrude.height ?? ["*", ["get", "count"], 100], "fill-extrusion-base": extrude.base ?? 0, ...(paint || {}) }, ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) }
+		? { id, type: "fill-extrusion", source: id, paint: { "fill-extrusion-color": paint?.["fill-color"] ?? paint?.["fill-extrusion-color"] ?? "#3182bd", "fill-extrusion-opacity": paint?.["fill-opacity"] ?? paint?.["fill-extrusion-opacity"] ?? 0.8, "fill-extrusion-height": extrude.height ?? ["*", ["get", "count"], 100], "fill-extrusion-base": extrude.base ?? 0, ...(paint || {}) }, ...(extrude.bottom != null ? { bottom: extrude.bottom } : {}), ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) }
 		: { id, type: "fill", source: id, paint: { "fill-color": "#3182bd", "fill-opacity": 0.6, ...(paint || {}) }, ...(minzoom != null ? { minzoom } : {}), ...(maxzoom != null ? { maxzoom } : {}) };
 	const h = {
 		id, lineId, kind,

@@ -23,6 +23,9 @@
 		"clock": [
 			"clock.js",
 			"clock-zones.js"
+		],
+		"hex": [
+			"hex.js"
 		]
 	}
 }
